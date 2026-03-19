@@ -61,6 +61,122 @@ sage_analyzer_sigterm(SIGNAL_ARGS)
 }
 
 /* ----------------------------------------------------------------
+ * Workload-adaptive scheduling
+ *
+ * Adjusts the analyzer interval based on database transaction rate.
+ * High activity → more frequent analysis (down to 1/3 base interval).
+ * Low activity → less frequent (up to 3x base interval).
+ * Auto-calibrates baseline from the first 5 samples.
+ * ---------------------------------------------------------------- */
+#define ADAPTIVE_BASELINE_SAMPLES  5
+#define ADAPTIVE_MIN_MULTIPLIER    0.33
+#define ADAPTIVE_MAX_MULTIPLIER    3.0
+#define ADAPTIVE_MIN_INTERVAL_MS   30000   /* 30 seconds floor */
+
+static int
+compute_adaptive_interval(void)
+{
+    int64       current_xact;
+    TimestampTz now_ts;
+    double      elapsed_sec;
+    double      rate;
+    double      multiplier;
+    int         interval_ms;
+    int         ret;
+
+    if (!sage_state)
+        return sage_analyzer_interval * 1000;
+
+    /* Query current xact_commit from pg_stat_database */
+    SPI_connect();
+    ret = SPI_execute(
+        "SELECT xact_commit FROM pg_stat_database "
+        "WHERE datname = current_database()",
+        true, 1);
+
+    if (ret != SPI_OK_SELECT || SPI_processed == 0)
+    {
+        SPI_finish();
+        return sage_analyzer_interval * 1000;
+    }
+
+    current_xact = sage_spi_getval_int64(0, 0);
+    SPI_finish();
+
+    now_ts = GetCurrentTimestamp();
+
+    LWLockAcquire(sage_state->lock, LW_EXCLUSIVE);
+
+    /* First sample: just store and return default */
+    if (sage_state->last_xact_commit == 0)
+    {
+        sage_state->last_xact_commit = current_xact;
+        sage_state->last_xact_sample_time = now_ts;
+        sage_state->adaptive_interval_ms = sage_analyzer_interval * 1000;
+        LWLockRelease(sage_state->lock);
+        return sage_analyzer_interval * 1000;
+    }
+
+    /* Compute rate */
+    elapsed_sec = (double)(now_ts - sage_state->last_xact_sample_time) / 1000000.0;
+    if (elapsed_sec < 1.0)
+        elapsed_sec = 1.0;
+
+    rate = (double)(current_xact - sage_state->last_xact_commit) / elapsed_sec;
+    if (rate < 0)
+        rate = 0;
+
+    sage_state->xact_rate_per_sec = rate;
+    sage_state->last_xact_commit = current_xact;
+    sage_state->last_xact_sample_time = now_ts;
+
+    /* Auto-calibrate baseline from first N samples */
+    if (sage_state->baseline_samples < ADAPTIVE_BASELINE_SAMPLES)
+    {
+        sage_state->baseline_samples++;
+        if (sage_state->baseline_samples == 1)
+            sage_state->baseline_xact_rate = rate;
+        else
+        {
+            /* Running average */
+            sage_state->baseline_xact_rate =
+                sage_state->baseline_xact_rate +
+                (rate - sage_state->baseline_xact_rate) / sage_state->baseline_samples;
+        }
+        sage_state->adaptive_interval_ms = sage_analyzer_interval * 1000;
+        LWLockRelease(sage_state->lock);
+        return sage_analyzer_interval * 1000;
+    }
+
+    /* Compute adaptive multiplier: higher rate → lower multiplier → shorter interval */
+    if (sage_state->baseline_xact_rate > 0)
+        multiplier = sage_state->baseline_xact_rate / Max(rate, 0.1);
+    else
+        multiplier = 1.0;
+
+    /* Clamp */
+    if (multiplier < ADAPTIVE_MIN_MULTIPLIER)
+        multiplier = ADAPTIVE_MIN_MULTIPLIER;
+    if (multiplier > ADAPTIVE_MAX_MULTIPLIER)
+        multiplier = ADAPTIVE_MAX_MULTIPLIER;
+
+    interval_ms = (int)(sage_analyzer_interval * 1000 * multiplier);
+    if (interval_ms < ADAPTIVE_MIN_INTERVAL_MS)
+        interval_ms = ADAPTIVE_MIN_INTERVAL_MS;
+
+    sage_state->adaptive_interval_ms = interval_ms;
+
+    LWLockRelease(sage_state->lock);
+
+    ereport(DEBUG1,
+            (errmsg("pg_sage adaptive scheduler: rate=%.1f tps, baseline=%.1f, "
+                    "multiplier=%.2f, interval=%d ms",
+                    rate, sage_state->baseline_xact_rate, multiplier, interval_ms)));
+
+    return interval_ms;
+}
+
+/* ----------------------------------------------------------------
  * Helper: run a single analysis function inside PG_TRY/PG_CATCH,
  * measuring elapsed time.  Returns elapsed milliseconds.
  * ---------------------------------------------------------------- */
@@ -2265,11 +2381,21 @@ sage_analyzer_main(Datum main_arg)
         instr_time      cycle_start, cycle_end;
         double          cycle_ms;
 
-        /* Wait for the configured interval or a signal */
-        (void) WaitLatch(MyLatch,
-                       WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-                       sage_analyzer_interval * 1000L,
-                       PG_WAIT_EXTENSION);
+        /* Compute adaptive interval based on workload, then wait */
+        {
+            int wait_ms;
+
+            StartTransactionCommand();
+            PushActiveSnapshot(GetTransactionSnapshot());
+            wait_ms = compute_adaptive_interval();
+            PopActiveSnapshot();
+            CommitTransactionCommand();
+
+            (void) WaitLatch(MyLatch,
+                           WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+                           wait_ms,
+                           PG_WAIT_EXTENSION);
+        }
 
         ResetLatch(MyLatch);
 

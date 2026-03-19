@@ -8,3 +8,5 @@
 /regression.out
 /log/
 /tmp_check/
+sidecar/sage-sidecar
+sidecar/go.sum

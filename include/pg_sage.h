@@ -33,8 +33,8 @@
 /* ----------------------------------------------------------------
  * Version
  * ---------------------------------------------------------------- */
-#define PG_SAGE_VERSION         "0.1.0"
-#define PG_SAGE_VERSION_NUM     000100
+#define PG_SAGE_VERSION         "0.5.0"
+#define PG_SAGE_VERSION_NUM     000500
 
 /* ----------------------------------------------------------------
  * Shared memory state
@@ -98,6 +98,14 @@ typedef struct SageSharedState
     /* Token budget tracking (daily) */
     int         llm_tokens_used_today;
     int         llm_day_of_year;         /* To reset daily counter */
+
+    /* Workload-adaptive scheduling */
+    int64       last_xact_commit;        /* Previous cycle's xact_commit */
+    TimestampTz last_xact_sample_time;   /* When last_xact_commit was sampled */
+    double      xact_rate_per_sec;       /* Computed transaction rate */
+    double      baseline_xact_rate;      /* Auto-calibrated baseline */
+    int         adaptive_interval_ms;    /* Computed interval in ms */
+    int         baseline_samples;        /* Number of samples for calibration */
 } SageSharedState;
 
 /* ----------------------------------------------------------------
@@ -282,6 +290,14 @@ extern Datum sage_explain(PG_FUNCTION_ARGS);
 extern Datum sage_suppress(PG_FUNCTION_ARGS);
 extern Datum sage_diagnose(PG_FUNCTION_ARGS);
 extern Datum sage_briefing(PG_FUNCTION_ARGS);
+
+/* MCP sidecar helper functions (mcp_helpers.c) */
+extern Datum sage_health_json(PG_FUNCTION_ARGS);
+extern Datum sage_findings_json(PG_FUNCTION_ARGS);
+extern Datum sage_schema_json(PG_FUNCTION_ARGS);
+extern Datum sage_stats_json(PG_FUNCTION_ARGS);
+extern Datum sage_slow_queries_json(PG_FUNCTION_ARGS);
+extern Datum sage_explain_json(PG_FUNCTION_ARGS);
 
 /* ----------------------------------------------------------------
  * Utility

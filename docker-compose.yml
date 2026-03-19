@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   pg_sage:
     build: .
@@ -19,6 +17,25 @@ services:
         -c sage.trust_level='advisory'
         -c pg_stat_statements.track=all
         -c log_min_messages=log
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  sidecar:
+    build: ./sidecar
+    depends_on:
+      pg_sage:
+        condition: service_healthy
+    environment:
+      SAGE_DATABASE_URL: postgres://postgres:postgres@pg_sage:5432/postgres?sslmode=disable
+      SAGE_MCP_PORT: "5433"
+      SAGE_PROMETHEUS_PORT: "9187"
+      SAGE_RATE_LIMIT: "60"
+    ports:
+      - "5433:5433"   # MCP server
+      - "9187:9187"   # Prometheus metrics
 
 volumes:
   pgdata:

@@ -137,6 +137,85 @@ SELECT sage.resume();           -- resume normal operation
 
 ---
 
+## MCP Sidecar (v0.5)
+
+pg_sage includes a thin Go sidecar that exposes the extension's capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) over HTTP+SSE. This lets AI coding assistants (Claude, Cursor, Copilot) interact with your database through pg_sage.
+
+### Architecture
+
+```
+┌──────────────────────┐     MCP (JSON-RPC over SSE)     ┌─────────────────┐
+│  AI Assistant / IDE  │ ◄──────────────────────────────► │  sage-sidecar   │
+└──────────────────────┘          port 5433               │  (Go binary)    │
+                                                          └────────┬────────┘
+                                                                   │ SQL
+                                                          ┌────────▼────────┐
+                                                          │   PostgreSQL    │
+                                                          │   + pg_sage     │
+                                                          └─────────────────┘
+```
+
+The sidecar connects to PostgreSQL and calls SQL functions (`sage.health_json()`, `sage.findings_json()`, etc.) — no additional ports opened on the database.
+
+### MCP Resources
+
+| URI | Description |
+|---|---|
+| `sage://health` | System health overview (connections, cache hit ratio, disk, workers) |
+| `sage://findings` | Open findings with severity, recommendations, and remediation SQL |
+| `sage://schema/{table}` | DDL, indexes, constraints, columns, and foreign keys |
+| `sage://stats/{table}` | Table size, row counts, dead tuples, vacuum status |
+| `sage://slow-queries` | Top slow queries from pg_stat_statements |
+| `sage://explain/{queryid}` | Cached EXPLAIN plan |
+
+### MCP Tools
+
+| Tool | Description |
+|---|---|
+| `diagnose` | Interactive diagnostic analysis via ReAct reasoning |
+| `briefing` | Generate an on-demand health briefing |
+| `suggest_index` | Get index recommendations for a table |
+| `review_migration` | Review DDL for production safety |
+
+### Prometheus Metrics
+
+The sidecar exposes Prometheus metrics at `:9187/metrics`:
+
+- `pg_sage_info{version}` — Extension version
+- `pg_sage_findings_total{severity}` — Open findings by severity
+- `pg_sage_circuit_breaker_state{breaker}` — Circuit breaker status
+
+### Running the Sidecar
+
+```bash
+docker compose up   # starts both pg_sage and the sidecar
+```
+
+Or standalone:
+
+```bash
+export SAGE_DATABASE_URL="postgres://user:pass@host:5432/dbname"
+export SAGE_MCP_PORT=5433
+export SAGE_PROMETHEUS_PORT=9187
+cd sidecar && go build -o sage-sidecar . && ./sage-sidecar
+```
+
+### MCP SQL Functions (v0.5)
+
+These SQL functions return JSONB and are used by the sidecar, but can also be called directly:
+
+```sql
+SELECT sage.health_json();                     -- system health overview
+SELECT sage.findings_json();                   -- open findings
+SELECT sage.findings_json('resolved');         -- resolved findings
+SELECT sage.schema_json('public.orders');      -- table schema
+SELECT sage.stats_json('public.orders');       -- table statistics
+SELECT sage.slow_queries_json();               -- slow queries
+SELECT sage.explain_json(queryid);             -- cached explain plan
+```
+
+---
+
 ## Schema
 
 All objects live in the `sage` schema:
@@ -149,6 +228,7 @@ All objects live in the `sage` schema:
 | `sage.explain_cache` | Cached EXPLAIN plans keyed by queryid |
 | `sage.briefings` | Generated briefing reports with delivery status |
 | `sage.config` | Extension configuration overrides |
+| `sage.mcp_log` | Audit log of MCP sidecar requests (v0.5) |
 
 ---
 
@@ -217,7 +297,7 @@ CREATE EXTENSION pg_stat_statements;
 CREATE EXTENSION pg_sage;
 ```
 
-> **Note on managed services**: pg_sage requires `shared_preload_libraries` access, which is not available on RDS, Aurora, or Cloud SQL. A sidecar deployment mode for managed databases is planned for a future release.
+> **Note on managed services**: The pg_sage C extension requires `shared_preload_libraries` access, which is not available on RDS, Aurora, or Cloud SQL. The MCP sidecar (v0.5) provides a path toward managed database support in a future release by decoupling the protocol layer from the extension.
 
 ---
 
@@ -254,24 +334,37 @@ pg_sage/
 ├── include/
 │   └── pg_sage.h                 # Shared header
 ├── sql/
-│   └── pg_sage--0.1.0.sql        # Extension SQL (schema, functions, tables)
+│   ├── pg_sage--0.5.0.sql        # Full install SQL for v0.5.0
+│   ├── pg_sage--0.1.0.sql        # Legacy install SQL
+│   └── pg_sage--0.1.0--0.5.0.sql # Migration from 0.1.0 to 0.5.0
 ├── src/
 │   ├── pg_sage.c                 # Entry point, shared memory, worker registration
 │   ├── guc.c                     # GUC definitions
 │   ├── collector.c               # Snapshot collection background worker
-│   ├── analyzer.c                # Rules engine and main analysis loop
+│   ├── analyzer.c                # Rules engine, analysis loop, adaptive scheduling
 │   ├── analyzer_extra.c          # Vacuum/bloat, security, replication analysis
 │   ├── action_executor.c         # Tier 3 action execution with trust gating
 │   ├── briefing.c                # Briefing generation, diagnose, explain narrative
 │   ├── tier2_extra.c             # Cost attribution, migration review, schema design
 │   ├── context.c                 # Context assembly for LLM prompts
 │   ├── llm.c                     # LLM HTTP integration (libcurl)
+│   ├── mcp_helpers.c             # JSONB SQL functions for MCP sidecar
 │   ├── circuit_breaker.c         # Circuit breaker implementation
 │   ├── explain_capture.c         # EXPLAIN plan capture and caching
 │   ├── findings.c                # Finding creation and management
 │   ├── ha.c                      # High availability awareness
 │   ├── self_monitor.c            # Self-monitoring checks
 │   └── utils.c                   # SPI utilities, JSON helpers
+├── sidecar/
+│   ├── Dockerfile                # Multi-stage Go build
+│   ├── go.mod
+│   ├── main.go                   # HTTP server, SSE transport, session management
+│   ├── mcp.go                    # MCP protocol types and JSON-RPC dispatcher
+│   ├── resources.go              # MCP resource handlers
+│   ├── tools.go                  # MCP tool handlers
+│   ├── prompts.go                # MCP prompt templates
+│   ├── prometheus.go             # Prometheus /metrics endpoint
+│   └── ratelimit.go              # Per-IP rate limiting
 ├── test/
 │   ├── regression.sql
 │   ├── run_tests.sql
@@ -285,8 +378,8 @@ pg_sage/
 
 ## Roadmap
 
-- **v0.2** -- PG14/15/16 CI matrix, `auto_explain` integration for passive plan capture
-- **v0.5** -- MCP server for IDE/agent integration, sidecar mode for RDS/Aurora/Cloud SQL
+- ~~**v0.5** -- MCP server for IDE/agent integration, sidecar mode for RDS/Aurora/Cloud SQL~~ ✓
+- **v0.6** -- PG14/15/16 CI matrix, `auto_explain` integration for passive plan capture
 - **v1.0** -- Production hardening, pg_upgrade compatibility, PGXN publishing
 
 ---

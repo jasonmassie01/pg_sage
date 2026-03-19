@@ -1,6 +1,6 @@
 MODULE_big = pg_sage
 EXTENSION = pg_sage
-DATA = sql/pg_sage--0.1.0.sql
+DATA = sql/pg_sage--0.1.0.sql sql/pg_sage--0.5.0.sql sql/pg_sage--0.1.0--0.5.0.sql
 PGFILEDESC = "pg_sage - Autonomous PostgreSQL DBA Agent"
 
 OBJS = src/pg_sage.o \
@@ -18,7 +18,8 @@ OBJS = src/pg_sage.o \
        src/utils.o \
        src/analyzer_extra.o \
        src/action_executor.o \
-       src/tier2_extra.o
+       src/tier2_extra.o \
+       src/mcp_helpers.o
 
 PG_CPPFLAGS = -I$(srcdir)/include
 SHLIB_LINK = -lcurl

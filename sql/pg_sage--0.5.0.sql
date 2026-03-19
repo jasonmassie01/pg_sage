@@ -1,5 +1,5 @@
 /* pg_sage -- PostgreSQL advisor extension
- * Install script for version 0.1.0
+ * Install script for version 0.5.0
  *
  * Requires: PostgreSQL 14+
  */
