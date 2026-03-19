@@ -79,8 +79,10 @@ int         sage_retention_explains       = 90;
 /* Self-monitoring */
 char       *sage_max_schema_size          = NULL;
 
-/* Auto-explain capture */
-double      sage_autoexplain_sample_rate  = 0.01;
+/* Auto-explain passive capture */
+bool        sage_autoexplain_enabled       = false;
+int         sage_autoexplain_min_duration_ms = 1000;
+double      sage_autoexplain_sample_rate   = 0.1;
 int         sage_autoexplain_capture_window = 300;
 
 /* ----------------------------------------------------------------
@@ -571,13 +573,41 @@ sage_guc_init(void)
         0,
         NULL, NULL, NULL);
 
+    /* --- sage.autoexplain_enabled --- */
+    DefineCustomBoolVariable(
+        "sage.autoexplain_enabled",
+        "Enable passive EXPLAIN plan capture via ExecutorEnd hook.",
+        "When enabled, queries exceeding autoexplain_min_duration_ms are "
+        "sampled and their queryid is queued for asynchronous EXPLAIN capture "
+        "by the collector worker.",
+        &sage_autoexplain_enabled,
+        false,
+        PGC_SIGHUP,
+        0,
+        NULL, NULL, NULL);
+
+    /* --- sage.autoexplain_min_duration_ms --- */
+    DefineCustomIntVariable(
+        "sage.autoexplain_min_duration_ms",
+        "Minimum query duration (ms) before passive EXPLAIN capture.",
+        "Only queries running longer than this threshold are candidates "
+        "for auto-explain capture. Set to 0 to capture all queries (not recommended).",
+        &sage_autoexplain_min_duration_ms,
+        1000,
+        0,
+        INT_MAX,
+        PGC_SIGHUP,
+        GUC_UNIT_MS,
+        NULL, NULL, NULL);
+
     /* --- sage.autoexplain_sample_rate --- */
     DefineCustomRealVariable(
         "sage.autoexplain_sample_rate",
         "Fraction of slow queries to auto-EXPLAIN (0.0 to 1.0).",
-        NULL,
+        "Controls the sampling rate for passive EXPLAIN capture. "
+        "A value of 0.1 means 10% of qualifying slow queries will be captured.",
         &sage_autoexplain_sample_rate,
-        0.01,
+        0.1,
         0.0,
         1.0,
         PGC_SIGHUP,

@@ -10,6 +10,7 @@
 
 #include "postgres.h"
 #include "fmgr.h"
+#include "port/atomics.h"
 #include "miscadmin.h"
 #include "postmaster/bgworker.h"
 #include "storage/ipc.h"
@@ -35,6 +36,18 @@
  * ---------------------------------------------------------------- */
 #define PG_SAGE_VERSION         "0.5.0"
 #define PG_SAGE_VERSION_NUM     000500
+
+/* ----------------------------------------------------------------
+ * Auto-explain passive capture ring buffer
+ * ---------------------------------------------------------------- */
+#define SAGE_EXPLAIN_QUEUE_SIZE     128     /* Must be power of 2 */
+
+typedef struct SageExplainQueueEntry
+{
+    int64       queryid;
+    double      duration_ms;
+    TimestampTz enqueued_at;
+} SageExplainQueueEntry;
 
 /* ----------------------------------------------------------------
  * Shared memory state
@@ -106,6 +119,11 @@ typedef struct SageSharedState
     double      baseline_xact_rate;      /* Auto-calibrated baseline */
     int         adaptive_interval_ms;    /* Computed interval in ms */
     int         baseline_samples;        /* Number of samples for calibration */
+
+    /* Auto-explain passive capture ring buffer */
+    pg_atomic_uint32    explain_queue_head;  /* Next write position (producers) */
+    pg_atomic_uint32    explain_queue_tail;  /* Next read position (consumer) */
+    SageExplainQueueEntry explain_queue[SAGE_EXPLAIN_QUEUE_SIZE];
 } SageSharedState;
 
 /* ----------------------------------------------------------------
@@ -151,6 +169,8 @@ extern int         sage_retention_findings;
 extern int         sage_retention_actions;
 extern int         sage_retention_explains;
 extern char       *sage_max_schema_size;
+extern bool        sage_autoexplain_enabled;
+extern int         sage_autoexplain_min_duration_ms;
 extern double      sage_autoexplain_sample_rate;
 extern int         sage_autoexplain_capture_window;
 
@@ -272,7 +292,14 @@ extern char *sage_assemble_context_system(void);
  * EXPLAIN capture
  * ---------------------------------------------------------------- */
 extern void sage_explain_capture(int64 queryid);
+extern void sage_explain_capture_auto(int64 queryid);
 extern char *sage_explain_narrate(int64 queryid);
+
+/* ----------------------------------------------------------------
+ * Auto-explain passive capture (ExecutorEnd hook)
+ * ---------------------------------------------------------------- */
+extern void sage_autoexplain_hook_init(void);
+extern void sage_autoexplain_drain_queue(void);
 
 /* ----------------------------------------------------------------
  * Briefing

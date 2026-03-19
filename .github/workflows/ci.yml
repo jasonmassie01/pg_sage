@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg_version: [14, 15, 16, 17]
+
+    name: PostgreSQL ${{ matrix.pg_version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL ${{ matrix.pg_version }} from PGDG
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg lsb-release
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo apt-get update
+          sudo apt-get install -y \
+            postgresql-${{ matrix.pg_version }} \
+            postgresql-server-dev-${{ matrix.pg_version }} \
+            libcurl4-openssl-dev
+
+      - name: Build pg_sage
+        run: |
+          make PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+
+      - name: Install pg_sage
+        run: |
+          sudo make install PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+
+      - name: Configure and start PostgreSQL
+        run: |
+          # Stop any running clusters first
+          sudo pg_lsclusters -h | while read ver name port status owner logfile; do
+            sudo pg_ctlcluster "$ver" "$name" stop || true
+          done
+
+          # Configure shared_preload_libraries
+          PG_CONF="/etc/postgresql/${{ matrix.pg_version }}/main/postgresql.conf"
+          sudo sed -i "s/^#shared_preload_libraries.*/shared_preload_libraries = 'pg_stat_statements,pg_sage'/" "$PG_CONF"
+          # Also handle the case where the line is not commented out
+          sudo sed -i "s/^shared_preload_libraries.*/shared_preload_libraries = 'pg_stat_statements,pg_sage'/" "$PG_CONF"
+
+          # Start PostgreSQL
+          sudo pg_ctlcluster ${{ matrix.pg_version }} main start
+
+          # Wait for PostgreSQL to be ready
+          for i in $(seq 1 30); do
+            if sudo -u postgres pg_isready -q; then
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Create extensions and run tests
+        run: |
+          sudo -u postgres psql -c "CREATE EXTENSION pg_stat_statements;"
+          sudo -u postgres psql -c "CREATE EXTENSION pg_sage;"
+
+          # Run regression tests and capture output
+          set -o pipefail
+          sudo -u postgres psql -f test/regression.sql 2>&1 | tee /tmp/test_output.txt
+
+      - name: Check test results
+        if: always()
+        run: |
+          echo "=== Test Output ==="
+          cat /tmp/test_output.txt
+
+          if grep -q "FAIL:" /tmp/test_output.txt; then
+            echo "::error::Test failures detected"
+            exit 1
+          fi
+
+          if grep -q "test(s) failed" /tmp/test_output.txt; then
+            echo "::error::Test suite reported failures"
+            exit 1
+          fi
+
+          echo "All tests passed."

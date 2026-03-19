@@ -1132,6 +1132,10 @@ sage_collector_main(Datum main_arg)
         sage_self_monitor_collect();
         if (got_sigterm) break;
 
+        /* Drain auto-explain queue (passive EXPLAIN capture) */
+        sage_autoexplain_drain_queue();
+        if (got_sigterm) break;
+
         /* Record cycle timing in shared state */
         cycle_duration_ms = (double)(GetCurrentTimestamp() - cycle_start) / 1000.0;
 

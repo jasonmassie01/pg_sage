@@ -247,9 +247,10 @@ build_plan_issues(StringInfo buf, const char *plan_json, int depth)
 }
 
 /* ----------------------------------------------------------------
- * sage_explain_capture
+ * sage_explain_capture_with_source
  *
- * Capture an EXPLAIN plan for a given queryid.
+ * Capture an EXPLAIN plan for a given queryid with a specified
+ * source label (e.g. 'manual', 'auto').
  *
  * 1. Look up the query text from pg_stat_statements.
  * 2. Run EXPLAIN (FORMAT JSON, COSTS, VERBOSE) on it.
@@ -257,8 +258,8 @@ build_plan_issues(StringInfo buf, const char *plan_json, int depth)
  *
  * Caller must have an active SPI connection.
  * ---------------------------------------------------------------- */
-void
-sage_explain_capture(int64 queryid)
+static void
+sage_explain_capture_with_source(int64 queryid, const char *source)
 {
 	StringInfoData sql;
 	char   *query_text = NULL;
@@ -367,21 +368,22 @@ sage_explain_capture(int64 queryid)
 
 	PG_TRY();
 	{
-		Oid     argtypes[4] = {INT8OID, TEXTOID, TEXTOID, FLOAT8OID};
-		Datum   values[4];
-		char    nulls[4] = {' ', ' ', ' ', ' '};
+		Oid     argtypes[5] = {INT8OID, TEXTOID, TEXTOID, TEXTOID, FLOAT8OID};
+		Datum   values[5];
+		char    nulls[5] = {' ', ' ', ' ', ' ', ' '};
 
 		static const char *insert_sql =
 			"INSERT INTO sage.explain_cache "
 			"(queryid, query_text, plan_json, source, total_cost) "
-			"VALUES ($1, $2, $3::jsonb, 'manual', $4)";
+			"VALUES ($1, $2, $3::jsonb, $4, $5)";
 
 		values[0] = Int64GetDatum(queryid);
 		values[1] = CStringGetTextDatum(query_text);
 		values[2] = CStringGetTextDatum(plan_json);
-		values[3] = Float8GetDatum(total_cost);
+		values[3] = CStringGetTextDatum(source);
+		values[4] = Float8GetDatum(total_cost);
 
-		ret = SPI_execute_with_args(insert_sql, 4, argtypes, values, nulls,
+		ret = SPI_execute_with_args(insert_sql, 5, argtypes, values, nulls,
 									false, 0);
 
 		if (ret != SPI_OK_INSERT)
@@ -412,6 +414,30 @@ sage_explain_capture(int64 queryid)
 	pfree(query_text);
 	pfree(plan_json);
 	pfree(sql.data);
+}
+
+/* ----------------------------------------------------------------
+ * sage_explain_capture
+ *
+ * Public API — captures with source = 'manual'.
+ * Caller must have an active SPI connection.
+ * ---------------------------------------------------------------- */
+void
+sage_explain_capture(int64 queryid)
+{
+	sage_explain_capture_with_source(queryid, "manual");
+}
+
+/* ----------------------------------------------------------------
+ * sage_explain_capture_auto
+ *
+ * Captures with source = 'auto' for passive autoexplain captures.
+ * Caller must have an active SPI connection.
+ * ---------------------------------------------------------------- */
+void
+sage_explain_capture_auto(int64 queryid)
+{
+	sage_explain_capture_with_source(queryid, "auto");
 }
 
 /* ----------------------------------------------------------------

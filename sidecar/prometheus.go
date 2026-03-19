@@ -31,17 +31,24 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 	var b strings.Builder
 
-	// ----- pg_sage_info -----
-	writeInfo(&b, ctx)
+	if extensionAvailable {
+		// ----- pg_sage_info -----
+		writeInfo(&b, ctx)
 
-	// ----- pg_sage_findings_total -----
-	writeFindings(&b, ctx)
+		// ----- pg_sage_findings_total -----
+		writeFindings(&b, ctx)
 
-	// ----- pg_sage_circuit_breaker_state -----
-	writeCircuitBreaker(&b, ctx)
+		// ----- pg_sage_circuit_breaker_state -----
+		writeCircuitBreaker(&b, ctx)
 
-	// ----- pg_sage_status (generic from sage.status()) -----
-	writeStatus(&b, ctx)
+		// ----- pg_sage_status (generic from sage.status()) -----
+		writeStatus(&b, ctx)
+	} else {
+		// Sidecar-only mode: emit metrics from direct catalog queries
+		writeSidecarInfo(&b, ctx)
+		writeSidecarConnectionMetrics(&b, ctx)
+		writeSidecarDatabaseMetrics(&b, ctx)
+	}
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	fmt.Fprint(w, b.String())
@@ -157,6 +164,118 @@ func writeStatus(b *strings.Builder, ctx context.Context) {
 			fmt.Fprintf(b, "# TYPE %s gauge\n", metricName)
 			fmt.Fprintf(b, "%s %g\n", metricName, v)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Sidecar-only metric writers (no extension required)
+// ---------------------------------------------------------------------------
+
+func writeSidecarInfo(b *strings.Builder, ctx context.Context) {
+	var pgVersion string
+	err := pool.QueryRow(ctx, "SHOW server_version").Scan(&pgVersion)
+	if err != nil {
+		pgVersion = "unknown"
+	}
+	b.WriteString("# HELP pg_sage_info pg_sage sidecar information\n")
+	b.WriteString("# TYPE pg_sage_info gauge\n")
+	fmt.Fprintf(b, "pg_sage_info{version=\"sidecar-only\",pg_version=%q} 1\n", pgVersion)
+	b.WriteString("\n")
+}
+
+func writeSidecarConnectionMetrics(b *strings.Builder, ctx context.Context) {
+	b.WriteString("# HELP pg_sage_connections_total Current number of connections by state\n")
+	b.WriteString("# TYPE pg_sage_connections_total gauge\n")
+
+	rows, err := pool.Query(ctx,
+		`SELECT coalesce(state, 'unknown'), count(*)
+		 FROM pg_stat_activity
+		 GROUP BY state`)
+	if err != nil {
+		fmt.Fprintf(b, "pg_sage_connections_total{state=\"unknown\"} 0\n")
+		b.WriteString("\n")
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var state string
+		var cnt int64
+		if err := rows.Scan(&state, &cnt); err == nil {
+			fmt.Fprintf(b, "pg_sage_connections_total{state=%q} %d\n", state, cnt)
+		}
+	}
+	b.WriteString("\n")
+
+	// Max connections
+	var maxConn int
+	if err := pool.QueryRow(ctx, "SELECT setting::int FROM pg_settings WHERE name = 'max_connections'").Scan(&maxConn); err == nil {
+		b.WriteString("# HELP pg_sage_max_connections Configured max_connections\n")
+		b.WriteString("# TYPE pg_sage_max_connections gauge\n")
+		fmt.Fprintf(b, "pg_sage_max_connections %d\n", maxConn)
+		b.WriteString("\n")
+	}
+}
+
+func writeSidecarDatabaseMetrics(b *strings.Builder, ctx context.Context) {
+	// Database size
+	var dbSizeBytes int64
+	if err := pool.QueryRow(ctx, "SELECT pg_database_size(current_database())").Scan(&dbSizeBytes); err == nil {
+		b.WriteString("# HELP pg_sage_database_size_bytes Database size in bytes\n")
+		b.WriteString("# TYPE pg_sage_database_size_bytes gauge\n")
+		fmt.Fprintf(b, "pg_sage_database_size_bytes %d\n", dbSizeBytes)
+		b.WriteString("\n")
+	}
+
+	// Transaction stats from pg_stat_database
+	var xactCommit, xactRollback, blksHit, blksRead, deadlocks int64
+	err := pool.QueryRow(ctx,
+		`SELECT xact_commit, xact_rollback, blks_hit, blks_read, deadlocks
+		 FROM pg_stat_database WHERE datname = current_database()`).
+		Scan(&xactCommit, &xactRollback, &blksHit, &blksRead, &deadlocks)
+	if err == nil {
+		b.WriteString("# HELP pg_sage_xact_commit_total Transactions committed\n")
+		b.WriteString("# TYPE pg_sage_xact_commit_total counter\n")
+		fmt.Fprintf(b, "pg_sage_xact_commit_total %d\n", xactCommit)
+		b.WriteString("\n")
+
+		b.WriteString("# HELP pg_sage_xact_rollback_total Transactions rolled back\n")
+		b.WriteString("# TYPE pg_sage_xact_rollback_total counter\n")
+		fmt.Fprintf(b, "pg_sage_xact_rollback_total %d\n", xactRollback)
+		b.WriteString("\n")
+
+		b.WriteString("# HELP pg_sage_blks_hit_total Shared buffer hits\n")
+		b.WriteString("# TYPE pg_sage_blks_hit_total counter\n")
+		fmt.Fprintf(b, "pg_sage_blks_hit_total %d\n", blksHit)
+		b.WriteString("\n")
+
+		b.WriteString("# HELP pg_sage_blks_read_total Disk blocks read\n")
+		b.WriteString("# TYPE pg_sage_blks_read_total counter\n")
+		fmt.Fprintf(b, "pg_sage_blks_read_total %d\n", blksRead)
+		b.WriteString("\n")
+
+		b.WriteString("# HELP pg_sage_deadlocks_total Deadlocks detected\n")
+		b.WriteString("# TYPE pg_sage_deadlocks_total counter\n")
+		fmt.Fprintf(b, "pg_sage_deadlocks_total %d\n", deadlocks)
+		b.WriteString("\n")
+
+		// Cache hit ratio
+		if (blksHit + blksRead) > 0 {
+			ratio := float64(blksHit) / float64(blksHit+blksRead)
+			b.WriteString("# HELP pg_sage_cache_hit_ratio Buffer cache hit ratio\n")
+			b.WriteString("# TYPE pg_sage_cache_hit_ratio gauge\n")
+			fmt.Fprintf(b, "pg_sage_cache_hit_ratio %g\n", ratio)
+			b.WriteString("\n")
+		}
+	}
+
+	// Uptime
+	var uptimeSeconds int64
+	if err := pool.QueryRow(ctx, "SELECT extract(epoch FROM now() - pg_postmaster_start_time())::bigint").Scan(&uptimeSeconds); err == nil {
+		b.WriteString("# HELP pg_sage_uptime_seconds PostgreSQL uptime in seconds\n")
+		b.WriteString("# TYPE pg_sage_uptime_seconds gauge\n")
+		fmt.Fprintf(b, "pg_sage_uptime_seconds %d\n", uptimeSeconds)
+		b.WriteString("\n")
 	}
 }
 

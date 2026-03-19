@@ -103,6 +103,12 @@ sage_shmem_startup(void)
 
         sage_state->llm_tokens_used_today = 0;
         sage_state->llm_day_of_year       = 0;
+
+        /* Auto-explain ring buffer */
+        pg_atomic_init_u32(&sage_state->explain_queue_head, 0);
+        pg_atomic_init_u32(&sage_state->explain_queue_tail, 0);
+        memset(sage_state->explain_queue, 0,
+               sizeof(sage_state->explain_queue));
     }
 
     LWLockRelease(AddinShmemInitLock);
@@ -180,12 +186,15 @@ _PG_init(void)
     /* 4. Initialize libcurl globally (must happen once, before any threads) */
     curl_global_init(CURL_GLOBAL_ALL);
 
-    /* 5. Warn if pg_stat_statements is not loaded */
+    /* 5. Install ExecutorEnd hook for passive EXPLAIN capture */
+    sage_autoexplain_hook_init();
+
+    /* 6. Warn if pg_stat_statements is not loaded */
     ereport(LOG,
             (errmsg("pg_sage %s: loading — ensure pg_stat_statements is "
                     "also in shared_preload_libraries", PG_SAGE_VERSION)));
 
-    /* 6. Register background workers */
+    /* 7. Register background workers */
     register_sage_bgworker("pg_sage collector", "sage_collector_main");
     register_sage_bgworker("pg_sage analyzer",  "sage_analyzer_main");
     register_sage_bgworker("pg_sage briefing",  "sage_briefing_main");

@@ -37,5 +37,30 @@ services:
       - "5433:5433"   # MCP server
       - "9187:9187"   # Prometheus metrics
 
+  # --------------------------------------------------------------------------
+  # Sidecar-only mode (standalone, no pg_sage extension required)
+  # --------------------------------------------------------------------------
+  # To use the sidecar with an external database (RDS, Aurora, Cloud SQL, etc.)
+  # without the pg_sage C extension, run just the sidecar service:
+  #
+  #   docker compose run --rm -e SAGE_DATABASE_URL="postgres://user:pass@your-rds-host:5432/dbname?sslmode=require" \
+  #     -p 5433:5433 -p 9187:9187 sidecar
+  #
+  # Or add a dedicated service:
+  #
+  #   sidecar-standalone:
+  #     build: ./sidecar
+  #     environment:
+  #       SAGE_DATABASE_URL: "postgres://user:pass@your-rds-host:5432/dbname?sslmode=require"
+  #       SAGE_MCP_PORT: "5433"
+  #       SAGE_PROMETHEUS_PORT: "9187"
+  #     ports:
+  #       - "5433:5433"
+  #       - "9187:9187"
+  #
+  # The sidecar auto-detects whether the pg_sage extension is installed and
+  # falls back to direct catalog queries (sidecar-only mode) if it is not.
+  # --------------------------------------------------------------------------
+
 volumes:
   pgdata:

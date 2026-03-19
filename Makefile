@@ -19,7 +19,8 @@ OBJS = src/pg_sage.o \
        src/analyzer_extra.o \
        src/action_executor.o \
        src/tier2_extra.o \
-       src/mcp_helpers.o
+       src/mcp_helpers.o \
+       src/autoexplain_hook.o
 
 PG_CPPFLAGS = -I$(srcdir)/include
 SHLIB_LINK = -lcurl
@@ -27,3 +28,9 @@ SHLIB_LINK = -lcurl
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
+
+# --- PGXN packaging ---
+VERSION = 0.5.0
+
+pgxn:
+	git archive --format=zip --prefix=pg_sage-$(VERSION)/ -o pg_sage-$(VERSION).zip HEAD

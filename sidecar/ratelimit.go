@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -113,12 +114,16 @@ func clientIP(r *http.Request) string {
 func logRateLimited(ctx context.Context, ip, method, path string) {
 	log.Printf("[ratelimit] blocked %s %s %s", ip, method, path)
 
-	// Best-effort insert into sage.mcp_log
+	// Best-effort insert into audit log
+	table := "sage.mcp_log"
+	if !extensionAvailable {
+		table = "public.sage_mcp_log"
+	}
 	ctx2, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	_, _ = pool.Exec(ctx2,
-		`INSERT INTO sage.mcp_log (client_ip, method, resource_uri, tool_name, tokens_used, duration_ms, status, error_message)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		fmt.Sprintf(`INSERT INTO %s (client_ip, method, resource_uri, tool_name, tokens_used, duration_ms, status, error_message)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, table),
 		ip, method, path, nil, 0, 0, "rate_limited", "rate limit exceeded",
 	)
 }

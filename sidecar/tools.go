@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // ---------------------------------------------------------------------------
@@ -92,9 +93,15 @@ func toolDiagnose(ctx context.Context, args json.RawMessage) (ToolsCallResult, e
 		return toolErr("question is required"), nil
 	}
 
+	if !extensionAvailable {
+		return toolErr("The 'diagnose' tool requires the pg_sage extension to be installed. " +
+			"This sidecar is running in sidecar-only mode against a PostgreSQL instance without pg_sage. " +
+			"You can still use: sage://health, sage://schema/{table}, sage://stats/{table}, sage://slow-queries resources, " +
+			"and the suggest_index / review_migration tools."), nil
+	}
+
 	result, err := queryTextFallback(ctx,
 		"SELECT sage.diagnose($1)", []any{p.Question},
-		// fallback: just return a helpful message
 		"SELECT 'sage.diagnose() not available — ensure pg_sage extension is loaded'", nil,
 	)
 	if err != nil {
@@ -104,6 +111,12 @@ func toolDiagnose(ctx context.Context, args json.RawMessage) (ToolsCallResult, e
 }
 
 func toolBriefing(ctx context.Context) (ToolsCallResult, error) {
+	if !extensionAvailable {
+		return toolErr("The 'briefing' tool requires the pg_sage extension to be installed. " +
+			"This sidecar is running in sidecar-only mode. " +
+			"Use the sage://health resource for a basic health overview instead."), nil
+	}
+
 	result, err := queryTextFallback(ctx,
 		"SELECT sage.briefing()", nil,
 		"SELECT 'sage.briefing() not available — ensure pg_sage extension is loaded'", nil,
@@ -125,13 +138,52 @@ func toolSuggestIndex(ctx context.Context, args json.RawMessage) (ToolsCallResul
 		return toolErr("table is required"), nil
 	}
 
-	question := "suggest indexes for table " + sanitize(p.Table)
-	result, err := queryTextFallback(ctx,
-		"SELECT sage.diagnose($1)", []any{question},
-		"SELECT 'sage.diagnose() not available — ensure pg_sage extension is loaded'", nil,
-	)
+	if extensionAvailable {
+		question := "suggest indexes for table " + sanitize(p.Table)
+		result, err := queryTextFallback(ctx,
+			"SELECT sage.diagnose($1)", []any{question},
+			"SELECT 'sage.diagnose() not available'", nil,
+		)
+		if err != nil {
+			return toolErr(err.Error()), nil
+		}
+		return toolOK(result), nil
+	}
+
+	// Sidecar-only: analyze pg_stat_user_tables for sequential scan patterns
+	t := sanitize(p.Table)
+	var result string
+	err := pool.QueryRow(ctx, fmt.Sprintf(`SELECT json_build_object(
+		'table', '%s',
+		'mode', 'sidecar-only',
+		'analysis', json_build_object(
+			'seq_scan', s.seq_scan,
+			'seq_tup_read', s.seq_tup_read,
+			'idx_scan', coalesce(s.idx_scan, 0),
+			'idx_tup_fetch', coalesce(s.idx_tup_fetch, 0),
+			'n_live_tup', s.n_live_tup,
+			'seq_scan_ratio', CASE WHEN (s.seq_scan + coalesce(s.idx_scan,0)) > 0
+				THEN round(s.seq_scan::numeric / (s.seq_scan + coalesce(s.idx_scan,0)), 4)
+				ELSE 0 END
+		),
+		'existing_indexes', (
+			SELECT coalesce(json_agg(json_build_object('name', indexname, 'def', indexdef)), '[]'::json)
+			FROM pg_indexes
+			WHERE schemaname || '.' || tablename = '%s' OR tablename = '%s'
+		),
+		'recommendation', CASE
+			WHEN s.seq_scan > 1000 AND s.n_live_tup > 10000 AND coalesce(s.idx_scan,0) < s.seq_scan
+			THEN 'High sequential scan count on a large table. Consider adding indexes on columns used in WHERE, JOIN, and ORDER BY clauses.'
+			WHEN s.seq_scan > 100 AND s.n_live_tup > 1000
+			THEN 'Moderate sequential scans detected. Review query patterns and consider targeted indexes.'
+			ELSE 'Sequential scan counts appear reasonable for the table size. No urgent index recommendations.'
+		END
+	)::text
+	FROM pg_stat_user_tables s
+	WHERE s.schemaname || '.' || s.relname = '%s' OR s.relname = '%s'
+	LIMIT 1`, t, t, t, t, t)).Scan(&result)
 	if err != nil {
-		return toolErr(err.Error()), nil
+		return toolErr(fmt.Sprintf("could not analyze table %s: %v", t, err)), nil
 	}
 	return toolOK(result), nil
 }
@@ -147,15 +199,70 @@ func toolReviewMigration(ctx context.Context, args json.RawMessage) (ToolsCallRe
 		return toolErr("ddl is required"), nil
 	}
 
-	question := "review this migration: " + p.DDL
-	result, err := queryTextFallback(ctx,
-		"SELECT sage.diagnose($1)", []any{question},
-		"SELECT 'sage.diagnose() not available — ensure pg_sage extension is loaded'", nil,
-	)
-	if err != nil {
-		return toolErr(err.Error()), nil
+	if extensionAvailable {
+		question := "review this migration: " + p.DDL
+		result, err := queryTextFallback(ctx,
+			"SELECT sage.diagnose($1)", []any{question},
+			"SELECT 'sage.diagnose() not available'", nil,
+		)
+		if err != nil {
+			return toolErr(err.Error()), nil
+		}
+		return toolOK(result), nil
 	}
-	return toolOK(result), nil
+
+	// Sidecar-only: basic DDL safety checks
+	review := reviewDDLSafety(p.DDL)
+	out, _ := json.Marshal(review)
+	return toolOK(string(out)), nil
+}
+
+// reviewDDLSafety performs basic static analysis of DDL statements for common risks.
+func reviewDDLSafety(ddl string) map[string]any {
+	upper := strings.ToUpper(ddl)
+	var warnings []string
+
+	if strings.Contains(upper, "DROP TABLE") {
+		warnings = append(warnings, "DROP TABLE detected: this will permanently delete the table and all its data.")
+	}
+	if strings.Contains(upper, "DROP COLUMN") {
+		warnings = append(warnings, "DROP COLUMN detected: this is irreversible and may break applications referencing this column.")
+	}
+	if strings.Contains(upper, "ALTER TABLE") && strings.Contains(upper, "ALTER COLUMN") && strings.Contains(upper, "TYPE") {
+		warnings = append(warnings, "Column type change detected: this may require a full table rewrite and lock the table for the duration.")
+	}
+	if strings.Contains(upper, "NOT NULL") && !strings.Contains(upper, "CREATE TABLE") {
+		warnings = append(warnings, "Adding NOT NULL constraint: on large tables this requires a full table scan. Consider adding with a DEFAULT or using a CHECK constraint first.")
+	}
+	if strings.Contains(upper, "ADD COLUMN") && strings.Contains(upper, "DEFAULT") && !strings.Contains(upper, "CREATE TABLE") {
+		warnings = append(warnings, "Adding column with DEFAULT: in PostgreSQL 11+ this is fast (metadata only). Verify your PostgreSQL version.")
+	}
+	if strings.Contains(upper, "CREATE INDEX") && !strings.Contains(upper, "CONCURRENTLY") {
+		warnings = append(warnings, "CREATE INDEX without CONCURRENTLY: this will lock the table for writes during index creation. Consider using CREATE INDEX CONCURRENTLY.")
+	}
+	if strings.Contains(upper, "LOCK TABLE") || strings.Contains(upper, "ACCESS EXCLUSIVE") {
+		warnings = append(warnings, "Explicit table lock detected: this will block all other access to the table.")
+	}
+	if strings.Contains(upper, "TRUNCATE") {
+		warnings = append(warnings, "TRUNCATE detected: this removes all rows and is not MVCC-safe. It acquires an ACCESS EXCLUSIVE lock.")
+	}
+	if strings.Contains(upper, "RENAME") {
+		warnings = append(warnings, "RENAME detected: this may break application queries referencing the old name.")
+	}
+	if strings.Contains(upper, "SET DATA TYPE") || strings.Contains(upper, "USING") {
+		warnings = append(warnings, "Type conversion with USING detected: verify the conversion expression is correct for all existing data.")
+	}
+
+	if len(warnings) == 0 {
+		warnings = append(warnings, "No obvious risks detected in the DDL. Standard review still recommended before production deployment.")
+	}
+
+	return map[string]any{
+		"mode":     "sidecar-only",
+		"ddl":      ddl,
+		"warnings": warnings,
+		"note":     "This is a basic static analysis. Install the pg_sage extension for deeper migration review with AI-powered analysis.",
+	}
 }
 
 // ---------------------------------------------------------------------------

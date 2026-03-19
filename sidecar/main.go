@@ -22,8 +22,9 @@ import (
 // ---------------------------------------------------------------------------
 
 var (
-	pool     *pgxpool.Pool
-	sessions sync.Map // sessionID -> *sseSession
+	pool               *pgxpool.Pool
+	sessions           sync.Map // sessionID -> *sseSession
+	extensionAvailable bool     // true when sage schema + functions are detected
 )
 
 type sseSession struct {
@@ -41,6 +42,7 @@ type Config struct {
 	PrometheusPort string
 	RateLimit      int
 	TokenBudget    int
+	APIKey         string
 }
 
 func loadConfig() Config {
@@ -50,6 +52,7 @@ func loadConfig() Config {
 		PrometheusPort: envOrDefault("SAGE_PROMETHEUS_PORT", "9187"),
 		RateLimit:      envOrDefaultInt("SAGE_RATE_LIMIT", 60),
 		TokenBudget:    envOrDefaultInt("SAGE_TOKEN_BUDGET", 10000),
+		APIKey:         os.Getenv("SAGE_API_KEY"),
 	}
 	return cfg
 }
@@ -78,6 +81,11 @@ func main() {
 	cfg := loadConfig()
 
 	log.Printf("[sage-sidecar] starting — MCP port=%s, Prometheus port=%s", cfg.MCPPort, cfg.PrometheusPort)
+	if cfg.APIKey != "" {
+		log.Println("[sage-sidecar] API key authentication enabled")
+	} else {
+		log.Println("[sage-sidecar] API key authentication disabled (SAGE_API_KEY not set)")
+	}
 
 	// Connect to PostgreSQL
 	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
@@ -100,7 +108,15 @@ func main() {
 	}
 	log.Println("[sage-sidecar] connected to PostgreSQL")
 
-	// Ensure mcp_log table exists
+	// Detect whether the pg_sage extension is installed
+	extensionAvailable = detectExtension()
+	if extensionAvailable {
+		log.Println("[sage-sidecar] mode: EXTENSION — pg_sage schema and functions detected")
+	} else {
+		log.Println("[sage-sidecar] mode: SIDECAR-ONLY — pg_sage extension not found, using direct catalog queries")
+	}
+
+	// Ensure mcp_log table exists (uses sage schema only when extension is present)
 	ensureMCPLogTable()
 
 	// Rate limiter
@@ -113,7 +129,7 @@ func main() {
 
 	mcpServer := &http.Server{
 		Addr:    ":" + cfg.MCPPort,
-		Handler: rateLimitMiddleware(rl, mcpMux),
+		Handler: authMiddleware(cfg.APIKey, rateLimitMiddleware(rl, mcpMux)),
 	}
 
 	// Prometheus server
@@ -141,6 +157,33 @@ func main() {
 }
 
 // ---------------------------------------------------------------------------
+// Extension detection
+// ---------------------------------------------------------------------------
+
+// detectExtension checks whether the sage schema and sage.health_json()
+// function exist. Returns true when the full pg_sage C extension is installed.
+func detectExtension() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var exists bool
+	err := pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_namespace WHERE nspname = 'sage'
+		) AND EXISTS (
+			SELECT 1 FROM pg_proc p
+			JOIN pg_namespace n ON n.oid = p.pronamespace
+			WHERE n.nspname = 'sage' AND p.proname = 'health_json'
+		)
+	`).Scan(&exists)
+	if err != nil {
+		log.Printf("[sage-sidecar] extension detection query failed: %v", err)
+		return false
+	}
+	return exists
+}
+
+// ---------------------------------------------------------------------------
 // Ensure audit log table
 // ---------------------------------------------------------------------------
 
@@ -148,22 +191,44 @@ func ensureMCPLogTable() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := pool.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS sage.mcp_log (
-			id          bigserial PRIMARY KEY,
-			ts          timestamptz NOT NULL DEFAULT now(),
-			client_ip   text,
-			method      text,
-			resource_uri text,
-			tool_name   text,
-			tokens_used int DEFAULT 0,
-			duration_ms int DEFAULT 0,
-			status      text,
-			error_message text
-		)
-	`)
-	if err != nil {
-		log.Printf("[mcp] warning: could not create sage.mcp_log: %v", err)
+	if extensionAvailable {
+		_, err := pool.Exec(ctx, `
+			CREATE TABLE IF NOT EXISTS sage.mcp_log (
+				id          bigserial PRIMARY KEY,
+				ts          timestamptz NOT NULL DEFAULT now(),
+				client_ip   text,
+				method      text,
+				resource_uri text,
+				tool_name   text,
+				tokens_used int DEFAULT 0,
+				duration_ms int DEFAULT 0,
+				status      text,
+				error_message text
+			)
+		`)
+		if err != nil {
+			log.Printf("[mcp] warning: could not create sage.mcp_log: %v", err)
+		}
+	} else {
+		// In sidecar-only mode the sage schema may not exist.
+		// Create the log table in the public schema instead.
+		_, err := pool.Exec(ctx, `
+			CREATE TABLE IF NOT EXISTS public.sage_mcp_log (
+				id          bigserial PRIMARY KEY,
+				ts          timestamptz NOT NULL DEFAULT now(),
+				client_ip   text,
+				method      text,
+				resource_uri text,
+				tool_name   text,
+				tokens_used int DEFAULT 0,
+				duration_ms int DEFAULT 0,
+				status      text,
+				error_message text
+			)
+		`)
+		if err != nil {
+			log.Printf("[mcp] warning: could not create public.sage_mcp_log: %v", err)
+		}
 	}
 }
 
@@ -370,9 +435,13 @@ func auditLog(ip string, req JSONRPCRequest, duration time.Duration, resp JSONRP
 	}
 	status = &st
 
+	table := "sage.mcp_log"
+	if !extensionAvailable {
+		table = "public.sage_mcp_log"
+	}
 	_, _ = pool.Exec(ctx,
-		`INSERT INTO sage.mcp_log (client_ip, method, resource_uri, tool_name, tokens_used, duration_ms, status, error_message)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		fmt.Sprintf(`INSERT INTO %s (client_ip, method, resource_uri, tool_name, tokens_used, duration_ms, status, error_message)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, table),
 		ip, req.Method, resourceURI, toolName, 0, int(duration.Milliseconds()), status, errMsg,
 	)
 }
