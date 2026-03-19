@@ -26,6 +26,7 @@ var (
 	pool               *pgxpool.Pool
 	sessions           sync.Map // sessionID -> *sseSession
 	extensionAvailable bool     // true when sage schema + functions are detected
+	cloudEnvironment   string   // "aurora", "rds", "cloud-sql", "alloydb", "azure", "self-managed"
 )
 
 type sseSession struct {
@@ -154,6 +155,10 @@ func main() {
 
 	// Background pool health check every 30 seconds
 	go poolHealthCheck()
+
+	// Detect cloud environment (Aurora, RDS, Cloud SQL, AlloyDB, Azure)
+	cloudEnvironment = detectCloudEnvironment()
+	logInfo("startup", "cloud environment: %s", cloudEnvironment)
 
 	// Detect whether the pg_sage extension is installed
 	extensionAvailable = detectExtension()
@@ -289,6 +294,53 @@ func detectExtension() bool {
 		return false
 	}
 	return exists
+}
+
+// ---------------------------------------------------------------------------
+// Cloud environment detection
+// ---------------------------------------------------------------------------
+
+// detectCloudEnvironment probes the connected PostgreSQL instance to determine
+// whether it is running on a known cloud-managed platform.
+func detectCloudEnvironment() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Aurora: try SELECT aurora_version()
+	var auroraVer string
+	if err := pool.QueryRow(ctx, "SELECT aurora_version()").Scan(&auroraVer); err == nil {
+		return "aurora"
+	}
+
+	// RDS (non-Aurora): check for rds.extensions GUC
+	var rdsExt *string
+	if err := pool.QueryRow(ctx, "SELECT current_setting('rds.extensions', true)").Scan(&rdsExt); err == nil && rdsExt != nil {
+		return "rds"
+	}
+
+	// AlloyDB: check for alloydb.iam_authentication or google_columnar_engine.enabled
+	var alloyIAM *string
+	if err := pool.QueryRow(ctx, "SELECT current_setting('alloydb.iam_authentication', true)").Scan(&alloyIAM); err == nil && alloyIAM != nil {
+		return "alloydb"
+	}
+	var columnarEng *string
+	if err := pool.QueryRow(ctx, "SELECT current_setting('google_columnar_engine.enabled', true)").Scan(&columnarEng); err == nil && columnarEng != nil {
+		return "alloydb"
+	}
+
+	// Cloud SQL: check for cloudsql.iam_authentication
+	var cloudSQLIAM *string
+	if err := pool.QueryRow(ctx, "SELECT current_setting('cloudsql.iam_authentication', true)").Scan(&cloudSQLIAM); err == nil && cloudSQLIAM != nil {
+		return "cloud-sql"
+	}
+
+	// Azure: check for azure.extensions
+	var azureExt *string
+	if err := pool.QueryRow(ctx, "SELECT current_setting('azure.extensions', true)").Scan(&azureExt); err == nil && azureExt != nil {
+		return "azure"
+	}
+
+	return "self-managed"
 }
 
 // ---------------------------------------------------------------------------

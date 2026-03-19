@@ -49,7 +49,7 @@ char       *sage_slack_webhook_url        = NULL;
 char       *sage_email_smtp_url           = NULL;
 
 /* LLM */
-bool        sage_llm_enabled              = true;
+bool        sage_llm_enabled              = false;
 char       *sage_llm_endpoint             = NULL;
 char       *sage_llm_api_key              = NULL;
 char       *sage_llm_model                = NULL;
@@ -352,7 +352,7 @@ sage_guc_init(void)
         "Enable LLM-powered features.",
         NULL,
         &sage_llm_enabled,
-        true,
+        false,
         PGC_SIGHUP,
         0,
         NULL, NULL, NULL);

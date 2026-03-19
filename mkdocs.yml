@@ -34,6 +34,7 @@ nav:
   - MCP Sidecar: mcp-sidecar.md
   - SQL Reference: sql-reference.md
   - Findings Catalog: findings.md
+  - Security: security.md
   - Deployment: deployment.md
 
 markdown_extensions:

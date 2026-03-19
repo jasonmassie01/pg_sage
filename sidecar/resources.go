@@ -85,7 +85,7 @@ func readHealth(ctx context.Context) (string, error) {
 
 func readFindings(ctx context.Context) (string, error) {
 	if extensionAvailable {
-		return queryJSONFallback(ctx,
+		result, err := queryJSONFallback(ctx,
 			"SELECT sage.findings_json('open')",
 			`SELECT coalesce(
 				(SELECT json_agg(row_to_json(f))
@@ -94,9 +94,24 @@ func readFindings(ctx context.Context) (string, error) {
 				'[]'::json
 			)::text`,
 		)
+		if err != nil {
+			return "", err
+		}
+		return annotateAlterSystemForCloud(result), nil
 	}
 	// Sidecar-only: no findings table exists
 	return `{"note":"findings require the pg_sage extension to be installed","findings":[]}`, nil
+}
+
+// annotateAlterSystemForCloud appends a note to findings text when running on
+// RDS/Aurora, reminding users to use parameter groups instead of ALTER SYSTEM.
+func annotateAlterSystemForCloud(text string) string {
+	if (cloudEnvironment == "aurora" || cloudEnvironment == "rds") &&
+		strings.Contains(strings.ToUpper(text), "ALTER SYSTEM") {
+		text = strings.Replace(text, "ALTER SYSTEM",
+			"ALTER SYSTEM (Note: On RDS/Aurora, use parameter groups instead of ALTER SYSTEM.)", -1)
+	}
+	return text
 }
 
 func readSlowQueries(ctx context.Context) (string, error) {

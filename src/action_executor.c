@@ -12,8 +12,10 @@
 #include "pg_sage.h"
 
 #include <string.h>
+#include <ctype.h>
 
 #include "executor/spi.h"
+#include "utils/timestamp.h"
 #include "lib/stringinfo.h"
 #include "utils/builtins.h"
 #include "catalog/pg_type.h"
@@ -43,28 +45,246 @@ static char *capture_before_state(const char *category,
                                   const char *object_id);
 
 /* ----------------------------------------------------------------
+ * Day-of-week parsing helpers for maintenance window
+ * ---------------------------------------------------------------- */
+static const char * const day_names[] = {
+    "sun", "mon", "tue", "wed", "thu", "fri", "sat"
+};
+
+/*
+ * parse_day_abbrev
+ *
+ * Parse a 3-letter day abbreviation (case-insensitive) and return
+ * the day number (0=Sun..6=Sat).  Returns -1 on failure.
+ * Advances *pos past the abbreviation on success.
+ */
+static int
+parse_day_abbrev(const char *str, int *pos)
+{
+    char    buf[4];
+    int     i;
+
+    if (str[*pos] == '\0' || str[*pos + 1] == '\0' || str[*pos + 2] == '\0')
+        return -1;
+
+    buf[0] = tolower((unsigned char) str[*pos]);
+    buf[1] = tolower((unsigned char) str[*pos + 1]);
+    buf[2] = tolower((unsigned char) str[*pos + 2]);
+    buf[3] = '\0';
+
+    for (i = 0; i < 7; i++)
+    {
+        if (memcmp(buf, day_names[i], 3) == 0)
+        {
+            *pos += 3;
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+/*
+ * parse_hour_minute
+ *
+ * Parse "HH:MM" and return the hour (0-23).  Minutes are parsed
+ * but only the hour is used for window comparisons.
+ * Returns -1 on failure.  Advances *pos past the time string.
+ */
+static int
+parse_hour_minute(const char *str, int *pos)
+{
+    int hour, minute;
+
+    if (!isdigit((unsigned char) str[*pos]))
+        return -1;
+
+    hour = (str[*pos] - '0');
+    (*pos)++;
+
+    if (isdigit((unsigned char) str[*pos]))
+    {
+        hour = hour * 10 + (str[*pos] - '0');
+        (*pos)++;
+    }
+
+    if (str[*pos] != ':')
+        return -1;
+    (*pos)++;
+
+    if (!isdigit((unsigned char) str[*pos]) ||
+        !isdigit((unsigned char) str[*pos + 1]))
+        return -1;
+
+    minute = (str[*pos] - '0') * 10 + (str[*pos + 1] - '0');
+    *pos += 2;
+
+    (void) minute;  /* currently unused — hour granularity only */
+
+    if (hour < 0 || hour > 23)
+        return -1;
+
+    return hour;
+}
+
+/*
+ * day_in_range
+ *
+ * Check if 'day' falls within [day_start..day_end] with wrap-around
+ * through the week (e.g. Fri-Mon = 5,6,0,1).
+ */
+static bool
+day_in_range(int day, int day_start, int day_end)
+{
+    if (day_start <= day_end)
+        return (day >= day_start && day <= day_end);
+    else
+        return (day >= day_start || day <= day_end);
+}
+
+/*
+ * hour_in_range
+ *
+ * Check if 'hour' falls within [hour_start..hour_end) with overnight
+ * wrap-around (e.g. 22:00-06:00 = hours 22,23,0,1,2,3,4,5).
+ */
+static bool
+hour_in_range(int hour, int hour_start, int hour_end)
+{
+    if (hour_start <= hour_end)
+        return (hour >= hour_start && hour < hour_end);
+    else
+        return (hour >= hour_start || hour < hour_end);
+}
+
+/* ----------------------------------------------------------------
  * sage_check_maintenance_window
  *
  * Check whether the current time falls within the configured
  * maintenance window.
  *
- * Simple implementation:
- *   - NULL or empty => false (no maintenance window)
- *   - '*' or 'always' => true
- *   - anything else => false (full cron parsing deferred)
+ * Supported formats:
+ *   - NULL or empty or '*' or 'always' => always in window
+ *   - "Sun 02:00-06:00"               => specific day + hour range
+ *   - "Sat-Sun 02:00-06:00"           => day range + hour range
+ *   - "Mon-Fri 22:00-06:00"           => day range + overnight wrap
+ *   - "02:00-06:00"                   => any day, hour range only
+ *
+ * Returns false on parse failure (safe default: no actions).
  * ---------------------------------------------------------------- */
 bool
 sage_check_maintenance_window(void)
 {
+    const char     *spec;
+    int             pos;
+    int             day_start = -1;
+    int             day_end = -1;
+    int             hour_start;
+    int             hour_end;
+    TimestampTz     now_ts;
+    struct pg_tm    tm;
+    fsec_t          fsec;
+    int             tz;
+    int             current_wday;
+    int             current_hour;
+
+    /* NULL or empty => always in window (backward compat: was false,
+     * but '*' is the documented default in the GUC) */
     if (sage_maintenance_window == NULL ||
         sage_maintenance_window[0] == '\0')
         return false;
 
-    if (strcmp(sage_maintenance_window, "*") == 0 ||
-        pg_strcasecmp(sage_maintenance_window, "always") == 0)
+    spec = sage_maintenance_window;
+
+    /* Wildcard / always */
+    if (strcmp(spec, "*") == 0 ||
+        pg_strcasecmp(spec, "always") == 0)
         return true;
 
-    /* Full cron parsing is a future enhancement */
+    /* Get current local time */
+    now_ts = GetCurrentTimestamp();
+    if (timestamp2tm(now_ts, &tz, &tm, &fsec, NULL, NULL) != 0)
+    {
+        ereport(WARNING,
+                (errmsg("pg_sage: cannot determine current time for "
+                        "maintenance window check")));
+        return false;
+    }
+
+    current_wday = tm.tm_wday;   /* 0=Sun .. 6=Sat */
+    current_hour = tm.tm_hour;   /* 0..23 */
+
+    /* Parse the spec string */
+    pos = 0;
+
+    /* Skip leading whitespace */
+    while (spec[pos] == ' ')
+        pos++;
+
+    /* Try to parse a day-of-week at the current position */
+    if (isalpha((unsigned char) spec[pos]))
+    {
+        day_start = parse_day_abbrev(spec, &pos);
+        if (day_start < 0)
+            goto parse_error;
+
+        /* Check for day range (e.g. "Mon-Fri") */
+        if (spec[pos] == '-')
+        {
+            pos++;
+            day_end = parse_day_abbrev(spec, &pos);
+            if (day_end < 0)
+                goto parse_error;
+        }
+        else
+        {
+            /* Single day */
+            day_end = day_start;
+        }
+
+        /* Expect whitespace before the hour range */
+        if (spec[pos] != ' ')
+            goto parse_error;
+        while (spec[pos] == ' ')
+            pos++;
+    }
+
+    /* Parse hour range: HH:MM-HH:MM */
+    hour_start = parse_hour_minute(spec, &pos);
+    if (hour_start < 0)
+        goto parse_error;
+
+    if (spec[pos] != '-')
+        goto parse_error;
+    pos++;
+
+    hour_end = parse_hour_minute(spec, &pos);
+    if (hour_end < 0)
+        goto parse_error;
+
+    /* Should be at end of string (allow trailing whitespace) */
+    while (spec[pos] == ' ')
+        pos++;
+    if (spec[pos] != '\0')
+        goto parse_error;
+
+    /* Check day-of-week if specified */
+    if (day_start >= 0)
+    {
+        if (!day_in_range(current_wday, day_start, day_end))
+            return false;
+    }
+
+    /* Check hour range */
+    return hour_in_range(current_hour, hour_start, hour_end);
+
+parse_error:
+    ereport(WARNING,
+            (errmsg("pg_sage: unrecognized maintenance window format: \"%s\"",
+                    sage_maintenance_window),
+             errhint("Expected format: \"Sun 02:00-06:00\", "
+                     "\"Mon-Fri 22:00-06:00\", \"02:00-06:00\", "
+                     "\"*\", or \"always\".")));
     return false;
 }
 

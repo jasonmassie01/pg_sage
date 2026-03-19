@@ -216,6 +216,12 @@ SELECT sage.explain_json(queryid);             -- cached explain plan
 
 ---
 
+## Grafana Dashboard
+
+A pre-built Grafana dashboard is included at `grafana/pg_sage_dashboard.json` with 18 panels covering findings by severity, connections, cache hit ratio, TPS, deadlocks, circuit breaker status, and database size. See `grafana/README.md` for import instructions.
+
+---
+
 ## Schema
 
 All objects live in the `sage` schema:
@@ -245,7 +251,7 @@ Set these in `postgresql.conf` or via `ALTER SYSTEM`:
 | `sage.slow_query_threshold` | `1s` | Slow query threshold |
 | `sage.seq_scan_min_rows` | `100000` | Minimum table rows for sequential scan alerts |
 | `sage.rollback_threshold` | `10` | p95 latency regression % that triggers automatic rollback |
-| `sage.llm_enabled` | `on` | Enable Tier 2 LLM features (gracefully degrades when no endpoint configured) |
+| `sage.llm_enabled` | `off` | Enable Tier 2 LLM features (set to `on` after configuring `sage.llm_endpoint`) |
 
 ---
 

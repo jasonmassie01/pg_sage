@@ -340,20 +340,7 @@ extern char *sage_escape_json_string(const char *str);
 extern char *sage_format_jsonb_object(const char *first_key, ...);
 extern void sage_check_suppressions(void);
 
-/* Advisory lock hash for instance dedup */
-#define SAGE_ADVISORY_LOCK_HASH     hashtext_simple("pg_sage")
-
-/* Helper for hashtext since it's not always exposed */
-static inline int32
-hashtext_simple(const char *key)
-{
-    uint32 h = 0;
-    while (*key)
-    {
-        h = h * 31 + (unsigned char)*key;
-        key++;
-    }
-    return (int32) h;
-}
+/* Advisory lock key for instance dedup (fixed constant to avoid hash collisions) */
+#define SAGE_ADVISORY_LOCK_KEY      483722657
 
 #endif /* PG_SAGE_H */

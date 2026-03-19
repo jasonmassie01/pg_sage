@@ -999,7 +999,7 @@ sage_collector_main(Datum main_arg)
     PushActiveSnapshot(GetTransactionSnapshot());
     SPI_connect();
     advisory_ret = sage_spi_exec(
-        "SELECT pg_try_advisory_lock(hashtext('pg_sage'))", 0);
+        "SELECT pg_try_advisory_lock(483722657)", 0);
 
     if (advisory_ret < 0 || SPI_processed == 0)
     {
@@ -1154,7 +1154,7 @@ sage_collector_main(Datum main_arg)
     StartTransactionCommand();
     PushActiveSnapshot(GetTransactionSnapshot());
     SPI_connect();
-    sage_spi_exec("SELECT pg_advisory_unlock(hashtext('pg_sage'))", 0);
+    sage_spi_exec("SELECT pg_advisory_unlock(483722657)", 0);
     SPI_finish();
     PopActiveSnapshot();
     CommitTransactionCommand();
