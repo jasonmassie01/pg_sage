@@ -1,5 +1,12 @@
 # pg_sage Product Walkthrough
 
+> **Platform-specific guides available:**
+> - [Windows walkthrough](walkthrough-windows.md) — includes port conflict troubleshooting, cmd.exe quoting tips
+> - [Linux / macOS walkthrough](walkthrough-linux.md) — streamlined for Unix shells
+>
+> The guides below are the original generic walkthrough. The platform-specific
+> versions lead with the LLM features for a better first experience.
+
 This guide walks you through every feature of pg_sage step by step. You'll start the system, explore findings, test Tier 1/2/3 features, use the MCP sidecar, and verify Prometheus metrics.
 
 **Time required**: ~15 minutes
@@ -11,6 +18,7 @@ This guide walks you through every feature of pg_sage step by step. You'll start
 - Docker and Docker Compose installed
 - Terminal with `psql` available (the Docker container includes it)
 - Ports 5432, 5433, and 9187 available (or adjust `docker-compose.yml`)
+- **Important**: Run `docker compose` from the `pg_sage/pg_sage/` directory (where `docker-compose.yml` lives), not the repository root
 
 ---
 
@@ -239,16 +247,27 @@ You'll see:
 
 ### MCP Server
 
-The MCP server runs on port 5433 using SSE (Server-Sent Events). AI assistants like Claude, Cursor, and Copilot can connect to it. To test manually:
+The MCP server runs on port 5433 using HTTP + SSE (Server-Sent Events). AI assistants like Claude, Cursor, and Copilot can connect to it.
 
+Testing requires **two terminals** — the SSE stream must stay open to receive responses:
+
+**Terminal 1** (keep open):
 ```bash
-# Initialize an MCP session
-curl -X POST http://localhost:5433/ \
+curl -N http://localhost:5433/sse
+# Outputs: event: endpoint
+#          data: /messages?sessionId=<SESSION_ID>
+```
+
+**Terminal 2** (use the session ID from Terminal 1):
+```bash
+curl -X POST "http://localhost:5433/messages?sessionId=<SESSION_ID>" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
 ```
 
-The response arrives via SSE. The sidecar supports these MCP resources:
+The initialize response appears in Terminal 1's SSE stream. Terminal 2 receives a `202 Accepted`.
+
+The sidecar supports these MCP resources:
 - `sage://health` — System health overview
 - `sage://findings` — Open findings
 - `sage://schema/{table}` — Table DDL, indexes, constraints
@@ -330,20 +349,26 @@ Key settings to experiment with:
 
 ## Step 16: Test with LLM (Optional)
 
-If you have access to an OpenAI-compatible API (OpenAI, Ollama, Claude via OpenRouter):
+If you have access to an OpenAI-compatible API:
 
 ```sql
--- Configure LLM
-ALTER SYSTEM SET sage.llm_endpoint = 'http://host.docker.internal:11434/v1/chat/completions';  -- Ollama example
-ALTER SYSTEM SET sage.llm_model = 'llama3.2';
+-- Example: Google Gemini
+ALTER SYSTEM SET sage.llm_endpoint = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+ALTER SYSTEM SET sage.llm_api_key = 'YOUR_GEMINI_API_KEY';
+ALTER SYSTEM SET sage.llm_model = 'gemini-2.5-flash';
 ALTER SYSTEM SET sage.llm_enabled = on;
 SELECT pg_reload_conf();
+
+-- Example: Ollama (local)
+-- ALTER SYSTEM SET sage.llm_endpoint = 'http://host.docker.internal:11434/v1/chat/completions';
+-- ALTER SYSTEM SET sage.llm_model = 'llama3.2';
 
 -- Now briefings use natural language
 SELECT sage.briefing();
 
--- Diagnose uses ReAct reasoning
+-- Diagnose uses ReAct reasoning — ask anything about your database
 SELECT sage.diagnose('What are the biggest performance risks in my database?');
+SELECT sage.diagnose('Which indexes should I drop on orders?');
 ```
 
 ---
