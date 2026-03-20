@@ -182,7 +182,7 @@ Suppressed findings auto-reopen when the duration expires.
 pg_sage logs every autonomous action it takes (or considers taking):
 
 ```sql
-SELECT id, action_type, category, status, executed_at
+SELECT id, action_type, finding_id, outcome, executed_at
 FROM sage.action_log
 ORDER BY executed_at DESC
 LIMIT 10;

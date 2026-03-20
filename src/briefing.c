@@ -17,6 +17,7 @@
 #include "postmaster/bgworker.h"
 #include "storage/latch.h"
 #include "access/xact.h"
+#include "utils/resowner.h"
 #include "utils/snapmgr.h"
 
 /* Forward declarations */
@@ -916,6 +917,7 @@ sage_diagnose(PG_FUNCTION_ARGS)
         int             step;
         int             tokens_used = 0;
         int             total_tokens = 0;
+        int             spi_conn;
 
         system_prompt =
             "You are pg_sage, an autonomous PostgreSQL DBA diagnostic agent. "
@@ -925,10 +927,17 @@ sage_diagnose(PG_FUNCTION_ARGS)
             "Rules for ACTION queries:\n"
             "- Only SELECT queries (read-only)\n"
             "- No DDL or DML\n"
-            "- Keep queries focused and efficient\n\n"
+            "- Keep queries focused and efficient\n"
+            "- Use the correct column names from PostgreSQL catalog views. "
+            "For example, pg_stat_user_indexes uses 'indexrelname' (not 'indexname').\n\n"
             "When you have enough information, provide your conclusion using:\n"
             "CONCLUSION: <your analysis and recommendations>\n\n"
+            "If a query fails, you will see the error message. Fix the query and try again.\n\n"
             "Be specific, reference actual data, and provide actionable recommendations.";
+
+        /* SPI connection is opened per-query inside subtransactions
+         * to properly isolate failures. */
+        (void) spi_conn; /* suppress unused variable warning */
 
         initStringInfo(&conversation);
         appendStringInfo(&conversation,
@@ -1029,43 +1038,61 @@ sage_diagnose(PG_FUNCTION_ARGS)
                     pfree(lower_sql);
                 }
 
-                /* Execute the diagnostic query */
-                PG_TRY();
+                /* Execute the diagnostic query inside a subtransaction
+                 * with its own SPI connection.  This is the standard
+                 * PostgreSQL pattern for isolating errors in C extension
+                 * code: subtxn + SPI_connect/SPI_finish per attempt. */
                 {
-                    int spi_conn;
+                    MemoryContext  oldcxt = CurrentMemoryContext;
+                    ResourceOwner oldowner = CurrentResourceOwner;
 
-                    spi_conn = SPI_connect();
-                    if (spi_conn == SPI_OK_CONNECT)
-                    {
-                        /* Enforce read-only */
-                        SPI_execute("SET LOCAL transaction_read_only = true",
-                                    false, 0);
-
-                        sql_result = spi_query_simple(diag_sql);
-                        SPI_finish();
-                    }
-                    else
-                    {
-                        sql_result = pstrdup("[SPI connection failed]");
-                    }
-                }
-                PG_CATCH();
-                {
-                    EmitErrorReport();
-                    FlushErrorState();
-                    sql_result = pstrdup("[Query execution error]");
-
+                    BeginInternalSubTransaction(NULL);
                     PG_TRY();
                     {
-                        SPI_finish();
+                        int inner_conn = SPI_connect();
+                        if (inner_conn == SPI_OK_CONNECT)
+                        {
+                            char *tmp = spi_query_simple(diag_sql);
+                            /* Copy to outer context before SPI_finish
+                             * frees SPI memory */
+                            MemoryContextSwitchTo(oldcxt);
+                            sql_result = tmp ? pstrdup(tmp) : NULL;
+                            SPI_finish();
+                        }
+                        else
+                        {
+                            MemoryContextSwitchTo(oldcxt);
+                            sql_result = pstrdup("[SPI connection failed]");
+                        }
+                        ReleaseCurrentSubTransaction();
+                        MemoryContextSwitchTo(oldcxt);
+                        CurrentResourceOwner = oldowner;
                     }
                     PG_CATCH();
                     {
+                        ErrorData *edata;
+                        StringInfoData errbuf;
+
+                        MemoryContextSwitchTo(oldcxt);
+                        edata = CopyErrorData();
                         FlushErrorState();
+
+                        RollbackAndReleaseCurrentSubTransaction();
+                        MemoryContextSwitchTo(oldcxt);
+                        CurrentResourceOwner = oldowner;
+
+                        /* Feed the error back to the LLM so it can
+                         * correct the query and retry */
+                        initStringInfo(&errbuf);
+                        appendStringInfo(&errbuf,
+                            "[Query error: %s]",
+                            edata->message ? edata->message
+                                           : "unknown error");
+                        sql_result = errbuf.data;
+                        FreeErrorData(edata);
                     }
                     PG_END_TRY();
                 }
-                PG_END_TRY();
 
                 /* Append result to conversation */
                 appendStringInfo(&conversation,
