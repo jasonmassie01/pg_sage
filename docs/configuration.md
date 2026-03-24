@@ -72,6 +72,24 @@ sage.index_bloat_threshold = 20
 
 ---
 
+## Noise Reduction
+
+| Parameter | Type | Default | Range | Context | Description |
+|---|---|---|---|---|---|
+| `sage.toast_bloat_min_rows` | int | `1000` | 1--INT_MAX | SIGHUP | Minimum table rows before TOAST bloat findings are generated |
+| `sage.schema_design_min_rows` | int | `100` | 1--INT_MAX | SIGHUP | Minimum table rows before schema design findings are generated |
+| `sage.schema_design_min_columns` | int | `2` | 1--100 | SIGHUP | Minimum columns before schema design findings are generated |
+
+**Example:**
+
+```ini
+sage.toast_bloat_min_rows = 5000
+sage.schema_design_min_rows = 500
+sage.schema_design_min_columns = 3
+```
+
+---
+
 ## LLM Settings
 
 | Parameter | Type | Default | Range | Context | Description |
@@ -79,6 +97,7 @@ sage.index_bloat_threshold = 20
 | `sage.llm_enabled` | bool | `on` | -- | SIGHUP | Enable LLM-powered Tier 2 features |
 | `sage.llm_endpoint` | string | `""` | -- | SIGHUP | HTTP endpoint for LLM API calls |
 | `sage.llm_api_key` | string | `""` | -- | SIGHUP | API key for LLM service (superuser only) |
+| `sage.llm_api_key_file` | string | `""` | -- | SIGHUP | Path to a file containing the LLM API key (alternative to setting `sage.llm_api_key` directly; reloaded on SIGHUP) |
 | `sage.llm_model` | string | `""` | -- | SIGHUP | Model name to use for LLM calls |
 | `sage.llm_timeout` | int (seconds) | `30` | 5--120 | SIGHUP | Timeout for LLM API calls |
 | `sage.llm_token_budget` | int | `50000` | 0--INT_MAX | SIGHUP | Maximum tokens per day across all LLM calls |
@@ -133,6 +152,7 @@ sage.autoexplain_sample_rate = 0.05
 | `sage.rollback_threshold` | int (%) | `10` | 1--100 | SIGHUP | p95 latency regression percentage that triggers automatic rollback |
 | `sage.rollback_window` | int (minutes) | `15` | 5--60 | SIGHUP | Minutes after an action during which rollback is possible |
 | `sage.rollback_cooldown` | int (days) | `7` | 1--90 | SIGHUP | Days to wait before retrying a rolled-back action |
+| `sage.trust_ramp_override_days` | int | `0` | 0--365 | SIGHUP | Override the trust ramp timeline (0 = use natural ramp). For testing: set to 31 to immediately allow autonomous actions |
 
 The trust model controls what pg_sage is allowed to do:
 
@@ -239,3 +259,11 @@ When the sage schema exceeds this size, pg_sage throttles collection and trigger
 ```ini
 sage.max_schema_size = '500MB'
 ```
+
+---
+
+## Sidecar YAML Configuration
+
+The pg_sage sidecar process uses a separate YAML configuration file (`config.example.yaml`) rather than PostgreSQL GUCs. This file controls sidecar-specific settings such as the database connection string, MCP server port, Prometheus exporter port, and LLM provider configuration.
+
+The sidecar supports hot-reload: changes to the YAML config file are detected and applied without restarting the sidecar process. Copy `config.example.yaml` to `config.yaml` and edit it for your environment.

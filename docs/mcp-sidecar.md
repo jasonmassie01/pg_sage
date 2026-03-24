@@ -1,6 +1,6 @@
 # MCP Sidecar
 
-pg_sage includes a thin Go sidecar that exposes the extension's capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) over HTTP+SSE. This lets AI coding assistants (Claude, Cursor, Copilot) interact with your database through pg_sage.
+pg_sage includes a thin Go sidecar that exposes the extension's capabilities via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) over HTTP+SSE. This lets AI coding assistants (Claude, Cursor, Copilot) interact with your database through pg_sage. The sidecar operates in two modes: extension mode (with pg_sage C extension installed) and standalone mode (direct catalog queries for managed databases like Cloud SQL, AlloyDB, RDS, Aurora).
 
 ---
 
@@ -14,6 +14,13 @@ The pg_sage sidecar implements the MCP specification, exposing database health, 
 
 ## Running the Sidecar
 
+### With YAML Config (Recommended)
+
+```bash
+cd sidecar && go build -o sage-sidecar ./cmd/pg_sage_sidecar
+./sage-sidecar --config config.yaml
+```
+
 ### With Docker Compose
 
 ```bash
@@ -22,13 +29,13 @@ docker compose up
 
 This starts both the PostgreSQL + pg_sage container and the sidecar.
 
-### Standalone
+### With Environment Variables
 
 ```bash
 export SAGE_DATABASE_URL="postgres://user:pass@host:5432/dbname"
 export SAGE_MCP_PORT=5433
 export SAGE_PROMETHEUS_PORT=9187
-cd sidecar && go build -o sage-sidecar . && ./sage-sidecar
+cd sidecar && go build -o sage-sidecar ./cmd/pg_sage_sidecar && ./sage-sidecar
 ```
 
 ### Environment Variables
@@ -312,16 +319,17 @@ The sidecar exposes Prometheus metrics at `:9187/metrics`.
 
 ---
 
-## Sidecar-Only Mode for Managed Databases
+## Standalone Mode for Managed Databases
 
-When connected to a managed database (RDS, Aurora, Cloud SQL) without the pg_sage extension installed, the sidecar automatically detects the absence and falls back to direct catalog queries.
+When connected to a managed database (Cloud SQL, AlloyDB, RDS, Aurora) without the pg_sage C extension installed, the sidecar automatically detects the absence and switches to standalone mode. Cloud environment auto-detection identifies the provider (Cloud SQL, AlloyDB, RDS, Aurora) and adjusts behavior accordingly.
 
-In sidecar-only mode:
+In standalone mode, the sidecar runs its own collector, analyzer, executor, and LLM client — providing the full pg_sage experience without requiring the C extension:
 
-- MCP resources work using direct SQL against `pg_stat_*` views
+- MCP resources work using direct SQL against `pg_stat_*` views and catalog queries
 - Prometheus metrics are generated from catalog queries
-- Tools that depend on the extension (`diagnose`, `briefing`) are unavailable
-- No background workers, rules engine, or action executor
+- Tools including `diagnose` and `briefing` are fully available
+- The sidecar creates its own schema tables (`sage.findings`, `sage.action_log`, etc.) in the target database
+- Background collection and analysis run on configurable intervals
 
 ```bash
 docker compose run --rm \
@@ -331,4 +339,4 @@ docker compose run --rm \
 ```
 
 !!! note
-    Sidecar-only mode is a monitoring-only configuration. For the full pg_sage experience including automated analysis and remediation, install the C extension on a self-managed PostgreSQL instance.
+    Standalone mode provides autonomous analysis, diagnostics, and remediation for managed databases where installing C extensions is not possible. For lowest overhead on self-managed instances, install the C extension directly.

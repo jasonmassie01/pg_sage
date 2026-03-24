@@ -2,7 +2,7 @@
 
 ## Docker Compose
 
-The included `docker-compose.yml` is production-ready with minor adjustments.
+The included `docker-compose.yml` is production-ready with minor adjustments. For cloud database deployments where the extension cannot be installed, use the sidecar in standalone mode with a YAML config file (see [Cloud SQL](#cloud-sql-google-cloud) below).
 
 ### Basic Setup
 
@@ -60,6 +60,60 @@ volumes:
 - Enable `sage.redact_queries = on` if query literals contain sensitive data
 - Set `SAGE_API_KEY` to require authentication for the MCP sidecar
 - Use `SAGE_TLS_CERT` and `SAGE_TLS_KEY` for TLS on the sidecar
+
+---
+
+## Cloud SQL (Google Cloud)
+
+The pg_sage sidecar runs standalone against Cloud SQL PostgreSQL instances. Validated on PG 17.
+
+```bash
+# Using YAML config
+cat > config.yaml << 'EOF'
+mode: standalone
+postgres:
+  host: 34.72.70.25
+  port: 5432
+  user: postgres
+  password: ${PGPASSWORD}
+  database: postgres
+  sslmode: require
+trust:
+  level: advisory
+  maintenance_window: "0 2 * * *"
+llm:
+  enabled: true
+  endpoint: https://generativelanguage.googleapis.com/v1beta/openai
+  model: gemini-2.5-flash
+  api_key: ${GEMINI_API_KEY}
+mcp:
+  enabled: true
+  listen: 0.0.0.0:5433
+prometheus:
+  listen: 0.0.0.0:9187
+EOF
+
+cd sidecar && go build -o sage-sidecar ./cmd/pg_sage_sidecar
+./sage-sidecar --config config.yaml
+```
+
+The sidecar auto-detects Cloud SQL via `cloudsql_proxy` connection metadata or IP ranges.
+
+---
+
+## AlloyDB (Google Cloud)
+
+AlloyDB is fully supported with zero code changes. The sidecar detects AlloyDB via `current_setting('alloydb.iam_authentication')`.
+
+```bash
+# Same config as Cloud SQL, just point to AlloyDB IP
+```
+
+---
+
+## RDS / Aurora (AWS)
+
+The sidecar connects to RDS and Aurora via standard PostgreSQL connections. Set `sslmode: require` and use IAM auth or password auth.
 
 ---
 
