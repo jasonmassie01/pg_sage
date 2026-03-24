@@ -78,6 +78,7 @@ Optional features that use an external LLM for natural-language intelligence:
 - **Daily briefings** -- summarized health reports delivered on schedule
 - **Interactive diagnose** -- ReAct loop that reasons through problems step by step
 - **Explain narrative** -- human-readable query plan analysis via `sage.explain(queryid)`
+- **LLM index optimizer** -- cross-query index consolidation, INCLUDE column recommendations, with anti-proliferation guards (write-heavy skip, over-indexed table skip, CONCURRENTLY enforcement)
 - **Cost attribution** -- map storage and IOPS costs to unused indexes and missing indexes
 - **Migration review** -- detect long-running DDL blocking production
 - **Schema design review** -- timezone-naive timestamps, missing PKs, naming issues

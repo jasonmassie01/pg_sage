@@ -267,3 +267,20 @@ sage.max_schema_size = '500MB'
 The pg_sage sidecar process uses a separate YAML configuration file (`config.example.yaml`) rather than PostgreSQL GUCs. This file controls sidecar-specific settings such as the database connection string, MCP server port, Prometheus exporter port, and LLM provider configuration.
 
 The sidecar supports hot-reload: changes to the YAML config file are detected and applied without restarting the sidecar process. Copy `config.example.yaml` to `config.yaml` and edit it for your environment.
+
+### LLM Index Optimizer
+
+The sidecar includes an LLM-powered index optimizer that analyzes query patterns and table schemas to recommend index changes. Configure it under the `llm.index_optimizer` key in your YAML config:
+
+```yaml
+llm:
+  index_optimizer:
+    enabled: true
+    min_query_calls: 100        # Ignore ad-hoc queries below this call count
+    max_indexes_per_table: 10   # Skip tables already at this index count
+    max_include_columns: 3      # Max INCLUDE columns per recommendation
+    over_indexed_ratio_pct: 80  # Skip if index-to-column ratio exceeds this
+    write_heavy_ratio_pct: 70   # Skip tables where writes dominate reads
+```
+
+The optimizer enforces safety guards: all recommendations must use `CONCURRENTLY`, never drop unique/primary indexes, and respect per-table index limits. Write-heavy and over-indexed tables are automatically skipped.
