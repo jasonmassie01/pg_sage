@@ -3,10 +3,26 @@
 *.dll
 *.dylib
 *.bc
+*.exe
+*.exe~
 /results/
 /regression.diffs
 /regression.out
 /log/
 /tmp_check/
 sidecar/sage-sidecar
+sidecar/sage-sidecar-standalone.exe
 sidecar/go.sum
+sidecar/coverage.out
+sidecar/pg_sage_sidecar_linux
+
+# Sensitive files
+cloudsqltests/config_test.yaml
+cloudsqltests/config_alloydb_test.yaml
+cloudsqltests/*.pid
+cloudsqltests/*.log
+.mcp.json
+
+# Task artifacts
+tasks/
+sidecar/tasks/
