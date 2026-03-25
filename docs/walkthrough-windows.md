@@ -1,118 +1,80 @@
-# pg_sage Walkthrough — Windows
+# pg_sage Walkthrough -- Windows
 
 Your database has been silently accumulating problems: duplicate indexes burning
-write I/O, sequences about to overflow, missing security policies, queries doing
-full table scans on 100K rows. In the next 10 minutes, pg_sage will find all of
-them — and explain exactly how to fix each one, in plain English.
+write I/O, sequences about to overflow, queries doing full table scans on 100K
+rows. In the next 10 minutes, pg_sage will find all of them and tell you exactly
+how to fix each one.
 
 **Time**: ~10 minutes
 
+**Prerequisites**:
+
+- A PostgreSQL 14-17 database you can connect to
+- PowerShell or Git Bash
+- `psql` client (ships with PostgreSQL installer)
+
+If you have a local PostgreSQL on port 5432, you can use it directly. Otherwise,
+start one via Docker Desktop:
+
+```powershell
+docker run -d --name pg-test -e POSTGRES_PASSWORD=testpass `
+  -p 5432:5432 postgres:17 `
+  -c shared_preload_libraries=pg_stat_statements
+```
+
 ---
 
-## Prerequisites
+## 1. Download and Start
 
-- [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/) installed and running
-- A terminal: Command Prompt, PowerShell, or Git Bash all work
-- Ports 5432, 5433, and 9187 available
+### PowerShell
 
-> **Note**: If you have a local PostgreSQL installed on port 5432, stop it first:
-> ```cmd
-> net stop postgresql-x64-17
-> ```
-> Or change the port mapping in `docker-compose.yml` (e.g., `"5433:5432"`).
+```powershell
+Invoke-WebRequest -Uri https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_windows_amd64.exe -OutFile pg_sage.exe
+```
 
----
+### Git Bash
 
-## 1. Start the Stack
+```bash
+curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_windows_amd64.exe -o pg_sage.exe
+```
+
+Create the database user (connect with a superuser):
 
 ```cmd
-git clone https://github.com/jasonmassie01/pg_sage.git
-cd pg_sage\pg_sage
-docker compose up -d
+psql -h localhost -U postgres -c "CREATE USER sage_agent WITH PASSWORD 'sagepw'; GRANT pg_monitor TO sage_agent; GRANT pg_read_all_stats TO sage_agent; GRANT CREATE ON SCHEMA public TO sage_agent; GRANT pg_signal_backend TO sage_agent;"
 ```
 
-Wait for healthy (~15 seconds):
+Start pg_sage:
 
 ```cmd
-docker compose ps
+pg_sage.exe --database-url "postgres://sage_agent:sagepw@localhost:5432/postgres"
 ```
 
-You should see two containers running: `pg_sage-pg_sage-1` (healthy) and
-`pg_sage-sidecar-1` (running). The demo database ships with 100K orders,
-intentionally bad indexes, and a nearly-exhausted sequence — a realistic mess
-for pg_sage to find.
+pg_sage connects, bootstraps the `sage` schema, and starts collecting. Leave it
+running in this terminal.
 
 ---
 
-## 2. Connect
+## 2. Check Findings
+
+Open a second terminal and connect to the database:
 
 ```cmd
-docker exec -it pg_sage-pg_sage-1 psql -U postgres
+psql -h localhost -U sage_agent -d postgres
 ```
 
----
-
-## 3. Ask Your Database What's Wrong
-
-pg_sage has been analyzing your database since it started. Within 60 seconds of
-boot, the collector and analyzer have already run. Let's skip the preamble and
-go straight to the good part — ask it a question:
+Wait about 2 minutes for the first analyzer cycle, then:
 
 ```sql
--- Give the AI a Gemini API key (or any OpenAI-compatible endpoint)
-ALTER SYSTEM SET sage.llm_endpoint = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-ALTER SYSTEM SET sage.llm_api_key = 'YOUR_API_KEY_HERE';
-ALTER SYSTEM SET sage.llm_model = 'gemini-2.5-flash';
-ALTER SYSTEM SET sage.llm_enabled = on;
-SELECT pg_reload_conf();
-```
-
-Now ask it anything:
-
-```sql
-SELECT sage.diagnose('What are the biggest risks in my database right now?');
-```
-
-pg_sage examines its findings, queries the catalog for supporting evidence,
-and returns a plain-English explanation of every critical issue — what's wrong,
-why it matters, and exactly how to fix it. This uses a ReAct reasoning loop:
-the AI thinks, queries, observes, and iterates up to 10 steps.
-
-Try a targeted question:
-
-```sql
-SELECT sage.diagnose('Which indexes on the orders table are wasting resources?');
-```
-
-It identifies the duplicates, calculates the write overhead, and tells you
-which one to drop — with the exact DDL.
-
----
-
-## 4. See What It Found (No LLM Required)
-
-Everything below works without an API key. The LLM enhances the output, but
-the rules engine catches all the same issues.
-
-```sql
-SELECT id, severity, category, title
+SELECT category, severity, title
 FROM sage.findings
 WHERE status = 'open'
 ORDER BY
-  CASE severity WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END,
-  category;
+  CASE severity WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END;
 ```
 
-You'll see findings like:
-
-| severity | category | title |
-|----------|----------|-------|
-| critical | duplicate_index | Duplicate index on orders (customer_id) |
-| critical | sequence_exhaustion | test_exhausted_seq at 93% capacity (integer) |
-| critical | config | Cache hit ratio 0% |
-| warning | security_missing_rls | customers table has sensitive columns but no RLS |
-| warning | unused_index | Unused index on orders (zero scans in 30 days) |
-| warning | slow_query | Slow query: SELECT pg_sleep(...) |
+You will see findings for any detected issues -- duplicate indexes, unused
+indexes, slow queries, sequence exhaustion, cache hit ratio, etc.
 
 Every finding comes with a fix and a rollback:
 
@@ -124,76 +86,41 @@ WHERE severity = 'critical' AND status = 'open';
 
 ---
 
-## 5. Get a Health Briefing
+## 3. Enable LLM (Optional)
 
-```sql
-SELECT sage.briefing();
+Create a `config.yaml`:
+
+```yaml
+mode: standalone
+
+postgres:
+  host: localhost
+  port: 5432
+  user: sage_agent
+  password: sagepw
+  database: postgres
+
+llm:
+  enabled: true
+  endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+  model: "gemini-2.5-flash"
+  api_key: YOUR_API_KEY_HERE
+  optimizer:
+    enabled: true
+
+trust:
+  level: observation
 ```
 
-A structured report: critical/warning/info counts, new findings since last
-briefing, resolved issues, recent actions, and system metrics. With the LLM
-enabled, this becomes a narrative summary.
+Restart pg_sage with the config:
 
----
-
-## 6. Explore a Table
-
-```sql
--- Full schema: columns, indexes, constraints, foreign keys
-SELECT sage.schema_json('public.orders');
-
--- Runtime stats: size, row counts, dead tuples, vacuum status
-SELECT sage.stats_json('public.orders');
-```
-
----
-
-## 7. Find Slow Queries
-
-```sql
-SELECT sage.slow_queries_json();
-```
-
-Returns the top 20 queries by execution time from `pg_stat_statements`, with
-call counts, mean/max/min timing, and I/O stats.
-
----
-
-## 8. Emergency Controls
-
-If you ever need to halt all autonomous activity immediately:
-
-```sql
-SELECT sage.emergency_stop();
-SELECT sage.status();  -- emergency_stopped = true
-```
-
-Resume when ready:
-
-```sql
-SELECT sage.resume();
-SELECT sage.status();  -- emergency_stopped = false
+```cmd
+pg_sage.exe --config config.yaml
 ```
 
 ---
 
-## 9. Suppress a Known Issue
-
-```sql
--- Suppress finding #4 for 30 days
-SELECT sage.suppress(4, 'Expected on fresh demo database', 30);
-
--- Verify
-SELECT id, title, status FROM sage.findings WHERE id = 4;
-```
-
-Suppressed findings auto-reopen when the duration expires.
-
----
-
-## 10. Check the Action Log
-
-pg_sage logs every autonomous action it takes (or considers taking):
+## 4. Check the Action Log
 
 ```sql
 SELECT id, action_type, finding_id, outcome, executed_at
@@ -202,97 +129,54 @@ ORDER BY executed_at DESC
 LIMIT 10;
 ```
 
-In advisory mode (the default), safe actions like dropping duplicate indexes
-may be executed. Each action includes `before_state`, `after_state`, and
-`rollback_sql` for full auditability.
+In observation mode (the default), no actions are taken. Promote to `advisory`
+in the config to allow safe actions like dropping duplicate indexes.
 
 ---
 
-## 11. View Configuration
+## 5. Prometheus Metrics
 
-```sql
-SELECT name, setting, short_desc
-FROM pg_settings
-WHERE name LIKE 'sage.%'
-ORDER BY name;
-```
-
-Key settings to experiment with:
-- `sage.trust_level` — `observation` → `advisory` → `autonomous`
-- `sage.slow_query_threshold` — Lower to catch more queries (default: 1000ms)
-- `sage.collector_interval` / `sage.analyzer_interval` — Collection frequency
-- `sage.llm_features` — Enable specific AI features: `briefing,explain,diagnostic,shell`
-
----
-
-## 12. Prometheus Metrics
-
-Open a second terminal (Command Prompt or PowerShell):
+Open a second terminal:
 
 ```cmd
 curl -s http://localhost:9187/metrics
 ```
 
-Output:
+If `curl` is not available, use PowerShell:
+
+```powershell
+(Invoke-WebRequest http://localhost:9187/metrics).Content
+```
+
+Output includes:
 
 ```
-# HELP pg_sage_findings_total Number of open findings by severity
-# TYPE pg_sage_findings_total gauge
-pg_sage_findings_total{severity="critical"} 4
-pg_sage_findings_total{severity="warning"} 6
+pg_sage_findings_total{severity="critical"} 2
+pg_sage_findings_total{severity="warning"} 4
 pg_sage_findings_total{severity="info"} 1
-
-# HELP pg_sage_circuit_breaker_state Circuit breaker state (0=closed, 1=open)
-# TYPE pg_sage_circuit_breaker_state gauge
-pg_sage_circuit_breaker_state{breaker="db"} 0
-pg_sage_circuit_breaker_state{breaker="llm"} 0
+pg_sage_connection_up 1
 ```
-
-Wire this into Grafana with the included dashboard:
-`grafana/pg_sage_dashboard.json` (18 panels).
-
-> **Troubleshooting**: If `curl` returns empty or "connection refused", make
-> sure you started from the `pg_sage\pg_sage` directory (not the parent).
-> The sidecar container needs to be running with port mappings:
-> ```cmd
-> docker port pg_sage-sidecar-1
-> ```
-> Should show `5433/tcp -> 0.0.0.0:5433` and `9187/tcp -> 0.0.0.0:9187`.
 
 ---
 
-## 13. MCP Server (For AI Assistants)
+## 6. MCP Server (For AI Assistants)
 
-The sidecar exposes pg_sage via the Model Context Protocol on port 5433.
-Claude, Cursor, Copilot, and other MCP-compatible tools can connect to it.
+pg_sage exposes the Model Context Protocol on port 8080 (configurable). Claude
+Desktop, Cursor, and other MCP-compatible tools can connect.
 
-To test manually, you need **two terminals** (the SSE session must stay open):
+Configure Claude Desktop (`%APPDATA%\Claude\claude_desktop_config.json`):
 
-**Terminal 1** — keep this running:
-
-```cmd
-curl -N http://localhost:5433/sse
+```json
+{
+  "mcpServers": {
+    "pg_sage": {
+      "url": "http://localhost:8080/sse"
+    }
+  }
+}
 ```
 
-You'll see output like:
-
-```
-event: endpoint
-data: /messages?sessionId=abc123-def456-...
-```
-
-Copy that session ID.
-
-**Terminal 2** — send requests using that session ID:
-
-```cmd
-curl -X POST "http://localhost:5433/messages?sessionId=YOUR_SESSION_ID" -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"test\",\"version\":\"1.0\"}}}"
-```
-
-> **Windows note**: Use escaped double quotes `\"` inside the `-d` string as
-> shown above. Single quotes around JSON don't work in `cmd.exe`.
-
-The response appears in Terminal 1. Available MCP resources:
+Available MCP resources:
 
 | Resource | Description |
 |----------|-------------|
@@ -303,15 +187,36 @@ The response appears in Terminal 1. Available MCP resources:
 | `sage://stats/{table}` | Table statistics |
 | `sage://explain/{queryid}` | Cached EXPLAIN plan |
 
+Ask questions like: "What are my slowest queries?", "Show me duplicate indexes",
+"Why is my application slow?"
+
 ---
 
-## 14. Clean Up
+## 7. Clean Up
 
-```cmd
-docker compose down -v
+Stop pg_sage with Ctrl+C. To remove the sage schema:
+
+```sql
+DROP SCHEMA sage CASCADE;
 ```
 
-The `-v` flag removes the data volume. Omit it to keep your data between runs.
+If using the test Docker container:
+
+```cmd
+docker rm -f pg-test
+```
+
+---
+
+## Windows-Specific Notes
+
+- **Port conflicts**: A local PostgreSQL install binds port 5432. Either use it
+  directly (recommended) or stop the service: `net stop postgresql-x64-17`.
+- **Docker Desktop**: Make sure Docker Desktop is running before starting containers.
+- **curl**: Windows 10+ includes curl. If not found, use PowerShell's
+  `Invoke-WebRequest` or install via `winget install curl`.
+- **Firewall**: Windows Firewall may prompt for access when pg_sage starts
+  listening on ports 8080 and 9187.
 
 ---
 
@@ -319,31 +224,9 @@ The `-v` flag removes the data volume. Omit it to keep your data between runs.
 
 | Feature | Tier | LLM Required? |
 |---------|------|---------------|
-| Automatic finding detection (indexes, queries, config, security, sequences, vacuum) | 1 | No |
-| Health briefings with severity breakdown | 1 | No (enhanced with LLM) |
-| EXPLAIN plan capture and caching | 1 | No (narrated with LLM) |
-| AI diagnostic with ReAct reasoning | 2 | Yes |
-| Emergency stop / resume | Core | No |
-| Circuit breakers (DB + LLM) | Core | No |
-| Finding suppression with auto-expiry | Core | No |
-| Action executor with graduated trust | 3 | No |
-| Prometheus metrics | Sidecar | No |
-| MCP server for AI assistants | Sidecar | No |
-
-pg_sage continuously monitors your database, catches problems before they
-become outages, and — when you're ready — fixes them autonomously during
-maintenance windows, with automatic rollback if anything regresses.
-
----
-
-## Windows-Specific Notes
-
-- **Port conflicts**: A local PostgreSQL install will bind port 5432 before
-  Docker can. Either stop the service (`net stop postgresql-x64-17`) or remap
-  the port in `docker-compose.yml`.
-- **Docker Desktop**: Make sure Docker Desktop is running before `docker compose up`.
-- **Line endings**: If you cloned with `core.autocrlf=true`, shell scripts
-  inside Docker may fail. The Dockerfile handles this, but if you see
-  `/bin/bash^M` errors, run `git config core.autocrlf input` and re-clone.
-- **curl**: Windows 10+ includes curl. If it's not found, use PowerShell's
-  `Invoke-WebRequest` or install curl via `winget install curl`.
+| 18+ deterministic rules (indexes, queries, sequences, bloat, replication) | 1 | No |
+| LLM index optimizer with HypoPG validation | 2 | Yes |
+| Trust-gated action executor with rollback | 3 | No |
+| Prometheus metrics | Core | No |
+| MCP server for AI assistants | Core | No |
+| Health briefings | Core | No (enhanced with LLM) |

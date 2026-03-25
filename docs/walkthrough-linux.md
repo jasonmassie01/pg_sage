@@ -1,104 +1,73 @@
-# pg_sage Walkthrough — Linux / macOS
+# pg_sage Walkthrough -- Linux / macOS
 
 Your database has been silently accumulating problems: duplicate indexes burning
-write I/O, sequences about to overflow, missing security policies, queries doing
-full table scans on 100K rows. In the next 10 minutes, pg_sage will find all of
-them — and explain exactly how to fix each one, in plain English.
+write I/O, sequences about to overflow, queries doing full table scans on 100K
+rows. In the next 10 minutes, pg_sage will find all of them and tell you exactly
+how to fix each one.
 
 **Time**: ~10 minutes
 
----
-
-## 1. Start the Stack
-
-```bash
-git clone https://github.com/jasonmassie01/pg_sage.git
-cd pg_sage/pg_sage
-docker compose up -d
-```
-
-Wait for healthy (~15 seconds):
+**Prerequisites**: A PostgreSQL 14-17 database you can connect to. If you do not
+have one handy, use a local Docker instance:
 
 ```bash
-docker compose ps
+docker run -d --name pg-test -e POSTGRES_PASSWORD=testpass \
+  -p 5432:5432 postgres:17 \
+  -c shared_preload_libraries=pg_stat_statements
 ```
-
-You should see two containers running: `pg_sage-pg_sage-1` (healthy) and
-`pg_sage-sidecar-1` (running). The demo database ships with 100K orders,
-intentionally bad indexes, and a nearly-exhausted sequence — a realistic mess
-for pg_sage to find.
 
 ---
 
-## 2. Connect
+## 1. Download and Start
 
 ```bash
-docker exec -it pg_sage-pg_sage-1 psql -U postgres
+curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_linux_amd64 -o pg_sage
+chmod +x pg_sage
 ```
+
+Create the database user (connect to your database with a superuser):
+
+```bash
+psql -h localhost -U postgres -c "
+  CREATE USER sage_agent WITH PASSWORD 'sagepw';
+  GRANT pg_monitor TO sage_agent;
+  GRANT pg_read_all_stats TO sage_agent;
+  GRANT CREATE ON SCHEMA public TO sage_agent;
+  GRANT pg_signal_backend TO sage_agent;
+"
+```
+
+Start pg_sage:
+
+```bash
+./pg_sage --database-url "postgres://sage_agent:sagepw@localhost:5432/postgres"
+```
+
+pg_sage connects, bootstraps the `sage` schema, and starts collecting. Leave it
+running in this terminal.
 
 ---
 
-## 3. Ask Your Database What's Wrong
+## 2. Check Findings
 
-pg_sage has been analyzing your database since it started. Within 60 seconds of
-boot, the collector and analyzer have already run. Let's skip the preamble and
-go straight to the good part — ask it a question:
+Open a second terminal and connect to the database:
 
-```sql
--- Give the AI a Gemini API key (or any OpenAI-compatible endpoint)
-ALTER SYSTEM SET sage.llm_endpoint = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-ALTER SYSTEM SET sage.llm_api_key = 'YOUR_API_KEY_HERE';
-ALTER SYSTEM SET sage.llm_model = 'gemini-2.5-flash';
-ALTER SYSTEM SET sage.llm_enabled = on;
-SELECT pg_reload_conf();
+```bash
+psql -h localhost -U sage_agent -d postgres
 ```
 
-Now ask it anything:
+Wait about 2 minutes for the first analyzer cycle, then:
 
 ```sql
-SELECT sage.diagnose('What are the biggest risks in my database right now?');
-```
-
-pg_sage examines its findings, queries the catalog for supporting evidence,
-and returns a plain-English explanation of every critical issue — what's wrong,
-why it matters, and exactly how to fix it. This uses a ReAct reasoning loop:
-the AI thinks, queries, observes, and iterates up to 10 steps.
-
-Try a targeted question:
-
-```sql
-SELECT sage.diagnose('Which indexes on the orders table are wasting resources?');
-```
-
-It identifies the duplicates, calculates the write overhead, and tells you
-which one to drop — with the exact DDL.
-
----
-
-## 4. See What It Found (No LLM Required)
-
-Everything below works without an API key. The LLM enhances the output, but
-the rules engine catches all the same issues.
-
-```sql
-SELECT id, severity, category, title
+SELECT category, severity, title
 FROM sage.findings
 WHERE status = 'open'
 ORDER BY
-  CASE severity WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END,
-  category;
+  CASE severity WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END;
 ```
 
-You'll see findings like:
-
-| severity | category | title |
-|----------|----------|-------|
-| critical | duplicate_index | Duplicate index on orders (customer_id) |
-| critical | sequence_exhaustion | test_exhausted_seq at 93% capacity (integer) |
-| critical | config | Cache hit ratio 0% |
-| warning | security_missing_rls | customers table has sensitive columns but no RLS |
-| warning | unused_index | Unused index on orders (zero scans in 30 days) |
-| warning | slow_query | Slow query: SELECT pg_sleep(...) |
+You will see findings for any detected issues -- duplicate indexes, unused
+indexes, slow queries, sequence exhaustion, cache hit ratio, etc.
 
 Every finding comes with a fix and a rollback:
 
@@ -110,74 +79,43 @@ WHERE severity = 'critical' AND status = 'open';
 
 ---
 
-## 5. Get a Health Briefing
+## 3. Enable LLM (Optional)
 
-```sql
-SELECT sage.briefing();
+To get LLM-powered index optimization and briefings, set an API key:
+
+Create a `config.yaml`:
+
+```yaml
+mode: standalone
+
+postgres:
+  host: localhost
+  port: 5432
+  user: sage_agent
+  password: sagepw
+  database: postgres
+
+llm:
+  enabled: true
+  endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+  model: "gemini-2.5-flash"
+  api_key: YOUR_API_KEY_HERE
+  optimizer:
+    enabled: true
+
+trust:
+  level: observation
 ```
 
-A structured report: critical/warning/info counts, new findings since last
-briefing, resolved issues, recent actions, and system metrics. With the LLM
-enabled, this becomes a narrative summary.
+Restart pg_sage with the config:
 
----
-
-## 6. Explore a Table
-
-```sql
--- Full schema: columns, indexes, constraints, foreign keys
-SELECT sage.schema_json('public.orders');
-
--- Runtime stats: size, row counts, dead tuples, vacuum status
-SELECT sage.stats_json('public.orders');
-```
-
----
-
-## 7. Find Slow Queries
-
-```sql
-SELECT sage.slow_queries_json();
-```
-
-Returns the top 20 queries by execution time from `pg_stat_statements`, with
-call counts, mean/max/min timing, and I/O stats.
-
----
-
-## 8. Emergency Controls
-
-If you ever need to halt all autonomous activity immediately:
-
-```sql
-SELECT sage.emergency_stop();
-SELECT sage.status();  -- emergency_stopped = true
-```
-
-Resume when ready:
-
-```sql
-SELECT sage.resume();
-SELECT sage.status();  -- emergency_stopped = false
+```bash
+./pg_sage --config config.yaml
 ```
 
 ---
 
-## 9. Suppress a Known Issue
-
-```sql
--- Suppress finding #4 for 30 days
-SELECT sage.suppress(4, 'Expected on fresh demo database', 30);
-
--- Verify
-SELECT id, title, status FROM sage.findings WHERE id = 4;
-```
-
-Suppressed findings auto-reopen when the duration expires.
-
----
-
-## 10. Check the Action Log
+## 4. Check the Action Log
 
 pg_sage logs every autonomous action it takes (or considers taking):
 
@@ -188,81 +126,51 @@ ORDER BY executed_at DESC
 LIMIT 10;
 ```
 
-In advisory mode (the default), safe actions like dropping duplicate indexes
-may be executed. Each action includes `before_state`, `after_state`, and
-`rollback_sql` for full auditability.
+In observation mode (the default), no actions are taken. Promote to `advisory`
+in the config to allow safe actions like dropping duplicate indexes.
 
 ---
 
-## 11. View Configuration
+## 5. Prometheus Metrics
 
-```sql
-SELECT name, setting, short_desc
-FROM pg_settings
-WHERE name LIKE 'sage.%'
-ORDER BY name;
-```
-
-Key settings to experiment with:
-- `sage.trust_level` — `observation` → `advisory` → `autonomous`
-- `sage.slow_query_threshold` — Lower to catch more queries (default: 1000ms)
-- `sage.collector_interval` / `sage.analyzer_interval` — Collection frequency
-- `sage.llm_features` — Enable specific AI features: `briefing,explain,diagnostic,shell`
-
----
-
-## 12. Prometheus Metrics
-
-Open a second terminal:
+Open a browser or curl the metrics endpoint:
 
 ```bash
 curl -s http://localhost:9187/metrics
 ```
 
-Output:
+Output includes:
 
 ```
-# HELP pg_sage_findings_total Number of open findings by severity
-# TYPE pg_sage_findings_total gauge
-pg_sage_findings_total{severity="critical"} 4
-pg_sage_findings_total{severity="warning"} 6
+pg_sage_findings_total{severity="critical"} 2
+pg_sage_findings_total{severity="warning"} 4
 pg_sage_findings_total{severity="info"} 1
-
-# HELP pg_sage_circuit_breaker_state Circuit breaker state (0=closed, 1=open)
-# TYPE pg_sage_circuit_breaker_state gauge
-pg_sage_circuit_breaker_state{breaker="db"} 0
-pg_sage_circuit_breaker_state{breaker="llm"} 0
+pg_sage_connection_up 1
+pg_sage_database_size_bytes 2.68435456e+08
 ```
 
-Wire this into Grafana with the included dashboard:
-`grafana/pg_sage_dashboard.json` (18 panels).
+Wire this into Grafana with the included dashboard: `grafana/pg_sage_dashboard.json`.
 
 ---
 
-## 13. MCP Server (For AI Assistants)
+## 6. MCP Server (For AI Assistants)
 
-The sidecar exposes pg_sage via the Model Context Protocol on port 5433.
-Claude, Cursor, Copilot, and other MCP-compatible tools can connect to it.
+pg_sage exposes the Model Context Protocol on port 8080 (configurable). Claude
+Desktop, Cursor, and other MCP-compatible tools can connect.
 
-To test manually, you need **two terminals** (the SSE session must stay open):
+Configure Claude Desktop (`~/.config/claude/claude_desktop_config.json`):
 
-**Terminal 1** — keep this running:
-
-```bash
-curl -N http://localhost:5433/sse
+```json
+{
+  "mcpServers": {
+    "pg_sage": {
+      "url": "http://localhost:8080/sse"
+    }
+  }
+}
 ```
 
-You'll see: `event: endpoint` with a session ID.
-
-**Terminal 2** — send requests using that session ID:
-
-```bash
-curl -X POST "http://localhost:5433/messages?sessionId=YOUR_SESSION_ID" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
-```
-
-The response appears in Terminal 1. Available MCP resources:
+Available MCP resources:
 
 | Resource | Description |
 |----------|-------------|
@@ -273,12 +181,28 @@ The response appears in Terminal 1. Available MCP resources:
 | `sage://stats/{table}` | Table statistics |
 | `sage://explain/{queryid}` | Cached EXPLAIN plan |
 
+Available MCP tools: `diagnose`, `briefing`, `suggest_index`, `review_migration`,
+`sage_status`, `sage_emergency_stop`, `sage_resume`.
+
+Ask questions like:
+- "What are my slowest queries?"
+- "Show me duplicate indexes"
+- "Why is my application slow?"
+
 ---
 
-## 14. Clean Up
+## 7. Clean Up
+
+Stop pg_sage with Ctrl+C. To remove the sage schema:
+
+```sql
+DROP SCHEMA sage CASCADE;
+```
+
+If using the test Docker container:
 
 ```bash
-docker compose down -v   # -v removes the data volume
+docker rm -f pg-test
 ```
 
 ---
@@ -287,17 +211,13 @@ docker compose down -v   # -v removes the data volume
 
 | Feature | Tier | LLM Required? |
 |---------|------|---------------|
-| Automatic finding detection (indexes, queries, config, security, sequences, vacuum) | 1 | No |
-| Health briefings with severity breakdown | 1 | No (enhanced with LLM) |
-| EXPLAIN plan capture and caching | 1 | No (narrated with LLM) |
-| AI diagnostic with ReAct reasoning | 2 | Yes |
-| Emergency stop / resume | Core | No |
-| Circuit breakers (DB + LLM) | Core | No |
-| Finding suppression with auto-expiry | Core | No |
-| Action executor with graduated trust | 3 | No |
-| Prometheus metrics | Sidecar | No |
-| MCP server for AI assistants | Sidecar | No |
+| 18+ deterministic rules (indexes, queries, sequences, bloat, replication) | 1 | No |
+| LLM index optimizer with HypoPG validation | 2 | Yes |
+| Trust-gated action executor with rollback | 3 | No |
+| Prometheus metrics | Core | No |
+| MCP server for AI assistants | Core | No |
+| Health briefings | Core | No (enhanced with LLM) |
 
 pg_sage continuously monitors your database, catches problems before they
-become outages, and — when you're ready — fixes them autonomously during
+become outages, and -- when you are ready -- fixes them autonomously during
 maintenance windows, with automatic rollback if anything regresses.

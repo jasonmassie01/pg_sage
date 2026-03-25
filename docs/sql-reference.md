@@ -1,240 +1,176 @@
 # SQL Reference
 
-All pg_sage SQL functions live in the `sage` schema. They are created automatically when the extension is installed via `CREATE EXTENSION pg_sage`.
+pg_sage bootstraps the `sage` schema automatically on first startup. All tables are created by the Go sidecar -- no `CREATE EXTENSION` required.
 
 ---
 
-## Control Functions
+## Schema Tables
 
-### `sage.status()`
+### `sage.snapshots`
 
-Returns the current system status as a composite type with JSONB fields.
+Raw performance data collected every 60 seconds.
 
-**Returns:** `SETOF record`
-
-```sql
-SELECT * FROM sage.status();
-```
-
-```json
-{
-  "version": "0.5.0",
-  "enabled": true,
-  "circuit_state": "closed",
-  "llm_circuit_state": "closed",
-  "emergency_stopped": false,
-  "workers": {
-    "collector": true,
-    "analyzer": true,
-    "briefing": true
-  }
-}
-```
+| Column | Type | Description |
+|---|---|---|
+| `id` | serial | Primary key |
+| `captured_at` | timestamptz | When the snapshot was taken |
+| `category` | text | Snapshot category (e.g., `pg_stat_statements`, `tables`, `indexes`) |
+| `data` | jsonb | Raw snapshot data |
 
 ---
 
-### `sage.briefing()`
+### `sage.findings`
 
-Generates a health briefing summarizing current findings, performance metrics, and recommendations. Works with or without an LLM endpoint configured.
+Issues detected by the rules engine and optimizer.
 
-**Returns:** `SETOF record`
+| Column | Type | Description |
+|---|---|---|
+| `id` | serial | Primary key |
+| `created_at` | timestamptz | When first detected |
+| `last_seen` | timestamptz | Most recent detection |
+| `occurrence_count` | integer | How many times detected |
+| `category` | text | Finding category (e.g., `duplicate_index`, `slow_query`) |
+| `severity` | text | `critical`, `warning`, or `info` |
+| `object_type` | text | Object type (e.g., `index`, `table`, `sequence`) |
+| `object_identifier` | text | Fully qualified object name |
+| `title` | text | Human-readable summary |
+| `detail` | text | Detailed description |
+| `recommendation` | text | What to do about it |
+| `recommended_sql` | text | SQL to fix the issue |
+| `rollback_sql` | text | SQL to undo the fix |
+| `status` | text | `open`, `resolved`, `suppressed`, `acted_on` |
+| `suppressed_until` | timestamptz | When suppression expires |
+| `resolved_at` | timestamptz | When the finding was resolved |
+| `acted_on_at` | timestamptz | When an action was taken |
 
-```sql
-SELECT * FROM sage.briefing();
-```
-
-Without LLM, produces a structured text briefing from Tier 1 data. With LLM enabled, produces a natural-language summary.
-
----
-
-### `sage.diagnose(question TEXT)`
-
-Interactive diagnostic using a ReAct reasoning loop. The LLM reasons through problems step by step, executing follow-up SQL queries autonomously (up to `sage.react_max_steps` iterations).
-
-**Returns:** `SETOF record`
-
-**Requires:** LLM endpoint configured
-
-```sql
-SELECT * FROM sage.diagnose('Why are my queries slow today?');
-```
-
-```sql
-SELECT * FROM sage.diagnose('Is my replication healthy?');
-```
-
-!!! note
-    `sage.diagnose()` requires `sage.llm_enabled = on` and a valid LLM endpoint. Without these, it returns an error message.
-
----
-
-### `sage.explain(queryid BIGINT)`
-
-Captures an EXPLAIN plan for the given query and returns a human-readable narrative analysis. Runs `EXPLAIN (FORMAT JSON, COSTS, VERBOSE)` against the query text from `pg_stat_statements` and caches the result in `sage.explain_cache`.
-
-**Returns:** `SETOF record`
+**Common queries:**
 
 ```sql
--- Get the queryid from pg_stat_statements
-SELECT queryid, query FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 5;
+-- All open findings ordered by severity
+SELECT category, severity, title, recommended_sql
+FROM sage.findings
+WHERE status = 'open'
+ORDER BY
+  CASE severity WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END;
 
--- Explain a specific query
-SELECT * FROM sage.explain(1234567890);
-```
-
-With LLM enabled, includes a narrative explanation of the plan. Without LLM, returns the raw JSON plan.
-
----
-
-### `sage.suppress(finding_id INTEGER, reason TEXT, duration_days INTEGER)`
-
-Suppresses a specific finding for the given duration. Suppressed findings are hidden from `sage.findings` queries filtering on `status = 'open'`.
-
-**Returns:** `void`
-
-```sql
--- Suppress finding #42 for 30 days
-SELECT sage.suppress(42, 'Known issue, vendor fix pending', 30);
-```
-
-```sql
--- Suppress finding #7 for 90 days
-SELECT sage.suppress(7, 'Accepted risk per security review', 90);
-```
-
-!!! tip
-    Use `SELECT id, title FROM sage.findings WHERE status = 'open';` to find the finding ID to suppress.
-
----
-
-### `sage.emergency_stop()`
-
-Immediately halts all autonomous activity by tripping both circuit breakers and setting the emergency stop flag in shared memory.
-
-**Returns:** `void`
-
-```sql
-SELECT sage.emergency_stop();
-```
-
-After calling this:
-
-- All background worker activity pauses
-- No new analysis runs or actions execute
-- The circuit breaker state becomes `open`
-
-!!! warning
-    Use this if pg_sage is causing unexpected behavior. It takes effect immediately without waiting for the current cycle to complete.
-
----
-
-### `sage.resume()`
-
-Resets both circuit breakers and clears the emergency stop flag, resuming normal operation.
-
-**Returns:** `void`
-
-```sql
-SELECT sage.resume();
+-- Critical findings with fix and rollback
+SELECT title, recommended_sql, rollback_sql
+FROM sage.findings
+WHERE severity = 'critical' AND status = 'open';
 ```
 
 ---
 
-## JSON Functions (MCP)
+### `sage.action_log`
 
-These functions return JSONB and are primarily used by the MCP sidecar, but can be called directly from SQL.
+Audit trail for every autonomous action taken (or attempted) by the executor.
 
-### `sage.health_json()`
+| Column | Type | Description |
+|---|---|---|
+| `id` | serial | Primary key |
+| `finding_id` | integer | The finding that triggered this action |
+| `action_type` | text | Type of action (e.g., `create_index`, `drop_index`, `reindex`) |
+| `action_sql` | text | SQL that was executed |
+| `rollback_sql` | text | SQL to reverse the action |
+| `outcome` | text | `success`, `failed`, `rolled_back`, `skipped` |
+| `before_state` | jsonb | State before the action |
+| `after_state` | jsonb | State after the action |
+| `executed_at` | timestamptz | When the action was executed |
+| `error_message` | text | Error detail if failed |
 
-Returns a JSONB object with system health overview combining shared-memory state with live database health metrics.
-
-**Returns:** `JSONB`
+**Common queries:**
 
 ```sql
-SELECT sage.health_json();
+-- Recent actions
+SELECT id, action_type, finding_id, outcome, executed_at
+FROM sage.action_log
+ORDER BY executed_at DESC
+LIMIT 10;
 ```
-
-Includes: version, enabled state, circuit breaker states, worker status, connection counts, cache hit ratio, replication lag, and database size.
 
 ---
 
-### `sage.findings_json(status_filter TEXT DEFAULT 'open')`
+### `sage.config`
 
-Returns a JSONB array of findings filtered by status.
+Key-value configuration store used by the sidecar at runtime.
 
-**Returns:** `JSONB`
+| Column | Type | Description |
+|---|---|---|
+| `key` | text | Configuration key (e.g., `emergency_stop`, `trust_level`) |
+| `value` | text | Configuration value |
+| `updated_at` | timestamptz | Last update timestamp |
 
-```sql
--- Open findings (default)
-SELECT sage.findings_json();
-
--- Resolved findings
-SELECT sage.findings_json('resolved');
-
--- Suppressed findings
-SELECT sage.findings_json('suppressed');
-```
-
-Each finding object includes: `id`, `created_at`, `last_seen`, `occurrence_count`, `category`, `severity`, `object_type`, `object_identifier`, `title`, `detail`, `recommendation`, `recommended_sql`, `rollback_sql`, `status`, `suppressed_until`, `resolved_at`, `acted_on_at`.
+The `emergency_stop` key is checked every cycle. Set to `true` to halt all autonomous activity.
 
 ---
 
-### `sage.schema_json(table_name TEXT)`
+### `sage.briefings`
 
-Returns DDL, indexes, constraints, columns, and foreign keys for a specific table.
+Generated health briefings.
 
-**Returns:** `JSONB`
-
-```sql
-SELECT sage.schema_json('public.orders');
-```
-
-Accepts both schema-qualified (`public.orders`) and unqualified (`orders`) table names.
-
-!!! note
-    Returns an error if `table_name` is NULL.
+| Column | Type | Description |
+|---|---|---|
+| `id` | serial | Primary key |
+| `generated_at` | timestamptz | When the briefing was generated |
+| `content` | text | Briefing text (structured or LLM-generated) |
+| `findings_snapshot` | jsonb | Findings state at generation time |
 
 ---
 
-### `sage.stats_json(table_name TEXT)`
+### `sage.mcp_log`
 
-Returns table size, row counts, dead tuples, vacuum status, and index usage statistics.
+Audit log for MCP server requests.
 
-**Returns:** `JSONB`
-
-```sql
-SELECT sage.stats_json('public.orders');
-```
-
-Includes: `total_size`, `total_bytes`, `table_size`, `indexes_size`, `live_tuples`, `dead_tuples`, `seq_scan`, `idx_scan`, `last_vacuum`, `last_autovacuum`, `dead_tuple_ratio_pct`, and more.
-
----
-
-### `sage.slow_queries_json()`
-
-Returns the top 20 slow queries from `pg_stat_statements`, ordered by total execution time.
-
-**Returns:** `JSONB`
-
-```sql
-SELECT sage.slow_queries_json();
-```
-
-Returns an empty array if `pg_stat_statements` is not installed. Each query object includes: `queryid`, `query` (truncated to 500 characters), `calls`, `total_exec_time_ms`, `mean_exec_time_ms`, `max_exec_time_ms`, `min_exec_time_ms`, `stddev_exec_time_ms`, `rows`.
+| Column | Type | Description |
+|---|---|---|
+| `id` | serial | Primary key |
+| `client_ip` | text | Source IP of the request |
+| `method` | text | JSON-RPC method |
+| `resource_uri` | text | Resource URI if applicable |
+| `tool_name` | text | Tool name if applicable |
+| `tokens_used` | integer | LLM tokens consumed |
+| `duration_ms` | integer | Request processing time |
+| `status` | text | `ok` or `error` |
+| `error_message` | text | Error detail if failed |
+| `created_at` | timestamptz | Request timestamp |
 
 ---
 
-### `sage.explain_json(queryid BIGINT)`
+### `sage.explain_cache`
 
-Returns the most recent cached EXPLAIN plan for the given query ID from `sage.explain_cache`.
+Cached EXPLAIN plans for query analysis.
 
-**Returns:** `JSONB` (or NULL if no cached plan exists)
+| Column | Type | Description |
+|---|---|---|
+| `id` | serial | Primary key |
+| `queryid` | bigint | Query ID from `pg_stat_statements` |
+| `query_text` | text | Query text |
+| `plan` | jsonb | EXPLAIN output in JSON format |
+| `source` | text | How the plan was captured (e.g., `on-demand`, `generic_plan`) |
+| `total_cost` | double precision | Estimated total cost |
+| `execution_time` | double precision | Actual execution time if available |
+| `captured_at` | timestamptz | When the plan was captured |
 
-```sql
-SELECT sage.explain_json(1234567890);
-```
+---
 
-Includes: `captured_at`, `queryid`, `query_text`, `plan` (raw JSON plan), `source`, `total_cost`, `execution_time`.
+## C Extension SQL Functions (Frozen)
 
-!!! tip
-    Use `sage.explain(queryid)` first to capture a plan, then `sage.explain_json(queryid)` to retrieve it programmatically.
+The following functions are part of the C extension (frozen at v0.6.0-rc3). They are available only when the extension is installed on self-managed PostgreSQL. The sidecar does not require them.
+
+| Function | Description |
+|---|---|
+| `sage.status()` | Extension status and worker health |
+| `sage.briefing()` | Generate a health briefing |
+| `sage.diagnose(question TEXT)` | Interactive LLM diagnostic |
+| `sage.explain(queryid BIGINT)` | EXPLAIN plan capture with narrative |
+| `sage.suppress(finding_id INT, reason TEXT, days INT)` | Suppress a finding |
+| `sage.emergency_stop()` | Halt all autonomous activity |
+| `sage.resume()` | Resume after emergency stop |
+| `sage.health_json()` | Health overview as JSONB |
+| `sage.findings_json(status TEXT)` | Findings as JSONB array |
+| `sage.schema_json(table TEXT)` | Table DDL as JSONB |
+| `sage.stats_json(table TEXT)` | Table stats as JSONB |
+| `sage.slow_queries_json()` | Top slow queries as JSONB |
+| `sage.explain_json(queryid BIGINT)` | Cached plan as JSONB |
+
+These functions are not needed when using the sidecar. The MCP server and Prometheus exporter provide equivalent functionality.

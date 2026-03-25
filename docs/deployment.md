@@ -1,133 +1,159 @@
 # Deployment
 
-## Docker Compose
+pg_sage is a single Go binary. Deployment is straightforward: download (or build), configure, and run.
 
-The included `docker-compose.yml` is production-ready with minor adjustments. For cloud database deployments where the extension cannot be installed, use the sidecar in standalone mode with a YAML config file (see [Cloud SQL](#cloud-sql-google-cloud) below).
+---
 
-### Basic Setup
+## Binary
 
-```yaml
-services:
-  pg_sage:
-    build: .
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: postgres
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    command: >
-      postgres
-        -c shared_preload_libraries='pg_stat_statements,pg_sage'
-        -c sage.database='postgres'
-        -c sage.collector_interval=30
-        -c sage.analyzer_interval=60
-        -c sage.trust_level='advisory'
-        -c pg_stat_statements.track=all
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+Download the pre-built binary for your platform and run it:
 
-  sidecar:
-    build: ./sidecar
-    depends_on:
-      pg_sage:
-        condition: service_healthy
-    environment:
-      SAGE_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@pg_sage:5432/postgres?sslmode=disable
-      SAGE_MCP_PORT: "5433"
-      SAGE_PROMETHEUS_PORT: "9187"
-      SAGE_RATE_LIMIT: "60"
-      SAGE_API_KEY: ${SAGE_API_KEY}
-    ports:
-      - "5433:5433"
-      - "9187:9187"
-
-volumes:
-  pgdata:
+```bash
+./pg_sage --database-url "postgres://sage_agent:YOUR_PASSWORD@host:5432/db"
 ```
 
-!!! warning
-    Always set `POSTGRES_PASSWORD` and `SAGE_API_KEY` via environment variables or a `.env` file. Never hardcode credentials.
+Or with a config file:
 
-### Production Recommendations
+```bash
+./pg_sage --config config.yaml
+```
 
-- Set `sage.trust_level = 'observation'` initially and promote after validation
-- Configure `sage.maintenance_window` to restrict autonomous actions to off-peak hours
-- Enable `sage.redact_queries = on` if query literals contain sensitive data
-- Set `SAGE_API_KEY` to require authentication for the MCP sidecar
-- Use `SAGE_TLS_CERT` and `SAGE_TLS_KEY` for TLS on the sidecar
+For production, run as a systemd service:
+
+```ini
+# /etc/systemd/system/pg_sage.service
+[Unit]
+Description=pg_sage PostgreSQL DBA Agent
+After=network.target
+
+[Service]
+Type=simple
+User=pg_sage
+ExecStart=/usr/local/bin/pg_sage --config /etc/pg_sage/config.yaml
+Restart=always
+RestartSec=5
+Environment=SAGE_GEMINI_API_KEY=YOUR_KEY_HERE
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now pg_sage
+```
+
+---
+
+## Docker
+
+```bash
+docker run -d --name pg_sage \
+  -e SAGE_DATABASE_URL="postgres://sage_agent:YOUR_PASSWORD@host:5432/db" \
+  -e SAGE_GEMINI_API_KEY="YOUR_KEY_HERE" \
+  -p 8080:8080 -p 9187:9187 \
+  ghcr.io/jasonmassie01/pg_sage:latest
+```
+
+With a config file:
+
+```bash
+docker run -d --name pg_sage \
+  -v /path/to/config.yaml:/etc/pg_sage/config.yaml \
+  -p 8080:8080 -p 9187:9187 \
+  ghcr.io/jasonmassie01/pg_sage:latest \
+  --config /etc/pg_sage/config.yaml
+```
 
 ---
 
 ## Cloud SQL (Google Cloud)
 
-The pg_sage sidecar runs standalone against Cloud SQL PostgreSQL instances. Validated on PG 17.
+Validated on PostgreSQL 14, 15, 16, 17. Zero code changes.
 
-```bash
-# Using YAML config
-cat > config.yaml << 'EOF'
+```yaml
+# config.yaml
 mode: standalone
+
 postgres:
-  host: 34.72.70.25
+  host: YOUR_CLOUD_SQL_IP
   port: 5432
-  user: postgres
+  user: sage_agent
   password: ${PGPASSWORD}
   database: postgres
   sslmode: require
+
 trust:
   level: advisory
   maintenance_window: "0 2 * * *"
+
 llm:
   enabled: true
-  endpoint: https://generativelanguage.googleapis.com/v1beta/openai
+  endpoint: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
   model: gemini-2.5-flash
-  api_key: ${GEMINI_API_KEY}
+  api_key: ${SAGE_GEMINI_API_KEY}
+
 mcp:
   enabled: true
-  listen: 0.0.0.0:5433
-prometheus:
-  listen: 0.0.0.0:9187
-EOF
+  listen_addr: 0.0.0.0:8080
 
-cd sidecar && go build -o sage-sidecar ./cmd/pg_sage_sidecar
-./sage-sidecar --config config.yaml
+prometheus:
+  listen_addr: 0.0.0.0:9187
 ```
 
-The sidecar auto-detects Cloud SQL via `cloudsql_proxy` connection metadata or IP ranges.
+```bash
+./pg_sage --config config.yaml
+```
+
+### Cloud Run
+
+Deploy pg_sage as a Cloud Run service for fully managed operation:
+
+```bash
+# Build and push
+gcloud builds submit --tag us-central1-docker.pkg.dev/PROJECT/repo/pg_sage
+
+# Deploy
+gcloud run deploy pg_sage \
+  --image us-central1-docker.pkg.dev/PROJECT/repo/pg_sage \
+  --set-env-vars SAGE_DATABASE_URL="postgres://sage_agent:pw@/db?host=/cloudsql/PROJECT:REGION:INSTANCE" \
+  --set-env-vars SAGE_GEMINI_API_KEY="YOUR_KEY" \
+  --add-cloudsql-instances PROJECT:REGION:INSTANCE \
+  --port 8080 \
+  --region us-central1
+```
 
 ---
 
 ## AlloyDB (Google Cloud)
 
-AlloyDB is fully supported with zero code changes. The sidecar detects AlloyDB via `current_setting('alloydb.iam_authentication')`.
-
-```bash
-# Same config as Cloud SQL, just point to AlloyDB IP
-```
+AlloyDB is fully supported with zero code changes. Point the config at your AlloyDB IP. The sidecar auto-detects AlloyDB.
 
 ---
 
 ## RDS / Aurora (AWS)
 
-The sidecar connects to RDS and Aurora via standard PostgreSQL connections. Set `sslmode: require` and use IAM auth or password auth.
+Connect via standard PostgreSQL connections. Set `sslmode: require` and use IAM auth or password auth.
+
+```yaml
+postgres:
+  host: your-rds-endpoint.us-east-1.rds.amazonaws.com
+  port: 5432
+  user: sage_agent
+  password: ${PGPASSWORD}
+  database: postgres
+  sslmode: require
+```
 
 ---
 
 ## Kubernetes
 
-### Basic Deployment
-
 ```yaml
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: pg-sage
 spec:
-  serviceName: pg-sage
   replicas: 1
   selector:
     matchLabels:
@@ -136,76 +162,16 @@ spec:
     metadata:
       labels:
         app: pg-sage
-    spec:
-      containers:
-        - name: postgres
-          image: pg-sage:latest
-          ports:
-            - containerPort: 5432
-          env:
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: pg-sage-secrets
-                  key: postgres-password
-            - name: POSTGRES_DB
-              value: postgres
-          args:
-            - postgres
-            - -c
-            - shared_preload_libraries=pg_stat_statements,pg_sage
-            - -c
-            - sage.database=postgres
-            - -c
-            - sage.trust_level=observation
-          volumeMounts:
-            - name: pgdata
-              mountPath: /var/lib/postgresql/data
-          livenessProbe:
-            exec:
-              command: ["pg_isready", "-U", "postgres"]
-            initialDelaySeconds: 30
-            periodSeconds: 10
-          readinessProbe:
-            exec:
-              command: ["pg_isready", "-U", "postgres"]
-            initialDelaySeconds: 5
-            periodSeconds: 5
-  volumeClaimTemplates:
-    - metadata:
-        name: pgdata
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 50Gi
-```
-
-### Sidecar Deployment
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: sage-sidecar
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: sage-sidecar
-  template:
-    metadata:
-      labels:
-        app: sage-sidecar
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9187"
     spec:
       containers:
-        - name: sidecar
-          image: sage-sidecar:latest
+        - name: pg-sage
+          image: ghcr.io/jasonmassie01/pg_sage:latest
+          args: ["--config", "/etc/pg_sage/config.yaml"]
           ports:
-            - containerPort: 5433
+            - containerPort: 8080
               name: mcp
             - containerPort: 9187
               name: metrics
@@ -215,20 +181,24 @@ spec:
                 secretKeyRef:
                   name: pg-sage-secrets
                   key: database-url
+            - name: SAGE_GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pg-sage-secrets
+                  key: gemini-api-key
             - name: SAGE_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: pg-sage-secrets
-                  key: api-key
-            - name: SAGE_MCP_PORT
-              value: "5433"
-            - name: SAGE_PROMETHEUS_PORT
-              value: "9187"
-```
-
-### Service and Secret
-
-```yaml
+                  key: mcp-api-key
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pg_sage
+      volumes:
+        - name: config
+          configMap:
+            name: pg-sage-config
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -237,33 +207,12 @@ spec:
   selector:
     app: pg-sage
   ports:
-    - port: 5432
-      targetPort: 5432
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: sage-sidecar
-spec:
-  selector:
-    app: sage-sidecar
-  ports:
-    - port: 5433
-      targetPort: 5433
+    - port: 8080
+      targetPort: 8080
       name: mcp
     - port: 9187
       targetPort: 9187
       name: metrics
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: pg-sage-secrets
-type: Opaque
-stringData:
-  postgres-password: "CHANGE_ME"
-  database-url: "postgres://postgres:CHANGE_ME@pg-sage:5432/postgres?sslmode=disable"
-  api-key: "CHANGE_ME"
 ```
 
 ---
@@ -272,76 +221,37 @@ stringData:
 
 ### Prometheus Configuration
 
-Add the sidecar as a scrape target in `prometheus.yml`:
-
 ```yaml
 scrape_configs:
   - job_name: pg_sage
     scrape_interval: 30s
     static_configs:
-      - targets: ["sage-sidecar:9187"]
+      - targets: ["pg-sage:9187"]
 ```
 
-### Key Metrics to Monitor
+### Key Metrics to Alert On
 
 | Metric | Alert Condition | Description |
 |---|---|---|
 | `pg_sage_findings_total{severity="critical"}` | > 0 | Critical findings need attention |
-| `pg_sage_circuit_breaker_state{breaker="db"}` | == 1 | Database circuit breaker tripped |
-| `pg_sage_circuit_breaker_state{breaker="llm"}` | == 1 | LLM circuit breaker tripped |
+| `pg_sage_connection_up` | == 0 | Database unreachable |
 | `pg_sage_cache_hit_ratio` | < 0.95 | Cache hit ratio below 95% |
-| `pg_sage_deadlocks_total` | rate > 0 | Deadlocks occurring |
-
-### Example Alertmanager Rules
-
-```yaml
-groups:
-  - name: pg_sage
-    rules:
-      - alert: PgSageCriticalFindings
-        expr: pg_sage_findings_total{severity="critical"} > 0
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "pg_sage has critical findings"
-
-      - alert: PgSageCircuitBreakerOpen
-        expr: pg_sage_circuit_breaker_state == 1
-        for: 1m
-        labels:
-          severity: warning
-        annotations:
-          summary: "pg_sage circuit breaker {{ $labels.breaker }} is open"
-```
+| `pg_sage_llm_circuit_open` | == 1 | LLM circuit breaker tripped |
+| `pg_sage_executor_actions_total{outcome="failed"}` | rate > 0 | Failed autonomous actions |
 
 ### Grafana Dashboard
 
-Import the sidecar metrics as a Prometheus data source in Grafana and create panels for:
-
-- Findings count by severity (stacked bar)
-- Circuit breaker state (status panel)
-- Cache hit ratio (gauge)
-- Connection utilization (time series)
-- Database size growth (time series)
-- Transaction rate (time series)
+Import the included dashboard from `grafana/pg_sage_dashboard.json`.
 
 ---
 
 ## Backup Considerations
 
-pg_sage stores its data in the `sage` schema within the target database. Standard PostgreSQL backup tools capture it automatically.
+pg_sage stores data in the `sage` schema within the target database. Standard PostgreSQL backup tools capture it automatically.
 
-**What to back up:**
+**Critical to back up:** `sage.action_log` (audit trail for autonomous actions).
 
-- The `sage` schema is included in `pg_dump` by default
-- `sage.action_log` is the most critical table (audit trail for autonomous actions)
-- `sage.findings` history is useful for trend analysis
-
-**What can be regenerated:**
-
-- `sage.snapshots` -- can be recollected after restore
-- `sage.explain_cache` -- plans are recaptured on demand
+**Can be regenerated:** `sage.snapshots`, `sage.explain_cache`.
 
 ```bash
 # Full database backup (includes sage schema)
@@ -351,64 +261,27 @@ pg_dump -U postgres -Fc postgres > backup.dump
 pg_dump -U postgres -Fc -n sage postgres > sage_backup.dump
 ```
 
-!!! tip
-    Consider shorter retention for `sage.snapshots` (via `sage.retention_snapshots`) to reduce backup size.
-
 ---
 
-## Upgrading pg_sage
+## Upgrading
 
-### Minor Version Upgrades (e.g., 0.5.0 to 0.5.1)
-
-1. Build and install the new version:
-
-    ```bash
-    cd pg_sage
-    git pull
-    make
-    sudo make install
-    ```
-
-2. Restart PostgreSQL to load the new shared library.
-
-3. Run the upgrade migration:
-
-    ```sql
-    ALTER EXTENSION pg_sage UPDATE;
-    ```
-
-### Major Version Upgrades (e.g., 0.1.0 to 0.5.0)
-
-Migration scripts are provided in the `sql/` directory:
-
-```sql
--- Check current version
-SELECT * FROM pg_extension WHERE extname = 'pg_sage';
-
--- Upgrade
-ALTER EXTENSION pg_sage UPDATE TO '0.5.0';
-```
-
-!!! warning
-    Always test upgrades in a staging environment first. Back up the `sage` schema before upgrading.
-
-### Docker Upgrades
+The sidecar is stateless. Replace the binary and restart:
 
 ```bash
-cd pg_sage
-git pull
-docker compose build
-docker compose up -d
+# Download new version
+curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_linux_amd64 -o pg_sage
+chmod +x pg_sage
+
+# Restart
+sudo systemctl restart pg_sage
 ```
 
-The container will restart PostgreSQL with the new extension. Migration scripts run automatically if the extension version changes.
+The sidecar handles schema migrations automatically on startup (adding new columns or tables as needed).
 
-### Sidecar Upgrades
-
-The sidecar is stateless. Simply rebuild and restart:
+### Docker
 
 ```bash
-cd sidecar
-docker compose build sidecar
-docker compose up -d sidecar
+docker pull ghcr.io/jasonmassie01/pg_sage:latest
+docker rm -f pg_sage
+# Re-run with same config
 ```

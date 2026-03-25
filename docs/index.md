@@ -1,10 +1,10 @@
 # pg_sage
 
-**Autonomous PostgreSQL DBA Agent** -- a native C extension that continuously monitors, analyzes, and maintains your PostgreSQL database.
+**Autonomous PostgreSQL DBA Agent** -- a Go sidecar that monitors, analyzes, and optimizes any PostgreSQL 14-17 database over the network.
 
-pg_sage runs inside PostgreSQL as three background workers and exposes its capabilities through SQL functions in the `sage` schema. It combines a deterministic rules engine with optional LLM-enhanced analysis and a trust-ramped action executor that gradually earns autonomy over time.
+pg_sage connects to your database via standard libpq/pgx, collects performance data from `pg_stat_statements` and catalog views, runs 18+ diagnostic rules, sends enriched context to an LLM for index optimization, and executes fixes autonomously with trust-ramped safety controls.
 
-All Tier 1 analysis runs without any external dependencies. LLM integration is optional and only enhances Tier 2 features (briefings, diagnose, explain narrative).
+No C extension required. Works on managed services (Cloud SQL, AlloyDB, Aurora, RDS) and self-managed instances with zero code changes.
 
 ---
 
@@ -12,86 +12,51 @@ All Tier 1 analysis runs without any external dependencies. LLM integration is o
 
 | Feature | Description |
 |---|---|
-| **Runs inside Postgres** | Native C extension, zero external infrastructure |
-| **Three-tier architecture** | Rules engine, LLM analysis, automated actions |
-| **Trust-ramped autonomy** | Graduated from observation to autonomous over time |
+| **Connects over the network** | Go sidecar, no extension installation, no PostgreSQL restart |
+| **Works everywhere** | Managed services (Cloud SQL, AlloyDB, Aurora, RDS) and self-managed |
+| **Three-tier architecture** | Rules engine (Tier 1), LLM index optimizer (Tier 2), trust-gated executor (Tier 3) |
+| **Trust-ramped autonomy** | Graduated from observation to advisory to autonomous over time |
 | **LLM optional** | Tier 1 works without any LLM endpoint configured |
-| **MCP sidecar** | Exposes capabilities to AI assistants via Model Context Protocol |
-| **Self-protecting** | Circuit breaker prevents pg_sage from becoming the incident |
+| **MCP server** | Exposes capabilities to AI assistants (Claude Desktop, Cursor) via Model Context Protocol |
+| **Prometheus metrics** | Scrape `:9187/metrics` for monitoring and alerting |
+| **Self-protecting** | Circuit breakers prevent pg_sage from becoming the incident |
 | **Full audit trail** | Every action logged with before/after state and rollback SQL |
 
 ---
 
 ## What It Detects
 
-**Tier 1 -- Rules Engine** (no LLM required):
+**Tier 1 -- Rules Engine** (18+ deterministic checks, no LLM required):
 
-- **Index health**: duplicate indexes, unused indexes, missing indexes, index bloat
-- **Query performance**: slow queries, query regressions, sequential scans on large tables
+- **Index health**: duplicate indexes, unused indexes, invalid indexes, missing FK indexes
+- **Query performance**: slow queries, high plan time, query regressions, sequential scans on large tables
 - **Sequences**: approaching exhaustion (bigint/int overflow)
-- **Maintenance**: vacuum needs, table bloat, dead tuple accumulation, XID wraparound
-- **Configuration**: audit of `postgresql.conf` against best practices
-- **Security**: overprivileged roles, missing RLS on sensitive tables
-- **Replication**: lag monitoring, inactive slots, WAL archiving staleness
-- **Self-monitoring**: extension health, circuit breaker status, schema footprint
+- **Maintenance**: table bloat, XID wraparound risk
+- **System health**: connection leaks, low cache hit ratio, checkpoint pressure
+- **Replication**: lag monitoring, inactive replication slots
 
-**Tier 2 -- LLM-Enhanced Analysis** (optional):
+**Tier 2 -- LLM Index Optimizer** (optional):
 
-- Daily briefings with natural-language summaries
-- Interactive diagnostic via ReAct reasoning loop
-- Human-readable query plan narratives
-- Cost attribution for unused/missing indexes
-- Migration review for long-running DDL
-- Schema design review
+- Consolidated index recommendations across your workload
+- 8 validators (CONCURRENTLY keyword, column existence, duplicate detection, write impact, max indexes, extension requirements, BRIN correlation, expression volatility)
+- HypoPG validation with measured cost reduction
+- Confidence scoring (0.0-1.0) with 6 weighted signals
+- Dual-model routing (fast model for general tasks, reasoning model for optimization)
 
 ---
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/jasonmassie01/pg_sage.git
-cd pg_sage
-docker compose up
+# Download
+curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_linux_amd64 -o pg_sage
+chmod +x pg_sage
+
+# Run (observation mode, no LLM)
+./pg_sage --database-url "postgres://sage_agent:YOUR_PASSWORD@host:5432/postgres"
 ```
 
-Connect to the running container:
-
-```bash
-docker exec -it pg_sage-pg_sage-1 psql -U postgres
-```
-
-Run your first queries:
-
-```sql
--- Extension is auto-loaded via shared_preload_libraries
--- Check system status
-SELECT * FROM sage.status();
-
--- See what pg_sage found
-SELECT category, severity, title
-FROM sage.findings
-WHERE status = 'open'
-ORDER BY severity;
-
--- Get a health briefing
-SELECT sage.briefing();
-```
-
-Example output after approximately 60 seconds:
-
-```
- category            | severity | title
----------------------+----------+---------------------------------------------------------------
- duplicate_index     | critical | Duplicate index public.idx_orders_dup2 matches idx_orders_dup1
- sequence_exhaustion | critical | Sequence public.orders_seq at 93.1% capacity (integer)
- config              | warning  | shared_buffers below recommended 25% of RAM
- security_missing_rls| warning  | Table public.customers has sensitive columns but no RLS
- unused_index        | warning  | Unused index public.idx_old on public.orders (zero scans)
- config              | info     | max_connections significantly exceeds peak usage
-```
-
-!!! tip "What next?"
-    See the [Installation](installation.md) guide for detailed setup options, or jump straight to the [Configuration](configuration.md) reference.
+Findings appear within 60 seconds. See the [Installation](installation.md) guide for detailed setup, or the [Configuration](configuration.md) reference for all options.
 
 ---
 
@@ -99,10 +64,17 @@ Example output after approximately 60 seconds:
 
 | | pg_sage | pganalyze | OtterTune / DBtune |
 |---|---|---|---|
-| **Runs inside Postgres** | Native C extension, zero external infra | SaaS agent + cloud dashboard | Cloud-only SaaS |
+| **Works on managed DBs** | Yes, zero changes | SaaS agent required | Cloud-only SaaS |
 | **Takes action** | Trust-ramped autonomous remediation | Recommendations only | Knob tuning only |
 | **Self-hosted** | Fully, AGPL-3.0 | Proprietary | Proprietary |
 | **LLM dependency** | Optional (Tier 1 works without it) | N/A | Required |
+| **Installation** | Download binary + connect | Install collector agent | Cloud signup |
+
+---
+
+## C Extension (Frozen)
+
+The C extension at `extension/` is frozen at v0.6.0-rc3. It works on self-managed PostgreSQL but is not the product. No new features -- security fixes only. The Go sidecar is the product.
 
 ---
 

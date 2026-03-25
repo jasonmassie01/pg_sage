@@ -1,18 +1,20 @@
 # Findings Catalog
 
-pg_sage detects issues across 15 categories. Each finding includes a severity level, human-readable title, detailed description, recommendation, and (where applicable) remediation SQL with rollback SQL.
+pg_sage detects issues across 16+ categories using deterministic rules (Tier 1) plus LLM-powered index optimization (Tier 2). Each finding includes a severity level, human-readable title, detailed description, recommendation, and (where applicable) remediation SQL with rollback SQL.
 
 Severities: **critical** > **warning** > **info**
 
 ---
 
-## unused_index
+## Index Health
 
-Detects indexes with zero scans over the configured window.
+### unused_index
+
+Detects indexes with zero scans over the observation window.
 
 **Severity:** warning
 
-**What it detects:** Indexes that consume disk space and slow down writes but are never used for reads. Evaluated against `pg_stat_user_indexes.idx_scan` over the `sage.unused_index_window` period (default 30 days).
+**What it detects:** Indexes that consume disk space and slow down writes but are never used for reads. Evaluated against `pg_stat_user_indexes.idx_scan`.
 
 **Example output:**
 
@@ -26,12 +28,9 @@ Unused index public.idx_old on public.orders (zero scans)
 DROP INDEX CONCURRENTLY public.idx_old;
 ```
 
-!!! tip
-    Before dropping, verify the index is not used by another database or application that connects infrequently. Check `idx_scan` across all databases.
-
 ---
 
-## duplicate_index
+### duplicate_index
 
 Detects indexes with identical column sets on the same table.
 
@@ -53,57 +52,60 @@ DROP INDEX CONCURRENTLY public.idx_orders_dup2;
 
 ---
 
-## missing_index
+### invalid_index
 
-Detects tables with sequential scan patterns that would benefit from indexing.
+Detects indexes that failed creation and are in an invalid state.
 
 **Severity:** warning
 
-**What it detects:** Tables where `seq_scan` is high relative to `idx_scan`, the table exceeds `sage.seq_scan_min_rows`, and query patterns from `pg_stat_statements` suggest filterable columns.
+**What it detects:** Indexes where `pg_index.indisvalid = false`, typically from a failed `CREATE INDEX CONCURRENTLY`.
 
 **Example output:**
 
 ```
-Table public.orders may benefit from an index on (customer_id)
+Invalid index public.idx_orders_status_ccnew (indisvalid=false)
 ```
 
-**Recommended action:** Create the suggested index.
+**Recommended action:** Drop the invalid index and re-create it.
 
 ```sql
-CREATE INDEX CONCURRENTLY idx_orders_customer_id ON public.orders (customer_id);
+DROP INDEX CONCURRENTLY public.idx_orders_status_ccnew;
+CREATE INDEX CONCURRENTLY idx_orders_status ON public.orders (status);
 ```
 
 ---
 
-## index_bloat
+### missing_fk_index
 
-Detects indexes with excessive bloat beyond the configured threshold.
+Detects foreign key columns that lack a supporting index on the referencing table.
 
 **Severity:** warning
 
-**What it detects:** Indexes where estimated bloat percentage exceeds `sage.index_bloat_threshold` (default 30%). Uses statistical estimation from `pg_class` and `pg_statistic`.
+**What it detects:** Foreign keys where the referencing column(s) have no matching index. This causes sequential scans on JOINs and cascading DELETE operations.
 
 **Example output:**
 
 ```
-Index public.orders_pkey is 45% bloated (estimated 128 MB wasted)
+Missing index on public.order_items(order_id) for FK to public.orders
 ```
 
-**Recommended action:** REINDEX to reclaim space.
+**Recommended action:** Create an index on the FK column(s).
 
 ```sql
-REINDEX INDEX CONCURRENTLY public.orders_pkey;
+CREATE INDEX CONCURRENTLY idx_order_items_order_id ON public.order_items (order_id);
 ```
 
 ---
 
-## slow_query
+## Query Performance
+
+### slow_query
 
 Detects queries with mean execution time above the threshold.
 
-**Severity:** warning (critical if > 10x threshold)
+**Severity:** warning (critical if extremely slow)
 
-**What it detects:** Queries from `pg_stat_statements` where `mean_exec_time` exceeds `sage.slow_query_threshold` (default 1000ms).
+**What it detects:** Queries from `pg_stat_statements` where `mean_exec_time` exceeds the configured threshold (default 1000ms).
 
 **Example output:**
 
@@ -111,17 +113,35 @@ Detects queries with mean execution time above the threshold.
 Slow query (mean 3500ms, 15000 calls): SELECT * FROM orders WHERE ...
 ```
 
-**Recommended action:** Examine the query plan via `sage.explain(queryid)`, add indexes, or rewrite the query.
+**Recommended action:** Examine the query plan, add indexes, or rewrite the query.
 
 ---
 
-## query_regression
+### high_plan_time
+
+Detects queries where planning time is disproportionately high.
+
+**Severity:** warning
+
+**What it detects:** Queries where `mean_plan_time` is a significant fraction of total execution time, suggesting complex JOINs or excessive partitions.
+
+**Example output:**
+
+```
+High plan time: 450ms mean_plan_time for query with 50ms mean_exec_time
+```
+
+**Recommended action:** Simplify the query, reduce partition count, or materialize subqueries.
+
+---
+
+### query_regression
 
 Detects queries whose performance has degraded compared to previous snapshots.
 
 **Severity:** warning
 
-**What it detects:** Queries where `mean_exec_time` has increased significantly between consecutive snapshots, indicating a performance regression (plan change, data growth, lock contention).
+**What it detects:** Queries where `mean_exec_time` has increased significantly between consecutive snapshots, indicating a performance regression.
 
 **Example output:**
 
@@ -129,29 +149,31 @@ Detects queries whose performance has degraded compared to previous snapshots.
 Query regression: mean_exec_time increased 340% (120ms -> 528ms) for queryid 1234567890
 ```
 
-**Recommended action:** Investigate recent changes -- schema modifications, data volume changes, or configuration updates. Use `sage.explain(queryid)` to compare plans.
+**Recommended action:** Investigate recent changes -- schema modifications, data volume changes, or configuration updates.
 
 ---
 
-## seq_scan
+### seq_scan_heavy
 
 Detects sequential scans on large tables.
 
 **Severity:** info (warning if frequent)
 
-**What it detects:** Tables exceeding `sage.seq_scan_min_rows` (default 100,000) that are accessed primarily via sequential scans rather than index scans.
+**What it detects:** Tables exceeding the configured row threshold that are accessed primarily via sequential scans rather than index scans.
 
 **Example output:**
 
 ```
-Sequential scan on public.events (2.5M rows, 95% seq_scan ratio)
+Sequential scan heavy: public.events (2.5M rows, 95% seq_scan ratio)
 ```
 
 **Recommended action:** Analyze query patterns and add appropriate indexes.
 
 ---
 
-## sequence_exhaustion
+## Sequences
+
+### sequence_exhaustion
 
 Detects sequences approaching their maximum value.
 
@@ -171,55 +193,24 @@ Sequence public.orders_seq at 93.1% capacity (integer)
 ALTER SEQUENCE public.orders_seq AS bigint;
 ```
 
-!!! warning
-    Sequence exhaustion causes `INSERT` failures. Address critical sequence findings immediately.
+Sequence exhaustion causes `INSERT` failures. Address critical findings immediately.
 
 ---
 
-## config
+## Maintenance
 
-Detects suboptimal PostgreSQL configuration settings.
+### table_bloat
 
-**Severity:** warning or info
-
-**What it detects:** Audits `postgresql.conf` settings against best practices:
-
-- `shared_buffers` below 25% of RAM
-- `work_mem` too low or too high
-- `effective_cache_size` misconfigured
-- `max_connections` significantly exceeding peak usage
-- `random_page_cost` set for spinning disks when on SSD
-- Checkpoint and WAL settings
-
-**Example output:**
-
-```
-shared_buffers below recommended 25% of RAM
-max_connections (200) significantly exceeds peak usage (12)
-```
-
-**Recommended action:** Adjust the flagged setting in `postgresql.conf` or via `ALTER SYSTEM`.
-
----
-
-## vacuum_bloat
-
-Detects tables with excessive dead tuples or stale vacuum state.
+Detects tables with excessive dead tuple accumulation or bloat.
 
 **Severity:** warning (critical for XID wraparound risk)
 
-**What it detects:**
-
-- High dead tuple ratio
-- Tables not vacuumed within expected intervals
-- XID age approaching wraparound threshold
-- Autovacuum workers consistently maxed out
+**What it detects:** Tables with high dead tuple ratios indicating VACUUM is not keeping up.
 
 **Example output:**
 
 ```
 Table public.events has 15% dead tuples (450,000 dead / 3,000,000 live)
-XID age for public.orders approaching wraparound (1.8 billion)
 ```
 
 **Recommended action:** Run manual VACUUM or tune autovacuum settings.
@@ -230,123 +221,134 @@ VACUUM (VERBOSE) public.events;
 
 ---
 
-## security_missing_rls
+### xid_wraparound
 
-Detects tables with sensitive columns that lack Row-Level Security policies.
+Detects tables approaching XID wraparound threshold.
+
+**Severity:** critical
+
+**What it detects:** Tables where the transaction ID age is approaching the wraparound limit, risking database shutdown.
+
+**Example output:**
+
+```
+XID age for public.orders approaching wraparound (1.8 billion)
+```
+
+**Recommended action:** Run VACUUM FREEZE immediately.
+
+```sql
+VACUUM FREEZE public.orders;
+```
+
+---
+
+## System Health
+
+### connection_leak
+
+Detects idle connections that may indicate connection pool leaks.
 
 **Severity:** warning
 
-**What it detects:** Tables containing columns with names suggesting sensitive data (email, password, ssn, credit_card, token, secret, etc.) that do not have RLS enabled.
+**What it detects:** Connections that have been idle for extended periods, consuming connection slots.
 
 **Example output:**
 
 ```
-Table public.customers has sensitive columns but no RLS
+Connection leak: 15 idle connections from app-server-1 (oldest: 4h)
 ```
 
-**Recommended action:** Enable RLS and create appropriate policies.
-
-```sql
-ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
-CREATE POLICY customer_access ON public.customers
-  USING (tenant_id = current_setting('app.tenant_id')::int);
-```
+**Recommended action:** Fix the application's connection pool configuration or set `idle_in_transaction_session_timeout`.
 
 ---
 
-## replication_health
+### cache_hit_ratio
 
-Detects replication issues on primary and standby servers.
+Detects low buffer cache hit ratio.
 
-**Severity:** warning or critical
+**Severity:** critical (if below threshold)
 
-**What it detects:**
-
-- Replication lag exceeding thresholds
-- Inactive replication slots (consuming WAL without a consumer)
-- WAL archiving staleness
-- Standby apply lag
+**What it detects:** Cache hit ratio below the expected level, indicating insufficient `shared_buffers` or a working set that exceeds available memory.
 
 **Example output:**
 
 ```
-Replication slot 'old_subscriber' is inactive (last active 3 days ago)
+Cache hit ratio 87% (expected > 95%)
+```
+
+**Recommended action:** Increase `shared_buffers` or investigate workload changes.
+
+---
+
+### checkpoint_pressure
+
+Detects high checkpoint frequency.
+
+**Severity:** warning
+
+**What it detects:** Checkpoints occurring more frequently than expected, indicating heavy write load or insufficient `max_wal_size`.
+
+**Example output:**
+
+```
+Checkpoint pressure: 45 checkpoints in last hour (expected < 6)
+```
+
+**Recommended action:** Increase `max_wal_size` and `checkpoint_completion_target`.
+
+---
+
+## Replication
+
+### replication_lag
+
+Detects replication lag exceeding acceptable thresholds.
+
+**Severity:** warning or critical
+
+**What it detects:** Standby servers falling behind the primary, measured via `pg_stat_replication`.
+
+**Example output:**
+
+```
 Replication lag: 45 seconds behind primary
 ```
 
-**Recommended action:** Drop inactive replication slots, investigate network issues, or scale up standby resources.
+**Recommended action:** Investigate network issues, standby I/O capacity, or heavy write load on primary.
 
 ---
 
-## cost_attribution
+### inactive_slot
 
-Maps storage and IOPS costs to database objects. Requires `sage.cloud_provider` and `sage.instance_type` to be configured.
+Detects inactive replication slots consuming WAL.
 
-**Severity:** info
+**Severity:** warning
 
-**What it detects:** Estimates monthly cost of unused indexes, oversized tables, and wasted storage based on cloud provider pricing.
+**What it detects:** Replication slots without active consumers, causing WAL to accumulate and disk usage to grow.
 
 **Example output:**
 
 ```
-Unused indexes on public.orders cost approximately $12.50/month in storage
+Replication slot 'old_subscriber' is inactive (consuming 12 GB WAL)
 ```
 
-**Recommended action:** Drop unused indexes or archive cold data.
+**Recommended action:** Drop the inactive slot if the consumer is permanently gone.
 
-!!! note
-    This is a Tier 2 (LLM-enhanced) feature. Requires LLM endpoint and cloud provider configuration.
+```sql
+SELECT pg_drop_replication_slot('old_subscriber');
+```
 
 ---
 
-## migration_review
+## Tier 2 -- LLM Index Optimizer
 
-Reviews DDL changes for production safety.
+When LLM is enabled, the optimizer generates additional findings of category `index_recommendation`. These are consolidated index recommendations that have passed through 8 validators and confidence scoring. Each recommendation includes:
 
-**Severity:** warning or critical
+- The CREATE INDEX statement (always uses CONCURRENTLY)
+- Confidence score (0.0-1.0)
+- Action level (autonomous / advisory / informational)
+- HypoPG cost reduction (when available)
+- Write impact assessment
 
-**What it detects:**
-
-- `ALTER TABLE` operations that acquire `ACCESS EXCLUSIVE` locks
-- Adding columns with volatile defaults
-- Dropping columns without checking dependencies
-- Long-running DDL on large tables
-
-**Example output:**
-
-```
-ALTER TABLE public.orders ADD COLUMN status text DEFAULT 'pending' acquires ACCESS EXCLUSIVE lock
-```
-
-**Recommended action:** Use safer alternatives (e.g., add column as NULL first, then backfill).
-
-!!! note
-    This is a Tier 2 (LLM-enhanced) feature.
-
----
-
-## schema_design
-
-Reviews table schema for design issues.
-
-**Severity:** info or warning
-
-**What it detects:**
-
-- Timestamp columns without timezone (`timestamp` instead of `timestamptz`)
-- Tables without primary keys
-- Naming convention inconsistencies
-- Overly wide rows
-- Missing NOT NULL constraints on required columns
-
-**Example output:**
-
-```
-Column public.events.created_at uses timestamp without time zone
-Table public.audit_log has no primary key
-```
-
-**Recommended action:** Address the specific design issue flagged.
-
-!!! note
-    This is a Tier 2 (LLM-enhanced) feature.
+Optimizer findings do not appear without an LLM endpoint configured.

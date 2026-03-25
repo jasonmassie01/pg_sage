@@ -1,286 +1,170 @@
 # Configuration
 
-All pg_sage settings are registered as PostgreSQL GUC (Grand Unified Configuration) parameters under the `sage.*` namespace. Set them in `postgresql.conf`, via `ALTER SYSTEM`, or as command-line arguments.
+pg_sage uses three configuration sources with the following precedence (highest wins):
 
-```sql
--- View current value
-SHOW sage.analyzer_interval;
+1. **CLI flags** (`--database-url`, `--config`, `--mcp-addr`, `--prometheus-addr`)
+2. **Environment variables** (`SAGE_DATABASE_URL`, `SAGE_GEMINI_API_KEY`, etc.)
+3. **YAML config file** (`config.yaml`)
+4. **Built-in defaults**
 
--- Change at runtime (SIGHUP-reloadable parameters)
-ALTER SYSTEM SET sage.analyzer_interval = '120s';
-SELECT pg_reload_conf();
-```
-
-!!! note
-    Parameters marked with context `PGC_POSTMASTER` require a full PostgreSQL restart to take effect. All others can be changed with `pg_reload_conf()`.
+The sidecar supports hot-reload: changes to the YAML config file are detected and applied without restarting. Connection settings (`postgres.*`, `mcp.listen_addr`, `prometheus.listen_addr`) require a restart.
 
 ---
 
-## Core Settings
+## CLI Flags
 
-| Parameter | Type | Default | Context | Description |
-|---|---|---|---|---|
-| `sage.enabled` | bool | `on` | SIGHUP | Master enable/disable switch for all pg_sage activity |
-| `sage.database` | string | `postgres` | POSTMASTER | Database that pg_sage workers connect to |
-
-**Example:**
-
-```ini
-sage.enabled = on
-sage.database = 'myapp'
+```bash
+./pg_sage --database-url "postgres://user:pass@host:5432/db" --config config.yaml
 ```
+
+| Flag | Description |
+|---|---|
+| `--database-url` | PostgreSQL connection string (overrides YAML and env) |
+| `--config` | Path to YAML config file |
+| `--mcp-addr` | MCP server listen address (e.g., `0.0.0.0:8080`) |
+| `--prometheus-addr` | Prometheus listen address (e.g., `0.0.0.0:9187`) |
 
 ---
 
-## Collector Settings
+## Environment Variables
 
-| Parameter | Type | Default | Range | Context | Description |
-|---|---|---|---|---|---|
-| `sage.collector_interval` | int (seconds) | `60` | 10--3600 | SIGHUP | Seconds between snapshot collection cycles |
-| `sage.collector_batch_size` | int | `1000` | 100--100000 | SIGHUP | Maximum rows to collect per cycle from `pg_stat_statements` |
-
-**Example:**
-
-```ini
-sage.collector_interval = 30
-sage.collector_batch_size = 5000
-```
-
----
-
-## Analyzer Settings
-
-| Parameter | Type | Default | Range | Context | Description |
-|---|---|---|---|---|---|
-| `sage.analyzer_interval` | int (seconds) | `600` | 60--86400 | SIGHUP | Seconds between analysis runs |
-| `sage.slow_query_threshold` | int (ms) | `1000` | 100--60000 | SIGHUP | Minimum `mean_exec_time` (ms) to flag a query as slow |
-| `sage.seq_scan_min_rows` | int | `100000` | 1000--INT_MAX | SIGHUP | Minimum table rows for a sequential scan to trigger a finding |
-| `sage.unused_index_window` | string | `30d` | -- | SIGHUP | Time window after which an unused index is flagged (e.g., `30d`) |
-| `sage.index_bloat_threshold` | int (%) | `30` | 5--90 | SIGHUP | Bloat percentage above which an index is flagged |
-| `sage.idle_session_timeout` | int (minutes) | `30` | 5--1440 | SIGHUP | Minutes of idle-in-transaction before flagging a session |
-| `sage.disk_pressure_threshold` | int (%) | `5` | 1--50 | SIGHUP | Free disk space percentage below which a warning is emitted |
-| `sage.max_connections` | int | `2` | 1--5 | POSTMASTER | Maximum database connections pg_sage may use |
-
-**Example:**
-
-```ini
-sage.analyzer_interval = 300
-sage.slow_query_threshold = 500
-sage.seq_scan_min_rows = 50000
-sage.index_bloat_threshold = 20
-```
+| Variable | Default | Description |
+|---|---|---|
+| `SAGE_DATABASE_URL` | (none) | PostgreSQL connection string |
+| `SAGE_GEMINI_API_KEY` | (none) | API key for Gemini or any OpenAI-compatible LLM |
+| `SAGE_OPTIMIZER_LLM_API_KEY` | (none) | Separate API key for the optimizer model (optional) |
+| `SAGE_API_KEY` | (none) | API key for MCP server authentication (empty = no auth) |
+| `SAGE_TLS_CERT` | (none) | Path to TLS certificate file for MCP server |
+| `SAGE_TLS_KEY` | (none) | Path to TLS private key file for MCP server |
+| `SAGE_MCP_PORT` | `8080` | Port for MCP server |
+| `SAGE_PROMETHEUS_PORT` | `9187` | Port for Prometheus metrics |
+| `SAGE_RATE_LIMIT` | `60` | Max requests per minute per IP on MCP server |
+| `SAGE_PG_MAX_CONNS` | `5` | Max PostgreSQL connections in pool |
+| `SAGE_PG_MIN_CONNS` | `1` | Min PostgreSQL connections in pool |
+| `SAGE_TOKEN_BUDGET` | `10000` | Token budget for LLM calls |
 
 ---
 
-## Noise Reduction
+## YAML Config File
 
-| Parameter | Type | Default | Range | Context | Description |
-|---|---|---|---|---|---|
-| `sage.toast_bloat_min_rows` | int | `1000` | 1--INT_MAX | SIGHUP | Minimum table rows before TOAST bloat findings are generated |
-| `sage.schema_design_min_rows` | int | `100` | 1--INT_MAX | SIGHUP | Minimum table rows before schema design findings are generated |
-| `sage.schema_design_min_columns` | int | `2` | 1--100 | SIGHUP | Minimum columns before schema design findings are generated |
+Full example (see also `sidecar/config.example.yaml`):
 
-**Example:**
+```yaml
+mode: standalone
 
-```ini
-sage.toast_bloat_min_rows = 5000
-sage.schema_design_min_rows = 500
-sage.schema_design_min_columns = 3
-```
+postgres:
+  host: your-instance-ip
+  port: 5432
+  user: sage_agent
+  password: ${PGPASSWORD}       # env var expansion supported
+  database: postgres
+  sslmode: require
+  max_connections: 5
 
----
+collector:
+  interval_seconds: 60
 
-## LLM Settings
+analyzer:
+  interval_seconds: 120
 
-| Parameter | Type | Default | Range | Context | Description |
-|---|---|---|---|---|---|
-| `sage.llm_enabled` | bool | `on` | -- | SIGHUP | Enable LLM-powered Tier 2 features |
-| `sage.llm_endpoint` | string | `""` | -- | SIGHUP | HTTP endpoint for LLM API calls |
-| `sage.llm_api_key` | string | `""` | -- | SIGHUP | API key for LLM service (superuser only) |
-| `sage.llm_api_key_file` | string | `""` | -- | SIGHUP | Path to a file containing the LLM API key (alternative to setting `sage.llm_api_key` directly; reloaded on SIGHUP) |
-| `sage.llm_model` | string | `""` | -- | SIGHUP | Model name to use for LLM calls |
-| `sage.llm_timeout` | int (seconds) | `30` | 5--120 | SIGHUP | Timeout for LLM API calls |
-| `sage.llm_token_budget` | int | `50000` | 0--INT_MAX | SIGHUP | Maximum tokens per day across all LLM calls |
-| `sage.llm_context_budget` | int | `4096` | 512--32768 | SIGHUP | Maximum tokens for context assembly per LLM call |
-| `sage.llm_features` | string | `briefing,explain,diagnostic,shell` | -- | SIGHUP | Comma-separated list of LLM features to enable |
-| `sage.llm_cooldown` | int (seconds) | `300` | 30--3600 | SIGHUP | Minimum seconds between LLM calls for the same finding |
-| `sage.react_max_steps` | int | `10` | 1--50 | SIGHUP | Maximum steps in a ReAct reasoning chain |
+trust:
+  level: observation             # observation | advisory | autonomous
+  maintenance_window: "0 2 * * *"  # cron expression for autonomous actions
+  ramp_override_days: 0          # 0 = natural ramp; 31 = skip to autonomous
 
-!!! warning
-    `sage.llm_api_key` is restricted to superusers. It is not visible in `pg_settings` for non-superuser roles.
+llm:
+  enabled: false
+  endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+  model: "gemini-2.5-flash"
+  api_key: ${SAGE_GEMINI_API_KEY}
+  timeout_seconds: 30
+  token_budget: 50000
+  optimizer:
+    enabled: false
+    min_query_calls: 100         # ignore ad-hoc queries below this threshold
+    max_indexes_per_table: 10    # skip tables already at this index count
+    max_include_columns: 3
+    max_new_per_table: 3
+    over_indexed_ratio_pct: 80
+    write_heavy_ratio_pct: 70
+  reasoning_model:               # optional second model for optimizer
+    endpoint: ""
+    model: ""
+    api_key: ${SAGE_OPTIMIZER_LLM_API_KEY}
 
-**Example:**
+mcp:
+  enabled: true
+  listen_addr: "0.0.0.0:8080"
 
-```ini
-sage.llm_enabled = on
-sage.llm_endpoint = 'https://api.anthropic.com/v1/messages'
-sage.llm_api_key = 'sk-...'
-sage.llm_model = 'claude-sonnet-4-20250514'
-sage.llm_token_budget = 100000
+prometheus:
+  listen_addr: "0.0.0.0:9187"
+
+retention:
+  snapshots_days: 90
+  findings_days: 180
+  actions_days: 365
+  explains_days: 90
+
+briefing:
+  schedule: "0 6 * * *"         # cron expression
 ```
 
 ---
 
-## Auto-Explain Settings
+## Key Settings Reference
 
-| Parameter | Type | Default | Range | Context | Description |
-|---|---|---|---|---|---|
-| `sage.autoexplain_enabled` | bool | `off` | -- | SIGHUP | Enable passive EXPLAIN plan capture via ExecutorEnd hook |
-| `sage.autoexplain_min_duration_ms` | int (ms) | `1000` | 0--INT_MAX | SIGHUP | Minimum query duration before passive EXPLAIN capture |
-| `sage.autoexplain_sample_rate` | float | `0.1` | 0.0--1.0 | SIGHUP | Fraction of slow queries to auto-EXPLAIN (0.1 = 10%) |
-| `sage.autoexplain_capture_window` | int (seconds) | `300` | 30--1800 | SIGHUP | Seconds after a finding during which EXPLAIN plans are captured |
+### Core
 
-!!! tip
-    Setting `sage.autoexplain_min_duration_ms = 0` captures all queries. This is not recommended for production workloads.
+| Parameter | Default | Description |
+|---|---|---|
+| `mode` | `standalone` | Operating mode |
+| `postgres.max_connections` | `5` | Connection pool size |
+| `postgres.sslmode` | `disable` | SSL mode (`disable`, `require`, `verify-ca`, `verify-full`) |
 
-**Example:**
+### Collection & Analysis
 
-```ini
-sage.autoexplain_enabled = on
-sage.autoexplain_min_duration_ms = 500
-sage.autoexplain_sample_rate = 0.05
-```
+| Parameter | Default | Description |
+|---|---|---|
+| `collector.interval_seconds` | `60` | Seconds between snapshot collections |
+| `analyzer.interval_seconds` | `120` | Seconds between analysis cycles |
 
----
+### Trust & Actions
 
-## Trust and Action Settings
-
-| Parameter | Type | Default | Range | Context | Description |
-|---|---|---|---|---|---|
-| `sage.trust_level` | string | `observation` | -- | SIGHUP | Trust level: `observation`, `advisory`, or `autonomous` |
-| `sage.maintenance_window` | string | `""` | -- | SIGHUP | Cron-style window for autonomous actions. Use `*` or `always` to allow any time |
-| `sage.rollback_threshold` | int (%) | `10` | 1--100 | SIGHUP | p95 latency regression percentage that triggers automatic rollback |
-| `sage.rollback_window` | int (minutes) | `15` | 5--60 | SIGHUP | Minutes after an action during which rollback is possible |
-| `sage.rollback_cooldown` | int (days) | `7` | 1--90 | SIGHUP | Days to wait before retrying a rolled-back action |
-| `sage.trust_ramp_override_days` | int | `0` | 0--365 | SIGHUP | Override the trust ramp timeline (0 = use natural ramp). For testing: set to 31 to immediately allow autonomous actions |
+| Parameter | Default | Description |
+|---|---|---|
+| `trust.level` | `observation` | Trust tier: `observation`, `advisory`, `autonomous` |
+| `trust.maintenance_window` | (none) | Cron expression restricting when autonomous actions run |
+| `trust.ramp_override_days` | `0` | Override the trust ramp timeline (0 = natural ramp) |
 
 The trust model controls what pg_sage is allowed to do:
 
 | Trust Level | Actions Allowed |
 |---|---|
 | `observation` | No actions; findings only |
-| `advisory` | SAFE actions (drop unused/duplicate indexes, vacuum tuning) |
-| `autonomous` | SAFE + MODERATE actions (create indexes, reindex, config changes) |
+| `advisory` | SAFE actions (drop unused/duplicate indexes, VACUUM) |
+| `autonomous` | SAFE + MODERATE actions (create indexes, reindex) |
 
-!!! warning
-    HIGH-risk actions always require manual confirmation, regardless of trust level.
+HIGH-risk actions always require manual confirmation regardless of trust level.
 
-**Example:**
+### LLM
 
-```ini
-sage.trust_level = 'advisory'
-sage.maintenance_window = '0 2 * * * UTC'
-sage.rollback_threshold = 15
-```
+| Parameter | Default | Description |
+|---|---|---|
+| `llm.enabled` | `false` | Enable LLM-powered features |
+| `llm.endpoint` | (none) | OpenAI-compatible chat completions endpoint |
+| `llm.model` | (none) | Model name |
+| `llm.api_key` | (none) | API key (supports `${ENV_VAR}` expansion) |
+| `llm.timeout_seconds` | `30` | Timeout for LLM API calls |
+| `llm.token_budget` | `50000` | Maximum tokens per day |
+| `llm.optimizer.enabled` | `false` | Enable index optimizer |
+| `llm.optimizer.min_query_calls` | `100` | Minimum query calls before optimizing a table |
+| `llm.optimizer.max_new_per_table` | `3` | Max new indexes per table per cycle |
 
----
+### Retention
 
-## Briefing Settings
-
-| Parameter | Type | Default | Context | Description |
-|---|---|---|---|---|
-| `sage.briefing_schedule` | string | `0 6 * * * UTC` | SIGHUP | Cron expression for daily briefing generation |
-| `sage.briefing_channels` | string | `stdout` | SIGHUP | Comma-separated delivery channels: `stdout`, `slack`, `email` |
-| `sage.slack_webhook_url` | string | `""` | SIGHUP | Slack incoming-webhook URL (superuser only) |
-| `sage.email_smtp_url` | string | `""` | SIGHUP | SMTP URL for email delivery (superuser only) |
-
-**Example:**
-
-```ini
-sage.briefing_schedule = '0 8 * * * UTC'
-sage.briefing_channels = 'stdout,slack'
-sage.slack_webhook_url = 'https://hooks.slack.com/services/...'
-```
-
----
-
-## Privacy Settings
-
-| Parameter | Type | Default | Context | Description |
-|---|---|---|---|---|
-| `sage.redact_queries` | bool | `off` | SIGHUP | Redact literal values from query texts sent to LLM |
-| `sage.anonymize_schema` | bool | `off` | SIGHUP | Anonymize table and column names before sending to LLM |
-
-**Example:**
-
-```ini
-sage.redact_queries = on
-sage.anonymize_schema = on
-```
-
----
-
-## Cloud Settings
-
-| Parameter | Type | Default | Context | Description |
-|---|---|---|---|---|
-| `sage.cloud_provider` | string | `""` | SIGHUP | Cloud provider for cost/sizing recommendations (`aws`, `gcp`, `azure`) |
-| `sage.instance_type` | string | `""` | SIGHUP | Current cloud instance type for sizing recommendations |
-
-**Example:**
-
-```ini
-sage.cloud_provider = 'aws'
-sage.instance_type = 'db.r6g.xlarge'
-```
-
----
-
-## Retention Settings
-
-| Parameter | Type | Default | Range | Context | Description |
-|---|---|---|---|---|---|
-| `sage.retention_snapshots` | int (days) | `90` | 1--3650 | SIGHUP | Days to retain snapshot data |
-| `sage.retention_findings` | int (days) | `180` | 1--3650 | SIGHUP | Days to retain resolved findings |
-| `sage.retention_actions` | int (days) | `365` | 1--3650 | SIGHUP | Days to retain action log entries |
-| `sage.retention_explains` | int (days) | `90` | 1--3650 | SIGHUP | Days to retain EXPLAIN plan captures |
-
-**Example:**
-
-```ini
-sage.retention_snapshots = 30
-sage.retention_findings = 90
-sage.retention_actions = 365
-sage.retention_explains = 60
-```
-
----
-
-## Self-Monitoring
-
-| Parameter | Type | Default | Context | Description |
-|---|---|---|---|---|
-| `sage.max_schema_size` | string | `1GB` | SIGHUP | Maximum size of the `sage` schema before self-throttling |
-
-When the sage schema exceeds this size, pg_sage throttles collection and triggers retention cleanup.
-
-**Example:**
-
-```ini
-sage.max_schema_size = '500MB'
-```
-
----
-
-## Sidecar YAML Configuration
-
-The pg_sage sidecar process uses a separate YAML configuration file (`config.example.yaml`) rather than PostgreSQL GUCs. This file controls sidecar-specific settings such as the database connection string, MCP server port, Prometheus exporter port, and LLM provider configuration.
-
-The sidecar supports hot-reload: changes to the YAML config file are detected and applied without restarting the sidecar process. Copy `config.example.yaml` to `config.yaml` and edit it for your environment.
-
-### LLM Index Optimizer
-
-The sidecar includes an LLM-powered index optimizer that analyzes query patterns and table schemas to recommend index changes. Configure it under the `llm.index_optimizer` key in your YAML config:
-
-```yaml
-llm:
-  index_optimizer:
-    enabled: true
-    min_query_calls: 100        # Ignore ad-hoc queries below this call count
-    max_indexes_per_table: 10   # Skip tables already at this index count
-    max_include_columns: 3      # Max INCLUDE columns per recommendation
-    over_indexed_ratio_pct: 80  # Skip if index-to-column ratio exceeds this
-    write_heavy_ratio_pct: 70   # Skip tables where writes dominate reads
-```
-
-The optimizer enforces safety guards: all recommendations must use `CONCURRENTLY`, never drop unique/primary indexes, and respect per-table index limits. Write-heavy and over-indexed tables are automatically skipped.
+| Parameter | Default | Description |
+|---|---|---|
+| `retention.snapshots_days` | `90` | Days to retain snapshot data |
+| `retention.findings_days` | `180` | Days to retain resolved findings |
+| `retention.actions_days` | `365` | Days to retain action log entries |
+| `retention.explains_days` | `90` | Days to retain EXPLAIN plan captures |
