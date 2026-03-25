@@ -1,0 +1,227 @@
+[
+  {
+    "id": "GP-01",
+    "category": "schema",
+    "tool": "resource:sage://health",
+    "arguments": null,
+    "description": "Health check returns valid JSON with key metrics",
+    "must_contain": ["cache_hit_ratio"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-02",
+    "category": "schema",
+    "tool": "resource:sage://findings",
+    "arguments": null,
+    "description": "Open findings include real table names from test data",
+    "must_contain": ["orders"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-03",
+    "category": "schema",
+    "tool": "resource:sage://slow-queries",
+    "arguments": null,
+    "description": "Slow queries resource returns query data",
+    "must_contain": ["query"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-04",
+    "category": "schema",
+    "tool": "resource:sage://schema/orders",
+    "arguments": null,
+    "description": "Schema for orders table shows columns and FKs",
+    "must_contain": ["customer_id", "product_id", "order_id"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-05",
+    "category": "schema",
+    "tool": "resource:sage://schema/customers",
+    "arguments": null,
+    "description": "Schema for customers shows columns",
+    "must_contain": ["email", "name"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-06",
+    "category": "schema",
+    "tool": "resource:sage://schema/line_items",
+    "arguments": null,
+    "description": "Schema for line_items shows indexes",
+    "must_contain": ["order_id", "product_id"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-07",
+    "category": "schema",
+    "tool": "resource:sage://stats/orders",
+    "arguments": null,
+    "description": "Stats for orders table with seq_scan and tuple counts",
+    "must_contain": ["seq_scan", "n_live_tup"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-08",
+    "category": "schema",
+    "tool": "resource:sage://stats/order_events",
+    "arguments": null,
+    "description": "Stats for order_events shows dead tuples from deletes",
+    "must_contain": ["n_dead_tup"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-09",
+    "category": "index",
+    "tool": "suggest_index",
+    "arguments": {"table": "orders"},
+    "description": "Index suggestions for orders table (high seq scans)",
+    "must_contain": ["seq_scan"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-10",
+    "category": "index",
+    "tool": "suggest_index",
+    "arguments": {"table": "order_events"},
+    "description": "Index suggestions for order_events (no PK, high scans)",
+    "must_contain": ["seq_scan"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-11",
+    "category": "index",
+    "tool": "suggest_index",
+    "arguments": {"table": "line_items"},
+    "description": "Index suggestions for line_items (has many indexes)",
+    "must_contain": ["existing_indexes"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-12",
+    "category": "index",
+    "tool": "suggest_index",
+    "arguments": {"table": "customers"},
+    "description": "Index suggestions for customers (well-indexed, should be calm)",
+    "must_contain": ["seq_scan"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-13",
+    "category": "index",
+    "tool": "suggest_index",
+    "arguments": {"table": "products"},
+    "description": "Index suggestions for products table",
+    "must_contain": ["existing_indexes"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-14",
+    "category": "migration",
+    "tool": "review_migration",
+    "arguments": {"ddl": "CREATE INDEX CONCURRENTLY idx_orders_cust ON orders (customer_id)"},
+    "description": "Review safe CONCURRENTLY migration",
+    "must_contain": ["warnings"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-15",
+    "category": "migration",
+    "tool": "review_migration",
+    "arguments": {"ddl": "CREATE INDEX idx_bad ON orders (customer_id)"},
+    "description": "Review non-CONCURRENTLY CREATE INDEX flags risk",
+    "must_contain": ["concurrently"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-16",
+    "category": "migration",
+    "tool": "review_migration",
+    "arguments": {"ddl": "ALTER TABLE orders DROP COLUMN notes"},
+    "description": "Review DROP COLUMN flags irreversibility",
+    "must_contain": ["drop column"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-17",
+    "category": "migration",
+    "tool": "review_migration",
+    "arguments": {"ddl": "DROP TABLE audit_log CASCADE"},
+    "description": "Review DROP TABLE flags permanent deletion",
+    "must_contain": ["drop table"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-18",
+    "category": "migration",
+    "tool": "review_migration",
+    "arguments": {"ddl": "TRUNCATE orders"},
+    "description": "Review TRUNCATE flags data loss and lock",
+    "must_contain": ["truncate"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-19",
+    "category": "status",
+    "tool": "sage_status",
+    "arguments": {},
+    "description": "Sage status returns version, mode, trust level",
+    "must_contain": ["version", "mode", "trust"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-20",
+    "category": "status",
+    "tool": "sage_briefing",
+    "arguments": {},
+    "description": "Sage briefing generates health report text",
+    "must_contain": [],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-21",
+    "category": "schema",
+    "tool": "resource:sage://schema/audit_log",
+    "arguments": null,
+    "description": "Schema for audit_log table",
+    "must_contain": ["table_name", "operation"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-22",
+    "category": "schema",
+    "tool": "resource:sage://stats/line_items",
+    "arguments": null,
+    "description": "Stats for line_items (1M rows)",
+    "must_contain": ["n_live_tup"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-23",
+    "category": "migration",
+    "tool": "review_migration",
+    "arguments": {"ddl": "ALTER TABLE orders RENAME COLUMN notes TO order_notes"},
+    "description": "Review RENAME flags application breakage risk",
+    "must_contain": ["rename"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-24",
+    "category": "migration",
+    "tool": "review_migration",
+    "arguments": {"ddl": "ALTER TABLE orders ADD COLUMN priority INT NOT NULL DEFAULT 0"},
+    "description": "Review ADD COLUMN with NOT NULL + DEFAULT",
+    "must_contain": ["not null"],
+    "must_not_contain": []
+  },
+  {
+    "id": "GP-25",
+    "category": "index",
+    "tool": "suggest_index",
+    "arguments": {"table": "audit_log"},
+    "description": "Index suggestions for audit_log (large, no custom indexes)",
+    "must_contain": ["seq_scan"],
+    "must_not_contain": []
+  }
+]

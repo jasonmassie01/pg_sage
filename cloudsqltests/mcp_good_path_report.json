@@ -1,0 +1,211 @@
+{
+  "server_url": "http://localhost:8080",
+  "started_at": "2026-03-23T17:26:19.0660568-05:00",
+  "finished_at": "2026-03-23T17:26:25.8759922-05:00",
+  "total_tests": 25,
+  "passed": 25,
+  "failed": 0,
+  "errors": 0,
+  "results": [
+    {
+      "prompt_id": "GP-01",
+      "category": "schema",
+      "tool": "resource:sage://health",
+      "pass": true,
+      "latency_ms": 450998300,
+      "response_text": "{\"mode\" : \"standalone\", \"version\" : \"0.7.0-rc1\", \"status\" : \"ok\", \"connections\" : 37, \"active_queries\" : 2, \"idle_in_transaction\" : 0, \"database_size\" : \"366 MB\", \"database_size_bytes\" : 383740423, \"uptime_seconds\" : 1442, \"pg_version\" : \"PostgreSQL 17.7 on x86_64-pc-linux-gnu, compiled by Debian clang version 12.0.1, 64-bit\", \"max_connections\" : 1000, \"cache_hit_ratio\" : 99.89, \"deadlocks\" : 0, \"cloud\" : \"alloydb\"}"
+    },
+    {
+      "prompt_id": "GP-02",
+      "category": "schema",
+      "tool": "resource:sage://findings",
+      "pass": true,
+      "latency_ms": 181043200,
+      "response_text": "[{\"id\":28,\"created_at\":\"2026-03-23T22:26:07.311963+00:00\",\"last_seen\":\"2026-03-23T22:26:07.311963+00:00\",\"occurrence_count\":1,\"category\":\"sequence_exhaustion\",\"severity\":\"critical\",\"object_type\":\"sequence\",\"object_identifier\":\"public.ticket_seq\",\"title\":\"Sequence public.ticket_seq is 99.9% consumed (bigint)\",\"detail\":{\"data_type\": \"bigint\", \"increment\": 1, \"max_value\": 10000, \"usage_pct\": 99.94, \"current_value\": 9994},\"recommendation\":\"Sequence public.ticket_seq is 99.9% consumed. Plan for sequence reset or range expansion.\",\"recommended_sql\":\"\",\"rollback_sql\":\"\",\"estimated_cost_usd\":null,\"status\":\"open\",\"suppressed_until\":null,\"resolved_at\":null,\"acted_on_at\":null,\"action_log_id\":null}, {\"id\":11,\"created_at\":\"2026-03-23T22:17:10.803523+00:00\",\"last_seen\":\"2026-03-23T22:26:06.861732+00:00\",\"occurrence_count\":5,\"category\":\"slow_query\",\"severity\":\"critical\",\"object_type\":\"query\",\"object_identifier\":\"queryid:-6482972956045890082\",\"title\":\"Slow query (2628.8ms mean, 5.3x threshold)\",\"detail\":{\"calls\": 1, \"query\": \"INSERT INTO order_events (order_id, event_type, event_data, created_at)\\nSELECT (random()*$1+$2)::int,\\n       (ARRAY[$3,$4,$5,$6,$7])[floor(random()*$8+$9)::int],\\n       jsonb_build_object($10,$11,$12,(random()*$13+$14)::int),\\n       now()-(random()*$15)::int*interval $16\\nFROM generate_series($17,$18)\", \"queryid\": -6482972956045890082, \"mean_exec_ms\": 2628.77396, \"threshold_ms\": 500, \"total_exec_ms\": 2628.77396},\"recommendation\":\"Review query plan with EXPLAIN ANALYZE and optimize.\",\"recommended_sql\":\"\",\"rollback_sql\":\"\",\"estimated_cost_usd\":null,\"status\":\"open\",\"suppressed_until\":null,\"resolved_at\":null,\"acted_on_at\":null,\"action_log_id\":null}, {\"id\":10,\"created_at\":\"2026-03-23T22:17:10.743603+00:00\",\"last_seen\":\"2026-03-23T22:26:06.800007+00:00\",\"occurrence_count\":5,\"category\":\"slow_query\",\"severity\":\"critical\",\"object_type\":\"query\",\"object_identifier\":\"queryid:-5082700584968300592\",\"title\":\"Slow query (2801.0ms mean, 5.6x threshold)\",\"detail\":{\"calls\": ...[truncated]"
+    },
+    {
+      "prompt_id": "GP-03",
+      "category": "schema",
+      "tool": "resource:sage://slow-queries",
+      "pass": true,
+      "latency_ms": 83537100,
+      "response_text": "[{\"queryid\":-1196740967897462351,\"query\":\"INSERT INTO line_items (order_id, product_id, quantity, unit_price, discount_pct)\\nSELECT (random()*$1+$2)::int, (random()*$3+$4)::int, (random()*$5+$6)::int,\\n       (random()*$7+$8)::numeric(12,2),\\n       CASE WHEN random()\u003c$9 THEN (random()*$10)::numeric(5,2) ELSE $11 END\\nFROM generate_series($12,$13)\",\"calls\":1,\"mean_exec_time\":59791.956451,\"total_exec_time\":59791.956451,\"rows\":1000000,\"shared_blks_hit\":37397217,\"shared_blks_read\":21146}, {\"queryid\":8209954856282220306,\"query\":\"DO $$\\nBEGIN\\n    FOR i IN 1..20 LOOP\\n        PERFORM count(*) FROM orders WHERE customer_id = i;\\n        PERFORM * FROM customers c WHERE EXISTS (\\n            SELECT 1 FROM orders o WHERE o.customer_id = c.customer_id AND o.total_amount \u003e 500\\n        ) LIMIT 10;\\n        PERFORM o.order_id, c.name, p.name FROM orders o\\n            JOIN customers c ON c.customer_id = o.customer_id\\n            JOIN products p ON p.product_id = o.product_id\\n            WHERE o.order_date \u003e now() - interval '30 days' LIMIT 100;\\n        PERFORM * FROM orders ORDER BY total_amount DESC LIMIT 100;\\n        PERFORM count(*) FROM order_events WHERE order_id = i;\\n        PERFORM status, count(*), avg(total_amount) FROM orders GROUP BY status;\\n        PERFORM * FROM customers WHERE customer_id = i;\\n        PERFORM * FROM products WHERE product_id = i;\\n    END LOOP;\\nEND $$\",\"calls\":1,\"mean_exec_time\":19684.086342,\"total_exec_time\":19684.086342,\"rows\":0,\"shared_blks_hit\":622272,\"shared_blks_read\":296}, {\"queryid\":-6841842062449227327,\"query\":\"INSERT INTO orders (customer_id, product_id, quantity, total_amount, order_date, status)\\nSELECT (random()*$1+$2)::int, (random()*$3+$4)::int, (random()*$5+$6)::int,\\n       (random()*$7+$8)::numeric(12,2), now()-(random()*$9)::int*interval $10,\\n       (ARRAY[$11,$12,$13,$14,$15])[floor(random()*$16+$17)::int]\\nFROM generate_series($18,$19)\",\"calls\":1,\"mean_exec_time\":18495.038422,\"total_exec_time\":18495.038422,\"rows\":500...[truncated]"
+    },
+    {
+      "prompt_id": "GP-04",
+      "category": "schema",
+      "tool": "resource:sage://schema/orders",
+      "pass": true,
+      "latency_ms": 81357700,
+      "response_text": "{\"table\" : \"orders\", \"columns\" : [{\"name\" : \"order_id\", \"type\" : \"integer\", \"nullable\" : \"NO\", \"column_default\" : \"nextval('orders_order_id_seq'::regclass)\"}, {\"name\" : \"customer_id\", \"type\" : \"integer\", \"nullable\" : \"NO\", \"column_default\" : null}, {\"name\" : \"product_id\", \"type\" : \"integer\", \"nullable\" : \"NO\", \"column_default\" : null}, {\"name\" : \"quantity\", \"type\" : \"integer\", \"nullable\" : \"NO\", \"column_default\" : \"1\"}, {\"name\" : \"total_amount\", \"type\" : \"numeric\", \"nullable\" : \"NO\", \"column_default\" : null}, {\"name\" : \"order_date\", \"type\" : \"timestamp with time zone\", \"nullable\" : \"NO\", \"column_default\" : \"now()\"}, {\"name\" : \"status\", \"type\" : \"character varying\", \"nullable\" : \"NO\", \"column_default\" : \"'pending'::character varying\"}, {\"name\" : \"shipping_address\", \"type\" : \"text\", \"nullable\" : \"YES\", \"column_default\" : null}, {\"name\" : \"notes\", \"type\" : \"text\", \"nullable\" : \"YES\", \"column_default\" : null}], \"indexes\" : [{\"name\" : \"orders_pkey\", \"def\" : \"CREATE UNIQUE INDEX orders_pkey ON public.orders USING btree (order_id)\"}, {\"name\" : \"orders_customer_id_idx\", \"def\" : \"CREATE INDEX orders_customer_id_idx ON public.orders USING btree (customer_id)\"}, {\"name\" : \"orders_product_id_idx\", \"def\" : \"CREATE INDEX orders_product_id_idx ON public.orders USING btree (product_id)\"}], \"constraints\" : [{\"name\" : \"orders_customer_id_fkey\", \"type\" : \"f\", \"definition\" : \"FOREIGN KEY (customer_id) REFERENCES customers(customer_id)\"}, {\"name\" : \"orders_pkey\", \"type\" : \"p\", \"definition\" : \"PRIMARY KEY (order_id)\"}, {\"name\" : \"orders_product_id_fkey\", \"type\" : \"f\", \"definition\" : \"FOREIGN KEY (product_id) REFERENCES products(product_id)\"}]}"
+    },
+    {
+      "prompt_id": "GP-05",
+      "category": "schema",
+      "tool": "resource:sage://schema/customers",
+      "pass": true,
+      "latency_ms": 48134100,
+      "response_text": "{\"table\" : \"customers\", \"columns\" : [{\"name\" : \"customer_id\", \"type\" : \"integer\", \"nullable\" : \"NO\", \"column_default\" : \"nextval('customers_customer_id_seq'::regclass)\"}, {\"name\" : \"email\", \"type\" : \"character varying\", \"nullable\" : \"NO\", \"column_default\" : null}, {\"name\" : \"name\", \"type\" : \"character varying\", \"nullable\" : \"NO\", \"column_default\" : null}, {\"name\" : \"created_at\", \"type\" : \"timestamp with time zone\", \"nullable\" : \"NO\", \"column_default\" : \"now()\"}, {\"name\" : \"status\", \"type\" : \"character varying\", \"nullable\" : \"NO\", \"column_default\" : \"'active'::character varying\"}], \"indexes\" : [{\"name\" : \"customers_pkey\", \"def\" : \"CREATE UNIQUE INDEX customers_pkey ON public.customers USING btree (customer_id)\"}, {\"name\" : \"customers_email_key\", \"def\" : \"CREATE UNIQUE INDEX customers_email_key ON public.customers USING btree (email)\"}], \"constraints\" : [{\"name\" : \"customers_email_key\", \"type\" : \"u\", \"definition\" : \"UNIQUE (email)\"}, {\"name\" : \"customers_pkey\", \"type\" : \"p\", \"definition\" : \"PRIMARY KEY (customer_id)\"}]}"
+    },
+    {
+      "prompt_id": "GP-06",
+      "category": "schema",
+      "tool": "resource:sage://schema/line_items",
+      "pass": true,
+      "latency_ms": 109633200,
+      "response_text": "{\"table\" : \"line_items\", \"columns\" : [{\"name\" : \"line_item_id\", \"type\" : \"integer\", \"nullable\" : \"NO\", \"column_default\" : \"nextval('line_items_line_item_id_seq'::regclass)\"}, {\"name\" : \"order_id\", \"type\" : \"integer\", \"nullable\" : \"NO\", \"column_default\" : null}, {\"name\" : \"product_id\", \"type\" : \"integer\", \"nullable\" : \"NO\", \"column_default\" : null}, {\"name\" : \"quantity\", \"type\" : \"integer\", \"nullable\" : \"NO\", \"column_default\" : null}, {\"name\" : \"unit_price\", \"type\" : \"numeric\", \"nullable\" : \"NO\", \"column_default\" : null}, {\"name\" : \"discount_pct\", \"type\" : \"numeric\", \"nullable\" : \"YES\", \"column_default\" : \"0\"}], \"indexes\" : [{\"name\" : \"line_items_pkey\", \"def\" : \"CREATE UNIQUE INDEX line_items_pkey ON public.line_items USING btree (line_item_id)\"}], \"constraints\" : [{\"name\" : \"line_items_order_id_fkey\", \"type\" : \"f\", \"definition\" : \"FOREIGN KEY (order_id) REFERENCES orders(order_id)\"}, {\"name\" : \"line_items_pkey\", \"type\" : \"p\", \"definition\" : \"PRIMARY KEY (line_item_id)\"}, {\"name\" : \"line_items_product_id_fkey\", \"type\" : \"f\", \"definition\" : \"FOREIGN KEY (product_id) REFERENCES products(product_id)\"}]}"
+    },
+    {
+      "prompt_id": "GP-07",
+      "category": "schema",
+      "tool": "resource:sage://stats/orders",
+      "pass": true,
+      "latency_ms": 67540700,
+      "response_text": "{\"relname\":\"orders\",\"schemaname\":\"public\",\"seq_scan\":233,\"seq_tup_read\":42520940,\"idx_scan\":1000001,\"idx_tup_fetch\":1050000,\"n_tup_ins\":500000,\"n_tup_upd\":50000,\"n_tup_del\":0,\"n_live_tup\":500000,\"n_dead_tup\":50000,\"last_vacuum\":null,\"last_autovacuum\":\"2026-03-23T22:14:04.165133+00:00\",\"last_analyze\":\"2026-03-23T22:14:33.483621+00:00\",\"last_autoanalyze\":\"2026-03-23T22:14:04.383757+00:00\",\"total_size\":\"67 MB\",\"table_size\":\"45 MB\",\"index_size\":\"22 MB\"}"
+    },
+    {
+      "prompt_id": "GP-08",
+      "category": "schema",
+      "tool": "resource:sage://stats/order_events",
+      "pass": true,
+      "latency_ms": 36050500,
+      "response_text": "{\"relname\":\"order_events\",\"schemaname\":\"public\",\"seq_scan\":64,\"seq_tup_read\":8500000,\"idx_scan\":null,\"idx_tup_fetch\":null,\"n_tup_ins\":500000,\"n_tup_upd\":0,\"n_tup_del\":100000,\"n_live_tup\":400000,\"n_dead_tup\":0,\"last_vacuum\":null,\"last_autovacuum\":\"2026-03-23T22:14:58.820376+00:00\",\"last_analyze\":\"2026-03-23T22:14:33.299093+00:00\",\"last_autoanalyze\":null,\"total_size\":\"51 MB\",\"table_size\":\"51 MB\",\"index_size\":\"0 bytes\"}"
+    },
+    {
+      "prompt_id": "GP-09",
+      "category": "index",
+      "tool": "suggest_index",
+      "pass": true,
+      "latency_ms": 33197100,
+      "response_text": "{\"table\" : \"orders\", \"analysis\" : {\"seq_scan\" : 233, \"idx_scan\" : 1000001, \"n_live_tup\" : 500000, \"seq_scan_ratio\" : 0.0002}, \"existing_indexes\" : [{\"name\" : \"orders_pkey\", \"def\" : \"CREATE UNIQUE INDEX orders_pkey ON public.orders USING btree (order_id)\"}, {\"name\" : \"orders_customer_id_idx\", \"def\" : \"CREATE INDEX orders_customer_id_idx ON public.orders USING btree (customer_id)\"}, {\"name\" : \"orders_product_id_idx\", \"def\" : \"CREATE INDEX orders_product_id_idx ON public.orders USING btree (product_id)\"}]}"
+    },
+    {
+      "prompt_id": "GP-10",
+      "category": "index",
+      "tool": "suggest_index",
+      "pass": true,
+      "latency_ms": 32526800,
+      "response_text": "{\"table\" : \"order_events\", \"analysis\" : {\"seq_scan\" : 64, \"idx_scan\" : 0, \"n_live_tup\" : 400000, \"seq_scan_ratio\" : 1.0000}, \"existing_indexes\" : []}"
+    },
+    {
+      "prompt_id": "GP-11",
+      "category": "index",
+      "tool": "suggest_index",
+      "pass": true,
+      "latency_ms": 37006200,
+      "response_text": "{\"table\" : \"line_items\", \"analysis\" : {\"seq_scan\" : 13, \"idx_scan\" : 0, \"n_live_tup\" : 1000000, \"seq_scan_ratio\" : 1.0000}, \"existing_indexes\" : [{\"name\" : \"line_items_pkey\", \"def\" : \"CREATE UNIQUE INDEX line_items_pkey ON public.line_items USING btree (line_item_id)\"}, {\"name\" : \"line_items_order_id_idx\", \"def\" : \"CREATE INDEX line_items_order_id_idx ON public.line_items USING btree (order_id)\"}, {\"name\" : \"line_items_product_id_idx\", \"def\" : \"CREATE INDEX line_items_product_id_idx ON public.line_items USING btree (product_id)\"}]}"
+    },
+    {
+      "prompt_id": "GP-12",
+      "category": "index",
+      "tool": "suggest_index",
+      "pass": true,
+      "latency_ms": 39283600,
+      "response_text": "{\"table\" : \"customers\", \"analysis\" : {\"seq_scan\" : 4, \"idx_scan\" : 602224, \"n_live_tup\" : 50000, \"seq_scan_ratio\" : 0.0000}, \"existing_indexes\" : [{\"name\" : \"customers_pkey\", \"def\" : \"CREATE UNIQUE INDEX customers_pkey ON public.customers USING btree (customer_id)\"}, {\"name\" : \"customers_email_key\", \"def\" : \"CREATE UNIQUE INDEX customers_email_key ON public.customers USING btree (email)\"}]}"
+    },
+    {
+      "prompt_id": "GP-13",
+      "category": "index",
+      "tool": "suggest_index",
+      "pass": true,
+      "latency_ms": 43997500,
+      "response_text": "{\"table\" : \"products\", \"analysis\" : {\"seq_scan\" : 3, \"idx_scan\" : 1512002, \"n_live_tup\" : 5000, \"seq_scan_ratio\" : 0.0000}, \"existing_indexes\" : [{\"name\" : \"products_pkey\", \"def\" : \"CREATE UNIQUE INDEX products_pkey ON public.products USING btree (product_id)\"}, {\"name\" : \"products_sku_key\", \"def\" : \"CREATE UNIQUE INDEX products_sku_key ON public.products USING btree (sku)\"}]}"
+    },
+    {
+      "prompt_id": "GP-14",
+      "category": "migration",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 106500,
+      "response_text": "{\"ddl\":\"CREATE INDEX CONCURRENTLY idx_orders_cust ON orders (customer_id)\",\"warnings\":[\"No obvious risks. Standard review recommended.\"]}"
+    },
+    {
+      "prompt_id": "GP-15",
+      "category": "migration",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 0,
+      "response_text": "{\"ddl\":\"CREATE INDEX idx_bad ON orders (customer_id)\",\"warnings\":[\"CREATE INDEX without CONCURRENTLY: blocks writes\"]}"
+    },
+    {
+      "prompt_id": "GP-16",
+      "category": "migration",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 0,
+      "response_text": "{\"ddl\":\"ALTER TABLE orders DROP COLUMN notes\",\"warnings\":[\"DROP COLUMN: irreversible, may break applications\"]}"
+    },
+    {
+      "prompt_id": "GP-17",
+      "category": "migration",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 505500,
+      "response_text": "{\"ddl\":\"DROP TABLE audit_log CASCADE\",\"warnings\":[\"DROP TABLE: permanently deletes table and data\"]}"
+    },
+    {
+      "prompt_id": "GP-18",
+      "category": "migration",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 0,
+      "response_text": "{\"ddl\":\"TRUNCATE orders\",\"warnings\":[\"TRUNCATE: removes all rows, ACCESS EXCLUSIVE lock\"]}"
+    },
+    {
+      "prompt_id": "GP-19",
+      "category": "status",
+      "tool": "sage_status",
+      "pass": true,
+      "latency_ms": 505300,
+      "response_text": "{\n  \"cloud\": \"alloydb\",\n  \"findings\": {\n    \"critical\": 6,\n    \"warning\": 11\n  },\n  \"is_replica\": false,\n  \"mode\": \"standalone\",\n  \"ramp_age\": \"768h11m2.8382665s\",\n  \"ramp_start\": \"2026-02-19T22:15:21Z\",\n  \"safe_mode\": false,\n  \"trust\": \"autonomous\",\n  \"version\": \"0.7.0-rc1\"\n}"
+    },
+    {
+      "prompt_id": "GP-20",
+      "category": "status",
+      "tool": "sage_briefing",
+      "pass": true,
+      "latency_ms": 387942800,
+      "response_text": "# pg_sage Health Briefing — 2026-03-23 17:26 CDT\n\n## System Overview\n- **uptime_hours**: 0\n- **db_size**: 389 MB\n- **connections**: 37\n- **active**: 2\n- **cache_hit_ratio**: 99.89\n\n## Findings: 8 critical, 18 warning, 0 info\n\n🔴 **critical** — Slow query (18495.0ms mean, 37.0x threshold) (`queryid:-6841842062449227327`)\n🔴 **critical** — Slow query (2801.0ms mean, 5.6x threshold) (`queryid:-5082700584968300592`)\n🔴 **critical** — Slow query (2628.8ms mean, 5.3x threshold) (`queryid:-6482972956045890082`)\n🔴 **critical** — Slow query (59792.0ms mean, 119.6x threshold) (`queryid:-1196740967897462351`)\n🔴 **critical** — Slow query (19684.1ms mean, 39.4x threshold) (`queryid:8209954856282220306`)\n🔴 **critical** — Duplicate index public.idx_li_product (same as public.idx_li_product_dup) (`public.idx_li_product`)\n🔴 **critical** — Subset index public.idx_li_order (covered by public.idx_li_order_product) (`public.idx_li_order`)\n🔴 **critical** — Sequence public.ticket_seq is 99.9% consumed (bigint) (`public.ticket_seq`)\n🟡 **warning** — Slow query (1211.1ms mean, 2.4x threshold) (`queryid:4893112231603711145`)\n🟡 **warning** — Missing index on FK column google_ml.models(auth_id) (`google_ml.models(auth_id)`)\n🟡 **warning** — Missing index on FK column google_ml.proxy_models_query_mapping(model_id) (`google_ml.proxy_models_query_mapping(model_id)`)\n🟡 **warning** — Slow query (891.1ms mean, 1.8x threshold) (`queryid:-7183248526548338899`)\n🟡 **warning** — Slow query (553.9ms mean, 1.1x threshold) (`queryid:-2056293817761261756`)\n🟡 **warning** — Replication lag 00:01:44.169429 on replica 127.0.0.1/32 (`replica:0:127.0.0.1/32`)\n🟡 **warning** — Slow query (1963.2ms mean, 3.9x threshold) (`queryid:-1405014472453362234`)\n🟡 **warning** — Unused index public.idx_li_product_dup (0 scans for 0+ days) (`public.idx_li_product_dup`)\n🟡 **warning** — Unused index public.idx_orders_status (0 scans for 0+ days) (`pu...[truncated]"
+    },
+    {
+      "prompt_id": "GP-21",
+      "category": "schema",
+      "tool": "resource:sage://schema/audit_log",
+      "pass": true,
+      "latency_ms": 64332400,
+      "response_text": "{\"table\" : \"audit_log\", \"columns\" : [{\"name\" : \"log_id\", \"type\" : \"integer\", \"nullable\" : \"NO\", \"column_default\" : \"nextval('audit_log_log_id_seq'::regclass)\"}, {\"name\" : \"table_name\", \"type\" : \"character varying\", \"nullable\" : \"YES\", \"column_default\" : null}, {\"name\" : \"operation\", \"type\" : \"character varying\", \"nullable\" : \"YES\", \"column_default\" : null}, {\"name\" : \"old_data\", \"type\" : \"jsonb\", \"nullable\" : \"YES\", \"column_default\" : null}, {\"name\" : \"new_data\", \"type\" : \"jsonb\", \"nullable\" : \"YES\", \"column_default\" : null}, {\"name\" : \"query_text\", \"type\" : \"text\", \"nullable\" : \"YES\", \"column_default\" : null}, {\"name\" : \"user_name\", \"type\" : \"character varying\", \"nullable\" : \"YES\", \"column_default\" : null}, {\"name\" : \"ip_address\", \"type\" : \"inet\", \"nullable\" : \"YES\", \"column_default\" : null}, {\"name\" : \"created_at\", \"type\" : \"timestamp with time zone\", \"nullable\" : \"YES\", \"column_default\" : \"now()\"}], \"indexes\" : [{\"name\" : \"audit_log_pkey\", \"def\" : \"CREATE UNIQUE INDEX audit_log_pkey ON public.audit_log USING btree (log_id)\"}], \"constraints\" : [{\"name\" : \"audit_log_pkey\", \"type\" : \"p\", \"definition\" : \"PRIMARY KEY (log_id)\"}]}"
+    },
+    {
+      "prompt_id": "GP-22",
+      "category": "schema",
+      "tool": "resource:sage://stats/line_items",
+      "pass": true,
+      "latency_ms": 30356100,
+      "response_text": "{\"relname\":\"line_items\",\"schemaname\":\"public\",\"seq_scan\":17,\"seq_tup_read\":5000000,\"idx_scan\":0,\"idx_tup_fetch\":0,\"n_tup_ins\":1000000,\"n_tup_upd\":0,\"n_tup_del\":0,\"n_live_tup\":1000000,\"n_dead_tup\":0,\"last_vacuum\":null,\"last_autovacuum\":\"2026-03-23T22:14:58.900758+00:00\",\"last_analyze\":\"2026-03-23T22:14:33.60018+00:00\",\"last_autoanalyze\":null,\"total_size\":\"106 MB\",\"table_size\":\"57 MB\",\"index_size\":\"49 MB\"}"
+    },
+    {
+      "prompt_id": "GP-23",
+      "category": "migration",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 594900,
+      "response_text": "{\"ddl\":\"ALTER TABLE orders RENAME COLUMN notes TO order_notes\",\"warnings\":[\"RENAME: may break application queries\"]}"
+    },
+    {
+      "prompt_id": "GP-24",
+      "category": "migration",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 0,
+      "response_text": "{\"ddl\":\"ALTER TABLE orders ADD COLUMN priority INT NOT NULL DEFAULT 0\",\"warnings\":[\"Adding NOT NULL: requires full table scan on large tables\"]}"
+    },
+    {
+      "prompt_id": "GP-25",
+      "category": "index",
+      "tool": "suggest_index",
+      "pass": true,
+      "latency_ms": 59915700,
+      "response_text": "{\"table\" : \"audit_log\", \"analysis\" : {\"seq_scan\" : 2, \"idx_scan\" : 0, \"n_live_tup\" : 100000, \"seq_scan_ratio\" : 1.0000}, \"existing_indexes\" : [{\"name\" : \"audit_log_pkey\", \"def\" : \"CREATE UNIQUE INDEX audit_log_pkey ON public.audit_log USING btree (log_id)\"}]}"
+    }
+  ]
+}

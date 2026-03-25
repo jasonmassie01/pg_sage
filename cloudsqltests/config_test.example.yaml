@@ -1,0 +1,70 @@
+mode: standalone
+
+postgres:
+  host: <CLOUD_SQL_IP>
+  port: 5432
+  user: sage_agent
+  password: <PASSWORD>
+  database: sage_test
+  sslmode: require
+  max_connections: 5
+
+collector:
+  interval_seconds: 60
+  batch_size: 1000
+
+analyzer:
+  interval_seconds: 120
+  slow_query_threshold_ms: 500
+  seq_scan_min_rows: 10000
+  unused_index_window_days: 0
+  table_bloat_dead_tuple_pct: 10
+  table_bloat_min_rows: 1000
+
+safety:
+  cpu_ceiling_pct: 90
+  query_timeout_ms: 500
+  ddl_timeout_seconds: 300
+  disk_pressure_threshold_pct: 5
+  backoff_consecutive_skips: 3
+  dormant_interval_seconds: 600
+
+trust:
+  level: autonomous
+  tier3_safe: true
+  tier3_moderate: true
+  maintenance_window: "* * * * *"
+  rollback_threshold_pct: 10
+  rollback_window_minutes: 15
+  rollback_cooldown_days: 0
+
+llm:
+  enabled: true
+  endpoint: "https://generativelanguage.googleapis.com/v1beta/openai"
+  api_key: "<GEMINI_API_KEY>"
+  model: "gemini-2.5-flash"
+  timeout_seconds: 60
+  token_budget_daily: 100000
+  context_budget_tokens: 4096
+  cooldown_seconds: 300
+  optimizer:
+    enabled: true
+    min_query_calls: 10
+    max_indexes_per_table: 3
+    max_new_per_table: 3
+    max_include_columns: 5
+    over_indexed_ratio_pct: 100
+    write_heavy_ratio_pct: 50
+
+retention:
+  snapshots_days: 30
+  findings_days: 90
+  actions_days: 365
+  briefings_days: 30
+
+mcp:
+  enabled: true
+  listen_addr: "0.0.0.0:8080"
+
+prometheus:
+  listen_addr: "0.0.0.0:9187"

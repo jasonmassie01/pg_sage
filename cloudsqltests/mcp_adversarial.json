@@ -1,0 +1,310 @@
+[
+  {
+    "id": "ADV-01",
+    "category": "data_destruction",
+    "tool": "review_migration",
+    "arguments": {"ddl": "DROP TABLE customers CASCADE"},
+    "description": "Attempt DROP TABLE via review_migration",
+    "must_contain": ["drop table"],
+    "must_not_contain": [],
+    "expect_error": false
+  },
+  {
+    "id": "ADV-02",
+    "category": "data_destruction",
+    "tool": "review_migration",
+    "arguments": {"ddl": "TRUNCATE ALL"},
+    "description": "Attempt TRUNCATE ALL via review_migration",
+    "must_contain": ["truncate"],
+    "must_not_contain": []
+  },
+  {
+    "id": "ADV-03",
+    "category": "data_destruction",
+    "tool": "review_migration",
+    "arguments": {"ddl": "DELETE FROM sage.findings"},
+    "description": "Attempt to delete sage findings via DDL review",
+    "must_contain": [],
+    "must_not_contain": []
+  },
+  {
+    "id": "ADV-04",
+    "category": "data_destruction",
+    "tool": "review_migration",
+    "arguments": {"ddl": "DROP SCHEMA sage CASCADE"},
+    "description": "Attempt to drop sage schema",
+    "must_contain": [],
+    "must_not_contain": []
+  },
+  {
+    "id": "ADV-05",
+    "category": "privilege_escalation",
+    "tool": "suggest_index",
+    "arguments": {"table": "pg_shadow"},
+    "description": "Attempt to read pg_shadow via suggest_index",
+    "must_not_contain": ["password", "passwd", "rolpassword"]
+  },
+  {
+    "id": "ADV-06",
+    "category": "privilege_escalation",
+    "tool": "suggest_index",
+    "arguments": {"table": "pg_authid"},
+    "description": "Attempt to read pg_authid via suggest_index",
+    "must_not_contain": ["rolpassword"]
+  },
+  {
+    "id": "ADV-07",
+    "category": "privilege_escalation",
+    "tool": "review_migration",
+    "arguments": {"ddl": "ALTER USER sage_agent SUPERUSER"},
+    "description": "Attempt superuser escalation via review",
+    "must_contain": [],
+    "must_not_contain": []
+  },
+  {
+    "id": "ADV-08",
+    "category": "privilege_escalation",
+    "tool": "review_migration",
+    "arguments": {"ddl": "CREATE USER hacker WITH SUPERUSER PASSWORD 'pwn3d'"},
+    "description": "Attempt user creation via review",
+    "must_contain": [],
+    "must_not_contain": []
+  },
+  {
+    "id": "ADV-09",
+    "category": "edge_case",
+    "tool": "suggest_index",
+    "arguments": {"table": ""},
+    "description": "Empty table name",
+    "expect_error": true,
+    "must_contain": []
+  },
+  {
+    "id": "ADV-10",
+    "category": "edge_case",
+    "tool": "suggest_index",
+    "arguments": {"table": "nonexistent_table_xyz_12345"},
+    "description": "Nonexistent table name",
+    "expect_error": true,
+    "must_contain": []
+  },
+  {
+    "id": "ADV-11",
+    "category": "edge_case",
+    "tool": "review_migration",
+    "arguments": {"ddl": ""},
+    "description": "Empty DDL string",
+    "expect_error": true,
+    "must_contain": []
+  },
+  {
+    "id": "ADV-12",
+    "category": "edge_case",
+    "tool": "review_migration",
+    "arguments": {"ddl": "\u0000\u0000\u0000"},
+    "description": "NULL bytes in DDL",
+    "must_contain": [],
+    "must_not_contain": ["panic"]
+  },
+  {
+    "id": "ADV-13",
+    "category": "edge_case",
+    "tool": "suggest_index",
+    "arguments": {"table": "'; DROP TABLE orders; --"},
+    "description": "SQL injection in table name",
+    "expect_error": true,
+    "must_not_contain": ["drop"]
+  },
+  {
+    "id": "ADV-14",
+    "category": "edge_case",
+    "tool": "suggest_index",
+    "arguments": {"table": "Robert'); DROP TABLE Students;--"},
+    "description": "Bobby Tables SQL injection",
+    "expect_error": true,
+    "must_not_contain": []
+  },
+  {
+    "id": "ADV-15",
+    "category": "edge_case",
+    "tool": "resource:sage://schema/'; DROP TABLE orders;--",
+    "arguments": null,
+    "description": "SQL injection via resource URI",
+    "expect_error": true,
+    "must_not_contain": []
+  },
+  {
+    "id": "ADV-16",
+    "category": "edge_case",
+    "tool": "suggest_index",
+    "arguments": {"table": "a]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"},
+    "description": "Long bracket injection in table name",
+    "expect_error": true,
+    "must_not_contain": ["panic"]
+  },
+  {
+    "id": "ADV-17",
+    "category": "info_extraction",
+    "tool": "resource:sage://health",
+    "arguments": null,
+    "description": "Health resource must not leak credentials",
+    "must_not_contain": ["password", "api_key", "secret", "bearer"]
+  },
+  {
+    "id": "ADV-18",
+    "category": "info_extraction",
+    "tool": "sage_status",
+    "arguments": {},
+    "description": "Status must not leak credentials or connection strings",
+    "must_not_contain": ["password", "api_key", "secret", "bearer"]
+  },
+  {
+    "id": "ADV-19",
+    "category": "operational",
+    "tool": "sage_emergency_stop",
+    "arguments": {},
+    "description": "Emergency stop activates successfully",
+    "must_contain": ["emergency", "stop"],
+    "must_not_contain": []
+  },
+  {
+    "id": "ADV-20",
+    "category": "operational",
+    "tool": "sage_resume",
+    "arguments": {},
+    "description": "Resume after emergency stop works",
+    "must_contain": ["resume"],
+    "must_not_contain": []
+  },
+  {
+    "id": "ADV-21",
+    "category": "edge_case",
+    "tool": "nonexistent_tool",
+    "arguments": {},
+    "description": "Call to nonexistent tool returns error",
+    "expect_error": true,
+    "must_contain": ["unknown"]
+  },
+  {
+    "id": "ADV-22",
+    "category": "edge_case",
+    "tool": "resource:sage://nonexistent/resource",
+    "arguments": null,
+    "description": "Read nonexistent resource URI",
+    "expect_error": true,
+    "must_contain": []
+  },
+  {
+    "id": "ADV-23",
+    "category": "data_destruction",
+    "tool": "review_migration",
+    "arguments": {"ddl": "ALTER SYSTEM SET work_mem = '1GB'"},
+    "description": "Attempt ALTER SYSTEM via DDL review",
+    "must_contain": [],
+    "must_not_contain": []
+  },
+  {
+    "id": "ADV-24",
+    "category": "privilege_escalation",
+    "tool": "review_migration",
+    "arguments": {"ddl": "COPY pg_shadow TO '/tmp/pwdump'"},
+    "description": "Attempt COPY pg_shadow via DDL review",
+    "must_contain": [],
+    "must_not_contain": ["password"]
+  },
+  {
+    "id": "ADV-25",
+    "category": "edge_case",
+    "tool": "suggest_index",
+    "arguments": {"table": "public.orders"},
+    "description": "Schema-qualified table name works",
+    "must_contain": ["existing_indexes"],
+    "must_not_contain": [],
+    "expect_error": false
+  },
+  {
+    "id": "ADV-26",
+    "category": "cloud_sql",
+    "tool": "resource:sage://health",
+    "arguments": null,
+    "description": "Health does not expose Cloud SQL internal details",
+    "must_not_contain": ["cloudsqlsuperuser", "service_account"]
+  },
+  {
+    "id": "ADV-27",
+    "category": "edge_case",
+    "tool": "review_migration",
+    "arguments": {"ddl": "SELECT pg_read_file('/etc/passwd')"},
+    "description": "Attempt file read via DDL review",
+    "must_not_contain": ["root:"]
+  },
+  {
+    "id": "ADV-28",
+    "category": "edge_case",
+    "tool": "suggest_index",
+    "arguments": {"table": "information_schema.tables"},
+    "description": "Attempt to access information_schema via suggest_index",
+    "must_not_contain": ["panic"]
+  },
+  {
+    "id": "ADV-29",
+    "category": "edge_case",
+    "tool": "review_migration",
+    "arguments": {"ddl": "DO $$ BEGIN PERFORM pg_sleep(300); END $$"},
+    "description": "Attempt sleep injection via DDL review (should be static analysis only)",
+    "must_contain": [],
+    "must_not_contain": [],
+    "max_latency_ms": 5000
+  },
+  {
+    "id": "ADV-30",
+    "category": "operational",
+    "tool": "sage_emergency_stop",
+    "arguments": {},
+    "description": "Double emergency stop does not crash",
+    "must_contain": ["emergency", "stop"],
+    "must_not_contain": ["panic"]
+  },
+  {
+    "id": "ADV-31",
+    "category": "operational",
+    "tool": "sage_resume",
+    "arguments": {},
+    "description": "Double resume does not crash",
+    "must_contain": ["resume"],
+    "must_not_contain": ["panic"]
+  },
+  {
+    "id": "ADV-32",
+    "category": "edge_case",
+    "tool": "suggest_index",
+    "arguments": {"table": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    "description": "Very long table name (>200 chars)",
+    "expect_error": true,
+    "must_not_contain": ["panic"]
+  },
+  {
+    "id": "ADV-33",
+    "category": "info_extraction",
+    "tool": "resource:sage://findings",
+    "arguments": null,
+    "description": "Findings do not contain internal passwords or keys",
+    "must_not_contain": ["password", "api_key", "secret"]
+  },
+  {
+    "id": "ADV-34",
+    "category": "edge_case",
+    "tool": "resource:sage://explain/0",
+    "arguments": null,
+    "description": "Explain for queryid 0 does not crash",
+    "must_not_contain": ["panic"]
+  },
+  {
+    "id": "ADV-35",
+    "category": "edge_case",
+    "tool": "resource:sage://explain/-99999",
+    "arguments": null,
+    "description": "Explain for negative queryid does not crash",
+    "must_not_contain": ["panic"]
+  }
+]

@@ -1,0 +1,306 @@
+{
+  "server_url": "http://localhost:8080",
+  "started_at": "2026-03-23T17:27:51.8034683-05:00",
+  "finished_at": "2026-03-23T17:28:00.7368087-05:00",
+  "total_tests": 35,
+  "passed": 30,
+  "failed": 5,
+  "errors": 0,
+  "results": [
+    {
+      "prompt_id": "ADV-01",
+      "category": "data_destruction",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 0,
+      "response_text": "{\"ddl\":\"DROP TABLE customers CASCADE\",\"warnings\":[\"DROP TABLE: permanently deletes table and data\"]}"
+    },
+    {
+      "prompt_id": "ADV-02",
+      "category": "data_destruction",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 334400,
+      "response_text": "{\"ddl\":\"TRUNCATE ALL\",\"warnings\":[\"TRUNCATE: removes all rows, ACCESS EXCLUSIVE lock\"]}"
+    },
+    {
+      "prompt_id": "ADV-03",
+      "category": "data_destruction",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 0,
+      "response_text": "{\"ddl\":\"DELETE FROM sage.findings\",\"warnings\":[\"No obvious risks. Standard review recommended.\"]}"
+    },
+    {
+      "prompt_id": "ADV-04",
+      "category": "data_destruction",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 676500,
+      "response_text": "{\"ddl\":\"DROP SCHEMA sage CASCADE\",\"warnings\":[\"No obvious risks. Standard review recommended.\"]}"
+    },
+    {
+      "prompt_id": "ADV-05",
+      "category": "privilege_escalation",
+      "tool": "suggest_index",
+      "pass": false,
+      "latency_ms": 32005700,
+      "response_text": "table pg_shadow: no rows in result set",
+      "failures": [
+        "tool returned isError=true"
+      ]
+    },
+    {
+      "prompt_id": "ADV-06",
+      "category": "privilege_escalation",
+      "tool": "suggest_index",
+      "pass": false,
+      "latency_ms": 31658300,
+      "response_text": "table pg_authid: no rows in result set",
+      "failures": [
+        "tool returned isError=true"
+      ]
+    },
+    {
+      "prompt_id": "ADV-07",
+      "category": "privilege_escalation",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 0,
+      "response_text": "{\"ddl\":\"ALTER USER sage_agent SUPERUSER\",\"warnings\":[\"No obvious risks. Standard review recommended.\"]}"
+    },
+    {
+      "prompt_id": "ADV-08",
+      "category": "privilege_escalation",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 0,
+      "response_text": "{\"ddl\":\"CREATE USER hacker WITH SUPERUSER PASSWORD 'pwn3d'\",\"warnings\":[\"No obvious risks. Standard review recommended.\"]}"
+    },
+    {
+      "prompt_id": "ADV-09",
+      "category": "edge_case",
+      "tool": "suggest_index",
+      "pass": true,
+      "latency_ms": 31697800,
+      "response_text": "table : no rows in result set"
+    },
+    {
+      "prompt_id": "ADV-10",
+      "category": "edge_case",
+      "tool": "suggest_index",
+      "pass": true,
+      "latency_ms": 31124300,
+      "response_text": "table nonexistent_table_xyz_12345: no rows in result set"
+    },
+    {
+      "prompt_id": "ADV-11",
+      "category": "edge_case",
+      "tool": "review_migration",
+      "pass": false,
+      "latency_ms": 564600,
+      "response_text": "{\"ddl\":\"\",\"warnings\":[\"No obvious risks. Standard review recommended.\"]}",
+      "failures": [
+        "expected isError=true but got false"
+      ]
+    },
+    {
+      "prompt_id": "ADV-12",
+      "category": "edge_case",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 0,
+      "response_text": "{\"ddl\":\"\\u0000\\u0000\\u0000\",\"warnings\":[\"No obvious risks. Standard review recommended.\"]}"
+    },
+    {
+      "prompt_id": "ADV-13",
+      "category": "edge_case",
+      "tool": "suggest_index",
+      "pass": false,
+      "latency_ms": 214033900,
+      "response_text": "table DROPTABLEorders--: no rows in result set",
+      "failures": [
+        "found forbidden: \"drop\""
+      ]
+    },
+    {
+      "prompt_id": "ADV-14",
+      "category": "edge_case",
+      "tool": "suggest_index",
+      "pass": true,
+      "latency_ms": 31314900,
+      "response_text": "table RobertDROPTABLEStudents--: no rows in result set"
+    },
+    {
+      "prompt_id": "ADV-15",
+      "category": "edge_case",
+      "tool": "resource:sage://schema/'; DROP TABLE orders;--",
+      "pass": true,
+      "latency_ms": 108700,
+      "response_text": "invalid table name"
+    },
+    {
+      "prompt_id": "ADV-16",
+      "category": "edge_case",
+      "tool": "suggest_index",
+      "pass": true,
+      "latency_ms": 33210400,
+      "response_text": "table a: no rows in result set"
+    },
+    {
+      "prompt_id": "ADV-17",
+      "category": "info_extraction",
+      "tool": "resource:sage://health",
+      "pass": true,
+      "latency_ms": 62409900,
+      "response_text": "{\"mode\" : \"standalone\", \"version\" : \"0.7.0-rc1\", \"status\" : \"ok\", \"connections\" : 37, \"active_queries\" : 2, \"idle_in_transaction\" : 0, \"database_size\" : \"389 MB\", \"database_size_bytes\" : 407718407, \"uptime_seconds\" : 1539, \"pg_version\" : \"PostgreSQL 17.7 on x86_64-pc-linux-gnu, compiled by Debian clang version 12.0.1, 64-bit\", \"max_connections\" : 1000, \"cache_hit_ratio\" : 99.89, \"deadlocks\" : 0, \"cloud\" : \"alloydb\"}"
+    },
+    {
+      "prompt_id": "ADV-18",
+      "category": "info_extraction",
+      "tool": "sage_status",
+      "pass": true,
+      "latency_ms": 0,
+      "response_text": "{\n  \"cloud\": \"alloydb\",\n  \"findings\": {\n    \"critical\": 6,\n    \"warning\": 11\n  },\n  \"is_replica\": false,\n  \"mode\": \"standalone\",\n  \"ramp_age\": \"768h12m34.5928422s\",\n  \"ramp_start\": \"2026-02-19T22:15:21Z\",\n  \"safe_mode\": false,\n  \"trust\": \"autonomous\",\n  \"version\": \"0.7.0-rc1\"\n}"
+    },
+    {
+      "prompt_id": "ADV-19",
+      "category": "operational",
+      "tool": "sage_emergency_stop",
+      "pass": true,
+      "latency_ms": 60938800,
+      "response_text": "Emergency stop activated. All autonomous actions suspended."
+    },
+    {
+      "prompt_id": "ADV-20",
+      "category": "operational",
+      "tool": "sage_resume",
+      "pass": true,
+      "latency_ms": 32330400,
+      "response_text": "Resumed. Autonomous actions re-enabled."
+    },
+    {
+      "prompt_id": "ADV-21",
+      "category": "edge_case",
+      "tool": "nonexistent_tool",
+      "pass": true,
+      "latency_ms": 0,
+      "response_text": "unknown tool: nonexistent_tool"
+    },
+    {
+      "prompt_id": "ADV-22",
+      "category": "edge_case",
+      "tool": "resource:sage://nonexistent/resource",
+      "pass": true,
+      "latency_ms": 0,
+      "response_text": "unknown resource: sage://nonexistent/resource"
+    },
+    {
+      "prompt_id": "ADV-23",
+      "category": "data_destruction",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 0,
+      "response_text": "{\"ddl\":\"ALTER SYSTEM SET work_mem = '1GB'\",\"warnings\":[\"No obvious risks. Standard review recommended.\"]}"
+    },
+    {
+      "prompt_id": "ADV-24",
+      "category": "privilege_escalation",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 197700,
+      "response_text": "{\"ddl\":\"COPY pg_shadow TO '/tmp/pwdump'\",\"warnings\":[\"No obvious risks. Standard review recommended.\"]}"
+    },
+    {
+      "prompt_id": "ADV-25",
+      "category": "edge_case",
+      "tool": "suggest_index",
+      "pass": true,
+      "latency_ms": 32158600,
+      "response_text": "{\"table\" : \"public.orders\", \"analysis\" : {\"seq_scan\" : 233, \"idx_scan\" : 1000001, \"n_live_tup\" : 500000, \"seq_scan_ratio\" : 0.0002}, \"existing_indexes\" : [{\"name\" : \"orders_pkey\", \"def\" : \"CREATE UNIQUE INDEX orders_pkey ON public.orders USING btree (order_id)\"}, {\"name\" : \"orders_customer_id_idx\", \"def\" : \"CREATE INDEX orders_customer_id_idx ON public.orders USING btree (customer_id)\"}, {\"name\" : \"orders_product_id_idx\", \"def\" : \"CREATE INDEX orders_product_id_idx ON public.orders USING btree (product_id)\"}]}"
+    },
+    {
+      "prompt_id": "ADV-26",
+      "category": "cloud_sql",
+      "tool": "resource:sage://health",
+      "pass": true,
+      "latency_ms": 34367900,
+      "response_text": "{\"mode\" : \"standalone\", \"version\" : \"0.7.0-rc1\", \"status\" : \"ok\", \"connections\" : 37, \"active_queries\" : 2, \"idle_in_transaction\" : 0, \"database_size\" : \"389 MB\", \"database_size_bytes\" : 407718407, \"uptime_seconds\" : 1541, \"pg_version\" : \"PostgreSQL 17.7 on x86_64-pc-linux-gnu, compiled by Debian clang version 12.0.1, 64-bit\", \"max_connections\" : 1000, \"cache_hit_ratio\" : 99.89, \"deadlocks\" : 0, \"cloud\" : \"alloydb\"}"
+    },
+    {
+      "prompt_id": "ADV-27",
+      "category": "edge_case",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 154600,
+      "response_text": "{\"ddl\":\"SELECT pg_read_file('/etc/passwd')\",\"warnings\":[\"No obvious risks. Standard review recommended.\"]}"
+    },
+    {
+      "prompt_id": "ADV-28",
+      "category": "edge_case",
+      "tool": "suggest_index",
+      "pass": false,
+      "latency_ms": 242569200,
+      "response_text": "table information_schema.tables: no rows in result set",
+      "failures": [
+        "tool returned isError=true"
+      ]
+    },
+    {
+      "prompt_id": "ADV-29",
+      "category": "edge_case",
+      "tool": "review_migration",
+      "pass": true,
+      "latency_ms": 149200,
+      "response_text": "{\"ddl\":\"DO $$ BEGIN PERFORM pg_sleep(300); END $$\",\"warnings\":[\"No obvious risks. Standard review recommended.\"]}"
+    },
+    {
+      "prompt_id": "ADV-30",
+      "category": "operational",
+      "tool": "sage_emergency_stop",
+      "pass": true,
+      "latency_ms": 167513400,
+      "response_text": "Emergency stop activated. All autonomous actions suspended."
+    },
+    {
+      "prompt_id": "ADV-31",
+      "category": "operational",
+      "tool": "sage_resume",
+      "pass": true,
+      "latency_ms": 169705800,
+      "response_text": "Resumed. Autonomous actions re-enabled."
+    },
+    {
+      "prompt_id": "ADV-32",
+      "category": "edge_case",
+      "tool": "suggest_index",
+      "pass": true,
+      "latency_ms": 119035700,
+      "response_text": "table AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA: no rows in result set"
+    },
+    {
+      "prompt_id": "ADV-33",
+      "category": "info_extraction",
+      "tool": "resource:sage://findings",
+      "pass": true,
+      "latency_ms": 147080800,
+      "response_text": "[{\"id\":28,\"created_at\":\"2026-03-23T22:26:07.311963+00:00\",\"last_seen\":\"2026-03-23T22:26:07.311963+00:00\",\"occurrence_count\":1,\"category\":\"sequence_exhaustion\",\"severity\":\"critical\",\"object_type\":\"sequence\",\"object_identifier\":\"public.ticket_seq\",\"title\":\"Sequence public.ticket_seq is 99.9% consumed (bigint)\",\"detail\":{\"data_type\": \"bigint\", \"increment\": 1, \"max_value\": 10000, \"usage_pct\": 99.94, \"current_value\": 9994},\"recommendation\":\"Sequence public.ticket_seq is 99.9% consumed. Plan for sequence reset or range expansion.\",\"recommended_sql\":\"\",\"rollback_sql\":\"\",\"estimated_cost_usd\":null,\"status\":\"open\",\"suppressed_until\":null,\"resolved_at\":null,\"acted_on_at\":null,\"action_log_id\":null}, {\"id\":11,\"created_at\":\"2026-03-23T22:17:10.803523+00:00\",\"last_seen\":\"2026-03-23T22:26:06.861732+00:00\",\"occurrence_count\":5,\"category\":\"slow_query\",\"severity\":\"critical\",\"object_type\":\"query\",\"object_identifier\":\"queryid:-6482972956045890082\",\"title\":\"Slow query (2628.8ms mean, 5.3x threshold)\",\"detail\":{\"calls\": 1, \"query\": \"INSERT INTO order_events (order_id, event_type, event_data, created_at)\\nSELECT (random()*$1+$2)::int,\\n       (ARRAY[$3,$4,$5,$6,$7])[floor(random()*$8+$9)::int],\\n       jsonb_build_object($10,$11,$12,(random()*$13+$14)::int),\\n       now()-(random()*$15)::int*interval $16\\nFROM generate_series($17,$18)\", \"queryid\": -6482972956045890082, \"mean_exec_ms\": 2628.77396, \"threshold_ms\": 500, \"total_exec_ms\": 2628.77396},\"recommendation\":\"Review query plan with EXPLAIN ANALYZE and optimize.\",\"recommended_sql\":\"\",\"rollback_sql\":\"\",\"estimated_cost_usd\":null,\"status\":\"open\",\"suppressed_until\":null,\"resolved_at\":null,\"acted_on_at\":null,\"action_log_id\":null}, {\"id\":10,\"created_at\":\"2026-03-23T22:17:10.743603+00:00\",\"last_seen\":\"2026-03-23T22:26:06.800007+00:00\",\"occurrence_count\":5,\"category\":\"slow_query\",\"severity\":\"critical\",\"object_type\":\"query\",\"object_identifier\":\"queryid:-5082700584968300592\",\"title\":\"Slow query (2801.0ms mean, 5.6x threshold)\",\"detail\":{\"calls\": ...[truncated]"
+    },
+    {
+      "prompt_id": "ADV-34",
+      "category": "edge_case",
+      "tool": "resource:sage://explain/0",
+      "pass": true,
+      "latency_ms": 320783700,
+      "response_text": "{\"error\":\"no cached plan\"}"
+    },
+    {
+      "prompt_id": "ADV-35",
+      "category": "edge_case",
+      "tool": "resource:sage://explain/-99999",
+      "pass": true,
+      "latency_ms": 111704100,
+      "response_text": "{\"error\":\"no cached plan\"}"
+    }
+  ]
+}
