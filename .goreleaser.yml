@@ -1,0 +1,57 @@
+version: 2
+
+project_name: pg_sage
+
+before:
+  hooks:
+    - cd sidecar && go mod tidy
+
+builds:
+  - id: pg_sage_sidecar
+    main: ./cmd/pg_sage_sidecar/
+    dir: sidecar
+    binary: pg_sage
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "pg_sage_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - config.example.yaml
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+release:
+  github:
+    owner: jasonmassie01
+    name: pg_sage
+  name_template: "v{{.Version}}"
+  draft: false
+  prerelease: auto
