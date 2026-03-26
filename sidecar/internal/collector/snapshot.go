@@ -15,6 +15,7 @@ type Snapshot struct {
 	Replication *ReplicationStats
 	IO          []IOStats        `json:"io,omitempty"`
 	Partitions  []PartitionInfo  `json:"partitions,omitempty"`
+	ConfigData  *ConfigSnapshot  `json:"config_data,omitempty"`
 }
 
 // QueryStats mirrors pg_stat_statements columns.
@@ -179,6 +180,40 @@ type PartitionInfo struct {
 	ChildSchema  string `json:"child_schema"`
 	ParentTable  string `json:"parent_table"`
 	ParentSchema string `json:"parent_schema"`
+}
+
+// ConfigSnapshot holds PostgreSQL configuration and runtime state
+// collected for the advisor features.
+type ConfigSnapshot struct {
+	PGSettings          []PGSetting       `json:"pg_settings"`
+	TableReloptions     []TableReloption  `json:"table_reloptions"`
+	ConnectionStates    []ConnectionState `json:"connection_states"`
+	WALPosition         string            `json:"wal_position"`
+	ExtensionsAvailable []string          `json:"extensions_available"`
+	ConnectionChurn     int               `json:"connection_churn"`
+}
+
+// PGSetting holds a single row from pg_settings.
+type PGSetting struct {
+	Name           string `json:"name"`
+	Setting        string `json:"setting"`
+	Unit           string `json:"unit"`
+	Source         string `json:"source"`
+	PendingRestart bool   `json:"pending_restart"`
+}
+
+// TableReloption holds per-table reloptions (autovacuum overrides).
+type TableReloption struct {
+	SchemaName string `json:"schemaname"`
+	RelName    string `json:"relname"`
+	Reloptions string `json:"reloptions"`
+}
+
+// ConnectionState holds connection count and duration by state.
+type ConnectionState struct {
+	State              string  `json:"state"`
+	Count              int     `json:"count"`
+	AvgDurationSeconds float64 `json:"avg_duration_seconds"`
 }
 
 // SlotInfo describes a replication slot.

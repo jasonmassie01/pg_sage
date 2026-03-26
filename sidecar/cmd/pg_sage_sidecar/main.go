@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/briefing"
 	"github.com/pg-sage/sidecar/internal/collector"
@@ -42,6 +43,8 @@ var (
 	cfg                *config.Config
 	coll               *collector.Collector
 	anal               *analyzer.Analyzer
+	adv                *advisor.Advisor
+	llmMgr             *llm.Manager
 	exec               *executor.Executor
 	haMon              *ha.Monitor
 	briefWorker        *briefing.Worker
@@ -255,6 +258,7 @@ func initStandalone() {
 
 	// 6. LLM client.
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
+	llmMgr = llm.NewManager(llmClient, nil, false)
 
 	// 7. Start collector.
 	coll = collector.New(pool, cfg, cfg.PGVersionNum, logStructuredWrapper)
@@ -286,7 +290,11 @@ func initStandalone() {
 				cfg.LLM.Optimizer.PlanSource)
 		}
 	}
-	anal = analyzer.New(pool, cfg, coll, opt, logStructuredWrapper)
+	if cfg.Advisor.Enabled && llmClient.IsEnabled() {
+		adv = advisor.New(pool, cfg, coll, llmMgr, logStructuredWrapper)
+		logInfo("startup", "advisor enabled — interval=%s", cfg.Advisor.Interval())
+	}
+	anal = analyzer.New(pool, cfg, coll, opt, adv, logStructuredWrapper)
 	go anal.Run(context.Background())
 
 	// 9. Executor runs after analyzer (called from analyzer loop).

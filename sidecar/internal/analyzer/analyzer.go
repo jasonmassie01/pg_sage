@@ -14,6 +14,11 @@ import (
 	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
+// ConfigAdvisor is satisfied by *advisor.Advisor without importing it.
+type ConfigAdvisor interface {
+	Analyze(ctx context.Context) ([]Finding, error)
+}
+
 // Analyzer runs the rules engine on a recurring interval, producing
 // findings and persisting them to the sage.findings table.
 type Analyzer struct {
@@ -22,6 +27,7 @@ type Analyzer struct {
 	collector *collector.Collector
 	extras    *RuleExtras
 	optimizer *optimizer.Optimizer
+	advisor   ConfigAdvisor
 	logFn     func(string, string, ...any)
 	mu        sync.RWMutex
 	findings  []Finding
@@ -33,6 +39,7 @@ func New(
 	cfg *config.Config,
 	coll *collector.Collector,
 	opt *optimizer.Optimizer,
+	adv ConfigAdvisor,
 	logFn func(string, string, ...any),
 ) *Analyzer {
 	return &Analyzer{
@@ -40,6 +47,7 @@ func New(
 		cfg:       cfg,
 		collector: coll,
 		optimizer: opt,
+		advisor:   adv,
 		extras: &RuleExtras{
 			FirstSeen: make(map[string]time.Time),
 		},
@@ -209,6 +217,16 @@ func (a *Analyzer) cycle(ctx context.Context) {
 					ActionRisk:     rec.ActionLevel,
 				})
 			}
+		}
+	}
+
+	// LLM configuration advisor.
+	if a.advisor != nil {
+		advFindings, err := a.advisor.Analyze(ctx)
+		if err != nil {
+			a.logFn("WARN", "analyzer: advisor: %v", err)
+		} else {
+			allFindings = append(allFindings, advFindings...)
 		}
 	}
 

@@ -21,6 +21,7 @@ type Config struct {
 	Safety     SafetyConfig     `yaml:"safety"`
 	Trust      TrustConfig      `yaml:"trust"`
 	LLM        LLMConfig        `yaml:"llm"`
+	Advisor    AdvisorConfig    `yaml:"advisor"`
 	Briefing   BriefingConfig   `yaml:"briefing"`
 	Retention  RetentionConfig  `yaml:"retention"`
 	MCP        MCPConfig        `yaml:"mcp"`
@@ -144,6 +145,17 @@ type OptimizerLLMConfig struct {
 	FallbackToGeneral bool  `yaml:"fallback_to_general"`
 }
 
+type AdvisorConfig struct {
+	Enabled           bool `yaml:"enabled"`
+	IntervalSeconds   int  `yaml:"interval_seconds"`
+	VacuumEnabled     bool `yaml:"vacuum_enabled"`
+	WALEnabled        bool `yaml:"wal_enabled"`
+	ConnectionEnabled bool `yaml:"connection_enabled"`
+	MemoryEnabled     bool `yaml:"memory_enabled"`
+	RewriteEnabled    bool `yaml:"rewrite_enabled"`
+	BloatEnabled      bool `yaml:"bloat_enabled"`
+}
+
 type BriefingConfig struct {
 	Schedule        string   `yaml:"schedule"`
 	Channels        []string `yaml:"channels"`
@@ -172,6 +184,10 @@ func (c *CollectorConfig) Interval() time.Duration {
 }
 
 func (c *AnalyzerConfig) Interval() time.Duration {
+	return time.Duration(c.IntervalSeconds) * time.Second
+}
+
+func (c *AdvisorConfig) Interval() time.Duration {
 	return time.Duration(c.IntervalSeconds) * time.Second
 }
 
@@ -427,6 +443,16 @@ func newDefaults() *Config {
 				MaxOutputTokens:   DefaultOptLLMMaxOutputTokens,
 				FallbackToGeneral: true,
 			},
+		},
+		Advisor: AdvisorConfig{
+			Enabled:           false,
+			IntervalSeconds:   86400,
+			VacuumEnabled:     true,
+			WALEnabled:        true,
+			ConnectionEnabled: true,
+			MemoryEnabled:     true,
+			RewriteEnabled:    true,
+			BloatEnabled:      true,
 		},
 		Briefing: BriefingConfig{
 			Schedule: DefaultBriefingSchedule,

@@ -153,6 +153,12 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	if snap.Partitions, err = c.collectPartitions(ctx); err != nil {
 		c.logFn("WARN", "partition collection failed: %v", err)
 	}
+	// Config data for advisor features
+	if c.cfg.Advisor.Enabled {
+		if snap.ConfigData, err = collectConfigSnapshot(ctx, c.pool); err != nil {
+			c.logFn("WARN", "config snapshot collection failed: %v", err)
+		}
+	}
 
 	return snap, nil
 }
@@ -489,6 +495,7 @@ func (c *Collector) persist(ctx context.Context, snap *Snapshot) error {
 		"replication":  snap.Replication,
 		"io":           snap.IO,
 		"partitions":   snap.Partitions,
+		"config_data":  snap.ConfigData,
 	}
 
 	const insertSQL = `
