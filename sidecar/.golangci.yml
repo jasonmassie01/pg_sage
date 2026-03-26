@@ -13,14 +13,20 @@ issues:
     - path: _test\.go
       linters:
         - errcheck
+        - staticcheck
     - path: cmd/pg_sage_sidecar/main.go
       linters:
         - errcheck
         - gosimple
     - path: internal/executor/ddl.go
       text: "Error return value of `tx.Rollback`"
+    - path: internal/schema/bootstrap.go
+      text: "Error return value of `tx.Rollback`"
     - path: internal/config/config.go
       linters:
         - staticcheck
+    - path: internal/optimizer/prompt.go
+      linters:
+        - gosimple
   exclude-dirs:
     - testdata

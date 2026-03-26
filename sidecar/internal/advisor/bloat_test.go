@@ -67,7 +67,7 @@ func TestBloatEstimate_ExtremeBloat(t *testing.T) {
 func TestBloatTrend_Growing(t *testing.T) {
 	current := 0.35
 	prev := 0.30
-	trend := "unknown"
+	var trend string
 	if current > prev+0.02 {
 		trend = "growing"
 	} else if current < prev-0.02 {
@@ -83,7 +83,7 @@ func TestBloatTrend_Growing(t *testing.T) {
 func TestBloatTrend_Stable(t *testing.T) {
 	current := 0.31
 	prev := 0.30
-	trend := "unknown"
+	var trend string
 	if current > prev+0.02 {
 		trend = "growing"
 	} else if current < prev-0.02 {
@@ -99,7 +99,7 @@ func TestBloatTrend_Stable(t *testing.T) {
 func TestBloatTrend_Shrinking(t *testing.T) {
 	current := 0.25
 	prev := 0.35
-	trend := "unknown"
+	var trend string
 	if current > prev+0.02 {
 		trend = "growing"
 	} else if current < prev-0.02 {
