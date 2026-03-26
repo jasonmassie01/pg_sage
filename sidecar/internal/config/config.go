@@ -624,11 +624,6 @@ func envFloat(key string) float64 {
 	return f
 }
 
-// expandEnvInString replaces ${VAR} and $VAR in s.
-func expandEnvInString(s string) string {
-	return os.ExpandEnv(s)
-}
-
 // Suppress unused warnings.
 var _ = envFloat
 var _ = strings.Contains

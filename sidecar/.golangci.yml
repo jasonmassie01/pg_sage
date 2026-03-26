@@ -1,0 +1,26 @@
+run:
+  timeout: 5m
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      - (net/http.ResponseWriter).Write
+      - (*encoding/json.Encoder).Encode
+      - os.Chdir
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+    - path: cmd/pg_sage_sidecar/main.go
+      linters:
+        - errcheck
+        - gosimple
+    - path: internal/executor/ddl.go
+      text: "Error return value of `tx.Rollback`"
+    - path: internal/config/config.go
+      linters:
+        - staticcheck
+  exclude-dirs:
+    - testdata
