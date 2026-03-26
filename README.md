@@ -1,17 +1,18 @@
 # pg_sage
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Go](https://img.shields.io/badge/Go-1.23-00ADD8.svg)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.24-00ADD8.svg)](https://go.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14--17-336791.svg)](https://www.postgresql.org)
-[![Tests](https://img.shields.io/badge/tests-240%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-530%20passing-brightgreen.svg)](#testing)
+[![CI](https://github.com/jasonmassie01/pg_sage/actions/workflows/test.yml/badge.svg)](https://github.com/jasonmassie01/pg_sage/actions/workflows/test.yml)
 
 **Autonomous PostgreSQL DBA Agent** — monitors, analyzes, and optimizes any PostgreSQL 14–17 database. Works on managed services (Cloud SQL, AlloyDB, Aurora, RDS) and self-managed instances.
 
-pg_sage is a Go sidecar that connects to your database over the network, collects performance data from `pg_stat_statements` and catalog views, runs 18+ diagnostic rules, sends enriched context to an LLM for index optimization, and executes fixes autonomously with trust-ramped safety controls.
+pg_sage is a Go sidecar that connects to your database over the network, collects performance data from `pg_stat_statements` and catalog views, runs 18+ diagnostic rules, sends enriched context to an LLM for index optimization and 6 configuration advisors, and executes fixes autonomously with trust-ramped safety controls. 530 tests across 14 packages.
 
-```
-curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_linux_amd64 -o pg_sage
-chmod +x pg_sage
+```bash
+# Linux amd64
+curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_0.7.0_linux_amd64.tar.gz | tar xz
 ./pg_sage --database-url "postgres://user:pass@host:5432/db"
 ```
 
@@ -36,9 +37,9 @@ chmod +x pg_sage
 ### Managed PostgreSQL (Cloud SQL, AlloyDB, Aurora, RDS)
 
 ```bash
-# Download
-curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_linux_amd64 -o pg_sage
-chmod +x pg_sage
+# Download (pick your platform)
+curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_0.7.0_linux_amd64.tar.gz | tar xz
+# Also available: linux_arm64, darwin_amd64, darwin_arm64
 
 # Run (minimum config — observation mode, no LLM)
 ./pg_sage \
@@ -142,14 +143,27 @@ Deterministic checks that run every analyzer cycle. No LLM required.
 | Checkpoint pressure | High checkpoint frequency |
 | Replication | Lag monitoring |
 
-### Tier 2 — LLM Index Optimizer
+### Tier 2 — LLM Features
 
-Sends enriched table context (columns, pg_stats selectivity, execution plans, write rates, workload classification) to an LLM and gets back consolidated index recommendations. Each recommendation passes through:
+**Index Optimizer v2** — Sends enriched table context (columns, pg_stats selectivity, execution plans, write rates, workload classification) to an LLM and gets back consolidated index recommendations. Each recommendation passes through:
 
 1. **8 validators** — CONCURRENTLY keyword, column existence, duplicate detection, write impact, max indexes, extension requirements, BRIN correlation, expression volatility
 2. **HypoPG validation** — creates hypothetical indexes and measures actual planner cost reduction (when HypoPG is installed)
 3. **Confidence scoring** — 6 weighted signals (query volume, plan clarity, write rate, HypoPG result, selectivity, table traffic) produce a 0.0–1.0 score
 4. **Action level** — ≥0.7 autonomous, ≥0.4 advisory, <0.4 informational
+
+**Configuration Advisor Suite** — 6 LLM-powered advisors for PostgreSQL tuning:
+
+| Advisor | What It Analyzes |
+|---------|-----------------|
+| Vacuum Tuning | Per-table autovacuum settings, dead tuple ratios, reloptions |
+| WAL/Checkpoint | max_wal_size, wal_compression, checkpoint frequency |
+| Connection Pool | max_connections sizing, idle timeout, pooler detection |
+| Memory Tuning | shared_buffers, work_mem, cache hit ratio, spill detection |
+| Query Rewrite | N+1 patterns, correlated subqueries, OFFSET pagination |
+| Bloat Remediation | VACUUM FULL vs pg_repack vs do nothing, with duration estimates |
+
+All advisor findings are informational (severity=info) — never auto-executed. Includes a GUC validator that blocks dangerous values and respects managed-service restrictions (Cloud SQL, AlloyDB, Aurora, RDS).
 
 Supports dual-model routing: a fast model (Gemini Flash, Haiku) for general tasks and a reasoning model (Opus, Pro) for index optimization.
 
@@ -169,9 +183,9 @@ HIGH-risk actions (sequence changes, RLS) always require manual confirmation. Ev
 
 | Platform | PG Versions | Status | Code Changes |
 |----------|-------------|--------|-------------|
-| Google Cloud SQL | 14, 15, 16, 17 | ✅ 240 tests, 39 findings, 13 executor actions | Zero |
-| Google AlloyDB | 17 | ✅ 23 findings, full parity | Zero |
-| Self-managed | 14, 15, 16, 17 | ✅ 32 findings, 0 bugs | Zero |
+| Google Cloud SQL | 14, 15, 16, 17 | ✅ 530 tests, 3 LLM findings verified e2e | Zero |
+| Google AlloyDB | 17 | ✅ Full parity | Zero |
+| Self-managed | 14, 15, 16, 17 | ✅ Verified | Zero |
 | Amazon Aurora | 14–17 | Test plan ready | — |
 | Amazon RDS | 14–17 | Test plan ready | — |
 
@@ -179,7 +193,7 @@ HIGH-risk actions (sequence changes, RLS) always require manual confirmation. Ev
 
 ## Testing
 
-240 tests across 13 packages, 0 failures.
+530 tests across 14 packages, 0 failures.
 
 ```bash
 cd sidecar
@@ -188,7 +202,8 @@ go test ./... -count=1 -timeout 300s
 
 | Package | Tests | What It Covers |
 |---------|-------|---------------|
-| `internal/optimizer` | 144 | 26 features: validation, confidence, fingerprinting, cost, HypoPG, plans, detection |
+| `internal/optimizer` | 144 | Validation, confidence, fingerprinting, cost, HypoPG, plans |
+| `internal/advisor` | 102 | 6 LLM advisors, GUC validator, prompt parsing, e2e with Gemini |
 | `internal/llm` | 28 | Chat, budget, circuit breaker, timeout, dual-model Manager |
 | `internal/schema` | 15 | Bootstrap, migrations, advisory lock, idempotent restart |
 | `sidecar` (root) | 11 | MCP, SSE, Prometheus |
@@ -207,7 +222,7 @@ go test ./... -count=1 -timeout 300s
 
 ### YAML (sidecar)
 
-See [`cloudsqltests/config_test.example.yaml`](cloudsqltests/config_test.example.yaml) for a complete example.
+See [`config.example.yaml`](config.example.yaml) for a complete starter configuration.
 
 Key settings:
 
@@ -287,7 +302,8 @@ pg_sage/
 │   │   ├── executor/               # Tier 3 trust-gated DDL
 │   │   ├── ha/                     # Advisory lock, HA awareness
 │   │   ├── llm/                    # LLM client + dual-model Manager
-│   │   ├── optimizer/              # Index Optimizer v2 (18 files, 4,640 lines)
+│   │   ├── advisor/                # 6 LLM configuration advisors + GUC validator
+│   │   ├── optimizer/              # Index Optimizer v2
 │   │   ├── retention/              # Data retention + cleanup
 │   │   ├── schema/                 # Bootstrap + migrations
 │   │   └── startup/                # Prereq checks
