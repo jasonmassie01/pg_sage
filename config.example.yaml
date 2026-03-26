@@ -1,0 +1,75 @@
+# pg_sage configuration
+# Copy this file to config.yaml and fill in your values.
+
+mode: standalone
+
+postgres:
+  host: <YOUR_PG_HOST>          # e.g., 10.0.0.5, your-instance.region.cloudsql
+  port: 5432
+  user: sage_agent
+  password: <YOUR_PASSWORD>
+  database: postgres              # or your application database
+  sslmode: require                # use "disable" for local dev only
+  max_connections: 5
+
+collector:
+  interval_seconds: 60            # how often to snapshot pg_stat_statements
+
+analyzer:
+  interval_seconds: 120           # how often to run analysis
+  slow_query_threshold_ms: 500    # queries slower than this are flagged
+  seq_scan_min_rows: 10000        # seq scans on tables larger than this are flagged
+  unused_index_window_days: 7     # indexes unused for this many days are flagged
+  table_bloat_dead_tuple_pct: 10  # dead tuple ratio threshold for bloat findings
+
+trust:
+  level: observation              # start with observation, promote after review
+  # observation: findings only, no actions (day 0-7)
+  # advisory:    safe actions like dropping unused indexes (day 8-30)
+  # autonomous:  moderate actions like creating indexes (day 31+)
+
+executor:
+  ddl_timeout_seconds: 300
+  maintenance_window: "* * * * *" # cron expression for when executor can act
+                                  # "* * * * *" = anytime
+                                  # "0 3 * * 0" = Sundays at 3am
+
+# LLM configuration (optional — Tier 1 rules work without LLM)
+llm:
+  enabled: false                  # set to true to enable LLM features
+  endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+  model: "gemini-2.5-flash"
+  api_key: ${SAGE_GEMINI_API_KEY} # set via environment variable
+  timeout_seconds: 60
+  token_budget_daily: 100000
+  max_output_tokens: 2048
+
+  # Index optimizer (requires llm.enabled: true)
+  optimizer:
+    enabled: false                # set to true for LLM-powered index recommendations
+    min_query_calls: 100          # minimum query calls before analyzing a table
+    max_new_per_table: 3          # max new indexes recommended per table per cycle
+
+  # Configuration advisor (requires llm.enabled: true)
+  advisor:
+    enabled: false                # set to true for vacuum/WAL/connection/memory tuning
+    interval_hours: 24            # how often to run configuration analysis
+
+# Optional: dedicated model for index optimization (higher quality, higher cost)
+# optimizer_llm:
+#   enabled: false
+#   endpoint: "https://api.anthropic.com/v1"
+#   model: "claude-opus-4-6"
+#   api_key: ${SAGE_OPTIMIZER_LLM_API_KEY}
+#   timeout_seconds: 120
+#   token_budget_daily: 50000
+#   fallback_to_general: true
+
+# MCP server (Model Context Protocol — for Claude Desktop and AI agents)
+mcp:
+  enabled: true
+  listen_addr: "0.0.0.0:8080"
+
+# Prometheus metrics endpoint
+prometheus:
+  listen_addr: "0.0.0.0:9187"
