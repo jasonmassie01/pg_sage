@@ -21,9 +21,8 @@ type DatabaseInstance struct {
 	Analyzer  *analyzer.Analyzer
 	Executor  *executor.Executor
 	Status    *InstanceStatus
-	Stopped   bool
-	ctx       context.Context
-	cancel    context.CancelFunc
+	Stopped bool
+	cancel  context.CancelFunc
 }
 
 // InstanceStatus tracks the health of a single database.
