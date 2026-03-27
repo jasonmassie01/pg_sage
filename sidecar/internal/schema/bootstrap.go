@@ -50,8 +50,10 @@ func ReleaseAdvisoryLock(ctx context.Context, pool *pgxpool.Pool) {
 
 // PersistTrustRampStart reads or initialises the trust_ramp_start
 // timestamp in sage.config, returning the effective start time.
+// If the key does not yet exist and configRampStart is non-zero,
+// that value is used instead of now().
 func PersistTrustRampStart(
-	ctx context.Context, pool *pgxpool.Pool,
+	ctx context.Context, pool *pgxpool.Pool, configRampStart time.Time,
 ) (time.Time, error) {
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -79,18 +81,29 @@ func PersistTrustRampStart(
 		)
 	}
 
-	// Key does not exist — insert now().
+	// Key does not exist — insert configRampStart (if set) or now().
 	qctx2, cancel2 := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel2()
 
 	var t time.Time
-	err = pool.QueryRow(
-		qctx2,
-		"INSERT INTO sage.config (key, value, updated_by) "+
-			"VALUES ('trust_ramp_start', to_char(now(), 'YYYY-MM-DD\"T\"HH24:MI:SS.USOF'), 'bootstrap') "+
-			"ON CONFLICT (key) DO NOTHING "+
-			"RETURNING value::timestamptz",
-	).Scan(&t)
+	if !configRampStart.IsZero() {
+		err = pool.QueryRow(
+			qctx2,
+			"INSERT INTO sage.config (key, value, updated_by) "+
+				"VALUES ('trust_ramp_start', $1, 'bootstrap') "+
+				"ON CONFLICT (key) DO NOTHING "+
+				"RETURNING value::timestamptz",
+			configRampStart.Format(time.RFC3339Nano),
+		).Scan(&t)
+	} else {
+		err = pool.QueryRow(
+			qctx2,
+			"INSERT INTO sage.config (key, value, updated_by) "+
+				"VALUES ('trust_ramp_start', to_char(now(), 'YYYY-MM-DD\"T\"HH24:MI:SS.USOF'), 'bootstrap') "+
+				"ON CONFLICT (key) DO NOTHING "+
+				"RETURNING value::timestamptz",
+		).Scan(&t)
+	}
 	if err != nil {
 		// Race: another instance inserted between our SELECT and INSERT.
 		qctx3, cancel3 := context.WithTimeout(ctx, 5*time.Second)

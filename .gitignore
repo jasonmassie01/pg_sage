@@ -30,3 +30,14 @@ sidecar/tasks/
 pg_sage_*_CLAUDE.md
 pg_sage_*_spec*.md
 pg_sage_*_test_plan*.md
+
+# Node / frontend
+node_modules/
+sidecar/web/node_modules/
+
+# Build artifacts
+/dist/
+*.zip
+
+# Claude Code zip bundles
+pg_sage_claude_code*.zip

@@ -27,6 +27,11 @@ type Config struct {
 	MCP        MCPConfig        `yaml:"mcp"`
 	Prometheus PrometheusConfig `yaml:"prometheus"`
 
+	// Fleet mode fields.
+	Databases []DatabaseConfig `yaml:"databases"`
+	Defaults  DefaultsConfig   `yaml:"defaults"`
+	API       APIConfig        `yaml:"api"`
+
 	// Legacy env-var fields (extension mode compat)
 	APIKey  string `yaml:"-"`
 	TLSCert string `yaml:"-"`
@@ -292,9 +297,13 @@ func Load(args []string) (*Config, error) {
 	cfg.TLSCert = os.Getenv("SAGE_TLS_CERT")
 	cfg.TLSKey = os.Getenv("SAGE_TLS_KEY")
 
-	// Validate.
-	if cfg.Mode != "extension" && cfg.Mode != "standalone" {
-		return nil, fmt.Errorf("invalid mode %q: must be 'extension' or 'standalone'", cfg.Mode)
+	// Normalize fleet/standalone config before validation.
+	cfg.normalize()
+
+	// Validate mode.
+	if cfg.Mode != "extension" && cfg.Mode != "standalone" && cfg.Mode != "fleet" {
+		return nil, fmt.Errorf(
+			"invalid mode %q: must be 'extension', 'standalone', or 'fleet'", cfg.Mode)
 	}
 	if cfg.Mode == "standalone" && cfg.Postgres.DSN() == "" {
 		return nil, fmt.Errorf("standalone mode requires postgres connection config")
@@ -356,6 +365,27 @@ func (c *Config) validate() error {
 	if c.Safety.QueryTimeoutMs <= 0 {
 		return fmt.Errorf("safety.query_timeout_ms must be positive")
 	}
+
+	// Fleet-specific validation.
+	if c.Mode == "fleet" {
+		if len(c.Databases) == 0 {
+			return fmt.Errorf("fleet mode requires at least one database")
+		}
+		seen := make(map[string]bool, len(c.Databases))
+		for i, db := range c.Databases {
+			if db.Name == "" {
+				return fmt.Errorf("databases[%d]: name must not be empty", i)
+			}
+			if db.Host == "" {
+				return fmt.Errorf("databases[%d] %q: host must not be empty", i, db.Name)
+			}
+			if seen[db.Name] {
+				return fmt.Errorf("databases[%d]: duplicate name %q", i, db.Name)
+			}
+			seen[db.Name] = true
+		}
+	}
+
 	return nil
 }
 
@@ -470,6 +500,9 @@ func newDefaults() *Config {
 		},
 		Prometheus: PrometheusConfig{
 			ListenAddr: DefaultPrometheusListenAddr,
+		},
+		API: APIConfig{
+			ListenAddr: DefaultAPIListenAddr,
 		},
 	}
 }
@@ -589,6 +622,11 @@ func (c *Config) HotReloadable() []string {
 // IsStandalone returns true if running in standalone mode.
 func (c *Config) IsStandalone() bool {
 	return c.Mode == "standalone"
+}
+
+// IsFleet returns true if running in fleet mode.
+func (c *Config) IsFleet() bool {
+	return c.Mode == "fleet"
 }
 
 // RateLimit returns the configured rate limit.

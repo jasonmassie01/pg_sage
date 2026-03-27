@@ -19,6 +19,7 @@ type Finding struct {
 	RecommendedSQL   string
 	RollbackSQL      string
 	ActionRisk       string // "safe", "moderate", "high_risk"
+	DatabaseName     string // populated by fleet manager, not persisted
 }
 
 // UpsertFindings persists a batch of findings, incrementing occurrence_count

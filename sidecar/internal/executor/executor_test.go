@@ -177,6 +177,33 @@ func TestNeedsConcurrently(t *testing.T) {
 	}
 }
 
+func TestNeedsTopLevel(t *testing.T) {
+	tests := []struct {
+		sql  string
+		want bool
+	}{
+		{"VACUUM t", true},
+		{"VACUUM FULL t", true},
+		{"VACUUM (VERBOSE) public.large_table", true},
+		{"vacuum analyze t", true},
+		{"  VACUUM t", true},
+		{"CREATE INDEX idx ON t (c)", false},
+		{"ANALYZE t", false},
+		{"SELECT pg_terminate_backend(123)", false},
+		{"DROP INDEX idx", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.sql, func(t *testing.T) {
+			got := NeedsTopLevel(tc.sql)
+			if got != tc.want {
+				t.Errorf("NeedsTopLevel(%q) = %v, want %v",
+					tc.sql, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCategorizeAction(t *testing.T) {
 	tests := []struct {
 		sql  string

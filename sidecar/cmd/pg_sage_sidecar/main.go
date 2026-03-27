@@ -18,12 +18,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/briefing"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/optimizer"
@@ -57,6 +59,8 @@ var (
 	cleaner            *retention.Cleaner
 	rampStart          time.Time
 	shutdownFlag       bool
+	fleetMgr           *fleet.DatabaseManager
+	apiServer          *http.Server
 )
 
 type sseSession struct {
@@ -145,6 +149,9 @@ func main() {
 		ensureMCPLogTable()
 	}
 
+	// Fleet manager + REST API.
+	initFleetAndAPI()
+
 	// Config hot-reload.
 	if cfg.ConfigPath != "" {
 		watcher := config.NewWatcher(cfg.ConfigPath, cfg, func(updated *config.Config) {
@@ -217,6 +224,9 @@ func main() {
 
 	_ = mcpServer.Shutdown(shutCtx)
 	_ = promServer.Shutdown(shutCtx)
+	if apiServer != nil {
+		_ = apiServer.Shutdown(shutCtx)
+	}
 	logInfo("shutdown", "stopped")
 }
 
@@ -249,7 +259,22 @@ func initStandalone() {
 	}
 
 	// 3. Persist trust ramp start.
-	rampStart, err = schema.PersistTrustRampStart(ctx, pool)
+	var configRampStart time.Time
+	if cfg.Trust.RampStart != "" {
+		for _, layout := range []string{
+			time.RFC3339, "2006-01-02", "2006-01-02T15:04:05",
+		} {
+			if parsed, pErr := time.Parse(layout, cfg.Trust.RampStart); pErr == nil {
+				configRampStart = parsed
+				break
+			}
+		}
+		if configRampStart.IsZero() {
+			logWarn("startup", "could not parse trust.ramp_start %q, using now()",
+				cfg.Trust.RampStart)
+		}
+	}
+	rampStart, err = schema.PersistTrustRampStart(ctx, pool, configRampStart)
 	if err != nil {
 		logWarn("startup", "trust ramp start: %v", err)
 		rampStart = time.Now()
@@ -304,7 +329,11 @@ func initStandalone() {
 		adv = advisor.New(pool, cfg, coll, llmMgr, logStructuredWrapper)
 		logInfo("startup", "advisor enabled — interval=%s", cfg.Advisor.Interval())
 	}
-	anal = analyzer.New(pool, cfg, coll, opt, adv, logStructuredWrapper)
+	var advIface analyzer.ConfigAdvisor
+	if adv != nil {
+		advIface = adv
+	}
+	anal = analyzer.New(pool, cfg, coll, opt, advIface, logStructuredWrapper)
 	go anal.Run(context.Background())
 
 	// 9. Executor runs after analyzer (called from analyzer loop).
@@ -351,8 +380,140 @@ func standaloneOrchestrator() {
 			if cleaner != nil {
 				cleaner.Run(ctx)
 			}
+
+			// Update fleet status after each cycle.
+			if fleetMgr != nil {
+				updateFleetStatus(ctx)
+			}
 		}
 	}
+}
+
+func initFleetAndAPI() {
+	fleetMgr = fleet.NewManager(cfg)
+
+	dbName := resolveDBName()
+	dbCfg := buildDBConfig(dbName)
+
+	inst := &fleet.DatabaseInstance{
+		Name:      dbName,
+		Config:    dbCfg,
+		Pool:      pool,
+		Collector: coll,
+		Analyzer:  anal,
+		Executor:  exec,
+		Status: &fleet.InstanceStatus{
+			Connected:  true,
+			PGVersion:  pgVersionString(cfg.PGVersionNum),
+			TrustLevel: cfg.Trust.Level,
+			LastSeen:   time.Now(),
+		},
+	}
+	fleetMgr.RegisterInstance(inst)
+
+	startAPIServer()
+}
+
+func resolveDBName() string {
+	if len(cfg.Databases) > 0 && cfg.Databases[0].Name != "" {
+		return cfg.Databases[0].Name
+	}
+	if cfg.Postgres.Database != "" {
+		return cfg.Postgres.Database
+	}
+	return "default"
+}
+
+func buildDBConfig(name string) config.DatabaseConfig {
+	if len(cfg.Databases) > 0 {
+		return cfg.Databases[0]
+	}
+	return config.DatabaseConfig{
+		Name:     name,
+		Host:     cfg.Postgres.Host,
+		Port:     cfg.Postgres.Port,
+		User:     cfg.Postgres.User,
+		Database: cfg.Postgres.Database,
+		SSLMode:  cfg.Postgres.SSLMode,
+	}
+}
+
+func pgVersionString(num int) string {
+	if num == 0 {
+		return "unknown"
+	}
+	major := num / 10000
+	minor := num % 100
+	return fmt.Sprintf("%d.%d", major, minor)
+}
+
+func startAPIServer() {
+	addr := cfg.API.ListenAddr
+	if addr == "" {
+		addr = ":8080"
+	}
+
+	router := api.NewRouter(fleetMgr, cfg)
+	apiServer = &http.Server{
+		Addr:              addr,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	go func() {
+		logInfo("api", "listening on %s", addr)
+		if err := apiServer.ListenAndServe(); err != nil &&
+			err != http.ErrServerClosed {
+			logError("api", "server error: %v", err)
+		}
+	}()
+}
+
+func updateFleetStatus(ctx context.Context) {
+	instances := fleetMgr.Instances()
+	for _, inst := range instances {
+		updateInstanceFindings(ctx, inst)
+		break // standalone has one instance
+	}
+}
+
+func updateInstanceFindings(
+	ctx context.Context,
+	inst *fleet.DatabaseInstance,
+) {
+	rows, err := pool.Query(ctx,
+		`SELECT severity, count(*)
+		   FROM sage.findings
+		  WHERE status = 'open'
+		  GROUP BY severity`)
+	if err != nil {
+		logWarn("fleet", "findings query: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	inst.Status.FindingsOpen = 0
+	inst.Status.FindingsCritical = 0
+	inst.Status.FindingsWarning = 0
+	inst.Status.FindingsInfo = 0
+	for rows.Next() {
+		var sev string
+		var cnt int
+		if err := rows.Scan(&sev, &cnt); err != nil {
+			continue
+		}
+		inst.Status.FindingsOpen += cnt
+		switch sev {
+		case "critical":
+			inst.Status.FindingsCritical = cnt
+		case "warning":
+			inst.Status.FindingsWarning = cnt
+		case "info":
+			inst.Status.FindingsInfo = cnt
+		}
+	}
+	inst.Status.AnalyzerLastRun = time.Now()
+	inst.Status.LastSeen = time.Now()
 }
 
 // --- Health endpoint ---

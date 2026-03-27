@@ -1,0 +1,54 @@
+mode: standalone
+
+postgres:
+  host: localhost
+  port: 5433
+  user: sage_agent
+  password: sage_password
+  database: sage_demo
+  sslmode: disable
+  max_connections: 5
+
+collector:
+  interval_seconds: 30
+
+analyzer:
+  interval_seconds: 60
+  slow_query_threshold_ms: 500
+  seq_scan_min_rows: 10000
+  unused_index_window_days: 0
+  table_bloat_dead_tuple_pct: 10
+
+trust:
+  level: autonomous
+  ramp_start: "2025-01-01T00:00:00Z"
+  tier3_safe: true
+  tier3_moderate: true
+  maintenance_window: "* * * * *"
+
+llm:
+  enabled: true
+  endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+  model: "gemini-2.5-flash"
+  api_key: ${SAGE_GEMINI_API_KEY}
+  timeout_seconds: 30
+  token_budget_daily: 500000
+  max_output_tokens: 2048
+  optimizer:
+    enabled: true
+    min_query_calls: 5
+    max_new_per_table: 3
+
+advisor:
+  enabled: true
+  interval_seconds: 120
+
+mcp:
+  enabled: true
+  listen_addr: "0.0.0.0:5434"
+
+prometheus:
+  listen_addr: "0.0.0.0:9187"
+
+api:
+  listen_addr: "0.0.0.0:8080"

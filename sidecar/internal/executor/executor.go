@@ -80,7 +80,7 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 
 		ddlTimeout := e.cfg.Safety.DDLTimeout()
 		var execErr error
-		if NeedsConcurrently(f.RecommendedSQL) {
+		if NeedsConcurrently(f.RecommendedSQL) || NeedsTopLevel(f.RecommendedSQL) {
 			execErr = ExecConcurrently(
 				ctx, e.pool, f.RecommendedSQL, ddlTimeout,
 			)

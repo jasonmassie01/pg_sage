@@ -73,3 +73,52 @@ mcp:
 # Prometheus metrics endpoint
 prometheus:
   listen_addr: "0.0.0.0:9187"
+
+# REST API + Dashboard (served alongside MCP)
+api:
+  listen_addr: "0.0.0.0:8080"
+
+# -------------------------------------------------------------------
+# Fleet Mode (monitor multiple databases from a single sidecar)
+# -------------------------------------------------------------------
+# To use fleet mode, change mode to "fleet" and replace the postgres
+# block with a databases list:
+#
+# mode: fleet
+#
+# defaults:
+#   max_connections: 3
+#   trust_level: observation
+#   collector_interval_seconds: 60
+#   analyzer_interval_seconds: 300
+#
+# databases:
+#   - name: prod-orders
+#     host: orders.db.internal
+#     port: 5432
+#     user: sage_agent
+#     password: ${SAGE_PG_PASSWORD_ORDERS}
+#     database: orders
+#     sslmode: require
+#     tags: [production, critical]
+#     trust_level: advisory
+#
+#   - name: prod-users
+#     host: users.db.internal
+#     port: 5432
+#     user: sage_agent
+#     password: ${SAGE_PG_PASSWORD_USERS}
+#     database: users
+#     sslmode: require
+#     tags: [production]
+#
+#   - name: staging
+#     host: staging.db.internal
+#     port: 5432
+#     user: sage_agent
+#     password: ${SAGE_PG_PASSWORD_STAGING}
+#     database: staging
+#     sslmode: prefer
+#     tags: [staging]
+#     executor_enabled: false
+#     llm_enabled: false

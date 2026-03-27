@@ -1,0 +1,73 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_FILE_PATH\" | grep -qE '\\.go$'; then cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && go vet ./... 2>&1 | head -20; fi"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE 'DROP\\s+(SCHEMA|TABLE|DATABASE).*CASCADE|rm\\s+-rf\\s+/|TRUNCATE.*sage\\.' ; then echo 'BLOCKED: Destructive command detected. Use specific, non-cascading operations.' >&2; exit 2; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_FILE_PATH\" | grep -qE 'migrations/.*\\.sql$'; then echo 'WARNING: Modifying migration file. Never edit existing migrations — append a new numbered migration instead.' ; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && if git diff --name-only 2>/dev/null | grep -q '\\.go$'; then echo 'Go files changed. Run before committing:\\n  go test ./... -v -short -race\\n  golangci-lint run ./...'; fi"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(go test*)",
+      "Bash(go build*)",
+      "Bash(go vet*)",
+      "Bash(go mod*)",
+      "Bash(go run*)",
+      "Bash(golangci-lint*)",
+      "Bash(docker exec*)",
+      "Bash(docker compose*)",
+      "Bash(grep*)",
+      "Bash(cat*)",
+      "Bash(ls*)",
+      "Bash(find*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git status*)",
+      "Bash(git branch*)",
+      "Bash(git checkout*)",
+      "Bash(git add*)"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)",
+      "Bash(sudo rm*)",
+      "Bash(docker rm*)",
+      "Bash(git push --force*)"
+    ]
+  }
+}
