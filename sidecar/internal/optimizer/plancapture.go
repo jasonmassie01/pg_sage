@@ -12,11 +12,12 @@ import (
 
 // PlanCapture obtains execution plans for queries via multiple strategies.
 type PlanCapture struct {
-	pool             *pgxpool.Pool
-	pgVersionNum     int
-	extensionPresent bool
-	preferredSource  string
-	logFn            func(string, string, ...any)
+	pool                 *pgxpool.Pool
+	pgVersionNum         int
+	extensionPresent     bool
+	autoExplainAvailable bool
+	preferredSource      string
+	logFn                func(string, string, ...any)
 }
 
 // NewPlanCapture creates a PlanCapture.
@@ -24,15 +25,17 @@ func NewPlanCapture(
 	pool *pgxpool.Pool,
 	pgVersionNum int,
 	extensionPresent bool,
+	autoExplainAvailable bool,
 	preferredSource string,
 	logFn func(string, string, ...any),
 ) *PlanCapture {
 	return &PlanCapture{
-		pool:             pool,
-		pgVersionNum:     pgVersionNum,
-		extensionPresent: extensionPresent,
-		preferredSource:  preferredSource,
-		logFn:            logFn,
+		pool:                 pool,
+		pgVersionNum:         pgVersionNum,
+		extensionPresent:     extensionPresent,
+		autoExplainAvailable: autoExplainAvailable,
+		preferredSource:      preferredSource,
+		logFn:                logFn,
 	}
 }
 
@@ -51,6 +54,14 @@ func (p *PlanCapture) CapturePlans(
 		plans := p.fromExplainCache(ctx, queries)
 		if len(plans) > 0 {
 			return plans, "explain_cache"
+		}
+	}
+
+	// Strategy 1.5: auto_explain cached plans.
+	if p.autoExplainAvailable {
+		plans := p.fromAutoExplain(ctx, queries)
+		if len(plans) > 0 {
+			return plans, "auto_explain"
 		}
 	}
 
@@ -76,6 +87,29 @@ func (p *PlanCapture) fromExplainCache(
 		err := p.pool.QueryRow(ctx,
 			`SELECT plan_json FROM sage.explain_cache
 			 WHERE queryid = $1 ORDER BY captured_at DESC LIMIT 1`,
+			q.QueryID).Scan(&planJSON)
+		if err != nil {
+			continue
+		}
+		ps := summarizePlan(planJSON, q.QueryID)
+		if ps.ScanType != "" {
+			plans = append(plans, ps)
+		}
+	}
+	return plans
+}
+
+func (p *PlanCapture) fromAutoExplain(
+	ctx context.Context,
+	queries []collector.QueryStats,
+) []PlanSummary {
+	var plans []PlanSummary
+	for _, q := range queries {
+		var planJSON []byte
+		err := p.pool.QueryRow(ctx,
+			`SELECT plan_json FROM sage.explain_cache
+			 WHERE source = 'auto_explain' AND queryid = $1
+			 ORDER BY captured_at DESC LIMIT 1`,
 			q.QueryID).Scan(&planJSON)
 		if err != nil {
 			continue
