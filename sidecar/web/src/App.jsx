@@ -5,6 +5,9 @@ import { Findings } from './pages/Findings'
 import { Actions } from './pages/Actions'
 import { DatabasePage } from './pages/DatabasePage'
 import { SettingsPage } from './pages/SettingsPage'
+import { ForecastsPage } from './pages/ForecastsPage'
+import { QueryHintsPage } from './pages/QueryHintsPage'
+import { AlertLogPage } from './pages/AlertLogPage'
 import { useAPI } from './hooks/useAPI'
 
 function getRoute() {
@@ -36,6 +39,10 @@ export default function App() {
       case '/findings': return <Findings database={selectedDB} />
       case '/actions': return <Actions database={selectedDB} />
       case '/database': return <DatabasePage database={selectedDB} />
+      case '/forecasts': return <ForecastsPage database={selectedDB} />
+      case '/query-hints':
+        return <QueryHintsPage database={selectedDB} />
+      case '/alerts': return <AlertLogPage database={selectedDB} />
       case '/settings': return <SettingsPage database={selectedDB} />
       default: return <Dashboard database={selectedDB} />
     }

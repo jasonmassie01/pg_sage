@@ -33,6 +33,14 @@ func NewRouter(
 	mux.HandleFunc("GET /api/v1/actions/{id}",
 		actionDetailHandler(mgr))
 
+	// Forecasts, Query Hints, Alert Log
+	mux.HandleFunc("GET /api/v1/forecasts",
+		forecastsHandler(mgr))
+	mux.HandleFunc("GET /api/v1/query-hints",
+		queryHintsHandler(mgr))
+	mux.HandleFunc("GET /api/v1/alert-log",
+		alertLogHandler(mgr))
+
 	// Snapshots
 	mux.HandleFunc("GET /api/v1/snapshots/latest",
 		snapshotLatestHandler(mgr))

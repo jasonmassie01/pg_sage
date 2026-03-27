@@ -1,10 +1,13 @@
-import { Database, AlertTriangle, Activity, Settings, Home } from 'lucide-react'
+import { Database, AlertTriangle, Activity, Bell, Settings, Home, TrendingUp, Zap } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
 
 const NAV = [
   { path: '#/', icon: Home, label: 'Dashboard' },
   { path: '#/findings', icon: AlertTriangle, label: 'Findings' },
   { path: '#/actions', icon: Activity, label: 'Actions' },
+  { path: '#/forecasts', icon: TrendingUp, label: 'Forecasts' },
+  { path: '#/query-hints', icon: Zap, label: 'Query Hints' },
+  { path: '#/alerts', icon: Bell, label: 'Alert Log' },
   { path: '#/database', icon: Database, label: 'Database' },
   { path: '#/settings', icon: Settings, label: 'Settings' },
 ]
