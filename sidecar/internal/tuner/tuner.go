@@ -197,31 +197,31 @@ func (t *Tuner) buildFinding(
 	}
 	if t.hintPlan.Available && t.hintPlan.HintTableReady {
 		f.RecommendedSQL = buildInsertSQL(
-			c.Query, combinedHint,
+			c.QueryID, combinedHint,
 		)
-		f.RollbackSQL = buildDeleteSQL(c.Query)
+		f.RollbackSQL = buildDeleteSQL(c.QueryID)
 	}
 	return f
 }
 
-func buildInsertSQL(query, hint string) string {
-	escaped := strings.ReplaceAll(query, "'", "''")
+func buildInsertSQL(queryID int64, hint string) string {
 	escapedHint := strings.ReplaceAll(hint, "'", "''")
 	return fmt.Sprintf(
 		"INSERT INTO hint_plan.hints "+
-			"(norm_query_string, application_name, hints) "+
-			"VALUES ('%s', '', '/*+ %s */')",
-		escaped, escapedHint,
+			"(query_id, application_name, hints) "+
+			"VALUES (%d, '', '%s') "+
+			"ON CONFLICT (query_id, application_name) "+
+			"DO UPDATE SET hints = EXCLUDED.hints",
+		queryID, escapedHint,
 	)
 }
 
-func buildDeleteSQL(query string) string {
-	escaped := strings.ReplaceAll(query, "'", "''")
+func buildDeleteSQL(queryID int64) string {
 	return fmt.Sprintf(
 		"DELETE FROM hint_plan.hints "+
-			"WHERE norm_query_string = '%s' "+
+			"WHERE query_id = %d "+
 			"AND application_name = ''",
-		escaped,
+		queryID,
 	)
 }
 

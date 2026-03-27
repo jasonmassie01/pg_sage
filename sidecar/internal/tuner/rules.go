@@ -64,10 +64,9 @@ func prescribeHashSpill(
 
 func prescribeHighPlanTime() *Prescription {
 	return &Prescription{
-		Symptom: SymptomHighPlanTime,
-		HintDirective: "Set(plan_cache_mode " +
-			"'force_generic_plan')",
-		Rationale: "planning time exceeds threshold",
+		Symptom:       SymptomHighPlanTime,
+		HintDirective: `Set(plan_cache_mode "force_generic_plan")`,
+		Rationale:     "planning time exceeds threshold",
 	}
 }
 
@@ -109,10 +108,9 @@ func prescribeIndexScan(s PlanSymptom) *Prescription {
 
 func prescribeParallel() *Prescription {
 	return &Prescription{
-		Symptom: SymptomParallelDisabled,
-		HintDirective: "Set(max_parallel_workers_per_gather" +
-			" '4')",
-		Rationale: "parallel workers not planned for scan",
+		Symptom:       SymptomParallelDisabled,
+		HintDirective: `Set(max_parallel_workers_per_gather "4")`,
+		Rationale:     "parallel workers not planned for scan",
 	}
 }
 
@@ -131,7 +129,7 @@ func prescribeSortLimit(s PlanSymptom) *Prescription {
 }
 
 func fmtSetWorkMem(mb int) string {
-	return fmt.Sprintf("Set(work_mem '%dMB')", mb)
+	return fmt.Sprintf(`Set(work_mem "%dMB")`, mb)
 }
 
 // CalcWorkMem computes work_mem in MB from sort space in KB.
@@ -188,7 +186,7 @@ func CombineHints(prescriptions []Prescription) string {
 }
 
 var workMemRe = regexp.MustCompile(
-	`Set\(work_mem '(\d+)MB'\)`,
+	`Set\(work_mem "(\d+)MB"\)`,
 )
 
 func extractWorkMemMB(directive string) (int, bool) {

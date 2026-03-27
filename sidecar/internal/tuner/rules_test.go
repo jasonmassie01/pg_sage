@@ -223,11 +223,11 @@ func TestCombineHints_WorkMemDedup(t *testing.T) {
 	ps := []Prescription{
 		{
 			Symptom:       SymptomDiskSort,
-			HintDirective: "Set(work_mem '128MB')",
+			HintDirective: `Set(work_mem "128MB")`,
 		},
 		{
 			Symptom:       SymptomHashSpill,
-			HintDirective: "Set(work_mem '256MB')",
+			HintDirective: `Set(work_mem "256MB")`,
 		},
 		{
 			Symptom:       SymptomBadNestedLoop,
@@ -260,9 +260,8 @@ func TestCombineHints_Empty(t *testing.T) {
 
 func TestCombineHints_GUCOnly(t *testing.T) {
 	ps := []Prescription{
-		{HintDirective: "Set(work_mem '64MB')"},
-		{HintDirective: "Set(plan_cache_mode " +
-			"'force_generic_plan')"},
+		{HintDirective: `Set(work_mem "64MB")`},
+		{HintDirective: `Set(plan_cache_mode "force_generic_plan")`},
 	}
 	got := CombineHints(ps)
 	if !strings.Contains(got, "work_mem") {
