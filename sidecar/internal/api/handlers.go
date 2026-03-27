@@ -503,7 +503,6 @@ func buildFindingsWhere(
 	if f.Category != "" {
 		where += fmt.Sprintf(" AND category = $%d", n)
 		args = append(args, f.Category)
-		n++
 	}
 	return where, args
 }
