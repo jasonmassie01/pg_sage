@@ -259,7 +259,22 @@ func initStandalone() {
 	}
 
 	// 3. Persist trust ramp start.
-	rampStart, err = schema.PersistTrustRampStart(ctx, pool)
+	var configRampStart time.Time
+	if cfg.Trust.RampStart != "" {
+		for _, layout := range []string{
+			time.RFC3339, "2006-01-02", "2006-01-02T15:04:05",
+		} {
+			if parsed, pErr := time.Parse(layout, cfg.Trust.RampStart); pErr == nil {
+				configRampStart = parsed
+				break
+			}
+		}
+		if configRampStart.IsZero() {
+			logWarn("startup", "could not parse trust.ramp_start %q, using now()",
+				cfg.Trust.RampStart)
+		}
+	}
+	rampStart, err = schema.PersistTrustRampStart(ctx, pool, configRampStart)
 	if err != nil {
 		logWarn("startup", "trust ramp start: %v", err)
 		rampStart = time.Now()

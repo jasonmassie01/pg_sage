@@ -291,7 +291,7 @@ func TestBootstrap_FreshDatabase(t *testing.T) {
 	}
 
 	// Assert trust_ramp_start was persisted.
-	ts, err := PersistTrustRampStart(ctx, pool)
+	ts, err := PersistTrustRampStart(ctx, pool, time.Time{})
 	if err != nil {
 		t.Fatalf("PersistTrustRampStart: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestBootstrap_Idempotent(t *testing.T) {
 	ReleaseAdvisoryLock(ctx, pool)
 
 	// PersistTrustRampStart should return a valid time.
-	ts1, err := PersistTrustRampStart(ctx, pool)
+	ts1, err := PersistTrustRampStart(ctx, pool, time.Time{})
 	if err != nil {
 		t.Fatalf("PersistTrustRampStart (first): %v", err)
 	}
@@ -325,7 +325,7 @@ func TestBootstrap_Idempotent(t *testing.T) {
 	}
 
 	// Calling again should return the same time (not overwritten).
-	ts2, err := PersistTrustRampStart(ctx, pool)
+	ts2, err := PersistTrustRampStart(ctx, pool, time.Time{})
 	if err != nil {
 		t.Fatalf("PersistTrustRampStart (second): %v", err)
 	}
@@ -333,6 +333,61 @@ func TestBootstrap_Idempotent(t *testing.T) {
 		t.Errorf(
 			"trust_ramp_start changed: %v -> %v",
 			ts1, ts2,
+		)
+	}
+}
+
+func TestPersistTrustRampStart_HonorsConfigValue(t *testing.T) {
+	pool, ctx := requireDB(t)
+
+	// Clean slate: drop any existing trust_ramp_start row.
+	_, _ = pool.Exec(ctx,
+		"DELETE FROM sage.config WHERE key = 'trust_ramp_start'")
+
+	// Provide a specific config ramp start in the past.
+	want := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	got, err := PersistTrustRampStart(ctx, pool, want)
+	if err != nil {
+		t.Fatalf("PersistTrustRampStart with config value: %v", err)
+	}
+	if !got.Equal(want) {
+		t.Errorf(
+			"expected config ramp start %v, got %v", want, got,
+		)
+	}
+
+	// Calling again with a different config value should NOT override.
+	other := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
+	got2, err := PersistTrustRampStart(ctx, pool, other)
+	if err != nil {
+		t.Fatalf("PersistTrustRampStart (second): %v", err)
+	}
+	if !got2.Equal(want) {
+		t.Errorf(
+			"existing value overwritten: expected %v, got %v",
+			want, got2,
+		)
+	}
+}
+
+func TestPersistTrustRampStart_ZeroConfigUsesNow(t *testing.T) {
+	pool, ctx := requireDB(t)
+
+	// Clean slate.
+	_, _ = pool.Exec(ctx,
+		"DELETE FROM sage.config WHERE key = 'trust_ramp_start'")
+
+	// Zero config ramp start should default to ~now().
+	before := time.Now().Add(-2 * time.Second)
+	got, err := PersistTrustRampStart(ctx, pool, time.Time{})
+	if err != nil {
+		t.Fatalf("PersistTrustRampStart with zero config: %v", err)
+	}
+	after := time.Now().Add(2 * time.Second)
+	if got.Before(before) || got.After(after) {
+		t.Errorf(
+			"expected time near now, got %v (window %v – %v)",
+			got, before, after,
 		)
 	}
 }
