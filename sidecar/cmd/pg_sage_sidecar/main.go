@@ -139,6 +139,9 @@ func main() {
 	cancel()
 	logInfo("startup", "connected to PostgreSQL")
 
+	// Cancellable shutdown context for background goroutines.
+	shutdownCtx, shutdownCancel = context.WithCancel(context.Background())
+
 	// Background pool health.
 	go poolHealthCheck()
 
@@ -153,9 +156,6 @@ func main() {
 	} else {
 		logInfo("startup", "mode: SIDECAR — no extension, using catalog queries")
 	}
-
-	// Cancellable shutdown context for background goroutines.
-	shutdownCtx, shutdownCancel = context.WithCancel(context.Background())
 
 	// Standalone mode initialization.
 	if cfg.IsStandalone() {

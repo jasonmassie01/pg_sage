@@ -124,8 +124,8 @@ func QueryDailyQueryAggs(
 
 const seqAggsSQL = `
 SELECT date_trunc('day', s.collected_at) AS day,
-       elem->>'schemaname' || '.' ||
-           elem->>'sequencename'         AS seq_name,
+       (elem->>'schemaname') || '.' ||
+           (elem->>'sequencename')       AS seq_name,
        max((elem->>'pct_used')::float)   AS pct_used,
        max((elem->>'max_value')::bigint) AS max_value
 FROM sage.snapshots s,

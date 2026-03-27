@@ -72,7 +72,7 @@ SELECT s.schemaname, s.relname,
        pg_total_relation_size(c.oid) AS total_bytes,
        pg_table_size(c.oid) AS table_bytes,
        COALESCE(pg_indexes_size(c.oid), 0) AS index_bytes,
-       c.relpersistence
+       c.relpersistence::text
   FROM pg_stat_user_tables s
   JOIN pg_class c ON c.relname = s.relname
   JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = s.schemaname
