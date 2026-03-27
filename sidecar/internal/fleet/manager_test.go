@@ -220,6 +220,46 @@ func TestManager_FleetStatus_Mode(t *testing.T) {
 	}
 }
 
+func TestManager_PoolForDatabase_Named(t *testing.T) {
+	mgr := newTestManager("db1", "db2")
+	inst := mgr.GetInstance("db1")
+	got := mgr.PoolForDatabase("db1")
+	if got != inst.Pool {
+		t.Error("expected pool from db1 instance")
+	}
+}
+
+func TestManager_PoolForDatabase_Empty(t *testing.T) {
+	mgr := newTestManager("db1")
+	got := mgr.PoolForDatabase("")
+	if got != mgr.GetInstance("db1").Pool {
+		t.Error("expected first available pool")
+	}
+}
+
+func TestManager_PoolForDatabase_All(t *testing.T) {
+	mgr := newTestManager("db1")
+	got := mgr.PoolForDatabase("all")
+	if got != mgr.GetInstance("db1").Pool {
+		t.Error("expected first available pool for 'all'")
+	}
+}
+
+func TestManager_PoolForDatabase_Unknown(t *testing.T) {
+	mgr := newTestManager("db1")
+	if mgr.PoolForDatabase("nope") != nil {
+		t.Error("expected nil for unknown database")
+	}
+}
+
+func TestManager_PoolForDatabase_EmptyManager(t *testing.T) {
+	cfg := &config.Config{Mode: "fleet"}
+	mgr := NewManager(cfg)
+	if mgr.PoolForDatabase("") != nil {
+		t.Error("expected nil for empty manager")
+	}
+}
+
 func TestManager_FleetStatus_Tags(t *testing.T) {
 	cfg := &config.Config{Mode: "fleet"}
 	mgr := NewManager(cfg)

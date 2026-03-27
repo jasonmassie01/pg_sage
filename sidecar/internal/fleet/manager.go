@@ -1,11 +1,16 @@
 package fleet
 
 import (
+	"context"
 	"log"
 	"sort"
 	"sync"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/executor"
 )
 
 // DatabaseManager manages multiple database instances.
@@ -127,6 +132,13 @@ func (m *DatabaseManager) EmergencyStop(name string) int {
 		}
 		if !inst.Stopped {
 			inst.Stopped = true
+			if inst.Pool != nil {
+				ctx, cancel := context.WithTimeout(
+					context.Background(), 5*time.Second,
+				)
+				_ = executor.SetEmergencyStop(ctx, inst.Pool, true)
+				cancel()
+			}
 			if inst.cancel != nil {
 				inst.cancel()
 			}
@@ -149,11 +161,38 @@ func (m *DatabaseManager) Resume(name string) int {
 		}
 		if inst.Stopped {
 			inst.Stopped = false
+			if inst.Pool != nil {
+				ctx, cancel := context.WithTimeout(
+					context.Background(), 5*time.Second,
+				)
+				_ = executor.SetEmergencyStop(ctx, inst.Pool, false)
+				cancel()
+			}
 			resumed++
 			log.Printf("fleet: %s: resumed", n)
 		}
 	}
 	return resumed
+}
+
+// PoolForDatabase returns the connection pool for a named
+// database, or the first available pool if name is empty
+// or "all".
+func (m *DatabaseManager) PoolForDatabase(
+	name string,
+) *pgxpool.Pool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if name != "" && name != "all" {
+		if inst, ok := m.instances[name]; ok {
+			return inst.Pool
+		}
+		return nil
+	}
+	for _, inst := range m.instances {
+		return inst.Pool
+	}
+	return nil
 }
 
 // InstanceCount returns the number of registered instances.

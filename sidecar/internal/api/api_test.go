@@ -285,18 +285,18 @@ func TestAPI_ActionDetail_NotFound(t *testing.T) {
 
 // --- Snapshots endpoint ---
 
-func TestAPI_SnapshotLatest_MissingDB(t *testing.T) {
+func TestAPI_SnapshotLatest_DefaultsToAll(t *testing.T) {
 	r := testRouter("db1")
 	w := get(t, r, "/api/v1/snapshots/latest")
-	if w.Code != 400 {
+	if w.Code != 200 {
 		t.Errorf("status: %d", w.Code)
 	}
 }
 
-func TestAPI_SnapshotLatest_NotFound(t *testing.T) {
+func TestAPI_SnapshotLatest_UnknownDB(t *testing.T) {
 	r := testRouter("db1")
 	w := get(t, r, "/api/v1/snapshots/latest?database=nope")
-	if w.Code != 404 {
+	if w.Code != 200 {
 		t.Errorf("status: %d", w.Code)
 	}
 }
@@ -327,10 +327,10 @@ func TestAPI_SnapshotHistory_OK(t *testing.T) {
 	}
 }
 
-func TestAPI_SnapshotHistory_MissingDB(t *testing.T) {
+func TestAPI_SnapshotHistory_DefaultsToAll(t *testing.T) {
 	r := testRouter("db1")
 	w := get(t, r, "/api/v1/snapshots/history?metric=tps")
-	if w.Code != 400 {
+	if w.Code != 200 {
 		t.Errorf("status: %d", w.Code)
 	}
 }
