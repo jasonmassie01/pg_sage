@@ -12,13 +12,15 @@ import (
 	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
-// Executor runs the autonomous remediation loop after each analyzer cycle.
+// Executor runs the autonomous remediation loop after each
+// analyzer cycle.
 type Executor struct {
-	pool      *pgxpool.Pool
-	cfg       *config.Config
-	analyzer  *analyzer.Analyzer
-	rampStart time.Time
-	logFn     func(string, string, ...any)
+	pool          *pgxpool.Pool
+	cfg           *config.Config
+	analyzer      *analyzer.Analyzer
+	rampStart     time.Time
+	recentActions map[string]time.Time
+	logFn         func(string, string, ...any)
 }
 
 // New creates a new Executor.
@@ -30,11 +32,12 @@ func New(
 	logFn func(string, string, ...any),
 ) *Executor {
 	return &Executor{
-		pool:      pool,
-		cfg:       cfg,
-		analyzer:  a,
-		rampStart: rampStart,
-		logFn:     logFn,
+		pool:          pool,
+		cfg:           cfg,
+		analyzer:      a,
+		rampStart:     rampStart,
+		recentActions: make(map[string]time.Time),
+		logFn:         logFn,
 	}
 }
 
@@ -47,6 +50,7 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 		return
 	}
 
+	e.pruneRecentActions()
 	findings := e.analyzer.Findings()
 
 	for _, f := range findings {
@@ -58,7 +62,13 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			continue
 		}
 
-		if !ShouldExecute(f, e.cfg, e.rampStart, isReplica, emergencyStop) {
+		if !ShouldExecute(
+			f, e.cfg, e.rampStart, isReplica, emergencyStop,
+		) {
+			continue
+		}
+
+		if e.isCascadeCooldown(f.ObjectIdentifier) {
 			continue
 		}
 
@@ -79,14 +89,18 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 		beforeState := e.snapshotBeforeState(ctx)
 
 		ddlTimeout := e.cfg.Safety.DDLTimeout()
+		lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
 		var execErr error
-		if NeedsConcurrently(f.RecommendedSQL) || NeedsTopLevel(f.RecommendedSQL) {
+		if NeedsConcurrently(f.RecommendedSQL) ||
+			NeedsTopLevel(f.RecommendedSQL) {
 			execErr = ExecConcurrently(
-				ctx, e.pool, f.RecommendedSQL, ddlTimeout,
+				ctx, e.pool, f.RecommendedSQL,
+				ddlTimeout, lockOpt,
 			)
 		} else {
 			execErr = ExecInTransaction(
-				ctx, e.pool, f.RecommendedSQL, ddlTimeout,
+				ctx, e.pool, f.RecommendedSQL,
+				ddlTimeout, lockOpt,
 			)
 		}
 
@@ -98,7 +112,10 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			continue
 		}
 
-		e.logFn("executor", "executed %q (action %d)", f.Title, actionID)
+		e.logFn("executor",
+			"executed %q (action %d)", f.Title, actionID,
+		)
+		e.recentActions[f.ObjectIdentifier] = time.Now()
 
 		// Post-check: verify index validity after CREATE INDEX.
 		if NeedsConcurrently(f.RecommendedSQL) {
@@ -129,7 +146,9 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 				e.logFn("executor",
 					"new index %s invalid — preserving old index", idxName)
 			} else {
-				dropErr := ExecConcurrently(ctx, e.pool, dropOld, ddlTimeout)
+				dropErr := ExecConcurrently(
+					ctx, e.pool, dropOld, ddlTimeout, lockOpt,
+				)
 				if dropErr != nil {
 					e.logFn("executor",
 						"DROP old index failed (new index valid): %v", dropErr)
@@ -151,6 +170,47 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			// No rollback possible (VACUUM, ANALYZE, pg_terminate_backend)
 			// — mark success immediately.
 			updateActionSuccess(ctx, e.pool, actionID)
+		}
+	}
+}
+
+// cascadeCooldown returns the cooldown duration for the cascade
+// guard, computed from config.
+func (e *Executor) cascadeCooldown() time.Duration {
+	cycles := e.cfg.Trust.CascadeCooldownCycles
+	interval := e.cfg.Collector.IntervalSeconds
+	d := time.Duration(cycles) *
+		time.Duration(interval) * time.Second
+	if d == 0 {
+		d = 5 * time.Minute
+	}
+	return d
+}
+
+// isCascadeCooldown returns true if an action was recently
+// executed for the given object identifier.
+func (e *Executor) isCascadeCooldown(objID string) bool {
+	t, ok := e.recentActions[objID]
+	if !ok {
+		return false
+	}
+	if time.Since(t) < e.cascadeCooldown() {
+		e.logFn("executor",
+			"cascade guard: skipping %q (action %v ago)",
+			objID, time.Since(t),
+		)
+		return true
+	}
+	return false
+}
+
+// pruneRecentActions removes entries older than the cascade
+// cooldown to prevent unbounded map growth.
+func (e *Executor) pruneRecentActions() {
+	maxAge := e.cascadeCooldown()
+	for k, t := range e.recentActions {
+		if time.Since(t) > maxAge {
+			delete(e.recentActions, k)
 		}
 	}
 }

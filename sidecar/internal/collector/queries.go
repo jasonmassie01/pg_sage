@@ -13,7 +13,7 @@ SELECT COALESCE(queryid, 0), query, calls,
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND queryid IS NOT NULL
  ORDER BY total_exec_time DESC
- LIMIT 500`
+ LIMIT %d`
 
 const queryStatsWithWALSQL = `
 SELECT COALESCE(queryid, 0), query, calls,
@@ -27,7 +27,7 @@ SELECT COALESCE(queryid, 0), query, calls,
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND queryid IS NOT NULL
  ORDER BY total_exec_time DESC
- LIMIT 500`
+ LIMIT %d`
 
 const queryStatsWithPlanTimeSQL = `
 SELECT COALESCE(queryid, 0), query, calls,
@@ -42,7 +42,7 @@ SELECT COALESCE(queryid, 0), query, calls,
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND queryid IS NOT NULL
  ORDER BY total_exec_time DESC
- LIMIT 500`
+ LIMIT %d`
 
 const queryStatsWithWALAndPlanTimeSQL = `
 SELECT COALESCE(queryid, 0), query, calls,
@@ -58,7 +58,7 @@ SELECT COALESCE(queryid, 0), query, calls,
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND queryid IS NOT NULL
  ORDER BY total_exec_time DESC
- LIMIT 500`
+ LIMIT %d`
 
 const tableStatsSQL = `
 SELECT s.schemaname, s.relname,
@@ -71,7 +71,8 @@ SELECT s.schemaname, s.relname,
        s.vacuum_count, s.autovacuum_count, s.analyze_count, s.autoanalyze_count,
        pg_total_relation_size(c.oid) AS total_bytes,
        pg_table_size(c.oid) AS table_bytes,
-       COALESCE(pg_indexes_size(c.oid), 0) AS index_bytes
+       COALESCE(pg_indexes_size(c.oid), 0) AS index_bytes,
+       c.relpersistence
   FROM pg_stat_user_tables s
   JOIN pg_class c ON c.relname = s.relname
   JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = s.schemaname

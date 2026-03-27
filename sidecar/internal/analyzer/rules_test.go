@@ -167,3 +167,57 @@ func TestRuleSlowQueries(t *testing.T) {
 		t.Errorf("queryid:3 severity = %s, want critical", sevMap["queryid:3"])
 	}
 }
+
+func TestRuleStatStatementsCapacity(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("below 80% returns no findings", func(t *testing.T) {
+		snap := &collector.Snapshot{
+			Queries: make([]collector.QueryStats, 400),
+			System:  collector.SystemStats{StatStatementsMax: 1000},
+		}
+		findings := ruleStatStatementsCapacity(snap, nil, cfg, nil)
+		if len(findings) != 0 {
+			t.Errorf("expected 0 findings at 40%%, got %d", len(findings))
+		}
+	})
+
+	t.Run("at 85% returns warning", func(t *testing.T) {
+		snap := &collector.Snapshot{
+			Queries: make([]collector.QueryStats, 850),
+			System:  collector.SystemStats{StatStatementsMax: 1000},
+		}
+		findings := ruleStatStatementsCapacity(snap, nil, cfg, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding at 85%%, got %d", len(findings))
+		}
+		if findings[0].Severity != "warning" {
+			t.Errorf("severity = %s, want warning", findings[0].Severity)
+		}
+	})
+
+	t.Run("at 96% returns critical", func(t *testing.T) {
+		snap := &collector.Snapshot{
+			Queries: make([]collector.QueryStats, 960),
+			System:  collector.SystemStats{StatStatementsMax: 1000},
+		}
+		findings := ruleStatStatementsCapacity(snap, nil, cfg, nil)
+		if len(findings) != 1 {
+			t.Fatalf("expected 1 finding at 96%%, got %d", len(findings))
+		}
+		if findings[0].Severity != "critical" {
+			t.Errorf("severity = %s, want critical", findings[0].Severity)
+		}
+	})
+
+	t.Run("max=0 returns no findings", func(t *testing.T) {
+		snap := &collector.Snapshot{
+			Queries: make([]collector.QueryStats, 500),
+			System:  collector.SystemStats{StatStatementsMax: 0},
+		}
+		findings := ruleStatStatementsCapacity(snap, nil, cfg, nil)
+		if len(findings) != 0 {
+			t.Errorf("expected 0 findings when max=0, got %d", len(findings))
+		}
+	})
+}

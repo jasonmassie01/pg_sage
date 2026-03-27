@@ -250,3 +250,88 @@ func TestNilIfEmpty(t *testing.T) {
 		}
 	})
 }
+
+func TestCascadeGuard_BlocksRecentAction(t *testing.T) {
+	e := &Executor{
+		cfg: &config.Config{
+			Trust: config.TrustConfig{
+				CascadeCooldownCycles: 3,
+			},
+			Collector: config.CollectorConfig{
+				IntervalSeconds: 60,
+			},
+		},
+		recentActions: map[string]time.Time{
+			"public.orders": time.Now().Add(-30 * time.Second),
+		},
+		logFn: func(string, string, ...any) {},
+	}
+
+	if !e.isCascadeCooldown("public.orders") {
+		t.Error("expected cascade guard to block recent action")
+	}
+}
+
+func TestCascadeGuard_AllowsAfterCooldown(t *testing.T) {
+	e := &Executor{
+		cfg: &config.Config{
+			Trust: config.TrustConfig{
+				CascadeCooldownCycles: 3,
+			},
+			Collector: config.CollectorConfig{
+				IntervalSeconds: 60,
+			},
+		},
+		recentActions: map[string]time.Time{
+			"public.orders": time.Now().Add(-5 * time.Minute),
+		},
+		logFn: func(string, string, ...any) {},
+	}
+
+	if e.isCascadeCooldown("public.orders") {
+		t.Error("expected cascade guard to allow after cooldown")
+	}
+}
+
+func TestPruneRecentActions(t *testing.T) {
+	e := &Executor{
+		cfg: &config.Config{
+			Trust: config.TrustConfig{
+				CascadeCooldownCycles: 3,
+			},
+			Collector: config.CollectorConfig{
+				IntervalSeconds: 60,
+			},
+		},
+		recentActions: map[string]time.Time{
+			"public.old":    time.Now().Add(-10 * time.Minute),
+			"public.recent": time.Now().Add(-30 * time.Second),
+		},
+		logFn: func(string, string, ...any) {},
+	}
+
+	e.pruneRecentActions()
+
+	if _, ok := e.recentActions["public.old"]; ok {
+		t.Error("expected old entry to be pruned")
+	}
+	if _, ok := e.recentActions["public.recent"]; !ok {
+		t.Error("expected recent entry to be kept")
+	}
+}
+
+func TestWithLockTimeout(t *testing.T) {
+	opt := WithLockTimeout(30000)
+	var o ddlOpts
+	opt(&o)
+	if o.lockTimeoutMs != 30000 {
+		t.Errorf("lockTimeoutMs = %d, want 30000", o.lockTimeoutMs)
+	}
+}
+
+func TestApplyDDLOpts_NoOpts(t *testing.T) {
+	o := applyDDLOpts(nil)
+	if o.lockTimeoutMs != 0 {
+		t.Errorf("lockTimeoutMs = %d, want 0", o.lockTimeoutMs)
+	}
+}

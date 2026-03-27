@@ -22,6 +22,7 @@ func BuildTableContexts(
 ) ([]TableContext, string, error) {
 	collation := fetchCollation(ctx, pool)
 	tableQueries := groupQueriesByTable(snap)
+	childSet := buildPartitionChildSet(snap)
 
 	planSource := "query_text_only"
 	var contexts []TableContext
@@ -30,6 +31,12 @@ func BuildTableContexts(
 			continue
 		}
 		key := ts.SchemaName + "." + ts.RelName
+
+		// Skip partition children to avoid duplicate recs.
+		if childSet[key] {
+			continue
+		}
+
 		queries := tableQueries[key]
 		queries = filterByMinCalls(queries, minQueryCalls)
 		if len(queries) == 0 {
@@ -37,15 +44,18 @@ func BuildTableContexts(
 		}
 
 		tc := TableContext{
-			Schema:     ts.SchemaName,
-			Table:      ts.RelName,
-			LiveTuples: ts.NLiveTup,
-			DeadTuples: ts.NDeadTup,
-			TableBytes: ts.TableBytes,
-			IndexBytes: ts.IndexBytes,
-			IndexCount: countIndexes(snap.Indexes, ts.SchemaName, ts.RelName),
-			Queries:    queries,
-			Collation:  collation,
+			Schema:         ts.SchemaName,
+			Table:          ts.RelName,
+			LiveTuples:     ts.NLiveTup,
+			DeadTuples:     ts.NDeadTup,
+			TableBytes:     ts.TableBytes,
+			IndexBytes:     ts.IndexBytes,
+			IndexCount:     countIndexes(
+				snap.Indexes, ts.SchemaName, ts.RelName,
+			),
+			Queries:        queries,
+			Collation:      collation,
+			Relpersistence: ts.Relpersistence,
 		}
 		tc.WriteRate = computeWriteRate(ts)
 		tc.Workload = classifyWorkload(tc.WriteRate, tc.LiveTuples)
@@ -276,6 +286,19 @@ func filterPlansForTable(
 		}
 	}
 	return result
+}
+
+// buildPartitionChildSet returns a set of "schema.table" keys for
+// tables that are partition children (have an inheritance parent).
+func buildPartitionChildSet(
+	snap *collector.Snapshot,
+) map[string]bool {
+	children := make(map[string]bool)
+	for _, p := range snap.Partitions {
+		key := p.ChildSchema + "." + p.ChildTable
+		children[key] = true
+	}
+	return children
 }
 
 // parsePostgresArray parses a PostgreSQL text array representation like

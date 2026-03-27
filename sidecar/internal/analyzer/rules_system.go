@@ -136,3 +136,46 @@ func ruleCheckpointPressure(
 		ActionRisk:     "safe",
 	}}
 }
+
+// ruleStatStatementsCapacity warns when tracked queries approach
+// the pg_stat_statements.max limit. Warning at >80%, critical >95%.
+func ruleStatStatementsCapacity(
+	current *collector.Snapshot,
+	_ *collector.Snapshot,
+	_ *config.Config,
+	_ *RuleExtras,
+) []Finding {
+	maxSt := current.System.StatStatementsMax
+	if maxSt <= 0 {
+		return nil
+	}
+	count := len(current.Queries)
+	pct := float64(count) / float64(maxSt) * 100.0
+
+	if pct < 80.0 {
+		return nil
+	}
+
+	severity := "warning"
+	if pct > 95.0 {
+		severity = "critical"
+	}
+
+	return []Finding{{
+		Category:         "stat_statements_pressure",
+		Severity:         severity,
+		ObjectType:       "database",
+		ObjectIdentifier: "pg_stat_statements",
+		Title: fmt.Sprintf(
+			"pg_stat_statements at %.0f%% capacity (%d/%d)",
+			pct, count, maxSt,
+		),
+		Detail: map[string]any{
+			"tracked_queries":        count,
+			"stat_statements_max":    maxSt,
+			"utilization_pct":        pct,
+		},
+		Recommendation: "Increase pg_stat_statements.max or review tracked queries.",
+		ActionRisk:     "safe",
+	}}
+}

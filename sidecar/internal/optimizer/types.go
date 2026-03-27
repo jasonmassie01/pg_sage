@@ -42,8 +42,9 @@ type TableContext struct {
 	TableBytes int64
 	IndexBytes int64
 	Workload   string // "oltp_write", "oltp_read", "olap", "htap"
-	Collation  string
-	JoinPairs  []JoinPair // detected join patterns involving this table
+	Collation      string
+	Relpersistence string // 'p' permanent, 'u' unlogged, 't' temp
+	JoinPairs      []JoinPair
 }
 
 // ColumnInfo describes a table column.
