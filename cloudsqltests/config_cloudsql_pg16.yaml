@@ -1,6 +1,6 @@
 mode: standalone
 postgres:
-  host: 136.119.41.206
+  host: <CLOUD_SQL_IP>
   port: 5432
   user: sage_agent
   password: <PASSWORD>
