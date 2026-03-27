@@ -27,7 +27,7 @@ func isGlobalConfigCategory(cat string) bool {
 // isPerQueryCategory returns true for categories that represent
 // per-query tuning findings (tuner, hint, query_tuning).
 func isPerQueryCategory(cat string) bool {
-	if cat == "query_tuning" {
+	if cat == "query_tuning" || cat == "plan_regression" {
 		return true
 	}
 	return strings.Contains(cat, "hint") ||
