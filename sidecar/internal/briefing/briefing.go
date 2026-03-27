@@ -15,15 +15,75 @@ import (
 
 // Worker generates periodic health briefings.
 type Worker struct {
-	pool   *pgxpool.Pool
-	cfg    *config.Config
-	llm    *llm.Client
-	logFn  func(string, string, ...any)
+	pool         *pgxpool.Pool
+	cfg          *config.Config
+	llm          *llm.Client
+	logFn        func(string, string, ...any)
+	lastRun      time.Time
+	scheduleHour int // hour of day to run (from cron), -1 if unparsed
 }
 
 // New creates a briefing worker.
-func New(pool *pgxpool.Pool, cfg *config.Config, llmClient *llm.Client, logFn func(string, string, ...any)) *Worker {
-	return &Worker{pool: pool, cfg: cfg, llm: llmClient, logFn: logFn}
+func New(
+	pool *pgxpool.Pool,
+	cfg *config.Config,
+	llmClient *llm.Client,
+	logFn func(string, string, ...any),
+) *Worker {
+	return &Worker{
+		pool:         pool,
+		cfg:          cfg,
+		llm:          llmClient,
+		logFn:        logFn,
+		scheduleHour: parseScheduleHour(cfg.Briefing.Schedule),
+	}
+}
+
+// parseScheduleHour extracts the hour from a cron expression like
+// "0 6 * * *". Returns -1 if the format is unexpected.
+func parseScheduleHour(cron string) int {
+	parts := strings.Fields(cron)
+	if len(parts) < 2 {
+		return -1
+	}
+	h := 0
+	for _, c := range parts[1] {
+		if c < '0' || c > '9' {
+			return -1
+		}
+		h = h*10 + int(c-'0')
+	}
+	if h > 23 {
+		return -1
+	}
+	return h
+}
+
+// ShouldRun returns true when enough time has elapsed since the last
+// briefing and the scheduled hour has arrived (or been passed).
+func (w *Worker) ShouldRun(now time.Time) bool {
+	// Never ran — run if we're past the scheduled hour today.
+	if w.lastRun.IsZero() {
+		if w.scheduleHour < 0 {
+			return false
+		}
+		return now.Hour() >= w.scheduleHour
+	}
+	// Already ran today.
+	if w.lastRun.Year() == now.Year() &&
+		w.lastRun.YearDay() == now.YearDay() {
+		return false
+	}
+	// New day — run if past scheduled hour.
+	if w.scheduleHour < 0 {
+		return false
+	}
+	return now.Hour() >= w.scheduleHour
+}
+
+// MarkRan records that a briefing was just generated.
+func (w *Worker) MarkRan() {
+	w.lastRun = time.Now()
 }
 
 // Generate creates a briefing from current findings and system state.

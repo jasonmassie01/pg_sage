@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -243,6 +244,86 @@ func TestDispatch_EmptyChannels(t *testing.T) {
 	}
 	w := newTestWorker(cfg)
 	w.Dispatch("test briefing")
+}
+
+func TestParseScheduleHour(t *testing.T) {
+	tests := []struct {
+		cron string
+		want int
+	}{
+		{"0 6 * * *", 6},
+		{"0 0 * * *", 0},
+		{"0 23 * * *", 23},
+		{"30 14 * * 1-5", 14},
+		{"", -1},
+		{"0", -1},
+		{"0 25 * * *", -1},   // hour > 23
+		{"0 abc * * *", -1},  // non-numeric
+	}
+	for _, tt := range tests {
+		got := parseScheduleHour(tt.cron)
+		if got != tt.want {
+			t.Errorf("parseScheduleHour(%q) = %d, want %d",
+				tt.cron, got, tt.want)
+		}
+	}
+}
+
+func TestShouldRun_FirstRunPastHour(t *testing.T) {
+	w := &Worker{scheduleHour: 6}
+	now := time.Date(2026, 3, 27, 7, 0, 0, 0, time.UTC)
+	if !w.ShouldRun(now) {
+		t.Error("should run: first run, past scheduled hour")
+	}
+}
+
+func TestShouldRun_FirstRunBeforeHour(t *testing.T) {
+	w := &Worker{scheduleHour: 6}
+	now := time.Date(2026, 3, 27, 5, 0, 0, 0, time.UTC)
+	if w.ShouldRun(now) {
+		t.Error("should not run: first run, before scheduled hour")
+	}
+}
+
+func TestShouldRun_AlreadyRanToday(t *testing.T) {
+	w := &Worker{
+		scheduleHour: 6,
+		lastRun:      time.Date(2026, 3, 27, 6, 5, 0, 0, time.UTC),
+	}
+	now := time.Date(2026, 3, 27, 12, 0, 0, 0, time.UTC)
+	if w.ShouldRun(now) {
+		t.Error("should not run: already ran today")
+	}
+}
+
+func TestShouldRun_NewDayPastHour(t *testing.T) {
+	w := &Worker{
+		scheduleHour: 6,
+		lastRun:      time.Date(2026, 3, 26, 6, 5, 0, 0, time.UTC),
+	}
+	now := time.Date(2026, 3, 27, 7, 0, 0, 0, time.UTC)
+	if !w.ShouldRun(now) {
+		t.Error("should run: new day, past scheduled hour")
+	}
+}
+
+func TestShouldRun_InvalidSchedule(t *testing.T) {
+	w := &Worker{scheduleHour: -1}
+	now := time.Date(2026, 3, 27, 12, 0, 0, 0, time.UTC)
+	if w.ShouldRun(now) {
+		t.Error("should not run with invalid schedule")
+	}
+}
+
+func TestMarkRan(t *testing.T) {
+	w := &Worker{scheduleHour: 6}
+	if !w.lastRun.IsZero() {
+		t.Error("lastRun should be zero initially")
+	}
+	w.MarkRan()
+	if w.lastRun.IsZero() {
+		t.Error("lastRun should be set after MarkRan")
+	}
 }
 
 func TestGenerate_LivePG(t *testing.T) {
