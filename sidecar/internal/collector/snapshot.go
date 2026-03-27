@@ -105,6 +105,8 @@ type SystemStats struct {
 	MaxConnections    int     `json:"max_connections"`
 	CacheHitRatio     float64 `json:"cache_hit_ratio"`
 	Deadlocks         int64   `json:"deadlocks"`
+	BlkReadTime       float64 `json:"blk_read_time"`
+	BlkWriteTime      float64 `json:"blk_write_time"`
 	TotalCheckpoints  int64   `json:"total_checkpoints"`
 	IsReplica         bool    `json:"is_replica"`
 	DBSizeBytes       int64   `json:"db_size_bytes"`

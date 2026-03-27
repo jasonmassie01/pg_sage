@@ -132,6 +132,10 @@ SELECT
      WHERE datname = current_database()), 0) AS cache_hit_ratio,
   COALESCE((SELECT deadlocks FROM pg_stat_database
     WHERE datname = current_database()), 0) AS deadlocks,
+  COALESCE((SELECT blk_read_time FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS blk_read_time,
+  COALESCE((SELECT blk_write_time FROM pg_stat_database
+    WHERE datname = current_database()), 0) AS blk_write_time,
 `
 
 // systemStatsSQL14 uses pg_stat_bgwriter (PG 14-16).

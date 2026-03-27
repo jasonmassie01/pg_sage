@@ -30,6 +30,7 @@ Rules:
 10. Maximum 10 indexes per table unless strongly justified.
 11. If the plan shows Sort: external merge Disk or Hash Batches > 1, recommend work_mem tuning, NOT an index.
 12. If a query scans all rows for aggregation (GROUP BY on full table), recommend a materialized view, NOT an index.
+13. Composite index column order matters: a B-tree on (a, b) only helps queries that filter on "a" or "a AND b", NOT queries that filter only on "b". If an existing composite index has the filtered column in a non-leading position, recommend a new single-column index on that column or a reordered composite index. Do not assume an index on (a, b) covers WHERE b = ?.
 
 Output ONLY valid JSON. No markdown fences, no commentary outside JSON.
 

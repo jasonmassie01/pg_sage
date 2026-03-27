@@ -220,6 +220,7 @@ func TestSystemPrompt_ContainsAllRules(t *testing.T) {
 		"Maximum 10 indexes",
 		"work_mem",
 		"materialized view",
+		"non-leading position",
 	}
 	for _, rule := range rules {
 		if !strings.Contains(prompt, rule) {
