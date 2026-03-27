@@ -306,7 +306,42 @@ func TestDetectStatsReset(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 13. Query SQL uses format placeholder for LIMIT
+// 13. TableStats.IsUnlogged
+// ---------------------------------------------------------------------------
+
+func TestTableStats_IsUnlogged(t *testing.T) {
+	tests := []struct {
+		name           string
+		relpersistence string
+		want           bool
+	}{
+		{"permanent", "p", false},
+		{"unlogged", "u", true},
+		{"temp", "t", false},
+		{"empty", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := TableStats{Relpersistence: tt.relpersistence}
+			if got := ts.IsUnlogged(); got != tt.want {
+				t.Errorf("IsUnlogged() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 14. tableStatsSQL includes relpersistence
+// ---------------------------------------------------------------------------
+
+func TestTableStatsSQL_HasRelpersistence(t *testing.T) {
+	if !strings.Contains(tableStatsSQL, "relpersistence") {
+		t.Error("tableStatsSQL must select relpersistence from pg_class")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 15. Query SQL uses format placeholder for LIMIT
 // ---------------------------------------------------------------------------
 
 func TestQueryStatsSQL_HasLimitPlaceholder(t *testing.T) {

@@ -21,26 +21,57 @@ func severityRank(s string) int {
 // that represent global configuration recommendations.
 func isGlobalConfigCategory(cat string) bool {
 	return strings.HasSuffix(cat, "_tuning") &&
-		cat != "query_tuning"
+		!isPerQueryCategory(cat)
+}
+
+// isPerQueryCategory returns true for categories that represent
+// per-query tuning findings (tuner, hint, query_tuning).
+func isPerQueryCategory(cat string) bool {
+	if cat == "query_tuning" {
+		return true
+	}
+	return strings.Contains(cat, "hint") ||
+		strings.Contains(cat, "tuner")
+}
+
+// isVacuumCategory returns true for vacuum-related findings.
+func isVacuumCategory(cat string) bool {
+	return strings.Contains(cat, "vacuum")
 }
 
 // DedupFindings resolves conflicts among findings targeting the
-// same object.
+// same object. Delegates to DeduplicateFindings with no I/O
+// utilization data.
+func DedupFindings(
+	findings []Finding,
+	logFn func(string, string, ...any),
+) []Finding {
+	return DeduplicateFindings(findings, 0, logFn)
+}
+
+// DeduplicateFindings resolves conflicts among findings targeting
+// the same object.
 //
 // Rules:
 //  1. Same ObjectIdentifier + same Category: keep highest
 //     severity (re-detection, not a conflict).
 //  2. Same ObjectIdentifier + different Categories: keep all
 //     (different aspects of same object).
-//  3. query_tuning beats global config advisor categories
-//     for the same object (per-query > global).
+//  3. Per-query categories (query_tuning, *hint*, *tuner*)
+//     beat global config advisor categories for the same object.
 //  4. If same severity, keep the one with RecommendedSQL.
-func DedupFindings(
+//  5. If ioUtilPct > 50, downgrade vacuum findings to "info".
+func DeduplicateFindings(
 	findings []Finding,
+	ioUtilPct float64,
 	logFn func(string, string, ...any),
 ) []Finding {
 	if len(findings) == 0 {
 		return findings
+	}
+
+	if ioUtilPct > 50 {
+		findings = downgradeVacuumFindings(findings, logFn)
 	}
 
 	groups := groupByObject(findings)
@@ -50,6 +81,28 @@ func DedupFindings(
 		result = append(result, resolved...)
 	}
 	return result
+}
+
+// downgradeVacuumFindings sets vacuum findings to "info" when
+// the system is I/O bound (>50% of query time spent on I/O).
+func downgradeVacuumFindings(
+	findings []Finding,
+	logFn func(string, string, ...any),
+) []Finding {
+	out := make([]Finding, len(findings))
+	copy(out, findings)
+	for i := range out {
+		if isVacuumCategory(out[i].Category) &&
+			out[i].Severity != "info" {
+			logFn(
+				"DEBUG",
+				"dedup: I/O >50%%, downgrading %s to info",
+				out[i].Title,
+			)
+			out[i].Severity = "info"
+		}
+	}
+	return out
 }
 
 // groupByObject buckets findings by ObjectIdentifier,
@@ -95,7 +148,7 @@ func applyQueryTuningRule(
 ) []Finding {
 	hasQueryTuning := false
 	for _, f := range group {
-		if f.Category == "query_tuning" {
+		if isPerQueryCategory(f.Category) {
 			hasQueryTuning = true
 			break
 		}
@@ -109,7 +162,7 @@ func applyQueryTuningRule(
 		if isGlobalConfigCategory(f.Category) {
 			logFn(
 				"DEBUG",
-				"dedup: query_tuning beats %s for %s",
+				"dedup: per-query tuning beats %s for %s",
 				f.Category, f.ObjectIdentifier,
 			)
 			continue

@@ -200,6 +200,18 @@ func ruleSeqScanWatchdog(
 			continue
 		}
 
+		rec := "Consider adding indexes for frequent query patterns."
+		detail := map[string]any{
+			"seq_scan":       t.SeqScan,
+			"idx_scan":       t.IdxScan,
+			"n_live_tup":     t.NLiveTup,
+			"relpersistence": t.Relpersistence,
+		}
+		if t.IsUnlogged() {
+			detail["unlogged"] = true
+			rec += " Note: unlogged table — indexes are also " +
+				"unlogged and lost on crash."
+		}
 		findings = append(findings, Finding{
 			Category:         "seq_scan_heavy",
 			Severity:         "warning",
@@ -209,12 +221,8 @@ func ruleSeqScanWatchdog(
 				"Table %s: %d seq scans vs %d idx scans (%d rows)",
 				ident, t.SeqScan, t.IdxScan, t.NLiveTup,
 			),
-			Detail: map[string]any{
-				"seq_scan":    t.SeqScan,
-				"idx_scan":    t.IdxScan,
-				"n_live_tup":  t.NLiveTup,
-			},
-			Recommendation: "Consider adding indexes for frequent query patterns.",
+			Detail:         detail,
+			Recommendation: rec,
 			ActionRisk:     "safe",
 		})
 	}

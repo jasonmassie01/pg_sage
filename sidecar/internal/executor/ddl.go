@@ -2,12 +2,40 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// ErrLockNotAvailable is returned when a DDL operation fails because
+// PostgreSQL could not acquire the required lock within lock_timeout.
+// Callers should circuit-break the table and avoid immediate retry.
+var ErrLockNotAvailable = errors.New("lock not available")
+
+// IsLockNotAvailable returns true if the error is a PostgreSQL
+// lock_not_available error (SQLSTATE 55P03). This occurs when
+// lock_timeout expires before the required lock can be acquired.
+func IsLockNotAvailable(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "55P03"
+	}
+	return false
+}
+
+// wrapDDLError wraps a DDL execution error. If the underlying cause
+// is a lock_not_available error, it wraps with ErrLockNotAvailable
+// so callers can match with errors.Is.
+func wrapDDLError(err error) error {
+	if IsLockNotAvailable(err) {
+		return fmt.Errorf("%w: %w", ErrLockNotAvailable, err)
+	}
+	return fmt.Errorf("executing DDL: %w", err)
+}
 
 // ExecConcurrently executes a SQL statement that requires
 // CONCURRENTLY semantics (e.g., CREATE INDEX CONCURRENTLY).
@@ -52,7 +80,7 @@ func ExecConcurrently(
 	_, _ = conn.Exec(ctx, "SET lock_timeout = 0")
 
 	if err != nil {
-		return fmt.Errorf("executing DDL: %w", err)
+		return wrapDDLError(err)
 	}
 
 	return nil
@@ -97,7 +125,7 @@ func ExecInTransaction(
 
 	_, err = tx.Exec(ctx, sql)
 	if err != nil {
-		return fmt.Errorf("executing DDL: %w", err)
+		return wrapDDLError(err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

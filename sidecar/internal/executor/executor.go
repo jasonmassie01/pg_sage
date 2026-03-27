@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -106,6 +107,13 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 
 		actionID := e.logAction(ctx, f, findingID, beforeState, execErr)
 		if execErr != nil {
+			if errors.Is(execErr, ErrLockNotAvailable) {
+				e.logFn("executor",
+					"lock timeout for %q on %s — circuit-breaking table",
+					f.Title, f.ObjectIdentifier,
+				)
+				e.recentActions[f.ObjectIdentifier] = time.Now()
+			}
 			e.logFn("executor",
 				"execution failed for %q: %v", f.Title, execErr,
 			)

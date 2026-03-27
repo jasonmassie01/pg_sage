@@ -67,8 +67,14 @@ func FormatPrompt(tc TableContext) string {
 	if tc.Collation != "" && tc.Collation != "C" && tc.Collation != "POSIX" {
 		collationStr = tc.Collation + " (non-C — LIKE prefix needs pattern_ops)"
 	}
-	fmt.Fprintf(&b, "Existing indexes: %d | Collation: %s\n\n",
+	fmt.Fprintf(&b, "Existing indexes: %d | Collation: %s\n",
 		tc.IndexCount, collationStr)
+	if tc.Relpersistence == "u" {
+		b.WriteString("** UNLOGGED TABLE — crash-unsafe, no WAL generated. " +
+			"Indexes are also unlogged and lost on crash. " +
+			"Optimize for speed, not durability. **\n")
+	}
+	b.WriteString("\n")
 
 	b.WriteString("### Columns\n")
 	for _, c := range tc.Columns {

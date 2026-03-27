@@ -291,6 +291,35 @@ func TestSystemPrompt_AntiThinking(t *testing.T) {
 	}
 }
 
+func TestFormatPrompt_UnloggedTable(t *testing.T) {
+	tc := TableContext{
+		Schema:         "public",
+		Table:          "cache_data",
+		Relpersistence: "u",
+		Queries:        []QueryInfo{{QueryID: 1, Text: "SELECT 1", Calls: 1}},
+	}
+	prompt := FormatPrompt(tc)
+	if !strings.Contains(prompt, "UNLOGGED TABLE") {
+		t.Error("prompt should contain UNLOGGED TABLE note for relpersistence=u")
+	}
+	if !strings.Contains(prompt, "crash-unsafe") {
+		t.Error("prompt should mention crash-unsafe for unlogged table")
+	}
+}
+
+func TestFormatPrompt_PermanentTableNoUnloggedNote(t *testing.T) {
+	tc := TableContext{
+		Schema:         "public",
+		Table:          "orders",
+		Relpersistence: "p",
+		Queries:        []QueryInfo{{QueryID: 1, Text: "SELECT 1", Calls: 1}},
+	}
+	prompt := FormatPrompt(tc)
+	if strings.Contains(prompt, "UNLOGGED") {
+		t.Error("prompt should not contain UNLOGGED for permanent table")
+	}
+}
+
 func TestFormatPrompt_CollationConditional(t *testing.T) {
 	// Non-C collation should include warning
 	tc := TableContext{
@@ -315,5 +344,48 @@ func TestFormatPrompt_CollationConditional(t *testing.T) {
 	prompt = FormatPrompt(tc)
 	if strings.Contains(prompt, "non-C") {
 		t.Error("POSIX collation should not include pattern_ops warning")
+	}
+}
+
+func TestSystemPrompt_CompositeIndexColumnOrdering(t *testing.T) {
+	prompt := SystemPrompt()
+
+	required := []string{
+		"Composite index column order matters",
+		"B-tree on (a, b) only helps queries that filter on",
+		"non-leading position",
+		"recommend a new single-column index",
+		"Do not assume an index on (a, b) covers WHERE b = ?",
+	}
+	for _, phrase := range required {
+		if !strings.Contains(prompt, phrase) {
+			t.Errorf("SystemPrompt missing composite index guidance: %q", phrase)
+		}
+	}
+}
+
+func TestFormatPrompt_IndexDefinitionsIncluded(t *testing.T) {
+	tc := TableContext{
+		Schema: "public",
+		Table:  "orders",
+		Indexes: []IndexInfo{
+			{
+				Name:       "idx_orders_user_status",
+				Definition: "CREATE INDEX idx_orders_user_status ON public.orders USING btree (user_id, status)",
+				Scans:      100,
+			},
+		},
+		Queries: []QueryInfo{{QueryID: 1, Text: "SELECT * FROM orders WHERE status = 'active'", Calls: 50}},
+	}
+	prompt := FormatPrompt(tc)
+
+	if !strings.Contains(prompt, "### Existing Indexes") {
+		t.Error("prompt should include Existing Indexes section")
+	}
+	if !strings.Contains(prompt, "idx_orders_user_status") {
+		t.Error("prompt should include index name")
+	}
+	if !strings.Contains(prompt, "(user_id, status)") {
+		t.Error("prompt should include index column order from definition")
 	}
 }

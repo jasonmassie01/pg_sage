@@ -73,6 +73,12 @@ type TableStats struct {
 	Relpersistence   string     `json:"relpersistence"`
 }
 
+// IsUnlogged returns true if the table has relpersistence = 'u'.
+// Unlogged tables do not generate WAL and are not crash-safe.
+func (ts TableStats) IsUnlogged() bool {
+	return ts.Relpersistence == "u"
+}
+
 // IndexStats mirrors pg_stat_user_indexes + pg_indexes metadata.
 type IndexStats struct {
 	SchemaName   string `json:"schemaname"`

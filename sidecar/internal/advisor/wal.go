@@ -74,17 +74,30 @@ func analyzeWAL(
 	// Detect platform.
 	platform := detectPlatform(snap.ConfigData.PGSettings)
 
+	// Count unlogged tables so the LLM knows some tables don't generate WAL.
+	unloggedNote := ""
+	unloggedCount := countUnloggedTables(snap)
+	if unloggedCount > 0 {
+		unloggedNote = fmt.Sprintf(
+			"\n\nNote: %d unlogged table(s) detected. "+
+				"Unlogged tables do NOT generate WAL, so low WAL "+
+				"activity may be expected if writes target them.",
+			unloggedCount,
+		)
+	}
+
 	prompt := fmt.Sprintf(
 		"WAL & CHECKPOINT CONTEXT:\n\n"+
 			"Current settings:\n%s\n\n"+
 			"Observed metrics:\n"+
 			"  Total checkpoints: %d (delta since last: %d)\n"+
 			"  WAL position: %s\n\n"+
-			"Platform: %s",
+			"Platform: %s%s",
 		strings.Join(walSettings, "\n"),
 		totalCP, cpDelta,
 		snap.ConfigData.WALPosition,
 		platform,
+		unloggedNote,
 	)
 
 	if len(prompt) > maxAdvisorPromptChars {
@@ -99,6 +112,17 @@ func analyzeWAL(
 	}
 
 	return parseLLMFindings(resp, "wal_tuning", logFn), nil
+}
+
+// countUnloggedTables returns the number of tables with relpersistence='u'.
+func countUnloggedTables(snap *collector.Snapshot) int {
+	count := 0
+	for _, t := range snap.Tables {
+		if t.IsUnlogged() {
+			count++
+		}
+	}
+	return count
 }
 
 // detectPlatform infers managed service from pg_settings.

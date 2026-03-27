@@ -45,6 +45,8 @@ type TableContext struct {
 	Collation      string
 	Relpersistence string // 'p' permanent, 'u' unlogged, 't' temp
 	JoinPairs      []JoinPair
+	IsPartitioned  bool // true if table is a partitioned parent (PG11+)
+	IsPartitionChild bool // true if table is a child partition
 }
 
 // ColumnInfo describes a table column.
