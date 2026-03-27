@@ -109,9 +109,10 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 	}
 
 	// Ensure a reasonable minimum to avoid truncated responses from
-	// "thinking" models like Gemini 2.5 Flash.
+	// "thinking" models like Gemini 2.5 Flash whose internal reasoning
+	// tokens consume part of the output budget.
 	if maxTokens <= 0 {
-		maxTokens = 2048
+		maxTokens = 8192
 	}
 
 	req := ChatRequest{
