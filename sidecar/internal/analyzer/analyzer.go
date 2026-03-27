@@ -116,6 +116,7 @@ func (a *Analyzer) OpenFindingsCount() map[string]int {
 func filterSchemaExclusions(snap *collector.Snapshot) {
 	excluded := map[string]bool{
 		"sage": true, "pg_catalog": true, "information_schema": true,
+		"google_ml": true,
 	}
 
 	filtered := snap.Tables[:0]

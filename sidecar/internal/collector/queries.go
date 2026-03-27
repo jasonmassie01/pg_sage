@@ -75,7 +75,7 @@ SELECT s.schemaname, s.relname,
   FROM pg_stat_user_tables s
   JOIN pg_class c ON c.relname = s.relname
   JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = s.schemaname
- WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema')
+ WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
    AND (s.schemaname, s.relname) > ($1, $1)
  ORDER BY s.schemaname, s.relname
  LIMIT $2`
@@ -94,7 +94,7 @@ SELECT s.schemaname, s.relname, s.indexrelname,
   JOIN pg_am am ON am.oid = (
        SELECT c.relam FROM pg_class c WHERE c.oid = s.indexrelid
   )
- WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema')
+ WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
  ORDER BY s.schemaname, s.relname, s.indexrelname`
 
 const foreignKeysSQL = `
@@ -109,7 +109,7 @@ SELECT cl.relname AS table_name,
   JOIN pg_attribute a ON a.attrelid = con.conrelid
        AND a.attnum = ANY(con.conkey)
  WHERE con.contype = 'f'
-   AND n.nspname NOT IN ('sage', 'pg_catalog', 'information_schema')
+   AND n.nspname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
  ORDER BY cl.relname, con.conname`
 
 // systemStatsSQLBase is the common prefix for system stats (all PG versions).
@@ -209,7 +209,7 @@ SELECT c.relname AS child_table,
   JOIN pg_namespace n ON n.oid = c.relnamespace
   JOIN pg_class p ON p.oid = i.inhparent
   JOIN pg_namespace pn ON pn.oid = p.relnamespace
- WHERE n.nspname NOT IN ('sage', 'pg_catalog', 'information_schema')
+ WHERE n.nspname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
  ORDER BY parent_schema, parent_table, child_schema, child_table`
 
 const loadRatioSQL = `

@@ -41,7 +41,7 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 		SELECT n.nspname, c.relname, c.reloptions::text
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
-		WHERE n.nspname NOT IN ('pg_catalog','information_schema','sage')
+		WHERE n.nspname NOT IN ('pg_catalog','information_schema','sage','google_ml')
 		  AND c.relkind = 'r'
 		  AND c.reloptions IS NOT NULL`)
 	if err == nil {
