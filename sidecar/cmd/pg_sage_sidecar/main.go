@@ -160,11 +160,13 @@ func main() {
 	// Standalone mode initialization.
 	if cfg.IsStandalone() {
 		initStandalone()
+	} else if cfg.IsFleet() {
+		initFleetMultiDB()
 	} else {
 		ensureMCPLogTable()
 	}
 
-	// Fleet manager + REST API.
+	// Fleet manager + REST API (wraps standalone or fleet instances).
 	initFleetAndAPI()
 
 	// Config hot-reload.
@@ -572,28 +574,209 @@ func buildAlertRoutes(
 }
 
 func initFleetAndAPI() {
-	fleetMgr = fleet.NewManager(cfg)
-
-	dbName := resolveDBName()
-	dbCfg := buildDBConfig(dbName)
-
-	inst := &fleet.DatabaseInstance{
-		Name:      dbName,
-		Config:    dbCfg,
-		Pool:      pool,
-		Collector: coll,
-		Analyzer:  anal,
-		Executor:  exec,
-		Status: &fleet.InstanceStatus{
-			Connected:  true,
-			PGVersion:  pgVersionString(cfg.PGVersionNum),
-			TrustLevel: cfg.Trust.Level,
-			LastSeen:   time.Now(),
-		},
+	if fleetMgr == nil {
+		fleetMgr = fleet.NewManager(cfg)
 	}
-	fleetMgr.RegisterInstance(inst)
+
+	// In standalone mode, register the single global instance.
+	if cfg.IsStandalone() {
+		dbName := resolveDBName()
+		dbCfg := buildDBConfig(dbName)
+		inst := &fleet.DatabaseInstance{
+			Name:      dbName,
+			Config:    dbCfg,
+			Pool:      pool,
+			Collector: coll,
+			Analyzer:  anal,
+			Executor:  exec,
+			Status: &fleet.InstanceStatus{
+				Connected:  true,
+				PGVersion:  pgVersionString(cfg.PGVersionNum),
+				TrustLevel: cfg.Trust.Level,
+				LastSeen:   time.Now(),
+			},
+		}
+		fleetMgr.RegisterInstance(inst)
+	}
+	// Fleet instances are already registered by initFleetMultiDB.
 
 	startAPIServer()
+}
+
+// initFleetMultiDB creates per-database pools, collectors, analyzers,
+// and executors for each database in fleet config.
+func initFleetMultiDB() {
+	fleetMgr = fleet.NewManager(cfg)
+
+	// LLM client (shared across fleet).
+	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
+
+	for _, dbCfg := range cfg.Databases {
+		name := dbCfg.Name
+		dsn := dbCfg.ConnString()
+		logInfo("fleet", "connecting to database %q", name)
+
+		poolCfg, err := pgxpool.ParseConfig(dsn)
+		if err != nil {
+			logError("fleet", "db %q: invalid DSN: %v", name, err)
+			fleetMgr.RegisterInstance(&fleet.DatabaseInstance{
+				Name:   name,
+				Config: dbCfg,
+				Status: &fleet.InstanceStatus{
+					Error:    fmt.Sprintf("invalid DSN: %v", err),
+					LastSeen: time.Now(),
+				},
+			})
+			continue
+		}
+		maxConns := int32(dbCfg.MaxConnections)
+		if maxConns < 2 {
+			maxConns = 2
+		}
+		poolCfg.MaxConns = maxConns
+		poolCfg.MinConns = 1
+		poolCfg.MaxConnLifetime = 30 * time.Minute
+		poolCfg.MaxConnIdleTime = 5 * time.Minute
+
+		dbPool, err := pgxpool.NewWithConfig(
+			context.Background(), poolCfg)
+		if err != nil {
+			logError("fleet", "db %q: pool: %v", name, err)
+			fleetMgr.RegisterInstance(&fleet.DatabaseInstance{
+				Name:   name,
+				Config: dbCfg,
+				Status: &fleet.InstanceStatus{
+					Error:    fmt.Sprintf("pool: %v", err),
+					LastSeen: time.Now(),
+				},
+			})
+			continue
+		}
+
+		ctx, cancel := context.WithTimeout(
+			context.Background(), 5*time.Second)
+		if err := dbPool.Ping(ctx); err != nil {
+			logError("fleet", "db %q: ping: %v", name, err)
+			cancel()
+			dbPool.Close()
+			fleetMgr.RegisterInstance(&fleet.DatabaseInstance{
+				Name:   name,
+				Config: dbCfg,
+				Status: &fleet.InstanceStatus{
+					Error:    fmt.Sprintf("ping: %v", err),
+					LastSeen: time.Now(),
+				},
+			})
+			continue
+		}
+		cancel()
+		logInfo("fleet", "db %q: connected", name)
+
+		// Bootstrap schema on each database.
+		if err := schema.Bootstrap(
+			context.Background(), dbPool); err != nil {
+			logWarn("fleet", "db %q: schema bootstrap: %v",
+				name, err)
+		}
+		schema.ReleaseAdvisoryLock(context.Background(), dbPool)
+
+		// Detect PG version for this database.
+		var dbPGVersionStr string
+		var dbPGVersion int
+		_ = dbPool.QueryRow(context.Background(),
+			"SHOW server_version_num").Scan(&dbPGVersionStr)
+		fmt.Sscanf(dbPGVersionStr, "%d", &dbPGVersion)
+		if dbPGVersion == 0 {
+			dbPGVersion = 140000 // safe fallback
+		}
+		logInfo("fleet", "db %q: PG version %d", name, dbPGVersion)
+
+		// Per-database collector.
+		dbColl := collector.New(
+			dbPool, cfg, dbPGVersion,
+			logStructuredWrapper)
+		go dbColl.Run(shutdownCtx)
+
+		// Per-database analyzer (no optimizer/advisor in fleet
+		// for now — just rules engine + forecaster + tuner).
+		var fc *forecaster.Forecaster
+		if cfg.Forecaster.Enabled {
+			fcCfg := forecaster.ForecasterConfig{
+				Enabled:      cfg.Forecaster.Enabled,
+				LookbackDays: cfg.Forecaster.LookbackDays,
+				DiskWarnGrowthGBDay: cfg.Forecaster.DiskWarnGrowthGBDay,
+				ConnectionWarnPct:   cfg.Forecaster.ConnectionWarnPct,
+				CacheWarnThreshold:  cfg.Forecaster.CacheWarnThreshold,
+			}
+			fc = forecaster.New(
+				dbPool, fcCfg, logStructuredWrapper)
+		}
+
+		dbAnal := analyzer.New(
+			dbPool, cfg, dbColl, nil, nil, fc, nil,
+			logStructuredWrapper)
+		go dbAnal.Run(shutdownCtx)
+
+		// Per-database executor.
+		rStart, _ := schema.PersistTrustRampStart(
+			context.Background(), dbPool, time.Time{})
+		dbExec := executor.New(
+			dbPool, cfg, dbAnal, rStart,
+			logStructuredWrapper)
+
+		// Per-database orchestrator.
+		go fleetDBOrchestrator(
+			name, dbPool, dbExec, dbCfg)
+
+		inst := &fleet.DatabaseInstance{
+			Name:      name,
+			Config:    dbCfg,
+			Pool:      dbPool,
+			Collector: dbColl,
+			Analyzer:  dbAnal,
+			Executor:  dbExec,
+			Status: &fleet.InstanceStatus{
+				Connected:    true,
+				TrustLevel:   dbCfg.TrustLevel,
+				DatabaseName: name,
+				LastSeen:     time.Now(),
+			},
+		}
+		fleetMgr.RegisterInstance(inst)
+		logInfo("fleet",
+			"db %q: initialized (collector+analyzer+executor)",
+			name)
+	}
+
+	logInfo("fleet", "%d databases initialized",
+		len(cfg.Databases))
+}
+
+// fleetDBOrchestrator runs executor and retention cycles for a
+// single fleet database.
+func fleetDBOrchestrator(
+	name string,
+	dbPool *pgxpool.Pool,
+	dbExec *executor.Executor,
+	dbCfg config.DatabaseConfig,
+) {
+	interval := cfg.Analyzer.Interval() + 5*time.Second
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if shutdownFlag {
+				return
+			}
+			if dbExec != nil {
+				dbExec.RunCycle(shutdownCtx, false)
+			}
+		case <-shutdownCtx.Done():
+			return
+		}
+	}
 }
 
 func resolveDBName() string {
