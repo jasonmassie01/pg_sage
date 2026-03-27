@@ -37,23 +37,36 @@ func New(
 	extensionPresent bool,
 	maxOutputTokens int,
 	logFn func(string, string, ...any),
+	options ...func(*Optimizer),
 ) *Optimizer {
 	if maxOutputTokens <= 0 {
 		maxOutputTokens = 8192
 	}
-	return &Optimizer{
+	o := &Optimizer{
 		client:         client,
 		fallbackClient: fallbackClient,
 		pool:           pool,
 		cfg:            cfg,
 		validator:      NewValidator(pool, cfg, logFn),
 		planner: NewPlanCapture(
-			pool, pgVersionNum, extensionPresent, cfg.PlanSource, logFn,
+			pool, pgVersionNum, extensionPresent, false,
+			cfg.PlanSource, logFn,
 		),
 		hypopg:    NewHypoPG(pool, cfg.HypoPGMinImprovePct, logFn),
 		breaker:   NewCircuitBreaker(),
 		maxOutput: maxOutputTokens,
 		logFn:     logFn,
+	}
+	for _, opt := range options {
+		opt(o)
+	}
+	return o
+}
+
+// WithAutoExplain enables auto_explain as a plan source.
+func WithAutoExplain() func(*Optimizer) {
+	return func(o *Optimizer) {
+		o.planner.autoExplainAvailable = true
 	}
 }
 
