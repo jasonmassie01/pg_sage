@@ -90,28 +90,28 @@ func TestSystemStatsSQL_PG14Baseline(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestTableStatsSQL_SchemaExclusion(t *testing.T) {
-	expected := "NOT IN ('sage', 'pg_catalog', 'information_schema')"
+	expected := "NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')"
 	if !strings.Contains(tableStatsSQL, expected) {
 		t.Errorf("tableStatsSQL must contain schema exclusion: %s", expected)
 	}
 }
 
 func TestIndexStatsSQL_SchemaExclusion(t *testing.T) {
-	expected := "NOT IN ('sage', 'pg_catalog', 'information_schema')"
+	expected := "NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')"
 	if !strings.Contains(indexStatsSQL, expected) {
 		t.Errorf("indexStatsSQL must contain schema exclusion: %s", expected)
 	}
 }
 
 func TestForeignKeysSQL_SchemaExclusion(t *testing.T) {
-	expected := "NOT IN ('sage', 'pg_catalog', 'information_schema')"
+	expected := "NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')"
 	if !strings.Contains(foreignKeysSQL, expected) {
 		t.Errorf("foreignKeysSQL must contain schema exclusion: %s", expected)
 	}
 }
 
 func TestPartitionSQL_SchemaExclusion(t *testing.T) {
-	expected := "NOT IN ('sage', 'pg_catalog', 'information_schema')"
+	expected := "NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')"
 	if !strings.Contains(partitionInheritanceSQL, expected) {
 		t.Errorf("partitionInheritanceSQL must contain schema exclusion: %s", expected)
 	}
