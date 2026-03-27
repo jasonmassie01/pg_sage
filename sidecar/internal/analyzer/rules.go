@@ -9,7 +9,8 @@ import (
 
 // RuleExtras carries cross-cycle state for rules that need historical context.
 type RuleExtras struct {
-	FirstSeen map[string]time.Time
+	FirstSeen       map[string]time.Time
+	RecentlyCreated map[string]time.Time
 }
 
 // RuleFunc is the standard signature for snapshot-based rules.

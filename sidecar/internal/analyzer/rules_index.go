@@ -2,11 +2,29 @@ package analyzer
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 )
+
+// extractIndexNameFromSQL parses a CREATE INDEX statement and returns
+// just the index name (without schema), matching IndexRelName format.
+func extractIndexNameFromSQL(sql string) string {
+	fields := strings.Fields(sql)
+	for i, f := range fields {
+		if strings.EqualFold(f, "ON") && i > 0 {
+			name := fields[i-1]
+			// Strip schema prefix (schema.name -> name)
+			if dot := strings.LastIndex(name, "."); dot >= 0 {
+				name = name[dot+1:]
+			}
+			return name
+		}
+	}
+	return ""
+}
 
 // ruleUnusedIndexes flags indexes with zero scans that are not primary keys,
 // not unique, and have been observed longer than the configured window.
@@ -22,6 +40,11 @@ func ruleUnusedIndexes(
 
 	for _, idx := range current.Indexes {
 		if idx.IdxScan > 0 || idx.IsPrimary || idx.IsUnique || !idx.IsValid {
+			continue
+		}
+
+		// Skip indexes recently created by the executor.
+		if _, ok := extras.RecentlyCreated[idx.IndexRelName]; ok {
 			continue
 		}
 

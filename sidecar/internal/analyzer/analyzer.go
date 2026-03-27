@@ -49,7 +49,8 @@ func New(
 		optimizer: opt,
 		advisor:   adv,
 		extras: &RuleExtras{
-			FirstSeen: make(map[string]time.Time),
+			FirstSeen:       make(map[string]time.Time),
+			RecentlyCreated: make(map[string]time.Time),
 		},
 		logFn: logFn,
 	}
@@ -147,6 +148,9 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	if previous != nil {
 		filterSchemaExclusions(previous)
 	}
+
+	// Load recently created indexes to prevent cooldown violations.
+	a.loadRecentlyCreatedIndexes(ctx)
 
 	var allFindings []Finding
 
@@ -257,6 +261,39 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	}
 
 	a.logFn("INFO", "analyzer cycle: %d findings", len(allFindings))
+}
+
+func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {
+	windowDays := a.cfg.Analyzer.UnusedIndexWindowDays
+	if windowDays <= 0 {
+		windowDays = 7
+	}
+	rows, err := a.pool.Query(ctx,
+		`SELECT sql_executed, executed_at FROM sage.action_log
+		 WHERE sql_executed ILIKE 'CREATE INDEX%'
+		   AND outcome = 'success'
+		   AND executed_at > now() - make_interval(days => $1)`,
+		windowDays,
+	)
+	if err != nil {
+		a.logFn("WARN", "analyzer: load recently created indexes: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	created := make(map[string]time.Time)
+	for rows.Next() {
+		var sql string
+		var executedAt time.Time
+		if err := rows.Scan(&sql, &executedAt); err != nil {
+			continue
+		}
+		name := extractIndexNameFromSQL(sql)
+		if name != "" {
+			created[name] = executedAt
+		}
+	}
+	a.extras.RecentlyCreated = created
 }
 
 func (a *Analyzer) checkXIDWraparound(ctx context.Context) []Finding {
