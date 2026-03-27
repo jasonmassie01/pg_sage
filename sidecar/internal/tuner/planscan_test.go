@@ -441,6 +441,68 @@ func TestScanPlan_CorrelatedSubqueryDeepNesting(t *testing.T) {
 	}
 }
 
+// TestScanPlan_ExistsSubPlanDiskSort verifies that ScanPlan
+// detects a disk Sort inside an EXISTS subquery's SubPlan node.
+// PostgreSQL marks these with "Subplan Name": "SubPlan N".
+func TestScanPlan_ExistsSubPlanDiskSort(t *testing.T) {
+	plan := `[{"Plan": {
+		"Node Type": "Nested Loop",
+		"Join Type": "Semi",
+		"Plan Rows": 100,
+		"Plans": [
+			{
+				"Node Type": "Seq Scan",
+				"Plan Rows": 1000,
+				"Relation Name": "customers",
+				"Schema": "public",
+				"Alias": "c",
+				"Workers Planned": 0
+			},
+			{
+				"Node Type": "Sort",
+				"Subplan Name": "SubPlan 1",
+				"Plan Rows": 50000,
+				"Sort Method": "external merge",
+				"Sort Space Used": 65536,
+				"Sort Space Type": "Disk",
+				"Plans": [{
+					"Node Type": "Seq Scan",
+					"Plan Rows": 50000,
+					"Relation Name": "orders",
+					"Schema": "public",
+					"Alias": "o"
+				}]
+			}
+		]
+	}}]`
+
+	syms, err := ScanPlan([]byte(plan))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var diskSort, seqOrders bool
+	for _, s := range syms {
+		if s.Kind == SymptomDiskSort && s.NodeDepth == 1 {
+			diskSort = true
+			kb, _ := s.Detail["sort_space_kb"].(int64)
+			if kb != 65536 {
+				t.Errorf("sort_space_kb = %d, want 65536", kb)
+			}
+		}
+		if s.Kind == SymptomSeqScanWithIndex &&
+			s.RelationName == "orders" {
+			seqOrders = true
+		}
+	}
+	if !diskSort {
+		t.Error("disk_sort not found inside SubPlan")
+	}
+	if !seqOrders {
+		t.Error("seq_scan on orders not found inside SubPlan")
+	}
+}
+
 func TestScanPlan_BareObjectFormat(t *testing.T) {
 	plan := `{"Plan": {
 		"Node Type": "Sort",

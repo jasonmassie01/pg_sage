@@ -43,6 +43,10 @@ func TestConfigDefaults(t *testing.T) {
 		t.Errorf("Collector.BatchSize = %d, want 1000",
 			cfg.Collector.BatchSize)
 	}
+	if cfg.Collector.MaxQueries != DefaultCollectorMaxQueries {
+		t.Errorf("Collector.MaxQueries = %d, want %d",
+			cfg.Collector.MaxQueries, DefaultCollectorMaxQueries)
+	}
 	if cfg.Trust.Level != "observation" {
 		t.Errorf("Trust.Level = %q, want %q", cfg.Trust.Level, "observation")
 	}
@@ -147,6 +151,33 @@ func TestConfigValidation_ZeroCollectorInterval(t *testing.T) {
 	if !strings.Contains(err.Error(), "collector.interval_seconds") {
 		t.Errorf("error = %q, want it to contain %q",
 			err.Error(), "collector.interval_seconds")
+	}
+}
+
+func TestConfigValidation_ZeroMaxQueries(t *testing.T) {
+	tmp := t.TempDir()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(orig) })
+	os.Chdir(tmp)
+
+	yamlContent := `collector:
+  max_queries: 0
+`
+	cfgPath := filepath.Join(tmp, "test-config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	if err == nil {
+		t.Fatal("expected error for zero max_queries, got nil")
+	}
+	if !strings.Contains(err.Error(), "collector.max_queries") {
+		t.Errorf("error = %q, want it to contain %q",
+			err.Error(), "collector.max_queries")
 	}
 }
 

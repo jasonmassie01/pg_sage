@@ -23,6 +23,7 @@ func BuildTableContexts(
 	collation := fetchCollation(ctx, pool)
 	tableQueries := groupQueriesByTable(snap)
 	childSet := buildPartitionChildSet(snap)
+	parentSet := buildPartitionParentSet(snap)
 
 	planSource := "query_text_only"
 	var contexts []TableContext
@@ -32,7 +33,8 @@ func BuildTableContexts(
 		}
 		key := ts.SchemaName + "." + ts.RelName
 
-		// Skip partition children to avoid duplicate recs.
+		// Skip partition children whose parent is in the snapshot.
+		// PG11+ propagates indexes from parent to children.
 		if childSet[key] {
 			continue
 		}
@@ -41,6 +43,13 @@ func BuildTableContexts(
 		queries = filterByMinCalls(queries, minQueryCalls)
 		if len(queries) == 0 {
 			continue
+		}
+
+		isParent := parentSet[key]
+		if isParent {
+			queries = mergeChildQueries(
+				queries, tableQueries, childSet, snap, key,
+			)
 		}
 
 		tc := TableContext{
@@ -56,6 +65,7 @@ func BuildTableContexts(
 			Queries:        queries,
 			Collation:      collation,
 			Relpersistence: ts.Relpersistence,
+			IsPartitioned:  isParent,
 		}
 		tc.WriteRate = computeWriteRate(ts)
 		tc.Workload = classifyWorkload(tc.WriteRate, tc.LiveTuples)
@@ -299,6 +309,49 @@ func buildPartitionChildSet(
 		children[key] = true
 	}
 	return children
+}
+
+// buildPartitionParentSet returns a set of "schema.table" keys for
+// tables that are partitioned parents (referenced in pg_inherits).
+func buildPartitionParentSet(
+	snap *collector.Snapshot,
+) map[string]bool {
+	parents := make(map[string]bool)
+	for _, p := range snap.Partitions {
+		key := p.ParentSchema + "." + p.ParentTable
+		parents[key] = true
+	}
+	return parents
+}
+
+// mergeChildQueries folds queries targeting child partitions into
+// the parent's query list, deduplicating by QueryID.
+func mergeChildQueries(
+	parentQueries []QueryInfo,
+	tableQueries map[string][]QueryInfo,
+	childSet map[string]bool,
+	snap *collector.Snapshot,
+	parentKey string,
+) []QueryInfo {
+	seen := make(map[int64]bool, len(parentQueries))
+	for _, q := range parentQueries {
+		seen[q.QueryID] = true
+	}
+	merged := append([]QueryInfo{}, parentQueries...)
+	for _, p := range snap.Partitions {
+		childKey := p.ChildSchema + "." + p.ChildTable
+		pk := p.ParentSchema + "." + p.ParentTable
+		if pk != parentKey || !childSet[childKey] {
+			continue
+		}
+		for _, q := range tableQueries[childKey] {
+			if !seen[q.QueryID] {
+				seen[q.QueryID] = true
+				merged = append(merged, q)
+			}
+		}
+	}
+	return merged
 }
 
 // parsePostgresArray parses a PostgreSQL text array representation like

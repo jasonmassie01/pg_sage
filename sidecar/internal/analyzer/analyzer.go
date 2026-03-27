@@ -182,8 +182,9 @@ func (a *Analyzer) cycle(ctx context.Context) {
 
 	// Run all registered snapshot-based rules.
 	queryRules := map[string]bool{
-		"slow_queries":   true,
-		"high_plan_time": true,
+		"slow_queries":    true,
+		"high_plan_time":  true,
+		"high_total_time": true,
 	}
 	for _, rule := range AllRules {
 		if skipQueryRules && queryRules[rule.Name] {
@@ -208,6 +209,12 @@ func (a *Analyzer) cycle(ctx context.Context) {
 			current, previous, historicalAvg, a.cfg,
 		)
 		allFindings = append(allFindings, regressionFindings...)
+	}
+
+	// Sort without index (requires explain_cache query).
+	if !skipQueryRules {
+		sortFindings := a.checkSortWithoutIndex(ctx)
+		allFindings = append(allFindings, sortFindings...)
 	}
 
 	// Seq scan watchdog — skip tables already flagged by missing FK.
@@ -290,7 +297,8 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	}
 
 	// Deduplicate conflicting findings across advisors.
-	allFindings = DedupFindings(allFindings, a.logFn)
+	ioUtil := computeIOUtilPct(current)
+	allFindings = DeduplicateFindings(allFindings, ioUtil, a.logFn)
 
 	// Store findings in memory.
 	a.mu.Lock()
@@ -479,4 +487,33 @@ func downsample[T any](items []T, maxN int) []T {
 		out = append(out, items[idx])
 	}
 	return out
+}
+
+// computeIOUtilPct estimates I/O utilization as the ratio of
+// combined I/O wait time (blk_read_time + blk_write_time from
+// pg_stat_database) to total query execution time. Returns 0-100.
+//
+// When I/O wait dominates execution time, aggressive vacuum
+// recommendations would make things worse on an already I/O-bound
+// system.
+func computeIOUtilPct(snap *collector.Snapshot) float64 {
+	if snap == nil {
+		return 0
+	}
+	ioWait := snap.System.BlkReadTime + snap.System.BlkWriteTime
+	if ioWait <= 0 {
+		return 0
+	}
+	var totalExecTime float64
+	for _, q := range snap.Queries {
+		totalExecTime += q.TotalExecTime
+	}
+	if totalExecTime <= 0 {
+		return 0
+	}
+	pct := ioWait / totalExecTime * 100
+	if pct > 100 {
+		pct = 100
+	}
+	return pct
 }

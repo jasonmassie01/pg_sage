@@ -418,6 +418,9 @@ func (c *Config) validate() error {
 	if c.Collector.BatchSize <= 0 {
 		return fmt.Errorf("collector.batch_size must be positive")
 	}
+	if c.Collector.MaxQueries <= 0 {
+		return fmt.Errorf("collector.max_queries must be positive")
+	}
 	if c.Analyzer.IntervalSeconds <= 0 {
 		return fmt.Errorf("analyzer.interval_seconds must be positive")
 	}

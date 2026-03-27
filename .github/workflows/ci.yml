@@ -49,6 +49,64 @@ jobs:
           until pg_isready -h localhost -U postgres; do sleep 1; done
           psql -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
 
+      - name: Bootstrap sage schema
+        run: |
+          psql -c "CREATE SCHEMA sage;"
+          psql -c "
+            CREATE TABLE sage.action_log (
+              id bigserial PRIMARY KEY, executed_at timestamptz NOT NULL DEFAULT now(),
+              action_type text NOT NULL, finding_id bigint, sql_executed text NOT NULL,
+              rollback_sql text, before_state jsonb, after_state jsonb,
+              outcome text NOT NULL DEFAULT 'pending', rollback_reason text, measured_at timestamptz
+            );
+            CREATE TABLE sage.snapshots (
+              id bigserial PRIMARY KEY, collected_at timestamptz NOT NULL DEFAULT now(),
+              category text NOT NULL, data jsonb NOT NULL
+            );
+            CREATE TABLE sage.findings (
+              id bigserial PRIMARY KEY, created_at timestamptz NOT NULL DEFAULT now(),
+              last_seen timestamptz NOT NULL DEFAULT now(), occurrence_count integer NOT NULL DEFAULT 1,
+              category text NOT NULL, severity text NOT NULL, object_type text, object_identifier text,
+              title text NOT NULL, detail jsonb NOT NULL, recommendation text, recommended_sql text,
+              rollback_sql text, estimated_cost_usd numeric(10,2), status text NOT NULL DEFAULT 'open',
+              suppressed_until timestamptz, resolved_at timestamptz, acted_on_at timestamptz,
+              action_log_id bigint REFERENCES sage.action_log(id)
+            );
+            CREATE TABLE sage.explain_cache (
+              id bigserial PRIMARY KEY, captured_at timestamptz NOT NULL DEFAULT now(),
+              queryid bigint NOT NULL, query_text text, plan_json jsonb NOT NULL,
+              source text NOT NULL, total_cost float, execution_time float
+            );
+            CREATE TABLE sage.briefings (
+              id bigserial PRIMARY KEY, generated_at timestamptz NOT NULL DEFAULT now(),
+              period_start timestamptz NOT NULL, period_end timestamptz NOT NULL,
+              mode text NOT NULL, content_text text NOT NULL, content_json jsonb NOT NULL,
+              llm_used boolean NOT NULL DEFAULT false, token_count integer, delivery_status jsonb
+            );
+            CREATE TABLE sage.config (
+              key text PRIMARY KEY, value text NOT NULL,
+              updated_at timestamptz NOT NULL DEFAULT now(), updated_by text
+            );
+            CREATE TABLE sage.mcp_log (
+              id bigserial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(),
+              client_ip text, method text, resource_uri text, tool_name text,
+              tokens_used int DEFAULT 0, duration_ms int DEFAULT 0, status text, error_message text
+            );
+            CREATE TABLE sage.alert_log (
+              id bigserial PRIMARY KEY, sent_at timestamptz NOT NULL DEFAULT now(),
+              finding_id bigint REFERENCES sage.findings(id), severity text NOT NULL,
+              channel text NOT NULL, dedup_key text NOT NULL,
+              status text NOT NULL DEFAULT 'sent', error_message text
+            );
+            CREATE TABLE sage.query_hints (
+              id bigserial PRIMARY KEY, created_at timestamptz NOT NULL DEFAULT now(),
+              queryid bigint NOT NULL, hint_plan_id bigint, hint_text text NOT NULL,
+              symptom text NOT NULL, before_cost float, after_cost float,
+              status text NOT NULL DEFAULT 'active', verified_at timestamptz, rolled_back_at timestamptz
+            );
+            CREATE UNIQUE INDEX idx_findings_dedup ON sage.findings (category, object_identifier) WHERE status = 'open';
+          "
+
       - name: Build frontend
         working-directory: sidecar/web
         run: npm ci && npm run build
@@ -59,11 +117,11 @@ jobs:
 
       - name: Unit tests
         working-directory: sidecar
-        run: go test ./... -count=1 -timeout 300s
+        run: go test ./... -p 1 -count=1 -timeout 300s
 
       - name: Integration tests
         working-directory: sidecar
-        run: go test ./... -tags=integration -count=1 -timeout 300s
+        run: go test ./... -p 1 -tags=integration -count=1 -timeout 300s
 
   docker:
     runs-on: ubuntu-latest

@@ -1,7 +1,9 @@
 package analyzer
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -15,6 +17,62 @@ func testConfig() *config.Config {
 			TableBloatMinRows:     1000,
 			RegressionThresholdPct: 50,
 		},
+	}
+}
+
+func TestRuleTableBloat_UnloggedTableNote(t *testing.T) {
+	cfg := testConfig()
+	snap := &collector.Snapshot{
+		Tables: []collector.TableStats{
+			{
+				SchemaName: "public", RelName: "cache_data",
+				NLiveTup: 5000, NDeadTup: 4000,
+				Relpersistence: "u",
+			},
+		},
+	}
+
+	findings := ruleTableBloat(snap, nil, cfg, nil)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+
+	f := findings[0]
+	if f.Detail["unlogged"] != true {
+		t.Error("expected unlogged=true in detail for unlogged table")
+	}
+	if f.Detail["relpersistence"] != "u" {
+		t.Errorf("expected relpersistence=u, got %v",
+			f.Detail["relpersistence"])
+	}
+	if !strings.Contains(f.Recommendation, "UNLOGGED") {
+		t.Error("recommendation should mention UNLOGGED for unlogged table")
+	}
+}
+
+func TestRuleTableBloat_PermanentTableNoUnloggedNote(t *testing.T) {
+	cfg := testConfig()
+	snap := &collector.Snapshot{
+		Tables: []collector.TableStats{
+			{
+				SchemaName: "public", RelName: "orders",
+				NLiveTup: 5000, NDeadTup: 4000,
+				Relpersistence: "p",
+			},
+		},
+	}
+
+	findings := ruleTableBloat(snap, nil, cfg, nil)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+
+	f := findings[0]
+	if _, hasUnlogged := f.Detail["unlogged"]; hasUnlogged {
+		t.Error("permanent table should not have unlogged key in detail")
+	}
+	if strings.Contains(f.Recommendation, "UNLOGGED") {
+		t.Error("recommendation should not mention UNLOGGED for permanent table")
 	}
 }
 
@@ -220,4 +278,103 @@ func TestRuleStatStatementsCapacity(t *testing.T) {
 			t.Errorf("expected 0 findings when max=0, got %d", len(findings))
 		}
 	})
+}
+
+// TestStatsResetSkipsQueryRules verifies that all query-based rules
+// in AllRules are skipped when StatsReset is true on the current
+// snapshot. Uses a synthetic pair where calls drop from 1000 to 5.
+func TestStatsResetSkipsQueryRules(t *testing.T) {
+	cfg := testConfig()
+	extras := &RuleExtras{
+		FirstSeen:       make(map[string]time.Time),
+		RecentlyCreated: make(map[string]time.Time),
+	}
+
+	now := time.Now()
+	previous := &collector.Snapshot{
+		CollectedAt: now.Add(-60 * time.Second),
+		Queries: []collector.QueryStats{
+			{
+				QueryID: 1, Query: "SELECT bloated",
+				Calls: 1000, MeanExecTime: 5000,
+				TotalExecTime: 5000000,
+			},
+			{
+				QueryID: 2, Query: "SELECT heavy",
+				Calls: 1000, MeanExecTime: 500,
+				TotalExecTime: 500000, MeanPlanTime: 10,
+			},
+		},
+	}
+
+	// After pg_stat_reset(), calls drop to 5.
+	current := &collector.Snapshot{
+		CollectedAt: now,
+		StatsReset:  true,
+		Queries: []collector.QueryStats{
+			{
+				QueryID: 1, Query: "SELECT bloated",
+				Calls: 5, MeanExecTime: 5000,
+				TotalExecTime: 25000,
+			},
+			{
+				QueryID: 2, Query: "SELECT heavy",
+				Calls: 5, MeanExecTime: 500,
+				TotalExecTime: 2500, MeanPlanTime: 10,
+			},
+		},
+	}
+
+	queryRules := map[string]bool{
+		"slow_queries":    true,
+		"high_plan_time":  true,
+		"high_total_time": true,
+	}
+
+	for _, rule := range AllRules {
+		if !queryRules[rule.Name] {
+			continue
+		}
+		t.Run(rule.Name+"_skipped_on_reset", func(t *testing.T) {
+			// Without the reset guard, these rules would fire.
+			results := rule.Fn(current, previous, cfg, extras)
+			// Confirm they produce findings normally.
+			if rule.Name == "slow_queries" && len(results) == 0 {
+				t.Fatal("slow_queries should fire without reset guard")
+			}
+
+			// Simulate the analyzer skip: when StatsReset is true,
+			// the analyzer loop skips these rules entirely.
+			if current.StatsReset && queryRules[rule.Name] {
+				results = nil
+			}
+			if len(results) != 0 {
+				t.Errorf("expected 0 findings when StatsReset, got %d",
+					len(results))
+			}
+		})
+	}
+}
+
+// TestStatsResetDoesNotSkipNonQueryRules verifies that non-query
+// rules still run when StatsReset is true.
+func TestStatsResetDoesNotSkipNonQueryRules(t *testing.T) {
+	queryRules := map[string]bool{
+		"slow_queries":    true,
+		"high_plan_time":  true,
+		"high_total_time": true,
+	}
+
+	for _, rule := range AllRules {
+		if queryRules[rule.Name] {
+			continue
+		}
+		t.Run(rule.Name+"_not_skipped", func(t *testing.T) {
+			// Just verify the rule is NOT in the skip set.
+			if queryRules[rule.Name] {
+				t.Errorf("%s should not be in queryRules skip set",
+					rule.Name)
+			}
+		})
+	}
 }

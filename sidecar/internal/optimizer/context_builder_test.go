@@ -182,3 +182,148 @@ func TestCountIndexes(t *testing.T) {
 		t.Errorf("expected 2, got %d", got)
 	}
 }
+
+func TestBuildPartitionParentSet(t *testing.T) {
+	snap := &collector.Snapshot{
+		Partitions: []collector.PartitionInfo{
+			{
+				ParentSchema: "public", ParentTable: "events",
+				ChildSchema: "public", ChildTable: "events_2024",
+			},
+			{
+				ParentSchema: "public", ParentTable: "events",
+				ChildSchema: "public", ChildTable: "events_2025",
+			},
+		},
+	}
+	parents := buildPartitionParentSet(snap)
+	if !parents["public.events"] {
+		t.Error("expected public.events to be a partition parent")
+	}
+	if parents["public.events_2024"] {
+		t.Error("child should not be in parent set")
+	}
+}
+
+func TestPartitionedParentDetection(t *testing.T) {
+	snap := &collector.Snapshot{
+		Tables: []collector.TableStats{
+			{SchemaName: "public", RelName: "events", NLiveTup: 1000},
+			{SchemaName: "public", RelName: "events_2024", NLiveTup: 400},
+			{SchemaName: "public", RelName: "events_2025", NLiveTup: 300},
+			{SchemaName: "public", RelName: "events_2026", NLiveTup: 300},
+		},
+		Queries: []collector.QueryStats{
+			{
+				QueryID:       1,
+				Query:         "SELECT * FROM events WHERE id = $1",
+				Calls:         100,
+				MeanExecTime:  5.0,
+				TotalExecTime: 500.0,
+			},
+			{
+				QueryID:       2,
+				Query:         "SELECT * FROM events_2024 WHERE ts > $1",
+				Calls:         50,
+				MeanExecTime:  3.0,
+				TotalExecTime: 150.0,
+			},
+		},
+		Partitions: []collector.PartitionInfo{
+			{
+				ParentSchema: "public", ParentTable: "events",
+				ChildSchema: "public", ChildTable: "events_2024",
+			},
+			{
+				ParentSchema: "public", ParentTable: "events",
+				ChildSchema: "public", ChildTable: "events_2025",
+			},
+			{
+				ParentSchema: "public", ParentTable: "events",
+				ChildSchema: "public", ChildTable: "events_2026",
+			},
+		},
+	}
+
+	childSet := buildPartitionChildSet(snap)
+	parentSet := buildPartitionParentSet(snap)
+	tableQueries := groupQueriesByTable(snap)
+
+	// Verify child set has all 3 children.
+	for _, name := range []string{
+		"public.events_2024", "public.events_2025", "public.events_2026",
+	} {
+		if !childSet[name] {
+			t.Errorf("expected %s in child set", name)
+		}
+	}
+
+	// Verify parent detected.
+	if !parentSet["public.events"] {
+		t.Fatal("expected public.events in parent set")
+	}
+
+	// Verify mergeChildQueries folds child queries into parent.
+	parentQueries := tableQueries["public.events"]
+	merged := mergeChildQueries(
+		parentQueries, tableQueries, childSet, snap, "public.events",
+	)
+	seen := make(map[int64]bool)
+	for _, q := range merged {
+		seen[q.QueryID] = true
+	}
+	if !seen[1] {
+		t.Error("expected query 1 (parent query) in merged set")
+	}
+	if !seen[2] {
+		t.Error("expected query 2 (child query) folded into parent")
+	}
+
+	// Simulate the main loop: only parent should produce a context.
+	var contextCount int
+	var partitionedCount int
+	for _, ts := range snap.Tables {
+		key := ts.SchemaName + "." + ts.RelName
+		if childSet[key] {
+			continue
+		}
+		contextCount++
+		if parentSet[key] {
+			partitionedCount++
+		}
+	}
+	if contextCount != 1 {
+		t.Errorf("expected 1 context (parent only), got %d", contextCount)
+	}
+	if partitionedCount != 1 {
+		t.Errorf("expected 1 partitioned parent, got %d", partitionedCount)
+	}
+}
+
+func TestMergeChildQueries_NoDuplicates(t *testing.T) {
+	snap := &collector.Snapshot{
+		Partitions: []collector.PartitionInfo{
+			{
+				ParentSchema: "public", ParentTable: "orders",
+				ChildSchema: "public", ChildTable: "orders_q1",
+			},
+		},
+	}
+	// Same query ID hits both parent and child.
+	tableQueries := map[string][]QueryInfo{
+		"public.orders":    {{QueryID: 10, Calls: 50}},
+		"public.orders_q1": {{QueryID: 10, Calls: 25}},
+	}
+	childSet := map[string]bool{"public.orders_q1": true}
+
+	merged := mergeChildQueries(
+		tableQueries["public.orders"],
+		tableQueries,
+		childSet,
+		snap,
+		"public.orders",
+	)
+	if len(merged) != 1 {
+		t.Errorf("expected 1 query (deduped), got %d", len(merged))
+	}
+}

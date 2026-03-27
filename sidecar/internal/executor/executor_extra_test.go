@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -422,6 +423,92 @@ func TestDDLTimeout(t *testing.T) {
 	if timeout != "0" && timeout != "0ms" && timeout != "0s" {
 		t.Logf("statement_timeout on fresh connection: %s (non-zero is OK "+
 			"if server default is set)", timeout)
+	}
+}
+
+func TestLockTimeoutSetBeforeDDL(t *testing.T) {
+	pool, ctx := requireDB(t)
+
+	// Use ExecConcurrently with a lock_timeout and verify the
+	// lock_timeout was active by checking a simple DDL succeeds.
+	lockMs := 5000
+	err := ExecConcurrently(
+		ctx, pool, "SELECT 1", 10*time.Second,
+		WithLockTimeout(lockMs),
+	)
+	if err != nil {
+		t.Fatalf("ExecConcurrently with lock_timeout: %v", err)
+	}
+
+	// Verify lock_timeout is reset to 0 after execution.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquiring connection: %v", err)
+	}
+	defer conn.Release()
+
+	var lockTimeout string
+	err = conn.QueryRow(ctx, "SHOW lock_timeout").Scan(&lockTimeout)
+	if err != nil {
+		t.Fatalf("SHOW lock_timeout: %v", err)
+	}
+	if lockTimeout != "0" && lockTimeout != "0ms" && lockTimeout != "0s" {
+		t.Logf("lock_timeout after exec: %s (non-zero OK if server default)",
+			lockTimeout)
+	}
+
+	// ExecInTransaction path: verify lock_timeout with transaction.
+	err = ExecInTransaction(
+		ctx, pool, "SELECT 1", 10*time.Second,
+		WithLockTimeout(lockMs),
+	)
+	if err != nil {
+		t.Fatalf("ExecInTransaction with lock_timeout: %v", err)
+	}
+}
+
+func TestLockTimeoutTriggersErrLockNotAvailable(t *testing.T) {
+	pool, ctx := requireDB(t)
+
+	// Hold an exclusive lock on a table in one transaction, then
+	// try DDL with a very short lock_timeout to trigger 55P03.
+	_, err := pool.Exec(ctx,
+		`CREATE TABLE IF NOT EXISTS sage.test_lock_timeout (
+			id int PRIMARY KEY
+		)`,
+	)
+	if err != nil {
+		t.Fatalf("creating table: %v", err)
+	}
+	t.Cleanup(func() {
+		cctx := context.Background()
+		_, _ = pool.Exec(cctx, "DROP TABLE IF EXISTS sage.test_lock_timeout")
+	})
+
+	// Start a transaction that holds ACCESS EXCLUSIVE lock.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("beginning blocking tx: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, "LOCK TABLE sage.test_lock_timeout IN ACCESS EXCLUSIVE MODE")
+	if err != nil {
+		t.Fatalf("locking table: %v", err)
+	}
+
+	// Now attempt DDL with a 1ms lock_timeout — should fail with 55P03.
+	ddlErr := ExecInTransaction(
+		ctx, pool,
+		"ALTER TABLE sage.test_lock_timeout ADD COLUMN IF NOT EXISTS v int",
+		10*time.Second,
+		WithLockTimeout(1),
+	)
+	if ddlErr == nil {
+		t.Fatal("expected lock timeout error, got nil")
+	}
+	if !errors.Is(ddlErr, ErrLockNotAvailable) {
+		t.Errorf("expected ErrLockNotAvailable, got: %v", ddlErr)
 	}
 }
 

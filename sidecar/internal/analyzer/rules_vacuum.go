@@ -72,6 +72,20 @@ func ruleTableBloat(
 		}
 
 		ident := t.SchemaName + "." + t.RelName
+		detail := map[string]any{
+			"n_live_tup":      t.NLiveTup,
+			"n_dead_tup":      t.NDeadTup,
+			"dead_ratio":      deadRatio,
+			"last_vacuum":     t.LastVacuum,
+			"io_saturated":    saturated,
+			"io_wait_ratio":   ioWaitRatio(current),
+			"relpersistence":  t.Relpersistence,
+		}
+		if t.IsUnlogged() {
+			detail["unlogged"] = true
+			recommendation += " Note: this is an UNLOGGED table " +
+				"(no WAL, not crash-safe)."
+		}
 		findings = append(findings, Finding{
 			Category:         "table_bloat",
 			Severity:         severity,
@@ -81,14 +95,7 @@ func ruleTableBloat(
 				"Table %s has %.1f%% dead tuples",
 				ident, deadRatio*100,
 			),
-			Detail: map[string]any{
-				"n_live_tup":    t.NLiveTup,
-				"n_dead_tup":    t.NDeadTup,
-				"dead_ratio":    deadRatio,
-				"last_vacuum":   t.LastVacuum,
-				"io_saturated":  saturated,
-				"io_wait_ratio": ioWaitRatio(current),
-			},
+			Detail:         detail,
 			Recommendation: recommendation,
 			RecommendedSQL: fmt.Sprintf("VACUUM %s;", ident),
 			ActionRisk:     "safe",

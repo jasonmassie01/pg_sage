@@ -1,10 +1,13 @@
 package executor
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
 )
@@ -272,6 +275,27 @@ func TestCascadeGuard_BlocksRecentAction(t *testing.T) {
 	}
 }
 
+func TestCascadeGuard_DifferentObjectNotSuppressed(t *testing.T) {
+	e := &Executor{
+		cfg: &config.Config{
+			Trust: config.TrustConfig{
+				CascadeCooldownCycles: 3,
+			},
+			Collector: config.CollectorConfig{
+				IntervalSeconds: 60,
+			},
+		},
+		recentActions: map[string]time.Time{
+			"public.orders": time.Now().Add(-30 * time.Second),
+		},
+		logFn: func(string, string, ...any) {},
+	}
+
+	if e.isCascadeCooldown("public.users") {
+		t.Error("cascade guard must not suppress a different object")
+	}
+}
+
 func TestCascadeGuard_AllowsAfterCooldown(t *testing.T) {
 	e := &Executor{
 		cfg: &config.Config{
@@ -333,5 +357,93 @@ func TestApplyDDLOpts_NoOpts(t *testing.T) {
 	o := applyDDLOpts(nil)
 	if o.lockTimeoutMs != 0 {
 		t.Errorf("lockTimeoutMs = %d, want 0", o.lockTimeoutMs)
+	}
+}
+
+func TestIsLockNotAvailable(t *testing.T) {
+	t.Run("pgconn error with 55P03 returns true", func(t *testing.T) {
+		pgErr := &pgconn.PgError{Code: "55P03"}
+		if !IsLockNotAvailable(pgErr) {
+			t.Error("expected IsLockNotAvailable=true for 55P03")
+		}
+	})
+
+	t.Run("wrapped pgconn error with 55P03 returns true", func(t *testing.T) {
+		pgErr := &pgconn.PgError{Code: "55P03"}
+		wrapped := fmt.Errorf("some context: %w", pgErr)
+		if !IsLockNotAvailable(wrapped) {
+			t.Error("expected IsLockNotAvailable=true for wrapped 55P03")
+		}
+	})
+
+	t.Run("different pgconn error code returns false", func(t *testing.T) {
+		pgErr := &pgconn.PgError{Code: "42P01"}
+		if IsLockNotAvailable(pgErr) {
+			t.Error("expected IsLockNotAvailable=false for 42P01")
+		}
+	})
+
+	t.Run("non-pgconn error returns false", func(t *testing.T) {
+		err := fmt.Errorf("generic error")
+		if IsLockNotAvailable(err) {
+			t.Error("expected IsLockNotAvailable=false for generic error")
+		}
+	})
+
+	t.Run("nil error returns false", func(t *testing.T) {
+		if IsLockNotAvailable(nil) {
+			t.Error("expected IsLockNotAvailable=false for nil")
+		}
+	})
+}
+
+func TestWrapDDLError_LockNotAvailable(t *testing.T) {
+	pgErr := &pgconn.PgError{Code: "55P03", Message: "canceling statement due to lock timeout"}
+	wrapped := wrapDDLError(pgErr)
+
+	if !errors.Is(wrapped, ErrLockNotAvailable) {
+		t.Error("expected wrapped error to match ErrLockNotAvailable")
+	}
+}
+
+func TestWrapDDLError_OtherError(t *testing.T) {
+	original := fmt.Errorf("syntax error")
+	wrapped := wrapDDLError(original)
+
+	if errors.Is(wrapped, ErrLockNotAvailable) {
+		t.Error("expected non-lock error to NOT match ErrLockNotAvailable")
+	}
+	if !strings.Contains(wrapped.Error(), "executing DDL") {
+		t.Errorf("expected 'executing DDL' in error, got %q", wrapped.Error())
+	}
+}
+
+func TestLockTimeoutCircuitBreaksTable(t *testing.T) {
+	e := &Executor{
+		cfg: &config.Config{
+			Trust: config.TrustConfig{
+				CascadeCooldownCycles: 3,
+			},
+			Collector: config.CollectorConfig{
+				IntervalSeconds: 60,
+			},
+		},
+		recentActions: make(map[string]time.Time),
+		logFn:         func(string, string, ...any) {},
+	}
+
+	// Simulate a lock timeout error being handled.
+	objID := "public.orders"
+	pgErr := &pgconn.PgError{Code: "55P03"}
+	execErr := wrapDDLError(pgErr)
+
+	// Mimic what RunCycle does on lock timeout.
+	if errors.Is(execErr, ErrLockNotAvailable) {
+		e.recentActions[objID] = time.Now()
+	}
+
+	// The table should now be circuit-broken.
+	if !e.isCascadeCooldown(objID) {
+		t.Error("expected table to be circuit-broken after lock timeout")
 	}
 }

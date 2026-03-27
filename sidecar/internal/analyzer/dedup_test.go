@@ -1,6 +1,10 @@
 package analyzer
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/pg-sage/sidecar/internal/collector"
+)
 
 func noopLog(string, string, ...any) {}
 
@@ -214,5 +218,270 @@ func TestDedupFindings_NonTuningCategoryKept(t *testing.T) {
 			"expected 2 (slow_query not global config), got %d",
 			len(got),
 		)
+	}
+}
+
+func TestDedupFindings_HintCategoryBeatsGlobal(t *testing.T) {
+	in := []Finding{
+		{
+			Category:         "memory_tuning",
+			Severity:         "warning",
+			ObjectIdentifier: "q:50",
+			Title:            "reduce work_mem globally",
+		},
+		{
+			Category:         "work_mem_hint",
+			Severity:         "info",
+			ObjectIdentifier: "q:50",
+			Title:            "increase work_mem for query",
+			RecommendedSQL:   "SET work_mem = '512MB'",
+		},
+	}
+	got := DedupFindings(in, noopLog)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(got))
+	}
+	if got[0].Category != "work_mem_hint" {
+		t.Errorf(
+			"expected work_mem_hint to win, got %s",
+			got[0].Category,
+		)
+	}
+}
+
+func TestDedupFindings_TunerCategoryBeatsGlobal(t *testing.T) {
+	in := []Finding{
+		{
+			Category:         "memory_tuning",
+			Severity:         "critical",
+			ObjectIdentifier: "q:60",
+			Title:            "lower work_mem",
+		},
+		{
+			Category:         "query_tuner",
+			Severity:         "info",
+			ObjectIdentifier: "q:60",
+			Title:            "raise work_mem for this query",
+		},
+	}
+	got := DedupFindings(in, noopLog)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(got))
+	}
+	if got[0].Category != "query_tuner" {
+		t.Errorf(
+			"expected query_tuner to win, got %s",
+			got[0].Category,
+		)
+	}
+}
+
+func TestDeduplicateFindings_VacuumDowngradeHighIO(
+	t *testing.T,
+) {
+	in := []Finding{
+		{
+			Category:         "vacuum_tuning",
+			Severity:         "warning",
+			ObjectIdentifier: "t:orders",
+			Title:            "lower vacuum_cost_delay",
+		},
+		{
+			Category:         "slow_query",
+			Severity:         "critical",
+			ObjectIdentifier: "q:99",
+			Title:            "slow select",
+		},
+	}
+	got := DeduplicateFindings(in, 55.0, noopLog)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 findings, got %d", len(got))
+	}
+	for _, f := range got {
+		if f.Category == "vacuum_tuning" && f.Severity != "info" {
+			t.Errorf(
+				"vacuum finding should be info at 55%% IO, got %s",
+				f.Severity,
+			)
+		}
+		if f.Category == "slow_query" && f.Severity != "critical" {
+			t.Errorf(
+				"non-vacuum finding should be unchanged, got %s",
+				f.Severity,
+			)
+		}
+	}
+}
+
+func TestDeduplicateFindings_VacuumNoDowngradeLowIO(
+	t *testing.T,
+) {
+	in := []Finding{
+		{
+			Category:         "vacuum_tuning",
+			Severity:         "warning",
+			ObjectIdentifier: "t:orders",
+			Title:            "lower vacuum_cost_delay",
+		},
+	}
+	got := DeduplicateFindings(in, 49.0, noopLog)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(got))
+	}
+	if got[0].Severity != "warning" {
+		t.Errorf(
+			"vacuum finding should stay warning at 49%% IO, got %s",
+			got[0].Severity,
+		)
+	}
+}
+
+func TestDeduplicateFindings_VacuumNoDowngradeAtExactly50(
+	t *testing.T,
+) {
+	in := []Finding{
+		{
+			Category:         "vacuum_tuning",
+			Severity:         "warning",
+			ObjectIdentifier: "t:orders",
+			Title:            "lower vacuum_cost_delay",
+		},
+	}
+	got := DeduplicateFindings(in, 50.0, noopLog)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(got))
+	}
+	if got[0].Severity != "warning" {
+		t.Errorf(
+			"vacuum finding should stay warning at exactly 50%%, got %s",
+			got[0].Severity,
+		)
+	}
+}
+
+func TestDeduplicateFindings_EmptySlice(t *testing.T) {
+	got := DeduplicateFindings([]Finding{}, 90.0, noopLog)
+	if len(got) != 0 {
+		t.Fatalf("expected empty, got %d", len(got))
+	}
+}
+
+func TestDedupFindings_ConflictingSQLKeepsHigherSeverity(
+	t *testing.T,
+) {
+	in := []Finding{
+		{
+			Category:         "index_recommendation",
+			Severity:         "info",
+			ObjectIdentifier: "public.orders",
+			Title:            "add partial index",
+			RecommendedSQL:   "CREATE INDEX idx_a ON orders(id) WHERE status='active'",
+		},
+		{
+			Category:         "index_recommendation",
+			Severity:         "warning",
+			ObjectIdentifier: "public.orders",
+			Title:            "add full index",
+			RecommendedSQL:   "CREATE INDEX idx_b ON orders(id)",
+		},
+	}
+	got := DedupFindings(in, noopLog)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(got))
+	}
+	if got[0].Severity != "warning" {
+		t.Errorf("expected warning (higher), got %s", got[0].Severity)
+	}
+	if got[0].Title != "add full index" {
+		t.Errorf("expected 'add full index', got %s", got[0].Title)
+	}
+}
+
+func TestComputeIOUtilPct_NilSnapshot(t *testing.T) {
+	got := computeIOUtilPct(nil)
+	if got != 0 {
+		t.Errorf("expected 0 for nil snapshot, got %f", got)
+	}
+}
+
+func TestComputeIOUtilPct_NoIOWait(t *testing.T) {
+	snap := &collector.Snapshot{
+		System: collector.SystemStats{
+			BlkReadTime:  0,
+			BlkWriteTime: 0,
+		},
+		Queries: []collector.QueryStats{
+			{TotalExecTime: 1000},
+		},
+	}
+	got := computeIOUtilPct(snap)
+	if got != 0 {
+		t.Errorf("expected 0 with no IO wait, got %f", got)
+	}
+}
+
+func TestComputeIOUtilPct_NoQueries(t *testing.T) {
+	snap := &collector.Snapshot{
+		System: collector.SystemStats{
+			BlkReadTime:  500,
+			BlkWriteTime: 200,
+		},
+	}
+	got := computeIOUtilPct(snap)
+	if got != 0 {
+		t.Errorf("expected 0 with no queries, got %f", got)
+	}
+}
+
+func TestComputeIOUtilPct_HighIOWait(t *testing.T) {
+	snap := &collector.Snapshot{
+		System: collector.SystemStats{
+			BlkReadTime:  600,
+			BlkWriteTime: 200,
+		},
+		Queries: []collector.QueryStats{
+			{TotalExecTime: 1000},
+		},
+	}
+	got := computeIOUtilPct(snap)
+	// (600+200)/1000 * 100 = 80%
+	if got < 79.9 || got > 80.1 {
+		t.Errorf("expected ~80%%, got %f", got)
+	}
+}
+
+func TestComputeIOUtilPct_CappedAt100(t *testing.T) {
+	// blk_read_time can exceed total_exec_time because they
+	// measure different things (cumulative vs wall clock).
+	snap := &collector.Snapshot{
+		System: collector.SystemStats{
+			BlkReadTime:  2000,
+			BlkWriteTime: 500,
+		},
+		Queries: []collector.QueryStats{
+			{TotalExecTime: 1000},
+		},
+	}
+	got := computeIOUtilPct(snap)
+	if got != 100 {
+		t.Errorf("expected capped at 100, got %f", got)
+	}
+}
+
+func TestComputeIOUtilPct_MultipleQueries(t *testing.T) {
+	snap := &collector.Snapshot{
+		System: collector.SystemStats{
+			BlkReadTime:  300,
+			BlkWriteTime: 200,
+		},
+		Queries: []collector.QueryStats{
+			{TotalExecTime: 500},
+			{TotalExecTime: 500},
+		},
+	}
+	got := computeIOUtilPct(snap)
+	// (300+200)/(500+500) * 100 = 50%
+	if got < 49.9 || got > 50.1 {
+		t.Errorf("expected ~50%%, got %f", got)
 	}
 }
