@@ -14,7 +14,14 @@ func startPrometheusServer(addr string) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", handleMetrics)
 
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	go func() {
 		logInfo("prometheus", "listening on %s", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

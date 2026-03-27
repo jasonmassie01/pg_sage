@@ -18,18 +18,22 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/alerting"
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/autoexplain"
 	"github.com/pg-sage/sidecar/internal/briefing"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/forecaster"
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/retention"
+	"github.com/pg-sage/sidecar/internal/tuner"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/startup"
 )
@@ -57,10 +61,17 @@ var (
 	briefWorker        *briefing.Worker
 	llmClient          *llm.Client
 	cleaner            *retention.Cleaner
+	alertMgr           *alerting.Manager
 	rampStart          time.Time
 	shutdownFlag       bool
 	fleetMgr           *fleet.DatabaseManager
 	apiServer          *http.Server
+)
+
+var (
+	shutdownCtx        context.Context
+	shutdownCancel     context.CancelFunc
+	rateLimiterInstance *RateLimiter
 )
 
 type sseSession struct {
@@ -69,6 +80,7 @@ type sseSession struct {
 }
 
 const maxRequestBodySize = 1 << 20
+const maxToolInputLen = 10000
 
 var validTableName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$`)
 var validInteger = regexp.MustCompile(`^-?[0-9]+$`)
@@ -142,6 +154,9 @@ func main() {
 		logInfo("startup", "mode: SIDECAR — no extension, using catalog queries")
 	}
 
+	// Cancellable shutdown context for background goroutines.
+	shutdownCtx, shutdownCancel = context.WithCancel(context.Background())
+
 	// Standalone mode initialization.
 	if cfg.IsStandalone() {
 		initStandalone()
@@ -167,6 +182,7 @@ func main() {
 
 	// Rate limiter.
 	rl := NewRateLimiter(cfg.RateLimit())
+	rateLimiterInstance = rl
 
 	// MCP HTTP server.
 	mcpMux := http.NewServeMux()
@@ -180,8 +196,12 @@ func main() {
 				rateLimitMiddleware(rl, mcpMux))))
 
 	mcpServer := &http.Server{
-		Addr:    cfg.MCP.ListenAddr,
-		Handler: handler,
+		Addr:              cfg.MCP.ListenAddr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	// Prometheus server.
@@ -205,12 +225,20 @@ func main() {
 		}
 	}()
 
+	// Stale SSE session cleanup.
+	go cleanupStaleSessions()
+
 	// Graceful shutdown.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigCh
 	logInfo("shutdown", "received %s, shutting down…", sig)
 	shutdownFlag = true
+	shutdownCancel()
+
+	if rateLimiterInstance != nil {
+		rateLimiterInstance.Stop()
+	}
 
 	shutCtx, shutCancel := context.WithTimeout(context.Background(),
 		time.Duration(cfg.Safety.DDLTimeoutSeconds)*time.Second+10*time.Second)
@@ -222,10 +250,16 @@ func main() {
 		logInfo("shutdown", "advisory lock released")
 	}
 
-	_ = mcpServer.Shutdown(shutCtx)
-	_ = promServer.Shutdown(shutCtx)
+	if err := mcpServer.Shutdown(shutCtx); err != nil {
+		logWarn("shutdown", "MCP server: %v", err)
+	}
+	if err := promServer.Shutdown(shutCtx); err != nil {
+		logWarn("shutdown", "Prometheus server: %v", err)
+	}
 	if apiServer != nil {
-		_ = apiServer.Shutdown(shutCtx)
+		if err := apiServer.Shutdown(shutCtx); err != nil {
+			logWarn("shutdown", "API server: %v", err)
+		}
 	}
 	logInfo("shutdown", "stopped")
 }
@@ -256,6 +290,21 @@ func initStandalone() {
 	if err := schema.Bootstrap(ctx, pool); err != nil {
 		logError("startup", "schema bootstrap: %v", err)
 		os.Exit(1)
+	}
+
+	// 2b. Detect auto_explain availability.
+	var autoExplainAvail *autoexplain.Availability
+	if cfg.AutoExplain.Enabled {
+		autoExplainAvail, err = autoexplain.Detect(ctx, pool)
+		if err != nil {
+			logWarn("startup", "auto_explain detection: %v", err)
+		} else if autoExplainAvail.Available {
+			logInfo("startup",
+				"auto_explain available via %s",
+				autoExplainAvail.Method)
+		} else {
+			logInfo("startup", "auto_explain not available, using fallback plan sources")
+		}
 	}
 
 	// 3. Persist trust ramp start.
@@ -297,7 +346,7 @@ func initStandalone() {
 
 	// 7. Start collector.
 	coll = collector.New(pool, cfg, cfg.PGVersionNum, logStructuredWrapper)
-	go coll.Run(context.Background())
+	go coll.Run(shutdownCtx)
 
 	// 8. Start analyzer with v2 index optimizer.
 	var opt *optimizer.Optimizer
@@ -315,11 +364,16 @@ func initStandalone() {
 				optClient != llmClient {
 				fallback = llmClient
 			}
+			var optOpts []func(*optimizer.Optimizer)
+			if autoExplainAvail != nil && autoExplainAvail.Available {
+				optOpts = append(optOpts, optimizer.WithAutoExplain())
+			}
 			opt = optimizer.New(
 				optClient, fallback, pool, &cfg.LLM.Optimizer,
 				cfg.PGVersionNum, extensionAvailable,
 				cfg.LLM.OptimizerLLM.MaxOutputTokens,
 				logStructuredWrapper,
+				optOpts...,
 			)
 			logInfo("startup", "index optimizer v2 enabled (plan_source=%s)",
 				cfg.LLM.Optimizer.PlanSource)
@@ -333,14 +387,95 @@ func initStandalone() {
 	if adv != nil {
 		advIface = adv
 	}
-	anal = analyzer.New(pool, cfg, coll, opt, advIface, logStructuredWrapper)
-	go anal.Run(context.Background())
+
+	// Forecaster.
+	var fc *forecaster.Forecaster
+	if cfg.Forecaster.Enabled {
+		fcCfg := forecaster.ForecasterConfig{
+			Enabled:              cfg.Forecaster.Enabled,
+			LookbackDays:         cfg.Forecaster.LookbackDays,
+			DiskWarnGrowthGBDay:  cfg.Forecaster.DiskWarnGrowthGBDay,
+			ConnectionWarnPct:    cfg.Forecaster.ConnectionWarnPct,
+			CacheWarnThreshold:   cfg.Forecaster.CacheWarnThreshold,
+			SequenceWarnDays:     cfg.Forecaster.SequenceWarnDays,
+			SequenceCriticalDays: cfg.Forecaster.SequenceCriticalDays,
+		}
+		fc = forecaster.New(pool, fcCfg, logStructuredWrapper)
+		logInfo("startup", "forecaster enabled, lookback=%dd",
+			cfg.Forecaster.LookbackDays)
+	}
+	var qt *tuner.Tuner
+	if cfg.Tuner.Enabled {
+		hpAvail, hpErr := tuner.DetectHintPlan(ctx, pool)
+		if hpErr != nil {
+			logWarn("startup",
+				"pg_hint_plan detection: %v", hpErr)
+		}
+		if hpAvail != nil && hpAvail.Available {
+			logInfo("startup",
+				"pg_hint_plan available (%s), "+
+					"hint table ready: %v",
+				hpAvail.Method, hpAvail.HintTableReady)
+		} else {
+			logInfo("startup",
+				"pg_hint_plan not available, "+
+					"tuner runs in advisory mode")
+		}
+		qt = tuner.New(pool, tuner.TunerConfig{
+			Enabled:    cfg.Tuner.Enabled,
+			WorkMemMaxMB: cfg.Tuner.WorkMemMaxMB,
+			PlanTimeRatio: cfg.Tuner.PlanTimeRatio,
+			NestedLoopRowThreshold: cfg.Tuner.NestedLoopRowThreshold,
+			ParallelMinTableRows: cfg.Tuner.ParallelMinTableRows,
+			MinQueryCalls: cfg.Tuner.MinQueryCalls,
+			VerifyAfterApply: cfg.Tuner.VerifyAfterApply,
+		}, hpAvail, logStructuredWrapper)
+		logInfo("startup", "tuner enabled")
+	}
+
+	anal = analyzer.New(
+		pool, cfg, coll, opt, advIface, fc, qt,
+		logStructuredWrapper,
+	)
+	go anal.Run(shutdownCtx)
 
 	// 9. Executor runs after analyzer (called from analyzer loop).
 	exec = executor.New(pool, cfg, anal, rampStart, logStructuredWrapper)
 
 	// 10. Briefing worker.
 	briefWorker = briefing.New(pool, cfg, llmClient, logStructuredWrapper)
+
+	// 10b. Alert manager.
+	if cfg.Alerting.Enabled {
+		routes := buildAlertRoutes(cfg, logStructuredWrapper)
+		mcfg := alerting.ManagerConfig{
+			CheckIntervalSeconds: cfg.Alerting.CheckIntervalSeconds,
+			CooldownMinutes:      cfg.Alerting.CooldownMinutes,
+			QuietHoursStart:      cfg.Alerting.QuietHoursStart,
+			QuietHoursEnd:        cfg.Alerting.QuietHoursEnd,
+			Timezone:             cfg.Alerting.Timezone,
+		}
+		alertMgr = alerting.New(pool, mcfg, routes, logStructuredWrapper)
+		go alertMgr.Run(shutdownCtx)
+		logInfo("startup", "alerting enabled, check_interval=%ds",
+			cfg.Alerting.CheckIntervalSeconds)
+	}
+
+	// 10c. auto_explain collector.
+	if autoExplainAvail != nil && autoExplainAvail.Available {
+		aeCfg := autoexplain.CollectorConfig{
+			CollectIntervalSeconds: cfg.AutoExplain.CollectIntervalSeconds,
+			MaxPlansPerCycle:       cfg.AutoExplain.MaxPlansPerCycle,
+			LogMinDurationMs:       cfg.AutoExplain.LogMinDurationMs,
+			PreferSessionLoad:      cfg.AutoExplain.PreferSessionLoad,
+		}
+		aec := autoexplain.NewCollector(
+			pool, aeCfg, autoExplainAvail, logStructuredWrapper,
+		)
+		go aec.Run(shutdownCtx)
+		logInfo("startup", "auto_explain collector started, interval=%ds",
+			cfg.AutoExplain.CollectIntervalSeconds)
+	}
 
 	// 11. Retention cleaner.
 	cleaner = retention.New(pool, cfg, logStructuredWrapper)
@@ -363,7 +498,7 @@ func standaloneOrchestrator() {
 			if shutdownFlag {
 				return
 			}
-			ctx := context.Background()
+			ctx := shutdownCtx
 
 			// HA check.
 			isReplica := false
@@ -374,6 +509,17 @@ func standaloneOrchestrator() {
 			// Executor.
 			if exec != nil {
 				exec.RunCycle(ctx, isReplica)
+			}
+
+			// Briefing (scheduled).
+			if briefWorker != nil && briefWorker.ShouldRun(time.Now()) {
+				text, bErr := briefWorker.Generate(ctx)
+				if bErr != nil {
+					logWarn("briefing", "generation failed: %v", bErr)
+				} else {
+					briefWorker.Dispatch(text)
+					briefWorker.MarkRan()
+				}
 			}
 
 			// Retention.
@@ -387,6 +533,42 @@ func standaloneOrchestrator() {
 			}
 		}
 	}
+}
+
+// buildAlertRoutes constructs channel instances and severity routing
+// from the alerting config.
+func buildAlertRoutes(
+	c *config.Config,
+	logFn func(string, string, ...any),
+) map[string][]alerting.Channel {
+	channels := make(map[string]alerting.Channel)
+	if c.Alerting.SlackWebhookURL != "" {
+		channels["slack"] = alerting.NewSlack(
+			c.Alerting.SlackWebhookURL, logFn,
+		)
+	}
+	if c.Alerting.PagerDutyRoutingKey != "" {
+		channels["pagerduty"] = alerting.NewPagerDuty(
+			c.Alerting.PagerDutyRoutingKey, logFn,
+		)
+	}
+	for _, wh := range c.Alerting.Webhooks {
+		channels["webhook:"+wh.Name] = alerting.NewWebhook(
+			wh.Name, wh.URL, wh.Headers, logFn,
+		)
+	}
+
+	routes := make(map[string][]alerting.Channel)
+	for _, r := range c.Alerting.Routes {
+		for _, chName := range r.Channels {
+			if ch, ok := channels[chName]; ok {
+				routes[r.Severity] = append(
+					routes[r.Severity], ch,
+				)
+			}
+		}
+	}
+	return routes
 }
 
 func initFleetAndAPI() {
@@ -458,6 +640,9 @@ func startAPIServer() {
 		Addr:              addr,
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {
@@ -1081,6 +1266,12 @@ func callTool(ctx context.Context, name string, args json.RawMessage) (ToolsCall
 		}
 		var p struct{ Question string `json:"question"` }
 		json.Unmarshal(args, &p)
+		if p.Question == "" {
+			return toolErr("question is required"), nil
+		}
+		if len(p.Question) > maxToolInputLen {
+			return toolErr("question too long (max 10000 chars)"), nil
+		}
 		var result string
 		err := pool.QueryRow(ctx, "SELECT sage.diagnose($1)", p.Question).Scan(&result)
 		if err != nil {
@@ -1126,6 +1317,12 @@ func callTool(ctx context.Context, name string, args json.RawMessage) (ToolsCall
 	case "review_migration":
 		var p struct{ DDL string `json:"ddl"` }
 		json.Unmarshal(args, &p)
+		if p.DDL == "" {
+			return toolErr("ddl is required"), nil
+		}
+		if len(p.DDL) > maxToolInputLen {
+			return toolErr("ddl too long (max 10000 chars)"), nil
+		}
 		review := reviewDDL(p.DDL)
 		out, _ := json.Marshal(review)
 		return toolOK(string(out)), nil
@@ -1271,7 +1468,14 @@ func sanitizePromptArg(s string) string {
 func startPrometheusServer(addr string) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/metrics", handleMetrics)
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	go func() {
 		logInfo("prometheus", "listening on %s", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -1528,6 +1732,7 @@ type RateLimiter struct {
 	windows  map[string][]time.Time
 	limit    int
 	interval time.Duration
+	stop     chan struct{}
 }
 
 func NewRateLimiter(maxPerMinute int) *RateLimiter {
@@ -1535,9 +1740,14 @@ func NewRateLimiter(maxPerMinute int) *RateLimiter {
 		windows:  make(map[string][]time.Time),
 		limit:    maxPerMinute,
 		interval: time.Minute,
+		stop:     make(chan struct{}),
 	}
 	go rl.cleanup()
 	return rl
+}
+
+func (rl *RateLimiter) Stop() {
+	close(rl.stop)
 }
 
 func (rl *RateLimiter) Allow(ip string) bool {
@@ -1561,21 +1771,27 @@ func (rl *RateLimiter) Allow(ip string) bool {
 
 func (rl *RateLimiter) cleanup() {
 	ticker := time.NewTicker(2 * time.Minute)
-	for range ticker.C {
-		rl.mu.Lock()
-		cutoff := time.Now().Add(-rl.interval)
-		for ip, ts := range rl.windows {
-			start := 0
-			for start < len(ts) && ts[start].Before(cutoff) {
-				start++
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			rl.mu.Lock()
+			cutoff := time.Now().Add(-rl.interval)
+			for ip, ts := range rl.windows {
+				start := 0
+				for start < len(ts) && ts[start].Before(cutoff) {
+					start++
+				}
+				if start >= len(ts) {
+					delete(rl.windows, ip)
+				} else {
+					rl.windows[ip] = ts[start:]
+				}
 			}
-			if start >= len(ts) {
-				delete(rl.windows, ip)
-			} else {
-				rl.windows[ip] = ts[start:]
-			}
+			rl.mu.Unlock()
+		case <-rl.stop:
+			return
 		}
-		rl.mu.Unlock()
 	}
 }
 
@@ -1719,10 +1935,12 @@ func auditLog(ip string, req JSONRPCRequest, duration time.Duration, resp JSONRP
 	if !extensionAvailable && !cfg.IsStandalone() {
 		table = "public.sage_mcp_log"
 	}
-	_, _ = pool.Exec(ctx,
+	if _, err := pool.Exec(ctx,
 		fmt.Sprintf(`INSERT INTO %s (client_ip, method, resource_uri, tool_name, duration_ms, status, error_message)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`, table),
-		ip, req.Method, resourceURI, toolName, int(duration.Milliseconds()), st, errMsg)
+		ip, req.Method, resourceURI, toolName, int(duration.Milliseconds()), st, errMsg); err != nil {
+		logWarn("audit", "failed to log: %v", err)
+	}
 }
 
 // --- Detection ---
@@ -1787,15 +2005,49 @@ func ensureMCPLogTable() {
 func poolHealthCheck() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	for range ticker.C {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := pool.Ping(ctx); err != nil {
-			logWarn("pool-health", "ping failed: %v", err)
+	for {
+		select {
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(shutdownCtx, 5*time.Second)
+			if err := pool.Ping(ctx); err != nil {
+				logWarn("pool-health", "ping failed: %v", err)
+			}
+			cancel()
+			stat := pool.Stat()
+			if stat.TotalConns() == stat.MaxConns() && stat.IdleConns() == 0 {
+				logWarn("pool-health", "exhausted — total=%d max=%d",
+					stat.TotalConns(), stat.MaxConns())
+			}
+		case <-shutdownCtx.Done():
+			return
 		}
-		cancel()
-		stat := pool.Stat()
-		if stat.TotalConns() == stat.MaxConns() && stat.IdleConns() == 0 {
-			logWarn("pool-health", "exhausted — total=%d max=%d", stat.TotalConns(), stat.MaxConns())
+	}
+}
+
+func cleanupStaleSessions() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			var stale []string
+			sessions.Range(func(key, value any) bool {
+				sess := value.(*sseSession)
+				select {
+				case <-sess.done:
+					stale = append(stale, key.(string))
+				default:
+				}
+				return true
+			})
+			for _, id := range stale {
+				sessions.Delete(id)
+			}
+			if len(stale) > 0 {
+				logInfo("mcp", "cleaned up %d stale SSE sessions", len(stale))
+			}
+		case <-shutdownCtx.Done():
+			return
 		}
 	}
 }

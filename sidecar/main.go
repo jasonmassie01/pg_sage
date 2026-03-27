@@ -187,8 +187,12 @@ func main() {
 				rateLimitMiddleware(rl, mcpMux))))
 
 	mcpServer := &http.Server{
-		Addr:    ":" + cfg.MCPPort,
-		Handler: handler,
+		Addr:              ":" + cfg.MCPPort,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	// Prometheus server
@@ -218,10 +222,16 @@ func main() {
 	<-sigCh
 	logInfo("shutdown", "shutting down…")
 
+	rl.Stop()
+
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutCancel()
-	_ = mcpServer.Shutdown(shutCtx)
-	_ = promServer.Shutdown(shutCtx)
+	if err := mcpServer.Shutdown(shutCtx); err != nil {
+		logWarn("shutdown", "MCP server: %v", err)
+	}
+	if err := promServer.Shutdown(shutCtx); err != nil {
+		logWarn("shutdown", "Prometheus server: %v", err)
+	}
 	logInfo("shutdown", "stopped")
 }
 
@@ -671,11 +681,13 @@ func auditLog(ip string, req JSONRPCRequest, duration time.Duration, resp JSONRP
 	if !extensionAvailable {
 		table = "public.sage_mcp_log"
 	}
-	_, _ = pool.Exec(ctx,
+	if _, err := pool.Exec(ctx,
 		fmt.Sprintf(`INSERT INTO %s (client_ip, method, resource_uri, tool_name, tokens_used, duration_ms, status, error_message)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, table),
 		ip, req.Method, resourceURI, toolName, 0, int(duration.Milliseconds()), status, errMsg,
-	)
+	); err != nil {
+		logWarn("audit", "failed to log: %v", err)
+	}
 }
 
 // ---------------------------------------------------------------------------

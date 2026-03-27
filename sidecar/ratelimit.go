@@ -18,6 +18,7 @@ type RateLimiter struct {
 	windows  map[string][]time.Time
 	limit    int
 	interval time.Duration
+	stop     chan struct{}
 }
 
 func NewRateLimiter(maxPerMinute int) *RateLimiter {
@@ -25,10 +26,15 @@ func NewRateLimiter(maxPerMinute int) *RateLimiter {
 		windows:  make(map[string][]time.Time),
 		limit:    maxPerMinute,
 		interval: time.Minute,
+		stop:     make(chan struct{}),
 	}
-	// Background cleanup every 2 minutes
 	go rl.cleanup()
 	return rl
+}
+
+// Stop terminates the background cleanup goroutine.
+func (rl *RateLimiter) Stop() {
+	close(rl.stop)
 }
 
 // Allow checks whether the IP is within rate limits and records the request.
@@ -58,21 +64,27 @@ func (rl *RateLimiter) Allow(ip string) bool {
 
 func (rl *RateLimiter) cleanup() {
 	ticker := time.NewTicker(2 * time.Minute)
-	for range ticker.C {
-		rl.mu.Lock()
-		cutoff := time.Now().Add(-rl.interval)
-		for ip, ts := range rl.windows {
-			start := 0
-			for start < len(ts) && ts[start].Before(cutoff) {
-				start++
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			rl.mu.Lock()
+			cutoff := time.Now().Add(-rl.interval)
+			for ip, ts := range rl.windows {
+				start := 0
+				for start < len(ts) && ts[start].Before(cutoff) {
+					start++
+				}
+				if start >= len(ts) {
+					delete(rl.windows, ip)
+				} else {
+					rl.windows[ip] = ts[start:]
+				}
 			}
-			if start >= len(ts) {
-				delete(rl.windows, ip)
-			} else {
-				rl.windows[ip] = ts[start:]
-			}
+			rl.mu.Unlock()
+		case <-rl.stop:
+			return
 		}
-		rl.mu.Unlock()
 	}
 }
 
@@ -120,9 +132,11 @@ func logRateLimited(ctx context.Context, ip, method, path string) {
 	}
 	ctx2, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	_, _ = pool.Exec(ctx2,
+	if _, err := pool.Exec(ctx2,
 		fmt.Sprintf(`INSERT INTO %s (client_ip, method, resource_uri, tool_name, tokens_used, duration_ms, status, error_message)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, table),
 		ip, method, path, nil, 0, 0, "rate_limited", "rate limit exceeded",
-	)
+	); err != nil {
+		logWarn("audit", "rate-limit log failed: %v", err)
+	}
 }

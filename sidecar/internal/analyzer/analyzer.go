@@ -19,6 +19,16 @@ type ConfigAdvisor interface {
 	Analyze(ctx context.Context) ([]Finding, error)
 }
 
+// WorkloadForecaster produces capacity forecast findings.
+type WorkloadForecaster interface {
+	Forecast(ctx context.Context) ([]Finding, error)
+}
+
+// QueryTuner produces per-query tuning findings.
+type QueryTuner interface {
+	Tune(ctx context.Context) ([]Finding, error)
+}
+
 // Analyzer runs the rules engine on a recurring interval, producing
 // findings and persisting them to the sage.findings table.
 type Analyzer struct {
@@ -26,9 +36,11 @@ type Analyzer struct {
 	cfg       *config.Config
 	collector *collector.Collector
 	extras    *RuleExtras
-	optimizer *optimizer.Optimizer
-	advisor   ConfigAdvisor
-	logFn     func(string, string, ...any)
+	optimizer  *optimizer.Optimizer
+	advisor    ConfigAdvisor
+	forecaster WorkloadForecaster
+	tuner      QueryTuner
+	logFn      func(string, string, ...any)
 	mu        sync.RWMutex
 	findings  []Finding
 }
@@ -40,14 +52,18 @@ func New(
 	coll *collector.Collector,
 	opt *optimizer.Optimizer,
 	adv ConfigAdvisor,
+	fc WorkloadForecaster,
+	qt QueryTuner,
 	logFn func(string, string, ...any),
 ) *Analyzer {
 	return &Analyzer{
-		pool:      pool,
-		cfg:       cfg,
-		collector: coll,
-		optimizer: opt,
-		advisor:   adv,
+		pool:       pool,
+		cfg:        cfg,
+		collector:  coll,
+		optimizer:  opt,
+		advisor:    adv,
+		forecaster: fc,
+		tuner:      qt,
 		extras: &RuleExtras{
 			FirstSeen:       make(map[string]time.Time),
 			RecentlyCreated: make(map[string]time.Time),
@@ -153,10 +169,26 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	// Load recently created indexes to prevent cooldown violations.
 	a.loadRecentlyCreatedIndexes(ctx)
 
+	// Skip query-based rules when pg_stat_statements was reset.
+	skipQueryRules := current.StatsReset
+	if skipQueryRules {
+		a.logFn(
+			"WARN",
+			"stats reset detected, skipping query rules",
+		)
+	}
+
 	var allFindings []Finding
 
 	// Run all registered snapshot-based rules.
+	queryRules := map[string]bool{
+		"slow_queries":   true,
+		"high_plan_time": true,
+	}
 	for _, rule := range AllRules {
+		if skipQueryRules && queryRules[rule.Name] {
+			continue
+		}
 		results := rule.Fn(current, previous, a.cfg, a.extras)
 		allFindings = append(allFindings, results...)
 	}
@@ -170,11 +202,13 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	allFindings = append(allFindings, leakFindings...)
 
 	// Query regression (requires historical averages).
-	historicalAvg := a.buildHistoricalAverages(ctx)
-	regressionFindings := ruleQueryRegression(
-		current, previous, historicalAvg, a.cfg,
-	)
-	allFindings = append(allFindings, regressionFindings...)
+	if !skipQueryRules {
+		historicalAvg := a.buildHistoricalAverages(ctx)
+		regressionFindings := ruleQueryRegression(
+			current, previous, historicalAvg, a.cfg,
+		)
+		allFindings = append(allFindings, regressionFindings...)
+	}
 
 	// Seq scan watchdog — skip tables already flagged by missing FK.
 	fkSkipTables := make(map[string]bool)
@@ -234,6 +268,29 @@ func (a *Analyzer) cycle(ctx context.Context) {
 			allFindings = append(allFindings, advFindings...)
 		}
 	}
+
+	// Workload forecasting.
+	if a.forecaster != nil {
+		fcFindings, err := a.forecaster.Forecast(ctx)
+		if err != nil {
+			a.logFn("WARN", "analyzer: forecaster: %v", err)
+		} else {
+			allFindings = append(allFindings, fcFindings...)
+		}
+	}
+
+	// Per-query tuning.
+	if a.tuner != nil {
+		tunerFindings, err := a.tuner.Tune(ctx)
+		if err != nil {
+			a.logFn("WARN", "analyzer", "tuner: %v", err)
+		} else {
+			allFindings = append(allFindings, tunerFindings...)
+		}
+	}
+
+	// Deduplicate conflicting findings across advisors.
+	allFindings = DedupFindings(allFindings, a.logFn)
 
 	// Store findings in memory.
 	a.mu.Lock()

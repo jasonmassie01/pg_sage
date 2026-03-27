@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const maxToolInputLen = 10000
+
 // ---------------------------------------------------------------------------
 // Tool catalogue
 // ---------------------------------------------------------------------------
@@ -55,6 +57,34 @@ var toolCatalogue = []Tool{
 			"required": ["ddl"]
 		}`),
 	},
+	{
+		Name:        "forecast",
+		Description: "Get workload forecasts — disk growth, connection saturation, cache pressure, sequence exhaustion, and more",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"category": {
+					"type": "string",
+					"description": "Filter by forecast category (e.g. forecast_disk_growth, forecast_connection_saturation). Omit for all forecasts."
+				}
+			},
+			"required": []
+		}`),
+	},
+	{
+		Name:        "query_hints",
+		Description: "View active per-query performance hints applied by pg_sage",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"queryid": {
+					"type": "integer",
+					"description": "Filter by specific query ID. Omit for all active hints."
+				}
+			},
+			"required": []
+		}`),
+	},
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +97,8 @@ var toolTimeouts = map[string]time.Duration{
 	"briefing":         120 * time.Second,
 	"suggest_index":    120 * time.Second,
 	"review_migration": 120 * time.Second,
+	"forecast":         30 * time.Second,
+	"query_hints":      30 * time.Second,
 }
 
 func callTool(ctx context.Context, name string, args json.RawMessage) (ToolsCallResult, error) {
@@ -84,6 +116,10 @@ func callTool(ctx context.Context, name string, args json.RawMessage) (ToolsCall
 		return toolSuggestIndex(ctx, args)
 	case "review_migration":
 		return toolReviewMigration(ctx, args)
+	case "forecast":
+		return toolForecast(ctx, args)
+	case "query_hints":
+		return toolQueryHints(ctx, args)
 	default:
 		return ToolsCallResult{
 			Content: []ToolContent{{Type: "text", Text: fmt.Sprintf("unknown tool: %s", name)}},
@@ -105,6 +141,9 @@ func toolDiagnose(ctx context.Context, args json.RawMessage) (ToolsCallResult, e
 	}
 	if p.Question == "" {
 		return toolErr("question is required"), nil
+	}
+	if len(p.Question) > maxToolInputLen {
+		return toolErr("question too long (max 10000 chars)"), nil
 	}
 
 	if !extensionAvailable {
@@ -212,6 +251,9 @@ func toolReviewMigration(ctx context.Context, args json.RawMessage) (ToolsCallRe
 	if p.DDL == "" {
 		return toolErr("ddl is required"), nil
 	}
+	if len(p.DDL) > maxToolInputLen {
+		return toolErr("ddl too long (max 10000 chars)"), nil
+	}
 
 	if extensionAvailable {
 		question := "review this migration: " + p.DDL
@@ -277,6 +319,89 @@ func reviewDDLSafety(ddl string) map[string]any {
 		"warnings": warnings,
 		"note":     "This is a basic static analysis. Install the pg_sage extension for deeper migration review with AI-powered analysis.",
 	}
+}
+
+func toolForecast(ctx context.Context, args json.RawMessage) (ToolsCallResult, error) {
+	var p struct {
+		Category string `json:"category"`
+	}
+	if len(args) > 0 {
+		_ = json.Unmarshal(args, &p)
+	}
+
+	query := `SELECT coalesce(
+		(SELECT json_agg(json_build_object(
+			'category', category,
+			'severity', severity,
+			'title', title,
+			'object_identifier', object_identifier,
+			'detail', detail,
+			'occurrence_count', occurrence_count,
+			'last_seen', last_seen
+		) ORDER BY
+			CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
+			last_seen DESC
+		)
+		FROM sage.findings
+		WHERE status = 'open'
+		  AND category LIKE 'forecast_%'`
+
+	var result string
+	var err error
+
+	if p.Category != "" {
+		query += ` AND category = $1), '[]'::json)::text`
+		err = pool.QueryRow(ctx, query, sanitize(p.Category)).Scan(&result)
+	} else {
+		query += `), '[]'::json)::text`
+		err = pool.QueryRow(ctx, query).Scan(&result)
+	}
+	if err != nil {
+		return toolErr(fmt.Sprintf("forecast query failed: %v", err)), nil
+	}
+	return toolOK(result), nil
+}
+
+func toolQueryHints(
+	ctx context.Context, args json.RawMessage,
+) (ToolsCallResult, error) {
+	var p struct {
+		QueryID *int64 `json:"queryid"`
+	}
+	if len(args) > 0 {
+		_ = json.Unmarshal(args, &p)
+	}
+
+	query := `SELECT coalesce(
+		(SELECT json_agg(json_build_object(
+			'queryid', queryid,
+			'hint_text', hint_text,
+			'symptom', symptom,
+			'status', status,
+			'created_at', created_at,
+			'before_cost', before_cost,
+			'after_cost', after_cost
+		) ORDER BY created_at DESC)
+		FROM sage.query_hints
+		WHERE status = 'active'`
+
+	var result string
+	var err error
+	if p.QueryID != nil {
+		query += ` AND queryid = $1), '[]'::json)::text`
+		err = pool.QueryRow(
+			ctx, query, *p.QueryID,
+		).Scan(&result)
+	} else {
+		query += `), '[]'::json)::text`
+		err = pool.QueryRow(ctx, query).Scan(&result)
+	}
+	if err != nil {
+		return toolErr(
+			fmt.Sprintf("query_hints query failed: %v", err),
+		), nil
+	}
+	return toolOK(result), nil
 }
 
 // ---------------------------------------------------------------------------
