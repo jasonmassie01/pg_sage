@@ -13,12 +13,27 @@ const maxAdvisorPromptChars = 16384
 // stripToJSON extracts a JSON array from an LLM response that may
 // contain thinking tokens or markdown fences.
 func stripToJSON(s string) string {
+	s = strings.TrimSpace(s)
 	first := strings.Index(s, "[")
 	last := strings.LastIndex(s, "]")
 	if first >= 0 && last > first {
 		return s[first : last+1]
 	}
-	return s
+	return stripMarkdownFences(s)
+}
+
+// stripMarkdownFences removes ```json ... ``` wrappers from LLM output.
+func stripMarkdownFences(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "```json") {
+		s = strings.TrimPrefix(s, "```json")
+	} else if strings.HasPrefix(s, "```") {
+		s = strings.TrimPrefix(s, "```")
+	}
+	if strings.HasSuffix(s, "```") {
+		s = strings.TrimSuffix(s, "```")
+	}
+	return strings.TrimSpace(s)
 }
 
 // parseLLMFindings parses the LLM JSON response into findings.
