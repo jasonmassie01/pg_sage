@@ -165,6 +165,7 @@ func (e *Executor) lookupFindingID(
 		 WHERE category = $1
 		   AND object_identifier = $2
 		   AND status = 'open'
+		   AND acted_on_at IS NULL
 		 LIMIT 1`,
 		f.Category, f.ObjectIdentifier,
 	).Scan(&id)
