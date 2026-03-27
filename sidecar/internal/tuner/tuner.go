@@ -196,15 +196,16 @@ func (t *Tuner) buildFinding(
 		ActionRisk:     "safe",
 	}
 	if t.hintPlan.Available && t.hintPlan.HintTableReady {
-		f.RecommendedSQL = buildInsertSQL(
+		f.RecommendedSQL = BuildInsertSQL(
 			c.QueryID, combinedHint,
 		)
-		f.RollbackSQL = buildDeleteSQL(c.QueryID)
+		f.RollbackSQL = BuildDeleteSQL(c.QueryID)
 	}
 	return f
 }
 
-func buildInsertSQL(queryID int64, hint string) string {
+// BuildInsertSQL generates an INSERT for hint_plan.hints.
+func BuildInsertSQL(queryID int64, hint string) string {
 	escapedHint := strings.ReplaceAll(hint, "'", "''")
 	return fmt.Sprintf(
 		"INSERT INTO hint_plan.hints "+
@@ -216,7 +217,8 @@ func buildInsertSQL(queryID int64, hint string) string {
 	)
 }
 
-func buildDeleteSQL(queryID int64) string {
+// BuildDeleteSQL generates a DELETE for hint_plan.hints.
+func BuildDeleteSQL(queryID int64) string {
 	return fmt.Sprintf(
 		"DELETE FROM hint_plan.hints "+
 			"WHERE query_id = %d "+

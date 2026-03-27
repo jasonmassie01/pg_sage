@@ -217,6 +217,12 @@ func (a *Analyzer) cycle(ctx context.Context) {
 		allFindings = append(allFindings, sortFindings...)
 	}
 
+	// Plan regression (compares recent explain plans per query).
+	if !skipQueryRules {
+		planDiffFindings := a.checkPlanRegression(ctx)
+		allFindings = append(allFindings, planDiffFindings...)
+	}
+
 	// Seq scan watchdog — skip tables already flagged by missing FK.
 	fkSkipTables := make(map[string]bool)
 	for _, f := range allFindings {
