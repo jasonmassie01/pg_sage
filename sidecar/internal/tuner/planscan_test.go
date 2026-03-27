@@ -295,6 +295,152 @@ func TestScanPlan_EmptyPlan(t *testing.T) {
 	}
 }
 
+// TestScanPlan_CorrelatedSubqueryDeepNesting verifies that walkNodeWithParent
+// visits inner nodes at depth 3+ and detects symptoms there. The fixture
+// models a correlated subquery: Nested Loop drives an inner Sort (disk spill)
+// over a Hash Join over two Seq Scans.
+func TestScanPlan_CorrelatedSubqueryDeepNesting(t *testing.T) {
+	plan := `[{"Plan": {
+		"Node Type": "Nested Loop",
+		"Join Type": "Inner",
+		"Plan Rows": 5,
+		"Actual Rows": 75000,
+		"Actual Loops": 1,
+		"Plans": [
+			{
+				"Node Type": "Index Scan",
+				"Plan Rows": 500,
+				"Relation Name": "customers",
+				"Schema": "public",
+				"Alias": "c",
+				"Index Name": "customers_pkey",
+				"Workers Planned": 0
+			},
+			{
+				"Node Type": "Sort",
+				"Plan Rows": 15000,
+				"Sort Method": "external merge",
+				"Sort Space Used": 32768,
+				"Sort Space Type": "Disk",
+				"Plans": [
+					{
+						"Node Type": "Hash Join",
+						"Join Type": "Inner",
+						"Plan Rows": 15000,
+						"Hash Batches": 32,
+						"Original Hash Batches": 4,
+						"Peak Memory Usage": 16384,
+						"Plans": [
+							{
+								"Node Type": "Seq Scan",
+								"Plan Rows": 200000,
+								"Relation Name": "orders",
+								"Schema": "public",
+								"Alias": "o",
+								"Filter": "(o.customer_id = c.id)",
+								"Rows Removed by Filter": 185000
+							},
+							{
+								"Node Type": "Hash",
+								"Plan Rows": 50000,
+								"Plans": [
+									{
+										"Node Type": "Seq Scan",
+										"Plan Rows": 50000,
+										"Relation Name": "line_items",
+										"Schema": "public",
+										"Alias": "li"
+									}
+								]
+							}
+						]
+					}
+				]
+			}
+		]
+	}}]`
+
+	syms, err := ScanPlan([]byte(plan))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Collect symptom kinds with their depths for verification.
+	type found struct {
+		kind  SymptomKind
+		depth int
+	}
+	var hits []found
+	for _, s := range syms {
+		hits = append(hits, found{s.Kind, s.NodeDepth})
+	}
+
+	// Helper: assert a symptom exists at a specific depth.
+	assertSymptom := func(kind SymptomKind, wantDepth int) {
+		t.Helper()
+		for _, h := range hits {
+			if h.kind == kind && h.depth == wantDepth {
+				return
+			}
+		}
+		t.Errorf("symptom %q at depth %d not found; got %v",
+			kind, wantDepth, hits)
+	}
+
+	// bad_nested_loop at root (depth 0): planned 5, actual 75000
+	assertSymptom(SymptomBadNestedLoop, 0)
+
+	// disk_sort at depth 1 (inner side of Nested Loop)
+	assertSymptom(SymptomDiskSort, 1)
+
+	// hash_spill at depth 2 (Hash Join under Sort)
+	assertSymptom(SymptomHashSpill, 2)
+
+	// seq_scan_with_index on "orders" at depth 3
+	assertSymptom(SymptomSeqScanWithIndex, 3)
+
+	// seq_scan_with_index on "line_items" at depth 4
+	// (Hash is depth 3, Seq Scan under it is depth 4)
+	assertSymptom(SymptomSeqScanWithIndex, 4)
+
+	// Verify detail values on specific symptoms.
+	for _, s := range syms {
+		switch {
+		case s.Kind == SymptomDiskSort && s.NodeDepth == 1:
+			kb, ok := s.Detail["sort_space_kb"].(int64)
+			if !ok || kb != 32768 {
+				t.Errorf("disk sort space = %v, want 32768", kb)
+			}
+		case s.Kind == SymptomHashSpill && s.NodeDepth == 2:
+			b, _ := s.Detail["hash_batches"].(int64)
+			if b != 32 {
+				t.Errorf("hash_batches = %d, want 32", b)
+			}
+			pk, _ := s.Detail["peak_memory_kb"].(int64)
+			if pk != 16384 {
+				t.Errorf("peak_memory_kb = %d, want 16384", pk)
+			}
+		case s.Kind == SymptomBadNestedLoop && s.NodeDepth == 0:
+			ar, _ := s.Detail["actual_rows"].(int64)
+			if ar != 75000 {
+				t.Errorf("actual_rows = %d, want 75000", ar)
+			}
+			pr, _ := s.Detail["plan_rows"].(int64)
+			if pr != 5 {
+				t.Errorf("plan_rows = %d, want 5", pr)
+			}
+		}
+	}
+
+	// Sanity: we should have at least 7 symptoms total:
+	// 1 bad_nested_loop + 1 disk_sort + 1 hash_spill +
+	// 2 seq_scan + 2+ parallel_disabled (for seq scans without
+	// WorkersPlanned).
+	if len(syms) < 7 {
+		t.Errorf("expected >= 7 symptoms, got %d", len(syms))
+	}
+}
+
 func TestScanPlan_BareObjectFormat(t *testing.T) {
 	plan := `{"Plan": {
 		"Node Type": "Sort",

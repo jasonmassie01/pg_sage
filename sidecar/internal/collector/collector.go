@@ -334,6 +334,7 @@ func (c *Collector) collectSystem(ctx context.Context) (SystemStats, error) {
 		&s.ActiveBackends, &s.IdleInTransaction,
 		&s.TotalBackends, &s.MaxConnections,
 		&s.CacheHitRatio, &s.Deadlocks,
+		&s.BlkReadTime, &s.BlkWriteTime,
 		&s.TotalCheckpoints, &s.IsReplica,
 		&s.DBSizeBytes,
 	)
