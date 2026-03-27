@@ -236,3 +236,89 @@ func TestCoalesceInSQL(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 12. detectStatsReset
+// ---------------------------------------------------------------------------
+
+func TestDetectStatsReset(t *testing.T) {
+	t.Run("no previous returns false", func(t *testing.T) {
+		current := []QueryStats{{QueryID: 1, Calls: 5}}
+		if detectStatsReset(current, nil) {
+			t.Error("expected false when previous is empty")
+		}
+	})
+
+	t.Run("calls increased returns false", func(t *testing.T) {
+		prev := []QueryStats{
+			{QueryID: 1, Calls: 100},
+			{QueryID: 2, Calls: 200},
+		}
+		cur := []QueryStats{
+			{QueryID: 1, Calls: 150},
+			{QueryID: 2, Calls: 250},
+		}
+		if detectStatsReset(cur, prev) {
+			t.Error("expected false when all calls increased")
+		}
+	})
+
+	t.Run("majority decreased returns true", func(t *testing.T) {
+		prev := []QueryStats{
+			{QueryID: 1, Calls: 1000},
+			{QueryID: 2, Calls: 500},
+		}
+		cur := []QueryStats{
+			{QueryID: 1, Calls: 5},
+			{QueryID: 2, Calls: 3},
+		}
+		if !detectStatsReset(cur, prev) {
+			t.Error("expected true when >50% calls decreased")
+		}
+	})
+
+	t.Run("below threshold returns false", func(t *testing.T) {
+		prev := []QueryStats{
+			{QueryID: 1, Calls: 100},
+			{QueryID: 2, Calls: 200},
+			{QueryID: 3, Calls: 300},
+			{QueryID: 4, Calls: 400},
+		}
+		// Only 1 of 4 decreased (25% < 50%).
+		cur := []QueryStats{
+			{QueryID: 1, Calls: 50},
+			{QueryID: 2, Calls: 250},
+			{QueryID: 3, Calls: 350},
+			{QueryID: 4, Calls: 450},
+		}
+		if detectStatsReset(cur, prev) {
+			t.Error("expected false when <50% decreased")
+		}
+	})
+
+	t.Run("no overlap returns false", func(t *testing.T) {
+		prev := []QueryStats{{QueryID: 1, Calls: 100}}
+		cur := []QueryStats{{QueryID: 99, Calls: 5}}
+		if detectStatsReset(cur, prev) {
+			t.Error("expected false when no overlapping queries")
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// 13. Query SQL uses format placeholder for LIMIT
+// ---------------------------------------------------------------------------
+
+func TestQueryStatsSQL_HasLimitPlaceholder(t *testing.T) {
+	variants := map[string]string{
+		"queryStatsSQL":                   queryStatsSQL,
+		"queryStatsWithWALSQL":            queryStatsWithWALSQL,
+		"queryStatsWithPlanTimeSQL":        queryStatsWithPlanTimeSQL,
+		"queryStatsWithWALAndPlanTimeSQL": queryStatsWithWALAndPlanTimeSQL,
+	}
+	for name, sql := range variants {
+		if !strings.Contains(sql, "LIMIT %d") {
+			t.Errorf("%s must contain 'LIMIT %%d' placeholder", name)
+		}
+	}
+}

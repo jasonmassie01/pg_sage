@@ -44,6 +44,10 @@ var AllRules = []struct {
 	// System rules
 	{"cache_hit_ratio", ruleCacheHitRatio},
 	{"checkpoint_pressure", ruleCheckpointPressure},
+	{"stat_statements_capacity", ruleStatStatementsCapacity},
+
+	// Total-time rules
+	{"high_total_time", ruleTotalTimeHeavy},
 
 	// Sequence rules
 	{"sequence_exhaustion", ruleSequenceExhaustion},

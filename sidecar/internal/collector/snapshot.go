@@ -16,6 +16,7 @@ type Snapshot struct {
 	IO          []IOStats        `json:"io,omitempty"`
 	Partitions  []PartitionInfo  `json:"partitions,omitempty"`
 	ConfigData  *ConfigSnapshot  `json:"config_data,omitempty"`
+	StatsReset  bool             `json:"stats_reset,omitempty"`
 }
 
 // QueryStats mirrors pg_stat_statements columns.
@@ -69,6 +70,7 @@ type TableStats struct {
 	TotalBytes       int64      `json:"total_bytes"`
 	TableBytes       int64      `json:"table_bytes"`
 	IndexBytes       int64      `json:"index_bytes"`
+	Relpersistence   string     `json:"relpersistence"`
 }
 
 // IndexStats mirrors pg_stat_user_indexes + pg_indexes metadata.
@@ -106,6 +108,7 @@ type SystemStats struct {
 	TotalCheckpoints  int64   `json:"total_checkpoints"`
 	IsReplica         bool    `json:"is_replica"`
 	DBSizeBytes       int64   `json:"db_size_bytes"`
+	StatStatementsMax int     `json:"stat_statements_max"`
 }
 
 // LockInfo describes a single lock from pg_locks + pg_stat_activity.

@@ -2,11 +2,10 @@ package collector
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -160,22 +159,40 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 		}
 	}
 
+	// Collect pg_stat_statements.max for capacity monitoring.
+	snap.System.StatStatementsMax = c.collectStatStatementsMax(ctx)
+
+	// Detect pg_stat_statements reset by comparing with previous.
+	c.mu.RLock()
+	prev := c.latest
+	c.mu.RUnlock()
+	if prev != nil && detectStatsReset(snap.Queries, prev.Queries) {
+		snap.StatsReset = true
+		c.logFn("WARN", "pg_stat_statements reset detected")
+	}
+
 	return snap, nil
 }
 
 func (c *Collector) collectQueries(ctx context.Context) ([]QueryStats, error) {
-	sql := queryStatsSQL
+	tpl := queryStatsSQL
 	hasWAL := c.cfg.HasWALColumns
 	hasPlan := c.cfg.HasPlanTimeColumns
 
 	switch {
 	case hasWAL && hasPlan:
-		sql = queryStatsWithWALAndPlanTimeSQL
+		tpl = queryStatsWithWALAndPlanTimeSQL
 	case hasWAL:
-		sql = queryStatsWithWALSQL
+		tpl = queryStatsWithWALSQL
 	case hasPlan:
-		sql = queryStatsWithPlanTimeSQL
+		tpl = queryStatsWithPlanTimeSQL
 	}
+
+	limit := c.cfg.Collector.MaxQueries
+	if limit <= 0 {
+		limit = 500
+	}
+	sql := fmt.Sprintf(tpl, limit)
 
 	rows, err := c.pool.Query(ctx, sql)
 	if err != nil {
@@ -233,6 +250,7 @@ func (c *Collector) collectTables(ctx context.Context) ([]TableStats, error) {
 				&t.VacuumCount, &t.AutovacuumCount,
 				&t.AnalyzeCount, &t.AutoanalyzeCount,
 				&t.TotalBytes, &t.TableBytes, &t.IndexBytes,
+				&t.Relpersistence,
 			); err != nil {
 				rows.Close()
 				return nil, err
@@ -476,41 +494,3 @@ func (c *Collector) collectPartitions(
 	return result, rows.Err()
 }
 
-// persist inserts the snapshot into sage.snapshots (one row per category).
-func (c *Collector) persist(ctx context.Context, snap *Snapshot) error {
-	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	categories := map[string]any{
-		"queries":      snap.Queries,
-		"tables":       snap.Tables,
-		"indexes":      snap.Indexes,
-		"foreign_keys": snap.ForeignKeys,
-		"system":       snap.System,
-		"locks":        snap.Locks,
-		"sequences":    snap.Sequences,
-		"replication":  snap.Replication,
-		"io":           snap.IO,
-		"partitions":   snap.Partitions,
-		"config_data":  snap.ConfigData,
-	}
-
-	const insertSQL = `
-INSERT INTO sage.snapshots (collected_at, category, data)
-VALUES ($1, $2, $3)`
-
-	for cat, data := range categories {
-		j, err := json.Marshal(data)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, insertSQL, snap.CollectedAt, cat, j); err != nil {
-			return err
-		}
-	}
-
-	return tx.Commit(ctx)
-}
