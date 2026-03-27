@@ -63,6 +63,8 @@ func TestExpectedTables_AllPresent(t *testing.T) {
 		"briefings",
 		"config",
 		"mcp_log",
+		"alert_log",
+		"query_hints",
 	}
 
 	if len(expectedTables) != len(want) {

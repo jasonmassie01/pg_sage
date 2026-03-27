@@ -1,9 +1,9 @@
-# pg_sage Standalone Sidecar Configuration — v0.7.0
+# pg_sage Sidecar Configuration — v0.8.1
 # Copy to config.yaml and edit. All values shown are defaults.
 # Precedence: CLI flags > environment variables > this file > built-in defaults.
 # Environment variable expansion: use ${VAR_NAME} syntax in values.
 
-mode: standalone  # "extension" (read from C extension) or "standalone" (full pipeline)
+mode: standalone  # "standalone" (full pipeline) or "fleet" (multi-DB)
 
 postgres:
   host: localhost
@@ -70,11 +70,77 @@ llm:
     max_include_columns: 3      # Max INCLUDE columns per recommendation
     over_indexed_ratio_pct: 150 # Index bytes > 150% of table bytes = over-indexed
     write_heavy_ratio_pct: 70   # Skip table if >70% of ops are writes
+  # optimizer_llm:              # Dedicated LLM for optimizer (inherits from llm.* if empty)
+  #   enabled: false
+  #   endpoint: ""
+  #   api_key: ""
+  #   model: ""
+  #   max_output_tokens: 8192
+  #   fallback_to_general: true
+
+advisor:
+  enabled: false
+  interval_seconds: 3600        # How often to run advisor checks
+  vacuum_enabled: true
+  wal_enabled: true
+  connection_enabled: true
+  memory_enabled: true
+  rewrite_enabled: true
+  bloat_enabled: true
 
 briefing:
   schedule: "0 6 * * *"
   channels: ["stdout"]          # stdout, slack
   slack_webhook_url: ""
+
+alerting:
+  enabled: false
+  check_interval_seconds: 60    # How often to check for new findings
+  cooldown_minutes: 15          # Min time between repeated alerts
+  quiet_hours_start: ""         # "22:00" — empty = disabled
+  quiet_hours_end: ""           # "07:00"
+  timezone: "UTC"
+  slack_webhook_url: ""
+  pagerduty_routing_key: ""
+  routes:
+    - severity: critical
+      channels: ["slack", "pagerduty"]
+    - severity: warning
+      channels: ["slack"]
+    # info severity: not routed by default
+  # webhooks:
+  #   - name: myapp
+  #     url: https://hooks.example.com/pg-sage
+  #     headers:
+  #       Authorization: "Bearer ${WEBHOOK_TOKEN}"
+
+auto_explain:
+  enabled: true               # Detect and use if available
+  log_min_duration_ms: 1000   # Minimum query duration to capture plans
+  collect_interval_seconds: 300
+  max_plans_per_cycle: 100
+  prefer_session_load: true   # Use LOAD 'auto_explain' per-session
+
+forecaster:
+  enabled: true
+  lookback_days: 30             # Days of history to analyze
+  disk_warn_growth_gb_day: 5    # Warn if DB growing faster than this
+  connection_warn_pct: 80       # Warn when peak connections > this % of max
+  cache_warn_threshold: 0.95    # Warn when cache hit ratio trends below this
+  sequence_warn_days: 90        # Warn when sequence exhausts in < this many days
+  sequence_critical_days: 30    # Critical when sequence exhausts in < this many days
+
+# Per-query tuner: non-invasive query optimization via pg_hint_plan.
+# Detects plan-level symptoms (disk sorts, hash spills, bad joins) and
+# applies per-query GUC overrides without modifying application queries.
+tuner:
+  enabled: true
+  work_mem_max_mb: 512           # max per-query work_mem hint
+  plan_time_ratio: 3.0           # plan/exec ratio threshold for generic plan
+  nested_loop_row_threshold: 10000
+  parallel_min_table_rows: 1000000
+  min_query_calls: 100           # ignore rarely-called queries
+  verify_after_apply: true       # re-explain after hint to verify improvement
 
 retention:
   snapshots_days: 90
@@ -89,6 +155,9 @@ mcp:
 prometheus:
   listen_addr: "0.0.0.0:9187"
 
+api:
+  listen_addr: "0.0.0.0:8080"  # REST API + React dashboard
+
 # Hot-reloadable fields (change without restart):
 #   collector.interval_seconds, collector.batch_size
 #   analyzer.* (all thresholds)
@@ -96,6 +165,10 @@ prometheus:
 #   trust.level, trust.tier3_safe, trust.tier3_moderate, trust.maintenance_window
 #   llm.* (all settings)
 #   briefing.schedule
+#   alerting.* (all settings)
+#   auto_explain.log_min_duration_ms, auto_explain.max_plans_per_cycle
+#   forecaster.* (all settings)
+#   tuner.* (all settings)
 #   retention.* (all settings)
 #
 # Non-hot-reloadable (require restart):

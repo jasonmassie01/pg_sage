@@ -101,6 +101,9 @@ func (w *Watcher) reload() {
 	w.mu.Lock()
 	old := w.current
 
+	// Warn about non-hot-reloadable fields that changed.
+	warnNonReloadable(old, &fresh)
+
 	// Apply only hot-reloadable fields.
 	changed := applyHotReload(old, &fresh)
 	w.current = old
@@ -111,6 +114,33 @@ func (w *Watcher) reload() {
 		if w.onChange != nil {
 			w.onChange(old)
 		}
+	}
+}
+
+// warnNonReloadable logs warnings for fields that changed but require restart.
+func warnNonReloadable(current, fresh *Config) {
+	if fresh.Postgres.Host != "" && fresh.Postgres.Host != current.Postgres.Host {
+		log.Printf("[WARN] [config-watcher] postgres.host changed — restart required")
+	}
+	if fresh.Postgres.Port != 0 && fresh.Postgres.Port != current.Postgres.Port {
+		log.Printf("[WARN] [config-watcher] postgres.port changed — restart required")
+	}
+	if fresh.Postgres.Database != "" &&
+		fresh.Postgres.Database != current.Postgres.Database {
+		log.Printf("[WARN] [config-watcher] postgres.database changed — restart required")
+	}
+	if fresh.MCP.ListenAddr != "" &&
+		fresh.MCP.ListenAddr != current.MCP.ListenAddr {
+		log.Printf("[WARN] [config-watcher] mcp.listen_addr changed — restart required")
+	}
+	if fresh.Prometheus.ListenAddr != "" &&
+		fresh.Prometheus.ListenAddr != current.Prometheus.ListenAddr {
+		log.Printf(
+			"[WARN] [config-watcher] prometheus.listen_addr changed — restart required",
+		)
+	}
+	if fresh.Mode != "" && fresh.Mode != current.Mode {
+		log.Printf("[WARN] [config-watcher] mode changed — restart required")
 	}
 }
 
@@ -180,6 +210,95 @@ func applyHotReload(target, fresh *Config) []string {
 		fresh.Retention.SnapshotsDays != target.Retention.SnapshotsDays {
 		target.Retention.SnapshotsDays = fresh.Retention.SnapshotsDays
 		changed = append(changed, "retention.snapshots_days")
+	}
+
+	// Alerting fields.
+	if fresh.Alerting.CooldownMinutes != 0 &&
+		fresh.Alerting.CooldownMinutes != target.Alerting.CooldownMinutes {
+		target.Alerting.CooldownMinutes = fresh.Alerting.CooldownMinutes
+		changed = append(changed, "alerting.cooldown_minutes")
+	}
+	if fresh.Alerting.QuietHoursStart != target.Alerting.QuietHoursStart {
+		target.Alerting.QuietHoursStart = fresh.Alerting.QuietHoursStart
+		changed = append(changed, "alerting.quiet_hours_start")
+	}
+	if fresh.Alerting.QuietHoursEnd != target.Alerting.QuietHoursEnd {
+		target.Alerting.QuietHoursEnd = fresh.Alerting.QuietHoursEnd
+		changed = append(changed, "alerting.quiet_hours_end")
+	}
+	if fresh.Alerting.CheckIntervalSeconds != 0 &&
+		fresh.Alerting.CheckIntervalSeconds !=
+			target.Alerting.CheckIntervalSeconds {
+		target.Alerting.CheckIntervalSeconds =
+			fresh.Alerting.CheckIntervalSeconds
+		changed = append(changed, "alerting.check_interval_seconds")
+	}
+	if fresh.Alerting.Enabled != target.Alerting.Enabled {
+		target.Alerting.Enabled = fresh.Alerting.Enabled
+		changed = append(changed, "alerting.enabled")
+	}
+	target.Alerting.Routes = fresh.Alerting.Routes
+	target.Alerting.Webhooks = fresh.Alerting.Webhooks
+
+	// Tuner fields.
+	if fresh.Tuner.Enabled != target.Tuner.Enabled {
+		target.Tuner.Enabled = fresh.Tuner.Enabled
+		changed = append(changed, "tuner.enabled")
+	}
+	if fresh.Tuner.WorkMemMaxMB != 0 &&
+		fresh.Tuner.WorkMemMaxMB != target.Tuner.WorkMemMaxMB {
+		target.Tuner.WorkMemMaxMB = fresh.Tuner.WorkMemMaxMB
+		changed = append(changed, "tuner.work_mem_max_mb")
+	}
+	if fresh.Tuner.PlanTimeRatio != 0 &&
+		fresh.Tuner.PlanTimeRatio != target.Tuner.PlanTimeRatio {
+		target.Tuner.PlanTimeRatio = fresh.Tuner.PlanTimeRatio
+		changed = append(changed, "tuner.plan_time_ratio")
+	}
+	if fresh.Tuner.NestedLoopRowThreshold != 0 &&
+		fresh.Tuner.NestedLoopRowThreshold !=
+			target.Tuner.NestedLoopRowThreshold {
+		target.Tuner.NestedLoopRowThreshold =
+			fresh.Tuner.NestedLoopRowThreshold
+		changed = append(
+			changed, "tuner.nested_loop_row_threshold",
+		)
+	}
+	if fresh.Tuner.ParallelMinTableRows != 0 &&
+		fresh.Tuner.ParallelMinTableRows !=
+			target.Tuner.ParallelMinTableRows {
+		target.Tuner.ParallelMinTableRows =
+			fresh.Tuner.ParallelMinTableRows
+		changed = append(
+			changed, "tuner.parallel_min_table_rows",
+		)
+	}
+	if fresh.Tuner.MinQueryCalls != 0 &&
+		fresh.Tuner.MinQueryCalls != target.Tuner.MinQueryCalls {
+		target.Tuner.MinQueryCalls = fresh.Tuner.MinQueryCalls
+		changed = append(changed, "tuner.min_query_calls")
+	}
+	if fresh.Tuner.VerifyAfterApply !=
+		target.Tuner.VerifyAfterApply {
+		target.Tuner.VerifyAfterApply =
+			fresh.Tuner.VerifyAfterApply
+		changed = append(changed, "tuner.verify_after_apply")
+	}
+
+	// auto_explain fields.
+	if fresh.AutoExplain.LogMinDurationMs != 0 &&
+		fresh.AutoExplain.LogMinDurationMs !=
+			target.AutoExplain.LogMinDurationMs {
+		target.AutoExplain.LogMinDurationMs =
+			fresh.AutoExplain.LogMinDurationMs
+		changed = append(changed, "auto_explain.log_min_duration_ms")
+	}
+	if fresh.AutoExplain.MaxPlansPerCycle != 0 &&
+		fresh.AutoExplain.MaxPlansPerCycle !=
+			target.AutoExplain.MaxPlansPerCycle {
+		target.AutoExplain.MaxPlansPerCycle =
+			fresh.AutoExplain.MaxPlansPerCycle
+		changed = append(changed, "auto_explain.max_plans_per_cycle")
 	}
 
 	return changed

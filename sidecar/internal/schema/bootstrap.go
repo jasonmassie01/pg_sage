@@ -20,6 +20,8 @@ var expectedTables = []struct {
 	{"briefings", ddlBriefings},
 	{"config", ddlConfig},
 	{"mcp_log", ddlMCPLog},
+	{"alert_log", ddlAlertLog},
+	{"query_hints", ddlQueryHints},
 }
 
 // Bootstrap acquires an advisory lock, then ensures the sage schema and
@@ -210,7 +212,8 @@ func ensureTablesExist(ctx context.Context, pool *pgxpool.Pool) error {
 const fullSchemaDDL = `
 CREATE SCHEMA sage;
 ` + ddlActionLog + ddlSnapshots + ddlFindings +
-	ddlExplainCache + ddlBriefings + ddlConfig + ddlMCPLog
+	ddlExplainCache + ddlBriefings + ddlConfig + ddlMCPLog +
+	ddlAlertLog + ddlQueryHints + ddlExplainSourceIdx
 
 const ddlActionLog = `
 CREATE TABLE IF NOT EXISTS sage.action_log (
@@ -334,4 +337,44 @@ CREATE TABLE IF NOT EXISTS sage.mcp_log (
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_log_client
     ON sage.mcp_log (client_ip, ts DESC);
+`
+
+const ddlAlertLog = `
+CREATE TABLE IF NOT EXISTS sage.alert_log (
+    id            bigserial PRIMARY KEY,
+    sent_at       timestamptz NOT NULL DEFAULT now(),
+    finding_id    bigint REFERENCES sage.findings(id),
+    severity      text NOT NULL,
+    channel       text NOT NULL,
+    dedup_key     text NOT NULL,
+    status        text NOT NULL DEFAULT 'sent',
+    error_message text
+);
+CREATE INDEX IF NOT EXISTS idx_alert_log_dedup
+    ON sage.alert_log (dedup_key, sent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_log_finding
+    ON sage.alert_log (finding_id);
+`
+
+const ddlQueryHints = `
+CREATE TABLE IF NOT EXISTS sage.query_hints (
+    id             bigserial PRIMARY KEY,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    queryid        bigint NOT NULL,
+    hint_plan_id   bigint,
+    hint_text      text NOT NULL,
+    symptom        text NOT NULL,
+    before_cost    float,
+    after_cost     float,
+    status         text NOT NULL DEFAULT 'active',
+    verified_at    timestamptz,
+    rolled_back_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS idx_query_hints_queryid
+    ON sage.query_hints (queryid) WHERE status = 'active';
+`
+
+const ddlExplainSourceIdx = `
+CREATE INDEX IF NOT EXISTS idx_explain_source
+    ON sage.explain_cache (source, queryid, captured_at DESC);
 `

@@ -22,8 +22,12 @@ type Config struct {
 	Trust      TrustConfig      `yaml:"trust"`
 	LLM        LLMConfig        `yaml:"llm"`
 	Advisor    AdvisorConfig    `yaml:"advisor"`
-	Briefing   BriefingConfig   `yaml:"briefing"`
-	Retention  RetentionConfig  `yaml:"retention"`
+	Briefing    BriefingConfig    `yaml:"briefing"`
+	Alerting    AlertingConfig   `yaml:"alerting"`
+	AutoExplain AutoExplainConfig `yaml:"auto_explain"`
+	Forecaster  ForecasterConfig `yaml:"forecaster"`
+	Tuner       TunerConfig      `yaml:"tuner"`
+	Retention   RetentionConfig  `yaml:"retention"`
 	MCP        MCPConfig        `yaml:"mcp"`
 	Prometheus PrometheusConfig `yaml:"prometheus"`
 
@@ -58,6 +62,7 @@ type PostgresConfig struct {
 type CollectorConfig struct {
 	IntervalSeconds int `yaml:"interval_seconds"`
 	BatchSize       int `yaml:"batch_size"`
+	MaxQueries      int `yaml:"max_queries"`
 }
 
 type AnalyzerConfig struct {
@@ -84,6 +89,7 @@ type SafetyConfig struct {
 	DiskPressureThresholdPct int `yaml:"disk_pressure_threshold_pct"`
 	BackoffConsecutiveSkips   int `yaml:"backoff_consecutive_skips"`
 	DormantIntervalSeconds   int `yaml:"dormant_interval_seconds"`
+	LockTimeoutMs            int `yaml:"lock_timeout_ms"`
 }
 
 type TrustConfig struct {
@@ -95,7 +101,8 @@ type TrustConfig struct {
 	Tier3HighRisk        bool   `yaml:"tier3_high_risk"`
 	RollbackThresholdPct int    `yaml:"rollback_threshold_pct"`
 	RollbackWindowMinutes int   `yaml:"rollback_window_minutes"`
-	RollbackCooldownDays int    `yaml:"rollback_cooldown_days"`
+	RollbackCooldownDays  int `yaml:"rollback_cooldown_days"`
+	CascadeCooldownCycles int `yaml:"cascade_cooldown_cycles"`
 }
 
 type LLMConfig struct {
@@ -167,6 +174,58 @@ type BriefingConfig struct {
 	SlackWebhookURL string   `yaml:"slack_webhook_url"`
 }
 
+type AlertingConfig struct {
+	Enabled              bool            `yaml:"enabled"`
+	CheckIntervalSeconds int             `yaml:"check_interval_seconds"`
+	CooldownMinutes      int             `yaml:"cooldown_minutes"`
+	QuietHoursStart      string          `yaml:"quiet_hours_start"`
+	QuietHoursEnd        string          `yaml:"quiet_hours_end"`
+	Timezone             string          `yaml:"timezone"`
+	SlackWebhookURL      string          `yaml:"slack_webhook_url"`
+	PagerDutyRoutingKey  string          `yaml:"pagerduty_routing_key"`
+	Routes               []AlertRoute    `yaml:"routes"`
+	Webhooks             []WebhookConfig `yaml:"webhooks"`
+}
+
+type AlertRoute struct {
+	Severity string   `yaml:"severity"`
+	Channels []string `yaml:"channels"`
+}
+
+type WebhookConfig struct {
+	Name    string            `yaml:"name"`
+	URL     string            `yaml:"url"`
+	Headers map[string]string `yaml:"headers"`
+}
+
+type AutoExplainConfig struct {
+	Enabled                bool `yaml:"enabled"`
+	LogMinDurationMs       int  `yaml:"log_min_duration_ms"`
+	CollectIntervalSeconds int  `yaml:"collect_interval_seconds"`
+	MaxPlansPerCycle       int  `yaml:"max_plans_per_cycle"`
+	PreferSessionLoad      bool `yaml:"prefer_session_load"`
+}
+
+type ForecasterConfig struct {
+	Enabled              bool    `yaml:"enabled"`
+	LookbackDays         int     `yaml:"lookback_days"`
+	DiskWarnGrowthGBDay  float64 `yaml:"disk_warn_growth_gb_day"`
+	ConnectionWarnPct    float64 `yaml:"connection_warn_pct"`
+	CacheWarnThreshold   float64 `yaml:"cache_warn_threshold"`
+	SequenceWarnDays     int     `yaml:"sequence_warn_days"`
+	SequenceCriticalDays int     `yaml:"sequence_critical_days"`
+}
+
+type TunerConfig struct {
+	Enabled                bool    `yaml:"enabled"`
+	WorkMemMaxMB           int     `yaml:"work_mem_max_mb"`
+	PlanTimeRatio          float64 `yaml:"plan_time_ratio"`
+	NestedLoopRowThreshold int64   `yaml:"nested_loop_row_threshold"`
+	ParallelMinTableRows   int64   `yaml:"parallel_min_table_rows"`
+	MinQueryCalls          int     `yaml:"min_query_calls"`
+	VerifyAfterApply       bool    `yaml:"verify_after_apply"`
+}
+
 type RetentionConfig struct {
 	SnapshotsDays int `yaml:"snapshots_days"`
 	FindingsDays  int `yaml:"findings_days"`
@@ -200,12 +259,27 @@ func (c *SafetyConfig) DormantInterval() time.Duration {
 	return time.Duration(c.DormantIntervalSeconds) * time.Second
 }
 
+func (c *AlertingConfig) CheckInterval() time.Duration {
+	return time.Duration(c.CheckIntervalSeconds) * time.Second
+}
+
+func (c *AutoExplainConfig) CollectInterval() time.Duration {
+	return time.Duration(c.CollectIntervalSeconds) * time.Second
+}
+
 func (c *SafetyConfig) QueryTimeout() time.Duration {
 	return time.Duration(c.QueryTimeoutMs) * time.Millisecond
 }
 
 func (c *SafetyConfig) DDLTimeout() time.Duration {
 	return time.Duration(c.DDLTimeoutSeconds) * time.Second
+}
+
+func (c *SafetyConfig) LockTimeout() int {
+	if c.LockTimeoutMs <= 0 {
+		return DefaultLockTimeoutMs
+	}
+	return c.LockTimeoutMs
 }
 
 // DSN builds a libpq connection string from individual fields.
@@ -403,6 +477,7 @@ func newDefaults() *Config {
 		Collector: CollectorConfig{
 			IntervalSeconds: int(DefaultCollectorInterval / time.Second),
 			BatchSize:       DefaultCollectorBatchSize,
+			MaxQueries:      DefaultCollectorMaxQueries,
 		},
 		Analyzer: AnalyzerConfig{
 			IntervalSeconds:              int(DefaultAnalyzerInterval / time.Second),
@@ -427,6 +502,7 @@ func newDefaults() *Config {
 			DiskPressureThresholdPct: DefaultDiskPressureThresholdPct,
 			BackoffConsecutiveSkips:  DefaultBackoffConsecutiveSkips,
 			DormantIntervalSeconds:   DefaultDormantIntervalSeconds,
+			LockTimeoutMs:            DefaultLockTimeoutMs,
 		},
 		Trust: TrustConfig{
 			Level:                 DefaultTrustLevel,
@@ -436,6 +512,7 @@ func newDefaults() *Config {
 			RollbackThresholdPct:  DefaultRollbackThresholdPct,
 			RollbackWindowMinutes: DefaultRollbackWindowMinutes,
 			RollbackCooldownDays:  DefaultRollbackCooldownDays,
+			CascadeCooldownCycles: DefaultCascadeCooldownCycles,
 		},
 		LLM: LLMConfig{
 			Enabled:            DefaultLLMEnabled,
@@ -487,6 +564,37 @@ func newDefaults() *Config {
 		Briefing: BriefingConfig{
 			Schedule: DefaultBriefingSchedule,
 			Channels: []string{"stdout"},
+		},
+		Alerting: AlertingConfig{
+			Enabled:              false,
+			CheckIntervalSeconds: DefaultAlertingCheckInterval,
+			CooldownMinutes:      DefaultAlertingCooldown,
+			Timezone:             "UTC",
+		},
+		AutoExplain: AutoExplainConfig{
+			Enabled:                true,
+			LogMinDurationMs:       DefaultAutoExplainLogMinDuration,
+			CollectIntervalSeconds: DefaultAutoExplainCollectInterval,
+			MaxPlansPerCycle:       DefaultAutoExplainMaxPlansPerCycle,
+			PreferSessionLoad:      true,
+		},
+		Forecaster: ForecasterConfig{
+			Enabled:              true,
+			LookbackDays:         DefaultForecasterLookbackDays,
+			DiskWarnGrowthGBDay:  DefaultForecasterDiskWarnGBDay,
+			ConnectionWarnPct:    DefaultForecasterConnectionPct,
+			CacheWarnThreshold:   DefaultForecasterCacheThreshold,
+			SequenceWarnDays:     DefaultForecasterSeqWarnDays,
+			SequenceCriticalDays: DefaultForecasterSeqCritDays,
+		},
+		Tuner: TunerConfig{
+			Enabled:                true,
+			WorkMemMaxMB:           DefaultTunerWorkMemMaxMB,
+			PlanTimeRatio:          DefaultTunerPlanTimeRatio,
+			NestedLoopRowThreshold: DefaultTunerNestedLoopRowThresh,
+			ParallelMinTableRows:   DefaultTunerParallelMinRows,
+			MinQueryCalls:          DefaultTunerMinQueryCalls,
+			VerifyAfterApply:       true,
 		},
 		Retention: RetentionConfig{
 			SnapshotsDays: DefaultRetentionSnapshotsDays,
@@ -615,6 +723,11 @@ func (c *Config) HotReloadable() []string {
 		"trust.maintenance_window",
 		"llm.*",
 		"briefing.schedule",
+		"alerting.*",
+		"auto_explain.log_min_duration_ms",
+		"auto_explain.max_plans_per_cycle",
+		"forecaster.*",
+		"tuner.*",
 		"retention.*",
 	}
 }

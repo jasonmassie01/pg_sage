@@ -12,8 +12,9 @@ const (
 	DefaultPGSSLMode        = "prefer"
 	DefaultPGMaxConnections = 2
 
-	DefaultCollectorInterval = 60 * time.Second
-	DefaultCollectorBatchSize = 1000
+	DefaultCollectorInterval   = 60 * time.Second
+	DefaultCollectorBatchSize  = 1000
+	DefaultCollectorMaxQueries = 500
 
 	DefaultAnalyzerInterval              = 600 * time.Second
 	DefaultSlowQueryThresholdMs          = 1000
@@ -43,7 +44,9 @@ const (
 	DefaultTier3HighRisk       = false
 	DefaultRollbackThresholdPct  = 10
 	DefaultRollbackWindowMinutes = 15
-	DefaultRollbackCooldownDays  = 7
+	DefaultRollbackCooldownDays    = 7
+	DefaultCascadeCooldownCycles   = 3
+	DefaultLockTimeoutMs           = 30000
 
 	DefaultLLMEnabled        = false
 	DefaultLLMTimeoutSeconds = 30
@@ -91,4 +94,28 @@ const (
 	DefaultRateLimit = 60
 
 	DefaultAPIListenAddr = "0.0.0.0:8080"
+
+	// Alerting defaults.
+	DefaultAlertingCheckInterval = 60
+	DefaultAlertingCooldown      = 15
+
+	// auto_explain defaults.
+	DefaultAutoExplainLogMinDuration   = 1000
+	DefaultAutoExplainCollectInterval  = 300
+	DefaultAutoExplainMaxPlansPerCycle = 100
+
+	// Tuner defaults.
+	DefaultTunerWorkMemMaxMB        = 512
+	DefaultTunerPlanTimeRatio       = 3.0
+	DefaultTunerNestedLoopRowThresh = 10000
+	DefaultTunerParallelMinRows     = 1000000
+	DefaultTunerMinQueryCalls       = 100
+
+	// Forecaster defaults.
+	DefaultForecasterLookbackDays  = 30
+	DefaultForecasterDiskWarnGBDay = 5.0
+	DefaultForecasterConnectionPct = 80.0
+	DefaultForecasterCacheThreshold = 0.95
+	DefaultForecasterSeqWarnDays   = 90
+	DefaultForecasterSeqCritDays   = 30
 )
