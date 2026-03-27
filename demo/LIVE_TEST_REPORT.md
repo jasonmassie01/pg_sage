@@ -110,3 +110,56 @@
 3. **Config `unused_index_window_days=0`**: Causes executor to drop newly created indexes before they accumulate scans. Should be >=1 for production.
 
 4. **Advisor WAL parse error**: `invalid character backtick looking for beginning of value` — Gemini returns markdown-formatted JSON occasionally.
+
+## CI Status
+
+All CI checks pass on `feat/fleet-dashboard` (PR #1):
+
+| Workflow | Result | Duration |
+|----------|--------|----------|
+| Test (unit tests) | PASS | 45s |
+| Lint (golangci-lint) | PASS | 22s |
+| CI: PostgreSQL 14 | PASS | ~55s |
+| CI: PostgreSQL 15 | PASS | ~55s |
+| CI: PostgreSQL 16 | PASS | ~55s |
+| CI: PostgreSQL 17 | PASS | ~55s |
+
+- **Unit tests**: 584+ across 15 packages, 0 failures
+- **Lint**: Clean after fixing ineffectual assignment (`handlers.go:506`)
+- **Integration**: PG 14/15/16/17 all green
+
+## Commits on feat/fleet-dashboard
+
+| Commit | Description |
+|--------|-------------|
+| `686f2e2` | feat(fleet): add DatabaseManager for multi-database monitoring |
+| `2ee796e` | feat(api): add REST API with 14 endpoints and embedded dashboard |
+| `dadf953` | feat(web): add React dashboard with fleet overview |
+| `5106e3d` | docs: update config, goreleaser, CLAUDE.md, and add Claude Code setup |
+| `1b34621` | fix(fleet): remove unused ctx field from DatabaseInstance |
+| `7354985` | feat(live): wire fleet manager into main.go + live integration fixes |
+| `c4946e2` | fix(api): remove ineffectual assignment to n in filter builder |
+
+## Files Changed (this session)
+
+| File | Change |
+|------|--------|
+| `sidecar/cmd/pg_sage_sidecar/main.go` | +148 lines: initFleetAndAPI(), status updates in orchestrator, API server lifecycle, nil interface fix |
+| `sidecar/internal/api/handlers.go` | +640 lines: 8 stub handlers replaced with real DB queries, snapshot metric whitelist fix, database param defaults |
+| `sidecar/internal/api/api_test.go` | Updated 3 tests for new snapshot default behavior |
+| `sidecar/internal/fleet/manager.go` | +39 lines: PoolForDatabase(), emergency stop DB persistence |
+| `sidecar/internal/fleet/manager_test.go` | +40 lines: 5 tests for PoolForDatabase |
+| `demo/docker-compose-live.yml` | New: PG17 on port 5433 with pg_stat_statements |
+| `demo/init/01_setup.sql` | New: User setup + pg_stat_statements extension |
+| `demo/init/02_demo_data.sql` | New: 7 planted problems + slow query workload + ownership transfer |
+| `demo/config-live.yaml` | New: Standalone config for demo environment |
+| `demo/run-live.sh` | New: Orchestration script |
+| `demo/LIVE_TEST_REPORT.md` | This report |
+
+## Recommended Next Steps
+
+1. **Set `unused_index_window_days` to 7** in production configs to prevent index churn
+2. **Fix `PersistTrustRampStart`** to honor `config.Trust.RampStart` on first boot
+3. **Add dedicated VACUUM connection** in executor (non-pooled, outside transaction)
+4. **Add Gemini JSON response sanitization** in advisor to strip markdown fencing
+5. **Merge PR #1** — all checks pass, ready for v0.8.0 release
