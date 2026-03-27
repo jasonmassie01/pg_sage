@@ -4,7 +4,7 @@ project_name: pg_sage
 
 before:
   hooks:
-    - cmd: bash -c "cd sidecar/web && npm ci && npm run build"
+    - bash -c "cd sidecar/web && npm ci && npm run build"
 
 builds:
   - id: pg_sage_sidecar

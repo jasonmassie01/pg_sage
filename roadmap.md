@@ -37,6 +37,15 @@
 - Advisor strips markdown fences from Gemini JSON responses
 - `database_name` resolved to actual instance name (was showing "all")
 
+### v0.8.1 (2026-03-27) — Patch
+- Add `google_ml` to all schema exclusion lists (Cloud SQL compatibility)
+- Bump default LLM max_tokens to 8192 (Gemini 2.5 Flash thinking token fix)
+- Add retry loop to index validity post-check (catalog propagation delay)
+- Prevent re-execution of already-acted findings (re-drop race fix)
+- Executor cooldown for recently created indexes
+- Verified on Cloud SQL PG16/17 and AlloyDB PG17
+- 588 tests, 0 failures
+
 ---
 
 ## Planned
@@ -67,13 +76,8 @@
 ### Post-v1.0
 
 **Cloud platform verification**
-- Cloud SQL PG16/17, AlloyDB PG17 — tested in v0.7.0, needs re-verification for fleet mode
 - Aurora + RDS — test plans written, execution pending, zero code changes expected
 - Azure Flexible Server — new platform detection + managed service restriction table
-
-**Executor cooldown for recently created indexes**
-- Avoid dropping indexes that were just created (e.g., by the optimizer)
-- Track creation timestamp, skip drop recommendations within cooldown window
 
 **HypoPG dependency note**
 - HypoPG is optional but recommended for index optimization
