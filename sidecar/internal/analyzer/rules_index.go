@@ -9,6 +9,20 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
+// buildUnloggedSet returns a set of "schema.table" keys for unlogged
+// tables. Indexes on unlogged tables are lost on crash, so findings
+// about them should be downgraded to informational.
+func buildUnloggedSet(snap *collector.Snapshot) map[string]bool {
+	s := make(map[string]bool)
+	for _, t := range snap.Tables {
+		if t.Relpersistence == "u" {
+			key := t.SchemaName + "." + t.RelName
+			s[key] = true
+		}
+	}
+	return s
+}
+
 // extractIndexNameFromSQL parses a CREATE INDEX statement and returns
 // just the index name (without schema), matching IndexRelName format.
 func extractIndexNameFromSQL(sql string) string {
@@ -36,6 +50,7 @@ func ruleUnusedIndexes(
 ) []Finding {
 	window := time.Duration(cfg.Analyzer.UnusedIndexWindowDays) * 24 * time.Hour
 	now := time.Now()
+	unlogged := buildUnloggedSet(current)
 	var findings []Finding
 
 	for _, idx := range current.Indexes {
@@ -63,21 +78,31 @@ func ruleUnusedIndexes(
 			idx.SchemaName, idx.IndexRelName,
 		)
 
+		tableKey := idx.SchemaName + "." + idx.RelName
+		severity := "warning"
+		rec := "Drop unused index to save disk and write overhead."
+		detail := map[string]any{
+			"table":     idx.RelName,
+			"index_def": idx.IndexDef,
+			"size":      idx.IndexBytes,
+		}
+		if unlogged[tableKey] {
+			severity = "info"
+			detail["unlogged"] = true
+			rec += " (unlogged table — indexes lost on crash)"
+		}
+
 		findings = append(findings, Finding{
 			Category:         "unused_index",
-			Severity:         "warning",
+			Severity:         severity,
 			ObjectType:       "index",
 			ObjectIdentifier: ident,
 			Title: fmt.Sprintf(
 				"Unused index %s (0 scans for %d+ days)",
 				ident, cfg.Analyzer.UnusedIndexWindowDays,
 			),
-			Detail: map[string]any{
-				"table":     idx.RelName,
-				"index_def": idx.IndexDef,
-				"size":      idx.IndexBytes,
-			},
-			Recommendation: "Drop unused index to save disk and write overhead.",
+			Detail:         detail,
+			Recommendation: rec,
 			RecommendedSQL: dropSQL,
 			RollbackSQL:    idx.IndexDef + ";",
 			ActionRisk:     "safe",
@@ -93,23 +118,33 @@ func ruleInvalidIndexes(
 	_ *config.Config,
 	_ *RuleExtras,
 ) []Finding {
+	unlogged := buildUnloggedSet(current)
 	var findings []Finding
 	for _, idx := range current.Indexes {
 		if idx.IsValid {
 			continue
 		}
 		ident := idx.SchemaName + "." + idx.IndexRelName
+		tableKey := idx.SchemaName + "." + idx.RelName
+		severity := "warning"
+		rec := "Drop the invalid index and recreate if needed."
+		detail := map[string]any{
+			"table":     idx.RelName,
+			"index_def": idx.IndexDef,
+		}
+		if unlogged[tableKey] {
+			severity = "info"
+			detail["unlogged"] = true
+			rec += " (unlogged table — indexes lost on crash)"
+		}
 		findings = append(findings, Finding{
 			Category:         "invalid_index",
-			Severity:         "warning",
+			Severity:         severity,
 			ObjectType:       "index",
 			ObjectIdentifier: ident,
 			Title:            fmt.Sprintf("Invalid index %s", ident),
-			Detail: map[string]any{
-				"table":     idx.RelName,
-				"index_def": idx.IndexDef,
-			},
-			Recommendation: "Drop the invalid index and recreate if needed.",
+			Detail:           detail,
+			Recommendation:   rec,
 			RecommendedSQL: fmt.Sprintf(
 				"DROP INDEX CONCURRENTLY %s.%s;",
 				idx.SchemaName, idx.IndexRelName,
@@ -245,6 +280,7 @@ func ruleMissingFKIndexes(
 ) []Finding {
 	// Build set of indexed leading columns per table.
 	type tableKey struct{ schema, table string }
+	unlogged := buildUnloggedSet(current)
 	indexed := make(map[tableKey][][]string)
 
 	for _, idx := range current.Indexes {
@@ -291,21 +327,31 @@ func ruleMissingFKIndexes(
 			schema, fk.TableName, fk.FKColumn,
 		)
 
+		ulKey := schema + "." + fk.TableName
+		severity := "warning"
+		rec := "Create index to speed up FK lookups and deletes."
+		detail := map[string]any{
+			"constraint":       fk.ConstraintName,
+			"fk_column":        fk.FKColumn,
+			"referenced_table": fk.ReferencedTable,
+		}
+		if unlogged[ulKey] {
+			severity = "info"
+			detail["unlogged"] = true
+			rec += " (unlogged table — indexes lost on crash)"
+		}
+
 		findings = append(findings, Finding{
 			Category:         "missing_fk_index",
-			Severity:         "warning",
+			Severity:         severity,
 			ObjectType:       "table",
 			ObjectIdentifier: ident,
 			Title: fmt.Sprintf(
 				"Missing index on FK column %s.%s(%s)",
 				schema, fk.TableName, fk.FKColumn,
 			),
-			Detail: map[string]any{
-				"constraint":       fk.ConstraintName,
-				"fk_column":        fk.FKColumn,
-				"referenced_table": fk.ReferencedTable,
-			},
-			Recommendation: "Create index to speed up FK lookups and deletes.",
+			Detail:         detail,
+			Recommendation: rec,
 			RecommendedSQL: createSQL,
 			ActionRisk:     "moderate",
 		})

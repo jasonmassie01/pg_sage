@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -82,6 +83,66 @@ func buildTotalTimeFinding(
 		},
 		Recommendation: "Optimize query or add supporting " +
 			"index to reduce per-execution time.",
+		ActionRisk: "safe",
+	}
+}
+
+// ruleHighFreqFirstCycle surfaces high-frequency queries on the first
+// analysis cycle (no previous snapshot). It picks the top 3 queries
+// by total execution time that have more than 10000 calls.
+func ruleHighFreqFirstCycle(
+	current *collector.Snapshot,
+	previous *collector.Snapshot,
+	_ *config.Config,
+	_ *RuleExtras,
+) []Finding {
+	if previous != nil || current == nil {
+		return nil
+	}
+	var candidates []collector.QueryStats
+	for _, q := range current.Queries {
+		if q.Calls > 10000 {
+			candidates = append(candidates, q)
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].TotalExecTime >
+			candidates[j].TotalExecTime
+	})
+	limit := 3
+	if len(candidates) < limit {
+		limit = len(candidates)
+	}
+	var findings []Finding
+	for _, q := range candidates[:limit] {
+		findings = append(findings,
+			buildFirstCycleFinding(q))
+	}
+	return findings
+}
+
+func buildFirstCycleFinding(q collector.QueryStats) Finding {
+	ident := fmt.Sprintf("queryid:%d", q.QueryID)
+	return Finding{
+		Category:         "high_total_time",
+		Severity:         "info",
+		ObjectType:       "query",
+		ObjectIdentifier: ident,
+		Title: fmt.Sprintf(
+			"High-frequency query: %.0fms mean, %d calls, "+
+				"%.0fms total",
+			q.MeanExecTime, q.Calls, q.TotalExecTime,
+		),
+		Detail: map[string]any{
+			"queryid":       q.QueryID,
+			"query":         q.Query,
+			"mean_exec_ms":  q.MeanExecTime,
+			"calls":         q.Calls,
+			"total_exec_ms": q.TotalExecTime,
+		},
+		Recommendation: "Review query for optimization " +
+			"opportunities; full delta analysis begins " +
+			"next cycle.",
 		ActionRisk: "safe",
 	}
 }

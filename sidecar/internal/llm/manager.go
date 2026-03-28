@@ -21,8 +21,11 @@ func NewManager(general *Client, optClient *Client, fallback bool) *Manager {
 
 // ForPurpose returns the right client for the given purpose.
 func (m *Manager) ForPurpose(purpose string) *Client {
-	if purpose == "index_optimization" && m.Optimizer != nil {
-		return m.Optimizer
+	switch purpose {
+	case "index_optimization", "query_tuning":
+		if m.Optimizer != nil {
+			return m.Optimizer
+		}
 	}
 	return m.General
 }

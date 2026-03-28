@@ -2,7 +2,6 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -60,21 +59,7 @@ func TestClientRetryOn500(t *testing.T) {
 			w.Write([]byte("oops"))
 			return
 		}
-		resp := ChatResponse{
-			Choices: []struct {
-				Message struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			}{
-				{Message: struct {
-					Content string `json:"content"`
-				}{Content: "recovered"}},
-			},
-			Usage: struct {
-				TotalTokens int `json:"total_tokens"`
-			}{TotalTokens: 10},
-		}
-		json.NewEncoder(w).Encode(resp)
+		w.Write(testChatJSON("recovered", 10))
 	}))
 	defer srv.Close()
 
@@ -173,21 +158,7 @@ func TestClientEmptyAPIKey(t *testing.T) {
 // -race to detect issues.
 func TestClientConcurrentRequests(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := ChatResponse{
-			Choices: []struct {
-				Message struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			}{
-				{Message: struct {
-					Content string `json:"content"`
-				}{Content: "ok"}},
-			},
-			Usage: struct {
-				TotalTokens int `json:"total_tokens"`
-			}{TotalTokens: 5},
-		}
-		json.NewEncoder(w).Encode(resp)
+		w.Write(testChatJSON("ok", 5))
 	}))
 	defer srv.Close()
 

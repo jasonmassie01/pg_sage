@@ -50,7 +50,7 @@ const (
 
 	DefaultLLMEnabled        = false
 	DefaultLLMTimeoutSeconds = 30
-	DefaultLLMTokenBudget    = 50000
+	DefaultLLMTokenBudget    = 500000
 	DefaultLLMContextBudget  = 4096
 	DefaultLLMCooldownSeconds = 300
 
@@ -77,7 +77,7 @@ const (
 
 	// Optimizer LLM defaults.
 	DefaultOptLLMTimeoutSeconds  = 120
-	DefaultOptLLMTokenBudget     = 50000
+	DefaultOptLLMTokenBudget     = 500000
 	DefaultOptLLMCooldownSeconds = 300
 	DefaultOptLLMMaxOutputTokens = 4096
 
@@ -89,7 +89,7 @@ const (
 	DefaultRetentionExplainsDays  = 90
 
 	DefaultMCPListenAddr        = "0.0.0.0:5433"
-	DefaultPrometheusListenAddr = "0.0.0.0:9187"
+	DefaultPrometheusListenAddr = "127.0.0.1:9187"
 
 	DefaultRateLimit = 60
 

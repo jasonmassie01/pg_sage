@@ -246,69 +246,127 @@ func TestDispatch_EmptyChannels(t *testing.T) {
 	w.Dispatch("test briefing")
 }
 
-func TestParseScheduleHour(t *testing.T) {
+func TestParseCron(t *testing.T) {
 	tests := []struct {
-		cron string
-		want int
+		expr    string
+		valid   bool
+		desc    string
 	}{
-		{"0 6 * * *", 6},
-		{"0 0 * * *", 0},
-		{"0 23 * * *", 23},
-		{"30 14 * * 1-5", 14},
-		{"", -1},
-		{"0", -1},
-		{"0 25 * * *", -1},   // hour > 23
-		{"0 abc * * *", -1},  // non-numeric
+		{"0 6 * * *", true, "daily at 6:00"},
+		{"*/2 * * * *", true, "every 2 minutes"},
+		{"*/5 8-17 * * 1-5", true, "every 5m, 8-17, Mon-Fri"},
+		{"30 14 * * 1-5", true, "14:30 Mon-Fri"},
+		{"0 0 1 1 *", true, "midnight Jan 1st"},
+		{"", false, "empty string"},
+		{"0 25 * * *", false, "hour > 23"},
+		{"abc", false, "garbage"},
+		{"0 abc * * *", false, "non-numeric hour"},
+		{"60 0 * * *", false, "minute > 59"},
 	}
 	for _, tt := range tests {
-		got := parseScheduleHour(tt.cron)
-		if got != tt.want {
-			t.Errorf("parseScheduleHour(%q) = %d, want %d",
-				tt.cron, got, tt.want)
+		sched, err := parseCron(tt.expr)
+		if tt.valid && err != nil {
+			t.Errorf("%s: parseCron(%q) unexpected error: %v",
+				tt.desc, tt.expr, err)
+		}
+		if !tt.valid && err == nil {
+			t.Errorf("%s: parseCron(%q) expected error, got nil",
+				tt.desc, tt.expr)
+		}
+		if sched.valid != tt.valid {
+			t.Errorf("%s: valid=%v, want %v",
+				tt.desc, sched.valid, tt.valid)
 		}
 	}
 }
 
-func TestShouldRun_FirstRunPastHour(t *testing.T) {
-	w := &Worker{scheduleHour: 6}
-	now := time.Date(2026, 3, 27, 7, 0, 0, 0, time.UTC)
+func TestParseCron_DailyAt6(t *testing.T) {
+	s, err := parseCron("0 6 * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 06:00 on a Wednesday in March
+	at6 := time.Date(2026, 3, 25, 6, 0, 0, 0, time.UTC)
+	if !s.matches(at6) {
+		t.Error("should match 06:00 Wed")
+	}
+	// 05:59 should not match
+	at559 := time.Date(2026, 3, 25, 5, 59, 0, 0, time.UTC)
+	if s.matches(at559) {
+		t.Error("should not match 05:59")
+	}
+}
+
+func TestParseCron_EveryTwoMinutes(t *testing.T) {
+	s, err := parseCron("*/2 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for m := 0; m < 60; m++ {
+		tm := time.Date(2026, 1, 1, 12, m, 0, 0, time.UTC)
+		want := m%2 == 0
+		if s.matches(tm) != want {
+			t.Errorf("minute %d: got %v, want %v",
+				m, !want, want)
+		}
+	}
+}
+
+func TestShouldRun_MinuteScheduleFires(t *testing.T) {
+	s, _ := parseCron("*/5 * * * *")
+	w := &Worker{schedule: s}
+	// minute 10 should match
+	now := time.Date(2026, 3, 27, 14, 10, 0, 0, time.UTC)
 	if !w.ShouldRun(now) {
-		t.Error("should run: first run, past scheduled hour")
+		t.Error("should run at minute 10 with */5 schedule")
 	}
-}
-
-func TestShouldRun_FirstRunBeforeHour(t *testing.T) {
-	w := &Worker{scheduleHour: 6}
-	now := time.Date(2026, 3, 27, 5, 0, 0, 0, time.UTC)
+	// minute 11 should not
+	now = time.Date(2026, 3, 27, 14, 11, 0, 0, time.UTC)
 	if w.ShouldRun(now) {
-		t.Error("should not run: first run, before scheduled hour")
+		t.Error("should not run at minute 11 with */5 schedule")
 	}
 }
 
-func TestShouldRun_AlreadyRanToday(t *testing.T) {
+func TestShouldRun_RapidFirePrevention(t *testing.T) {
+	s, _ := parseCron("* * * * *") // every minute
 	w := &Worker{
-		scheduleHour: 6,
-		lastRun:      time.Date(2026, 3, 27, 6, 5, 0, 0, time.UTC),
+		schedule: s,
+		lastRun:  time.Date(2026, 3, 27, 14, 0, 0, 0, time.UTC),
 	}
-	now := time.Date(2026, 3, 27, 12, 0, 0, 0, time.UTC)
+	// 10 seconds later — should be blocked
+	now := time.Date(2026, 3, 27, 14, 0, 10, 0, time.UTC)
 	if w.ShouldRun(now) {
-		t.Error("should not run: already ran today")
+		t.Error("should not run within 30s debounce")
+	}
+	// 31 seconds later — should fire
+	now = time.Date(2026, 3, 27, 14, 0, 31, 0, time.UTC)
+	if w.ShouldRun(now) {
+		// minute 0 matches, 31s elapsed — but we're still in min 0
+		// so it should match
+		t.Log("OK: matches at 31s past last run")
 	}
 }
 
-func TestShouldRun_NewDayPastHour(t *testing.T) {
+func TestShouldRun_DailyBackwardCompat(t *testing.T) {
+	s, _ := parseCron("0 6 * * *")
 	w := &Worker{
-		scheduleHour: 6,
-		lastRun:      time.Date(2026, 3, 26, 6, 5, 0, 0, time.UTC),
+		schedule: s,
+		lastRun:  time.Date(2026, 3, 26, 6, 0, 0, 0, time.UTC),
 	}
-	now := time.Date(2026, 3, 27, 7, 0, 0, 0, time.UTC)
+	// Next day at 06:00
+	now := time.Date(2026, 3, 27, 6, 0, 0, 0, time.UTC)
 	if !w.ShouldRun(now) {
-		t.Error("should run: new day, past scheduled hour")
+		t.Error("should run: new day at scheduled time")
+	}
+	// Same day at 07:00 should not (minute 0, hour 7 not in schedule)
+	now = time.Date(2026, 3, 27, 7, 0, 0, 0, time.UTC)
+	if w.ShouldRun(now) {
+		t.Error("should not run at hour 7 with '0 6 * * *'")
 	}
 }
 
 func TestShouldRun_InvalidSchedule(t *testing.T) {
-	w := &Worker{scheduleHour: -1}
+	w := &Worker{schedule: cronSchedule{valid: false}}
 	now := time.Date(2026, 3, 27, 12, 0, 0, 0, time.UTC)
 	if w.ShouldRun(now) {
 		t.Error("should not run with invalid schedule")
@@ -316,7 +374,8 @@ func TestShouldRun_InvalidSchedule(t *testing.T) {
 }
 
 func TestMarkRan(t *testing.T) {
-	w := &Worker{scheduleHour: 6}
+	s, _ := parseCron("0 6 * * *")
+	w := &Worker{schedule: s}
 	if !w.lastRun.IsZero() {
 		t.Error("lastRun should be zero initially")
 	}

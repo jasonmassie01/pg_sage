@@ -48,6 +48,7 @@ var AllRules = []struct {
 
 	// Total-time rules
 	{"high_total_time", ruleTotalTimeHeavy},
+	{"high_freq_first_cycle", ruleHighFreqFirstCycle},
 
 	// Sequence rules
 	{"sequence_exhaustion", ruleSequenceExhaustion},

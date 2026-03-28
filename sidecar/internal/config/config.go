@@ -218,6 +218,7 @@ type ForecasterConfig struct {
 
 type TunerConfig struct {
 	Enabled                bool    `yaml:"enabled"`
+	LLMEnabled             bool    `yaml:"llm_enabled"`
 	WorkMemMaxMB           int     `yaml:"work_mem_max_mb"`
 	PlanTimeRatio          float64 `yaml:"plan_time_ratio"`
 	NestedLoopRowThreshold int64   `yaml:"nested_loop_row_threshold"`

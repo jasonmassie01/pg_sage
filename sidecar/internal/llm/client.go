@@ -49,6 +49,7 @@ type ChatResponse struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
 		TotalTokens int `json:"total_tokens"`
@@ -82,7 +83,7 @@ func (c *Client) IsCircuitOpen() bool {
 	if time.Since(c.circuitOpened) > c.cooldown {
 		c.circuitOpen = false
 		c.failures = 0
-		c.logFn("INFO", "llm", "circuit breaker closed (cooldown expired)")
+		c.logFn("llm", "circuit breaker closed (cooldown expired)")
 		return false
 	}
 	return true
@@ -108,11 +109,13 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 			c.tokensUsedToday.Load(), c.cfg.TokenBudgetDaily)
 	}
 
-	// Ensure a reasonable minimum to avoid truncated responses from
-	// "thinking" models like Gemini 2.5 Flash whose internal reasoning
-	// tokens consume part of the output budget.
+	// Thinking models (Gemini 2.5 Flash/Pro) consume output budget for
+	// internal reasoning. Bump max_tokens so the actual JSON response
+	// isn't truncated after thinking tokens eat the budget.
 	if maxTokens <= 0 {
-		maxTokens = 8192
+		maxTokens = 16384
+	} else if isThinkingModel(c.cfg.Model) && maxTokens < 16384 {
+		maxTokens = 16384
 	}
 
 	req := ChatRequest{
@@ -176,7 +179,16 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 	tokens := chatResp.Usage.TotalTokens
 	c.tokensUsedToday.Add(int64(tokens))
 
-	return chatResp.Choices[0].Message.Content, tokens, nil
+	content := chatResp.Choices[0].Message.Content
+	reason := chatResp.Choices[0].FinishReason
+	if reason == "length" || reason == "max_tokens" {
+		c.logFn("llm",
+			"response truncated (finish_reason=%s, tokens=%d), "+
+				"attempting JSON repair", reason, tokens)
+		content = RepairTruncatedJSON(content)
+	}
+
+	return content, tokens, nil
 }
 
 func (c *Client) doWithRetry(ctx context.Context, req *http.Request, body []byte) (*http.Response, error) {
@@ -222,7 +234,7 @@ func (c *Client) recordFailure() {
 	if c.failures >= 3 {
 		c.circuitOpen = true
 		c.circuitOpened = time.Now()
-		c.logFn("WARN", "llm", "circuit breaker opened after %d failures", c.failures)
+		c.logFn("llm", "circuit breaker opened after %d failures", c.failures)
 	}
 }
 

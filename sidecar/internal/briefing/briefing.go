@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,14 +14,112 @@ import (
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
+// cronSchedule holds pre-parsed bitmasks for each cron field.
+type cronSchedule struct {
+	minutes [60]bool
+	hours   [24]bool
+	doms    [31]bool // 0-indexed: doms[0] = day 1
+	months  [12]bool // 0-indexed: months[0] = January
+	dows    [7]bool  // 0 = Sunday
+	valid   bool
+}
+
+// matches returns true if time t falls within the schedule.
+func (s *cronSchedule) matches(t time.Time) bool {
+	return s.minutes[t.Minute()] && s.hours[t.Hour()] &&
+		s.doms[t.Day()-1] && s.months[t.Month()-1] &&
+		s.dows[t.Weekday()]
+}
+
+// parseCron parses a 5-field cron expression (min hour dom month dow).
+func parseCron(expr string) (cronSchedule, error) {
+	fields := strings.Fields(expr)
+	if len(fields) != 5 {
+		return cronSchedule{}, fmt.Errorf(
+			"expected 5 fields, got %d", len(fields),
+		)
+	}
+	var s cronSchedule
+	var err error
+	if err = parseCronField(fields[0], 0, 59, s.minutes[:]); err != nil {
+		return cronSchedule{}, fmt.Errorf("minute: %w", err)
+	}
+	if err = parseCronField(fields[1], 0, 23, s.hours[:]); err != nil {
+		return cronSchedule{}, fmt.Errorf("hour: %w", err)
+	}
+	if err = parseCronField(fields[2], 1, 31, s.doms[:]); err != nil {
+		return cronSchedule{}, fmt.Errorf("dom: %w", err)
+	}
+	if err = parseCronField(fields[3], 1, 12, s.months[:]); err != nil {
+		return cronSchedule{}, fmt.Errorf("month: %w", err)
+	}
+	if err = parseCronField(fields[4], 0, 6, s.dows[:]); err != nil {
+		return cronSchedule{}, fmt.Errorf("dow: %w", err)
+	}
+	s.valid = true
+	return s, nil
+}
+
+// parseCronField parses one cron field into a bool slice.
+// The slice is indexed from 0; min is subtracted for 1-based fields.
+func parseCronField(field string, min, max int, out []bool) error {
+	for _, part := range strings.Split(field, ",") {
+		if err := parseCronPart(part, min, max, out); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// parseCronPart handles a single element: *, N, N-M, */S, N-M/S.
+func parseCronPart(part string, min, max int, out []bool) error {
+	step := 1
+	rangePart := part
+	if idx := strings.Index(part, "/"); idx >= 0 {
+		var err error
+		step, err = strconv.Atoi(part[idx+1:])
+		if err != nil || step <= 0 {
+			return fmt.Errorf("invalid step in %q", part)
+		}
+		rangePart = part[:idx]
+	}
+	lo, hi := min, max
+	if rangePart != "*" {
+		if dash := strings.Index(rangePart, "-"); dash >= 0 {
+			var err error
+			lo, err = strconv.Atoi(rangePart[:dash])
+			if err != nil {
+				return fmt.Errorf("invalid range start in %q", part)
+			}
+			hi, err = strconv.Atoi(rangePart[dash+1:])
+			if err != nil {
+				return fmt.Errorf("invalid range end in %q", part)
+			}
+		} else {
+			v, err := strconv.Atoi(rangePart)
+			if err != nil {
+				return fmt.Errorf("invalid value %q", rangePart)
+			}
+			lo, hi = v, v
+		}
+	}
+	if lo < min || hi > max || lo > hi {
+		return fmt.Errorf("out of range [%d-%d] in %q", min, max, part)
+	}
+	for i := lo; i <= hi; i += step {
+		out[i-min] = true
+	}
+	return nil
+}
+
 // Worker generates periodic health briefings.
 type Worker struct {
-	pool         *pgxpool.Pool
-	cfg          *config.Config
-	llm          *llm.Client
-	logFn        func(string, string, ...any)
-	lastRun      time.Time
-	scheduleHour int // hour of day to run (from cron), -1 if unparsed
+	pool     *pgxpool.Pool
+	cfg      *config.Config
+	llm      *llm.Client
+	logFn    func(string, string, ...any)
+	lastRun  time.Time
+	schedule cronSchedule
 }
 
 // New creates a briefing worker.
@@ -30,55 +129,30 @@ func New(
 	llmClient *llm.Client,
 	logFn func(string, string, ...any),
 ) *Worker {
+	sched, err := parseCron(cfg.Briefing.Schedule)
+	if err != nil {
+		logFn("WARN", "briefing",
+			"invalid schedule %q: %v", cfg.Briefing.Schedule, err)
+	}
 	return &Worker{
-		pool:         pool,
-		cfg:          cfg,
-		llm:          llmClient,
-		logFn:        logFn,
-		scheduleHour: parseScheduleHour(cfg.Briefing.Schedule),
+		pool:     pool,
+		cfg:      cfg,
+		llm:      llmClient,
+		logFn:    logFn,
+		schedule: sched,
 	}
 }
 
-// parseScheduleHour extracts the hour from a cron expression like
-// "0 6 * * *". Returns -1 if the format is unexpected.
-func parseScheduleHour(cron string) int {
-	parts := strings.Fields(cron)
-	if len(parts) < 2 {
-		return -1
-	}
-	h := 0
-	for _, c := range parts[1] {
-		if c < '0' || c > '9' {
-			return -1
-		}
-		h = h*10 + int(c-'0')
-	}
-	if h > 23 {
-		return -1
-	}
-	return h
-}
-
-// ShouldRun returns true when enough time has elapsed since the last
-// briefing and the scheduled hour has arrived (or been passed).
+// ShouldRun returns true when now matches the cron schedule and at
+// least 30 seconds have elapsed since the last run.
 func (w *Worker) ShouldRun(now time.Time) bool {
-	// Never ran — run if we're past the scheduled hour today.
-	if w.lastRun.IsZero() {
-		if w.scheduleHour < 0 {
-			return false
-		}
-		return now.Hour() >= w.scheduleHour
-	}
-	// Already ran today.
-	if w.lastRun.Year() == now.Year() &&
-		w.lastRun.YearDay() == now.YearDay() {
+	if !w.schedule.valid {
 		return false
 	}
-	// New day — run if past scheduled hour.
-	if w.scheduleHour < 0 {
+	if !w.lastRun.IsZero() && now.Sub(w.lastRun) < 30*time.Second {
 		return false
 	}
-	return now.Hour() >= w.scheduleHour
+	return w.schedule.matches(now)
 }
 
 // MarkRan records that a briefing was just generated.

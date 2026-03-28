@@ -233,3 +233,57 @@ func TestRuleSortWithoutIndex_EmptyEntries(t *testing.T) {
 		t.Errorf("expected 0 findings for nil entries, got %d", len(findings))
 	}
 }
+
+func TestFindSortLimit_ExtractsSortKey(t *testing.T) {
+	planJSON := []byte(`[{
+		"Plan": {
+			"Node Type": "Limit",
+			"Plan Rows": 10,
+			"Plans": [{
+				"Node Type": "Sort",
+				"Plan Rows": 100000,
+				"Sort Key": ["orders.created_at DESC", "orders.id"],
+				"Plans": [{
+					"Node Type": "Seq Scan",
+					"Plan Rows": 100000
+				}]
+			}]
+		}
+	}]`)
+
+	root, ok := parsePlanRoot(planJSON)
+	if !ok {
+		t.Fatal("failed to parse plan JSON")
+	}
+	_, _, sortKey, found := findSortLimit(root)
+	if !found {
+		t.Fatal("expected to find Sort+Limit pattern")
+	}
+	if len(sortKey) != 2 {
+		t.Fatalf("expected 2 sort keys, got %d", len(sortKey))
+	}
+	if sortKey[0] != "orders.created_at DESC" {
+		t.Errorf("sortKey[0] = %q, want %q",
+			sortKey[0], "orders.created_at DESC")
+	}
+	if sortKey[1] != "orders.id" {
+		t.Errorf("sortKey[1] = %q, want %q",
+			sortKey[1], "orders.id")
+	}
+}
+
+func TestParseSortKey_StripQualifiers(t *testing.T) {
+	got := parseSortKey("orders.created_at DESC NULLS LAST")
+	if got != "created_at" {
+		t.Errorf(
+			"parseSortKey = %q, want %q", got, "created_at",
+		)
+	}
+}
+
+func TestParseSortKey_Simple(t *testing.T) {
+	got := parseSortKey("id")
+	if got != "id" {
+		t.Errorf("parseSortKey = %q, want %q", got, "id")
+	}
+}

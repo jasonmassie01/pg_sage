@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // planNode represents a node in EXPLAIN (FORMAT JSON) output.
 type planNode struct {
 	NodeType string     `json:"Node Type"`
 	PlanRows int64      `json:"Plan Rows"`
+	SortKey  []string   `json:"Sort Key"`
 	Plans    []planNode `json:"Plans"`
 }
 
@@ -40,11 +42,11 @@ func checkSortLimit(entry ExplainEntry) *Finding {
 	if !ok {
 		return nil
 	}
-	sortRows, limitRows, found := findSortLimit(root)
+	sortRows, limitRows, sortKey, found := findSortLimit(root)
 	if !found {
 		return nil
 	}
-	return buildSortFinding(entry, sortRows, limitRows)
+	return buildSortFinding(entry, sortRows, limitRows, sortKey)
 }
 
 // parsePlanRoot extracts the root plan node from EXPLAIN JSON.
@@ -63,24 +65,49 @@ func parsePlanRoot(planJSON []byte) (planNode, bool) {
 
 // findSortLimit walks the plan tree looking for a Limit node
 // whose child is a Sort node with Plan Rows >> Limit's Plan Rows.
-// Returns (sortRows, limitRows, found).
-func findSortLimit(node planNode) (int64, int64, bool) {
+// Returns (sortRows, limitRows, sortKey, found).
+func findSortLimit(
+	node planNode,
+) (int64, int64, []string, bool) {
 	if node.NodeType == "Limit" {
 		for _, child := range node.Plans {
 			if child.NodeType == "Sort" {
 				ratio := safeRatio(child.PlanRows, node.PlanRows)
 				if ratio >= 10 {
-					return child.PlanRows, node.PlanRows, true
+					return child.PlanRows, node.PlanRows,
+						child.SortKey, true
 				}
 			}
 		}
 	}
 	for _, child := range node.Plans {
-		if s, l, ok := findSortLimit(child); ok {
-			return s, l, true
+		if s, l, sk, ok := findSortLimit(child); ok {
+			return s, l, sk, true
 		}
 	}
-	return 0, 0, false
+	return 0, 0, nil, false
+}
+
+// parseSortKey strips table qualifiers and sort directions from a
+// single Sort Key entry, returning just the column name.
+func parseSortKey(key string) string {
+	if dot := strings.LastIndex(key, "."); dot >= 0 {
+		key = key[dot+1:]
+	}
+	suffixes := []string{
+		" NULLS FIRST", " NULLS LAST", " DESC", " ASC",
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, s := range suffixes {
+			trimmed := strings.TrimSuffix(key, s)
+			if trimmed != key {
+				key = trimmed
+				changed = true
+			}
+		}
+	}
+	return strings.TrimSpace(key)
 }
 
 func safeRatio(a, b int64) float64 {
@@ -93,9 +120,30 @@ func safeRatio(a, b int64) float64 {
 func buildSortFinding(
 	entry ExplainEntry,
 	sortRows, limitRows int64,
+	sortKey []string,
 ) *Finding {
 	ratio := safeRatio(sortRows, limitRows)
 	ident := fmt.Sprintf("queryid:%d", entry.QueryID)
+	detail := map[string]any{
+		"queryid":    entry.QueryID,
+		"query":      entry.QueryText,
+		"sort_rows":  sortRows,
+		"limit_rows": limitRows,
+		"ratio":      ratio,
+	}
+	rec := "Add an index matching the ORDER BY " +
+		"columns to avoid sorting."
+	if len(sortKey) > 0 {
+		cols := make([]string, len(sortKey))
+		for i, k := range sortKey {
+			cols[i] = parseSortKey(k)
+		}
+		detail["sort_columns"] = cols
+		rec = fmt.Sprintf(
+			"Add an index on (%s) to avoid sorting.",
+			strings.Join(cols, ", "),
+		)
+	}
 	return &Finding{
 		Category:         "sort_without_index",
 		Severity:         "warning",
@@ -105,16 +153,9 @@ func buildSortFinding(
 			"Sort processes %d rows for LIMIT %d (%.0fx waste)",
 			sortRows, limitRows, ratio,
 		),
-		Detail: map[string]any{
-			"queryid":    entry.QueryID,
-			"query":      entry.QueryText,
-			"sort_rows":  sortRows,
-			"limit_rows": limitRows,
-			"ratio":      ratio,
-		},
-		Recommendation: "Add an index matching the ORDER BY " +
-			"columns to avoid sorting.",
-		ActionRisk: "safe",
+		Detail:         detail,
+		Recommendation: rec,
+		ActionRisk:     "safe",
 	}
 }
 
