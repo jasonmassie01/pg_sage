@@ -7,14 +7,29 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/llm"
 )
 
 // Tuner produces per-query tuning findings from plan analysis.
 type Tuner struct {
-	pool     *pgxpool.Pool
-	cfg      TunerConfig
-	hintPlan *HintPlanAvailability
-	logFn    func(string, string, ...any)
+	pool           *pgxpool.Pool
+	cfg            TunerConfig
+	hintPlan       *HintPlanAvailability
+	llmClient      *llm.Client
+	fallbackClient *llm.Client
+	logFn          func(string, string, ...any)
+	recentlyTuned  map[int64]int
+}
+
+// Option configures optional Tuner behavior.
+type Option func(*Tuner)
+
+// WithLLM enables LLM-enhanced hint reasoning with optional fallback.
+func WithLLM(client, fallback *llm.Client) Option {
+	return func(t *Tuner) {
+		t.llmClient = client
+		t.fallbackClient = fallback
+	}
 }
 
 // New creates a Tuner with the given dependencies.
@@ -23,13 +38,19 @@ func New(
 	cfg TunerConfig,
 	hintPlan *HintPlanAvailability,
 	logFn func(string, string, ...any),
+	opts ...Option,
 ) *Tuner {
-	return &Tuner{
-		pool:     pool,
-		cfg:      cfg,
-		hintPlan: hintPlan,
-		logFn:    logFn,
+	t := &Tuner{
+		pool:          pool,
+		cfg:           cfg,
+		hintPlan:      hintPlan,
+		logFn:         logFn,
+		recentlyTuned: make(map[int64]int),
 	}
+	for _, o := range opts {
+		o(t)
+	}
+	return t
 }
 
 type candidate struct {
@@ -47,16 +68,45 @@ type candidate struct {
 func (t *Tuner) Tune(
 	ctx context.Context,
 ) ([]analyzer.Finding, error) {
+	t.tickCooldowns()
 	candidates, err := t.fetchCandidates(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("tuner: fetch candidates: %w", err)
 	}
 	var findings []analyzer.Finding
 	for _, c := range candidates {
+		if _, ok := t.recentlyTuned[c.QueryID]; ok {
+			continue
+		}
 		f := t.processCandidate(ctx, c)
+		if len(f) > 0 {
+			t.recentlyTuned[c.QueryID] = t.cooldownCycles()
+		}
 		findings = append(findings, f...)
 	}
 	return findings, nil
+}
+
+// tickCooldowns decrements all cooldown counters and removes
+// entries that have reached zero.
+func (t *Tuner) tickCooldowns() {
+	for qid, remaining := range t.recentlyTuned {
+		remaining--
+		if remaining <= 0 {
+			delete(t.recentlyTuned, qid)
+		} else {
+			t.recentlyTuned[qid] = remaining
+		}
+	}
+}
+
+// cooldownCycles returns the configured cascade cooldown,
+// defaulting to 3 if unset.
+func (t *Tuner) cooldownCycles() int {
+	if t.cfg.CascadeCooldownCycles > 0 {
+		return t.cfg.CascadeCooldownCycles
+	}
+	return 3
 }
 
 const candidateSQL = `
@@ -106,16 +156,58 @@ func (t *Tuner) processCandidate(
 	if len(symptoms) == 0 {
 		return nil
 	}
-	prescriptions := t.prescribeAll(symptoms)
+
+	// Always compute deterministic fallback.
+	fallback := t.prescribeAll(symptoms)
+	fallbackHint := CombineHints(fallback)
+
+	// Try LLM-enhanced reasoning if available.
+	prescriptions := t.tryLLMPrescribe(
+		ctx, c, symptoms, fallbackHint,
+	)
+	if len(prescriptions) == 0 {
+		prescriptions = fallback
+	}
 	if len(prescriptions) == 0 {
 		return nil
 	}
+
 	combined := CombineHints(prescriptions)
 	title := buildTitle(symptoms)
 	rationale := buildRationale(prescriptions)
 	finding := t.buildFinding(c, symptoms, combined,
 		title, rationale)
 	return []analyzer.Finding{finding}
+}
+
+func (t *Tuner) tryLLMPrescribe(
+	ctx context.Context,
+	c candidate,
+	symptoms []PlanSymptom,
+	fallbackHint string,
+) []Prescription {
+	if t.llmClient == nil {
+		return nil
+	}
+	planJSON := t.fetchPlanJSON(ctx, c.QueryID)
+	qctx := buildQueryContext(
+		ctx, t.pool, c, symptoms, planJSON, fallbackHint,
+	)
+	rx, err := llmPrescribe(
+		ctx, t.llmClient, t.fallbackClient, qctx, t.logFn,
+	)
+	if err != nil {
+		t.logFn("tuner",
+			"LLM prescribe failed for queryid %d, "+
+				"using deterministic: %v", c.QueryID, err)
+		return nil
+	}
+	if len(rx) > 0 {
+		t.logFn("tuner",
+			"LLM-enhanced hints for queryid %d: %s",
+			c.QueryID, rx[0].HintDirective)
+	}
+	return rx
 }
 
 func (t *Tuner) gatherSymptoms(
@@ -136,6 +228,22 @@ func (t *Tuner) gatherSymptoms(
 func (t *Tuner) scanPlanForQuery(
 	ctx context.Context, queryID int64,
 ) []PlanSymptom {
+	planJSON := t.fetchPlanJSON(ctx, queryID)
+	if planJSON == "" {
+		return nil
+	}
+	symptoms, err := ScanPlan([]byte(planJSON))
+	if err != nil {
+		t.logFn("tuner", "scan plan for queryid %d: %v",
+			queryID, err)
+		return nil
+	}
+	return symptoms
+}
+
+func (t *Tuner) fetchPlanJSON(
+	ctx context.Context, queryID int64,
+) string {
 	var planJSON []byte
 	err := t.pool.QueryRow(ctx,
 		`SELECT plan_json FROM sage.explain_cache
@@ -144,15 +252,9 @@ func (t *Tuner) scanPlanForQuery(
 		queryID,
 	).Scan(&planJSON)
 	if err != nil {
-		return nil
+		return ""
 	}
-	symptoms, err := ScanPlan(planJSON)
-	if err != nil {
-		t.logFn("WARN", "tuner: scan plan for queryid %d: %v",
-			queryID, err)
-		return nil
-	}
-	return symptoms
+	return string(planJSON)
 }
 
 func (t *Tuner) isHighPlanTime(c candidate) bool {

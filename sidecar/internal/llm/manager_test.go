@@ -54,9 +54,19 @@ func TestManager_NilOptimizer(t *testing.T) {
 	gen := testClient("general")
 	m := NewManager(gen, nil, true)
 
-	for _, purpose := range []string{"index_optimization", "briefing", ""} {
+	for _, purpose := range []string{"index_optimization", "query_tuning", "briefing", ""} {
 		if got := m.ForPurpose(purpose); got != gen {
 			t.Fatalf("expected General for purpose %q", purpose)
 		}
+	}
+}
+
+func TestManager_QueryTuning_RoutesToOptimizer(t *testing.T) {
+	gen := testClient("general")
+	opt := testClient("optimizer")
+	m := NewManager(gen, opt, true)
+
+	if got := m.ForPurpose("query_tuning"); got != opt {
+		t.Fatal("expected Optimizer for query_tuning")
 	}
 }

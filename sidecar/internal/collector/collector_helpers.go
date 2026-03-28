@@ -7,11 +7,14 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// detectStatsReset returns true if >50% of queries that exist in
-// both current and previous snapshots show decreased call counts,
-// indicating pg_stat_statements was reset.
+// detectStatsReset returns true if pg_stat_statements was likely
+// reset. Both conditions must be met: >50% of overlapping queries
+// show decreased call counts AND total calls dropped by >80%.
+// This avoids false positives from natural workload churn where
+// individual queries rotate but aggregate call volume stays stable.
 func detectStatsReset(current, previous []QueryStats) bool {
-	if len(previous) == 0 {
+	prevTotal := sumCalls(previous)
+	if prevTotal == 0 {
 		return false
 	}
 	prevCalls := make(map[int64]int64, len(previous))
@@ -31,7 +34,18 @@ func detectStatsReset(current, previous []QueryStats) bool {
 	if compared == 0 {
 		return false
 	}
-	return float64(decreased)/float64(compared) > 0.5
+	ratioDecreased := float64(decreased) / float64(compared)
+	currTotal := sumCalls(current)
+	return ratioDecreased > 0.5 && currTotal < prevTotal/5
+}
+
+// sumCalls returns the total number of calls across all queries.
+func sumCalls(qs []QueryStats) int64 {
+	var total int64
+	for _, q := range qs {
+		total += q.Calls
+	}
+	return total
 }
 
 // collectStatStatementsMax queries pg_stat_statements.max setting.

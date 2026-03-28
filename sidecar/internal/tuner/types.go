@@ -43,11 +43,13 @@ type HintPlanAvailability struct {
 
 // TunerConfig holds per-query tuner settings.
 type TunerConfig struct {
-	Enabled              bool    `yaml:"enabled"`
-	WorkMemMaxMB         int     `yaml:"work_mem_max_mb"`
-	PlanTimeRatio        float64 `yaml:"plan_time_ratio"`
+	Enabled                bool    `yaml:"enabled"`
+	LLMEnabled             bool    `yaml:"llm_enabled"`
+	WorkMemMaxMB           int     `yaml:"work_mem_max_mb"`
+	PlanTimeRatio          float64 `yaml:"plan_time_ratio"`
 	NestedLoopRowThreshold int64   `yaml:"nested_loop_row_threshold"`
-	ParallelMinTableRows int64   `yaml:"parallel_min_table_rows"`
-	MinQueryCalls        int     `yaml:"min_query_calls"`
-	VerifyAfterApply     bool    `yaml:"verify_after_apply"`
+	ParallelMinTableRows   int64   `yaml:"parallel_min_table_rows"`
+	MinQueryCalls          int     `yaml:"min_query_calls"`
+	VerifyAfterApply       bool    `yaml:"verify_after_apply"`
+	CascadeCooldownCycles  int     `yaml:"cascade_cooldown_cycles"`
 }

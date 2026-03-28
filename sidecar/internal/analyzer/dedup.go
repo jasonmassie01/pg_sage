@@ -1,6 +1,9 @@
 package analyzer
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // severityRank returns a numeric rank for severity comparison.
 // Higher rank = more severe.
@@ -80,6 +83,7 @@ func DeduplicateFindings(
 		resolved := resolveGroup(group, logFn)
 		result = append(result, resolved...)
 	}
+	result = resolveGUCConflicts(result, logFn)
 	return result
 }
 
@@ -200,6 +204,107 @@ func dedupSameCategory(
 		result[prev] = winner
 	}
 	return result
+}
+
+var (
+	reAlterSystem = regexp.MustCompile(
+		`(?i)ALTER\s+SYSTEM\s+SET\s+(\w+)`,
+	)
+	reAlterTable = regexp.MustCompile(
+		`(?i)ALTER\s+TABLE\s+\S+\s+SET\s*\(\s*(\w+)`,
+	)
+	reSet = regexp.MustCompile(
+		`(?i)^\s*SET\s+(\w+)`,
+	)
+)
+
+// extractGUCTarget parses RecommendedSQL to find the GUC being
+// modified. Returns ("", false) if no GUC is found.
+// Handles: ALTER SYSTEM SET <guc>, SET <guc>,
+// ALTER TABLE ... SET (<guc> = ...).
+func extractGUCTarget(sql string) (guc string, perTable bool) {
+	if m := reAlterTable.FindStringSubmatch(sql); m != nil {
+		return strings.ToLower(m[1]), true
+	}
+	if m := reAlterSystem.FindStringSubmatch(sql); m != nil {
+		return strings.ToLower(m[1]), false
+	}
+	if m := reSet.FindStringSubmatch(sql); m != nil {
+		return strings.ToLower(m[1]), false
+	}
+	return "", false
+}
+
+type gucEntry struct {
+	index    int
+	perTable bool
+}
+
+// resolveGUCConflicts removes findings that target the same GUC
+// parameter with conflicting values. Per-table beats global; then
+// higher severity wins.
+func resolveGUCConflicts(
+	findings []Finding,
+	logFn func(string, string, ...any),
+) []Finding {
+	gucMap := make(map[string][]gucEntry)
+	for i, f := range findings {
+		guc, pt := extractGUCTarget(f.RecommendedSQL)
+		if guc == "" {
+			continue
+		}
+		gucMap[guc] = append(gucMap[guc], gucEntry{i, pt})
+	}
+
+	remove := make(map[int]bool)
+	for guc, entries := range gucMap {
+		if len(entries) < 2 {
+			continue
+		}
+		winner := pickGUCWinner(findings, entries)
+		for _, e := range entries {
+			if e.index != winner {
+				logFn("DEBUG",
+					"dedup: GUC conflict on %s, dropping %q",
+					guc, findings[e.index].Title)
+				remove[e.index] = true
+			}
+		}
+	}
+
+	if len(remove) == 0 {
+		return findings
+	}
+	out := make([]Finding, 0, len(findings)-len(remove))
+	for i, f := range findings {
+		if !remove[i] {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// pickGUCWinner selects the best finding index among entries
+// targeting the same GUC. Per-table beats global; then higher
+// severity wins.
+func pickGUCWinner(
+	findings []Finding, entries []gucEntry,
+) int {
+	best := entries[0]
+	for _, e := range entries[1:] {
+		if e.perTable && !best.perTable {
+			best = e
+			continue
+		}
+		if !e.perTable && best.perTable {
+			continue
+		}
+		if severityRank(findings[e.index].Severity) >
+			severityRank(findings[best.index].Severity) {
+			best = e
+		}
+	}
+	return best.index
 }
 
 // pickBetter returns the preferred finding when two share the

@@ -485,3 +485,140 @@ func TestComputeIOUtilPct_MultipleQueries(t *testing.T) {
 		t.Errorf("expected ~50%%, got %f", got)
 	}
 }
+
+func TestExtractGUCTarget_AlterSystem(t *testing.T) {
+	guc, pt := extractGUCTarget(
+		"ALTER SYSTEM SET work_mem = '256MB'",
+	)
+	if guc != "work_mem" {
+		t.Errorf("expected work_mem, got %q", guc)
+	}
+	if pt {
+		t.Error("expected perTable=false for ALTER SYSTEM")
+	}
+}
+
+func TestExtractGUCTarget_AlterTable(t *testing.T) {
+	guc, pt := extractGUCTarget(
+		"ALTER TABLE orders SET (autovacuum_vacuum_cost_delay = 10)",
+	)
+	if guc != "autovacuum_vacuum_cost_delay" {
+		t.Errorf(
+			"expected autovacuum_vacuum_cost_delay, got %q", guc,
+		)
+	}
+	if !pt {
+		t.Error("expected perTable=true for ALTER TABLE")
+	}
+}
+
+func TestExtractGUCTarget_Set(t *testing.T) {
+	guc, pt := extractGUCTarget("SET work_mem = '128MB'")
+	if guc != "work_mem" {
+		t.Errorf("expected work_mem, got %q", guc)
+	}
+	if pt {
+		t.Error("expected perTable=false for SET")
+	}
+}
+
+func TestExtractGUCTarget_NoGUC(t *testing.T) {
+	guc, pt := extractGUCTarget(
+		"CREATE INDEX idx_foo ON bar(baz)",
+	)
+	if guc != "" {
+		t.Errorf("expected empty guc, got %q", guc)
+	}
+	if pt {
+		t.Error("expected perTable=false for non-GUC")
+	}
+}
+
+func TestDedupFindings_ConflictingGUC_HigherSeverityWins(
+	t *testing.T,
+) {
+	in := []Finding{
+		{
+			Category:         "vacuum_tuning",
+			Severity:         "warning",
+			ObjectIdentifier: "global",
+			Title:            "set work_mem 32MB",
+			RecommendedSQL:   "ALTER SYSTEM SET work_mem = '32MB'",
+		},
+		{
+			Category:         "memory_tuning",
+			Severity:         "critical",
+			ObjectIdentifier: "global",
+			Title:            "set work_mem 256MB",
+			RecommendedSQL:   "ALTER SYSTEM SET work_mem = '256MB'",
+		},
+	}
+	got := DedupFindings(in, noopLog)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(got))
+	}
+	if got[0].Severity != "critical" {
+		t.Errorf("expected critical to win, got %s", got[0].Severity)
+	}
+	if got[0].Title != "set work_mem 256MB" {
+		t.Errorf("expected 256MB winner, got %s", got[0].Title)
+	}
+}
+
+func TestDedupFindings_ConflictingGUC_PerTableBeatsGlobal(
+	t *testing.T,
+) {
+	in := []Finding{
+		{
+			Category:         "memory_tuning",
+			Severity:         "critical",
+			ObjectIdentifier: "global",
+			Title:            "global work_mem",
+			RecommendedSQL: "ALTER SYSTEM SET " +
+				"autovacuum_vacuum_cost_delay = 20",
+		},
+		{
+			Category:         "vacuum_tuning",
+			Severity:         "warning",
+			ObjectIdentifier: "public.orders",
+			Title:            "per-table cost_delay",
+			RecommendedSQL: "ALTER TABLE orders SET " +
+				"(autovacuum_vacuum_cost_delay = 10)",
+		},
+	}
+	got := DedupFindings(in, noopLog)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(got))
+	}
+	if got[0].Title != "per-table cost_delay" {
+		t.Errorf(
+			"expected per-table to win, got %s", got[0].Title,
+		)
+	}
+}
+
+func TestDedupFindings_NoGUCConflict(t *testing.T) {
+	in := []Finding{
+		{
+			Category:         "memory_tuning",
+			Severity:         "warning",
+			ObjectIdentifier: "guc:work_mem",
+			Title:            "set work_mem",
+			RecommendedSQL:   "ALTER SYSTEM SET work_mem = '256MB'",
+		},
+		{
+			Category:         "memory_tuning",
+			Severity:         "warning",
+			ObjectIdentifier: "guc:shared_buffers",
+			Title:            "set shared_buffers",
+			RecommendedSQL: "ALTER SYSTEM SET " +
+				"shared_buffers = '2GB'",
+		},
+	}
+	got := DedupFindings(in, noopLog)
+	if len(got) != 2 {
+		t.Fatalf(
+			"expected 2 (different GUCs), got %d", len(got),
+		)
+	}
+}

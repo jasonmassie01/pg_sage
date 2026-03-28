@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -72,14 +74,18 @@ var (
 	shutdownCtx        context.Context
 	shutdownCancel     context.CancelFunc
 	rateLimiterInstance *RateLimiter
+	sseSessionCount    int64 // atomic counter
+)
+
+const (
+	maxRequestBodySize = 1 << 20
+	maxSSESessions     = 100
 )
 
 type sseSession struct {
 	ch   chan []byte
 	done chan struct{}
 }
-
-const maxRequestBodySize = 1 << 20
 const maxToolInputLen = 10000
 
 var validTableName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$`)
@@ -423,15 +429,33 @@ func initStandalone() {
 				"pg_hint_plan not available, "+
 					"tuner runs in advisory mode")
 		}
-		qt = tuner.New(pool, tuner.TunerConfig{
-			Enabled:    cfg.Tuner.Enabled,
-			WorkMemMaxMB: cfg.Tuner.WorkMemMaxMB,
-			PlanTimeRatio: cfg.Tuner.PlanTimeRatio,
+		tunerCfg := tuner.TunerConfig{
+			Enabled:                cfg.Tuner.Enabled,
+			LLMEnabled:             cfg.Tuner.LLMEnabled,
+			WorkMemMaxMB:           cfg.Tuner.WorkMemMaxMB,
+			PlanTimeRatio:          cfg.Tuner.PlanTimeRatio,
 			NestedLoopRowThreshold: cfg.Tuner.NestedLoopRowThreshold,
-			ParallelMinTableRows: cfg.Tuner.ParallelMinTableRows,
-			MinQueryCalls: cfg.Tuner.MinQueryCalls,
-			VerifyAfterApply: cfg.Tuner.VerifyAfterApply,
-		}, hpAvail, logStructuredWrapper)
+			ParallelMinTableRows:   cfg.Tuner.ParallelMinTableRows,
+			MinQueryCalls:          cfg.Tuner.MinQueryCalls,
+			VerifyAfterApply:       cfg.Tuner.VerifyAfterApply,
+			CascadeCooldownCycles:  cfg.Trust.CascadeCooldownCycles,
+		}
+		var tunerOpts []tuner.Option
+		if cfg.Tuner.LLMEnabled && llmMgr != nil {
+			tc := llmMgr.ForPurpose("query_tuning")
+			var fb *llm.Client
+			if cfg.LLM.OptimizerLLM.FallbackToGeneral &&
+				llmMgr.General != nil {
+				fb = llmMgr.General
+			}
+			tunerOpts = append(tunerOpts,
+				tuner.WithLLM(tc, fb))
+			logInfo("startup",
+				"tuner LLM-enhanced mode enabled "+
+					"(uses optimizer_llm)")
+		}
+		qt = tuner.New(pool, tunerCfg, hpAvail,
+			logStructuredWrapper, tunerOpts...)
 		logInfo("startup", "tuner enabled")
 	}
 
@@ -600,7 +624,7 @@ func initFleetAndAPI() {
 	}
 	// Fleet instances are already registered by initFleetMultiDB.
 
-	startAPIServer()
+	startAPIServer(rateLimiterInstance)
 }
 
 // initFleetMultiDB creates per-database pools, collectors, analyzers,
@@ -812,13 +836,23 @@ func pgVersionString(num int) string {
 	return fmt.Sprintf("%d.%d", major, minor)
 }
 
-func startAPIServer() {
+func startAPIServer(rl *RateLimiter) {
 	addr := cfg.API.ListenAddr
 	if addr == "" {
 		addr = ":8080"
 	}
 
-	router := api.NewRouter(fleetMgr, cfg)
+	// Auth + rate limiting applied to /api/v1/* only.
+	// Static dashboard assets are served without auth.
+	router := api.NewRouter(fleetMgr, cfg,
+		func(next http.Handler) http.Handler {
+			return authMiddleware(cfg.APIKey, next)
+		},
+		func(next http.Handler) http.Handler {
+			return rateLimitMiddleware(rl, next)
+		},
+	)
+
 	apiServer = &http.Server{
 		Addr:              addr,
 		Handler:           router,
@@ -920,9 +954,19 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 func handleSSE(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		http.Error(w,
+			"streaming not supported",
+			http.StatusInternalServerError)
 		return
 	}
+
+	if atomic.LoadInt64(&sseSessionCount) >= maxSSESessions {
+		http.Error(w,
+			`{"error":"too many SSE sessions"}`,
+			http.StatusServiceUnavailable)
+		return
+	}
+	atomic.AddInt64(&sseSessionCount, 1)
 
 	sessionID := uuid.New().String()
 	sess := &sseSession{
@@ -934,9 +978,17 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	origin := r.Header.Get("Origin")
+	if origin == "http://localhost:8080" ||
+		origin == "http://127.0.0.1:8080" {
+		w.Header().Set(
+			"Access-Control-Allow-Origin", origin,
+		)
+	}
 
-	fmt.Fprintf(w, "event: endpoint\ndata: /messages?sessionId=%s\n\n", sessionID)
+	fmt.Fprintf(w,
+		"event: endpoint\ndata: /messages?sessionId=%s\n\n",
+		sessionID)
 	flusher.Flush()
 
 	ctx := r.Context()
@@ -945,6 +997,7 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			close(sess.done)
 			sessions.Delete(sessionID)
+			atomic.AddInt64(&sseSessionCount, -1)
 			return
 		case msg := <-sess.ch:
 			fmt.Fprintf(w, "event: message\ndata: %s\n\n", msg)
@@ -1899,7 +1952,10 @@ func authMiddleware(apiKey string, next http.Handler) http.Handler {
 			return
 		}
 		token := strings.TrimPrefix(header, "Bearer ")
-		if token == header || token != apiKey {
+		if token == header ||
+			subtle.ConstantTimeCompare(
+				[]byte(token), []byte(apiKey),
+			) != 1 {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"error":"invalid API key"}`))
 			return
@@ -2243,7 +2299,7 @@ func logError(component, msg string, args ...any) { logStructured("ERROR", compo
 
 func logStructured(level, component, msg string, args ...any) {
 	ts := time.Now().UTC().Format(time.RFC3339)
-	fmt.Printf("%s [%s] [%s] %s\n", ts, level, component, fmt.Sprintf(msg, args...))
+	fmt.Fprintf(os.Stderr, "%s [%s] [%s] %s\n", ts, level, component, fmt.Sprintf(msg, args...))
 }
 
 func logStructuredWrapper(component, msg string, args ...any) {

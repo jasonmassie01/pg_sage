@@ -13,23 +13,24 @@ import (
 
 func noopLog(_, _ string, _ ...any) {}
 
+// testChatJSON builds a mock OpenAI chat response body.
+func testChatJSON(content string, tokens int) []byte {
+	resp := map[string]any{
+		"choices": []map[string]any{
+			{
+				"message":       map[string]string{"content": content},
+				"finish_reason": "stop",
+			},
+		},
+		"usage": map[string]int{"total_tokens": tokens},
+	}
+	b, _ := json.Marshal(resp)
+	return b
+}
+
 func TestChat_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := ChatResponse{
-			Choices: []struct {
-				Message struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			}{
-				{Message: struct {
-					Content string `json:"content"`
-				}{Content: "hello world"}},
-			},
-			Usage: struct {
-				TotalTokens int `json:"total_tokens"`
-			}{TotalTokens: 42},
-		}
-		json.NewEncoder(w).Encode(resp)
+		w.Write(testChatJSON("hello world", 42))
 	}))
 	defer srv.Close()
 

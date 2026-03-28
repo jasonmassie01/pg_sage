@@ -155,3 +155,95 @@ func TestRuleUnusedIndexes_WindowNotElapsed(t *testing.T) {
 		)
 	}
 }
+
+func TestRuleUnusedIndexes_UnloggedDowngrade(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Analyzer.UnusedIndexWindowDays = 7
+
+	snap := &collector.Snapshot{
+		Tables: []collector.TableStats{
+			{
+				SchemaName:     "public",
+				RelName:        "staging",
+				Relpersistence: "u",
+			},
+		},
+		Indexes: []collector.IndexStats{
+			{
+				SchemaName:   "public",
+				IndexRelName: "idx_staging_col",
+				RelName:      "staging",
+				IdxScan:      0,
+				IsValid:      true,
+				IndexDef: "CREATE INDEX idx_staging_col " +
+					"ON public.staging (col)",
+			},
+		},
+	}
+
+	extras := &RuleExtras{
+		FirstSeen: map[string]time.Time{
+			"public.idx_staging_col": time.Now().Add(
+				-30 * 24 * time.Hour,
+			),
+		},
+		RecentlyCreated: make(map[string]time.Time),
+	}
+
+	findings := ruleUnusedIndexes(snap, nil, cfg, extras)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Severity != "info" {
+		t.Errorf(
+			"severity = %q, want info (unlogged downgrade)",
+			findings[0].Severity,
+		)
+	}
+	ul, ok := findings[0].Detail["unlogged"].(bool)
+	if !ok || !ul {
+		t.Errorf(
+			"detail[unlogged] = %v, want true",
+			findings[0].Detail["unlogged"],
+		)
+	}
+}
+
+func TestRuleMissingFK_UnloggedDowngrade(t *testing.T) {
+	snap := &collector.Snapshot{
+		Tables: []collector.TableStats{
+			{
+				SchemaName:     "public",
+				RelName:        "tmp_orders",
+				Relpersistence: "u",
+			},
+		},
+		ForeignKeys: []collector.ForeignKey{
+			{
+				TableName:       "tmp_orders",
+				ReferencedTable: "customers",
+				FKColumn:        "customer_id",
+				ConstraintName:  "fk_customer",
+			},
+		},
+	}
+	cfg := &config.Config{}
+
+	findings := ruleMissingFKIndexes(snap, nil, cfg, nil)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	if findings[0].Severity != "info" {
+		t.Errorf(
+			"severity = %q, want info (unlogged downgrade)",
+			findings[0].Severity,
+		)
+	}
+	ul, ok := findings[0].Detail["unlogged"].(bool)
+	if !ok || !ul {
+		t.Errorf(
+			"detail[unlogged] = %v, want true",
+			findings[0].Detail["unlogged"],
+		)
+	}
+}
