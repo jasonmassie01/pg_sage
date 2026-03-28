@@ -21,25 +21,36 @@ func ShouldExecute(
 	isReplica bool,
 	emergencyStop bool,
 ) bool {
-	if emergencyStop || isReplica || cfg.Trust.Level != "autonomous" {
+	if emergencyStop || isReplica {
 		return false
 	}
 
 	rampAge := time.Since(rampStart)
 
-	switch f.ActionRisk {
-	case "safe":
-		return cfg.Trust.Tier3Safe &&
+	switch cfg.Trust.Level {
+	case "observation":
+		return false
+
+	case "advisory":
+		// Advisory: only SAFE actions after 8-day ramp.
+		return f.ActionRisk == "safe" &&
+			cfg.Trust.Tier3Safe &&
 			rampAge >= 8*24*time.Hour
 
-	case "moderate":
-		return cfg.Trust.Tier3Moderate &&
-			rampAge >= 31*24*time.Hour &&
-			inMaintenanceWindow(cfg.Trust.MaintenanceWindow)
-
-	case "high_risk":
-		// High-risk actions are never auto-executed in standalone mode.
-		return false
+	case "autonomous":
+		switch f.ActionRisk {
+		case "safe":
+			return cfg.Trust.Tier3Safe &&
+				rampAge >= 8*24*time.Hour
+		case "moderate":
+			return cfg.Trust.Tier3Moderate &&
+				rampAge >= 31*24*time.Hour &&
+				inMaintenanceWindow(cfg.Trust.MaintenanceWindow)
+		case "high_risk":
+			return false
+		default:
+			return false
+		}
 
 	default:
 		return false
