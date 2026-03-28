@@ -195,6 +195,24 @@ func (m *DatabaseManager) PoolForDatabase(
 	return nil
 }
 
+// RemoveInstance removes an instance by name and closes its pool.
+func (m *DatabaseManager) RemoveInstance(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	inst, ok := m.instances[name]
+	if !ok {
+		return false
+	}
+	if inst.cancel != nil {
+		inst.cancel()
+	}
+	if inst.Pool != nil {
+		inst.Pool.Close()
+	}
+	delete(m.instances, name)
+	return true
+}
+
 // InstanceCount returns the number of registered instances.
 func (m *DatabaseManager) InstanceCount() int {
 	m.mu.RLock()

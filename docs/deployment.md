@@ -92,10 +92,6 @@ llm:
   model: gemini-2.5-flash
   api_key: ${SAGE_GEMINI_API_KEY}
 
-mcp:
-  enabled: true
-  listen_addr: 0.0.0.0:8080
-
 prometheus:
   listen_addr: 0.0.0.0:9187
 ```
@@ -172,7 +168,7 @@ spec:
           args: ["--config", "/etc/pg_sage/config.yaml"]
           ports:
             - containerPort: 8080
-              name: mcp
+              name: api
             - containerPort: 9187
               name: metrics
           env:
@@ -190,7 +186,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: pg-sage-secrets
-                  key: mcp-api-key
+                  key: api-key
           volumeMounts:
             - name: config
               mountPath: /etc/pg_sage
@@ -209,7 +205,7 @@ spec:
   ports:
     - port: 8080
       targetPort: 8080
-      name: mcp
+      name: api
     - port: 9187
       targetPort: 9187
       name: metrics

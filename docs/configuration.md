@@ -2,12 +2,12 @@
 
 pg_sage uses three configuration sources with the following precedence (highest wins):
 
-1. **CLI flags** (`--pg-url`, `--config`, `--mcp-addr`, `--prom-addr`)
+1. **CLI flags** (`--pg-url`, `--config`, `--prom-addr`, `--meta-db`, `--encryption-key`)
 2. **Environment variables** (`SAGE_DATABASE_URL`, `SAGE_LLM_API_KEY`, etc.)
 3. **YAML config file** (`config.yaml`)
 4. **Built-in defaults**
 
-The sidecar supports hot-reload: changes to the YAML config file are detected and applied without restarting. Connection settings (`postgres.*`, `mcp.listen_addr`, `prometheus.listen_addr`, `api.listen_addr`) require a restart.
+The sidecar supports hot-reload: changes to the YAML config file are detected and applied without restarting. Connection settings (`postgres.*`, `prometheus.listen_addr`, `api.listen_addr`) require a restart.
 
 ---
 
@@ -21,8 +21,9 @@ The sidecar supports hot-reload: changes to the YAML config file are detected an
 |---|---|
 | `--pg-url` | PostgreSQL connection string (overrides YAML and env) |
 | `--config` | Path to YAML config file |
-| `--mcp-addr` | MCP server listen address (e.g., `0.0.0.0:5433`) |
 | `--prom-addr` | Prometheus listen address (e.g., `0.0.0.0:9187`) |
+| `--meta-db` | Path to SQLite metadata database |
+| `--encryption-key` | Encryption key for sensitive config values |
 
 ---
 
@@ -33,12 +34,11 @@ The sidecar supports hot-reload: changes to the YAML config file are detected an
 | `SAGE_DATABASE_URL` | (none) | PostgreSQL connection string |
 | `SAGE_LLM_API_KEY` | (none) | API key for Gemini or any OpenAI-compatible LLM |
 | `SAGE_OPTIMIZER_LLM_API_KEY` | (none) | Separate API key for the optimizer model (optional) |
-| `SAGE_API_KEY` | (none) | API key for MCP server authentication (empty = no auth) |
-| `SAGE_TLS_CERT` | (none) | Path to TLS certificate file for MCP server |
-| `SAGE_TLS_KEY` | (none) | Path to TLS private key file for MCP server |
-| `SAGE_MCP_PORT` | `5433` | Port for MCP server |
+| `SAGE_API_KEY` | (none) | API key for REST API authentication (empty = no auth) |
+| `SAGE_TLS_CERT` | (none) | Path to TLS certificate file |
+| `SAGE_TLS_KEY` | (none) | Path to TLS private key file |
 | `SAGE_PROMETHEUS_PORT` | `9187` | Port for Prometheus metrics |
-| `SAGE_RATE_LIMIT` | `60` | Max requests per minute per IP on MCP server |
+| `SAGE_RATE_LIMIT` | `60` | Max requests per minute per IP on REST API |
 | `SAGE_PG_MAX_CONNS` | `2` | Max PostgreSQL connections in pool |
 
 ---
@@ -90,9 +90,19 @@ llm:
     model: ""
     api_key: ${SAGE_OPTIMIZER_LLM_API_KEY}
 
-mcp:
-  enabled: true
-  listen_addr: "0.0.0.0:5433"
+api:
+  listen_addr: "0.0.0.0:8080"
+  auth:
+    enabled: false
+    # session_secret: ${SAGE_SESSION_SECRET}
+
+notifications:
+  slack:
+    enabled: false
+    # webhook_url: ${SAGE_SLACK_WEBHOOK}
+  pagerduty:
+    enabled: false
+    # routing_key: ${SAGE_PAGERDUTY_KEY}
 
 prometheus:
   listen_addr: "0.0.0.0:9187"

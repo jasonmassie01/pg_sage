@@ -1,12 +1,14 @@
 import {
   Database, AlertTriangle, Activity, Bell, Settings,
-  Home, TrendingUp, Zap, Users, LogOut, Mail,
+  Home, TrendingUp, Zap, Users, LogOut, Mail, Server,
 } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
 import { useAPI } from '../hooks/useAPI'
 
 const NAV = [
   { path: '#/', icon: Home, label: 'Dashboard' },
+  { path: '#/manage-databases', icon: Server, label: 'Databases',
+    admin: true },
   { path: '#/findings', icon: AlertTriangle, label: 'Findings' },
   { path: '#/actions', icon: Activity, label: 'Actions' },
   { path: '#/forecasts', icon: TrendingUp, label: 'Forecasts' },
@@ -26,12 +28,16 @@ export function Layout({
   )
   const pendingCount = countData?.count || 0
 
-  const navItems = user?.role === 'admin'
-    ? [...NAV,
+  const isAdmin = user?.role === 'admin'
+  const baseNav = isAdmin
+    ? NAV
+    : NAV.filter(n => !n.admin)
+  const navItems = isAdmin
+    ? [...baseNav,
         { path: '#/notifications', icon: Mail,
           label: 'Notifications' },
         { path: '#/users', icon: Users, label: 'Users' }]
-    : NAV
+    : baseNav
 
   return (
     <div className="flex h-screen">

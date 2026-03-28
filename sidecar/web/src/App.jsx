@@ -11,6 +11,7 @@ import { AlertLogPage } from './pages/AlertLogPage'
 import { LoginPage } from './pages/LoginPage'
 import { UsersPage } from './pages/UsersPage'
 import { NotificationsPage } from './pages/NotificationsPage'
+import { DatabasesPage } from './pages/DatabasesPage'
 import { useAPI } from './hooks/useAPI'
 
 function getRoute() {
@@ -69,6 +70,10 @@ export default function App() {
 
   const page = (() => {
     switch (route) {
+      case '/manage-databases':
+        return user.role === 'admin'
+          ? <DatabasesPage />
+          : <Dashboard database={selectedDB} />
       case '/findings': return <Findings database={selectedDB} user={user} />
       case '/actions': return <Actions database={selectedDB} user={user} />
       case '/database': return <DatabasePage database={selectedDB} />

@@ -159,36 +159,15 @@ pg_sage_connection_up 1
 
 ---
 
-## 6. MCP Server (For AI Assistants)
+## 6. Web UI
 
-pg_sage exposes the Model Context Protocol on port 5433 (configurable). Claude
-Desktop, Cursor, and other MCP-compatible tools can connect.
+pg_sage serves a React dashboard on port 8080 (configurable). Open
+`http://localhost:8080` in your browser to see findings, actions, forecasts,
+query hints, and manage configuration.
 
-Configure Claude Desktop (`%APPDATA%\Claude\claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "pg_sage": {
-      "url": "http://localhost:5433/sse"
-    }
-  }
-}
-```
-
-Available MCP resources:
-
-| Resource | Description |
-|----------|-------------|
-| `sage://health` | System health snapshot |
-| `sage://findings` | Open findings |
-| `sage://slow-queries` | Top slow queries |
-| `sage://schema/{table}` | Table DDL and indexes |
-| `sage://stats/{table}` | Table statistics |
-| `sage://explain/{queryid}` | Cached EXPLAIN plan |
-
-Ask questions like: "What are my slowest queries?", "Show me duplicate indexes",
-"Why is my application slow?"
+The REST API is available at `http://localhost:8080/api/v1/` for programmatic
+access. See the [API Endpoints](../README.md#api-endpoints) section for the
+full list.
 
 ---
 
@@ -228,5 +207,5 @@ docker rm -f pg-test
 | LLM index optimizer with HypoPG validation | 2 | Yes |
 | Trust-gated action executor with rollback | 3 | No |
 | Prometheus metrics | Core | No |
-| MCP server for AI assistants | Core | No |
+| Web UI dashboard | Core | No |
 | Health briefings | Core | No (enhanced with LLM) |

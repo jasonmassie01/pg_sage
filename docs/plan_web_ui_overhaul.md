@@ -254,10 +254,10 @@ CREATE TABLE sage.notification_rules (
 **Goal**: Clean removal of all MCP code.
 
 #### Tasks
-- [ ] 6.1 Remove `main.go` MCP server setup, SSE handler, MCP tools
-- [ ] 6.2 Remove MCP port from config, docs, Dockerfile, docker-compose
-- [ ] 6.3 Remove `.mcp.json` files from repo
-- [ ] 6.4 Update README, architecture docs
+- [x] 6.1 Remove `main.go` MCP server setup, SSE handler, MCP tools
+- [x] 6.2 Remove MCP port from config, docs, Dockerfile, docker-compose
+- [x] 6.3 Remove `.mcp.json` files from repo (none existed)
+- [x] 6.4 Update README, architecture docs
 - [ ] 6.5 Remove MCP-related dependencies from `go.mod`
 - [ ] 6.6 Update goreleaser config
 

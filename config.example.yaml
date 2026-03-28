@@ -69,7 +69,7 @@ llm:
 prometheus:
   listen_addr: "0.0.0.0:9187"
 
-# REST API + Dashboard (served alongside MCP)
+# REST API + Dashboard (web UI)
 api:
   listen_addr: "0.0.0.0:8080"
 

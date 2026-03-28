@@ -10,8 +10,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 )
+
+// EventDispatcher sends notification events. Nil means no
+// notifications (backward-compatible default).
+type EventDispatcher interface {
+	Dispatch(ctx context.Context, event notify.Event) error
+}
 
 // ActionProposer defines the subset of ActionStore the executor needs.
 // Nil means auto mode (no queueing).
@@ -31,6 +38,8 @@ type Executor struct {
 	logFn         func(string, string, ...any)
 	actionStore   ActionProposer
 	execMode      string // auto, approval, manual
+	dispatcher    EventDispatcher
+	databaseName  string
 }
 
 // New creates a new Executor.
@@ -61,6 +70,17 @@ func (e *Executor) WithActionStore(
 	if mode != "" {
 		e.execMode = mode
 	}
+}
+
+// WithDispatcher sets the notification dispatcher. Nil is safe
+// and means no notifications are sent (default).
+func (e *Executor) WithDispatcher(d EventDispatcher) {
+	e.dispatcher = d
+}
+
+// WithDatabaseName sets the database name included in events.
+func (e *Executor) WithDatabaseName(name string) {
+	e.databaseName = name
 }
 
 // SetExecutionMode changes the execution mode at runtime.
@@ -127,6 +147,10 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			} else {
 				e.logFn("executor",
 					"queued %q for approval", f.Title)
+				e.dispatchEvent(ctx,
+					notify.ApprovalNeededEvent(
+						f.Title, f.RecommendedSQL,
+						e.databaseName, f.ActionRisk))
 			}
 			continue
 		}
@@ -170,12 +194,19 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			e.logFn("executor",
 				"execution failed for %q: %v", f.Title, execErr,
 			)
+			e.dispatchEvent(ctx,
+				notify.ActionFailedEvent(
+					f.Title, f.RecommendedSQL,
+					e.databaseName, execErr.Error()))
 			continue
 		}
 
 		e.logFn("executor",
 			"executed %q (action %d)", f.Title, actionID,
 		)
+		e.dispatchEvent(ctx,
+			notify.ActionExecutedEvent(
+				f.Title, f.RecommendedSQL, e.databaseName))
 		e.recentActions[f.ObjectIdentifier] = time.Now()
 
 		// Post-check: verify index validity after CREATE INDEX.
@@ -232,6 +263,20 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			// — mark success immediately.
 			updateActionSuccess(ctx, e.pool, actionID)
 		}
+	}
+}
+
+// dispatchEvent sends a notification event if the dispatcher is set.
+// Errors are logged but do not interrupt the executor flow.
+func (e *Executor) dispatchEvent(
+	ctx context.Context, event notify.Event,
+) {
+	if e.dispatcher == nil {
+		return
+	}
+	if err := e.dispatcher.Dispatch(ctx, event); err != nil {
+		e.logFn("executor",
+			"notification dispatch failed: %v", err)
 	}
 }
 

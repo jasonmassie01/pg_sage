@@ -26,6 +26,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/forecaster"
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -87,45 +88,46 @@ func main() {
 	}
 
 	logInfo("startup", "pg_sage sidecar v%s — mode=%s", version, cfg.Mode)
-	logInfo("startup", "Prometheus=%s API=%s", cfg.Prometheus.ListenAddr, cfg.API.ListenAddr)
+	logInfo("startup", "Prometheus=%s API=%s",
+		cfg.Prometheus.ListenAddr, cfg.API.ListenAddr)
 
-	// Build DSN.
-	dsn := cfg.Postgres.DSN()
-	if dsn == "" {
-		dsn = envOrDefault("SAGE_DATABASE_URL",
-			"postgres://postgres@localhost:5432/postgres?sslmode=disable")
+	// Meta-DB mode: connect to dedicated metadata database first.
+	var metaState *metaDBState
+	if cfg.HasMetaDB() {
+		logInfo("startup", "connecting to meta database…")
+		metaPool, metaErr := connectMetaDB(cfg.MetaDB)
+		if metaErr != nil {
+			logError("startup", "meta-db: %v", metaErr)
+			os.Exit(1)
+		}
+		defer metaPool.Close()
+
+		state, initErr := initMetaDB(metaPool, cfg.EncryptionKey)
+		if initErr != nil {
+			logError("startup", "meta-db init: %v", initErr)
+			os.Exit(1)
+		}
+		metaState = state
+		pool = metaPool
+		logInfo("startup", "meta database initialized")
 	}
 
-	// Connect to PostgreSQL.
-	poolCfg, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		logError("startup", "invalid DSN: %v", err)
-		os.Exit(1)
+	// Standard mode: connect to monitored database directly.
+	if !cfg.HasMetaDB() {
+		dsn := cfg.Postgres.DSN()
+		if dsn == "" {
+			dsn = envOrDefault("SAGE_DATABASE_URL",
+				"postgres://postgres@localhost:5432/"+
+					"postgres?sslmode=disable")
+		}
+		pool, err = connectMonitoredDB(dsn, cfg.Postgres.MaxConnections)
+		if err != nil {
+			logError("startup", "%v", err)
+			os.Exit(1)
+		}
+		defer pool.Close()
+		logInfo("startup", "connected to PostgreSQL")
 	}
-	poolCfg.MaxConns = int32(cfg.Postgres.MaxConnections)
-	if poolCfg.MaxConns < 2 {
-		poolCfg.MaxConns = 2
-	}
-	poolCfg.MinConns = 1
-	poolCfg.MaxConnLifetime = 30 * time.Minute
-	poolCfg.MaxConnIdleTime = 5 * time.Minute
-	poolCfg.HealthCheckPeriod = 30 * time.Second
-
-	pool, err = pgxpool.NewWithConfig(context.Background(), poolCfg)
-	if err != nil {
-		logError("startup", "pool: %v", err)
-		os.Exit(1)
-	}
-	defer pool.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if err := pool.Ping(ctx); err != nil {
-		logError("startup", "cannot connect: %v", err)
-		cancel()
-		os.Exit(1)
-	}
-	cancel()
-	logInfo("startup", "connected to PostgreSQL")
 
 	// Cancellable shutdown context for background goroutines.
 	shutdownCtx, shutdownCancel = context.WithCancel(context.Background())
@@ -145,8 +147,10 @@ func main() {
 		logInfo("startup", "mode: SIDECAR — no extension, using catalog queries")
 	}
 
-	// Standalone mode initialization.
-	if cfg.IsStandalone() {
+	// Mode-specific initialization.
+	if cfg.HasMetaDB() && metaState != nil {
+		initMetaDBFleet(metaState)
+	} else if cfg.IsStandalone() {
 		initStandalone()
 	} else if cfg.IsFleet() {
 		initFleetMultiDB()
@@ -415,6 +419,16 @@ func initStandalone() {
 	// 9b. Action queue store + execution mode.
 	actionStore = store.NewActionStore(pool)
 	exec.WithActionStore(actionStore, resolveExecutionMode())
+
+	// 9c. Notification dispatcher.
+	notifyDispatcher := notify.NewDispatcher(
+		pool, logStructuredWrapper)
+	dbName := resolveDBName()
+	exec.WithDispatcher(notifyDispatcher)
+	exec.WithDatabaseName(dbName)
+	anal.WithDispatcher(notifyDispatcher)
+	anal.WithDatabaseName(dbName)
+
 	go store.StartActionExpiry(shutdownCtx, actionStore, logStructuredWrapper)
 
 	// 10. Briefing worker.
@@ -706,6 +720,15 @@ func initFleetMultiDB() {
 			logStructuredWrapper)
 		dbActionStore := store.NewActionStore(dbPool)
 		dbExec.WithActionStore(dbActionStore, "auto")
+
+		// Notification dispatcher per database.
+		dbDispatcher := notify.NewDispatcher(
+			dbPool, logStructuredWrapper)
+		dbExec.WithDispatcher(dbDispatcher)
+		dbExec.WithDatabaseName(name)
+		dbAnal.WithDispatcher(dbDispatcher)
+		dbAnal.WithDatabaseName(name)
+
 		go store.StartActionExpiry(
 			shutdownCtx, dbActionStore, logStructuredWrapper)
 

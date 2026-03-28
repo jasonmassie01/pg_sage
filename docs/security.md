@@ -111,11 +111,11 @@ What is **never** sent: row data, column values, passwords, connection strings, 
 
 ---
 
-## MCP Server Security
+## API Security
 
 ### API Key Authentication
 
-Set `SAGE_API_KEY` to require a Bearer token on all MCP requests:
+Set `SAGE_API_KEY` to require a Bearer token on all API requests:
 
 ```bash
 export SAGE_API_KEY="your-secret-key-here"
@@ -146,7 +146,7 @@ When configured, the sidecar enforces TLS 1.2 as the minimum protocol version.
 
 - **Body size**: Maximum 1 MB per request.
 - **Rate limiting**: Configurable via `SAGE_RATE_LIMIT` (default: 60 requests per minute per IP).
-- **Request timeout**: 30 seconds per MCP request.
+- **Request timeout**: 30 seconds per API request.
 - **Pool exhaustion protection**: When the connection pool is exhausted, database-backed methods return `503`.
 
 ### Security Headers
@@ -181,7 +181,7 @@ Halt all autonomous activity immediately by setting the emergency stop flag in `
 UPDATE sage.config SET value = 'true' WHERE key = 'emergency_stop';
 ```
 
-Or use the MCP tool `sage_emergency_stop` via Claude Desktop.
+Or use the web UI emergency stop button, or the REST API `POST /api/v1/emergency-stop`.
 
 Resume with:
 
@@ -189,7 +189,7 @@ Resume with:
 UPDATE sage.config SET value = 'false' WHERE key = 'emergency_stop';
 ```
 
-Or use the MCP tool `sage_resume`.
+Or use the web UI resume button, or the REST API `POST /api/v1/resume`.
 
 ---
 
@@ -205,9 +205,9 @@ Every autonomous action is recorded with:
 - The finding that triggered the action
 - Before/after state
 
-### MCP Log (`sage.mcp_log`)
+### API Request Log
 
-Every MCP request is logged with client IP, method, resource URI, tool name, duration, and status.
+API requests are logged for audit purposes.
 
 Both tables are subject to retention policies (configurable via `retention.actions_days`).
 
@@ -215,7 +215,7 @@ Both tables are subject to retention policies (configurable via `retention.actio
 
 ## Production Checklist
 
-1. **Set `SAGE_API_KEY`** -- never run the MCP server without authentication in production.
+1. **Set `SAGE_API_KEY`** -- never run the API server without authentication in production.
 2. **Enable TLS** -- set `SAGE_TLS_CERT` and `SAGE_TLS_KEY`. Use a reverse proxy for automatic certificate renewal.
 3. **Start in observation mode** -- deploy with `trust.level: observation` and review findings for at least a week.
 4. **Set a maintenance window** -- restrict autonomous actions to low-traffic periods.

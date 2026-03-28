@@ -41,6 +41,19 @@ func NewRouterWithActions(
 	actions *ActionDeps,
 	middlewares ...func(http.Handler) http.Handler,
 ) http.Handler {
+	return NewRouterFull(
+		mgr, cfg, pool, actions, nil, middlewares...)
+}
+
+// NewRouterFull creates the API handler with all optional deps.
+func NewRouterFull(
+	mgr *fleet.DatabaseManager,
+	cfg *config.Config,
+	pool *pgxpool.Pool,
+	actions *ActionDeps,
+	dbDeps *DatabaseDeps,
+	middlewares ...func(http.Handler) http.Handler,
+) http.Handler {
 	apiMux := http.NewServeMux()
 	registerAPIRoutes(apiMux, mgr, cfg)
 	if pool != nil {
@@ -53,6 +66,9 @@ func NewRouterWithActions(
 		registerActionRoutes(
 			apiMux, actions.Store, actions.Executor,
 		)
+	}
+	if dbDeps != nil && dbDeps.Store != nil {
+		registerDatabaseRoutes(apiMux, dbDeps)
 	}
 
 	// Stack middlewares onto API routes only.

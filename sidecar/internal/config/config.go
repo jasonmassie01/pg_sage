@@ -35,6 +35,10 @@ type Config struct {
 	Defaults  DefaultsConfig   `yaml:"defaults"`
 	API       APIConfig        `yaml:"api"`
 
+	// Meta database and encryption (--meta-db, --encryption-key).
+	MetaDB        string `yaml:"meta_db"`
+	EncryptionKey string `yaml:"encryption_key"`
+
 	// Legacy env-var fields (extension mode compat)
 	APIKey  string `yaml:"-"`
 	TLSCert string `yaml:"-"`
@@ -305,6 +309,8 @@ func Load(args []string) (*Config, error) {
 	pgSSLMode := fs.String("pg-sslmode", "", "PostgreSQL sslmode")
 	pgURL := fs.String("pg-url", "", "PostgreSQL connection URL (overrides individual pg-* flags)")
 	promAddr := fs.String("prom-addr", "", "Prometheus listen address")
+	metaDB := fs.String("meta-db", "", "Metadata database connection string")
+	encryptionKey := fs.String("encryption-key", "", "Passphrase for credential encryption")
 	_ = fs.Parse(args)
 
 	// Step 1: Load YAML (if provided or auto-detected).
@@ -356,6 +362,12 @@ func Load(args []string) (*Config, error) {
 	if *promAddr != "" {
 		cfg.Prometheus.ListenAddr = *promAddr
 	}
+	if *metaDB != "" {
+		cfg.MetaDB = *metaDB
+	}
+	if *encryptionKey != "" {
+		cfg.EncryptionKey = *encryptionKey
+	}
 
 	// Legacy env-var compat.
 	cfg.APIKey = os.Getenv("SAGE_API_KEY")
@@ -370,8 +382,9 @@ func Load(args []string) (*Config, error) {
 		return nil, fmt.Errorf(
 			"invalid mode %q: must be 'extension', 'standalone', or 'fleet'", cfg.Mode)
 	}
-	if cfg.Mode == "standalone" && cfg.Postgres.DSN() == "" {
-		return nil, fmt.Errorf("standalone mode requires postgres connection config")
+	if cfg.Mode == "standalone" && cfg.Postgres.DSN() == "" && cfg.MetaDB == "" {
+		return nil, fmt.Errorf(
+			"standalone mode requires postgres connection config or --meta-db")
 	}
 
 	// Migrate deprecated index_optimizer → optimizer if optimizer wasn't
@@ -689,6 +702,12 @@ func overlayEnv(cfg *Config) {
 	if v := os.Getenv("SAGE_TRUST_LEVEL"); v != "" {
 		cfg.Trust.Level = v
 	}
+	if v := os.Getenv("SAGE_META_DB"); v != "" {
+		cfg.MetaDB = v
+	}
+	if v := os.Getenv("SAGE_ENCRYPTION_KEY"); v != "" {
+		cfg.EncryptionKey = v
+	}
 	if v := os.Getenv("SAGE_OPTIMIZER_LLM_API_KEY"); v != "" {
 		cfg.LLM.OptimizerLLM.APIKey = v
 	}
@@ -727,6 +746,16 @@ func (c *Config) IsStandalone() bool {
 // IsFleet returns true if running in fleet mode.
 func (c *Config) IsFleet() bool {
 	return c.Mode == "fleet"
+}
+
+// HasMetaDB returns true if a metadata database is configured.
+func (c *Config) HasMetaDB() bool {
+	return c.MetaDB != ""
+}
+
+// HasEncryptionKey returns true if an encryption passphrase is set.
+func (c *Config) HasEncryptionKey() bool {
+	return c.EncryptionKey != ""
 }
 
 // RateLimit returns the configured rate limit.

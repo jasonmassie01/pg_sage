@@ -8,7 +8,7 @@ pg_sage is a Go sidecar that connects to any PostgreSQL 14-17 over the network. 
 
 2. **Single implementation**: All collector, analyzer, optimizer, and executor logic lives in Go. No dual C/Go maintenance burden.
 
-3. **Feature velocity**: The optimizer, MCP server, briefing worker, and Prometheus exporter ship as a single binary with no database-side dependency.
+3. **Feature velocity**: The optimizer, web UI, briefing worker, and Prometheus exporter ship as a single binary with no database-side dependency.
 
 ---
 
@@ -30,8 +30,7 @@ pg_sage sidecar (single Go binary)
   │   ├── Rollback monitor (read + write latency regression)
   │   └── Emergency stop via sage.config
   │
-  ├── MCP Server       [:5433]  Claude Desktop / AI agent interface
-  ├── API + Dashboard  [:8080]  REST API + React SPA
+  ├── API + Dashboard  [:8080]  REST API + React SPA (web UI)
   └── Prometheus       [:9187]  Metrics endpoint
 ```
 
@@ -82,13 +81,9 @@ HIGH-risk actions always require manual confirmation. Every action is logged to 
 
 The executor checks: trust level, trust ramp, per-tier toggles, maintenance window, emergency stop flag, and replica status before acting.
 
-### MCP Server
+### API + Dashboard (Web UI)
 
-HTTP + SSE transport on `:5433` (configurable). Implements the Model Context Protocol for Claude Desktop and other AI agents. Exposes resources (health, findings, schema, stats, slow queries, explain plans) and tools (sage_briefing, suggest_index, review_migration, sage_status, sage_emergency_stop, sage_resume).
-
-### API + Dashboard
-
-REST API and embedded React SPA on `:8080` (configurable). Provides 17 endpoints for findings, actions, snapshots, config, forecasts, query hints, alert log, emergency stop, and fleet management.
+REST API and embedded React SPA on `:8080` (configurable). Provides 17 endpoints for findings, actions, snapshots, config, forecasts, query hints, alert log, emergency stop, and fleet management. The web UI includes authentication and notification support.
 
 ### Alerting
 

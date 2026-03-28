@@ -119,7 +119,7 @@ Generated health briefings.
 
 ### `sage.mcp_log`
 
-Audit log for MCP server requests.
+Audit log for API requests (legacy table name retained for compatibility).
 
 | Column | Type | Description |
 |---|---|---|
@@ -173,4 +173,4 @@ The following functions are part of the C extension (frozen at v0.6.0-rc3). They
 | `sage.slow_queries_json()` | Top slow queries as JSONB |
 | `sage.explain_json(queryid BIGINT)` | Cached plan as JSONB |
 
-These functions are not needed when using the sidecar. The MCP server and Prometheus exporter provide equivalent functionality.
+These functions are not needed when using the sidecar. The REST API, web UI, and Prometheus exporter provide equivalent functionality.

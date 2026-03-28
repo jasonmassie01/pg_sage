@@ -11,8 +11,15 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 )
+
+// EventDispatcher sends notification events. Nil means no
+// notifications are sent.
+type EventDispatcher interface {
+	Dispatch(ctx context.Context, event notify.Event) error
+}
 
 // ConfigAdvisor is satisfied by *advisor.Advisor without importing it.
 type ConfigAdvisor interface {
@@ -40,9 +47,11 @@ type Analyzer struct {
 	advisor    ConfigAdvisor
 	forecaster WorkloadForecaster
 	tuner      QueryTuner
-	logFn      func(string, string, ...any)
-	mu        sync.RWMutex
-	findings  []Finding
+	logFn        func(string, string, ...any)
+	dispatcher   EventDispatcher
+	databaseName string
+	mu           sync.RWMutex
+	findings     []Finding
 }
 
 // New creates a new Analyzer.
@@ -70,6 +79,17 @@ func New(
 		},
 		logFn: logFn,
 	}
+}
+
+// WithDispatcher sets the notification dispatcher for critical
+// finding alerts. Nil is safe (default).
+func (a *Analyzer) WithDispatcher(d EventDispatcher) {
+	a.dispatcher = d
+}
+
+// WithDatabaseName sets the database name included in events.
+func (a *Analyzer) WithDatabaseName(name string) {
+	a.databaseName = name
 }
 
 // Run starts the analyzer loop and blocks until ctx is cancelled.
@@ -316,6 +336,9 @@ func (a *Analyzer) cycle(ctx context.Context) {
 		a.logFn("ERROR", "analyzer: upsert findings: %v", err)
 	}
 
+	// Notify on new critical findings.
+	a.dispatchCriticalFindings(ctx, allFindings)
+
 	// Resolve cleared findings by category.
 	activeByCategory := make(map[string]map[string]bool)
 	for _, f := range allFindings {
@@ -333,6 +356,28 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	}
 
 	a.logFn("INFO", "analyzer cycle: %d findings", len(allFindings))
+}
+
+// dispatchCriticalFindings sends notifications for critical-severity
+// findings. Only fires when a dispatcher is configured.
+func (a *Analyzer) dispatchCriticalFindings(
+	ctx context.Context, findings []Finding,
+) {
+	if a.dispatcher == nil {
+		return
+	}
+	for _, f := range findings {
+		if f.Severity != "critical" {
+			continue
+		}
+		detail, _ := json.Marshal(f.Detail)
+		event := notify.FindingCriticalEvent(
+			f.Title, string(detail), a.databaseName)
+		if err := a.dispatcher.Dispatch(ctx, event); err != nil {
+			a.logFn("ERROR",
+				"critical finding dispatch: %v", err)
+		}
+	}
 }
 
 func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {

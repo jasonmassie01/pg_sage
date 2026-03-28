@@ -77,7 +77,6 @@ pg_sage/
 │   │   │   └── hooks/useAPI.js       # Polling fetch hook
 │   │   ├── vite.config.js            # Output → ../internal/api/dist/
 │   │   └── package.json
-│   ├── main.go                       # MCP server, Prometheus, auth, tools, resources
 │   ├── go.mod
 │   ├── Dockerfile
 │   └── .golangci.yml
@@ -125,9 +124,8 @@ cd .. && goreleaser build --snapshot --clean
 
 | Server | Port | Purpose |
 |--------|------|---------|
-| MCP (SSE) | `:5433` | Model Context Protocol for Claude Desktop / AI agents |
 | Prometheus | `:9187` | Metrics endpoint (text format) |
-| API + Dashboard | `:8080` | REST API (`/api/v1/*`) + React SPA |
+| API + Dashboard | `:8080` | REST API (`/api/v1/*`) + React SPA + web UI |
 
 ## REST API Endpoints (17)
 

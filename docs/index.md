@@ -17,7 +17,7 @@ No C extension required. Works on managed services (Cloud SQL, AlloyDB, Aurora, 
 | **Three-tier architecture** | Rules engine (Tier 1), LLM index optimizer (Tier 2), trust-gated executor (Tier 3) |
 | **Trust-ramped autonomy** | Graduated from observation to advisory to autonomous over time |
 | **LLM optional** | Tier 1 works without any LLM endpoint configured |
-| **MCP server** | Exposes capabilities to AI assistants (Claude Desktop, Cursor) via Model Context Protocol |
+| **Web UI** | React dashboard with auth, notifications, and full management interface |
 | **Prometheus metrics** | Scrape `:9187/metrics` for monitoring and alerting |
 | **Self-protecting** | Circuit breakers prevent pg_sage from becoming the incident |
 | **Full audit trail** | Every action logged with before/after state and rollback SQL |

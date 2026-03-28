@@ -18,7 +18,6 @@ pg_sage collects performance data from `pg_stat_statements` and catalog views, r
 - **Alerting** -- Slack, PagerDuty, and generic webhook channels with per-severity routing, cooldown, and quiet hours
 - **React dashboard** -- embedded in the Go binary via `go:embed`, served on `:8080` alongside the REST API
 - **Fleet mode** -- monitor N databases from a single sidecar with per-database trust levels, token budgets, and health scores
-- **MCP server** -- Model Context Protocol (SSE transport) for Claude Desktop and other AI agents
 - **Prometheus metrics** -- standard `/metrics` endpoint on `:9187`
 
 ## Quick Start
@@ -67,7 +66,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA sage GRANT ALL ON TABLES TO sage_agent;
 
 | Port | Service |
 |------|---------|
-| 8080 | REST API + React dashboard + MCP (SSE) |
+| 8080 | REST API + React dashboard (web UI) |
 | 9187 | Prometheus metrics |
 
 ## Configuration
@@ -118,8 +117,7 @@ pg_sage sidecar (single Go binary)
   |   +-- Per-Query Tuner            EXPLAIN plan scanning + pg_hint_plan
   +-- Executor         [trust-gated] CONCURRENTLY DDL, rollback monitoring
   +-- Alerting                       Slack, PagerDuty, webhook
-  +-- REST API + Dashboard  [:8080]  17 endpoints + React SPA
-  +-- MCP Server            [:8080]  SSE transport for AI agents
+  +-- REST API + Dashboard  [:8080]  17 endpoints + React SPA (web UI)
   +-- Prometheus            [:9187]  Metrics endpoint
 ```
 
@@ -220,24 +218,6 @@ All under `/api/v1/`. In fleet mode, most accept `?database=` to filter by insta
 | POST | `/emergency-stop` | Halt all autonomous actions |
 | POST | `/resume` | Resume after emergency stop |
 
-## MCP Integration
-
-Connect Claude Desktop or any MCP client to `http://localhost:8080/sse`:
-
-```json
-{
-  "mcpServers": {
-    "pg_sage": {
-      "url": "http://localhost:8080/sse"
-    }
-  }
-}
-```
-
-**Tools:** `sage_status`, `sage_analyze`, `sage_explain`, `sage_briefing`, `sage_diagnose`
-
-**Resources:** `sage://health`, `sage://findings`, `sage://slow-queries`, `sage://schema/{table}`, `sage://stats/{table}`, `sage://explain/{queryid}`
-
 ## Prometheus Metrics
 
 Scrape `http://localhost:9187/metrics`:
@@ -331,7 +311,6 @@ pg_sage/
       startup/                 Prerequisite validation
       tuner/                   Per-query tuner + pg_hint_plan
     web/                       React 19 + Vite + Tailwind dashboard
-    main.go                    MCP server, Prometheus, auth
     Dockerfile
     go.mod
   config.example.yaml

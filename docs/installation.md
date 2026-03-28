@@ -67,7 +67,7 @@ The simplest way to start -- observation mode, no LLM:
 ./pg_sage --pg-url "postgres://sage_agent:YOUR_PASSWORD@your-instance:5432/postgres"
 ```
 
-This starts the collector (every 60s), analyzer (every 600s), MCP server on `:5433`, API+dashboard on `:8080`, and Prometheus metrics on `:9187`.
+This starts the collector (every 60s), analyzer (every 600s), API+dashboard on `:8080`, and Prometheus metrics on `:9187`.
 
 ---
 
@@ -104,10 +104,6 @@ llm:
   optimizer:
     enabled: true
 
-mcp:
-  enabled: true
-  listen_addr: "0.0.0.0:5433"
-
 prometheus:
   listen_addr: "0.0.0.0:9187"
 ```
@@ -140,8 +136,8 @@ After starting pg_sage, verify it is running:
 # Check Prometheus metrics
 curl -s http://localhost:9187/metrics | head -10
 
-# Check MCP endpoint
-curl -s http://localhost:5433/sse
+# Check web UI
+curl -s http://localhost:8080/api/v1/config
 ```
 
 Connect to your database and check the sage schema:
