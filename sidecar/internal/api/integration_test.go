@@ -71,7 +71,7 @@ func setupIntegrationRouter() (http.Handler, *fleet.DatabaseManager) {
 		},
 	})
 
-	return NewRouter(mgr, cfg), mgr
+	return NewRouter(mgr, cfg, nil), mgr
 }
 
 func TestIntegration_FleetDashboardData(t *testing.T) {

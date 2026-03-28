@@ -13,6 +13,13 @@ import (
 	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
+// ActionProposer defines the subset of ActionStore the executor needs.
+// Nil means auto mode (no queueing).
+type ActionProposer interface {
+	Propose(ctx context.Context, databaseID *int,
+		findingID int, sql, rollbackSQL, risk string) (int, error)
+}
+
 // Executor runs the autonomous remediation loop after each
 // analyzer cycle.
 type Executor struct {
@@ -22,6 +29,8 @@ type Executor struct {
 	rampStart     time.Time
 	recentActions map[string]time.Time
 	logFn         func(string, string, ...any)
+	actionStore   ActionProposer
+	execMode      string // auto, approval, manual
 }
 
 // New creates a new Executor.
@@ -39,12 +48,39 @@ func New(
 		rampStart:     rampStart,
 		recentActions: make(map[string]time.Time),
 		logFn:         logFn,
+		execMode:      "auto",
 	}
+}
+
+// WithActionStore sets the action store and execution mode.
+// This enables approval/manual mode queueing.
+func (e *Executor) WithActionStore(
+	as ActionProposer, mode string,
+) {
+	e.actionStore = as
+	if mode != "" {
+		e.execMode = mode
+	}
+}
+
+// SetExecutionMode changes the execution mode at runtime.
+func (e *Executor) SetExecutionMode(mode string) {
+	e.execMode = mode
+}
+
+// ExecutionMode returns the current execution mode.
+func (e *Executor) ExecutionMode() string {
+	return e.execMode
 }
 
 // RunCycle is called after each analyzer cycle to evaluate and execute
 // any actionable findings.
 func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
+	// Manual mode: no auto-proposals or executions.
+	if e.execMode == "manual" {
+		return
+	}
+
 	emergencyStop := CheckEmergencyStop(ctx, e.pool)
 	if emergencyStop {
 		e.logFn("executor", "emergency stop active — skipping cycle")
@@ -75,6 +111,23 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 
 		findingID := e.lookupFindingID(ctx, f)
 		if findingID <= 0 {
+			continue
+		}
+
+		// Approval mode: queue for approval instead of executing.
+		if e.execMode == "approval" && e.actionStore != nil {
+			_, propErr := e.actionStore.Propose(
+				ctx, nil, int(findingID),
+				f.RecommendedSQL, f.RollbackSQL, f.ActionRisk,
+			)
+			if propErr != nil {
+				e.logFn("executor",
+					"failed to queue %q for approval: %v",
+					f.Title, propErr)
+			} else {
+				e.logFn("executor",
+					"queued %q for approval", f.Title)
+			}
 			continue
 		}
 
@@ -292,10 +345,7 @@ func (e *Executor) logAction(
 ) int64 {
 	beforeJSON, _ := json.Marshal(beforeState)
 
-	outcome := "pending"
-	if execErr != nil {
-		outcome = "failed"
-	}
+	outcome := actionOutcome(execErr)
 
 	actionType := categorizeAction(f.RecommendedSQL)
 
@@ -317,12 +367,17 @@ func (e *Executor) logAction(
 	}
 
 	// Link the finding to this action.
-	_, _ = e.pool.Exec(ctx,
-		`UPDATE sage.findings
-		 SET acted_on_at = now(), action_log_id = $1
-		 WHERE id = $2`,
-		actionID, findingID,
-	)
+	// Only mark acted_on_at when the action succeeded so that failed
+	// findings remain eligible for retry (lookupFindingID filters on
+	// acted_on_at IS NULL).
+	if outcome != "failed" {
+		_, _ = e.pool.Exec(ctx,
+			`UPDATE sage.findings
+			 SET acted_on_at = now(), action_log_id = $1
+			 WHERE id = $2`,
+			actionID, findingID,
+		)
+	}
 
 	return actionID
 }
@@ -348,6 +403,16 @@ func categorizeAction(sql string) string {
 	default:
 		return "ddl"
 	}
+}
+
+// actionOutcome returns "failed" when execErr is non-nil, "pending" otherwise.
+// This determines whether acted_on_at is set on the finding — failed actions
+// must leave the finding retryable.
+func actionOutcome(execErr error) string {
+	if execErr != nil {
+		return "failed"
+	}
+	return "pending"
 }
 
 // nilIfEmpty returns nil for empty strings, used for nullable SQL params.

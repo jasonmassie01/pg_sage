@@ -129,10 +129,6 @@ func warnNonReloadable(current, fresh *Config) {
 		fresh.Postgres.Database != current.Postgres.Database {
 		log.Printf("[WARN] [config-watcher] postgres.database changed — restart required")
 	}
-	if fresh.MCP.ListenAddr != "" &&
-		fresh.MCP.ListenAddr != current.MCP.ListenAddr {
-		log.Printf("[WARN] [config-watcher] mcp.listen_addr changed — restart required")
-	}
 	if fresh.Prometheus.ListenAddr != "" &&
 		fresh.Prometheus.ListenAddr != current.Prometheus.ListenAddr {
 		log.Printf(

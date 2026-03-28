@@ -2,27 +2,23 @@ package main
 
 import (
 	"context"
-	"crypto/subtle"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"regexp"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/alerting"
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/advisor"
+	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/autoexplain"
 	"github.com/pg-sage/sidecar/internal/briefing"
@@ -35,6 +31,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/retention"
+	"github.com/pg-sage/sidecar/internal/store"
 	"github.com/pg-sage/sidecar/internal/tuner"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/startup"
@@ -50,7 +47,6 @@ var (
 // Global state.
 var (
 	pool               *pgxpool.Pool
-	sessions           sync.Map
 	extensionAvailable bool
 	cloudEnvironment   string
 	cfg                *config.Config
@@ -59,6 +55,7 @@ var (
 	adv                *advisor.Advisor
 	llmMgr             *llm.Manager
 	exec               *executor.Executor
+	actionStore        *store.ActionStore
 	haMon              *ha.Monitor
 	briefWorker        *briefing.Worker
 	llmClient          *llm.Client
@@ -74,22 +71,7 @@ var (
 	shutdownCtx        context.Context
 	shutdownCancel     context.CancelFunc
 	rateLimiterInstance *RateLimiter
-	sseSessionCount    int64 // atomic counter
 )
-
-const (
-	maxRequestBodySize = 1 << 20
-	maxSSESessions     = 100
-)
-
-type sseSession struct {
-	ch   chan []byte
-	done chan struct{}
-}
-const maxToolInputLen = 10000
-
-var validTableName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$`)
-var validInteger = regexp.MustCompile(`^-?[0-9]+$`)
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
@@ -105,7 +87,7 @@ func main() {
 	}
 
 	logInfo("startup", "pg_sage sidecar v%s — mode=%s", version, cfg.Mode)
-	logInfo("startup", "MCP=%s Prometheus=%s", cfg.MCP.ListenAddr, cfg.Prometheus.ListenAddr)
+	logInfo("startup", "Prometheus=%s API=%s", cfg.Prometheus.ListenAddr, cfg.API.ListenAddr)
 
 	// Build DSN.
 	dsn := cfg.Postgres.DSN()
@@ -168,8 +150,6 @@ func main() {
 		initStandalone()
 	} else if cfg.IsFleet() {
 		initFleetMultiDB()
-	} else {
-		ensureMCPLogTable()
 	}
 
 	// Fleet manager + REST API (wraps standalone or fleet instances).
@@ -192,49 +172,8 @@ func main() {
 	rl := NewRateLimiter(cfg.RateLimit())
 	rateLimiterInstance = rl
 
-	// MCP HTTP server.
-	mcpMux := http.NewServeMux()
-	mcpMux.HandleFunc("/sse", handleSSE)
-	mcpMux.HandleFunc("/messages", handleMessages)
-	mcpMux.HandleFunc("/health", handleHealth)
-
-	handler := securityHeadersMiddleware(
-		requestTimeoutMiddleware(
-			authMiddleware(cfg.APIKey,
-				rateLimitMiddleware(rl, mcpMux))))
-
-	mcpServer := &http.Server{
-		Addr:              cfg.MCP.ListenAddr,
-		Handler:           handler,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-
 	// Prometheus server.
 	promServer := startPrometheusServer(cfg.Prometheus.ListenAddr)
-
-	// Start MCP server.
-	go func() {
-		if cfg.TLSCert != "" && cfg.TLSKey != "" {
-			logInfo("mcp", "listening on %s (TLS)", cfg.MCP.ListenAddr)
-			mcpServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-			if err := mcpServer.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey); err != nil && err != http.ErrServerClosed {
-				logError("mcp", "server error: %v", err)
-				os.Exit(1)
-			}
-		} else {
-			logInfo("mcp", "listening on %s", cfg.MCP.ListenAddr)
-			if err := mcpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				logError("mcp", "server error: %v", err)
-				os.Exit(1)
-			}
-		}
-	}()
-
-	// Stale SSE session cleanup.
-	go cleanupStaleSessions()
 
 	// Graceful shutdown.
 	sigCh := make(chan os.Signal, 1)
@@ -244,12 +183,20 @@ func main() {
 	shutdownFlag = true
 	shutdownCancel()
 
+	// Hard deadline: if graceful shutdown doesn't complete in 10s,
+	// force exit so Ctrl+C never hangs indefinitely.
+	go func() {
+		time.Sleep(10 * time.Second)
+		logError("shutdown", "timed out after 10s, forcing exit")
+		os.Exit(1)
+	}()
+
 	if rateLimiterInstance != nil {
 		rateLimiterInstance.Stop()
 	}
 
 	shutCtx, shutCancel := context.WithTimeout(context.Background(),
-		time.Duration(cfg.Safety.DDLTimeoutSeconds)*time.Second+10*time.Second)
+		8*time.Second)
 	defer shutCancel()
 
 	// Release advisory lock if standalone.
@@ -258,9 +205,6 @@ func main() {
 		logInfo("shutdown", "advisory lock released")
 	}
 
-	if err := mcpServer.Shutdown(shutCtx); err != nil {
-		logWarn("shutdown", "MCP server: %v", err)
-	}
 	if err := promServer.Shutdown(shutCtx); err != nil {
 		logWarn("shutdown", "Prometheus server: %v", err)
 	}
@@ -468,6 +412,11 @@ func initStandalone() {
 	// 9. Executor runs after analyzer (called from analyzer loop).
 	exec = executor.New(pool, cfg, anal, rampStart, logStructuredWrapper)
 
+	// 9b. Action queue store + execution mode.
+	actionStore = store.NewActionStore(pool)
+	exec.WithActionStore(actionStore, resolveExecutionMode())
+	go store.StartActionExpiry(shutdownCtx, actionStore, logStructuredWrapper)
+
 	// 10. Briefing worker.
 	briefWorker = briefing.New(pool, cfg, llmClient, logStructuredWrapper)
 
@@ -625,6 +574,14 @@ func initFleetAndAPI() {
 	// Fleet instances are already registered by initFleetMultiDB.
 
 	startAPIServer(rateLimiterInstance)
+
+	// Start session cleaner goroutine (cleans expired sessions hourly).
+	sessionPool := fleetMgr.PoolForDatabase("all")
+	if sessionPool != nil {
+		go auth.StartSessionCleaner(
+			shutdownCtx, sessionPool, time.Hour,
+		)
+	}
 }
 
 // initFleetMultiDB creates per-database pools, collectors, analyzers,
@@ -747,6 +704,10 @@ func initFleetMultiDB() {
 		dbExec := executor.New(
 			dbPool, cfg, dbAnal, rStart,
 			logStructuredWrapper)
+		dbActionStore := store.NewActionStore(dbPool)
+		dbExec.WithActionStore(dbActionStore, "auto")
+		go store.StartActionExpiry(
+			shutdownCtx, dbActionStore, logStructuredWrapper)
 
 		// Per-database orchestrator.
 		go fleetDBOrchestrator(
@@ -827,6 +788,17 @@ func buildDBConfig(name string) config.DatabaseConfig {
 	}
 }
 
+// resolveExecutionMode returns the execution mode from config.
+// Standalone mode defaults to "auto"; fleet databases have their
+// own execution_mode per database record.
+func resolveExecutionMode() string {
+	if len(cfg.Databases) > 0 {
+		// Use first database's config if available.
+		return "auto"
+	}
+	return "auto"
+}
+
 func pgVersionString(num int) string {
 	if num == 0 {
 		return "unknown"
@@ -842,12 +814,20 @@ func startAPIServer(rl *RateLimiter) {
 		addr = ":8080"
 	}
 
-	// Auth + rate limiting applied to /api/v1/* only.
+	// Session auth + rate limiting applied to /api/v1/* only.
 	// Static dashboard assets are served without auth.
-	router := api.NewRouter(fleetMgr, cfg,
-		func(next http.Handler) http.Handler {
-			return authMiddleware(cfg.APIKey, next)
-		},
+	// The pool used here is the first database instance pool.
+	authPool := fleetMgr.PoolForDatabase("all")
+	var actionDeps *api.ActionDeps
+	if actionStore != nil && exec != nil {
+		actionDeps = &api.ActionDeps{
+			Store:    actionStore,
+			Executor: exec,
+		}
+	}
+	router := api.NewRouterWithActions(
+		fleetMgr, cfg, authPool, actionDeps,
+		api.SessionAuthMiddleware(authPool),
 		func(next http.Handler) http.Handler {
 			return rateLimitMiddleware(rl, next)
 		},
@@ -918,786 +898,6 @@ func updateInstanceFindings(
 	inst.Status.LastSeen = time.Now()
 }
 
-// --- Health endpoint ---
-
-func handleHealth(w http.ResponseWriter, r *http.Request) {
-	status := map[string]any{
-		"version": version,
-		"mode":    cfg.Mode,
-		"trust":   cfg.Trust.Level,
-	}
-
-	if cfg.IsStandalone() {
-		status["connection"] = "connected"
-		if haMon != nil {
-			status["is_replica"] = haMon.IsReplica()
-			status["safe_mode"] = haMon.InSafeMode()
-		}
-		if coll != nil && coll.LatestSnapshot() != nil {
-			status["last_collect"] = coll.LatestSnapshot().CollectedAt.Format(time.RFC3339)
-		}
-		if anal != nil {
-			counts := anal.OpenFindingsCount()
-			status["findings"] = counts
-		}
-	} else {
-		status["extension"] = extensionAvailable
-	}
-	status["cloud"] = cloudEnvironment
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
-}
-
-// --- SSE/MCP handlers (same as original) ---
-
-func handleSSE(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w,
-			"streaming not supported",
-			http.StatusInternalServerError)
-		return
-	}
-
-	if atomic.LoadInt64(&sseSessionCount) >= maxSSESessions {
-		http.Error(w,
-			`{"error":"too many SSE sessions"}`,
-			http.StatusServiceUnavailable)
-		return
-	}
-	atomic.AddInt64(&sseSessionCount, 1)
-
-	sessionID := uuid.New().String()
-	sess := &sseSession{
-		ch:   make(chan []byte, 256),
-		done: make(chan struct{}),
-	}
-	sessions.Store(sessionID, sess)
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	origin := r.Header.Get("Origin")
-	if origin == "http://localhost:8080" ||
-		origin == "http://127.0.0.1:8080" {
-		w.Header().Set(
-			"Access-Control-Allow-Origin", origin,
-		)
-	}
-
-	fmt.Fprintf(w,
-		"event: endpoint\ndata: /messages?sessionId=%s\n\n",
-		sessionID)
-	flusher.Flush()
-
-	ctx := r.Context()
-	for {
-		select {
-		case <-ctx.Done():
-			close(sess.done)
-			sessions.Delete(sessionID)
-			atomic.AddInt64(&sseSessionCount, -1)
-			return
-		case msg := <-sess.ch:
-			fmt.Fprintf(w, "event: message\ndata: %s\n\n", msg)
-			flusher.Flush()
-		}
-	}
-}
-
-func handleMessages(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	sessionID := r.URL.Query().Get("sessionId")
-	if sessionID == "" {
-		http.Error(w, `{"error":"missing sessionId"}`, http.StatusBadRequest)
-		return
-	}
-
-	val, ok := sessions.Load(sessionID)
-	if !ok {
-		http.Error(w, `{"error":"unknown session"}`, http.StatusNotFound)
-		return
-	}
-	sess := val.(*sseSession)
-
-	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
-
-	var req JSONRPCRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
-		return
-	}
-
-	start := time.Now()
-	ip := clientIP(r)
-
-	resp := dispatch(r.Context(), req)
-	duration := time.Since(start)
-
-	go auditLog(ip, req, duration, resp)
-
-	if req.ID == nil {
-		w.WriteHeader(http.StatusAccepted)
-		return
-	}
-
-	data, _ := json.Marshal(resp)
-	select {
-	case sess.ch <- data:
-	case <-time.After(10 * time.Second):
-		logWarn("mcp", "session %s: write timeout", sessionID)
-	case <-sess.done:
-	}
-
-	w.WriteHeader(http.StatusAccepted)
-}
-
-// --- JSON-RPC types ---
-
-type JSONRPCRequest struct {
-	JSONRPC string           `json:"jsonrpc"`
-	ID      *json.RawMessage `json:"id,omitempty"`
-	Method  string           `json:"method"`
-	Params  json.RawMessage  `json:"params,omitempty"`
-}
-
-type JSONRPCResponse struct {
-	JSONRPC string        `json:"jsonrpc"`
-	ID      *json.RawMessage `json:"id,omitempty"`
-	Result  any           `json:"result,omitempty"`
-	Error   *JSONRPCError `json:"error,omitempty"`
-}
-
-type JSONRPCError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-type ServerCapabilities struct {
-	Resources *CapabilityObj `json:"resources,omitempty"`
-	Tools     *CapabilityObj `json:"tools,omitempty"`
-	Prompts   *CapabilityObj `json:"prompts,omitempty"`
-}
-
-type CapabilityObj struct {
-	ListChanged bool `json:"listChanged,omitempty"`
-}
-
-type InitializeResult struct {
-	ProtocolVersion string             `json:"protocolVersion"`
-	Capabilities    ServerCapabilities `json:"capabilities"`
-	ServerInfo      struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
-	} `json:"serverInfo"`
-}
-
-// --- Resource types ---
-
-type Resource struct {
-	URI         string `json:"uri"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	MimeType    string `json:"mimeType,omitempty"`
-}
-
-type ResourceContent struct {
-	URI      string `json:"uri"`
-	MimeType string `json:"mimeType,omitempty"`
-	Text     string `json:"text,omitempty"`
-}
-
-type ResourcesListResult struct {
-	Resources []Resource `json:"resources"`
-}
-
-type ResourcesReadResult struct {
-	Contents []ResourceContent `json:"contents"`
-}
-
-// --- Tool types ---
-
-type Tool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"inputSchema"`
-}
-
-type ToolsListResult struct {
-	Tools []Tool `json:"tools"`
-}
-
-type ToolContent struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
-}
-
-type ToolsCallResult struct {
-	Content []ToolContent `json:"content"`
-	IsError bool          `json:"isError,omitempty"`
-}
-
-// --- Prompt types ---
-
-type PromptArgument struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Required    bool   `json:"required,omitempty"`
-}
-
-type Prompt struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description,omitempty"`
-	Arguments   []PromptArgument `json:"arguments,omitempty"`
-}
-
-type PromptsListResult struct {
-	Prompts []Prompt `json:"prompts"`
-}
-
-type PromptMessage struct {
-	Role    string      `json:"role"`
-	Content ToolContent `json:"content"`
-}
-
-type PromptsGetResult struct {
-	Description string          `json:"description,omitempty"`
-	Messages    []PromptMessage `json:"messages"`
-}
-
-// --- Catalogues ---
-
-var resourceCatalogue = []Resource{
-	{URI: "sage://health", Name: "Database Health", Description: "Health snapshot", MimeType: "application/json"},
-	{URI: "sage://findings", Name: "Open Findings", Description: "All open findings", MimeType: "application/json"},
-	{URI: "sage://slow-queries", Name: "Slow Queries", Description: "Recent slow queries", MimeType: "application/json"},
-	{URI: "sage://schema/{table}", Name: "Table Schema", Description: "Column and index info", MimeType: "application/json"},
-	{URI: "sage://stats/{table}", Name: "Table Statistics", Description: "Table stats", MimeType: "application/json"},
-	{URI: "sage://explain/{queryid}", Name: "Query Plan", Description: "Cached EXPLAIN plan", MimeType: "application/json"},
-}
-
-var toolCatalogue []Tool
-
-func buildToolCatalogue() {
-	toolCatalogue = []Tool{
-		{
-			Name: "suggest_index", Description: "Get index suggestions for a table",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"table":{"type":"string"}},"required":["table"]}`),
-		},
-		{
-			Name: "review_migration", Description: "Review DDL for risks",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"ddl":{"type":"string"}},"required":["ddl"]}`),
-		},
-	}
-
-	if extensionAvailable {
-		toolCatalogue = append(toolCatalogue,
-			Tool{Name: "diagnose", Description: "Interactive diagnostic question",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"}},"required":["question"]}`)},
-			Tool{Name: "briefing", Description: "Generate health briefing",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{},"required":[]}`)},
-		)
-	}
-
-	// Standalone tools.
-	if cfg.IsStandalone() {
-		toolCatalogue = append(toolCatalogue,
-			Tool{Name: "sage_status", Description: "pg_sage standalone status",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{},"required":[]}`)},
-			Tool{Name: "sage_emergency_stop", Description: "Emergency stop all autonomous actions",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{},"required":[]}`)},
-			Tool{Name: "sage_resume", Description: "Resume after emergency stop",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{},"required":[]}`)},
-			Tool{Name: "sage_briefing", Description: "Generate standalone health briefing",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{},"required":[]}`)},
-		)
-	}
-}
-
-var promptCatalogue = []Prompt{
-	{Name: "investigate_slow_query", Description: "Investigate a slow query",
-		Arguments: []PromptArgument{{Name: "queryid", Description: "Query ID", Required: true}}},
-	{Name: "review_schema", Description: "Review table schema design",
-		Arguments: []PromptArgument{{Name: "table", Description: "Table name", Required: true}}},
-	{Name: "capacity_plan", Description: "Capacity planning analysis"},
-}
-
-// --- Dispatcher ---
-
-func dispatch(ctx context.Context, req JSONRPCRequest) JSONRPCResponse {
-	if isPoolExhausted() {
-		switch req.Method {
-		case "resources/read", "tools/call", "prompts/get":
-			return rpcErr(req.ID, -32000, "pool exhausted")
-		}
-	}
-
-	switch req.Method {
-	case "initialize":
-		buildToolCatalogue()
-		result := InitializeResult{
-			ProtocolVersion: "2024-11-05",
-			Capabilities: ServerCapabilities{
-				Resources: &CapabilityObj{},
-				Tools:     &CapabilityObj{},
-				Prompts:   &CapabilityObj{},
-			},
-		}
-		result.ServerInfo.Name = "pg_sage-sidecar"
-		result.ServerInfo.Version = version
-		return rpcOK(req.ID, result)
-
-	case "notifications/initialized", "ping":
-		return rpcOK(req.ID, map[string]string{})
-
-	case "resources/list":
-		return rpcOK(req.ID, ResourcesListResult{Resources: resourceCatalogue})
-
-	case "resources/read":
-		var p struct{ URI string `json:"uri"` }
-		if err := json.Unmarshal(req.Params, &p); err != nil || p.URI == "" {
-			return rpcInvalidParams(req.ID, "uri required")
-		}
-		if err := validateResourceURI(p.URI); err != nil {
-			return rpcInvalidParams(req.ID, err.Error())
-		}
-		result, err := readResource(ctx, p.URI)
-		if err != nil {
-			return rpcInternalError(req.ID, err.Error())
-		}
-		return rpcOK(req.ID, result)
-
-	case "tools/list":
-		if len(toolCatalogue) == 0 {
-			buildToolCatalogue()
-		}
-		return rpcOK(req.ID, ToolsListResult{Tools: toolCatalogue})
-
-	case "tools/call":
-		var p struct {
-			Name      string          `json:"name"`
-			Arguments json.RawMessage `json:"arguments,omitempty"`
-		}
-		if err := json.Unmarshal(req.Params, &p); err != nil || p.Name == "" {
-			return rpcInvalidParams(req.ID, "tool name required")
-		}
-		result, err := callTool(ctx, p.Name, p.Arguments)
-		if err != nil {
-			return rpcInternalError(req.ID, err.Error())
-		}
-		return rpcOK(req.ID, result)
-
-	case "prompts/list":
-		return rpcOK(req.ID, PromptsListResult{Prompts: promptCatalogue})
-
-	case "prompts/get":
-		var p struct {
-			Name      string            `json:"name"`
-			Arguments map[string]string `json:"arguments,omitempty"`
-		}
-		if err := json.Unmarshal(req.Params, &p); err != nil || p.Name == "" {
-			return rpcInvalidParams(req.ID, "prompt name required")
-		}
-		result, err := getPrompt(p.Name, p.Arguments)
-		if err != nil {
-			return rpcInvalidParams(req.ID, err.Error())
-		}
-		return rpcOK(req.ID, result)
-
-	default:
-		return rpcMethodNotFound(req.ID, req.Method)
-	}
-}
-
-// --- Resource handlers ---
-
-func readResource(ctx context.Context, uri string) (ResourcesReadResult, error) {
-	var text string
-	var err error
-
-	switch {
-	case uri == "sage://health":
-		text, err = readHealth(ctx)
-	case uri == "sage://findings":
-		text, err = readFindings(ctx)
-	case uri == "sage://slow-queries":
-		text, err = readSlowQueries(ctx)
-	case strings.HasPrefix(uri, "sage://schema/"):
-		text, err = readSchema(ctx, strings.TrimPrefix(uri, "sage://schema/"))
-	case strings.HasPrefix(uri, "sage://stats/"):
-		text, err = readStats(ctx, strings.TrimPrefix(uri, "sage://stats/"))
-	case strings.HasPrefix(uri, "sage://explain/"):
-		text, err = readExplain(ctx, strings.TrimPrefix(uri, "sage://explain/"))
-	default:
-		return ResourcesReadResult{}, fmt.Errorf("unknown resource: %s", uri)
-	}
-
-	if err != nil {
-		return ResourcesReadResult{}, err
-	}
-	return ResourcesReadResult{
-		Contents: []ResourceContent{{URI: uri, MimeType: "application/json", Text: text}},
-	}, nil
-}
-
-func readHealth(ctx context.Context) (string, error) {
-	if extensionAvailable {
-		return queryJSON(ctx, "SELECT sage.health_json()")
-	}
-
-	// In standalone mode, include findings summary.
-	q := `SELECT json_build_object(
-		'mode', 'standalone',
-		'version', $1::text,
-		'status', 'ok',
-		'connections', (SELECT count(*) FROM pg_stat_activity),
-		'active_queries', (SELECT count(*) FROM pg_stat_activity WHERE state = 'active'),
-		'idle_in_transaction', (SELECT count(*) FROM pg_stat_activity WHERE state = 'idle in transaction'),
-		'database_size', pg_size_pretty(pg_database_size(current_database())),
-		'database_size_bytes', pg_database_size(current_database()),
-		'uptime_seconds', extract(epoch FROM now() - pg_postmaster_start_time())::int,
-		'pg_version', version(),
-		'max_connections', (SELECT setting::int FROM pg_settings WHERE name = 'max_connections'),
-		'cache_hit_ratio', (SELECT round((blks_hit::numeric / nullif(blks_hit + blks_read, 0) * 100), 2) FROM pg_stat_database WHERE datname = current_database()),
-		'deadlocks', (SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()),
-		'cloud', $2::text
-	)::text`
-	return queryJSON(ctx, q, version, cloudEnvironment)
-}
-
-func readFindings(ctx context.Context) (string, error) {
-	if extensionAvailable {
-		var result string
-		err := pool.QueryRow(ctx, "SELECT sage.findings_json('open')").Scan(&result)
-		if err == nil {
-			return annotateAlterSystem(result), nil
-		}
-	}
-
-	// Standalone: read from sage.findings table.
-	if cfg.IsStandalone() {
-		var result string
-		err := pool.QueryRow(ctx, `
-			SELECT coalesce(
-				(SELECT json_agg(row_to_json(f) ORDER BY
-					CASE f.severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
-					f.last_seen DESC
-				) FROM sage.findings f WHERE f.status = 'open'),
-				'[]'::json
-			)::text
-		`).Scan(&result)
-		if err != nil {
-			return "[]", nil
-		}
-		return annotateAlterSystem(result), nil
-	}
-
-	return `{"note":"findings require pg_sage extension or standalone mode","findings":[]}`, nil
-}
-
-func readSlowQueries(ctx context.Context) (string, error) {
-	if extensionAvailable {
-		var result string
-		if err := pool.QueryRow(ctx, "SELECT sage.slow_queries_json()").Scan(&result); err == nil {
-			return result, nil
-		}
-	}
-	return queryJSON(ctx, `SELECT coalesce(
-		(SELECT json_agg(row_to_json(s))
-		 FROM (
-			SELECT queryid, query, calls, mean_exec_time,
-			       total_exec_time, rows, shared_blks_hit, shared_blks_read
-			FROM pg_stat_statements
-			ORDER BY mean_exec_time DESC LIMIT 20
-		 ) s), '[]'::json)::text`)
-}
-
-func readSchema(ctx context.Context, table string) (string, error) {
-	t := sanitize(table)
-	return queryJSON(ctx, `SELECT json_build_object(
-		'table', $1::text,
-		'columns', (
-			SELECT coalesce(json_agg(json_build_object(
-				'name', column_name, 'type', data_type, 'nullable', is_nullable,
-				'column_default', column_default
-			) ORDER BY ordinal_position), '[]'::json)
-			FROM information_schema.columns
-			WHERE table_schema || '.' || table_name = $1::text OR table_name = $1::text
-		),
-		'indexes', (
-			SELECT coalesce(json_agg(json_build_object(
-				'name', indexname, 'def', indexdef
-			)), '[]'::json) FROM pg_indexes
-			WHERE schemaname || '.' || tablename = $1::text OR tablename = $1::text
-		),
-		'constraints', (
-			SELECT coalesce(json_agg(json_build_object(
-				'name', con.conname, 'type', con.contype,
-				'definition', pg_get_constraintdef(con.oid)
-			)), '[]'::json)
-			FROM pg_constraint con
-			JOIN pg_class rel ON rel.oid = con.conrelid
-			JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
-			WHERE nsp.nspname || '.' || rel.relname = $1::text OR rel.relname = $1::text
-		)
-	)::text`, t)
-}
-
-func readStats(ctx context.Context, table string) (string, error) {
-	t := sanitize(table)
-	return queryJSON(ctx, `SELECT row_to_json(s)::text FROM (
-		SELECT relname, schemaname, seq_scan, seq_tup_read, idx_scan, idx_tup_fetch,
-		       n_tup_ins, n_tup_upd, n_tup_del, n_live_tup, n_dead_tup,
-		       last_vacuum, last_autovacuum, last_analyze, last_autoanalyze,
-		       pg_size_pretty(pg_total_relation_size(schemaname || '.' || relname)) AS total_size,
-		       pg_size_pretty(pg_relation_size(schemaname || '.' || relname)) AS table_size,
-		       pg_size_pretty(pg_indexes_size(schemaname || '.' || relname)) AS index_size
-		FROM pg_stat_user_tables
-		WHERE schemaname || '.' || relname = $1::text OR relname = $1::text
-		LIMIT 1
-	) s`, t)
-}
-
-func readExplain(ctx context.Context, queryid string) (string, error) {
-	qid := sanitize(queryid)
-	if extensionAvailable {
-		var result string
-		if err := pool.QueryRow(ctx,
-			"SELECT coalesce(sage.explain_json($1), '{\"error\":\"no cached plan\"}')",
-			qid).Scan(&result); err == nil {
-			return result, nil
-		}
-	}
-	if cfg.IsStandalone() {
-		var result string
-		err := pool.QueryRow(ctx, `
-			SELECT coalesce(
-				(SELECT plan_json::text FROM sage.explain_cache
-				 WHERE queryid = $1::bigint ORDER BY captured_at DESC LIMIT 1),
-				'{"error":"no cached plan"}'
-			)`, qid).Scan(&result)
-		if err == nil {
-			return result, nil
-		}
-	}
-	return `{"note":"explain cache requires extension or standalone mode"}`, nil
-}
-
-// --- Tool handlers ---
-
-func callTool(ctx context.Context, name string, args json.RawMessage) (ToolsCallResult, error) {
-	timeout := 120 * time.Second
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	switch name {
-	case "diagnose":
-		if !extensionAvailable {
-			return toolErr("diagnose requires pg_sage extension"), nil
-		}
-		var p struct{ Question string `json:"question"` }
-		json.Unmarshal(args, &p)
-		if p.Question == "" {
-			return toolErr("question is required"), nil
-		}
-		if len(p.Question) > maxToolInputLen {
-			return toolErr("question too long (max 10000 chars)"), nil
-		}
-		var result string
-		err := pool.QueryRow(ctx, "SELECT sage.diagnose($1)", p.Question).Scan(&result)
-		if err != nil {
-			return toolErr(err.Error()), nil
-		}
-		return toolOK(result), nil
-
-	case "briefing":
-		if !extensionAvailable {
-			return toolErr("briefing requires pg_sage extension"), nil
-		}
-		var result string
-		err := pool.QueryRow(ctx, "SELECT sage.briefing()").Scan(&result)
-		if err != nil {
-			return toolErr(err.Error()), nil
-		}
-		return toolOK(result), nil
-
-	case "suggest_index":
-		var p struct{ Table string `json:"table"` }
-		json.Unmarshal(args, &p)
-		t := sanitize(p.Table)
-		var result string
-		err := pool.QueryRow(ctx, `SELECT json_build_object(
-			'table', $1::text,
-			'analysis', json_build_object(
-				'seq_scan', s.seq_scan, 'idx_scan', coalesce(s.idx_scan,0),
-				'n_live_tup', s.n_live_tup,
-				'seq_scan_ratio', CASE WHEN (s.seq_scan + coalesce(s.idx_scan,0)) > 0
-					THEN round(s.seq_scan::numeric / (s.seq_scan + coalesce(s.idx_scan,0)), 4) ELSE 0 END
-			),
-			'existing_indexes', (
-				SELECT coalesce(json_agg(json_build_object('name', indexname, 'def', indexdef)), '[]'::json)
-				FROM pg_indexes WHERE schemaname || '.' || tablename = $1::text OR tablename = $1::text
-			)
-		)::text FROM pg_stat_user_tables s
-		WHERE s.schemaname || '.' || s.relname = $1::text OR s.relname = $1::text LIMIT 1`, t).Scan(&result)
-		if err != nil {
-			return toolErr(fmt.Sprintf("table %s: %v", t, err)), nil
-		}
-		return toolOK(result), nil
-
-	case "review_migration":
-		var p struct{ DDL string `json:"ddl"` }
-		json.Unmarshal(args, &p)
-		if p.DDL == "" {
-			return toolErr("ddl is required"), nil
-		}
-		if len(p.DDL) > maxToolInputLen {
-			return toolErr("ddl too long (max 10000 chars)"), nil
-		}
-		review := reviewDDL(p.DDL)
-		out, _ := json.Marshal(review)
-		return toolOK(string(out)), nil
-
-	case "sage_status":
-		return toolOK(sageStatus()), nil
-
-	case "sage_emergency_stop":
-		err := executor.SetEmergencyStop(ctx, pool, true)
-		if err != nil {
-			return toolErr(err.Error()), nil
-		}
-		return toolOK("Emergency stop activated. All autonomous actions suspended."), nil
-
-	case "sage_resume":
-		err := executor.SetEmergencyStop(ctx, pool, false)
-		if err != nil {
-			return toolErr(err.Error()), nil
-		}
-		return toolOK("Resumed. Autonomous actions re-enabled."), nil
-
-	case "sage_briefing":
-		if briefWorker == nil {
-			return toolErr("briefing not available"), nil
-		}
-		text, err := briefWorker.Generate(ctx)
-		if err != nil {
-			return toolErr(err.Error()), nil
-		}
-		return toolOK(text), nil
-
-	default:
-		return ToolsCallResult{
-			Content: []ToolContent{{Type: "text", Text: "unknown tool: " + name}},
-			IsError: true,
-		}, nil
-	}
-}
-
-func sageStatus() string {
-	status := map[string]any{
-		"version":    version,
-		"mode":       cfg.Mode,
-		"trust":      cfg.Trust.Level,
-		"cloud":      cloudEnvironment,
-		"ramp_start": rampStart.Format(time.RFC3339),
-		"ramp_age":   time.Since(rampStart).String(),
-	}
-	if anal != nil {
-		status["findings"] = anal.OpenFindingsCount()
-	}
-	if haMon != nil {
-		status["is_replica"] = haMon.IsReplica()
-		status["safe_mode"] = haMon.InSafeMode()
-	}
-	out, _ := json.MarshalIndent(status, "", "  ")
-	return string(out)
-}
-
-func reviewDDL(ddl string) map[string]any {
-	upper := strings.ToUpper(ddl)
-	var warnings []string
-
-	checks := []struct{ pattern, msg string }{
-		{"DROP TABLE", "DROP TABLE: permanently deletes table and data"},
-		{"DROP COLUMN", "DROP COLUMN: irreversible, may break applications"},
-		{"TRUNCATE", "TRUNCATE: removes all rows, ACCESS EXCLUSIVE lock"},
-		{"LOCK TABLE", "Explicit table lock detected"},
-		{"RENAME", "RENAME: may break application queries"},
-	}
-	for _, c := range checks {
-		if strings.Contains(upper, c.pattern) {
-			warnings = append(warnings, c.msg)
-		}
-	}
-	if strings.Contains(upper, "CREATE INDEX") && !strings.Contains(upper, "CONCURRENTLY") {
-		warnings = append(warnings, "CREATE INDEX without CONCURRENTLY: blocks writes")
-	}
-	if strings.Contains(upper, "NOT NULL") && !strings.Contains(upper, "CREATE TABLE") {
-		warnings = append(warnings, "Adding NOT NULL: requires full table scan on large tables")
-	}
-	if len(warnings) == 0 {
-		warnings = []string{"No obvious risks. Standard review recommended."}
-	}
-	return map[string]any{"ddl": ddl, "warnings": warnings}
-}
-
-// --- Prompt handlers ---
-
-func getPrompt(name string, args map[string]string) (PromptsGetResult, error) {
-	switch name {
-	case "investigate_slow_query":
-		qid := args["queryid"]
-		if qid == "" {
-			return PromptsGetResult{}, fmt.Errorf("queryid required")
-		}
-		return PromptsGetResult{
-			Description: "Investigate slow query " + qid,
-			Messages: []PromptMessage{{
-				Role: "user",
-				Content: ToolContent{Type: "text",
-					Text: fmt.Sprintf("Investigate why query %s is slow.", sanitizePromptArg(qid))},
-			}},
-		}, nil
-	case "review_schema":
-		table := args["table"]
-		if table == "" {
-			return PromptsGetResult{}, fmt.Errorf("table required")
-		}
-		return PromptsGetResult{
-			Description: "Review schema for " + table,
-			Messages: []PromptMessage{{
-				Role: "user",
-				Content: ToolContent{Type: "text",
-					Text: fmt.Sprintf("Review schema design of table %s.", sanitizePromptArg(table))},
-			}},
-		}, nil
-	case "capacity_plan":
-		return PromptsGetResult{
-			Description: "Capacity planning analysis",
-			Messages: []PromptMessage{{
-				Role:    "user",
-				Content: ToolContent{Type: "text", Text: "Analyze database capacity and growth trends."},
-			}},
-		}, nil
-	default:
-		return PromptsGetResult{}, fmt.Errorf("unknown prompt: %s", name)
-	}
-}
-
-func sanitizePromptArg(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if r >= 32 {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
 
 // --- Prometheus ---
 
@@ -1921,48 +1121,6 @@ func writeDatabaseMetrics(b *strings.Builder, ctx context.Context) {
 	}
 }
 
-// --- Middleware ---
-
-func securityHeadersMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Cache-Control", "no-store")
-		next.ServeHTTP(w, r)
-	})
-}
-
-func requestTimeoutMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
-		defer cancel()
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-func authMiddleware(apiKey string, next http.Handler) http.Handler {
-	if apiKey == "" {
-		return next
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		header := r.Header.Get("Authorization")
-		if header == "" {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"error":"missing Authorization"}`))
-			return
-		}
-		token := strings.TrimPrefix(header, "Bearer ")
-		if token == header ||
-			subtle.ConstantTimeCompare(
-				[]byte(token), []byte(apiKey),
-			) != 1 {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"error":"invalid API key"}`))
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
 
 // --- Rate limiter ---
 
@@ -2061,129 +1219,6 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-// --- Helpers ---
-
-func queryJSON(ctx context.Context, q string, args ...any) (string, error) {
-	var result string
-	err := pool.QueryRow(ctx, q, args...).Scan(&result)
-	return result, err
-}
-
-func sanitize(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '.' || r == '-' {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-func validateResourceURI(uri string) error {
-	switch {
-	case uri == "sage://health", uri == "sage://findings", uri == "sage://slow-queries":
-		return nil
-	case strings.HasPrefix(uri, "sage://schema/"):
-		t := strings.TrimPrefix(uri, "sage://schema/")
-		if t == "" || !validTableName.MatchString(t) {
-			return fmt.Errorf("invalid table name")
-		}
-	case strings.HasPrefix(uri, "sage://stats/"):
-		t := strings.TrimPrefix(uri, "sage://stats/")
-		if t == "" || !validTableName.MatchString(t) {
-			return fmt.Errorf("invalid table name")
-		}
-	case strings.HasPrefix(uri, "sage://explain/"):
-		q := strings.TrimPrefix(uri, "sage://explain/")
-		if q == "" || !validInteger.MatchString(q) {
-			return fmt.Errorf("invalid queryid")
-		}
-	default:
-		return fmt.Errorf("unknown resource: %s", uri)
-	}
-	return nil
-}
-
-func annotateAlterSystem(text string) string {
-	if (cloudEnvironment == "aurora" || cloudEnvironment == "rds") &&
-		strings.Contains(strings.ToUpper(text), "ALTER SYSTEM") {
-		return strings.ReplaceAll(text, "ALTER SYSTEM",
-			"ALTER SYSTEM (Note: On RDS/Aurora use parameter groups)")
-	}
-	return text
-}
-
-func isPoolExhausted() bool {
-	stat := pool.Stat()
-	return stat.IdleConns() == 0 && stat.TotalConns() == stat.MaxConns()
-}
-
-func toolOK(text string) ToolsCallResult {
-	return ToolsCallResult{Content: []ToolContent{{Type: "text", Text: text}}}
-}
-
-func toolErr(text string) ToolsCallResult {
-	return ToolsCallResult{Content: []ToolContent{{Type: "text", Text: text}}, IsError: true}
-}
-
-func rpcOK(id *json.RawMessage, result any) JSONRPCResponse {
-	return JSONRPCResponse{JSONRPC: "2.0", ID: id, Result: result}
-}
-
-func rpcErr(id *json.RawMessage, code int, msg string) JSONRPCResponse {
-	return JSONRPCResponse{JSONRPC: "2.0", ID: id, Error: &JSONRPCError{Code: code, Message: msg}}
-}
-
-func rpcMethodNotFound(id *json.RawMessage, method string) JSONRPCResponse {
-	return rpcErr(id, -32601, "method not found: "+method)
-}
-
-func rpcInvalidParams(id *json.RawMessage, msg string) JSONRPCResponse {
-	return rpcErr(id, -32602, msg)
-}
-
-func rpcInternalError(id *json.RawMessage, msg string) JSONRPCResponse {
-	return rpcErr(id, -32603, msg)
-}
-
-// --- Audit log ---
-
-func auditLog(ip string, req JSONRPCRequest, duration time.Duration, resp JSONRPCResponse) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	var resourceURI, toolName *string
-	if req.Method == "resources/read" {
-		var p struct{ URI string `json:"uri"` }
-		if json.Unmarshal(req.Params, &p) == nil && p.URI != "" {
-			resourceURI = &p.URI
-		}
-	}
-	if req.Method == "tools/call" {
-		var p struct{ Name string `json:"name"` }
-		if json.Unmarshal(req.Params, &p) == nil && p.Name != "" {
-			toolName = &p.Name
-		}
-	}
-
-	st := "ok"
-	var errMsg *string
-	if resp.Error != nil {
-		st = "error"
-		errMsg = &resp.Error.Message
-	}
-
-	table := "sage.mcp_log"
-	if !extensionAvailable && !cfg.IsStandalone() {
-		table = "public.sage_mcp_log"
-	}
-	if _, err := pool.Exec(ctx,
-		fmt.Sprintf(`INSERT INTO %s (client_ip, method, resource_uri, tool_name, duration_ms, status, error_message)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`, table),
-		ip, req.Method, resourceURI, toolName, int(duration.Milliseconds()), st, errMsg); err != nil {
-		logWarn("audit", "failed to log: %v", err)
-	}
-}
 
 // --- Detection ---
 
@@ -2229,21 +1264,6 @@ func detectCloudEnvironment() string {
 	return "self-managed"
 }
 
-func ensureMCPLogTable() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	table := `CREATE TABLE IF NOT EXISTS %s (
-		id bigserial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(),
-		client_ip text, method text, resource_uri text, tool_name text,
-		tokens_used int DEFAULT 0, duration_ms int DEFAULT 0,
-		status text, error_message text)`
-	if extensionAvailable {
-		pool.Exec(ctx, fmt.Sprintf(table, "sage.mcp_log"))
-	} else {
-		pool.Exec(ctx, fmt.Sprintf(table, "public.sage_mcp_log"))
-	}
-}
-
 func poolHealthCheck() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -2266,35 +1286,6 @@ func poolHealthCheck() {
 	}
 }
 
-func cleanupStaleSessions() {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			var stale []string
-			sessions.Range(func(key, value any) bool {
-				sess := value.(*sseSession)
-				select {
-				case <-sess.done:
-					stale = append(stale, key.(string))
-				default:
-				}
-				return true
-			})
-			for _, id := range stale {
-				sessions.Delete(id)
-			}
-			if len(stale) > 0 {
-				logInfo("mcp", "cleaned up %d stale SSE sessions", len(stale))
-			}
-		case <-shutdownCtx.Done():
-			return
-		}
-	}
-}
-
-// --- Logging ---
 
 func logInfo(component, msg string, args ...any)  { logStructured("INFO", component, msg, args...) }
 func logWarn(component, msg string, args ...any)  { logStructured("WARN", component, msg, args...) }

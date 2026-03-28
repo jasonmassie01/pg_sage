@@ -62,9 +62,15 @@ func TestExpectedTables_AllPresent(t *testing.T) {
 		"explain_cache",
 		"briefings",
 		"config",
-		"mcp_log",
 		"alert_log",
 		"query_hints",
+		"users",
+		"sessions",
+		"databases",
+		"notification_channels",
+		"notification_rules",
+		"notification_log",
+		"action_queue",
 	}
 
 	if len(expectedTables) != len(want) {
@@ -186,12 +192,6 @@ func TestDDLFindings_HasDedupIndex(t *testing.T) {
 func TestDDLExplainCache_HasQueryidIndex(t *testing.T) {
 	if !strings.Contains(ddlExplainCache, "idx_explain_queryid") {
 		t.Error("ddlExplainCache missing queryid index")
-	}
-}
-
-func TestDDLMCPLog_HasClientIndex(t *testing.T) {
-	if !strings.Contains(ddlMCPLog, "idx_mcp_log_client") {
-		t.Error("ddlMCPLog missing client index")
 	}
 }
 

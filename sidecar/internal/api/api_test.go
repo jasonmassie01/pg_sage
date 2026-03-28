@@ -37,7 +37,7 @@ func testRouter(databases ...string) http.Handler {
 			},
 		})
 	}
-	return NewRouter(mgr, cfg)
+	return NewRouter(mgr, cfg, nil)
 }
 
 func get(
@@ -128,7 +128,7 @@ func TestAPI_Databases_IncludesDegraded(t *testing.T) {
 			Error:     "timeout",
 		},
 	})
-	r := NewRouter(mgr, cfg)
+	r := NewRouter(mgr, cfg, nil)
 	w := get(t, r, "/api/v1/databases")
 	m := decodeJSON(t, w)
 	summary := m["summary"].(map[string]any)
@@ -468,7 +468,7 @@ func TestAPI_Resume(t *testing.T) {
 		Status: &fleet.InstanceStatus{Connected: true},
 	})
 	mgr.EmergencyStop("db1")
-	r := NewRouter(mgr, cfg)
+	r := NewRouter(mgr, cfg, nil)
 	w := post(t, r, "/api/v1/resume?database=db1", "")
 	if w.Code != 200 {
 		t.Fatalf("status: %d", w.Code)

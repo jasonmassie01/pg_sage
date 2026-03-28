@@ -19,9 +19,15 @@ var expectedTables = []struct {
 	{"explain_cache", ddlExplainCache},
 	{"briefings", ddlBriefings},
 	{"config", ddlConfig},
-	{"mcp_log", ddlMCPLog},
 	{"alert_log", ddlAlertLog},
 	{"query_hints", ddlQueryHints},
+	{"users", ddlUsers},
+	{"sessions", ddlSessions},
+	{"databases", ddlDatabases},
+	{"notification_channels", ddlNotificationChannels},
+	{"notification_rules", ddlNotificationRules},
+	{"notification_log", ddlNotificationLog},
+	{"action_queue", ddlActionQueue},
 }
 
 // Bootstrap acquires an advisory lock, then ensures the sage schema and
@@ -212,8 +218,12 @@ func ensureTablesExist(ctx context.Context, pool *pgxpool.Pool) error {
 const fullSchemaDDL = `
 CREATE SCHEMA sage;
 ` + ddlActionLog + ddlSnapshots + ddlFindings +
-	ddlExplainCache + ddlBriefings + ddlConfig + ddlMCPLog +
-	ddlAlertLog + ddlQueryHints + ddlExplainSourceIdx
+	ddlExplainCache + ddlBriefings + ddlConfig +
+	ddlAlertLog + ddlQueryHints + ddlExplainSourceIdx +
+	ddlUsers + ddlSessions + ddlDatabases +
+	ddlNotificationChannels + ddlNotificationRules +
+	ddlNotificationLog + ddlActionQueue +
+	ddlActionLogApprovalCols
 
 const ddlActionLog = `
 CREATE TABLE IF NOT EXISTS sage.action_log (
@@ -322,23 +332,6 @@ CREATE TABLE IF NOT EXISTS sage.config (
 );
 `
 
-const ddlMCPLog = `
-CREATE TABLE IF NOT EXISTS sage.mcp_log (
-    id              bigserial PRIMARY KEY,
-    ts              timestamptz NOT NULL DEFAULT now(),
-    client_ip       text,
-    method          text,
-    resource_uri    text,
-    tool_name       text,
-    tokens_used     int DEFAULT 0,
-    duration_ms     int DEFAULT 0,
-    status          text,
-    error_message   text
-);
-CREATE INDEX IF NOT EXISTS idx_mcp_log_client
-    ON sage.mcp_log (client_ip, ts DESC);
-`
-
 const ddlAlertLog = `
 CREATE TABLE IF NOT EXISTS sage.alert_log (
     id            bigserial PRIMARY KEY,
@@ -377,4 +370,53 @@ CREATE INDEX IF NOT EXISTS idx_query_hints_queryid
 const ddlExplainSourceIdx = `
 CREATE INDEX IF NOT EXISTS idx_explain_source
     ON sage.explain_cache (source, queryid, captured_at DESC);
+`
+
+const ddlUsers = `
+CREATE TABLE IF NOT EXISTS sage.users (
+    id          SERIAL PRIMARY KEY,
+    email       TEXT UNIQUE NOT NULL,
+    password    TEXT NOT NULL,
+    role        TEXT NOT NULL DEFAULT 'viewer',
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    last_login  TIMESTAMPTZ
+);
+`
+
+const ddlSessions = `
+CREATE TABLE IF NOT EXISTS sage.sessions (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     INT REFERENCES sage.users(id) ON DELETE CASCADE,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+`
+
+const ddlActionQueue = `
+CREATE TABLE IF NOT EXISTS sage.action_queue (
+    id              SERIAL PRIMARY KEY,
+    database_id     INT,
+    finding_id      INT,
+    proposed_sql    TEXT NOT NULL,
+    rollback_sql    TEXT,
+    action_risk     TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    proposed_at     TIMESTAMPTZ DEFAULT now(),
+    decided_by      INT,
+    decided_at      TIMESTAMPTZ,
+    expires_at      TIMESTAMPTZ DEFAULT now() + INTERVAL '7 days',
+    reason          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_action_queue_status
+    ON sage.action_queue (status, proposed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_action_queue_finding
+    ON sage.action_queue (finding_id)
+    WHERE status = 'pending';
+`
+
+const ddlActionLogApprovalCols = `
+ALTER TABLE sage.action_log
+    ADD COLUMN IF NOT EXISTS approved_by INT;
+ALTER TABLE sage.action_log
+    ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
 `

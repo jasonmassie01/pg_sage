@@ -65,11 +65,6 @@ llm:
 #   token_budget_daily: 50000
 #   fallback_to_general: true
 
-# MCP server (Model Context Protocol — for Claude Desktop and AI agents)
-mcp:
-  enabled: true
-  listen_addr: "0.0.0.0:8080"
-
 # Prometheus metrics endpoint
 prometheus:
   listen_addr: "0.0.0.0:9187"

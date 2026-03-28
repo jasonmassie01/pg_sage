@@ -158,10 +158,6 @@ retention:
   actions_days: 365
   explains_days: 90
 
-mcp:
-  enabled: true
-  listen_addr: "0.0.0.0:5433"
-
 prometheus:
   listen_addr: "0.0.0.0:9187"
 
@@ -182,4 +178,4 @@ api:
 #   retention.* (all settings)
 #
 # Non-hot-reloadable (require restart):
-#   mode, postgres.*, mcp.listen_addr, prometheus.listen_addr, api.listen_addr
+#   mode, postgres.*, prometheus.listen_addr, api.listen_addr

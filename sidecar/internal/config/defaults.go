@@ -88,7 +88,6 @@ const (
 	DefaultRetentionActionsDays   = 365
 	DefaultRetentionExplainsDays  = 90
 
-	DefaultMCPListenAddr        = "0.0.0.0:5433"
 	DefaultPrometheusListenAddr = "127.0.0.1:9187"
 
 	DefaultRateLimit = 60

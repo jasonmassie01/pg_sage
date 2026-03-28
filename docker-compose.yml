@@ -30,11 +30,9 @@ services:
         condition: service_healthy
     environment:
       SAGE_DATABASE_URL: postgres://postgres:postgres@pg_sage:5432/postgres?sslmode=disable
-      SAGE_MCP_PORT: "5433"
       SAGE_PROMETHEUS_PORT: "9187"
       SAGE_RATE_LIMIT: "60"
     ports:
-      - "5433:5433"   # MCP server
       - "8080:8080"   # API + Dashboard
       - "9187:9187"   # Prometheus metrics
 
@@ -45,7 +43,7 @@ services:
   # without the pg_sage C extension, run just the sidecar service:
   #
   #   docker compose run --rm -e SAGE_DATABASE_URL="postgres://user:pass@your-rds-host:5432/dbname?sslmode=require" \
-  #     -p 5433:5433 -p 9187:9187 sidecar
+  #     -p 8080:8080 -p 9187:9187 sidecar
   #
   # Or add a dedicated service:
   #
@@ -53,10 +51,9 @@ services:
   #     build: ./sidecar
   #     environment:
   #       SAGE_DATABASE_URL: "postgres://user:pass@your-rds-host:5432/dbname?sslmode=require"
-  #       SAGE_MCP_PORT: "5433"
   #       SAGE_PROMETHEUS_PORT: "9187"
   #     ports:
-  #       - "5433:5433"
+  #       - "8080:8080"
   #       - "9187:9187"
   #
   # The sidecar auto-detects whether the pg_sage extension is installed and

@@ -28,7 +28,6 @@ type Config struct {
 	Forecaster  ForecasterConfig `yaml:"forecaster"`
 	Tuner       TunerConfig      `yaml:"tuner"`
 	Retention   RetentionConfig  `yaml:"retention"`
-	MCP        MCPConfig        `yaml:"mcp"`
 	Prometheus PrometheusConfig `yaml:"prometheus"`
 
 	// Fleet mode fields.
@@ -234,11 +233,6 @@ type RetentionConfig struct {
 	ExplainsDays  int `yaml:"explains_days"`
 }
 
-type MCPConfig struct {
-	Enabled    bool   `yaml:"enabled"`
-	ListenAddr string `yaml:"listen_addr"`
-}
-
 type PrometheusConfig struct {
 	ListenAddr string `yaml:"listen_addr"`
 }
@@ -310,7 +304,6 @@ func Load(args []string) (*Config, error) {
 	pgDatabase := fs.String("pg-database", "", "PostgreSQL database")
 	pgSSLMode := fs.String("pg-sslmode", "", "PostgreSQL sslmode")
 	pgURL := fs.String("pg-url", "", "PostgreSQL connection URL (overrides individual pg-* flags)")
-	mcpAddr := fs.String("mcp-addr", "", "MCP listen address")
 	promAddr := fs.String("prom-addr", "", "Prometheus listen address")
 	_ = fs.Parse(args)
 
@@ -359,9 +352,6 @@ func Load(args []string) (*Config, error) {
 	}
 	if *pgURL != "" {
 		cfg.Postgres.DatabaseURL = *pgURL
-	}
-	if *mcpAddr != "" {
-		cfg.MCP.ListenAddr = *mcpAddr
 	}
 	if *promAddr != "" {
 		cfg.Prometheus.ListenAddr = *promAddr
@@ -606,10 +596,6 @@ func newDefaults() *Config {
 			ActionsDays:   DefaultRetentionActionsDays,
 			ExplainsDays:  DefaultRetentionExplainsDays,
 		},
-		MCP: MCPConfig{
-			Enabled:    true,
-			ListenAddr: DefaultMCPListenAddr,
-		},
 		Prometheus: PrometheusConfig{
 			ListenAddr: DefaultPrometheusListenAddr,
 		},
@@ -684,9 +670,6 @@ func overlayEnv(cfg *Config) {
 	}
 	if v := envInt("SAGE_PG_MAX_CONNS"); v != 0 {
 		cfg.Postgres.MaxConnections = v
-	}
-	if v := os.Getenv("SAGE_MCP_PORT"); v != "" {
-		cfg.MCP.ListenAddr = "0.0.0.0:" + v
 	}
 	if v := os.Getenv("SAGE_PROMETHEUS_PORT"); v != "" {
 		cfg.Prometheus.ListenAddr = "0.0.0.0:" + v

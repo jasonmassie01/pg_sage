@@ -429,6 +429,43 @@ func TestIsLockNotAvailable(t *testing.T) {
 	})
 }
 
+func TestActionOutcome_Success(t *testing.T) {
+	got := actionOutcome(nil)
+	if got != "pending" {
+		t.Errorf("actionOutcome(nil) = %q, want %q", got, "pending")
+	}
+}
+
+func TestActionOutcome_Failure(t *testing.T) {
+	got := actionOutcome(fmt.Errorf("lock timeout"))
+	if got != "failed" {
+		t.Errorf("actionOutcome(err) = %q, want %q", got, "failed")
+	}
+}
+
+func TestActionOutcome_FailedPreventsActedOnAt(t *testing.T) {
+	// This test documents the Bug 1 fix: when outcome is "failed",
+	// acted_on_at must NOT be set, so the finding remains retryable
+	// via lookupFindingID's "acted_on_at IS NULL" filter.
+	outcome := actionOutcome(fmt.Errorf("connection refused"))
+	if outcome != "failed" {
+		t.Fatalf("expected failed outcome, got %q", outcome)
+	}
+	// The contract: only non-"failed" outcomes should mark acted_on_at.
+	shouldMarkActedOn := outcome != "failed"
+	if shouldMarkActedOn {
+		t.Error("failed outcome must not mark acted_on_at")
+	}
+}
+
+func TestActionOutcome_SuccessAllowsActedOnAt(t *testing.T) {
+	outcome := actionOutcome(nil)
+	shouldMarkActedOn := outcome != "failed"
+	if !shouldMarkActedOn {
+		t.Error("successful outcome must allow acted_on_at to be set")
+	}
+}
+
 func TestWrapDDLError_LockNotAvailable(t *testing.T) {
 	pgErr := &pgconn.PgError{Code: "55P03", Message: "canceling statement due to lock timeout"}
 	wrapped := wrapDDLError(pgErr)

@@ -65,13 +65,11 @@ func TestWarnNonReloadable_LogsWarnings(t *testing.T) {
 	current := &Config{
 		Mode:       "standalone",
 		Postgres:   PostgresConfig{Host: "localhost", Port: 5432},
-		MCP:        MCPConfig{ListenAddr: ":5433"},
 		Prometheus: PrometheusConfig{ListenAddr: ":9187"},
 	}
 	fresh := &Config{
 		Mode:       "fleet",
 		Postgres:   PostgresConfig{Host: "db.prod.internal", Port: 5433},
-		MCP:        MCPConfig{ListenAddr: ":6433"},
 		Prometheus: PrometheusConfig{ListenAddr: ":9188"},
 	}
 	warnNonReloadable(current, fresh)
@@ -81,7 +79,6 @@ func TestWarnNonReloadable_LogsWarnings(t *testing.T) {
 		"mode changed",
 		"postgres.host changed",
 		"postgres.port changed",
-		"mcp.listen_addr changed",
 		"prometheus.listen_addr changed",
 	}
 	for _, exp := range expectations {
@@ -99,7 +96,6 @@ func TestWarnNonReloadable_NoWarningsWhenUnchanged(t *testing.T) {
 	cfg := &Config{
 		Mode:       "standalone",
 		Postgres:   PostgresConfig{Host: "localhost", Port: 5432},
-		MCP:        MCPConfig{ListenAddr: ":5433"},
 		Prometheus: PrometheusConfig{ListenAddr: ":9187"},
 	}
 	warnNonReloadable(cfg, cfg)
