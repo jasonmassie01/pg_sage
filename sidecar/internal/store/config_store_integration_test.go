@@ -19,7 +19,7 @@ func setupConfigTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("SAGE_TEST_DSN")
 	if dsn == "" {
-		dsn = "postgres://sage_agent@localhost:5432/postgres?sslmode=disable"
+		dsn = testDSN()
 	}
 	ctx, cancel := context.WithTimeout(
 		context.Background(), 10*time.Second)
@@ -39,6 +39,16 @@ func setupConfigTestDB(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("migrating config schema: %v", err)
 	}
 
+	// Seed a test user so FK on updated_by_user_id is satisfied.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO sage.users (id, email, password, role)
+		VALUES (1, 'test@test.com', 'hashed', 'admin')
+		ON CONFLICT (id) DO NOTHING`)
+	if err != nil {
+		pool.Close()
+		t.Fatalf("seeding test user: %v", err)
+	}
+
 	t.Cleanup(func() {
 		cleanupConfig(pool)
 		schema.ReleaseAdvisoryLock(context.Background(), pool)
@@ -53,9 +63,17 @@ func cleanupConfig(pool *pgxpool.Pool) {
 		context.Background(), 5*time.Second)
 	defer cancel()
 	pool.Exec(ctx,
-		"DELETE FROM sage.config WHERE key LIKE 'test.%'")
-	pool.Exec(ctx,
 		"DELETE FROM sage.config_audit WHERE key LIKE 'test.%'")
+	pool.Exec(ctx,
+		"DELETE FROM sage.config WHERE key LIKE 'test.%'")
+	// Remove config rows that reference the seeded test user,
+	// then remove the test user itself to avoid FK conflicts
+	// with other packages' tests.
+	pool.Exec(ctx,
+		"UPDATE sage.config SET updated_by_user_id = NULL "+
+			"WHERE updated_by_user_id = 1")
+	pool.Exec(ctx,
+		"DELETE FROM sage.users WHERE id = 1 AND email = 'test@test.com'")
 }
 
 func TestConfigStoreSetAndGet(t *testing.T) {

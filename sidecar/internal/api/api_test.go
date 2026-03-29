@@ -510,6 +510,195 @@ func TestAPI_CORS_DisallowedOrigin(t *testing.T) {
 	}
 }
 
+// --- Forecasts endpoint ---
+
+func TestAPI_Forecasts_DefaultsToAll(t *testing.T) {
+	r := testRouter("db1")
+	w := get(t, r, "/api/v1/forecasts")
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+	m := decodeJSON(t, w)
+	forecasts, ok := m["forecasts"].([]any)
+	if !ok {
+		t.Fatal("forecasts should be an array")
+	}
+	// No pool → empty array.
+	if len(forecasts) != 0 {
+		t.Errorf("forecasts: got %d, want 0", len(forecasts))
+	}
+}
+
+func TestAPI_Forecasts_FilterByDatabase(t *testing.T) {
+	r := testRouter("db1", "db2")
+	w := get(t, r, "/api/v1/forecasts?database=db1")
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+	m := decodeJSON(t, w)
+	if m["database"] != "db1" {
+		t.Errorf("database: got %v, want db1", m["database"])
+	}
+}
+
+func TestAPI_Forecasts_UnknownDB(t *testing.T) {
+	r := testRouter("db1")
+	w := get(t, r, "/api/v1/forecasts?database=nope")
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+	m := decodeJSON(t, w)
+	forecasts := m["forecasts"].([]any)
+	if len(forecasts) != 0 {
+		t.Errorf("forecasts: got %d, want 0", len(forecasts))
+	}
+}
+
+func TestAPI_Forecasts_ContentType(t *testing.T) {
+	r := testRouter("db1")
+	w := get(t, r, "/api/v1/forecasts")
+	ct := w.Header().Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("Content-Type: got %q, want application/json", ct)
+	}
+}
+
+// --- Query Hints endpoint ---
+
+func TestAPI_QueryHints_DefaultsToAll(t *testing.T) {
+	r := testRouter("db1")
+	w := get(t, r, "/api/v1/query-hints")
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+	m := decodeJSON(t, w)
+	hints, ok := m["hints"].([]any)
+	if !ok {
+		t.Fatal("hints should be an array")
+	}
+	if len(hints) != 0 {
+		t.Errorf("hints: got %d, want 0", len(hints))
+	}
+}
+
+func TestAPI_QueryHints_FilterByDatabase(t *testing.T) {
+	r := testRouter("db1", "db2")
+	w := get(t, r, "/api/v1/query-hints?database=db1")
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+	m := decodeJSON(t, w)
+	if m["database"] != "db1" {
+		t.Errorf("database: got %v, want db1", m["database"])
+	}
+}
+
+func TestAPI_QueryHints_UnknownDB(t *testing.T) {
+	r := testRouter("db1")
+	w := get(t, r, "/api/v1/query-hints?database=nope")
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+	m := decodeJSON(t, w)
+	hints := m["hints"].([]any)
+	if len(hints) != 0 {
+		t.Errorf("hints: got %d, want 0", len(hints))
+	}
+}
+
+func TestAPI_QueryHints_ContentType(t *testing.T) {
+	r := testRouter("db1")
+	w := get(t, r, "/api/v1/query-hints")
+	ct := w.Header().Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("Content-Type: got %q, want application/json", ct)
+	}
+}
+
+// --- Alert Log endpoint ---
+
+func TestAPI_AlertLog_DefaultsToAll(t *testing.T) {
+	r := testRouter("db1")
+	w := get(t, r, "/api/v1/alert-log")
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+	m := decodeJSON(t, w)
+	alerts, ok := m["alerts"].([]any)
+	if !ok {
+		t.Fatal("alerts should be an array")
+	}
+	if len(alerts) != 0 {
+		t.Errorf("alerts: got %d, want 0", len(alerts))
+	}
+}
+
+func TestAPI_AlertLog_FilterByDatabase(t *testing.T) {
+	r := testRouter("db1", "db2")
+	w := get(t, r, "/api/v1/alert-log?database=db1")
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+	m := decodeJSON(t, w)
+	if m["database"] != "db1" {
+		t.Errorf("database: got %v, want db1", m["database"])
+	}
+}
+
+func TestAPI_AlertLog_UnknownDB(t *testing.T) {
+	r := testRouter("db1")
+	w := get(t, r, "/api/v1/alert-log?database=nope")
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+	m := decodeJSON(t, w)
+	alerts := m["alerts"].([]any)
+	if len(alerts) != 0 {
+		t.Errorf("alerts: got %d, want 0", len(alerts))
+	}
+}
+
+func TestAPI_AlertLog_ContentType(t *testing.T) {
+	r := testRouter("db1")
+	w := get(t, r, "/api/v1/alert-log")
+	ct := w.Header().Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("Content-Type: got %q, want application/json", ct)
+	}
+}
+
+// --- Route completeness ---
+
+func TestAPI_AllEndpointsRegistered(t *testing.T) {
+	r := testRouter("db1")
+
+	// Every public API endpoint accessible without auth/pool
+	// should return a non-404/405 status.
+	endpoints := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/api/v1/databases"},
+		{"GET", "/api/v1/findings"},
+		{"GET", "/api/v1/actions"},
+		{"GET", "/api/v1/forecasts"},
+		{"GET", "/api/v1/query-hints"},
+		{"GET", "/api/v1/alert-log"},
+		{"GET", "/api/v1/snapshots/latest"},
+		{"GET", "/api/v1/config"},
+		{"GET", "/api/v1/metrics"},
+	}
+	for _, ep := range endpoints {
+		req := httptest.NewRequest(ep.method, ep.path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code == 404 || w.Code == 405 {
+			t.Errorf("%s %s: got %d (route not registered)",
+				ep.method, ep.path, w.Code)
+		}
+	}
+}
+
 // --- SPA fallback ---
 
 func TestAPI_Dashboard_Root(t *testing.T) {

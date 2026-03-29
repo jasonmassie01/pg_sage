@@ -283,3 +283,181 @@ func TestIntegration_DashboardServed(t *testing.T) {
 		t.Error("dashboard HTML not served")
 	}
 }
+
+// --- Forecasts in fleet context ---
+
+func TestIntegration_ForecastsFleetWide(t *testing.T) {
+	r, _ := setupIntegrationRouter()
+	req := httptest.NewRequest(
+		"GET", "/api/v1/forecasts", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if _, ok := resp["forecasts"]; !ok {
+		t.Error("missing forecasts key")
+	}
+	// No pool in test → empty array, but key must exist.
+	forecasts := resp["forecasts"].([]any)
+	if len(forecasts) != 0 {
+		t.Errorf("forecasts: got %d, want 0", len(forecasts))
+	}
+}
+
+func TestIntegration_ForecastsPerDatabase(t *testing.T) {
+	r, _ := setupIntegrationRouter()
+	req := httptest.NewRequest(
+		"GET", "/api/v1/forecasts?database=prod-orders", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["database"] != "prod-orders" {
+		t.Errorf("database: got %v, want prod-orders",
+			resp["database"])
+	}
+}
+
+// --- Query Hints in fleet context ---
+
+func TestIntegration_QueryHintsFleetWide(t *testing.T) {
+	r, _ := setupIntegrationRouter()
+	req := httptest.NewRequest(
+		"GET", "/api/v1/query-hints", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if _, ok := resp["hints"]; !ok {
+		t.Error("missing hints key")
+	}
+	hints := resp["hints"].([]any)
+	if len(hints) != 0 {
+		t.Errorf("hints: got %d, want 0", len(hints))
+	}
+}
+
+func TestIntegration_QueryHintsPerDatabase(t *testing.T) {
+	r, _ := setupIntegrationRouter()
+	req := httptest.NewRequest(
+		"GET", "/api/v1/query-hints?database=prod-users", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["database"] != "prod-users" {
+		t.Errorf("database: got %v, want prod-users",
+			resp["database"])
+	}
+}
+
+// --- Alert Log in fleet context ---
+
+func TestIntegration_AlertLogFleetWide(t *testing.T) {
+	r, _ := setupIntegrationRouter()
+	req := httptest.NewRequest(
+		"GET", "/api/v1/alert-log", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if _, ok := resp["alerts"]; !ok {
+		t.Error("missing alerts key")
+	}
+	alerts := resp["alerts"].([]any)
+	if len(alerts) != 0 {
+		t.Errorf("alerts: got %d, want 0", len(alerts))
+	}
+}
+
+func TestIntegration_AlertLogPerDatabase(t *testing.T) {
+	r, _ := setupIntegrationRouter()
+	req := httptest.NewRequest(
+		"GET", "/api/v1/alert-log?database=staging", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status: %d", w.Code)
+	}
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["database"] != "staging" {
+		t.Errorf("database: got %v, want staging",
+			resp["database"])
+	}
+}
+
+// --- Full fleet endpoint audit ---
+
+func TestIntegration_AllPublicEndpoints(t *testing.T) {
+	r, _ := setupIntegrationRouter()
+
+	endpoints := []struct {
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{"GET", "/api/v1/databases", 200},
+		{"GET", "/api/v1/findings", 200},
+		{"GET", "/api/v1/findings?database=prod-orders", 200},
+		{"GET", "/api/v1/actions", 200},
+		{"GET", "/api/v1/actions?database=prod-orders", 200},
+		{"GET", "/api/v1/forecasts", 200},
+		{"GET", "/api/v1/forecasts?database=prod-orders", 200},
+		{"GET", "/api/v1/query-hints", 200},
+		{"GET", "/api/v1/query-hints?database=prod-users", 200},
+		{"GET", "/api/v1/alert-log", 200},
+		{"GET", "/api/v1/alert-log?database=staging", 200},
+		{"GET", "/api/v1/snapshots/latest", 200},
+		{"GET", "/api/v1/snapshots/latest?database=prod-orders", 200},
+		{"GET", "/api/v1/config", 200},
+		{"GET", "/api/v1/config?database=prod-orders", 200},
+		{"GET", "/api/v1/metrics", 200},
+		{"GET", "/api/v1/metrics?database=prod-orders", 200},
+	}
+
+	for _, ep := range endpoints {
+		t.Run(ep.method+"_"+ep.path, func(t *testing.T) {
+			req := httptest.NewRequest(ep.method, ep.path, nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			if w.Code != ep.wantStatus {
+				t.Errorf("%s %s: got %d, want %d",
+					ep.method, ep.path,
+					w.Code, ep.wantStatus)
+			}
+			ct := w.Header().Get("Content-Type")
+			if ct != "application/json" {
+				t.Errorf("%s %s: Content-Type: got %q",
+					ep.method, ep.path, ct)
+			}
+		})
+	}
+}

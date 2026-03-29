@@ -4,72 +4,8 @@ package store
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"sync"
 	"testing"
-	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pg-sage/sidecar/internal/schema"
 )
-
-func testDSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
-}
-
-var (
-	testPool     *pgxpool.Pool
-	testPoolOnce sync.Once
-	testPoolErr  error
-)
-
-func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
-	t.Helper()
-
-	testPoolOnce.Do(func() {
-		dsn := testDSN()
-		ctx, cancel := context.WithTimeout(
-			context.Background(), 15*time.Second,
-		)
-		defer cancel()
-
-		poolCfg, err := pgxpool.ParseConfig(dsn)
-		if err != nil {
-			testPoolErr = fmt.Errorf("parsing DSN: %w", err)
-			return
-		}
-
-		testPool, testPoolErr = pgxpool.NewWithConfig(ctx, poolCfg)
-		if testPoolErr != nil {
-			return
-		}
-
-		if err := testPool.Ping(ctx); err != nil {
-			testPoolErr = fmt.Errorf("ping: %w", err)
-			testPool.Close()
-			testPool = nil
-			return
-		}
-
-		if err := schema.Bootstrap(ctx, testPool); err != nil {
-			testPoolErr = fmt.Errorf("bootstrap: %w", err)
-			testPool.Close()
-			testPool = nil
-			return
-		}
-
-		schema.ReleaseAdvisoryLock(ctx, testPool)
-	})
-
-	if testPoolErr != nil {
-		t.Skipf("database unavailable: %v", testPoolErr)
-	}
-	return testPool, context.Background()
-}
 
 func TestPropose(t *testing.T) {
 	pool, ctx := requireDB(t)

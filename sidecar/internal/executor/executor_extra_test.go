@@ -70,6 +70,15 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			return
 		}
 
+		// Run config migration so database_id column and composite
+		// unique index exist (required by SetEmergencyStop's ON CONFLICT).
+		if err := schema.MigrateConfigSchema(ctx, testPool); err != nil {
+			testPoolErr = fmt.Errorf("config migration: %w", err)
+			testPool.Close()
+			testPool = nil
+			return
+		}
+
 		// Release the advisory lock so other tests/processes can proceed.
 		schema.ReleaseAdvisoryLock(ctx, testPool)
 	})

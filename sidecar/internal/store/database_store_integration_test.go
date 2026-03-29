@@ -5,72 +5,23 @@ package store
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pg-sage/sidecar/internal/crypto"
-	"github.com/pg-sage/sidecar/internal/schema"
 )
 
-func testDSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return "postgres://postgres:postgres@localhost:5432/postgres" +
-		"?sslmode=disable"
-}
-
-var (
-	testPool     *pgxpool.Pool
-	testPoolOnce sync.Once
-	testPoolErr  error
-	testKey      = crypto.DeriveKey("integration-test-key")
-)
-
-func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
+func requireDBWithClean(
+	t *testing.T,
+) (*pgxpool.Pool, context.Context) {
 	t.Helper()
-	ctx := context.Background()
-	testPoolOnce.Do(func() {
-		poolCfg, err := pgxpool.ParseConfig(testDSN())
-		if err != nil {
-			testPoolErr = fmt.Errorf("parsing DSN: %w", err)
-			return
-		}
-		poolCfg.MaxConns = 1
-		testPool, testPoolErr = pgxpool.NewWithConfig(ctx, poolCfg)
-		if testPoolErr != nil {
-			return
-		}
-		if err := testPool.Ping(ctx); err != nil {
-			testPoolErr = fmt.Errorf("ping: %w", err)
-			testPool.Close()
-			testPool = nil
-			return
-		}
-		// Ensure schema and databases table exist.
-		if err := schema.Bootstrap(ctx, testPool); err != nil {
-			testPoolErr = fmt.Errorf("bootstrap: %w", err)
-			return
-		}
-		schema.ReleaseAdvisoryLock(ctx, testPool)
-		if err := schema.EnsureDatabasesTable(ctx, testPool); err != nil {
-			testPoolErr = fmt.Errorf("ensure databases: %w", err)
-			return
-		}
-	})
-	if testPoolErr != nil {
-		t.Skipf("database unavailable: %v", testPoolErr)
-	}
-	// Clean table before each test.
-	_, _ = testPool.Exec(ctx, "DELETE FROM sage.databases")
-	return testPool, ctx
+	pool, ctx := requireDB(t)
+	_, _ = pool.Exec(ctx, "DELETE FROM sage.databases")
+	return pool, ctx
 }
 
 func TestCreateDatabase(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := requireDBWithClean(t)
 	store := NewDatabaseStore(pool, testKey)
 
 	id, err := store.Create(ctx, validInput(), 1)
@@ -83,7 +34,7 @@ func TestCreateDatabase(t *testing.T) {
 }
 
 func TestCreateDatabaseDuplicate(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := requireDBWithClean(t)
 	store := NewDatabaseStore(pool, testKey)
 
 	_, err := store.Create(ctx, validInput(), 1)
@@ -98,7 +49,7 @@ func TestCreateDatabaseDuplicate(t *testing.T) {
 }
 
 func TestListDatabases(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := requireDBWithClean(t)
 	store := NewDatabaseStore(pool, testKey)
 
 	for i := range 3 {
@@ -119,7 +70,7 @@ func TestListDatabases(t *testing.T) {
 }
 
 func TestGetDatabase(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := requireDBWithClean(t)
 	store := NewDatabaseStore(pool, testKey)
 
 	id, err := store.Create(ctx, validInput(), 42)
@@ -143,7 +94,7 @@ func TestGetDatabase(t *testing.T) {
 }
 
 func TestUpdateDatabase(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := requireDBWithClean(t)
 	store := NewDatabaseStore(pool, testKey)
 
 	id, err := store.Create(ctx, validInput(), 1)
@@ -173,7 +124,7 @@ func TestUpdateDatabase(t *testing.T) {
 }
 
 func TestUpdateDatabasePasswordOptional(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := requireDBWithClean(t)
 	store := NewDatabaseStore(pool, testKey)
 
 	id, err := store.Create(ctx, validInput(), 1)
@@ -211,7 +162,7 @@ func TestUpdateDatabasePasswordOptional(t *testing.T) {
 }
 
 func TestDeleteDatabase(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := requireDBWithClean(t)
 	store := NewDatabaseStore(pool, testKey)
 
 	id, err := store.Create(ctx, validInput(), 1)
@@ -233,7 +184,7 @@ func TestDeleteDatabase(t *testing.T) {
 }
 
 func TestGetConnectionString(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := requireDBWithClean(t)
 	store := NewDatabaseStore(pool, testKey)
 
 	id, err := store.Create(ctx, validInput(), 1)
@@ -254,7 +205,7 @@ func TestGetConnectionString(t *testing.T) {
 }
 
 func TestMaxDatabasesLimit(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := requireDBWithClean(t)
 	store := NewDatabaseStore(pool, testKey)
 
 	for i := range 50 {

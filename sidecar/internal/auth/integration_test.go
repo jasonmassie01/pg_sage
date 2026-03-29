@@ -52,9 +52,9 @@ func setupTestPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("creating sessions table: %v", err)
 	}
 
-	// Clean up before test.
-	_, _ = pool.Exec(ctx, "DELETE FROM sage.sessions")
-	_, _ = pool.Exec(ctx, "DELETE FROM sage.users")
+	// Clean up before test — use TRUNCATE CASCADE to handle
+	// FK references from other tables (e.g. sage.config).
+	_, _ = pool.Exec(ctx, "TRUNCATE sage.users CASCADE")
 
 	return pool
 }

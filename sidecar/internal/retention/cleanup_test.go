@@ -54,6 +54,14 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			testPool = nil
 			return
 		}
+		// Run config migration so database_id column and composite
+		// unique index exist (required by ON CONFLICT clauses).
+		if err := schema.MigrateConfigSchema(ctx, testPool); err != nil {
+			testPoolErr = fmt.Errorf("config migration: %w", err)
+			testPool.Close()
+			testPool = nil
+			return
+		}
 		schema.ReleaseAdvisoryLock(ctx, testPool)
 	})
 	if testPoolErr != nil {
@@ -265,7 +273,8 @@ func TestCleanStaleFirstSeen_LivePG(t *testing.T) {
 	_, err := pool.Exec(ctx,
 		`INSERT INTO sage.config (key, value)
 		 VALUES ('first_seen:public.idx_nonexistent', '2025-01-01')
-		 ON CONFLICT (key) DO UPDATE SET value = '2025-01-01'`)
+		 ON CONFLICT (key, COALESCE(database_id, 0))
+		 DO UPDATE SET value = '2025-01-01'`)
 	if err != nil {
 		t.Fatalf("inserting stale first_seen: %v", err)
 	}
