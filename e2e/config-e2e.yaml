@@ -1,0 +1,33 @@
+mode: standalone
+
+postgres:
+  host: localhost
+  port: 5432
+  user: postgres
+  password: postgres
+  database: sage_test
+  sslmode: disable
+  max_connections: 5
+
+collector:
+  interval_seconds: 300
+
+analyzer:
+  interval_seconds: 300
+  slow_query_threshold_ms: 500
+  seq_scan_min_rows: 10000
+  unused_index_window_days: 7
+  table_bloat_dead_tuple_pct: 10
+
+trust:
+  level: observation
+
+executor:
+  ddl_timeout_seconds: 300
+  maintenance_window: "* * * * *"
+
+llm:
+  enabled: false
+
+api:
+  port: 8080

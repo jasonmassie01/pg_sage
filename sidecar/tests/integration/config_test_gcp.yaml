@@ -1,0 +1,131 @@
+# pg_sage integration test config — GCP Cloud SQL
+# Ports: 38080 (API), 35433 (MCP), 39187 (Prometheus)
+
+mode: standalone
+
+postgres:
+  host: ${SAGE_PG_HOST}
+  port: ${SAGE_PG_PORT}
+  user: ${SAGE_PG_USER}
+  password: ${SAGE_PG_PASSWORD}
+  database: ${SAGE_PG_DATABASE}
+  sslmode: prefer
+  max_connections: 2
+
+collector:
+  interval_seconds: 10
+  batch_size: 1000
+
+analyzer:
+  interval_seconds: 15
+  slow_query_threshold_ms: 500
+  seq_scan_min_rows: 500
+  unused_index_window_days: 1
+  index_bloat_threshold_pct: 5
+  table_bloat_dead_tuple_pct: 5
+  table_bloat_min_rows: 100
+  idle_in_transaction_timeout_minutes: 1
+  cache_hit_ratio_warning: 0.99
+  xid_wraparound_warning: 500000000
+  xid_wraparound_critical: 1000000000
+  regression_threshold_pct: 20
+  regression_lookback_days: 1
+  checkpoint_frequency_warning_per_hour: 2
+
+safety:
+  cpu_ceiling_pct: 95
+  query_timeout_ms: 5000
+  ddl_timeout_seconds: 60
+  disk_pressure_threshold_pct: 5
+  backoff_consecutive_skips: 3
+  dormant_interval_seconds: 120
+  lock_timeout_ms: 5000
+
+trust:
+  level: autonomous
+  ramp_start: "2020-01-01T00:00:00Z"
+  maintenance_window: "* * * * *"
+  tier3_safe: true
+  tier3_moderate: true
+  tier3_high_risk: false
+  rollback_threshold_pct: 10
+  rollback_window_minutes: 5
+  rollback_cooldown_days: 1
+  cascade_cooldown_cycles: 2
+
+llm:
+  enabled: true
+  endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/"
+  api_key: ${SAGE_GEMINI_API_KEY}
+  model: "gemini-2.0-flash"
+  timeout_seconds: 30
+  token_budget_daily: 50000
+  context_budget_tokens: 4096
+  cooldown_seconds: 60
+  index_optimizer:
+    enabled: false
+    min_query_calls: 1
+
+advisor:
+  enabled: true
+  interval_seconds: 30
+  vacuum_enabled: true
+  wal_enabled: true
+  connection_enabled: true
+  memory_enabled: true
+  rewrite_enabled: true
+  bloat_enabled: true
+
+briefing:
+  schedule: "*/2 * * * *"
+  channels: ["stdout"]
+
+alerting:
+  enabled: true
+  check_interval_seconds: 15
+  cooldown_minutes: 1
+  timezone: "UTC"
+  webhooks:
+    - name: test
+      url: http://localhost:9999/alert-hook
+
+auto_explain:
+  enabled: true
+  log_min_duration_ms: 500
+  collect_interval_seconds: 30
+  max_plans_per_cycle: 50
+  prefer_session_load: true
+
+forecaster:
+  enabled: true
+  lookback_days: 30
+  disk_warn_growth_gb_day: 0.1
+  connection_warn_pct: 50
+  cache_warn_threshold: 0.99
+  sequence_warn_days: 90
+  sequence_critical_days: 30
+
+tuner:
+  enabled: true
+  work_mem_max_mb: 128
+  plan_time_ratio: 3.0
+  nested_loop_row_threshold: 10000
+  parallel_min_table_rows: 1000000
+  min_query_calls: 1
+  verify_after_apply: true
+
+retention:
+  snapshots_days: 7
+  findings_days: 7
+  actions_days: 7
+  explains_days: 7
+
+mcp:
+  enabled: true
+  listen_addr: ":35433"
+
+prometheus:
+  listen_addr: ":39187"
+
+api:
+  listen_addr: ":38080"
