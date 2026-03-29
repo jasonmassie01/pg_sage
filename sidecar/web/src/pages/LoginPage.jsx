@@ -98,7 +98,7 @@ export function LoginPage({ onLogin }) {
               Email
             </label>
             <input
-              type="email"
+              type="text"
               data-testid="login-email"
               value={email}
               onChange={e => setEmail(e.target.value)}
