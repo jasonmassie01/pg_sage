@@ -1,4 +1,42 @@
 services:
+  # --- Fleet walkthrough: two plain PostgreSQL instances ---
+  pg1:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg1data:/var/lib/postgresql/data
+    command: >
+      postgres
+        -c shared_preload_libraries=pg_stat_statements
+        -c pg_stat_statements.track=all
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pg2:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - pg2data:/var/lib/postgresql/data
+    command: >
+      postgres
+        -c shared_preload_libraries=pg_stat_statements
+        -c pg_stat_statements.track=all
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- Legacy: single instance with pg_sage C extension ---
   pg_sage:
     build: .
     environment:
@@ -36,29 +74,7 @@ services:
       - "8080:8080"   # API + Dashboard
       - "9187:9187"   # Prometheus metrics
 
-  # --------------------------------------------------------------------------
-  # Sidecar-only mode (standalone, no pg_sage extension required)
-  # --------------------------------------------------------------------------
-  # To use the sidecar with an external database (RDS, Aurora, Cloud SQL, etc.)
-  # without the pg_sage C extension, run just the sidecar service:
-  #
-  #   docker compose run --rm -e SAGE_DATABASE_URL="postgres://user:pass@your-rds-host:5432/dbname?sslmode=require" \
-  #     -p 8080:8080 -p 9187:9187 sidecar
-  #
-  # Or add a dedicated service:
-  #
-  #   sidecar-standalone:
-  #     build: ./sidecar
-  #     environment:
-  #       SAGE_DATABASE_URL: "postgres://user:pass@your-rds-host:5432/dbname?sslmode=require"
-  #       SAGE_PROMETHEUS_PORT: "9187"
-  #     ports:
-  #       - "8080:8080"
-  #       - "9187:9187"
-  #
-  # The sidecar auto-detects whether the pg_sage extension is installed and
-  # falls back to direct catalog queries (sidecar-only mode) if it is not.
-  # --------------------------------------------------------------------------
-
 volumes:
   pgdata:
+  pg1data:
+  pg2data:
