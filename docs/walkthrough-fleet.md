@@ -158,7 +158,10 @@ SQL
 
 ## Step 3: Configure the Sidecar
 
-Create `e2e_config.yaml` in the `pg_sage/` root:
+Create `e2e_config.yaml` in the `pg_sage/` root. This is the **bootstrap
+config** — just the database connections and listen addresses. Everything
+else (thresholds, LLM, trust level, etc.) is configured through the web UI
+once the sidecar is running.
 
 ```yaml
 mode: fleet
@@ -179,42 +182,11 @@ databases:
     database: app_staging
     sslmode: disable
 
-collector:
-  interval_seconds: 15
-  batch_size: 100
-  max_queries: 500
-
-analyzer:
-  interval_seconds: 30
-  slow_query_threshold_ms: 500
-  unused_index_window_days: 7
-
-trust:
-  level: advisory
-  tier3_safe: true
-
-llm:
-  enabled: true
-  endpoint: "https://generativelanguage.googleapis.com/v1beta/openai"
-  api_key: "YOUR_GEMINI_API_KEY"
-  model: "gemini-2.0-flash"
-  timeout_seconds: 30
-  token_budget_daily: 100000
-
 api:
   listen_addr: "0.0.0.0:8080"
 
 prometheus:
   listen_addr: "0.0.0.0:9187"
-
-safety:
-  cpu_ceiling_pct: 80
-  query_timeout_ms: 10000
-
-retention:
-  snapshots_days: 30
-  findings_days: 90
-  actions_days: 90
 ```
 
 ---
