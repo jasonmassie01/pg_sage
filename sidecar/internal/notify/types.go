@@ -1,10 +1,10 @@
 package notify
 
-// Channel represents a notification delivery channel (slack, email).
+// Channel represents a notification delivery channel.
 type Channel struct {
 	ID      int
 	Name    string
-	Type    string // "slack" or "email"
+	Type    string // "slack", "email", or "pagerduty"
 	Config  map[string]string
 	Enabled bool
 }

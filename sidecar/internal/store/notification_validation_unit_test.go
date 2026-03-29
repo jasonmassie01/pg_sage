@@ -17,8 +17,8 @@ func TestValidateChannelType_Valid(t *testing.T) {
 
 func TestValidateChannelType_Invalid(t *testing.T) {
 	invalid := []string{
-		"", "webhook", "sms", "pagerduty", "SLACK", "Email",
-		"slack ", " email",
+		"", "webhook", "sms", "SLACK", "Email",
+		"slack ", " email", "PAGERDUTY",
 	}
 	for _, typ := range invalid {
 		err := validateChannelType(typ)
@@ -303,5 +303,52 @@ func TestValidateChannelConfig_SlackExtraFieldsAllowed(t *testing.T) {
 	}
 	if err := validateChannelConfig("slack", cfg); err != nil {
 		t.Errorf("slack with extra fields: %v", err)
+	}
+}
+
+func TestValidateChannelConfig_PagerDutyValid(t *testing.T) {
+	cfg := map[string]string{
+		"routing_key": "abc123def456",
+	}
+	if err := validateChannelConfig("pagerduty", cfg); err != nil {
+		t.Errorf("valid pagerduty config: %v", err)
+	}
+}
+
+func TestValidateChannelConfig_PagerDutyMissingRoutingKey(t *testing.T) {
+	cfg := map[string]string{}
+	err := validateChannelConfig("pagerduty", cfg)
+	if err == nil {
+		t.Fatal("pagerduty without routing_key: want error")
+	}
+	if !strings.Contains(err.Error(), "routing_key") {
+		t.Errorf("error = %q, want routing_key", err.Error())
+	}
+}
+
+func TestValidateChannelConfig_PagerDutyEmptyRoutingKey(t *testing.T) {
+	cfg := map[string]string{"routing_key": ""}
+	err := validateChannelConfig("pagerduty", cfg)
+	if err == nil {
+		t.Fatal("pagerduty with empty routing_key: want error")
+	}
+}
+
+func TestValidateChannelConfig_PagerDutyNilConfig(t *testing.T) {
+	err := validateChannelConfig("pagerduty", nil)
+	if err == nil {
+		t.Fatal("pagerduty with nil config: want error")
+	}
+}
+
+func TestValidateChannelConfig_PagerDutyExtraFields(t *testing.T) {
+	cfg := map[string]string{
+		"routing_key":      "abc123",
+		"source":           "my-app",
+		"component":        "api",
+		"dedup_key_prefix": "prod",
+	}
+	if err := validateChannelConfig("pagerduty", cfg); err != nil {
+		t.Errorf("pagerduty with extra fields: %v", err)
 	}
 }

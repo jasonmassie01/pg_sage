@@ -352,5 +352,6 @@ func newDefaultDispatcher(
 	d := notify.NewDispatcher(pool, logFn)
 	d.RegisterSender(notify.NewSlackSender())
 	d.RegisterSender(notify.NewEmailSender())
+	d.RegisterSender(notify.NewPagerDutySender())
 	return d
 }

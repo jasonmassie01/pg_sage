@@ -9,14 +9,16 @@ import (
 )
 
 var validChannelTypes = map[string]bool{
-	"slack": true,
-	"email": true,
+	"slack":     true,
+	"email":     true,
+	"pagerduty": true,
 }
 
 func validateChannelType(typ string) error {
 	if !validChannelTypes[typ] {
 		return fmt.Errorf(
-			"validate: type must be slack or email, got %q", typ)
+			"validate: type must be slack, email, or "+
+				"pagerduty, got %q", typ)
 	}
 	return nil
 }
@@ -42,6 +44,11 @@ func validateChannelConfig(
 		if config["to"] == "" {
 			return fmt.Errorf(
 				"validate: email channel requires to")
+		}
+	case "pagerduty":
+		if config["routing_key"] == "" {
+			return fmt.Errorf(
+				"validate: pagerduty channel requires routing_key")
 		}
 	}
 	return nil
