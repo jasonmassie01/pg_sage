@@ -253,6 +253,11 @@ func initStandalone() {
 		os.Exit(1)
 	}
 
+	// 2a. Bootstrap admin user if none exist.
+	if err := bootstrapAdminIfEmpty(ctx, pool); err != nil {
+		logWarn("startup", "admin bootstrap: %v", err)
+	}
+
 	// 2b. Detect auto_explain availability.
 	var autoExplainAvail *autoexplain.Availability
 	if cfg.AutoExplain.Enabled {
@@ -611,7 +616,7 @@ func initFleetMultiDB() {
 	// LLM client (shared across fleet).
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
 
-	for _, dbCfg := range cfg.Databases {
+	for i, dbCfg := range cfg.Databases {
 		name := dbCfg.Name
 		dsn := dbCfg.ConnString()
 		logInfo("fleet", "connecting to database %q", name)
@@ -679,6 +684,15 @@ func initFleetMultiDB() {
 				name, err)
 		}
 		schema.ReleaseAdvisoryLock(context.Background(), dbPool)
+
+		// Bootstrap admin user on first database only.
+		if i == 0 {
+			if err := bootstrapAdminIfEmpty(
+				context.Background(), dbPool,
+			); err != nil {
+				logWarn("fleet", "admin bootstrap: %v", err)
+			}
+		}
 
 		// Detect PG version for this database.
 		var dbPGVersionStr string
@@ -1392,6 +1406,33 @@ func poolHealthCheck() {
 	}
 }
 
+
+// bootstrapAdminIfEmpty creates the first admin user when no users
+// exist. Prints credentials to stdout so the operator can log in.
+func bootstrapAdminIfEmpty(
+	ctx context.Context, p *pgxpool.Pool,
+) error {
+	count, err := auth.UserCount(ctx, p)
+	if err != nil {
+		return fmt.Errorf("checking user count: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+	password, err := generateRandomPassword(adminPassLen)
+	if err != nil {
+		return fmt.Errorf("generating admin password: %w", err)
+	}
+	if err := auth.BootstrapAdmin(
+		ctx, p, adminEmail, password,
+	); err != nil {
+		return fmt.Errorf("creating admin: %w", err)
+	}
+	logInfo("startup",
+		"first admin created — email: %s  password: %s",
+		adminEmail, password)
+	return nil
+}
 
 func logInfo(component, msg string, args ...any)  { logStructured("INFO", component, msg, args...) }
 func logWarn(component, msg string, args ...any)  { logStructured("WARN", component, msg, args...) }

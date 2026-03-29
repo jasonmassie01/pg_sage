@@ -2,17 +2,18 @@
 
 Monitor two PostgreSQL databases from a single pg_sage sidecar. This guide walks
 through every feature: fleet dashboard, findings, actions, LLM advisor, notifications,
-user roles, hot-reload config, emergency stop, and Prometheus metrics.
+user roles, settings, emergency stop, and Prometheus metrics.
 
 **Time**: ~20 minutes
 **Platform**: Windows (Git Bash) or Linux/macOS
 
 ## Prerequisites
 
-- Docker Desktop running
+- Docker (or Docker Desktop) running
 - Go 1.24+
 - Node.js 18+ and npm
 - Ports 5433, 5434, 8080, 9187 available
+- (Optional) A Gemini API key for LLM features
 
 ---
 
@@ -26,8 +27,8 @@ docker compose ps   # wait for both to show "healthy"
 ```
 
 This starts:
-- **production** -- PostgreSQL 16 on `localhost:5433`
-- **staging** -- PostgreSQL 16 on `localhost:5434`
+- **pg1** -- PostgreSQL 16 on `localhost:5433`
+- **pg2** -- PostgreSQL 16 on `localhost:5434`
 
 ---
 
@@ -156,12 +157,12 @@ SQL
 
 ---
 
-## Step 3: Configure the Sidecar
+## Step 3: Configure and Start the Sidecar
 
 Create `e2e_config.yaml` in the `pg_sage/` root. This is the **bootstrap
-config** — just the database connections and listen addresses. Everything
-else (thresholds, LLM, trust level, etc.) is configured through the web UI
-once the sidecar is running.
+config** — just the first database connection and listen addresses.
+The second database, LLM, and all other settings are configured through
+the web UI.
 
 ```yaml
 mode: fleet
@@ -174,13 +175,6 @@ databases:
     password: postgres
     database: app_production
     sslmode: disable
-  - name: staging
-    host: localhost
-    port: 5434
-    user: postgres
-    password: postgres
-    database: app_staging
-    sslmode: disable
 
 api:
   listen_addr: "0.0.0.0:8080"
@@ -189,9 +183,7 @@ prometheus:
   listen_addr: "0.0.0.0:9187"
 ```
 
----
-
-## Step 4: Build and Start
+### Build and start
 
 ```bash
 cd sidecar
@@ -206,76 +198,66 @@ go build -o pg_sage_sidecar ./cmd/pg_sage_sidecar/
 ./pg_sage_sidecar --config ../e2e_config.yaml
 ```
 
-Watch the logs. Within 15 seconds you should see:
+Watch the logs. You should see:
 ```
-INF fleet: registered instance=production
-INF fleet: registered instance=staging
-INF collector cycle database=production
-INF collector cycle database=staging
-INF analyzer: 5 findings database=production
-INF analyzer: 7 findings database=staging
+[INFO] [startup] first admin created — email: admin@pg-sage.local  password: <random>
+[INFO] [fleet] db "production": connected
+[INFO] [fleet] collector cycle database=production
+[INFO] [fleet] analyzer: 5 findings database=production
 ```
+
+**Copy the generated admin password from the log output** — you need it
+to log in.
 
 ---
 
-## Step 5: Log In
+## Step 4: Log In
 
 Open **http://localhost:8080** in your browser.
 
-The sidecar bootstraps an admin account automatically if no users exist.
-Default credentials:
+- [ ] Login page loads with email and password fields
+- [ ] Enter the credentials from the startup log:
+  - **Email:** `admin@pg-sage.local`
+  - **Password:** (the random password from the log)
+- [ ] Click **Sign In**
+- [ ] Dashboard loads showing 1 database (production)
 
-- **Email:** `admin`
-- **Password:** `admin`
+---
 
-If the admin user doesn't exist (check logs for "bootstrapped admin user"), create
-one manually:
+## Step 5: Add the Staging Database (via UI)
 
-```bash
-# Generate bcrypt hash
-cd sidecar
-cat > /tmp/hash.go << 'EOF'
-package main
-import ("fmt"; "golang.org/x/crypto/bcrypt")
-func main() {
-    h, _ := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
-    fmt.Println(string(h))
-}
-EOF
-HASH=$(go run /tmp/hash.go)
+Navigate to **Databases** in the sidebar.
 
-# Insert into the production database (sidecar reads auth from first DB)
-echo "INSERT INTO sage.users (email, password, role)
-VALUES ('admin', E'$HASH', 'admin')
-ON CONFLICT (email) DO UPDATE SET password = EXCLUDED.password, role = EXCLUDED.role;" \
-| docker exec -i pg_sage-pg1-1 psql -U postgres -d app_production
-```
+1. [ ] Click **Add Database**
+2. [ ] Fill in the form:
+   - Name: `staging`
+   - Host: `localhost` (or the Docker host IP)
+   - Port: `5434`
+   - Database Name: `app_staging`
+   - Username: `postgres`
+   - Password: `postgres`
+   - SSL Mode: `disable`
+3. [ ] Click **Test Connection** — should show success
+4. [ ] Click **Add**
+5. [ ] The staging database appears in the list
+6. [ ] Dashboard now shows **2 Databases Monitored**
+7. [ ] Within 30 seconds, findings start appearing for staging
 
 ---
 
 ## Step 6: Dashboard -- Fleet Overview
 
-After login you land on the **Dashboard**. Verify:
-
 - [ ] **Hero section** shows "2 Databases Monitored"
 - [ ] **Summary cards**: Databases=2, Healthy=2, Critical > 0
 - [ ] **Database list**: Both "production" and "staging" appear
 - [ ] Each database shows a green "connected" dot
-- [ ] Trust level shows "advisory" for both
 - [ ] Severity badges visible (red=critical, yellow=warning, blue=info)
-- [ ] **Recent Recommendations** section shows top findings
 
 ---
 
 ## Step 7: Findings -- View and Filter
 
 Click **Findings** in the sidebar.
-
-### All databases (default)
-
-- [ ] Findings from both databases are listed
-- [ ] Each row shows: Severity badge, Category, Title, Database name, Count
-- [ ] Tab bar shows: Open (active), Suppressed, Resolved
 
 ### Expected findings
 
@@ -290,7 +272,7 @@ You should see at minimum:
 
 ### Filter by database
 
-- [ ] Click the **Database Picker** in the sidebar
+- [ ] Click the **Database Picker** in the sidebar or header
 - [ ] Select "production" -- only production findings appear
 - [ ] Select "staging" -- only staging findings appear
 - [ ] Select "All Databases" -- both appear again
@@ -298,40 +280,12 @@ You should see at minimum:
 ### Expand a finding
 
 - [ ] Click a duplicate_index finding to expand
-- [ ] See: Recommendation text, Recommended SQL, Detail grid, Risk badge
+- [ ] See: Recommendation text, Recommended SQL, Risk badge
 - [ ] The `DROP INDEX CONCURRENTLY ...` SQL is shown
-- [ ] Risk badge shows "safe" (green)
 
 ---
 
-## Step 8: Take Action -- Fix a Duplicate Index
-
-While viewing an expanded duplicate_index finding:
-
-1. [ ] Click **Take Action**
-2. [ ] Confirmation modal shows the SQL and target database
-3. [ ] Click **Confirm**
-4. [ ] Finding status changes to "resolved"
-5. [ ] Success message appears
-
-### Verify the action
-
-- [ ] Navigate to **Actions** in the sidebar
-- [ ] **Executed** tab shows the action with "success" outcome
-- [ ] Expand the row to see SQL Executed and Rollback SQL
-- [ ] Go back to **Findings** -- the finding is now in the "Resolved" tab
-
-### Verify in the database
-
-```bash
-docker exec pg_sage-pg1-1 psql -U postgres -d app_production \
-  -c "\di public.idx_oi_product*"
-# Should show only idx_oi_product_dup (the duplicate was dropped)
-```
-
----
-
-## Step 9: Suppress a Finding
+## Step 8: Suppress and Unsuppress a Finding
 
 Some findings are intentional (e.g., the ticket_seq is a test sequence).
 
@@ -343,7 +297,63 @@ Some findings are intentional (e.g., the ticket_seq is a test sequence).
 
 ---
 
-## Step 10: Notifications -- Channels and Rules
+## Step 9: Configure Settings (via UI)
+
+Navigate to **Settings** in the sidebar.
+
+### Simple mode (default)
+
+The Settings page opens in **Simple** mode with three tabs:
+
+- [ ] **General**: System info, Emergency stop/resume buttons
+- [ ] **Monitoring**: Collector interval, slow query threshold, trust level
+- [ ] **AI & Alerts**: LLM toggle, endpoint, model, API key, alerting
+
+### Switch to Advanced mode
+
+- [ ] Toggle the **Advanced** switch at the top
+- [ ] Additional tabs appear: Collector, Analyzer, Trust & Safety, LLM,
+      Alerting, Retention
+- [ ] Each field shows a **source badge** (default, yaml, override)
+
+### Change a threshold
+
+1. [ ] Go to Analyzer tab (Advanced) or Monitoring tab (Simple)
+2. [ ] Change `slow_query_threshold_ms` from 1000 to 2000
+3. [ ] Click **Save**
+4. [ ] Green success banner appears
+5. [ ] Sidecar log shows: `config updated key=analyzer.slow_query_threshold_ms`
+6. [ ] Field badge changes to "override"
+
+### Reset to default
+
+1. [ ] Click the **Reset** button next to the modified setting
+2. [ ] Value reverts to the compiled default
+3. [ ] Click **Save**
+
+---
+
+## Step 10: Configure LLM (via UI)
+
+In Settings, go to the **AI & Alerts** tab (Simple) or **LLM** tab (Advanced).
+
+1. [ ] Toggle **LLM Enabled** to on
+2. [ ] Set **Endpoint** to: `https://generativelanguage.googleapis.com/v1beta/openai`
+3. [ ] Set **API Key** to your Gemini key
+4. [ ] Click **Discover Models** -- a dropdown populates with available models
+5. [ ] Select **gemini-2.0-flash** (or another model)
+6. [ ] Click **Save**
+7. [ ] Sidecar logs show LLM configuration applied
+
+### Verify LLM is working
+
+Within 1-2 minutes, the sidecar will use the LLM for:
+- [ ] Health briefings (check the Dashboard for a summary)
+- [ ] Config advisor recommendations (new findings with LLM-powered detail)
+
+---
+
+## Step 11: Notifications -- Channels and Rules
 
 Navigate to **Notifications** in the sidebar (admin only).
 
@@ -352,7 +362,7 @@ Navigate to **Notifications** in the sidebar (admin only).
 1. [ ] In the **Channels** tab, fill in:
    - Name: `team-alerts`
    - Type: Slack
-   - Webhook URL: (paste a real Slack webhook, or use a placeholder for testing)
+   - Webhook URL: (paste a real Slack webhook, or use a placeholder)
 2. [ ] Click **Create**
 3. [ ] Channel appears in the list with "slack" badge
 
@@ -360,7 +370,7 @@ Navigate to **Notifications** in the sidebar (admin only).
 
 1. [ ] Name: `oncall-pd`
 2. [ ] Type: PagerDuty
-3. [ ] Routing Key: (your PD routing key)
+3. [ ] Routing Key: (your PD routing key, or a placeholder)
 4. [ ] Click **Create**
 
 ### Test a channel
@@ -385,7 +395,7 @@ In the **Rules** tab:
 
 ---
 
-## Step 11: User Management
+## Step 12: User Management
 
 Navigate to **Users** (admin only).
 
@@ -413,65 +423,7 @@ Navigate to **Users** (admin only).
 
 ---
 
-## Step 12: LLM Features -- Models and Advisor
-
-### Check available models
-
-Navigate to **Settings > AI & Alerts**. The LLM section shows:
-- [ ] Current model: gemini-2.0-flash
-- [ ] Endpoint configured and reachable
-
-Or via API:
-
-```bash
-curl -s -b cookies http://localhost:8080/api/v1/llm/models
-```
-
-Returns models like: gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash.
-
-### Enable the advisor
-
-In Settings > Advanced > LLM tab:
-
-1. [ ] Set `advisor.enabled` to true
-2. [ ] Click **Save**
-3. [ ] Sidecar logs show "advisor: starting analysis"
-
-The advisor will analyze vacuum tuning, WAL settings, memory, connections, and
-query rewrites. New findings with LLM-powered recommendations will appear on the
-Findings page within 1-2 minutes.
-
----
-
-## Step 13: Settings -- Hot Reload
-
-### Change a threshold
-
-In Settings (Advanced mode > Analyzer tab):
-
-1. [ ] Change `slow_query_threshold_ms` from 500 to 2000
-2. [ ] Click **Save**
-3. [ ] Green success banner appears
-4. [ ] Sidecar log shows: `config updated key=analyzer.slow_query_threshold_ms`
-5. [ ] Next analyzer cycle uses the new threshold
-
-### View audit trail
-
-```bash
-curl -s -b cookies http://localhost:8080/api/v1/config/audit | python -m json.tool
-```
-
-Shows: who changed it, when, old value (500), new value (2000).
-
-### Reset to default
-
-1. [ ] Click the **Reset** button next to the modified setting
-2. [ ] Value reverts to the compiled default
-3. [ ] Click **Save**
-
----
-
-## Step 14: Emergency Stop
+## Step 13: Emergency Stop
 
 1. [ ] Navigate to Settings > General
 2. [ ] Click the red **Emergency Stop** button
@@ -483,7 +435,7 @@ Shows: who changed it, when, old value (500), new value (2000).
 
 ---
 
-## Step 15: Prometheus Metrics
+## Step 14: Prometheus Metrics
 
 Open **http://localhost:9187/metrics** in a new browser tab.
 
@@ -504,13 +456,13 @@ These can be scraped by Prometheus and visualized in Grafana.
 
 ---
 
-## Step 16: API Quick Reference
+## Step 15: API Quick Reference
 
 ```bash
-# Login
+# Login (use credentials from startup log)
 curl -c cookies -X POST http://localhost:8080/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@pgsage.local","password":"password123"}'
+  -d '{"email":"admin@pg-sage.local","password":"YOUR_PASSWORD"}'
 
 # Fleet overview
 curl -b cookies http://localhost:8080/api/v1/databases
@@ -528,17 +480,20 @@ curl -b cookies http://localhost:8080/api/v1/actions
 
 # Config (get / hot-reload update)
 curl -b cookies http://localhost:8080/api/v1/config
-curl -b cookies -X PUT http://localhost:8080/api/v1/config \
-  -H 'Content-Type: application/json' -d '{"analyzer.slow_query_threshold_ms":1000}'
+curl -b cookies -X PUT http://localhost:8080/api/v1/config/global \
+  -H 'Content-Type: application/json' \
+  -d '{"analyzer.slow_query_threshold_ms":1000}'
+
+# Add a database at runtime
+curl -b cookies -X POST http://localhost:8080/api/v1/databases/managed \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"staging","host":"localhost","port":5434,"database_name":"app_staging","username":"postgres","password":"postgres","sslmode":"disable"}'
 
 # LLM models
 curl -b cookies http://localhost:8080/api/v1/llm/models
 
 # Notifications
 curl -b cookies http://localhost:8080/api/v1/notifications/channels
-curl -b cookies -X POST http://localhost:8080/api/v1/notifications/channels \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"slack","type":"slack","config":{"webhook_url":"https://hooks.slack.com/..."}}'
 
 # Emergency stop / resume
 curl -b cookies -X POST http://localhost:8080/api/v1/emergency-stop
