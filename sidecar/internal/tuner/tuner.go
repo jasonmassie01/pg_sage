@@ -297,7 +297,7 @@ func (t *Tuner) buildFinding(
 		Recommendation: rationale,
 		ActionRisk:     "safe",
 	}
-	if t.hintPlan.Available && t.hintPlan.HintTableReady {
+	if t.hintPlan != nil && t.hintPlan.Available && t.hintPlan.HintTableReady {
 		f.RecommendedSQL = BuildInsertSQL(
 			c.QueryID, combinedHint,
 		)

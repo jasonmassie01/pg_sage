@@ -100,6 +100,10 @@ func (m *Manager) Run(ctx context.Context) {
 
 // evaluate queries new findings and dispatches alerts.
 func (m *Manager) evaluate(ctx context.Context) error {
+	if m.pool == nil {
+		return fmt.Errorf("query findings: pool is nil")
+	}
+
 	m.mu.Lock()
 	since := m.lastCheck
 	m.mu.Unlock()
