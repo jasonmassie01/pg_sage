@@ -104,7 +104,8 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 		c.tokensUsedToday.Store(0)
 		c.budgetResetDay = today
 	}
-	if int(c.tokensUsedToday.Load()) >= c.cfg.TokenBudgetDaily {
+	if c.cfg.TokenBudgetDaily > 0 &&
+		int(c.tokensUsedToday.Load()) >= c.cfg.TokenBudgetDaily {
 		return "", 0, fmt.Errorf("daily token budget exhausted (%d/%d)",
 			c.tokensUsedToday.Load(), c.cfg.TokenBudgetDaily)
 	}

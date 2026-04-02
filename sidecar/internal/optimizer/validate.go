@@ -226,7 +226,7 @@ func (v *Validator) checkExpressionVolatility(
 	}
 	var volatility string
 	err := v.pool.QueryRow(ctx,
-		"SELECT provolatile FROM pg_proc WHERE proname = $1 LIMIT 1",
+		"SELECT provolatile::text FROM pg_proc WHERE proname = $1 LIMIT 1",
 		fnName,
 	).Scan(&volatility)
 	if err != nil {
