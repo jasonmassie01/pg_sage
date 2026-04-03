@@ -2062,7 +2062,7 @@ func TestFunctional_Coverage_BuildFinding_WithHintPlan(t *testing.T) {
 		{Kind: SymptomSeqScanWithIndex, RelationName: "orders"},
 	}
 	f := tu.buildFinding(c, symptoms, "IndexScan(orders)",
-		"test title", "test rationale")
+		"test title", "test rationale", "", "")
 
 	if f.Category != "query_tuning" {
 		t.Errorf("Category = %q, want query_tuning", f.Category)
@@ -2128,7 +2128,7 @@ func TestFunctional_Coverage_BuildFinding_NoHintPlan(t *testing.T) {
 	c := candidate{QueryID: 99, Query: "SELECT 1"}
 	symptoms := []PlanSymptom{{Kind: SymptomHighPlanTime}}
 	f := tu.buildFinding(c, symptoms, "Set(plan_cache_mode ...)",
-		"title", "rationale")
+		"title", "rationale", "", "")
 
 	if f.RecommendedSQL != "" {
 		t.Errorf("expected empty RecommendedSQL, got %q",
@@ -2152,7 +2152,7 @@ func TestFunctional_Coverage_BuildFinding_AvailableButNotReady(
 	c := candidate{QueryID: 50, Query: "SELECT 1"}
 	symptoms := []PlanSymptom{{Kind: SymptomDiskSort}}
 	f := tu.buildFinding(c, symptoms, "Set(work_mem \"64MB\")",
-		"title", "rationale")
+		"title", "rationale", "", "")
 	if f.RecommendedSQL != "" {
 		t.Error("expected empty RecommendedSQL when table not ready")
 	}
@@ -2164,7 +2164,7 @@ func TestFunctional_Coverage_BuildFinding_NilHintPlan(t *testing.T) {
 	tu := &Tuner{hintPlan: nil}
 	c := candidate{QueryID: 1, Query: "SELECT 1"}
 	symptoms := []PlanSymptom{{Kind: SymptomHighPlanTime}}
-	f := tu.buildFinding(c, symptoms, "hint", "title", "rationale")
+	f := tu.buildFinding(c, symptoms, "hint", "title", "rationale", "", "")
 	if f.RecommendedSQL != "" {
 		t.Error("expected empty RecommendedSQL with nil hintPlan")
 	}
@@ -2191,7 +2191,7 @@ func TestFunctional_Coverage_BuildFinding_MultipleSymptoms(
 	}
 	f := tu.buildFinding(c, symptoms,
 		`Set(work_mem "128MB") IndexScan(t)`,
-		"multi title", "multi rationale")
+		"multi title", "multi rationale", "", "")
 
 	syms, ok := f.Detail["symptoms"].([]string)
 	if !ok {
@@ -3731,4 +3731,87 @@ func TestFunctional_Coverage_Tune_NilPool(t *testing.T) {
 		}
 	}()
 	_, _ = tu.Tune(context.Background())
+}
+
+// noopLog is a no-op logger alias used by rewrite tests.
+func noopLog(string, string, ...any) {}
+
+// ---------------------------------------------------------------------------
+// Query Rewrite: extractRewrite
+// ---------------------------------------------------------------------------
+
+func TestExtractRewrite(t *testing.T) {
+	// No rewrites
+	rx1 := []Prescription{
+		{Symptom: "disk_sort", HintDirective: "Set(work_mem \"64MB\")", Rationale: "spill"},
+	}
+	rewrite, rationale := extractRewrite(rx1)
+	if rewrite != "" {
+		t.Errorf("expected empty rewrite, got %q", rewrite)
+	}
+	if rationale != "" {
+		t.Errorf("expected empty rationale, got %q", rationale)
+	}
+
+	// With rewrite on second prescription
+	rx2 := []Prescription{
+		{Symptom: "disk_sort", HintDirective: "Set(work_mem \"64MB\")", Rationale: "spill"},
+		{
+			Symptom: "llm_recommended", HintDirective: "HashJoin(t1 t2)",
+			Rationale: "better join", SuggestedRewrite: "SELECT ... FROM t1 JOIN t2 USING(id)",
+			RewriteRationale: "replace correlated subquery",
+		},
+	}
+	rewrite, rationale = extractRewrite(rx2)
+	if rewrite != "SELECT ... FROM t1 JOIN t2 USING(id)" {
+		t.Errorf("rewrite = %q, want SELECT ... FROM t1 JOIN t2 USING(id)", rewrite)
+	}
+	if rationale != "replace correlated subquery" {
+		t.Errorf("rationale = %q, want 'replace correlated subquery'", rationale)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Query Rewrite: buildFinding with rewrite
+// ---------------------------------------------------------------------------
+
+func TestBuildFindingWithRewrite(t *testing.T) {
+	tu := New(nil, TunerConfig{}, nil, noopLog)
+	c := candidate{QueryID: 42, Query: "SELECT * FROM orders WHERE id IN (SELECT order_id FROM items)"}
+	symptoms := []PlanSymptom{{Kind: SymptomSeqScanWithIndex, RelationName: "orders"}}
+
+	rewrite := "SELECT o.* FROM orders o JOIN items i ON o.id = i.order_id"
+	rewriteRationale := "replace IN subquery with JOIN"
+
+	f := tu.buildFinding(c, symptoms, "IndexScan(orders)",
+		"test title", "test rationale", rewrite, rewriteRationale)
+
+	got, ok := f.Detail["suggested_rewrite"].(string)
+	if !ok || got != rewrite {
+		t.Errorf("Detail[suggested_rewrite] = %q, want %q", got, rewrite)
+	}
+	gotRat, ok := f.Detail["rewrite_rationale"].(string)
+	if !ok || gotRat != rewriteRationale {
+		t.Errorf("Detail[rewrite_rationale] = %q, want %q", gotRat, rewriteRationale)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Query Rewrite: buildFinding without rewrite
+// ---------------------------------------------------------------------------
+
+func TestBuildFindingWithoutRewrite(t *testing.T) {
+	tu := New(nil, TunerConfig{}, nil, noopLog)
+	c := candidate{QueryID: 1, Query: "SELECT 1"}
+	symptoms := []PlanSymptom{{Kind: SymptomDiskSort}}
+
+	f := tu.buildFinding(c, symptoms, "Set(work_mem \"64MB\")",
+		"title", "rationale", "", "")
+
+	if _, exists := f.Detail["suggested_rewrite"]; exists {
+		t.Error("Detail should not contain suggested_rewrite when empty")
+	}
+	if _, exists := f.Detail["rewrite_rationale"]; exists {
+		t.Error("Detail should not contain rewrite_rationale when empty")
+	}
 }

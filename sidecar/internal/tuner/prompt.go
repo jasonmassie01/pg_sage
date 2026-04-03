@@ -24,9 +24,10 @@ Rules:
 7. Consider ALL symptoms together and produce ONE coherent hint string that addresses the root cause.
 8. If deterministic fallback hints are provided, improve on them or confirm them if correct.
 9. Confidence: 0.0-1.0 based on completeness of available data and certainty of recommendation.
+10. Query rewrite: if the hint is a workaround and the query itself could be rewritten for better performance (e.g., replacing correlated subqueries with JOINs, using EXISTS instead of IN, removing unnecessary DISTINCT, adding proper WHERE clauses), include the rewritten SQL in "suggested_rewrite" and explain why in "rewrite_rationale". Only suggest a rewrite when it would meaningfully improve performance beyond what hints alone achieve. Leave both fields empty string if no rewrite is needed.
 
 Output format:
-[{"hint_directive": "Set(work_mem \"256MB\") HashJoin(t1 t2)", "rationale": "Why these hints help", "confidence": 0.85}]
+[{"hint_directive": "Set(work_mem \"256MB\") HashJoin(t1 t2)", "rationale": "Why these hints help", "confidence": 0.85, "suggested_rewrite": "", "rewrite_rationale": ""}]
 
 If no hints are warranted, return: []`
 }

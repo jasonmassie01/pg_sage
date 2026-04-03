@@ -46,6 +46,15 @@
 - Verified on Cloud SQL PG16/17 and AlloyDB PG17
 - 588 tests, 0 failures
 
+### v0.8.2 (2026-04-03) — LLM Tuner + Query Rewrites
+- Query tuner: hybrid deterministic rules (7 symptom kinds) + LLM-enhanced hints
+- LLM-powered query rewrite suggestions alongside pg_hint_plan directives
+- Rewrite suggestions surfaced in dashboard with rationale
+- Alert notification (`query_rewrite_suggested` event) when rewrite is suggested
+- Index optimizer multi-query consolidation (8 queries → minimal index set)
+- E2E test suite: 54 subtests against real Gemini API
+- 771+ tests
+
 ---
 
 ## Planned

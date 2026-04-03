@@ -14,9 +14,11 @@ const llmMaxTokens = 4096
 
 // LLMPrescription is the structured response from the LLM.
 type LLMPrescription struct {
-	HintDirective string  `json:"hint_directive"`
-	Rationale     string  `json:"rationale"`
-	Confidence    float64 `json:"confidence"`
+	HintDirective    string  `json:"hint_directive"`
+	Rationale        string  `json:"rationale"`
+	Confidence       float64 `json:"confidence"`
+	SuggestedRewrite string  `json:"suggested_rewrite"`
+	RewriteRationale string  `json:"rewrite_rationale"`
 }
 
 // llmPrescribe calls the LLM for hint reasoning, with fallback.
@@ -65,9 +67,11 @@ func convertPrescriptions(
 			continue
 		}
 		out = append(out, Prescription{
-			Symptom:       "llm_recommended",
-			HintDirective: r.HintDirective,
-			Rationale:     r.Rationale,
+			Symptom:          "llm_recommended",
+			HintDirective:    r.HintDirective,
+			Rationale:        r.Rationale,
+			SuggestedRewrite: r.SuggestedRewrite,
+			RewriteRationale: r.RewriteRationale,
 		})
 	}
 	return out

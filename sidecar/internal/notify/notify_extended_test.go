@@ -344,15 +344,16 @@ func TestSeverityMeetsMin_EdgeCases(t *testing.T) {
 
 func TestValidEventTypes_Completeness(t *testing.T) {
 	expectedTypes := map[string]bool{
-		"action_executed":  true,
-		"action_failed":    true,
-		"approval_needed":  true,
-		"finding_critical": true,
+		"action_executed":         true,
+		"action_failed":           true,
+		"approval_needed":         true,
+		"finding_critical":        true,
+		"query_rewrite_suggested": true,
 	}
 
 	// Verify exact count.
-	if len(ValidEventTypes) != 4 {
-		t.Errorf("ValidEventTypes has %d entries, want 4", len(ValidEventTypes))
+	if len(ValidEventTypes) != 5 {
+		t.Errorf("ValidEventTypes has %d entries, want 5", len(ValidEventTypes))
 	}
 
 	// Verify all expected types are present and true.
@@ -579,5 +580,37 @@ func TestParseConfig_ValidJSON_CorrectValues(t *testing.T) {
 	}
 	if got["from"] != "a@b.com" {
 		t.Errorf("from = %q, want 'a@b.com'", got["from"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// QueryRewriteEvent factory
+// ---------------------------------------------------------------------------
+
+func TestQueryRewriteEvent(t *testing.T) {
+	ev := QueryRewriteEvent(
+		"Per-query tuning: force index scan",
+		"SELECT * FROM orders WHERE id IN (SELECT oid FROM items)",
+		"SELECT o.* FROM orders o JOIN items i ON o.id = i.order_id",
+		"replace IN subquery with JOIN",
+		"mydb",
+	)
+	if ev.Type != "query_rewrite_suggested" {
+		t.Errorf("Type = %q, want query_rewrite_suggested", ev.Type)
+	}
+	if ev.Severity != "warning" {
+		t.Errorf("Severity = %q, want warning", ev.Severity)
+	}
+	if ev.Data["rewrite"] != "SELECT o.* FROM orders o JOIN items i ON o.id = i.order_id" {
+		t.Errorf("Data[rewrite] = %v", ev.Data["rewrite"])
+	}
+	if ev.Data["database"] != "mydb" {
+		t.Errorf("Data[database] = %v", ev.Data["database"])
+	}
+	if ev.Data["query"] == "" {
+		t.Error("Data[query] should not be empty")
+	}
+	if ev.Data["rationale"] == "" {
+		t.Error("Data[rationale] should not be empty")
 	}
 }

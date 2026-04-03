@@ -164,7 +164,9 @@ func scanForecastRows(rows pgx.Rows) ([]map[string]any, error) {
 }
 
 const queryHintsSQL = `SELECT queryid, hint_text, symptom,
- status, created_at, before_cost, after_cost
+ status, created_at, before_cost, after_cost,
+ COALESCE(suggested_rewrite, '') AS suggested_rewrite,
+ COALESCE(rewrite_rationale, '') AS rewrite_rationale
  FROM sage.query_hints
  WHERE status = 'active'
  ORDER BY created_at DESC`
@@ -184,22 +186,25 @@ func scanQueryHintRows(rows pgx.Rows) ([]map[string]any, error) {
 	var results []map[string]any
 	for rows.Next() {
 		var (
-			queryID    int64
-			hintText   string
-			symptom    string
-			status     string
-			createdAt  time.Time
-			beforeCost *float64
-			afterCost  *float64
+			queryID          int64
+			hintText         string
+			symptom          string
+			status           string
+			createdAt        time.Time
+			beforeCost       *float64
+			afterCost        *float64
+			suggestedRewrite string
+			rewriteRationale string
 		)
 		err := rows.Scan(
 			&queryID, &hintText, &symptom,
 			&status, &createdAt, &beforeCost, &afterCost,
+			&suggestedRewrite, &rewriteRationale,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan query hint: %w", err)
 		}
-		results = append(results, map[string]any{
+		row := map[string]any{
 			"queryid":     queryID,
 			"hint_text":   hintText,
 			"symptom":     symptom,
@@ -207,7 +212,12 @@ func scanQueryHintRows(rows pgx.Rows) ([]map[string]any, error) {
 			"created_at":  createdAt,
 			"before_cost": beforeCost,
 			"after_cost":  afterCost,
-		})
+		}
+		if suggestedRewrite != "" {
+			row["suggested_rewrite"] = suggestedRewrite
+			row["rewrite_rationale"] = rewriteRationale
+		}
+		results = append(results, row)
 	}
 	if results == nil {
 		results = []map[string]any{}

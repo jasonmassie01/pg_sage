@@ -52,6 +52,7 @@ export function QueryHintsPage({ database }) {
 
   const hints = data?.hints || []
   const activeHints = hints.filter(h => h.status === 'active')
+  const rewriteCount = hints.filter(h => h.suggested_rewrite).length
 
   const avgImprovement = activeHints.length > 0
     ? (activeHints.reduce((sum, h) => {
@@ -123,13 +124,16 @@ export function QueryHintsPage({ database }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <StatCard label="Active Hints"
           value={activeHints.length}
           color="var(--accent)" />
         <StatCard label="Avg Cost Improvement"
           value={`${avgImprovement}%`}
           color="var(--green)" />
+        <StatCard label="Rewrite Suggestions"
+          value={rewriteCount}
+          color="var(--warning, var(--accent))" />
       </div>
 
       {hints.length === 0 ? (
@@ -167,6 +171,25 @@ export function QueryHintsPage({ database }) {
                   </div>
                 </div>
               </div>
+              {row.suggested_rewrite && (
+                <div className="rounded p-3"
+                  style={{
+                    background: 'var(--bg-hover)',
+                    border: '1px solid var(--accent)',
+                  }}>
+                  <div className="text-xs font-medium mb-1"
+                    style={{ color: 'var(--accent)' }}>
+                    Suggested Query Rewrite
+                  </div>
+                  <SQLBlock sql={row.suggested_rewrite} />
+                  {row.rewrite_rationale && (
+                    <div className="text-xs mt-2"
+                      style={{ color: 'var(--text-secondary)' }}>
+                      {row.rewrite_rationale}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         />
