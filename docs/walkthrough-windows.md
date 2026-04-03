@@ -166,8 +166,7 @@ pg_sage serves a React dashboard on port 8080 (configurable). Open
 query hints, and manage configuration.
 
 The REST API is available at `http://localhost:8080/api/v1/` for programmatic
-access. See the [API Endpoints](../README.md#api-endpoints) section for the
-full list.
+access. See [Architecture](architecture.md) for the full endpoint list.
 
 ---
 
