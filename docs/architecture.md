@@ -87,7 +87,7 @@ REST API and embedded React SPA on `:8080` (configurable). Provides 17 endpoints
 
 ### Alerting
 
-Monitors new findings and routes notifications to Slack, PagerDuty, or custom webhooks based on severity. Supports quiet hours, cooldown periods, and per-severity routing rules.
+Monitors new findings and routes notifications to Slack, PagerDuty, or custom webhooks based on severity. Supports quiet hours, cooldown periods, and per-severity routing rules. Event types: `finding_critical`, `action_executed`, `action_failed`, `approval_needed`, `query_rewrite_suggested`.
 
 ### AutoExplain Collector
 

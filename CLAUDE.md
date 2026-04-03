@@ -8,7 +8,7 @@ pg_sage is an autonomous PostgreSQL DBA agent that continuously monitors, analyz
 **Module:** `github.com/pg-sage/sidecar`
 **Go:** 1.24
 **Target:** PostgreSQL 14+
-**Tests:** 762+ test functions, 0 failures
+**Tests:** 771+ test functions, 0 failures
 **Modes:** Standalone (single DB) and Fleet (multi-DB from one sidecar)
 
 ## Architecture
@@ -103,7 +103,7 @@ cd sidecar
 cd web && npm ci && npm run build && cd ..
 go build ./cmd/pg_sage_sidecar/
 
-# Run tests (762+ tests)
+# Run tests (771+ tests)
 go test ./... -count=1 -timeout 300s
 
 # Run with race detector
@@ -148,7 +148,7 @@ All under `/api/v1/`, all accept `?database=` filter in fleet mode:
 | POST | `/emergency-stop` | Halt all autonomous actions |
 | POST | `/resume` | Resume after emergency stop |
 | GET | `/forecasts` | Forecaster predictions |
-| GET | `/query-hints` | Active query hints from tuner |
+| GET | `/query-hints` | Active query hints + rewrite suggestions |
 | GET | `/alert-log` | Alert delivery history |
 
 ## Testing Strategy
