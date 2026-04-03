@@ -117,3 +117,18 @@ func TestValidateSQL_TrailingSemicolon(t *testing.T) {
 		t.Errorf("trailing semicolon should be ok: %v", err)
 	}
 }
+
+func TestValidateSQL_AlterDatabase(t *testing.T) {
+	cases := []string{
+		`ALTER DATABASE "mydb" SET work_mem = '64MB'`,
+		`ALTER DATABASE "mydb" RESET work_mem`,
+		`ALTER DATABASE postgres SET max_wal_size = '4GB'`,
+		`alter database "mydb" set work_mem = '64MB'`,
+	}
+	for _, sql := range cases {
+		if err := ValidateExecutorSQL(sql); err != nil {
+			t.Errorf("expected ALTER DATABASE allowed: %q, got: %v",
+				sql, err)
+		}
+	}
+}

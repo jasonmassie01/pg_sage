@@ -27,6 +27,8 @@ func Prescribe(
 		return prescribeParallel()
 	case SymptomSortLimit:
 		return prescribeSortLimit(symptom)
+	case SymptomStatTempSpill:
+		return prescribeStatTempSpill(symptom, cfg)
 	default:
 		return nil
 	}
@@ -128,6 +130,22 @@ func prescribeSortLimit(s PlanSymptom) *Prescription {
 	}
 }
 
+func prescribeStatTempSpill(
+	s PlanSymptom, cfg TunerConfig,
+) *Prescription {
+	blks, _ := s.Detail["temp_blks_written"].(int64)
+	kb := blks * 8 // PostgreSQL default block = 8 KB
+	mem := CalcWorkMem(kb, cfg.WorkMemMaxMB)
+	return &Prescription{
+		Symptom:       SymptomStatTempSpill,
+		HintDirective: fmtSetWorkMem(mem),
+		Rationale: fmt.Sprintf(
+			"query wrote %d temp blocks (~%d MB) to disk",
+			blks, kb/1024,
+		),
+	}
+}
+
 func fmtSetWorkMem(mb int) string {
 	return fmt.Sprintf(`Set(work_mem "%dMB")`, mb)
 }
@@ -167,14 +185,26 @@ func CombineHints(prescriptions []Prescription) string {
 	var others []string
 
 	for _, p := range prescriptions {
-		if mb, ok := extractWorkMemMB(p.HintDirective); ok {
-			hasWorkMem = true
-			if mb > workMemMB {
-				workMemMB = mb
-			}
-			continue
+		// Split combined directives like
+		// "Set(work_mem ...) IndexScan(...)" into parts.
+		parts := splitHintDirectives(p.HintDirective)
+		if len(parts) <= 1 {
+			parts = []string{p.HintDirective}
 		}
-		others = append(others, p.HintDirective)
+		for _, d := range parts {
+			d = strings.TrimSpace(d)
+			if d == "" {
+				continue
+			}
+			if mb, ok := extractWorkMemMB(d); ok {
+				hasWorkMem = true
+				if mb > workMemMB {
+					workMemMB = mb
+				}
+				continue
+			}
+			others = append(others, d)
+		}
 	}
 
 	var parts []string

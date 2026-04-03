@@ -34,12 +34,12 @@ func TestActionLevel(t *testing.T) {
 		confidence float64
 		want       string
 	}{
-		{0.9, "autonomous"},
-		{0.7, "autonomous"},
-		{0.6, "advisory"},
-		{0.4, "advisory"},
-		{0.3, "informational"},
-		{0.0, "informational"},
+		{0.9, "safe"},
+		{0.7, "safe"},
+		{0.6, "moderate"},
+		{0.4, "moderate"},
+		{0.3, "high_risk"},
+		{0.0, "high_risk"},
 	}
 	for _, tt := range tests {
 		got := ActionLevel(tt.confidence)

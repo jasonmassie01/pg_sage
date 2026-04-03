@@ -95,6 +95,42 @@ func TestAdvisor_Analyze_LLMDisabled(t *testing.T) {
 	}
 }
 
+func TestAdvisor_WithCloudEnv_OverridesConfig(t *testing.T) {
+	adv := newTestAdvisor(true, true, 86400)
+	adv.cfg.CloudEnvironment = "self-managed"
+
+	adv.WithCloudEnv("rds")
+
+	// cloudEnv field should take precedence over cfg.
+	if adv.cloudEnv != "rds" {
+		t.Fatalf("expected cloudEnv=rds, got %s", adv.cloudEnv)
+	}
+}
+
+func TestAdvisor_WithDatabaseName_OverridesConfig(t *testing.T) {
+	adv := newTestAdvisor(true, true, 86400)
+	adv.cfg.Postgres.Database = "default_db"
+
+	adv.WithDatabaseName("fleet_db_1")
+
+	if adv.dbName != "fleet_db_1" {
+		t.Fatalf("expected dbName=fleet_db_1, got %s", adv.dbName)
+	}
+}
+
+func TestAdvisor_CloudEnv_FallsBackToConfig(t *testing.T) {
+	adv := newTestAdvisor(true, true, 86400)
+	adv.cfg.CloudEnvironment = "aurora"
+
+	// No WithCloudEnv call — should fall back to config.
+	if adv.cloudEnv != "" {
+		t.Fatalf("expected empty cloudEnv override, got %s",
+			adv.cloudEnv)
+	}
+	// The Analyze method's fallback logic reads cfg when
+	// cloudEnv is empty. We test that in TransformForCloud tests.
+}
+
 func TestAdvisor_ShouldRun_TransitionsAfterManualSet(t *testing.T) {
 	adv := newTestAdvisor(true, true, 86400)
 

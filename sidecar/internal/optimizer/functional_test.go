@@ -579,25 +579,25 @@ func TestFunctional_Confidence_BoundaryValues(t *testing.T) {
 		}
 	})
 
-	t.Run("Confidence_0.7_Autonomous", func(t *testing.T) {
+	t.Run("Confidence_0.7_Safe", func(t *testing.T) {
 		level := ActionLevel(0.7)
-		if level != "autonomous" {
-			t.Errorf("ActionLevel(0.7) = %q, want 'autonomous'", level)
+		if level != "safe" {
+			t.Errorf("ActionLevel(0.7) = %q, want 'safe'", level)
 		}
 	})
 
-	t.Run("Confidence_0.4_Advisory", func(t *testing.T) {
+	t.Run("Confidence_0.4_Moderate", func(t *testing.T) {
 		level := ActionLevel(0.4)
-		if level != "advisory" {
-			t.Errorf("ActionLevel(0.4) = %q, want 'advisory'", level)
+		if level != "moderate" {
+			t.Errorf("ActionLevel(0.4) = %q, want 'moderate'", level)
 		}
 	})
 
-	t.Run("Confidence_0.39_Informational", func(t *testing.T) {
+	t.Run("Confidence_0.39_HighRisk", func(t *testing.T) {
 		level := ActionLevel(0.39)
-		if level != "informational" {
+		if level != "high_risk" {
 			t.Errorf(
-				"ActionLevel(0.39) = %q, want 'informational'", level,
+				"ActionLevel(0.39) = %q, want 'high_risk'", level,
 			)
 		}
 	})
@@ -642,14 +642,14 @@ func TestFunctional_ActionLevel(t *testing.T) {
 		confidence float64
 		want       string
 	}{
-		{0.9, "autonomous"},
-		{0.7, "autonomous"},
-		{0.69, "advisory"},
-		{0.5, "advisory"},
-		{0.4, "advisory"},
-		{0.39, "informational"},
-		{0.1, "informational"},
-		{0.0, "informational"},
+		{0.9, "safe"},
+		{0.7, "safe"},
+		{0.69, "moderate"},
+		{0.5, "moderate"},
+		{0.4, "moderate"},
+		{0.39, "high_risk"},
+		{0.1, "high_risk"},
+		{0.0, "high_risk"},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("%.2f_%s", tt.confidence, tt.want)

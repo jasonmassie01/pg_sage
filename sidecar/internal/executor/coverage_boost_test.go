@@ -285,9 +285,9 @@ func TestCoverage_RunCycle_ManualMode(t *testing.T) {
 	e.RunCycle(context.Background(), false)
 }
 
-// TestCoverage_RunCycle_SkipsInfoSeverity verifies that findings with
-// severity "info" are skipped even if they have RecommendedSQL.
-func TestCoverage_RunCycle_SkipsInfoSeverity(t *testing.T) {
+// TestCoverage_RunCycle_EmptyFindings verifies that an empty findings
+// list is handled gracefully (cycle runs without errors).
+func TestCoverage_RunCycle_EmptyFindings(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	// Clean emergency stop to ensure cycle runs past that check.
@@ -1688,9 +1688,9 @@ func TestCoverage_RunCycle_EmptySQL(t *testing.T) {
 	e.RunCycle(ctx, false) // should not panic
 }
 
-// TestCoverage_RunCycle_InfoSeveritySkipped verifies that info-severity
-// findings are skipped even with valid SQL.
-func TestCoverage_RunCycle_InfoSeveritySkipped(t *testing.T) {
+// TestCoverage_RunCycle_InfoSeverityProcessed verifies that info-severity
+// findings proceed through trust gating (not blanket-skipped).
+func TestCoverage_RunCycle_InfoSeverityProcessed(t *testing.T) {
 	pool, ctx := requireDB(t)
 	_ = SetEmergencyStop(ctx, pool, false)
 

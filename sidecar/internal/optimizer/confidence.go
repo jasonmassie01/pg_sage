@@ -38,13 +38,14 @@ func ComputeConfidence(input ConfidenceInput) float64 {
 	return score
 }
 
-// ActionLevel maps a confidence score to an action level using fixed thresholds.
+// ActionLevel maps a confidence score to an action risk tier
+// compatible with the executor trust system (safe/moderate/high_risk).
 func ActionLevel(confidence float64) string {
 	if confidence >= 0.7 {
-		return "autonomous"
+		return "safe"
 	}
 	if confidence >= 0.4 {
-		return "advisory"
+		return "moderate"
 	}
-	return "informational"
+	return "high_risk"
 }

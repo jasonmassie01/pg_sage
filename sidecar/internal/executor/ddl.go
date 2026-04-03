@@ -172,10 +172,10 @@ func NeedsConcurrently(sql string) bool {
 }
 
 // NeedsTopLevel returns true if the SQL statement cannot run inside a
-// transaction block. VACUUM is the primary example: PostgreSQL raises
-// "VACUUM cannot be executed from a function or multi-command string"
-// when attempted inside a transaction.
+// transaction block. VACUUM and ALTER SYSTEM both raise errors when
+// attempted inside a transaction.
 func NeedsTopLevel(sql string) bool {
 	upper := strings.TrimSpace(strings.ToUpper(sql))
-	return strings.HasPrefix(upper, "VACUUM")
+	return strings.HasPrefix(upper, "VACUUM") ||
+		strings.HasPrefix(upper, "ALTER SYSTEM")
 }

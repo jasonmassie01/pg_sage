@@ -547,12 +547,18 @@ func buildFindingsOrder(f fleet.FindingFilters) string {
 		dir = "ASC"
 	}
 	if f.Sort == "severity" {
+		// For severity, "desc" means most severe first (critical→warning→info),
+		// which is ASC on the CASE values (critical=1, warning=2, info=3).
+		sevDir := "ASC"
+		if f.Order == "asc" {
+			sevDir = "DESC"
+		}
 		return fmt.Sprintf(
 			" ORDER BY CASE severity"+
 				" WHEN 'critical' THEN 1"+
 				" WHEN 'warning' THEN 2"+
 				" WHEN 'info' THEN 3"+
-				" ELSE 4 END %s", dir)
+				" ELSE 4 END %s", sevDir)
 	}
 	// Allowlist sort columns to prevent injection
 	col := "last_seen"

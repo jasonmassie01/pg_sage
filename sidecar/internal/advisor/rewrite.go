@@ -130,12 +130,42 @@ func analyzeQueryRewrites(
 		return nil, fmt.Errorf("rewrite LLM: %w", err)
 	}
 
-	findings := parseLLMFindings(resp, "query_rewrite", logFn)
-	// Force all rewrite findings to info severity, no executable SQL.
-	for i := range findings {
-		findings[i].Severity = "info"
-		findings[i].RecommendedSQL = ""
-		findings[i].ActionRisk = ""
+	parsed := parseLLMFindings(resp, "query_rewrite", logFn)
+	// Filter out CREATE INDEX suggestions — those belong in the
+	// optimizer, not query_rewrite. Check both suggested_rewrite
+	// and recommended_sql in the detail map.
+	var findings []analyzer.Finding
+	for _, f := range parsed {
+		if isCreateIndexRewrite(f) {
+			continue
+		}
+		f.Severity = "warning"
+		f.RecommendedSQL = ""
+		f.ActionRisk = ""
+		findings = append(findings, f)
 	}
 	return findings, nil
+}
+
+// isCreateIndexRewrite returns true if the finding's suggested
+// rewrite or recommended_sql is a CREATE INDEX statement. These
+// overlap with optimizer recommendations and should be filtered.
+func isCreateIndexRewrite(f analyzer.Finding) bool {
+	if f.Detail == nil {
+		return false
+	}
+	for _, key := range []string{
+		"suggested_rewrite", "recommended_sql",
+	} {
+		val, _ := f.Detail[key].(string)
+		if val == "" {
+			continue
+		}
+		upper := strings.ToUpper(strings.TrimSpace(val))
+		if strings.HasPrefix(upper, "CREATE INDEX") ||
+			strings.HasPrefix(upper, "CREATE UNIQUE INDEX") {
+			return true
+		}
+	}
+	return false
 }

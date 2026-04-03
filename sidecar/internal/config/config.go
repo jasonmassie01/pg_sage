@@ -46,10 +46,11 @@ type Config struct {
 	TLSKey  string `yaml:"-"`
 
 	// Runtime (not from config file)
-	ConfigPath        string `yaml:"-"`
-	PGVersionNum      int    `yaml:"-"` // e.g. 160000 for PG16
-	HasWALColumns     bool   `yaml:"-"`
-	HasPlanTimeColumns bool  `yaml:"-"`
+	ConfigPath         string `yaml:"-"`
+	PGVersionNum       int    `yaml:"-"` // e.g. 160000 for PG16
+	HasWALColumns      bool   `yaml:"-"`
+	HasPlanTimeColumns bool   `yaml:"-"`
+	CloudEnvironment   string `yaml:"-"` // e.g. "rds", "cloud-sql", "self-managed"
 }
 
 type PostgresConfig struct {

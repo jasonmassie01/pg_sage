@@ -21,6 +21,7 @@ var allowedPrefixes = []string{
 	"ALTER TABLE",
 	"ALTER SYSTEM SET",
 	"ALTER SYSTEM RESET",
+	"ALTER DATABASE",
 	"SET ",
 	"RESET ",
 	"SELECT ",
@@ -50,7 +51,7 @@ func ValidateExecutorSQL(sql string) error {
 		"%w: statement must start with one of the "+
 			"allowed prefixes (CREATE INDEX, DROP INDEX, "+
 			"REINDEX, VACUUM, ANALYZE, ALTER TABLE, "+
-			"ALTER SYSTEM, SET, RESET, SELECT)",
+			"ALTER SYSTEM, ALTER DATABASE, SET, RESET, SELECT)",
 		ErrDisallowedSQL,
 	)
 }

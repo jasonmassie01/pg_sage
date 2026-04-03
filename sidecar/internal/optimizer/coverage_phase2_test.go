@@ -379,8 +379,8 @@ func TestPhase2_ScoreConfidence_NoSignals(t *testing.T) {
 		t.Errorf("expected very low confidence with no signals, got %f",
 			result.Confidence)
 	}
-	if result.ActionLevel != "informational" {
-		t.Errorf("expected informational, got %q",
+	if result.ActionLevel != "high_risk" {
+		t.Errorf("expected high_risk, got %q",
 			result.ActionLevel)
 	}
 }
@@ -404,8 +404,8 @@ func TestPhase2_ScoreConfidence_HighVolumeNoPlans(t *testing.T) {
 		t.Errorf("expected ~0.625 confidence, got %f",
 			result.Confidence)
 	}
-	if result.ActionLevel != "advisory" {
-		t.Errorf("expected advisory, got %q", result.ActionLevel)
+	if result.ActionLevel != "moderate" {
+		t.Errorf("expected moderate, got %q", result.ActionLevel)
 	}
 }
 
@@ -432,8 +432,8 @@ func TestPhase2_ScoreConfidence_WithHypoPGValidated(t *testing.T) {
 		t.Errorf("expected >=0.7 confidence with all signals, got %f",
 			result.Confidence)
 	}
-	if result.ActionLevel != "autonomous" {
-		t.Errorf("expected autonomous, got %q",
+	if result.ActionLevel != "safe" {
+		t.Errorf("expected safe, got %q",
 			result.ActionLevel)
 	}
 }

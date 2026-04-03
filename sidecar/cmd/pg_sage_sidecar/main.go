@@ -140,6 +140,7 @@ func main() {
 
 	// Cloud environment detection.
 	cloudEnvironment = detectCloudEnvironment()
+	cfg.CloudEnvironment = cloudEnvironment
 	logInfo("startup", "cloud environment: %s", cloudEnvironment)
 
 	// Extension detection.
@@ -462,8 +463,13 @@ func initStandalone() {
 			cfg.Alerting.CheckIntervalSeconds)
 	}
 
-	// 10c. auto_explain collector.
-	if autoExplainAvail != nil && autoExplainAvail.Available {
+	// 10c. auto_explain collector — starts even without the
+	// auto_explain extension; plain EXPLAIN still captures
+	// plans for non-parameterized queries.
+	if cfg.AutoExplain.Enabled {
+		if autoExplainAvail == nil {
+			autoExplainAvail = &autoexplain.Availability{}
+		}
 		aeCfg := autoexplain.CollectorConfig{
 			CollectIntervalSeconds: cfg.AutoExplain.CollectIntervalSeconds,
 			MaxPlansPerCycle:       cfg.AutoExplain.MaxPlansPerCycle,
@@ -474,7 +480,8 @@ func initStandalone() {
 			pool, aeCfg, autoExplainAvail, logStructuredWrapper,
 		)
 		go aec.Run(shutdownCtx)
-		logInfo("startup", "auto_explain collector started, interval=%ds",
+		logInfo("startup",
+			"auto_explain collector started, interval=%ds",
 			cfg.AutoExplain.CollectIntervalSeconds)
 	}
 
@@ -768,6 +775,11 @@ func initFleetMultiDB() {
 			)
 		}
 
+		// Per-database cloud environment detection.
+		dbCloudEnv := detectCloudEnv(dbPool)
+		logInfo("fleet", "db %q: cloud environment: %s",
+			name, dbCloudEnv)
+
 		// Per-database advisor.
 		var dbAdvIface analyzer.ConfigAdvisor
 		if cfg.Advisor.Enabled && llmClient.IsEnabled() {
@@ -775,6 +787,8 @@ func initFleetMultiDB() {
 				dbPool, cfg, dbColl, llmMgr,
 				logStructuredWrapper,
 			)
+			dbAdv.WithCloudEnv(dbCloudEnv)
+			dbAdv.WithDatabaseName(dbCfg.Database)
 			dbAdvIface = dbAdv
 		}
 
@@ -807,6 +821,31 @@ func initFleetMultiDB() {
 			}
 			dbTuner = tuner.New(dbPool, tunerCfg, hpAvail,
 				logStructuredWrapper, tunerOpts...)
+		}
+
+		// Per-database autoexplain collector.
+		if cfg.AutoExplain.Enabled {
+			aeAvail, aeErr := autoexplain.Detect(
+				context.Background(), dbPool)
+			if aeErr != nil {
+				logWarn("fleet",
+					"db %q auto_explain detect: %v",
+					name, aeErr)
+			}
+			if aeAvail == nil {
+				aeAvail = &autoexplain.Availability{}
+			}
+			aeCfg := autoexplain.CollectorConfig{
+				CollectIntervalSeconds: cfg.AutoExplain.CollectIntervalSeconds,
+				MaxPlansPerCycle:       cfg.AutoExplain.MaxPlansPerCycle,
+				LogMinDurationMs:       cfg.AutoExplain.LogMinDurationMs,
+				PreferSessionLoad:      cfg.AutoExplain.PreferSessionLoad,
+			}
+			aec := autoexplain.NewCollector(
+				dbPool, aeCfg, aeAvail,
+				logStructuredWrapper,
+			)
+			go aec.Run(shutdownCtx)
 		}
 
 		// Per-database briefing worker.
@@ -1004,6 +1043,7 @@ func buildFleetLLMFeatures(
 	dbPool *pgxpool.Pool,
 	dbPGVersion int,
 	dbColl *collector.Collector,
+	databaseName string,
 ) (
 	*optimizer.Optimizer,
 	analyzer.ConfigAdvisor,
@@ -1037,13 +1077,16 @@ func buildFleetLLMFeatures(
 		)
 	}
 
-	// Advisor.
+	// Advisor (with per-database cloud detection).
 	var dbAdvIface analyzer.ConfigAdvisor
 	if cfg.Advisor.Enabled {
 		dbAdv := advisor.New(
 			dbPool, cfg, dbColl, llmMgr,
 			logStructuredWrapper,
 		)
+		dbCloudEnv := detectCloudEnv(dbPool)
+		dbAdv.WithCloudEnv(dbCloudEnv)
+		dbAdv.WithDatabaseName(databaseName)
 		dbAdvIface = dbAdv
 	}
 
@@ -1649,27 +1692,33 @@ func detectExtension() bool {
 }
 
 func detectCloudEnvironment() string {
-	if pool == nil {
-		return "unknown" // fleet mode: detected per-database
+	return detectCloudEnv(pool)
+}
+
+// detectCloudEnv probes a connection pool for managed service
+// indicators. Pass any per-database pool in fleet mode.
+func detectCloudEnv(p *pgxpool.Pool) string {
+	if p == nil {
+		return "unknown"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var s string
-	if pool.QueryRow(ctx, "SELECT aurora_version()").Scan(&s) == nil {
+	if p.QueryRow(ctx, "SELECT aurora_version()").Scan(&s) == nil {
 		return "aurora"
 	}
 	var ps *string
-	if pool.QueryRow(ctx, "SELECT current_setting('rds.extensions', true)").Scan(&ps) == nil && ps != nil {
+	if p.QueryRow(ctx, "SELECT current_setting('rds.extensions', true)").Scan(&ps) == nil && ps != nil {
 		return "rds"
 	}
-	if pool.QueryRow(ctx, "SELECT current_setting('alloydb.iam_authentication', true)").Scan(&ps) == nil && ps != nil {
+	if p.QueryRow(ctx, "SELECT current_setting('alloydb.iam_authentication', true)").Scan(&ps) == nil && ps != nil {
 		return "alloydb"
 	}
-	if pool.QueryRow(ctx, "SELECT current_setting('cloudsql.iam_authentication', true)").Scan(&ps) == nil && ps != nil {
+	if p.QueryRow(ctx, "SELECT current_setting('cloudsql.iam_authentication', true)").Scan(&ps) == nil && ps != nil {
 		return "cloud-sql"
 	}
-	if pool.QueryRow(ctx, "SELECT current_setting('azure.extensions', true)").Scan(&ps) == nil && ps != nil {
+	if p.QueryRow(ctx, "SELECT current_setting('azure.extensions', true)").Scan(&ps) == nil && ps != nil {
 		return "azure"
 	}
 	return "self-managed"

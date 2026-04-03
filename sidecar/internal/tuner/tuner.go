@@ -223,6 +223,18 @@ func (t *Tuner) gatherSymptoms(
 			Kind: SymptomHighPlanTime,
 		})
 	}
+
+	// Stat-based temp spill detection: when no plan-level
+	// spill symptoms were found but pg_stat_statements shows
+	// temp blocks written, emit a stat-based symptom.
+	if c.TempBlksWritten > 0 && !hasSpillSymptom(symptoms) {
+		symptoms = append(symptoms, PlanSymptom{
+			Kind: SymptomStatTempSpill,
+			Detail: map[string]any{
+				"temp_blks_written": c.TempBlksWritten,
+			},
+		})
+	}
 	return symptoms
 }
 
@@ -310,7 +322,49 @@ func (t *Tuner) buildFinding(
 		)
 		f.RollbackSQL = BuildDeleteSQL(c.QueryID)
 	}
+
+	// Persist to sage.query_hints for the dashboard query-hints page.
+	t.upsertQueryHint(c.QueryID, combinedHint,
+		strings.Join(names, ", "), suggestedRewrite, rewriteRationale)
+
 	return f
+}
+
+// upsertQueryHint writes a record to sage.query_hints so the
+// dashboard query-hints page displays tuner findings.
+func (t *Tuner) upsertQueryHint(
+	queryID int64, hintText, symptom,
+	suggestedRewrite, rewriteRationale string,
+) {
+	if t.pool == nil {
+		return
+	}
+	// Update existing active hint, or insert new one.
+	tag, err := t.pool.Exec(context.Background(),
+		`UPDATE sage.query_hints
+		 SET hint_text = $2, symptom = $3,
+		     suggested_rewrite = $4, rewrite_rationale = $5
+		 WHERE queryid = $1 AND status = 'active'`,
+		queryID, hintText, symptom,
+		suggestedRewrite, rewriteRationale,
+	)
+	if err != nil {
+		t.logFn("WARN", "tuner: update query_hint: %v", err)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		_, err = t.pool.Exec(context.Background(),
+			`INSERT INTO sage.query_hints
+				(queryid, hint_text, symptom,
+				 suggested_rewrite, rewrite_rationale, status)
+			 VALUES ($1, $2, $3, $4, $5, 'active')`,
+			queryID, hintText, symptom,
+			suggestedRewrite, rewriteRationale,
+		)
+		if err != nil {
+			t.logFn("WARN", "tuner: insert query_hint: %v", err)
+		}
+	}
 }
 
 // BuildInsertSQL generates an INSERT for hint_plan.hints.
@@ -334,6 +388,18 @@ func BuildDeleteSQL(queryID int64) string {
 			"AND application_name = ''",
 		queryID,
 	)
+}
+
+// hasSpillSymptom returns true if any symptom indicates a
+// disk sort or hash spill (plan-level detection).
+func hasSpillSymptom(symptoms []PlanSymptom) bool {
+	for _, s := range symptoms {
+		switch s.Kind {
+		case SymptomDiskSort, SymptomHashSpill:
+			return true
+		}
+	}
+	return false
 }
 
 func symptomNames(symptoms []PlanSymptom) []string {
@@ -371,6 +437,9 @@ func singleSymptomTitle(kind SymptomKind) string {
 	case SymptomParallelDisabled:
 		return "Per-query tuning: enable parallel " +
 			"workers for scan"
+	case SymptomStatTempSpill:
+		return "Per-query tuning: increase work_mem " +
+			"for temp-spilling query"
 	default:
 		return "Per-query tuning recommendation"
 	}
@@ -396,6 +465,9 @@ func multiSymptomTitle(symptoms []PlanSymptom) string {
 	}
 	if kinds[SymptomParallelDisabled] {
 		parts = append(parts, "parallel workers")
+	}
+	if kinds[SymptomStatTempSpill] {
+		parts = append(parts, "work_mem")
 	}
 	if len(parts) == 0 {
 		return "Per-query tuning recommendation"

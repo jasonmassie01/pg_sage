@@ -151,7 +151,8 @@ func (a *Analyzer) OpenFindingsCount() map[string]int {
 // objects from snapshot data before rules run.
 func filterSchemaExclusions(snap *collector.Snapshot) {
 	excluded := map[string]bool{
-		"sage": true, "pg_catalog": true, "information_schema": true,
+		"sage": true, "pgsnap": true,
+		"pg_catalog": true, "information_schema": true,
 		"google_ml": true,
 	}
 

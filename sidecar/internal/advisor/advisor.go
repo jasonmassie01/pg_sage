@@ -20,6 +20,11 @@ type Advisor struct {
 	llmMgr *llm.Manager
 	logFn  func(string, string, ...any)
 
+	// Per-instance overrides for fleet mode. When empty, falls
+	// back to cfg.CloudEnvironment / cfg.Postgres.Database.
+	cloudEnv string
+	dbName   string
+
 	mu        sync.Mutex
 	lastRunAt time.Time
 	findings  []analyzer.Finding
@@ -39,6 +44,18 @@ func New(
 		llmMgr: llmMgr,
 		logFn:  logFn,
 	}
+}
+
+// WithCloudEnv sets the cloud environment for this advisor instance.
+// Use in fleet mode where each database may be on a different platform.
+func (a *Advisor) WithCloudEnv(env string) {
+	a.cloudEnv = env
+}
+
+// WithDatabaseName sets the target database name for this advisor.
+// Used to generate ALTER DATABASE statements on managed services.
+func (a *Advisor) WithDatabaseName(name string) {
+	a.dbName = name
 }
 
 func (a *Advisor) ShouldRun() bool {
@@ -122,6 +139,18 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 			all = append(all, findings...)
 		}
 	}
+
+	// Rewrite findings for cloud platforms (ALTER SYSTEM →
+	// ALTER DATABASE, filter restart-requiring GUCs).
+	cloudEnv := a.cloudEnv
+	if cloudEnv == "" {
+		cloudEnv = a.cfg.CloudEnvironment
+	}
+	dbName := a.dbName
+	if dbName == "" {
+		dbName = a.cfg.Postgres.Database
+	}
+	all = TransformForCloud(all, cloudEnv, dbName)
 
 	a.mu.Lock()
 	a.lastRunAt = time.Now()

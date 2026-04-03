@@ -2308,8 +2308,8 @@ func TestAnalyzeQueryRewrites_FullPath(t *testing.T) {
 	if len(findings) != 1 {
 		t.Fatalf("expected 1, got %d", len(findings))
 	}
-	// Post-processing forces severity to info, clears SQL.
-	if findings[0].Severity != "info" {
+	// Post-processing forces severity to warning, clears SQL.
+	if findings[0].Severity != "warning" {
 		t.Errorf("severity = %q", findings[0].Severity)
 	}
 	if findings[0].RecommendedSQL != "" {

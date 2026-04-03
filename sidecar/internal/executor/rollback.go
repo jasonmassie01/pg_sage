@@ -152,10 +152,9 @@ func checkRegression(
 
 	if beforeMeanMs > 0 {
 		_ = pool.QueryRow(ctx,
-			`SELECT coalesce(mean_exec_time, 0)
+			`SELECT coalesce(avg(mean_exec_time), 0)
 			 FROM pg_stat_statements
-			 WHERE query LIKE 'INSERT%' OR query LIKE 'UPDATE%'
-			 ORDER BY total_exec_time DESC LIMIT 1`,
+			 WHERE query LIKE 'INSERT%' OR query LIKE 'UPDATE%'`,
 		).Scan(&currentMeanMs)
 
 		if currentMeanMs > 0 && beforeMeanMs > 0 {

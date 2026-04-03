@@ -11,6 +11,7 @@ const (
 	SymptomSeqScanWithIndex SymptomKind = "seq_scan_with_index"
 	SymptomParallelDisabled SymptomKind = "parallel_disabled"
 	SymptomSortLimit        SymptomKind = "sort_limit"
+	SymptomStatTempSpill    SymptomKind = "stat_temp_spill"
 )
 
 // PlanSymptom is a detected performance issue in an EXPLAIN plan.

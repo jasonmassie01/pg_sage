@@ -63,7 +63,9 @@ func (h *HypoPG) Validate(
 	costsBefore := h.measureCosts(ctx, conn, queries)
 
 	// Create hypothetical index.
-	var indexOID int64
+	// HypoPG returns indexrelid as oid (PostgreSQL OID 26);
+	// pgx binary protocol requires uint32, not int64.
+	var indexOID uint32
 	err = conn.QueryRow(ctx,
 		"SELECT indexrelid FROM hypopg_create_index($1)",
 		rec.DDL,
@@ -96,7 +98,7 @@ func (h *HypoPG) Validate(
 	accepted := avgImprovement >= h.minImprovementPct
 
 	// Estimate size before cleanup.
-	estimatedSize, sizeErr := h.EstimateSize(ctx, indexOID)
+	estimatedSize, sizeErr := h.EstimateSize(ctx, int64(indexOID))
 	if sizeErr != nil {
 		estimatedSize = 0
 	}

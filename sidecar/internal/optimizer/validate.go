@@ -252,7 +252,7 @@ func extractColumnsFromDDL(ddl string) []string {
 
 	upperDDL := strings.ToUpper(ddl)
 	includeIdx := strings.Index(upperDDL, "INCLUDE")
-	if includeIdx > 0 && includeIdx < start+1+end {
+	if includeIdx > start+1 && includeIdx < start+1+end {
 		colsPart = ddl[start+1 : includeIdx]
 	}
 

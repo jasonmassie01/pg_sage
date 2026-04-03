@@ -145,10 +145,6 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			continue
 		}
 
-		if f.Severity == "info" {
-			continue
-		}
-
 		if !e.shouldExecute(f, isReplica, emergencyStop) {
 			continue
 		}
@@ -422,15 +418,22 @@ func (e *Executor) logAction(
 
 	actionType := categorizeAction(f.RecommendedSQL)
 
+	var errReason *string
+	if execErr != nil {
+		s := execErr.Error()
+		errReason = &s
+	}
+
 	var actionID int64
 	err := e.pool.QueryRow(ctx,
 		`INSERT INTO sage.action_log
 		 (action_type, finding_id, sql_executed, rollback_sql,
-		  before_state, outcome)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		  before_state, outcome, rollback_reason)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING id`,
 		actionType, findingID, f.RecommendedSQL,
 		nilIfEmpty(f.RollbackSQL), beforeJSON, outcome,
+		errReason,
 	).Scan(&actionID)
 	if err != nil {
 		e.logFn("executor",

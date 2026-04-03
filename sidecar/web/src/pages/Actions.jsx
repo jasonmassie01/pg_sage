@@ -86,33 +86,85 @@ function ExecutedTab({ data, loading, error, refetch }) {
 
   const actions = data?.actions || []
 
+  const outcomeStyle = outcome => {
+    switch (outcome) {
+    case 'success':
+      return { bg: 'rgba(34,197,94,0.15)', color: 'var(--green)',
+        label: 'Success' }
+    case 'failed':
+      return { bg: 'rgba(239,68,68,0.15)', color: 'var(--red)',
+        label: 'Failed' }
+    case 'rolled_back':
+      return { bg: 'rgba(245,158,11,0.15)',
+        color: 'var(--yellow)', label: 'Rolled Back' }
+    case 'pending':
+      return { bg: 'rgba(59,130,246,0.15)',
+        color: 'var(--blue, #3b82f6)', label: 'Monitoring' }
+    default:
+      return { bg: 'rgba(107,114,128,0.15)',
+        color: 'var(--text-secondary)',
+        label: outcome || 'Unknown' }
+    }
+  }
+
+  const actionSummary = r => {
+    const t = (r.action_type || '').toLowerCase()
+    const sql = r.sql_executed || ''
+    const target = sql.match(
+      /(?:public\.)?([\w.]+)\s*[;(]/i)?.[1] || ''
+    if (r.outcome === 'failed' && r.rollback_reason) {
+      const short = r.rollback_reason.length > 80
+        ? r.rollback_reason.slice(0, 80) + '...'
+        : r.rollback_reason
+      return <span style={{ color: 'var(--red)' }}>
+        {short}
+      </span>
+    }
+    if (t === 'drop_index') {
+      return `Dropped index${target ? ' ' + target : ''}`
+    }
+    if (t === 'create_index') {
+      return `Created index${target ? ' on ' + target : ''}`
+    }
+    if (t === 'vacuum') {
+      return `Vacuumed${target ? ' ' + target : ' table'}`
+    }
+    if (t === 'analyze') {
+      return `Updated statistics${target
+        ? ' for ' + target : ''}`
+    }
+    if (t === 'reindex') {
+      return `Reindexed${target ? ' ' + target : ''}`
+    }
+    if (t === 'alter') {
+      return `Altered${target ? ' ' + target : ' object'}`
+    }
+    const raw = r.action_type || ''
+    return raw.charAt(0).toUpperCase() + raw.slice(1)
+  }
+
   const columns = [
-    { key: 'action_type', label: 'Type' },
     {
-      key: 'summary', label: 'Summary',
+      key: 'action_type', label: 'Type',
       render: r => {
-        const t = (r.action_type || '').toLowerCase()
-        if (t.includes('index') && r.outcome === 'success') {
-          return 'Index operation completed successfully'
-        }
-        if (t.includes('vacuum')) return 'Table maintenance completed'
-        if (t.includes('analyze')) return 'Statistics updated'
-        const raw = r.action_type || ''
-        return raw.charAt(0).toUpperCase() + raw.slice(1)
+        const t = (r.action_type || '').replace(/_/g, ' ')
+        return t.charAt(0).toUpperCase() + t.slice(1)
       },
     },
+    { key: 'summary', label: 'Summary', render: actionSummary },
     {
       key: 'outcome', label: 'Outcome',
-      render: r => (
-        <span style={{
-          color: r.outcome === 'success'
-            ? 'var(--green)' : 'var(--red)',
-        }}>
-          {r.outcome}
-        </span>
-      ),
+      render: r => {
+        const s = outcomeStyle(r.outcome)
+        return (
+          <span className="px-2 py-0.5 rounded-full text-xs
+            font-medium inline-block"
+            style={{ background: s.bg, color: s.color }}>
+            {s.label}
+          </span>
+        )
+      },
     },
-    { key: 'database_name', label: 'Database' },
     {
       key: 'executed_at', label: 'When',
       render: r => <TimeAgo timestamp={r.executed_at} />,
@@ -128,6 +180,42 @@ function ExecutedTab({ data, loading, error, refetch }) {
       columns={columns} rows={actions} expandable
       renderExpanded={row => (
         <div className="space-y-3">
+          {row.outcome === 'failed' && row.rollback_reason && (
+            <div className="p-3 rounded text-sm"
+              style={{
+                background: 'rgba(239,68,68,0.1)',
+                border: '1px solid rgba(239,68,68,0.3)',
+              }}>
+              <div className="text-xs font-medium mb-1"
+                style={{ color: 'var(--red)' }}>
+                Error Details
+              </div>
+              <code className="text-xs" style={{
+                color: 'var(--text-primary)',
+                wordBreak: 'break-all',
+              }}>
+                {row.rollback_reason}
+              </code>
+            </div>
+          )}
+          {row.outcome === 'rolled_back'
+            && row.rollback_reason && (
+            <div className="p-3 rounded text-sm"
+              style={{
+                background: 'rgba(245,158,11,0.1)',
+                border: '1px solid rgba(245,158,11,0.3)',
+              }}>
+              <div className="text-xs font-medium mb-1"
+                style={{ color: 'var(--yellow)' }}>
+                Rollback Reason
+              </div>
+              <span className="text-xs" style={{
+                color: 'var(--text-primary)',
+              }}>
+                {row.rollback_reason}
+              </span>
+            </div>
+          )}
           <div>
             <div className="text-xs font-medium mb-1"
               style={{ color: 'var(--text-secondary)' }}>
@@ -144,6 +232,17 @@ function ExecutedTab({ data, loading, error, refetch }) {
               <SQLBlock sql={row.rollback_sql} />
             </div>
           )}
+          <div className="flex gap-4 text-xs" style={{
+            color: 'var(--text-secondary)',
+          }}>
+            {row.finding_id && (
+              <span>Finding #{row.finding_id}</span>
+            )}
+            {row.measured_at && (
+              <span>Verified: <TimeAgo
+                timestamp={row.measured_at} /></span>
+            )}
+          </div>
         </div>
       )}
     />

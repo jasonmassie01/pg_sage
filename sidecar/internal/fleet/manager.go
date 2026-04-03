@@ -15,9 +15,10 @@ import (
 
 // DatabaseManager manages multiple database instances.
 type DatabaseManager struct {
-	instances map[string]*DatabaseInstance
-	cfg       *config.Config
-	mu        sync.RWMutex
+	instances   map[string]*DatabaseInstance
+	cfg         *config.Config
+	primaryName string // first registered instance name
+	mu          sync.RWMutex
 }
 
 // NewManager creates a fleet manager from config.
@@ -29,10 +30,14 @@ func NewManager(cfg *config.Config) *DatabaseManager {
 }
 
 // RegisterInstance adds a pre-built instance (used by main.go
-// after connecting and creating components).
+// after connecting and creating components). The first registered
+// instance becomes the primary — used for auth and session storage.
 func (m *DatabaseManager) RegisterInstance(inst *DatabaseInstance) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.primaryName == "" {
+		m.primaryName = inst.Name
+	}
 	m.instances[inst.Name] = inst
 }
 
@@ -194,8 +199,11 @@ func (m *DatabaseManager) PoolForDatabase(
 		}
 		return nil
 	}
-	for _, inst := range m.instances {
-		return inst.Pool
+	// Return the primary instance's pool (deterministic).
+	if m.primaryName != "" {
+		if inst, ok := m.instances[m.primaryName]; ok {
+			return inst.Pool
+		}
 	}
 	return nil
 }

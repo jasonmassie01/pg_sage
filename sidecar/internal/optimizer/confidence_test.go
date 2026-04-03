@@ -144,40 +144,40 @@ func TestComputeConfidence_CappedAt1(t *testing.T) {
 
 // --- ActionLevel ---
 
-func TestActionLevel_Autonomous(t *testing.T) {
-	if got := ActionLevel(0.7); got != "autonomous" {
-		t.Errorf("ActionLevel(0.7) = %q, want autonomous", got)
+func TestActionLevel_Safe(t *testing.T) {
+	if got := ActionLevel(0.7); got != "safe" {
+		t.Errorf("ActionLevel(0.7) = %q, want safe", got)
 	}
-	if got := ActionLevel(1.0); got != "autonomous" {
-		t.Errorf("ActionLevel(1.0) = %q, want autonomous", got)
-	}
-}
-
-func TestActionLevel_Advisory(t *testing.T) {
-	if got := ActionLevel(0.4); got != "advisory" {
-		t.Errorf("ActionLevel(0.4) = %q, want advisory", got)
-	}
-	if got := ActionLevel(0.69); got != "advisory" {
-		t.Errorf("ActionLevel(0.69) = %q, want advisory", got)
+	if got := ActionLevel(1.0); got != "safe" {
+		t.Errorf("ActionLevel(1.0) = %q, want safe", got)
 	}
 }
 
-func TestActionLevel_Informational(t *testing.T) {
-	if got := ActionLevel(0.39); got != "informational" {
-		t.Errorf("ActionLevel(0.39) = %q, want informational", got)
+func TestActionLevel_Moderate(t *testing.T) {
+	if got := ActionLevel(0.4); got != "moderate" {
+		t.Errorf("ActionLevel(0.4) = %q, want moderate", got)
 	}
-	if got := ActionLevel(0.0); got != "informational" {
-		t.Errorf("ActionLevel(0.0) = %q, want informational", got)
+	if got := ActionLevel(0.69); got != "moderate" {
+		t.Errorf("ActionLevel(0.69) = %q, want moderate", got)
+	}
+}
+
+func TestActionLevel_HighRisk(t *testing.T) {
+	if got := ActionLevel(0.39); got != "high_risk" {
+		t.Errorf("ActionLevel(0.39) = %q, want high_risk", got)
+	}
+	if got := ActionLevel(0.0); got != "high_risk" {
+		t.Errorf("ActionLevel(0.0) = %q, want high_risk", got)
 	}
 }
 
 func TestActionLevel_BoundaryExact(t *testing.T) {
 	// Exactly at boundary
-	if got := ActionLevel(0.4); got != "advisory" {
-		t.Errorf("ActionLevel(0.4) = %q, want advisory", got)
+	if got := ActionLevel(0.4); got != "moderate" {
+		t.Errorf("ActionLevel(0.4) = %q, want moderate", got)
 	}
-	if got := ActionLevel(0.7); got != "autonomous" {
-		t.Errorf("ActionLevel(0.7) = %q, want autonomous", got)
+	if got := ActionLevel(0.7); got != "safe" {
+		t.Errorf("ActionLevel(0.7) = %q, want safe", got)
 	}
 }
 
@@ -197,8 +197,8 @@ func TestComputeConfidence_CloudSQLTypical(t *testing.T) {
 		t.Errorf("Cloud SQL typical: got %.4f, want >= 0.8", got)
 	}
 	level := ActionLevel(got)
-	if level != "autonomous" {
-		t.Errorf("Cloud SQL typical: level = %q, want autonomous", level)
+	if level != "safe" {
+		t.Errorf("Cloud SQL typical: level = %q, want safe", level)
 	}
 }
 
@@ -217,7 +217,7 @@ func TestComputeConfidence_CloudSQLMedium(t *testing.T) {
 		t.Errorf("Cloud SQL medium: got %.4f, want 0.4-0.7 range", got)
 	}
 	level := ActionLevel(got)
-	if level != "advisory" {
-		t.Errorf("Cloud SQL medium: level = %q, want advisory", level)
+	if level != "moderate" {
+		t.Errorf("Cloud SQL medium: level = %q, want moderate", level)
 	}
 }

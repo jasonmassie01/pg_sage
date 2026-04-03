@@ -339,7 +339,8 @@ func bootstrapAndRegister(
 
 	// LLM features for meta-db registered databases.
 	dbOpt, dbAdvIface, dbTuner, dbBrief :=
-		buildFleetLLMFeatures(dbPool, dbPGVersion, dbColl)
+		buildFleetLLMFeatures(dbPool, dbPGVersion, dbColl,
+			rec.DatabaseName)
 
 	dbAnal := analyzer.New(
 		dbPool, cfg, dbColl, dbOpt, dbAdvIface, nil, dbTuner,
