@@ -114,6 +114,9 @@ func (h *HypoPG) EstimateSize(
 	ctx context.Context,
 	indexOID int64,
 ) (int64, error) {
+	if h.pool == nil {
+		return 0, fmt.Errorf("pool is nil")
+	}
 	var size int64
 	err := h.pool.QueryRow(ctx,
 		"SELECT hypopg_relation_size($1)", indexOID,

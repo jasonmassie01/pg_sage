@@ -3815,3 +3815,59 @@ func TestBuildFindingWithoutRewrite(t *testing.T) {
 		t.Error("Detail should not contain rewrite_rationale when empty")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// CombineHints: LLM combined directive handling
+// ---------------------------------------------------------------------------
+
+// Test that CombineHints preserves non-work_mem directives
+// from a combined single-prescription hint string.
+func TestFunctional_CombineHints_LLMCombinedDirective(t *testing.T) {
+	// Single prescription with combined directives
+	rx := []Prescription{
+		{HintDirective: `Set(work_mem "512MB") IndexScan(orders idx_foo)`},
+	}
+	got := CombineHints(rx)
+	// Should contain both work_mem AND IndexScan
+	if !strings.Contains(got, `Set(work_mem "512MB")`) {
+		t.Errorf("missing work_mem in %q", got)
+	}
+	if !strings.Contains(got, "IndexScan(orders idx_foo)") {
+		t.Errorf("missing IndexScan in %q", got)
+	}
+}
+
+func TestFunctional_CombineHints_LLMMultipleNonWorkMem(t *testing.T) {
+	// Single prescription with work_mem + HashJoin + Parallel
+	rx := []Prescription{
+		{HintDirective: `Set(work_mem "768MB") HashJoin(o c) Parallel(o 2)`},
+	}
+	got := CombineHints(rx)
+	if !strings.Contains(got, `Set(work_mem "768MB")`) {
+		t.Errorf("missing work_mem in %q", got)
+	}
+	if !strings.Contains(got, "HashJoin(o c)") {
+		t.Errorf("missing HashJoin in %q", got)
+	}
+	if !strings.Contains(got, "Parallel(o 2)") {
+		t.Errorf("missing Parallel in %q", got)
+	}
+}
+
+func TestFunctional_CombineHints_LLMNoWorkMem(t *testing.T) {
+	// Single prescription with only non-work_mem hints
+	rx := []Prescription{
+		{HintDirective: `NestLoop(a b) IndexScan(t idx)`},
+	}
+	got := CombineHints(rx)
+	if !strings.Contains(got, "NestLoop(a b)") {
+		t.Errorf("missing NestLoop in %q", got)
+	}
+	if !strings.Contains(got, "IndexScan(t idx)") {
+		t.Errorf("missing IndexScan in %q", got)
+	}
+	// Should NOT contain work_mem
+	if strings.Contains(got, "work_mem") {
+		t.Errorf("unexpected work_mem in %q", got)
+	}
+}

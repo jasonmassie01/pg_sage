@@ -158,6 +158,10 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			continue
 		}
 
+		if e.exceedsMaxRetries(ctx, findingID) {
+			continue
+		}
+
 		// Approval mode: queue for approval instead of executing.
 		if e.execMode == "approval" && e.actionStore != nil {
 			_, propErr := e.actionStore.Propose(
@@ -363,6 +367,40 @@ func (e *Executor) lookupFindingID(
 		return 0
 	}
 	return id
+}
+
+// maxActionRetries is the maximum number of times the executor
+// will retry a failed action before giving up permanently.
+const maxActionRetries = 3
+
+// exceedsMaxRetries checks if a finding has already failed more
+// than maxActionRetries times, preventing infinite retry loops.
+func (e *Executor) exceedsMaxRetries(
+	ctx context.Context, findingID int64,
+) bool {
+	if e.pool == nil {
+		return false
+	}
+	var failCount int
+	err := e.pool.QueryRow(ctx,
+		`SELECT count(*) FROM sage.action_log
+		 WHERE finding_id = $1 AND outcome = 'failed'`,
+		findingID,
+	).Scan(&failCount)
+	if err != nil {
+		return false // on error, allow retry
+	}
+	if failCount >= maxActionRetries {
+		// Mark the finding as acted_on so it stops appearing.
+		_, _ = e.pool.Exec(ctx,
+			`UPDATE sage.findings
+			 SET acted_on_at = now()
+			 WHERE id = $1 AND acted_on_at IS NULL`,
+			findingID,
+		)
+		return true
+	}
+	return false
 }
 
 // snapshotBeforeState captures current database health metrics

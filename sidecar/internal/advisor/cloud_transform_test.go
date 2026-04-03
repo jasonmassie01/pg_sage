@@ -333,3 +333,63 @@ func TestTransformForCloud_RollbackSQL_ClearedForRestart(t *testing.T) {
 			result[0].RollbackSQL)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TransformForCloud: platform-restricted settings (not restart-required)
+// ---------------------------------------------------------------------------
+
+func TestTransformForCloud_RestrictedSetting_FullPageWrites(t *testing.T) {
+	findings := []analyzer.Finding{{
+		RecommendedSQL: "ALTER SYSTEM SET full_page_writes = off;",
+		Severity:       "warning",
+	}}
+	result := TransformForCloud(findings, "rds", "mydb")
+	if len(result) != 1 {
+		t.Fatalf("len = %d", len(result))
+	}
+	if result[0].RecommendedSQL != "" {
+		t.Errorf("SQL should be empty for restricted setting, got %q",
+			result[0].RecommendedSQL)
+	}
+	if result[0].Severity != "info" {
+		t.Errorf("severity = %q, want info", result[0].Severity)
+	}
+	if !strings.Contains(result[0].Recommendation, "not adjustable") {
+		t.Errorf("recommendation should mention 'not adjustable', got %q",
+			result[0].Recommendation)
+	}
+}
+
+func TestTransformForCloud_RestrictedSetting_CheckpointTimeout(t *testing.T) {
+	findings := []analyzer.Finding{{
+		RecommendedSQL: "ALTER SYSTEM SET checkpoint_timeout = '15min';",
+		Severity:       "warning",
+	}}
+	for _, platform := range []string{"rds", "aurora", "cloud-sql", "alloydb"} {
+		t.Run(platform, func(t *testing.T) {
+			result := TransformForCloud(
+				[]analyzer.Finding{findings[0]}, platform, "testdb",
+			)
+			if result[0].RecommendedSQL != "" {
+				t.Errorf("%s: SQL should be empty for checkpoint_timeout, got %q",
+					platform, result[0].RecommendedSQL)
+			}
+		})
+	}
+}
+
+func TestTransformForCloud_NonRestrictedSetting_Passes(t *testing.T) {
+	findings := []analyzer.Finding{{
+		RecommendedSQL: "ALTER SYSTEM SET work_mem = '256MB';",
+		Severity:       "warning",
+	}}
+	result := TransformForCloud(findings, "rds", "mydb")
+	if result[0].RecommendedSQL == "" {
+		t.Error("work_mem should not be restricted, SQL should be present")
+	}
+	// Should be rewritten to ALTER DATABASE
+	if !strings.Contains(result[0].RecommendedSQL, "ALTER DATABASE") {
+		t.Errorf("should be rewritten to ALTER DATABASE, got %q",
+			result[0].RecommendedSQL)
+	}
+}

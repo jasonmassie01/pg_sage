@@ -2902,3 +2902,19 @@ func TestCoverage_WithDispatcherSetsField(t *testing.T) {
 		t.Error("expected dispatcher to be set")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// exceedsMaxRetries: nil pool safety
+// ---------------------------------------------------------------------------
+
+func TestExceedsMaxRetries_NilPool(t *testing.T) {
+	e := &Executor{
+		logFn: func(string, string, ...any) {},
+	}
+	// With nil pool, exceedsMaxRetries should not panic.
+	// It returns false (allow retry) since it can't query.
+	got := e.exceedsMaxRetries(context.Background(), 123)
+	if got {
+		t.Error("nil pool should return false (allow retry)")
+	}
+}

@@ -2147,3 +2147,32 @@ func TestCoverage_SubsetFinding(t *testing.T) {
 		t.Error("expected rollback SQL")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// filterSchemaExclusions: pgsnap schema
+// ---------------------------------------------------------------------------
+
+func TestFilterSchemaExclusions_PgSnap(t *testing.T) {
+	snap := &collector.Snapshot{
+		Tables: []collector.TableStats{
+			{SchemaName: "public", RelName: "orders"},
+			{SchemaName: "pgsnap", RelName: "kv"},
+			{SchemaName: "pgsnap", RelName: "snapshots"},
+		},
+		Indexes: []collector.IndexStats{
+			{SchemaName: "public", IndexRelName: "idx_orders_id"},
+			{SchemaName: "pgsnap", IndexRelName: "kv_snap_id_idx"},
+		},
+	}
+	filterSchemaExclusions(snap)
+	if len(snap.Tables) != 1 {
+		t.Errorf("tables = %d, want 1 (public only)", len(snap.Tables))
+	}
+	if snap.Tables[0].SchemaName != "public" {
+		t.Errorf("remaining table schema = %q, want public",
+			snap.Tables[0].SchemaName)
+	}
+	if len(snap.Indexes) != 1 {
+		t.Errorf("indexes = %d, want 1 (public only)", len(snap.Indexes))
+	}
+}

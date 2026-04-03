@@ -519,3 +519,16 @@ func TestLockTimeoutCircuitBreaksTable(t *testing.T) {
 		t.Error("expected table to be circuit-broken after lock timeout")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Executor max-retry constant
+// ---------------------------------------------------------------------------
+
+func TestMaxActionRetries_Constant(t *testing.T) {
+	if maxActionRetries < 1 {
+		t.Errorf("maxActionRetries = %d, must be >= 1", maxActionRetries)
+	}
+	if maxActionRetries > 10 {
+		t.Errorf("maxActionRetries = %d, unreasonably high", maxActionRetries)
+	}
+}

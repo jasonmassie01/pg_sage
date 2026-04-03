@@ -2714,3 +2714,21 @@ func TestFunctional_Coverage_ComputeConfidence_PartialInputs(t *testing.T) {
 		t.Errorf("expected ~%f, got %f", expected, got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// HypoPG: EstimateSize signature verification after OID type fix
+// ---------------------------------------------------------------------------
+
+// Verify HypoPG EstimateSize types compile correctly after OID fix.
+// The actual OID scanning requires a real database with HypoPG;
+// this test verifies the function signature is correct and that
+// calling with a nil pool returns an error (does not panic).
+func TestFunctional_HypoPG_EstimateSize_Signature(t *testing.T) {
+	h := NewHypoPG(nil, 10.0, func(string, string, ...any) {})
+	// EstimateSize takes int64 (cast from uint32 internally).
+	// Verify it doesn't panic with a zero pool (returns error).
+	_, err := h.EstimateSize(context.Background(), 12345)
+	if err == nil {
+		t.Error("expected error with nil pool")
+	}
+}
