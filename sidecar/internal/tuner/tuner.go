@@ -175,8 +175,9 @@ func (t *Tuner) processCandidate(
 	combined := CombineHints(prescriptions)
 	title := buildTitle(symptoms)
 	rationale := buildRationale(prescriptions)
+	rewrite, rewriteRationale := extractRewrite(prescriptions)
 	finding := t.buildFinding(c, symptoms, combined,
-		title, rationale)
+		title, rationale, rewrite, rewriteRationale)
 	return []analyzer.Finding{finding}
 }
 
@@ -280,22 +281,28 @@ func (t *Tuner) buildFinding(
 	c candidate,
 	symptoms []PlanSymptom,
 	combinedHint, title, rationale string,
+	suggestedRewrite, rewriteRationale string,
 ) analyzer.Finding {
 	names := symptomNames(symptoms)
+	detail := map[string]any{
+		"queryid":        c.QueryID,
+		"query":          c.Query,
+		"symptoms":       names,
+		"hint_directive": combinedHint,
+	}
+	if suggestedRewrite != "" {
+		detail["suggested_rewrite"] = suggestedRewrite
+		detail["rewrite_rationale"] = rewriteRationale
+	}
 	f := analyzer.Finding{
 		Category:         "query_tuning",
 		Severity:         "warning",
 		ObjectType:       "query",
 		ObjectIdentifier: fmt.Sprintf("queryid:%d", c.QueryID),
 		Title:            title,
-		Detail: map[string]any{
-			"queryid":        c.QueryID,
-			"query":          c.Query,
-			"symptoms":       names,
-			"hint_directive": combinedHint,
-		},
-		Recommendation: rationale,
-		ActionRisk:     "safe",
+		Detail:           detail,
+		Recommendation:   rationale,
+		ActionRisk:       "safe",
 	}
 	if t.hintPlan != nil && t.hintPlan.Available && t.hintPlan.HintTableReady {
 		f.RecommendedSQL = BuildInsertSQL(
@@ -405,4 +412,17 @@ func buildRationale(prescriptions []Prescription) string {
 		parts[i] = p.Rationale
 	}
 	return strings.Join(parts, "; ")
+}
+
+// extractRewrite returns the first non-empty suggested rewrite
+// from the prescription list.
+func extractRewrite(
+	prescriptions []Prescription,
+) (rewrite, rationale string) {
+	for _, p := range prescriptions {
+		if p.SuggestedRewrite != "" {
+			return p.SuggestedRewrite, p.RewriteRationale
+		}
+	}
+	return "", ""
 }

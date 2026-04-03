@@ -29,10 +29,11 @@ type Event struct {
 
 // ValidEventTypes lists all supported event types.
 var ValidEventTypes = map[string]bool{
-	"action_executed":  true,
-	"action_failed":    true,
-	"approval_needed":  true,
-	"finding_critical": true,
+	"action_executed":         true,
+	"action_failed":           true,
+	"approval_needed":         true,
+	"finding_critical":        true,
+	"query_rewrite_suggested": true,
 }
 
 // ValidSeverities lists all supported severity levels with numeric rank.

@@ -81,3 +81,27 @@ func FindingCriticalEvent(
 		},
 	}
 }
+
+// QueryRewriteEvent creates an event when the tuner suggests a
+// query rewrite. Call from analyzer when a tuning finding includes
+// a suggested_rewrite in its detail.
+func QueryRewriteEvent(
+	title, query, rewrite, rationale, database string,
+) Event {
+	return Event{
+		Type:     "query_rewrite_suggested",
+		Severity: "warning",
+		Subject:  fmt.Sprintf("Query rewrite suggested: %s", title),
+		Body: fmt.Sprintf(
+			"Database: %s\nOriginal: %s\nRewrite: %s\n"+
+				"Rationale: %s",
+			database, query, rewrite, rationale),
+		Data: map[string]any{
+			"title":     title,
+			"query":     query,
+			"rewrite":   rewrite,
+			"rationale": rationale,
+			"database":  database,
+		},
+	}
+}

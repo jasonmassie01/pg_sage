@@ -339,6 +339,9 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	// Notify on new critical findings.
 	a.dispatchCriticalFindings(ctx, allFindings)
 
+	// Notify on query rewrite suggestions.
+	a.dispatchRewriteFindings(ctx, allFindings)
+
 	// Resolve cleared findings by category.
 	activeByCategory := make(map[string]map[string]bool)
 	for _, f := range allFindings {
@@ -376,6 +379,35 @@ func (a *Analyzer) dispatchCriticalFindings(
 		if err := a.dispatcher.Dispatch(ctx, event); err != nil {
 			a.logFn("ERROR",
 				"critical finding dispatch: %v", err)
+		}
+	}
+}
+
+// dispatchRewriteFindings sends notifications for query_tuning
+// findings that include a suggested rewrite.
+func (a *Analyzer) dispatchRewriteFindings(
+	ctx context.Context, findings []Finding,
+) {
+	if a.dispatcher == nil {
+		return
+	}
+	for _, f := range findings {
+		if f.Category != "query_tuning" {
+			continue
+		}
+		rewrite, _ := f.Detail["suggested_rewrite"].(string)
+		if rewrite == "" {
+			continue
+		}
+		query, _ := f.Detail["query"].(string)
+		rationale, _ := f.Detail["rewrite_rationale"].(string)
+		event := notify.QueryRewriteEvent(
+			f.Title, query, rewrite, rationale,
+			a.databaseName,
+		)
+		if err := a.dispatcher.Dispatch(ctx, event); err != nil {
+			a.logFn("ERROR",
+				"rewrite finding dispatch: %v", err)
 		}
 	}
 }

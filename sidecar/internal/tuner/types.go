@@ -27,9 +27,11 @@ type PlanSymptom struct {
 
 // Prescription maps a symptom to a pg_hint_plan directive.
 type Prescription struct {
-	Symptom       SymptomKind
-	HintDirective string
-	Rationale     string
+	Symptom          SymptomKind
+	HintDirective    string
+	Rationale        string
+	SuggestedRewrite string
+	RewriteRationale string
 }
 
 // HintPlanAvailability describes pg_hint_plan detection results.

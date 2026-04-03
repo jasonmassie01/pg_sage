@@ -222,6 +222,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	migrations := []string{
 		ddlActionLogApprovalCols,
 		ddlUsersOAuth,
+		ddlQueryHintsRewrite,
 	}
 	for _, m := range migrations {
 		if _, err := pool.Exec(qctx, m); err != nil {
@@ -243,7 +244,8 @@ CREATE SCHEMA sage;
 	ddlUsers + ddlSessions + ddlDatabases +
 	ddlNotificationChannels + ddlNotificationRules +
 	ddlNotificationLog + ddlActionQueue +
-	ddlActionLogApprovalCols + ddlUsersOAuth
+	ddlActionLogApprovalCols + ddlUsersOAuth +
+	ddlQueryHintsRewrite
 
 const ddlActionLog = `
 CREATE TABLE IF NOT EXISTS sage.action_log (
@@ -446,4 +448,11 @@ ALTER TABLE sage.users
     ADD COLUMN IF NOT EXISTS oauth_provider TEXT DEFAULT '';
 ALTER TABLE sage.users
     ALTER COLUMN password DROP NOT NULL;
+`
+
+const ddlQueryHintsRewrite = `
+ALTER TABLE sage.query_hints
+    ADD COLUMN IF NOT EXISTS suggested_rewrite TEXT DEFAULT '';
+ALTER TABLE sage.query_hints
+    ADD COLUMN IF NOT EXISTS rewrite_rationale TEXT DEFAULT '';
 `
