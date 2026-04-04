@@ -111,12 +111,12 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 	}
 
 	// Thinking models (Gemini 2.5 Flash/Pro) consume output budget for
-	// internal reasoning. Bump max_tokens so the actual JSON response
-	// isn't truncated after thinking tokens eat the budget.
+	// internal reasoning. Add a fixed overhead so thinking tokens
+	// don't crowd out the actual response content.
 	if maxTokens <= 0 {
 		maxTokens = 16384
-	} else if isThinkingModel(c.cfg.Model) && maxTokens < 8192 {
-		maxTokens = 8192
+	} else if isThinkingModel(c.cfg.Model) {
+		maxTokens += 16384
 	}
 
 	req := ChatRequest{
