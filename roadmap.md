@@ -55,6 +55,22 @@
 - E2E test suite: 54 subtests against real Gemini API
 - 771+ tests
 
+### v0.8.3 (2026-04-04) — Cloud E2E + LLM Token Optimization
+- Cloud E2E validation across 8 managed PostgreSQL databases:
+  RDS PG14/18, Aurora PG14/17, Cloud SQL PG14/18, AlloyDB PG14/17
+- Auto-detect cloud environment (rds, aurora, cloud-sql, alloydb)
+- ALTER SYSTEM → ALTER DATABASE rewriting for managed platforms
+- Executor max-retry limit (3 failures → mark as acted_on)
+- LLM deduplication: skip redundant calls when open findings/hints exist
+  (optimizer, tuner, advisor all check sage.findings/sage.query_hints first)
+- 11 token waste fixes: bloat category mismatch, vacuum validation bug,
+  thinking-model budget, CapturePlans loop hoist, column stats filtering,
+  per-cycle table cap, per-query rewrite dedup, briefing LIMIT,
+  retry scope (429/503 only), tuner stats cap, single-symptom deterministic skip
+- Thinking model support: +16384 token overhead for Gemini 2.5 reasoning
+- Cross-platform findings: 1615 total, 373 open, 802 acted on across 8 DBs
+- All packages above 70% test coverage
+
 ---
 
 ## Planned
