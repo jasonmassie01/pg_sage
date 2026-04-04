@@ -215,7 +215,9 @@ func fetchColStats(
 	rows, err := pool.Query(ctx,
 		`SELECT attname, n_distinct, correlation
 		 FROM pg_stats
-		 WHERE schemaname = $1 AND tablename = $2`,
+		 WHERE schemaname = $1 AND tablename = $2
+		 ORDER BY abs(correlation) DESC
+		 LIMIT 10`,
 		schema, table)
 	if err != nil {
 		return nil

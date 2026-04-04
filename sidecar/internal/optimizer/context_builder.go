@@ -26,6 +26,17 @@ func BuildTableContexts(
 	parentSet := buildPartitionParentSet(snap)
 
 	planSource := "query_text_only"
+
+	// Capture plans once for ALL queries, then filter per-table.
+	var allPlans []PlanSummary
+	if planner != nil {
+		plans, source := planner.CapturePlans(ctx, snap.Queries)
+		allPlans = plans
+		if len(plans) > 0 {
+			planSource = source
+		}
+	}
+
 	var contexts []TableContext
 	for _, ts := range snap.Tables {
 		if skipSchema(ts.SchemaName) {
@@ -71,15 +82,10 @@ func BuildTableContexts(
 		tc.Workload = classifyWorkload(tc.WriteRate, tc.LiveTuples)
 		tc.Columns = fetchColumns(ctx, pool, ts.SchemaName, ts.RelName)
 		tc.Indexes = buildIndexInfo(snap.Indexes, ts.SchemaName, ts.RelName)
-		tc.ColStats = fetchColStats(ctx, pool, ts.SchemaName, ts.RelName)
-
-		if planner != nil {
-			plans, source := planner.CapturePlans(ctx, snap.Queries)
-			tc.Plans = filterPlansForTable(plans, queries)
-			if len(plans) > 0 && planSource == "query_text_only" {
-				planSource = source
-			}
-		}
+		tc.ColStats = fetchColStats(
+			ctx, pool, ts.SchemaName, ts.RelName, queries,
+		)
+		tc.Plans = filterPlansForTable(allPlans, queries)
 
 		contexts = append(contexts, tc)
 	}
@@ -246,12 +252,36 @@ func fetchColStats(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	schema, table string,
+	queries []QueryInfo,
 ) []ColStat {
-	rows, err := pool.Query(ctx,
-		`SELECT attname, n_distinct, correlation,
-		       most_common_vals::text, most_common_freqs::text
-		 FROM pg_stats
-		 WHERE schemaname = $1 AND tablename = $2`, schema, table)
+	// Extract column names referenced in query texts to filter
+	// pg_stats to only the columns the optimizer needs.
+	cols := extractColumnsFromQueries(queries)
+
+	var rows interface {
+		Next() bool
+		Scan(dest ...any) error
+		Close()
+	}
+	var err error
+	if len(cols) > 0 {
+		rows, err = pool.Query(ctx,
+			`SELECT attname, n_distinct, correlation,
+			        most_common_vals::text, most_common_freqs::text
+			 FROM pg_stats
+			 WHERE schemaname = $1 AND tablename = $2
+			   AND attname = ANY($3)`, schema, table, cols)
+	} else {
+		// No column names extracted: return the most skewed
+		// columns to cap prompt size.
+		rows, err = pool.Query(ctx,
+			`SELECT attname, n_distinct, correlation,
+			        most_common_vals::text, most_common_freqs::text
+			 FROM pg_stats
+			 WHERE schemaname = $1 AND tablename = $2
+			 ORDER BY abs(correlation) DESC
+			 LIMIT 15`, schema, table)
+	}
 	if err != nil {
 		return nil
 	}
@@ -279,6 +309,94 @@ func fetchColStats(
 		stats = append(stats, s)
 	}
 	return stats
+}
+
+// extractColumnsFromQueries extracts likely column names referenced
+// in WHERE, ON, ORDER BY, and GROUP BY clauses from query texts.
+// Uses simple keyword-based extraction; not a full SQL parser.
+func extractColumnsFromQueries(queries []QueryInfo) []string {
+	seen := make(map[string]bool)
+	for _, q := range queries {
+		cols := extractColumnRefs(q.Text)
+		for _, c := range cols {
+			seen[c] = true
+		}
+	}
+	result := make([]string, 0, len(seen))
+	for c := range seen {
+		result = append(result, c)
+	}
+	return result
+}
+
+// extractColumnRefs extracts identifiers that follow WHERE, ON,
+// ORDER BY, GROUP BY, AND, OR, SET keywords, or appear as the
+// left side of comparison operators. Returns deduplicated names.
+func extractColumnRefs(query string) []string {
+	upper := strings.ToUpper(query)
+	words := strings.Fields(upper)
+	origWords := strings.Fields(query)
+
+	triggers := map[string]bool{
+		"WHERE": true, "AND": true, "OR": true, "ON": true,
+		"SET": true, "BY": true, "HAVING": true,
+	}
+
+	var cols []string
+	for i, w := range words {
+		if !triggers[w] || i+1 >= len(origWords) {
+			continue
+		}
+		candidate := origWords[i+1]
+		col := cleanColumnRef(candidate)
+		if col != "" {
+			cols = append(cols, col)
+		}
+	}
+	return cols
+}
+
+// cleanColumnRef strips table aliases, quotes, and operators from
+// a token to extract the bare column name. Returns "" if the token
+// is not a plausible column reference.
+func cleanColumnRef(token string) string {
+	// Strip trailing operators and punctuation.
+	token = strings.TrimRight(token, "=<>!(),;")
+	if token == "" {
+		return ""
+	}
+	// Handle table.column or alias.column references.
+	if idx := strings.LastIndex(token, "."); idx >= 0 {
+		token = token[idx+1:]
+	}
+	// Strip quoting.
+	token = strings.Trim(token, "\"'`")
+	// Reject SQL keywords, numbers, and placeholders.
+	lower := strings.ToLower(token)
+	rejects := map[string]bool{
+		"select": true, "from": true, "join": true,
+		"left": true, "right": true, "inner": true,
+		"outer": true, "cross": true, "not": true,
+		"null": true, "in": true, "is": true,
+		"like": true, "between": true, "exists": true,
+		"true": true, "false": true, "as": true,
+		"case": true, "when": true, "then": true,
+		"else": true, "end": true, "asc": true,
+		"desc": true, "limit": true, "offset": true,
+		"": true,
+	}
+	if rejects[lower] {
+		return ""
+	}
+	// Reject if starts with $ (parameter placeholder).
+	if strings.HasPrefix(lower, "$") {
+		return ""
+	}
+	// Reject pure numbers.
+	if _, err := strconv.Atoi(lower); err == nil {
+		return ""
+	}
+	return lower
 }
 
 func filterPlansForTable(

@@ -300,6 +300,95 @@ func TestPartitionedParentDetection(t *testing.T) {
 	}
 }
 
+func TestExtractColumnsFromQueries(t *testing.T) {
+	queries := []QueryInfo{
+		{Text: "SELECT * FROM orders WHERE status = $1 AND region = $2"},
+		{Text: "SELECT * FROM items WHERE price > $1 ORDER BY name"},
+	}
+	cols := extractColumnsFromQueries(queries)
+	if len(cols) == 0 {
+		t.Fatal("expected at least one column extracted")
+	}
+	found := make(map[string]bool)
+	for _, c := range cols {
+		found[c] = true
+	}
+	for _, want := range []string{"status", "region", "price", "name"} {
+		if !found[want] {
+			t.Errorf("expected column %q in results %v", want, cols)
+		}
+	}
+}
+
+func TestExtractColumnsFromQueries_Empty(t *testing.T) {
+	cols := extractColumnsFromQueries(nil)
+	if len(cols) != 0 {
+		t.Errorf("expected empty, got %v", cols)
+	}
+}
+
+func TestExtractColumnRefs_WhereAndOrderBy(t *testing.T) {
+	cols := extractColumnRefs(
+		"SELECT * FROM t WHERE id = 1 AND name = 'x' ORDER BY created_at",
+	)
+	found := make(map[string]bool)
+	for _, c := range cols {
+		found[c] = true
+	}
+	if !found["id"] {
+		t.Error("expected 'id'")
+	}
+	if !found["name"] {
+		t.Error("expected 'name'")
+	}
+	if !found["created_at"] {
+		t.Error("expected 'created_at'")
+	}
+}
+
+func TestCleanColumnRef(t *testing.T) {
+	tests := []struct {
+		input, want string
+	}{
+		{"status=", "status"},
+		{"t.name", "name"},
+		{`"Region"`, "region"},
+		{"$1", ""},
+		{"SELECT", ""},
+		{"42", ""},
+		{"", ""},
+		{"orders.customer_id=", "customer_id"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := cleanColumnRef(tt.input)
+			if got != tt.want {
+				t.Errorf("cleanColumnRef(%q) = %q, want %q",
+					tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTotalQueryTime(t *testing.T) {
+	queries := []QueryInfo{
+		{TotalTimeMs: 100.5},
+		{TotalTimeMs: 200.0},
+		{TotalTimeMs: 50.5},
+	}
+	got := totalQueryTime(queries)
+	if got != 351.0 {
+		t.Errorf("totalQueryTime = %v, want 351.0", got)
+	}
+}
+
+func TestTotalQueryTime_Empty(t *testing.T) {
+	got := totalQueryTime(nil)
+	if got != 0 {
+		t.Errorf("totalQueryTime(nil) = %v, want 0", got)
+	}
+}
+
 func TestMergeChildQueries_NoDuplicates(t *testing.T) {
 	snap := &collector.Snapshot{
 		Partitions: []collector.PartitionInfo{

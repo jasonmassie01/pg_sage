@@ -230,6 +230,15 @@ func (t *Tuner) tryLLMPrescribe(
 		return nil
 	}
 	planJSON := t.fetchPlanJSON(ctx, c.QueryID)
+	if len(symptoms) == 1 && planJSON == "" {
+		// Deterministic rules sufficient for single-symptom
+		// without plan data; skip LLM to save tokens.
+		t.logFn("DEBUG",
+			"tuner: single symptom without plan, "+
+				"using deterministic rules for queryid=%d",
+			c.QueryID)
+		return nil
+	}
 	qctx := buildQueryContext(
 		ctx, t.pool, c, symptoms, planJSON, fallbackHint,
 	)

@@ -797,7 +797,7 @@ func TestAnalyzeQueryRewrites_NoCandidates_EmptyQueries(t *testing.T) {
 		Queries: nil,
 	}
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, snap,
+		context.Background(), nil, nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -823,7 +823,7 @@ func TestAnalyzeQueryRewrites_NoCandidates_LowActivity(t *testing.T) {
 		},
 	}
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, snap,
+		context.Background(), nil, nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -846,7 +846,7 @@ func TestAnalyzeQueryRewrites_NoCandidates_SpillsLowCalls(t *testing.T) {
 		},
 	}
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, snap,
+		context.Background(), nil, nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1895,16 +1895,12 @@ func TestAnalyzeVacuum_WithRecommendedSQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// The validation in analyzeVacuum calls
-	// ValidateConfigRecommendation("", "", "") which always returns err.
-	// However, the err is nil for empty args — wait, no, it errors on
-	// empty name. So err != nil, and the finding is NOT appended.
-	// BUT: ValidateConfigRecommendation("", "", "") returns "empty
-	// setting name" error, so `if err == nil` is false, and the
-	// finding is dropped.
-	if len(findings) != 0 {
-		t.Fatalf("expected 0 findings (validation drops it), got %d",
-			len(findings))
+	// The broken validation that called ValidateConfigRecommendation("","","")
+	// was removed — it always returned an error on empty setting name,
+	// silently dropping every finding with RecommendedSQL. Findings with
+	// RecommendedSQL are now correctly returned.
+	if len(findings) == 0 {
+		t.Fatal("expected at least 1 finding, got 0")
 	}
 }
 
@@ -2299,7 +2295,7 @@ func TestAnalyzeQueryRewrites_FullPath(t *testing.T) {
 	}
 
 	findings, err := analyzeQueryRewrites(
-		context.Background(), mgr, snap,
+		context.Background(), nil, mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -2339,7 +2335,7 @@ func TestAnalyzeQueryRewrites_SpillCandidates(t *testing.T) {
 	}
 
 	findings, err := analyzeQueryRewrites(
-		context.Background(), mgr, snap,
+		context.Background(), nil, mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -2362,7 +2358,7 @@ func TestAnalyzeQueryRewrites_LLMError(t *testing.T) {
 	}
 
 	_, err := analyzeQueryRewrites(
-		context.Background(), mgr, snap,
+		context.Background(), nil, mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err == nil {
@@ -2389,7 +2385,7 @@ func TestAnalyzeQueryRewrites_LongQuery_Truncated(t *testing.T) {
 	}
 
 	findings, err := analyzeQueryRewrites(
-		context.Background(), mgr, snap,
+		context.Background(), nil, mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {

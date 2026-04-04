@@ -144,7 +144,7 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 			a.logFn("DEBUG",
 				"advisor: rewrites: skipping, open findings exist")
 		} else {
-			findings, err := analyzeQueryRewrites(ctx, a.llmMgr, snap, a.cfg, a.logFn)
+			findings, err := analyzeQueryRewrites(ctx, a.pool, a.llmMgr, snap, a.cfg, a.logFn)
 			if err != nil {
 				a.logFn("WARN", "advisor: rewrites: %v", err)
 			} else {
@@ -154,7 +154,7 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 	}
 
 	if a.cfg.Advisor.BloatEnabled {
-		if a.hasOpenFindings(ctx, "bloat_analysis") {
+		if a.hasOpenFindings(ctx, "bloat_remediation") {
 			a.logFn("DEBUG", "advisor: bloat: skipping, open findings exist")
 		} else {
 			findings, err := analyzeBloat(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)

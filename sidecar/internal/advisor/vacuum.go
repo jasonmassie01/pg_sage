@@ -148,17 +148,5 @@ func analyzeVacuum(
 
 	findings := parseLLMFindings(resp, "vacuum_tuning", logFn)
 
-	// Validate each finding.
-	var valid []analyzer.Finding
-	for _, f := range findings {
-		if f.RecommendedSQL != "" {
-			if err := ValidateConfigRecommendation("", "", ""); err == nil {
-				valid = append(valid, f)
-			}
-		} else {
-			valid = append(valid, f)
-		}
-	}
-
-	return valid, nil
+	return findings, nil
 }

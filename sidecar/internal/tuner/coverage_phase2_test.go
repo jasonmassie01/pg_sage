@@ -290,7 +290,7 @@ func TestPhase2_TryLLMPrescribe_WithMockLLM(t *testing.T) {
 			Calls:        100,
 			MeanExecTime: 500.0,
 		},
-		[]PlanSymptom{{Kind: SymptomDiskSort}},
+		[]PlanSymptom{{Kind: SymptomDiskSort}, {Kind: SymptomHashSpill}},
 		`Set(work_mem "64MB")`,
 	)
 
@@ -418,7 +418,7 @@ func TestPhase2_TryLLMPrescribe_FallbackClient(t *testing.T) {
 			Calls:    50,
 			MeanExecTime: 200.0,
 		},
-		[]PlanSymptom{{Kind: SymptomHashSpill}},
+		[]PlanSymptom{{Kind: SymptomHashSpill}, {Kind: SymptomDiskSort}},
 		"",
 	)
 

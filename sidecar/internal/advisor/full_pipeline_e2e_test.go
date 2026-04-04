@@ -73,7 +73,7 @@ func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
 	}
 
 	if rwFindings, err := analyzeQueryRewrites(
-		context.Background(), mgr, snap, cfg, logFn,
+		context.Background(), nil, mgr, snap, cfg, logFn,
 	); err != nil {
 		t.Logf("rewrite error (non-fatal): %v", err)
 	} else {

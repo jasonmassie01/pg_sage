@@ -115,8 +115,8 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 	// isn't truncated after thinking tokens eat the budget.
 	if maxTokens <= 0 {
 		maxTokens = 16384
-	} else if isThinkingModel(c.cfg.Model) && maxTokens < 16384 {
-		maxTokens = 16384
+	} else if isThinkingModel(c.cfg.Model) && maxTokens < 8192 {
+		maxTokens = 8192
 	}
 
 	req := ChatRequest{
@@ -218,7 +218,7 @@ func (c *Client) doWithRetry(ctx context.Context, req *http.Request, body []byte
 			lastErr = err
 			continue
 		}
-		if resp.StatusCode >= 500 {
+		if resp.StatusCode == 429 || resp.StatusCode == 503 {
 			resp.Body.Close()
 			lastErr = fmt.Errorf("server error %d", resp.StatusCode)
 			continue

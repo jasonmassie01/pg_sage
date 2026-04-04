@@ -3,8 +3,10 @@ package advisor
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -34,6 +36,7 @@ Each element: {"object_identifier":"queryid:NNN","severity":"info",` +
 
 func analyzeQueryRewrites(
 	ctx context.Context,
+	pool *pgxpool.Pool,
 	mgr *llm.Manager,
 	snap *collector.Snapshot,
 	cfg *config.Config,
@@ -97,6 +100,30 @@ func analyzeQueryRewrites(
 		unique = unique[:10]
 	}
 
+	// Per-query dedup: skip candidates that already have an open
+	// query_rewrite finding in sage.findings. The object_identifier
+	// is stored as "queryid:NNN" so we extract known queryids.
+	if pool != nil {
+		existing := openRewriteQueryIDs(ctx, pool, logFn)
+		if len(existing) > 0 {
+			var filtered []candidate
+			for _, c := range unique {
+				if existing[c.query.QueryID] {
+					logFn("DEBUG",
+						"advisor: rewrite: skipping queryid %d, open finding exists",
+						c.query.QueryID)
+					continue
+				}
+				filtered = append(filtered, c)
+			}
+			unique = filtered
+		}
+	}
+
+	if len(unique) == 0 {
+		return nil, nil
+	}
+
 	var queryLines []string
 	for _, c := range unique {
 		q := c.query
@@ -145,6 +172,48 @@ func analyzeQueryRewrites(
 		findings = append(findings, f)
 	}
 	return findings, nil
+}
+
+// openRewriteQueryIDs returns the set of queryids that already have
+// open query_rewrite findings. The object_identifier is stored as
+// "queryid:NNN", so we parse the numeric suffix.
+func openRewriteQueryIDs(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	logFn func(string, string, ...any),
+) map[int64]bool {
+	rows, err := pool.Query(ctx,
+		`SELECT object_identifier FROM sage.findings
+		 WHERE category = 'query_rewrite'
+		   AND status = 'open'
+		   AND acted_on_at IS NULL`,
+	)
+	if err != nil {
+		logFn("WARN",
+			"advisor: rewrite dedup query failed: %v", err)
+		return nil
+	}
+	defer rows.Close()
+
+	ids := make(map[int64]bool)
+	for rows.Next() {
+		var ident string
+		if err := rows.Scan(&ident); err != nil {
+			continue
+		}
+		after, found := strings.CutPrefix(ident, "queryid:")
+		if !found {
+			continue
+		}
+		qid, err := strconv.ParseInt(
+			strings.TrimSpace(after), 10, 64,
+		)
+		if err != nil {
+			continue
+		}
+		ids[qid] = true
+	}
+	return ids
 }
 
 // isCreateIndexRewrite returns true if the finding's suggested

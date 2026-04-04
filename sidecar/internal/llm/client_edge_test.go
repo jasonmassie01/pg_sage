@@ -15,48 +15,16 @@ import (
 )
 
 // TestClientRetryBackoff verifies that the client retries on 429
-// status codes. Since doWithRetry only retries on >= 500, a 429
-// is returned immediately as a non-retryable error.
+// (rate limit) status codes with exponential backoff. The server
+// returns 429 twice then succeeds on the third attempt.
 func TestClientRetryBackoff(t *testing.T) {
-	var attempts atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempts.Add(1)
-		w.Header().Set("Retry-After", "1")
-		w.WriteHeader(http.StatusTooManyRequests)
-		w.Write([]byte(`{"error":"rate limited"}`))
-	}))
-	defer srv.Close()
-
-	cfg := &config.LLMConfig{
-		Enabled: true, Endpoint: srv.URL + "/",
-		APIKey: "k", Model: "m",
-		TimeoutSeconds: 5, TokenBudgetDaily: 100000, CooldownSeconds: 10,
-	}
-	client := New(cfg, noopLog)
-
-	_, _, err := client.Chat(context.Background(), "s", "u", 100)
-	if err == nil {
-		t.Fatal("expected error for 429 response")
-	}
-	if !strings.Contains(err.Error(), "429") {
-		t.Errorf("expected error containing '429', got: %v", err)
-	}
-
-	// 429 is < 500 so doWithRetry returns it on first attempt (no retry).
-	if attempts.Load() != 1 {
-		t.Errorf("attempts = %d, want 1 (429 should not trigger retry)", attempts.Load())
-	}
-}
-
-// TestClientRetryOn500 verifies exponential backoff on 500 errors.
-// The server returns 500 twice then succeeds on the third attempt.
-func TestClientRetryOn500(t *testing.T) {
 	var attempts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n := attempts.Add(1)
 		if n <= 2 {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("oops"))
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"error":"rate limited"}`))
 			return
 		}
 		w.Write(testChatJSON("recovered", 10))
@@ -69,9 +37,6 @@ func TestClientRetryOn500(t *testing.T) {
 		TimeoutSeconds: 30, TokenBudgetDaily: 100000, CooldownSeconds: 10,
 	}
 	client := New(cfg, noopLog)
-
-	// Override the HTTP client timeout so the test doesn't wait too long.
-	// The retry delays are 1s, 4s, 16s — we need enough total timeout.
 	client.httpClient.Timeout = 30 * time.Second
 
 	content, _, err := client.Chat(context.Background(), "s", "u", 100)
@@ -81,8 +46,43 @@ func TestClientRetryOn500(t *testing.T) {
 	if content != "recovered" {
 		t.Errorf("content = %q, want %q", content, "recovered")
 	}
+
+	// 429 is retryable, so doWithRetry should attempt 3 times (2 failures + 1 success).
 	if attempts.Load() != 3 {
-		t.Errorf("attempts = %d, want 3", attempts.Load())
+		t.Errorf("attempts = %d, want 3 (429 should trigger retry)", attempts.Load())
+	}
+}
+
+// TestClientNoRetryOn500 verifies that 500 Internal Server Error is
+// NOT retried (only 429 and 503 are retryable). The error should
+// be returned immediately without wasting tokens on retries.
+func TestClientNoRetryOn500(t *testing.T) {
+	var attempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("internal error"))
+	}))
+	defer srv.Close()
+
+	cfg := &config.LLMConfig{
+		Enabled: true, Endpoint: srv.URL + "/",
+		APIKey: "k", Model: "m",
+		TimeoutSeconds: 5, TokenBudgetDaily: 100000, CooldownSeconds: 10,
+	}
+	client := New(cfg, noopLog)
+
+	_, _, err := client.Chat(context.Background(), "s", "u", 100)
+	if err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("expected error containing '500', got: %v", err)
+	}
+
+	// 500 is not retryable, so only 1 attempt should be made.
+	if attempts.Load() != 1 {
+		t.Errorf("attempts = %d, want 1 (500 should not trigger retry)", attempts.Load())
 	}
 }
 

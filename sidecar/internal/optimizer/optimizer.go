@@ -3,6 +3,7 @@ package optimizer
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/collector"
@@ -11,6 +12,7 @@ import (
 )
 
 const defaultMaxNewPerTable = 3
+const maxTablesPerCycle = 10
 
 // Optimizer is the v2 index optimizer with plan-aware, HypoPG-validated
 // recommendations and confidence scoring.
@@ -95,6 +97,20 @@ func (o *Optimizer) Analyze(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build contexts: %w", err)
+	}
+
+	// Sort by total query time descending and cap to the most
+	// impactful tables to bound LLM calls per cycle.
+	sort.Slice(contexts, func(i, j int) bool {
+		return totalQueryTime(contexts[i].Queries) >
+			totalQueryTime(contexts[j].Queries)
+	})
+	if len(contexts) > maxTablesPerCycle {
+		o.logFn("optimizer",
+			"capping tables from %d to %d (by total query time)",
+			len(contexts), maxTablesPerCycle,
+		)
+		contexts = contexts[:maxTablesPerCycle]
 	}
 
 	o.logFn("optimizer",
@@ -324,6 +340,14 @@ func totalQueryCalls(queries []QueryInfo) int64 {
 	var total int64
 	for _, q := range queries {
 		total += q.Calls
+	}
+	return total
+}
+
+func totalQueryTime(queries []QueryInfo) float64 {
+	var total float64
+	for _, q := range queries {
+		total += q.TotalTimeMs
 	}
 	return total
 }

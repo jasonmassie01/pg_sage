@@ -77,7 +77,7 @@ func newTestWorker(cfg *config.Config) *Worker {
 
 func TestBuildStructured_EmptyFindings(t *testing.T) {
 	w := newTestWorker(&config.Config{})
-	result := w.buildStructured("[]", `{"db_size":"100 MB","connections":5}`, "[]")
+	result := w.buildStructured("[]", 0, `{"db_size":"100 MB","connections":5}`, "[]")
 
 	if !strings.Contains(result, "# pg_sage Health Briefing") {
 		t.Error("expected header in briefing output")
@@ -104,7 +104,7 @@ func TestBuildStructured_WithFindings(t *testing.T) {
 	system := `{"db_size":"500 MB","connections":12,"active":3}`
 	actions := "[]"
 
-	result := w.buildStructured(findings, system, actions)
+	result := w.buildStructured(findings, 3, system, actions)
 
 	if !strings.Contains(result, "1 critical, 1 warning, 1 info") {
 		t.Errorf("expected correct severity counts, got:\n%s", result)
@@ -127,7 +127,7 @@ func TestBuildStructured_WithActions(t *testing.T) {
 		{"action_type":"vacuum","outcome":"failure","executed_at":"2025-01-01T01:00:00Z"}
 	]`
 
-	result := w.buildStructured("[]", `{}`, actions)
+	result := w.buildStructured("[]", 0, `{}`, actions)
 
 	if !strings.Contains(result, "## Recent Actions (24h)") {
 		t.Error("expected recent actions section")
@@ -143,7 +143,7 @@ func TestBuildStructured_WithActions(t *testing.T) {
 func TestBuildStructured_MalformedJSON(t *testing.T) {
 	w := newTestWorker(&config.Config{})
 	// Should not panic on invalid JSON; just skip the section.
-	result := w.buildStructured("not-json", "not-json", "not-json")
+	result := w.buildStructured("not-json", 0, "not-json", "not-json")
 	if !strings.Contains(result, "# pg_sage Health Briefing") {
 		t.Error("header should always be present even with bad JSON")
 	}
@@ -166,7 +166,7 @@ func TestBuildStructured_FindingSeverityIcons(t *testing.T) {
 			{"severity": tt.severity, "title": "test", "category": "test"},
 		}
 		data, _ := json.Marshal(finding)
-		result := w.buildStructured(string(data), `{}`, "[]")
+		result := w.buildStructured(string(data), 1, `{}`, "[]")
 		if !strings.Contains(result, tt.icon) {
 			t.Errorf("severity %q: expected icon in output", tt.severity)
 		}
@@ -176,7 +176,7 @@ func TestBuildStructured_FindingSeverityIcons(t *testing.T) {
 func TestBuildStructured_NilObjectIdentifier(t *testing.T) {
 	w := newTestWorker(&config.Config{})
 	findings := `[{"severity":"warning","title":"test finding","object_identifier":null}]`
-	result := w.buildStructured(findings, `{}`, "[]")
+	result := w.buildStructured(findings, 1, `{}`, "[]")
 
 	// Should not contain backtick-wrapped nil.
 	if strings.Contains(result, "(`<nil>`)") {
@@ -190,7 +190,7 @@ func TestBuildStructured_NilObjectIdentifier(t *testing.T) {
 func TestBuildStructured_SystemOverviewKeys(t *testing.T) {
 	w := newTestWorker(&config.Config{})
 	system := `{"db_size":"1 GB","connections":20,"active":5,"cache_hit_ratio":99.5,"uptime_hours":48}`
-	result := w.buildStructured("[]", system, "[]")
+	result := w.buildStructured("[]", 0, system, "[]")
 
 	for _, key := range []string{"db_size", "connections", "active", "cache_hit_ratio", "uptime_hours"} {
 		if !strings.Contains(result, key) {

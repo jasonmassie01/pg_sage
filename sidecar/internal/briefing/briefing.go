@@ -160,10 +160,13 @@ func (w *Worker) MarkRan() {
 	w.lastRun = time.Now()
 }
 
+// maxBriefingFindings caps findings sent to the LLM prompt.
+const maxBriefingFindings = 50
+
 // Generate creates a briefing from current findings and system state.
 func (w *Worker) Generate(ctx context.Context) (string, error) {
 	// Gather data.
-	findings, err := w.gatherFindings(ctx)
+	findings, totalOpen, err := w.gatherFindings(ctx)
 	if err != nil {
 		return "", fmt.Errorf("gather findings: %w", err)
 	}
@@ -179,7 +182,7 @@ func (w *Worker) Generate(ctx context.Context) (string, error) {
 	}
 
 	// Build structured briefing.
-	structured := w.buildStructured(findings, system, actions)
+	structured := w.buildStructured(findings, totalOpen, system, actions)
 
 	// If LLM enabled, enhance with natural language.
 	if w.llm != nil && w.llm.IsEnabled() && !w.llm.IsCircuitOpen() {
@@ -196,26 +199,38 @@ func (w *Worker) Generate(ctx context.Context) (string, error) {
 	return structured, nil
 }
 
-func (w *Worker) gatherFindings(ctx context.Context) (string, error) {
+func (w *Worker) gatherFindings(ctx context.Context) (string, int, error) {
 	var result string
+	var totalOpen int
 	err := w.pool.QueryRow(ctx, `
 		SELECT coalesce(
-			(SELECT json_agg(json_build_object(
-				'category', category,
-				'severity', severity,
-				'title', title,
-				'object_identifier', object_identifier,
-				'occurrence_count', occurrence_count,
-				'recommended_sql', recommended_sql
-			) ORDER BY
-				CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,
-				occurrence_count DESC
-			)
-			FROM sage.findings WHERE status = 'open'),
+			(SELECT json_agg(t) FROM (
+				SELECT
+					category,
+					severity,
+					title,
+					object_identifier,
+					occurrence_count,
+					recommended_sql
+				FROM sage.findings
+				WHERE status = 'open'
+				ORDER BY
+					CASE severity
+						WHEN 'critical' THEN 0
+						WHEN 'warning'  THEN 1
+						ELSE 2
+					END,
+					occurrence_count DESC
+				LIMIT $1
+			) t),
 			'[]'::json
-		)::text
-	`).Scan(&result)
-	return result, err
+		)::text,
+		coalesce(
+			(SELECT count(*) FROM sage.findings WHERE status = 'open'),
+			0
+		)
+	`, maxBriefingFindings).Scan(&result, &totalOpen)
+	return result, totalOpen, err
 }
 
 func (w *Worker) gatherSystem(ctx context.Context) (string, error) {
@@ -254,7 +269,7 @@ func (w *Worker) gatherRecentActions(ctx context.Context) (string, error) {
 	return result, err
 }
 
-func (w *Worker) buildStructured(findings, system, actions string) string {
+func (w *Worker) buildStructured(findings string, totalOpen int, system, actions string) string {
 	var b strings.Builder
 	now := time.Now().Format("2006-01-02 15:04 MST")
 
@@ -284,8 +299,16 @@ func (w *Worker) buildStructured(findings, system, actions string) string {
 				info++
 			}
 		}
-		b.WriteString(fmt.Sprintf("## Findings: %d critical, %d warning, %d info\n\n",
-			critical, warning, info))
+		shown := len(findingsList)
+		if totalOpen > shown {
+			b.WriteString(fmt.Sprintf(
+				"## Findings (%d of %d open): %d critical, %d warning, %d info\n\n",
+				shown, totalOpen, critical, warning, info))
+		} else {
+			b.WriteString(fmt.Sprintf(
+				"## Findings: %d critical, %d warning, %d info\n\n",
+				critical, warning, info))
+		}
 
 		for _, f := range findingsList {
 			sev := f["severity"]
