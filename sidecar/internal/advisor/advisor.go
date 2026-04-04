@@ -86,57 +86,83 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 
 	// Group 1: Configuration tuning
 	if a.cfg.Advisor.VacuumEnabled {
-		findings, err := analyzeVacuum(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
-		if err != nil {
-			a.logFn("WARN", "advisor: vacuum: %v", err)
+		if a.hasOpenFindings(ctx, "vacuum_tuning") {
+			a.logFn("DEBUG", "advisor: vacuum: skipping, open findings exist")
 		} else {
-			all = append(all, findings...)
+			findings, err := analyzeVacuum(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
+			if err != nil {
+				a.logFn("WARN", "advisor: vacuum: %v", err)
+			} else {
+				all = append(all, findings...)
+			}
 		}
 	}
 
 	if a.cfg.Advisor.WALEnabled {
-		findings, err := analyzeWAL(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
-		if err != nil {
-			a.logFn("WARN", "advisor: wal: %v", err)
+		if a.hasOpenFindings(ctx, "wal_tuning") {
+			a.logFn("DEBUG", "advisor: wal: skipping, open findings exist")
 		} else {
-			all = append(all, findings...)
+			findings, err := analyzeWAL(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
+			if err != nil {
+				a.logFn("WARN", "advisor: wal: %v", err)
+			} else {
+				all = append(all, findings...)
+			}
 		}
 	}
 
 	if a.cfg.Advisor.ConnectionEnabled {
-		findings, err := analyzeConnections(ctx, a.llmMgr, snap, a.cfg, a.logFn)
-		if err != nil {
-			a.logFn("WARN", "advisor: connections: %v", err)
+		if a.hasOpenFindings(ctx, "connection_tuning") {
+			a.logFn("DEBUG",
+				"advisor: connections: skipping, open findings exist")
 		} else {
-			all = append(all, findings...)
+			findings, err := analyzeConnections(ctx, a.llmMgr, snap, a.cfg, a.logFn)
+			if err != nil {
+				a.logFn("WARN", "advisor: connections: %v", err)
+			} else {
+				all = append(all, findings...)
+			}
 		}
 	}
 
 	// Group 2: Workload intelligence
 	if a.cfg.Advisor.MemoryEnabled {
-		findings, err := analyzeMemory(ctx, a.llmMgr, snap, a.cfg, a.logFn)
-		if err != nil {
-			a.logFn("WARN", "advisor: memory: %v", err)
+		if a.hasOpenFindings(ctx, "memory_tuning") {
+			a.logFn("DEBUG", "advisor: memory: skipping, open findings exist")
 		} else {
-			all = append(all, findings...)
+			findings, err := analyzeMemory(ctx, a.llmMgr, snap, a.cfg, a.logFn)
+			if err != nil {
+				a.logFn("WARN", "advisor: memory: %v", err)
+			} else {
+				all = append(all, findings...)
+			}
 		}
 	}
 
 	if a.cfg.Advisor.RewriteEnabled {
-		findings, err := analyzeQueryRewrites(ctx, a.llmMgr, snap, a.cfg, a.logFn)
-		if err != nil {
-			a.logFn("WARN", "advisor: rewrites: %v", err)
+		if a.hasOpenFindings(ctx, "query_rewrite") {
+			a.logFn("DEBUG",
+				"advisor: rewrites: skipping, open findings exist")
 		} else {
-			all = append(all, findings...)
+			findings, err := analyzeQueryRewrites(ctx, a.llmMgr, snap, a.cfg, a.logFn)
+			if err != nil {
+				a.logFn("WARN", "advisor: rewrites: %v", err)
+			} else {
+				all = append(all, findings...)
+			}
 		}
 	}
 
 	if a.cfg.Advisor.BloatEnabled {
-		findings, err := analyzeBloat(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
-		if err != nil {
-			a.logFn("WARN", "advisor: bloat: %v", err)
+		if a.hasOpenFindings(ctx, "bloat_analysis") {
+			a.logFn("DEBUG", "advisor: bloat: skipping, open findings exist")
 		} else {
-			all = append(all, findings...)
+			findings, err := analyzeBloat(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
+			if err != nil {
+				a.logFn("WARN", "advisor: bloat: %v", err)
+			} else {
+				all = append(all, findings...)
+			}
 		}
 	}
 
@@ -167,4 +193,26 @@ func (a *Advisor) LatestFindings() []analyzer.Finding {
 	out := make([]analyzer.Finding, len(a.findings))
 	copy(out, a.findings)
 	return out
+}
+
+// hasOpenFindings returns true if sage.findings already has open
+// findings for the given category, avoiding redundant LLM calls.
+func (a *Advisor) hasOpenFindings(
+	ctx context.Context, category string,
+) bool {
+	if a.pool == nil {
+		return false
+	}
+	var count int
+	err := a.pool.QueryRow(ctx,
+		`SELECT count(*) FROM sage.findings
+		 WHERE category = $1
+		   AND status = 'open'
+		   AND acted_on_at IS NULL`,
+		category,
+	).Scan(&count)
+	if err != nil {
+		return false
+	}
+	return count > 0
 }

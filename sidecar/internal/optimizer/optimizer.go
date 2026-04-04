@@ -118,6 +118,13 @@ func (o *Optimizer) Analyze(
 			)
 			continue
 		}
+		if o.hasOpenIndexFindings(ctx, tc.Schema, tc.Table) {
+			o.logFn("optimizer",
+				"skipping %s.%s: open index findings exist",
+				tc.Schema, tc.Table,
+			)
+			continue
+		}
 		recs, tokens, rejections, err := o.analyzeTable(ctx, tc)
 		if err != nil {
 			o.logFn("optimizer",
@@ -319,4 +326,30 @@ func totalQueryCalls(queries []QueryInfo) int64 {
 		total += q.Calls
 	}
 	return total
+}
+
+// hasOpenIndexFindings checks whether the given table already has open
+// index-related findings, so the optimizer can skip redundant analysis.
+func (o *Optimizer) hasOpenIndexFindings(
+	ctx context.Context, schema, table string,
+) bool {
+	if o.pool == nil {
+		return false
+	}
+	query := `SELECT EXISTS(
+		SELECT 1 FROM sage.findings
+		WHERE category ILIKE '%index%'
+		  AND object_identifier LIKE $1 || '.%'
+		  AND status NOT IN ('resolved','suppressed')
+	)`
+	prefix := schema + "." + table
+	var exists bool
+	if err := o.pool.QueryRow(ctx, query, prefix).Scan(&exists); err != nil {
+		o.logFn("optimizer",
+			"hasOpenIndexFindings query failed for %s.%s: %v",
+			schema, table, err,
+		)
+		return false
+	}
+	return exists
 }

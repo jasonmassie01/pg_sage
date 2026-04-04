@@ -50,6 +50,9 @@ func New(
 	for _, o := range opts {
 		o(t)
 	}
+	if t.pool != nil {
+		t.loadActiveHints(context.Background())
+	}
 	return t
 }
 
@@ -72,6 +75,9 @@ func (t *Tuner) Tune(
 	candidates, err := t.fetchCandidates(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("tuner: fetch candidates: %w", err)
+	}
+	if len(t.recentlyTuned) == 0 {
+		t.loadActiveHints(ctx)
 	}
 	var findings []analyzer.Finding
 	for _, c := range candidates {
@@ -107,6 +113,39 @@ func (t *Tuner) cooldownCycles() int {
 		return t.cfg.CascadeCooldownCycles
 	}
 	return 3
+}
+
+// loadActiveHints bootstraps the recentlyTuned map from
+// sage.query_hints so hints survive sidecar restarts.
+func (t *Tuner) loadActiveHints(ctx context.Context) {
+	if t.pool == nil {
+		return
+	}
+	rows, err := t.pool.Query(ctx,
+		`SELECT queryid FROM sage.query_hints
+		 WHERE status = 'active'`,
+	)
+	if err != nil {
+		t.logFn("WARN",
+			"tuner: load active hints: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	cooldown := t.cooldownCycles()
+	for rows.Next() {
+		var qid int64
+		if err := rows.Scan(&qid); err != nil {
+			t.logFn("WARN",
+				"tuner: scan active hint: %v", err)
+			continue
+		}
+		t.recentlyTuned[qid] = cooldown
+	}
+	if err := rows.Err(); err != nil {
+		t.logFn("WARN",
+			"tuner: iterate active hints: %v", err)
+	}
 }
 
 const candidateSQL = `
