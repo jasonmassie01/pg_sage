@@ -3,7 +3,9 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -230,6 +232,17 @@ func testConnectionPreviewHandler() http.HandlerFunc {
 				http.StatusBadRequest)
 			return
 		}
+
+		// SSRF protection: reject private/internal IPs and
+		// cloud metadata endpoints.
+		if isBlockedHost(req.Host) {
+			jsonError(w,
+				"connections to private/internal addresses "+
+					"are not allowed",
+				http.StatusBadRequest)
+			return
+		}
+
 		ssl := req.SSLMode
 		if ssl == "" {
 			ssl = "require"
@@ -238,15 +251,55 @@ func testConnectionPreviewHandler() http.HandlerFunc {
 		if port == 0 {
 			port = 5432
 		}
-		connStr := fmt.Sprintf(
-			"postgres://%s:%s@%s:%d/%s?sslmode=%s"+
-				"&connect_timeout=10",
-			req.Username, req.Password,
-			req.Host, port, req.DatabaseName, ssl,
-		)
-		result := testFromConnString(r.Context(), connStr)
+		u := &url.URL{
+			Scheme: "postgres",
+			User: url.UserPassword(
+				req.Username, req.Password),
+			Host: fmt.Sprintf("%s:%d", req.Host, port),
+			Path: req.DatabaseName,
+			RawQuery: url.Values{
+				"sslmode":         {ssl},
+				"connect_timeout": {"10"},
+			}.Encode(),
+		}
+		result := testFromConnString(r.Context(), u.String())
 		jsonResponse(w, result)
 	}
+}
+
+// isBlockedHost returns true if the host resolves to a
+// private, loopback, link-local, or cloud metadata address.
+func isBlockedHost(host string) bool {
+	// Block known metadata hostnames.
+	if host == "169.254.169.254" ||
+		host == "metadata.google.internal" {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+	if ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate() ||
+			ip.IsLinkLocalUnicast() ||
+			ip.IsLinkLocalMulticast()
+	}
+
+	// Resolve hostname and check all IPs.
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		return false // let the connection attempt fail naturally
+	}
+	for _, addr := range addrs {
+		resolved := net.ParseIP(addr)
+		if resolved == nil {
+			continue
+		}
+		if resolved.IsLoopback() || resolved.IsPrivate() ||
+			resolved.IsLinkLocalUnicast() ||
+			resolved.IsLinkLocalMulticast() {
+			return true
+		}
+	}
+	return false
 }
 
 func importCSVHandler(

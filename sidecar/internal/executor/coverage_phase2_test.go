@@ -377,7 +377,7 @@ func TestPhase2_Executor_TrustLevel_ClearOverride(t *testing.T) {
 		},
 		trustLevelOverride: "monitor",
 	}
-	e.SetTrustLevel("")
+	_ = e.SetTrustLevel("")
 	if e.TrustLevel() != "auto" {
 		t.Errorf("expected 'auto' after clear, got %q",
 			e.TrustLevel())

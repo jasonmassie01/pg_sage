@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 // Known managed service platform restrictions.
@@ -155,12 +156,9 @@ func TransformForCloud(
 
 		// Rewrite ALTER SYSTEM → ALTER DATABASE.
 		upper := strings.ToUpper(sql)
+		quoted := sanitize.QuoteIdentifier(dbName)
 		if strings.HasPrefix(upper, "ALTER SYSTEM SET ") {
 			rest := sql[len("ALTER SYSTEM SET "):]
-			quoted := dbName
-			if !strings.HasPrefix(quoted, "\"") {
-				quoted = "\"" + dbName + "\""
-			}
 			f.RecommendedSQL = fmt.Sprintf(
 				"ALTER DATABASE %s SET %s", quoted, rest,
 			)
@@ -172,10 +170,6 @@ func TransformForCloud(
 			}
 		} else if strings.HasPrefix(upper, "ALTER SYSTEM RESET ") {
 			rest := sql[len("ALTER SYSTEM RESET "):]
-			quoted := dbName
-			if !strings.HasPrefix(quoted, "\"") {
-				quoted = "\"" + dbName + "\""
-			}
 			f.RecommendedSQL = fmt.Sprintf(
 				"ALTER DATABASE %s RESET %s", quoted, rest,
 			)

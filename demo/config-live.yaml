@@ -4,7 +4,7 @@ postgres:
   host: localhost
   port: 5433
   user: sage_agent
-  password: sage_password
+  password: ${SAGE_PG_PASSWORD}
   database: sage_demo
   sslmode: disable
   max_connections: 5

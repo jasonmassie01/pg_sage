@@ -20,7 +20,8 @@ func TestValidateSQL_AllowedStatements(t *testing.T) {
 		"ALTER SYSTEM RESET work_mem",
 		"SET lock_timeout = '5s'",
 		"RESET lock_timeout",
-		"SELECT 1",
+		"SELECT pg_terminate_backend(12345)",
+		"SELECT pg_cancel_backend(12345)",
 		"  CREATE INDEX idx ON t(id)  ",
 		"create index concurrently idx on t(id)",
 	}
@@ -45,6 +46,19 @@ func TestValidateSQL_RejectedStatements(t *testing.T) {
 		"GRANT ALL ON users TO evil",
 		"CREATE TABLE evil (id int)",
 		"COPY users TO '/tmp/dump'",
+		// SELECT restricted to specific functions
+		"SELECT 1",
+		"SELECT * FROM users",
+		// ALTER SYSTEM restricted to whitelisted GUCs
+		"ALTER SYSTEM SET wal_level = 'logical'",
+		"ALTER SYSTEM SET listen_addresses = '*'",
+		"ALTER SYSTEM RESET all",
+		// ALTER TABLE restricted to safe sub-commands
+		"ALTER TABLE public.t DROP COLUMN name",
+		"ALTER TABLE public.t RENAME TO new_name",
+		"ALTER TABLE public.t OWNER TO evil",
+		"ALTER TABLE public.t ADD COLUMN evil int",
+		"ALTER TABLE public.t ENABLE TRIGGER ALL",
 	}
 	for _, sql := range rejected {
 		err := ValidateExecutorSQL(sql)

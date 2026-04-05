@@ -249,19 +249,17 @@ func TestTransformForCloud_MixedFindings(t *testing.T) {
 	}
 }
 
-func TestTransformForCloud_QuotedDBName_NotDoubled(t *testing.T) {
+func TestTransformForCloud_HyphenatedDBName_Quoted(t *testing.T) {
 	findings := []analyzer.Finding{
 		{RecommendedSQL: "ALTER SYSTEM SET work_mem = '64MB'"},
 	}
-	// DB name already quoted
-	result := TransformForCloud(findings, "rds", `"my-db"`)
-	if !strings.Contains(result[0].RecommendedSQL, `"my-db"`) {
-		t.Fatalf("expected single-quoted db name, got: %s",
-			result[0].RecommendedSQL)
-	}
-	if strings.Contains(result[0].RecommendedSQL, `""my-db""`) {
-		t.Fatalf("db name was double-quoted: %s",
-			result[0].RecommendedSQL)
+	// Callers pass raw (unquoted) db names;
+	// QuoteIdentifier handles quoting.
+	result := TransformForCloud(findings, "rds", "my-db")
+	expected := `ALTER DATABASE "my-db" SET work_mem = '64MB'`
+	if result[0].RecommendedSQL != expected {
+		t.Fatalf("expected %s, got: %s",
+			expected, result[0].RecommendedSQL)
 	}
 }
 

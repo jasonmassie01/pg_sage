@@ -34,6 +34,10 @@ func CreateUser(
 	ctx context.Context, pool *pgxpool.Pool,
 	email, password, role string,
 ) (int, error) {
+	if len(password) < 8 {
+		return 0, fmt.Errorf(
+			"password must be at least 8 characters")
+	}
 	if !IsValidRole(role) {
 		return 0, fmt.Errorf("invalid role: %q", role)
 	}
@@ -258,6 +262,39 @@ func FindOrCreateOAuthUser(
 	u.Email = email
 	u.Role = defaultRole
 	return &u, nil
+}
+
+// GetUserByID returns a user by ID (no password).
+func GetUserByID(
+	ctx context.Context, pool *pgxpool.Pool, userID int,
+) (*User, error) {
+	var u User
+	err := pool.QueryRow(ctx,
+		"SELECT id, email, role, created_at, last_login "+
+			"FROM sage.users WHERE id = $1",
+		userID,
+	).Scan(&u.ID, &u.Email, &u.Role,
+		&u.CreatedAt, &u.LastLogin)
+	if err != nil {
+		return nil, fmt.Errorf("getting user: %w", err)
+	}
+	return &u, nil
+}
+
+// CountAdmins returns the number of users with admin role.
+func CountAdmins(
+	ctx context.Context, pool *pgxpool.Pool,
+) (int, error) {
+	var count int
+	err := pool.QueryRow(ctx,
+		"SELECT count(*) FROM sage.users "+
+			"WHERE role = $1",
+		RoleAdmin,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting admins: %w", err)
+	}
+	return count, nil
 }
 
 // UserCount returns the total number of users.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -44,7 +45,8 @@ func findingsListHandler(
 			r.Context(), pool, filters, displayName,
 		)
 		if err != nil {
-			jsonError(w, err.Error(), 500)
+			slog.Error("query findings failed", "error", err)
+			jsonError(w, "failed to query findings", 500)
 			return
 		}
 		jsonResponse(w, map[string]any{
@@ -196,7 +198,8 @@ func actionsListHandler(
 			r.Context(), pool, limit, offset,
 		)
 		if err != nil {
-			jsonError(w, err.Error(), 500)
+			slog.Error("query actions failed", "error", err)
+			jsonError(w, "failed to query actions", 500)
 			return
 		}
 		jsonResponse(w, map[string]any{

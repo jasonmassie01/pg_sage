@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -273,11 +274,14 @@ func (s *DatabaseStore) GetConnectionString(
 		return "", fmt.Errorf("decrypting password: %w", err)
 	}
 
-	connStr := fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		user, password, host, port, dbName, sslmode,
-	)
-	return connStr, nil
+	u := &url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(user, password),
+		Host:     fmt.Sprintf("%s:%d", host, port),
+		Path:     dbName,
+		RawQuery: url.Values{"sslmode": {sslmode}}.Encode(),
+	}
+	return u.String(), nil
 }
 
 // Count returns the number of databases.

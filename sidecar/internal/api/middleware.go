@@ -1,6 +1,9 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 // corsMiddleware handles CORS for local dev mode only.
 // The dashboard is served from the same origin in production,
@@ -59,6 +62,52 @@ func maxBodyMiddleware(next http.Handler) http.Handler {
 			r.Method != http.MethodHead &&
 			r.Method != http.MethodOptions {
 			r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// securityHeadersMiddleware sets standard security headers
+// on every response. HSTS and CSP are excluded as they
+// require deployment-specific configuration.
+func securityHeadersMiddleware(
+	next http.Handler,
+) http.Handler {
+	return http.HandlerFunc(func(
+		w http.ResponseWriter, r *http.Request,
+	) {
+		w.Header().Set(
+			"X-Content-Type-Options", "nosniff")
+		w.Header().Set(
+			"X-Frame-Options", "DENY")
+		w.Header().Set(
+			"Referrer-Policy",
+			"strict-origin-when-cross-origin")
+		w.Header().Set(
+			"Permissions-Policy",
+			"camera=(), microphone=(), geolocation=()")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requireJSONMiddleware rejects POST/PUT/PATCH requests
+// that do not send Content-Type: application/json.
+func requireJSONMiddleware(
+	next http.Handler,
+) http.Handler {
+	return http.HandlerFunc(func(
+		w http.ResponseWriter, r *http.Request,
+	) {
+		switch r.Method {
+		case http.MethodPost, http.MethodPut,
+			http.MethodPatch:
+			ct := r.Header.Get("Content-Type")
+			if !strings.HasPrefix(ct, "application/json") {
+				jsonError(w,
+					"Content-Type must be application/json",
+					http.StatusUnsupportedMediaType)
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})

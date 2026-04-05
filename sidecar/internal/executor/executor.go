@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -27,6 +28,10 @@ type ActionProposer interface {
 		findingID int, sql, rollbackSQL, risk string) (int, error)
 }
 
+// maxConcurrentDDL limits how many DDL operations can run
+// in parallel to avoid overwhelming the database.
+const maxConcurrentDDL = 3
+
 // Executor runs the autonomous remediation loop after each
 // analyzer cycle.
 type Executor struct {
@@ -41,6 +46,7 @@ type Executor struct {
 	dispatcher         EventDispatcher
 	databaseName       string
 	trustLevelOverride string
+	ddlSem             chan struct{} // limits concurrent DDL ops
 }
 
 // New creates a new Executor.
@@ -59,6 +65,7 @@ func New(
 		recentActions: make(map[string]time.Time),
 		logFn:         logFn,
 		execMode:      "auto",
+		ddlSem:        make(chan struct{}, maxConcurrentDDL),
 	}
 }
 
@@ -84,10 +91,24 @@ func (e *Executor) WithDatabaseName(name string) {
 	e.databaseName = name
 }
 
+// validTrustLevels enumerates the accepted trust level strings.
+// Empty string is allowed to clear an override.
+var validTrustLevels = map[string]bool{
+	"observation": true,
+	"advisory":    true,
+	"autonomous":  true,
+	"":            true,
+}
+
 // SetTrustLevel overrides the global trust level for this
 // executor instance. Empty string clears the override.
-func (e *Executor) SetTrustLevel(level string) {
+// Returns an error if the level is not recognized.
+func (e *Executor) SetTrustLevel(level string) error {
+	if !validTrustLevels[level] {
+		return fmt.Errorf("invalid trust level: %q", level)
+	}
 	e.trustLevelOverride = level
+	return nil
 }
 
 // TrustLevel returns the effective trust level for this executor.
@@ -192,105 +213,147 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			continue
 		}
 
-		beforeState := e.snapshotBeforeState(ctx)
-
-		ddlTimeout := e.cfg.Safety.DDLTimeout()
-		lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
-		var execErr error
-		if NeedsConcurrently(f.RecommendedSQL) ||
-			NeedsTopLevel(f.RecommendedSQL) {
-			execErr = ExecConcurrently(
-				ctx, e.pool, f.RecommendedSQL,
-				ddlTimeout, lockOpt,
-			)
-		} else {
-			execErr = ExecInTransaction(
-				ctx, e.pool, f.RecommendedSQL,
-				ddlTimeout, lockOpt,
-			)
-		}
-
-		actionID := e.logAction(ctx, f, findingID, beforeState, execErr)
-		if execErr != nil {
-			if errors.Is(execErr, ErrLockNotAvailable) {
-				e.logFn("executor",
-					"lock timeout for %q on %s — circuit-breaking table",
-					f.Title, f.ObjectIdentifier,
-				)
-				e.recentActions[f.ObjectIdentifier] = time.Now()
-			}
+		// Limit concurrent DDL to avoid overwhelming the database.
+		select {
+		case e.ddlSem <- struct{}{}:
+			// acquired — will release after execution
+		default:
 			e.logFn("executor",
-				"execution failed for %q: %v", f.Title, execErr,
-			)
-			e.dispatchEvent(ctx,
-				notify.ActionFailedEvent(
-					f.Title, f.RecommendedSQL,
-					e.databaseName, execErr.Error()))
+				"DDL concurrency limit reached, skipping %s",
+				f.RecommendedSQL)
 			continue
 		}
 
+		e.executeFinding(ctx, f, findingID)
+		<-e.ddlSem
+	}
+}
+
+// executeFinding runs the DDL for a single finding and handles
+// post-execution checks, rollback monitoring, and invalid index cleanup.
+func (e *Executor) executeFinding(
+	ctx context.Context, f analyzer.Finding, findingID int64,
+) {
+	beforeState := e.snapshotBeforeState(ctx)
+
+	ddlTimeout := e.cfg.Safety.DDLTimeout()
+	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
+	var execErr error
+	if NeedsConcurrently(f.RecommendedSQL) ||
+		NeedsTopLevel(f.RecommendedSQL) {
+		execErr = ExecConcurrently(
+			ctx, e.pool, f.RecommendedSQL,
+			ddlTimeout, lockOpt,
+		)
+	} else {
+		execErr = ExecInTransaction(
+			ctx, e.pool, f.RecommendedSQL,
+			ddlTimeout, lockOpt,
+		)
+	}
+
+	actionID := e.logAction(ctx, f, findingID, beforeState, execErr)
+	if execErr != nil {
+		if errors.Is(execErr, ErrLockNotAvailable) {
+			e.logFn("executor",
+				"lock timeout for %q on %s — circuit-breaking table",
+				f.Title, f.ObjectIdentifier,
+			)
+			e.recentActions[f.ObjectIdentifier] = time.Now()
+		}
 		e.logFn("executor",
-			"executed %q (action %d)", f.Title, actionID,
+			"execution failed for %q: %v", f.Title, execErr,
 		)
 		e.dispatchEvent(ctx,
-			notify.ActionExecutedEvent(
-				f.Title, f.RecommendedSQL, e.databaseName))
-		e.recentActions[f.ObjectIdentifier] = time.Now()
+			notify.ActionFailedEvent(
+				f.Title, f.RecommendedSQL,
+				e.databaseName, execErr.Error()))
+		return
+	}
 
-		// Post-check: verify index validity after CREATE INDEX.
-		if NeedsConcurrently(f.RecommendedSQL) {
-			idxName := extractIndexName(f.RecommendedSQL)
-			if idxName != "" {
-				valid, err := optimizer.CheckIndexValid(
-					ctx, e.pool, idxName,
-				)
-				if err != nil {
-					e.logFn("executor",
-						"post-check failed for index %s: %v",
-						idxName, err,
-					)
-				} else if !valid {
-					e.logFn("executor",
-						"CRITICAL: index %s is INVALID after creation",
-						idxName,
-					)
-				}
-			}
-		}
+	e.logFn("executor",
+		"executed %q (action %d)", f.Title, actionID,
+	)
+	e.dispatchEvent(ctx,
+		notify.ActionExecutedEvent(
+			f.Title, f.RecommendedSQL, e.databaseName))
+	e.recentActions[f.ObjectIdentifier] = time.Now()
 
-		// Handle INCLUDE upgrade: DROP old index after verifying new one.
-		if dropOld, ok := f.Detail["drop_ddl"].(string); ok && dropOld != "" {
-			idxName := extractIndexName(f.RecommendedSQL)
-			valid, checkErr := optimizer.CheckIndexValid(ctx, e.pool, idxName)
-			if checkErr != nil || !valid {
+	// Post-check: verify index validity after CREATE INDEX.
+	if NeedsConcurrently(f.RecommendedSQL) {
+		idxName := extractIndexName(f.RecommendedSQL)
+		if idxName != "" {
+			valid, err := optimizer.CheckIndexValid(
+				ctx, e.pool, idxName,
+			)
+			if err != nil {
 				e.logFn("executor",
-					"new index %s invalid — preserving old index", idxName)
-			} else {
+					"post-check failed for index %s: %v",
+					idxName, err,
+				)
+			} else if !valid {
+				e.logFn("executor",
+					"CRITICAL: index %s is INVALID after creation",
+					idxName,
+				)
+				// Auto-cleanup: drop the invalid index.
+				dropSQL := fmt.Sprintf(
+					"DROP INDEX CONCURRENTLY IF EXISTS %s",
+					idxName,
+				)
 				dropErr := ExecConcurrently(
-					ctx, e.pool, dropOld, ddlTimeout, lockOpt,
+					ctx, e.pool, dropSQL, ddlTimeout, lockOpt,
 				)
 				if dropErr != nil {
 					e.logFn("executor",
-						"DROP old index failed (new index valid): %v", dropErr)
+						"failed to drop invalid index %s: %v",
+						idxName, dropErr)
 				} else {
 					e.logFn("executor",
-						"dropped old index after INCLUDE upgrade: %s", dropOld)
+						"cleaned up invalid index %s", idxName)
 				}
 			}
 		}
+	}
 
-		if f.RollbackSQL != "" && actionID > 0 {
-			go MonitorAndRollback(
-				ctx, e.pool, actionID, f.RollbackSQL,
-				e.cfg.Trust.RollbackThresholdPct,
-				e.cfg.Trust.RollbackWindowMinutes,
-				e.logFn,
+	// Handle INCLUDE upgrade: DROP old index after verifying new one.
+	if dropOld, ok := f.Detail["drop_ddl"].(string); ok &&
+		dropOld != "" {
+		idxName := extractIndexName(f.RecommendedSQL)
+		valid, checkErr := optimizer.CheckIndexValid(
+			ctx, e.pool, idxName,
+		)
+		if checkErr != nil || !valid {
+			e.logFn("executor",
+				"new index %s invalid — preserving old index",
+				idxName)
+		} else {
+			dropErr := ExecConcurrently(
+				ctx, e.pool, dropOld, ddlTimeout, lockOpt,
 			)
-		} else if actionID > 0 {
-			// No rollback possible (VACUUM, ANALYZE, pg_terminate_backend)
-			// — mark success immediately.
-			updateActionSuccess(ctx, e.pool, actionID)
+			if dropErr != nil {
+				e.logFn("executor",
+					"DROP old index failed (new index valid): %v",
+					dropErr)
+			} else {
+				e.logFn("executor",
+					"dropped old index after INCLUDE upgrade: %s",
+					dropOld)
+			}
 		}
+	}
+
+	if f.RollbackSQL != "" && actionID > 0 {
+		go MonitorAndRollback(
+			ctx, e.pool, actionID, f.RollbackSQL,
+			e.cfg.Trust.RollbackThresholdPct,
+			e.cfg.Trust.RollbackWindowMinutes,
+			e.logFn,
+		)
+	} else if actionID > 0 {
+		// No rollback possible (VACUUM, ANALYZE, pg_terminate_backend)
+		// — mark success immediately.
+		updateActionSuccess(ctx, e.pool, actionID)
 	}
 }
 

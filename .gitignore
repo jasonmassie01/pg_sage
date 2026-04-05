@@ -20,6 +20,8 @@ cloudsqltests/config_test.yaml
 cloudsqltests/config_alloydb_test.yaml
 cloudsqltests/*.pid
 cloudsqltests/*.log
+sidecar/cloud_test/*.yaml
+sidecar/cloud_test/*.json
 .mcp.json
 
 # Task artifacts

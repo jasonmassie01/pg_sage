@@ -64,6 +64,8 @@ func parseLLMFindings(
 		rationale, _ := rec["rationale"].(string)
 		recSQL, _ := rec["recommended_sql"].(string)
 
+		risk := deriveActionRisk(recSQL)
+
 		findings = append(findings, analyzer.Finding{
 			Category:         category,
 			Severity:         severity,
@@ -75,8 +77,24 @@ func parseLLMFindings(
 			Detail:         rec,
 			Recommendation: rationale,
 			RecommendedSQL: recSQL,
-			ActionRisk:     "safe",
+			ActionRisk:     risk,
 		})
 	}
 	return findings
+}
+
+// deriveActionRisk returns the risk level for a recommended SQL
+// statement based on its type and impact. ALTER SYSTEM and DROP
+// INDEX are classified as moderate since they affect production
+// configuration or remove existing optimizations.
+func deriveActionRisk(sql string) string {
+	upper := strings.ToUpper(strings.TrimSpace(sql))
+	switch {
+	case strings.HasPrefix(upper, "ALTER SYSTEM"):
+		return "moderate"
+	case strings.HasPrefix(upper, "DROP INDEX"):
+		return "moderate"
+	default:
+		return "safe"
+	}
 }

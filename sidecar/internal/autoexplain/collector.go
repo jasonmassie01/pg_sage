@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 // CollectorConfig holds configuration for the auto_explain
@@ -142,11 +143,18 @@ func (c *Collector) captureOnDemand(
 		}
 	}
 
+	if err := sanitize.RejectMultiStatement(query); err != nil {
+		return fmt.Errorf("unsafe query text: %w", err)
+	}
+
 	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+
+	_, _ = tx.Exec(ctx, "SET LOCAL statement_timeout = '5s'")
+	_, _ = tx.Exec(ctx, "SET TRANSACTION READ ONLY")
 
 	explainSQL := fmt.Sprintf(
 		"EXPLAIN (FORMAT JSON) %s", query,

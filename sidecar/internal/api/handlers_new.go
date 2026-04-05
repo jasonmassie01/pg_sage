@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -32,7 +33,8 @@ func forecastsHandler(
 		}
 		forecasts, err := queryForecasts(r.Context(), pool)
 		if err != nil {
-			jsonError(w, err.Error(), 500)
+			slog.Error("query forecasts failed", "error", err)
+			jsonError(w, "failed to query forecasts", 500)
 			return
 		}
 		jsonResponse(w, map[string]any{
@@ -61,7 +63,8 @@ func queryHintsHandler(
 		}
 		hints, err := queryQueryHints(r.Context(), pool)
 		if err != nil {
-			jsonError(w, err.Error(), 500)
+			slog.Error("query hints failed", "error", err)
+			jsonError(w, "failed to query hints", 500)
 			return
 		}
 		jsonResponse(w, map[string]any{
@@ -90,7 +93,8 @@ func alertLogHandler(
 		}
 		alerts, err := queryAlertLog(r.Context(), pool)
 		if err != nil {
-			jsonError(w, err.Error(), 500)
+			slog.Error("query alert log failed", "error", err)
+			jsonError(w, "failed to query alerts", 500)
 			return
 		}
 		jsonResponse(w, map[string]any{

@@ -416,7 +416,13 @@ func (t *Tuner) upsertQueryHint(
 }
 
 // BuildInsertSQL generates an INSERT for hint_plan.hints.
+// Note: uses string-literal escaping because RecommendedSQL is
+// stored as text, not executed with parameterized args. NULL
+// bytes and backslashes are rejected as a defense-in-depth
+// measure against injection.
 func BuildInsertSQL(queryText string, hint string) string {
+	queryText = rejectUnsafeChars(queryText)
+	hint = rejectUnsafeChars(hint)
 	escapedHint := strings.ReplaceAll(hint, "'", "''")
 	escapedQuery := strings.ReplaceAll(queryText, "'", "''")
 	return fmt.Sprintf(
@@ -431,6 +437,7 @@ func BuildInsertSQL(queryText string, hint string) string {
 
 // BuildDeleteSQL generates a DELETE for hint_plan.hints.
 func BuildDeleteSQL(queryText string) string {
+	queryText = rejectUnsafeChars(queryText)
 	escapedQuery := strings.ReplaceAll(queryText, "'", "''")
 	return fmt.Sprintf(
 		"DELETE FROM hint_plan.hints "+
@@ -438,6 +445,15 @@ func BuildDeleteSQL(queryText string) string {
 			"AND application_name = ''",
 		escapedQuery,
 	)
+}
+
+// rejectUnsafeChars strips NULL bytes and backslashes from
+// input to prevent injection when standard_conforming_strings
+// might be off.
+func rejectUnsafeChars(s string) string {
+	s = strings.ReplaceAll(s, "\x00", "")
+	s = strings.ReplaceAll(s, "\\", "")
+	return s
 }
 
 // hasSpillSymptom returns true if any symptom indicates a

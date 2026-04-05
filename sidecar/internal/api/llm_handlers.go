@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -23,7 +24,8 @@ func listModelsHandler(
 		models, err := llm.ListModels(
 			r.Context(), cfg.Endpoint, cfg.APIKey)
 		if err != nil {
-			jsonError(w, err.Error(),
+			slog.Error("LLM list models failed", "error", err)
+			jsonError(w, "LLM request failed",
 				http.StatusBadGateway)
 			return
 		}

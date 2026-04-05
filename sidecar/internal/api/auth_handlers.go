@@ -2,13 +2,63 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
 )
+
+// loginRateLimiter tracks failed login attempts per email.
+type loginRateLimiter struct {
+	mu       sync.Mutex
+	attempts map[string][]time.Time
+}
+
+var loginLimiter = &loginRateLimiter{
+	attempts: make(map[string][]time.Time),
+}
+
+const (
+	loginMaxAttempts = 5
+	loginWindow      = 15 * time.Minute
+)
+
+// allow returns true if the email is not rate-limited.
+// It prunes expired entries on each call.
+func (l *loginRateLimiter) allow(email string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	cutoff := time.Now().Add(-loginWindow)
+	attempts := l.attempts[email]
+	valid := attempts[:0]
+	for _, t := range attempts {
+		if t.After(cutoff) {
+			valid = append(valid, t)
+		}
+	}
+	l.attempts[email] = valid
+	return len(valid) < loginMaxAttempts
+}
+
+// record adds a failed attempt for the given email.
+func (l *loginRateLimiter) record(email string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.attempts[email] = append(
+		l.attempts[email], time.Now())
+}
+
+// reset clears failed attempts for the email on success.
+func (l *loginRateLimiter) reset(email string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.attempts, email)
+}
 
 func loginHandler(
 	pool *pgxpool.Pool,
@@ -29,14 +79,24 @@ func loginHandler(
 			return
 		}
 
+		if !loginLimiter.allow(req.Email) {
+			jsonError(w, "too many login attempts, "+
+				"try again later",
+				http.StatusTooManyRequests)
+			return
+		}
+
 		user, err := auth.Authenticate(
 			r.Context(), pool, req.Email, req.Password,
 		)
 		if err != nil {
+			loginLimiter.record(req.Email)
 			jsonError(w, "invalid credentials",
 				http.StatusUnauthorized)
 			return
 		}
+
+		loginLimiter.reset(req.Email)
 
 		sessionID, err := auth.CreateSession(
 			r.Context(), pool, user.ID,
@@ -52,6 +112,7 @@ func loginHandler(
 			Value:    sessionID,
 			Path:     "/",
 			HttpOnly: true,
+			Secure:   true,
 			SameSite: http.SameSiteLaxMode,
 			MaxAge:   int(auth.SessionDuration.Seconds()),
 		})
@@ -79,6 +140,7 @@ func logoutHandler(
 			Value:    "",
 			Path:     "/",
 			HttpOnly: true,
+			Secure:   true,
 			MaxAge:   -1,
 		})
 		jsonResponse(w, map[string]string{
@@ -153,6 +215,12 @@ func createUserHandler(
 				http.StatusBadRequest)
 			return
 		}
+		if len(req.Password) < 8 {
+			jsonError(w,
+				"password must be at least 8 characters",
+				http.StatusBadRequest)
+			return
+		}
 		if req.Role == "" {
 			req.Role = auth.RoleViewer
 		}
@@ -166,7 +234,9 @@ func createUserHandler(
 			req.Email, req.Password, req.Role,
 		)
 		if err != nil {
-			jsonError(w, "failed to create user: "+err.Error(),
+			slog.Error("failed to create user",
+				"email", req.Email, "error", err)
+			jsonError(w, "failed to create user",
 				http.StatusConflict)
 			return
 		}
@@ -190,10 +260,46 @@ func deleteUserHandler(
 				http.StatusBadRequest)
 			return
 		}
+
+		// Prevent self-deletion.
+		caller := UserFromContext(r.Context())
+		if caller != nil && caller.ID == id {
+			jsonError(w, "cannot delete your own account",
+				http.StatusForbidden)
+			return
+		}
+
+		// Ensure at least one admin remains after deletion.
+		target, err := auth.GetUserByID(
+			r.Context(), pool, id)
+		if err != nil {
+			jsonError(w, "user not found",
+				http.StatusNotFound)
+			return
+		}
+		if target.Role == auth.RoleAdmin {
+			count, err := auth.CountAdmins(
+				r.Context(), pool)
+			if err != nil {
+				slog.Error("failed to count admins",
+					"error", err)
+				jsonError(w,
+					"internal error",
+					http.StatusInternalServerError)
+				return
+			}
+			if count <= 1 {
+				jsonError(w,
+					"cannot delete the last admin",
+					http.StatusForbidden)
+				return
+			}
+		}
+
 		if err := auth.DeleteUser(
 			r.Context(), pool, id,
 		); err != nil {
-			jsonError(w, err.Error(),
+			jsonError(w, "user not found",
 				http.StatusNotFound)
 			return
 		}
@@ -259,7 +365,9 @@ func oauthCallbackHandler(
 			r.Context(), code, state,
 		)
 		if err != nil {
-			jsonError(w, "OAuth exchange failed: "+err.Error(),
+			slog.Error("oauth exchange failed",
+				"error", err)
+			jsonError(w, "authentication failed",
 				http.StatusUnauthorized)
 			return
 		}
@@ -269,7 +377,9 @@ func oauthCallbackHandler(
 			defaultRole,
 		)
 		if err != nil {
-			jsonError(w, "failed to create user: "+err.Error(),
+			slog.Error("failed to create oauth user",
+				"email", email, "error", err)
+			jsonError(w, "failed to create user",
 				http.StatusInternalServerError)
 			return
 		}
@@ -288,6 +398,7 @@ func oauthCallbackHandler(
 			Value:    sessionID,
 			Path:     "/",
 			HttpOnly: true,
+			Secure:   true,
 			SameSite: http.SameSiteLaxMode,
 			MaxAge:   int(auth.SessionDuration.Seconds()),
 		})

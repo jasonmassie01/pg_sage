@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -20,8 +21,8 @@ func configGlobalGetHandler(
 	return func(w http.ResponseWriter, r *http.Request) {
 		merged, err := cs.GetMergedConfig(r.Context(), cfg, 0)
 		if err != nil {
-			jsonError(w, fmt.Sprintf(
-				"loading config: %s", err), 500)
+			slog.Error("loading global config failed", "error", err)
+			jsonError(w, "failed to load configuration", 500)
 			return
 		}
 		// execution_mode is per-database in fleet mode
@@ -93,8 +94,9 @@ func configDBGetHandler(
 		merged, err := cs.GetMergedConfig(
 			r.Context(), cfg, dbID)
 		if err != nil {
-			jsonError(w, fmt.Sprintf(
-				"loading config: %s", err), 500)
+			slog.Error("loading database config failed",
+				"database_id", dbID, "error", err)
+			jsonError(w, "failed to load configuration", 500)
 			return
 		}
 
@@ -190,7 +192,12 @@ func configDBPutHandler(
 					dbID); inst != nil {
 					level := fmt.Sprintf("%v", tl)
 					if inst.Executor != nil {
-						inst.Executor.SetTrustLevel(level)
+						if err := inst.Executor.SetTrustLevel(
+							level); err != nil {
+							jsonError(w, err.Error(),
+								http.StatusBadRequest)
+							return
+						}
 					}
 					if inst.Status != nil {
 						inst.Status.TrustLevel = level
@@ -237,8 +244,8 @@ func configAuditHandler(
 			r.URL.Query().Get("limit"), 100)
 		entries, err := cs.GetAuditLog(r.Context(), limit)
 		if err != nil {
-			jsonError(w, fmt.Sprintf(
-				"loading audit log: %s", err), 500)
+			slog.Error("loading audit log failed", "error", err)
+			jsonError(w, "failed to load audit log", 500)
 			return
 		}
 

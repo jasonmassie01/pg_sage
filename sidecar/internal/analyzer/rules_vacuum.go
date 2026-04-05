@@ -5,6 +5,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 // ioWaitRatio computes the fraction of total query execution time spent
@@ -97,7 +98,9 @@ func ruleTableBloat(
 			),
 			Detail:         detail,
 			Recommendation: recommendation,
-			RecommendedSQL: fmt.Sprintf("VACUUM %s;", ident),
+			RecommendedSQL: fmt.Sprintf("VACUUM %s;",
+				sanitize.QuoteQualifiedName(
+					t.SchemaName, t.RelName)),
 			ActionRisk:     "safe",
 		})
 	}

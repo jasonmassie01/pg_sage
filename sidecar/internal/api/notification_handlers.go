@@ -22,6 +22,9 @@ func listChannelsHandler(
 		if channels == nil {
 			channels = []notify.Channel{}
 		}
+		for i := range channels {
+			maskChannelSecrets(channels[i].Config)
+		}
 		jsonResponse(w, map[string]any{
 			"channels": channels,
 		})
@@ -259,5 +262,23 @@ func listNotificationLogHandler(
 			entries = []store.NotificationLogEntry{}
 		}
 		jsonResponse(w, map[string]any{"log": entries})
+	}
+}
+
+// maskChannelSecrets redacts sensitive values in a channel config
+// map so they are not returned verbatim via the API. Values longer
+// than 8 characters are partially shown (first 4 + last 4); shorter
+// values are fully masked.
+func maskChannelSecrets(config map[string]string) {
+	sensitiveKeys := []string{
+		"webhook_url", "routing_key", "smtp_password",
+		"api_key", "token", "secret",
+	}
+	for _, key := range sensitiveKeys {
+		if v, ok := config[key]; ok && len(v) > 8 {
+			config[key] = v[:4] + "****" + v[len(v)-4:]
+		} else if ok {
+			config[key] = "****"
+		}
 	}
 }

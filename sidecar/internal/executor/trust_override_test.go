@@ -62,7 +62,7 @@ func TestTrustLevel_ReturnsOverrideWhenSet(t *testing.T) {
 	cfg := newTestCfg("observation")
 	e := newTestExecutor(cfg, time.Now())
 
-	e.SetTrustLevel("autonomous")
+	_ = e.SetTrustLevel("autonomous")
 	got := e.TrustLevel()
 	if got != "autonomous" {
 		t.Errorf("TrustLevel() = %q, want %q", got, "autonomous")
@@ -73,7 +73,7 @@ func TestTrustLevel_OverrideSupersedesCfg(t *testing.T) {
 	cfg := newTestCfg("advisory")
 	e := newTestExecutor(cfg, time.Now())
 
-	e.SetTrustLevel("observation")
+	_ = e.SetTrustLevel("observation")
 	got := e.TrustLevel()
 	if got != "observation" {
 		t.Errorf("TrustLevel() = %q, want %q after override",
@@ -87,12 +87,12 @@ func TestSetTrustLevel_EmptyClearsOverride(t *testing.T) {
 	cfg := newTestCfg("advisory")
 	e := newTestExecutor(cfg, time.Now())
 
-	e.SetTrustLevel("autonomous")
+	_ = e.SetTrustLevel("autonomous")
 	if e.TrustLevel() != "autonomous" {
 		t.Fatal("precondition: override should be active")
 	}
 
-	e.SetTrustLevel("")
+	_ = e.SetTrustLevel("")
 	got := e.TrustLevel()
 	if got != "advisory" {
 		t.Errorf("TrustLevel() after clear = %q, want %q (cfg value)",
@@ -105,7 +105,7 @@ func TestSetTrustLevel_EmptyOnFreshExecutor(t *testing.T) {
 	e := newTestExecutor(cfg, time.Now())
 
 	// Clearing override that was never set should be a no-op.
-	e.SetTrustLevel("")
+	_ = e.SetTrustLevel("")
 	got := e.TrustLevel()
 	if got != "autonomous" {
 		t.Errorf("TrustLevel() = %q, want %q", got, "autonomous")
@@ -129,7 +129,7 @@ func TestShouldExecute_OverrideUnblocks(t *testing.T) {
 	}
 
 	// With override to advisory: safe action + sufficient ramp.
-	e.SetTrustLevel("advisory")
+	_ = e.SetTrustLevel("advisory")
 	if !e.shouldExecute(f, false, false) {
 		t.Error("shouldExecute with advisory override should be true " +
 			"for safe action with 30-day ramp")
@@ -150,7 +150,7 @@ func TestShouldExecute_OverrideToObservationBlocks(t *testing.T) {
 		t.Fatal("precondition: advisory cfg should allow safe action")
 	}
 
-	e.SetTrustLevel("observation")
+	_ = e.SetTrustLevel("observation")
 	if e.shouldExecute(f, false, false) {
 		t.Error("shouldExecute with observation override should be false")
 	}
@@ -217,7 +217,7 @@ func TestShouldExecute_OverrideDoesNotMutateCfg(t *testing.T) {
 
 	f := safeFinding()
 
-	e.SetTrustLevel("advisory")
+	_ = e.SetTrustLevel("advisory")
 	_ = e.shouldExecute(f, false, false)
 
 	// The original config must still say "observation".
@@ -243,7 +243,7 @@ func TestShouldExecute_OverrideDoesNotMutateCfg_Concurrent(t *testing.T) {
 			defer wg.Done()
 			// Each goroutine gets its own executor sharing the same cfg.
 			e := newTestExecutor(cfg, rampStart)
-			e.SetTrustLevel("advisory")
+			_ = e.SetTrustLevel("advisory")
 			_ = e.shouldExecute(f, false, false)
 		}()
 	}
@@ -265,7 +265,7 @@ func TestShouldExecute_OverrideWithModerateAction(t *testing.T) {
 	cfg := newTestCfg("observation")
 	rampStart := time.Now().Add(-60 * 24 * time.Hour)
 	e := newTestExecutor(cfg, rampStart)
-	e.SetTrustLevel("advisory")
+	_ = e.SetTrustLevel("advisory")
 
 	f := safeFinding()
 	f.ActionRisk = "moderate"
@@ -280,7 +280,7 @@ func TestShouldExecute_OverrideToAutonomousAllowsModerate(t *testing.T) {
 	cfg.Trust.Tier3Moderate = true
 	rampStart := time.Now().Add(-60 * 24 * time.Hour)
 	e := newTestExecutor(cfg, rampStart)
-	e.SetTrustLevel("autonomous")
+	_ = e.SetTrustLevel("autonomous")
 
 	f := safeFinding()
 	f.ActionRisk = "moderate"
@@ -298,7 +298,7 @@ func TestShouldExecute_HighRiskAlwaysBlocked(t *testing.T) {
 	cfg.Trust.Tier3HighRisk = true
 	rampStart := time.Now().Add(-365 * 24 * time.Hour)
 	e := newTestExecutor(cfg, rampStart)
-	e.SetTrustLevel("autonomous")
+	_ = e.SetTrustLevel("autonomous")
 
 	f := safeFinding()
 	f.ActionRisk = "high_risk"
@@ -315,7 +315,7 @@ func TestSetTrustLevel_MultipleOverrides(t *testing.T) {
 
 	levels := []string{"advisory", "autonomous", "observation", "advisory"}
 	for _, lvl := range levels {
-		e.SetTrustLevel(lvl)
+		_ = e.SetTrustLevel(lvl)
 		got := e.TrustLevel()
 		if got != lvl {
 			t.Errorf("after SetTrustLevel(%q), TrustLevel() = %q",
@@ -324,7 +324,7 @@ func TestSetTrustLevel_MultipleOverrides(t *testing.T) {
 	}
 
 	// Clear and verify fallback.
-	e.SetTrustLevel("")
+	_ = e.SetTrustLevel("")
 	if e.TrustLevel() != "observation" {
 		t.Errorf("after clearing, TrustLevel() = %q, want %q",
 			e.TrustLevel(), "observation")

@@ -97,8 +97,11 @@ func NewRouterFull(
 	for i := len(middlewares) - 1; i >= 0; i-- {
 		apiHandler = middlewares[i](apiHandler)
 	}
-	// Always apply body size limit and CORS to API routes.
+	// Always apply body size limit, CORS, security headers,
+	// and JSON content-type validation to API routes.
+	apiHandler = requireJSONMiddleware(apiHandler)
 	apiHandler = maxBodyMiddleware(apiHandler)
+	apiHandler = securityHeadersMiddleware(apiHandler)
 	apiHandler = corsMiddleware(apiHandler)
 
 	// Top-level mux: API routes get auth, static does not.
@@ -127,6 +130,9 @@ func registerAPIRoutes(
 	cfg *config.Config,
 	llmMgr *llm.Manager,
 ) {
+	adminOnly := RequireRole("admin")
+	operatorUp := RequireRole("admin", "operator")
+
 	mux.HandleFunc(
 		"GET /api/v1/databases", databasesHandler(mgr))
 	mux.HandleFunc(
@@ -134,12 +140,18 @@ func registerAPIRoutes(
 	mux.HandleFunc(
 		"GET /api/v1/findings/{id}",
 		findingDetailHandler(mgr))
-	mux.HandleFunc(
-		"POST /api/v1/findings/{id}/suppress",
-		suppressHandler(mgr))
-	mux.HandleFunc(
+
+	suppressH := operatorUp(http.HandlerFunc(
+		suppressHandler(mgr)))
+	mux.Handle(
+		"POST /api/v1/findings/{id}/suppress", suppressH)
+
+	unsuppressH := operatorUp(http.HandlerFunc(
+		unsuppressHandler(mgr)))
+	mux.Handle(
 		"POST /api/v1/findings/{id}/unsuppress",
-		unsuppressHandler(mgr))
+		unsuppressH)
+
 	mux.HandleFunc(
 		"GET /api/v1/actions", actionsListHandler(mgr))
 	mux.HandleFunc(
@@ -159,16 +171,22 @@ func registerAPIRoutes(
 		snapshotHistoryHandler(mgr))
 	mux.HandleFunc(
 		"GET /api/v1/config", configGetHandler(mgr, cfg))
-	mux.HandleFunc(
-		"PUT /api/v1/config",
-		configUpdateHandler(mgr, cfg))
+
+	configPutH := adminOnly(http.HandlerFunc(
+		configUpdateHandler(mgr, cfg)))
+	mux.Handle("PUT /api/v1/config", configPutH)
+
 	mux.HandleFunc(
 		"GET /api/v1/metrics", metricsHandler(mgr))
-	mux.HandleFunc(
-		"POST /api/v1/emergency-stop",
-		emergencyStopHandler(mgr))
-	mux.HandleFunc(
-		"POST /api/v1/resume", resumeHandler(mgr))
+
+	stopH := operatorUp(http.HandlerFunc(
+		emergencyStopHandler(mgr)))
+	mux.Handle("POST /api/v1/emergency-stop", stopH)
+
+	resumeH := operatorUp(http.HandlerFunc(
+		resumeHandler(mgr)))
+	mux.Handle("POST /api/v1/resume", resumeH)
+
 	mux.HandleFunc(
 		"GET /api/v1/llm/models",
 		listModelsHandler(&cfg.LLM))
@@ -276,17 +294,19 @@ func registerActionRoutes(
 			fleetPendingActionsHandler(deps.Fleet)))
 		mux.Handle(
 			"GET /api/v1/actions/pending", pendingH)
-		mux.HandleFunc(
-			"GET /api/v1/actions/pending/count",
-			fleetPendingCountHandler(deps.Fleet))
+		countH := operatorUp(http.HandlerFunc(
+			fleetPendingCountHandler(deps.Fleet)))
+		mux.Handle(
+			"GET /api/v1/actions/pending/count", countH)
 	} else {
 		pendingH := operatorUp(http.HandlerFunc(
 			pendingActionsHandler(deps.Store)))
 		mux.Handle(
 			"GET /api/v1/actions/pending", pendingH)
-		mux.HandleFunc(
-			"GET /api/v1/actions/pending/count",
-			pendingCountHandler(deps.Store))
+		countH := operatorUp(http.HandlerFunc(
+			pendingCountHandler(deps.Store)))
+		mux.Handle(
+			"GET /api/v1/actions/pending/count", countH)
 	}
 
 	if deps.Store != nil && deps.Executor != nil {

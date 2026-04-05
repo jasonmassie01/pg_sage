@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 // PlanCapture obtains execution plans for queries via multiple strategies.
@@ -130,6 +131,9 @@ func (p *PlanCapture) fromGenericPlan(
 	for _, q := range queries {
 		query := q.Query
 		if strings.Contains(query, "$1") {
+			if err := sanitize.RejectMultiStatement(query); err != nil {
+				continue
+			}
 			// GENERIC_PLAN works with parameterized queries.
 			var planJSON []byte
 			err := p.pool.QueryRow(ctx,

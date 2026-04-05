@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 // HypoPG validates recommendations using hypothetical indexes.
@@ -137,6 +138,11 @@ func (h *HypoPG) measureCosts(
 		if !isExplainable(q.Text) {
 			continue
 		}
+		if err := sanitize.RejectMultiStatement(q.Text); err != nil {
+			continue
+		}
+		_, _ = conn.Exec(ctx,
+			"SET SESSION statement_timeout = '5s'")
 		var planJSON []byte
 		err := conn.QueryRow(ctx,
 			"EXPLAIN (FORMAT JSON) "+q.Text,

@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"fmt"
+	"log"
+	"net/url"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,28 +26,36 @@ func testDatabaseConnection(
 	host string, port int,
 	database, username, password, sslmode string,
 ) (*ConnectionTestResult, error) {
-	connStr := fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		username, password, host, port, database, sslmode,
-	)
+	u := &url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(username, password),
+		Host:     fmt.Sprintf("%s:%d", host, port),
+		Path:     database,
+		RawQuery: url.Values{"sslmode": {sslmode}}.Encode(),
+	}
+	connStr := u.String()
 
 	testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	conn, err := pgx.Connect(testCtx, connStr)
 	if err != nil {
+		log.Printf("test-connection failed for %s:%d: %v",
+			host, port, err)
 		return &ConnectionTestResult{
 			Status: "error",
-			Error:  fmt.Sprintf("connection failed: %v", err),
+			Error:  "connection failed",
 		}, nil
 	}
 	defer conn.Close(testCtx)
 
 	version, err := queryPGVersion(testCtx, conn)
 	if err != nil {
+		log.Printf("test-connection version query failed "+
+			"for %s:%d: %v", host, port, err)
 		return &ConnectionTestResult{
 			Status: "error",
-			Error:  fmt.Sprintf("version query failed: %v", err),
+			Error:  "version query failed",
 		}, nil
 	}
 
@@ -81,18 +91,21 @@ func testFromConnString(
 
 	conn, err := pgx.Connect(testCtx, connStr)
 	if err != nil {
+		log.Printf("test-connection (by connstr) failed: %v", err)
 		return &ConnectionTestResult{
 			Status: "error",
-			Error:  fmt.Sprintf("connection failed: %v", err),
+			Error:  "connection failed",
 		}
 	}
 	defer conn.Close(testCtx)
 
 	version, err := queryPGVersion(testCtx, conn)
 	if err != nil {
+		log.Printf("test-connection (by connstr) version "+
+			"query failed: %v", err)
 		return &ConnectionTestResult{
 			Status: "error",
-			Error:  fmt.Sprintf("version query failed: %v", err),
+			Error:  "version query failed",
 		}
 	}
 	return &ConnectionTestResult{

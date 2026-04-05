@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -154,8 +155,9 @@ func bootstrapAdminUser(
 		return fmt.Errorf("creating admin: %w", err)
 	}
 
-	fmt.Printf(
-		"First admin created: %s / %s\n", adminEmail, password,
+	fmt.Fprintf(os.Stderr,
+		"First admin created: %s\nInitial password: %s\nChange this password immediately.\n",
+		adminEmail, password,
 	)
 	return nil
 }

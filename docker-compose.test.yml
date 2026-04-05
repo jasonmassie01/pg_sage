@@ -86,7 +86,7 @@ services:
       - ./test-fixtures/config.test.yaml:/app/config.yaml:ro
     environment:
       SAGE_CONFIG_PATH: /app/config.yaml
-      SAGE_LLM_API_KEY: ${SAGE_LLM_API_KEY:-REDACTED_GEMINI_KEY_3}
+      SAGE_LLM_API_KEY: ${SAGE_LLM_API_KEY:?SAGE_LLM_API_KEY must be set}
     networks:
       - test-net
 

@@ -1660,17 +1660,27 @@ func rateLimitMiddleware(rl *RateLimiter, next http.Handler) http.Handler {
 	})
 }
 
+var trustedProxies = map[string]bool{
+	"127.0.0.1": true,
+	"::1":       true,
+}
+
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i > 0 {
-			return xff[:i]
-		}
-		return xff
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
+
+	// Only trust X-Forwarded-For from known proxies
+	if trustedProxies[host] {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			if i := strings.IndexByte(xff, ','); i > 0 {
+				return strings.TrimSpace(xff[:i])
+			}
+			return strings.TrimSpace(xff)
+		}
+	}
+
 	return host
 }
 
@@ -1779,8 +1789,9 @@ func bootstrapAdminIfEmpty(
 		return fmt.Errorf("creating admin: %w", err)
 	}
 	logInfo("startup",
-		"first admin created — email: %s  password: %s",
-		adminEmail, password)
+		"first admin created — email: %s  password: [redacted, see stderr]",
+		adminEmail)
+	fmt.Fprintf(os.Stderr, "\n*** INITIAL ADMIN PASSWORD: %s ***\n*** Change this password immediately. ***\n\n", password)
 	return nil
 }
 

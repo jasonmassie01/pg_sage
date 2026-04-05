@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -25,7 +25,8 @@ func pendingActionsHandler(
 
 		actions, err := as.ListPending(r.Context(), dbID)
 		if err != nil {
-			jsonError(w, err.Error(), 500)
+			slog.Error("list pending actions failed", "error", err)
+			jsonError(w, "failed to list pending actions", 500)
 			return
 		}
 
@@ -47,7 +48,8 @@ func pendingCountHandler(
 	return func(w http.ResponseWriter, r *http.Request) {
 		count, err := as.PendingCount(r.Context())
 		if err != nil {
-			jsonError(w, err.Error(), 500)
+			slog.Error("pending count failed", "error", err)
+			jsonError(w, "failed to get pending count", 500)
 			return
 		}
 		jsonResponse(w, map[string]any{"count": count})
@@ -121,8 +123,10 @@ func approveActionHandler(
 
 		action, err := as.Approve(r.Context(), id, user.ID)
 		if err != nil {
-			jsonError(w, fmt.Sprintf(
-				"approve failed: %v", err), http.StatusNotFound)
+			slog.Error("approve action failed",
+				"action_id", id, "error", err)
+			jsonError(w, "failed to approve action",
+				http.StatusNotFound)
 			return
 		}
 
@@ -183,8 +187,10 @@ func rejectActionHandler(
 
 		err = as.Reject(r.Context(), id, user.ID, body.Reason)
 		if err != nil {
-			jsonError(w, fmt.Sprintf(
-				"reject failed: %v", err), http.StatusNotFound)
+			slog.Error("reject action failed",
+				"action_id", id, "error", err)
+			jsonError(w, "failed to reject action",
+				http.StatusNotFound)
 			return
 		}
 
@@ -228,8 +234,9 @@ func manualExecuteHandler(
 			&userID,
 		)
 		if err != nil {
-			jsonError(w, fmt.Sprintf(
-				"execution failed: %v", err), 500)
+			slog.Error("manual execution failed",
+				"finding_id", body.FindingID, "error", err)
+			jsonError(w, "execution failed", 500)
 			return
 		}
 

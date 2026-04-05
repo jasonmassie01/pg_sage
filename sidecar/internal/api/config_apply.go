@@ -94,9 +94,19 @@ func hotReloadAnalyzer(cfg *config.Config, key, v string) {
 	}
 }
 
+// validTrustLevels enumerates the accepted trust level strings.
+var validTrustLevels = map[string]bool{
+	"observation": true,
+	"advisory":    true,
+	"autonomous":  true,
+}
+
 func hotReloadTrust(cfg *config.Config, key, v string) {
 	switch key {
 	case "trust.level":
+		if !validTrustLevels[v] {
+			return // silently reject invalid trust levels
+		}
 		cfg.Trust.Level = v
 	case "trust.tier3_safe":
 		cfg.Trust.Tier3Safe = v == "true"
