@@ -400,16 +400,22 @@ func TestGrantVerification(t *testing.T) {
 func TestDDLTimeout(t *testing.T) {
 	pool, ctx := requireDB(t)
 
-	// ExecInTransaction should succeed with a simple SELECT.
-	err := ExecInTransaction(ctx, pool, "SELECT 1", 5*time.Second)
+	// Use ANALYZE on a bootstrapped sage table — it is on the
+	// executor whitelist, runs quickly, and is safe inside a
+	// transaction. SELECT 1 is no longer permitted by the
+	// post-hardening validator.
+	const noopSQL = "ANALYZE sage.findings"
+
+	// ExecInTransaction should succeed with an allowed statement.
+	err := ExecInTransaction(ctx, pool, noopSQL, 5*time.Second)
 	if err != nil {
-		t.Fatalf("ExecInTransaction(SELECT 1): %v", err)
+		t.Fatalf("ExecInTransaction(%s): %v", noopSQL, err)
 	}
 
-	// ExecConcurrently should also handle a simple SELECT without error.
-	err = ExecConcurrently(ctx, pool, "SELECT 1", 5*time.Second)
+	// ExecConcurrently should also handle an allowed statement.
+	err = ExecConcurrently(ctx, pool, noopSQL, 5*time.Second)
 	if err != nil {
-		t.Fatalf("ExecConcurrently(SELECT 1): %v", err)
+		t.Fatalf("ExecConcurrently(%s): %v", noopSQL, err)
 	}
 
 	// Verify that statement_timeout is reset after ExecConcurrently.
@@ -438,11 +444,16 @@ func TestDDLTimeout(t *testing.T) {
 func TestLockTimeoutSetBeforeDDL(t *testing.T) {
 	pool, ctx := requireDB(t)
 
+	// ANALYZE is on the executor whitelist and acquires only a
+	// brief SHARE UPDATE EXCLUSIVE lock — perfect for verifying
+	// the lock_timeout plumbing without exercising SQL validation.
+	const noopSQL = "ANALYZE sage.findings"
+
 	// Use ExecConcurrently with a lock_timeout and verify the
-	// lock_timeout was active by checking a simple DDL succeeds.
+	// statement still succeeds against an unblocked table.
 	lockMs := 5000
 	err := ExecConcurrently(
-		ctx, pool, "SELECT 1", 10*time.Second,
+		ctx, pool, noopSQL, 10*time.Second,
 		WithLockTimeout(lockMs),
 	)
 	if err != nil {
@@ -468,7 +479,7 @@ func TestLockTimeoutSetBeforeDDL(t *testing.T) {
 
 	// ExecInTransaction path: verify lock_timeout with transaction.
 	err = ExecInTransaction(
-		ctx, pool, "SELECT 1", 10*time.Second,
+		ctx, pool, noopSQL, 10*time.Second,
 		WithLockTimeout(lockMs),
 	)
 	if err != nil {
@@ -506,10 +517,14 @@ func TestLockTimeoutTriggersErrLockNotAvailable(t *testing.T) {
 		t.Fatalf("locking table: %v", err)
 	}
 
-	// Now attempt DDL with a 1ms lock_timeout — should fail with 55P03.
+	// Now attempt allowed DDL with a 1ms lock_timeout — should
+	// fail with 55P03. ALTER TABLE ... SET (storage param) is on
+	// the executor whitelist and acquires SHARE UPDATE EXCLUSIVE,
+	// which conflicts with the ACCESS EXCLUSIVE held by tx above,
+	// so the lock_timeout will fire before the lock is granted.
 	ddlErr := ExecInTransaction(
 		ctx, pool,
-		"ALTER TABLE sage.test_lock_timeout ADD COLUMN IF NOT EXISTS v int",
+		"ALTER TABLE sage.test_lock_timeout SET (autovacuum_enabled = false)",
 		10*time.Second,
 		WithLockTimeout(1),
 	)
