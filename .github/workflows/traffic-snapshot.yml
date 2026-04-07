@@ -21,11 +21,11 @@ on:
     - cron: '0 5 * * *'
   workflow_dispatch:
 
-# The traffic API requires `administration: read`; push to the
-# analytics branch requires `contents: write`.
+# GITHUB_TOKEN needs `contents: write` to push to the analytics
+# branch. The traffic API requires "push access" which a workflow
+# token with contents:write satisfies.
 permissions:
   contents: write
-  administration: read
 
 concurrency:
   group: traffic-snapshot
