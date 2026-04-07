@@ -71,32 +71,41 @@
 - Cross-platform findings: 1615 total, 373 open, 802 acted on across 8 DBs
 - All packages above 70% test coverage
 
+### v0.8.4 (2026-04-07) — Security Hardening + Tuner Pipeline
+
+**Security**
+- RBAC: Added `RequireRole` to legacy API routes (config, emergency-stop, resume, suppress/unsuppress, pending count). Viewers can no longer escalate trust to autonomous or halt the fleet.
+- SQL injection: Block EXPLAIN injection via multi-statement rejection + `statement_timeout` + read-only transactions. New `sanitize.QuoteIdentifier` package for all catalog-derived identifiers. Fixed VACUUM, ALTER DATABASE, and tuner SQL construction.
+- Executor allowlists: Whitelisted 30 safe `ALTER SYSTEM` GUCs. Restricted SELECT to `pg_terminate_backend`/`pg_cancel_backend`. Restricted `ALTER TABLE` to `SET`/`RESET`/`TABLESPACE`. Validate trust level strings. Cap concurrent DDL at 3. Auto-drop invalid indexes after failed `CREATE INDEX CONCURRENTLY`. Derive advisor `ActionRisk` from SQL type instead of hardcoding `safe`.
+- Auth: Cookie `Secure` flag enabled. Password minimum 8 characters. Login rate limiting (5 attempts / 15 min per email). Self-deletion + last-admin protection.
+- API hardening: Security headers middleware. Content-Type validation. SSRF protection on `test-connection`. Error messages sanitized (no more `err.Error()` leaked to clients). `X-Forwarded-For` only trusted from loopback. Notification channel secrets masked.
+- Secrets: Removed hardcoded Gemini API key from `docker-compose.test.yml`. Admin password printed to stderr only. `create_admin` uses environment variables. `DeriveKey` upgraded to argon2id with v1 backward compatibility. Demo config uses env var.
+
+**Tuner Pipeline**
+- `BuildInsertSQL`/`BuildDeleteSQL` now use `norm_query_string` column (was `query_id`, which doesn't exist in `hint_plan.hints`).
+- Executor allowlist updated for `INSERT`/`DELETE INTO hint_plan.hints`.
+
+**Fleet Hardening**
+- Schema bootstrap advisory lock changed from non-blocking `pg_try_advisory_lock` to blocking `pg_advisory_lock` with 30s timeout.
+- `CREATE SCHEMA` now uses `IF NOT EXISTS`. All `DROP SCHEMA` operations in tests wrapped in advisory lock.
+- `autoexplain.ConfigureSession` tolerates permission denied (SQLSTATE 42501) on managed DBs where role-level defaults suffice. Coverage boost to 83%.
+
+**API**
+- New LLM token usage endpoint.
+- Config apply/audit handlers.
+- Settings page UI improvements.
+- New `create_admin` CLI command.
+
+**Test Infrastructure**
+- `auth`, `notify`, and `store` tests now hold `pg_sage` advisory lock for test duration to prevent schema drops mid-test.
+- Store config tests re-insert FK user before each test.
+- All 22 packages pass with `-p 4` (zero failures, zero skips).
+
 ---
 
-## Planned
+## Considering for Future Releases
 
-### v0.9.0 — Agent Mode (Tier 2)
-**Status:** Spec complete, not started
-
-- `mode: agent` — single sidecar → one database, pushes to control plane
-- Agent push protocol: heartbeat, findings, metrics over HTTPS
-- Finding fingerprint for cross-push deduplication
-- Control plane API contract defined (5 endpoints)
-- Agent runs locally even if control plane unreachable
-- Designed for 50–1000 database fleets
-
-### v1.0.0 — Control Plane
-**Status:** Architecture defined, not started
-
-- Central API + PostgreSQL store for aggregated findings
-- Fleet dashboard served from control plane (replaces per-sidecar dashboard)
-- Agent registration, configuration push, status monitoring
-- Multi-tenant support (API key per customer)
-- Cross-database correlation (same query pattern across DBs)
-
----
-
-## Future
+**Multi-database aggregation** — was originally scoped as v0.9 (agent push protocol) and v1.0 (control plane). Currently re-evaluating based on user feedback. Fleet mode (single sidecar → N databases) covers most use cases today.
 
 ### Post-v1.0
 

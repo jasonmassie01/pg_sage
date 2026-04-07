@@ -35,6 +35,7 @@ nav:
   - MCP Sidecar: mcp-sidecar.md
   - SQL Reference: sql-reference.md
   - Findings Catalog: findings.md
+  - Hint Verification: hint-verification.md
   - Security: security.md
   - Deployment: deployment.md
 
