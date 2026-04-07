@@ -33,6 +33,9 @@ pg_sage_*_CLAUDE.md
 pg_sage_*_spec*.md
 pg_sage_*_test_plan*.md
 
+# Local Claude Code instructions (not part of release)
+CLAUDE.md
+
 # Node / frontend
 node_modules/
 sidecar/web/node_modules/
