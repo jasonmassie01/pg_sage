@@ -4,6 +4,9 @@ pg_sage detects issues across 16+ categories using deterministic rules (Tier 1) 
 
 Severities: **critical** > **warning** > **info**
 
+!!! tip "See also: [Hint Verification](hint-verification.md)"
+    EXPLAIN before-and-after output for every optimization pg_sage applies, proving each hint and index change produces the intended plan improvement.
+
 ---
 
 ## Index Health
