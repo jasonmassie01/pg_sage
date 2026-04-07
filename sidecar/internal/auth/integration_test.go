@@ -78,13 +78,13 @@ func TestCreateUser_DuplicateEmail(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := CreateUser(ctx, pool,
-		"dup@example.com", "pass1", RoleViewer)
+		"dup@example.com", "password1", RoleViewer)
 	if err != nil {
 		t.Fatalf("first CreateUser: %v", err)
 	}
 
 	_, err = CreateUser(ctx, pool,
-		"dup@example.com", "pass2", RoleAdmin)
+		"dup@example.com", "password2", RoleAdmin)
 	if err == nil {
 		t.Fatal("expected error for duplicate email")
 	}
@@ -95,7 +95,7 @@ func TestCreateUser_InvalidRole(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := CreateUser(ctx, pool,
-		"bad@example.com", "pass", "superadmin")
+		"bad@example.com", "password", "superadmin")
 	if err == nil {
 		t.Fatal("expected error for invalid role")
 	}
@@ -106,13 +106,13 @@ func TestAuthenticate_Valid(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := CreateUser(ctx, pool,
-		"auth@example.com", "secret", RoleAdmin)
+		"auth@example.com", "secret88", RoleAdmin)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
 	user, err := Authenticate(ctx, pool,
-		"auth@example.com", "secret")
+		"auth@example.com", "secret88")
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -129,13 +129,13 @@ func TestAuthenticate_WrongPassword(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := CreateUser(ctx, pool,
-		"wrong@example.com", "correct", RoleViewer)
+		"wrong@example.com", "correct8", RoleViewer)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
 	_, err = Authenticate(ctx, pool,
-		"wrong@example.com", "incorrect")
+		"wrong@example.com", "incorrect8")
 	if err == nil {
 		t.Fatal("expected error for wrong password")
 	}
@@ -146,7 +146,7 @@ func TestAuthenticate_NonexistentUser(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := Authenticate(ctx, pool,
-		"nobody@example.com", "pass")
+		"nobody@example.com", "password")
 	if err == nil {
 		t.Fatal("expected error for nonexistent user")
 	}
@@ -157,7 +157,7 @@ func TestCreateSession_And_Validate(t *testing.T) {
 	ctx := context.Background()
 
 	id, err := CreateUser(ctx, pool,
-		"sess@example.com", "pass", RoleOperator)
+		"sess@example.com", "password", RoleOperator)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestValidateSession_Expired(t *testing.T) {
 	ctx := context.Background()
 
 	id, err := CreateUser(ctx, pool,
-		"exp@example.com", "pass", RoleViewer)
+		"exp@example.com", "password", RoleViewer)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestDeleteSession(t *testing.T) {
 	ctx := context.Background()
 
 	id, err := CreateUser(ctx, pool,
-		"del@example.com", "pass", RoleViewer)
+		"del@example.com", "password", RoleViewer)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestCleanExpiredSessions(t *testing.T) {
 	ctx := context.Background()
 
 	id, err := CreateUser(ctx, pool,
-		"clean@example.com", "pass", RoleViewer)
+		"clean@example.com", "password", RoleViewer)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -286,12 +286,12 @@ func TestListUsers(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := CreateUser(ctx, pool,
-		"list1@example.com", "pass", RoleAdmin)
+		"list1@example.com", "password", RoleAdmin)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 	_, err = CreateUser(ctx, pool,
-		"list2@example.com", "pass", RoleViewer)
+		"list2@example.com", "password", RoleViewer)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestDeleteUser(t *testing.T) {
 	ctx := context.Background()
 
 	id, err := CreateUser(ctx, pool,
-		"deluser@example.com", "pass", RoleViewer)
+		"deluser@example.com", "password", RoleViewer)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestUpdateUserRole_Valid(t *testing.T) {
 	ctx := context.Background()
 
 	id, err := CreateUser(ctx, pool,
-		"role@example.com", "pass", RoleViewer)
+		"role@example.com", "password", RoleViewer)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestUpdateUserRole_InvalidRole(t *testing.T) {
 	ctx := context.Background()
 
 	id, err := CreateUser(ctx, pool,
-		"badrole@example.com", "pass", RoleViewer)
+		"badrole@example.com", "password", RoleViewer)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -399,13 +399,13 @@ func TestBootstrapAdmin_RejectsSecond(t *testing.T) {
 	ctx := context.Background()
 
 	err := BootstrapAdmin(ctx, pool,
-		"first@example.com", "pass1")
+		"first@example.com", "password1")
 	if err != nil {
 		t.Fatalf("first BootstrapAdmin: %v", err)
 	}
 
 	err = BootstrapAdmin(ctx, pool,
-		"second@example.com", "pass2")
+		"second@example.com", "password2")
 	if err == nil {
 		t.Fatal("expected error for second bootstrap")
 	}
@@ -424,7 +424,7 @@ func TestUserCount(t *testing.T) {
 	}
 
 	_, err = CreateUser(ctx, pool,
-		"count@example.com", "pass", RoleViewer)
+		"count@example.com", "password", RoleViewer)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}

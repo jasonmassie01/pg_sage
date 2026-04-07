@@ -71,7 +71,7 @@ func setupIntegrationRouter() (http.Handler, *fleet.DatabaseManager) {
 		},
 	})
 
-	return NewRouter(mgr, cfg, nil), mgr
+	return NewRouter(mgr, cfg, nil, fakeAdminMiddleware), mgr
 }
 
 func TestIntegration_FleetDashboardData(t *testing.T) {
@@ -158,6 +158,7 @@ func TestIntegration_EmergencyStopStopsExecutor(t *testing.T) {
 
 	// Stop prod-orders
 	req := httptest.NewRequest("POST", "/api/v1/emergency-stop?database=prod-orders", nil)
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -180,6 +181,7 @@ func TestIntegration_EmergencyStopStopsExecutor(t *testing.T) {
 
 	// Resume
 	req = httptest.NewRequest("POST", "/api/v1/resume?database=prod-orders", nil)
+	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
