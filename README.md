@@ -4,7 +4,7 @@
 [![Go](https://img.shields.io/badge/Go-1.24-00ADD8.svg)](https://go.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-336791.svg)](https://www.postgresql.org)
 
-**Autonomous PostgreSQL DBA agent.** No extension required.
+**Agentic Postgres DBA.** No extension required.
 
 ## What It Does
 

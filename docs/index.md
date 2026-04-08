@@ -1,6 +1,6 @@
 # pg_sage Documentation
 
-Autonomous PostgreSQL DBA agent — a Go sidecar that monitors, analyzes, and optimizes PostgreSQL 14+ databases with trust-ramped safety controls.
+Agentic Postgres DBA — a Go sidecar that monitors, analyzes, and optimizes PostgreSQL 14+ databases with trust-ramped safety controls.
 
 ---
 

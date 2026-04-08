@@ -1,6 +1,6 @@
 {
     "name": "pg_sage",
-    "abstract": "Autonomous PostgreSQL DBA Agent",
+    "abstract": "Agentic Postgres DBA",
     "description": "A native C extension that continuously monitors, analyzes, and maintains your PostgreSQL database. Combines a deterministic rules engine with optional LLM-enhanced analysis and a trust-ramped action executor.",
     "version": "0.5.0",
     "maintainer": "Jason Massie <jasonmassie01@gmail.com>",
@@ -9,7 +9,7 @@
         "pg_sage": {
             "file": "sql/pg_sage--0.5.0.sql",
             "version": "0.5.0",
-            "abstract": "Autonomous PostgreSQL DBA Agent"
+            "abstract": "Agentic Postgres DBA"
         }
     },
     "prereqs": {
@@ -33,7 +33,7 @@
             "type": "git"
         }
     },
-    "tags": ["monitoring", "dba", "autonomous", "performance", "mcp"],
+    "tags": ["monitoring", "dba", "agentic", "performance", "mcp"],
     "generated_by": "pg_sage build system",
     "meta-spec": {
         "version": "1.0.0",

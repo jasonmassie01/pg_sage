@@ -49,8 +49,8 @@
     }
   ],
   "uid": "pg-sage",
-  "title": "pg_sage - Autonomous DBA Agent",
-  "description": "Monitoring dashboard for pg_sage PostgreSQL autonomous DBA agent",
+  "title": "pg_sage - Agentic Postgres DBA",
+  "description": "Monitoring dashboard for pg_sage, the agentic Postgres DBA",
   "tags": ["postgresql", "pg_sage", "monitoring"],
   "editable": true,
   "style": "dark",

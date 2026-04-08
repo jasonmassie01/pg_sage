@@ -1,5 +1,5 @@
 /*
- * pg_sage.h — The Autonomous PostgreSQL DBA Agent
+ * pg_sage.h — Agentic Postgres DBA
  *
  * Main header for pg_sage extension.
  * AGPL-3.0 License

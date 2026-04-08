@@ -117,7 +117,7 @@ function OnboardingWelcome() {
       </h1>
       <p className="mb-6"
         style={{ color: 'var(--text-secondary)' }}>
-        Your autonomous PostgreSQL monitoring agent.
+        Your agentic Postgres DBA.
         {' '}Let&apos;s get started.
       </p>
       <div className="space-y-4 text-left max-w-md mx-auto mb-8">

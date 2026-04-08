@@ -1,7 +1,7 @@
 MODULE_big = pg_sage
 EXTENSION = pg_sage
 DATA = sql/pg_sage--0.1.0.sql sql/pg_sage--0.5.0.sql sql/pg_sage--0.1.0--0.5.0.sql
-PGFILEDESC = "pg_sage - Autonomous PostgreSQL DBA Agent"
+PGFILEDESC = "pg_sage - Agentic Postgres DBA"
 
 OBJS = src/pg_sage.o \
        src/guc.o \
