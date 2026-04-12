@@ -87,11 +87,6 @@ jobs:
               key text PRIMARY KEY, value text NOT NULL,
               updated_at timestamptz NOT NULL DEFAULT now(), updated_by text
             );
-            CREATE TABLE sage.mcp_log (
-              id bigserial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(),
-              client_ip text, method text, resource_uri text, tool_name text,
-              tokens_used int DEFAULT 0, duration_ms int DEFAULT 0, status text, error_message text
-            );
             CREATE TABLE sage.alert_log (
               id bigserial PRIMARY KEY, sent_at timestamptz NOT NULL DEFAULT now(),
               finding_id bigint REFERENCES sage.findings(id), severity text NOT NULL,

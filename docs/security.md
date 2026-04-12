@@ -169,7 +169,7 @@ Independent breaker for the LLM endpoint. When the LLM is unavailable, all LLM-p
 
 ### Daily Token Budget
 
-The `llm.token_budget` setting (default: 50,000) caps total LLM tokens per day. When exhausted, all LLM features are disabled until the next calendar day.
+The `llm.token_budget_daily` setting (default: 500,000) caps total LLM tokens per day. When exhausted, all LLM features are disabled until the next calendar day.
 
 ---
 
@@ -220,6 +220,6 @@ Both tables are subject to retention policies (configurable via `retention.actio
 3. **Start in observation mode** -- deploy with `trust.level: observation` and review findings for at least a week.
 4. **Set a maintenance window** -- restrict autonomous actions to low-traffic periods.
 5. **Review findings before escalating trust** -- move to `advisory` then `autonomous` only after confirming recommendations are appropriate.
-6. **Set a token budget** -- cap LLM spend with `llm.token_budget`.
+6. **Set a token budget** -- cap LLM spend with `llm.token_budget_daily`.
 7. **Use a dedicated database role** -- grant only the required privileges listed above.
 8. **Monitor pg_sage itself** -- check Prometheus metrics and circuit breaker state.

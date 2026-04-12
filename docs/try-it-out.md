@@ -29,7 +29,7 @@ You need four things on your machine:
 > sudo usermod -aG docker $USER && newgrp docker
 > ```
 > Access the dashboard at `http://<external-ip>:8080`. Make
-> sure your firewall allows ports 8080, 9187, and 5433.
+> sure your firewall allows ports 8080 and 9187.
 
 ### Get the pg_sage binary
 
@@ -404,38 +404,7 @@ briefing cycle.
 
 ---
 
-## Step 12: Try MCP (Optional)
-
-pg_sage speaks the
-[Model Context Protocol](https://modelcontextprotocol.io/),
-so any MCP-compatible client can query your database health
-conversationally.
-
-Add this to your Claude Desktop or Cursor config:
-
-```json
-{
-  "mcpServers": {
-    "pg_sage": {
-      "url": "http://localhost:5433/sse"
-    }
-  }
-}
-```
-
-Then ask natural-language questions:
-
-- *"What are my database problems?"*
-- *"Show me duplicate indexes"*
-- *"Which queries are doing sequential scans?"*
-- *"What is the current cache hit ratio?"*
-
-pg_sage responds with structured data from its findings,
-snapshots, and analysis history.
-
----
-
-## Step 13: Promote Trust Level
+## Step 12: Promote Trust Level
 
 So far pg_sage has been watching. Now let it act.
 
@@ -512,7 +481,6 @@ Here is every feature you exercised, organized by tier:
 | Auto-rollback on regression | 3 | No |
 | React dashboard | Core | No |
 | Prometheus metrics exporter | Core | No |
-| MCP server for AI clients | Core | No |
 | Config hot reload | Core | No |
 | LLM index optimizer | 2 | Yes |
 | Health briefings | 2 | Yes |

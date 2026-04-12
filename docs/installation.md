@@ -32,7 +32,7 @@ Invoke-WebRequest -Uri https://github.com/jasonmassie01/pg_sage/releases/latest/
 
 ```bash
 docker run -e SAGE_DATABASE_URL="postgres://sage_agent:YOUR_PASSWORD@host:5432/db" \
-  -p 5433:5433 -p 8080:8080 -p 9187:9187 \
+  -p 8080:8080 -p 9187:9187 \
   ghcr.io/jasonmassie01/pg_sage:latest
 ```
 

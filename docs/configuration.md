@@ -22,7 +22,7 @@ The sidecar supports hot-reload: changes to the YAML config file are detected an
 | `--pg-url` | PostgreSQL connection string (overrides YAML and env) |
 | `--config` | Path to YAML config file |
 | `--prom-addr` | Prometheus listen address (e.g., `0.0.0.0:9187`) |
-| `--meta-db` | Path to SQLite metadata database |
+| `--meta-db` | Metadata database connection string (PostgreSQL URL for fleet mode) |
 | `--encryption-key` | Encryption key for sensitive config values |
 
 ---

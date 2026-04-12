@@ -194,7 +194,7 @@ docker rm -f pg-test
 - **curl**: Windows 10+ includes curl. If not found, use PowerShell's
   `Invoke-WebRequest` or install via `winget install curl`.
 - **Firewall**: Windows Firewall may prompt for access when pg_sage starts
-  listening on ports 5433, 8080, and 9187.
+  listening on ports 8080 and 9187.
 
 ---
 

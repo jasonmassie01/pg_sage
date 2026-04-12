@@ -32,7 +32,6 @@ nav:
   - Installation: installation.md
   - Configuration: configuration.md
   - Architecture: architecture.md
-  - MCP Sidecar: mcp-sidecar.md
   - SQL Reference: sql-reference.md
   - Findings Catalog: findings.md
   - Hint Verification: hint-verification.md

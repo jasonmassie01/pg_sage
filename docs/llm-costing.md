@@ -12,7 +12,6 @@ recommended budgets.
 | Advisor | 3,600s (1h) | 1,500-3,000 | 24 | ~48,000 |
 | Optimizer | 600s (per analyzer cycle) | 3,000-6,000 | 10-20 | ~60,000 |
 | Tuner (LLM mode) | per analyzer cycle | 2,000-4,000 | 10-20 | ~40,000 |
-| Diagnose (MCP) | on-demand | 4,000-8,000 | varies | varies |
 
 **Typical daily total (all features, small-medium DB): ~150,000 tokens**
 

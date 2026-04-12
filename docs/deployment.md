@@ -9,7 +9,7 @@ pg_sage is a single Go binary. Deployment is straightforward: download (or build
 Download the pre-built binary for your platform and run it:
 
 ```bash
-./pg_sage --database-url "postgres://sage_agent:YOUR_PASSWORD@host:5432/db"
+./pg_sage --pg-url "postgres://sage_agent:YOUR_PASSWORD@host:5432/db"
 ```
 
 Or with a config file:
@@ -32,7 +32,7 @@ User=pg_sage
 ExecStart=/usr/local/bin/pg_sage --config /etc/pg_sage/config.yaml
 Restart=always
 RestartSec=5
-Environment=SAGE_GEMINI_API_KEY=YOUR_KEY_HERE
+Environment=SAGE_LLM_API_KEY=YOUR_KEY_HERE
 
 [Install]
 WantedBy=multi-user.target
@@ -49,7 +49,7 @@ sudo systemctl enable --now pg_sage
 ```bash
 docker run -d --name pg_sage \
   -e SAGE_DATABASE_URL="postgres://sage_agent:YOUR_PASSWORD@host:5432/db" \
-  -e SAGE_GEMINI_API_KEY="YOUR_KEY_HERE" \
+  -e SAGE_LLM_API_KEY="YOUR_KEY_HERE" \
   -p 8080:8080 -p 9187:9187 \
   ghcr.io/jasonmassie01/pg_sage:latest
 ```
@@ -88,9 +88,9 @@ trust:
 
 llm:
   enabled: true
-  endpoint: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+  endpoint: https://generativelanguage.googleapis.com/v1beta/openai
   model: gemini-2.5-flash
-  api_key: ${SAGE_GEMINI_API_KEY}
+  api_key: ${SAGE_LLM_API_KEY}
 
 prometheus:
   listen_addr: 0.0.0.0:9187
@@ -112,7 +112,7 @@ gcloud builds submit --tag us-central1-docker.pkg.dev/PROJECT/repo/pg_sage
 gcloud run deploy pg_sage \
   --image us-central1-docker.pkg.dev/PROJECT/repo/pg_sage \
   --set-env-vars SAGE_DATABASE_URL="postgres://sage_agent:pw@/db?host=/cloudsql/PROJECT:REGION:INSTANCE" \
-  --set-env-vars SAGE_GEMINI_API_KEY="YOUR_KEY" \
+  --set-env-vars SAGE_LLM_API_KEY="YOUR_KEY" \
   --add-cloudsql-instances PROJECT:REGION:INSTANCE \
   --port 8080 \
   --region us-central1
@@ -177,7 +177,7 @@ spec:
                 secretKeyRef:
                   name: pg-sage-secrets
                   key: database-url
-            - name: SAGE_GEMINI_API_KEY
+            - name: SAGE_LLM_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: pg-sage-secrets

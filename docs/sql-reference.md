@@ -117,25 +117,6 @@ Generated health briefings.
 
 ---
 
-### `sage.mcp_log`
-
-Audit log for API requests (legacy table name retained for compatibility).
-
-| Column | Type | Description |
-|---|---|---|
-| `id` | serial | Primary key |
-| `client_ip` | text | Source IP of the request |
-| `method` | text | JSON-RPC method |
-| `resource_uri` | text | Resource URI if applicable |
-| `tool_name` | text | Tool name if applicable |
-| `tokens_used` | integer | LLM tokens consumed |
-| `duration_ms` | integer | Request processing time |
-| `status` | text | `ok` or `error` |
-| `error_message` | text | Error detail if failed |
-| `created_at` | timestamptz | Request timestamp |
-
----
-
 ### `sage.explain_cache`
 
 Cached EXPLAIN plans for query analysis.
