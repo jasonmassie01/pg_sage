@@ -392,33 +392,6 @@
       
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../mcp-sidecar.md" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MCP Sidecar
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
     
   
   
@@ -542,17 +515,6 @@
     <span class="md-ellipsis">
       
         sage.briefings
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sagemcp_log" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        sage.mcp_log
       
     </span>
   </a>
@@ -789,17 +751,6 @@
     <span class="md-ellipsis">
       
         sage.briefings
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sagemcp_log" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        sage.mcp_log
       
     </span>
   </a>
@@ -1134,70 +1085,6 @@
 <td><code>findings_snapshot</code></td>
 <td>jsonb</td>
 <td>Findings state at generation time</td>
-</tr>
-</tbody>
-</table>
-<hr />
-<h3 id="sagemcp_log"><code>sage.mcp_log</code><a class="headerlink" href="#sagemcp_log" title="Permanent link">&para;</a></h3>
-<p>Audit log for API requests (legacy table name retained for compatibility).</p>
-<table>
-<thead>
-<tr>
-<th>Column</th>
-<th>Type</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>id</code></td>
-<td>serial</td>
-<td>Primary key</td>
-</tr>
-<tr>
-<td><code>client_ip</code></td>
-<td>text</td>
-<td>Source IP of the request</td>
-</tr>
-<tr>
-<td><code>method</code></td>
-<td>text</td>
-<td>JSON-RPC method</td>
-</tr>
-<tr>
-<td><code>resource_uri</code></td>
-<td>text</td>
-<td>Resource URI if applicable</td>
-</tr>
-<tr>
-<td><code>tool_name</code></td>
-<td>text</td>
-<td>Tool name if applicable</td>
-</tr>
-<tr>
-<td><code>tokens_used</code></td>
-<td>integer</td>
-<td>LLM tokens consumed</td>
-</tr>
-<tr>
-<td><code>duration_ms</code></td>
-<td>integer</td>
-<td>Request processing time</td>
-</tr>
-<tr>
-<td><code>status</code></td>
-<td>text</td>
-<td><code>ok</code> or <code>error</code></td>
-</tr>
-<tr>
-<td><code>error_message</code></td>
-<td>text</td>
-<td>Error detail if failed</td>
-</tr>
-<tr>
-<td><code>created_at</code></td>
-<td>timestamptz</td>
-<td>Request timestamp</td>
 </tr>
 </tbody>
 </table>

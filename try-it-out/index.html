@@ -391,33 +391,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../mcp-sidecar.md" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MCP Sidecar
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../sql-reference/" class="md-nav__link">
         
   
@@ -761,21 +734,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-12-try-mcp-optional" class="md-nav__link">
+  <a href="#step-12-promote-trust-level" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 12: Try MCP (Optional)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-13-promote-trust-level" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 13: Promote Trust Level
+        Step 12: Promote Trust Level
       
     </span>
   </a>
@@ -884,7 +846,7 @@ the same. Install Docker + postgresql-client:
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>sudo<span class="w"> </span>usermod<span class="w"> </span>-aG<span class="w"> </span>docker<span class="w"> </span><span class="nv">$USER</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>newgrp<span class="w"> </span>docker
 </code></pre></div>
 Access the dashboard at <code>http://&lt;external-ip&gt;:8080</code>. Make
-sure your firewall allows ports 8080, 9187, and 5433.</p>
+sure your firewall allows ports 8080 and 9187.</p>
 </blockquote>
 <h3 id="get-the-pg_sage-binary">Get the pg_sage binary<a class="headerlink" href="#get-the-pg_sage-binary" title="Permanent link">&para;</a></h3>
 <p>Download a release from the
@@ -1231,49 +1193,25 @@ no restart needed. Now you get:</p>
 <p>Check the logs for LLM activity, or wait for the next
 briefing cycle.</p>
 <hr />
-<h2 id="step-12-try-mcp-optional">Step 12: Try MCP (Optional)<a class="headerlink" href="#step-12-try-mcp-optional" title="Permanent link">&para;</a></h2>
-<p>pg_sage speaks the
-<a href="https://modelcontextprotocol.io/">Model Context Protocol</a>,
-so any MCP-compatible client can query your database health
-conversationally.</p>
-<p>Add this to your Claude Desktop or Cursor config:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="p">{</span>
-<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span><span class="nt">&quot;mcpServers&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="w">    </span><span class="nt">&quot;pg_sage&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="w">      </span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;http://localhost:5433/sse&quot;</span>
-<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="w">    </span><span class="p">}</span>
-<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="w">  </span><span class="p">}</span>
-<a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="p">}</span>
-</code></pre></div>
-<p>Then ask natural-language questions:</p>
-<ul>
-<li><em>"What are my database problems?"</em></li>
-<li><em>"Show me duplicate indexes"</em></li>
-<li><em>"Which queries are doing sequential scans?"</em></li>
-<li><em>"What is the current cache hit ratio?"</em></li>
-</ul>
-<p>pg_sage responds with structured data from its findings,
-snapshots, and analysis history.</p>
-<hr />
-<h2 id="step-13-promote-trust-level">Step 13: Promote Trust Level<a class="headerlink" href="#step-13-promote-trust-level" title="Permanent link">&para;</a></h2>
+<h2 id="step-12-promote-trust-level">Step 12: Promote Trust Level<a class="headerlink" href="#step-12-promote-trust-level" title="Permanent link">&para;</a></h2>
 <p>So far pg_sage has been watching. Now let it act.</p>
 <p>Edit <code>tests/demo/config_demo.yaml</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nt">trust</span><span class="p">:</span>
-<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">advisory</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nt">trust</span><span class="p">:</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">advisory</span>
 </code></pre></div>
 <p>Save the file. pg_sage hot-reloads and starts executing
 <strong>safe</strong> actions: dropping duplicate indexes, killing
 sessions idle in transaction too long, and similar
 low-risk fixes.</p>
 <p>Check what it did:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>sagepw<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>sage_agent<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="w">  </span>-d<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
-<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="s2">  SELECT action_type, finding_id, outcome,</span>
-<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="s2">         executed_at</span>
-<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a><span class="s2">    FROM sage.action_log</span>
-<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="s2">   ORDER BY executed_at DESC</span>
-<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="s2">   LIMIT 10;</span>
-<a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a><span class="s2">&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>sagepw<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>sage_agent<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span>-d<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="s2">  SELECT action_type, finding_id, outcome,</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="s2">         executed_at</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="s2">    FROM sage.action_log</span>
+<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="s2">   ORDER BY executed_at DESC</span>
+<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="s2">   LIMIT 10;</span>
+<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="s2">&quot;</span>
 </code></pre></div>
 <p>Every action is logged with the exact SQL that ran, the
 finding that triggered it, whether it succeeded, and the
@@ -1288,11 +1226,11 @@ indexes) only run during off-peak hours.</p>
 <hr />
 <h2 id="clean-up">Clean Up<a class="headerlink" href="#clean-up" title="Permanent link">&para;</a></h2>
 <p>When you are done exploring:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="c1"># Stop pgbench — Ctrl+C in its terminals</span>
-<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="c1"># Stop pg_sage — Ctrl+C in its terminal</span>
-<a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>
-<a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="c1"># Remove the Docker container and all data</span>
-<a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>docker<span class="w"> </span>rm<span class="w"> </span>-f<span class="w"> </span>pg-sage-demo
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># Stop pgbench — Ctrl+C in its terminals</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="c1"># Stop pg_sage — Ctrl+C in its terminal</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="c1"># Remove the Docker container and all data</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>docker<span class="w"> </span>rm<span class="w"> </span>-f<span class="w"> </span>pg-sage-demo
 </code></pre></div>
 <p>That is it. Nothing lingers.</p>
 <hr />
@@ -1374,11 +1312,6 @@ indexes) only run during off-peak hours.</p>
 </tr>
 <tr>
 <td>Prometheus metrics exporter</td>
-<td>Core</td>
-<td>No</td>
-</tr>
-<tr>
-<td>MCP server for AI clients</td>
 <td>Core</td>
 <td>No</td>
 </tr>

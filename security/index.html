@@ -395,33 +395,6 @@
   
   
     <li class="md-nav__item">
-      <a href="../mcp-sidecar.md" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    MCP Sidecar
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    <li class="md-nav__item">
       <a href="../sql-reference/" class="md-nav__link">
         
   
@@ -1397,7 +1370,7 @@
 <h3 id="llm-circuit-breaker">LLM Circuit Breaker<a class="headerlink" href="#llm-circuit-breaker" title="Permanent link">&para;</a></h3>
 <p>Independent breaker for the LLM endpoint. When the LLM is unavailable, all LLM-powered features degrade gracefully to Tier 1 (rules engine) behavior. The breaker auto-recovers after the backoff period.</p>
 <h3 id="daily-token-budget">Daily Token Budget<a class="headerlink" href="#daily-token-budget" title="Permanent link">&para;</a></h3>
-<p>The <code>llm.token_budget</code> setting (default: 50,000) caps total LLM tokens per day. When exhausted, all LLM features are disabled until the next calendar day.</p>
+<p>The <code>llm.token_budget_daily</code> setting (default: 500,000) caps total LLM tokens per day. When exhausted, all LLM features are disabled until the next calendar day.</p>
 <hr />
 <h2 id="emergency-stop">Emergency Stop<a class="headerlink" href="#emergency-stop" title="Permanent link">&para;</a></h2>
 <p>Halt all autonomous activity immediately by setting the emergency stop flag in <code>sage.config</code>:</p>
@@ -1430,7 +1403,7 @@
 <li><strong>Start in observation mode</strong> -- deploy with <code>trust.level: observation</code> and review findings for at least a week.</li>
 <li><strong>Set a maintenance window</strong> -- restrict autonomous actions to low-traffic periods.</li>
 <li><strong>Review findings before escalating trust</strong> -- move to <code>advisory</code> then <code>autonomous</code> only after confirming recommendations are appropriate.</li>
-<li><strong>Set a token budget</strong> -- cap LLM spend with <code>llm.token_budget</code>.</li>
+<li><strong>Set a token budget</strong> -- cap LLM spend with <code>llm.token_budget_daily</code>.</li>
 <li><strong>Use a dedicated database role</strong> -- grant only the required privileges listed above.</li>
 <li><strong>Monitor pg_sage itself</strong> -- check Prometheus metrics and circuit breaker state.</li>
 </ol>
