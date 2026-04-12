@@ -46,7 +46,7 @@ llm:
   enabled: true
   endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
   model: "gemini-2.5-flash"
-  api_key: REDACTED_GEMINI_KEY_2
+  api_key: ${SAGE_LLM_API_KEY}
   timeout_seconds: 60
   token_budget_daily: 200000
   max_output_tokens: 4096
