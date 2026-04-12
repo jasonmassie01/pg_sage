@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/alerting"
-	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/analyzer"
@@ -1260,57 +1259,25 @@ func startAPIServer(rl *RateLimiter) {
 		addr = ":8080"
 	}
 
-	// Session auth + rate limiting applied to /api/v1/* only.
-	// Static dashboard assets are served without auth.
-	// Use fleet pool if available; fall back to global pool
-	// (meta-db pool) so auth routes work even with 0 instances.
-	authPool := fleetMgr.PoolForDatabase("all")
-	if authPool == nil {
-		authPool = pool
-	}
-	var actionDeps *api.ActionDeps
-	if actionStore != nil && exec != nil {
-		actionDeps = &api.ActionDeps{
+	result := wireRouter(WireParams{
+		Cfg:         cfg,
+		Pool:        pool,
+		FleetMgr:    fleetMgr,
+		LLMMgr:      llmMgr,
+		MetaState:   globalMetaState,
+		Actions: struct {
+			Store    *store.ActionStore
+			Executor *executor.Executor
+		}{
 			Store:    actionStore,
 			Executor: exec,
-		}
-	} else if fleetMgr != nil {
-		// In meta-db/fleet mode the global actionStore is nil.
-		// Use fleet-aware handlers that dynamically resolve
-		// pools on each request (survives delete/re-add).
-		actionDeps = &api.ActionDeps{
-			Fleet: fleetMgr,
-		}
-	}
-	var dbDeps *api.DatabaseDeps
-	if globalMetaState != nil && globalMetaState.Store != nil {
-		metaState := globalMetaState
-		dbDeps = &api.DatabaseDeps{
-			Store: metaState.Store,
-			Fleet: fleetMgr,
-			OnCreate: func(rec store.DatabaseRecord) {
-				registerStoreDatabase(metaState, rec)
-			},
-		}
-	} else if pool != nil {
-		// Standalone mode: use the monitored DB pool for managed
-		// database CRUD so the Databases page works.
-		dbDeps = &api.DatabaseDeps{
-			Store: store.NewDatabaseStore(pool, nil),
-		}
-	}
-	router := api.NewRouterFull(
-		fleetMgr, cfg, authPool, actionDeps, dbDeps,
-		llmMgr,
-		api.SessionAuthMiddleware(authPool),
-		func(next http.Handler) http.Handler {
-			return rateLimitMiddleware(rl, next)
 		},
-	)
+		RateLimiter: rl,
+	})
 
 	apiServer = &http.Server{
 		Addr:              addr,
-		Handler:           router,
+		Handler:           result.Handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,
