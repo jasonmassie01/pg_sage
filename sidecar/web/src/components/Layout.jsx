@@ -16,6 +16,8 @@ const NAV_GROUPS = [
         label: 'Recommendations', tid: 'nav-findings' },
       { path: '#/actions', icon: Activity, label: 'Actions',
         tid: 'nav-actions' },
+      { path: '#/incidents', icon: ShieldAlert,
+        label: 'Incidents', tid: 'nav-incidents' },
     ],
   },
   {

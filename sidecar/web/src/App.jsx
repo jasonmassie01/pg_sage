@@ -8,6 +8,7 @@ import { SettingsPage } from './pages/SettingsPage'
 import { ForecastsPage } from './pages/ForecastsPage'
 import { QueryHintsPage } from './pages/QueryHintsPage'
 import { AlertLogPage } from './pages/AlertLogPage'
+import { IncidentsPage } from './pages/IncidentsPage'
 import { LoginPage } from './pages/LoginPage'
 import { UsersPage } from './pages/UsersPage'
 import { NotificationsPage } from './pages/NotificationsPage'
@@ -82,6 +83,8 @@ export default function App() {
       case '/query-hints':
         return <QueryHintsPage database={selectedDB} />
       case '/alerts': return <AlertLogPage database={selectedDB} />
+      case '/incidents':
+        return <IncidentsPage database={selectedDB} user={user} />
       case '/settings': return <SettingsPage database={selectedDB} />
       case '/notifications':
         return user.role === 'admin'
