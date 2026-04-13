@@ -56,6 +56,17 @@ type LogSource interface {
 	Stop()
 }
 
+// ActionQuerier reads recent pg_sage actions and rollback history
+// from sage.action_log. Implemented by store.ActionStore.
+type ActionQuerier interface {
+	RecentSageActions(
+		ctx context.Context, lookback time.Duration,
+	) ([]SageAction, error)
+	RollbackHistory(
+		ctx context.Context, lookback time.Duration,
+	) ([]SageAction, error)
+}
+
 // Engine is the root cause analysis engine supporting Tier 1
 // (deterministic decision trees) and Tier 2 (LLM correlation).
 type Engine struct {
@@ -67,6 +78,8 @@ type Engine struct {
 	logFn           func(string, string, ...any)
 	llmClient       *llm.Client
 	logSource       LogSource
+	actionStore     ActionQuerier
+	correlator      *SelfActionCorrelator
 	mu              sync.Mutex
 }
 
@@ -80,6 +93,14 @@ func (e *Engine) WithLLM(client *llm.Client) {
 // When set, Analyze drains log signals each cycle.
 func (e *Engine) SetLogSource(src LogSource) {
 	e.logSource = src
+}
+
+// WithActionStore enables self-action correlation by wiring in a
+// store that can query sage.action_log for recent actions and
+// rollback history.
+func (e *Engine) WithActionStore(store ActionQuerier) {
+	e.actionStore = store
+	e.correlator = NewSelfActionCorrelator(e.logFn)
 }
 
 // NewEngine creates a new RCA engine with the given configuration.
@@ -135,6 +156,10 @@ func (e *Engine) Analyze(
 
 	for i := range newIncidents {
 		e.dedup(&newIncidents[i])
+	}
+
+	if e.correlator != nil && e.actionStore != nil {
+		e.applySelfActionCorrelation(newIncidents)
 	}
 
 	e.autoResolve(firedIDs)
@@ -270,6 +295,52 @@ func (e *Engine) escalate() {
 			e.logFn("warn", "rca: escalated incident %s to critical (%s)",
 				inc.ID, inc.RootCause)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Self-action correlation
+// ---------------------------------------------------------------------------
+
+// applySelfActionCorrelation queries recent actions and rollback
+// history, then correlates them with new incidents. Any self-caused
+// or manual-review incidents are deduped and added to e.incidents.
+func (e *Engine) applySelfActionCorrelation(newIncidents []Incident) {
+	ctx := context.Background()
+
+	recentActions, err := e.actionStore.RecentSageActions(
+		ctx, 30*time.Minute)
+	if err != nil {
+		e.logFn("warn",
+			"rca: failed to query recent actions: %v", err)
+		return
+	}
+
+	rollbackHistory, err := e.actionStore.RollbackHistory(
+		ctx, 30*24*time.Hour)
+	if err != nil {
+		e.logFn("warn",
+			"rca: failed to query rollback history: %v", err)
+		return
+	}
+
+	if len(recentActions) == 0 {
+		return
+	}
+
+	_, selfCaused, manualReview := e.correlator.Correlate(
+		newIncidents, recentActions, rollbackHistory)
+
+	for i := range selfCaused {
+		e.logFn("warn",
+			"rca: self-caused incident: %s", selfCaused[i].RootCause)
+		e.dedup(&selfCaused[i])
+	}
+	for i := range manualReview {
+		e.logFn("warn",
+			"rca: manual review required: %s",
+			manualReview[i].RootCause)
+		e.dedup(&manualReview[i])
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -471,16 +472,33 @@ func initStandalone() {
 	)
 
 	// v0.9: RCA engine.
+	var rcaEng *rca.Engine
 	if cfg.RCA.Enabled {
-		rcaEng := rca.NewEngine(
+		rcaEng = rca.NewEngine(
 			&cfg.RCA, logStructuredWrapper)
 		if llmClient.IsEnabled() {
 			rcaEng.WithLLM(llmClient)
 		}
 		// v0.9.1: log-based RCA.
 		if cfg.LogWatch.Enabled {
+			lwCfg := cfg.LogWatch
+			if lwCfg.LogDirectory == "" || lwCfg.Format == "" {
+				dir, logFmt, err :=
+					logwatch.DetectLogSettings(shutdownCtx, pool)
+				if err != nil {
+					logWarn("startup",
+						"logwatch: auto-detect failed: %v", err)
+				} else {
+					if lwCfg.LogDirectory == "" {
+						lwCfg.LogDirectory = dir
+					}
+					if lwCfg.Format == "" {
+						lwCfg.Format = logFmt
+					}
+				}
+			}
 			fw := logwatch.NewFileWatcher(
-				cfg.LogWatch, logStructuredWrapper)
+				lwCfg, logStructuredWrapper)
 			if err := fw.Start(shutdownCtx); err != nil {
 				logWarn("startup",
 					"logwatch: failed to start: %v", err)
@@ -504,6 +522,11 @@ func initStandalone() {
 	// 9b. Action queue store + execution mode.
 	actionStore = store.NewActionStore(pool)
 	exec.WithActionStore(actionStore, resolveExecutionMode())
+
+	// 9b-ii. Wire action store into RCA for self-action correlation.
+	if rcaEng != nil {
+		rcaEng.WithActionStore(actionStore)
+	}
 
 	// 9c. Notification dispatcher.
 	notifyDispatcher := notify.NewDispatcher(
@@ -702,6 +725,12 @@ func initFleetMultiDB() {
 	llmMgr = llm.NewManager(llmClient, nil, false)
 
 	var configPool *pgxpool.Pool // first connected DB used for config store
+
+	// v0.9.1: fleet-mode logwatch — one watcher per cluster (host:port).
+	// Multiple databases on the same PostgreSQL instance share a log
+	// directory, so we create one FileWatcher per cluster and fan out
+	// signals to each database's RCA engine.
+	logFanouts := make(map[string]*logwatch.LogFanout)
 
 	for i, dbCfg := range cfg.Databases {
 		name := dbCfg.Name
@@ -961,16 +990,28 @@ func initFleetMultiDB() {
 			logStructuredWrapper)
 
 		// v0.9: per-database RCA engine.
+		var dbRCAEng *rca.Engine
 		if cfg.RCA.Enabled {
-			rcaEng := rca.NewEngine(
+			dbRCAEng = rca.NewEngine(
 				&cfg.RCA, logStructuredWrapper)
 			if llmClient.IsEnabled() {
-				rcaEng.WithLLM(llmClient)
+				dbRCAEng.WithLLM(llmClient)
 			}
-			// v0.9.1: LogWatch in fleet mode requires per-cluster
-			// (not per-database) watcher. Deferred to fleet-aware
-			// log routing in a future release.
-			dbAnal.WithRCAEngine(&rcaAdapter{e: rcaEng})
+			// v0.9.1: fleet-mode logwatch via per-cluster fanout.
+			if cfg.LogWatch.Enabled {
+				clusterKey := dbCfg.Host + ":" +
+					strconv.Itoa(dbCfg.Port)
+				fanout := logFanouts[clusterKey]
+				if fanout == nil {
+					fanout = startFleetLogWatcher(
+						clusterKey, dbPool, logFanouts)
+				}
+				if fanout != nil {
+					sub := fanout.Subscribe(name)
+					dbRCAEng.SetLogSource(sub)
+				}
+			}
+			dbAnal.WithRCAEngine(&rcaAdapter{e: dbRCAEng})
 		}
 
 		go dbAnal.Run(shutdownCtx)
@@ -987,6 +1028,11 @@ func initFleetMultiDB() {
 		dbExec.WithAnalyzeSemaphore(analyzeSem)
 		dbActionStore := store.NewActionStore(dbPool)
 		dbExec.WithActionStore(dbActionStore, "auto")
+
+		// Wire action store into per-database RCA engine.
+		if dbRCAEng != nil {
+			dbRCAEng.WithActionStore(dbActionStore)
+		}
 
 		// Notification dispatcher per database.
 		dbDispatcher := notify.NewDispatcher(
@@ -1038,6 +1084,9 @@ func initFleetMultiDB() {
 		logInfo("fleet", "db %q: initialized (%s)", name, features)
 	}
 
+	// v0.9.1: start periodic drain goroutine for each cluster fanout.
+	startFanoutDrainLoops(logFanouts)
+
 	// Register fleet databases in sage.databases for config API.
 	if configPool != nil {
 		registerFleetDatabases(configPool)
@@ -1074,6 +1123,83 @@ func registerFleetDatabases(configPool *pgxpool.Pool) {
 		logInfo("fleet",
 			"db %q: registered as database ID %d",
 			dbCfg.Name, dbID)
+	}
+}
+
+// startFleetLogWatcher creates a FileWatcher for the given cluster
+// (identified by host:port), registers it in logFanouts, and returns
+// the LogFanout. Returns nil on failure.
+func startFleetLogWatcher(
+	clusterKey string,
+	pool *pgxpool.Pool,
+	logFanouts map[string]*logwatch.LogFanout,
+) *logwatch.LogFanout {
+	lwCfg := cfg.LogWatch
+	if lwCfg.LogDirectory == "" || lwCfg.Format == "" {
+		dir, logFmt, err := logwatch.DetectLogSettings(
+			shutdownCtx, pool)
+		if err != nil {
+			logWarn("fleet",
+				"logwatch[%s]: auto-detect: %v",
+				clusterKey, err)
+			return nil
+		}
+		if lwCfg.LogDirectory == "" {
+			lwCfg.LogDirectory = dir
+		}
+		if lwCfg.Format == "" {
+			lwCfg.Format = logFmt
+		}
+	}
+	fw := logwatch.NewFileWatcher(lwCfg, logStructuredWrapper)
+	if err := fw.Start(shutdownCtx); err != nil {
+		logWarn("fleet",
+			"logwatch[%s]: start failed: %v",
+			clusterKey, err)
+		return nil
+	}
+	fanout := logwatch.NewLogFanout(fw)
+	logFanouts[clusterKey] = fanout
+	logInfo("fleet",
+		"logwatch[%s]: started (dir=%s format=%s)",
+		clusterKey, lwCfg.LogDirectory, lwCfg.Format)
+	return fanout
+}
+
+// startFanoutDrainLoops starts a goroutine for each cluster fanout
+// that periodically drains the underlying FileWatcher and distributes
+// signals to all subscribers.
+func startFanoutDrainLoops(
+	fanouts map[string]*logwatch.LogFanout,
+) {
+	interval := time.Duration(
+		cfg.LogWatch.PollIntervalMs) * time.Millisecond
+	if interval == 0 {
+		interval = 1000 * time.Millisecond
+	}
+	for key, fanout := range fanouts {
+		go runFanoutDrain(key, fanout, interval)
+	}
+}
+
+// runFanoutDrain drains a single LogFanout on a ticker until
+// shutdownCtx is cancelled.
+func runFanoutDrain(
+	key string,
+	fanout *logwatch.LogFanout,
+	interval time.Duration,
+) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-shutdownCtx.Done():
+			fanout.Stop()
+			logInfo("fleet", "logwatch[%s]: stopped", key)
+			return
+		case <-ticker.C:
+			fanout.DrainSource()
+		}
 	}
 }
 
