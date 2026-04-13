@@ -226,6 +226,130 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "30",
 		reader: func(c *config.Config) string { return itoa(c.Retention.ExplainsDays) },
 	},
+
+	// --- v0.9: lock chain detection ---
+	"analyzer.lock_chain.enabled": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.Analyzer.LockChain.Enabled) },
+	},
+	"analyzer.lock_chain.min_blocked_threshold": {
+		input:  "42",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.LockChain.MinBlockedThreshold) },
+	},
+	"analyzer.lock_chain.critical_blocked_threshold": {
+		input:  "42",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.LockChain.CriticalBlockedThreshold) },
+	},
+	"analyzer.lock_chain.idle_in_tx_terminate_minutes": {
+		input:  "42",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.LockChain.IdleInTxTerminateMinutes) },
+	},
+	"analyzer.lock_chain.active_query_cancel_minutes": {
+		input:  "42",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.LockChain.ActiveQueryCancelMinutes) },
+	},
+
+	// --- v0.9: RCA engine ---
+	"rca.enabled": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.RCA.Enabled) },
+	},
+	"rca.llm_correlation_threshold": {
+		input:  "42",
+		reader: func(c *config.Config) string { return itoa(c.RCA.LLMCorrelationThreshold) },
+	},
+	"rca.dedup_window_minutes": {
+		input:  "42",
+		reader: func(c *config.Config) string { return itoa(c.RCA.DedupWindowMinutes) },
+	},
+	"rca.escalation_cycles": {
+		input:  "42",
+		reader: func(c *config.Config) string { return itoa(c.RCA.EscalationCycles) },
+	},
+	"rca.resolution_cycles": {
+		input:  "42",
+		reader: func(c *config.Config) string { return itoa(c.RCA.ResolutionCycles) },
+	},
+	"rca.connection_saturation_pct": {
+		input:  "80",
+		reader: func(c *config.Config) string { return itoa(c.RCA.ConnectionSaturationPct) },
+	},
+	"rca.replication_lag_threshold_seconds": {
+		input:  "42",
+		reader: func(c *config.Config) string { return itoa(c.RCA.ReplicationLagThresholdS) },
+	},
+	"rca.wal_spike_multiplier": {
+		input:  "2.5",
+		reader: func(c *config.Config) string { return ftoa(c.RCA.WALSpikeMultiplier) },
+	},
+
+	// --- v0.9: runaway query termination ---
+	"runaway.enabled": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.Runaway.Enabled) },
+	},
+
+	// --- v0.9: natural language EXPLAIN ---
+	"explain.enabled": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.Explain.Enabled) },
+	},
+	"explain.timeout_ms": {
+		input:  "42",
+		reader: func(c *config.Config) string { return itoa(c.Explain.TimeoutMs) },
+	},
+	"explain.cache_ttl_minutes": {
+		input:  "42",
+		reader: func(c *config.Config) string { return itoa(c.Explain.CacheTTLMinutes) },
+	},
+	"explain.max_tokens": {
+		input:  "42",
+		reader: func(c *config.Config) string { return itoa(c.Explain.MaxTokens) },
+	},
+
+	// --- v0.9.1: LogWatch (log-based RCA) ---
+	"logwatch.enabled": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.LogWatch.Enabled) },
+	},
+	"logwatch.log_directory": {
+		input:  "/var/log/postgresql",
+		reader: func(c *config.Config) string { return c.LogWatch.LogDirectory },
+	},
+	"logwatch.format": {
+		input:  "jsonlog",
+		reader: func(c *config.Config) string { return c.LogWatch.Format },
+	},
+	"logwatch.poll_interval_ms": {
+		input:  "2000",
+		reader: func(c *config.Config) string { return itoa(c.LogWatch.PollIntervalMs) },
+	},
+	"logwatch.dedup_window_seconds": {
+		input:  "120",
+		reader: func(c *config.Config) string { return itoa(c.LogWatch.DedupWindowS) },
+	},
+	"logwatch.max_line_len_bytes": {
+		input:  "32768",
+		reader: func(c *config.Config) string { return itoa(c.LogWatch.MaxLineLenBytes) },
+	},
+	"logwatch.temp_file_min_bytes": {
+		input:  "5242880",
+		reader: func(c *config.Config) string { return itoa(c.LogWatch.TempFileMinBytes) },
+	},
+	"logwatch.max_lines_per_cycle": {
+		input:  "5000",
+		reader: func(c *config.Config) string { return itoa(c.LogWatch.MaxLinesPerCycle) },
+	},
+	"logwatch.exclude_applications": {
+		input: "pg_sage",
+		reader: func(c *config.Config) string {
+			return strings.Join(c.LogWatch.ExcludeApplications, ",")
+		},
+	},
+	"logwatch.slow_query_enabled": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.LogWatch.SlowQueryEnabled) },
+	},
 }
 
 // itoa formats an int for comparison.

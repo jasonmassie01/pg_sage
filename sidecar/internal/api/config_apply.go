@@ -67,6 +67,14 @@ func hotReload(cfg *config.Config, key, value string) {
 		hotReloadAutoExplain(cfg, key, value)
 	case strings.HasPrefix(key, "tuner."):
 		hotReloadTuner(cfg, key, value)
+	case strings.HasPrefix(key, "rca."):
+		hotReloadRCA(cfg, key, value)
+	case strings.HasPrefix(key, "runaway."):
+		hotReloadRunaway(cfg, key, value)
+	case strings.HasPrefix(key, "explain."):
+		hotReloadExplain(cfg, key, value)
+	case strings.HasPrefix(key, "logwatch."):
+		hotReloadLogWatch(cfg, key, value)
 	}
 }
 
@@ -100,6 +108,16 @@ func hotReloadAnalyzer(cfg *config.Config, key, v string) {
 		cfg.Analyzer.RegressionThresholdPct = atoi(v)
 	case "analyzer.cache_hit_ratio_warning":
 		cfg.Analyzer.CacheHitRatioWarning = atof(v)
+	case "analyzer.lock_chain.enabled":
+		cfg.Analyzer.LockChain.Enabled = v == "true"
+	case "analyzer.lock_chain.min_blocked_threshold":
+		cfg.Analyzer.LockChain.MinBlockedThreshold = atoi(v)
+	case "analyzer.lock_chain.critical_blocked_threshold":
+		cfg.Analyzer.LockChain.CriticalBlockedThreshold = atoi(v)
+	case "analyzer.lock_chain.idle_in_tx_terminate_minutes":
+		cfg.Analyzer.LockChain.IdleInTxTerminateMinutes = atoi(v)
+	case "analyzer.lock_chain.active_query_cancel_minutes":
+		cfg.Analyzer.LockChain.ActiveQueryCancelMinutes = atoi(v)
 	}
 }
 
@@ -282,6 +300,72 @@ func hotReloadTuner(cfg *config.Config, key, v string) {
 		cfg.Tuner.MinQueryCalls = atoi(v)
 	case "tuner.verify_after_apply":
 		cfg.Tuner.VerifyAfterApply = v == "true"
+	}
+}
+
+func hotReloadRCA(cfg *config.Config, key, v string) {
+	switch key {
+	case "rca.enabled":
+		cfg.RCA.Enabled = v == "true"
+	case "rca.llm_correlation_threshold":
+		cfg.RCA.LLMCorrelationThreshold = atoi(v)
+	case "rca.dedup_window_minutes":
+		cfg.RCA.DedupWindowMinutes = atoi(v)
+	case "rca.escalation_cycles":
+		cfg.RCA.EscalationCycles = atoi(v)
+	case "rca.resolution_cycles":
+		cfg.RCA.ResolutionCycles = atoi(v)
+	case "rca.connection_saturation_pct":
+		cfg.RCA.ConnectionSaturationPct = atoi(v)
+	case "rca.replication_lag_threshold_seconds":
+		cfg.RCA.ReplicationLagThresholdS = atoi(v)
+	case "rca.wal_spike_multiplier":
+		cfg.RCA.WALSpikeMultiplier = atof(v)
+	}
+}
+
+func hotReloadRunaway(cfg *config.Config, key, v string) {
+	switch key {
+	case "runaway.enabled":
+		cfg.Runaway.Enabled = v == "true"
+	}
+}
+
+func hotReloadExplain(cfg *config.Config, key, v string) {
+	switch key {
+	case "explain.enabled":
+		cfg.Explain.Enabled = v == "true"
+	case "explain.timeout_ms":
+		cfg.Explain.TimeoutMs = atoi(v)
+	case "explain.cache_ttl_minutes":
+		cfg.Explain.CacheTTLMinutes = atoi(v)
+	case "explain.max_tokens":
+		cfg.Explain.MaxTokens = atoi(v)
+	}
+}
+
+func hotReloadLogWatch(cfg *config.Config, key, v string) {
+	switch key {
+	case "logwatch.enabled":
+		cfg.LogWatch.Enabled = v == "true"
+	case "logwatch.log_directory":
+		cfg.LogWatch.LogDirectory = v
+	case "logwatch.format":
+		cfg.LogWatch.Format = v
+	case "logwatch.poll_interval_ms":
+		cfg.LogWatch.PollIntervalMs = atoi(v)
+	case "logwatch.dedup_window_seconds":
+		cfg.LogWatch.DedupWindowS = atoi(v)
+	case "logwatch.max_line_len_bytes":
+		cfg.LogWatch.MaxLineLenBytes = atoi(v)
+	case "logwatch.temp_file_min_bytes":
+		cfg.LogWatch.TempFileMinBytes = atoi(v)
+	case "logwatch.max_lines_per_cycle":
+		cfg.LogWatch.MaxLinesPerCycle = atoi(v)
+	case "logwatch.exclude_applications":
+		cfg.LogWatch.ExcludeApplications = strings.Split(v, ",")
+	case "logwatch.slow_query_enabled":
+		cfg.LogWatch.SlowQueryEnabled = v == "true"
 	}
 }
 

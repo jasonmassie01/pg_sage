@@ -28,6 +28,9 @@ var expectedTables = []struct {
 	{"notification_rules", ddlNotificationRules},
 	{"notification_log", ddlNotificationLog},
 	{"action_queue", ddlActionQueue},
+	{"incidents", ddlIncidents},
+	{"size_history", ddlSizeHistory},
+	{"explain_results", ddlExplainResults},
 }
 
 // Bootstrap acquires an advisory lock, then ensures the sage schema and
@@ -265,7 +268,8 @@ CREATE SCHEMA IF NOT EXISTS sage;
 	ddlNotificationChannels + ddlNotificationRules +
 	ddlNotificationLog + ddlActionQueue +
 	ddlActionLogApprovalCols + ddlUsersOAuth +
-	ddlQueryHintsRewrite + ddlQueryHintsRevalidate
+	ddlQueryHintsRewrite + ddlQueryHintsRevalidate +
+	ddlIncidents + ddlSizeHistory + ddlExplainResults
 
 const ddlActionLog = `
 CREATE TABLE IF NOT EXISTS sage.action_log (
@@ -488,4 +492,62 @@ ALTER TABLE sage.query_hints
 CREATE INDEX IF NOT EXISTS idx_query_hints_revalidate
     ON sage.query_hints (last_revalidated_at NULLS FIRST)
     WHERE status = 'active';
+`
+
+// v0.9 — Root Cause Analysis incidents table.
+const ddlIncidents = `
+CREATE TABLE IF NOT EXISTS sage.incidents (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    detected_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    severity          TEXT NOT NULL CHECK (severity IN ('warning', 'critical')),
+    root_cause        TEXT NOT NULL,
+    causal_chain      JSONB NOT NULL DEFAULT '[]',
+    affected_objects  TEXT[] NOT NULL DEFAULT '{}',
+    signal_ids        TEXT[] NOT NULL DEFAULT '{}',
+    recommended_sql   TEXT,
+    rollback_sql      TEXT,
+    action_risk       TEXT CHECK (action_risk IN ('safe', 'moderate', 'high_risk') OR action_risk IS NULL),
+    source            TEXT NOT NULL CHECK (source IN ('deterministic', 'llm')),
+    confidence        NUMERIC(3,2) NOT NULL DEFAULT 1.0,
+    related_findings  UUID[],
+    resolved_at       TIMESTAMPTZ,
+    database_name     TEXT,
+    occurrence_count  INT NOT NULL DEFAULT 1,
+    escalated_at      TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_incidents_active ON sage.incidents (detected_at DESC) WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_incidents_severity ON sage.incidents (severity) WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_incidents_database ON sage.incidents (database_name, detected_at DESC);
+`
+
+// v0.9 — Storage growth forecasting history table.
+const ddlSizeHistory = `
+CREATE TABLE IF NOT EXISTS sage.size_history (
+    id              BIGSERIAL PRIMARY KEY,
+    collected_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    metric_type     TEXT NOT NULL CHECK (metric_type IN ('database', 'table', 'wal_slot')),
+    object_name     TEXT NOT NULL,
+    size_bytes      BIGINT NOT NULL,
+    dead_tuple_pct  NUMERIC(5,2),
+    database_name   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_size_history_lookup
+    ON sage.size_history (metric_type, object_name, collected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_size_history_recent
+    ON sage.size_history (collected_at DESC);
+`
+
+// v0.9 — Natural Language EXPLAIN cache (replaces the old explain_cache for this purpose).
+// The existing explain_cache stores auto_explain plan captures.
+// This new table caches LLM-generated explain results with TTL.
+const ddlExplainResults = `
+CREATE TABLE IF NOT EXISTS sage.explain_results (
+    query_hash      BIGINT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at      TIMESTAMPTZ NOT NULL,
+    plan_json       JSONB NOT NULL,
+    explanation     JSONB NOT NULL,
+    database_name   TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (query_hash, database_name)
+);
 `

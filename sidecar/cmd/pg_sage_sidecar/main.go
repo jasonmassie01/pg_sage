@@ -29,7 +29,9 @@ import (
 	"github.com/pg-sage/sidecar/internal/forecaster"
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/retention"
 	"github.com/pg-sage/sidecar/internal/store"
 	"github.com/pg-sage/sidecar/internal/tuner"
@@ -385,6 +387,11 @@ func initStandalone() {
 			CacheWarnThreshold:   cfg.Forecaster.CacheWarnThreshold,
 			SequenceWarnDays:     cfg.Forecaster.SequenceWarnDays,
 			SequenceCriticalDays: cfg.Forecaster.SequenceCriticalDays,
+			// v0.9: storage growth forecasting.
+			MinDataPoints:     cfg.Forecaster.MinDataPoints,
+			AlertHorizons:     cfg.Forecaster.AlertHorizons,
+			DiskCapacityBytes: cfg.Forecaster.DiskCapacityBytes,
+			MinRSquared:       cfg.Forecaster.MinRSquared,
 		}
 		fc = forecaster.New(pool, fcCfg, logStructuredWrapper)
 		logInfo("startup", "forecaster enabled, lookback=%dd",
@@ -462,6 +469,32 @@ func initStandalone() {
 		pool, cfg, coll, opt, advIface, fc, qt,
 		logStructuredWrapper,
 	)
+
+	// v0.9: RCA engine.
+	if cfg.RCA.Enabled {
+		rcaEng := rca.NewEngine(
+			&cfg.RCA, logStructuredWrapper)
+		if llmClient.IsEnabled() {
+			rcaEng.WithLLM(llmClient)
+		}
+		// v0.9.1: log-based RCA.
+		if cfg.LogWatch.Enabled {
+			fw := logwatch.NewFileWatcher(
+				cfg.LogWatch, logStructuredWrapper)
+			if err := fw.Start(shutdownCtx); err != nil {
+				logWarn("startup",
+					"logwatch: failed to start: %v", err)
+			} else {
+				rcaEng.SetLogSource(fw)
+			}
+		}
+		anal.WithRCAEngine(&rcaAdapter{e: rcaEng})
+		logInfo("startup", "rca engine enabled — "+
+			"resolution_cycles=%d, escalation_cycles=%d",
+			cfg.RCA.ResolutionCycles,
+			cfg.RCA.EscalationCycles)
+	}
+
 	go anal.Run(shutdownCtx)
 
 	// 9. Executor runs after analyzer (called from analyzer loop).
@@ -781,11 +814,18 @@ func initFleetMultiDB() {
 		var fc *forecaster.Forecaster
 		if cfg.Forecaster.Enabled {
 			fcCfg := forecaster.ForecasterConfig{
-				Enabled:             cfg.Forecaster.Enabled,
-				LookbackDays:        cfg.Forecaster.LookbackDays,
-				DiskWarnGrowthGBDay: cfg.Forecaster.DiskWarnGrowthGBDay,
-				ConnectionWarnPct:   cfg.Forecaster.ConnectionWarnPct,
-				CacheWarnThreshold:  cfg.Forecaster.CacheWarnThreshold,
+				Enabled:              cfg.Forecaster.Enabled,
+				LookbackDays:         cfg.Forecaster.LookbackDays,
+				DiskWarnGrowthGBDay:  cfg.Forecaster.DiskWarnGrowthGBDay,
+				ConnectionWarnPct:    cfg.Forecaster.ConnectionWarnPct,
+				CacheWarnThreshold:   cfg.Forecaster.CacheWarnThreshold,
+				SequenceWarnDays:     cfg.Forecaster.SequenceWarnDays,
+				SequenceCriticalDays: cfg.Forecaster.SequenceCriticalDays,
+				// v0.9: storage growth forecasting.
+				MinDataPoints:     cfg.Forecaster.MinDataPoints,
+				AlertHorizons:     cfg.Forecaster.AlertHorizons,
+				DiskCapacityBytes: cfg.Forecaster.DiskCapacityBytes,
+				MinRSquared:       cfg.Forecaster.MinRSquared,
 			}
 			fc = forecaster.New(
 				dbPool, fcCfg, logStructuredWrapper)
@@ -919,6 +959,20 @@ func initFleetMultiDB() {
 		dbAnal := analyzer.New(
 			dbPool, cfg, dbColl, dbOpt, dbAdvIface, fc, dbTuner,
 			logStructuredWrapper)
+
+		// v0.9: per-database RCA engine.
+		if cfg.RCA.Enabled {
+			rcaEng := rca.NewEngine(
+				&cfg.RCA, logStructuredWrapper)
+			if llmClient.IsEnabled() {
+				rcaEng.WithLLM(llmClient)
+			}
+			// v0.9.1: LogWatch in fleet mode requires per-cluster
+			// (not per-database) watcher. Deferred to fleet-aware
+			// log routing in a future release.
+			dbAnal.WithRCAEngine(&rcaAdapter{e: rcaEng})
+		}
+
 		go dbAnal.Run(shutdownCtx)
 
 		// Per-database executor. Pass the YAML-parsed configRampStart

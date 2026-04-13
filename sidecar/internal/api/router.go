@@ -198,6 +198,35 @@ func registerAPIRoutes(
 		llmBudgetResetHandler(llmMgr)))
 	mux.Handle(
 		"POST /api/v1/llm/budget/reset", budgetResetH)
+
+	// v0.9 — Incident endpoints
+	mux.HandleFunc(
+		"GET /api/v1/incidents",
+		incidentsListHandler(mgr))
+	mux.HandleFunc(
+		"GET /api/v1/incidents/active",
+		incidentsActiveHandler(mgr))
+	mux.HandleFunc(
+		"GET /api/v1/incidents/{id}",
+		incidentDetailHandler(mgr))
+	resolveH := operatorUp(http.HandlerFunc(
+		incidentResolveHandler(mgr)))
+	mux.Handle(
+		"POST /api/v1/incidents/{id}/resolve", resolveH)
+
+	// v0.9 — Explain endpoint
+	var explainLLM *llm.Client
+	if llmMgr != nil {
+		explainLLM = llmMgr.General
+	}
+	mux.HandleFunc(
+		"POST /api/v1/explain",
+		explainHandler(mgr, cfg, explainLLM))
+
+	// v0.9 — Growth forecast endpoint
+	mux.HandleFunc(
+		"GET /api/v1/forecasts/growth",
+		growthForecastHandler(mgr))
 }
 
 func registerAuthRoutes(

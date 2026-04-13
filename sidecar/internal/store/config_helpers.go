@@ -13,53 +13,91 @@ import (
 
 // allowedConfigKeys maps dot-notation keys to their value type.
 var allowedConfigKeys = map[string]string{
-	"collector.interval_seconds":     "int_min5",
-	"collector.batch_size":           "int_pos",
-	"collector.max_queries":          "int_pos",
-	"analyzer.interval_seconds":      "int_min5",
-	"analyzer.slow_query_threshold_ms": "int_nonneg",
-	"analyzer.seq_scan_min_rows":     "int_pos",
-	"analyzer.unused_index_window_days": "int_pos",
-	"analyzer.index_bloat_threshold_pct": "pct",
+	"collector.interval_seconds":          "int_min5",
+	"collector.batch_size":                "int_pos",
+	"collector.max_queries":               "int_pos",
+	"analyzer.interval_seconds":           "int_min5",
+	"analyzer.slow_query_threshold_ms":    "int_nonneg",
+	"analyzer.seq_scan_min_rows":          "int_pos",
+	"analyzer.unused_index_window_days":   "int_pos",
+	"analyzer.index_bloat_threshold_pct":  "pct",
 	"analyzer.table_bloat_dead_tuple_pct": "pct",
-	"analyzer.regression_threshold_pct": "pct",
-	"analyzer.cache_hit_ratio_warning": "float01",
-	"trust.level":                    "trust_level",
-	"trust.tier3_safe":               "bool",
-	"trust.tier3_moderate":           "bool",
-	"trust.tier3_high_risk":          "bool",
-	"trust.maintenance_window":       "string",
-	"trust.rollback_threshold_pct":   "pct",
-	"trust.rollback_window_minutes":  "int_pos",
-	"trust.rollback_cooldown_days":   "int_pos",
-	"trust.cascade_cooldown_cycles":  "int_pos",
-	"safety.cpu_ceiling_pct":         "pct1_100",
-	"safety.query_timeout_ms":        "int_pos",
-	"safety.ddl_timeout_seconds":     "int_pos",
-	"safety.lock_timeout_ms":         "int_pos",
-	"llm.enabled":                    "bool",
-	"llm.endpoint":                   "string",
-	"llm.api_key":                    "string",
-	"llm.model":                      "string",
-	"llm.timeout_seconds":            "int_pos",
-	"llm.token_budget_daily":         "int_pos",
-	"llm.context_budget_tokens":      "int_pos",
-	"advisor.enabled":                "bool",
-	"advisor.interval_seconds":       "int_min5",
-	"llm.optimizer.enabled":          "bool",
-	"llm.optimizer.min_query_calls":  "int_pos",
-	"llm.optimizer.max_new_per_table": "int_pos",
-	"alerting.enabled":               "bool",
-	"alerting.slack_webhook_url":     "string",
-	"alerting.pagerduty_routing_key": "string",
-	"alerting.check_interval_seconds": "int_min5",
-	"alerting.cooldown_minutes":      "int_pos",
-	"alerting.quiet_hours_start":     "string",
-	"alerting.quiet_hours_end":       "string",
-	"retention.snapshots_days":       "int_pos",
-	"retention.findings_days":        "int_pos",
-	"retention.actions_days":         "int_pos",
-	"retention.explains_days":        "int_pos",
+	"analyzer.regression_threshold_pct":   "pct",
+	"analyzer.cache_hit_ratio_warning":    "float01",
+	"trust.level":                         "trust_level",
+	"trust.tier3_safe":                    "bool",
+	"trust.tier3_moderate":                "bool",
+	"trust.tier3_high_risk":               "bool",
+	"trust.maintenance_window":            "string",
+	"trust.rollback_threshold_pct":        "pct",
+	"trust.rollback_window_minutes":       "int_pos",
+	"trust.rollback_cooldown_days":        "int_pos",
+	"trust.cascade_cooldown_cycles":       "int_pos",
+	"safety.cpu_ceiling_pct":              "pct1_100",
+	"safety.query_timeout_ms":             "int_pos",
+	"safety.ddl_timeout_seconds":          "int_pos",
+	"safety.lock_timeout_ms":              "int_pos",
+	"llm.enabled":                         "bool",
+	"llm.endpoint":                        "string",
+	"llm.api_key":                         "string",
+	"llm.model":                           "string",
+	"llm.timeout_seconds":                 "int_pos",
+	"llm.token_budget_daily":              "int_pos",
+	"llm.context_budget_tokens":           "int_pos",
+	"advisor.enabled":                     "bool",
+	"advisor.interval_seconds":            "int_min5",
+	"llm.optimizer.enabled":               "bool",
+	"llm.optimizer.min_query_calls":       "int_pos",
+	"llm.optimizer.max_new_per_table":     "int_pos",
+	"alerting.enabled":                    "bool",
+	"alerting.slack_webhook_url":          "string",
+	"alerting.pagerduty_routing_key":      "string",
+	"alerting.check_interval_seconds":     "int_min5",
+	"alerting.cooldown_minutes":           "int_pos",
+	"alerting.quiet_hours_start":          "string",
+	"alerting.quiet_hours_end":            "string",
+	"retention.snapshots_days":            "int_pos",
+	"retention.findings_days":             "int_pos",
+	"retention.actions_days":              "int_pos",
+	"retention.explains_days":             "int_pos",
+
+	// v0.9: RCA engine.
+	"rca.enabled":                           "bool",
+	"rca.llm_correlation_threshold":         "int_pos",
+	"rca.dedup_window_minutes":              "int_pos",
+	"rca.escalation_cycles":                 "int_pos",
+	"rca.resolution_cycles":                 "int_pos",
+	"rca.connection_saturation_pct":         "pct",
+	"rca.replication_lag_threshold_seconds": "int_pos",
+	"rca.wal_spike_multiplier":              "float_pos",
+
+	// v0.9: Lock chain detection.
+	"analyzer.lock_chain.enabled":                      "bool",
+	"analyzer.lock_chain.min_blocked_threshold":        "int_pos",
+	"analyzer.lock_chain.critical_blocked_threshold":   "int_pos",
+	"analyzer.lock_chain.idle_in_tx_terminate_minutes": "int_pos",
+	"analyzer.lock_chain.active_query_cancel_minutes":  "int_pos",
+
+	// v0.9: Runaway query termination.
+	"runaway.enabled": "bool",
+
+	// v0.9: Natural language EXPLAIN.
+	"explain.enabled":           "bool",
+	"explain.timeout_ms":        "int_pos",
+	"explain.cache_ttl_minutes": "int_pos",
+	"explain.max_tokens":        "int_pos",
+
+	// v0.9.1: LogWatch (log-based RCA).
+	"logwatch.enabled":              "bool",
+	"logwatch.log_directory":        "string",
+	"logwatch.format":               "string",
+	"logwatch.poll_interval_ms":     "int_pos",
+	"logwatch.dedup_window_seconds": "int_pos",
+	"logwatch.max_line_len_bytes":   "int_pos",
+	"logwatch.temp_file_min_bytes":  "int_pos",
+	"logwatch.max_lines_per_cycle":  "int_pos",
+	"logwatch.exclude_applications": "string",
+	"logwatch.slow_query_enabled":   "bool",
 }
 
 func validateConfigKey(key string) error {
@@ -91,6 +129,8 @@ func validateByType(vtype, key, value string) error {
 		return validateIntRange(key, value, 1, 100)
 	case "float01":
 		return validateFloatRange(key, value, 0, 1)
+	case "float_pos":
+		return validateFloatRange(key, value, 0.001, 1e9)
 	case "bool":
 		return validateBool(key, value)
 	case "trust_level":
@@ -270,7 +310,7 @@ func scanAuditRows(rows pgx.Rows) ([]ConfigAuditEntry, error) {
 // configToMap converts a Config struct into a flat map with source
 // indicators.
 func configToMap(cfg *config.Config) map[string]any {
-	m := make(map[string]any, 60)
+	m := make(map[string]any, 70)
 	addField(m, "collector.interval_seconds",
 		cfg.Collector.IntervalSeconds, "yaml")
 	addField(m, "collector.batch_size",
@@ -284,6 +324,10 @@ func configToMap(cfg *config.Config) map[string]any {
 	addAdvisorFields(m, &cfg.Advisor)
 	addAlertingFields(m, &cfg.Alerting)
 	addRetentionFields(m, &cfg.Retention)
+	addRCAFields(m, &cfg.RCA)
+	addRunawayFields(m, &cfg.Runaway)
+	addExplainFields(m, &cfg.Explain)
+	addLogWatchFields(m, &cfg.LogWatch)
 	return m
 }
 
@@ -308,6 +352,16 @@ func addAnalyzerFields(m map[string]any, a *config.AnalyzerConfig) {
 		a.RegressionThresholdPct, "yaml")
 	addField(m, "analyzer.cache_hit_ratio_warning",
 		a.CacheHitRatioWarning, "yaml")
+	addField(m, "analyzer.lock_chain.enabled",
+		a.LockChain.Enabled, "yaml")
+	addField(m, "analyzer.lock_chain.min_blocked_threshold",
+		a.LockChain.MinBlockedThreshold, "yaml")
+	addField(m, "analyzer.lock_chain.critical_blocked_threshold",
+		a.LockChain.CriticalBlockedThreshold, "yaml")
+	addField(m, "analyzer.lock_chain.idle_in_tx_terminate_minutes",
+		a.LockChain.IdleInTxTerminateMinutes, "yaml")
+	addField(m, "analyzer.lock_chain.active_query_cancel_minutes",
+		a.LockChain.ActiveQueryCancelMinutes, "yaml")
 }
 
 func addTrustFields(m map[string]any, t *config.TrustConfig) {
@@ -390,6 +444,59 @@ func addRetentionFields(
 		r.ExplainsDays, "yaml")
 }
 
+func addRCAFields(m map[string]any, r *config.RCAConfig) {
+	addField(m, "rca.enabled", r.Enabled, "yaml")
+	addField(m, "rca.llm_correlation_threshold",
+		r.LLMCorrelationThreshold, "yaml")
+	addField(m, "rca.dedup_window_minutes",
+		r.DedupWindowMinutes, "yaml")
+	addField(m, "rca.escalation_cycles",
+		r.EscalationCycles, "yaml")
+	addField(m, "rca.resolution_cycles",
+		r.ResolutionCycles, "yaml")
+	addField(m, "rca.connection_saturation_pct",
+		r.ConnectionSaturationPct, "yaml")
+	addField(m, "rca.replication_lag_threshold_seconds",
+		r.ReplicationLagThresholdS, "yaml")
+	addField(m, "rca.wal_spike_multiplier",
+		r.WALSpikeMultiplier, "yaml")
+}
+
+func addRunawayFields(m map[string]any, r *config.RunawayConfig) {
+	addField(m, "runaway.enabled", r.Enabled, "yaml")
+}
+
+func addExplainFields(m map[string]any, e *config.ExplainConfig) {
+	addField(m, "explain.enabled", e.Enabled, "yaml")
+	addField(m, "explain.timeout_ms", e.TimeoutMs, "yaml")
+	addField(m, "explain.cache_ttl_minutes",
+		e.CacheTTLMinutes, "yaml")
+	addField(m, "explain.max_tokens", e.MaxTokens, "yaml")
+}
+
+func addLogWatchFields(
+	m map[string]any, lw *config.LogWatchConfig,
+) {
+	addField(m, "logwatch.enabled", lw.Enabled, "yaml")
+	addField(m, "logwatch.log_directory",
+		lw.LogDirectory, "yaml")
+	addField(m, "logwatch.format", lw.Format, "yaml")
+	addField(m, "logwatch.poll_interval_ms",
+		lw.PollIntervalMs, "yaml")
+	addField(m, "logwatch.dedup_window_seconds",
+		lw.DedupWindowS, "yaml")
+	addField(m, "logwatch.max_line_len_bytes",
+		lw.MaxLineLenBytes, "yaml")
+	addField(m, "logwatch.temp_file_min_bytes",
+		lw.TempFileMinBytes, "yaml")
+	addField(m, "logwatch.max_lines_per_cycle",
+		lw.MaxLinesPerCycle, "yaml")
+	addField(m, "logwatch.exclude_applications",
+		strings.Join(lw.ExcludeApplications, ","), "yaml")
+	addField(m, "logwatch.slow_query_enabled",
+		lw.SlowQueryEnabled, "yaml")
+}
+
 func maskSecret(s string) string {
 	if len(s) <= 4 {
 		return strings.Repeat("*", len(s))
@@ -421,7 +528,7 @@ func coerceValue(key, value string) any {
 		if n, err := strconv.Atoi(value); err == nil {
 			return n
 		}
-	case "float01":
+	case "float01", "float_pos":
 		if f, err := strconv.ParseFloat(value, 64); err == nil {
 			return f
 		}

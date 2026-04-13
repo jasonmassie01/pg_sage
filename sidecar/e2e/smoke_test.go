@@ -350,23 +350,23 @@ func login(t *testing.T, env *testEnv) {
 	t.Fatal("login succeeded but no sage_session cookie set")
 }
 
-// parseAdminPassword extracts the generated password from the
-// startup log line:
+// parseAdminPassword extracts the generated password from stderr.
+// The binary prints:
 //
-//	"first admin created — email: admin@pg-sage.local  password: XXXX"
+//	*** INITIAL ADMIN PASSWORD: XXXX ***
 func parseAdminPassword(stderr string) string {
-	const marker = "password: "
+	const marker = "INITIAL ADMIN PASSWORD: "
 	for _, line := range strings.Split(stderr, "\n") {
-		if !strings.Contains(line, "first admin created") {
-			continue
-		}
-		idx := strings.LastIndex(line, marker)
+		idx := strings.Index(line, marker)
 		if idx < 0 {
 			continue
 		}
-		pw := strings.TrimSpace(line[idx+len(marker):])
-		if pw != "" {
-			return pw
+		rest := line[idx+len(marker):]
+		// Strip trailing " ***" and whitespace.
+		rest = strings.TrimSuffix(rest, " ***")
+		rest = strings.TrimSpace(rest)
+		if rest != "" {
+			return rest
 		}
 	}
 	return ""
@@ -426,6 +426,21 @@ func httpPost(
 ) (int, string) {
 	t.Helper()
 	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		t.Fatalf("creating POST %s: %v", url, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return doRequest(t, env, req)
+}
+
+// httpPostJSON performs an authenticated POST with a JSON body.
+func httpPostJSON(
+	t *testing.T, env *testEnv, url, jsonBody string,
+) (int, string) {
+	t.Helper()
+	req, err := http.NewRequest(
+		"POST", url, strings.NewReader(jsonBody),
+	)
 	if err != nil {
 		t.Fatalf("creating POST %s: %v", url, err)
 	}
@@ -596,6 +611,124 @@ func TestSmoke(t *testing.T) {
 		assertStatusOK(t, "forecasts", code)
 		assertJSON(t, "forecasts", body)
 	})
+
+	// --- v0.9 Endpoints ---
+
+	t.Run("GET /api/v1/incidents", func(t *testing.T) {
+		code, body := httpGet(
+			t, env, env.apiBase+"/api/v1/incidents",
+		)
+		assertStatusOK(t, "incidents", code)
+		assertJSON(t, "incidents", body)
+		assertContains(t, "incidents", body, "incidents")
+		assertContains(t, "incidents", body, "total")
+	})
+
+	t.Run("GET /api/v1/incidents/active", func(t *testing.T) {
+		code, body := httpGet(
+			t, env, env.apiBase+"/api/v1/incidents/active",
+		)
+		assertStatusOK(t, "incidents/active", code)
+		assertJSON(t, "incidents/active", body)
+		assertContains(
+			t, "incidents/active", body, "incidents",
+		)
+	})
+
+	t.Run("GET /api/v1/incidents/nonexistent",
+		func(t *testing.T) {
+			code, body := httpGet(
+				t, env,
+				env.apiBase+"/api/v1/incidents/"+
+					"00000000-0000-0000-0000-000000000000",
+			)
+			// Non-existent UUID should return 404, not 500.
+			if code == http.StatusInternalServerError {
+				t.Errorf(
+					"incident GET with unknown UUID returned "+
+						"500: %s", body,
+				)
+			}
+		})
+
+	t.Run("POST /api/v1/explain", func(t *testing.T) {
+		code, body := httpPostJSON(
+			t, env,
+			env.apiBase+"/api/v1/explain",
+			`{"query":"SELECT 1"}`,
+		)
+		// Explain is disabled in our test config (LLM off),
+		// so 503 or 400 is expected. If explain.enabled is
+		// defaulting to true, we get 200.
+		if code == http.StatusInternalServerError {
+			t.Errorf("explain returned 500: %s", body)
+		}
+		assertJSON(t, "explain", body)
+	})
+
+	t.Run("POST /api/v1/explain empty body",
+		func(t *testing.T) {
+			code, body := httpPostJSON(
+				t, env,
+				env.apiBase+"/api/v1/explain",
+				`{}`,
+			)
+			// Empty query should fail with 400, not 500.
+			if code == http.StatusInternalServerError {
+				t.Errorf(
+					"explain empty body returned 500: %s",
+					body,
+				)
+			}
+		})
+
+	t.Run("GET /api/v1/forecasts/growth", func(t *testing.T) {
+		code, body := httpGet(
+			t, env,
+			env.apiBase+"/api/v1/forecasts/growth",
+		)
+		assertStatusOK(t, "forecasts/growth", code)
+		assertJSON(t, "forecasts/growth", body)
+		assertContains(
+			t, "forecasts/growth", body, "database",
+		)
+		assertContains(
+			t, "forecasts/growth", body, "forecasts",
+		)
+	})
+
+	t.Run("GET /api/v1/forecasts/growth?days=30",
+		func(t *testing.T) {
+			code, body := httpGet(
+				t, env,
+				env.apiBase+
+					"/api/v1/forecasts/growth?days=30",
+			)
+			assertStatusOK(
+				t, "forecasts/growth?days=30", code,
+			)
+			assertJSON(
+				t, "forecasts/growth?days=30", body,
+			)
+		})
+
+	t.Run("POST /api/v1/incidents/{id}/resolve",
+		func(t *testing.T) {
+			code, body := httpPost(
+				t, env,
+				env.apiBase+"/api/v1/incidents/"+
+					"00000000-0000-0000-0000-000000000000"+
+					"/resolve",
+			)
+			// Resolving a non-existent incident should return
+			// 404, not 500.
+			if code == http.StatusInternalServerError {
+				t.Errorf(
+					"resolve non-existent incident returned "+
+						"500: %s", body,
+				)
+			}
+		})
 
 	t.Run("GET /api/v1/query-hints", func(t *testing.T) {
 		code, body := httpGet(

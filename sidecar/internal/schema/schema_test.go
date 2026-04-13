@@ -85,6 +85,9 @@ func TestExpectedTables_AllPresent(t *testing.T) {
 		"notification_rules",
 		"notification_log",
 		"action_queue",
+		"incidents",
+		"size_history",
+		"explain_results",
 	}
 
 	if len(expectedTables) != len(want) {
