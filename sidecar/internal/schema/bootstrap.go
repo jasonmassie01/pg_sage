@@ -66,6 +66,9 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 	if err := MigrateConfigSchema(ctx, pool); err != nil {
 		return fmt.Errorf("config migration: %w", err)
 	}
+	if err := migrateIncidentConstraints(ctx, pool); err != nil {
+		return fmt.Errorf("incident constraint migration: %w", err)
+	}
 	return nil
 }
 
@@ -495,19 +498,26 @@ CREATE INDEX IF NOT EXISTS idx_query_hints_revalidate
 `
 
 // v0.9 — Root Cause Analysis incidents table.
+// v0.9.1 — expanded CHECK constraints for log-based RCA sources,
+// info severity, and Tier 2 action_risk values.
 const ddlIncidents = `
 CREATE TABLE IF NOT EXISTS sage.incidents (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     detected_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    severity          TEXT NOT NULL CHECK (severity IN ('warning', 'critical')),
+    severity          TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
     root_cause        TEXT NOT NULL,
     causal_chain      JSONB NOT NULL DEFAULT '[]',
     affected_objects  TEXT[] NOT NULL DEFAULT '{}',
     signal_ids        TEXT[] NOT NULL DEFAULT '{}',
     recommended_sql   TEXT,
     rollback_sql      TEXT,
-    action_risk       TEXT CHECK (action_risk IN ('safe', 'moderate', 'high_risk') OR action_risk IS NULL),
-    source            TEXT NOT NULL CHECK (source IN ('deterministic', 'llm')),
+    action_risk       TEXT CHECK (action_risk IN (
+        'safe', 'moderate', 'high_risk', 'low', 'medium', 'high'
+    ) OR action_risk IS NULL),
+    source            TEXT NOT NULL CHECK (source IN (
+        'deterministic', 'log_deterministic',
+        'self_action', 'manual_review_required', 'llm'
+    )),
     confidence        NUMERIC(3,2) NOT NULL DEFAULT 1.0,
     related_findings  UUID[],
     resolved_at       TIMESTAMPTZ,
