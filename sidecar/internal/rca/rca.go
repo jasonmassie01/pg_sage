@@ -17,6 +17,7 @@ import (
 type Incident struct {
 	ID              string      `json:"id"`
 	DetectedAt      time.Time   `json:"detected_at"`
+	LastDetectedAt  time.Time   `json:"last_detected_at"`
 	Severity        string      `json:"severity"`
 	RootCause       string      `json:"root_cause"`
 	CausalChain     []ChainLink `json:"causal_chain"`
@@ -219,12 +220,16 @@ func (e *Engine) dedup(inc *Incident) {
 		if existingFirst != firstObj {
 			continue
 		}
-		if inc.DetectedAt.Sub(existing.DetectedAt) > window {
+		lastSeen := existing.LastDetectedAt
+		if lastSeen.IsZero() {
+			lastSeen = existing.DetectedAt
+		}
+		if inc.DetectedAt.Sub(lastSeen) > window {
 			continue
 		}
 		// Match found: update existing incident.
 		existing.OccurrenceCount++
-		existing.DetectedAt = inc.DetectedAt
+		existing.LastDetectedAt = inc.DetectedAt
 		if severityRank(inc.Severity) > severityRank(existing.Severity) {
 			existing.Severity = inc.Severity
 		}
@@ -236,6 +241,7 @@ func (e *Engine) dedup(inc *Incident) {
 	// No match: insert new incident.
 	inc.ID = newUUID()
 	inc.OccurrenceCount = 1
+	inc.LastDetectedAt = inc.DetectedAt
 	e.incidents = append(e.incidents, *inc)
 }
 
@@ -350,15 +356,16 @@ func (e *Engine) applySelfActionCorrelation(newIncidents []Incident) {
 
 const upsertSQL = `
 INSERT INTO sage.incidents (
-    id, detected_at, severity, root_cause, causal_chain,
-    affected_objects, signal_ids, recommended_sql, rollback_sql,
-    action_risk, source, confidence, resolved_at, database_name,
-    occurrence_count, escalated_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+    id, detected_at, last_detected_at, severity, root_cause,
+    causal_chain, affected_objects, signal_ids, recommended_sql,
+    rollback_sql, action_risk, source, confidence, resolved_at,
+    database_name, occurrence_count, escalated_at
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 ON CONFLICT (id) DO UPDATE SET
     severity         = EXCLUDED.severity,
     root_cause       = EXCLUDED.root_cause,
     causal_chain     = EXCLUDED.causal_chain,
+    last_detected_at = EXCLUDED.last_detected_at,
     resolved_at      = EXCLUDED.resolved_at,
     occurrence_count = EXCLUDED.occurrence_count,
     escalated_at     = EXCLUDED.escalated_at`
@@ -376,7 +383,8 @@ func (e *Engine) PersistIncidents(
 	for _, inc := range snapshot {
 		chainJSON := marshalChain(inc.CausalChain)
 		_, err := pool.Exec(ctx, upsertSQL,
-			inc.ID, inc.DetectedAt, inc.Severity, inc.RootCause,
+			inc.ID, inc.DetectedAt, inc.LastDetectedAt,
+			inc.Severity, inc.RootCause,
 			chainJSON, inc.AffectedObjects, inc.SignalIDs,
 			inc.RecommendedSQL, inc.RollbackSQL, inc.ActionRisk,
 			inc.Source, inc.Confidence, inc.ResolvedAt,

@@ -249,6 +249,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		ddlUsersOAuth,
 		ddlQueryHintsRewrite,
 		ddlQueryHintsRevalidate,
+		ddlIncidentsLastDetected,
 	}
 	for _, m := range migrations {
 		if _, err := pool.Exec(qctx, m); err != nil {
@@ -497,6 +498,15 @@ CREATE INDEX IF NOT EXISTS idx_query_hints_revalidate
     WHERE status = 'active';
 `
 
+// v0.9.2 — Add last_detected_at to incidents for accurate outage duration.
+const ddlIncidentsLastDetected = `
+ALTER TABLE sage.incidents
+    ADD COLUMN IF NOT EXISTS last_detected_at TIMESTAMPTZ;
+UPDATE sage.incidents
+    SET last_detected_at = detected_at
+    WHERE last_detected_at IS NULL;
+`
+
 // v0.9 — Root Cause Analysis incidents table.
 // v0.9.1 — expanded CHECK constraints for log-based RCA sources,
 // info severity, and Tier 2 action_risk values.
@@ -504,6 +514,7 @@ const ddlIncidents = `
 CREATE TABLE IF NOT EXISTS sage.incidents (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     detected_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_detected_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     severity          TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
     root_cause        TEXT NOT NULL,
     causal_chain      JSONB NOT NULL DEFAULT '[]',

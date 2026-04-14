@@ -19,6 +19,8 @@ type LockChain struct {
 	RootBlockerApp   string    `json:"root_blocker_app"`
 	RootBlockerSince time.Time `json:"root_blocker_since"`
 	LockedRelation   string    `json:"locked_relation"`
+	LockedRelations  []string  `json:"locked_relations,omitempty"`
+	TotalRelations   int       `json:"total_relations,omitempty"`
 	BlockerMode      string    `json:"blocker_mode"`
 	ChainDepth       int       `json:"chain_depth"`
 	BlockedPIDs      []int     `json:"blocked_pids"`
@@ -95,11 +97,18 @@ GROUP BY rb.root_pid, sa.query, sa.state, sa.query_start,
          sa.application_name, sa.wait_event_type
 ORDER BY total_blocked DESC`
 
-// lockedRelationQuery finds the relation a root blocker holds a lock on.
+// lockedRelationQuery finds relations a root blocker holds locks on,
+// limited to 5 to avoid noise when migrations lock hundreds of tables.
+// Also returns the total count so the UI can show "and N more".
 const lockedRelationQuery = `
-SELECT DISTINCT l.relation::regclass::text AS locked_relation, l.mode
-FROM pg_locks l
-WHERE l.pid = $1 AND l.granted AND l.relation IS NOT NULL`
+WITH rel_locks AS (
+    SELECT DISTINCT l.relation::regclass::text AS locked_relation, l.mode
+    FROM pg_locks l
+    WHERE l.pid = $1 AND l.granted AND l.relation IS NOT NULL
+)
+SELECT locked_relation, mode, (SELECT count(*) FROM rel_locks) AS total
+FROM rel_locks
+LIMIT 5`
 
 // DetectLockChains queries PostgreSQL for cascading lock waits and returns
 // a LockChain per root blocker. It is called directly from the analyzer
@@ -177,7 +186,8 @@ func DetectLockChains(
 	return chains, nil
 }
 
-// enrichLockedRelation fills LockedRelation and BlockerMode from pg_locks.
+// enrichLockedRelation fills LockedRelation(s) and BlockerMode from pg_locks.
+// The query returns up to 5 relations plus a total count.
 func enrichLockedRelation(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -189,12 +199,22 @@ func enrichLockedRelation(
 	}
 	defer rows.Close()
 
-	if rows.Next() {
+	var rels []string
+	for rows.Next() {
 		var rel, mode string
-		if err := rows.Scan(&rel, &mode); err == nil {
-			c.LockedRelation = rel
+		var total int
+		if err := rows.Scan(&rel, &mode, &total); err != nil {
+			return
+		}
+		rels = append(rels, rel)
+		if c.BlockerMode == "" {
 			c.BlockerMode = mode
 		}
+		c.TotalRelations = total
+	}
+	if len(rels) > 0 {
+		c.LockedRelation = rels[0]
+		c.LockedRelations = rels
 	}
 }
 
@@ -313,7 +333,7 @@ func buildActionableFinding(c LockChain, lcCfg config.LockChainConfig) Finding {
 
 // lockChainDetail builds the Detail map shared by all lock chain findings.
 func lockChainDetail(c LockChain) map[string]any {
-	return map[string]any{
+	detail := map[string]any{
 		"root_blocker_pid":   c.RootBlockerPID,
 		"root_blocker_query": truncateQuery(c.RootBlockerQuery, 200),
 		"root_blocker_state": c.RootBlockerState,
@@ -325,4 +345,9 @@ func lockChainDetail(c LockChain) map[string]any {
 		"blocked_pids":       c.BlockedPIDs,
 		"total_blocked":      c.TotalBlocked,
 	}
+	if len(c.LockedRelations) > 1 {
+		detail["locked_relations"] = c.LockedRelations
+		detail["total_relations"] = c.TotalRelations
+	}
+	return detail
 }

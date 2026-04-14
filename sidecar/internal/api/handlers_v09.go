@@ -237,8 +237,9 @@ func resolveIncidentPool(
 	return mgr.PoolForDatabase("all")
 }
 
-const incidentsBaseSQL = `SELECT id, detected_at, severity,
- root_cause, causal_chain, affected_objects, signal_ids,
+const incidentsBaseSQL = `SELECT id, detected_at,
+ COALESCE(last_detected_at, detected_at) AS last_detected_at,
+ severity, root_cause, causal_chain, affected_objects, signal_ids,
  recommended_sql, action_risk, source, confidence,
  resolved_at, database_name, occurrence_count, escalated_at
  FROM sage.incidents`
@@ -332,6 +333,7 @@ func resolveIncident(
 type incidentRow struct {
 	ID              string
 	DetectedAt      time.Time
+	LastDetectedAt  time.Time
 	Severity        string
 	RootCause       string
 	CausalChain     []byte
@@ -349,8 +351,8 @@ type incidentRow struct {
 
 func (ir *incidentRow) scanDest() []any {
 	return []any{
-		&ir.ID, &ir.DetectedAt, &ir.Severity,
-		&ir.RootCause, &ir.CausalChain,
+		&ir.ID, &ir.DetectedAt, &ir.LastDetectedAt,
+		&ir.Severity, &ir.RootCause, &ir.CausalChain,
 		&ir.AffectedObjects, &ir.SignalIDs,
 		&ir.RecommendedSQL, &ir.ActionRisk,
 		&ir.Source, &ir.Confidence, &ir.ResolvedAt,
@@ -367,6 +369,7 @@ func (ir *incidentRow) toMap() map[string]any {
 	return map[string]any{
 		"id":               ir.ID,
 		"detected_at":      ir.DetectedAt,
+		"last_detected_at": ir.LastDetectedAt,
 		"severity":         ir.Severity,
 		"root_cause":       ir.RootCause,
 		"causal_chain":     chain,
