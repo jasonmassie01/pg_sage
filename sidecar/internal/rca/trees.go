@@ -58,6 +58,10 @@ func (e *Engine) runDecisionTrees(
 				intMetric(s, "current_wal_bytes"),
 				intMetric(s, "previous_wal_bytes"))))
 	}
+	if s, ok := sigMap["orphaned_prepared_tx"]; ok {
+		incidents = append(incidents,
+			e.treeOrphanedPreparedTx(s, curr))
+	}
 	return incidents
 }
 
@@ -192,7 +196,9 @@ func (e *Engine) treeCacheHitDrop(
 //	vacuum_blocked fires:
 //	  -> any idle-in-tx session with old xmin?
 //	    -> YES: root cause = transaction holding oldest xmin
-//	    -> NO: root cause = autovacuum falling behind
+//	    -> NO: orphaned prepared transactions?
+//	      -> YES: root cause = prepared tx holding xmin
+//	      -> NO: root cause = autovacuum falling behind
 func (e *Engine) treeVacuumBlocked(
 	sig *Signal,
 	curr *collector.Snapshot,
@@ -200,6 +206,7 @@ func (e *Engine) treeVacuumBlocked(
 	ids := []string{"vacuum_blocked"}
 	now := curr.CollectedAt
 
+	// Branch 1: idle-in-transaction holding xmin.
 	for _, l := range curr.Locks {
 		if l.State != nil && *l.State == "idle in transaction" {
 			return buildIncident(now, sig.Severity, ids,
@@ -222,16 +229,84 @@ func (e *Engine) treeVacuumBlocked(
 		}
 	}
 
+	// Branch 2: orphaned prepared transactions holding xmin.
+	if len(curr.PreparedXacts) > 0 {
+		oldest := curr.PreparedXacts[0]
+		for _, pt := range curr.PreparedXacts[1:] {
+			if pt.XIDAge > oldest.XIDAge {
+				oldest = pt
+			}
+		}
+		return buildIncident(now, "critical", ids,
+			fmt.Sprintf("Orphaned prepared transaction %q "+
+				"holding xmin (age %d), blocking autovacuum",
+				oldest.GID, oldest.XIDAge),
+			[]ChainLink{
+				{Order: 1, Signal: "vacuum_blocked",
+					Description: "Prepared transaction holds xmin " +
+						"indefinitely -- invisible to pg_stat_activity",
+					Evidence: fmt.Sprintf(
+						"gid=%s owner=%s prepared=%s xid_age=%d",
+						oldest.GID, oldest.Owner,
+						oldest.Prepared.Format("2006-01-02 15:04:05"),
+						oldest.XIDAge)},
+			},
+			blockedTables(sig),
+			fmt.Sprintf("ROLLBACK PREPARED '%s';", oldest.GID),
+			"high_risk",
+		)
+	}
+
+	// Branch 3: no obvious blocker found.
 	return buildIncident(now, sig.Severity, ids,
 		"Autovacuum falling behind -- dead tuple accumulation",
 		[]ChainLink{
 			{Order: 1, Signal: "vacuum_blocked",
-				Description: "No idle-in-tx blocker found; " +
+				Description: "No idle-in-tx or prepared tx blocker found; " +
 					"autovacuum workers cannot keep pace",
 				Evidence: fmt.Sprintf("Tables with high dead tuples: %v",
 					sig.Metrics["blocked_tables"])},
 		},
 		blockedTables(sig), "", "safe",
+	)
+}
+
+// treeOrphanedPreparedTx handles orphaned prepared transactions.
+// These are invisible to pg_stat_activity but hold xmin and locks.
+// Cross-references with vacuum_blocked signal to escalate severity
+// when the prepared tx is actively blocking vacuum.
+func (e *Engine) treeOrphanedPreparedTx(
+	sig *Signal,
+	curr *collector.Snapshot,
+) Incident {
+	ids := []string{"orphaned_prepared_tx"}
+	now := curr.CollectedAt
+
+	count := intMetric(sig, "count")
+	oldestGID := stringMetric(sig, "oldest_gid")
+	maxAge := intMetric(sig, "max_xid_age")
+
+	sql := "SELECT gid, prepared, owner, database, " +
+		"age(transaction) AS xid_age " +
+		"FROM pg_prepared_xacts ORDER BY prepared;"
+
+	return buildIncident(now, sig.Severity, ids,
+		fmt.Sprintf("Orphaned prepared transaction(s) holding xmin "+
+			"(oldest: %s, xid_age: %d)", oldestGID, maxAge),
+		[]ChainLink{
+			{Order: 1, Signal: "orphaned_prepared_tx",
+				Description: fmt.Sprintf(
+					"%d prepared transaction(s) found -- "+
+						"invisible to pg_stat_activity", count),
+				Evidence: fmt.Sprintf(
+					"oldest_gid=%s xid_age=%d", oldestGID, maxAge)},
+			{Order: 2, Signal: "orphaned_prepared_tx",
+				Description: "Prepared transactions survive " +
+					"connection drops and server restarts, " +
+					"holding xmin and locks indefinitely",
+				Evidence: "ROLLBACK PREPARED '<gid>' to release"},
+		},
+		nil, sql, "high_risk",
 	)
 }
 

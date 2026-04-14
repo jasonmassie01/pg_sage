@@ -217,6 +217,15 @@ SELECT c.relname AS child_table,
  WHERE n.nspname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
  ORDER BY parent_schema, parent_table, child_schema, child_table`
 
+// pg_prepared_xacts: two-phase commit transactions that survive
+// connection drops and server restarts. They hold xmin and locks
+// indefinitely and are invisible to pg_stat_activity.
+const preparedXactsSQL = `
+SELECT gid, prepared, owner, database,
+       age(transaction) AS xid_age
+  FROM pg_prepared_xacts
+ ORDER BY prepared`
+
 const loadRatioSQL = `
 SELECT count(*)::float /
        (SELECT setting::float FROM pg_settings WHERE name = 'max_connections')

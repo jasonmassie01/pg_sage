@@ -148,6 +148,11 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 			// Non-fatal — continue without IO stats.
 		}
 	}
+	// Prepared transactions (2PC) — invisible to pg_stat_activity,
+	// hold xmin and locks indefinitely.
+	if snap.PreparedXacts, err = c.collectPreparedXacts(ctx); err != nil {
+		c.logFn("WARN", "prepared xacts collection failed: %v", err)
+	}
 	// Partition inheritance
 	if snap.Partitions, err = c.collectPartitions(ctx); err != nil {
 		c.logFn("WARN", "partition collection failed: %v", err)
@@ -491,6 +496,29 @@ func (c *Collector) collectPartitions(
 			return nil, err
 		}
 		result = append(result, p)
+	}
+	return result, rows.Err()
+}
+
+func (c *Collector) collectPreparedXacts(
+	ctx context.Context,
+) ([]PreparedTransaction, error) {
+	rows, err := c.pool.Query(ctx, preparedXactsSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []PreparedTransaction
+	for rows.Next() {
+		var pt PreparedTransaction
+		if err := rows.Scan(
+			&pt.GID, &pt.Prepared, &pt.Owner,
+			&pt.Database, &pt.XIDAge,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, pt)
 	}
 	return result, rows.Err()
 }

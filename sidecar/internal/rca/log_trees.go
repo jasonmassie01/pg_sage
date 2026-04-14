@@ -157,69 +157,119 @@ func logTreeDeadlock(s *Signal) Incident {
 	)
 }
 
-// logTreeOOM handles log_out_of_memory with database extraction.
+// logTreeOOM handles log_out_of_memory. An actual OOM means the
+// combined memory pressure from work_mem * active queries (or
+// max_connections) exceeded available RAM. Temp file spills are the
+// PREVENTION mechanism — if OOM fires, PG could not spill fast enough
+// or the operation was not spillable (e.g. hash aggregates pre-PG15).
 func logTreeOOM(s *Signal) Incident {
 	evidence := "Out of memory during query execution"
 	if db := stringMetric(s, "database"); db != "" {
 		evidence = fmt.Sprintf("database=%s: %s", db, evidence)
 	}
-	return buildLogIncident(s.FiredAt, "critical",
-		[]string{s.ID},
-		"Out of memory during query execution",
-		[]ChainLink{{
-			Order: 1, Signal: s.ID,
-			Description: "Out of memory during query execution",
-			Evidence:    evidence,
-		}},
-		dbAffected(s), "", "high_risk",
-	)
-}
-
-// logTreeTxidWraparound handles log_txid_wraparound_warning with
-// a diagnostic SQL recommendation.
-func logTreeTxidWraparound(s *Signal) Incident {
-	rootCause := "Transaction ID wraparound imminent " +
-		"-- emergency VACUUM required"
-	sql := "SELECT datname, age(datfrozenxid) " +
-		"FROM pg_database ORDER BY age(datfrozenxid) DESC;"
+	rootCause := "Out of memory -- work_mem × active sessions " +
+		"exceeds available RAM"
+	sql := "SELECT name, setting, unit FROM pg_settings " +
+		"WHERE name IN ('work_mem','shared_buffers'," +
+		"'max_connections','maintenance_work_mem') " +
+		"ORDER BY name;"
 	return buildLogIncident(s.FiredAt, "critical",
 		[]string{s.ID}, rootCause,
-		[]ChainLink{{
-			Order: 1, Signal: s.ID,
-			Description: rootCause,
-			Evidence:    stringMetric(s, "message"),
-		}},
+		[]ChainLink{
+			{Order: 1, Signal: s.ID,
+				Description: rootCause,
+				Evidence:    evidence},
+			{Order: 2, Signal: s.ID,
+				Description: "Reduce work_mem or max_connections " +
+					"to fit within available RAM",
+				Evidence: "work_mem × max_connections must be " +
+					"significantly less than total RAM"},
+		},
 		dbAffected(s), sql, "high_risk",
 	)
 }
 
-// logTreeTempFile handles log_temp_file_created with byte-size
-// extraction from metrics.
+// logTreeTxidWraparound handles log_txid_wraparound_warning.
+// Autovacuum is already trying to freeze — the root cause is what
+// holds the xmin horizon back: stale backend_xmin, replication slots
+// (catalog_xmin), or orphaned prepared transactions.
+func logTreeTxidWraparound(s *Signal) Incident {
+	rootCause := "Transaction ID wraparound imminent " +
+		"-- identify what holds the xmin horizon"
+	// Diagnostic: show the three sources that can hold back xmin.
+	sql := "-- 1. Oldest backend xmin holders\n" +
+		"SELECT pid, usename, state, " +
+		"age(backend_xmin) AS xmin_age, " +
+		"now()-xact_start AS tx_duration, " +
+		"left(query,80) AS query " +
+		"FROM pg_stat_activity " +
+		"WHERE backend_xmin IS NOT NULL " +
+		"ORDER BY age(backend_xmin) DESC LIMIT 5;\n" +
+		"-- 2. Replication slots holding xmin\n" +
+		"SELECT slot_name, slot_type, active, " +
+		"age(catalog_xmin) AS catalog_xmin_age, " +
+		"age(xmin) AS xmin_age, " +
+		"pg_size_pretty(pg_wal_lsn_diff(" +
+		"pg_current_wal_lsn(), restart_lsn)) AS retained " +
+		"FROM pg_replication_slots " +
+		"ORDER BY age(xmin) DESC NULLS LAST;\n" +
+		"-- 3. Orphaned prepared transactions\n" +
+		"SELECT gid, prepared, owner, database " +
+		"FROM pg_prepared_xacts ORDER BY prepared;"
+	return buildLogIncident(s.FiredAt, "critical",
+		[]string{s.ID}, rootCause,
+		[]ChainLink{
+			{Order: 1, Signal: s.ID,
+				Description: "XID wraparound warning from PostgreSQL",
+				Evidence:    stringMetric(s, "message")},
+			{Order: 2, Signal: s.ID,
+				Description: "Autovacuum cannot freeze because " +
+					"something holds the xmin horizon back",
+				Evidence: "Check: stale backend_xmin, " +
+					"replication slot catalog_xmin, " +
+					"orphaned prepared transactions"},
+		},
+		dbAffected(s), sql, "high_risk",
+	)
+}
+
+// logTreeTempFile handles log_temp_file_created. Temp files are
+// NORMAL — PostgreSQL spills sort/hash operations to disk when they
+// exceed work_mem. This PREVENTS OOM, not causes it. Large temp files
+// indicate potential I/O pressure, not memory exhaustion.
 func logTreeTempFile(s *Signal) Incident {
-	rootCause := "Large temporary file created " +
-		"(possible work_mem undersize)"
+	rootCause := "Query sort/hash spilling to disk " +
+		"(work_mem exceeded, preventing OOM)"
 	evidence := rootCause
 	if bytes := intMetric(s, "temp_file_bytes"); bytes > 0 {
-		evidence = fmt.Sprintf("temp_file_bytes=%d", bytes)
+		evidence = fmt.Sprintf("temp_file_bytes=%d -- "+
+			"disk spill is normal but may cause I/O pressure",
+			bytes)
 	}
-	return buildLogIncident(s.FiredAt, "warning",
+	return buildLogIncident(s.FiredAt, "info",
 		[]string{s.ID}, rootCause,
 		[]ChainLink{{
 			Order: 1, Signal: s.ID,
-			Description: rootCause, Evidence: evidence,
+			Description: "Query operation exceeded work_mem, " +
+				"spilled to temp file on disk",
+			Evidence: evidence,
 		}},
 		dbAffected(s), "", "safe",
 	)
 }
 
 // logTreeReplicationSlot handles log_replication_slot_inactive with
-// a diagnostic SQL recommendation.
+// a diagnostic SQL recommendation. Shows ALL slots (active and
+// inactive) since active slots with slow consumers are equally
+// dangerous for WAL retention and xmin horizon.
 func logTreeReplicationSlot(s *Signal) Incident {
-	rootCause := "Inactive replication slot accumulating WAL"
-	sql := "SELECT slot_name, active, " +
+	rootCause := "Replication slot accumulating WAL"
+	sql := "SELECT slot_name, slot_type, active, " +
 		"pg_size_pretty(pg_wal_lsn_diff(" +
 		"pg_current_wal_lsn(), restart_lsn)) AS retained " +
-		"FROM pg_replication_slots WHERE NOT active;"
+		"FROM pg_replication_slots " +
+		"ORDER BY pg_wal_lsn_diff(" +
+		"pg_current_wal_lsn(), restart_lsn) DESC;"
 	evidence := stringMetric(s, "message")
 	if evidence == "" {
 		evidence = rootCause

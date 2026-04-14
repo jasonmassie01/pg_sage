@@ -27,6 +27,7 @@ func (e *Engine) detectSignals(
 		func() *Signal { return e.detectVacuumBlocked(curr, cfg) },
 		func() *Signal { return e.detectLockContention(lockChainFindings) },
 		func() *Signal { return e.detectWALSpike(curr, prev, cfg) },
+		func() *Signal { return e.detectOrphanedPreparedTx(curr) },
 	}
 
 	var fired []*Signal
@@ -260,6 +261,40 @@ func (e *Engine) detectWALSpike(
 			"previous_wal_bytes": prevWAL,
 			"ratio":              ratio,
 			"multiplier":         multiplier,
+		},
+	}
+}
+
+// detectOrphanedPreparedTx fires when pg_prepared_xacts contains any
+// transactions. Prepared transactions (2PC) survive connection drops
+// and server restarts, hold xmin and locks indefinitely, and are
+// invisible to pg_stat_activity.
+func (e *Engine) detectOrphanedPreparedTx(
+	curr *collector.Snapshot,
+) *Signal {
+	if len(curr.PreparedXacts) == 0 {
+		return nil
+	}
+	var oldestGID string
+	var maxAge int64
+	for _, pt := range curr.PreparedXacts {
+		if pt.XIDAge > maxAge {
+			maxAge = pt.XIDAge
+			oldestGID = pt.GID
+		}
+	}
+	sev := "warning"
+	if maxAge > 100_000_000 {
+		sev = "critical"
+	}
+	return &Signal{
+		ID:       "orphaned_prepared_tx",
+		FiredAt:  curr.CollectedAt,
+		Severity: sev,
+		Metrics: map[string]any{
+			"count":       len(curr.PreparedXacts),
+			"oldest_gid":  oldestGID,
+			"max_xid_age": maxAge,
 		},
 	}
 }

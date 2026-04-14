@@ -108,6 +108,8 @@ func hotReloadAnalyzer(cfg *config.Config, key, v string) {
 		cfg.Analyzer.RegressionThresholdPct = atoi(v)
 	case "analyzer.cache_hit_ratio_warning":
 		cfg.Analyzer.CacheHitRatioWarning = atof(v)
+	case "analyzer.slow_slot_retained_bytes":
+		cfg.Analyzer.SlowSlotRetainedBytes = atoi64(v)
 	case "analyzer.lock_chain.enabled":
 		cfg.Analyzer.LockChain.Enabled = v == "true"
 	case "analyzer.lock_chain.min_blocked_threshold":
@@ -373,6 +375,16 @@ func atoi(s string) int {
 	n, err := strconv.Atoi(s)
 	if err != nil {
 		slog.Warn("hotReload: invalid int",
+			"value", s, "error", err)
+		return 0
+	}
+	return n
+}
+
+func atoi64(s string) int64 {
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		slog.Warn("hotReload: invalid int64",
 			"value", s, "error", err)
 		return 0
 	}

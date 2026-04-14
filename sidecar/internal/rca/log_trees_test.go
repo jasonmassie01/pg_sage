@@ -82,8 +82,8 @@ func TestRunLogDecisionTrees_AllSignals(t *testing.T) {
 		{
 			id:              "log_temp_file_created",
 			metrics:         map[string]any{"temp_file_bytes": 104857600},
-			wantSeverity:    "warning",
-			wantRootContain: "temporary file",
+			wantSeverity:    "info",
+			wantRootContain: "spilling to disk",
 			wantSource:      "log_deterministic",
 		},
 		{
@@ -133,7 +133,7 @@ func TestRunLogDecisionTrees_AllSignals(t *testing.T) {
 			id:              "log_replication_slot_inactive",
 			metrics:         map[string]any{"message": "replication slot is inactive"},
 			wantSeverity:    "warning",
-			wantRootContain: "Inactive replication slot",
+			wantRootContain: "Replication slot accumulating WAL",
 			wantSource:      "log_deterministic",
 		},
 		{
@@ -343,9 +343,16 @@ func TestLogTreeTxidWraparound_RecommendedSQL(t *testing.T) {
 	}
 	inc := logTreeTxidWraparound(sig)
 
-	if !strings.Contains(inc.RecommendedSQL, "pg_database") {
-		t.Errorf("RecommendedSQL = %q, want substring 'pg_database'",
-			inc.RecommendedSQL)
+	// Must include xmin-holder diagnostics: pg_stat_activity,
+	// pg_replication_slots, and pg_prepared_xacts.
+	if !strings.Contains(inc.RecommendedSQL, "pg_stat_activity") {
+		t.Errorf("RecommendedSQL missing pg_stat_activity xmin query")
+	}
+	if !strings.Contains(inc.RecommendedSQL, "pg_replication_slots") {
+		t.Errorf("RecommendedSQL missing replication slot xmin query")
+	}
+	if !strings.Contains(inc.RecommendedSQL, "pg_prepared_xacts") {
+		t.Errorf("RecommendedSQL missing prepared xacts query")
 	}
 	if !strings.Contains(inc.RootCause, "wraparound") {
 		t.Errorf("RootCause = %q, want substring 'wraparound'",
@@ -377,8 +384,9 @@ func TestLogTreeTempFile_WithBytes(t *testing.T) {
 		t.Errorf("Evidence = %q, want substring 'temp_file_bytes=104857600'",
 			evidence)
 	}
-	if inc.Severity != "warning" {
-		t.Errorf("Severity = %q, want warning", inc.Severity)
+	// Temp files are informational — they PREVENT OOM, not cause it.
+	if inc.Severity != "info" {
+		t.Errorf("Severity = %q, want info", inc.Severity)
 	}
 }
 
@@ -395,9 +403,9 @@ func TestLogTreeTempFile_WithoutBytes(t *testing.T) {
 		t.Fatal("CausalChain is empty")
 	}
 	evidence := inc.CausalChain[0].Evidence
-	// Without bytes, evidence falls back to the root cause description.
-	if !strings.Contains(evidence, "temporary file") {
-		t.Errorf("Evidence = %q, want substring 'temporary file'", evidence)
+	// Without bytes, evidence falls back to the chain description.
+	if !strings.Contains(evidence, "spill") {
+		t.Errorf("Evidence = %q, want substring 'spill'", evidence)
 	}
 }
 
@@ -539,9 +547,13 @@ func TestLogTreeReplicationSlot_RecommendedSQL(t *testing.T) {
 		t.Errorf("RecommendedSQL = %q, want substring 'pg_replication_slots'",
 			inc.RecommendedSQL)
 	}
-	if !strings.Contains(inc.RootCause, "Inactive replication slot") {
-		t.Errorf("RootCause = %q, want substring 'Inactive replication slot'",
+	if !strings.Contains(inc.RootCause, "Replication slot accumulating WAL") {
+		t.Errorf("RootCause = %q, want substring 'Replication slot accumulating WAL'",
 			inc.RootCause)
+	}
+	// SQL now shows ALL slots (active + inactive), ordered by retention.
+	if !strings.Contains(inc.RecommendedSQL, "ORDER BY") {
+		t.Errorf("RecommendedSQL should order by retention size")
 	}
 }
 
@@ -559,7 +571,7 @@ func TestLogTreeReplicationSlot_NoMessage(t *testing.T) {
 	}
 	// When message is absent, evidence falls back to root cause.
 	evidence := inc.CausalChain[0].Evidence
-	if !strings.Contains(evidence, "Inactive replication slot") {
+	if !strings.Contains(evidence, "Replication slot accumulating WAL") {
 		t.Errorf("Evidence = %q, want fallback to root cause", evidence)
 	}
 }

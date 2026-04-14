@@ -87,7 +87,7 @@ func TestAnalyzeE2E_AllLogSignals(t *testing.T) {
 			map[string]any{"message": "wraparound"}},
 		{"log_archive_failed", "critical", "WAL archive command failed",
 			map[string]any{"message": "archive failed"}},
-		{"log_temp_file_created", "warning", "temporary file",
+		{"log_temp_file_created", "info", "spilling to disk",
 			map[string]any{"temp_file_bytes": 104857600}},
 		{"log_checkpoint_too_frequent", "warning", "Checkpoints",
 			map[string]any{"message": "too frequently"}},
@@ -101,7 +101,7 @@ func TestAnalyzeE2E_AllLogSignals(t *testing.T) {
 			map[string]any{"message": "WAL removed"}},
 		{"log_autovacuum_cancel", "warning", "Autovacuum task cancelled",
 			map[string]any{"message": "cancelled"}},
-		{"log_replication_slot_inactive", "warning", "Inactive replication slot",
+		{"log_replication_slot_inactive", "warning", "Replication slot accumulating WAL",
 			map[string]any{"message": "slot inactive"}},
 		{"log_authentication_failure", "warning", "Authentication failure",
 			map[string]any{"message": "auth failed"}},
@@ -162,8 +162,12 @@ func TestAnalyzeE2E_TxidWraparoundSQL(t *testing.T) {
 	}
 	inc := requireOne(t, analyzeWithLogSignal(t, sig))
 	assertIncident(t, inc, "log_txid_wraparound_warning", "critical", "wraparound")
-	if !strings.Contains(inc.RecommendedSQL, "pg_database") {
-		t.Errorf("RecommendedSQL = %q, want pg_database", inc.RecommendedSQL)
+	// Must include xmin-holder diagnostics, not just pg_database.
+	if !strings.Contains(inc.RecommendedSQL, "pg_stat_activity") {
+		t.Errorf("RecommendedSQL missing pg_stat_activity xmin query")
+	}
+	if !strings.Contains(inc.RecommendedSQL, "pg_prepared_xacts") {
+		t.Errorf("RecommendedSQL missing pg_prepared_xacts query")
 	}
 	if inc.ActionRisk != "high_risk" {
 		t.Errorf("ActionRisk = %q, want high_risk", inc.ActionRisk)
@@ -177,7 +181,7 @@ func TestAnalyzeE2E_TempFileEvidence(t *testing.T) {
 		Metrics: map[string]any{"temp_file_bytes": 104857600},
 	}
 	inc := requireOne(t, analyzeWithLogSignal(t, sig))
-	assertIncident(t, inc, "log_temp_file_created", "warning", "temporary file")
+	assertIncident(t, inc, "log_temp_file_created", "info", "spilling to disk")
 	if !strings.Contains(inc.CausalChain[0].Evidence, "temp_file_bytes=104857600") {
 		t.Errorf("Evidence missing temp_file_bytes value")
 	}
@@ -209,7 +213,7 @@ func TestAnalyzeE2E_ReplicationSlotSQL(t *testing.T) {
 		Metrics: map[string]any{"message": "slot inactive"},
 	}
 	inc := requireOne(t, analyzeWithLogSignal(t, sig))
-	assertIncident(t, inc, "log_replication_slot_inactive", "warning", "Inactive replication slot")
+	assertIncident(t, inc, "log_replication_slot_inactive", "warning", "Replication slot accumulating WAL")
 	if !strings.Contains(inc.RecommendedSQL, "pg_replication_slots") {
 		t.Errorf("RecommendedSQL = %q, want pg_replication_slots", inc.RecommendedSQL)
 	}

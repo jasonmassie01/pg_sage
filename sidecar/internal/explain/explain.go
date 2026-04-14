@@ -124,10 +124,17 @@ func (ex *Explainer) Explain(
 	}
 
 	// 4. Determine mode.
-	useAnalyze := !req.PlanOnly && !hasParamPlaceholder(req.Query)
+	hasParams := hasParamPlaceholder(req.Query)
+	useAnalyze := !req.PlanOnly && !hasParams
 
 	// 5. Execute EXPLAIN.
-	planJSON, err := ex.runExplain(ctx, req.Query, useAnalyze)
+	var planJSON json.RawMessage
+	if hasParams {
+		planJSON, err = ex.runExplainParameterized(
+			ctx, req.Query, req.Params)
+	} else {
+		planJSON, err = ex.runExplain(ctx, req.Query, useAnalyze)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("explain: %w", err)
 	}
@@ -171,6 +178,80 @@ func (ex *Explainer) runExplain(
 
 	explainSQL := explainSQL(query, analyze)
 	return collectPlanJSON(ctx, conn, explainSQL)
+}
+
+// runExplainParameterized handles queries with $N placeholders
+// (typically from pg_stat_statements). PG cannot EXPLAIN these
+// directly. We use PREPARE + EXPLAIN EXECUTE with NULL values to
+// get the plan. If the caller provided explicit params, those are
+// used instead of NULLs.
+func (ex *Explainer) runExplainParameterized(
+	ctx context.Context, query string, params []string,
+) (json.RawMessage, error) {
+	timeout := time.Duration(ex.cfg.TimeoutMs) * time.Millisecond
+	if timeout == 0 {
+		timeout = 10 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	conn, err := ex.pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	if err = ex.prepareConn(ctx, conn); err != nil {
+		return nil, err
+	}
+	defer func() { _, _ = conn.Exec(ctx, "ROLLBACK") }()
+
+	stmtName := "_sage_explain"
+	nParams := countParamPlaceholders(query)
+
+	// PREPARE _sage_explain AS <query>
+	prepSQL := fmt.Sprintf("PREPARE %s AS %s", stmtName, query)
+	if _, err = conn.Exec(ctx, prepSQL); err != nil {
+		return nil, fmt.Errorf("prepare parameterized: %w", err)
+	}
+	defer func() {
+		_, _ = conn.Exec(ctx, "DEALLOCATE "+stmtName)
+	}()
+
+	// Build param list: use provided params or NULLs.
+	paramValues := make([]string, nParams)
+	for i := range paramValues {
+		if i < len(params) && params[i] != "" {
+			paramValues[i] = params[i]
+		} else {
+			paramValues[i] = "NULL"
+		}
+	}
+
+	paramList := strings.Join(paramValues, ", ")
+	explainExec := fmt.Sprintf(
+		"EXPLAIN (FORMAT JSON) EXECUTE %s(%s)",
+		stmtName, paramList,
+	)
+	return collectPlanJSON(ctx, conn, explainExec)
+}
+
+// countParamPlaceholders returns the highest $N placeholder number
+// found in the query (e.g. "$3" means 3 parameters).
+func countParamPlaceholders(query string) int {
+	matches := paramNumRe.FindAllStringSubmatch(query, -1)
+	max := 0
+	for _, m := range matches {
+		if len(m) > 1 {
+			var n int
+			if _, err := fmt.Sscanf(m[1], "%d", &n); err == nil {
+				if n > max {
+					max = n
+				}
+			}
+		}
+	}
+	return max
 }
 
 // prepareConn opens a read-only transaction with statement_timeout.
@@ -421,6 +502,7 @@ func isDDL(query string) bool {
 }
 
 var paramRe = regexp.MustCompile(`\$\d`)
+var paramNumRe = regexp.MustCompile(`\$(\d+)`)
 
 // hasParamPlaceholder returns true if the query contains $1-style placeholders.
 func hasParamPlaceholder(query string) bool {

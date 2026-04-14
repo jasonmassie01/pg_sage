@@ -71,6 +71,9 @@ var allowedConfigKeys = map[string]string{
 	"rca.replication_lag_threshold_seconds": "int_pos",
 	"rca.wal_spike_multiplier":              "float_pos",
 
+	// v0.9.2: Slow active replication slot threshold.
+	"analyzer.slow_slot_retained_bytes": "int_pos",
+
 	// v0.9: Lock chain detection.
 	"analyzer.lock_chain.enabled":                      "bool",
 	"analyzer.lock_chain.min_blocked_threshold":        "int_pos",
@@ -352,6 +355,8 @@ func addAnalyzerFields(m map[string]any, a *config.AnalyzerConfig) {
 		a.RegressionThresholdPct, "yaml")
 	addField(m, "analyzer.cache_hit_ratio_warning",
 		a.CacheHitRatioWarning, "yaml")
+	addField(m, "analyzer.slow_slot_retained_bytes",
+		a.SlowSlotRetainedBytes, "yaml")
 	addField(m, "analyzer.lock_chain.enabled",
 		a.LockChain.Enabled, "yaml")
 	addField(m, "analyzer.lock_chain.min_blocked_threshold",

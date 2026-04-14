@@ -227,6 +227,12 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		reader: func(c *config.Config) string { return itoa(c.Retention.ExplainsDays) },
 	},
 
+	// --- v0.9.2: slow active replication slot threshold ---
+	"analyzer.slow_slot_retained_bytes": {
+		input:  "1073741824",
+		reader: func(c *config.Config) string { return fmt.Sprintf("%d", c.Analyzer.SlowSlotRetainedBytes) },
+	},
+
 	// --- v0.9: lock chain detection ---
 	"analyzer.lock_chain.enabled": {
 		input:  "true",

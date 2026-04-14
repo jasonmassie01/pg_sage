@@ -95,6 +95,9 @@ type AnalyzerConfig struct {
 	// role/query_hash before promoting to a role-level work_mem finding.
 	WorkMemPromotionThreshold int `yaml:"work_mem_promotion_threshold" doc:"How many active work_mem hints a single role must accumulate before the analyzer recommends promoting work_mem at the role level via ALTER ROLE. Set 0 to disable the advisor."`
 
+	// v0.9.2 — Slow active replication slot threshold (bytes).
+	SlowSlotRetainedBytes int64 `yaml:"slow_slot_retained_bytes" doc:"Active slots retaining more WAL than this (bytes) are flagged as slow consumers. Default 1 GB. Slow consumers hold xmin, blocking vacuum."`
+
 	// v0.9 — Lock chain detection.
 	LockChain LockChainConfig `yaml:"lock_chain"`
 }
