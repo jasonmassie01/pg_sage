@@ -214,6 +214,7 @@ function DBField({ field, getVal, setVal, getSource, resetField }) {
       {source === 'db_override' || source === 'modified' ? (
         <button onClick={() => resetField(field.key)}
           title="Reset to global"
+          aria-label={`Reset ${field.label} to global default`}
           className="p-1 rounded"
           style={{ color: 'var(--text-secondary)' }}>
           <RotateCcw size={14} />

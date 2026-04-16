@@ -1,10 +1,17 @@
+import { createContext, useContext } from 'react'
 import {
   AlertTriangle, Activity, Bell, Settings,
   Home, TrendingUp, Zap, Users, LogOut, Mail, Server,
-  ShieldAlert,
+  ShieldAlert, Search,
 } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
 import { useAPI } from '../hooks/useAPI'
+
+const PendingActionsContext = createContext({ refetch: () => {} })
+
+export function usePendingActionsRefetch() {
+  return useContext(PendingActionsContext).refetch
+}
 
 const NAV_GROUPS = [
   {
@@ -27,6 +34,8 @@ const NAV_GROUPS = [
         label: 'Forecasts', tid: 'nav-forecasts' },
       { path: '#/query-hints', icon: Zap, label: 'Performance',
         tid: 'nav-query-hints' },
+      { path: '#/schema-health', icon: Search,
+        label: 'Schema Health', tid: 'nav-schema-health' },
       { path: '#/alerts', icon: Bell, label: 'Alerts',
         tid: 'nav-alerts' },
     ],
@@ -117,13 +126,13 @@ export function Layout({
   user, onLogout, ...rest
 }) {
   const hash = window.location.hash || '#/'
-  const { data: countData } = useAPI(
+  const { data: countData, refetch: refetchPending } = useAPI(
     user ? '/api/v1/actions/pending/count' : null, 30000,
   )
   const pendingCount = countData?.count || 0
 
   const { data: fleetData } = useAPI(
-    user ? '/api/v1/databases' : null, 10000,
+    user ? '/api/v1/databases' : null, 30000,
   )
   const emergencyStopped =
     fleetData?.summary?.emergency_stopped === true
@@ -213,7 +222,12 @@ export function Layout({
             )}
           </div>
         </header>
-        <div className="p-6">{children}</div>
+        <div className="p-6">
+          <PendingActionsContext.Provider
+            value={{ refetch: refetchPending }}>
+            {children}
+          </PendingActionsContext.Provider>
+        </div>
       </main>
     </div>
   )

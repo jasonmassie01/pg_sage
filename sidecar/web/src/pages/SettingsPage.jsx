@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -7,6 +7,21 @@ import { ConfigTooltip } from '../components/ConfigTooltip'
 import {
   ShieldAlert, Play, Save, RotateCcw, Check, X,
 } from 'lucide-react'
+
+const TRUST_LEVEL_EXPLAIN = {
+  observation:
+    'Observation: pg_sage only monitors and surfaces findings.'
+    + ' No automated actions will run.',
+  advisory:
+    'Advisory: pg_sage may automatically execute SAFE actions'
+    + ' (ANALYZE, non-destructive index hints). Moderate and'
+    + ' high-risk actions still require manual approval.',
+  autonomous:
+    'Autonomous: pg_sage may automatically execute SAFE and'
+    + ' MODERATE actions (CREATE INDEX CONCURRENTLY, VACUUM,'
+    + ' dropping unused indexes). High-risk actions still require'
+    + ' manual approval.',
+}
 
 const ADVANCED_TABS = [
   'General', 'Collector', 'Analyzer', 'Trust & Safety',
@@ -35,6 +50,7 @@ export function SettingsPage({ database }) {
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState(null)
   const [stopping, setStopping] = useState(false)
+  const [pendingTrust, setPendingTrust] = useState(null)
 
   const tabs = mode === 'simple' ? SIMPLE_TABS : ADVANCED_TABS
 
@@ -66,8 +82,30 @@ export function SettingsPage({ database }) {
   }, [cfg, edits])
 
   const setVal = (key, val) => {
+    if (key === 'trust.level') {
+      const current = getVal('trust.level')
+      // Only confirm on escalations (observation -> advisory/auto,
+      // or any -> autonomous). De-escalation is always safe.
+      const escalating =
+        (current === 'observation'
+          && (val === 'advisory' || val === 'autonomous'))
+        || (current === 'advisory' && val === 'autonomous')
+      if (escalating && val !== current) {
+        setPendingTrust({ key, val, from: current })
+        return
+      }
+    }
     setEdits(prev => ({ ...prev, [key]: val }))
     setFeedback(null)
+  }
+
+  const applyPendingTrust = () => {
+    if (!pendingTrust) return
+    setEdits(prev => ({
+      ...prev, [pendingTrust.key]: pendingTrust.val,
+    }))
+    setFeedback(null)
+    setPendingTrust(null)
   }
 
   const resetField = (key) => {
@@ -113,6 +151,14 @@ export function SettingsPage({ database }) {
 
   return (
     <div className="space-y-4 max-w-3xl">
+      {pendingTrust && (
+        <TrustLevelConfirm
+          from={pendingTrust.from}
+          to={pendingTrust.val}
+          onConfirm={applyPendingTrust}
+          onCancel={() => setPendingTrust(null)}
+        />
+      )}
       <div className="flex items-center justify-between">
         <TabBar tabs={tabs} active={tab} onSelect={setTab} />
         <button
@@ -390,6 +436,64 @@ function TabBar({ tabs, active, onSelect }) {
   )
 }
 
+function TrustLevelConfirm({ from, to, onConfirm, onCancel }) {
+  useEffect(() => {
+    const handler = e => {
+      if (e.key === 'Escape') onCancel()
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onCancel])
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center"
+      role="dialog" aria-modal="true"
+      data-testid="trust-level-confirm"
+      style={{ background: 'rgba(0,0,0,0.5)' }}
+      onClick={onCancel}>
+      <div className="rounded p-5 max-w-md w-full mx-4"
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+        }}>
+        <div className="flex items-center gap-2 mb-3">
+          <ShieldAlert size={20} style={{ color: 'var(--yellow)' }} />
+          <h3 className="text-sm font-semibold"
+            style={{ color: 'var(--text-primary)' }}>
+            Confirm Trust Level Change
+          </h3>
+        </div>
+        <p className="text-sm mb-3"
+          style={{ color: 'var(--text-secondary)' }}>
+          Changing trust from <b>{from || 'unknown'}</b> to <b>{to}</b>.
+        </p>
+        <p className="text-xs mb-4"
+          style={{ color: 'var(--text-secondary)' }}>
+          {TRUST_LEVEL_EXPLAIN[to] || 'Unknown trust level.'}
+        </p>
+        <div className="flex gap-2 justify-end">
+          <button onClick={onCancel}
+            data-testid="trust-level-cancel"
+            className="px-3 py-1.5 rounded text-sm"
+            style={{
+              background: 'var(--bg-card)',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border)',
+            }}>
+            Cancel
+          </button>
+          <button onClick={onConfirm}
+            data-testid="trust-level-confirm-btn"
+            className="px-3 py-1.5 rounded text-sm font-medium"
+            style={{ background: 'var(--accent)', color: '#fff' }}>
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function FeedbackBanner({ type, msg }) {
   const color = type === 'success' ? 'var(--green)' : 'var(--red)'
   const Icon = type === 'success' ? Check : X
@@ -498,6 +602,7 @@ function Field({
       </div>
       {source !== 'default' && source !== 'yaml' && (
         <button onClick={() => resetField(configKey)} title="Reset"
+          aria-label={`Reset ${label}`}
           className="p-1 rounded"
           style={{ color: 'var(--text-secondary)' }}>
           <RotateCcw size={14} />
@@ -536,7 +641,14 @@ function PasswordField({ value, onChange }) {
 function GeneralTab({
   mode, databases, database, stopping, setStopping, refetch,
 }) {
-  const emergencyStop = async () => {
+  const [armSeconds, setArmSeconds] = useState(0)
+  const timerRef = useRef(null)
+
+  useEffect(() => () => {
+    if (timerRef.current) clearInterval(timerRef.current)
+  }, [])
+
+  const doEmergencyStop = async () => {
     setStopping(true)
     const dbParam = database && database !== 'all'
       ? `?database=${database}` : ''
@@ -550,6 +662,39 @@ function GeneralTab({
       refetch()
     }
   }
+
+  const armEmergencyStop = () => {
+    setArmSeconds(5)
+    if (timerRef.current) clearInterval(timerRef.current)
+    timerRef.current = setInterval(() => {
+      setArmSeconds(s => {
+        if (s <= 1) {
+          clearInterval(timerRef.current)
+          timerRef.current = null
+          return 0
+        }
+        return s - 1
+      })
+    }, 1000)
+  }
+
+  const onEmergencyClick = () => {
+    if (armSeconds > 0) {
+      if (timerRef.current) clearInterval(timerRef.current)
+      timerRef.current = null
+      setArmSeconds(0)
+      doEmergencyStop()
+    } else {
+      armEmergencyStop()
+    }
+  }
+
+  const cancelArm = () => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    timerRef.current = null
+    setArmSeconds(0)
+  }
+
   const resume = async () => {
     const dbParam = database && database !== 'all'
       ? `?database=${database}` : ''
@@ -580,17 +725,31 @@ function GeneralTab({
         Emergency Controls
       </h3>
       <div className="flex gap-3">
-        <button onClick={emergencyStop} disabled={stopping}
+        <button onClick={onEmergencyClick} disabled={stopping}
           data-testid="emergency-stop-button"
           className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium"
           style={{
-            background: '#3b1111',
-            color: 'var(--red)',
+            background: armSeconds > 0 ? 'var(--red)' : '#3b1111',
+            color: armSeconds > 0 ? '#fff' : 'var(--red)',
             border: '1px solid var(--red)',
           }}>
           <ShieldAlert size={16} />
-          {stopping ? 'Stopping...' : 'Emergency Stop'}
+          {stopping ? 'Stopping...'
+            : armSeconds > 0
+              ? `Confirm Emergency Stop (${armSeconds})`
+              : 'Emergency Stop'}
         </button>
+        {armSeconds > 0 && (
+          <button onClick={cancelArm}
+            data-testid="emergency-stop-cancel"
+            className="flex items-center gap-2 px-4 py-2 rounded text-sm"
+            style={{
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border)',
+            }}>
+            Cancel
+          </button>
+        )}
         <button onClick={resume}
           data-testid="resume-button"
           className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium"

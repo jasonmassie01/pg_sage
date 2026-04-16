@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Bell } from 'lucide-react'
 import { useAPI } from '../hooks/useAPI'
 import { DataTable } from '../components/DataTable'
@@ -10,13 +11,22 @@ import { EmptyState } from '../components/EmptyState'
 const STATUS_COLORS = {
   sent: 'var(--green)',
   failed: 'var(--red)',
-  skipped: '#fbbf24',
+  skipped: 'var(--yellow)',
 }
 
 const CHANNEL_STYLES = {
-  slack: { bg: '#1a2332', text: '#4a9eff' },
-  pagerduty: { bg: '#2d1a1a', text: '#ef4444' },
-  webhook: { bg: '#1a2e1a', text: '#22c55e' },
+  slack: {
+    bg: 'var(--channel-slack-bg, #1a2332)',
+    text: 'var(--channel-slack-text, #4a9eff)',
+  },
+  pagerduty: {
+    bg: 'var(--channel-pagerduty-bg, #2d1a1a)',
+    text: 'var(--channel-pagerduty-text, var(--red))',
+  },
+  webhook: {
+    bg: 'var(--channel-webhook-bg, #1a2e1a)',
+    text: 'var(--channel-webhook-text, var(--green))',
+  },
 }
 
 function Summary({ alerts }) {
@@ -88,18 +98,74 @@ function Summary({ alerts }) {
   )
 }
 
+function filterByDate(alerts, from, to) {
+  if (!from && !to) return alerts
+  const fromTs = from ? new Date(from + 'T00:00:00').getTime() : null
+  const toTs = to ? new Date(to + 'T23:59:59').getTime() : null
+  return alerts.filter(a => {
+    if (!a.sent_at) return false
+    const t = new Date(a.sent_at).getTime()
+    if (fromTs !== null && t < fromTs) return false
+    if (toTs !== null && t > toTs) return false
+    return true
+  })
+}
+
+function DateRangeFilter({ from, to, onFrom, onTo, onClear }) {
+  const inputStyle = {
+    background: 'var(--bg-card)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--border)',
+  }
+  return (
+    <div className="flex items-center gap-2 mb-4 flex-wrap">
+      <label className="text-xs"
+        style={{ color: 'var(--text-secondary)' }}>
+        From
+      </label>
+      <input type="date" value={from}
+        data-testid="alert-log-date-from"
+        onChange={e => onFrom(e.target.value)}
+        className="px-2 py-1 rounded text-sm"
+        style={inputStyle} />
+      <label className="text-xs"
+        style={{ color: 'var(--text-secondary)' }}>
+        To
+      </label>
+      <input type="date" value={to}
+        data-testid="alert-log-date-to"
+        onChange={e => onTo(e.target.value)}
+        className="px-2 py-1 rounded text-sm"
+        style={inputStyle} />
+      {(from || to) && (
+        <button onClick={onClear}
+          className="px-2 py-1 rounded text-xs"
+          style={{
+            color: 'var(--text-secondary)',
+            border: '1px solid var(--border)',
+          }}>
+          Clear
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function AlertLogPage({ database }) {
   const dbParam = database && database !== 'all'
     ? `?database=${database}` : ''
   const { data, loading, error, refetch } =
     useAPI(`/api/v1/alert-log${dbParam}`)
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
 
   if (loading) return <LoadingSpinner />
   if (error) return <ErrorBanner message={error} onRetry={refetch} />
 
-  const alerts = data?.alerts || []
+  const allAlerts = data?.alerts || []
+  const alerts = filterByDate(allAlerts, fromDate, toDate)
 
-  if (alerts.length === 0) {
+  if (allAlerts.length === 0) {
     return <EmptyState message="No alerts sent yet. Configure notification channels in Settings to receive alerts when pg_sage detects issues." />
   }
 
@@ -144,8 +210,15 @@ export function AlertLogPage({ database }) {
 
   return (
     <>
+      <DateRangeFilter from={fromDate} to={toDate}
+        onFrom={setFromDate} onTo={setToDate}
+        onClear={() => { setFromDate(''); setToDate('') }} />
       <Summary alerts={alerts} />
-      <DataTable columns={columns} rows={alerts} />
+      {alerts.length === 0 ? (
+        <EmptyState message="No alerts match the selected date range." />
+      ) : (
+        <DataTable columns={columns} rows={alerts} />
+      )}
     </>
   )
 }

@@ -1,13 +1,49 @@
-import { useState, Fragment } from 'react'
+import { useState, Fragment, useRef, useEffect } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
+
+function useOverflow(ref) {
+  const [overflowing, setOverflowing] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const check = () => {
+      setOverflowing(el.scrollWidth > el.clientWidth)
+    }
+    check()
+    const ro = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(check) : null
+    if (ro) ro.observe(el)
+    window.addEventListener('resize', check)
+    return () => {
+      if (ro) ro.disconnect()
+      window.removeEventListener('resize', check)
+    }
+  }, [ref])
+  return overflowing
+}
 
 export function DataTable({ columns, rows, expandable, renderExpanded, ...rest }) {
   const [expanded, setExpanded] = useState(null)
+  const scrollRef = useRef(null)
+  const overflowing = useOverflow(scrollRef)
 
   return (
-    <div className="rounded overflow-hidden"
+    <div className="rounded relative"
       {...rest}
       style={{ border: '1px solid var(--border)' }}>
+      {overflowing && (
+        <div
+          data-testid="scroll-hint"
+          className="md:hidden absolute top-1 right-2 text-xs
+            pointer-events-none px-1.5 py-0.5 rounded z-10"
+          style={{
+            background: 'var(--bg-hover)',
+            color: 'var(--text-secondary)',
+          }}>
+          {'\u2190 scroll \u2192'}
+        </div>
+      )}
+      <div ref={scrollRef} className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr style={{ background: 'var(--bg-card)' }}>
@@ -60,6 +96,7 @@ export function DataTable({ columns, rows, expandable, renderExpanded, ...rest }
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

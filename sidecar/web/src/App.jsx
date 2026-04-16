@@ -13,6 +13,7 @@ import { LoginPage } from './pages/LoginPage'
 import { UsersPage } from './pages/UsersPage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
+import { SchemaHealthPage } from './pages/SchemaHealthPage'
 import { useAPI } from './hooks/useAPI'
 
 function getRoute() {
@@ -60,14 +61,31 @@ export default function App() {
   }
 
   async function handleLogout() {
+    // requireJSONMiddleware rejects POSTs without Content-Type:
+    // application/json with 415 (see internal/api/middleware.go:97).
+    // The body-less logout still needs the header.
     await fetch('/api/v1/auth/logout', {
       method: 'POST',
       credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
     })
     setUser(null)
   }
 
   const databases = fleetData?.databases || []
+
+  // TODO(fleet-ctx): Audit every fetch() call site and ensure
+  // per-database context is forwarded via ?database= where the
+  // endpoint accepts it. Current direct fetch() call sites:
+  //   - Actions.jsx approve/reject: id-scoped, no ?database= needed
+  //   - Findings.jsx suppress/execute: id-scoped, no ?database=
+  //   - ChannelsTab, RulesTab, LogTab: global notifications config
+  //   - DatabaseTable/DatabaseForm: address the managed DB by id
+  //   - SettingsPage config/global, emergency-stop, resume: pass dbParam
+  //   - UsersPage, LoginPage, DatabasesPage: global resources
+  // Page-level useAPI calls already pass dbParam where applicable
+  // (Findings, Actions, AlertLog, Dashboard, DatabasePage, etc).
+  // Revisit when new per-DB endpoints are added.
 
   const page = (() => {
     switch (route) {
@@ -82,6 +100,8 @@ export default function App() {
         return <ForecastsPage database={selectedDB} />
       case '/query-hints':
         return <QueryHintsPage database={selectedDB} />
+      case '/schema-health':
+        return <SchemaHealthPage database={selectedDB} />
       case '/alerts': return <AlertLogPage database={selectedDB} />
       case '/incidents':
         return <IncidentsPage database={selectedDB} user={user} />

@@ -6,6 +6,7 @@ import { TimeAgo } from '../components/TimeAgo'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { EmptyState } from '../components/EmptyState'
+import { usePendingActionsRefetch } from '../components/Layout'
 
 export function Actions({ database, user }) {
   const [tab, setTab] = useState('executed')
@@ -249,14 +250,27 @@ function ExecutedTab({ data, loading, error, refetch }) {
   )
 }
 
+function PendingSkeleton() {
+  return (
+    <div className="space-y-2" data-testid="pending-skeleton">
+      {[0, 1, 2].map(i => (
+        <div key={i}
+          className="h-10 rounded animate-pulse"
+          style={{ background: 'var(--bg-hover)' }} />
+      ))}
+    </div>
+  )
+}
+
 function PendingTab({
   data, loading, error, refetch, user,
 }) {
   const [rejectId, setRejectId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [actionMsg, setActionMsg] = useState(null)
+  const refetchPendingCount = usePendingActionsRefetch()
 
-  if (loading) return <LoadingSpinner />
+  if (loading) return <PendingSkeleton />
   if (error) return <ErrorBanner message={error}
     onRetry={refetch} />
 
@@ -278,6 +292,7 @@ function PendingTab({
           text: json.error || 'Approve failed' })
       }
       refetch()
+      refetchPendingCount()
     } catch (err) {
       setActionMsg({ type: 'error', text: err.message })
     }
@@ -306,6 +321,7 @@ function PendingTab({
       setRejectId(null)
       setRejectReason('')
       refetch()
+      refetchPendingCount()
     } catch (err) {
       setActionMsg({ type: 'error', text: err.message })
     }
