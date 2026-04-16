@@ -1,3 +1,10 @@
+// Package optimizer is the single source of truth for index
+// recommendations (category = "missing_index"). Schema lint intentionally
+// does NOT register rules that propose new indexes — those live here,
+// where plan capture + HypoPG validation produce confidence-scored
+// recommendations instead of raw heuristics. If you find yourself adding
+// a "suggest an index" rule in schema/lint, it almost certainly belongs
+// in this package instead.
 package optimizer
 
 import (
