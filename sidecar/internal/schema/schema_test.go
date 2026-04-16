@@ -88,6 +88,8 @@ func TestExpectedTables_AllPresent(t *testing.T) {
 		"incidents",
 		"size_history",
 		"explain_results",
+		"schema_findings",
+		"crypto_meta",
 	}
 
 	if len(expectedTables) != len(want) {
@@ -272,6 +274,7 @@ func TestTrustRampStart_RejectsGarbage(t *testing.T) {
 
 func TestBootstrap_FreshDatabase(t *testing.T) {
 	pool, ctx := requireDB(t)
+	serializeAcrossPackages(t, ctx, pool)
 
 	// Acquire lock before dropping schema to prevent cross-package races.
 	_, _ = pool.Exec(ctx, "SELECT pg_advisory_lock(hashtext('pg_sage'))")

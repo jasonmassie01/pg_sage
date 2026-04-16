@@ -24,7 +24,8 @@ var (
 	cbPool     *pgxpool.Pool
 	cbPoolOnce sync.Once
 	cbPoolErr  error
-	cbKey      = crypto.DeriveKey("coverage-boost-test-key")
+	cbKey      = crypto.DeriveKey("coverage-boost-test-key",
+		[]byte("cov-test-salt-16"))
 )
 
 func coverageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
@@ -39,6 +40,9 @@ func coverageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			cbPoolErr = fmt.Errorf("parsing DSN: %w", err)
 			return
 		}
+		// MaxConns=1 is required for session-scoped advisory locks
+		// (serializeAcrossPackages) to protect the test's own queries.
+		cfg.MaxConns = 1
 		cbPool, cbPoolErr = pgxpool.NewWithConfig(qctx, cfg)
 		if cbPoolErr != nil {
 			return
@@ -73,6 +77,7 @@ func coverageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	if cbPoolErr != nil {
 		t.Skipf("database unavailable: %v", cbPoolErr)
 	}
+	serializeAcrossPackages(t, ctx, cbPool)
 	return cbPool, ctx
 }
 
@@ -101,7 +106,7 @@ func TestCoverage_NewConfigStore(t *testing.T) {
 }
 
 func TestCoverage_NewDatabaseStore(t *testing.T) {
-	key := crypto.DeriveKey("test")
+	key := crypto.DeriveKey("test", []byte("unit-test-salt16"))
 	s := NewDatabaseStore(nil, key)
 	if s == nil {
 		t.Fatal("NewDatabaseStore(nil, key) returned nil")
