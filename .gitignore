@@ -13,6 +13,8 @@
 sidecar/sage-sidecar
 sidecar/sage-sidecar-standalone.exe
 sidecar/coverage.out
+sidecar/cover.log
+sidecar/test.log
 sidecar/pg_sage_sidecar_linux
 
 # Sensitive files
