@@ -74,3 +74,70 @@ func AnalyzeTableContract() ActionContract {
 		},
 	}
 }
+
+func ContractForActionType(actionType string) (ActionContract, bool) {
+	switch actionType {
+	case "analyze_table":
+		return AnalyzeTableContract(), true
+	case "create_index_concurrently":
+		return ActionContract{
+			ActionType:      actionType,
+			BaseRiskTier:    "moderate",
+			ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+			RequiredPermissions: []string{
+				"schema CREATE privilege",
+				"table ownership or maintenance role",
+			},
+			Prechecks: []string{
+				"table exists",
+				"index does not already cover target columns",
+				"disk pressure is below safety threshold",
+			},
+			Guardrails: []string{
+				"CREATE INDEX CONCURRENTLY",
+				"lock_timeout",
+				"statement_timeout",
+				"maintenance-window enforcement",
+			},
+			ExecutionPlan: []string{"CREATE INDEX CONCURRENTLY ..."},
+			SuccessCriteria: []string{
+				"index is valid and ready",
+				"planner can choose the index where applicable",
+			},
+			PostChecks:    []string{"verify pg_index.indisvalid and indisready"},
+			RollbackClass: "reversible",
+			Cooldown:      "configured cascade cooldown",
+			AuditFields:   []string{"table", "columns", "index_name", "case_id"},
+		}, true
+	case "drop_unused_index":
+		return ActionContract{
+			ActionType:      actionType,
+			BaseRiskTier:    "moderate",
+			ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+			RequiredPermissions: []string{
+				"index ownership or maintenance role",
+			},
+			Prechecks: []string{
+				"index exists",
+				"unused window has elapsed",
+				"index is not protected by policy",
+			},
+			Guardrails: []string{
+				"DROP INDEX CONCURRENTLY",
+				"approval required",
+				"maintenance-window enforcement",
+			},
+			ExecutionPlan: []string{"DROP INDEX CONCURRENTLY ..."},
+			SuccessCriteria: []string{
+				"index is absent",
+				"no protected dependency was removed",
+			},
+			PostChecks:    []string{"verify index no longer exists"},
+			RollbackClass: "reversible",
+			Cooldown:      "configured cascade cooldown",
+			AuditFields:   []string{"index_name", "table", "case_id"},
+		}, true
+	default:
+		return ActionContract{}, false
+	}
+}

@@ -5,6 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/pg-sage/sidecar/internal/cases"
+	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
 func TestCasesHandlerRejectsBadDatabaseParam(t *testing.T) {
@@ -64,5 +70,84 @@ func TestShadowReportHandlerEmptyWhenNoFleet(t *testing.T) {
 	}
 	if body["total_cases"].(float64) != 0 {
 		t.Fatalf("total_cases = %v, want 0", body["total_cases"])
+	}
+}
+
+func TestEnrichCaseActionPoliciesAddsDeterministicDecision(t *testing.T) {
+	cfg := &config.Config{
+		Mode:             "fleet",
+		CloudEnvironment: "cloud-sql",
+		Trust: config.TrustConfig{
+			Level:     "autonomous",
+			Tier3Safe: true,
+			RampStart: time.Now().
+				Add(-10 * 24 * time.Hour).
+				Format(time.RFC3339),
+		},
+	}
+	mgr := fleet.NewManager(cfg)
+	mgr.RegisterInstance(&fleet.DatabaseInstance{
+		Name:   "prod",
+		Config: config.DatabaseConfig{Name: "prod", ExecutionMode: "auto"},
+	})
+	c := cases.Case{
+		DatabaseName: "prod",
+		ActionCandidates: []cases.ActionCandidate{{
+			ActionType: "analyze_table",
+			RiskTier:   "safe",
+		}},
+	}
+
+	enrichCaseActionPolicies(&c, mgr, "prod")
+
+	decision := c.ActionCandidates[0].PolicyDecision
+	if decision == nil {
+		t.Fatal("missing policy decision")
+	}
+	if decision.Decision != executor.PolicyDecisionExecute {
+		t.Fatalf("Decision = %q, want execute", decision.Decision)
+	}
+	if len(c.ActionCandidates[0].Guardrails) == 0 {
+		t.Fatalf("expected candidate guardrails")
+	}
+}
+
+func TestEnrichCaseActionPoliciesShowsApprovalAndWindowBlock(t *testing.T) {
+	cfg := &config.Config{
+		Mode:             "fleet",
+		CloudEnvironment: "postgres",
+		Trust: config.TrustConfig{
+			Level:             "autonomous",
+			Tier3Moderate:     true,
+			MaintenanceWindow: "0 2 * * *",
+			RampStart: time.Now().
+				Add(-40 * 24 * time.Hour).
+				Format(time.RFC3339),
+		},
+	}
+	mgr := fleet.NewManager(cfg)
+	mgr.RegisterInstance(&fleet.DatabaseInstance{
+		Name:   "prod",
+		Config: config.DatabaseConfig{Name: "prod", ExecutionMode: "auto"},
+	})
+	c := cases.Case{
+		DatabaseName: "prod",
+		ActionCandidates: []cases.ActionCandidate{{
+			ActionType: "create_index_concurrently",
+			RiskTier:   "moderate",
+		}},
+	}
+
+	enrichCaseActionPolicies(&c, mgr, "prod")
+
+	candidate := c.ActionCandidates[0]
+	if candidate.PolicyDecision == nil {
+		t.Fatal("missing policy decision")
+	}
+	if !candidate.RequiresApproval || !candidate.RequiresMaintenanceWindow {
+		t.Fatalf("expected approval and window flags: %#v", candidate)
+	}
+	if candidate.BlockedReason == "" {
+		t.Fatalf("expected blocked reason outside maintenance window")
 	}
 }

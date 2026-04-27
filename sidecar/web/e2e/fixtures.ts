@@ -79,7 +79,17 @@ export const mockCases = {
       impact_score: 60,
       urgency_score: 75,
       action_candidates: [
-        { action_type: 'analyze_table', risk_tier: 'safe' },
+        {
+          action_type: 'analyze_table',
+          risk_tier: 'safe',
+          guardrails: ['dedicated connection', 'statement_timeout'],
+          policy_decision: {
+            decision: 'execute',
+            risk_tier: 'safe',
+            requires_approval: false,
+            requires_maintenance_window: false,
+          },
+        },
       ],
     },
   ],

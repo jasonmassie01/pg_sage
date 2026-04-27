@@ -16,6 +16,13 @@ vi.mock('../hooks/useAPI', () => ({
         action_candidates: [{
           action_type: 'analyze_table',
           risk_tier: 'safe',
+          guardrails: ['dedicated connection', 'statement_timeout'],
+          policy_decision: {
+            decision: 'execute',
+            risk_tier: 'safe',
+            requires_approval: false,
+            requires_maintenance_window: false,
+          },
         }],
       }],
       total: 1,
@@ -34,5 +41,7 @@ describe('CasesPage', () => {
     expect(screen.getByText('table changed since last analyze'))
       .toBeInTheDocument()
     expect(screen.getByText('analyze_table')).toBeInTheDocument()
+    expect(screen.getByText(/execute/)).toBeInTheDocument()
+    expect(screen.getByText('dedicated connection')).toBeInTheDocument()
   })
 })

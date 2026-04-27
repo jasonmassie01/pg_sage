@@ -65,6 +65,10 @@ func ShouldExecute(
 //   - "30 * * * *" → at minute 30 of every hour (1h window)
 //   - "always" → always in window
 func inMaintenanceWindow(cronExpr string) bool {
+	return inMaintenanceWindowAt(cronExpr, time.Now())
+}
+
+func inMaintenanceWindowAt(cronExpr string, now time.Time) bool {
 	if cronExpr == "" {
 		return false
 	}
@@ -105,8 +109,6 @@ func inMaintenanceWindow(cronExpr string) bool {
 	if minuteWild && hourWild {
 		return true
 	}
-
-	now := time.Now()
 
 	if hourWild {
 		// Any hour, specific minute: 1-hour window starting at :minute.

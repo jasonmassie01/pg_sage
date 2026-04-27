@@ -67,15 +67,19 @@ type Case struct {
 }
 
 type ActionCandidate struct {
-	ActionType       string     `json:"action_type"`
-	RiskTier         string     `json:"risk_tier"`
-	Confidence       float64    `json:"confidence"`
-	ProposedSQL      string     `json:"proposed_sql,omitempty"`
-	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
-	BlockedReason    string     `json:"blocked_reason,omitempty"`
-	OutputModes      []string   `json:"output_modes,omitempty"`
-	RollbackClass    string     `json:"rollback_class,omitempty"`
-	VerificationPlan []string   `json:"verification_plan,omitempty"`
+	ActionType                string                `json:"action_type"`
+	RiskTier                  string                `json:"risk_tier"`
+	Confidence                float64               `json:"confidence"`
+	ProposedSQL               string                `json:"proposed_sql,omitempty"`
+	ExpiresAt                 *time.Time            `json:"expires_at,omitempty"`
+	BlockedReason             string                `json:"blocked_reason,omitempty"`
+	OutputModes               []string              `json:"output_modes,omitempty"`
+	RollbackClass             string                `json:"rollback_class,omitempty"`
+	VerificationPlan          []string              `json:"verification_plan,omitempty"`
+	Guardrails                []string              `json:"guardrails,omitempty"`
+	PolicyDecision            *ActionPolicyDecision `json:"policy_decision,omitempty"`
+	RequiresApproval          bool                  `json:"requires_approval,omitempty"`
+	RequiresMaintenanceWindow bool                  `json:"requires_maintenance_window,omitempty"`
 }
 
 func (a ActionCandidate) IsExecutable(now time.Time) bool {
@@ -83,6 +87,16 @@ func (a ActionCandidate) IsExecutable(now time.Time) bool {
 		return true
 	}
 	return now.Before(*a.ExpiresAt)
+}
+
+type ActionPolicyDecision struct {
+	Decision                  string   `json:"decision"`
+	RiskTier                  string   `json:"risk_tier"`
+	RequiresApproval          bool     `json:"requires_approval"`
+	RequiresMaintenanceWindow bool     `json:"requires_maintenance_window"`
+	BlockedReason             string   `json:"blocked_reason,omitempty"`
+	Guardrails                []string `json:"guardrails,omitempty"`
+	Provider                  string   `json:"provider,omitempty"`
 }
 
 type CaseAction struct {
