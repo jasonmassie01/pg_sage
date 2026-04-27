@@ -11,6 +11,23 @@ vi.mock('../hooks/useAPI', () => ({
       blocked: 1,
       estimated_toil_minutes: 360,
       blocked_reasons: ['requires approval'],
+      proof: [
+        {
+          case_id: 'case-1',
+          title: 'Stats are stale',
+          action_type: 'analyze_table',
+          policy_decision: 'execute',
+          estimated_toil_minutes: 15,
+        },
+        {
+          case_id: 'case-2',
+          title: 'Needs DDL',
+          action_type: 'create_index_concurrently',
+          policy_decision: 'queue_for_approval',
+          estimated_toil_minutes: 30,
+          blocked_reason: 'requires approval',
+        },
+      ],
     },
     loading: false,
     error: null,
@@ -24,5 +41,9 @@ describe('ShadowModePage', () => {
     expect(screen.getByText('14')).toBeInTheDocument()
     expect(screen.getByText('12')).toBeInTheDocument()
     expect(screen.getByText('360 min')).toBeInTheDocument()
+    expect(screen.getByText('Stats are stale')).toBeInTheDocument()
+    expect(screen.getByText('analyze_table')).toBeInTheDocument()
+    expect(screen.getAllByText(/requires approval/).length)
+      .toBeGreaterThan(0)
   })
 })

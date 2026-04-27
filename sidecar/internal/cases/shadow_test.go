@@ -38,4 +38,19 @@ func TestShadowReportCountsAutoSafeCandidates(t *testing.T) {
 	if report.RequiresApproval != 1 {
 		t.Fatalf("RequiresApproval = %d", report.RequiresApproval)
 	}
+	if len(report.Proof) != 2 {
+		t.Fatalf("Proof len = %d, want 2", len(report.Proof))
+	}
+	if report.Proof[0].CaseID != "case-1" {
+		t.Fatalf("Proof[0].CaseID = %q, want case-1",
+			report.Proof[0].CaseID)
+	}
+	if report.Proof[0].EstimatedToilMins != 15 {
+		t.Fatalf("Proof[0].EstimatedToilMins = %d, want 15",
+			report.Proof[0].EstimatedToilMins)
+	}
+	if report.Proof[1].BlockedReason != "requires approval" {
+		t.Fatalf("Proof[1].BlockedReason = %q, want requires approval",
+			report.Proof[1].BlockedReason)
+	}
 }

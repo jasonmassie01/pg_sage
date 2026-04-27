@@ -57,6 +57,34 @@ export function ShadowModePage({ database }) {
           Blocked: {data.blocked_reasons.join(', ')}
         </div>
       )}
+      {(data?.proof || []).length > 0 && (
+        <div className="space-y-2">
+          {data.proof.map(item => (
+            <ShadowProofRow key={`${item.case_id}-${item.action_type}`}
+              item={item} />
+          ))}
+        </div>
+      )}
     </section>
+  )
+}
+
+function ShadowProofRow({ item }) {
+  return (
+    <div className="rounded border p-3 text-sm"
+      style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+      <div className="font-medium" style={{ color: 'var(--text-primary)' }}>
+        {item.title}
+      </div>
+      <div className="mt-1 flex flex-wrap gap-2 text-xs"
+        style={{ color: 'var(--text-secondary)' }}>
+        <span>{item.action_type}</span>
+        <span>Policy: {item.policy_decision}</span>
+        <span>Toil: {item.estimated_toil_minutes} min</span>
+        {item.blocked_reason && (
+          <span>Blocked: {item.blocked_reason}</span>
+        )}
+      </div>
+    </div>
   )
 }

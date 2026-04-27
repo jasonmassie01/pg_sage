@@ -253,6 +253,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		ddlQueryHintsRewrite,
 		ddlQueryHintsRevalidate,
 		ddlIncidentsLastDetected,
+		ddlActionQueueLifecycleCols,
 		ddlSchemaFindingsLintRunner,
 		ddlFindingsAbsorbsSchemaFindings,
 		ddlFindingsBackfillFromSchemaFindings,
@@ -475,13 +476,27 @@ CREATE TABLE IF NOT EXISTS sage.action_queue (
     decided_by      INT,
     decided_at      TIMESTAMPTZ,
     expires_at      TIMESTAMPTZ DEFAULT now() + INTERVAL '7 days',
-    reason          TEXT
+    reason          TEXT,
+    action_type     TEXT,
+    identity_key    TEXT,
+    policy_decision TEXT,
+    guardrails      JSONB NOT NULL DEFAULT '[]'::jsonb,
+    attempt_count   INT NOT NULL DEFAULT 0,
+    last_attempt_at TIMESTAMPTZ,
+    cooldown_until  TIMESTAMPTZ,
+    failure_fingerprint TEXT,
+    last_failure_fingerprint TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'not_started',
+    shadow_toil_minutes INT NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_action_queue_status
     ON sage.action_queue (status, proposed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_action_queue_finding
     ON sage.action_queue (finding_id)
     WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_action_queue_identity
+    ON sage.action_queue (identity_key, status)
+    WHERE identity_key IS NOT NULL;
 `
 
 const ddlActionLogApprovalCols = `
@@ -489,6 +504,24 @@ ALTER TABLE sage.action_log
     ADD COLUMN IF NOT EXISTS approved_by INT;
 ALTER TABLE sage.action_log
     ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+`
+
+const ddlActionQueueLifecycleCols = `
+ALTER TABLE sage.action_queue
+    ADD COLUMN IF NOT EXISTS action_type TEXT,
+    ADD COLUMN IF NOT EXISTS identity_key TEXT,
+    ADD COLUMN IF NOT EXISTS policy_decision TEXT,
+    ADD COLUMN IF NOT EXISTS guardrails JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS attempt_count INT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS failure_fingerprint TEXT,
+    ADD COLUMN IF NOT EXISTS last_failure_fingerprint TEXT,
+    ADD COLUMN IF NOT EXISTS verification_status TEXT NOT NULL DEFAULT 'not_started',
+    ADD COLUMN IF NOT EXISTS shadow_toil_minutes INT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_action_queue_identity
+    ON sage.action_queue (identity_key, status)
+    WHERE identity_key IS NOT NULL;
 `
 
 const ddlUsersOAuth = `

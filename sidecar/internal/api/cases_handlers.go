@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/cases"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/store"
 )
 
 func casesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
@@ -94,10 +96,75 @@ func queryProjectedCases(
 		for _, row := range rows {
 			projected := cases.ProjectFinding(sourceFindingFromMap(row))
 			enrichCaseActionPolicies(&projected, mgr, selected.name)
+			enrichCaseActionTimeline(
+				ctx, &projected, store.NewActionStore(selected.pool),
+			)
 			out = append(out, projected)
 		}
 	}
 	return out, nil
+}
+
+func enrichCaseActionTimeline(
+	ctx context.Context,
+	c *cases.Case,
+	actionStore *store.ActionStore,
+) {
+	if actionStore == nil || len(c.SourceIDs) == 0 {
+		return
+	}
+	findingID, err := strconv.Atoi(c.SourceIDs[0])
+	if err != nil || findingID <= 0 {
+		return
+	}
+	queued, err := actionStore.ListPendingByFinding(ctx, findingID)
+	if err != nil {
+		return
+	}
+	now := time.Now().UTC()
+	for _, action := range queued {
+		c.Actions = append(c.Actions, caseActionFromQueuedAction(action, now))
+	}
+}
+
+func caseActionFromQueuedAction(
+	action store.QueuedAction,
+	now time.Time,
+) cases.CaseAction {
+	decision := store.EvaluateActionLifecycle(store.ActionLifecycleInput{
+		Status:                 action.Status,
+		ExpiresAt:              action.ExpiresAt,
+		CooldownUntil:          action.CooldownUntil,
+		AttemptCount:           action.AttemptCount,
+		MaxAttempts:            3,
+		FailureFingerprint:     action.FailureFingerprint,
+		LastFailureFingerprint: action.LastFailureFingerprint,
+		EvidencePresent:        true,
+		Now:                    now,
+	})
+	proposedAt := action.ProposedAt
+	return cases.CaseAction{
+		ID:                 fmt.Sprintf("queue:%d", action.ID),
+		Type:               queuedActionType(action),
+		RiskTier:           action.ActionRisk,
+		Status:             action.Status,
+		PolicyDecision:     action.PolicyDecision,
+		LifecycleState:     decision.State,
+		BlockedReason:      decision.BlockedReason,
+		VerificationStatus: action.VerificationStatus,
+		AttemptCount:       action.AttemptCount,
+		Guardrails:         action.Guardrails,
+		ProposedAt:         &proposedAt,
+		ExpiresAt:          action.ExpiresAt,
+		CooldownUntil:      action.CooldownUntil,
+	}
+}
+
+func queuedActionType(action store.QueuedAction) string {
+	if action.ActionType != "" {
+		return action.ActionType
+	}
+	return action.ActionRisk
 }
 
 func enrichCaseActionPolicies(

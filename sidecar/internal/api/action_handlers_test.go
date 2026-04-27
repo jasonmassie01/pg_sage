@@ -24,16 +24,61 @@ func TestActionsTimelineResponseIncludesStatusRiskAndVerification(t *testing.T) 
 		"action_type":         "analyze_table",
 		"risk_tier":           "safe",
 		"verification_status": "not_started",
+		"lifecycle_state":     "blocked",
+		"blocked_reason":      "action is in cooldown",
+		"attempt_count":       2,
 	}
 
 	got := actionTimelineMap(row)
 
 	for _, key := range []string{
 		"id", "status", "action_type", "risk_tier", "verification_status",
+		"lifecycle_state", "blocked_reason", "attempt_count",
 	} {
 		if _, ok := got[key]; !ok {
 			t.Fatalf("missing %s in timeline map", key)
 		}
+	}
+}
+
+func TestQueuedActionMapIncludesLifecycleMetadata(t *testing.T) {
+	cooldownUntil := time.Date(2026, 4, 27, 12, 30, 0, 0, time.UTC)
+	action := store.QueuedAction{
+		ID:                 7,
+		FindingID:          99,
+		ActionType:         "analyze_table",
+		ActionRisk:         "safe",
+		Status:             "pending",
+		ProposedSQL:        "ANALYZE public.orders",
+		PolicyDecision:     "execute",
+		Guardrails:         []string{"dedicated connection"},
+		AttemptCount:       2,
+		CooldownUntil:      &cooldownUntil,
+		VerificationStatus: "not_started",
+		ShadowToilMinutes:  15,
+	}
+
+	got := queuedActionMap(action)
+
+	if got["action_type"] != "analyze_table" {
+		t.Fatalf("action_type = %v, want analyze_table", got["action_type"])
+	}
+	if got["policy_decision"] != "execute" {
+		t.Fatalf("policy_decision = %v, want execute", got["policy_decision"])
+	}
+	if got["attempt_count"] != 2 {
+		t.Fatalf("attempt_count = %v, want 2", got["attempt_count"])
+	}
+	if got["shadow_toil_minutes"] != 15 {
+		t.Fatalf("shadow_toil_minutes = %v, want 15",
+			got["shadow_toil_minutes"])
+	}
+	if got["cooldown_until"] == nil {
+		t.Fatalf("cooldown_until missing")
+	}
+	guardrails, ok := got["guardrails"].([]string)
+	if !ok || len(guardrails) != 1 || guardrails[0] != "dedicated connection" {
+		t.Fatalf("guardrails = %#v, want dedicated connection", got["guardrails"])
 	}
 }
 

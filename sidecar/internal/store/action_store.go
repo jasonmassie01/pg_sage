@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -11,18 +12,39 @@ import (
 
 // QueuedAction represents a row from sage.action_queue.
 type QueuedAction struct {
-	ID          int
-	DatabaseID  *int
-	FindingID   int
-	ProposedSQL string
-	RollbackSQL string
-	ActionRisk  string
-	Status      string // pending, approved, rejected, expired
-	ProposedAt  time.Time
-	DecidedBy   *int
-	DecidedAt   *time.Time
-	ExpiresAt   time.Time
-	Reason      string
+	ID                     int
+	DatabaseID             *int
+	FindingID              int
+	ProposedSQL            string
+	RollbackSQL            string
+	ActionRisk             string
+	Status                 string // pending, approved, rejected, expired
+	ProposedAt             time.Time
+	DecidedBy              *int
+	DecidedAt              *time.Time
+	ExpiresAt              time.Time
+	Reason                 string
+	ActionType             string
+	IdentityKey            string
+	PolicyDecision         string
+	Guardrails             []string
+	AttemptCount           int
+	LastAttemptAt          *time.Time
+	CooldownUntil          *time.Time
+	FailureFingerprint     string
+	LastFailureFingerprint string
+	VerificationStatus     string
+	ShadowToilMinutes      int
+}
+
+type ActionProposalMetadata struct {
+	ActionType         string
+	IdentityKey        string
+	PolicyDecision     string
+	Guardrails         []string
+	VerificationStatus string
+	ShadowToilMinutes  int
+	ExpiresAt          *time.Time
 }
 
 // ActionStore handles CRUD for sage.action_queue.
@@ -41,18 +63,42 @@ func (s *ActionStore) Propose(
 	databaseID *int, findingID int,
 	sql, rollbackSQL, risk string,
 ) (int, error) {
+	return s.ProposeWithMetadata(
+		ctx, databaseID, findingID, sql, rollbackSQL, risk,
+		ActionProposalMetadata{},
+	)
+}
+
+func (s *ActionStore) ProposeWithMetadata(
+	ctx context.Context,
+	databaseID *int, findingID int,
+	sql, rollbackSQL, risk string,
+	meta ActionProposalMetadata,
+) (int, error) {
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	var id int
-	err := s.pool.QueryRow(qctx,
+	guardrails, err := json.Marshal(meta.Guardrails)
+	if err != nil {
+		return 0, fmt.Errorf("encoding action guardrails: %w", err)
+	}
+	err = s.pool.QueryRow(qctx,
 		`INSERT INTO sage.action_queue
 		    (database_id, finding_id, proposed_sql,
-		     rollback_sql, action_risk)
-		 VALUES ($1, $2, $3, $4, $5)
+		     rollback_sql, action_risk, action_type,
+		     identity_key, policy_decision, guardrails,
+		     verification_status, shadow_toil_minutes, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+		         $9::jsonb, COALESCE($10, 'not_started'),
+		         $11, COALESCE($12, now() + INTERVAL '7 days'))
 		 RETURNING id`,
 		databaseID, findingID, sql,
 		NilIfEmpty(rollbackSQL), risk,
+		NilIfEmpty(meta.ActionType), NilIfEmpty(meta.IdentityKey),
+		NilIfEmpty(meta.PolicyDecision), guardrails,
+		NilIfEmpty(meta.VerificationStatus), meta.ShadowToilMinutes,
+		meta.ExpiresAt,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("proposing action: %w", err)
@@ -110,7 +156,14 @@ func (s *ActionStore) ListPendingByFinding(
 const listPendingBaseSQL = `SELECT q.id, q.database_id, q.finding_id,
  q.proposed_sql, q.rollback_sql, q.action_risk, q.status,
  q.proposed_at, q.decided_by, q.decided_at, q.expires_at,
- COALESCE(q.reason, '')
+ COALESCE(q.reason, ''), COALESCE(q.action_type, ''),
+ COALESCE(q.identity_key, ''), COALESCE(q.policy_decision, ''),
+ COALESCE(q.guardrails, '[]'::jsonb), COALESCE(q.attempt_count, 0),
+ q.last_attempt_at, q.cooldown_until,
+ COALESCE(q.failure_fingerprint, ''),
+ COALESCE(q.last_failure_fingerprint, ''),
+ COALESCE(q.verification_status, ''),
+ COALESCE(q.shadow_toil_minutes, 0)
  FROM sage.action_queue q
  JOIN sage.findings f ON f.id = q.finding_id
  WHERE q.status = 'pending'
@@ -128,6 +181,7 @@ func (s *ActionStore) Approve(
 
 	var a QueuedAction
 	var rollback *string
+	var guardrails []byte
 	err := s.pool.QueryRow(qctx,
 		`UPDATE sage.action_queue q
 		 SET status = 'approved',
@@ -142,16 +196,29 @@ func (s *ActionStore) Approve(
 		          AND f.acted_on_at IS NULL
 		          AND f.resolved_at IS NULL
 		   )
-		 RETURNING q.id, q.database_id, q.finding_id,
-		     q.proposed_sql, q.rollback_sql, q.action_risk,
-		     q.status, q.proposed_at, q.decided_by, q.decided_at,
-		     q.expires_at, COALESCE(q.reason, '')`,
+	 RETURNING q.id, q.database_id, q.finding_id,
+	     q.proposed_sql, q.rollback_sql, q.action_risk,
+	     q.status, q.proposed_at, q.decided_by, q.decided_at,
+	     q.expires_at, COALESCE(q.reason, ''),
+	     COALESCE(q.action_type, ''), COALESCE(q.identity_key, ''),
+	     COALESCE(q.policy_decision, ''),
+	     COALESCE(q.guardrails, '[]'::jsonb),
+	     COALESCE(q.attempt_count, 0), q.last_attempt_at,
+	     q.cooldown_until, COALESCE(q.failure_fingerprint, ''),
+	     COALESCE(q.last_failure_fingerprint, ''),
+	     COALESCE(q.verification_status, ''),
+	     COALESCE(q.shadow_toil_minutes, 0)`,
 		userID, queueID,
 	).Scan(
 		&a.ID, &a.DatabaseID, &a.FindingID,
 		&a.ProposedSQL, &rollback, &a.ActionRisk,
 		&a.Status, &a.ProposedAt, &a.DecidedBy,
 		&a.DecidedAt, &a.ExpiresAt, &a.Reason,
+		&a.ActionType, &a.IdentityKey, &a.PolicyDecision,
+		&guardrails, &a.AttemptCount, &a.LastAttemptAt,
+		&a.CooldownUntil, &a.FailureFingerprint,
+		&a.LastFailureFingerprint, &a.VerificationStatus,
+		&a.ShadowToilMinutes,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("approving action %d: %w", queueID, err)
@@ -159,6 +226,7 @@ func (s *ActionStore) Approve(
 	if rollback != nil {
 		a.RollbackSQL = *rollback
 	}
+	a.Guardrails = decodeGuardrails(guardrails)
 	return &a, nil
 }
 
@@ -215,17 +283,31 @@ func (s *ActionStore) GetByID(
 
 	var a QueuedAction
 	var rollback *string
+	var guardrails []byte
 	err := s.pool.QueryRow(qctx,
 		`SELECT id, database_id, finding_id,
 		     proposed_sql, rollback_sql, action_risk,
 		     status, proposed_at, decided_by, decided_at,
-		     expires_at, COALESCE(reason, '')
+		     expires_at, COALESCE(reason, ''),
+		     COALESCE(action_type, ''), COALESCE(identity_key, ''),
+		     COALESCE(policy_decision, ''),
+		     COALESCE(guardrails, '[]'::jsonb),
+		     COALESCE(attempt_count, 0), last_attempt_at,
+		     cooldown_until, COALESCE(failure_fingerprint, ''),
+		     COALESCE(last_failure_fingerprint, ''),
+		     COALESCE(verification_status, ''),
+		     COALESCE(shadow_toil_minutes, 0)
 		 FROM sage.action_queue WHERE id = $1`, id,
 	).Scan(
 		&a.ID, &a.DatabaseID, &a.FindingID,
 		&a.ProposedSQL, &rollback, &a.ActionRisk,
 		&a.Status, &a.ProposedAt, &a.DecidedBy,
 		&a.DecidedAt, &a.ExpiresAt, &a.Reason,
+		&a.ActionType, &a.IdentityKey, &a.PolicyDecision,
+		&guardrails, &a.AttemptCount, &a.LastAttemptAt,
+		&a.CooldownUntil, &a.FailureFingerprint,
+		&a.LastFailureFingerprint, &a.VerificationStatus,
+		&a.ShadowToilMinutes,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("getting action %d: %w", id, err)
@@ -233,6 +315,7 @@ func (s *ActionStore) GetByID(
 	if rollback != nil {
 		a.RollbackSQL = *rollback
 	}
+	a.Guardrails = decodeGuardrails(guardrails)
 	return &a, nil
 }
 

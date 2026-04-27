@@ -100,10 +100,19 @@ type ActionPolicyDecision struct {
 }
 
 type CaseAction struct {
-	Type      string    `json:"type"`
-	RiskTier  string    `json:"risk_tier"`
-	Status    string    `json:"status"`
-	ExpiresAt time.Time `json:"expires_at,omitempty"`
+	ID                 string     `json:"id,omitempty"`
+	Type               string     `json:"type"`
+	RiskTier           string     `json:"risk_tier"`
+	Status             string     `json:"status"`
+	PolicyDecision     string     `json:"policy_decision,omitempty"`
+	LifecycleState     string     `json:"lifecycle_state,omitempty"`
+	BlockedReason      string     `json:"blocked_reason,omitempty"`
+	VerificationStatus string     `json:"verification_status,omitempty"`
+	AttemptCount       int        `json:"attempt_count,omitempty"`
+	Guardrails         []string   `json:"guardrails,omitempty"`
+	ProposedAt         *time.Time `json:"proposed_at,omitempty"`
+	ExpiresAt          time.Time  `json:"expires_at,omitempty"`
+	CooldownUntil      *time.Time `json:"cooldown_until,omitempty"`
 }
 
 func NewCase(input CaseInput) Case {

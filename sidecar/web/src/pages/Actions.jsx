@@ -23,6 +23,17 @@ function verificationStatus(row) {
   return row.verification_status || row.status || 'not_started'
 }
 
+function lifecycleStatus(row) {
+  return row.lifecycle_state || row.status || 'ready'
+}
+
+function formatActionTime(value) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString()
+}
+
 export function Actions({ database, user }) {
   const [tab, setTab] = useState('executed')
   const range = useTimeRange()
@@ -456,6 +467,13 @@ function PendingTab({
     },
     { key: 'database_name', label: 'Database' },
     { key: 'finding_id', label: 'Finding' },
+    ...(actions.some(r => r.policy_decision)
+      ? [{ key: 'policy_decision', label: 'Policy' }] : []),
+    ...(actions.some(r => r.lifecycle_state || r.cooldown_until)
+      ? [{
+        key: 'lifecycle_state', label: 'Lifecycle',
+        render: r => lifecycleStatus(r),
+      }] : []),
     { key: 'proposed_sql', label: 'SQL Preview',
       render: r => {
         const sql = (r.proposed_sql || '').replace(/\s+/g, ' ').trim()
@@ -537,6 +555,7 @@ function PendingTab({
                 <SQLBlock sql={row.rollback_sql} />
               </div>
             )}
+            <LifecycleDetails row={row} />
             {rejectId === row.id && (
               <div className="flex gap-2 items-center">
                 <input
@@ -568,6 +587,44 @@ function PendingTab({
           </div>
         )}
       />
+    </div>
+  )
+}
+
+function LifecycleDetails({ row }) {
+  const expiresAt = formatActionTime(row.expires_at)
+  const cooldownUntil = formatActionTime(row.cooldown_until)
+  const guardrails = row.guardrails || []
+  if (!expiresAt && !cooldownUntil && guardrails.length === 0 &&
+    !row.blocked_reason && !row.attempt_count) {
+    return null
+  }
+  return (
+    <div className="space-y-2 text-xs"
+      style={{ color: 'var(--text-secondary)' }}>
+      <div className="flex flex-wrap gap-2">
+        {row.attempt_count > 0 && <span>Attempts: {row.attempt_count}</span>}
+        {expiresAt && <span>Expires: {expiresAt}</span>}
+        {cooldownUntil && <span>Cooldown until: {cooldownUntil}</span>}
+        {row.verification_status && (
+          <span>Verification: {row.verification_status}</span>
+        )}
+      </div>
+      {row.blocked_reason && (
+        <div style={{ color: 'var(--text-primary)' }}>
+          {row.blocked_reason}
+        </div>
+      )}
+      {guardrails.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {guardrails.map(g => (
+            <span key={g} className="rounded px-1.5 py-0.5"
+              style={{ border: '1px solid var(--border)' }}>
+              {g}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

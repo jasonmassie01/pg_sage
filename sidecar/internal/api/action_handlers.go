@@ -644,7 +644,44 @@ func queuedActionMap(a store.QueuedAction) map[string]any {
 		"expires_at":   a.ExpiresAt,
 		"reason":       a.Reason,
 	}
+	addLifecycleFields(m, a)
 	return m
+}
+
+func addLifecycleFields(m map[string]any, a store.QueuedAction) {
+	if a.ActionType != "" {
+		m["action_type"] = a.ActionType
+	}
+	if a.IdentityKey != "" {
+		m["identity_key"] = a.IdentityKey
+	}
+	if a.PolicyDecision != "" {
+		m["policy_decision"] = a.PolicyDecision
+	}
+	if len(a.Guardrails) > 0 {
+		m["guardrails"] = a.Guardrails
+	}
+	if a.AttemptCount > 0 {
+		m["attempt_count"] = a.AttemptCount
+	}
+	if a.LastAttemptAt != nil {
+		m["last_attempt_at"] = a.LastAttemptAt
+	}
+	if a.CooldownUntil != nil {
+		m["cooldown_until"] = a.CooldownUntil
+	}
+	if a.FailureFingerprint != "" {
+		m["failure_fingerprint"] = a.FailureFingerprint
+	}
+	if a.LastFailureFingerprint != "" {
+		m["last_failure_fingerprint"] = a.LastFailureFingerprint
+	}
+	if a.VerificationStatus != "" {
+		m["verification_status"] = a.VerificationStatus
+	}
+	if a.ShadowToilMinutes > 0 {
+		m["shadow_toil_minutes"] = a.ShadowToilMinutes
+	}
 }
 
 func actionTimelineMap(row map[string]any) map[string]any {
@@ -665,6 +702,13 @@ func actionTimelineMap(row map[string]any) map[string]any {
 		"executed_at",
 		"verified_at",
 		"expires_at",
+		"lifecycle_state",
+		"blocked_reason",
+		"attempt_count",
+		"cooldown_until",
+		"policy_decision",
+		"guardrails",
+		"shadow_toil_minutes",
 	} {
 		if v, ok := row[key]; ok {
 			out[key] = v

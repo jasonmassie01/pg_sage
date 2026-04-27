@@ -82,6 +82,13 @@ export const mockCases = {
         {
           action_type: 'analyze_table',
           risk_tier: 'safe',
+          status: 'pending',
+          lifecycle_state: 'blocked',
+          blocked_reason: 'action is in cooldown',
+          verification_status: 'not_started',
+          attempt_count: 2,
+          expires_at: '2026-04-28T12:00:00Z',
+          cooldown_until: '2026-04-27T12:30:00Z',
           guardrails: ['dedicated connection', 'statement_timeout'],
           policy_decision: {
             decision: 'execute',
@@ -89,6 +96,20 @@ export const mockCases = {
             requires_approval: false,
             requires_maintenance_window: false,
           },
+        },
+      ],
+      actions: [
+        {
+          id: 'queue:7',
+          type: 'analyze_table',
+          risk_tier: 'safe',
+          status: 'pending',
+          lifecycle_state: 'blocked',
+          blocked_reason: 'action is in cooldown',
+          verification_status: 'not_started',
+          attempt_count: 2,
+          expires_at: '2026-04-28T12:00:00Z',
+          cooldown_until: '2026-04-27T12:30:00Z',
         },
       ],
     },
@@ -114,6 +135,31 @@ export const mockActions = {
       title: 'Drop unused index idx_users_email',
       database_name: 'primary',
       created_at: '2026-04-10T12:00:00Z',
+    },
+  ],
+  total: 1,
+}
+
+export const mockPendingActions = {
+  pending: [
+    {
+      id: 7,
+      action_type: 'analyze_table',
+      action_risk: 'safe',
+      status: 'pending',
+      finding_id: 42,
+      database_name: 'primary',
+      proposed_sql: 'ANALYZE public.orders',
+      proposed_at: '2026-04-27T12:00:00Z',
+      expires_at: '2026-04-28T12:00:00Z',
+      policy_decision: 'execute',
+      lifecycle_state: 'blocked',
+      blocked_reason: 'action is in cooldown',
+      verification_status: 'not_started',
+      attempt_count: 2,
+      cooldown_until: '2026-04-27T12:30:00Z',
+      guardrails: ['dedicated connection', 'statement_timeout'],
+      shadow_toil_minutes: 15,
     },
   ],
   total: 1,
@@ -317,6 +363,9 @@ export async function mockAllAPIs(page: Page) {
     const url = route.request().url()
     if (url.includes('/pending/count')) {
       return route.fulfill({ json: mockPendingCount })
+    }
+    if (url.includes('/pending')) {
+      return route.fulfill({ json: mockPendingActions })
     }
     return route.fulfill({ json: mockActions })
   })

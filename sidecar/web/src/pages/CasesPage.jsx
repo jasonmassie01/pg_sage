@@ -33,6 +33,13 @@ function guardrails(candidate) {
     []
 }
 
+function formatDate(value) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString()
+}
+
 export function CasesPage({ database }) {
   const { data, loading, error, refetch } = useAPI(
     `/api/v1/cases${dbParam(database)}`,
@@ -114,6 +121,45 @@ function CaseCard({ caseRow }) {
           ))}
         </div>
       )}
+      {(caseRow.actions || []).length > 0 && (
+        <div className="mt-3 space-y-2" aria-label="Action timeline">
+          {caseRow.actions.map(action => (
+            <ActionTimelineItem key={action.id || action.type}
+              action={action} />
+          ))}
+        </div>
+      )}
     </article>
+  )
+}
+
+function ActionTimelineItem({ action }) {
+  const expiresAt = formatDate(action.expires_at)
+  const cooldownUntil = formatDate(action.cooldown_until)
+  return (
+    <div className="rounded border p-2 text-xs"
+      style={{ borderColor: 'var(--border)' }}>
+      <div className="flex flex-wrap gap-2"
+        style={{ color: 'var(--text-secondary)' }}>
+        <span>{action.type}</span>
+        <span>Status: {action.status}</span>
+        {action.lifecycle_state && (
+          <span>Lifecycle: {action.lifecycle_state}</span>
+        )}
+        {action.verification_status && (
+          <span>Verification: {action.verification_status}</span>
+        )}
+        {action.attempt_count > 0 && (
+          <span>Attempts: {action.attempt_count}</span>
+        )}
+        {expiresAt && <span>Expires: {expiresAt}</span>}
+        {cooldownUntil && <span>Cooldown until: {cooldownUntil}</span>}
+      </div>
+      {action.blocked_reason && (
+        <div className="mt-1" style={{ color: 'var(--text-primary)' }}>
+          {action.blocked_reason}
+        </div>
+      )}
+    </div>
   )
 }

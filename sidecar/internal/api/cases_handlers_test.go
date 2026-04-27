@@ -11,6 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/store"
 )
 
 func TestCasesHandlerRejectsBadDatabaseParam(t *testing.T) {
@@ -149,5 +150,48 @@ func TestEnrichCaseActionPoliciesShowsApprovalAndWindowBlock(t *testing.T) {
 	}
 	if candidate.BlockedReason == "" {
 		t.Fatalf("expected blocked reason outside maintenance window")
+	}
+}
+
+func TestCaseActionFromQueuedActionIncludesLifecycle(t *testing.T) {
+	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
+	cooldownUntil := now.Add(time.Hour)
+	action := store.QueuedAction{
+		ID:                 11,
+		FindingID:          42,
+		ActionType:         "analyze_table",
+		ActionRisk:         "safe",
+		Status:             "pending",
+		ProposedAt:         now.Add(-time.Hour),
+		ExpiresAt:          now.Add(24 * time.Hour),
+		PolicyDecision:     "execute",
+		Guardrails:         []string{"dedicated connection"},
+		CooldownUntil:      &cooldownUntil,
+		AttemptCount:       1,
+		VerificationStatus: "not_started",
+	}
+
+	got := caseActionFromQueuedAction(action, now)
+
+	if got.ID != "queue:11" {
+		t.Fatalf("ID = %q, want queue:11", got.ID)
+	}
+	if got.Type != "analyze_table" {
+		t.Fatalf("Type = %q, want analyze_table", got.Type)
+	}
+	if got.PolicyDecision != "execute" {
+		t.Fatalf("PolicyDecision = %q, want execute", got.PolicyDecision)
+	}
+	if got.LifecycleState != store.ActionLifecycleBlocked {
+		t.Fatalf("LifecycleState = %q, want blocked", got.LifecycleState)
+	}
+	if got.BlockedReason == "" {
+		t.Fatalf("BlockedReason is empty")
+	}
+	if got.AttemptCount != 1 {
+		t.Fatalf("AttemptCount = %d, want 1", got.AttemptCount)
+	}
+	if len(got.Guardrails) != 1 {
+		t.Fatalf("Guardrails = %#v, want one guardrail", got.Guardrails)
 	}
 }
