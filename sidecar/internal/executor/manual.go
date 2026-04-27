@@ -238,6 +238,11 @@ func (e *Executor) execManualSQLWithRetry(
 	attempts := 1
 	if isCreateIndex {
 		attempts = 3
+		if err := e.dropInvalidCreateIndexBlockers(
+			ctx, sql, ddlTimeout, lockOpt,
+		); err != nil {
+			return err
+		}
 	}
 	var lastErr error
 	for i := 0; i < attempts; i++ {

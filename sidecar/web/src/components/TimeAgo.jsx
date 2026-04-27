@@ -10,11 +10,12 @@ function formatAgo(sec) {
 // TimeAgo is a static string rendered on mount. Use LiveTimeAgo for
 // values that should tick without a parent re-render.
 export function TimeAgo({ timestamp }) {
+  const [now] = useState(() => Date.now())
   if (!timestamp) {
     return <span style={{ color: 'var(--text-secondary)' }}>--</span>
   }
   const sec = Math.floor(
-    (Date.now() - new Date(timestamp).getTime()) / 1000,
+    (now - new Date(timestamp).getTime()) / 1000,
   )
   return (
     <span style={{ color: 'var(--text-secondary)' }}>
@@ -27,7 +28,7 @@ export function TimeAgo({ timestamp }) {
 // when the surrounding page hasn't refetched. Returns '--' for empty
 // timestamps.
 export function LiveTimeAgo({ timestamp, tickMs = 15000 }) {
-  const [, setNow] = useState(Date.now())
+  const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (!timestamp) return
     const id = setInterval(() => setNow(Date.now()), tickMs)
@@ -37,7 +38,7 @@ export function LiveTimeAgo({ timestamp, tickMs = 15000 }) {
     return <span style={{ color: 'var(--text-secondary)' }}>--</span>
   }
   const sec = Math.floor(
-    (Date.now() - new Date(timestamp).getTime()) / 1000,
+    (now - new Date(timestamp).getTime()) / 1000,
   )
   return (
     <span

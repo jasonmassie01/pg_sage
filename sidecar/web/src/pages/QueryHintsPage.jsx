@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useAPI } from '../hooks/useAPI'
 import { SQLBlock } from '../components/SQLBlock'
 import { DataTable } from '../components/DataTable'

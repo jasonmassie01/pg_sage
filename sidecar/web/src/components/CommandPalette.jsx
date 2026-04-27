@@ -35,19 +35,25 @@ export function CommandPalette({
   const [index, setIndex] = useState(0)
   const inputRef = useRef(null)
 
+  const openPalette = (initialQuery = '') => {
+    setQuery(initialQuery)
+    setIndex(0)
+    setOpen(true)
+  }
+
   useEffect(() => {
     const onKey = e => {
       const mod = e.metaKey || e.ctrlKey
       if (mod && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        setOpen(v => !v)
+        if (open) setOpen(false)
+        else openPalette()
       } else if (e.key === 'Escape' && open) {
         setOpen(false)
       } else if (e.key === '?' && !open
         && !isTyping(e.target)) {
         e.preventDefault()
-        setOpen(true)
-        setQuery('?')
+        openPalette('?')
       }
     }
     window.addEventListener('keydown', onKey)
@@ -56,8 +62,6 @@ export function CommandPalette({
 
   useEffect(() => {
     if (open) {
-      setQuery('')
-      setIndex(0)
       requestAnimationFrame(() => inputRef.current?.focus())
     }
   }, [open])

@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+/* eslint-disable react-refresh/only-export-components */
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -84,7 +85,7 @@ export function SettingsPage({ database, databaseId }) {
     }
   }
 
-  const cfg = data?.config || {}
+  const cfg = useMemo(() => data?.config || {}, [data?.config])
 
   const getVal = useCallback((key) => {
     if (key in edits) return edits[key]

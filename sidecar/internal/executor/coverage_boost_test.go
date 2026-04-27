@@ -1377,21 +1377,25 @@ func TestCoverage_ExecuteManual_CreateIndexIsIdempotentWhenCovered(t *testing.T)
 
 func TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS sage.test_manual_invalid_blocker`)
-	_, err := pool.Exec(ctx,
-		`CREATE TABLE sage.test_manual_invalid_blocker (id int)`)
+	_, _ = pool.Exec(ctx, `DROP SCHEMA IF EXISTS pgsage_exec_test CASCADE`)
+	_, err := pool.Exec(ctx, `CREATE SCHEMA pgsage_exec_test`)
+	if err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	_, err = pool.Exec(ctx,
+		`CREATE TABLE pgsage_exec_test.test_manual_invalid_blocker (id int)`)
 	if err != nil {
 		t.Fatalf("create table: %v", err)
 	}
 	_, err = pool.Exec(ctx,
-		`INSERT INTO sage.test_manual_invalid_blocker (id)
+		`INSERT INTO pgsage_exec_test.test_manual_invalid_blocker (id)
 		 VALUES (1), (1), (2)`)
 	if err != nil {
 		t.Fatalf("insert duplicate data: %v", err)
 	}
 	_, err = pool.Exec(ctx,
 		`CREATE UNIQUE INDEX CONCURRENTLY
-		 ON sage.test_manual_invalid_blocker (id)`)
+		 ON pgsage_exec_test.test_manual_invalid_blocker (id)`)
 	if err == nil {
 		t.Fatal("expected failed unique concurrent index")
 	}
@@ -1402,7 +1406,7 @@ func TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker(t *testing.T) {
 		   FROM pg_class c
 		   JOIN pg_namespace n ON n.oid = c.relnamespace
 		   JOIN pg_index i ON i.indexrelid = c.oid
-		  WHERE n.nspname = 'sage'
+		  WHERE n.nspname = 'pgsage_exec_test'
 		    AND c.relname = 'test_manual_invalid_blocker_id_idx'
 		    AND NOT i.indisvalid`,
 	).Scan(&invalidBefore)
@@ -1419,9 +1423,9 @@ func TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('test_manual_invalid_blocker', 'warning', 'table',
-		         'sage.test_manual_invalid_blocker(id)',
+		         'pgsage_exec_test.test_manual_invalid_blocker(id)',
 		         'invalid blocker create index', '{}', 'rec',
-		         'CREATE INDEX CONCURRENTLY ON sage.test_manual_invalid_blocker (id)')
+		         'CREATE INDEX CONCURRENTLY ON pgsage_exec_test.test_manual_invalid_blocker (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -1436,7 +1440,7 @@ func TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker(t *testing.T) {
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 		_, _ = pool.Exec(cctx,
-			`DROP TABLE IF EXISTS sage.test_manual_invalid_blocker`)
+			`DROP SCHEMA IF EXISTS pgsage_exec_test CASCADE`)
 	})
 
 	cfg := &config.Config{
@@ -1453,7 +1457,7 @@ func TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker(t *testing.T) {
 		shutdownCh:    make(chan struct{}),
 	}
 	actionID, err := e.ExecuteManual(ctx, int(findingID),
-		"CREATE INDEX CONCURRENTLY ON sage.test_manual_invalid_blocker (id)",
+		"CREATE INDEX CONCURRENTLY ON pgsage_exec_test.test_manual_invalid_blocker (id)",
 		"", nil)
 	if err != nil {
 		t.Fatalf("ExecuteManual with invalid blocker: %v", err)
@@ -1469,7 +1473,7 @@ func TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker(t *testing.T) {
 		   FROM pg_class c
 		   JOIN pg_namespace n ON n.oid = c.relnamespace
 		   JOIN pg_index i ON i.indexrelid = c.oid
-		  WHERE n.nspname = 'sage'
+		  WHERE n.nspname = 'pgsage_exec_test'
 		    AND c.relname = 'test_manual_invalid_blocker_id_idx'`,
 	).Scan(&validCount, &invalidCount)
 	if err != nil {
