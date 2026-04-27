@@ -11,6 +11,18 @@ import { usePendingActionsRefetch } from '../components/Layout'
 import { useToast } from '../components/Toast'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
 
+function actionStatus(row) {
+  return row.status || row.action_status || row.outcome || 'unknown'
+}
+
+function actionRisk(row) {
+  return row.risk_tier || row.action_risk || row.risk || 'unknown'
+}
+
+function verificationStatus(row) {
+  return row.verification_status || row.status || 'not_started'
+}
+
 export function Actions({ database, user }) {
   const [tab, setTab] = useState('executed')
   const range = useTimeRange()
@@ -184,7 +196,7 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
     {
       key: 'outcome', label: 'Outcome',
       render: r => {
-        const s = outcomeStyle(r.outcome)
+        const s = outcomeStyle(actionStatus(r))
         return (
           <span className="px-2 py-0.5 rounded-full text-xs
             font-medium inline-block"
@@ -194,6 +206,11 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
         )
       },
     },
+    ...(actions.some(r => r.verification_status)
+      ? [{
+        key: 'verification_status', label: 'Verification',
+        render: r => verificationStatus(r),
+      }] : []),
     ...(actions.some(r => r.database_name)
       ? [{ key: 'database_name', label: 'Database' }] : []),
     {
@@ -430,8 +447,9 @@ function PendingTab({
           },
           high: { label: 'High Risk', color: 'var(--red)' },
         }
-        const info = riskMap[r.action_risk] || {
-          label: r.action_risk,
+        const risk = actionRisk(r)
+        const info = riskMap[risk] || {
+          label: risk,
           color: 'var(--text-secondary)',
         }
         return (
