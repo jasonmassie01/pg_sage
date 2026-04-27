@@ -6,6 +6,7 @@ import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
 import { ConfigTooltip } from '../components/ConfigTooltip'
 import { ConfigDiff } from '../components/ConfigDiff'
 import { useToast } from '../components/Toast'
+import { ShadowModePage } from './ShadowModePage'
 import {
   ShieldAlert, Play, Save, RotateCcw, Check, X,
 } from 'lucide-react'
@@ -262,6 +263,7 @@ export function SettingsPage({ database, databaseId }) {
           ? `Database ${database} (ID ${numericDatabaseId})`
           : 'Global defaults'}
       </div>
+      <ShadowModePage database={database} />
       {feedback && <FeedbackBanner {...feedback} />}
       <div className="rounded p-5"
         style={{
