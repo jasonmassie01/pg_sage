@@ -1055,6 +1055,7 @@ func TestDatabaseName_EmptyDatabaseName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
+	cfg.ConnConfig.Database = ""
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("NewWithConfig: %v", err)

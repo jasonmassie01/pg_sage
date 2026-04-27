@@ -27,6 +27,7 @@ FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE c.relkind IN ('r', 't')
   AND n.nspname NOT IN (%s)
+  AND c.relminmxid::text::bigint > 1
   AND age(c.relminmxid) > 500000000
 ORDER BY age(c.relminmxid) DESC
 LIMIT 100`, excludeList)
