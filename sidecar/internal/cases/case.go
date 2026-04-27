@@ -72,6 +72,7 @@ type ActionCandidate struct {
 	Confidence       float64    `json:"confidence"`
 	ProposedSQL      string     `json:"proposed_sql,omitempty"`
 	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	BlockedReason    string     `json:"blocked_reason,omitempty"`
 	OutputModes      []string   `json:"output_modes,omitempty"`
 	RollbackClass    string     `json:"rollback_class,omitempty"`
 	VerificationPlan []string   `json:"verification_plan,omitempty"`

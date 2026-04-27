@@ -37,6 +37,33 @@ func casesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 	}
 }
 
+func shadowReportHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		database, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
+		if database == "" {
+			database = "all"
+		}
+		if rejectUnknownDatabase(w, mgr, database) {
+			return
+		}
+		if mgr == nil {
+			jsonResponse(w, cases.BuildShadowReport(nil))
+			return
+		}
+
+		projected, err := queryProjectedCases(r.Context(), mgr, database)
+		if err != nil {
+			slog.Error("query shadow report failed", "error", err)
+			jsonError(w, "failed to query shadow report", http.StatusInternalServerError)
+			return
+		}
+		jsonResponse(w, cases.BuildShadowReport(projected))
+	}
+}
+
 func writeCasesResponse(w http.ResponseWriter, database string, projected []cases.Case) {
 	if projected == nil {
 		projected = []cases.Case{}

@@ -190,6 +190,8 @@ func registerAPIRoutes(
 		findingDetailHandler(mgr))
 	mux.HandleFunc(
 		"GET /api/v1/cases", casesHandler(mgr))
+	mux.Handle("GET /api/v1/shadow-report",
+		operatorUp(http.HandlerFunc(shadowReportHandler(mgr))))
 
 	suppressH := operatorUp(http.HandlerFunc(
 		suppressHandler(mgr)))
