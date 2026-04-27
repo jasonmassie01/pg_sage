@@ -16,11 +16,12 @@ type Collector struct {
 	pool         *pgxpool.Pool
 	cfg          *config.Config
 	breaker      *CircuitBreaker
-	mu           sync.RWMutex
-	latest       *Snapshot
-	previous     *Snapshot
-	tablePageKey string
-	pgVersionNum int // e.g. 170009 for PG 17.9
+	mu              sync.RWMutex
+	latest          *Snapshot
+	previous        *Snapshot
+	tablePageSchema string
+	tablePageRel    string
+	pgVersionNum    int // e.g. 170009 for PG 17.9
 	logFn        func(string, string, ...any)
 }
 
@@ -148,6 +149,11 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 			// Non-fatal — continue without IO stats.
 		}
 	}
+	// Prepared transactions (2PC) — invisible to pg_stat_activity,
+	// hold xmin and locks indefinitely.
+	if snap.PreparedXacts, err = c.collectPreparedXacts(ctx); err != nil {
+		c.logFn("WARN", "prepared xacts collection failed: %v", err)
+	}
 	// Partition inheritance
 	if snap.Partitions, err = c.collectPartitions(ctx); err != nil {
 		c.logFn("WARN", "partition collection failed: %v", err)
@@ -230,9 +236,15 @@ func (c *Collector) collectTables(ctx context.Context) ([]TableStats, error) {
 	batchSize := c.cfg.Collector.BatchSize
 	var allTables []TableStats
 
-	pageKey := c.tablePageKey
+	// Tuple cursor: (schema, rel). Must be two separate bind params so
+	// that PostgreSQL compares tuple-wise. Concatenating into a single
+	// string silently skips tables: e.g. ('public','users') produces
+	// cursor 'public.users', and 'public' < 'public.users' causes every
+	// subsequent row in the public schema to be filtered out.
+	pageSchema := c.tablePageSchema
+	pageRel := c.tablePageRel
 	for {
-		rows, err := c.pool.Query(ctx, tableStatsSQL, pageKey, batchSize)
+		rows, err := c.pool.Query(ctx, tableStatsSQL, pageSchema, pageRel, batchSize)
 		if err != nil {
 			return nil, err
 		}
@@ -264,15 +276,21 @@ func (c *Collector) collectTables(ctx context.Context) ([]TableStats, error) {
 
 		allTables = append(allTables, batch...)
 
-		if len(batch) < batchSize {
+		// Empty batch → nothing more to page through. This also
+		// guards against panic when batchSize is 0 (len(batch) >=
+		// batchSize would otherwise be trivially true).
+		if len(batch) == 0 || len(batch) < batchSize {
 			// All tables collected; reset cursor for next cycle.
-			c.tablePageKey = ""
+			c.tablePageSchema = ""
+			c.tablePageRel = ""
 			break
 		}
 
 		last := batch[len(batch)-1]
-		pageKey = last.SchemaName + "." + last.RelName
-		c.tablePageKey = pageKey
+		pageSchema = last.SchemaName
+		pageRel = last.RelName
+		c.tablePageSchema = pageSchema
+		c.tablePageRel = pageRel
 	}
 
 	return allTables, nil
@@ -491,6 +509,29 @@ func (c *Collector) collectPartitions(
 			return nil, err
 		}
 		result = append(result, p)
+	}
+	return result, rows.Err()
+}
+
+func (c *Collector) collectPreparedXacts(
+	ctx context.Context,
+) ([]PreparedTransaction, error) {
+	rows, err := c.pool.Query(ctx, preparedXactsSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []PreparedTransaction
+	for rows.Next() {
+		var pt PreparedTransaction
+		if err := rows.Scan(
+			&pt.GID, &pt.Prepared, &pt.Owner,
+			&pt.Database, &pt.XIDAge,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, pt)
 	}
 	return result, rows.Err()
 }

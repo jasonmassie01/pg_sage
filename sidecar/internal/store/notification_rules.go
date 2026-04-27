@@ -13,10 +13,16 @@ func (s *NotificationStore) CreateRule(
 	ctx context.Context,
 	channelID int, event, minSeverity string,
 ) (int, error) {
+	if channelID <= 0 {
+		return 0, fmt.Errorf("%w: channel_id is required", ErrValidation)
+	}
 	if err := validateEventType(event); err != nil {
 		return 0, err
 	}
 	if err := validateSeverity(minSeverity); err != nil {
+		return 0, err
+	}
+	if _, err := s.GetChannel(ctx, channelID); err != nil {
 		return 0, err
 	}
 
@@ -72,10 +78,13 @@ func (s *NotificationStore) DeleteRule(
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_, err := s.pool.Exec(qctx,
+	tag, err := s.pool.Exec(qctx,
 		"DELETE FROM sage.notification_rules WHERE id = $1", id)
 	if err != nil {
 		return fmt.Errorf("deleting rule %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: rule %d", ErrNotFound, id)
 	}
 	return nil
 }
@@ -87,12 +96,15 @@ func (s *NotificationStore) UpdateRule(
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_, err := s.pool.Exec(qctx,
+	tag, err := s.pool.Exec(qctx,
 		`UPDATE sage.notification_rules
 		 SET enabled = $1 WHERE id = $2`,
 		enabled, id)
 	if err != nil {
 		return fmt.Errorf("updating rule %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: rule %d", ErrNotFound, id)
 	}
 	return nil
 }

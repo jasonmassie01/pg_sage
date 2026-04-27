@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,6 +10,20 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// ErrInvalidRole is returned by UpdateUserRole when the supplied
+// role value is not one of the recognized roles. Handlers should
+// surface this as a 400 client error.
+var ErrInvalidRole = errors.New("invalid role")
+
+// ErrUserNotFound is returned when an operation targets a user ID
+// that does not exist. Handlers should surface this as a 404
+// client error rather than a 500.
+var ErrUserNotFound = errors.New("user not found")
+
+// ErrLastAdmin is returned when a user mutation would leave the
+// system without any admin account.
+var ErrLastAdmin = errors.New("cannot remove the last admin")
 
 // HashPassword returns a bcrypt hash of the password.
 func HashPassword(password string) (string, error) {
@@ -199,13 +214,60 @@ func DeleteUser(
 	return nil
 }
 
+// DeleteUserPreservingAdmin removes a user while atomically ensuring
+// at least one admin remains. It serializes user-role mutations with
+// a table lock so concurrent demote/delete requests cannot both pass
+// a stale admin count.
+func DeleteUserPreservingAdmin(
+	ctx context.Context, pool *pgxpool.Pool, userID int,
+) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin delete user: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "LOCK TABLE sage.users IN EXCLUSIVE MODE"); err != nil {
+		return fmt.Errorf("locking users: %w", err)
+	}
+
+	var role string
+	err = tx.QueryRow(ctx,
+		"SELECT role FROM sage.users WHERE id = $1",
+		userID,
+	).Scan(&role)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrUserNotFound
+		}
+		return fmt.Errorf("getting user role: %w", err)
+	}
+	if role == RoleAdmin {
+		count, err := countAdminsTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if count <= 1 {
+			return ErrLastAdmin
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		"DELETE FROM sage.users WHERE id = $1", userID,
+	); err != nil {
+		return fmt.Errorf("deleting user: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit delete user: %w", err)
+	}
+	return nil
+}
+
 // UpdateUserRole changes a user's role.
 func UpdateUserRole(
 	ctx context.Context, pool *pgxpool.Pool,
 	userID int, role string,
 ) error {
 	if !IsValidRole(role) {
-		return fmt.Errorf("invalid role: %q", role)
+		return fmt.Errorf("%w: %q", ErrInvalidRole, role)
 	}
 	tag, err := pool.Exec(ctx,
 		"UPDATE sage.users SET role = $1 WHERE id = $2",
@@ -215,9 +277,71 @@ func UpdateUserRole(
 		return fmt.Errorf("updating user role: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("user not found")
+		return ErrUserNotFound
 	}
 	return nil
+}
+
+// UpdateUserRolePreservingAdmin changes a user's role while
+// atomically preventing demotion of the last admin.
+func UpdateUserRolePreservingAdmin(
+	ctx context.Context, pool *pgxpool.Pool,
+	userID int, role string,
+) error {
+	if !IsValidRole(role) {
+		return fmt.Errorf("%w: %q", ErrInvalidRole, role)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin update user role: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "LOCK TABLE sage.users IN EXCLUSIVE MODE"); err != nil {
+		return fmt.Errorf("locking users: %w", err)
+	}
+
+	var currentRole string
+	err = tx.QueryRow(ctx,
+		"SELECT role FROM sage.users WHERE id = $1",
+		userID,
+	).Scan(&currentRole)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrUserNotFound
+		}
+		return fmt.Errorf("getting user role: %w", err)
+	}
+	if currentRole == RoleAdmin && role != RoleAdmin {
+		count, err := countAdminsTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if count <= 1 {
+			return ErrLastAdmin
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		"UPDATE sage.users SET role = $1 WHERE id = $2",
+		role, userID,
+	); err != nil {
+		return fmt.Errorf("updating user role: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit update user role: %w", err)
+	}
+	return nil
+}
+
+func countAdminsTx(ctx context.Context, tx pgx.Tx) (int, error) {
+	var count int
+	err := tx.QueryRow(ctx,
+		"SELECT count(*) FROM sage.users WHERE role = $1",
+		RoleAdmin,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting admins: %w", err)
+	}
+	return count, nil
 }
 
 // FindOrCreateOAuthUser looks up a user by email. If not found,

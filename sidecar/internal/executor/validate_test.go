@@ -75,6 +75,29 @@ func TestValidateSQL_RejectedStatements(t *testing.T) {
 	}
 }
 
+func TestValidateSQL_RejectsProtectedSchemas(t *testing.T) {
+	rejected := []string{
+		"DROP INDEX CONCURRENTLY _timescaledb_internal.idx_chunk",
+		"CREATE INDEX idx_catalog ON pg_catalog.pg_class(oid)",
+		"ANALYZE information_schema.tables",
+		"VACUUM ANALYZE _timescaledb_catalog.hypertable",
+		"ALTER TABLE google_ml.embedding SET (fillfactor = 90)",
+	}
+	for _, sql := range rejected {
+		err := ValidateExecutorSQL(sql)
+		if err == nil {
+			t.Errorf("expected protected schema rejection: %q", sql)
+			continue
+		}
+		if !errors.Is(err, ErrDisallowedSQL) {
+			t.Errorf(
+				"expected ErrDisallowedSQL for %q, got: %v",
+				sql, err,
+			)
+		}
+	}
+}
+
 func TestValidateSQL_MultiStatement(t *testing.T) {
 	cases := []string{
 		"CREATE INDEX idx ON t(id); DROP TABLE users",

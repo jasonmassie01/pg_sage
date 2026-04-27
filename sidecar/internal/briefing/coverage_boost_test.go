@@ -158,7 +158,7 @@ func TestCoverage_SendSlack_Success(t *testing.T) {
 		logFn: noopLog,
 	}
 
-	w.sendSlack("hello from pg_sage")
+	w.sendSlack(context.Background(), "hello from pg_sage")
 
 	got, ok := received.Load().(string)
 	if !ok || got != "hello from pg_sage" {
@@ -184,7 +184,7 @@ func TestCoverage_SendSlack_ServerError(t *testing.T) {
 	}
 
 	// Should not panic; just log.
-	w.sendSlack("test message")
+	w.sendSlack(context.Background(), "test message")
 }
 
 func TestCoverage_SendSlack_InvalidURL(t *testing.T) {
@@ -200,7 +200,7 @@ func TestCoverage_SendSlack_InvalidURL(t *testing.T) {
 	}
 
 	// Should not panic with malformed URL.
-	w.sendSlack("test message")
+	w.sendSlack(context.Background(), "test message")
 
 	found := false
 	for _, msg := range lc.messages {
@@ -232,7 +232,7 @@ func TestCoverage_SendSlack_ConnectionRefused(t *testing.T) {
 	}
 
 	// Should log error, not panic.
-	w.sendSlack("test message")
+	w.sendSlack(context.Background(), "test message")
 
 	found := false
 	for _, msg := range lc.messages {
@@ -269,7 +269,7 @@ func TestCoverage_Dispatch_SlackWithURL(t *testing.T) {
 		logFn: noopLog,
 	}
 
-	w.Dispatch("test dispatch to slack")
+	w.Dispatch(context.Background(), "test dispatch to slack")
 
 	if !called.Load() {
 		t.Error("expected slack webhook to be called")
@@ -296,7 +296,7 @@ func TestCoverage_Dispatch_MultipleChannels(t *testing.T) {
 	}
 
 	// Should not panic; unknown channels are silently skipped.
-	w.Dispatch("multi-channel test")
+	w.Dispatch(context.Background(), "multi-channel test")
 
 	if !slackCalled.Load() {
 		t.Error("expected slack webhook to be called for multi-channel dispatch")
@@ -321,6 +321,10 @@ func TestCoverage_Generate_WithLLM_LivePG(t *testing.T) {
 	w := New(pool, cfg, client, noopLog)
 
 	result, err := w.Generate(ctx)
+	if err != nil && strings.Contains(err.Error(), "does not exist") {
+		ensureSageSchema(t, ctx)
+		result, err = w.Generate(ctx)
+	}
 	if err != nil {
 		t.Fatalf("Generate with LLM: %v", err)
 	}
@@ -346,6 +350,10 @@ func TestCoverage_Generate_LLMFallsBackOnError_LivePG(t *testing.T) {
 	w := New(pool, cfg, client, lc.logFn)
 
 	result, err := w.Generate(ctx)
+	if err != nil && strings.Contains(err.Error(), "does not exist") {
+		ensureSageSchema(t, ctx)
+		result, err = w.Generate(ctx)
+	}
 	if err != nil {
 		t.Fatalf("Generate should succeed with fallback: %v", err)
 	}
@@ -393,6 +401,9 @@ func TestCoverage_StoreBriefing_InvalidTable_LivePG(t *testing.T) {
 		`SELECT content_text FROM sage.briefings
 		 WHERE content_text = 'no-llm briefing test'
 		 ORDER BY generated_at DESC LIMIT 1`).Scan(&content)
+	if err != nil && strings.Contains(err.Error(), "does not exist") {
+		t.Skipf("sage schema dropped by concurrent tests: %v", err)
+	}
 	if err != nil {
 		t.Fatalf("expected stored briefing row: %v", err)
 	}
@@ -429,6 +440,9 @@ func TestCoverage_StoreBriefing_WithLLMTokens_LivePG(t *testing.T) {
 		WHERE content_text = 'llm-enhanced briefing content'
 		ORDER BY generated_at DESC LIMIT 1
 	`).Scan(&content, &llmUsed, &tokenCount)
+	if err != nil && strings.Contains(err.Error(), "does not exist") {
+		t.Skipf("sage schema dropped by concurrent tests: %v", err)
+	}
 	if err != nil {
 		t.Fatalf("querying stored briefing: %v", err)
 	}

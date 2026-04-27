@@ -27,7 +27,8 @@ var (
 	testPool     *pgxpool.Pool
 	testPoolOnce sync.Once
 	testPoolErr  error
-	testKey      = crypto.DeriveKey("integration-test-key")
+	testKey      = crypto.DeriveKey("integration-test-key",
+		[]byte("int-test-salt-16"))
 )
 
 func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
@@ -43,6 +44,9 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			testPoolErr = fmt.Errorf("parsing DSN: %w", err)
 			return
 		}
+		// MaxConns=1 is required for session-scoped advisory locks
+		// (serializeAcrossPackages) to protect the test's own queries.
+		poolCfg.MaxConns = 1
 
 		testPool, testPoolErr = pgxpool.NewWithConfig(qctx, poolCfg)
 		if testPoolErr != nil {
@@ -73,5 +77,6 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	if testPoolErr != nil {
 		t.Skipf("database unavailable: %v", testPoolErr)
 	}
+	serializeAcrossPackages(t, ctx, testPool)
 	return testPool, ctx
 }

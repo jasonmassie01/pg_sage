@@ -21,8 +21,8 @@ function formatSymptom(symptom) {
   return SYMPTOM_LABELS[symptom] || symptom
 }
 
-function costImprovement(before, after) {
-  if (!before || before === 0) return null
+export function costImprovement(before, after) {
+  if (before == null || after == null || before === 0) return null
   return ((before - after) / before * 100).toFixed(1)
 }
 
@@ -54,11 +54,15 @@ export function QueryHintsPage({ database }) {
   const activeHints = hints.filter(h => h.status === 'active')
   const rewriteCount = hints.filter(h => h.suggested_rewrite).length
 
-  const avgImprovement = activeHints.length > 0
-    ? (activeHints.reduce((sum, h) => {
-        const pct = costImprovement(h.before_cost, h.after_cost)
-        return sum + (pct ? parseFloat(pct) : 0)
-      }, 0) / activeHints.length).toFixed(1)
+  const hintsWithImprovement = activeHints
+    .map(h => costImprovement(h.before_cost, h.after_cost))
+    .filter(pct => pct != null)
+    .map(pct => parseFloat(pct))
+
+  const avgImprovement = hintsWithImprovement.length > 0
+    ? (hintsWithImprovement.reduce((sum, pct) => {
+        return sum + pct
+      }, 0) / hintsWithImprovement.length).toFixed(1)
     : '0.0'
 
   const columns = [
@@ -139,7 +143,8 @@ export function QueryHintsPage({ database }) {
       {hints.length === 0 ? (
         <EmptyState message="No performance optimizations yet. pg_sage identifies slow queries and suggests tuning hints automatically." />
       ) : (
-        <DataTable columns={columns} rows={hints} expandable
+        <DataTable data-testid="query-hints-table"
+          columns={columns} rows={hints} expandable
           renderExpanded={row => (
             <div className="space-y-3">
               <div>

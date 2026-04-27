@@ -1,7 +1,6 @@
 package optimizer
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -113,7 +112,7 @@ func FormatPrompt(tc TableContext) string {
 
 	b.WriteString("\n### Queries\n")
 	for _, q := range tc.Queries {
-		sanitized := llm.StripSQLComments(q.Text)
+		sanitized := llm.SanitizeForLLM(q.Text)
 		fmt.Fprintf(&b,
 			"- [calls=%d, mean=%.2fms, total=%.2fms] %s\n",
 			q.Calls, q.MeanTimeMs, q.TotalTimeMs, sanitized)
@@ -194,34 +193,18 @@ func FormatPromptTruncated(tc TableContext) string {
 
 // parseRecommendations extracts Recommendation structs from LLM response.
 func parseRecommendations(response string) ([]Recommendation, error) {
-	cleaned := stripToJSON(response)
-	cleaned = strings.TrimSpace(cleaned)
-
-	if cleaned == "" || cleaned == "[]" {
-		return nil, nil
-	}
-
 	var recs []Recommendation
-	if err := json.Unmarshal([]byte(cleaned), &recs); err != nil {
-		return nil, fmt.Errorf(
-			"json unmarshal: %w (response: %.200s)", err, cleaned,
-		)
+	if err := llm.ParseJSON(response, llm.JSONArray, &recs); err != nil {
+		return nil, err
 	}
 	return recs, nil
 }
 
-// stripToJSON extracts the JSON array from an LLM response that may contain
-// thinking text, markdown fences, or other non-JSON content.
+// stripToJSON extracts the JSON array from an LLM response that
+// may contain thinking text, markdown fences, or other non-JSON
+// content. Delegates to the canonical llm.StripJSON.
 func stripToJSON(s string) string {
-	s = strings.TrimSpace(s)
-	// Find the first [ and last ] to extract the JSON array.
-	start := strings.Index(s, "[")
-	end := strings.LastIndex(s, "]")
-	if start >= 0 && end > start {
-		return s[start : end+1]
-	}
-	// Fallback: try existing fence stripping.
-	return stripMarkdownFences(s)
+	return llm.StripJSON(s, llm.JSONArray)
 }
 
 func stripMarkdownFences(s string) string {

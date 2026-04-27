@@ -46,6 +46,9 @@ func TestDBRecordToMap(t *testing.T) {
 	if m["port"] != 5432 {
 		t.Errorf("port: %v", m["port"])
 	}
+	if m["max_connections"] != 5 {
+		t.Errorf("max_connections: %v", m["max_connections"])
+	}
 	// Password must never appear in the map.
 	if _, ok := m["password"]; ok {
 		t.Error("password should not be in map")
@@ -53,6 +56,34 @@ func TestDBRecordToMap(t *testing.T) {
 }
 
 func TestDBCreateRequest_ToInput(t *testing.T) {
+	req := dbCreateRequest{
+		Name:           "prod",
+		Host:           "db.example.com",
+		Port:           5432,
+		DatabaseName:   "orders",
+		Username:       "sage_agent",
+		Password:       "secret",
+		SSLMode:        "require",
+		MaxConnections: 7,
+		TrustLevel:     "observation",
+		ExecutionMode:  "approval",
+	}
+	input := req.toInput()
+	if input.Name != "prod" {
+		t.Errorf("name: %v", input.Name)
+	}
+	if input.Password != "secret" {
+		t.Errorf("password not copied")
+	}
+	if input.TrustLevel != "observation" {
+		t.Errorf("trust_level: %v", input.TrustLevel)
+	}
+	if input.MaxConnections != 7 {
+		t.Errorf("max_connections: %v", input.MaxConnections)
+	}
+}
+
+func TestDBCreateRequest_ToInputDefaultsMaxConnections(t *testing.T) {
 	req := dbCreateRequest{
 		Name:          "prod",
 		Host:          "db.example.com",
@@ -65,14 +96,109 @@ func TestDBCreateRequest_ToInput(t *testing.T) {
 		ExecutionMode: "approval",
 	}
 	input := req.toInput()
-	if input.Name != "prod" {
-		t.Errorf("name: %v", input.Name)
+	if input.MaxConnections != 2 {
+		t.Errorf("max_connections: got %d, want 2",
+			input.MaxConnections)
 	}
-	if input.Password != "secret" {
-		t.Errorf("password not copied")
+}
+
+func TestBuildManagedTestConnString_UsesUnsavedFields(t *testing.T) {
+	req := dbCreateRequest{
+		Host:         "unsaved.example.com",
+		Port:         15432,
+		DatabaseName: "unsaved_db",
+		Username:     "unsaved_user",
+		Password:     "new-secret",
+		SSLMode:      "disable",
 	}
-	if input.TrustLevel != "observation" {
-		t.Errorf("trust_level: %v", input.TrustLevel)
+
+	connStr := buildManagedTestConnString(req, "old-secret")
+
+	if !strings.Contains(connStr, "unsaved.example.com:15432") {
+		t.Fatalf("connStr did not use unsaved host/port: %s", connStr)
+	}
+	if !strings.Contains(connStr, "unsaved_db") {
+		t.Fatalf("connStr did not use unsaved database: %s", connStr)
+	}
+	if !strings.Contains(connStr, "unsaved_user:new-secret") {
+		t.Fatalf("connStr did not use unsaved credentials: %s", connStr)
+	}
+	if !strings.Contains(connStr, "sslmode=disable") {
+		t.Fatalf("connStr did not use unsaved sslmode: %s", connStr)
+	}
+}
+
+func TestBuildManagedTestConnString_FallsBackToStoredPassword(t *testing.T) {
+	req := dbCreateRequest{
+		Host:         "edit.example.com",
+		DatabaseName: "edit_db",
+		Username:     "edit_user",
+		SSLMode:      "require",
+	}
+
+	connStr := buildManagedTestConnString(req, "stored-secret")
+
+	if !strings.Contains(connStr, "edit_user:stored-secret") {
+		t.Fatalf("connStr did not use stored password: %s", connStr)
+	}
+	if !strings.Contains(connStr, "edit.example.com:5432") {
+		t.Fatalf("connStr did not default port: %s", connStr)
+	}
+}
+
+func TestFleetManagedDBConnection_UsesRuntimeFleetConfig(t *testing.T) {
+	mgr := fleet.NewManager(&config.Config{Mode: "fleet"})
+	mgr.RegisterInstance(&fleet.DatabaseInstance{
+		Name:       "fleet-db",
+		DatabaseID: 42,
+		Config: config.DatabaseConfig{
+			Name:     "fleet-db",
+			Host:     "127.0.0.1",
+			Port:     15432,
+			User:     "postgres",
+			Password: "runtime-secret",
+			Database: "app",
+			SSLMode:  "disable",
+		},
+	})
+
+	connStr, password, ok := fleetManagedDBConnection(
+		&DatabaseDeps{Fleet: mgr}, 42, "")
+
+	if !ok {
+		t.Fatal("expected fleet config to be found by database id")
+	}
+	if password != "runtime-secret" {
+		t.Fatalf("password = %q, want runtime-secret", password)
+	}
+	if !strings.Contains(connStr, "runtime-secret@127.0.0.1:15432/app") {
+		t.Fatalf("connStr did not use runtime fleet config: %s", connStr)
+	}
+}
+
+func TestFleetManagedDBConnection_FallsBackToName(t *testing.T) {
+	mgr := fleet.NewManager(&config.Config{Mode: "fleet"})
+	mgr.RegisterInstance(&fleet.DatabaseInstance{
+		Name: "named-db",
+		Config: config.DatabaseConfig{
+			Name:     "named-db",
+			Host:     "db.example.com",
+			Port:     5432,
+			User:     "sage",
+			Password: "named-secret",
+			Database: "named",
+			SSLMode:  "require",
+		},
+	})
+
+	_, password, ok := fleetManagedDBConnection(
+		&DatabaseDeps{Fleet: mgr}, 999, "named-db")
+
+	if !ok {
+		t.Fatal("expected fleet config to be found by name")
+	}
+	if password != "named-secret" {
+		t.Fatalf("password = %q, want named-secret", password)
 	}
 }
 
@@ -227,16 +353,17 @@ func TestConnectionTestResult_ErrorJSON(t *testing.T) {
 
 func dummyRecord() store.DatabaseRecord {
 	return store.DatabaseRecord{
-		ID:            1,
-		Name:          "test-db",
-		Host:          "localhost",
-		Port:          5432,
-		DatabaseName:  "myapp",
-		Username:      "admin",
-		SSLMode:       "require",
-		Enabled:       true,
-		Tags:          map[string]string{"env": "test"},
-		TrustLevel:    "observation",
-		ExecutionMode: "approval",
+		ID:             1,
+		Name:           "test-db",
+		Host:           "localhost",
+		Port:           5432,
+		DatabaseName:   "myapp",
+		Username:       "admin",
+		SSLMode:        "require",
+		MaxConnections: 5,
+		Enabled:        true,
+		Tags:           map[string]string{"env": "test"},
+		TrustLevel:     "observation",
+		ExecutionMode:  "approval",
 	}
 }

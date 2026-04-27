@@ -129,6 +129,19 @@ func seedRevalHint(
 	t *testing.T, ctx context.Context, tuner *Tuner,
 	queryID int64, ageDays int, callsCheckpoint *int64,
 ) int64 {
+	return seedRevalHintWithText(
+		t, ctx, tuner, queryID, ageDays, callsCheckpoint,
+		"Set(work_mem 64MB)",
+	)
+}
+
+// seedRevalHintWithText is seedRevalHint with explicit hint text for
+// lifecycle tests that need to drive object-existence revalidation.
+func seedRevalHintWithText(
+	t *testing.T, ctx context.Context, tuner *Tuner,
+	queryID int64, ageDays int, callsCheckpoint *int64,
+	hintText string,
+) int64 {
 	t.Helper()
 	var id int64
 	var checkpoint any
@@ -138,9 +151,9 @@ func seedRevalHint(
 	err := tuner.pool.QueryRow(ctx, `
 INSERT INTO sage.query_hints
     (queryid, hint_text, symptom, status, created_at, calls_at_last_check)
-VALUES ($1, 'Set(work_mem 64MB)', 'disk_sort', 'active',
+VALUES ($1, $4, 'disk_sort', 'active',
         now() - make_interval(days => $2::int), $3)
-RETURNING id`, queryID, ageDays, checkpoint).Scan(&id)
+RETURNING id`, queryID, ageDays, checkpoint, hintText).Scan(&id)
 	if err != nil {
 		t.Fatalf("seed hint: %v", err)
 	}
@@ -705,6 +718,74 @@ func TestRevalidate_EndToEnd(t *testing.T) {
 	deadStatus, _, _ := readHintStatus(t, ctx, tuner, deadID)
 	if deadStatus != "broken" {
 		t.Errorf("dead queryid hint status = %q, want broken", deadStatus)
+	}
+}
+
+// TestRevalidate_LifecycleMarkers verifies the public revalidation pass moves
+// active rows to retired/broken and writes the corresponding lifecycle markers.
+func TestRevalidate_LifecycleMarkers(t *testing.T) {
+	pool, ctx := requireTunerDB(t)
+	tuner := New(pool, TunerConfig{
+		HintRetirementDays: 7,
+	}, nil, noopLogFn)
+
+	cleanRevalHints(t, ctx, tuner)
+	t.Cleanup(func() { cleanRevalHints(t, ctx, tuner) })
+
+	retiredID := seedRevalHint(
+		t, ctx, tuner, revalTestQIDBase+40, 14, nil,
+	)
+	brokenID := seedRevalHintWithText(
+		t, ctx, tuner, revalTestQIDBase+41, 1, nil,
+		"IndexScan(codex_revalidate_t codex_revalidate_missing_idx)",
+	)
+
+	status, rolledBack, verified := readHintStatus(
+		t, ctx, tuner, retiredID,
+	)
+	if status != "active" || rolledBack || verified {
+		t.Fatalf("retired fixture precondition: status=%q "+
+			"rolled_back=%v verified=%v",
+			status, rolledBack, verified)
+	}
+	status, rolledBack, verified = readHintStatus(t, ctx, tuner, brokenID)
+	if status != "active" || rolledBack || verified {
+		t.Fatalf("broken fixture precondition: status=%q "+
+			"rolled_back=%v verified=%v",
+			status, rolledBack, verified)
+	}
+
+	rpt, err := tuner.Revalidate(ctx)
+	if err != nil {
+		t.Fatalf("Revalidate: %v", err)
+	}
+	if rpt.Retired < 1 {
+		t.Errorf("Retired = %d, want at least 1", rpt.Retired)
+	}
+	if rpt.Broken < 1 {
+		t.Errorf("Broken = %d, want at least 1", rpt.Broken)
+	}
+
+	status, rolledBack, verified = readHintStatus(t, ctx, tuner, retiredID)
+	if status != "retired" {
+		t.Errorf("retired hint status = %q, want retired", status)
+	}
+	if rolledBack {
+		t.Error("retired hint rolled_back_at should remain NULL")
+	}
+	if !verified {
+		t.Error("retired hint verified_at should be set")
+	}
+
+	status, rolledBack, verified = readHintStatus(t, ctx, tuner, brokenID)
+	if status != "broken" {
+		t.Errorf("broken hint status = %q, want broken", status)
+	}
+	if !rolledBack {
+		t.Error("broken hint rolled_back_at should be set")
+	}
+	if verified {
+		t.Error("broken hint verified_at should remain NULL")
 	}
 }
 

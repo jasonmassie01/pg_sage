@@ -83,7 +83,9 @@ func splitColumns(s string) []string {
 // in the same order, on the same table, with the same WHERE clause
 // and INCLUDE columns.
 func IsDuplicate(a, b ParsedIndex) bool {
-	if a.Table != b.Table || a.WhereClause != b.WhereClause {
+	if a.Schema != b.Schema ||
+		a.Table != b.Table ||
+		a.WhereClause != b.WhereClause {
 		return false
 	}
 	if len(a.Columns) != len(b.Columns) {
@@ -108,7 +110,9 @@ func IsDuplicate(a, b ParsedIndex) bool {
 // IsSubset returns true if a's columns are a leading prefix of b's columns,
 // on the same table with the same WHERE clause.
 func IsSubset(a, b ParsedIndex) bool {
-	if a.Table != b.Table || a.WhereClause != b.WhereClause {
+	if a.Schema != b.Schema ||
+		a.Table != b.Table ||
+		a.WhereClause != b.WhereClause {
 		return false
 	}
 	if len(a.Columns) >= len(b.Columns) {

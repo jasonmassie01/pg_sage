@@ -2304,8 +2304,14 @@ func TestAnalyzeQueryRewrites_FullPath(t *testing.T) {
 	if len(findings) != 1 {
 		t.Fatalf("expected 1, got %d", len(findings))
 	}
-	// Post-processing forces severity to warning, clears SQL.
-	if findings[0].Severity != "warning" {
+	// Post-processing forces severity to "info" and clears SQL. These
+	// findings are advisory — the system prompt in rewrite.go asks the
+	// LLM for severity "info" and the e2e contract in rewrite_e2e_test.go
+	// is that rewrite findings never escalate to operator-actionable
+	// warnings. The previous "warning" expectation in this unit test was
+	// encoding the implementation, not the spec; the e2e test and the
+	// prompt agreed on "info", so the implementation was the bug.
+	if findings[0].Severity != "info" {
 		t.Errorf("severity = %q", findings[0].Severity)
 	}
 	if findings[0].RecommendedSQL != "" {

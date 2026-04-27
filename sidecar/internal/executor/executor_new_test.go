@@ -105,14 +105,14 @@ func TestExecuteManual_AcceptsValidSQL_ButNeedsDB(t *testing.T) {
 
 func TestActionOutcome_Table(t *testing.T) {
 	tests := []struct {
-		name    string
-		err     error
-		want    string
+		name string
+		err  error
+		want string
 	}{
 		{
-			name: "nil error returns pending",
+			name: "nil error returns monitoring",
 			err:  nil,
-			want: "pending",
+			want: "monitoring",
 		},
 		{
 			name: "non-nil error returns failed",
@@ -396,13 +396,13 @@ func TestActedOnAt_NotSetOnFailure(t *testing.T) {
 func TestActedOnAt_SetOnSuccess(t *testing.T) {
 	outcome := actionOutcome(nil)
 
-	if outcome != "pending" {
-		t.Fatalf("expected outcome 'pending', got %q", outcome)
+	if outcome != "monitoring" {
+		t.Fatalf("expected outcome 'monitoring', got %q", outcome)
 	}
 
 	shouldSetActedOn := outcome != "failed"
 	if !shouldSetActedOn {
-		t.Error("pending outcome SHOULD set acted_on_at")
+		t.Error("monitoring outcome SHOULD set acted_on_at")
 	}
 }
 
@@ -419,7 +419,7 @@ func TestActedOnAt_LogManualAction_SameContract(t *testing.T) {
 		{
 			name:             "manual action success",
 			execErr:          nil,
-			wantOutcome:      "pending",
+			wantOutcome:      "monitoring",
 			wantActedOnAtSet: true,
 		},
 		{
@@ -451,10 +451,10 @@ func TestActedOnAt_LogManualAction_SameContract(t *testing.T) {
 
 func TestWrapDDLError_Table(t *testing.T) {
 	tests := []struct {
-		name          string
-		err           error
-		wantLockErr   bool
-		wantContains  string
+		name         string
+		err          error
+		wantLockErr  bool
+		wantContains string
 	}{
 		{
 			name:         "55P03 lock error wraps with ErrLockNotAvailable",

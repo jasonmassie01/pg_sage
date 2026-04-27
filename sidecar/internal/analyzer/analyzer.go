@@ -46,6 +46,17 @@ type QueryTuner interface {
 	) ([]Finding, error)
 }
 
+// RCAEngine is satisfied by *rca.Engine without importing it.
+type RCAEngine interface {
+	Analyze(
+		current *collector.Snapshot,
+		previous *collector.Snapshot,
+		cfg *config.Config,
+		lockChainFindings []Finding,
+	)
+	PersistIncidents(ctx context.Context, pool *pgxpool.Pool) error
+}
+
 // Analyzer runs the rules engine on a recurring interval, producing
 // findings and persisting them to the sage.findings table.
 type Analyzer struct {
@@ -57,6 +68,7 @@ type Analyzer struct {
 	advisor    ConfigAdvisor
 	forecaster WorkloadForecaster
 	tuner      QueryTuner
+	rcaEngine    RCAEngine
 	logFn        func(string, string, ...any)
 	dispatcher   EventDispatcher
 	databaseName string
@@ -95,6 +107,11 @@ func New(
 // finding alerts. Nil is safe (default).
 func (a *Analyzer) WithDispatcher(d EventDispatcher) {
 	a.dispatcher = d
+}
+
+// WithRCAEngine sets the root cause analysis engine for the analyzer.
+func (a *Analyzer) WithRCAEngine(e RCAEngine) {
+	a.rcaEngine = e
 }
 
 // WithDatabaseName sets the database name included in events.
@@ -359,6 +376,34 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	// v0.8.5 Feature 4: extension drift detector.
 	allFindings = append(allFindings, a.checkExtensionDrift(ctx)...)
 
+	// v0.9 — Lock chain detection (requires DB query, not a RuleFunc).
+	if a.cfg.Analyzer.LockChain.Enabled {
+		chains, err := DetectLockChains(ctx, a.pool, a.cfg)
+		if err != nil {
+			a.logFn("WARN", "analyzer: lock chains: %v", err)
+		} else if len(chains) > 0 {
+			ownPID := a.getOwnPID(ctx)
+			lcFindings := lockChainFindings(
+				chains, a.cfg.Analyzer.LockChain, ownPID)
+			allFindings = append(allFindings, lcFindings...)
+		}
+	}
+
+	// v0.9 — Root Cause Analysis engine.
+	if a.rcaEngine != nil {
+		// Collect lock chain findings for RCA input.
+		var lcfForRCA []Finding
+		for _, f := range allFindings {
+			if f.Category == "lock_chain" {
+				lcfForRCA = append(lcfForRCA, f)
+			}
+		}
+		a.rcaEngine.Analyze(current, previous, a.cfg, lcfForRCA)
+		if err := a.rcaEngine.PersistIncidents(ctx, a.pool); err != nil {
+			a.logFn("WARN", "analyzer: rca persist: %v", err)
+		}
+	}
+
 	// Deduplicate conflicting findings across advisors.
 	ioUtil := computeIOUtilPct(current)
 	allFindings = DeduplicateFindings(allFindings, ioUtil, a.logFn)
@@ -396,6 +441,12 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	}
 
 	a.logFn("INFO", "analyzer cycle: %d findings", len(allFindings))
+}
+
+func (a *Analyzer) getOwnPID(ctx context.Context) int {
+	var pid int
+	_ = a.pool.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid)
+	return pid
 }
 
 // dispatchCriticalFindings sends notifications for critical-severity

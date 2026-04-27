@@ -1,33 +1,48 @@
-import { useState } from 'react'
-import { useAPI } from '../hooks/useAPI'
+import { useEffect, useState } from 'react'
+import { useAPI, withTimeRange } from '../hooks/useAPI'
+import { useTimeRange } from '../context/TimeRangeContext'
 import { SQLBlock } from '../components/SQLBlock'
 import { DataTable } from '../components/DataTable'
-import { TimeAgo } from '../components/TimeAgo'
-import { LoadingSpinner } from '../components/LoadingSpinner'
+import { LiveTimeAgo } from '../components/TimeAgo'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { EmptyState } from '../components/EmptyState'
+import { SkeletonRow } from '../components/Skeleton'
+import { usePendingActionsRefetch } from '../components/Layout'
+import { useToast } from '../components/Toast'
+import { useLiveRefetch } from '../hooks/useLiveEvents'
 
 export function Actions({ database, user }) {
   const [tab, setTab] = useState('executed')
+  const range = useTimeRange()
+  const canReview = user?.role === 'admin' || user?.role === 'operator'
   const dbParam = database && database !== 'all'
     ? `?database=${database}` : ''
 
   const { data, loading, error, refetch } =
-    useAPI(`/api/v1/actions${dbParam}`)
+    useAPI(withTimeRange(`/api/v1/actions${dbParam}`, range))
   const {
     data: pendingData,
     loading: pendingLoading,
     error: pendingError,
     refetch: pendingRefetch,
-  } = useAPI('/api/v1/actions/pending')
+  } = useAPI(canReview ? `/api/v1/actions/pending${dbParam}` : null)
+  useLiveRefetch(['actions'], refetch)
+  useLiveRefetch(['actions'], canReview ? pendingRefetch : null)
 
-  if (tab === 'executed') {
+  useEffect(() => {
+    if (!canReview && tab !== 'executed') {
+      setTab('executed')
+    }
+  }, [canReview, tab])
+
+  if (tab === 'executed' || !canReview) {
     return (
       <div className="space-y-4">
         <TabBar tab={tab} setTab={setTab}
-          pendingCount={pendingData?.total || 0} />
+          pendingCount={pendingData?.total || 0}
+          canReview={canReview} />
         <ExecutedTab data={data} loading={loading}
-          error={error} refetch={refetch} />
+          error={error} refetch={refetch} user={user} />
       </div>
     )
   }
@@ -35,7 +50,8 @@ export function Actions({ database, user }) {
   return (
     <div className="space-y-4">
       <TabBar tab={tab} setTab={setTab}
-        pendingCount={pendingData?.total || 0} />
+        pendingCount={pendingData?.total || 0}
+        canReview={canReview} />
       <PendingTab data={pendingData}
         loading={pendingLoading}
         error={pendingError}
@@ -44,11 +60,13 @@ export function Actions({ database, user }) {
   )
 }
 
-function TabBar({ tab, setTab, pendingCount }) {
+function TabBar({ tab, setTab, pendingCount, canReview }) {
   const tabs = [
     { key: 'executed', label: 'Executed' },
-    { key: 'pending', label: 'Pending Approval' },
   ]
+  if (canReview) {
+    tabs.push({ key: 'pending', label: 'Pending Approval' })
+  }
 
   return (
     <div className="flex gap-2">
@@ -79,8 +97,19 @@ function TabBar({ tab, setTab, pendingCount }) {
   )
 }
 
-function ExecutedTab({ data, loading, error, refetch }) {
-  if (loading) return <LoadingSpinner />
+function ExecutedTab({ data, loading, error, refetch, user }) {
+  const toast = useToast()
+  const canRollback = user?.role === 'admin' || user?.role === 'operator'
+  if (loading) {
+    return (
+      <div className="space-y-2"
+        data-testid="executed-actions-loading">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <SkeletonRow key={i} cols={4} />
+        ))}
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error}
     onRetry={refetch} />
 
@@ -165,11 +194,34 @@ function ExecutedTab({ data, loading, error, refetch }) {
         )
       },
     },
+    ...(actions.some(r => r.database_name)
+      ? [{ key: 'database_name', label: 'Database' }] : []),
     {
       key: 'executed_at', label: 'When',
-      render: r => <TimeAgo timestamp={r.executed_at} />,
+      render: r => <LiveTimeAgo timestamp={r.executed_at} />,
     },
   ]
+
+  async function handleRollback(row) {
+    if (!window.confirm('Run the stored rollback SQL for this action?')) {
+      return
+    }
+    const dbParam = row.database_name
+      ? `?database=${encodeURIComponent(row.database_name)}` : ''
+    const res = await fetch(`/api/v1/actions/${row.id}/rollback${dbParam}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: 'manual rollback from actions UI' }),
+    })
+    const json = await res.json()
+    if (!res.ok || !json.ok) {
+      toast.error(json.error || 'Rollback failed')
+      return
+    }
+    toast.success(`Action ${row.id} rolled back`)
+    refetch()
+  }
 
   if (actions.length === 0) {
     return <EmptyState message="No actions have been executed yet. Actions will appear here as pg_sage works on your databases." />
@@ -230,6 +282,22 @@ function ExecutedTab({ data, loading, error, refetch }) {
                 Rollback SQL
               </div>
               <SQLBlock sql={row.rollback_sql} />
+              {canRollback
+                && (row.outcome === 'success'
+                  || row.outcome === 'monitoring'
+                  || row.outcome === 'pending') && (
+                <button
+                  type="button"
+                  data-testid="rollback-action-button"
+                  onClick={() => handleRollback(row)}
+                  className="mt-2 px-2 py-1 rounded text-xs"
+                  style={{
+                    background: 'var(--yellow)',
+                    color: '#111827',
+                  }}>
+                  Roll Back Action
+                </button>
+              )}
             </div>
           )}
           <div className="flex gap-4 text-xs" style={{
@@ -238,8 +306,11 @@ function ExecutedTab({ data, loading, error, refetch }) {
             {row.finding_id && (
               <span>Finding #{row.finding_id}</span>
             )}
+            {row.database_name && (
+              <span>Database: {row.database_name}</span>
+            )}
             {row.measured_at && (
-              <span>Verified: <TimeAgo
+              <span>Verified: <LiveTimeAgo
                 timestamp={row.measured_at} /></span>
             )}
           </div>
@@ -249,14 +320,28 @@ function ExecutedTab({ data, loading, error, refetch }) {
   )
 }
 
+function PendingSkeleton() {
+  return (
+    <div className="space-y-2" data-testid="pending-skeleton">
+      {[0, 1, 2].map(i => (
+        <div key={i}
+          className="h-10 rounded animate-pulse"
+          style={{ background: 'var(--bg-hover)' }} />
+      ))}
+    </div>
+  )
+}
+
 function PendingTab({
   data, loading, error, refetch, user,
 }) {
   const [rejectId, setRejectId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [actionMsg, setActionMsg] = useState(null)
+  const refetchPendingCount = usePendingActionsRefetch()
+  const toast = useToast()
 
-  if (loading) return <LoadingSpinner />
+  if (loading) return <PendingSkeleton />
   if (error) return <ErrorBanner message={error}
     onRetry={refetch} />
 
@@ -265,48 +350,72 @@ function PendingTab({
   async function handleApprove(id) {
     setActionMsg(null)
     try {
+      const action = actions.find(a => a.id === id)
+      const dbParam = action?.database_name
+        ? `?database=${encodeURIComponent(action.database_name)}` : ''
       const res = await fetch(
-        `/api/v1/actions/${id}/approve`,
-        { method: 'POST', credentials: 'include' },
+        `/api/v1/actions/${id}/approve${dbParam}`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        },
       )
       const json = await res.json()
       if (json.ok) {
+        toast.success(`Action ${id} approved and executed`)
         setActionMsg({ type: 'success',
           text: `Action ${id} approved and executed` })
       } else {
+        toast.error(json.error || 'Approve failed')
         setActionMsg({ type: 'error',
           text: json.error || 'Approve failed' })
       }
       refetch()
+      refetchPendingCount()
     } catch (err) {
+      toast.error(`Approve failed: ${err.message}`)
       setActionMsg({ type: 'error', text: err.message })
     }
   }
 
   async function handleReject(id) {
     setActionMsg(null)
+    const reason = rejectReason.trim()
+    if (!reason) {
+      setActionMsg({ type: 'error',
+        text: 'A rejection reason is required' })
+      return
+    }
     try {
+      const action = actions.find(a => a.id === id)
+      const dbParam = action?.database_name
+        ? `?database=${encodeURIComponent(action.database_name)}` : ''
       const res = await fetch(
-        `/api/v1/actions/${id}/reject`,
+        `/api/v1/actions/${id}/reject${dbParam}`,
         {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason: rejectReason }),
+          body: JSON.stringify({ reason }),
         },
       )
       const json = await res.json()
       if (json.ok) {
+        toast.success(`Action ${id} rejected`)
         setActionMsg({ type: 'success',
           text: `Action ${id} rejected` })
       } else {
+        toast.error(json.error || 'Reject failed')
         setActionMsg({ type: 'error',
           text: json.error || 'Reject failed' })
       }
       setRejectId(null)
       setRejectReason('')
       refetch()
+      refetchPendingCount()
     } catch (err) {
+      toast.error(`Reject failed: ${err.message}`)
       setActionMsg({ type: 'error', text: err.message })
     }
   }
@@ -332,10 +441,16 @@ function PendingTab({
         )
       },
     },
+    { key: 'database_name', label: 'Database' },
     { key: 'finding_id', label: 'Finding' },
+    { key: 'proposed_sql', label: 'SQL Preview',
+      render: r => {
+        const sql = (r.proposed_sql || '').replace(/\s+/g, ' ').trim()
+        return sql.length > 90 ? sql.slice(0, 90) + '...' : sql
+      } },
     {
       key: 'proposed_at', label: 'Proposed',
-      render: r => <TimeAgo timestamp={r.proposed_at} />,
+      render: r => <LiveTimeAgo timestamp={r.proposed_at} />,
     },
     {
       key: 'actions', label: '',
@@ -425,10 +540,13 @@ function PendingTab({
                 />
                 <button
                   onClick={() => handleReject(row.id)}
+                  disabled={!rejectReason.trim()}
                   className="px-2 py-1 rounded text-xs"
                   style={{
                     background: 'var(--red)',
                     color: '#fff',
+                    opacity: rejectReason.trim() ? 1 : 0.45,
+                    cursor: rejectReason.trim() ? 'pointer' : 'not-allowed',
                   }}>
                   Confirm Reject
                 </button>

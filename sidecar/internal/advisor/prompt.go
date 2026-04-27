@@ -1,28 +1,27 @@
 package advisor
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/llm"
 )
 
 const maxAdvisorPromptChars = 16384
 
 // stripToJSON extracts a JSON array from an LLM response that may
-// contain thinking tokens or markdown fences.
+// contain thinking tokens or markdown fences. Delegates to the
+// canonical llm.StripJSON implementation.
 func stripToJSON(s string) string {
-	s = strings.TrimSpace(s)
-	first := strings.Index(s, "[")
-	last := strings.LastIndex(s, "]")
-	if first >= 0 && last > first {
-		return s[first : last+1]
-	}
-	return stripMarkdownFences(s)
+	return llm.StripJSON(s, llm.JSONArray)
 }
 
-// stripMarkdownFences removes ```json ... ``` wrappers from LLM output.
+// stripMarkdownFences removes ```json ... ``` wrappers from LLM
+// output. Kept as a thin helper for callers that know the input
+// has no JSON delimiters and only need fence removal. Uses the
+// llm package's internal logic via StripJSON with an unreachable
+// shape to exercise fence stripping when no JSON is present.
 func stripMarkdownFences(s string) string {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "```json") {
@@ -40,10 +39,8 @@ func parseLLMFindings(
 	category string,
 	logFn func(string, string, ...any),
 ) []analyzer.Finding {
-	cleaned := stripToJSON(raw)
-
 	var recs []map[string]any
-	if err := json.Unmarshal([]byte(cleaned), &recs); err != nil {
+	if err := llm.ParseJSON(raw, llm.JSONArray, &recs); err != nil {
 		logFn("WARN", "advisor: %s: parse error: %v", category, err)
 		return nil
 	}

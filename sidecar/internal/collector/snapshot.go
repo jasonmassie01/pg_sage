@@ -13,10 +13,11 @@ type Snapshot struct {
 	Locks       []LockInfo
 	Sequences   []SequenceStats
 	Replication *ReplicationStats
-	IO          []IOStats        `json:"io,omitempty"`
-	Partitions  []PartitionInfo  `json:"partitions,omitempty"`
-	ConfigData  *ConfigSnapshot  `json:"config_data,omitempty"`
-	StatsReset  bool             `json:"stats_reset,omitempty"`
+	IO            []IOStats             `json:"io,omitempty"`
+	Partitions    []PartitionInfo       `json:"partitions,omitempty"`
+	PreparedXacts []PreparedTransaction `json:"prepared_xacts,omitempty"`
+	ConfigData    *ConfigSnapshot       `json:"config_data,omitempty"`
+	StatsReset    bool                  `json:"stats_reset,omitempty"`
 }
 
 // QueryStats mirrors pg_stat_statements columns.
@@ -233,4 +234,17 @@ type SlotInfo struct {
 	SlotType      string `json:"slot_type"`
 	Active        bool   `json:"active"`
 	RetainedBytes int64  `json:"retained_bytes"`
+}
+
+// PreparedTransaction describes a two-phase commit transaction from
+// pg_prepared_xacts. These survive connection drops and server
+// restarts, hold xmin and locks indefinitely, and are invisible to
+// pg_stat_activity — a critical blind spot for vacuum and lock
+// detection.
+type PreparedTransaction struct {
+	GID      string    `json:"gid"`
+	Prepared time.Time `json:"prepared"`
+	Owner    string    `json:"owner"`
+	Database string    `json:"database"`
+	XIDAge   int64     `json:"xid_age"`
 }

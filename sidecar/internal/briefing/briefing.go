@@ -360,25 +360,30 @@ func (w *Worker) storeBriefing(ctx context.Context, content string, llmUsed bool
 	}
 }
 
-// Dispatch sends the briefing to configured channels.
-func (w *Worker) Dispatch(briefing string) {
+// Dispatch sends the briefing to configured channels. The ctx
+// bounds any outbound network calls (currently Slack) so that
+// graceful shutdown can cancel in-flight dispatches instead of
+// waiting for the full per-call HTTP timeout.
+func (w *Worker) Dispatch(ctx context.Context, briefing string) {
 	for _, ch := range w.cfg.Briefing.Channels {
 		switch ch {
 		case "stdout":
 			fmt.Println(briefing)
 		case "slack":
 			if w.cfg.Briefing.SlackWebhookURL != "" {
-				w.sendSlack(briefing)
+				w.sendSlack(ctx, briefing)
 			}
 		}
 	}
 }
 
-func (w *Worker) sendSlack(text string) {
+func (w *Worker) sendSlack(ctx context.Context, text string) {
 	payload, _ := json.Marshal(map[string]string{"text": text})
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Cap the Slack POST at 10s, but make sure we inherit the
+	// caller's context so process shutdown cancels the request.
+	sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "POST", w.cfg.Briefing.SlackWebhookURL,
+	req, err := http.NewRequestWithContext(sendCtx, "POST", w.cfg.Briefing.SlackWebhookURL,
 		strings.NewReader(string(payload)))
 	if err != nil {
 		w.logFn("WARN", "briefing", "slack request error: %v", err)

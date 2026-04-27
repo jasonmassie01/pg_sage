@@ -41,12 +41,12 @@ var excludedExactKeys = map[string]bool{
 	"safety.dormant_interval_seconds":    true,
 
 	// Analyzer fields present in struct but not exposed as overrides.
-	"analyzer.table_bloat_min_rows":                   true,
-	"analyzer.idle_in_transaction_timeout_minutes":     true,
-	"analyzer.xid_wraparound_warning":                 true,
-	"analyzer.xid_wraparound_critical":                true,
-	"analyzer.regression_lookback_days":                true,
-	"analyzer.checkpoint_frequency_warning_per_hour":   true,
+	"analyzer.table_bloat_min_rows":                  true,
+	"analyzer.idle_in_transaction_timeout_minutes":   true,
+	"analyzer.xid_wraparound_warning":                true,
+	"analyzer.xid_wraparound_critical":               true,
+	"analyzer.regression_lookback_days":              true,
+	"analyzer.checkpoint_frequency_warning_per_hour": true,
 	// v0.8.5 Feature 3 — work_mem promotion advisor threshold.
 	// Read once per cycle from YAML; not exposed as a runtime override.
 	"analyzer.work_mem_promotion_threshold": true,
@@ -55,31 +55,31 @@ var excludedExactKeys = map[string]bool{
 	"trust.ramp_start": true,
 
 	// LLM sub-struct fields not (yet) exposed as overrides.
-	"llm.cooldown_seconds":                    true,
-	"llm.index_optimizer.enabled":             true,
-	"llm.index_optimizer.min_query_calls":     true,
-	"llm.index_optimizer.max_indexes_per_table": true,
-	"llm.index_optimizer.max_include_columns": true,
+	"llm.cooldown_seconds":                       true,
+	"llm.index_optimizer.enabled":                true,
+	"llm.index_optimizer.min_query_calls":        true,
+	"llm.index_optimizer.max_indexes_per_table":  true,
+	"llm.index_optimizer.max_include_columns":    true,
 	"llm.index_optimizer.over_indexed_ratio_pct": true,
 	"llm.index_optimizer.write_heavy_ratio_pct":  true,
-	"llm.optimizer.max_indexes_per_table":     true,
-	"llm.optimizer.max_include_columns":       true,
-	"llm.optimizer.over_indexed_ratio_pct":    true,
-	"llm.optimizer.write_heavy_ratio_pct":     true,
-	"llm.optimizer.min_snapshots":             true,
-	"llm.optimizer.hypopg_min_improvement_pct": true,
-	"llm.optimizer.plan_source":               true,
-	"llm.optimizer.confidence_threshold":      true,
-	"llm.optimizer.write_impact_threshold_pct": true,
-	"llm.optimizer_llm.enabled":               true,
-	"llm.optimizer_llm.endpoint":              true,
-	"llm.optimizer_llm.api_key":               true,
-	"llm.optimizer_llm.model":                 true,
-	"llm.optimizer_llm.timeout_seconds":       true,
-	"llm.optimizer_llm.token_budget_daily":    true,
-	"llm.optimizer_llm.cooldown_seconds":      true,
-	"llm.optimizer_llm.max_output_tokens":     true,
-	"llm.optimizer_llm.fallback_to_general":   true,
+	"llm.optimizer.max_indexes_per_table":        true,
+	"llm.optimizer.max_include_columns":          true,
+	"llm.optimizer.over_indexed_ratio_pct":       true,
+	"llm.optimizer.write_heavy_ratio_pct":        true,
+	"llm.optimizer.min_snapshots":                true,
+	"llm.optimizer.hypopg_min_improvement_pct":   true,
+	"llm.optimizer.plan_source":                  true,
+	"llm.optimizer.confidence_threshold":         true,
+	"llm.optimizer.write_impact_threshold_pct":   true,
+	"llm.optimizer_llm.enabled":                  true,
+	"llm.optimizer_llm.endpoint":                 true,
+	"llm.optimizer_llm.api_key":                  true,
+	"llm.optimizer_llm.model":                    true,
+	"llm.optimizer_llm.timeout_seconds":          true,
+	"llm.optimizer_llm.token_budget_daily":       true,
+	"llm.optimizer_llm.cooldown_seconds":         true,
+	"llm.optimizer_llm.max_output_tokens":        true,
+	"llm.optimizer_llm.fallback_to_general":      true,
 
 	// Advisor sub-fields not exposed as overrides.
 	"advisor.vacuum_enabled":     true,
@@ -91,6 +91,15 @@ var excludedExactKeys = map[string]bool{
 
 	// Alerting sub-fields not exposed as overrides.
 	"alerting.timezone": true,
+
+	// String-slice fields managed via YAML only, not API overrides.
+	"analyzer.lock_chain.safe_patterns": true,
+	"runaway.safe_patterns":             true,
+
+	// v0.10: Schema lint — string-slice fields managed via YAML only.
+	"schema_lint.include_schemas": true,
+	"schema_lint.exclude_schemas": true,
+	"schema_lint.disabled_rules":  true,
 }
 
 // structFieldPaths walks a struct type using reflection and returns
@@ -131,9 +140,15 @@ func structFieldPaths(t reflect.Type, prefix string) []string {
 		case reflect.Struct:
 			// Recurse into nested structs.
 			paths = append(paths, structFieldPaths(ft, key)...)
-		case reflect.Slice, reflect.Map:
-			// Skip collection types (e.g. databases, routes,
-			// webhooks, channels).
+		case reflect.Slice:
+			// Include []string as a leaf (serialized as comma-
+			// separated in the config API). Skip complex slice
+			// types (e.g. []DatabaseConfig, []RunawayPolicy).
+			if ft.Elem().Kind() == reflect.String {
+				paths = append(paths, key)
+			}
+			continue
+		case reflect.Map:
 			continue
 		default:
 			paths = append(paths, key)
@@ -294,16 +309,17 @@ func TestConfigConsistency_HotReloadCoversAllAllowedKeys(
 
 	// Build a map of test values per validation type.
 	testValues := map[string]string{
-		"int_pos":      "42",
-		"int_nonneg":   "7",
-		"int_min5":     "15",
-		"pct":          "50",
-		"pct1_100":     "75",
-		"float01":      "0.5",
-		"bool":         "true",
-		"trust_level":  "advisory",
-		"exec_mode":    "auto",
-		"string":       "test-value",
+		"int_pos":     "42",
+		"int_nonneg":  "7",
+		"int_min5":    "15",
+		"pct":         "50",
+		"pct1_100":    "75",
+		"float01":     "0.5",
+		"bool":        "true",
+		"trust_level": "advisory",
+		"exec_mode":   "auto",
+		"string":      "test-value",
+		"float_pos":   "2.0",
 	}
 
 	for key, vtype := range allowedConfigKeys {
@@ -535,6 +551,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 		"trust_level": "advisory",
 		"exec_mode":   "auto",
 		"string":      "hello",
+		"float_pos":   "2.0",
 	}
 
 	for vtype := range vtypes {
@@ -602,7 +619,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 // fails when someone adds or removes a key without updating the
 // test. Update the expected count when intentionally changing keys.
 func TestConfigConsistency_AllowedKeyCount(t *testing.T) {
-	const expectedCount = 47 // Update when adding/removing keys.
+	const expectedCount = 87 // Update when adding/removing keys.
 
 	actual := len(allowedConfigKeys)
 	if actual != expectedCount {
@@ -631,7 +648,7 @@ func TestConfigConsistency_ConfigToMapKeyCount(t *testing.T) {
 	}
 	m := configToMap(cfg)
 
-	const expectedCount = 47 // Should match allowedConfigKeys.
+	const expectedCount = 87 // Should match allowedConfigKeys.
 
 	actual := len(m)
 	if actual != expectedCount {

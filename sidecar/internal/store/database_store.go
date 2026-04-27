@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/crypto"
 )
@@ -65,15 +66,20 @@ func (s *DatabaseStore) Create(
 	if err := validateInput(input, true); err != nil {
 		return 0, err
 	}
+	if len(s.encryptKey) != 32 {
+		return 0, fmt.Errorf(
+			"%w: encryption_key is required to store database passwords",
+			ErrValidation)
+	}
 
 	count, err := s.Count(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("checking database count: %w", err)
 	}
 	if count >= 50 {
-		return 0, fmt.Errorf("maximum of 50 databases reached")
+		return 0, fmt.Errorf(
+			"%w: maximum of 50 databases reached", ErrValidation)
 	}
-
 	enc, err := crypto.Encrypt(input.Password, s.encryptKey)
 	if err != nil {
 		return 0, fmt.Errorf("encrypting password: %w", err)
@@ -199,12 +205,18 @@ func (s *DatabaseStore) Update(
 		return fmt.Errorf("marshalling tags: %w", err)
 	}
 
+	var tag pgconn.CommandTag
 	if input.Password != "" {
+		if len(s.encryptKey) != 32 {
+			return fmt.Errorf(
+				"%w: encryption_key is required to update database passwords",
+				ErrValidation)
+		}
 		enc, encErr := crypto.Encrypt(input.Password, s.encryptKey)
 		if encErr != nil {
 			return fmt.Errorf("encrypting password: %w", encErr)
 		}
-		_, err = s.pool.Exec(qctx,
+		tag, err = s.pool.Exec(qctx,
 			`UPDATE sage.databases SET
 			    name=$1, host=$2, port=$3, database_name=$4,
 			    username=$5, password_enc=$6, sslmode=$7,
@@ -217,7 +229,7 @@ func (s *DatabaseStore) Update(
 			input.ExecutionMode, id,
 		)
 	} else {
-		_, err = s.pool.Exec(qctx,
+		tag, err = s.pool.Exec(qctx,
 			`UPDATE sage.databases SET
 			    name=$1, host=$2, port=$3, database_name=$4,
 			    username=$5, sslmode=$6, max_connections=$7,
@@ -232,6 +244,9 @@ func (s *DatabaseStore) Update(
 	}
 	if err != nil {
 		return fmt.Errorf("updating database %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: database %d", ErrNotFound, id)
 	}
 	return nil
 }

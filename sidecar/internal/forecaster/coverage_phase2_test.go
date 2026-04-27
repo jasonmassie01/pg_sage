@@ -30,6 +30,8 @@ var (
 	p2PoolErr  error
 )
 
+const destructiveTestLockKey = "pg_sage_test_cross_pkg"
+
 func phase2RequireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
@@ -51,6 +53,14 @@ func phase2RequireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			p2Pool = nil
 			return
 		}
+		releaseLock, err := lockCrossPackage(ctx, p2Pool)
+		if err != nil {
+			p2PoolErr = fmt.Errorf("cross-package test lock: %w", err)
+			p2Pool.Close()
+			p2Pool = nil
+			return
+		}
+		defer releaseLock()
 		if err := schema.Bootstrap(ctx, p2Pool); err != nil {
 			p2PoolErr = fmt.Errorf("bootstrap: %w", err)
 			p2Pool.Close()
@@ -58,11 +68,64 @@ func phase2RequireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			return
 		}
 		schema.ReleaseAdvisoryLock(ctx, p2Pool)
+		releasePoolAdvisoryLocks(ctx, p2Pool)
 	})
 	if p2PoolErr != nil {
 		t.Skipf("database unavailable: %v", p2PoolErr)
 	}
+	serializeAcrossPackages(t, ctx, p2Pool)
 	return p2Pool, ctx
+}
+
+func serializeAcrossPackages(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+) {
+	t.Helper()
+	releaseLock, err := lockCrossPackage(ctx, pool)
+	if err != nil {
+		t.Fatalf("acquire cross-package test lock: %v", err)
+	}
+	t.Cleanup(releaseLock)
+}
+
+func lockCrossPackage(
+	ctx context.Context, pool *pgxpool.Pool,
+) (func(), error) {
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire conn for cross-pkg lock: %w", err)
+	}
+	_, err = conn.Exec(ctx,
+		"SELECT pg_advisory_lock(hashtext($1))",
+		destructiveTestLockKey)
+	if err != nil {
+		conn.Release()
+		return nil, err
+	}
+	return func() {
+		_, _ = conn.Exec(context.Background(),
+			"SELECT pg_advisory_unlock(hashtext($1))",
+			destructiveTestLockKey)
+		conn.Release()
+	}, nil
+}
+
+func releasePoolAdvisoryLocks(ctx context.Context, pool *pgxpool.Pool) {
+	total := int(pool.Stat().TotalConns())
+	conns := make([]*pgxpool.Conn, 0, total)
+	for i := 0; i < total; i++ {
+		qctx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+		conn, err := pool.Acquire(qctx)
+		cancel()
+		if err != nil {
+			break
+		}
+		conns = append(conns, conn)
+	}
+	for _, conn := range conns {
+		_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock_all()")
+		conn.Release()
+	}
 }
 
 // cleanupSnapshots removes test-seeded rows by category prefix.

@@ -106,10 +106,19 @@ func initMetaDB(
 		return nil, fmt.Errorf("config schema migration: %w", err)
 	}
 
-	// Derive encryption key if provided.
+	// Derive encryption key if provided. A per-deployment random
+	// salt is persisted in sage.crypto_meta on first bootstrap and
+	// reused on every subsequent startup, so keys derived here
+	// match keys used to encrypt prior records. The salt must be
+	// stable across restarts — if it is lost, all encrypted
+	// credentials become unrecoverable.
 	var encKey []byte
 	if encKeyPassphrase != "" {
-		encKey = crypto.DeriveKey(encKeyPassphrase)
+		salt, err := schema.ReadOrCreateKDFSalt(ctx, metaPool)
+		if err != nil {
+			return nil, fmt.Errorf("kdf salt: %w", err)
+		}
+		encKey = crypto.DeriveKey(encKeyPassphrase, salt)
 	} else {
 		log.Println(
 			"WARNING: --encryption-key not set; " +
@@ -208,6 +217,15 @@ func connectMonitoredDB(
 	poolCfg.MaxConnLifetime = 30 * time.Minute
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
 	poolCfg.HealthCheckPeriod = 30 * time.Second
+
+	// Tag every pool connection with a stable application_name so the
+	// analyzer/executor can recognize all sidecar backends (not just the
+	// one returned by pg_backend_pid() on some arbitrary pool conn) when
+	// deciding whether a query is safe to terminate.
+	if poolCfg.ConnConfig.RuntimeParams == nil {
+		poolCfg.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	poolCfg.ConnConfig.RuntimeParams["application_name"] = "pg_sage"
 
 	const maxAttempts = 5
 	backoff := 1 * time.Second
@@ -334,25 +352,42 @@ func bootstrapAndRegister(
 
 	dbPGVersion := detectPGVersion(dbPool)
 
+	// Derive a per-instance context from the process shutdownCtx so
+	// that RemoveInstance can cancel the collector, analyzer, and
+	// orchestrator goroutines without also taking down the whole
+	// process. Without this, deleting a fleet DB closes its pool but
+	// leaves its goroutines spinning on shutdownCtx (they spam "pool
+	// closed" errors until process exit). EmergencyStop intentionally
+	// does not cancel this context; it only blocks action execution.
+	instCtx, instCancel := context.WithCancel(shutdownCtx)
+
 	dbColl := collector.New(
 		dbPool, cfg, dbPGVersion, logStructuredWrapper,
 	)
-	go dbColl.Run(shutdownCtx)
+	go dbColl.Run(instCtx)
 
 	// LLM features for meta-db registered databases.
 	dbOpt, dbAdvIface, dbTuner, dbBrief :=
 		buildFleetLLMFeatures(dbPool, dbPGVersion, dbColl,
 			rec.DatabaseName)
 
+	// dbTuner is a *tuner.Tuner which may be nil when cfg.Tuner.Enabled
+	// is false. Passing the typed nil directly produces a non-nil
+	// analyzer.QueryTuner interface that panics on Tune(). Normalize
+	// to a true-nil interface before handing to analyzer.New.
+	var qt analyzer.QueryTuner
+	if dbTuner != nil {
+		qt = dbTuner
+	}
 	dbAnal := analyzer.New(
-		dbPool, cfg, dbColl, dbOpt, dbAdvIface, nil, dbTuner,
+		dbPool, cfg, dbColl, dbOpt, dbAdvIface, nil, qt,
 		logStructuredWrapper,
 	)
-	go dbAnal.Run(shutdownCtx)
+	go dbAnal.Run(instCtx)
 
 	dbExec := buildExecutor(rec, dbPool, dbAnal)
 
-	registerHealthyInstance(rec, dbPool, dbColl, dbAnal, dbExec)
+	registerHealthyInstance(rec, dbPool, dbColl, dbAnal, dbExec, instCancel)
 
 	// Populate findings immediately then start orchestrator.
 	if inst := fleetMgr.GetInstance(rec.Name); inst != nil {
@@ -360,7 +395,7 @@ func bootstrapAndRegister(
 	}
 	dbCfg := storeRecordToDBConfig(rec)
 	go fleetDBOrchestrator(
-		rec.Name, dbPool, dbExec, dbBrief, dbCfg)
+		instCtx, rec.Name, dbPool, dbExec, dbBrief, dbCfg)
 }
 
 // fleetReconnectLoop periodically checks for failed instances and
@@ -385,7 +420,8 @@ func fleetReconnectLoop(state *metaDBState) {
 func retryFailedInstances(state *metaDBState) {
 	instances := fleetMgr.Instances()
 	for name, inst := range instances {
-		if inst.Pool != nil && inst.Status.Error == "" {
+		snap := inst.SnapshotStatus()
+		if inst.Pool != nil && snap.Error == "" {
 			continue // healthy
 		}
 		if inst.Stopped {
@@ -431,16 +467,32 @@ func retryFailedInstances(state *metaDBState) {
 	}
 }
 
-// detectPGVersion queries the PG version number from the pool.
+// detectPGVersion queries the PG version number from the pool and
+// falls back to PG 14 if the query fails or the response is
+// unparsable. Failures are logged so operators can spot config
+// rules that silently use the default (e.g. tuner rules gated on
+// a specific PG version).
 func detectPGVersion(p *pgxpool.Pool) int {
+	const fallback = 140000
+	ctx, cancel := context.WithTimeout(
+		context.Background(), 5*time.Second)
+	defer cancel()
+
 	var verStr string
 	var ver int
-	_ = p.QueryRow(
-		context.Background(), "SHOW server_version_num",
-	).Scan(&verStr)
-	_, _ = fmt.Sscanf(verStr, "%d", &ver)
-	if ver == 0 {
-		ver = 140000
+	if err := p.QueryRow(
+		ctx, "SHOW server_version_num",
+	).Scan(&verStr); err != nil {
+		logWarn("meta-db",
+			"detectPGVersion: SHOW server_version_num failed: %v; "+
+				"assuming PG %d", err, fallback/10000)
+		return fallback
+	}
+	if _, err := fmt.Sscanf(verStr, "%d", &ver); err != nil || ver == 0 {
+		logWarn("meta-db",
+			"detectPGVersion: unparsable server_version_num %q: %v; "+
+				"assuming PG %d", verStr, err, fallback/10000)
+		return fallback
 	}
 	return ver
 }
@@ -470,11 +522,13 @@ func buildExecutor(
 }
 
 // registerHealthyInstance registers a connected instance with the
-// fleet manager.
+// fleet manager. cancel stops the per-instance goroutines and is
+// invoked by RemoveInstance.
 func registerHealthyInstance(
 	rec store.DatabaseRecord, dbPool *pgxpool.Pool,
 	dbColl *collector.Collector, dbAnal *analyzer.Analyzer,
 	dbExec *executor.Executor,
+	cancel context.CancelFunc,
 ) {
 	dbCfg := storeRecordToDBConfig(rec)
 	inst := &fleet.DatabaseInstance{
@@ -484,6 +538,7 @@ func registerHealthyInstance(
 		Collector: dbColl,
 		Analyzer:  dbAnal,
 		Executor:  dbExec,
+		Cancel:    cancel,
 		Status: &fleet.InstanceStatus{
 			Connected:    true,
 			TrustLevel:   rec.TrustLevel,

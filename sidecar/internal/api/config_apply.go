@@ -22,26 +22,105 @@ func applyConfigOverrides(
 	userID int,
 ) []string {
 	var errs []string
+	type override struct {
+		key   string
+		value string
+	}
+	overrides := make([]override, 0, len(body))
 	for key, raw := range body {
 		value := fmt.Sprintf("%v", raw)
+		if isMaskedSecretUpdate(key, value) {
+			continue
+		}
+		if err := store.ValidateConfigOverride(key, value); err != nil {
+			errs = append(errs, fmt.Sprintf(
+				"%s: %s", key, configErrorMessage(err)))
+			continue
+		}
+		overrides = append(overrides, override{key: key, value: value})
+	}
+	if len(errs) > 0 {
+		return errs
+	}
+
+	for _, override := range overrides {
 		err := cs.SetOverride(
-			ctx, key, value, databaseID, userID)
+			ctx, override.key, override.value, databaseID, userID)
 		if err != nil {
-			errs = append(errs,
-				fmt.Sprintf("%s: %s", key, err.Error()))
+			// Validation errors (invalid key, invalid value, range
+			// violation) are safe to expose — the user needs them to
+			// correct the request. Anything else is a DB/internal
+			// failure whose text we must not leak.
+			msg := configErrorMessage(err)
+			if msg == internalConfigErrMsg {
+				slog.Error("config override failed",
+					"key", override.key, "err", err)
+			}
+			errs = append(errs, fmt.Sprintf("%s: %s", override.key, msg))
 			continue
 		}
 		// Hot-reload into running config when global.
 		if databaseID == 0 {
-			hotReload(cfg, key, value)
+			hotReload(cfg, override.key, override.value)
 		}
 	}
 	return errs
 }
 
+func isMaskedSecretUpdate(key, value string) bool {
+	if key != "llm.api_key" || value == "" {
+		return false
+	}
+	starCount := 0
+	for starCount < len(value) && value[starCount] == '*' {
+		starCount++
+	}
+	if starCount == 0 {
+		return false
+	}
+	if starCount == len(value) {
+		return true
+	}
+	return len(value)-starCount <= 4
+}
+
+// internalConfigErrMsg is the placeholder returned to clients when
+// a config override fails for a reason that is not safe to expose
+// (DB errors, tx failures, etc.).
+const internalConfigErrMsg = "internal error"
+
+// configErrorMessage returns a client-safe message for an error
+// produced by SetOverride. Known validation error shapes are
+// surfaced verbatim; anything else becomes internalConfigErrMsg.
+func configErrorMessage(err error) string {
+	msg := err.Error()
+	// Validation error prefixes produced by store.validateConfigKey
+	// and store.validateConfigValue. Keep this list in sync with
+	// that package.
+	safePrefixes := []string{
+		"invalid config key",
+		"invalid value",
+		"value below minimum",
+		"value above maximum",
+		"must be one of",
+		"unknown config key",
+	}
+	for _, p := range safePrefixes {
+		if strings.Contains(msg, p) {
+			return msg
+		}
+	}
+	return internalConfigErrMsg
+}
+
 // hotReload applies a single key/value change to the in-memory
 // config struct. Only hot-reloadable fields are supported.
+//
+// Takes the config write lock so concurrent mutations are serialized
+// and readers that opt into cfg.Mu.RLock() observe a consistent state.
 func hotReload(cfg *config.Config, key, value string) {
+	config.LockForHotReload()
+	defer config.UnlockForHotReload()
 	switch {
 	case strings.HasPrefix(key, "collector."):
 		hotReloadCollector(cfg, key, value)
@@ -67,6 +146,18 @@ func hotReload(cfg *config.Config, key, value string) {
 		hotReloadAutoExplain(cfg, key, value)
 	case strings.HasPrefix(key, "tuner."):
 		hotReloadTuner(cfg, key, value)
+	case strings.HasPrefix(key, "rca."):
+		hotReloadRCA(cfg, key, value)
+	case strings.HasPrefix(key, "runaway."):
+		hotReloadRunaway(cfg, key, value)
+	case strings.HasPrefix(key, "explain."):
+		hotReloadExplain(cfg, key, value)
+	case strings.HasPrefix(key, "logwatch."):
+		hotReloadLogWatch(cfg, key, value)
+	case strings.HasPrefix(key, "schema_lint."):
+		hotReloadSchemaLint(cfg, key, value)
+	case strings.HasPrefix(key, "migration."):
+		hotReloadMigration(cfg, key, value)
 	}
 }
 
@@ -100,6 +191,18 @@ func hotReloadAnalyzer(cfg *config.Config, key, v string) {
 		cfg.Analyzer.RegressionThresholdPct = atoi(v)
 	case "analyzer.cache_hit_ratio_warning":
 		cfg.Analyzer.CacheHitRatioWarning = atof(v)
+	case "analyzer.slow_slot_retained_bytes":
+		cfg.Analyzer.SlowSlotRetainedBytes = atoi64(v)
+	case "analyzer.lock_chain.enabled":
+		cfg.Analyzer.LockChain.Enabled = v == "true"
+	case "analyzer.lock_chain.min_blocked_threshold":
+		cfg.Analyzer.LockChain.MinBlockedThreshold = atoi(v)
+	case "analyzer.lock_chain.critical_blocked_threshold":
+		cfg.Analyzer.LockChain.CriticalBlockedThreshold = atoi(v)
+	case "analyzer.lock_chain.idle_in_tx_terminate_minutes":
+		cfg.Analyzer.LockChain.IdleInTxTerminateMinutes = atoi(v)
+	case "analyzer.lock_chain.active_query_cancel_minutes":
+		cfg.Analyzer.LockChain.ActiveQueryCancelMinutes = atoi(v)
 	}
 }
 
@@ -159,6 +262,8 @@ func hotReloadLLM(cfg *config.Config, key, v string) {
 		cfg.LLM.APIKey = v
 	case "llm.model":
 		cfg.LLM.Model = v
+	case "llm.json_mode":
+		cfg.LLM.JSONMode = v == "true"
 	case "llm.timeout_seconds":
 		cfg.LLM.TimeoutSeconds = atoi(v)
 	case "llm.token_budget_daily":
@@ -285,10 +390,116 @@ func hotReloadTuner(cfg *config.Config, key, v string) {
 	}
 }
 
+func hotReloadRCA(cfg *config.Config, key, v string) {
+	switch key {
+	case "rca.enabled":
+		cfg.RCA.Enabled = v == "true"
+	case "rca.llm_correlation_threshold":
+		cfg.RCA.LLMCorrelationThreshold = atoi(v)
+	case "rca.dedup_window_minutes":
+		cfg.RCA.DedupWindowMinutes = atoi(v)
+	case "rca.escalation_cycles":
+		cfg.RCA.EscalationCycles = atoi(v)
+	case "rca.resolution_cycles":
+		cfg.RCA.ResolutionCycles = atoi(v)
+	case "rca.connection_saturation_pct":
+		cfg.RCA.ConnectionSaturationPct = atoi(v)
+	case "rca.replication_lag_threshold_seconds":
+		cfg.RCA.ReplicationLagThresholdS = atoi(v)
+	case "rca.wal_spike_multiplier":
+		cfg.RCA.WALSpikeMultiplier = atof(v)
+	}
+}
+
+func hotReloadRunaway(cfg *config.Config, key, v string) {
+	switch key {
+	case "runaway.enabled":
+		cfg.Runaway.Enabled = v == "true"
+	}
+}
+
+func hotReloadExplain(cfg *config.Config, key, v string) {
+	switch key {
+	case "explain.enabled":
+		cfg.Explain.Enabled = v == "true"
+	case "explain.timeout_ms":
+		cfg.Explain.TimeoutMs = atoi(v)
+	case "explain.cache_ttl_minutes":
+		cfg.Explain.CacheTTLMinutes = atoi(v)
+	case "explain.max_tokens":
+		cfg.Explain.MaxTokens = atoi(v)
+	}
+}
+
+func hotReloadLogWatch(cfg *config.Config, key, v string) {
+	switch key {
+	case "logwatch.enabled":
+		cfg.LogWatch.Enabled = v == "true"
+	case "logwatch.log_directory":
+		cfg.LogWatch.LogDirectory = v
+	case "logwatch.format":
+		cfg.LogWatch.Format = v
+	case "logwatch.poll_interval_ms":
+		cfg.LogWatch.PollIntervalMs = atoi(v)
+	case "logwatch.dedup_window_seconds":
+		cfg.LogWatch.DedupWindowS = atoi(v)
+	case "logwatch.max_line_len_bytes":
+		cfg.LogWatch.MaxLineLenBytes = atoi(v)
+	case "logwatch.temp_file_min_bytes":
+		cfg.LogWatch.TempFileMinBytes = atoi(v)
+	case "logwatch.max_lines_per_cycle":
+		cfg.LogWatch.MaxLinesPerCycle = atoi(v)
+	case "logwatch.exclude_applications":
+		cfg.LogWatch.ExcludeApplications = strings.Split(v, ",")
+	case "logwatch.slow_query_enabled":
+		cfg.LogWatch.SlowQueryEnabled = v == "true"
+	}
+}
+
+func hotReloadSchemaLint(cfg *config.Config, key, v string) {
+	switch key {
+	case "schema_lint.enabled":
+		cfg.SchemaLint.Enabled = v == "true"
+	case "schema_lint.scan_interval_minutes":
+		cfg.SchemaLint.ScanIntervalMinutes = atoi(v)
+	case "schema_lint.min_table_rows":
+		cfg.SchemaLint.MinTableRows = atoi(v)
+	}
+}
+
+func hotReloadMigration(cfg *config.Config, key, v string) {
+	switch key {
+	case "migration.enabled":
+		cfg.Migration.Enabled = v == "true"
+	case "migration.mode":
+		cfg.Migration.Mode = v
+	case "migration.managed_service":
+		cfg.Migration.ManagedService = v
+	case "migration.log_detection":
+		cfg.Migration.LogDetection = v == "true"
+	case "migration.activity_polling":
+		cfg.Migration.ActivityPolling = v == "true"
+	case "migration.poll_interval_seconds":
+		cfg.Migration.PollIntervalSeconds = atoi(v)
+	case "migration.ddl_row_threshold":
+		cfg.Migration.DDLRowThreshold = atoi(v)
+	}
+}
+
 func atoi(s string) int {
 	n, err := strconv.Atoi(s)
 	if err != nil {
 		slog.Warn("hotReload: invalid int",
+			"value", s, "error", err)
+		return 0
+	}
+	return n
+}
+
+func atoi64(s string) int64 {
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		slog.Warn("hotReload: invalid int64",
 			"value", s, "error", err)
 		return 0
 	}

@@ -54,15 +54,12 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	return testPool, ctx
 }
 
-// bootstrapWithRetry wraps Bootstrap with cleanup. The advisory lock
-// is now blocking (up to 30s), so cross-package contention is handled
-// by PostgreSQL itself. We still release all locks before calling
-// Bootstrap to clear any stale session-level locks from prior tests.
+// bootstrapWithRetry wraps Bootstrap with the same cross-package lock
+// used by destructive schema tests. Acquiring it before Bootstrap keeps
+// lock ordering consistent with packages that need sage to stay intact.
 func bootstrapWithRetry(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
-	// Clear any stale advisory locks from prior tests on this session.
-	_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock_all()")
-
+	serializeAcrossPackages(t, ctx, pool)
 	if err := Bootstrap(ctx, pool); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
@@ -85,6 +82,12 @@ func TestExpectedTables_AllPresent(t *testing.T) {
 		"notification_rules",
 		"notification_log",
 		"action_queue",
+		"incidents",
+		"size_history",
+		"explain_results",
+		"schema_findings",
+		"crypto_meta",
+		"health_history",
 	}
 
 	if len(expectedTables) != len(want) {
@@ -269,6 +272,7 @@ func TestTrustRampStart_RejectsGarbage(t *testing.T) {
 
 func TestBootstrap_FreshDatabase(t *testing.T) {
 	pool, ctx := requireDB(t)
+	serializeAcrossPackages(t, ctx, pool)
 
 	// Acquire lock before dropping schema to prevent cross-package races.
 	_, _ = pool.Exec(ctx, "SELECT pg_advisory_lock(hashtext('pg_sage'))")

@@ -35,11 +35,13 @@ export async function login(
   password: string,
 ): Promise<void> {
   await page.goto('/');
-  // Wait for the login form to render
-  await page.waitForSelector('form');
-  await page.locator('input[type="email"]').fill(email);
-  await page.locator('input[type="password"]').fill(password);
-  await page.locator('button[type="submit"]').click();
+  // Wait for the login form to render. The email input is type="text"
+  // (not type="email") so we select by data-testid, which is the stable
+  // selector used across specs (see walkthrough.spec.ts).
+  await page.waitForSelector('[data-testid="login-email"]');
+  await page.locator('[data-testid="login-email"]').fill(email);
+  await page.locator('[data-testid="login-password"]').fill(password);
+  await page.locator('[data-testid="login-submit"]').click();
   // Wait for the app shell — the nav sidebar contains "Dashboard" link
   await page.waitForSelector('nav >> text=Dashboard');
 }

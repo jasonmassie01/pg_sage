@@ -28,6 +28,12 @@ var expectedTables = []struct {
 	{"notification_rules", ddlNotificationRules},
 	{"notification_log", ddlNotificationLog},
 	{"action_queue", ddlActionQueue},
+	{"incidents", ddlIncidents},
+	{"size_history", ddlSizeHistory},
+	{"explain_results", ddlExplainResults},
+	{"schema_findings", ddlSchemaFindings},
+	{"crypto_meta", ddlCryptoMeta},
+	{"health_history", ddlHealthHistory},
 }
 
 // Bootstrap acquires an advisory lock, then ensures the sage schema and
@@ -62,6 +68,9 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 
 	if err := MigrateConfigSchema(ctx, pool); err != nil {
 		return fmt.Errorf("config migration: %w", err)
+	}
+	if err := migrateIncidentConstraints(ctx, pool); err != nil {
+		return fmt.Errorf("incident constraint migration: %w", err)
 	}
 	return nil
 }
@@ -243,6 +252,10 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		ddlUsersOAuth,
 		ddlQueryHintsRewrite,
 		ddlQueryHintsRevalidate,
+		ddlIncidentsLastDetected,
+		ddlSchemaFindingsLintRunner,
+		ddlFindingsAbsorbsSchemaFindings,
+		ddlFindingsBackfillFromSchemaFindings,
 	}
 	for _, m := range migrations {
 		if _, err := pool.Exec(qctx, m); err != nil {
@@ -265,7 +278,9 @@ CREATE SCHEMA IF NOT EXISTS sage;
 	ddlNotificationChannels + ddlNotificationRules +
 	ddlNotificationLog + ddlActionQueue +
 	ddlActionLogApprovalCols + ddlUsersOAuth +
-	ddlQueryHintsRewrite + ddlQueryHintsRevalidate
+	ddlQueryHintsRewrite + ddlQueryHintsRevalidate +
+	ddlIncidents + ddlSizeHistory + ddlExplainResults +
+	ddlSchemaFindings + ddlCryptoMeta + ddlHealthHistory
 
 const ddlActionLog = `
 CREATE TABLE IF NOT EXISTS sage.action_log (
@@ -321,7 +336,11 @@ CREATE TABLE IF NOT EXISTS sage.findings (
     suppressed_until    timestamptz,
     resolved_at         timestamptz,
     acted_on_at         timestamptz,
-    action_log_id       bigint REFERENCES sage.action_log(id)
+    action_log_id       bigint REFERENCES sage.action_log(id),
+    -- v0.11 — absorbs sage.schema_findings. rule_id and impact_score are
+    -- populated only for findings with category = 'schema_lint:<rule>'.
+    rule_id             text,
+    impact_score        real
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_findings_dedup
     ON sage.findings (category, object_identifier)
@@ -362,6 +381,15 @@ CREATE TABLE IF NOT EXISTS sage.briefings (
     llm_used        boolean NOT NULL DEFAULT false,
     token_count     integer,
     delivery_status jsonb
+);
+`
+
+const ddlCryptoMeta = `
+CREATE TABLE IF NOT EXISTS sage.crypto_meta (
+    id          integer PRIMARY KEY DEFAULT 1,
+    kdf_salt    bytea NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT crypto_meta_singleton CHECK (id = 1)
 );
 `
 
@@ -488,4 +516,246 @@ ALTER TABLE sage.query_hints
 CREATE INDEX IF NOT EXISTS idx_query_hints_revalidate
     ON sage.query_hints (last_revalidated_at NULLS FIRST)
     WHERE status = 'active';
+`
+
+// v0.9.2 — Add last_detected_at to incidents for accurate outage duration.
+const ddlIncidentsLastDetected = `
+ALTER TABLE sage.incidents
+    ADD COLUMN IF NOT EXISTS last_detected_at TIMESTAMPTZ;
+UPDATE sage.incidents
+    SET last_detected_at = detected_at
+    WHERE last_detected_at IS NULL;
+`
+
+// v0.11 — absorb sage.schema_findings into sage.findings. Add optional
+// rule_id and impact_score columns; lint runner starts writing to
+// sage.findings with category = 'schema_lint:<rule_id>'. sage.schema_findings
+// remains in place as a read-only historical record until a later release.
+const ddlFindingsAbsorbsSchemaFindings = `
+ALTER TABLE sage.findings
+    ADD COLUMN IF NOT EXISTS rule_id      TEXT,
+    ADD COLUMN IF NOT EXISTS impact_score REAL;
+CREATE INDEX IF NOT EXISTS idx_findings_rule_id
+    ON sage.findings (rule_id)
+    WHERE rule_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_findings_schema_lint
+    ON sage.findings (category, severity, last_seen DESC)
+    WHERE category LIKE 'schema_lint:%' AND status = 'open';
+`
+
+// v0.11 — one-time backfill of sage.schema_findings rows into
+// sage.findings. Idempotent via NOT EXISTS on (category, object_identifier).
+// The source table is left intact so older clients / rollbacks still work;
+// it is scheduled for DROP in a later release once all writers are gone.
+const ddlFindingsBackfillFromSchemaFindings = `
+INSERT INTO sage.findings (
+    created_at, last_seen, occurrence_count,
+    category, severity, object_type, object_identifier,
+    title, detail, recommendation, recommended_sql,
+    status, resolved_at, rule_id, impact_score
+)
+SELECT
+    sf.first_seen,
+    sf.last_seen,
+    1,
+    'schema_lint:' || sf.rule_id,
+    sf.severity,
+    CASE WHEN sf.index_name  <> '' THEN 'index'
+         WHEN sf.column_name <> '' THEN 'column'
+         ELSE 'table' END,
+    sf.schema_name || '.' || sf.table_name
+        || CASE WHEN sf.column_name <> ''
+                THEN '/column=' || sf.column_name ELSE '' END
+        || CASE WHEN sf.index_name  <> ''
+                THEN '/index='  || sf.index_name  ELSE '' END,
+    sf.description,
+    jsonb_build_object(
+        'thematic_category', sf.category,
+        'schema_name',       sf.schema_name,
+        'table_name',        sf.table_name,
+        'column_name',       sf.column_name,
+        'index_name',        sf.index_name,
+        'impact',            sf.impact,
+        'table_size',        sf.table_size,
+        'query_count',       sf.query_count,
+        'database_name',     sf.database_name
+    ),
+    sf.suggestion,
+    sf.suggested_sql,
+    CASE WHEN sf.resolved_at IS NOT NULL THEN 'resolved'
+         WHEN sf.suppressed               THEN 'suppressed'
+         ELSE 'open' END,
+    sf.resolved_at,
+    sf.rule_id,
+    sf.impact_score
+FROM sage.schema_findings sf
+WHERE NOT EXISTS (
+    SELECT 1 FROM sage.findings f
+    WHERE f.category = 'schema_lint:' || sf.rule_id
+      AND f.object_identifier = sf.schema_name || '.' || sf.table_name
+          || CASE WHEN sf.column_name <> ''
+                  THEN '/column=' || sf.column_name ELSE '' END
+          || CASE WHEN sf.index_name  <> ''
+                  THEN '/index='  || sf.index_name  ELSE '' END
+);
+`
+
+// v0.10.1 — lint runner: add query_count column and partial unique index
+// for active findings (needed by the upsert in lint.Runner).
+const ddlSchemaFindingsLintRunner = `
+ALTER TABLE sage.schema_findings
+    ADD COLUMN IF NOT EXISTS query_count BIGINT;
+ALTER TABLE sage.schema_findings
+    ADD COLUMN IF NOT EXISTS impact TEXT NOT NULL DEFAULT '';
+ALTER TABLE sage.schema_findings
+    ALTER COLUMN column_name SET DEFAULT '',
+    ALTER COLUMN index_name SET DEFAULT '';
+UPDATE sage.schema_findings
+    SET column_name = '' WHERE column_name IS NULL;
+UPDATE sage.schema_findings
+    SET index_name = '' WHERE index_name IS NULL;
+ALTER TABLE sage.schema_findings
+    ALTER COLUMN column_name SET NOT NULL,
+    ALTER COLUMN index_name SET NOT NULL;
+DROP INDEX IF EXISTS sage.idx_schema_findings_active_key;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_schema_findings_active_key
+    ON sage.schema_findings (
+        rule_id, schema_name, table_name, column_name, index_name
+    )
+    WHERE resolved_at IS NULL;
+ALTER TABLE sage.schema_findings
+    DROP CONSTRAINT IF EXISTS schema_findings_category_check;
+ALTER TABLE sage.schema_findings
+    ADD CONSTRAINT schema_findings_category_check
+    CHECK (category IN (
+        'safety', 'performance', 'correctness', 'convention',
+        'indexing', 'data_integrity', 'schema_design', 'maintenance'
+    ));
+`
+
+// v0.9 — Root Cause Analysis incidents table.
+// v0.9.1 — expanded CHECK constraints for log-based RCA sources,
+// info severity, and Tier 2 action_risk values.
+const ddlIncidents = `
+CREATE TABLE IF NOT EXISTS sage.incidents (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    detected_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_detected_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    severity          TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
+    root_cause        TEXT NOT NULL,
+    causal_chain      JSONB NOT NULL DEFAULT '[]',
+    affected_objects  TEXT[] NOT NULL DEFAULT '{}',
+    signal_ids        TEXT[] NOT NULL DEFAULT '{}',
+    recommended_sql   TEXT,
+    rollback_sql      TEXT,
+    action_risk       TEXT CHECK (action_risk IN (
+        'safe', 'moderate', 'high_risk', 'low', 'medium', 'high'
+    ) OR action_risk IS NULL),
+    source            TEXT NOT NULL CHECK (source IN (
+        'deterministic', 'log_deterministic',
+        'self_action', 'manual_review_required', 'llm',
+        'schema_advisor', 'schema_lint', 'n_plus_one'
+    )),
+    confidence        NUMERIC(3,2) NOT NULL DEFAULT 1.0,
+    related_findings  UUID[],
+    resolved_at       TIMESTAMPTZ,
+    database_name     TEXT,
+    occurrence_count  INT NOT NULL DEFAULT 1,
+    escalated_at      TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_incidents_active ON sage.incidents (detected_at DESC) WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_incidents_severity ON sage.incidents (severity) WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_incidents_database ON sage.incidents (database_name, detected_at DESC);
+`
+
+// v0.9 — Storage growth forecasting history table.
+const ddlSizeHistory = `
+CREATE TABLE IF NOT EXISTS sage.size_history (
+    id              BIGSERIAL PRIMARY KEY,
+    collected_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    metric_type     TEXT NOT NULL CHECK (metric_type IN ('database', 'table', 'wal_slot')),
+    object_name     TEXT NOT NULL,
+    size_bytes      BIGINT NOT NULL,
+    dead_tuple_pct  NUMERIC(5,2),
+    database_name   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_size_history_lookup
+    ON sage.size_history (metric_type, object_name, collected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_size_history_recent
+    ON sage.size_history (collected_at DESC);
+`
+
+// v0.10 — Schema lint findings table.
+const ddlSchemaFindings = `
+CREATE TABLE IF NOT EXISTS sage.schema_findings (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    rule_id       TEXT NOT NULL,
+    schema_name   TEXT NOT NULL,
+    table_name    TEXT NOT NULL,
+    column_name   TEXT NOT NULL DEFAULT '',
+    index_name    TEXT NOT NULL DEFAULT '',
+    severity      TEXT NOT NULL CHECK (severity IN ('info', 'warning', 'critical')),
+    category      TEXT NOT NULL CHECK (category IN (
+        'safety', 'performance', 'correctness', 'convention',
+        'indexing', 'data_integrity', 'schema_design', 'maintenance'
+    )),
+    description   TEXT NOT NULL,
+    impact        TEXT NOT NULL DEFAULT '',
+    suggestion    TEXT,
+    suggested_sql TEXT,
+    table_size    BIGINT,
+    impact_score  REAL,
+    first_seen    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at   TIMESTAMPTZ,
+    suppressed    BOOLEAN NOT NULL DEFAULT false,
+    database_name TEXT,
+    query_count   BIGINT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_schema_findings_active_key
+    ON sage.schema_findings (
+        rule_id, schema_name, table_name, column_name, index_name
+    )
+    WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_schema_findings_severity
+    ON sage.schema_findings (severity) WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_schema_findings_table
+    ON sage.schema_findings (schema_name, table_name);
+`
+
+// v0.9 — Natural Language EXPLAIN cache (replaces the old explain_cache for this purpose).
+// The existing explain_cache stores auto_explain plan captures.
+// This new table caches LLM-generated explain results with TTL.
+const ddlExplainResults = `
+CREATE TABLE IF NOT EXISTS sage.explain_results (
+    query_hash      BIGINT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at      TIMESTAMPTZ NOT NULL,
+    plan_json       JSONB NOT NULL,
+    explanation     JSONB NOT NULL,
+    database_name   TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (query_hash, database_name)
+);
+`
+
+// v0.12 — Per-database fleet health time series. Written by the
+// fleet manager every time a health score is recomputed (or at a
+// periodic tick so charts stay populated even when health is flat).
+// Used by GET /api/v1/fleet/health.
+const ddlHealthHistory = `
+CREATE TABLE IF NOT EXISTS sage.health_history (
+    id            BIGSERIAL PRIMARY KEY,
+    recorded_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    database_name TEXT NOT NULL,
+    health_score  INTEGER NOT NULL,
+    findings_open INTEGER NOT NULL DEFAULT 0,
+    findings_critical INTEGER NOT NULL DEFAULT 0,
+    findings_warning INTEGER NOT NULL DEFAULT 0,
+    findings_info INTEGER NOT NULL DEFAULT 0,
+    actions_total INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_health_history_lookup
+    ON sage.health_history (database_name, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_health_history_recent
+    ON sage.health_history (recorded_at DESC);
 `

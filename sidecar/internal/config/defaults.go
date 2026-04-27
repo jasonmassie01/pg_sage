@@ -137,4 +137,35 @@ const (
 	DefaultForecasterCacheThreshold = 0.95
 	DefaultForecasterSeqWarnDays   = 90
 	DefaultForecasterSeqCritDays   = 30
+
+	// v0.9 — RCA defaults.
+	DefaultRCALLMCorrelationThreshold  = 3
+	DefaultRCADedupWindowMinutes       = 30
+	DefaultRCAEscalationCycles         = 5
+	DefaultRCAResolutionCycles         = 2
+	DefaultRCAConnectionSaturationPct  = 80
+	DefaultRCAReplicationLagThresholdS = 30
+	DefaultRCAWALSpikeMultiplier       = 2.0
+
+	// v0.9 — Lock chain defaults.
+	DefaultLockChainMinBlocked        = 3
+	DefaultLockChainCriticalBlocked   = 10
+	DefaultLockChainIdleInTxTerminate = 5
+	DefaultLockChainActiveQueryCancel = 15
+
+	// v0.9 — Forecaster new defaults.
+	DefaultForecasterMinDataPoints = 24
+	DefaultForecasterMinRSquared   = 0.5
+
+	// v0.9 — Explain defaults.
+	DefaultExplainTimeoutMs       = 10000
+	DefaultExplainCacheTTLMinutes = 60
+	DefaultExplainMaxTokens       = 4096
+
+	// v0.9.1 — LogWatch defaults.
+	DefaultLogWatchPollIntervalMs   = 1000
+	DefaultLogWatchDedupWindowS     = 60
+	DefaultLogWatchMaxLineLenBytes  = 65536
+	DefaultLogWatchTempFileMinBytes = 10485760 // 10MB
+	DefaultLogWatchMaxLinesPerCycle = 10000
 )

@@ -74,6 +74,12 @@ func wireRouter(p WireParams) WireResult {
 			OnCreate: func(rec store.DatabaseRecord) {
 				registerStoreDatabase(metaState, rec)
 			},
+			OnUpdate: func(oldRec, newRec store.DatabaseRecord) {
+				if p.FleetMgr != nil {
+					p.FleetMgr.RemoveInstance(oldRec.Name)
+				}
+				registerStoreDatabase(metaState, newRec)
+			},
 		}
 	} else if p.Pool != nil {
 		dbDeps = &api.DatabaseDeps{
@@ -88,6 +94,17 @@ func wireRouter(p WireParams) WireResult {
 			dbDeps = &api.DatabaseDeps{
 				Store: store.NewDatabaseStore(fleetPool, nil),
 				Fleet: p.FleetMgr,
+				OnUpdate: func(oldRec, newRec store.DatabaseRecord) {
+					password := ""
+					if inst := p.FleetMgr.GetInstance(oldRec.Name); inst != nil {
+						password = inst.Config.Password
+					}
+					dbCfg := storeRecordToDBConfig(newRec)
+					dbCfg.Password = password
+					p.FleetMgr.UpdateInstanceMetadata(
+						oldRec.Name, newRec.Name, dbCfg,
+						newRec.ID, newRec.TrustLevel)
+				},
 			}
 		}
 	}

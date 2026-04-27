@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -18,24 +19,46 @@ func forecastsHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		database := r.URL.Query().Get("database")
+		database, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
 		if database == "" {
 			database = "all"
 		}
-		displayName := mgr.ResolveDatabaseName(database)
-		pool := mgr.PoolForDatabase(database)
-		if pool == nil {
+		if rejectUnknownDatabase(w, mgr, database) {
+			return
+		}
+		displayName := responseDatabaseName(database)
+		pools := poolsForDatabaseSelection(mgr, database)
+		if len(pools) == 0 {
 			jsonResponse(w, map[string]any{
 				"database":  displayName,
 				"forecasts": []any{},
 			})
 			return
 		}
-		forecasts, err := queryForecasts(r.Context(), pool)
-		if err != nil {
-			slog.Error("query forecasts failed", "error", err)
-			jsonError(w, "failed to query forecasts", 500)
-			return
+		var forecasts []map[string]any
+		for _, selected := range pools {
+			dbForecasts, err := queryForecasts(
+				r.Context(), selected.pool)
+			if err != nil {
+				slog.Error("query forecasts failed",
+					"database", selected.name, "error", err)
+				jsonError(w, "failed to query forecasts", 500)
+				return
+			}
+			for _, forecast := range dbForecasts {
+				forecast["database_name"] = selected.name
+				forecasts = append(forecasts, forecast)
+			}
+		}
+		sort.SliceStable(forecasts, func(i, j int) bool {
+			return timeFromMap(forecasts[i], "last_seen").After(
+				timeFromMap(forecasts[j], "last_seen"))
+		})
+		if forecasts == nil {
+			forecasts = []map[string]any{}
 		}
 		jsonResponse(w, map[string]any{
 			"database":  displayName,
@@ -48,24 +71,52 @@ func queryHintsHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		database := r.URL.Query().Get("database")
+		database, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
+		status := r.URL.Query().Get("status")
+		if status != "" && status != "active" &&
+			status != "retired" && status != "broken" {
+			jsonError(w, "invalid status", http.StatusBadRequest)
+			return
+		}
 		if database == "" {
 			database = "all"
 		}
-		displayName := mgr.ResolveDatabaseName(database)
-		pool := mgr.PoolForDatabase(database)
-		if pool == nil {
+		if rejectUnknownDatabase(w, mgr, database) {
+			return
+		}
+		displayName := responseDatabaseName(database)
+		pools := poolsForDatabaseSelection(mgr, database)
+		if len(pools) == 0 {
 			jsonResponse(w, map[string]any{
 				"database": displayName,
 				"hints":    []any{},
 			})
 			return
 		}
-		hints, err := queryQueryHints(r.Context(), pool)
-		if err != nil {
-			slog.Error("query hints failed", "error", err)
-			jsonError(w, "failed to query hints", 500)
-			return
+		var hints []map[string]any
+		for _, selected := range pools {
+			dbHints, err := queryQueryHints(
+				r.Context(), selected.pool, status)
+			if err != nil {
+				slog.Error("query hints failed",
+					"database", selected.name, "error", err)
+				jsonError(w, "failed to query hints", 500)
+				return
+			}
+			for _, hint := range dbHints {
+				hint["database_name"] = selected.name
+				hints = append(hints, hint)
+			}
+		}
+		sort.SliceStable(hints, func(i, j int) bool {
+			return timeFromMap(hints[i], "created_at").After(
+				timeFromMap(hints[j], "created_at"))
+		})
+		if hints == nil {
+			hints = []map[string]any{}
 		}
 		jsonResponse(w, map[string]any{
 			"database": displayName,
@@ -78,24 +129,45 @@ func alertLogHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		database := r.URL.Query().Get("database")
+		database, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
 		if database == "" {
 			database = "all"
 		}
-		displayName := mgr.ResolveDatabaseName(database)
-		pool := mgr.PoolForDatabase(database)
-		if pool == nil {
+		if rejectUnknownDatabase(w, mgr, database) {
+			return
+		}
+		displayName := responseDatabaseName(database)
+		pools := poolsForDatabaseSelection(mgr, database)
+		if len(pools) == 0 {
 			jsonResponse(w, map[string]any{
 				"database": displayName,
 				"alerts":   []any{},
 			})
 			return
 		}
-		alerts, err := queryAlertLog(r.Context(), pool)
-		if err != nil {
-			slog.Error("query alert log failed", "error", err)
-			jsonError(w, "failed to query alerts", 500)
-			return
+		var alerts []map[string]any
+		for _, selected := range pools {
+			dbAlerts, err := queryAlertLog(r.Context(), selected.pool)
+			if err != nil {
+				slog.Error("query alert log failed",
+					"database", selected.name, "error", err)
+				jsonError(w, "failed to query alerts", 500)
+				return
+			}
+			for _, alert := range dbAlerts {
+				alert["database_name"] = selected.name
+				alerts = append(alerts, alert)
+			}
+		}
+		sort.SliceStable(alerts, func(i, j int) bool {
+			return timeFromMap(alerts[i], "sent_at").After(
+				timeFromMap(alerts[j], "sent_at"))
+		})
+		if alerts == nil {
+			alerts = []map[string]any{}
 		}
 		jsonResponse(w, map[string]any{
 			"database": displayName,
@@ -170,15 +242,21 @@ func scanForecastRows(rows pgx.Rows) ([]map[string]any, error) {
 const queryHintsSQL = `SELECT queryid, hint_text, symptom,
  status, created_at, before_cost, after_cost,
  COALESCE(suggested_rewrite, '') AS suggested_rewrite,
- COALESCE(rewrite_rationale, '') AS rewrite_rationale
- FROM sage.query_hints
- WHERE status = 'active'
- ORDER BY created_at DESC`
+ COALESCE(rewrite_rationale, '') AS rewrite_rationale,
+ verified_at, rolled_back_at
+ FROM sage.query_hints`
 
 func queryQueryHints(
-	ctx context.Context, pool *pgxpool.Pool,
+	ctx context.Context, pool *pgxpool.Pool, status ...string,
 ) ([]map[string]any, error) {
-	rows, err := pool.Query(ctx, queryHintsSQL)
+	query := queryHintsSQL
+	var args []any
+	if len(status) > 0 && status[0] != "" {
+		query += " WHERE status = $1"
+		args = append(args, status[0])
+	}
+	query += " ORDER BY created_at DESC LIMIT 200"
+	rows, err := pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query hints: %w", err)
 	}
@@ -199,11 +277,14 @@ func scanQueryHintRows(rows pgx.Rows) ([]map[string]any, error) {
 			afterCost        *float64
 			suggestedRewrite string
 			rewriteRationale string
+			verifiedAt       *time.Time
+			rolledBackAt     *time.Time
 		)
 		err := rows.Scan(
 			&queryID, &hintText, &symptom,
 			&status, &createdAt, &beforeCost, &afterCost,
 			&suggestedRewrite, &rewriteRationale,
+			&verifiedAt, &rolledBackAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan query hint: %w", err)
@@ -217,6 +298,12 @@ func scanQueryHintRows(rows pgx.Rows) ([]map[string]any, error) {
 			"before_cost": beforeCost,
 			"after_cost":  afterCost,
 		}
+		if verifiedAt != nil {
+			row["verified_at"] = verifiedAt
+		}
+		if rolledBackAt != nil {
+			row["rolled_back_at"] = rolledBackAt
+		}
 		if suggestedRewrite != "" {
 			row["suggested_rewrite"] = suggestedRewrite
 			row["rewrite_rationale"] = rewriteRationale
@@ -227,6 +314,19 @@ func scanQueryHintRows(rows pgx.Rows) ([]map[string]any, error) {
 		results = []map[string]any{}
 	}
 	return results, nil
+}
+
+func timeFromMap(row map[string]any, key string) time.Time {
+	v := row[key]
+	switch t := v.(type) {
+	case time.Time:
+		return t
+	case *time.Time:
+		if t != nil {
+			return *t
+		}
+	}
+	return time.Time{}
 }
 
 const alertLogSQL = `SELECT a.id, a.sent_at, a.severity,

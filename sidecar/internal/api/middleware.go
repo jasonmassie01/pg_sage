@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // corsMiddleware handles CORS for local dev mode only.
@@ -90,6 +92,43 @@ func securityHeadersMiddleware(
 			"Permissions-Policy",
 			"camera=(), microphone=(), geolocation=()")
 		next.ServeHTTP(w, r)
+	})
+}
+
+// defaultRequestTimeout is the per-request deadline applied by
+// timeoutMiddleware. It bounds downstream work (Postgres queries,
+// LLM calls) so a slow or stuck backend cannot pin a handler
+// goroutine indefinitely. The value is intentionally generous —
+// LLM-backed endpoints like /explain and the briefing flows can
+// take ~20s on slow providers. Individual handlers that need a
+// shorter deadline should apply their own context.WithTimeout.
+const defaultRequestTimeout = 30 * time.Second
+
+// timeoutMiddleware attaches a per-request context deadline. If
+// the handler has not returned by the deadline, the context is
+// cancelled, which propagates into pgx.Query / http.Client and
+// unwinds the handler. We do NOT return a synthetic 504 from the
+// middleware itself: doing so would race with the handler's own
+// WriteHeader. Instead, handlers observe ctx.Err() via their
+// database / HTTP calls and write an appropriate 500 via
+// internalError.
+func timeoutMiddleware(
+	next http.Handler,
+) http.Handler {
+	return http.HandlerFunc(func(
+		w http.ResponseWriter, r *http.Request,
+	) {
+		// Long-lived endpoints must opt out of the request
+		// deadline — cancelling a 30s-bound context on a stream
+		// kills the SSE connection every half-minute.
+		if r.URL.Path == "/api/v1/events" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ctx, cancel := context.WithTimeout(
+			r.Context(), defaultRequestTimeout)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

@@ -34,9 +34,18 @@ type Client struct {
 }
 
 type ChatRequest struct {
-	Model     string        `json:"model"`
-	Messages  []ChatMessage `json:"messages"`
-	MaxTokens int           `json:"max_tokens,omitempty"`
+	Model          string          `json:"model"`
+	Messages       []ChatMessage   `json:"messages"`
+	MaxTokens      int             `json:"max_tokens,omitempty"`
+	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
+}
+
+// ResponseFormat is the OpenAI-style structured-output hint. Only
+// the "json_object" type is used by pg_sage; providers that don't
+// support it typically ignore unknown fields. We keep it omitempty
+// so requests without JSON mode are byte-identical to the old shape.
+type ResponseFormat struct {
+	Type string `json:"type"`
 }
 
 type ChatMessage struct {
@@ -126,6 +135,9 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 			{Role: "user", Content: user},
 		},
 		MaxTokens: maxTokens,
+	}
+	if c.cfg.JSONMode {
+		req.ResponseFormat = &ResponseFormat{Type: "json_object"}
 	}
 
 	body, err := json.Marshal(req)
@@ -286,6 +298,7 @@ func NewOptimizerClient(
 		TimeoutSeconds:   timeout,
 		TokenBudgetDaily: budget,
 		CooldownSeconds:  cooldown,
+		JSONMode:         parent.JSONMode,
 	}
 	return New(merged, logFn)
 }

@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strconv"
 
 	"github.com/pg-sage/sidecar/internal/store"
@@ -119,9 +121,19 @@ func importOneRow(
 	}
 	_, err = ds.Create(ctx, input, createdBy)
 	if err != nil {
+		msg := err.Error()
+		if !errors.Is(err, store.ErrValidation) {
+			// Internal failure (DB / encryption / marshal).
+			// Log the real error and return a generic row-level
+			// message so we don't leak PG or crypto internals via
+			// the import response.
+			slog.Error("csv import row create failed",
+				"row", row, "err", err)
+			msg = "internal error creating row"
+		}
 		return &csvImportError{
 			Row:   row,
-			Error: err.Error(),
+			Error: msg,
 		}
 	}
 	*count++

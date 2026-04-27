@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +23,8 @@ import (
 const phase2DSN = "postgres://postgres:postgres@localhost:5432/" +
 	"postgres?sslmode=disable"
 
+const destructiveTestLockKey = "pg_sage_test_cross_pkg"
+
 // phase2Pool connects to local Postgres and bootstraps the sage schema.
 // Skips the test if the database is unavailable.
 func phase2Pool(t *testing.T) *pgxpool.Pool {
@@ -37,14 +41,86 @@ func phase2Pool(t *testing.T) *pgxpool.Pool {
 		t.Skipf("DB ping failed: %v", err)
 	}
 
+	t.Cleanup(func() { pool.Close() })
+	serializeAcrossPackages(t, context.Background(), pool)
 	if err := schema.Bootstrap(ctx, pool); err != nil {
-		pool.Close()
 		t.Skipf("schema bootstrap failed: %v", err)
 	}
 	schema.ReleaseAdvisoryLock(ctx, pool)
+	releasePoolAdvisoryLocks(ctx, pool)
 
-	t.Cleanup(func() { pool.Close() })
+	// Re-check while holding the cross-package lock.
+	ensurePhase2SageSchema(t, pool)
+
 	return pool
+}
+
+var phase2SageMu sync.Mutex
+
+func serializeAcrossPackages(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+) {
+	t.Helper()
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire conn for cross-pkg lock: %v", err)
+	}
+	_, err = conn.Exec(ctx,
+		"SELECT pg_advisory_lock(hashtext($1))",
+		destructiveTestLockKey)
+	if err != nil {
+		conn.Release()
+		t.Fatalf("acquire cross-package test lock: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = conn.Exec(context.Background(),
+			"SELECT pg_advisory_unlock(hashtext($1))",
+			destructiveTestLockKey)
+		conn.Release()
+	})
+}
+
+// ensurePhase2SageSchema re-bootstraps the sage schema if it was
+// dropped by concurrent schema package tests during go test ./...
+func ensurePhase2SageSchema(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	phase2SageMu.Lock()
+	defer phase2SageMu.Unlock()
+	ctx := context.Background()
+	var n int
+	err := pool.QueryRow(ctx,
+		`SELECT 1 FROM information_schema.tables
+		 WHERE table_schema = 'sage'
+		   AND table_name = 'findings'`).Scan(&n)
+	if err == nil {
+		return
+	}
+	if err := schema.Bootstrap(ctx, pool); err != nil {
+		t.Skipf("re-bootstrap sage failed: %v", err)
+	}
+	if err := schema.MigrateConfigSchema(ctx, pool); err != nil {
+		t.Skipf("re-migrate sage config: %v", err)
+	}
+	schema.ReleaseAdvisoryLock(ctx, pool)
+	releasePoolAdvisoryLocks(ctx, pool)
+}
+
+func releasePoolAdvisoryLocks(ctx context.Context, pool *pgxpool.Pool) {
+	total := int(pool.Stat().TotalConns())
+	conns := make([]*pgxpool.Conn, 0, total)
+	for i := 0; i < total; i++ {
+		qctx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+		conn, err := pool.Acquire(qctx)
+		cancel()
+		if err != nil {
+			break
+		}
+		conns = append(conns, conn)
+	}
+	for _, conn := range conns {
+		_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock_all()")
+		conn.Release()
+	}
 }
 
 func phase2Config() *config.Config {
@@ -70,10 +146,10 @@ func phase2Config() *config.Config {
 			IdleInTxTimeoutMinutes:       5,
 		},
 		Safety: config.SafetyConfig{
-			CPUCeilingPct:          90,
+			CPUCeilingPct:           90,
 			BackoffConsecutiveSkips: 5,
-			QueryTimeoutMs:         500,
-			DDLTimeoutSeconds:      30,
+			QueryTimeoutMs:          500,
+			DDLTimeoutSeconds:       30,
 		},
 	}
 }
@@ -84,15 +160,30 @@ func phase2CleanFindings(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
 	// Clean alert_log rows that reference our test findings.
-	_, _ = pool.Exec(ctx,
+	_, err := pool.Exec(ctx,
 		`DELETE FROM sage.alert_log
 		 WHERE finding_id IN (
 		   SELECT id FROM sage.findings
 		   WHERE category LIKE 'test_phase2_%'
 		 )`)
-	_, err := pool.Exec(ctx,
+	if err != nil && strings.Contains(err.Error(), "does not exist") {
+		ensurePhase2SageSchema(t, pool)
+		_, _ = pool.Exec(ctx,
+			`DELETE FROM sage.alert_log
+			 WHERE finding_id IN (
+			   SELECT id FROM sage.findings
+			   WHERE category LIKE 'test_phase2_%'
+			 )`)
+	}
+	_, err = pool.Exec(ctx,
 		`DELETE FROM sage.findings
 		 WHERE category LIKE 'test_phase2_%'`)
+	if err != nil && strings.Contains(err.Error(), "does not exist") {
+		ensurePhase2SageSchema(t, pool)
+		_, err = pool.Exec(ctx,
+			`DELETE FROM sage.findings
+			 WHERE category LIKE 'test_phase2_%'`)
+	}
 	if err != nil {
 		t.Fatalf("cleanup findings: %v", err)
 	}
@@ -106,6 +197,13 @@ func phase2CleanSnapshots(t *testing.T, pool *pgxpool.Pool) {
 		`DELETE FROM sage.snapshots
 		 WHERE category = 'queries'
 		   AND data::text LIKE '%phase2_test%'`)
+	if err != nil && strings.Contains(err.Error(), "does not exist") {
+		ensurePhase2SageSchema(t, pool)
+		_, err = pool.Exec(ctx,
+			`DELETE FROM sage.snapshots
+			 WHERE category = 'queries'
+			   AND data::text LIKE '%phase2_test%'`)
+	}
 	if err != nil {
 		t.Fatalf("cleanup snapshots: %v", err)
 	}
@@ -118,6 +216,12 @@ func phase2CleanExplainCache(t *testing.T, pool *pgxpool.Pool) {
 	_, err := pool.Exec(ctx,
 		`DELETE FROM sage.explain_cache
 		 WHERE query_text LIKE '%phase2_test%'`)
+	if err != nil && strings.Contains(err.Error(), "does not exist") {
+		ensurePhase2SageSchema(t, pool)
+		_, err = pool.Exec(ctx,
+			`DELETE FROM sage.explain_cache
+			 WHERE query_text LIKE '%phase2_test%'`)
+	}
 	if err != nil {
 		t.Fatalf("cleanup explain_cache: %v", err)
 	}
@@ -130,6 +234,12 @@ func phase2CleanActionLog(t *testing.T, pool *pgxpool.Pool) {
 	_, err := pool.Exec(ctx,
 		`DELETE FROM sage.action_log
 		 WHERE sql_executed LIKE '%phase2_test%'`)
+	if err != nil && strings.Contains(err.Error(), "does not exist") {
+		ensurePhase2SageSchema(t, pool)
+		_, err = pool.Exec(ctx,
+			`DELETE FROM sage.action_log
+			 WHERE sql_executed LIKE '%phase2_test%'`)
+	}
 	if err != nil {
 		t.Fatalf("cleanup action_log: %v", err)
 	}
@@ -295,6 +405,115 @@ func TestPhase2_UpsertFindings_NilDetail(t *testing.T) {
 	_, _ = pool.Exec(ctx,
 		`DELETE FROM sage.findings
 		 WHERE category = 'test_phase2_nildetail'`)
+}
+
+func TestPhase2_UpsertFindings_DoesNotReopenRecentlyResolvedAction(t *testing.T) {
+	pool := phase2Pool(t)
+	phase2CleanFindings(t, pool)
+	ctx := context.Background()
+	category := "test_phase2_recent_action"
+	objectID := "public.child(parent_id)"
+	_, _ = pool.Exec(ctx,
+		`DELETE FROM sage.findings WHERE category = $1`, category)
+	_, _ = pool.Exec(ctx,
+		`DELETE FROM sage.action_log
+		  WHERE sql_executed LIKE '%phase2_recent_action%'`)
+
+	var actionLogID int64
+	err := pool.QueryRow(ctx,
+		`INSERT INTO sage.action_log
+		    (action_type, finding_id, sql_executed, outcome)
+		 VALUES ('create_index', 0, 'phase2_recent_action', 'success')
+		 RETURNING id`,
+	).Scan(&actionLogID)
+	if err != nil {
+		t.Fatalf("insert action log: %v", err)
+	}
+
+	_, err = pool.Exec(ctx,
+		`INSERT INTO sage.findings
+		    (category, severity, object_type, object_identifier, title,
+		     detail, recommendation, recommended_sql, rollback_sql, status,
+		     resolved_at, action_log_id)
+		 VALUES ($1, 'warning', 'table', $2, 'recently resolved',
+		     '{}'::jsonb, '', '', '', 'resolved', now(), $3)`,
+		category, objectID, actionLogID,
+	)
+	if err != nil {
+		t.Fatalf("insert resolved finding: %v", err)
+	}
+
+	err = UpsertFindings(ctx, pool, []Finding{{
+		Category:         category,
+		Severity:         "warning",
+		ObjectType:       "table",
+		ObjectIdentifier: objectID,
+		Title:            "stale cycle should not reopen",
+		Detail:           map[string]any{"constraint": "fk_child"},
+		Recommendation:   "Create index",
+		RecommendedSQL:   "CREATE INDEX CONCURRENTLY ON public.child (parent_id);",
+	}})
+	if err != nil {
+		t.Fatalf("upsert stale finding: %v", err)
+	}
+
+	var openCount int
+	err = pool.QueryRow(ctx,
+		`SELECT count(*) FROM sage.findings
+		  WHERE category = $1 AND object_identifier = $2
+		    AND status = 'open'`,
+		category, objectID,
+	).Scan(&openCount)
+	if err != nil {
+		t.Fatalf("query open count: %v", err)
+	}
+	if openCount != 0 {
+		t.Fatalf("recent action-resolved finding reopened; open count=%d",
+			openCount)
+	}
+
+	_, err = pool.Exec(ctx,
+		`UPDATE sage.findings
+		    SET resolved_at = now() - interval '10 minutes'
+		  WHERE category = $1 AND object_identifier = $2`,
+		category, objectID,
+	)
+	if err != nil {
+		t.Fatalf("age resolved finding: %v", err)
+	}
+	err = UpsertFindings(ctx, pool, []Finding{{
+		Category:         category,
+		Severity:         "warning",
+		ObjectType:       "table",
+		ObjectIdentifier: objectID,
+		Title:            "old unresolved issue can reopen",
+		Detail:           map[string]any{"constraint": "fk_child"},
+		Recommendation:   "Create index",
+		RecommendedSQL:   "CREATE INDEX CONCURRENTLY ON public.child (parent_id);",
+	}})
+	if err != nil {
+		t.Fatalf("upsert after grace window: %v", err)
+	}
+	err = pool.QueryRow(ctx,
+		`SELECT count(*) FROM sage.findings
+		  WHERE category = $1 AND object_identifier = $2
+		    AND status = 'open'`,
+		category, objectID,
+	).Scan(&openCount)
+	if err != nil {
+		t.Fatalf("query reopened count: %v", err)
+	}
+	if openCount != 1 {
+		t.Fatalf("old resolved finding should reopen after grace; open count=%d",
+			openCount)
+	}
+
+	_, _ = pool.Exec(ctx,
+		`DELETE FROM sage.findings WHERE category = $1`, category)
+	_, _ = pool.Exec(ctx,
+		`DELETE FROM sage.action_log
+		  WHERE id = $1 OR sql_executed LIKE '%phase2_recent_action%'`,
+		actionLogID)
 }
 
 // ---------------------------------------------------------------------------
@@ -956,7 +1175,7 @@ func phase2Collector() *collector.Collector {
 			MaxQueries:      100,
 		},
 		Safety: config.SafetyConfig{
-			CPUCeilingPct:          90,
+			CPUCeilingPct:           90,
 			BackoffConsecutiveSkips: 5,
 		},
 	}

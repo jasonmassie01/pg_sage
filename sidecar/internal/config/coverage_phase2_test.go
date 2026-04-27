@@ -984,6 +984,10 @@ func TestPhase2_ApplyHotReload_NoChanges(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPhase2_LoadYAML_EnvExpansion(t *testing.T) {
+	// Clear the live-env override so the YAML-expanded value survives.
+	// Load() reads SAGE_LLM_API_KEY at config.go:917 and clobbers whatever
+	// came from the YAML, so this test must isolate from the ambient env.
+	t.Setenv("SAGE_LLM_API_KEY", "")
 	t.Setenv("SAGE_TEST_LLM_KEY", "test-api-key")
 	tmp := t.TempDir()
 	yamlContent := `mode: extension

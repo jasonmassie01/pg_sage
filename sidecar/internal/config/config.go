@@ -6,13 +6,45 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
+// hotReloadMu serializes hot-reload writes and any reads that need a
+// self-consistent view of multiple fields. Kept at package scope (not
+// as a Config method or field) so Config remains copy-safe for watcher
+// snapshots and executor per-cycle overrides — adding Lock/Unlock
+// methods would make Config look like sync.Locker and trigger
+// "assignment copies lock value" from go vet.
+var hotReloadMu sync.RWMutex
+
+// LockForHotReload acquires the package-level config write lock. Call
+// from any code path that mutates a live Config struct concurrently
+// with background readers.
+func LockForHotReload() { hotReloadMu.Lock() }
+
+// UnlockForHotReload releases the package-level config write lock.
+func UnlockForHotReload() { hotReloadMu.Unlock() }
+
+// RLockForHotReload acquires the package-level config read lock.
+func RLockForHotReload() { hotReloadMu.RLock() }
+
+// RUnlockForHotReload releases the package-level config read lock.
+func RUnlockForHotReload() { hotReloadMu.RUnlock() }
+
 // Config is the top-level configuration for pg_sage standalone sidecar.
+//
+// Hot-reload mutations (from the /api/v1/config API) must be serialized
+// against other mutations and against background-loop reads. Mutations
+// call cfg.Lock()/cfg.Unlock(); readers that require a self-consistent
+// view of multi-field state should use cfg.RLock()/cfg.RUnlock().
+// Single-field reads of naturally-aligned scalars may skip locking on
+// most architectures but will still trip the race detector — new code
+// should prefer the explicit lock.
 type Config struct {
+
 	Mode string `yaml:"mode" doc:"Operating mode: extension, standalone, or fleet. Standalone connects to one PostgreSQL target; fleet manages many databases from one sidecar."`
 
 	Postgres   PostgresConfig   `yaml:"postgres"`
@@ -27,6 +59,12 @@ type Config struct {
 	AutoExplain AutoExplainConfig `yaml:"auto_explain"`
 	Forecaster  ForecasterConfig `yaml:"forecaster"`
 	Tuner       TunerConfig      `yaml:"tuner"`
+	RCA      RCAConfig      `yaml:"rca"`
+	Runaway  RunawayConfig  `yaml:"runaway"`
+	Explain  ExplainConfig  `yaml:"explain"`
+	LogWatch    LogWatchConfig    `yaml:"logwatch"`
+	SchemaLint  SchemaLintConfig  `yaml:"schema_lint"`
+	Migration   MigrationConfig   `yaml:"migration"`
 	Retention   RetentionConfig  `yaml:"retention"`
 	Prometheus PrometheusConfig `yaml:"prometheus"`
 	OAuth      OAuthConfig      `yaml:"oauth"`
@@ -90,6 +128,12 @@ type AnalyzerConfig struct {
 	// Threshold: how many hint applications in a 24h window on a single
 	// role/query_hash before promoting to a role-level work_mem finding.
 	WorkMemPromotionThreshold int `yaml:"work_mem_promotion_threshold" doc:"How many active work_mem hints a single role must accumulate before the analyzer recommends promoting work_mem at the role level via ALTER ROLE. Set 0 to disable the advisor."`
+
+	// v0.9.2 — Slow active replication slot threshold (bytes).
+	SlowSlotRetainedBytes int64 `yaml:"slow_slot_retained_bytes" doc:"Active slots retaining more WAL than this (bytes) are flagged as slow consumers. Default 1 GB. Slow consumers hold xmin, blocking vacuum."`
+
+	// v0.9 — Lock chain detection.
+	LockChain LockChainConfig `yaml:"lock_chain"`
 }
 
 type SafetyConfig struct {
@@ -124,6 +168,7 @@ type LLMConfig struct {
 	TokenBudgetDaily    int                `yaml:"token_budget_daily" doc:"Soft daily cap on total tokens (input + output) the sidecar will spend on LLM requests. Once exceeded the LLM is skipped until the next UTC day."`
 	ContextBudgetTokens int                `yaml:"context_budget_tokens" doc:"Maximum tokens attached as context (schema, stats, plans) to a single LLM request. Prevents oversized prompts from busting the model context window."`
 	CooldownSeconds     int                `yaml:"cooldown_seconds" doc:"Minimum seconds between two LLM requests. Rate-limits the sidecar so it cannot burst the provider during a busy cycle."`
+	JSONMode            bool               `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."`
 	IndexOptimizer      IndexOptimizerConfig `yaml:"index_optimizer"` // Deprecated: use Optimizer.
 	Optimizer    OptimizerConfig    `yaml:"optimizer"`
 	OptimizerLLM OptimizerLLMConfig `yaml:"optimizer_llm"`
@@ -224,6 +269,93 @@ type ForecasterConfig struct {
 	CacheWarnThreshold   float64 `yaml:"cache_warn_threshold"`
 	SequenceWarnDays     int     `yaml:"sequence_warn_days"`
 	SequenceCriticalDays int     `yaml:"sequence_critical_days"`
+
+	// v0.9 fields
+	MinDataPoints     int     `yaml:"min_data_points" doc:"Minimum data points required before generating a forecast. Default: 24."`
+	AlertHorizons     []int   `yaml:"alert_horizons" doc:"Days-until-full thresholds that generate findings. Default: [30, 7, 3]."`
+	DiskCapacityBytes int64   `yaml:"disk_capacity_bytes" doc:"Total disk capacity in bytes. 0 = auto-detect. Set explicitly for managed services (RDS, Cloud SQL)."`
+	MinRSquared       float64 `yaml:"min_r_squared" doc:"Minimum R-squared for forecast reliability. Below this, findings are info-only. Default: 0.5."`
+}
+
+// RCAConfig controls the root cause analysis engine (v0.9).
+type RCAConfig struct {
+	Enabled                  bool    `yaml:"enabled" doc:"Enable the root cause analysis engine. Correlates multiple signals into unified incident narratives."`
+	LLMCorrelationThreshold  int     `yaml:"llm_correlation_threshold" doc:"Minimum concurrent signals to trigger LLM-based correlation (Tier 2). Default: 3."`
+	DedupWindowMinutes       int     `yaml:"dedup_window_minutes" doc:"Time window for deduplicating incidents with the same signals and root object. Default: 30."`
+	EscalationCycles         int     `yaml:"escalation_cycles" doc:"Consecutive analyzer cycles an incident stays open before escalating warning to critical. Default: 5."`
+	ResolutionCycles         int     `yaml:"resolution_cycles" doc:"Consecutive clear cycles before an incident auto-resolves. Default: 2."`
+	ConnectionSaturationPct  int     `yaml:"connection_saturation_pct" doc:"Percentage of max_connections that triggers the connections_high signal. Default: 80."`
+	ReplicationLagThresholdS int     `yaml:"replication_lag_threshold_seconds" doc:"Seconds of replay lag before the replication_lag_increasing signal fires. Default: 30."`
+	WALSpikeMultiplier       float64 `yaml:"wal_spike_multiplier" doc:"WAL bytes delta must exceed previous delta by this multiplier to trigger wal_growth_spike. Default: 2.0."`
+}
+
+// LockChainConfig controls lock chain detection (v0.9).
+type LockChainConfig struct {
+	Enabled                  bool     `yaml:"enabled" doc:"Enable lock chain detection using pg_blocking_pids(). Detects cascading lock waits."`
+	MinBlockedThreshold      int      `yaml:"min_blocked_threshold" doc:"Minimum blocked sessions before a lock chain generates a finding. Default: 3."`
+	CriticalBlockedThreshold int      `yaml:"critical_blocked_threshold" doc:"Blocked session count that escalates finding to critical severity. Default: 10."`
+	IdleInTxTerminateMinutes int      `yaml:"idle_in_tx_terminate_minutes" doc:"Minutes an idle-in-transaction root blocker must wait before pg_terminate_backend is recommended. Default: 5."`
+	ActiveQueryCancelMinutes int      `yaml:"active_query_cancel_minutes" doc:"Minutes an active query root blocker must run before pg_cancel_backend is recommended. Default: 15."`
+	SafePatterns             []string `yaml:"safe_patterns" doc:"Application name substrings that protect a process from automated termination/cancellation."`
+}
+
+// LogWatchConfig controls PostgreSQL log file monitoring (v0.9.1).
+type LogWatchConfig struct {
+	Enabled             bool     `yaml:"enabled" doc:"Enable log file monitoring for RCA. Requires log_destination includes jsonlog or csvlog. Requires rca.enabled=true."`
+	LogDirectory        string   `yaml:"log_directory" doc:"Path to PG log directory. Auto-detected from pg_settings if blank."`
+	Format              string   `yaml:"format" doc:"Log format: jsonlog (PG15+) or csvlog. Auto-detected if blank."`
+	PollIntervalMs      int      `yaml:"poll_interval_ms" doc:"Fallback poll interval when fsnotify is unavailable. Default: 1000."`
+	DedupWindowS        int      `yaml:"dedup_window_seconds" doc:"Suppress duplicate log signals within this window. Default: 60."`
+	MaxLineLenBytes     int      `yaml:"max_line_len_bytes" doc:"Discard log lines longer than this. Default: 65536."`
+	TempFileMinBytes    int      `yaml:"temp_file_min_bytes" doc:"Minimum temp file size to trigger log_temp_file_created. Default: 10485760."`
+	MaxLinesPerCycle    int      `yaml:"max_lines_per_cycle" doc:"Stop parsing after this many lines per drain cycle. Default: 10000."`
+	ExcludeApplications []string `yaml:"exclude_applications" doc:"Application names excluded from timeout/deadlock signals. Default: pg_sage."`
+	SlowQueryEnabled    bool     `yaml:"slow_query_enabled" doc:"Opt-in: parse log_min_duration_statement output as log_slow_query signals. Default: false."`
+}
+
+// RunawayPolicy defines when a query is considered runaway (v0.9).
+type RunawayPolicy struct {
+	Name               string `yaml:"name"`
+	MaxDurationMinutes int    `yaml:"max_duration_minutes"`
+	MaxBlockedSessions int    `yaml:"max_blocked_sessions"`
+	WarnCycles         int    `yaml:"warn_cycles"`
+	CancelCycles       int    `yaml:"cancel_cycles"`
+}
+
+// RunawayConfig controls runaway query termination (v0.9).
+type RunawayConfig struct {
+	Enabled      bool            `yaml:"enabled" doc:"Enable policy-based runaway query detection and escalation (warn -> cancel -> terminate)."`
+	Policies     []RunawayPolicy `yaml:"policies" doc:"List of runaway query policies. A query matching any policy enters the escalation state machine."`
+	SafePatterns []string        `yaml:"safe_patterns" doc:"Application name substrings protected from runaway termination. Merged with lock_chain.safe_patterns at startup."`
+}
+
+// ExplainConfig controls the natural language EXPLAIN feature (v0.9).
+type ExplainConfig struct {
+	Enabled         bool `yaml:"enabled" doc:"Enable the LLM-powered natural language EXPLAIN API endpoint."`
+	TimeoutMs       int  `yaml:"timeout_ms" doc:"statement_timeout for EXPLAIN ANALYZE execution. Default: 10000."`
+	CacheTTLMinutes int  `yaml:"cache_ttl_minutes" doc:"TTL for cached explain results. Default: 60."`
+	MaxTokens       int  `yaml:"max_tokens" doc:"Maximum LLM output tokens for explain responses. Default: 4096."`
+}
+
+// SchemaLintConfig controls schema anti-pattern detection (v0.10).
+type SchemaLintConfig struct {
+	Enabled             bool     `yaml:"enabled" doc:"Enable periodic schema anti-pattern scanning."`
+	ScanIntervalMinutes int      `yaml:"scan_interval_minutes" doc:"How often to run the full schema lint scan. Default: 60."`
+	IncludeSchemas      []string `yaml:"include_schemas" doc:"Schemas to scan. Empty means all non-system schemas."`
+	ExcludeSchemas      []string `yaml:"exclude_schemas" doc:"Schemas to exclude. Default: pg_catalog, information_schema."`
+	DisabledRules       []string `yaml:"disabled_rules" doc:"Rule IDs to skip (e.g. lint_serial_usage)."`
+	MinTableRows        int      `yaml:"min_table_rows" doc:"Ignore findings on tables below this row count. Default: 1000."`
+}
+
+// MigrationConfig controls the DDL safety advisor (v0.10).
+type MigrationConfig struct {
+	Enabled             bool   `yaml:"enabled" doc:"Enable DDL safety advisory."`
+	Mode                string `yaml:"mode" doc:"Operating mode: advisory (default). Active mode deferred to future release."`
+	ManagedService      string `yaml:"managed_service" doc:"Cloud provider: none, rds, aurora, cloudsql, alloydb. Filters unavailable recommendations."`
+	LogDetection        bool   `yaml:"log_detection" doc:"Parse DDL from PG logs (requires log_statement=ddl)."`
+	ActivityPolling     bool   `yaml:"activity_polling" doc:"Scan pg_stat_activity for active DDL."`
+	PollIntervalSeconds int    `yaml:"poll_interval_seconds" doc:"How often to poll during active DDL. Default: 5."`
+	DDLRowThreshold     int    `yaml:"ddl_row_threshold" doc:"Row count below which DDL is considered low-risk. Default: 10000."`
 }
 
 type TunerConfig struct {
@@ -537,6 +669,14 @@ func newDefaults() *Config {
 			RegressionLookbackDays:       DefaultRegressionLookbackDays,
 			CheckpointFreqWarningPerHour: DefaultCheckpointFreqWarningPerHour,
 			WorkMemPromotionThreshold:    DefaultAnalyzerWorkMemPromotionThreshold,
+			LockChain: LockChainConfig{
+				Enabled:                  true,
+				MinBlockedThreshold:      DefaultLockChainMinBlocked,
+				CriticalBlockedThreshold: DefaultLockChainCriticalBlocked,
+				IdleInTxTerminateMinutes: DefaultLockChainIdleInTxTerminate,
+				ActiveQueryCancelMinutes: DefaultLockChainActiveQueryCancel,
+				SafePatterns:             []string{"pg_sage", "replication", "patroni"},
+			},
 		},
 		Safety: SafetyConfig{
 			CPUCeilingPct:            DefaultCPUCeilingPct,
@@ -629,6 +769,10 @@ func newDefaults() *Config {
 			CacheWarnThreshold:   DefaultForecasterCacheThreshold,
 			SequenceWarnDays:     DefaultForecasterSeqWarnDays,
 			SequenceCriticalDays: DefaultForecasterSeqCritDays,
+			MinDataPoints:     DefaultForecasterMinDataPoints,
+			AlertHorizons:     []int{30, 7, 3},
+			DiskCapacityBytes: 0,
+			MinRSquared:       DefaultForecasterMinRSquared,
 		},
 		Tuner: TunerConfig{
 			Enabled:                true,
@@ -655,6 +799,30 @@ func newDefaults() *Config {
 			AnalyzeMaintenanceThresholdMB: DefaultTunerAnalyzeMaintenanceThresholdMB,
 			AnalyzeTimeoutMs:              DefaultTunerAnalyzeTimeoutMs,
 			MaxConcurrentAnalyze:          DefaultTunerMaxConcurrentAnalyze,
+		},
+		RCA: RCAConfig{
+			Enabled:                  true,
+			LLMCorrelationThreshold:  DefaultRCALLMCorrelationThreshold,
+			DedupWindowMinutes:       DefaultRCADedupWindowMinutes,
+			EscalationCycles:         DefaultRCAEscalationCycles,
+			ResolutionCycles:         DefaultRCAResolutionCycles,
+			ConnectionSaturationPct:  DefaultRCAConnectionSaturationPct,
+			ReplicationLagThresholdS: DefaultRCAReplicationLagThresholdS,
+			WALSpikeMultiplier:       DefaultRCAWALSpikeMultiplier,
+		},
+		Runaway: RunawayConfig{
+			Enabled: false,
+			Policies: []RunawayPolicy{
+				{Name: "long_running", MaxDurationMinutes: 30, WarnCycles: 2, CancelCycles: 4},
+				{Name: "blocker", MaxBlockedSessions: 5, WarnCycles: 1, CancelCycles: 2},
+			},
+			SafePatterns: []string{"pg_dump", "pg_basebackup"},
+		},
+		Explain: ExplainConfig{
+			Enabled:         true,
+			TimeoutMs:       DefaultExplainTimeoutMs,
+			CacheTTLMinutes: DefaultExplainCacheTTLMinutes,
+			MaxTokens:       DefaultExplainMaxTokens,
 		},
 		Retention: RetentionConfig{
 			SnapshotsDays: DefaultRetentionSnapshotsDays,

@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -29,10 +31,37 @@ func findingsListHandler(
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		database := q.Get("database")
+		if err := validateDatabaseParam(database); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if database == "" {
 			database = "all"
 		}
+		if rejectUnknownDatabase(w, mgr, database) {
+			return
+		}
 		filters := parseFindingFilters(q)
+		if database == "all" && mgr.InstanceCount() > 1 {
+			findings, total, err := queryFindingsAcrossFleet(
+				r.Context(), mgr, filters,
+			)
+			if err != nil {
+				slog.Error("query fleet findings failed",
+					"error", err)
+				jsonError(w, "failed to query findings", 500)
+				return
+			}
+			jsonResponse(w, map[string]any{
+				"database": "all",
+				"filters":  filters,
+				"total":    total,
+				"offset":   filters.Offset,
+				"limit":    filters.Limit,
+				"findings": findings,
+			})
+			return
+		}
 		pool := mgr.PoolForDatabase(database)
 		displayName := mgr.ResolveDatabaseName(database)
 		if pool == nil {
@@ -60,6 +89,160 @@ func findingsListHandler(
 	}
 }
 
+// findingsStatsHandler returns per-(severity,category) counts of
+// findings matching the supplied filters. Used by the schema-health
+// UI summary card. Accepts the same filters as findingsListHandler
+// (status, severity, source, thematic_category, database).
+func findingsStatsHandler(
+	mgr *fleet.DatabaseManager,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		database := q.Get("database")
+		if err := validateDatabaseParam(database); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if database == "" {
+			database = "all"
+		}
+		if rejectUnknownDatabase(w, mgr, database) {
+			return
+		}
+		filters := parseFindingFilters(q)
+		if database == "all" && mgr.InstanceCount() > 1 {
+			stats, total, err := queryFindingsStatsAcrossFleet(
+				r.Context(), mgr, filters,
+			)
+			if err != nil {
+				slog.Error("query fleet findings stats failed",
+					"error", err)
+				jsonError(w, "failed to query findings stats", 500)
+				return
+			}
+			jsonResponse(w, map[string]any{
+				"database":   "all",
+				"stats":      stats,
+				"total_open": total,
+			})
+			return
+		}
+		pool := mgr.PoolForDatabase(database)
+		displayName := mgr.ResolveDatabaseName(database)
+		if pool == nil {
+			jsonResponse(w, map[string]any{
+				"database":   displayName,
+				"stats":      []any{},
+				"total_open": 0,
+			})
+			return
+		}
+		stats, total, err := queryFindingsStats(
+			r.Context(), pool, filters,
+		)
+		if err != nil {
+			slog.Error("query findings stats failed",
+				"error", err)
+			jsonError(w, "failed to query findings stats", 500)
+			return
+		}
+		jsonResponse(w, map[string]any{
+			"database":   displayName,
+			"stats":      stats,
+			"total_open": total,
+		})
+	}
+}
+
+func queryFindingsStats(
+	ctx context.Context, pool *pgxpool.Pool,
+	f fleet.FindingFilters,
+) ([]map[string]any, int, error) {
+	where, args := buildFindingsWhere(f)
+	query := `SELECT severity, category, COUNT(*) AS cnt
+	 FROM sage.findings` + where +
+		` GROUP BY severity, category
+		  ORDER BY severity, category`
+	rows, err := pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf(
+			"query findings stats: %w", err)
+	}
+	defer rows.Close()
+
+	var results []map[string]any
+	total := 0
+	for rows.Next() {
+		var severity, category string
+		var cnt int
+		if err := rows.Scan(
+			&severity, &category, &cnt,
+		); err != nil {
+			return nil, 0, fmt.Errorf(
+				"scan findings stat: %w", err)
+		}
+		total += cnt
+		results = append(results, map[string]any{
+			"severity": severity,
+			"category": category,
+			"count":    cnt,
+		})
+	}
+	if results == nil {
+		results = []map[string]any{}
+	}
+	return results, total, nil
+}
+
+func queryFindingsStatsAcrossFleet(
+	ctx context.Context, mgr *fleet.DatabaseManager,
+	f fleet.FindingFilters,
+) ([]map[string]any, int, error) {
+	counts := make(map[string]int)
+	total := 0
+	for _, inst := range sortedFleetInstances(mgr) {
+		if inst.Pool == nil {
+			continue
+		}
+		stats, dbTotal, err := queryFindingsStats(
+			ctx, inst.Pool, f,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		total += dbTotal
+		for _, s := range stats {
+			key := fmt.Sprintf("%s\x00%s",
+				s["severity"], s["category"])
+			if c, ok := s["count"].(int); ok {
+				counts[key] += c
+			}
+		}
+	}
+	results := make([]map[string]any, 0, len(counts))
+	for key, count := range counts {
+		parts := strings.SplitN(key, "\x00", 2)
+		results = append(results, map[string]any{
+			"severity": parts[0],
+			"category": parts[1],
+			"count":    count,
+		})
+	}
+	sort.Slice(results, func(i, j int) bool {
+		si, sj := fmt.Sprint(results[i]["severity"]),
+			fmt.Sprint(results[j]["severity"])
+		if si != sj {
+			return si < sj
+		}
+		return fmt.Sprint(results[i]["category"]) <
+			fmt.Sprint(results[j]["category"])
+	})
+	if results == nil {
+		results = []map[string]any{}
+	}
+	return results, total, nil
+}
+
 func findingDetailHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
@@ -69,14 +252,26 @@ func findingDetailHandler(
 			jsonError(w, "missing finding id", http.StatusBadRequest)
 			return
 		}
-		for _, pool := range mgr.AllPools() {
-			finding, err := queryFindingByID(
-				r.Context(), pool, id,
-			)
-			if err == nil {
-				jsonResponse(w, finding)
-				return
-			}
+		dbName, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
+		selected, ok := resolveSingleDatabaseRequestPool(mgr, dbName)
+		if !ok {
+			jsonError(w, "database is required",
+				http.StatusBadRequest)
+			return
+		}
+		if selected.pool == nil {
+			jsonError(w, "finding not found", http.StatusNotFound)
+			return
+		}
+		finding, err := queryFindingByID(
+			r.Context(), selected.pool, id,
+		)
+		if err == nil {
+			jsonResponse(w, finding)
+			return
 		}
 		jsonError(w, "finding not found", http.StatusNotFound)
 	}
@@ -90,6 +285,30 @@ func suppressHandler(
 		if id == "" {
 			jsonError(w, "missing finding id",
 				http.StatusBadRequest)
+			return
+		}
+		if dbName := r.URL.Query().Get("database"); dbName != "" &&
+			dbName != "all" {
+			pool := mgr.PoolForDatabase(dbName)
+			if pool == nil {
+				jsonError(w, "database not found",
+					http.StatusNotFound)
+				return
+			}
+			err := updateFindingStatus(
+				r.Context(), pool, id, "open", "suppressed",
+			)
+			if err != nil {
+				jsonError(w, "finding not found",
+					http.StatusNotFound)
+				return
+			}
+			jsonResponse(w, map[string]any{
+				"ok": true, "id": id, "status": "suppressed",
+			})
+			return
+		}
+		if !allowImplicitSingleDatabaseMutation(w, mgr) {
 			return
 		}
 		pools := mgr.AllPools()
@@ -136,6 +355,30 @@ func unsuppressHandler(
 				http.StatusBadRequest)
 			return
 		}
+		if dbName := r.URL.Query().Get("database"); dbName != "" &&
+			dbName != "all" {
+			pool := mgr.PoolForDatabase(dbName)
+			if pool == nil {
+				jsonError(w, "database not found",
+					http.StatusNotFound)
+				return
+			}
+			err := updateFindingStatus(
+				r.Context(), pool, id, "suppressed", "open",
+			)
+			if err != nil {
+				jsonError(w, "finding not found",
+					http.StatusNotFound)
+				return
+			}
+			jsonResponse(w, map[string]any{
+				"ok": true, "id": id, "status": "open",
+			})
+			return
+		}
+		if !allowImplicitSingleDatabaseMutation(w, mgr) {
+			return
+		}
 		pools := mgr.AllPools()
 		if len(pools) == 0 {
 			jsonResponse(w, map[string]string{
@@ -170,21 +413,70 @@ func unsuppressHandler(
 	}
 }
 
+func allowImplicitSingleDatabaseMutation(
+	w http.ResponseWriter,
+	mgr *fleet.DatabaseManager,
+) bool {
+	instances := mgr.Instances()
+	if len(instances) != 1 {
+		jsonError(w, "database is required",
+			http.StatusBadRequest)
+		return false
+	}
+	for _, inst := range instances {
+		if inst.Pool == nil {
+			jsonError(w, "database not found",
+				http.StatusNotFound)
+			return false
+		}
+		return true
+	}
+	jsonError(w, "database is required", http.StatusBadRequest)
+	return false
+}
+
 func actionsListHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		database := q.Get("database")
+		if err := validateDatabaseParam(database); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if database == "" {
 			database = "all"
 		}
+		if rejectUnknownDatabase(w, mgr, database) {
+			return
+		}
 		limit := parseIntDefault(q.Get("limit"), 50)
 		offset := parseIntDefault(q.Get("offset"), 0)
+		from := parseTimeParam(q.Get("from"))
+		to := parseTimeParam(q.Get("to"))
 		if limit > 200 {
 			limit = 200
 		}
-		displayName := mgr.ResolveDatabaseName(database)
+		displayName := responseDatabaseName(database)
+		if database == "all" && mgr.InstanceCount() == 1 {
+			displayName = mgr.ResolveDatabaseName(database)
+		}
+		if database == "all" {
+			actions, total, err := queryActionsAcrossPools(
+				r.Context(), mgr, limit, offset, from, to)
+			if err != nil {
+				slog.Error("query actions failed", "error", err)
+				jsonError(w, "failed to query actions", 500)
+				return
+			}
+			jsonResponse(w, map[string]any{
+				"database": displayName, "total": total,
+				"offset": offset, "limit": limit,
+				"actions": actions,
+			})
+			return
+		}
 		pool := mgr.PoolForDatabase(database)
 		if pool == nil {
 			jsonResponse(w, map[string]any{
@@ -195,12 +487,15 @@ func actionsListHandler(
 			return
 		}
 		actions, total, err := queryActions(
-			r.Context(), pool, limit, offset,
+			r.Context(), pool, limit, offset, from, to,
 		)
 		if err != nil {
 			slog.Error("query actions failed", "error", err)
 			jsonError(w, "failed to query actions", 500)
 			return
+		}
+		for _, action := range actions {
+			action["database_name"] = database
 		}
 		jsonResponse(w, map[string]any{
 			"database": displayName, "total": total,
@@ -219,17 +514,28 @@ func actionDetailHandler(
 			jsonError(w, "missing action id", http.StatusBadRequest)
 			return
 		}
-		pool := mgr.PoolForDatabase("all")
-		if pool == nil {
+		dbName, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
+		selected, ok := resolveSingleDatabaseRequestPool(mgr, dbName)
+		if !ok {
+			jsonError(w, "database is required",
+				http.StatusBadRequest)
+			return
+		}
+		if selected.pool == nil {
 			jsonError(w, "action not found", http.StatusNotFound)
 			return
 		}
-		action, err := queryActionByID(r.Context(), pool, id)
-		if err != nil {
-			jsonError(w, "action not found", http.StatusNotFound)
+		action, err := queryActionByID(
+			r.Context(), selected.pool, id,
+		)
+		if err == nil {
+			jsonResponse(w, action)
 			return
 		}
-		jsonResponse(w, action)
+		jsonError(w, "action not found", http.StatusNotFound)
 	}
 }
 
@@ -237,24 +543,41 @@ func snapshotLatestHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		database := r.URL.Query().Get("database")
+		database, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
 		if database == "" {
 			database = "all"
+		}
+		selected, ok := resolveSingleDatabaseRequestPool(mgr, database)
+		if !ok {
+			if database == "all" {
+				jsonResponse(w, map[string]any{
+					"database": "all", "snapshot": nil,
+				})
+				return
+			}
+			jsonError(w, "database is required", http.StatusBadRequest)
+			return
 		}
 		metric := r.URL.Query().Get("metric")
 		if metric == "" {
 			metric = "cache_hit_ratio"
 		}
-		displayName := mgr.ResolveDatabaseName(database)
-		pool := mgr.PoolForDatabase(database)
-		if pool == nil {
+		if selected.pool == nil {
+			if selected.name == "" {
+				jsonError(w, "database not found", http.StatusNotFound)
+				return
+			}
 			jsonResponse(w, map[string]any{
-				"database": displayName, "snapshot": nil,
+				"database": selected.name, "snapshot": nil,
 			})
 			return
 		}
+		displayName := selected.name
 		data, err := querySnapshotLatest(
-			r.Context(), pool, metric,
+			r.Context(), selected.pool, metric,
 		)
 		if err != nil {
 			jsonResponse(w, map[string]any{
@@ -274,26 +597,40 @@ func snapshotHistoryHandler(
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		database := q.Get("database")
+		if err := validateDatabaseParam(database); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		metric := q.Get("metric")
 		if database == "" {
 			database = "all"
+		}
+		selected, ok := resolveSingleDatabaseRequestPool(mgr, database)
+		if !ok {
+			jsonError(w, "database is required", http.StatusBadRequest)
+			return
 		}
 		if !validateMetric(metric) {
 			jsonError(w, "invalid metric", http.StatusBadRequest)
 			return
 		}
-		displayName := mgr.ResolveDatabaseName(database)
-		pool := mgr.PoolForDatabase(database)
-		if pool == nil {
+		if selected.pool == nil {
+			if selected.name == "" {
+				jsonError(w, "database not found", http.StatusNotFound)
+				return
+			}
 			jsonResponse(w, map[string]any{
-				"database": displayName, "metric": metric,
+				"database": selected.name, "metric": metric,
 				"points": []any{},
 			})
 			return
 		}
+		displayName := selected.name
 		hours := parseIntDefault(q.Get("hours"), 24)
+		from := parseTimeParam(q.Get("from"))
+		to := parseTimeParam(q.Get("to"))
 		points, err := querySnapshotHistory(
-			r.Context(), pool, metric, hours,
+			r.Context(), selected.pool, metric, hours, from, to,
 		)
 		if err != nil {
 			jsonResponse(w, map[string]any{
@@ -307,6 +644,116 @@ func snapshotHistoryHandler(
 			"points": points,
 		})
 	}
+}
+
+// fleetHealthHandler returns a time-series of health scores per
+// database from sage.health_history. Accepts `from`/`to` (RFC3339)
+// or `hours` (default 24). When `database=` is set, results are
+// filtered to that database; otherwise all databases are included.
+// Response shape:
+//
+//	{
+//	  "databases": {
+//	    "db1": [{"t": "...", "health": 87, "critical": 1, ...}, ...],
+//	    ...
+//	  }
+//	}
+func fleetHealthHandler(
+	mgr *fleet.DatabaseManager,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		database := q.Get("database")
+		if err := validateDatabaseParam(database); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		hours := parseIntDefault(q.Get("hours"), 24)
+		from := parseTimeParam(q.Get("from"))
+		to := parseTimeParam(q.Get("to"))
+		if from.IsZero() && to.IsZero() {
+			to = time.Now().UTC()
+			from = to.Add(-time.Duration(hours) * time.Hour)
+		} else {
+			if from.IsZero() {
+				from = time.Unix(0, 0)
+			}
+			if to.IsZero() {
+				to = time.Now().UTC()
+			}
+		}
+
+		out := map[string][]map[string]any{}
+		// In fleet mode every instance has its own sage.health_history
+		// written by RecordHealthSnapshots. We query each pool once.
+		instances := mgr.Instances()
+		for name, inst := range instances {
+			if database != "" && database != "all" && database != name {
+				continue
+			}
+			if inst.Pool == nil {
+				continue
+			}
+			points, err := queryHealthHistory(
+				r.Context(), inst.Pool, name, from, to,
+			)
+			if err != nil {
+				slog.Warn("fleet_health: query failed",
+					"database", name, "error", err)
+				out[name] = []map[string]any{}
+				continue
+			}
+			out[name] = points
+		}
+		jsonResponse(w, map[string]any{
+			"from":      from,
+			"to":        to,
+			"databases": out,
+		})
+	}
+}
+
+func queryHealthHistory(
+	ctx context.Context, pool *pgxpool.Pool,
+	dbName string, from, to time.Time,
+) ([]map[string]any, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT recorded_at, health_score, findings_open,
+		        findings_critical, findings_warning,
+		        findings_info, actions_total
+		 FROM sage.health_history
+		 WHERE database_name = $1
+		 AND recorded_at BETWEEN $2 AND $3
+		 ORDER BY recorded_at`,
+		dbName, from, to,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query health_history: %w", err)
+	}
+	defer rows.Close()
+	points := []map[string]any{}
+	for rows.Next() {
+		var (
+			ts                                            time.Time
+			score, open, critical, warning, info, actions int
+		)
+		if err := rows.Scan(
+			&ts, &score, &open, &critical,
+			&warning, &info, &actions,
+		); err != nil {
+			return nil, fmt.Errorf("scan health_history: %w", err)
+		}
+		points = append(points, map[string]any{
+			"t":        ts,
+			"health":   score,
+			"open":     open,
+			"critical": critical,
+			"warning":  warning,
+			"info":     info,
+			"actions":  actions,
+		})
+	}
+	return points, nil
 }
 
 func validateMetric(metric string) bool {
@@ -331,7 +778,10 @@ func configGetHandler(
 	mgr *fleet.DatabaseManager, cfg *config.Config,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		database := r.URL.Query().Get("database")
+		database, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
 		if database != "" {
 			inst := mgr.GetInstance(database)
 			if inst == nil {
@@ -394,7 +844,10 @@ func metricsHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		database := r.URL.Query().Get("database")
+		database, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
 		status := mgr.FleetStatus()
 		if database != "" {
 			inst := mgr.GetInstance(database)
@@ -420,8 +873,21 @@ func emergencyStopHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		database := r.URL.Query().Get("database")
-		stopped := mgr.EmergencyStop(database)
+		database, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
+		stopped, err := mgr.EmergencyStopStrict(database)
+		if err != nil {
+			if errors.Is(err, fleet.ErrDatabaseNotFound) {
+				jsonError(w, "database not found",
+					http.StatusNotFound)
+				return
+			}
+			jsonError(w, "failed to persist emergency stop",
+				http.StatusInternalServerError)
+			return
+		}
 		jsonResponse(w, map[string]any{
 			"stopped": stopped, "status": "stopped",
 		})
@@ -432,8 +898,21 @@ func resumeHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		database := r.URL.Query().Get("database")
-		resumed := mgr.Resume(database)
+		database, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
+		resumed, err := mgr.ResumeStrict(database)
+		if err != nil {
+			if errors.Is(err, fleet.ErrDatabaseNotFound) {
+				jsonError(w, "database not found",
+					http.StatusNotFound)
+				return
+			}
+			jsonError(w, "failed to persist emergency stop",
+				http.StatusInternalServerError)
+			return
+		}
 		jsonResponse(w, map[string]any{
 			"resumed": resumed, "status": "resumed",
 		})
@@ -444,18 +923,37 @@ func resumeHandler(
 
 func parseFindingFilters(q map[string][]string) fleet.FindingFilters {
 	f := fleet.FindingFilters{
-		Status:   valOrDefault(q, "status", "open"),
-		Severity: valOrDefault(q, "severity", ""),
-		Category: valOrDefault(q, "category", ""),
-		Sort:     valOrDefault(q, "sort", "severity"),
-		Order:    valOrDefault(q, "order", "desc"),
-		Limit:    parseIntDefault(firstVal(q, "limit"), 50),
-		Offset:   parseIntDefault(firstVal(q, "offset"), 0),
+		Status:           valOrDefault(q, "status", "open"),
+		Severity:         valOrDefault(q, "severity", ""),
+		Category:         valOrDefault(q, "category", ""),
+		Source:           valOrDefault(q, "source", ""),
+		ThematicCategory: valOrDefault(q, "thematic_category", ""),
+		Sort:             valOrDefault(q, "sort", "severity"),
+		Order:            valOrDefault(q, "order", "desc"),
+		Limit:            parseIntDefault(firstVal(q, "limit"), 50),
+		Offset:           parseIntDefault(firstVal(q, "offset"), 0),
+		From:             parseTimeParam(firstVal(q, "from")),
+		To:               parseTimeParam(firstVal(q, "to")),
 	}
 	if f.Limit > 200 {
 		f.Limit = 200
 	}
 	return f
+}
+
+// parseTimeParam parses an ISO-8601/RFC-3339 timestamp, returning zero
+// time on parse failure so callers can treat it as "unset".
+func parseTimeParam(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t
+	}
+	return time.Time{}
 }
 
 func valOrDefault(
@@ -516,10 +1014,193 @@ func queryFindings(
 	return findings, total, nil
 }
 
+func queryFindingsAcrossFleet(
+	ctx context.Context, mgr *fleet.DatabaseManager,
+	f fleet.FindingFilters,
+) ([]map[string]any, int, error) {
+	local := f
+	local.Offset = 0
+	local.Limit = f.Offset + f.Limit
+	if local.Limit <= 0 {
+		local.Limit = f.Limit
+	}
+
+	var all []map[string]any
+	total := 0
+	for _, inst := range sortedFleetInstances(mgr) {
+		if inst.Pool == nil {
+			continue
+		}
+		rows, dbTotal, err := queryFindings(
+			ctx, inst.Pool, local, inst.Name,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		total += dbTotal
+		all = append(all, rows...)
+	}
+	sortFindingMaps(all, f)
+	start := f.Offset
+	if start > len(all) {
+		start = len(all)
+	}
+	end := start + f.Limit
+	if end > len(all) {
+		end = len(all)
+	}
+	if all == nil {
+		all = []map[string]any{}
+	}
+	return all[start:end], total, nil
+}
+
+func sortedFleetInstances(
+	mgr *fleet.DatabaseManager,
+) []*fleet.DatabaseInstance {
+	instances := mgr.Instances()
+	names := make([]string, 0, len(instances))
+	for name := range instances {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	out := make([]*fleet.DatabaseInstance, 0, len(names))
+	for _, name := range names {
+		out = append(out, instances[name])
+	}
+	return out
+}
+
+func sortFindingMaps(rows []map[string]any, f fleet.FindingFilters) {
+	desc := f.Order != "asc"
+	sort.SliceStable(rows, func(i, j int) bool {
+		cmp := compareFindingMaps(rows[i], rows[j], f.Sort)
+		if cmp == 0 {
+			cmp = compareFindingMaps(rows[i], rows[j], "last_seen")
+			if cmp == 0 {
+				cmp = strings.Compare(
+					fmt.Sprint(rows[i]["database_name"]),
+					fmt.Sprint(rows[j]["database_name"]),
+				)
+			}
+		}
+		if f.Sort == "severity" && f.Order != "asc" {
+			return cmp < 0
+		}
+		if f.Sort == "severity" {
+			return cmp > 0
+		}
+		if desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
+func compareFindingMaps(a, b map[string]any, sortKey string) int {
+	switch sortKey {
+	case "severity":
+		return compareInt(
+			severitySortRank(fmt.Sprint(a["severity"])),
+			severitySortRank(fmt.Sprint(b["severity"])),
+		)
+	case "impact", "impact_score":
+		return compareNullableFloat(
+			a["impact_score"], b["impact_score"])
+	case "created_at", "last_seen":
+		return compareTimeValue(a[sortKey], b[sortKey])
+	case "category", "title":
+		return strings.Compare(
+			fmt.Sprint(a[sortKey]), fmt.Sprint(b[sortKey]))
+	default:
+		return compareTimeValue(a["last_seen"], b["last_seen"])
+	}
+}
+
+func severitySortRank(sev string) int {
+	switch sev {
+	case "critical":
+		return 1
+	case "warning":
+		return 2
+	case "info":
+		return 3
+	default:
+		return 4
+	}
+}
+
+func compareInt(a, b int) int {
+	if a < b {
+		return -1
+	}
+	if a > b {
+		return 1
+	}
+	return 0
+}
+
+func compareNullableFloat(a, b any) int {
+	af, aok := asFloat(a)
+	bf, bok := asFloat(b)
+	if !aok && !bok {
+		return 0
+	}
+	if !aok {
+		return -1
+	}
+	if !bok {
+		return 1
+	}
+	if af < bf {
+		return -1
+	}
+	if af > bf {
+		return 1
+	}
+	return 0
+}
+
+func asFloat(v any) (float64, bool) {
+	switch x := v.(type) {
+	case *float64:
+		if x == nil {
+			return 0, false
+		}
+		return *x, true
+	case float64:
+		return x, true
+	default:
+		return 0, false
+	}
+}
+
+func compareTimeValue(a, b any) int {
+	at, aok := a.(time.Time)
+	bt, bok := b.(time.Time)
+	if !aok && !bok {
+		return 0
+	}
+	if !aok {
+		return -1
+	}
+	if !bok {
+		return 1
+	}
+	if at.Before(bt) {
+		return -1
+	}
+	if at.After(bt) {
+		return 1
+	}
+	return 0
+}
+
 const findingsSelectSQL = `SELECT id, created_at, last_seen,
  occurrence_count, category, severity, object_type,
  object_identifier, title, detail, recommendation,
- recommended_sql, status FROM sage.findings`
+ recommended_sql, rollback_sql, status, rule_id, impact_score,
+ resolved_at, acted_on_at, action_log_id FROM sage.findings`
 
 func buildFindingsWhere(
 	f fleet.FindingFilters,
@@ -540,9 +1221,108 @@ func buildFindingsWhere(
 	if f.Category != "" {
 		where += fmt.Sprintf(" AND category = $%d", n)
 		args = append(args, f.Category)
+		n++
+	}
+	// Source filter — subsystem taxonomy mapping (see §16 of
+	// docs/ui-redesign-v2.md). The mapping is an allowlist-to-SQL
+	// rewrite. Unknown source values are treated as no-filter so the
+	// UI can add new subsystems ahead of backend awareness without
+	// dropping the page.
+	if clause, a, ok := buildSourceClause(f.Source, n); ok {
+		where += clause
+		args = append(args, a...)
+		n += len(a)
+	}
+	// ThematicCategory only applies when rows are lint rows, whose
+	// detail JSONB carries thematic_category ('indexing',
+	// 'performance', etc.). For non-lint queries the filter is
+	// effectively a no-op since their detail lacks that key.
+	if f.ThematicCategory != "" {
+		where += fmt.Sprintf(
+			" AND detail->>'thematic_category' = $%d", n)
+		args = append(args, f.ThematicCategory)
+		n++
+	}
+	// Overlapping-window time filter (findings live across time):
+	// include a finding when it was open at any point in [From, To].
+	if !f.From.IsZero() {
+		where += fmt.Sprintf(
+			" AND (resolved_at IS NULL OR resolved_at >= $%d)", n)
+		args = append(args, f.From)
+		n++
+	}
+	if !f.To.IsZero() {
+		where += fmt.Sprintf(" AND created_at <= $%d", n)
+		args = append(args, f.To)
 	}
 	return where, args
 }
+
+// buildSourceClause converts a subsystem filter value into a WHERE
+// fragment + args. Returns ok=false when the value is empty or
+// unrecognised (caller must then emit nothing).
+func buildSourceClause(
+	source string, startN int,
+) (string, []any, bool) {
+	if source == "" {
+		return "", nil, false
+	}
+	switch source {
+	case "schema_lint":
+		return fmt.Sprintf(" AND category LIKE $%d", startN),
+			[]any{"schema_lint:%"}, true
+	case "rules":
+		return fmt.Sprintf(
+				" AND category = ANY($%d::text[])", startN),
+			[]any{rulesCategories}, true
+	case "forecaster":
+		return fmt.Sprintf(" AND category LIKE $%d", startN),
+			[]any{"forecast%"}, true
+	case "query_tuning":
+		return fmt.Sprintf(
+				" AND category = ANY($%d::text[])", startN),
+			[]any{queryTuningCategories}, true
+	case "advisor":
+		return fmt.Sprintf(
+				" AND (category = 'advisor' OR "+
+					"detail->>'subsystem' = $%d)", startN),
+			[]any{"advisor"}, true
+	case "optimizer":
+		return fmt.Sprintf(
+				" AND (category = 'optimizer' OR "+
+					"detail->>'subsystem' = $%d)", startN),
+			[]any{"optimizer"}, true
+	case "incident":
+		return fmt.Sprintf(
+				" AND category = ANY($%d::text[])", startN),
+			[]any{incidentCategories}, true
+	case "migration_advisor":
+		return " AND 1=0", nil, true // reserved, emits nothing
+	}
+	return "", nil, false
+}
+
+var (
+	// rulesCategories is the analyzer Tier-1 allowlist.
+	rulesCategories = []string{
+		"index_health", "unused_index", "invalid_index",
+		"duplicate_index", "missing_fk_index", "slow_query",
+		"high_plan_time", "query_regression", "seq_scan_heavy",
+		"high_total_time", "lock_chain", "connection_leak",
+		"cache_hit_ratio", "checkpoint_pressure",
+		"stat_statements_pressure", "replication_lag",
+		"inactive_slot", "slow_replication_slot",
+		"sequence_exhaustion", "sort_without_index",
+		"work_mem_promotion", "table_bloat", "xid_wraparound",
+		"extension_drift", "plan_regression",
+	}
+	queryTuningCategories = []string{
+		"query_tuning", "stale_statistics", "runaway_query",
+	}
+	incidentCategories = []string{
+		"incident", "incident_open", "incident_resolved",
+	}
+)
 
 func buildFindingsOrder(f fleet.FindingFilters) string {
 	dir := "DESC"
@@ -563,6 +1343,19 @@ func buildFindingsOrder(f fleet.FindingFilters) string {
 				" WHEN 'warning' THEN 2"+
 				" WHEN 'info' THEN 3"+
 				" ELSE 4 END %s", sevDir)
+	}
+	// impact_score requires a tie-breaker and NULLS LAST so
+	// subsystems that don't emit an impact score don't dominate the
+	// tail of the list.
+	if f.Sort == "impact" || f.Sort == "impact_score" {
+		return fmt.Sprintf(
+			" ORDER BY impact_score %s NULLS LAST,"+
+				" CASE severity"+
+				" WHEN 'critical' THEN 1"+
+				" WHEN 'warning' THEN 2"+
+				" WHEN 'info' THEN 3"+
+				" ELSE 4 END ASC,"+
+				" last_seen DESC", dir)
 	}
 	// Allowlist sort columns to prevent injection
 	col := "last_seen"
@@ -596,22 +1389,30 @@ func scanFindingRows(
 			detail          []byte
 			recommendation  *string
 			recommendedSQL  *string
+			rollbackSQL     *string
 			status          string
+			ruleID          *string
+			impactScore     *float64
+			resolvedAt      *time.Time
+			actedOnAt       *time.Time
+			actionLogID     *int64
 		)
 		err := rows.Scan(
 			&id, &createdAt, &lastSeen, &occurrenceCount,
 			&category, &severity, &objectType, &objectIdent,
 			&title, &detail, &recommendation, &recommendedSQL,
-			&status,
+			&rollbackSQL, &status, &ruleID, &impactScore,
+			&resolvedAt, &actedOnAt, &actionLogID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan finding: %w", err)
 		}
-		f := buildFindingMap(
+		f := buildFindingMapWithAction(
 			id, createdAt, lastSeen, occurrenceCount,
 			category, severity, objectType, objectIdent,
 			title, detail, recommendation, recommendedSQL,
-			status, database,
+			rollbackSQL, status, database, ruleID, impactScore,
+			resolvedAt, actedOnAt, actionLogID,
 		)
 		results = append(results, f)
 	}
@@ -626,11 +1427,40 @@ func buildFindingMap(
 	occurrenceCount int, category, severity string,
 	objectType, objectIdent *string, title string,
 	detail []byte, recommendation, recommendedSQL *string,
-	status, database string,
+	status, database string, ruleID *string,
+	impactScore *float64, resolvedAt *time.Time,
 ) map[string]any {
+	return buildFindingMapWithAction(
+		id, createdAt, lastSeen, occurrenceCount,
+		category, severity, objectType, objectIdent,
+		title, detail, recommendation, recommendedSQL, nil,
+		status, database, ruleID, impactScore, resolvedAt, nil, nil,
+	)
+}
+
+func buildFindingMapWithAction(
+	id int64, createdAt, lastSeen time.Time,
+	occurrenceCount int, category, severity string,
+	objectType, objectIdent *string, title string,
+	detail []byte, recommendation, recommendedSQL, rollbackSQL *string,
+	status, database string, ruleID *string,
+	impactScore *float64, resolvedAt, actedOnAt *time.Time,
+	actionLogID *int64,
+) map[string]any {
+	// detail is jsonb in the DB, but a corrupt row or pre-jsonb
+	// legacy bytes can land here as invalid JSON. Surface the raw
+	// string on decode failure so operators still see the data,
+	// and log once so the malformed row is traceable.
 	var detailParsed any
 	if len(detail) > 0 {
-		_ = json.Unmarshal(detail, &detailParsed)
+		if err := json.Unmarshal(detail, &detailParsed); err != nil {
+			slog.Warn(
+				"findings: detail column is not valid JSON",
+				"finding_id", id,
+				"err", err,
+			)
+			detailParsed = string(detail)
+		}
 	}
 	return map[string]any{
 		"id":                strconv.FormatInt(id, 10),
@@ -645,9 +1475,49 @@ func buildFindingMap(
 		"detail":            detailParsed,
 		"recommendation":    derefStr(recommendation),
 		"recommended_sql":   derefStr(recommendedSQL),
+		"rollback_sql":      derefStr(rollbackSQL),
 		"status":            status,
 		"database_name":     database,
+		"rule_id":           derefStr(ruleID),
+		"impact_score":      impactScore,
+		"resolved_at":       resolvedAt,
+		"acted_on_at":       actedOnAt,
+		"action_log_id":     actionLogID,
+		"subsystem":         subsystemFromCategory(category),
 	}
+}
+
+// subsystemFromCategory maps a category value to the subsystem the
+// UI shows in the source filter. Kept in lockstep with §16 appendix.
+func subsystemFromCategory(category string) string {
+	if strings.HasPrefix(category, "schema_lint:") {
+		return "schema_lint"
+	}
+	if strings.HasPrefix(category, "forecast") {
+		return "forecaster"
+	}
+	for _, c := range queryTuningCategories {
+		if c == category {
+			return "query_tuning"
+		}
+	}
+	for _, c := range incidentCategories {
+		if c == category {
+			return "incident"
+		}
+	}
+	for _, c := range rulesCategories {
+		if c == category {
+			return "rules"
+		}
+	}
+	if category == "advisor" {
+		return "advisor"
+	}
+	if category == "optimizer" {
+		return "optimizer"
+	}
+	return ""
 }
 
 func queryFindingByID(
@@ -685,9 +1555,18 @@ func queryFindingByID(
 	if err != nil {
 		return nil, err
 	}
+	// See getFindings — bad JSON returns the raw string rather than
+	// masquerading as a missing field, with a log entry for audit.
 	var detailParsed any
 	if len(detail) > 0 {
-		_ = json.Unmarshal(detail, &detailParsed)
+		if err := json.Unmarshal(detail, &detailParsed); err != nil {
+			slog.Warn(
+				"finding_detail: detail column is not valid JSON",
+				"finding_id", fID,
+				"err", err,
+			)
+			detailParsed = string(detail)
+		}
 	}
 	return map[string]any{
 		"id":                 strconv.FormatInt(fID, 10),
@@ -782,17 +1661,20 @@ func isConnectionError(err error) bool {
 
 func queryActions(
 	ctx context.Context, pool *pgxpool.Pool,
-	limit, offset int,
+	limit, offset int, from, to time.Time,
 ) ([]map[string]any, int, error) {
+	where, args := buildActionsWhere(from, to)
+	countQ := "SELECT COUNT(*) FROM sage.action_log" + where
 	var total int
-	err := pool.QueryRow(
-		ctx, "SELECT COUNT(*) FROM sage.action_log",
-	).Scan(&total)
-	if err != nil {
+	if err := pool.QueryRow(ctx, countQ, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count actions: %w", err)
 	}
-	rows, err := pool.Query(ctx, actionsSelectSQL,
-		limit, offset)
+	selectQ := actionsSelectSQLPrefix + where +
+		fmt.Sprintf(" ORDER BY executed_at DESC"+
+			" LIMIT $%d OFFSET $%d",
+			len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+	rows, err := pool.Query(ctx, selectQ, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query actions: %w", err)
 	}
@@ -804,11 +1686,80 @@ func queryActions(
 	return actions, total, nil
 }
 
-const actionsSelectSQL = `SELECT id, executed_at,
+func queryActionsAcrossPools(
+	ctx context.Context, mgr *fleet.DatabaseManager,
+	limit, offset int, from, to time.Time,
+) ([]map[string]any, int, error) {
+	pools := poolsForDatabaseSelection(mgr, "all")
+	if len(pools) == 0 {
+		return []map[string]any{}, 0, nil
+	}
+
+	var merged []map[string]any
+	total := 0
+	perDBLimit := limit + offset
+	if perDBLimit <= 0 {
+		perDBLimit = limit
+	}
+	for _, selected := range pools {
+		actions, dbTotal, err := queryActions(
+			ctx, selected.pool, perDBLimit, 0, from, to)
+		if err != nil {
+			return nil, 0, fmt.Errorf(
+				"%s: %w", selected.name, err)
+		}
+		total += dbTotal
+		for _, action := range actions {
+			action["database_name"] = selected.name
+			merged = append(merged, action)
+		}
+	}
+
+	sort.SliceStable(merged, func(i, j int) bool {
+		return timeFromMap(merged[i], "executed_at").After(
+			timeFromMap(merged[j], "executed_at"))
+	})
+
+	start := offset
+	if start > len(merged) {
+		return []map[string]any{}, total, nil
+	}
+	end := start + limit
+	if end > len(merged) {
+		end = len(merged)
+	}
+	if limit == 0 {
+		end = start
+	}
+	return merged[start:end], total, nil
+}
+
+// buildActionsWhere filters executed_at BETWEEN from AND to when
+// either bound is set.
+func buildActionsWhere(from, to time.Time) (string, []any) {
+	where := ""
+	var args []any
+	n := 1
+	if !from.IsZero() {
+		where += fmt.Sprintf(" WHERE executed_at >= $%d", n)
+		args = append(args, from)
+		n++
+	}
+	if !to.IsZero() {
+		if where == "" {
+			where += fmt.Sprintf(" WHERE executed_at <= $%d", n)
+		} else {
+			where += fmt.Sprintf(" AND executed_at <= $%d", n)
+		}
+		args = append(args, to)
+	}
+	return where, args
+}
+
+const actionsSelectSQLPrefix = `SELECT id, executed_at,
  action_type, finding_id, sql_executed, rollback_sql,
  before_state, after_state, outcome, rollback_reason,
- measured_at FROM sage.action_log
- ORDER BY executed_at DESC LIMIT $1 OFFSET $2`
+ measured_at FROM sage.action_log`
 
 func scanActionRows(rows pgx.Rows) ([]map[string]any, error) {
 	var results []map[string]any
@@ -938,15 +1889,37 @@ func querySnapshotLatest(
 
 func querySnapshotHistory(
 	ctx context.Context, pool *pgxpool.Pool,
-	metric string, hours int,
+	metric string, hours int, from, to time.Time,
 ) ([]map[string]any, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT collected_at, data FROM sage.snapshots
-		 WHERE category = $1
-		 AND collected_at > now() - ($2 || ' hours')::interval
-		 ORDER BY collected_at`,
-		metric, strconv.Itoa(hours),
+	// When explicit from/to provided, use BETWEEN semantics;
+	// otherwise fall back to the legacy last-N-hours sliding window.
+	var (
+		rows pgx.Rows
+		err  error
 	)
+	if !from.IsZero() || !to.IsZero() {
+		if from.IsZero() {
+			from = time.Unix(0, 0)
+		}
+		if to.IsZero() {
+			to = time.Now().UTC()
+		}
+		rows, err = pool.Query(ctx,
+			`SELECT collected_at, data FROM sage.snapshots
+			 WHERE category = $1
+			 AND collected_at BETWEEN $2 AND $3
+			 ORDER BY collected_at`,
+			metric, from, to,
+		)
+	} else {
+		rows, err = pool.Query(ctx,
+			`SELECT collected_at, data FROM sage.snapshots
+			 WHERE category = $1
+			 AND collected_at > now() - ($2 || ' hours')::interval
+			 ORDER BY collected_at`,
+			metric, strconv.Itoa(hours),
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("query history: %w", err)
 	}

@@ -10,7 +10,16 @@ import (
 
 // mockProposer records Propose calls for testing.
 type mockProposer struct {
-	calls []proposeCall
+	calls           []proposeCall
+	hasPending      bool
+	hasSQL          bool
+	hasRejected     bool
+	hasRejectedSQL  bool
+	checkErr        error
+	checkCalls      int
+	sqlChecks       int
+	rejectChecks    int
+	rejectSQLChecks int
 }
 
 type proposeCall struct {
@@ -29,6 +38,34 @@ func (m *mockProposer) Propose(
 		risk:      risk,
 	})
 	return len(m.calls), nil
+}
+
+func (m *mockProposer) HasPendingForFinding(
+	_ context.Context, _ int,
+) (bool, error) {
+	m.checkCalls++
+	return m.hasPending, m.checkErr
+}
+
+func (m *mockProposer) HasPendingForSQL(
+	_ context.Context, _ string,
+) (bool, error) {
+	m.sqlChecks++
+	return m.hasSQL, m.checkErr
+}
+
+func (m *mockProposer) HasRecentlyRejectedForFinding(
+	_ context.Context, _ int, _ time.Duration,
+) (bool, error) {
+	m.rejectChecks++
+	return m.hasRejected, m.checkErr
+}
+
+func (m *mockProposer) HasRecentlyRejectedForSQL(
+	_ context.Context, _ string, _ time.Duration,
+) (bool, error) {
+	m.rejectSQLChecks++
+	return m.hasRejectedSQL, m.checkErr
 }
 
 func TestExecutionMode_Default(t *testing.T) {

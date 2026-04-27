@@ -107,17 +107,22 @@ func (p *OAuthProvider) discoverOIDC(
 	return nil
 }
 
-// AuthorizationURL generates the redirect URL for user login.
-func (p *OAuthProvider) AuthorizationURL() (string, error) {
+// AuthorizationURL generates the redirect URL for user login and
+// returns the CSRF state the caller must bind to the browser via an
+// HttpOnly+Secure+SameSite=Lax cookie. On callback the cookie value
+// MUST equal the state query parameter — this prevents login CSRF
+// where an attacker forces a victim to sign in as the attacker.
+func (p *OAuthProvider) AuthorizationURL() (string, string, error) {
 	if p.discovery == nil {
-		return "", fmt.Errorf("oauth: discovery not performed")
+		return "", "", fmt.Errorf("oauth: discovery not performed")
 	}
 	state, err := randomState()
 	if err != nil {
-		return "", fmt.Errorf("oauth: generating state: %w", err)
+		return "", "", fmt.Errorf("oauth: generating state: %w", err)
 	}
 
 	p.mu.Lock()
+	p.evictExpiredAndCapLocked()
 	p.states[state] = time.Now().Add(10 * time.Minute)
 	p.mu.Unlock()
 
@@ -133,13 +138,24 @@ func (p *OAuthProvider) AuthorizationURL() (string, error) {
 		params.Set("scope", "user:email")
 	}
 	return p.discovery.AuthorizationEndpoint + "?" +
-		params.Encode(), nil
+		params.Encode(), state, nil
 }
 
-// Exchange trades an authorization code for user email.
+// Exchange trades an authorization code for user email. cookieState
+// is the value of the oauth_state cookie set on the browser when the
+// authorize step ran — it must equal the state query param for the
+// callback to be accepted. This binds the state token to the
+// originating browser and defeats login CSRF.
 func (p *OAuthProvider) Exchange(
-	ctx context.Context, code, state string,
+	ctx context.Context, code, state, cookieState string,
 ) (string, error) {
+	// Constant-time-ish equality via plain compare is fine here: the
+	// length of hex-encoded state is fixed, and leaking one bit via
+	// timing does not help an attacker who must also know the random
+	// state value itself.
+	if cookieState == "" || cookieState != state {
+		return "", fmt.Errorf("oauth: state cookie mismatch")
+	}
 	if !p.ValidateState(state) {
 		return "", fmt.Errorf("oauth: invalid or expired state")
 	}
@@ -175,6 +191,41 @@ func (p *OAuthProvider) CleanStates() {
 			delete(p.states, k)
 		}
 	}
+}
+
+// maxOAuthStates caps the pending-state map so that an attacker
+// flooding the unauthenticated /auth/oauth/authorize endpoint
+// cannot grow it without bound between cleanup ticks. Each
+// state is tiny, but at ~10M pending states the memory cost
+// becomes material. Chosen well above any plausible legitimate
+// burst of concurrent logins.
+const maxOAuthStates = 10_000
+
+// evictExpiredAndCapLocked is called while holding p.mu before
+// inserting a new state. It drops expired entries first, then if
+// the map is still at the cap, evicts the entry with the earliest
+// expiry time (closest to expiring naturally anyway).
+func (p *OAuthProvider) evictExpiredAndCapLocked() {
+	now := time.Now()
+	for k, exp := range p.states {
+		if now.After(exp) {
+			delete(p.states, k)
+		}
+	}
+	if len(p.states) < maxOAuthStates {
+		return
+	}
+	var oldestKey string
+	var oldestExp time.Time
+	first := true
+	for k, exp := range p.states {
+		if first || exp.Before(oldestExp) {
+			oldestKey = k
+			oldestExp = exp
+			first = false
+		}
+	}
+	delete(p.states, oldestKey)
 }
 
 // StartStateCleaner periodically cleans expired CSRF tokens.

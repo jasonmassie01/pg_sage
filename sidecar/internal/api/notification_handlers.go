@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -61,7 +62,12 @@ func createChannelHandler(
 			r.Context(), req.Name, req.Type,
 			req.Config, userID)
 		if err != nil {
-			jsonError(w, err.Error(), http.StatusBadRequest)
+			if errors.Is(err, store.ErrValidation) {
+				jsonError(w, err.Error(),
+					http.StatusBadRequest)
+				return
+			}
+			internalError(w, r, "create channel", err)
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
@@ -87,7 +93,7 @@ func updateChannelHandler(
 		var req struct {
 			Name    string            `json:"name"`
 			Config  map[string]string `json:"config"`
-			Enabled bool              `json:"enabled"`
+			Enabled *bool             `json:"enabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, "invalid request body",
@@ -95,11 +101,42 @@ func updateChannelHandler(
 			return
 		}
 
+		existing, err := ns.GetChannel(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				jsonError(w, "channel not found",
+					http.StatusNotFound)
+				return
+			}
+			internalError(w, r, "get channel", err)
+			return
+		}
+		if req.Name == "" {
+			req.Name = existing.Name
+		}
+		if req.Config == nil {
+			req.Config = existing.Config
+		}
+		enabled := existing.Enabled
+		if req.Enabled != nil {
+			enabled = *req.Enabled
+		}
+
 		if err := ns.UpdateChannel(
 			r.Context(), id, req.Name,
-			req.Config, req.Enabled,
+			req.Config, enabled,
 		); err != nil {
-			jsonError(w, err.Error(), http.StatusBadRequest)
+			if errors.Is(err, store.ErrValidation) {
+				jsonError(w, err.Error(),
+					http.StatusBadRequest)
+				return
+			}
+			if errors.Is(err, store.ErrNotFound) {
+				jsonError(w, "channel not found",
+					http.StatusNotFound)
+				return
+			}
+			internalError(w, r, "update channel", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "updated"})
@@ -117,8 +154,12 @@ func deleteChannelHandler(
 			return
 		}
 		if err := ns.DeleteChannel(r.Context(), id); err != nil {
-			jsonError(w, err.Error(),
-				http.StatusInternalServerError)
+			if errors.Is(err, store.ErrNotFound) {
+				jsonError(w, "channel not found",
+					http.StatusNotFound)
+				return
+			}
+			internalError(w, r, "delete channel", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "deleted"})
@@ -185,7 +226,17 @@ func createRuleHandler(
 			r.Context(), req.ChannelID,
 			req.Event, req.MinSeverity)
 		if err != nil {
-			jsonError(w, err.Error(), http.StatusBadRequest)
+			if errors.Is(err, store.ErrValidation) {
+				jsonError(w, err.Error(),
+					http.StatusBadRequest)
+				return
+			}
+			if errors.Is(err, store.ErrNotFound) {
+				jsonError(w, "channel not found",
+					http.StatusNotFound)
+				return
+			}
+			internalError(w, r, "create rule", err)
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
@@ -209,8 +260,12 @@ func deleteRuleHandler(
 			return
 		}
 		if err := ns.DeleteRule(r.Context(), id); err != nil {
-			jsonError(w, err.Error(),
-				http.StatusInternalServerError)
+			if errors.Is(err, store.ErrNotFound) {
+				jsonError(w, "rule not found",
+					http.StatusNotFound)
+				return
+			}
+			internalError(w, r, "delete rule", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "deleted"})
@@ -238,8 +293,12 @@ func updateRuleHandler(
 		if err := ns.UpdateRule(
 			r.Context(), id, req.Enabled,
 		); err != nil {
-			jsonError(w, err.Error(),
-				http.StatusInternalServerError)
+			if errors.Is(err, store.ErrNotFound) {
+				jsonError(w, "rule not found",
+					http.StatusNotFound)
+				return
+			}
+			internalError(w, r, "update rule", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "updated"})
@@ -271,8 +330,8 @@ func listNotificationLogHandler(
 // values are fully masked.
 func maskChannelSecrets(config map[string]string) {
 	sensitiveKeys := []string{
-		"webhook_url", "routing_key", "smtp_password",
-		"api_key", "token", "secret",
+		"webhook_url", "routing_key", "smtp_pass",
+		"smtp_password", "api_key", "token", "secret",
 	}
 	for _, key := range sensitiveKeys {
 		if v, ok := config[key]; ok && len(v) > 8 {
