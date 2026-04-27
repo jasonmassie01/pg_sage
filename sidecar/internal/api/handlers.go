@@ -552,6 +552,12 @@ func snapshotLatestHandler(
 		}
 		selected, ok := resolveSingleDatabaseRequestPool(mgr, database)
 		if !ok {
+			if database == "all" {
+				jsonResponse(w, map[string]any{
+					"database": "all", "snapshot": nil,
+				})
+				return
+			}
 			jsonError(w, "database is required", http.StatusBadRequest)
 			return
 		}
