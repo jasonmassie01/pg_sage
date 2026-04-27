@@ -123,40 +123,6 @@ func releasePoolAdvisoryLocks(ctx context.Context, pool *pgxpool.Pool) {
 	}
 }
 
-// phase2ExecRetry runs sql and retries once after re-bootstrapping
-// sage if the schema was dropped by a concurrent test package.
-func phase2ExecRetry(
-	t *testing.T, pool *pgxpool.Pool, sql string, args ...any,
-) {
-	t.Helper()
-	ctx := context.Background()
-	_, err := pool.Exec(ctx, sql, args...)
-	if err != nil && strings.Contains(err.Error(), "does not exist") {
-		ensurePhase2SageSchema(t, pool)
-		_, err = pool.Exec(ctx, sql, args...)
-	}
-	if err != nil {
-		t.Fatalf("exec: %v\nsql: %s", err, sql)
-	}
-}
-
-// phase2QueryRetry runs a query and retries once after
-// re-bootstrapping sage if the schema was dropped mid-test.
-func phase2QueryRetry(
-	t *testing.T, pool *pgxpool.Pool, sql string, dest ...any,
-) {
-	t.Helper()
-	ctx := context.Background()
-	err := pool.QueryRow(ctx, sql).Scan(dest...)
-	if err != nil && strings.Contains(err.Error(), "does not exist") {
-		ensurePhase2SageSchema(t, pool)
-		err = pool.QueryRow(ctx, sql).Scan(dest...)
-	}
-	if err != nil {
-		t.Fatalf("query: %v\nsql: %s", err, sql)
-	}
-}
-
 func phase2Config() *config.Config {
 	return &config.Config{
 		Collector: config.CollectorConfig{

@@ -322,19 +322,6 @@ func growthForecastHandler(
 
 // ---------- Query helpers ----------
 
-func resolveIncidentPool(
-	mgr *fleet.DatabaseManager, dbName string,
-) *pgxpool.Pool {
-	if dbName != "" {
-		pool := mgr.PoolForDatabase(dbName)
-		if pool != nil {
-			return pool
-		}
-		return nil
-	}
-	return mgr.PoolForDatabase("all")
-}
-
 func resolveIncidentTargetPool(
 	mgr *fleet.DatabaseManager, dbName string,
 ) (namedPool, bool) {
@@ -387,7 +374,6 @@ func queryIncidents(
 	if dbName != "" {
 		where += fmt.Sprintf(" AND database_name = $%d", argN)
 		args = append(args, dbName)
-		argN++
 	}
 
 	query := incidentsBaseSQL + where +

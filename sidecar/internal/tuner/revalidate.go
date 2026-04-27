@@ -288,49 +288,6 @@ WHERE relname = $1
 	return n > 0, nil
 }
 
-// deleteHintPlanRowIfSafe implements the shared-directive race
-// guard from plan §3.3.6. Before removing a row from hint_plan.hints
-// it counts other active sage.query_hints rows that reference the
-// same hint_text. If any exist, the DELETE is skipped to preserve
-// the hint for the surviving references. Returns (deleted, count).
-func (t *Tuner) deleteHintPlanRowIfSafe(
-	ctx context.Context, hintID int64, hintText string,
-) (bool, int) {
-	if t.pool == nil || hintText == "" {
-		return false, 0
-	}
-	var surviving int
-	err := t.pool.QueryRow(ctx, `
-SELECT count(*) FROM sage.query_hints
-WHERE status = 'active'
-  AND hint_text = $1
-  AND id <> $2`, hintText, hintID).Scan(&surviving)
-	if err != nil {
-		t.logFn("WARN",
-			"revalidate: race guard count failed: %v", err)
-		return false, 0
-	}
-	if surviving > 0 {
-		t.logFn("INFO",
-			"revalidate: hint %d shares directive with %d other "+
-				"active hints; skipping hint_plan.hints DELETE",
-			hintID, surviving)
-		return false, surviving
-	}
-	// Safe to delete the hint_plan.hints row. The INSERT used
-	// norm_query_string keyed on the escaped query text; we use
-	// hint_text as the match key since it's the shared value.
-	_, err = t.pool.Exec(ctx, `
-DELETE FROM hint_plan.hints
-WHERE hints = $1`, hintText)
-	if err != nil {
-		t.logFn("WARN",
-			"revalidate: delete hint_plan.hints: %v", err)
-		return false, 0
-	}
-	return true, 0
-}
-
 func (t *Tuner) updateHintStatus(
 	ctx context.Context, hintID int64, status, reason string,
 ) {

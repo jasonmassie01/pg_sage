@@ -225,7 +225,7 @@ func DeleteUserPreservingAdmin(
 	if err != nil {
 		return fmt.Errorf("begin delete user: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, "LOCK TABLE sage.users IN EXCLUSIVE MODE"); err != nil {
 		return fmt.Errorf("locking users: %w", err)
 	}
@@ -295,7 +295,7 @@ func UpdateUserRolePreservingAdmin(
 	if err != nil {
 		return fmt.Errorf("begin update user role: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := tx.Exec(ctx, "LOCK TABLE sage.users IN EXCLUSIVE MODE"); err != nil {
 		return fmt.Errorf("locking users: %w", err)
 	}

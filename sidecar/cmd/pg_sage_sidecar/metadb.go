@@ -323,28 +323,6 @@ func registerStoreDatabase(
 	bootstrapAndRegister(rec, dbPool)
 }
 
-// registerFleetRuntimeDatabase reconnects a fleet-mode database whose
-// catalog row was edited in the UI. In YAML fleet mode the catalog row
-// stores only a password placeholder; the live password comes from the
-// existing runtime config and is passed in by the caller.
-func registerFleetRuntimeDatabase(
-	rec store.DatabaseRecord, password string,
-) {
-	dbCfg := storeRecordToDBConfig(rec)
-	dbCfg.Password = password
-
-	dbPool, err := connectMonitoredDB(
-		dbCfg.ConnString(), rec.MaxConnections)
-	if err != nil {
-		logError("fleet", "db %q: reconnect after update: %v",
-			rec.Name, err)
-		registerFailedInstance(rec, err.Error())
-		return
-	}
-
-	bootstrapAndRegister(rec, dbPool)
-}
-
 // registerFailedInstance adds a non-connected instance to the
 // fleet for visibility in the dashboard.
 func registerFailedInstance(rec store.DatabaseRecord, errMsg string) {
