@@ -1,8 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import {
-  AlertTriangle, Activity, Bell, Settings,
-  Home, TrendingUp, Zap, Users, LogOut, Mail, Server,
-  ShieldAlert, Search, Menu, X,
+  AlertTriangle, Activity, Settings,
+  Home, LogOut, Server, ShieldAlert, Menu, X,
 } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
 import { useAPI } from '../hooks/useAPI'
@@ -18,44 +17,20 @@ export function usePendingActionsRefetch() {
 
 const NAV_GROUPS = [
   {
-    heading: 'Monitor',
+    heading: 'Operate',
     items: [
-      { path: '#/', icon: Home, label: 'Dashboard',
+      { path: '#/', icon: Home, label: 'Overview',
         tid: 'nav-dashboard' },
-      { path: '#/findings', icon: AlertTriangle,
-        label: 'Recommendations', tid: 'nav-findings' },
+      { path: '#/cases', icon: AlertTriangle,
+        label: 'Cases', tid: 'nav-cases',
+        aliases: ['#/findings'] },
       { path: '#/actions', icon: Activity, label: 'Actions',
         tid: 'nav-actions' },
-      { path: '#/incidents', icon: ShieldAlert,
-        label: 'Incidents', tid: 'nav-incidents' },
-    ],
-  },
-  {
-    heading: 'Analyze',
-    items: [
-      { path: '#/forecasts', icon: TrendingUp,
-        label: 'Forecasts', tid: 'nav-forecasts' },
-      { path: '#/query-hints', icon: Zap, label: 'Performance',
-        tid: 'nav-query-hints' },
-      { path: '#/schema-health', icon: Search,
-        label: 'Schema Health', tid: 'nav-schema-health' },
-      { path: '#/alerts', icon: Bell, label: 'Alerts',
-        tid: 'nav-alerts' },
-    ],
-  },
-  {
-    heading: 'Configure',
-    items: [
+      { path: '#/manage-databases', icon: Server,
+        label: 'Fleet', admin: true,
+        tid: 'nav-databases' },
       { path: '#/settings', icon: Settings, label: 'Settings',
         admin: true, tid: 'nav-settings' },
-      { path: '#/manage-databases', icon: Server,
-        label: 'Databases', admin: true,
-        tid: 'nav-databases' },
-      { path: '#/notifications', icon: Mail,
-        label: 'Notifications', admin: true,
-        tid: 'nav-notifications' },
-      { path: '#/users', icon: Users, label: 'Users',
-        admin: true, tid: 'nav-users' },
     ],
   },
 ]
@@ -217,7 +192,7 @@ export function Layout({
               <NavLink
                 key={n.path}
                 item={n}
-                active={hash === n.path}
+                active={hash === n.path || n.aliases?.includes(hash)}
                 pendingCount={pendingCount}
               />
             ))}
