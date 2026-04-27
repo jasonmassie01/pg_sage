@@ -1,0 +1,799 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/codex-bug-log/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Codex Bug Log - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#codex-bug-log" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Codex Bug Log
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#fixed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#still-open-next-targets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Still Open / Next Targets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="codex-bug-log">Codex Bug Log<a class="headerlink" href="#codex-bug-log" title="Permanent link">&para;</a></h1>
+<p>Last updated: 2026-04-27</p>
+<p>Total tracked fixes: 66</p>
+<h2 id="fixed">Fixed<a class="headerlink" href="#fixed" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Fleet incident, finding, and action detail endpoints could scan all pools by ID and return the first matching row, so duplicate IDs across databases could surface the wrong record. Detail endpoints now require an explicit <code>?database=</code> in multi-pool fleet mode, while still allowing implicit lookup when exactly one database is registered.</li>
+<li>Successful recommendation actions left source findings open, so the UI could continue to offer the same action. Successful action execution now marks linked findings resolved and stores the action log id.</li>
+<li>Rejected recommendations could immediately reappear as pending approvals. Approval mode now suppresses recently rejected finding/SQL pairs during the cooldown window.</li>
+<li>Pending approval counts did not update live. SSE now emits action events from both <code>sage.action_queue</code> and <code>sage.action_log</code>, and the layout subscribes to refresh pending counts.</li>
+<li>Recommendations could still show manual action controls while a matching approval was pending. The UI now hides duplicate manual action controls when pending approvals exist.</li>
+<li>Emergency Stop cancelled monitoring goroutines, and Resume could not restart them. Emergency Stop now gates actions without cancelling monitoring, so Resume restores operation.</li>
+<li>Several bodyless UI <code>POST</code> calls were rejected with HTTP 415 because they omitted <code>Content-Type: application/json</code>. Fixed emergency stop/resume, notification test-send, DB test, incident resolve, and token budget reset call sites.</li>
+<li>Managed database edits updated <code>sage.databases</code> but did not refresh the active fleet runtime instance. Updates now remove the old runtime name and register the updated record.</li>
+<li>Managed database updates against missing ids could report an internal readback failure instead of not found. Store updates now check affected rows and the API maps missing records to 404.</li>
+<li>Notification channel toggles could persist masked secrets returned by the list API, corrupting Slack webhooks, PagerDuty routing keys, or email passwords. Store updates now preserve existing real secrets when masked placeholders are replayed, and API masking covers <code>smtp_pass</code>.</li>
+<li>Notification channel/rule update and delete calls reported success for missing ids, and rule creation relied on database FK errors for missing channels. Notification stores now return not-found/validation errors deterministically and handlers map them to 404/400.</li>
+<li>Notification channel updates treated omitted <code>enabled</code>, <code>name</code>, or <code>config</code> fields as false/empty values, so partial clients could accidentally disable or invalidate channels. The update handler now preserves existing omitted fields.</li>
+<li>Admin users could demote themselves or demote the last admin, potentially leaving the system with no administrator. The API now forbids self admin-role changes and last-admin demotion; the Users UI disables those controls.</li>
+<li>Edit Database <code>Test Connection</code> tested the saved connection instead of unsaved form edits. The edit form now submits current fields, and the backend merges the stored password when the password field is left blank.</li>
+<li>Edit Database <code>Test Connection</code> with unsaved preview fields bypassed the SSRF host guard used by Add Database testing. Preview edit tests now resolve and block unsafe hosts through the same safety path.</li>
+<li>Editing a managed database could send <code>max_connections</code> as a string from the UI, failing JSON decode into the Go integer field. The form now coerces <code>max_connections</code> numerically like <code>port</code>.</li>
+<li>The edit-form SSRF guard initially blocked testing an already-managed local/private database host, breaking legitimate local fixture edits. Edit tests now allow the stored managed host while still blocking unsafe host changes.</li>
+<li>Settings always saved global config, even when a specific database was selected. Fleet status now exposes database ids, Settings maps the selected database name to id, and selected-database edits use <code>/api/v1/config/databases/{id}</code>.</li>
+<li>Global Settings exposed <code>execution_mode</code> as an editable field even though global saves discarded it. The global UI now marks execution mode as database-only, while selected-database Settings can edit and persist it.</li>
+<li><code>GET /api/v1/config/databases/{id}</code> returned config for nonexistent ids and defaulted null <code>execution_mode</code> to <code>manual</code>. It now returns 404 for missing databases and uses the managed DB default <code>approval</code>.</li>
+<li>Saved per-database config overrides could not be reset from Settings. A per-database override delete endpoint now removes stored DB overrides, and the Settings reset button calls it for DB overrides.</li>
+<li>Per-database <code>trust.level</code> reset removed the stored override but did not update the running fleet executor/status. Reset now synchronizes the effective inherited trust level back into runtime state.</li>
+<li>Multi-key config saves could partially persist earlier keys before later validation failures returned 400. Config batch saves now prevalidate all keys before writing any overrides.</li>
+<li>LLM model discovery could write a masked <code>llm.api_key</code> back into global config and ignored selected database scope. Discovery now uses a non-persistent model-discovery request and skips masked keys.</li>
+<li><code>/api/v1/explain</code> accepted viewer-role requests even though it can run database queries. The route now requires operator-or-admin access and has API coverage for valid and invalid explain requests.</li>
+<li>Parameterized explain requests interpolated caller-supplied parameter strings directly into <code>EXPLAIN EXECUTE</code>. Parameters are now emitted as escaped SQL literals, with NUL bytes rejected as invalid input.</li>
+<li>Incident resolution from the UI sent an empty JSON request despite the API requiring a JSON body, so resolving incidents could fail with HTTP 400. The UI now sends <code>{ "reason": "" }</code>.</li>
+<li>Incident confidence never rendered because the API returns <code>confidence</code> but the UI read <code>confidence_score</code>. The incident detail drawer now renders the API field.</li>
+<li>Fleet-wide Query Hints, Incidents, and Action History read only the primary database for all-database views, hiding secondary database rows. These handlers now merge all registered pools, include <code>database_name</code>, sort deterministically, and apply global limits where needed.</li>
+<li>Action details searched only the primary database. Detail lookup now searches all pools so secondary-database action history rows are reachable.</li>
+<li>Manual action execution accepted any valid SQL for any numeric finding id, including missing, resolved, or mismatched findings. Execution now verifies the finding is open/unresolved and the SQL matches the recommendation before running DDL.</li>
+<li>Pending action lists and counts could expose queue rows for findings already resolved by another action, leading users to approve stale actions that could not safely run. Pending action queries and approval now require the linked finding to still be open and actionable.</li>
+<li>Fleet suppress/unsuppress without <code>?database=</code> could mutate the first matching finding id by map-order scan across databases. Mutations now require a database when more than one instance exists and only allow implicit targeting for a single connected instance.</li>
+<li>Emergency stop/resume returned 200 with zero changes for unknown database names and ignored persistence errors from writing the stop flag. Handlers now return 404 for unknown databases and surface persistence failures instead of reporting success.</li>
+<li>Fleet Health chart used raw database aliases as Recharts <code>dataKey</code> values. Aliases containing dots could be interpreted as object paths and fail to render; the chart now uses safe internal series keys and display names separately.</li>
+<li>Schema Health applied status/severity/category filters to the table but not to the summary stats, so the summary could contradict the visible rows. Stats now use the same filters, and the summary label now describes matching findings rather than always saying open findings.</li>
+<li>Query Hints treated missing <code>after_cost</code> as zero due JavaScript null coercion, creating fake 100% cost improvements. Cost improvement and average improvement now require both before and after costs.</li>
+<li>Query Hints lifecycle states existed (<code>retired</code>, <code>broken</code>) but <code>/api/v1/query-hints</code> only returned active rows, making the UI Status column misleading and hiding revalidation outcomes. The endpoint now returns recent hints across statuses by default and supports <code>status=active|retired|broken</code> filtering.</li>
+<li>Schema Health could not filter the <code>safety</code> thematic category even though the backend schema linter emits it. The category dropdown now includes safety, and live coverage verifies expanded rows show impact, recommendation, and suggested SQL.</li>
+<li>Fleet Health chart series keys were safe for dotted aliases but still depended on unsorted response object order, so series key-to-database mapping could shift between refreshes. Series are now sorted deterministically, and live coverage verifies chart rendering from seeded <code>health_history</code> rows across all three local databases.</li>
+<li>Incidents accepted <code>low</code>, <code>medium</code>, and <code>high</code> risk values plus newer source values, but the UI only labeled the older <code>safe</code>, <code>moderate</code>, and <code>high_risk</code> variants. The detail drawer now labels all valid risk/source values.</li>
+<li>Viewer users were shown the Pending Approval tab and the Actions page fetched operator-only pending approvals, causing forbidden requests for read-only users. Pending-review UI and polling now render only for admin/operator roles, with live viewer/operator boundary coverage.</li>
+<li>Notification channel UI did not expose PagerDuty even though the backend supports it, and selecting unsupported types would fall through to the email form shape. The Channels form now exposes PagerDuty with a routing-key field and stable browser-test selectors for all channel types.</li>
+<li>Notification masked-secret preservation now has browser-level coverage: creating a Slack channel through the UI, receiving a masked webhook from the API, toggling the channel from the UI, and verifying the database still stores the original webhook rather than the masked placeholder.</li>
+<li>Existing managed database connection tests in YAML fleet mode tried to decrypt the <code>sage.databases.password_enc</code> placeholder even though runtime credentials live in the fleet instance config. The endpoint now uses fleet runtime credentials for fleet-registered rows and only reports 404 for actual missing database records.</li>
+<li>Managed Database edit-form connection testing now has browser-level coverage for unsaved field changes and empty password fallback, including a failing unsaved database name followed by a successful retry without saving.</li>
+<li>Managed Database API/UI edits did not round-trip <code>max_connections</code>; saving from the UI could overwrite a configured fleet limit with <code>0</code>. The API now returns and accepts <code>max_connections</code>, defaults absent values safely, and the UI includes the field.</li>
+<li>In local YAML fleet mode, saving a managed database edit could close the primary fleet pool, which is also captured for auth and catalog storage, causing subsequent logins/API calls to hang or fail. No-meta fleet edits now refresh runtime metadata in place without closing the primary pool, with browser coverage for saved edits updating runtime trust state.</li>
+<li>Background/live refetches set <code>loading=true</code> even when data was already rendered, unmounting tables and collapsing/detaching expanded finding action panels while a user was approving or rejecting queued work. <code>useAPI</code> now keeps existing data mounted during background refetches and only shows loading on initial load or URL changes.</li>
+<li>Local no-meta fleet mode exposed Add Database even though new database credentials cannot be encrypted without an <code>encryption_key</code>, causing a 500. The store now returns a validation error, and browser coverage verifies the UI surfaces the <code>encryption_key</code> requirement.</li>
+<li>Global Settings reset could not remove global overrides correctly because hot reload mutated the live config and the API no longer had an immutable YAML/default baseline to restore from. Config routes now keep a detached baseline snapshot, expose <code>DELETE /api/v1/config/global/{key}</code>, reload live config from baseline plus remaining overrides, and the Settings UI can reset global overrides.</li>
+<li>The full-surface fixture did not include a deterministic invalid-index case and only printed finding summaries. The fixture now creates a failed concurrent unique index, asserts expected analyzer categories, schema-lint rule IDs, and active query hints across all three local databases, and polls until the expected surface appears.</li>
+<li>The legacy serial walkthrough could not run against local Docker fixtures without hardcoded database credentials and failed strict-mode locators when multiple finding detail/suppress controls were visible. The walkthrough now supports fixture DB credential env vars, has an encrypted meta-db config for add/edit/delete flows, and scopes duplicate UI controls to the first visible target.</li>
+<li>The encrypted walkthrough fixture was still a manual setup sequence. <code>run_walkthrough_fixture.ps1</code> now provisions isolated meta/target databases, seeds the fixture schema, starts the encrypted sidecar, resets the admin password, runs the 124-check walkthrough, and can restore the standard full-surface sidecar afterward.</li>
+<li>The long walkthrough used Playwright serial mode, so one failed checkpoint skipped every later check and hid independent endpoint/UI regressions. The global serial mode is now removed; the wrapper still runs the file with one worker to preserve fixture ordering, but later checks continue after failures.</li>
+<li>Successful create-index approvals could be followed by a stale analyzer cycle reopening the same missing-index finding as a new open row. Finding upserts now suppress immediate reopen of recently action-resolved findings while still allowing genuinely unresolved issues to reappear after the grace window.</li>
+<li>Stale or parallel create-index approvals could execute after an equivalent index already existed, creating duplicate indexes with auto-generated names. Manual/approved create-index execution now checks for an existing valid covering index before running DDL and records the action as successful without creating another index.</li>
+<li>Action lifecycle verification only checked row presence in browser tests. The full-surface harness now verifies pending rows across all three local databases, approve execution, rejected queue removal, executed action logs, resolved finding links, and no post-refresh missing/duplicate-index noise.</li>
+<li>Failed <code>CREATE INDEX CONCURRENTLY</code> attempts could leave invalid autogenerated index stubs that blocked the next approval of the same recommendation. Create-index execution now drops invalid covering index blockers before retrying the DDL.</li>
+<li>Transient lock timeouts during approved <code>CREATE INDEX CONCURRENTLY</code> actions could fail the UI workflow and leave an invalid index stub. Create-index execution now retries lock-timeout failures and cleans invalid blockers between attempts.</li>
+<li>Mutating action browser specs selected the first available pending create/drop action, so parallel runs could contend for the same database/object depending on queue order. The specs now use disjoint deterministic database/action targets.</li>
+<li>The full-surface high-total-time fixture used a PL/pgSQL loop that pg_stat_statements counted as one call, making the <code>high_total_time</code> category intermittent. The workload now uses psql <code>\gexec</code> so the high-frequency query is recorded as thousands of real calls.</li>
+<li>Incident resolve mutations in a multi-database fleet could resolve the first matching incident UUID by pool order when the UI did not send a database target. Resolve now requires an explicit database when multiple pools are connected, the UI sends the row database, and duplicate incident UUID coverage verifies only the selected database is mutated.</li>
+<li>Incident listing for a selected fleet alias could drop rows whose stored <code>database_name</code> was the physical PostgreSQL database name, and the UI could then resolve against that physical name instead of the fleet alias. Incident list responses now include <code>fleet_database_name</code> for mutations, and selected-pool listing no longer filters rows by alias.</li>
+<li>Last-admin demote/delete checks were split from the mutation, so concurrent requests could both pass a stale admin count and leave the system without an admin. User role changes and deletes now run in a locked transaction with DB-backed concurrency coverage.</li>
+</ul>
+<h2 id="still-open-next-targets">Still Open / Next Targets<a class="headerlink" href="#still-open-next-targets" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Split the walkthrough into smaller domain specs over time so setup-heavy checks and independent endpoint checks can run separately in CI.</li>
+<li>Continue adding targeted browser regressions whenever a manual workflow exposes a bug class not covered by the current app-specific specs.</li>
+</ul>
+<h2 id="verification">Verification<a class="headerlink" href="#verification" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>go test ./internal/store ./internal/api -run "TestCoverage_NotificationStore|TestPhase2_(Create|Update|Delete).*Handler|TestNotificationHandlers" -count=1</code></li>
+<li><code>npm test -- --run src/components/FleetHealthChart.test.jsx src/pages/QueryHintsPage.test.jsx</code> in <code>sidecar/web</code></li>
+<li><code>go test ./internal/executor ./internal/api -run "TestCoverage_ExecuteManual|TestManualExecuteHandler|TestCoverage_LogManualAction|TestCoverage_LogAction" -count=1</code></li>
+<li><code>go test ./internal/api -run "TestAPI_Suppress|TestAPI_Unsuppress|TestCoverage_Suppress|TestCoverage_Unsuppress|TestPhase2_SuppressHandler|TestPhase2_UnsuppressHandler|TestCoverage_RegisterActionRoutes|TestCoverage_NewRouterFull_FleetActions" -count=1</code></li>
+<li><code>go test ./internal/fleet -run "TestManager_EmergencyStop|TestManager_Resume" -count=1</code></li>
+<li><code>go test ./internal/api -run "TestAPI_EmergencyStop|TestAPI_Resume|TestCoverage_EmergencyStop|TestCoverage_Resume" -count=1</code></li>
+<li><code>go test ./internal/api -run "TestGlobalGet_ContainsAllExpectedKeys|TestPhase2_ConfigDBDeleteHandler_RemovesDBOverride" -count=1</code></li>
+<li><code>go test ./internal/api -run "TestPhase2_TestManagedDBHandler_(PreviewBlocksUnsafeHosts|AllowsStoredPrivateHost)|TestCoverage_TestManagedDB_InvalidID" -count=1</code></li>
+<li><code>go test ./internal/store ./internal/api -run "TestCoverage_ActionStore|TestPhase2_FleetPending|TestCoverage_NewRouterFull_FleetActions|TestCoverage_RegisterActionRoutes" -count=1</code></li>
+<li><code>go test ./internal/api ./internal/store ./internal/executor ./internal/fleet</code></li>
+<li><code>npm test -- --run src/pages/SettingsPage.test.jsx src/pages/databases/DatabaseForm.test.jsx src/components/FleetHealthChart.test.jsx src/pages/QueryHintsPage.test.jsx</code> in <code>sidecar/web</code></li>
+<li><code>npm run build</code> in <code>sidecar/web</code></li>
+<li><code>go test ./internal/api/... ./internal/config/... ./internal/executor ./internal/store ./internal/analyzer ./internal/fleet ./cmd/pg_sage_sidecar</code></li>
+<li><code>npm.cmd test -- --run</code> in <code>sidecar/web</code></li>
+<li><code>npm.cmd run build</code> in <code>sidecar/web</code></li>
+<li><code>powershell -ExecutionPolicy Bypass -File .\test-fixtures\full_surface\run_full_surface.ps1 -ConfigPath .\test-fixtures\full_surface\verify_config_approval.yaml -PollSeconds 70</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test users.spec.ts notifications.spec.ts databases.spec.ts</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test settings.spec.ts</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test incidents.spec.ts explain-api.spec.ts</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test fleet-aggregation.spec.ts incidents.spec.ts explain-api.spec.ts</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test schema-health.spec.ts fleet-aggregation.spec.ts incidents.spec.ts explain-api.spec.ts</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test query-hints-lifecycle.spec.ts schema-health.spec.ts fleet-aggregation.spec.ts</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test schema-health.spec.ts query-hints-lifecycle.spec.ts</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test fleet-health-chart.spec.ts</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test incidents.spec.ts fleet-health-chart.spec.ts schema-health.spec.ts query-hints-lifecycle.spec.ts</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test role-boundaries.spec.ts actions.spec.ts</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test notifications.spec.ts databases.spec.ts</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test notifications.spec.ts databases.spec.ts --workers=1</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test findings-actions.spec.ts --workers=1</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test role-boundaries.spec.ts actions.spec.ts schema-health.spec.ts query-hints-lifecycle.spec.ts fleet-aggregation.spec.ts fleet-health-chart.spec.ts incidents.spec.ts explain-api.spec.ts findings-actions.spec.ts --workers=2</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test databases.spec.ts notifications.spec.ts findings-actions.spec.ts --workers=1</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test settings.spec.ts --workers=1</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test login.spec.ts navigation.spec.ts dashboard.spec.ts findings.spec.ts databases.spec.ts users.spec.ts notifications.spec.ts actions-workflow.spec.ts emergency-stop.spec.ts live-events.spec.ts walkthrough.spec.ts --workers=2</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test walkthrough.spec.ts --workers=1</code> in <code>e2e</code> with <code>PG_SAGE_E2E_FIXTURES=1</code> and local encrypted meta-db walkthrough config</li>
+<li>PowerShell parser validation for <code>test-fixtures/full_surface/run_walkthrough_fixture.ps1</code></li>
+<li><code>powershell -ExecutionPolicy Bypass -File .\test-fixtures\full_surface\run_walkthrough_fixture.ps1 -SkipTests -RestoreFullSurface</code></li>
+<li><code>go test ./internal/analyzer -run TestPhase2_UpsertFindings_DoesNotReopenRecentlyResolvedAction -count=1</code></li>
+<li><code>go test ./internal/executor -run "TestCoverage_ExecuteManual_CreateIndexIsIdempotentWhenCovered|TestCoverage_ExecuteManual_SuccessfulExecution" -count=1</code></li>
+<li><code>powershell -ExecutionPolicy Bypass -File .\test-fixtures\full_surface\run_full_surface.ps1 -ConfigPath .\test-fixtures\full_surface\verify_config_approval.yaml -PollSeconds 90</code></li>
+<li><code>powershell -ExecutionPolicy Bypass -File .\test-fixtures\full_surface\run_full_surface.ps1 -ConfigPath .\test-fixtures\full_surface\verify_config_approval.yaml -PollSeconds 150</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test role-boundaries.spec.ts settings.spec.ts databases.spec.ts notifications.spec.ts actions-workflow.spec.ts findings-actions.spec.ts emergency-stop.spec.ts --workers=2</code> in <code>e2e</code> with <code>PG_SAGE_E2E_BASE_URL=http://127.0.0.1:18085</code> (26 passed, 1 skipped before action-spec target correction)</li>
+<li><code>.\node_modules\.bin\playwright.cmd test actions-workflow.spec.ts findings-actions.spec.ts --workers=2</code> in <code>e2e</code> with <code>PG_SAGE_E2E_BASE_URL=http://127.0.0.1:18085</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test actions-workflow.spec.ts --workers=1</code> in <code>e2e</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test --workers=2</code> in <code>e2e</code></li>
+<li><code>powershell -ExecutionPolicy Bypass -File .\test-fixtures\full_surface\run_walkthrough_fixture.ps1 -RestoreFullSurface</code></li>
+<li><code>go test ./internal/executor -run "TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker|TestCoverage_ExecuteManual_CreateIndexIsIdempotentWhenCovered|TestCoverage_ExecuteManual_SuccessfulExecution" -count=1</code></li>
+<li><code>.\node_modules\.bin\playwright.cmd test actions-workflow.spec.ts findings-actions.spec.ts --workers=2</code> in <code>e2e</code></li>
+<li><code>go test ./internal/analyzer ./internal/executor</code></li>
+<li><code>powershell -ExecutionPolicy Bypass -File .\test-fixtures\full_surface\run_walkthrough_fixture.ps1 -RestoreFullSurface</code></li>
+<li><code>go test ./internal/api -run "TestIncidentResolveHandler|TestPhase2_UpdateUserRolePreservingAdmin|TestPhase2_DeleteUserPreservingAdmin" -count=1</code></li>
+<li><code>go test ./internal/tuner -run "TestRevalidate_LifecycleMarkers|Test(Revalidate|DecideHintFate|FetchQueryStats|LoadHintsForRevalidation|UpdateHintStatus|UpdateRevalidationTimestamp|StartRevalidationLoop|IsNoRowsErr)" -count=1</code></li>
+<li><code>go test ./internal/auth ./internal/api</code></li>
+<li><code>go test ./internal/api -run "TestIncident|TestIncidentsListUsesFleetAliasAsResolveTarget|TestPhase2_UpdateUserRolePreservingAdmin|TestPhase2_DeleteUserPreservingAdmin" -count=1</code></li>
+<li><code>go test ./internal/api -run "TestAPI_(FindingDetail|ActionDetail)|TestIncidentDetailHandler|TestIncidentResolveHandler|TestIncidentsListUsesFleetAliasAsResolveTarget" -count=1</code></li>
+<li><code>go test ./internal/api -count=1</code></li>
+<li><code>go test ./internal/auth ./internal/api ./internal/tuner -count=1</code></li>
+<li><code>cmd /c npm run build</code> in <code>sidecar/web</code></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

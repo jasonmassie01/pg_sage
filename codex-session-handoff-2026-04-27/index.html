@@ -1,0 +1,1027 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/codex-session-handoff-2026-04-27/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Codex Session Handoff - 2026-04-27 - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#codex-session-handoff-2026-04-27" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Codex Session Handoff - 2026-04-27
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#completed-in-this-batch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Completed In This Batch
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Completed In This Batch">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-incident-resolve-db-scoping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Incident Resolve DB Scoping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-query-hint-lifecycle-coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Query-Hint Lifecycle Coverage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-atomic-last-admin-protections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Atomic Last-Admin Protections
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bug-log" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bug Log
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verification-already-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verification Already Run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#subagents-used" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subagents Used
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expected-git-state-for-this-batch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expected Git State For This Batch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-to-resume-safely" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How To Resume Safely
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommended-next-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended Next Work
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prior-project-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prior Project Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#communication-preference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Communication Preference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="codex-session-handoff-2026-04-27">Codex Session Handoff - 2026-04-27<a class="headerlink" href="#codex-session-handoff-2026-04-27" title="Permanent link">&para;</a></h1>
+<p>Repo: <code>C:\Users\jmass\pg_sage</code></p>
+<p>Goal from user: continue deep functional verification of pg_sage across backend, database fixtures, and UI. The immediate batch was "do 1-3":</p>
+<ol>
+<li>Fix incident resolve DB scoping and add DB-backed coverage.</li>
+<li>Add real query-hint lifecycle coverage for <code>active -&gt; retired</code> and <code>active -&gt; broken</code>.</li>
+<li>Make last-admin demote/delete protections atomic under concurrent requests.</li>
+</ol>
+<p>Important current caveat: the worktree is very dirty from prior sessions. Do not reset or revert unrelated files. Treat existing changes as intentional unless directly conflicting. At the end of this API session, PowerShell started failing to launch with:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Internal Windows PowerShell error. Loading managed Windows PowerShell failed with error 8009001d.
+</code></pre></div>
+<p>Codex Desktop should first verify the shell environment, then continue.</p>
+<h2 id="completed-in-this-batch">Completed In This Batch<a class="headerlink" href="#completed-in-this-batch" title="Permanent link">&para;</a></h2>
+<h3 id="1-incident-resolve-db-scoping">1. Incident Resolve DB Scoping<a class="headerlink" href="#1-incident-resolve-db-scoping" title="Permanent link">&para;</a></h3>
+<p>Files changed:</p>
+<ul>
+<li><code>sidecar/internal/api/handlers_v09.go</code></li>
+<li><code>sidecar/internal/api/incident_resolve_test.go</code></li>
+<li><code>sidecar/web/src/pages/IncidentsPage.jsx</code></li>
+<li><code>sidecar/internal/api/dist/*</code> regenerated by <code>npm run build</code></li>
+</ul>
+<p>Behavior now:</p>
+<ul>
+<li><code>POST /api/v1/incidents/{id}/resolve</code> reads <code>?database=</code>.</li>
+<li>In a multi-pool fleet, resolve without an explicit DB now returns <code>400</code> with <code>database is required</code>.</li>
+<li>If a single pool is connected, implicit resolve is still allowed.</li>
+<li>Resolve mutates only the selected pool.</li>
+<li>Response includes selected fleet database alias.</li>
+<li>UI passes the row database target when resolving.</li>
+</ul>
+<p>Additional verifier-found bug fixed:</p>
+<ul>
+<li>Fleet incident rows can store a physical PostgreSQL database name in <code>sage.incidents.database_name</code>, while API routing expects the fleet alias.</li>
+<li>The list handlers no longer filter selected-pool incident rows by alias.</li>
+<li>List responses now add <code>fleet_database_name</code> as the stable mutation target.</li>
+<li>UI now uses <code>row.fleet_database_name || row.database_name || database</code> for resolve calls.</li>
+<li>Database column renders <code>fleet_database_name || database_name || '-'</code>.</li>
+</ul>
+<p>Important functions:</p>
+<ul>
+<li><code>incidentResolveHandler</code></li>
+<li><code>resolveIncidentTargetPool</code></li>
+<li><code>annotateIncidentFleetDatabase</code></li>
+<li><code>incidentsListHandler</code></li>
+<li><code>incidentsActiveHandler</code></li>
+</ul>
+<p>Tests added:</p>
+<ul>
+<li><code>TestIncidentResolveHandlerScopesToRequestedDatabase</code></li>
+<li><code>TestIncidentResolveHandlerRequiresDatabaseForFleet</code></li>
+<li><code>TestIncidentsListUsesFleetAliasAsResolveTarget</code></li>
+</ul>
+<p>The third test is important. It creates a temp DB, stores the physical DB name on the incident row, registers the pool as <code>friendly_alias</code>, verifies list returns the row for <code>?database=friendly_alias</code>, verifies <code>fleet_database_name</code>, then resolves using the alias.</p>
+<h3 id="2-query-hint-lifecycle-coverage">2. Query-Hint Lifecycle Coverage<a class="headerlink" href="#2-query-hint-lifecycle-coverage" title="Permanent link">&para;</a></h3>
+<p>File changed:</p>
+<ul>
+<li><code>sidecar/internal/tuner/revalidate_test.go</code></li>
+</ul>
+<p>Behavior:</p>
+<ul>
+<li>No production bug found in query-hint lifecycle during this pass.</li>
+<li>Added deterministic coverage for public <code>Tuner.Revalidate</code>.</li>
+<li>Verifies active hints move to:</li>
+<li><code>retired</code> with <code>verified_at</code> set and <code>rolled_back_at</code> null.</li>
+<li><code>broken</code> with <code>rolled_back_at</code> set and <code>verified_at</code> null.</li>
+</ul>
+<p>Test added:</p>
+<ul>
+<li><code>TestRevalidate_LifecycleMarkers</code></li>
+</ul>
+<p>Helper added:</p>
+<ul>
+<li><code>seedRevalHintWithText</code></li>
+</ul>
+<h3 id="3-atomic-last-admin-protections">3. Atomic Last-Admin Protections<a class="headerlink" href="#3-atomic-last-admin-protections" title="Permanent link">&para;</a></h3>
+<p>Files changed:</p>
+<ul>
+<li><code>sidecar/internal/auth/auth.go</code></li>
+<li><code>sidecar/internal/api/auth_handlers.go</code></li>
+<li><code>sidecar/internal/api/coverage_phase2_test.go</code></li>
+</ul>
+<p>Behavior now:</p>
+<ul>
+<li>Added <code>auth.ErrLastAdmin</code>.</li>
+<li>Added <code>auth.DeleteUserPreservingAdmin</code>.</li>
+<li>Added <code>auth.UpdateUserRolePreservingAdmin</code>.</li>
+<li>Both begin a transaction and <code>LOCK TABLE sage.users IN EXCLUSIVE MODE</code>.</li>
+<li>Both read target/current role inside the transaction.</li>
+<li>Both count admins inside the same transaction before deleting/demoting an admin.</li>
+<li>API handlers now call the preserving variants.</li>
+<li><code>ErrLastAdmin</code> maps to <code>403</code>.</li>
+<li><code>ErrUserNotFound</code> maps to <code>404</code>.</li>
+<li>Invalid roles still map to <code>400</code>.</li>
+<li>Self-demotion is still explicitly blocked.</li>
+</ul>
+<p>Tests added:</p>
+<ul>
+<li><code>TestPhase2_UpdateUserRolePreservingAdmin_ConcurrentDemotions</code></li>
+<li><code>TestPhase2_DeleteUserPreservingAdmin_ConcurrentDeletes</code></li>
+</ul>
+<p>Each test creates two admins, runs concurrent destructive admin mutations, expects exactly one success and one <code>auth.ErrLastAdmin</code>, and verifies the final admin count is <code>1</code>.</p>
+<h2 id="bug-log">Bug Log<a class="headerlink" href="#bug-log" title="Permanent link">&para;</a></h2>
+<p>Persistent bug log:</p>
+<ul>
+<li><code>docs/codex-bug-log.md</code></li>
+</ul>
+<p>Updated:</p>
+<ul>
+<li><code>Last updated: 2026-04-27</code></li>
+<li><code>Total tracked fixes: 65</code></li>
+</ul>
+<p>New production fixes logged in this batch:</p>
+<ul>
+<li>Incident resolve mutations in a multi-database fleet could resolve the first matching incident UUID by pool order when the UI did not send a database target.</li>
+<li>Incident listing for a selected fleet alias could drop rows whose stored <code>database_name</code> was the physical PostgreSQL database name, and the UI could then resolve against that physical name instead of the fleet alias.</li>
+<li>Last-admin demote/delete checks were split from the mutation, so concurrent requests could both pass a stale admin count and leave the system without an admin.</li>
+</ul>
+<p>Query-hint lifecycle was logged as verification coverage, not counted as a production fix.</p>
+<h2 id="verification-already-run">Verification Already Run<a class="headerlink" href="#verification-already-run" title="Permanent link">&para;</a></h2>
+<p>Commands that passed during this batch:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">cd </span><span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span><span class="p">\</span><span class="n">sidecar</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">go</span> <span class="n">test</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">&quot;TestIncidentResolveHandler|TestPhase2_UpdateUserRolePreservingAdmin|TestPhase2_DeleteUserPreservingAdmin&quot;</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">cd </span><span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span><span class="p">\</span><span class="n">sidecar</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">go</span> <span class="n">test</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">&quot;TestIncident|TestIncidentsListUsesFleetAliasAsResolveTarget|TestPhase2_UpdateUserRolePreservingAdmin|TestPhase2_DeleteUserPreservingAdmin&quot;</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">cd </span><span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span><span class="p">\</span><span class="n">sidecar</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">go</span> <span class="n">test</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">tuner</span> <span class="n">-run</span> <span class="s2">&quot;TestRevalidate_LifecycleMarkers|Test(Revalidate|DecideHintFate|FetchQueryStats|LoadHintsForRevalidation|UpdateHintStatus|UpdateRevalidationTimestamp|StartRevalidationLoop|IsNoRowsErr)&quot;</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">cd </span><span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span><span class="p">\</span><span class="n">sidecar</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">go</span> <span class="n">test</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">auth</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">tuner</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nb">cd </span><span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span><span class="p">\</span><span class="n">sidecar</span><span class="p">\</span><span class="n">web</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">npm</span> <span class="n">run</span> <span class="n">build</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nb">cd </span><span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">git</span> <span class="nb">diff </span><span class="p">-</span><span class="n">-check</span> <span class="p">--</span> <span class="n">docs</span><span class="p">/</span><span class="n">codex-bug-log</span><span class="p">.</span><span class="nb">md </span><span class="n">sidecar</span><span class="p">/</span><span class="n">internal</span><span class="p">/</span><span class="n">auth</span><span class="p">/</span><span class="n">auth</span><span class="p">.</span><span class="n">go</span> <span class="n">sidecar</span><span class="p">/</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span><span class="p">/</span><span class="n">auth_handlers</span><span class="p">.</span><span class="n">go</span> <span class="n">sidecar</span><span class="p">/</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span><span class="p">/</span><span class="n">coverage_phase2_test</span><span class="p">.</span><span class="n">go</span> <span class="n">sidecar</span><span class="p">/</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span><span class="p">/</span><span class="n">handlers_v09</span><span class="p">.</span><span class="n">go</span> <span class="n">sidecar</span><span class="p">/</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span><span class="p">/</span><span class="n">incident_resolve_test</span><span class="p">.</span><span class="n">go</span> <span class="n">sidecar</span><span class="p">/</span><span class="n">web</span><span class="p">/</span><span class="n">src</span><span class="p">/</span><span class="n">pages</span><span class="p">/</span><span class="n">IncidentsPage</span><span class="p">.</span><span class="n">jsx</span> <span class="n">sidecar</span><span class="p">/</span><span class="n">internal</span><span class="p">/</span><span class="n">tuner</span><span class="p">/</span><span class="n">revalidate_test</span><span class="p">.</span><span class="n">go</span>
+</code></pre></div>
+<p><code>git diff --check</code> produced only CRLF warnings, no whitespace errors.</p>
+<p>Vite build produced the normal large chunk warning, but succeeded.</p>
+<h2 id="subagents-used">Subagents Used<a class="headerlink" href="#subagents-used" title="Permanent link">&para;</a></h2>
+<p>Two earlier workers completed the first pass:</p>
+<ul>
+<li><code>Socrates</code> / <code>019dceb0-fe67-7850-9023-18feb34a579e</code>: incident resolve DB scoping and UI resolve changes.</li>
+<li><code>Darwin</code> / <code>019dceb1-5262-76f2-a966-3bc1885baa8c</code>: query-hint lifecycle coverage.</li>
+</ul>
+<p>One verifier agent found a real bug:</p>
+<ul>
+<li><code>Hilbert</code> / <code>019dceb6-5e7e-7aa0-bc23-7edf38b5be64</code></li>
+<li>Finding: incident rows only got <code>database_name = selected.name</code> when blank, but UI used <code>row.database_name</code> for resolve. If <code>database_name</code> was physical/legacy rather than fleet alias, resolve could 404.</li>
+<li>This finding was fixed and tested with <code>TestIncidentsListUsesFleetAliasAsResolveTarget</code>.</li>
+</ul>
+<p>All subagents were closed.</p>
+<h2 id="expected-git-state-for-this-batch">Expected Git State For This Batch<a class="headerlink" href="#expected-git-state-for-this-batch" title="Permanent link">&para;</a></h2>
+<p>Relevant changed/untracked files from this batch:</p>
+<ul>
+<li><code>docs/codex-bug-log.md</code> - untracked or modified depending on local git state.</li>
+<li><code>docs/codex-session-handoff-2026-04-27.md</code> - this handoff file.</li>
+<li><code>sidecar/internal/api/auth_handlers.go</code></li>
+<li><code>sidecar/internal/api/coverage_phase2_test.go</code></li>
+<li><code>sidecar/internal/api/handlers_v09.go</code></li>
+<li><code>sidecar/internal/api/incident_resolve_test.go</code> - new.</li>
+<li><code>sidecar/internal/auth/auth.go</code></li>
+<li><code>sidecar/internal/tuner/revalidate_test.go</code></li>
+<li><code>sidecar/web/src/pages/IncidentsPage.jsx</code></li>
+<li><code>sidecar/internal/api/dist/index.html</code></li>
+<li><code>sidecar/internal/api/dist/assets/index-C5CTebtM.js</code> - generated current JS asset after final <code>npm run build</code>.</li>
+<li><code>sidecar/internal/api/dist/assets/index-CNuNzqno.css</code> - generated current CSS asset.</li>
+<li>Old generated dist assets may show as deleted, e.g. <code>index-_JJVRBsQ.js</code>, <code>index-qzUFDgNK.css</code>, and possibly an intermediate generated JS asset from a previous build.</li>
+</ul>
+<p>The broader worktree has many unrelated modified/untracked files from prior work. Do not interpret this batch as the only dirty state.</p>
+<h2 id="how-to-resume-safely">How To Resume Safely<a class="headerlink" href="#how-to-resume-safely" title="Permanent link">&para;</a></h2>
+<p>First commands to run in Codex Desktop:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nb">cd </span><span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">git</span> <span class="n">status</span> <span class="p">-</span><span class="n">-short</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nb">cd </span><span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span><span class="p">\</span><span class="n">sidecar</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">go</span> <span class="n">test</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">auth</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">tuner</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nb">cd </span><span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span><span class="p">\</span><span class="n">sidecar</span><span class="p">\</span><span class="n">web</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">npm</span> <span class="n">run</span> <span class="n">build</span>
+</code></pre></div>
+<p>If PowerShell still fails with <code>8009001d</code>, restart the Codex shell/session or use a non-Windows PowerShell host if Desktop supports it. The code changes are already written.</p>
+<h2 id="recommended-next-work">Recommended Next Work<a class="headerlink" href="#recommended-next-work" title="Permanent link">&para;</a></h2>
+<p>The next high-value path is live UI verification against the local sidecar and the three connected Docker Postgres databases.</p>
+<p>Start with these workflows because they were just modified:</p>
+<ol>
+<li>Incidents page:</li>
+<li>Load all-database incident list.</li>
+<li>Load selected database incident list.</li>
+<li>Confirm rows display correct fleet database.</li>
+<li>Resolve an incident from the UI.</li>
+<li>Confirm only the selected database row is resolved.</li>
+<li>
+<p>Confirm incident disappears from active list and appears in resolved list.</p>
+</li>
+<li>
+<p>Users page:</p>
+</li>
+<li>As admin, try demoting self. Expect 403/UI blocked.</li>
+<li>Try demoting/deleting the only admin. Expect 403.</li>
+<li>With two admins, demote/delete one. Expect success and one admin remains.</li>
+<li>
+<p>Try rapid/concurrent demote/delete if feasible with browser/API calls.</p>
+</li>
+<li>
+<p>Query Hints page:</p>
+</li>
+<li>Seed or use fixture hints that can revalidate to <code>retired</code> and <code>broken</code>.</li>
+<li>Confirm the API returns lifecycle statuses.</li>
+<li>Confirm UI status filter and status display match API.</li>
+</ol>
+<p>After that, continue hunting unknown cross-database mutation bugs. The pattern to look for:</p>
+<ul>
+<li>List endpoint aggregates from all DBs and displays a row.</li>
+<li>UI action uses a row field for <code>?database=</code>.</li>
+<li>Backend mutation resolves by fleet alias or pool order.</li>
+<li>If row stores physical DB name, stale DB name, blank DB name, or duplicate IDs across DBs, mutation can target wrong DB, fail, or leave stale UI state.</li>
+</ul>
+<p>Likely next surfaces to audit with this pattern:</p>
+<ul>
+<li>Action approval/rejection and action history details.</li>
+<li>Finding suppress/unsuppress and manual action execution.</li>
+<li>Schema health actions if any.</li>
+<li>Query hint actions/revalidation controls.</li>
+<li>Managed database edits/deletes and runtime fleet refresh.</li>
+</ul>
+<h2 id="prior-project-context">Prior Project Context<a class="headerlink" href="#prior-project-context" title="Permanent link">&para;</a></h2>
+<p>The broader project goal is not just unit tests. User wants a full functional verification harness that exercises every case the app can produce across all three local databases:</p>
+<ul>
+<li>missing index</li>
+<li>duplicate index</li>
+<li>overlapping indexes</li>
+<li>invalid index</li>
+<li>unused index</li>
+<li>every query-hint category</li>
+<li>high total time / high mean time / high call count</li>
+<li>N+1 or incident-producing cases</li>
+<li>notification behavior</li>
+<li>actions that mutate DB state</li>
+<li>UI verification as an end user</li>
+</ul>
+<p>Existing fixture/workflow references from previous sessions:</p>
+<ul>
+<li><code>test-fixtures/full_surface/run_full_surface.ps1</code></li>
+<li><code>test-fixtures/full_surface/run_walkthrough_fixture.ps1</code></li>
+<li><code>e2e/*.spec.ts</code></li>
+<li><code>docs/codex-bug-log.md</code></li>
+</ul>
+<p>Previously verified commands are listed extensively at the bottom of <code>docs/codex-bug-log.md</code>.</p>
+<h2 id="communication-preference">Communication Preference<a class="headerlink" href="#communication-preference" title="Permanent link">&para;</a></h2>
+<p>User wants Codex to take charge and continue without waiting:</p>
+<ul>
+<li>Use multiple agents where helpful.</li>
+<li>Keep going through the entire app.</li>
+<li>Maintain the bug list.</li>
+<li>Find bugs the user did not explicitly mention.</li>
+<li>Verify both database/app behavior and UI behavior.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

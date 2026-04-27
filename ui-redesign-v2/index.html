@@ -1,0 +1,1960 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/ui-redesign-v2/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>pg_sage UI Redesign v2 — Design Doc - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pg_sage-ui-redesign-v2-design-doc" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              pg_sage UI Redesign v2 — Design Doc
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-executive-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Executive Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-problem-statement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Problem Statement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-design-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Design Principles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-information-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Information Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Information Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-page-count-15-5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Page count: 15 → 5
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-primary-nav-sidebar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Primary nav (sidebar)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-wireframes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Wireframes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Wireframes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-top-bar-present-on-every-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Top bar — present on every page
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-overview-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Overview page
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-findings-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Findings page
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-finding-detail-side-drawer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Finding detail (side drawer)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#55-actions-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5 Actions page
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#56-fleet-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.6 Fleet page
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#57-command-palette-k" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.7 Command palette (⌘K)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-component-spec" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Component Spec
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Component Spec">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-new-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 New components
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-components-to-retire-or-retire-after-replacement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Components to retire or retire-after-replacement
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-components-to-keep-and-lightly-patch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Components to keep and lightly patch
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-interaction-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Interaction Patterns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Interaction Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-time-picker-as-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 Time picker as context
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-keyboard-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 Keyboard map
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-destructive-action-gating" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 Destructive action gating
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#74-drawer-vs-modal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.4 Drawer vs modal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#75-loading-error-states" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.5 Loading / error states
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-accessibility-visual-polish" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Accessibility &amp; Visual Polish
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-migration-plan-phased-rollout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Migration Plan — phased rollout
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Migration Plan — phased rollout">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-foundation-week-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — foundation (Week 1)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-unified-findings-week-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — unified findings (Week 2)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-overview-rebuild-week-2-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — Overview rebuild (Week 2-3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-actions-unification-week-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — Actions unification (Week 3)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-5-fleet-page-week-3-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5 — Fleet page (Week 3-4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-6-command-palette-keyboard-week-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6 — Command palette + keyboard (Week 4)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-7-polish-ongoing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 7 — Polish (ongoing)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-out-of-scope-v1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Out of Scope (v1)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-success-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Success Criteria
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-resolved-questions-previously-open-answered-by-code-investigation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Resolved Questions (previously open — answered by code investigation)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="12. Resolved Questions (previously open — answered by code investigation)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#also-resolved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Also resolved
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-file-level-change-inventory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. File-level Change Inventory
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="13. File-level Change Inventory">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#new-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modified-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modified files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#retired-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retired files
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#14-what-this-does-not-solve" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14. What This Does Not Solve
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#15-appendix-competitor-influence-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15. Appendix — competitor influence map
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#16-appendix-category-subsystem-taxonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16. Appendix — category → subsystem taxonomy
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="pg_sage-ui-redesign-v2-design-doc">pg_sage UI Redesign v2 — Design Doc<a class="headerlink" href="#pg_sage-ui-redesign-v2-design-doc" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> Proposal
+<strong>Author:</strong> Claude (for jmass)
+<strong>Date:</strong> 2026-04-16
+<strong>Scope:</strong> <code>sidecar/web/</code> — React dashboard embedded into <code>internal/api/dist/</code></p>
+<hr />
+<h2 id="1-executive-summary">1. Executive Summary<a class="headerlink" href="#1-executive-summary" title="Permanent link">&para;</a></h2>
+<p>The current UI is a set of 15 snapshot views. It tells you <em>what is</em>, but not <em>what happened</em>, <em>what's trending</em>, or <em>what the agent did about it</em>. Competitors (pganalyze, Sentry, PlanetScale, CockroachDB Cloud) treat every finding as a first-class object with a narrative arc: first-seen → proposed action → approved → executed → resolved or regressed.</p>
+<p>This redesign collapses the 15 pages into <strong>5 primary surfaces</strong> organized around that arc, introduces a global time axis, ranks by estimated impact rather than severity color, and makes the agent's actions visible as first-class timeline rows.</p>
+<p><strong>Goal:</strong> a user glancing at pg_sage for 10 seconds should see (1) is anything on fire, (2) what's trending worse, (3) what did the agent do while I was away. Today none of those questions have a one-glance answer.</p>
+<hr />
+<h2 id="2-problem-statement">2. Problem Statement<a class="headerlink" href="#2-problem-statement" title="Permanent link">&para;</a></h2>
+<p>Concrete pain points from code review (file:line):</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Pain point</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Dashboard is 4 static cards. No time series. No trend.</td>
+<td><code>Dashboard.jsx</code> — 4 stat cards, no charts</td>
+</tr>
+<tr>
+<td>2</td>
+<td>No global time picker. Every page is point-in-time.</td>
+<td>Entire codebase — no shared time context</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Findings, Actions, Incidents are 3 separate pages for one workflow.</td>
+<td><code>Findings.jsx</code>, <code>Actions.jsx</code>, <code>IncidentsPage.jsx</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>Severity taxonomy (critical/warning/info) not ranked by impact. User can't tell "fix this first."</td>
+<td><code>SeverityBadge.jsx</code> hardcoded 3-level</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Trust mode buried in Settings — users forget whether agent is live.</td>
+<td><code>SettingsPage.jsx</code> Trust &amp; Safety tab</td>
+</tr>
+<tr>
+<td>6</td>
+<td>No search, no command palette. 15 pages, sidebar-only nav.</td>
+<td><code>Layout.jsx</code> sidebar</td>
+</tr>
+<tr>
+<td>7</td>
+<td>DataTable expansion keyed by row index, breaks on re-fetch.</td>
+<td><code>DataTable.jsx:26</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td>Severity badge contrast ~3:1, fails WCAG AA.</td>
+<td><code>SeverityBadge.jsx</code> critical = #ef4444 on #3b1111</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Pagination silently truncates at 50.</td>
+<td><code>Findings.jsx:111</code></td>
+</tr>
+<tr>
+<td>10</td>
+<td>No impact estimate on findings — just titles.</td>
+<td><code>sage.findings.impact_score</code> column and <code>analyzer.Finding.ImpactScore</code> field exist (<code>sidecar/internal/analyzer/finding.go:28</code>), but only the schema_lint subsystem populates them today. The API's <code>buildFindingsOrder()</code> (<code>sidecar/internal/api/handlers.go:678</code>) does not allow sorting by <code>impact_score</code>. Domain-specific fields (<code>impact</code>, <code>table_size</code>, <code>query_count</code>) sit unindexed inside <code>detail</code> JSONB.</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Database snapshot page is a raw JSON dump.</td>
+<td><code>DatabasePage.jsx</code></td>
+</tr>
+<tr>
+<td>12</td>
+<td>TimeAgo static, grows stale during long sessions.</td>
+<td><code>TimeAgo.jsx</code></td>
+</tr>
+<tr>
+<td>13</td>
+<td>Modals have no focus trap / return.</td>
+<td>Multiple inline <code>createPortal</code> calls</td>
+</tr>
+<tr>
+<td>14</td>
+<td>Polling not coalesced — every page re-fetches on navigation.</td>
+<td><code>useAPI.js</code> independent per caller</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="3-design-principles">3. Design Principles<a class="headerlink" href="#3-design-principles" title="Permanent link">&para;</a></h2>
+<p>Distilled from competitor research. Each is a rule we can hold a specific design decision against.</p>
+<ol>
+<li><strong>Findings are objects with a narrative arc</strong>, not alerts. Stable URL, status, actor, first-seen, last-seen, discussion of actions taken. Model: Sentry issue, pganalyze finding, Linear issue.</li>
+<li><strong>Impact &gt; severity.</strong> Show "saves 2.3GB / +400ms p99" next to the finding. Sort by impact. Severity is a visual channel for scan, not the ranking.</li>
+<li><strong>One time axis in view.</strong> A global time picker in the header. Every chart, every "last seen," every sparkline shares it. Compare-to-previous-period as a first-class toggle.</li>
+<li><strong>Every automated action has an actor and a row.</strong> Human or agent, always named. Audit trail is the product.</li>
+<li><strong>Trust mode is always visible per database.</strong> Persistent header badge. You never wonder what the executor will do right now.</li>
+<li><strong>Sparkline-in-row beats separate chart.</strong> Trend at-a-glance is the triage signal. Dense lists, no dashboard wallpaper.</li>
+<li><strong>SQL is the universal export.</strong> Every recommendation produces copyable, executable SQL — even when the agent can run it. Trust comes from auditability.</li>
+<li><strong>Fleet mode is spatial, single-DB is temporal.</strong> Across databases: topology/grid. Within a database: timelines and plan history. Different mental models, different layouts.</li>
+</ol>
+<hr />
+<h2 id="4-information-architecture">4. Information Architecture<a class="headerlink" href="#4-information-architecture" title="Permanent link">&para;</a></h2>
+<h3 id="41-page-count-15-5">4.1 Page count: 15 → 5<a class="headerlink" href="#41-page-count-15-5" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>New page</th>
+<th>Replaces</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Overview</strong></td>
+<td>Dashboard</td>
+<td>Narrative home: hero + ranked feed + recent actor timeline</td>
+</tr>
+<tr>
+<td><strong>Findings</strong></td>
+<td>Findings, SchemaHealthPage, ForecastsPage, QueryHintsPage, IncidentsPage</td>
+<td>One unified feed across all finding subsystems, filterable by subsystem (see §16 for the category→subsystem taxonomy). Note: no physical <code>source</code> column exists — the filter is a virtual mapping keyed off <code>category</code> prefixes. IncidentsPage merges only if <code>sage.incidents</code> is UNIONed or folded into <code>sage.findings</code> (§13).</td>
+</tr>
+<tr>
+<td><strong>Actions</strong></td>
+<td>Actions</td>
+<td>Timeline of every executed/pending/rolled-back action, with the finding that triggered each</td>
+</tr>
+<tr>
+<td><strong>Fleet</strong></td>
+<td>DatabasePage, DatabasesPage</td>
+<td>Spatial grid (fleet mode) or temporal drilldown (single DB)</td>
+</tr>
+<tr>
+<td><strong>Settings</strong></td>
+<td>SettingsPage, UsersPage, NotificationsPage, DatabaseSettingsPage, AlertLogPage</td>
+<td>Keep tabbed settings; fold admin subpages + alert delivery log in as tabs (alert log is delivery telemetry, not findings)</td>
+</tr>
+</tbody>
+</table>
+<p>The other existing pages (<code>LoginPage</code>, database subpages) stay as-is.</p>
+<h3 id="42-primary-nav-sidebar">4.2 Primary nav (sidebar)<a class="headerlink" href="#42-primary-nav-sidebar" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>OVERVIEW           — home
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>FINDINGS     ● 12  — ranked feed (badge = new since last visit)
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>ACTIONS      ○ 3   — timeline (badge = pending approvals)
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>FLEET              — topology / database drilldown
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>─────────────
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>SETTINGS           — config, users, notifications, trust
+</code></pre></div>
+<p>Trust-mode badge and database picker move to the <strong>top bar</strong>, not the sidebar. They are page-global context.</p>
+<hr />
+<h2 id="5-wireframes">5. Wireframes<a class="headerlink" href="#5-wireframes" title="Permanent link">&para;</a></h2>
+<h3 id="51-top-bar-present-on-every-page">5.1 Top bar — present on every page<a class="headerlink" href="#51-top-bar-present-on-every-page" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>┌──────────────────────────────────────────────────────────────────────────┐
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>│  pg_sage    [Database: prod-us-east-1 ▾]    [⚡ Advisory]    [⏱ 24h ▾]  │
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>│                                                                          │
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>│                                            [🟢 Healthy]  [⌘K]  [👤 jm]  │
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>└──────────────────────────────────────────────────────────────────────────┘
+</code></pre></div>
+<ul>
+<li><strong>Database picker</strong> — existing, kept in place</li>
+<li><strong>Trust-mode badge</strong> — color-coded, click to change (confirmation required to escalate)</li>
+<li>🟢 Monitor · 🟡 Advisory · 🔴 Autonomous · ⛔ Emergency Stop</li>
+<li><strong>Time picker</strong> — presets (1h / 6h / 24h / 7d / 30d / custom) + "compare to previous period" toggle. Writes to React context; every useAPI call reads from it.</li>
+<li><strong>Health dot</strong> — overall cluster health; clicking opens a small popover with per-DB health</li>
+<li><strong>⌘K</strong> — command palette trigger (see §5.6)</li>
+<li><strong>User menu</strong> — profile, theme, keyboard help, logout</li>
+</ul>
+<h3 id="52-overview-page">5.2 Overview page<a class="headerlink" href="#52-overview-page" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>┌──────────────────────────────────────────────────────────────────────────┐
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>│                                                                          │
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>│  3 databases · 2 findings need attention · agent resolved 7 in 24h      │
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>│  ▁▁▁▂▃▅▇▇██▇▅▃▂▁▁  (cluster health trend, 24h window)                   │
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>│                                                                          │
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>├──────────────────────────────────────────────────────────────────────────┤
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>│  TOP FINDINGS — by estimated impact                                      │
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>├──────────────────────────────────────────────────────────────────────────┤
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>│  🔴  Index missing on orders.customer_id                                 │
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>│      Saves est. 340ms p99 · 12k queries/hr scan full table              │
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>│      prod-us-east-1 · first seen 3d ago · ▁▁▂▃▅▇██                      │
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>│      [Review &amp; approve] [Dismiss]                                        │
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>│  ────────────────────────────────────────────────────                    │
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>│  🟡  Unused index idx_orders_status_v2 — 1.2GB wasted                   │
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>│      No scans in 14d · safe to drop                                      │
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>│      prod-us-east-1 · first seen 14d ago · ▇▆▅▃▂▁▁                      │
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>│      [Review] [Dismiss]                                                  │
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>│  ────────────────────────────────────────────────────                    │
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>│  🟡  Slow query regression — SELECT * FROM shipments WHERE...           │
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>│      p99 jumped 120ms→340ms at 14:22 · plan changed                     │
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>│      prod-eu-west-1 · 2h ago · ▁▁▁▂██▇▇                                 │
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>│      [Open plan diff] [Dismiss]                                          │
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>├──────────────────────────────────────────────────────────────────────────┤
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>│  RECENT AGENT ACTIVITY — last 24h                                        │
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>├──────────────────────────────────────────────────────────────────────────┤
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>│  14:32  🤖 Agent   VACUUM on orders.line_items        ✓ reclaimed 800MB │
+<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>│  13:05  🤖 Agent   CREATE INDEX ON shipments(...)    ✓ 340ms saved      │
+<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>│  10:18  👤 jmass   Approved: DROP INDEX idx_orders_v1 ✓ 1.2GB freed    │
+<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>│  02:00  🤖 Agent   Nightly integration run            ✓ see email       │
+<a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a>│                                                               [See all →]│
+<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>└──────────────────────────────────────────────────────────────────────────┘
+</code></pre></div>
+<p><strong>Design notes:</strong>
+- One narrative sentence at top: X DBs, Y need attention, Z resolved. Human-readable, not card-grid.
+- Cluster health trend = 1-row sparkline across the top. Scrubs with the global time picker.
+- <strong>Top findings</strong> = the Sentry-style ranked feed. Three rows visible, "See all" to get to Findings page. Each row: severity dot, title, impact line, database/when, sparkline, inline actions.
+- <strong>Agent activity</strong> = three most recent timeline rows. Actor icon first (human vs agent), clear result. Click any row to jump to Actions page filtered.
+- The stat cards (databases/healthy/degraded) disappear. That information is in the sentence at top and on the Fleet page.</p>
+<h3 id="53-findings-page">5.3 Findings page<a class="headerlink" href="#53-findings-page" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>┌──────────────────────────────────────────────────────────────────────────┐
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>│  FINDINGS                                                                │
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>│  Source: [All ▾]  Status: (Open) (Snoozed) (Resolved)  Sort: [Impact ▾] │
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>│  ┌──┬─────────────────────────────────────────────────────────┬────────┐│
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>│  │🔴│ Index missing on orders.customer_id                      │3d ago  ││
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>│  │  │ Saves 340ms p99 · 12k scans/hr  · ▁▁▂▃▅▇██                │▃▅▇██  ││
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>│  ├──┼─────────────────────────────────────────────────────────┼────────┤│
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>│  │🟡│ Unused index idx_orders_status_v2 — 1.2GB wasted         │14d ago ││
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>│  │  │ No scans in 14d · safe to drop  · ▇▆▅▃▂▁▁                 │▆▅▃▂▁  ││
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>│  ├──┼─────────────────────────────────────────────────────────┼────────┤│
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>│  │🟡│ Slow query regression — SELECT * FROM shipments...       │2h ago  ││
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>│  │  │ p99 jumped 120ms→340ms · plan changed  · ▁▁▂██▇          │▂██▇   ││
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>│  └──┴─────────────────────────────────────────────────────────┴────────┘│
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>│                                                                          │
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>│  Showing 24 of 47 · [Load more]                                         │
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>└──────────────────────────────────────────────────────────────────────────┘
+</code></pre></div>
+<p><strong>Filter row:</strong>
+- <strong>Subsystem</strong> — dropdown that maps to the <code>?source=</code> query param. Today the backend honors only <code>source=schema_lint</code> (matches <code>category LIKE 'schema_lint:%'</code>, see <code>fleet/types.go:145-160</code> and <code>api/handlers.go:661</code>). To cover the other 30+ categories (<code>slow_query</code>, <code>unused_index</code>, <code>forecast_*</code>, <code>lock_chain</code>, <code>runaway_query</code>, <code>query_tuning</code>, etc.), extend <code>FindingFilters.Source</code> to accept values like <code>rules</code>, <code>optimizer</code>, <code>advisor</code>, <code>forecaster</code>, <code>migration_advisor</code>, <code>query_tuning</code> and map each to a <code>category IN (...)</code> WHERE clause (§16 appendix). Alternative: add a physical <code>source_kind</code> column and backfill — cleaner, but a migration.
+- <strong>Status</strong> — pill group, multi-select
+- <strong>Sort</strong> — Impact (default) / First seen / Last seen / Severity. Impact sort requires two backend changes: (a) <code>buildFindingsOrder()</code> must add <code>impact_score</code> to its allowlist; (b) non-schema_lint subsystems must populate <code>Finding.ImpactScore</code> before the UI can meaningfully rank them. Until (b) lands, "Impact" sort falls back to severity with impact as a secondary key so empty-impact rows don't all sink to the bottom.</p>
+<p><strong>Row anatomy</strong> (48px tall):
+- Severity dot (12px, WCAG AA contrast fixed)
+- Title line (title, truncate to 1 line)
+- Impact line (secondary, e.g., "Saves 340ms p99 · 12k scans/hr")
+- Inline sparkline (30-day occurrence trend, keyed to global time picker)
+- Right column: relative time</p>
+<p>Click row → detail drawer slides in from right (not a modal — persists selection when filters change). Escape or click outside to close. Keyboard: <code>j</code>/<code>k</code> to move selection, <code>Enter</code> to open, <code>e</code> to snooze, <code>r</code> to resolve, <code>a</code> to approve proposed action (if any).</p>
+<p><strong>URL / history semantics:</strong> <code>j</code>/<code>k</code> updates only local component state — it must NOT call <code>history.pushState</code> or <code>navigate()</code>. If every keypress pushed to the history stack, the browser back button would need to be hammered dozens of times to escape a triage session. The dedicated page route <code>/findings/:id</code> is only used for explicit sharing/deep-link entry; <code>Enter</code> on a row opens the drawer in-place without changing the URL. "Copy link to this finding" in the drawer header is how a user promotes a selection into a shareable URL.</p>
+<h3 id="54-finding-detail-side-drawer">5.4 Finding detail (side drawer)<a class="headerlink" href="#54-finding-detail-side-drawer" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>┌────────────────────────────────────────────────────────────┐
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>│  🔴 Index missing on orders.customer_id                [✕] │
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>│  prod-us-east-1  ·  schema_lint:missing_index              │
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>├────────────────────────────────────────────────────────────┤
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>│  IMPACT                                                    │
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>│  Estimated p99 reduction: 340ms                            │
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>│  Queries affected: 12k/hr full-scan orders.customer_id     │
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>│  Table size: 48GB · Rows: 340M                             │
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>├────────────────────────────────────────────────────────────┤
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>│  WHY THIS MATTERS                                          │
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>│  Queries filtering on customer_id are doing sequential     │
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>│  scans. The table is large enough that the analyzer...     │
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>├────────────────────────────────────────────────────────────┤
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>│  RECOMMENDED SQL                                       [⎘] │
+<a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>│  ┌──────────────────────────────────────────────────────┐ │
+<a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>│  │ CREATE INDEX CONCURRENTLY idx_orders_customer_id     │ │
+<a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>│  │   ON public.orders (customer_id);                    │ │
+<a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>│  └──────────────────────────────────────────────────────┘ │
+<a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a>│                                                            │
+<a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a>│  Trust mode: Advisory · [Approve &amp; run] [Propose] [Copy]  │
+<a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a>├────────────────────────────────────────────────────────────┤
+<a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a>│  TIMELINE                                                  │
+<a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a>│  ● 3d ago   First seen by analyzer                        │
+<a id="__codelineno-4-24" name="__codelineno-4-24" href="#__codelineno-4-24"></a>│  ● 2d ago   🤖 Proposed CREATE INDEX CONCURRENTLY ...     │
+<a id="__codelineno-4-25" name="__codelineno-4-25" href="#__codelineno-4-25"></a>│  ● now      ⏸ Awaiting approval                           │
+<a id="__codelineno-4-26" name="__codelineno-4-26" href="#__codelineno-4-26"></a>├────────────────────────────────────────────────────────────┤
+<a id="__codelineno-4-27" name="__codelineno-4-27" href="#__codelineno-4-27"></a>│  OCCURRENCE TREND (24h)                                    │
+<a id="__codelineno-4-28" name="__codelineno-4-28" href="#__codelineno-4-28"></a>│  ▁▁▁▂▃▅▇██▇▅▃▂▁▁                                           │
+<a id="__codelineno-4-29" name="__codelineno-4-29" href="#__codelineno-4-29"></a>└────────────────────────────────────────────────────────────┘
+</code></pre></div>
+<p><strong>Key sections</strong> in order:
+1. Header with severity, title, database, category
+2. <strong>Impact</strong> — the numbers that motivate action
+3. <strong>Why this matters</strong> — the narrative (already in backend as <code>recommendation</code> or analyzer prose)
+4. <strong>Recommended SQL</strong> — copy button, [Approve &amp; run] if trust allows, [Propose] otherwise
+5. <strong>Timeline</strong> — first-seen, every action, current status. Same style as Sentry's activity feed.
+6. <strong>Occurrence trend</strong> — bigger version of the row sparkline, scrubbable</p>
+<p>Destructive action buttons require the trust-mode gate (same as today).</p>
+<h3 id="55-actions-page">5.5 Actions page<a class="headerlink" href="#55-actions-page" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>┌──────────────────────────────────────────────────────────────────────────┐
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>│  ACTIONS — unified timeline                                              │
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>│  Status: (Pending) (Running) (Done) (Rolled-back) (Failed)              │
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>│  Actor: [All ▾]                                                          │
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>├──────────────────────────────────────────────────────────────────────────┤
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>│  14:32  🤖 Agent    VACUUM orders.line_items                             │
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>│         ✓ reclaimed 800MB · triggered by finding #1293                   │
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>│         [Expand SQL]  [Rollback info]                                   │
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>│  ──────────────────────────────────────────────────────                  │
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>│  13:05  🤖 Agent    CREATE INDEX CONCURRENTLY shipments_customer_idx    │
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>│         ✓ 3.2s · 340ms p99 savings confirmed · finding #1287            │
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>│  ──────────────────────────────────────────────────────                  │
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>│  10:18  👤 jmass    Approved: DROP INDEX idx_orders_v1                  │
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>│         ✓ 1.2GB freed · finding #1281                                   │
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>│  ──────────────────────────────────────────────────────                  │
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>│  09:02  ⏸ Agent     Propose: ALTER TABLE orders SET (autovacuum...)     │
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>│         ⏸ Awaiting approval · risk: MODERATE · finding #1279            │
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a>│         [Approve] [Reject]                                              │
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a>└──────────────────────────────────────────────────────────────────────────┘
+</code></pre></div>
+<p>Single chronological feed. Actor icon (human/agent), timestamp (global time picker scopes it), action summary, result line, finding link. Pending items surface at top when filter=Pending. Today's Actions page already has most of this — the change is to merge the "Executed" and "Pending Approval" tabs into one feed with status filters.</p>
+<h3 id="56-fleet-page">5.6 Fleet page<a class="headerlink" href="#56-fleet-page" title="Permanent link">&para;</a></h3>
+<p><strong>Fleet mode (database="all"):</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>┌──────────────────────────────────────────────────────────────────────────┐
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>│  FLEET  ·  3 databases                                                   │
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>│                                                                          │
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐          │
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>│  │ 🟢 prod-us-east │  │ 🟡 prod-eu-west │  │ 🟢 staging-shared│          │
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>│  │ Health: 94      │  │ Health: 67      │  │ Health: 99       │          │
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>│  │ ▁▂▃▅▇██▇▅▃▂     │  │ ▅▃▂▁▁▂▃▅▇█      │  │ ▇▇▇██████▇       │          │
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>│  │ ⚡ Advisory     │  │ ⚡ Advisory     │  │ 🟢 Monitor       │          │
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>│  │ 2 open · 0 ⏸   │  │ 8 open · 1 ⏸   │  │ 0 open · 0 ⏸    │          │
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>│  └─────────────────┘  └─────────────────┘  └─────────────────┘          │
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>└──────────────────────────────────────────────────────────────────────────┘
+</code></pre></div>
+<p>Grid of tiles. Each: health dot, name, health score, sparkline (QPS or latency, picker-aware), trust badge, open-findings / pending-actions count. Click a tile to drill into that database (sets the global DB picker, routes to Overview).</p>
+<p><strong>Single-DB mode (database=specific):</strong></p>
+<p>Shows temporal drilldowns:
+- Query fingerprint list (from existing QueryHints + pg_stat_statements data) with sparklines, sort by total time
+- Connection/lock live view (refresh button)
+- Extension/config/role audit (existing snapshot data, but structured, not JSON dump)
+- Tab bar: Queries · Indexes · Locks · Config · Raw snapshot</p>
+<p>Replaces today's <code>DatabasePage.jsx</code> raw JSON dump.</p>
+<h3 id="57-command-palette-k">5.7 Command palette (⌘K)<a class="headerlink" href="#57-command-palette-k" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>┌────────────────────────────────────────────┐
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>│  &gt; orders                                  │
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>├────────────────────────────────────────────┤
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>│  🔍 Finding: Index missing on orders...   │
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>│  🔍 Finding: Unused idx on orders.status  │
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>│  📄 Jump to Findings filtered by orders   │
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>│  ─────────────────────────────────────     │
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>│  🗄  Switch to prod-us-east-1             │
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>│  ⚡  Change trust mode →                   │
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>│  🏃 Run nightly integration now           │
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>│  🆘 Emergency stop                         │
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>└────────────────────────────────────────────┘
+</code></pre></div>
+<p>Fuzzy search across findings, pages, databases, and actions. Also exposes commands: switch DB, change trust mode, emergency stop, trigger a scheduled run. Keyboard: up/down, enter to select, escape to close.</p>
+<p>This is the single highest-productivity addition for a power user (you). Implementation: <a href="https://cmdk.paco.me/">cmdk</a> or hand-rolled — probably hand-rolled since you already avoid heavy deps.</p>
+<hr />
+<h2 id="6-component-spec">6. Component Spec<a class="headerlink" href="#6-component-spec" title="Permanent link">&para;</a></h2>
+<h3 id="61-new-components">6.1 New components<a class="headerlink" href="#61-new-components" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>TimeRangeProvider</code></td>
+<td>React context supplying <code>{from, to, preset, compareMode}</code>. Wraps the whole app.</td>
+</tr>
+<tr>
+<td><code>TimeRangePicker</code></td>
+<td>Header component. Presets + custom range + compare-toggle. Writes to context.</td>
+</tr>
+<tr>
+<td><code>TrustBadge</code></td>
+<td>Per-database trust mode, header-mounted. Opens confirm modal on change.</td>
+</tr>
+<tr>
+<td><code>FindingRow</code></td>
+<td>One row in the unified feed. Severity dot + title + impact line + sparkline + relative time + expand chevron.</td>
+</tr>
+<tr>
+<td><code>FindingDetailDrawer</code></td>
+<td>Side drawer replacing the current modal-or-inline-expansion pattern. Receives a finding id; fetches detail; focus-trapped.</td>
+</tr>
+<tr>
+<td><code>ActivityTimelineItem</code></td>
+<td>One row in the Actions timeline. Actor icon, timestamp, summary, result, finding link.</td>
+</tr>
+<tr>
+<td><code>DatabaseTile</code></td>
+<td>Fleet page tile. Health dot, name, score, sparkline, trust, counts.</td>
+</tr>
+<tr>
+<td><code>ImpactLine</code></td>
+<td>Renders "Saves 340ms p99 · 12k scans/hr" from a finding's <code>detail.impact_*</code> fields. Formatter.</td>
+</tr>
+<tr>
+<td><code>CommandPalette</code></td>
+<td>⌘K overlay. Fuzzy matcher, result renderer, command registry.</td>
+</tr>
+<tr>
+<td><code>PlanDiffView</code></td>
+<td>Side-by-side EXPLAIN tree diff. Tier 2 — skip in v1.</td>
+</tr>
+<tr>
+<td><code>LiveTimeAgo</code></td>
+<td><code>TimeAgo</code> but subscribes to a 30s ticker so "2m ago" becomes "3m ago" without navigation.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="62-components-to-retire-or-retire-after-replacement">6.2 Components to retire or retire-after-replacement<a class="headerlink" href="#62-components-to-retire-or-retire-after-replacement" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>Dashboard.jsx</code> stat cards — replaced by narrative sentence + feed</li>
+<li><code>DatabasePage.jsx</code> raw JSON dump — replaced by Fleet single-DB drilldown</li>
+<li>The inline modal pattern in Findings/Actions — replaced by <code>FindingDetailDrawer</code></li>
+</ul>
+<h3 id="63-components-to-keep-and-lightly-patch">6.3 Components to keep and lightly patch<a class="headerlink" href="#63-components-to-keep-and-lightly-patch" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Keep</th>
+<th>Patch</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DataTable</code></td>
+<td>Change expansion key from row index to row id (fix for re-fetch bug)</td>
+</tr>
+<tr>
+<td><code>SeverityBadge</code></td>
+<td>Swap colors for WCAG AA contrast (critical: #fee2e2 text on #7f1d1d bg ~ 9:1)</td>
+</tr>
+<tr>
+<td><code>SQLBlock</code></td>
+<td>Keep as-is; excellent</td>
+</tr>
+<tr>
+<td><code>SparklineChart</code></td>
+<td>Expose <code>data</code> via <code>TimeRangeProvider</code> so it scrubs with global picker</td>
+</tr>
+<tr>
+<td><code>EmptyState</code></td>
+<td>Keep</td>
+</tr>
+<tr>
+<td><code>useAPI</code></td>
+<td>Add <code>TimeRangeProvider</code> awareness so <code>from</code>/<code>to</code> join the query params</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="7-interaction-patterns">7. Interaction Patterns<a class="headerlink" href="#7-interaction-patterns" title="Permanent link">&para;</a></h2>
+<h3 id="71-time-picker-as-context">7.1 Time picker as context<a class="headerlink" href="#71-time-picker-as-context" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1">// &lt;App&gt;</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="p">&lt;</span><span class="nt">TimeRangeProvider</span><span class="w"> </span><span class="na">default</span><span class="o">=</span><span class="s">&quot;24h&quot;</span><span class="p">&gt;</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="p">&lt;</span><span class="nt">Layout</span><span class="p">&gt;</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="p">&lt;/</span><span class="nt">Layout</span><span class="p">&gt;</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="p">&lt;/</span><span class="nt">TimeRangeProvider</span><span class="p">&gt;</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="c1">// inside any component</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="kd">const</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="kr">from</span><span class="p">,</span><span class="w"> </span><span class="nx">to</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">useTimeRange</span><span class="p">()</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="kd">const</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">useAPI</span><span class="p">(</span><span class="sb">`/api/v1/findings?from=</span><span class="si">${</span><span class="kr">from</span><span class="si">}</span><span class="sb">&amp;to=</span><span class="si">${</span><span class="nx">to</span><span class="si">}</span><span class="sb">`</span><span class="p">)</span>
+</code></pre></div>
+<p>Every chart, every useAPI caller picks it up. Changing the picker re-fetches everything in view.</p>
+<p><strong>Required change to <code>useAPI</code>:</strong> today's hook (<code>sidecar/web/src/hooks/useAPI.js</code>) has no <code>AbortController</code>. The dep array is <code>[fetchData, interval, url]</code>, so a new URL triggers a fresh <code>fetch</code> but the prior in-flight request is not cancelled — whichever resolves last wins the <code>setData</code>. With a global time picker, users will scrub rapidly and trigger dozens of overlapping fetches. Changes required:</p>
+<ol>
+<li><code>AbortController</code> per call. Abort on cleanup.</li>
+<li>Before <code>setData(json)</code> in the success branch, check <code>if (!controller.signal.aborted)</code> — an aborted request can still resolve network-side and overwrite newer state. Catching <code>AbortError</code> alone is not sufficient.</li>
+<li>Ignore <code>AbortError</code> in the catch branch (don't surface as a user-visible error).</li>
+</ol>
+<p><strong>Debounce at the source, not just the transport.</strong> <code>AbortController</code> protects the UI from stale writes but does nothing for the backend — rapid scrubbing still issues one request per picker change, and each one spawns a full <code>/api/v1/findings</code> query. Debounce the <code>TimeRangeContext</code> publisher by ~250ms so downstream fetches coalesce. Implement as a single <code>useDeferredValue</code>-or-equivalent inside the provider so every subscriber gets the same debounced value — do not debounce per caller.</p>
+<p><strong><code>from</code>/<code>to</code> plumbing.</strong> Thread the picker's ISO timestamps into the query string on the caller side so the backend can honor the window once the handler params are added (today none of the <code>/api/v1/*</code> handlers accept <code>from</code>/<code>to</code> — Phase 1 backend prerequisite). Window semantics: see §12 resolved answer on <code>from</code>/<code>to</code> (overlapping-window semantics, not <code>last_seen</code>-only).</p>
+<h3 id="72-keyboard-map">7.2 Keyboard map<a class="headerlink" href="#72-keyboard-map" title="Permanent link">&para;</a></h3>
+<p>Global:
+- <code>⌘K</code> / <code>Ctrl+K</code> — command palette
+- <code>g o</code> — go Overview
+- <code>g f</code> — go Findings
+- <code>g a</code> — go Actions
+- <code>g t</code> — go Fleet
+- <code>g s</code> — go Settings
+- <code>?</code> — keyboard help overlay</p>
+<p>Finding feed / drawer:
+- <code>j</code> / <code>k</code> — next/prev
+- <code>Enter</code> — open detail
+- <code>Esc</code> — close detail
+- <code>e</code> — snooze
+- <code>r</code> — resolve
+- <code>a</code> — approve proposed action (if present)
+- <code>/</code> — focus filter</p>
+<p>This is Linear-tier keyboard UX, which matters a lot for a single-user power tool (your use case).</p>
+<h3 id="73-destructive-action-gating">7.3 Destructive action gating<a class="headerlink" href="#73-destructive-action-gating" title="Permanent link">&para;</a></h3>
+<p>Keep the existing pattern — it's good:
+- Emergency stop: 5-second armed countdown
+- Trust escalation: confirm modal with explicit text
+- Suppress finding: confirm modal
+- Approve proposed action: single click (already gated by trust mode)</p>
+<p>New additions:
+- Rollback agent action: confirm modal explaining what will be undone
+- Change database from palette: no confirm (reversible)
+- Trigger scheduled run from palette: no confirm (just runs)</p>
+<h3 id="74-drawer-vs-modal">7.4 Drawer vs modal<a class="headerlink" href="#74-drawer-vs-modal" title="Permanent link">&para;</a></h3>
+<p>Drawers (slide from right) for <strong>selected object</strong> interaction. Lets user keep the list visible, scroll through entries, keep filter state. Use for:
+- Finding detail
+- Action detail
+- Database drilldown from fleet tile (optional — could also full-page route)</p>
+<p>Modals for <strong>confirmation</strong> / one-shot forms only:
+- Trust escalation confirm
+- Emergency stop
+- Suppress confirm
+- Approve SQL review (before execution)</p>
+<h3 id="75-loading-error-states">7.5 Loading / error states<a class="headerlink" href="#75-loading-error-states" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Skeleton rows in lists (not spinners) — maintain layout, look calm</li>
+<li>ErrorBanner for top-level fetch failures (keep existing)</li>
+<li>Per-row error for action failures (e.g., "Approve failed — retry")</li>
+<li>Never show a spinner for &lt; 200ms (use a debounce)</li>
+</ul>
+<hr />
+<h2 id="8-accessibility-visual-polish">8. Accessibility &amp; Visual Polish<a class="headerlink" href="#8-accessibility-visual-polish" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Contrast</strong>: repaint SeverityBadge backgrounds. Text-on-bg must be ≥ 4.5:1 (AA) on normal text, 3:1 on large. Current critical/warning are borderline.</li>
+<li>Critical: bg <code>#450a0a</code>, text <code>#fecaca</code> → 10:1</li>
+<li>Warning: bg <code>#422006</code>, text <code>#fde68a</code> → 9:1</li>
+<li>Info: bg <code>#0c2742</code>, text <code>#bfdbfe</code> → 10:1</li>
+<li><strong>Focus rings</strong>: add <code>focus-visible:ring-2 ring-accent</code> to all interactive elements. Sidebar nav currently has no visible focus.</li>
+<li><strong>Modal focus trap</strong>: use a small trap util or the <code>inert</code> attribute on background. Restore focus to trigger on close.</li>
+<li><strong>Keyboard help overlay</strong>: <code>?</code> opens a list of shortcuts, grouped by context.</li>
+<li><strong>Reduced motion</strong>: respect <code>prefers-reduced-motion</code> — disable sparkline animations and drawer slide, use fade.</li>
+<li><strong>Light mode (stretch)</strong>: introduce CSS variables for a light theme; user preference stored in localStorage. Not required for v1 — but the variable system already there makes this a 1-day job when we want it.</li>
+</ul>
+<hr />
+<h2 id="9-migration-plan-phased-rollout">9. Migration Plan — phased rollout<a class="headerlink" href="#9-migration-plan-phased-rollout" title="Permanent link">&para;</a></h2>
+<p>Each phase is independently shippable. Ship as incremental PRs; users see improvement continuously, not after a big-bang swap.</p>
+<h3 id="phase-1-foundation-week-1">Phase 1 — foundation (Week 1)<a class="headerlink" href="#phase-1-foundation-week-1" title="Permanent link">&para;</a></h3>
+<p>Frontend:
+- Add <code>TimeRangeProvider</code>, <code>TimeRangePicker</code>, top-bar refactor
+- <code>TrustBadge</code> in header
+- Fix DataTable row-id keying
+- Fix SeverityBadge contrast
+- Add <code>LiveTimeAgo</code>
+- <code>useAPI.js</code> — add <code>AbortController</code>, ignore <code>AbortError</code>, thread <code>from</code>/<code>to</code> from <code>TimeRangeContext</code> into the query string</p>
+<p>Backend (prerequisites for Phase 2 and later):
+- Extend <code>buildFindingsOrder()</code> allowlist to include <code>impact_score</code> (<code>sidecar/internal/api/handlers.go:700</code>) — needs <code>NULLS LAST</code> so subsystems that don't emit impact yet don't dominate the tail.
+- Populate <code>Finding.ImpactScore</code> from the rest of the subsystems (analyzer rules, optimizer, forecaster, tuner, advisor). <strong>A normalized 0..1 score is NOT a cross-subsystem comparator</strong> — a 0.9 on <code>schema_lint:varchar_255</code> (a cosmetic rule) cannot outrank a 0.9 on <code>forecast_disk_growth</code> (disk full in 2h). Two-part approach:
+  (a) each subsystem emits an intra-subsystem impact score (0..1) for within-subsystem ranking;
+  (b) a separate <code>severity</code> ordering (the existing 3-tier <code>critical/warning/info</code>) remains the cross-subsystem key.
+  The UI default sort becomes <strong>severity DESC, then impact_score DESC, then last_seen DESC</strong>. The <code>Sort: Impact</code> dropdown option is only meaningful when a single <code>subsystem</code> filter is active — greyed out otherwise and documented in the dropdown tooltip.
+- Accept <code>?from=&amp;to=</code> on <code>/api/v1/findings</code>, <code>/api/v1/actions</code>, <code>/api/v1/snapshots/history</code>, <code>/api/v1/forecasts</code>, <code>/api/v1/alert-log</code>. Default = last 24h if unset. Semantics per resource: see §12 resolved answer (overlapping-window for findings, BETWEEN for time-series).</p>
+<p>Ship as one PR per layer. No destructive changes — additive.</p>
+<h3 id="phase-2-unified-findings-week-2">Phase 2 — unified findings (Week 2)<a class="headerlink" href="#phase-2-unified-findings-week-2" title="Permanent link">&para;</a></h3>
+<p>Backend:
+- Extend <code>FindingFilters.Source</code> and the WHERE construction in <code>api/handlers.go</code> so <code>source=rules|optimizer|advisor|forecaster|query_tuning|schema_lint|migration_advisor</code> each map to the right <code>category IN (...)</code> or <code>category LIKE</code> clause (see §16).
+- Add dedicated URL <code>GET /api/v1/findings/:id</code> if it doesn't already exist (it does — verify response shape is rich enough for the drawer).</p>
+<p>Frontend:
+- Build <code>FindingRow</code> + <code>FindingDetailDrawer</code>.
+- Add <code>ImpactLine</code> — reads <code>impact_score</code> when present, else falls back to human-readable summary from <code>detail.impact</code> / <code>detail.table_size</code> / <code>detail.query_count</code>.
+- Replace <code>pages/Findings.jsx</code> list with <code>FindingRow</code>; route <code>/findings/:id</code> to the same drawer content mounted as a page (enables deep-linking without duplicating logic — the drawer wraps a <code>&lt;FindingDetailPanel&gt;</code> that the page also renders).
+- Collapse SchemaHealthPage, ForecastsPage, QueryHintsPage, IncidentsPage, AlertLogPage into Findings with a subsystem filter.
+- Redirect old URLs to <code>/findings?source=X</code>.</p>
+<p>Major visible change. Screenshot before/after for the changelog.</p>
+<h3 id="phase-3-overview-rebuild-week-2-3">Phase 3 — Overview rebuild (Week 2-3)<a class="headerlink" href="#phase-3-overview-rebuild-week-2-3" title="Permanent link">&para;</a></h3>
+<p>Backend:
+- New endpoint <code>GET /api/v1/fleet/health?from=&amp;to=&amp;bucket=</code> returning a time series of <code>{ts, health_score}</code> per database plus a cluster-wide aggregate. No equivalent endpoint exists today — the current <code>/api/v1/databases</code> returns a single point-in-time <code>health_score</code> per DB (computed in <code>fleet/health.go</code>), not a series. Easiest implementation: persist a per-tick row to <code>sage.health_history</code> when <code>fleet.Manager</code> recomputes, then query with <code>date_bin</code>.</p>
+<p>Frontend:
+- Replace <code>Dashboard.jsx</code> with new Overview layout.
+- Cluster health sparkline sourced from the new endpoint.
+- Recent-activity feed (reuses <code>ActivityTimelineItem</code>, hits <code>/api/v1/actions?limit=10</code>).</p>
+<h3 id="phase-4-actions-unification-week-3">Phase 4 — Actions unification (Week 3)<a class="headerlink" href="#phase-4-actions-unification-week-3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Merge Executed + Pending Approval into one timeline</li>
+<li>Actor-first formatting</li>
+<li>Finding link on every row</li>
+</ul>
+<h3 id="phase-5-fleet-page-week-3-4">Phase 5 — Fleet page (Week 3-4)<a class="headerlink" href="#phase-5-fleet-page-week-3-4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Build <code>DatabaseTile</code></li>
+<li>Replace raw JSON <code>DatabasePage.jsx</code> with structured drilldown tabs (Queries / Indexes / Locks / Config)</li>
+</ul>
+<h3 id="phase-6-command-palette-keyboard-week-4">Phase 6 — Command palette + keyboard (Week 4)<a class="headerlink" href="#phase-6-command-palette-keyboard-week-4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>⌘K overlay</li>
+<li>Global shortcuts</li>
+<li>Help overlay (<code>?</code>)</li>
+</ul>
+<h3 id="phase-7-polish-ongoing">Phase 7 — Polish (ongoing)<a class="headerlink" href="#phase-7-polish-ongoing" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Drawer focus trap</li>
+<li>Pagination UX ("showing 24 of 47")</li>
+<li>Empty/loading state review per page</li>
+<li>Prefers-reduced-motion</li>
+<li>Optional: light theme</li>
+</ul>
+<hr />
+<h2 id="10-out-of-scope-v1">10. Out of Scope (v1)<a class="headerlink" href="#10-out-of-scope-v1" title="Permanent link">&para;</a></h2>
+<p>Explicitly NOT doing now:
+- Full plan-diff viewer (requires EXPLAIN tree parser — defer to Tier 2)
+- Light theme (variable system ready; toggle deferred)
+- Mobile-optimized layout (dashboard is desktop-first, same as competitors)
+- In-app chat/LLM assistant (anti-pattern per research)
+- Real-time streaming (polling is sufficient for current data cadence)</p>
+<hr />
+<h2 id="11-success-criteria">11. Success Criteria<a class="headerlink" href="#11-success-criteria" title="Permanent link">&para;</a></h2>
+<p>After shipping, a user should be able to:</p>
+<ol>
+<li>Answer "is anything on fire?" in 5 seconds from Overview without clicking anything.</li>
+<li>See what the agent did in the last 24h without navigating to Actions.</li>
+<li>Sort findings by impact, not by severity taxonomy. <strong>Backend dependency:</strong> <code>buildFindingsOrder()</code> allowlist extension + subsystem-wide <code>ImpactScore</code> population. Without both, "sort by impact" degrades to "sort by severity" for the unscored subsystems.</li>
+<li>Scrub a time range once and have every chart on screen re-scope. <strong>Backend dependency:</strong> handlers listed in §9 Phase 1 must accept <code>from</code>/<code>to</code>.</li>
+<li>Jump from any page to any other page, any database, or any finding with ⌘K and 3-5 keystrokes.</li>
+<li>Tell at a glance, on every page, which trust mode this database is in.</li>
+<li>Approve or reject a proposed action without leaving the finding detail.</li>
+</ol>
+<p>None of (1)-(7) is possible in the current UI.</p>
+<hr />
+<h2 id="12-resolved-questions-previously-open-answered-by-code-investigation">12. Resolved Questions (previously open — answered by code investigation)<a class="headerlink" href="#12-resolved-questions-previously-open-answered-by-code-investigation" title="Permanent link">&para;</a></h2>
+<ol>
+<li>
+<p><strong>Impact score source.</strong> Partially in place. The <code>sage.findings.impact_score</code> column exists (<code>internal/schema/bootstrap.go</code>), and <code>analyzer.Finding.ImpactScore float64</code> is the Go-side carrier (<code>internal/analyzer/finding.go:28</code>). <code>UpsertFindings</code> writes it when non-zero and treats zero as SQL NULL (<code>finding.go:88-101</code>) or preserves the prior value on updates (<code>finding.go:66-68</code>). <strong>However, only the schema_lint subsystem assigns a non-zero value today</strong> — all other subsystems (analyzer rules, forecaster, tuner, advisor, optimizer) leave it at zero. Decision: ship Phase 1 backend work to populate <code>ImpactScore</code> across subsystems (even a 0..1 normalized score), then ship the UI "sort by impact" in Phase 2. Until then, the UI sorts by severity with impact as a secondary key.</p>
+</li>
+<li>
+<p><strong>Cluster health aggregate endpoint.</strong> Does not exist. <code>/api/v1/databases</code> emits a current <code>health_score</code> per DB; there is no time-series endpoint and no historical table. Decision: add <code>GET /api/v1/fleet/health?from=&amp;to=&amp;bucket=</code> in Phase 3 backed by a new <code>sage.health_history</code> write on every <code>fleet.Manager</code> health recompute. Client-side aggregation is rejected — it re-fetches every DB's history and bloats the dashboard.</p>
+</li>
+<li>
+<p><strong>Drawer vs page for finding detail.</strong> Both. Drawer on list views for fast triage; <code>/findings/:id</code> renders the same <code>FindingDetailPanel</code> as a page for deep-linking and copy-paste URL sharing. Single component, two mount sites.</p>
+</li>
+<li>
+<p><strong>Source-filter taxonomy.</strong> No physical <code>source</code> column — <code>sage.findings.category</code> holds 40+ distinct string values. The current backend filter <code>FindingFilters.Source</code> accepts only <code>""</code> or <code>"schema_lint"</code> (the latter matches <code>category LIKE 'schema_lint:%'</code>). Decision: keep the virtual-filter approach (category-prefix / allowlist mapping, §16 appendix) to avoid a migration. Extend <code>FindingFilters.Source</code> to accept the taxonomy values and build a <code>category IN (...)</code> clause per value. Revisit a physical <code>source_kind</code> column only if the category set explodes or the allowlist becomes unmaintainable.</p>
+</li>
+<li>
+<p><strong>Command palette command registry.</strong> Hardcoded in a single <code>commands.js</code> module for v1. Each command is <code>{id, label, run, keywords, requiresTrustAtLeast?}</code>. Extract a registry pattern only when a plugin or user-defined command need emerges — which doesn't exist today.</p>
+</li>
+</ol>
+<h3 id="also-resolved">Also resolved<a class="headerlink" href="#also-resolved" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>from</code>/<code>to</code> param semantics for Findings.</strong> Use <strong>overlapping-window</strong> semantics: <code>first_seen &lt;= $to AND (resolved_at IS NULL OR resolved_at &gt;= $from)</code> — equivalent to "the finding was live at some point in [from, to]". Using <code>last_seen</code> alone is wrong: a finding with <code>first_seen=3d ago</code> and <code>last_seen=now</code> would drop out of a "yesterday" window even though it was unambiguously active then. For Actions, use <code>executed_at BETWEEN $from AND $to</code>. For snapshots/forecasts, use <code>ts BETWEEN $from AND $to</code>.</li>
+<li><strong>Compare-to-previous-period.</strong> Client requests twice and overlays. Simpler endpoints, no schema bloat. Acceptable because the time-range bucket count is bounded (max ~200 points per series).</li>
+<li><strong>Retention of <code>sage.health_history</code>.</strong> 30d rolling window mirroring other retention defaults (<code>internal/retention/</code>). Confirm against existing retention knobs before Phase 3.</li>
+<li><strong>Pagination total count.</strong> Exact <code>COUNT(*)</code> over the filtered <code>sage.findings</code> query will degrade as the table grows. Use a PostgreSQL plan-based estimate (<code>EXPLAIN (FORMAT JSON)</code> → <code>"Plan Rows"</code>) when the filter is broad, and exact only when the filter is narrow (e.g., single <code>source</code>). The UI copy changes from "Showing 24 of 47" to "Showing 24 of ~50" in the broad case — acceptable.</li>
+</ul>
+<hr />
+<h2 id="13-file-level-change-inventory">13. File-level Change Inventory<a class="headerlink" href="#13-file-level-change-inventory" title="Permanent link">&para;</a></h2>
+<p>For implementation tracking. Each path is under <code>sidecar/web/src/</code> unless noted.</p>
+<h3 id="new-files">New files<a class="headerlink" href="#new-files" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>contexts/TimeRangeContext.jsx</code></li>
+<li><code>components/TimeRangePicker.jsx</code></li>
+<li><code>components/TrustBadge.jsx</code></li>
+<li><code>components/FindingRow.jsx</code></li>
+<li><code>components/FindingDetailDrawer.jsx</code></li>
+<li><code>components/ActivityTimelineItem.jsx</code></li>
+<li><code>components/DatabaseTile.jsx</code></li>
+<li><code>components/ImpactLine.jsx</code></li>
+<li><code>components/LiveTimeAgo.jsx</code></li>
+<li><code>components/CommandPalette.jsx</code></li>
+<li><code>components/KeyboardHelp.jsx</code></li>
+<li><code>hooks/useKeyboardShortcuts.js</code></li>
+<li><code>hooks/useTimeRange.js</code></li>
+<li><code>pages/OverviewPage.jsx</code> (replaces Dashboard.jsx)</li>
+<li><code>pages/FleetPage.jsx</code> (replaces DatabasePage.jsx)</li>
+</ul>
+<h3 id="modified-files">Modified files<a class="headerlink" href="#modified-files" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>App.jsx</code> — wrap in <code>TimeRangeProvider</code>, new route table, command palette mount</li>
+<li><code>Layout.jsx</code> — new top bar with trust badge + time picker, reduced sidebar</li>
+<li><code>hooks/useAPI.js</code> — pick up <code>from</code>/<code>to</code> from <code>TimeRangeContext</code>, add <code>AbortController</code></li>
+<li><code>components/DataTable.jsx</code> — expansion state keyed by row id, not index</li>
+<li><code>components/SeverityBadge.jsx</code> — new color tokens, AA contrast</li>
+<li><code>components/TimeAgo.jsx</code> — replace with <code>LiveTimeAgo</code> or add ticker</li>
+<li><code>pages/Findings.jsx</code> — rewrite to use <code>FindingRow</code> + <code>FindingDetailDrawer</code>; accept <code>?source=</code> filter</li>
+<li><code>pages/Actions.jsx</code> — merge tabs into one timeline</li>
+<li><code>pages/SettingsPage.jsx</code> — fold in Users, Notifications, DatabaseSettings as tabs</li>
+</ul>
+<h3 id="retired-files">Retired files<a class="headerlink" href="#retired-files" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>pages/Dashboard.jsx</code></li>
+<li><code>pages/DatabasePage.jsx</code></li>
+<li><code>pages/SchemaHealthPage.jsx</code> (merged into Findings with <code>source=schema_lint</code>)</li>
+<li><code>pages/ForecastsPage.jsx</code> (merged into Findings with <code>source=forecaster</code>)</li>
+<li><code>pages/QueryHintsPage.jsx</code> (merged into Findings with <code>source=query_tuning</code>; some content also lives in Fleet single-DB drilldown)</li>
+<li><code>pages/IncidentsPage.jsx</code> (currently reads from a separate <code>sage.incidents</code> table. <strong>Do not UNION <code>sage.incidents</code> with <code>sage.findings</code> at query time</strong> — paginating and sorting across a dynamic UNION is slow at scale and fights every index. Instead, <strong>physically migrate</strong> incidents into <code>sage.findings</code> with <code>subsystem='incident'</code> and a set of incident categories (<code>incident_open</code>, <code>incident_resolved</code>, etc.) before Phase 2 lands. Write a migration + backfill; retire <code>sage.incidents</code> once readers move over. If that's out of scope for Phase 2, keep IncidentsPage standalone and defer the merge until Phase 5 with the migration as a hard prereq.)</li>
+<li><code>pages/AlertLogPage.jsx</code> (alert log is orthogonal to findings — keep it available under Settings → Alerts tab rather than folding into Findings. Adjust info architecture in §4.1 accordingly.)</li>
+<li><code>pages/UsersPage.jsx</code> (becomes a Settings tab)</li>
+<li><code>pages/NotificationsPage.jsx</code> (becomes a Settings tab)</li>
+<li><code>pages/DatabaseSettingsPage.jsx</code> (becomes a Settings tab)</li>
+<li><code>pages/DatabasesPage.jsx</code> (replaced by Fleet)</li>
+</ul>
+<p>Page count: 15 → 5 primary (Overview, Findings, Actions, Fleet, Settings) + Login.</p>
+<hr />
+<h2 id="14-what-this-does-not-solve">14. What This Does <em>Not</em> Solve<a class="headerlink" href="#14-what-this-does-not-solve" title="Permanent link">&para;</a></h2>
+<p>Honest list:
+- It doesn't make the backend findings emit impact estimates where they currently don't. That's a separate analyzer-quality workstream.
+- It doesn't address fleet-scale perf of the SPA (15 DBs × 30s polling = 30 requests/min; fine, but plan for it when fleet grows).
+- It doesn't change the polling model to push/SSE. Polling is adequate for current data rates. Switch when we feel the latency.
+- It doesn't change the auth model or introduce RBAC UI beyond what already exists.</p>
+<hr />
+<h2 id="15-appendix-competitor-influence-map">15. Appendix — competitor influence map<a class="headerlink" href="#15-appendix-competitor-influence-map" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Pattern</th>
+<th>Source</th>
+<th>Where applied in this doc</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ranked finding feed</td>
+<td>Sentry, pganalyze</td>
+<td>§5.2, §5.3</td>
+</tr>
+<tr>
+<td>Global time picker with compare</td>
+<td>Datadog, Grafana</td>
+<td>§5.1, §7.1</td>
+</tr>
+<tr>
+<td>Sparkline-in-row</td>
+<td>PlanetScale Insights</td>
+<td>§5.2, §5.3</td>
+</tr>
+<tr>
+<td>Spatial fleet view</td>
+<td>CockroachDB Cloud</td>
+<td>§5.6</td>
+</tr>
+<tr>
+<td>Actor-named timeline</td>
+<td>Vercel, Linear</td>
+<td>§5.5</td>
+</tr>
+<tr>
+<td>Narrative finding detail</td>
+<td>pganalyze</td>
+<td>§5.4</td>
+</tr>
+<tr>
+<td>Command palette</td>
+<td>Linear</td>
+<td>§5.7</td>
+</tr>
+<tr>
+<td>Keyboard-first list navigation</td>
+<td>Linear</td>
+<td>§7.2</td>
+</tr>
+<tr>
+<td>Side drawer for detail</td>
+<td>Linear, Supabase</td>
+<td>§5.4, §7.4</td>
+</tr>
+<tr>
+<td>SQL as universal export</td>
+<td>Supabase Studio, PgHero</td>
+<td>§3, §5.4</td>
+</tr>
+<tr>
+<td>Impact &gt; severity ranking</td>
+<td>pganalyze Index Advisor</td>
+<td>§3, §5.3</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="16-appendix-category-subsystem-taxonomy">16. Appendix — category → subsystem taxonomy<a class="headerlink" href="#16-appendix-category-subsystem-taxonomy" title="Permanent link">&para;</a></h2>
+<p>The <code>source</code> dropdown in §5.3 maps to this table. The mapping is implemented as an allowlist-to-SQL rewrite in <code>api/handlers.go</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Subsystem (<code>?source=</code>)</th>
+<th>Matches <code>category</code> values</th>
+<th>Emitted by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rules</code></td>
+<td><code>index_health</code>, <code>unused_index</code>, <code>invalid_index</code>, <code>duplicate_index</code>, <code>missing_fk_index</code>, <code>slow_query</code>, <code>high_plan_time</code>, <code>query_regression</code>, <code>seq_scan_heavy</code>, <code>high_total_time</code>, <code>lock_chain</code>, <code>connection_leak</code>, <code>cache_hit_ratio</code>, <code>checkpoint_pressure</code>, <code>stat_statements_pressure</code>, <code>replication_lag</code>, <code>inactive_slot</code>, <code>slow_replication_slot</code>, <code>sequence_exhaustion</code>, <code>sort_without_index</code>, <code>work_mem_promotion</code>, <code>table_bloat</code>, <code>xid_wraparound</code>, <code>extension_drift</code>, <code>plan_regression</code></td>
+<td><code>internal/analyzer/rules_*.go</code></td>
+</tr>
+<tr>
+<td><code>forecaster</code></td>
+<td><code>storage_forecast</code>, <code>forecast_disk_growth</code>, <code>forecast_connection_saturation</code>, <code>forecast_cache_pressure</code>, <code>forecast_sequence_exhaustion</code>, <code>forecast_query_volume</code>, <code>forecast_checkpoint_pressure</code></td>
+<td><code>internal/forecaster/*</code></td>
+</tr>
+<tr>
+<td><code>query_tuning</code></td>
+<td><code>query_tuning</code>, <code>stale_statistics</code>, <code>runaway_query</code></td>
+<td><code>internal/tuner/*</code>, <code>internal/executor/runaway.go</code></td>
+</tr>
+<tr>
+<td><code>advisor</code></td>
+<td>whatever <code>advisor/prompt.go</code> emits via the <code>category</code> param — dynamic, LLM-chosen</td>
+<td><code>internal/advisor/*</code></td>
+</tr>
+<tr>
+<td><code>optimizer</code></td>
+<td>index recommendations — typically posted with <code>category="unused_index"</code> or <code>"missing_fk_index"</code>; unify under <code>optimizer</code> via a provenance hint in <code>detail</code> when needed</td>
+<td><code>internal/optimizer/*</code></td>
+</tr>
+<tr>
+<td><code>schema_lint</code></td>
+<td>any <code>category</code> with prefix <code>schema_lint:</code> (28+ rule IDs: <code>missing_pk</code>, <code>duplicate_index</code>, <code>invalid_index</code>, <code>fk_type_mismatch</code>, <code>jsonb_in_joins</code>, <code>low_cardinality_index</code>, <code>missing_fk_index</code>, <code>mxid_age</code>, <code>nullable_unique</code>, <code>overlapping_index</code>, <code>sequence_overflow</code>, <code>serial_usage</code>, <code>timestamp_no_tz</code>, <code>toast_heavy</code>, <code>txid_age</code>, <code>unused_index</code>, <code>varchar_255</code>, <code>char_usage</code>, <code>bloated_table</code>, <code>int_pk</code>, <code>wide_table</code>, …)</td>
+<td><code>internal/schema/lint/rule_*.go</code></td>
+</tr>
+<tr>
+<td><code>migration_advisor</code></td>
+<td>(not yet emitted; reserved for the planned migration advisor workstream)</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>Notes:
+- <code>optimizer</code> overlaps with <code>rules</code> on some categories today (both can surface <code>unused_index</code>). <strong>Do not disambiguate via a JSONB <code>provenance</code> field</strong> — list queries filter on subsystem and a JSONB condition on a large table will miss indexes and slow the Findings page as the table grows. Instead, add a physical <code>sage.findings.subsystem text</code> column indexed on <code>(status, subsystem, last_seen desc)</code>. Backfill from the current category prefix / emitter. Callers set <code>subsystem</code> explicitly at emit time. The virtual category-mapping (this table) is the bootstrap strategy for Phase 2; the physical column is the durable answer and should land in Phase 3 or earlier.
+- <code>advisor</code>'s category is dynamic because the LLM picks it. For the filter to work, <code>advisor/prompt.go</code> must constrain output to an allowlist or every advisor finding must set <code>subsystem='advisor'</code> explicitly regardless of category.
+- The allowlist in <code>buildFindingsOrder</code> must remain column-name-only; never accept arbitrary strings from the client.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
