@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+/* eslint-disable react-refresh/only-export-components */
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -6,6 +7,7 @@ import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
 import { ConfigTooltip } from '../components/ConfigTooltip'
 import { ConfigDiff } from '../components/ConfigDiff'
 import { useToast } from '../components/Toast'
+import { ShadowModePage } from './ShadowModePage'
 import {
   ShieldAlert, Play, Save, RotateCcw, Check, X,
 } from 'lucide-react'
@@ -83,7 +85,7 @@ export function SettingsPage({ database, databaseId }) {
     }
   }
 
-  const cfg = data?.config || {}
+  const cfg = useMemo(() => data?.config || {}, [data?.config])
 
   const getVal = useCallback((key) => {
     if (key in edits) return edits[key]
@@ -262,6 +264,7 @@ export function SettingsPage({ database, databaseId }) {
           ? `Database ${database} (ID ${numericDatabaseId})`
           : 'Global defaults'}
       </div>
+      <ShadowModePage database={database} />
       {feedback && <FeedbackBanner {...feedback} />}
       <div className="rounded p-5"
         style={{

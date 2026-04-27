@@ -17,6 +17,26 @@ import (
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
+func TestActionsTimelineResponseIncludesStatusRiskAndVerification(t *testing.T) {
+	row := map[string]any{
+		"id":                  1,
+		"status":              "pending",
+		"action_type":         "analyze_table",
+		"risk_tier":           "safe",
+		"verification_status": "not_started",
+	}
+
+	got := actionTimelineMap(row)
+
+	for _, key := range []string{
+		"id", "status", "action_type", "risk_tier", "verification_status",
+	} {
+		if _, ok := got[key]; !ok {
+			t.Fatalf("missing %s in timeline map", key)
+		}
+	}
+}
+
 // --- approveActionHandler ---
 
 func TestApproveActionHandler_InvalidID(t *testing.T) {

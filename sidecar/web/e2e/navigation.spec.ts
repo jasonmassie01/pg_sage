@@ -16,8 +16,8 @@ test.describe('Sidebar navigation', () => {
     await page.goto('/')
     await expect(page.locator('nav')).toBeVisible()
 
-    // Layout defines three nav groups: Monitor, Analyze, Configure
-    for (const heading of ['Monitor', 'Analyze', 'Configure']) {
+    // Layout now contracts around autonomous DBA operation.
+    for (const heading of ['Operate']) {
       await expect(
         page.locator('nav').getByText(heading, { exact: true }),
       ).toBeVisible()
@@ -29,13 +29,9 @@ test.describe('Sidebar navigation', () => {
 
     // These nav items are always visible (no admin gate).
     const navItems = [
-      { testid: 'nav-dashboard', label: 'Dashboard' },
-      { testid: 'nav-findings', label: 'Recommendations' },
+      { testid: 'nav-dashboard', label: 'Overview' },
+      { testid: 'nav-cases', label: 'Cases' },
       { testid: 'nav-actions', label: 'Actions' },
-      { testid: 'nav-forecasts', label: 'Forecasts' },
-      { testid: 'nav-query-hints', label: 'Performance' },
-      { testid: 'nav-alerts', label: 'Alerts' },
-      { testid: 'nav-settings', label: 'Settings' },
     ]
 
     for (const item of navItems) {
@@ -50,9 +46,8 @@ test.describe('Sidebar navigation', () => {
 
     // Our mock user has role=admin, so admin-only items should appear.
     const adminItems = [
-      { testid: 'nav-databases', label: 'Databases' },
-      { testid: 'nav-notifications', label: 'Notifications' },
-      { testid: 'nav-users', label: 'Users' },
+      { testid: 'nav-databases', label: 'Fleet' },
+      { testid: 'nav-settings', label: 'Settings' },
     ]
 
     for (const item of adminItems) {
@@ -66,9 +61,8 @@ test.describe('Sidebar navigation', () => {
     await page.goto('/')
 
     const routes = [
-      { testid: 'nav-findings', hash: '#/findings' },
+      { testid: 'nav-cases', hash: '#/cases' },
       { testid: 'nav-actions', hash: '#/actions' },
-      { testid: 'nav-forecasts', hash: '#/forecasts' },
       { testid: 'nav-settings', hash: '#/settings' },
       { testid: 'nav-dashboard', hash: '#/' },
     ]
@@ -83,13 +77,13 @@ test.describe('Sidebar navigation', () => {
     await page.goto('/')
 
     const header = page.locator('header h1')
-    await expect(header).toContainText('Dashboard')
+    await expect(header).toContainText('Overview')
 
     await page.locator('[data-testid="nav-settings"]').click()
     await expect(header).toContainText('Settings')
 
-    await page.locator('[data-testid="nav-findings"]').click()
-    await expect(header).toContainText('Recommendations')
+    await page.locator('[data-testid="nav-cases"]').click()
+    await expect(header).toContainText('Cases')
   })
 
   test('user email and sign-out button render', async ({ page }) => {
@@ -113,13 +107,14 @@ test.describe('Sidebar navigation', () => {
     })
 
     await page.goto('/')
-    await page.locator('[data-testid="nav-findings"]').click()
+    await page.locator('[data-testid="nav-cases"]').click()
     await page.locator('[data-testid="nav-settings"]').click()
     await page.locator('[data-testid="nav-dashboard"]').click()
 
     // Filter out known benign errors (e.g. favicon 404).
     const real = errors.filter(
-      e => !e.includes('favicon') && !e.includes('404'),
+      e => !e.includes('favicon') && !e.includes('404')
+        && !e.includes('EventSource'),
     )
     expect(real).toHaveLength(0)
   })

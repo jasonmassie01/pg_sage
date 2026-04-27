@@ -2,32 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
 
 const NAV_COMMANDS = [
-  { id: 'nav-dashboard', label: 'Go to Dashboard',
-    hint: 'Overview + fleet health', hash: '#/' },
-  { id: 'nav-findings', label: 'Go to Recommendations',
-    hint: 'Open findings', hash: '#/findings' },
+  { id: 'nav-dashboard', label: 'Go to Overview',
+    hint: 'Agent state + fleet health', hash: '#/' },
+  { id: 'nav-cases', label: 'Go to Cases',
+    hint: 'Open DBA work queue', hash: '#/cases' },
   { id: 'nav-actions', label: 'Go to Actions',
-    hint: 'Executed + pending', hash: '#/actions' },
-  { id: 'nav-incidents', label: 'Go to Incidents',
-    hint: 'Incident feed', hash: '#/incidents' },
-  { id: 'nav-forecasts', label: 'Go to Forecasts',
-    hint: 'Capacity forecasts', hash: '#/forecasts' },
-  { id: 'nav-query-hints', label: 'Go to Performance',
-    hint: 'Query hints + rewrites', hash: '#/query-hints' },
-  { id: 'nav-schema-health', label: 'Go to Schema Health',
-    hint: 'Lint + drift', hash: '#/schema-health' },
-  { id: 'nav-alerts', label: 'Go to Alerts',
-    hint: 'Alert log', hash: '#/alerts' },
-  { id: 'nav-settings', label: 'Go to Settings',
-    hint: 'Configure pg_sage', hash: '#/settings', admin: true },
-  { id: 'nav-databases', label: 'Go to Databases',
+    hint: 'Executed + pending timeline', hash: '#/actions' },
+  { id: 'nav-databases', label: 'Go to Fleet',
     hint: 'Manage database connections', hash: '#/manage-databases',
     admin: true },
-  { id: 'nav-notifications', label: 'Go to Notifications',
-    hint: 'Configure alert delivery', hash: '#/notifications',
-    admin: true },
-  { id: 'nav-users', label: 'Go to Users',
-    hint: 'Manage user access', hash: '#/users', admin: true },
+  { id: 'nav-settings', label: 'Go to Settings',
+    hint: 'Configure pg_sage', hash: '#/settings', admin: true },
 ]
 
 function score(query, text) {
@@ -50,19 +35,25 @@ export function CommandPalette({
   const [index, setIndex] = useState(0)
   const inputRef = useRef(null)
 
+  const openPalette = (initialQuery = '') => {
+    setQuery(initialQuery)
+    setIndex(0)
+    setOpen(true)
+  }
+
   useEffect(() => {
     const onKey = e => {
       const mod = e.metaKey || e.ctrlKey
       if (mod && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        setOpen(v => !v)
+        if (open) setOpen(false)
+        else openPalette()
       } else if (e.key === 'Escape' && open) {
         setOpen(false)
       } else if (e.key === '?' && !open
         && !isTyping(e.target)) {
         e.preventDefault()
-        setOpen(true)
-        setQuery('?')
+        openPalette('?')
       }
     }
     window.addEventListener('keydown', onKey)
@@ -71,8 +62,6 @@ export function CommandPalette({
 
   useEffect(() => {
     if (open) {
-      setQuery('')
-      setIndex(0)
       requestAnimationFrame(() => inputRef.current?.focus())
     }
   }, [open])

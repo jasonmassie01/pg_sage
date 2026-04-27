@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useAPI, withTimeRange } from '../hooks/useAPI'
 import { useTimeRange } from '../context/TimeRangeContext'
 import { SQLBlock } from '../components/SQLBlock'
@@ -11,10 +11,23 @@ import { usePendingActionsRefetch } from '../components/Layout'
 import { useToast } from '../components/Toast'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
 
+function actionStatus(row) {
+  return row.status || row.action_status || row.outcome || 'unknown'
+}
+
+function actionRisk(row) {
+  return row.risk_tier || row.action_risk || row.risk || 'unknown'
+}
+
+function verificationStatus(row) {
+  return row.verification_status || row.status || 'not_started'
+}
+
 export function Actions({ database, user }) {
   const [tab, setTab] = useState('executed')
   const range = useTimeRange()
   const canReview = user?.role === 'admin' || user?.role === 'operator'
+  const activeTab = canReview ? tab : 'executed'
   const dbParam = database && database !== 'all'
     ? `?database=${database}` : ''
 
@@ -29,16 +42,10 @@ export function Actions({ database, user }) {
   useLiveRefetch(['actions'], refetch)
   useLiveRefetch(['actions'], canReview ? pendingRefetch : null)
 
-  useEffect(() => {
-    if (!canReview && tab !== 'executed') {
-      setTab('executed')
-    }
-  }, [canReview, tab])
-
-  if (tab === 'executed' || !canReview) {
+  if (activeTab === 'executed') {
     return (
       <div className="space-y-4">
-        <TabBar tab={tab} setTab={setTab}
+        <TabBar tab={activeTab} setTab={setTab}
           pendingCount={pendingData?.total || 0}
           canReview={canReview} />
         <ExecutedTab data={data} loading={loading}
@@ -49,13 +56,13 @@ export function Actions({ database, user }) {
 
   return (
     <div className="space-y-4">
-      <TabBar tab={tab} setTab={setTab}
+      <TabBar tab={activeTab} setTab={setTab}
         pendingCount={pendingData?.total || 0}
         canReview={canReview} />
       <PendingTab data={pendingData}
         loading={pendingLoading}
         error={pendingError}
-        refetch={pendingRefetch} user={user} />
+        refetch={pendingRefetch} />
     </div>
   )
 }
@@ -184,7 +191,7 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
     {
       key: 'outcome', label: 'Outcome',
       render: r => {
-        const s = outcomeStyle(r.outcome)
+        const s = outcomeStyle(actionStatus(r))
         return (
           <span className="px-2 py-0.5 rounded-full text-xs
             font-medium inline-block"
@@ -194,6 +201,11 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
         )
       },
     },
+    ...(actions.some(r => r.verification_status)
+      ? [{
+        key: 'verification_status', label: 'Verification',
+        render: r => verificationStatus(r),
+      }] : []),
     ...(actions.some(r => r.database_name)
       ? [{ key: 'database_name', label: 'Database' }] : []),
     {
@@ -333,7 +345,7 @@ function PendingSkeleton() {
 }
 
 function PendingTab({
-  data, loading, error, refetch, user,
+  data, loading, error, refetch,
 }) {
   const [rejectId, setRejectId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
@@ -430,8 +442,9 @@ function PendingTab({
           },
           high: { label: 'High Risk', color: 'var(--red)' },
         }
-        const info = riskMap[r.action_risk] || {
-          label: r.action_risk,
+        const risk = actionRisk(r)
+        const info = riskMap[risk] || {
+          label: risk,
           color: 'var(--text-secondary)',
         }
         return (

@@ -646,3 +646,29 @@ func queuedActionMap(a store.QueuedAction) map[string]any {
 	}
 	return m
 }
+
+func actionTimelineMap(row map[string]any) map[string]any {
+	out := map[string]any{}
+	for _, key := range []string{
+		"id",
+		"case_id",
+		"finding_id",
+		"status",
+		"action_type",
+		"risk_tier",
+		"proposed_sql",
+		"actor",
+		"verification_status",
+		"rollback_status",
+		"created_at",
+		"approved_at",
+		"executed_at",
+		"verified_at",
+		"expires_at",
+	} {
+		if v, ok := row[key]; ok {
+			out[key] = v
+		}
+	}
+	return out
+}

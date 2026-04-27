@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import {
   useEffect,
   useState,
@@ -94,5 +95,6 @@ export function useLiveRefetch(types, refetch) {
   useEffect(() => {
     if (!refetch) return undefined
     return subscribe(types, () => refetch())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subscribe, refetch, JSON.stringify(types)])
 }

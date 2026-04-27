@@ -67,6 +67,34 @@ export const mockFindings = {
   total: 2,
 }
 
+export const mockCases = {
+  cases: [
+    {
+      id: 'finding:primary:stale_statistics:table:public.orders',
+      case_id: 'case-1',
+      title: 'Stats are stale',
+      severity: 'warning',
+      state: 'open',
+      why_now: 'table changed since last analyze',
+      impact_score: 60,
+      urgency_score: 75,
+      action_candidates: [
+        { action_type: 'analyze_table', risk_tier: 'safe' },
+      ],
+    },
+  ],
+  total: 1,
+}
+
+export const mockShadowReport = {
+  total_cases: 14,
+  would_auto_resolve: 12,
+  requires_approval: 2,
+  blocked: 1,
+  estimated_toil_minutes: 360,
+  blocked_reasons: ['requires approval'],
+}
+
 export const mockActions = {
   actions: [
     {
@@ -264,6 +292,14 @@ export async function mockAllAPIs(page: Page) {
   // Findings
   await page.route('**/api/v1/findings**', route =>
     route.fulfill({ json: mockFindings }),
+  )
+
+  // Cases and Shadow Mode
+  await page.route('**/api/v1/cases**', route =>
+    route.fulfill({ json: mockCases }),
+  )
+  await page.route('**/api/v1/shadow-report**', route =>
+    route.fulfill({ json: mockShadowReport }),
   )
 
   // Actions

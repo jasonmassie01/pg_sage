@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Layout } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
-import { Findings } from './pages/Findings'
+import { CasesPage } from './pages/CasesPage'
 import { Actions } from './pages/Actions'
 import { DatabasePage } from './pages/DatabasePage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -139,14 +139,15 @@ export default function App() {
   const pageState = (() => {
     switch (route) {
       case '/':
-        return { title: 'Dashboard', node: <Dashboard database={selectedDB}
+        return { title: 'Overview', node: <Dashboard database={selectedDB}
           onSelectDB={setSelectedDB} /> }
       case '/manage-databases':
         return isAdmin ? { title: 'Databases', node: <DatabasesPage /> }
           : denied
       case '/findings':
-        return { title: 'Recommendations',
-          node: <Findings database={selectedDB} user={user} /> }
+      case '/cases':
+        return { title: 'Cases',
+          node: <CasesPage database={selectedDB} user={user} /> }
       case '/actions':
         return { title: 'Actions',
           node: <Actions database={selectedDB} user={user} /> }
