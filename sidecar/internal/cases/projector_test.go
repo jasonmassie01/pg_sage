@@ -1,6 +1,9 @@
 package cases
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestIdentityKeyFindingUsesStableProblemFields(t *testing.T) {
 	f := SourceFinding{
@@ -110,5 +113,43 @@ func TestProjectFindingInformationalWhenNoRemediation(t *testing.T) {
 	}
 	if got.State != StateOpen {
 		t.Fatalf("State = %q", got.State)
+	}
+}
+
+func TestResolveEphemeralWhenEvidenceDisappears(t *testing.T) {
+	open := NewCase(CaseInput{
+		SourceType:   SourceFindingType,
+		SourceID:     "1",
+		DatabaseName: "prod",
+		IdentityKey:  "finding:prod:lock",
+		Title:        "Lock pileup",
+		Severity:     SeverityWarning,
+		Evidence:     []Evidence{{Type: "lock", Summary: "blocked sessions"}},
+		ActionCandidates: []ActionCandidate{{
+			ActionType: "cancel_backend",
+			RiskTier:   "moderate",
+		}},
+	})
+
+	got := ResolveIfEvidenceMissing(open, false)
+
+	if got.State != StateResolvedEphemeral {
+		t.Fatalf("State = %q, want %q", got.State, StateResolvedEphemeral)
+	}
+	if len(got.ActionCandidates) != 0 {
+		t.Fatalf("expected pending candidates to clear")
+	}
+}
+
+func TestExpiredActionCannotExecuteWithoutRevalidation(t *testing.T) {
+	expired := time.Now().Add(-time.Minute)
+	c := ActionCandidate{
+		ActionType: "analyze_table",
+		RiskTier:   "safe",
+		ExpiresAt:  &expired,
+	}
+
+	if c.IsExecutable(time.Now()) {
+		t.Fatalf("expired action should not be executable")
 	}
 }

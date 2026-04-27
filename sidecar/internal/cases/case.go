@@ -22,9 +22,10 @@ const (
 type State string
 
 const (
-	StateOpen     State = "open"
-	StateResolved State = "resolved"
-	StateExpired  State = "expired"
+	StateOpen              State = "open"
+	StateResolved          State = "resolved"
+	StateExpired           State = "expired"
+	StateResolvedEphemeral State = "resolved_ephemeral"
 )
 
 type Evidence struct {
@@ -74,6 +75,13 @@ type ActionCandidate struct {
 	OutputModes      []string   `json:"output_modes,omitempty"`
 	RollbackClass    string     `json:"rollback_class,omitempty"`
 	VerificationPlan []string   `json:"verification_plan,omitempty"`
+}
+
+func (a ActionCandidate) IsExecutable(now time.Time) bool {
+	if a.ExpiresAt == nil {
+		return true
+	}
+	return now.Before(*a.ExpiresAt)
 }
 
 type CaseAction struct {
