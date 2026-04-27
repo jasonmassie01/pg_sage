@@ -2,9 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -64,16 +66,32 @@ func fleetPendingActionsHandler(
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		allResult := make([]map[string]any, 0)
-		for _, pool := range mgr.AllPools() {
-			as := store.NewActionStore(pool)
+		dbFilter := r.URL.Query().Get("database")
+		if err := validateDatabaseParam(dbFilter); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if rejectUnknownDatabase(w, mgr, dbFilter) {
+			return
+		}
+		for _, inst := range sortedFleetInstances(mgr) {
+			if dbFilter != "" && dbFilter != "all" &&
+				inst.Name != dbFilter {
+				continue
+			}
+			if inst.Pool == nil {
+				continue
+			}
+			as := store.NewActionStore(inst.Pool)
 			actions, err := as.ListPending(
 				r.Context(), nil)
 			if err != nil {
 				continue
 			}
 			for _, a := range actions {
-				allResult = append(
-					allResult, queuedActionMap(a))
+				m := queuedActionMap(a)
+				m["database_name"] = inst.Name
+				allResult = append(allResult, m)
 			}
 		}
 		jsonResponse(w, map[string]any{
@@ -90,8 +108,23 @@ func fleetPendingCountHandler(
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		total := 0
-		for _, pool := range mgr.AllPools() {
-			as := store.NewActionStore(pool)
+		dbFilter := r.URL.Query().Get("database")
+		if err := validateDatabaseParam(dbFilter); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if rejectUnknownDatabase(w, mgr, dbFilter) {
+			return
+		}
+		for _, inst := range sortedFleetInstances(mgr) {
+			if dbFilter != "" && dbFilter != "all" &&
+				inst.Name != dbFilter {
+				continue
+			}
+			if inst.Pool == nil {
+				continue
+			}
+			as := store.NewActionStore(inst.Pool)
 			count, err := as.PendingCount(r.Context())
 			if err != nil {
 				continue
@@ -99,6 +132,168 @@ func fleetPendingCountHandler(
 			total += count
 		}
 		jsonResponse(w, map[string]any{"count": total})
+	}
+}
+
+// findingPendingActionsHandler returns any pending queued actions
+// linked to the given finding_id. Powers the inline approve/reject
+// UI on the Findings page. Fleet mode scans all pools; standalone
+// mode uses the single store.
+func findingPendingActionsHandler(
+	deps *ActionDeps,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		idStr := r.PathValue("id")
+		findingID, err := strconv.Atoi(idStr)
+		if err != nil || findingID <= 0 {
+			jsonError(w,
+				"invalid finding id", http.StatusBadRequest)
+			return
+		}
+		result := make([]map[string]any, 0)
+		if deps.Fleet != nil {
+			dbFilter := r.URL.Query().Get("database")
+			if err := validateDatabaseParam(dbFilter); err != nil {
+				jsonError(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if rejectUnknownDatabase(w, deps.Fleet, dbFilter) {
+				return
+			}
+			for _, inst := range sortedFleetInstances(deps.Fleet) {
+				if dbFilter != "" && dbFilter != "all" &&
+					inst.Name != dbFilter {
+					continue
+				}
+				if inst.Pool == nil {
+					continue
+				}
+				as := store.NewActionStore(inst.Pool)
+				actions, qerr := as.ListPendingByFinding(
+					r.Context(), findingID)
+				if qerr != nil {
+					continue
+				}
+				for _, a := range actions {
+					m := queuedActionMap(a)
+					m["database_name"] = inst.Name
+					result = append(result, m)
+				}
+			}
+		} else if deps.Store != nil {
+			actions, qerr := deps.Store.ListPendingByFinding(
+				r.Context(), findingID)
+			if qerr != nil {
+				slog.Error(
+					"finding pending actions failed",
+					"finding_id", findingID, "error", qerr)
+				jsonError(w,
+					"failed to list pending actions", 500)
+				return
+			}
+			for _, a := range actions {
+				result = append(result, queuedActionMap(a))
+			}
+		}
+		jsonResponse(w, map[string]any{
+			"pending": result,
+			"total":   len(result),
+		})
+	}
+}
+
+func fleetApproveActionHandler(
+	mgr *fleet.DatabaseManager,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		inst, id, ok := actionInstanceAndID(w, r, mgr)
+		if !ok {
+			return
+		}
+		user := UserFromContext(r.Context())
+		if user == nil {
+			jsonError(w, "authentication required",
+				http.StatusUnauthorized)
+			return
+		}
+		as := store.NewActionStore(inst.Pool)
+		action, err := as.Approve(r.Context(), id, user.ID)
+		if err != nil {
+			jsonError(w, "failed to approve action",
+				http.StatusNotFound)
+			return
+		}
+		approvedBy := user.ID
+		actionLogID, execErr := inst.Executor.ExecuteManual(
+			r.Context(), action.FindingID, action.ProposedSQL,
+			action.RollbackSQL, &approvedBy,
+		)
+		if execErr != nil {
+			jsonResponse(w, map[string]any{
+				"ok":       false,
+				"queue_id": id,
+				"database": inst.Name,
+				"error":    execErr.Error(),
+				"status":   "approved",
+				"executed": false,
+			})
+			return
+		}
+		verificationStatus := "verified"
+		if action.RollbackSQL != "" {
+			verificationStatus = "monitoring"
+		}
+		jsonResponse(w, map[string]any{
+			"ok":                  true,
+			"queue_id":            id,
+			"database":            inst.Name,
+			"action_log_id":       actionLogID,
+			"status":              "approved",
+			"executed":            true,
+			"verification_status": verificationStatus,
+		})
+	}
+}
+
+func fleetRejectActionHandler(
+	mgr *fleet.DatabaseManager,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		inst, id, ok := actionInstanceAndID(w, r, mgr)
+		if !ok {
+			return
+		}
+		user := UserFromContext(r.Context())
+		if user == nil {
+			jsonError(w, "authentication required",
+				http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			Reason string `json:"reason"`
+		}
+		if decErr := json.NewDecoder(r.Body).Decode(&body); decErr != nil {
+			jsonError(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		body.Reason = strings.TrimSpace(body.Reason)
+		if body.Reason == "" {
+			jsonError(w, "reason is required", http.StatusBadRequest)
+			return
+		}
+		as := store.NewActionStore(inst.Pool)
+		err := as.Reject(r.Context(), id, user.ID, body.Reason)
+		if err != nil {
+			jsonError(w, "failed to reject action",
+				http.StatusNotFound)
+			return
+		}
+		jsonResponse(w, map[string]any{
+			"ok":       true,
+			"queue_id": id,
+			"database": inst.Name,
+			"status":   "rejected",
+		})
 	}
 }
 
@@ -139,21 +334,26 @@ func approveActionHandler(
 
 		if execErr != nil {
 			jsonResponse(w, map[string]any{
-				"ok":        false,
-				"queue_id":  id,
-				"error":     execErr.Error(),
-				"status":    "approved",
-				"executed":  false,
+				"ok":       false,
+				"queue_id": id,
+				"error":    execErr.Error(),
+				"status":   "approved",
+				"executed": false,
 			})
 			return
 		}
 
+		verificationStatus := "verified"
+		if action.RollbackSQL != "" {
+			verificationStatus = "monitoring"
+		}
 		jsonResponse(w, map[string]any{
-			"ok":            true,
-			"queue_id":      id,
-			"action_log_id": actionLogID,
-			"status":        "approved",
-			"executed":      true,
+			"ok":                  true,
+			"queue_id":            id,
+			"action_log_id":       actionLogID,
+			"status":              "approved",
+			"executed":            true,
+			"verification_status": verificationStatus,
 		})
 	}
 }
@@ -184,6 +384,11 @@ func rejectActionHandler(
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
+		body.Reason = strings.TrimSpace(body.Reason)
+		if body.Reason == "" {
+			jsonError(w, "reason is required", http.StatusBadRequest)
+			return
+		}
 
 		err = as.Reject(r.Context(), id, user.ID, body.Reason)
 		if err != nil {
@@ -202,6 +407,39 @@ func rejectActionHandler(
 	}
 }
 
+func rollbackActionHandler(
+	exec *executor.Executor,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := UserFromContext(r.Context())
+		if user == nil {
+			jsonError(w, "authentication required",
+				http.StatusUnauthorized)
+			return
+		}
+		id, ok := actionIDFromPath(w, r)
+		if !ok {
+			return
+		}
+		var body struct {
+			Reason string `json:"reason"`
+		}
+		if decErr := json.NewDecoder(r.Body).Decode(&body); decErr != nil {
+			jsonError(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if err := exec.RollbackAction(
+			r.Context(), int64(id), strings.TrimSpace(body.Reason),
+		); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		jsonResponse(w, map[string]any{
+			"ok": true, "action_id": id, "status": "rolled_back",
+		})
+	}
+}
+
 // manualExecuteHandler triggers manual execution from a finding.
 func manualExecuteHandler(
 	exec *executor.Executor,
@@ -215,8 +453,9 @@ func manualExecuteHandler(
 		}
 
 		var body struct {
-			FindingID int    `json:"finding_id"`
-			SQL       string `json:"sql"`
+			FindingID   int    `json:"finding_id"`
+			SQL         string `json:"sql"`
+			RollbackSQL string `json:"rollback_sql"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
@@ -230,12 +469,20 @@ func manualExecuteHandler(
 
 		userID := user.ID
 		actionLogID, err := exec.ExecuteManual(
-			r.Context(), body.FindingID, body.SQL, "",
+			r.Context(), body.FindingID, body.SQL, body.RollbackSQL,
 			&userID,
 		)
 		if err != nil {
 			slog.Error("manual execution failed",
 				"finding_id", body.FindingID, "error", err)
+			if errors.Is(err, executor.ErrFindingNotActionable) {
+				jsonError(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, executor.ErrFindingSQLMismatch) {
+				jsonError(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 			jsonError(w, "execution failed", 500)
 			return
 		}
@@ -245,6 +492,140 @@ func manualExecuteHandler(
 			"action_log_id": actionLogID,
 		})
 	}
+}
+
+func fleetManualExecuteHandler(
+	mgr *fleet.DatabaseManager,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := UserFromContext(r.Context())
+		if user == nil {
+			jsonError(w, "authentication required",
+				http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			FindingID   int    `json:"finding_id"`
+			SQL         string `json:"sql"`
+			RollbackSQL string `json:"rollback_sql"`
+			Database    string `json:"database"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			jsonError(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if body.FindingID == 0 || body.SQL == "" {
+			jsonError(w, "finding_id and sql are required",
+				http.StatusBadRequest)
+			return
+		}
+		if body.Database == "" || body.Database == "all" {
+			jsonError(w, "database is required",
+				http.StatusBadRequest)
+			return
+		}
+		if err := validateDatabaseParam(body.Database); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		inst := mgr.GetInstance(body.Database)
+		if inst == nil || inst.Executor == nil {
+			jsonError(w, "database action executor not found",
+				http.StatusNotFound)
+			return
+		}
+		userID := user.ID
+		actionLogID, err := inst.Executor.ExecuteManual(
+			r.Context(), body.FindingID, body.SQL,
+			body.RollbackSQL, &userID,
+		)
+		if err != nil {
+			slog.Error("fleet manual execution failed",
+				"database", body.Database,
+				"finding_id", body.FindingID, "error", err)
+			if errors.Is(err, executor.ErrFindingNotActionable) {
+				jsonError(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, executor.ErrFindingSQLMismatch) {
+				jsonError(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			jsonError(w, err.Error(), 500)
+			return
+		}
+		jsonResponse(w, map[string]any{
+			"ok":            true,
+			"database":      body.Database,
+			"action_log_id": actionLogID,
+		})
+	}
+}
+
+func fleetRollbackActionHandler(
+	mgr *fleet.DatabaseManager,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		inst, id, ok := actionInstanceAndID(w, r, mgr)
+		if !ok {
+			return
+		}
+		var body struct {
+			Reason string `json:"reason"`
+		}
+		if decErr := json.NewDecoder(r.Body).Decode(&body); decErr != nil {
+			jsonError(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if err := inst.Executor.RollbackAction(
+			r.Context(), int64(id), strings.TrimSpace(body.Reason),
+		); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		jsonResponse(w, map[string]any{
+			"ok": true, "queue_id": id, "database": inst.Name,
+			"status": "rolled_back",
+		})
+	}
+}
+
+func actionInstanceAndID(
+	w http.ResponseWriter, r *http.Request,
+	mgr *fleet.DatabaseManager,
+) (*fleet.DatabaseInstance, int, bool) {
+	id, ok := actionIDFromPath(w, r)
+	if !ok {
+		return nil, 0, false
+	}
+	dbName, ok := readDatabaseParam(w, r)
+	if !ok {
+		return nil, 0, false
+	}
+	if dbName == "" || dbName == "all" {
+		jsonError(w, "database is required",
+			http.StatusBadRequest)
+		return nil, 0, false
+	}
+	inst := mgr.GetInstance(dbName)
+	if inst == nil || inst.Pool == nil || inst.Executor == nil {
+		jsonError(w, "database action executor not found",
+			http.StatusNotFound)
+		return nil, 0, false
+	}
+	return inst, id, true
+}
+
+func actionIDFromPath(
+	w http.ResponseWriter, r *http.Request,
+) (int, bool) {
+	idStr := r.PathValue("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		jsonError(w, "invalid action id", http.StatusBadRequest)
+		return 0, false
+	}
+	return id, true
 }
 
 // queuedActionMap converts a QueuedAction to a JSON-friendly map.

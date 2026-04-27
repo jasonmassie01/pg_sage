@@ -3,17 +3,29 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/store"
 )
+
+// errInvalidExecMode is returned by updateDBExecutionMode when the
+// caller supplies a value outside the allowed set. Handlers surface
+// this as a 400 so the caller can correct the request.
+var errInvalidExecMode = errors.New(
+	"execution_mode must be auto, approval, or manual")
+
+// errDBNotFound is returned by updateDBExecutionMode when the
+// target database row does not exist. Handlers surface this as a 404.
+var errDBNotFound = errors.New("database not found")
 
 func configGlobalGetHandler(
 	cs *store.ConfigStore, cfg *config.Config,
@@ -25,16 +37,10 @@ func configGlobalGetHandler(
 			jsonError(w, "failed to load configuration", 500)
 			return
 		}
-		// execution_mode is per-database in fleet mode
-		// but standalone always uses "auto".
-		merged["execution_mode"] = map[string]any{
-			"value": "auto", "source": "default",
-		}
-
 		jsonResponse(w, map[string]any{
-			"mode":       cfg.Mode,
-			"databases":  len(cfg.Databases),
-			"config":     merged,
+			"mode":      cfg.Mode,
+			"databases": len(cfg.Databases),
+			"config":    merged,
 		})
 	}
 }
@@ -78,6 +84,61 @@ func configGlobalPutHandler(
 	}
 }
 
+func configGlobalDeleteHandler(
+	cs *store.ConfigStore,
+	cfg *config.Config,
+	baseCfg *config.Config,
+	mgr *fleet.DatabaseManager,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		key := r.PathValue("key")
+		if key == "" || key == "execution_mode" {
+			jsonError(w, "invalid config key",
+				http.StatusBadRequest)
+			return
+		}
+		if _, ok := store.AllowedConfigKeysSnapshot()[key]; !ok {
+			jsonError(w, "invalid config key",
+				http.StatusBadRequest)
+			return
+		}
+		if err := cs.DeleteOverride(r.Context(), key, 0); err != nil {
+			internalError(w, r, "delete global config override", err)
+			return
+		}
+		if err := reloadGlobalConfigFromStore(
+			r.Context(), cs, cfg, baseCfg,
+		); err != nil {
+			internalError(w, r, "reload global config", err)
+			return
+		}
+		if key == "trust.level" && mgr != nil {
+			syncTrustLevelToFleet(mgr, cfg.Trust.Level)
+		}
+		jsonResponse(w, map[string]string{"status": "deleted"})
+	}
+}
+
+func reloadGlobalConfigFromStore(
+	ctx context.Context,
+	cs *store.ConfigStore,
+	cfg *config.Config,
+	baseCfg *config.Config,
+) error {
+	overrides, err := cs.GetOverrides(ctx, 0)
+	if err != nil {
+		return fmt.Errorf("global overrides: %w", err)
+	}
+	next := config.Clone(baseCfg)
+	config.LockForHotReload()
+	*cfg = *next
+	config.UnlockForHotReload()
+	for _, override := range overrides {
+		hotReload(cfg, override.Key, override.Value)
+	}
+	return nil
+}
+
 func configDBGetHandler(
 	cs *store.ConfigStore, cfg *config.Config,
 	metaPool *pgxpool.Pool,
@@ -91,6 +152,21 @@ func configDBGetHandler(
 			return
 		}
 
+		var execMode string
+		qErr := metaPool.QueryRow(r.Context(),
+			`SELECT COALESCE(execution_mode, 'approval')
+			 FROM sage.databases WHERE id = $1`, dbID,
+		).Scan(&execMode)
+		if qErr != nil {
+			if errors.Is(qErr, pgx.ErrNoRows) {
+				jsonError(w, "database not found",
+					http.StatusNotFound)
+				return
+			}
+			internalError(w, r, "load database execution mode", qErr)
+			return
+		}
+
 		merged, err := cs.GetMergedConfig(
 			r.Context(), cfg, dbID)
 		if err != nil {
@@ -99,18 +175,9 @@ func configDBGetHandler(
 			jsonError(w, "failed to load configuration", 500)
 			return
 		}
-
-		// Include execution_mode from sage.databases.
-		var execMode string
-		qErr := metaPool.QueryRow(r.Context(),
-			`SELECT COALESCE(execution_mode, 'manual')
-			 FROM sage.databases WHERE id = $1`, dbID,
-		).Scan(&execMode)
-		if qErr == nil {
-			merged["execution_mode"] = map[string]any{
-				"value":  execMode,
-				"source": "db_override",
-			}
+		merged["execution_mode"] = map[string]any{
+			"value":  execMode,
+			"source": "db_override",
 		}
 
 		jsonResponse(w, map[string]any{
@@ -164,8 +231,17 @@ func configDBPutHandler(
 			if err := updateDBExecutionMode(
 				r.Context(), metaPool, dbID, modeStr,
 			); err != nil {
-				jsonError(w, err.Error(),
-					http.StatusBadRequest)
+				switch {
+				case errors.Is(err, errInvalidExecMode):
+					jsonError(w, err.Error(),
+						http.StatusBadRequest)
+				case errors.Is(err, errDBNotFound):
+					jsonError(w, err.Error(),
+						http.StatusNotFound)
+				default:
+					internalError(w, r,
+						"update execution mode", err)
+				}
 				return
 			}
 			// Propagate to running executor.
@@ -199,14 +275,50 @@ func configDBPutHandler(
 							return
 						}
 					}
-					if inst.Status != nil {
-						inst.Status.TrustLevel = level
-					}
+					inst.UpdateStatus(func(s *fleet.InstanceStatus) {
+						s.TrustLevel = level
+					})
 				}
 			}
 		}
 
 		jsonResponse(w, map[string]string{"status": "updated"})
+	}
+}
+
+func configDBDeleteHandler(
+	cs *store.ConfigStore,
+	cfg *config.Config,
+	mgr *fleet.DatabaseManager,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dbID, err := strconv.Atoi(r.PathValue("id"))
+		if err != nil || dbID < 1 {
+			jsonError(w, "invalid database id",
+				http.StatusBadRequest)
+			return
+		}
+		key := r.PathValue("key")
+		if key == "" || key == "execution_mode" {
+			jsonError(w, "invalid config key",
+				http.StatusBadRequest)
+			return
+		}
+		if _, ok := store.AllowedConfigKeysSnapshot()[key]; !ok {
+			jsonError(w, "invalid config key",
+				http.StatusBadRequest)
+			return
+		}
+		if err := cs.DeleteOverride(
+			r.Context(), key, dbID,
+		); err != nil {
+			internalError(w, r, "delete database config override", err)
+			return
+		}
+		if key == "trust.level" && mgr != nil {
+			syncDatabaseTrustLevelReset(mgr, cfg, dbID)
+		}
+		jsonResponse(w, map[string]string{"status": "deleted"})
 	}
 }
 
@@ -219,9 +331,7 @@ func updateDBExecutionMode(
 	dbID int, mode string,
 ) error {
 	if !validExecModes[mode] {
-		return fmt.Errorf(
-			"execution_mode must be auto, approval, "+
-				"or manual, got %q", mode)
+		return fmt.Errorf("%w: got %q", errInvalidExecMode, mode)
 	}
 	tag, err := pool.Exec(ctx,
 		`UPDATE sage.databases
@@ -231,7 +341,7 @@ func updateDBExecutionMode(
 		return fmt.Errorf("updating execution mode: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("database %d not found", dbID)
+		return fmt.Errorf("%w: id %d", errDBNotFound, dbID)
 	}
 	return nil
 }
@@ -271,8 +381,28 @@ func syncTrustLevelToFleet(
 	mgr *fleet.DatabaseManager, level string,
 ) {
 	for _, inst := range mgr.Instances() {
-		if inst.Status != nil {
-			inst.Status.TrustLevel = level
+		inst.UpdateStatus(func(s *fleet.InstanceStatus) {
+			s.TrustLevel = level
+		})
+	}
+}
+
+func syncDatabaseTrustLevelReset(
+	mgr *fleet.DatabaseManager,
+	cfg *config.Config,
+	dbID int,
+) {
+	inst := mgr.GetInstanceByDatabaseID(dbID)
+	if inst == nil {
+		return
+	}
+	level := cfg.Trust.Level
+	if inst.Executor != nil {
+		if err := inst.Executor.SetTrustLevel(""); err == nil {
+			level = inst.Executor.TrustLevel()
 		}
 	}
+	inst.UpdateStatus(func(s *fleet.InstanceStatus) {
+		s.TrustLevel = level
+	})
 }

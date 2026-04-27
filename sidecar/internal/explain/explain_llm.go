@@ -2,9 +2,10 @@ package explain
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/llm"
 )
 
 const explainSystemPrompt = `You are a PostgreSQL query ` +
@@ -66,10 +67,8 @@ type llmExplainResponse struct {
 func (ex *Explainer) applyLLMResponse(
 	raw string, result *ExplainResult,
 ) {
-	cleaned := stripToJSON(raw)
-
 	var resp llmExplainResponse
-	if err := json.Unmarshal([]byte(cleaned), &resp); err != nil {
+	if err := llm.ParseJSON(raw, llm.JSONAuto, &resp); err != nil {
 		ex.logFn(
 			"WARN",
 			"explain: failed to parse LLM response: %v", err,
@@ -89,22 +88,11 @@ func (ex *Explainer) applyLLMResponse(
 }
 
 // stripToJSON extracts JSON from LLM output that may contain
-// thinking tokens or markdown fences.
+// thinking tokens or markdown fences. Delegates to the canonical
+// llm.StripJSON with JSONAuto since this caller accepts either
+// object- or array-shaped responses.
 func stripToJSON(s string) string {
-	s = strings.TrimSpace(s)
-	// Try JSON object first (our expected shape).
-	first := strings.Index(s, "{")
-	last := strings.LastIndex(s, "}")
-	if first >= 0 && last > first {
-		return s[first : last+1]
-	}
-	// Fallback: try JSON array.
-	firstArr := strings.Index(s, "[")
-	lastArr := strings.LastIndex(s, "]")
-	if firstArr >= 0 && lastArr > firstArr {
-		return s[firstArr : lastArr+1]
-	}
-	return stripMarkdownFences(s)
+	return llm.StripJSON(s, llm.JSONAuto)
 }
 
 // stripMarkdownFences removes ```json ... ``` wrappers.

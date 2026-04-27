@@ -335,8 +335,6 @@ func TestGlobalGet_ContainsAllExpectedKeys(t *testing.T) {
 		"retention.findings_days",
 		"retention.actions_days",
 		"retention.explains_days",
-		// execution_mode (injected by handler)
-		"execution_mode",
 	}
 
 	for _, key := range requiredKeys {
@@ -345,19 +343,8 @@ func TestGlobalGet_ContainsAllExpectedKeys(t *testing.T) {
 		}
 	}
 
-	// Verify execution_mode has the expected shape.
-	em, ok := resp.Config["execution_mode"].(map[string]any)
-	if !ok {
-		t.Fatalf("execution_mode: expected object, got %T",
-			resp.Config["execution_mode"])
-	}
-	if em["value"] != "auto" {
-		t.Errorf("execution_mode.value: got %v, want 'auto'",
-			em["value"])
-	}
-	if em["source"] != "default" {
-		t.Errorf("execution_mode.source: got %v, want 'default'",
-			em["source"])
+	if _, ok := resp.Config["execution_mode"]; ok {
+		t.Fatal("global config should not expose database-only execution_mode")
 	}
 }
 
@@ -491,8 +478,8 @@ func TestP2_ConfigGlobalPut_CompleteFrontendPayload(
 			MaxQueries:      250,
 		},
 		Analyzer: config.AnalyzerConfig{
-			IntervalSeconds:      300,
-			SlowQueryThresholdMs: 1000,
+			IntervalSeconds:       300,
+			SlowQueryThresholdMs:  1000,
 			UnusedIndexWindowDays: 7,
 		},
 		Trust: config.TrustConfig{

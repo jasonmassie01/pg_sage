@@ -30,11 +30,18 @@ type LockChain struct {
 // isSafeProcess returns true if the given PID or application name matches
 // pg_sage's own backend or a configured safe pattern (e.g. replication,
 // patroni). Safe processes still produce findings but never get kill SQL.
+//
+// ownPID only identifies a single pool connection, so we also match any
+// backend whose application_name contains "pg_sage" — every sidecar pool
+// connection is tagged with application_name=pg_sage at pool setup.
 func isSafeProcess(appName string, pid int, ownPID int, patterns []string) bool {
 	if pid == ownPID {
 		return true
 	}
 	lower := strings.ToLower(appName)
+	if strings.Contains(lower, "pg_sage") {
+		return true
+	}
 	for _, p := range patterns {
 		if strings.Contains(lower, strings.ToLower(p)) {
 			return true

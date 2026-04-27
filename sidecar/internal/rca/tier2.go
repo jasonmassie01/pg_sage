@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/llm"
 )
 
 // tier2Response is the expected JSON structure from the LLM.
@@ -127,10 +129,9 @@ func parseTier2Response(
 	raw string,
 	uncovered []*Signal,
 ) (Incident, error) {
-	cleaned := stripToJSONObject(raw)
 	var resp tier2Response
-	if err := json.Unmarshal([]byte(cleaned), &resp); err != nil {
-		return Incident{}, fmt.Errorf("unmarshal: %w", err)
+	if err := llm.ParseJSON(raw, llm.JSONObject, &resp); err != nil {
+		return Incident{}, err
 	}
 	if resp.RootCause == "" {
 		return Incident{}, fmt.Errorf("empty root_cause in response")
@@ -206,17 +207,8 @@ func parseCausalChainString(
 }
 
 // stripToJSONObject extracts a JSON object from text that may
-// contain markdown fences or thinking tokens.
+// contain markdown fences or thinking tokens. Delegates to the
+// canonical llm.StripJSON implementation.
 func stripToJSONObject(s string) string {
-	s = strings.TrimSpace(s)
-	start := strings.Index(s, "{")
-	end := strings.LastIndex(s, "}")
-	if start >= 0 && end > start {
-		return s[start : end+1]
-	}
-	// Fallback: strip markdown fences.
-	s = strings.TrimPrefix(s, "```json")
-	s = strings.TrimPrefix(s, "```")
-	s = strings.TrimSuffix(s, "```")
-	return strings.TrimSpace(s)
+	return llm.StripJSON(s, llm.JSONObject)
 }

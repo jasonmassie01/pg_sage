@@ -65,9 +65,9 @@ func New(
 	for _, o := range opts {
 		o(t)
 	}
-	if t.pool != nil {
-		t.loadActiveHints(context.Background())
-	}
+	// Active hints are loaded on the first Tune() call when
+	// recentlyTuned is empty (see Tune()), so bootstrap here is
+	// unnecessary and would require a context we don't have.
 	return t
 }
 
@@ -130,11 +130,35 @@ func (t *Tuner) Tune(
 		}
 		f := t.processCandidate(ctx, c)
 		if len(f) > 0 {
-			t.recentlyTuned[c.QueryID] = t.cooldownCycles()
+			t.recordTuned(c.QueryID)
 		}
 		findings = append(findings, f...)
 	}
 	return findings, nil
+}
+
+// maxRecentlyTuned caps the cooldown map so that a pathological
+// workload (very high distinct-queryid cardinality with a long
+// CascadeCooldownCycles) cannot grow it without bound between
+// cycles. When the cap is exceeded, the entry with the smallest
+// remaining cooldown is evicted — it is closest to expiry anyway.
+const maxRecentlyTuned = 10_000
+
+// recordTuned inserts a queryID into the cooldown map, evicting the
+// entry nearest to expiry if the cap would be exceeded.
+func (t *Tuner) recordTuned(queryID int64) {
+	if len(t.recentlyTuned) >= maxRecentlyTuned {
+		var evictID int64
+		minRemaining := -1
+		for qid, remaining := range t.recentlyTuned {
+			if minRemaining == -1 || remaining < minRemaining {
+				minRemaining = remaining
+				evictID = qid
+			}
+		}
+		delete(t.recentlyTuned, evictID)
+	}
+	t.recentlyTuned[queryID] = t.cooldownCycles()
 }
 
 // deferralReason returns a non-empty string when the candidate
@@ -316,7 +340,7 @@ func (t *Tuner) processCandidate(
 	title := buildTitle(symptoms)
 	rationale := buildRationale(prescriptions)
 	rewrite, rewriteRationale := extractRewrite(prescriptions)
-	finding := t.buildFinding(c, symptoms, combined,
+	finding := t.buildFinding(ctx, c, symptoms, combined,
 		title, rationale, rewrite, rewriteRationale)
 	return append(staleFindings, finding)
 }
@@ -505,6 +529,7 @@ func (t *Tuner) prescribeAll(
 }
 
 func (t *Tuner) buildFinding(
+	ctx context.Context,
 	c candidate,
 	symptoms []PlanSymptom,
 	combinedHint, title, rationale string,
@@ -539,7 +564,7 @@ func (t *Tuner) buildFinding(
 	}
 
 	// Persist to sage.query_hints for the dashboard query-hints page.
-	t.upsertQueryHint(c.QueryID, combinedHint,
+	t.upsertQueryHint(ctx, c.QueryID, combinedHint,
 		strings.Join(names, ", "), suggestedRewrite, rewriteRationale)
 
 	return f
@@ -548,6 +573,7 @@ func (t *Tuner) buildFinding(
 // upsertQueryHint writes a record to sage.query_hints so the
 // dashboard query-hints page displays tuner findings.
 func (t *Tuner) upsertQueryHint(
+	ctx context.Context,
 	queryID int64, hintText, symptom,
 	suggestedRewrite, rewriteRationale string,
 ) {
@@ -555,7 +581,7 @@ func (t *Tuner) upsertQueryHint(
 		return
 	}
 	// Update existing active hint, or insert new one.
-	tag, err := t.pool.Exec(context.Background(),
+	tag, err := t.pool.Exec(ctx,
 		`UPDATE sage.query_hints
 		 SET hint_text = $2, symptom = $3,
 		     suggested_rewrite = $4, rewrite_rationale = $5
@@ -568,7 +594,7 @@ func (t *Tuner) upsertQueryHint(
 		return
 	}
 	if tag.RowsAffected() == 0 {
-		_, err = t.pool.Exec(context.Background(),
+		_, err = t.pool.Exec(ctx,
 			`INSERT INTO sage.query_hints
 				(queryid, hint_text, symptom,
 				 suggested_rewrite, rewrite_rationale, status)
@@ -583,44 +609,80 @@ func (t *Tuner) upsertQueryHint(
 }
 
 // BuildInsertSQL generates an INSERT for hint_plan.hints.
-// Note: uses string-literal escaping because RecommendedSQL is
-// stored as text, not executed with parameterized args. NULL
-// bytes and backslashes are rejected as a defense-in-depth
-// measure against injection.
+//
+// The SQL this produces is stored as Finding.RecommendedSQL and
+// executed later by the executor (see executor.ExecInTransaction),
+// so it must be self-contained — we cannot use bind parameters.
+//
+// Safety: we emit the query text and hint as PostgreSQL dollar-
+// quoted string literals ($sageqh$…$sageqh$). Dollar-quoted
+// strings do not interpret backslash escapes or double single
+// quotes, so they are immune to single-quote-based injection
+// regardless of standard_conforming_strings. The only attack
+// surface is a literal that itself contains the tag; we pick a
+// unique tag for each call to eliminate that case and strip NUL
+// bytes as extra defense-in-depth.
 func BuildInsertSQL(queryText string, hint string) string {
-	queryText = rejectUnsafeChars(queryText)
-	hint = rejectUnsafeChars(hint)
-	escapedHint := strings.ReplaceAll(hint, "'", "''")
-	escapedQuery := strings.ReplaceAll(queryText, "'", "''")
+	queryText = stripNULs(queryText)
+	hint = stripNULs(hint)
+	tag := chooseDollarTag(queryText, hint)
 	return fmt.Sprintf(
 		"INSERT INTO hint_plan.hints "+
 			"(norm_query_string, application_name, hints) "+
-			"VALUES ('%s', '', '%s') "+
+			"VALUES (%s%s%s, '', %s%s%s) "+
 			"ON CONFLICT (norm_query_string, application_name) "+
 			"DO UPDATE SET hints = EXCLUDED.hints",
-		escapedQuery, escapedHint,
+		tag, queryText, tag, tag, hint, tag,
 	)
 }
 
 // BuildDeleteSQL generates a DELETE for hint_plan.hints.
+// See BuildInsertSQL for the dollar-quoting safety rationale.
 func BuildDeleteSQL(queryText string) string {
-	queryText = rejectUnsafeChars(queryText)
-	escapedQuery := strings.ReplaceAll(queryText, "'", "''")
+	queryText = stripNULs(queryText)
+	tag := chooseDollarTag(queryText, "")
 	return fmt.Sprintf(
 		"DELETE FROM hint_plan.hints "+
-			"WHERE norm_query_string = '%s' "+
+			"WHERE norm_query_string = %s%s%s "+
 			"AND application_name = ''",
-		escapedQuery,
+		tag, queryText, tag,
 	)
 }
 
-// rejectUnsafeChars strips NULL bytes and backslashes from
-// input to prevent injection when standard_conforming_strings
-// might be off.
-func rejectUnsafeChars(s string) string {
-	s = strings.ReplaceAll(s, "\x00", "")
-	s = strings.ReplaceAll(s, "\\", "")
-	return s
+// stripNULs removes NUL bytes, which PostgreSQL rejects in text
+// columns but which could truncate client-side string handling.
+func stripNULs(s string) string {
+	return strings.ReplaceAll(s, "\x00", "")
+}
+
+// chooseDollarTag picks a dollar-quote tag guaranteed not to
+// appear in any of the provided payloads, so the closing tag is
+// unambiguous. It starts with $sageqh$ and extends with digits
+// until the tag is not a substring of any payload.
+func chooseDollarTag(payloads ...string) string {
+	base := "sageqh"
+	for i := 0; i < 1000; i++ {
+		var tag string
+		if i == 0 {
+			tag = "$" + base + "$"
+		} else {
+			tag = fmt.Sprintf("$%s%d$", base, i)
+		}
+		collides := false
+		for _, p := range payloads {
+			if strings.Contains(p, tag) {
+				collides = true
+				break
+			}
+		}
+		if !collides {
+			return tag
+		}
+	}
+	// Extremely unlikely fallback — caller payloads are from
+	// pg_stat_statements and unlikely to collide with 1000
+	// different candidate tags.
+	return "$sageqh_fallback$"
 }
 
 // hasSpillSymptom returns true if any symptom indicates a

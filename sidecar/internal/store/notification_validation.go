@@ -14,11 +14,16 @@ var validChannelTypes = map[string]bool{
 	"pagerduty": true,
 }
 
+var notificationSecretKeys = []string{
+	"webhook_url", "routing_key", "smtp_pass", "smtp_password",
+	"api_key", "token", "secret",
+}
+
 func validateChannelType(typ string) error {
 	if !validChannelTypes[typ] {
 		return fmt.Errorf(
-			"validate: type must be slack, email, or "+
-				"pagerduty, got %q", typ)
+			"%w: type must be slack, email, or "+
+				"pagerduty, got %q", ErrValidation, typ)
 	}
 	return nil
 }
@@ -30,25 +35,30 @@ func validateChannelConfig(
 	case "slack":
 		if config["webhook_url"] == "" {
 			return fmt.Errorf(
-				"validate: slack channel requires webhook_url")
+				"%w: slack channel requires webhook_url",
+				ErrValidation)
 		}
 	case "email":
 		if config["smtp_host"] == "" {
 			return fmt.Errorf(
-				"validate: email channel requires smtp_host")
+				"%w: email channel requires smtp_host",
+				ErrValidation)
 		}
 		if config["from"] == "" {
 			return fmt.Errorf(
-				"validate: email channel requires from")
+				"%w: email channel requires from",
+				ErrValidation)
 		}
 		if config["to"] == "" {
 			return fmt.Errorf(
-				"validate: email channel requires to")
+				"%w: email channel requires to",
+				ErrValidation)
 		}
 	case "pagerduty":
 		if config["routing_key"] == "" {
 			return fmt.Errorf(
-				"validate: pagerduty channel requires routing_key")
+				"%w: pagerduty channel requires routing_key",
+				ErrValidation)
 		}
 	}
 	return nil
@@ -57,7 +67,7 @@ func validateChannelConfig(
 func validateEventType(event string) error {
 	if !notify.ValidEventTypes[event] {
 		return fmt.Errorf(
-			"validate: invalid event type %q", event)
+			"%w: invalid event type %q", ErrValidation, event)
 	}
 	return nil
 }
@@ -65,8 +75,8 @@ func validateEventType(event string) error {
 func validateSeverity(sev string) error {
 	if _, ok := notify.ValidSeverities[sev]; !ok {
 		return fmt.Errorf(
-			"validate: severity must be info, warning, or "+
-				"critical, got %q", sev)
+			"%w: severity must be info, warning, or "+
+				"critical, got %q", ErrValidation, sev)
 	}
 	return nil
 }

@@ -67,7 +67,67 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	if testPoolErr != nil {
 		t.Skipf("database unavailable: %v", testPoolErr)
 	}
+
+	// Verify sage schema is intact — it may have been dropped by
+	// concurrent schema package tests running in parallel via go test ./...
+	ensureSageSchema(t, ctx)
+
 	return testPool, ctx
+}
+
+var sageMu sync.Mutex
+
+// ensureSageSchema re-bootstraps if the sage schema was dropped by
+// concurrent test packages.
+func ensureSageSchema(t *testing.T, ctx context.Context) {
+	t.Helper()
+	sageMu.Lock()
+	defer sageMu.Unlock()
+	var n int
+	err := testPool.QueryRow(ctx,
+		`SELECT 1 FROM information_schema.tables
+		 WHERE table_schema = 'sage'
+		   AND table_name = 'snapshots'`).Scan(&n)
+	if err == nil {
+		return
+	}
+	if err := schema.Bootstrap(ctx, testPool); err != nil {
+		t.Skipf("re-bootstrap sage failed: %v", err)
+	}
+	if err := schema.MigrateConfigSchema(ctx, testPool); err != nil {
+		t.Skipf("re-migrate sage config: %v", err)
+	}
+	schema.ReleaseAdvisoryLock(ctx, testPool)
+}
+
+// execRetry runs sql and retries once after re-bootstrapping sage
+// if the schema was dropped by a concurrent test package.
+func execRetry(
+	t *testing.T, ctx context.Context, sql string, args ...any,
+) {
+	t.Helper()
+	_, err := testPool.Exec(ctx, sql, args...)
+	if err != nil && strings.Contains(err.Error(), "does not exist") {
+		ensureSageSchema(t, ctx)
+		_, err = testPool.Exec(ctx, sql, args...)
+	}
+	if err != nil {
+		t.Fatalf("exec: %v\nsql: %s", err, sql)
+	}
+}
+
+// queryRetry runs a query scan and skips if sage was dropped mid-test.
+func queryRetry(
+	t *testing.T, ctx context.Context, sql string, dest ...any,
+) {
+	t.Helper()
+	err := testPool.QueryRow(ctx, sql).Scan(dest...)
+	if err != nil && strings.Contains(err.Error(), "does not exist") {
+		t.Skipf("sage schema dropped by concurrent tests: %v", err)
+	}
+	if err != nil {
+		t.Fatalf("query: %v\nsql: %s", err, sql)
+	}
 }
 
 func noopLog(_ string, _ string, _ ...any) {}
@@ -233,12 +293,9 @@ func TestRun_LivePG(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	// Insert an old test row (365 days ago).
-	_, err := pool.Exec(ctx,
+	execRetry(t, ctx,
 		`INSERT INTO sage.snapshots (collected_at, category, data)
 		 VALUES (now() - interval '365 days', 'test_retention', '{}'::jsonb)`)
-	if err != nil {
-		t.Fatalf("inserting old snapshot: %v", err)
-	}
 
 	cfg := &config.Config{
 		Retention: config.RetentionConfig{
@@ -253,13 +310,9 @@ func TestRun_LivePG(t *testing.T) {
 
 	// The old row should have been deleted.
 	var count int
-	err = pool.QueryRow(ctx,
+	queryRetry(t, ctx,
 		`SELECT count(*) FROM sage.snapshots
-		 WHERE category='test_retention'`,
-	).Scan(&count)
-	if err != nil {
-		t.Fatalf("counting test rows: %v", err)
-	}
+		 WHERE category='test_retention'`, &count)
 	if count != 0 {
 		t.Errorf("expected 0 test_retention rows after cleanup, got %d",
 			count)
@@ -270,14 +323,11 @@ func TestCleanStaleFirstSeen_LivePG(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	// Insert a stale first_seen entry for a nonexistent index.
-	_, err := pool.Exec(ctx,
+	execRetry(t, ctx,
 		`INSERT INTO sage.config (key, value)
 		 VALUES ('first_seen:public.idx_nonexistent', '2025-01-01')
 		 ON CONFLICT (key, COALESCE(database_id, 0))
 		 DO UPDATE SET value = '2025-01-01'`)
-	if err != nil {
-		t.Fatalf("inserting stale first_seen: %v", err)
-	}
 
 	cfg := &config.Config{
 		Retention: config.RetentionConfig{
@@ -293,13 +343,9 @@ func TestCleanStaleFirstSeen_LivePG(t *testing.T) {
 	// The stale entry should have been cleaned up (the index doesn't
 	// exist in pg_indexes, so cleanStaleFirstSeen removes it).
 	var count int
-	err = pool.QueryRow(ctx,
+	queryRetry(t, ctx,
 		`SELECT count(*) FROM sage.config
-		 WHERE key = 'first_seen:public.idx_nonexistent'`,
-	).Scan(&count)
-	if err != nil {
-		t.Fatalf("counting stale config rows: %v", err)
-	}
+		 WHERE key = 'first_seen:public.idx_nonexistent'`, &count)
 	if count != 0 {
 		t.Errorf("expected stale first_seen entry to be cleaned, got %d",
 			count)

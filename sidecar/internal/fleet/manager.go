@@ -2,6 +2,8 @@ package fleet
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"sync"
@@ -12,6 +14,8 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 )
+
+var ErrDatabaseNotFound = errors.New("database not found")
 
 // DatabaseManager manages multiple database instances.
 type DatabaseManager struct {
@@ -77,12 +81,18 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 
 	anyStopped := false
 	for _, inst := range m.instances {
-		inst.Status.HealthScore = computeHealthScore(inst.Status)
-		inst.Status.DatabaseName = inst.Name
+		// Snapshot fields under the instance lock so that background
+		// writers (updateInstanceFindings, config_handlers) don't race
+		// with the health-score compute or the JSON marshaller.
+		snap := inst.SnapshotStatus()
+		snap.HealthScore = computeHealthScore(snap)
+		snap.DatabaseName = inst.Name
 		ds := DatabaseStatus{
-			Name:   inst.Name,
-			Tags:   inst.Config.Tags,
-			Status: inst.Status,
+			ID:         inst.DatabaseID,
+			DatabaseID: inst.DatabaseID,
+			Name:       inst.Name,
+			Tags:       inst.Config.Tags,
+			Status:     snap,
 		}
 		overview.Databases = append(overview.Databases, ds)
 		if inst.Stopped {
@@ -130,59 +140,115 @@ func computeHealthScore(s *InstanceStatus) int {
 	return score
 }
 
-// EmergencyStop stops a specific database or all if name is empty.
+// RecordHealthSnapshots appends the current health score + finding
+// counts for every live instance to its sage.health_history. Intended
+// to be called on the same cadence as FleetStatus is consumed so the
+// Overview time-series stays populated even when scores are flat.
+// A write failure on one instance does not abort the rest.
+func (m *DatabaseManager) RecordHealthSnapshots(ctx context.Context) {
+	m.mu.RLock()
+	// Copy (name,pool,status-snapshot) tuples under the read lock,
+	// then release it before doing network I/O.
+	type sample struct {
+		name string
+		pool *pgxpool.Pool
+		s    *InstanceStatus
+	}
+	samples := make([]sample, 0, len(m.instances))
+	for _, inst := range m.instances {
+		if inst.Pool == nil {
+			continue
+		}
+		snap := inst.SnapshotStatus()
+		snap.HealthScore = computeHealthScore(snap)
+		samples = append(samples, sample{
+			name: inst.Name, pool: inst.Pool, s: snap,
+		})
+	}
+	m.mu.RUnlock()
+
+	for _, x := range samples {
+		qctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		_, err := x.pool.Exec(qctx,
+			`INSERT INTO sage.health_history
+			 (database_name, health_score, findings_open,
+			  findings_critical, findings_warning,
+			  findings_info, actions_total)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			x.name, x.s.HealthScore, x.s.FindingsOpen,
+			x.s.FindingsCritical, x.s.FindingsWarning,
+			x.s.FindingsInfo, x.s.ActionsTotal,
+		)
+		cancel()
+		if err != nil {
+			log.Printf("fleet: %s: health_history write failed: %v",
+				x.name, err)
+		}
+	}
+}
+
+// EmergencyStop blocks action execution for a specific database, or all
+// databases if name is empty. Monitoring goroutines intentionally keep
+// running so Resume can clear the guard without needing to reconstruct
+// per-instance collectors/analyzers/orchestrators.
 func (m *DatabaseManager) EmergencyStop(name string) int {
+	stopped, _ := m.EmergencyStopStrict(name)
+	return stopped
+}
+
+func (m *DatabaseManager) EmergencyStopStrict(name string) (int, error) {
+	return m.setEmergencyStopped(name, true)
+}
+
+func (m *DatabaseManager) setEmergencyStopped(
+	name string,
+	stopped bool,
+) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	stopped := 0
+	if name != "" {
+		if _, ok := m.instances[name]; !ok {
+			return 0, fmt.Errorf("%w: %s", ErrDatabaseNotFound, name)
+		}
+	}
+	changed := 0
 	for n, inst := range m.instances {
 		if name != "" && name != n {
 			continue
 		}
-		if !inst.Stopped {
-			inst.Stopped = true
+		if inst.Stopped != stopped {
 			if inst.Pool != nil {
 				ctx, cancel := context.WithTimeout(
 					context.Background(), 5*time.Second,
 				)
-				_ = executor.SetEmergencyStop(ctx, inst.Pool, true)
+				err := executor.SetEmergencyStop(ctx, inst.Pool, stopped)
 				cancel()
+				if err != nil {
+					return changed, fmt.Errorf(
+						"persisting emergency stop for %s: %w", n, err)
+				}
 			}
-			if inst.cancel != nil {
-				inst.cancel()
+			inst.Stopped = stopped
+			changed++
+			if stopped {
+				log.Printf("fleet: %s: emergency stop", n)
+			} else {
+				log.Printf("fleet: %s: resumed", n)
 			}
-			stopped++
-			log.Printf("fleet: %s: emergency stop", n)
 		}
 	}
-	return stopped
+	return changed, nil
 }
 
 // Resume resumes a specific database or all if name is empty.
 func (m *DatabaseManager) Resume(name string) int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	resumed := 0
-	for n, inst := range m.instances {
-		if name != "" && name != n {
-			continue
-		}
-		if inst.Stopped {
-			inst.Stopped = false
-			if inst.Pool != nil {
-				ctx, cancel := context.WithTimeout(
-					context.Background(), 5*time.Second,
-				)
-				_ = executor.SetEmergencyStop(ctx, inst.Pool, false)
-				cancel()
-			}
-			resumed++
-			log.Printf("fleet: %s: resumed", n)
-		}
-	}
+	resumed, _ := m.ResumeStrict(name)
 	return resumed
+}
+
+func (m *DatabaseManager) ResumeStrict(name string) (int, error) {
+	return m.setEmergencyStopped(name, false)
 }
 
 // PoolForDatabase returns the connection pool for a named
@@ -231,8 +297,8 @@ func (m *DatabaseManager) RemoveInstance(name string) bool {
 	if !ok {
 		return false
 	}
-	if inst.cancel != nil {
-		inst.cancel()
+	if inst.Cancel != nil {
+		inst.Cancel()
 	}
 	if inst.Pool != nil {
 		inst.Pool.Close()
@@ -256,6 +322,42 @@ func (m *DatabaseManager) GetInstanceByDatabaseID(
 	return nil
 }
 
+// UpdateInstanceMetadata updates non-connection runtime metadata for
+// an existing instance without closing its pool. This is used by
+// YAML fleet mode where the primary pool is also captured for auth
+// and catalog storage, so closing it during a UI edit can break the
+// API server itself.
+func (m *DatabaseManager) UpdateInstanceMetadata(
+	oldName, newName string,
+	cfg config.DatabaseConfig,
+	databaseID int,
+	trustLevel string,
+) bool {
+	m.mu.Lock()
+	inst, ok := m.instances[oldName]
+	if !ok {
+		m.mu.Unlock()
+		return false
+	}
+	if oldName != newName {
+		delete(m.instances, oldName)
+		m.instances[newName] = inst
+		if m.primaryName == oldName {
+			m.primaryName = newName
+		}
+	}
+	inst.Name = newName
+	inst.DatabaseID = databaseID
+	inst.Config = cfg
+	m.mu.Unlock()
+
+	inst.UpdateStatus(func(s *InstanceStatus) {
+		s.TrustLevel = trustLevel
+		s.DatabaseName = newName
+	})
+	return true
+}
+
 // InstanceCount returns the number of registered instances.
 func (m *DatabaseManager) InstanceCount() int {
 	m.mu.RLock()
@@ -263,10 +365,9 @@ func (m *DatabaseManager) InstanceCount() int {
 	return len(m.instances)
 }
 
-// ResolveDatabaseName returns the actual database name for a filter
-// value. If name is "all" or empty, it returns the name of the first
-// registered instance (useful in standalone mode with a single DB).
-// Returns the original name if no instances are registered.
+// ResolveDatabaseName returns the concrete database name for a filter
+// value when the request targets a single database. Fleet-wide scope
+// stays "all" when more than one instance is registered.
 func (m *DatabaseManager) ResolveDatabaseName(
 	name string,
 ) string {
@@ -275,6 +376,14 @@ func (m *DatabaseManager) ResolveDatabaseName(
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	if len(m.instances) > 1 {
+		return "all"
+	}
+	if m.primaryName != "" {
+		if _, ok := m.instances[m.primaryName]; ok {
+			return m.primaryName
+		}
+	}
 	for n := range m.instances {
 		return n
 	}

@@ -951,17 +951,37 @@ func TestFunctional_BuildInsertSQL_Format(t *testing.T) {
 	}
 }
 
-func TestFunctional_BuildInsertSQL_QuoteEscaping(t *testing.T) {
+func TestFunctional_BuildInsertSQL_DollarQuoting(t *testing.T) {
+	// Quotes pass through unchanged inside dollar-quoted literals.
 	sql := BuildInsertSQL("SELECT 1", "it's a hint with 'quotes'")
-	if strings.Contains(sql, "it's") {
-		t.Errorf("unescaped single quote found: %s", sql)
+	if !strings.Contains(sql, "it's a hint with 'quotes'") {
+		t.Errorf("expected raw quotes inside dollar-quote: %s", sql)
 	}
-	if !strings.Contains(sql, "it''s") {
-		t.Errorf("expected escaped quotes: %s", sql)
+	if !strings.Contains(sql, "$sageqh$") {
+		t.Errorf("expected $sageqh$ dollar tag: %s", sql)
 	}
-	// Verify double-escaping
-	if !strings.Contains(sql, "''quotes''") {
-		t.Errorf("expected escaped quotes: %s", sql)
+}
+
+// TestFunctional_BuildInsertSQL_InjectionAttempt verifies the
+// dollar-quoting defeats a classic single-quote injection.
+func TestFunctional_BuildInsertSQL_InjectionAttempt(t *testing.T) {
+	attack := "'); DROP TABLE sage.findings; --"
+	sql := BuildInsertSQL(attack, "hint")
+	// The attack payload must appear as-is inside the dollar-quote.
+	if !strings.Contains(sql, attack) {
+		t.Errorf("attack payload not present verbatim: %s", sql)
+	}
+	// Outside the dollar tags, there must be no DROP TABLE.
+	// A correct dollar-quoted form keeps DROP inside the literal.
+	parts := strings.Split(sql, "$sageqh$")
+	if len(parts) < 3 {
+		t.Fatalf("expected at least 3 parts split by $sageqh$, got %d: %s",
+			len(parts), sql)
+	}
+	// parts[0] = prefix before first tag, parts[1] = literal body,
+	// parts[2] = between closing tag and next opening (args etc).
+	if strings.Contains(parts[0], "DROP TABLE") {
+		t.Errorf("DROP TABLE leaked outside literal: %s", sql)
 	}
 }
 
@@ -975,6 +995,9 @@ func TestFunctional_BuildDeleteSQL_Format(t *testing.T) {
 	}
 	if !strings.Contains(sql, "application_name = ''") {
 		t.Errorf("missing application_name filter: %s", sql)
+	}
+	if !strings.Contains(sql, "$sageqh$") {
+		t.Errorf("expected $sageqh$ dollar tag: %s", sql)
 	}
 }
 
@@ -2054,7 +2077,7 @@ func TestFunctional_Coverage_BuildFinding_WithHintPlan(t *testing.T) {
 	symptoms := []PlanSymptom{
 		{Kind: SymptomSeqScanWithIndex, RelationName: "orders"},
 	}
-	f := tu.buildFinding(c, symptoms, "IndexScan(orders)",
+	f := tu.buildFinding(context.Background(), c, symptoms, "IndexScan(orders)",
 		"test title", "test rationale", "", "")
 
 	if f.Category != "query_tuning" {
@@ -2120,7 +2143,7 @@ func TestFunctional_Coverage_BuildFinding_NoHintPlan(t *testing.T) {
 	}
 	c := candidate{QueryID: 99, Query: "SELECT 1"}
 	symptoms := []PlanSymptom{{Kind: SymptomHighPlanTime}}
-	f := tu.buildFinding(c, symptoms, "Set(plan_cache_mode ...)",
+	f := tu.buildFinding(context.Background(), c, symptoms, "Set(plan_cache_mode ...)",
 		"title", "rationale", "", "")
 
 	if f.RecommendedSQL != "" {
@@ -2144,7 +2167,7 @@ func TestFunctional_Coverage_BuildFinding_AvailableButNotReady(
 	}
 	c := candidate{QueryID: 50, Query: "SELECT 1"}
 	symptoms := []PlanSymptom{{Kind: SymptomDiskSort}}
-	f := tu.buildFinding(c, symptoms, "Set(work_mem \"64MB\")",
+	f := tu.buildFinding(context.Background(), c, symptoms, "Set(work_mem \"64MB\")",
 		"title", "rationale", "", "")
 	if f.RecommendedSQL != "" {
 		t.Error("expected empty RecommendedSQL when table not ready")
@@ -2157,7 +2180,8 @@ func TestFunctional_Coverage_BuildFinding_NilHintPlan(t *testing.T) {
 	tu := &Tuner{hintPlan: nil}
 	c := candidate{QueryID: 1, Query: "SELECT 1"}
 	symptoms := []PlanSymptom{{Kind: SymptomHighPlanTime}}
-	f := tu.buildFinding(c, symptoms, "hint", "title", "rationale", "", "")
+	f := tu.buildFinding(context.Background(), c, symptoms,
+		"hint", "title", "rationale", "", "")
 	if f.RecommendedSQL != "" {
 		t.Error("expected empty RecommendedSQL with nil hintPlan")
 	}
@@ -2182,7 +2206,7 @@ func TestFunctional_Coverage_BuildFinding_MultipleSymptoms(
 		{Kind: SymptomDiskSort},
 		{Kind: SymptomSeqScanWithIndex, RelationName: "t"},
 	}
-	f := tu.buildFinding(c, symptoms,
+	f := tu.buildFinding(context.Background(), c, symptoms,
 		`Set(work_mem "128MB") IndexScan(t)`,
 		"multi title", "multi rationale", "", "")
 
@@ -3776,7 +3800,7 @@ func TestBuildFindingWithRewrite(t *testing.T) {
 	rewrite := "SELECT o.* FROM orders o JOIN items i ON o.id = i.order_id"
 	rewriteRationale := "replace IN subquery with JOIN"
 
-	f := tu.buildFinding(c, symptoms, "IndexScan(orders)",
+	f := tu.buildFinding(context.Background(), c, symptoms, "IndexScan(orders)",
 		"test title", "test rationale", rewrite, rewriteRationale)
 
 	got, ok := f.Detail["suggested_rewrite"].(string)
@@ -3798,7 +3822,7 @@ func TestBuildFindingWithoutRewrite(t *testing.T) {
 	c := candidate{QueryID: 1, Query: "SELECT 1"}
 	symptoms := []PlanSymptom{{Kind: SymptomDiskSort}}
 
-	f := tu.buildFinding(c, symptoms, "Set(work_mem \"64MB\")",
+	f := tu.buildFinding(context.Background(), c, symptoms, "Set(work_mem \"64MB\")",
 		"title", "rationale", "", "")
 
 	if _, exists := f.Detail["suggested_rewrite"]; exists {

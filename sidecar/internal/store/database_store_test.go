@@ -1,6 +1,9 @@
 package store
 
 import (
+	"context"
+	"errors"
+	"strings"
 	"testing"
 )
 
@@ -179,5 +182,27 @@ func TestDatabaseInputValidation(t *testing.T) {
 				t.Errorf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestDatabaseStoreCreateRequiresEncryptionKey(t *testing.T) {
+	s := NewDatabaseStore(nil, nil)
+	_, err := s.Create(context.Background(), validInput(), 1)
+	if !errors.Is(err, ErrValidation) {
+		t.Fatalf("Create error = %v, want ErrValidation", err)
+	}
+	if !strings.Contains(err.Error(), "encryption_key") {
+		t.Fatalf("Create error = %v, want encryption_key message", err)
+	}
+}
+
+func TestDatabaseStoreUpdatePasswordRequiresEncryptionKey(t *testing.T) {
+	s := NewDatabaseStore(nil, nil)
+	err := s.Update(context.Background(), 1, validInput())
+	if !errors.Is(err, ErrValidation) {
+		t.Fatalf("Update error = %v, want ErrValidation", err)
+	}
+	if !strings.Contains(err.Error(), "encryption_key") {
+		t.Fatalf("Update error = %v, want encryption_key message", err)
 	}
 }

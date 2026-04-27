@@ -86,20 +86,31 @@ type Engine struct {
 
 // WithLLM attaches an LLM client to enable Tier 2 correlation.
 // Safe to call on a nil client — Tier 2 simply stays disabled.
+// The setter holds e.mu because wiring may happen after the
+// analyzer goroutine has already started calling Analyze
+// (see main.go where rcaEng.WithActionStore is invoked after
+// go anal.Run).
 func (e *Engine) WithLLM(client *llm.Client) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.llmClient = client
 }
 
 // SetLogSource attaches a log-based signal source (logwatch adapter).
-// When set, Analyze drains log signals each cycle.
+// When set, Analyze drains log signals each cycle. Takes e.mu for the
+// same reason as WithLLM — late binding from startup code.
 func (e *Engine) SetLogSource(src LogSource) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.logSource = src
 }
 
 // WithActionStore enables self-action correlation by wiring in a
 // store that can query sage.action_log for recent actions and
-// rollback history.
+// rollback history. Takes e.mu for the same reason as WithLLM.
 func (e *Engine) WithActionStore(store ActionQuerier) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.actionStore = store
 	e.correlator = NewSelfActionCorrelator(e.logFn)
 }

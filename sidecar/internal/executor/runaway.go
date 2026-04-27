@@ -74,6 +74,10 @@ func NewRunawayTracker(
 // isSafeRunawayProcess returns true when a process should never be
 // cancelled or terminated. It protects the sidecar's own PID and any
 // process whose application_name contains a configured safe substring.
+//
+// ownPID only identifies a single pool connection, so we also match any
+// backend whose application_name contains "pg_sage" — every sidecar pool
+// connection is tagged with application_name=pg_sage at pool setup.
 func isSafeRunawayProcess(
 	appName string, pid int, ownPID int, patterns []string,
 ) bool {
@@ -81,6 +85,9 @@ func isSafeRunawayProcess(
 		return true
 	}
 	lower := strings.ToLower(appName)
+	if strings.Contains(lower, "pg_sage") {
+		return true
+	}
 	for _, p := range patterns {
 		if strings.Contains(lower, strings.ToLower(p)) {
 			return true

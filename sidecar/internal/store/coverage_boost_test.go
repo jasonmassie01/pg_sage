@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -386,6 +387,35 @@ func TestCoverage_ValidateInput_PortBoundaries(t *testing.T) {
 // ActionStore DB integration tests
 // ---------------------------------------------------------------------------
 
+func insertActionStoreFinding(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	ctx context.Context,
+	id int,
+) {
+	t.Helper()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO sage.findings
+		 (id, category, severity, title, detail, status,
+		  object_identifier)
+		 VALUES ($1, $2, 'warning', $3, '{}', 'open', $4)
+		 ON CONFLICT (id) DO UPDATE
+		    SET status = 'open',
+		        acted_on_at = NULL,
+		        resolved_at = NULL`,
+		id,
+		fmt.Sprintf("action_store_%d", id),
+		fmt.Sprintf("action store finding %d", id),
+		fmt.Sprintf("action_store_obj_%d", id))
+	if err != nil {
+		t.Fatalf("insert finding %d: %v", id, err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM sage.findings WHERE id = $1", id)
+	})
+}
+
 func TestCoverage_ActionStore_ProposeAndGetByID(t *testing.T) {
 	pool, ctx := coverageDB(t)
 	s := NewActionStore(pool)
@@ -465,6 +495,7 @@ func TestCoverage_ActionStore_ProposeWithDatabaseID(t *testing.T) {
 func TestCoverage_ActionStore_ListPendingAll(t *testing.T) {
 	pool, ctx := coverageDB(t)
 	s := NewActionStore(pool)
+	insertActionStoreFinding(t, pool, ctx, 102)
 
 	id, err := s.Propose(ctx, nil, 102,
 		"SELECT 1", "", "safe",
@@ -499,6 +530,7 @@ func TestCoverage_ActionStore_ListPendingAll(t *testing.T) {
 func TestCoverage_ActionStore_ListPendingByDatabase(t *testing.T) {
 	pool, ctx := coverageDB(t)
 	s := NewActionStore(pool)
+	insertActionStoreFinding(t, pool, ctx, 103)
 
 	dbID := 42
 	id, err := s.Propose(ctx, &dbID, 103,
@@ -544,6 +576,7 @@ func TestCoverage_ActionStore_ListPendingByDatabase(t *testing.T) {
 func TestCoverage_ActionStore_Approve(t *testing.T) {
 	pool, ctx := coverageDB(t)
 	s := NewActionStore(pool)
+	insertActionStoreFinding(t, pool, ctx, 104)
 
 	id, err := s.Propose(ctx, nil, 104,
 		"REINDEX INDEX idx_test", "", "moderate",
@@ -662,6 +695,7 @@ func TestCoverage_ActionStore_ExpireStale(t *testing.T) {
 func TestCoverage_ActionStore_PendingCount(t *testing.T) {
 	pool, ctx := coverageDB(t)
 	s := NewActionStore(pool)
+	insertActionStoreFinding(t, pool, ctx, 106)
 
 	// Get baseline count.
 	before, err := s.PendingCount(ctx)
@@ -696,6 +730,7 @@ func TestCoverage_ActionStore_HasPendingForFinding(t *testing.T) {
 	s := NewActionStore(pool)
 
 	findingID := 107
+	insertActionStoreFinding(t, pool, ctx, findingID)
 
 	// Before propose, should be false.
 	has, err := s.HasPendingForFinding(ctx, findingID)
@@ -724,6 +759,45 @@ func TestCoverage_ActionStore_HasPendingForFinding(t *testing.T) {
 	}
 	if !has {
 		t.Error("expected true after propose, got false")
+	}
+}
+
+func TestCoverage_ActionStore_HidesPendingForResolvedFinding(t *testing.T) {
+	pool, ctx := coverageDB(t)
+	s := NewActionStore(pool)
+	insertActionStoreFinding(t, pool, ctx, 108)
+
+	id, err := s.Propose(ctx, nil, 108,
+		"SELECT 1", "", "safe",
+	)
+	if err != nil {
+		t.Fatalf("Propose: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM sage.action_queue WHERE id = $1", id)
+	})
+	_, err = pool.Exec(ctx,
+		`UPDATE sage.findings
+		    SET status = 'resolved',
+		        resolved_at = now(),
+		        acted_on_at = now()
+		  WHERE id = 108`)
+	if err != nil {
+		t.Fatalf("resolve finding: %v", err)
+	}
+
+	pending, err := s.ListPending(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListPending: %v", err)
+	}
+	for _, action := range pending {
+		if action.ID == id {
+			t.Fatal("resolved finding action was returned as pending")
+		}
+	}
+	if _, err := s.Approve(ctx, id, 99); err == nil {
+		t.Fatal("Approve succeeded for resolved finding action")
 	}
 }
 
@@ -1136,6 +1210,16 @@ func TestCoverage_DatabaseStore_UpdateWithoutPassword(t *testing.T) {
 	}
 }
 
+func TestCoverage_DatabaseStore_UpdateMissingReturnsNotFound(t *testing.T) {
+	pool, ctx := coverageDB(t)
+	_, _ = pool.Exec(ctx, "DELETE FROM sage.databases")
+	store := NewDatabaseStore(pool, cbKey)
+
+	if err := store.Update(ctx, 999999, validInput()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Update missing error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestCoverage_DatabaseStore_Delete(t *testing.T) {
 	pool, ctx := coverageDB(t)
 	_, _ = pool.Exec(ctx, "DELETE FROM sage.databases")
@@ -1317,6 +1401,40 @@ func TestCoverage_NotificationStore_UpdateChannel(t *testing.T) {
 	}
 	if ch.Enabled {
 		t.Error("expected disabled, got enabled")
+	}
+}
+
+func TestCoverage_NotificationStore_UpdateChannelPreservesMaskedSecrets(t *testing.T) {
+	pool, ctx := coverageDB(t)
+	ns := NewNotificationStore(pool, nil)
+
+	originalURL := "https://hooks.slack.com/services/REAL/SECRET/TOKEN"
+	id, err := ns.CreateChannel(
+		ctx, "cb-masked-update", "slack",
+		map[string]string{"webhook_url": originalURL}, 99)
+	if err != nil {
+		t.Fatalf("CreateChannel: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = ns.DeleteChannel(ctx, id)
+	})
+
+	err = ns.UpdateChannel(ctx, id, "cb-masked-update",
+		map[string]string{"webhook_url": "http****OKEN"}, false)
+	if err != nil {
+		t.Fatalf("UpdateChannel: %v", err)
+	}
+
+	ch, err := ns.GetChannel(ctx, id)
+	if err != nil {
+		t.Fatalf("GetChannel: %v", err)
+	}
+	if ch.Config["webhook_url"] != originalURL {
+		t.Fatalf("webhook_url = %q, want original secret",
+			ch.Config["webhook_url"])
+	}
+	if ch.Enabled {
+		t.Fatal("enabled = true, want false")
 	}
 }
 

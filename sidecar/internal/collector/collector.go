@@ -16,11 +16,12 @@ type Collector struct {
 	pool         *pgxpool.Pool
 	cfg          *config.Config
 	breaker      *CircuitBreaker
-	mu           sync.RWMutex
-	latest       *Snapshot
-	previous     *Snapshot
-	tablePageKey string
-	pgVersionNum int // e.g. 170009 for PG 17.9
+	mu              sync.RWMutex
+	latest          *Snapshot
+	previous        *Snapshot
+	tablePageSchema string
+	tablePageRel    string
+	pgVersionNum    int // e.g. 170009 for PG 17.9
 	logFn        func(string, string, ...any)
 }
 
@@ -235,9 +236,15 @@ func (c *Collector) collectTables(ctx context.Context) ([]TableStats, error) {
 	batchSize := c.cfg.Collector.BatchSize
 	var allTables []TableStats
 
-	pageKey := c.tablePageKey
+	// Tuple cursor: (schema, rel). Must be two separate bind params so
+	// that PostgreSQL compares tuple-wise. Concatenating into a single
+	// string silently skips tables: e.g. ('public','users') produces
+	// cursor 'public.users', and 'public' < 'public.users' causes every
+	// subsequent row in the public schema to be filtered out.
+	pageSchema := c.tablePageSchema
+	pageRel := c.tablePageRel
 	for {
-		rows, err := c.pool.Query(ctx, tableStatsSQL, pageKey, batchSize)
+		rows, err := c.pool.Query(ctx, tableStatsSQL, pageSchema, pageRel, batchSize)
 		if err != nil {
 			return nil, err
 		}
@@ -269,15 +276,21 @@ func (c *Collector) collectTables(ctx context.Context) ([]TableStats, error) {
 
 		allTables = append(allTables, batch...)
 
-		if len(batch) < batchSize {
+		// Empty batch → nothing more to page through. This also
+		// guards against panic when batchSize is 0 (len(batch) >=
+		// batchSize would otherwise be trivially true).
+		if len(batch) == 0 || len(batch) < batchSize {
 			// All tables collected; reset cursor for next cycle.
-			c.tablePageKey = ""
+			c.tablePageSchema = ""
+			c.tablePageRel = ""
 			break
 		}
 
 		last := batch[len(batch)-1]
-		pageKey = last.SchemaName + "." + last.RelName
-		c.tablePageKey = pageKey
+		pageSchema = last.SchemaName
+		pageRel = last.RelName
+		c.tablePageSchema = pageSchema
+		c.tablePageRel = pageRel
 	}
 
 	return allTables, nil

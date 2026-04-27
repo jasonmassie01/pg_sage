@@ -1,13 +1,16 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
@@ -95,6 +98,54 @@ func TestConfigGlobalPutHandler_ContentType(t *testing.T) {
 	if ct != "application/json" {
 		t.Errorf("Content-Type: got %q, want application/json",
 			ct)
+	}
+}
+
+func TestConfigGlobalDeleteHandler_RejectsExecutionMode(t *testing.T) {
+	cfg := &config.Config{}
+	handler := configGlobalDeleteHandler(nil, cfg, cfg, nil)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("DELETE /api/v1/config/global/{key}", handler)
+
+	req := httptest.NewRequest(
+		"DELETE", "/api/v1/config/global/execution_mode", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400", w.Code)
+	}
+
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["error"] != "invalid config key" {
+		t.Errorf("error: got %q, want invalid config key",
+			resp["error"])
+	}
+}
+
+func TestConfigGlobalDeleteHandler_RejectsUnknownKey(t *testing.T) {
+	cfg := &config.Config{}
+	handler := configGlobalDeleteHandler(nil, cfg, cfg, nil)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("DELETE /api/v1/config/global/{key}", handler)
+
+	req := httptest.NewRequest(
+		"DELETE", "/api/v1/config/global/unknown.key", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400", w.Code)
+	}
+
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["error"] != "invalid config key" {
+		t.Errorf("error: got %q, want invalid config key",
+			resp["error"])
 	}
 }
 
@@ -377,9 +428,174 @@ func TestSyncTrustLevelToFleet(t *testing.T) {
 	}
 }
 
+func TestSyncDatabaseTrustLevelResetClearsExecutorOverride(
+	t *testing.T,
+) {
+	cfg := &config.Config{
+		Trust: config.TrustConfig{Level: "advisory"},
+	}
+	exec := executor.New(nil, cfg, nil, time.Now(),
+		func(string, string, ...any) {})
+	if err := exec.SetTrustLevel("autonomous"); err != nil {
+		t.Fatalf("set trust override: %v", err)
+	}
+
+	mgr := fleet.NewManager(cfg)
+	mgr.RegisterInstance(&fleet.DatabaseInstance{
+		Name:       "db1",
+		DatabaseID: 1,
+		Config:     config.DatabaseConfig{Name: "db1"},
+		Executor:   exec,
+		Status: &fleet.InstanceStatus{
+			TrustLevel: "autonomous",
+		},
+	})
+
+	syncDatabaseTrustLevelReset(mgr, cfg, 1)
+
+	if got := exec.TrustLevel(); got != "advisory" {
+		t.Fatalf("executor trust level = %q, want advisory", got)
+	}
+	inst := mgr.GetInstance("db1")
+	if got := inst.SnapshotStatus().TrustLevel; got != "advisory" {
+		t.Fatalf("status trust level = %q, want advisory", got)
+	}
+}
+
 // --- configAuditHandler ---
 // Requires a real ConfigStore. No request validation to test
 // (GET with optional limit param). We test parseIntDefault below.
+
+func TestValidateDatabaseParam(t *testing.T) {
+	valid := []string{
+		"",
+		"all",
+		"db1",
+		"my_database",
+		"my-database",
+		"my.database",
+		"DB_PROD_1",
+		strings.Repeat("a", 63),
+	}
+	for _, s := range valid {
+		if err := validateDatabaseParam(s); err != nil {
+			t.Errorf("validateDatabaseParam(%q) = %v, want nil",
+				s, err)
+		}
+	}
+
+	invalid := []string{
+		strings.Repeat("a", 64), // too long
+		"db'1",                  // quote
+		"db;DROP",               // semicolon
+		"db 1",                  // space
+		"db/1",                  // slash
+		"db\\1",                 // backslash
+		"db$1",                  // dollar
+		"db<script>",            // angle brackets
+		"db\n1",                 // newline
+		"db\t1",                 // tab
+		"db\x001",               // null byte
+		"db%1",                  // percent
+	}
+	for _, s := range invalid {
+		if err := validateDatabaseParam(s); err == nil {
+			t.Errorf("validateDatabaseParam(%q) = nil, want error",
+				s)
+		}
+	}
+}
+
+func TestTimeoutMiddleware_AttachesDeadline(t *testing.T) {
+	var (
+		sawDeadline bool
+		err         error
+	)
+	h := timeoutMiddleware(http.HandlerFunc(func(
+		_ http.ResponseWriter, r *http.Request,
+	) {
+		_, ok := r.Context().Deadline()
+		sawDeadline = ok
+		err = r.Context().Err()
+	}))
+	req := httptest.NewRequest("GET", "/x", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if !sawDeadline {
+		t.Error("handler did not see a context deadline")
+	}
+	if err != nil {
+		t.Errorf("context was already cancelled: %v", err)
+	}
+}
+
+func TestTimeoutMiddleware_CancelsAfterDeadline(t *testing.T) {
+	// Use the real middleware but override the base request
+	// context to a very short-lived parent so we don't need to
+	// sleep for the full defaultRequestTimeout.
+	ctx, cancel := context.WithTimeout(
+		context.Background(), 1*time.Millisecond)
+	defer cancel()
+
+	var ctxErr error
+	h := timeoutMiddleware(http.HandlerFunc(func(
+		_ http.ResponseWriter, r *http.Request,
+	) {
+		// Wait until the parent deadline fires; the wrapped
+		// context should be cancelled too (WithTimeout derives
+		// from r.Context() so the shorter deadline wins).
+		<-r.Context().Done()
+		ctxErr = r.Context().Err()
+	}))
+	req := httptest.NewRequest("GET", "/x", nil).WithContext(ctx)
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	if ctxErr == nil {
+		t.Fatal("context was not cancelled after deadline")
+	}
+}
+
+func TestReadDatabaseParam_Invalid(t *testing.T) {
+	req := httptest.NewRequest(
+		"GET", "/x?database=bad%27drop", nil)
+	w := httptest.NewRecorder()
+	got, ok := readDatabaseParam(w, req)
+	if ok {
+		t.Fatalf("readDatabaseParam ok=true for bad input")
+	}
+	if got != "" {
+		t.Errorf("got = %q, want empty", got)
+	}
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestReadDatabaseParam_Valid(t *testing.T) {
+	req := httptest.NewRequest(
+		"GET", "/x?database=db1", nil)
+	w := httptest.NewRecorder()
+	got, ok := readDatabaseParam(w, req)
+	if !ok {
+		t.Fatalf("readDatabaseParam ok=false for valid input")
+	}
+	if got != "db1" {
+		t.Errorf("got = %q, want db1", got)
+	}
+}
+
+func TestReadDatabaseParam_Empty(t *testing.T) {
+	req := httptest.NewRequest("GET", "/x", nil)
+	w := httptest.NewRecorder()
+	got, ok := readDatabaseParam(w, req)
+	if !ok {
+		t.Fatalf("readDatabaseParam ok=false for empty input")
+	}
+	if got != "" {
+		t.Errorf("got = %q, want empty", got)
+	}
+}
 
 func TestParseIntDefault(t *testing.T) {
 	tests := []struct {

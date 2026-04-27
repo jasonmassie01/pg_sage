@@ -18,14 +18,23 @@ const sourceLabels = {
   self_action: 'Self-Action',
   manual_review_required: 'Manual Review',
   tier2_llm: 'AI Correlation',
+  llm: 'AI Correlation',
+  schema_advisor: 'Schema Advisor',
+  schema_lint: 'Schema Lint',
+  n_plus_one: 'N+1 Query',
 }
 
 const riskStyles = {
   safe: { background: 'var(--green)', label: 'Safe' },
+  low: { background: 'var(--green)', label: 'Low' },
   moderate: {
     background: 'var(--yellow, #eab308)', label: 'Moderate',
   },
+  medium: {
+    background: 'var(--yellow, #eab308)', label: 'Medium',
+  },
   high_risk: { background: 'var(--red)', label: 'High Risk' },
+  high: { background: 'var(--red)', label: 'High' },
 }
 
 function timeAgo(dateStr) {
@@ -76,7 +85,10 @@ export function IncidentsPage({ database, user }) {
       key: 'source', label: 'Source',
       render: r => sourceLabels[r.source] || r.source,
     },
-    { key: 'database_name', label: 'Database' },
+    {
+      key: 'database_name', label: 'Database',
+      render: r => r.fleet_database_name || r.database_name || '-',
+    },
     { key: 'occurrence_count', label: 'Count' },
     {
       key: 'detected_at', label: 'Detected',
@@ -122,6 +134,9 @@ export function IncidentsPage({ database, user }) {
           columns={columns} rows={incidents} expandable
           renderExpanded={row => (
             <IncidentDetail row={row}
+              database={
+                row.fleet_database_name || row.database_name || database
+              }
               canResolve={
                 status === 'active'
                 && (user?.role === 'admin'
@@ -141,7 +156,7 @@ export function IncidentsPage({ database, user }) {
   )
 }
 
-function IncidentDetail({ row, canResolve, onResolved }) {
+function IncidentDetail({ row, database, canResolve, onResolved }) {
   const [resolving, setResolving] = useState(false)
   const [result, setResult] = useState(null)
 
@@ -149,9 +164,16 @@ function IncidentDetail({ row, canResolve, onResolved }) {
     setResolving(true)
     setResult(null)
     try {
+      const dbParam = database && database !== 'all'
+        ? `?database=${encodeURIComponent(database)}` : ''
       const res = await fetch(
-        `/api/v1/incidents/${row.id}/resolve`,
-        { method: 'POST', credentials: 'include' },
+        `/api/v1/incidents/${row.id}/resolve${dbParam}`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: '' }),
+        },
       )
       if (!res.ok) throw new Error('Failed to resolve')
       setResult({ type: 'success', text: 'Incident resolved' })
@@ -233,14 +255,14 @@ function IncidentDetail({ row, canResolve, onResolved }) {
             {risk.label}
           </span>
         )}
-        {row.confidence_score != null && (
+        {row.confidence != null && (
           <span className="text-xs px-2 py-0.5 rounded"
             style={{
               background: 'var(--bg-primary)',
               color: 'var(--text-secondary)',
               border: '1px solid var(--border)',
             }}>
-            Confidence: {Math.round(row.confidence_score * 100)}%
+            Confidence: {Math.round(row.confidence * 100)}%
           </span>
         )}
         {row.escalated_at && (

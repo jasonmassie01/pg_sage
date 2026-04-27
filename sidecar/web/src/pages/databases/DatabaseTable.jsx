@@ -10,7 +10,11 @@ export function DatabaseTable({ databases, onEdit, onDelete, onError }) {
     try {
       const res = await fetch(
         `/api/v1/databases/managed/${db.id}/test`,
-        { method: 'POST', credentials: 'include' })
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        })
       if (!res.ok) throw new Error('Test request failed')
       const data = await res.json()
       setTestResult({ id: db.id, ...data })

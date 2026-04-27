@@ -41,7 +41,8 @@ DO $$ BEGIN
             ADD CONSTRAINT incidents_source_check
             CHECK (source IN (
                 'deterministic', 'log_deterministic',
-                'self_action', 'manual_review_required', 'llm'
+                'self_action', 'manual_review_required', 'llm',
+                'schema_advisor', 'schema_lint', 'n_plus_one'
             ));
     END IF;
 

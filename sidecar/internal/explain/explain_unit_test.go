@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -709,6 +710,27 @@ func TestExplainSQL_ComplexQuery(t *testing.T) {
 	want := "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + q
 	if got != want {
 		t.Errorf("explainSQL(complex, true)\n  got  %q\n  want %q", got, want)
+	}
+}
+
+func TestExplainParamLiteral_EscapesInput(t *testing.T) {
+	got, err := explainParamLiteral("x'); SELECT pg_sleep(10); --")
+	if err != nil {
+		t.Fatalf("explainParamLiteral: %v", err)
+	}
+	want := "'x''); SELECT pg_sleep(10); --'"
+	if got != want {
+		t.Errorf("literal\n  got  %q\n  want %q", got, want)
+	}
+}
+
+func TestExplainParamLiteral_RejectsNUL(t *testing.T) {
+	_, err := explainParamLiteral("bad\x00value")
+	if err == nil {
+		t.Fatal("expected error for NUL byte, got nil")
+	}
+	if !errors.Is(err, ErrExplainInvalidRequest) {
+		t.Fatalf("error = %v, want ErrExplainInvalidRequest", err)
 	}
 }
 

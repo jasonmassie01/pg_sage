@@ -259,3 +259,71 @@ func TestResetBudget(t *testing.T) {
 		t.Error("budget should not be exhausted after reset")
 	}
 }
+
+func TestChat_JSONModeSendsResponseFormat(t *testing.T) {
+	var captured ChatRequest
+	srv := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+				t.Errorf("decode: %v", err)
+			}
+			w.Write(testChatJSON("{}", 1))
+		},
+	))
+	defer srv.Close()
+
+	cfg := &config.LLMConfig{
+		Enabled:          true,
+		Endpoint:         srv.URL + "/",
+		APIKey:           "k",
+		Model:            "m",
+		TimeoutSeconds:   5,
+		TokenBudgetDaily: 1000,
+		JSONMode:         true,
+	}
+	client := New(cfg, noopLog)
+	if _, _, err := client.Chat(
+		context.Background(), "sys", "user", 50,
+	); err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if captured.ResponseFormat == nil {
+		t.Fatal("response_format not sent")
+	}
+	if captured.ResponseFormat.Type != "json_object" {
+		t.Errorf("response_format.type = %q, want json_object",
+			captured.ResponseFormat.Type)
+	}
+}
+
+func TestChat_JSONModeOffOmitsResponseFormat(t *testing.T) {
+	// Default: JSONMode false. Providers that reject unknown fields
+	// must not see response_format at all.
+	var rawBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&rawBody)
+			w.Write(testChatJSON("{}", 1))
+		},
+	))
+	defer srv.Close()
+
+	cfg := &config.LLMConfig{
+		Enabled:          true,
+		Endpoint:         srv.URL + "/",
+		APIKey:           "k",
+		Model:            "m",
+		TimeoutSeconds:   5,
+		TokenBudgetDaily: 1000,
+		// JSONMode left false.
+	}
+	client := New(cfg, noopLog)
+	if _, _, err := client.Chat(
+		context.Background(), "sys", "user", 50,
+	); err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if _, ok := rawBody["response_format"]; ok {
+		t.Error("response_format leaked into request when JSONMode=false")
+	}
+}

@@ -165,24 +165,52 @@ func TestBuildInsertSQL(t *testing.T) {
 	}
 }
 
-func TestBuildInsertSQL_EscapesSingleQuotes(t *testing.T) {
+func TestBuildInsertSQL_DollarQuotesSingleQuotes(t *testing.T) {
+	// Dollar-quoted literals do not process single quotes or
+	// backslashes, so single quotes pass through unmodified and
+	// the result is injection-safe.
 	sql := BuildInsertSQL("SELECT 1", "it's a hint")
-	if !strings.Contains(sql, "it''s") {
-		t.Errorf("single quotes not escaped: %s", sql)
+	if !strings.Contains(sql, "it's a hint") {
+		t.Errorf("hint text missing from dollar-quoted body: %s", sql)
+	}
+	if !strings.Contains(sql, "$sageqh$") {
+		t.Errorf("expected $sageqh$ dollar tag: %s", sql)
 	}
 }
 
-func TestBuildInsertSQL_EscapesQueryTextQuotes(t *testing.T) {
+func TestBuildInsertSQL_DollarQuotesQueryTextQuotes(t *testing.T) {
 	sql := BuildInsertSQL("SELECT * FROM t WHERE name = 'foo'", "hint")
-	if !strings.Contains(sql, "name = ''foo''") {
-		t.Errorf("query text quotes not escaped: %s", sql)
+	if !strings.Contains(sql, "name = 'foo'") {
+		t.Errorf("query text quotes altered inside dollar-quote: %s", sql)
+	}
+	if !strings.Contains(sql, "$sageqh$") {
+		t.Errorf("expected $sageqh$ dollar tag: %s", sql)
 	}
 }
 
-func TestBuildDeleteSQL_EscapesQueryTextQuotes(t *testing.T) {
+func TestBuildDeleteSQL_DollarQuotesQueryTextQuotes(t *testing.T) {
 	sql := BuildDeleteSQL("SELECT * FROM t WHERE name = 'foo'")
-	if !strings.Contains(sql, "name = ''foo''") {
-		t.Errorf("query text quotes not escaped: %s", sql)
+	if !strings.Contains(sql, "name = 'foo'") {
+		t.Errorf("query text quotes altered inside dollar-quote: %s", sql)
+	}
+	if !strings.Contains(sql, "$sageqh$") {
+		t.Errorf("expected $sageqh$ dollar tag: %s", sql)
+	}
+}
+
+// TestBuildInsertSQL_TagCollision verifies chooseDollarTag picks a
+// non-colliding tag when payload contains $sageqh$.
+func TestBuildInsertSQL_TagCollision(t *testing.T) {
+	// Query literally contains the default tag — builder must
+	// escape to an alternate tag so the literal stays unambiguous.
+	q := "SELECT '$sageqh$' FROM dual"
+	sql := BuildInsertSQL(q, "hint")
+	if !strings.Contains(sql, q) {
+		t.Errorf("query text missing from output: %s", sql)
+	}
+	// Result must NOT end the string prematurely.
+	if strings.Contains(sql, "$sageqh$"+q+"$sageqh$") {
+		t.Errorf("collision: tag was not rotated: %s", sql)
 	}
 }
 

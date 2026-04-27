@@ -1,13 +1,30 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { useAPI } from '../hooks/useAPI'
+import { useAPI, withTimeRange } from '../hooks/useAPI'
 import { SeverityBadge } from '../components/SeverityBadge'
 import { SQLBlock } from '../components/SQLBlock'
 import { DataTable } from '../components/DataTable'
-import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { EmptyState } from '../components/EmptyState'
+import { SkeletonRow } from '../components/Skeleton'
 import { usePendingActionsRefetch } from '../components/Layout'
+import { useTimeRange } from '../context/TimeRangeContext'
+import { LiveTimeAgo } from '../components/TimeAgo'
+import { useToast } from '../components/Toast'
+import { useLiveRefetch } from '../hooks/useLiveEvents'
+
+// Subsystem taxonomy — mirrors sidecar/internal/api/handlers.go
+// buildSourceClause. Displayed in the "Source" filter dropdown.
+const SOURCES = [
+  { value: '',                  label: 'All sources' },
+  { value: 'rules',             label: 'Rules (Tier 1)' },
+  { value: 'schema_lint',       label: 'Schema Lint' },
+  { value: 'forecaster',        label: 'Forecaster' },
+  { value: 'query_tuning',      label: 'Query Tuning' },
+  { value: 'advisor',           label: 'Advisor (LLM)' },
+  { value: 'optimizer',         label: 'Optimizer (LLM)' },
+  { value: 'incident',          label: 'Incidents' },
+]
 
 const emptyMessages = {
   open: 'No open recommendations. Your databases look good!',
@@ -53,6 +70,19 @@ const INTERNAL_DETAIL_FIELDS = new Set([
 
 const SEVERITY_RANK = { critical: 3, warning: 2, info: 1 }
 
+function compareImpact(a, b) {
+  const av = typeof a.impact_score === 'number' ? a.impact_score : -1
+  const bv = typeof b.impact_score === 'number' ? b.impact_score : -1
+  if (av !== bv) return av > bv ? 1 : -1
+  // Tiebreaker: severity then last_seen (same ranking used below).
+  const sa = SEVERITY_RANK[a.severity] || 0
+  const sb = SEVERITY_RANK[b.severity] || 0
+  if (sa !== sb) return sa > sb ? 1 : -1
+  const la = a.last_seen ? new Date(a.last_seen).getTime() : 0
+  const lb = b.last_seen ? new Date(b.last_seen).getTime() : 0
+  return lb - la
+}
+
 function stripInternalFields(detail) {
   if (!detail || typeof detail !== 'object') return detail
   const out = {}
@@ -63,6 +93,10 @@ function stripInternalFields(detail) {
 }
 
 function sortFindings(rows, sortKey, sortDir) {
+  if (sortKey === 'impact') {
+    const copy = [...rows].sort(compareImpact)
+    return sortDir === 'asc' ? copy : copy.reverse()
+  }
   const copy = [...rows]
   copy.sort((a, b) => {
     let av, bv
@@ -91,8 +125,10 @@ function sortFindings(rows, sortKey, sortDir) {
 export function Findings({ database, user }) {
   const [status, setStatus] = useState('open')
   const [severity, setSeverity] = useState('')
-  const [sortKey, setSortKey] = useState('severity')
+  const [source, setSource] = useState('')
+  const [sortKey, setSortKey] = useState('impact')
   const [sortDir, setSortDir] = useState('desc')
+  const range = useTimeRange()
 
   // Record visit to Findings so Dashboard can badge new arrivals.
   useEffect(() => {
@@ -107,17 +143,35 @@ export function Findings({ database, user }) {
   const dbParam = database && database !== 'all'
     ? `&database=${database}` : ''
   const sevParam = severity ? `&severity=${severity}` : ''
-  const url =
-    `/api/v1/findings?status=${status}${dbParam}${sevParam}&limit=50`
+  const srcParam = source ? `&source=${source}` : ''
+  const base =
+    `/api/v1/findings?status=${status}${dbParam}${sevParam}`
+    + `${srcParam}&limit=50`
+  // Resolved/suppressed lists filter by the time range; open lists
+  // always return whatever is currently open and ignore the window.
+  const url = status === 'open' ? base : withTimeRange(base, range)
   const { data, loading, error, refetch } = useAPI(url)
+  useLiveRefetch(['findings', 'actions'], refetch)
 
-  if (loading) return <LoadingSpinner />
+  if (loading) {
+    return (
+      <div className="space-y-2" data-testid="findings-loading">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <SkeletonRow key={i} cols={7} />
+        ))}
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error} onRetry={refetch} />
 
   const rawFindings = data?.findings || []
   const findings = sortFindings(rawFindings, sortKey, sortDir)
   const canAct = user?.role === 'admin'
     || user?.role === 'operator'
+  const hasFilters = Boolean(source || severity)
+  const emptyMessage = hasFilters
+    ? 'No recommendations match the selected filters.'
+    : emptyMessages[status]
 
   const onSort = key => {
     if (sortKey === key) {
@@ -145,6 +199,21 @@ export function Findings({ database, user }) {
       ),
       render: r => <SeverityBadge severity={r.severity} />,
     },
+    {
+      key: 'impact',
+      label: (
+        <button onClick={() => onSort('impact')}
+          data-testid="sort-impact"
+          className="font-medium"
+          style={{ color: 'var(--text-secondary)' }}>
+          Impact{sortIndicator('impact')}
+        </button>
+      ),
+      render: r => typeof r.impact_score === 'number'
+        ? r.impact_score.toFixed(2)
+        : <span style={{ color: 'var(--text-secondary)' }}>--</span>,
+    },
+    { key: 'subsystem', label: 'Source' },
     { key: 'category', label: 'Category' },
     { key: 'title', label: 'Title' },
     { key: 'database_name', label: 'Database' },
@@ -159,15 +228,13 @@ export function Findings({ database, user }) {
           Last Seen{sortIndicator('last_seen')}
         </button>
       ),
-      render: r => r.last_seen
-        ? new Date(r.last_seen).toLocaleString()
-        : '-',
+      render: r => <LiveTimeAgo timestamp={r.last_seen} />,
     },
   ]
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         {['open', 'suppressed', 'resolved'].map(s => (
           <button key={s} onClick={() => setStatus(s)}
             className="px-3 py-1.5 rounded text-sm"
@@ -180,10 +247,25 @@ export function Findings({ database, user }) {
             {s.charAt(0).toUpperCase() + s.slice(1)}
           </button>
         ))}
+        <select value={source}
+          onChange={e => setSource(e.target.value)}
+          data-testid="source-filter"
+          className="px-3 py-1.5 rounded text-sm ml-auto"
+          style={{
+            background: 'var(--bg-card)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border)',
+          }}>
+          {SOURCES.map(s => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
+        </select>
         <select value={severity}
           onChange={e => setSeverity(e.target.value)}
           data-testid="severity-filter"
-          className="px-3 py-1.5 rounded text-sm ml-auto"
+          className="px-3 py-1.5 rounded text-sm"
           style={{
             background: 'var(--bg-card)',
             color: 'var(--text-primary)',
@@ -197,7 +279,7 @@ export function Findings({ database, user }) {
       </div>
 
       {findings.length === 0 ? (
-        <EmptyState message={emptyMessages[status]} />
+        <EmptyState message={emptyMessage} />
       ) : (
         <DataTable data-testid="findings-table"
           columns={columns} rows={findings} expandable
@@ -225,7 +307,26 @@ function FindingDetail({ row, canAct, onActionDone }) {
   const [showRawJson, setShowRawJson] = useState(false)
   const [showInternal, setShowInternal] = useState(false)
   const [showSuppressConfirm, setShowSuppressConfirm] = useState(false)
+  const [pendingBusy, setPendingBusy] = useState(false)
   const refetchPendingCount = usePendingActionsRefetch()
+  const toast = useToast()
+
+  // Fetch any queued (pending-approval) actions for this finding.
+  // The 0 interval disables polling; we refetch on live events
+  // or after the user acts.
+  const {
+    data: pendingData,
+    refetch: refetchPending,
+  } = useAPI(
+    canAct
+      ? `/api/v1/findings/${row.id}/pending-actions`
+        + (row.database_name
+          ? `?database=${encodeURIComponent(row.database_name)}` : '')
+      : null,
+    0,
+  )
+  useLiveRefetch(['actions'], refetchPending)
+  const pendingActions = pendingData?.pending || []
 
   useEffect(() => {
     if (!showModal && !showSuppressConfirm) return
@@ -244,18 +345,91 @@ function FindingDetail({ row, canAct, onActionDone }) {
     try {
       const action = row.status === 'suppressed'
         ? 'unsuppress' : 'suppress'
+      const dbParam = row.database_name
+        ? `?database=${encodeURIComponent(row.database_name)}` : ''
       const res = await fetch(
-        `/api/v1/findings/${row.id}/${action}`,
-        { method: 'POST', credentials: 'include' },
+        `/api/v1/findings/${row.id}/${action}${dbParam}`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        },
       )
       if (!res.ok) throw new Error('Failed')
+      toast.success(
+        action === 'suppress'
+          ? 'Finding suppressed'
+          : 'Finding restored',
+      )
       if (onActionDone) onActionDone()
       refetchPendingCount()
     } catch (err) {
+      toast.error(`Suppress failed: ${err.message}`)
       setResult({ type: 'error', text: err.message })
     } finally {
       setSuppressing(false)
       setShowSuppressConfirm(false)
+    }
+  }
+
+  async function approvePending(queueID) {
+    setPendingBusy(true)
+    try {
+      const pending = pendingActions.find(pa => pa.id === queueID)
+      const dbParam = pending?.database_name
+        ? `?database=${encodeURIComponent(pending.database_name)}` : ''
+      const res = await fetch(
+        `/api/v1/actions/${queueID}/approve${dbParam}`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
+      const json = await res.json()
+      if (!res.ok || json.ok === false) {
+        throw new Error(json.error || 'Approve failed')
+      }
+      toast.success(
+        json.executed
+          ? `Approved & executed (log #${json.action_log_id})`
+          : 'Approved (execution pending)',
+      )
+      refetchPending()
+      refetchPendingCount()
+      if (onActionDone) onActionDone()
+    } catch (err) {
+      toast.error(`Approve failed: ${err.message}`)
+    } finally {
+      setPendingBusy(false)
+    }
+  }
+
+  async function rejectPending(queueID) {
+    const reason = window.prompt('Reject reason (optional):', '')
+    if (reason === null) return
+    setPendingBusy(true)
+    try {
+      const pending = pendingActions.find(pa => pa.id === queueID)
+      const dbParam = pending?.database_name
+        ? `?database=${encodeURIComponent(pending.database_name)}` : ''
+      const res = await fetch(
+        `/api/v1/actions/${queueID}/reject${dbParam}`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason }),
+        },
+      )
+      if (!res.ok) throw new Error(`${res.status}`)
+      toast.success('Action rejected')
+      refetchPending()
+      refetchPendingCount()
+    } catch (err) {
+      toast.error(`Reject failed: ${err.message}`)
+    } finally {
+      setPendingBusy(false)
     }
   }
 
@@ -279,10 +453,14 @@ function FindingDetail({ row, canAct, onActionDone }) {
         body: JSON.stringify({
           finding_id: parseInt(row.id, 10),
           sql: row.recommended_sql,
+          rollback_sql: row.rollback_sql,
+          database: row.database_name,
         }),
       })
       const json = await res.json()
       if (json.ok) {
+        toast.success(
+          `Executed (action log #${json.action_log_id})`)
         setResult({
           type: 'success',
           text: `Executed (action log #${json.action_log_id})`,
@@ -290,12 +468,14 @@ function FindingDetail({ row, canAct, onActionDone }) {
         if (onActionDone) onActionDone()
         refetchPendingCount()
       } else {
+        toast.error(json.error || 'Execution failed')
         setResult({
           type: 'error',
           text: json.error || 'Execution failed',
         })
       }
     } catch (err) {
+      toast.error(`Execute failed: ${err.message}`)
       setResult({ type: 'error', text: err.message })
     } finally {
       setExecuting(false)
@@ -393,6 +573,67 @@ function FindingDetail({ row, canAct, onActionDone }) {
         </div>
       )}
 
+      {pendingActions.length > 0 && (
+        <div data-testid="pending-action-panel"
+          className="rounded p-3 space-y-2"
+          style={{
+            background: 'var(--bg-primary)',
+            border: '1px solid var(--yellow)',
+          }}>
+          <div className="text-xs font-medium flex items-center gap-2"
+            style={{ color: 'var(--yellow)' }}>
+            <span>Pending approval</span>
+            <span style={{ color: 'var(--text-secondary)' }}>
+              ({pendingActions.length} queued)
+            </span>
+          </div>
+          {pendingActions.map(pa => (
+            <div key={pa.id} className="space-y-1">
+              <div className="flex items-center gap-2 text-xs flex-wrap"
+                style={{ color: 'var(--text-secondary)' }}>
+                <span>Queue #{pa.id}</span>
+                <span>risk: {pa.action_risk || 'unknown'}</span>
+                {pa.proposed_at && (
+                  <span>
+                    proposed <LiveTimeAgo timestamp={pa.proposed_at} />
+                  </span>
+                )}
+              </div>
+              <SQLBlock sql={pa.proposed_sql} />
+              {canAct && (
+                <div className="flex gap-2">
+                  <button
+                    data-testid={`approve-pending-${pa.id}`}
+                    onClick={() => approvePending(pa.id)}
+                    disabled={pendingBusy}
+                    className="px-3 py-1.5 rounded text-sm font-medium"
+                    style={{
+                      background: 'var(--green)',
+                      color: '#fff',
+                      opacity: pendingBusy ? 0.5 : 1,
+                    }}>
+                    Approve & execute
+                  </button>
+                  <button
+                    data-testid={`reject-pending-${pa.id}`}
+                    onClick={() => rejectPending(pa.id)}
+                    disabled={pendingBusy}
+                    className="px-3 py-1.5 rounded text-sm"
+                    style={{
+                      background: 'var(--bg-card)',
+                      color: 'var(--text-secondary)',
+                      border: '1px solid var(--border)',
+                      opacity: pendingBusy ? 0.5 : 1,
+                    }}>
+                    Reject
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {result && (
         <div className="p-2 rounded text-sm"
           style={{
@@ -407,7 +648,7 @@ function FindingDetail({ row, canAct, onActionDone }) {
 
       <div className="flex gap-2 flex-wrap">
         {canAct && row.recommended_sql && row.status === 'open'
-          && !row.acted_on_at && (
+          && !row.acted_on_at && pendingActions.length === 0 && (
           <>
             {risk && (
               <span className="inline-block text-xs font-medium

@@ -6,6 +6,7 @@ package explain
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"regexp"
@@ -16,6 +17,14 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
+
+// ErrExplainInvalidRequest wraps errors caused by client-side input
+// problems (missing query, DDL, unsupported query_id lookup). Handlers
+// surface these as a 400 response and expose the message verbatim —
+// the caller needs it to fix their request. Any other error from
+// Explain() originates in PG execution and must be treated as a 500
+// with the internal message scrubbed.
+var ErrExplainInvalidRequest = errors.New("invalid explain request")
 
 // ---------- request / response types ----------
 
@@ -96,19 +105,21 @@ func (ex *Explainer) Explain(
 ) (*ExplainResult, error) {
 	// 1. Validate input.
 	if req.Query == "" && req.QueryID == 0 {
-		return nil, fmt.Errorf("explain: query or query_id is required")
+		return nil, fmt.Errorf(
+			"%w: query or query_id is required",
+			ErrExplainInvalidRequest)
 	}
 	if req.QueryID != 0 {
 		return nil, fmt.Errorf(
-			"explain: query_id lookup not yet implemented",
-		)
+			"%w: query_id lookup not yet implemented",
+			ErrExplainInvalidRequest)
 	}
 
 	// 2. DDL rejection.
 	if isDDL(req.Query) {
 		return nil, fmt.Errorf(
-			"explain: DDL/admin statements cannot be explained",
-		)
+			"%w: DDL/admin statements cannot be explained",
+			ErrExplainInvalidRequest)
 	}
 
 	// 3. Check cache.
@@ -218,11 +229,16 @@ func (ex *Explainer) runExplainParameterized(
 		_, _ = conn.Exec(ctx, "DEALLOCATE "+stmtName)
 	}()
 
-	// Build param list: use provided params or NULLs.
+	// Build param list: use provided params as escaped SQL literals
+	// or NULLs. EXECUTE arguments are SQL expressions, so user input
+	// must not be interpolated raw.
 	paramValues := make([]string, nParams)
 	for i := range paramValues {
 		if i < len(params) && params[i] != "" {
-			paramValues[i] = params[i]
+			paramValues[i], err = explainParamLiteral(params[i])
+			if err != nil {
+				return nil, err
+			}
 		} else {
 			paramValues[i] = "NULL"
 		}
@@ -281,6 +297,16 @@ func explainSQL(query string, analyze bool) string {
 		prefix = "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)"
 	}
 	return prefix + " " + query
+}
+
+func explainParamLiteral(value string) (string, error) {
+	if strings.ContainsRune(value, '\x00') {
+		return "", fmt.Errorf(
+			"%w: parameter values cannot contain NUL bytes",
+			ErrExplainInvalidRequest,
+		)
+	}
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'", nil
 }
 
 // collectPlanJSON reads EXPLAIN output rows into a validated RawMessage.

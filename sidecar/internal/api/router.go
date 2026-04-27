@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
@@ -16,6 +18,48 @@ import (
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/store"
 )
+
+// routerShutdownCtx is the context used by long-running router-owned
+// goroutines (currently the OAuth CSRF-state cleaner). main.go sets
+// this to the process shutdown context before building the router so
+// those goroutines exit cleanly on SIGINT/SIGTERM. Tests and default
+// callers leave it as context.Background(), which matches the prior
+// never-cancelled behavior.
+var (
+	routerShutdownCtxMu sync.RWMutex
+	routerShutdownCtx   = context.Background()
+
+	// defaultBroker is the process-wide SSE broker. It is started
+	// once per router build using the shutdown context, and its
+	// lifetime matches the server process. Tests that build a
+	// router without fleet wiring skip the broker start — the
+	// handler still registers, but the event stream stays idle.
+	defaultBrokerOnce sync.Once
+	defaultBroker     = NewEventBroker()
+)
+
+// DefaultEventBroker returns the process-wide broker so internal
+// components (tests, hand-triggered publishes) can push events.
+func DefaultEventBroker() *EventBroker { return defaultBroker }
+
+// SetShutdownContext installs a cancellable context that router-owned
+// background goroutines will observe for shutdown. Call once from main
+// before constructing the router.
+func SetShutdownContext(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	routerShutdownCtxMu.Lock()
+	routerShutdownCtx = ctx
+	routerShutdownCtxMu.Unlock()
+}
+
+// shutdownContext returns the current router shutdown context.
+func shutdownContext() context.Context {
+	routerShutdownCtxMu.RLock()
+	defer routerShutdownCtxMu.RUnlock()
+	return routerShutdownCtx
+}
 
 // ActionDeps holds optional dependencies for action management
 // routes. Pass nil to skip registering action routes.
@@ -76,7 +120,7 @@ func NewRouterFull(
 				oauthProvider = nil
 			} else {
 				go oauthProvider.StartStateCleaner(
-					context.Background())
+					shutdownContext())
 			}
 		}
 		registerAuthRoutes(apiMux, pool, oauthProvider, cfg)
@@ -98,9 +142,13 @@ func NewRouterFull(
 		apiHandler = middlewares[i](apiHandler)
 	}
 	// Always apply body size limit, CORS, security headers,
-	// and JSON content-type validation to API routes.
+	// JSON content-type validation, and a per-request deadline
+	// to API routes. timeoutMiddleware is applied outside the
+	// body/JSON middlewares so its context also covers body
+	// parsing.
 	apiHandler = requireJSONMiddleware(apiHandler)
 	apiHandler = maxBodyMiddleware(apiHandler)
+	apiHandler = timeoutMiddleware(apiHandler)
 	apiHandler = securityHeadersMiddleware(apiHandler)
 	apiHandler = corsMiddleware(apiHandler)
 
@@ -169,6 +217,10 @@ func registerAPIRoutes(
 	mux.HandleFunc(
 		"GET /api/v1/snapshots/history",
 		snapshotHistoryHandler(mgr))
+	// v0.12 — Fleet-wide health time-series (ui-redesign-v2 §5 Overview).
+	mux.HandleFunc(
+		"GET /api/v1/fleet/health",
+		fleetHealthHandler(mgr))
 	mux.HandleFunc(
 		"GET /api/v1/config", configGetHandler(mgr, cfg))
 
@@ -190,6 +242,9 @@ func registerAPIRoutes(
 	mux.HandleFunc(
 		"GET /api/v1/llm/models",
 		listModelsHandler(&cfg.LLM))
+	mux.HandleFunc(
+		"POST /api/v1/llm/models",
+		discoverModelsHandler(&cfg.LLM))
 	mux.HandleFunc(
 		"GET /api/v1/llm/status",
 		llmStatusHandler(llmMgr))
@@ -219,14 +274,34 @@ func registerAPIRoutes(
 	if llmMgr != nil {
 		explainLLM = llmMgr.General
 	}
-	mux.HandleFunc(
-		"POST /api/v1/explain",
-		explainHandler(mgr, cfg, explainLLM))
+	explainH := operatorUp(http.HandlerFunc(
+		explainHandler(mgr, cfg, explainLLM)))
+	mux.Handle("POST /api/v1/explain", explainH)
 
 	// v0.9 — Growth forecast endpoint
 	mux.HandleFunc(
 		"GET /api/v1/forecasts/growth",
 		growthForecastHandler(mgr))
+
+	// v0.11 — Findings stats aggregate (replaces the old
+	// /api/v1/schema/findings + /stats split). Schema-lint rows
+	// live in sage.findings under category LIKE 'schema_lint:%';
+	// callers pass source=schema_lint to filter to that subsystem.
+	mux.HandleFunc(
+		"GET /api/v1/findings/stats",
+		findingsStatsHandler(mgr))
+
+	// SSE live-update stream. Broker starts once per process.
+	if mgr != nil {
+		defaultBrokerOnce.Do(func() {
+			defaultBroker.Start(
+				shutdownContext(), mgr,
+				2*time.Second, 15*time.Second,
+			)
+		})
+	}
+	mux.HandleFunc(
+		"GET /api/v1/events", eventsHandler(defaultBroker))
 }
 
 func registerAuthRoutes(
@@ -286,6 +361,7 @@ func registerConfigRoutes(
 ) {
 	adminOnly := RequireRole("admin")
 	cs := store.NewConfigStore(pool)
+	baseCfg := config.Clone(cfg)
 
 	var fm *fleet.DatabaseManager
 	if len(mgr) > 0 {
@@ -293,15 +369,19 @@ func registerConfigRoutes(
 	}
 
 	globalGet := adminOnly(http.HandlerFunc(
-		configGlobalGetHandler(cs, cfg)))
+		configGlobalGetHandler(cs, baseCfg)))
 	mux.Handle("GET /api/v1/config/global", globalGet)
 
 	globalPut := adminOnly(http.HandlerFunc(
 		configGlobalPutHandler(cs, cfg, fm)))
 	mux.Handle("PUT /api/v1/config/global", globalPut)
 
+	globalDelete := adminOnly(http.HandlerFunc(
+		configGlobalDeleteHandler(cs, cfg, baseCfg, fm)))
+	mux.Handle("DELETE /api/v1/config/global/{key}", globalDelete)
+
 	dbGet := adminOnly(http.HandlerFunc(
-		configDBGetHandler(cs, cfg, pool)))
+		configDBGetHandler(cs, baseCfg, pool)))
 	mux.Handle(
 		"GET /api/v1/config/databases/{id}", dbGet)
 
@@ -309,6 +389,12 @@ func registerConfigRoutes(
 		configDBPutHandler(cs, cfg, pool, fm)))
 	mux.Handle(
 		"PUT /api/v1/config/databases/{id}", dbPut)
+
+	dbDelete := adminOnly(http.HandlerFunc(
+		configDBDeleteHandler(cs, cfg, fm)))
+	mux.Handle(
+		"DELETE /api/v1/config/databases/{id}/{key}",
+		dbDelete)
 
 	audit := adminOnly(http.HandlerFunc(
 		configAuditHandler(cs)))
@@ -343,6 +429,15 @@ func registerActionRoutes(
 			"GET /api/v1/actions/pending/count", countH)
 	}
 
+	// Inline action flow on the Findings page — per-finding
+	// lookup of any pending queued actions. Works in both
+	// fleet and standalone modes.
+	byFindingH := operatorUp(http.HandlerFunc(
+		findingPendingActionsHandler(deps)))
+	mux.Handle(
+		"GET /api/v1/findings/{id}/pending-actions",
+		byFindingH)
+
 	if deps.Store != nil && deps.Executor != nil {
 		approveH := operatorUp(http.HandlerFunc(
 			approveActionHandler(
@@ -355,25 +450,48 @@ func registerActionRoutes(
 		mux.Handle(
 			"POST /api/v1/actions/{id}/reject", rejectH)
 
+		rollbackH := operatorUp(http.HandlerFunc(
+			rollbackActionHandler(deps.Executor)))
+		mux.Handle(
+			"POST /api/v1/actions/{id}/rollback", rollbackH)
+
 		execH := operatorUp(http.HandlerFunc(
 			manualExecuteHandler(deps.Executor)))
 		mux.Handle(
 			"POST /api/v1/actions/execute", execH)
+	} else if deps.Fleet != nil {
+		approveH := operatorUp(http.HandlerFunc(
+			fleetApproveActionHandler(deps.Fleet)))
+		mux.Handle(
+			"POST /api/v1/actions/{id}/approve", approveH)
+
+		rejectH := operatorUp(http.HandlerFunc(
+			fleetRejectActionHandler(deps.Fleet)))
+		mux.Handle(
+			"POST /api/v1/actions/{id}/reject", rejectH)
+
+		rollbackH := operatorUp(http.HandlerFunc(
+			fleetRollbackActionHandler(deps.Fleet)))
+		mux.Handle(
+			"POST /api/v1/actions/{id}/rollback", rollbackH)
+
+		execH := operatorUp(http.HandlerFunc(
+			fleetManualExecuteHandler(deps.Fleet)))
+		mux.Handle(
+			"POST /api/v1/actions/execute", execH)
 	} else {
-		// Fleet mode without global store/executor:
-		// approve/reject/execute not yet supported
-		// fleet-wide. Return 501 instead of crashing.
 		notImpl := operatorUp(http.HandlerFunc(
 			func(w http.ResponseWriter, _ *http.Request) {
 				jsonError(w,
-					"action approval not available "+
-						"in fleet mode yet",
+					"action approval not available",
 					http.StatusNotImplemented)
 			}))
 		mux.Handle(
 			"POST /api/v1/actions/{id}/approve", notImpl)
 		mux.Handle(
 			"POST /api/v1/actions/{id}/reject", notImpl)
+		mux.Handle(
+			"POST /api/v1/actions/{id}/rollback", notImpl)
 		mux.Handle(
 			"POST /api/v1/actions/execute", notImpl)
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,6 +29,30 @@ type ActionProposer interface {
 		findingID int, sql, rollbackSQL, risk string) (int, error)
 }
 
+// PendingActionChecker is implemented by stores that can detect an existing
+// unresolved proposal for the same finding.
+type PendingActionChecker interface {
+	HasPendingForFinding(ctx context.Context, findingID int) (bool, error)
+}
+
+// PendingActionSQLChecker is implemented by stores that can detect an
+// unresolved proposal with the same SQL text.
+type PendingActionSQLChecker interface {
+	HasPendingForSQL(ctx context.Context, sql string) (bool, error)
+}
+
+// RejectedActionChecker is implemented by stores that can detect a recent
+// operator rejection. Approval mode uses this to avoid immediately
+// re-proposing an action the user just rejected.
+type RejectedActionChecker interface {
+	HasRecentlyRejectedForFinding(
+		ctx context.Context, findingID int, cooldown time.Duration,
+	) (bool, error)
+	HasRecentlyRejectedForSQL(
+		ctx context.Context, sql string, cooldown time.Duration,
+	) (bool, error)
+}
+
 // maxConcurrentDDL limits how many DDL operations can run
 // in parallel to avoid overwhelming the database.
 const maxConcurrentDDL = 3
@@ -35,12 +60,12 @@ const maxConcurrentDDL = 3
 // Executor runs the autonomous remediation loop after each
 // analyzer cycle.
 type Executor struct {
-	pool          *pgxpool.Pool
-	cfg           *config.Config
-	analyzer      *analyzer.Analyzer
-	rampStart     time.Time
-	recentActions map[string]time.Time
-	logFn         func(string, string, ...any)
+	pool               *pgxpool.Pool
+	cfg                *config.Config
+	analyzer           *analyzer.Analyzer
+	rampStart          time.Time
+	recentActions      map[string]time.Time
+	logFn              func(string, string, ...any)
 	actionStore        ActionProposer
 	execMode           string // auto, approval, manual
 	dispatcher         EventDispatcher
@@ -48,6 +73,14 @@ type Executor struct {
 	trustLevelOverride string
 	ddlSem             chan struct{} // limits concurrent DDL ops
 	analyzeSem         chan struct{} // shared fleet-wide for ANALYZE
+
+	// monitors tracks background MonitorAndRollback goroutines so
+	// Shutdown can wait for them. shutdownCh is closed to signal
+	// monitors to abort their rollback window early.
+	monitors     sync.WaitGroup
+	shutdownCh   chan struct{}
+	shutdownMu   sync.Mutex
+	shuttingDown bool
 }
 
 // WithAnalyzeSemaphore wires a shared process-wide semaphore
@@ -74,6 +107,32 @@ func New(
 		logFn:         logFn,
 		execMode:      "auto",
 		ddlSem:        make(chan struct{}, maxConcurrentDDL),
+		shutdownCh:    make(chan struct{}),
+	}
+}
+
+// Shutdown signals in-flight rollback monitors to abort their
+// wait window and waits until they have returned (or the
+// provided context is done, whichever comes first). After
+// Shutdown returns, RunCycle must not be called again.
+func (e *Executor) Shutdown(ctx context.Context) error {
+	e.shutdownMu.Lock()
+	if !e.shuttingDown {
+		e.shuttingDown = true
+		close(e.shutdownCh)
+	}
+	e.shutdownMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		e.monitors.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -193,6 +252,58 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 
 		// Approval mode: queue for approval instead of executing.
 		if e.execMode == "approval" && e.actionStore != nil {
+			if checker, ok := e.actionStore.(PendingActionChecker); ok {
+				hasPending, err := checker.HasPendingForFinding(
+					ctx, int(findingID))
+				if err != nil {
+					e.logFn("executor",
+						"failed to check pending approval for %q: %v",
+						f.Title, err)
+					continue
+				}
+				if hasPending {
+					continue
+				}
+			}
+			if checker, ok := e.actionStore.(PendingActionSQLChecker); ok {
+				hasPending, err := checker.HasPendingForSQL(
+					ctx, f.RecommendedSQL)
+				if err != nil {
+					e.logFn("executor",
+						"failed to check duplicate approval SQL for %q: %v",
+						f.Title, err)
+					continue
+				}
+				if hasPending {
+					continue
+				}
+			}
+			if checker, ok := e.actionStore.(RejectedActionChecker); ok {
+				cooldown := e.cascadeCooldown()
+				rejected, err := checker.HasRecentlyRejectedForFinding(
+					ctx, int(findingID), cooldown)
+				if err != nil {
+					e.logFn("executor",
+						"failed to check rejected approval for %q: %v",
+						f.Title, err)
+					continue
+				}
+				if rejected {
+					continue
+				}
+				rejected, err = checker.HasRecentlyRejectedForSQL(
+					ctx, f.RecommendedSQL, cooldown)
+				if err != nil {
+					e.logFn("executor",
+						"failed to check rejected approval SQL for %q: %v",
+						f.Title, err)
+					continue
+				}
+				if rejected {
+					continue
+				}
+			}
+
 			_, propErr := e.actionStore.Propose(
 				ctx, nil, int(findingID),
 				f.RecommendedSQL, f.RollbackSQL, f.ActionRisk,
@@ -290,8 +401,9 @@ func (e *Executor) executeFinding(
 			f.Title, f.RecommendedSQL, e.databaseName))
 	e.recentActions[f.ObjectIdentifier] = time.Now()
 
-	// Post-check: verify index validity after CREATE INDEX.
-	if NeedsConcurrently(f.RecommendedSQL) {
+	// Post-check: verify index validity after CREATE INDEX only. DROP INDEX
+	// and other concurrently-required statements do not produce a new index.
+	if categorizeAction(f.RecommendedSQL) == "create_index" {
 		idxName := extractIndexName(f.RecommendedSQL)
 		if idxName != "" {
 			valid, err := optimizer.CheckIndexValid(
@@ -316,9 +428,24 @@ func (e *Executor) executeFinding(
 					ctx, e.pool, dropSQL, ddlTimeout, lockOpt,
 				)
 				if dropErr != nil {
+					// Surface loudly: the invalid index is now
+					// occupying disk, blocking future CREATE
+					// INDEX with the same name, and slowing
+					// writes until it is removed manually.
 					e.logFn("executor",
-						"failed to drop invalid index %s: %v",
-						idxName, dropErr)
+						"CRITICAL: failed to drop invalid index %s: "+
+							"%v — manual cleanup required "+
+							"(run: %s)",
+						idxName, dropErr, dropSQL)
+					e.dispatchEvent(ctx,
+						notify.ActionFailedEvent(
+							"Invalid index cleanup failed: "+idxName,
+							dropSQL,
+							e.databaseName,
+							fmt.Sprintf("manual DROP required: %v",
+								dropErr)))
+					e.recordInvalidIndexCleanupFailure(
+						ctx, findingID, idxName, dropErr)
 				} else {
 					e.logFn("executor",
 						"cleaned up invalid index %s", idxName)
@@ -355,12 +482,21 @@ func (e *Executor) executeFinding(
 	}
 
 	if f.RollbackSQL != "" && actionID > 0 {
-		go MonitorAndRollback(
-			ctx, e.pool, actionID, f.RollbackSQL,
-			e.cfg.Trust.RollbackThresholdPct,
-			e.cfg.Trust.RollbackWindowMinutes,
-			e.logFn,
-		)
+		// Detach the monitor from the cycle's context so the
+		// rollback window can elapse even if RunCycle returns
+		// (or is called from an HTTP handler). Shutdown signals
+		// the monitor to abort early via e.shutdownCh.
+		e.monitors.Add(1)
+		go func() {
+			defer e.monitors.Done()
+			MonitorAndRollback(
+				context.WithoutCancel(ctx), e.pool, actionID, f.RollbackSQL,
+				e.cfg.Trust.RollbackThresholdPct,
+				e.cfg.Trust.RollbackWindowMinutes,
+				e.logFn,
+				e.shutdownCh,
+			)
+		}()
 	} else if actionID > 0 {
 		// No rollback possible (VACUUM, ANALYZE, pg_terminate_backend)
 		// — mark success immediately.
@@ -466,15 +602,82 @@ func (e *Executor) exceedsMaxRetries(
 	}
 	if failCount >= maxActionRetries {
 		// Mark the finding as acted_on so it stops appearing.
-		_, _ = e.pool.Exec(ctx,
+		// If the UPDATE fails silently we would retry forever, so
+		// log the failure to surface it to operators.
+		if _, err := e.pool.Exec(ctx,
 			`UPDATE sage.findings
 			 SET acted_on_at = now()
 			 WHERE id = $1 AND acted_on_at IS NULL`,
 			findingID,
-		)
+		); err != nil {
+			e.logFn("executor",
+				"failed to mark finding %d acted_on after "+
+					"%d retries: %v — will retry this update next cycle",
+				findingID, failCount, err)
+		}
 		return true
 	}
 	return false
+}
+
+// recordInvalidIndexCleanupFailure persists a failed cleanup
+// attempt into sage.action_log so the operator sees a durable
+// record in the dashboard. Best-effort: a logging failure here
+// is itself just logged.
+func (e *Executor) recordInvalidIndexCleanupFailure(
+	ctx context.Context,
+	findingID int64,
+	idxName string,
+	dropErr error,
+) {
+	if e.pool == nil {
+		return
+	}
+	reason := fmt.Sprintf(
+		"invalid index %s; DROP CONCURRENTLY failed: %v — "+
+			"manual cleanup required",
+		idxName, dropErr)
+	_, logErr := e.pool.Exec(ctx,
+		`INSERT INTO sage.action_log
+		 (action_type, finding_id, sql_executed, rollback_sql,
+		  before_state, outcome, rollback_reason)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		"drop_index_failed", findingID,
+		fmt.Sprintf("DROP INDEX CONCURRENTLY IF EXISTS %s", idxName),
+		nil, []byte("{}"), "failed", reason,
+	)
+	if logErr != nil {
+		e.logFn("executor",
+			"failed to record invalid-index cleanup failure "+
+				"for %s: %v", idxName, logErr)
+	}
+}
+
+func (e *Executor) markFindingActioned(
+	ctx context.Context,
+	findingID int64,
+	actionID int64,
+) {
+	tag, err := e.pool.Exec(ctx,
+		`UPDATE sage.findings
+		 SET acted_on_at = now(),
+		     action_log_id = $1,
+		     status = 'resolved',
+		     resolved_at = COALESCE(resolved_at, now())
+		 WHERE id = $2`,
+		actionID, findingID,
+	)
+	if err != nil {
+		e.logFn("executor",
+			"failed to mark finding %d resolved after action %d: %v",
+			findingID, actionID, err)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		e.logFn("executor",
+			"manual action %d did not resolve finding %d: finding missing or already changed",
+			actionID, findingID)
+	}
 }
 
 // snapshotBeforeState captures current database health metrics
@@ -559,12 +762,7 @@ func (e *Executor) logAction(
 	// findings remain eligible for retry (lookupFindingID filters on
 	// acted_on_at IS NULL).
 	if outcome != "failed" {
-		_, _ = e.pool.Exec(ctx,
-			`UPDATE sage.findings
-			 SET acted_on_at = now(), action_log_id = $1
-			 WHERE id = $2`,
-			actionID, findingID,
-		)
+		e.markFindingActioned(ctx, findingID, actionID)
 	}
 
 	return actionID
@@ -593,14 +791,16 @@ func categorizeAction(sql string) string {
 	}
 }
 
-// actionOutcome returns "failed" when execErr is non-nil, "pending" otherwise.
+// actionOutcome returns "failed" when execErr is non-nil, "monitoring"
+// otherwise. Successful reversible actions stay in monitoring until
+// post-action verification marks them success or rolled_back.
 // This determines whether acted_on_at is set on the finding — failed actions
 // must leave the finding retryable.
 func actionOutcome(execErr error) string {
 	if execErr != nil {
 		return "failed"
 	}
-	return "pending"
+	return "monitoring"
 }
 
 // nilIfEmpty returns nil for empty strings, used for nullable SQL params.
@@ -631,6 +831,9 @@ func extractIndexName(sql string) string {
 	// Next token is the index name.
 	fields := strings.Fields(rest)
 	if len(fields) == 0 {
+		return ""
+	}
+	if strings.EqualFold(fields[0], "ON") {
 		return ""
 	}
 	name := strings.Trim(fields[0], "\"")

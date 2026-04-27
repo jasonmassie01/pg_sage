@@ -6,13 +6,45 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
+// hotReloadMu serializes hot-reload writes and any reads that need a
+// self-consistent view of multiple fields. Kept at package scope (not
+// as a Config method or field) so Config remains copy-safe for watcher
+// snapshots and executor per-cycle overrides — adding Lock/Unlock
+// methods would make Config look like sync.Locker and trigger
+// "assignment copies lock value" from go vet.
+var hotReloadMu sync.RWMutex
+
+// LockForHotReload acquires the package-level config write lock. Call
+// from any code path that mutates a live Config struct concurrently
+// with background readers.
+func LockForHotReload() { hotReloadMu.Lock() }
+
+// UnlockForHotReload releases the package-level config write lock.
+func UnlockForHotReload() { hotReloadMu.Unlock() }
+
+// RLockForHotReload acquires the package-level config read lock.
+func RLockForHotReload() { hotReloadMu.RLock() }
+
+// RUnlockForHotReload releases the package-level config read lock.
+func RUnlockForHotReload() { hotReloadMu.RUnlock() }
+
 // Config is the top-level configuration for pg_sage standalone sidecar.
+//
+// Hot-reload mutations (from the /api/v1/config API) must be serialized
+// against other mutations and against background-loop reads. Mutations
+// call cfg.Lock()/cfg.Unlock(); readers that require a self-consistent
+// view of multi-field state should use cfg.RLock()/cfg.RUnlock().
+// Single-field reads of naturally-aligned scalars may skip locking on
+// most architectures but will still trip the race detector — new code
+// should prefer the explicit lock.
 type Config struct {
+
 	Mode string `yaml:"mode" doc:"Operating mode: extension, standalone, or fleet. Standalone connects to one PostgreSQL target; fleet manages many databases from one sidecar."`
 
 	Postgres   PostgresConfig   `yaml:"postgres"`
@@ -30,7 +62,9 @@ type Config struct {
 	RCA      RCAConfig      `yaml:"rca"`
 	Runaway  RunawayConfig  `yaml:"runaway"`
 	Explain  ExplainConfig  `yaml:"explain"`
-	LogWatch LogWatchConfig `yaml:"logwatch"`
+	LogWatch    LogWatchConfig    `yaml:"logwatch"`
+	SchemaLint  SchemaLintConfig  `yaml:"schema_lint"`
+	Migration   MigrationConfig   `yaml:"migration"`
 	Retention   RetentionConfig  `yaml:"retention"`
 	Prometheus PrometheusConfig `yaml:"prometheus"`
 	OAuth      OAuthConfig      `yaml:"oauth"`
@@ -134,6 +168,7 @@ type LLMConfig struct {
 	TokenBudgetDaily    int                `yaml:"token_budget_daily" doc:"Soft daily cap on total tokens (input + output) the sidecar will spend on LLM requests. Once exceeded the LLM is skipped until the next UTC day."`
 	ContextBudgetTokens int                `yaml:"context_budget_tokens" doc:"Maximum tokens attached as context (schema, stats, plans) to a single LLM request. Prevents oversized prompts from busting the model context window."`
 	CooldownSeconds     int                `yaml:"cooldown_seconds" doc:"Minimum seconds between two LLM requests. Rate-limits the sidecar so it cannot burst the provider during a busy cycle."`
+	JSONMode            bool               `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."`
 	IndexOptimizer      IndexOptimizerConfig `yaml:"index_optimizer"` // Deprecated: use Optimizer.
 	Optimizer    OptimizerConfig    `yaml:"optimizer"`
 	OptimizerLLM OptimizerLLMConfig `yaml:"optimizer_llm"`
@@ -300,6 +335,27 @@ type ExplainConfig struct {
 	TimeoutMs       int  `yaml:"timeout_ms" doc:"statement_timeout for EXPLAIN ANALYZE execution. Default: 10000."`
 	CacheTTLMinutes int  `yaml:"cache_ttl_minutes" doc:"TTL for cached explain results. Default: 60."`
 	MaxTokens       int  `yaml:"max_tokens" doc:"Maximum LLM output tokens for explain responses. Default: 4096."`
+}
+
+// SchemaLintConfig controls schema anti-pattern detection (v0.10).
+type SchemaLintConfig struct {
+	Enabled             bool     `yaml:"enabled" doc:"Enable periodic schema anti-pattern scanning."`
+	ScanIntervalMinutes int      `yaml:"scan_interval_minutes" doc:"How often to run the full schema lint scan. Default: 60."`
+	IncludeSchemas      []string `yaml:"include_schemas" doc:"Schemas to scan. Empty means all non-system schemas."`
+	ExcludeSchemas      []string `yaml:"exclude_schemas" doc:"Schemas to exclude. Default: pg_catalog, information_schema."`
+	DisabledRules       []string `yaml:"disabled_rules" doc:"Rule IDs to skip (e.g. lint_serial_usage)."`
+	MinTableRows        int      `yaml:"min_table_rows" doc:"Ignore findings on tables below this row count. Default: 1000."`
+}
+
+// MigrationConfig controls the DDL safety advisor (v0.10).
+type MigrationConfig struct {
+	Enabled             bool   `yaml:"enabled" doc:"Enable DDL safety advisory."`
+	Mode                string `yaml:"mode" doc:"Operating mode: advisory (default). Active mode deferred to future release."`
+	ManagedService      string `yaml:"managed_service" doc:"Cloud provider: none, rds, aurora, cloudsql, alloydb. Filters unavailable recommendations."`
+	LogDetection        bool   `yaml:"log_detection" doc:"Parse DDL from PG logs (requires log_statement=ddl)."`
+	ActivityPolling     bool   `yaml:"activity_polling" doc:"Scan pg_stat_activity for active DDL."`
+	PollIntervalSeconds int    `yaml:"poll_interval_seconds" doc:"How often to poll during active DDL. Default: 5."`
+	DDLRowThreshold     int    `yaml:"ddl_row_threshold" doc:"Row count below which DDL is considered low-risk. Default: 10000."`
 }
 
 type TunerConfig struct {

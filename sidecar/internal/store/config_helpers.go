@@ -41,6 +41,7 @@ var allowedConfigKeys = map[string]string{
 	"llm.endpoint":                        "string",
 	"llm.api_key":                         "string",
 	"llm.model":                           "string",
+	"llm.json_mode":                       "bool",
 	"llm.timeout_seconds":                 "int_pos",
 	"llm.token_budget_daily":              "int_pos",
 	"llm.context_budget_tokens":           "int_pos",
@@ -101,6 +102,20 @@ var allowedConfigKeys = map[string]string{
 	"logwatch.max_lines_per_cycle":  "int_pos",
 	"logwatch.exclude_applications": "string",
 	"logwatch.slow_query_enabled":   "bool",
+
+	// v0.10: Schema lint.
+	"schema_lint.enabled":               "bool",
+	"schema_lint.scan_interval_minutes": "int_pos",
+	"schema_lint.min_table_rows":        "int_pos",
+
+	// v0.10: Migration / DDL safety.
+	"migration.enabled":               "bool",
+	"migration.mode":                  "string",
+	"migration.managed_service":       "string",
+	"migration.log_detection":         "bool",
+	"migration.activity_polling":      "bool",
+	"migration.poll_interval_seconds": "int_pos",
+	"migration.ddl_row_threshold":     "int_pos",
 }
 
 func validateConfigKey(key string) error {
@@ -116,6 +131,15 @@ func validateConfigValue(key, value string) error {
 		return fmt.Errorf("validate: unknown config key %q", key)
 	}
 	return validateByType(vtype, key, value)
+}
+
+// ValidateConfigOverride validates a single config override without
+// persisting it. Handlers use this to make multi-key saves atomic.
+func ValidateConfigOverride(key, value string) error {
+	if err := validateConfigKey(key); err != nil {
+		return err
+	}
+	return validateConfigValue(key, value)
 }
 
 func validateByType(vtype, key, value string) error {
@@ -331,6 +355,8 @@ func configToMap(cfg *config.Config) map[string]any {
 	addRunawayFields(m, &cfg.Runaway)
 	addExplainFields(m, &cfg.Explain)
 	addLogWatchFields(m, &cfg.LogWatch)
+	addSchemaLintFields(m, &cfg.SchemaLint)
+	addMigrationFields(m, &cfg.Migration)
 	return m
 }
 
@@ -399,6 +425,7 @@ func addLLMFields(m map[string]any, l *config.LLMConfig) {
 	addField(m, "llm.endpoint", l.Endpoint, "yaml")
 	addField(m, "llm.api_key", maskSecret(l.APIKey), "yaml")
 	addField(m, "llm.model", l.Model, "yaml")
+	addField(m, "llm.json_mode", l.JSONMode, "yaml")
 	addField(m, "llm.timeout_seconds", l.TimeoutSeconds, "yaml")
 	addField(m, "llm.token_budget_daily",
 		l.TokenBudgetDaily, "yaml")
@@ -500,6 +527,33 @@ func addLogWatchFields(
 		strings.Join(lw.ExcludeApplications, ","), "yaml")
 	addField(m, "logwatch.slow_query_enabled",
 		lw.SlowQueryEnabled, "yaml")
+}
+
+func addSchemaLintFields(
+	m map[string]any, sl *config.SchemaLintConfig,
+) {
+	addField(m, "schema_lint.enabled", sl.Enabled, "yaml")
+	addField(m, "schema_lint.scan_interval_minutes",
+		sl.ScanIntervalMinutes, "yaml")
+	addField(m, "schema_lint.min_table_rows",
+		sl.MinTableRows, "yaml")
+}
+
+func addMigrationFields(
+	m map[string]any, mg *config.MigrationConfig,
+) {
+	addField(m, "migration.enabled", mg.Enabled, "yaml")
+	addField(m, "migration.mode", mg.Mode, "yaml")
+	addField(m, "migration.managed_service",
+		mg.ManagedService, "yaml")
+	addField(m, "migration.log_detection",
+		mg.LogDetection, "yaml")
+	addField(m, "migration.activity_polling",
+		mg.ActivityPolling, "yaml")
+	addField(m, "migration.poll_interval_seconds",
+		mg.PollIntervalSeconds, "yaml")
+	addField(m, "migration.ddl_row_threshold",
+		mg.DDLRowThreshold, "yaml")
 }
 
 func maskSecret(s string) string {

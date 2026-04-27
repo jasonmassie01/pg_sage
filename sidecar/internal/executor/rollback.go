@@ -49,6 +49,11 @@ func CheckHysteresis(
 // metrics. If regression exceeds the threshold, it rolls back the
 // change and marks the action as rolled_back. Otherwise, it marks
 // the action as success and records the after_state.
+//
+// shutdownCh may be nil. When non-nil, closing the channel aborts
+// the wait window without performing the post-window regression
+// check — the action_log entry is updated with an "interrupted"
+// outcome so the operator can tell why it never completed.
 func MonitorAndRollback(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -57,6 +62,7 @@ func MonitorAndRollback(
 	thresholdPct int,
 	windowMinutes int,
 	logFn func(string, string, ...any),
+	shutdownCh <-chan struct{},
 ) {
 	timer := time.NewTimer(time.Duration(windowMinutes) * time.Minute)
 	defer timer.Stop()
@@ -64,6 +70,13 @@ func MonitorAndRollback(
 	select {
 	case <-ctx.Done():
 		logFn("rollback", "context cancelled for action %d", actionID)
+		return
+	case <-shutdownCh:
+		logFn("rollback",
+			"shutdown before rollback window for action %d — "+
+				"leaving action in pending state", actionID)
+		updateActionOutcome(ctx, pool, actionID, "interrupted",
+			"sidecar shutdown before rollback window elapsed")
 		return
 	case <-timer.C:
 		// Window elapsed — check for regression.
@@ -76,7 +89,12 @@ func MonitorAndRollback(
 			"regression detected for action %d, executing rollback",
 			actionID,
 		)
-		err := ExecInTransaction(ctx, pool, rollbackSQL, 60*time.Second)
+		var err error
+		if NeedsConcurrently(rollbackSQL) || NeedsTopLevel(rollbackSQL) {
+			err = ExecConcurrently(ctx, pool, rollbackSQL, 60*time.Second)
+		} else {
+			err = ExecInTransaction(ctx, pool, rollbackSQL, 60*time.Second)
+		}
 		if err != nil {
 			logFn("rollback",
 				"rollback failed for action %d: %v", actionID, err,
@@ -204,7 +222,7 @@ func updateActionSuccess(
 	_, _ = pool.Exec(ctx,
 		`UPDATE sage.action_log
 		 SET outcome = 'success',
-		     after_state = jsonb_build_object('cache_hit_ratio', $1),
+		     after_state = jsonb_build_object('cache_hit_ratio', $1::float8),
 		     measured_at = now()
 		 WHERE id = $2`,
 		cacheHit, actionID,

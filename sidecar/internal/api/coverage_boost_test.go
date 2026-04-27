@@ -65,11 +65,11 @@ func TestCoverage_IsConnectionError_ConnectionRefused(t *testing.T) {
 		{"context deadline exceeded", true},
 		{"connection timed out", true},
 		{"pool closed", true},
-		{"Connection Refused", true},    // case-insensitive
-		{"CLOSED POOL error", true},     // case-insensitive
-		{"some random error", false},    // not a connection error
-		{"query syntax error", false},   // not a connection error
-		{"unique violation", false},     // not a connection error
+		{"Connection Refused", true},  // case-insensitive
+		{"CLOSED POOL error", true},   // case-insensitive
+		{"some random error", false},  // not a connection error
+		{"query syntax error", false}, // not a connection error
+		{"unique violation", false},   // not a connection error
 	}
 	for _, tt := range tests {
 		t.Run(tt.msg, func(t *testing.T) {
@@ -260,7 +260,7 @@ func TestCoverage_BuildFindingMap_Basic(t *testing.T) {
 		"Duplicate Index Found",
 		[]byte(`{"table":"users"}`),
 		&rec, &recSQL,
-		"open", "db1",
+		"open", "db1", nil, nil, nil,
 	)
 	if m["id"] != "42" {
 		t.Errorf("id: got %v, want '42'", m["id"])
@@ -310,7 +310,7 @@ func TestCoverage_BuildFindingMap_NilPointers(t *testing.T) {
 		nil, nil,
 		"Test Title",
 		nil, nil, nil,
-		"suppressed", "db2",
+		"suppressed", "db2", nil, nil, nil,
 	)
 	if m["object_type"] != "" {
 		t.Errorf("object_type: got %v, want empty", m["object_type"])
@@ -340,12 +340,18 @@ func TestCoverage_BuildFindingMap_InvalidJSON(t *testing.T) {
 		nil, nil, "title",
 		[]byte(`not valid json`),
 		nil, nil,
-		"open", "db1",
+		"open", "db1", nil, nil, nil,
 	)
-	// Invalid JSON should be nil (unmarshal fails silently).
-	if m["detail"] != nil {
-		t.Errorf("detail: got %v, want nil for invalid JSON",
-			m["detail"])
+	// Invalid JSON is surfaced as the raw string so operators can
+	// still see the stored bytes rather than a silently-missing
+	// field. (Previously returned nil — a swallowed-error bug.)
+	got, ok := m["detail"].(string)
+	if !ok {
+		t.Fatalf("detail: got %T (%v), want string fallback",
+			m["detail"], m["detail"])
+	}
+	if got != "not valid json" {
+		t.Errorf("detail: got %q, want raw invalid-JSON string", got)
 	}
 }
 
@@ -357,7 +363,7 @@ func TestCoverage_BuildFindingMap_EmptyDetail(t *testing.T) {
 		nil, nil, "title",
 		[]byte{},
 		nil, nil,
-		"open", "db1",
+		"open", "db1", nil, nil, nil,
 	)
 	if m["detail"] != nil {
 		t.Errorf("detail: got %v, want nil for empty detail",
@@ -372,14 +378,16 @@ func TestCoverage_BuildFindingMap_AllKeys(t *testing.T) {
 		"cat", "info",
 		nil, nil, "title",
 		nil, nil, nil,
-		"open", "db1",
+		"open", "db1", nil, nil, nil,
 	)
 	expectedKeys := []string{
 		"id", "created_at", "last_seen", "occurrence_count",
 		"category", "severity", "object_type",
 		"object_identifier", "title", "detail",
-		"recommendation", "recommended_sql",
-		"status", "database_name",
+		"recommendation", "recommended_sql", "rollback_sql",
+		"status", "database_name", "rule_id",
+		"impact_score", "resolved_at", "acted_on_at",
+		"action_log_id", "subsystem",
 	}
 	for _, key := range expectedKeys {
 		if _, ok := m[key]; !ok {
@@ -1658,14 +1666,14 @@ func TestCoverage_NewRouterFull_FleetActions(t *testing.T) {
 		t.Errorf("pending count status: %d", w.Code)
 	}
 
-	// Approve should return 501 (not implemented) for fleet mode.
+	// Approve requires a target database in fleet mode.
 	req2 := httptest.NewRequest(
 		"POST", "/api/v1/actions/1/approve", nil)
 	req2.Header.Set("Content-Type", "application/json")
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
-	if w2.Code != http.StatusNotImplemented {
-		t.Errorf("approve status: got %d, want 501", w2.Code)
+	if w2.Code != http.StatusBadRequest {
+		t.Errorf("approve status: got %d, want 400", w2.Code)
 	}
 }
 
@@ -2353,7 +2361,7 @@ func TestCoverage_RegisterActionRoutes_WithStoreExecutor(
 	}
 	r := NewRouterWithActions(mgr, cfg, nil, actions)
 
-	// Reject should return 501 in fleet mode.
+	// Reject requires a target database in fleet mode.
 	req := httptest.NewRequest(
 		"POST", "/api/v1/actions/1/reject",
 		strings.NewReader(`{"reason":"test"}`))
@@ -2361,11 +2369,11 @@ func TestCoverage_RegisterActionRoutes_WithStoreExecutor(
 	req = withUser(req, testOperatorUser())
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusNotImplemented {
-		t.Errorf("reject status: got %d, want 501", w.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("reject status: got %d, want 400", w.Code)
 	}
 
-	// Execute should return 501 in fleet mode.
+	// Execute requires a target database in fleet mode.
 	req2 := httptest.NewRequest(
 		"POST", "/api/v1/actions/execute",
 		strings.NewReader(
@@ -2374,8 +2382,8 @@ func TestCoverage_RegisterActionRoutes_WithStoreExecutor(
 	req2 = withUser(req2, testAdminUser())
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, req2)
-	if w2.Code != http.StatusNotImplemented {
-		t.Errorf("execute status: got %d, want 501", w2.Code)
+	if w2.Code != http.StatusBadRequest {
+		t.Errorf("execute status: got %d, want 400", w2.Code)
 	}
 }
 
@@ -2666,12 +2674,8 @@ func TestCoverage_Suppress_ViaRouter_NoPools(t *testing.T) {
 	r := NewRouter(mgr, cfg, nil, fakeAdminMiddleware)
 
 	w := post(t, r, "/api/v1/findings/42/suppress", "")
-	if w.Code != 200 {
-		t.Fatalf("status: %d", w.Code)
-	}
-	m := decodeJSON(t, w)
-	if m["status"] != "suppressed" {
-		t.Errorf("status: got %v", m["status"])
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404", w.Code)
 	}
 }
 
@@ -2686,12 +2690,32 @@ func TestCoverage_Unsuppress_ViaRouter_NoPools(t *testing.T) {
 	r := NewRouter(mgr, cfg, nil, fakeAdminMiddleware)
 
 	w := post(t, r, "/api/v1/findings/42/unsuppress", "")
-	if w.Code != 200 {
-		t.Fatalf("status: %d", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404", w.Code)
+	}
+}
+
+func TestCoverage_Suppress_MultiDBRequiresDatabase(t *testing.T) {
+	r := testRouter("db1", "db2")
+	w := post(t, r, "/api/v1/findings/42/suppress", "")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400", w.Code)
 	}
 	m := decodeJSON(t, w)
-	if m["status"] != "open" {
-		t.Errorf("status: got %v", m["status"])
+	if m["error"] != "database is required" {
+		t.Fatalf("error: got %v", m["error"])
+	}
+}
+
+func TestCoverage_Unsuppress_MultiDBRequiresDatabase(t *testing.T) {
+	r := testRouter("db1", "db2")
+	w := post(t, r, "/api/v1/findings/42/unsuppress", "")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400", w.Code)
+	}
+	m := decodeJSON(t, w)
+	if m["error"] != "database is required" {
+		t.Fatalf("error: got %v", m["error"])
 	}
 }
 

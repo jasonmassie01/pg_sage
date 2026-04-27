@@ -101,8 +101,7 @@ func integConfig() *config.Config {
 	}
 }
 
-// noopLog is a no-op logger matching func(string, string, ...any).
-func noopLog(string, string, ...any) {}
+// (noopLog is defined in tier2_test.go; re-used here under the integration tag.)
 
 // ---------------------------------------------------------------------------
 // Tests

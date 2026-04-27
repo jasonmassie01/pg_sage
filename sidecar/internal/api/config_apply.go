@@ -22,26 +22,105 @@ func applyConfigOverrides(
 	userID int,
 ) []string {
 	var errs []string
+	type override struct {
+		key   string
+		value string
+	}
+	overrides := make([]override, 0, len(body))
 	for key, raw := range body {
 		value := fmt.Sprintf("%v", raw)
+		if isMaskedSecretUpdate(key, value) {
+			continue
+		}
+		if err := store.ValidateConfigOverride(key, value); err != nil {
+			errs = append(errs, fmt.Sprintf(
+				"%s: %s", key, configErrorMessage(err)))
+			continue
+		}
+		overrides = append(overrides, override{key: key, value: value})
+	}
+	if len(errs) > 0 {
+		return errs
+	}
+
+	for _, override := range overrides {
 		err := cs.SetOverride(
-			ctx, key, value, databaseID, userID)
+			ctx, override.key, override.value, databaseID, userID)
 		if err != nil {
-			errs = append(errs,
-				fmt.Sprintf("%s: %s", key, err.Error()))
+			// Validation errors (invalid key, invalid value, range
+			// violation) are safe to expose — the user needs them to
+			// correct the request. Anything else is a DB/internal
+			// failure whose text we must not leak.
+			msg := configErrorMessage(err)
+			if msg == internalConfigErrMsg {
+				slog.Error("config override failed",
+					"key", override.key, "err", err)
+			}
+			errs = append(errs, fmt.Sprintf("%s: %s", override.key, msg))
 			continue
 		}
 		// Hot-reload into running config when global.
 		if databaseID == 0 {
-			hotReload(cfg, key, value)
+			hotReload(cfg, override.key, override.value)
 		}
 	}
 	return errs
 }
 
+func isMaskedSecretUpdate(key, value string) bool {
+	if key != "llm.api_key" || value == "" {
+		return false
+	}
+	starCount := 0
+	for starCount < len(value) && value[starCount] == '*' {
+		starCount++
+	}
+	if starCount == 0 {
+		return false
+	}
+	if starCount == len(value) {
+		return true
+	}
+	return len(value)-starCount <= 4
+}
+
+// internalConfigErrMsg is the placeholder returned to clients when
+// a config override fails for a reason that is not safe to expose
+// (DB errors, tx failures, etc.).
+const internalConfigErrMsg = "internal error"
+
+// configErrorMessage returns a client-safe message for an error
+// produced by SetOverride. Known validation error shapes are
+// surfaced verbatim; anything else becomes internalConfigErrMsg.
+func configErrorMessage(err error) string {
+	msg := err.Error()
+	// Validation error prefixes produced by store.validateConfigKey
+	// and store.validateConfigValue. Keep this list in sync with
+	// that package.
+	safePrefixes := []string{
+		"invalid config key",
+		"invalid value",
+		"value below minimum",
+		"value above maximum",
+		"must be one of",
+		"unknown config key",
+	}
+	for _, p := range safePrefixes {
+		if strings.Contains(msg, p) {
+			return msg
+		}
+	}
+	return internalConfigErrMsg
+}
+
 // hotReload applies a single key/value change to the in-memory
 // config struct. Only hot-reloadable fields are supported.
+//
+// Takes the config write lock so concurrent mutations are serialized
+// and readers that opt into cfg.Mu.RLock() observe a consistent state.
 func hotReload(cfg *config.Config, key, value string) {
+	config.LockForHotReload()
+	defer config.UnlockForHotReload()
 	switch {
 	case strings.HasPrefix(key, "collector."):
 		hotReloadCollector(cfg, key, value)
@@ -75,6 +154,10 @@ func hotReload(cfg *config.Config, key, value string) {
 		hotReloadExplain(cfg, key, value)
 	case strings.HasPrefix(key, "logwatch."):
 		hotReloadLogWatch(cfg, key, value)
+	case strings.HasPrefix(key, "schema_lint."):
+		hotReloadSchemaLint(cfg, key, value)
+	case strings.HasPrefix(key, "migration."):
+		hotReloadMigration(cfg, key, value)
 	}
 }
 
@@ -179,6 +262,8 @@ func hotReloadLLM(cfg *config.Config, key, v string) {
 		cfg.LLM.APIKey = v
 	case "llm.model":
 		cfg.LLM.Model = v
+	case "llm.json_mode":
+		cfg.LLM.JSONMode = v == "true"
 	case "llm.timeout_seconds":
 		cfg.LLM.TimeoutSeconds = atoi(v)
 	case "llm.token_budget_daily":
@@ -368,6 +453,36 @@ func hotReloadLogWatch(cfg *config.Config, key, v string) {
 		cfg.LogWatch.ExcludeApplications = strings.Split(v, ",")
 	case "logwatch.slow_query_enabled":
 		cfg.LogWatch.SlowQueryEnabled = v == "true"
+	}
+}
+
+func hotReloadSchemaLint(cfg *config.Config, key, v string) {
+	switch key {
+	case "schema_lint.enabled":
+		cfg.SchemaLint.Enabled = v == "true"
+	case "schema_lint.scan_interval_minutes":
+		cfg.SchemaLint.ScanIntervalMinutes = atoi(v)
+	case "schema_lint.min_table_rows":
+		cfg.SchemaLint.MinTableRows = atoi(v)
+	}
+}
+
+func hotReloadMigration(cfg *config.Config, key, v string) {
+	switch key {
+	case "migration.enabled":
+		cfg.Migration.Enabled = v == "true"
+	case "migration.mode":
+		cfg.Migration.Mode = v
+	case "migration.managed_service":
+		cfg.Migration.ManagedService = v
+	case "migration.log_detection":
+		cfg.Migration.LogDetection = v == "true"
+	case "migration.activity_polling":
+		cfg.Migration.ActivityPolling = v == "true"
+	case "migration.poll_interval_seconds":
+		cfg.Migration.PollIntervalSeconds = atoi(v)
+	case "migration.ddl_row_threshold":
+		cfg.Migration.DDLRowThreshold = atoi(v)
 	}
 }
 

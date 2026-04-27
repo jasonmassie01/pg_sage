@@ -2,11 +2,13 @@ package collector
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/schema"
 )
 
 // ---------------------------------------------------------------------------
@@ -17,6 +19,64 @@ func phase2Collector(t *testing.T, pool *pgxpool.Pool) *Collector {
 	t.Helper()
 	cfg := testConfig()
 	return New(pool, cfg, 170000, noopLog)
+}
+
+// ---------------------------------------------------------------------------
+// Cross-package race protection: schema tests DROP/recreate sage schema
+// concurrently during `go test ./...`, causing stale OID errors (XX000).
+// ---------------------------------------------------------------------------
+
+var phase2SageMu sync.Mutex
+
+// ensurePhase2SageSchema re-bootstraps the sage schema if it was dropped
+// by concurrent schema package tests.
+func ensurePhase2SageSchema(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	phase2SageMu.Lock()
+	defer phase2SageMu.Unlock()
+	var n int
+	err := pool.QueryRow(ctx,
+		`SELECT 1 FROM information_schema.tables
+		 WHERE table_schema = 'sage'
+		   AND table_name = 'snapshots'`).Scan(&n)
+	if err == nil {
+		return
+	}
+	if err := schema.Bootstrap(ctx, pool); err != nil {
+		t.Skipf("re-bootstrap sage failed: %v", err)
+	}
+	if err := schema.MigrateConfigSchema(ctx, pool); err != nil {
+		t.Skipf("re-migrate sage config: %v", err)
+	}
+	schema.ReleaseAdvisoryLock(ctx, pool)
+}
+
+// isStaleOIDError returns true when PostgreSQL reports a stale relation
+// OID (XX000) caused by concurrent DDL from another test package.
+func isStaleOIDError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "SQLSTATE XX000") ||
+		strings.Contains(msg, "could not open relation")
+}
+
+// collectRetry calls c.collect and retries once after re-bootstrapping
+// if the error is a stale-OID race from concurrent schema tests.
+func collectRetry(
+	t *testing.T, ctx context.Context,
+	c *Collector, pool *pgxpool.Pool,
+) (*Snapshot, error) {
+	t.Helper()
+	snap, err := c.collect(ctx)
+	if err != nil && isStaleOIDError(err) {
+		t.Logf("stale OID detected, re-bootstrapping sage: %v", err)
+		ensurePhase2SageSchema(t, ctx, pool)
+		time.Sleep(50 * time.Millisecond) // let catalog settle
+		snap, err = c.collect(ctx)
+	}
+	return snap, err
 }
 
 // ---------------------------------------------------------------------------
@@ -651,6 +711,9 @@ func TestPhase2_Cycle_PersistPath(t *testing.T) {
 
 func TestPhase2_Collect_IOSkippedBelowPG16(t *testing.T) {
 	pool := testPool(t)
+	ctx := context.Background()
+	ensurePhase2SageSchema(t, ctx, pool)
+
 	cfg := testConfig()
 	cfg.Advisor.Enabled = false
 
@@ -662,9 +725,8 @@ func TestPhase2_Collect_IOSkippedBelowPG16(t *testing.T) {
 	//
 	// Instead: use 170000 and verify IO IS collected.
 	c := New(pool, cfg, 170000, noopLog)
-	ctx := context.Background()
 
-	snap, err := c.collect(ctx)
+	snap, err := collectRetry(t, ctx, c, pool)
 	if err != nil {
 		t.Fatalf("collect: %v", err)
 	}
@@ -678,13 +740,15 @@ func TestPhase2_Collect_IOSkippedBelowPG16(t *testing.T) {
 
 func TestPhase2_Collect_AdvisorDisabled_NoConfigData(t *testing.T) {
 	pool := testPool(t)
+	ctx := context.Background()
+	ensurePhase2SageSchema(t, ctx, pool)
+
 	cfg := testConfig()
 	cfg.Advisor.Enabled = false
 
 	c := New(pool, cfg, 170000, noopLog)
-	ctx := context.Background()
 
-	snap, err := c.collect(ctx)
+	snap, err := collectRetry(t, ctx, c, pool)
 	if err != nil {
 		t.Fatalf("collect: %v", err)
 	}
@@ -695,13 +759,15 @@ func TestPhase2_Collect_AdvisorDisabled_NoConfigData(t *testing.T) {
 
 func TestPhase2_Collect_AdvisorEnabled_HasConfigData(t *testing.T) {
 	pool := testPool(t)
+	ctx := context.Background()
+	ensurePhase2SageSchema(t, ctx, pool)
+
 	cfg := testConfig()
 	cfg.Advisor.Enabled = true
 
 	c := New(pool, cfg, 170000, noopLog)
-	ctx := context.Background()
 
-	snap, err := c.collect(ctx)
+	snap, err := collectRetry(t, ctx, c, pool)
 	if err != nil {
 		t.Fatalf("collect: %v", err)
 	}
@@ -715,12 +781,13 @@ func TestPhase2_Collect_AdvisorEnabled_HasConfigData(t *testing.T) {
 
 func TestPhase2_Collect_StatsResetNotFlaggedFirstTime(t *testing.T) {
 	pool := testPool(t)
-	cfg := testConfig()
-
-	c := New(pool, cfg, 170000, noopLog)
 	ctx := context.Background()
+	ensurePhase2SageSchema(t, ctx, pool)
 
-	snap, err := c.collect(ctx)
+	cfg := testConfig()
+	c := New(pool, cfg, 170000, noopLog)
+
+	snap, err := collectRetry(t, ctx, c, pool)
 	if err != nil {
 		t.Fatalf("collect: %v", err)
 	}
@@ -731,10 +798,11 @@ func TestPhase2_Collect_StatsResetNotFlaggedFirstTime(t *testing.T) {
 
 func TestPhase2_Collect_StatsResetDetectedWhenCallsDrop(t *testing.T) {
 	pool := testPool(t)
-	cfg := testConfig()
-
-	c := New(pool, cfg, 170000, noopLog)
 	ctx := context.Background()
+	ensurePhase2SageSchema(t, ctx, pool)
+
+	cfg := testConfig()
+	c := New(pool, cfg, 170000, noopLog)
 
 	// Simulate a previous snapshot with high call counts.
 	fakeQueries := []QueryStats{
@@ -750,7 +818,7 @@ func TestPhase2_Collect_StatsResetDetectedWhenCallsDrop(t *testing.T) {
 	c.latest = fakePrev
 	c.mu.Unlock()
 
-	snap, err := c.collect(ctx)
+	snap, err := collectRetry(t, ctx, c, pool)
 	if err != nil {
 		t.Fatalf("collect: %v", err)
 	}
@@ -766,6 +834,7 @@ func TestPhase2_Collect_StatsResetDetectedWhenCallsDrop(t *testing.T) {
 func TestPhase2_Collect_HasPartitionsWhenTablesExist(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
+	ensurePhase2SageSchema(t, ctx, pool)
 
 	// Create a partitioned table.
 	_, err := pool.Exec(ctx, `
@@ -788,7 +857,7 @@ func TestPhase2_Collect_HasPartitionsWhenTablesExist(t *testing.T) {
 	cfg := testConfig()
 	c := New(pool, cfg, 170000, noopLog)
 
-	snap, err := c.collect(ctx)
+	snap, err := collectRetry(t, ctx, c, pool)
 	if err != nil {
 		t.Fatalf("collect with partitions: %v", err)
 	}
@@ -801,6 +870,7 @@ func TestPhase2_Collect_HasPartitionsWhenTablesExist(t *testing.T) {
 func TestPhase2_Collect_HasForeignKeysWhenPresent(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
+	ensurePhase2SageSchema(t, ctx, pool)
 
 	_, err := pool.Exec(ctx, `
 		DROP TABLE IF EXISTS phase2_collect_child;
@@ -824,7 +894,7 @@ func TestPhase2_Collect_HasForeignKeysWhenPresent(t *testing.T) {
 	cfg := testConfig()
 	c := New(pool, cfg, 170000, noopLog)
 
-	snap, err := c.collect(ctx)
+	snap, err := collectRetry(t, ctx, c, pool)
 	if err != nil {
 		t.Fatalf("collect with FKs: %v", err)
 	}
@@ -845,11 +915,12 @@ func TestPhase2_Collect_HasForeignKeysWhenPresent(t *testing.T) {
 func TestPhase2_Collect_LocksCollected(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
+	ensurePhase2SageSchema(t, ctx, pool)
 
 	cfg := testConfig()
 	c := New(pool, cfg, 170000, noopLog)
 
-	snap, err := c.collect(ctx)
+	snap, err := collectRetry(t, ctx, c, pool)
 	if err != nil {
 		t.Fatalf("collect: %v", err)
 	}
@@ -1117,6 +1188,7 @@ func TestPhase2_CollectIO_CancelledContext(t *testing.T) {
 func TestPhase2_Collect_AllCategories(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
+	ensurePhase2SageSchema(t, ctx, pool)
 
 	// Set up all fixtures.
 	_, err := pool.Exec(ctx, `
@@ -1154,7 +1226,7 @@ func TestPhase2_Collect_AllCategories(t *testing.T) {
 
 	c := New(pool, cfg, 170000, noopLog)
 
-	snap, err := c.collect(ctx)
+	snap, err := collectRetry(t, ctx, c, pool)
 	if err != nil {
 		t.Fatalf("collect all categories: %v", err)
 	}

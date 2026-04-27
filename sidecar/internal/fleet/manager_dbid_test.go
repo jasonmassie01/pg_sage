@@ -44,6 +44,59 @@ func TestGetInstanceByDatabaseID_NotFound(t *testing.T) {
 	}
 }
 
+func TestUpdateInstanceMetadata_RenamesAndUpdatesStatus(t *testing.T) {
+	mgr := NewManager(&config.Config{Mode: "fleet"})
+	mgr.RegisterInstance(&DatabaseInstance{
+		Name:       "old-name",
+		DatabaseID: 10,
+		Config: config.DatabaseConfig{
+			Name:     "old-name",
+			Host:     "127.0.0.1",
+			Port:     5432,
+			User:     "postgres",
+			Password: "secret",
+			Database: "old_db",
+		},
+		Status: &InstanceStatus{
+			TrustLevel:   "advisory",
+			DatabaseName: "old-name",
+		},
+	})
+
+	updatedCfg := config.DatabaseConfig{
+		Name:     "new-name",
+		Host:     "127.0.0.1",
+		Port:     5432,
+		User:     "postgres",
+		Password: "secret",
+		Database: "new_db",
+	}
+	ok := mgr.UpdateInstanceMetadata(
+		"old-name", "new-name", updatedCfg, 12, "observation")
+	if !ok {
+		t.Fatal("UpdateInstanceMetadata returned false")
+	}
+	if mgr.GetInstance("old-name") != nil {
+		t.Fatal("old instance key still exists")
+	}
+	inst := mgr.GetInstance("new-name")
+	if inst == nil {
+		t.Fatal("new instance key not registered")
+	}
+	if inst.DatabaseID != 12 {
+		t.Fatalf("DatabaseID = %d, want 12", inst.DatabaseID)
+	}
+	if inst.Config.Database != "new_db" {
+		t.Fatalf("Config.Database = %q, want new_db",
+			inst.Config.Database)
+	}
+	snap := inst.SnapshotStatus()
+	if snap.TrustLevel != "observation" ||
+		snap.DatabaseName != "new-name" {
+		t.Fatalf("status not updated: %+v", snap)
+	}
+}
+
 func TestGetInstanceByDatabaseID_EmptyManager(t *testing.T) {
 	mgr := NewManager(&config.Config{})
 

@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -27,22 +29,44 @@ func incidentsListHandler(
 		dbName := q.Get("database")
 		severity := q.Get("severity")
 		status := q.Get("status")
+		if err := validateDatabaseParam(dbName); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if rejectUnknownDatabase(w, mgr, dbName) {
+			return
+		}
 
-		pool := resolveIncidentPool(mgr, dbName)
-		if pool == nil {
+		pools := poolsForDatabaseSelection(mgr, dbName)
+		if len(pools) == 0 {
 			jsonResponse(w, map[string]any{
 				"incidents": []any{}, "total": 0,
 			})
 			return
 		}
 
-		incidents, err := queryIncidents(
-			r.Context(), pool, dbName, severity, status,
-		)
-		if err != nil {
-			slog.Error("query incidents failed", "error", err)
-			jsonError(w, "failed to query incidents", 500)
-			return
+		var incidents []map[string]any
+		for _, selected := range pools {
+			dbIncidents, err := queryIncidents(
+				r.Context(), selected.pool, "",
+				severity, status)
+			if err != nil {
+				slog.Error("query incidents failed",
+					"database", selected.name, "error", err)
+				jsonError(w, "failed to query incidents", 500)
+				return
+			}
+			for _, incident := range dbIncidents {
+				annotateIncidentFleetDatabase(incident, selected.name)
+				incidents = append(incidents, incident)
+			}
+		}
+		sortIncidentsByDetectedAt(incidents)
+		if len(incidents) > 100 {
+			incidents = incidents[:100]
+		}
+		if incidents == nil {
+			incidents = []map[string]any{}
 		}
 		jsonResponse(w, map[string]any{
 			"incidents": incidents, "total": len(incidents),
@@ -54,23 +78,42 @@ func incidentsActiveHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		dbName := r.URL.Query().Get("database")
-		pool := resolveIncidentPool(mgr, dbName)
-		if pool == nil {
+		dbName, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
+		if rejectUnknownDatabase(w, mgr, dbName) {
+			return
+		}
+		pools := poolsForDatabaseSelection(mgr, dbName)
+		if len(pools) == 0 {
 			jsonResponse(w, map[string]any{
 				"incidents": []any{}, "total": 0,
 			})
 			return
 		}
 
-		incidents, err := queryActiveIncidents(
-			r.Context(), pool, dbName,
-		)
-		if err != nil {
-			slog.Error("query active incidents failed",
-				"error", err)
-			jsonError(w, "failed to query incidents", 500)
-			return
+		var incidents []map[string]any
+		for _, selected := range pools {
+			dbIncidents, err := queryActiveIncidents(
+				r.Context(), selected.pool, "")
+			if err != nil {
+				slog.Error("query active incidents failed",
+					"database", selected.name, "error", err)
+				jsonError(w, "failed to query incidents", 500)
+				return
+			}
+			for _, incident := range dbIncidents {
+				annotateIncidentFleetDatabase(incident, selected.name)
+				incidents = append(incidents, incident)
+			}
+		}
+		sortIncidentsByDetectedAt(incidents)
+		if len(incidents) > 100 {
+			incidents = incidents[:100]
+		}
+		if incidents == nil {
+			incidents = []map[string]any{}
 		}
 		jsonResponse(w, map[string]any{
 			"incidents": incidents, "total": len(incidents),
@@ -88,14 +131,27 @@ func incidentDetailHandler(
 				http.StatusBadRequest)
 			return
 		}
-		for _, pool := range mgr.AllPools() {
-			incident, err := queryIncidentByID(
-				r.Context(), pool, id,
-			)
-			if err == nil {
-				jsonResponse(w, incident)
-				return
-			}
+		dbName, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
+		selected, ok := resolveIncidentTargetPool(mgr, dbName)
+		if !ok {
+			jsonError(w, "database is required",
+				http.StatusBadRequest)
+			return
+		}
+		if selected.pool == nil {
+			jsonError(w, "incident not found", http.StatusNotFound)
+			return
+		}
+		incident, err := queryIncidentByID(
+			r.Context(), selected.pool, id,
+		)
+		if err == nil {
+			annotateIncidentFleetDatabase(incident, selected.name)
+			jsonResponse(w, incident)
+			return
 		}
 		jsonError(w, "incident not found", http.StatusNotFound)
 	}
@@ -120,19 +176,34 @@ func incidentResolveHandler(
 			return
 		}
 
-		for _, pool := range mgr.AllPools() {
-			err := resolveIncident(
-				r.Context(), pool, id, body.Reason,
-			)
-			if err == nil {
-				jsonResponse(w, map[string]any{
-					"ok": true, "id": id,
-					"status": "resolved",
-				})
-				return
-			}
+		dbName, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
 		}
-		jsonError(w, "incident not found", http.StatusNotFound)
+		selected, ok := resolveIncidentTargetPool(mgr, dbName)
+		if !ok {
+			jsonError(w, "database is required",
+				http.StatusBadRequest)
+			return
+		}
+		if selected.pool == nil {
+			jsonError(w, "incident not found", http.StatusNotFound)
+			return
+		}
+
+		err := resolveIncident(
+			r.Context(), selected.pool, id, body.Reason,
+		)
+		if err != nil {
+			jsonError(w, "incident not found", http.StatusNotFound)
+			return
+		}
+		jsonResponse(w, map[string]any{
+			"ok":       true,
+			"id":       id,
+			"database": selected.name,
+			"status":   "resolved",
+		})
 	}
 }
 
@@ -156,7 +227,10 @@ func explainHandler(
 			return
 		}
 
-		dbName := r.URL.Query().Get("database")
+		dbName, ok := readDatabaseParam(w, r)
+		if !ok {
+			return
+		}
 		pool := mgr.PoolForDatabase(dbName)
 		if pool == nil {
 			pool = mgr.PoolForDatabase("all")
@@ -173,7 +247,12 @@ func explainHandler(
 		ex := explain.NewWithLLM(pool, &cfg.Explain, llmClient, logFn)
 		result, err := ex.Explain(r.Context(), req)
 		if err != nil {
-			jsonError(w, err.Error(), http.StatusBadRequest)
+			if errors.Is(err, explain.ErrExplainInvalidRequest) {
+				jsonError(w, err.Error(),
+					http.StatusBadRequest)
+				return
+			}
+			internalError(w, r, "explain query", err)
 			return
 		}
 		jsonResponse(w, result)
@@ -188,12 +267,19 @@ func growthForecastHandler(
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		database := q.Get("database")
+		if err := validateDatabaseParam(database); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if database == "" {
 			database = "all"
 		}
-		displayName := mgr.ResolveDatabaseName(database)
-		pool := mgr.PoolForDatabase(database)
-		if pool == nil {
+		if rejectUnknownDatabase(w, mgr, database) {
+			return
+		}
+		displayName := responseDatabaseName(database)
+		pools := poolsForDatabaseSelection(mgr, database)
+		if len(pools) == 0 {
 			jsonResponse(w, map[string]any{
 				"database":  displayName,
 				"forecasts": []any{},
@@ -205,15 +291,27 @@ func growthForecastHandler(
 			days = 365
 		}
 
-		forecasts, err := queryGrowthForecasts(
-			r.Context(), pool, days,
-		)
-		if err != nil {
-			slog.Error("query growth forecasts failed",
-				"error", err)
-			jsonError(w, "failed to query growth forecasts",
-				500)
-			return
+		var forecasts []map[string]any
+		for _, selected := range pools {
+			dbForecasts, err := queryGrowthForecasts(
+				r.Context(), selected.pool, days)
+			if err != nil {
+				slog.Error("query growth forecasts failed",
+					"database", selected.name, "error", err)
+				jsonError(w, "failed to query growth forecasts",
+					500)
+				return
+			}
+			for _, forecast := range dbForecasts {
+				forecast["fleet_database_name"] = selected.name
+				if forecast["database_name"] == "" {
+					forecast["database_name"] = selected.name
+				}
+				forecasts = append(forecasts, forecast)
+			}
+		}
+		if forecasts == nil {
+			forecasts = []map[string]any{}
 		}
 		jsonResponse(w, map[string]any{
 			"database":  displayName,
@@ -235,6 +333,29 @@ func resolveIncidentPool(
 		return nil
 	}
 	return mgr.PoolForDatabase("all")
+}
+
+func resolveIncidentTargetPool(
+	mgr *fleet.DatabaseManager, dbName string,
+) (namedPool, bool) {
+	return resolveSingleDatabaseRequestPool(mgr, dbName)
+}
+
+func sortIncidentsByDetectedAt(incidents []map[string]any) {
+	sort.SliceStable(incidents, func(i, j int) bool {
+		return timeFromMap(incidents[i], "detected_at").After(
+			timeFromMap(incidents[j], "detected_at"))
+	})
+}
+
+func annotateIncidentFleetDatabase(incident map[string]any, alias string) {
+	if incident == nil || alias == "" {
+		return
+	}
+	incident["fleet_database_name"] = alias
+	if fmt.Sprint(incident["database_name"]) == "" {
+		incident["database_name"] = alias
+	}
 }
 
 const incidentsBaseSQL = `SELECT id, detected_at,

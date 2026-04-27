@@ -16,28 +16,31 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/pg-sage/sidecar/internal/alerting"
 	"github.com/pg-sage/sidecar/internal/advisor"
-	"github.com/pg-sage/sidecar/internal/auth"
+	"github.com/pg-sage/sidecar/internal/alerting"
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/api"
+	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/autoexplain"
 	"github.com/pg-sage/sidecar/internal/briefing"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
-	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/forecaster"
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/logwatch"
+	"github.com/pg-sage/sidecar/internal/migration"
+	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/retention"
+	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/schema/lint"
+	"github.com/pg-sage/sidecar/internal/startup"
 	"github.com/pg-sage/sidecar/internal/store"
 	"github.com/pg-sage/sidecar/internal/tuner"
-	"github.com/pg-sage/sidecar/internal/schema"
-	"github.com/pg-sage/sidecar/internal/startup"
 )
 
 // Set by goreleaser ldflags at build time.
@@ -75,15 +78,15 @@ var (
 	// that YAML-configured ramp starts are not silently replaced by
 	// now() at first run. Zero value means YAML had no override.
 	configRampStart time.Time
-	shutdownFlag       bool
-	fleetMgr           *fleet.DatabaseManager
-	apiServer          *http.Server
-	globalMetaState    *metaDBState
+	shutdownFlag    bool
+	fleetMgr        *fleet.DatabaseManager
+	apiServer       *http.Server
+	globalMetaState *metaDBState
 )
 
 var (
-	shutdownCtx        context.Context
-	shutdownCancel     context.CancelFunc
+	shutdownCtx         context.Context
+	shutdownCancel      context.CancelFunc
 	rateLimiterInstance *RateLimiter
 )
 
@@ -103,6 +106,11 @@ func main() {
 	logInfo("startup", "pg_sage sidecar v%s — mode=%s", version, cfg.Mode)
 	logInfo("startup", "Prometheus=%s API=%s",
 		cfg.Prometheus.ListenAddr, cfg.API.ListenAddr)
+
+	// Initialise the trusted-proxy net list from config. Empty config
+	// falls back to loopback. Must run before any HTTP listener starts
+	// so rate-limiter IP extraction is correct from the first request.
+	setTrustedProxies(cfg.API.TrustedProxies)
 
 	// Meta-DB mode: connect to dedicated metadata database first.
 	var metaState *metaDBState
@@ -161,6 +169,12 @@ func main() {
 		logInfo("startup", "mode: EXTENSION — pg_sage C extension detected")
 	} else {
 		logInfo("startup", "mode: SIDECAR — no extension, using catalog queries")
+	}
+
+	configRampStart = parseConfigRampStart(cfg.Trust.RampStart)
+	if cfg.Trust.RampStart != "" && configRampStart.IsZero() {
+		logWarn("startup", "could not parse trust.ramp_start %q, using now()",
+			cfg.Trust.RampStart)
 	}
 
 	// Mode-specific initialization.
@@ -233,7 +247,49 @@ func main() {
 			logWarn("shutdown", "API server: %v", err)
 		}
 	}
+	// Stop the login rate-limiter's cleanup goroutine so it
+	// doesn't outlive the API server.
+	api.ShutdownLoginLimiter()
+
+	// Drain executors so any rollback monitors started via
+	// MonitorAndRollback finish cleanly (or time out) instead
+	// of leaking. The per-executor Shutdown waits on its
+	// internal WaitGroup, so we can run them in parallel.
+	shutdownExecutors(shutCtx)
+
 	logInfo("shutdown", "stopped")
+}
+
+// shutdownExecutors calls Shutdown on every registered executor
+// (standalone + each fleet instance) in parallel, bounded by the
+// supplied context.
+func shutdownExecutors(ctx context.Context) {
+	var execs []*executor.Executor
+	if exec != nil {
+		execs = append(execs, exec)
+	}
+	if fleetMgr != nil {
+		for _, inst := range fleetMgr.Instances() {
+			if inst.Executor != nil {
+				execs = append(execs, inst.Executor)
+			}
+		}
+	}
+	if len(execs) == 0 {
+		return
+	}
+	var wg sync.WaitGroup
+	for _, e := range execs {
+		wg.Add(1)
+		go func(ex *executor.Executor) {
+			defer wg.Done()
+			if err := ex.Shutdown(ctx); err != nil {
+				logWarn("shutdown",
+					"executor: %v", err)
+			}
+		}(e)
+	}
+	wg.Wait()
 }
 
 func initStandalone() {
@@ -466,8 +522,16 @@ func initStandalone() {
 			shutdownCtx, tunerCfg.RevalidationIntervalHours)
 	}
 
+	var fcIface analyzer.WorkloadForecaster
+	if fc != nil {
+		fcIface = fc
+	}
+	var qtIface analyzer.QueryTuner
+	if qt != nil {
+		qtIface = qt
+	}
 	anal = analyzer.New(
-		pool, cfg, coll, opt, advIface, fc, qt,
+		pool, cfg, coll, opt, advIface, fcIface, qtIface,
 		logStructuredWrapper,
 	)
 
@@ -580,6 +644,39 @@ func initStandalone() {
 			cfg.AutoExplain.CollectIntervalSeconds)
 	}
 
+	// 10d. Schema lint runner.
+	if cfg.SchemaLint.Enabled {
+		lintRunner := lint.NewRunner(
+			pool, &cfg.SchemaLint, cfg.PGVersionNum,
+			dbName, logStructuredWrapper,
+		)
+		if llmClient != nil && llmClient.IsEnabled() {
+			lintRunner.SetLLMClient(llmClient)
+		}
+		go lintRunner.Run(shutdownCtx)
+		logInfo("startup", "schema lint enabled, interval=%dm",
+			cfg.SchemaLint.ScanIntervalMinutes)
+	}
+
+	// 10e. Migration DDL safety advisor.
+	if cfg.Migration.Enabled {
+		var migLLM *llm.Client
+		if llmMgr != nil {
+			migLLM = llmMgr.General
+		}
+		migAdvisor := migration.NewAdvisor(
+			pool, &cfg.Migration, cfg.PGVersionNum,
+			dbName, logStructuredWrapper, migLLM,
+		)
+		migDetector := migration.NewDetector(
+			pool, migAdvisor, &cfg.Migration,
+			logStructuredWrapper,
+		)
+		go migDetector.Run(shutdownCtx)
+		logInfo("startup", "migration advisor enabled, poll=%ds",
+			cfg.Migration.PollIntervalSeconds)
+	}
+
 	// 11. Retention cleaner.
 	cleaner = retention.New(pool, cfg, logStructuredWrapper)
 
@@ -620,7 +717,7 @@ func standaloneOrchestrator() {
 				if bErr != nil {
 					logWarn("briefing", "generation failed: %v", bErr)
 				} else {
-					briefWorker.Dispatch(text)
+					briefWorker.Dispatch(ctx, text)
 					briefWorker.MarkRan()
 				}
 			}
@@ -633,6 +730,10 @@ func standaloneOrchestrator() {
 			// Update fleet status after each cycle.
 			if fleetMgr != nil {
 				updateFleetStatus(ctx)
+				// Persist the recomputed health so the
+				// Overview page's time-series stays
+				// populated between analyzer cycles.
+				fleetMgr.RecordHealthSnapshots(ctx)
 			}
 		}
 	}
@@ -758,6 +859,12 @@ func initFleetMultiDB() {
 		poolCfg.MinConns = 1
 		poolCfg.MaxConnLifetime = 30 * time.Minute
 		poolCfg.MaxConnIdleTime = 5 * time.Minute
+		// Tag every pool connection with a stable application_name so
+		// the analyzer/executor can recognize all sidecar backends.
+		if poolCfg.ConnConfig.RuntimeParams == nil {
+			poolCfg.ConnConfig.RuntimeParams = map[string]string{}
+		}
+		poolCfg.ConnConfig.RuntimeParams["application_name"] = "pg_sage"
 
 		dbPool, err := pgxpool.NewWithConfig(
 			context.Background(), poolCfg)
@@ -833,11 +940,17 @@ func initFleetMultiDB() {
 		}
 		logInfo("fleet", "db %q: PG version %d", name, dbPGVersion)
 
+		// Derive a per-instance context from shutdownCtx so that
+		// RemoveInstance can terminate this database's goroutines
+		// without affecting the rest of the fleet. EmergencyStop only
+		// blocks action execution; monitoring continues.
+		instCtx, instCancel := context.WithCancel(shutdownCtx)
+
 		// Per-database collector.
 		dbColl := collector.New(
 			dbPool, cfg, dbPGVersion,
 			logStructuredWrapper)
-		go dbColl.Run(shutdownCtx)
+		go dbColl.Run(instCtx)
 
 		// Per-database forecaster.
 		var fc *forecaster.Forecaster
@@ -858,6 +971,10 @@ func initFleetMultiDB() {
 			}
 			fc = forecaster.New(
 				dbPool, fcCfg, logStructuredWrapper)
+		}
+		var fcIface analyzer.WorkloadForecaster
+		if fc != nil {
+			fcIface = fc
 		}
 
 		// Per-database optimizer.
@@ -948,7 +1065,11 @@ func initFleetMultiDB() {
 				logStructuredWrapper, tunerOpts...)
 			// Per-database hint revalidation loop.
 			go dbTuner.StartRevalidationLoop(
-				shutdownCtx, tunerCfg.RevalidationIntervalHours)
+				instCtx, tunerCfg.RevalidationIntervalHours)
+		}
+		var dbTunerIface analyzer.QueryTuner
+		if dbTuner != nil {
+			dbTunerIface = dbTuner
 		}
 
 		// Per-database autoexplain collector.
@@ -973,7 +1094,7 @@ func initFleetMultiDB() {
 				dbPool, aeCfg, aeAvail,
 				logStructuredWrapper,
 			)
-			go aec.Run(shutdownCtx)
+			go aec.Run(instCtx)
 		}
 
 		// Per-database briefing worker.
@@ -986,7 +1107,8 @@ func initFleetMultiDB() {
 		}
 
 		dbAnal := analyzer.New(
-			dbPool, cfg, dbColl, dbOpt, dbAdvIface, fc, dbTuner,
+			dbPool, cfg, dbColl, dbOpt, dbAdvIface, fcIface,
+			dbTunerIface,
 			logStructuredWrapper)
 
 		// v0.9: per-database RCA engine.
@@ -1014,7 +1136,7 @@ func initFleetMultiDB() {
 			dbAnal.WithRCAEngine(&rcaAdapter{e: dbRCAEng})
 		}
 
-		go dbAnal.Run(shutdownCtx)
+		go dbAnal.Run(instCtx)
 
 		// Per-database executor. Pass the YAML-parsed configRampStart
 		// so the first-time bootstrap of each database's sage.config
@@ -1027,7 +1149,12 @@ func initFleetMultiDB() {
 			logStructuredWrapper)
 		dbExec.WithAnalyzeSemaphore(analyzeSem)
 		dbActionStore := store.NewActionStore(dbPool)
-		dbExec.WithActionStore(dbActionStore, "auto")
+		execMode := resolveStaticFleetExecMode(dbCfg)
+		logInfo("fleet",
+			"db %q: execution_mode=%s (database=%q default=%q)",
+			name, execMode, dbCfg.ExecutionMode,
+			cfg.Defaults.ExecutionMode)
+		dbExec.WithActionStore(dbActionStore, execMode)
 
 		// Wire action store into per-database RCA engine.
 		if dbRCAEng != nil {
@@ -1043,7 +1170,38 @@ func initFleetMultiDB() {
 		dbAnal.WithDatabaseName(name)
 
 		go store.StartActionExpiry(
-			shutdownCtx, dbActionStore, logStructuredWrapper)
+			instCtx, dbActionStore, logStructuredWrapper)
+
+		// Per-database schema lint runner.
+		if cfg.SchemaLint.Enabled {
+			dbLint := lint.NewRunner(
+				dbPool, &cfg.SchemaLint,
+				cfg.PGVersionNum, name,
+				logStructuredWrapper,
+			)
+			if llmClient != nil && llmClient.IsEnabled() {
+				dbLint.SetLLMClient(llmClient)
+			}
+			go dbLint.Run(instCtx)
+		}
+
+		// Per-database migration DDL safety advisor.
+		if cfg.Migration.Enabled {
+			var dbMigLLM *llm.Client
+			if llmMgr != nil {
+				dbMigLLM = llmMgr.General
+			}
+			dbAdvisor := migration.NewAdvisor(
+				dbPool, &cfg.Migration,
+				cfg.PGVersionNum, name,
+				logStructuredWrapper, dbMigLLM,
+			)
+			dbDetector := migration.NewDetector(
+				dbPool, dbAdvisor, &cfg.Migration,
+				logStructuredWrapper,
+			)
+			go dbDetector.Run(instCtx)
+		}
 
 		inst := &fleet.DatabaseInstance{
 			Name:      name,
@@ -1052,6 +1210,7 @@ func initFleetMultiDB() {
 			Collector: dbColl,
 			Analyzer:  dbAnal,
 			Executor:  dbExec,
+			Cancel:    instCancel,
 			Status: &fleet.InstanceStatus{
 				Connected:    true,
 				TrustLevel:   dbCfg.TrustLevel,
@@ -1062,11 +1221,11 @@ func initFleetMultiDB() {
 		fleetMgr.RegisterInstance(inst)
 		// Populate findings immediately so API doesn't show zeros
 		// during the first ticker interval.
-		updateInstanceFindings(shutdownCtx, inst)
+		updateInstanceFindings(instCtx, inst)
 
 		// Per-database orchestrator.
 		go fleetDBOrchestrator(
-			name, dbPool, dbExec, dbBrief, dbCfg)
+			instCtx, name, dbPool, dbExec, dbBrief, dbCfg)
 
 		features := "collector+analyzer+executor"
 		if dbOpt != nil {
@@ -1235,9 +1394,12 @@ func upsertFleetDatabase(
 	return id, err
 }
 
-// fleetDBOrchestrator runs executor, briefing, and retention
-// cycles for a single fleet database.
+// fleetDBOrchestrator runs executor, briefing, and retention cycles for a
+// single fleet database. The ctx is the per-instance context so that
+// RemoveInstance can terminate this orchestrator without shutting down the
+// fleet. EmergencyStop only blocks action execution; monitoring continues.
 func fleetDBOrchestrator(
+	ctx context.Context,
 	name string,
 	dbPool *pgxpool.Pool,
 	dbExec *executor.Executor,
@@ -1255,26 +1417,26 @@ func fleetDBOrchestrator(
 				return
 			}
 			if dbExec != nil {
-				dbExec.RunCycle(shutdownCtx, false)
+				dbExec.RunCycle(ctx, false)
 			}
 			// Briefing (scheduled).
 			if dbBrief != nil &&
 				dbBrief.ShouldRun(time.Now()) {
-				text, bErr := dbBrief.Generate(shutdownCtx)
+				text, bErr := dbBrief.Generate(ctx)
 				if bErr != nil {
 					logWarn("briefing",
 						"[%s] generation failed: %v",
 						name, bErr)
 				} else {
-					dbBrief.Dispatch(text)
+					dbBrief.Dispatch(ctx, text)
 					dbBrief.MarkRan()
 				}
 			}
 			// Update fleet status for this instance.
 			if inst := fleetMgr.GetInstance(name); inst != nil {
-				updateInstanceFindings(shutdownCtx, inst)
+				updateInstanceFindings(ctx, inst)
 			}
-		case <-shutdownCtx.Done():
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -1419,9 +1581,22 @@ func buildDBConfig(name string) config.DatabaseConfig {
 func resolveExecutionMode() string {
 	if len(cfg.Databases) > 0 {
 		// Use first database's config if available.
-		return "auto"
+		return resolveStaticFleetExecMode(cfg.Databases[0])
 	}
 	return "auto"
+}
+
+func resolveStaticFleetExecMode(dbCfg config.DatabaseConfig) string {
+	mode := dbCfg.ExecutionMode
+	if mode == "" {
+		mode = cfg.Defaults.ExecutionMode
+	}
+	switch mode {
+	case "auto", "approval", "manual":
+		return mode
+	default:
+		return "auto"
+	}
 }
 
 func pgVersionString(num int) string {
@@ -1439,12 +1614,17 @@ func startAPIServer(rl *RateLimiter) {
 		addr = ":8080"
 	}
 
+	// Wire the process shutdown context into router-owned
+	// goroutines (OAuth CSRF state cleaner) so they exit on
+	// SIGINT/SIGTERM instead of leaking.
+	api.SetShutdownContext(shutdownCtx)
+
 	result := wireRouter(WireParams{
-		Cfg:         cfg,
-		Pool:        pool,
-		FleetMgr:    fleetMgr,
-		LLMMgr:      llmMgr,
-		MetaState:   globalMetaState,
+		Cfg:       cfg,
+		Pool:      pool,
+		FleetMgr:  fleetMgr,
+		LLMMgr:    llmMgr,
+		MetaState: globalMetaState,
 		Actions: struct {
 			Store    *store.ActionStore
 			Executor *executor.Executor
@@ -1519,14 +1699,16 @@ func updateInstanceFindings(
 			info = cnt
 		}
 	}
-	inst.Status.FindingsOpen = open
-	inst.Status.FindingsCritical = critical
-	inst.Status.FindingsWarning = warning
-	inst.Status.FindingsInfo = info
-	inst.Status.AnalyzerLastRun = time.Now()
-	inst.Status.LastSeen = time.Now()
+	now := time.Now()
+	inst.UpdateStatus(func(s *fleet.InstanceStatus) {
+		s.FindingsOpen = open
+		s.FindingsCritical = critical
+		s.FindingsWarning = warning
+		s.FindingsInfo = info
+		s.AnalyzerLastRun = now
+		s.LastSeen = now
+	})
 }
-
 
 // --- Prometheus ---
 
@@ -1804,7 +1986,6 @@ func writeDatabaseMetrics(b *strings.Builder, ctx context.Context) {
 	}
 }
 
-
 // --- Rate limiter ---
 
 type RateLimiter struct {
@@ -1888,9 +2069,82 @@ func rateLimitMiddleware(rl *RateLimiter, next http.Handler) http.Handler {
 	})
 }
 
-var trustedProxies = map[string]bool{
-	"127.0.0.1": true,
-	"::1":       true,
+// defaultTrustedProxies is used when cfg.API.TrustedProxies is empty:
+// X-Forwarded-For is only honoured from loopback.
+var defaultTrustedProxies = []string{"127.0.0.1", "::1"}
+
+// trustedProxyNets caches the parsed *net.IPNet list derived from
+// cfg.API.TrustedProxies. Rebuilt whenever cfg is reloaded. Guarded by
+// the config hot-reload lock at build time.
+var (
+	trustedProxyNets   []*net.IPNet
+	trustedProxyNetsMu sync.RWMutex
+)
+
+// buildTrustedProxyNets parses the configured trusted-proxies list
+// (plain IPs or CIDR blocks) into []*net.IPNet for O(1) matching.
+// Unparseable entries are logged and skipped. Called once during
+// bootstrap and from the config hot-reload path.
+func buildTrustedProxyNets(entries []string) []*net.IPNet {
+	if len(entries) == 0 {
+		entries = defaultTrustedProxies
+	}
+	var nets []*net.IPNet
+	for _, e := range entries {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		if !strings.Contains(e, "/") {
+			// Plain IP → /32 or /128.
+			ip := net.ParseIP(e)
+			if ip == nil {
+				logWarn("config",
+					"trusted_proxies: ignoring invalid IP %q", e)
+				continue
+			}
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			e = fmt.Sprintf("%s/%d", ip.String(), bits)
+		}
+		_, n, err := net.ParseCIDR(e)
+		if err != nil {
+			logWarn("config",
+				"trusted_proxies: ignoring invalid CIDR %q: %v",
+				e, err)
+			continue
+		}
+		nets = append(nets, n)
+	}
+	return nets
+}
+
+// setTrustedProxies publishes a freshly parsed list. Safe for
+// concurrent reads from clientIP.
+func setTrustedProxies(entries []string) {
+	nets := buildTrustedProxyNets(entries)
+	trustedProxyNetsMu.Lock()
+	trustedProxyNets = nets
+	trustedProxyNetsMu.Unlock()
+}
+
+// isTrustedProxy reports whether host (an IP literal) is in the
+// configured trusted-proxies list.
+func isTrustedProxy(host string) bool {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	trustedProxyNetsMu.RLock()
+	defer trustedProxyNetsMu.RUnlock()
+	for _, n := range trustedProxyNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func clientIP(r *http.Request) string {
@@ -1899,8 +2153,10 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 
-	// Only trust X-Forwarded-For from known proxies
-	if trustedProxies[host] {
+	// Only trust X-Forwarded-For when the immediate peer is in the
+	// configured trusted-proxies list. Spoofed XFF from a direct
+	// attacker is ignored, preserving per-IP rate limits.
+	if isTrustedProxy(host) {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			if i := strings.IndexByte(xff, ','); i > 0 {
 				return strings.TrimSpace(xff[:i])
@@ -1911,7 +2167,6 @@ func clientIP(r *http.Request) string {
 
 	return host
 }
-
 
 // --- Detection ---
 
@@ -1993,7 +2248,6 @@ func poolHealthCheck() {
 		}
 	}
 }
-
 
 // bootstrapAdminIfEmpty creates the first admin user when no users
 // exist. Prints credentials to stdout so the operator can log in.

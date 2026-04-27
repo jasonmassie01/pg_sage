@@ -259,13 +259,23 @@ func TestExplain_ParamPlaceholder(t *testing.T) {
 	cleanExplainResults(t, pool, ctx)
 
 	ex := New(pool, testExplainConfig(), noopLog)
-	// PostgreSQL cannot EXPLAIN a query with unbound $N placeholders,
-	// even in plan-only mode. Expect an error.
-	_, err := ex.Explain(ctx, ExplainRequest{
+	// The Explainer handles $N placeholders via runExplainParameterized:
+	// PREPARE ... AS <query>; EXPLAIN (FORMAT JSON) EXECUTE ...(NULL, ...).
+	// Confirm the path succeeds and returns a usable plan rather than an error.
+	result, err := ex.Explain(ctx, ExplainRequest{
 		Query: "SELECT $1::int",
 	})
-	if err == nil {
-		t.Fatal("expected error for parameterized query, got nil")
+	if err != nil {
+		t.Fatalf("parameterized query: unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result for parameterized query")
+	}
+	if len(result.PlanJSON) == 0 {
+		t.Error("expected non-empty PlanJSON for parameterized query")
+	}
+	if result.EstimatedCost < 0 {
+		t.Errorf("EstimatedCost = %.2f, want non-negative", result.EstimatedCost)
 	}
 }
 
@@ -303,7 +313,7 @@ func TestExplain_InvalidSQL(t *testing.T) {
 	}
 }
 
-func TestExplain_QueryIDNotImplemented(t *testing.T) {
+func TestExplain_QueryIDNotImplemented_LivePool(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	ex := New(pool, testExplainConfig(), noopLog)

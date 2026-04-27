@@ -1,9 +1,12 @@
 package fleet
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
@@ -179,6 +182,62 @@ func TestManager_EmergencyStop_AlreadyStopped(t *testing.T) {
 	}
 }
 
+func TestManager_EmergencyStopStrict_UnknownDatabase(t *testing.T) {
+	mgr := newTestManager("a")
+	stopped, err := mgr.EmergencyStopStrict("missing")
+	if !errors.Is(err, ErrDatabaseNotFound) {
+		t.Fatalf("error = %v, want ErrDatabaseNotFound", err)
+	}
+	if stopped != 0 {
+		t.Fatalf("stopped = %d, want 0", stopped)
+	}
+	if mgr.GetInstance("a").Stopped {
+		t.Fatal("known database was stopped after unknown target")
+	}
+}
+
+func TestManager_EmergencyStopStrict_PersistenceError(t *testing.T) {
+	pool, err := pgxpool.New(context.Background(),
+		"postgres://user:pass@localhost/db")
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	pool.Close()
+
+	mgr := NewManager(&config.Config{Mode: "fleet"})
+	mgr.RegisterInstance(&DatabaseInstance{
+		Name:   "a",
+		Pool:   pool,
+		Config: config.DatabaseConfig{Name: "a"},
+		Status: &InstanceStatus{Connected: true},
+	})
+
+	stopped, err := mgr.EmergencyStopStrict("a")
+	if err == nil {
+		t.Fatal("expected persistence error")
+	}
+	if stopped != 0 {
+		t.Fatalf("stopped = %d, want 0", stopped)
+	}
+	if mgr.GetInstance("a").Stopped {
+		t.Fatal("instance marked stopped despite persistence failure")
+	}
+}
+
+func TestManager_EmergencyStop_DoesNotCancelMonitoring(t *testing.T) {
+	mgr := newTestManager("a")
+	cancelled := false
+	mgr.GetInstance("a").Cancel = func() { cancelled = true }
+
+	stopped := mgr.EmergencyStop("a")
+	if stopped != 1 {
+		t.Fatalf("stopped: got %d, want 1", stopped)
+	}
+	if cancelled {
+		t.Fatal("EmergencyStop must not cancel monitoring goroutines")
+	}
+}
+
 func TestManager_Resume(t *testing.T) {
 	mgr := newTestManager("a", "b")
 	mgr.EmergencyStop("")
@@ -199,6 +258,14 @@ func TestManager_Resume_NotStopped(t *testing.T) {
 	resumed := mgr.Resume("a")
 	if resumed != 0 {
 		t.Errorf("expected 0, got %d", resumed)
+	}
+}
+
+func TestManager_ResumeStrict_UnknownDatabase(t *testing.T) {
+	mgr := newTestManager("a")
+	_, err := mgr.ResumeStrict("missing")
+	if !errors.Is(err, ErrDatabaseNotFound) {
+		t.Fatalf("error = %v, want ErrDatabaseNotFound", err)
 	}
 }
 

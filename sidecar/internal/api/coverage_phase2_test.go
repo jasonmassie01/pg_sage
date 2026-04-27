@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime/multipart"
 	"net/http"
@@ -34,7 +35,8 @@ var (
 	p2LockPool *pgxpool.Pool // MaxConns=1 side pool holding the advisory lock
 	p2PoolOnce sync.Once
 	p2PoolErr  error
-	p2Key      = crypto.DeriveKey("phase2-test-key")
+	p2Key      = crypto.DeriveKey("phase2-test-key",
+		[]byte("p2-test-salt--16"))
 )
 
 func phase2DSN() string {
@@ -224,7 +226,6 @@ func phase2EnsureUser(
 func TestPhase2_QueryFindings_EmptyTable(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)
-
 	f := fleet.FindingFilters{
 		Status: "open",
 		Limit:  10,
@@ -569,7 +570,7 @@ func TestPhase2_QueryActions_EmptyTable(t *testing.T) {
 	phase2CleanTables(t, pool, ctx)
 
 	actions, total, err := queryActions(
-		ctx, pool, 50, 0)
+		ctx, pool, 50, 0, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("queryActions: %v", err)
 	}
@@ -601,7 +602,7 @@ func TestPhase2_QueryActions_WithData(t *testing.T) {
 	}
 
 	actions, total, err := queryActions(
-		ctx, pool, 50, 0)
+		ctx, pool, 50, 0, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("queryActions: %v", err)
 	}
@@ -641,7 +642,7 @@ func TestPhase2_QueryActions_Pagination(t *testing.T) {
 	}
 
 	actions, total, err := queryActions(
-		ctx, pool, 2, 1)
+		ctx, pool, 2, 1, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("queryActions: %v", err)
 	}
@@ -746,7 +747,7 @@ func TestPhase2_QuerySnapshotHistory_Empty(t *testing.T) {
 	phase2CleanTables(t, pool, ctx)
 
 	points, err := querySnapshotHistory(
-		ctx, pool, "tps", 24)
+		ctx, pool, "tps", 24, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("querySnapshotHistory: %v", err)
 	}
@@ -771,7 +772,7 @@ func TestPhase2_QuerySnapshotHistory_WithData(t *testing.T) {
 	}
 
 	points, err := querySnapshotHistory(
-		ctx, pool, "tps", 24)
+		ctx, pool, "tps", 24, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("querySnapshotHistory: %v", err)
 	}
@@ -803,7 +804,7 @@ func TestPhase2_QuerySnapshotHistory_HoursFilter(
 	}
 
 	points, err := querySnapshotHistory(
-		ctx, pool, "tps", 2)
+		ctx, pool, "tps", 2, time.Time{}, time.Time{})
 	if err != nil {
 		t.Fatalf("querySnapshotHistory: %v", err)
 	}
@@ -902,16 +903,26 @@ func TestPhase2_QueryQueryHints_WithData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("queryQueryHints: %v", err)
 	}
-	// Only active hints returned.
-	if len(hints) != 1 {
-		t.Errorf("hints: got %d, want 1", len(hints))
+	if len(hints) != 2 {
+		t.Errorf("hints: got %d, want 2", len(hints))
 	}
-	if hints[0]["queryid"] != int64(12345) {
-		t.Errorf("queryid: got %v", hints[0]["queryid"])
+	seen := map[int64]bool{}
+	for _, hint := range hints {
+		seen[hint["queryid"].(int64)] = true
 	}
-	if hints[0]["hint_text"] != "Use index scan" {
+	if !seen[12345] || !seen[67890] {
+		t.Errorf("query ids missing from hints: %v", seen)
+	}
+	activeHints, err := queryQueryHints(ctx, pool, "active")
+	if err != nil {
+		t.Fatalf("query active hints: %v", err)
+	}
+	if len(activeHints) != 1 {
+		t.Errorf("active hints: got %d, want 1", len(activeHints))
+	}
+	if activeHints[0]["hint_text"] != "Use index scan" {
 		t.Errorf("hint_text: got %v",
-			hints[0]["hint_text"])
+			activeHints[0]["hint_text"])
 	}
 }
 
@@ -1351,7 +1362,9 @@ func TestPhase2_QueryHintsHandler_RealDB(t *testing.T) {
 	_, err := pool.Exec(ctx,
 		`INSERT INTO sage.query_hints
 		 (queryid, hint_text, symptom, status)
-		 VALUES (111, 'Use idx', 'seq_scan', 'active')`)
+		 VALUES
+		 (111, 'Use idx', 'seq_scan', 'active'),
+		 (112, 'Old idx', 'seq_scan', 'retired')`)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -1371,8 +1384,21 @@ func TestPhase2_QueryHintsHandler_RealDB(t *testing.T) {
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	hints := resp["hints"].([]any)
+	if len(hints) != 2 {
+		t.Errorf("hints: got %d, want 2", len(hints))
+	}
+
+	req = httptest.NewRequest("GET",
+		"/api/v1/query-hints?database=testdb&status=active", nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("active status: %d", w.Code)
+	}
+	json.NewDecoder(w.Body).Decode(&resp)
+	hints = resp["hints"].([]any)
 	if len(hints) != 1 {
-		t.Errorf("hints: got %d, want 1", len(hints))
+		t.Errorf("active hints: got %d, want 1", len(hints))
 	}
 }
 
@@ -1497,6 +1523,74 @@ func TestPhase2_ApplyConfigOverrides_MultipleKeys(
 	if cfg.Collector.BatchSize != 500 {
 		t.Errorf("batch_size: got %d, want 500",
 			cfg.Collector.BatchSize)
+	}
+}
+
+func TestPhase2_ApplyConfigOverrides_MultiKeyValidationAtomic(
+	t *testing.T,
+) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	userID := phase2EnsureUser(t, pool, ctx)
+
+	cs := store.NewConfigStore(pool)
+	cfg := &config.Config{
+		Collector: config.CollectorConfig{IntervalSeconds: 60},
+	}
+
+	body := map[string]any{
+		"collector.interval_seconds": "30",
+		"collector.batch_size":       "0",
+	}
+	errs := applyConfigOverrides(
+		ctx, cs, cfg, body, 0, userID)
+	if len(errs) == 0 {
+		t.Fatal("expected validation error")
+	}
+	if cfg.Collector.IntervalSeconds != 60 {
+		t.Errorf("interval hot-reloaded despite batch error: got %d",
+			cfg.Collector.IntervalSeconds)
+	}
+	var count int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM sage.config`).Scan(&count); err != nil {
+		t.Fatalf("count config rows: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("config rows written despite validation error: %d",
+			count)
+	}
+}
+
+func TestPhase2_ApplyConfigOverrides_SkipsMaskedLLMKey(
+	t *testing.T,
+) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	userID := phase2EnsureUser(t, pool, ctx)
+
+	cs := store.NewConfigStore(pool)
+	cfg := &config.Config{
+		LLM: config.LLMConfig{APIKey: "real-secret-1234"},
+	}
+	body := map[string]any{
+		"llm.api_key": "************1234",
+	}
+	errs := applyConfigOverrides(
+		ctx, cs, cfg, body, 0, userID)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if cfg.LLM.APIKey != "real-secret-1234" {
+		t.Fatalf("api key was overwritten: %q", cfg.LLM.APIKey)
+	}
+	var count int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM sage.config`).Scan(&count); err != nil {
+		t.Fatalf("count config rows: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("masked api key persisted rows: %d", count)
 	}
 }
 
@@ -2011,6 +2105,85 @@ func TestPhase2_ConfigDBGetHandler_ZeroID(t *testing.T) {
 	}
 }
 
+func TestPhase2_ConfigDBGetHandler_NotFound(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	cs := store.NewConfigStore(pool)
+	cfg := &config.Config{}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"GET /api/v1/config/databases/{id}",
+		configDBGetHandler(cs, cfg, pool))
+
+	req := httptest.NewRequest("GET",
+		"/api/v1/config/databases/99999", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404; body: %s",
+			w.Code, w.Body.String())
+	}
+}
+
+func TestPhase2_ConfigDBDeleteHandler_RemovesDBOverride(
+	t *testing.T,
+) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	userID := phase2EnsureUser(t, pool, ctx)
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO sage.databases
+		 (id, name, host, port, database_name, username,
+		  password_enc, sslmode, execution_mode)
+		 VALUES (1, 'test', 'localhost', 5432, 'testdb',
+		  'user', '\x00', 'disable', 'manual')`)
+	if err != nil {
+		t.Fatalf("insert db: %v", err)
+	}
+
+	cs := store.NewConfigStore(pool)
+	cfg := &config.Config{
+		Collector: config.CollectorConfig{IntervalSeconds: 60},
+	}
+	if err := cs.SetOverride(
+		ctx, "collector.interval_seconds", "15", 1, userID,
+	); err != nil {
+		t.Fatalf("set override: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"DELETE /api/v1/config/databases/{id}/{key}",
+		configDBDeleteHandler(cs, nil, nil))
+
+	req := httptest.NewRequest("DELETE",
+		"/api/v1/config/databases/1/collector.interval_seconds",
+		nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body: %s",
+			w.Code, w.Body.String())
+	}
+
+	merged, err := cs.GetMergedConfig(ctx, cfg, 1)
+	if err != nil {
+		t.Fatalf("merged: %v", err)
+	}
+	entry := merged["collector.interval_seconds"].(map[string]any)
+	if entry["value"] != 60 {
+		t.Fatalf("value = %v, want 60", entry["value"])
+	}
+	if entry["source"] == "db_override" {
+		t.Fatal("source should no longer be db_override")
+	}
+}
+
 // ================================================================
 // loginHandler with real DB
 // ================================================================
@@ -2308,6 +2481,186 @@ func TestPhase2_UpdateUserRoleHandler_RealDB(t *testing.T) {
 	}
 }
 
+func TestPhase2_UpdateUserRoleHandler_BlocksSelfDemotion(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	adminID, err := auth.CreateUser(
+		ctx, pool, "self-admin@test.com", "password", "admin")
+	if err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+	if _, err := auth.CreateUser(
+		ctx, pool, "other-admin@test.com", "password", "admin"); err != nil {
+		t.Fatalf("create other admin: %v", err)
+	}
+
+	handler := updateUserRoleHandler(pool)
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"PUT /api/v1/users/{id}/role", handler)
+
+	req := httptest.NewRequest("PUT",
+		fmt.Sprintf("/api/v1/users/%d/role", adminID),
+		strings.NewReader(`{"role":"viewer"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req = withUser(req, &auth.User{
+		ID:    adminID,
+		Email: "self-admin@test.com",
+		Role:  auth.RoleAdmin,
+	})
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status: got %d, want 403; body: %s",
+			w.Code, w.Body.String())
+	}
+}
+
+func TestPhase2_UpdateUserRoleHandler_BlocksLastAdminDemotion(
+	t *testing.T,
+) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	adminID, err := auth.CreateUser(
+		ctx, pool, "last-admin@test.com", "password", "admin")
+	if err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+
+	handler := updateUserRoleHandler(pool)
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"PUT /api/v1/users/{id}/role", handler)
+
+	req := httptest.NewRequest("PUT",
+		fmt.Sprintf("/api/v1/users/%d/role", adminID),
+		strings.NewReader(`{"role":"viewer"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req = withUser(req, &auth.User{
+		ID:    9999,
+		Email: "caller-admin@test.com",
+		Role:  auth.RoleAdmin,
+	})
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status: got %d, want 403; body: %s",
+			w.Code, w.Body.String())
+	}
+}
+
+func TestPhase2_UpdateUserRolePreservingAdmin_ConcurrentDemotions(
+	t *testing.T,
+) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	adminA, err := auth.CreateUser(
+		ctx, pool, "race-admin-a@test.com", "password", "admin")
+	if err != nil {
+		t.Fatalf("create admin A: %v", err)
+	}
+	adminB, err := auth.CreateUser(
+		ctx, pool, "race-admin-b@test.com", "password", "admin")
+	if err != nil {
+		t.Fatalf("create admin B: %v", err)
+	}
+
+	start := make(chan struct{})
+	errCh := make(chan error, 2)
+	for _, id := range []int{adminA, adminB} {
+		go func(userID int) {
+			<-start
+			errCh <- auth.UpdateUserRolePreservingAdmin(
+				context.Background(), pool, userID, auth.RoleViewer)
+		}(id)
+	}
+	close(start)
+
+	errs := []error{<-errCh, <-errCh}
+	successes := 0
+	lastAdminBlocks := 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, auth.ErrLastAdmin):
+			lastAdminBlocks++
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if successes != 1 || lastAdminBlocks != 1 {
+		t.Fatalf("successes=%d lastAdminBlocks=%d, want 1/1",
+			successes, lastAdminBlocks)
+	}
+	count, err := auth.CountAdmins(ctx, pool)
+	if err != nil {
+		t.Fatalf("count admins: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("admin count = %d, want 1", count)
+	}
+}
+
+func TestPhase2_DeleteUserPreservingAdmin_ConcurrentDeletes(
+	t *testing.T,
+) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	adminA, err := auth.CreateUser(
+		ctx, pool, "delete-admin-a@test.com", "password", "admin")
+	if err != nil {
+		t.Fatalf("create admin A: %v", err)
+	}
+	adminB, err := auth.CreateUser(
+		ctx, pool, "delete-admin-b@test.com", "password", "admin")
+	if err != nil {
+		t.Fatalf("create admin B: %v", err)
+	}
+
+	start := make(chan struct{})
+	errCh := make(chan error, 2)
+	for _, id := range []int{adminA, adminB} {
+		go func(userID int) {
+			<-start
+			errCh <- auth.DeleteUserPreservingAdmin(
+				context.Background(), pool, userID)
+		}(id)
+	}
+	close(start)
+
+	errs := []error{<-errCh, <-errCh}
+	successes := 0
+	lastAdminBlocks := 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, auth.ErrLastAdmin):
+			lastAdminBlocks++
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if successes != 1 || lastAdminBlocks != 1 {
+		t.Fatalf("successes=%d lastAdminBlocks=%d, want 1/1",
+			successes, lastAdminBlocks)
+	}
+	count, err := auth.CountAdmins(ctx, pool)
+	if err != nil {
+		t.Fatalf("count admins: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("admin count = %d, want 1", count)
+	}
+}
+
 // ================================================================
 // Notification handlers with real DB
 // ================================================================
@@ -2342,6 +2695,80 @@ func TestPhase2_ListChannelsHandler_RealDB(t *testing.T) {
 	if len(channels) != 1 {
 		t.Errorf("channels: got %d, want 1",
 			len(channels))
+	}
+}
+
+func TestPhase2_UpdateChannelHandler_MaskedSecretReplayPreservesSecret(
+	t *testing.T,
+) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	logFn := func(_, _ string, _ ...any) {}
+	d := notify.NewDispatcher(pool, logFn)
+	ns := store.NewNotificationStore(pool, d)
+
+	originalURL := "https://hooks.slack.com/services/REAL/SECRET/TOKEN"
+	id, err := ns.CreateChannel(ctx, "masked-slack", "slack",
+		map[string]string{"webhook_url": originalURL}, 0)
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+
+	listHandler := listChannelsHandler(ns)
+	listReq := httptest.NewRequest("GET",
+		"/api/v1/notifications/channels", nil)
+	listW := httptest.NewRecorder()
+	listHandler.ServeHTTP(listW, listReq)
+	if listW.Code != 200 {
+		t.Fatalf("list status: %d, body: %s",
+			listW.Code, listW.Body.String())
+	}
+
+	var listResp struct {
+		Channels []notify.Channel `json:"channels"`
+	}
+	if err := json.NewDecoder(listW.Body).Decode(&listResp); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(listResp.Channels) != 1 {
+		t.Fatalf("channels: got %d, want 1",
+			len(listResp.Channels))
+	}
+	maskedURL := listResp.Channels[0].Config["webhook_url"]
+	if maskedURL == originalURL || !strings.Contains(maskedURL, "****") {
+		t.Fatalf("masked webhook_url = %q", maskedURL)
+	}
+
+	updateHandler := updateChannelHandler(ns)
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"PUT /api/v1/notifications/channels/{id}",
+		updateHandler)
+	body := fmt.Sprintf(
+		`{"name":"masked-slack","config":{"webhook_url":%q},"enabled":false}`,
+		maskedURL)
+	updateReq := httptest.NewRequest("PUT",
+		fmt.Sprintf("/api/v1/notifications/channels/%d", id),
+		strings.NewReader(body))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateW := httptest.NewRecorder()
+	mux.ServeHTTP(updateW, updateReq)
+	if updateW.Code != 200 {
+		t.Fatalf("update status: %d, body: %s",
+			updateW.Code, updateW.Body.String())
+	}
+
+	ch, err := ns.GetChannel(ctx, id)
+	if err != nil {
+		t.Fatalf("get channel: %v", err)
+	}
+	if ch.Config["webhook_url"] != originalURL {
+		t.Fatalf("webhook_url = %q, want original secret",
+			ch.Config["webhook_url"])
+	}
+	if ch.Enabled {
+		t.Fatal("enabled = true, want false")
 	}
 }
 
@@ -2526,6 +2953,93 @@ func TestPhase2_CreateManagedDBHandler_InvalidJSON(
 	}
 }
 
+func TestPhase2_UpdateManagedDBHandler_CallsOnUpdate(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	ds := store.NewDatabaseStore(pool, p2Key)
+	id, err := ds.Create(ctx, store.DatabaseInput{
+		Name:           "old-runtime-db",
+		Host:           "localhost",
+		Port:           5432,
+		DatabaseName:   "testdb",
+		Username:       "user",
+		Password:       "pass",
+		SSLMode:        "disable",
+		MaxConnections: 25,
+		TrustLevel:     "observation",
+		ExecutionMode:  "manual",
+	}, 0)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	type updateCall struct {
+		oldRec store.DatabaseRecord
+		newRec store.DatabaseRecord
+	}
+	calls := make(chan updateCall, 1)
+	deps := &DatabaseDeps{
+		Store: ds,
+		OnUpdate: func(oldRec, newRec store.DatabaseRecord) {
+			calls <- updateCall{oldRec: oldRec, newRec: newRec}
+		},
+	}
+
+	handler := updateManagedDBHandler(deps)
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"PUT /api/v1/databases/managed/{id}", handler)
+
+	body := `{
+		"name": "new-runtime-db",
+		"host": "localhost",
+		"port": 5432,
+		"database_name": "testdb",
+		"username": "user",
+		"password": "",
+		"sslmode": "disable",
+		"trust_level": "advisory",
+		"execution_mode": "approval",
+		"max_connections": 40
+	}`
+	req := httptest.NewRequest("PUT",
+		fmt.Sprintf("/api/v1/databases/managed/%d", id),
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status: %d, body: %s",
+			w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["name"] != "new-runtime-db" {
+		t.Fatalf("name: got %v", resp["name"])
+	}
+
+	select {
+	case call := <-calls:
+		if call.oldRec.Name != "old-runtime-db" {
+			t.Errorf("old name: got %s", call.oldRec.Name)
+		}
+		if call.newRec.Name != "new-runtime-db" {
+			t.Errorf("new name: got %s", call.newRec.Name)
+		}
+		if call.newRec.ExecutionMode != "approval" {
+			t.Errorf("execution mode: got %s",
+				call.newRec.ExecutionMode)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnUpdate callback was not called")
+	}
+}
+
 func TestPhase2_DeleteManagedDBHandler_RealDB(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)
@@ -2592,6 +3106,134 @@ func TestPhase2_DeleteManagedDBHandler_NotFound(
 
 	if w.Code != 404 {
 		t.Errorf("status: got %d, want 404", w.Code)
+	}
+}
+
+func TestPhase2_TestManagedDBHandler_PreviewBlocksUnsafeHosts(
+	t *testing.T,
+) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	ds := store.NewDatabaseStore(pool, p2Key)
+	id, err := ds.Create(ctx, store.DatabaseInput{
+		Name:          "preview-ssrf-db",
+		Host:          "203.0.113.10",
+		Port:          5432,
+		DatabaseName:  "testdb",
+		Username:      "user",
+		Password:      "pass",
+		SSLMode:       "disable",
+		TrustLevel:    "observation",
+		ExecutionMode: "manual",
+	}, 0)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	handler := testManagedDBHandler(&DatabaseDeps{Store: ds})
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"POST /api/v1/databases/managed/{id}/test", handler)
+
+	tests := []struct {
+		name string
+		host string
+	}{
+		{name: "loopback", host: "127.0.0.1"},
+		{name: "private", host: "10.0.0.5"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{
+				"name": "preview-ssrf-db",
+				"host": %q,
+				"port": 5432,
+				"database_name": "testdb",
+				"username": "user",
+				"password": "pass",
+				"sslmode": "disable",
+				"trust_level": "observation",
+				"execution_mode": "manual"
+			}`, tt.host)
+			req := httptest.NewRequest("POST",
+				fmt.Sprintf(
+					"/api/v1/databases/managed/%d/test", id),
+				strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status: got %d, want 400; body: %s",
+					w.Code, w.Body.String())
+			}
+			var resp map[string]string
+			if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if !strings.Contains(resp["error"], "private/internal") {
+				t.Fatalf("error: got %q", resp["error"])
+			}
+		})
+	}
+}
+
+func TestPhase2_TestManagedDBHandler_AllowsStoredPrivateHost(
+	t *testing.T,
+) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	ds := store.NewDatabaseStore(pool, p2Key)
+	id, err := ds.Create(ctx, store.DatabaseInput{
+		Name:          "preview-stored-local",
+		Host:          "127.0.0.1",
+		Port:          1,
+		DatabaseName:  "testdb",
+		Username:      "user",
+		Password:      "pass",
+		SSLMode:       "disable",
+		TrustLevel:    "observation",
+		ExecutionMode: "manual",
+	}, 0)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	handler := testManagedDBHandler(&DatabaseDeps{Store: ds})
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"POST /api/v1/databases/managed/{id}/test", handler)
+
+	body := `{
+		"name": "preview-stored-local",
+		"host": "127.0.0.1",
+		"port": 1,
+		"database_name": "missing_db_is_still_tested",
+		"username": "user",
+		"password": "",
+		"sslmode": "disable",
+		"trust_level": "observation",
+		"execution_mode": "manual"
+	}`
+	req := httptest.NewRequest("POST",
+		fmt.Sprintf("/api/v1/databases/managed/%d/test", id),
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body: %s",
+			w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["status"] != "error" {
+		t.Fatalf("status field = %v, want connection error", resp["status"])
 	}
 }
 
@@ -2705,11 +3347,24 @@ func TestPhase2_FleetPendingActionsHandler_RealDB(
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)
 
-	// Insert a pending action.
-	_, err := pool.Exec(ctx,
+	var findingID int
+	err := pool.QueryRow(ctx,
+		`INSERT INTO sage.findings
+		 (category, severity, title, detail, status,
+		  object_identifier)
+		 VALUES ('pending_actions_test', 'warning',
+		  'Pending actions test', '{}', 'open',
+		  'pending_actions_test_obj')
+		 RETURNING id`).Scan(&findingID)
+	if err != nil {
+		t.Fatalf("insert finding: %v", err)
+	}
+
+	_, err = pool.Exec(ctx,
 		`INSERT INTO sage.action_queue
 		 (finding_id, proposed_sql, action_risk, status)
-		 VALUES (0, 'SELECT 1', 'SAFE', 'pending')`)
+		 VALUES ($1, 'SELECT 1', 'SAFE', 'pending')`,
+		findingID)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -2744,10 +3399,24 @@ func TestPhase2_FleetPendingCountHandler_RealDB(
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)
 
-	_, err := pool.Exec(ctx,
+	var findingID int
+	err := pool.QueryRow(ctx,
+		`INSERT INTO sage.findings
+		 (category, severity, title, detail, status,
+		  object_identifier)
+		 VALUES ('pending_count_test', 'warning',
+		  'Pending count test', '{}', 'open',
+		  'pending_count_test_obj')
+		 RETURNING id`).Scan(&findingID)
+	if err != nil {
+		t.Fatalf("insert finding: %v", err)
+	}
+
+	_, err = pool.Exec(ctx,
 		`INSERT INTO sage.action_queue
 		 (finding_id, proposed_sql, action_risk, status)
-		 VALUES (0, 'SELECT 1', 'SAFE', 'pending')`)
+		 VALUES ($1, 'SELECT 1', 'SAFE', 'pending')`,
+		findingID)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -2882,6 +3551,10 @@ func TestPhase2_ConfigGlobalGetHandler_RealDB(t *testing.T) {
 	}
 	if resp["config"] == nil {
 		t.Error("config should not be nil")
+	}
+	cfgMap := resp["config"].(map[string]any)
+	if _, ok := cfgMap["execution_mode"]; ok {
+		t.Error("global config should not include execution_mode")
 	}
 }
 
@@ -3356,6 +4029,31 @@ func TestPhase2_DeleteChannelHandler_RealDB(t *testing.T) {
 	}
 }
 
+func TestPhase2_DeleteChannelHandler_MissingReturns404(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	logFn := func(_, _ string, _ ...any) {}
+	d := notify.NewDispatcher(pool, logFn)
+	ns := store.NewNotificationStore(pool, d)
+
+	handler := deleteChannelHandler(ns)
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"DELETE /api/v1/notifications/channels/{id}",
+		handler)
+
+	req := httptest.NewRequest("DELETE",
+		"/api/v1/notifications/channels/999999", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404; body: %s",
+			w.Code, w.Body.String())
+	}
+}
+
 func TestPhase2_CreateRuleHandler_RealDB(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)
@@ -3383,6 +4081,52 @@ func TestPhase2_CreateRuleHandler_RealDB(t *testing.T) {
 
 	if w.Code != 201 {
 		t.Fatalf("status: %d, body: %s",
+			w.Code, w.Body.String())
+	}
+}
+
+func TestPhase2_CreateRuleHandler_MissingChannelReturns404(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	logFn := func(_, _ string, _ ...any) {}
+	d := notify.NewDispatcher(pool, logFn)
+	ns := store.NewNotificationStore(pool, d)
+
+	handler := createRuleHandler(ns)
+	body := `{"channel_id":999999,"event":"finding_critical","min_severity":"warning"}`
+	req := httptest.NewRequest("POST",
+		"/api/v1/notifications/rules",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404; body: %s",
+			w.Code, w.Body.String())
+	}
+}
+
+func TestPhase2_CreateRuleHandler_ZeroChannelReturns400(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	logFn := func(_, _ string, _ ...any) {}
+	d := notify.NewDispatcher(pool, logFn)
+	ns := store.NewNotificationStore(pool, d)
+
+	handler := createRuleHandler(ns)
+	body := `{"channel_id":0,"event":"finding_critical","min_severity":"warning"}`
+	req := httptest.NewRequest("POST",
+		"/api/v1/notifications/rules",
+		strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400; body: %s",
 			w.Code, w.Body.String())
 	}
 }
@@ -3421,6 +4165,31 @@ func TestPhase2_DeleteRuleHandler_RealDB(t *testing.T) {
 
 	if w.Code != 200 {
 		t.Fatalf("status: %d", w.Code)
+	}
+}
+
+func TestPhase2_DeleteRuleHandler_MissingReturns404(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	logFn := func(_, _ string, _ ...any) {}
+	d := notify.NewDispatcher(pool, logFn)
+	ns := store.NewNotificationStore(pool, d)
+
+	handler := deleteRuleHandler(ns)
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"DELETE /api/v1/notifications/rules/{id}",
+		handler)
+
+	req := httptest.NewRequest("DELETE",
+		"/api/v1/notifications/rules/999999", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404; body: %s",
+			w.Code, w.Body.String())
 	}
 }
 
@@ -3463,6 +4232,32 @@ func TestPhase2_UpdateRuleHandler_RealDB(t *testing.T) {
 	}
 }
 
+func TestPhase2_UpdateRuleHandler_MissingReturns404(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	logFn := func(_, _ string, _ ...any) {}
+	d := notify.NewDispatcher(pool, logFn)
+	ns := store.NewNotificationStore(pool, d)
+
+	handler := updateRuleHandler(ns)
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"PUT /api/v1/notifications/rules/{id}", handler)
+
+	req := httptest.NewRequest("PUT",
+		"/api/v1/notifications/rules/999999",
+		strings.NewReader(`{"enabled":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404; body: %s",
+			w.Code, w.Body.String())
+	}
+}
+
 func TestPhase2_UpdateChannelHandler_RealDB(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)
@@ -3494,6 +4289,85 @@ func TestPhase2_UpdateChannelHandler_RealDB(t *testing.T) {
 
 	if w.Code != 200 {
 		t.Fatalf("status: %d, body: %s",
+			w.Code, w.Body.String())
+	}
+}
+
+func TestPhase2_UpdateChannelHandler_OmittedFieldsPreserved(
+	t *testing.T,
+) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	logFn := func(_, _ string, _ ...any) {}
+	d := notify.NewDispatcher(pool, logFn)
+	ns := store.NewNotificationStore(pool, d)
+
+	originalURL := "https://hooks.slack.com/services/REAL/SECRET/TOKEN"
+	id, err := ns.CreateChannel(ctx, "partial-ch", "slack",
+		map[string]string{"webhook_url": originalURL}, 0)
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+
+	handler := updateChannelHandler(ns)
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"PUT /api/v1/notifications/channels/{id}",
+		handler)
+
+	req := httptest.NewRequest("PUT",
+		fmt.Sprintf(
+			"/api/v1/notifications/channels/%d", id),
+		strings.NewReader(`{"name":"partial-renamed"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status: %d, body: %s",
+			w.Code, w.Body.String())
+	}
+
+	ch, err := ns.GetChannel(ctx, id)
+	if err != nil {
+		t.Fatalf("get channel: %v", err)
+	}
+	if ch.Name != "partial-renamed" {
+		t.Fatalf("name = %q, want partial-renamed", ch.Name)
+	}
+	if !ch.Enabled {
+		t.Fatal("enabled = false, want preserved true")
+	}
+	if ch.Config["webhook_url"] != originalURL {
+		t.Fatalf("webhook_url = %q, want original",
+			ch.Config["webhook_url"])
+	}
+}
+
+func TestPhase2_UpdateChannelHandler_MissingReturns404(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	logFn := func(_, _ string, _ ...any) {}
+	d := notify.NewDispatcher(pool, logFn)
+	ns := store.NewNotificationStore(pool, d)
+
+	handler := updateChannelHandler(ns)
+	mux := http.NewServeMux()
+	mux.HandleFunc(
+		"PUT /api/v1/notifications/channels/{id}",
+		handler)
+
+	req := httptest.NewRequest("PUT",
+		"/api/v1/notifications/channels/999999",
+		strings.NewReader(`{"name":"missing"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404; body: %s",
 			w.Code, w.Body.String())
 	}
 }
@@ -3627,7 +4501,7 @@ func TestPhase2_BuildFindingMap_NilOptionalFields(
 		"cat", "warning",
 		nil, nil, "title",
 		nil, nil, nil,
-		"open", "db",
+		"open", "db", nil, nil, nil,
 	)
 	if m["object_type"] != "" {
 		t.Errorf("object_type: got %v, want empty",
@@ -3655,12 +4529,13 @@ func TestPhase2_BuildFindingMap_WithAllFields(t *testing.T) {
 	recSQL := "DROP INDEX idx_t"
 	detail := []byte(`{"key":"value"}`)
 
+	ruleID := "unused_index"
 	m := buildFindingMap(
 		42, now, now, 3,
 		"idx", "critical",
 		&objType, &objIdent, "Bad index",
 		detail, &rec, &recSQL,
-		"open", "proddb",
+		"open", "proddb", &ruleID, nil, nil,
 	)
 	if m["id"] != "42" {
 		t.Errorf("id: got %v", m["id"])
@@ -3767,5 +4642,371 @@ func TestPhase2_Atof_Valid(t *testing.T) {
 func TestPhase2_Atof_Invalid(t *testing.T) {
 	if atof("abc") != 0 {
 		t.Errorf("atof(abc): got %f", atof("abc"))
+	}
+}
+
+// ================================================================
+// Task 1 coverage: findings stats and fleet sorting helpers
+// ================================================================
+
+func TestPhase2_QueryFindingsStats_FiltersAndEmptyShape(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO sage.findings
+		 (category, severity, title, detail, status,
+		  object_identifier)
+		 VALUES
+		 ('index_health', 'critical', 'Critical open', '{}',
+		  'open', 'stats_critical'),
+		 ('index_health', 'warning', 'Warning open', '{}',
+		  'open', 'stats_warning'),
+		 ('vacuum', 'warning', 'Vacuum open', '{}',
+		  'open', 'stats_vacuum'),
+		 ('index_health', 'warning', 'Suppressed warning', '{}',
+		  'suppressed', 'stats_suppressed')`)
+	if err != nil {
+		t.Fatalf("insert findings: %v", err)
+	}
+
+	stats, total, err := queryFindingsStats(ctx, pool,
+		fleet.FindingFilters{
+			Status:   "open",
+			Category: "index_health",
+		})
+	if err != nil {
+		t.Fatalf("queryFindingsStats: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("total: got %d, want 2", total)
+	}
+	if len(stats) != 2 {
+		t.Fatalf("stats len: got %d, want 2", len(stats))
+	}
+	counts := map[string]int{}
+	for _, row := range stats {
+		key := fmt.Sprintf("%s/%s", row["severity"], row["category"])
+		counts[key] = row["count"].(int)
+	}
+	if counts["critical/index_health"] != 1 {
+		t.Errorf("critical index count: got %d, want 1",
+			counts["critical/index_health"])
+	}
+	if counts["warning/index_health"] != 1 {
+		t.Errorf("warning index count: got %d, want 1",
+			counts["warning/index_health"])
+	}
+
+	stats, total, err = queryFindingsStats(ctx, pool,
+		fleet.FindingFilters{Status: "open", Category: "missing"})
+	if err != nil {
+		t.Fatalf("empty queryFindingsStats: %v", err)
+	}
+	if total != 0 {
+		t.Errorf("empty total: got %d, want 0", total)
+	}
+	if stats == nil || len(stats) != 0 {
+		t.Errorf("empty stats: got %#v, want empty non-nil slice", stats)
+	}
+}
+
+func TestPhase2_FindingsStatsHandler_FleetAggregatesInOrder(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO sage.findings
+		 (category, severity, title, detail, status,
+		  object_identifier)
+		 VALUES
+		 ('index_health', 'warning', 'Index one', '{}',
+		  'open', 'fleet_stats_idx'),
+		 ('vacuum', 'critical', 'Vacuum one', '{}',
+		  'open', 'fleet_stats_vac')`)
+	if err != nil {
+		t.Fatalf("insert findings: %v", err)
+	}
+
+	mgr := fleet.NewManager(&config.Config{Mode: "fleet"})
+	for _, name := range []string{"bravo", "alpha"} {
+		mgr.RegisterInstance(&fleet.DatabaseInstance{
+			Name:   name,
+			Pool:   pool,
+			Config: config.DatabaseConfig{Name: name},
+		})
+	}
+	stats, total, err := queryFindingsStatsAcrossFleet(
+		ctx, mgr, fleet.FindingFilters{Status: "open"})
+	if err != nil {
+		t.Fatalf("queryFindingsStatsAcrossFleet: %v", err)
+	}
+	if total != 4 {
+		t.Fatalf("total: got %d, want doubled fleet total 4", total)
+	}
+	if len(stats) != 2 {
+		t.Fatalf("stats len: got %d, want 2", len(stats))
+	}
+	if fmt.Sprint(stats[0]["severity"]) != "critical" ||
+		fmt.Sprint(stats[0]["category"]) != "vacuum" {
+		t.Fatalf("first stat ordering: got %#v", stats[0])
+	}
+	if stats[0]["count"].(int) != 2 || stats[1]["count"].(int) != 2 {
+		t.Errorf("fleet counts: got %#v, want both counts doubled", stats)
+	}
+
+	handler := findingsStatsHandler(mgr)
+	req := httptest.NewRequest("GET",
+		"/api/v1/findings/stats?database=all&status=open", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, body %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["database"] != "all" {
+		t.Errorf("database: got %v, want all", resp["database"])
+	}
+	if resp["total_open"].(float64) != 4 {
+		t.Errorf("total_open: got %v, want 4", resp["total_open"])
+	}
+}
+
+func TestPhase2_SortFindingMaps_NullsTieBreakersAndSeverity(t *testing.T) {
+	older := time.Date(2026, 4, 26, 10, 0, 0, 0, time.UTC)
+	newer := older.Add(time.Hour)
+	highest := 9.5
+	lower := 2.25
+
+	rows := []map[string]any{
+		{
+			"severity": "warning", "last_seen": older,
+			"database_name": "bravo", "impact_score": &lower,
+		},
+		{
+			"severity": "critical", "last_seen": older,
+			"database_name": "charlie", "impact_score": nil,
+		},
+		{
+			"severity": "critical", "last_seen": newer,
+			"database_name": "alpha", "impact_score": &highest,
+		},
+	}
+	sortFindingMaps(rows, fleet.FindingFilters{
+		Sort: "severity", Order: "desc",
+	})
+	if rows[0]["database_name"] != "charlie" {
+		t.Fatalf("severity sort first: got %v, want charlie",
+			rows[0]["database_name"])
+	}
+	if rows[1]["database_name"] != "alpha" {
+		t.Errorf("severity tie last_seen: got %v, want alpha",
+			rows[1]["database_name"])
+	}
+
+	rows = []map[string]any{
+		{"impact_score": nil, "last_seen": older, "database_name": "z"},
+		{"impact_score": &lower, "last_seen": older, "database_name": "b"},
+		{"impact_score": &highest, "last_seen": older, "database_name": "a"},
+	}
+	sortFindingMaps(rows, fleet.FindingFilters{
+		Sort: "impact", Order: "desc",
+	})
+	if rows[0]["database_name"] != "a" || rows[2]["database_name"] != "z" {
+		t.Errorf("impact sort with nils: got %#v", rows)
+	}
+
+	if got := compareNullableFloat(nil, &highest); got != -1 {
+		t.Errorf("nil float compare: got %d, want -1", got)
+	}
+	if got := compareNullableFloat(highest, &highest); got != 0 {
+		t.Errorf("equal float compare: got %d, want 0", got)
+	}
+	if got := compareTimeValue(older, newer); got != -1 {
+		t.Errorf("time compare older/newer: got %d, want -1", got)
+	}
+	if got := compareTimeValue("missing", newer); got != -1 {
+		t.Errorf("missing time compare: got %d, want -1", got)
+	}
+}
+
+// ================================================================
+// Task 3 coverage: fleet health, forecast, and time helpers
+// ================================================================
+
+func TestPhase2_ParseTimeParam_Variants(t *testing.T) {
+	if !parseTimeParam("").IsZero() {
+		t.Fatal("empty time param should return zero time")
+	}
+	rfc := "2026-04-27T12:30:45Z"
+	if got := parseTimeParam(rfc); got.Format(time.RFC3339) != rfc {
+		t.Fatalf("RFC3339 parse: got %s, want %s",
+			got.Format(time.RFC3339), rfc)
+	}
+	offset := "2026-04-27T07:30:45-05:00"
+	if got := parseTimeParam(offset); got.UTC().Format(time.RFC3339) != rfc {
+		t.Fatalf("offset parse UTC: got %s, want %s",
+			got.UTC().Format(time.RFC3339), rfc)
+	}
+	if !parseTimeParam("2026-04-27").IsZero() {
+		t.Fatal("date-only value should return zero time")
+	}
+	if !parseTimeParam("not-a-time").IsZero() {
+		t.Fatal("invalid value should return zero time")
+	}
+}
+
+func TestPhase2_FleetHealthHandler_FiltersAndNilPoolSkip(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	if _, err := pool.Exec(ctx, `DELETE FROM sage.health_history`); err != nil {
+		t.Fatalf("clean health history: %v", err)
+	}
+
+	base := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+	_, err := pool.Exec(ctx,
+		`INSERT INTO sage.health_history
+		 (database_name, recorded_at, health_score, findings_open,
+		  findings_critical, findings_warning, findings_info,
+		  actions_total)
+		 VALUES
+		 ('alpha', $1, 91, 3, 1, 1, 1, 7),
+		 ('alpha', $2, 87, 4, 2, 1, 1, 9),
+		 ('bravo', $2, 72, 8, 3, 4, 1, 2)`,
+		base, base.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("insert health history: %v", err)
+	}
+
+	mgr := fleet.NewManager(&config.Config{Mode: "fleet"})
+	mgr.RegisterInstance(&fleet.DatabaseInstance{
+		Name: "alpha", Pool: pool,
+		Config: config.DatabaseConfig{Name: "alpha"},
+	})
+	mgr.RegisterInstance(&fleet.DatabaseInstance{
+		Name: "offline", Pool: nil,
+		Config: config.DatabaseConfig{Name: "offline"},
+	})
+
+	points, err := queryHealthHistory(ctx, pool, "alpha",
+		base.Add(-time.Minute), base.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("queryHealthHistory: %v", err)
+	}
+	if len(points) != 2 {
+		t.Fatalf("points: got %d, want 2", len(points))
+	}
+	if points[0]["health"] != 91 || points[1]["actions"] != 9 {
+		t.Errorf("points fields: got %#v", points)
+	}
+
+	handler := fleetHealthHandler(mgr)
+	req := httptest.NewRequest("GET",
+		"/api/v1/fleet/health?database=alpha&from="+
+			base.Format(time.RFC3339)+
+			"&to="+base.Add(2*time.Hour).Format(time.RFC3339),
+		nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, body %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	dbs := resp["databases"].(map[string]any)
+	if _, ok := dbs["offline"]; ok {
+		t.Fatalf("offline nil-pool database should be skipped: %#v", dbs)
+	}
+	alpha := dbs["alpha"].([]any)
+	if len(alpha) != 2 {
+		t.Fatalf("alpha points: got %d, want 2", len(alpha))
+	}
+
+	req = httptest.NewRequest("GET",
+		"/api/v1/fleet/health?database=bad/name", nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid database status: got %d, want 400", w.Code)
+	}
+}
+
+func TestPhase2_GrowthForecastHandler_AnnotatesAndHandlesEmpty(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	if _, err := pool.Exec(ctx, `DELETE FROM sage.size_history`); err != nil {
+		t.Fatalf("clean size history: %v", err)
+	}
+
+	mgr := fleet.NewManager(&config.Config{Mode: "fleet"})
+	mgr.RegisterInstance(&fleet.DatabaseInstance{
+		Name: "alpha", Pool: pool,
+		Config: config.DatabaseConfig{Name: "alpha"},
+	})
+	emptyMgr := fleet.NewManager(&config.Config{Mode: "fleet"})
+
+	handler := growthForecastHandler(emptyMgr)
+	req := httptest.NewRequest("GET",
+		"/api/v1/growth/forecast?database=all", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("empty status: got %d, body %s", w.Code, w.Body.String())
+	}
+	var emptyResp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&emptyResp); err != nil {
+		t.Fatalf("decode empty response: %v", err)
+	}
+	if len(emptyResp["forecasts"].([]any)) != 0 {
+		t.Fatalf("empty forecasts: got %#v", emptyResp["forecasts"])
+	}
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO sage.size_history
+		 (metric_type, object_name, size_bytes, collected_at,
+		  database_name)
+		 VALUES
+		 ('table', 'public.orders', 1000, now() - interval '10 days',
+		  ''),
+		 ('table', 'public.orders', 5000, now() - interval '1 day',
+		  '')`)
+	if err != nil {
+		t.Fatalf("insert size history: %v", err)
+	}
+
+	handler = growthForecastHandler(mgr)
+	req = httptest.NewRequest("GET",
+		"/api/v1/growth/forecast?database=alpha&days=999", nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("forecast status: got %d, body %s",
+			w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode forecast response: %v", err)
+	}
+	forecasts := resp["forecasts"].([]any)
+	if len(forecasts) != 1 {
+		t.Fatalf("forecasts: got %d, want 1", len(forecasts))
+	}
+	first := forecasts[0].(map[string]any)
+	if first["fleet_database_name"] != "alpha" {
+		t.Errorf("fleet_database_name: got %v, want alpha",
+			first["fleet_database_name"])
+	}
+	if first["database_name"] != "alpha" {
+		t.Errorf("database_name annotation: got %v, want alpha",
+			first["database_name"])
+	}
+	if first["growth_bytes"].(float64) != 4000 {
+		t.Errorf("growth_bytes: got %v, want 4000",
+			first["growth_bytes"])
 	}
 }

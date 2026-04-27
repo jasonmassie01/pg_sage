@@ -144,6 +144,10 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "gpt-4o",
 		reader: func(c *config.Config) string { return c.LLM.Model },
 	},
+	"llm.json_mode": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.LLM.JSONMode) },
+	},
 	"llm.timeout_seconds": {
 		input:  "45",
 		reader: func(c *config.Config) string { return itoa(c.LLM.TimeoutSeconds) },
@@ -355,6 +359,50 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 	"logwatch.slow_query_enabled": {
 		input:  "true",
 		reader: func(c *config.Config) string { return btoa(c.LogWatch.SlowQueryEnabled) },
+	},
+
+	// --- v0.10: Schema Lint ---
+	"schema_lint.enabled": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.SchemaLint.Enabled) },
+	},
+	"schema_lint.scan_interval_minutes": {
+		input:  "30",
+		reader: func(c *config.Config) string { return itoa(c.SchemaLint.ScanIntervalMinutes) },
+	},
+	"schema_lint.min_table_rows": {
+		input:  "5000",
+		reader: func(c *config.Config) string { return itoa(c.SchemaLint.MinTableRows) },
+	},
+
+	// --- v0.10: Migration / DDL Safety ---
+	"migration.enabled": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.Migration.Enabled) },
+	},
+	"migration.mode": {
+		input:  "advisory",
+		reader: func(c *config.Config) string { return c.Migration.Mode },
+	},
+	"migration.managed_service": {
+		input:  "rds",
+		reader: func(c *config.Config) string { return c.Migration.ManagedService },
+	},
+	"migration.log_detection": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.Migration.LogDetection) },
+	},
+	"migration.activity_polling": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.Migration.ActivityPolling) },
+	},
+	"migration.poll_interval_seconds": {
+		input:  "10",
+		reader: func(c *config.Config) string { return itoa(c.Migration.PollIntervalSeconds) },
+	},
+	"migration.ddl_row_threshold": {
+		input:  "50000",
+		reader: func(c *config.Config) string { return itoa(c.Migration.DDLRowThreshold) },
 	},
 }
 

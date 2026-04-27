@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { login, getConsoleErrors } from './helpers';
 
-const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL || 'admin@localhost';
-const ADMIN_PASS = process.env.E2E_ADMIN_PASSWORD || 'admin';
+const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
+const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
 test.describe('Dashboard', () => {
   let consoleErrors: string[];

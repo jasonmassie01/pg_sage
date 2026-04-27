@@ -15,10 +15,54 @@ import { NotificationsPage } from './pages/NotificationsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
 import { SchemaHealthPage } from './pages/SchemaHealthPage'
 import { useAPI } from './hooks/useAPI'
+import { TimeRangeProvider } from './context/TimeRangeContext'
+import { CommandPalette } from './components/CommandPalette'
+import { LiveEventsProvider } from './hooks/useLiveEvents'
+import { ToastProvider } from './components/Toast'
 
 function getRoute() {
   const hash = window.location.hash || '#/'
   return hash.replace('#', '') || '/'
+}
+
+function AccessDenied() {
+  return (
+    <div data-testid="access-denied" className="rounded p-5"
+      style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+      }}>
+      <h2 className="text-lg font-semibold mb-2"
+        style={{ color: 'var(--text-primary)' }}>
+        Access denied
+      </h2>
+      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+        You do not have permission to open this admin page.
+      </p>
+    </div>
+  )
+}
+
+function NotFound() {
+  return (
+    <div data-testid="not-found" className="rounded p-5"
+      style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+      }}>
+      <h2 className="text-lg font-semibold mb-2"
+        style={{ color: 'var(--text-primary)' }}>
+        Page not found
+      </h2>
+      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+        This pg_sage route does not exist.
+      </p>
+      <a href="#/" className="inline-block mt-4 text-sm underline"
+        style={{ color: 'var(--accent)' }}>
+        Go to Dashboard
+      </a>
+    </div>
+  )
 }
 
 export default function App() {
@@ -73,6 +117,9 @@ export default function App() {
   }
 
   const databases = fleetData?.databases || []
+  const selectedDatabase = selectedDB === 'all'
+    ? null
+    : databases.find(db => db.name === selectedDB)
 
   // TODO(fleet-ctx): Audit every fetch() call site and ensure
   // per-database context is forwarded via ?database= where the
@@ -87,43 +134,77 @@ export default function App() {
   // (Findings, Actions, AlertLog, Dashboard, DatabasePage, etc).
   // Revisit when new per-DB endpoints are added.
 
-  const page = (() => {
+  const isAdmin = user.role === 'admin'
+  const denied = { title: 'Access denied', node: <AccessDenied /> }
+  const pageState = (() => {
     switch (route) {
+      case '/':
+        return { title: 'Dashboard', node: <Dashboard database={selectedDB}
+          onSelectDB={setSelectedDB} /> }
       case '/manage-databases':
-        return user.role === 'admin'
-          ? <DatabasesPage />
-          : <Dashboard database={selectedDB} />
-      case '/findings': return <Findings database={selectedDB} user={user} />
-      case '/actions': return <Actions database={selectedDB} user={user} />
-      case '/database': return <DatabasePage database={selectedDB} />
+        return isAdmin ? { title: 'Databases', node: <DatabasesPage /> }
+          : denied
+      case '/findings':
+        return { title: 'Recommendations',
+          node: <Findings database={selectedDB} user={user} /> }
+      case '/actions':
+        return { title: 'Actions',
+          node: <Actions database={selectedDB} user={user} /> }
+      case '/database':
+        return { title: 'Database',
+          node: <DatabasePage database={selectedDB} /> }
       case '/forecasts':
-        return <ForecastsPage database={selectedDB} />
+        return { title: 'Forecasts',
+          node: <ForecastsPage database={selectedDB} /> }
       case '/query-hints':
-        return <QueryHintsPage database={selectedDB} />
+        return { title: 'Performance',
+          node: <QueryHintsPage database={selectedDB} /> }
       case '/schema-health':
-        return <SchemaHealthPage database={selectedDB} />
-      case '/alerts': return <AlertLogPage database={selectedDB} />
+        return { title: 'Schema Health',
+          node: <SchemaHealthPage database={selectedDB} /> }
+      case '/alerts':
+        return { title: 'Alerts',
+          node: <AlertLogPage database={selectedDB} /> }
       case '/incidents':
-        return <IncidentsPage database={selectedDB} user={user} />
-      case '/settings': return <SettingsPage database={selectedDB} />
+        return { title: 'Incidents',
+          node: <IncidentsPage database={selectedDB} user={user} /> }
+      case '/settings':
+        return isAdmin ? { title: 'Settings',
+          node: <SettingsPage
+            database={selectedDB}
+            databaseId={selectedDatabase?.id || selectedDatabase?.database_id}
+          /> } : denied
       case '/notifications':
-        return user.role === 'admin'
-          ? <NotificationsPage />
-          : <Dashboard database={selectedDB} />
+        return isAdmin ? { title: 'Notifications',
+          node: <NotificationsPage /> } : denied
       case '/users':
-        return user.role === 'admin'
-          ? <UsersPage />
-          : <Dashboard database={selectedDB} />
-      default: return <Dashboard database={selectedDB} />
+        return isAdmin ? { title: 'Users',
+          node: <UsersPage currentUser={user} /> } : denied
+      default:
+        return { title: 'Not found', node: <NotFound /> }
     }
   })()
 
   return (
-    <Layout data-testid="app-loaded" databases={databases}
-      selectedDB={selectedDB}
-      onSelectDB={setSelectedDB} user={user}
-      onLogout={handleLogout}>
-      {page}
-    </Layout>
+    <LiveEventsProvider>
+      <ToastProvider>
+        <TimeRangeProvider>
+          <Layout data-testid="app-loaded" databases={databases}
+            selectedDB={selectedDB}
+            onSelectDB={setSelectedDB} user={user}
+            fleetData={fleetData}
+            onLogout={handleLogout}
+            pageTitle={pageState.title}>
+            {pageState.node}
+          </Layout>
+          <CommandPalette
+            databases={databases}
+            selectedDB={selectedDB}
+            onSelectDB={setSelectedDB}
+            user={user}
+          />
+        </TimeRangeProvider>
+      </ToastProvider>
+    </LiveEventsProvider>
   )
 }

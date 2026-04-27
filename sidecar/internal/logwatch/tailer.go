@@ -1,6 +1,7 @@
 package logwatch
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -29,7 +30,12 @@ type Tailer struct {
 	offset      int64
 	currentPath string
 	partial     []byte // incomplete trailing line from last read
-	mu          sync.Mutex
+	// discardUntilNewline is set when partial exceeded maxLineLen and
+	// was dropped; subsequent bytes are discarded until a '\n' marks a
+	// safe resync point. Prevents unbounded partial-buffer growth when
+	// a producer writes a huge line or never terminates one.
+	discardUntilNewline bool
+	mu                  sync.Mutex
 }
 
 // NewTailer creates a Tailer that will watch dir for log files in the
@@ -105,6 +111,7 @@ func (t *Tailer) openAndSeek(path string) error {
 	t.offset = offset
 	t.currentPath = path
 	t.partial = nil
+	t.discardUntilNewline = false
 	return nil
 }
 
@@ -156,6 +163,7 @@ func (t *Tailer) ReadLines() [][]byte {
 	if t.detectTruncation() {
 		t.offset = 0
 		t.partial = nil
+		t.discardUntilNewline = false
 		if _, err := t.file.Seek(0, io.SeekStart); err != nil {
 			t.log("error", "seek after truncation: %v", err)
 			return nil
@@ -197,10 +205,25 @@ func (t *Tailer) readFromOffset() ([]byte, error) {
 
 // splitLines splits raw bytes into complete lines, prepending any
 // partial line from the previous call. An incomplete trailing chunk
-// (no terminating newline) is saved in t.partial for next time.
+// (no terminating newline) is saved in t.partial for next time,
+// but bounded at maxLineLen — once exceeded, the partial is dropped
+// and subsequent bytes are discarded until the next newline to resync.
 func (t *Tailer) splitLines(raw []byte) [][]byte {
 	if len(raw) == 0 {
 		return nil
+	}
+	// If we are in discard-until-newline mode (previous partial
+	// overflowed), skip bytes up to and including the next '\n'.
+	if t.discardUntilNewline {
+		i := bytes.IndexByte(raw, '\n')
+		if i < 0 {
+			return nil // still no newline — drop everything
+		}
+		raw = raw[i+1:]
+		t.discardUntilNewline = false
+		if len(raw) == 0 {
+			return nil
+		}
 	}
 	// Prepend leftover partial from last read.
 	if len(t.partial) > 0 {
@@ -231,8 +254,19 @@ func (t *Tailer) splitLines(raw []byte) [][]byte {
 	}
 	// Anything after the last newline is a partial line.
 	if start < len(raw) {
-		t.partial = make([]byte, len(raw)-start)
-		copy(t.partial, raw[start:])
+		remain := raw[start:]
+		if len(remain) > t.maxLineLen {
+			// Oversized partial: drop it and resync at the next
+			// newline to prevent unbounded buffer growth.
+			t.log("warn",
+				"partial log line exceeded max_line_len (%d bytes); discarding to next newline",
+				len(remain))
+			t.partial = nil
+			t.discardUntilNewline = true
+		} else {
+			t.partial = make([]byte, len(remain))
+			copy(t.partial, remain)
+		}
 	}
 	return lines
 }
@@ -262,6 +296,7 @@ func (t *Tailer) openFileAtStart(path string) error {
 	t.offset = 0
 	t.currentPath = path
 	t.partial = nil
+	t.discardUntilNewline = false
 	return nil
 }
 

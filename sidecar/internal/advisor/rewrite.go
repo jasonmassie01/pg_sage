@@ -127,7 +127,7 @@ func analyzeQueryRewrites(
 	var queryLines []string
 	for _, c := range unique {
 		q := c.query
-		truncQuery := llm.StripSQLComments(q.Query)
+		truncQuery := llm.SanitizeForLLM(q.Query)
 		if len(truncQuery) > 300 {
 			truncQuery = truncQuery[:300] + "..."
 		}
@@ -166,7 +166,11 @@ func analyzeQueryRewrites(
 		if isCreateIndexRewrite(f) {
 			continue
 		}
-		f.Severity = "warning"
+		// Rewrites are advisory suggestions for developers, never
+		// auto-executed (see system prompt). The prompt asks the LLM
+		// for severity "info"; force it here so a mis-behaving model
+		// cannot escalate these into operator-actionable warnings.
+		f.Severity = "info"
 		f.RecommendedSQL = ""
 		f.ActionRisk = ""
 		findings = append(findings, f)

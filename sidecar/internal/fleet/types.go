@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,17 +14,52 @@ import (
 )
 
 // DatabaseInstance holds the runtime state for a single managed database.
+// Direct access to Status fields is NOT safe under concurrent use; callers
+// must use UpdateStatus (writers) and SnapshotStatus (readers) so the
+// statusMu guards them. See gemini_review.md MEDIUM #73.
 type DatabaseInstance struct {
 	Name       string
 	DatabaseID int
 	Config     config.DatabaseConfig
 	Pool       *pgxpool.Pool
-	Collector *collector.Collector
-	Analyzer  *analyzer.Analyzer
-	Executor  *executor.Executor
-	Status    *InstanceStatus
-	Stopped bool
-	cancel  context.CancelFunc
+	Collector  *collector.Collector
+	Analyzer   *analyzer.Analyzer
+	Executor   *executor.Executor
+	Status     *InstanceStatus
+	Stopped    bool
+	// Cancel stops the per-instance goroutines (collector, analyzer,
+	// orchestrator). Set by bootstrap code; called by RemoveInstance.
+	// EmergencyStop does not call Cancel because monitoring should
+	// continue and Resume must not need to rebuild goroutines.
+	Cancel context.CancelFunc
+
+	// statusMu guards reads/writes to the InstanceStatus pointed to by
+	// Status. Always access via UpdateStatus / SnapshotStatus.
+	statusMu sync.RWMutex
+}
+
+// UpdateStatus runs mutator with the underlying *InstanceStatus held
+// under a write lock. Safe under concurrency.
+func (d *DatabaseInstance) UpdateStatus(mutator func(*InstanceStatus)) {
+	d.statusMu.Lock()
+	defer d.statusMu.Unlock()
+	if d.Status == nil {
+		d.Status = &InstanceStatus{}
+	}
+	mutator(d.Status)
+}
+
+// SnapshotStatus returns a shallow copy of the current Status taken
+// under the read lock. Callers may read and marshal the returned
+// pointer without further synchronisation.
+func (d *DatabaseInstance) SnapshotStatus() *InstanceStatus {
+	d.statusMu.RLock()
+	defer d.statusMu.RUnlock()
+	if d.Status == nil {
+		return &InstanceStatus{}
+	}
+	cp := *d.Status
+	return &cp
 }
 
 // InstanceStatus tracks the health of a single database.
@@ -40,7 +76,7 @@ type InstanceStatus struct {
 	FindingsWarning  int       `json:"findings_warning"`
 	FindingsInfo     int       `json:"findings_info"`
 	ActionsTotal     int       `json:"actions_total"`
-	LLMTokensUsed   int       `json:"llm_tokens_used"`
+	LLMTokensUsed    int       `json:"llm_tokens_used"`
 	AdvisoryLockHeld bool      `json:"advisory_lock_held"`
 	HealthScore      int       `json:"health_score"`
 	Error            string    `json:"error,omitempty"`
@@ -68,9 +104,11 @@ type FleetSummary struct {
 
 // DatabaseStatus pairs a database name with its status.
 type DatabaseStatus struct {
-	Name   string          `json:"name"`
-	Tags   []string        `json:"tags"`
-	Status *InstanceStatus `json:"status"`
+	ID         int             `json:"id"`
+	DatabaseID int             `json:"database_id"`
+	Name       string          `json:"name"`
+	Tags       []string        `json:"tags"`
+	Status     *InstanceStatus `json:"status"`
 }
 
 // FindingRow is a finding as returned from the database.
@@ -108,12 +146,37 @@ type ActionRow struct {
 }
 
 // FindingFilters are query parameters for finding listings.
+// Source is a subsystem filter. Accepted values and their mapping to
+// sage.findings.category are documented in docs/ui-redesign-v2.md
+// §16 and implemented in api.buildFindingsWhere:
+//
+//	""               — no filter
+//	"schema_lint"    — category LIKE 'schema_lint:%'
+//	"rules"          — analyzer Tier-1 rule categories
+//	"forecaster"     — forecast_* / storage_forecast categories
+//	"query_tuning"   — query_tuning / runaway_query / stale_statistics
+//	"advisor"        — LLM advisor output (detail->>'subsystem')
+//	"optimizer"      — LLM optimizer output (detail->>'subsystem')
+//	"migration_advisor" — reserved, not yet emitted
+//	"incident"       — incident-class categories
+//
+// ThematicCategory filters on detail->>'thematic_category' and is
+// only meaningful when Source=="schema_lint".
+//
+// From/To are ISO-8601 timestamps implementing overlapping-window
+// semantics on findings: a finding is included when
+// created_at <= To AND (resolved_at IS NULL OR resolved_at >= From).
+// Both zero → no time filter.
 type FindingFilters struct {
-	Status   string
-	Severity string
-	Category string
-	Sort     string
-	Order    string
-	Limit    int
-	Offset   int
+	Status           string
+	Severity         string
+	Category         string
+	Source           string
+	ThematicCategory string
+	Sort             string
+	Order            string
+	Limit            int
+	Offset           int
+	From             time.Time
+	To               time.Time
 }

@@ -132,6 +132,61 @@ func TestListModelsHandler_ProviderError(t *testing.T) {
 	}
 }
 
+func TestDiscoverModelsHandler_UsesRequestPayload(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if got := r.Header.Get("Authorization"); got != "Bearer payload-key" {
+				t.Fatalf("authorization = %q", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"data":[
+				{"id":"payload-model","object":"model","owned_by":"test"}
+			]}`))
+		}))
+	defer srv.Close()
+
+	llm.InvalidateModelCache()
+
+	cfg := &config.LLMConfig{}
+	handler := discoverModelsHandler(cfg)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/llm/models",
+		strings.NewReader(`{"config":{
+			"llm.endpoint":"`+srv.URL+`",
+			"llm.api_key":"payload-key",
+			"llm.model":"payload-model"
+		}}`))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if cfg.Endpoint != "" || cfg.APIKey != "" {
+		t.Fatalf("handler persisted discovery payload into cfg: %+v", cfg)
+	}
+}
+
+func TestDiscoverModelsHandler_IgnoresMaskedAPIKey(t *testing.T) {
+	cfg := &config.LLMConfig{
+		Endpoint: "https://example.com/v1",
+		APIKey:   "",
+	}
+	handler := discoverModelsHandler(cfg)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/llm/models",
+		strings.NewReader(`{"config":{"llm.api_key":"********1234"}}`))
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", w.Code)
+	}
+	if cfg.APIKey != "" {
+		t.Fatalf("masked key persisted into cfg: %q", cfg.APIKey)
+	}
+}
+
 // --- LLM Status Handler Tests ---
 
 func testLLMClient(model string, budget int) *llm.Client {
@@ -155,14 +210,22 @@ func TestLLMStatusHandler_NilManager(t *testing.T) {
 
 	handler(w, req)
 
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
 	}
-	var body map[string]string
-	json.NewDecoder(w.Body).Decode(&body)
-	if !strings.Contains(body["error"], "not configured") {
-		t.Errorf("error should mention 'not configured', got: %s",
-			body["error"])
+	var body struct {
+		Clients      []any `json:"clients"`
+		AnyExhausted bool  `json:"any_exhausted"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Clients) != 0 {
+		t.Errorf("clients should be empty when unconfigured, got %v",
+			body.Clients)
+	}
+	if body.AnyExhausted {
+		t.Error("any_exhausted should be false when unconfigured")
 	}
 }
 
@@ -183,7 +246,7 @@ func TestLLMStatusHandler_GeneralOnly(t *testing.T) {
 
 	var body struct {
 		Clients      map[string]llm.ClientStatus `json:"clients"`
-		AnyExhausted bool                         `json:"any_exhausted"`
+		AnyExhausted bool                        `json:"any_exhausted"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -225,7 +288,7 @@ func TestLLMStatusHandler_DualClient_NotExhausted(t *testing.T) {
 
 	var body struct {
 		Clients      map[string]llm.ClientStatus `json:"clients"`
-		AnyExhausted bool                         `json:"any_exhausted"`
+		AnyExhausted bool                        `json:"any_exhausted"`
 	}
 	json.NewDecoder(w.Body).Decode(&body)
 
@@ -261,7 +324,7 @@ func TestLLMStatusHandler_AnyExhausted(t *testing.T) {
 
 	var body struct {
 		Clients      map[string]llm.ClientStatus `json:"clients"`
-		AnyExhausted bool                         `json:"any_exhausted"`
+		AnyExhausted bool                        `json:"any_exhausted"`
 	}
 	json.NewDecoder(w.Body).Decode(&body)
 
@@ -308,7 +371,7 @@ func TestLLMBudgetResetHandler_Success(t *testing.T) {
 	}
 
 	var body struct {
-		Reset   bool                         `json:"reset"`
+		Reset   bool                        `json:"reset"`
 		Clients map[string]llm.ClientStatus `json:"clients"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {

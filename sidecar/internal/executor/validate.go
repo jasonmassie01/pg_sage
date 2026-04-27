@@ -33,37 +33,37 @@ var allowedPrefixes = []string{
 // ALTER SYSTEM SET/RESET may target. Any parameter not in this
 // list is rejected to prevent dangerous runtime changes.
 var safeAlterSystemParams = map[string]bool{
-	"work_mem":                             true,
-	"maintenance_work_mem":                 true,
-	"effective_cache_size":                 true,
-	"shared_buffers":                       true,
-	"max_wal_size":                         true,
-	"min_wal_size":                         true,
-	"checkpoint_completion_target":         true,
-	"checkpoint_timeout":                   true,
-	"random_page_cost":                     true,
-	"effective_io_concurrency":             true,
-	"max_parallel_workers_per_gather":      true,
-	"max_parallel_workers":                 true,
-	"max_parallel_maintenance_workers":     true,
-	"autovacuum_vacuum_cost_delay":         true,
-	"autovacuum_vacuum_cost_limit":         true,
-	"autovacuum_naptime":                   true,
-	"autovacuum_max_workers":               true,
-	"autovacuum_vacuum_threshold":          true,
-	"autovacuum_vacuum_scale_factor":       true,
-	"autovacuum_analyze_threshold":         true,
-	"autovacuum_analyze_scale_factor":      true,
-	"wal_buffers":                          true,
-	"default_statistics_target":            true,
-	"huge_pages":                           true,
-	"temp_buffers":                         true,
-	"statement_timeout":                    true,
-	"lock_timeout":                         true,
-	"idle_in_transaction_session_timeout":  true,
-	"log_min_duration_statement":           true,
-	"track_activity_query_size":            true,
-	"jit":                                  true,
+	"work_mem":                            true,
+	"maintenance_work_mem":                true,
+	"effective_cache_size":                true,
+	"shared_buffers":                      true,
+	"max_wal_size":                        true,
+	"min_wal_size":                        true,
+	"checkpoint_completion_target":        true,
+	"checkpoint_timeout":                  true,
+	"random_page_cost":                    true,
+	"effective_io_concurrency":            true,
+	"max_parallel_workers_per_gather":     true,
+	"max_parallel_workers":                true,
+	"max_parallel_maintenance_workers":    true,
+	"autovacuum_vacuum_cost_delay":        true,
+	"autovacuum_vacuum_cost_limit":        true,
+	"autovacuum_naptime":                  true,
+	"autovacuum_max_workers":              true,
+	"autovacuum_vacuum_threshold":         true,
+	"autovacuum_vacuum_scale_factor":      true,
+	"autovacuum_analyze_threshold":        true,
+	"autovacuum_analyze_scale_factor":     true,
+	"wal_buffers":                         true,
+	"default_statistics_target":           true,
+	"huge_pages":                          true,
+	"temp_buffers":                        true,
+	"statement_timeout":                   true,
+	"lock_timeout":                        true,
+	"idle_in_transaction_session_timeout": true,
+	"log_min_duration_statement":          true,
+	"track_activity_query_size":           true,
+	"jit":                                 true,
 }
 
 // allowedSelectPatterns restricts SELECT to specific safe
@@ -101,6 +101,9 @@ func ValidateExecutorSQL(sql string) error {
 		}
 		// Secondary checks for dangerous prefixes.
 		if err := checkSecondary(upper, prefix); err != nil {
+			return err
+		}
+		if err := checkProtectedSchemaUsage(trimmed, prefix); err != nil {
 			return err
 		}
 		return nil
@@ -267,4 +270,135 @@ func rejectMultiStatement(sql string) error {
 		)
 	}
 	return nil
+}
+
+func checkProtectedSchemaUsage(trimmed, prefix string) error {
+	var ident string
+	switch prefix {
+	case "CREATE INDEX", "CREATE UNIQUE INDEX":
+		ident = tokenAfterKeyword(trimmed, "ON")
+	case "DROP INDEX":
+		ident = firstObjectAfter(
+			trimmed, "DROP INDEX",
+			"CONCURRENTLY", "IF", "EXISTS")
+	case "REINDEX":
+		ident = reindexObject(trimmed)
+	case "VACUUM":
+		ident = vacuumObject(trimmed)
+	case "ANALYZE":
+		ident = firstObjectAfter(trimmed, "ANALYZE", "VERBOSE")
+	case "ALTER TABLE":
+		ident = firstObjectAfter(trimmed, "ALTER TABLE", "IF", "EXISTS")
+	default:
+		return nil
+	}
+	if ident == "" {
+		return nil
+	}
+	schema := schemaFromIdentifier(ident)
+	if isProtectedExecutorSchema(schema) {
+		return fmt.Errorf(
+			"%w: executor may not target protected schema %q",
+			ErrDisallowedSQL, schema)
+	}
+	return nil
+}
+
+func tokenAfterKeyword(sql, keyword string) string {
+	fields := strings.Fields(sql)
+	for i := 0; i < len(fields)-1; i++ {
+		if strings.EqualFold(fields[i], keyword) {
+			return cleanupIdentifierToken(fields[i+1])
+		}
+	}
+	return ""
+}
+
+func firstObjectAfter(sql, prefix string, skip ...string) string {
+	fields := strings.Fields(sql)
+	prefixFields := strings.Fields(prefix)
+	if len(fields) < len(prefixFields)+1 {
+		return ""
+	}
+	i := len(prefixFields)
+	for i < len(fields) && containsFold(skip, fields[i]) {
+		i++
+	}
+	if i >= len(fields) {
+		return ""
+	}
+	return cleanupIdentifierToken(fields[i])
+}
+
+func reindexObject(sql string) string {
+	fields := strings.Fields(sql)
+	if len(fields) < 3 {
+		return ""
+	}
+	i := 1
+	if strings.EqualFold(fields[i], "(VERBOSE)") {
+		i++
+	}
+	if i >= len(fields)-1 {
+		return ""
+	}
+	scope := strings.ToUpper(fields[i])
+	if scope == "DATABASE" || scope == "SYSTEM" || scope == "SCHEMA" {
+		return ""
+	}
+	return cleanupIdentifierToken(fields[i+1])
+}
+
+func vacuumObject(sql string) string {
+	fields := strings.Fields(sql)
+	for i := 1; i < len(fields); i++ {
+		token := strings.Trim(fields[i], ",;")
+		upper := strings.ToUpper(token)
+		if upper == "FULL" || upper == "FREEZE" ||
+			upper == "VERBOSE" || upper == "ANALYZE" ||
+			strings.HasPrefix(upper, "(") {
+			continue
+		}
+		return cleanupIdentifierToken(token)
+	}
+	return ""
+}
+
+func containsFold(values []string, v string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, v) {
+			return true
+		}
+	}
+	return false
+}
+
+func cleanupIdentifierToken(token string) string {
+	token = strings.TrimSpace(token)
+	token = strings.TrimRight(token, ";,")
+	if idx := strings.Index(token, "("); idx > 0 {
+		token = token[:idx]
+	}
+	return token
+}
+
+func schemaFromIdentifier(ident string) string {
+	ident = strings.TrimSpace(ident)
+	if ident == "" {
+		return ""
+	}
+	dot := strings.LastIndex(ident, ".")
+	if dot < 0 {
+		return ""
+	}
+	return strings.Trim(ident[:dot], `"`)
+}
+
+func isProtectedExecutorSchema(schema string) bool {
+	schema = strings.ToLower(strings.Trim(schema, `"`))
+	switch schema {
+	case "pg_catalog", "information_schema", "google_ml":
+		return true
+	}
+	return strings.HasPrefix(schema, "_timescaledb_")
 }

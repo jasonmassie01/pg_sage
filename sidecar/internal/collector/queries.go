@@ -69,26 +69,26 @@ SELECT s.schemaname, s.relname,
        COALESCE(s.n_live_tup, 0), COALESCE(s.n_dead_tup, 0),
        s.last_vacuum, s.last_autovacuum, s.last_analyze, s.last_autoanalyze,
        s.vacuum_count, s.autovacuum_count, s.analyze_count, s.autoanalyze_count,
-       pg_total_relation_size(c.oid) AS total_bytes,
-       pg_table_size(c.oid) AS table_bytes,
+       COALESCE(pg_total_relation_size(c.oid), 0) AS total_bytes,
+       COALESCE(pg_table_size(c.oid), 0) AS table_bytes,
        COALESCE(pg_indexes_size(c.oid), 0) AS index_bytes,
        c.relpersistence::text
   FROM pg_stat_user_tables s
   JOIN pg_class c ON c.relname = s.relname
   JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = s.schemaname
  WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
-   AND (s.schemaname, s.relname) > ($1, $1)
+   AND (s.schemaname, s.relname) > ($1, $2)
  ORDER BY s.schemaname, s.relname
- LIMIT $2`
+ LIMIT $3`
 
 const indexStatsSQL = `
 SELECT s.schemaname, s.relname, s.indexrelname,
        COALESCE(s.idx_scan, 0), COALESCE(s.idx_tup_read, 0),
        COALESCE(s.idx_tup_fetch, 0),
-       pg_relation_size(i.indexrelid) AS index_bytes,
+       COALESCE(pg_relation_size(i.indexrelid), 0) AS index_bytes,
        ix.indisunique, ix.indisprimary, ix.indisvalid,
-       pg_get_indexdef(i.indexrelid) AS indexdef,
-       am.amname AS index_type
+       COALESCE(pg_get_indexdef(i.indexrelid), '') AS indexdef,
+       COALESCE(am.amname, 'unknown') AS index_type
   FROM pg_stat_user_indexes s
   JOIN pg_statio_user_indexes i ON i.indexrelid = s.indexrelid
   JOIN pg_index ix ON ix.indexrelid = s.indexrelid
