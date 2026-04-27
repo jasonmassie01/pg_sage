@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -63,7 +64,12 @@ func (e *Executor) ExecuteManual(
 		}
 	}
 
-	execErr := e.execManualSQLWithRetry(ctx, sql, ddlTimeout, lockOpt)
+	var execErr error
+	if categorizeAction(sql) == "analyze" {
+		execErr = e.executeManualAnalyze(ctx, findingID, sql)
+	} else {
+		execErr = e.execManualSQLWithRetry(ctx, sql, ddlTimeout, lockOpt)
+	}
 
 	actionID := e.logManualAction(
 		ctx, findingID, sql, rollbackSQL,
@@ -185,6 +191,41 @@ func compactSQL(sql string) string {
 	return strings.Join(strings.Fields(
 		strings.TrimSuffix(strings.TrimSpace(sql), ";"),
 	), " ")
+}
+
+func (e *Executor) executeManualAnalyze(
+	ctx context.Context,
+	findingID int,
+	sql string,
+) error {
+	finding, err := e.manualAnalyzeFinding(ctx, findingID, sql)
+	if err != nil {
+		return err
+	}
+	return e.executeAnalyze(ctx, finding)
+}
+
+func (e *Executor) manualAnalyzeFinding(
+	ctx context.Context,
+	findingID int,
+	sql string,
+) (analyzer.Finding, error) {
+	var objectIdentifier string
+	err := e.pool.QueryRow(ctx,
+		`SELECT COALESCE(object_identifier, '')
+		   FROM sage.findings
+		  WHERE id = $1`,
+		findingID,
+	).Scan(&objectIdentifier)
+	if err != nil {
+		return analyzer.Finding{}, fmt.Errorf(
+			"loading analyze finding %d: %w", findingID, err)
+	}
+	return analyzer.Finding{
+		ObjectIdentifier: objectIdentifier,
+		RecommendedSQL:   sql,
+		Detail:           map[string]any{},
+	}, nil
 }
 
 func (e *Executor) execManualSQLWithRetry(

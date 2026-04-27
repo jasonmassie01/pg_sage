@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useAPI, withTimeRange } from '../hooks/useAPI'
 import { useTimeRange } from '../context/TimeRangeContext'
 import { SQLBlock } from '../components/SQLBlock'
@@ -27,6 +27,7 @@ export function Actions({ database, user }) {
   const [tab, setTab] = useState('executed')
   const range = useTimeRange()
   const canReview = user?.role === 'admin' || user?.role === 'operator'
+  const activeTab = canReview ? tab : 'executed'
   const dbParam = database && database !== 'all'
     ? `?database=${database}` : ''
 
@@ -41,16 +42,10 @@ export function Actions({ database, user }) {
   useLiveRefetch(['actions'], refetch)
   useLiveRefetch(['actions'], canReview ? pendingRefetch : null)
 
-  useEffect(() => {
-    if (!canReview && tab !== 'executed') {
-      setTab('executed')
-    }
-  }, [canReview, tab])
-
-  if (tab === 'executed' || !canReview) {
+  if (activeTab === 'executed') {
     return (
       <div className="space-y-4">
-        <TabBar tab={tab} setTab={setTab}
+        <TabBar tab={activeTab} setTab={setTab}
           pendingCount={pendingData?.total || 0}
           canReview={canReview} />
         <ExecutedTab data={data} loading={loading}
@@ -61,7 +56,7 @@ export function Actions({ database, user }) {
 
   return (
     <div className="space-y-4">
-      <TabBar tab={tab} setTab={setTab}
+      <TabBar tab={activeTab} setTab={setTab}
         pendingCount={pendingData?.total || 0}
         canReview={canReview} />
       <PendingTab data={pendingData}
