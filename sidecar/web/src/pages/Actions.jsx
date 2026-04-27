@@ -67,7 +67,7 @@ export function Actions({ database, user }) {
       <PendingTab data={pendingData}
         loading={pendingLoading}
         error={pendingError}
-        refetch={pendingRefetch} user={user} />
+        refetch={pendingRefetch} />
     </div>
   )
 }
@@ -350,7 +350,7 @@ function PendingSkeleton() {
 }
 
 function PendingTab({
-  data, loading, error, refetch, user,
+  data, loading, error, refetch,
 }) {
   const [rejectId, setRejectId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
