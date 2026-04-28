@@ -1,6 +1,9 @@
 package cases
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestShadowReportCountsAutoSafeCandidates(t *testing.T) {
 	report := BuildShadowReport([]Case{
@@ -56,6 +59,7 @@ func TestShadowReportCountsAutoSafeCandidates(t *testing.T) {
 }
 
 func TestShadowReportPrefersDurableActionHistory(t *testing.T) {
+	proposedAt := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
 	report := BuildShadowReport([]Case{
 		NewCase(CaseInput{
 			IdentityKey:  "case-queued",
@@ -71,8 +75,10 @@ func TestShadowReportPrefersDurableActionHistory(t *testing.T) {
 			Type:              "analyze_table",
 			RiskTier:          "safe",
 			Status:            "pending",
+			LifecycleState:    "blocked",
 			PolicyDecision:    "queue_for_approval",
 			ShadowToilMinutes: 15,
+			ProposedAt:        &proposedAt,
 		}}),
 		NewCase(CaseInput{
 			IdentityKey:  "case-executed",
@@ -107,6 +113,11 @@ func TestShadowReportPrefersDurableActionHistory(t *testing.T) {
 	if report.Proof[0].CaseID != "case-queued" ||
 		report.Proof[0].PolicyDecision != "queue_for_approval" {
 		t.Fatalf("queued proof = %#v", report.Proof[0])
+	}
+	if report.Proof[0].ActionID != "queue:7" ||
+		report.Proof[0].LifecycleState != "blocked" ||
+		report.Proof[0].ProposedAt != "2026-04-27T12:00:00Z" {
+		t.Fatalf("queued proof provenance = %#v", report.Proof[0])
 	}
 	if report.Proof[1].CaseID != "case-executed" ||
 		report.Proof[1].EstimatedToilMins != 15 {

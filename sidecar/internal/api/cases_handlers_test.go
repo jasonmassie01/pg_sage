@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -193,6 +194,104 @@ func TestCaseActionFromQueuedActionIncludesLifecycle(t *testing.T) {
 	}
 	if len(got.Guardrails) != 1 {
 		t.Fatalf("Guardrails = %#v, want one guardrail", got.Guardrails)
+	}
+}
+
+func TestCaseActionFromQueuedActionUsesQueueReasonFallback(t *testing.T) {
+	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
+	action := store.QueuedAction{
+		ID:             12,
+		FindingID:      42,
+		ActionType:     "create_index_concurrently",
+		ActionRisk:     "moderate",
+		Status:         "rejected",
+		Reason:         "operator rejected risk",
+		ProposedAt:     now.Add(-time.Hour),
+		ExpiresAt:      now.Add(24 * time.Hour),
+		PolicyDecision: "queue_for_approval",
+	}
+
+	got := caseActionFromQueuedAction(action, now)
+
+	if got.ID != "queue:12" {
+		t.Fatalf("ID = %q, want queue:12", got.ID)
+	}
+	if got.Status != "rejected" {
+		t.Fatalf("Status = %q, want rejected", got.Status)
+	}
+	if got.LifecycleState != store.ActionLifecycleReady {
+		t.Fatalf("LifecycleState = %q, want ready", got.LifecycleState)
+	}
+	if got.BlockedReason != "operator rejected risk" {
+		t.Fatalf("BlockedReason = %q, want queue reason",
+			got.BlockedReason)
+	}
+}
+
+func TestEnrichCaseActionTimelineIncludesExpiredQueueLedger(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	findingID := insertActionHandlerFinding(t, pool, ctx, "expired_case_ledger")
+	actionStore := store.NewActionStore(pool)
+	expiresAt := time.Now().UTC().Add(-time.Hour)
+	actionID, err := actionStore.ProposeWithMetadata(
+		ctx, nil, findingID,
+		"ANALYZE public.expired_case_ledger",
+		"", "safe",
+		store.ActionProposalMetadata{
+			ActionType:         "analyze_table",
+			PolicyDecision:     "execute",
+			Guardrails:         []string{"dedicated connection"},
+			VerificationStatus: "not_started",
+			ShadowToilMinutes:  15,
+			ExpiresAt:          &expiresAt,
+		},
+	)
+	if err != nil {
+		t.Fatalf("ProposeWithMetadata: %v", err)
+	}
+	if _, err := actionStore.MarkExpiredByReadiness(ctx); err != nil {
+		t.Fatalf("MarkExpiredByReadiness: %v", err)
+	}
+	c := cases.Case{
+		ID:        "case-expired-ledger",
+		Title:     "expired queued action",
+		SourceIDs: []string{strconv.Itoa(findingID)},
+	}
+
+	enrichCaseActionTimeline(ctx, &c, pool, actionStore)
+
+	if len(c.Actions) != 1 {
+		t.Fatalf("Actions len = %d, want one expired ledger action", len(c.Actions))
+	}
+	action := c.Actions[0]
+	if action.ID != "queue:"+strconv.Itoa(actionID) {
+		t.Fatalf("Action ID = %q, want queue:%d", action.ID, actionID)
+	}
+	if action.Status != "expired" {
+		t.Fatalf("Status = %q, want expired", action.Status)
+	}
+	if action.LifecycleState != store.ActionLifecycleExpired {
+		t.Fatalf("LifecycleState = %q, want expired", action.LifecycleState)
+	}
+	if action.BlockedReason != "action proposal expired" {
+		t.Fatalf("BlockedReason = %q, want action proposal expired",
+			action.BlockedReason)
+	}
+
+	report := cases.BuildShadowReport([]cases.Case{c})
+	if report.Blocked != 1 || report.RequiresApproval != 1 {
+		t.Fatalf("shadow counts = blocked %d approval %d, want 1/1",
+			report.Blocked, report.RequiresApproval)
+	}
+	if len(report.Proof) != 1 || report.Proof[0].Status != "expired" {
+		t.Fatalf("shadow proof = %#v, want expired status", report.Proof)
+	}
+	if len(report.BlockedReasons) != 1 ||
+		report.BlockedReasons[0] != "action proposal expired" {
+		t.Fatalf("BlockedReasons = %#v, want action proposal expired",
+			report.BlockedReasons)
 	}
 }
 

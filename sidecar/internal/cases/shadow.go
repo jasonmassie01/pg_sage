@@ -1,6 +1,9 @@
 package cases
 
-import "sort"
+import (
+	"sort"
+	"time"
+)
 
 type ShadowReport struct {
 	TotalCases        int               `json:"total_cases"`
@@ -13,12 +16,15 @@ type ShadowReport struct {
 }
 
 type ShadowProofItem struct {
+	ActionID          string `json:"action_id,omitempty"`
 	CaseID            string `json:"case_id"`
 	Title             string `json:"title"`
 	ActionType        string `json:"action_type"`
 	PolicyDecision    string `json:"policy_decision"`
+	LifecycleState    string `json:"lifecycle_state,omitempty"`
 	Status            string `json:"status,omitempty"`
 	Verification      string `json:"verification_status,omitempty"`
+	ProposedAt        string `json:"proposed_at,omitempty"`
 	EstimatedToilMins int    `json:"estimated_toil_minutes"`
 	BlockedReason     string `json:"blocked_reason,omitempty"`
 }
@@ -70,12 +76,15 @@ func addActionProof(
 		toil := estimatedToilForAction(a.Type, a.ShadowToilMinutes)
 		policy := actionHistoryPolicyDecision(a)
 		proof := ShadowProofItem{
+			ActionID:          a.ID,
 			CaseID:            c.ID,
 			Title:             c.Title,
 			ActionType:        a.Type,
 			PolicyDecision:    policy,
+			LifecycleState:    a.LifecycleState,
 			Status:            a.Status,
 			Verification:      a.VerificationStatus,
+			ProposedAt:        shadowProofTime(a.ProposedAt),
 			EstimatedToilMins: toil,
 			BlockedReason:     a.BlockedReason,
 		}
@@ -144,4 +153,11 @@ func sortedReasons(reasons map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func shadowProofTime(value *time.Time) string {
+	if value == nil || value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }

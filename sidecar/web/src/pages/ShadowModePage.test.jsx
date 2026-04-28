@@ -25,9 +25,13 @@ vi.mock('../hooks/useAPI', () => ({
           case_id: 'case-2',
           title: 'Needs DDL',
           action_type: 'create_index_concurrently',
+          action_id: 'queue:42',
           policy_decision: 'queue_for_approval',
+          lifecycle_state: 'expired',
+          status: 'expired',
+          proposed_at: '2026-04-27T12:00:00Z',
           estimated_toil_minutes: 30,
-          blocked_reason: 'requires approval',
+          blocked_reason: 'action proposal expired',
         },
       ],
     },
@@ -49,5 +53,12 @@ describe('ShadowModePage', () => {
     expect(screen.getByText('Verification: verified')).toBeInTheDocument()
     expect(screen.getAllByText(/requires approval/).length)
       .toBeGreaterThan(0)
+    expect(screen.getByText('Action: queue:42')).toBeInTheDocument()
+    expect(screen.getByText('Lifecycle: expired')).toBeInTheDocument()
+    expect(screen.getByText('Status: expired')).toBeInTheDocument()
+    expect(screen.getByText('Proposed: 2026-04-27T12:00:00Z'))
+      .toBeInTheDocument()
+    expect(screen.getByText('Blocked: action proposal expired'))
+      .toBeInTheDocument()
   })
 })

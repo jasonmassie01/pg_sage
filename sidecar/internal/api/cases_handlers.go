@@ -121,7 +121,7 @@ func enrichCaseActionTimeline(
 		return
 	}
 	if actionStore != nil {
-		queued, err := actionStore.ListPendingByFinding(ctx, findingID)
+		queued, err := actionStore.ListLedgerByFinding(ctx, findingID)
 		if err == nil {
 			now := time.Now().UTC()
 			for _, action := range queued {
@@ -155,6 +155,10 @@ func caseActionFromQueuedAction(
 		Now:                    now,
 	})
 	proposedAt := action.ProposedAt
+	blockedReason := decision.BlockedReason
+	if blockedReason == "" {
+		blockedReason = action.Reason
+	}
 	return cases.CaseAction{
 		ID:                 fmt.Sprintf("queue:%d", action.ID),
 		Type:               queuedActionType(action),
@@ -162,7 +166,7 @@ func caseActionFromQueuedAction(
 		Status:             action.Status,
 		PolicyDecision:     action.PolicyDecision,
 		LifecycleState:     decision.State,
-		BlockedReason:      decision.BlockedReason,
+		BlockedReason:      blockedReason,
 		VerificationStatus: action.VerificationStatus,
 		AttemptCount:       action.AttemptCount,
 		ShadowToilMinutes:  action.ShadowToilMinutes,

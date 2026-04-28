@@ -154,6 +154,28 @@ func (s *ActionStore) ListPendingByFinding(
 	return scanQueuedActions(r)
 }
 
+// ListLedgerByFinding returns non-executed queued actions for the given
+// finding_id, including expired, failed, blocked, and rejected proposals.
+func (s *ActionStore) ListLedgerByFinding(
+	ctx context.Context, findingID int,
+) ([]QueuedAction, error) {
+	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	r, err := s.pool.Query(qctx,
+		queuedActionSelectSQL+`
+ WHERE q.finding_id = $1
+   AND q.status <> 'executed'
+ ORDER BY q.proposed_at DESC, q.id DESC
+ LIMIT 20`, findingID)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"listing action ledger by finding %d: %w", findingID, err)
+	}
+	defer r.Close()
+	return scanQueuedActions(r)
+}
+
 const listPendingBaseSQL = `SELECT q.id, q.database_id, q.finding_id,
  q.proposed_sql, q.rollback_sql, q.action_risk, q.status,
  q.proposed_at, q.decided_by, q.decided_at, q.expires_at,
@@ -173,6 +195,19 @@ WHERE q.status = 'pending'
    AND f.status = 'open'
    AND f.acted_on_at IS NULL
    AND f.resolved_at IS NULL`
+
+const queuedActionSelectSQL = `SELECT q.id, q.database_id, q.finding_id,
+ q.proposed_sql, q.rollback_sql, q.action_risk, q.status,
+ q.proposed_at, q.decided_by, q.decided_at, q.expires_at,
+ COALESCE(q.reason, ''), COALESCE(q.action_type, ''),
+ COALESCE(q.identity_key, ''), COALESCE(q.policy_decision, ''),
+ COALESCE(q.guardrails, '[]'::jsonb), COALESCE(q.attempt_count, 0),
+ q.last_attempt_at, q.cooldown_until,
+ COALESCE(q.failure_fingerprint, ''),
+ COALESCE(q.last_failure_fingerprint, ''),
+ COALESCE(q.verification_status, ''),
+ COALESCE(q.shadow_toil_minutes, 0), q.action_log_id
+ FROM sage.action_queue q`
 
 // Approve marks an action as approved. Returns the action.
 func (s *ActionStore) Approve(

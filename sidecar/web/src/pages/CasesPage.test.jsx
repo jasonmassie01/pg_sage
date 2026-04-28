@@ -46,6 +46,16 @@ vi.mock('../hooks/useAPI', () => ({
             verification_status: 'verified',
             attempt_count: 0,
           },
+          {
+            id: 'queue:91',
+            type: 'create_index_concurrently',
+            risk_tier: 'moderate',
+            status: 'expired',
+            lifecycle_state: 'expired',
+            blocked_reason: 'action proposal expired',
+            verification_status: 'not_started',
+            attempt_count: 0,
+          },
         ],
       }],
       total: 1,
@@ -81,5 +91,12 @@ describe('CasesPage', () => {
     expect(screen.getByText((_, element) =>
       element.textContent === 'Verification: verified',
     )).toBeInTheDocument()
+    expect(screen.getByText((_, element) =>
+      element.textContent === 'Status: expired',
+    )).toBeInTheDocument()
+    expect(screen.getByText((_, element) =>
+      element.textContent === 'Lifecycle: expired',
+    )).toBeInTheDocument()
+    expect(screen.getByText('action proposal expired')).toBeInTheDocument()
   })
 })
