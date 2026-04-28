@@ -22,6 +22,24 @@ vi.mock('../hooks/useAPI', () => ({
               pg_hint_plan: 'provider_parameter_required',
             },
             limitations: ['requires database flag for pg_hint_plan'],
+            action_families: [
+              {
+                action_type: 'diagnose_standby_conflicts',
+                supported: true,
+                decision: 'execute',
+              },
+              {
+                action_type: 'prepare_sequence_capacity_migration',
+                supported: true,
+                decision: 'queue_for_approval',
+                requires_approval: true,
+              },
+              {
+                action_type: 'ddl_preflight',
+                supported: true,
+                decision: 'queue_for_approval',
+              },
+            ],
           },
         },
         {
@@ -36,6 +54,14 @@ vi.mock('../hooks/useAPI', () => ({
               pg_stat_statements: 'unknown',
               pg_hint_plan: 'missing',
             },
+            action_families: [
+              {
+                action_type: 'vacuum_table',
+                supported: false,
+                decision: 'blocked',
+                blocked_reason: 'target database is a replica',
+              },
+            ],
           },
         },
       ],
@@ -55,6 +81,12 @@ describe('ProviderReadinessMatrix', () => {
     expect(screen.getByText('provider_parameter_required')).toBeInTheDocument()
     expect(screen.getByText('requires database flag for pg_hint_plan'))
       .toBeInTheDocument()
+    expect(screen.getByText('diagnose_standby_conflicts'))
+      .toBeInTheDocument()
+    expect(screen.getByText('prepare_sequence_capacity_migration'))
+      .toBeInTheDocument()
+    expect(screen.getByText('ddl_preflight')).toBeInTheDocument()
+    expect(screen.getByText('vacuum_table')).toBeInTheDocument()
     expect(screen.getByText('1 auto-safe ready')).toBeInTheDocument()
   })
 })

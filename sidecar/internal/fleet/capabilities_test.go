@@ -83,8 +83,25 @@ func TestBuildActionFamilyReadinessIncludesNewAutonomyFamilies(t *testing.T) {
 
 	for _, actionType := range []string{
 		"vacuum_table",
+		"diagnose_lock_blockers",
+		"diagnose_runaway_query",
+		"diagnose_connection_exhaustion",
 		"diagnose_wal_replication",
+		"diagnose_standby_conflicts",
+		"prepare_sequence_capacity_migration",
+		"cancel_backend",
+		"terminate_backend",
+		"diagnose_freeze_blockers",
+		"diagnose_vacuum_pressure",
+		"set_table_autovacuum",
+		"plan_bloat_remediation",
+		"reindex_concurrently",
 		"prepare_query_rewrite",
+		"promote_role_work_mem",
+		"create_statistics",
+		"prepare_parameterized_query",
+		"retire_query_hint",
+		"ddl_preflight",
 	} {
 		if actionReadiness(t, got, actionType).ActionType == "" {
 			t.Fatalf("%s missing from readiness", actionType)

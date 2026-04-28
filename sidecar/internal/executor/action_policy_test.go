@@ -123,3 +123,23 @@ func TestEvaluateActionPolicy_BlocksUnsupportedProvider(t *testing.T) {
 		t.Fatalf("BlockedReason = %q", decision.BlockedReason)
 	}
 }
+
+func TestEvaluateActionPolicy_ReadOnlyAllowsReplicaDiagnostics(t *testing.T) {
+	cfg := &config.Config{CloudEnvironment: "postgres"}
+	contract, ok := ContractForActionType("diagnose_standby_conflicts")
+	if !ok {
+		t.Fatal("diagnose_standby_conflicts contract missing")
+	}
+
+	decision := EvaluateActionPolicy(contract, ActionPolicyContext{
+		Config:    cfg,
+		IsReplica: true,
+	})
+
+	if decision.Decision != PolicyDecisionExecute {
+		t.Fatalf("Decision = %q, want execute", decision.Decision)
+	}
+	if decision.BlockedReason != "" {
+		t.Fatalf("BlockedReason = %q", decision.BlockedReason)
+	}
+}

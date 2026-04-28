@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { AlertTriangle, CheckCircle, CircleHelp } from 'lucide-react'
 import { useAPI } from '../hooks/useAPI'
 
@@ -24,6 +25,29 @@ function blockerText(row) {
   return (row.blockers || [])[0] ||
     (row.capabilities?.limitations || [])[0] ||
     'none'
+}
+
+function actionFamilies(row) {
+  return row.capabilities?.action_families || []
+}
+
+function familyColor(family) {
+  if (!family.supported || family.decision === 'blocked') {
+    return 'var(--red)'
+  }
+  if (family.requires_approval || family.decision === 'queue_for_approval') {
+    return 'var(--yellow)'
+  }
+  return 'var(--green)'
+}
+
+function familyTitle(family) {
+  return [
+    family.decision,
+    family.blocked_reason,
+    family.requires_approval ? 'approval required' : '',
+    family.requires_maintenance_window ? 'maintenance window' : '',
+  ].filter(Boolean).join(' · ')
 }
 
 export function ProviderReadinessMatrix() {
@@ -72,37 +96,63 @@ export function ProviderReadinessMatrix() {
           </thead>
           <tbody>
             {rows.map(row => (
-              <tr key={row.name}
-                style={{ borderTop: '1px solid var(--border)' }}>
-                <td className="py-2" style={{ color: 'var(--text-primary)' }}>
-                  {row.name}
-                </td>
-                <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
-                  {row.provider || 'unknown'}
-                </td>
-                <td className="py-2">
-                  <span className="inline-flex items-center gap-1"
-                    style={{ color: 'var(--text-secondary)' }}>
-                    {readinessIcon(row)}
-                    {row.ready_for_auto_safe ? 'ready' : 'blocked'}
-                  </span>
-                </td>
-                <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
-                  {statusText(row, 'analyze')}
-                </td>
-                <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
-                  {extensionText(row, 'pg_stat_statements')}
-                </td>
-                <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
-                  {extensionText(row, 'pg_hint_plan')}
-                </td>
-                <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
-                  {row.capabilities?.is_replica ? 'yes' : 'no'}
-                </td>
-                <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
-                  {blockerText(row)}
-                </td>
-              </tr>
+              <Fragment key={row.name}>
+                <tr key={`${row.name}-summary`}
+                  style={{ borderTop: '1px solid var(--border)' }}>
+                  <td className="py-2" style={{ color: 'var(--text-primary)' }}>
+                    {row.name}
+                  </td>
+                  <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
+                    {row.provider || 'unknown'}
+                  </td>
+                  <td className="py-2">
+                    <span className="inline-flex items-center gap-1"
+                      style={{ color: 'var(--text-secondary)' }}>
+                      {readinessIcon(row)}
+                      {row.ready_for_auto_safe ? 'ready' : 'blocked'}
+                    </span>
+                  </td>
+                  <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
+                    {statusText(row, 'analyze')}
+                  </td>
+                  <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
+                    {extensionText(row, 'pg_stat_statements')}
+                  </td>
+                  <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
+                    {extensionText(row, 'pg_hint_plan')}
+                  </td>
+                  <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
+                    {row.capabilities?.is_replica ? 'yes' : 'no'}
+                  </td>
+                  <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
+                    {blockerText(row)}
+                  </td>
+                </tr>
+                {actionFamilies(row).length > 0 && (
+                  <tr key={`${row.name}-families`}>
+                    <td colSpan={8} className="pb-3">
+                      <div className="flex flex-wrap gap-1.5"
+                        aria-label={`${row.name} action families`}>
+                        {actionFamilies(row).map(family => (
+                          <span key={family.action_type}
+                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs"
+                            title={familyTitle(family)}
+                            style={{
+                              color: familyColor(family),
+                              border: '1px solid var(--border)',
+                              background: 'var(--bg-muted)',
+                            }}>
+                            {family.action_type}
+                            <span style={{ color: 'var(--text-secondary)' }}>
+                              {family.decision}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>

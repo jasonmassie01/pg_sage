@@ -87,6 +87,8 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return incidentDiagnoseConnectionExhaustionContract(), true
 	case "diagnose_wal_replication":
 		return incidentDiagnoseWALReplicationContract(), true
+	case "diagnose_standby_conflicts":
+		return incidentDiagnoseStandbyConflictsContract(), true
 	case "prepare_sequence_capacity_migration":
 		return incidentSequenceCapacityMigrationContract(), true
 	case "cancel_backend":
@@ -289,6 +291,16 @@ func incidentDiagnoseWALReplicationContract() ActionContract {
 		"read replication lag and slot retention evidence",
 		"identify WAL retention cause without dropping slots",
 	)
+}
+
+func incidentDiagnoseStandbyConflictsContract() ActionContract {
+	c := diagnosticContract(
+		"diagnose_standby_conflicts",
+		"read standby conflict counters by database",
+		"identify replay conflict type without changing replica settings",
+	)
+	c.BaseRiskTier = "read_only"
+	return c
 }
 
 func incidentSequenceCapacityMigrationContract() ActionContract {
