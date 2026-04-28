@@ -1253,9 +1253,11 @@ sidecar role ownership/write privileges:</p>
 <li><strong>Never accesses credentials or secrets.</strong> Does not read <code>pg_authid.rolpassword</code> or password hashes.</li>
 <li><strong>Never modifies user data.</strong> Autonomous actions are limited to maintenance and schema operations such as <code>ANALYZE</code>, guarded index DDL, and approved incident actions. Never runs <code>INSERT</code>, <code>UPDATE</code>, or <code>DELETE</code> on user tables.</li>
 <li><strong>Never directly executes high-risk DDL.</strong> Rewrite-heavy or forward-fix-only schema changes become migration-safety cases with preflight evidence, generated scripts, verification SQL, and PR/CI metadata for human review.</li>
+<li><strong>Never ignores live DDL risk.</strong> Active workload, pending locks, replica lag, large table size, and missing lock-timeout evidence keep DDL in reviewed PR/script mode.</li>
 <li><strong>Never drops replication slots or changes sequence capacity autonomously.</strong> WAL/replication playbooks are read-only diagnostics, and sequence-exhaustion remediation is generated as a reviewed forward-fix migration.</li>
 <li><strong>Never runs maintenance during known IO saturation.</strong> Bloat autopilot blocks autonomous <code>VACUUM</code> candidates when IO pressure evidence is present and emits script/review output instead.</li>
 <li><strong>Never rewrites application queries autonomously.</strong> Query rewrites are generated as reviewable PR/script artifacts with semantic and plan verification steps.</li>
+<li><strong>Never parameterizes application code autonomously.</strong> Parameterization candidates are change-control artifacts, not direct database actions.</li>
 <li><strong>Never promotes role-level memory settings without review.</strong> Repeated per-query <code>work_mem</code> patterns can become a reviewed <code>ALTER ROLE</code> candidate, but they require approval because the blast radius is role-wide.</li>
 <li><strong>Never uses ALTER SYSTEM.</strong> Configuration changes are made through the YAML config file, not database-side settings.</li>
 <li><strong>Never phones home.</strong> Zero hardcoded external endpoints. All outbound connections are to user-configured addresses only.</li>

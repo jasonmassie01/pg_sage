@@ -1030,12 +1030,12 @@
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>  │
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>  ├── Executor         [trust-gated]
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>  │   ├── CONCURRENTLY DDL on raw pgx connection
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>  │   ├── DDL preflight + PR/CI script output for high-risk migrations
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>  │   ├── DDL lock/rewrite/live-risk preflight + PR/CI script output
 <a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>  │   ├── Incident playbooks for locks, runaway queries, connections, WAL,
 <a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>  │   │   replication, and sequence exhaustion
 <a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>  │   ├── Vacuum/bloat/freeze autopilot with IO and XID guardrails
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>  │   ├── Query tuning artifacts beyond hints: rewrites, hint retirement,
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>  │   │   and role-level work_mem promotion
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>  │   ├── Query tuning artifacts beyond hints: rewrites, statistics,
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>  │   │   parameterization, hint retirement, and role work_mem promotion
 <a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>  │   ├── Rollback monitor (read + write latency regression)
 <a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>  │   └── Emergency stop via sage.config
 <a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>  │
@@ -1128,25 +1128,30 @@ logged to <code>sage.action_log</code>; pending work and approval outcomes are t
 the action queue.</p>
 <p>High-risk schema changes are handled as migration-safety cases before direct
 execution. The case projector attaches deterministic DDL preflight evidence,
-generated migration SQL, rollback or forward-fix guidance, verification SQL,
-and PR/CI metadata. These artifacts are shown in Cases and Actions so teams can
-review schema work through their normal change-control process.</p>
+including lock/rewrite classification plus live table-size, activity, pending
+lock, replica-lag, and lock-timeout checks. It also attaches generated
+migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI
+metadata. These artifacts are shown in Cases and Actions so teams can review
+schema work through their normal change-control process.</p>
 <p>Incident playbooks follow the same typed-action model. Read-only diagnostics
-can inspect blocker graphs, runaway queries, connection pressure, and
-WAL/replication state. Backend cancel/terminate actions require exact PID
-evidence and approval. Sequence capacity changes are treated as forward-fix
-migrations with script and verification output rather than autonomous DDL.</p>
+can inspect blocker graphs, runaway queries, connection pressure,
+WAL/replication state, standby conflicts, and vacuum pressure. Backend
+cancel/terminate actions require exact PID evidence and approval. Sequence
+capacity changes are treated as forward-fix migrations with script and
+verification output rather than autonomous DDL.</p>
 <p>Vacuum, bloat, and freeze autopilot turns maintenance findings into bounded
 actions. Small table-bloat cases can propose guarded <code>VACUUM</code>; IO-saturated
 cases are blocked to script/review output; XID wraparound cases diagnose oldest
-<code>backend_xmin</code> holders; and per-table autovacuum reloption changes are queued
-as reviewed migration scripts with post-change verification.</p>
-<p>Query tuning has two paths. <code>pg_hint_plan</code> remains useful for reversible
+<code>backend_xmin</code> holders; concurrent reindex handles index-bloat remediation;
+and high-blast-radius table bloat produces reviewed online remediation plans
+instead of <code>VACUUM FULL</code> by default.</p>
+<p>Query tuning has multiple paths. <code>pg_hint_plan</code> remains useful for reversible
 planner experiments, but pg_sage can also generate application-query rewrite
-artifacts, retire broken hint experiments, and promote repeated per-role
-<code>work_mem</code> patterns into reviewed role settings. Those actions are modeled as
-typed cases with rollback class, verification steps, and PR/script output so
-they can move through change control like schema work.</p>
+artifacts, retire broken hint experiments, recommend <code>CREATE STATISTICS</code>, draft
+parameterization changes, and promote repeated per-role <code>work_mem</code> patterns
+into reviewed role settings. Those actions are modeled as typed cases with
+rollback class, verification steps, and PR/script output so they can move
+through change control like schema work.</p>
 <p>The executor checks: trust level, trust ramp, per-tier toggles, maintenance window, emergency stop flag, and replica status before acting.</p>
 <h3 id="api-dashboard-web-ui">API + Dashboard (Web UI)<a class="headerlink" href="#api-dashboard-web-ui" title="Permanent link">&para;</a></h3>
 <p>REST API and embedded React SPA on <code>:8080</code> (configurable). The v0.9 UI is

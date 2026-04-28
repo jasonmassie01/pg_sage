@@ -700,19 +700,21 @@ traditional observability dashboard:</p>
 prints a one-time password for <code>admin@pg-sage.local</code>; API clients authenticate
 through <code>/api/v1/auth/login</code> and reuse the <code>sage_session</code> cookie.</p>
 <p>Migration-safety cases are non-executing by default for high-risk DDL. pg_sage
-generates deterministic preflight evidence, migration SQL, rollback or
-forward-fix guidance, verification SQL, and PR/CI metadata so teams can review
-schema work before anything touches production.</p>
+generates deterministic lock/rewrite and live-risk preflight evidence,
+migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI
+metadata so teams can review schema work before anything touches production.</p>
 <p>Incident and maintenance cases now carry richer automation candidates. Lock
-blockers, runaway queries, connection exhaustion, WAL/replication pressure, and
-sequence exhaustion route to typed playbooks with safe diagnostics or reviewed
-scripts. Vacuum, bloat, and freeze findings project guarded <code>VACUUM</code>, freeze
-diagnostics, and per-table autovacuum tuning actions with explicit verification
-plans and IO-saturation gates.</p>
+blockers, runaway queries, connection exhaustion, standby conflicts,
+WAL/replication pressure, autovacuum pressure, and sequence exhaustion route to
+typed playbooks with safe diagnostics or reviewed scripts. Vacuum, bloat, and
+freeze findings project guarded <code>VACUUM</code>, concurrent reindex, bloat-remediation
+plans, freeze diagnostics, and per-table autovacuum tuning actions with
+explicit verification plans and IO-saturation gates.</p>
 <p>Query tuning cases are no longer limited to planner hints. pg_sage can turn
 suggested rewrites into PR-ready artifacts, retire broken hints through a safe
-metadata action, and promote repeated per-query <code>work_mem</code> hints into reviewed
-role-level settings when the blast radius is explicit.</p>
+metadata action, recommend <code>CREATE STATISTICS</code>, draft parameterization changes,
+and promote repeated per-query <code>work_mem</code> hints into reviewed role-level
+settings when the blast radius is explicit.</p>
 <p>Provider readiness is adapter-driven for self-managed Postgres, Cloud SQL,
 AlloyDB, RDS, and Aurora. The matrix shows extension enablement paths, log
 access, provider limitations, and action-family readiness so automation policy
