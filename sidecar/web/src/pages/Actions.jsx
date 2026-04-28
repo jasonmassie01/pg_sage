@@ -489,10 +489,16 @@ function PendingTab({
         <div className="flex gap-2">
           <button onClick={() => handleApprove(r.id)}
             data-testid="approve-button"
+            disabled={r.eligible === false}
+            title={r.eligible === false
+              ? (r.defer_reason || r.blocked_reason || 'Action is not eligible')
+              : undefined}
             className="px-2 py-1 rounded text-xs"
             style={{
               background: 'var(--green)',
               color: '#fff',
+              opacity: r.eligible === false ? 0.45 : 1,
+              cursor: r.eligible === false ? 'not-allowed' : 'pointer',
             }}>
             Approve
           </button>
@@ -635,6 +641,11 @@ function LifecycleDetails({ row }) {
       {row.blocked_reason && (
         <div style={{ color: 'var(--text-primary)' }}>
           {row.blocked_reason}
+        </div>
+      )}
+      {row.defer_reason && row.defer_reason !== row.blocked_reason && (
+        <div style={{ color: 'var(--text-primary)' }}>
+          {row.defer_reason}
         </div>
       )}
       {guardrails.length > 0 && (

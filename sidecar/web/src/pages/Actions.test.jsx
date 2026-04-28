@@ -31,6 +31,8 @@ vi.mock('../hooks/useAPI', () => ({
             finding_id: 99,
             status: 'pending',
             policy_decision: 'queue_for_approval',
+            eligible: false,
+            defer_reason: 'outside maintenance window',
             proposed_sql: 'CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)',
             rollback_sql: 'DROP INDEX CONCURRENTLY idx_orders_customer',
             proposed_at: '2026-04-28T12:00:00Z',
@@ -74,5 +76,15 @@ describe('Actions', () => {
       element.textContent?.includes('DROP INDEX CONCURRENTLY idx_orders_customer')
     )).length)
       .toBeGreaterThan(0)
+  })
+
+  it('disables approval for deferred pending actions', () => {
+    render(<Actions database="all" user={{ role: 'admin' }} />)
+
+    fireEvent.click(screen.getByTestId('actions-tab-pending'))
+
+    const approve = screen.getByTestId('approve-button')
+    expect(approve).toBeDisabled()
+    expect(approve).toHaveAttribute('title', 'outside maintenance window')
   })
 })

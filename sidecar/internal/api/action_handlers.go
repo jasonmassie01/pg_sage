@@ -18,6 +18,7 @@ import (
 // pendingActionsHandler returns pending approval queue items.
 func pendingActionsHandler(
 	as *store.ActionStore,
+	exec *executor.Executor,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var dbID *int
@@ -36,7 +37,7 @@ func pendingActionsHandler(
 
 		result := make([]map[string]any, 0, len(actions))
 		for _, a := range actions {
-			result = append(result, queuedActionMap(a))
+			result = append(result, queuedActionMapWithReadiness(a, exec))
 		}
 		jsonResponse(w, map[string]any{
 			"pending": result,
@@ -91,7 +92,7 @@ func fleetPendingActionsHandler(
 				continue
 			}
 			for _, a := range actions {
-				m := queuedActionMap(a)
+				m := queuedActionMapWithReadiness(a, inst.Executor)
 				m["database_name"] = inst.Name
 				allResult = append(allResult, m)
 			}
@@ -177,7 +178,7 @@ func findingPendingActionsHandler(
 					continue
 				}
 				for _, a := range actions {
-					m := queuedActionMap(a)
+					m := queuedActionMapWithReadiness(a, inst.Executor)
 					m["database_name"] = inst.Name
 					result = append(result, m)
 				}
@@ -194,7 +195,8 @@ func findingPendingActionsHandler(
 				return
 			}
 			for _, a := range actions {
-				result = append(result, queuedActionMap(a))
+				result = append(result,
+					queuedActionMapWithReadiness(a, deps.Executor))
 			}
 		}
 		jsonResponse(w, map[string]any{
@@ -219,7 +221,16 @@ func fleetApproveActionHandler(
 			return
 		}
 		as := store.NewActionStore(inst.Pool)
-		action, err := as.Approve(r.Context(), id, user.ID)
+		action, err := as.GetByID(r.Context(), id)
+		if err != nil {
+			jsonError(w, "failed to approve action",
+				http.StatusNotFound)
+			return
+		}
+		if !approvalReady(w, inst.Executor, *action) {
+			return
+		}
+		action, err = as.Approve(r.Context(), id, user.ID)
 		if err != nil {
 			jsonError(w, "failed to approve action",
 				http.StatusNotFound)
@@ -324,7 +335,18 @@ func approveActionHandler(
 			return
 		}
 
-		action, err := as.Approve(r.Context(), id, user.ID)
+		action, err := as.GetByID(r.Context(), id)
+		if err != nil {
+			slog.Error("approve action failed",
+				"action_id", id, "error", err)
+			jsonError(w, "failed to approve action",
+				http.StatusNotFound)
+			return
+		}
+		if !approvalReady(w, exec, *action) {
+			return
+		}
+		action, err = as.Approve(r.Context(), id, user.ID)
 		if err != nil {
 			slog.Error("approve action failed",
 				"action_id", id, "error", err)
@@ -444,6 +466,27 @@ func recordApproveExecutionSuccess(
 		return
 	}
 	_ = as.MarkExecuted(ctx, queueID, actionLogID, verificationStatus)
+}
+
+func approvalReady(
+	w http.ResponseWriter,
+	exec *executor.Executor,
+	action store.QueuedAction,
+) bool {
+	if exec == nil {
+		return true
+	}
+	readiness := exec.ApprovalReadiness(action, time.Now().UTC())
+	if readiness.Eligible {
+		return true
+	}
+	reason := strings.TrimSpace(readiness.DeferReason)
+	if reason == "" {
+		reason = "action is not eligible for approval"
+	}
+	jsonError(w, "action is not eligible: "+reason,
+		http.StatusConflict)
+	return false
 }
 
 func rollbackActionHandler(
@@ -684,6 +727,27 @@ func queuedActionMap(a store.QueuedAction) map[string]any {
 		"reason":       a.Reason,
 	}
 	addLifecycleFields(m, a)
+	return m
+}
+
+func queuedActionMapWithReadiness(
+	a store.QueuedAction,
+	exec *executor.Executor,
+) map[string]any {
+	m := queuedActionMap(a)
+	if exec == nil {
+		return m
+	}
+	readiness := exec.ApprovalReadiness(a, time.Now().UTC())
+	m["eligible"] = readiness.Eligible
+	if readiness.DeferReason != "" {
+		m["defer_reason"] = readiness.DeferReason
+		m["blocked_reason"] = readiness.DeferReason
+	}
+	if readiness.PolicyKnown {
+		m["policy_detail"] = readiness.Policy
+	}
+	m["lifecycle_detail"] = readiness.Lifecycle
 	return m
 }
 
