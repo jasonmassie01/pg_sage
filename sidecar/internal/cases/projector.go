@@ -52,6 +52,10 @@ func evidenceTypeForFinding(f SourceFinding) string {
 }
 
 func actionCandidatesForFinding(f SourceFinding) []ActionCandidate {
+	if f.Category == "migration_safety" {
+		return migrationSafetyCandidates(f)
+	}
+
 	sql := strings.TrimSpace(f.RecommendedSQL)
 	if sql == "" {
 		return nil
@@ -75,6 +79,52 @@ func actionCandidatesForFinding(f SourceFinding) []ActionCandidate {
 	}}
 }
 
+func migrationSafetyCandidates(f SourceFinding) []ActionCandidate {
+	sql := strings.TrimSpace(f.RecommendedSQL)
+	actionType := actionTypeForSQL(sql)
+	if actionType == "" {
+		actionType = "ddl_preflight"
+	}
+	riskTier := riskForActionType(actionType)
+	if detailFloat(f.Detail, "risk_score", 0) > 0.7 {
+		riskTier = "high"
+	}
+	expires := time.Now().UTC().Add(24 * time.Hour)
+	candidate := ActionCandidate{
+		ActionType:       actionType,
+		RiskTier:         riskTier,
+		Confidence:       migrationSafetyConfidence(f),
+		ProposedSQL:      sql,
+		ExpiresAt:        &expires,
+		OutputModes:      migrationOutputModes(actionType),
+		RollbackClass:    rollbackClassForAction(actionType),
+		VerificationPlan: verificationPlanForAction(actionType),
+	}
+	if actionType == "ddl_preflight" {
+		candidate.RollbackClass = "forward_fix_only"
+		candidate.VerificationPlan = []string{
+			"review generated migration plan",
+			"run verification SQL in CI or staging",
+			"rerun migration safety analyzer after deployment",
+		}
+	}
+	return []ActionCandidate{enrichDDLSafetyCandidate(f, candidate)}
+}
+
+func migrationSafetyConfidence(f SourceFinding) float64 {
+	if score := detailFloat(f.Detail, "risk_score", 0); score > 0 {
+		return score
+	}
+	return 0.70
+}
+
+func migrationOutputModes(actionType string) []string {
+	if actionType == "ddl_preflight" {
+		return []string{"generate_pr_or_script"}
+	}
+	return []string{"queue_for_approval", "generate_pr_or_script"}
+}
+
 func actionTypeForSQL(sql string) string {
 	upper := strings.ToUpper(strings.TrimSpace(sql))
 	switch {
@@ -86,6 +136,8 @@ func actionTypeForSQL(sql string) string {
 		return "drop_unused_index"
 	case strings.HasPrefix(upper, "ALTER TABLE "):
 		return "alter_table"
+	case upper != "":
+		return "ddl_preflight"
 	default:
 		return ""
 	}
@@ -108,6 +160,8 @@ func rollbackClassForAction(actionType string) string {
 		return "no_rollback_needed"
 	case "create_index_concurrently", "drop_unused_index":
 		return "reversible"
+	case "ddl_preflight":
+		return "forward_fix_only"
 	default:
 		return "forward_fix_only"
 	}
@@ -119,6 +173,13 @@ func verificationPlanForAction(actionType string) []string {
 			"verify last_analyze or analyze_count advanced",
 			"rerun analyzer and confirm stale-stat case no longer fires",
 			"compare planner row-estimate error for tracked queries",
+		}
+	}
+	if actionType == "ddl_preflight" {
+		return []string{
+			"run generated verification SQL in CI or staging",
+			"confirm lock and rewrite risks are acceptable",
+			"rerun migration safety analyzer after deployment",
 		}
 	}
 	return []string{"rerun analyzer and verify case state"}

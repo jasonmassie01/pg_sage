@@ -77,10 +77,44 @@ type ActionCandidate struct {
 	OutputModes               []string              `json:"output_modes,omitempty"`
 	RollbackClass             string                `json:"rollback_class,omitempty"`
 	VerificationPlan          []string              `json:"verification_plan,omitempty"`
+	DDLPreflight              *DDLPreflightReport   `json:"ddl_preflight,omitempty"`
+	ScriptOutput              *ScriptOutput         `json:"script_output,omitempty"`
 	Guardrails                []string              `json:"guardrails,omitempty"`
 	PolicyDecision            *ActionPolicyDecision `json:"policy_decision,omitempty"`
 	RequiresApproval          bool                  `json:"requires_approval,omitempty"`
 	RequiresMaintenanceWindow bool                  `json:"requires_maintenance_window,omitempty"`
+}
+
+type DDLPreflightReport struct {
+	Summary         string           `json:"summary"`
+	RiskScore       float64          `json:"risk_score,omitempty"`
+	LockLevel       string           `json:"lock_level,omitempty"`
+	RequiresRewrite bool             `json:"requires_rewrite"`
+	TableName       string           `json:"table_name,omitempty"`
+	TableSizeBytes  int64            `json:"table_size_bytes,omitempty"`
+	EstimatedRows   int64            `json:"estimated_rows,omitempty"`
+	ActiveQueries   int              `json:"active_queries,omitempty"`
+	PendingLocks    int              `json:"pending_locks,omitempty"`
+	ReplicationLag  float64          `json:"replication_lag_seconds,omitempty"`
+	EstimatedLockMs int64            `json:"estimated_lock_ms,omitempty"`
+	Checks          []PreflightCheck `json:"checks,omitempty"`
+}
+
+type PreflightCheck struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+}
+
+type ScriptOutput struct {
+	Filename        string   `json:"filename"`
+	MigrationSQL    string   `json:"migration_sql"`
+	RollbackSQL     string   `json:"rollback_sql,omitempty"`
+	VerificationSQL []string `json:"verification_sql,omitempty"`
+	PRTitle         string   `json:"pr_title,omitempty"`
+	PRBody          string   `json:"pr_body,omitempty"`
+	RiskLabels      []string `json:"risk_labels,omitempty"`
+	Format          string   `json:"format"`
 }
 
 func (a ActionCandidate) IsExecutable(now time.Time) bool {

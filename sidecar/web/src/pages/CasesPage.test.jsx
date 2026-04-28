@@ -23,6 +23,32 @@ vi.mock('../hooks/useAPI', () => ({
             requires_approval: false,
             requires_maintenance_window: false,
           },
+        }, {
+          action_type: 'ddl_preflight',
+          risk_tier: 'high',
+          output_modes: ['generate_pr_or_script'],
+          rollback_class: 'forward_fix_only',
+          ddl_preflight: {
+            summary: 'ACCESS EXCLUSIVE rewrite risk',
+            lock_level: 'ACCESS EXCLUSIVE',
+            requires_rewrite: true,
+            risk_score: 0.82,
+            checks: [
+              { name: 'lock_timeout', status: 'pass', detail: '5s' },
+              { name: 'replica_lag', status: 'warn', detail: '32s' },
+            ],
+          },
+          script_output: {
+            filename: 'case-1_ddl_preflight.sql',
+            migration_sql: '-- forward fix migration',
+            rollback_sql: '',
+            verification_sql: [
+              'SELECT attname FROM pg_attribute',
+            ],
+            pr_title: 'Review DDL safety plan',
+            pr_body: 'Forward-fix only; apply during maintenance window.',
+            risk_labels: ['high_risk', 'forward_fix_only'],
+          },
         }],
         actions: [
           {
@@ -94,6 +120,17 @@ describe('CasesPage', () => {
       element.textContent === 'Policy: execute',
     )).toBeInTheDocument()
     expect(screen.getByText('dedicated connection')).toBeInTheDocument()
+    expect(screen.getByText('DDL preflight')).toBeInTheDocument()
+    expect(screen.getByText('ACCESS EXCLUSIVE rewrite risk'))
+      .toBeInTheDocument()
+    expect(screen.getByText('Migration script')).toBeInTheDocument()
+    expect(screen.getByText('case-1_ddl_preflight.sql'))
+      .toBeInTheDocument()
+    expect(screen.getByText('PR / CI output')).toBeInTheDocument()
+    expect(screen.getByText('Review DDL safety plan')).toBeInTheDocument()
+    expect(screen.getAllByText((_, element) =>
+      element.textContent.includes('SELECT attname FROM pg_attribute'),
+    ).length).toBeGreaterThan(0)
     expect(screen.getByText((_, element) =>
       element.textContent === 'Lifecycle: blocked',
     )).toBeInTheDocument()

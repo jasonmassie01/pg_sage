@@ -17,6 +17,7 @@ The release also adds more trust-building surface for teams evaluating autonomy.
 ### Added
 
 - Cases now consolidate schema-health, forecast, incident, and query-hint work into one DBA case surface. Legacy `#/schema-health`, `#/forecasts`, `#/incidents`, and `#/query-hints` routes now open Cases with the relevant source filter selected, while the Cases API projects active/broken query hints as case evidence alongside existing findings and incidents.
+- Migration-safety cases now include a deterministic DDL preflight report and PR/CI-ready script output. Case and action detail surfaces show lock/rewrite risk, live-risk checks when available, generated migration SQL, rollback or forward-fix guidance, verification SQL, and PR metadata without directly executing high-risk DDL.
 
 ### Fixed
 

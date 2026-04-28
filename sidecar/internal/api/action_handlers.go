@@ -833,11 +833,40 @@ func actionScriptOutput(a store.QueuedAction) map[string]any {
 		actionType = "ddl_action"
 	}
 	return map[string]any{
-		"filename":      strconv.Itoa(a.FindingID) + "_" + actionType + ".sql",
-		"migration_sql": a.ProposedSQL,
-		"rollback_sql":  a.RollbackSQL,
-		"format":        "sql",
+		"filename":         strconv.Itoa(a.FindingID) + "_" + actionType + ".sql",
+		"migration_sql":    a.ProposedSQL,
+		"rollback_sql":     a.RollbackSQL,
+		"verification_sql": actionVerificationSQL(a),
+		"pr_title":         "Review pg_sage action: " + actionType,
+		"pr_body":          actionPRBody(a),
+		"risk_labels":      []string{a.ActionRisk, actionType},
+		"format":           "sql",
 	}
+}
+
+func actionVerificationSQL(a store.QueuedAction) []string {
+	switch strings.TrimSpace(a.ActionType) {
+	case "create_index_concurrently":
+		return []string{
+			"-- Verify pg_index.indisvalid and indisready for the new index.",
+			"-- Rerun EXPLAIN for the affected query.",
+		}
+	case "drop_unused_index":
+		return []string{
+			"-- Verify the index is absent with to_regclass().",
+			"-- Watch application errors and query latency after deploy.",
+		}
+	default:
+		return []string{
+			"-- Run the case verification query before merging.",
+			"-- Rerun pg_sage analyzers after deployment.",
+		}
+	}
+}
+
+func actionPRBody(a store.QueuedAction) string {
+	return "Generated from pg_sage finding " + strconv.Itoa(a.FindingID) +
+		". Review migration SQL, rollback or mitigation, and verification SQL."
 }
 
 func isDDLScriptAction(a store.QueuedAction) bool {

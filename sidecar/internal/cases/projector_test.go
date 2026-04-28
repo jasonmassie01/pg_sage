@@ -278,9 +278,31 @@ func TestProjectFindingMigrationSafetyCreateIndexCandidate(t *testing.T) {
 		t.Fatalf("RollbackClass = %q, want reversible",
 			action.RollbackClass)
 	}
+	if action.DDLPreflight == nil {
+		t.Fatal("expected DDL preflight report")
+	}
+	if action.DDLPreflight.LockLevel == "" {
+		t.Fatalf("expected lock-level preflight detail")
+	}
+	if action.ScriptOutput == nil {
+		t.Fatal("expected PR/CI script output")
+	}
+	if action.ScriptOutput.MigrationSQL != f.RecommendedSQL {
+		t.Fatalf("MigrationSQL = %q, want %q",
+			action.ScriptOutput.MigrationSQL, f.RecommendedSQL)
+	}
+	if action.ScriptOutput.RollbackSQL == "" {
+		t.Fatal("expected rollback SQL for reversible index change")
+	}
+	if len(action.ScriptOutput.VerificationSQL) == 0 {
+		t.Fatal("expected verification SQL")
+	}
+	if action.ScriptOutput.PRTitle == "" || action.ScriptOutput.PRBody == "" {
+		t.Fatalf("expected PR title/body: %#v", action.ScriptOutput)
+	}
 }
 
-func TestProjectFindingMigrationSafetyAdvisoryOnly(t *testing.T) {
+func TestProjectFindingMigrationSafetyAdvisoryOnlyProducesPreflightScript(t *testing.T) {
 	f := SourceFinding{
 		ID:               "203",
 		DatabaseName:     "prod",
@@ -299,9 +321,35 @@ func TestProjectFindingMigrationSafetyAdvisoryOnly(t *testing.T) {
 
 	got := ProjectFinding(f)
 
-	if len(got.ActionCandidates) != 0 {
-		t.Fatalf("expected no action candidates, got %d",
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("expected one action candidate, got %d",
 			len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	if action.ActionType != "ddl_preflight" {
+		t.Fatalf("ActionType = %q, want ddl_preflight",
+			action.ActionType)
+	}
+	if action.RiskTier != "high" {
+		t.Fatalf("RiskTier = %q, want high", action.RiskTier)
+	}
+	if action.RollbackClass != "forward_fix_only" {
+		t.Fatalf("RollbackClass = %q, want forward_fix_only",
+			action.RollbackClass)
+	}
+	if action.ProposedSQL != "" {
+		t.Fatalf("ProposedSQL = %q, want non-executing candidate",
+			action.ProposedSQL)
+	}
+	if action.ScriptOutput == nil {
+		t.Fatal("expected script output")
+	}
+	if action.ScriptOutput.MigrationSQL == "" {
+		t.Fatal("expected generated forward-fix migration script")
+	}
+	if action.ScriptOutput.RollbackSQL != "" {
+		t.Fatalf("RollbackSQL = %q, want empty for forward-fix only",
+			action.ScriptOutput.RollbackSQL)
 	}
 	if got.Evidence[0].Detail["safe_alternative"] == "" {
 		t.Fatal("expected advisory safe alternative to stay in evidence")

@@ -41,6 +41,10 @@ vi.mock('../hooks/useAPI', () => ({
               filename: '99_create_index_concurrently.sql',
               migration_sql: 'CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)',
               rollback_sql: 'DROP INDEX CONCURRENTLY idx_orders_customer',
+              verification_sql: ['SELECT indisvalid FROM pg_index'],
+              pr_title: 'Review pg_sage action: create_index_concurrently',
+              pr_body: 'Generated from pg_sage finding 99.',
+              risk_labels: ['moderate', 'create_index_concurrently'],
               format: 'sql',
             },
           }],
@@ -87,6 +91,13 @@ describe('Actions', () => {
       element.textContent?.includes('DROP INDEX CONCURRENTLY idx_orders_customer')
     )).length)
       .toBeGreaterThan(0)
+    expect(screen.getByText('Verification SQL')).toBeInTheDocument()
+    expect(screen.getAllByText((_, element) => (
+      element.textContent?.includes('SELECT indisvalid FROM pg_index')
+    )).length).toBeGreaterThan(0)
+    expect(screen.getByText('PR / CI output')).toBeInTheDocument()
+    expect(screen.getByText('Review pg_sage action: create_index_concurrently'))
+      .toBeInTheDocument()
   })
 
   it('disables approval for deferred pending actions', () => {

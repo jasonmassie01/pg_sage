@@ -169,6 +169,41 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 			Cooldown:        "configured cascade cooldown",
 			AuditFields:     []string{"table", "ddl", "case_id"},
 		}, true
+	case "ddl_preflight":
+		return ActionContract{
+			ActionType:      actionType,
+			BaseRiskTier:    "high",
+			ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+			RequiredPermissions: []string{
+				"read catalog statistics",
+				"review migration output in PR or CI",
+			},
+			Prechecks: []string{
+				"classify DDL lock level and rewrite behavior",
+				"check live table size and activity evidence",
+				"check pending locks and replica lag evidence",
+			},
+			Guardrails: []string{
+				"direct execution disabled",
+				"generate PR or migration script",
+				"manual review required",
+				"maintenance-window recommendation",
+			},
+			ExecutionPlan: []string{
+				"generate migration SQL, rollback or mitigation plan, and verification SQL",
+			},
+			SuccessCriteria: []string{
+				"reviewable migration artifact is produced",
+				"verification SQL is attached to the originating case",
+			},
+			PostChecks: []string{
+				"run verification SQL in CI or staging",
+				"rerun migration safety analyzer after deployment",
+			},
+			RollbackClass: "forward_fix_only",
+			Cooldown:      "none",
+			AuditFields:   []string{"table", "ddl", "case_id", "risk_score"},
+		}, true
 	default:
 		return ActionContract{}, false
 	}

@@ -117,6 +117,19 @@ func TestQueuedActionMapIncludesScriptOutputForDDL(t *testing.T) {
 	if script["rollback_sql"] != action.RollbackSQL {
 		t.Fatalf("rollback_sql = %v", script["rollback_sql"])
 	}
+	verification, ok := script["verification_sql"].([]string)
+	if !ok || len(verification) == 0 {
+		t.Fatalf("verification_sql = %#v, want non-empty list",
+			script["verification_sql"])
+	}
+	if script["pr_title"] == "" || script["pr_body"] == "" {
+		t.Fatalf("expected PR title/body in script_output: %#v", script)
+	}
+	labels, ok := script["risk_labels"].([]string)
+	if !ok || len(labels) == 0 || labels[0] != action.ActionRisk {
+		t.Fatalf("risk_labels = %#v, want action risk label",
+			script["risk_labels"])
+	}
 }
 
 func TestQueuedActionMapWithReadinessIncludesDeferReason(t *testing.T) {
