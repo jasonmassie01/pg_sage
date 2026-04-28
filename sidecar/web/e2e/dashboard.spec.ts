@@ -57,16 +57,23 @@ test.describe('Dashboard page', () => {
     await page.goto('/')
 
     const items = page.locator('[data-testid="db-list-item"]')
-    await expect(items.first()).toContainText('Score: 95')
-    await expect(items.nth(1)).toContainText('Score: 88')
+    await expect(items.first()).toContainText('Health')
+    await expect(items.first()).toContainText('95')
+    await expect(items.nth(1)).toContainText('Health')
+    await expect(items.nth(1)).toContainText('88')
   })
 
   test('trust level badges render on database items', async ({ page }) => {
     await page.goto('/')
 
-    const badges = page.locator('[data-testid="trust-level-badge"]')
-    await expect(badges.first()).toBeVisible()
-    await expect(badges.first()).toContainText('advisory')
+    const advisoryBadge = page.locator('[data-testid="trust-badge-advisory"]')
+    await expect(advisoryBadge).toBeVisible()
+    await expect(advisoryBadge).toHaveAttribute(
+      'title',
+      'SAFE actions executed autonomously',
+    )
+    await expect(page.locator('[data-testid="trust-badge-observation"]'))
+      .toBeVisible()
   })
 
   test('recent findings section appears with data', async ({ page }) => {
