@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/store"
 )
 
 // EventDispatcher sends notification events. Nil means no
@@ -27,6 +28,12 @@ type EventDispatcher interface {
 type ActionProposer interface {
 	Propose(ctx context.Context, databaseID *int,
 		findingID int, sql, rollbackSQL, risk string) (int, error)
+}
+
+type ActionMetadataProposer interface {
+	ProposeWithMetadata(ctx context.Context, databaseID *int,
+		findingID int, sql, rollbackSQL, risk string,
+		meta store.ActionProposalMetadata) (int, error)
 }
 
 // PendingActionChecker is implemented by stores that can detect an existing
@@ -304,10 +311,7 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 				}
 			}
 
-			_, propErr := e.actionStore.Propose(
-				ctx, nil, int(findingID),
-				f.RecommendedSQL, f.RollbackSQL, f.ActionRisk,
-			)
+			_, propErr := e.proposeForApproval(ctx, int(findingID), f)
 			if propErr != nil {
 				e.logFn("executor",
 					"failed to queue %q for approval: %v",
@@ -346,6 +350,91 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 		e.executeFinding(ctx, f, findingID)
 		<-e.ddlSem
 	}
+}
+
+func (e *Executor) proposeForApproval(
+	ctx context.Context,
+	findingID int,
+	f analyzer.Finding,
+) (int, error) {
+	if proposer, ok := e.actionStore.(ActionMetadataProposer); ok {
+		return proposer.ProposeWithMetadata(
+			ctx, nil, findingID,
+			f.RecommendedSQL, f.RollbackSQL, f.ActionRisk,
+			e.buildApprovalProposalMetadata(f, time.Now().UTC()),
+		)
+	}
+	return e.actionStore.Propose(
+		ctx, nil, findingID,
+		f.RecommendedSQL, f.RollbackSQL, f.ActionRisk,
+	)
+}
+
+func (e *Executor) buildApprovalProposalMetadata(
+	f analyzer.Finding,
+	now time.Time,
+) store.ActionProposalMetadata {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	actionType := actionTypeForProposalSQL(f.RecommendedSQL)
+	metadata := store.ActionProposalMetadata{
+		ActionType:         actionType,
+		IdentityKey:        actionIdentityKey(f, actionType),
+		PolicyDecision:     PolicyDecisionQueueApproval,
+		VerificationStatus: "not_started",
+		ShadowToilMinutes:  estimatedToilForActionType(actionType),
+	}
+	expiresAt := now.Add(24 * time.Hour)
+	metadata.ExpiresAt = &expiresAt
+	if contract, ok := ContractForActionType(actionType); ok {
+		decision := EvaluateActionPolicy(contract, e.policyContext(now))
+		metadata.PolicyDecision = decision.Decision
+		metadata.Guardrails = decision.Guardrails
+	}
+	return metadata
+}
+
+func (e *Executor) policyContext(now time.Time) ActionPolicyContext {
+	return ActionPolicyContext{
+		Config:              e.cfg,
+		ExecutionMode:       e.execMode,
+		Now:                 now,
+		RampStart:           e.rampStart,
+		SafeActionsInFlight: len(e.analyzeSem),
+		SafeActionLimit:     cap(e.analyzeSem),
+	}
+}
+
+func actionIdentityKey(f analyzer.Finding, actionType string) string {
+	parts := []string{f.Category, f.ObjectIdentifier, actionType}
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return strings.Join(parts, ":")
+}
+
+func actionTypeForProposalSQL(sql string) string {
+	upper := strings.ToUpper(strings.TrimSpace(sql))
+	switch {
+	case strings.HasPrefix(upper, "ANALYZE "):
+		return "analyze_table"
+	case strings.HasPrefix(upper, "CREATE INDEX CONCURRENTLY "):
+		return "create_index_concurrently"
+	case strings.HasPrefix(upper, "CREATE INDEX "):
+		return "create_index"
+	case strings.HasPrefix(upper, "DROP INDEX "):
+		return "drop_unused_index"
+	default:
+		return categorizeAction(sql)
+	}
+}
+
+func estimatedToilForActionType(actionType string) int {
+	if actionType == "analyze_table" {
+		return 15
+	}
+	return 30
 }
 
 // executeFinding runs the DDL for a single finding and handles
