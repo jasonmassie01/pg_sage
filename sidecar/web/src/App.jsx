@@ -5,15 +5,11 @@ import { CasesPage } from './pages/CasesPage'
 import { Actions } from './pages/Actions'
 import { DatabasePage } from './pages/DatabasePage'
 import { SettingsPage } from './pages/SettingsPage'
-import { ForecastsPage } from './pages/ForecastsPage'
-import { QueryHintsPage } from './pages/QueryHintsPage'
 import { AlertLogPage } from './pages/AlertLogPage'
-import { IncidentsPage } from './pages/IncidentsPage'
 import { LoginPage } from './pages/LoginPage'
 import { UsersPage } from './pages/UsersPage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
-import { SchemaHealthPage } from './pages/SchemaHealthPage'
 import { useAPI } from './hooks/useAPI'
 import { TimeRangeProvider } from './context/TimeRangeContext'
 import { CommandPalette } from './components/CommandPalette'
@@ -155,20 +151,22 @@ export default function App() {
         return { title: 'Database',
           node: <DatabasePage database={selectedDB} /> }
       case '/forecasts':
-        return { title: 'Forecasts',
-          node: <ForecastsPage database={selectedDB} /> }
+        return { title: 'Cases',
+          node: <CasesPage database={selectedDB} initialSource="forecast" /> }
       case '/query-hints':
-        return { title: 'Performance',
-          node: <QueryHintsPage database={selectedDB} /> }
+        return { title: 'Cases',
+          node: <CasesPage database={selectedDB} initialSource="query_hint" /> }
       case '/schema-health':
-        return { title: 'Schema Health',
-          node: <SchemaHealthPage database={selectedDB} /> }
+        return { title: 'Cases',
+          node: <CasesPage database={selectedDB}
+            initialSource="schema_health" /> }
       case '/alerts':
         return { title: 'Alerts',
           node: <AlertLogPage database={selectedDB} /> }
       case '/incidents':
-        return { title: 'Incidents',
-          node: <IncidentsPage database={selectedDB} user={user} /> }
+        return { title: 'Cases',
+          node: <CasesPage database={selectedDB} user={user}
+            initialSource="incident" /> }
       case '/settings':
         return isAdmin ? { title: 'Settings',
           node: <SettingsPage

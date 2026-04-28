@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { CasesPage } from './CasesPage'
 
@@ -57,8 +57,24 @@ vi.mock('../hooks/useAPI', () => ({
             attempt_count: 0,
           },
         ],
+      }, {
+        case_id: 'case-query',
+        source_type: 'query_hint',
+        title: 'Query hint active for query 123',
+        severity: 'info',
+        state: 'open',
+        why_now: 'hint is active and needs verification',
+        action_candidates: [],
+      }, {
+        case_id: 'case-schema',
+        source_type: 'schema_health',
+        title: 'Table has no primary key',
+        severity: 'warning',
+        state: 'open',
+        why_now: 'schema lint finding needs review',
+        action_candidates: [],
       }],
-      total: 1,
+      total: 3,
     },
     loading: false,
     error: null,
@@ -98,5 +114,24 @@ describe('CasesPage', () => {
       element.textContent === 'Lifecycle: expired',
     )).toBeInTheDocument()
     expect(screen.getByText('action proposal expired')).toBeInTheDocument()
+  })
+
+  it('filters consolidated cases by source without changing routes', () => {
+    render(<CasesPage database="all" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Query Hints' }))
+
+    expect(screen.getByText('Query hint active for query 123'))
+      .toBeInTheDocument()
+    expect(screen.queryByText('Stats are stale')).not.toBeInTheDocument()
+    expect(screen.queryByText('Table has no primary key'))
+      .not.toBeInTheDocument()
+  })
+
+  it('honors a legacy route source preset', () => {
+    render(<CasesPage database="all" initialSource="schema_health" />)
+
+    expect(screen.getByText('Table has no primary key')).toBeInTheDocument()
+    expect(screen.queryByText('Stats are stale')).not.toBeInTheDocument()
   })
 })

@@ -8,7 +8,7 @@ import (
 
 func ProjectFinding(f SourceFinding) Case {
 	return NewCase(CaseInput{
-		SourceType:       SourceFindingType,
+		SourceType:       sourceTypeForFinding(f),
 		SourceID:         f.ID,
 		DatabaseName:     f.DatabaseName,
 		IdentityKey:      IdentityKeyForFinding(f),
@@ -23,10 +23,32 @@ func ProjectFinding(f SourceFinding) Case {
 
 func evidenceForFinding(f SourceFinding) []Evidence {
 	return []Evidence{{
-		Type:    "finding",
+		Type:    evidenceTypeForFinding(f),
 		Summary: f.Title,
 		Detail:  f.Detail,
 	}}
+}
+
+func sourceTypeForFinding(f SourceFinding) SourceType {
+	switch {
+	case strings.HasPrefix(f.Category, "forecast_"):
+		return SourceForecastType
+	case strings.HasPrefix(f.Category, "schema_lint"):
+		return SourceSchemaType
+	default:
+		return SourceFindingType
+	}
+}
+
+func evidenceTypeForFinding(f SourceFinding) string {
+	switch sourceTypeForFinding(f) {
+	case SourceForecastType:
+		return "forecast"
+	case SourceSchemaType:
+		return "schema_health"
+	default:
+		return "finding"
+	}
 }
 
 func actionCandidatesForFinding(f SourceFinding) []ActionCandidate {
@@ -106,6 +128,9 @@ func whyNowForFinding(f SourceFinding) string {
 	if f.Detail != nil {
 		if v, ok := f.Detail["n_mod_since_analyze"]; ok {
 			return fmt.Sprintf("table changed since last analyze: %v rows", v)
+		}
+		if v, ok := f.Detail["projected_at"]; ok {
+			return fmt.Sprintf("forecast threshold projected at %v", v)
 		}
 	}
 	if f.Severity == SeverityCritical {

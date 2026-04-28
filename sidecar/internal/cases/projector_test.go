@@ -94,6 +94,97 @@ func TestProjectFindingCreatesActionableCase(t *testing.T) {
 	}
 }
 
+func TestProjectFindingClassifiesForecastAsForecastCase(t *testing.T) {
+	f := SourceFinding{
+		ID:               "77",
+		DatabaseName:     "prod",
+		Category:         "forecast_connection_exhaustion",
+		Severity:         SeverityCritical,
+		ObjectType:       "database",
+		ObjectIdentifier: "prod",
+		Title:            "Connection pool exhaustion forecast",
+		Recommendation:   "Review pool limits before saturation.",
+		Detail: map[string]any{
+			"projected_at": "2026-04-29T12:00:00Z",
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if got.SourceType != SourceForecastType {
+		t.Fatalf("SourceType = %q, want %q",
+			got.SourceType, SourceForecastType)
+	}
+	if got.WhyNow == "not urgent" {
+		t.Fatalf("expected forecast urgency detail")
+	}
+}
+
+func TestProjectFindingClassifiesSchemaLintAsSchemaCase(t *testing.T) {
+	f := SourceFinding{
+		ID:               "88",
+		DatabaseName:     "prod",
+		Category:         "schema_lint:lint_no_primary_key",
+		Severity:         SeverityWarning,
+		ObjectType:       "table",
+		ObjectIdentifier: "public.orders",
+		RuleID:           "lint_no_primary_key",
+		Title:            "Table has no primary key",
+		Recommendation:   "Add a primary key during the next migration.",
+	}
+
+	got := ProjectFinding(f)
+
+	if got.SourceType != SourceSchemaType {
+		t.Fatalf("SourceType = %q, want %q",
+			got.SourceType, SourceSchemaType)
+	}
+	if got.Evidence[0].Type != "schema_health" {
+		t.Fatalf("Evidence type = %q, want schema_health",
+			got.Evidence[0].Type)
+	}
+}
+
+func TestProjectQueryHintCreatesCaseWithExperimentEvidence(t *testing.T) {
+	createdAt := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	before, after := 100.0, 42.0
+	hint := SourceQueryHint{
+		QueryID:          12345,
+		DatabaseName:     "prod",
+		HintText:         "IndexScan(users idx_users_email)",
+		Symptom:          "planner chose a sequential scan",
+		Status:           "active",
+		CreatedAt:        createdAt,
+		BeforeCost:       &before,
+		AfterCost:        &after,
+		SuggestedRewrite: "select * from users where email = $1",
+		RewriteRationale: "preserve index predicate shape",
+	}
+
+	got := ProjectQueryHint(hint)
+
+	if got.SourceType != SourceQueryType {
+		t.Fatalf("SourceType = %q, want %q",
+			got.SourceType, SourceQueryType)
+	}
+	if got.ID == "" || got.IdentityKey == "" {
+		t.Fatalf("expected stable id and identity key: %#v", got)
+	}
+	if got.Title != "Query hint active for query 12345" {
+		t.Fatalf("Title = %q", got.Title)
+	}
+	if len(got.Evidence) != 1 {
+		t.Fatalf("evidence len = %d, want 1", len(got.Evidence))
+	}
+	if got.Evidence[0].Detail["before_cost"] != before {
+		t.Fatalf("before_cost = %#v, want %v",
+			got.Evidence[0].Detail["before_cost"], before)
+	}
+	if got.Evidence[0].Detail["suggested_rewrite"] == "" {
+		t.Fatalf("expected suggested rewrite evidence")
+	}
+}
+
 func TestProjectFindingInformationalWhenNoRemediation(t *testing.T) {
 	f := SourceFinding{
 		ID:               "99",

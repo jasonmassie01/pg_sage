@@ -1,6 +1,16 @@
+import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
+
+const SOURCE_FILTERS = [
+  { value: 'all', label: 'All' },
+  { value: 'finding', label: 'Findings' },
+  { value: 'schema_health', label: 'Schema' },
+  { value: 'query_hint', label: 'Query Hints' },
+  { value: 'forecast', label: 'Forecasts' },
+  { value: 'incident', label: 'Incidents' },
+]
 
 function dbParam(database) {
   return database && database !== 'all'
@@ -40,7 +50,8 @@ function formatDate(value) {
   return date.toLocaleString()
 }
 
-export function CasesPage({ database }) {
+export function CasesPage({ database, initialSource = 'all' }) {
+  const [sourceFilter, setSourceFilter] = useState(initialSource)
   const { data, loading, error, refetch } = useAPI(
     `/api/v1/cases${dbParam(database)}`,
     30000,
@@ -50,6 +61,9 @@ export function CasesPage({ database }) {
   if (error) return <ErrorBanner message={error} onRetry={refetch} />
 
   const cases = data?.cases || []
+  const filteredCases = sourceFilter === 'all'
+    ? cases
+    : cases.filter(c => c.source_type === sourceFilter)
 
   return (
     <div className="space-y-4" data-testid="cases-page">
@@ -59,12 +73,33 @@ export function CasesPage({ database }) {
           Cases
         </h2>
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          {cases.length} active cases ranked by urgency and actionability.
+          {filteredCases.length} of {cases.length} cases ranked by urgency
+          and actionability.
         </p>
       </div>
 
+      <div className="flex flex-wrap gap-2" aria-label="Case source filters">
+        {SOURCE_FILTERS.map(source => (
+          <button
+            key={source.value}
+            type="button"
+            aria-pressed={sourceFilter === source.value}
+            onClick={() => setSourceFilter(source.value)}
+            className="rounded px-2.5 py-1 text-xs"
+            style={{
+              color: sourceFilter === source.value
+                ? 'var(--accent)' : 'var(--text-secondary)',
+              border: '1px solid var(--border)',
+              background: sourceFilter === source.value
+                ? 'var(--bg-hover)' : 'var(--bg-card)',
+            }}>
+            {source.label}
+          </button>
+        ))}
+      </div>
+
       <div className="space-y-2">
-        {cases.map(c => (
+        {filteredCases.map(c => (
           <CaseCard key={caseID(c)} caseRow={c} />
         ))}
       </div>

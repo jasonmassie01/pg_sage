@@ -9,6 +9,7 @@ const (
 	SourceIncidentType SourceType = "incident"
 	SourceQueryType    SourceType = "query_hint"
 	SourceForecastType SourceType = "forecast"
+	SourceSchemaType   SourceType = "schema_health"
 )
 
 type Severity string
