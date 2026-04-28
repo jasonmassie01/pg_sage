@@ -2,6 +2,8 @@ package tuner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"sync"
@@ -34,6 +36,8 @@ type Tuner struct {
 	// multiple queries touching the same stale table produce
 	// exactly one ANALYZE finding.
 	staleStatsEmitted map[string]bool
+
+	llmPrescriptionCooldown map[string]int
 }
 
 // Option configures optional Tuner behavior.
@@ -56,11 +60,12 @@ func New(
 	opts ...Option,
 ) *Tuner {
 	t := &Tuner{
-		pool:          pool,
-		cfg:           cfg,
-		hintPlan:      hintPlan,
-		logFn:         logFn,
-		recentlyTuned: make(map[int64]int),
+		pool:                    pool,
+		cfg:                     cfg,
+		hintPlan:                hintPlan,
+		logFn:                   logFn,
+		recentlyTuned:           make(map[int64]int),
+		llmPrescriptionCooldown: make(map[string]int),
 	}
 	for _, o := range opts {
 		o(t)
@@ -72,13 +77,13 @@ func New(
 }
 
 type candidate struct {
-	QueryID          int64
-	Query            string
-	Calls            int64
-	MeanExecTime     float64
-	MeanPlanTime     float64
-	TempBlksRead     int64
-	TempBlksWritten  int64
+	QueryID         int64
+	Query           string
+	Calls           int64
+	MeanExecTime    float64
+	MeanPlanTime    float64
+	TempBlksRead    int64
+	TempBlksWritten int64
 }
 
 // Tune queries pg_stat_statements for slow queries, scans
@@ -218,6 +223,14 @@ func (t *Tuner) tickCooldowns() {
 			delete(t.recentlyTuned, qid)
 		} else {
 			t.recentlyTuned[qid] = remaining
+		}
+	}
+	for key, remaining := range t.llmPrescriptionCooldown {
+		remaining--
+		if remaining <= 0 {
+			delete(t.llmPrescriptionCooldown, key)
+		} else {
+			t.llmPrescriptionCooldown[key] = remaining
 		}
 	}
 }
@@ -435,11 +448,54 @@ func (t *Tuner) tryLLMPrescribe(
 		return nil
 	}
 	if len(rx) > 0 {
+		rx = t.filterRepeatedLLMPrescriptions(c, planJSON, rx)
+	}
+	if len(rx) > 0 {
 		t.logFn("tuner",
 			"LLM-enhanced hints for queryid %d: %s",
 			c.QueryID, rx[0].HintDirective)
 	}
 	return rx
+}
+
+func (t *Tuner) filterRepeatedLLMPrescriptions(
+	c candidate,
+	planJSON string,
+	prescriptions []Prescription,
+) []Prescription {
+	var kept []Prescription
+	for _, p := range prescriptions {
+		key := llmPrescriptionFingerprint(c, planJSON, p)
+		if t.llmPrescriptionCooldown[key] > 0 {
+			t.logFn("tuner",
+				"suppressing repeated LLM prescription for queryid %d",
+				c.QueryID)
+			continue
+		}
+		t.llmPrescriptionCooldown[key] = t.cooldownCycles()
+		kept = append(kept, p)
+	}
+	return kept
+}
+
+func llmPrescriptionFingerprint(
+	c candidate,
+	planJSON string,
+	p Prescription,
+) string {
+	normalized := strings.Join([]string{
+		fmt.Sprintf("%d", c.QueryID),
+		normalizeFingerprintText(c.Query),
+		normalizeFingerprintText(planJSON),
+		normalizeFingerprintText(p.HintDirective),
+		normalizeFingerprintText(p.SuggestedRewrite),
+	}, "\n")
+	sum := sha256.Sum256([]byte(normalized))
+	return hex.EncodeToString(sum[:])
+}
+
+func normalizeFingerprintText(s string) string {
+	return strings.Join(strings.Fields(strings.ToLower(s)), " ")
 }
 
 func (t *Tuner) gatherSymptoms(

@@ -184,3 +184,54 @@ func TestConvertPrescriptions_FiltersInvalid(t *testing.T) {
 		t.Error("expected log call for rejected hints")
 	}
 }
+
+func TestLLMPrescriptionFingerprintNormalizesWhitespace(t *testing.T) {
+	c := candidate{QueryID: 42, Query: "SELECT  *  FROM orders"}
+	p := Prescription{HintDirective: "HashJoin(o c)"}
+
+	got := llmPrescriptionFingerprint(c,
+		`{"Plan":  {"Node Type":  "Hash Join"}}`, p)
+	want := llmPrescriptionFingerprint(
+		candidate{QueryID: 42, Query: "select * from orders"},
+		`{"plan": {"node type": "hash join"}}`, p)
+
+	if got != want {
+		t.Fatalf("fingerprints differ for equivalent text")
+	}
+}
+
+func TestFilterRepeatedLLMPrescriptionsSuppressesDuplicate(t *testing.T) {
+	tu := New(nil, TunerConfig{CascadeCooldownCycles: 2}, nil,
+		func(string, string, ...any) {})
+	c := candidate{QueryID: 42, Query: "SELECT * FROM orders"}
+	rx := []Prescription{{
+		Symptom:       SymptomBadNestedLoop,
+		HintDirective: "HashJoin(o c)",
+		Rationale:     "same diagnosis",
+	}}
+
+	first := tu.filterRepeatedLLMPrescriptions(c, "{}", rx)
+	second := tu.filterRepeatedLLMPrescriptions(c, "{}", rx)
+
+	if len(first) != 1 {
+		t.Fatalf("first prescription len = %d, want 1", len(first))
+	}
+	if len(second) != 0 {
+		t.Fatalf("second prescription len = %d, want 0", len(second))
+	}
+}
+
+func TestFilterRepeatedLLMPrescriptionsAllowsAfterCooldownTicks(t *testing.T) {
+	tu := New(nil, TunerConfig{CascadeCooldownCycles: 1}, nil,
+		func(string, string, ...any) {})
+	c := candidate{QueryID: 42, Query: "SELECT * FROM orders"}
+	rx := []Prescription{{HintDirective: "HashJoin(o c)"}}
+
+	_ = tu.filterRepeatedLLMPrescriptions(c, "{}", rx)
+	tu.tickCooldowns()
+	got := tu.filterRepeatedLLMPrescriptions(c, "{}", rx)
+
+	if len(got) != 1 {
+		t.Fatalf("prescription len after cooldown = %d, want 1", len(got))
+	}
+}
