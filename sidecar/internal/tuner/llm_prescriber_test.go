@@ -1,6 +1,7 @@
 package tuner
 
 import (
+	"context"
 	"testing"
 )
 
@@ -210,8 +211,10 @@ func TestFilterRepeatedLLMPrescriptionsSuppressesDuplicate(t *testing.T) {
 		Rationale:     "same diagnosis",
 	}}
 
-	first := tu.filterRepeatedLLMPrescriptions(c, "{}", rx)
-	second := tu.filterRepeatedLLMPrescriptions(c, "{}", rx)
+	first := tu.filterRepeatedLLMPrescriptions(
+		context.Background(), c, "{}", "context-key", rx)
+	second := tu.filterRepeatedLLMPrescriptions(
+		context.Background(), c, "{}", "context-key", rx)
 
 	if len(first) != 1 {
 		t.Fatalf("first prescription len = %d, want 1", len(first))
@@ -227,9 +230,11 @@ func TestFilterRepeatedLLMPrescriptionsAllowsAfterCooldownTicks(t *testing.T) {
 	c := candidate{QueryID: 42, Query: "SELECT * FROM orders"}
 	rx := []Prescription{{HintDirective: "HashJoin(o c)"}}
 
-	_ = tu.filterRepeatedLLMPrescriptions(c, "{}", rx)
+	_ = tu.filterRepeatedLLMPrescriptions(
+		context.Background(), c, "{}", "context-key", rx)
 	tu.tickCooldowns()
-	got := tu.filterRepeatedLLMPrescriptions(c, "{}", rx)
+	got := tu.filterRepeatedLLMPrescriptions(
+		context.Background(), c, "{}", "context-key", rx)
 
 	if len(got) != 1 {
 		t.Fatalf("prescription len after cooldown = %d, want 1", len(got))
