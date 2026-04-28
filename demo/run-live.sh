@@ -4,13 +4,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-echo "=== pg_sage v0.8.0 Live Integration Test ==="
+echo "=== pg_sage v0.9 Live Demo ==="
 
-# Check for Gemini API key
 if [ -z "$SAGE_GEMINI_API_KEY" ]; then
-    echo "ERROR: SAGE_GEMINI_API_KEY not set"
-    echo "Usage: SAGE_GEMINI_API_KEY=your-key ./demo/run-live.sh"
-    exit 1
+    echo "SAGE_GEMINI_API_KEY not set; LLM features remain disabled unless you add a key."
 fi
 
 # Stop any existing demo
@@ -29,6 +26,7 @@ echo "PostgreSQL ready."
 # Build sidecar
 echo "Building sidecar..."
 cd "$PROJECT_DIR/sidecar"
+cd web && npm ci && npm run build && cd ..
 go build -o pg_sage_sidecar ./cmd/pg_sage_sidecar/
 
 echo ""
@@ -37,8 +35,8 @@ echo "PostgreSQL: localhost:5433 (sage_demo / sage_agent / sage_password)"
 echo ""
 echo "Starting sidecar..."
 echo "Dashboard: http://localhost:8080"
-echo "API:       http://localhost:8080/api/v1/databases"
-echo "MCP:       http://localhost:5434/health"
+echo "Login:     admin@pg-sage.local (copy the INITIAL ADMIN PASSWORD from stderr)"
+echo "API:       http://localhost:8080/api/v1/cases (requires login cookie)"
 echo "Metrics:   http://localhost:9187/metrics"
 echo ""
 

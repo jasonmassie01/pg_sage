@@ -1,4 +1,4 @@
-# pg_sage Sidecar Configuration — v0.8.5
+# pg_sage Sidecar Configuration — v0.9
 # Copy to config.yaml and edit. All values shown are defaults.
 # Precedence: CLI flags > environment variables > this file > built-in defaults.
 # Environment variable expansion: use ${VAR_NAME} syntax in values.
@@ -35,7 +35,7 @@ analyzer:
   regression_threshold_pct: 50
   regression_lookback_days: 7
   checkpoint_frequency_warning_per_hour: 12
-  # v0.8.5 — Role-level work_mem promotion advisor.
+  # Role-level work_mem promotion advisor.
   # When a single role accumulates this many active per-query work_mem hints,
   # the analyzer recommends promoting work_mem at the role level via ALTER ROLE.
   # Set 0 to disable.
@@ -77,10 +77,11 @@ llm:
   #   - Optimizer min_query_calls 100+ avoids analyzing one-off queries
   #   - Tuner min_query_calls 100+ avoids analyzing one-off queries
   #   - Use Flash/Haiku for advisor+briefing, Pro only for optimizer_llm
-  index_optimizer:
+  optimizer:
     enabled: false              # Enable LLM-powered index recommendations
     min_query_calls: 100        # Min calls before a query is considered
     max_indexes_per_table: 10   # Skip table if already has this many indexes
+    max_new_per_table: 3        # Max new index recommendations per table/cycle
     max_include_columns: 3      # Max INCLUDE columns per recommendation
     over_indexed_ratio_pct: 150 # Index bytes > 150% of table bytes = over-indexed
     write_heavy_ratio_pct: 70   # Skip table if >70% of ops are writes
@@ -155,10 +156,10 @@ tuner:
   nested_loop_row_threshold: 10000
   parallel_min_table_rows: 1000000
   min_query_calls: 100           # ignore rarely-called queries
-  verify_after_apply: true       # v0.8.5: activates the revalidation loop below
+  verify_after_apply: true       # Enables the hint revalidation loop below
                                  # (set false to restore v0.8.4 inert behavior)
 
-  # v0.8.5 Feature 1 — Hint revalidation loop.
+  # Hint revalidation loop.
   # Runs as a background cycle when verify_after_apply is true.
   # Removes hints that have become redundant, harmful, or broken.
   hint_retirement_days: 14              # Retire hints older than this unconditionally
@@ -167,7 +168,7 @@ tuner:
   revalidation_rollback_ratio: 0.8      # Rollback if hinted_cost > 125% of unhinted
   revalidation_explain_timeout_ms: 10000  # statement_timeout for revalidation EXPLAINs
 
-  # v0.8.5 Feature 2 — Stale-statistics detection + ANALYZE action.
+  # Stale-statistics detection + ANALYZE action.
   # Detects row-estimate skew in plans, cross-references pg_stat_user_tables,
   # and proposes (or runs, in autonomous mode) targeted ANALYZE.
   stale_stats_estimate_skew: 10.0          # actual/plan row ratio to flag skew

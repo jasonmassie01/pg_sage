@@ -54,6 +54,12 @@ docker run -d --name pg_sage \
   ghcr.io/jasonmassie01/pg_sage:latest
 ```
 
+Read the one-time admin password from startup logs:
+
+```bash
+docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
+```
+
 With a config file:
 
 ```bash
@@ -105,8 +111,9 @@ prometheus:
 Deploy pg_sage as a Cloud Run service for fully managed operation:
 
 ```bash
-# Build and push
-gcloud builds submit --tag us-central1-docker.pkg.dev/PROJECT/repo/pg_sage
+# Build and push the sidecar image
+gcloud builds submit sidecar \
+  --tag us-central1-docker.pkg.dev/PROJECT/repo/pg_sage
 
 # Deploy
 gcloud run deploy pg_sage \
@@ -117,6 +124,9 @@ gcloud run deploy pg_sage \
   --port 8080 \
   --region us-central1
 ```
+
+After first deploy, read the revision logs for the generated admin password and
+rotate it after login.
 
 ---
 
@@ -182,11 +192,6 @@ spec:
                 secretKeyRef:
                   name: pg-sage-secrets
                   key: gemini-api-key
-            - name: SAGE_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: pg-sage-secrets
-                  key: api-key
           volumeMounts:
             - name: config
               mountPath: /etc/pg_sage
@@ -210,6 +215,30 @@ spec:
       targetPort: 9187
       name: metrics
 ```
+
+---
+
+## First Admin and API Authentication
+
+The dashboard and `/api/v1/*` endpoints are session-authenticated in v0.9. The
+first time pg_sage starts against a metadata database with no users, it creates
+`admin@pg-sage.local` and prints the initial password to stderr. Capture that
+startup log in your service manager or secret handoff process, then rotate the
+password after login.
+
+For API scripts, log in and reuse the cookie:
+
+```bash
+curl -c cookies.txt -H 'Content-Type: application/json' \
+  -X POST https://pg-sage.example.com/api/v1/auth/login \
+  --data '{"email":"admin@pg-sage.local","password":"INITIAL_PASSWORD"}'
+
+curl -b cookies.txt https://pg-sage.example.com/api/v1/cases
+```
+
+Expose the API/dashboard only on trusted networks or behind your normal
+identity-aware proxy. Prometheus metrics remain on the separate
+`prometheus.listen_addr`.
 
 ---
 
@@ -265,7 +294,7 @@ The sidecar is stateless. Replace the binary and restart:
 
 ```bash
 # Download new version
-curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_linux_amd64 -o pg_sage
+curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_linux_amd64.tar.gz | tar xz
 chmod +x pg_sage
 
 # Restart

@@ -9,31 +9,37 @@ pg_sage is a standalone Go binary. Download it, point it at your database, and i
 ### Linux (amd64)
 
 ```bash
-curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_linux_amd64 -o pg_sage
+curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_linux_amd64.tar.gz | tar xz
 chmod +x pg_sage
 ```
 
 ### macOS (arm64)
 
 ```bash
-curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_darwin_arm64 -o pg_sage
+curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_darwin_arm64.tar.gz | tar xz
 chmod +x pg_sage
 ```
 
 ### Windows
 
-```powershell
-Invoke-WebRequest -Uri https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_windows_amd64.exe -OutFile pg_sage.exe
-```
+Windows users should currently build from source with Go 1.24+ and Node.js
+20+. The release archives are published for Linux and macOS.
 
 ---
 
 ## Docker
 
 ```bash
-docker run -e SAGE_DATABASE_URL="postgres://sage_agent:YOUR_PASSWORD@host:5432/db" \
+docker run --name pg_sage \
+  -e SAGE_DATABASE_URL="postgres://sage_agent:YOUR_PASSWORD@host:5432/db" \
   -p 8080:8080 -p 9187:9187 \
   ghcr.io/jasonmassie01/pg_sage:latest
+```
+
+Then read the generated admin password from container logs:
+
+```bash
+docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 ```
 
 ---
@@ -67,7 +73,20 @@ The simplest way to start -- observation mode, no LLM:
 ./pg_sage --pg-url "postgres://sage_agent:YOUR_PASSWORD@your-instance:5432/postgres"
 ```
 
-This starts the collector (every 60s), analyzer (every 600s), API+dashboard on `:8080`, and Prometheus metrics on `:9187`.
+This starts the collector, analyzer, authenticated API+dashboard on `:8080`,
+and Prometheus metrics on `:9187`.
+
+On first start, pg_sage creates the first admin user and prints the initial
+password to stderr:
+
+```text
+first admin created — email: admin@pg-sage.local  password: [redacted, see stderr]
+*** INITIAL ADMIN PASSWORD: <copy this value> ***
+```
+
+Open `http://localhost:8080`, sign in as `admin@pg-sage.local`, and change or
+store that password according to your local policy. API calls under `/api/v1/`
+require the `sage_session` cookie returned by `/api/v1/auth/login`.
 
 ---
 
@@ -116,7 +135,7 @@ prometheus:
 
 ## Build from Source
 
-Requires Go 1.24+:
+Requires Go 1.24+ and Node.js 20+:
 
 ```bash
 git clone https://github.com/jasonmassie01/pg_sage.git
@@ -137,7 +156,16 @@ After starting pg_sage, verify it is running:
 curl -s http://localhost:9187/metrics | head -10
 
 # Check web UI
-curl -s http://localhost:8080/api/v1/config
+curl -I http://localhost:8080
+
+# Log in before calling authenticated APIs
+curl -c cookies.txt -H 'Content-Type: application/json' \
+  -X POST http://localhost:8080/api/v1/auth/login \
+  --data '{"email":"admin@pg-sage.local","password":"INITIAL_PASSWORD"}'
+
+curl -b cookies.txt http://localhost:8080/api/v1/databases
+curl -b cookies.txt http://localhost:8080/api/v1/cases
+curl -b cookies.txt http://localhost:8080/api/v1/shadow-report
 ```
 
 Connect to your database and check the sage schema:

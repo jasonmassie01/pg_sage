@@ -73,17 +73,26 @@ Lives in `internal/optimizer/` (18 files, 4,640 lines, 144 tests). Key capabilit
 
 | Trust Level | Timeline | Allowed Actions |
 |-------------|----------|----------------|
-| **observation** | Day 0-7 | No actions -- findings only |
-| **advisory** | Day 8-30 | SAFE: drop unused/duplicate indexes, VACUUM |
-| **autonomous** | Day 31+ | MODERATE: create indexes, reindex |
+| **observation** | Configured | No actions -- cases and recommendations only |
+| **advisory** | Configured | Queue or execute SAFE actions based on policy |
+| **autonomous** | Configured | SAFE + approved MODERATE actions, bounded by maintenance windows |
 
-HIGH-risk actions always require manual confirmation. Every action is logged to `sage.action_log` with before/after state and rollback SQL. Regression triggers automatic rollback.
+HIGH-risk actions always require manual approval. Every action carries a typed
+contract: risk tier, guardrails, expiration, rollback or mitigation, policy
+decision, lifecycle state, and verification state. Execution outcomes are
+logged to `sage.action_log`; pending work and approval outcomes are tracked in
+the action queue.
 
 The executor checks: trust level, trust ramp, per-tier toggles, maintenance window, emergency stop flag, and replica status before acting.
 
 ### API + Dashboard (Web UI)
 
-REST API and embedded React SPA on `:8080` (configurable). Provides 17 endpoints for findings, actions, snapshots, config, forecasts, query hints, alert log, emergency stop, and fleet management. The web UI includes authentication and notification support.
+REST API and embedded React SPA on `:8080` (configurable). The v0.9 UI is
+organized around Overview, Cases, Actions, Fleet, and Settings. The legacy
+`#/findings` route remains as a compatibility alias to Cases. The API includes
+case projection, shadow report, action queue, provider readiness, findings,
+snapshots, config, forecasts, query hints, alerts, emergency stop, and fleet
+management. UI and `/api/v1/*` routes are session-authenticated.
 
 ### Alerting
 
@@ -120,7 +129,10 @@ Metrics endpoint on `:9187`. Exports findings count by severity, circuit breaker
 5. **Validator** runs 8 checks; **HypoPG** validates if available.
 6. **Confidence scorer** assigns action level.
 7. Findings are persisted to `sage.findings`.
-8. **Executor** acts on findings based on trust level, confidence, and maintenance window.
+8. **Case projection** combines findings, incidents, and action state into DBA
+   cases and shadow-mode proof.
+9. **Executor** queues, blocks, approves, or executes typed actions based on
+   trust level, policy, evidence freshness, maintenance window, and guardrails.
 
 ---
 

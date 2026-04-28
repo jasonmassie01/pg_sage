@@ -34,9 +34,9 @@ The sidecar supports hot-reload: changes to the YAML config file are detected an
 | `SAGE_DATABASE_URL` | (none) | PostgreSQL connection string |
 | `SAGE_LLM_API_KEY` | (none) | API key for Gemini or any OpenAI-compatible LLM |
 | `SAGE_OPTIMIZER_LLM_API_KEY` | (none) | Separate API key for the optimizer model (optional) |
-| `SAGE_API_KEY` | (none) | API key for REST API authentication (empty = no auth) |
-| `SAGE_TLS_CERT` | (none) | Path to TLS certificate file |
-| `SAGE_TLS_KEY` | (none) | Path to TLS private key file |
+| `SAGE_API_KEY` | (none) | Legacy config field; the v0.9 web/API path uses session login cookies |
+| `SAGE_TLS_CERT` | (none) | Legacy/reserved; terminate TLS at a reverse proxy in v0.9 |
+| `SAGE_TLS_KEY` | (none) | Legacy/reserved; terminate TLS at a reverse proxy in v0.9 |
 | `SAGE_PROMETHEUS_PORT` | `9187` | Port for Prometheus metrics |
 | `SAGE_RATE_LIMIT` | `60` | Max requests per minute per IP on REST API |
 | `SAGE_PG_MAX_CONNS` | `2` | Max PostgreSQL connections in pool |
@@ -92,9 +92,8 @@ llm:
 
 api:
   listen_addr: "0.0.0.0:8080"
-  auth:
-    enabled: false
-    # session_secret: ${SAGE_SESSION_SECRET}
+  # Web UI and /api/v1 endpoints are session-authenticated.
+  # The first local admin is bootstrapped automatically.
 
 notifications:
   slack:
@@ -125,7 +124,7 @@ briefing:
 
 | Parameter | Default | Description |
 |---|---|---|
-| `mode` | `standalone` | Operating mode |
+| `mode` | `extension` | Operating mode; set `standalone` explicitly for sidecar-only deployments |
 | `postgres.max_connections` | `2` | Connection pool size |
 | `postgres.sslmode` | `prefer` | SSL mode (`disable`, `prefer`, `require`, `verify-ca`, `verify-full`) |
 
@@ -167,6 +166,21 @@ HIGH-risk actions always require manual confirmation regardless of trust level.
 | `llm.optimizer.enabled` | `false` | Enable index optimizer |
 | `llm.optimizer.min_query_calls` | `100` | Minimum query calls before optimizing a table |
 | `llm.optimizer.max_new_per_table` | `3` | Max new indexes per table per cycle |
+
+### Web UI and API Authentication
+
+The embedded web UI and `/api/v1/*` endpoints require a session login. On first
+start, pg_sage creates `admin@pg-sage.local` and prints a one-time initial
+password to stderr. Use `/api/v1/auth/login` for API scripts and keep the
+returned `sage_session` cookie:
+
+```bash
+curl -c cookies.txt -H 'Content-Type: application/json' \
+  -X POST http://localhost:8080/api/v1/auth/login \
+  --data '{"email":"admin@pg-sage.local","password":"INITIAL_PASSWORD"}'
+
+curl -b cookies.txt http://localhost:8080/api/v1/cases
+```
 
 ### Retention
 
