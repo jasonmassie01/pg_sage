@@ -487,7 +487,8 @@ CREATE TABLE IF NOT EXISTS sage.action_queue (
     failure_fingerprint TEXT,
     last_failure_fingerprint TEXT,
     verification_status TEXT NOT NULL DEFAULT 'not_started',
-    shadow_toil_minutes INT NOT NULL DEFAULT 0
+    shadow_toil_minutes INT NOT NULL DEFAULT 0,
+    action_log_id  BIGINT REFERENCES sage.action_log(id)
 );
 CREATE INDEX IF NOT EXISTS idx_action_queue_status
     ON sage.action_queue (status, proposed_at DESC);
@@ -518,7 +519,8 @@ ALTER TABLE sage.action_queue
     ADD COLUMN IF NOT EXISTS failure_fingerprint TEXT,
     ADD COLUMN IF NOT EXISTS last_failure_fingerprint TEXT,
     ADD COLUMN IF NOT EXISTS verification_status TEXT NOT NULL DEFAULT 'not_started',
-    ADD COLUMN IF NOT EXISTS shadow_toil_minutes INT NOT NULL DEFAULT 0;
+    ADD COLUMN IF NOT EXISTS shadow_toil_minutes INT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS action_log_id BIGINT REFERENCES sage.action_log(id);
 CREATE INDEX IF NOT EXISTS idx_action_queue_identity
     ON sage.action_queue (identity_key, status)
     WHERE identity_key IS NOT NULL;

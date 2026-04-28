@@ -57,6 +57,8 @@ func TestQueuedActionMapIncludesLifecycleMetadata(t *testing.T) {
 		VerificationStatus: "not_started",
 		ShadowToilMinutes:  15,
 	}
+	logID := int64(123)
+	action.ActionLogID = &logID
 
 	got := queuedActionMap(action)
 
@@ -75,6 +77,9 @@ func TestQueuedActionMapIncludesLifecycleMetadata(t *testing.T) {
 	}
 	if got["cooldown_until"] == nil {
 		t.Fatalf("cooldown_until missing")
+	}
+	if got["action_log_id"] != int64(123) {
+		t.Fatalf("action_log_id = %v, want 123", got["action_log_id"])
 	}
 	guardrails, ok := got["guardrails"].([]string)
 	if !ok || len(guardrails) != 1 || guardrails[0] != "dedicated connection" {

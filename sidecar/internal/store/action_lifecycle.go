@@ -1,7 +1,10 @@
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -97,4 +100,10 @@ func repeatedFailureReason(input ActionLifecycleInput) string {
 		"repeated failure circuit breaker after %d attempts",
 		input.AttemptCount,
 	)
+}
+
+func failureFingerprint(failure string) string {
+	normalized := strings.Join(strings.Fields(strings.ToLower(failure)), " ")
+	sum := sha256.Sum256([]byte(normalized))
+	return hex.EncodeToString(sum[:])
 }

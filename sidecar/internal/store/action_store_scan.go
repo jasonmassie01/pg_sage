@@ -23,7 +23,7 @@ func scanQueuedActions(rows pgx.Rows) ([]QueuedAction, error) {
 			&guardrails, &a.AttemptCount, &a.LastAttemptAt,
 			&a.CooldownUntil, &a.FailureFingerprint,
 			&a.LastFailureFingerprint, &a.VerificationStatus,
-			&a.ShadowToilMinutes,
+			&a.ShadowToilMinutes, &a.ActionLogID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scanning queued action: %w", err)

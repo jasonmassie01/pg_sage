@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -229,12 +231,15 @@ func fleetApproveActionHandler(
 			action.RollbackSQL, &approvedBy,
 		)
 		if execErr != nil {
+			recordApproveExecutionFailure(
+				r.Context(), as, id, execErr.Error(),
+			)
 			jsonResponse(w, map[string]any{
 				"ok":       false,
 				"queue_id": id,
 				"database": inst.Name,
 				"error":    execErr.Error(),
-				"status":   "approved",
+				"status":   "failed",
 				"executed": false,
 			})
 			return
@@ -243,6 +248,9 @@ func fleetApproveActionHandler(
 		if action.RollbackSQL != "" {
 			verificationStatus = "monitoring"
 		}
+		recordApproveExecutionSuccess(
+			r.Context(), as, id, actionLogID, verificationStatus,
+		)
 		jsonResponse(w, map[string]any{
 			"ok":                  true,
 			"queue_id":            id,
@@ -333,11 +341,14 @@ func approveActionHandler(
 		)
 
 		if execErr != nil {
+			recordApproveExecutionFailure(
+				r.Context(), as, id, execErr.Error(),
+			)
 			jsonResponse(w, map[string]any{
 				"ok":       false,
 				"queue_id": id,
 				"error":    execErr.Error(),
-				"status":   "approved",
+				"status":   "failed",
 				"executed": false,
 			})
 			return
@@ -347,6 +358,9 @@ func approveActionHandler(
 		if action.RollbackSQL != "" {
 			verificationStatus = "monitoring"
 		}
+		recordApproveExecutionSuccess(
+			r.Context(), as, id, actionLogID, verificationStatus,
+		)
 		jsonResponse(w, map[string]any{
 			"ok":                  true,
 			"queue_id":            id,
@@ -405,6 +419,31 @@ func rejectActionHandler(
 			"status":   "rejected",
 		})
 	}
+}
+
+func recordApproveExecutionFailure(
+	ctx context.Context,
+	as *store.ActionStore,
+	queueID int,
+	reason string,
+) {
+	if as == nil {
+		return
+	}
+	_ = as.MarkAttemptFailed(ctx, queueID, reason, time.Hour)
+}
+
+func recordApproveExecutionSuccess(
+	ctx context.Context,
+	as *store.ActionStore,
+	queueID int,
+	actionLogID int64,
+	verificationStatus string,
+) {
+	if as == nil || actionLogID <= 0 {
+		return
+	}
+	_ = as.MarkExecuted(ctx, queueID, actionLogID, verificationStatus)
 }
 
 func rollbackActionHandler(
@@ -681,6 +720,9 @@ func addLifecycleFields(m map[string]any, a store.QueuedAction) {
 	}
 	if a.ShadowToilMinutes > 0 {
 		m["shadow_toil_minutes"] = a.ShadowToilMinutes
+	}
+	if a.ActionLogID != nil {
+		m["action_log_id"] = *a.ActionLogID
 	}
 }
 

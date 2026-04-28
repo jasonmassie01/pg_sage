@@ -35,6 +35,7 @@ type QueuedAction struct {
 	LastFailureFingerprint string
 	VerificationStatus     string
 	ShadowToilMinutes      int
+	ActionLogID            *int64
 }
 
 type ActionProposalMetadata struct {
@@ -163,11 +164,12 @@ const listPendingBaseSQL = `SELECT q.id, q.database_id, q.finding_id,
  COALESCE(q.failure_fingerprint, ''),
  COALESCE(q.last_failure_fingerprint, ''),
  COALESCE(q.verification_status, ''),
- COALESCE(q.shadow_toil_minutes, 0)
+ COALESCE(q.shadow_toil_minutes, 0), q.action_log_id
  FROM sage.action_queue q
  JOIN sage.findings f ON f.id = q.finding_id
- WHERE q.status = 'pending'
+WHERE q.status = 'pending'
    AND q.expires_at > now()
+   AND (q.cooldown_until IS NULL OR q.cooldown_until <= now())
    AND f.status = 'open'
    AND f.acted_on_at IS NULL
    AND f.resolved_at IS NULL`
@@ -187,9 +189,11 @@ func (s *ActionStore) Approve(
 		 SET status = 'approved',
 		     decided_by = $1,
 		     decided_at = now()
-		 WHERE q.id = $2
-		   AND q.status = 'pending'
-		   AND EXISTS (
+	 WHERE q.id = $2
+	   AND q.status = 'pending'
+	   AND q.expires_at > now()
+	   AND (q.cooldown_until IS NULL OR q.cooldown_until <= now())
+	   AND EXISTS (
 		       SELECT 1 FROM sage.findings f
 		        WHERE f.id = q.finding_id
 		          AND f.status = 'open'
@@ -207,7 +211,7 @@ func (s *ActionStore) Approve(
 	     q.cooldown_until, COALESCE(q.failure_fingerprint, ''),
 	     COALESCE(q.last_failure_fingerprint, ''),
 	     COALESCE(q.verification_status, ''),
-	     COALESCE(q.shadow_toil_minutes, 0)`,
+	     COALESCE(q.shadow_toil_minutes, 0), q.action_log_id`,
 		userID, queueID,
 	).Scan(
 		&a.ID, &a.DatabaseID, &a.FindingID,
@@ -218,7 +222,7 @@ func (s *ActionStore) Approve(
 		&guardrails, &a.AttemptCount, &a.LastAttemptAt,
 		&a.CooldownUntil, &a.FailureFingerprint,
 		&a.LastFailureFingerprint, &a.VerificationStatus,
-		&a.ShadowToilMinutes,
+		&a.ShadowToilMinutes, &a.ActionLogID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("approving action %d: %w", queueID, err)
@@ -251,6 +255,70 @@ func (s *ActionStore) Reject(
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("action %d not found or not pending", queueID)
+	}
+	return nil
+}
+
+func (s *ActionStore) MarkAttemptFailed(
+	ctx context.Context,
+	queueID int,
+	failure string,
+	cooldown time.Duration,
+) error {
+	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cooldownUntil := time.Now().UTC().Add(cooldown)
+	tag, err := s.pool.Exec(qctx,
+		`UPDATE sage.action_queue
+		 SET status = 'failed',
+		     attempt_count = attempt_count + 1,
+		     last_attempt_at = now(),
+		     cooldown_until = CASE
+		         WHEN $2 THEN $3::timestamptz ELSE NULL::timestamptz END,
+		     last_failure_fingerprint = failure_fingerprint,
+		     failure_fingerprint = $4,
+		     verification_status = 'failed',
+		     reason = $5
+		 WHERE id = $1`,
+		queueID, cooldown > 0, cooldownUntil,
+		failureFingerprint(failure), failure,
+	)
+	if err != nil {
+		return fmt.Errorf("marking action %d failed: %w", queueID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("action %d not found", queueID)
+	}
+	return nil
+}
+
+func (s *ActionStore) MarkExecuted(
+	ctx context.Context,
+	queueID int,
+	actionLogID int64,
+	verificationStatus string,
+) error {
+	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if verificationStatus == "" {
+		verificationStatus = "verified"
+	}
+	tag, err := s.pool.Exec(qctx,
+		`UPDATE sage.action_queue
+		 SET status = 'executed',
+		     action_log_id = $2,
+		     verification_status = $3,
+		     last_attempt_at = now(),
+		     cooldown_until = NULL
+		 WHERE id = $1`,
+		queueID, actionLogID, verificationStatus,
+	)
+	if err != nil {
+		return fmt.Errorf("marking action %d executed: %w", queueID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("action %d not found", queueID)
 	}
 	return nil
 }
@@ -294,10 +362,10 @@ func (s *ActionStore) GetByID(
 		     COALESCE(guardrails, '[]'::jsonb),
 		     COALESCE(attempt_count, 0), last_attempt_at,
 		     cooldown_until, COALESCE(failure_fingerprint, ''),
-		     COALESCE(last_failure_fingerprint, ''),
-		     COALESCE(verification_status, ''),
-		     COALESCE(shadow_toil_minutes, 0)
-		 FROM sage.action_queue WHERE id = $1`, id,
+	     COALESCE(last_failure_fingerprint, ''),
+	     COALESCE(verification_status, ''),
+	     COALESCE(shadow_toil_minutes, 0), action_log_id
+	 FROM sage.action_queue WHERE id = $1`, id,
 	).Scan(
 		&a.ID, &a.DatabaseID, &a.FindingID,
 		&a.ProposedSQL, &rollback, &a.ActionRisk,
@@ -307,7 +375,7 @@ func (s *ActionStore) GetByID(
 		&guardrails, &a.AttemptCount, &a.LastAttemptAt,
 		&a.CooldownUntil, &a.FailureFingerprint,
 		&a.LastFailureFingerprint, &a.VerificationStatus,
-		&a.ShadowToilMinutes,
+		&a.ShadowToilMinutes, &a.ActionLogID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("getting action %d: %w", id, err)

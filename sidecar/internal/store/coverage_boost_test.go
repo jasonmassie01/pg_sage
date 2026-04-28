@@ -638,6 +638,120 @@ func TestCoverage_ActionStore_Reject(t *testing.T) {
 	}
 }
 
+func TestCoverage_ActionStore_ApproveExpiredActionFails(t *testing.T) {
+	pool, ctx := coverageDB(t)
+	findingID := 120
+	insertActionStoreFinding(t, pool, ctx, findingID)
+	var id int
+	err := pool.QueryRow(ctx,
+		`INSERT INTO sage.action_queue
+		    (finding_id, proposed_sql, action_risk, expires_at)
+		 VALUES ($1, 'ANALYZE public.orders', 'safe',
+		         now() - INTERVAL '1 minute')
+		 RETURNING id`, findingID).Scan(&id)
+	if err != nil {
+		t.Fatalf("insert expired action: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM sage.action_queue WHERE id = $1", id)
+	})
+
+	_, err = NewActionStore(pool).Approve(ctx, id, 99)
+	if err == nil {
+		t.Fatal("expected approving expired action to fail")
+	}
+}
+
+func TestCoverage_ActionStore_MarkAttemptFailedPersistsCircuitState(t *testing.T) {
+	pool, ctx := coverageDB(t)
+	findingID := 121
+	insertActionStoreFinding(t, pool, ctx, findingID)
+	store := NewActionStore(pool)
+	id, err := store.Propose(ctx, nil, findingID,
+		"ANALYZE public.orders", "", "safe")
+	if err != nil {
+		t.Fatalf("propose: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM sage.action_queue WHERE id = $1", id)
+	})
+
+	err = store.MarkAttemptFailed(ctx, id,
+		"permission denied: ANALYZE public.orders", time.Hour)
+	if err != nil {
+		t.Fatalf("MarkAttemptFailed: %v", err)
+	}
+
+	action, err := store.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if action.Status != "failed" {
+		t.Fatalf("Status = %q, want failed", action.Status)
+	}
+	if action.AttemptCount != 1 {
+		t.Fatalf("AttemptCount = %d, want 1", action.AttemptCount)
+	}
+	if action.VerificationStatus != "failed" {
+		t.Fatalf("VerificationStatus = %q, want failed",
+			action.VerificationStatus)
+	}
+	if action.FailureFingerprint == "" {
+		t.Fatalf("FailureFingerprint is empty")
+	}
+	if action.CooldownUntil == nil {
+		t.Fatalf("CooldownUntil is nil")
+	}
+}
+
+func TestCoverage_ActionStore_MarkExecutedLinksActionLog(t *testing.T) {
+	pool, ctx := coverageDB(t)
+	findingID := 122
+	insertActionStoreFinding(t, pool, ctx, findingID)
+	store := NewActionStore(pool)
+	queueID, err := store.Propose(ctx, nil, findingID,
+		"ANALYZE public.orders", "", "safe")
+	if err != nil {
+		t.Fatalf("propose: %v", err)
+	}
+	var logID int64
+	err = pool.QueryRow(ctx,
+		`INSERT INTO sage.action_log
+		    (action_type, finding_id, sql_executed, outcome)
+		 VALUES ('analyze', $1, 'ANALYZE public.orders', 'success')
+		 RETURNING id`, findingID).Scan(&logID)
+	if err != nil {
+		t.Fatalf("insert action log: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM sage.action_queue WHERE id = $1", queueID)
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM sage.action_log WHERE id = $1", logID)
+	})
+
+	if err := store.MarkExecuted(ctx, queueID, logID, "verified"); err != nil {
+		t.Fatalf("MarkExecuted: %v", err)
+	}
+
+	action, err := store.GetByID(ctx, queueID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if action.Status != "executed" {
+		t.Fatalf("Status = %q, want executed", action.Status)
+	}
+	if action.ActionLogID == nil || *action.ActionLogID != logID {
+		t.Fatalf("ActionLogID = %v, want %d", action.ActionLogID, logID)
+	}
+	if action.VerificationStatus != "verified" {
+		t.Fatalf("VerificationStatus = %q, want verified",
+			action.VerificationStatus)
+	}
+}
+
 func TestCoverage_ActionStore_RejectNonexistent(t *testing.T) {
 	pool, ctx := coverageDB(t)
 	s := NewActionStore(pool)
