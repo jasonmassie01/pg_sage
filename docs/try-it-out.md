@@ -76,10 +76,10 @@ Verify these screens:
 | Overview | Fleet summary, database tiles, Provider Readiness, recent recommendations |
 | Cases | Ranked DBA cases with source filters, state, why-now text, policy, lifecycle, and next action |
 | Legacy routes | `#/findings`, `#/schema-health`, `#/query-hints`, `#/forecasts`, and `#/incidents` open Cases with the relevant context |
-| Migration safety | DDL cases show preflight evidence, migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI output |
-| Incident playbooks | Incident cases show read-only diagnostics or reviewed scripts for locks, runaway queries, connection pressure, WAL/replication risk, and sequence exhaustion |
-| Vacuum autopilot | Bloat/freeze cases show guarded `VACUUM`, freeze-blocker diagnostics, or autovacuum tuning scripts with verification plans |
-| Query tuning | Query-hint cases can show rewrite artifacts, broken-hint retirement, and reviewed role-level `work_mem` promotion |
+| Migration safety | DDL cases show lock/rewrite/live-risk preflight, migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI output |
+| Incident playbooks | Incident cases show read-only diagnostics or reviewed scripts for locks, runaway queries, connection pressure, WAL/replication risk, standby conflicts, vacuum pressure, and sequence exhaustion |
+| Vacuum autopilot | Bloat/freeze cases show guarded `VACUUM`, concurrent reindex, bloat-remediation plans, freeze-blocker diagnostics, or autovacuum tuning scripts with verification plans |
+| Query tuning | Query-hint cases can show rewrite artifacts, broken-hint retirement, `CREATE STATISTICS`, parameterization plans, and reviewed role-level `work_mem` promotion |
 | Provider readiness | Overview shows provider-specific extension paths, log access, limitations, and action-family readiness |
 | Actions | Executed and Pending Approval tabs; expanded rows show SQL, expiration, rollback, verification state, and generated script output for DDL |
 | Fleet | Managed databases table and connection-test/edit controls |

@@ -102,6 +102,14 @@ func actionCandidatesForIncident(i SourceIncident) []ActionCandidate {
 		)}
 	}
 	if walOrReplicationIncident(i) {
+		if standbyConflictIncident(i) {
+			return []ActionCandidate{diagnosticIncidentCandidate(
+				"diagnose_standby_conflicts",
+				diagnoseStandbyConflictsSQL(),
+				i.Confidence,
+				[]string{"verify standby conflict type and replay pressure"},
+			)}
+		}
 		return []ActionCandidate{diagnosticIncidentCandidate(
 			"diagnose_wal_replication",
 			diagnoseWALReplicationSQL(),
@@ -111,6 +119,9 @@ func actionCandidatesForIncident(i SourceIncident) []ActionCandidate {
 	}
 	if sequenceExhaustionIncident(i) {
 		return []ActionCandidate{sequenceCapacityMigrationCandidate(i)}
+	}
+	if autovacuumFallingBehindIncident(i) {
+		return autovacuumIncidentCandidates(i)
 	}
 	return nil
 }
@@ -197,6 +208,30 @@ func sequenceCapacityMigrationCandidate(i SourceIncident) ActionCandidate {
 			Format:     "sql",
 		},
 	}
+}
+
+func autovacuumIncidentCandidates(i SourceIncident) []ActionCandidate {
+	object := incidentPrimaryObject(i, "")
+	candidates := []ActionCandidate{diagnosticIncidentCandidate(
+		"diagnose_vacuum_pressure",
+		diagnoseVacuumPressureSQL(object),
+		i.Confidence,
+		[]string{"identify blockers, dead tuples, and oldest xmin holders"},
+	)}
+	if object != "" {
+		expires := time.Now().UTC().Add(24 * time.Hour)
+		candidates = append(candidates, ActionCandidate{
+			ActionType:       "vacuum_table",
+			RiskTier:         "safe",
+			Confidence:       i.Confidence,
+			ProposedSQL:      "VACUUM " + object + ";",
+			ExpiresAt:        &expires,
+			OutputModes:      []string{"execute", "queue_for_approval"},
+			RollbackClass:    "no_rollback_needed",
+			VerificationPlan: verificationPlanForAction("vacuum_table"),
+		})
+	}
+	return candidates
 }
 
 func cancelBackendCandidate(
@@ -327,6 +362,18 @@ func walOrReplicationIncident(i SourceIncident) bool {
 		signals["standby_conflict"] ||
 		signals["wal_growth"] ||
 		signals["inactive_slot"]
+}
+
+func standbyConflictIncident(i SourceIncident) bool {
+	signals := signalSet(i.SignalIDs)
+	return signals["standby_conflict"] || signals["replica_conflict"]
+}
+
+func autovacuumFallingBehindIncident(i SourceIncident) bool {
+	signals := signalSet(i.SignalIDs)
+	return signals["autovacuum_falling_behind"] ||
+		signals["autovacuum_blocked"] ||
+		signals["vacuum_falling_behind"]
 }
 
 func sequenceExhaustionIncident(i SourceIncident) bool {
@@ -484,6 +531,17 @@ SELECT 'slot' AS source,
        NULL AS write_lag,
        NULL AS flush_lag
 FROM pg_replication_slots`
+}
+
+func diagnoseStandbyConflictsSQL() string {
+	return `SELECT datname,
+       confl_tablespace,
+       confl_lock,
+       confl_snapshot,
+       confl_bufferpin,
+       confl_deadlock
+FROM pg_stat_database_conflicts
+ORDER BY confl_lock + confl_snapshot + confl_bufferpin + confl_deadlock DESC`
 }
 
 func sequenceCapacityMigrationSQL(sequence string) string {

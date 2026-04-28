@@ -22,6 +22,8 @@ The release also adds more trust-building surface for teams evaluating autonomy.
 - Vacuum, bloat, and freeze cases now project explicit autopilot candidates. Table-bloat findings can propose guarded `VACUUM`, IO-saturated bloat cases are blocked to script/review output, XID wraparound findings get freeze-blocker diagnostics, and per-table autovacuum tuning produces PR/CI-ready reloption scripts with verification SQL.
 - Query tuning now extends beyond `pg_hint_plan` hints. Suggested rewrites become PR-ready query rewrite artifacts with semantic and plan verification, broken hints can be retired through a safe metadata action, and repeated per-role `work_mem` hints can be promoted to reviewed role-level configuration changes.
 - Provider readiness now uses provider-specific capability adapters for self-managed Postgres, Cloud SQL, AlloyDB, RDS, and Aurora. The readiness matrix exposes extension enablement paths, log-access expectations, provider limitations, and the expanded action family support instead of treating every Postgres endpoint as operationally identical.
+- DDL safety preflight now records live-risk checks for table size, active workload, pending locks, replica lag, and lock-timeout configuration. High-warning live preflight output blocks direct execution and keeps the action in reviewed PR/script mode.
+- Incident and maintenance coverage now adds autovacuum-falling-behind, standby-conflict, blocked-vacuum, concurrent reindex, bloat-remediation planning, `CREATE STATISTICS`, and parameterized-query action families, each with typed contracts and verification plans.
 
 ### Fixed
 

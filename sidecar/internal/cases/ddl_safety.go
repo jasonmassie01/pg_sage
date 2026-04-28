@@ -15,6 +15,9 @@ func enrichDDLSafetyCandidate(
 	if candidate.BlockedReason == "" && candidate.ActionType == "ddl_preflight" {
 		candidate.BlockedReason = "direct execution blocked; generate PR or script"
 	}
+	if candidate.BlockedReason == "" && hasLiveDDLWarnings(candidate.DDLPreflight) {
+		candidate.BlockedReason = "live DDL preflight has warnings; review required"
+	}
 	return candidate
 }
 
@@ -38,10 +41,27 @@ func ddlPreflightFromFinding(f SourceFinding) *DDLPreflightReport {
 		ActiveQueries:   int(detailInt64(d, "active_queries", 0)),
 		PendingLocks:    int(detailInt64(d, "pending_locks", 0)),
 		ReplicationLag:  detailFloat(d, "replication_lag", 0),
-		EstimatedLockMs: detailInt64(d, "estimated_lock_ms", 0),
+		EstimatedLockMs: detailInt64(d, "lock_timeout_ms",
+			detailInt64(d, "estimated_lock_ms", 0)),
 	}
 	report.Checks = ddlPreflightChecks(report)
 	return report
+}
+
+func hasLiveDDLWarnings(report *DDLPreflightReport) bool {
+	if report == nil {
+		return false
+	}
+	for _, check := range report.Checks {
+		switch check.Name {
+		case "activity", "pending_locks", "replica_lag", "table_size",
+			"lock_timeout":
+			if check.Status == "warn" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func ddlPreflightSummary(lockLevel string, rewrite bool) string {
@@ -63,6 +83,10 @@ func ddlPreflightChecks(r *DDLPreflightReport) []PreflightCheck {
 			Detail: fmt.Sprintf("%d pending locks", r.PendingLocks)},
 		{Name: "replica_lag", Status: lagStatus(r.ReplicationLag),
 			Detail: fmt.Sprintf("%.0fs", r.ReplicationLag)},
+		{Name: "table_size", Status: tableSizeStatus(r.TableSizeBytes),
+			Detail: formatBytes(r.TableSizeBytes)},
+		{Name: "lock_timeout", Status: checkStatus(r.EstimatedLockMs > 0),
+			Detail: fmt.Sprintf("%dms", r.EstimatedLockMs)},
 	}
 	return checks
 }
@@ -100,6 +124,20 @@ func lagStatus(value float64) string {
 		return "warn"
 	}
 	return "pass"
+}
+
+func tableSizeStatus(value int64) string {
+	if value > 10*1024*1024*1024 {
+		return "warn"
+	}
+	return "pass"
+}
+
+func formatBytes(value int64) string {
+	if value <= 0 {
+		return "unknown"
+	}
+	return fmt.Sprintf("%d bytes", value)
 }
 
 func scriptOutputFromFinding(

@@ -27,12 +27,12 @@ pg_sage sidecar (single Go binary)
   │
   ├── Executor         [trust-gated]
   │   ├── CONCURRENTLY DDL on raw pgx connection
-  │   ├── DDL preflight + PR/CI script output for high-risk migrations
+  │   ├── DDL lock/rewrite/live-risk preflight + PR/CI script output
   │   ├── Incident playbooks for locks, runaway queries, connections, WAL,
   │   │   replication, and sequence exhaustion
   │   ├── Vacuum/bloat/freeze autopilot with IO and XID guardrails
-  │   ├── Query tuning artifacts beyond hints: rewrites, hint retirement,
-  │   │   and role-level work_mem promotion
+  │   ├── Query tuning artifacts beyond hints: rewrites, statistics,
+  │   │   parameterization, hint retirement, and role work_mem promotion
   │   ├── Rollback monitor (read + write latency regression)
   │   └── Emergency stop via sage.config
   │
@@ -91,28 +91,33 @@ the action queue.
 
 High-risk schema changes are handled as migration-safety cases before direct
 execution. The case projector attaches deterministic DDL preflight evidence,
-generated migration SQL, rollback or forward-fix guidance, verification SQL,
-and PR/CI metadata. These artifacts are shown in Cases and Actions so teams can
-review schema work through their normal change-control process.
+including lock/rewrite classification plus live table-size, activity, pending
+lock, replica-lag, and lock-timeout checks. It also attaches generated
+migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI
+metadata. These artifacts are shown in Cases and Actions so teams can review
+schema work through their normal change-control process.
 
 Incident playbooks follow the same typed-action model. Read-only diagnostics
-can inspect blocker graphs, runaway queries, connection pressure, and
-WAL/replication state. Backend cancel/terminate actions require exact PID
-evidence and approval. Sequence capacity changes are treated as forward-fix
-migrations with script and verification output rather than autonomous DDL.
+can inspect blocker graphs, runaway queries, connection pressure,
+WAL/replication state, standby conflicts, and vacuum pressure. Backend
+cancel/terminate actions require exact PID evidence and approval. Sequence
+capacity changes are treated as forward-fix migrations with script and
+verification output rather than autonomous DDL.
 
 Vacuum, bloat, and freeze autopilot turns maintenance findings into bounded
 actions. Small table-bloat cases can propose guarded `VACUUM`; IO-saturated
 cases are blocked to script/review output; XID wraparound cases diagnose oldest
-`backend_xmin` holders; and per-table autovacuum reloption changes are queued
-as reviewed migration scripts with post-change verification.
+`backend_xmin` holders; concurrent reindex handles index-bloat remediation;
+and high-blast-radius table bloat produces reviewed online remediation plans
+instead of `VACUUM FULL` by default.
 
-Query tuning has two paths. `pg_hint_plan` remains useful for reversible
+Query tuning has multiple paths. `pg_hint_plan` remains useful for reversible
 planner experiments, but pg_sage can also generate application-query rewrite
-artifacts, retire broken hint experiments, and promote repeated per-role
-`work_mem` patterns into reviewed role settings. Those actions are modeled as
-typed cases with rollback class, verification steps, and PR/script output so
-they can move through change control like schema work.
+artifacts, retire broken hint experiments, recommend `CREATE STATISTICS`, draft
+parameterization changes, and promote repeated per-role `work_mem` patterns
+into reviewed role settings. Those actions are modeled as typed cases with
+rollback class, verification steps, and PR/script output so they can move
+through change control like schema work.
 
 The executor checks: trust level, trust ramp, per-tier toggles, maintenance window, emergency stop flag, and replica status before acting.
 

@@ -21,21 +21,23 @@ prints a one-time password for `admin@pg-sage.local`; API clients authenticate
 through `/api/v1/auth/login` and reuse the `sage_session` cookie.
 
 Migration-safety cases are non-executing by default for high-risk DDL. pg_sage
-generates deterministic preflight evidence, migration SQL, rollback or
-forward-fix guidance, verification SQL, and PR/CI metadata so teams can review
-schema work before anything touches production.
+generates deterministic lock/rewrite and live-risk preflight evidence,
+migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI
+metadata so teams can review schema work before anything touches production.
 
 Incident and maintenance cases now carry richer automation candidates. Lock
-blockers, runaway queries, connection exhaustion, WAL/replication pressure, and
-sequence exhaustion route to typed playbooks with safe diagnostics or reviewed
-scripts. Vacuum, bloat, and freeze findings project guarded `VACUUM`, freeze
-diagnostics, and per-table autovacuum tuning actions with explicit verification
-plans and IO-saturation gates.
+blockers, runaway queries, connection exhaustion, standby conflicts,
+WAL/replication pressure, autovacuum pressure, and sequence exhaustion route to
+typed playbooks with safe diagnostics or reviewed scripts. Vacuum, bloat, and
+freeze findings project guarded `VACUUM`, concurrent reindex, bloat-remediation
+plans, freeze diagnostics, and per-table autovacuum tuning actions with
+explicit verification plans and IO-saturation gates.
 
 Query tuning cases are no longer limited to planner hints. pg_sage can turn
 suggested rewrites into PR-ready artifacts, retire broken hints through a safe
-metadata action, and promote repeated per-query `work_mem` hints into reviewed
-role-level settings when the blast radius is explicit.
+metadata action, recommend `CREATE STATISTICS`, draft parameterization changes,
+and promote repeated per-query `work_mem` hints into reviewed role-level
+settings when the blast radius is explicit.
 
 Provider readiness is adapter-driven for self-managed Postgres, Cloud SQL,
 AlloyDB, RDS, and Aurora. The matrix shows extension enablement paths, log
