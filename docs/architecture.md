@@ -27,6 +27,7 @@ pg_sage sidecar (single Go binary)
   │
   ├── Executor         [trust-gated]
   │   ├── CONCURRENTLY DDL on raw pgx connection
+  │   ├── DDL preflight + PR/CI script output for high-risk migrations
   │   ├── Rollback monitor (read + write latency regression)
   │   └── Emergency stop via sage.config
   │
@@ -83,16 +84,23 @@ decision, lifecycle state, and verification state. Execution outcomes are
 logged to `sage.action_log`; pending work and approval outcomes are tracked in
 the action queue.
 
+High-risk schema changes are handled as migration-safety cases before direct
+execution. The case projector attaches deterministic DDL preflight evidence,
+generated migration SQL, rollback or forward-fix guidance, verification SQL,
+and PR/CI metadata. These artifacts are shown in Cases and Actions so teams can
+review schema work through their normal change-control process.
+
 The executor checks: trust level, trust ramp, per-tier toggles, maintenance window, emergency stop flag, and replica status before acting.
 
 ### API + Dashboard (Web UI)
 
 REST API and embedded React SPA on `:8080` (configurable). The v0.9 UI is
 organized around Overview, Cases, Actions, Fleet, and Settings. The legacy
-`#/findings` route remains as a compatibility alias to Cases. The API includes
-case projection, shadow report, action queue, provider readiness, findings,
-snapshots, config, forecasts, query hints, alerts, emergency stop, and fleet
-management. UI and `/api/v1/*` routes are session-authenticated.
+`#/findings`, `#/schema-health`, `#/query-hints`, `#/forecasts`, and
+`#/incidents` routes open Cases with the appropriate source context. The API
+includes case projection, shadow report, action queue, provider readiness,
+findings, snapshots, config, forecasts, query hints, alerts, emergency stop,
+and fleet management. UI and `/api/v1/*` routes are session-authenticated.
 
 ### Alerting
 

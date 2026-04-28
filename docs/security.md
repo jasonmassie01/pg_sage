@@ -54,7 +54,8 @@ All data sources are read-only catalog views and statistics:
 
 - **Never reads table row data.** All analysis uses aggregate statistics and catalog metadata.
 - **Never accesses credentials or secrets.** Does not read `pg_authid.rolpassword` or password hashes.
-- **Never modifies user data.** Autonomous actions are limited to DDL (`CREATE INDEX CONCURRENTLY`, `REINDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`). Never runs `INSERT`, `UPDATE`, or `DELETE` on user tables.
+- **Never modifies user data.** Autonomous actions are limited to maintenance and schema operations such as `ANALYZE`, guarded index DDL, and approved incident actions. Never runs `INSERT`, `UPDATE`, or `DELETE` on user tables.
+- **Never directly executes high-risk DDL.** Rewrite-heavy or forward-fix-only schema changes become migration-safety cases with preflight evidence, generated scripts, verification SQL, and PR/CI metadata for human review.
 - **Never uses ALTER SYSTEM.** Configuration changes are made through the YAML config file, not database-side settings.
 - **Never phones home.** Zero hardcoded external endpoints. All outbound connections are to user-configured addresses only.
 

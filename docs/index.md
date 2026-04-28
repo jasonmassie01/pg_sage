@@ -8,7 +8,9 @@ traditional observability dashboard:
 
 - **Overview** shows fleet health, provider readiness, and agent state.
 - **Cases** is the primary work queue for findings, incidents, and proposed
-  actions. The legacy `#/findings` route aliases here.
+  actions. Schema-health, forecast, query-hint, and incident routes open Cases
+  with the matching source filter selected; the legacy `#/findings` route
+  aliases here.
 - **Actions** shows pending approval and executed action history.
 - **Fleet** manages database connections and per-database runtime state.
 - **Settings** includes system configuration, emergency controls, and the
@@ -17,6 +19,11 @@ traditional observability dashboard:
 The web UI and JSON API are authenticated by default. On first start, pg_sage
 prints a one-time password for `admin@pg-sage.local`; API clients authenticate
 through `/api/v1/auth/login` and reuse the `sage_session` cookie.
+
+Migration-safety cases are non-executing by default for high-risk DDL. pg_sage
+generates deterministic preflight evidence, migration SQL, rollback or
+forward-fix guidance, verification SQL, and PR/CI metadata so teams can review
+schema work before anything touches production.
 
 ---
 

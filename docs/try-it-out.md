@@ -74,9 +74,10 @@ Verify these screens:
 | Check | Expected result |
 |---|---|
 | Overview | Fleet summary, database tiles, Provider Readiness, recent recommendations |
-| Cases | Ranked DBA cases with state, why-now text, policy, lifecycle, and next action |
-| `#/findings` | Compatibility alias that opens Cases |
-| Actions | Executed and Pending Approval tabs; expanded rows show SQL, expiration, rollback, and verification state |
+| Cases | Ranked DBA cases with source filters, state, why-now text, policy, lifecycle, and next action |
+| Legacy routes | `#/findings`, `#/schema-health`, `#/query-hints`, `#/forecasts`, and `#/incidents` open Cases with the relevant context |
+| Migration safety | DDL cases show preflight evidence, migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI output |
+| Actions | Executed and Pending Approval tabs; expanded rows show SQL, expiration, rollback, verification state, and generated script output for DDL |
 | Fleet | Managed databases table and connection-test/edit controls |
 | Settings | System info, emergency controls, Shadow Mode report |
 
