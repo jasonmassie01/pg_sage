@@ -80,6 +80,10 @@ function ShadowProofRow({ item }) {
         style={{ color: 'var(--text-secondary)' }}>
         <span>{item.action_type}</span>
         <span>Policy: {item.policy_decision}</span>
+        {item.status && <span>Status: {item.status}</span>}
+        {item.verification_status && (
+          <span>Verification: {item.verification_status}</span>
+        )}
         <span>Toil: {item.estimated_toil_minutes} min</span>
         {item.blocked_reason && (
           <span>Blocked: {item.blocked_reason}</span>

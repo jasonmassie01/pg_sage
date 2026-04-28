@@ -165,6 +165,7 @@ func caseActionFromQueuedAction(
 		BlockedReason:      decision.BlockedReason,
 		VerificationStatus: action.VerificationStatus,
 		AttemptCount:       action.AttemptCount,
+		ShadowToilMinutes:  action.ShadowToilMinutes,
 		Guardrails:         action.Guardrails,
 		ProposedAt:         &proposedAt,
 		ExpiresAt:          action.ExpiresAt,

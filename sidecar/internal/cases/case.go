@@ -109,6 +109,7 @@ type CaseAction struct {
 	BlockedReason      string     `json:"blocked_reason,omitempty"`
 	VerificationStatus string     `json:"verification_status,omitempty"`
 	AttemptCount       int        `json:"attempt_count,omitempty"`
+	ShadowToilMinutes  int        `json:"shadow_toil_minutes,omitempty"`
 	Guardrails         []string   `json:"guardrails,omitempty"`
 	ProposedAt         *time.Time `json:"proposed_at,omitempty"`
 	ExpiresAt          time.Time  `json:"expires_at,omitempty"`

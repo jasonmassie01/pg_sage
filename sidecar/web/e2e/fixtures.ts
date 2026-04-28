@@ -133,6 +133,17 @@ export const mockShadowReport = {
   blocked: 1,
   estimated_toil_minutes: 360,
   blocked_reasons: ['requires approval'],
+  proof: [
+    {
+      case_id: 'case-1',
+      title: 'Stats are stale',
+      action_type: 'analyze',
+      policy_decision: 'execute',
+      status: 'success',
+      verification_status: 'verified',
+      estimated_toil_minutes: 15,
+    },
+  ],
 }
 
 export const mockActions = {

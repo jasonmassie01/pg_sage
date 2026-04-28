@@ -54,3 +54,67 @@ func TestShadowReportCountsAutoSafeCandidates(t *testing.T) {
 			report.Proof[1].BlockedReason)
 	}
 }
+
+func TestShadowReportPrefersDurableActionHistory(t *testing.T) {
+	report := BuildShadowReport([]Case{
+		NewCase(CaseInput{
+			IdentityKey:  "case-queued",
+			DatabaseName: "prod",
+			Title:        "queued analyze",
+			Severity:     SeverityWarning,
+			ActionCandidates: []ActionCandidate{{
+				ActionType: "analyze_table",
+				RiskTier:   "safe",
+			}},
+		}).withActions([]CaseAction{{
+			ID:                "queue:7",
+			Type:              "analyze_table",
+			RiskTier:          "safe",
+			Status:            "pending",
+			PolicyDecision:    "queue_for_approval",
+			ShadowToilMinutes: 15,
+		}}),
+		NewCase(CaseInput{
+			IdentityKey:  "case-executed",
+			DatabaseName: "prod",
+			Title:        "executed analyze",
+			Severity:     SeverityWarning,
+		}).withActions([]CaseAction{{
+			ID:                 "log:88",
+			Type:               "analyze",
+			RiskTier:           "safe",
+			Status:             "success",
+			LifecycleState:     "executed",
+			VerificationStatus: "verified",
+		}}),
+	})
+
+	if report.TotalCases != 2 {
+		t.Fatalf("TotalCases = %d, want 2", report.TotalCases)
+	}
+	if report.WouldAutoResolve != 1 {
+		t.Fatalf("WouldAutoResolve = %d, want executed action counted",
+			report.WouldAutoResolve)
+	}
+	if report.RequiresApproval != 1 {
+		t.Fatalf("RequiresApproval = %d, want queued action counted",
+			report.RequiresApproval)
+	}
+	if len(report.Proof) != 2 {
+		t.Fatalf("Proof len = %d, want durable action rows only",
+			len(report.Proof))
+	}
+	if report.Proof[0].CaseID != "case-queued" ||
+		report.Proof[0].PolicyDecision != "queue_for_approval" {
+		t.Fatalf("queued proof = %#v", report.Proof[0])
+	}
+	if report.Proof[1].CaseID != "case-executed" ||
+		report.Proof[1].EstimatedToilMins != 15 {
+		t.Fatalf("executed proof = %#v", report.Proof[1])
+	}
+}
+
+func (c Case) withActions(actions []CaseAction) Case {
+	c.Actions = actions
+	return c
+}

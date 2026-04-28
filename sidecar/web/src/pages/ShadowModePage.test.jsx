@@ -17,6 +17,8 @@ vi.mock('../hooks/useAPI', () => ({
           title: 'Stats are stale',
           action_type: 'analyze_table',
           policy_decision: 'execute',
+          status: 'success',
+          verification_status: 'verified',
           estimated_toil_minutes: 15,
         },
         {
@@ -43,6 +45,8 @@ describe('ShadowModePage', () => {
     expect(screen.getByText('360 min')).toBeInTheDocument()
     expect(screen.getByText('Stats are stale')).toBeInTheDocument()
     expect(screen.getByText('analyze_table')).toBeInTheDocument()
+    expect(screen.getByText('Status: success')).toBeInTheDocument()
+    expect(screen.getByText('Verification: verified')).toBeInTheDocument()
     expect(screen.getAllByText(/requires approval/).length)
       .toBeGreaterThan(0)
   })
