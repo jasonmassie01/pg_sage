@@ -2,7 +2,7 @@
 set -euo pipefail
 
 cat <<'MSG'
-pg_sage v0.9 demo
+pg_sage v1 demo
 
 The old terminal-recording script has been retired because it described the
 legacy extension/MCP flow. The current demo is the authenticated sidecar UI:

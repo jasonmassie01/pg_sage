@@ -1,7 +1,7 @@
-# Try pg_sage v0.9 Locally
+# Try pg_sage v1 Locally
 
 This smoke path gets pg_sage running against a local PostgreSQL target, logs in
-to the authenticated UI, and verifies the v0.9 autonomous DBA workflow:
+to the authenticated UI, and verifies the v1 autonomous DBA workflow:
 Overview, Cases, Actions, Fleet, Settings, and Shadow Mode.
 
 ## Prerequisites

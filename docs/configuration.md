@@ -34,9 +34,9 @@ The sidecar supports hot-reload: changes to the YAML config file are detected an
 | `SAGE_DATABASE_URL` | (none) | PostgreSQL connection string |
 | `SAGE_LLM_API_KEY` | (none) | API key for Gemini or any OpenAI-compatible LLM |
 | `SAGE_OPTIMIZER_LLM_API_KEY` | (none) | Separate API key for the optimizer model (optional) |
-| `SAGE_API_KEY` | (none) | Legacy config field; the v0.9 web/API path uses session login cookies |
-| `SAGE_TLS_CERT` | (none) | Legacy/reserved; terminate TLS at a reverse proxy in v0.9 |
-| `SAGE_TLS_KEY` | (none) | Legacy/reserved; terminate TLS at a reverse proxy in v0.9 |
+| `SAGE_API_KEY` | (none) | Legacy config field; the current web/API path uses session login cookies |
+| `SAGE_TLS_CERT` | (none) | Legacy/reserved; terminate TLS at a reverse proxy |
+| `SAGE_TLS_KEY` | (none) | Legacy/reserved; terminate TLS at a reverse proxy |
 | `SAGE_PROMETHEUS_PORT` | `9187` | Port for Prometheus metrics |
 | `SAGE_RATE_LIMIT` | `60` | Max requests per minute per IP on REST API |
 | `SAGE_PG_MAX_CONNS` | `2` | Max PostgreSQL connections in pool |

@@ -1,6 +1,6 @@
 # pg_sage Demo
 
-Local demo assets for showing the v0.9 autonomous DBA workflow.
+Local demo assets for showing the v1 autonomous DBA workflow.
 
 ## Quick Demo
 

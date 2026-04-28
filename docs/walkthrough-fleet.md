@@ -1,7 +1,7 @@
 # pg_sage Fleet Walkthrough
 
 Run one pg_sage sidecar against multiple PostgreSQL databases and verify the
-v0.9 autonomous DBA workflow.
+v1 autonomous DBA workflow.
 
 ## Prerequisites
 
@@ -91,7 +91,7 @@ Go to **Fleet** and add:
 
 Use **Test Connection** before saving each database.
 
-## 5. Verify the v0.9 UI
+## 5. Verify the v1 UI
 
 | Screen | What to verify |
 |---|---|

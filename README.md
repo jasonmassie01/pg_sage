@@ -75,7 +75,7 @@ See the [docs/](docs/) directory for guides and reference:
 - [Security](docs/security.md) -- permissions model, network, secrets management
 - [SQL Reference](docs/sql-reference.md) -- schema tables and diagnostic queries
 - [Findings Reference](docs/findings.md) -- every rule, severity, and remediation
-- [Try It Out](docs/try-it-out.md) -- local v0.9 smoke path and UI checklist
+- [Try It Out](docs/try-it-out.md) -- local v1 smoke path and UI checklist
 - **Walkthroughs:** [Linux](docs/walkthrough-linux.md) | [Windows](docs/walkthrough-windows.md) | [Fleet](docs/walkthrough-fleet.md)
 
 ## Building from Source

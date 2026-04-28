@@ -220,7 +220,7 @@ spec:
 
 ## First Admin and API Authentication
 
-The dashboard and `/api/v1/*` endpoints are session-authenticated in v0.9. The
+The dashboard and `/api/v1/*` endpoints are session-authenticated in v1. The
 first time pg_sage starts against a metadata database with no users, it creates
 `admin@pg-sage.local` and prints the initial password to stderr. Capture that
 startup log in your service manager or secret handoff process, then rotate the

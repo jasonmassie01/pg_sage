@@ -1,7 +1,7 @@
-# pg_sage v0.9 Demo Walkthrough
+# pg_sage v1 Demo Walkthrough
 
 This is the current live demo path. It intentionally avoids old extension/MCP
-language: v0.9 is a Go sidecar with an authenticated React UI and REST API.
+language: v1 is a Go sidecar with an authenticated React UI and REST API.
 
 ## 1. Start the Demo
 

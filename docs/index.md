@@ -3,7 +3,7 @@
 Agentic Postgres DBA — a Go sidecar that monitors, analyzes, and optimizes
 PostgreSQL 14+ databases with trust-ramped safety controls.
 
-v0.9 centers the product around an autonomous DBA workflow instead of a
+v1 centers the product around an autonomous DBA workflow instead of a
 traditional observability dashboard:
 
 - **Overview** shows fleet health, provider readiness, and agent state.
@@ -49,7 +49,7 @@ can differ by managed-service constraints.
 ## Getting Started
 
 - [Installation](installation.md) — Download, prerequisites, database user setup
-- [Try It Out](try-it-out.md) — local v0.9 smoke path and UI checklist
+- [Try It Out](try-it-out.md) — local v1 smoke path and UI checklist
 - [Walkthroughs](walkthrough.md) — Platform-specific getting started guides
   - [Linux / macOS](walkthrough-linux.md)
   - [Windows](walkthrough-windows.md)

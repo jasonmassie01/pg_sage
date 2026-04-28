@@ -1,8 +1,11 @@
 # Changelog
 
-## Unreleased — Verification Bug Pass (2026-04-27)
+## v1 (2026-04-28) — Autonomous DBA Release
 
-> Mirrors the browser/API/database verification pass tracked in `docs/codex-bug-log.md`. The source bug log reports 66 tracked fixes; its `## Fixed` section currently contains 65 fix bullets, all mirrored below.
+> Published on GitHub `master` as tag `v1`. This release includes the
+> autonomous DBA feature slices, the prior verification bug pass tracked in
+> `docs/codex-bug-log.md`, the final provider-readiness contract updates, and
+> the admin/legacy workflow verification pass.
 
 ### Functionality Change
 
@@ -10,7 +13,7 @@ This release moves pg_sage further away from a passive observability dashboard a
 
 The action lifecycle is now more deterministic and safer under real operating conditions. Proposed actions are filtered when their source finding has already been resolved, successful executions close the loop back to the finding, rejected actions observe cooldowns, and stale or duplicate create-index work is suppressed before it can create noise or risk. This matters because autonomous database work cannot rely on optimistic UI state alone; every action needs fresh evidence, an auditable state transition, and guardrails that prevent the system from repeatedly proposing or executing work that has already been handled.
 
-Fleet behavior was tightened across settings, detail lookups, action execution, incident resolution, and managed database editing. In multi-database mode, pg_sage now requires explicit database targeting for mutations and ambiguous detail reads, refreshes runtime state after managed database changes, and keeps selected-database configuration separate from global configuration. These changes are intentionally conservative: once a product can operate across a fleet, wrong-database reads or writes become one of the highest-risk failure modes, so v0.9 prioritizes precise scoping over convenience.
+Fleet behavior was tightened across settings, detail lookups, action execution, incident resolution, and managed database editing. In multi-database mode, pg_sage now requires explicit database targeting for mutations and ambiguous detail reads, refreshes runtime state after managed database changes, and keeps selected-database configuration separate from global configuration. These changes are intentionally conservative: once a product can operate across a fleet, wrong-database reads or writes become one of the highest-risk failure modes, so v1 prioritizes precise scoping over convenience.
 
 The release also adds more trust-building surface for teams evaluating autonomy. Provider readiness, shadow-mode reporting, durable LLM cooldown tracking, migration safety cases, and incident playbook actions give operators a clearer view of what pg_sage can do, what is blocking it, and what it would have done before automation is enabled. The reasoning behind these additions is adoption-oriented: DB teams are more likely to trust autonomous execution when the product can first prove avoided toil, expose its constraints, and show a reliable decision trail.
 
@@ -24,6 +27,8 @@ The release also adds more trust-building surface for teams evaluating autonomy.
 - Provider readiness now uses provider-specific capability adapters for self-managed Postgres, Cloud SQL, AlloyDB, RDS, and Aurora. The readiness matrix exposes extension enablement paths, log-access expectations, provider limitations, and the expanded action family support instead of treating every Postgres endpoint as operationally identical.
 - DDL safety preflight now records live-risk checks for table size, active workload, pending locks, replica lag, and lock-timeout configuration. High-warning live preflight output blocks direct execution and keeps the action in reviewed PR/script mode.
 - Incident and maintenance coverage now adds autovacuum-falling-behind, standby-conflict, blocked-vacuum, concurrent reindex, bloat-remediation planning, `CREATE STATISTICS`, and parameterized-query action families, each with typed contracts and verification plans.
+- Provider readiness now exposes the expanded action-family detail in the UI, including `ddl_preflight` and standby-conflict diagnostics, so operators can see exactly which autonomous capabilities are blocked, observable, script-only, or executable for each provider.
+- Admin and legacy workflows were rechecked for v1: Users, Notifications, Fleet add/edit/import surfaces, Database and Alerts empty states, command palette navigation, not-found handling, and legacy `#/findings`, `#/schema-health`, `#/query-hints`, `#/forecasts`, and `#/incidents` routes.
 
 ### Fixed
 

@@ -138,7 +138,7 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
 curl -b cookies.txt http://localhost:8080/api/v1/cases
 ```
 
-`SAGE_API_KEY` is a legacy config field and does not secure the current v0.9
+`SAGE_API_KEY` is a legacy config field and does not secure the current v1
 web/API path.
 
 ### TLS

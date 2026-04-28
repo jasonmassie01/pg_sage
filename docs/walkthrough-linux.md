@@ -1,6 +1,6 @@
 # pg_sage Walkthrough -- Linux / macOS
 
-This walkthrough mirrors the v0.9 product shape: pg_sage starts as a single
+This walkthrough mirrors the v1 product shape: pg_sage starts as a single
 sidecar binary, creates an authenticated admin account, and presents an
 autonomous DBA workflow in the web UI.
 

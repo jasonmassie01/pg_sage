@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-echo "=== pg_sage v0.9 Live Demo ==="
+echo "=== pg_sage v1 Live Demo ==="
 
 if [ -z "$SAGE_GEMINI_API_KEY" ]; then
     echo "SAGE_GEMINI_API_KEY not set; LLM features remain disabled unless you add a key."
