@@ -23,10 +23,18 @@ func (e *Executor) ApprovalReadiness(
 	action store.QueuedAction,
 	now time.Time,
 ) ApprovalReadiness {
+	return e.ApprovalReadinessWithEvidence(action, now, true)
+}
+
+func (e *Executor) ApprovalReadinessWithEvidence(
+	action store.QueuedAction,
+	now time.Time,
+	evidencePresent bool,
+) ApprovalReadiness {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	readiness := lifecycleReadiness(action, now)
+	readiness := lifecycleReadiness(action, now, evidencePresent)
 	if !readiness.Eligible {
 		return readiness
 	}
@@ -44,6 +52,7 @@ func ContractForQueuedAction(action store.QueuedAction) (ActionContract, bool) {
 func lifecycleReadiness(
 	action store.QueuedAction,
 	now time.Time,
+	evidencePresent bool,
 ) ApprovalReadiness {
 	readiness := ApprovalReadiness{Eligible: true, LifecycleNow: now}
 	readiness.Lifecycle = store.EvaluateActionLifecycle(
@@ -55,7 +64,7 @@ func lifecycleReadiness(
 			MaxAttempts:            approvalMaxAttempts,
 			FailureFingerprint:     action.FailureFingerprint,
 			LastFailureFingerprint: action.LastFailureFingerprint,
-			EvidencePresent:        true,
+			EvidencePresent:        evidencePresent,
 			Now:                    now,
 		})
 	if readiness.Lifecycle.State != store.ActionLifecycleReady {

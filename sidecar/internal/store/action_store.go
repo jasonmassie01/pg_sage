@@ -402,6 +402,61 @@ func (s *ActionStore) MarkExpiredByReadiness(
 	return int(tag.RowsAffected()), nil
 }
 
+func (s *ActionStore) MarkReadinessOutcome(
+	ctx context.Context,
+	queueID int,
+	status string,
+	reason string,
+) error {
+	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tag, err := s.pool.Exec(qctx,
+		`UPDATE sage.action_queue
+		    SET status = $2,
+		        reason = $3
+		  WHERE id = $1
+		    AND status <> 'executed'`,
+		queueID, status, reason,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"marking readiness outcome for action %d: %w", queueID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("action %d not found or already executed", queueID)
+	}
+	return nil
+}
+
+func (s *ActionStore) FindingEvidencePresent(
+	ctx context.Context,
+	findingID int,
+) (bool, error) {
+	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var one int
+	err := s.pool.QueryRow(qctx,
+		`SELECT 1
+		   FROM sage.findings
+		  WHERE id = $1
+		    AND status = 'open'
+		    AND acted_on_at IS NULL
+		    AND resolved_at IS NULL
+		  LIMIT 1`,
+		findingID,
+	).Scan(&one)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return false, nil
+		}
+		return false, fmt.Errorf(
+			"checking finding evidence %d: %w", findingID, err)
+	}
+	return true, nil
+}
+
 // GetByID returns a single queued action.
 func (s *ActionStore) GetByID(
 	ctx context.Context, id int,

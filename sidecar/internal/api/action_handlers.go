@@ -227,7 +227,7 @@ func fleetApproveActionHandler(
 				http.StatusNotFound)
 			return
 		}
-		if !approvalReady(w, inst.Executor, *action) {
+		if !approvalReady(r.Context(), w, as, inst.Executor, *action) {
 			return
 		}
 		action, err = as.Approve(r.Context(), id, user.ID)
@@ -343,7 +343,7 @@ func approveActionHandler(
 				http.StatusNotFound)
 			return
 		}
-		if !approvalReady(w, exec, *action) {
+		if !approvalReady(r.Context(), w, as, exec, *action) {
 			return
 		}
 		action, err = as.Approve(r.Context(), id, user.ID)
@@ -469,14 +469,24 @@ func recordApproveExecutionSuccess(
 }
 
 func approvalReady(
+	ctx context.Context,
 	w http.ResponseWriter,
+	as *store.ActionStore,
 	exec *executor.Executor,
 	action store.QueuedAction,
 ) bool {
 	if exec == nil {
 		return true
 	}
-	readiness := exec.ApprovalReadiness(action, time.Now().UTC())
+	evidencePresent := true
+	if as != nil {
+		present, err := as.FindingEvidencePresent(ctx, action.FindingID)
+		if err == nil {
+			evidencePresent = present
+		}
+	}
+	readiness := exec.ApprovalReadinessWithEvidence(
+		action, time.Now().UTC(), evidencePresent)
 	if readiness.Eligible {
 		return true
 	}
@@ -484,9 +494,26 @@ func approvalReady(
 	if reason == "" {
 		reason = "action is not eligible for approval"
 	}
+	if as != nil {
+		_ = as.MarkReadinessOutcome(
+			ctx, action.ID, readinessOutcomeStatus(readiness), reason)
+	}
 	jsonError(w, "action is not eligible: "+reason,
 		http.StatusConflict)
 	return false
+}
+
+func readinessOutcomeStatus(
+	readiness executor.ApprovalReadiness,
+) string {
+	switch readiness.Lifecycle.State {
+	case store.ActionLifecycleExpired:
+		return "expired"
+	case store.ActionLifecycleResolvedEphemeral:
+		return "resolved_ephemeral"
+	default:
+		return "blocked"
+	}
 }
 
 func rollbackActionHandler(

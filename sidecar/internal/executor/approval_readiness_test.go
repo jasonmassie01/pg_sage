@@ -89,3 +89,31 @@ func TestApprovalReadinessBlocksLifecycleCooldown(t *testing.T) {
 		t.Fatalf("expected lifecycle cooldown flag")
 	}
 }
+
+func TestApprovalReadinessBlocksWhenEvidenceDisappears(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trust.Level = "advisory"
+	exec := New(nil, cfg, nil, time.Now().Add(-10*24*time.Hour),
+		func(string, string, ...any) {})
+	action := store.QueuedAction{
+		ActionType:  "analyze_table",
+		ActionRisk:  "safe",
+		Status:      "pending",
+		ProposedSQL: "ANALYZE public.orders",
+		ExpiresAt:   time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC),
+	}
+	now := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+
+	got := exec.ApprovalReadinessWithEvidence(action, now, false)
+
+	if got.Eligible {
+		t.Fatalf("Eligible = true, want false")
+	}
+	if got.Lifecycle.State != store.ActionLifecycleResolvedEphemeral {
+		t.Fatalf("Lifecycle.State = %q, want resolved_ephemeral",
+			got.Lifecycle.State)
+	}
+	if got.DeferReason != "underlying evidence disappeared" {
+		t.Fatalf("DeferReason = %q", got.DeferReason)
+	}
+}

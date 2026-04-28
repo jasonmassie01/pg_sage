@@ -221,24 +221,129 @@ func TestApproveActionHandler_BlocksDeferredActionBeforeExecution(t *testing.T) 
 	if !strings.Contains(resp["error"], "outside maintenance window") {
 		t.Fatalf("error = %q", resp["error"])
 	}
-	var status string
+	var status, reason string
 	err = pool.QueryRow(ctx,
-		`SELECT status FROM sage.action_queue WHERE id = $1`,
-		actionID).Scan(&status)
+		`SELECT status, reason FROM sage.action_queue WHERE id = $1`,
+		actionID).Scan(&status, &reason)
 	if err != nil {
 		t.Fatalf("query action status: %v", err)
 	}
-	if status != "pending" {
-		t.Fatalf("status after blocked approve = %q, want pending", status)
+	if status != "blocked" {
+		t.Fatalf("status after blocked approve = %q, want blocked", status)
+	}
+	if reason != "outside maintenance window" {
+		t.Fatalf("reason after blocked approve = %q", reason)
 	}
 	var actionLogs int
 	err = pool.QueryRow(ctx,
-		`SELECT count(*) FROM sage.action_log`).Scan(&actionLogs)
+		`SELECT count(*) FROM sage.action_log WHERE finding_id = $1`,
+		findingID).Scan(&actionLogs)
 	if err != nil {
 		t.Fatalf("query action log count: %v", err)
 	}
 	if actionLogs != 0 {
 		t.Fatalf("action logs = %d, want 0", actionLogs)
+	}
+}
+
+func TestApproveActionHandler_PersistsResolvedEphemeralOutcome(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	findingID := insertActionHandlerFinding(t, pool, ctx, "public.orders")
+	actionStore := store.NewActionStore(pool)
+	actionID, err := actionStore.ProposeWithMetadata(
+		ctx, nil, findingID,
+		"ANALYZE public.orders", "", "safe",
+		store.ActionProposalMetadata{
+			ActionType:     "analyze_table",
+			PolicyDecision: "execute",
+		})
+	if err != nil {
+		t.Fatalf("propose action: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE sage.findings SET resolved_at = now()
+		  WHERE id = $1`, findingID); err != nil {
+		t.Fatalf("resolve finding: %v", err)
+	}
+	cfg := &config.Config{}
+	cfg.Trust.Level = "advisory"
+	exec := executor.New(pool, cfg, nil, time.Now().Add(-10*24*time.Hour),
+		func(string, string, ...any) {})
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/actions/{id}/approve",
+		approveActionHandler(actionStore, exec))
+	req := httptest.NewRequest("POST",
+		fmt.Sprintf("/api/v1/actions/%d/approve", actionID), nil)
+	req = withUser(req, testAdminUser())
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status: got %d, body %s", w.Code, w.Body.String())
+	}
+	var status, reason string
+	err = pool.QueryRow(ctx,
+		`SELECT status, reason FROM sage.action_queue WHERE id = $1`,
+		actionID).Scan(&status, &reason)
+	if err != nil {
+		t.Fatalf("query action queue: %v", err)
+	}
+	if status != "resolved_ephemeral" {
+		t.Fatalf("status = %q, want resolved_ephemeral", status)
+	}
+	if reason != "underlying evidence disappeared" {
+		t.Fatalf("reason = %q", reason)
+	}
+}
+
+func TestApproveActionHandler_PersistsExpiredReadinessOutcome(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	findingID := insertActionHandlerFinding(t, pool, ctx, "public.orders")
+	actionStore := store.NewActionStore(pool)
+	expiresAt := time.Now().UTC().Add(-time.Hour)
+	actionID, err := actionStore.ProposeWithMetadata(
+		ctx, nil, findingID,
+		"ANALYZE public.orders", "", "safe",
+		store.ActionProposalMetadata{
+			ActionType:     "analyze_table",
+			PolicyDecision: "execute",
+			ExpiresAt:      &expiresAt,
+		})
+	if err != nil {
+		t.Fatalf("propose action: %v", err)
+	}
+	cfg := &config.Config{}
+	cfg.Trust.Level = "advisory"
+	exec := executor.New(pool, cfg, nil, time.Now().Add(-10*24*time.Hour),
+		func(string, string, ...any) {})
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/actions/{id}/approve",
+		approveActionHandler(actionStore, exec))
+	req := httptest.NewRequest("POST",
+		fmt.Sprintf("/api/v1/actions/%d/approve", actionID), nil)
+	req = withUser(req, testAdminUser())
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status: got %d, body %s", w.Code, w.Body.String())
+	}
+	var status, reason string
+	err = pool.QueryRow(ctx,
+		`SELECT status, reason FROM sage.action_queue WHERE id = $1`,
+		actionID).Scan(&status, &reason)
+	if err != nil {
+		t.Fatalf("query action queue: %v", err)
+	}
+	if status != "expired" {
+		t.Fatalf("status = %q, want expired", status)
+	}
+	if reason != "action proposal expired" {
+		t.Fatalf("reason = %q", reason)
 	}
 }
 
