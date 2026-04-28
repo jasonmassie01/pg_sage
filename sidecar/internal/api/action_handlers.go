@@ -724,6 +724,41 @@ func addLifecycleFields(m map[string]any, a store.QueuedAction) {
 	if a.ActionLogID != nil {
 		m["action_log_id"] = *a.ActionLogID
 	}
+	if script := actionScriptOutput(a); script != nil {
+		m["output_modes"] = []string{"queue_for_approval", "generate_pr_or_script"}
+		m["script_output"] = script
+	}
+}
+
+func actionScriptOutput(a store.QueuedAction) map[string]any {
+	if !isDDLScriptAction(a) || strings.TrimSpace(a.ProposedSQL) == "" {
+		return nil
+	}
+	actionType := strings.TrimSpace(a.ActionType)
+	if actionType == "" {
+		actionType = "ddl_action"
+	}
+	return map[string]any{
+		"filename":      strconv.Itoa(a.FindingID) + "_" + actionType + ".sql",
+		"migration_sql": a.ProposedSQL,
+		"rollback_sql":  a.RollbackSQL,
+		"format":        "sql",
+	}
+}
+
+func isDDLScriptAction(a store.QueuedAction) bool {
+	actionType := strings.ToLower(strings.TrimSpace(a.ActionType))
+	if strings.Contains(actionType, "index") ||
+		strings.Contains(actionType, "ddl") ||
+		strings.Contains(actionType, "alter") ||
+		strings.Contains(actionType, "reindex") {
+		return true
+	}
+	sql := strings.ToUpper(strings.TrimSpace(a.ProposedSQL))
+	return strings.HasPrefix(sql, "CREATE ") ||
+		strings.HasPrefix(sql, "ALTER ") ||
+		strings.HasPrefix(sql, "DROP ") ||
+		strings.HasPrefix(sql, "REINDEX ")
 }
 
 func actionTimelineMap(row map[string]any) map[string]any {

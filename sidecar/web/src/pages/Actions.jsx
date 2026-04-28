@@ -555,6 +555,28 @@ function PendingTab({
                 <SQLBlock sql={row.rollback_sql} />
               </div>
             )}
+            {row.script_output && (
+              <div>
+                <div className="text-xs font-medium mb-1"
+                  style={{ color: 'var(--text-secondary)' }}>
+                  Migration script
+                </div>
+                <div className="text-xs mb-2"
+                  style={{ color: 'var(--text-secondary)' }}>
+                  {row.script_output.filename}
+                </div>
+                <SQLBlock sql={row.script_output.migration_sql} />
+                {row.script_output.rollback_sql && (
+                  <div className="mt-2">
+                    <div className="text-xs font-medium mb-1"
+                      style={{ color: 'var(--text-secondary)' }}>
+                      Rollback script
+                    </div>
+                    <SQLBlock sql={row.script_output.rollback_sql} />
+                  </div>
+                )}
+              </div>
+            )}
             <LifecycleDetails row={row} />
             {rejectId === row.id && (
               <div className="flex gap-2 items-center">

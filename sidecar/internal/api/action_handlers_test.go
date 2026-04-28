@@ -87,6 +87,38 @@ func TestQueuedActionMapIncludesLifecycleMetadata(t *testing.T) {
 	}
 }
 
+func TestQueuedActionMapIncludesScriptOutputForDDL(t *testing.T) {
+	action := store.QueuedAction{
+		ID:          12,
+		FindingID:   99,
+		ActionType:  "create_index_concurrently",
+		ActionRisk:  "moderate",
+		Status:      "pending",
+		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)",
+		RollbackSQL: "DROP INDEX CONCURRENTLY idx_orders_customer",
+	}
+
+	got := queuedActionMap(action)
+
+	modes, ok := got["output_modes"].([]string)
+	if !ok || len(modes) != 2 || modes[1] != "generate_pr_or_script" {
+		t.Fatalf("output_modes = %#v, want script mode", got["output_modes"])
+	}
+	script, ok := got["script_output"].(map[string]any)
+	if !ok {
+		t.Fatalf("script_output = %#v, want map", got["script_output"])
+	}
+	if script["filename"] != "99_create_index_concurrently.sql" {
+		t.Fatalf("filename = %v", script["filename"])
+	}
+	if script["migration_sql"] != action.ProposedSQL {
+		t.Fatalf("migration_sql = %v", script["migration_sql"])
+	}
+	if script["rollback_sql"] != action.RollbackSQL {
+		t.Fatalf("rollback_sql = %v", script["rollback_sql"])
+	}
+}
+
 // --- approveActionHandler ---
 
 func TestApproveActionHandler_InvalidID(t *testing.T) {
