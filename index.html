@@ -681,12 +681,47 @@
 
 
 <h1 id="pg_sage-documentation">pg_sage Documentation<a class="headerlink" href="#pg_sage-documentation" title="Permanent link">&para;</a></h1>
-<p>Agentic Postgres DBA — a Go sidecar that monitors, analyzes, and optimizes PostgreSQL 14+ databases with trust-ramped safety controls.</p>
+<p>Agentic Postgres DBA — a Go sidecar that monitors, analyzes, and optimizes
+PostgreSQL 14+ databases with trust-ramped safety controls.</p>
+<p>v0.9 centers the product around an autonomous DBA workflow instead of a
+traditional observability dashboard:</p>
+<ul>
+<li><strong>Overview</strong> shows fleet health, provider readiness, and agent state.</li>
+<li><strong>Cases</strong> is the primary work queue for findings, incidents, and proposed
+  actions. Schema-health, forecast, query-hint, and incident routes open Cases
+  with the matching source filter selected; the legacy <code>#/findings</code> route
+  aliases here.</li>
+<li><strong>Actions</strong> shows pending approval and executed action history.</li>
+<li><strong>Fleet</strong> manages database connections and per-database runtime state.</li>
+<li><strong>Settings</strong> includes system configuration, emergency controls, and the
+  Shadow Mode report proving what auto-safe policy would have handled.</li>
+</ul>
+<p>The web UI and JSON API are authenticated by default. On first start, pg_sage
+prints a one-time password for <code>admin@pg-sage.local</code>; API clients authenticate
+through <code>/api/v1/auth/login</code> and reuse the <code>sage_session</code> cookie.</p>
+<p>Migration-safety cases are non-executing by default for high-risk DDL. pg_sage
+generates deterministic preflight evidence, migration SQL, rollback or
+forward-fix guidance, verification SQL, and PR/CI metadata so teams can review
+schema work before anything touches production.</p>
+<p>Incident and maintenance cases now carry richer automation candidates. Lock
+blockers, runaway queries, connection exhaustion, WAL/replication pressure, and
+sequence exhaustion route to typed playbooks with safe diagnostics or reviewed
+scripts. Vacuum, bloat, and freeze findings project guarded <code>VACUUM</code>, freeze
+diagnostics, and per-table autovacuum tuning actions with explicit verification
+plans and IO-saturation gates.</p>
+<p>Query tuning cases are no longer limited to planner hints. pg_sage can turn
+suggested rewrites into PR-ready artifacts, retire broken hints through a safe
+metadata action, and promote repeated per-query <code>work_mem</code> hints into reviewed
+role-level settings when the blast radius is explicit.</p>
+<p>Provider readiness is adapter-driven for self-managed Postgres, Cloud SQL,
+AlloyDB, RDS, and Aurora. The matrix shows extension enablement paths, log
+access, provider limitations, and action-family readiness so automation policy
+can differ by managed-service constraints.</p>
 <hr />
 <h2 id="getting-started">Getting Started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="installation/">Installation</a> — Download, prerequisites, database user setup</li>
-<li><a href="try-it-out/">Try It Out</a> — 20-minute hands-on tutorial</li>
+<li><a href="try-it-out/">Try It Out</a> — local v0.9 smoke path and UI checklist</li>
 <li><a href="walkthrough/">Walkthroughs</a> — Platform-specific getting started guides</li>
 <li><a href="walkthrough-linux/">Linux / macOS</a></li>
 <li><a href="walkthrough-windows/">Windows</a></li>

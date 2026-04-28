@@ -23,7 +23,7 @@
     
     
       
-        <title>pg_sage Fleet Walkthrough: Two Databases, Full Feature Tour - pg_sage</title>
+        <title>pg_sage Fleet Walkthrough - pg_sage</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#pg_sage-fleet-walkthrough-two-databases-full-feature-tour" class="md-skip">
+        <a href="#pg_sage-fleet-walkthrough" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              pg_sage Fleet Walkthrough: Two Databases, Full Feature Tour
+              pg_sage Fleet Walkthrough
             
           </span>
         </div>
@@ -557,10 +557,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-1-start-two-postgresql-instances" class="md-nav__link">
+  <a href="#1-start-two-postgresql-targets" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1: Start Two PostgreSQL Instances
+        1. Start Two PostgreSQL Targets
       
     </span>
   </a>
@@ -568,77 +568,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-2-create-databases-and-seed-data" class="md-nav__link">
+  <a href="#2-seed-databases" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2: Create Databases and Seed Data
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 2: Create Databases and Seed Data">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#production-pg1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Production (pg1)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#staging-pg2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Staging (pg2)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-3-configure-and-start-the-sidecar" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3: Configure and Start the Sidecar
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 3: Configure and Start the Sidecar">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#build-and-start" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Build and start
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-4-log-in" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 4: Log In
+        2. Seed Databases
       
     </span>
   </a>
@@ -646,60 +579,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-5-add-databases-via-ui" class="md-nav__link">
+  <a href="#3-start-pg_sage-in-fleet-mode" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 5: Add Databases (via UI)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 5: Add Databases (via UI)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#add-production" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Add production
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#add-staging" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Add staging
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#verify-on-the-dashboard" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Verify on the Dashboard
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-6-dashboard-fleet-overview" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 6: Dashboard -- Fleet Overview
+        3. Start pg_sage in Fleet Mode
       
     </span>
   </a>
@@ -707,60 +590,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-7-findings-view-and-filter" class="md-nav__link">
+  <a href="#4-add-databases-in-the-ui" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 7: Findings -- View and Filter
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 7: Findings -- View and Filter">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#expected-findings" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Expected findings
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#filter-by-database" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Filter by database
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#expand-a-finding" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Expand a finding
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-8-suppress-and-unsuppress-a-finding" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 8: Suppress and Unsuppress a Finding
+        4. Add Databases in the UI
       
     </span>
   </a>
@@ -768,221 +601,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-9-configure-settings-via-ui" class="md-nav__link">
+  <a href="#5-verify-the-v09-ui" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 9: Configure Settings (via UI)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 9: Configure Settings (via UI)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#simple-mode-default" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Simple mode (default)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#switch-to-advanced-mode" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Switch to Advanced mode
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#change-a-threshold" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Change a threshold
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#reset-to-default" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reset to default
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-10-configure-llm-via-ui" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 10: Configure LLM (via UI)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 10: Configure LLM (via UI)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#verify-llm-is-working" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Verify LLM is working
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-11-notifications-channels-and-rules" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 11: Notifications -- Channels and Rules
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 11: Notifications -- Channels and Rules">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#create-a-slack-channel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Create a Slack channel
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#create-a-pagerduty-channel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Create a PagerDuty channel
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#test-a-channel" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Test a channel
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#create-notification-rules" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Create notification rules
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#view-notification-log" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        View notification log
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-12-user-management" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 12: User Management
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 12: User Management">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#create-an-operator-user" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Create an operator user
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#create-a-viewer-user" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Create a viewer user
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#test-role-permissions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Test role permissions
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-13-emergency-stop" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 13: Emergency Stop
+        5. Verify the v0.9 UI
       
     </span>
   </a>
@@ -990,10 +612,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-14-prometheus-metrics" class="md-nav__link">
+  <a href="#6-api-checks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 14: Prometheus Metrics
+        6. API Checks
       
     </span>
   </a>
@@ -1001,32 +623,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-15-api-quick-reference" class="md-nav__link">
+  <a href="#7-clean-up" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 15: API Quick Reference
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cleanup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Cleanup
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#architecture" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Architecture
+        7. Clean Up
       
     </span>
   </a>
@@ -1053,538 +653,158 @@
   
 
 
-<h1 id="pg_sage-fleet-walkthrough-two-databases-full-feature-tour">pg_sage Fleet Walkthrough: Two Databases, Full Feature Tour<a class="headerlink" href="#pg_sage-fleet-walkthrough-two-databases-full-feature-tour" title="Permanent link">&para;</a></h1>
-<p>Monitor two PostgreSQL databases from a single pg_sage sidecar. This guide walks
-through every feature: fleet dashboard, database management, findings, actions,
-LLM advisor, notifications, user roles, settings, emergency stop, and Prometheus
-metrics.</p>
-<p><strong>Time</strong>: ~20 minutes
-<strong>Platform</strong>: Windows (Git Bash) or Linux/macOS</p>
+<h1 id="pg_sage-fleet-walkthrough">pg_sage Fleet Walkthrough<a class="headerlink" href="#pg_sage-fleet-walkthrough" title="Permanent link">&para;</a></h1>
+<p>Run one pg_sage sidecar against multiple PostgreSQL databases and verify the
+v0.9 autonomous DBA workflow.</p>
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Docker (or Docker Desktop) running</li>
+<li>Docker or Docker Desktop</li>
 <li>Go 1.24+</li>
-<li>Node.js 18+ and npm</li>
-<li>Ports 5433, 5434, 8080, 9187 available</li>
-<li>(Optional) A Gemini API key for LLM features</li>
+<li>Node.js 20+ and npm</li>
+<li>Ports <code>5433</code>, <code>5434</code>, <code>8080</code>, and <code>9187</code> available</li>
 </ul>
-<hr />
-<h2 id="step-1-start-two-postgresql-instances">Step 1: Start Two PostgreSQL Instances<a class="headerlink" href="#step-1-start-two-postgresql-instances" title="Permanent link">&para;</a></h2>
-<p>From the <code>pg_sage/</code> root:</p>
+<h2 id="1-start-two-postgresql-targets">1. Start Two PostgreSQL Targets<a class="headerlink" href="#1-start-two-postgresql-targets" title="Permanent link">&para;</a></h2>
+<p>From the repository root:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>pg1<span class="w"> </span>pg2
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>docker<span class="w"> </span>compose<span class="w"> </span>ps<span class="w">   </span><span class="c1"># wait for both to show &quot;healthy&quot;</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>docker<span class="w"> </span>compose<span class="w"> </span>ps
 </code></pre></div>
-<p>This starts:
-- <strong>pg1</strong> -- PostgreSQL 16 on <code>localhost:5433</code>
-- <strong>pg2</strong> -- PostgreSQL 16 on <code>localhost:5434</code></p>
-<hr />
-<h2 id="step-2-create-databases-and-seed-data">Step 2: Create Databases and Seed Data<a class="headerlink" href="#step-2-create-databases-and-seed-data" title="Permanent link">&para;</a></h2>
-<h3 id="production-pg1">Production (pg1)<a class="headerlink" href="#production-pg1" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>pg_sage-pg1-1<span class="w"> </span>psql<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;CREATE DATABASE app_production;&quot;</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-i<span class="w"> </span>pg_sage-pg1-1<span class="w"> </span>psql<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-d<span class="w"> </span>app_production<span class="w"> </span><span class="s">&lt;&lt; &#39;SQL&#39;</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s">CREATE TABLE IF NOT EXISTS customers (</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="s">    id SERIAL PRIMARY KEY,</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="s">    name TEXT NOT NULL,</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="s">    email TEXT UNIQUE NOT NULL,</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="s">    created_at TIMESTAMPTZ DEFAULT now()</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="s">);</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="s">CREATE TABLE IF NOT EXISTS products (</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="s">    id SERIAL PRIMARY KEY,</span>
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="s">    name TEXT NOT NULL,</span>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="s">    price NUMERIC(10,2) NOT NULL,</span>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="s">    stock INT DEFAULT 0</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="s">);</span>
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="s">CREATE TABLE IF NOT EXISTS orders (</span>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="s">    id SERIAL PRIMARY KEY,</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="s">    customer_id INT REFERENCES customers(id),</span>
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="s">    status TEXT DEFAULT &#39;pending&#39;,</span>
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="s">    total NUMERIC(10,2),</span>
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="s">    created_at TIMESTAMPTZ DEFAULT now()</span>
-<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="s">);</span>
-<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="s">CREATE TABLE IF NOT EXISTS order_items (</span>
-<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="s">    id SERIAL PRIMARY KEY,</span>
-<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="s">    order_id INT REFERENCES orders(id),</span>
-<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="s">    product_id INT REFERENCES products(id),</span>
-<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="s">    quantity INT NOT NULL,</span>
-<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a><span class="s">    price NUMERIC(10,2) NOT NULL</span>
-<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a><span class="s">);</span>
-<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>
-<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a><span class="s">-- Seed realistic data</span>
-<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a><span class="s">INSERT INTO customers (name, email)</span>
-<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a><span class="s">SELECT &#39;Customer &#39; || i, &#39;cust&#39; || i || &#39;@example.com&#39;</span>
-<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a><span class="s">FROM generate_series(1, 1000) i ON CONFLICT DO NOTHING;</span>
-<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a>
-<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a><span class="s">INSERT INTO products (name, price, stock)</span>
-<a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a><span class="s">SELECT &#39;Product &#39; || i, (random()*100)::numeric(10,2), (random()*500)::int</span>
-<a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a><span class="s">FROM generate_series(1, 200) i ON CONFLICT DO NOTHING;</span>
-<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a>
-<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a><span class="s">INSERT INTO orders (customer_id, status, total)</span>
-<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a><span class="s">SELECT (random()*999+1)::int,</span>
-<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a><span class="s">  CASE (random()*3)::int WHEN 0 THEN &#39;pending&#39; WHEN 1 THEN &#39;shipped&#39;</span>
-<a id="__codelineno-1-42" name="__codelineno-1-42" href="#__codelineno-1-42"></a><span class="s">  WHEN 2 THEN &#39;delivered&#39; ELSE &#39;cancelled&#39; END,</span>
-<a id="__codelineno-1-43" name="__codelineno-1-43" href="#__codelineno-1-43"></a><span class="s">  (random()*500)::numeric(10,2)</span>
-<a id="__codelineno-1-44" name="__codelineno-1-44" href="#__codelineno-1-44"></a><span class="s">FROM generate_series(1, 20000);</span>
-<a id="__codelineno-1-45" name="__codelineno-1-45" href="#__codelineno-1-45"></a>
-<a id="__codelineno-1-46" name="__codelineno-1-46" href="#__codelineno-1-46"></a><span class="s">INSERT INTO order_items (order_id, product_id, quantity, price)</span>
-<a id="__codelineno-1-47" name="__codelineno-1-47" href="#__codelineno-1-47"></a><span class="s">SELECT (random()*19999+1)::int, (random()*199+1)::int,</span>
-<a id="__codelineno-1-48" name="__codelineno-1-48" href="#__codelineno-1-48"></a><span class="s">  (random()*5+1)::int, (random()*100)::numeric(10,2)</span>
-<a id="__codelineno-1-49" name="__codelineno-1-49" href="#__codelineno-1-49"></a><span class="s">FROM generate_series(1, 50000);</span>
-<a id="__codelineno-1-50" name="__codelineno-1-50" href="#__codelineno-1-50"></a>
-<a id="__codelineno-1-51" name="__codelineno-1-51" href="#__codelineno-1-51"></a><span class="s">-- Plant problems for pg_sage to detect:</span>
-<a id="__codelineno-1-52" name="__codelineno-1-52" href="#__codelineno-1-52"></a><span class="s">CREATE INDEX IF NOT EXISTS idx_oi_product ON order_items(product_id);</span>
-<a id="__codelineno-1-53" name="__codelineno-1-53" href="#__codelineno-1-53"></a><span class="s">CREATE INDEX IF NOT EXISTS idx_oi_product_dup ON order_items(product_id);</span>
-<a id="__codelineno-1-54" name="__codelineno-1-54" href="#__codelineno-1-54"></a><span class="s">CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);</span>
-<a id="__codelineno-1-55" name="__codelineno-1-55" href="#__codelineno-1-55"></a><span class="s">CREATE INDEX IF NOT EXISTS idx_orders_status_dup ON orders(status);</span>
-<a id="__codelineno-1-56" name="__codelineno-1-56" href="#__codelineno-1-56"></a><span class="s">CREATE SEQUENCE IF NOT EXISTS ticket_seq AS integer MAXVALUE 100;</span>
-<a id="__codelineno-1-57" name="__codelineno-1-57" href="#__codelineno-1-57"></a><span class="s">SELECT setval(&#39;ticket_seq&#39;, 95);</span>
-<a id="__codelineno-1-58" name="__codelineno-1-58" href="#__codelineno-1-58"></a><span class="s">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</span>
-<a id="__codelineno-1-59" name="__codelineno-1-59" href="#__codelineno-1-59"></a><span class="s">SQL</span>
-</code></pre></div>
-<h3 id="staging-pg2">Staging (pg2)<a class="headerlink" href="#staging-pg2" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>pg_sage-pg2-1<span class="w"> </span>psql<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;CREATE DATABASE app_staging;&quot;</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-i<span class="w"> </span>pg_sage-pg2-1<span class="w"> </span>psql<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-d<span class="w"> </span>app_staging<span class="w"> </span><span class="s">&lt;&lt; &#39;SQL&#39;</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="s">CREATE TABLE IF NOT EXISTS customers (</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="s">    id SERIAL PRIMARY KEY, name TEXT NOT NULL,</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="s">    email TEXT UNIQUE NOT NULL, created_at TIMESTAMPTZ DEFAULT now()</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="s">);</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="s">CREATE TABLE IF NOT EXISTS products (</span>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="s">    id SERIAL PRIMARY KEY, name TEXT NOT NULL,</span>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="s">    price NUMERIC(10,2) NOT NULL, stock INT DEFAULT 0</span>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="s">);</span>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="s">CREATE TABLE IF NOT EXISTS orders (</span>
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="s">    id SERIAL PRIMARY KEY,</span>
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="s">    customer_id INT REFERENCES customers(id),</span>
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="s">    status TEXT DEFAULT &#39;pending&#39;, total NUMERIC(10,2),</span>
-<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="s">    created_at TIMESTAMPTZ DEFAULT now()</span>
-<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="s">);</span>
-<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="s">CREATE TABLE IF NOT EXISTS order_items (</span>
-<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="s">    id SERIAL PRIMARY KEY,</span>
-<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="s">    order_id INT REFERENCES orders(id),</span>
-<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="s">    product_id INT REFERENCES products(id),</span>
-<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="s">    quantity INT NOT NULL, price NUMERIC(10,2) NOT NULL</span>
-<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="s">);</span>
-<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>
-<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="s">INSERT INTO customers (name, email)</span>
-<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="s">SELECT &#39;Customer &#39;||i, &#39;cust&#39;||i||&#39;@staging.com&#39;</span>
-<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a><span class="s">FROM generate_series(1, 500) i ON CONFLICT DO NOTHING;</span>
-<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>
-<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a><span class="s">INSERT INTO products (name, price, stock)</span>
-<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a><span class="s">SELECT &#39;Product &#39;||i, (random()*80)::numeric(10,2), (random()*300)::int</span>
-<a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a><span class="s">FROM generate_series(1, 100) i ON CONFLICT DO NOTHING;</span>
-<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>
-<a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a><span class="s">INSERT INTO orders (customer_id, status, total)</span>
-<a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a><span class="s">SELECT (random()*499+1)::int,</span>
-<a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a><span class="s">  CASE (random()*3)::int WHEN 0 THEN &#39;pending&#39; WHEN 1 THEN &#39;shipped&#39;</span>
-<a id="__codelineno-2-35" name="__codelineno-2-35" href="#__codelineno-2-35"></a><span class="s">  WHEN 2 THEN &#39;delivered&#39; ELSE &#39;cancelled&#39; END,</span>
-<a id="__codelineno-2-36" name="__codelineno-2-36" href="#__codelineno-2-36"></a><span class="s">  (random()*300)::numeric(10,2)</span>
-<a id="__codelineno-2-37" name="__codelineno-2-37" href="#__codelineno-2-37"></a><span class="s">FROM generate_series(1, 10000);</span>
-<a id="__codelineno-2-38" name="__codelineno-2-38" href="#__codelineno-2-38"></a>
-<a id="__codelineno-2-39" name="__codelineno-2-39" href="#__codelineno-2-39"></a><span class="s">INSERT INTO order_items (order_id, product_id, quantity, price)</span>
-<a id="__codelineno-2-40" name="__codelineno-2-40" href="#__codelineno-2-40"></a><span class="s">SELECT (random()*9999+1)::int, (random()*99+1)::int,</span>
-<a id="__codelineno-2-41" name="__codelineno-2-41" href="#__codelineno-2-41"></a><span class="s">  (random()*5+1)::int, (random()*80)::numeric(10,2)</span>
-<a id="__codelineno-2-42" name="__codelineno-2-42" href="#__codelineno-2-42"></a><span class="s">FROM generate_series(1, 20000);</span>
-<a id="__codelineno-2-43" name="__codelineno-2-43" href="#__codelineno-2-43"></a>
-<a id="__codelineno-2-44" name="__codelineno-2-44" href="#__codelineno-2-44"></a><span class="s">-- Same planted problems</span>
-<a id="__codelineno-2-45" name="__codelineno-2-45" href="#__codelineno-2-45"></a><span class="s">CREATE INDEX IF NOT EXISTS idx_oi_product ON order_items(product_id);</span>
-<a id="__codelineno-2-46" name="__codelineno-2-46" href="#__codelineno-2-46"></a><span class="s">CREATE INDEX IF NOT EXISTS idx_oi_product_dup ON order_items(product_id);</span>
-<a id="__codelineno-2-47" name="__codelineno-2-47" href="#__codelineno-2-47"></a><span class="s">CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);</span>
-<a id="__codelineno-2-48" name="__codelineno-2-48" href="#__codelineno-2-48"></a><span class="s">CREATE INDEX IF NOT EXISTS idx_orders_status_dup ON orders(status);</span>
-<a id="__codelineno-2-49" name="__codelineno-2-49" href="#__codelineno-2-49"></a><span class="s">CREATE SEQUENCE IF NOT EXISTS ticket_seq AS integer MAXVALUE 100;</span>
-<a id="__codelineno-2-50" name="__codelineno-2-50" href="#__codelineno-2-50"></a><span class="s">SELECT setval(&#39;ticket_seq&#39;, 95);</span>
-<a id="__codelineno-2-51" name="__codelineno-2-51" href="#__codelineno-2-51"></a><span class="s">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</span>
-<a id="__codelineno-2-52" name="__codelineno-2-52" href="#__codelineno-2-52"></a><span class="s">SQL</span>
-</code></pre></div>
-<hr />
-<h2 id="step-3-configure-and-start-the-sidecar">Step 3: Configure and Start the Sidecar<a class="headerlink" href="#step-3-configure-and-start-the-sidecar" title="Permanent link">&para;</a></h2>
-<p>Create <code>e2e_config.yaml</code> in the <code>pg_sage/</code> root. This is the <strong>bootstrap
-config</strong> — just the metadata database connection and listen addresses.
-Databases, LLM, and all other settings are managed through the web UI.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fleet</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nt">meta_db</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;postgres://postgres:postgres@localhost:5433/app_production?sslmode=disable&quot;</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nt">api</span><span class="p">:</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="nt">listen_addr</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0:8080&quot;</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="nt">prometheus</span><span class="p">:</span>
-<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">  </span><span class="nt">listen_addr</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0:9187&quot;</span>
-</code></pre></div>
-<p>The <code>meta_db</code> connection is where pg_sage stores its own data (users,
-sessions, config overrides, managed databases). You will add the databases
-to monitor through the UI in the next steps.</p>
-<h3 id="build-and-start">Build and start<a class="headerlink" href="#build-and-start" title="Permanent link">&para;</a></h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">cd</span><span class="w"> </span>sidecar
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># Build React dashboard</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="nb">cd</span><span class="w"> </span>web<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>ci<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>run<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>..
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="c1"># Build Go binary</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>go<span class="w"> </span>build<span class="w"> </span>-o<span class="w"> </span>pg_sage_sidecar<span class="w"> </span>./cmd/pg_sage_sidecar/
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="c1"># Start (keep this terminal open)</span>
-<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>./pg_sage_sidecar<span class="w"> </span>--config<span class="w"> </span>../e2e_config.yaml
-</code></pre></div>
-<p>Watch the logs. You should see:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>[INFO] [startup] pg_sage sidecar vdev — mode=fleet
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>[INFO] [startup] meta database initialized
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>[INFO] [startup] first admin created — email: admin@pg-sage.local  password: &lt;random&gt;
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>[INFO] [api] listening on 0.0.0.0:8080
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>[INFO] [prometheus] listening on 0.0.0.0:9187
-</code></pre></div></p>
-<p><strong>Copy the generated admin password from the log output</strong> — you need it
-to log in.</p>
-<hr />
-<h2 id="step-4-log-in">Step 4: Log In<a class="headerlink" href="#step-4-log-in" title="Permanent link">&para;</a></h2>
-<p>Open <strong>http://localhost:8080</strong> in your browser.</p>
+<p>This starts:</p>
 <ul>
-<li>[ ] Login page loads with email and password fields</li>
-<li>[ ] Enter the credentials from the startup log:</li>
-<li><strong>Email:</strong> <code>admin@pg-sage.local</code></li>
-<li><strong>Password:</strong> (the random password from the log)</li>
-<li>[ ] Click <strong>Sign In</strong></li>
-<li>[ ] Dashboard loads (empty — no databases monitored yet)</li>
+<li><code>pg1</code> on <code>localhost:5433</code></li>
+<li><code>pg2</code> on <code>localhost:5434</code></li>
 </ul>
-<hr />
-<h2 id="step-5-add-databases-via-ui">Step 5: Add Databases (via UI)<a class="headerlink" href="#step-5-add-databases-via-ui" title="Permanent link">&para;</a></h2>
-<p>Navigate to <strong>Databases</strong> in the sidebar.</p>
-<h3 id="add-production">Add production<a class="headerlink" href="#add-production" title="Permanent link">&para;</a></h3>
-<ol>
-<li>[ ] Click <strong>Add Database</strong></li>
-<li>[ ] Fill in the form:</li>
-<li>Name: <code>production</code></li>
-<li>Host: <code>localhost</code></li>
-<li>Port: <code>5433</code></li>
-<li>Database Name: <code>app_production</code></li>
-<li>Username: <code>postgres</code></li>
-<li>Password: <code>postgres</code></li>
-<li>SSL Mode: <code>disable</code></li>
-<li>[ ] Click <strong>Test Connection</strong> — should show success</li>
-<li>[ ] Click <strong>Add</strong></li>
-<li>[ ] The production database appears in the list</li>
-</ol>
-<h3 id="add-staging">Add staging<a class="headerlink" href="#add-staging" title="Permanent link">&para;</a></h3>
-<ol>
-<li>[ ] Click <strong>Add Database</strong> again</li>
-<li>[ ] Fill in:</li>
-<li>Name: <code>staging</code></li>
-<li>Host: <code>localhost</code></li>
-<li>Port: <code>5434</code></li>
-<li>Database Name: <code>app_staging</code></li>
-<li>Username: <code>postgres</code></li>
-<li>Password: <code>postgres</code></li>
-<li>SSL Mode: <code>disable</code></li>
-<li>[ ] Click <strong>Test Connection</strong> — should show success</li>
-<li>[ ] Click <strong>Add</strong></li>
-<li>[ ] Both databases now appear in the list</li>
-</ol>
-<h3 id="verify-on-the-dashboard">Verify on the Dashboard<a class="headerlink" href="#verify-on-the-dashboard" title="Permanent link">&para;</a></h3>
-<ul>
-<li>[ ] Navigate back to <strong>Dashboard</strong></li>
-<li>[ ] Shows <strong>2 Databases Monitored</strong></li>
-<li>[ ] Within 30-60 seconds, findings start appearing as the collector
-      and analyzer run their first cycles</li>
-</ul>
-<hr />
-<h2 id="step-6-dashboard-fleet-overview">Step 6: Dashboard -- Fleet Overview<a class="headerlink" href="#step-6-dashboard-fleet-overview" title="Permanent link">&para;</a></h2>
-<ul>
-<li>[ ] <strong>Hero section</strong> shows "2 Databases Monitored"</li>
-<li>[ ] <strong>Summary cards</strong>: Databases=2, Healthy=2, Critical &gt; 0</li>
-<li>[ ] <strong>Database list</strong>: Both "production" and "staging" appear</li>
-<li>[ ] Each database shows a green "connected" dot</li>
-<li>[ ] Severity badges visible (red=critical, yellow=warning, blue=info)</li>
-</ul>
-<hr />
-<h2 id="step-7-findings-view-and-filter">Step 7: Findings -- View and Filter<a class="headerlink" href="#step-7-findings-view-and-filter" title="Permanent link">&para;</a></h2>
-<p>Click <strong>Findings</strong> in the sidebar.</p>
-<h3 id="expected-findings">Expected findings<a class="headerlink" href="#expected-findings" title="Permanent link">&para;</a></h3>
-<p>You should see at minimum:</p>
+<h2 id="2-seed-databases">2. Seed Databases<a class="headerlink" href="#2-seed-databases" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>pg_sage-pg1-1<span class="w"> </span>psql<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;CREATE DATABASE app_production;&quot;</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>pg_sage-pg2-1<span class="w"> </span>psql<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;CREATE DATABASE app_staging;&quot;</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="k">for</span><span class="w"> </span>target<span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="s2">&quot;pg_sage-pg1-1 app_production&quot;</span><span class="w"> </span><span class="s2">&quot;pg_sage-pg2-1 app_staging&quot;</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nb">set</span><span class="w"> </span>--<span class="w"> </span><span class="nv">$target</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-i<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$1</span><span class="s2">&quot;</span><span class="w"> </span>psql<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-d<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$2</span><span class="s2">&quot;</span><span class="w"> </span><span class="s">&lt;&lt;&#39;SQL&#39;</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="s">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="s">CREATE TABLE IF NOT EXISTS orders (</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="s">  id serial PRIMARY KEY,</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="s">  customer_id int NOT NULL,</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="s">  status text NOT NULL,</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="s">  created_at timestamptz DEFAULT now()</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="s">);</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="s">INSERT INTO orders (customer_id, status)</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="s">SELECT (random()*1000)::int, CASE WHEN random() &lt; 0.5 THEN &#39;open&#39; ELSE &#39;closed&#39; END</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="s">FROM generate_series(1, 20000);</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="s">CREATE INDEX IF NOT EXISTS idx_orders_status_a ON orders(status);</span>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="s">CREATE INDEX IF NOT EXISTS idx_orders_status_b ON orders(status);</span>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="s">CREATE SEQUENCE IF NOT EXISTS ticket_seq AS integer MAXVALUE 100;</span>
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="s">SELECT setval(&#39;ticket_seq&#39;, 95);</span>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="s">SQL</span>
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="k">done</span>
+</code></pre></div>
+<h2 id="3-start-pg_sage-in-fleet-mode">3. Start pg_sage in Fleet Mode<a class="headerlink" href="#3-start-pg_sage-in-fleet-mode" title="Permanent link">&para;</a></h2>
+<p>Create <code>fleet-local.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fleet</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nt">meta_db</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;postgres://postgres:postgres@localhost:5433/app_production?sslmode=disable&quot;</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="nt">api</span><span class="p">:</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span><span class="nt">listen_addr</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0:8080&quot;</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="nt">prometheus</span><span class="p">:</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span><span class="nt">listen_addr</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0:9187&quot;</span>
+</code></pre></div>
+<p>Build and run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">cd</span><span class="w"> </span>sidecar
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nb">cd</span><span class="w"> </span>web<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>ci<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>run<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>..
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>go<span class="w"> </span>build<span class="w"> </span>-o<span class="w"> </span>pg_sage<span class="w"> </span>./cmd/pg_sage_sidecar
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>./pg_sage<span class="w"> </span>--config<span class="w"> </span>../fleet-local.yaml
+</code></pre></div>
+<p>Copy the one-time <code>INITIAL ADMIN PASSWORD</code> from stderr.</p>
+<h2 id="4-add-databases-in-the-ui">4. Add Databases in the UI<a class="headerlink" href="#4-add-databases-in-the-ui" title="Permanent link">&para;</a></h2>
+<p>Open <code>http://localhost:8080</code> and sign in as <code>admin@pg-sage.local</code>.</p>
+<p>Go to <strong>Fleet</strong> and add:</p>
 <table>
 <thead>
 <tr>
-<th>Severity</th>
-<th>Category</th>
-<th>Title</th>
-<th>DB</th>
+<th>Name</th>
+<th>Host</th>
+<th style="text-align: right;">Port</th>
+<th>Database</th>
+<th>Username</th>
+<th>Password</th>
+<th>SSL Mode</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Critical</td>
-<td>duplicate_index</td>
-<td>Duplicate index idx_oi_product</td>
-<td>both</td>
-</tr>
-<tr>
-<td>Critical</td>
-<td>duplicate_index</td>
-<td>Duplicate index idx_orders_status</td>
-<td>both</td>
-</tr>
-<tr>
-<td>Critical</td>
-<td>sequence_exhaustion</td>
-<td>ticket_seq 95% consumed</td>
-<td>both</td>
-</tr>
-<tr>
-<td>Warning</td>
-<td>slow_query</td>
-<td>Slow query (various ms)</td>
 <td>production</td>
+<td>localhost</td>
+<td style="text-align: right;">5433</td>
+<td>app_production</td>
+<td>postgres</td>
+<td>postgres</td>
+<td>disable</td>
+</tr>
+<tr>
+<td>staging</td>
+<td>localhost</td>
+<td style="text-align: right;">5434</td>
+<td>app_staging</td>
+<td>postgres</td>
+<td>postgres</td>
+<td>disable</td>
 </tr>
 </tbody>
 </table>
-<h3 id="filter-by-database">Filter by database<a class="headerlink" href="#filter-by-database" title="Permanent link">&para;</a></h3>
-<ul>
-<li>[ ] Click the <strong>Database Picker</strong> in the sidebar or header</li>
-<li>[ ] Select "production" -- only production findings appear</li>
-<li>[ ] Select "staging" -- only staging findings appear</li>
-<li>[ ] Select "All Databases" -- both appear again</li>
-</ul>
-<h3 id="expand-a-finding">Expand a finding<a class="headerlink" href="#expand-a-finding" title="Permanent link">&para;</a></h3>
-<ul>
-<li>[ ] Click a duplicate_index finding to expand</li>
-<li>[ ] See: Recommendation text, Recommended SQL, Risk badge</li>
-<li>[ ] The <code>DROP INDEX CONCURRENTLY ...</code> SQL is shown</li>
-</ul>
-<hr />
-<h2 id="step-8-suppress-and-unsuppress-a-finding">Step 8: Suppress and Unsuppress a Finding<a class="headerlink" href="#step-8-suppress-and-unsuppress-a-finding" title="Permanent link">&para;</a></h2>
-<p>Some findings are intentional (e.g., the ticket_seq is a test sequence).</p>
-<ol>
-<li>[ ] Find the "ticket_seq 95% consumed" finding</li>
-<li>[ ] Click the row to expand, then click <strong>Suppress</strong></li>
-<li>[ ] Finding disappears from "Open" tab</li>
-<li>[ ] Click "Suppressed" tab -- finding appears there</li>
-<li>[ ] Click <strong>Unsuppress</strong> to restore it</li>
-</ol>
-<hr />
-<h2 id="step-9-configure-settings-via-ui">Step 9: Configure Settings (via UI)<a class="headerlink" href="#step-9-configure-settings-via-ui" title="Permanent link">&para;</a></h2>
-<p>Navigate to <strong>Settings</strong> in the sidebar.</p>
-<h3 id="simple-mode-default">Simple mode (default)<a class="headerlink" href="#simple-mode-default" title="Permanent link">&para;</a></h3>
-<p>The Settings page opens in <strong>Simple</strong> mode with three tabs:</p>
-<ul>
-<li>[ ] <strong>General</strong>: System info, Emergency stop/resume buttons</li>
-<li>[ ] <strong>Monitoring</strong>: Collector interval, slow query threshold, trust level</li>
-<li>[ ] <strong>AI &amp; Alerts</strong>: LLM toggle, endpoint, model, API key, alerting</li>
-</ul>
-<h3 id="switch-to-advanced-mode">Switch to Advanced mode<a class="headerlink" href="#switch-to-advanced-mode" title="Permanent link">&para;</a></h3>
-<ul>
-<li>[ ] Toggle the <strong>Advanced</strong> switch at the top</li>
-<li>[ ] Additional tabs appear: Collector, Analyzer, Trust &amp; Safety, LLM,
-      Alerting, Retention</li>
-<li>[ ] Each field shows a <strong>source badge</strong> (default, yaml, override)</li>
-</ul>
-<h3 id="change-a-threshold">Change a threshold<a class="headerlink" href="#change-a-threshold" title="Permanent link">&para;</a></h3>
-<ol>
-<li>[ ] Go to Analyzer tab (Advanced) or Monitoring tab (Simple)</li>
-<li>[ ] Change <code>slow_query_threshold_ms</code> from 1000 to 2000</li>
-<li>[ ] Click <strong>Save</strong></li>
-<li>[ ] Green success banner appears</li>
-<li>[ ] Sidecar log shows: <code>config updated key=analyzer.slow_query_threshold_ms</code></li>
-<li>[ ] Field badge changes to "override"</li>
-</ol>
-<h3 id="reset-to-default">Reset to default<a class="headerlink" href="#reset-to-default" title="Permanent link">&para;</a></h3>
-<ol>
-<li>[ ] Click the <strong>Reset</strong> button next to the modified setting</li>
-<li>[ ] Value reverts to the compiled default</li>
-<li>[ ] Click <strong>Save</strong></li>
-</ol>
-<hr />
-<h2 id="step-10-configure-llm-via-ui">Step 10: Configure LLM (via UI)<a class="headerlink" href="#step-10-configure-llm-via-ui" title="Permanent link">&para;</a></h2>
-<p>In Settings, go to the <strong>AI &amp; Alerts</strong> tab (Simple) or <strong>LLM</strong> tab (Advanced).</p>
-<ol>
-<li>[ ] Toggle <strong>LLM Enabled</strong> to on</li>
-<li>[ ] Set <strong>Endpoint</strong> to:
-       <code>https://generativelanguage.googleapis.com/v1beta/openai</code></li>
-<li>[ ] Set <strong>API Key</strong> to your Gemini key</li>
-<li>[ ] Click <strong>Discover Models</strong> -- a dropdown populates with available models</li>
-<li>[ ] Select <strong>gemini-2.0-flash</strong> (or another model)</li>
-<li>[ ] Click <strong>Save</strong></li>
-<li>[ ] Sidecar logs show LLM configuration applied</li>
-</ol>
-<h3 id="verify-llm-is-working">Verify LLM is working<a class="headerlink" href="#verify-llm-is-working" title="Permanent link">&para;</a></h3>
-<p>Within 1-2 minutes, the sidecar will use the LLM for:
-- [ ] Health briefings (check the Dashboard for a summary)
-- [ ] Config advisor recommendations (new findings with LLM-powered detail)</p>
-<hr />
-<h2 id="step-11-notifications-channels-and-rules">Step 11: Notifications -- Channels and Rules<a class="headerlink" href="#step-11-notifications-channels-and-rules" title="Permanent link">&para;</a></h2>
-<p>Navigate to <strong>Notifications</strong> in the sidebar (admin only).</p>
-<h3 id="create-a-slack-channel">Create a Slack channel<a class="headerlink" href="#create-a-slack-channel" title="Permanent link">&para;</a></h3>
-<ol>
-<li>[ ] In the <strong>Channels</strong> tab, fill in:</li>
-<li>Name: <code>team-alerts</code></li>
-<li>Type: Slack</li>
-<li>Webhook URL: (paste a real Slack webhook, or use a placeholder)</li>
-<li>[ ] Click <strong>Create</strong></li>
-<li>[ ] Channel appears in the list with "slack" badge</li>
-</ol>
-<h3 id="create-a-pagerduty-channel">Create a PagerDuty channel<a class="headerlink" href="#create-a-pagerduty-channel" title="Permanent link">&para;</a></h3>
-<ol>
-<li>[ ] Name: <code>oncall-pd</code></li>
-<li>[ ] Type: PagerDuty</li>
-<li>[ ] Routing Key: (your PD routing key, or a placeholder)</li>
-<li>[ ] Click <strong>Create</strong></li>
-</ol>
-<h3 id="test-a-channel">Test a channel<a class="headerlink" href="#test-a-channel" title="Permanent link">&para;</a></h3>
-<ul>
-<li>[ ] Click <strong>Test</strong> next to the Slack channel</li>
-<li>[ ] If the webhook is valid, status shows "sent"</li>
-<li>[ ] If invalid, error message appears inline</li>
-</ul>
-<h3 id="create-notification-rules">Create notification rules<a class="headerlink" href="#create-notification-rules" title="Permanent link">&para;</a></h3>
-<p>In the <strong>Rules</strong> tab:</p>
-<ol>
-<li>[ ] Create rule: Channel=team-alerts, Event=finding_critical,
-       Min Severity=critical</li>
-<li>[ ] Create rule: Channel=oncall-pd, Event=finding_critical,
-       Min Severity=critical</li>
-<li>[ ] Rules appear in the list with enabled toggles</li>
-</ol>
-<h3 id="view-notification-log">View notification log<a class="headerlink" href="#view-notification-log" title="Permanent link">&para;</a></h3>
-<ul>
-<li>[ ] Click the <strong>Log</strong> tab</li>
-<li>[ ] Test notifications and rule-triggered alerts appear here</li>
-<li>[ ] Each entry shows: timestamp, severity, channel, status</li>
-</ul>
-<hr />
-<h2 id="step-12-user-management">Step 12: User Management<a class="headerlink" href="#step-12-user-management" title="Permanent link">&para;</a></h2>
-<p>Navigate to <strong>Users</strong> (admin only).</p>
-<h3 id="create-an-operator-user">Create an operator user<a class="headerlink" href="#create-an-operator-user" title="Permanent link">&para;</a></h3>
-<ol>
-<li>[ ] Email: <code>ops@example.com</code>, Password: <code>ops123</code>, Role: operator</li>
-<li>[ ] Click <strong>Create</strong></li>
-<li>[ ] User appears in the list</li>
-</ol>
-<h3 id="create-a-viewer-user">Create a viewer user<a class="headerlink" href="#create-a-viewer-user" title="Permanent link">&para;</a></h3>
-<ol>
-<li>[ ] Email: <code>viewer@example.com</code>, Password: <code>view123</code>, Role: viewer</li>
-<li>[ ] Click <strong>Create</strong></li>
-</ol>
-<h3 id="test-role-permissions">Test role permissions<a class="headerlink" href="#test-role-permissions" title="Permanent link">&para;</a></h3>
-<ol>
-<li>[ ] Log out (user menu, top-right)</li>
-<li>[ ] Log in as <code>viewer@example.com</code> / <code>view123</code></li>
-<li>[ ] Verify: Findings visible, but no "Take Action" button</li>
-<li>[ ] Verify: Settings, Users, Notifications hidden from sidebar</li>
-<li>[ ] Log out, log in as <code>ops@example.com</code> / <code>ops123</code></li>
-<li>[ ] Verify: Can see and approve pending actions</li>
-<li>[ ] Verify: Cannot access Settings or Users pages</li>
-<li>[ ] Log out, log back in as admin</li>
-</ol>
-<hr />
-<h2 id="step-13-emergency-stop">Step 13: Emergency Stop<a class="headerlink" href="#step-13-emergency-stop" title="Permanent link">&para;</a></h2>
-<ol>
-<li>[ ] Navigate to Settings &gt; General</li>
-<li>[ ] Click the red <strong>Emergency Stop</strong> button</li>
-<li>[ ] Confirm the action</li>
-<li>[ ] Dashboard shows red "STOPPED" banner</li>
-<li>[ ] No new actions will be executed while stopped</li>
-<li>[ ] Click <strong>Resume</strong> to restore normal operation</li>
-<li>[ ] Banner disappears, actions resume</li>
-</ol>
-<hr />
-<h2 id="step-14-prometheus-metrics">Step 14: Prometheus Metrics<a class="headerlink" href="#step-14-prometheus-metrics" title="Permanent link">&para;</a></h2>
-<p>Open <strong>http://localhost:9187/metrics</strong> in a new browser tab.</p>
-<p>Verify these metrics exist:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>pg_sage_info{version=&quot;dev&quot;,mode=&quot;fleet&quot;} 1
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>pg_sage_fleet_databases 2
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>pg_sage_fleet_healthy 2
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>pg_sage_fleet_findings_total &lt;N&gt;
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>pg_sage_fleet_findings_critical &lt;N&gt;
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>pg_sage_fleet_instance_findings{database=&quot;production&quot;} &lt;N&gt;
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>pg_sage_fleet_instance_findings{database=&quot;staging&quot;} &lt;N&gt;
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>pg_sage_connection_up 1
+<p>Use <strong>Test Connection</strong> before saving each database.</p>
+<h2 id="5-verify-the-v09-ui">5. Verify the v0.9 UI<a class="headerlink" href="#5-verify-the-v09-ui" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Screen</th>
+<th>What to verify</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Overview</td>
+<td>Two database tiles, Provider Readiness matrix, fleet summary</td>
+</tr>
+<tr>
+<td>Cases</td>
+<td>Cases from both databases, sorted by urgency/actionability</td>
+</tr>
+<tr>
+<td>Actions</td>
+<td>Pending Approval and Executed tabs</td>
+</tr>
+<tr>
+<td>Fleet</td>
+<td>Both managed databases and their status</td>
+</tr>
+<tr>
+<td>Settings</td>
+<td>Emergency controls and Shadow Mode report</td>
+</tr>
+</tbody>
+</table>
+<p>The old <code>#/findings</code> route remains a compatibility alias for <strong>Cases</strong>.</p>
+<h2 id="6-api-checks">6. API Checks<a class="headerlink" href="#6-api-checks" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>curl<span class="w"> </span>-c<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/auth/login<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">&#39;{&quot;email&quot;:&quot;admin@pg-sage.local&quot;,&quot;password&quot;:&quot;INITIAL_PASSWORD&quot;}&#39;</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/databases
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/fleet/readiness
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/cases
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/actions/pending
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/shadow-report
 </code></pre></div>
-<p>These can be scraped by Prometheus and visualized in Grafana.</p>
-<hr />
-<h2 id="step-15-api-quick-reference">Step 15: API Quick Reference<a class="headerlink" href="#step-15-api-quick-reference" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Login (use credentials from startup log)</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>curl<span class="w"> </span>-c<span class="w"> </span>cookies<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/auth/login<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;email&quot;:&quot;admin@pg-sage.local&quot;,&quot;password&quot;:&quot;YOUR_PASSWORD&quot;}&#39;</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="c1"># Fleet overview</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies<span class="w"> </span>http://localhost:8080/api/v1/databases
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="c1"># Add a database</span>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/databases/managed<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;name&quot;:&quot;mydb&quot;,&quot;host&quot;:&quot;db.example.com&quot;,&quot;port&quot;:5432,</span>
-<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="s1">       &quot;database_name&quot;:&quot;mydb&quot;,&quot;username&quot;:&quot;sage&quot;,&quot;password&quot;:&quot;***&quot;,</span>
-<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="s1">       &quot;sslmode&quot;:&quot;require&quot;}&#39;</span>
-<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a>
-<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="c1"># Findings (all / filtered)</span>
-<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies<span class="w"> </span><span class="s2">&quot;http://localhost:8080/api/v1/findings?limit=20&quot;</span>
-<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies<span class="w"> </span><span class="s2">&quot;http://localhost:8080/api/v1/findings?database=staging&quot;</span>
-<a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a>
-<a id="__codelineno-7-20" name="__codelineno-7-20" href="#__codelineno-7-20"></a><span class="c1"># Suppress / unsuppress</span>
-<a id="__codelineno-7-21" name="__codelineno-7-21" href="#__codelineno-7-21"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/findings/1/suppress
-<a id="__codelineno-7-22" name="__codelineno-7-22" href="#__codelineno-7-22"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/findings/1/unsuppress
-<a id="__codelineno-7-23" name="__codelineno-7-23" href="#__codelineno-7-23"></a>
-<a id="__codelineno-7-24" name="__codelineno-7-24" href="#__codelineno-7-24"></a><span class="c1"># Actions</span>
-<a id="__codelineno-7-25" name="__codelineno-7-25" href="#__codelineno-7-25"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies<span class="w"> </span>http://localhost:8080/api/v1/actions
-<a id="__codelineno-7-26" name="__codelineno-7-26" href="#__codelineno-7-26"></a>
-<a id="__codelineno-7-27" name="__codelineno-7-27" href="#__codelineno-7-27"></a><span class="c1"># Config (get / update)</span>
-<a id="__codelineno-7-28" name="__codelineno-7-28" href="#__codelineno-7-28"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies<span class="w"> </span>http://localhost:8080/api/v1/config
-<a id="__codelineno-7-29" name="__codelineno-7-29" href="#__codelineno-7-29"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies<span class="w"> </span>-X<span class="w"> </span>PUT<span class="w"> </span>http://localhost:8080/api/v1/config/global<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-30" name="__codelineno-7-30" href="#__codelineno-7-30"></a><span class="w">  </span>-H<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-31" name="__codelineno-7-31" href="#__codelineno-7-31"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;analyzer.slow_query_threshold_ms&quot;:1000}&#39;</span>
-<a id="__codelineno-7-32" name="__codelineno-7-32" href="#__codelineno-7-32"></a>
-<a id="__codelineno-7-33" name="__codelineno-7-33" href="#__codelineno-7-33"></a><span class="c1"># LLM models</span>
-<a id="__codelineno-7-34" name="__codelineno-7-34" href="#__codelineno-7-34"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies<span class="w"> </span>http://localhost:8080/api/v1/llm/models
-<a id="__codelineno-7-35" name="__codelineno-7-35" href="#__codelineno-7-35"></a>
-<a id="__codelineno-7-36" name="__codelineno-7-36" href="#__codelineno-7-36"></a><span class="c1"># Notifications</span>
-<a id="__codelineno-7-37" name="__codelineno-7-37" href="#__codelineno-7-37"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies<span class="w"> </span>http://localhost:8080/api/v1/notifications/channels
-<a id="__codelineno-7-38" name="__codelineno-7-38" href="#__codelineno-7-38"></a>
-<a id="__codelineno-7-39" name="__codelineno-7-39" href="#__codelineno-7-39"></a><span class="c1"># Emergency stop / resume</span>
-<a id="__codelineno-7-40" name="__codelineno-7-40" href="#__codelineno-7-40"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/emergency-stop
-<a id="__codelineno-7-41" name="__codelineno-7-41" href="#__codelineno-7-41"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/resume
-<a id="__codelineno-7-42" name="__codelineno-7-42" href="#__codelineno-7-42"></a>
-<a id="__codelineno-7-43" name="__codelineno-7-43" href="#__codelineno-7-43"></a><span class="c1"># Metrics (no auth)</span>
-<a id="__codelineno-7-44" name="__codelineno-7-44" href="#__codelineno-7-44"></a>curl<span class="w"> </span>http://localhost:9187/metrics
+<p>Metrics:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://localhost:9187/metrics<span class="w"> </span><span class="p">|</span><span class="w"> </span>head
 </code></pre></div>
-<hr />
-<h2 id="cleanup">Cleanup<a class="headerlink" href="#cleanup" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Stop sidecar: Ctrl+C in the terminal running it</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="c1"># Stop containers</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>docker<span class="w"> </span>compose<span class="w"> </span>down
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="c1"># Remove volumes too (deletes all data)</span>
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>docker<span class="w"> </span>compose<span class="w"> </span>down<span class="w"> </span>-v
+<h2 id="7-clean-up">7. Clean Up<a class="headerlink" href="#7-clean-up" title="Permanent link">&para;</a></h2>
+<p>Stop pg_sage with <code>Ctrl+C</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>stop<span class="w"> </span>pg1<span class="w"> </span>pg2
 </code></pre></div>
-<hr />
-<h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a> Browser (:8080)
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>     |
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>     v
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>+--------------------------------------------+
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>|           pg_sage sidecar (Go)             |
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>|                                            |
-<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>|  meta_db ------&gt; sage.* tables            |
-<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>|  (users, config, managed databases)       |
-<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>|                                            |
-<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>|  Collector ---&gt; Snapshots ---&gt; Analyzer    |
-<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>|     (60s)                        (600s)    |
-<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>|                                    |       |
-<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a>|  Advisor (LLM) &lt;-- Gemini Flash    |       |
-<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>|  Forecaster                        v       |
-<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>|  Tuner                    sage.findings    |
-<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a>|                                    |       |
-<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a>|  REST API + React Dashboard        |       |
-<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>|  Session Auth (bcrypt + cookie)    |       |
-<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>|  Notification Dispatcher           |       |
-<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a>|    -&gt; Slack, PagerDuty, Email      |       |
-<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a>|                                    v       |
-<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a>|  Prometheus Metrics (:9187)  Action Log    |
-<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a>+-----+------------------+------------------+
-<a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a>      |                  |
-<a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a>      v                  v
-<a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a>+----------+      +----------+
-<a id="__codelineno-9-27" name="__codelineno-9-27" href="#__codelineno-9-27"></a>| pg1:5433 |      | pg2:5434 |
-<a id="__codelineno-9-28" name="__codelineno-9-28" href="#__codelineno-9-28"></a>| prod     |      | staging  |
-<a id="__codelineno-9-29" name="__codelineno-9-29" href="#__codelineno-9-29"></a>+----------+      +----------+
-</code></pre></div>
+<p>Use <code>docker compose down -v</code> only when you intentionally want to delete the
+local demo database volumes.</p>
 
 
 

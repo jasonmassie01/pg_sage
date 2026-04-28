@@ -1030,11 +1030,17 @@
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>  │
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>  ├── Executor         [trust-gated]
 <a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>  │   ├── CONCURRENTLY DDL on raw pgx connection
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>  │   ├── Rollback monitor (read + write latency regression)
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>  │   └── Emergency stop via sage.config
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>  │
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>  ├── API + Dashboard  [:8080]  REST API + React SPA (web UI)
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>  └── Prometheus       [:9187]  Metrics endpoint
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>  │   ├── DDL preflight + PR/CI script output for high-risk migrations
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>  │   ├── Incident playbooks for locks, runaway queries, connections, WAL,
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>  │   │   replication, and sequence exhaustion
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>  │   ├── Vacuum/bloat/freeze autopilot with IO and XID guardrails
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>  │   ├── Query tuning artifacts beyond hints: rewrites, hint retirement,
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>  │   │   and role-level work_mem promotion
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>  │   ├── Rollback monitor (read + write latency regression)
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>  │   └── Emergency stop via sage.config
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>  │
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>  ├── API + Dashboard  [:8080]  REST API + React SPA (web UI)
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>  └── Prometheus       [:9187]  Metrics endpoint
 </code></pre></div>
 <hr />
 <h2 id="component-details">Component Details<a class="headerlink" href="#component-details" title="Permanent link">&para;</a></h2>
@@ -1100,25 +1106,60 @@
 <tbody>
 <tr>
 <td><strong>observation</strong></td>
-<td>Day 0-7</td>
-<td>No actions -- findings only</td>
+<td>Configured</td>
+<td>No actions -- cases and recommendations only</td>
 </tr>
 <tr>
 <td><strong>advisory</strong></td>
-<td>Day 8-30</td>
-<td>SAFE: drop unused/duplicate indexes, VACUUM</td>
+<td>Configured</td>
+<td>Queue or execute SAFE actions based on policy</td>
 </tr>
 <tr>
 <td><strong>autonomous</strong></td>
-<td>Day 31+</td>
-<td>MODERATE: create indexes, reindex</td>
+<td>Configured</td>
+<td>SAFE + approved MODERATE actions, bounded by maintenance windows</td>
 </tr>
 </tbody>
 </table>
-<p>HIGH-risk actions always require manual confirmation. Every action is logged to <code>sage.action_log</code> with before/after state and rollback SQL. Regression triggers automatic rollback.</p>
+<p>HIGH-risk actions always require manual approval. Every action carries a typed
+contract: risk tier, guardrails, expiration, rollback or mitigation, policy
+decision, lifecycle state, and verification state. Execution outcomes are
+logged to <code>sage.action_log</code>; pending work and approval outcomes are tracked in
+the action queue.</p>
+<p>High-risk schema changes are handled as migration-safety cases before direct
+execution. The case projector attaches deterministic DDL preflight evidence,
+generated migration SQL, rollback or forward-fix guidance, verification SQL,
+and PR/CI metadata. These artifacts are shown in Cases and Actions so teams can
+review schema work through their normal change-control process.</p>
+<p>Incident playbooks follow the same typed-action model. Read-only diagnostics
+can inspect blocker graphs, runaway queries, connection pressure, and
+WAL/replication state. Backend cancel/terminate actions require exact PID
+evidence and approval. Sequence capacity changes are treated as forward-fix
+migrations with script and verification output rather than autonomous DDL.</p>
+<p>Vacuum, bloat, and freeze autopilot turns maintenance findings into bounded
+actions. Small table-bloat cases can propose guarded <code>VACUUM</code>; IO-saturated
+cases are blocked to script/review output; XID wraparound cases diagnose oldest
+<code>backend_xmin</code> holders; and per-table autovacuum reloption changes are queued
+as reviewed migration scripts with post-change verification.</p>
+<p>Query tuning has two paths. <code>pg_hint_plan</code> remains useful for reversible
+planner experiments, but pg_sage can also generate application-query rewrite
+artifacts, retire broken hint experiments, and promote repeated per-role
+<code>work_mem</code> patterns into reviewed role settings. Those actions are modeled as
+typed cases with rollback class, verification steps, and PR/script output so
+they can move through change control like schema work.</p>
 <p>The executor checks: trust level, trust ramp, per-tier toggles, maintenance window, emergency stop flag, and replica status before acting.</p>
 <h3 id="api-dashboard-web-ui">API + Dashboard (Web UI)<a class="headerlink" href="#api-dashboard-web-ui" title="Permanent link">&para;</a></h3>
-<p>REST API and embedded React SPA on <code>:8080</code> (configurable). Provides 17 endpoints for findings, actions, snapshots, config, forecasts, query hints, alert log, emergency stop, and fleet management. The web UI includes authentication and notification support.</p>
+<p>REST API and embedded React SPA on <code>:8080</code> (configurable). The v0.9 UI is
+organized around Overview, Cases, Actions, Fleet, and Settings. The legacy
+<code>#/findings</code>, <code>#/schema-health</code>, <code>#/query-hints</code>, <code>#/forecasts</code>, and
+<code>#/incidents</code> routes open Cases with the appropriate source context. The API
+includes case projection, shadow report, action queue, provider readiness,
+findings, snapshots, config, forecasts, query hints, alerts, emergency stop,
+and fleet management. UI and <code>/api/v1/*</code> routes are session-authenticated.</p>
+<p>Provider readiness uses adapters for Postgres, Cloud SQL, AlloyDB, RDS, and
+Aurora. Adapters describe extension enablement paths, log access, managed
+service limitations, and supported action families before policy evaluation
+decides whether a specific database can execute, queue, or only observe.</p>
 <h3 id="alerting">Alerting<a class="headerlink" href="#alerting" title="Permanent link">&para;</a></h3>
 <p>Monitors new findings and routes notifications to Slack, PagerDuty, or custom webhooks based on severity. Supports quiet hours, cooldown periods, and per-severity routing rules. Event types: <code>finding_critical</code>, <code>action_executed</code>, <code>action_failed</code>, <code>approval_needed</code>, <code>query_rewrite_suggested</code>.</p>
 <h3 id="autoexplain-collector">AutoExplain Collector<a class="headerlink" href="#autoexplain-collector" title="Permanent link">&para;</a></h3>
@@ -1141,7 +1182,10 @@
 <li><strong>Validator</strong> runs 8 checks; <strong>HypoPG</strong> validates if available.</li>
 <li><strong>Confidence scorer</strong> assigns action level.</li>
 <li>Findings are persisted to <code>sage.findings</code>.</li>
-<li><strong>Executor</strong> acts on findings based on trust level, confidence, and maintenance window.</li>
+<li><strong>Case projection</strong> combines findings, incidents, and action state into DBA
+   cases and shadow-mode proof.</li>
+<li><strong>Executor</strong> queues, blocks, approves, or executes typed actions based on
+   trust level, policy, evidence freshness, maintenance window, and guardrails.</li>
 </ol>
 <hr />
 <h2 id="schema-bootstrap">Schema Bootstrap<a class="headerlink" href="#schema-bootstrap" title="Permanent link">&para;</a></h2>

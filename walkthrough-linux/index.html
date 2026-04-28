@@ -546,10 +546,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-download-and-start" class="md-nav__link">
+  <a href="#prerequisites" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Download and Start
+        Prerequisites
       
     </span>
   </a>
@@ -557,10 +557,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-check-findings" class="md-nav__link">
+  <a href="#1-start-a-local-target" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Check Findings
+        1. Start a Local Target
       
     </span>
   </a>
@@ -568,10 +568,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-enable-llm-optional" class="md-nav__link">
+  <a href="#2-build-and-run-pg_sage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Enable LLM (Optional)
+        2. Build and Run pg_sage
       
     </span>
   </a>
@@ -579,10 +579,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-check-the-action-log" class="md-nav__link">
+  <a href="#3-open-the-ui" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Check the Action Log
+        3. Open the UI
       
     </span>
   </a>
@@ -590,10 +590,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-prometheus-metrics" class="md-nav__link">
+  <a href="#4-api-and-metrics-checks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Prometheus Metrics
+        4. API and Metrics Checks
       
     </span>
   </a>
@@ -601,32 +601,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#6-web-ui" class="md-nav__link">
+  <a href="#5-clean-up" class="md-nav__link">
     <span class="md-ellipsis">
       
-        6. Web UI
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#7-clean-up" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        7. Clean Up
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-you-just-saw" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What You Just Saw
+        5. Clean Up
       
     </span>
   </a>
@@ -654,166 +632,73 @@
 
 
 <h1 id="pg_sage-walkthrough-linux-macos">pg_sage Walkthrough -- Linux / macOS<a class="headerlink" href="#pg_sage-walkthrough-linux-macos" title="Permanent link">&para;</a></h1>
-<p>Your database has been silently accumulating problems: duplicate indexes burning
-write I/O, sequences about to overflow, queries doing full table scans on 100K
-rows. In the next 10 minutes, pg_sage will find all of them and tell you exactly
-how to fix each one.</p>
-<p><strong>Time</strong>: ~10 minutes</p>
-<p><strong>Prerequisites</strong>: A PostgreSQL 14-17 database you can connect to. If you do not
-have one handy, use a local Docker instance:</p>
+<p>This walkthrough mirrors the v0.9 product shape: pg_sage starts as a single
+sidecar binary, creates an authenticated admin account, and presents an
+autonomous DBA workflow in the web UI.</p>
+<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<ul>
+<li>PostgreSQL 14-17, or Docker</li>
+<li>Go 1.24+</li>
+<li>Node.js 20+ and npm</li>
+<li><code>curl</code></li>
+</ul>
+<h2 id="1-start-a-local-target">1. Start a Local Target<a class="headerlink" href="#1-start-a-local-target" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>--name<span class="w"> </span>pg-test<span class="w"> </span>-e<span class="w"> </span><span class="nv">POSTGRES_PASSWORD</span><span class="o">=</span>testpass<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>-p<span class="w"> </span><span class="m">5432</span>:5432<span class="w"> </span>postgres:17<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>-c<span class="w"> </span><span class="nv">shared_preload_libraries</span><span class="o">=</span>pg_stat_statements
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>-c<span class="w"> </span><span class="nv">shared_preload_libraries</span><span class="o">=</span>pg_stat_statements<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>-c<span class="w"> </span>pg_stat_statements.track<span class="o">=</span>all
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="k">until</span><span class="w"> </span>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>pg-test<span class="w"> </span>pg_isready<span class="w"> </span>-U<span class="w"> </span>postgres<span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>sleep<span class="w"> </span><span class="m">1</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
 </code></pre></div>
-<hr />
-<h2 id="1-download-and-start">1. Download and Start<a class="headerlink" href="#1-download-and-start" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_sage_linux_amd64<span class="w"> </span>-o<span class="w"> </span>pg_sage
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>chmod<span class="w"> </span>+x<span class="w"> </span>pg_sage
+<p>Create the monitoring user:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>testpass<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-d<span class="w"> </span>postgres<span class="w"> </span><span class="s">&lt;&lt;&#39;SQL&#39;</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="s">CREATE USER sage_agent WITH PASSWORD &#39;sagepw&#39;;</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s">GRANT pg_monitor TO sage_agent;</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="s">GRANT pg_read_all_stats TO sage_agent;</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="s">GRANT CREATE ON SCHEMA public TO sage_agent;</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="s">GRANT pg_signal_backend TO sage_agent;</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="s">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="s">SQL</span>
 </code></pre></div>
-<p>Create the database user (connect to your database with a superuser):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="s2">  CREATE USER sage_agent WITH PASSWORD &#39;sagepw&#39;;</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="s2">  GRANT pg_monitor TO sage_agent;</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="s2">  GRANT pg_read_all_stats TO sage_agent;</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="s2">  GRANT CREATE ON SCHEMA public TO sage_agent;</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="s2">  GRANT pg_signal_backend TO sage_agent;</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="s2">&quot;</span>
+<h2 id="2-build-and-run-pg_sage">2. Build and Run pg_sage<a class="headerlink" href="#2-build-and-run-pg_sage" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/jasonmassie01/pg_sage.git
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">cd</span><span class="w"> </span>pg_sage/sidecar
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nb">cd</span><span class="w"> </span>web<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>ci<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>run<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>..
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>go<span class="w"> </span>build<span class="w"> </span>-o<span class="w"> </span>pg_sage<span class="w"> </span>./cmd/pg_sage_sidecar
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>./pg_sage<span class="w"> </span>--pg-url<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span><span class="s2">&quot;postgres://sage_agent:sagepw@localhost:5432/postgres?sslmode=disable&quot;</span>
 </code></pre></div>
-<p>Start pg_sage:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>./pg_sage<span class="w"> </span>--pg-url<span class="w"> </span><span class="s2">&quot;postgres://sage_agent:sagepw@localhost:5432/postgres&quot;</span>
+<p>Leave pg_sage running. Copy the one-time <code>INITIAL ADMIN PASSWORD</code> printed to
+stderr.</p>
+<h2 id="3-open-the-ui">3. Open the UI<a class="headerlink" href="#3-open-the-ui" title="Permanent link">&para;</a></h2>
+<p>Open <code>http://localhost:8080</code> and sign in:</p>
+<ul>
+<li>Email: <code>admin@pg-sage.local</code></li>
+<li>Password: the startup password</li>
+</ul>
+<p>Walk through:</p>
+<ol>
+<li><strong>Overview</strong> -- fleet health, Provider Readiness, recent recommendations.</li>
+<li><strong>Cases</strong> -- the primary DBA work queue. The old <code>#/findings</code> route aliases
+   here for compatibility.</li>
+<li><strong>Actions</strong> -- pending approval and executed action history.</li>
+<li><strong>Fleet</strong> -- managed database connections and runtime status.</li>
+<li><strong>Settings</strong> -- system info, emergency stop/resume, and Shadow Mode proof.</li>
+</ol>
+<h2 id="4-api-and-metrics-checks">4. API and Metrics Checks<a class="headerlink" href="#4-api-and-metrics-checks" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>curl<span class="w"> </span>-c<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/auth/login<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">&#39;{&quot;email&quot;:&quot;admin@pg-sage.local&quot;,&quot;password&quot;:&quot;INITIAL_PASSWORD&quot;}&#39;</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/cases
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/shadow-report
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://localhost:9187/metrics<span class="w"> </span><span class="p">|</span><span class="w"> </span>head
 </code></pre></div>
-<p>pg_sage connects, bootstraps the <code>sage</code> schema, and starts collecting. Leave it
-running in this terminal.</p>
-<hr />
-<h2 id="2-check-findings">2. Check Findings<a class="headerlink" href="#2-check-findings" title="Permanent link">&para;</a></h2>
-<p>Open a second terminal and connect to the database:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>sage_agent<span class="w"> </span>-d<span class="w"> </span>postgres
+<h2 id="5-clean-up">5. Clean Up<a class="headerlink" href="#5-clean-up" title="Permanent link">&para;</a></h2>
+<p>Stop pg_sage with <code>Ctrl+C</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>rm<span class="w"> </span>-f<span class="w"> </span>pg-test
 </code></pre></div>
-<p>Wait about 2 minutes for the first analyzer cycle, then:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">category</span><span class="p">,</span><span class="w"> </span><span class="n">severity</span><span class="p">,</span><span class="w"> </span><span class="n">title</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">FROM</span><span class="w"> </span><span class="n">sage</span><span class="p">.</span><span class="n">findings</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;open&#39;</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="k">CASE</span><span class="w"> </span><span class="n">severity</span><span class="w"> </span><span class="k">WHEN</span><span class="w"> </span><span class="s1">&#39;critical&#39;</span><span class="w"> </span><span class="k">THEN</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">WHEN</span><span class="w"> </span><span class="s1">&#39;warning&#39;</span><span class="w"> </span><span class="k">THEN</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="k">ELSE</span><span class="w"> </span><span class="mi">3</span><span class="w"> </span><span class="k">END</span><span class="p">;</span>
-</code></pre></div>
-<p>You will see findings for any detected issues -- duplicate indexes, unused
-indexes, slow queries, sequence exhaustion, cache hit ratio, etc.</p>
-<p>Every finding comes with a fix and a rollback:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">title</span><span class="p">,</span><span class="w"> </span><span class="n">recommended_sql</span><span class="p">,</span><span class="w"> </span><span class="n">rollback_sql</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="k">FROM</span><span class="w"> </span><span class="n">sage</span><span class="p">.</span><span class="n">findings</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">severity</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;critical&#39;</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;open&#39;</span><span class="p">;</span>
-</code></pre></div>
-<hr />
-<h2 id="3-enable-llm-optional">3. Enable LLM (Optional)<a class="headerlink" href="#3-enable-llm-optional" title="Permanent link">&para;</a></h2>
-<p>To get LLM-powered index optimization and briefings, set an API key:</p>
-<p>Create a <code>config.yaml</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">standalone</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nt">postgres</span><span class="p">:</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5432</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sage_agent</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sagepw</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">postgres</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="nt">llm</span><span class="p">:</span>
-<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="w">  </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://generativelanguage.googleapis.com/v1beta/openai&quot;</span>
-<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="w">  </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;gemini-2.5-flash&quot;</span>
-<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="w">  </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">YOUR_API_KEY_HERE</span>
-<a id="__codelineno-7-15" name="__codelineno-7-15" href="#__codelineno-7-15"></a><span class="w">  </span><span class="nt">optimizer</span><span class="p">:</span>
-<a id="__codelineno-7-16" name="__codelineno-7-16" href="#__codelineno-7-16"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-7-17" name="__codelineno-7-17" href="#__codelineno-7-17"></a>
-<a id="__codelineno-7-18" name="__codelineno-7-18" href="#__codelineno-7-18"></a><span class="nt">trust</span><span class="p">:</span>
-<a id="__codelineno-7-19" name="__codelineno-7-19" href="#__codelineno-7-19"></a><span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">observation</span>
-</code></pre></div>
-<p>Restart pg_sage with the config:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>./pg_sage<span class="w"> </span>--config<span class="w"> </span>config.yaml
-</code></pre></div>
-<hr />
-<h2 id="4-check-the-action-log">4. Check the Action Log<a class="headerlink" href="#4-check-the-action-log" title="Permanent link">&para;</a></h2>
-<p>pg_sage logs every autonomous action it takes (or considers taking):</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">action_type</span><span class="p">,</span><span class="w"> </span><span class="n">finding_id</span><span class="p">,</span><span class="w"> </span><span class="n">outcome</span><span class="p">,</span><span class="w"> </span><span class="n">executed_at</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="k">FROM</span><span class="w"> </span><span class="n">sage</span><span class="p">.</span><span class="n">action_log</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">executed_at</span><span class="w"> </span><span class="k">DESC</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="k">LIMIT</span><span class="w"> </span><span class="mi">10</span><span class="p">;</span>
-</code></pre></div>
-<p>In observation mode (the default), no actions are taken. Promote to <code>advisory</code>
-in the config to allow safe actions like dropping duplicate indexes.</p>
-<hr />
-<h2 id="5-prometheus-metrics">5. Prometheus Metrics<a class="headerlink" href="#5-prometheus-metrics" title="Permanent link">&para;</a></h2>
-<p>Open a browser or curl the metrics endpoint:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://localhost:9187/metrics
-</code></pre></div>
-<p>Output includes:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>pg_sage_findings_total{severity=&quot;critical&quot;} 2
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>pg_sage_findings_total{severity=&quot;warning&quot;} 4
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>pg_sage_findings_total{severity=&quot;info&quot;} 1
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>pg_sage_connection_up 1
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>pg_sage_database_size_bytes 2.68435456e+08
-</code></pre></div>
-<p>Wire this into Grafana or any Prometheus-compatible dashboard for production use.</p>
-<hr />
-<h2 id="6-web-ui">6. Web UI<a class="headerlink" href="#6-web-ui" title="Permanent link">&para;</a></h2>
-<p>pg_sage serves a React dashboard on port 8080 (configurable). Open
-<code>http://localhost:8080</code> in your browser to see findings, actions, forecasts,
-query hints, and manage configuration.</p>
-<p>The REST API is available at <code>http://localhost:8080/api/v1/</code> for programmatic
-access. See <a href="../architecture/">Architecture</a> for the full endpoint list.</p>
-<hr />
-<h2 id="7-clean-up">7. Clean Up<a class="headerlink" href="#7-clean-up" title="Permanent link">&para;</a></h2>
-<p>Stop pg_sage with Ctrl+C. To remove the sage schema:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">DROP</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="n">sage</span><span class="w"> </span><span class="k">CASCADE</span><span class="p">;</span>
-</code></pre></div>
-<p>If using the test Docker container:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>docker<span class="w"> </span>rm<span class="w"> </span>-f<span class="w"> </span>pg-test
-</code></pre></div>
-<hr />
-<h2 id="what-you-just-saw">What You Just Saw<a class="headerlink" href="#what-you-just-saw" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th>Tier</th>
-<th>LLM Required?</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>25+ deterministic rules (indexes, queries, sequences, bloat, replication)</td>
-<td>1</td>
-<td>No</td>
-</tr>
-<tr>
-<td>LLM index optimizer with HypoPG validation</td>
-<td>2</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Trust-gated action executor with rollback</td>
-<td>3</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Prometheus metrics</td>
-<td>Core</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Web UI dashboard</td>
-<td>Core</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Health briefings</td>
-<td>Core</td>
-<td>No (enhanced with LLM)</td>
-</tr>
-</tbody>
-</table>
-<p>pg_sage continuously monitors your database, catches problems before they
-become outages, and -- when you are ready -- fixes them autonomously during
-maintenance windows, with automatic rollback if anything regresses.</p>
 
 
 

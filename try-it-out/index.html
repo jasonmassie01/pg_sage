@@ -23,7 +23,7 @@
     
     
       
-        <title>Try pg_sage in 20 Minutes - pg_sage</title>
+        <title>Try pg_sage v0.9 Locally - pg_sage</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#try-pg_sage-in-20-minutes" class="md-skip">
+        <a href="#try-pg_sage-v09-locally" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Try pg_sage in 20 Minutes
+              Try pg_sage v0.9 Locally
             
           </span>
         </div>
@@ -554,30 +554,13 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Prerequisites">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#get-the-pg_sage-binary" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Get the pg_sage binary
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-1-start-postgresql-with-extensions" class="md-nav__link">
+  <a href="#1-start-postgresql" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1: Start PostgreSQL with Extensions
+        1. Start PostgreSQL
       
     </span>
   </a>
@@ -585,10 +568,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-2-create-the-sage_agent-user" class="md-nav__link">
+  <a href="#2-build-pg_sage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2: Create the sage_agent User
+        2. Build pg_sage
       
     </span>
   </a>
@@ -596,10 +579,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-3-seed-realistic-data" class="md-nav__link">
+  <a href="#3-start-pg_sage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 3: Seed Realistic Data
+        3. Start pg_sage
       
     </span>
   </a>
@@ -607,10 +590,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-4-initialize-pgbench-tables" class="md-nav__link">
+  <a href="#4-log-in-and-walk-the-ui" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 4: Initialize pgbench Tables
+        4. Log In and Walk the UI
       
     </span>
   </a>
@@ -618,10 +601,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-5-start-pg_sage" class="md-nav__link">
+  <a href="#5-api-smoke-checks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 5: Start pg_sage
+        5. API Smoke Checks
       
     </span>
   </a>
@@ -629,148 +612,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-6-generate-load-with-pgbench" class="md-nav__link">
+  <a href="#6-clean-up" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 6: Generate Load with pgbench
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-7-watch-pg_sage-react" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 7: Watch pg_sage React
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-8-explore-the-dashboard" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 8: Explore the Dashboard
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-9-check-prometheus-metrics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 9: Check Prometheus Metrics
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-10-see-extensions-in-action" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 10: See Extensions in Action
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 10: See Extensions in Action">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#auto_explain-slow-query-plans" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        auto_explain — Slow Query Plans
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#hypopg-hypothetical-index-testing" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        HypoPG — Hypothetical Index Testing
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#pg_hint_plan-per-query-optimizer-hints" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        pg_hint_plan — Per-Query Optimizer Hints
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-11-enable-llm-analysis-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 11: Enable LLM Analysis (Optional)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-12-promote-trust-level" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 12: Promote Trust Level
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#clean-up" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Clean Up
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-you-just-saw" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What You Just Saw
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Next Steps
+        6. Clean Up
       
     </span>
   </a>
@@ -797,564 +642,150 @@
   
 
 
-<h1 id="try-pg_sage-in-20-minutes">Try pg_sage in 20 Minutes<a class="headerlink" href="#try-pg_sage-in-20-minutes" title="Permanent link">&para;</a></h1>
-<p>A hands-on walkthrough that takes you from zero to a fully
-monitored PostgreSQL instance with findings, a dashboard,
-Prometheus metrics, and optional LLM-powered analysis.</p>
-<p>Everything runs locally. You will use Docker for PostgreSQL,
-pgbench for realistic load, and pg_sage to watch it all unfold.</p>
-<hr />
+<h1 id="try-pg_sage-v09-locally">Try pg_sage v0.9 Locally<a class="headerlink" href="#try-pg_sage-v09-locally" title="Permanent link">&para;</a></h1>
+<p>This smoke path gets pg_sage running against a local PostgreSQL target, logs in
+to the authenticated UI, and verifies the v0.9 autonomous DBA workflow:
+Overview, Cases, Actions, Fleet, Settings, and Shadow Mode.</p>
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
-<p>You need four things on your machine:</p>
 <table>
 <thead>
 <tr>
 <th>Tool</th>
 <th>Why</th>
-<th>Install</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Docker</strong></td>
-<td>Runs PostgreSQL 17</td>
-<td><a href="https://docker.com">docker.com</a></td>
+<td>Docker or a local PostgreSQL 14+</td>
+<td>Target database</td>
 </tr>
 <tr>
-<td><strong>psql</strong></td>
-<td>Runs SQL against Postgres</td>
-<td>Ships with PostgreSQL</td>
+<td>Go 1.24+</td>
+<td>Build the sidecar from source</td>
 </tr>
 <tr>
-<td><strong>pgbench</strong></td>
-<td>Generates realistic load</td>
-<td>Ships with PostgreSQL</td>
+<td>Node.js 20+ and npm</td>
+<td>Build the embedded React UI</td>
 </tr>
 <tr>
-<td><strong>pg_sage</strong></td>
-<td>The star of the show</td>
-<td>See below</td>
+<td>curl</td>
+<td>API smoke checks</td>
 </tr>
 </tbody>
 </table>
-<blockquote>
-<p><strong>Running on a cloud VM (GCE, EC2, etc.)?</strong> Everything works
-the same. Install Docker + postgresql-client:
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Debian/Ubuntu</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>sudo<span class="w"> </span>apt-get<span class="w"> </span>update<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>sudo<span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>docker.io<span class="w"> </span>postgresql-client<span class="w"> </span>golang-go
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>sudo<span class="w"> </span>usermod<span class="w"> </span>-aG<span class="w"> </span>docker<span class="w"> </span><span class="nv">$USER</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>newgrp<span class="w"> </span>docker
+<h2 id="1-start-postgresql">1. Start PostgreSQL<a class="headerlink" href="#1-start-postgresql" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>--name<span class="w"> </span>pg-sage-demo<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">POSTGRES_PASSWORD</span><span class="o">=</span>demopw<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span>-p<span class="w"> </span><span class="m">5432</span>:5432<span class="w"> </span>postgres:17<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span>-c<span class="w"> </span><span class="nv">shared_preload_libraries</span><span class="o">=</span>pg_stat_statements<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span>-c<span class="w"> </span>pg_stat_statements.track<span class="o">=</span>all
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="k">until</span><span class="w"> </span>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>pg-sage-demo<span class="w"> </span>pg_isready<span class="w"> </span>-U<span class="w"> </span>postgres<span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>sleep<span class="w"> </span><span class="m">1</span><span class="p">;</span><span class="w"> </span><span class="k">done</span>
 </code></pre></div>
-Access the dashboard at <code>http://&lt;external-ip&gt;:8080</code>. Make
-sure your firewall allows ports 8080 and 9187.</p>
-</blockquote>
-<h3 id="get-the-pg_sage-binary">Get the pg_sage binary<a class="headerlink" href="#get-the-pg_sage-binary" title="Permanent link">&para;</a></h3>
-<p>Download a release from the
-<a href="https://github.com/pg-sage/sidecar/releases">Releases page</a>,
-or build from source:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">cd</span><span class="w"> </span>sidecar
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">cd</span><span class="w"> </span>web<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>ci<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>run<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>..
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>go<span class="w"> </span>build<span class="w"> </span>-o<span class="w"> </span>pg_sage_sidecar<span class="w"> </span>./cmd/pg_sage_sidecar/
+<p>Create the monitoring user and extension:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>demopw<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-d<span class="w"> </span>postgres<span class="w"> </span><span class="s">&lt;&lt;&#39;SQL&#39;</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="s">CREATE USER sage_agent WITH PASSWORD &#39;sagepw&#39;;</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s">GRANT pg_monitor TO sage_agent;</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="s">GRANT pg_read_all_stats TO sage_agent;</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="s">GRANT CREATE ON SCHEMA public TO sage_agent;</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="s">GRANT pg_signal_backend TO sage_agent;</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="s">CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="s">SQL</span>
 </code></pre></div>
-<hr />
-<h2 id="step-1-start-postgresql-with-extensions">Step 1: Start PostgreSQL with Extensions<a class="headerlink" href="#step-1-start-postgresql-with-extensions" title="Permanent link">&para;</a></h2>
-<p>pg_sage works best with four PostgreSQL extensions:</p>
-<table>
-<thead>
-<tr>
-<th>Extension</th>
-<th>What it does</th>
-<th>Required?</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>pg_stat_statements</strong></td>
-<td>Tracks query stats (calls, time, rows)</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td><strong>HypoPG</strong></td>
-<td>Creates hypothetical indexes for cost estimation</td>
-<td>No (enhances optimizer)</td>
-</tr>
-<tr>
-<td><strong>pg_hint_plan</strong></td>
-<td>Applies per-query optimizer hints</td>
-<td>No (enhances tuner)</td>
-</tr>
-<tr>
-<td><strong>auto_explain</strong></td>
-<td>Captures EXPLAIN plans for slow queries</td>
-<td>No (enhances analysis)</td>
-</tr>
-</tbody>
-</table>
-<p>The demo ships a Dockerfile that pre-installs everything.
-Build the image, then start the container:</p>
+<h2 id="2-build-pg_sage">2. Build pg_sage<a class="headerlink" href="#2-build-pg_sage" title="Permanent link">&para;</a></h2>
+<p>From the repository root:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">cd</span><span class="w"> </span>sidecar
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="c1"># Build the custom image (one-time, takes ~30s)</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>pg-sage-demo:17<span class="w"> </span>tests/demo/
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="c1"># Start PostgreSQL with all extensions loaded</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>docker<span class="w"> </span>run<span class="w"> </span>-d<span class="w"> </span>--name<span class="w"> </span>pg-sage-demo<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span>-e<span class="w"> </span><span class="nv">POSTGRES_PASSWORD</span><span class="o">=</span>demopw<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span>-p<span class="w"> </span><span class="m">5432</span>:5432<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span>pg-sage-demo:17<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">  </span>-c<span class="w"> </span><span class="nv">shared_preload_libraries</span><span class="o">=</span><span class="s1">&#39;pg_stat_statements,pg_hint_plan,auto_explain&#39;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">  </span>-c<span class="w"> </span>pg_stat_statements.track<span class="o">=</span>all<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">  </span>-c<span class="w"> </span>auto_explain.log_min_duration<span class="o">=</span><span class="m">500</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">  </span>-c<span class="w"> </span>auto_explain.log_analyze<span class="o">=</span>on<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">  </span>-c<span class="w"> </span>auto_explain.log_format<span class="o">=</span>json
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nb">cd</span><span class="w"> </span>web<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>ci<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>run<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>..
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>go<span class="w"> </span>build<span class="w"> </span>-o<span class="w"> </span>pg_sage<span class="w"> </span>./cmd/pg_sage_sidecar
 </code></pre></div>
-<p>Wait for it to accept connections:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>pg-sage-demo<span class="w"> </span>pg_isready
+<h2 id="3-start-pg_sage">3. Start pg_sage<a class="headerlink" href="#3-start-pg_sage" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>./pg_sage<span class="w"> </span>--pg-url<span class="w"> </span><span class="s2">&quot;postgres://sage_agent:sagepw@localhost:5432/postgres?sslmode=disable&quot;</span>
 </code></pre></div>
-<p>You should see <code>accepting connections</code>. If not, wait a few
-seconds and try again.</p>
-<blockquote>
-<p><strong>No Docker?</strong> A local PostgreSQL 14+ works too. Install
-the extensions via your package manager (e.g.,
-<code>apt install postgresql-17-hypopg postgresql-17-pg-hint-plan</code>)
-and add them to <code>shared_preload_libraries</code> in <code>postgresql.conf</code>.</p>
-</blockquote>
-<hr />
-<h2 id="step-2-create-the-sage_agent-user">Step 2: Create the sage_agent User<a class="headerlink" href="#step-2-create-the-sage_agent-user" title="Permanent link">&para;</a></h2>
-<p>pg_sage connects as a dedicated monitoring user. It never
-needs superuser:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>demopw<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="s2">  CREATE USER sage_agent WITH PASSWORD &#39;sagepw&#39;;</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="s2">  GRANT pg_monitor TO sage_agent;</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="s2">  GRANT pg_read_all_stats TO sage_agent;</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="s2">  GRANT CREATE ON SCHEMA public TO sage_agent;</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="s2">  GRANT pg_signal_backend TO sage_agent;</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="s2">&quot;</span>
+<p>Keep this terminal open. On first startup, pg_sage creates the first admin and
+prints a one-time password to stderr:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>first admin created — email: admin@pg-sage.local  password: [redacted, see stderr]
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>*** INITIAL ADMIN PASSWORD: &lt;copy this value&gt; ***
 </code></pre></div>
-<p>Now enable the extensions:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>demopw<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="s2">  CREATE EXTENSION IF NOT EXISTS pg_stat_statements;</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="s2">  CREATE EXTENSION IF NOT EXISTS hypopg;</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="s2">  CREATE EXTENSION IF NOT EXISTS pg_hint_plan;</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="s2">&quot;</span>
-</code></pre></div>
-<p>These grants let pg_sage read stats, create its <code>sage.*</code>
-schema, and (at higher trust levels) kill idle sessions.
-The extensions give pg_sage the ability to test hypothetical
-indexes (HypoPG), apply per-query hints (pg_hint_plan), and
-capture execution plans for slow queries (auto_explain).</p>
-<hr />
-<h2 id="step-3-seed-realistic-data">Step 3: Seed Realistic Data<a class="headerlink" href="#step-3-seed-realistic-data" title="Permanent link">&para;</a></h2>
-<p>The seed script creates an e-commerce data model across
-multiple schemas with deliberate problems baked in:</p>
+<h2 id="4-log-in-and-walk-the-ui">4. Log In and Walk the UI<a class="headerlink" href="#4-log-in-and-walk-the-ui" title="Permanent link">&para;</a></h2>
+<p>Open <code>http://localhost:8080</code> and sign in:</p>
 <ul>
-<li>~200K rows across partitioned tables</li>
-<li>Duplicate indexes on <code>customers.email</code></li>
-<li>Missing foreign-key indexes on <code>region_id</code> and <code>product_id</code></li>
-<li>Dead tuples in <code>audit_log</code> (bloat, no vacuum)</li>
-<li>A nearly-exhausted sequence</li>
+<li>Email: <code>admin@pg-sage.local</code></li>
+<li>Password: the <code>INITIAL ADMIN PASSWORD</code> from startup stderr</li>
 </ul>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>demopw<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>-f<span class="w"> </span>tests/integration/seed_objects.sql
-</code></pre></div>
-<p>This takes about 10 seconds. When it finishes, you have
-a database full of problems for pg_sage to find.</p>
-<hr />
-<h2 id="step-4-initialize-pgbench-tables">Step 4: Initialize pgbench Tables<a class="headerlink" href="#step-4-initialize-pgbench-tables" title="Permanent link">&para;</a></h2>
-<p>pgbench ships with a standard TPC-B schema. At scale factor
-10 this adds ~1 million rows:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>demopw<span class="w"> </span>pgbench<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>-i<span class="w"> </span>-s<span class="w"> </span><span class="m">10</span><span class="w"> </span>postgres
-</code></pre></div>
-<p>Now you have two workloads worth of tables: the seeded
-e-commerce model and the TPC-B benchmark tables.</p>
-<hr />
-<h2 id="step-5-start-pg_sage">Step 5: Start pg_sage<a class="headerlink" href="#step-5-start-pg_sage" title="Permanent link">&para;</a></h2>
-<p>The demo config is pre-tuned with fast collection intervals
-(15s) and low thresholds so findings appear quickly:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>./pg_sage_sidecar<span class="w"> </span>--config<span class="w"> </span>tests/demo/config_demo.yaml
-</code></pre></div>
-<p>Leave this running in its own terminal. You will see:</p>
-<ol>
-<li>Startup validation (connection check, version detect)</li>
-<li>Schema bootstrap (<code>sage.findings</code>, <code>sage.action_log</code>, etc.)</li>
-<li>First collection cycle within 15 seconds</li>
-<li>First analysis cycle within 30 seconds</li>
-</ol>
-<blockquote>
-<p><strong>Tip:</strong> The demo config starts in <code>observation</code> mode.
-pg_sage will detect problems but will not change anything
-in your database yet.</p>
-</blockquote>
-<hr />
-<h2 id="step-6-generate-load-with-pgbench">Step 6: Generate Load with pgbench<a class="headerlink" href="#step-6-generate-load-with-pgbench" title="Permanent link">&para;</a></h2>
-<p>Open a <strong>second terminal</strong> and run the standard TPC-B
-benchmark. This creates sustained read/write traffic:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>demopw<span class="w"> </span>pgbench<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span>-c<span class="w"> </span><span class="m">8</span><span class="w"> </span>-j<span class="w"> </span><span class="m">4</span><span class="w"> </span>-T<span class="w"> </span><span class="m">300</span><span class="w"> </span>postgres
-</code></pre></div>
-<p>Open a <strong>third terminal</strong> and run the custom workload that
-specifically targets pg_sage rules — sequential scans on
-large tables, missing-index joins, bloat-inducing updates:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>demopw<span class="w"> </span>pgbench<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>-f<span class="w"> </span>tests/demo/custom_workload.sql<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span>-c<span class="w"> </span><span class="m">4</span><span class="w"> </span>-T<span class="w"> </span><span class="m">300</span><span class="w"> </span>postgres
-</code></pre></div>
-<p>Both run for 5 minutes. That is enough time for pg_sage
-to collect multiple snapshots and generate findings.</p>
-<hr />
-<h2 id="step-7-watch-pg_sage-react">Step 7: Watch pg_sage React<a class="headerlink" href="#step-7-watch-pg_sage-react" title="Permanent link">&para;</a></h2>
-<p>After 1-2 minutes of load, pg_sage will have findings.
-Query them directly:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>sagepw<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>sage_agent<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span>-d<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="s2">  SELECT category, severity, title,</span>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="s2">         detail-&gt;&gt;&#39;table&#39; AS tbl</span>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="s2">    FROM sage.findings</span>
-<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="s2">   WHERE status = &#39;open&#39;</span>
-<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="s2">   ORDER BY</span>
-<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="s2">     CASE severity</span>
-<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="s2">       WHEN &#39;critical&#39; THEN 1</span>
-<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="s2">       WHEN &#39;warning&#39;  THEN 2</span>
-<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="s2">       ELSE 3</span>
-<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="s2">     END;</span>
-<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="s2">&quot;</span>
-</code></pre></div>
-<p>You should see findings like:</p>
+<p>Verify these screens:</p>
 <table>
 <thead>
 <tr>
-<th>category</th>
-<th>severity</th>
-<th>title</th>
-<th>tbl</th>
+<th>Check</th>
+<th>Expected result</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>index</td>
-<td>warning</td>
-<td>Duplicate index detected</td>
-<td>customers</td>
+<td>Overview</td>
+<td>Fleet summary, database tiles, Provider Readiness, recent recommendations</td>
 </tr>
 <tr>
-<td>index</td>
-<td>warning</td>
-<td>Missing foreign key index</td>
-<td>customers</td>
+<td>Cases</td>
+<td>Ranked DBA cases with source filters, state, why-now text, policy, lifecycle, and next action</td>
 </tr>
 <tr>
-<td>index</td>
-<td>info</td>
-<td>Unused index detected</td>
-<td>customers</td>
+<td>Legacy routes</td>
+<td><code>#/findings</code>, <code>#/schema-health</code>, <code>#/query-hints</code>, <code>#/forecasts</code>, and <code>#/incidents</code> open Cases with the relevant context</td>
 </tr>
 <tr>
-<td>bloat</td>
-<td>warning</td>
-<td>Table bloat above threshold</td>
-<td>audit_log</td>
+<td>Migration safety</td>
+<td>DDL cases show preflight evidence, migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI output</td>
 </tr>
 <tr>
-<td>query</td>
-<td>warning</td>
-<td>Sequential scan on large table</td>
-<td>audit_log</td>
+<td>Incident playbooks</td>
+<td>Incident cases show read-only diagnostics or reviewed scripts for locks, runaway queries, connection pressure, WAL/replication risk, and sequence exhaustion</td>
 </tr>
 <tr>
-<td>query</td>
-<td>info</td>
-<td>Sort without index</td>
-<td>order_items</td>
+<td>Vacuum autopilot</td>
+<td>Bloat/freeze cases show guarded <code>VACUUM</code>, freeze-blocker diagnostics, or autovacuum tuning scripts with verification plans</td>
+</tr>
+<tr>
+<td>Query tuning</td>
+<td>Query-hint cases can show rewrite artifacts, broken-hint retirement, and reviewed role-level <code>work_mem</code> promotion</td>
+</tr>
+<tr>
+<td>Provider readiness</td>
+<td>Overview shows provider-specific extension paths, log access, limitations, and action-family readiness</td>
+</tr>
+<tr>
+<td>Actions</td>
+<td>Executed and Pending Approval tabs; expanded rows show SQL, expiration, rollback, verification state, and generated script output for DDL</td>
+</tr>
+<tr>
+<td>Fleet</td>
+<td>Managed databases table and connection-test/edit controls</td>
+</tr>
+<tr>
+<td>Settings</td>
+<td>System info, emergency controls, Shadow Mode report</td>
 </tr>
 </tbody>
 </table>
-<p>Every finding includes a recommended fix and a rollback:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>sagepw<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>sage_agent<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span>-d<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="s2">  SELECT title,</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="s2">         recommended_sql,</span>
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="s2">         rollback_sql</span>
-<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="s2">    FROM sage.findings</span>
-<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="s2">   WHERE severity IN (&#39;critical&#39;, &#39;warning&#39;)</span>
-<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="s2">     AND status = &#39;open&#39;</span>
-<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="s2">   LIMIT 5;</span>
-<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="s2">&quot;</span>
+<h2 id="5-api-smoke-checks">5. API Smoke Checks<a class="headerlink" href="#5-api-smoke-checks" title="Permanent link">&para;</a></h2>
+<p>All <code>/api/v1/*</code> endpoints require the login cookie:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>curl<span class="w"> </span>-c<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/auth/login<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">&#39;{&quot;email&quot;:&quot;admin@pg-sage.local&quot;,&quot;password&quot;:&quot;INITIAL_PASSWORD&quot;}&#39;</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/databases
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/cases
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/actions/pending
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/fleet/readiness
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/shadow-report
 </code></pre></div>
-<p>pg_sage tells you <em>what</em> is wrong, <em>why</em> it matters,
-<em>how</em> to fix it, and <em>how</em> to undo the fix. All without
-touching your database.</p>
-<hr />
-<h2 id="step-8-explore-the-dashboard">Step 8: Explore the Dashboard<a class="headerlink" href="#step-8-explore-the-dashboard" title="Permanent link">&para;</a></h2>
-<p>Open your browser to:</p>
-<blockquote>
-<p><strong>http://localhost:8080</strong></p>
-</blockquote>
-<p>The React dashboard gives you a visual overview:</p>
-<ul>
-<li><strong>Database Health</strong> — connection count, cache hit ratio,
-  transaction throughput, and active backends over time</li>
-<li><strong>Findings</strong> — sortable, filterable list with severity
-  badges; click any finding for full detail and SQL</li>
-<li><strong>Actions</strong> — empty for now (observation mode); this is
-  where executed fixes appear at higher trust levels</li>
-<li><strong>Snapshots</strong> — time-series charts of key metrics from
-  each collection cycle</li>
-</ul>
-<p>Spend a minute clicking through. The dashboard updates
-automatically every few seconds.</p>
-<hr />
-<h2 id="step-9-check-prometheus-metrics">Step 9: Check Prometheus Metrics<a class="headerlink" href="#step-9-check-prometheus-metrics" title="Permanent link">&para;</a></h2>
-<p>pg_sage exposes all its internal counters in Prometheus
-text format:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://localhost:9187/metrics<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>pg_sage
+<p>Prometheus remains unauthenticated on the metrics listener:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://localhost:9187/metrics<span class="w"> </span><span class="p">|</span><span class="w"> </span>head
 </code></pre></div>
-<p>You will see gauges and counters for findings by severity,
-collection duration, analyzer cycles, safety circuit
-breaker state, and more. Wire this into Grafana for
-production use.</p>
-<hr />
-<h2 id="step-10-see-extensions-in-action">Step 10: See Extensions in Action<a class="headerlink" href="#step-10-see-extensions-in-action" title="Permanent link">&para;</a></h2>
-<p>The three optional extensions are now working behind the
-scenes. Here is how to verify each one:</p>
-<h3 id="auto_explain-slow-query-plans">auto_explain — Slow Query Plans<a class="headerlink" href="#auto_explain-slow-query-plans" title="Permanent link">&para;</a></h3>
-<p>auto_explain automatically logs EXPLAIN output for any query
-exceeding 500ms. Check the PostgreSQL logs:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>docker<span class="w"> </span>logs<span class="w"> </span>pg-sage-demo<span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-A5<span class="w"> </span><span class="s1">&#39;&quot;Query Text&quot;&#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-30
+<h2 id="6-clean-up">6. Clean Up<a class="headerlink" href="#6-clean-up" title="Permanent link">&para;</a></h2>
+<p>Stop pg_sage with <code>Ctrl+C</code>, then remove the demo database if you used Docker:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>docker<span class="w"> </span>rm<span class="w"> </span>-f<span class="w"> </span>pg-sage-demo
 </code></pre></div>
-<p>pg_sage reads these plans via the <code>sage.explains</code> table and
-uses them to make better index recommendations.</p>
-<h3 id="hypopg-hypothetical-index-testing">HypoPG — Hypothetical Index Testing<a class="headerlink" href="#hypopg-hypothetical-index-testing" title="Permanent link">&para;</a></h3>
-<p>When pg_sage's optimizer suggests a new index, it tests the
-idea with HypoPG first. You can try this yourself:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>demopw<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
-<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="s2">  -- Create a hypothetical index (not real, zero I/O)</span>
-<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="s2">  SELECT hypopg_create_index(</span>
-<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="s2">    &#39;CREATE INDEX ON app.audit_log (action)&#39;</span>
-<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="s2">  );</span>
-<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>
-<a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="s2">  -- See if the planner would use it</span>
-<a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="s2">  EXPLAIN SELECT * FROM app.audit_log</span>
-<a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a><span class="s2">   WHERE action = &#39;event_1&#39;;</span>
-<a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a>
-<a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a><span class="s2">  -- Clean up</span>
-<a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a><span class="s2">  SELECT hypopg_reset();</span>
-<a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a><span class="s2">&quot;</span>
-</code></pre></div>
-<p>You should see an <strong>Index Scan using hypothetical index</strong>
-in the plan. pg_sage does this automatically — it creates
-hypothetical indexes, measures the estimated cost reduction,
-and only recommends indexes that show a real benefit.</p>
-<h3 id="pg_hint_plan-per-query-optimizer-hints">pg_hint_plan — Per-Query Optimizer Hints<a class="headerlink" href="#pg_hint_plan-per-query-optimizer-hints" title="Permanent link">&para;</a></h3>
-<p>When pg_sage's tuner detects a query choosing a bad plan,
-it can inject hints to force a better one. Verify it works:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>demopw<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
-<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="s2">  -- Force a seq scan even if an index exists</span>
-<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="s2">  /*+ SeqScan(pgbench_accounts) */</span>
-<a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="s2">  EXPLAIN SELECT * FROM pgbench_accounts WHERE aid = 1;</span>
-<a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>
-<a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="s2">  -- Force an index scan</span>
-<a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="s2">  /*+ IndexScan(pgbench_accounts) */</span>
-<a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="s2">  EXPLAIN SELECT * FROM pgbench_accounts WHERE aid = 1;</span>
-<a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="s2">&quot;</span>
-</code></pre></div>
-<p>The first plan uses Seq Scan, the second uses Index Scan —
-pg_hint_plan overrides the planner. pg_sage writes hints
-to the <code>hint_plan.hints</code> table so they apply automatically
-to matching queries.</p>
-<hr />
-<h2 id="step-11-enable-llm-analysis-optional">Step 11: Enable LLM Analysis (Optional)<a class="headerlink" href="#step-11-enable-llm-analysis-optional" title="Permanent link">&para;</a></h2>
-<p>This step requires an API key for an OpenAI-compatible
-provider (OpenAI, Gemini, Groq, Ollama, etc.).</p>
-<p>Edit <code>tests/demo/config_demo.yaml</code> — uncomment the llm
-block and add your key:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="nt">llm</span><span class="p">:</span>
-<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">  </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://generativelanguage.googleapis.com/v1beta/openai&quot;</span>
-<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">  </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">YOUR_GEMINI_API_KEY</span>
-<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="w">  </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;gemini-2.5-flash-preview&quot;</span>
-<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="w">  </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
-<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="w">  </span><span class="nt">token_budget_daily</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">500000</span>
-<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a><span class="w">  </span><span class="nt">context_budget_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4096</span>
-<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="w">  </span><span class="nt">index_optimizer</span><span class="p">:</span>
-<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a><span class="w">    </span><span class="nt">min_query_calls</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
-</code></pre></div>
-<p>Save the file. pg_sage hot-reloads the LLM config —
-no restart needed. Now you get:</p>
-<ul>
-<li><strong>LLM-powered index recommendations</strong> that consider
-  your actual query patterns and table statistics</li>
-<li><strong>Daily health briefings</strong> summarizing overnight
-  changes and emerging trends</li>
-<li><strong>Config tuning advisors</strong> for vacuum, WAL, memory,
-  and connection settings</li>
-</ul>
-<p>Check the logs for LLM activity, or wait for the next
-briefing cycle.</p>
-<hr />
-<h2 id="step-12-promote-trust-level">Step 12: Promote Trust Level<a class="headerlink" href="#step-12-promote-trust-level" title="Permanent link">&para;</a></h2>
-<p>So far pg_sage has been watching. Now let it act.</p>
-<p>Edit <code>tests/demo/config_demo.yaml</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nt">trust</span><span class="p">:</span>
-<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">advisory</span>
-</code></pre></div>
-<p>Save the file. pg_sage hot-reloads and starts executing
-<strong>safe</strong> actions: dropping duplicate indexes, killing
-sessions idle in transaction too long, and similar
-low-risk fixes.</p>
-<p>Check what it did:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nv">PGPASSWORD</span><span class="o">=</span>sagepw<span class="w"> </span>psql<span class="w"> </span>-h<span class="w"> </span>localhost<span class="w"> </span>-U<span class="w"> </span>sage_agent<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="w">  </span>-d<span class="w"> </span>postgres<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;</span>
-<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="s2">  SELECT action_type, finding_id, outcome,</span>
-<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="s2">         executed_at</span>
-<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="s2">    FROM sage.action_log</span>
-<a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a><span class="s2">   ORDER BY executed_at DESC</span>
-<a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a><span class="s2">   LIMIT 10;</span>
-<a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a><span class="s2">&quot;</span>
-</code></pre></div>
-<p>Every action is logged with the exact SQL that ran, the
-finding that triggered it, whether it succeeded, and the
-rollback SQL to undo it.</p>
-<blockquote>
-<p><strong>Production note:</strong> In real deployments, pg_sage
-auto-ramps trust over time: observation for 7 days,
-then advisory, then autonomous. You can also set a
-maintenance window so moderate actions (like creating
-indexes) only run during off-peak hours.</p>
-</blockquote>
-<hr />
-<h2 id="clean-up">Clean Up<a class="headerlink" href="#clean-up" title="Permanent link">&para;</a></h2>
-<p>When you are done exploring:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># Stop pgbench — Ctrl+C in its terminals</span>
-<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a><span class="c1"># Stop pg_sage — Ctrl+C in its terminal</span>
-<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>
-<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="c1"># Remove the Docker container and all data</span>
-<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>docker<span class="w"> </span>rm<span class="w"> </span>-f<span class="w"> </span>pg-sage-demo
-</code></pre></div>
-<p>That is it. Nothing lingers.</p>
-<hr />
-<h2 id="what-you-just-saw">What You Just Saw<a class="headerlink" href="#what-you-just-saw" title="Permanent link">&para;</a></h2>
-<p>Here is every feature you exercised, organized by tier:</p>
-<table>
-<thead>
-<tr>
-<th>Feature</th>
-<th>Tier</th>
-<th>Needs LLM?</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>25+ deterministic rules engine</td>
-<td>1</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Duplicate index detection</td>
-<td>1</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Missing FK index detection</td>
-<td>1</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Table bloat / dead tuple analysis</td>
-<td>1</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Sequence exhaustion warnings</td>
-<td>1</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Sequential scan detection</td>
-<td>1</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Query regression tracking</td>
-<td>1</td>
-<td>No</td>
-</tr>
-<tr>
-<td>auto_explain plan capture</td>
-<td>1</td>
-<td>No</td>
-</tr>
-<tr>
-<td>HypoPG hypothetical index testing</td>
-<td>2</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>pg_hint_plan query tuning</td>
-<td>1</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Trust-gated action executor</td>
-<td>3</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Auto-rollback on regression</td>
-<td>3</td>
-<td>No</td>
-</tr>
-<tr>
-<td>React dashboard</td>
-<td>Core</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Prometheus metrics exporter</td>
-<td>Core</td>
-<td>No</td>
-</tr>
-<tr>
-<td>Config hot reload</td>
-<td>Core</td>
-<td>No</td>
-</tr>
-<tr>
-<td>LLM index optimizer</td>
-<td>2</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Health briefings</td>
-<td>2</td>
-<td>Yes</td>
-</tr>
-<tr>
-<td>Config tuning advisors</td>
-<td>2</td>
-<td>Yes</td>
-</tr>
-</tbody>
-</table>
-<p>The Tier 1 rules engine and Tier 3 executor work entirely
-without an LLM. You get a production-grade PostgreSQL DBA
-agent with zero API costs. LLM features are additive — they
-enhance analysis but are never required.</p>
-<hr />
-<h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
-<ul>
-<li>Read <code>config.example.yaml</code> for the full configuration
-  reference with every threshold and knob documented</li>
-<li>Point pg_sage at a staging database and let it run in
-  observation mode for a week</li>
-<li>Set up Prometheus + Grafana to visualize pg_sage metrics
-  alongside your existing PostgreSQL monitoring</li>
-<li>Try fleet mode to monitor multiple databases from a
-  single pg_sage instance</li>
-<li>Join the conversation on
-  <a href="https://github.com/pg-sage/sidecar/issues">GitHub Issues</a></li>
-</ul>
 
 
 

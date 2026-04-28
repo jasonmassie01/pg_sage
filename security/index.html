@@ -642,10 +642,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#api-key-authentication" class="md-nav__link">
+  <a href="#session-authentication" class="md-nav__link">
     <span class="md-ellipsis">
       
-        API Key Authentication
+        Session Authentication
       
     </span>
   </a>
@@ -980,10 +980,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#api-key-authentication" class="md-nav__link">
+  <a href="#session-authentication" class="md-nav__link">
     <span class="md-ellipsis">
       
-        API Key Authentication
+        Session Authentication
       
     </span>
   </a>
@@ -1181,7 +1181,9 @@
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="k">GRANT</span><span class="w"> </span><span class="k">CREATE</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span><span class="w">    </span><span class="c1">-- for index creation</span>
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="k">GRANT</span><span class="w"> </span><span class="n">pg_signal_backend</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span><span class="w">           </span><span class="c1">-- for query termination</span>
 </code></pre></div>
-<p>The sidecar bootstraps the <code>sage</code> schema and tables on first connect. If you prefer to pre-create:</p>
+<p>The sidecar bootstraps the <code>sage</code> schema and tables on first connect. Either
+connect with a role that can create that schema, or pre-create it and grant the
+sidecar role ownership/write privileges:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">CREATE</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="n">sage</span><span class="p">;</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">GRANT</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="n">sage</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">ALTER</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">PRIVILEGES</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="n">sage</span><span class="w"> </span><span class="k">GRANT</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">TABLES</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span>
@@ -1249,7 +1251,12 @@
 <ul>
 <li><strong>Never reads table row data.</strong> All analysis uses aggregate statistics and catalog metadata.</li>
 <li><strong>Never accesses credentials or secrets.</strong> Does not read <code>pg_authid.rolpassword</code> or password hashes.</li>
-<li><strong>Never modifies user data.</strong> Autonomous actions are limited to DDL (<code>CREATE INDEX CONCURRENTLY</code>, <code>REINDEX CONCURRENTLY</code>, <code>DROP INDEX CONCURRENTLY</code>). Never runs <code>INSERT</code>, <code>UPDATE</code>, or <code>DELETE</code> on user tables.</li>
+<li><strong>Never modifies user data.</strong> Autonomous actions are limited to maintenance and schema operations such as <code>ANALYZE</code>, guarded index DDL, and approved incident actions. Never runs <code>INSERT</code>, <code>UPDATE</code>, or <code>DELETE</code> on user tables.</li>
+<li><strong>Never directly executes high-risk DDL.</strong> Rewrite-heavy or forward-fix-only schema changes become migration-safety cases with preflight evidence, generated scripts, verification SQL, and PR/CI metadata for human review.</li>
+<li><strong>Never drops replication slots or changes sequence capacity autonomously.</strong> WAL/replication playbooks are read-only diagnostics, and sequence-exhaustion remediation is generated as a reviewed forward-fix migration.</li>
+<li><strong>Never runs maintenance during known IO saturation.</strong> Bloat autopilot blocks autonomous <code>VACUUM</code> candidates when IO pressure evidence is present and emits script/review output instead.</li>
+<li><strong>Never rewrites application queries autonomously.</strong> Query rewrites are generated as reviewable PR/script artifacts with semantic and plan verification steps.</li>
+<li><strong>Never promotes role-level memory settings without review.</strong> Repeated per-query <code>work_mem</code> patterns can become a reviewed <code>ALTER ROLE</code> candidate, but they require approval because the blast radius is role-wide.</li>
 <li><strong>Never uses ALTER SYSTEM.</strong> Configuration changes are made through the YAML config file, not database-side settings.</li>
 <li><strong>Never phones home.</strong> Zero hardcoded external endpoints. All outbound connections are to user-configured addresses only.</li>
 </ul>
@@ -1267,22 +1274,22 @@
 <tbody>
 <tr>
 <td><strong>observation</strong></td>
-<td>Day 0-7</td>
-<td>No actions -- findings only</td>
+<td>Configured</td>
+<td>No actions -- cases and recommendations only</td>
 </tr>
 <tr>
 <td><strong>advisory</strong></td>
-<td>Day 8-30</td>
-<td>SAFE: drop unused/duplicate indexes, VACUUM</td>
+<td>Configured</td>
+<td>Queue or execute SAFE actions based on policy</td>
 </tr>
 <tr>
 <td><strong>autonomous</strong></td>
-<td>Day 31+</td>
-<td>MODERATE: create indexes, reindex</td>
+<td>Configured</td>
+<td>SAFE + approved MODERATE actions, bounded by maintenance windows</td>
 </tr>
 </tbody>
 </table>
-<p>HIGH-risk actions always require manual confirmation, regardless of trust level.</p>
+<p>HIGH-risk actions always require manual approval, regardless of trust level.</p>
 <p>The executor checks all of these gates before acting:</p>
 <ol>
 <li>Trust level matches the action's risk category</li>
@@ -1335,18 +1342,23 @@
 <p>What is <strong>never</strong> sent: row data, column values, passwords, connection strings, API keys, PII. Query text from <code>pg_stat_statements</code> contains parameterized placeholders (<code>$1</code>, <code>$2</code>), not literal values.</p>
 <hr />
 <h2 id="api-security">API Security<a class="headerlink" href="#api-security" title="Permanent link">&para;</a></h2>
-<h3 id="api-key-authentication">API Key Authentication<a class="headerlink" href="#api-key-authentication" title="Permanent link">&para;</a></h3>
-<p>Set <code>SAGE_API_KEY</code> to require a Bearer token on all API requests:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SAGE_API_KEY</span><span class="o">=</span><span class="s2">&quot;your-secret-key-here&quot;</span>
+<h3 id="session-authentication">Session Authentication<a class="headerlink" href="#session-authentication" title="Permanent link">&para;</a></h3>
+<p>The web UI and <code>/api/v1/*</code> endpoints use session-cookie authentication. On
+first startup against a metadata database with no users, pg_sage creates
+<code>admin@pg-sage.local</code> and prints a one-time initial password to stderr.</p>
+<p>API clients log in and reuse the <code>sage_session</code> cookie:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>curl<span class="w"> </span>-c<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/auth/login<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">&#39;{&quot;email&quot;:&quot;admin@pg-sage.local&quot;,&quot;password&quot;:&quot;INITIAL_PASSWORD&quot;}&#39;</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/cases
 </code></pre></div>
-<p>All requests must include <code>Authorization: Bearer &lt;key&gt;</code>. Requests with missing or invalid keys receive <code>401 Unauthorized</code>.</p>
-<p>Always set <code>SAGE_API_KEY</code> in production. Without it, the sidecar accepts all requests without authentication.</p>
+<p><code>SAGE_API_KEY</code> is a legacy config field and does not secure the current v0.9
+web/API path.</p>
 <h3 id="tls">TLS<a class="headerlink" href="#tls" title="Permanent link">&para;</a></h3>
-<p>Enable TLS by setting certificate and key paths:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SAGE_TLS_CERT</span><span class="o">=</span><span class="s2">&quot;/path/to/cert.pem&quot;</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SAGE_TLS_KEY</span><span class="o">=</span><span class="s2">&quot;/path/to/key.pem&quot;</span>
-</code></pre></div>
-<p>When configured, the sidecar enforces TLS 1.2 as the minimum protocol version.</p>
+<p>pg_sage currently serves HTTP. Terminate TLS at a reverse proxy, Kubernetes
+Ingress, Cloud Run, load balancer, or other trusted edge. Restrict direct access
+to the API/dashboard listener to trusted networks.</p>
 <h3 id="input-validation">Input Validation<a class="headerlink" href="#input-validation" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong>Table names</strong> are validated against a strict regex. No SQL injection is possible through resource URIs or tool arguments.</li>
@@ -1374,13 +1386,19 @@
 <hr />
 <h2 id="emergency-stop">Emergency Stop<a class="headerlink" href="#emergency-stop" title="Permanent link">&para;</a></h2>
 <p>Halt all autonomous activity immediately by setting the emergency stop flag in <code>sage.config</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">UPDATE</span><span class="w"> </span><span class="n">sage</span><span class="p">.</span><span class="n">config</span><span class="w"> </span><span class="k">SET</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;true&#39;</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;emergency_stop&#39;</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">UPDATE</span><span class="w"> </span><span class="n">sage</span><span class="p">.</span><span class="n">config</span><span class="w"> </span><span class="k">SET</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;true&#39;</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;emergency_stop&#39;</span><span class="p">;</span>
 </code></pre></div>
-<p>Or use the web UI emergency stop button, or the REST API <code>POST /api/v1/emergency-stop</code>.</p>
+<p>Or use the web UI emergency stop button, or the authenticated REST API:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/emergency-stop<span class="w"> </span>--data<span class="w"> </span><span class="s1">&#39;{}&#39;</span>
+</code></pre></div>
 <p>Resume with:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">UPDATE</span><span class="w"> </span><span class="n">sage</span><span class="p">.</span><span class="n">config</span><span class="w"> </span><span class="k">SET</span><span class="w"> </span><span class="n">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;false&#39;</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="k">key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;emergency_stop&#39;</span><span class="p">;</span>
 </code></pre></div>
-<p>Or use the web UI resume button, or the REST API <code>POST /api/v1/resume</code>.</p>
+<p>Or use the web UI resume button, or the authenticated REST API:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s1">&#39;Content-Type: application/json&#39;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/resume<span class="w"> </span>--data<span class="w"> </span><span class="s1">&#39;{}&#39;</span>
+</code></pre></div>
 <hr />
 <h2 id="audit-trail">Audit Trail<a class="headerlink" href="#audit-trail" title="Permanent link">&para;</a></h2>
 <h3 id="action-log-sageaction_log">Action Log (<code>sage.action_log</code>)<a class="headerlink" href="#action-log-sageaction_log" title="Permanent link">&para;</a></h3>
@@ -1398,13 +1416,14 @@
 <hr />
 <h2 id="production-checklist">Production Checklist<a class="headerlink" href="#production-checklist" title="Permanent link">&para;</a></h2>
 <ol>
-<li><strong>Set <code>SAGE_API_KEY</code></strong> -- never run the API server without authentication in production.</li>
-<li><strong>Enable TLS</strong> -- set <code>SAGE_TLS_CERT</code> and <code>SAGE_TLS_KEY</code>. Use a reverse proxy for automatic certificate renewal.</li>
+<li><strong>Protect the dashboard/API listener</strong> -- use a private network, reverse proxy, or identity-aware edge.</li>
+<li><strong>Terminate TLS at the edge</strong> -- do not expose plain HTTP directly to the internet.</li>
 <li><strong>Start in observation mode</strong> -- deploy with <code>trust.level: observation</code> and review findings for at least a week.</li>
 <li><strong>Set a maintenance window</strong> -- restrict autonomous actions to low-traffic periods.</li>
 <li><strong>Review findings before escalating trust</strong> -- move to <code>advisory</code> then <code>autonomous</code> only after confirming recommendations are appropriate.</li>
 <li><strong>Set a token budget</strong> -- cap LLM spend with <code>llm.token_budget_daily</code>.</li>
 <li><strong>Use a dedicated database role</strong> -- grant only the required privileges listed above.</li>
+<li><strong>Capture and rotate the initial admin password</strong> -- then use named users or OAuth for operators.</li>
 <li><strong>Monitor pg_sage itself</strong> -- check Prometheus metrics and circuit breaker state.</li>
 </ol>
 
