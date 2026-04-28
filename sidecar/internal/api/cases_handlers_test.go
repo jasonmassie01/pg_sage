@@ -154,6 +154,75 @@ func TestEnrichCaseActionPoliciesShowsApprovalAndWindowBlock(t *testing.T) {
 	}
 }
 
+func TestCasePolicyContextUsesInstancePlatform(t *testing.T) {
+	cfg := &config.Config{
+		Mode:             "fleet",
+		CloudEnvironment: "postgres",
+		Trust: config.TrustConfig{
+			Level:     "autonomous",
+			Tier3Safe: true,
+			RampStart: time.Now().
+				Add(-10 * 24 * time.Hour).
+				Format(time.RFC3339),
+		},
+	}
+	mgr := fleet.NewManager(cfg)
+	mgr.RegisterInstance(&fleet.DatabaseInstance{
+		Name:   "prod",
+		Config: config.DatabaseConfig{Name: "prod", ExecutionMode: "auto"},
+		Status: &fleet.InstanceStatus{
+			Platform: "cloud-sql",
+		},
+	})
+
+	got := casePolicyContext(mgr, "prod")
+
+	if got.Config.CloudEnvironment != "cloud-sql" {
+		t.Fatalf("CloudEnvironment = %q, want cloud-sql",
+			got.Config.CloudEnvironment)
+	}
+}
+
+func TestCasePolicyContextBlocksReplicaFromCapabilities(t *testing.T) {
+	cfg := &config.Config{
+		Mode:             "fleet",
+		CloudEnvironment: "postgres",
+		Trust: config.TrustConfig{
+			Level:     "autonomous",
+			Tier3Safe: true,
+			RampStart: time.Now().
+				Add(-10 * 24 * time.Hour).
+				Format(time.RFC3339),
+		},
+	}
+	mgr := fleet.NewManager(cfg)
+	mgr.RegisterInstance(&fleet.DatabaseInstance{
+		Name:   "prod",
+		Config: config.DatabaseConfig{Name: "prod", ExecutionMode: "auto"},
+		Status: &fleet.InstanceStatus{
+			Platform: "postgres",
+			Capabilities: fleet.ProviderCapabilities{
+				Provider:  "postgres",
+				IsReplica: true,
+			},
+		},
+	})
+	c := cases.Case{
+		DatabaseName: "prod",
+		ActionCandidates: []cases.ActionCandidate{{
+			ActionType: "analyze_table",
+			RiskTier:   "safe",
+		}},
+	}
+
+	enrichCaseActionPolicies(&c, mgr, "prod")
+
+	got := c.ActionCandidates[0].BlockedReason
+	if got != "target database is a replica" {
+		t.Fatalf("BlockedReason = %q", got)
+	}
+}
+
 func TestCaseActionFromQueuedActionIncludesLifecycle(t *testing.T) {
 	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
 	cooldownUntil := now.Add(time.Hour)

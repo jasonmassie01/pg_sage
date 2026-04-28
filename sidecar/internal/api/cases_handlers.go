@@ -278,10 +278,19 @@ func casePolicyContext(
 	}
 	mode := "auto"
 	stopped := false
+	isReplica := false
 	if mgr != nil {
 		if inst := mgr.GetInstance(databaseName); inst != nil {
 			mode = executionModeForInstance(cfg, inst)
 			stopped = inst.Stopped
+			snap := inst.SnapshotStatus()
+			if snap.Platform != "" {
+				cfg.CloudEnvironment = snap.Platform
+			}
+			if snap.Capabilities.Provider != "" {
+				cfg.CloudEnvironment = snap.Capabilities.Provider
+			}
+			isReplica = snap.Capabilities.IsReplica
 			if inst.Config.TrustLevel != "" {
 				cfg.Trust.Level = inst.Config.TrustLevel
 			}
@@ -291,6 +300,7 @@ func casePolicyContext(
 		Config:          cfg,
 		ExecutionMode:   mode,
 		RampStart:       rampStartForPolicy(cfg),
+		IsReplica:       isReplica,
 		EmergencyStop:   stopped,
 		SafeActionLimit: 3,
 	}

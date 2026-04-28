@@ -64,24 +64,25 @@ func (d *DatabaseInstance) SnapshotStatus() *InstanceStatus {
 
 // InstanceStatus tracks the health of a single database.
 type InstanceStatus struct {
-	Connected        bool      `json:"connected"`
-	PGVersion        string    `json:"pg_version"`
-	Platform         string    `json:"platform"`
-	DatabaseSize     int64     `json:"database_size_bytes"`
-	TrustLevel       string    `json:"trust_level"`
-	CollectorLastRun time.Time `json:"collector_last_run"`
-	AnalyzerLastRun  time.Time `json:"analyzer_last_run"`
-	FindingsOpen     int       `json:"findings_open"`
-	FindingsCritical int       `json:"findings_critical"`
-	FindingsWarning  int       `json:"findings_warning"`
-	FindingsInfo     int       `json:"findings_info"`
-	ActionsTotal     int       `json:"actions_total"`
-	LLMTokensUsed    int       `json:"llm_tokens_used"`
-	AdvisoryLockHeld bool      `json:"advisory_lock_held"`
-	HealthScore      int       `json:"health_score"`
-	Error            string    `json:"error,omitempty"`
-	LastSeen         time.Time `json:"last_seen"`
-	DatabaseName     string    `json:"database_name"`
+	Connected        bool                 `json:"connected"`
+	PGVersion        string               `json:"pg_version"`
+	Platform         string               `json:"platform"`
+	DatabaseSize     int64                `json:"database_size_bytes"`
+	TrustLevel       string               `json:"trust_level"`
+	CollectorLastRun time.Time            `json:"collector_last_run"`
+	AnalyzerLastRun  time.Time            `json:"analyzer_last_run"`
+	FindingsOpen     int                  `json:"findings_open"`
+	FindingsCritical int                  `json:"findings_critical"`
+	FindingsWarning  int                  `json:"findings_warning"`
+	FindingsInfo     int                  `json:"findings_info"`
+	ActionsTotal     int                  `json:"actions_total"`
+	LLMTokensUsed    int                  `json:"llm_tokens_used"`
+	AdvisoryLockHeld bool                 `json:"advisory_lock_held"`
+	HealthScore      int                  `json:"health_score"`
+	Error            string               `json:"error,omitempty"`
+	LastSeen         time.Time            `json:"last_seen"`
+	DatabaseName     string               `json:"database_name"`
+	Capabilities     ProviderCapabilities `json:"capabilities,omitempty"`
 }
 
 // FleetOverview is the response for the fleet status endpoint.

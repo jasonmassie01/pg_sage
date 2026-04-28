@@ -7,6 +7,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
 import { FleetHealthChart } from '../components/FleetHealthChart'
 import { DatabaseTile } from '../components/DatabaseTile'
+import { ProviderReadinessMatrix } from '../components/ProviderReadinessMatrix'
 import {
   CheckCircle, Clock, ListChecks, Server,
 } from 'lucide-react'
@@ -288,6 +289,7 @@ export function Dashboard({ database, onSelectDB }) {
       </div>
 
       <FleetHealthChart database={database} />
+      <ProviderReadinessMatrix />
 
       <div className="rounded p-4"
         data-testid="db-list"

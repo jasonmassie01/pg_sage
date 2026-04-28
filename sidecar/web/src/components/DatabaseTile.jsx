@@ -17,6 +17,10 @@ export function DatabaseTile({ db, selected, onSelect }) {
   const info = s.findings_info || 0
   const healthy = critical === 0 && warning === 0
   const trust = s.trust_level || db.trust_level || null
+  const caps = s.capabilities || {}
+  const provider = s.platform || caps.provider || 'unknown'
+  const blocker = (caps.blockers || [])[0]
+  const ready = caps.ready_for_auto_safe
 
   return (
     <button
@@ -101,6 +105,25 @@ export function DatabaseTile({ db, selected, onSelect }) {
           <TrustBadge level={trust} compact />
         </div>
       )}
+      <div className="mt-3 pt-2"
+        style={{ borderTop: '1px solid var(--border)' }}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs truncate"
+            style={{ color: 'var(--text-secondary)' }}>
+            {provider}
+          </span>
+          <span className="text-xs"
+            style={{ color: ready ? 'var(--green)' : 'var(--yellow)' }}>
+            {ready ? 'Auto-safe ready' : 'Auto-safe blocked'}
+          </span>
+        </div>
+        {blocker && (
+          <div className="text-xs mt-1 truncate"
+            style={{ color: 'var(--text-secondary)' }}>
+            {blocker}
+          </div>
+        )}
+      </div>
     </button>
   )
 }

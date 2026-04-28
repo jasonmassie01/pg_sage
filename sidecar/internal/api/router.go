@@ -226,6 +226,9 @@ func registerAPIRoutes(
 		"GET /api/v1/fleet/health",
 		fleetHealthHandler(mgr))
 	mux.HandleFunc(
+		"GET /api/v1/fleet/readiness",
+		fleetReadinessHandler(mgr))
+	mux.HandleFunc(
 		"GET /api/v1/config", configGetHandler(mgr, cfg))
 
 	configPutH := adminOnly(http.HandlerFunc(
