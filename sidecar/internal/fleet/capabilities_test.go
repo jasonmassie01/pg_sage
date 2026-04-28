@@ -41,6 +41,57 @@ func TestBuildActionFamilyReadinessBlocksUnsupportedProvider(t *testing.T) {
 	}
 }
 
+func TestProviderAdapterAddsManagedProviderLimitations(t *testing.T) {
+	adapter := AdapterForProvider("cloud sql")
+
+	if adapter.Provider != "cloud-sql" {
+		t.Fatalf("provider = %q", adapter.Provider)
+	}
+	if adapter.Extensions["pg_hint_plan"] != "provider_parameter_required" {
+		t.Fatalf("pg_hint_plan status = %q", adapter.Extensions["pg_hint_plan"])
+	}
+	if adapter.LogAccess != "provider_logging" {
+		t.Fatalf("LogAccess = %q", adapter.LogAccess)
+	}
+	if !adapter.SupportsAction("diagnose_wal_replication") {
+		t.Fatal("cloud-sql should support read-only replication diagnostics")
+	}
+}
+
+func TestBuildProviderCapabilitiesUsesProviderAdapter(t *testing.T) {
+	cfg := readinessTestConfig("autonomous")
+
+	got := BuildProviderCapabilities(
+		cfg, "rds", false, "auto", false, time.Now())
+
+	if got.Extensions["pg_hint_plan"] != "parameter_group_required" {
+		t.Fatalf("pg_hint_plan = %q", got.Extensions["pg_hint_plan"])
+	}
+	if got.LogAccess != "cloudwatch" {
+		t.Fatalf("LogAccess = %q", got.LogAccess)
+	}
+	if len(got.Limitations) == 0 {
+		t.Fatal("expected provider limitations")
+	}
+}
+
+func TestBuildActionFamilyReadinessIncludesNewAutonomyFamilies(t *testing.T) {
+	cfg := readinessTestConfig("autonomous")
+	caps := ProviderCapabilities{Provider: "postgres"}
+
+	got := BuildActionFamilyReadiness(cfg, caps, "auto", false, time.Now())
+
+	for _, actionType := range []string{
+		"vacuum_table",
+		"diagnose_wal_replication",
+		"prepare_query_rewrite",
+	} {
+		if actionReadiness(t, got, actionType).ActionType == "" {
+			t.Fatalf("%s missing from readiness", actionType)
+		}
+	}
+}
+
 func TestBuildActionFamilyReadinessBlocksReplicaWriteAction(t *testing.T) {
 	cfg := readinessTestConfig("autonomous")
 	caps := ProviderCapabilities{Provider: "postgres", IsReplica: true}

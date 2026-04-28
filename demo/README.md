@@ -1,93 +1,53 @@
 # pg_sage Demo
 
-Interactive demo of pg_sage capabilities, designed for recording with asciinema.
+Local demo assets for showing the v0.9 autonomous DBA workflow.
 
-## Prerequisites
-
-- Docker and Docker Compose
-- `curl` (for MCP sidecar and Prometheus tests)
-- `asciinema` (for recording) — [install](https://asciinema.org/docs/installation)
-- `agg` (for GIF conversion) — [install](https://github.com/asciinema/agg)
-
-## Recording with asciinema
+## Quick Demo
 
 ```bash
-# From the pg_sage root directory:
 cd demo
-
-# Record the demo
-asciinema rec -c "./demo.sh" pg_sage_demo.cast
-
-# Convert to GIF (requires agg)
-agg pg_sage_demo.cast pg_sage_demo.gif --cols 100 --rows 35
-
-# Or convert with custom theme
-agg pg_sage_demo.cast pg_sage_demo.gif \
-    --font-size 16 \
-    --cols 100 \
-    --rows 35
+./run-live.sh
 ```
 
-## Running Manually
+The script starts PostgreSQL on `localhost:5433`, builds the embedded web UI
+and sidecar binary, and starts pg_sage on:
+
+| Service | URL |
+|---|---|
+| Dashboard/API | `http://localhost:8080` |
+| Prometheus metrics | `http://localhost:9187/metrics` |
+| PostgreSQL demo target | `localhost:5433/sage_demo` |
+
+On first start, copy the one-time `INITIAL ADMIN PASSWORD` from the sidecar
+stderr and log in as `admin@pg-sage.local`.
+
+`SAGE_GEMINI_API_KEY` is optional. If set, the LLM-backed advisor and optimizer
+paths can run; deterministic rules, Cases, Actions, Fleet, Settings, and Shadow
+Mode work without it.
+
+## What To Show
+
+1. **Overview** -- fleet health, database tile, Provider Readiness.
+2. **Cases** -- ranked DBA cases from findings and action state.
+3. **Actions** -- pending approval and executed action history.
+4. **Settings** -- emergency controls and Shadow Mode avoided-toil report.
+5. **API** -- authenticated `/api/v1/cases`, `/api/v1/actions/pending`, and
+   `/api/v1/shadow-report`.
+6. **Metrics** -- Prometheus `/metrics`.
+
+## API Example
 
 ```bash
-# Make sure Docker Compose is up first
-docker compose up -d
+curl -c cookies.txt -H 'Content-Type: application/json' \
+  -X POST http://localhost:8080/api/v1/auth/login \
+  --data '{"email":"admin@pg-sage.local","password":"INITIAL_PASSWORD"}'
 
-# Wait for PostgreSQL to be healthy
-docker exec pg_sage-pg_sage-1 pg_isready -U postgres
-
-# Run the demo
-chmod +x demo.sh
-./demo.sh
+curl -b cookies.txt http://localhost:8080/api/v1/cases
+curl -b cookies.txt http://localhost:8080/api/v1/shadow-report
 ```
 
-## Configuration
+## Recording
 
-The demo script supports environment variables to customize behavior:
-
-| Variable | Default | Description |
-|---|---|---|
-| `PG_SAGE_CONTAINER` | `pg_sage-pg_sage-1` | Docker container name |
-| `SIDECAR_HOST` | `localhost` | MCP sidecar hostname |
-| `MCP_PORT` | `5433` | MCP sidecar port |
-| `PROM_PORT` | `9187` | Prometheus metrics port |
-| `TYPING_DELAY` | `0.03` | Seconds between typed characters |
-| `LINE_PAUSE` | `1.5` | Pause after each command |
-| `SECTION_PAUSE` | `2` | Pause between sections |
-
-Example with faster typing for quick runs:
-
-```bash
-TYPING_DELAY=0.01 LINE_PAUSE=0.5 SECTION_PAUSE=1 ./demo.sh
-```
-
-## What the Demo Covers
-
-1. **Docker Compose startup** — starts or connects to existing containers
-2. **Extension status** — `sage.status()` showing version, workers, trust level
-3. **Finding detection** — waits for the analyzer cycle, then shows findings
-4. **Health briefing** — `sage.briefing()` with Tier 1 analysis
-5. **Schema analysis** — `sage.schema_json('public.orders')` showing DDL, indexes, constraints
-6. **Slow queries** — `sage.slow_queries_json()` from pg_stat_statements
-7. **Emergency controls** — `sage.emergency_stop()` and `sage.resume()`
-8. **Finding suppression** — `sage.suppress()` with expiry
-9. **MCP sidecar** — SSE connection, session creation, JSON-RPC initialize
-10. **Prometheus metrics** — scraping `/metrics` endpoint
-11. **Summary** — recap of all features demonstrated
-
-## Sample Output
-
-See [sample_output.md](sample_output.md) for expected output from key commands.
-
-## Tips for a Good Recording
-
-- Use a terminal width of at least 100 columns
-- Use a dark terminal theme for contrast
-- Run `docker compose up` beforehand so the startup is instant
-- For the 60-second wait, you can edit the cast file to speed it up:
-  ```bash
-  # Speed up the wait section in the cast file
-  # Look for the progress bar section and reduce timestamps
-  ```
-- Alternatively, set `TYPING_DELAY=0.02` for snappier typing
+The older `demo.sh` asciinema script is kept as a recording helper, but the
+product walkthrough source of truth is now [WALKTHROUGH.md](WALKTHROUGH.md).
+Prefer `run-live.sh` for live verification.

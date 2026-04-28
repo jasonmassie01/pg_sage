@@ -83,6 +83,111 @@ func TestNonActionableIncidentHasNoCandidates(t *testing.T) {
 	}
 }
 
+func TestRunawayQueryIncidentAddsCancelPlaybook(t *testing.T) {
+	incident := SourceIncident{
+		ID:           "inc-runaway",
+		DatabaseName: "prod",
+		Severity:     SeverityWarning,
+		RootCause:    "Query PID 222 ran for 45 minutes and is spilling to disk",
+		SignalIDs:    []string{"runaway_query"},
+		Source:       "rca",
+		Confidence:   0.86,
+		CausalChain: []IncidentChainLink{{
+			Order:    1,
+			Signal:   "runaway_query",
+			Evidence: "pid 222 query_age=45m temp_bytes=8GB",
+		}},
+	}
+
+	got := ProjectIncident(incident)
+
+	if len(got.ActionCandidates) != 2 {
+		t.Fatalf("ActionCandidates = %d, want 2", len(got.ActionCandidates))
+	}
+	assertCandidate(t, got.ActionCandidates[0],
+		"diagnose_runaway_query", "safe", "")
+	assertCandidate(t, got.ActionCandidates[1],
+		"cancel_backend", "moderate", "SELECT pg_cancel_backend(222)")
+}
+
+func TestConnectionExhaustionIncidentAddsPoolPlaybook(t *testing.T) {
+	incident := SourceIncident{
+		ID:           "inc-connections",
+		DatabaseName: "prod",
+		Severity:     SeverityCritical,
+		RootCause:    "Connections are at 96 percent of max_connections",
+		SignalIDs:    []string{"connections_high"},
+		Source:       "rca",
+		Confidence:   0.9,
+	}
+
+	got := ProjectIncident(incident)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	assertCandidate(t, got.ActionCandidates[0],
+		"diagnose_connection_exhaustion", "safe", "")
+	if got.ActionCandidates[0].BlockedReason != "" {
+		t.Fatalf("diagnostic should not be blocked: %q",
+			got.ActionCandidates[0].BlockedReason)
+	}
+}
+
+func TestWalReplicationIncidentAddsReadOnlyPlaybook(t *testing.T) {
+	incident := SourceIncident{
+		ID:           "inc-wal",
+		DatabaseName: "prod",
+		Severity:     SeverityCritical,
+		RootCause:    "Replica lag and inactive replication slot are retaining WAL",
+		SignalIDs:    []string{"replication_lag", "wal_growth", "inactive_slot"},
+		Source:       "rca",
+		Confidence:   0.88,
+	}
+
+	got := ProjectIncident(incident)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	assertCandidate(t, got.ActionCandidates[0],
+		"diagnose_wal_replication", "safe", "")
+	if got.ActionCandidates[0].ProposedSQL == "" {
+		t.Fatal("expected read-only WAL/replication diagnostic SQL")
+	}
+}
+
+func TestSequenceExhaustionIncidentAddsMigrationScript(t *testing.T) {
+	incident := SourceIncident{
+		ID:              "inc-seq",
+		DatabaseName:    "prod",
+		Severity:        SeverityCritical,
+		RootCause:       "public.orders_id_seq is 91 percent exhausted",
+		SignalIDs:       []string{"sequence_exhaustion"},
+		AffectedObjects: []string{"public.orders_id_seq"},
+		Source:          "schema_lint",
+		Confidence:      0.93,
+	}
+
+	got := ProjectIncident(incident)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	assertCandidate(t, action, "prepare_sequence_capacity_migration", "high", "")
+	if action.ScriptOutput == nil {
+		t.Fatal("expected sequence migration script output")
+	}
+	if action.RollbackClass != "forward_fix_only" {
+		t.Fatalf("RollbackClass = %q, want forward_fix_only",
+			action.RollbackClass)
+	}
+	if len(action.ScriptOutput.VerificationSQL) == 0 {
+		t.Fatal("expected verification SQL for sequence migration")
+	}
+}
+
 func TestResolvedIncidentProjectsResolvedState(t *testing.T) {
 	incident := testIncident("prod")
 	resolved := time.Now().UTC()

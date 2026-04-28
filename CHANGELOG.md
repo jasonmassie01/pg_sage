@@ -4,6 +4,25 @@
 
 > Mirrors the browser/API/database verification pass tracked in `docs/codex-bug-log.md`. The source bug log reports 66 tracked fixes; its `## Fixed` section currently contains 65 fix bullets, all mirrored below.
 
+### Functionality Change
+
+This release moves pg_sage further away from a passive observability dashboard and closer to an autonomous DBA workflow. Findings, incidents, migration risks, proposed actions, approval state, and execution history now behave more like a single operational case queue that a DBA can triage end to end. The goal is for pg_sage to preserve the full story around a database problem: what was detected, why it matters, what the system recommends, what action was proposed, whether a human approved or rejected it, and what happened after execution.
+
+The action lifecycle is now more deterministic and safer under real operating conditions. Proposed actions are filtered when their source finding has already been resolved, successful executions close the loop back to the finding, rejected actions observe cooldowns, and stale or duplicate create-index work is suppressed before it can create noise or risk. This matters because autonomous database work cannot rely on optimistic UI state alone; every action needs fresh evidence, an auditable state transition, and guardrails that prevent the system from repeatedly proposing or executing work that has already been handled.
+
+Fleet behavior was tightened across settings, detail lookups, action execution, incident resolution, and managed database editing. In multi-database mode, pg_sage now requires explicit database targeting for mutations and ambiguous detail reads, refreshes runtime state after managed database changes, and keeps selected-database configuration separate from global configuration. These changes are intentionally conservative: once a product can operate across a fleet, wrong-database reads or writes become one of the highest-risk failure modes, so v0.9 prioritizes precise scoping over convenience.
+
+The release also adds more trust-building surface for teams evaluating autonomy. Provider readiness, shadow-mode reporting, durable LLM cooldown tracking, migration safety cases, and incident playbook actions give operators a clearer view of what pg_sage can do, what is blocking it, and what it would have done before automation is enabled. The reasoning behind these additions is adoption-oriented: DB teams are more likely to trust autonomous execution when the product can first prove avoided toil, expose its constraints, and show a reliable decision trail.
+
+### Added
+
+- Cases now consolidate schema-health, forecast, incident, and query-hint work into one DBA case surface. Legacy `#/schema-health`, `#/forecasts`, `#/incidents`, and `#/query-hints` routes now open Cases with the relevant source filter selected, while the Cases API projects active/broken query hints as case evidence alongside existing findings and incidents.
+- Migration-safety cases now include a deterministic DDL preflight report and PR/CI-ready script output. Case and action detail surfaces show lock/rewrite risk, live-risk checks when available, generated migration SQL, rollback or forward-fix guidance, verification SQL, and PR metadata without directly executing high-risk DDL.
+- Incident playbook automation now covers runaway queries, connection exhaustion, WAL/replication risk, and sequence exhaustion in addition to lock blockers and idle-in-transaction incidents. Low-risk playbooks emit read-only diagnostics, PID actions still require exact PID evidence and approval, and sequence capacity work is generated as a forward-fix migration script instead of direct execution.
+- Vacuum, bloat, and freeze cases now project explicit autopilot candidates. Table-bloat findings can propose guarded `VACUUM`, IO-saturated bloat cases are blocked to script/review output, XID wraparound findings get freeze-blocker diagnostics, and per-table autovacuum tuning produces PR/CI-ready reloption scripts with verification SQL.
+- Query tuning now extends beyond `pg_hint_plan` hints. Suggested rewrites become PR-ready query rewrite artifacts with semantic and plan verification, broken hints can be retired through a safe metadata action, and repeated per-role `work_mem` hints can be promoted to reviewed role-level configuration changes.
+- Provider readiness now uses provider-specific capability adapters for self-managed Postgres, Cloud SQL, AlloyDB, RDS, and Aurora. The readiness matrix exposes extension enablement paths, log-access expectations, provider limitations, and the expanded action family support instead of treating every Postgres endpoint as operationally identical.
+
 ### Fixed
 
 - Fleet incident, finding, and action detail endpoints could scan all pools by ID and return the first matching row, so duplicate IDs across databases could surface the wrong record. Detail endpoints now require an explicit `?database=` in multi-pool fleet mode, while still allowing implicit lookup when exactly one database is registered.

@@ -20,6 +20,12 @@ function readinessIcon(row) {
   return <CircleHelp size={14} style={{ color: 'var(--text-secondary)' }} />
 }
 
+function blockerText(row) {
+  return (row.blockers || [])[0] ||
+    (row.capabilities?.limitations || [])[0] ||
+    'none'
+}
+
 export function ProviderReadinessMatrix() {
   const { data, loading, error } = useAPI('/api/v1/fleet/readiness')
   const rows = data?.databases || []
@@ -94,7 +100,7 @@ export function ProviderReadinessMatrix() {
                   {row.capabilities?.is_replica ? 'yes' : 'no'}
                 </td>
                 <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
-                  {(row.blockers || [])[0] || 'none'}
+                  {blockerText(row)}
                 </td>
               </tr>
             ))}

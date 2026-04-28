@@ -108,6 +108,11 @@ func queryProjectedCases(
 			return nil, err
 		}
 		out = append(out, incidentCases...)
+		queryHintCases, err := queryHintCases(ctx, selected)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, queryHintCases...)
 	}
 	return out, nil
 }
@@ -127,6 +132,25 @@ func queryIncidentCases(
 		projected := cases.ProjectIncident(sourceIncidentFromMap(row))
 		enrichCaseActionPolicies(&projected, mgr, selected.name)
 		out = append(out, projected)
+	}
+	return out, nil
+}
+
+func queryHintCases(
+	ctx context.Context,
+	selected namedPool,
+) ([]cases.Case, error) {
+	rows, err := queryQueryHints(ctx, selected.pool)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]cases.Case, 0, len(rows))
+	for _, row := range rows {
+		if stringValue(row["status"]) == "retired" {
+			continue
+		}
+		row["database_name"] = selected.name
+		out = append(out, cases.ProjectQueryHint(sourceQueryHintFromMap(row)))
 	}
 	return out, nil
 }
@@ -390,6 +414,23 @@ func sourceIncidentFromMap(row map[string]any) cases.SourceIncident {
 	}
 }
 
+func sourceQueryHintFromMap(row map[string]any) cases.SourceQueryHint {
+	return cases.SourceQueryHint{
+		QueryID:          int64(floatValue(row["queryid"])),
+		DatabaseName:     stringValue(row["database_name"]),
+		HintText:         stringValue(row["hint_text"]),
+		Symptom:          stringValue(row["symptom"]),
+		Status:           stringValue(row["status"]),
+		CreatedAt:        timeFromMap(row, "created_at"),
+		BeforeCost:       floatPtrFromAny(row["before_cost"]),
+		AfterCost:        floatPtrFromAny(row["after_cost"]),
+		SuggestedRewrite: stringValue(row["suggested_rewrite"]),
+		RewriteRationale: stringValue(row["rewrite_rationale"]),
+		VerifiedAt:       timePtrFromMap(row, "verified_at"),
+		RolledBackAt:     timePtrFromMap(row, "rolled_back_at"),
+	}
+}
+
 func incidentChainFromAny(v any) []cases.IncidentChainLink {
 	items, ok := v.([]any)
 	if !ok {
@@ -474,4 +515,12 @@ func floatValue(value any) float64 {
 	default:
 		return 0
 	}
+}
+
+func floatPtrFromAny(value any) *float64 {
+	if value == nil {
+		return nil
+	}
+	f := floatValue(value)
+	return &f
 }

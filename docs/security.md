@@ -16,7 +16,9 @@ GRANT CREATE ON SCHEMA public TO sage_agent;    -- for index creation
 GRANT pg_signal_backend TO sage_agent;           -- for query termination
 ```
 
-The sidecar bootstraps the `sage` schema and tables on first connect. If you prefer to pre-create:
+The sidecar bootstraps the `sage` schema and tables on first connect. Either
+connect with a role that can create that schema, or pre-create it and grant the
+sidecar role ownership/write privileges:
 
 ```sql
 CREATE SCHEMA sage;
@@ -52,7 +54,12 @@ All data sources are read-only catalog views and statistics:
 
 - **Never reads table row data.** All analysis uses aggregate statistics and catalog metadata.
 - **Never accesses credentials or secrets.** Does not read `pg_authid.rolpassword` or password hashes.
-- **Never modifies user data.** Autonomous actions are limited to DDL (`CREATE INDEX CONCURRENTLY`, `REINDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`). Never runs `INSERT`, `UPDATE`, or `DELETE` on user tables.
+- **Never modifies user data.** Autonomous actions are limited to maintenance and schema operations such as `ANALYZE`, guarded index DDL, and approved incident actions. Never runs `INSERT`, `UPDATE`, or `DELETE` on user tables.
+- **Never directly executes high-risk DDL.** Rewrite-heavy or forward-fix-only schema changes become migration-safety cases with preflight evidence, generated scripts, verification SQL, and PR/CI metadata for human review.
+- **Never drops replication slots or changes sequence capacity autonomously.** WAL/replication playbooks are read-only diagnostics, and sequence-exhaustion remediation is generated as a reviewed forward-fix migration.
+- **Never runs maintenance during known IO saturation.** Bloat autopilot blocks autonomous `VACUUM` candidates when IO pressure evidence is present and emits script/review output instead.
+- **Never rewrites application queries autonomously.** Query rewrites are generated as reviewable PR/script artifacts with semantic and plan verification steps.
+- **Never promotes role-level memory settings without review.** Repeated per-query `work_mem` patterns can become a reviewed `ALTER ROLE` candidate, but they require approval because the blast radius is role-wide.
 - **Never uses ALTER SYSTEM.** Configuration changes are made through the YAML config file, not database-side settings.
 - **Never phones home.** Zero hardcoded external endpoints. All outbound connections are to user-configured addresses only.
 
@@ -64,11 +71,11 @@ pg_sage uses graduated trust to control autonomous actions:
 
 | Trust Level | Timeline | Allowed Actions |
 |-------------|----------|----------------|
-| **observation** | Day 0-7 | No actions -- findings only |
-| **advisory** | Day 8-30 | SAFE: drop unused/duplicate indexes, VACUUM |
-| **autonomous** | Day 31+ | MODERATE: create indexes, reindex |
+| **observation** | Configured | No actions -- cases and recommendations only |
+| **advisory** | Configured | Queue or execute SAFE actions based on policy |
+| **autonomous** | Configured | SAFE + approved MODERATE actions, bounded by maintenance windows |
 
-HIGH-risk actions always require manual confirmation, regardless of trust level.
+HIGH-risk actions always require manual approval, regardless of trust level.
 
 The executor checks all of these gates before acting:
 
@@ -113,28 +120,30 @@ What is **never** sent: row data, column values, passwords, connection strings, 
 
 ## API Security
 
-### API Key Authentication
+### Session Authentication
 
-Set `SAGE_API_KEY` to require a Bearer token on all API requests:
+The web UI and `/api/v1/*` endpoints use session-cookie authentication. On
+first startup against a metadata database with no users, pg_sage creates
+`admin@pg-sage.local` and prints a one-time initial password to stderr.
+
+API clients log in and reuse the `sage_session` cookie:
 
 ```bash
-export SAGE_API_KEY="your-secret-key-here"
+curl -c cookies.txt -H 'Content-Type: application/json' \
+  -X POST http://localhost:8080/api/v1/auth/login \
+  --data '{"email":"admin@pg-sage.local","password":"INITIAL_PASSWORD"}'
+
+curl -b cookies.txt http://localhost:8080/api/v1/cases
 ```
 
-All requests must include `Authorization: Bearer <key>`. Requests with missing or invalid keys receive `401 Unauthorized`.
-
-Always set `SAGE_API_KEY` in production. Without it, the sidecar accepts all requests without authentication.
+`SAGE_API_KEY` is a legacy config field and does not secure the current v0.9
+web/API path.
 
 ### TLS
 
-Enable TLS by setting certificate and key paths:
-
-```bash
-export SAGE_TLS_CERT="/path/to/cert.pem"
-export SAGE_TLS_KEY="/path/to/key.pem"
-```
-
-When configured, the sidecar enforces TLS 1.2 as the minimum protocol version.
+pg_sage currently serves HTTP. Terminate TLS at a reverse proxy, Kubernetes
+Ingress, Cloud Run, load balancer, or other trusted edge. Restrict direct access
+to the API/dashboard listener to trusted networks.
 
 ### Input Validation
 
@@ -181,7 +190,12 @@ Halt all autonomous activity immediately by setting the emergency stop flag in `
 UPDATE sage.config SET value = 'true' WHERE key = 'emergency_stop';
 ```
 
-Or use the web UI emergency stop button, or the REST API `POST /api/v1/emergency-stop`.
+Or use the web UI emergency stop button, or the authenticated REST API:
+
+```bash
+curl -b cookies.txt -H 'Content-Type: application/json' \
+  -X POST http://localhost:8080/api/v1/emergency-stop --data '{}'
+```
 
 Resume with:
 
@@ -189,7 +203,12 @@ Resume with:
 UPDATE sage.config SET value = 'false' WHERE key = 'emergency_stop';
 ```
 
-Or use the web UI resume button, or the REST API `POST /api/v1/resume`.
+Or use the web UI resume button, or the authenticated REST API:
+
+```bash
+curl -b cookies.txt -H 'Content-Type: application/json' \
+  -X POST http://localhost:8080/api/v1/resume --data '{}'
+```
 
 ---
 
@@ -215,11 +234,12 @@ Both tables are subject to retention policies (configurable via `retention.actio
 
 ## Production Checklist
 
-1. **Set `SAGE_API_KEY`** -- never run the API server without authentication in production.
-2. **Enable TLS** -- set `SAGE_TLS_CERT` and `SAGE_TLS_KEY`. Use a reverse proxy for automatic certificate renewal.
+1. **Protect the dashboard/API listener** -- use a private network, reverse proxy, or identity-aware edge.
+2. **Terminate TLS at the edge** -- do not expose plain HTTP directly to the internet.
 3. **Start in observation mode** -- deploy with `trust.level: observation` and review findings for at least a week.
 4. **Set a maintenance window** -- restrict autonomous actions to low-traffic periods.
 5. **Review findings before escalating trust** -- move to `advisory` then `autonomous` only after confirming recommendations are appropriate.
 6. **Set a token budget** -- cap LLM spend with `llm.token_budget_daily`.
 7. **Use a dedicated database role** -- grant only the required privileges listed above.
-8. **Monitor pg_sage itself** -- check Prometheus metrics and circuit breaker state.
+8. **Capture and rotate the initial admin password** -- then use named users or OAuth for operators.
+9. **Monitor pg_sage itself** -- check Prometheus metrics and circuit breaker state.

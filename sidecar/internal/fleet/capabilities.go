@@ -21,6 +21,7 @@ type ProviderCapabilities struct {
 	Permissions      map[string]CapabilityStatus `json:"permissions,omitempty"`
 	Extensions       map[string]string           `json:"extensions,omitempty"`
 	LogAccess        string                      `json:"log_access,omitempty"`
+	Limitations      []string                    `json:"limitations,omitempty"`
 	Blockers         []string                    `json:"blockers,omitempty"`
 	ActionFamilies   []ActionFamilyReadiness     `json:"action_families,omitempty"`
 	ReadyForAutoSafe bool                        `json:"ready_for_auto_safe"`
@@ -65,12 +66,14 @@ func BuildProviderCapabilities(
 	stopped bool,
 	now time.Time,
 ) ProviderCapabilities {
+	adapter := AdapterForProvider(provider)
 	caps := ProviderCapabilities{
-		Provider:    normalizeProviderName(provider),
+		Provider:    adapter.Provider,
 		IsReplica:   isReplica,
 		Permissions: defaultPermissionReadiness(),
-		Extensions:  defaultExtensionReadiness(),
-		LogAccess:   "unknown",
+		Extensions:  adapter.Extensions,
+		LogAccess:   adapter.LogAccess,
+		Limitations: adapter.Limitations,
 	}
 	caps.ActionFamilies = BuildActionFamilyReadiness(cfg, caps, mode, stopped, now)
 	caps.Blockers = readinessBlockers(caps)
@@ -87,14 +90,32 @@ func BuildActionFamilyReadiness(
 ) []ActionFamilyReadiness {
 	actionTypes := []string{
 		"analyze_table",
+		"vacuum_table",
+		"diagnose_lock_blockers",
+		"diagnose_runaway_query",
+		"diagnose_connection_exhaustion",
+		"diagnose_wal_replication",
+		"diagnose_freeze_blockers",
 		"create_index_concurrently",
 		"drop_unused_index",
+		"prepare_query_rewrite",
+		"promote_role_work_mem",
+		"retire_query_hint",
 		"alter_table",
 	}
 	out := make([]ActionFamilyReadiness, 0, len(actionTypes))
 	for _, actionType := range actionTypes {
 		contract, ok := executor.ContractForActionType(actionType)
 		if !ok {
+			continue
+		}
+		if !AdapterForProvider(caps.Provider).SupportsAction(actionType) {
+			out = append(out, ActionFamilyReadiness{
+				ActionType:    actionType,
+				Supported:     false,
+				Decision:      executor.PolicyDecisionBlocked,
+				BlockedReason: "provider adapter does not support action",
+			})
 			continue
 		}
 		ctx := readinessPolicyContext(cfg, caps, mode, stopped, now)

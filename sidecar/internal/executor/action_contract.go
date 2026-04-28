@@ -81,10 +81,30 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return AnalyzeTableContract(), true
 	case "diagnose_lock_blockers":
 		return incidentDiagnoseLockBlockersContract(), true
+	case "diagnose_runaway_query":
+		return incidentDiagnoseRunawayQueryContract(), true
+	case "diagnose_connection_exhaustion":
+		return incidentDiagnoseConnectionExhaustionContract(), true
+	case "diagnose_wal_replication":
+		return incidentDiagnoseWALReplicationContract(), true
+	case "prepare_sequence_capacity_migration":
+		return incidentSequenceCapacityMigrationContract(), true
 	case "cancel_backend":
 		return incidentCancelBackendContract(), true
 	case "terminate_backend":
 		return incidentTerminateBackendContract(), true
+	case "vacuum_table":
+		return vacuumTableContract(), true
+	case "diagnose_freeze_blockers":
+		return diagnoseFreezeBlockersContract(), true
+	case "set_table_autovacuum":
+		return setTableAutovacuumContract(), true
+	case "prepare_query_rewrite":
+		return prepareQueryRewriteContract(), true
+	case "promote_role_work_mem":
+		return promoteRoleWorkMemContract(), true
+	case "retire_query_hint":
+		return retireQueryHintContract(), true
 	case "create_index_concurrently":
 		return ActionContract{
 			ActionType:      actionType,
@@ -169,6 +189,41 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 			Cooldown:        "configured cascade cooldown",
 			AuditFields:     []string{"table", "ddl", "case_id"},
 		}, true
+	case "ddl_preflight":
+		return ActionContract{
+			ActionType:      actionType,
+			BaseRiskTier:    "high",
+			ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+			RequiredPermissions: []string{
+				"read catalog statistics",
+				"review migration output in PR or CI",
+			},
+			Prechecks: []string{
+				"classify DDL lock level and rewrite behavior",
+				"check live table size and activity evidence",
+				"check pending locks and replica lag evidence",
+			},
+			Guardrails: []string{
+				"direct execution disabled",
+				"generate PR or migration script",
+				"manual review required",
+				"maintenance-window recommendation",
+			},
+			ExecutionPlan: []string{
+				"generate migration SQL, rollback or mitigation plan, and verification SQL",
+			},
+			SuccessCriteria: []string{
+				"reviewable migration artifact is produced",
+				"verification SQL is attached to the originating case",
+			},
+			PostChecks: []string{
+				"run verification SQL in CI or staging",
+				"rerun migration safety analyzer after deployment",
+			},
+			RollbackClass: "forward_fix_only",
+			Cooldown:      "none",
+			AuditFields:   []string{"table", "ddl", "case_id", "risk_score"},
+		}, true
 	default:
 		return ActionContract{}, false
 	}
@@ -199,6 +254,65 @@ func incidentDiagnoseLockBlockersContract() ActionContract {
 		RollbackClass: "not_applicable",
 		Cooldown:      "none",
 		AuditFields:   []string{"case_id", "database", "blocker_pid"},
+	}
+}
+
+func incidentDiagnoseRunawayQueryContract() ActionContract {
+	return diagnosticContract(
+		"diagnose_runaway_query",
+		"read current query age, wait state, temp spill, and text",
+		"confirm query is still active and matches incident evidence",
+	)
+}
+
+func incidentDiagnoseConnectionExhaustionContract() ActionContract {
+	return diagnosticContract(
+		"diagnose_connection_exhaustion",
+		"group pg_stat_activity by role, application, and state",
+		"identify connection pressure source without changing sessions",
+	)
+}
+
+func incidentDiagnoseWALReplicationContract() ActionContract {
+	return diagnosticContract(
+		"diagnose_wal_replication",
+		"read replication lag and slot retention evidence",
+		"identify WAL retention cause without dropping slots",
+	)
+}
+
+func incidentSequenceCapacityMigrationContract() ActionContract {
+	return ActionContract{
+		ActionType:      "prepare_sequence_capacity_migration",
+		BaseRiskTier:    "high",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"read sequence metadata",
+			"submit reviewed migration through version control",
+		},
+		Prechecks: []string{
+			"sequence still approaches max_value",
+			"owning table and column are identified",
+			"forward-fix migration is reviewed",
+		},
+		Guardrails: []string{
+			"direct execution disabled",
+			"generate PR or migration script",
+			"manual review required",
+		},
+		ExecutionPlan: []string{
+			"prepare capacity migration and verification SQL",
+		},
+		SuccessCriteria: []string{
+			"sequence or owning column has sufficient runway",
+		},
+		PostChecks: []string{
+			"verify sequence last_value and max_value",
+			"confirm dependent column type has headroom",
+		},
+		RollbackClass: "forward_fix_only",
+		Cooldown:      "none",
+		AuditFields:   []string{"case_id", "database", "sequence"},
 	}
 }
 
@@ -265,5 +379,206 @@ func incidentTerminateBackendContract() ActionContract {
 		RollbackClass: "not_reversible",
 		Cooldown:      "incident-scoped",
 		AuditFields:   []string{"case_id", "database", "pid", "query"},
+	}
+}
+
+func diagnosticContract(actionType, execution, success string) ActionContract {
+	return ActionContract{
+		ActionType:      actionType,
+		BaseRiskTier:    "safe",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"pg_monitor or pg_read_all_stats",
+		},
+		Prechecks: []string{
+			"incident evidence is still open",
+			"emergency stop is not active",
+		},
+		Guardrails: []string{
+			"read-only diagnostic query",
+			"statement_timeout",
+			"no backend state changes",
+		},
+		ExecutionPlan:   []string{execution},
+		SuccessCriteria: []string{success},
+		PostChecks:      []string{"refresh incident evidence"},
+		RollbackClass:   "not_applicable",
+		Cooldown:        "none",
+		AuditFields:     []string{"case_id", "database"},
+	}
+}
+
+func vacuumTableContract() ActionContract {
+	return ActionContract{
+		ActionType:      "vacuum_table",
+		BaseRiskTier:    "safe",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"table ownership or VACUUM privilege",
+		},
+		Prechecks: []string{
+			"table exists",
+			"dead tuple or bloat evidence still exceeds threshold",
+			"IO pressure is below policy threshold",
+		},
+		Guardrails: []string{
+			"dedicated connection",
+			"statement_timeout",
+			"per-table cooldown",
+			"per-cluster safe-action concurrency limit",
+		},
+		ExecutionPlan: []string{"VACUUM qualified_table"},
+		SuccessCriteria: []string{
+			"last_vacuum advances or vacuum_count increases",
+			"dead tuple ratio improves",
+		},
+		PostChecks: []string{
+			"verify last_vacuum or vacuum_count changed",
+			"rerun bloat analyzer",
+		},
+		RollbackClass: "no_rollback_needed",
+		Cooldown:      "configured vacuum cooldown",
+		AuditFields:   []string{"case_id", "database", "table"},
+	}
+}
+
+func diagnoseFreezeBlockersContract() ActionContract {
+	return diagnosticContract(
+		"diagnose_freeze_blockers",
+		"query database XID age and oldest backend_xmin holders",
+		"freeze blockers and XID runway are identified",
+	)
+}
+
+func setTableAutovacuumContract() ActionContract {
+	return ActionContract{
+		ActionType:      "set_table_autovacuum",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"table ownership or maintenance role",
+		},
+		Prechecks: []string{
+			"table exists",
+			"recommended reloptions are bounded by policy",
+			"current reloptions captured for review",
+		},
+		Guardrails: []string{
+			"approval required",
+			"generate PR or migration script",
+			"monitor post-change vacuum cadence",
+		},
+		ExecutionPlan: []string{"ALTER TABLE ... SET (autovacuum_*)"},
+		SuccessCriteria: []string{
+			"reloptions contain expected autovacuum settings",
+			"future dead tuple ratio trends down",
+		},
+		PostChecks: []string{
+			"verify pg_class.reloptions",
+			"rerun vacuum tuning analyzer after one churn window",
+		},
+		RollbackClass: "forward_fix_only",
+		Cooldown:      "configured cascade cooldown",
+		AuditFields:   []string{"case_id", "database", "table", "reloptions"},
+	}
+}
+
+func prepareQueryRewriteContract() ActionContract {
+	return ActionContract{
+		ActionType:      "prepare_query_rewrite",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"read query statistics and plans",
+			"submit application query change through version control",
+		},
+		Prechecks: []string{
+			"rewrite has deterministic rationale",
+			"semantic equivalence can be tested in CI or staging",
+			"baseline plan and latency evidence are attached",
+		},
+		Guardrails: []string{
+			"direct database execution disabled",
+			"generate PR or script",
+			"approval required",
+		},
+		ExecutionPlan: []string{
+			"generate query rewrite artifact and verification checklist",
+		},
+		SuccessCriteria: []string{
+			"rewritten query returns equivalent rows",
+			"plan cost, latency, or temp IO improves",
+		},
+		PostChecks: []string{
+			"compare old and rewritten EXPLAIN plans",
+			"monitor query latency and error rate after deployment",
+		},
+		RollbackClass: "application_rollback",
+		Cooldown:      "query-scoped",
+		AuditFields:   []string{"case_id", "database", "queryid"},
+	}
+}
+
+func promoteRoleWorkMemContract() ActionContract {
+	return ActionContract{
+		ActionType:      "promote_role_work_mem",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"ALTER ROLE privilege or admin role",
+		},
+		Prechecks: []string{
+			"multiple queries for same role need repeated work_mem hints",
+			"recommended value is below configured maximum",
+			"role-level memory blast radius is estimated",
+		},
+		Guardrails: []string{
+			"approval required",
+			"bounded work_mem value",
+			"verification after one workload window",
+		},
+		ExecutionPlan: []string{"ALTER ROLE ... SET work_mem"},
+		SuccessCriteria: []string{
+			"representative queries stop spilling to temp",
+			"database memory pressure remains acceptable",
+		},
+		PostChecks: []string{
+			"verify pg_roles.rolconfig",
+			"monitor temp blocks and memory pressure",
+		},
+		RollbackClass: "reversible",
+		Cooldown:      "role-scoped",
+		AuditFields:   []string{"case_id", "database", "role", "work_mem"},
+	}
+}
+
+func retireQueryHintContract() ActionContract {
+	return ActionContract{
+		ActionType:      "retire_query_hint",
+		BaseRiskTier:    "safe",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"write access to sage query hint metadata",
+		},
+		Prechecks: []string{
+			"hint status is broken or superseded",
+			"replacement action is absent or already generated",
+		},
+		Guardrails: []string{
+			"metadata-only update",
+			"query-scoped cooldown",
+			"no user table writes",
+		},
+		ExecutionPlan: []string{"mark query hint retired"},
+		SuccessCriteria: []string{
+			"hint no longer appears in active hint inventory",
+		},
+		PostChecks: []string{
+			"verify hint no longer appears in active hints",
+			"rerun tuner revalidation",
+		},
+		RollbackClass: "reversible",
+		Cooldown:      "query-scoped",
+		AuditFields:   []string{"case_id", "database", "queryid", "hint_text"},
 	}
 }

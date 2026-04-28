@@ -605,6 +605,33 @@ function PendingTab({
                     <SQLBlock sql={row.script_output.rollback_sql} />
                   </div>
                 )}
+                {(row.script_output.verification_sql || []).length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-xs font-medium mb-1"
+                      style={{ color: 'var(--text-secondary)' }}>
+                      Verification SQL
+                    </div>
+                    {row.script_output.verification_sql.map(sql => (
+                      <SQLBlock key={sql} sql={sql} />
+                    ))}
+                  </div>
+                )}
+                {(row.script_output.pr_title ||
+                  row.script_output.pr_body) && (
+                  <div className="mt-2 text-xs"
+                    style={{ color: 'var(--text-secondary)' }}>
+                    <div className="font-medium"
+                      style={{ color: 'var(--text-primary)' }}>
+                      PR / CI output
+                    </div>
+                    {row.script_output.pr_title && (
+                      <div>{row.script_output.pr_title}</div>
+                    )}
+                    {row.script_output.pr_body && (
+                      <div>{row.script_output.pr_body}</div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
             <LifecycleDetails row={row} />
