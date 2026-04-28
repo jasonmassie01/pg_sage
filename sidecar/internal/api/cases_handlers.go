@@ -103,6 +103,30 @@ func queryProjectedCases(
 			)
 			out = append(out, projected)
 		}
+		incidentCases, err := queryIncidentCases(ctx, mgr, selected)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, incidentCases...)
+	}
+	return out, nil
+}
+
+func queryIncidentCases(
+	ctx context.Context,
+	mgr *fleet.DatabaseManager,
+	selected namedPool,
+) ([]cases.Case, error) {
+	rows, err := queryActiveIncidents(ctx, selected.pool, "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]cases.Case, 0, len(rows))
+	for _, row := range rows {
+		annotateIncidentFleetDatabase(row, selected.name)
+		projected := cases.ProjectIncident(sourceIncidentFromMap(row))
+		enrichCaseActionPolicies(&projected, mgr, selected.name)
+		out = append(out, projected)
 	}
 	return out, nil
 }
@@ -346,6 +370,75 @@ func sourceFindingFromMap(row map[string]any) cases.SourceFinding {
 	}
 }
 
+func sourceIncidentFromMap(row map[string]any) cases.SourceIncident {
+	return cases.SourceIncident{
+		ID:              stringValue(row["id"]),
+		DatabaseName:    stringValue(row["database_name"]),
+		Severity:        cases.Severity(stringValue(row["severity"])),
+		RootCause:       stringValue(row["root_cause"]),
+		CausalChain:     incidentChainFromAny(row["causal_chain"]),
+		AffectedObjects: stringSliceFromAny(row["affected_objects"]),
+		SignalIDs:       stringSliceFromAny(row["signal_ids"]),
+		RecommendedSQL:  stringValue(row["recommended_sql"]),
+		ActionRisk:      stringValue(row["action_risk"]),
+		Source:          stringValue(row["source"]),
+		Confidence:      floatValue(row["confidence"]),
+		DetectedAt:      timeFromMap(row, "detected_at"),
+		LastDetectedAt:  timeFromMap(row, "last_detected_at"),
+		ResolvedAt:      timePtrFromMap(row, "resolved_at"),
+		OccurrenceCount: int(floatValue(row["occurrence_count"])),
+	}
+}
+
+func incidentChainFromAny(v any) []cases.IncidentChainLink {
+	items, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]cases.IncidentChainLink, 0, len(items))
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, cases.IncidentChainLink{
+			Order:       int(floatValue(m["order"])),
+			Signal:      stringValue(m["signal"]),
+			Description: stringValue(m["description"]),
+			Evidence:    stringValue(m["evidence"]),
+		})
+	}
+	return out
+}
+
+func stringSliceFromAny(v any) []string {
+	switch items := v.(type) {
+	case []string:
+		return append([]string(nil), items...)
+	case []any:
+		out := make([]string, 0, len(items))
+		for _, item := range items {
+			if s := stringValue(item); s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func timePtrFromMap(row map[string]any, key string) *time.Time {
+	if row[key] == nil {
+		return nil
+	}
+	t := timeFromMap(row, key)
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
 func detailMap(value any) map[string]any {
 	if value == nil {
 		return nil
@@ -364,4 +457,21 @@ func stringValue(value any) string {
 		return s
 	}
 	return fmt.Sprint(value)
+}
+
+func floatValue(value any) float64 {
+	switch v := value.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case int32:
+		return float64(v)
+	default:
+		return 0
+	}
 }

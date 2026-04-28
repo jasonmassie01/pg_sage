@@ -223,6 +223,45 @@ func TestCasePolicyContextBlocksReplicaFromCapabilities(t *testing.T) {
 	}
 }
 
+func TestSourceIncidentFromMapProjectsPlaybookCandidate(t *testing.T) {
+	row := map[string]any{
+		"id":               "inc-1",
+		"database_name":    "prod",
+		"severity":         "warning",
+		"root_cause":       "Idle-in-transaction PID 12345 blocks vacuum",
+		"signal_ids":       []any{"vacuum_blocked"},
+		"affected_objects": []any{"public.orders"},
+		"recommended_sql":  "SELECT pg_terminate_backend(12345)",
+		"action_risk":      "high_risk",
+		"source":           "rca",
+		"confidence":       0.92,
+		"occurrence_count": float64(2),
+		"detected_at":      time.Now().UTC().Add(-time.Hour),
+		"last_detected_at": time.Now().UTC(),
+		"causal_chain": []any{map[string]any{
+			"order":       float64(1),
+			"signal":      "vacuum_blocked",
+			"description": "blocked by idle transaction",
+			"evidence":    "blocker pid 12345",
+		}},
+	}
+
+	incident := sourceIncidentFromMap(row)
+	projected := cases.ProjectIncident(incident)
+
+	if projected.SourceType != cases.SourceIncidentType {
+		t.Fatalf("SourceType = %q", projected.SourceType)
+	}
+	if len(projected.ActionCandidates) != 3 {
+		t.Fatalf("ActionCandidates = %d, want 3",
+			len(projected.ActionCandidates))
+	}
+	if projected.ActionCandidates[1].ActionType != "cancel_backend" {
+		t.Fatalf("second candidate = %q",
+			projected.ActionCandidates[1].ActionType)
+	}
+}
+
 func TestCaseActionFromQueuedActionIncludesLifecycle(t *testing.T) {
 	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
 	cooldownUntil := now.Add(time.Hour)

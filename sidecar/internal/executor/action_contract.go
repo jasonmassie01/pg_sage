@@ -79,6 +79,12 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 	switch actionType {
 	case "analyze_table":
 		return AnalyzeTableContract(), true
+	case "diagnose_lock_blockers":
+		return incidentDiagnoseLockBlockersContract(), true
+	case "cancel_backend":
+		return incidentCancelBackendContract(), true
+	case "terminate_backend":
+		return incidentTerminateBackendContract(), true
 	case "create_index_concurrently":
 		return ActionContract{
 			ActionType:      actionType,
@@ -165,5 +171,99 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		}, true
 	default:
 		return ActionContract{}, false
+	}
+}
+
+func incidentDiagnoseLockBlockersContract() ActionContract {
+	return ActionContract{
+		ActionType:      "diagnose_lock_blockers",
+		BaseRiskTier:    "safe",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"pg_monitor or pg_read_all_stats",
+		},
+		Prechecks: []string{
+			"incident evidence is still open",
+			"emergency stop is not active",
+		},
+		Guardrails: []string{
+			"read-only lock graph query",
+			"statement_timeout",
+			"no backend state changes",
+		},
+		ExecutionPlan: []string{"query pg_stat_activity and pg_locks"},
+		SuccessCriteria: []string{
+			"current blocker and blocked sessions are identified",
+		},
+		PostChecks:    []string{"refresh lock wait graph"},
+		RollbackClass: "not_applicable",
+		Cooldown:      "none",
+		AuditFields:   []string{"case_id", "database", "blocker_pid"},
+	}
+}
+
+func incidentCancelBackendContract() ActionContract {
+	return ActionContract{
+		ActionType:      "cancel_backend",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"pg_signal_backend or role membership allowing cancellation",
+		},
+		Prechecks: []string{
+			"exact backend PID from current incident evidence",
+			"PID still exists and still matches user/query/state evidence",
+			"target is not a pg_sage backend",
+		},
+		Guardrails: []string{
+			"approval required",
+			"revalidate PID immediately before execution",
+			"never target pg_sage backend",
+			"prefer cancel before terminate",
+		},
+		ExecutionPlan: []string{"SELECT pg_cancel_backend(validated_pid)"},
+		SuccessCriteria: []string{
+			"blocked sessions no longer wait on the same backend",
+		},
+		PostChecks:    []string{"verify blocker PID no longer blocks waiters"},
+		RollbackClass: "not_reversible",
+		Cooldown:      "incident-scoped",
+		AuditFields:   []string{"case_id", "database", "pid", "query"},
+	}
+}
+
+func incidentTerminateBackendContract() ActionContract {
+	return ActionContract{
+		ActionType:      "terminate_backend",
+		BaseRiskTier:    "high",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"pg_signal_backend or role membership allowing termination",
+		},
+		Prechecks: []string{
+			"exact backend PID from current incident evidence",
+			"PID still exists and still matches user/query/state evidence",
+			"cancel was attempted or judged insufficient",
+			"target is not superuser, replication, autovacuum, or pg_sage",
+		},
+		Guardrails: []string{
+			"approval required",
+			"incident responder review",
+			"revalidate PID immediately before execution",
+			"never target superuser/replication/autovacuum/pg_sage backend",
+			"prefer cancel first",
+		},
+		ExecutionPlan: []string{"SELECT pg_terminate_backend(validated_pid)"},
+		SuccessCriteria: []string{
+			"validated blocker backend is gone",
+			"blocked workload is no longer waiting on the same blocker",
+		},
+		PostChecks: []string{
+			"verify blocker PID is gone",
+			"verify blocked sessions cleared or changed blockers",
+		},
+		RollbackClass: "not_reversible",
+		Cooldown:      "incident-scoped",
+		AuditFields:   []string{"case_id", "database", "pid", "query"},
 	}
 }
