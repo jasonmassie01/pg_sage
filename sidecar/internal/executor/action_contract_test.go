@@ -100,6 +100,9 @@ func TestVacuumAutopilotContractsValidate(t *testing.T) {
 		"vacuum_table":             "safe",
 		"diagnose_freeze_blockers": "safe",
 		"set_table_autovacuum":     "moderate",
+		"diagnose_vacuum_pressure": "safe",
+		"plan_bloat_remediation":   "high",
+		"reindex_concurrently":     "moderate",
 	}
 	for actionType, wantRisk := range tests {
 		c, ok := ContractForActionType(actionType)
@@ -118,9 +121,11 @@ func TestVacuumAutopilotContractsValidate(t *testing.T) {
 
 func TestQueryTuningContractsValidate(t *testing.T) {
 	tests := map[string]string{
-		"prepare_query_rewrite": "moderate",
-		"promote_role_work_mem": "moderate",
-		"retire_query_hint":     "safe",
+		"prepare_query_rewrite":       "moderate",
+		"promote_role_work_mem":       "moderate",
+		"retire_query_hint":           "safe",
+		"create_statistics":           "moderate",
+		"prepare_parameterized_query": "moderate",
 	}
 	for actionType, wantRisk := range tests {
 		c, ok := ContractForActionType(actionType)

@@ -220,6 +220,79 @@ func TestProjectFindingVacuumTuningAddsAutovacuumScript(t *testing.T) {
 	}
 }
 
+func TestProjectFindingBloatRemediationAddsPlanCandidate(t *testing.T) {
+	f := SourceFinding{
+		ID:               "bloat-plan",
+		DatabaseName:     "prod",
+		Category:         "bloat_remediation",
+		Severity:         SeverityCritical,
+		ObjectType:       "table",
+		ObjectIdentifier: "public.orders",
+		Title:            "orders needs online bloat remediation",
+		Recommendation:   "Plan pg_repack or online rebuild.",
+		Detail: map[string]any{
+			"bloat_ratio": 0.68,
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	assertCandidate(t, action, "plan_bloat_remediation", "high", "")
+	if action.ScriptOutput == nil {
+		t.Fatal("expected bloat remediation script output")
+	}
+}
+
+func TestProjectFindingReindexCandidateUsesConcurrentReindex(t *testing.T) {
+	f := SourceFinding{
+		ID:               "reindex-1",
+		DatabaseName:     "prod",
+		Category:         "reindex_candidate",
+		Severity:         SeverityWarning,
+		ObjectType:       "index",
+		ObjectIdentifier: "public.idx_orders_status",
+		Title:            "index bloat is high",
+		Recommendation:   "Reindex concurrently during maintenance.",
+		RecommendedSQL:   "REINDEX INDEX CONCURRENTLY public.idx_orders_status;",
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	assertCandidate(t, got.ActionCandidates[0],
+		"reindex_concurrently", "moderate", f.RecommendedSQL)
+}
+
+func TestProjectFindingBlockedVacuumAddsDiagnosticCandidate(t *testing.T) {
+	f := SourceFinding{
+		ID:               "blocked-vacuum",
+		DatabaseName:     "prod",
+		Category:         "blocked_vacuum",
+		Severity:         SeverityCritical,
+		ObjectType:       "table",
+		ObjectIdentifier: "public.orders",
+		Title:            "vacuum is blocked on orders",
+		Recommendation:   "Find blockers before running maintenance.",
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	assertCandidate(t, got.ActionCandidates[0],
+		"diagnose_vacuum_pressure", "safe", "")
+	if got.ActionCandidates[0].ProposedSQL == "" {
+		t.Fatal("expected vacuum pressure diagnostic SQL")
+	}
+}
+
 func TestProjectFindingClassifiesForecastAsForecastCase(t *testing.T) {
 	f := SourceFinding{
 		ID:               "77",
@@ -517,6 +590,45 @@ func TestProjectFindingMigrationSafetyCreateIndexCandidate(t *testing.T) {
 	}
 }
 
+func TestProjectFindingMigrationSafetyIncludesLivePreflightChecks(t *testing.T) {
+	f := SourceFinding{
+		ID:               "ddl-live",
+		DatabaseName:     "prod",
+		Category:         "migration_safety",
+		Severity:         SeverityCritical,
+		ObjectType:       "migration",
+		ObjectIdentifier: "public.orders:ddl_alter_type_rewrite:abc",
+		Title:            "Dangerous DDL: rewrite",
+		Recommendation:   "Review safer migration path.",
+		RecommendedSQL:   "ALTER TABLE public.orders ALTER id TYPE bigint",
+		Detail: map[string]any{
+			"rule_id":          "ddl_alter_type_rewrite",
+			"requires_rewrite": true,
+			"affected_table":   "public.orders",
+			"table_size_bytes": float64(14 * 1024 * 1024 * 1024),
+			"estimated_rows":   float64(90000000),
+			"active_queries":   float64(4),
+			"pending_locks":    float64(2),
+			"replication_lag":  75.0,
+			"lock_timeout_ms":  float64(0),
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	action := got.ActionCandidates[0]
+	if action.DDLPreflight == nil {
+		t.Fatal("expected DDL preflight")
+	}
+	assertPreflightCheck(t, action.DDLPreflight.Checks,
+		"table_size", "warn")
+	assertPreflightCheck(t, action.DDLPreflight.Checks,
+		"lock_timeout", "warn")
+	if action.BlockedReason == "" {
+		t.Fatal("expected live risk to block direct execution")
+	}
+}
+
 func TestProjectFindingMigrationSafetyAdvisoryOnlyProducesPreflightScript(t *testing.T) {
 	f := SourceFinding{
 		ID:               "203",
@@ -571,6 +683,63 @@ func TestProjectFindingMigrationSafetyAdvisoryOnlyProducesPreflightScript(t *tes
 	}
 }
 
+func TestProjectFindingCreateStatisticsAddsReviewedAction(t *testing.T) {
+	f := SourceFinding{
+		ID:               "stats-1",
+		DatabaseName:     "prod",
+		Category:         "query_create_statistics",
+		Severity:         SeverityWarning,
+		ObjectType:       "table",
+		ObjectIdentifier: "public.orders",
+		Title:            "Correlated predicates need extended stats",
+		Recommendation:   "Create dependency statistics for planner estimates.",
+		RecommendedSQL: "CREATE STATISTICS stats_orders_customer_status " +
+			"(dependencies) ON customer_id, status FROM public.orders;",
+		Detail: map[string]any{
+			"sample_query": "select * from orders where customer_id=$1 and status=$2",
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	assertCandidate(t, action, "create_statistics", "moderate", f.RecommendedSQL)
+	if action.ScriptOutput == nil {
+		t.Fatal("expected CREATE STATISTICS script output")
+	}
+}
+
+func TestProjectFindingParameterizedQueryAddsExperimentAction(t *testing.T) {
+	f := SourceFinding{
+		ID:               "param-1",
+		DatabaseName:     "prod",
+		Category:         "query_parameterization",
+		Severity:         SeverityWarning,
+		ObjectType:       "query",
+		ObjectIdentifier: "queryid:88",
+		Title:            "Literal-heavy query should be parameterized",
+		Recommendation:   "Parameterize literal query shapes in application code.",
+		Detail: map[string]any{
+			"normalized_query": "select * from orders where id = ?",
+			"literal_count":    float64(1200),
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	assertCandidate(t, action, "prepare_parameterized_query", "moderate", "")
+	if action.ScriptOutput == nil || action.ScriptOutput.PRBody == "" {
+		t.Fatal("expected parameterization PR output")
+	}
+}
+
 func TestResolveEphemeralWhenEvidenceDisappears(t *testing.T) {
 	open := NewCase(CaseInput{
 		SourceType:   SourceFindingType,
@@ -594,6 +763,25 @@ func TestResolveEphemeralWhenEvidenceDisappears(t *testing.T) {
 	if len(got.ActionCandidates) != 0 {
 		t.Fatalf("expected pending candidates to clear")
 	}
+}
+
+func assertPreflightCheck(
+	t *testing.T,
+	checks []PreflightCheck,
+	name string,
+	status string,
+) {
+	t.Helper()
+	for _, check := range checks {
+		if check.Name == name {
+			if check.Status != status {
+				t.Fatalf("%s status = %q, want %q",
+					name, check.Status, status)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing preflight check %q in %#v", name, checks)
 }
 
 func TestExpiredActionCannotExecuteWithoutRevalidation(t *testing.T) {

@@ -188,6 +188,52 @@ func TestSequenceExhaustionIncidentAddsMigrationScript(t *testing.T) {
 	}
 }
 
+func TestAutovacuumFallingBehindIncidentAddsMaintenancePlaybook(t *testing.T) {
+	incident := SourceIncident{
+		ID:              "inc-av",
+		DatabaseName:    "prod",
+		Severity:        SeverityWarning,
+		RootCause:       "Autovacuum is falling behind on public.orders",
+		SignalIDs:       []string{"autovacuum_falling_behind"},
+		AffectedObjects: []string{"public.orders"},
+		Source:          "rca",
+		Confidence:      0.84,
+	}
+
+	got := ProjectIncident(incident)
+
+	if len(got.ActionCandidates) != 2 {
+		t.Fatalf("ActionCandidates = %d, want 2", len(got.ActionCandidates))
+	}
+	assertCandidate(t, got.ActionCandidates[0],
+		"diagnose_vacuum_pressure", "safe", "")
+	assertCandidate(t, got.ActionCandidates[1],
+		"vacuum_table", "safe", "VACUUM public.orders;")
+}
+
+func TestStandbyConflictIncidentAddsReplicaConflictPlaybook(t *testing.T) {
+	incident := SourceIncident{
+		ID:           "inc-standby",
+		DatabaseName: "replica",
+		Severity:     SeverityWarning,
+		RootCause:    "Standby conflict cancelled queries during replay",
+		SignalIDs:    []string{"standby_conflict"},
+		Source:       "rca",
+		Confidence:   0.79,
+	}
+
+	got := ProjectIncident(incident)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	assertCandidate(t, got.ActionCandidates[0],
+		"diagnose_standby_conflicts", "safe", "")
+	if got.ActionCandidates[0].ProposedSQL == "" {
+		t.Fatal("expected standby conflict diagnostic SQL")
+	}
+}
+
 func TestResolvedIncidentProjectsResolvedState(t *testing.T) {
 	incident := testIncident("prod")
 	resolved := time.Now().UTC()

@@ -148,6 +148,11 @@ func actionTypeForSQL(sql string) string {
 	case strings.HasPrefix(upper, "ALTER ROLE ") &&
 		strings.Contains(upper, "WORK_MEM"):
 		return "promote_role_work_mem"
+	case strings.HasPrefix(upper, "CREATE STATISTICS "):
+		return "create_statistics"
+	case strings.HasPrefix(upper, "REINDEX ") &&
+		strings.Contains(upper, " CONCURRENTLY "):
+		return "reindex_concurrently"
 	case strings.HasPrefix(upper, "ALTER TABLE "):
 		return "alter_table"
 	case upper != "":
@@ -164,6 +169,9 @@ func riskForActionType(actionType string) string {
 	case "set_table_autovacuum":
 		return "moderate"
 	case "prepare_query_rewrite", "promote_role_work_mem":
+		return "moderate"
+	case "create_statistics", "prepare_parameterized_query",
+		"reindex_concurrently":
 		return "moderate"
 	case "retire_query_hint":
 		return "safe"
@@ -188,6 +196,10 @@ func rollbackClassForAction(actionType string) string {
 		return "application_rollback"
 	case "promote_role_work_mem", "retire_query_hint":
 		return "reversible"
+	case "create_statistics", "reindex_concurrently":
+		return "reversible"
+	case "prepare_parameterized_query":
+		return "application_rollback"
 	case "ddl_preflight":
 		return "forward_fix_only"
 	default:
@@ -231,6 +243,36 @@ func verificationPlanForAction(actionType string) []string {
 	}
 	if actionType == "retire_query_hint" {
 		return []string{"verify hint no longer appears in active hints"}
+	}
+	if actionType == "create_statistics" {
+		return []string{
+			"verify pg_statistic_ext contains the new statistics object",
+			"run ANALYZE on the affected table",
+			"compare planner row estimates for the affected query",
+		}
+	}
+	if actionType == "prepare_parameterized_query" {
+		return []string{
+			"verify query semantics match the literal-heavy version",
+			"compare pg_stat_statements queryid churn before and after",
+			"monitor latency and plan stability after deployment",
+		}
+	}
+	if actionType == "reindex_concurrently" {
+		return []string{
+			"verify replacement index is valid",
+			"compare index size before and after reindex",
+			"rerun bloat analyzer and confirm case no longer fires",
+		}
+	}
+	if actionType == "diagnose_vacuum_pressure" {
+		return []string{"identify vacuum blockers and dead tuple pressure"}
+	}
+	if actionType == "plan_bloat_remediation" {
+		return []string{
+			"review online rebuild or pg_repack plan",
+			"verify table size and bloat ratio after remediation",
+		}
 	}
 	if actionType == "ddl_preflight" {
 		return []string{
