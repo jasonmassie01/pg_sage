@@ -19,8 +19,9 @@ vi.mock('../hooks/useAPI', () => ({
             permissions: { analyze: { status: 'ok' } },
             extensions: {
               pg_stat_statements: 'available',
-              pg_hint_plan: 'available',
+              pg_hint_plan: 'provider_parameter_required',
             },
+            limitations: ['requires database flag for pg_hint_plan'],
           },
         },
         {
@@ -51,6 +52,9 @@ describe('ProviderReadinessMatrix', () => {
     expect(screen.getByText('cloud-sql')).toBeInTheDocument()
     expect(screen.getByText('rds')).toBeInTheDocument()
     expect(screen.getByText('target is a replica')).toBeInTheDocument()
+    expect(screen.getByText('provider_parameter_required')).toBeInTheDocument()
+    expect(screen.getByText('requires database flag for pg_hint_plan'))
+      .toBeInTheDocument()
     expect(screen.getByText('1 auto-safe ready')).toBeInTheDocument()
   })
 })

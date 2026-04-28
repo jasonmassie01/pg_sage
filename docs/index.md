@@ -32,6 +32,16 @@ scripts. Vacuum, bloat, and freeze findings project guarded `VACUUM`, freeze
 diagnostics, and per-table autovacuum tuning actions with explicit verification
 plans and IO-saturation gates.
 
+Query tuning cases are no longer limited to planner hints. pg_sage can turn
+suggested rewrites into PR-ready artifacts, retire broken hints through a safe
+metadata action, and promote repeated per-query `work_mem` hints into reviewed
+role-level settings when the blast radius is explicit.
+
+Provider readiness is adapter-driven for self-managed Postgres, Cloud SQL,
+AlloyDB, RDS, and Aurora. The matrix shows extension enablement paths, log
+access, provider limitations, and action-family readiness so automation policy
+can differ by managed-service constraints.
+
 ---
 
 ## Getting Started

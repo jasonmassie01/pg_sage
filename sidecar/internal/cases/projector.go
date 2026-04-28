@@ -58,6 +58,9 @@ func actionCandidatesForFinding(f SourceFinding) []ActionCandidate {
 	if candidate, ok := vacuumAutopilotCandidate(f); ok {
 		return []ActionCandidate{candidate}
 	}
+	if candidate, ok := queryTuningCandidate(f); ok {
+		return []ActionCandidate{candidate}
+	}
 
 	sql := strings.TrimSpace(f.RecommendedSQL)
 	if sql == "" {
@@ -142,6 +145,9 @@ func actionTypeForSQL(sql string) string {
 	case strings.HasPrefix(upper, "ALTER TABLE ") &&
 		strings.Contains(upper, "AUTOVACUUM_"):
 		return "set_table_autovacuum"
+	case strings.HasPrefix(upper, "ALTER ROLE ") &&
+		strings.Contains(upper, "WORK_MEM"):
+		return "promote_role_work_mem"
 	case strings.HasPrefix(upper, "ALTER TABLE "):
 		return "alter_table"
 	case upper != "":
@@ -157,6 +163,10 @@ func riskForActionType(actionType string) string {
 		return "safe"
 	case "set_table_autovacuum":
 		return "moderate"
+	case "prepare_query_rewrite", "promote_role_work_mem":
+		return "moderate"
+	case "retire_query_hint":
+		return "safe"
 	case "create_index_concurrently", "drop_unused_index":
 		return "moderate"
 	default:
@@ -174,6 +184,10 @@ func rollbackClassForAction(actionType string) string {
 		return "reversible"
 	case "set_table_autovacuum":
 		return "forward_fix_only"
+	case "prepare_query_rewrite":
+		return "application_rollback"
+	case "promote_role_work_mem", "retire_query_hint":
+		return "reversible"
 	case "ddl_preflight":
 		return "forward_fix_only"
 	default:
@@ -208,6 +222,15 @@ func verificationPlanForAction(actionType string) []string {
 			"monitor future autovacuum cadence and dead tuple ratio",
 			"rerun vacuum tuning analyzer after one churn window",
 		}
+	}
+	if actionType == "prepare_query_rewrite" {
+		return queryRewriteVerificationPlan()
+	}
+	if actionType == "promote_role_work_mem" {
+		return roleWorkMemVerificationPlan()
+	}
+	if actionType == "retire_query_hint" {
+		return []string{"verify hint no longer appears in active hints"}
 	}
 	if actionType == "ddl_preflight" {
 		return []string{

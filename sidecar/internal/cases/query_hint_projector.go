@@ -22,16 +22,17 @@ type SourceQueryHint struct {
 
 func ProjectQueryHint(h SourceQueryHint) Case {
 	c := NewCase(CaseInput{
-		SourceType:   SourceQueryType,
-		SourceID:     fmt.Sprintf("%d", h.QueryID),
-		DatabaseName: h.DatabaseName,
-		IdentityKey:  queryHintIdentityKey(h),
-		Title:        queryHintTitle(h),
-		Severity:     queryHintSeverity(h),
-		Why:          queryHintWhy(h),
-		WhyNow:       queryHintWhyNow(h),
-		Evidence:     queryHintEvidence(h),
-		ObservedAt:   h.CreatedAt,
+		SourceType:       SourceQueryType,
+		SourceID:         fmt.Sprintf("%d", h.QueryID),
+		DatabaseName:     h.DatabaseName,
+		IdentityKey:      queryHintIdentityKey(h),
+		Title:            queryHintTitle(h),
+		Severity:         queryHintSeverity(h),
+		Why:              queryHintWhy(h),
+		WhyNow:           queryHintWhyNow(h),
+		Evidence:         queryHintEvidence(h),
+		ActionCandidates: queryHintActions(h),
+		ObservedAt:       h.CreatedAt,
 	})
 	if h.Status == "retired" {
 		c.State = StateResolved
@@ -43,6 +44,19 @@ func ProjectQueryHint(h SourceQueryHint) Case {
 		c.UpdatedAt = *h.RolledBackAt
 	}
 	return c
+}
+
+func queryHintActions(h SourceQueryHint) []ActionCandidate {
+	if h.Status == "retired" {
+		return nil
+	}
+	if h.Status == "broken" {
+		return []ActionCandidate{retireQueryHintCandidate(h)}
+	}
+	if h.SuggestedRewrite != "" {
+		return []ActionCandidate{prepareQueryRewriteCandidate(h)}
+	}
+	return nil
 }
 
 func queryHintIdentityKey(h SourceQueryHint) string {

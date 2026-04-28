@@ -99,6 +99,12 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return diagnoseFreezeBlockersContract(), true
 	case "set_table_autovacuum":
 		return setTableAutovacuumContract(), true
+	case "prepare_query_rewrite":
+		return prepareQueryRewriteContract(), true
+	case "promote_role_work_mem":
+		return promoteRoleWorkMemContract(), true
+	case "retire_query_hint":
+		return retireQueryHintContract(), true
 	case "create_index_concurrently":
 		return ActionContract{
 			ActionType:      actionType,
@@ -474,5 +480,105 @@ func setTableAutovacuumContract() ActionContract {
 		RollbackClass: "forward_fix_only",
 		Cooldown:      "configured cascade cooldown",
 		AuditFields:   []string{"case_id", "database", "table", "reloptions"},
+	}
+}
+
+func prepareQueryRewriteContract() ActionContract {
+	return ActionContract{
+		ActionType:      "prepare_query_rewrite",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"read query statistics and plans",
+			"submit application query change through version control",
+		},
+		Prechecks: []string{
+			"rewrite has deterministic rationale",
+			"semantic equivalence can be tested in CI or staging",
+			"baseline plan and latency evidence are attached",
+		},
+		Guardrails: []string{
+			"direct database execution disabled",
+			"generate PR or script",
+			"approval required",
+		},
+		ExecutionPlan: []string{
+			"generate query rewrite artifact and verification checklist",
+		},
+		SuccessCriteria: []string{
+			"rewritten query returns equivalent rows",
+			"plan cost, latency, or temp IO improves",
+		},
+		PostChecks: []string{
+			"compare old and rewritten EXPLAIN plans",
+			"monitor query latency and error rate after deployment",
+		},
+		RollbackClass: "application_rollback",
+		Cooldown:      "query-scoped",
+		AuditFields:   []string{"case_id", "database", "queryid"},
+	}
+}
+
+func promoteRoleWorkMemContract() ActionContract {
+	return ActionContract{
+		ActionType:      "promote_role_work_mem",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"ALTER ROLE privilege or admin role",
+		},
+		Prechecks: []string{
+			"multiple queries for same role need repeated work_mem hints",
+			"recommended value is below configured maximum",
+			"role-level memory blast radius is estimated",
+		},
+		Guardrails: []string{
+			"approval required",
+			"bounded work_mem value",
+			"verification after one workload window",
+		},
+		ExecutionPlan: []string{"ALTER ROLE ... SET work_mem"},
+		SuccessCriteria: []string{
+			"representative queries stop spilling to temp",
+			"database memory pressure remains acceptable",
+		},
+		PostChecks: []string{
+			"verify pg_roles.rolconfig",
+			"monitor temp blocks and memory pressure",
+		},
+		RollbackClass: "reversible",
+		Cooldown:      "role-scoped",
+		AuditFields:   []string{"case_id", "database", "role", "work_mem"},
+	}
+}
+
+func retireQueryHintContract() ActionContract {
+	return ActionContract{
+		ActionType:      "retire_query_hint",
+		BaseRiskTier:    "safe",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"write access to sage query hint metadata",
+		},
+		Prechecks: []string{
+			"hint status is broken or superseded",
+			"replacement action is absent or already generated",
+		},
+		Guardrails: []string{
+			"metadata-only update",
+			"query-scoped cooldown",
+			"no user table writes",
+		},
+		ExecutionPlan: []string{"mark query hint retired"},
+		SuccessCriteria: []string{
+			"hint no longer appears in active hint inventory",
+		},
+		PostChecks: []string{
+			"verify hint no longer appears in active hints",
+			"rerun tuner revalidation",
+		},
+		RollbackClass: "reversible",
+		Cooldown:      "query-scoped",
+		AuditFields:   []string{"case_id", "database", "queryid", "hint_text"},
 	}
 }

@@ -48,6 +48,8 @@ docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 | **Cases Work Queue** | Findings, incidents, migration risks, and action history are projected into ranked DBA cases with why-now context and next actions |
 | **Incident Playbooks** | Runaway queries, lock blockers, connection exhaustion, WAL/replication risk, and sequence exhaustion become typed diagnostics or reviewed action scripts |
 | **Vacuum/Bloat/Freeze Autopilot** | Table bloat, dead tuples, XID runway, freeze blockers, and per-table autovacuum tuning produce guarded candidates with verification plans |
+| **Query Tuning Beyond Hints** | Query rewrites, broken-hint retirement, and repeated role-level work_mem patterns become reviewable actions with verification steps |
+| **Provider Capability Adapters** | Cloud SQL, AlloyDB, RDS, Aurora, and self-managed Postgres expose provider-specific extension paths, log access, limitations, and action readiness |
 | **DDL Safety + PR/CI Output** | Migration-risk cases include deterministic lock/rewrite preflight, guarded migration SQL, rollback or forward-fix guidance, verification SQL, and PR-ready metadata |
 | **Rules Engine** | 20+ deterministic checks: duplicate/unused/missing indexes, slow queries, regressions, seq scans, vacuum & bloat, dead tuples, sequence exhaustion, replication lag, security audit, config drift |
 | **Index Optimizer** | LLM-powered recommendations validated through 8 checks + HypoPG cost estimation, confidence scored 0.0--1.0 |

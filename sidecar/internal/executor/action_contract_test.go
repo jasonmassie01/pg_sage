@@ -116,6 +116,27 @@ func TestVacuumAutopilotContractsValidate(t *testing.T) {
 	}
 }
 
+func TestQueryTuningContractsValidate(t *testing.T) {
+	tests := map[string]string{
+		"prepare_query_rewrite": "moderate",
+		"promote_role_work_mem": "moderate",
+		"retire_query_hint":     "safe",
+	}
+	for actionType, wantRisk := range tests {
+		c, ok := ContractForActionType(actionType)
+		if !ok {
+			t.Fatalf("%s contract missing", actionType)
+		}
+		if c.BaseRiskTier != wantRisk {
+			t.Fatalf("%s BaseRiskTier = %q, want %q",
+				actionType, c.BaseRiskTier, wantRisk)
+		}
+		if err := c.Validate(); err != nil {
+			t.Fatalf("%s Validate: %v", actionType, err)
+		}
+	}
+}
+
 func TestContractForActionTypeIncidentActions(t *testing.T) {
 	if _, ok := ContractForActionType("cancel_backend"); !ok {
 		t.Fatal("cancel_backend contract missing")

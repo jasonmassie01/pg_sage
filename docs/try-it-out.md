@@ -79,6 +79,8 @@ Verify these screens:
 | Migration safety | DDL cases show preflight evidence, migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI output |
 | Incident playbooks | Incident cases show read-only diagnostics or reviewed scripts for locks, runaway queries, connection pressure, WAL/replication risk, and sequence exhaustion |
 | Vacuum autopilot | Bloat/freeze cases show guarded `VACUUM`, freeze-blocker diagnostics, or autovacuum tuning scripts with verification plans |
+| Query tuning | Query-hint cases can show rewrite artifacts, broken-hint retirement, and reviewed role-level `work_mem` promotion |
+| Provider readiness | Overview shows provider-specific extension paths, log access, limitations, and action-family readiness |
 | Actions | Executed and Pending Approval tabs; expanded rows show SQL, expiration, rollback, verification state, and generated script output for DDL |
 | Fleet | Managed databases table and connection-test/edit controls |
 | Settings | System info, emergency controls, Shadow Mode report |

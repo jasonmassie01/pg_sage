@@ -311,6 +311,95 @@ func TestProjectQueryHintCreatesCaseWithExperimentEvidence(t *testing.T) {
 	}
 }
 
+func TestProjectQueryHintWithRewriteAddsPRAction(t *testing.T) {
+	before, after := 2500.0, 900.0
+	hint := SourceQueryHint{
+		QueryID:          444,
+		DatabaseName:     "prod",
+		HintText:         "HashJoin(o c)",
+		Symptom:          "nested loop row estimate skew",
+		Status:           "active",
+		CreatedAt:        time.Now().UTC(),
+		BeforeCost:       &before,
+		AfterCost:        &after,
+		SuggestedRewrite: "SELECT * FROM orders o JOIN customers c ON c.id = o.customer_id",
+		RewriteRationale: "make join predicate explicit for planner stability",
+	}
+
+	got := ProjectQueryHint(hint)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	assertCandidate(t, action, "prepare_query_rewrite", "moderate", "")
+	if action.ScriptOutput == nil {
+		t.Fatal("expected query rewrite script output")
+	}
+	if action.ScriptOutput.MigrationSQL == "" {
+		t.Fatal("expected rewrite SQL in script output")
+	}
+	if action.RollbackClass != "application_rollback" {
+		t.Fatalf("RollbackClass = %q", action.RollbackClass)
+	}
+}
+
+func TestProjectBrokenQueryHintAddsRetireAction(t *testing.T) {
+	hint := SourceQueryHint{
+		QueryID:      555,
+		DatabaseName: "prod",
+		HintText:     "Set(work_mem \"512MB\")",
+		Symptom:      "hint regressed during revalidation",
+		Status:       "broken",
+		CreatedAt:    time.Now().UTC(),
+	}
+
+	got := ProjectQueryHint(hint)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	assertCandidate(t, action, "retire_query_hint", "safe", "")
+	if action.VerificationPlan[0] != "verify hint no longer appears in active hints" {
+		t.Fatalf("VerificationPlan = %#v", action.VerificationPlan)
+	}
+}
+
+func TestProjectFindingRoleWorkMemPromotionAddsReviewedAction(t *testing.T) {
+	f := SourceFinding{
+		ID:               "wm-role",
+		DatabaseName:     "prod",
+		Category:         "query_work_mem_promotion",
+		Severity:         SeverityWarning,
+		ObjectType:       "role",
+		ObjectIdentifier: "app_user",
+		Title:            "app_user has repeated work_mem hints",
+		Recommendation:   "Promote repeated per-query hints to a role setting.",
+		RecommendedSQL:   "ALTER ROLE app_user SET work_mem = '128MB';",
+		Detail: map[string]any{
+			"role_name":       "app_user",
+			"hint_count":      float64(8),
+			"recommended_mb":  float64(128),
+			"sample_query_id": float64(42),
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	assertCandidate(t, action, "promote_role_work_mem", "moderate", f.RecommendedSQL)
+	if action.ScriptOutput == nil {
+		t.Fatal("expected role setting script output")
+	}
+	if action.RequiresMaintenanceWindow {
+		t.Fatal("role work_mem promotion should not require maintenance window")
+	}
+}
+
 func TestProjectFindingInformationalWhenNoRemediation(t *testing.T) {
 	f := SourceFinding{
 		ID:               "99",

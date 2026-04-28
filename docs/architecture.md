@@ -31,6 +31,8 @@ pg_sage sidecar (single Go binary)
   │   ├── Incident playbooks for locks, runaway queries, connections, WAL,
   │   │   replication, and sequence exhaustion
   │   ├── Vacuum/bloat/freeze autopilot with IO and XID guardrails
+  │   ├── Query tuning artifacts beyond hints: rewrites, hint retirement,
+  │   │   and role-level work_mem promotion
   │   ├── Rollback monitor (read + write latency regression)
   │   └── Emergency stop via sage.config
   │
@@ -105,6 +107,13 @@ cases are blocked to script/review output; XID wraparound cases diagnose oldest
 `backend_xmin` holders; and per-table autovacuum reloption changes are queued
 as reviewed migration scripts with post-change verification.
 
+Query tuning has two paths. `pg_hint_plan` remains useful for reversible
+planner experiments, but pg_sage can also generate application-query rewrite
+artifacts, retire broken hint experiments, and promote repeated per-role
+`work_mem` patterns into reviewed role settings. Those actions are modeled as
+typed cases with rollback class, verification steps, and PR/script output so
+they can move through change control like schema work.
+
 The executor checks: trust level, trust ramp, per-tier toggles, maintenance window, emergency stop flag, and replica status before acting.
 
 ### API + Dashboard (Web UI)
@@ -116,6 +125,11 @@ organized around Overview, Cases, Actions, Fleet, and Settings. The legacy
 includes case projection, shadow report, action queue, provider readiness,
 findings, snapshots, config, forecasts, query hints, alerts, emergency stop,
 and fleet management. UI and `/api/v1/*` routes are session-authenticated.
+
+Provider readiness uses adapters for Postgres, Cloud SQL, AlloyDB, RDS, and
+Aurora. Adapters describe extension enablement paths, log access, managed
+service limitations, and supported action families before policy evaluation
+decides whether a specific database can execute, queue, or only observe.
 
 ### Alerting
 
