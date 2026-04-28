@@ -509,7 +509,7 @@ func TestCoverage_BuildActionMap_AllKeys(t *testing.T) {
 		"success", nil, nil,
 	)
 	expectedKeys := []string{
-		"id", "executed_at", "action_type", "finding_id",
+		"id", "executed_at", "event_at", "action_type", "finding_id",
 		"sql_executed", "rollback_sql", "before_state",
 		"after_state", "outcome", "rollback_reason",
 		"measured_at",

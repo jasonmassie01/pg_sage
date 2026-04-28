@@ -85,6 +85,7 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 		// writers (updateInstanceFindings, config_handlers) don't race
 		// with the health-score compute or the JSON marshaller.
 		snap := inst.SnapshotStatus()
+		snap = EnsureCapabilities(m.cfg, inst, snap, time.Now().UTC())
 		snap.HealthScore = computeHealthScore(snap)
 		snap.DatabaseName = inst.Name
 		ds := DatabaseStatus{

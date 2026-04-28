@@ -24,12 +24,16 @@ func TestActionsTimelineResponseIncludesStatusRiskAndVerification(t *testing.T) 
 		"action_type":         "analyze_table",
 		"risk_tier":           "safe",
 		"verification_status": "not_started",
+		"lifecycle_state":     "blocked",
+		"blocked_reason":      "action is in cooldown",
+		"attempt_count":       2,
 	}
 
 	got := actionTimelineMap(row)
 
 	for _, key := range []string{
 		"id", "status", "action_type", "risk_tier", "verification_status",
+		"lifecycle_state", "blocked_reason", "attempt_count",
 	} {
 		if _, ok := got[key]; !ok {
 			t.Fatalf("missing %s in timeline map", key)
@@ -37,7 +41,311 @@ func TestActionsTimelineResponseIncludesStatusRiskAndVerification(t *testing.T) 
 	}
 }
 
+func TestQueuedActionMapIncludesLifecycleMetadata(t *testing.T) {
+	cooldownUntil := time.Date(2026, 4, 27, 12, 30, 0, 0, time.UTC)
+	action := store.QueuedAction{
+		ID:                 7,
+		FindingID:          99,
+		ActionType:         "analyze_table",
+		ActionRisk:         "safe",
+		Status:             "pending",
+		ProposedSQL:        "ANALYZE public.orders",
+		PolicyDecision:     "execute",
+		Guardrails:         []string{"dedicated connection"},
+		AttemptCount:       2,
+		CooldownUntil:      &cooldownUntil,
+		VerificationStatus: "not_started",
+		ShadowToilMinutes:  15,
+	}
+	logID := int64(123)
+	action.ActionLogID = &logID
+
+	got := queuedActionMap(action)
+
+	if got["action_type"] != "analyze_table" {
+		t.Fatalf("action_type = %v, want analyze_table", got["action_type"])
+	}
+	if got["policy_decision"] != "execute" {
+		t.Fatalf("policy_decision = %v, want execute", got["policy_decision"])
+	}
+	if got["attempt_count"] != 2 {
+		t.Fatalf("attempt_count = %v, want 2", got["attempt_count"])
+	}
+	if got["shadow_toil_minutes"] != 15 {
+		t.Fatalf("shadow_toil_minutes = %v, want 15",
+			got["shadow_toil_minutes"])
+	}
+	if got["cooldown_until"] == nil {
+		t.Fatalf("cooldown_until missing")
+	}
+	if got["action_log_id"] != int64(123) {
+		t.Fatalf("action_log_id = %v, want 123", got["action_log_id"])
+	}
+	guardrails, ok := got["guardrails"].([]string)
+	if !ok || len(guardrails) != 1 || guardrails[0] != "dedicated connection" {
+		t.Fatalf("guardrails = %#v, want dedicated connection", got["guardrails"])
+	}
+}
+
+func TestQueuedActionMapIncludesScriptOutputForDDL(t *testing.T) {
+	action := store.QueuedAction{
+		ID:          12,
+		FindingID:   99,
+		ActionType:  "create_index_concurrently",
+		ActionRisk:  "moderate",
+		Status:      "pending",
+		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)",
+		RollbackSQL: "DROP INDEX CONCURRENTLY idx_orders_customer",
+	}
+
+	got := queuedActionMap(action)
+
+	modes, ok := got["output_modes"].([]string)
+	if !ok || len(modes) != 2 || modes[1] != "generate_pr_or_script" {
+		t.Fatalf("output_modes = %#v, want script mode", got["output_modes"])
+	}
+	script, ok := got["script_output"].(map[string]any)
+	if !ok {
+		t.Fatalf("script_output = %#v, want map", got["script_output"])
+	}
+	if script["filename"] != "99_create_index_concurrently.sql" {
+		t.Fatalf("filename = %v", script["filename"])
+	}
+	if script["migration_sql"] != action.ProposedSQL {
+		t.Fatalf("migration_sql = %v", script["migration_sql"])
+	}
+	if script["rollback_sql"] != action.RollbackSQL {
+		t.Fatalf("rollback_sql = %v", script["rollback_sql"])
+	}
+}
+
+func TestQueuedActionMapWithReadinessIncludesDeferReason(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trust.Level = "autonomous"
+	cfg.Trust.MaintenanceWindow = "0 2 * * *"
+	exec := executor.New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
+		func(string, string, ...any) {})
+	action := store.QueuedAction{
+		ID:          12,
+		FindingID:   99,
+		ActionType:  "create_index_concurrently",
+		ActionRisk:  "moderate",
+		Status:      "pending",
+		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)",
+		ExpiresAt:   time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC),
+	}
+
+	got := queuedActionMapWithReadiness(action, exec)
+
+	if got["eligible"] != false {
+		t.Fatalf("eligible = %v, want false", got["eligible"])
+	}
+	if got["defer_reason"] != "outside maintenance window" {
+		t.Fatalf("defer_reason = %v", got["defer_reason"])
+	}
+	if got["blocked_reason"] != "outside maintenance window" {
+		t.Fatalf("blocked_reason = %v", got["blocked_reason"])
+	}
+	if _, ok := got["policy_detail"].(executor.ActionPolicyDecision); !ok {
+		t.Fatalf("policy_detail = %#v, want policy decision", got["policy_detail"])
+	}
+}
+
+func TestQueuedActionMapWithReadinessIncludesRollbackClass(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trust.Level = "autonomous"
+	cfg.Trust.MaintenanceWindow = "always"
+	exec := executor.New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
+		func(string, string, ...any) {})
+	action := store.QueuedAction{
+		ID:          13,
+		FindingID:   101,
+		ActionRisk:  "high",
+		Status:      "pending",
+		ProposedSQL: "ALTER TABLE public.orders ALTER COLUMN amount TYPE numeric",
+		ExpiresAt:   time.Now().UTC().Add(24 * time.Hour),
+	}
+
+	got := queuedActionMapWithReadiness(action, exec)
+
+	if got["rollback_class"] != "forward_fix_only" {
+		t.Fatalf("rollback_class = %v, want forward_fix_only",
+			got["rollback_class"])
+	}
+	if got["eligible"] != true {
+		t.Fatalf("eligible = %v, want true", got["eligible"])
+	}
+}
+
 // --- approveActionHandler ---
+
+func TestApproveActionHandler_BlocksDeferredActionBeforeExecution(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	findingID := insertActionHandlerFinding(t, pool, ctx, "public.orders")
+	actionStore := store.NewActionStore(pool)
+	actionID, err := actionStore.ProposeWithMetadata(
+		ctx, nil, findingID,
+		"CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)",
+		"DROP INDEX CONCURRENTLY idx_orders_customer",
+		"moderate",
+		store.ActionProposalMetadata{
+			ActionType:     "create_index_concurrently",
+			PolicyDecision: "queue_for_approval",
+		})
+	if err != nil {
+		t.Fatalf("propose action: %v", err)
+	}
+	cfg := &config.Config{}
+	cfg.Trust.Level = "autonomous"
+	cfg.Trust.MaintenanceWindow = "not-a-window"
+	exec := executor.New(pool, cfg, nil, time.Now().Add(-40*24*time.Hour),
+		func(string, string, ...any) {})
+	handler := approveActionHandler(actionStore, exec)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/actions/{id}/approve", handler)
+	req := httptest.NewRequest("POST",
+		fmt.Sprintf("/api/v1/actions/%d/approve", actionID), nil)
+	req = withUser(req, testAdminUser())
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status: got %d, body %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(resp["error"], "outside maintenance window") {
+		t.Fatalf("error = %q", resp["error"])
+	}
+	var status, reason string
+	err = pool.QueryRow(ctx,
+		`SELECT status, reason FROM sage.action_queue WHERE id = $1`,
+		actionID).Scan(&status, &reason)
+	if err != nil {
+		t.Fatalf("query action status: %v", err)
+	}
+	if status != "blocked" {
+		t.Fatalf("status after blocked approve = %q, want blocked", status)
+	}
+	if reason != "outside maintenance window" {
+		t.Fatalf("reason after blocked approve = %q", reason)
+	}
+	var actionLogs int
+	err = pool.QueryRow(ctx,
+		`SELECT count(*) FROM sage.action_log WHERE finding_id = $1`,
+		findingID).Scan(&actionLogs)
+	if err != nil {
+		t.Fatalf("query action log count: %v", err)
+	}
+	if actionLogs != 0 {
+		t.Fatalf("action logs = %d, want 0", actionLogs)
+	}
+}
+
+func TestApproveActionHandler_PersistsResolvedEphemeralOutcome(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	findingID := insertActionHandlerFinding(t, pool, ctx, "public.orders")
+	actionStore := store.NewActionStore(pool)
+	actionID, err := actionStore.ProposeWithMetadata(
+		ctx, nil, findingID,
+		"ANALYZE public.orders", "", "safe",
+		store.ActionProposalMetadata{
+			ActionType:     "analyze_table",
+			PolicyDecision: "execute",
+		})
+	if err != nil {
+		t.Fatalf("propose action: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE sage.findings SET resolved_at = now()
+		  WHERE id = $1`, findingID); err != nil {
+		t.Fatalf("resolve finding: %v", err)
+	}
+	cfg := &config.Config{}
+	cfg.Trust.Level = "advisory"
+	exec := executor.New(pool, cfg, nil, time.Now().Add(-10*24*time.Hour),
+		func(string, string, ...any) {})
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/actions/{id}/approve",
+		approveActionHandler(actionStore, exec))
+	req := httptest.NewRequest("POST",
+		fmt.Sprintf("/api/v1/actions/%d/approve", actionID), nil)
+	req = withUser(req, testAdminUser())
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status: got %d, body %s", w.Code, w.Body.String())
+	}
+	var status, reason string
+	err = pool.QueryRow(ctx,
+		`SELECT status, reason FROM sage.action_queue WHERE id = $1`,
+		actionID).Scan(&status, &reason)
+	if err != nil {
+		t.Fatalf("query action queue: %v", err)
+	}
+	if status != "resolved_ephemeral" {
+		t.Fatalf("status = %q, want resolved_ephemeral", status)
+	}
+	if reason != "underlying evidence disappeared" {
+		t.Fatalf("reason = %q", reason)
+	}
+}
+
+func TestApproveActionHandler_PersistsExpiredReadinessOutcome(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	findingID := insertActionHandlerFinding(t, pool, ctx, "public.orders")
+	actionStore := store.NewActionStore(pool)
+	expiresAt := time.Now().UTC().Add(-time.Hour)
+	actionID, err := actionStore.ProposeWithMetadata(
+		ctx, nil, findingID,
+		"ANALYZE public.orders", "", "safe",
+		store.ActionProposalMetadata{
+			ActionType:     "analyze_table",
+			PolicyDecision: "execute",
+			ExpiresAt:      &expiresAt,
+		})
+	if err != nil {
+		t.Fatalf("propose action: %v", err)
+	}
+	cfg := &config.Config{}
+	cfg.Trust.Level = "advisory"
+	exec := executor.New(pool, cfg, nil, time.Now().Add(-10*24*time.Hour),
+		func(string, string, ...any) {})
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/actions/{id}/approve",
+		approveActionHandler(actionStore, exec))
+	req := httptest.NewRequest("POST",
+		fmt.Sprintf("/api/v1/actions/%d/approve", actionID), nil)
+	req = withUser(req, testAdminUser())
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status: got %d, body %s", w.Code, w.Body.String())
+	}
+	var status, reason string
+	err = pool.QueryRow(ctx,
+		`SELECT status, reason FROM sage.action_queue WHERE id = $1`,
+		actionID).Scan(&status, &reason)
+	if err != nil {
+		t.Fatalf("query action queue: %v", err)
+	}
+	if status != "expired" {
+		t.Fatalf("status = %q, want expired", status)
+	}
+	if reason != "action proposal expired" {
+		t.Fatalf("reason = %q", reason)
+	}
+}
 
 func TestApproveActionHandler_InvalidID(t *testing.T) {
 	handler := approveActionHandler(nil, nil)

@@ -62,6 +62,8 @@ func actionTypeForSQL(sql string) string {
 		return "create_index_concurrently"
 	case strings.HasPrefix(upper, "DROP INDEX "):
 		return "drop_unused_index"
+	case strings.HasPrefix(upper, "ALTER TABLE "):
+		return "alter_table"
 	default:
 		return ""
 	}

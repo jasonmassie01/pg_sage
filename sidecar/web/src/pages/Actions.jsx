@@ -23,6 +23,30 @@ function verificationStatus(row) {
   return row.verification_status || row.status || 'not_started'
 }
 
+function lifecycleStatus(row) {
+  return row.lifecycle_state || row.status || 'ready'
+}
+
+function rollbackClassLabel(value) {
+  switch (value) {
+  case 'no_rollback_needed':
+    return 'Rollback: not needed'
+  case 'reversible':
+    return 'Rollback: reversible'
+  case 'forward_fix_only':
+    return 'Rollback: forward fix only'
+  default:
+    return value ? `Rollback: ${value}` : null
+  }
+}
+
+function formatActionTime(value) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString()
+}
+
 export function Actions({ database, user }) {
   const [tab, setTab] = useState('executed')
   const range = useTimeRange()
@@ -130,6 +154,12 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
     case 'failed':
       return { bg: 'rgba(239,68,68,0.15)', color: 'var(--red)',
         label: 'Failed' }
+    case 'expired':
+      return { bg: 'rgba(107,114,128,0.15)',
+        color: 'var(--text-secondary)', label: 'Expired' }
+    case 'rejected':
+      return { bg: 'rgba(107,114,128,0.15)',
+        color: 'var(--text-secondary)', label: 'Rejected' }
     case 'rolled_back':
       return { bg: 'rgba(245,158,11,0.15)',
         color: 'var(--yellow)', label: 'Rolled Back' }
@@ -155,6 +185,10 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
       return <span style={{ color: 'var(--red)' }}>
         {short}
       </span>
+    }
+    if ((r.outcome === 'expired' || r.outcome === 'rejected') &&
+      r.rollback_reason) {
+      return r.rollback_reason
     }
     if (t === 'drop_index') {
       return `Dropped index${target ? ' ' + target : ''}`
@@ -283,7 +317,8 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
           <div>
             <div className="text-xs font-medium mb-1"
               style={{ color: 'var(--text-secondary)' }}>
-              SQL Executed
+              {row.outcome === 'expired' || row.outcome === 'rejected'
+                ? 'Proposed SQL' : 'SQL Executed'}
             </div>
             <SQLBlock sql={row.sql_executed} />
           </div>
@@ -456,6 +491,13 @@ function PendingTab({
     },
     { key: 'database_name', label: 'Database' },
     { key: 'finding_id', label: 'Finding' },
+    ...(actions.some(r => r.policy_decision)
+      ? [{ key: 'policy_decision', label: 'Policy' }] : []),
+    ...(actions.some(r => r.lifecycle_state || r.cooldown_until)
+      ? [{
+        key: 'lifecycle_state', label: 'Lifecycle',
+        render: r => lifecycleStatus(r),
+      }] : []),
     { key: 'proposed_sql', label: 'SQL Preview',
       render: r => {
         const sql = (r.proposed_sql || '').replace(/\s+/g, ' ').trim()
@@ -471,10 +513,16 @@ function PendingTab({
         <div className="flex gap-2">
           <button onClick={() => handleApprove(r.id)}
             data-testid="approve-button"
+            disabled={r.eligible === false}
+            title={r.eligible === false
+              ? (r.defer_reason || r.blocked_reason || 'Action is not eligible')
+              : undefined}
             className="px-2 py-1 rounded text-xs"
             style={{
               background: 'var(--green)',
               color: '#fff',
+              opacity: r.eligible === false ? 0.45 : 1,
+              cursor: r.eligible === false ? 'not-allowed' : 'pointer',
             }}>
             Approve
           </button>
@@ -537,6 +585,29 @@ function PendingTab({
                 <SQLBlock sql={row.rollback_sql} />
               </div>
             )}
+            {row.script_output && (
+              <div>
+                <div className="text-xs font-medium mb-1"
+                  style={{ color: 'var(--text-secondary)' }}>
+                  Migration script
+                </div>
+                <div className="text-xs mb-2"
+                  style={{ color: 'var(--text-secondary)' }}>
+                  {row.script_output.filename}
+                </div>
+                <SQLBlock sql={row.script_output.migration_sql} />
+                {row.script_output.rollback_sql && (
+                  <div className="mt-2">
+                    <div className="text-xs font-medium mb-1"
+                      style={{ color: 'var(--text-secondary)' }}>
+                      Rollback script
+                    </div>
+                    <SQLBlock sql={row.script_output.rollback_sql} />
+                  </div>
+                )}
+              </div>
+            )}
+            <LifecycleDetails row={row} />
             {rejectId === row.id && (
               <div className="flex gap-2 items-center">
                 <input
@@ -568,6 +639,51 @@ function PendingTab({
           </div>
         )}
       />
+    </div>
+  )
+}
+
+function LifecycleDetails({ row }) {
+  const expiresAt = formatActionTime(row.expires_at)
+  const cooldownUntil = formatActionTime(row.cooldown_until)
+  const guardrails = row.guardrails || []
+  const rollbackClass = rollbackClassLabel(row.rollback_class)
+  if (!expiresAt && !cooldownUntil && guardrails.length === 0 &&
+    !row.blocked_reason && !row.attempt_count && !rollbackClass) {
+    return null
+  }
+  return (
+    <div className="space-y-2 text-xs"
+      style={{ color: 'var(--text-secondary)' }}>
+      <div className="flex flex-wrap gap-2">
+        {row.attempt_count > 0 && <span>Attempts: {row.attempt_count}</span>}
+        {expiresAt && <span>Expires: {expiresAt}</span>}
+        {cooldownUntil && <span>Cooldown until: {cooldownUntil}</span>}
+        {rollbackClass && <span>{rollbackClass}</span>}
+        {row.verification_status && (
+          <span>Verification: {row.verification_status}</span>
+        )}
+      </div>
+      {row.blocked_reason && (
+        <div style={{ color: 'var(--text-primary)' }}>
+          {row.blocked_reason}
+        </div>
+      )}
+      {row.defer_reason && row.defer_reason !== row.blocked_reason && (
+        <div style={{ color: 'var(--text-primary)' }}>
+          {row.defer_reason}
+        </div>
+      )}
+      {guardrails.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {guardrails.map(g => (
+            <span key={g} className="rounded px-1.5 py-0.5"
+              style={{ border: '1px solid var(--border)' }}>
+              {g}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

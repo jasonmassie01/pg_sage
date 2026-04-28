@@ -57,6 +57,43 @@ export function ShadowModePage({ database }) {
           Blocked: {data.blocked_reasons.join(', ')}
         </div>
       )}
+      {(data?.proof || []).length > 0 && (
+        <div className="space-y-2">
+          {data.proof.map(item => (
+            <ShadowProofRow key={`${item.case_id}-${item.action_type}`}
+              item={item} />
+          ))}
+        </div>
+      )}
     </section>
+  )
+}
+
+function ShadowProofRow({ item }) {
+  return (
+    <div className="rounded border p-3 text-sm"
+      style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+      <div className="font-medium" style={{ color: 'var(--text-primary)' }}>
+        {item.title}
+      </div>
+      <div className="mt-1 flex flex-wrap gap-2 text-xs"
+        style={{ color: 'var(--text-secondary)' }}>
+        <span>{item.action_type}</span>
+        {item.action_id && <span>Action: {item.action_id}</span>}
+        <span>Policy: {item.policy_decision}</span>
+        {item.lifecycle_state && (
+          <span>Lifecycle: {item.lifecycle_state}</span>
+        )}
+        {item.status && <span>Status: {item.status}</span>}
+        {item.verification_status && (
+          <span>Verification: {item.verification_status}</span>
+        )}
+        {item.proposed_at && <span>Proposed: {item.proposed_at}</span>}
+        <span>Toil: {item.estimated_toil_minutes} min</span>
+        {item.blocked_reason && (
+          <span>Blocked: {item.blocked_reason}</span>
+        )}
+      </div>
+    </div>
   )
 }

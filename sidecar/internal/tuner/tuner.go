@@ -2,9 +2,13 @@ package tuner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
@@ -34,6 +38,8 @@ type Tuner struct {
 	// multiple queries touching the same stale table produce
 	// exactly one ANALYZE finding.
 	staleStatsEmitted map[string]bool
+
+	llmPrescriptionCooldown map[string]int
 }
 
 // Option configures optional Tuner behavior.
@@ -56,11 +62,12 @@ func New(
 	opts ...Option,
 ) *Tuner {
 	t := &Tuner{
-		pool:          pool,
-		cfg:           cfg,
-		hintPlan:      hintPlan,
-		logFn:         logFn,
-		recentlyTuned: make(map[int64]int),
+		pool:                    pool,
+		cfg:                     cfg,
+		hintPlan:                hintPlan,
+		logFn:                   logFn,
+		recentlyTuned:           make(map[int64]int),
+		llmPrescriptionCooldown: make(map[string]int),
 	}
 	for _, o := range opts {
 		o(t)
@@ -72,13 +79,13 @@ func New(
 }
 
 type candidate struct {
-	QueryID          int64
-	Query            string
-	Calls            int64
-	MeanExecTime     float64
-	MeanPlanTime     float64
-	TempBlksRead     int64
-	TempBlksWritten  int64
+	QueryID         int64
+	Query           string
+	Calls           int64
+	MeanExecTime    float64
+	MeanPlanTime    float64
+	TempBlksRead    int64
+	TempBlksWritten int64
 }
 
 // Tune queries pg_stat_statements for slow queries, scans
@@ -218,6 +225,14 @@ func (t *Tuner) tickCooldowns() {
 			delete(t.recentlyTuned, qid)
 		} else {
 			t.recentlyTuned[qid] = remaining
+		}
+	}
+	for key, remaining := range t.llmPrescriptionCooldown {
+		remaining--
+		if remaining <= 0 {
+			delete(t.llmPrescriptionCooldown, key)
+		} else {
+			t.llmPrescriptionCooldown[key] = remaining
 		}
 	}
 }
@@ -422,6 +437,13 @@ func (t *Tuner) tryLLMPrescribe(
 			c.QueryID)
 		return nil
 	}
+	contextKey := llmContextFingerprint(c, planJSON, symptoms, fallbackHint)
+	if t.llmSuppressionActive(ctx, contextKey) {
+		t.logFn("tuner",
+			"suppressing repeated LLM attempt for queryid %d",
+			c.QueryID)
+		return nil
+	}
 	qctx := buildQueryContext(
 		ctx, t.pool, c, symptoms, planJSON, fallbackHint,
 	)
@@ -432,7 +454,17 @@ func (t *Tuner) tryLLMPrescribe(
 		t.logFn("tuner",
 			"LLM prescribe failed for queryid %d, "+
 				"using deterministic: %v", c.QueryID, err)
+		t.recordLLMSuppression(ctx, c, contextKey, "",
+			"llm_error", err.Error())
 		return nil
+	}
+	if len(rx) > 0 {
+		rx = t.filterRepeatedLLMPrescriptions(ctx, c, planJSON,
+			contextKey, rx)
+	}
+	if len(rx) == 0 {
+		t.recordLLMSuppression(ctx, c, contextKey, "",
+			"empty_or_duplicate", "LLM returned no usable prescription")
 	}
 	if len(rx) > 0 {
 		t.logFn("tuner",
@@ -440,6 +472,205 @@ func (t *Tuner) tryLLMPrescribe(
 			c.QueryID, rx[0].HintDirective)
 	}
 	return rx
+}
+
+func (t *Tuner) filterRepeatedLLMPrescriptions(
+	ctx context.Context,
+	c candidate,
+	planJSON string,
+	contextKey string,
+	prescriptions []Prescription,
+) []Prescription {
+	var kept []Prescription
+	for _, p := range prescriptions {
+		key := llmPrescriptionFingerprint(c, planJSON, p)
+		if t.llmPrescriptionCooldown[key] > 0 ||
+			t.llmSuppressionActive(ctx, key) {
+			t.logFn("tuner",
+				"suppressing repeated LLM prescription for queryid %d",
+				c.QueryID)
+			t.recordLLMSuppression(ctx, c, contextKey, key,
+				"duplicate_prescription",
+				"same LLM prescription is still cooling down")
+			continue
+		}
+		t.llmPrescriptionCooldown[key] = t.cooldownCycles()
+		t.recordLLMSuppression(ctx, c, contextKey, key,
+			"accepted", "accepted LLM prescription cooldown")
+		kept = append(kept, p)
+	}
+	return kept
+}
+
+func llmContextFingerprint(
+	c candidate,
+	planJSON string,
+	symptoms []PlanSymptom,
+	fallbackHint string,
+) string {
+	parts := []string{
+		fmt.Sprintf("%d", c.QueryID),
+		normalizeFingerprintText(c.Query),
+		normalizeFingerprintText(planJSON),
+		normalizeFingerprintText(fallbackHint),
+	}
+	for _, s := range symptoms {
+		parts = append(parts, normalizeFingerprintText(string(s.Kind)))
+		parts = append(parts, normalizeFingerprintText(s.RelationName))
+		parts = append(parts, normalizeFingerprintText(s.Schema))
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
+	return hex.EncodeToString(sum[:])
+}
+
+func llmPrescriptionFingerprint(
+	c candidate,
+	planJSON string,
+	p Prescription,
+) string {
+	normalized := strings.Join([]string{
+		fmt.Sprintf("%d", c.QueryID),
+		normalizeFingerprintText(c.Query),
+		normalizeFingerprintText(planJSON),
+		normalizeFingerprintText(p.HintDirective),
+		normalizeFingerprintText(p.SuggestedRewrite),
+	}, "\n")
+	sum := sha256.Sum256([]byte(normalized))
+	return hex.EncodeToString(sum[:])
+}
+
+func normalizeFingerprintText(s string) string {
+	return strings.Join(strings.Fields(strings.ToLower(s)), " ")
+}
+
+const llmSuppressionCategory = "query_tuning"
+const llmSuppressionStatus = "suppressed"
+
+type llmSuppressionDetail struct {
+	QueryID                    int64  `json:"queryid"`
+	Query                      string `json:"query"`
+	LLMContextFingerprint      string `json:"llm_context_fingerprint"`
+	LLMPrescriptionFingerprint string `json:"llm_prescription_fingerprint"`
+	LLMOutcome                 string `json:"llm_outcome"`
+	Reason                     string `json:"reason"`
+}
+
+func (t *Tuner) llmSuppressionActive(
+	ctx context.Context,
+	fingerprint string,
+) bool {
+	if t.pool == nil || fingerprint == "" {
+		return false
+	}
+	var active bool
+	err := t.pool.QueryRow(ctx,
+		`SELECT EXISTS (
+		    SELECT 1 FROM sage.findings
+		     WHERE category = $1
+		       AND status = $2
+		       AND suppressed_until > now()
+		       AND (
+		           detail->>'llm_context_fingerprint' = $3
+		           OR detail->>'llm_prescription_fingerprint' = $3
+		       )
+		)`,
+		llmSuppressionCategory, llmSuppressionStatus, fingerprint,
+	).Scan(&active)
+	if err != nil {
+		t.logFn("WARN", "tuner: check LLM suppression: %v", err)
+		return false
+	}
+	return active
+}
+
+func (t *Tuner) recordLLMSuppression(
+	ctx context.Context,
+	c candidate,
+	contextKey string,
+	prescriptionKey string,
+	outcome string,
+	reason string,
+) {
+	if t.pool == nil || contextKey == "" {
+		return
+	}
+	detail := llmSuppressionDetail{
+		QueryID:                    c.QueryID,
+		Query:                      c.Query,
+		LLMContextFingerprint:      contextKey,
+		LLMPrescriptionFingerprint: prescriptionKey,
+		LLMOutcome:                 outcome,
+		Reason:                     reason,
+	}
+	detailJSON, err := json.Marshal(detail)
+	if err != nil {
+		t.logFn("WARN", "tuner: encode LLM suppression: %v", err)
+		return
+	}
+	objectID := "llm_suppression:" + contextKey
+	suppressedUntil := time.Now().UTC().Add(t.llmSuppressionDuration())
+	updated, err := t.updateLLMSuppression(
+		ctx, objectID, detailJSON, outcome, suppressedUntil)
+	if err != nil {
+		t.logFn("WARN", "tuner: update LLM suppression: %v", err)
+		return
+	}
+	if updated {
+		return
+	}
+	if err := t.insertLLMSuppression(
+		ctx, objectID, detailJSON, outcome, suppressedUntil); err != nil {
+		t.logFn("WARN", "tuner: insert LLM suppression: %v", err)
+	}
+}
+
+func (t *Tuner) updateLLMSuppression(
+	ctx context.Context,
+	objectID string,
+	detailJSON []byte,
+	outcome string,
+	suppressedUntil time.Time,
+) (bool, error) {
+	tag, err := t.pool.Exec(ctx,
+		`UPDATE sage.findings
+		    SET last_seen = now(),
+		        detail = $3,
+		        recommendation = $4,
+		        suppressed_until = $5
+		  WHERE category = $1
+		    AND object_identifier = $2
+		    AND status = 'suppressed'`,
+		llmSuppressionCategory, objectID, detailJSON,
+		"LLM tuner attempt suppressed: "+outcome, suppressedUntil,
+	)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+func (t *Tuner) insertLLMSuppression(
+	ctx context.Context,
+	objectID string,
+	detailJSON []byte,
+	outcome string,
+	suppressedUntil time.Time,
+) error {
+	_, err := t.pool.Exec(ctx,
+		`INSERT INTO sage.findings
+		    (category, severity, object_type, object_identifier,
+		     title, detail, recommendation, status, suppressed_until)
+		 VALUES ($1, 'info', 'query', $2, $3, $4, $5, $6, $7)`,
+		llmSuppressionCategory, objectID,
+		"Suppressed repeated LLM tuner attempt",
+		detailJSON, "LLM tuner attempt suppressed: "+outcome,
+		llmSuppressionStatus, suppressedUntil,
+	)
+	return err
+}
+
+func (t *Tuner) llmSuppressionDuration() time.Duration {
+	return time.Duration(t.cooldownCycles()) * time.Hour
 }
 
 func (t *Tuner) gatherSymptoms(

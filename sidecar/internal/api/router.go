@@ -226,6 +226,9 @@ func registerAPIRoutes(
 		"GET /api/v1/fleet/health",
 		fleetHealthHandler(mgr))
 	mux.HandleFunc(
+		"GET /api/v1/fleet/readiness",
+		fleetReadinessHandler(mgr))
+	mux.HandleFunc(
 		"GET /api/v1/config", configGetHandler(mgr, cfg))
 
 	configPutH := adminOnly(http.HandlerFunc(
@@ -424,7 +427,7 @@ func registerActionRoutes(
 			"GET /api/v1/actions/pending/count", countH)
 	} else {
 		pendingH := operatorUp(http.HandlerFunc(
-			pendingActionsHandler(deps.Store)))
+			pendingActionsHandler(deps.Store, deps.Executor)))
 		mux.Handle(
 			"GET /api/v1/actions/pending", pendingH)
 		countH := operatorUp(http.HandlerFunc(

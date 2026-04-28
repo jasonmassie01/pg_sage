@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -16,6 +18,7 @@ import (
 // pendingActionsHandler returns pending approval queue items.
 func pendingActionsHandler(
 	as *store.ActionStore,
+	exec *executor.Executor,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var dbID *int
@@ -34,7 +37,7 @@ func pendingActionsHandler(
 
 		result := make([]map[string]any, 0, len(actions))
 		for _, a := range actions {
-			result = append(result, queuedActionMap(a))
+			result = append(result, queuedActionMapWithReadiness(a, exec))
 		}
 		jsonResponse(w, map[string]any{
 			"pending": result,
@@ -89,7 +92,7 @@ func fleetPendingActionsHandler(
 				continue
 			}
 			for _, a := range actions {
-				m := queuedActionMap(a)
+				m := queuedActionMapWithReadiness(a, inst.Executor)
 				m["database_name"] = inst.Name
 				allResult = append(allResult, m)
 			}
@@ -175,7 +178,7 @@ func findingPendingActionsHandler(
 					continue
 				}
 				for _, a := range actions {
-					m := queuedActionMap(a)
+					m := queuedActionMapWithReadiness(a, inst.Executor)
 					m["database_name"] = inst.Name
 					result = append(result, m)
 				}
@@ -192,7 +195,8 @@ func findingPendingActionsHandler(
 				return
 			}
 			for _, a := range actions {
-				result = append(result, queuedActionMap(a))
+				result = append(result,
+					queuedActionMapWithReadiness(a, deps.Executor))
 			}
 		}
 		jsonResponse(w, map[string]any{
@@ -217,7 +221,16 @@ func fleetApproveActionHandler(
 			return
 		}
 		as := store.NewActionStore(inst.Pool)
-		action, err := as.Approve(r.Context(), id, user.ID)
+		action, err := as.GetByID(r.Context(), id)
+		if err != nil {
+			jsonError(w, "failed to approve action",
+				http.StatusNotFound)
+			return
+		}
+		if !approvalReady(r.Context(), w, as, inst.Executor, *action) {
+			return
+		}
+		action, err = as.Approve(r.Context(), id, user.ID)
 		if err != nil {
 			jsonError(w, "failed to approve action",
 				http.StatusNotFound)
@@ -229,12 +242,15 @@ func fleetApproveActionHandler(
 			action.RollbackSQL, &approvedBy,
 		)
 		if execErr != nil {
+			recordApproveExecutionFailure(
+				r.Context(), as, id, execErr.Error(),
+			)
 			jsonResponse(w, map[string]any{
 				"ok":       false,
 				"queue_id": id,
 				"database": inst.Name,
 				"error":    execErr.Error(),
-				"status":   "approved",
+				"status":   "failed",
 				"executed": false,
 			})
 			return
@@ -243,6 +259,9 @@ func fleetApproveActionHandler(
 		if action.RollbackSQL != "" {
 			verificationStatus = "monitoring"
 		}
+		recordApproveExecutionSuccess(
+			r.Context(), as, id, actionLogID, verificationStatus,
+		)
 		jsonResponse(w, map[string]any{
 			"ok":                  true,
 			"queue_id":            id,
@@ -316,7 +335,18 @@ func approveActionHandler(
 			return
 		}
 
-		action, err := as.Approve(r.Context(), id, user.ID)
+		action, err := as.GetByID(r.Context(), id)
+		if err != nil {
+			slog.Error("approve action failed",
+				"action_id", id, "error", err)
+			jsonError(w, "failed to approve action",
+				http.StatusNotFound)
+			return
+		}
+		if !approvalReady(r.Context(), w, as, exec, *action) {
+			return
+		}
+		action, err = as.Approve(r.Context(), id, user.ID)
 		if err != nil {
 			slog.Error("approve action failed",
 				"action_id", id, "error", err)
@@ -333,11 +363,14 @@ func approveActionHandler(
 		)
 
 		if execErr != nil {
+			recordApproveExecutionFailure(
+				r.Context(), as, id, execErr.Error(),
+			)
 			jsonResponse(w, map[string]any{
 				"ok":       false,
 				"queue_id": id,
 				"error":    execErr.Error(),
-				"status":   "approved",
+				"status":   "failed",
 				"executed": false,
 			})
 			return
@@ -347,6 +380,9 @@ func approveActionHandler(
 		if action.RollbackSQL != "" {
 			verificationStatus = "monitoring"
 		}
+		recordApproveExecutionSuccess(
+			r.Context(), as, id, actionLogID, verificationStatus,
+		)
 		jsonResponse(w, map[string]any{
 			"ok":                  true,
 			"queue_id":            id,
@@ -404,6 +440,79 @@ func rejectActionHandler(
 			"queue_id": id,
 			"status":   "rejected",
 		})
+	}
+}
+
+func recordApproveExecutionFailure(
+	ctx context.Context,
+	as *store.ActionStore,
+	queueID int,
+	reason string,
+) {
+	if as == nil {
+		return
+	}
+	_ = as.MarkAttemptFailed(ctx, queueID, reason, time.Hour)
+}
+
+func recordApproveExecutionSuccess(
+	ctx context.Context,
+	as *store.ActionStore,
+	queueID int,
+	actionLogID int64,
+	verificationStatus string,
+) {
+	if as == nil || actionLogID <= 0 {
+		return
+	}
+	_ = as.MarkExecuted(ctx, queueID, actionLogID, verificationStatus)
+}
+
+func approvalReady(
+	ctx context.Context,
+	w http.ResponseWriter,
+	as *store.ActionStore,
+	exec *executor.Executor,
+	action store.QueuedAction,
+) bool {
+	if exec == nil {
+		return true
+	}
+	evidencePresent := true
+	if as != nil {
+		present, err := as.FindingEvidencePresent(ctx, action.FindingID)
+		if err == nil {
+			evidencePresent = present
+		}
+	}
+	readiness := exec.ApprovalReadinessWithEvidence(
+		action, time.Now().UTC(), evidencePresent)
+	if readiness.Eligible {
+		return true
+	}
+	reason := strings.TrimSpace(readiness.DeferReason)
+	if reason == "" {
+		reason = "action is not eligible for approval"
+	}
+	if as != nil {
+		_ = as.MarkReadinessOutcome(
+			ctx, action.ID, readinessOutcomeStatus(readiness), reason)
+	}
+	jsonError(w, "action is not eligible: "+reason,
+		http.StatusConflict)
+	return false
+}
+
+func readinessOutcomeStatus(
+	readiness executor.ApprovalReadiness,
+) string {
+	switch readiness.Lifecycle.State {
+	case store.ActionLifecycleExpired:
+		return "expired"
+	case store.ActionLifecycleResolvedEphemeral:
+		return "resolved_ephemeral"
+	default:
+		return "blocked"
 	}
 }
 
@@ -644,7 +753,106 @@ func queuedActionMap(a store.QueuedAction) map[string]any {
 		"expires_at":   a.ExpiresAt,
 		"reason":       a.Reason,
 	}
+	addLifecycleFields(m, a)
 	return m
+}
+
+func queuedActionMapWithReadiness(
+	a store.QueuedAction,
+	exec *executor.Executor,
+) map[string]any {
+	m := queuedActionMap(a)
+	if exec == nil {
+		return m
+	}
+	readiness := exec.ApprovalReadiness(a, time.Now().UTC())
+	m["eligible"] = readiness.Eligible
+	if readiness.DeferReason != "" {
+		m["defer_reason"] = readiness.DeferReason
+		m["blocked_reason"] = readiness.DeferReason
+	}
+	if readiness.PolicyKnown {
+		m["policy_detail"] = readiness.Policy
+	}
+	if contract, ok := executor.ContractForQueuedAction(a); ok {
+		m["rollback_class"] = contract.RollbackClass
+	}
+	m["lifecycle_detail"] = readiness.Lifecycle
+	return m
+}
+
+func addLifecycleFields(m map[string]any, a store.QueuedAction) {
+	if a.ActionType != "" {
+		m["action_type"] = a.ActionType
+	}
+	if a.IdentityKey != "" {
+		m["identity_key"] = a.IdentityKey
+	}
+	if a.PolicyDecision != "" {
+		m["policy_decision"] = a.PolicyDecision
+	}
+	if len(a.Guardrails) > 0 {
+		m["guardrails"] = a.Guardrails
+	}
+	if a.AttemptCount > 0 {
+		m["attempt_count"] = a.AttemptCount
+	}
+	if a.LastAttemptAt != nil {
+		m["last_attempt_at"] = a.LastAttemptAt
+	}
+	if a.CooldownUntil != nil {
+		m["cooldown_until"] = a.CooldownUntil
+	}
+	if a.FailureFingerprint != "" {
+		m["failure_fingerprint"] = a.FailureFingerprint
+	}
+	if a.LastFailureFingerprint != "" {
+		m["last_failure_fingerprint"] = a.LastFailureFingerprint
+	}
+	if a.VerificationStatus != "" {
+		m["verification_status"] = a.VerificationStatus
+	}
+	if a.ShadowToilMinutes > 0 {
+		m["shadow_toil_minutes"] = a.ShadowToilMinutes
+	}
+	if a.ActionLogID != nil {
+		m["action_log_id"] = *a.ActionLogID
+	}
+	if script := actionScriptOutput(a); script != nil {
+		m["output_modes"] = []string{"queue_for_approval", "generate_pr_or_script"}
+		m["script_output"] = script
+	}
+}
+
+func actionScriptOutput(a store.QueuedAction) map[string]any {
+	if !isDDLScriptAction(a) || strings.TrimSpace(a.ProposedSQL) == "" {
+		return nil
+	}
+	actionType := strings.TrimSpace(a.ActionType)
+	if actionType == "" {
+		actionType = "ddl_action"
+	}
+	return map[string]any{
+		"filename":      strconv.Itoa(a.FindingID) + "_" + actionType + ".sql",
+		"migration_sql": a.ProposedSQL,
+		"rollback_sql":  a.RollbackSQL,
+		"format":        "sql",
+	}
+}
+
+func isDDLScriptAction(a store.QueuedAction) bool {
+	actionType := strings.ToLower(strings.TrimSpace(a.ActionType))
+	if strings.Contains(actionType, "index") ||
+		strings.Contains(actionType, "ddl") ||
+		strings.Contains(actionType, "alter") ||
+		strings.Contains(actionType, "reindex") {
+		return true
+	}
+	sql := strings.ToUpper(strings.TrimSpace(a.ProposedSQL))
+	return strings.HasPrefix(sql, "CREATE ") ||
+		strings.HasPrefix(sql, "ALTER ") ||
+		strings.HasPrefix(sql, "DROP ") ||
+		strings.HasPrefix(sql, "REINDEX ")
 }
 
 func actionTimelineMap(row map[string]any) map[string]any {
@@ -665,6 +873,13 @@ func actionTimelineMap(row map[string]any) map[string]any {
 		"executed_at",
 		"verified_at",
 		"expires_at",
+		"lifecycle_state",
+		"blocked_reason",
+		"attempt_count",
+		"cooldown_until",
+		"policy_decision",
+		"guardrails",
+		"shadow_toil_minutes",
 	} {
 		if v, ok := row[key]; ok {
 			out[key] = v

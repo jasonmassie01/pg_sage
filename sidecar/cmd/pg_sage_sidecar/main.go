@@ -671,6 +671,8 @@ func initStandalone() {
 		migDetector := migration.NewDetector(
 			pool, migAdvisor, &cfg.Migration,
 			logStructuredWrapper,
+		).WithFindingSink(
+			store.NewMigrationSafetyFindingStore(pool),
 		)
 		go migDetector.Run(shutdownCtx)
 		logInfo("startup", "migration advisor enabled, poll=%ds",
@@ -794,8 +796,13 @@ func initFleetAndAPI() {
 			Status: &fleet.InstanceStatus{
 				Connected:  true,
 				PGVersion:  pgVersionString(cfg.PGVersionNum),
+				Platform:   cloudEnvironment,
 				TrustLevel: cfg.Trust.Level,
 				LastSeen:   time.Now(),
+				Capabilities: fleet.CollectProviderCapabilities(
+					context.Background(), pool, cfg, cloudEnvironment,
+					dbCfg.ExecutionMode, false, time.Now().UTC(),
+				),
 			},
 		}
 		fleetMgr.RegisterInstance(inst)
@@ -1144,8 +1151,10 @@ func initFleetMultiDB() {
 		// silently defaulting to now().
 		rStart, _ := schema.PersistTrustRampStart(
 			context.Background(), dbPool, configRampStart)
+		dbExecCfg := config.Clone(cfg)
+		dbExecCfg.CloudEnvironment = dbCloudEnv
 		dbExec := executor.New(
-			dbPool, cfg, dbAnal, rStart,
+			dbPool, dbExecCfg, dbAnal, rStart,
 			logStructuredWrapper)
 		dbExec.WithAnalyzeSemaphore(analyzeSem)
 		dbActionStore := store.NewActionStore(dbPool)
@@ -1199,6 +1208,8 @@ func initFleetMultiDB() {
 			dbDetector := migration.NewDetector(
 				dbPool, dbAdvisor, &cfg.Migration,
 				logStructuredWrapper,
+			).WithFindingSink(
+				store.NewMigrationSafetyFindingStore(dbPool),
 			)
 			go dbDetector.Run(instCtx)
 		}
@@ -1213,9 +1224,14 @@ func initFleetMultiDB() {
 			Cancel:    instCancel,
 			Status: &fleet.InstanceStatus{
 				Connected:    true,
+				Platform:     dbCloudEnv,
 				TrustLevel:   dbCfg.TrustLevel,
 				DatabaseName: name,
 				LastSeen:     time.Now(),
+				Capabilities: fleet.CollectProviderCapabilities(
+					instCtx, dbPool, cfg, dbCloudEnv,
+					dbCfg.ExecutionMode, false, time.Now().UTC(),
+				),
 			},
 		}
 		fleetMgr.RegisterInstance(inst)

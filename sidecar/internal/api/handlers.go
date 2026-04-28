@@ -486,7 +486,7 @@ func actionsListHandler(
 			})
 			return
 		}
-		actions, total, err := queryActions(
+		actions, total, err := queryActionsWithQueueLedger(
 			r.Context(), pool, limit, offset, from, to,
 		)
 		if err != nil {
@@ -1686,6 +1686,70 @@ func queryActions(
 	return actions, total, nil
 }
 
+func queryActionsWithQueueLedger(
+	ctx context.Context, pool *pgxpool.Pool,
+	limit, offset int, from, to time.Time,
+) ([]map[string]any, int, error) {
+	executed, total, err := queryActions(ctx, pool, limit, offset, from, to)
+	if err != nil {
+		return nil, 0, err
+	}
+	queued, qTotal, err := queryQueuedActionLedger(ctx, pool, limit, from, to)
+	if err != nil {
+		return nil, 0, err
+	}
+	merged := append(executed, queued...)
+	sort.SliceStable(merged, func(i, j int) bool {
+		return timeFromMap(merged[i], "event_at").After(
+			timeFromMap(merged[j], "event_at"))
+	})
+	if len(merged) > limit {
+		merged = merged[:limit]
+	}
+	return merged, total + qTotal, nil
+}
+
+func queryQueuedActionLedger(
+	ctx context.Context, pool *pgxpool.Pool,
+	limit int, from, to time.Time,
+) ([]map[string]any, int, error) {
+	where, args := buildQueuedActionsLedgerWhere(from, to)
+	countQ := "SELECT COUNT(*) FROM sage.action_queue q" + where
+	var total int
+	if err := pool.QueryRow(ctx, countQ, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count queued action ledger: %w", err)
+	}
+	selectQ := queuedActionLedgerSQL + where +
+		fmt.Sprintf(" ORDER BY q.proposed_at DESC LIMIT $%d", len(args)+1)
+	args = append(args, limit)
+	rows, err := pool.Query(ctx, selectQ, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query queued action ledger: %w", err)
+	}
+	defer rows.Close()
+	actions, err := scanQueuedActionLedgerRows(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	return actions, total, nil
+}
+
+func buildQueuedActionsLedgerWhere(from, to time.Time) (string, []any) {
+	where := " WHERE q.status <> 'executed'"
+	var args []any
+	n := 1
+	if !from.IsZero() {
+		where += fmt.Sprintf(" AND q.proposed_at >= $%d", n)
+		args = append(args, from)
+		n++
+	}
+	if !to.IsZero() {
+		where += fmt.Sprintf(" AND q.proposed_at <= $%d", n)
+		args = append(args, to)
+	}
+	return where, args
+}
+
 func queryActionsAcrossPools(
 	ctx context.Context, mgr *fleet.DatabaseManager,
 	limit, offset int, from, to time.Time,
@@ -1702,7 +1766,7 @@ func queryActionsAcrossPools(
 		perDBLimit = limit
 	}
 	for _, selected := range pools {
-		actions, dbTotal, err := queryActions(
+		actions, dbTotal, err := queryActionsWithQueueLedger(
 			ctx, selected.pool, perDBLimit, 0, from, to)
 		if err != nil {
 			return nil, 0, fmt.Errorf(
@@ -1761,6 +1825,15 @@ const actionsSelectSQLPrefix = `SELECT id, executed_at,
  before_state, after_state, outcome, rollback_reason,
  measured_at FROM sage.action_log`
 
+const queuedActionLedgerSQL = `SELECT q.id, q.finding_id,
+ COALESCE(q.action_type, ''), q.proposed_sql, q.rollback_sql,
+ q.action_risk, q.status, q.proposed_at, q.expires_at,
+ COALESCE(q.reason, ''), COALESCE(q.policy_decision, ''),
+ COALESCE(q.guardrails, '[]'::jsonb), COALESCE(q.attempt_count, 0),
+ q.cooldown_until, COALESCE(q.verification_status, ''),
+ COALESCE(q.shadow_toil_minutes, 0)
+ FROM sage.action_queue q`
+
 func scanActionRows(rows pgx.Rows) ([]map[string]any, error) {
 	var results []map[string]any
 	for rows.Next() {
@@ -1799,6 +1872,84 @@ func scanActionRows(rows pgx.Rows) ([]map[string]any, error) {
 	return results, nil
 }
 
+func scanQueuedActionLedgerRows(rows pgx.Rows) ([]map[string]any, error) {
+	var results []map[string]any
+	for rows.Next() {
+		action, err := scanQueuedActionLedgerRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, action)
+	}
+	if results == nil {
+		results = []map[string]any{}
+	}
+	return results, nil
+}
+
+func scanQueuedActionLedgerRow(rows pgx.Rows) (map[string]any, error) {
+	var id, findingID int
+	var actionType, sql, risk, status, reason, policy, verification string
+	var rollback *string
+	var proposedAt, expiresAt time.Time
+	var guardrails []byte
+	var attemptCount, shadowToil int
+	var cooldownUntil *time.Time
+	err := rows.Scan(&id, &findingID, &actionType, &sql, &rollback,
+		&risk, &status, &proposedAt, &expiresAt, &reason, &policy,
+		&guardrails, &attemptCount, &cooldownUntil, &verification,
+		&shadowToil)
+	if err != nil {
+		return nil, fmt.Errorf("scan queued action ledger: %w", err)
+	}
+	if actionType == "" {
+		actionType = "queued_action"
+	}
+	return buildQueuedActionLedgerMap(id, findingID, actionType, sql,
+		rollback, risk, status, proposedAt, expiresAt, reason, policy,
+		decodeStringSlice(guardrails), attemptCount, cooldownUntil,
+		verification, shadowToil), nil
+}
+
+func buildQueuedActionLedgerMap(
+	id, findingID int, actionType, sql string, rollback *string,
+	risk, status string, proposedAt, expiresAt time.Time,
+	reason, policy string, guardrails []string, attemptCount int,
+	cooldownUntil *time.Time, verification string, shadowToil int,
+) map[string]any {
+	return map[string]any{
+		"id":                  strconv.Itoa(id),
+		"finding_id":          strconv.Itoa(findingID),
+		"action_type":         actionType,
+		"sql_executed":        sql,
+		"rollback_sql":        derefStr(rollback),
+		"outcome":             status,
+		"status":              status,
+		"action_risk":         risk,
+		"executed_at":         proposedAt,
+		"event_at":            proposedAt,
+		"expires_at":          expiresAt,
+		"rollback_reason":     reason,
+		"policy_decision":     policy,
+		"guardrails":          guardrails,
+		"attempt_count":       attemptCount,
+		"cooldown_until":      cooldownUntil,
+		"verification_status": verification,
+		"shadow_toil_minutes": shadowToil,
+	}
+}
+
+func decodeStringSlice(data []byte) []string {
+	if len(data) == 0 {
+		return nil
+	}
+	var values []string
+	if err := json.Unmarshal(data, &values); err != nil {
+		return nil
+	}
+	return values
+}
+
 func buildActionMap(
 	id int64, executedAt time.Time, actionType string,
 	findingID *int64, sqlExecuted string,
@@ -1821,6 +1972,7 @@ func buildActionMap(
 	return map[string]any{
 		"id":              strconv.FormatInt(id, 10),
 		"executed_at":     executedAt,
+		"event_at":        executedAt,
 		"action_type":     actionType,
 		"finding_id":      fID,
 		"sql_executed":    sqlExecuted,

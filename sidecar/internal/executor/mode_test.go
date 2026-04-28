@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/store"
 )
 
 // mockProposer records Propose calls for testing.
@@ -26,6 +28,7 @@ type proposeCall struct {
 	findingID int
 	sql       string
 	risk      string
+	metadata  store.ActionProposalMetadata
 }
 
 func (m *mockProposer) Propose(
@@ -36,6 +39,20 @@ func (m *mockProposer) Propose(
 		findingID: findingID,
 		sql:       sql,
 		risk:      risk,
+	})
+	return len(m.calls), nil
+}
+
+func (m *mockProposer) ProposeWithMetadata(
+	_ context.Context, _ *int,
+	findingID int, sql, rollbackSQL, risk string,
+	metadata store.ActionProposalMetadata,
+) (int, error) {
+	m.calls = append(m.calls, proposeCall{
+		findingID: findingID,
+		sql:       sql,
+		risk:      risk,
+		metadata:  metadata,
 	})
 	return len(m.calls), nil
 }
@@ -153,5 +170,104 @@ func TestNilActionStore_AutoModeBehavior(t *testing.T) {
 
 	if e.actionStore != nil {
 		t.Error("actionStore should be nil for auto mode default")
+	}
+}
+
+func TestBuildApprovalProposalMetadata_PopulatesDeterministicFields(
+	t *testing.T,
+) {
+	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
+	finding := testFindingForProposalMetadata()
+	cfg := &config.Config{
+		Trust: config.TrustConfig{Level: "advisory"},
+	}
+	e := &Executor{
+		cfg:                cfg,
+		execMode:           "approval",
+		rampStart:          now.Add(-30 * 24 * time.Hour),
+		recentActions:      make(map[string]time.Time),
+		databaseName:       "primary",
+		analyzeSem:         make(chan struct{}, 1),
+		actionStore:        &mockProposer{},
+		ddlSem:             make(chan struct{}, 1),
+		shutdownCh:         make(chan struct{}),
+		shuttingDown:       false,
+		trustLevelOverride: "",
+	}
+
+	got := e.buildApprovalProposalMetadata(finding, now)
+
+	if got.ActionType != "analyze_table" {
+		t.Fatalf("ActionType = %q, want analyze_table", got.ActionType)
+	}
+	if got.IdentityKey != "stale_stats:public.orders:analyze_table" {
+		t.Fatalf("IdentityKey = %q", got.IdentityKey)
+	}
+	if got.PolicyDecision != PolicyDecisionQueueApproval {
+		t.Fatalf("PolicyDecision = %q, want queue_for_approval",
+			got.PolicyDecision)
+	}
+	if got.VerificationStatus != "not_started" {
+		t.Fatalf("VerificationStatus = %q, want not_started",
+			got.VerificationStatus)
+	}
+	if got.ShadowToilMinutes != 15 {
+		t.Fatalf("ShadowToilMinutes = %d, want 15",
+			got.ShadowToilMinutes)
+	}
+	if got.ExpiresAt == nil || !got.ExpiresAt.Equal(now.Add(24*time.Hour)) {
+		t.Fatalf("ExpiresAt = %v, want 24h after now", got.ExpiresAt)
+	}
+	if len(got.Guardrails) == 0 ||
+		got.Guardrails[0] != "dedicated connection" {
+		t.Fatalf("Guardrails = %#v, want analyze guardrails",
+			got.Guardrails)
+	}
+}
+
+func TestProposeForApproval_UsesMetadataStore(t *testing.T) {
+	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
+	finding := testFindingForProposalMetadata()
+	mp := &mockProposer{}
+	e := &Executor{
+		cfg:           &config.Config{Trust: config.TrustConfig{Level: "advisory"}},
+		execMode:      "approval",
+		rampStart:     now.Add(-30 * 24 * time.Hour),
+		recentActions: make(map[string]time.Time),
+		actionStore:   mp,
+		analyzeSem:    make(chan struct{}, 1),
+	}
+
+	id, err := e.proposeForApproval(context.Background(), 42, finding)
+	if err != nil {
+		t.Fatalf("proposeForApproval returned error: %v", err)
+	}
+	if id != 1 {
+		t.Fatalf("id = %d, want 1", id)
+	}
+	if len(mp.calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(mp.calls))
+	}
+	got := mp.calls[0].metadata
+	if got.ActionType != "analyze_table" {
+		t.Fatalf("metadata.ActionType = %q, want analyze_table",
+			got.ActionType)
+	}
+	if got.PolicyDecision != PolicyDecisionQueueApproval {
+		t.Fatalf("metadata.PolicyDecision = %q, want queue_for_approval",
+			got.PolicyDecision)
+	}
+	if got.IdentityKey == "" || len(got.Guardrails) == 0 {
+		t.Fatalf("metadata missing identity or guardrails: %#v", got)
+	}
+}
+
+func testFindingForProposalMetadata() analyzer.Finding {
+	return analyzer.Finding{
+		Category:         "stale_stats",
+		ObjectIdentifier: "public.orders",
+		RecommendedSQL:   "ANALYZE public.orders",
+		ActionRisk:       "safe",
+		Title:            "stale stats",
 	}
 }

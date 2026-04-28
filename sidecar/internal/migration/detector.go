@@ -18,6 +18,7 @@ type Detector struct {
 	cfg          *config.MigrationConfig
 	logFn        func(string, string, ...any)
 	knownQueries map[int]string // pid -> last seen query
+	findingSink  FindingSink
 }
 
 // NewDetector creates a Detector for activity-based DDL detection.
@@ -34,6 +35,11 @@ func NewDetector(
 		logFn:        logFn,
 		knownQueries: make(map[int]string),
 	}
+}
+
+func (d *Detector) WithFindingSink(sink FindingSink) *Detector {
+	d.findingSink = sink
+	return d
 }
 
 const ddlActivitySQL = `
@@ -81,6 +87,7 @@ func (d *Detector) PollOnce(
 		}
 		if inc != nil {
 			incidents = append(incidents, inc)
+			d.persistFinding(ctx, pid, query, inc)
 		}
 	}
 
@@ -88,6 +95,25 @@ func (d *Detector) PollOnce(
 	d.pruneStale(currentPIDs)
 
 	return incidents, rows.Err()
+}
+
+func (d *Detector) persistFinding(
+	ctx context.Context,
+	pid int,
+	query string,
+	inc *rca.Incident,
+) {
+	if d.findingSink == nil {
+		return
+	}
+	finding, ok := FindingFromIncident(pid, query, inc)
+	if !ok {
+		return
+	}
+	if _, err := d.findingSink.UpsertMigrationSafetyFinding(
+		ctx, finding); err != nil {
+		d.logFn("warn", "migration: persist finding failed: %v", err)
+	}
 }
 
 // pruneStale removes entries for PIDs that are no longer active.

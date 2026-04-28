@@ -1197,6 +1197,52 @@ func TestPhase2_ActionsListHandler_RealDB(t *testing.T) {
 	}
 }
 
+func TestActionsListHandler_IncludesExpiredQueueLedger(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	findingID := insertActionHandlerFinding(t, pool, ctx, "public.orders")
+	_, err := pool.Exec(ctx,
+		`INSERT INTO sage.action_queue
+		 (finding_id, proposed_sql, action_risk, status, reason,
+		  action_type, expires_at)
+		 VALUES ($1, 'ANALYZE public.orders', 'safe', 'expired',
+		  'action proposal expired', 'analyze_table', now() - interval '1 hour')`,
+		findingID)
+	if err != nil {
+		t.Fatalf("insert action queue: %v", err)
+	}
+
+	mgr := phase2MgrWithPool(pool)
+	handler := actionsListHandler(mgr)
+	req := httptest.NewRequest(
+		"GET", "/api/v1/actions?database=testdb", nil)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d, body: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["total"].(float64) != 1 {
+		t.Fatalf("total = %v, want 1", resp["total"])
+	}
+	actions := resp["actions"].([]any)
+	action := actions[0].(map[string]any)
+	if action["outcome"] != "expired" {
+		t.Fatalf("outcome = %v, want expired", action["outcome"])
+	}
+	if action["rollback_reason"] != "action proposal expired" {
+		t.Fatalf("rollback_reason = %v", action["rollback_reason"])
+	}
+	if action["sql_executed"] != "ANALYZE public.orders" {
+		t.Fatalf("sql_executed = %v", action["sql_executed"])
+	}
+}
+
 func TestPhase2_ActionDetailHandler_RealDB(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)

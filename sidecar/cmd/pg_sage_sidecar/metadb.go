@@ -351,6 +351,7 @@ func bootstrapAndRegister(
 	schema.ReleaseAdvisoryLock(ctx, dbPool)
 
 	dbPGVersion := detectPGVersion(dbPool)
+	dbCloudEnv := detectCloudEnv(dbPool)
 
 	// Derive a per-instance context from the process shutdownCtx so
 	// that RemoveInstance can cancel the collector, analyzer, and
@@ -385,9 +386,10 @@ func bootstrapAndRegister(
 	)
 	go dbAnal.Run(instCtx)
 
-	dbExec := buildExecutor(rec, dbPool, dbAnal)
+	dbExec := buildExecutor(rec, dbPool, dbAnal, dbCloudEnv)
 
-	registerHealthyInstance(rec, dbPool, dbColl, dbAnal, dbExec, instCancel)
+	registerHealthyInstance(
+		rec, dbPool, dbColl, dbAnal, dbExec, instCancel, dbCloudEnv)
 
 	// Populate findings immediately then start orchestrator.
 	if inst := fleetMgr.GetInstance(rec.Name); inst != nil {
@@ -502,6 +504,7 @@ func detectPGVersion(p *pgxpool.Pool) int {
 func buildExecutor(
 	rec store.DatabaseRecord,
 	dbPool *pgxpool.Pool, dbAnal *analyzer.Analyzer,
+	provider string,
 ) *executor.Executor {
 	ctx := context.Background()
 	// Honour the YAML-configured trust.ramp_start on first bootstrap
@@ -510,8 +513,10 @@ func buildExecutor(
 	rStart, _ := schema.PersistTrustRampStart(
 		ctx, dbPool, configRampStart,
 	)
+	dbExecCfg := config.Clone(cfg)
+	dbExecCfg.CloudEnvironment = provider
 	dbExec := executor.New(
-		dbPool, cfg, dbAnal, rStart, logStructuredWrapper,
+		dbPool, dbExecCfg, dbAnal, rStart, logStructuredWrapper,
 	)
 	dbActionStore := store.NewActionStore(dbPool)
 	dbExec.WithActionStore(dbActionStore, resolveExecMode(rec))
@@ -529,6 +534,7 @@ func registerHealthyInstance(
 	dbColl *collector.Collector, dbAnal *analyzer.Analyzer,
 	dbExec *executor.Executor,
 	cancel context.CancelFunc,
+	provider string,
 ) {
 	dbCfg := storeRecordToDBConfig(rec)
 	inst := &fleet.DatabaseInstance{
@@ -541,9 +547,14 @@ func registerHealthyInstance(
 		Cancel:    cancel,
 		Status: &fleet.InstanceStatus{
 			Connected:    true,
+			Platform:     provider,
 			TrustLevel:   rec.TrustLevel,
 			DatabaseName: rec.Name,
 			LastSeen:     time.Now(),
+			Capabilities: fleet.CollectProviderCapabilities(
+				context.Background(), dbPool, cfg, provider,
+				dbCfg.ExecutionMode, false, time.Now().UTC(),
+			),
 		},
 	}
 	fleetMgr.RegisterInstance(inst)
