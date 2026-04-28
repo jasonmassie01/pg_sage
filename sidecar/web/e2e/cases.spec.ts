@@ -13,6 +13,8 @@ test('Cases page loads and old findings route aliases to cases', async ({ page }
   await expect(page.getByText(/Policy: execute/)).toBeVisible()
   await expect(page.getByText('dedicated connection')).toBeVisible()
   await expect(page.getByText(/Lifecycle: blocked/)).toBeVisible()
+  await expect(page.getByText(/Lifecycle: executed/)).toBeVisible()
+  await expect(page.getByText(/Verification: verified/)).toBeVisible()
   await expect(page.getByLabel('Action timeline')
     .getByText('action is in cooldown')).toBeVisible()
 

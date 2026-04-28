@@ -195,3 +195,39 @@ func TestCaseActionFromQueuedActionIncludesLifecycle(t *testing.T) {
 		t.Fatalf("Guardrails = %#v, want one guardrail", got.Guardrails)
 	}
 }
+
+func TestCaseActionFromActionLogIncludesOutcome(t *testing.T) {
+	executedAt := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
+	measuredAt := executedAt.Add(2 * time.Minute)
+	row := map[string]any{
+		"id":           "88",
+		"action_type":  "analyze",
+		"outcome":      "success",
+		"executed_at":  executedAt,
+		"measured_at":  &measuredAt,
+		"finding_id":   "42",
+		"rollback_sql": "",
+	}
+
+	got := caseActionFromActionLog(row)
+
+	if got.ID != "log:88" {
+		t.Fatalf("ID = %q, want log:88", got.ID)
+	}
+	if got.Type != "analyze" {
+		t.Fatalf("Type = %q, want analyze", got.Type)
+	}
+	if got.Status != "success" {
+		t.Fatalf("Status = %q, want success", got.Status)
+	}
+	if got.LifecycleState != "executed" {
+		t.Fatalf("LifecycleState = %q, want executed", got.LifecycleState)
+	}
+	if got.VerificationStatus != "verified" {
+		t.Fatalf("VerificationStatus = %q, want verified",
+			got.VerificationStatus)
+	}
+	if got.ProposedAt == nil || !got.ProposedAt.Equal(executedAt) {
+		t.Fatalf("ProposedAt = %v, want executed_at", got.ProposedAt)
+	}
+}

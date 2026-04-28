@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/cases"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
@@ -97,7 +98,8 @@ func queryProjectedCases(
 			projected := cases.ProjectFinding(sourceFindingFromMap(row))
 			enrichCaseActionPolicies(&projected, mgr, selected.name)
 			enrichCaseActionTimeline(
-				ctx, &projected, store.NewActionStore(selected.pool),
+				ctx, &projected, selected.pool,
+				store.NewActionStore(selected.pool),
 			)
 			out = append(out, projected)
 		}
@@ -108,22 +110,32 @@ func queryProjectedCases(
 func enrichCaseActionTimeline(
 	ctx context.Context,
 	c *cases.Case,
+	pool *pgxpool.Pool,
 	actionStore *store.ActionStore,
 ) {
-	if actionStore == nil || len(c.SourceIDs) == 0 {
+	if len(c.SourceIDs) == 0 {
 		return
 	}
 	findingID, err := strconv.Atoi(c.SourceIDs[0])
 	if err != nil || findingID <= 0 {
 		return
 	}
-	queued, err := actionStore.ListPendingByFinding(ctx, findingID)
+	if actionStore != nil {
+		queued, err := actionStore.ListPendingByFinding(ctx, findingID)
+		if err == nil {
+			now := time.Now().UTC()
+			for _, action := range queued {
+				c.Actions = append(c.Actions,
+					caseActionFromQueuedAction(action, now))
+			}
+		}
+	}
+	logged, err := queryActionLogsByFinding(ctx, pool, findingID)
 	if err != nil {
 		return
 	}
-	now := time.Now().UTC()
-	for _, action := range queued {
-		c.Actions = append(c.Actions, caseActionFromQueuedAction(action, now))
+	for _, action := range logged {
+		c.Actions = append(c.Actions, caseActionFromActionLog(action))
 	}
 }
 
@@ -165,6 +177,57 @@ func queuedActionType(action store.QueuedAction) string {
 		return action.ActionType
 	}
 	return action.ActionRisk
+}
+
+func queryActionLogsByFinding(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	findingID int,
+) ([]map[string]any, error) {
+	if pool == nil {
+		return []map[string]any{}, nil
+	}
+	rows, err := pool.Query(ctx, actionsSelectSQLPrefix+
+		` WHERE finding_id = $1 ORDER BY executed_at DESC LIMIT 20`,
+		findingID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanActionRows(rows)
+}
+
+func caseActionFromActionLog(row map[string]any) cases.CaseAction {
+	executedAt := timeFromMap(row, "executed_at")
+	action := cases.CaseAction{
+		ID:                 "log:" + stringValue(row["id"]),
+		Type:               stringValue(row["action_type"]),
+		Status:             stringValue(row["outcome"]),
+		LifecycleState:     "executed",
+		VerificationStatus: actionLogVerificationStatus(row),
+		ProposedAt:         &executedAt,
+	}
+	return action
+}
+
+func actionLogVerificationStatus(row map[string]any) string {
+	outcome := stringValue(row["outcome"])
+	if outcome == "success" && row["measured_at"] != nil {
+		return "verified"
+	}
+	if outcome == "pending" || outcome == "monitoring" {
+		return "monitoring"
+	}
+	if outcome == "failed" || outcome == "rollback_failed" {
+		return "failed"
+	}
+	if outcome == "rolled_back" {
+		return "rolled_back"
+	}
+	if outcome == "success" {
+		return "verified"
+	}
+	return "not_started"
 }
 
 func enrichCaseActionPolicies(
