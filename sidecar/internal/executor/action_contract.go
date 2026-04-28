@@ -81,10 +81,24 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return AnalyzeTableContract(), true
 	case "diagnose_lock_blockers":
 		return incidentDiagnoseLockBlockersContract(), true
+	case "diagnose_runaway_query":
+		return incidentDiagnoseRunawayQueryContract(), true
+	case "diagnose_connection_exhaustion":
+		return incidentDiagnoseConnectionExhaustionContract(), true
+	case "diagnose_wal_replication":
+		return incidentDiagnoseWALReplicationContract(), true
+	case "prepare_sequence_capacity_migration":
+		return incidentSequenceCapacityMigrationContract(), true
 	case "cancel_backend":
 		return incidentCancelBackendContract(), true
 	case "terminate_backend":
 		return incidentTerminateBackendContract(), true
+	case "vacuum_table":
+		return vacuumTableContract(), true
+	case "diagnose_freeze_blockers":
+		return diagnoseFreezeBlockersContract(), true
+	case "set_table_autovacuum":
+		return setTableAutovacuumContract(), true
 	case "create_index_concurrently":
 		return ActionContract{
 			ActionType:      actionType,
@@ -237,6 +251,65 @@ func incidentDiagnoseLockBlockersContract() ActionContract {
 	}
 }
 
+func incidentDiagnoseRunawayQueryContract() ActionContract {
+	return diagnosticContract(
+		"diagnose_runaway_query",
+		"read current query age, wait state, temp spill, and text",
+		"confirm query is still active and matches incident evidence",
+	)
+}
+
+func incidentDiagnoseConnectionExhaustionContract() ActionContract {
+	return diagnosticContract(
+		"diagnose_connection_exhaustion",
+		"group pg_stat_activity by role, application, and state",
+		"identify connection pressure source without changing sessions",
+	)
+}
+
+func incidentDiagnoseWALReplicationContract() ActionContract {
+	return diagnosticContract(
+		"diagnose_wal_replication",
+		"read replication lag and slot retention evidence",
+		"identify WAL retention cause without dropping slots",
+	)
+}
+
+func incidentSequenceCapacityMigrationContract() ActionContract {
+	return ActionContract{
+		ActionType:      "prepare_sequence_capacity_migration",
+		BaseRiskTier:    "high",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"read sequence metadata",
+			"submit reviewed migration through version control",
+		},
+		Prechecks: []string{
+			"sequence still approaches max_value",
+			"owning table and column are identified",
+			"forward-fix migration is reviewed",
+		},
+		Guardrails: []string{
+			"direct execution disabled",
+			"generate PR or migration script",
+			"manual review required",
+		},
+		ExecutionPlan: []string{
+			"prepare capacity migration and verification SQL",
+		},
+		SuccessCriteria: []string{
+			"sequence or owning column has sufficient runway",
+		},
+		PostChecks: []string{
+			"verify sequence last_value and max_value",
+			"confirm dependent column type has headroom",
+		},
+		RollbackClass: "forward_fix_only",
+		Cooldown:      "none",
+		AuditFields:   []string{"case_id", "database", "sequence"},
+	}
+}
+
 func incidentCancelBackendContract() ActionContract {
 	return ActionContract{
 		ActionType:      "cancel_backend",
@@ -300,5 +373,106 @@ func incidentTerminateBackendContract() ActionContract {
 		RollbackClass: "not_reversible",
 		Cooldown:      "incident-scoped",
 		AuditFields:   []string{"case_id", "database", "pid", "query"},
+	}
+}
+
+func diagnosticContract(actionType, execution, success string) ActionContract {
+	return ActionContract{
+		ActionType:      actionType,
+		BaseRiskTier:    "safe",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"pg_monitor or pg_read_all_stats",
+		},
+		Prechecks: []string{
+			"incident evidence is still open",
+			"emergency stop is not active",
+		},
+		Guardrails: []string{
+			"read-only diagnostic query",
+			"statement_timeout",
+			"no backend state changes",
+		},
+		ExecutionPlan:   []string{execution},
+		SuccessCriteria: []string{success},
+		PostChecks:      []string{"refresh incident evidence"},
+		RollbackClass:   "not_applicable",
+		Cooldown:        "none",
+		AuditFields:     []string{"case_id", "database"},
+	}
+}
+
+func vacuumTableContract() ActionContract {
+	return ActionContract{
+		ActionType:      "vacuum_table",
+		BaseRiskTier:    "safe",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"table ownership or VACUUM privilege",
+		},
+		Prechecks: []string{
+			"table exists",
+			"dead tuple or bloat evidence still exceeds threshold",
+			"IO pressure is below policy threshold",
+		},
+		Guardrails: []string{
+			"dedicated connection",
+			"statement_timeout",
+			"per-table cooldown",
+			"per-cluster safe-action concurrency limit",
+		},
+		ExecutionPlan: []string{"VACUUM qualified_table"},
+		SuccessCriteria: []string{
+			"last_vacuum advances or vacuum_count increases",
+			"dead tuple ratio improves",
+		},
+		PostChecks: []string{
+			"verify last_vacuum or vacuum_count changed",
+			"rerun bloat analyzer",
+		},
+		RollbackClass: "no_rollback_needed",
+		Cooldown:      "configured vacuum cooldown",
+		AuditFields:   []string{"case_id", "database", "table"},
+	}
+}
+
+func diagnoseFreezeBlockersContract() ActionContract {
+	return diagnosticContract(
+		"diagnose_freeze_blockers",
+		"query database XID age and oldest backend_xmin holders",
+		"freeze blockers and XID runway are identified",
+	)
+}
+
+func setTableAutovacuumContract() ActionContract {
+	return ActionContract{
+		ActionType:      "set_table_autovacuum",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"table ownership or maintenance role",
+		},
+		Prechecks: []string{
+			"table exists",
+			"recommended reloptions are bounded by policy",
+			"current reloptions captured for review",
+		},
+		Guardrails: []string{
+			"approval required",
+			"generate PR or migration script",
+			"monitor post-change vacuum cadence",
+		},
+		ExecutionPlan: []string{"ALTER TABLE ... SET (autovacuum_*)"},
+		SuccessCriteria: []string{
+			"reloptions contain expected autovacuum settings",
+			"future dead tuple ratio trends down",
+		},
+		PostChecks: []string{
+			"verify pg_class.reloptions",
+			"rerun vacuum tuning analyzer after one churn window",
+		},
+		RollbackClass: "forward_fix_only",
+		Cooldown:      "configured cascade cooldown",
+		AuditFields:   []string{"case_id", "database", "table", "reloptions"},
 	}
 }

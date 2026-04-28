@@ -90,6 +90,28 @@ func actionCandidatesForIncident(i SourceIncident) []ActionCandidate {
 	if idleTxnOrLockIncident(i) {
 		return idleTxnPlaybookCandidates(i)
 	}
+	if runawayQueryIncident(i) {
+		return runawayQueryPlaybookCandidates(i)
+	}
+	if connectionExhaustionIncident(i) {
+		return []ActionCandidate{diagnosticIncidentCandidate(
+			"diagnose_connection_exhaustion",
+			diagnoseConnectionExhaustionSQL(),
+			i.Confidence,
+			[]string{"identify connection pressure by role, app, and state"},
+		)}
+	}
+	if walOrReplicationIncident(i) {
+		return []ActionCandidate{diagnosticIncidentCandidate(
+			"diagnose_wal_replication",
+			diagnoseWALReplicationSQL(),
+			i.Confidence,
+			[]string{"verify WAL retention, slot status, and replay lag"},
+		)}
+	}
+	if sequenceExhaustionIncident(i) {
+		return []ActionCandidate{sequenceCapacityMigrationCandidate(i)}
+	}
 	return nil
 }
 
@@ -114,6 +136,67 @@ func idleTxnPlaybookCandidates(i SourceIncident) []ActionCandidate {
 			terminateBackendCandidate(pid, expires, i.Confidence))
 	}
 	return candidates
+}
+
+func runawayQueryPlaybookCandidates(i SourceIncident) []ActionCandidate {
+	expires := time.Now().UTC().Add(15 * time.Minute)
+	pid, ok := extractSinglePID(i)
+	return []ActionCandidate{
+		diagnosticIncidentCandidate(
+			"diagnose_runaway_query",
+			diagnoseRunawayQuerySQL(pid, ok),
+			i.Confidence,
+			[]string{"confirm query age, wait state, and temp spill evidence"},
+		),
+		cancelBackendCandidate(pid, ok, expires, i.Confidence),
+	}
+}
+
+func diagnosticIncidentCandidate(
+	actionType string,
+	sql string,
+	confidence float64,
+	verification []string,
+) ActionCandidate {
+	expires := time.Now().UTC().Add(15 * time.Minute)
+	return ActionCandidate{
+		ActionType:       actionType,
+		RiskTier:         "safe",
+		Confidence:       confidence,
+		ProposedSQL:      sql,
+		ExpiresAt:        &expires,
+		OutputModes:      []string{"execute", "script"},
+		RollbackClass:    "not_applicable",
+		VerificationPlan: verification,
+	}
+}
+
+func sequenceCapacityMigrationCandidate(i SourceIncident) ActionCandidate {
+	expires := time.Now().UTC().Add(24 * time.Hour)
+	object := incidentPrimaryObject(i, "affected_sequence")
+	return ActionCandidate{
+		ActionType:       "prepare_sequence_capacity_migration",
+		RiskTier:         "high",
+		Confidence:       i.Confidence,
+		ExpiresAt:        &expires,
+		OutputModes:      []string{"generate_pr_or_script"},
+		RollbackClass:    "forward_fix_only",
+		VerificationPlan: []string{"run verification SQL before and after migration"},
+		BlockedReason:    "direct sequence capacity changes require migration review",
+		ScriptOutput: &ScriptOutput{
+			Filename:     "sequence_capacity_" + sanitizeScriptPart(object) + ".sql",
+			MigrationSQL: sequenceCapacityMigrationSQL(object),
+			VerificationSQL: []string{
+				"SELECT last_value, max_value FROM " + object + ";",
+				"-- Confirm dependent column type can hold future generated values.",
+			},
+			PRTitle: "Review sequence capacity migration: " + object,
+			PRBody: "Generated from pg_sage incident " + i.ID +
+				". Sequence exhaustion is forward-fix only and must be reviewed.",
+			RiskLabels: []string{"high", "forward_fix_only", "sequence_exhaustion"},
+			Format:     "sql",
+		},
+	}
 }
 
 func cancelBackendCandidate(
@@ -217,12 +300,69 @@ func idleTxnOrLockIncident(i SourceIncident) bool {
 	return false
 }
 
+func runawayQueryIncident(i SourceIncident) bool {
+	signals := signalSet(i.SignalIDs)
+	if signals["runaway_query"] || signals["long_running_query"] {
+		return true
+	}
+	text := strings.ToLower(strings.Join(incidentSearchParts(i), " "))
+	return strings.Contains(text, "runaway query") ||
+		strings.Contains(text, "query ran for")
+}
+
+func connectionExhaustionIncident(i SourceIncident) bool {
+	signals := signalSet(i.SignalIDs)
+	if signals["connections_high"] && !idleTxnOrLockIncident(i) {
+		return true
+	}
+	text := strings.ToLower(strings.Join(incidentSearchParts(i), " "))
+	return strings.Contains(text, "max_connections") ||
+		strings.Contains(text, "connection exhaustion")
+}
+
+func walOrReplicationIncident(i SourceIncident) bool {
+	signals := signalSet(i.SignalIDs)
+	return signals["replication_lag"] ||
+		signals["replica_lag"] ||
+		signals["standby_conflict"] ||
+		signals["wal_growth"] ||
+		signals["inactive_slot"]
+}
+
+func sequenceExhaustionIncident(i SourceIncident) bool {
+	signals := signalSet(i.SignalIDs)
+	if signals["sequence_exhaustion"] {
+		return true
+	}
+	return strings.Contains(
+		strings.ToLower(strings.Join(incidentSearchParts(i), " ")),
+		"sequence",
+	) && strings.Contains(
+		strings.ToLower(strings.Join(incidentSearchParts(i), " ")),
+		"exhaust",
+	)
+}
+
 func severeLockIncident(i SourceIncident) bool {
 	text := strings.ToLower(strings.Join(incidentSearchParts(i), " "))
 	return i.Severity == SeverityCritical ||
 		strings.Contains(text, "vacuum") ||
 		strings.Contains(text, "xid") ||
 		strings.Contains(text, "connection")
+}
+
+func incidentPrimaryObject(i SourceIncident, fallback string) string {
+	for _, object := range i.AffectedObjects {
+		if strings.TrimSpace(object) != "" {
+			return strings.TrimSpace(object)
+		}
+	}
+	return fallback
+}
+
+func sanitizeScriptPart(value string) string {
+	replacer := strings.NewReplacer(".", "_", "\"", "", "'", "", " ", "_")
+	return replacer.Replace(value)
 }
 
 func signalSet(signals []string) map[string]bool {
@@ -286,4 +426,71 @@ JOIN pg_stat_activity blocker
   ON blocker.pid = blocker_locks.pid
 WHERE NOT blocked_locks.granted
   AND blocker_locks.granted`
+}
+
+func diagnoseRunawayQuerySQL(pid int, ok bool) string {
+	where := "WHERE state = 'active'"
+	if ok {
+		where = fmt.Sprintf("WHERE pid = %d", pid)
+	}
+	return `SELECT pid,
+       usename,
+       application_name,
+       state,
+       wait_event_type,
+       wait_event,
+       now() - query_start AS query_age,
+       temp_bytes,
+       left(query, 1000) AS query
+FROM pg_stat_activity
+LEFT JOIN pg_stat_database
+  ON pg_stat_database.datname = pg_stat_activity.datname
+` + where + `
+ORDER BY query_age DESC
+LIMIT 20`
+}
+
+func diagnoseConnectionExhaustionSQL() string {
+	return `WITH limits AS (
+  SELECT setting::int AS max_connections
+  FROM pg_settings
+  WHERE name = 'max_connections'
+)
+SELECT state,
+       usename,
+       application_name,
+       count(*) AS connections,
+       round(100.0 * count(*) / limits.max_connections, 2) AS pct_of_limit
+FROM pg_stat_activity, limits
+GROUP BY state, usename, application_name, limits.max_connections
+ORDER BY connections DESC`
+}
+
+func diagnoseWALReplicationSQL() string {
+	return `SELECT 'replication' AS source,
+       application_name,
+       state,
+       sync_state,
+       replay_lag,
+       write_lag,
+       flush_lag
+FROM pg_stat_replication
+UNION ALL
+SELECT 'slot' AS source,
+       slot_name AS application_name,
+       active::text AS state,
+       slot_type AS sync_state,
+       NULL AS replay_lag,
+       NULL AS write_lag,
+       NULL AS flush_lag
+FROM pg_replication_slots`
+}
+
+func sequenceCapacityMigrationSQL(sequence string) string {
+	return `-- Forward-fix sequence capacity migration generated by pg_sage
+-- Inspect the owning table and column before editing this migration.
+SELECT pg_get_serial_sequence('', '') AS owning_sequence;
+SELECT last_value, max_value FROM ` + sequence + `;
+-- Preferred migration is usually widening the owning column to bigint
+-- or replacing the sequence with an identity column under a reviewed rollout.`
 }

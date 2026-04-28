@@ -94,6 +94,132 @@ func TestProjectFindingCreatesActionableCase(t *testing.T) {
 	}
 }
 
+func TestProjectFindingTableBloatAddsVacuumAutopilotCandidate(t *testing.T) {
+	f := SourceFinding{
+		ID:               "bloat-1",
+		DatabaseName:     "prod",
+		Category:         "table_bloat",
+		Severity:         SeverityWarning,
+		ObjectType:       "table",
+		ObjectIdentifier: "public.orders",
+		Title:            "orders has high dead tuple ratio",
+		Recommendation:   "Run VACUUM on public.orders",
+		RecommendedSQL:   "VACUUM public.orders;",
+		Detail: map[string]any{
+			"dead_ratio":   0.42,
+			"n_dead_tup":   float64(420000),
+			"io_saturated": false,
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	assertCandidate(t, action, "vacuum_table", "safe", f.RecommendedSQL)
+	if action.RollbackClass != "no_rollback_needed" {
+		t.Fatalf("RollbackClass = %q", action.RollbackClass)
+	}
+	if len(action.VerificationPlan) < 2 {
+		t.Fatalf("VerificationPlan too short: %#v", action.VerificationPlan)
+	}
+}
+
+func TestProjectFindingBloatIOSaturatedBlocksAutonomousVacuum(t *testing.T) {
+	f := SourceFinding{
+		ID:               "bloat-io",
+		DatabaseName:     "prod",
+		Category:         "table_bloat",
+		Severity:         SeverityCritical,
+		ObjectType:       "table",
+		ObjectIdentifier: "public.orders",
+		Title:            "orders bloat is high while IO is saturated",
+		Recommendation:   "Defer VACUUM until IO pressure clears",
+		RecommendedSQL:   "VACUUM public.orders;",
+		Detail: map[string]any{
+			"dead_ratio":    0.55,
+			"n_dead_tup":    float64(900000),
+			"io_saturated":  true,
+			"io_wait_ratio": 0.42,
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	if action.BlockedReason != "IO is saturated; wait for maintenance window or lower load" {
+		t.Fatalf("BlockedReason = %q", action.BlockedReason)
+	}
+	if len(action.OutputModes) != 1 || action.OutputModes[0] != "generate_pr_or_script" {
+		t.Fatalf("OutputModes = %#v, want script-only", action.OutputModes)
+	}
+}
+
+func TestProjectFindingXIDWraparoundAddsFreezeDiagnosticCandidate(t *testing.T) {
+	f := SourceFinding{
+		ID:               "xid-1",
+		DatabaseName:     "prod",
+		Category:         "xid_wraparound",
+		Severity:         SeverityCritical,
+		ObjectType:       "database",
+		ObjectIdentifier: "prod",
+		Title:            "XID runway is low",
+		Recommendation:   "Find freeze blockers and oldest xmin holders.",
+		Detail: map[string]any{
+			"age_datfrozenxid": float64(1800000000),
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	assertCandidate(t, got.ActionCandidates[0],
+		"diagnose_freeze_blockers", "safe", "")
+	if got.ActionCandidates[0].ProposedSQL == "" {
+		t.Fatal("expected freeze diagnostic SQL")
+	}
+}
+
+func TestProjectFindingVacuumTuningAddsAutovacuumScript(t *testing.T) {
+	f := SourceFinding{
+		ID:               "tune-1",
+		DatabaseName:     "prod",
+		Category:         "vacuum_tuning",
+		Severity:         SeverityWarning,
+		ObjectType:       "table",
+		ObjectIdentifier: "public.orders",
+		Title:            "orders needs tighter autovacuum settings",
+		Recommendation:   "Lower scale factor for high-churn table.",
+		RecommendedSQL: "ALTER TABLE public.orders SET " +
+			"(autovacuum_vacuum_scale_factor = 0.02);",
+		Detail: map[string]any{
+			"current_scale_factor":     0.2,
+			"recommended_scale_factor": 0.02,
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	assertCandidate(t, action, "set_table_autovacuum", "moderate", f.RecommendedSQL)
+	if action.ScriptOutput == nil {
+		t.Fatal("expected PR/CI script output for autovacuum tuning")
+	}
+	if action.RequiresMaintenanceWindow {
+		t.Fatal("autovacuum reloption tuning should not require maintenance window")
+	}
+}
+
 func TestProjectFindingClassifiesForecastAsForecastCase(t *testing.T) {
 	f := SourceFinding{
 		ID:               "77",

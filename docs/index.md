@@ -25,6 +25,13 @@ generates deterministic preflight evidence, migration SQL, rollback or
 forward-fix guidance, verification SQL, and PR/CI metadata so teams can review
 schema work before anything touches production.
 
+Incident and maintenance cases now carry richer automation candidates. Lock
+blockers, runaway queries, connection exhaustion, WAL/replication pressure, and
+sequence exhaustion route to typed playbooks with safe diagnostics or reviewed
+scripts. Vacuum, bloat, and freeze findings project guarded `VACUUM`, freeze
+diagnostics, and per-table autovacuum tuning actions with explicit verification
+plans and IO-saturation gates.
+
 ---
 
 ## Getting Started

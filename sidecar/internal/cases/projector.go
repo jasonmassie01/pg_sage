@@ -55,6 +55,9 @@ func actionCandidatesForFinding(f SourceFinding) []ActionCandidate {
 	if f.Category == "migration_safety" {
 		return migrationSafetyCandidates(f)
 	}
+	if candidate, ok := vacuumAutopilotCandidate(f); ok {
+		return []ActionCandidate{candidate}
+	}
 
 	sql := strings.TrimSpace(f.RecommendedSQL)
 	if sql == "" {
@@ -130,10 +133,15 @@ func actionTypeForSQL(sql string) string {
 	switch {
 	case strings.HasPrefix(upper, "ANALYZE "):
 		return "analyze_table"
+	case strings.HasPrefix(upper, "VACUUM "):
+		return "vacuum_table"
 	case strings.HasPrefix(upper, "CREATE INDEX CONCURRENTLY "):
 		return "create_index_concurrently"
 	case strings.HasPrefix(upper, "DROP INDEX "):
 		return "drop_unused_index"
+	case strings.HasPrefix(upper, "ALTER TABLE ") &&
+		strings.Contains(upper, "AUTOVACUUM_"):
+		return "set_table_autovacuum"
 	case strings.HasPrefix(upper, "ALTER TABLE "):
 		return "alter_table"
 	case upper != "":
@@ -145,8 +153,10 @@ func actionTypeForSQL(sql string) string {
 
 func riskForActionType(actionType string) string {
 	switch actionType {
-	case "analyze_table":
+	case "analyze_table", "vacuum_table", "diagnose_freeze_blockers":
 		return "safe"
+	case "set_table_autovacuum":
+		return "moderate"
 	case "create_index_concurrently", "drop_unused_index":
 		return "moderate"
 	default:
@@ -156,10 +166,14 @@ func riskForActionType(actionType string) string {
 
 func rollbackClassForAction(actionType string) string {
 	switch actionType {
-	case "analyze_table":
+	case "analyze_table", "vacuum_table":
 		return "no_rollback_needed"
+	case "diagnose_freeze_blockers":
+		return "not_applicable"
 	case "create_index_concurrently", "drop_unused_index":
 		return "reversible"
+	case "set_table_autovacuum":
+		return "forward_fix_only"
 	case "ddl_preflight":
 		return "forward_fix_only"
 	default:
@@ -173,6 +187,26 @@ func verificationPlanForAction(actionType string) []string {
 			"verify last_analyze or analyze_count advanced",
 			"rerun analyzer and confirm stale-stat case no longer fires",
 			"compare planner row-estimate error for tracked queries",
+		}
+	}
+	if actionType == "vacuum_table" {
+		return []string{
+			"verify last_vacuum or vacuum_count advanced",
+			"confirm n_dead_tup decreases or dead tuple ratio improves",
+			"rerun bloat analyzer and confirm case no longer fires",
+		}
+	}
+	if actionType == "diagnose_freeze_blockers" {
+		return []string{
+			"identify oldest xmin holders and freeze blockers",
+			"confirm XID runway and table age after remediation",
+		}
+	}
+	if actionType == "set_table_autovacuum" {
+		return []string{
+			"verify reloptions contain expected autovacuum settings",
+			"monitor future autovacuum cadence and dead tuple ratio",
+			"rerun vacuum tuning analyzer after one churn window",
 		}
 	}
 	if actionType == "ddl_preflight" {

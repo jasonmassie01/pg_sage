@@ -50,6 +50,10 @@ func TestAlterTableContractIsForwardFixOnly(t *testing.T) {
 func TestIncidentActionContractsValidate(t *testing.T) {
 	for _, actionType := range []string{
 		"diagnose_lock_blockers",
+		"diagnose_runaway_query",
+		"diagnose_connection_exhaustion",
+		"diagnose_wal_replication",
+		"prepare_sequence_capacity_migration",
 		"cancel_backend",
 		"terminate_backend",
 	} {
@@ -71,9 +75,13 @@ func TestIncidentActionContractsValidate(t *testing.T) {
 
 func TestIncidentActionContractRiskTiers(t *testing.T) {
 	tests := map[string]string{
-		"diagnose_lock_blockers": "safe",
-		"cancel_backend":         "moderate",
-		"terminate_backend":      "high",
+		"diagnose_lock_blockers":              "safe",
+		"diagnose_runaway_query":              "safe",
+		"diagnose_connection_exhaustion":      "safe",
+		"diagnose_wal_replication":            "safe",
+		"prepare_sequence_capacity_migration": "high",
+		"cancel_backend":                      "moderate",
+		"terminate_backend":                   "high",
 	}
 	for actionType, want := range tests {
 		c, ok := ContractForActionType(actionType)
@@ -83,6 +91,27 @@ func TestIncidentActionContractRiskTiers(t *testing.T) {
 		if c.BaseRiskTier != want {
 			t.Fatalf("%s BaseRiskTier = %q, want %q",
 				actionType, c.BaseRiskTier, want)
+		}
+	}
+}
+
+func TestVacuumAutopilotContractsValidate(t *testing.T) {
+	tests := map[string]string{
+		"vacuum_table":             "safe",
+		"diagnose_freeze_blockers": "safe",
+		"set_table_autovacuum":     "moderate",
+	}
+	for actionType, wantRisk := range tests {
+		c, ok := ContractForActionType(actionType)
+		if !ok {
+			t.Fatalf("%s contract missing", actionType)
+		}
+		if c.BaseRiskTier != wantRisk {
+			t.Fatalf("%s BaseRiskTier = %q, want %q",
+				actionType, c.BaseRiskTier, wantRisk)
+		}
+		if err := c.Validate(); err != nil {
+			t.Fatalf("%s Validate: %v", actionType, err)
 		}
 	}
 }

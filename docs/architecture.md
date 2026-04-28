@@ -28,6 +28,9 @@ pg_sage sidecar (single Go binary)
   ├── Executor         [trust-gated]
   │   ├── CONCURRENTLY DDL on raw pgx connection
   │   ├── DDL preflight + PR/CI script output for high-risk migrations
+  │   ├── Incident playbooks for locks, runaway queries, connections, WAL,
+  │   │   replication, and sequence exhaustion
+  │   ├── Vacuum/bloat/freeze autopilot with IO and XID guardrails
   │   ├── Rollback monitor (read + write latency regression)
   │   └── Emergency stop via sage.config
   │
@@ -89,6 +92,18 @@ execution. The case projector attaches deterministic DDL preflight evidence,
 generated migration SQL, rollback or forward-fix guidance, verification SQL,
 and PR/CI metadata. These artifacts are shown in Cases and Actions so teams can
 review schema work through their normal change-control process.
+
+Incident playbooks follow the same typed-action model. Read-only diagnostics
+can inspect blocker graphs, runaway queries, connection pressure, and
+WAL/replication state. Backend cancel/terminate actions require exact PID
+evidence and approval. Sequence capacity changes are treated as forward-fix
+migrations with script and verification output rather than autonomous DDL.
+
+Vacuum, bloat, and freeze autopilot turns maintenance findings into bounded
+actions. Small table-bloat cases can propose guarded `VACUUM`; IO-saturated
+cases are blocked to script/review output; XID wraparound cases diagnose oldest
+`backend_xmin` holders; and per-table autovacuum reloption changes are queued
+as reviewed migration scripts with post-change verification.
 
 The executor checks: trust level, trust ramp, per-tier toggles, maintenance window, emergency stop flag, and replica status before acting.
 

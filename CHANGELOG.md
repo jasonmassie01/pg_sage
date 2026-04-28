@@ -18,6 +18,8 @@ The release also adds more trust-building surface for teams evaluating autonomy.
 
 - Cases now consolidate schema-health, forecast, incident, and query-hint work into one DBA case surface. Legacy `#/schema-health`, `#/forecasts`, `#/incidents`, and `#/query-hints` routes now open Cases with the relevant source filter selected, while the Cases API projects active/broken query hints as case evidence alongside existing findings and incidents.
 - Migration-safety cases now include a deterministic DDL preflight report and PR/CI-ready script output. Case and action detail surfaces show lock/rewrite risk, live-risk checks when available, generated migration SQL, rollback or forward-fix guidance, verification SQL, and PR metadata without directly executing high-risk DDL.
+- Incident playbook automation now covers runaway queries, connection exhaustion, WAL/replication risk, and sequence exhaustion in addition to lock blockers and idle-in-transaction incidents. Low-risk playbooks emit read-only diagnostics, PID actions still require exact PID evidence and approval, and sequence capacity work is generated as a forward-fix migration script instead of direct execution.
+- Vacuum, bloat, and freeze cases now project explicit autopilot candidates. Table-bloat findings can propose guarded `VACUUM`, IO-saturated bloat cases are blocked to script/review output, XID wraparound findings get freeze-blocker diagnostics, and per-table autovacuum tuning produces PR/CI-ready reloption scripts with verification SQL.
 
 ### Fixed
 
