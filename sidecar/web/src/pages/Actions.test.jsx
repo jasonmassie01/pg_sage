@@ -33,6 +33,7 @@ vi.mock('../hooks/useAPI', () => ({
             policy_decision: 'queue_for_approval',
             eligible: false,
             defer_reason: 'outside maintenance window',
+            rollback_class: 'forward_fix_only',
             proposed_sql: 'CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)',
             rollback_sql: 'DROP INDEX CONCURRENTLY idx_orders_customer',
             proposed_at: '2026-04-28T12:00:00Z',
@@ -86,5 +87,15 @@ describe('Actions', () => {
     const approve = screen.getByTestId('approve-button')
     expect(approve).toBeDisabled()
     expect(approve).toHaveAttribute('title', 'outside maintenance window')
+  })
+
+  it('shows rollback class before approval', () => {
+    render(<Actions database="all" user={{ role: 'admin' }} />)
+
+    fireEvent.click(screen.getByTestId('actions-tab-pending'))
+    fireEvent.click(screen.getByLabelText('Expand row'))
+
+    expect(screen.getByText('Rollback: forward fix only'))
+      .toBeInTheDocument()
   })
 })

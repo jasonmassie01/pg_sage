@@ -137,6 +137,32 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 			Cooldown:      "configured cascade cooldown",
 			AuditFields:   []string{"index_name", "table", "case_id"},
 		}, true
+	case "alter_table":
+		return ActionContract{
+			ActionType:      actionType,
+			BaseRiskTier:    "high",
+			ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+			RequiredPermissions: []string{
+				"table ownership or maintenance role",
+			},
+			Prechecks: []string{
+				"table exists",
+				"DDL has a reviewed forward-fix plan",
+				"maintenance window is active",
+			},
+			Guardrails: []string{
+				"approval required",
+				"lock_timeout",
+				"statement_timeout",
+				"maintenance-window enforcement",
+			},
+			ExecutionPlan:   []string{"ALTER TABLE ..."},
+			SuccessCriteria: []string{"schema change is visible in catalog"},
+			PostChecks:      []string{"verify expected schema state"},
+			RollbackClass:   "forward_fix_only",
+			Cooldown:        "configured cascade cooldown",
+			AuditFields:     []string{"table", "ddl", "case_id"},
+		}, true
 	default:
 		return ActionContract{}, false
 	}

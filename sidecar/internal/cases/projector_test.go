@@ -116,6 +116,38 @@ func TestProjectFindingInformationalWhenNoRemediation(t *testing.T) {
 	}
 }
 
+func TestProjectFindingMarksAlterTableForwardFixOnly(t *testing.T) {
+	f := SourceFinding{
+		ID:               "101",
+		DatabaseName:     "prod",
+		Category:         "schema_change",
+		Severity:         SeverityCritical,
+		ObjectType:       "table",
+		ObjectIdentifier: "public.orders",
+		Title:            "Column type needs review",
+		Recommendation:   "Review widening the column type.",
+		RecommendedSQL:   "ALTER TABLE public.orders ALTER COLUMN amount TYPE numeric",
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("action candidates = %d, want 1",
+			len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	if action.ActionType != "alter_table" {
+		t.Fatalf("ActionType = %q, want alter_table", action.ActionType)
+	}
+	if action.RiskTier != "high" {
+		t.Fatalf("RiskTier = %q, want high", action.RiskTier)
+	}
+	if action.RollbackClass != "forward_fix_only" {
+		t.Fatalf("RollbackClass = %q, want forward_fix_only",
+			action.RollbackClass)
+	}
+}
+
 func TestResolveEphemeralWhenEvidenceDisappears(t *testing.T) {
 	open := NewCase(CaseInput{
 		SourceType:   SourceFindingType,

@@ -29,3 +29,20 @@ func TestActionContractRequiresPostChecks(t *testing.T) {
 		t.Fatalf("expected validation error")
 	}
 }
+
+func TestAlterTableContractIsForwardFixOnly(t *testing.T) {
+	c, ok := ContractForActionType("alter_table")
+	if !ok {
+		t.Fatalf("alter_table contract missing")
+	}
+	if c.BaseRiskTier != "high" {
+		t.Fatalf("BaseRiskTier = %q, want high", c.BaseRiskTier)
+	}
+	if c.RollbackClass != "forward_fix_only" {
+		t.Fatalf("RollbackClass = %q, want forward_fix_only",
+			c.RollbackClass)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}

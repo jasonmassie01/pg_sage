@@ -30,12 +30,15 @@ func (e *Executor) ApprovalReadiness(
 	if !readiness.Eligible {
 		return readiness
 	}
-	actionType := actionTypeForReadiness(action)
-	contract, ok := ContractForActionType(actionType)
+	contract, ok := ContractForQueuedAction(action)
 	if !ok {
 		return readinessForUnknownContract(readiness, action)
 	}
 	return e.withPolicyReadiness(readiness, contract, now)
+}
+
+func ContractForQueuedAction(action store.QueuedAction) (ActionContract, bool) {
+	return ContractForActionType(actionTypeForReadiness(action))
 }
 
 func lifecycleReadiness(
@@ -74,6 +77,8 @@ func actionTypeForReadiness(action store.QueuedAction) string {
 		return "create_index_concurrently"
 	case strings.HasPrefix(sql, "DROP INDEX "):
 		return "drop_unused_index"
+	case strings.HasPrefix(sql, "ALTER TABLE "):
+		return "alter_table"
 	default:
 		return ""
 	}

@@ -747,6 +747,9 @@ func queuedActionMapWithReadiness(
 	if readiness.PolicyKnown {
 		m["policy_detail"] = readiness.Policy
 	}
+	if contract, ok := executor.ContractForQueuedAction(a); ok {
+		m["rollback_class"] = contract.RollbackClass
+	}
 	m["lifecycle_detail"] = readiness.Lifecycle
 	return m
 }

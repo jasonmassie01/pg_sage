@@ -27,6 +27,19 @@ function lifecycleStatus(row) {
   return row.lifecycle_state || row.status || 'ready'
 }
 
+function rollbackClassLabel(value) {
+  switch (value) {
+  case 'no_rollback_needed':
+    return 'Rollback: not needed'
+  case 'reversible':
+    return 'Rollback: reversible'
+  case 'forward_fix_only':
+    return 'Rollback: forward fix only'
+  default:
+    return value ? `Rollback: ${value}` : null
+  }
+}
+
 function formatActionTime(value) {
   if (!value) return null
   const date = new Date(value)
@@ -623,8 +636,9 @@ function LifecycleDetails({ row }) {
   const expiresAt = formatActionTime(row.expires_at)
   const cooldownUntil = formatActionTime(row.cooldown_until)
   const guardrails = row.guardrails || []
+  const rollbackClass = rollbackClassLabel(row.rollback_class)
   if (!expiresAt && !cooldownUntil && guardrails.length === 0 &&
-    !row.blocked_reason && !row.attempt_count) {
+    !row.blocked_reason && !row.attempt_count && !rollbackClass) {
     return null
   }
   return (
@@ -634,6 +648,7 @@ function LifecycleDetails({ row }) {
         {row.attempt_count > 0 && <span>Attempts: {row.attempt_count}</span>}
         {expiresAt && <span>Expires: {expiresAt}</span>}
         {cooldownUntil && <span>Cooldown until: {cooldownUntil}</span>}
+        {rollbackClass && <span>{rollbackClass}</span>}
         {row.verification_status && (
           <span>Verification: {row.verification_status}</span>
         )}

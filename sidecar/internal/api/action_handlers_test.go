@@ -151,6 +151,32 @@ func TestQueuedActionMapWithReadinessIncludesDeferReason(t *testing.T) {
 	}
 }
 
+func TestQueuedActionMapWithReadinessIncludesRollbackClass(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trust.Level = "autonomous"
+	cfg.Trust.MaintenanceWindow = "always"
+	exec := executor.New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
+		func(string, string, ...any) {})
+	action := store.QueuedAction{
+		ID:          13,
+		FindingID:   101,
+		ActionRisk:  "high",
+		Status:      "pending",
+		ProposedSQL: "ALTER TABLE public.orders ALTER COLUMN amount TYPE numeric",
+		ExpiresAt:   time.Now().UTC().Add(24 * time.Hour),
+	}
+
+	got := queuedActionMapWithReadiness(action, exec)
+
+	if got["rollback_class"] != "forward_fix_only" {
+		t.Fatalf("rollback_class = %v, want forward_fix_only",
+			got["rollback_class"])
+	}
+	if got["eligible"] != true {
+		t.Fatalf("eligible = %v, want true", got["eligible"])
+	}
+}
+
 // --- approveActionHandler ---
 
 func TestApproveActionHandler_BlocksDeferredActionBeforeExecution(t *testing.T) {
