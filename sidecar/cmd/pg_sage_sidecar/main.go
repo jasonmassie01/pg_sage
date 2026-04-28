@@ -671,6 +671,8 @@ func initStandalone() {
 		migDetector := migration.NewDetector(
 			pool, migAdvisor, &cfg.Migration,
 			logStructuredWrapper,
+		).WithFindingSink(
+			store.NewMigrationSafetyFindingStore(pool),
 		)
 		go migDetector.Run(shutdownCtx)
 		logInfo("startup", "migration advisor enabled, poll=%ds",
@@ -1199,6 +1201,8 @@ func initFleetMultiDB() {
 			dbDetector := migration.NewDetector(
 				dbPool, dbAdvisor, &cfg.Migration,
 				logStructuredWrapper,
+			).WithFindingSink(
+				store.NewMigrationSafetyFindingStore(dbPool),
 			)
 			go dbDetector.Run(instCtx)
 		}

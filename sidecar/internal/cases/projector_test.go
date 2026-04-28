@@ -148,6 +148,75 @@ func TestProjectFindingMarksAlterTableForwardFixOnly(t *testing.T) {
 	}
 }
 
+func TestProjectFindingMigrationSafetyCreateIndexCandidate(t *testing.T) {
+	f := SourceFinding{
+		ID:               "202",
+		DatabaseName:     "prod",
+		Category:         "migration_safety",
+		Severity:         SeverityWarning,
+		ObjectType:       "migration",
+		ObjectIdentifier: "public.orders:ddl_index_not_concurrent:abc",
+		Title:            "Dangerous DDL: ddl_index_not_concurrent",
+		Recommendation:   "Review the safer migration path.",
+		RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_orders_id ON orders (id)",
+		Detail: map[string]any{
+			"rule_id":        "ddl_index_not_concurrent",
+			"risk_score":     0.7,
+			"original_sql":   "CREATE INDEX idx_orders_id ON orders (id)",
+			"database_name":  "prod",
+			"action_risk":    "risk_score=0.70",
+			"affected_table": "public.orders",
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("action candidates = %d, want 1",
+			len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	if action.ActionType != "create_index_concurrently" {
+		t.Fatalf("ActionType = %q, want create_index_concurrently",
+			action.ActionType)
+	}
+	if action.RiskTier != "moderate" {
+		t.Fatalf("RiskTier = %q, want moderate", action.RiskTier)
+	}
+	if action.RollbackClass != "reversible" {
+		t.Fatalf("RollbackClass = %q, want reversible",
+			action.RollbackClass)
+	}
+}
+
+func TestProjectFindingMigrationSafetyAdvisoryOnly(t *testing.T) {
+	f := SourceFinding{
+		ID:               "203",
+		DatabaseName:     "prod",
+		Category:         "migration_safety",
+		Severity:         SeverityCritical,
+		ObjectType:       "migration",
+		ObjectIdentifier: "public.orders:ddl_alter_type_rewrite:abc",
+		Title:            "Dangerous DDL: ddl_alter_type_rewrite",
+		Recommendation:   "Review a safe rollout plan.",
+		RecommendedSQL:   "",
+		Detail: map[string]any{
+			"safe_alternative": "New column + trigger + backfill + swap",
+			"original_sql":     "ALTER TABLE orders ALTER id TYPE bigint",
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 0 {
+		t.Fatalf("expected no action candidates, got %d",
+			len(got.ActionCandidates))
+	}
+	if got.Evidence[0].Detail["safe_alternative"] == "" {
+		t.Fatal("expected advisory safe alternative to stay in evidence")
+	}
+}
+
 func TestResolveEphemeralWhenEvidenceDisappears(t *testing.T) {
 	open := NewCase(CaseInput{
 		SourceType:   SourceFindingType,
