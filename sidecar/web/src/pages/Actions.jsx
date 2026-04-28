@@ -154,6 +154,12 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
     case 'failed':
       return { bg: 'rgba(239,68,68,0.15)', color: 'var(--red)',
         label: 'Failed' }
+    case 'expired':
+      return { bg: 'rgba(107,114,128,0.15)',
+        color: 'var(--text-secondary)', label: 'Expired' }
+    case 'rejected':
+      return { bg: 'rgba(107,114,128,0.15)',
+        color: 'var(--text-secondary)', label: 'Rejected' }
     case 'rolled_back':
       return { bg: 'rgba(245,158,11,0.15)',
         color: 'var(--yellow)', label: 'Rolled Back' }
@@ -179,6 +185,10 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
       return <span style={{ color: 'var(--red)' }}>
         {short}
       </span>
+    }
+    if ((r.outcome === 'expired' || r.outcome === 'rejected') &&
+      r.rollback_reason) {
+      return r.rollback_reason
     }
     if (t === 'drop_index') {
       return `Dropped index${target ? ' ' + target : ''}`
@@ -307,7 +317,8 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
           <div>
             <div className="text-xs font-medium mb-1"
               style={{ color: 'var(--text-secondary)' }}>
-              SQL Executed
+              {row.outcome === 'expired' || row.outcome === 'rejected'
+                ? 'Proposed SQL' : 'SQL Executed'}
             </div>
             <SQLBlock sql={row.sql_executed} />
           </div>

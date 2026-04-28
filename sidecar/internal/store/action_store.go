@@ -342,6 +342,31 @@ func (s *ActionStore) ExpireStale(
 	return int(tag.RowsAffected()), nil
 }
 
+// MarkExpiredByReadiness records proposals that are no longer actionable
+// because their deterministic lifecycle check has closed the gate.
+func (s *ActionStore) MarkExpiredByReadiness(
+	ctx context.Context,
+) (int, error) {
+	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tag, err := s.pool.Exec(qctx,
+		`UPDATE sage.action_queue
+		 SET status = 'expired',
+		     reason = CASE
+		         WHEN expires_at <= now()
+		         THEN 'action proposal expired'
+		         ELSE reason
+		     END
+		 WHERE status IN ('pending', 'failed')
+		   AND expires_at <= now()`,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("marking readiness-expired actions: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // GetByID returns a single queued action.
 func (s *ActionStore) GetByID(
 	ctx context.Context, id int,

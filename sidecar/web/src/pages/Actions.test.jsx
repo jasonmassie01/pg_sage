@@ -52,7 +52,17 @@ vi.mock('../hooks/useAPI', () => ({
       }
     }
     return {
-      data: { actions: [], total: 0 },
+      data: {
+        actions: [{
+          id: '22',
+          action_type: 'analyze_table',
+          sql_executed: 'ANALYZE public.orders',
+          outcome: 'expired',
+          rollback_reason: 'action proposal expired',
+          executed_at: '2026-04-28T12:00:00Z',
+        }],
+        total: 1,
+      },
       loading: false,
       error: null,
       refetch: vi.fn(),
@@ -97,5 +107,18 @@ describe('Actions', () => {
 
     expect(screen.getByText('Rollback: forward fix only'))
       .toBeInTheDocument()
+  })
+
+  it('shows expired queued actions in the action ledger', () => {
+    render(<Actions database="all" user={{ role: 'admin' }} />)
+
+    expect(screen.getByText('Expired')).toBeInTheDocument()
+    expect(screen.getByText('action proposal expired')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Expand row'))
+    expect(screen.getByText('Proposed SQL')).toBeInTheDocument()
+    expect(screen.getAllByText((_, element) => (
+      element.textContent?.includes('ANALYZE public.orders')
+    )).length)
+      .toBeGreaterThan(0)
   })
 })
