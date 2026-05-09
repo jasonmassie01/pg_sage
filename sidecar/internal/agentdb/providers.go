@@ -148,7 +148,15 @@ func lakebasePlan(req RegisterRequest, profile SizeProfile) ProvisionPlan {
 			args = append(args, "--project", project)
 		}
 	}
-	return plan(req, "databricks", args, "Lakebase uses Databricks database CLI")
+	out := plan(req, "databricks", args, "Lakebase uses Databricks database CLI")
+	out.Notes = append(out.Notes,
+		"Lakebase extension allowlist should be verified before enabling "+
+			"agent workloads that depend on pgvector, PostGIS, pg_hint_plan, "+
+			"or pg_stat_statements.",
+		"Lakebase is managed Postgres: use session, database, or role-level "+
+			"parameters where allowed; do not plan instance-level GUC changes.",
+	)
+	return out
 }
 
 func plan(req RegisterRequest, tool string, args []string, note string) ProvisionPlan {

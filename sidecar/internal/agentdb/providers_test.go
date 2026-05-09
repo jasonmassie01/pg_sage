@@ -90,6 +90,11 @@ func TestBuildProvisionPlanForManagedProviders(t *testing.T) {
 			if plan.ExecutionMode != "manual_review" {
 				t.Fatalf("execution mode = %s, want manual_review", plan.ExecutionMode)
 			}
+			if tt.req.Provider == ProviderDatabricksLakebase &&
+				!notesContain(plan.Notes, "extension allowlist") {
+				t.Fatalf("lakebase notes should call out extension allowlist: %#v",
+					plan.Notes)
+			}
 		})
 	}
 }
@@ -168,4 +173,13 @@ func TestProvisionCloudInstanceUsesDefaultProfile(t *testing.T) {
 	if dep.ProvisioningPlan["provider"] != ProviderGCPCloudSQL {
 		t.Fatalf("plan = %#v", dep.ProvisioningPlan)
 	}
+}
+
+func notesContain(notes []string, sub string) bool {
+	for _, note := range notes {
+		if strings.Contains(note, sub) {
+			return true
+		}
+	}
+	return false
 }

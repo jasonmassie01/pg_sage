@@ -30,6 +30,43 @@ Each deployment has:
 - `backup_required` and backup records for archive/delete safety.
 - `metadata.workload_types` and `metadata.extensions` for tuning hints.
 
+## Databricks Lakebase Notes
+
+Lakebase is treated as a first-class Agent DB provider for instance-level
+planning, provider readiness, custom size profiles, lifecycle status checks,
+destroy dry-runs, backup checks, and restore-drill dry-runs. pg_sage does not
+currently run live Lakebase creation or deletion; it records the Databricks CLI
+commands as reviewed dry-run attempts for tomorrow's provider testing.
+
+Current support assumptions to verify against the target workspace:
+
+- Lakebase Autoscaling supports Postgres 16 and 17; older Lakebase Provisioned
+  instances are documented separately and may differ.
+- Lakebase supports many Postgres extensions through `CREATE EXTENSION`,
+  including `vector`/pgvector, PostGIS family extensions, `pg_stat_statements`,
+  `pg_hint_plan`, `pg_trgm`, `pgcrypto`, `pg_prewarm`, and `pgstattuple`.
+- Extension-dependent recommendations must still verify `pg_available_extensions`
+  and `pg_extension` on the actual Lakebase database. pg_sage should not assume
+  that a tenant has installed an extension just because Lakebase offers it.
+- Lakebase is managed Postgres. Features that require host OS access, normal
+  Postgres `superuser`, direct filesystem access, tablespaces, or instance-level
+  GUC changes should be reported as provider limitations rather than actions.
+- Lakebase parameter tuning should prefer session, database, or role-level
+  settings where the setting context allows it. Instance-level settings remain
+  outside pg_sage's current automation boundary.
+- Native Postgres logical replication is documented as unavailable for Lakebase
+  at this point, so replication-based migration or CDC advice needs a provider
+  specific path.
+
+References checked on 2026-05-08:
+
+- Databricks Lakebase Postgres extensions:
+  https://docs.databricks.com/aws/en/oltp/projects/extensions
+- Databricks Lakebase Postgres compatibility:
+  https://docs.databricks.com/aws/en/oltp/projects/compatibility
+- Databricks Lakebase Provisioned compatibility:
+  https://docs.databricks.com/aws/en/oltp/instances/query/postgres-compatibility
+
 ## Agent API Flow
 
 Agents can request and maintain deployments without using the UI.
