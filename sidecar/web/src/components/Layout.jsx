@@ -2,7 +2,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import {
   AlertTriangle, Activity, Settings,
-  Home, LogOut, Server, ShieldAlert, Menu, X,
+  Bot, Home, LogOut, Server, ShieldAlert, Menu, X,
 } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
 import { useAPI } from '../hooks/useAPI'
@@ -27,6 +27,8 @@ const NAV_GROUPS = [
         aliases: ['#/findings'] },
       { path: '#/actions', icon: Activity, label: 'Actions',
         tid: 'nav-actions' },
+      { path: '#/agent-dbs', icon: Bot, label: 'Agent DBs',
+        tid: 'nav-agent-dbs' },
       { path: '#/manage-databases', icon: Server,
         label: 'Fleet', admin: true,
         tid: 'nav-databases' },

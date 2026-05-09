@@ -9,6 +9,7 @@ import { AlertLogPage } from './pages/AlertLogPage'
 import { LoginPage } from './pages/LoginPage'
 import { UsersPage } from './pages/UsersPage'
 import { NotificationsPage } from './pages/NotificationsPage'
+import { AgentDBsPage } from './pages/AgentDBsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
 import { useAPI } from './hooks/useAPI'
 import { TimeRangeProvider } from './context/TimeRangeContext'
@@ -140,6 +141,8 @@ export default function App() {
       case '/manage-databases':
         return isAdmin ? { title: 'Databases', node: <DatabasesPage /> }
           : denied
+      case '/agent-dbs':
+        return { title: 'Agent DBs', node: <AgentDBsPage /> }
       case '/findings':
       case '/cases':
         return { title: 'Cases',

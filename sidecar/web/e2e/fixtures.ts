@@ -5,6 +5,7 @@
 // to intercept /api/* routes and return deterministic fixture data.
 
 import { type Page } from '@playwright/test'
+import { registerAgentDBAPIs } from './agentdb-fixtures'
 
 /* ---------- Mock response payloads ---------- */
 
@@ -435,4 +436,6 @@ export async function mockAllAPIs(page: Page) {
       json: { models: [{ id: 'gpt-4o', name: 'GPT-4o' }] },
     }),
   )
+
+  await registerAgentDBAPIs(page)
 }

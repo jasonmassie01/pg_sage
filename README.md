@@ -50,6 +50,7 @@ docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 | **Vacuum/Bloat/Freeze Autopilot** | Table bloat, dead tuples, XID runway, freeze blockers, and per-table autovacuum tuning produce guarded candidates with verification plans |
 | **Query Tuning Beyond Hints** | Query rewrites, broken-hint retirement, `CREATE STATISTICS`, parameterization, and repeated role-level work_mem patterns become reviewable actions with verification steps |
 | **Provider Capability Adapters** | Cloud SQL, AlloyDB, RDS, Aurora, and self-managed Postgres expose provider-specific extension paths, log access, limitations, and action readiness |
+| **Agent DB Deployments** | Provision local agent schemas/databases, plan cloud instances for RDS/Cloud SQL/Lakebase, track pings, cost, backups, cleanup, and agent-facing query recommendations |
 | **DDL Safety + PR/CI Output** | Migration-risk cases include lock/rewrite/live-risk preflight, guarded migration SQL, rollback or forward-fix guidance, verification SQL, and PR-ready metadata |
 | **Rules Engine** | 20+ deterministic checks: duplicate/unused/missing indexes, slow queries, regressions, seq scans, vacuum & bloat, dead tuples, sequence exhaustion, replication lag, security audit, config drift |
 | **Index Optimizer** | LLM-powered recommendations validated through 8 checks + HypoPG cost estimation, confidence scored 0.0--1.0 |
@@ -73,6 +74,7 @@ See the [docs/](docs/) directory for guides and reference:
 - [Architecture](docs/architecture.md) -- component design, goroutine model, data flow
 - [Deployment](docs/deployment.md) -- production hardening, resource sizing
 - [Security](docs/security.md) -- permissions model, network, secrets management
+- [Agent DB Deployments](docs/agent-db-deployments.md) -- agent provisioning, tuning hints, cost, backups, cleanup, and API flow
 - [SQL Reference](docs/sql-reference.md) -- schema tables and diagnostic queries
 - [Findings Reference](docs/findings.md) -- every rule, severity, and remediation
 - [Try It Out](docs/try-it-out.md) -- local v1 smoke path and UI checklist
