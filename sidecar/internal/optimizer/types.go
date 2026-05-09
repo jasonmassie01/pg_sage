@@ -13,7 +13,8 @@ type Recommendation struct {
 	AffectedQueries         []string      `json:"affected_queries,omitempty"`
 	EstimatedImprovementPct float64       `json:"estimated_improvement_pct"`
 	Validated               bool          `json:"validated"`
-	ActionLevel             string        `json:"action_level"`            // autonomous, advisory, informational
+	ActionLevel             string        `json:"action_level"`          // autonomous, advisory, informational
+	ActionRisk              string        `json:"action_risk,omitempty"` // safe, moderate, high_risk
 	CostEstimate            *CostEstimate `json:"cost_estimate,omitempty"`
 }
 
@@ -29,24 +30,24 @@ type Result struct {
 
 // TableContext holds enriched per-table data for the LLM prompt.
 type TableContext struct {
-	Schema     string
-	Table      string
-	Columns    []ColumnInfo
-	Indexes    []IndexInfo
-	Queries    []QueryInfo
-	Plans      []PlanSummary
-	ColStats   []ColStat
-	LiveTuples int64
-	DeadTuples int64
-	WriteRate  float64
-	IndexCount int
-	TableBytes int64
-	IndexBytes int64
-	Workload   string // "oltp_write", "oltp_read", "olap", "htap"
-	Collation      string
-	Relpersistence string // 'p' permanent, 'u' unlogged, 't' temp
-	JoinPairs      []JoinPair
-	IsPartitioned  bool // true if table is a partitioned parent (PG11+)
+	Schema           string
+	Table            string
+	Columns          []ColumnInfo
+	Indexes          []IndexInfo
+	Queries          []QueryInfo
+	Plans            []PlanSummary
+	ColStats         []ColStat
+	LiveTuples       int64
+	DeadTuples       int64
+	WriteRate        float64
+	IndexCount       int
+	TableBytes       int64
+	IndexBytes       int64
+	Workload         string // "oltp_write", "oltp_read", "olap", "htap"
+	Collation        string
+	Relpersistence   string // 'p' permanent, 'u' unlogged, 't' temp
+	JoinPairs        []JoinPair
+	IsPartitioned    bool // true if table is a partitioned parent (PG11+)
 	IsPartitionChild bool // true if table is a child partition
 }
 

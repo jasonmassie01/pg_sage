@@ -3,7 +3,6 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -60,14 +59,14 @@ type RCAEngine interface {
 // Analyzer runs the rules engine on a recurring interval, producing
 // findings and persisting them to the sage.findings table.
 type Analyzer struct {
-	pool      *pgxpool.Pool
-	cfg       *config.Config
-	collector *collector.Collector
-	extras    *RuleExtras
-	optimizer  *optimizer.Optimizer
-	advisor    ConfigAdvisor
-	forecaster WorkloadForecaster
-	tuner      QueryTuner
+	pool         *pgxpool.Pool
+	cfg          *config.Config
+	collector    *collector.Collector
+	extras       *RuleExtras
+	optimizer    *optimizer.Optimizer
+	advisor      ConfigAdvisor
+	forecaster   WorkloadForecaster
+	tuner        QueryTuner
 	rcaEngine    RCAEngine
 	logFn        func(string, string, ...any)
 	dispatcher   EventDispatcher
@@ -299,32 +298,8 @@ func (a *Analyzer) cycle(ctx context.Context) {
 				if t := canonicalTable(rec.Table); t != "" {
 					deferredTables[t] = true
 				}
-				allFindings = append(allFindings, Finding{
-					Category:         rec.Category,
-					Severity:         rec.Severity,
-					ObjectType:       "index",
-					ObjectIdentifier: rec.Table,
-					Title: fmt.Sprintf(
-						"Index recommendation for %s", rec.Table,
-					),
-					Detail: map[string]any{
-						"ddl":                      rec.DDL,
-						"drop_ddl":                 rec.DropDDL,
-						"llm_rationale":            rec.Rationale,
-						"confidence_score":         rec.Confidence,
-						"action_level":             rec.ActionLevel,
-						"index_type":               rec.IndexType,
-						"category":                 rec.Category,
-						"estimated_improvement_pct": rec.EstimatedImprovementPct,
-						"hypopg_validated":         rec.Validated,
-						"plan_source":              optResult.PlanSource,
-						"affected_queries":         rec.AffectedQueries,
-					},
-					Recommendation: rec.Rationale,
-					RecommendedSQL: rec.DDL,
-					RollbackSQL:    rec.DropDDL,
-					ActionRisk:     rec.ActionLevel,
-				})
+				allFindings = append(allFindings,
+					optimizerRecommendationToFinding(rec, optResult))
 			}
 		}
 	}

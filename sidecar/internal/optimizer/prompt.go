@@ -118,6 +118,9 @@ func FormatPrompt(tc TableContext) string {
 			q.Calls, q.MeanTimeMs, q.TotalTimeMs, sanitized)
 	}
 
+	writeJSONWorkloadHints(&b, tc.Queries)
+	writeVectorWorkloadHints(&b, tc.Queries)
+
 	if len(tc.Plans) > 0 {
 		b.WriteString("\n### Execution Plans\n")
 		for _, p := range tc.Plans {
@@ -159,6 +162,49 @@ func FormatPrompt(tc TableContext) string {
 	b.WriteString("\nRESPOND NOW with ONLY the JSON array. Start with [ immediately.")
 
 	return b.String()
+}
+
+func writeJSONWorkloadHints(b *strings.Builder, queries []QueryInfo) {
+	wroteHeader := false
+	for _, q := range queries {
+		classification := ClassifyJSONWorkload(q)
+		if classification.Shape == "" {
+			continue
+		}
+		if !wroteHeader {
+			b.WriteString("\n### JSON/JSONB Workload Hints\n")
+			wroteHeader = true
+		}
+		fmt.Fprintf(b,
+			"- QueryID %d: shape=%s, recommendation=%s, evidence=%s\n",
+			q.QueryID,
+			classification.Shape,
+			classification.PrimaryRecommendation,
+			strings.Join(classification.Evidence, "; "),
+		)
+	}
+}
+
+func writeVectorWorkloadHints(b *strings.Builder, queries []QueryInfo) {
+	wroteHeader := false
+	for _, q := range queries {
+		classification := ClassifyVectorWorkload(q)
+		if classification.Shape == "" {
+			continue
+		}
+		if !wroteHeader {
+			b.WriteString("\n### Vector Workload Hints\n")
+			wroteHeader = true
+		}
+		fmt.Fprintf(b,
+			"- QueryID %d: shape=%s, recommendation=%s, warnings=%s, evidence=%s\n",
+			q.QueryID,
+			classification.Shape,
+			classification.PrimaryRecommendation,
+			strings.Join(classification.Warnings, "; "),
+			strings.Join(classification.Evidence, "; "),
+		)
+	}
 }
 
 // FormatPromptTruncated rebuilds the prompt with only the top 3 queries by calls.
