@@ -135,7 +135,8 @@ func TestQueuedActionMapIncludesScriptOutputForDDL(t *testing.T) {
 func TestQueuedActionMapWithReadinessIncludesDeferReason(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trust.Level = "autonomous"
-	cfg.Trust.MaintenanceWindow = "0 2 * * *"
+	outsideHour := (time.Now().UTC().Hour() + 2) % 24
+	cfg.Trust.MaintenanceWindow = fmt.Sprintf("0 %d * * *", outsideHour)
 	exec := executor.New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
 		func(string, string, ...any) {})
 	action := store.QueuedAction{
@@ -145,7 +146,7 @@ func TestQueuedActionMapWithReadinessIncludesDeferReason(t *testing.T) {
 		ActionRisk:  "moderate",
 		Status:      "pending",
 		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)",
-		ExpiresAt:   time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC),
+		ExpiresAt:   time.Now().UTC().Add(24 * time.Hour),
 	}
 
 	got := queuedActionMapWithReadiness(action, exec)

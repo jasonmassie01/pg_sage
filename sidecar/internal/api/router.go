@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/agentdb"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
@@ -127,6 +128,7 @@ func NewRouterFull(
 		registerUserRoutes(apiMux, pool)
 		registerConfigRoutes(apiMux, pool, cfg, mgr)
 		registerNotificationRoutes(apiMux, pool)
+		registerAgentDBRoutes(apiMux, agentdb.NewStore(pool))
 	}
 	if actions != nil && (actions.Store != nil ||
 		actions.Fleet != nil) {

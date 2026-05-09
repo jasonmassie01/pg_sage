@@ -106,6 +106,9 @@ func shouldSkipAuth(path string) bool {
 		return true
 	case path == "/health":
 		return true
+	case strings.HasPrefix(path, "/api/v1/agent-dbs/") &&
+		strings.HasSuffix(path, "/agent-ping"):
+		return true
 	case !strings.HasPrefix(path, "/api/"):
 		return true
 	}

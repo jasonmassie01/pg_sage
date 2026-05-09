@@ -39,6 +39,16 @@ func main() {
 	}
 	defer pool.Close()
 
+	if _, err := pool.Exec(ctx, `
+		SELECT setval(
+			pg_get_serial_sequence('sage.users','id'),
+			COALESCE((SELECT max(id) FROM sage.users), 0)+1,
+			false
+		)`); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	id, err := auth.CreateUser(ctx, pool, email, password, "admin")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
