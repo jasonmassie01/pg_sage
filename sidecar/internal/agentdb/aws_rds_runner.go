@@ -27,6 +27,7 @@ type RDSInstance struct {
 	Identifier string
 	Status     string
 	Endpoint   string
+	SecretARN  string
 }
 
 type AWSRDSClient interface {
@@ -103,7 +104,11 @@ func (r AWSRDSRunner) Create(
 	}
 	result := rdsProvisionResult(instance)
 	result.SecretRefProvider = "aws_secrets_manager"
+	result.SecretRef = instance.SecretARN
 	result.ConnectionInfo["secret_ref_provider"] = "aws_secrets_manager"
+	if instance.SecretARN != "" {
+		result.ConnectionInfo["secret_ref"] = instance.SecretARN
+	}
 	result.Detail["tags"] = input.Tags
 	return result
 }
@@ -203,7 +208,7 @@ func (r AWSRDSRunner) createInput(req ProvisionRequest) (RDSCreateInput, error) 
 		Region:             region,
 		PubliclyAccessible: public,
 		StorageEncrypted:   true,
-		DeletionProtection: !isDisposable(req.Deployment),
+		DeletionProtection: false,
 		Tags: map[string]string{
 			"app":                   "pg-sage",
 			"pg_sage_deployment_id": req.Deployment.DeploymentID,
@@ -349,6 +354,9 @@ func sdkRDSInstance(instance *types.DBInstance) RDSInstance {
 	if instance.Endpoint != nil {
 		out.Endpoint = aws.ToString(instance.Endpoint.Address)
 	}
+	if instance.MasterUserSecret != nil {
+		out.SecretARN = aws.ToString(instance.MasterUserSecret.SecretArn)
+	}
 	return out
 }
 
@@ -365,10 +373,21 @@ func rdsProvisionResult(instance RDSInstance) ProvisionResult {
 	return ProvisionResult{
 		Status:             status,
 		ProviderResourceID: instance.Identifier,
+		SecretRef:          instance.SecretARN,
+		SecretRefProvider:  secretProviderIfPresent(instance.SecretARN, "aws_secrets_manager"),
 		ConnectionInfo: map[string]any{
 			"endpoint":             instance.Endpoint,
 			"provider_resource_id": instance.Identifier,
+			"secret_ref":           instance.SecretARN,
+			"secret_ref_provider":  secretProviderIfPresent(instance.SecretARN, "aws_secrets_manager"),
 		},
 		Detail: map[string]any{"aws_status": instance.Status},
 	}
+}
+
+func secretProviderIfPresent(secretRef string, provider string) string {
+	if secretRef == "" {
+		return ""
+	}
+	return provider
 }

@@ -151,6 +151,58 @@ func TestReconcileLiveProvisioning(t *testing.T) {
 	}
 }
 
+func TestReconcileAbandonedDeploymentsDestroysLiveCloudResources(t *testing.T) {
+	st, ctx, pool := requireAgentDB(t)
+	defer pool.Close()
+	id := "adb_reconcile_live_destroy"
+	_, _ = pool.Exec(ctx,
+		"DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
+	if _, err := st.Provision(ctx, RegisterRequest{
+		DeploymentID:       id,
+		TenantID:           "tenant_agentdb_test",
+		AgentID:            "agent_reconcile_live",
+		Provider:           ProviderAWSRDS,
+		ProvisioningLevel:  LevelInstance,
+		ProvisioningStatus: "available",
+		LeaseSeconds:       60,
+	}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE sage.agent_db_deployments
+		SET lease_expires_at=now()-interval '2 hours',
+			provisioning_status='available',
+			live_mode=true,
+			provider_resource_id='live-resource'
+		WHERE deployment_id=$1`, id); err != nil {
+		t.Fatalf("expire live deployment: %v", err)
+	}
+	if _, err := st.RecordBackup(ctx, id, BackupRequest{
+		BackupID: "backup_reconcile_live_destroy",
+		Provider: ProviderAWSRDS,
+		Status:   "restore_verified",
+	}); err != nil {
+		t.Fatalf("RecordBackup: %v", err)
+	}
+	registry := NewRunnerRegistry(DryRunProvisionRunner{})
+	registry.Register(fakeProviderRunner{provider: ProviderAWSRDS, name: "fake_rds"})
+
+	result, err := st.ReconcileAbandonedDeployments(ctx, time.Now().UTC(), registry)
+	if err != nil {
+		t.Fatalf("ReconcileAbandonedDeployments: %v", err)
+	}
+	if !containsAttempt(result.DestroyLive, id, "destroy_live") {
+		t.Fatalf("destroy live attempts = %#v", result.DestroyLive)
+	}
+	dep, err := st.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if dep.ProvisioningStatus != "destroying" {
+		t.Fatalf("status = %s, want destroying", dep.ProvisioningStatus)
+	}
+}
+
 func TestLiveStatusAndBackupUseProviderRunner(t *testing.T) {
 	st, ctx, pool := requireAgentDB(t)
 	defer pool.Close()
@@ -185,8 +237,74 @@ func TestLiveStatusAndBackupUseProviderRunner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckBackupAssuranceLive: %v", err)
 	}
-	if backup.Attempt.Runner != "fake_rds" || !backup.SafeForDestroy {
+	if backup.Attempt.Runner != "fake_rds" || backup.SafeForDestroy {
 		t.Fatalf("backup assurance = %#v", backup)
+	}
+	if backup.BackupStatus == "restore_verified" {
+		t.Fatalf("backup check must not mint restore verification: %#v", backup)
+	}
+}
+
+func TestLiveBackupCheckDoesNotUnlockDestroy(t *testing.T) {
+	st, ctx, pool := requireAgentDB(t)
+	defer pool.Close()
+	id := "adb_live_backup_no_destroy_unlock"
+	_, _ = pool.Exec(ctx,
+		"DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
+	if _, err := st.Provision(ctx, RegisterRequest{
+		DeploymentID:       id,
+		TenantID:           "tenant_agentdb_test",
+		AgentID:            "agent_live_status",
+		Provider:           ProviderAWSRDS,
+		ProvisioningLevel:  LevelInstance,
+		ProvisioningStatus: "available",
+		BackupRequired:     true,
+		LeaseSeconds:       3600,
+	}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	runner := fakeProviderRunner{provider: ProviderAWSRDS, name: "fake_rds"}
+	if _, err := st.CheckBackupAssuranceLive(ctx, id, runner); err != nil {
+		t.Fatalf("CheckBackupAssuranceLive: %v", err)
+	}
+	if _, err := st.DestroyProvisionLive(ctx, id, runner); err == nil {
+		t.Fatal("DestroyProvisionLive succeeded without a restore-verified backup")
+	}
+}
+
+func TestLiveStatusDoesNotMarkDryRunDeploymentLive(t *testing.T) {
+	st, ctx, pool := requireAgentDB(t)
+	defer pool.Close()
+	id := "adb_status_preserves_dry_run"
+	_, _ = pool.Exec(ctx,
+		"DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
+	if _, err := st.Provision(ctx, RegisterRequest{
+		DeploymentID:      id,
+		TenantID:          "tenant_agentdb_test",
+		AgentID:           "agent_live_status",
+		Provider:          ProviderAWSRDS,
+		ProvisioningLevel: LevelInstance,
+		LeaseSeconds:      3600,
+	}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE sage.agent_db_deployments
+		SET provisioning_status='status_checked', live_mode=false,
+			provider_resource_id='planned-resource'
+		WHERE deployment_id=$1`, id); err != nil {
+		t.Fatalf("seed dry-run status: %v", err)
+	}
+	if _, err := st.CheckProvisionStatusLive(ctx, id,
+		fakeProviderRunner{provider: ProviderAWSRDS, name: "fake_rds"}); err != nil {
+		t.Fatalf("CheckProvisionStatusLive: %v", err)
+	}
+	dep, err := st.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if dep.LiveMode {
+		t.Fatalf("status check incorrectly flipped live_mode: %#v", dep)
 	}
 }
 

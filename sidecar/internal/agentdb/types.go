@@ -208,6 +208,7 @@ type LifecycleBlocked struct {
 type LifecycleReconcileResult struct {
 	Archived      []Deployment       `json:"archived"`
 	DestroyDryRun []ProvisionAttempt `json:"destroy_dry_run"`
+	DestroyLive   []ProvisionAttempt `json:"destroy_live"`
 	Blocked       []LifecycleBlocked `json:"blocked"`
 }
 

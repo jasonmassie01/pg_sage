@@ -93,7 +93,7 @@ func (s *Store) CheckBackupAssuranceLive(
 	backup, err := s.RecordBackup(ctx, id, BackupRequest{
 		BackupID: "backup_check_live_" + idFrom(id, attempt.CreatedAt.String()),
 		Provider: dep.Provider,
-		Status:   "restore_verified",
+		Status:   "verified",
 		Detail: map[string]any{
 			"mode":       "live",
 			"attempt_id": attempt.AttemptID,
@@ -102,11 +102,15 @@ func (s *Store) CheckBackupAssuranceLive(
 	if err != nil {
 		return BackupAssurance{}, err
 	}
+	backups, err := s.Backups(ctx, id)
+	if err != nil {
+		return BackupAssurance{}, err
+	}
 	return BackupAssurance{
 		DeploymentID:   id,
 		Mode:           "live",
 		BackupStatus:   backup.Status,
-		SafeForDestroy: true,
+		SafeForDestroy: hasRestoreVerifiedBackup(backups),
 		Attempt:        attempt,
 		Backup:         backup,
 	}, nil
@@ -167,8 +171,8 @@ func (s *Store) runBackupCommand(
 		Runner:     "dry_run",
 		Command:    input.Command.Args,
 		ExitCode:   result.ExitCode,
-		Stdout:     result.Stdout,
-		Stderr:     result.Stderr,
+		Stdout:     redactString(result.Stdout),
+		Stderr:     redactString(result.Stderr),
 		Detail:     detail,
 		FinishedAt: time.Now().UTC(),
 	})

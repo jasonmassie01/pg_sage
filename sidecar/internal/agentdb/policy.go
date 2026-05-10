@@ -76,6 +76,14 @@ func CleanupDecisionFor(
 			Reason: "destructive cleanup requires verified restore",
 		}
 	}
+	if cloudProvider(dep.Provider) &&
+		dep.ProvisioningLevel == LevelInstance &&
+		dep.ProvisioningStatus != "destroyed" {
+		return CleanupDecision{
+			Action: "wait_for_provider_destroy",
+			Reason: "cloud provider resource must be destroyed before row deletion",
+		}
+	}
 	return CleanupDecision{
 		Action:    "delete_ready",
 		CanDelete: true,

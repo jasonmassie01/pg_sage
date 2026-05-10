@@ -25,6 +25,14 @@ func TestAWSRDSRunnerCreateStatusDestroy(t *testing.T) {
 	if !client.created.StorageEncrypted || client.created.BackupRetention != 7 {
 		t.Fatalf("create input missing safety settings: %#v", client.created)
 	}
+	if client.created.DeletionProtection {
+		t.Fatalf("pg_sage-created disposable RDS should remain cleanup-safe: %#v",
+			client.created)
+	}
+	if created.SecretRef != "arn:aws:secretsmanager:us-east-1:123:secret:rds" ||
+		created.SecretRefProvider != "aws_secrets_manager" {
+		t.Fatalf("created secret ref = %#v", created)
+	}
 	status := runner.Status(context.Background(), req)
 	if status.Status != "available" {
 		t.Fatalf("status = %#v", status)
@@ -124,6 +132,7 @@ func (f *fakeRDSClient) CreateInstance(
 		Identifier: input.Identifier,
 		Status:     status,
 		Endpoint:   input.Identifier + ".example",
+		SecretARN:  "arn:aws:secretsmanager:us-east-1:123:secret:rds",
 	}, nil
 }
 

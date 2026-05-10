@@ -1451,6 +1451,7 @@ func TestAgentDBBlueprintToLiveProvisioningAPI(t *testing.T) {
 
 	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
 	registry.Register(apiFakeProviderRunner{})
+	seedEnabledProviderConfig(t, ctx, st, agentdb.ProviderAWSRDS)
 	router := agentDBSubrouterWithRegistry(
 		st,
 		registry,
@@ -1508,8 +1509,15 @@ func TestAgentDBBlueprintToLiveProvisioningAPI(t *testing.T) {
 	}
 	if rr := post("/api/v1/agent-dbs/api_blueprint_live/backups/check", `{}`); rr.Code != http.StatusOK {
 		t.Fatalf("backup check status = %d body=%s", rr.Code, rr.Body.String())
-	} else if !strings.Contains(rr.Body.String(), `"safe_for_destroy":true`) {
-		t.Fatalf("backup check did not verify restore body=%s", rr.Body.String())
+	} else if !strings.Contains(rr.Body.String(), `"safe_for_destroy":false`) {
+		t.Fatalf("backup check must not grant restore verification body=%s", rr.Body.String())
+	}
+	if _, err := st.RecordBackup(ctx, id, agentdb.BackupRequest{
+		BackupID: "api_blueprint_live_restore_verified",
+		Provider: agentdb.ProviderAWSRDS,
+		Status:   "restore_verified",
+	}); err != nil {
+		t.Fatalf("RecordBackup restore verification: %v", err)
 	}
 	if rr := post("/api/v1/agent-dbs/api_blueprint_live/provision/destroy-live", `{}`); rr.Code != http.StatusOK {
 		t.Fatalf("live destroy status = %d body=%s", rr.Code, rr.Body.String())
@@ -1659,6 +1667,7 @@ func TestAgentDBLiveProvisionAPI(t *testing.T) {
 	if _, err := st.PreflightProvision(ctx, id); err != nil {
 		t.Fatalf("PreflightProvision: %v", err)
 	}
+	seedEnabledProviderConfig(t, ctx, st, agentdb.ProviderAWSRDS)
 	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
 	registry.Register(apiFakeProviderRunner{})
 	disabledReq := httptest.NewRequest(
@@ -1713,6 +1722,7 @@ func TestAgentDBLiveProvisionAPIRejectsMissingCostEstimate(t *testing.T) {
 	if _, err := st.PreflightProvision(ctx, id); err != nil {
 		t.Fatalf("PreflightProvision: %v", err)
 	}
+	seedEnabledProviderConfig(t, ctx, st, agentdb.ProviderAWSRDS)
 	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
 	registry.Register(apiFakeProviderRunner{})
 	req := httptest.NewRequest(
@@ -1750,6 +1760,7 @@ func TestAgentDBLiveProvisionAPIReportsUnavailableRunner(t *testing.T) {
 	if _, err := st.PreflightProvision(ctx, id); err != nil {
 		t.Fatalf("PreflightProvision: %v", err)
 	}
+	seedEnabledProviderConfig(t, ctx, st, agentdb.ProviderAWSRDS)
 	req := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/agent-dbs/"+id+"/provision/execute",
@@ -1796,6 +1807,7 @@ func TestAgentDBLiveProvisionAPIPromotesDryRunReadyDeployment(t *testing.T) {
 	if _, err := st.ExecuteProvision(ctx, id, &agentdb.DryRunProvisionRunner{}); err != nil {
 		t.Fatalf("ExecuteProvision dry-run: %v", err)
 	}
+	seedEnabledProviderConfig(t, ctx, st, agentdb.ProviderAWSRDS)
 	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
 	registry.Register(apiFakeProviderRunner{})
 	req := httptest.NewRequest(
@@ -1815,6 +1827,103 @@ func TestAgentDBLiveProvisionAPIPromotesDryRunReadyDeployment(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), `"kind":"execute_live"`) {
 		t.Fatalf("expected live attempt, got %s", rr.Body.String())
+	}
+}
+
+func TestAgentDBLiveProvisionAPIUsesServerProviderConfig(t *testing.T) {
+	st, ctx, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+	id := "api_live_requires_server_config"
+	cleanupAgentDBTestRows(t, ctx, pool, id)
+	defer cleanupAgentDBTestRows(t, ctx, pool, id)
+	if _, err := st.Provision(ctx, agentdb.RegisterRequest{
+		DeploymentID:      id,
+		TenantID:          "tenant_agentdb_api",
+		AgentID:           "agent_live_api",
+		Provider:          agentdb.ProviderAWSRDS,
+		ProvisioningLevel: agentdb.LevelInstance,
+		LeaseSeconds:      3600,
+	}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if _, err := st.PreflightProvision(ctx, id); err != nil {
+		t.Fatalf("PreflightProvision: %v", err)
+	}
+	if _, err := st.UpsertProviderConfig(ctx, agentdb.ProviderConfigRequest{
+		Provider: agentdb.ProviderAWSRDS,
+		Enabled:  false,
+		Settings: map[string]any{"allowed_regions": []any{"us-east-1"}},
+	}); err != nil {
+		t.Fatalf("UpsertProviderConfig: %v", err)
+	}
+	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
+	registry.Register(apiFakeProviderRunner{})
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/"+id+"/provision/execute",
+		bytes.NewReader([]byte(`{
+			"mode":"live",
+			"live_enabled":true,
+			"provider_enabled":true,
+			"cost_estimate_id":"estimate-api",
+			"allowed_regions":["*"]
+		}`)),
+	)
+	rr := httptest.NewRecorder()
+	agentDBSubrouterWithRegistry(st, registry, nil).ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAgentDBLiveDestroyAPIUsesServerProviderConfig(t *testing.T) {
+	st, ctx, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+	id := "api_live_destroy_requires_server_config"
+	cleanupAgentDBTestRows(t, ctx, pool, id)
+	defer cleanupAgentDBTestRows(t, ctx, pool, id)
+	if _, err := st.Provision(ctx, agentdb.RegisterRequest{
+		DeploymentID:      id,
+		TenantID:          "tenant_agentdb_api",
+		AgentID:           "agent_live_api",
+		Provider:          agentdb.ProviderAWSRDS,
+		ProvisioningLevel: agentdb.LevelInstance,
+		LeaseSeconds:      3600,
+	}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE sage.agent_db_deployments
+		SET provisioning_status='available', live_mode=true,
+			provider_resource_id='api-live-resource'
+		WHERE deployment_id=$1`, id); err != nil {
+		t.Fatalf("seed live deployment: %v", err)
+	}
+	if _, err := st.RecordBackup(ctx, id, agentdb.BackupRequest{
+		BackupID: "api_live_destroy_restore_verified",
+		Provider: agentdb.ProviderAWSRDS,
+		Status:   "restore_verified",
+	}); err != nil {
+		t.Fatalf("RecordBackup: %v", err)
+	}
+	if _, err := st.UpsertProviderConfig(ctx, agentdb.ProviderConfigRequest{
+		Provider: agentdb.ProviderAWSRDS,
+		Enabled:  false,
+		Settings: map[string]any{"allowed_regions": []any{"*"}},
+	}); err != nil {
+		t.Fatalf("UpsertProviderConfig: %v", err)
+	}
+	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
+	registry.Register(apiFakeProviderRunner{})
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/"+id+"/provision/destroy-live",
+		bytes.NewReader([]byte(`{}`)),
+	)
+	rr := httptest.NewRecorder()
+	agentDBSubrouterWithRegistry(st, registry, nil).ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -1859,6 +1968,29 @@ func cleanupAgentDBTestRows(
 	}
 	cleanup()
 	t.Cleanup(cleanup)
+}
+
+func seedEnabledProviderConfig(
+	t *testing.T,
+	ctx context.Context,
+	st *agentdb.Store,
+	provider string,
+) {
+	t.Helper()
+	if _, err := st.UpsertProviderConfig(ctx, agentdb.ProviderConfigRequest{
+		Provider: provider,
+		Enabled:  true,
+		Settings: map[string]any{
+			"allowed_regions":            []any{"*"},
+			"allow_public_ip":            false,
+			"max_ttl_seconds":            86400,
+			"max_estimated_cost_usd":     100,
+			"live_provisioning_enabled":  true,
+			"require_backup_before_drop": true,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertProviderConfig: %v", err)
+	}
 }
 
 func requireAgentDBAPIStore(t *testing.T) (*agentdb.Store, context.Context, *pgxpool.Pool) {

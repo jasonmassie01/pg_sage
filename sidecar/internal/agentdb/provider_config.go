@@ -52,6 +52,7 @@ func (s *Store) ProviderConfig(ctx context.Context, provider string) (ProviderCo
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ProviderConfig{}, ErrNotFound
 	}
+	cfg.Settings = RedactProviderDetail(cfg.Settings)
 	return cfg, err
 }
 
@@ -73,14 +74,13 @@ func (s *Store) ProviderConfigs(ctx context.Context) ([]ProviderConfig, error) {
 		if err := scanProviderConfig(rows, &cfg); err != nil {
 			return nil, err
 		}
-		cfg.Settings = RedactProviderDetail(cfg.Settings)
 		out = append(out, cfg)
 	}
 	return out, rows.Err()
 }
 
 func scanProviderConfig(row scanner, cfg *ProviderConfig) error {
-	return row.Scan(
+	err := row.Scan(
 		&cfg.Provider,
 		&cfg.Enabled,
 		&cfg.Settings,
@@ -88,4 +88,6 @@ func scanProviderConfig(row scanner, cfg *ProviderConfig) error {
 		&cfg.CreatedAt,
 		&cfg.UpdatedAt,
 	)
+	cfg.Settings = RedactProviderDetail(cfg.Settings)
+	return err
 }

@@ -30,7 +30,21 @@ func agentDBProvisionExecuteHandler(
 			return
 		}
 		if str(body, "mode") == "live" {
-			if !boolValue(body, "live_enabled") || !boolValue(body, "provider_enabled") {
+			cfg, err := st.ProviderConfig(r.Context(), dep.Provider)
+			if err != nil {
+				agentDBError(w, err)
+				return
+			}
+			if !cfg.Enabled {
+				agentDBError(w, agentdb.ErrInvalid)
+				return
+			}
+			policy := livePolicyFromProviderConfig(dep.Provider, cfg)
+			decision := agentdb.EvaluateLiveProvisionPolicy(
+				policy,
+				liveRequestFromDeployment(dep, body),
+			)
+			if !decision.Allowed || decision.RequiresReview {
 				agentDBError(w, agentdb.ErrInvalid)
 				return
 			}
@@ -50,12 +64,7 @@ func agentDBProvisionExecuteHandler(
 				agentdb.LiveExecutionRequest{
 					Mode:           "live",
 					CostEstimateID: str(body, "cost_estimate_id"),
-					Policy: agentdb.LiveProvisionPolicy{
-						LiveProvisioningEnabled: boolValue(body, "live_enabled"),
-						ProviderEnabled:         boolValue(body, "provider_enabled"),
-						AllowPublicIP:           boolValue(body, "allow_public_ip"),
-						AllowedRegions:          stringSlice(body, "allowed_regions"),
-					},
+					Policy:         policy,
 				},
 			)
 			if err != nil {
@@ -81,6 +90,53 @@ func agentDBProvisionExecuteHandler(
 		}
 		jsonResponse(w, attempt)
 	}
+}
+
+func livePolicyFromProviderConfig(
+	provider string,
+	cfg agentdb.ProviderConfig,
+) agentdb.LiveProvisionPolicy {
+	settings := cfg.Settings
+	return agentdb.LiveProvisionPolicy{
+		LiveProvisioningEnabled: cfg.Enabled,
+		ProviderEnabled:         cfg.Enabled,
+		Provider:                provider,
+		AllowPublicIP:           boolValue(settings, "allow_public_ip"),
+		AllowedRegions:          stringSlice(settings, "allowed_regions"),
+		AllowedAccounts:         stringSlice(settings, "allowed_accounts"),
+		AllowedProjects:         stringSlice(settings, "allowed_projects"),
+		AllowedWorkspaces:       stringSlice(settings, "allowed_workspaces"),
+		RequireBackupBeforeDrop: boolValue(settings, "require_backup_before_drop"),
+		MaxTTLSeconds:           integer(settings, "max_ttl_seconds"),
+		MaxEstimatedCostUSD:     float(settings, "max_estimated_cost_usd"),
+	}
+}
+
+func liveRequestFromDeployment(
+	dep agentdb.Deployment,
+	body map[string]any,
+) agentdb.LiveProvisionRequest {
+	params, _ := dep.Metadata["provider_params"].(map[string]any)
+	return agentdb.LiveProvisionRequest{
+		Provider:             dep.Provider,
+		Region:               firstString(str(params, "region"), str(body, "region")),
+		Account:              firstString(str(params, "account"), str(body, "account")),
+		Project:              firstString(str(params, "project"), str(body, "project")),
+		Workspace:            firstString(str(params, "workspace"), str(body, "workspace")),
+		TTLSeconds:           ttlSeconds(dep),
+		PublicIP:             boolValue(params, "publicly_accessible") || boolValue(params, "ipv4_enabled"),
+		EstimatedCostUSD:     float(body, "estimated_cost_usd"),
+		EstimatedCostDoubled: boolValue(body, "estimated_cost_doubled"),
+		Approved:             boolValue(body, "approved"),
+		AdminOverrideReason:  str(body, "admin_override_reason"),
+	}
+}
+
+func ttlSeconds(dep agentdb.Deployment) int {
+	if dep.LeaseExpiresAt == nil {
+		return 0
+	}
+	return int(time.Until(*dep.LeaseExpiresAt).Seconds())
 }
 
 func agentDBProvisionStatusHandler(
@@ -163,6 +219,19 @@ func agentDBProvisionDestroyLiveHandler(
 		dep, err := st.Get(r.Context(), agentDBID(r))
 		if err != nil {
 			agentDBError(w, err)
+			return
+		}
+		cfg, err := st.ProviderConfig(r.Context(), dep.Provider)
+		if err != nil {
+			agentDBError(w, err)
+			return
+		}
+		decision := agentdb.EvaluateLiveProvisionPolicy(
+			livePolicyFromProviderConfig(dep.Provider, cfg),
+			liveRequestFromDeployment(dep, nil),
+		)
+		if !decision.Allowed || decision.RequiresReview {
+			agentDBError(w, agentdb.ErrInvalid)
 			return
 		}
 		runner, err := registry.ForProvider(dep.Provider)

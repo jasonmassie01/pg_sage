@@ -265,6 +265,32 @@ func TestCleanupDecisionRequiresArchiveAndVerifiedBackup(t *testing.T) {
 	}
 }
 
+func TestCleanupDecisionBlocksCloudDeleteUntilProviderDestroyed(t *testing.T) {
+	now := time.Date(2026, 5, 10, 12, 0, 0, 0, time.UTC)
+	dep := Deployment{
+		Status:             "archived",
+		Provider:           ProviderAWSRDS,
+		ProvisioningLevel:  LevelInstance,
+		ProvisioningStatus: "available",
+		BackupRequired:     true,
+	}
+	backups := []Backup{{
+		Status:            "restore_verified",
+		RestoreVerifiedAt: &now,
+	}}
+
+	blocked := CleanupDecisionFor(dep, backups, now)
+	if blocked.Action != "wait_for_provider_destroy" || blocked.CanDelete {
+		t.Fatalf("cloud cleanup before destroy = %#v", blocked)
+	}
+
+	dep.ProvisioningStatus = "destroyed"
+	ready := CleanupDecisionFor(dep, backups, now)
+	if ready.Action != "delete_ready" || !ready.CanDelete {
+		t.Fatalf("cloud cleanup after destroy = %#v", ready)
+	}
+}
+
 func TestDeleteGuardErrorIsDistinguishable(t *testing.T) {
 	if !errors.Is(ErrDeleteBlocked, ErrInvalid) {
 		t.Fatal("ErrDeleteBlocked should remain distinguishable and invalid")

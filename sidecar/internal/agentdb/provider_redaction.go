@@ -14,9 +14,23 @@ var sensitiveKeyParts = []string{
 	"secret",
 	"credential",
 	"private_key",
+	"private-key",
+	"privatekey",
 	"connection_string",
 	"dsn",
 	"access_key",
+	"access-key",
+	"accesskey",
+	"api_key",
+	"apikey",
+	"authorization",
+	"bearer",
+	"client_email",
+	"client-email",
+	"private_key_id",
+	"private-key-id",
+	"x-amz",
+	"signature",
 	"session",
 }
 
@@ -74,9 +88,8 @@ func sensitiveKey(key string) bool {
 
 func redactString(value string) string {
 	lower := strings.ToLower(value)
-	if strings.Contains(lower, "postgres://") ||
-		strings.Contains(lower, "postgresql://") {
-		return redactURLPassword(value)
+	if redactedURL, ok := redactSensitiveURL(value); ok {
+		return redactedURL
 	}
 	for _, part := range sensitiveKeyParts {
 		if strings.Contains(lower, part+"=") || strings.Contains(lower, part+":") {
@@ -86,10 +99,13 @@ func redactString(value string) string {
 	return value
 }
 
-func redactURLPassword(value string) string {
+func redactSensitiveURL(value string) (string, bool) {
 	u, err := url.Parse(value)
-	if err != nil || u.User == nil {
-		return redactedValue
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", false
+	}
+	if u.User == nil && !urlHasSensitiveQuery(u) {
+		return value, false
 	}
 	user := u.User.Username()
 	if user == "" {
@@ -97,5 +113,23 @@ func redactURLPassword(value string) string {
 	} else {
 		u.User = url.UserPassword(user, redactedValue)
 	}
-	return fmt.Sprint(u)
+	if urlHasSensitiveQuery(u) {
+		q := u.Query()
+		for key := range q {
+			if sensitiveKey(key) {
+				q.Set(key, redactedValue)
+			}
+		}
+		u.RawQuery = q.Encode()
+	}
+	return fmt.Sprint(u), true
+}
+
+func urlHasSensitiveQuery(u *url.URL) bool {
+	for key := range u.Query() {
+		if sensitiveKey(key) {
+			return true
+		}
+	}
+	return false
 }

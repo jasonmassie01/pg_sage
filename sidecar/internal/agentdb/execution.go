@@ -189,7 +189,7 @@ func (s *Store) ExecuteProvisionLive(
 			return ProvisionAttempt{}, err
 		}
 	}
-	if err := s.applyProvisionResult(ctx, id, nextStatus, result); err != nil {
+	if err := s.applyProvisionResult(ctx, id, nextStatus, result, true); err != nil {
 		return ProvisionAttempt{}, err
 	}
 	_ = s.audit(ctx, id, "provision_execute_live_"+status, detail)
@@ -241,13 +241,13 @@ func (s *Store) DestroyProvisionLive(
 		Kind:       "destroy_live",
 		Status:     status,
 		Runner:     runner.Name(),
-		Detail:     result.Detail,
+		Detail:     RedactProviderDetail(result.Detail),
 		FinishedAt: time.Now().UTC(),
 	})
 	if err != nil {
 		return ProvisionAttempt{}, err
 	}
-	if err := s.applyProvisionResult(ctx, id, nextStatus, result); err != nil {
+	if err := s.applyProvisionResult(ctx, id, nextStatus, result, false); err != nil {
 		return ProvisionAttempt{}, err
 	}
 	_ = s.audit(ctx, id, "provision_destroy_live_"+status, attempt.Detail)
@@ -320,7 +320,7 @@ func (s *Store) CheckProvisionStatusLive(
 	if err != nil {
 		return ProvisionAttempt{}, err
 	}
-	if err := s.applyProvisionResult(ctx, id, nextStatus, result); err != nil {
+	if err := s.applyProvisionResult(ctx, id, nextStatus, result, false); err != nil {
 		return ProvisionAttempt{}, err
 	}
 	_ = s.audit(ctx, id, "provision_status_live_"+status, detail)
@@ -417,8 +417,8 @@ func (s *Store) runLifecycleCommand(
 		Runner:     "dry_run",
 		Command:    input.Command.Args,
 		ExitCode:   result.ExitCode,
-		Stdout:     result.Stdout,
-		Stderr:     result.Stderr,
+		Stdout:     redactString(result.Stdout),
+		Stderr:     redactString(result.Stderr),
 		Detail:     result.Detail,
 		FinishedAt: time.Now().UTC(),
 	})
@@ -502,6 +502,7 @@ func (s *Store) applyProvisionResult(
 	id string,
 	status string,
 	result ProvisionResult,
+	markLive bool,
 ) error {
 	if result.ConnectionInfo == nil {
 		result.ConnectionInfo = map[string]any{}
@@ -522,7 +523,7 @@ func (s *Store) applyProvisionResult(
 			provider_resource_id=COALESCE(NULLIF($3, ''), provider_resource_id),
 			secret_ref=COALESCE(NULLIF($4, ''), secret_ref),
 			secret_ref_provider=COALESCE(NULLIF($5, ''), secret_ref_provider),
-			live_mode=true,
+			live_mode=CASE WHEN $7 THEN true ELSE live_mode END,
 			connection_info=connection_info || $6::jsonb,
 			updated_at=now()
 		WHERE deployment_id=$1`,
@@ -532,6 +533,7 @@ func (s *Store) applyProvisionResult(
 		result.SecretRef,
 		result.SecretRefProvider,
 		jsonBytes(RedactProviderDetail(result.ConnectionInfo)),
+		markLive,
 	)
 	return err
 }

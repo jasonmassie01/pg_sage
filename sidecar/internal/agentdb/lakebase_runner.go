@@ -279,7 +279,9 @@ func (c LakebaseHTTPClient) doBranch(
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return LakebaseBranch{}, fmt.Errorf("lakebase api status %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return LakebaseBranch{}, fmt.Errorf("lakebase api status %d: %s",
+			resp.StatusCode, redactString(string(body)))
 	}
 	var raw map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&raw)

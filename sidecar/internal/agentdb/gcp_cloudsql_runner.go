@@ -356,7 +356,9 @@ func (c CloudSQLHTTPClient) do(
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("cloud sql api status %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, fmt.Errorf("cloud sql api status %d: %s",
+			resp.StatusCode, redactString(string(body)))
 	}
 	var raw map[string]any
 	if out != nil {

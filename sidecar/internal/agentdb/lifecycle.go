@@ -20,6 +20,23 @@ func (s *Store) ReconcileAbandonedDeployments(
 		if dep.Provider == ProviderLocalPostgres || dep.ProvisioningLevel != LevelInstance {
 			continue
 		}
+		if liveRunner, ok := liveRunnerFromSource(runnerSource, dep.Provider); ok &&
+			dep.LiveMode &&
+			destroyableProvisioningStatus(dep.ProvisioningStatus) {
+			attempt, err := s.DestroyProvisionLive(ctx, dep.DeploymentID, liveRunner)
+			if err == nil {
+				result.DestroyLive = append(result.DestroyLive, attempt)
+				continue
+			}
+			if errors.Is(err, ErrRestoreRequired) {
+				result.Blocked = append(result.Blocked, LifecycleBlocked{
+					DeploymentID: dep.DeploymentID,
+					Reason:       "verified restore required",
+				})
+				continue
+			}
+			return LifecycleReconcileResult{}, err
+		}
 		runner, err := commandRunnerFromSource(runnerSource, dep.Provider)
 		if err != nil {
 			return LifecycleReconcileResult{}, err
@@ -39,6 +56,24 @@ func (s *Store) ReconcileAbandonedDeployments(
 		return LifecycleReconcileResult{}, err
 	}
 	return result, nil
+}
+
+func liveRunnerFromSource(source any, provider string) (ProviderRunner, bool) {
+	registry, ok := source.(*RunnerRegistry)
+	if !ok || registry == nil {
+		return nil, false
+	}
+	runner, err := registry.ForProvider(provider)
+	if err != nil || runner == nil || runner.Name() == "dry_run" {
+		return nil, false
+	}
+	return runner, true
+}
+
+func destroyableProvisioningStatus(status string) bool {
+	return status == "available" ||
+		status == "status_checked" ||
+		status == "dry_run_ready"
 }
 
 func (s *Store) ReconcileLiveProvisioning(
@@ -102,14 +137,14 @@ func (s *Store) ReconcileLiveProvisioning(
 			Kind:       "live_reconcile_status",
 			Status:     "succeeded",
 			Runner:     runner.Name(),
-			Detail:     status.Detail,
+			Detail:     RedactProviderDetail(status.Detail),
 			FinishedAt: time.Now().UTC(),
 		})
 		if err != nil {
 			return LifecycleReconcileResult{}, err
 		}
 		result.DestroyDryRun = append(result.DestroyDryRun, attempt)
-		if err := s.applyProvisionResult(ctx, dep.DeploymentID, status.Status, status); err != nil {
+		if err := s.applyProvisionResult(ctx, dep.DeploymentID, status.Status, status, false); err != nil {
 			result.Blocked = append(result.Blocked, LifecycleBlocked{
 				DeploymentID: dep.DeploymentID,
 				Reason:       err.Error(),

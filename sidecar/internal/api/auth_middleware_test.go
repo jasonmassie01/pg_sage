@@ -50,6 +50,22 @@ func TestShouldSkipAuth_APIPaths(t *testing.T) {
 	}
 }
 
+func TestShouldSkipAuth_AgentPingExactPathOnly(t *testing.T) {
+	if !shouldSkipAuth("/api/v1/agent-dbs/deploy_123/agent-ping") {
+		t.Fatal("expected exact agent ping route to skip auth")
+	}
+	paths := []string{
+		"/api/v1/agent-dbs/deploy_123/audit/agent-ping",
+		"/api/v1/agent-dbs/deploy_123/agent-ping/extra",
+		"/api/v1/agent-dbs/deploy_123/provider-configs/agent-ping",
+	}
+	for _, path := range paths {
+		if shouldSkipAuth(path) {
+			t.Fatalf("path %q unexpectedly skips auth", path)
+		}
+	}
+}
+
 func TestShouldSkipAuth_EmptyPath(t *testing.T) {
 	// Empty path does not start with /api/
 	if !shouldSkipAuth("") {

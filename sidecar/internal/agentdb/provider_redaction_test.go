@@ -31,6 +31,31 @@ func TestRedactProviderDetail(t *testing.T) {
 	}
 }
 
+func TestRedactProviderDetailCoversCloudCredentialShapes(t *testing.T) {
+	detail := map[string]any{
+		"api_key":       "AIza-do-not-leak",
+		"Authorization": "Bearer live-token",
+		"client_email":  "robot@example.iam.gserviceaccount.com",
+		"raw_url":       "https://user:pass@example.com/path?token=secret-token",
+		"aws_url":       "https://rds.amazonaws.com/?X-Amz-Signature=abc123",
+		"safe":          "visible",
+	}
+
+	got := RedactProviderDetail(detail)
+	text := strings.ToLower(string(mustJSON(got)))
+	for _, leaked := range []string{
+		"aiza", "live-token", "robot@example", "pass@example",
+		"secret-token", "abc123",
+	} {
+		if strings.Contains(text, leaked) {
+			t.Fatalf("redacted cloud detail leaked %q: %s", leaked, text)
+		}
+	}
+	if got["safe"] != "visible" {
+		t.Fatalf("safe value changed: %#v", got)
+	}
+}
+
 func FuzzRedactProviderDetail(f *testing.F) {
 	f.Add("password", "secret-value")
 	f.Add("Token", "token-value")
