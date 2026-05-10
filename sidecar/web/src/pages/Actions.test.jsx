@@ -75,6 +75,17 @@ vi.mock('../hooks/useAPI', () => ({
 }))
 
 describe('Actions', () => {
+  it('describes the case to action lifecycle', () => {
+    render(<Actions database="all" user={{ role: 'admin' }} />)
+
+    expect(screen.getByTestId('actions-page-description'))
+      .toHaveTextContent('Actions are the executable side of Cases')
+    expect(screen.getByTestId('actions-page-description'))
+      .toHaveTextContent('queued for approval')
+    expect(screen.getByTestId('actions-page-description'))
+      .toHaveTextContent('logged here')
+  })
+
   it('shows generated migration script output for pending DDL', () => {
     render(<Actions database="all" user={{ role: 'admin' }} />)
 

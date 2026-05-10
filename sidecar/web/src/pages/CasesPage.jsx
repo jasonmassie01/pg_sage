@@ -29,8 +29,10 @@ function scoreValue(caseRow, key) {
 
 function nextStep(caseRow) {
   const candidate = caseRow.action_candidates?.[0]
-  if (!candidate) return 'No action proposed'
-  if (candidate.blocked_reason) return candidate.blocked_reason
+  if (!candidate) return 'Needs investigation'
+  if (candidate.blocked_reason) {
+    return `${candidate.action_type}: ${candidate.blocked_reason}`
+  }
   return candidate.action_type
 }
 
@@ -73,9 +75,12 @@ export function CasesPage({ database, initialSource = 'all' }) {
           style={{ color: 'var(--text-primary)' }}>
           Cases
         </h2>
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          {filteredCases.length} of {cases.length} cases ranked by urgency
-          and actionability.
+        <p className="text-sm" data-testid="cases-page-description"
+          style={{ color: 'var(--text-secondary)' }}>
+          Cases group findings into ranked work items. pg_sage attaches
+          evidence and action candidates here, then approved or executable
+          work flows to Actions for review, execution, and audit history.
+          {' '}{filteredCases.length} of {cases.length} cases are visible.
         </p>
       </div>
 
@@ -142,6 +147,13 @@ function CaseCard({ caseRow }) {
         <span>Next: <span>{nextStep(caseRow)}</span></span>
         {candidate && <span>Policy: {policyLabel(candidate)}</span>}
       </div>
+      {caseRow.why && (
+        <div className="mt-3 text-sm"
+          style={{ color: 'var(--text-secondary)' }}>
+          {caseRow.why}
+        </div>
+      )}
+      <EvidenceList evidence={caseRow.evidence || []} />
       {candidateGuardrails.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5"
           aria-label="Action guardrails">
@@ -172,6 +184,65 @@ function CaseCard({ caseRow }) {
         </div>
       )}
     </article>
+  )
+}
+
+function EvidenceList({ evidence }) {
+  const visibleEvidence = evidence.filter(item =>
+    item?.summary || Object.keys(item?.detail || {}).length > 0,
+  )
+  if (visibleEvidence.length === 0) return null
+  return (
+    <div className="mt-3 space-y-2" aria-label="Case evidence">
+      {visibleEvidence.map((item, index) => (
+        <EvidenceItem
+          key={`${item.type || 'evidence'}-${index}`}
+          evidence={item}
+        />
+      ))}
+    </div>
+  )
+}
+
+function EvidenceItem({ evidence }) {
+  const detail = evidence.detail || {}
+  const query = detail.query || detail.normalized_query || detail.sample_query
+  const scalarEntries = Object.entries(detail)
+    .filter(([key, value]) =>
+      key !== 'query' &&
+      key !== 'normalized_query' &&
+      key !== 'sample_query' &&
+      value !== null &&
+      value !== undefined &&
+      typeof value !== 'object',
+    )
+    .slice(0, 8)
+  return (
+    <section className="rounded border p-2 text-xs"
+      style={{ borderColor: 'var(--border)' }}>
+      <div className="flex flex-wrap gap-2"
+        style={{ color: 'var(--text-secondary)' }}>
+        {evidence.type && <span>{evidence.type}</span>}
+        {evidence.summary && <span>{evidence.summary}</span>}
+      </div>
+      {scalarEntries.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2"
+          style={{ color: 'var(--text-secondary)' }}>
+          {scalarEntries.map(([key, value]) => (
+            <span key={key}>{key}: {String(value)}</span>
+          ))}
+        </div>
+      )}
+      {query && (
+        <div className="mt-2">
+          <div className="font-medium mb-1"
+            style={{ color: 'var(--text-primary)' }}>
+            Query
+          </div>
+          <SQLBlock sql={String(query)} />
+        </div>
+      )}
+    </section>
   )
 }
 

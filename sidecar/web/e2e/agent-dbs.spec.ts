@@ -43,26 +43,29 @@ test.describe('Agent DBs page', () => {
     await expect(page.locator('[data-testid="agent-db-detail"]')).toContainText(
       '$3.45',
     )
-    await expect(page.locator('[data-testid="agent-db-requests"]')).toContainText(
-      'req-agentdb-demo',
-    )
-    await expect(page.locator('[data-testid="agent-db-providers"]')).toContainText(
-      'Databricks Lakebase',
-    )
-    await expect(page.locator('[data-testid="agent-db-profiles"]')).toContainText(
-      'Lakebase instance S',
-    )
     await expect(page.locator('[data-testid="agent-db-provisioning"]'))
       .toContainText('Cloud provisioning')
     await expect(page.locator('[data-testid="agent-db-provisioning"]'))
       .toContainText('dry run: databricks database branches create')
     await expect(page.locator('[data-testid="agent-db-backup-assurance"]'))
       .toContainText('restore_verified')
+    await page.locator('#agent-db-tab-activity').click()
+    await expect(page.locator('[data-testid="agent-db-requests"]')).toContainText(
+      'req-agentdb-demo',
+    )
+    await page.locator('#agent-db-tab-profiles').click()
+    await expect(page.locator('[data-testid="agent-db-providers"]')).toContainText(
+      'Databricks Lakebase',
+    )
+    await expect(page.locator('[data-testid="agent-db-profiles"]')).toContainText(
+      'Lakebase instance S',
+    )
   })
 
   test('provisions through the UI request path', async ({ page }) => {
     await page.goto('#/agent-dbs')
 
+    await page.locator('#agent-db-tab-provision').click()
     await page.locator('[data-testid="agent-db-submit"]').click()
 
     await expect(page.getByText('Provisioned')).toBeVisible()
@@ -88,6 +91,25 @@ test.describe('Agent DBs page', () => {
     await expect(page.getByText('Provision execute succeeded')).toBeVisible()
     await expect(page.locator('[data-testid="agent-db-provisioning"]'))
       .toContainText('workspace reachable')
+  })
+
+  test('runs live cloud execute and live destroy controls', async ({ page }) => {
+    await page.goto('#/agent-dbs')
+
+    const executeRequest = page.waitForRequest(request =>
+      request.method() === 'POST' &&
+      request.url().endsWith('/api/v1/agent-dbs/agentdb-demo/provision/execute') &&
+      request.postDataJSON().mode === 'live')
+    await page.getByText('Live execute').click()
+    await executeRequest
+    await expect(page.getByText('Provision live execute succeeded')).toBeVisible()
+
+    const destroyRequest = page.waitForRequest(request =>
+      request.method() === 'POST' &&
+      request.url().endsWith('/api/v1/agent-dbs/agentdb-demo/provision/destroy-live'))
+    await page.getByText('Destroy live').click()
+    await destroyRequest
+    await expect(page.getByText('Provision destroy live succeeded')).toBeVisible()
   })
 
   test('runs cloud status, destroy dry-run, and reconcile actions', async ({
@@ -146,6 +168,7 @@ test.describe('Agent DBs page', () => {
   test('creates a custom Lakebase instance size profile', async ({ page }) => {
     await page.goto('#/agent-dbs')
 
+    await page.locator('#agent-db-tab-profiles').click()
     await page.getByLabel('Profile ID').fill('lakebase_custom')
     await page.getByLabel('Name').fill('Lakebase custom')
     await page.locator('[data-testid="agent-db-profiles"] select')
@@ -182,5 +205,68 @@ test.describe('Agent DBs page', () => {
       .click()
     await approveRequest
     await expect(page.getByText('Promotion approved')).toBeVisible()
+  })
+
+  test('approves and provisions Terraform templates', async ({ page }) => {
+    await page.goto('#/agent-dbs')
+    await page.locator('#agent-db-tab-terraform').click()
+
+    const approveRequest = page.waitForRequest(request =>
+      request.method() === 'POST' &&
+      request.url().endsWith(
+        '/api/v1/agent-dbs/terraform-templates/tf-agentdb-draft/approve',
+      ))
+    await page.locator('[data-testid="agent-db-terraform-approve"]').click()
+    await approveRequest
+    await expect(page.getByText('Terraform template approved')).toBeVisible()
+
+    const provisionRequest = page.waitForRequest(request =>
+      request.method() === 'POST' &&
+      request.url().endsWith(
+        '/api/v1/agent-dbs/terraform-templates/tf-agentdb-approved/provision',
+      ))
+    await page.locator('[data-testid="agent-db-terraform-provision"]').click()
+    await provisionRequest
+    await expect(page.getByText('Terraform template provisioned as deployment'))
+      .toBeVisible()
+  })
+
+  test('approves and provisions blueprints', async ({ page }) => {
+    await page.goto('#/agent-dbs')
+    await page.locator('#agent-db-tab-blueprints').click()
+
+    const approveRequest = page.waitForRequest(request =>
+      request.method() === 'POST' &&
+      request.url().endsWith(
+        '/api/v1/agent-dbs/blueprints/bp-agentdb-generated/approve',
+      ))
+    await page.locator('[data-testid="agent-db-blueprint-approve"]').click()
+    await approveRequest
+    await expect(page.getByText('Blueprint approved')).toBeVisible()
+
+    const provisionRequest = page.waitForRequest(request =>
+      request.method() === 'POST' &&
+      request.url().endsWith(
+        '/api/v1/agent-dbs/blueprints/bp-agentdb-approved/provision',
+      ))
+    await page.locator('[data-testid="agent-db-blueprint-provision"]').click()
+    await provisionRequest
+    await expect(page.getByText('Blueprint provisioned as deployment'))
+      .toBeVisible()
+  })
+
+  test('provisions approved agent API requests', async ({ page }) => {
+    await page.goto('#/agent-dbs')
+    await page.locator('#agent-db-tab-activity').click()
+
+    const provisionRequest = page.waitForRequest(request =>
+      request.method() === 'POST' &&
+      request.url().endsWith('/api/v1/agent-dbs/requests/req-agentdb-demo/provision'))
+    await page.locator('[data-testid="agent-db-requests"]')
+      .getByRole('button', { name: 'Provision' })
+      .click()
+    await provisionRequest
+    await expect(page.getByText('Approved agent request provisioned'))
+      .toBeVisible()
   })
 })

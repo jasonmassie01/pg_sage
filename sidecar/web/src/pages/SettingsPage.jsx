@@ -264,7 +264,7 @@ export function SettingsPage({ database, databaseId }) {
           ? `Database ${database} (ID ${numericDatabaseId})`
           : 'Global defaults'}
       </div>
-      <ShadowModePage database={database} />
+      {tab === 'General' && <ShadowModePage database={database} />}
       {feedback && <FeedbackBanner {...feedback} />}
       <div className="rounded p-5"
         style={{

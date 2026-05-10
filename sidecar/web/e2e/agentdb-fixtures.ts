@@ -79,6 +79,57 @@ export const mockAgentDBRequests = {
   ],
 }
 
+export const mockAgentDBTerraformTemplates = {
+  terraform_templates: [
+    {
+      template_id: 'tf-agentdb-draft',
+      provider: 'aws_rds',
+      status: 'draft',
+      manifest: ['main.tf'],
+    },
+    {
+      template_id: 'tf-agentdb-approved',
+      provider: 'aws_rds',
+      status: 'approved',
+      manifest: ['main.tf'],
+    },
+  ],
+}
+
+export const mockAgentDBBlueprints = {
+  blueprints: [
+    {
+      blueprint_id: 'bp-agentdb-generated',
+      name: 'Generated RDS blueprint',
+      status: 'generated',
+      provider: 'aws_rds',
+      terraform_template_id: 'tf-agentdb-draft',
+      blueprint: {
+        region: 'us-east-1',
+        budget_usd: 40,
+        storage_gb: 64,
+        backup_retention_days: 7,
+        extensions: ['pgvector'],
+      },
+      policy_findings: [],
+    },
+    {
+      blueprint_id: 'bp-agentdb-approved',
+      name: 'Approved RDS blueprint',
+      status: 'approved',
+      provider: 'aws_rds',
+      terraform_template_id: 'tf-agentdb-approved',
+      blueprint: {
+        region: 'us-east-2',
+        budget_usd: 55,
+        storage_gb: 128,
+        backup_retention_days: 7,
+      },
+      policy_findings: [],
+    },
+  ],
+}
+
 export const mockAgentDBCost = {
   cost: {
     deployment_id: 'agentdb-demo',
@@ -253,6 +304,48 @@ export async function registerAgentDBAPIs(page: Page) {
       }
       return route.fulfill({ json: mockAgentDBProfiles })
     }
+    if (url.includes('/terraform-templates')) {
+      if (method === 'POST' && url.endsWith('/approve')) {
+        return route.fulfill({
+          status: 200,
+          json: { ...mockAgentDBTerraformTemplates.terraform_templates[0], status: 'approved' },
+        })
+      }
+      if (method === 'POST' && url.endsWith('/provision')) {
+        return route.fulfill({
+          status: 200,
+          json: { ...mockAgentDBs.deployments[0], deployment_id: 'tf-agentdb-approved_deployment' },
+        })
+      }
+      if (method === 'POST') {
+        return route.fulfill({
+          status: 200,
+          json: { template_id: 'tf-uploaded', provider: 'aws_rds', status: 'draft' },
+        })
+      }
+      return route.fulfill({ json: mockAgentDBTerraformTemplates })
+    }
+    if (url.includes('/blueprints')) {
+      if (method === 'POST' && url.endsWith('/approve')) {
+        return route.fulfill({
+          status: 200,
+          json: { ...mockAgentDBBlueprints.blueprints[0], status: 'approved' },
+        })
+      }
+      if (method === 'POST' && url.endsWith('/provision')) {
+        return route.fulfill({
+          status: 200,
+          json: { ...mockAgentDBs.deployments[0], deployment_id: 'bp-agentdb-approved_deployment' },
+        })
+      }
+      if (method === 'POST') {
+        return route.fulfill({
+          status: 200,
+          json: { blueprint_id: 'bp-uploaded', status: 'generated' },
+        })
+      }
+      return route.fulfill({ json: mockAgentDBBlueprints })
+    }
     if (url.includes('/requests')) {
       if (method === 'POST') {
         return route.fulfill({
@@ -316,6 +409,17 @@ export async function registerAgentDBAPIs(page: Page) {
     }
     if (url.endsWith('/provision/destroy-dry-run')) {
       return route.fulfill({ status: 200, json: mockAgentDBProvisionAttempts.attempts[3] })
+    }
+    if (url.endsWith('/provision/destroy-live')) {
+      return route.fulfill({
+        status: 200,
+        json: {
+          attempt_id: 'attempt-destroy-live-demo',
+          deployment_id: 'agentdb-demo',
+          kind: 'destroy_live',
+          status: 'succeeded',
+        },
+      })
     }
     if (method === 'POST' && url.endsWith('/api/v1/agent-dbs')) {
       return route.fulfill({ status: 200, json: mockAgentDBs.deployments[0] })

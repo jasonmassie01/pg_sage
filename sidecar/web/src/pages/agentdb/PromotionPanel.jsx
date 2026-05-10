@@ -20,6 +20,7 @@ export function PromotionPanel({
   onCreate,
   onApprove,
   onDeny,
+  onRequestReview,
 }) {
   const [form, setForm] = useState(initialForm)
 
@@ -71,7 +72,10 @@ export function PromotionPanel({
         <div className="space-y-2">
           {deployRequests.map(req => (
             <DeployRequestRow key={req.deploy_request_id} request={req}
-              busy={busy} onApprove={onApprove} onDeny={onDeny} />
+              busy={busy}
+              onApprove={onApprove}
+              onDeny={onDeny}
+              onRequestReview={onRequestReview} />
           ))}
         </div>
       )}
@@ -79,7 +83,13 @@ export function PromotionPanel({
   )
 }
 
-function DeployRequestRow({ request, busy, onApprove, onDeny }) {
+function DeployRequestRow({
+  request,
+  busy,
+  onApprove,
+  onDeny,
+  onRequestReview,
+}) {
   const gates = gateSummary(request.gate_results)
   return (
     <div className="rounded border p-2" style={{ borderColor: 'var(--border)' }}>
@@ -92,6 +102,17 @@ function DeployRequestRow({ request, busy, onApprove, onDeny }) {
             {request.status} / {request.risk_tier}
           </div>
         </div>
+        {request.status === 'draft' && (
+          <button type="button" disabled={busy}
+            className="rounded border px-2 py-1 text-xs"
+            style={{
+              borderColor: 'var(--border)',
+              color: 'var(--accent)',
+            }}
+            onClick={() => onRequestReview?.(request.deploy_request_id)}>
+            Submit review
+          </button>
+        )}
         {request.status === 'review_requested' && (
           <div className="flex gap-1">
             <button type="button" disabled={busy}

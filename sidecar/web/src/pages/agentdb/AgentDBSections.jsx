@@ -8,6 +8,7 @@ import { CloudProvisioningPanel } from './CloudProvisioningPanel'
 import { AuditEventsPanel } from './AuditEventsPanel'
 import { PromotionPanel } from './PromotionPanel'
 import { RecommendationList } from './RecommendationList'
+import { OptionGroup, SelectField, TextField } from './AgentDBFormControls'
 
 const WORKLOADS = [
   { key: 'vector', label: 'Vector' },
@@ -95,6 +96,10 @@ export function ProvisionForm({ form, busy, profiles, onChange, onSubmit }) {
       form.provisioning_level === 'instance') {
       next.provisioning_level = 'schema'
     }
+    if (key === 'provider' && value === 'databricks_lakebase' &&
+      !next.lakebase_mode) {
+      next.lakebase_mode = 'autoscaling_branch'
+    }
     onChange(next)
   }
   const levels = form.provider === 'local_postgres'
@@ -118,40 +123,65 @@ export function ProvisionForm({ form, busy, profiles, onChange, onSubmit }) {
           Provision
         </h2>
       </div>
-      <TextField label="Tenant" value={form.tenant_id}
+      <TextField label="Tenant" value={form.tenant_id} tipKey="tenant_id"
         onChange={value => update('tenant_id', value)} />
-      <TextField label="Agent" value={form.agent_id}
+      <TextField label="Agent" value={form.agent_id} tipKey="agent_id"
         onChange={value => update('agent_id', value)} />
-      <TextField label="Run" value={form.run_id}
+      <TextField label="Run" value={form.run_id} tipKey="run_id"
         onChange={value => update('run_id', value)} />
       <SelectField label="Provider" value={form.provider} options={PROVIDERS}
+        tipKey="provider"
         onChange={value => update('provider', value)} />
       <SelectField label="Level" value={form.provisioning_level}
         options={levels}
+        tipKey="provisioning_level"
         onChange={value => update('provisioning_level', value)} />
       <SelectField label="Size" value={form.size_profile_id}
         options={profileOptions.map(profile => ({
           key: profile.profile_id,
           label: profile.name,
         }))}
+        tipKey="size_profile_id"
         onChange={value => update('size_profile_id', value)} />
-      <TextField label="Schema" value={form.schema_name}
+      {form.provider === 'databricks_lakebase' && (
+        <>
+          <SelectField label="Lakebase shape"
+            value={form.lakebase_mode || 'autoscaling_branch'}
+            tipKey="lakebase_mode"
+            options={[
+              { key: 'autoscaling_branch', label: 'Branch' },
+              { key: 'provisioned_instance', label: 'Full instance' },
+            ]}
+            onChange={value => update('lakebase_mode', value)} />
+          {(form.lakebase_mode || 'autoscaling_branch') ===
+            'autoscaling_branch' && (
+            <TextField label="Lakebase source instance"
+              value={form.lakebase_source_instance || ''}
+              tipKey="lakebase_source_instance"
+              onChange={value => update('lakebase_source_instance', value)} />
+          )}
+        </>
+      )}
+      <TextField label="Schema" value={form.schema_name} tipKey="schema_name"
         onChange={value => update('schema_name', value)} />
-      <TextField label="Database" value={form.database_name}
+      <TextField label="Database" value={form.database_name} tipKey="database_name"
         onChange={value => update('database_name', value)} />
       <div className="grid grid-cols-2 gap-3">
-        <TextField label="Budget USD" value={form.budget_usd}
+        <TextField label="Budget USD" value={form.budget_usd} tipKey="budget_usd"
           onChange={value => update('budget_usd', value)} />
         <TextField label="Lease seconds" value={form.lease_seconds}
+          tipKey="lease_seconds"
           onChange={value => update('lease_seconds', value)} />
       </div>
       <OptionGroup label="Workloads" options={WORKLOADS}
         values={form.workload_types}
+        tipKey="workload_types"
         onToggle={value => update(
           'workload_types', toggleValue(form.workload_types, value),
         )} />
       <OptionGroup label="Extensions" options={EXTENSIONS}
         values={form.extensions}
+        tipKey="extensions"
         onToggle={value => update(
           'extensions', toggleValue(form.extensions, value),
         )} />
@@ -163,63 +193,6 @@ export function ProvisionForm({ form, busy, profiles, onChange, onSubmit }) {
         {busy ? 'Provisioning' : 'Provision'}
       </button>
     </form>
-  )
-}
-
-function SelectField({ label, value, options, onChange }) {
-  return (
-    <label className="block text-xs" style={{ color: 'var(--text-secondary)' }}>
-      <span>{label}</span>
-      <select value={value} onChange={e => onChange(e.target.value)}
-        className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
-        style={{
-          background: 'var(--bg-primary)',
-          borderColor: 'var(--border)',
-          color: 'var(--text-primary)',
-        }}>
-        {options.map(option => (
-          <option key={option.key} value={option.key}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
-}
-
-function TextField({ label, value, onChange }) {
-  return (
-    <label className="block text-xs" style={{ color: 'var(--text-secondary)' }}>
-      <span>{label}</span>
-      <input value={value} onChange={e => onChange(e.target.value)}
-        className="mt-1 w-full rounded border px-2 py-1.5 text-sm"
-        style={{
-          background: 'var(--bg-primary)',
-          borderColor: 'var(--border)',
-          color: 'var(--text-primary)',
-        }} />
-    </label>
-  )
-}
-
-function OptionGroup({ label, options, values, onToggle }) {
-  return (
-    <fieldset>
-      <legend className="mb-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-        {label}
-      </legend>
-      <div className="flex flex-wrap gap-2">
-        {options.map(option => (
-          <label key={option.key}
-            className="inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs"
-            style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
-            <input type="checkbox" checked={values.includes(option.key)}
-              onChange={() => onToggle(option.key)} />
-            {option.label}
-          </label>
-        ))}
-      </div>
-    </fieldset>
   )
 }
 
@@ -301,13 +274,16 @@ export function DeploymentDetail({
   busy = false,
   onProvisionPreflight,
   onProvisionExecute,
+  onProvisionExecuteLive,
   onProvisionStatus,
   onProvisionDestroyDryRun,
+  onProvisionDestroyLive,
   onBackupCheck,
   onRestoreDrillDryRun,
   onCreateDeployRequest,
   onApproveDeployRequest,
   onDenyDeployRequest,
+  onRequestDeployReview,
 }) {
   if (!deployment) {
     return (
@@ -349,9 +325,14 @@ export function DeploymentDetail({
           busy={busy}
           onPreflight={() => onProvisionPreflight?.(deployment.deployment_id)}
           onExecute={() => onProvisionExecute?.(deployment.deployment_id)}
+          onExecuteLive={() =>
+            onProvisionExecuteLive?.(deployment.deployment_id)}
           onStatus={() => onProvisionStatus?.(deployment.deployment_id)}
           onDestroyDryRun={
             () => onProvisionDestroyDryRun?.(deployment.deployment_id)
+          }
+          onDestroyLive={
+            () => onProvisionDestroyLive?.(deployment.deployment_id)
           }
         />
       )}
@@ -377,6 +358,10 @@ export function DeploymentDetail({
           requestID,
         )}
         onDeny={requestID => onDenyDeployRequest?.(
+          deployment.deployment_id,
+          requestID,
+        )}
+        onRequestReview={requestID => onRequestDeployReview?.(
           deployment.deployment_id,
           requestID,
         )}
@@ -428,7 +413,7 @@ function HintList({ hints }) {
   )
 }
 
-export function RequestQueue({ requests }) {
+export function RequestQueue({ requests, busy = false, onProvisionApproved }) {
   return (
     <section className="rounded border p-4"
       data-testid="agent-db-requests"
@@ -453,6 +438,18 @@ export function RequestQueue({ requests }) {
             <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
               {req.policy_decision} / {req.requested_isolation_type}
             </div>
+            {req.status === 'approved' && (
+              <button type="button" disabled={busy}
+                data-testid="agent-db-request-provision"
+                className="mt-2 rounded border px-2 py-1 text-xs"
+                style={{
+                  borderColor: 'var(--border)',
+                  color: 'var(--accent)',
+                }}
+                onClick={() => onProvisionApproved?.(req.request_id)}>
+                Provision
+              </button>
+            )}
           </div>
         ))}
       </div>

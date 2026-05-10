@@ -44,6 +44,12 @@ vi.mock('../hooks/useAPI', () => ({
               provisioning_level: 'instance',
               name: 'Lakebase instance S',
             },
+            {
+              profile_id: 'cloudsql_instance_s',
+              provider: 'gcp_cloudsql',
+              provisioning_level: 'instance',
+              name: 'Cloud SQL instance S',
+            },
           ],
         },
         loading: false,
@@ -59,7 +65,103 @@ vi.mock('../hooks/useAPI', () => ({
               provider: 'databricks_lakebase',
               label: 'Databricks Lakebase',
               found: true,
-              version: 'Databricks CLI v0.298.0',
+              interface: 'databricks_api_or_terraform',
+              detail: 'Databricks API credentials required',
+            },
+          ],
+        },
+        loading: false,
+        error: null,
+        refetch,
+      }
+    }
+    if (url === '/api/v1/agent-dbs/provider-configs') {
+      return {
+        data: {
+          provider_configs: [
+            {
+              provider: 'aws_rds',
+              enabled: true,
+              settings: {
+                allowed_regions: ['us-east-1'],
+                max_ttl_seconds: 3600,
+                secret_token: 'super-secret-token',
+              },
+            },
+          ],
+        },
+        loading: false,
+        error: null,
+        refetch,
+      }
+    }
+    if (url === '/api/v1/agent-dbs/terraform-templates') {
+      return {
+        data: {
+          terraform_templates: [
+            {
+              template_id: 'tf_aws_basic',
+              provider: 'aws_rds',
+              status: 'draft',
+              manifest: ['main.tf'],
+            },
+            {
+              template_id: 'tf_aws_approved',
+              provider: 'aws_rds',
+              status: 'approved',
+              manifest: ['main.tf'],
+            },
+          ],
+        },
+        loading: false,
+        error: null,
+        refetch,
+      }
+    }
+    if (url === '/api/v1/agent-dbs/blueprints') {
+      return {
+        data: {
+          blueprints: [
+            {
+              blueprint_id: 'bp_existing',
+              name: 'Reporting agent database',
+              status: 'generated',
+              provider: 'aws_rds',
+              terraform_template_id: 'tf_aws_basic',
+              generated_file: 'agentdb/bp_existing/main.tf',
+              llm_used: true,
+              created_by: 'planner_ui',
+              blueprint: {
+                region: 'us-east-1',
+                budget_usd: 42,
+                extensions: ['pgvector', 'postgis'],
+                storage_gb: 128,
+                backup_retention_days: 7,
+                multi_az: true,
+                pitr: true,
+                private_network: true,
+                public_ip: false,
+              },
+              policy_findings: [
+                {
+                  severity: 'warn',
+                  message: 'Public IP disabled; private networking required',
+                },
+              ],
+            },
+            {
+              blueprint_id: 'bp_approved',
+              name: 'Approved analytics database',
+              status: 'approved',
+              provider: 'aws_rds',
+              terraform_template_id: 'tf_aws_approved',
+              blueprint: {
+                region: 'us-east-2',
+                budget_usd: 55,
+                storage_gb: 64,
+                backup_retention_days: 3,
+              },
+              policy_findings: [],
             },
           ],
         },
@@ -198,14 +300,14 @@ vi.mock('../hooks/useAPI', () => ({
               kind: 'preflight',
               status: 'passed',
               created_at: '2026-05-08T12:01:00Z',
-              stdout: 'databricks CLI detected',
+              stdout: 'Databricks API credentials validated',
             },
             {
               attempt_id: 'execute_ui',
               kind: 'execute',
               status: 'succeeded',
               created_at: '2026-05-08T12:02:00Z',
-              stdout: 'dry run: databricks database branches create agentdb-demo',
+              stdout: 'dry run: cloud_api databricks_lakebase create_branch agentdb-demo',
             },
           ],
         },
@@ -218,6 +320,10 @@ vi.mock('../hooks/useAPI', () => ({
   }),
 }))
 
+function openTab(name) {
+  fireEvent.click(screen.getByRole('tab', { name }))
+}
+
 describe('AgentDBsPage', () => {
   beforeEach(() => {
     refetch.mockClear()
@@ -228,8 +334,14 @@ describe('AgentDBsPage', () => {
     render(<AgentDBsPage />)
 
     expect(screen.getByTestId('agent-dbs-page')).toBeInTheDocument()
+    expect(screen.getByText(/Track every agent-created database/))
+      .toBeInTheDocument()
     expect(screen.getAllByText('adb_ui').length).toBeGreaterThan(0)
+    openTab('Activity')
+    expect(screen.getByText(/Review provision requests and policy decisions/))
+      .toBeInTheDocument()
     expect(screen.getByText('req_ui')).toBeInTheDocument()
+    openTab('Deployments')
     expect(await screen.findByText('Shape pgvector queries'))
       .toBeInTheDocument()
     expect(screen.getByText('$1.25')).toBeInTheDocument()
@@ -250,15 +362,34 @@ describe('AgentDBsPage', () => {
     )
     expect(screen.getByTestId('agent-db-promotion'))
       .toHaveTextContent('review_only: true')
+    openTab('Profiles')
+    expect(screen.getByText(/Create reusable t-shirt sizes/))
+      .toBeInTheDocument()
     expect(screen.getByText('Databricks Lakebase')).toBeInTheDocument()
     expect(screen.getByText('Lakebase instance S')).toBeInTheDocument()
+    openTab('Provider Settings')
+    expect(screen.getByText(/Control which cloud providers may execute live/))
+      .toBeInTheDocument()
+    expect(screen.getByTestId('agent-db-provision-tip-provider_settings_json'))
+      .toHaveAttribute('title', expect.stringContaining('JSON policy'))
+    openTab('Terraform')
+    expect(screen.getByText(/Upload and review policy-checked Terraform/))
+      .toBeInTheDocument()
+    expect(screen.getByTestId('agent-db-provision-tip-terraform_content'))
+      .toHaveAttribute('title', expect.stringContaining('Terraform source'))
+    openTab('Blueprints')
+    expect(screen.getByText(/Turn an English deployment intent/))
+      .toBeInTheDocument()
+    expect(screen.getByTestId('agent-db-provision-tip-blueprint_intent'))
+      .toHaveAttribute('title', expect.stringContaining('Plain-English'))
+    openTab('Deployments')
     expect(screen.getByTestId('agent-db-provisioning')).toBeInTheDocument()
     expect(screen.getByText('Run preflight')).toBeInTheDocument()
     expect(screen.getByText('Dry-run execute')).toBeInTheDocument()
     expect(screen.getByTestId('agent-db-backup-assurance'))
       .toHaveTextContent('restore_verified')
     expect(screen.getByText(
-      'dry run: databricks database branches create agentdb-demo',
+      'dry run: cloud_api databricks_lakebase create_branch agentdb-demo',
     ))
       .toBeInTheDocument()
   })
@@ -276,6 +407,7 @@ describe('AgentDBsPage', () => {
 
     render(<AgentDBsPage />)
 
+    openTab('Provision')
     fireEvent.click(screen.getByTestId('agent-db-submit'))
 
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
@@ -287,6 +419,50 @@ describe('AgentDBsPage', () => {
     expect(await screen.findByText('Provisioned')).toBeInTheDocument()
   })
 
+  it('documents provision fields and submits Lakebase branch mode', async () => {
+    globalThis.fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: 'approved', policy_decision: 'allow' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ deployment_id: 'lakebase_branch' }),
+      })
+
+    render(<AgentDBsPage />)
+
+    openTab('Provision')
+    fireEvent.change(screen.getAllByLabelText('Provider')[0], {
+      target: { value: 'databricks_lakebase' },
+    })
+    fireEvent.change(screen.getByLabelText('Lakebase shape'), {
+      target: { value: 'autoscaling_branch' },
+    })
+    fireEvent.change(screen.getByLabelText('Lakebase source instance'), {
+      target: { value: 'projects/demo/branches/main' },
+    })
+
+    expect(screen.getByTestId('agent-db-provision-tip-tenant_id'))
+      .toHaveAttribute('title', expect.stringContaining('tenant'))
+    expect(screen.getByTestId('agent-db-provision-tip-lakebase_mode'))
+      .toHaveAttribute('title', expect.stringContaining('branch'))
+    expect(screen.getByTestId('agent-db-provision-tip-lakebase_source_instance'))
+      .toHaveAttribute('title', expect.stringContaining('existing Lakebase'))
+
+    fireEvent.click(screen.getByTestId('agent-db-submit'))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+    const body = JSON.parse(globalThis.fetch.mock.calls[1][1].body)
+    expect(body.provider).toBe('databricks_lakebase')
+    expect(body.provisioning_level).toBe('instance')
+    expect(body.metadata.lakebase_mode).toBe('autoscaling_branch')
+    expect(body.metadata.provider_params).toMatchObject({
+      source_instance: 'projects/demo/branches/main',
+      source_branch: 'projects/demo/branches/main',
+    })
+  })
+
   it('creates a custom cloud instance size profile', async () => {
     globalThis.fetch.mockResolvedValueOnce({
       ok: true,
@@ -295,13 +471,14 @@ describe('AgentDBsPage', () => {
 
     render(<AgentDBsPage />)
 
+    openTab('Profiles')
     fireEvent.change(screen.getByLabelText('Profile ID'), {
       target: { value: 'custom_lakebase' },
     })
     fireEvent.change(screen.getByLabelText('Name'), {
       target: { value: 'Custom Lakebase' },
     })
-    fireEvent.change(screen.getAllByLabelText('Provider')[1], {
+    fireEvent.change(screen.getAllByLabelText('Provider')[0], {
       target: { value: 'databricks_lakebase' },
     })
     fireEvent.click(screen.getByTestId('agent-db-profile-submit'))
@@ -311,6 +488,60 @@ describe('AgentDBsPage', () => {
     expect(body.provider).toBe('databricks_lakebase')
     expect(body.provisioning_level).toBe('instance')
     expect(await screen.findByText('Size profile saved')).toBeInTheDocument()
+  })
+
+  it('shows documented cloud settings and saves Cloud SQL provider params', async () => {
+    globalThis.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ profile_id: 'custom_cloudsql' }),
+    })
+
+    render(<AgentDBsPage />)
+
+    openTab('Profiles')
+    fireEvent.change(screen.getByLabelText('Profile ID'), {
+      target: { value: 'custom_cloudsql' },
+    })
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'Custom Cloud SQL' },
+    })
+    fireEvent.change(screen.getAllByLabelText('Provider')[0], {
+      target: { value: 'gcp_cloudsql' },
+    })
+    fireEvent.change(screen.getByLabelText('GCP project'), {
+      target: { value: 'satty-488221' },
+    })
+    fireEvent.change(screen.getByLabelText('Cloud SQL region'), {
+      target: { value: 'us-central1' },
+    })
+    fireEvent.change(screen.getByLabelText('Cloud SQL tier'), {
+      target: { value: 'db-f1-micro' },
+    })
+    fireEvent.change(screen.getByLabelText('Cloud SQL edition'), {
+      target: { value: 'ENTERPRISE' },
+    })
+    fireEvent.change(screen.getByLabelText('Public IPv4'), {
+      target: { value: 'true' },
+    })
+
+    expect(screen.getByTestId('agent-db-tip-gcp_project'))
+      .toHaveAttribute('title', expect.stringContaining('GCP project ID'))
+    expect(screen.getByTestId('agent-db-tip-gcp_edition'))
+      .toHaveAttribute('title', expect.stringContaining('Cloud SQL edition'))
+
+    fireEvent.click(screen.getByTestId('agent-db-profile-submit'))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1))
+    const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body)
+    expect(body.provider).toBe('gcp_cloudsql')
+    expect(body.provisioning_level).toBe('instance')
+    expect(body.provider_params).toMatchObject({
+      project: 'satty-488221',
+      region: 'us-central1',
+      tier: 'db-f1-micro',
+      edition: 'ENTERPRISE',
+      ipv4_enabled: true,
+    })
   })
 
   it('runs cloud provisioning preflight and dry-run execute actions', async () => {
@@ -340,6 +571,42 @@ describe('AgentDBsPage', () => {
     expect(globalThis.fetch.mock.calls[1][0])
       .toBe('/api/v1/agent-dbs/adb_ui/provision/execute')
     expect(await screen.findByText('Provision execute succeeded'))
+      .toBeInTheDocument()
+  })
+
+  it('runs live cloud execute and live destroy actions from the UI', async () => {
+    globalThis.fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: 'succeeded', kind: 'execute_live' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: 'succeeded', kind: 'destroy_live' }),
+      })
+
+    render(<AgentDBsPage />)
+
+    fireEvent.click(screen.getByText('Live execute'))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1))
+    expect(globalThis.fetch.mock.calls[0][0])
+      .toBe('/api/v1/agent-dbs/adb_ui/provision/execute')
+    expect(JSON.parse(globalThis.fetch.mock.calls[0][1].body))
+      .toMatchObject({
+        mode: 'live',
+        live_enabled: true,
+        provider_enabled: true,
+      })
+    expect(await screen.findByText('Provision live execute succeeded'))
+      .toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Destroy live'))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+    expect(globalThis.fetch.mock.calls[1][0])
+      .toBe('/api/v1/agent-dbs/adb_ui/provision/destroy-live')
+    expect(await screen.findByText('Provision destroy live succeeded'))
       .toBeInTheDocument()
   })
 
@@ -387,6 +654,30 @@ describe('AgentDBsPage', () => {
       .toBe('/api/v1/agent-dbs/reconcile')
     expect(await screen.findByText('Reconciled 1 archived, 1 destroy dry-run'))
       .toBeInTheDocument()
+  })
+
+  it('shows backend delete guard messages for blocked deletes', async () => {
+    globalThis.fetch.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        error: 'delete blocked: archive deployment before deleting',
+      }),
+    })
+
+    render(<AgentDBsPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1))
+    expect(globalThis.fetch.mock.calls[0][0])
+      .toBe('/api/v1/agent-dbs/adb_ui')
+    expect(globalThis.fetch.mock.calls[0][1]).toMatchObject({
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    expect(await screen.findByText(
+      'delete blocked: archive deployment before deleting',
+    )).toBeInTheDocument()
   })
 
   it('runs backup check and restore drill dry-run actions', async () => {
@@ -469,5 +760,265 @@ describe('AgentDBsPage', () => {
     expect(globalThis.fetch.mock.calls[1][0])
       .toBe('/api/v1/agent-dbs/adb_ui/deploy-requests/dr_ui/approve')
     expect(await screen.findByText('Promotion approved')).toBeInTheDocument()
+  })
+
+  it('shows compact workspace tabs and only mounts the active panel', () => {
+    render(<AgentDBsPage />)
+
+    for (const name of [
+      'Deployments',
+      'Provision',
+      'Profiles',
+      'Provider Settings',
+      'Terraform',
+      'Blueprints',
+      'Activity',
+    ]) {
+      expect(screen.getByRole('tab', { name })).toBeInTheDocument()
+    }
+    expect(screen.getByTestId('agent-db-detail')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-db-form')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('agent-db-profiles')).not.toBeInTheDocument()
+
+    openTab('Provision')
+    expect(screen.getByTestId('agent-db-form')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-db-detail')).not.toBeInTheDocument()
+  })
+
+  it('renders provider settings without exposing secret values', async () => {
+    globalThis.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        provider: 'aws_rds',
+        enabled: true,
+        settings: { allowed_regions: ['us-east-1'] },
+      }),
+    })
+
+    render(<AgentDBsPage />)
+    openTab('Provider Settings')
+
+    expect(screen.getByTestId('agent-db-provider-settings'))
+      .toHaveTextContent('aws_rds')
+    expect(screen.getByTestId('agent-db-provider-settings'))
+      .toHaveTextContent('allowed_regions')
+    expect(screen.queryByText('super-secret-token')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Provider settings JSON'))
+      .not.toHaveTextContent('super-secret-token')
+
+    fireEvent.change(screen.getByLabelText('Settings provider'), {
+      target: { value: 'aws_rds' },
+    })
+    fireEvent.change(screen.getByLabelText('Provider settings JSON'), {
+      target: { value: '{"allowed_regions":["us-east-1"]}' },
+    })
+    fireEvent.click(screen.getByTestId('agent-db-provider-settings-save'))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1))
+    expect(globalThis.fetch.mock.calls[0][0])
+      .toBe('/api/v1/agent-dbs/provider-configs/aws_rds')
+  })
+
+  it('uploads Terraform templates through the import panel', async () => {
+    globalThis.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        template_id: 'tf_new',
+        provider: 'aws_rds',
+        status: 'draft',
+      }),
+    })
+
+    render(<AgentDBsPage />)
+    openTab('Terraform')
+
+    expect(screen.getByTestId('agent-db-terraform-template'))
+      .toHaveTextContent('tf_aws_basic')
+    fireEvent.change(screen.getByLabelText('Template ID'), {
+      target: { value: 'tf_new' },
+    })
+    fireEvent.change(screen.getByLabelText('Template provider'), {
+      target: { value: 'aws_rds' },
+    })
+    fireEvent.change(screen.getByLabelText('Terraform file name'), {
+      target: { value: 'main.tf' },
+    })
+    fireEvent.change(screen.getByLabelText('Terraform content'), {
+      target: { value: 'resource "aws_db_instance" "agent" {}' },
+    })
+    fireEvent.click(screen.getByTestId('agent-db-terraform-upload'))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1))
+    expect(globalThis.fetch.mock.calls[0][0])
+      .toBe('/api/v1/agent-dbs/terraform-templates')
+    const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body)
+    expect(body).toMatchObject({
+      template_id: 'tf_new',
+      provider: 'aws_rds',
+      files: [{
+        path: 'main.tf',
+        body: 'resource "aws_db_instance" "agent" {}',
+      }],
+    })
+    expect(await screen.findByText('Terraform template uploaded'))
+      .toBeInTheDocument()
+  })
+
+  it('approves and provisions Terraform templates from the review panel', async () => {
+    globalThis.fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ template_id: 'tf_aws_basic', status: 'approved' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ deployment_id: 'tf_aws_approved_deployment' }),
+      })
+
+    render(<AgentDBsPage />)
+    openTab('Terraform')
+
+    fireEvent.click(screen.getByTestId('agent-db-terraform-approve'))
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1))
+    expect(globalThis.fetch.mock.calls[0][0])
+      .toBe('/api/v1/agent-dbs/terraform-templates/tf_aws_basic/approve')
+    expect(await screen.findByText('Terraform template approved'))
+      .toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('agent-db-terraform-provision'))
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+    expect(globalThis.fetch.mock.calls[1][0])
+      .toBe('/api/v1/agent-dbs/terraform-templates/tf_aws_approved/provision')
+    expect(JSON.parse(globalThis.fetch.mock.calls[1][1].body))
+      .toMatchObject({
+        deployment_id: 'tf_aws_approved_deployment',
+        provider: 'aws_rds',
+        provisioning_level: 'instance',
+      })
+    expect(await screen.findByText('Terraform template provisioned as deployment'))
+      .toBeInTheDocument()
+  })
+
+  it('generates blueprints and renders existing blueprint details', async () => {
+    globalThis.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        blueprint_id: 'bp_new',
+        status: 'generated',
+      }),
+    })
+
+    render(<AgentDBsPage />)
+    openTab('Blueprints')
+
+    expect(screen.getByTestId('agent-db-blueprints'))
+      .toHaveTextContent('Reporting agent database')
+    expect(screen.getByTestId('agent-db-blueprints')).toHaveTextContent(
+      'generated',
+    )
+    expect(screen.getByTestId('agent-db-blueprints')).toHaveTextContent(
+      'aws_rds',
+    )
+    expect(screen.getByTestId('agent-db-blueprints')).toHaveTextContent(
+      'tf_aws_basic',
+    )
+    expect(screen.getByTestId('agent-db-blueprints')).toHaveTextContent(
+      'us-east-1',
+    )
+    expect(screen.getByTestId('agent-db-blueprints')).toHaveTextContent('$42')
+    expect(screen.getByTestId('agent-db-blueprints')).toHaveTextContent(
+      'pgvector, postgis',
+    )
+    expect(screen.getByTestId('agent-db-blueprints')).toHaveTextContent(
+      'Public IP disabled; private networking required',
+    )
+    expect(screen.getByTestId('agent-db-blueprints')).toHaveTextContent(
+      'agentdb/bp_existing/main.tf',
+    )
+
+    fireEvent.change(screen.getByLabelText('Intent'), {
+      target: { value: 'Create a private analytics database with pgvector' },
+    })
+    fireEvent.change(screen.getByLabelText('Blueprint ID'), {
+      target: { value: 'bp_new' },
+    })
+    fireEvent.change(screen.getByLabelText('Blueprint name'), {
+      target: { value: 'Private analytics' },
+    })
+    fireEvent.change(screen.getByLabelText('Blueprint provider'), {
+      target: { value: 'gcp_cloudsql' },
+    })
+    fireEvent.change(screen.getByLabelText('Created by'), {
+      target: { value: 'jmass' },
+    })
+    fireEvent.click(screen.getByTestId('agent-db-blueprint-submit'))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1))
+    expect(globalThis.fetch.mock.calls[0][0])
+      .toBe('/api/v1/agent-dbs/blueprints')
+    expect(JSON.parse(globalThis.fetch.mock.calls[0][1].body)).toMatchObject({
+      blueprint_id: 'bp_new',
+      name: 'Private analytics',
+      intent: 'Create a private analytics database with pgvector',
+      provider: 'gcp_cloudsql',
+      created_by: 'jmass',
+    })
+    expect(await screen.findByText('Blueprint generated')).toBeInTheDocument()
+  })
+
+  it('approves and provisions generated blueprints from the review panel', async () => {
+    globalThis.fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ blueprint_id: 'bp_existing', status: 'approved' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ deployment_id: 'bp_approved_deployment' }),
+      })
+
+    render(<AgentDBsPage />)
+    openTab('Blueprints')
+
+    fireEvent.click(screen.getByTestId('agent-db-blueprint-approve'))
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1))
+    expect(globalThis.fetch.mock.calls[0][0])
+      .toBe('/api/v1/agent-dbs/blueprints/bp_existing/approve')
+    expect(await screen.findByText('Blueprint approved')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('agent-db-blueprint-provision'))
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+    expect(globalThis.fetch.mock.calls[1][0])
+      .toBe('/api/v1/agent-dbs/blueprints/bp_approved/provision')
+    expect(JSON.parse(globalThis.fetch.mock.calls[1][1].body))
+      .toMatchObject({
+        deployment_id: 'bp_approved_deployment',
+        tenant_id: 'tenant_agent',
+        agent_id: 'agent_runner',
+      })
+    expect(await screen.findByText('Blueprint provisioned as deployment'))
+      .toBeInTheDocument()
+  })
+
+  it('provisions approved agent API requests from the activity panel', async () => {
+    globalThis.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ deployment_id: 'req_ui_deployment' }),
+    })
+
+    render(<AgentDBsPage />)
+    openTab('Activity')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Provision' }))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1))
+    expect(globalThis.fetch.mock.calls[0][0])
+      .toBe('/api/v1/agent-dbs/requests/req_ui/provision')
+    expect(JSON.parse(globalThis.fetch.mock.calls[0][1].body))
+      .toMatchObject({
+        deployment_id: 'req_ui_deployment',
+      })
+    expect(await screen.findByText('Approved agent request provisioned'))
+      .toBeInTheDocument()
   })
 })

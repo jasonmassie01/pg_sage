@@ -3,12 +3,10 @@ import { Archive, RefreshCw } from 'lucide-react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
-import {
-  DeploymentDetail, DeploymentList, ProvisionForm, RequestQueue, SummaryRow,
-} from './agentdb/AgentDBSections'
-import {
-  ProfilePanel, ProviderReadinessPanel,
-} from './agentdb/AgentDBProvisioningPanels'
+import { SummaryRow } from './agentdb/AgentDBSections'
+import { AgentDBWorkspaceTabs } from './agentdb/AgentDBWorkspaceTabs'
+import { AgentDBWorkspace } from './agentdb/AgentDBWorkspace'
+import { useAgentDBDetail } from './agentdb/useAgentDBDetail'
 
 const initialForm = {
   tenant_id: 'tenant_agent',
@@ -24,6 +22,8 @@ const initialForm = {
   lease_seconds: '3600',
   workload_types: ['vector', 'jsonb'],
   extensions: ['pgvector', 'pg_stat_statements'],
+  lakebase_mode: 'autoscaling_branch',
+  lakebase_source_instance: '',
 }
 
 const initialProfile = {
@@ -71,11 +71,36 @@ function backupActionStatus(result) {
   return result.backup_status || result.attempt?.status || result.status || 'recorded'
 }
 
+function provisionMetadata(form) {
+  const metadata = {
+    purpose: form.purpose,
+    workload_types: form.workload_types,
+    extensions: form.extensions,
+    lakebase_mode: form.lakebase_mode,
+  }
+  if (form.provider === 'databricks_lakebase' &&
+    form.lakebase_mode !== 'provisioned_instance' &&
+    form.lakebase_source_instance) {
+    metadata.provider_params = {
+      source_instance: form.lakebase_source_instance,
+      source_branch: form.lakebase_source_instance,
+    }
+  }
+  return metadata
+}
+
 export function AgentDBsPage() {
   const deploymentsAPI = useAPI('/api/v1/agent-dbs', 15000)
   const requestsAPI = useAPI('/api/v1/agent-dbs/requests', 15000)
   const profilesAPI = useAPI('/api/v1/agent-dbs/size-profiles', 30000)
   const providersAPI = useAPI('/api/v1/agent-dbs/providers', 30000)
+  const providerConfigsAPI = useAPI('/api/v1/agent-dbs/provider-configs', 30000)
+  const terraformTemplatesAPI = useAPI(
+    '/api/v1/agent-dbs/terraform-templates',
+    30000,
+  )
+  const blueprintsAPI = useAPI('/api/v1/agent-dbs/blueprints', 30000)
+  const [activeTab, setActiveTab] = useState('deployments')
   const [selectedID, setSelectedID] = useState(null)
   const [form, setForm] = useState(initialForm)
   const [profileForm, setProfileForm] = useState(initialProfile)
@@ -99,6 +124,19 @@ export function AgentDBsPage() {
     () => providersAPI.data?.providers || [],
     [providersAPI.data],
   )
+  const providerConfigs = useMemo(
+    () => providerConfigsAPI.data?.provider_configs || [],
+    [providerConfigsAPI.data],
+  )
+  const terraformTemplates = useMemo(
+    () => terraformTemplatesAPI.data?.terraform_templates ||
+      terraformTemplatesAPI.data?.templates || [],
+    [terraformTemplatesAPI.data],
+  )
+  const blueprints = useMemo(
+    () => blueprintsAPI.data?.blueprints || [],
+    [blueprintsAPI.data],
+  )
 
   useEffect(() => {
     if (!selectedID && deployments.length > 0) {
@@ -117,6 +155,9 @@ export function AgentDBsPage() {
       requestsAPI.refetch(),
       profilesAPI.refetch(),
       providersAPI.refetch(),
+      providerConfigsAPI.refetch(),
+      terraformTemplatesAPI.refetch(),
+      blueprintsAPI.refetch(),
       detail.refetch(),
     ])
   }
@@ -160,11 +201,7 @@ export function AgentDBsPage() {
         budget_usd: Number(form.budget_usd || 0),
         backup_required: true,
         lease_seconds: Number(form.lease_seconds || 3600),
-        metadata: {
-          purpose: form.purpose,
-          workload_types: form.workload_types,
-          extensions: form.extensions,
-        },
+        metadata: provisionMetadata(form),
       })
       setSelectedID(id)
       setMessage('Provisioned')
@@ -205,6 +242,140 @@ export function AgentDBsPage() {
     }
   }
 
+  async function saveProviderSettings(provider, payload) {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      await postJSON(`/api/v1/agent-dbs/provider-configs/${provider}`, payload)
+      setMessage('Provider settings saved')
+      await providerConfigsAPI.refetch()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function uploadTerraformTemplate(payload) {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      await postJSON('/api/v1/agent-dbs/terraform-templates', payload)
+      setMessage('Terraform template uploaded')
+      await terraformTemplatesAPI.refetch()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function generateBlueprint(payload) {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      await postJSON('/api/v1/agent-dbs/blueprints', payload)
+      setMessage('Blueprint generated')
+      await blueprintsAPI.refetch()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function approveBlueprint(blueprintID) {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      await postJSON(`/api/v1/agent-dbs/blueprints/${blueprintID}/approve`, {
+        approved_by: 'operator',
+      })
+      setMessage('Blueprint approved')
+      await blueprintsAPI.refetch()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function provisionBlueprint(blueprint) {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const id = `${blueprint.blueprint_id}_deployment`
+      await postJSON(`/api/v1/agent-dbs/blueprints/${blueprint.blueprint_id}/provision`, {
+        deployment_id: id,
+        tenant_id: form.tenant_id || 'tenant_agent',
+        agent_id: form.agent_id || 'agent_runner',
+        run_id: form.run_id,
+        database_name: form.database_name,
+        lease_seconds: Number(form.lease_seconds || 3600),
+      })
+      setSelectedID(id)
+      setActiveTab('deployments')
+      setMessage('Blueprint provisioned as deployment')
+      await refreshAll()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function approveTerraformTemplate(templateID) {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      await postJSON(
+        `/api/v1/agent-dbs/terraform-templates/${templateID}/approve`,
+        { approved_by: 'operator' },
+      )
+      setMessage('Terraform template approved')
+      await terraformTemplatesAPI.refetch()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function provisionTerraformTemplate(template) {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const id = `${template.template_id}_deployment`
+      await postJSON(
+        `/api/v1/agent-dbs/terraform-templates/${template.template_id}/provision`,
+        {
+          deployment_id: id,
+          tenant_id: form.tenant_id || 'tenant_agent',
+          agent_id: form.agent_id || 'agent_runner',
+          provider: form.provider === 'local_postgres' ? 'aws_rds' : form.provider,
+          provisioning_level: 'instance',
+          database_name: form.database_name,
+          lease_seconds: Number(form.lease_seconds || 3600),
+        },
+      )
+      setSelectedID(id)
+      setActiveTab('deployments')
+      setMessage('Terraform template provisioned as deployment')
+      await refreshAll()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function lifecycle(id, action) {
     setError(null)
     try {
@@ -213,7 +384,8 @@ export function AgentDBsPage() {
           method: 'DELETE',
           credentials: 'include',
         })
-        if (!res.ok) throw new Error('Delete blocked')
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error || 'Delete blocked')
       } else {
         await postJSON(`/api/v1/agent-dbs/${id}/${action}`, {})
       }
@@ -258,9 +430,18 @@ export function AgentDBsPage() {
     setError(null)
     setMessage(null)
     try {
+      const endpointAction = action === 'live-execute' ? 'execute' : action
+      const body = action === 'live-execute'
+        ? {
+          mode: 'live',
+          live_enabled: true,
+          provider_enabled: true,
+          cost_estimate_id: `ui-${id}-${Date.now()}`,
+        }
+        : {}
       const attempt = await postJSON(
-        `/api/v1/agent-dbs/${id}/provision/${action}`,
-        {},
+        `/api/v1/agent-dbs/${id}/provision/${endpointAction}`,
+        body,
       )
       const status = attempt.status || 'recorded'
       setMessage(`Provision ${provisionActionLabel(action)} ${status}`)
@@ -342,6 +523,45 @@ export function AgentDBsPage() {
     }
   }
 
+  async function requestDeployReview(id, requestID) {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      await postJSON(
+        `/api/v1/agent-dbs/${id}/deploy-requests/${requestID}/request-review`,
+        {},
+      )
+      setMessage('Promotion submitted for review')
+      await detail.refetch()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function provisionApprovedAgentRequest(requestID) {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const id = `${requestID}_deployment`
+      await postJSON(`/api/v1/agent-dbs/requests/${requestID}/provision`, {
+        deployment_id: id,
+        lease_seconds: Number(form.lease_seconds || 3600),
+      })
+      setSelectedID(id)
+      setActiveTab('deployments')
+      setMessage('Approved agent request provisioned')
+      await refreshAll()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (deploymentsAPI.loading && requestsAPI.loading) {
     return <LoadingSpinner />
   }
@@ -388,90 +608,46 @@ export function AgentDBsPage() {
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <ProvisionForm
-          form={form}
-          busy={busy}
-          profiles={profiles}
-          onChange={setForm}
-          onSubmit={submitProvision}
-        />
-        <DeploymentList
-          deployments={deployments}
-          selectedID={selectedID}
-          onSelect={setSelectedID}
-          onLifecycle={lifecycle}
-        />
-      </div>
+      <AgentDBWorkspaceTabs activeTab={activeTab} onChange={setActiveTab} />
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <ProfilePanel
-          profiles={profiles}
-          form={profileForm}
-          busy={busy}
-          onChange={setProfileForm}
-          onSubmit={submitProfile}
-        />
-        <ProviderReadinessPanel providers={providers} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <DeploymentDetail
-          deployment={selected}
-          detail={detail}
-          busy={busy}
-          onProvisionPreflight={id => runProvisionAction(id, 'preflight')}
-          onProvisionExecute={id => runProvisionAction(id, 'execute')}
-          onProvisionStatus={id => runProvisionAction(id, 'status')}
-          onProvisionDestroyDryRun={
-            id => runProvisionAction(id, 'destroy-dry-run')
-          }
-          onBackupCheck={runBackupCheck}
-          onRestoreDrillDryRun={planRestoreDrill}
-          onCreateDeployRequest={createDeployRequest}
-          onApproveDeployRequest={(id, requestID) =>
-            reviewDeployRequest(id, requestID, 'approve')}
-          onDenyDeployRequest={(id, requestID) =>
-            reviewDeployRequest(id, requestID, 'deny')}
-        />
-        <RequestQueue requests={requests} />
-      </div>
+      <AgentDBWorkspace
+        activeTab={activeTab}
+        form={form}
+        profileForm={profileForm}
+        busy={busy}
+        deployments={deployments}
+        selected={selected}
+        selectedID={selectedID}
+        detail={detail}
+        requests={requests}
+        profiles={profiles}
+        providers={providers}
+        providerConfigs={providerConfigs}
+        terraformTemplates={terraformTemplates}
+        blueprints={blueprints}
+        onFormChange={setForm}
+        onProfileFormChange={setProfileForm}
+        onSubmitProvision={submitProvision}
+        onSubmitProfile={submitProfile}
+        onLifecycle={lifecycle}
+        onProvisionAction={runProvisionAction}
+        onBackupCheck={runBackupCheck}
+        onRestoreDrillDryRun={planRestoreDrill}
+        onCreateDeployRequest={createDeployRequest}
+        onReviewDeployRequest={reviewDeployRequest}
+        onRequestDeployReview={requestDeployReview}
+        onProvisionApprovedRequest={provisionApprovedAgentRequest}
+        onSaveProviderSettings={saveProviderSettings}
+        onUploadTerraformTemplate={uploadTerraformTemplate}
+        onApproveTerraformTemplate={approveTerraformTemplate}
+        onProvisionTerraformTemplate={provisionTerraformTemplate}
+        onGenerateBlueprint={generateBlueprint}
+        onApproveBlueprint={approveBlueprint}
+        onProvisionBlueprint={provisionBlueprint}
+        onSelectDeployment={setSelectedID}
+      />
     </div>
   )
-}
-
-function useAgentDBDetail(id) {
-  const cost = useAPI(id ? `/api/v1/agent-dbs/${id}/cost` : null, 15000)
-  const hints = useAPI(id ? `/api/v1/agent-dbs/${id}/tuning-hints` : null, 15000)
-  const backups = useAPI(id ? `/api/v1/agent-dbs/${id}/backups` : null, 15000)
-  const recs = useAPI(id ? `/api/v1/agent-dbs/${id}/recommendations` : null, 15000)
-  const audit = useAPI(id ? `/api/v1/agent-dbs/${id}/audit` : null, 15000)
-  const deployRequests = useAPI(
-    id ? `/api/v1/agent-dbs/${id}/deploy-requests` : null,
-    15000,
-  )
-  const attempts = useAPI(
-    id ? `/api/v1/agent-dbs/${id}/provision/attempts` : null,
-    15000,
-  )
-  return {
-    cost: cost.data?.cost,
-    hints: hints.data?.tuning_hints || [],
-    backups: backups.data?.backups || [],
-    recommendations: recs.data?.recommendations || [],
-    auditEvents: audit.data?.audit_events || [],
-    deployRequests: deployRequests.data?.deploy_requests || [],
-    attempts: attempts.data?.attempts || [],
-    refetch: () => Promise.all([
-      cost.refetch(),
-      hints.refetch(),
-      backups.refetch(),
-      recs.refetch(),
-      audit.refetch(),
-      deployRequests.refetch(),
-      attempts.refetch(),
-    ]),
-  }
 }
 
 function summarize(deployments) {

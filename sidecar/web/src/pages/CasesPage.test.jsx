@@ -83,7 +83,7 @@ vi.mock('../hooks/useAPI', () => ({
             attempt_count: 0,
           },
         ],
-      }, {
+  }, {
         case_id: 'case-query',
         source_type: 'query_hint',
         title: 'Query hint active for query 123',
@@ -99,8 +99,49 @@ vi.mock('../hooks/useAPI', () => ({
         state: 'open',
         why_now: 'schema lint finding needs review',
         action_candidates: [],
+      }, {
+        case_id: 'case-slow-query',
+        source_type: 'finding',
+        title: 'Slow query (255.0ms mean, 5.1x threshold)',
+        severity: 'warning',
+        state: 'open',
+        why_now: 'mean latency crossed threshold',
+        why: 'Query plan needs investigation before remediation.',
+        evidence: [{
+          type: 'finding',
+          summary: 'slow_query',
+          detail: {
+            queryid: 4242,
+            mean_exec_ms: 255,
+            calls: 215,
+            query: 'SELECT * FROM events WHERE payload @> $1',
+          },
+        }],
+        action_candidates: [{
+          action_type: 'investigate_query_plan',
+          risk_tier: 'safe',
+          script_output: {
+            filename: 'investigate_query_4242.sql',
+            migration_sql: 'EXPLAIN (ANALYZE, BUFFERS, VERBOSE)\n' +
+              'SELECT * FROM events WHERE payload @> $1;',
+            rollback_sql: '-- No rollback required for read-only investigation.',
+            verification_sql: [
+              '-- Attach EXPLAIN output to the case.',
+            ],
+            pr_title: 'Investigate query plan for query 4242',
+            pr_body: 'Read-only investigation artifact.',
+          },
+        }],
+      }, {
+        case_id: 'case-no-candidate',
+        source_type: 'finding',
+        title: 'Legacy informational case',
+        severity: 'info',
+        state: 'open',
+        why_now: 'manual review only',
+        action_candidates: [],
       }],
-      total: 3,
+      total: 5,
     },
     loading: false,
     error: null,
@@ -109,6 +150,17 @@ vi.mock('../hooks/useAPI', () => ({
 }))
 
 describe('CasesPage', () => {
+  it('describes how cases become actions', () => {
+    render(<CasesPage database="all" />)
+
+    expect(screen.getByTestId('cases-page-description'))
+      .toHaveTextContent('Cases group findings into ranked work items')
+    expect(screen.getByTestId('cases-page-description'))
+      .toHaveTextContent('action candidates')
+    expect(screen.getByTestId('cases-page-description'))
+      .toHaveTextContent('Actions')
+  })
+
   it('shows case next step and why now', () => {
     render(<CasesPage database="all" />)
 
@@ -123,10 +175,12 @@ describe('CasesPage', () => {
     expect(screen.getByText('DDL preflight')).toBeInTheDocument()
     expect(screen.getByText('ACCESS EXCLUSIVE rewrite risk'))
       .toBeInTheDocument()
-    expect(screen.getByText('Migration script')).toBeInTheDocument()
+    expect(screen.getAllByText('Migration script').length)
+      .toBeGreaterThan(0)
     expect(screen.getByText('case-1_ddl_preflight.sql'))
       .toBeInTheDocument()
-    expect(screen.getByText('PR / CI output')).toBeInTheDocument()
+    expect(screen.getAllByText('PR / CI output').length)
+      .toBeGreaterThan(0)
     expect(screen.getByText('Review DDL safety plan')).toBeInTheDocument()
     expect(screen.getAllByText((_, element) =>
       element.textContent.includes('SELECT attname FROM pg_attribute'),
@@ -170,5 +224,32 @@ describe('CasesPage', () => {
 
     expect(screen.getByText('Table has no primary key')).toBeInTheDocument()
     expect(screen.queryByText('Stats are stale')).not.toBeInTheDocument()
+  })
+
+  it('shows slow query evidence and investigation artifacts', () => {
+    render(<CasesPage database="all" />)
+
+    expect(screen.getByText('Slow query (255.0ms mean, 5.1x threshold)'))
+      .toBeInTheDocument()
+    expect(screen.getByText('Query plan needs investigation before remediation.'))
+      .toBeInTheDocument()
+    expect(screen.getByText((_, element) =>
+      element.textContent === 'Next: investigate_query_plan',
+    )).toBeInTheDocument()
+    expect(screen.getByText('Query')).toBeInTheDocument()
+    expect(screen.getAllByText((_, element) =>
+      element.textContent.includes('SELECT * FROM events WHERE payload @> $1'),
+    ).length).toBeGreaterThan(0)
+    expect(screen.getByText('investigate_query_4242.sql'))
+      .toBeInTheDocument()
+  })
+
+  it('labels truly unactionable cases as investigation work', () => {
+    render(<CasesPage database="all" />)
+
+    expect(screen.getByText('Legacy informational case')).toBeInTheDocument()
+    expect(screen.getAllByText((_, element) =>
+      element.textContent === 'Next: Needs investigation',
+    ).length).toBeGreaterThan(0)
   })
 })

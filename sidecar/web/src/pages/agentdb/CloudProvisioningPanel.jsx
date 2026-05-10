@@ -14,8 +14,10 @@ export function CloudProvisioningPanel({
   busy,
   onPreflight,
   onExecute,
+  onExecuteLive,
   onStatus,
   onDestroyDryRun,
+  onDestroyLive,
 }) {
   return (
     <div className="rounded border p-3" data-testid="agent-db-provisioning"
@@ -33,10 +35,14 @@ export function CloudProvisioningPanel({
             disabled={busy} onClick={onPreflight} />
           <IconButton label="Dry-run execute" icon={PlayCircle}
             disabled={busy} onClick={onExecute} />
+          <IconButton label="Live execute" icon={PlayCircle}
+            disabled={busy} onClick={onExecuteLive} />
           <IconButton label="Check status" icon={Activity}
             disabled={busy} onClick={onStatus} />
           <IconButton label="Destroy dry-run" icon={Trash2}
             disabled={busy} onClick={onDestroyDryRun} />
+          <IconButton label="Destroy live" icon={Trash2}
+            disabled={busy} onClick={onDestroyLive} />
         </div>
       </div>
       <AttemptList attempts={attempts} />

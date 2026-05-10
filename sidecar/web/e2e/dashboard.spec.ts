@@ -78,6 +78,7 @@ test.describe('Dashboard page', () => {
 
   test('recent findings section appears with data', async ({ page }) => {
     await page.goto('/')
+    await page.locator('[data-testid="overview-tab-recent-recos"]').click()
 
     const findings = page.locator('[data-testid="recent-findings"]')
     await expect(findings).toBeVisible()

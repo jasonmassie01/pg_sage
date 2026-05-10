@@ -21,6 +21,27 @@ const TRUST_LEVEL_LABELS = {
   autonomous: 'Autonomous',
 }
 
+const OVERVIEW_TABS = [
+  {
+    key: 'databases',
+    label: 'Databases',
+    description:
+      'Registered Postgres databases, health, and selection state for this fleet.',
+  },
+  {
+    key: 'provider-readiness',
+    label: 'Provider Readiness',
+    description:
+      'Cloud provider credentials and policy readiness before live provisioning.',
+  },
+  {
+    key: 'recent-recos',
+    label: 'Recent Recos',
+    description:
+      'Newest recommendations from pg_sage before they become cases and actions.',
+  },
+]
+
 export function formatTrustLevel(raw) {
   if (raw === null || raw === undefined || raw === '') return null
   const key = typeof raw === 'number' ? raw : String(raw).toLowerCase()
@@ -219,7 +240,117 @@ function OnboardingWelcome() {
   )
 }
 
+function OverviewTabs({ activeTab, setActiveTab }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2" role="tablist"
+        aria-label="Overview sections">
+        {OVERVIEW_TABS.map(tab => (
+          <button key={tab.key} type="button" role="tab"
+            data-testid={`overview-tab-${tab.key}`}
+            aria-selected={activeTab === tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className="px-3 py-1.5 rounded text-sm"
+            style={{
+              background: activeTab === tab.key
+                ? 'var(--accent)' : 'var(--bg-card)',
+              color: activeTab === tab.key
+                ? '#fff' : 'var(--text-secondary)',
+              border: '1px solid var(--border)',
+            }}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-sm" data-testid="overview-tab-description"
+        style={{ color: 'var(--text-secondary)' }}>
+        {OVERVIEW_TABS.find(tab => tab.key === activeTab)?.description}
+      </p>
+    </div>
+  )
+}
+
+function DatabaseOverviewPanel({
+  databases, database, loading, onSelectDB,
+}) {
+  return (
+    <div className="rounded p-4"
+      data-testid="db-list"
+      style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+      }}>
+      <h2 className="text-sm font-medium mb-3"
+        style={{ color: 'var(--text-secondary)' }}>
+        Databases
+      </h2>
+      {loading && !databases && (
+        <div className="h-24 rounded animate-pulse"
+          data-testid="db-list-skeleton"
+          style={{ background: 'var(--bg-hover)' }} />
+      )}
+      <div
+        className="grid gap-3"
+        data-testid="db-tile-grid"
+        style={{
+          gridTemplateColumns:
+            'repeat(auto-fill, minmax(220px, 1fr))',
+        }}>
+        {(databases || []).map(db => (
+          <DatabaseTile
+            key={db.name}
+            db={db}
+            selected={database === db.name}
+            onSelect={onSelectDB}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RecentRecommendationsPanel({ findings }) {
+  return (
+    <div className="rounded p-4"
+      data-testid="recent-findings"
+      style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+      }}>
+      <h2 className="text-sm font-medium mb-3"
+        style={{ color: 'var(--text-secondary)' }}>
+        Recent Recommendations
+      </h2>
+      {findings.length > 0 ? (
+        <div className="space-y-2">
+          {findings.slice(0, 5).map((f, i) => (
+            <div key={i}
+              className="flex items-center gap-3 p-2 rounded"
+              style={{ background: 'var(--bg-primary)' }}>
+              <SeverityBadge severity={f.severity} />
+              <span className="flex-1 text-sm">{f.title}</span>
+              <span className="text-xs"
+                style={{ color: 'var(--text-secondary)' }}>
+                {f.database_name}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          No recent recommendations for the selected scope.
+        </div>
+      )}
+      <a href="#/findings" className="inline-block mt-3 text-sm"
+        style={{ color: 'var(--accent)' }}>
+        View all recommendations
+      </a>
+    </div>
+  )
+}
+
 export function Dashboard({ database, onSelectDB }) {
+  const [overviewTab, setOverviewTab] = useState('databases')
   const dbParam = database && database !== 'all'
     ? `?database=${database}` : ''
   const { data, loading, error, refetch } = useAPI('/api/v1/databases')
@@ -261,6 +392,7 @@ export function Dashboard({ database, onSelectDB }) {
 
   const summary = data?.summary
   const databases = data?.databases
+  const recentFindings = findings.data?.findings || []
 
   if (!loading && (!summary || summary.total_databases === 0)) {
     return <OnboardingWelcome />
@@ -289,71 +421,14 @@ export function Dashboard({ database, onSelectDB }) {
       </div>
 
       <FleetHealthChart database={database} />
-      <ProviderReadinessMatrix />
-
-      <div className="rounded p-4"
-        data-testid="db-list"
-        style={{
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border)',
-        }}>
-        <h2 className="text-sm font-medium mb-3"
-          style={{ color: 'var(--text-secondary)' }}>
-          Databases
-        </h2>
-        {loading && !databases && (
-          <div className="h-24 rounded animate-pulse"
-            data-testid="db-list-skeleton"
-            style={{ background: 'var(--bg-hover)' }} />
-        )}
-        <div
-          className="grid gap-3"
-          data-testid="db-tile-grid"
-          style={{
-            gridTemplateColumns:
-              'repeat(auto-fill, minmax(220px, 1fr))',
-          }}>
-          {(databases || []).map(db => (
-            <DatabaseTile
-              key={db.name}
-              db={db}
-              selected={database === db.name}
-              onSelect={onSelectDB}
-            />
-          ))}
-        </div>
-      </div>
-
-      {findings.data?.findings?.length > 0 && (
-        <div className="rounded p-4"
-          data-testid="recent-findings"
-          style={{
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border)',
-          }}>
-          <h2 className="text-sm font-medium mb-3"
-            style={{ color: 'var(--text-secondary)' }}>
-            Recent Recommendations
-          </h2>
-          <div className="space-y-2">
-            {findings.data.findings.slice(0, 5).map((f, i) => (
-              <div key={i}
-                className="flex items-center gap-3 p-2 rounded"
-                style={{ background: 'var(--bg-primary)' }}>
-                <SeverityBadge severity={f.severity} />
-                <span className="flex-1 text-sm">{f.title}</span>
-                <span className="text-xs"
-                  style={{ color: 'var(--text-secondary)' }}>
-                  {f.database_name}
-                </span>
-              </div>
-            ))}
-          </div>
-          <a href="#/findings" className="inline-block mt-3 text-sm"
-            style={{ color: 'var(--accent)' }}>
-            View all recommendations
-          </a>
-        </div>
+      <OverviewTabs activeTab={overviewTab} setActiveTab={setOverviewTab} />
+      {overviewTab === 'databases' && (
+        <DatabaseOverviewPanel databases={databases}
+          database={database} loading={loading} onSelectDB={onSelectDB} />
+      )}
+      {overviewTab === 'provider-readiness' && <ProviderReadinessMatrix />}
+      {overviewTab === 'recent-recos' && (
+        <RecentRecommendationsPanel findings={recentFindings} />
       )}
     </div>
   )

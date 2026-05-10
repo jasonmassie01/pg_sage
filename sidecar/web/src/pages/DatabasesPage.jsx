@@ -44,9 +44,22 @@ export function DatabasesPage() {
   }
 
   return (
-    <div>
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold"
+          style={{ color: 'var(--text-primary)' }}>
+          Fleet
+        </h2>
+        <p className="text-sm" data-testid="fleet-page-description"
+          style={{ color: 'var(--text-secondary)' }}>
+          Register the Postgres fleet pg_sage should watch. Collector and
+          analyzer results become cases, and action-ready cases flow into
+          actions for approval, execution, and audit.
+        </p>
+      </div>
+
       {error && (
-        <div className="text-sm p-3 rounded mb-4"
+        <div className="text-sm p-3 rounded"
           style={{
             background: 'rgba(239,68,68,0.1)',
             color: '#ef4444',
@@ -58,7 +71,7 @@ export function DatabasesPage() {
         </div>
       )}
 
-      <div className="flex gap-3 mb-4">
+      <div className="flex gap-3">
         <button onClick={() => { setEditingDB(null); setShowForm(true) }}
           data-testid="add-database-button"
           className="px-4 py-1.5 rounded text-sm font-medium"

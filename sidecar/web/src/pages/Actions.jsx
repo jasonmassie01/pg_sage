@@ -69,6 +69,7 @@ export function Actions({ database, user }) {
   if (activeTab === 'executed') {
     return (
       <div className="space-y-4">
+        <ActionsDescription />
         <TabBar tab={activeTab} setTab={setTab}
           pendingCount={pendingData?.total || 0}
           canReview={canReview} />
@@ -80,6 +81,7 @@ export function Actions({ database, user }) {
 
   return (
     <div className="space-y-4">
+      <ActionsDescription />
       <TabBar tab={activeTab} setTab={setTab}
         pendingCount={pendingData?.total || 0}
         canReview={canReview} />
@@ -88,6 +90,17 @@ export function Actions({ database, user }) {
         error={pendingError}
         refetch={pendingRefetch} />
     </div>
+  )
+}
+
+function ActionsDescription() {
+  return (
+    <p className="text-sm" data-testid="actions-page-description"
+      style={{ color: 'var(--text-secondary)' }}>
+      Actions are the executable side of Cases. Safe work can run under
+      policy, higher-risk work is queued for approval, and every result is
+      logged here with scripts, rollback context, and verification status.
+    </p>
   )
 }
 
