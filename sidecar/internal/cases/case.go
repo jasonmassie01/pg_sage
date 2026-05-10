@@ -191,5 +191,6 @@ type SourceFinding struct {
 	Title            string
 	Recommendation   string
 	RecommendedSQL   string
+	RollbackSQL      string
 	Detail           map[string]any
 }

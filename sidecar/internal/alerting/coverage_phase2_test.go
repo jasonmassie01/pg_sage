@@ -454,6 +454,26 @@ func TestPhase2_LogAlert_Integration(t *testing.T) {
 		t.Skipf("sage.alert_log not available")
 	}
 
+	uniqueObj := fmt.Sprintf("test_log_alert_%d", time.Now().UnixNano())
+	var findingID int64
+	err = pool.QueryRow(context.Background(),
+		`INSERT INTO sage.findings
+			(category, severity, title, object_type,
+			 object_identifier, status, last_seen, detail)
+		 VALUES
+			('test_phase2_log_alert', 'warning',
+			 'Phase2 Log Alert Finding',
+			 'table', $1, 'open', now(), '{}'::jsonb)
+		 RETURNING id`,
+		uniqueObj).Scan(&findingID)
+	if err != nil {
+		t.Fatalf("insert finding: %v", err)
+	}
+	defer func() {
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM sage.findings WHERE id=$1`, findingID)
+	}()
+
 	var loggedErr string
 	logFn := func(_ string, msg string, args ...any) {
 		loggedErr = fmt.Sprintf(msg, args...)
@@ -462,12 +482,11 @@ func TestPhase2_LogAlert_Integration(t *testing.T) {
 	m := New(pool, ManagerConfig{}, nil, logFn)
 	m.logAlert(
 		context.Background(),
-		1, "warning", "test_channel", "test:key", "sent", "",
+		findingID, "warning", "test_channel", "test:key", "sent", "",
 	)
 
 	if loggedErr != "" {
-		t.Skipf("logAlert insert failed (schema mismatch): %s",
-			loggedErr)
+		t.Fatalf("logAlert insert failed: %s", loggedErr)
 	}
 
 	// Verify the row was inserted.

@@ -176,6 +176,63 @@ func (s *ActionStore) ListLedgerByFinding(
 	return scanQueuedActions(r)
 }
 
+func (s *ActionStore) ListLedgerByFindingIDs(
+	ctx context.Context, findingIDs []int,
+) (map[int][]QueuedAction, error) {
+	out := make(map[int][]QueuedAction, len(findingIDs))
+	if len(findingIDs) == 0 {
+		return out, nil
+	}
+	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	r, err := s.pool.Query(qctx, `
+SELECT id, database_id, finding_id, proposed_sql, rollback_sql,
+       action_risk, status, proposed_at, decided_by, decided_at,
+       expires_at, reason, action_type, identity_key, policy_decision,
+       guardrails, attempt_count, last_attempt_at, cooldown_until,
+       failure_fingerprint, last_failure_fingerprint, verification_status,
+       shadow_toil_minutes, action_log_id
+FROM (
+    SELECT q.id, q.database_id, q.finding_id, q.proposed_sql,
+           q.rollback_sql, q.action_risk, q.status, q.proposed_at,
+           q.decided_by, q.decided_at, q.expires_at,
+           COALESCE(q.reason, '') AS reason,
+           COALESCE(q.action_type, '') AS action_type,
+           COALESCE(q.identity_key, '') AS identity_key,
+           COALESCE(q.policy_decision, '') AS policy_decision,
+           COALESCE(q.guardrails, '[]'::jsonb) AS guardrails,
+           COALESCE(q.attempt_count, 0) AS attempt_count,
+           q.last_attempt_at, q.cooldown_until,
+           COALESCE(q.failure_fingerprint, '') AS failure_fingerprint,
+           COALESCE(q.last_failure_fingerprint, '') AS last_failure_fingerprint,
+           COALESCE(q.verification_status, '') AS verification_status,
+           COALESCE(q.shadow_toil_minutes, 0) AS shadow_toil_minutes,
+           q.action_log_id,
+           row_number() OVER (
+               PARTITION BY q.finding_id
+               ORDER BY q.proposed_at DESC, q.id DESC
+           ) AS rn
+    FROM sage.action_queue q
+    WHERE q.finding_id = ANY($1)
+      AND q.status <> 'executed'
+) ranked
+WHERE rn <= 20
+ORDER BY finding_id, proposed_at DESC, id DESC`, findingIDs)
+	if err != nil {
+		return nil, fmt.Errorf("listing action ledger by findings: %w", err)
+	}
+	defer r.Close()
+	actions, err := scanQueuedActions(r)
+	if err != nil {
+		return nil, err
+	}
+	for _, action := range actions {
+		out[action.FindingID] = append(out[action.FindingID], action)
+	}
+	return out, nil
+}
+
 const listPendingBaseSQL = `SELECT q.id, q.database_id, q.finding_id,
  q.proposed_sql, q.rollback_sql, q.action_risk, q.status,
  q.proposed_at, q.decided_by, q.decided_at, q.expires_at,

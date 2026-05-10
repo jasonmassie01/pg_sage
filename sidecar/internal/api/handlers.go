@@ -2021,6 +2021,8 @@ const actionDetailSQL = `SELECT id, executed_at,
  before_state, after_state, outcome, rollback_reason,
  measured_at FROM sage.action_log WHERE id = $1`
 
+const snapshotHistoryMaxPoints = 500
+
 func querySnapshotLatest(
 	ctx context.Context, pool *pgxpool.Pool, metric string,
 ) (any, error) {
@@ -2057,19 +2059,31 @@ func querySnapshotHistory(
 			to = time.Now().UTC()
 		}
 		rows, err = pool.Query(ctx,
-			`SELECT collected_at, data FROM sage.snapshots
-			 WHERE category = $1
-			 AND collected_at BETWEEN $2 AND $3
+			`SELECT collected_at, data
+			 FROM (
+			     SELECT collected_at, data
+			     FROM sage.snapshots
+			     WHERE category = $1
+			       AND collected_at BETWEEN $2 AND $3
+			     ORDER BY collected_at DESC
+			     LIMIT $4
+			 ) capped
 			 ORDER BY collected_at`,
-			metric, from, to,
+			metric, from, to, snapshotHistoryMaxPoints,
 		)
 	} else {
 		rows, err = pool.Query(ctx,
-			`SELECT collected_at, data FROM sage.snapshots
-			 WHERE category = $1
-			 AND collected_at > now() - ($2 || ' hours')::interval
+			`SELECT collected_at, data
+			 FROM (
+			     SELECT collected_at, data
+			     FROM sage.snapshots
+			     WHERE category = $1
+			       AND collected_at > now() - ($2 || ' hours')::interval
+			     ORDER BY collected_at DESC
+			     LIMIT $3
+			 ) capped
 			 ORDER BY collected_at`,
-			metric, strconv.Itoa(hours),
+			metric, strconv.Itoa(hours), snapshotHistoryMaxPoints,
 		)
 	}
 	if err != nil {

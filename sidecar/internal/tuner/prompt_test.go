@@ -114,6 +114,64 @@ func TestFormatTunerPrompt_NoStatsGraceful(t *testing.T) {
 	}
 }
 
+func TestFormatTunerPrompt_IncludesSpecializedWorkloadHints(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{
+			name: "jsonb containment",
+			query: "SELECT * FROM events WHERE payload @> " +
+				"'{\"tier\":\"pro\"}'::jsonb",
+			want: []string{
+				"Specialized Workload Hints",
+				"JSON/JSONB workload",
+				"gin_jsonb_path_ops",
+			},
+		},
+		{
+			name:  "vector missing limit",
+			query: "SELECT id FROM docs ORDER BY embedding <-> $1",
+			want: []string{
+				"Vector workload",
+				"missing_limit",
+				"add_limit",
+			},
+		},
+		{
+			name: "postgis distance",
+			query: "SELECT * FROM places WHERE " +
+				"ST_DWithin(geom, ST_SetSRID(ST_Point($1,$2),4326), 1000)",
+			want: []string{
+				"PostGIS workload",
+				"gist_spatial_index",
+				"distance_filter",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			qctx := QueryContext{
+				Candidate: candidate{
+					QueryID:      99,
+					Query:        tt.query,
+					Calls:        12,
+					MeanExecTime: 33.3,
+				},
+			}
+
+			prompt := FormatTunerPrompt(qctx)
+
+			for _, want := range tt.want {
+				if !strings.Contains(prompt, want) {
+					t.Fatalf("prompt missing %q:\n%s", want, prompt)
+				}
+			}
+		})
+	}
+}
+
 func TestFormatTunerPrompt_Truncation(t *testing.T) {
 	// Build a large plan that exceeds maxPlanJSONChars
 	largePlan := strings.Repeat("x", 5000)

@@ -120,6 +120,7 @@ func FormatPrompt(tc TableContext) string {
 
 	writeJSONWorkloadHints(&b, tc.Queries)
 	writeVectorWorkloadHints(&b, tc.Queries)
+	writePostGISWorkloadHints(&b, tc.Queries)
 
 	if len(tc.Plans) > 0 {
 		b.WriteString("\n### Execution Plans\n")
@@ -194,6 +195,28 @@ func writeVectorWorkloadHints(b *strings.Builder, queries []QueryInfo) {
 		}
 		if !wroteHeader {
 			b.WriteString("\n### Vector Workload Hints\n")
+			wroteHeader = true
+		}
+		fmt.Fprintf(b,
+			"- QueryID %d: shape=%s, recommendation=%s, warnings=%s, evidence=%s\n",
+			q.QueryID,
+			classification.Shape,
+			classification.PrimaryRecommendation,
+			strings.Join(classification.Warnings, "; "),
+			strings.Join(classification.Evidence, "; "),
+		)
+	}
+}
+
+func writePostGISWorkloadHints(b *strings.Builder, queries []QueryInfo) {
+	wroteHeader := false
+	for _, q := range queries {
+		classification := ClassifyPostGISWorkload(q)
+		if classification.Shape == "" {
+			continue
+		}
+		if !wroteHeader {
+			b.WriteString("\n### PostGIS Workload Hints\n")
 			wroteHeader = true
 		}
 		fmt.Fprintf(b,

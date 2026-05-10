@@ -113,6 +113,10 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return promoteRoleWorkMemContract(), true
 	case "retire_query_hint":
 		return retireQueryHintContract(), true
+	case "apply_query_hint":
+		return applyQueryHintContract(), true
+	case "investigate_query_plan":
+		return investigateQueryPlanContract(), true
 	case "create_statistics":
 		return createStatisticsContract(), true
 	case "prepare_parameterized_query":
@@ -266,6 +270,73 @@ func incidentDiagnoseLockBlockersContract() ActionContract {
 		RollbackClass: "not_applicable",
 		Cooldown:      "none",
 		AuditFields:   []string{"case_id", "database", "blocker_pid"},
+	}
+}
+
+func applyQueryHintContract() ActionContract {
+	return ActionContract{
+		ActionType:      "apply_query_hint",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"write access to hint_plan.hints",
+			"pg_hint_plan installed and active",
+		},
+		Prechecks: []string{
+			"query still appears in pg_stat_statements",
+			"hint syntax validates",
+			"rollback SQL is available",
+			"recent rejected hint cooldown has elapsed",
+		},
+		Guardrails: []string{
+			"approval required",
+			"revalidation required",
+			"cooldown after rollback",
+			"no broad planner enable/disable toggles",
+		},
+		ExecutionPlan: []string{"insert reviewed hint into hint_plan.hints"},
+		SuccessCriteria: []string{
+			"hint row exists",
+			"hinted EXPLAIN does not regress versus unhinted plan",
+		},
+		PostChecks: []string{
+			"run hint revalidation loop",
+			"monitor query latency and error rate",
+		},
+		RollbackClass: "reversible",
+		Cooldown:      "configured hint rollback cooldown",
+		AuditFields:   []string{"queryid", "hint_text", "case_id"},
+	}
+}
+
+func investigateQueryPlanContract() ActionContract {
+	return ActionContract{
+		ActionType:      "investigate_query_plan",
+		BaseRiskTier:    "safe",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"read access to query text and EXPLAIN",
+		},
+		Prechecks: []string{
+			"query text or queryid evidence exists",
+			"statement_timeout is configured",
+		},
+		Guardrails: []string{
+			"read-only investigation",
+			"statement_timeout",
+			"no catalog changes",
+		},
+		ExecutionPlan: []string{"capture EXPLAIN (ANALYZE, BUFFERS, VERBOSE)"},
+		SuccessCriteria: []string{
+			"plan evidence attached",
+			"follow-up remediation path classified",
+		},
+		PostChecks: []string{
+			"review plan for missing index, stale stats, memory spill, or rewrite",
+		},
+		RollbackClass: "not_applicable",
+		Cooldown:      "none",
+		AuditFields:   []string{"queryid", "case_id"},
 	}
 }
 

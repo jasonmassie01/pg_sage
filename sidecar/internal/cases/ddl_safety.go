@@ -24,7 +24,7 @@ func enrichDDLSafetyCandidate(
 func ddlPreflightFromFinding(f SourceFinding) *DDLPreflightReport {
 	d := f.Detail
 	ruleID := detailString(d, "rule_id", f.RuleID)
-	lockLevel := lockLevelForRule(ruleID)
+	lockLevel := lockLevelForRule(ruleID, f.RecommendedSQL)
 	requiresRewrite := detailBool(d, "requires_rewrite",
 		strings.Contains(ruleID, "rewrite"))
 	riskScore := detailFloat(d, "risk_score", 0)
@@ -273,8 +273,14 @@ func riskLabelsForFinding(
 	return labels
 }
 
-func lockLevelForRule(ruleID string) string {
+func lockLevelForRule(ruleID string, sql string) string {
+	upperSQL := strings.ToUpper(strings.TrimSpace(sql))
 	switch {
+	case strings.HasPrefix(upperSQL, "CREATE INDEX CONCURRENTLY "):
+		return "SHARE UPDATE EXCLUSIVE"
+	case strings.HasPrefix(upperSQL, "REINDEX ") &&
+		strings.Contains(upperSQL, " CONCURRENTLY "):
+		return "SHARE UPDATE EXCLUSIVE"
 	case strings.Contains(ruleID, "index_not_concurrent"):
 		return "SHARE"
 	case strings.Contains(ruleID, "constraint_not_valid"):

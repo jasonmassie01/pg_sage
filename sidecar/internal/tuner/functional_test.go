@@ -933,27 +933,24 @@ func TestFunctional_TickCooldowns_EmptyMap(t *testing.T) {
 // =========================================================================
 
 func TestFunctional_BuildInsertSQL_Format(t *testing.T) {
-	sql := BuildInsertSQL("SELECT * FROM orders", `Set(work_mem "256MB")`)
+	sql := BuildInsertSQL(12345, `Set(work_mem "256MB")`)
 	if !strings.Contains(sql, "INSERT INTO hint_plan.hints") {
 		t.Errorf("missing INSERT: %s", sql)
 	}
-	if !strings.Contains(sql, "norm_query_string") {
-		t.Errorf("missing norm_query_string column: %s", sql)
+	if !strings.Contains(sql, "query_id") {
+		t.Errorf("missing query_id column: %s", sql)
 	}
-	if !strings.Contains(sql, "SELECT * FROM orders") {
-		t.Errorf("missing query text: %s", sql)
+	if strings.Contains(sql, "norm_query_string") {
+		t.Errorf("contains obsolete norm_query_string column: %s", sql)
 	}
-	if !strings.Contains(sql, "ON CONFLICT") {
-		t.Errorf("missing ON CONFLICT: %s", sql)
-	}
-	if !strings.Contains(sql, "DO UPDATE SET") {
-		t.Errorf("missing DO UPDATE SET: %s", sql)
+	if !strings.Contains(sql, "WHERE NOT EXISTS") {
+		t.Errorf("missing duplicate guard: %s", sql)
 	}
 }
 
 func TestFunctional_BuildInsertSQL_DollarQuoting(t *testing.T) {
 	// Quotes pass through unchanged inside dollar-quoted literals.
-	sql := BuildInsertSQL("SELECT 1", "it's a hint with 'quotes'")
+	sql := BuildInsertSQL(1, "it's a hint with 'quotes'")
 	if !strings.Contains(sql, "it's a hint with 'quotes'") {
 		t.Errorf("expected raw quotes inside dollar-quote: %s", sql)
 	}
@@ -966,7 +963,7 @@ func TestFunctional_BuildInsertSQL_DollarQuoting(t *testing.T) {
 // dollar-quoting defeats a classic single-quote injection.
 func TestFunctional_BuildInsertSQL_InjectionAttempt(t *testing.T) {
 	attack := "'); DROP TABLE sage.findings; --"
-	sql := BuildInsertSQL(attack, "hint")
+	sql := BuildInsertSQL(1, attack)
 	// The attack payload must appear as-is inside the dollar-quote.
 	if !strings.Contains(sql, attack) {
 		t.Errorf("attack payload not present verbatim: %s", sql)
@@ -986,18 +983,15 @@ func TestFunctional_BuildInsertSQL_InjectionAttempt(t *testing.T) {
 }
 
 func TestFunctional_BuildDeleteSQL_Format(t *testing.T) {
-	sql := BuildDeleteSQL("SELECT * FROM orders WHERE id = $1")
+	sql := BuildDeleteSQL(12345)
 	if !strings.Contains(sql, "DELETE FROM hint_plan.hints") {
 		t.Errorf("missing DELETE: %s", sql)
 	}
-	if !strings.Contains(sql, "SELECT * FROM orders WHERE id = $1") {
-		t.Errorf("missing query text: %s", sql)
+	if !strings.Contains(sql, "query_id = 12345") {
+		t.Errorf("missing query id: %s", sql)
 	}
 	if !strings.Contains(sql, "application_name = ''") {
 		t.Errorf("missing application_name filter: %s", sql)
-	}
-	if !strings.Contains(sql, "$sageqh$") {
-		t.Errorf("expected $sageqh$ dollar tag: %s", sql)
 	}
 }
 
@@ -1339,8 +1333,8 @@ func TestFunctional_FormatTunerPrompt_Truncated(t *testing.T) {
 			{
 				Schema: "public", Name: "t",
 				LiveTuples: 1000000,
-				Columns: make([]ColumnInfo, 50),
-				Indexes: make([]IndexDetail, 20),
+				Columns:    make([]ColumnInfo, 50),
+				Indexes:    make([]IndexDetail, 20),
 			},
 		},
 		System: SystemContext{

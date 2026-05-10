@@ -150,15 +150,18 @@ func TestBuildRationale_Single(t *testing.T) {
 }
 
 func TestBuildInsertSQL(t *testing.T) {
-	sql := BuildInsertSQL("SELECT * FROM foo", "SET work_mem = '256MB'")
+	sql := BuildInsertSQL(12345, "SET work_mem = '256MB'")
 	if sql == "" {
 		t.Fatal("BuildInsertSQL returned empty string")
 	}
-	if !strings.Contains(sql, "norm_query_string") {
-		t.Errorf("should contain norm_query_string column")
+	if !strings.Contains(sql, "query_id") {
+		t.Errorf("should contain query_id column")
 	}
-	if !strings.Contains(sql, "SELECT * FROM foo") {
-		t.Errorf("should contain query text")
+	if strings.Contains(sql, "norm_query_string") {
+		t.Errorf("should not contain obsolete norm_query_string column")
+	}
+	if !strings.Contains(sql, "12345") {
+		t.Errorf("should contain query id")
 	}
 	if !strings.Contains(sql, "work_mem") {
 		t.Errorf("should contain hint SQL")
@@ -169,7 +172,7 @@ func TestBuildInsertSQL_DollarQuotesSingleQuotes(t *testing.T) {
 	// Dollar-quoted literals do not process single quotes or
 	// backslashes, so single quotes pass through unmodified and
 	// the result is injection-safe.
-	sql := BuildInsertSQL("SELECT 1", "it's a hint")
+	sql := BuildInsertSQL(1, "it's a hint")
 	if !strings.Contains(sql, "it's a hint") {
 		t.Errorf("hint text missing from dollar-quoted body: %s", sql)
 	}
@@ -178,56 +181,50 @@ func TestBuildInsertSQL_DollarQuotesSingleQuotes(t *testing.T) {
 	}
 }
 
-func TestBuildInsertSQL_DollarQuotesQueryTextQuotes(t *testing.T) {
-	sql := BuildInsertSQL("SELECT * FROM t WHERE name = 'foo'", "hint")
-	if !strings.Contains(sql, "name = 'foo'") {
-		t.Errorf("query text quotes altered inside dollar-quote: %s", sql)
+func TestBuildInsertSQL_UsesQueryIDNotQueryText(t *testing.T) {
+	sql := BuildInsertSQL(17, "hint")
+	if strings.Contains(sql, "SELECT * FROM t") {
+		t.Errorf("query text should not be stored in hint_plan.hints: %s", sql)
 	}
-	if !strings.Contains(sql, "$sageqh$") {
-		t.Errorf("expected $sageqh$ dollar tag: %s", sql)
+	if !strings.Contains(sql, "query_id = 17") {
+		t.Errorf("query id predicate missing: %s", sql)
 	}
 }
 
-func TestBuildDeleteSQL_DollarQuotesQueryTextQuotes(t *testing.T) {
-	sql := BuildDeleteSQL("SELECT * FROM t WHERE name = 'foo'")
-	if !strings.Contains(sql, "name = 'foo'") {
-		t.Errorf("query text quotes altered inside dollar-quote: %s", sql)
+func TestBuildDeleteSQL_UsesQueryID(t *testing.T) {
+	sql := BuildDeleteSQL(17)
+	if !strings.Contains(sql, "query_id = 17") {
+		t.Errorf("query id missing from delete: %s", sql)
 	}
-	if !strings.Contains(sql, "$sageqh$") {
-		t.Errorf("expected $sageqh$ dollar tag: %s", sql)
+	if strings.Contains(sql, "norm_query_string") {
+		t.Errorf("should not contain obsolete norm_query_string column")
 	}
 }
 
 // TestBuildInsertSQL_TagCollision verifies chooseDollarTag picks a
 // non-colliding tag when payload contains $sageqh$.
 func TestBuildInsertSQL_TagCollision(t *testing.T) {
-	// Query literally contains the default tag — builder must
-	// escape to an alternate tag so the literal stays unambiguous.
-	q := "SELECT '$sageqh$' FROM dual"
-	sql := BuildInsertSQL(q, "hint")
-	if !strings.Contains(sql, q) {
-		t.Errorf("query text missing from output: %s", sql)
-	}
+	sql := BuildInsertSQL(1, "$sageqh$ hint")
 	// Result must NOT end the string prematurely.
-	if strings.Contains(sql, "$sageqh$"+q+"$sageqh$") {
+	if strings.Contains(sql, "$sageqh$$sageqh$ hint$sageqh$") {
 		t.Errorf("collision: tag was not rotated: %s", sql)
 	}
 }
 
-func TestBuildInsertSQL_OnConflict(t *testing.T) {
-	sql := BuildInsertSQL("SELECT 1", "hint")
-	if !strings.Contains(sql, "ON CONFLICT") {
-		t.Errorf("should contain ON CONFLICT: %s", sql)
+func TestBuildInsertSQL_AvoidsDuplicateHintRows(t *testing.T) {
+	sql := BuildInsertSQL(1, "hint")
+	if !strings.Contains(sql, "WHERE NOT EXISTS") {
+		t.Errorf("should avoid duplicate hint rows: %s", sql)
 	}
 }
 
 func TestBuildDeleteSQL(t *testing.T) {
-	sql := BuildDeleteSQL("SELECT * FROM foo")
+	sql := BuildDeleteSQL(12345)
 	if sql == "" {
 		t.Fatal("BuildDeleteSQL returned empty string")
 	}
-	if !strings.Contains(sql, "SELECT * FROM foo") {
-		t.Errorf("should contain query text")
+	if !strings.Contains(sql, "query_id = 12345") {
+		t.Errorf("should contain query id")
 	}
 	if !strings.Contains(sql, "DELETE") {
 		t.Errorf("should contain DELETE: %s", sql)

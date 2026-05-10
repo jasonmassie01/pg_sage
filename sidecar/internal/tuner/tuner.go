@@ -789,9 +789,9 @@ func (t *Tuner) buildFinding(
 	}
 	if t.hintPlan != nil && t.hintPlan.Available && t.hintPlan.HintTableReady {
 		f.RecommendedSQL = BuildInsertSQL(
-			c.Query, combinedHint,
+			c.QueryID, combinedHint,
 		)
-		f.RollbackSQL = BuildDeleteSQL(c.Query)
+		f.RollbackSQL = BuildDeleteSQL(c.QueryID)
 	}
 
 	// Persist to sage.query_hints for the dashboard query-hints page.
@@ -845,7 +845,7 @@ func (t *Tuner) upsertQueryHint(
 // executed later by the executor (see executor.ExecInTransaction),
 // so it must be self-contained — we cannot use bind parameters.
 //
-// Safety: we emit the query text and hint as PostgreSQL dollar-
+// Safety: we emit the hint as a PostgreSQL dollar-
 // quoted string literals ($sageqh$…$sageqh$). Dollar-quoted
 // strings do not interpret backslash escapes or double single
 // quotes, so they are immune to single-quote-based injection
@@ -853,30 +853,28 @@ func (t *Tuner) upsertQueryHint(
 // surface is a literal that itself contains the tag; we pick a
 // unique tag for each call to eliminate that case and strip NUL
 // bytes as extra defense-in-depth.
-func BuildInsertSQL(queryText string, hint string) string {
-	queryText = stripNULs(queryText)
+func BuildInsertSQL(queryID int64, hint string) string {
 	hint = stripNULs(hint)
-	tag := chooseDollarTag(queryText, hint)
+	tag := chooseDollarTag(hint)
 	return fmt.Sprintf(
 		"INSERT INTO hint_plan.hints "+
-			"(norm_query_string, application_name, hints) "+
-			"VALUES (%s%s%s, '', %s%s%s) "+
-			"ON CONFLICT (norm_query_string, application_name) "+
-			"DO UPDATE SET hints = EXCLUDED.hints",
-		tag, queryText, tag, tag, hint, tag,
+			"(query_id, application_name, hints) "+
+			"SELECT %d, '', %s%s%s "+
+			"WHERE NOT EXISTS ("+
+			"SELECT 1 FROM hint_plan.hints "+
+			"WHERE query_id = %d AND application_name = '')",
+		queryID, tag, hint, tag, queryID,
 	)
 }
 
 // BuildDeleteSQL generates a DELETE for hint_plan.hints.
 // See BuildInsertSQL for the dollar-quoting safety rationale.
-func BuildDeleteSQL(queryText string) string {
-	queryText = stripNULs(queryText)
-	tag := chooseDollarTag(queryText, "")
+func BuildDeleteSQL(queryID int64) string {
 	return fmt.Sprintf(
 		"DELETE FROM hint_plan.hints "+
-			"WHERE norm_query_string = %s%s%s "+
+			"WHERE query_id = %d "+
 			"AND application_name = ''",
-		tag, queryText, tag,
+		queryID,
 	)
 }
 

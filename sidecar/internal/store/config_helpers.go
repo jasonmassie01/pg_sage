@@ -13,54 +13,57 @@ import (
 
 // allowedConfigKeys maps dot-notation keys to their value type.
 var allowedConfigKeys = map[string]string{
-	"collector.interval_seconds":          "int_min5",
-	"collector.batch_size":                "int_pos",
-	"collector.max_queries":               "int_pos",
-	"analyzer.interval_seconds":           "int_min5",
-	"analyzer.slow_query_threshold_ms":    "int_nonneg",
-	"analyzer.seq_scan_min_rows":          "int_pos",
-	"analyzer.unused_index_window_days":   "int_pos",
-	"analyzer.index_bloat_threshold_pct":  "pct",
-	"analyzer.table_bloat_dead_tuple_pct": "pct",
-	"analyzer.regression_threshold_pct":   "pct",
-	"analyzer.cache_hit_ratio_warning":    "float01",
-	"trust.level":                         "trust_level",
-	"trust.tier3_safe":                    "bool",
-	"trust.tier3_moderate":                "bool",
-	"trust.tier3_high_risk":               "bool",
-	"trust.maintenance_window":            "string",
-	"trust.rollback_threshold_pct":        "pct",
-	"trust.rollback_window_minutes":       "int_pos",
-	"trust.rollback_cooldown_days":        "int_pos",
-	"trust.cascade_cooldown_cycles":       "int_pos",
-	"safety.cpu_ceiling_pct":              "pct1_100",
-	"safety.query_timeout_ms":             "int_pos",
-	"safety.ddl_timeout_seconds":          "int_pos",
-	"safety.lock_timeout_ms":              "int_pos",
-	"llm.enabled":                         "bool",
-	"llm.endpoint":                        "string",
-	"llm.api_key":                         "string",
-	"llm.model":                           "string",
-	"llm.json_mode":                       "bool",
-	"llm.timeout_seconds":                 "int_pos",
-	"llm.token_budget_daily":              "int_pos",
-	"llm.context_budget_tokens":           "int_pos",
-	"advisor.enabled":                     "bool",
-	"advisor.interval_seconds":            "int_min5",
-	"llm.optimizer.enabled":               "bool",
-	"llm.optimizer.min_query_calls":       "int_pos",
-	"llm.optimizer.max_new_per_table":     "int_pos",
-	"alerting.enabled":                    "bool",
-	"alerting.slack_webhook_url":          "string",
-	"alerting.pagerduty_routing_key":      "string",
-	"alerting.check_interval_seconds":     "int_min5",
-	"alerting.cooldown_minutes":           "int_pos",
-	"alerting.quiet_hours_start":          "string",
-	"alerting.quiet_hours_end":            "string",
-	"retention.snapshots_days":            "int_pos",
-	"retention.findings_days":             "int_pos",
-	"retention.actions_days":              "int_pos",
-	"retention.explains_days":             "int_pos",
+	"collector.interval_seconds":            "int_min5",
+	"collector.batch_size":                  "int_pos",
+	"collector.max_queries":                 "int_pos",
+	"analyzer.interval_seconds":             "int_min5",
+	"analyzer.slow_query_threshold_ms":      "int_nonneg",
+	"analyzer.seq_scan_min_rows":            "int_pos",
+	"analyzer.unused_index_window_days":     "int_pos",
+	"analyzer.index_bloat_threshold_pct":    "pct",
+	"analyzer.table_bloat_dead_tuple_pct":   "pct",
+	"analyzer.regression_threshold_pct":     "pct",
+	"analyzer.cache_hit_ratio_warning":      "float01",
+	"trust.level":                           "trust_level",
+	"trust.tier3_safe":                      "bool",
+	"trust.tier3_moderate":                  "bool",
+	"trust.tier3_high_risk":                 "bool",
+	"trust.maintenance_window":              "string",
+	"trust.rollback_threshold_pct":          "pct",
+	"trust.rollback_window_minutes":         "int_pos",
+	"trust.rollback_cooldown_days":          "int_pos",
+	"trust.cascade_cooldown_cycles":         "int_pos",
+	"safety.cpu_ceiling_pct":                "pct1_100",
+	"safety.query_timeout_ms":               "int_pos",
+	"safety.ddl_timeout_seconds":            "int_pos",
+	"safety.lock_timeout_ms":                "int_pos",
+	"llm.enabled":                           "bool",
+	"llm.endpoint":                          "string",
+	"llm.api_key":                           "string",
+	"llm.model":                             "string",
+	"llm.json_mode":                         "bool",
+	"llm.timeout_seconds":                   "int_pos",
+	"llm.token_budget_daily":                "int_pos",
+	"llm.context_budget_tokens":             "int_pos",
+	"advisor.enabled":                       "bool",
+	"advisor.interval_seconds":              "int_min5",
+	"llm.optimizer.enabled":                 "bool",
+	"llm.optimizer.min_query_calls":         "int_pos",
+	"llm.optimizer.max_new_per_table":       "int_pos",
+	"alerting.enabled":                      "bool",
+	"alerting.slack_webhook_url":            "string",
+	"alerting.pagerduty_routing_key":        "string",
+	"alerting.check_interval_seconds":       "int_min5",
+	"alerting.cooldown_minutes":             "int_pos",
+	"alerting.quiet_hours_start":            "string",
+	"alerting.quiet_hours_end":              "string",
+	"retention.snapshots_days":              "int_pos",
+	"retention.findings_days":               "int_pos",
+	"retention.actions_days":                "int_pos",
+	"retention.explains_days":               "int_pos",
+	"agentdb.live_provisioning_enabled":     "bool",
+	"agentdb.allow_public_ip":               "bool",
+	"agentdb.require_backup_before_destroy": "bool",
 
 	// v0.9: RCA engine.
 	"rca.enabled":                           "bool",
@@ -357,6 +360,7 @@ func configToMap(cfg *config.Config) map[string]any {
 	addLogWatchFields(m, &cfg.LogWatch)
 	addSchemaLintFields(m, &cfg.SchemaLint)
 	addMigrationFields(m, &cfg.Migration)
+	addAgentDBFields(m, &cfg.AgentDB)
 	return m
 }
 
@@ -418,6 +422,14 @@ func addSafetyFields(m map[string]any, s *config.SafetyConfig) {
 	addField(m, "safety.ddl_timeout_seconds",
 		s.DDLTimeoutSeconds, "yaml")
 	addField(m, "safety.lock_timeout_ms", s.LockTimeoutMs, "yaml")
+}
+
+func addAgentDBFields(m map[string]any, a *config.AgentDBConfig) {
+	addField(m, "agentdb.live_provisioning_enabled",
+		a.LiveProvisioningEnabled, "yaml")
+	addField(m, "agentdb.allow_public_ip", a.AllowPublicIP, "yaml")
+	addField(m, "agentdb.require_backup_before_destroy",
+		a.RequireBackupBeforeDrop, "yaml")
 }
 
 func addLLMFields(m map[string]any, l *config.LLMConfig) {

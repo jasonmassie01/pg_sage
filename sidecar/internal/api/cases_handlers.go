@@ -94,15 +94,21 @@ func queryProjectedCases(
 		if err != nil {
 			return nil, err
 		}
+		selectedCases := make([]cases.Case, 0, len(rows))
+		findingIDs := make([]int, 0, len(rows))
 		for _, row := range rows {
 			projected := cases.ProjectFinding(sourceFindingFromMap(row))
 			enrichCaseActionPolicies(&projected, mgr, selected.name)
-			enrichCaseActionTimeline(
-				ctx, &projected, selected.pool,
-				store.NewActionStore(selected.pool),
-			)
-			out = append(out, projected)
+			if id, ok := caseFindingID(projected); ok {
+				findingIDs = append(findingIDs, id)
+			}
+			selectedCases = append(selectedCases, projected)
 		}
+		enrichCaseActionTimelines(
+			ctx, selectedCases, selected.pool,
+			store.NewActionStore(selected.pool), findingIDs,
+		)
+		out = append(out, selectedCases...)
 		incidentCases, err := queryIncidentCases(ctx, mgr, selected)
 		if err != nil {
 			return nil, err
@@ -115,6 +121,14 @@ func queryProjectedCases(
 		out = append(out, queryHintCases...)
 	}
 	return out, nil
+}
+
+func caseFindingID(c cases.Case) (int, bool) {
+	if len(c.SourceIDs) == 0 {
+		return 0, false
+	}
+	findingID, err := strconv.Atoi(c.SourceIDs[0])
+	return findingID, err == nil && findingID > 0
 }
 
 func queryIncidentCases(
@@ -187,6 +201,51 @@ func enrichCaseActionTimeline(
 	}
 }
 
+func enrichCaseActionTimelines(
+	ctx context.Context,
+	projected []cases.Case,
+	pool *pgxpool.Pool,
+	actionStore *store.ActionStore,
+	findingIDs []int,
+) {
+	if len(findingIDs) == 0 {
+		return
+	}
+	now := time.Now().UTC()
+	queuedByID := map[int][]store.QueuedAction{}
+	loggedByID := map[int][]map[string]any{}
+	if actionStore != nil {
+		if queued, err := actionStore.ListLedgerByFindingIDs(
+			ctx, findingIDs,
+		); err == nil {
+			queuedByID = queued
+		}
+	}
+	if logged, err := queryActionLogsByFindingIDs(
+		ctx, pool, findingIDs,
+	); err == nil {
+		loggedByID = logged
+	}
+	for i := range projected {
+		findingID, ok := caseFindingID(projected[i])
+		if !ok {
+			continue
+		}
+		for _, action := range queuedByID[findingID] {
+			projected[i].Actions = append(
+				projected[i].Actions,
+				caseActionFromQueuedAction(action, now),
+			)
+		}
+		for _, action := range loggedByID[findingID] {
+			projected[i].Actions = append(
+				projected[i].Actions,
+				caseActionFromActionLog(action),
+			)
+		}
+	}
+}
+
 func caseActionFromQueuedAction(
 	action store.QueuedAction,
 	now time.Time,
@@ -248,6 +307,52 @@ func queryActionLogsByFinding(
 	}
 	defer rows.Close()
 	return scanActionRows(rows)
+}
+
+func queryActionLogsByFindingIDs(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	findingIDs []int,
+) (map[int][]map[string]any, error) {
+	out := make(map[int][]map[string]any, len(findingIDs))
+	if pool == nil || len(findingIDs) == 0 {
+		return out, nil
+	}
+	rows, err := pool.Query(ctx, actionsSelectSQLPrefix+`
+ WHERE id IN (
+     SELECT id
+     FROM (
+         SELECT id, finding_id,
+                row_number() OVER (
+                    PARTITION BY finding_id
+                    ORDER BY executed_at DESC, id DESC
+                ) AS rn
+         FROM sage.action_log
+         WHERE finding_id = ANY($1)
+     ) ranked
+     WHERE rn <= 20
+ )
+ ORDER BY finding_id, executed_at DESC, id DESC`, findingIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	actions, err := scanActionRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	for _, action := range actions {
+		rawID, ok := action["finding_id"].(*string)
+		if !ok || rawID == nil {
+			continue
+		}
+		findingID, err := strconv.Atoi(*rawID)
+		if err != nil {
+			continue
+		}
+		out[findingID] = append(out[findingID], action)
+	}
+	return out, nil
 }
 
 func caseActionFromActionLog(row map[string]any) cases.CaseAction {
@@ -390,6 +495,7 @@ func sourceFindingFromMap(row map[string]any) cases.SourceFinding {
 		Title:            stringValue(row["title"]),
 		Recommendation:   stringValue(row["recommendation"]),
 		RecommendedSQL:   stringValue(row["recommended_sql"]),
+		RollbackSQL:      stringValue(row["rollback_sql"]),
 		Detail:           detailMap(row["detail"]),
 	}
 }

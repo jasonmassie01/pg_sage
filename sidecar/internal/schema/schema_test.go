@@ -212,6 +212,28 @@ func TestDDLExplainCache_HasQueryidIndex(t *testing.T) {
 	}
 }
 
+func TestDDL_HasFleetScaleOperationalIndexes(t *testing.T) {
+	required := map[string]string{
+		"ddlSessions":          "idx_sessions_expires",
+		"ddlNotificationRules": "idx_notification_rules_event_enabled",
+		"ddlNotificationLog":   "idx_notification_log_sent_at",
+		"fullSchemaDDL":        "idx_action_log_outcome_time",
+		"runMigrations":        "idx_action_log_outcome_time",
+	}
+	sources := map[string]string{
+		"ddlSessions":          ddlSessions,
+		"ddlNotificationRules": ddlNotificationRules,
+		"ddlNotificationLog":   ddlNotificationLog,
+		"fullSchemaDDL":        fullSchemaDDL,
+		"runMigrations":        strings.Join(migrationStatements(), "\n"),
+	}
+	for name, idx := range required {
+		if !strings.Contains(sources[name], idx) {
+			t.Errorf("%s missing %s", name, idx)
+		}
+	}
+}
+
 func TestTrustRampStart_TimestampFormats(t *testing.T) {
 	// PersistTrustRampStart parses timestamps with several layouts.
 	// Verify the layouts parse representative strings correctly.

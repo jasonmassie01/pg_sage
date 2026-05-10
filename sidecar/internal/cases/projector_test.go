@@ -1,6 +1,7 @@
 package cases
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -495,6 +496,212 @@ func TestProjectFindingInformationalWhenNoRemediation(t *testing.T) {
 	}
 }
 
+func TestProjectFindingIgnoresNarrativeRecommendedSQL(t *testing.T) {
+	f := SourceFinding{
+		ID:               "conn-tune",
+		DatabaseName:     "prod",
+		Category:         "connection_tuning",
+		Severity:         SeverityInfo,
+		ObjectType:       "instance",
+		ObjectIdentifier: "prod",
+		Title:            "connection_tuning recommendation for instance",
+		Recommendation:   "Review connection pool sizing.",
+		RecommendedSQL:   "raise max_connections only after pool audit",
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 0 {
+		t.Fatalf("expected no action candidates, got %#v", got.ActionCandidates)
+	}
+}
+
+func TestProjectFindingKeepsGenericDDLActions(t *testing.T) {
+	f := SourceFinding{
+		ID:               "wal-tune",
+		DatabaseName:     "prod",
+		Category:         "wal_tuning",
+		Severity:         SeverityInfo,
+		ObjectType:       "instance",
+		ObjectIdentifier: "prod",
+		Title:            "wal_tuning recommendation for instance",
+		Recommendation:   "Enable WAL compression after review.",
+		RecommendedSQL:   "ALTER SYSTEM SET wal_compression = on;",
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	assertCandidate(t, got.ActionCandidates[0],
+		"ddl_preflight", "high", f.RecommendedSQL)
+}
+
+func TestProjectFindingTuningPackIndexActions(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "jsonb GIN",
+			sql: "CREATE INDEX CONCURRENTLY idx_events_payload_gin " +
+				"ON public.events USING gin (payload jsonb_path_ops);",
+		},
+		{
+			name: "vector HNSW",
+			sql: "CREATE INDEX CONCURRENTLY idx_docs_embedding_hnsw " +
+				"ON public.docs USING hnsw (embedding vector_cosine_ops);",
+		},
+		{
+			name: "postgis GiST",
+			sql: "CREATE INDEX CONCURRENTLY idx_places_geom_gist " +
+				"ON public.places USING gist (geom);",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := SourceFinding{
+				ID:               "pack-" + tt.name,
+				DatabaseName:     "prod",
+				Category:         "index_optimizer",
+				Severity:         SeverityWarning,
+				ObjectType:       "table",
+				ObjectIdentifier: "public.t",
+				Title:            tt.name + " tuning pack recommendation",
+				Recommendation:   "Create the supporting index.",
+				RecommendedSQL:   tt.sql,
+			}
+
+			got := ProjectFinding(f)
+
+			if len(got.ActionCandidates) != 1 {
+				t.Fatalf("ActionCandidates = %d, want 1",
+					len(got.ActionCandidates))
+			}
+			action := got.ActionCandidates[0]
+			assertCandidate(t, action,
+				"create_index_concurrently", "moderate", tt.sql)
+			if action.ScriptOutput == nil {
+				t.Fatal("expected migration script output")
+			}
+			if len(action.VerificationPlan) == 0 {
+				t.Fatal("expected verification plan")
+			}
+		})
+	}
+}
+
+func TestProjectFindingSlowQueryAddsInvestigationActionWithQuery(t *testing.T) {
+	f := SourceFinding{
+		ID:               "slow-1",
+		DatabaseName:     "prod",
+		Category:         "slow_query",
+		Severity:         SeverityCritical,
+		ObjectType:       "query",
+		ObjectIdentifier: "queryid:4242",
+		Title:            "Slow query",
+		Recommendation:   "Investigate the query plan.",
+		Detail: map[string]any{
+			"queryid":      float64(4242),
+			"query":        "SELECT * FROM events WHERE payload @> '{\"type\":\"x\"}'",
+			"mean_exec_ms": float64(255),
+			"calls":        float64(215),
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	assertCandidate(t, action, "investigate_query_plan", "safe", "")
+	if action.ScriptOutput == nil {
+		t.Fatal("expected read-only investigation script output")
+	}
+	if action.ScriptOutput.Filename != "investigate_query_4242.sql" {
+		t.Fatalf("Filename = %q", action.ScriptOutput.Filename)
+	}
+	if !containsAll(action.ScriptOutput.MigrationSQL,
+		"EXPLAIN (ANALYZE, BUFFERS, VERBOSE)",
+		"payload @>",
+	) {
+		t.Fatalf("MigrationSQL missing query evidence: %q",
+			action.ScriptOutput.MigrationSQL)
+	}
+	if got.Evidence[0].Detail["query"] == "" {
+		t.Fatal("expected query text to remain in case evidence")
+	}
+}
+
+func TestProjectFindingHighTotalTimeAddsInvestigationAction(t *testing.T) {
+	f := SourceFinding{
+		ID:               "total-1",
+		DatabaseName:     "prod",
+		Category:         "high_total_time",
+		Severity:         SeverityWarning,
+		ObjectType:       "query",
+		ObjectIdentifier: "queryid:5151",
+		Title:            "Query consuming 11.9% of wall clock",
+		Recommendation:   "Investigate cumulative query cost.",
+		Detail: map[string]any{
+			"queryid":       int64(5151),
+			"query":         "SELECT id FROM docs ORDER BY embedding <-> $1 LIMIT 10",
+			"total_time_ms": float64(54825),
+			"pct":           float64(11.9),
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	assertCandidate(t, action, "investigate_query_plan", "safe", "")
+	if action.ScriptOutput == nil ||
+		!containsAll(action.ScriptOutput.MigrationSQL, "EXPLAIN", "<->") {
+		t.Fatalf("expected vector query investigation script: %#v",
+			action.ScriptOutput)
+	}
+}
+
+func TestProjectFindingQueryTuningWithHintSQLAddsApplyHintAction(t *testing.T) {
+	f := SourceFinding{
+		ID:               "hint-1",
+		DatabaseName:     "prod",
+		Category:         "query_tuning",
+		Severity:         SeverityWarning,
+		ObjectType:       "query",
+		ObjectIdentifier: "queryid:777",
+		Title:            "Planner hint candidate",
+		Recommendation:   "Review and apply pg_hint_plan directive.",
+		RecommendedSQL: "INSERT INTO hint_plan.hints(query_id, hints) " +
+			"VALUES (777, 'Set(work_mem \"128MB\")');",
+		RollbackSQL: "DELETE FROM hint_plan.hints WHERE query_id = 777;",
+		Detail: map[string]any{
+			"queryid": float64(777),
+			"query":   "SELECT * FROM orders ORDER BY created_at DESC",
+		},
+	}
+
+	got := ProjectFinding(f)
+
+	if len(got.ActionCandidates) != 1 {
+		t.Fatalf("ActionCandidates = %d, want 1", len(got.ActionCandidates))
+	}
+	action := got.ActionCandidates[0]
+	assertCandidate(t, action, "apply_query_hint", "moderate", f.RecommendedSQL)
+	if action.ScriptOutput == nil {
+		t.Fatal("expected hint migration script output")
+	}
+	if action.ScriptOutput.RollbackSQL != f.RollbackSQL {
+		t.Fatalf("RollbackSQL = %q, want %q",
+			action.ScriptOutput.RollbackSQL, f.RollbackSQL)
+	}
+}
+
 func TestProjectFindingMarksAlterTableForwardFixOnly(t *testing.T) {
 	f := SourceFinding{
 		ID:               "101",
@@ -782,6 +989,15 @@ func assertPreflightCheck(
 		}
 	}
 	t.Fatalf("missing preflight check %q in %#v", name, checks)
+}
+
+func containsAll(text string, values ...string) bool {
+	for _, value := range values {
+		if !strings.Contains(text, value) {
+			return false
+		}
+	}
+	return true
 }
 
 func TestExpiredActionCannotExecuteWithoutRevalidation(t *testing.T) {

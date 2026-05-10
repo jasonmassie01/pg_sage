@@ -17,12 +17,24 @@ var (
 	tunerTestPoolErr  error
 )
 
+const tunerCoverageQueryID int64 = 999999999
+
 func tunerTestDSN() string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
 	return "postgres://postgres:postgres@localhost:5432/" +
 		"postgres?sslmode=disable"
+}
+
+func cleanTunerCoverageHints(t *testing.T, pool *pgxpool.Pool, ctx context.Context) {
+	t.Helper()
+	_, err := pool.Exec(ctx,
+		"DELETE FROM sage.query_hints WHERE queryid = $1",
+		tunerCoverageQueryID)
+	if err != nil {
+		t.Fatalf("clean tuner coverage hints: %v", err)
+	}
 }
 
 func requireTunerDB(t *testing.T) (*pgxpool.Pool, context.Context) {
@@ -70,10 +82,68 @@ func TestFunctional_Coverage_DB_FetchPlanJSON(t *testing.T) {
 	tuner := New(pool, TunerConfig{}, nil, noopLogFn)
 
 	// No matching row → returns empty string.
-	result := tuner.fetchPlanJSON(ctx, 999999999)
+	result := tuner.fetchPlanJSON(ctx, tunerCoverageQueryID)
 	if result != "" {
 		t.Errorf("expected empty string for unknown queryid, got %q",
 			result)
+	}
+}
+
+func TestFunctional_Coverage_DB_HintPlanSQLUsesQueryIDSchema(t *testing.T) {
+	pool, ctx := requireTunerDB(t)
+	queryID := int64(8809001)
+
+	_, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS hint_plan")
+	if err != nil {
+		t.Fatalf("create hint_plan schema: %v", err)
+	}
+	_, err = pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS hint_plan.hints (
+		id bigserial PRIMARY KEY,
+		query_id bigint,
+		application_name text,
+		hints text
+	)`)
+	if err != nil {
+		t.Fatalf("create hint_plan.hints table: %v", err)
+	}
+	_, _ = pool.Exec(ctx,
+		"DELETE FROM hint_plan.hints WHERE query_id = $1", queryID)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM hint_plan.hints WHERE query_id = $1", queryID)
+	})
+
+	insertSQL := BuildInsertSQL(queryID, "IndexScan(t idx_t_id)")
+	if _, err := pool.Exec(ctx, insertSQL); err != nil {
+		t.Fatalf("execute generated insert SQL: %v\nSQL: %s", err, insertSQL)
+	}
+
+	var hints string
+	err = pool.QueryRow(ctx,
+		`SELECT hints FROM hint_plan.hints
+		  WHERE query_id = $1 AND application_name = ''`,
+		queryID).Scan(&hints)
+	if err != nil {
+		t.Fatalf("query inserted hint: %v", err)
+	}
+	if hints != "IndexScan(t idx_t_id)" {
+		t.Fatalf("hint mismatch: got %q", hints)
+	}
+
+	deleteSQL := BuildDeleteSQL(queryID)
+	if _, err := pool.Exec(ctx, deleteSQL); err != nil {
+		t.Fatalf("execute generated delete SQL: %v\nSQL: %s", err, deleteSQL)
+	}
+
+	var count int
+	err = pool.QueryRow(ctx,
+		"SELECT count(*) FROM hint_plan.hints WHERE query_id = $1",
+		queryID).Scan(&count)
+	if err != nil {
+		t.Fatalf("count deleted hint: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected generated delete to remove hint, count=%d", count)
 	}
 }
 
@@ -85,7 +155,7 @@ func TestFunctional_Coverage_DB_ScanPlanForQuery(t *testing.T) {
 	tuner := New(pool, TunerConfig{}, nil, noopLogFn)
 
 	// No cached plan → returns nil symptoms.
-	symptoms := tuner.scanPlanForQuery(ctx, 999999999)
+	symptoms := tuner.scanPlanForQuery(ctx, tunerCoverageQueryID)
 	if len(symptoms) != 0 {
 		t.Errorf("expected 0 symptoms for unknown queryid, got %d",
 			len(symptoms))
@@ -103,7 +173,7 @@ func TestFunctional_Coverage_DB_GatherSymptoms(t *testing.T) {
 	}, nil, noopLogFn)
 
 	c := candidate{
-		QueryID:      999999999,
+		QueryID:      tunerCoverageQueryID,
 		Query:        "SELECT 1",
 		Calls:        1,
 		MeanExecTime: 100.0,
@@ -128,7 +198,7 @@ func TestFunctional_Coverage_DB_GatherSymptoms_HighPlanTime(
 	}, nil, noopLogFn)
 
 	c := candidate{
-		QueryID:      999999999,
+		QueryID:      tunerCoverageQueryID,
 		Query:        "SELECT 1",
 		Calls:        10,
 		MeanExecTime: 10.0,
@@ -159,7 +229,7 @@ func TestFunctional_Coverage_DB_ProcessCandidate_NoSymptoms(
 	}, &HintPlanAvailability{}, noopLogFn)
 
 	c := candidate{
-		QueryID:      999999999,
+		QueryID:      tunerCoverageQueryID,
 		Query:        "SELECT 1",
 		Calls:        1,
 		MeanExecTime: 100.0,
@@ -178,6 +248,10 @@ func TestFunctional_Coverage_DB_ProcessCandidate_WithSymptom(
 	t *testing.T,
 ) {
 	pool, ctx := requireTunerDB(t)
+	cleanTunerCoverageHints(t, pool, ctx)
+	t.Cleanup(func() {
+		cleanTunerCoverageHints(t, pool, context.Background())
+	})
 
 	hp := &HintPlanAvailability{Available: false}
 	tuner := New(pool, TunerConfig{
@@ -186,7 +260,7 @@ func TestFunctional_Coverage_DB_ProcessCandidate_WithSymptom(
 	}, hp, noopLogFn)
 
 	c := candidate{
-		QueryID:      999999999,
+		QueryID:      tunerCoverageQueryID,
 		Query:        "SELECT 1",
 		Calls:        10,
 		MeanExecTime: 10.0,

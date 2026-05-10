@@ -2,6 +2,7 @@ package tuner
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -142,6 +143,21 @@ func TestValidateHintSyntax_RejectsSQL(t *testing.T) {
 				t.Errorf("expected rejection for %q", tc)
 			}
 		})
+	}
+}
+
+func TestTunerSystemPromptSteersAwayFromBroadPlannerToggles(t *testing.T) {
+	prompt := TunerSystemPrompt()
+	required := []string{
+		"BitmapScan()",
+		"NoBitmapScan()",
+		"Do NOT use Set(enable_seqscan false)",
+		"Use table-scoped pg_hint_plan directives instead",
+	}
+	for _, want := range required {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("system prompt missing %q", want)
+		}
 	}
 }
 

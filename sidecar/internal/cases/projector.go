@@ -73,7 +73,7 @@ func actionCandidatesForFinding(f SourceFinding) []ActionCandidate {
 	}
 
 	expires := time.Now().UTC().Add(24 * time.Hour)
-	return []ActionCandidate{{
+	candidate := ActionCandidate{
 		ActionType:       actionType,
 		RiskTier:         riskForActionType(actionType),
 		Confidence:       0.70,
@@ -82,7 +82,11 @@ func actionCandidatesForFinding(f SourceFinding) []ActionCandidate {
 		OutputModes:      []string{"queue_for_approval", "generate_pr_or_script"},
 		RollbackClass:    rollbackClassForAction(actionType),
 		VerificationPlan: verificationPlanForAction(actionType),
-	}}
+	}
+	if scriptableSQLAction(actionType) {
+		return []ActionCandidate{enrichDDLSafetyCandidate(f, candidate)}
+	}
+	return []ActionCandidate{candidate}
 }
 
 func migrationSafetyCandidates(f SourceFinding) []ActionCandidate {
@@ -106,15 +110,30 @@ func migrationSafetyCandidates(f SourceFinding) []ActionCandidate {
 		RollbackClass:    rollbackClassForAction(actionType),
 		VerificationPlan: verificationPlanForAction(actionType),
 	}
-	if actionType == "ddl_preflight" {
-		candidate.RollbackClass = "forward_fix_only"
-		candidate.VerificationPlan = []string{
-			"review generated migration plan",
-			"run verification SQL in CI or staging",
-			"rerun migration safety analyzer after deployment",
+	if scriptableSQLAction(actionType) {
+		if actionType == "ddl_preflight" {
+			candidate.RollbackClass = "forward_fix_only"
+			candidate.VerificationPlan = []string{
+				"review generated migration plan",
+				"run verification SQL in CI or staging",
+				"rerun migration safety analyzer after deployment",
+			}
 		}
+		return []ActionCandidate{enrichDDLSafetyCandidate(f, candidate)}
 	}
-	return []ActionCandidate{enrichDDLSafetyCandidate(f, candidate)}
+	return []ActionCandidate{candidate}
+}
+
+func scriptableSQLAction(actionType string) bool {
+	switch actionType {
+	case "create_index_concurrently", "drop_unused_index",
+		"set_table_autovacuum", "promote_role_work_mem",
+		"create_statistics", "reindex_concurrently", "alter_table",
+		"ddl_preflight":
+		return true
+	default:
+		return false
+	}
 }
 
 func migrationSafetyConfidence(f SourceFinding) float64 {
@@ -155,7 +174,13 @@ func actionTypeForSQL(sql string) string {
 		return "reindex_concurrently"
 	case strings.HasPrefix(upper, "ALTER TABLE "):
 		return "alter_table"
-	case upper != "":
+	case strings.HasPrefix(upper, "CREATE ") ||
+		strings.HasPrefix(upper, "ALTER ") ||
+		strings.HasPrefix(upper, "DROP ") ||
+		strings.HasPrefix(upper, "GRANT ") ||
+		strings.HasPrefix(upper, "REVOKE ") ||
+		strings.HasPrefix(upper, "COMMENT ") ||
+		strings.HasPrefix(upper, "TRUNCATE "):
 		return "ddl_preflight"
 	default:
 		return ""
@@ -164,11 +189,12 @@ func actionTypeForSQL(sql string) string {
 
 func riskForActionType(actionType string) string {
 	switch actionType {
-	case "analyze_table", "vacuum_table", "diagnose_freeze_blockers":
+	case "analyze_table", "vacuum_table", "diagnose_freeze_blockers",
+		"investigate_query_plan":
 		return "safe"
 	case "set_table_autovacuum":
 		return "moderate"
-	case "prepare_query_rewrite", "promote_role_work_mem":
+	case "prepare_query_rewrite", "promote_role_work_mem", "apply_query_hint":
 		return "moderate"
 	case "create_statistics", "prepare_parameterized_query",
 		"reindex_concurrently":
@@ -186,7 +212,7 @@ func rollbackClassForAction(actionType string) string {
 	switch actionType {
 	case "analyze_table", "vacuum_table":
 		return "no_rollback_needed"
-	case "diagnose_freeze_blockers":
+	case "diagnose_freeze_blockers", "investigate_query_plan":
 		return "not_applicable"
 	case "create_index_concurrently", "drop_unused_index":
 		return "reversible"
@@ -194,7 +220,7 @@ func rollbackClassForAction(actionType string) string {
 		return "forward_fix_only"
 	case "prepare_query_rewrite":
 		return "application_rollback"
-	case "promote_role_work_mem", "retire_query_hint":
+	case "promote_role_work_mem", "retire_query_hint", "apply_query_hint":
 		return "reversible"
 	case "create_statistics", "reindex_concurrently":
 		return "reversible"
@@ -243,6 +269,20 @@ func verificationPlanForAction(actionType string) []string {
 	}
 	if actionType == "retire_query_hint" {
 		return []string{"verify hint no longer appears in active hints"}
+	}
+	if actionType == "apply_query_hint" {
+		return []string{
+			"verify hint row exists in hint_plan.hints",
+			"compare hinted and unhinted EXPLAIN costs",
+			"monitor latency and plan stability after deployment",
+		}
+	}
+	if actionType == "investigate_query_plan" {
+		return []string{
+			"capture EXPLAIN plan for the query",
+			"classify whether remediation is index, stats, memory, or rewrite",
+			"rerun analyzer after follow-up remediation",
+		}
 	}
 	if actionType == "create_statistics" {
 		return []string{
