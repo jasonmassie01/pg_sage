@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test'
 import { mockAllAPIs } from './fixtures'
+import { makeAgentDBDeployments, registerAgentDBAPIs } from './agentdb-fixtures'
 
 test.describe('Agent DBs page', () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAPIs(page)
+    page.on('dialog', dialog => dialog.accept())
   })
 
   test('loads deployments, requests, cost, backups, and tuning hints', async ({
@@ -68,7 +70,14 @@ test.describe('Agent DBs page', () => {
     await page.locator('#agent-db-tab-provision').click()
     await page.locator('[data-testid="agent-db-submit"]').click()
 
-    await expect(page.getByText('Provisioned')).toBeVisible()
+    await expect(page.locator('[data-testid="agent-db-message"]'))
+      .toContainText(/Provisioned tenant_agent_agent_runner_/)
+    await expect(page.locator('[data-testid="agent-db-view-deployment"]'))
+      .toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Deployments' }))
+      .toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('[data-testid="agent-db-detail"]'))
+      .toContainText(/tenant_agent_agent_runner_/)
   })
 
   test('runs expired-deployment cleanup', async ({ page }) => {
@@ -227,7 +236,9 @@ test.describe('Agent DBs page', () => {
       ))
     await page.locator('[data-testid="agent-db-terraform-provision"]').click()
     await provisionRequest
-    await expect(page.getByText('Terraform template provisioned as deployment'))
+    await expect(page.getByText(
+      'Terraform template provisioned as tf-agentdb-approved',
+    ))
       .toBeVisible()
   })
 
@@ -251,7 +262,9 @@ test.describe('Agent DBs page', () => {
       ))
     await page.locator('[data-testid="agent-db-blueprint-provision"]').click()
     await provisionRequest
-    await expect(page.getByText('Blueprint provisioned as deployment'))
+    await expect(page.getByText(
+      'Blueprint provisioned as bp-agentdb-approved',
+    ))
       .toBeVisible()
   })
 
@@ -266,7 +279,51 @@ test.describe('Agent DBs page', () => {
       .getByRole('button', { name: 'Provision' })
       .click()
     await provisionRequest
-    await expect(page.getByText('Approved agent request provisioned'))
+    await expect(page.getByText(
+      /Approved agent request provisioned as req_agentdb_demo_/,
+    ))
       .toBeVisible()
+  })
+
+  test('keeps selected deployment detail visible with a long list', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1264, height: 800 })
+    await registerAgentDBAPIs(page, {
+      deployments: makeAgentDBDeployments(36),
+    })
+    await page.goto('#/agent-dbs')
+
+    const rows = page.locator('[data-testid="agent-db-row"]')
+    await expect(rows).toHaveCount(36)
+    await rows.nth(25).getByRole('button').first().click()
+
+    const detail = page.locator('[data-testid="agent-db-detail"]')
+    await expect(detail).toContainText('agentdb-extra-25')
+    await expect(detail).toBeInViewport({ ratio: 0.25 })
+  })
+
+  test('moves selection after deleting the selected deployment', async ({
+    page,
+  }) => {
+    await registerAgentDBAPIs(page, {
+      deployments: makeAgentDBDeployments(3),
+    })
+    await page.goto('#/agent-dbs')
+
+    await page.locator('[data-testid="agent-db-row"]').nth(1)
+      .getByRole('button')
+      .first()
+      .click()
+    await expect(page.locator('[data-testid="agent-db-detail"]'))
+      .toContainText('agentdb-extra-01')
+
+    await page.locator('[data-testid="agent-db-row"]').nth(1)
+      .getByRole('button', { name: 'Delete' })
+      .click()
+
+    await expect(page.locator('[data-testid="agent-db-detail"]'))
+      .toContainText('agentdb-demo')
+    await expect(page.locator('[data-testid="agent-db-row"]')).toHaveCount(2)
   })
 })

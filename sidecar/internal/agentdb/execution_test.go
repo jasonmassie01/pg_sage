@@ -338,6 +338,58 @@ func TestReconcileAbandonedDeploymentsPlansSafeCloudDestroy(t *testing.T) {
 	}
 }
 
+func TestReconcileAbandonedDeploymentsBlocksMalformedCloudPlan(t *testing.T) {
+	st, ctx, pool := requireAgentDB(t)
+	defer pool.Close()
+	id := "adb_reconcile_malformed_plan"
+	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
+	defer pool.Exec(ctx, "DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
+
+	if _, err := st.Register(ctx, RegisterRequest{
+		DeploymentID:       id,
+		TenantID:           "tenant_agentdb_test",
+		AgentID:            "agent_reconcile",
+		Provider:           ProviderAWSRDS,
+		ProvisioningLevel:  LevelInstance,
+		DatabaseName:       "malformed_app",
+		ProvisioningStatus: "planned",
+		ProvisioningPlan:   map[string]any{},
+		LeaseSeconds:       60,
+	}); err != nil {
+		t.Fatalf("Register malformed plan: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE sage.agent_db_deployments
+		SET lease_expires_at=now()-interval '2 hours'
+		WHERE deployment_id=$1`, id); err != nil {
+		t.Fatalf("expire malformed deployment: %v", err)
+	}
+	if _, err := st.RecordBackup(ctx, id, BackupRequest{
+		BackupID: "backup_reconcile_malformed",
+		Provider: ProviderAWSRDS,
+		Status:   "restore_verified",
+	}); err != nil {
+		t.Fatalf("RecordBackup malformed plan: %v", err)
+	}
+
+	result, err := st.ReconcileAbandonedDeployments(
+		ctx, time.Now().UTC(), &recordingProvisionRunner{},
+	)
+	if err != nil {
+		t.Fatalf("ReconcileAbandonedDeployments: %v", err)
+	}
+	if !containsDeployment(result.Archived, id) {
+		t.Fatalf("archived missing malformed deployment: %#v", result.Archived)
+	}
+	if !containsBlocked(
+		result.Blocked,
+		id,
+		"invalid provisioning plan or provider state",
+	) {
+		t.Fatalf("blocked malformed plan = %#v", result.Blocked)
+	}
+}
+
 func TestBackupAssuranceManagedProviderRecordsVerifiedCheck(t *testing.T) {
 	st, ctx, pool := requireAgentDB(t)
 	defer pool.Close()

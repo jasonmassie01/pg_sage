@@ -233,7 +233,8 @@ export function DeploymentList({
     )
   }
   return (
-    <section className="space-y-2" data-testid="agent-db-list">
+    <section className="space-y-2 lg:max-h-[calc(100vh-290px)] lg:overflow-y-auto lg:pr-1"
+      data-testid="agent-db-list" aria-label="Agent database deployments">
       {deployments.map(dep => (
         <article key={dep.deployment_id}
           data-testid="agent-db-row"

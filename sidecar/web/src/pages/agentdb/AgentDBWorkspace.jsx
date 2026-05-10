@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import {
   DeploymentDetail, DeploymentList, ProvisionForm, RequestQueue,
 } from './AgentDBSections'
@@ -52,6 +53,7 @@ export function AgentDBWorkspace({
   deployments,
   selected,
   selectedID,
+  detailFocusKey,
   detail,
   requests,
   profiles,
@@ -103,6 +105,7 @@ export function AgentDBWorkspace({
           deployments={deployments}
           selected={selected}
           selectedID={selectedID}
+          detailFocusKey={detailFocusKey}
           detail={detail}
           busy={busy}
           onSelectDeployment={onSelectDeployment}
@@ -189,6 +192,7 @@ function DeploymentsTab({
   deployments,
   selected,
   selectedID,
+  detailFocusKey,
   detail,
   busy,
   onSelectDeployment,
@@ -201,35 +205,48 @@ function DeploymentsTab({
   onReviewDeployRequest,
   onRequestDeployReview,
 }) {
+  const detailRef = useRef(null)
+
+  useEffect(() => {
+    if (!detailFocusKey || !selectedID || !detailRef.current) return
+    if (typeof detailRef.current.scrollIntoView === 'function') {
+      detailRef.current.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    }
+    detailRef.current.focus({ preventScroll: true })
+  }, [detailFocusKey, selectedID])
+
   return (
-    <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="grid gap-4 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
       <DeploymentList
         deployments={deployments}
         selectedID={selectedID}
         onSelect={onSelectDeployment}
         onLifecycle={onLifecycle}
       />
-      <DeploymentDetail
-        deployment={selected}
-        detail={detail}
-        busy={busy}
-        onProvisionPreflight={id => onProvisionAction(id, 'preflight')}
-        onProvisionExecute={id => onProvisionAction(id, 'execute')}
-        onProvisionExecuteLive={id => onProvisionAction(id, 'live-execute')}
-        onProvisionStatus={id => onProvisionAction(id, 'status')}
-        onProvisionDestroyDryRun={id =>
-          onProvisionAction(id, 'destroy-dry-run')}
-        onProvisionDestroyLive={id => onProvisionAction(id, 'destroy-live')}
-        onBackupCheck={onBackupCheck}
-        onRestoreDrillDryRun={onRestoreDrillDryRun}
-        onMarkRestoreVerified={onMarkRestoreVerified}
-        onCreateDeployRequest={onCreateDeployRequest}
-        onApproveDeployRequest={(id, requestID) =>
-          onReviewDeployRequest(id, requestID, 'approve')}
-        onDenyDeployRequest={(id, requestID) =>
-          onReviewDeployRequest(id, requestID, 'deny')}
-        onRequestDeployReview={onRequestDeployReview}
-      />
+      <div ref={detailRef} tabIndex={-1}
+        className="min-w-0 scroll-mt-4 outline-none lg:sticky lg:top-4 lg:self-start">
+        <DeploymentDetail
+          deployment={selected}
+          detail={detail}
+          busy={busy}
+          onProvisionPreflight={id => onProvisionAction(id, 'preflight')}
+          onProvisionExecute={id => onProvisionAction(id, 'execute')}
+          onProvisionExecuteLive={id => onProvisionAction(id, 'live-execute')}
+          onProvisionStatus={id => onProvisionAction(id, 'status')}
+          onProvisionDestroyDryRun={id =>
+            onProvisionAction(id, 'destroy-dry-run')}
+          onProvisionDestroyLive={id => onProvisionAction(id, 'destroy-live')}
+          onBackupCheck={onBackupCheck}
+          onRestoreDrillDryRun={onRestoreDrillDryRun}
+          onMarkRestoreVerified={onMarkRestoreVerified}
+          onCreateDeployRequest={onCreateDeployRequest}
+          onApproveDeployRequest={(id, requestID) =>
+            onReviewDeployRequest(id, requestID, 'approve')}
+          onDenyDeployRequest={(id, requestID) =>
+            onReviewDeployRequest(id, requestID, 'deny')}
+          onRequestDeployReview={onRequestDeployReview}
+        />
+      </div>
     </div>
   )
 }

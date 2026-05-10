@@ -137,10 +137,13 @@ export function AgentDBsPage() {
   const blueprintsAPI = useAPI('/api/v1/agent-dbs/blueprints', 30000)
   const [activeTab, setActiveTab] = useState('deployments')
   const [selectedID, setSelectedID] = useState(null)
+  const [pendingSelectionID, setPendingSelectionID] = useState(null)
+  const [detailFocusKey, setDetailFocusKey] = useState(0)
   const [form, setForm] = useState(initialForm)
   const [profileForm, setProfileForm] = useState(initialProfile)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState(null)
+  const [messageDeploymentID, setMessageDeploymentID] = useState(null)
   const [error, setError] = useState(null)
 
   const deployments = useMemo(
@@ -174,15 +177,54 @@ export function AgentDBsPage() {
   )
 
   useEffect(() => {
-    if (!selectedID && deployments.length > 0) {
+    if (deployments.length === 0) {
+      if (selectedID) setSelectedID(null)
+      if (pendingSelectionID) setPendingSelectionID(null)
+      return
+    }
+    const selectedExists = deployments.some(d => d.deployment_id === selectedID)
+    if (selectedExists) {
+      if (pendingSelectionID === selectedID) setPendingSelectionID(null)
+      return
+    }
+    if (selectedID && selectedID === pendingSelectionID) return
+    if (!selectedID || !selectedExists) {
       setSelectedID(deployments[0].deployment_id)
     }
-  }, [deployments, selectedID])
+  }, [deployments, pendingSelectionID, selectedID])
 
   const selected = deployments.find(d => d.deployment_id === selectedID)
   const detail = useAgentDBDetail(selectedID)
 
   const summary = useMemo(() => summarize(deployments), [deployments])
+
+  function clearStatus() {
+    setError(null)
+    setMessage(null)
+    setMessageDeploymentID(null)
+  }
+
+  function showMessage(text, deploymentID = null) {
+    setMessage(text)
+    setMessageDeploymentID(deploymentID)
+  }
+
+  function focusDeployment(id) {
+    setPendingSelectionID(id)
+    setSelectedID(id)
+    setActiveTab('deployments')
+    setDetailFocusKey(key => key + 1)
+  }
+
+  function selectDeployment(id) {
+    setPendingSelectionID(null)
+    setSelectedID(id)
+    setDetailFocusKey(key => key + 1)
+  }
+
+  function viewMessageDeployment() {
+    if (messageDeploymentID) focusDeployment(messageDeploymentID)
+  }
 
   async function refreshAll() {
     await Promise.all([
@@ -200,8 +242,7 @@ export function AgentDBsPage() {
   async function submitProvision(event) {
     event.preventDefault()
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       const requestBody = {
         tenant_id: form.tenant_id,
@@ -218,13 +259,13 @@ export function AgentDBsPage() {
       const request = await postJSON('/api/v1/agent-dbs/requests',
         requestBody, { 'Idempotency-Key': idem })
       if (request.status !== 'approved') {
-        setMessage(`Request ${request.status}: ${request.policy_decision}`)
+        showMessage(`Request ${request.status}: ${request.policy_decision}`)
         await refreshAll()
         return
       }
-      const id = deploymentID(form)
-      await postJSON('/api/v1/agent-dbs', {
-        deployment_id: id,
+      const generatedID = deploymentID(form)
+      const created = await postJSON('/api/v1/agent-dbs', {
+        deployment_id: generatedID,
         tenant_id: form.tenant_id,
         agent_id: form.agent_id,
         run_id: form.run_id,
@@ -239,8 +280,9 @@ export function AgentDBsPage() {
         lease_seconds: Number(form.lease_seconds || 3600),
         metadata: provisionMetadata(form),
       })
-      setSelectedID(id)
-      setMessage('Provisioned')
+      const id = created.deployment_id || generatedID
+      focusDeployment(id)
+      showMessage(`Provisioned ${id}`, id)
       await refreshAll()
     } catch (err) {
       setError(err.message)
@@ -252,8 +294,7 @@ export function AgentDBsPage() {
   async function submitProfile(event) {
     event.preventDefault()
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       const params = JSON.parse(profileForm.provider_params_text || '{}')
       await postJSON('/api/v1/agent-dbs/size-profiles', {
@@ -269,7 +310,7 @@ export function AgentDBsPage() {
         monthly_budget_usd: Number(profileForm.monthly_budget_usd || 0),
         provider_params: params,
       })
-      setMessage('Size profile saved')
+      showMessage('Size profile saved')
       await profilesAPI.refetch()
     } catch (err) {
       setError(err.message)
@@ -280,11 +321,10 @@ export function AgentDBsPage() {
 
   async function saveProviderSettings(provider, payload) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       await postJSON(`/api/v1/agent-dbs/provider-configs/${provider}`, payload)
-      setMessage('Provider settings saved')
+      showMessage('Provider settings saved')
       await providerConfigsAPI.refetch()
     } catch (err) {
       setError(err.message)
@@ -295,11 +335,10 @@ export function AgentDBsPage() {
 
   async function uploadTerraformTemplate(payload) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       await postJSON('/api/v1/agent-dbs/terraform-templates', payload)
-      setMessage('Terraform template uploaded')
+      showMessage('Terraform template uploaded')
       await terraformTemplatesAPI.refetch()
     } catch (err) {
       setError(err.message)
@@ -310,11 +349,10 @@ export function AgentDBsPage() {
 
   async function generateBlueprint(payload) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       await postJSON('/api/v1/agent-dbs/blueprints', payload)
-      setMessage('Blueprint generated')
+      showMessage('Blueprint generated')
       await blueprintsAPI.refetch()
     } catch (err) {
       setError(err.message)
@@ -325,13 +363,12 @@ export function AgentDBsPage() {
 
   async function approveBlueprint(blueprintID) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       await postJSON(`/api/v1/agent-dbs/blueprints/${blueprintID}/approve`, {
         approved_by: 'operator',
       })
-      setMessage('Blueprint approved')
+      showMessage('Blueprint approved')
       await blueprintsAPI.refetch()
     } catch (err) {
       setError(err.message)
@@ -342,21 +379,23 @@ export function AgentDBsPage() {
 
   async function provisionBlueprint(blueprint) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
-      const id = uniqueDerivedID(blueprint.blueprint_id)
-      await postJSON(`/api/v1/agent-dbs/blueprints/${blueprint.blueprint_id}/provision`, {
-        deployment_id: id,
-        tenant_id: form.tenant_id || 'tenant_agent',
-        agent_id: form.agent_id || 'agent_runner',
-        run_id: form.run_id,
-        database_name: form.database_name,
-        lease_seconds: Number(form.lease_seconds || 3600),
-      })
-      setSelectedID(id)
-      setActiveTab('deployments')
-      setMessage('Blueprint provisioned as deployment')
+      const generatedID = uniqueDerivedID(blueprint.blueprint_id)
+      const created = await postJSON(
+        `/api/v1/agent-dbs/blueprints/${blueprint.blueprint_id}/provision`,
+        {
+          deployment_id: generatedID,
+          tenant_id: form.tenant_id || 'tenant_agent',
+          agent_id: form.agent_id || 'agent_runner',
+          run_id: form.run_id,
+          database_name: form.database_name,
+          lease_seconds: Number(form.lease_seconds || 3600),
+        },
+      )
+      const id = created.deployment_id || generatedID
+      focusDeployment(id)
+      showMessage(`Blueprint provisioned as ${id}`, id)
       await refreshAll()
     } catch (err) {
       setError(err.message)
@@ -367,14 +406,13 @@ export function AgentDBsPage() {
 
   async function approveTerraformTemplate(templateID) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       await postJSON(
         `/api/v1/agent-dbs/terraform-templates/${templateID}/approve`,
         { approved_by: 'operator' },
       )
-      setMessage('Terraform template approved')
+      showMessage('Terraform template approved')
       await terraformTemplatesAPI.refetch()
     } catch (err) {
       setError(err.message)
@@ -385,18 +423,17 @@ export function AgentDBsPage() {
 
   async function provisionTerraformTemplate(template) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       const provider = template.provider || form.provider
       if (provider === 'local_postgres') {
         throw new Error('Select a cloud provider before provisioning Terraform')
       }
-      const id = uniqueDerivedID(template.template_id)
-      await postJSON(
+      const generatedID = uniqueDerivedID(template.template_id)
+      const created = await postJSON(
         `/api/v1/agent-dbs/terraform-templates/${template.template_id}/provision`,
         {
-          deployment_id: id,
+          deployment_id: generatedID,
           tenant_id: form.tenant_id || 'tenant_agent',
           agent_id: form.agent_id || 'agent_runner',
           provider,
@@ -405,9 +442,9 @@ export function AgentDBsPage() {
           lease_seconds: Number(form.lease_seconds || 3600),
         },
       )
-      setSelectedID(id)
-      setActiveTab('deployments')
-      setMessage('Terraform template provisioned as deployment')
+      const id = created.deployment_id || generatedID
+      focusDeployment(id)
+      showMessage(`Terraform template provisioned as ${id}`, id)
       await refreshAll()
     } catch (err) {
       setError(err.message)
@@ -417,7 +454,7 @@ export function AgentDBsPage() {
   }
 
   async function lifecycle(id, action) {
-    setError(null)
+    clearStatus()
     try {
       if (['archive', 'delete'].includes(action) &&
         window.confirm &&
@@ -441,10 +478,10 @@ export function AgentDBsPage() {
   }
 
   async function cleanupExpired() {
-    setError(null)
+    clearStatus()
     try {
       const result = await postJSON('/api/v1/agent-dbs/cleanup', {})
-      setMessage(`Archived ${result.archived?.length || 0}`)
+      showMessage(`Archived ${result.archived?.length || 0}`)
       await refreshAll()
     } catch (err) {
       setError(err.message)
@@ -453,8 +490,7 @@ export function AgentDBsPage() {
 
   async function reconcileAbandoned() {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       if (window.confirm && !window.confirm(
         'Reconcile abandoned deployments? Archived live cloud databases may be destroyed.',
@@ -465,9 +501,11 @@ export function AgentDBsPage() {
       const archived = result.archived?.length || 0
       const destroyDryRun = result.destroy_dry_run?.length || 0
       const destroyLive = result.destroy_live?.length || 0
-      setMessage(
-        `Reconciled ${archived} archived, ${destroyDryRun} destroy dry-run, ${destroyLive} live destroy`,
-      )
+      showMessage([
+        `Reconciled ${archived} archived`,
+        `${destroyDryRun} destroy dry-run`,
+        `${destroyLive} live destroy`,
+      ].join(', '))
       await refreshAll()
     } catch (err) {
       setError(err.message)
@@ -478,8 +516,7 @@ export function AgentDBsPage() {
 
   async function runProvisionAction(id, action) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       const endpointAction = action === 'live-execute' ? 'execute' : action
       const body = action === 'live-execute'
@@ -494,7 +531,7 @@ export function AgentDBsPage() {
         body,
       )
       const status = attempt.status || 'recorded'
-      setMessage(`Provision ${provisionActionLabel(action)} ${status}`)
+      showMessage(`Provision ${provisionActionLabel(action)} ${status}`)
       await detail.refetch()
     } catch (err) {
       setError(err.message)
@@ -505,11 +542,10 @@ export function AgentDBsPage() {
 
   async function runBackupCheck(id) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       const result = await postJSON(`/api/v1/agent-dbs/${id}/backups/check`, {})
-      setMessage(`Backup check ${backupActionStatus(result)}`)
+      showMessage(`Backup check ${backupActionStatus(result)}`)
       await detail.refetch()
     } catch (err) {
       setError(err.message)
@@ -520,14 +556,13 @@ export function AgentDBsPage() {
 
   async function planRestoreDrill(id) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       const attempt = await postJSON(
         `/api/v1/agent-dbs/${id}/backups/restore-drill-dry-run`,
         {},
       )
-      setMessage(`Restore drill dry-run ${attempt.status || 'planned'}`)
+      showMessage(`Restore drill dry-run ${attempt.status || 'planned'}`)
       await detail.refetch()
     } catch (err) {
       setError(err.message)
@@ -538,15 +573,14 @@ export function AgentDBsPage() {
 
   async function markRestoreVerified(id) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       const backup = await postJSON(`/api/v1/agent-dbs/${id}/backups`, {
         backup_id: `restore_verified_${Date.now().toString(36)}`,
         status: 'restore_verified',
         detail: { source: 'operator_ui' },
       })
-      setMessage(`Restore verification ${backup.status || 'recorded'}`)
+      showMessage(`Restore verification ${backup.status || 'recorded'}`)
       await detail.refetch()
     } catch (err) {
       setError(err.message)
@@ -557,11 +591,10 @@ export function AgentDBsPage() {
 
   async function createDeployRequest(id, payload) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       await postJSON(`/api/v1/agent-dbs/${id}/deploy-requests`, payload)
-      setMessage('Promotion draft recorded')
+      showMessage('Promotion draft recorded')
       await detail.refetch()
     } catch (err) {
       setError(err.message)
@@ -572,8 +605,7 @@ export function AgentDBsPage() {
 
   async function reviewDeployRequest(id, requestID, decision) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       await postJSON(
         `/api/v1/agent-dbs/${id}/deploy-requests/${requestID}/${decision}`,
@@ -582,7 +614,7 @@ export function AgentDBsPage() {
           review_reason: `${decision} in pg_sage UI`,
         },
       )
-      setMessage(decision === 'approve'
+      showMessage(decision === 'approve'
         ? 'Promotion approved' : 'Promotion denied')
       await detail.refetch()
     } catch (err) {
@@ -594,14 +626,13 @@ export function AgentDBsPage() {
 
   async function requestDeployReview(id, requestID) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
       await postJSON(
         `/api/v1/agent-dbs/${id}/deploy-requests/${requestID}/request-review`,
         {},
       )
-      setMessage('Promotion submitted for review')
+      showMessage('Promotion submitted for review')
       await detail.refetch()
     } catch (err) {
       setError(err.message)
@@ -612,17 +643,19 @@ export function AgentDBsPage() {
 
   async function provisionApprovedAgentRequest(requestID) {
     setBusy(true)
-    setError(null)
-    setMessage(null)
+    clearStatus()
     try {
-      const id = uniqueDerivedID(requestID)
-      await postJSON(`/api/v1/agent-dbs/requests/${requestID}/provision`, {
-        deployment_id: id,
-        lease_seconds: Number(form.lease_seconds || 3600),
-      })
-      setSelectedID(id)
-      setActiveTab('deployments')
-      setMessage('Approved agent request provisioned')
+      const generatedID = uniqueDerivedID(requestID)
+      const created = await postJSON(
+        `/api/v1/agent-dbs/requests/${requestID}/provision`,
+        {
+          deployment_id: generatedID,
+          lease_seconds: Number(form.lease_seconds || 3600),
+        },
+      )
+      const id = created.deployment_id || generatedID
+      focusDeployment(id)
+      showMessage(`Approved agent request provisioned as ${id}`, id)
       await refreshAll()
     } catch (err) {
       setError(err.message)
@@ -667,13 +700,30 @@ export function AgentDBsPage() {
         <ErrorBanner message={error} onRetry={() => setError(null)} />
       )}
       {message && (
-        <div className="rounded border px-3 py-2 text-sm"
+        <div
+          className={[
+            'flex flex-wrap items-center justify-between gap-2 rounded border',
+            'px-3 py-2 text-sm',
+          ].join(' ')}
+          data-testid="agent-db-message"
           style={{
             color: 'var(--green)',
             borderColor: 'rgba(52,211,153,0.35)',
             background: 'rgba(52,211,153,0.08)',
           }}>
-          {message}
+          <span>{message}</span>
+          {messageDeploymentID && (
+            <button type="button"
+              data-testid="agent-db-view-deployment"
+              onClick={viewMessageDeployment}
+              className="rounded border px-2 py-1 text-xs"
+              style={{
+                borderColor: 'rgba(52,211,153,0.45)',
+                color: 'var(--green)',
+              }}>
+              View details
+            </button>
+          )}
         </div>
       )}
 
@@ -687,6 +737,7 @@ export function AgentDBsPage() {
         deployments={deployments}
         selected={selected}
         selectedID={selectedID}
+        detailFocusKey={detailFocusKey}
         detail={detail}
         requests={requests}
         profiles={profiles}
@@ -714,7 +765,7 @@ export function AgentDBsPage() {
         onGenerateBlueprint={generateBlueprint}
         onApproveBlueprint={approveBlueprint}
         onProvisionBlueprint={provisionBlueprint}
-        onSelectDeployment={setSelectedID}
+        onSelectDeployment={selectDeployment}
       />
     </div>
   )

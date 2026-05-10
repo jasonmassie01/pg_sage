@@ -425,7 +425,10 @@ describe('AgentDBsPage', () => {
     expect(globalThis.fetch.mock.calls[1][0]).toBe('/api/v1/agent-dbs')
     expect(JSON.parse(globalThis.fetch.mock.calls[1][1].body).provider)
       .toBe('local_postgres')
-    expect(await screen.findByText('Provisioned')).toBeInTheDocument()
+    expect(await screen.findByText('Provisioned new_dep')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-db-view-deployment')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Deployments' }))
+      .toHaveAttribute('aria-selected', 'true')
   })
 
   it('documents provision fields and submits Lakebase branch mode', async () => {
@@ -924,7 +927,9 @@ describe('AgentDBsPage', () => {
         provider: 'aws_rds',
         provisioning_level: 'instance',
       }))
-    expect(await screen.findByText('Terraform template provisioned as deployment'))
+    expect(await screen.findByText(
+      'Terraform template provisioned as tf_aws_approved_deployment',
+    ))
       .toBeInTheDocument()
   })
 
@@ -1025,7 +1030,9 @@ describe('AgentDBsPage', () => {
         tenant_id: 'tenant_agent',
         agent_id: 'agent_runner',
       }))
-    expect(await screen.findByText('Blueprint provisioned as deployment'))
+    expect(await screen.findByText(
+      'Blueprint provisioned as bp_approved_deployment',
+    ))
       .toBeInTheDocument()
   })
 
@@ -1047,7 +1054,9 @@ describe('AgentDBsPage', () => {
       .toEqual(expect.objectContaining({
         deployment_id: expect.stringMatching(/^req_ui_[a-z0-9_]+_deployment$/),
       }))
-    expect(await screen.findByText('Approved agent request provisioned'))
+    expect(await screen.findByText(
+      'Approved agent request provisioned as req_ui_deployment',
+    ))
       .toBeInTheDocument()
   })
 })

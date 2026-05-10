@@ -39,6 +39,13 @@ func (s *Store) ReconcileAbandonedDeployments(
 		}
 		runner, err := commandRunnerFromSource(runnerSource, dep.Provider)
 		if err != nil {
+			if errors.Is(err, ErrInvalid) {
+				result.Blocked = append(result.Blocked, LifecycleBlocked{
+					DeploymentID: dep.DeploymentID,
+					Reason:       "provision runner unavailable",
+				})
+				continue
+			}
 			return LifecycleReconcileResult{}, err
 		}
 		attempt, err := s.DestroyProvisionDryRun(ctx, dep.DeploymentID, runner)
@@ -50,6 +57,13 @@ func (s *Store) ReconcileAbandonedDeployments(
 			result.Blocked = append(result.Blocked, LifecycleBlocked{
 				DeploymentID: dep.DeploymentID,
 				Reason:       "verified restore required",
+			})
+			continue
+		}
+		if errors.Is(err, ErrInvalid) {
+			result.Blocked = append(result.Blocked, LifecycleBlocked{
+				DeploymentID: dep.DeploymentID,
+				Reason:       "invalid provisioning plan or provider state",
 			})
 			continue
 		}
@@ -144,7 +158,9 @@ func (s *Store) ReconcileLiveProvisioning(
 			return LifecycleReconcileResult{}, err
 		}
 		result.DestroyDryRun = append(result.DestroyDryRun, attempt)
-		if err := s.applyProvisionResult(ctx, dep.DeploymentID, status.Status, status, false); err != nil {
+		if err := s.applyProvisionResult(
+			ctx, dep.DeploymentID, status.Status, status, false,
+		); err != nil {
 			result.Blocked = append(result.Blocked, LifecycleBlocked{
 				DeploymentID: dep.DeploymentID,
 				Reason:       err.Error(),

@@ -23,6 +23,27 @@ export const mockAgentDBs = {
   ],
 }
 
+type AgentDBDeployment = typeof mockAgentDBs.deployments[number]
+
+export type AgentDBFixtureOptions = {
+  deployments?: AgentDBDeployment[]
+}
+
+export function makeAgentDBDeployments(count: number) {
+  const deployments: AgentDBDeployment[] = [{ ...mockAgentDBs.deployments[0] }]
+  for (let index = 1; index < count; index += 1) {
+    deployments.push({
+      ...mockAgentDBs.deployments[0],
+      deployment_id: `agentdb-extra-${index.toString().padStart(2, '0')}`,
+      tenant_id: `tenant_extra_${index}`,
+      agent_id: `agent_extra_${index}`,
+      schema_name: `agentdb_extra_${index}`,
+      status: index % 7 === 0 ? 'archived' : 'active',
+    })
+  }
+  return deployments
+}
+
 export const mockAgentDBProfiles = {
   profiles: [
     {
@@ -288,11 +309,22 @@ export const mockAgentDBRestoreDrill = {
   status: 'planned',
 }
 
-export async function registerAgentDBAPIs(page: Page) {
+export async function registerAgentDBAPIs(
+  page: Page,
+  options: AgentDBFixtureOptions = {},
+) {
+  const state = {
+    deployments: [...(options.deployments || mockAgentDBs.deployments)],
+  }
+
   await page.route('**/api/v1/agent-dbs**', route => {
     const url = route.request().url()
     const method = route.request().method()
-    if (method === 'DELETE') {
+    const deploymentMatch = url.match(/\/api\/v1\/agent-dbs\/([^/]+)$/)
+    if (method === 'DELETE' && deploymentMatch) {
+      const id = decodeURIComponent(deploymentMatch[1])
+      state.deployments = state.deployments.filter(dep =>
+        dep.deployment_id !== id)
       return route.fulfill({ status: 200, json: { deleted: true } })
     }
     if (url.includes('/providers')) {
@@ -314,7 +346,10 @@ export async function registerAgentDBAPIs(page: Page) {
       if (method === 'POST' && url.endsWith('/provision')) {
         return route.fulfill({
           status: 200,
-          json: { ...mockAgentDBs.deployments[0], deployment_id: 'tf-agentdb-approved_deployment' },
+          json: {
+            ...mockAgentDBs.deployments[0],
+            deployment_id: 'tf-agentdb-approved_deployment',
+          },
         })
       }
       if (method === 'POST') {
@@ -335,7 +370,10 @@ export async function registerAgentDBAPIs(page: Page) {
       if (method === 'POST' && url.endsWith('/provision')) {
         return route.fulfill({
           status: 200,
-          json: { ...mockAgentDBs.deployments[0], deployment_id: 'bp-agentdb-approved_deployment' },
+          json: {
+            ...mockAgentDBs.deployments[0],
+            deployment_id: 'bp-agentdb-approved_deployment',
+          },
         })
       }
       if (method === 'POST') {
@@ -345,6 +383,21 @@ export async function registerAgentDBAPIs(page: Page) {
         })
       }
       return route.fulfill({ json: mockAgentDBBlueprints })
+    }
+    if (method === 'POST' && /\/requests\/[^/]+\/provision$/.test(url)) {
+      const payload = route.request().postDataJSON() as Partial<AgentDBDeployment>
+      const deployment = {
+        ...mockAgentDBs.deployments[0],
+        ...payload,
+        deployment_id: payload.deployment_id || 'request-agentdb-deployment',
+        status: 'active',
+      }
+      state.deployments = [
+        deployment,
+        ...state.deployments.filter(dep =>
+          dep.deployment_id !== deployment.deployment_id),
+      ]
+      return route.fulfill({ status: 200, json: deployment })
     }
     if (url.includes('/requests')) {
       if (method === 'POST') {
@@ -422,10 +475,22 @@ export async function registerAgentDBAPIs(page: Page) {
       })
     }
     if (method === 'POST' && url.endsWith('/api/v1/agent-dbs')) {
-      return route.fulfill({ status: 200, json: mockAgentDBs.deployments[0] })
+      const payload = route.request().postDataJSON() as Partial<AgentDBDeployment>
+      const deployment = {
+        ...mockAgentDBs.deployments[0],
+        ...payload,
+        deployment_id: payload.deployment_id || 'agentdb-created',
+        status: 'active',
+      }
+      state.deployments = [
+        deployment,
+        ...state.deployments.filter(dep =>
+          dep.deployment_id !== deployment.deployment_id),
+      ]
+      return route.fulfill({ status: 200, json: deployment })
     }
     if (method === 'POST' && url.endsWith('/api/v1/agent-dbs/cleanup')) {
-      return route.fulfill({ status: 200, json: { archived: mockAgentDBs.deployments } })
+      return route.fulfill({ status: 200, json: { archived: state.deployments } })
     }
     if (method === 'POST' && url.endsWith('/api/v1/agent-dbs/reconcile')) {
       return route.fulfill({ status: 200, json: mockAgentDBReconcile })
@@ -433,6 +498,6 @@ export async function registerAgentDBAPIs(page: Page) {
     if (method === 'POST') {
       return route.fulfill({ status: 200, json: mockAgentDBs.deployments[0] })
     }
-    return route.fulfill({ json: mockAgentDBs })
+    return route.fulfill({ json: { deployments: state.deployments } })
   })
 }
