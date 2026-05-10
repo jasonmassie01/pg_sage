@@ -3,6 +3,7 @@ package agentdb
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ func (s *Store) CreateRequest(ctx context.Context, req RequestCreate) (Request, 
 		return Request{}, err
 	}
 	req.IsolationType = normalizeIsolation(req.IsolationType)
+	req.Provider = normalizeProvider(req.Provider)
 	if strings.TrimSpace(req.TenantID) == "" || strings.TrimSpace(req.AgentID) == "" {
 		return Request{}, ErrInvalid
 	}
@@ -127,6 +129,11 @@ func (s *Store) Register(ctx context.Context, req RegisterRequest) (Deployment, 
 		req.ProvisioningLevel,
 		req.SizeProfileID,
 		req.ProvisioningStatus,
+		req.ProviderResourceID,
+		req.SecretRef,
+		req.SecretRefProvider,
+		req.SecretRefExpiresAt,
+		req.LiveMode,
 		req.BudgetUSD,
 		req.BackupRequired,
 		req.LeaseSeconds,
@@ -252,7 +259,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		if decision.Action == "wait_for_verified_backup" {
 			return ErrRestoreRequired
 		}
-		return ErrInvalid
+		return fmt.Errorf("%w: %s", ErrDeleteBlocked, decision.Reason)
 	}
 	_, err = s.pool.Exec(ctx, `
 		UPDATE sage.agent_db_deployments
@@ -439,12 +446,13 @@ func (s *Store) insertRequest(
 		req.Purpose,
 		req.IsolationType,
 		req.DatabaseName,
+		req.Provider,
 		dec.Decision,
 		dec.Status,
 		req.IdempotencyKey,
 		hash,
 		req.BudgetUSD,
-		true,
+		req.BackupRequired,
 		jsonBytes(policyReasons(dec)),
 	), &out)
 	return out, err
@@ -476,6 +484,7 @@ func scanRequest(row scanner, req *Request) error {
 		&req.Purpose,
 		&req.IsolationType,
 		&req.DatabaseName,
+		&req.Provider,
 		&req.PolicyDecision,
 		&req.Status,
 		&req.IdempotencyKey,
@@ -503,6 +512,11 @@ func scanDeployment(row scanner, dep *Deployment) error {
 		&dep.ProvisioningLevel,
 		&dep.SizeProfileID,
 		&dep.ProvisioningStatus,
+		&dep.ProviderResourceID,
+		&dep.SecretRef,
+		&dep.SecretRefProvider,
+		&dep.SecretRefExpiresAt,
+		&dep.LiveMode,
 		&dep.BudgetUSD,
 		&dep.BackupRequired,
 		&dep.CreatedAt,

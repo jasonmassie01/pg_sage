@@ -231,6 +231,20 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		reader: func(c *config.Config) string { return itoa(c.Retention.ExplainsDays) },
 	},
 
+	// --- agentdb ---
+	"agentdb.live_provisioning_enabled": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.AgentDB.LiveProvisioningEnabled) },
+	},
+	"agentdb.allow_public_ip": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.AgentDB.AllowPublicIP) },
+	},
+	"agentdb.require_backup_before_destroy": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.AgentDB.RequireBackupBeforeDrop) },
+	},
+
 	// --- v0.9.2: slow active replication slot threshold ---
 	"analyzer.slow_slot_retained_bytes": {
 		input:  "1073741824",

@@ -273,7 +273,7 @@ func (s *Store) audit(ctx context.Context, id, event string, detail map[string]a
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO sage.agent_db_audit(deployment_id, event, detail)
 		VALUES ($1, $2, $3::jsonb)`,
-		id, event, jsonBytes(detail),
+		id, event, jsonBytes(RedactProviderDetail(detail)),
 	)
 	return err
 }

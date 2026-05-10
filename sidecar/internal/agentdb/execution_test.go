@@ -13,6 +13,7 @@ func TestPreflightAndExecuteCloudPlanDryRun(t *testing.T) {
 	defer pool.Close()
 	id := "adb_exec_dry_run"
 	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
+	defer pool.Exec(ctx, "DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
 
 	dep, err := st.Provision(ctx, RegisterRequest{
 		DeploymentID:      id,
@@ -53,7 +54,9 @@ func TestPreflightAndExecuteCloudPlanDryRun(t *testing.T) {
 	if execAttempt.Kind != "execute" || execAttempt.Status != "succeeded" {
 		t.Fatalf("execute attempt = %#v", execAttempt)
 	}
-	if len(runner.commands) != 1 || !strings.Contains(runner.commands[0], "aws rds") {
+	if len(runner.commands) != 1 ||
+		!strings.Contains(runner.commands[0], "terraform apply") ||
+		!strings.Contains(runner.commands[0], "provider=aws_rds") {
 		t.Fatalf("runner commands = %#v", runner.commands)
 	}
 	dep, err = st.Get(ctx, id)
@@ -158,7 +161,8 @@ func TestProvisionLifecycleStatusAndDestroyDryRun(t *testing.T) {
 	if statusAttempt.Kind != "status_check" || statusAttempt.Status != "succeeded" {
 		t.Fatalf("status attempt = %#v", statusAttempt)
 	}
-	if !strings.Contains(strings.Join(statusAttempt.Command, " "), "gcloud sql instances describe") {
+	if !strings.Contains(strings.Join(statusAttempt.Command, " "),
+		"cloud_api gcp_cloudsql describe_instance") {
 		t.Fatalf("status command = %#v", statusAttempt.Command)
 	}
 	dep, err := st.Get(ctx, id)
@@ -191,7 +195,10 @@ func TestProvisionLifecycleStatusAndDestroyDryRun(t *testing.T) {
 	if destroyAttempt.Kind != "destroy_dry_run" || destroyAttempt.Status != "succeeded" {
 		t.Fatalf("destroy attempt = %#v", destroyAttempt)
 	}
-	if !strings.Contains(strings.Join(destroyAttempt.Command, " "), "gcloud sql instances delete") {
+	if !strings.Contains(strings.Join(destroyAttempt.Command, " "),
+		"terraform destroy") ||
+		!strings.Contains(strings.Join(destroyAttempt.Command, " "),
+			"provider=gcp_cloudsql") {
 		t.Fatalf("destroy command = %#v", destroyAttempt.Command)
 	}
 	dep, err = st.Get(ctx, id)
@@ -200,6 +207,65 @@ func TestProvisionLifecycleStatusAndDestroyDryRun(t *testing.T) {
 	}
 	if dep.ProvisioningStatus != "destroy_dry_run_ready" {
 		t.Fatalf("status after destroy dry-run = %s", dep.ProvisioningStatus)
+	}
+}
+
+func TestProvisionCanRetryAfterDryRunStatusCheck(t *testing.T) {
+	st, ctx, pool := requireAgentDB(t)
+	defer pool.Close()
+	id := "adb_retry_after_status_check"
+	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
+	defer pool.Exec(ctx, "DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
+
+	if _, err := st.Provision(ctx, RegisterRequest{
+		DeploymentID:      id,
+		TenantID:          "tenant_agentdb_test",
+		AgentID:           "agent_lifecycle",
+		Provider:          ProviderAWSRDS,
+		ProvisioningLevel: LevelInstance,
+		DatabaseName:      "agent_app",
+		LeaseSeconds:      60,
+	}); err != nil {
+		t.Fatalf("Provision cloud plan: %v", err)
+	}
+	if _, err := st.CheckProvisionStatus(ctx, id, &recordingProvisionRunner{}); err != nil {
+		t.Fatalf("CheckProvisionStatus: %v", err)
+	}
+	dep, err := st.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get after status check: %v", err)
+	}
+	if dep.ProvisioningStatus != "status_checked" || dep.LiveMode {
+		t.Fatalf("deployment after status check = %#v", dep)
+	}
+
+	preflight, err := st.PreflightProvision(ctx, id)
+	if err != nil {
+		t.Fatalf("PreflightProvision after status check: %v", err)
+	}
+	if preflight.Kind != "preflight" || preflight.Status != "passed" {
+		t.Fatalf("preflight attempt = %#v", preflight)
+	}
+	execAttempt, err := st.ExecuteProvision(ctx, id, &recordingProvisionRunner{})
+	if err != nil {
+		t.Fatalf("ExecuteProvision after retry preflight: %v", err)
+	}
+	if execAttempt.Kind != "execute" || execAttempt.Status != "succeeded" {
+		t.Fatalf("execute attempt = %#v", execAttempt)
+	}
+	dep, err = st.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get after execute: %v", err)
+	}
+	if dep.ProvisioningStatus != "dry_run_ready" {
+		t.Fatalf("status after retry execute = %s", dep.ProvisioningStatus)
+	}
+	preflight, err = st.PreflightProvision(ctx, id)
+	if err != nil {
+		t.Fatalf("PreflightProvision after dry-run ready: %v", err)
+	}
+	if preflight.Kind != "preflight" || preflight.Status != "passed" {
+		t.Fatalf("preflight after dry-run ready = %#v", preflight)
 	}
 }
 
@@ -308,7 +374,8 @@ func TestBackupAssuranceManagedProviderRecordsVerifiedCheck(t *testing.T) {
 		assurance.Attempt.Status != "succeeded" {
 		t.Fatalf("attempt = %#v", assurance.Attempt)
 	}
-	if !strings.Contains(strings.Join(assurance.Attempt.Command, " "), "aws rds describe-db-instances") {
+	if !strings.Contains(strings.Join(assurance.Attempt.Command, " "),
+		"cloud_api aws_rds describe_instance") {
 		t.Fatalf("backup command = %#v", assurance.Attempt.Command)
 	}
 	backups, err := st.Backups(ctx, id)

@@ -247,7 +247,17 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	migrations := []string{
+	migrations := migrationStatements()
+	for _, m := range migrations {
+		if _, err := pool.Exec(qctx, m); err != nil {
+			return fmt.Errorf("migration failed: %w", err)
+		}
+	}
+	return nil
+}
+
+func migrationStatements() []string {
+	return []string{
 		ddlActionLogApprovalCols,
 		ddlUsersOAuth,
 		ddlQueryHintsRewrite,
@@ -257,13 +267,8 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		ddlSchemaFindingsLintRunner,
 		ddlFindingsAbsorbsSchemaFindings,
 		ddlFindingsBackfillFromSchemaFindings,
+		ddlFleetScaleIndexes,
 	}
-	for _, m := range migrations {
-		if _, err := pool.Exec(qctx, m); err != nil {
-			return fmt.Errorf("migration failed: %w", err)
-		}
-	}
-	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +286,8 @@ CREATE SCHEMA IF NOT EXISTS sage;
 	ddlActionLogApprovalCols + ddlUsersOAuth +
 	ddlQueryHintsRewrite + ddlQueryHintsRevalidate +
 	ddlIncidents + ddlSizeHistory + ddlExplainResults +
-	ddlSchemaFindings + ddlCryptoMeta + ddlHealthHistory
+	ddlSchemaFindings + ddlCryptoMeta + ddlHealthHistory +
+	ddlFleetScaleIndexes
 
 const ddlActionLog = `
 CREATE TABLE IF NOT EXISTS sage.action_log (
@@ -461,6 +467,10 @@ CREATE TABLE IF NOT EXISTS sage.sessions (
     expires_at  TIMESTAMPTZ NOT NULL,
     created_at  TIMESTAMPTZ DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_sessions_expires
+    ON sage.sessions (expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_user
+    ON sage.sessions (user_id);
 `
 
 const ddlActionQueue = `
@@ -498,6 +508,12 @@ CREATE INDEX IF NOT EXISTS idx_action_queue_finding
 CREATE INDEX IF NOT EXISTS idx_action_queue_identity
     ON sage.action_queue (identity_key, status)
     WHERE identity_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_action_queue_database_pending
+    ON sage.action_queue (database_id, status, proposed_at DESC)
+    WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_action_queue_expiry
+    ON sage.action_queue (expires_at)
+    WHERE status IN ('pending', 'failed');
 `
 
 const ddlActionLogApprovalCols = `
@@ -524,6 +540,12 @@ ALTER TABLE sage.action_queue
 CREATE INDEX IF NOT EXISTS idx_action_queue_identity
     ON sage.action_queue (identity_key, status)
     WHERE identity_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_action_queue_database_pending
+    ON sage.action_queue (database_id, status, proposed_at DESC)
+    WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_action_queue_expiry
+    ON sage.action_queue (expires_at)
+    WHERE status IN ('pending', 'failed');
 `
 
 const ddlUsersOAuth = `
@@ -637,6 +659,29 @@ WHERE NOT EXISTS (
 
 // v0.10.1 — lint runner: add query_count column and partial unique index
 // for active findings (needed by the upsert in lint.Runner).
+const ddlFleetScaleIndexes = `
+CREATE INDEX IF NOT EXISTS idx_sessions_expires
+    ON sage.sessions (expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_user
+    ON sage.sessions (user_id);
+CREATE INDEX IF NOT EXISTS idx_notification_rules_event_enabled
+    ON sage.notification_rules (event, min_severity)
+    WHERE enabled = true;
+CREATE INDEX IF NOT EXISTS idx_notification_log_sent_at
+    ON sage.notification_log (sent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_log_channel_sent
+    ON sage.notification_log (channel_id, sent_at DESC)
+    WHERE channel_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_action_queue_database_pending
+    ON sage.action_queue (database_id, status, proposed_at DESC)
+    WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_action_queue_expiry
+    ON sage.action_queue (expires_at)
+    WHERE status IN ('pending', 'failed');
+CREATE INDEX IF NOT EXISTS idx_action_log_outcome_time
+    ON sage.action_log (outcome, executed_at DESC);
+`
+
 const ddlSchemaFindingsLintRunner = `
 ALTER TABLE sage.schema_findings
     ADD COLUMN IF NOT EXISTS query_count BIGINT;

@@ -813,6 +813,48 @@ func TestPhase2_QuerySnapshotHistory_HoursFilter(
 	}
 }
 
+func TestPhase2_QuerySnapshotHistory_CapsLargeFleetPayloads(
+	t *testing.T,
+) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	for i := 0; i < 550; i++ {
+		_, err := pool.Exec(ctx,
+			`INSERT INTO sage.snapshots
+			 (category, data, collected_at)
+			 VALUES ('tps', jsonb_build_object('v', $1::int),
+			         now() - make_interval(mins => $2::int))`,
+			i, 550-i,
+		)
+		if err != nil {
+			t.Fatalf("insert snapshot %d: %v", i, err)
+		}
+	}
+
+	points, err := querySnapshotHistory(
+		ctx, pool, "tps", 24*365, time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatalf("querySnapshotHistory: %v", err)
+	}
+	if len(points) != snapshotHistoryMaxPoints {
+		t.Fatalf("points: got %d, want cap %d",
+			len(points), snapshotHistoryMaxPoints)
+	}
+	firstData, ok := points[0]["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("first point data type = %T", points[0]["data"])
+	}
+	lastData, ok := points[len(points)-1]["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("last point data type = %T", points[len(points)-1]["data"])
+	}
+	if firstData["v"].(float64) != 50 || lastData["v"].(float64) != 549 {
+		t.Fatalf("expected newest capped window 50..549, got %v..%v",
+			firstData["v"], lastData["v"])
+	}
+}
+
 // ================================================================
 // queryForecasts / scanForecastRows
 // ================================================================
@@ -1006,13 +1048,16 @@ func TestPhase2_FindingsListHandler_RealDB(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)
 
-	// Insert a finding.
+	// Insert a finding with a unique category so this assertion stays
+	// independent of other live DB tests sharing the same schema.
+	category := fmt.Sprintf("phase2_handler_%d", time.Now().UnixNano())
 	_, err := pool.Exec(ctx,
 		`INSERT INTO sage.findings
 		 (category, severity, title, detail, status,
 		  object_identifier)
-		 VALUES ('test', 'warning', 'Test finding',
-		  '{"info":"details"}', 'open', 'handler_obj')`)
+		 VALUES ($1, 'warning', 'Test finding',
+		  '{"info":"details"}', 'open', 'handler_obj')`,
+		category)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -1021,7 +1066,8 @@ func TestPhase2_FindingsListHandler_RealDB(t *testing.T) {
 	handler := findingsListHandler(mgr)
 
 	req := httptest.NewRequest(
-		"GET", "/api/v1/findings?database=testdb", nil)
+		"GET", "/api/v1/findings?database=testdb&category="+category,
+		nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -1038,6 +1084,13 @@ func TestPhase2_FindingsListHandler_RealDB(t *testing.T) {
 	findings := resp["findings"].([]any)
 	if len(findings) != 1 {
 		t.Errorf("findings: got %d", len(findings))
+	}
+	got := findings[0].(map[string]any)
+	if got["category"] != category {
+		t.Errorf("category: got %v, want %s", got["category"], category)
+	}
+	if got["database_name"] != "testdb" {
+		t.Errorf("database_name: got %v", got["database_name"])
 	}
 }
 
@@ -4767,9 +4820,9 @@ func TestPhase2_FindingsStatsHandler_FleetAggregatesInOrder(t *testing.T) {
 		  object_identifier)
 		 VALUES
 		 ('index_health', 'warning', 'Index one', '{}',
-		  'open', 'fleet_stats_idx'),
+		  'fleet_stats_open', 'fleet_stats_idx'),
 		 ('vacuum', 'critical', 'Vacuum one', '{}',
-		  'open', 'fleet_stats_vac')`)
+		  'fleet_stats_open', 'fleet_stats_vac')`)
 	if err != nil {
 		t.Fatalf("insert findings: %v", err)
 	}
@@ -4783,7 +4836,7 @@ func TestPhase2_FindingsStatsHandler_FleetAggregatesInOrder(t *testing.T) {
 		})
 	}
 	stats, total, err := queryFindingsStatsAcrossFleet(
-		ctx, mgr, fleet.FindingFilters{Status: "open"})
+		ctx, mgr, fleet.FindingFilters{Status: "fleet_stats_open"})
 	if err != nil {
 		t.Fatalf("queryFindingsStatsAcrossFleet: %v", err)
 	}
@@ -4803,7 +4856,7 @@ func TestPhase2_FindingsStatsHandler_FleetAggregatesInOrder(t *testing.T) {
 
 	handler := findingsStatsHandler(mgr)
 	req := httptest.NewRequest("GET",
-		"/api/v1/findings/stats?database=all&status=open", nil)
+		"/api/v1/findings/stats?database=all&status=fleet_stats_open", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {

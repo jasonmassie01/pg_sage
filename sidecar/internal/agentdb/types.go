@@ -10,11 +10,14 @@ import (
 )
 
 var (
-	ErrNotFound        = errors.New("agent db deployment not found")
-	ErrInvalid         = errors.New("invalid agent db request")
-	ErrConflict        = errors.New("agent db idempotency conflict")
-	ErrRateLimited     = errors.New("agent db rate limit exceeded")
-	ErrRestoreRequired = fmt.Errorf("%w: verified backup required", ErrInvalid)
+	ErrNotFound             = errors.New("agent db deployment not found")
+	ErrInvalid              = errors.New("invalid agent db request")
+	ErrConflict             = errors.New("agent db idempotency conflict")
+	ErrRateLimited          = errors.New("agent db rate limit exceeded")
+	ErrRunnerUnavailable    = errors.New("live provider runner unavailable")
+	ErrBlueprintLLMRequired = errors.New("blueprint generation requires llm")
+	ErrDeleteBlocked        = fmt.Errorf("%w: delete blocked", ErrInvalid)
+	ErrRestoreRequired      = fmt.Errorf("%w: verified backup required", ErrInvalid)
 )
 
 type Store struct {
@@ -30,6 +33,7 @@ type Request struct {
 	Purpose        string         `json:"purpose"`
 	IsolationType  string         `json:"requested_isolation_type"`
 	DatabaseName   string         `json:"database_name"`
+	Provider       string         `json:"provider"`
 	PolicyDecision string         `json:"policy_decision"`
 	Status         string         `json:"status"`
 	IdempotencyKey string         `json:"idempotency_key"`
@@ -98,6 +102,11 @@ type Deployment struct {
 	ProvisioningLevel  string         `json:"provisioning_level"`
 	SizeProfileID      string         `json:"size_profile_id"`
 	ProvisioningStatus string         `json:"provisioning_status"`
+	ProviderResourceID string         `json:"provider_resource_id"`
+	SecretRef          string         `json:"secret_ref"`
+	SecretRefProvider  string         `json:"secret_ref_provider"`
+	SecretRefExpiresAt *time.Time     `json:"secret_ref_expires_at,omitempty"`
+	LiveMode           bool           `json:"live_mode"`
 	BudgetUSD          float64        `json:"budget_usd"`
 	BackupRequired     bool           `json:"backup_required"`
 	CreatedAt          time.Time      `json:"created_at"`
@@ -122,6 +131,11 @@ type RegisterRequest struct {
 	ProvisioningLevel  string
 	SizeProfileID      string
 	ProvisioningStatus string
+	ProviderResourceID string
+	SecretRef          string
+	SecretRefProvider  string
+	SecretRefExpiresAt *time.Time
+	LiveMode           bool
 	LeaseSeconds       int
 	BudgetUSD          float64
 	BackupRequired     bool
@@ -198,12 +212,13 @@ type LifecycleReconcileResult struct {
 }
 
 type ProviderReadiness struct {
-	Provider string `json:"provider"`
-	Label    string `json:"label"`
-	CLI      string `json:"cli"`
-	Found    bool   `json:"found"`
-	Version  string `json:"version"`
-	Detail   string `json:"detail"`
+	Provider  string `json:"provider"`
+	Label     string `json:"label"`
+	Interface string `json:"interface"`
+	CLI       string `json:"cli"`
+	Found     bool   `json:"found"`
+	Version   string `json:"version"`
+	Detail    string `json:"detail"`
 }
 
 type PingRequest struct {
@@ -367,6 +382,163 @@ type CostSummary struct {
 	BudgetUSD    float64    `json:"budget_usd"`
 	BudgetState  string     `json:"budget_state"`
 	BudgetAction string     `json:"budget_action"`
+}
+
+type ProviderConfig struct {
+	Provider      string         `json:"provider"`
+	Enabled       bool           `json:"enabled"`
+	Settings      map[string]any `json:"settings"`
+	LastValidated *time.Time     `json:"last_validated_at,omitempty"`
+	CreatedAt     time.Time      `json:"created_at"`
+	UpdatedAt     time.Time      `json:"updated_at"`
+}
+
+type ProviderConfigRequest struct {
+	Provider string
+	Enabled  bool
+	Settings map[string]any
+}
+
+type LiveExecutionRequest struct {
+	Mode           string
+	CostEstimateID string
+	Policy         LiveProvisionPolicy
+}
+
+type BlueprintProvisionRequest struct {
+	DeploymentID   string
+	TenantID       string
+	AgentID        string
+	RunID          string
+	DatabaseName   string
+	LeaseSeconds   int
+	BudgetUSD      float64
+	Metadata       map[string]any
+	ProviderParams map[string]any
+}
+
+type TemplateProvisionRequest struct {
+	DeploymentID      string
+	TenantID          string
+	AgentID           string
+	RunID             string
+	DatabaseName      string
+	Provider          string
+	ProvisioningLevel string
+	LeaseSeconds      int
+	BudgetUSD         float64
+	Metadata          map[string]any
+	ProviderParams    map[string]any
+}
+
+type RequestProvisionRequest struct {
+	DeploymentID   string
+	LeaseSeconds   int
+	Metadata       map[string]any
+	ProviderParams map[string]any
+}
+
+type CreationReceipt struct {
+	DeploymentID       string         `json:"deployment_id"`
+	Provider           string         `json:"provider"`
+	ProviderResourceID string         `json:"provider_resource_id"`
+	Region             string         `json:"region"`
+	AccountRef         string         `json:"account_ref"`
+	RequestHash        string         `json:"request_hash"`
+	OperationMode      string         `json:"operation_mode"`
+	Detail             map[string]any `json:"detail"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
+}
+
+type TerraformTemplate struct {
+	TemplateID     string          `json:"template_id"`
+	Name           string          `json:"name"`
+	Status         string          `json:"status"`
+	SourceKind     string          `json:"source_kind"`
+	ContentSHA256  string          `json:"content_sha256"`
+	Files          []TerraformFile `json:"files"`
+	Manifest       map[string]any  `json:"manifest"`
+	PolicyFindings []string        `json:"policy_findings"`
+	CreatedBy      string          `json:"created_by"`
+	ApprovedBy     string          `json:"approved_by"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+}
+
+type TerraformFile struct {
+	Path string `json:"path"`
+	Body string `json:"body,omitempty"`
+}
+
+type TerraformTemplateRequest struct {
+	TemplateID string
+	Name       string
+	SourceKind string
+	Files      []TerraformFile
+	CreatedBy  string
+}
+
+type Blueprint struct {
+	BlueprintID    string        `json:"blueprint_id"`
+	Name           string        `json:"name"`
+	Status         string        `json:"status"`
+	Intent         string        `json:"intent"`
+	Provider       string        `json:"provider"`
+	TemplateID     string        `json:"terraform_template_id"`
+	Spec           BlueprintSpec `json:"blueprint"`
+	PolicyFindings []string      `json:"policy_findings"`
+	LLMUsed        bool          `json:"llm_used"`
+	RawResponse    string        `json:"raw_response,omitempty"`
+	CreatedBy      string        `json:"created_by"`
+	ApprovedBy     string        `json:"approved_by"`
+	CreatedAt      time.Time     `json:"created_at"`
+	UpdatedAt      time.Time     `json:"updated_at"`
+}
+
+type BlueprintSpec struct {
+	Provider            string            `json:"provider"`
+	ProvisioningLevel   string            `json:"provisioning_level"`
+	Region              string            `json:"region"`
+	InstanceClass       string            `json:"instance_class"`
+	DatabaseVersion     string            `json:"database_version"`
+	LakebaseMode        string            `json:"lakebase_mode"`
+	StorageGB           int               `json:"storage_gb"`
+	BackupRetentionDays int               `json:"backup_retention_days"`
+	PITR                bool              `json:"pitr"`
+	MultiAZ             bool              `json:"multi_az"`
+	PrivateNetwork      bool              `json:"private_network"`
+	PublicIP            bool              `json:"public_ip"`
+	Extensions          []string          `json:"extensions"`
+	BudgetUSD           float64           `json:"budget_usd"`
+	Tags                map[string]string `json:"tags"`
+}
+
+type BlueprintDraftRequest struct {
+	BlueprintID string
+	Name        string
+	Intent      string
+	Provider    string
+	CreatedBy   string
+	Policy      BlueprintPolicy
+}
+
+type BlueprintPolicy struct {
+	AllowPublicIP              bool
+	MinimumBackupRetentionDays int
+	RequirePrivateNetworking   bool
+}
+
+type BlueprintGeneration struct {
+	Spec           BlueprintSpec
+	Files          []TerraformFile
+	RawResponse    string
+	LLMUsed        bool
+	PolicyFindings []string
+}
+
+type BlueprintGenerator interface {
+	GenerateBlueprint(context.Context, BlueprintDraftRequest) (BlueprintGeneration, error)
 }
 
 type BudgetDecision struct {

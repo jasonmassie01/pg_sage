@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -11,7 +12,16 @@ import (
 	"github.com/pg-sage/sidecar/internal/agentdb"
 )
 
-func registerAgentDBRoutes(mux *http.ServeMux, st *agentdb.Store) {
+func registerAgentDBRoutes(
+	mux *http.ServeMux,
+	st *agentdb.Store,
+	generators ...agentdb.BlueprintGenerator,
+) {
+	registry := agentdb.RuntimeRunnerRegistryFromEnv(context.Background())
+	var blueprintGenerator agentdb.BlueprintGenerator
+	if len(generators) > 0 {
+		blueprintGenerator = generators[0]
+	}
 	operatorUp := RequireRole("admin", "operator")
 	mux.Handle(
 		"POST /api/v1/agent-dbs/{deployment_id}/agent-ping",
@@ -20,10 +30,23 @@ func registerAgentDBRoutes(mux *http.ServeMux, st *agentdb.Store) {
 	mux.Handle("GET /api/v1/agent-dbs", operatorUp(http.HandlerFunc(agentDBListHandler(st))))
 	mux.Handle("POST /api/v1/agent-dbs", operatorUp(http.HandlerFunc(agentDBRegisterHandler(st))))
 	mux.Handle("POST /api/v1/agent-dbs/cleanup", operatorUp(http.HandlerFunc(agentDBCleanupAllHandler(st))))
-	mux.Handle("/api/v1/agent-dbs/", operatorUp(http.HandlerFunc(agentDBSubrouter(st))))
+	mux.Handle(
+		"/api/v1/agent-dbs/",
+		operatorUp(http.HandlerFunc(agentDBSubrouterWithRegistry(
+			st, registry, blueprintGenerator,
+		))),
+	)
 }
 
 func agentDBSubrouter(st *agentdb.Store) http.HandlerFunc {
+	return agentDBSubrouterWithRegistry(st, agentdb.DefaultRunnerRegistry(), nil)
+}
+
+func agentDBSubrouterWithRegistry(
+	st *agentdb.Store,
+	registry *agentdb.RunnerRegistry,
+	blueprintGenerator agentdb.BlueprintGenerator,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.URL.Path, "/api/v1/agent-dbs/")
 		parts := strings.Split(rest, "/")
@@ -51,11 +74,65 @@ func agentDBSubrouter(st *agentdb.Store) http.HandlerFunc {
 			case r.Method == http.MethodPost && len(parts) == 3 && parts[2] == "deny":
 				agentDBDenyRequestHandler(st)(w, r)
 				return
+			case r.Method == http.MethodPost && len(parts) == 3 && parts[2] == "provision":
+				agentDBProvisionApprovedRequestHandler(st)(w, r)
+				return
 			}
 		}
 		if parts[0] == "providers" && r.Method == http.MethodGet && len(parts) == 1 {
 			agentDBProvidersHandler()(w, r)
 			return
+		}
+		if parts[0] == "provider-configs" {
+			if len(parts) >= 2 {
+				r.SetPathValue("provider", parts[1])
+			}
+			switch {
+			case r.Method == http.MethodGet && len(parts) == 1:
+				agentDBProviderConfigsHandler(st)(w, r)
+				return
+			case r.Method == http.MethodPost && len(parts) == 2:
+				agentDBUpsertProviderConfigHandler(st)(w, r)
+				return
+			}
+		}
+		if parts[0] == "terraform-templates" {
+			if len(parts) >= 2 {
+				r.SetPathValue("template_id", parts[1])
+			}
+			switch {
+			case r.Method == http.MethodGet && len(parts) == 1:
+				agentDBTerraformTemplatesHandler(st)(w, r)
+				return
+			case r.Method == http.MethodPost && len(parts) == 1:
+				agentDBCreateTerraformTemplateHandler(st)(w, r)
+				return
+			case r.Method == http.MethodPost && len(parts) == 3 && parts[2] == "approve":
+				agentDBApproveTerraformTemplateHandler(st)(w, r)
+				return
+			case r.Method == http.MethodPost && len(parts) == 3 && parts[2] == "provision":
+				agentDBProvisionTerraformTemplateHandler(st)(w, r)
+				return
+			}
+		}
+		if parts[0] == "blueprints" {
+			if len(parts) >= 2 {
+				r.SetPathValue("blueprint_id", parts[1])
+			}
+			switch {
+			case r.Method == http.MethodGet && len(parts) == 1:
+				agentDBBlueprintsHandler(st)(w, r)
+				return
+			case r.Method == http.MethodPost && len(parts) == 1:
+				agentDBCreateBlueprintHandler(st, blueprintGenerator)(w, r)
+				return
+			case r.Method == http.MethodPost && len(parts) == 3 && parts[2] == "approve":
+				agentDBApproveBlueprintHandler(st)(w, r)
+				return
+			case r.Method == http.MethodPost && len(parts) == 3 && parts[2] == "provision":
+				agentDBProvisionBlueprintHandler(st)(w, r)
+				return
+			}
 		}
 		if parts[0] == "identities" {
 			switch {
@@ -68,7 +145,7 @@ func agentDBSubrouter(st *agentdb.Store) http.HandlerFunc {
 			}
 		}
 		if parts[0] == "reconcile" && r.Method == http.MethodPost && len(parts) == 1 {
-			agentDBProvisionReconcileHandler(st)(w, r)
+			agentDBProvisionReconcileHandler(st, registry)(w, r)
 			return
 		}
 		if parts[0] == "size-profiles" {
@@ -153,19 +230,21 @@ func agentDBSubrouter(st *agentdb.Store) http.HandlerFunc {
 		case r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "backups":
 			agentDBRecordBackupHandler(st)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "backups" && parts[2] == "check":
-			agentDBBackupCheckHandler(st)(w, r)
+			agentDBBackupCheckHandler(st, registry)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "backups" && parts[2] == "restore-drill-dry-run":
-			agentDBRestoreDrillDryRunHandler(st)(w, r)
+			agentDBRestoreDrillDryRunHandler(st, registry)(w, r)
 		case r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "tuning-hints":
 			agentDBTuningHintsHandler(st)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "provision" && parts[2] == "preflight":
 			agentDBProvisionPreflightHandler(st)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "provision" && parts[2] == "execute":
-			agentDBProvisionExecuteHandler(st)(w, r)
+			agentDBProvisionExecuteHandler(st, registry)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "provision" && parts[2] == "status":
-			agentDBProvisionStatusHandler(st)(w, r)
+			agentDBProvisionStatusHandler(st, registry)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "provision" && parts[2] == "destroy-dry-run":
-			agentDBProvisionDestroyDryRunHandler(st)(w, r)
+			agentDBProvisionDestroyDryRunHandler(st, registry)(w, r)
+		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "provision" && parts[2] == "destroy-live":
+			agentDBProvisionDestroyLiveHandler(st, registry)(w, r)
 		case r.Method == http.MethodGet && len(parts) == 3 && parts[1] == "provision" && parts[2] == "attempts":
 			agentDBProvisionAttemptsHandler(st)(w, r)
 		case r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "cleanup":
@@ -254,6 +333,27 @@ func agentDBDenyRequestHandler(st *agentdb.Store) http.HandlerFunc {
 		jsonResponse(w, row)
 	}
 }
+
+func agentDBProvisionApprovedRequestHandler(st *agentdb.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		m := readMap(r)
+		dep, err := st.ProvisionApprovedRequest(
+			r.Context(),
+			r.PathValue("request_id"),
+			agentdb.RequestProvisionRequest{
+				DeploymentID:   str(m, "deployment_id"),
+				LeaseSeconds:   integer(m, "lease_seconds"),
+				Metadata:       obj(m, "metadata"),
+				ProviderParams: obj(m, "provider_params"),
+			},
+		)
+		if err != nil {
+			agentDBError(w, err)
+			return
+		}
+		jsonResponse(w, dep)
+	}
+}
 func agentDBListHandler(st *agentdb.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := st.List(r.Context())
@@ -286,6 +386,18 @@ func agentDBError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, agentdb.ErrRateLimited) {
 		jsonError(w, "agent db rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+	if errors.Is(err, agentdb.ErrRunnerUnavailable) {
+		jsonError(w, "live provider runner unavailable", http.StatusConflict)
+		return
+	}
+	if errors.Is(err, agentdb.ErrBlueprintLLMRequired) {
+		jsonError(w, "blueprint generation requires llm", http.StatusServiceUnavailable)
+		return
+	}
+	if errors.Is(err, agentdb.ErrDeleteBlocked) {
+		jsonError(w, "delete blocked: archive deployment before deleting", http.StatusConflict)
 		return
 	}
 	if errors.Is(err, agentdb.ErrInvalid) {

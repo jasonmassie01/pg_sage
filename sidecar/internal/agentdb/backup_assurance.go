@@ -53,6 +53,65 @@ func (s *Store) CheckBackupAssurance(
 	}, nil
 }
 
+func (s *Store) CheckBackupAssuranceLive(
+	ctx context.Context,
+	id string,
+	runner ProviderRunner,
+) (BackupAssurance, error) {
+	dep, err := s.Get(ctx, id)
+	if err != nil {
+		return BackupAssurance{}, err
+	}
+	if runner == nil || runner.Name() == "dry_run" {
+		return BackupAssurance{}, ErrInvalid
+	}
+	result := runner.BackupCheck(ctx, ProvisionRequest{
+		Operation:   ProvisionOpBackup,
+		Deployment:  dep,
+		Plan:        dep.ProvisioningPlan,
+		RequestedAt: time.Now().UTC(),
+	})
+	status := "succeeded"
+	if result.Error != nil {
+		status = "failed"
+	}
+	detail := RedactProviderDetail(result.Detail)
+	detail["mode"] = "live"
+	attempt, err := s.recordProvisionAttempt(ctx, id, provisionAttemptInput{
+		Kind:       "backup_check_live",
+		Status:     status,
+		Runner:     runner.Name(),
+		Detail:     detail,
+		FinishedAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return BackupAssurance{}, err
+	}
+	if result.Error != nil {
+		return BackupAssurance{}, publicProviderError(result.Error)
+	}
+	backup, err := s.RecordBackup(ctx, id, BackupRequest{
+		BackupID: "backup_check_live_" + idFrom(id, attempt.CreatedAt.String()),
+		Provider: dep.Provider,
+		Status:   "restore_verified",
+		Detail: map[string]any{
+			"mode":       "live",
+			"attempt_id": attempt.AttemptID,
+		},
+	})
+	if err != nil {
+		return BackupAssurance{}, err
+	}
+	return BackupAssurance{
+		DeploymentID:   id,
+		Mode:           "live",
+		BackupStatus:   backup.Status,
+		SafeForDestroy: true,
+		Attempt:        attempt,
+		Backup:         backup,
+	}, nil
+}
+
 func (s *Store) PlanRestoreDrillDryRun(
 	ctx context.Context,
 	id string,

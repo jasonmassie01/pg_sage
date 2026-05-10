@@ -2,10 +2,8 @@ package agentdb
 
 import (
 	"context"
-	"os/exec"
 	"strconv"
 	"strings"
-	"time"
 )
 
 func BuildProvisionPlan(req RegisterRequest, profile SizeProfile) (ProvisionPlan, error) {
@@ -34,15 +32,19 @@ func BuildProvisionPlan(req RegisterRequest, profile SizeProfile) (ProvisionPlan
 func ProviderReadinessList(ctx context.Context) []ProviderReadiness {
 	return []ProviderReadiness{
 		{
-			Provider: ProviderLocalPostgres,
-			Label:    "Local Postgres",
-			CLI:      "pg_sage",
-			Found:    true,
-			Detail:   "uses active pg_sage PostgreSQL connection",
+			Provider:  ProviderLocalPostgres,
+			Label:     "Local Postgres",
+			Interface: "pg_sage",
+			Found:     true,
+			Detail:    "uses active pg_sage PostgreSQL connection",
 		},
-		readiness(ctx, ProviderAWSRDS, "AWS RDS", "aws"),
-		readiness(ctx, ProviderGCPCloudSQL, "GCP Cloud SQL", "gcloud"),
-		readiness(ctx, ProviderDatabricksLakebase, "Databricks Lakebase", "databricks"),
+		readiness(ctx, ProviderAWSRDS, "AWS RDS", "terraform_or_aws_sdk",
+			"Terraform plan or AWS SDK client credentials required at execution boundary"),
+		readiness(ctx, ProviderGCPCloudSQL, "GCP Cloud SQL", "terraform_or_cloudsql_admin_api",
+			"Terraform plan or Cloud SQL Admin API credentials required at execution boundary"),
+		readiness(ctx, ProviderDatabricksLakebase, "Databricks Lakebase",
+			"databricks_api_or_terraform",
+			"Databricks API credentials or Terraform provider support required at execution boundary"),
 	}
 }
 
@@ -105,50 +107,62 @@ func cloudProvider(provider string) bool {
 func awsRDSPlan(req RegisterRequest, profile SizeProfile) ProvisionPlan {
 	id := resourceName(req.DeploymentID)
 	args := []string{
-		"aws", "rds", "create-db-instance",
-		"--db-instance-identifier", id,
-		"--engine", "postgres",
-		"--db-instance-class", param(profile, "db_instance_class", "db.t4g.micro"),
-		"--allocated-storage", intParam(profile, "allocated_storage", profile.StorageGB, "20"),
-		"--db-name", req.DatabaseName,
-		"--backup-retention-period", param(profile, "backup_retention_days", "7"),
+		"terraform", "apply", "-auto-approve",
+		"-var", "provider=aws_rds",
+		"-var", "db_instance_identifier=" + id,
+		"-var", "engine=postgres",
+		"-var", "db_instance_class=" + param(profile, "db_instance_class", "db.t4g.micro"),
+		"-var", "allocated_storage=" + intParam(profile, "allocated_storage", profile.StorageGB, "20"),
+		"-var", "database_name=" + req.DatabaseName,
+		"-var", "backup_retention_days=" + param(profile, "backup_retention_days", "7"),
 	}
 	if region := param(profile, "region", ""); region != "" {
-		args = append(args, "--region", region)
+		args = append(args, "-var", "region="+region)
 	}
-	return plan(req, "aws", args, "RDS instance creation requires AWS credentials")
+	return plan(req, "terraform", args,
+		"RDS instance creation uses Terraform or AWS SDK credentials; do not use provider CLI")
 }
 
 func cloudSQLPlan(req RegisterRequest, profile SizeProfile) ProvisionPlan {
 	id := resourceName(req.DeploymentID)
 	args := []string{
-		"gcloud", "sql", "instances", "create", id,
-		"--database-version", param(profile, "database_version", "POSTGRES_16"),
-		"--tier", param(profile, "tier", "db-custom-1-3840"),
-		"--storage-size", intParam(profile, "storage_size", profile.StorageGB, "20"),
+		"terraform", "apply", "-auto-approve",
+		"-var", "provider=gcp_cloudsql",
+		"-var", "instance_name=" + id,
+		"-var", "database_version=" + param(profile, "database_version", "POSTGRES_16"),
+		"-var", "tier=" + param(profile, "tier", "db-custom-1-3840"),
+		"-var", "edition=" + param(profile, "edition", "ENTERPRISE"),
+		"-var", "storage_size=" + intParam(profile, "storage_size", profile.StorageGB, "20"),
+		"-var", "ipv4_enabled=" + boolParam(profile, "ipv4_enabled", true),
+		"-var", "require_ssl=" + boolParam(profile, "require_ssl", true),
 	}
 	if region := param(profile, "region", ""); region != "" {
-		args = append(args, "--region", region)
+		args = append(args, "-var", "region="+region)
 	}
 	if project := param(profile, "project", ""); project != "" {
-		args = append(args, "--project", project)
+		args = append(args, "-var", "project="+project)
 	}
-	return plan(req, "gcloud", args, "Cloud SQL instance creation requires gcloud auth")
+	return plan(req, "terraform", args,
+		"Cloud SQL instance creation uses Terraform or Google Cloud SQL Admin API; do not use gcloud")
 }
 
 func lakebasePlan(req RegisterRequest, profile SizeProfile) ProvisionPlan {
 	id := resourceName(req.DeploymentID)
 	mode := param(profile, "mode", "autoscaling_branch")
-	args := []string{"databricks", "database"}
+	if override := metadataString(req.Metadata, "lakebase_mode"); override != "" {
+		mode = override
+	}
+	args := []string{"cloud_api", "databricks_lakebase"}
 	if mode == "provisioned_instance" {
-		args = append(args, "instances", "create", id)
+		args = append(args, "create_instance", id)
 	} else {
-		args = append(args, "branches", "create", id)
+		args = append(args, "create_branch", id)
 		if project := param(profile, "project", ""); project != "" {
-			args = append(args, "--project", project)
+			args = append(args, "project="+project)
 		}
 	}
-	out := plan(req, "databricks", args, "Lakebase uses Databricks database CLI")
+	out := plan(req, "cloud_api", args,
+		"Lakebase provisioning uses Databricks APIs or Terraform provider support; do not use databricks CLI")
 	out.Notes = append(out.Notes,
 		"Lakebase extension allowlist should be verified before enabling "+
 			"agent workloads that depend on pgvector, PostGIS, pg_hint_plan, "+
@@ -206,15 +220,14 @@ func providerLifecycleCommand(dep Deployment, action string) (ProviderCommand, e
 func awsRDSLifecycleCommand(id string, action string) (ProviderCommand, error) {
 	switch action {
 	case "status":
-		return ProviderCommand{Tool: "aws", Args: []string{
-			"aws", "rds", "describe-db-instances",
-			"--db-instance-identifier", id,
+		return ProviderCommand{Tool: "cloud_api", Args: []string{
+			"cloud_api", "aws_rds", "describe_instance", id,
 		}}, nil
 	case "destroy":
-		return ProviderCommand{Tool: "aws", Args: []string{
-			"aws", "rds", "delete-db-instance",
-			"--db-instance-identifier", id,
-			"--skip-final-snapshot",
+		return ProviderCommand{Tool: "terraform", Args: []string{
+			"terraform", "destroy", "-auto-approve",
+			"-var", "provider=aws_rds",
+			"-var", "db_instance_identifier=" + id,
 		}}, nil
 	default:
 		return ProviderCommand{}, ErrInvalid
@@ -224,12 +237,14 @@ func awsRDSLifecycleCommand(id string, action string) (ProviderCommand, error) {
 func cloudSQLLifecycleCommand(id string, action string) (ProviderCommand, error) {
 	switch action {
 	case "status":
-		return ProviderCommand{Tool: "gcloud", Args: []string{
-			"gcloud", "sql", "instances", "describe", id,
+		return ProviderCommand{Tool: "cloud_api", Args: []string{
+			"cloud_api", "gcp_cloudsql", "describe_instance", id,
 		}}, nil
 	case "destroy":
-		return ProviderCommand{Tool: "gcloud", Args: []string{
-			"gcloud", "sql", "instances", "delete", id, "--quiet",
+		return ProviderCommand{Tool: "terraform", Args: []string{
+			"terraform", "destroy", "-auto-approve",
+			"-var", "provider=gcp_cloudsql",
+			"-var", "instance_name=" + id,
 		}}, nil
 	default:
 		return ProviderCommand{}, ErrInvalid
@@ -247,12 +262,12 @@ func lakebaseLifecycleCommand(
 	}
 	switch action {
 	case "status":
-		return ProviderCommand{Tool: "databricks", Args: []string{
-			"databricks", "database", resource, "get", id,
+		return ProviderCommand{Tool: "cloud_api", Args: []string{
+			"cloud_api", "databricks_lakebase", "get_" + resource, id,
 		}}, nil
 	case "destroy":
-		return ProviderCommand{Tool: "databricks", Args: []string{
-			"databricks", "database", resource, "delete", id,
+		return ProviderCommand{Tool: "cloud_api", Args: []string{
+			"cloud_api", "databricks_lakebase", "delete_" + resource, id,
 		}}, nil
 	default:
 		return ProviderCommand{}, ErrInvalid
@@ -265,7 +280,7 @@ func lakebasePlanUsesInstances(plan map[string]any) bool {
 		return false
 	}
 	for _, arg := range commands[0].Args {
-		if arg == "instances" {
+		if arg == "instances" || arg == "create_instance" {
 			return true
 		}
 	}
@@ -278,14 +293,12 @@ func providerBackupCheckCommand(dep Deployment) (ProviderCommand, string, error)
 	case ProviderLocalPostgres:
 		return localBackupCheckCommand(dep)
 	case ProviderAWSRDS:
-		return ProviderCommand{Tool: "aws", Args: []string{
-			"aws", "rds", "describe-db-instances",
-			"--db-instance-identifier", id,
+		return ProviderCommand{Tool: "cloud_api", Args: []string{
+			"cloud_api", "aws_rds", "describe_instance", id,
 		}}, "managed_provider", nil
 	case ProviderGCPCloudSQL:
-		return ProviderCommand{Tool: "gcloud", Args: []string{
-			"gcloud", "sql", "instances", "describe", id,
-			"--format=json(settings.backupConfiguration)",
+		return ProviderCommand{Tool: "cloud_api", Args: []string{
+			"cloud_api", "gcp_cloudsql", "describe_backup_config", id,
 		}}, "managed_provider", nil
 	case ProviderDatabricksLakebase:
 		command, err := lakebaseLifecycleCommand(dep, id, "status")
@@ -306,13 +319,12 @@ func providerRestoreDrillCommand(
 			"pg_restore", "--list", restoreArchive(backups),
 		}}, nil
 	case ProviderAWSRDS:
-		return ProviderCommand{Tool: "aws", Args: []string{
-			"aws", "rds", "describe-db-snapshots",
-			"--db-instance-identifier", id,
+		return ProviderCommand{Tool: "cloud_api", Args: []string{
+			"cloud_api", "aws_rds", "describe_snapshots", id,
 		}}, nil
 	case ProviderGCPCloudSQL:
-		return ProviderCommand{Tool: "gcloud", Args: []string{
-			"gcloud", "sql", "backups", "list", "--instance", id,
+		return ProviderCommand{Tool: "cloud_api", Args: []string{
+			"cloud_api", "gcp_cloudsql", "list_backups", id,
 		}}, nil
 	case ProviderDatabricksLakebase:
 		return lakebaseLifecycleCommand(dep, id, "status")
@@ -353,24 +365,14 @@ func restoreArchive(backups []Backup) string {
 	return "agentdb-restore-placeholder.dump"
 }
 
-func readiness(ctx context.Context, provider, label, cli string) ProviderReadiness {
-	path, err := exec.LookPath(cli)
-	out := ProviderReadiness{Provider: provider, Label: label, CLI: cli}
-	if err != nil {
-		out.Detail = "CLI not found on PATH"
-		return out
+func readiness(_ context.Context, provider, label, iface, detail string) ProviderReadiness {
+	return ProviderReadiness{
+		Provider:  provider,
+		Label:     label,
+		Interface: iface,
+		Found:     true,
+		Detail:    detail,
 	}
-	out.Found = true
-	out.Detail = path
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	version, err := exec.CommandContext(ctx, cli, "--version").CombinedOutput()
-	if err != nil {
-		out.Version = strings.TrimSpace(string(version))
-		return out
-	}
-	out.Version = strings.TrimSpace(string(version))
-	return out
 }
 
 func param(profile SizeProfile, key, fallback string) string {
@@ -393,6 +395,32 @@ func intParam(profile SizeProfile, key string, numeric float64, fallback string)
 		)
 	}
 	return fallback
+}
+
+func boolParam(profile SizeProfile, key string, fallback bool) string {
+	if profile.ProviderParams != nil {
+		switch value := profile.ProviderParams[key].(type) {
+		case bool:
+			return strconv.FormatBool(value)
+		case string:
+			value = strings.TrimSpace(value)
+			if value != "" {
+				return value
+			}
+		}
+	}
+	return strconv.FormatBool(fallback)
+}
+
+func metadataString(metadata map[string]any, key string) string {
+	if metadata == nil {
+		return ""
+	}
+	value, ok := metadata[key].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 func resourceName(value string) string {

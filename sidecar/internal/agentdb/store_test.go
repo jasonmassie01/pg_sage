@@ -38,6 +38,23 @@ func requireAgentDB(t *testing.T) (*Store, context.Context, *pgxpool.Pool) {
 	return st, ctx, pool
 }
 
+func TestAgentDBSchema_HasFleetScaleIndexes(t *testing.T) {
+	joined := strings.Join(schemaStatements, "\n")
+	required := []string{
+		"idx_agent_db_deployments_lease_expiry",
+		"idx_agent_db_pings_deployment_time",
+		"idx_agent_db_cost_samples_deployment_time",
+		"idx_agent_db_backups_deployment_time",
+		"idx_agent_db_tuning_hints_deployment_order",
+		"idx_agent_db_audit_deployment_time",
+	}
+	for _, idx := range required {
+		if !strings.Contains(joined, idx) {
+			t.Errorf("schemaStatements missing %s", idx)
+		}
+	}
+}
+
 func TestStoreRequestIdempotencyAndDecisions(t *testing.T) {
 	st, ctx, pool := requireAgentDB(t)
 	defer pool.Close()
@@ -102,6 +119,77 @@ func TestStoreRequestIdempotencyAndDecisions(t *testing.T) {
 			approvedDatabase.PolicyDecision,
 			approvedDatabase.Status,
 		)
+	}
+}
+
+func TestProvisionApprovedRequestCreatesLinkedDeployment(t *testing.T) {
+	st, ctx, pool := requireAgentDB(t)
+	defer pool.Close()
+	requestID := "req_provision_link"
+	deploymentID := "dep_from_req_link"
+	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", deploymentID)
+	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_requests WHERE request_id=$1", requestID)
+
+	req, err := st.CreateRequest(ctx, RequestCreate{
+		RequestID:      requestID,
+		TenantID:       "tenant_agentdb_test",
+		AgentID:        "agent_request",
+		RunID:          "run_request",
+		Purpose:        "unit request provisioning",
+		IsolationType:  LevelInstance,
+		Provider:       ProviderGCPCloudSQL,
+		DatabaseName:   "agent_app",
+		BudgetUSD:      0,
+		BackupRequired: true,
+		Body: map[string]any{
+			"tenant_id":                "tenant_agentdb_test",
+			"agent_id":                 "agent_request",
+			"provider":                 ProviderGCPCloudSQL,
+			"requested_isolation_type": LevelInstance,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateRequest: %v", err)
+	}
+	if req.Status != "requested" {
+		t.Fatalf("request status = %s", req.Status)
+	}
+	if _, err := st.SetRequestDecision(ctx, requestID, DecisionRequest{
+		Decision: "approved",
+		Reason:   "unit approved",
+	}); err != nil {
+		t.Fatalf("SetRequestDecision: %v", err)
+	}
+
+	dep, err := st.ProvisionApprovedRequest(ctx, requestID, RequestProvisionRequest{
+		DeploymentID: deploymentID,
+		LeaseSeconds: 3600,
+		ProviderParams: map[string]any{
+			"project":             "demo-project",
+			"region":              "us-central1",
+			"database_version":    "POSTGRES_16",
+			"tier":                "db-f1-micro",
+			"edition":             "ENTERPRISE",
+			"storage_size":        20,
+			"ipv4_enabled":        true,
+			"authorized_networks": []any{},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ProvisionApprovedRequest: %v", err)
+	}
+	if dep.DeploymentID != deploymentID || dep.Provider != ProviderGCPCloudSQL {
+		t.Fatalf("deployment = %#v", dep)
+	}
+	if dep.Metadata["request_id"] != requestID {
+		t.Fatalf("metadata = %#v", dep.Metadata)
+	}
+	params, ok := dep.Metadata["provider_params"].(map[string]any)
+	if !ok || params["project"] != "demo-project" {
+		t.Fatalf("provider params = %#v", dep.Metadata)
+	}
+	if dep.BudgetUSD != 0 || !dep.BackupRequired {
+		t.Fatalf("budget/backup = %.2f/%v", dep.BudgetUSD, dep.BackupRequired)
 	}
 }
 
@@ -188,8 +276,8 @@ func TestStoreDeploymentLifecycleRecommendationsAndCost(t *testing.T) {
 		t.Fatalf("expected vector/postgis/jsonb/extension hints, got %#v", hints)
 	}
 
-	if err := st.Delete(ctx, id); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("delete active err = %v, want ErrInvalid", err)
+	if err := st.Delete(ctx, id); !errors.Is(err, ErrDeleteBlocked) {
+		t.Fatalf("delete active err = %v, want ErrDeleteBlocked", err)
 	}
 	archived, err := st.Archive(ctx, id)
 	if err != nil {

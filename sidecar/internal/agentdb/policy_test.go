@@ -266,6 +266,9 @@ func TestCleanupDecisionRequiresArchiveAndVerifiedBackup(t *testing.T) {
 }
 
 func TestDeleteGuardErrorIsDistinguishable(t *testing.T) {
+	if !errors.Is(ErrDeleteBlocked, ErrInvalid) {
+		t.Fatal("ErrDeleteBlocked should remain distinguishable and invalid")
+	}
 	if !errors.Is(ErrRestoreRequired, ErrInvalid) {
 		t.Fatal("ErrRestoreRequired should remain distinguishable and invalid")
 	}

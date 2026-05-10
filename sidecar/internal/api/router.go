@@ -128,7 +128,11 @@ func NewRouterFull(
 		registerUserRoutes(apiMux, pool)
 		registerConfigRoutes(apiMux, pool, cfg, mgr)
 		registerNotificationRoutes(apiMux, pool)
-		registerAgentDBRoutes(apiMux, agentdb.NewStore(pool))
+		registerAgentDBRoutes(
+			apiMux,
+			agentdb.NewStore(pool),
+			newAgentDBBlueprintGenerator(llmMgr),
+		)
 	}
 	if actions != nil && (actions.Store != nil ||
 		actions.Fleet != nil) {

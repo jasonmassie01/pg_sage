@@ -44,30 +44,30 @@ func RUnlockForHotReload() { hotReloadMu.RUnlock() }
 // most architectures but will still trip the race detector — new code
 // should prefer the explicit lock.
 type Config struct {
-
 	Mode string `yaml:"mode" doc:"Operating mode: extension, standalone, or fleet. Standalone connects to one PostgreSQL target; fleet manages many databases from one sidecar."`
 
-	Postgres   PostgresConfig   `yaml:"postgres"`
-	Collector  CollectorConfig  `yaml:"collector"`
-	Analyzer   AnalyzerConfig   `yaml:"analyzer"`
-	Safety     SafetyConfig     `yaml:"safety"`
-	Trust      TrustConfig      `yaml:"trust"`
-	LLM        LLMConfig        `yaml:"llm"`
-	Advisor    AdvisorConfig    `yaml:"advisor"`
+	Postgres    PostgresConfig    `yaml:"postgres"`
+	Collector   CollectorConfig   `yaml:"collector"`
+	Analyzer    AnalyzerConfig    `yaml:"analyzer"`
+	Safety      SafetyConfig      `yaml:"safety"`
+	Trust       TrustConfig       `yaml:"trust"`
+	LLM         LLMConfig         `yaml:"llm"`
+	Advisor     AdvisorConfig     `yaml:"advisor"`
 	Briefing    BriefingConfig    `yaml:"briefing"`
-	Alerting    AlertingConfig   `yaml:"alerting"`
+	Alerting    AlertingConfig    `yaml:"alerting"`
 	AutoExplain AutoExplainConfig `yaml:"auto_explain"`
-	Forecaster  ForecasterConfig `yaml:"forecaster"`
-	Tuner       TunerConfig      `yaml:"tuner"`
-	RCA      RCAConfig      `yaml:"rca"`
-	Runaway  RunawayConfig  `yaml:"runaway"`
-	Explain  ExplainConfig  `yaml:"explain"`
+	Forecaster  ForecasterConfig  `yaml:"forecaster"`
+	Tuner       TunerConfig       `yaml:"tuner"`
+	RCA         RCAConfig         `yaml:"rca"`
+	Runaway     RunawayConfig     `yaml:"runaway"`
+	Explain     ExplainConfig     `yaml:"explain"`
 	LogWatch    LogWatchConfig    `yaml:"logwatch"`
 	SchemaLint  SchemaLintConfig  `yaml:"schema_lint"`
 	Migration   MigrationConfig   `yaml:"migration"`
-	Retention   RetentionConfig  `yaml:"retention"`
-	Prometheus PrometheusConfig `yaml:"prometheus"`
-	OAuth      OAuthConfig      `yaml:"oauth"`
+	Retention   RetentionConfig   `yaml:"retention"`
+	Prometheus  PrometheusConfig  `yaml:"prometheus"`
+	OAuth       OAuthConfig       `yaml:"oauth"`
+	AgentDB     AgentDBConfig     `yaml:"agentdb"`
 
 	// Fleet mode fields.
 	Databases []DatabaseConfig `yaml:"databases"`
@@ -100,6 +100,23 @@ type PostgresConfig struct {
 	SSLMode        string `yaml:"sslmode" doc:"libpq sslmode string (disable, allow, prefer, require, verify-ca, verify-full). Use verify-full in production."`
 	MaxConnections int    `yaml:"max_connections" doc:"Maximum connections the sidecar pgx pool will open to this target. Keep well below max_connections on the server."`
 	DatabaseURL    string `yaml:"database_url" doc:"Full libpq connection URL. When set, overrides host/port/user/password/database/sslmode."`
+}
+
+type AgentDBConfig struct {
+	LiveProvisioningEnabled bool                             `yaml:"live_provisioning_enabled"`
+	AllowPublicIP           bool                             `yaml:"allow_public_ip"`
+	RequireBackupBeforeDrop bool                             `yaml:"require_backup_before_destroy"`
+	Providers               map[string]AgentDBProviderConfig `yaml:"providers"`
+}
+
+type AgentDBProviderConfig struct {
+	Enabled           bool     `yaml:"enabled"`
+	AllowedRegions    []string `yaml:"allowed_regions"`
+	AllowedAccounts   []string `yaml:"allowed_accounts"`
+	AllowedProjects   []string `yaml:"allowed_projects"`
+	AllowedWorkspaces []string `yaml:"allowed_workspaces"`
+	MaxTTLSeconds     int      `yaml:"max_ttl_seconds"`
+	MaxCostUSD        float64  `yaml:"max_estimated_cost_usd"`
 }
 
 type CollectorConfig struct {
@@ -141,46 +158,46 @@ type SafetyConfig struct {
 	QueryTimeoutMs           int `yaml:"query_timeout_ms" doc:"statement_timeout applied to every collector and analyzer query issued by the sidecar. Protects the target from runaway introspection."`
 	DDLTimeoutSeconds        int `yaml:"ddl_timeout_seconds" doc:"Timeout applied to DDL actions (CREATE INDEX, ALTER TABLE) executed by the executor. Per-statement ceiling, not per-cycle."`
 	DiskPressureThresholdPct int `yaml:"disk_pressure_threshold_pct" doc:"When database data volume usage exceeds this percent, skip write-producing actions. Prevents adding indexes to a near-full volume."`
-	BackoffConsecutiveSkips   int `yaml:"backoff_consecutive_skips" doc:"After this many consecutive skipped cycles (e.g. CPU ceiling hit repeatedly), enter dormant mode and slow the cadence until load subsides."`
+	BackoffConsecutiveSkips  int `yaml:"backoff_consecutive_skips" doc:"After this many consecutive skipped cycles (e.g. CPU ceiling hit repeatedly), enter dormant mode and slow the cadence until load subsides."`
 	DormantIntervalSeconds   int `yaml:"dormant_interval_seconds" doc:"Cycle interval (seconds) used while in dormant mode — typically much larger than the normal interval so the sidecar wakes rarely while the target is stressed."`
 	LockTimeoutMs            int `yaml:"lock_timeout_ms" doc:"lock_timeout applied to connections running DDL or ANALYZE. Must be > 0 for ANALYZE actions in v0.8.5 — autovacuum can hold a ShareUpdateExclusiveLock indefinitely." warning:"Zero disables the timeout entirely and is refused by the executor for ANALYZE actions."`
 }
 
 type TrustConfig struct {
-	Level                string `yaml:"level" doc:"Autonomy tier. observation = log only; advisory = queue actions for approval; autonomous = execute safe/moderate actions directly." warning:"Changing to autonomous enables DDL execution without human review."`
-	RampStart            string `yaml:"ramp_start" doc:"RFC3339 timestamp when the trust ramp began. Auto-persisted on first startup if empty. Used to gate newly-supported actions behind a soak period."`
-	MaintenanceWindow    string `yaml:"maintenance_window" doc:"Cron-like window (e.g. 'Sun 02:00-06:00') during which heavy maintenance actions like ANALYZE on large tables or REINDEX are permitted."`
-	Tier3Safe            bool   `yaml:"tier3_safe" doc:"Enable tier-3 actions classified as safe (e.g. CREATE INDEX CONCURRENTLY on small tables). Requires trust.level=autonomous."`
-	Tier3Moderate        bool   `yaml:"tier3_moderate" doc:"Enable tier-3 actions classified as moderate risk (e.g. VACUUM FULL on small tables). Requires trust.level=autonomous." warning:"Moderate actions can briefly lock tables."`
-	Tier3HighRisk        bool   `yaml:"tier3_high_risk" doc:"Enable tier-3 actions classified as high risk. Ignored outside fleet mode — standalone always forces this to false." mode:"fleet-only" warning:"High-risk actions can destabilize production — enable only with a reviewed rollback plan."`
-	RollbackThresholdPct int    `yaml:"rollback_threshold_pct" doc:"Latency regression percentage (0-100) that triggers automatic rollback of a recently applied action. Lower = more sensitive."`
-	RollbackWindowMinutes int   `yaml:"rollback_window_minutes" doc:"How many minutes after applying an action pg_sage watches for regressions before considering it stable."`
-	RollbackCooldownDays  int `yaml:"rollback_cooldown_days" doc:"After a rollback, the same action family is blocked for this many days to prevent flap. Default 3 days."`
-	CascadeCooldownCycles int `yaml:"cascade_cooldown_cycles" doc:"If N consecutive cycles each propose new actions, throttle to observe impact. Prevents storm-like cascades of small changes."`
+	Level                 string `yaml:"level" doc:"Autonomy tier. observation = log only; advisory = queue actions for approval; autonomous = execute safe/moderate actions directly." warning:"Changing to autonomous enables DDL execution without human review."`
+	RampStart             string `yaml:"ramp_start" doc:"RFC3339 timestamp when the trust ramp began. Auto-persisted on first startup if empty. Used to gate newly-supported actions behind a soak period."`
+	MaintenanceWindow     string `yaml:"maintenance_window" doc:"Cron-like window (e.g. 'Sun 02:00-06:00') during which heavy maintenance actions like ANALYZE on large tables or REINDEX are permitted."`
+	Tier3Safe             bool   `yaml:"tier3_safe" doc:"Enable tier-3 actions classified as safe (e.g. CREATE INDEX CONCURRENTLY on small tables). Requires trust.level=autonomous."`
+	Tier3Moderate         bool   `yaml:"tier3_moderate" doc:"Enable tier-3 actions classified as moderate risk (e.g. VACUUM FULL on small tables). Requires trust.level=autonomous." warning:"Moderate actions can briefly lock tables."`
+	Tier3HighRisk         bool   `yaml:"tier3_high_risk" doc:"Enable tier-3 actions classified as high risk. Ignored outside fleet mode — standalone always forces this to false." mode:"fleet-only" warning:"High-risk actions can destabilize production — enable only with a reviewed rollback plan."`
+	RollbackThresholdPct  int    `yaml:"rollback_threshold_pct" doc:"Latency regression percentage (0-100) that triggers automatic rollback of a recently applied action. Lower = more sensitive."`
+	RollbackWindowMinutes int    `yaml:"rollback_window_minutes" doc:"How many minutes after applying an action pg_sage watches for regressions before considering it stable."`
+	RollbackCooldownDays  int    `yaml:"rollback_cooldown_days" doc:"After a rollback, the same action family is blocked for this many days to prevent flap. Default 3 days."`
+	CascadeCooldownCycles int    `yaml:"cascade_cooldown_cycles" doc:"If N consecutive cycles each propose new actions, throttle to observe impact. Prevents storm-like cascades of small changes."`
 }
 
 type LLMConfig struct {
-	Enabled             bool               `yaml:"enabled" doc:"Global enable for LLM-assisted analysis (planner explanations, recommendation narratives). When disabled, pg_sage falls back to deterministic heuristics only."`
-	Endpoint            string             `yaml:"endpoint" doc:"LLM provider base URL. Supports OpenAI-compatible chat-completions endpoints. Can be left blank to use the vendor default."`
-	APIKey              string             `yaml:"api_key" doc:"Authentication token for the LLM provider. Prefer sourcing from environment via ${LLM_API_KEY} rather than committing literal values." secret:"true"`
-	Model               string             `yaml:"model" doc:"Model identifier sent to the provider (e.g. gpt-4o-mini). Must support JSON-mode responses for structured outputs."`
-	TimeoutSeconds      int                `yaml:"timeout_seconds" doc:"HTTP request timeout for each LLM call. Low values protect the analyzer cycle from slow providers; high values tolerate cold-start latency."`
-	TokenBudgetDaily    int                `yaml:"token_budget_daily" doc:"Soft daily cap on total tokens (input + output) the sidecar will spend on LLM requests. Once exceeded the LLM is skipped until the next UTC day."`
-	ContextBudgetTokens int                `yaml:"context_budget_tokens" doc:"Maximum tokens attached as context (schema, stats, plans) to a single LLM request. Prevents oversized prompts from busting the model context window."`
-	CooldownSeconds     int                `yaml:"cooldown_seconds" doc:"Minimum seconds between two LLM requests. Rate-limits the sidecar so it cannot burst the provider during a busy cycle."`
-	JSONMode            bool               `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."`
+	Enabled             bool                 `yaml:"enabled" doc:"Global enable for LLM-assisted analysis (planner explanations, recommendation narratives). When disabled, pg_sage falls back to deterministic heuristics only."`
+	Endpoint            string               `yaml:"endpoint" doc:"LLM provider base URL. Supports OpenAI-compatible chat-completions endpoints. Can be left blank to use the vendor default."`
+	APIKey              string               `yaml:"api_key" doc:"Authentication token for the LLM provider. Prefer sourcing from environment via ${LLM_API_KEY} rather than committing literal values." secret:"true"`
+	Model               string               `yaml:"model" doc:"Model identifier sent to the provider (e.g. gpt-4o-mini). Must support JSON-mode responses for structured outputs."`
+	TimeoutSeconds      int                  `yaml:"timeout_seconds" doc:"HTTP request timeout for each LLM call. Low values protect the analyzer cycle from slow providers; high values tolerate cold-start latency."`
+	TokenBudgetDaily    int                  `yaml:"token_budget_daily" doc:"Soft daily cap on total tokens (input + output) the sidecar will spend on LLM requests. Once exceeded the LLM is skipped until the next UTC day."`
+	ContextBudgetTokens int                  `yaml:"context_budget_tokens" doc:"Maximum tokens attached as context (schema, stats, plans) to a single LLM request. Prevents oversized prompts from busting the model context window."`
+	CooldownSeconds     int                  `yaml:"cooldown_seconds" doc:"Minimum seconds between two LLM requests. Rate-limits the sidecar so it cannot burst the provider during a busy cycle."`
+	JSONMode            bool                 `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."`
 	IndexOptimizer      IndexOptimizerConfig `yaml:"index_optimizer"` // Deprecated: use Optimizer.
-	Optimizer    OptimizerConfig    `yaml:"optimizer"`
-	OptimizerLLM OptimizerLLMConfig `yaml:"optimizer_llm"`
+	Optimizer           OptimizerConfig      `yaml:"optimizer"`
+	OptimizerLLM        OptimizerLLMConfig   `yaml:"optimizer_llm"`
 }
 
 type IndexOptimizerConfig struct {
-	Enabled           bool `yaml:"enabled"`
-	MinQueryCalls     int  `yaml:"min_query_calls"`
-	MaxIndexesPerTable int `yaml:"max_indexes_per_table"`
-	MaxIncludeColumns int  `yaml:"max_include_columns"`
-	OverIndexedRatio  int  `yaml:"over_indexed_ratio_pct"`
-	WriteHeavyRatio   int  `yaml:"write_heavy_ratio_pct"`
+	Enabled            bool `yaml:"enabled"`
+	MinQueryCalls      int  `yaml:"min_query_calls"`
+	MaxIndexesPerTable int  `yaml:"max_indexes_per_table"`
+	MaxIncludeColumns  int  `yaml:"max_include_columns"`
+	OverIndexedRatio   int  `yaml:"over_indexed_ratio_pct"`
+	WriteHeavyRatio    int  `yaml:"write_heavy_ratio_pct"`
 }
 
 // OptimizerConfig controls the index optimizer v2 behavior.
@@ -201,15 +218,15 @@ type OptimizerConfig struct {
 
 // OptimizerLLMConfig configures the dedicated optimizer LLM (reasoning-tier).
 type OptimizerLLMConfig struct {
-	Enabled          bool   `yaml:"enabled" doc:"Enable the dedicated reasoning-tier LLM used by the index optimizer. When false the optimizer falls back to the general llm.* client."`
-	Endpoint         string `yaml:"endpoint" doc:"Base URL for the optimizer LLM provider. Can differ from the general llm.endpoint when the reasoning tier lives on another provider."`
-	APIKey           string `yaml:"api_key" doc:"API key for the optimizer LLM. Prefer env-var substitution over literal values." secret:"true"`
-	Model            string `yaml:"model" doc:"Reasoning-tier model identifier (e.g. o1-mini). Must return JSON when requested."`
-	TimeoutSeconds   int    `yaml:"timeout_seconds" doc:"Per-request timeout for optimizer LLM calls. Reasoning models typically need longer timeouts than chat models."`
-	TokenBudgetDaily int    `yaml:"token_budget_daily" doc:"Daily token cap for the optimizer LLM — independent of the general llm.token_budget_daily so reasoning spend can be tracked separately."`
-	CooldownSeconds  int    `yaml:"cooldown_seconds" doc:"Minimum seconds between two optimizer LLM requests."`
-	MaxOutputTokens  int    `yaml:"max_output_tokens" doc:"Upper bound on output tokens accepted from the optimizer LLM. Truncates runaway responses."`
-	FallbackToGeneral bool  `yaml:"fallback_to_general" doc:"If true, fall back to the general llm.* client when the optimizer LLM is unavailable or over budget."`
+	Enabled           bool   `yaml:"enabled" doc:"Enable the dedicated reasoning-tier LLM used by the index optimizer. When false the optimizer falls back to the general llm.* client."`
+	Endpoint          string `yaml:"endpoint" doc:"Base URL for the optimizer LLM provider. Can differ from the general llm.endpoint when the reasoning tier lives on another provider."`
+	APIKey            string `yaml:"api_key" doc:"API key for the optimizer LLM. Prefer env-var substitution over literal values." secret:"true"`
+	Model             string `yaml:"model" doc:"Reasoning-tier model identifier (e.g. o1-mini). Must return JSON when requested."`
+	TimeoutSeconds    int    `yaml:"timeout_seconds" doc:"Per-request timeout for optimizer LLM calls. Reasoning models typically need longer timeouts than chat models."`
+	TokenBudgetDaily  int    `yaml:"token_budget_daily" doc:"Daily token cap for the optimizer LLM — independent of the general llm.token_budget_daily so reasoning spend can be tracked separately."`
+	CooldownSeconds   int    `yaml:"cooldown_seconds" doc:"Minimum seconds between two optimizer LLM requests."`
+	MaxOutputTokens   int    `yaml:"max_output_tokens" doc:"Upper bound on output tokens accepted from the optimizer LLM. Truncates runaway responses."`
+	FallbackToGeneral bool   `yaml:"fallback_to_general" doc:"If true, fall back to the general llm.* client when the optimizer LLM is unavailable or over budget."`
 }
 
 type AdvisorConfig struct {
@@ -660,7 +677,7 @@ func newDefaults() *Config {
 			UnusedIndexWindowDays:        DefaultUnusedIndexWindowDays,
 			IndexBloatThresholdPct:       DefaultIndexBloatThresholdPct,
 			TableBloatDeadTuplePct:       DefaultTableBloatDeadTuplePct,
-			TableBloatMinRows:           DefaultTableBloatMinRows,
+			TableBloatMinRows:            DefaultTableBloatMinRows,
 			IdleInTxTimeoutMinutes:       DefaultIdleInTxTimeoutMinutes,
 			CacheHitRatioWarning:         DefaultCacheHitRatioWarning,
 			XIDWraparoundWarning:         DefaultXIDWraparoundWarning,
@@ -698,11 +715,11 @@ func newDefaults() *Config {
 			CascadeCooldownCycles: DefaultCascadeCooldownCycles,
 		},
 		LLM: LLMConfig{
-			Enabled:            DefaultLLMEnabled,
-			TimeoutSeconds:     DefaultLLMTimeoutSeconds,
-			TokenBudgetDaily:   DefaultLLMTokenBudget,
+			Enabled:             DefaultLLMEnabled,
+			TimeoutSeconds:      DefaultLLMTimeoutSeconds,
+			TokenBudgetDaily:    DefaultLLMTokenBudget,
 			ContextBudgetTokens: DefaultLLMContextBudget,
-			CooldownSeconds:    DefaultLLMCooldownSeconds,
+			CooldownSeconds:     DefaultLLMCooldownSeconds,
 			IndexOptimizer: IndexOptimizerConfig{
 				Enabled:            DefaultIdxOptEnabled,
 				MinQueryCalls:      DefaultIdxOptMinQueryCalls,
@@ -769,10 +786,10 @@ func newDefaults() *Config {
 			CacheWarnThreshold:   DefaultForecasterCacheThreshold,
 			SequenceWarnDays:     DefaultForecasterSeqWarnDays,
 			SequenceCriticalDays: DefaultForecasterSeqCritDays,
-			MinDataPoints:     DefaultForecasterMinDataPoints,
-			AlertHorizons:     []int{30, 7, 3},
-			DiskCapacityBytes: 0,
-			MinRSquared:       DefaultForecasterMinRSquared,
+			MinDataPoints:        DefaultForecasterMinDataPoints,
+			AlertHorizons:        []int{30, 7, 3},
+			DiskCapacityBytes:    0,
+			MinRSquared:          DefaultForecasterMinRSquared,
 		},
 		Tuner: TunerConfig{
 			Enabled:                true,
@@ -835,6 +852,12 @@ func newDefaults() *Config {
 		},
 		API: APIConfig{
 			ListenAddr: DefaultAPIListenAddr,
+		},
+		AgentDB: AgentDBConfig{
+			LiveProvisioningEnabled: false,
+			AllowPublicIP:           false,
+			RequireBackupBeforeDrop: true,
+			Providers:               map[string]AgentDBProviderConfig{},
 		},
 		OAuth: OAuthConfig{
 			DefaultRole: "viewer",

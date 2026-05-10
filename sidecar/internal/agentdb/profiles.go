@@ -169,7 +169,13 @@ func defaultSizeProfiles() []SizeProfile {
 		cloudProfile("rds_instance_s", ProviderAWSRDS, "RDS instance S",
 			map[string]any{"db_instance_class": "db.t4g.micro"}),
 		cloudProfile("cloudsql_instance_s", ProviderGCPCloudSQL, "Cloud SQL instance S",
-			map[string]any{"tier": "db-custom-1-3840"}),
+			map[string]any{
+				"tier":             "db-custom-1-3840",
+				"database_version": "POSTGRES_16",
+				"edition":          "ENTERPRISE",
+				"ipv4_enabled":     true,
+				"require_ssl":      true,
+			}),
 		cloudProfile("lakebase_instance_s", ProviderDatabricksLakebase,
 			"Lakebase instance S", map[string]any{"mode": "autoscaling_branch"}),
 	}

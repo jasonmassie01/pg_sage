@@ -30,7 +30,10 @@ func TestBuildProvisionPlanForManagedProviders(t *testing.T) {
 				},
 				StorageGB: 20,
 			},
-			contains: []string{"aws", "rds", "create-db-instance", "adb-rds"},
+			contains: []string{
+				"terraform", "apply", "provider=aws_rds",
+				"db_instance_identifier=adb-rds",
+			},
 		},
 		{
 			name: "cloudsql instance",
@@ -44,13 +47,18 @@ func TestBuildProvisionPlanForManagedProviders(t *testing.T) {
 				Provider:          ProviderGCPCloudSQL,
 				ProvisioningLevel: LevelInstance,
 				ProviderParams: map[string]any{
-					"project": "agent-project",
-					"region":  "us-central1",
-					"tier":    "db-custom-2-8192",
+					"project":      "agent-project",
+					"region":       "us-central1",
+					"tier":         "db-f1-micro",
+					"edition":      "ENTERPRISE",
+					"ipv4_enabled": true,
+					"require_ssl":  true,
 				},
 			},
 			contains: []string{
-				"gcloud", "sql", "instances", "create", "adb-gcp",
+				"terraform", "apply", "provider=gcp_cloudsql",
+				"instance_name=adb-gcp", "edition=ENTERPRISE",
+				"ipv4_enabled=true", "require_ssl=true",
 			},
 		},
 		{
@@ -70,7 +78,32 @@ func TestBuildProvisionPlanForManagedProviders(t *testing.T) {
 				},
 			},
 			contains: []string{
-				"databricks", "database", "branches", "create", "adb-lakebase",
+				"cloud_api", "databricks_lakebase", "create_branch",
+				"adb-lakebase",
+			},
+		},
+		{
+			name: "lakebase instance override",
+			req: RegisterRequest{
+				DeploymentID:      "adb_lakebase_instance",
+				Provider:          ProviderDatabricksLakebase,
+				ProvisioningLevel: LevelInstance,
+				DatabaseName:      "agent_app",
+				Metadata: map[string]any{
+					"lakebase_mode": "provisioned_instance",
+				},
+			},
+			profile: SizeProfile{
+				Provider:          ProviderDatabricksLakebase,
+				ProvisioningLevel: LevelInstance,
+				ProviderParams: map[string]any{
+					"project": "agent-project",
+					"mode":    "autoscaling_branch",
+				},
+			},
+			contains: []string{
+				"cloud_api", "databricks_lakebase", "create_instance",
+				"adb-lakebase-instance",
 			},
 		},
 	}
@@ -107,6 +140,30 @@ func TestBuildProvisionPlanRejectsCloudNonInstanceRequests(t *testing.T) {
 	}, SizeProfile{Provider: ProviderAWSRDS, ProvisioningLevel: LevelDatabase})
 	if err == nil {
 		t.Fatal("expected cloud non-instance error")
+	}
+}
+
+func TestProviderReadinessUsesAPITerraformInterfaces(t *testing.T) {
+	providers := ProviderReadinessList(t.Context())
+
+	expected := map[string]string{
+		ProviderAWSRDS:             "terraform_or_aws_sdk",
+		ProviderGCPCloudSQL:        "terraform_or_cloudsql_admin_api",
+		ProviderDatabricksLakebase: "databricks_api_or_terraform",
+	}
+	for _, provider := range providers {
+		if want := expected[provider.Provider]; want != "" {
+			if provider.Interface != want {
+				t.Fatalf("%s interface = %q, want %q",
+					provider.Provider, provider.Interface, want)
+			}
+			if provider.CLI != "" {
+				t.Fatalf("%s CLI = %q, want empty", provider.Provider, provider.CLI)
+			}
+			if !provider.Found {
+				t.Fatalf("%s should report configured planning interface", provider.Provider)
+			}
+		}
 	}
 }
 

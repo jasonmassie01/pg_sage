@@ -8,10 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/agentdb"
+	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/llm"
 )
 
 func TestAgentDBSubrouterSetsRequestIDForRequestActions(t *testing.T) {
@@ -388,6 +391,63 @@ func TestAgentDBProvisionExecutionEndpoints(t *testing.T) {
 	}
 	if !bytes.Contains(attemptsRR.Body.Bytes(), []byte("execute")) {
 		t.Fatalf("expected execution attempts, got %s", attemptsRR.Body.String())
+	}
+}
+
+func TestAgentDBProvisionEndpointsRetryAfterStatusCheck(t *testing.T) {
+	st, ctx, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+	cleanupAgentDBTestRows(t, ctx, pool, "api_exec_status_retry")
+	defer cleanupAgentDBTestRows(t, ctx, pool, "api_exec_status_retry")
+
+	_, err := st.Provision(ctx, agentdb.RegisterRequest{
+		DeploymentID:      "api_exec_status_retry",
+		TenantID:          "tenant_agentdb_api",
+		AgentID:           "agent_api",
+		Provider:          agentdb.ProviderAWSRDS,
+		ProvisioningLevel: agentdb.LevelInstance,
+		DatabaseName:      "agent_app",
+		LeaseSeconds:      60,
+	})
+	if err != nil {
+		t.Fatalf("Provision cloud plan: %v", err)
+	}
+	statusReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/api_exec_status_retry/provision/status",
+		nil,
+	)
+	statusRR := httptest.NewRecorder()
+	agentDBSubrouter(st).ServeHTTP(statusRR, statusReq)
+	if statusRR.Code != http.StatusOK {
+		t.Fatalf("status check = %d body=%s", statusRR.Code, statusRR.Body.String())
+	}
+
+	preflightReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/api_exec_status_retry/provision/preflight",
+		nil,
+	)
+	preflightRR := httptest.NewRecorder()
+	agentDBSubrouter(st).ServeHTTP(preflightRR, preflightReq)
+	if preflightRR.Code != http.StatusOK {
+		t.Fatalf("retry preflight = %d body=%s",
+			preflightRR.Code, preflightRR.Body.String())
+	}
+
+	executeReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/api_exec_status_retry/provision/execute",
+		nil,
+	)
+	executeRR := httptest.NewRecorder()
+	agentDBSubrouter(st).ServeHTTP(executeRR, executeReq)
+	if executeRR.Code != http.StatusOK {
+		t.Fatalf("retry execute = %d body=%s",
+			executeRR.Code, executeRR.Body.String())
+	}
+	if !bytes.Contains(executeRR.Body.Bytes(), []byte("dry run")) {
+		t.Fatalf("expected dry-run output, got %s", executeRR.Body.String())
 	}
 }
 
@@ -976,6 +1036,7 @@ func TestAgentDBErrorMapping(t *testing.T) {
 		{"invalid", agentdb.ErrInvalid, http.StatusBadRequest},
 		{"conflict", agentdb.ErrConflict, http.StatusConflict},
 		{"restore required", agentdb.ErrRestoreRequired, http.StatusConflict},
+		{"delete blocked", agentdb.ErrDeleteBlocked, http.StatusConflict},
 		{"rate limited", agentdb.ErrRateLimited, http.StatusTooManyRequests},
 		{"generic", errors.New("boom"), http.StatusInternalServerError},
 	}
@@ -1003,6 +1064,757 @@ func TestAgentDBSubrouterRejectsUnknownPaths(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rr.Code)
+	}
+}
+
+func TestAgentDBProviderConfigAPI(t *testing.T) {
+	st, ctx, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+	_, _ = pool.Exec(ctx,
+		"DELETE FROM sage.agent_db_provider_configs WHERE provider=$1",
+		agentdb.ProviderAWSRDS,
+	)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/provider-configs/aws_rds",
+		bytes.NewReader([]byte(`{
+			"enabled": true,
+			"settings": {"allowed_regions": ["us-east-1"], "max_ttl_seconds": 3600}
+		}`)),
+	)
+	rr := httptest.NewRecorder()
+	agentDBSubrouter(st).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("upsert status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var cfg agentdb.ProviderConfig
+	if err := json.NewDecoder(rr.Body).Decode(&cfg); err != nil {
+		t.Fatalf("decode provider config: %v", err)
+	}
+	if cfg.Provider != agentdb.ProviderAWSRDS || !cfg.Enabled {
+		t.Fatalf("provider config = %#v", cfg)
+	}
+
+	badReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/provider-configs/aws_rds",
+		bytes.NewReader([]byte(`{
+			"enabled": true,
+			"settings": {"secret_token": "do-not-store"}
+		}`)),
+	)
+	badRR := httptest.NewRecorder()
+	agentDBSubrouter(st).ServeHTTP(badRR, badReq)
+	if badRR.Code != http.StatusBadRequest {
+		t.Fatalf("secret settings status = %d body=%s", badRR.Code, badRR.Body.String())
+	}
+
+	listReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/agent-dbs/provider-configs",
+		nil,
+	)
+	listRR := httptest.NewRecorder()
+	agentDBSubrouter(st).ServeHTTP(listRR, listReq)
+	if listRR.Code != http.StatusOK {
+		t.Fatalf("list status = %d body=%s", listRR.Code, listRR.Body.String())
+	}
+	if !strings.Contains(listRR.Body.String(), agentdb.ProviderAWSRDS) {
+		t.Fatalf("list missing provider: %s", listRR.Body.String())
+	}
+}
+
+func TestAgentDBTerraformTemplateAPI(t *testing.T) {
+	st, ctx, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+	deploymentID := "tf_api_unit_dep"
+	cleanupAgentDBTestRows(t, ctx, pool, deploymentID)
+	_, _ = pool.Exec(ctx,
+		"DELETE FROM sage.agent_db_terraform_templates WHERE template_id=$1",
+		"tf_api_unit",
+	)
+	body := []byte(`{
+		"template_id":"tf_api_unit",
+		"name":"api unit",
+		"files":[{"path":"main.tf","body":"resource \"aws_db_instance\" \"db\" {}"}],
+		"created_by":"api-test"
+	}`)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/terraform-templates",
+		bytes.NewReader(body),
+	)
+	rr := httptest.NewRecorder()
+	agentDBSubrouter(st).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("create template status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var created agentdb.TerraformTemplate
+	if err := json.NewDecoder(rr.Body).Decode(&created); err != nil {
+		t.Fatalf("decode template: %v", err)
+	}
+	if created.TemplateID != "tf_api_unit" || created.Status != "draft" {
+		t.Fatalf("created = %#v", created)
+	}
+	approveReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/terraform-templates/tf_api_unit/approve",
+		bytes.NewReader([]byte(`{"approved_by":"operator"}`)),
+	)
+	approveRR := httptest.NewRecorder()
+	agentDBSubrouter(st).ServeHTTP(approveRR, approveReq)
+	if approveRR.Code != http.StatusOK {
+		t.Fatalf("approve status = %d body=%s", approveRR.Code, approveRR.Body.String())
+	}
+	provisionReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/terraform-templates/tf_api_unit/provision",
+		bytes.NewReader([]byte(`{
+			"deployment_id":"tf_api_unit_dep",
+			"tenant_id":"tenant_agentdb_api",
+			"agent_id":"agent_tf_api",
+			"provider":"aws_rds",
+			"provisioning_level":"instance",
+			"lease_seconds":3600,
+			"budget_usd":20,
+			"provider_params":{"region":"us-east-1"}
+		}`)),
+	)
+	provisionRR := httptest.NewRecorder()
+	agentDBSubrouter(st).ServeHTTP(provisionRR, provisionReq)
+	if provisionRR.Code != http.StatusOK {
+		t.Fatalf("provision template status = %d body=%s",
+			provisionRR.Code, provisionRR.Body.String())
+	}
+	var dep agentdb.Deployment
+	if err := json.NewDecoder(provisionRR.Body).Decode(&dep); err != nil {
+		t.Fatalf("decode provisioned deployment: %v", err)
+	}
+	if dep.DeploymentID != deploymentID ||
+		dep.Metadata["terraform_template_id"] != "tf_api_unit" ||
+		dep.ProvisioningStatus != "planned" {
+		t.Fatalf("deployment = %#v", dep)
+	}
+	listReq := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/agent-dbs/terraform-templates",
+		nil,
+	)
+	listRR := httptest.NewRecorder()
+	agentDBSubrouter(st).ServeHTTP(listRR, listReq)
+	if listRR.Code != http.StatusOK ||
+		!strings.Contains(listRR.Body.String(), "tf_api_unit") {
+		t.Fatalf("list status = %d body=%s", listRR.Code, listRR.Body.String())
+	}
+}
+
+func TestAgentDBTerraformTemplateAPIRejectsDangerousTemplate(t *testing.T) {
+	st, ctx, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+	_, _ = pool.Exec(ctx,
+		"DELETE FROM sage.agent_db_terraform_templates WHERE template_id=$1",
+		"tf_api_bad",
+	)
+	body := []byte(`{
+		"template_id":"tf_api_bad",
+		"name":"bad",
+		"files":[{"path":"main.tf","body":"resource \"null_resource\" \"x\" {}"}],
+		"created_by":"api-test"
+	}`)
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/terraform-templates",
+		bytes.NewReader(body),
+	)
+	rr := httptest.NewRecorder()
+	agentDBSubrouter(st).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("create rejected-template status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var created agentdb.TerraformTemplate
+	if err := json.NewDecoder(rr.Body).Decode(&created); err != nil {
+		t.Fatalf("decode rejected template: %v", err)
+	}
+	if created.Status != "rejected" || len(created.PolicyFindings) == 0 {
+		t.Fatalf("created = %#v", created)
+	}
+	approveReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/terraform-templates/tf_api_bad/approve",
+		bytes.NewReader([]byte(`{"approved_by":"operator"}`)),
+	)
+	approveRR := httptest.NewRecorder()
+	agentDBSubrouter(st).ServeHTTP(approveRR, approveReq)
+	if approveRR.Code != http.StatusBadRequest {
+		t.Fatalf("approve status = %d body=%s", approveRR.Code, approveRR.Body.String())
+	}
+}
+
+func TestAgentDBRequestApprovalProvisionAPI(t *testing.T) {
+	st, ctx, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+	requestID := "req_api_provision"
+	deploymentID := "req_api_provision_dep"
+	cleanupAgentDBTestRows(t, ctx, pool, requestID)
+	cleanupAgentDBTestRows(t, ctx, pool, deploymentID)
+	handler := agentDBSubrouterWithRegistry(
+		st,
+		agentdb.DefaultRunnerRegistry(),
+		apiStaticBlueprintGenerator{spec: agentdb.BlueprintSpec{
+			Provider:            agentdb.ProviderAWSRDS,
+			ProvisioningLevel:   agentdb.LevelInstance,
+			Region:              "us-east-1",
+			InstanceClass:       "db.t4g.micro",
+			StorageGB:           20,
+			BackupRetentionDays: 7,
+			PITR:                true,
+			MultiAZ:             true,
+			PrivateNetwork:      true,
+			Extensions:          []string{"pgvector"},
+		}},
+	)
+
+	createReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/requests",
+		bytes.NewReader([]byte(`{
+			"request_id":"req_api_provision",
+			"tenant_id":"tenant_agentdb_api",
+			"agent_id":"agent_request_api",
+			"purpose":"temporary review app database",
+			"requested_isolation_type":"instance",
+			"provider":"aws_rds",
+			"database_name":"request_api",
+			"backup_required":true
+		}`)),
+	)
+	createRR := httptest.NewRecorder()
+	handler.ServeHTTP(createRR, createReq)
+	if createRR.Code != http.StatusOK {
+		t.Fatalf("create request status = %d body=%s",
+			createRR.Code, createRR.Body.String())
+	}
+	var created agentdb.Request
+	if err := json.NewDecoder(createRR.Body).Decode(&created); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+	if created.Status != "requested" || created.Provider != agentdb.ProviderAWSRDS {
+		t.Fatalf("created request = %#v", created)
+	}
+
+	approveReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/requests/req_api_provision/approve",
+		bytes.NewReader([]byte(`{"reason":"operator approved disposable cloud DB"}`)),
+	)
+	approveRR := httptest.NewRecorder()
+	handler.ServeHTTP(approveRR, approveReq)
+	if approveRR.Code != http.StatusOK {
+		t.Fatalf("approve request status = %d body=%s",
+			approveRR.Code, approveRR.Body.String())
+	}
+
+	provisionReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/requests/req_api_provision/provision",
+		bytes.NewReader([]byte(`{
+			"deployment_id":"req_api_provision_dep",
+			"lease_seconds":3600,
+			"metadata":{"source":"agent_api_test"}
+		}`)),
+	)
+	provisionRR := httptest.NewRecorder()
+	handler.ServeHTTP(provisionRR, provisionReq)
+	if provisionRR.Code != http.StatusOK {
+		t.Fatalf("provision request status = %d body=%s",
+			provisionRR.Code, provisionRR.Body.String())
+	}
+	var dep agentdb.Deployment
+	if err := json.NewDecoder(provisionRR.Body).Decode(&dep); err != nil {
+		t.Fatalf("decode deployment: %v", err)
+	}
+	if dep.DeploymentID != deploymentID ||
+		dep.Metadata["request_id"] != requestID ||
+		dep.ProvisioningStatus != "planned" {
+		t.Fatalf("deployment = %#v", dep)
+	}
+}
+
+func TestAgentDBBlueprintAPI(t *testing.T) {
+	st, ctx, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+	id := "bp_api_unit"
+	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_blueprints WHERE blueprint_id=$1", id)
+	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_terraform_templates WHERE template_id=$1", id+"_tf")
+	defer pool.Exec(ctx, "DELETE FROM sage.agent_db_blueprints WHERE blueprint_id=$1", id)
+	defer pool.Exec(ctx, "DELETE FROM sage.agent_db_terraform_templates WHERE template_id=$1", id+"_tf")
+
+	handler := agentDBSubrouterWithRegistry(
+		st,
+		agentdb.DefaultRunnerRegistry(),
+		apiStaticBlueprintGenerator{spec: agentdb.BlueprintSpec{
+			Provider:            agentdb.ProviderAWSRDS,
+			ProvisioningLevel:   agentdb.LevelInstance,
+			Region:              "us-east-1",
+			InstanceClass:       "db.t4g.micro",
+			StorageGB:           20,
+			BackupRetentionDays: 7,
+			PITR:                true,
+			MultiAZ:             true,
+			PrivateNetwork:      true,
+			Extensions:          []string{"pgvector"},
+		}},
+	)
+	body := `{
+		"blueprint_id":"bp_api_unit",
+		"name":"API unit",
+		"provider":"aws_rds",
+		"intent":"Private AWS RDS in us-east-1 with Multi-AZ, PITR, 7-day backups and pgvector.",
+		"created_by":"api-test"
+	}`
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/blueprints",
+		strings.NewReader(body),
+	)
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("create blueprint status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var created agentdb.Blueprint
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode blueprint: %v", err)
+	}
+	if created.BlueprintID != id || created.TemplateID != id+"_tf" {
+		t.Fatalf("created = %#v", created)
+	}
+	if created.Status != "generated" || created.Spec.Provider != agentdb.ProviderAWSRDS {
+		t.Fatalf("status/spec = %s/%#v", created.Status, created.Spec)
+	}
+
+	listRR := httptest.NewRecorder()
+	handler.ServeHTTP(listRR, httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/agent-dbs/blueprints",
+		nil,
+	))
+	if listRR.Code != http.StatusOK {
+		t.Fatalf("list blueprint status = %d body=%s", listRR.Code, listRR.Body.String())
+	}
+	var listed struct {
+		Blueprints []agentdb.Blueprint `json:"blueprints"`
+	}
+	if err := json.Unmarshal(listRR.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(listed.Blueprints) == 0 || listed.Blueprints[0].BlueprintID == "" {
+		t.Fatalf("listed = %#v", listed)
+	}
+}
+
+func TestAgentDBBlueprintAPIRequiresLLMGenerator(t *testing.T) {
+	st, _, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/blueprints",
+		strings.NewReader(`{
+			"blueprint_id":"bp_api_requires_llm",
+			"name":"API requires LLM",
+			"provider":"aws_rds",
+			"intent":"Create AWS RDS in us central 1."
+		}`),
+	)
+	rr := httptest.NewRecorder()
+	agentDBSubrouter(st).ServeHTTP(rr, req)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "blueprint generation requires llm") {
+		t.Fatalf("body = %s", rr.Body.String())
+	}
+}
+
+func TestAgentDBBlueprintToLiveProvisioningAPI(t *testing.T) {
+	st, ctx, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+	id := "api_blueprint_live"
+	cleanupAgentDBTestRows(t, ctx, pool, id)
+	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_blueprints WHERE blueprint_id=$1", id)
+	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_terraform_templates WHERE template_id=$1", id+"_tf")
+	defer cleanupAgentDBTestRows(t, ctx, pool, id)
+	defer pool.Exec(ctx, "DELETE FROM sage.agent_db_blueprints WHERE blueprint_id=$1", id)
+	defer pool.Exec(ctx, "DELETE FROM sage.agent_db_terraform_templates WHERE template_id=$1", id+"_tf")
+
+	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
+	registry.Register(apiFakeProviderRunner{})
+	router := agentDBSubrouterWithRegistry(
+		st,
+		registry,
+		apiStaticBlueprintGenerator{spec: agentdb.BlueprintSpec{
+			Provider:            agentdb.ProviderAWSRDS,
+			ProvisioningLevel:   agentdb.LevelInstance,
+			Region:              "us-east-2",
+			InstanceClass:       "db.t4g.micro",
+			StorageGB:           20,
+			BackupRetentionDays: 1,
+			PrivateNetwork:      true,
+		}},
+	)
+	post := func(path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader([]byte(body)))
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		return rr
+	}
+
+	if rr := post("/api/v1/agent-dbs/blueprints", `{
+		"blueprint_id":"api_blueprint_live",
+		"name":"API blueprint live",
+		"provider":"aws_rds",
+		"intent":"Private AWS RDS Postgres in us-east-2 with 20GB storage and 1-day backups."
+	}`); rr.Code != http.StatusOK {
+		t.Fatalf("create blueprint status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr := post(
+		"/api/v1/agent-dbs/blueprints/api_blueprint_live/approve",
+		`{"approved_by":"operator"}`,
+	); rr.Code != http.StatusOK {
+		t.Fatalf("approve blueprint status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	provisionRR := post(
+		"/api/v1/agent-dbs/blueprints/api_blueprint_live/provision",
+		`{"deployment_id":"api_blueprint_live","tenant_id":"tenant_agentdb_api","agent_id":"agent_api","lease_seconds":3600}`,
+	)
+	if provisionRR.Code != http.StatusOK {
+		t.Fatalf("provision blueprint status = %d body=%s", provisionRR.Code, provisionRR.Body.String())
+	}
+	if rr := post("/api/v1/agent-dbs/api_blueprint_live/provision/preflight", `{}`); rr.Code != http.StatusOK {
+		t.Fatalf("preflight status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr := post(
+		"/api/v1/agent-dbs/api_blueprint_live/provision/execute",
+		`{"mode":"live","live_enabled":true,"provider_enabled":true,"cost_estimate_id":"estimate-api"}`,
+	); rr.Code != http.StatusOK {
+		t.Fatalf("live execute status = %d body=%s", rr.Code, rr.Body.String())
+	} else if !strings.Contains(rr.Body.String(), `"kind":"execute_live"`) {
+		t.Fatalf("live execute used wrong path body=%s", rr.Body.String())
+	}
+	if rr := post("/api/v1/agent-dbs/api_blueprint_live/provision/status", `{}`); rr.Code != http.StatusOK {
+		t.Fatalf("live status status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr := post("/api/v1/agent-dbs/api_blueprint_live/backups/check", `{}`); rr.Code != http.StatusOK {
+		t.Fatalf("backup check status = %d body=%s", rr.Code, rr.Body.String())
+	} else if !strings.Contains(rr.Body.String(), `"safe_for_destroy":true`) {
+		t.Fatalf("backup check did not verify restore body=%s", rr.Body.String())
+	}
+	if rr := post("/api/v1/agent-dbs/api_blueprint_live/provision/destroy-live", `{}`); rr.Code != http.StatusOK {
+		t.Fatalf("live destroy status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	dep, err := st.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if dep.Metadata["blueprint_id"] != id || !dep.LiveMode {
+		t.Fatalf("deployment after gauntlet = %#v", dep)
+	}
+}
+
+func TestAgentDBBlueprintLLMGeneratorParsesJSONResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		content := "```json\n" +
+			`{"provider":"aws_rds","provisioning_level":"instance",` +
+			`"region":"us-west-2","instance_class":"db.t4g.small",` +
+			`"storage_gb":50,"backup_retention_days":7,"pitr":true,` +
+			`"multi_az":true,"private_network":true,"public_ip":false,` +
+			`"extensions":["pgvector"],"budget_usd":250,` +
+			`"tags":{"managed_by":"pg_sage"}}` + "\n```"
+		resp := map[string]any{
+			"choices": []map[string]any{{
+				"message":       map[string]any{"content": content},
+				"finish_reason": "stop",
+			}},
+			"usage": map[string]any{"total_tokens": 42},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	client := llm.New(&config.LLMConfig{
+		Enabled:          true,
+		Endpoint:         srv.URL,
+		APIKey:           "test-key",
+		Model:            "test-model",
+		TimeoutSeconds:   2,
+		TokenBudgetDaily: 1000,
+	}, func(string, string, ...any) {})
+	gen := llmBlueprintGenerator{
+		client: client,
+	}
+	out, err := gen.GenerateBlueprint(context.Background(), agentdb.BlueprintDraftRequest{
+		Provider: agentdb.ProviderAWSRDS,
+		Intent:   "Create a private RDS database.",
+	})
+	if err != nil {
+		t.Fatalf("GenerateBlueprint: %v", err)
+	}
+	if !out.LLMUsed {
+		t.Fatalf("expected LLM path, got %#v", out)
+	}
+	if out.Spec.Region != "us-west-2" || out.Spec.StorageGB != 50 {
+		t.Fatalf("spec = %#v", out.Spec)
+	}
+	if len(out.Files) != 1 || !strings.Contains(out.Files[0].Body, "aws_db_instance") {
+		t.Fatalf("files = %#v", out.Files)
+	}
+}
+
+func TestAgentDBBlueprintLLMGeneratorDoesNotFallbackToHeuristics(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		resp := map[string]any{
+			"choices": []map[string]any{{
+				"message":       map[string]any{"content": `{"provider":"aws_rds"`},
+				"finish_reason": "stop",
+			}},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	client := llm.New(&config.LLMConfig{
+		Enabled:          true,
+		Endpoint:         srv.URL,
+		APIKey:           "test-key",
+		Model:            "test-model",
+		TimeoutSeconds:   2,
+		TokenBudgetDaily: 1000,
+	}, func(string, string, ...any) {})
+	gen := llmBlueprintGenerator{client: client}
+	_, err := gen.GenerateBlueprint(context.Background(), agentdb.BlueprintDraftRequest{
+		Provider: agentdb.ProviderAWSRDS,
+		Intent:   "$200 a month ha instance in us central 1",
+	})
+	if !errors.Is(err, agentdb.ErrBlueprintLLMRequired) {
+		t.Fatalf("err = %v, want ErrBlueprintLLMRequired", err)
+	}
+}
+
+func TestAgentDBBlueprintLLMGeneratorRequiresCloudRegion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		content := `{"provider":"aws_rds","provisioning_level":"instance",` +
+			`"instance_class":"db.t4g.small","storage_gb":20,` +
+			`"backup_retention_days":7,"private_network":true}`
+		resp := map[string]any{
+			"choices": []map[string]any{{
+				"message":       map[string]any{"content": content},
+				"finish_reason": "stop",
+			}},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	client := llm.New(&config.LLMConfig{
+		Enabled:          true,
+		Endpoint:         srv.URL,
+		APIKey:           "test-key",
+		Model:            "test-model",
+		TimeoutSeconds:   2,
+		TokenBudgetDaily: 1000,
+	}, func(string, string, ...any) {})
+	gen := llmBlueprintGenerator{client: client}
+	_, err := gen.GenerateBlueprint(context.Background(), agentdb.BlueprintDraftRequest{
+		Provider: agentdb.ProviderAWSRDS,
+		Intent:   "Create a private RDS database in us-east-2.",
+	})
+	if !errors.Is(err, agentdb.ErrBlueprintLLMRequired) {
+		t.Fatalf("err = %v, want ErrBlueprintLLMRequired", err)
+	}
+}
+
+func TestAgentDBLiveProvisionAPI(t *testing.T) {
+	st, ctx, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+	id := "api_live_provision"
+	cleanupAgentDBTestRows(t, ctx, pool, id)
+	if _, err := st.Provision(ctx, agentdb.RegisterRequest{
+		DeploymentID:      id,
+		TenantID:          "tenant_agentdb_api",
+		AgentID:           "agent_live_api",
+		Provider:          agentdb.ProviderAWSRDS,
+		ProvisioningLevel: agentdb.LevelInstance,
+		LeaseSeconds:      3600,
+	}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if _, err := st.PreflightProvision(ctx, id); err != nil {
+		t.Fatalf("PreflightProvision: %v", err)
+	}
+	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
+	registry.Register(apiFakeProviderRunner{})
+	disabledReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/"+id+"/provision/execute",
+		bytes.NewReader([]byte(`{"mode":"live"}`)),
+	)
+	disabledRR := httptest.NewRecorder()
+	agentDBSubrouterWithRegistry(st, registry, nil).ServeHTTP(disabledRR, disabledReq)
+	if disabledRR.Code != http.StatusBadRequest {
+		t.Fatalf("disabled live status = %d", disabledRR.Code)
+	}
+	liveReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/"+id+"/provision/execute",
+		bytes.NewReader([]byte(`{
+			"mode":"live",
+			"live_enabled":true,
+			"provider_enabled":true,
+			"cost_estimate_id":"estimate-api"
+		}`)),
+	)
+	liveRR := httptest.NewRecorder()
+	agentDBSubrouterWithRegistry(st, registry, nil).ServeHTTP(liveRR, liveReq)
+	if liveRR.Code != http.StatusOK {
+		t.Fatalf("live execute status = %d body=%s", liveRR.Code, liveRR.Body.String())
+	}
+	var attempt agentdb.ProvisionAttempt
+	if err := json.NewDecoder(liveRR.Body).Decode(&attempt); err != nil {
+		t.Fatalf("decode live attempt: %v", err)
+	}
+	if attempt.Kind != "execute_live" || attempt.Runner != "api_fake_runner" {
+		t.Fatalf("attempt = %#v", attempt)
+	}
+}
+
+func TestAgentDBLiveProvisionAPIRejectsMissingCostEstimate(t *testing.T) {
+	st, ctx, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+	id := "api_live_missing_cost"
+	cleanupAgentDBTestRows(t, ctx, pool, id)
+	if _, err := st.Provision(ctx, agentdb.RegisterRequest{
+		DeploymentID:      id,
+		TenantID:          "tenant_agentdb_api",
+		AgentID:           "agent_live_api",
+		Provider:          agentdb.ProviderAWSRDS,
+		ProvisioningLevel: agentdb.LevelInstance,
+		LeaseSeconds:      3600,
+	}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if _, err := st.PreflightProvision(ctx, id); err != nil {
+		t.Fatalf("PreflightProvision: %v", err)
+	}
+	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
+	registry.Register(apiFakeProviderRunner{})
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/"+id+"/provision/execute",
+		bytes.NewReader([]byte(`{
+			"mode":"live",
+			"live_enabled":true,
+			"provider_enabled":true
+		}`)),
+	)
+	rr := httptest.NewRecorder()
+	agentDBSubrouterWithRegistry(st, registry, nil).ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAgentDBLiveProvisionAPIReportsUnavailableRunner(t *testing.T) {
+	st, ctx, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+	id := "api_live_runner_unavailable"
+	cleanupAgentDBTestRows(t, ctx, pool, id)
+	defer cleanupAgentDBTestRows(t, ctx, pool, id)
+	if _, err := st.Provision(ctx, agentdb.RegisterRequest{
+		DeploymentID:      id,
+		TenantID:          "tenant_agentdb_api",
+		AgentID:           "agent_live_api",
+		Provider:          agentdb.ProviderAWSRDS,
+		ProvisioningLevel: agentdb.LevelInstance,
+		LeaseSeconds:      3600,
+	}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if _, err := st.PreflightProvision(ctx, id); err != nil {
+		t.Fatalf("PreflightProvision: %v", err)
+	}
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/"+id+"/provision/execute",
+		bytes.NewReader([]byte(`{
+			"mode":"live",
+			"live_enabled":true,
+			"provider_enabled":true,
+			"cost_estimate_id":"estimate-api"
+		}`)),
+	)
+	rr := httptest.NewRecorder()
+	agentDBSubrouterWithRegistry(
+		st,
+		agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{}),
+		nil,
+	).ServeHTTP(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "live provider runner unavailable") {
+		t.Fatalf("expected unavailable runner message, got %s", rr.Body.String())
+	}
+}
+
+func TestAgentDBLiveProvisionAPIPromotesDryRunReadyDeployment(t *testing.T) {
+	st, ctx, pool := requireAgentDBAPIStore(t)
+	defer pool.Close()
+	id := "api_live_after_dry_run"
+	cleanupAgentDBTestRows(t, ctx, pool, id)
+	defer cleanupAgentDBTestRows(t, ctx, pool, id)
+	if _, err := st.Provision(ctx, agentdb.RegisterRequest{
+		DeploymentID:      id,
+		TenantID:          "tenant_agentdb_api",
+		AgentID:           "agent_live_api",
+		Provider:          agentdb.ProviderAWSRDS,
+		ProvisioningLevel: agentdb.LevelInstance,
+		LeaseSeconds:      3600,
+	}); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if _, err := st.PreflightProvision(ctx, id); err != nil {
+		t.Fatalf("PreflightProvision: %v", err)
+	}
+	if _, err := st.ExecuteProvision(ctx, id, &agentdb.DryRunProvisionRunner{}); err != nil {
+		t.Fatalf("ExecuteProvision dry-run: %v", err)
+	}
+	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
+	registry.Register(apiFakeProviderRunner{})
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/agent-dbs/"+id+"/provision/execute",
+		bytes.NewReader([]byte(`{
+			"mode":"live",
+			"live_enabled":true,
+			"provider_enabled":true,
+			"cost_estimate_id":"estimate-api"
+		}`)),
+	)
+	rr := httptest.NewRecorder()
+	agentDBSubrouterWithRegistry(st, registry, nil).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("live execute status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"kind":"execute_live"`) {
+		t.Fatalf("expected live attempt, got %s", rr.Body.String())
 	}
 }
 
@@ -1040,9 +1852,13 @@ func cleanupAgentDBTestRows(
 	id string,
 ) {
 	t.Helper()
-	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
-	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_requests WHERE request_id=$1", id)
-	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_ping_token_failures WHERE deployment_id=$1", id)
+	cleanup := func() {
+		_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
+		_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_requests WHERE request_id=$1", id)
+		_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_ping_token_failures WHERE deployment_id=$1", id)
+	}
+	cleanup()
+	t.Cleanup(cleanup)
 }
 
 func requireAgentDBAPIStore(t *testing.T) (*agentdb.Store, context.Context, *pgxpool.Pool) {
@@ -1066,4 +1882,69 @@ func requireAgentDBAPIStore(t *testing.T) (*agentdb.Store, context.Context, *pgx
 		t.Fatalf("ensure schema: %v", err)
 	}
 	return st, ctx, pool
+}
+
+type apiFakeProviderRunner struct{}
+
+func (apiFakeProviderRunner) Name() string { return "api_fake_runner" }
+
+func (apiFakeProviderRunner) Provider() string { return agentdb.ProviderAWSRDS }
+
+func (apiFakeProviderRunner) Preflight(
+	context.Context,
+	agentdb.ProvisionRequest,
+) agentdb.ProvisionResult {
+	return agentdb.ProvisionResult{Status: "preflight_passed"}
+}
+
+func (apiFakeProviderRunner) Create(
+	context.Context,
+	agentdb.ProvisionRequest,
+) agentdb.ProvisionResult {
+	return agentdb.ProvisionResult{
+		Status:             "available",
+		ProviderResourceID: "api-live-resource",
+		Detail:             map[string]any{"state": "available"},
+	}
+}
+
+func (apiFakeProviderRunner) Status(
+	context.Context,
+	agentdb.ProvisionRequest,
+) agentdb.ProvisionResult {
+	return agentdb.ProvisionResult{Status: "available"}
+}
+
+func (apiFakeProviderRunner) Destroy(
+	context.Context,
+	agentdb.ProvisionRequest,
+) agentdb.ProvisionResult {
+	return agentdb.ProvisionResult{Status: "destroying"}
+}
+
+func (apiFakeProviderRunner) BackupCheck(
+	context.Context,
+	agentdb.ProvisionRequest,
+) agentdb.ProvisionResult {
+	return agentdb.ProvisionResult{Status: "verified"}
+}
+
+type apiStaticBlueprintGenerator struct {
+	spec agentdb.BlueprintSpec
+}
+
+func (g apiStaticBlueprintGenerator) GenerateBlueprint(
+	_ context.Context,
+	_ agentdb.BlueprintDraftRequest,
+) (agentdb.BlueprintGeneration, error) {
+	spec := agentdb.NormalizeBlueprintSpec(g.spec, "")
+	files, err := agentdb.RenderTerraformFromBlueprint(spec)
+	if err != nil {
+		return agentdb.BlueprintGeneration{}, err
+	}
+	return agentdb.BlueprintGeneration{
+		Spec:    spec,
+		Files:   files,
+		LLMUsed: true,
+	}, nil
 }

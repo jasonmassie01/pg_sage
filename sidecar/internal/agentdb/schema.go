@@ -129,6 +129,17 @@ func jsonBytes(v map[string]any) []byte {
 	return b
 }
 
+func jsonAny(v any) []byte {
+	if v == nil {
+		return []byte(`null`)
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return []byte(`null`)
+	}
+	return b
+}
+
 func sanitizeSchemaName(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	var b strings.Builder
@@ -189,6 +200,7 @@ var schemaStatements = []string{
 		purpose text NOT NULL DEFAULT '',
 		requested_isolation_type text NOT NULL DEFAULT 'schema',
 		database_name text NOT NULL DEFAULT '',
+		provider text NOT NULL DEFAULT 'local_postgres',
 		policy_decision text NOT NULL DEFAULT 'review',
 		status text NOT NULL DEFAULT 'requested',
 		idempotency_key text NOT NULL DEFAULT '',
@@ -203,6 +215,8 @@ var schemaStatements = []string{
 		ADD COLUMN IF NOT EXISTS budget_usd double precision NOT NULL DEFAULT 0`,
 	`ALTER TABLE sage.agent_db_requests
 		ADD COLUMN IF NOT EXISTS backup_required boolean NOT NULL DEFAULT true`,
+	`ALTER TABLE sage.agent_db_requests
+		ADD COLUMN IF NOT EXISTS provider text NOT NULL DEFAULT 'local_postgres'`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_db_requests_idempotency
 		ON sage.agent_db_requests(tenant_id, idempotency_key)
 		WHERE idempotency_key <> ''`,
@@ -241,11 +255,90 @@ var schemaStatements = []string{
 	`ALTER TABLE sage.agent_db_deployments
 		ADD COLUMN IF NOT EXISTS provisioning_status text NOT NULL DEFAULT 'registered'`,
 	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS provider_resource_id text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS secret_ref text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS secret_ref_provider text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS secret_ref_expires_at timestamptz`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS live_mode boolean NOT NULL DEFAULT false`,
+	`ALTER TABLE sage.agent_db_deployments
 		ADD COLUMN IF NOT EXISTS provisioning_plan jsonb NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE sage.agent_db_deployments
 		ADD COLUMN IF NOT EXISTS connection_info jsonb NOT NULL DEFAULT '{}'::jsonb`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_db_deployments_tenant_status
 		ON sage.agent_db_deployments(tenant_id, status)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_deployments_lease_expiry
+		ON sage.agent_db_deployments(lease_expires_at, status)
+		WHERE lease_expires_at IS NOT NULL`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_deployments_provider_resource
+		ON sage.agent_db_deployments(provider, provider_resource_id)
+		WHERE provider_resource_id <> ''`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_provider_configs (
+		provider text PRIMARY KEY,
+		enabled boolean NOT NULL DEFAULT false,
+		settings jsonb NOT NULL DEFAULT '{}'::jsonb,
+		last_validated_at timestamptz,
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_creation_receipts (
+		deployment_id text PRIMARY KEY
+			REFERENCES sage.agent_db_deployments(deployment_id) ON DELETE CASCADE,
+		provider text NOT NULL,
+		provider_resource_id text NOT NULL,
+		region text NOT NULL DEFAULT '',
+		account_ref text NOT NULL DEFAULT '',
+		request_hash text NOT NULL DEFAULT '',
+		operation_mode text NOT NULL DEFAULT 'dry_run',
+		detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_terraform_templates (
+		template_id text PRIMARY KEY,
+		name text NOT NULL,
+		status text NOT NULL DEFAULT 'draft',
+		source_kind text NOT NULL DEFAULT 'inline',
+		content_sha256 text NOT NULL DEFAULT '',
+		files_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+		manifest_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+		policy_findings jsonb NOT NULL DEFAULT '[]'::jsonb,
+		created_by text NOT NULL DEFAULT '',
+		approved_by text NOT NULL DEFAULT '',
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_terraform_templates_status
+		ON sage.agent_db_terraform_templates(status, created_at DESC)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_blueprints (
+		blueprint_id text PRIMARY KEY,
+		name text NOT NULL,
+		status text NOT NULL DEFAULT 'draft',
+		intent text NOT NULL DEFAULT '',
+		provider text NOT NULL DEFAULT '',
+		template_id text NOT NULL DEFAULT '',
+		blueprint_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+		policy_findings jsonb NOT NULL DEFAULT '[]'::jsonb,
+		llm_used boolean NOT NULL DEFAULT false,
+		raw_response text NOT NULL DEFAULT '',
+		created_by text NOT NULL DEFAULT '',
+		approved_by text NOT NULL DEFAULT '',
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_blueprints_status
+		ON sage.agent_db_blueprints(status, created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_blueprints_provider
+		ON sage.agent_db_blueprints(provider, status)`,
+	`UPDATE sage.agent_db_blueprints
+		SET status='generated',
+			updated_at=now()
+		WHERE status='draft'
+			AND template_id <> ''
+			AND jsonb_array_length(policy_findings) = 0`,
 	`CREATE TABLE IF NOT EXISTS sage.agent_db_size_profiles (
 		profile_id text PRIMARY KEY,
 		provider text NOT NULL,
@@ -269,6 +362,8 @@ var schemaStatements = []string{
 		metrics jsonb NOT NULL DEFAULT '{}'::jsonb,
 		created_at timestamptz NOT NULL DEFAULT now()
 	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_pings_deployment_time
+		ON sage.agent_db_pings(deployment_id, created_at DESC)`,
 	`CREATE TABLE IF NOT EXISTS sage.agent_db_ping_tokens (
 		token_id text PRIMARY KEY,
 		deployment_id text NOT NULL
@@ -337,6 +432,8 @@ var schemaStatements = []string{
 		unit text NOT NULL DEFAULT '',
 		detail jsonb NOT NULL DEFAULT '{}'::jsonb
 	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_cost_samples_deployment_time
+		ON sage.agent_db_cost_samples(deployment_id, sampled_at DESC)`,
 	`CREATE TABLE IF NOT EXISTS sage.agent_db_backups (
 		backup_id text PRIMARY KEY,
 		deployment_id text NOT NULL
@@ -349,6 +446,8 @@ var schemaStatements = []string{
 		created_at timestamptz NOT NULL DEFAULT now(),
 		detail jsonb NOT NULL DEFAULT '{}'::jsonb
 	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_backups_deployment_time
+		ON sage.agent_db_backups(deployment_id, created_at DESC)`,
 	`CREATE TABLE IF NOT EXISTS sage.agent_db_tuning_hints (
 		hint_id text NOT NULL,
 		deployment_id text NOT NULL
@@ -361,6 +460,8 @@ var schemaStatements = []string{
 		created_at timestamptz NOT NULL DEFAULT now(),
 		PRIMARY KEY (hint_id, deployment_id)
 	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_tuning_hints_deployment_order
+		ON sage.agent_db_tuning_hints(deployment_id, kind, title)`,
 	`CREATE TABLE IF NOT EXISTS sage.agent_db_provision_attempts (
 		attempt_id bigserial PRIMARY KEY,
 		deployment_id text NOT NULL
@@ -385,6 +486,8 @@ var schemaStatements = []string{
 		detail jsonb NOT NULL DEFAULT '{}'::jsonb,
 		created_at timestamptz NOT NULL DEFAULT now()
 	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_audit_deployment_time
+		ON sage.agent_db_audit(deployment_id, created_at ASC, audit_id ASC)`,
 	`CREATE TABLE IF NOT EXISTS sage.agent_db_deploy_requests (
 		deploy_request_id text PRIMARY KEY,
 		deployment_id text NOT NULL
