@@ -1,0 +1,1830 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/superpowers/specs/2026-05-09-agentdb-live-provisioning-ga/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Agent DB Live Provisioning GA Spec - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#agent-db-live-provisioning-ga-spec" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Agent DB Live Provisioning GA Spec
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#goal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goal
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#current-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current State
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#research-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Research Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#design-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design Principles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-execution-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Execution Contract
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Execution Contract">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provisioning-states" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provisioning States
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#idempotency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Idempotency
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resource-naming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resource Naming
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#creation-receipts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creation Receipts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#typed-provider-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Typed Provider Errors
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-provider-runner-interface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Provider Runner Interface
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-credential-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Credential Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Credential Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pg_sage-stores" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pg_sage Stores
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#provider-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Auth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#redaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Redaction
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-policy-and-safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Policy and Safety
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-networking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Networking
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Networking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#aws-rds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AWS RDS
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gcp-cloud-sql" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GCP Cloud SQL
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#databricks-lakebase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Databricks Lakebase
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-backup-and-restore" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Backup and Restore
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-cost-tracking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Cost Tracking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-ui-and-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. UI and API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. UI and API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#terraform-template-uploads" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terraform Template Uploads
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-testing-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Testing Plan
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-ga-exit-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. GA Exit Criteria
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-enterprises-deploying-agents-will-need" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Enterprises Deploying Agents Will Need
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mvp-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MVP Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#out-of-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Out of Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="agent-db-live-provisioning-ga-spec">Agent DB Live Provisioning GA Spec<a class="headerlink" href="#agent-db-live-provisioning-ga-spec" title="Permanent link">&para;</a></h1>
+<h2 id="goal">Goal<a class="headerlink" href="#goal" title="Permanent link">&para;</a></h2>
+<p>Ship Agent DB live provisioning as a safe pg_sage control-plane feature. Agents
+and operators should be able to request, approve, create, observe, tune, cost,
+back up, and clean up disposable or semi-persistent PostgreSQL environments
+across local Postgres, AWS RDS, GCP Cloud SQL, and Databricks Lakebase without
+leaking credentials or accidentally creating unbounded cloud spend.</p>
+<p>This spec upgrades the current state from dry-run plans plus external live
+smoke tests into an integrated execution path inside pg_sage.</p>
+<h2 id="current-state">Current State<a class="headerlink" href="#current-state" title="Permanent link">&para;</a></h2>
+<p>The repo already has meaningful Agent DB foundations:</p>
+<ul>
+<li>Local Postgres provisioning supports schema and database levels.</li>
+<li>Cloud providers are modeled as instance-level only.</li>
+<li>Agent DB deployments, pings, leases, costs, backups, tuning hints,
+  recommendations, deploy requests, audit events, and custom size profiles are
+  persisted under <code>sage.agent_db_*</code>.</li>
+<li>The UI exposes Agent DB deployments, size profiles, provider cloud settings,
+  Lakebase branch/full-instance selection, and provisioning dry-run controls.</li>
+<li>Provider plans exist for AWS RDS, Cloud SQL, and Lakebase.</li>
+<li>The 8085 local sidecar has been used for live product validation.</li>
+<li>Live cloud smoke tests proved actual create/delete capability outside the
+  sidecar:</li>
+<li>Cloud SQL: create, status, delete through Cloud SQL Admin API.</li>
+<li>AWS RDS: create, wait for available, delete through boto3.</li>
+<li>Lakebase: create branch, observe <code>READY</code>, delete through Databricks REST.</li>
+</ul>
+<p>The main go-live gap is that <code>sidecar/internal/api/agent_db_execution_handlers.go</code>
+still injects <code>agentdb.DryRunProvisionRunner{}</code> for execute, status, backup,
+restore-drill, destroy, and reconcile.</p>
+<h2 id="research-summary">Research Summary<a class="headerlink" href="#research-summary" title="Permanent link">&para;</a></h2>
+<p>Primary provider docs and community threads point to the same adoption risks:
+creating the database is the easy part; safely connecting, governing, proving
+backup/restore, reconciling drift, and bounding cost are the product.</p>
+<ul>
+<li>AWS RDS creation requires VPC-aware choices, subnet groups, security groups,
+  backup/deletion settings, and credentials decisions. AWS docs explicitly call
+  out VPC/subnet prerequisites and deletion protection/backup behavior.</li>
+<li>RDS Secrets Manager integration should be preferred for master password
+  handling rather than pg_sage generating and storing plaintext passwords.</li>
+<li>Cloud SQL creation needs edition/tier compatibility, backup configuration,
+  and an explicit public/private network model. Google docs recommend Cloud SQL
+  Auth Proxy/connectors for secure access and document private services access
+  requirements for private IP.</li>
+<li>Cloud SQL public IP without authorized networks can still be reachable through
+  Auth Proxy, but direct public authorized networks are a major footgun.</li>
+<li>Databricks Lakebase branch create/delete is a long-running API flow; branch
+  docs require project permissions and note that branch renames are unsupported.</li>
+<li>Databricks recommends OAuth machine-to-machine service principals for
+  unattended automation instead of user credentials.</li>
+<li>Neon, Supabase, Crunchy Bridge, and Aiven show competitive expectations:
+  cheap copy-on-write branches, preview environments, API/Terraform automation,
+  backup/fork flows, and termination protection. Forum reports also show real
+  pain around unclear branch lifecycle, data security, migration drift, and
+  surprising deletion behavior.</li>
+<li>Recent database-branching research highlights a trade-off agents will hit:
+  fast branching systems are not automatically fast for deep or long-lived
+  branch workloads. pg_sage should track branch age, branch depth where
+  available, read/write intensity, and promotion intent.</li>
+</ul>
+<p>References:</p>
+<ul>
+<li>AWS RDS CreateDBInstance API:
+  https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_CreateDBInstance.html</li>
+<li>AWS RDS DB instance prerequisites and VPC model:
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_CreateDBInstance.html</li>
+<li>AWS RDS Secrets Manager integration:
+  https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-secrets-manager.html</li>
+<li>Cloud SQL create instance:
+  https://cloud.google.com/sql/docs/postgres/create-instance</li>
+<li>Cloud SQL Admin API:
+  https://cloud.google.com/sql/docs/postgres/admin-api/rest</li>
+<li>Cloud SQL Auth Proxy:
+  https://cloud.google.com/sql/docs/postgres/sql-proxy</li>
+<li>Cloud SQL private IP:
+  https://cloud.google.com/sql/docs/postgres/private-ip</li>
+<li>Cloud SQL backup/PITR:
+  https://cloud.google.com/sql/docs/postgres/backup-recovery/pitr</li>
+<li>Databricks Lakebase API guide:
+  https://docs.databricks.com/aws/en/oltp/projects/api-usage</li>
+<li>Databricks Lakebase branch management:
+  https://docs.databricks.com/aws/en/oltp/projects/manage-branches</li>
+<li>Databricks service principal OAuth:
+  https://docs.databricks.com/en/dev-tools/auth/oauth-m2m.html</li>
+<li>Neon branching:
+  https://neon.com/docs/introduction/point-in-time-restore</li>
+<li>Crunchy Bridge backup/fork API:
+  https://docs.crunchybridge.com/api/cluster-backup</li>
+</ul>
+<h2 id="design-principles">Design Principles<a class="headerlink" href="#design-principles" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Dry-run is always available and remains the default for new installations.</li>
+<li>Live execution requires explicit global and per-provider enablement.</li>
+<li>Provider CLIs are allowed for local diagnostics, not as pg_sage's live
+   provisioning path.</li>
+<li>Every live operation is idempotent by deployment ID and provider tags/labels.</li>
+<li>No provider secret, generated DB password, OAuth token, connection password,
+   or cloud credential is stored in plaintext in pg_sage tables, logs, attempts,
+   audits, UI, or API responses.</li>
+<li>Every paid resource has owner, deployment ID, provider, region, and TTL
+   tags/labels where the provider supports them.</li>
+<li>Delete is harder than create: destructive cleanup requires backup assurance
+   and a provider status check.</li>
+<li>Reconcile is a first-class loop, not an afterthought.</li>
+<li>Branches are treated differently from full instances. Branches are cheaper
+   and faster, but require age/depth/parent tracking and promotion guardrails.</li>
+<li>pg_sage should expose actionable failure reasons agents can use to repair
+    requests, not just "provider failed."</li>
+</ol>
+<h2 id="1-execution-contract">1. Execution Contract<a class="headerlink" href="#1-execution-contract" title="Permanent link">&para;</a></h2>
+<h3 id="actions">Actions<a class="headerlink" href="#actions" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>preflight</code>: validate policy, credentials, plan, quotas where available,
+  network shape, cost estimate, backup defaults, and idempotency target.</li>
+<li><code>execute</code>: create or attach to the provider resource.</li>
+<li><code>status</code>: read provider state and update pg_sage connection/provisioning
+  metadata.</li>
+<li><code>backup-check</code>: verify managed backup configuration or local backup evidence.</li>
+<li><code>restore-drill</code>: prove a restore path without treating a dry-run as a
+  verified restore.</li>
+<li><code>destroy-dry-run</code>: show what would be deleted and why deletion is allowed or
+  blocked.</li>
+<li><code>destroy</code>: delete the provider resource only after backup and policy gates.</li>
+<li><code>reconcile</code>: detect and repair stale pg_sage state or orphaned cloud
+  resources.</li>
+</ul>
+<h3 id="provisioning-states">Provisioning States<a class="headerlink" href="#provisioning-states" title="Permanent link">&para;</a></h3>
+<p>Allowed <code>provisioning_status</code> values:</p>
+<ul>
+<li><code>planned</code></li>
+<li><code>preflight_failed</code></li>
+<li><code>preflight_passed</code></li>
+<li><code>approval_required</code></li>
+<li><code>queued</code></li>
+<li><code>provisioning</code></li>
+<li><code>cancel_requested</code></li>
+<li><code>cancelling</code></li>
+<li><code>available</code></li>
+<li><code>failed</code></li>
+<li><code>status_unknown</code></li>
+<li><code>backup_unverified</code></li>
+<li><code>restore_verified</code></li>
+<li><code>destroy_pending</code></li>
+<li><code>destroy_preflight_failed</code></li>
+<li><code>destroying</code></li>
+<li><code>destroyed</code></li>
+<li><code>cleanup_blocked</code></li>
+<li><code>orphaned</code></li>
+</ul>
+<p>State transitions must be checked in code. Invalid transitions return
+<code>ErrInvalid</code> and record an audit event with the attempted transition.</p>
+<p>State entry rules:</p>
+<table>
+<thead>
+<tr>
+<th>State</th>
+<th>Valid From</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>planned</code></td>
+<td>initial cloud deployment registration</td>
+</tr>
+<tr>
+<td><code>preflight_failed</code></td>
+<td><code>planned</code>, <code>preflight_passed</code>, <code>approval_required</code></td>
+</tr>
+<tr>
+<td><code>preflight_passed</code></td>
+<td><code>planned</code>, <code>preflight_failed</code></td>
+</tr>
+<tr>
+<td><code>approval_required</code></td>
+<td><code>preflight_passed</code></td>
+</tr>
+<tr>
+<td><code>queued</code></td>
+<td><code>approval_required</code>, <code>preflight_passed</code></td>
+</tr>
+<tr>
+<td><code>provisioning</code></td>
+<td><code>queued</code>, <code>preflight_passed</code>, <code>failed</code></td>
+</tr>
+<tr>
+<td><code>cancel_requested</code></td>
+<td><code>queued</code>, <code>provisioning</code></td>
+</tr>
+<tr>
+<td><code>cancelling</code></td>
+<td><code>cancel_requested</code></td>
+</tr>
+<tr>
+<td><code>available</code></td>
+<td><code>provisioning</code>, <code>status_unknown</code></td>
+</tr>
+<tr>
+<td><code>failed</code></td>
+<td>any active provisioning or destroy state</td>
+</tr>
+<tr>
+<td><code>status_unknown</code></td>
+<td><code>provisioning</code>, <code>available</code>, <code>destroying</code></td>
+</tr>
+<tr>
+<td><code>backup_unverified</code></td>
+<td><code>available</code></td>
+</tr>
+<tr>
+<td><code>restore_verified</code></td>
+<td><code>available</code>, <code>backup_unverified</code></td>
+</tr>
+<tr>
+<td><code>destroy_pending</code></td>
+<td><code>available</code>, <code>restore_verified</code>, <code>cleanup_blocked</code></td>
+</tr>
+<tr>
+<td><code>destroy_preflight_failed</code></td>
+<td><code>destroy_pending</code></td>
+</tr>
+<tr>
+<td><code>destroying</code></td>
+<td><code>destroy_pending</code></td>
+</tr>
+<tr>
+<td><code>destroyed</code></td>
+<td><code>destroying</code>, <code>cancelling</code></td>
+</tr>
+<tr>
+<td><code>cleanup_blocked</code></td>
+<td><code>available</code>, <code>destroy_pending</code>, <code>destroy_preflight_failed</code></td>
+</tr>
+<tr>
+<td><code>orphaned</code></td>
+<td>provider reconcile found tagged resource with no active deployment</td>
+</tr>
+</tbody>
+</table>
+<p>Entering <code>destroy_pending</code> from <code>cleanup_blocked</code>, forcing destroy, or
+recovering <code>orphaned</code> resources requires an operator or admin role and must
+write an audit event.</p>
+<h3 id="idempotency">Idempotency<a class="headerlink" href="#idempotency" title="Permanent link">&para;</a></h3>
+<p>All create requests use:</p>
+<ul>
+<li>deterministic provider resource name from <code>deployment_id</code></li>
+<li>provider tags/labels containing <code>pg_sage_deployment_id</code></li>
+<li>provider lookup before create</li>
+<li>result adoption when a matching tagged resource already exists</li>
+</ul>
+<h3 id="resource-naming">Resource Naming<a class="headerlink" href="#resource-naming" title="Permanent link">&para;</a></h3>
+<p>Provider resource names are derived, not blindly copied from deployment IDs.
+The derived value is persisted as <code>provider_resource_id</code>.</p>
+<p>Default derivation:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>provider_resource_id = &quot;pgs-&quot; + lowercase(hex(sha1(deployment_id))[:20])
+</code></pre></div>
+<p>RDS uses this derived name to satisfy identifier constraints: 1-63 characters,
+letter-leading, lowercase letters/digits/hyphens, no trailing or consecutive
+hyphens. Cloud SQL uses the same derived name unless a stricter provider rule
+requires a shorter hash. Lakebase branches may use a readable sanitized
+deployment ID only when it satisfies Lakebase branch ID rules; otherwise they
+use the same hash form.</p>
+<p>All delete requests are safe to retry:</p>
+<ul>
+<li>not found from provider maps to <code>destroyed</code> only if provider name and
+  deployment ID match the stored deployment</li>
+<li>partial delete states map to <code>destroying</code></li>
+<li>failed deletes keep the deployment active or cleanup-blocked, never deleted</li>
+</ul>
+<h3 id="creation-receipts">Creation Receipts<a class="headerlink" href="#creation-receipts" title="Permanent link">&para;</a></h3>
+<p>Before any live create call leaves pg_sage, pg_sage writes a creation receipt
+inside the same transaction that changes the deployment to <code>provisioning</code>.
+The receipt stores deployment ID, provider, provider resource ID, region,
+account/project/workspace, request hash, operation mode, and timestamp.
+Reconcile uses receipts to recover crash-during-create cases where the provider
+accepted the request but pg_sage crashed before recording the final state.</p>
+<h3 id="typed-provider-errors">Typed Provider Errors<a class="headerlink" href="#typed-provider-errors" title="Permanent link">&para;</a></h3>
+<p>Provider runners return typed errors so agents and operators can repair the
+right field:</p>
+<ul>
+<li><code>ErrProviderQuota</code></li>
+<li><code>ErrProviderRateLimit</code></li>
+<li><code>ErrProviderTransient</code></li>
+<li><code>ErrProviderConfig</code></li>
+<li><code>ErrProviderAuth</code></li>
+<li><code>ErrProviderConflict</code></li>
+<li><code>ErrProviderNotFound</code></li>
+</ul>
+<p>Every typed error carries a redacted provider message and an actionable repair
+hint.</p>
+<h2 id="2-provider-runner-interface">2. Provider Runner Interface<a class="headerlink" href="#2-provider-runner-interface" title="Permanent link">&para;</a></h2>
+<p>Replace the current command-shaped runner with a provider-native operation
+interface. Keep <code>DryRunProvisionRunner</code> as one implementation.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">ProvisionOperation</span><span class="w"> </span><span class="kt">string</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="kd">const</span><span class="w"> </span><span class="p">(</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nx">OperationPreflight</span><span class="w"> </span><span class="nx">ProvisionOperation</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;preflight&quot;</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nx">OperationCreate</span><span class="w">    </span><span class="nx">ProvisionOperation</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;create&quot;</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nx">OperationStatus</span><span class="w">    </span><span class="nx">ProvisionOperation</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;status&quot;</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nx">OperationDestroy</span><span class="w">   </span><span class="nx">ProvisionOperation</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;destroy&quot;</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nx">OperationBackup</span><span class="w">    </span><span class="nx">ProvisionOperation</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;backup_check&quot;</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nx">OperationRestore</span><span class="w">   </span><span class="nx">ProvisionOperation</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s">&quot;restore_drill&quot;</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="p">)</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="kd">type</span><span class="w"> </span><span class="nx">ProvisionRequest</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">    </span><span class="nx">Deployment</span><span class="w"> </span><span class="nx">Deployment</span>
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">    </span><span class="nx">Profile</span><span class="w">    </span><span class="nx">SizeProfile</span>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">    </span><span class="nx">Operation</span><span class="w">  </span><span class="nx">ProvisionOperation</span>
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">    </span><span class="nx">Live</span><span class="w">       </span><span class="kt">bool</span>
+<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">    </span><span class="nx">Now</span><span class="w">        </span><span class="nx">time</span><span class="p">.</span><span class="nx">Time</span>
+<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="p">}</span>
+<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>
+<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="kd">type</span><span class="w"> </span><span class="nx">ProvisionResult</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">    </span><span class="nx">ProviderResourceID</span><span class="w"> </span><span class="kt">string</span>
+<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a><span class="w">    </span><span class="nx">ProviderState</span><span class="w">      </span><span class="kt">string</span>
+<a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a><span class="w">    </span><span class="nx">Endpoint</span><span class="w">           </span><span class="kt">string</span>
+<a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a><span class="w">    </span><span class="nx">Port</span><span class="w">               </span><span class="kt">int</span>
+<a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a><span class="w">    </span><span class="nx">DatabaseName</span><span class="w">       </span><span class="kt">string</span>
+<a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a><span class="w">    </span><span class="nx">SecretRef</span><span class="w">          </span><span class="kt">string</span>
+<a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a><span class="w">    </span><span class="nx">CostEstimateUSD</span><span class="w">    </span><span class="kt">float64</span>
+<a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a><span class="w">    </span><span class="nx">BackupStatus</span><span class="w">       </span><span class="kt">string</span>
+<a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a><span class="w">    </span><span class="nx">SafeForDestroy</span><span class="w">     </span><span class="kt">bool</span>
+<a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a><span class="w">    </span><span class="nx">Detail</span><span class="w">             </span><span class="kd">map</span><span class="p">[</span><span class="kt">string</span><span class="p">]</span><span class="kt">any</span>
+<a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a><span class="p">}</span>
+<a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>
+<a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a><span class="kd">type</span><span class="w"> </span><span class="nx">ProviderRunner</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-34" name="__codelineno-1-34" href="#__codelineno-1-34"></a><span class="w">    </span><span class="nx">Provider</span><span class="p">()</span><span class="w"> </span><span class="kt">string</span>
+<a id="__codelineno-1-35" name="__codelineno-1-35" href="#__codelineno-1-35"></a><span class="w">    </span><span class="nx">Preflight</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">req</span><span class="w"> </span><span class="nx">ProvisionRequest</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">ProvisionResult</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-1-36" name="__codelineno-1-36" href="#__codelineno-1-36"></a><span class="w">    </span><span class="nx">Create</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">req</span><span class="w"> </span><span class="nx">ProvisionRequest</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">ProvisionResult</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-1-37" name="__codelineno-1-37" href="#__codelineno-1-37"></a><span class="w">    </span><span class="nx">Status</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">req</span><span class="w"> </span><span class="nx">ProvisionRequest</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">ProvisionResult</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-1-38" name="__codelineno-1-38" href="#__codelineno-1-38"></a><span class="w">    </span><span class="nx">Destroy</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">req</span><span class="w"> </span><span class="nx">ProvisionRequest</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">ProvisionResult</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-1-39" name="__codelineno-1-39" href="#__codelineno-1-39"></a><span class="w">    </span><span class="nx">BackupCheck</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">req</span><span class="w"> </span><span class="nx">ProvisionRequest</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">ProvisionResult</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-1-40" name="__codelineno-1-40" href="#__codelineno-1-40"></a><span class="w">    </span><span class="nx">RestoreDrill</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">req</span><span class="w"> </span><span class="nx">ProvisionRequest</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">ProvisionResult</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-1-41" name="__codelineno-1-41" href="#__codelineno-1-41"></a><span class="p">}</span>
+</code></pre></div>
+<p>Runners:</p>
+<ul>
+<li><code>DryRunRunner</code></li>
+<li><code>AWSRDSRunner</code></li>
+<li><code>GCPCloudSQLRunner</code></li>
+<li><code>DatabricksLakebaseRunner</code></li>
+</ul>
+<p>Runner selection is injected into API routes through a registry. Tests can
+install fake runners.</p>
+<h2 id="3-credential-model">3. Credential Model<a class="headerlink" href="#3-credential-model" title="Permanent link">&para;</a></h2>
+<h3 id="pg_sage-stores">pg_sage Stores<a class="headerlink" href="#pg_sage-stores" title="Permanent link">&para;</a></h3>
+<p>pg_sage may store:</p>
+<ul>
+<li>provider name</li>
+<li>account/project/workspace ID</li>
+<li>region</li>
+<li>resource ID</li>
+<li>provider resource ID</li>
+<li>endpoint hostname</li>
+<li>port</li>
+<li>database name</li>
+<li>secret reference ARN/resource/name</li>
+<li>secret reference provider</li>
+<li>secret reference expiration</li>
+<li>creation receipt metadata</li>
+<li>non-sensitive tags/labels</li>
+<li>redacted audit details</li>
+</ul>
+<p>pg_sage must not store:</p>
+<ul>
+<li>cloud access keys</li>
+<li>AWS session tokens</li>
+<li>Google OAuth tokens</li>
+<li>Databricks OAuth tokens</li>
+<li>generated database passwords</li>
+<li>raw connection URLs containing credentials</li>
+<li>private keys</li>
+</ul>
+<h3 id="provider-auth">Provider Auth<a class="headerlink" href="#provider-auth" title="Permanent link">&para;</a></h3>
+<p>AWS:</p>
+<ul>
+<li>MVP local/dev: SDK default credential chain with optional profile name.</li>
+<li>Enterprise: IAM role, IRSA/workload identity, or explicit AWS config mounted
+  into the sidecar environment.</li>
+<li>Database credentials: prefer RDS-managed master password in AWS Secrets
+  Manager. If unsupported, generate through provider runner and store only an
+  external secret reference.</li>
+</ul>
+<p>GCP:</p>
+<ul>
+<li>MVP local/dev: Application Default Credentials.</li>
+<li>Enterprise: service account impersonation or workload identity.</li>
+<li>Database credentials: prefer Cloud SQL IAM database authentication where the
+  target workload can use it. Otherwise store a secret in Secret Manager and
+  keep only the secret resource name in pg_sage.</li>
+</ul>
+<p>Databricks:</p>
+<ul>
+<li>MVP local/dev: Databricks unified auth profile.</li>
+<li>Enterprise: OAuth machine-to-machine service principal.</li>
+<li>Database credentials: use Lakebase database credential generation where
+  available; store only credential expiration and reference metadata.</li>
+</ul>
+<h3 id="redaction">Redaction<a class="headerlink" href="#redaction" title="Permanent link">&para;</a></h3>
+<p>All provider result details pass through <code>RedactProviderDetail</code> before storage
+or response. Redaction covers keys matching:</p>
+<ul>
+<li><code>password</code></li>
+<li><code>secret</code></li>
+<li><code>token</code></li>
+<li><code>credential</code></li>
+<li><code>private_key</code></li>
+<li><code>connection_string</code></li>
+<li><code>dsn</code></li>
+<li><code>access_key</code></li>
+<li><code>session</code></li>
+</ul>
+<p>Redaction is recursive for maps and arrays.</p>
+<h2 id="4-policy-and-safety">4. Policy and Safety<a class="headerlink" href="#4-policy-and-safety" title="Permanent link">&para;</a></h2>
+<p>New config:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">agentdb</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">live_provisioning_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">max_live_creates_per_hour</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span><span class="nt">max_live_creates_per_day</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="nt">rate_limit_dimensions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">global</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">provider</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">provider_account</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">requester</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span><span class="nt">require_approval_for_live</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span><span class="nt">require_ttl_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span><span class="nt">default_ttl_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">14400</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span><span class="nt">max_ttl_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">604800</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">  </span><span class="nt">allowed_providers</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">local_postgres</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">  </span><span class="nt">allowed_regions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">  </span><span class="nt">allowed_accounts</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">  </span><span class="nt">allowed_projects</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">  </span><span class="nt">allowed_workspaces</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">  </span><span class="nt">allow_public_ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">  </span><span class="nt">require_private_network_for_production</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">  </span><span class="nt">require_backup_before_destroy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">  </span><span class="nt">provider_execution</span><span class="p">:</span>
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">    </span><span class="nt">aws_rds</span><span class="p">:</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">      </span><span class="nt">profile</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">      </span><span class="nt">account_id</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="w">      </span><span class="nt">default_region</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="w">    </span><span class="nt">gcp_cloudsql</span><span class="p">:</span>
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a><span class="w">      </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a><span class="w">      </span><span class="nt">default_region</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a><span class="w">      </span><span class="nt">use_adc</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a><span class="w">    </span><span class="nt">databricks_lakebase</span><span class="p">:</span>
+<a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a><span class="w">      </span><span class="nt">workspace_host</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+<a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a><span class="w">      </span><span class="nt">profile</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
+</code></pre></div>
+<p>Policy gates:</p>
+<ul>
+<li>live create denied unless global and provider live flags are enabled</li>
+<li>provider must be allowed</li>
+<li>empty allowlist means deny-all for that live-mode dimension; use <code>["*"]</code>
+  explicitly to allow any account, project, workspace, or region</li>
+<li>account/project/workspace must be allowed</li>
+<li>region must be allowed</li>
+<li>TTL is required for agent-created live resources</li>
+<li>TTL countdown starts when the resource first reaches <code>available</code>, not at
+  request, preflight, or queued time</li>
+<li>profile-level TTL overrides the global default; recommended defaults are
+  3600 seconds for Lakebase branches and 14400 seconds for full RDS/Cloud SQL
+  instances</li>
+<li>budget estimate must be under <code>budget_usd</code> unless operator override exists</li>
+<li>production safety mode requires private networking or explicit exception</li>
+<li>destructive actions require backup/restore gate</li>
+<li>live create approvals reuse the existing Agent DB deploy-request review
+  workflow instead of introducing a second approval workflow</li>
+<li>rate limits apply at global, provider, provider account/project/workspace,
+  and requester dimensions</li>
+</ul>
+<p>Production safety mode is a provider-config setting. When enabled, all live
+creates require private networking, deletion protection or an approved
+TTL-bound exception, automated backups of at least seven days, and admin-role
+approval for any policy override.</p>
+<h2 id="5-networking">5. Networking<a class="headerlink" href="#5-networking" title="Permanent link">&para;</a></h2>
+<p>Networking is the most likely enterprise blocker.</p>
+<h3 id="aws-rds">AWS RDS<a class="headerlink" href="#aws-rds" title="Permanent link">&para;</a></h3>
+<p>MVP:</p>
+<ul>
+<li>support existing <code>db_subnet_group_name</code></li>
+<li>support existing <code>vpc_security_group_ids</code></li>
+<li>support <code>publicly_accessible=false</code> default</li>
+<li>support <code>publicly_accessible=true</code> only if policy allows public IP</li>
+<li>support <code>deletion_protection=false</code> only for TTL-governed disposable DBs</li>
+</ul>
+<p>Enterprise follow-up:</p>
+<ul>
+<li>create managed security group from a named template</li>
+<li>validate subnet group spans required availability zones</li>
+<li>optional RDS Proxy</li>
+<li>optional IAM database authentication</li>
+</ul>
+<h3 id="gcp-cloud-sql">GCP Cloud SQL<a class="headerlink" href="#gcp-cloud-sql" title="Permanent link">&para;</a></h3>
+<p>MVP:</p>
+<ul>
+<li>support public IP only when Cloud SQL Auth Proxy or connector usage is
+  configured and verified by preflight</li>
+<li>support private IP when a VPC network and private services access are
+  provided</li>
+<li>support <code>sslMode</code> / require SSL</li>
+<li>block <code>authorizedNetworks=0.0.0.0/0</code></li>
+<li>reject non-proxy public IP paths by default when live provisioning is enabled</li>
+</ul>
+<p>Enterprise follow-up:</p>
+<ul>
+<li>VPC connector checks</li>
+<li>Cloud SQL connector metadata for application runtimes</li>
+<li>IAM database auth bootstrap</li>
+</ul>
+<h3 id="databricks-lakebase">Databricks Lakebase<a class="headerlink" href="#databricks-lakebase" title="Permanent link">&para;</a></h3>
+<p>MVP:</p>
+<ul>
+<li>support Lakebase branch create/delete in an existing project</li>
+<li>record source branch, created branch, operation name, TTL, and state</li>
+<li>support full provisioned instance only when API shape is verified by live
+  test in the target workspace</li>
+</ul>
+<p>Enterprise follow-up:</p>
+<ul>
+<li>service principal ownership</li>
+<li>endpoint credential generation</li>
+<li>branch promotion workflow</li>
+<li>branch age/depth/parent observability</li>
+</ul>
+<h2 id="6-backup-and-restore">6. Backup and Restore<a class="headerlink" href="#6-backup-and-restore" title="Permanent link">&para;</a></h2>
+<p>Managed providers:</p>
+<ul>
+<li>RDS: verify automated backup retention, deletion protection policy, final
+  snapshot policy, and snapshot/restore listing permission.</li>
+<li>Cloud SQL: verify backup configuration, PITR where configured, and backup
+  run listing permission.</li>
+<li>Lakebase: verify branch parent/source, TTL, branch existence, and provider
+  restore/fork semantics available for the selected project.</li>
+</ul>
+<p>Local/self-managed:</p>
+<ul>
+<li>require <code>pg_dump</code> or configured backup command before deletion</li>
+<li>restore drill must run outside the source DB and prove catalog readability</li>
+</ul>
+<p>Destroy gate:</p>
+<ul>
+<li><code>backup_required=false</code> can only bypass backup gate for explicitly disposable
+  data classification.</li>
+<li><code>restore_drill_dry_run</code> never counts as <code>restore_verified</code>.</li>
+<li>Managed provider backup-check can mark <code>backup_status=verified</code>, but
+  <code>safe_for_destroy=true</code> requires provider-specific policy or a verified
+  restore/fork/snapshot check.</li>
+</ul>
+<p>Emergency destroy:</p>
+<ul>
+<li><code>force_destroy=true</code> bypasses the backup gate only for admin users.</li>
+<li>Agent API tokens cannot force destroy.</li>
+<li>The request requires a dual-control marker: operator reason plus admin
+  confirmation.</li>
+<li>pg_sage emits an <code>unsafe_destroy</code> audit event with reason, actor IDs, provider
+  resource ID, and redacted provider state.</li>
+<li>Emergency destroy is intended for runaway-cost or compliance incidents where
+  provider backup APIs are unavailable or stuck.</li>
+</ul>
+<h2 id="7-cost-tracking">7. Cost Tracking<a class="headerlink" href="#7-cost-tracking" title="Permanent link">&para;</a></h2>
+<p>Preflight produces a cost estimate with:</p>
+<ul>
+<li>provider</li>
+<li>region</li>
+<li>size profile</li>
+<li>storage</li>
+<li>backup retention</li>
+<li>estimated monthly cost</li>
+<li>estimated TTL cost</li>
+<li>confidence</li>
+<li>unknown-cost flags</li>
+</ul>
+<p>MVP estimates can be heuristic tables stored in versioned YAML/config with
+explicit confidence. Later versions can integrate AWS Pricing, Cloud Billing
+Catalog, and Databricks billing exports.</p>
+<p>Estimates with <code>confidence=low</code> or non-empty <code>unknown_components</code> are doubled
+before budget comparison and require admin override if the doubled estimate
+exceeds 50% of the deployment budget.</p>
+<p>Budget behavior:</p>
+<ul>
+<li>reject if estimated TTL cost exceeds deployment budget</li>
+<li>warning if monthly equivalent exceeds profile budget</li>
+<li>mark <code>budget_exceeded</code> when observed samples exceed budget</li>
+<li>include cost feedback in agent-facing recommendations</li>
+</ul>
+<h2 id="8-ui-and-api">8. UI and API<a class="headerlink" href="#8-ui-and-api" title="Permanent link">&para;</a></h2>
+<h3 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h3>
+<p>Keep existing endpoints and add:</p>
+<ul>
+<li><code>POST /api/v1/agent-dbs/{id}/provision/destroy</code></li>
+<li><code>GET /api/v1/agent-dbs/{id}/provision/preflight-summary</code></li>
+<li><code>GET /api/v1/agent-dbs/provider-config</code></li>
+<li><code>PUT /api/v1/agent-dbs/provider-config</code></li>
+<li><code>GET /api/v1/agent-dbs/terraform-templates</code></li>
+<li><code>POST /api/v1/agent-dbs/terraform-templates</code></li>
+<li><code>GET /api/v1/agent-dbs/terraform-templates/{template_id}</code></li>
+<li><code>POST /api/v1/agent-dbs/terraform-templates/{template_id}/validate</code></li>
+<li><code>POST /api/v1/agent-dbs/terraform-templates/{template_id}/approve</code></li>
+</ul>
+<p><code>POST /api/v1/agent-dbs/{id}/provision/execute</code> accepts:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;dry_run&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">&quot;cost_estimate_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&quot;</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="p">}</span>
+</code></pre></div>
+<p><code>mode=dry_run</code> preserves current behavior. <code>mode=live</code> requires explicit
+policy enablement, operator/admin role, and a fresh <code>cost_estimate_id</code> returned
+by preflight. Cost estimates expire after a short configurable window, default
+15 minutes.</p>
+<h3 id="ui">UI<a class="headerlink" href="#ui" title="Permanent link">&para;</a></h3>
+<p>Agent DBs page:</p>
+<ul>
+<li>reduce scrolling by moving the page into task-focused tabs:
+  <code>Deployments</code>, <code>Provision</code>, <code>Profiles</code>, <code>Provider Settings</code>, <code>Terraform</code>,
+  and <code>Activity</code></li>
+<li>keep deployment summary metrics and selected deployment status visible in a
+  sticky compact header</li>
+<li>move long forms into progressive sections with collapsible advanced fields</li>
+<li>show dry-run and live actions separately</li>
+<li>show live disabled reasons inline</li>
+<li>show provider resource ID and state</li>
+<li>show secret reference, never secret value</li>
+<li>show cost estimate before live create</li>
+<li>show backup/destroy gates</li>
+<li>show branch versus full instance for Lakebase</li>
+<li>keep action history and audit details behind an <code>Activity</code> tab instead of
+  forcing operators through a long vertical page</li>
+</ul>
+<p>Settings page:</p>
+<ul>
+<li>add Cloud Provisioning tab or Agent DB Provider Settings panel</li>
+<li>configure provider enablement and allowlists</li>
+<li>expose readonly provider readiness and last preflight failure</li>
+</ul>
+<p>Agent API:</p>
+<ul>
+<li>agents can request deployments</li>
+<li>agents can poll status</li>
+<li>agents can ping liveness</li>
+<li>agents can fetch query tuning recommendations</li>
+<li>agents cannot bypass approval, budget, backup, or live provider policies</li>
+</ul>
+<h3 id="terraform-template-uploads">Terraform Template Uploads<a class="headerlink" href="#terraform-template-uploads" title="Permanent link">&para;</a></h3>
+<p>Operators can upload their own Terraform definitions as provider templates, but
+pg_sage does not blindly apply arbitrary uploaded code.</p>
+<p>Supported upload inputs:</p>
+<ul>
+<li>single <code>.tf</code></li>
+<li>single <code>.tf.json</code></li>
+<li><code>.zip</code> containing a root Terraform module</li>
+</ul>
+<p>MVP behavior:</p>
+<ul>
+<li>upload stores a template draft with a content hash, file manifest, provider
+  list, detected resource types, variable list, outputs, and validation status</li>
+<li>raw templates are never treated as trusted execution code until they pass
+  policy checks</li>
+<li>uploaded <code>*.tfvars</code>, <code>*.auto.tfvars</code>, local state files, <code>.terraform/</code>, and
+  files containing secret-looking keys are rejected</li>
+<li><code>provisioner</code>, <code>local-exec</code>, <code>remote-exec</code>, <code>external</code> data sources,
+  <code>null_resource</code>, <code>local_file</code>, and unrestricted module sources are rejected
+  by default</li>
+<li>allowed resource types are limited to Agent DB provider resources needed by
+  pg_sage, for example RDS DB instances, Cloud SQL instances, Databricks
+  Lakebase branches/instances, network attachments, subnet group references,
+  security group references, and provider-native secret references</li>
+<li>external modules are allowed only when the module source is pinned and on an
+  operator allowlist</li>
+<li>validation runs in an isolated temporary workspace with no cloud credentials
+  for static checks; live plans require explicit provider config and policy
+  approval</li>
+<li><code>terraform validate</code> and <code>terraform show -json</code> output are parsed when
+  available so pg_sage can show resources, variables, planned changes, and
+  policy findings in the UI</li>
+<li>uploaded templates may be used by a size profile through
+  <code>terraform_template_id</code></li>
+<li>template execution still flows through the same preflight, cost, approval,
+  redaction, and destroy gates as built-in runners</li>
+</ul>
+<p>The first release should support templates as reusable, policy-checked
+definitions. Direct user-provided <code>terraform apply</code> is out of scope.</p>
+<h2 id="9-testing-plan">9. Testing Plan<a class="headerlink" href="#9-testing-plan" title="Permanent link">&para;</a></h2>
+<p>Unit tests:</p>
+<ul>
+<li>state transition matrix</li>
+<li>runner registry selection</li>
+<li>redaction recursion</li>
+<li>redaction fuzzing for nested provider detail</li>
+<li>policy denial reasons</li>
+<li>typed provider error mapping</li>
+<li>provider params normalization</li>
+<li>cost estimate calculations</li>
+<li>idempotency lookup/adoption behavior</li>
+</ul>
+<p>Integration tests with fake provider servers:</p>
+<ul>
+<li>AWS RDS fake runner create/status/delete</li>
+<li>Cloud SQL fake runner create/status/delete</li>
+<li>Lakebase fake REST server branch create/status/delete</li>
+<li>crash-after-create reconciliation</li>
+<li>crash-during-create reconciliation using creation receipts</li>
+<li>provider not-found delete reconciliation</li>
+<li>concurrent reconcile from two sidecars does not double-destroy</li>
+</ul>
+<p>Live tests behind explicit environment flags:</p>
+<ul>
+<li><code>PG_SAGE_LIVE_AWS_RDS=1</code></li>
+<li><code>PG_SAGE_LIVE_GCP_CLOUDSQL=1</code></li>
+<li><code>PG_SAGE_LIVE_DATABRICKS_LAKEBASE=1</code></li>
+</ul>
+<p>Live tests must:</p>
+<ul>
+<li>generate unique deployment IDs</li>
+<li>tag/label resources with TTL and owner</li>
+<li>run create/status/backup-check/destroy</li>
+<li>verify resource is gone or cleanup is requested</li>
+<li>fail loudly if cleanup cannot be verified</li>
+</ul>
+<p>Browser tests:</p>
+<ul>
+<li>provider settings page</li>
+<li>disabled live action reasons</li>
+<li>preflight summary</li>
+<li>Lakebase branch/full instance selection</li>
+<li>live execution confirmation modal</li>
+<li>no secret rendering</li>
+<li>Terraform upload validation rejects provisioners, tfvars, state files,
+  secret-looking keys, and unpinned external modules</li>
+<li>Agent DB UI tab navigation keeps the primary workflows reachable without
+  scrolling through every panel</li>
+</ul>
+<p>Security tests:</p>
+<ul>
+<li>no redacted key leaks in attempts, audit, API, logs, or UI</li>
+<li>malicious provider params cannot inject commands</li>
+<li>invalid regions/accounts/projects are denied</li>
+<li>public IP and broad authorized networks are blocked by default</li>
+</ul>
+<h2 id="10-ga-exit-criteria">10. GA Exit Criteria<a class="headerlink" href="#10-ga-exit-criteria" title="Permanent link">&para;</a></h2>
+<p>GA is not just "the button creates a database." GA requires:</p>
+<ul>
+<li>dry-run remains available and safe</li>
+<li>live create/status/delete are implemented through provider SDK/REST APIs</li>
+<li>RDS, Cloud SQL, and Lakebase branch live E2E tests pass through pg_sage API</li>
+<li>all live resources are tagged/labeled with deployment and TTL</li>
+<li>reconcile handles resource exists/state stale, resource gone/state stale, and
+  partial delete</li>
+<li>crash-during-create is recoverable from creation receipts</li>
+<li>no secrets leak in test fixtures, logs, DB rows, API, or UI</li>
+<li>backup/restore gate blocks unsafe deletion</li>
+<li>emergency destroy is admin-only, dual-control, and fully audited</li>
+<li>provider settings and policy denials are visible in UI</li>
+<li>Agent DB UI is split into task-focused tabs with long forms collapsed by
+  default</li>
+<li>Terraform template upload/import is policy-checked and never applies
+  arbitrary uploaded code directly</li>
+<li>operator runbook exists</li>
+<li>cost estimate is shown and enforced before create</li>
+<li>low-confidence cost estimates fail closed or require admin override</li>
+<li>no non-proxy public IP path is allowed by default</li>
+<li>tenant model is explicitly single-tenant admin/operator for MVP</li>
+<li>in-flight cancel exists for operations stuck in <code>queued</code> or <code>provisioning</code></li>
+<li>failure messages are actionable enough for an agent to repair request fields</li>
+</ul>
+<h2 id="what-enterprises-deploying-agents-will-need">What Enterprises Deploying Agents Will Need<a class="headerlink" href="#what-enterprises-deploying-agents-will-need" title="Permanent link">&para;</a></h2>
+<p>The baseline feature should assume the enterprise buyer will ask:</p>
+<ul>
+<li>Can I prove which agent created which database and why?</li>
+<li>Can I cap spend per agent, tenant, team, and provider account?</li>
+<li>Can I disable public networking globally?</li>
+<li>Can I use my existing VPC/subnet/security group/network policy templates?</li>
+<li>Can I require approval before live create or before promotion?</li>
+<li>Can I guarantee cleanup of abandoned resources?</li>
+<li>Can I recover from an agent-created DB before deleting it?</li>
+<li>Can I export audit evidence to a SIEM?</li>
+<li>Can I rotate or revoke credentials without deleting the DB?</li>
+<li>Can I enforce data classification rules so production PII is not branched
+  into unsafe test environments?</li>
+<li>Can I make agent tuning recommendations available over API so agents repair
+  poor queries themselves?</li>
+<li>Can I see which branch or disposable DB has become long-lived and expensive?</li>
+</ul>
+<h2 id="mvp-scope">MVP Scope<a class="headerlink" href="#mvp-scope" title="Permanent link">&para;</a></h2>
+<p>The first go-live implementation should include:</p>
+<ul>
+<li>provider config schema and UI</li>
+<li>Agent DB UI task tabs and Terraform template upload microslice</li>
+<li>runner registry</li>
+<li>dry-run runner refactor</li>
+<li>provider resource naming and creation receipts</li>
+<li>typed provider errors</li>
+<li>AWS RDS live runner</li>
+<li>GCP Cloud SQL live runner</li>
+<li>Lakebase branch live runner</li>
+<li>live execute and live destroy endpoints</li>
+<li>redaction</li>
+<li>policy gates</li>
+<li>cost estimate heuristics</li>
+<li>backup checks</li>
+<li>reconcile</li>
+<li>live E2E tests behind flags</li>
+<li>operator runbook</li>
+</ul>
+<p>Full Lakebase provisioned instance support can remain behind a feature flag
+until the target workspace API is validated for that shape.</p>
+<p>MVP tenancy is single-tenant at the pg_sage operator boundary: admin/operator
+users can see and manage all Agent DB deployments. Tenant-scoped RBAC,
+per-tenant delegates, and team-level resource ownership are post-GA work.</p>
+<h2 id="out-of-scope">Out of Scope<a class="headerlink" href="#out-of-scope" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Cloud schema/database-level provisioning. Cloud remains instance-level only.</li>
+<li>HNSW experiment planner. That remains a separate product.</li>
+<li>Automatic production promotion without human/operator approval.</li>
+<li>Provider resource creation through <code>aws</code>, <code>gcloud</code>, or <code>databricks</code> CLI.</li>
+<li>Direct <code>terraform apply</code> of arbitrary user-uploaded modules without pg_sage
+  validation, approval, and policy gates.</li>
+<li>Full cloud billing ingestion in the first live execution slice.</li>
+<li>Multi-tenant authorization beyond admin/operator.</li>
+<li>Real snapshot-restore-to-temp-instance drills; MVP verifies restore
+  capability and provider backup configuration, not full restore execution.</li>
+<li>Cross-region replication and DR automation.</li>
+<li>Agent credential rotation.</li>
+<li>SIEM export.</li>
+<li>Lakebase branch promotion workflow.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

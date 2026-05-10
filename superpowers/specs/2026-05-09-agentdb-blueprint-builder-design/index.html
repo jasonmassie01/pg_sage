@@ -10,29 +10,27 @@
       
       
       
-        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/">
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/superpowers/specs/2026-05-09-agentdb-blueprint-builder-design/">
       
       
-      
-        <link rel="next" href="walkthrough/">
       
       
         
       
       
-      <link rel="icon" href="assets/images/favicon.png">
+      <link rel="icon" href="../../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>pg_sage</title>
+        <title>AgentDB Blueprint Builder Design - pg_sage</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,7 +49,7 @@
       
     
     
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -76,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#pg_sage-documentation" class="md-skip">
+        <a href="#agentdb-blueprint-builder-design" class="md-skip">
           Skip to content
         </a>
       
@@ -92,7 +90,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+    <a href="../../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -112,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Home
+              AgentDB Blueprint Builder Design
             
           </span>
         </div>
@@ -228,7 +226,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+    <a href="../../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -255,37 +253,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Home
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="." class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
         
   
   
@@ -301,59 +272,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#getting-started" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Getting Started
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reference
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#operations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Operations
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -365,7 +283,7 @@
   
   
     <li class="md-nav__item">
-      <a href="walkthrough/" class="md-nav__link">
+      <a href="../../../walkthrough/" class="md-nav__link">
         
   
   
@@ -392,7 +310,7 @@
   
   
     <li class="md-nav__item">
-      <a href="installation/" class="md-nav__link">
+      <a href="../../../installation/" class="md-nav__link">
         
   
   
@@ -419,7 +337,7 @@
   
   
     <li class="md-nav__item">
-      <a href="configuration/" class="md-nav__link">
+      <a href="../../../configuration/" class="md-nav__link">
         
   
   
@@ -446,7 +364,7 @@
   
   
     <li class="md-nav__item">
-      <a href="architecture/" class="md-nav__link">
+      <a href="../../../architecture/" class="md-nav__link">
         
   
   
@@ -473,7 +391,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sql-reference/" class="md-nav__link">
+      <a href="../../../sql-reference/" class="md-nav__link">
         
   
   
@@ -500,7 +418,7 @@
   
   
     <li class="md-nav__item">
-      <a href="findings/" class="md-nav__link">
+      <a href="../../../findings/" class="md-nav__link">
         
   
   
@@ -527,7 +445,7 @@
   
   
     <li class="md-nav__item">
-      <a href="hint-verification/" class="md-nav__link">
+      <a href="../../../hint-verification/" class="md-nav__link">
         
   
   
@@ -554,7 +472,7 @@
   
   
     <li class="md-nav__item">
-      <a href="security/" class="md-nav__link">
+      <a href="../../../security/" class="md-nav__link">
         
   
   
@@ -581,7 +499,7 @@
   
   
     <li class="md-nav__item">
-      <a href="deployment/" class="md-nav__link">
+      <a href="../../../deployment/" class="md-nav__link">
         
   
   
@@ -628,10 +546,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#getting-started" class="md-nav__link">
+  <a href="#goal" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Getting Started
+        Goal
       
     </span>
   </a>
@@ -639,10 +557,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#reference" class="md-nav__link">
+  <a href="#product-shape" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Reference
+        Product Shape
       
     </span>
   </a>
@@ -650,10 +568,54 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#operations" class="md-nav__link">
+  <a href="#architecture" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Operations
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#safety" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Safety
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exit Criteria
       
     </span>
   </a>
@@ -680,71 +642,94 @@
   
 
 
-<h1 id="pg_sage-documentation">pg_sage Documentation<a class="headerlink" href="#pg_sage-documentation" title="Permanent link">&para;</a></h1>
-<p>Agentic Postgres DBA — a Go sidecar that monitors, analyzes, and optimizes
-PostgreSQL 14+ databases with trust-ramped safety controls.</p>
-<p>v1 centers the product around an autonomous DBA workflow instead of a
-traditional observability dashboard:</p>
+<h1 id="agentdb-blueprint-builder-design">AgentDB Blueprint Builder Design<a class="headerlink" href="#agentdb-blueprint-builder-design" title="Permanent link">&para;</a></h1>
+<h2 id="goal">Goal<a class="headerlink" href="#goal" title="Permanent link">&para;</a></h2>
+<p>Add an AgentDB Blueprint Builder that turns a short English deployment intent
+into a typed database infrastructure blueprint and a draft Terraform template.
+The LLM may translate intent, but pg_sage remains the authority for policy,
+validation, persistence, review, and provisioning gates.</p>
+<h2 id="product-shape">Product Shape<a class="headerlink" href="#product-shape" title="Permanent link">&para;</a></h2>
+<p>The operator or agent submits a few paragraphs such as:</p>
+<blockquote>
+<p>Create a private AWS RDS Postgres database for a support agent in us-east-1.
+It needs Multi-AZ HA, PITR, 7-day backups, pgvector and PostGIS, a medium
+instance class, 100 GB storage, no public IP, and a $400 monthly budget.</p>
+</blockquote>
+<p>pg_sage returns:</p>
 <ul>
-<li><strong>Overview</strong> shows fleet health, provider readiness, and agent state.</li>
-<li><strong>Cases</strong> is the primary work queue for findings, incidents, and proposed
-  actions. Schema-health, forecast, query-hint, and incident routes open Cases
-  with the matching source filter selected; the legacy <code>#/findings</code> route
-  aliases here.</li>
-<li><strong>Actions</strong> shows pending approval and executed action history.</li>
-<li><strong>Fleet</strong> manages database connections and per-database runtime state.</li>
-<li><strong>Settings</strong> includes system configuration, emergency controls, and the
-  Shadow Mode report proving what auto-safe policy would have handled.</li>
-<li><strong>Agent DBs</strong> provisions local agent databases, reviews LLM blueprints and
-  Terraform templates, and runs gated cloud workflows for RDS, Cloud SQL, and
-  Lakebase when provider setup is complete.</li>
+<li>a normalized blueprint JSON document,</li>
+<li>generated Terraform files,</li>
+<li>Terraform static-policy findings,</li>
+<li>pg_sage policy findings,</li>
+<li>the generated Terraform template ID,</li>
+<li>whether an LLM or deterministic fallback produced the blueprint.</li>
 </ul>
-<p>The web UI and JSON API are authenticated by default. On first start, pg_sage
-prints a one-time password for <code>admin@pg-sage.local</code>; API clients authenticate
-through <code>/api/v1/auth/login</code> and reuse the <code>sage_session</code> cookie.</p>
-<p>Migration-safety cases are non-executing by default for high-risk DDL. pg_sage
-generates deterministic lock/rewrite and live-risk preflight evidence,
-migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI
-metadata so teams can review schema work before anything touches production.</p>
-<p>Incident and maintenance cases now carry richer automation candidates. Lock
-blockers, runaway queries, connection exhaustion, standby conflicts,
-WAL/replication pressure, autovacuum pressure, and sequence exhaustion route to
-typed playbooks with safe diagnostics or reviewed scripts. Vacuum, bloat, and
-freeze findings project guarded <code>VACUUM</code>, concurrent reindex, bloat-remediation
-plans, freeze diagnostics, and per-table autovacuum tuning actions with
-explicit verification plans and IO-saturation gates.</p>
-<p>Query tuning cases are no longer limited to planner hints. pg_sage can turn
-suggested rewrites into PR-ready artifacts, retire broken hints through a safe
-metadata action, recommend <code>CREATE STATISTICS</code>, draft parameterization changes,
-and promote repeated per-query <code>work_mem</code> hints into reviewed role-level
-settings when the blast radius is explicit.</p>
-<p>Provider readiness is adapter-driven for self-managed Postgres, Cloud SQL,
-AlloyDB, RDS, and Aurora. The matrix shows extension enablement paths, log
-access, provider limitations, and action-family readiness so automation policy
-can differ by managed-service constraints.</p>
-<hr />
-<h2 id="getting-started">Getting Started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h2>
+<p>The generated Terraform is always a draft. It is never applied directly by the
+LLM path. Existing AgentDB live provisioning gates still control live execution.</p>
+<h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
+<p>The path is:</p>
+<p>English intent -&gt; <code>BlueprintSpec</code> -&gt; Terraform files -&gt; template validation -&gt;
+stored blueprint -&gt; review/approve/apply through existing AgentDB flows.</p>
+<p>The backend stores blueprints in <code>sage.agent_db_blueprints</code>. Each blueprint
+links to an entry in <code>sage.agent_db_terraform_templates</code>. The generated
+template uses <code>source_kind = blueprint</code> and can later be approved with the
+existing Terraform template approval endpoint.</p>
+<p>The LLM boundary is an interface:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kd">type</span><span class="w"> </span><span class="nx">BlueprintGenerator</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="nx">GenerateBlueprint</span><span class="p">(</span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">BlueprintDraftRequest</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">BlueprintGeneration</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="p">}</span>
+</code></pre></div>
+<p>If no LLM is available, pg_sage uses a deterministic parser that covers common
+provider, HA, backup, network, extension, budget, region, and instance-size
+phrases. This keeps local QA and tests stable while allowing live LLM extraction
+in configured deployments.</p>
+<h2 id="safety">Safety<a class="headerlink" href="#safety" title="Permanent link">&para;</a></h2>
+<p>The LLM cannot choose to apply infrastructure. It can only propose a typed
+blueprint. pg_sage then:</p>
 <ul>
-<li><a href="installation/">Installation</a> — Download, prerequisites, database user setup</li>
-<li><a href="try-it-out/">Try It Out</a> — local v1 smoke path and UI checklist</li>
-<li><a href="walkthrough/">Walkthroughs</a> — Platform-specific getting started guides</li>
-<li><a href="walkthrough-linux/">Linux / macOS</a></li>
-<li><a href="walkthrough-windows/">Windows</a></li>
-<li><a href="walkthrough-fleet/">Fleet Mode</a></li>
+<li>validates provider and provisioning level,</li>
+<li>rejects public IP unless explicitly allowed by policy,</li>
+<li>checks minimum backup/PITR expectations for HA or production-like requests,</li>
+<li>records unsupported or risky extension requests,</li>
+<li>redacts generated files with existing Terraform secret scrubbing,</li>
+<li>runs existing Terraform template static checks,</li>
+<li>stores audit-friendly status and policy findings.</li>
 </ul>
-<h2 id="reference">Reference<a class="headerlink" href="#reference" title="Permanent link">&para;</a></h2>
+<h2 id="ui">UI<a class="headerlink" href="#ui" title="Permanent link">&para;</a></h2>
+<p>Add a <code>Blueprints</code> tab to AgentDB. The page contains:</p>
 <ul>
-<li><a href="architecture/">Architecture</a> — Tier 1 rules engine, Tier 2 LLM analysis, Tier 3 executor</li>
-<li><a href="configuration/">Configuration</a> — YAML config, environment variables, runtime overrides</li>
-<li><a href="findings/">Finding Types</a> — All diagnostic findings and severity levels</li>
-<li><a href="sql-reference/">SQL Schema</a> — <code>sage.*</code> tables, views, and functions</li>
-<li><a href="llm-costing/">LLM Costs &amp; Budgets</a> — Token usage, model routing, per-database budgets</li>
+<li>intent textarea,</li>
+<li>provider selector,</li>
+<li>created-by field,</li>
+<li>submit button,</li>
+<li>generated blueprint cards with status, provider, region, template ID,
+  policy findings, and generated file names.</li>
 </ul>
-<h2 id="operations">Operations<a class="headerlink" href="#operations" title="Permanent link">&para;</a></h2>
+<p>The current Terraform upload panel stays as the expert/manual path.</p>
+<h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
+<p>Add:</p>
 <ul>
-<li><a href="deployment/">Deployment</a> — Docker, systemd, Kubernetes</li>
-<li><a href="security/">Security</a> — Least-privilege roles, network policies, audit logging</li>
-<li><a href="runbooks/agentdb-cloud-provider-setup/">AgentDB Cloud Provider Setup</a> -- AWS RDS, GCP Cloud SQL, Databricks Lakebase, safety gates, and cleanup</li>
+<li><code>GET /api/v1/agent-dbs/blueprints</code></li>
+<li><code>POST /api/v1/agent-dbs/blueprints</code></li>
+</ul>
+<p>The POST body includes:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;blueprint_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bp_support_agent&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Support agent DB&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">&quot;intent&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;English paragraphs...&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">&quot;provider&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;aws_rds&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">&quot;created_by&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;operator&quot;</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="p">}</span>
+</code></pre></div>
+<p>The response includes the stored blueprint and generated template ID.</p>
+<h2 id="exit-criteria">Exit Criteria<a class="headerlink" href="#exit-criteria" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Unit tests cover deterministic blueprint extraction and Terraform generation.</li>
+<li>Store/API tests cover blueprint persistence and template linkage.</li>
+<li>UI tests cover blueprint submission and rendering.</li>
+<li>Existing Terraform upload still works, using <code>body</code> consistently for file
+  content.</li>
+<li>Full Go and web test/build gates pass.</li>
 </ul>
 
 
@@ -801,10 +786,10 @@ can differ by managed-service constraints.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

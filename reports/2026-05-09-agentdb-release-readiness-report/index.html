@@ -1,0 +1,1161 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/reports/2026-05-09-agentdb-release-readiness-report/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>AgentDB Release Readiness Report - 2026-05-09 - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#agentdb-release-readiness-report-2026-05-09" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              AgentDB Release Readiness Report - 2026-05-09
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#local-sidecar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Local Sidecar
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#product-work-completed-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Product Work Completed Today
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#live-cloud-validation-receipts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live Cloud Validation Receipts
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#browser-qa" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Browser QA
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#automated-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automated Verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#coverage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coverage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#worktree-classification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Worktree Classification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#remaining-release-items" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Remaining Release Items
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2026-05-09-end-to-end-provisioning-gauntlet-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2026-05-09 End-to-End Provisioning Gauntlet Update
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skipped-test-closure-pass" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skipped Test Closure Pass
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-live-product-chain-gauntlet-2026-05-10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Live Product-Chain Gauntlet - 2026-05-10
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="agentdb-release-readiness-report-2026-05-09">AgentDB Release Readiness Report - 2026-05-09<a class="headerlink" href="#agentdb-release-readiness-report-2026-05-09" title="Permanent link">&para;</a></h1>
+<h2 id="local-sidecar">Local Sidecar<a class="headerlink" href="#local-sidecar" title="Permanent link">&para;</a></h2>
+<ul>
+<li>URL: http://127.0.0.1:8085/</li>
+<li>Metrics: http://127.0.0.1:9187/metrics</li>
+<li>Admin email: admin@pg-sage.local</li>
+<li>Admin password: pgSageQA!2026</li>
+<li>Process: <code>pg_sage_sidecar_qa.exe --config=..\local_config.yaml</code></li>
+<li>Latest verified PID: 40896</li>
+</ul>
+<h2 id="product-work-completed-today">Product Work Completed Today<a class="headerlink" href="#product-work-completed-today" title="Permanent link">&para;</a></h2>
+<ul>
+<li>AgentDB provisioning supports local/provider contract flows for AWS RDS,
+  GCP Cloud SQL, and Databricks Lakebase branch mode.</li>
+<li>Lakebase branch requests now accept an explicit source instance or branch.</li>
+<li>AgentDB UI has compact tabs, per-tab descriptions, provider settings,
+  Terraform upload/import, blueprint generation, and documented form tips.</li>
+<li>Overview now uses tabs for Databases, Provider Readiness, and Recent Recos.
+  Databases is the default tab.</li>
+<li>Cases, Actions, and Fleet pages now explain that findings become cases, and
+  actionable cases flow into Actions for approval, execution, and audit.</li>
+<li>GCP Cloud SQL has a real REST Admin API client and live-gated lifecycle test.</li>
+<li>AWS RDS and GCP Cloud SQL live tests now write JSONL receipts after verified
+  cleanup.</li>
+</ul>
+<h2 id="live-cloud-validation-receipts">Live Cloud Validation Receipts<a class="headerlink" href="#live-cloud-validation-receipts" title="Permanent link">&para;</a></h2>
+<p>Receipt file: <code>sidecar/test-output/agentdb-live-receipts.jsonl</code></p>
+<p>AWS RDS:</p>
+<ul>
+<li>Provider: <code>aws_rds</code></li>
+<li>Region: <code>us-east-2</code></li>
+<li>Resource ID: <code>pgsage-live-aws-rds-20260509215816</code></li>
+<li>Class/storage: <code>db.t4g.micro</code>, 20 GiB</li>
+<li>Backup retention: 1 day</li>
+<li>Create accepted, status reached available, delete verified by not-found
+  readback.</li>
+<li>Cleanup confirmed: true</li>
+</ul>
+<p>GCP Cloud SQL:</p>
+<ul>
+<li>Provider: <code>gcp_cloudsql</code></li>
+<li>Project: <code>satty-488221</code></li>
+<li>Region: <code>us-central1</code></li>
+<li>Resource ID: <code>pgsage-live-gcp-cloudsql-20260509215818</code></li>
+<li>Tier/storage: <code>db-f1-micro</code>, 20 GiB</li>
+<li>Backup enabled: true</li>
+<li>Public IPv4 enabled for the smoke test, authorized networks count is zero.</li>
+<li>Create accepted, status reached RUNNABLE/available, delete verified by
+  not-found readback.</li>
+<li>Cleanup confirmed: true</li>
+</ul>
+<p>Databricks Lakebase:</p>
+<ul>
+<li>Live-gated branch lifecycle test is implemented.</li>
+<li>Not run in this pass because the configured Databricks profile
+  <code>dbc-a03bc092-e6ba</code> reports invalid CLI auth and no token is available in
+  <code>DATABRICKS_TOKEN</code> or <code>PG_SAGE_DATABRICKS_TOKEN</code>.</li>
+<li>Required env for the live test:
+  <code>PG_SAGE_LIVE_DATABRICKS_LAKEBASE=1</code>,
+  <code>PG_SAGE_DATABRICKS_HOST</code> or <code>DATABRICKS_HOST</code>,
+  <code>PG_SAGE_DATABRICKS_TOKEN</code> or <code>DATABRICKS_TOKEN</code>,
+  <code>PG_SAGE_LIVE_LAKEBASE_PROJECT</code>,
+  <code>PG_SAGE_LIVE_LAKEBASE_SOURCE_INSTANCE</code>.</li>
+</ul>
+<h2 id="browser-qa">Browser QA<a class="headerlink" href="#browser-qa" title="Permanent link">&para;</a></h2>
+<p>Browser plugin path:</p>
+<ul>
+<li>Browser plugin was available, but the Node REPL transport closed before it
+  could attach to the in-app browser. Fallback was Playwright against the live
+  8085 sidecar.</li>
+</ul>
+<p>Playwright live-8085 checks:</p>
+<ul>
+<li>CHECK-01: PASS - logged in with the admin account.</li>
+<li>CHECK-02: PASS - Overview defaults to Databases tab.</li>
+<li>CHECK-03: PASS - Overview Databases description rendered.</li>
+<li>CHECK-04: PASS - Overview Provider Readiness tab and description rendered.</li>
+<li>CHECK-05: PASS - Overview Recent Recos tab and description rendered.</li>
+<li>CHECK-06: PASS - Cases page description rendered.</li>
+<li>CHECK-07: PASS - Cases text mentions flow to Actions.</li>
+<li>CHECK-08: PASS - Actions page description rendered.</li>
+<li>CHECK-09: PASS - Actions text mentions approval queue and audit log.</li>
+<li>CHECK-10: PASS - Fleet page description rendered.</li>
+<li>CHECK-11: PASS - Fleet text mentions cases flowing to actions.</li>
+<li>CHECK-12: PASS - AgentDB Deployments tab description rendered.</li>
+<li>CHECK-13: PASS - AgentDB Provision tab description rendered.</li>
+<li>CHECK-14: PASS - AgentDB provision form exposes 12 tooltip triggers.</li>
+<li>CHECK-15: PASS - AgentDB Provider Settings tab description rendered.</li>
+<li>CHECK-16: PASS - AgentDB Terraform tab description rendered.</li>
+<li>CHECK-17: PASS - AgentDB Blueprints tab description rendered.</li>
+</ul>
+<p>Screenshots:</p>
+<ul>
+<li><code>%TEMP%\pg_sage_8085_browser_qa\overview-tabs.png</code></li>
+<li><code>%TEMP%\pg_sage_8085_browser_qa\agentdb-tabs.png</code></li>
+</ul>
+<h2 id="automated-verification">Automated Verification<a class="headerlink" href="#automated-verification" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>go test -count=1 ./internal/agentdb</code>: PASS</li>
+<li><code>go test -count=1 ./internal/agentdb -run
+  "TestAWSRDSLiveProvisioning|TestCloudSQLLiveProvisioning|TestLakebaseLiveProvisioning|TestCloudSQLHTTPClientCreateStatusDestroy" -v</code>:
+  PASS with live-gated AWS/GCP/Lakebase tests skipped when flags are unset;
+  Cloud SQL HTTP client unit test passed.</li>
+<li><code>PG_SAGE_LIVE_AWS_RDS=1 go test -count=1 -p 1 ./internal/agentdb -run
+  '^TestAWSRDSLiveProvisioning$' -v -timeout 60m</code>: PASS</li>
+<li><code>PG_SAGE_LIVE_GCP_CLOUDSQL=1 go test -count=1 -p 1 ./internal/agentdb -run
+  '^TestCloudSQLLiveProvisioning$' -v -timeout 60m</code>: PASS</li>
+<li><code>go test -cover -count=1 -p 1 ./...</code>: PASS</li>
+<li><code>go vet ./...</code>: PASS</li>
+<li><code>npm --prefix sidecar/web test -- --run</code>: PASS, 44 tests</li>
+<li><code>npm --prefix sidecar/web run lint</code>: PASS</li>
+<li><code>npm --prefix sidecar/web run build</code>: PASS, with existing Vite chunk-size
+  warning for the main JS bundle.</li>
+<li><code>npm --prefix sidecar/web run test:e2e -- --workers=1</code>: PASS, 48 tests</li>
+<li><code>wsl ... go test -race -count=1 ./internal/agentdb</code>: PASS after installing
+  Go 1.24.13 in WSL and using WSL gcc.</li>
+</ul>
+<h2 id="coverage">Coverage<a class="headerlink" href="#coverage" title="Permanent link">&para;</a></h2>
+<p>Core business packages met the configured 70 percent floor in the latest
+coverage run:</p>
+<ul>
+<li><code>internal/agentdb</code>: 71.0%</li>
+<li><code>internal/api</code>: 70.1%</li>
+<li><code>internal/advisor</code>: 73.1%</li>
+<li><code>internal/analyzer</code>: 85.0%</li>
+<li><code>internal/cases</code>: 88.0%</li>
+<li><code>internal/optimizer</code>: 73.8%</li>
+<li><code>internal/tuner</code>: 86.2%</li>
+</ul>
+<p>Low/no coverage packages are command entrypoints or generated/vendor-like
+surfaces:</p>
+<ul>
+<li><code>cmd/create_admin</code>: 0.0%</li>
+<li><code>cmd/create_admin_alloydb</code>: 0.0%</li>
+<li><code>cmd/pg_sage_sidecar</code>: 3.0%</li>
+<li><code>cmd/reset_admin_for_test</code>: 0.0%</li>
+<li><code>web/node_modules/flatted/golang/pkg/flatted</code>: 0.0%</li>
+</ul>
+<h2 id="worktree-classification">Worktree Classification<a class="headerlink" href="#worktree-classification" title="Permanent link">&para;</a></h2>
+<p>Keep as product code:</p>
+<ul>
+<li><code>sidecar/internal/agentdb/*runner*.go</code>, provider policy/cost/redaction,
+  Terraform, blueprint, and live receipt files.</li>
+<li>AgentDB API handler files under <code>sidecar/internal/api/</code>.</li>
+<li>AgentDB React components under <code>sidecar/web/src/pages/agentdb/</code>.</li>
+<li>Overview/Cases/Actions/Fleet UI page changes.</li>
+<li>Generated embedded web dist files under <code>sidecar/internal/api/dist/</code>.</li>
+</ul>
+<p>Keep as tests:</p>
+<ul>
+<li>AgentDB provider/unit/live-gated tests under <code>sidecar/internal/agentdb/</code>.</li>
+<li>Web unit tests for AgentDB, Dashboard, Cases, Actions, Settings, Databases.</li>
+<li>Updated Playwright tests under <code>sidecar/web/e2e/</code>.</li>
+<li>Root <code>e2e/agentdb-live-provisioning.spec.ts</code> if we keep root-level live smoke
+  coverage.</li>
+</ul>
+<p>Keep as docs/runbooks/reports:</p>
+<ul>
+<li><code>docs/superpowers/specs/2026-05-09-agentdb-live-provisioning-ga.md</code></li>
+<li><code>docs/superpowers/plans/2026-05-09-agentdb-live-provisioning-ga.md</code></li>
+<li><code>docs/runbooks/agentdb-live-provisioning.md</code></li>
+<li><code>docs/reports/2026-05-09-agentdb-release-readiness-report.md</code></li>
+<li>Cloud provisioning and SQL hardening reports.</li>
+</ul>
+<p>Temporary or manual QA artifacts to review before commit:</p>
+<ul>
+<li><code>QA_REPORT.md</code>, <code>QA_CHECKPOINT.md</code></li>
+<li><code>test-output/</code></li>
+<li><code>sidecar/test-output/</code> except <code>agentdb-live-receipts.jsonl</code> if we want to
+  keep live validation evidence in-repo.</li>
+<li><code>e2e/manual_qa.js</code>, <code>e2e/manual_network_errors.js</code>,
+  <code>e2e/verify_auth_18085.js</code>, <code>e2e/verify_auth_routes_18085.js</code>,
+  <code>e2e/verify_restore_8085.js</code></li>
+</ul>
+<h2 id="remaining-release-items">Remaining Release Items<a class="headerlink" href="#remaining-release-items" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Decide whether live receipt JSONL and screenshots should be committed or
+   stored outside git as release evidence.</li>
+<li>Split the large dirty worktree into logical commits before tagging or PR.</li>
+<li>Consider code splitting for the web bundle after release; current Vite build
+   passes but warns that the main chunk exceeds 500 kB.</li>
+</ol>
+<h2 id="2026-05-09-end-to-end-provisioning-gauntlet-update">2026-05-09 End-to-End Provisioning Gauntlet Update<a class="headerlink" href="#2026-05-09-end-to-end-provisioning-gauntlet-update" title="Permanent link">&para;</a></h2>
+<p>Closed the release-blocking "proved parts, not chain" gaps for the local and
+contract-tested path:</p>
+<ul>
+<li>Blueprint approve -&gt; provision now links a deployment to the blueprint and
+  generated Terraform template.</li>
+<li>Terraform template approve -&gt; provision now creates a linked deployment.</li>
+<li>Agent API request -&gt; approval -&gt; provision now creates a linked deployment.</li>
+<li>UI/API live execute, live status, live backup assurance, and live destroy now
+  route through the native runner registry when live provisioning is enabled.</li>
+<li>Runtime runner registration is env-gated, so the 8085 sidecar can stay safe by
+  default and switch to AWS/GCP/Lakebase native runners only when explicitly
+  enabled.</li>
+<li>Live reconcile now isolates bad or stale deployment rows as blocked items
+  instead of failing the whole fleet reconcile sweep.</li>
+<li>AgentDB browser coverage now exercises live execute/destroy controls,
+  Terraform approval/provision, blueprint approval/provision, and approved agent
+  request provisioning.</li>
+</ul>
+<p>Fresh verification receipts:</p>
+<ul>
+<li><code>go test -v -cover -count=1 -p 1 ./internal/agentdb ./internal/api</code>: PASS</li>
+<li><code>internal/agentdb</code>: 71.0%</li>
+<li><code>internal/api</code>: 70.3%</li>
+<li>Skipped live-gated tests: AWS RDS, GCP Cloud SQL, Lakebase.</li>
+<li><code>go test -cover -count=1 -p 1 ./...</code>: PASS</li>
+<li><code>go test -json -count=1 -p 1 ./...</code>: PASS, 5,723 passed, 0 failed,
+  22 skipped; JSON receipt written to
+  <code>test-output/go-test-json-20260509-agentdb-gauntlet.jsonl</code>.</li>
+<li><code>npm --prefix sidecar/web test</code>: PASS, 48 tests.</li>
+<li><code>npm --prefix sidecar/web run lint</code>: PASS.</li>
+<li><code>npm --prefix sidecar/web run build</code>: PASS, with the existing Vite
+  large-chunk warning.</li>
+<li><code>npm --prefix sidecar/web run test:e2e -- --workers=1</code>: PASS, 52 tests.</li>
+<li><code>PG_SAGE_LIVE_DATABRICKS_LAKEBASE=1 go test -count=1 -p 1
+  ./internal/agentdb -run '^TestLakebaseLiveProvisioning$' -v -timeout 30m</code>:
+  PASS, created/status-checked/deleted branch
+  <code>pgsage-live-lakebase-20260510001443</code>; cleanup confirmed in
+  <code>sidecar/test-output/agentdb-live-receipts.jsonl</code>.</li>
+<li>Rebuilt and restarted the local 8085 QA sidecar with
+  <code>sidecar/pg_sage_sidecar_qa_next.exe --config=..\local_config.yaml</code>.</li>
+<li>UI probe <code>GET http://127.0.0.1:8085/</code>: HTTP 200.</li>
+<li>Login probe <code>POST /api/v1/auth/login</code>: HTTP 200 for
+    <code>admin@pg-sage.local</code>.</li>
+<li>Admin reset/create succeeded on reachable fleet DBs at ports 5432, 5433,
+    5434, 5436, and 55432.</li>
+<li>Configured DBs at ports 5435 and 5437 were unreachable during reset.</li>
+</ul>
+<p>Remaining proof gap after this update:</p>
+<ul>
+<li>Run the new full chain against disposable live resources, not only the native
+  runner contract tests. Prior live provider create/status/delete receipts exist
+  for AWS RDS, GCP Cloud SQL, and Lakebase branch lifecycle, but the newest
+  blueprint/template/request-to-live gauntlet still needs a live-cloud receipt
+  once we intentionally enable cloud spend for that scenario.</li>
+</ul>
+<h2 id="skipped-test-closure-pass">Skipped Test Closure Pass<a class="headerlink" href="#skipped-test-closure-pass" title="Permanent link">&para;</a></h2>
+<p>Follow-up request: run the previously skipped tests and clean up the cloud
+infrastructure afterwards.</p>
+<p>Live cloud tests now run without skips:</p>
+<ul>
+<li><code>PG_SAGE_LIVE_AWS_RDS=1 go test -count=1 -p 1 ./internal/agentdb -run
+  '^TestAWSRDSLiveProvisioning$' -v -timeout 60m</code>: PASS.</li>
+<li>Resource: <code>pgsage-live-aws-rds-20260510012619</code></li>
+<li>Cleanup receipt: delete verified by not-found readback; independent prefix
+    sweep found no <code>pgsage-live-*</code> RDS leftovers in <code>us-east-2</code>.</li>
+<li><code>PG_SAGE_LIVE_GCP_CLOUDSQL=1 go test -count=1 -p 1 ./internal/agentdb -run
+  '^TestCloudSQLLiveProvisioning$' -v -timeout 60m</code>: PASS.</li>
+<li>Resource: <code>pgsage-live-gcp-cloudsql-20260510013508</code></li>
+<li>Cleanup receipt: delete verified by not-found readback; independent prefix
+    sweep found no <code>pgsage-live-*</code> Cloud SQL leftovers in project
+    <code>satty-488221</code>.</li>
+<li><code>PG_SAGE_LIVE_DATABRICKS_LAKEBASE=1 go test -count=1 -p 1
+  ./internal/agentdb -run '^TestLakebaseLiveProvisioning$' -v -timeout 30m</code>:
+  PASS.</li>
+<li>Resource: <code>pgsage-live-lakebase-20260510015201</code></li>
+<li>Cleanup receipt: delete verified by not-found readback; independent
+    Databricks Lakebase branch prefix sweep found no <code>pgsage-live-*</code> branches
+    in project <code>demo</code>.</li>
+</ul>
+<p>Local prerequisite tests now run without skips:</p>
+<ul>
+<li><code>go test -count=1 -p 1 ./internal/startup -run
+  'TestRunChecks_LivePG|TestCheckConnectivity_LivePG|TestCheckPGVersion_LivePG'
+  -v</code>: PASS against local Postgres on port <code>55432</code>.</li>
+<li><code>go test -count=1 -p 1 ./internal/alerting -run
+  '^TestPhase2_LogAlert_Integration$' -v</code>: PASS. The fixture now inserts a
+  real finding row instead of treating a foreign-key mismatch as a skip.</li>
+<li><code>PG_TEST_DSN=postgres://postgres:postgres@127.0.0.1:5437/postgres
+  go test -count=1 -p 1 ./internal/collector -run
+  '^TestPhase2_CollectReplication_WithSlot$' -v</code>: PASS after starting the
+  local logical-replication test container.</li>
+<li><code>PG_TEST_DSN=postgres://postgres:postgres@127.0.0.1:5435/hint_test
+  go test -count=1 -p 1 ./test/hint_verify -v</code>: PASS after starting the local
+  <code>pg_hint_plan</code> test container.</li>
+<li><code>wsl ... GOTOOLCHAIN=local go test -count=1 -p 1 ./internal/logwatch -run
+  '^TestResolveLogDir_AbsoluteUnix$' -v</code>: PASS on WSL/Linux, where the Unix path
+  test is applicable.</li>
+<li><code>GEMINI_API_KEY=&lt;env&gt; go test -count=1 -p 1 ./internal/rca -run
+  '^TestTier2Live_RealGemini$' -v -timeout 5m</code>: PASS with the key supplied only
+  through environment variables.</li>
+</ul>
+<p>Local state adjustments:</p>
+<ul>
+<li>Started <code>pg-sage-logical-test</code> and <code>pg-hint-test</code> Docker containers because
+  they are configured 8085 fleet targets and were required for the collector and
+  hint verification tests.</li>
+<li>Reset or created the standard local 8085 admin account on those now-reachable
+  local DBs where applicable.</li>
+</ul>
+<p>Only non-executable package entries and intentionally platform-inapplicable
+cases remain as skips when the whole suite is run without live/provider flags.</p>
+<p>Final verification after closing skips:</p>
+<ul>
+<li><code>go test -cover -count=1 -p 1 ./...</code>: PASS.</li>
+<li><code>go test -json -count=1 -p 1 ./...</code>: PASS; receipt written to
+  <code>test-output/go-test-json-20260509-skipped-closure.jsonl</code>.</li>
+<li>Passed test events: 5,736</li>
+<li>Failed test events: 0</li>
+<li>Skip events: 13. These are package entries with no tests plus live/provider
+    or platform-gated tests that were each executed explicitly above.</li>
+</ul>
+<p>Bugs found and fixed in this closure pass:</p>
+<ul>
+<li><code>internal/alerting</code> log-alert integration was silently skipping a real
+  foreign-key mismatch. The test now seeds an actual finding row and fails on
+  insert errors.</li>
+<li><code>internal/api</code> findings-list integration depended on a globally empty shared
+  test database. The test now inserts a unique category, filters by that
+  category, and asserts the returned row content.</li>
+</ul>
+<h2 id="full-live-product-chain-gauntlet-2026-05-10">Full Live Product-Chain Gauntlet - 2026-05-10<a class="headerlink" href="#full-live-product-chain-gauntlet-2026-05-10" title="Permanent link">&para;</a></h2>
+<p>Goal: prove the complete AgentDB product chain, not only provider contract
+tests. The gauntlet starts from a product artifact, creates a deployment record,
+runs the native provider runner, waits for availability, records ping, cost, and
+backup assurance metadata, destroys the resource, and verifies provider cleanup.</p>
+<p>Product-chain paths exercised:</p>
+<ul>
+<li>Blueprint -&gt; deployment -&gt; live AWS RDS create/status/backup/ping/destroy.</li>
+<li>Terraform template -&gt; deployment -&gt; live GCP Cloud SQL create/status/backup/
+  ping/destroy.</li>
+<li>Agent API request -&gt; approved request -&gt; deployment -&gt; live Databricks
+  Lakebase branch create/status/backup/ping/destroy.</li>
+</ul>
+<p>Implementation fixes added during this pass:</p>
+<ul>
+<li>Blueprint, Terraform template, and approved agent request provisioning now
+  preserve <code>provider_params</code> in deployment metadata so native cloud runners can
+  use product/UI/API-supplied provider details at execution time.</li>
+<li>The approved-request API now accepts <code>provider_params</code>.</li>
+<li>Provider state transitions now allow <code>status_unknown -&gt; provisioning</code>, which
+  covers transient AWS RDS statuses that are still in-progress rather than
+  terminal failures.</li>
+<li>Regression tests now assert provider params persist across blueprint,
+  Terraform template, and approved-request provisioning paths.</li>
+</ul>
+<p>Live resource receipts:</p>
+<ul>
+<li>AWS RDS blueprint chain: <code>pgsage-chain-aws-bp-20260510122813</code></li>
+<li>Region: <code>us-east-2</code></li>
+<li>Create wait: 513.1s</li>
+<li>Available wait: 420.0s</li>
+<li>Delete wait: 90.6s</li>
+<li>Cleanup: confirmed by not-found readback and independent prefix sweep.</li>
+<li>GCP Cloud SQL Terraform-template chain:
+  <code>pgsage-chain-gcp-tf-20260510120910</code></li>
+<li>Project: <code>satty-488221</code></li>
+<li>Region: <code>us-central1</code></li>
+<li>Create wait: 874.7s</li>
+<li>Available wait: 870.0s</li>
+<li>Delete wait: 0.7s</li>
+<li>Cleanup: confirmed by not-found readback and independent prefix sweep.</li>
+<li>Databricks Lakebase agent-request branch chain:
+  <code>pgsage-chain-lake-req-20260510122345</code></li>
+<li>Project: <code>demo</code></li>
+<li>Source instance: <code>projects/demo/branches/br-empty-lake-d2ftn13l</code></li>
+<li>Create wait: 32.1s</li>
+<li>Available wait: 30.0s</li>
+<li>Delete wait: 0.4s</li>
+<li>Cleanup: confirmed by not-found readback and independent prefix sweep.</li>
+</ul>
+<p>Receipt file:</p>
+<ul>
+<li><code>sidecar/test-output/agentdb-live-receipts.jsonl</code></li>
+</ul>
+<p>Independent cleanup sweep result:</p>
+<ul>
+<li>AWS leftovers: none.</li>
+<li>GCP leftovers: none.</li>
+<li>Lakebase leftovers: none.</li>
+</ul>
+<p>8085 sidecar verification:</p>
+<ul>
+<li>URL: <code>http://127.0.0.1:8085</code></li>
+<li>Admin: <code>admin@pg-sage.local</code></li>
+<li>Password: stored only for local QA handoff; do not commit credentials.</li>
+<li>Running process: <code>pg_sage_sidecar_qa_live.exe</code>, PID <code>94040</code>.</li>
+<li>Probe result: login plus AgentDB API readback passed.</li>
+<li>Browser/API probe receipt:
+  <code>sidecar/test-output/agentdb-ui-backend-probe-mozrvx8i.png</code>.</li>
+</ul>
+<p>Final verification:</p>
+<ul>
+<li><code>go test -cover -count=1 -p 1 ./...</code>: PASS.</li>
+<li><code>go test -json -count=1 -p 1 ./...</code>: PASS.</li>
+<li>Passed test events: 5,737.</li>
+<li>Failed test events: 0.</li>
+<li>Skip events: 17.</li>
+<li>Remaining skips are no-test package entries, provider/live-gated tests when
+    the full suite is run without spend flags, and platform-gated tests. The
+    AWS, GCP, Lakebase, Gemini, startup, replication, hint, and WSL-only paths
+    were each executed explicitly during the closure passes.</li>
+<li><code>npm --prefix sidecar/web test -- --run</code>: PASS, 48 tests.</li>
+<li><code>npm --prefix sidecar/web run lint</code>: PASS.</li>
+<li><code>npm --prefix sidecar/web run build</code>: PASS, with existing Vite large-chunk
+  warning.</li>
+<li><code>npm --prefix sidecar/web run test:e2e -- --workers=1</code>: PASS, 52 tests.</li>
+</ul>
+<p>Remaining release risks:</p>
+<ul>
+<li>Live cloud execution is proven but should stay opt-in and cost-gated for the
+  default 8085 sidecar.</li>
+<li>Worktree cleanup and commit slicing are still needed before release. Keep
+  product code, tests, docs, runbooks, and durable receipts; remove temporary
+  manual probes unless intentionally retained as QA artifacts.</li>
+<li>Race tests still need a Linux/WSL or MinGW/gcc path if we want them in the
+  release gate.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

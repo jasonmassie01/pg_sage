@@ -1,0 +1,1774 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/superpowers/specs/2026-05-07-agent-database-deployment-module/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Agent Database Deployment Module Spec - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#agent-database-deployment-module-spec" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Agent Database Deployment Module Spec
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#thesis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Thesis
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#product-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Product Name
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mission-fit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mission Fit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#explicit-scope-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Explicit Scope Decisions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Now
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-identity-and-guard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent Identity And Guard
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment-request-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deployment Request API
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provisioning-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provisioning Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bootstrap-and-guardrails" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bootstrap And Guardrails
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tuning-packs-to-keep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tuning Packs To Keep
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#machine-readable-query-tuning-for-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Machine-Readable Query Tuning For Agents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#heartbeat-lease-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Heartbeat, Lease, Cleanup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backups-and-restore" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backups And Restore
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cost-tracking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cost Tracking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#promotion-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Promotion Flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        UI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enterprise-requirements-beyond-mvp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enterprise Requirements Beyond MVP
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-to-pull-from-agentdb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What To Pull From AgentDB
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#first-implementation-slices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        First Implementation Slices
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="First Implementation Slices">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#slice-1-agent-db-domain-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slice 1: Agent DB Domain Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slice-15-identity-token-tenant-and-idempotency-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slice 1.5: Identity, Token, Tenant, And Idempotency Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slice-2-api-request-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slice 2: API Request Path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slice-3-lease-and-cleanup-skeleton" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slice 3: Lease And Cleanup Skeleton
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slice-4-schema-provisioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slice 4: Schema Provisioning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slice-5-query-recommendations-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slice 5: Query Recommendations API
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slice-6-cost-and-budget-enforcement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slice 6: Cost And Budget Enforcement
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slice-7-audit-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slice 7: Audit Events
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slice-8-tuning-packs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slice 8: Tuning Packs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slice-9-promotion-deploy-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slice 9: Promotion Deploy Requests
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resolved-decisions-for-v1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolved Decisions For v1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#still-open" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Still Open
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#source-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Source Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="agent-database-deployment-module-spec">Agent Database Deployment Module Spec<a class="headerlink" href="#agent-database-deployment-module-spec" title="Permanent link">&para;</a></h1>
+<p>Date: 2026-05-07</p>
+<h2 id="thesis">Thesis<a class="headerlink" href="#thesis" title="Permanent link">&para;</a></h2>
+<p>Agents are becoming database deployers, not just database users. They will ask
+for temporary schemas, sandbox databases, vector stores, spatial workspaces,
+JSON-heavy stores, and preview environments. pg_sage should become the DBA layer
+that provisions, tunes, tracks, budgets, backs up, and cleans up those
+agent-created databases.</p>
+<p>This should not turn pg_sage into a full AgentDB product. The AgentDB drafts are
+strong, but pg_sage should pull in only the parts that reinforce its autonomous
+DBA mission:</p>
+<ul>
+<li>agent identity and workload attribution</li>
+<li>deployment requests</li>
+<li>workspace lifecycle</li>
+<li>capability and approval gates</li>
+<li>object and DDL audit</li>
+<li>cost tracking</li>
+<li>TTL/heartbeat cleanup</li>
+<li>promotion/deploy-request workflow</li>
+<li>machine-readable query tuning recommendations</li>
+</ul>
+<p>Leave broad agent memory, full framework SDKs, general tool-call tracing,
+general MCP gateway behavior, HNSW experiment/autotuning orchestration, and
+complete agent control-plane ownership to a separate AgentDB product unless they
+directly improve database safety.</p>
+<h2 id="product-name">Product Name<a class="headerlink" href="#product-name" title="Permanent link">&para;</a></h2>
+<p>Working name: <strong>Agent Database Deployments</strong>.</p>
+<p>Short UI label: <strong>Agent DBs</strong>.</p>
+<h2 id="mission-fit">Mission Fit<a class="headerlink" href="#mission-fit" title="Permanent link">&para;</a></h2>
+<p>pg_sage's loop remains:</p>
+<p>Observe -&gt; Diagnose -&gt; Decide -&gt; Act -&gt; Verify -&gt; Remember</p>
+<p>For agent-created databases:</p>
+<ul>
+<li>Observe: deployment request, workload, storage, query patterns, heartbeats.</li>
+<li>Diagnose: vector/PostGIS/JSON/config/index/query issues.</li>
+<li>Decide: tune, warn, archive, back up, clean up, promote, or block.</li>
+<li>Act: provision, configure, enqueue safe tuning, expire leases, run backup.</li>
+<li>Verify: health checks, query latency, recall, cost, successful restore point.</li>
+<li>Remember: deployment ledger, audit events, recommendations, cost history.</li>
+</ul>
+<p>Provisioning is creation work and must be policy-gated. It should not become
+autonomous merely because an existing database has moved up the trust ramp for
+tuning actions.</p>
+<h2 id="explicit-scope-decisions">Explicit Scope Decisions<a class="headerlink" href="#explicit-scope-decisions" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>In pg_sage:</strong> database/schema deployment, lifecycle, tuning hints, query
+  recommendations, cost, backup, cleanup, provider capability checks, DDL safety,
+  audit, and promotion workflow.</li>
+<li><strong>Out of pg_sage:</strong> full agent memory product, full run trace product, generic
+  tool-call ledger, broad MCP server, agent framework SDKs, HNSW experiment
+  planner/autotuner product, and hosted branch provider.</li>
+<li><strong>Shared boundary:</strong> pg_sage can accept <code>agent_id</code>, <code>run_id</code>, trace links, and
+  external cost samples from agent systems, but it should not be the
+  authoritative source for every agent event unless the event directly touches a
+  database deployment.</li>
+</ul>
+<h2 id="why-now">Why Now<a class="headerlink" href="#why-now" title="Permanent link">&para;</a></h2>
+<p>The market already validates adjacent pieces:</p>
+<ul>
+<li>Neon branches support isolated development/testing workflows, API/CLI/GitHub
+  creation, branch TTLs, and restore windows.</li>
+<li>Supabase branches create separate preview environments with their own
+  credentials, automatic pause/delete behavior for preview branches, and a merge
+  workflow.</li>
+<li>LangGraph and OpenAI Agents SDK show that agents increasingly need persistent
+  state, tracing, resumability, and external trace processors.</li>
+<li>Agentic security guidance emphasizes least privilege, strong observability,
+  approval gates, provenance, and scoped tools.</li>
+</ul>
+<p>pg_sage's angle is different: it is not selling branches or traces. It is the
+operator that keeps agent-deployed databases safe, tuned, paid for, and cleaned
+up.</p>
+<h2 id="agent-identity-and-guard">Agent Identity And Guard<a class="headerlink" href="#agent-identity-and-guard" title="Permanent link">&para;</a></h2>
+<p>Every deployment request must identify:</p>
+<ul>
+<li>tenant/org id</li>
+<li>agent id</li>
+<li>owner id/team</li>
+<li>purpose</li>
+<li>run id or task id</li>
+<li>requested isolation type</li>
+<li>data sensitivity</li>
+<li>budget policy</li>
+<li>TTL/heartbeat policy</li>
+</ul>
+<p>Authoritative identity comes from an agent API token, signed request, or human
+session. <code>application_name</code> and SQL comments are correlation hints, not
+authorization primitives.</p>
+<p>The existing Agent Database Guard is a read-only classifier that answers: "is
+this database workload attributable to a known agent or is it anonymous or
+ephemeral?" It is advisory-only.</p>
+<p>Current behavior:</p>
+<ul>
+<li><code>agent:&lt;id&gt;</code> in <code>application_name</code> is treated as stable attribution evidence.</li>
+<li><code>agent_id=&lt;id&gt;</code> in a SQL comment is treated as stable attribution evidence.</li>
+<li>empty <code>application_name</code> or no stable identifier becomes <code>unattributed</code>.</li>
+<li><code>tmp</code>, <code>sandbox</code>, or temporary-table creation signals become <code>ephemeral</code>.</li>
+<li>attributed workloads stay quiet.</li>
+<li>unattributed/ephemeral workloads create <code>agent_workload</code> findings with no SQL
+  and no action risk.</li>
+</ul>
+<p>Future behavior:</p>
+<ul>
+<li>Correlate pg_sage findings, query stats, actions, audit, and cost samples by
+  <code>tenant_id</code>, <code>agent_id</code>, <code>run_id</code>, and <code>deployment_id</code>.</li>
+<li>Exclude pg_sage-owned workspaces from generic ephemeral warnings by matching
+  pg_sage-issued deployment tags.</li>
+<li>Detect agent workload anti-patterns: missing identity, generated object
+  sprawl, unbounded JSONB/event tables, vector tables without embedding model
+  metadata, mixed-SRID PostGIS data, high regeneration churn, and abandoned but
+  writable workspaces.</li>
+<li>Escalate from info to warning/critical only when there is cost, safety, or
+  production-blast-radius evidence.</li>
+</ul>
+<p>Non-goal: this guard is not an agent memory vault or full tracing product. It is
+the attribution layer pg_sage needs before it can safely tune, archive, clean up,
+or promote agent-created database environments.</p>
+<h2 id="deployment-request-api">Deployment Request API<a class="headerlink" href="#deployment-request-api" title="Permanent link">&para;</a></h2>
+<p>Agents and humans request databases through the same policy path.</p>
+<p>Minimum endpoints:</p>
+<ul>
+<li><code>POST /api/v1/agent-dbs/requests</code></li>
+<li><code>GET /api/v1/agent-dbs/requests</code></li>
+<li><code>GET /api/v1/agent-dbs/requests/{request_id}</code></li>
+<li><code>POST /api/v1/agent-dbs/requests/{request_id}/approve</code></li>
+<li><code>POST /api/v1/agent-dbs/requests/{request_id}/deny</code></li>
+<li><code>GET /api/v1/agent-dbs</code></li>
+<li><code>GET /api/v1/agent-dbs/{deployment_id}</code></li>
+<li><code>POST /api/v1/agent-dbs/{deployment_id}/ping</code></li>
+<li><code>POST /api/v1/agent-dbs/{deployment_id}/extend-lease</code></li>
+<li><code>GET /api/v1/agent-dbs/{deployment_id}/recommendations</code></li>
+<li><code>POST /api/v1/agent-dbs/{deployment_id}/recommendations/{recommendation_id}/feedback</code></li>
+<li><code>POST /api/v1/agent-dbs/{deployment_id}/cost-samples</code></li>
+<li><code>POST /api/v1/agent-dbs/{deployment_id}/archive</code></li>
+<li><code>POST /api/v1/agent-dbs/{deployment_id}/restore</code></li>
+<li><code>DELETE /api/v1/agent-dbs/{deployment_id}</code></li>
+</ul>
+<p>Request decisions:</p>
+<ul>
+<li><code>allow</code>: safe schema registration/provisioning request, within policy.</li>
+<li><code>review</code>: requires human approval before provisioning.</li>
+<li><code>deny</code>: impossible or violates hard policy.</li>
+<li><code>defer</code>: provider capability, budget, backup, or dependency is not ready.</li>
+</ul>
+<p>Idempotency rules:</p>
+<ul>
+<li>scope keys by <code>(tenant_id, idempotency_key)</code></li>
+<li>retain keys for 24 hours by default</li>
+<li>same key and same body returns the original response</li>
+<li>same key with different body returns <code>409 conflict</code></li>
+<li>missing idempotency key on mutating agent endpoints returns <code>400</code></li>
+</ul>
+<p>All mutating endpoints require an agent token or human session with a role that
+can act on the relevant tenant and database. Agents can request, ping, extend
+lease when policy allows it, submit cost samples, and report recommendation
+feedback. Humans or higher-trust service accounts approve, archive, restore, and
+delete.</p>
+<p>Ping authentication is deployment-bound. A ping token can refresh only its own
+deployment lease and cannot list, approve, mutate, archive, restore, or delete
+anything else. Ping endpoints are rate-limited per token.</p>
+<h2 id="provisioning-modes">Provisioning Modes<a class="headerlink" href="#provisioning-modes" title="Permanent link">&para;</a></h2>
+<p>Start with the safest mode and design for adapters:</p>
+<ol>
+<li><code>schema</code>: schema-per-agent-workspace inside a managed database.</li>
+<li><code>external</code>: already-created database registered for tracking.</li>
+<li><code>database</code>: separate database on the same Postgres cluster.</li>
+<li><code>branch</code>: provider branch/clone, where available.</li>
+</ol>
+<p>v1 implements <code>schema</code> and <code>external</code>. <code>database</code> and <code>branch</code> are adapter
+interfaces that return <code>defer</code> until the adapter proves it can create, tag, back
+up, and clean up that resource.</p>
+<p>Guardrail matrix:</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>v1 behavior</th>
+<th>Credentials</th>
+<th>Cleanup authority</th>
+<th>Backup authority</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>schema</code></td>
+<td>can provision when policy allows</td>
+<td>pg_sage issues scoped role</td>
+<td>pg_sage can quarantine/archive/drop only tagged objects</td>
+<td>pg_sage can run schema export</td>
+<td>default v1 path</td>
+</tr>
+<tr>
+<td><code>external</code></td>
+<td>registration/tracking only</td>
+<td>supplied by operator</td>
+<td>no destructive cleanup unless explicitly delegated</td>
+<td>observe or trigger configured backup only</td>
+<td>low-trust mode</td>
+</tr>
+<tr>
+<td><code>database</code></td>
+<td>adapter stub returns <code>defer</code></td>
+<td>adapter required</td>
+<td>adapter required</td>
+<td>adapter required</td>
+<td>v1.x after schema mode</td>
+</tr>
+<tr>
+<td><code>branch</code></td>
+<td>adapter stub returns <code>defer</code></td>
+<td>provider adapter required</td>
+<td>provider adapter required</td>
+<td>provider-native snapshot preferred</td>
+<td>v1.x/provider-specific</td>
+</tr>
+</tbody>
+</table>
+<h2 id="bootstrap-and-guardrails">Bootstrap And Guardrails<a class="headerlink" href="#bootstrap-and-guardrails" title="Permanent link">&para;</a></h2>
+<p>On schema provisioning, pg_sage should:</p>
+<ul>
+<li>create scoped role/credential with deterministic deployment-bound naming</li>
+<li>set <code>application_name</code> requirements</li>
+<li>create schema/database tags in pg_sage metadata</li>
+<li>set TTL and heartbeat lease</li>
+<li>apply DDL allowlist</li>
+<li>register backup/archive policy</li>
+<li>run provider capability checks</li>
+<li>run extension tuning preflight</li>
+<li>run baseline query/statistics collection</li>
+</ul>
+<p>Default v1 limits:</p>
+<ul>
+<li>schema workspaces only for autonomous provisioning</li>
+<li>no production data copy unless a masking policy is attached</li>
+<li>no extension install/update from an agent request</li>
+<li>no unsafe DDL outside the workspace schema</li>
+<li>no permanent credential without human approval</li>
+<li>max TTL defaults to 72 hours unless policy overrides it</li>
+<li>missing ping marks stale but does not drop data immediately</li>
+<li>provisioning failures create <code>provisioning_failed</code> deployments with cleanup
+  tasks for any half-created schemas, roles, or grants</li>
+</ul>
+<p>Role cleanup must handle cluster-global Postgres roles deliberately: revoke
+login, revoke grants, terminate or drain active sessions according to policy,
+<code>REASSIGN OWNED</code> / <code>DROP OWNED</code> where appropriate, and drop the role only after
+owned objects are gone.</p>
+<h2 id="tuning-packs-to-keep">Tuning Packs To Keep<a class="headerlink" href="#tuning-packs-to-keep" title="Permanent link">&para;</a></h2>
+<p>The following tuning/hint packs are core to agent DB deployments:</p>
+<ul>
+<li><strong>Vector/pgvector:</strong> vector table/index inventory, query-time <code>ef_search</code>
+  hints, filtered ANN diagnosis, partial indexes, quantization/halfvec hints,
+  index build cost estimates, and recall-measurement hooks. HNSW experiment
+  planning/autotuning is a separate product and should not live in pg_sage.</li>
+<li><strong>PostGIS:</strong> GiST/SP-GiST index hints, <code>ST_DWithin</code> rewrite hints,
+  <code>ST_Transform</code> expression index hints, KNN query checks, SRID/mixed-type
+  diagnostics, geography-vs-geometry guidance.</li>
+<li><strong>JSON/JSONB:</strong> containment/key-existence/scalar extraction classifiers,
+  <code>jsonb_path_ops</code> vs <code>jsonb_ops</code>, expression indexes, generated columns, and
+  schema-promotion hints when JSON becomes stable.</li>
+<li><strong>Extension config:</strong> <code>pg_stat_statements</code>, <code>pg_trgm</code>, <code>pgvector</code>, PostGIS,
+  <code>auto_explain</code>, <code>pgaudit</code>, and <code>pg_hint_plan</code> configuration/preload/status
+  checks.</li>
+</ul>
+<p>This replaces the idea of an extension dashboard. Extensions should be tuned and
+explained in context, not merely inventoried.</p>
+<h2 id="machine-readable-query-tuning-for-agents">Machine-Readable Query Tuning For Agents<a class="headerlink" href="#machine-readable-query-tuning-for-agents" title="Permanent link">&para;</a></h2>
+<p>Agents need tuning recommendations they can act on without scraping UI text.</p>
+<p>Recommendations include:</p>
+<ul>
+<li>recommendation id</li>
+<li>tenant, agent, run, and deployment scope</li>
+<li>affected query fingerprint</li>
+<li>severity and confidence</li>
+<li>finding category</li>
+<li>human explanation</li>
+<li>parse-aware patch suggestion when available</li>
+<li>suggested SQL rewrite when available</li>
+<li>suggested index/config/extension hint when available</li>
+<li>validation guidance</li>
+<li>risk tier</li>
+<li>whether human approval is required</li>
+<li>expiration and supersession state</li>
+<li>safe application mode: <code>read</code>, <code>patch_suggested</code>, <code>ddl_request</code>, or
+  <code>config_request</code></li>
+</ul>
+<p><code>query_fingerprint</code> is pg_sage's normalized SQL hash by default. When
+<code>pg_stat_statements.queryid</code> is available, it is included as a separate field,
+not used as the cross-agent identity key.</p>
+<p>Example response shape:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;rec_123&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;query_rewrite&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;scope&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">&quot;tenant_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;tenant_acme&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">&quot;agent_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;agent_support_refunds&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">&quot;deployment_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;adb_456&quot;</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="p">},</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="nt">&quot;query_fingerprint&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sha256:...&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="nt">&quot;pg_stat_statements_queryid&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;123456789&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="nt">&quot;risk_tier&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;safe&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">  </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.82</span><span class="p">,</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">  </span><span class="nt">&quot;summary&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Use ST_DWithin so the spatial index can be used.&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">  </span><span class="nt">&quot;application_mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;patch_suggested&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">  </span><span class="nt">&quot;patch_hint&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">    </span><span class="nt">&quot;language&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sql&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">    </span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;parse_aware_suggestion&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">    </span><span class="nt">&quot;before_pattern&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ST_Distance(geom, $1) &lt; $2&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">    </span><span class="nt">&quot;after_pattern&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ST_DWithin(geom, $1, $2)&quot;</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">  </span><span class="p">},</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">  </span><span class="nt">&quot;validation&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">    </span><span class="nt">&quot;method&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;manual_explain_compare&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a><span class="w">    </span><span class="nt">&quot;notes&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Run on a staging or agent workspace dataset before changing production code.&quot;</span>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="p">}</span>
+</code></pre></div>
+<p>Recommendation semantics:</p>
+<ul>
+<li><code>read</code>: information only, no agent action expected.</li>
+<li><code>patch_suggested</code>: agent may update application SQL, but pg_sage does not
+  mutate source code itself.</li>
+<li><code>ddl_request</code>: agent may request an index or schema change; pg_sage routes it
+  through trust, maintenance-window, and approval policy.</li>
+<li><code>config_request</code>: agent may request extension/config changes; pg_sage treats
+  these as reviewed operations because they may require restart or raise
+  observability/security costs. Restart-required GUCs are denied at the API
+  layer unless a human creates a reviewed maintenance request.</li>
+</ul>
+<p>Patch hints are parse-aware suggestions, not blind string replacement recipes.
+The agent must verify the target query fingerprint and parse tree before
+applying a code change.</p>
+<p>Supersession is automatic when a newer active recommendation is published for
+the same <code>(deployment_id, query_fingerprint, category)</code>. Agent feedback can also
+mark a recommendation superseded explicitly.</p>
+<p>Agent feedback states:</p>
+<ul>
+<li><code>accepted</code></li>
+<li><code>applied</code></li>
+<li><code>failed</code></li>
+<li><code>rejected</code></li>
+<li><code>superseded</code></li>
+</ul>
+<h2 id="heartbeat-lease-cleanup">Heartbeat, Lease, Cleanup<a class="headerlink" href="#heartbeat-lease-cleanup" title="Permanent link">&para;</a></h2>
+<p>Agent DBs must ping pg_sage. No ping means the database is abandoned until
+proved otherwise.</p>
+<p>Lease states:</p>
+<ul>
+<li><code>active</code>: ping is fresh</li>
+<li><code>stale</code>: missed grace window</li>
+<li><code>quarantined</code>: credentials disabled or writes blocked</li>
+<li><code>archiving</code>: backup/export in progress</li>
+<li><code>archived</code>: data retained, compute/schema removed or disabled</li>
+<li><code>restore_verified</code>: archive was restored and checked</li>
+<li><code>dropping</code>: destructive cleanup in progress</li>
+<li><code>dropped</code>: deleted after retention</li>
+</ul>
+<p>Default timing:</p>
+<ul>
+<li><code>heartbeat_interval</code>: 15 minutes</li>
+<li><code>stale_after</code>: 2 missed heartbeats</li>
+<li><code>quarantine_after</code>: 24 hours after entering <code>stale</code></li>
+<li><code>archive_after</code>: 48 hours after entering <code>stale</code>, or immediately when a
+  non-renewable TTL expires</li>
+<li><code>archive_retention</code>: 14 days by default</li>
+<li><code>drop_after</code>: archive retention expires and restore artifact is verified</li>
+</ul>
+<p>Ping refreshes <code>last_ping_at</code>; it does not automatically extend <code>expires_at</code>.
+Long-running workloads must request a lease extension, capped by policy max TTL.
+Lease extension is a separate reviewed or policy-allowed transition.</p>
+<p>Cleanup must never directly drop an agent DB on first missed ping. It should:</p>
+<ol>
+<li>mark stale</li>
+<li>notify owner/agent</li>
+<li>disable credentials or set read-only when possible</li>
+<li>create backup/archive</li>
+<li>verify restore artifact</li>
+<li>drop or detach after retention</li>
+</ol>
+<p>Auto-drop is opt-in per deployment. The default cleanup mode is dry-run through
+archive verification. Drop operations require a hard ownership match:</p>
+<ul>
+<li>deployment exists in <code>sage.agent_db_deployments</code></li>
+<li>object carries pg_sage-issued ownership tag</li>
+<li>deployment id and tenant id match</li>
+<li>emergency stop is not active</li>
+<li>fleet drop-rate limit is not exceeded</li>
+</ul>
+<p>For <code>external</code> mode, pg_sage marks stale and notifies by default. It cannot
+disable credentials, archive, or drop unless the operator explicitly delegated
+those capabilities.</p>
+<h2 id="backups-and-restore">Backups And Restore<a class="headerlink" href="#backups-and-restore" title="Permanent link">&para;</a></h2>
+<p>pg_sage should own backup readiness and restore verification policy, not become
+a general backup engine. The module should prove that a deployment can be
+recovered before it allows destructive cleanup.</p>
+<p>Required capabilities:</p>
+<ul>
+<li>backup policy per deployment</li>
+<li>backup mode: <code>provider_managed</code>, <code>self_managed_external</code>, <code>pg_sage_schema_archive</code>, or <code>none_dev_only</code></li>
+<li>daily backup readiness check</li>
+<li>backup before destructive cleanup</li>
+<li>restore-point metadata</li>
+<li>restore verification status</li>
+<li>archive size and cost</li>
+<li>last successful backup</li>
+<li>restore API for archived deployments</li>
+</ul>
+<p>Managed Postgres model:</p>
+<ul>
+<li>pg_sage checks provider backup/PITR readiness daily.</li>
+<li>Readiness includes retention window, latest restorable time, encryption,
+  region/residency, deletion protection when supported, and restore permissions.</li>
+<li>Restore drills are scheduled or risk-triggered, not daily by default.</li>
+<li>Provider restores usually create a new instance, server, or branch. pg_sage
+  should model that explicitly instead of pretending it can restore a single
+  schema in place.</li>
+<li>For agent schema cleanup on managed Postgres, pg_sage still creates a
+  workspace-level archive because full-instance restore is too coarse for
+  recovering one abandoned agent workspace.</li>
+</ul>
+<p>Self-managed Postgres model:</p>
+<ul>
+<li>pg_sage should integrate with pgBackRest, WAL-G, Barman, or an operator-supplied
+  backup command rather than reinvent physical backup/WAL archival.</li>
+<li>Readiness includes last successful base backup, WAL archive health, archive
+  lag, retention, encryption/storage target, restore command availability, and
+  failed backup jobs.</li>
+<li>pg_sage may run or schedule restore verification into a scratch instance or
+  namespace.</li>
+<li>For schema-mode agent DBs, pg_sage can directly run and verify schema exports
+  before cleanup.</li>
+</ul>
+<p>Schema archive model:</p>
+<ul>
+<li>v1 can use <code>pg_dump --schema</code> or logical export for schema workspaces.</li>
+<li>Archive metadata must include manifest, checksum, source database, tenant,
+  deployment id, created-at, encryption/storage details, and restore status.</li>
+</ul>
+<p>Restore is required before destructive cleanup is trusted. For schema mode,
+"verified backup" means restore into a throwaway schema plus manifest/checksum
+comparison. For provider snapshot/branch mode, it means provider restore status
+plus a pg_sage health query against the restored target. "File exists" is not a
+valid backup verification.</p>
+<p>Backups must be encrypted at rest. Customer-managed encryption keys can wait for
+v1.x, but the storage location, encryption mechanism, and retention period must
+be recorded for every backup.</p>
+<p>Default cadence:</p>
+<ul>
+<li>readiness check: daily</li>
+<li>restore drill: scheduled, risk-triggered, or required before destructive
+  cleanup</li>
+<li>destructive cleanup: blocked unless a verified restore artifact exists</li>
+</ul>
+<h2 id="cost-tracking">Cost Tracking<a class="headerlink" href="#cost-tracking" title="Permanent link">&para;</a></h2>
+<p>Track costs even when exact cloud billing is unavailable.</p>
+<p>Database-observable signals:</p>
+<ul>
+<li>database/schema size</li>
+<li>index size</li>
+<li>dead tuples/bloat</li>
+<li>WAL generated estimate</li>
+<li>query total time and calls</li>
+<li>connection count</li>
+<li>vector index memory estimate</li>
+<li>backup/archive size</li>
+<li>age since last ping</li>
+<li>provider/project/database labels</li>
+</ul>
+<p>Optional external cost ingestion:</p>
+<ul>
+<li>model tokens</li>
+<li>embedding calls</li>
+<li>external tool spend</li>
+<li>storage class cost estimate</li>
+</ul>
+<p>These optional signals are not inferred by pg_sage. They require explicit
+submission through <code>POST /api/v1/agent-dbs/{deployment_id}/cost-samples</code>.</p>
+<p>Enterprise cost features:</p>
+<ul>
+<li>hard and soft budget limits per agent/team</li>
+<li>cost anomaly findings</li>
+<li>automatic read-only quarantine when a deployment exceeds hard spend or storage
+  limits</li>
+<li>soft limit breaches create review findings</li>
+<li>chargeback labels for org/team/product/environment</li>
+<li>forecasted archive cost before cleanup</li>
+<li>top-N expensive agent DBs and queries</li>
+</ul>
+<h2 id="promotion-flow">Promotion Flow<a class="headerlink" href="#promotion-flow" title="Permanent link">&para;</a></h2>
+<p>Agents will create useful schemas. pg_sage should eventually let humans promote
+them safely. This is not required for the first shippable module if provisioning,
+cleanup, backup, and recommendation APIs are not yet boring and well-tested.</p>
+<p>Promotion output:</p>
+<ul>
+<li>schema/object diff</li>
+<li>generated migration SQL</li>
+<li>rollback or forward-fix plan</li>
+<li>data movement plan</li>
+<li>index/tuning recommendations</li>
+<li>security/RLS review</li>
+<li>sample query validation</li>
+<li>cost estimate</li>
+<li>deploy-request record</li>
+</ul>
+<p>Promotion gates:</p>
+<ul>
+<li>owner approval</li>
+<li>data sensitivity review</li>
+<li>schema lint pass</li>
+<li>migration safety preflight</li>
+<li>production object name conflict check</li>
+<li>query plan/cost comparison where representative queries exist</li>
+<li>backup/restore point before apply</li>
+<li>post-apply verification and rollback/forward-fix decision</li>
+</ul>
+<p>Promotion should be a reviewed deploy request, never silent production mutation.
+HIGH-risk production mutation inherits the existing manual confirmation gate.</p>
+<h2 id="ui">UI<a class="headerlink" href="#ui" title="Permanent link">&para;</a></h2>
+<p>Add an <strong>Agent DBs</strong> surface:</p>
+<ul>
+<li>provision button for humans</li>
+<li>request queue</li>
+<li>active deployments table</li>
+<li>stale/archived/deleted lifecycle views</li>
+<li>cost by agent/team</li>
+<li>last ping and lease state</li>
+<li>backup/restore status</li>
+<li>recommendations tab</li>
+<li>objects and DDL audit tab</li>
+<li>promotion/deploy-request tab when promotion ships</li>
+</ul>
+<p>Do not create a separate extension dashboard. Extension state appears inside:</p>
+<ul>
+<li>deployment readiness</li>
+<li>tuning recommendations</li>
+<li>provider capability details</li>
+<li>blocked-action explanations</li>
+</ul>
+<h2 id="enterprise-requirements-beyond-mvp">Enterprise Requirements Beyond MVP<a class="headerlink" href="#enterprise-requirements-beyond-mvp" title="Permanent link">&para;</a></h2>
+<p>Enterprises deploying agents will also need:</p>
+<ul>
+<li><strong>Identity federation:</strong> SSO/SAML/OIDC for human users and workload identity
+  federation for agents/service accounts.</li>
+<li><strong>Secrets integration:</strong> Vault, cloud secrets managers, short-lived
+  credentials, rotation, revocation, and no credential return after initial
+  creation.</li>
+<li><strong>Data classification and masking:</strong> block production-data seeding unless
+  masking/tokenization policy is attached and audited.</li>
+<li><strong>Egress controls:</strong> deny or review exports, external connections, foreign
+  tables, FDWs, <code>COPY PROGRAM</code>, and unapproved network paths.</li>
+<li><strong>Policy-as-code:</strong> versioned policies for allowed DDL, TTLs, budgets, data
+  sources, providers, and approval thresholds.</li>
+<li><strong>Evidence exports:</strong> JSONL v1 export for audit events; richer SOC2/HIPAA/PCI
+  packages can come later.</li>
+<li><strong>Tenant isolation:</strong> hard boundaries by org/team/customer, including
+  per-tenant encryption and retention where required.</li>
+<li><strong>Incident response:</strong> kill switch by agent/team/deployment, read-only
+  quarantine, credential revocation, and forensic timeline.</li>
+<li><strong>Supply-chain visibility:</strong> record agent client version, prompt/tool pack
+  version, migration generator version, and source repository SHA when supplied.</li>
+<li><strong>Human escalation:</strong> owner paging, approval SLAs, stale-owner fallback, and
+  emergency override with audit trail.</li>
+<li><strong>Provider governance:</strong> quotas, region/data residency constraints, branch
+  limits, maintenance windows, and restore guarantees per provider.</li>
+<li><strong>Compliance-friendly retention:</strong> separate retention for audit events,
+  backups, recommendations, query samples, and PII-bearing payloads.</li>
+<li><strong>Safety evaluation hooks:</strong> replay or dry-run checks for generated SQL,
+  prompt-injection test cases for query-generating agents, and regression tests
+  for applied recommendations.</li>
+<li><strong>Operational metrics:</strong> allow/review/deny/defer ratios, provisioning failures,
+  quarantine causes, restore verification failures, cleanup dry-run results,
+  stale deployments, and drop-rate limit hits.</li>
+</ul>
+<h2 id="data-model">Data Model<a class="headerlink" href="#data-model" title="Permanent link">&para;</a></h2>
+<p>Suggested pg_sage schema additions:</p>
+<ul>
+<li><code>sage.agent_identities</code></li>
+<li><code>sage.agent_api_tokens</code></li>
+<li><code>sage.agent_db_idempotency_keys</code></li>
+<li><code>sage.agent_db_requests</code></li>
+<li><code>sage.agent_db_deployments</code></li>
+<li><code>sage.agent_db_leases</code></li>
+<li><code>sage.agent_db_objects</code></li>
+<li><code>sage.agent_db_audit_events</code></li>
+<li><code>sage.agent_db_cost_samples</code></li>
+<li><code>sage.agent_db_backups</code></li>
+<li><code>sage.agent_db_recommendations</code></li>
+<li><code>sage.agent_db_recommendation_feedback</code></li>
+</ul>
+<p>Use <code>database_name</code> consistently for fleet isolation. Add <code>tenant_id</code> or
+<code>org_id</code> to every <code>agent_db_*</code> table; <code>database_name</code> is a fleet scoping column,
+not a tenant boundary.</p>
+<p>Critical fields:</p>
+<ul>
+<li><code>tenant_id</code></li>
+<li><code>requested_isolation_type</code>, <code>actual_isolation_type</code></li>
+<li><code>provider</code>, <code>provider_resource_id</code>, <code>region</code>, <code>data_residency</code></li>
+<li><code>policy_decision</code>, <code>policy_reasons</code></li>
+<li><code>lease_state</code>, <code>last_ping_at</code>, <code>expires_at</code></li>
+<li><code>archive_state</code>, <code>last_backup_id</code>, <code>restore_verified_at</code></li>
+<li><code>budget_limit_usd</code>, <code>estimated_cost_usd</code>, <code>actual_cost_usd</code></li>
+<li><code>data_classification</code>, <code>masking_policy_id</code></li>
+<li><code>credential_state</code>, <code>credential_expires_at</code></li>
+<li><code>created_by_agent_id</code>, <code>created_by_run_id</code>, <code>approved_by_user_id</code></li>
+</ul>
+<p>Deployment states:</p>
+<ul>
+<li><code>requested</code></li>
+<li><code>approved</code></li>
+<li><code>provisioning</code></li>
+<li><code>active</code></li>
+<li><code>stale</code></li>
+<li><code>quarantined</code></li>
+<li><code>archiving</code></li>
+<li><code>archived</code></li>
+<li><code>restore_verified</code></li>
+<li><code>dropping</code></li>
+<li><code>dropped</code></li>
+<li><code>failed</code></li>
+<li><code>provisioning_failed</code></li>
+</ul>
+<p>Audit events are append-only. v1 should at minimum deny UPDATE/DELETE through
+application roles and provide JSONL export. v1.x can add hash chaining or an
+external immutable sink.</p>
+<h2 id="what-to-pull-from-agentdb">What To Pull From AgentDB<a class="headerlink" href="#what-to-pull-from-agentdb" title="Permanent link">&para;</a></h2>
+<p>Pull in:</p>
+<ul>
+<li>Agent, run, capability, approval, workspace, and workspace object concepts.</li>
+<li>Append-only event taxonomy for deployment lifecycle only.</li>
+<li>Forge workspace creation flow.</li>
+<li>DDL policy and workspace query rules.</li>
+<li>TTL cleanup and promotion flow.</li>
+<li>Dashboard concepts for workspace inventory, cost, audit, and approvals.</li>
+</ul>
+<p>Do not pull in yet:</p>
+<ul>
+<li>full memory vault</li>
+<li>full agent trace product</li>
+<li>framework SDK roadmap</li>
+<li>broad MCP gateway</li>
+<li>HNSW experiment/autotuning planner</li>
+<li>hosted AgentDB positioning</li>
+<li>pricing model</li>
+<li>complete org/owner IAM system</li>
+</ul>
+<p>Those may belong in a separate AgentDB project. pg_sage should stay narrow:
+database deployment, tuning, lifecycle, cost, and safety for agents.</p>
+<h2 id="first-implementation-slices">First Implementation Slices<a class="headerlink" href="#first-implementation-slices" title="Permanent link">&para;</a></h2>
+<h3 id="slice-1-agent-db-domain-model">Slice 1: Agent DB Domain Model<a class="headerlink" href="#slice-1-agent-db-domain-model" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add request/deployment/lease/backup/recommendation structs.</li>
+<li>Add lifecycle state machine including <code>provisioning_failed</code>.</li>
+<li>Unit tests for all state transitions and expiration boundaries.</li>
+</ul>
+<h3 id="slice-15-identity-token-tenant-and-idempotency-model">Slice 1.5: Identity, Token, Tenant, And Idempotency Model<a class="headerlink" href="#slice-15-identity-token-tenant-and-idempotency-model" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add agent identity and deployment-bound ping token records.</li>
+<li>Add token scope rules for request, ping, recommendation feedback, cost samples,
+  and admin actions.</li>
+<li>Add idempotency-key storage and conflict behavior.</li>
+<li>Add tenant/org scoping.</li>
+</ul>
+<h3 id="slice-2-api-request-path">Slice 2: API Request Path<a class="headerlink" href="#slice-2-api-request-path" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>POST /api/v1/agent-dbs/requests</code></li>
+<li>idempotency support</li>
+<li>owner/agent identity validation</li>
+<li>pure policy classifier for allow/review/deny/defer</li>
+<li>advisory-only decision output</li>
+<li>UI request list</li>
+</ul>
+<h3 id="slice-3-lease-and-cleanup-skeleton">Slice 3: Lease And Cleanup Skeleton<a class="headerlink" href="#slice-3-lease-and-cleanup-skeleton" title="Permanent link">&para;</a></h3>
+<ul>
+<li>ping endpoint</li>
+<li>lease extension endpoint</li>
+<li>stale/quarantine/archive/drop lifecycle</li>
+<li>dry-run cleanup report</li>
+<li>backup-before-drop guardrail</li>
+<li>no destructive action until backup verification contract exists</li>
+</ul>
+<h3 id="slice-4-schema-provisioning">Slice 4: Schema Provisioning<a class="headerlink" href="#slice-4-schema-provisioning" title="Permanent link">&para;</a></h3>
+<ul>
+<li>create schema-per-workspace</li>
+<li>create scoped role</li>
+<li>record deployment</li>
+<li>register heartbeat lease</li>
+<li>handle mid-flight failure and cleanup tasks</li>
+<li>role cleanup plan: revoke login/grants, drain sessions, reassign/drop owned
+  objects, then drop role if safe</li>
+</ul>
+<h3 id="slice-5-query-recommendations-api">Slice 5: Query Recommendations API<a class="headerlink" href="#slice-5-query-recommendations-api" title="Permanent link">&para;</a></h3>
+<ul>
+<li>publish existing query/index/rewrite/vector/PostGIS/JSON recommendations as
+  stable machine-readable records</li>
+<li>add feedback endpoint: accepted, rejected, applied, failed, superseded</li>
+<li>can run in parallel with slices 1-4 because it is mostly a read/API shape</li>
+</ul>
+<h3 id="slice-6-cost-and-budget-enforcement">Slice 6: Cost And Budget Enforcement<a class="headerlink" href="#slice-6-cost-and-budget-enforcement" title="Permanent link">&para;</a></h3>
+<ul>
+<li>collect database-observable cost samples</li>
+<li>add optional external cost ingestion</li>
+<li>enforce hard and soft budgets</li>
+</ul>
+<h3 id="slice-7-audit-events">Slice 7: Audit Events<a class="headerlink" href="#slice-7-audit-events" title="Permanent link">&para;</a></h3>
+<ul>
+<li>append-only lifecycle and action events</li>
+<li>JSONL export</li>
+<li>audit metrics</li>
+</ul>
+<h3 id="slice-8-tuning-packs">Slice 8: Tuning Packs<a class="headerlink" href="#slice-8-tuning-packs" title="Permanent link">&para;</a></h3>
+<ul>
+<li>vector, PostGIS, JSONB, extension config hint packs</li>
+<li>attach recommendations to agent deployment ids</li>
+<li>surface in UI and API</li>
+</ul>
+<h3 id="slice-9-promotion-deploy-requests">Slice 9: Promotion Deploy Requests<a class="headerlink" href="#slice-9-promotion-deploy-requests" title="Permanent link">&para;</a></h3>
+<ul>
+<li>schema diff</li>
+<li>migration script</li>
+<li>verification SQL</li>
+<li>rollback/forward-fix plan</li>
+<li>approval workflow</li>
+</ul>
+<p>Promotion can be delayed until v1.x if the provisioning/cleanup/recommendation
+loop is not yet boring and well-tested.</p>
+<h2 id="resolved-decisions-for-v1">Resolved Decisions For v1<a class="headerlink" href="#resolved-decisions-for-v1" title="Permanent link">&para;</a></h2>
+<ol>
+<li>v1 autonomous provisioning is <code>schema</code> plus <code>external</code> registration only.
+   True database creation and provider branches are adapter-gated.</li>
+<li>pg_sage may issue scoped credentials for schema workspaces. Secrets-manager
+   integration is preferred for enterprises but not required for local v1.</li>
+<li>Default stale policy is notify -&gt; quarantine/read-only -&gt; archive -&gt; verified
+   restore -&gt; optional drop. Never immediate drop.</li>
+<li>Query recommendations expose patch hints and request payloads. pg_sage does
+   not open repository PRs in the first module.</li>
+<li>Production-data seeding is blocked unless a masking policy or explicit human
+   approval is attached.</li>
+<li>MCP remains out of pg_sage scope for this module.</li>
+<li>HNSW experiment/autotuning is a separate product. pg_sage keeps query-time
+   pgvector hints and readiness checks.</li>
+<li>Archive retention defaults to 14 days, policy-overridable.</li>
+<li>Cost-limit overrun creates automatic read-only quarantine for hard limits;
+   drop requires human approval.</li>
+<li>Workspaces read production data through masked/materialized copies by
+    default. Direct grants require policy-as-code opt-in.</li>
+<li>Customer-managed encryption keys are v1.x. v1 still requires encrypted
+    backups and recorded storage location.</li>
+<li>JSONL is the minimum audit export format for v1.</li>
+</ol>
+<h2 id="still-open">Still Open<a class="headerlink" href="#still-open" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Which provider adapter should be first after schema/external: self-managed
+   database creation, Neon branches, Supabase branches, RDS/Aurora, Cloud SQL,
+   or AlloyDB?</li>
+<li>What exact role taxonomy should ship first: viewer/requester/approver/admin,
+   plus break-glass?</li>
+<li>Should schema backup verification always perform a test restore, or can local
+   development mode accept checksum-only verification?</li>
+<li>What sample SQL/query payload redaction is sufficient for v1 recommendation
+   APIs?</li>
+<li>What approval SLA behavior should be default: escalate, auto-deny, or leave
+   pending?</li>
+</ol>
+<h2 id="source-notes">Source Notes<a class="headerlink" href="#source-notes" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Neon validates branch-like workflows, TTLs, API/CLI automation, and restore
+  windows for temporary environments.</li>
+<li>Supabase validates separate preview environments with independent credentials,
+  auto pause/delete behavior, and merge workflows.</li>
+<li>LangGraph validates persistent agent state, human-in-the-loop resumability,
+  memory, time travel, and Postgres-backed checkpointers.</li>
+<li>OpenAI Agents SDK validates trace processors and external tracing ecosystem.</li>
+<li>Agentic security guidance supports least privilege, scoped tools, strong
+  observability, provenance, and approval gates.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

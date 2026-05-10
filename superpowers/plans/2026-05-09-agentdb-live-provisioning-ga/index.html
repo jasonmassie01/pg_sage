@@ -1,0 +1,1604 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-09-agentdb-live-provisioning-ga/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Agent DB Live Provisioning GA Implementation Plan - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#agent-db-live-provisioning-ga-implementation-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Agent DB Live Provisioning GA Implementation Plan
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#file-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-1-execution-contract-and-state-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 1: Execution Contract and State Machine
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-2-provider-runner-registry-and-dry-run-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 2: Provider Runner Registry and Dry-Run Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-3-credential-config-policy-gates-and-provider-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 3: Credential Config, Policy Gates, and Provider Settings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-4-recursive-redaction-and-audit-hardening" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 4: Recursive Redaction and Audit Hardening
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-5-cost-estimation-and-budget-gates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 5: Cost Estimation and Budget Gates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-6-aws-rds-live-runner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 6: AWS RDS Live Runner
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-7-gcp-cloud-sql-live-runner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 7: GCP Cloud SQL Live Runner
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-8-databricks-lakebase-runner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 8: Databricks Lakebase Runner
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-9-apiui-live-execution-ux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 9: API/UI Live Execution UX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-9a-microslice-agent-db-ui-tabs-and-terraform-template-upload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 9a: Microslice - Agent DB UI Tabs and Terraform Template Upload
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-10-reconcile-live-e2e-runbook-and-ga-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 10: Reconcile, Live E2E, Runbook, and GA Gate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spec-coverage-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spec Coverage Checklist
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="agent-db-live-provisioning-ga-implementation-plan">Agent DB Live Provisioning GA Implementation Plan<a class="headerlink" href="#agent-db-live-provisioning-ga-implementation-plan" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
+</blockquote>
+<p><strong>Goal:</strong> Build safe live cloud provisioning for Agent DBs across AWS RDS,
+GCP Cloud SQL, and Databricks Lakebase, with policy gates, redaction, cost,
+backup, reconciliation, UI controls, and live E2E validation.</p>
+<p><strong>Architecture:</strong> Keep the existing Agent DB store/API/UI, but replace
+command-shaped dry-run execution with a provider-runner registry. Live
+execution is opt-in through config and policy, while dry-run remains the
+default and compatibility path.</p>
+<p><strong>Tech Stack:</strong> Go sidecar, pgx/Postgres schema, AWS SDK for Go v2, Google
+Cloud SQL Admin REST/client, Databricks REST API, React/Vitest/Playwright,
+existing pg_sage config and Agent DB API patterns.</p>
+<hr />
+<h2 id="file-structure">File Structure<a class="headerlink" href="#file-structure" title="Permanent link">&para;</a></h2>
+<p>Create:</p>
+<ul>
+<li><code>sidecar/internal/agentdb/provider_runner.go</code>: common runner interfaces,
+  operation/request/result structs, registry, and provider-neutral errors.</li>
+<li><code>sidecar/internal/agentdb/provider_policy.go</code>: live provisioning policy
+  evaluation, allowlists, rate gates, TTL/budget/network decisions.</li>
+<li><code>sidecar/internal/agentdb/provider_redaction.go</code>: recursive secret redaction.</li>
+<li><code>sidecar/internal/agentdb/provider_cost.go</code>: heuristic cost estimates.</li>
+<li><code>sidecar/internal/agentdb/terraform_templates.go</code>: Terraform template
+  persistence, manifest extraction, validation summaries, and policy findings.</li>
+<li><code>sidecar/internal/agentdb/terraform_policy.go</code>: static Terraform guardrails
+  for provisioners, module sources, resource allowlists, and secret-looking
+  files.</li>
+<li><code>sidecar/internal/agentdb/provider_errors.go</code>: typed provider errors with
+  actionable repair hints.</li>
+<li><code>sidecar/internal/agentdb/provider_naming.go</code>: provider-safe resource name
+  derivation and validation.</li>
+<li><code>sidecar/internal/agentdb/aws_rds_runner.go</code>: AWS RDS SDK runner.</li>
+<li><code>sidecar/internal/agentdb/gcp_cloudsql_runner.go</code>: Cloud SQL Admin runner.</li>
+<li><code>sidecar/internal/agentdb/lakebase_runner.go</code>: Databricks Lakebase REST runner.</li>
+<li><code>sidecar/internal/agentdb/live_test_helpers_test.go</code>: fake provider runner
+  helpers and DB cleanup helpers.</li>
+<li><code>sidecar/internal/api/agent_db_provider_config_handlers.go</code>: provider
+  settings endpoints.</li>
+<li><code>sidecar/internal/api/agent_db_terraform_template_handlers.go</code>: upload,
+  validate, approve, and list Terraform templates.</li>
+<li><code>sidecar/web/src/pages/agentdb/ProviderSettingsPanel.jsx</code>: UI for live
+  enablement and provider allowlists.</li>
+<li><code>sidecar/web/src/pages/agentdb/AgentDBWorkspaceTabs.jsx</code>: compact tab shell
+  for the Agent DB page.</li>
+<li><code>sidecar/web/src/pages/agentdb/TerraformTemplatePanel.jsx</code>: upload and
+  review Terraform templates.</li>
+<li><code>e2e/agentdb-live-provisioning.spec.ts</code>: flag-gated browser/live smoke.</li>
+<li><code>docs/runbooks/agentdb-live-provisioning.md</code>: operator runbook.</li>
+</ul>
+<p>Modify:</p>
+<ul>
+<li><code>sidecar/internal/agentdb/types.go</code>: add config/result types.</li>
+<li><code>sidecar/internal/agentdb/schema.go</code>: add provider config table and state
+  indexes, provider resource fields, secret reference fields, and creation
+  receipts, plus Terraform template tables.</li>
+<li><code>sidecar/internal/agentdb/execution.go</code>: replace direct dry-run runner use
+  with registry-driven operations and checked state transitions.</li>
+<li><code>sidecar/internal/agentdb/lifecycle.go</code>: replace provider-blind reconcile
+  with provider-aware reconcile and advisory locking.</li>
+<li><code>sidecar/internal/agentdb/backup_assurance.go</code>: inject provider runners for
+  managed backup checks.</li>
+<li><code>sidecar/internal/agentdb/providers.go</code>: keep deterministic plans but remove
+  any implication that plans are executable shell commands.</li>
+<li><code>sidecar/internal/api/agent_db_execution_handlers.go</code>: inject runner registry
+  and add live endpoints.</li>
+<li><code>sidecar/internal/api/agent_db_handlers.go</code>: register provider config and
+  live execution routes.</li>
+<li><code>sidecar/internal/api/router.go</code>: build registry from config.</li>
+<li><code>sidecar/internal/config/config.go</code>: add <code>agentdb</code> live provisioning config.</li>
+<li><code>sidecar/web/src/pages/AgentDBsPage.jsx</code>: fetch provider settings and wire
+  live actions, workspace tabs, and template upload.</li>
+<li><code>sidecar/web/src/pages/agentdb/CloudProvisioningPanel.jsx</code>: separate dry-run
+  and live actions and show disabled reasons.</li>
+<li><code>sidecar/web/src/pages/agentdb/AgentDBProvisioningPanels.jsx</code>: expose
+  provider settings UI or link to settings.</li>
+<li><code>sidecar/web/src/pages/AgentDBsPage.test.jsx</code>: add live-disabled,
+  live-enabled, and no-secret tests.</li>
+<li><code>sidecar/web/src/pages/agentdb/AgentDBWorkspaceTabs.test.jsx</code>: tab workflow
+  tests.</li>
+<li><code>sidecar/web/src/pages/agentdb/TerraformTemplatePanel.test.jsx</code>: upload and
+  validation UX tests.</li>
+</ul>
+<hr />
+<h2 id="task-1-execution-contract-and-state-machine">Task 1: Execution Contract and State Machine<a class="headerlink" href="#task-1-execution-contract-and-state-machine" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>sidecar/internal/agentdb/provider_runner.go</code></li>
+<li>Create: <code>sidecar/internal/agentdb/provider_redaction.go</code></li>
+<li>Create: <code>sidecar/internal/agentdb/provider_errors.go</code></li>
+<li>Create: <code>sidecar/internal/agentdb/provider_naming.go</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/types.go</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/schema.go</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/execution.go</code></li>
+<li>Test: <code>sidecar/internal/agentdb/execution_test.go</code></li>
+<li>Test: <code>sidecar/internal/agentdb/provider_redaction_test.go</code></li>
+<li>
+<p>Test: <code>sidecar/internal/agentdb/provider_naming_test.go</code></p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write failing state transition tests</strong></p>
+</li>
+</ul>
+<p>Add tests that assert:</p>
+<ul>
+<li><code>planned -&gt; preflight_passed -&gt; provisioning -&gt; available</code></li>
+<li><code>planned -&gt; preflight_failed</code></li>
+<li><code>available -&gt; destroy_pending -&gt; destroying -&gt; destroyed</code></li>
+<li><code>queued -&gt; cancel_requested -&gt; cancelling</code></li>
+<li><code>provisioning -&gt; status_unknown</code></li>
+<li>duplicate live create returns <code>ErrConflict</code></li>
+<li>destroy from <code>planned</code> returns <code>ErrInvalid</code></li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestProvisionStateTransitions|TestLiveExecuteRejectsInvalidTransitions|TestProviderResourceName|TestRedactProviderDetail&quot;</span>
+</code></pre></div>
+<p>Expected: fail because the new transition validator and live states do not
+exist yet.</p>
+<ul>
+<li>[ ] <strong>Step 2: Add operation/result types and transition validator</strong></li>
+</ul>
+<p>Implement <code>ProvisionOperation</code>, <code>ProvisionRequest</code>, <code>ProvisionResult</code>,
+<code>ProviderRunner</code>, <code>RunnerRegistry</code>, typed provider errors, resource naming,
+and:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kd">func</span><span class="w"> </span><span class="nx">validProvisionTransition</span><span class="p">(</span><span class="nx">from</span><span class="p">,</span><span class="w"> </span><span class="nx">to</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">bool</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kd">func</span><span class="w"> </span><span class="nx">requireProvisionTransition</span><span class="p">(</span><span class="nx">from</span><span class="p">,</span><span class="w"> </span><span class="nx">to</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="kt">error</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Add schema fields and creation receipts</strong></li>
+</ul>
+<p>Append idempotent schema changes in <code>schema.go</code>:</p>
+<ul>
+<li><code>provider_resource_id text NOT NULL DEFAULT ''</code></li>
+<li><code>secret_ref text NOT NULL DEFAULT ''</code></li>
+<li><code>secret_ref_provider text NOT NULL DEFAULT ''</code></li>
+<li><code>secret_ref_expires_at timestamptz</code></li>
+<li><code>live_mode boolean NOT NULL DEFAULT false</code></li>
+<li><code>sage.agent_db_creation_receipts</code></li>
+</ul>
+<p>Receipt columns: deployment ID, provider, provider resource ID, region,
+account/project/workspace, request hash, operation mode, created_at, updated_at.</p>
+<ul>
+<li>[ ] <strong>Step 4: Route existing dry-run execution through safe helpers</strong></li>
+</ul>
+<p>Keep existing API behavior, but make every provisioning status update pass
+through the validator, every provider detail pass through the redactor, and
+every live-intent transition write a creation receipt before calling a provider.</p>
+<ul>
+<li>[ ] <strong>Step 5: Add command-runner adapter for compatibility</strong></li>
+</ul>
+<p>Add a <code>commandRunnerAdapter</code> so existing tests using <code>recordingProvisionRunner</code>
+and <code>failingProvisionRunner</code> keep compiling while live runners migrate to the
+new interface.</p>
+<ul>
+<li>[ ] <strong>Step 6: Rerun focused tests</strong></li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestProvisionStateTransitions|TestLiveExecuteRejectsInvalidTransitions|TestProviderResourceName|TestRedactProviderDetail&quot;</span>
+</code></pre></div>
+<p>Expected: pass.</p>
+<hr />
+<h2 id="task-2-provider-runner-registry-and-dry-run-compatibility">Task 2: Provider Runner Registry and Dry-Run Compatibility<a class="headerlink" href="#task-2-provider-runner-registry-and-dry-run-compatibility" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>sidecar/internal/agentdb/provider_runner.go</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/execution.go</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/lifecycle.go</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/backup_assurance.go</code></li>
+<li>Modify: <code>sidecar/internal/api/agent_db_execution_handlers.go</code></li>
+<li>Test: <code>sidecar/internal/api/agent_db_handlers_test.go</code></li>
+<li>
+<p>Test: <code>sidecar/internal/agentdb/execution_test.go</code></p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write failing registry tests</strong></p>
+</li>
+</ul>
+<p>Test that:</p>
+<ul>
+<li>unknown provider returns <code>ErrInvalid</code></li>
+<li>dry-run registry handles all cloud providers</li>
+<li>handler uses injected registry instead of hard-coded
+  <code>DryRunProvisionRunner{}</code></li>
+<li>reconcile and backup assurance use injected registry instead of hard-coded
+  dry-run runner</li>
+<li>in-flight operations keep their original runner if config reload swaps the
+  registry for future operations</li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">&quot;TestRunnerRegistry|TestAgentDBExecuteUsesInjectedRunner&quot;</span>
+</code></pre></div>
+<p>Expected: fail.</p>
+<ul>
+<li>[ ] <strong>Step 2: Implement <code>RunnerRegistry</code></strong></li>
+</ul>
+<p>Registry API:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kd">func</span><span class="w"> </span><span class="nx">NewRunnerRegistry</span><span class="p">(</span><span class="nx">fallback</span><span class="w"> </span><span class="nx">ProviderRunner</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">RunnerRegistry</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">RunnerRegistry</span><span class="p">)</span><span class="w"> </span><span class="nx">Register</span><span class="p">(</span><span class="nx">runner</span><span class="w"> </span><span class="nx">ProviderRunner</span><span class="p">)</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">RunnerRegistry</span><span class="p">)</span><span class="w"> </span><span class="nx">ForProvider</span><span class="p">(</span><span class="nx">provider</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="nx">ProviderRunner</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+</code></pre></div>
+<ul>
+<li>[ ] <strong>Step 3: Inject registry into API routes</strong></li>
+</ul>
+<p>Update route construction to accept a registry. In current router setup, build
+dry-run-only registry unless live config is enabled.</p>
+<ul>
+<li>[ ] <strong>Step 4: Inject registry into reconcile and backup assurance</strong></li>
+</ul>
+<p>Replace the remaining dry-run injection points in lifecycle/reconcile and
+backup assurance. Store the selected runner name on the attempt so audits show
+which implementation handled the operation.</p>
+<ul>
+<li>[ ] <strong>Step 5: Rerun focused tests</strong></li>
+</ul>
+<p>Run the command from Step 1. Expected: pass.</p>
+<hr />
+<h2 id="task-3-credential-config-policy-gates-and-provider-settings">Task 3: Credential Config, Policy Gates, and Provider Settings<a class="headerlink" href="#task-3-credential-config-policy-gates-and-provider-settings" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>sidecar/internal/agentdb/provider_policy.go</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/schema.go</code></li>
+<li>Modify: <code>sidecar/internal/config/config.go</code></li>
+<li>Create: <code>sidecar/internal/api/agent_db_provider_config_handlers.go</code></li>
+<li>Modify: <code>sidecar/internal/api/agent_db_handlers.go</code></li>
+<li>Test: <code>sidecar/internal/agentdb/provider_policy_test.go</code></li>
+<li>
+<p>Test: <code>sidecar/internal/api/agent_db_handlers_test.go</code></p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write failing policy tests</strong></p>
+</li>
+</ul>
+<p>Cover:</p>
+<ul>
+<li>global live disabled denies create</li>
+<li>provider disabled denies create</li>
+<li>region allowlist deny</li>
+<li>account/project/workspace allowlist deny</li>
+<li>empty live-mode allowlist denies every request unless it contains <code>*</code></li>
+<li>missing TTL deny</li>
+<li>public IP deny by default</li>
+<li>live approval reuses the existing Agent DB deploy-request review workflow</li>
+<li>admin override records reason but does not bypass secret redaction</li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">&quot;TestLiveProvisionPolicy|TestProviderConfigAPI&quot;</span>
+</code></pre></div>
+<p>Expected: fail.</p>
+<ul>
+<li>[ ] <strong>Step 2: Add config structs</strong></li>
+</ul>
+<p>Add <code>AgentDBConfig</code> and nested provider structs to config parsing with safe
+defaults:</p>
+<ul>
+<li><code>live_provisioning_enabled=false</code></li>
+<li>provider enabled flags false</li>
+<li><code>allow_public_ip=false</code></li>
+<li><code>require_backup_before_destroy=true</code></li>
+<li>
+<p>empty allowlists mean deny-all in live mode; <code>["*"]</code> explicitly means any</p>
+</li>
+<li>
+<p>[ ] <strong>Step 3: Add provider config persistence/API</strong></p>
+</li>
+</ul>
+<p>Store non-secret settings only. Reject any provider config payload containing
+secret-looking keys.</p>
+<ul>
+<li>[ ] <strong>Step 4: Add policy evaluator</strong></li>
+</ul>
+<p>Return structured <code>PolicyDecision</code> with <code>allowed</code>, <code>reasons</code>,
+<code>disabled_reasons</code>, <code>requires_approval</code>, rate-limit dimension, and the
+existing deploy-request approval reference when approval is required.</p>
+<ul>
+<li>[ ] <strong>Step 5: Rerun focused tests</strong></li>
+</ul>
+<p>Run the command from Step 1. Expected: pass.</p>
+<hr />
+<h2 id="task-4-recursive-redaction-and-audit-hardening">Task 4: Recursive Redaction and Audit Hardening<a class="headerlink" href="#task-4-recursive-redaction-and-audit-hardening" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>sidecar/internal/agentdb/provider_redaction.go</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/execution.go</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/audit.go</code></li>
+<li>
+<p>Test: <code>sidecar/internal/agentdb/provider_redaction_test.go</code></p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write failing redaction tests</strong></p>
+</li>
+</ul>
+<p>Test nested maps, arrays, mixed case keys, DSNs, and provider result details.
+Assert no value containing <code>password</code>, <code>token</code>, <code>secret</code>, or connection DSN
+survives in provision attempts or audit detail.</p>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestRedactProviderDetail|TestProvisionAttemptsDoNotLeakSecrets&quot;</span>
+</code></pre></div>
+<p>Expected: fail.</p>
+<ul>
+<li>[ ] <strong>Step 2: Implement recursive redactor</strong></li>
+</ul>
+<p>Redact keys containing:</p>
+<ul>
+<li><code>password</code></li>
+<li><code>token</code></li>
+<li><code>secret</code></li>
+<li><code>credential</code></li>
+<li><code>private_key</code></li>
+<li><code>connection_string</code></li>
+<li><code>dsn</code></li>
+<li><code>access_key</code></li>
+<li>
+<p><code>session</code></p>
+</li>
+<li>
+<p>[ ] <strong>Step 3: Apply redaction before storage and API response</strong></p>
+</li>
+</ul>
+<p>Redact at the boundary before <code>recordProvisionAttempt</code>, <code>audit</code>, and JSON
+responses.</p>
+<ul>
+<li>[ ] <strong>Step 4: Rerun tests</strong></li>
+</ul>
+<p>Run the command from Step 1. Expected: pass.</p>
+<ul>
+<li>[ ] <strong>Step 5: Add redaction fuzz test</strong></li>
+</ul>
+<p>Run the redactor with arbitrary nested maps and arrays and assert sensitive
+keys never survive:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="n">TestRedactProviderDetail</span> <span class="n">-fuzz</span> <span class="n">FuzzRedactProviderDetail</span> <span class="n">-fuzztime</span> <span class="n">10s</span>
+</code></pre></div>
+<hr />
+<h2 id="task-5-cost-estimation-and-budget-gates">Task 5: Cost Estimation and Budget Gates<a class="headerlink" href="#task-5-cost-estimation-and-budget-gates" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>sidecar/internal/agentdb/provider_cost.go</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/types.go</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/provider_policy.go</code></li>
+<li>
+<p>Test: <code>sidecar/internal/agentdb/provider_cost_test.go</code></p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write failing cost tests</strong></p>
+</li>
+</ul>
+<p>Cover RDS <code>db.t4g.micro</code>, Cloud SQL <code>db-f1-micro</code>,
+<code>db-custom-1-3840</code>, Lakebase branch, unknown size, TTL-cost calculation, and
+budget denial.</p>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestEstimateAgentDBCost|TestBudgetGate&quot;</span>
+</code></pre></div>
+<p>Expected: fail.</p>
+<ul>
+<li>[ ] <strong>Step 2: Implement heuristic estimate tables</strong></li>
+</ul>
+<p>Use versioned YAML/config-backed tables so estimates can be updated without a
+binary rebuild. Use low-confidence defaults when exact provider pricing is
+unknown. Include <code>confidence</code> and <code>unknown_components</code>.</p>
+<ul>
+<li>[ ] <strong>Step 3: Feed estimates into preflight policy</strong></li>
+</ul>
+<p>Reject when estimated TTL cost exceeds deployment budget. Warn when monthly
+equivalent exceeds size profile budget. Double estimates with <code>confidence=low</code>
+or non-empty <code>unknown_components</code> before comparing against deployment budget,
+and require admin override above 50% of budget.</p>
+<ul>
+<li>[ ] <strong>Step 4: Rerun tests</strong></li>
+</ul>
+<p>Run the command from Step 1. Expected: pass.</p>
+<hr />
+<h2 id="task-6-aws-rds-live-runner">Task 6: AWS RDS Live Runner<a class="headerlink" href="#task-6-aws-rds-live-runner" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>sidecar/internal/agentdb/aws_rds_runner.go</code></li>
+<li>Modify: <code>go.mod</code></li>
+<li>Test: <code>sidecar/internal/agentdb/aws_rds_runner_test.go</code></li>
+<li>
+<p>Live test: <code>sidecar/internal/agentdb/aws_rds_live_test.go</code></p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write fake-client tests first</strong></p>
+</li>
+</ul>
+<p>Fake the AWS client interface and test:</p>
+<ul>
+<li>preflight validates region, class, storage, backup retention, and network</li>
+<li>create uses deterministic DB identifier</li>
+<li>create sets backup retention, encryption, tags, and deletion protection per
+  policy</li>
+<li>status maps AWS statuses to pg_sage states</li>
+<li>destroy uses skip-final-snapshot only for disposable class</li>
+<li>not-found during destroy maps to destroyed</li>
+<li>UUID-style deployment IDs that start with digits are mapped to valid RDS
+  identifiers</li>
+<li><code>Throttling</code>, <code>InstanceQuotaExceeded</code>, <code>InvalidParameterValue</code>, and
+  <code>DBInstanceAlreadyExists</code> map to typed provider errors</li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestAWSRDSRunner&quot;</span>
+</code></pre></div>
+<p>Expected: fail.</p>
+<ul>
+<li>[ ] <strong>Step 2: Add AWS SDK for Go v2 dependency</strong></li>
+</ul>
+<p>Use service-specific imports. Do not shell out to <code>aws</code>.</p>
+<ul>
+<li>[ ] <strong>Step 3: Implement runner</strong></li>
+</ul>
+<p>Use SDK default credential chain plus optional configured profile/region.
+Prefer RDS-managed Secrets Manager credentials where supported; otherwise
+return a secret reference requirement rather than storing password values.
+Persist <code>provider_resource_id</code> from <code>provider_naming.go</code>.</p>
+<ul>
+<li>[ ] <strong>Step 4: Add live test behind flag</strong></li>
+</ul>
+<p>Only runs when <code>PG_SAGE_LIVE_AWS_RDS=1</code>. Test create/status/destroy and verify
+deletion. Always tag <code>app=pg-sage</code>, <code>ttl</code>, and <code>pg_sage_deployment_id</code>.</p>
+<ul>
+<li>[ ] <strong>Step 5: Rerun fake tests</strong></li>
+</ul>
+<p>Run the command from Step 1. Expected: pass.</p>
+<hr />
+<h2 id="task-7-gcp-cloud-sql-live-runner">Task 7: GCP Cloud SQL Live Runner<a class="headerlink" href="#task-7-gcp-cloud-sql-live-runner" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>sidecar/internal/agentdb/gcp_cloudsql_runner.go</code></li>
+<li>Modify: <code>go.mod</code></li>
+<li>Test: <code>sidecar/internal/agentdb/gcp_cloudsql_runner_test.go</code></li>
+<li>
+<p>Live test: <code>sidecar/internal/agentdb/gcp_cloudsql_live_test.go</code></p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write fake-client tests first</strong></p>
+</li>
+</ul>
+<p>Cover:</p>
+<ul>
+<li>Enterprise edition required for <code>db-f1-micro</code></li>
+<li>public IP denied unless policy allows</li>
+<li><code>authorizedNetworks=0.0.0.0/0</code> denied</li>
+<li>private IP requires network/private services access params</li>
+<li>public IP requires Cloud SQL Auth Proxy or connector verification</li>
+<li>backup config enabled</li>
+<li>status maps <code>RUNNABLE</code> to <code>available</code></li>
+<li>delete operation polling maps not-found to destroyed</li>
+<li>quota, permission denied, already exists, and transient operation failures map
+  to typed provider errors</li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestCloudSQLRunner&quot;</span>
+</code></pre></div>
+<p>Expected: fail.</p>
+<ul>
+<li>[ ] <strong>Step 2: Add Cloud SQL Admin client</strong></li>
+</ul>
+<p>Use Google auth/ADC. Do not shell out to <code>gcloud</code>.</p>
+<ul>
+<li>[ ] <strong>Step 3: Implement runner</strong></li>
+</ul>
+<p>Use Admin API instance insert/get/delete and operation polling. Store only
+instance connection name and secret references.</p>
+<ul>
+<li>[ ] <strong>Step 4: Add live test behind flag</strong></li>
+</ul>
+<p>Only runs when <code>PG_SAGE_LIVE_GCP_CLOUDSQL=1</code>. Test create/status/backup/delete
+with low-cost Enterprise settings.</p>
+<ul>
+<li>[ ] <strong>Step 5: Rerun fake tests</strong></li>
+</ul>
+<p>Run the command from Step 1. Expected: pass.</p>
+<hr />
+<h2 id="task-8-databricks-lakebase-runner">Task 8: Databricks Lakebase Runner<a class="headerlink" href="#task-8-databricks-lakebase-runner" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>sidecar/internal/agentdb/lakebase_runner.go</code></li>
+<li>Test: <code>sidecar/internal/agentdb/lakebase_runner_test.go</code></li>
+<li>
+<p>Live test: <code>sidecar/internal/agentdb/lakebase_live_test.go</code></p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write fake HTTP server tests first</strong></p>
+</li>
+</ul>
+<p>Cover:</p>
+<ul>
+<li>project lookup</li>
+<li>default branch discovery</li>
+<li>branch create with TTL</li>
+<li>long-running operation capture</li>
+<li>branch status ready</li>
+<li>branch delete and not-found verification</li>
+<li>branch-name uniqueness collision fails predictably because Lakebase branch
+  rename is not supported</li>
+<li>OAuth token refresh during long-running create refreshes once and does not
+  persist the token</li>
+<li>provisioned instance mode denied unless <code>allow_lakebase_instance=true</code></li>
+<li>OAuth token not persisted</li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestLakebaseRunner&quot;</span>
+</code></pre></div>
+<p>Expected: fail.</p>
+<ul>
+<li>[ ] <strong>Step 2: Implement REST client</strong></li>
+</ul>
+<p>Use configured workspace host and auth token provider. For MVP, support
+Databricks unified auth/profile locally and service principal OAuth in
+enterprise config.</p>
+<ul>
+<li>[ ] <strong>Step 3: Implement branch runner</strong></li>
+</ul>
+<p>Create branch under existing project, record source branch, operation name,
+branch name, state, TTL, and endpoint metadata if returned.</p>
+<ul>
+<li>[ ] <strong>Step 4: Gate full instance mode</strong></li>
+</ul>
+<p>Return actionable denial unless live instance API shape has been validated in
+the configured workspace.</p>
+<ul>
+<li>[ ] <strong>Step 5: Add live test behind flag</strong></li>
+</ul>
+<p>Only runs when <code>PG_SAGE_LIVE_DATABRICKS_LAKEBASE=1</code>. Create/status/delete a
+branch and verify not found after delete.</p>
+<ul>
+<li>[ ] <strong>Step 6: Rerun fake tests</strong></li>
+</ul>
+<p>Run the command from Step 1. Expected: pass.</p>
+<hr />
+<h2 id="task-9-apiui-live-execution-ux">Task 9: API/UI Live Execution UX<a class="headerlink" href="#task-9-apiui-live-execution-ux" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>sidecar/internal/api/agent_db_execution_handlers.go</code></li>
+<li>Modify: <code>sidecar/internal/api/agent_db_handlers.go</code></li>
+<li>Modify: <code>sidecar/web/src/pages/AgentDBsPage.jsx</code></li>
+<li>Modify: <code>sidecar/web/src/pages/agentdb/CloudProvisioningPanel.jsx</code></li>
+<li>Create: <code>sidecar/web/src/pages/agentdb/ProviderSettingsPanel.jsx</code></li>
+<li>Test: <code>sidecar/web/src/pages/AgentDBsPage.test.jsx</code></li>
+<li>
+<p>Test: <code>sidecar/web/src/pages/ProviderSettingsPanel.test.jsx</code></p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write failing API tests</strong></p>
+</li>
+</ul>
+<p>Assert:</p>
+<ul>
+<li>dry-run <code>execute</code> remains dry-run</li>
+<li><code>execute</code> with <code>mode=live</code> and a fresh <code>cost_estimate_id</code> uses live runner</li>
+<li>missing, stale, or mismatched <code>cost_estimate_id</code> rejects live mode</li>
+<li>live disabled returns structured reason</li>
+<li><code>destroy</code> requires backup/restore gate</li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">&quot;TestAgentDBLiveProvisionAPI&quot;</span>
+</code></pre></div>
+<p>Expected: fail.</p>
+<ul>
+<li>[ ] <strong>Step 2: Write failing UI tests</strong></li>
+</ul>
+<p>Assert:</p>
+<ul>
+<li>live actions are visible but disabled with reasons</li>
+<li>enabled provider shows confirmation modal</li>
+<li>preflight summary shows cost/network/backup warnings</li>
+<li>no secret text is rendered</li>
+<li>Lakebase branch/full-instance choice remains visible</li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">npm</span> <span class="p">-</span><span class="n">-prefix</span> <span class="n">sidecar</span><span class="p">/</span><span class="n">web</span> <span class="n">test</span> <span class="p">--</span> <span class="p">-</span><span class="n">-run</span> <span class="n">src</span><span class="p">/</span><span class="n">pages</span><span class="p">/</span><span class="n">AgentDBsPage</span><span class="p">.</span><span class="n">test</span><span class="p">.</span><span class="n">jsx</span> <span class="n">src</span><span class="p">/</span><span class="n">pages</span><span class="p">/</span><span class="n">ProviderSettingsPanel</span><span class="p">.</span><span class="n">test</span><span class="p">.</span><span class="n">jsx</span>
+</code></pre></div>
+<p>Expected: fail.</p>
+<ul>
+<li>[ ] <strong>Step 3: Implement API routes</strong></li>
+</ul>
+<p>Keep <code>execute</code> as the route and add request body fields:
+<code>mode=dry_run|live</code> and <code>cost_estimate_id</code>. Add <code>destroy</code>, provider config
+GET/PUT, and preflight summary.</p>
+<ul>
+<li>[ ] <strong>Step 4: Implement UI</strong></li>
+</ul>
+<p>Add provider settings panel and live action controls. Make disabled reasons
+clear without instructional wall text.</p>
+<ul>
+<li>[ ] <strong>Step 5: Rerun API and UI tests</strong></li>
+</ul>
+<p>Run commands from Steps 1 and 2. Expected: pass.</p>
+<hr />
+<h2 id="task-9a-microslice-agent-db-ui-tabs-and-terraform-template-upload">Task 9a: Microslice - Agent DB UI Tabs and Terraform Template Upload<a class="headerlink" href="#task-9a-microslice-agent-db-ui-tabs-and-terraform-template-upload" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>sidecar/internal/agentdb/terraform_templates.go</code></li>
+<li>Create: <code>sidecar/internal/agentdb/terraform_policy.go</code></li>
+<li>Create: <code>sidecar/internal/api/agent_db_terraform_template_handlers.go</code></li>
+<li>Create: <code>sidecar/web/src/pages/agentdb/AgentDBWorkspaceTabs.jsx</code></li>
+<li>Create: <code>sidecar/web/src/pages/agentdb/TerraformTemplatePanel.jsx</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/schema.go</code></li>
+<li>Modify: <code>sidecar/internal/api/agent_db_handlers.go</code></li>
+<li>Modify: <code>sidecar/web/src/pages/AgentDBsPage.jsx</code></li>
+<li>Test: <code>sidecar/internal/agentdb/terraform_templates_test.go</code></li>
+<li>Test: <code>sidecar/internal/api/agent_db_handlers_test.go</code></li>
+<li>Test: <code>sidecar/web/src/pages/AgentDBsPage.test.jsx</code></li>
+<li>
+<p>Test: <code>sidecar/web/src/pages/agentdb/TerraformTemplatePanel.test.jsx</code></p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write failing Terraform template policy tests</strong></p>
+</li>
+</ul>
+<p>Assert:</p>
+<ul>
+<li><code>.tf</code>, <code>.tf.json</code>, and <code>.zip</code> uploads are accepted only under max size.</li>
+<li><code>.tfvars</code>, <code>.auto.tfvars</code>, <code>.tfstate</code>, <code>.terraform/</code>, and secret-looking
+  files are rejected.</li>
+<li><code>provisioner</code>, <code>local-exec</code>, <code>remote-exec</code>, <code>external</code> data sources,
+  <code>null_resource</code>, and <code>local_file</code> are rejected.</li>
+<li>external module sources require an allowlisted source and immutable version.</li>
+<li>allowed provider resources produce a summary with providers, resources,
+  variables, and outputs.</li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestTerraformTemplatePolicy|TestTerraformTemplateManifest&quot;</span>
+</code></pre></div>
+<p>Expected: fail.</p>
+<ul>
+<li>[ ] <strong>Step 2: Write failing API tests</strong></li>
+</ul>
+<p>Assert:</p>
+<ul>
+<li><code>POST /api/v1/agent-dbs/terraform-templates</code> stores a draft and returns a
+  template ID.</li>
+<li>invalid uploads return structured policy findings.</li>
+<li>validation never stores secret-looking values.</li>
+<li>approval requires operator/admin role.</li>
+<li>approved template IDs can be referenced by size profile provider params as
+  <code>terraform_template_id</code>.</li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">&quot;TestAgentDBTerraformTemplateAPI&quot;</span>
+</code></pre></div>
+<p>Expected: fail.</p>
+<ul>
+<li>[ ] <strong>Step 3: Write failing UI declutter tests</strong></li>
+</ul>
+<p>Assert:</p>
+<ul>
+<li>Agent DB page renders tabs: <code>Deployments</code>, <code>Provision</code>, <code>Profiles</code>,
+  <code>Provider Settings</code>, <code>Terraform</code>, <code>Activity</code>.</li>
+<li>only the active tab's main panel is visible.</li>
+<li>selected deployment summary remains visible while switching tabs.</li>
+<li>Terraform tab has upload, validation findings, and approval status.</li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">npm</span> <span class="p">-</span><span class="n">-prefix</span> <span class="n">sidecar</span><span class="p">/</span><span class="n">web</span> <span class="n">test</span> <span class="p">--</span> <span class="p">-</span><span class="n">-run</span> <span class="n">src</span><span class="p">/</span><span class="n">pages</span><span class="p">/</span><span class="n">AgentDBsPage</span><span class="p">.</span><span class="n">test</span><span class="p">.</span><span class="n">jsx</span> <span class="n">src</span><span class="p">/</span><span class="n">pages</span><span class="p">/</span><span class="n">agentdb</span><span class="p">/</span><span class="n">TerraformTemplatePanel</span><span class="p">.</span><span class="n">test</span><span class="p">.</span><span class="n">jsx</span>
+</code></pre></div>
+<p>Expected: fail.</p>
+<ul>
+<li>[ ] <strong>Step 4: Add schema and store methods</strong></li>
+</ul>
+<p>Add <code>sage.agent_db_terraform_templates</code> with:</p>
+<ul>
+<li><code>template_id</code></li>
+<li><code>name</code></li>
+<li><code>status</code></li>
+<li><code>source_kind</code></li>
+<li><code>content_sha256</code></li>
+<li><code>files_json</code></li>
+<li><code>manifest_json</code></li>
+<li><code>policy_findings</code></li>
+<li><code>created_by</code></li>
+<li><code>approved_by</code></li>
+<li><code>created_at</code></li>
+<li><code>updated_at</code></li>
+</ul>
+<p>Store file manifests and summaries, not secret values.</p>
+<ul>
+<li>[ ] <strong>Step 5: Implement Terraform static validation</strong></li>
+</ul>
+<p>Use structured parsing where practical and conservative text scanning for
+dangerous Terraform blocks. Optional CLI validation can run only in an isolated
+temporary directory with no cloud credentials. Use <code>terraform validate -json</code>
+for syntax/config checks and <code>terraform show -json</code> only for saved plan output
+generated by an approved dry-run flow.</p>
+<ul>
+<li>[ ] <strong>Step 6: Implement upload/list/validate/approve API</strong></li>
+</ul>
+<p>Reject invalid uploads before persistence when possible. Persist invalid drafts
+only when useful for UI review and only after redaction.</p>
+<ul>
+<li>[ ] <strong>Step 7: Implement tabbed Agent DB workspace</strong></li>
+</ul>
+<p>Move the existing long page into task-focused tabs. Keep summary metrics and
+selected deployment status in a compact sticky header. Put audit/provision
+attempt history under <code>Activity</code>.</p>
+<ul>
+<li>[ ] <strong>Step 8: Implement Terraform upload UI</strong></li>
+</ul>
+<p>Add upload, manifest summary, policy findings, and approval status. Do not
+show raw file content by default; provide a redacted preview only for small
+files.</p>
+<ul>
+<li>[ ] <strong>Step 9: Rerun focused tests</strong></li>
+</ul>
+<p>Run the commands from Steps 1-3. Expected: pass.</p>
+<hr />
+<h2 id="task-10-reconcile-live-e2e-runbook-and-ga-gate">Task 10: Reconcile, Live E2E, Runbook, and GA Gate<a class="headerlink" href="#task-10-reconcile-live-e2e-runbook-and-ga-gate" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>sidecar/internal/agentdb/execution.go</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/lifecycle.go</code></li>
+<li>Modify: <code>sidecar/internal/agentdb/operations.go</code></li>
+<li>Create: <code>e2e/agentdb-live-provisioning.spec.ts</code></li>
+<li>Create: <code>docs/runbooks/agentdb-live-provisioning.md</code></li>
+<li>
+<p>Modify: <code>tasks/todo.md</code></p>
+</li>
+<li>
+<p>[ ] <strong>Step 1: Write failing reconcile tests</strong></p>
+</li>
+</ul>
+<p>Cover:</p>
+<ul>
+<li>cloud resource exists but pg_sage status is <code>provisioning</code></li>
+<li>cloud resource not found but pg_sage status is <code>destroying</code></li>
+<li>resource exists without pg_sage row but has pg_sage tags</li>
+<li>expired branch is archived and destroy queued</li>
+<li>unsafe delete remains blocked</li>
+<li>crash-during-create receipt is adopted after restart</li>
+<li>two sidecars running reconcile concurrently do not double-destroy the same
+  provider resource</li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestReconcileLiveProvisioning&quot;</span>
+</code></pre></div>
+<p>Expected: fail.</p>
+<ul>
+<li>[ ] <strong>Step 2: Implement provider-aware reconcile</strong></li>
+</ul>
+<p>Use provider status/list-by-tag where available. Never delete orphaned resources
+without policy and audit record. Use Postgres advisory locks around reconcile
+work so HA or duplicated sidecars cannot issue duplicate destroys.</p>
+<ul>
+<li>[ ] <strong>Step 3: Add Playwright flow</strong></li>
+</ul>
+<p>Use flags and env vars. Flow:</p>
+<ol>
+<li>login</li>
+<li>configure provider</li>
+<li>create Agent DB request</li>
+<li>preflight</li>
+<li>execute live</li>
+<li>poll status</li>
+<li>backup check</li>
+<li>destroy</li>
+<li>
+<p>verify provider gone</p>
+</li>
+<li>
+<p>[ ] <strong>Step 4: Write runbook</strong></p>
+</li>
+</ol>
+<p>Include:</p>
+<ul>
+<li>required IAM/service principal permissions</li>
+<li>config examples</li>
+<li>emergency stop</li>
+<li>stuck destroy and admin force-destroy with dual-control</li>
+<li>cleanup commands</li>
+<li>cost guardrails</li>
+<li>backup/restore caveats</li>
+<li>
+<p>known provider limitations</p>
+</li>
+<li>
+<p>[ ] <strong>Step 5: Final verification</strong></p>
+</li>
+</ul>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-race</span> <span class="n">-cover</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="n">-p</span> <span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="n">go</span> <span class="n">vet</span> <span class="p">./...</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="n">golangci-lint</span> <span class="n">run</span> <span class="p">./...</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="n">npm</span> <span class="p">-</span><span class="n">-prefix</span> <span class="n">sidecar</span><span class="p">/</span><span class="n">web</span> <span class="n">test</span> <span class="p">--</span> <span class="p">-</span><span class="n">-run</span> <span class="n">src</span><span class="p">/</span><span class="n">pages</span><span class="p">/</span><span class="n">AgentDBsPage</span><span class="p">.</span><span class="n">test</span><span class="p">.</span><span class="n">jsx</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="n">npm</span> <span class="p">-</span><span class="n">-prefix</span> <span class="n">sidecar</span><span class="p">/</span><span class="n">web</span> <span class="n">run</span> <span class="n">build</span>
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="n">git</span> <span class="nb">diff </span><span class="p">-</span><span class="n">-check</span>
+</code></pre></div>
+<p>Live run only when credentials and cost approval are explicitly present:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nv">$env:PG_SAGE_LIVE_AWS_RDS</span><span class="p">=</span><span class="s1">&#39;1&#39;</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="nv">$env:PG_SAGE_LIVE_GCP_CLOUDSQL</span><span class="p">=</span><span class="s1">&#39;1&#39;</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="nv">$env:PG_SAGE_LIVE_DATABRICKS_LAKEBASE</span><span class="p">=</span><span class="s1">&#39;1&#39;</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="n">-p</span> <span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestLive&quot;</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="n">npm</span> <span class="n">run</span> <span class="n">test</span><span class="p">:</span><span class="n">e2e</span> <span class="p">--</span> <span class="n">e2e</span><span class="p">/</span><span class="n">agentdb-live-provisioning</span><span class="p">.</span><span class="n">spec</span><span class="p">.</span><span class="n">ts</span> <span class="p">-</span><span class="n">-workers</span><span class="p">=</span><span class="n">1</span>
+</code></pre></div>
+<p>Expected: all non-live tests pass; live tests pass only in explicitly enabled
+environments and must verify cleanup.</p>
+<hr />
+<h2 id="spec-coverage-checklist">Spec Coverage Checklist<a class="headerlink" href="#spec-coverage-checklist" title="Permanent link">&para;</a></h2>
+<ul>
+<li>[x] Execution contract: Tasks 1, 2, 9, 10.</li>
+<li>[x] Provider runner interface: Tasks 2, 6, 7, 8.</li>
+<li>[x] Credential model: Tasks 3, 4, 6, 7, 8.</li>
+<li>[x] Policy and safety: Tasks 3, 5, 9.</li>
+<li>[x] Networking: Tasks 3, 6, 7, 8.</li>
+<li>[x] Backup and restore: Tasks 1, 6, 7, 8, 10.</li>
+<li>[x] Cost tracking: Task 5.</li>
+<li>[x] UI/API: Tasks 9 and 9a.</li>
+<li>[x] Terraform template uploads: Task 9a.</li>
+<li>[x] Testing plan: Tasks 1-10.</li>
+<li>[x] GA exit criteria: Task 10.</li>
+</ul>
+<h2 id="execution-notes">Execution Notes<a class="headerlink" href="#execution-notes" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Use disjoint subagents by task where possible.</li>
+<li>Do not run live provider tests unless the explicit env flag for that provider
+  is set.</li>
+<li>Keep the local 8085 sidecar available for browser validation after each UI
+  slice.</li>
+<li>Pause 8085 before Agent DB package tests that mutate shared <code>adb_*</code> rows, or
+  run those tests against an isolated DSN.</li>
+<li>Do not commit secrets or generated provider credentials.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,1066 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/runbooks/agentdb-cloud-provider-setup/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>AgentDB Cloud Provider Setup - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#agentdb-cloud-provider-setup" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              AgentDB Cloud Provider Setup
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#release-safety-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Release Safety Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sidecar-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sidecar Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provider-settings-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Settings UI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#aws-rds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AWS RDS
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="AWS RDS">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#credentials" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credentials
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#minimum-iam" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minimum IAM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required-shape-inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required Shape Inputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gcp-cloud-sql" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GCP Cloud SQL
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="GCP Cloud SQL">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#credentials_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credentials
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#minimum-iam_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Minimum IAM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required-shape-inputs_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required Shape Inputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#databricks-lakebase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Databricks Lakebase
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Databricks Lakebase">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#credentials_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Credentials
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Permissions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#branches-vs-instances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Branches vs Instances
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backup-and-destroy-gates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backup And Destroy Gates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#live-validation-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live Validation Commands
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cleanup-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cleanup Evidence
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="agentdb-cloud-provider-setup">AgentDB Cloud Provider Setup<a class="headerlink" href="#agentdb-cloud-provider-setup" title="Permanent link">&para;</a></h1>
+<p>This page describes how to prepare AWS RDS, GCP Cloud SQL, and Databricks
+Lakebase for AgentDB live provisioning. AgentDB can always run local dry-runs
+and policy checks. Real cloud creation requires explicit sidecar enablement,
+provider allowlists, cloud credentials outside pg_sage, and cleanup evidence.</p>
+<h2 id="release-safety-model">Release Safety Model<a class="headerlink" href="#release-safety-model" title="Permanent link">&para;</a></h2>
+<p>AgentDB separates four concerns:</p>
+<ul>
+<li>Provider settings in the UI store non-secret policy and shape defaults.</li>
+<li>Credentials come from the cloud SDK or environment at sidecar startup.</li>
+<li>Blueprints and Terraform templates are reviewed before provisioning.</li>
+<li>Live operations run only when global and provider-specific gates are enabled.</li>
+</ul>
+<p>The UI should never be used to store cloud tokens, passwords, private keys, or
+access keys. Secret-shaped keys are stripped before provider settings are saved.</p>
+<h2 id="sidecar-configuration">Sidecar Configuration<a class="headerlink" href="#sidecar-configuration" title="Permanent link">&para;</a></h2>
+<p>Start with live provisioning disabled, then enable one provider at a time:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">agentdb</span><span class="p">:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">live_provisioning_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">allow_public_ip</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">require_backup_before_destroy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">providers</span><span class="p">:</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">aws_rds</span><span class="p">:</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">      </span><span class="nt">allowed_regions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;us-east-1&quot;</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">      </span><span class="nt">allowed_accounts</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;123456789012&quot;</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">      </span><span class="nt">max_ttl_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">86400</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">      </span><span class="nt">max_estimated_cost_usd</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="nt">gcp_cloudsql</span><span class="p">:</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">      </span><span class="nt">allowed_regions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;us-central1&quot;</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">      </span><span class="nt">allowed_projects</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;example-project&quot;</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">      </span><span class="nt">max_ttl_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">86400</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">      </span><span class="nt">max_estimated_cost_usd</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">    </span><span class="nt">databricks_lakebase</span><span class="p">:</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="w">      </span><span class="nt">allowed_workspaces</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;dbc-example&quot;</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a><span class="w">      </span><span class="nt">max_ttl_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">86400</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">      </span><span class="nt">max_estimated_cost_usd</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
+</code></pre></div>
+<p>The native runtime registry also requires these environment gates:</p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>Required live gates</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AWS RDS</td>
+<td><code>PG_SAGE_LIVE_PROVISIONING=1</code></td>
+</tr>
+<tr>
+<td>GCP Cloud SQL</td>
+<td><code>PG_SAGE_LIVE_PROVISIONING=1</code>, <code>PG_SAGE_ENABLE_GCP_CLOUDSQL_RUNNER=1</code></td>
+</tr>
+<tr>
+<td>Databricks Lakebase</td>
+<td><code>PG_SAGE_LIVE_PROVISIONING=1</code>, <code>PG_SAGE_ENABLE_LAKEBASE_RUNNER=1</code></td>
+</tr>
+</tbody>
+</table>
+<p>The live tests use separate test gates so they cannot run by accident:
+<code>PG_SAGE_LIVE_AWS_RDS=1</code>, <code>PG_SAGE_LIVE_GCP_CLOUDSQL=1</code>,
+<code>PG_SAGE_LIVE_DATABRICKS_LAKEBASE=1</code>, and
+<code>PG_SAGE_LIVE_AGENTDB_GAUNTLET=1</code>.</p>
+<h2 id="provider-settings-ui">Provider Settings UI<a class="headerlink" href="#provider-settings-ui" title="Permanent link">&para;</a></h2>
+<p>Use <strong>Agent DBs -&gt; Provider Settings</strong> for non-secret provider policy:</p>
+<ul>
+<li>allowed regions, accounts, projects, or workspaces</li>
+<li>maximum TTL</li>
+<li>maximum estimated cost</li>
+<li>permitted instance classes or tiers</li>
+<li>default backup retention</li>
+<li>public IP policy</li>
+</ul>
+<p>Use <strong>Agent DBs -&gt; Profiles</strong> for reusable t-shirt sizes. Profiles can carry
+provider parameters such as RDS instance class, Cloud SQL tier, Cloud SQL
+edition, Lakebase mode, Lakebase project, and Lakebase source instance.</p>
+<p>Use <strong>Agent DBs -&gt; Blueprints</strong> when an operator or agent has an English
+description of the desired database. The LLM converts intent into a typed
+blueprint plus draft Terraform. The result still needs review before it can
+provision.</p>
+<p>Use <strong>Agent DBs -&gt; Terraform</strong> when the team already has provider-specific
+Terraform. Uploaded Terraform is static-scanned and stored as a review artifact;
+it is not blindly applied.</p>
+<h2 id="aws-rds">AWS RDS<a class="headerlink" href="#aws-rds" title="Permanent link">&para;</a></h2>
+<h3 id="credentials">Credentials<a class="headerlink" href="#credentials" title="Permanent link">&para;</a></h3>
+<p>pg_sage uses the AWS SDK default credential chain. Configure one of the normal
+AWS identities outside pg_sage:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">aws</span> <span class="n">sts</span> <span class="nb">get-caller</span><span class="n">-identity</span> <span class="p">-</span><span class="n">-output</span> <span class="n">json</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nv">$env:AWS_PROFILE</span> <span class="p">=</span> <span class="s2">&quot;pg-sage-dev&quot;</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nv">$env:AWS_REGION</span> <span class="p">=</span> <span class="s2">&quot;us-east-2&quot;</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="nv">$env:PG_SAGE_AWS_REGION</span> <span class="p">=</span> <span class="s2">&quot;us-east-2&quot;</span>
+</code></pre></div>
+<h3 id="minimum-iam">Minimum IAM<a class="headerlink" href="#minimum-iam" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>rds:CreateDBInstance</code></li>
+<li><code>rds:DescribeDBInstances</code></li>
+<li><code>rds:DeleteDBInstance</code></li>
+<li><code>rds:AddTagsToResource</code></li>
+<li>Secrets Manager read access only when using managed master password flows</li>
+</ul>
+<h3 id="required-shape-inputs">Required Shape Inputs<a class="headerlink" href="#required-shape-inputs" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>region</code></li>
+<li><code>db_instance_class</code></li>
+<li><code>allocated_storage</code></li>
+<li><code>backup_retention_days</code></li>
+<li>TTL and budget</li>
+</ul>
+<p>AgentDB tags disposable resources with <code>app=pg-sage</code> and
+<code>pg_sage_deployment_id</code> so cleanup sweeps can find them.</p>
+<h2 id="gcp-cloud-sql">GCP Cloud SQL<a class="headerlink" href="#gcp-cloud-sql" title="Permanent link">&para;</a></h2>
+<h3 id="credentials_1">Credentials<a class="headerlink" href="#credentials_1" title="Permanent link">&para;</a></h3>
+<p>Cloud SQL live execution currently requires an access token supplied at sidecar
+startup. Use a short-lived token from a service account or ADC flow:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">gcloud</span> <span class="n">auth</span> <span class="n">application-default</span> <span class="n">login</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">gcloud</span> <span class="n">config</span> <span class="nb">set </span><span class="n">project</span> <span class="p">&lt;</span><span class="n">project-id</span><span class="p">&gt;</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nv">$env:PG_SAGE_GCP_PROJECT</span> <span class="p">=</span> <span class="s2">&quot;&lt;project-id&gt;&quot;</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="nv">$env:PG_SAGE_GCP_REGION</span> <span class="p">=</span> <span class="s2">&quot;us-central1&quot;</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="nv">$env:PG_SAGE_GCP_ACCESS_TOKEN</span> <span class="p">=</span> <span class="p">(</span><span class="n">gcloud</span> <span class="n">auth</span> <span class="n">print-access-token</span><span class="p">)</span>
+</code></pre></div>
+<p>For long-running sidecars, restart pg_sage with a fresh token before live
+provisioning, or run the sidecar under a service account flow that refreshes the
+token outside the UI.</p>
+<h3 id="minimum-iam_1">Minimum IAM<a class="headerlink" href="#minimum-iam_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>cloudsql.instances.create</code></li>
+<li><code>cloudsql.instances.get</code></li>
+<li><code>cloudsql.instances.delete</code></li>
+<li><code>cloudsql.operations.get</code></li>
+<li>Secret Manager read access only if templates reference external secrets</li>
+</ul>
+<h3 id="required-shape-inputs_1">Required Shape Inputs<a class="headerlink" href="#required-shape-inputs_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>project</code></li>
+<li><code>region</code></li>
+<li><code>tier</code></li>
+<li><code>database_version</code></li>
+<li><code>edition</code></li>
+<li><code>storage_size</code></li>
+<li><code>ipv4_enabled</code></li>
+<li><code>require_ssl</code></li>
+</ul>
+<p>Use <code>db-f1-micro</code> or <code>db-custom-*</code> with Enterprise edition for low-cost tests.
+Cloud SQL storage has a 10 GiB minimum.</p>
+<h2 id="databricks-lakebase">Databricks Lakebase<a class="headerlink" href="#databricks-lakebase" title="Permanent link">&para;</a></h2>
+<h3 id="credentials_2">Credentials<a class="headerlink" href="#credentials_2" title="Permanent link">&para;</a></h3>
+<p>Use Databricks workspace auth outside pg_sage:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">databricks</span> <span class="n">auth</span> <span class="n">login</span> <span class="p">-</span><span class="n">-host</span> <span class="p">&lt;</span><span class="n">workspace-url</span><span class="p">&gt;</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">databricks</span> <span class="n">current-user</span> <span class="n">me</span> <span class="p">-</span><span class="n">-output</span> <span class="n">json</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nv">$env:PG_SAGE_DATABRICKS_HOST</span> <span class="p">=</span> <span class="s2">&quot;&lt;workspace-url&gt;&quot;</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="nv">$env:PG_SAGE_DATABRICKS_TOKEN</span> <span class="p">=</span> <span class="s2">&quot;&lt;service-principal-token&gt;&quot;</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nv">$env:PG_SAGE_LIVE_LAKEBASE_PROJECT</span> <span class="p">=</span> <span class="s2">&quot;&lt;lakebase-project&gt;&quot;</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="nv">$env:PG_SAGE_LIVE_LAKEBASE_SOURCE_INSTANCE</span> <span class="p">=</span> <span class="s2">&quot;&lt;source-instance-or-branch&gt;&quot;</span>
+</code></pre></div>
+<p><code>DATABRICKS_HOST</code> and <code>DATABRICKS_TOKEN</code> are also accepted by the runner.</p>
+<h3 id="permissions">Permissions<a class="headerlink" href="#permissions" title="Permanent link">&para;</a></h3>
+<ul>
+<li>project or database instance read</li>
+<li>branch create</li>
+<li>branch delete</li>
+<li>service principal or workspace auth that can call Lakebase APIs</li>
+</ul>
+<h3 id="branches-vs-instances">Branches vs Instances<a class="headerlink" href="#branches-vs-instances" title="Permanent link">&para;</a></h3>
+<p>Prefer Lakebase branches for disposable agent workloads. Branches are cheaper
+and faster to create than full instances, and they preserve an explicit source
+instance or source branch. The AgentDB UI requires a source instance for branch
+profiles and provisioning requests.</p>
+<h2 id="backup-and-destroy-gates">Backup And Destroy Gates<a class="headerlink" href="#backup-and-destroy-gates" title="Permanent link">&para;</a></h2>
+<p>Managed cloud providers can usually verify backup configuration, but backup
+existence is not the same as restore proof. When <code>backup_required=true</code>, live
+destroy is blocked until a restore-verified backup record exists.</p>
+<p>Recommended production policy:</p>
+<ol>
+<li>Daily provider backup check.</li>
+<li>Periodic restore drill into a disposable target.</li>
+<li>Operator marks restore verified in AgentDB.</li>
+<li>Archive before delete.</li>
+<li>Live destroy only after the restore gate passes.</li>
+</ol>
+<h2 id="live-validation-commands">Live Validation Commands<a class="headerlink" href="#live-validation-commands" title="Permanent link">&para;</a></h2>
+<p>Run live tests from <code>sidecar</code> in low-cost test accounts only:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nb">cd </span><span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span><span class="p">\</span><span class="n">sidecar</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nv">$env:PG_SAGE_LIVE_AWS_RDS</span> <span class="p">=</span> <span class="s2">&quot;1&quot;</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-timeout</span> <span class="n">90m</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="p">`</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>  <span class="n">-run</span> <span class="n">TestAWSRDSLiveProvisioning</span> <span class="n">-v</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="nv">$env:PG_SAGE_LIVE_GCP_CLOUDSQL</span> <span class="p">=</span> <span class="s2">&quot;1&quot;</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="nv">$env:PG_SAGE_GCP_ACCESS_TOKEN</span> <span class="p">=</span> <span class="p">(</span><span class="n">gcloud</span> <span class="n">auth</span> <span class="n">print-access-token</span><span class="p">)</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-timeout</span> <span class="n">90m</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="p">`</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>  <span class="n">-run</span> <span class="n">TestCloudSQLLiveProvisioning</span> <span class="n">-v</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>
+<a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="nv">$env:PG_SAGE_LIVE_DATABRICKS_LAKEBASE</span> <span class="p">=</span> <span class="s2">&quot;1&quot;</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-timeout</span> <span class="n">45m</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="p">`</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>  <span class="n">-run</span> <span class="n">TestLakebaseLiveProvisioning</span> <span class="n">-v</span>
+</code></pre></div>
+<p>Run the full product-chain gauntlet after individual providers pass:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nv">$env:PG_SAGE_LIVE_AGENTDB_GAUNTLET</span> <span class="p">=</span> <span class="s2">&quot;1&quot;</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-timeout</span> <span class="n">90m</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="p">`</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>  <span class="n">-run</span> <span class="n">TestAgentDBLiveGauntlet</span> <span class="n">-v</span>
+</code></pre></div>
+<h2 id="cleanup-evidence">Cleanup Evidence<a class="headerlink" href="#cleanup-evidence" title="Permanent link">&para;</a></h2>
+<p>After every live run, confirm no disposable resources remain:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">aws</span> <span class="n">rds</span> <span class="n">describe-db-instances</span> <span class="p">`</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>  <span class="p">-</span><span class="n">-query</span> <span class="s2">&quot;DBInstances[?contains(DBInstanceIdentifier, &#39;pgsage&#39;) || contains(DBInstanceIdentifier, &#39;pg-sage&#39;) || contains(DBInstanceIdentifier, &#39;agentdb&#39;)].[DBInstanceIdentifier,DBInstanceStatus,DBInstanceArn]&quot;</span> <span class="p">`</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>  <span class="p">-</span><span class="n">-output</span> <span class="n">table</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="n">gcloud</span> <span class="n">sql</span> <span class="n">instances</span> <span class="n">list</span> <span class="p">`</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>  <span class="p">-</span><span class="n">-format</span><span class="p">=</span><span class="s2">&quot;table(name,region,databaseVersion,state,settings.tier)&quot;</span> <span class="p">-</span><span class="n">-quiet</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="n">databricks</span> <span class="n">api</span> <span class="n">get</span> <span class="p">/</span><span class="n">api</span><span class="p">/</span><span class="n">2</span><span class="p">.</span><span class="n">0</span><span class="p">/</span><span class="n">database</span><span class="p">/</span><span class="n">instances</span>
+</code></pre></div>
+<p>Live receipts are written to
+<code>sidecar/test-output/agentdb-live-receipts.jsonl</code>. A release receipt should
+include provider resource IDs, create/status/delete timing, backup status where
+available, cost guard evidence, and <code>cleanup_confirmed=true</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

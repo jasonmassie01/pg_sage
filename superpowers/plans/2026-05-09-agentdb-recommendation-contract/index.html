@@ -10,29 +10,27 @@
       
       
       
-        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/">
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-09-agentdb-recommendation-contract/">
       
       
-      
-        <link rel="next" href="walkthrough/">
       
       
         
       
       
-      <link rel="icon" href="assets/images/favicon.png">
+      <link rel="icon" href="../../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>pg_sage</title>
+        <title>Agent DB Recommendation Contract Implementation Plan - pg_sage</title>
       
     
     
-      <link rel="stylesheet" href="assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,7 +49,7 @@
       
     
     
-    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -76,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#pg_sage-documentation" class="md-skip">
+        <a href="#agent-db-recommendation-contract-implementation-plan" class="md-skip">
           Skip to content
         </a>
       
@@ -92,7 +90,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+    <a href="../../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -112,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Home
+              Agent DB Recommendation Contract Implementation Plan
             
           </span>
         </div>
@@ -228,7 +226,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+    <a href="../../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -255,37 +253,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Home
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="." class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
         
   
   
@@ -301,59 +272,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#getting-started" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Getting Started
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reference
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#operations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Operations
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -365,7 +283,7 @@
   
   
     <li class="md-nav__item">
-      <a href="walkthrough/" class="md-nav__link">
+      <a href="../../../walkthrough/" class="md-nav__link">
         
   
   
@@ -392,7 +310,7 @@
   
   
     <li class="md-nav__item">
-      <a href="installation/" class="md-nav__link">
+      <a href="../../../installation/" class="md-nav__link">
         
   
   
@@ -419,7 +337,7 @@
   
   
     <li class="md-nav__item">
-      <a href="configuration/" class="md-nav__link">
+      <a href="../../../configuration/" class="md-nav__link">
         
   
   
@@ -446,7 +364,7 @@
   
   
     <li class="md-nav__item">
-      <a href="architecture/" class="md-nav__link">
+      <a href="../../../architecture/" class="md-nav__link">
         
   
   
@@ -473,7 +391,7 @@
   
   
     <li class="md-nav__item">
-      <a href="sql-reference/" class="md-nav__link">
+      <a href="../../../sql-reference/" class="md-nav__link">
         
   
   
@@ -500,7 +418,7 @@
   
   
     <li class="md-nav__item">
-      <a href="findings/" class="md-nav__link">
+      <a href="../../../findings/" class="md-nav__link">
         
   
   
@@ -527,7 +445,7 @@
   
   
     <li class="md-nav__item">
-      <a href="hint-verification/" class="md-nav__link">
+      <a href="../../../hint-verification/" class="md-nav__link">
         
   
   
@@ -554,7 +472,7 @@
   
   
     <li class="md-nav__item">
-      <a href="security/" class="md-nav__link">
+      <a href="../../../security/" class="md-nav__link">
         
   
   
@@ -581,7 +499,7 @@
   
   
     <li class="md-nav__item">
-      <a href="deployment/" class="md-nav__link">
+      <a href="../../../deployment/" class="md-nav__link">
         
   
   
@@ -628,10 +546,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#getting-started" class="md-nav__link">
+  <a href="#file-structure" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Getting Started
+        File Structure
       
     </span>
   </a>
@@ -639,10 +557,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#reference" class="md-nav__link">
+  <a href="#task-1-backend-contract-tests" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Reference
+        Task 1: Backend Contract Tests
       
     </span>
   </a>
@@ -650,10 +568,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#operations" class="md-nav__link">
+  <a href="#task-2-backend-implementation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Operations
+        Task 2: Backend Implementation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-3-api-contract-tests-and-parsing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 3: API Contract Tests And Parsing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-4-ui-action-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 4: UI Action Metadata
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#task-5-full-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task 5: Full Verification
       
     </span>
   </a>
@@ -680,71 +631,121 @@
   
 
 
-<h1 id="pg_sage-documentation">pg_sage Documentation<a class="headerlink" href="#pg_sage-documentation" title="Permanent link">&para;</a></h1>
-<p>Agentic Postgres DBA — a Go sidecar that monitors, analyzes, and optimizes
-PostgreSQL 14+ databases with trust-ramped safety controls.</p>
-<p>v1 centers the product around an autonomous DBA workflow instead of a
-traditional observability dashboard:</p>
-<ul>
-<li><strong>Overview</strong> shows fleet health, provider readiness, and agent state.</li>
-<li><strong>Cases</strong> is the primary work queue for findings, incidents, and proposed
-  actions. Schema-health, forecast, query-hint, and incident routes open Cases
-  with the matching source filter selected; the legacy <code>#/findings</code> route
-  aliases here.</li>
-<li><strong>Actions</strong> shows pending approval and executed action history.</li>
-<li><strong>Fleet</strong> manages database connections and per-database runtime state.</li>
-<li><strong>Settings</strong> includes system configuration, emergency controls, and the
-  Shadow Mode report proving what auto-safe policy would have handled.</li>
-<li><strong>Agent DBs</strong> provisions local agent databases, reviews LLM blueprints and
-  Terraform templates, and runs gated cloud workflows for RDS, Cloud SQL, and
-  Lakebase when provider setup is complete.</li>
-</ul>
-<p>The web UI and JSON API are authenticated by default. On first start, pg_sage
-prints a one-time password for <code>admin@pg-sage.local</code>; API clients authenticate
-through <code>/api/v1/auth/login</code> and reuse the <code>sage_session</code> cookie.</p>
-<p>Migration-safety cases are non-executing by default for high-risk DDL. pg_sage
-generates deterministic lock/rewrite and live-risk preflight evidence,
-migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI
-metadata so teams can review schema work before anything touches production.</p>
-<p>Incident and maintenance cases now carry richer automation candidates. Lock
-blockers, runaway queries, connection exhaustion, standby conflicts,
-WAL/replication pressure, autovacuum pressure, and sequence exhaustion route to
-typed playbooks with safe diagnostics or reviewed scripts. Vacuum, bloat, and
-freeze findings project guarded <code>VACUUM</code>, concurrent reindex, bloat-remediation
-plans, freeze diagnostics, and per-table autovacuum tuning actions with
-explicit verification plans and IO-saturation gates.</p>
-<p>Query tuning cases are no longer limited to planner hints. pg_sage can turn
-suggested rewrites into PR-ready artifacts, retire broken hints through a safe
-metadata action, recommend <code>CREATE STATISTICS</code>, draft parameterization changes,
-and promote repeated per-query <code>work_mem</code> hints into reviewed role-level
-settings when the blast radius is explicit.</p>
-<p>Provider readiness is adapter-driven for self-managed Postgres, Cloud SQL,
-AlloyDB, RDS, and Aurora. The matrix shows extension enablement paths, log
-access, provider limitations, and action-family readiness so automation policy
-can differ by managed-service constraints.</p>
+<h1 id="agent-db-recommendation-contract-implementation-plan">Agent DB Recommendation Contract Implementation Plan<a class="headerlink" href="#agent-db-recommendation-contract-implementation-plan" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
+</blockquote>
+<p><strong>Goal:</strong> Make Agent DB query tuning recommendations machine-readable enough for an agent to safely act on them and report the outcome.</p>
+<p><strong>Architecture:</strong> Extend the existing Agent DB recommendations endpoint instead of creating a parallel API. Keep backward compatibility by retaining <code>payload</code>, <code>kind</code>, <code>title</code>, <code>detail</code>, and <code>status</code>, while promoting action metadata to first-class fields.</p>
+<p><strong>Tech Stack:</strong> Go, pgx/PostgreSQL, net/http, React, Vitest, Playwright.</p>
 <hr />
-<h2 id="getting-started">Getting Started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h2>
+<h2 id="file-structure">File Structure<a class="headerlink" href="#file-structure" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="installation/">Installation</a> — Download, prerequisites, database user setup</li>
-<li><a href="try-it-out/">Try It Out</a> — local v1 smoke path and UI checklist</li>
-<li><a href="walkthrough/">Walkthroughs</a> — Platform-specific getting started guides</li>
-<li><a href="walkthrough-linux/">Linux / macOS</a></li>
-<li><a href="walkthrough-windows/">Windows</a></li>
-<li><a href="walkthrough-fleet/">Fleet Mode</a></li>
+<li>Modify <code>sidecar/internal/agentdb/types.go</code></li>
+<li>Add action fields to <code>Recommendation</code> and <code>RecommendationCreate</code>.</li>
+<li>Extend <code>FeedbackRequest</code>.</li>
+<li>Modify <code>sidecar/internal/agentdb/schema.go</code></li>
+<li>Add schema migrations for recommendation action fields.</li>
+<li>Modify <code>sidecar/internal/agentdb/operations.go</code></li>
+<li>Persist and return action fields, payload, and feedback metadata.</li>
+<li>Modify <code>sidecar/internal/api/agent_db_handlers.go</code></li>
+<li>Parse action fields and feedback outcome fields.</li>
+<li>Modify <code>sidecar/internal/agentdb/store_test.go</code></li>
+<li>Add store-level tests for actionable recommendation contract and feedback.</li>
+<li>Modify <code>sidecar/internal/api/agent_db_handlers_test.go</code></li>
+<li>Add API tests for creating/listing/feedback on actionable recommendations.</li>
+<li>Modify <code>sidecar/web/src/pages/agentdb/AgentDBSections.jsx</code></li>
+<li>Display action metadata in the recommendations list.</li>
+<li>Modify <code>sidecar/web/src/pages/AgentDBsPage.test.jsx</code></li>
+<li>Add Vitest assertions for action metadata.</li>
+<li>Modify <code>sidecar/web/e2e/agentdb-fixtures.ts</code></li>
+<li>Mock action metadata in recommendations.</li>
+<li>Modify <code>sidecar/web/e2e/agent-dbs.spec.ts</code></li>
+<li>Add Playwright assertion that action metadata appears.</li>
+<li>Modify <code>tasks/todo.md</code></li>
+<li>Add slice checklist.</li>
 </ul>
-<h2 id="reference">Reference<a class="headerlink" href="#reference" title="Permanent link">&para;</a></h2>
+<h2 id="task-1-backend-contract-tests">Task 1: Backend Contract Tests<a class="headerlink" href="#task-1-backend-contract-tests" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong>
+- Modify: <code>sidecar/internal/agentdb/store_test.go</code></p>
 <ul>
-<li><a href="architecture/">Architecture</a> — Tier 1 rules engine, Tier 2 LLM analysis, Tier 3 executor</li>
-<li><a href="configuration/">Configuration</a> — YAML config, environment variables, runtime overrides</li>
-<li><a href="findings/">Finding Types</a> — All diagnostic findings and severity levels</li>
-<li><a href="sql-reference/">SQL Schema</a> — <code>sage.*</code> tables, views, and functions</li>
-<li><a href="llm-costing/">LLM Costs &amp; Budgets</a> — Token usage, model routing, per-database budgets</li>
+<li>[ ] Write failing test <code>TestRecommendationContractStoresActionMetadataAndFeedback</code>:</li>
+<li>Register a deployment.</li>
+<li>Upsert a recommendation with:<ul>
+<li><code>action_type=query_rewrite</code></li>
+<li><code>action_risk=safe</code></li>
+<li><code>confidence=0.82</code></li>
+<li><code>agent_instructions={"expected_change":"add LIMIT"}</code></li>
+<li><code>payload={"sql_before":"select * from items","sql_after":"select * from items limit 10"}</code></li>
 </ul>
-<h2 id="operations">Operations<a class="headerlink" href="#operations" title="Permanent link">&para;</a></h2>
+</li>
+<li>List recommendations.</li>
+<li>Assert action fields, payload, and status are returned.</li>
+<li>Submit feedback with <code>decision=accepted</code>, <code>applied=true</code>, <code>result=rewrote query</code>.</li>
+<li>List again and assert status is <code>accepted</code> and feedback fields are present.</li>
+<li>[ ] Run:</li>
+<li><code>go test -count=1 ./internal/agentdb -run TestRecommendationContractStoresActionMetadataAndFeedback</code></li>
+<li>Expected: fail because fields are missing.</li>
+</ul>
+<h2 id="task-2-backend-implementation">Task 2: Backend Implementation<a class="headerlink" href="#task-2-backend-implementation" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong>
+- Modify: <code>sidecar/internal/agentdb/types.go</code>
+- Modify: <code>sidecar/internal/agentdb/schema.go</code>
+- Modify: <code>sidecar/internal/agentdb/operations.go</code></p>
 <ul>
-<li><a href="deployment/">Deployment</a> — Docker, systemd, Kubernetes</li>
-<li><a href="security/">Security</a> — Least-privilege roles, network policies, audit logging</li>
-<li><a href="runbooks/agentdb-cloud-provider-setup/">AgentDB Cloud Provider Setup</a> -- AWS RDS, GCP Cloud SQL, Databricks Lakebase, safety gates, and cleanup</li>
+<li>[ ] Add fields:</li>
+<li><code>action_type text not null default ''</code></li>
+<li><code>action_risk text not null default 'review'</code></li>
+<li><code>confidence double precision not null default 0</code></li>
+<li><code>agent_instructions jsonb not null default '{}'::jsonb</code></li>
+<li>[ ] Update insert/upsert/list scans.</li>
+<li>[ ] Update feedback to store <code>decision</code>, <code>comment</code>, <code>applied</code>, <code>result</code>, and <code>error</code>.</li>
+<li>[ ] Run targeted backend test.</li>
+</ul>
+<h2 id="task-3-api-contract-tests-and-parsing">Task 3: API Contract Tests And Parsing<a class="headerlink" href="#task-3-api-contract-tests-and-parsing" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong>
+- Modify: <code>sidecar/internal/api/agent_db_handlers_test.go</code>
+- Modify: <code>sidecar/internal/api/agent_db_handlers.go</code></p>
+<ul>
+<li>[ ] Write failing API test <code>TestAgentDBRecommendationContractEndpoints</code>:</li>
+<li>POST recommendation with action fields and payload.</li>
+<li>GET recommendations and assert fields are present.</li>
+<li>POST feedback with <code>decision=accepted</code>, <code>applied=true</code>, <code>result=rewrote query</code>.</li>
+<li>GET recommendations and assert status is <code>accepted</code> and feedback includes result.</li>
+<li>[ ] Run:</li>
+<li><code>go test -count=1 ./internal/api -run TestAgentDBRecommendationContractEndpoints</code></li>
+<li>Expected: fail until handlers parse/return fields.</li>
+<li>[ ] Add parsing and rerun.</li>
+</ul>
+<h2 id="task-4-ui-action-metadata">Task 4: UI Action Metadata<a class="headerlink" href="#task-4-ui-action-metadata" title="Permanent link">&para;</a></h2>
+<p><strong>Files:</strong>
+- Modify: <code>sidecar/web/src/pages/agentdb/AgentDBSections.jsx</code>
+- Modify: <code>sidecar/web/src/pages/AgentDBsPage.test.jsx</code>
+- Modify: <code>sidecar/web/e2e/agentdb-fixtures.ts</code>
+- Modify: <code>sidecar/web/e2e/agent-dbs.spec.ts</code></p>
+<ul>
+<li>[ ] Display recommendation action metadata:</li>
+<li>action type</li>
+<li>action risk</li>
+<li>confidence as percentage</li>
+<li>concise agent instruction summary when present</li>
+<li>[ ] Add Vitest and Playwright coverage.</li>
+<li>[ ] Run:</li>
+<li><code>npm test -- --run AgentDBsPage.test.jsx</code></li>
+<li><code>npm run test:e2e -- agent-dbs.spec.ts</code></li>
+</ul>
+<h2 id="task-5-full-verification">Task 5: Full Verification<a class="headerlink" href="#task-5-full-verification" title="Permanent link">&para;</a></h2>
+<ul>
+<li>[ ] Run <code>go test -cover -count=1 -p 1 ./...</code>.</li>
+<li>[ ] Scan Go coverage log for <code>SKIP</code>, <code>TODO</code>, and <code>PENDING</code>.</li>
+<li>[ ] Run integration: <code>SAGE_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable go test ./... -tags=integration -p 1 -count=1 -timeout 600s</code>.</li>
+<li>[ ] Run Go e2e: <code>go test -tags=e2e -count=1 -timeout 180s ./e2e</code>.</li>
+<li>[ ] Run <code>npm run lint</code>.</li>
+<li>[ ] Run <code>npm test -- --run</code>.</li>
+<li>[ ] Run <code>npm run build</code>.</li>
+<li>[ ] Run <code>npm run test:e2e</code>.</li>
+<li>[ ] Run <code>git diff --check</code>.</li>
+<li>[ ] Report results with coverage gaps and skipped tests.</li>
 </ul>
 
 
@@ -801,10 +802,10 @@ can differ by managed-service constraints.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

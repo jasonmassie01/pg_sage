@@ -1,0 +1,1389 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/ROADMAP_v1.x_addendum/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>pg_sage v1.x Roadmap — Strategic Addendum - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pg_sage-v1x-roadmap-strategic-addendum" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              pg_sage v1.x Roadmap — Strategic Addendum
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-thesis-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Thesis Update
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-confirmed-by-research-findings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Confirmed-by-Research Findings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-foundation-risks-fix-before-adding-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Foundation Risks — Fix Before Adding Features
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-new-theater-a-vector-intelligence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. New Theater A — Vector Intelligence
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. New Theater A — Vector Intelligence">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-why-now" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Why now
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-scope-in-priority-order" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Scope (in priority order)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-recall-first-design-principle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Recall-first design principle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-what-we-are-not-doing-in-v1x" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 What we are NOT doing in v1.x
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-the-hnsw-autotuner-concrete-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. The HNSW Autotuner — Concrete Design
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. The HNSW Autotuner — Concrete Design">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-inputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Inputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-four-phase-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Four-phase loop
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-deployment-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Deployment path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-honest-expectation-setting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Honest expectation-setting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#55-risks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.5 Risks
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-new-theater-b-agent-native-operation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. New Theater B — Agent-Native Operation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. New Theater B — Agent-Native Operation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Scope
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-the-strategic-question-this-theater-forces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 The strategic question this theater forces
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-cross-db-strategic-moves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Cross-DB Strategic Moves
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Cross-DB Strategic Moves">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-steal-high-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 Steal (high priority)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-match-table-stakes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 Match (table stakes)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-dont-bother" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 Don't bother
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-v1x-roadmap-slot-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. v1.x Roadmap Slot-In
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. v1.x Roadmap Slot-In">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#v101-foundation-12-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v1.0.1 — "Foundation" (1–2 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v11-vector-intelligence-phase-1-6-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v1.1 — "Vector Intelligence Phase 1" (~6 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v12-agent-native-phase-1-6-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v1.2 — "Agent-Native Phase 1" (~6 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v13-hnsw-autotuner-agent-isolation-8-weeks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v1.3 — "HNSW Autotuner + Agent Isolation" (~8 weeks)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#v14-and-beyond" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v1.4 and beyond
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#success-criteria-per-release" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Success criteria per release
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-questions-you-should-be-asking-that-you-are-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Questions You Should Be Asking That You Are Not
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#appendix-files-written-by-this-exercise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Appendix — Files written by this exercise
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="pg_sage-v1x-roadmap-strategic-addendum">pg_sage v1.x Roadmap — Strategic Addendum<a class="headerlink" href="#pg_sage-v1x-roadmap-strategic-addendum" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>Status:</strong> Draft for review
+<strong>Codex review:</strong> Partially adopted into <code>research/2026-04-29-product-roadmap-review.md</code>.
+Treat this file as source material, not the authoritative roadmap. Accepted items:
+foundation readiness, recall-first vector work, HNSW tuning phases,
+agent-native observability/guardrails, deploy-request patterns, and rule surfaces.
+Deferred or discarded items: v1.x agent write API, autonomous primary HNSW swaps,
+uncited market/security claims as load-bearing roadmap facts, and out-of-scope
+native vector DB / NL-SQL / cache / BI-agent directions.
+<strong>Date:</strong> 2026-04-29
+<strong>Author:</strong> Claude Opus 4.7, synthesized from 5 parallel research subagents + 7 prior 2026-04-29 codex artifacts + the 2026-04-27 autonomous-DBA spec
+<strong>Theme:</strong> Two new theaters — <strong>Vector Intelligence</strong> and <strong>Agent-Native Operation</strong> — plus a sober foundation-risk gate before either ships.
+<strong>Builds on (do not duplicate):</strong></p>
+<ul>
+<li><code>research/2026-04-29-product-roadmap-review.md</code> — top-level P0/P1 ranking (vector workload advisor, recommendation proof loop, agent database guard, sandbox benchmark lab, provider-aware ops)</li>
+<li><code>research/2026-04-29-vector-search.md</code> — pgvector knob reference and ecosystem</li>
+<li><code>research/2026-04-29-competitive-landscape.md</code> — five competitor categories</li>
+<li><code>research/2026-04-29-community-pain-points.md</code> — 10 Postgres operator pain points</li>
+<li><code>research/2026-04-29-repo-inventory.md</code> — code-grounded feature inventory</li>
+<li><code>specs/autonomous-dba-product-spec-2026-04-27.md</code> — Cases-and-Actions pivot</li>
+<li><code>research/v1_codebase_reality_check.md</code> — production-readiness audit (this batch)</li>
+<li><code>research/v1_vector_search_landscape.md</code> — operator failure modes (this batch)</li>
+<li><code>research/v1_hnsw_autotuning_prior_art.md</code> — VDTuner / FastPGT prior art + algorithm sketch (this batch)</li>
+<li><code>research/v1_agent_created_databases.md</code> — agent-DB workload patterns (this batch)</li>
+<li><code>research/v1_cross_db_ai_landscape.md</code> — Lakebase/PlanetScale/Mongo Atlas patterns (this batch)</li>
+</ul>
+</blockquote>
+<hr />
+<h2 id="1-thesis-update">1. Thesis Update<a class="headerlink" href="#1-thesis-update" title="Permanent link">&para;</a></h2>
+<p>The 2026-04-27 autonomous-DBA spec set the right product center: pg_sage is an <strong>operator that closes the loop</strong> (Observe → Diagnose → Decide → Act → Verify → Remember), not a metrics console. This addendum does not contest that. It extends it.</p>
+<p>Two shifts in the world have happened faster than the existing roadmap accounts for:</p>
+<ol>
+<li><strong>Postgres became the default vector store of the AI stack</strong> — 80% of new Neon databases and 97% of branches are now agent-created (per the agent-DB research). pgvector is everywhere; the pain is concentrated in HNSW tuning, filtered ANN, build-time OOM, and recall drift. None of pg_sage's existing rules touch this.</li>
+<li><strong>The buyer of an autonomous DBA changed</strong> — it is increasingly <em>another agent</em>, not a human DBA. Agents provision schemas, embed corpora, run cron jobs, and stomp each other under the same Postgres role. pg_sage's trust-ramp is well-suited to this, but its <em>evidence model</em> (rules over <code>pg_stat_statements</code> snapshots) is built for a stable workload that agent traffic does not produce.</li>
+</ol>
+<p>So the v1.x thesis sharpens to:</p>
+<blockquote>
+<p>pg_sage is the autonomous DBA agent for <em>agent-shaped workloads</em>: Postgres clusters with vector indexes, dynamic schemas, and untrusted SQL writers. It closes the loop with proof, gates risky DDL behind deploy requests, and gives every recommendation a measurable success criterion.</p>
+</blockquote>
+<hr />
+<h2 id="2-confirmed-by-research-findings">2. Confirmed-by-Research Findings<a class="headerlink" href="#2-confirmed-by-research-findings" title="Permanent link">&para;</a></h2>
+<p>The following claims are validated across multiple research artifacts and should be treated as load-bearing assumptions:</p>
+<ol>
+<li><strong>No PG tool ships continuous recall@k measurement.</strong> Pinecone, Qdrant, Milvus, Weaviate autotune <em>server-side</em> params operators don't see; they don't autotune the user-facing knobs that affect recall (m, ef_construction, ef_search, lists, probes). pg_sage's wedge is operator-facing recall measurement and tuning. (<code>v1_vector_search_landscape.md</code>)</li>
+<li><strong>HypoPG cannot model HNSW.</strong> Every Bayesian-optimization evaluation of HNSW params is a real index build. This is the dominant cost. FastPGT (2026) measured 98.67% of tuning cost in evaluation. (<code>v1_hnsw_autotuning_prior_art.md</code>)</li>
+<li><strong><code>CREATE INDEX CONCURRENTLY</code> does not parallelize HNSW.</strong> Concurrent builds are 5–10× slower than blocking. (<a href="https://github.com/pgvector/pgvector/issues/822">pgvector#822</a>) Any autonomous rebuild path must reckon with this.</li>
+<li><strong>pg_sage's risk-tier assignment is currently retroactive</strong> — advisors generate recommendations without assessing safety; the executor guesses risk from SQL syntax later. This is a correctness bug, not a style issue. (<code>v1_codebase_reality_check.md</code>) <strong>It blocks safe v1.x autonomy expansion.</strong></li>
+<li><strong>Databricks Lakebase + Genie Code is the strongest conceptual threat.</strong> Predictive Optimization is default-on, and Genie Code (March 2026) is an autonomous agent for Lakeflow pipelines. If Databricks ports Genie patterns to Lakebase Postgres, pg_sage's value prop ships free to every Lakebase user. (<code>v1_cross_db_ai_landscape.md</code>)</li>
+<li><strong>PlanetScale Deploy Requests + Mongo Atlas autopilot + Supabase Splinter are the most portable patterns to steal.</strong> The Postgres autonomous-DBA space has nobody shipping deploy-request-style gated DDL. (<code>v1_cross_db_ai_landscape.md</code>)</li>
+<li><strong>The codebase is not yet production-ready for unattended operation.</strong> Reality-check rates it 3.2/5. ReAct loop missing, LLM failures silent, 11 files over the 500-line limit, testify dependency present despite CLAUDE.md prohibition. (<code>v1_codebase_reality_check.md</code>)</li>
+</ol>
+<hr />
+<h2 id="3-foundation-risks-fix-before-adding-features">3. Foundation Risks — Fix Before Adding Features<a class="headerlink" href="#3-foundation-risks-fix-before-adding-features" title="Permanent link">&para;</a></h2>
+<p>The codebase reality-check surfaces tech debt and correctness gaps that compound when v1.x adds new theaters. Rank-ordered:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Risk</th>
+<th>Why it must come first</th>
+<th>Estimated effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F1</td>
+<td><strong>Risk tiers assigned retroactively in the executor.</strong> Advisor returns a recommendation; executor parses the SQL and <em>guesses</em> risk after the fact. Bypasses the trust-ramp's intent.</td>
+<td>Vector autotuner and DDL gate both produce recommendations whose risk depends on table size, lock blast radius, and rebuild duration — none derivable from SQL syntax. The risk model must be authoritative <em>before</em> this code lands.</td>
+<td>3–5 days</td>
+</tr>
+<tr>
+<td>F2</td>
+<td><strong>LLM failures silent.</strong> Misconfigured Gemini → advisors return <code>(nil, nil)</code> with no log. Operators see no findings, assume system healthy.</td>
+<td>Vector autotuner depends on LLM for query-pattern classification; agent-DB guard depends on LLM for DDL safety analysis. Silent failure is unacceptable in either.</td>
+<td>1 day</td>
+</tr>
+<tr>
+<td>F3</td>
+<td><strong><code>internal/api/handlers.go</code> is 2105 lines</strong> (4× the 500-line cap). The Cases UI work in progress is all routed through this file.</td>
+<td>New endpoints for vector inventory, recall reports, deploy requests, and cases will pile on. Split now or it becomes 4000 lines and unmaintainable.</td>
+<td>2–3 days (mechanical split into domain-grouped handlers)</td>
+</tr>
+<tr>
+<td>F4</td>
+<td><strong>Per-Query Tuner silently degrades without <code>pg_hint_plan</code>.</strong> No startup check; advisor emits hints that nobody applies.</td>
+<td>When v1.x adds vector query rewrites, the same anti-pattern ("emit advice that requires an extension we never validated") will recur. Fix the pattern, not just this instance.</td>
+<td>1 day (startup capability check + warning finding)</td>
+</tr>
+<tr>
+<td>F5</td>
+<td><strong>Dead C code in <code>src/</code> + testify dependency.</strong> 19 abandoned C files (legacy extension); testify imports despite CLAUDE.md ban; <code>ha/</code> package with zero coverage.</td>
+<td>Each is small but they are signals the codebase doesn't enforce its own rules. Fix the policy, not just the files: golangci-lint rule for testify, CI check for file-length cap, delete <code>src/</code>.</td>
+<td>2 hours</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Recommendation:</strong> Ship a v1.0.1 patch release titled "Foundation" that addresses F1–F5 before any v1.1 feature lands. The autonomous-DBA spec's product principles (7.3 Trust Is A Product Surface, 7.4 Deterministic First) cannot be honored while F1 is unfixed.</p>
+<hr />
+<h2 id="4-new-theater-a-vector-intelligence">4. New Theater A — Vector Intelligence<a class="headerlink" href="#4-new-theater-a-vector-intelligence" title="Permanent link">&para;</a></h2>
+<p>The autonomous-DBA spec does not mention vectors. The product-roadmap-review puts it as P0. This addendum gives it shape.</p>
+<h3 id="41-why-now">4.1 Why now<a class="headerlink" href="#41-why-now" title="Permanent link">&para;</a></h3>
+<ul>
+<li>pgvector 0.8.2 is stable and ubiquitous; pgvectorscale, VectorChord, Lantern, ParadeDB pg_search are all viable.</li>
+<li>Operator pain is concrete and citable: HNSW build OOMs (<a href="https://github.com/pgvector/pgvector/issues/822">pgvector#822</a> — 19h stalls), vacuum brutality on HNSW indexes, filtered ANN underfill, recall drift on IVFFlat, JIT/work_mem interactions, indexes growing larger than the heap, dimension-change downtime.</li>
+<li>No PG advisor (pganalyze, Supabase, Neon) has more than basic vector awareness. Greenfield.</li>
+<li>Threat: if Lakebase/Genie ships vector-aware autonomy, pg_sage loses this theater.</li>
+</ul>
+<h3 id="42-scope-in-priority-order">4.2 Scope (in priority order)<a class="headerlink" href="#42-scope-in-priority-order" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Feature</th>
+<th>Slice</th>
+<th>Trust mapping</th>
+<th>Depends on</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>V1</td>
+<td><strong>Vector inventory + health rules</strong></td>
+<td>Detect vector columns, indexes, dimension, build status, growth rate. New rule pack.</td>
+<td>Read-only</td>
+<td>F1</td>
+</tr>
+<tr>
+<td>V2</td>
+<td><strong>Recall measurement framework</strong></td>
+<td>Sample N representative ANN queries from <code>pg_stat_statements</code>, brute-force on a sample (~100k rows, 500 probes) for ground truth, compute recall@k and recall drift.</td>
+<td>Read-only</td>
+<td>V1</td>
+</tr>
+<tr>
+<td>V3</td>
+<td><strong>Query-time autotuner (<code>ef_search</code> × <code>iterative_scan</code>)</strong></td>
+<td><code>SET LOCAL</code> per session, no rebuild. Highest value-per-effort.</td>
+<td>Advisory → Auto</td>
+<td>V2</td>
+</tr>
+<tr>
+<td>V4</td>
+<td><strong>Build-cost &amp; OOM forecaster</strong></td>
+<td>Predict <code>m × ef_construction</code> impact on memory and build time before issuing <code>CREATE INDEX</code>. Prevents the most common vector outage.</td>
+<td>Advisory</td>
+<td>V1</td>
+</tr>
+<tr>
+<td>V5</td>
+<td><strong>Hybrid plan-shape diagnostic</strong></td>
+<td>Detect filter+vector queries that bypass the index or apply filter post-ANN. Recommend partial indexes / <code>iterative_scan</code> mode.</td>
+<td>Advisory</td>
+<td>V2</td>
+</tr>
+<tr>
+<td>V6</td>
+<td><strong>Build-time autotuner (m, ef_construction)</strong></td>
+<td>Multi-objective Bayesian optimization on a staging replica; shadow-index swap. See §5 for design.</td>
+<td>Auto only with explicit policy</td>
+<td>V2, V3, F1</td>
+</tr>
+<tr>
+<td>V7</td>
+<td><strong>Vacuum / reindex scheduler for vector indexes</strong></td>
+<td>HNSW vacuum is brutal; schedule low-traffic windows; surface as a maintenance plan.</td>
+<td>Advisory → Auto</td>
+<td>V1</td>
+</tr>
+</tbody>
+</table>
+<h3 id="43-recall-first-design-principle">4.3 Recall-first design principle<a class="headerlink" href="#43-recall-first-design-principle" title="Permanent link">&para;</a></h3>
+<p>The dedicated vector DBs hide knobs and report QPS. pg_sage's wedge is the opposite: <strong>report recall@k continuously and let the operator see the tradeoff.</strong> Every vector recommendation must include a measured-or-estimated recall delta. No "this looks faster" without a recall number. This is non-negotiable; without it the autotuner is dangerous.</p>
+<h3 id="44-what-we-are-not-doing-in-v1x">4.4 What we are NOT doing in v1.x<a class="headerlink" href="#44-what-we-are-not-doing-in-v1x" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Not adding pg_sage as a vector-database competitor. We do not store embeddings, do not run inference, do not host indexes.</li>
+<li>Not autotuning beyond pgvector and pgvectorscale in v1.x. VectorChord, Lantern, ParadeDB get inventory + health rules only.</li>
+<li>Not making recommendations for <code>halfvec</code> / <code>bit</code> / <code>sparsevec</code> quantization in v1.x — observe only.</li>
+</ul>
+<hr />
+<h2 id="5-the-hnsw-autotuner-concrete-design">5. The HNSW Autotuner — Concrete Design<a class="headerlink" href="#5-the-hnsw-autotuner-concrete-design" title="Permanent link">&para;</a></h2>
+<p>This is the single most technically interesting feature in the addendum. It has direct prior art (VDTuner, FastPGT) and a concrete algorithm. See <code>research/v1_hnsw_autotuning_prior_art.md</code> for full citations.</p>
+<h3 id="51-inputs">5.1 Inputs<a class="headerlink" href="#51-inputs" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Representative query set: top-K vector queries from <code>pg_stat_statements</code> (filtered to <code>&lt;-&gt;</code> / <code>&lt;=&gt;</code> / <code>&lt;#&gt;</code> operators), sampled to ~200 distinct query shapes.</li>
+<li>Recall target: e.g. <code>recall@10 ≥ 0.95</code>.</li>
+<li>Latency target: e.g. <code>p99 ≤ 50 ms</code>.</li>
+<li>Build budget: e.g. <code>≤ 2 hours</code> and <code>≤ 8 GB</code> working memory.</li>
+<li>Trust level: monitor / advisory / auto (per-database).</li>
+</ul>
+<h3 id="52-four-phase-loop">5.2 Four-phase loop<a class="headerlink" href="#52-four-phase-loop" title="Permanent link">&para;</a></h3>
+<p><strong>Phase 1 — Workload capture.</strong> Snapshot the target table's vector column distribution (dim, n, distance metric), capture a query sample with <code>auto_explain</code> plan shapes, fingerprint the embedding model if detectable (column comment, generated-column expression, named extension).</p>
+<p><strong>Phase 2 — Sampled brute-force ground truth.</strong> Build the ground-truth set on a <em>sample</em> of the table (~100k rows by default; adaptive cap based on table size) using exact search. The Aumüller et al. 2017 ann-benchmarks paper validates that sampled brute force is rank-preserving across configs, which is what BO needs.</p>
+<p><strong>Phase 3 — Cheap online sweep on <code>ef_search</code>.</strong> Without rebuilding, run the query sample at <code>ef_search ∈ {40, 80, 160, 320, 640}</code> against the <em>existing</em> index. This produces a recall/latency Pareto frontier for query-time tuning. Most workloads will see a usable gain here without a rebuild — V3 in §4.2 ships from this.</p>
+<p><strong>Phase 4 — Multi-objective BO over <code>(m, ef_construction, ef_search)</code> on a staging replica.</strong> Only entered if Phase 3 cannot meet the recall+latency target. Uses VDTuner-style EHVI acquisition (Expected Hypervolume Improvement) to learn the Pareto frontier rather than a single point. Each evaluation requires a real rebuild on the staging replica — this is the bottleneck. FastPGT's batched-candidate trick (2.37× speedup) should be ported.</p>
+<h3 id="53-deployment-path">5.3 Deployment path<a class="headerlink" href="#53-deployment-path" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Monitor mode:</strong> Phase 1 + 2 + 3 only; report current recall and the no-rebuild improvement available. Never modifies the index.</li>
+<li><strong>Advisory mode:</strong> Phase 4 emits a recommendation with shadow-index SQL. Operator reviews and applies during a maintenance window.</li>
+<li><strong>Autonomous mode:</strong> Phase 4 runs on a staging replica during a configured window, builds the shadow index on the primary via <code>CREATE INDEX CONCURRENTLY</code> (despite the parallelization gap — see §2 finding 3), validates recall ≥ target on production sample, atomic-renames to swap.</li>
+</ul>
+<h3 id="54-honest-expectation-setting">5.4 Honest expectation-setting<a class="headerlink" href="#54-honest-expectation-setting" title="Permanent link">&para;</a></h3>
+<p>VDTuner reports 14% QPS / 186% recall improvement, but that is on un-tuned defaults. On workloads where pgvector defaults are already in the right ballpark, expect <strong>5–30% improvement</strong>, not 186%. The pitch must reflect this. Overpromising kills trust faster than underpromising.</p>
+<h3 id="55-risks">5.5 Risks<a class="headerlink" href="#55-risks" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Sampled brute-force ground truth may underestimate tail recall on rare query shapes. Mitigation: stratified sampling by query frequency.</li>
+<li>Concurrent rebuild lock contention on the primary. Mitigation: a hard concurrency cap (e.g. one in-flight rebuild per database) and explicit maintenance-window check.</li>
+<li>Embedding model swap mid-tuning invalidates the ground truth. Mitigation: model fingerprint check before each Phase 4 entry; abort if changed since Phase 2.</li>
+<li>Trust-ramp gap: a 2-hour autonomous rebuild is qualitatively different from a 5-second <code>ANALYZE</code>. Risk-tier model in F1 must support "long-running with checkpoints" as a tier.</li>
+</ul>
+<hr />
+<h2 id="6-new-theater-b-agent-native-operation">6. New Theater B — Agent-Native Operation<a class="headerlink" href="#6-new-theater-b-agent-native-operation" title="Permanent link">&para;</a></h2>
+<p>This is the harder strategic question. The 2026-04-27 spec's Cases-and-Actions architecture is <em>agent-friendly</em> (typed actions, identity keys, evidence) but does not ship anything <em>agent-aware</em>. The agent-DB research surfaces concrete reasons why this matters:</p>
+<ul>
+<li>80% of Neon DBs are agent-created.</li>
+<li>Dolt sees 4 → 600 concurrent agents per host.</li>
+<li>LiteLLM CVE-2026-42208 was exploited within 36 hours of disclosure.</li>
+<li>MINJA: privilege-less memory poisoning that survives across agent sessions.</li>
+</ul>
+<h3 id="61-scope">6.1 Scope<a class="headerlink" href="#61-scope" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Feature</th>
+<th>Slice</th>
+<th>Trust mapping</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A1</td>
+<td><strong>Per-agent identity correlation</strong></td>
+<td>Read <code>application_name</code>, statement comments, header propagation; correlate findings to the agent that issued the SQL.</td>
+<td>Read-only</td>
+</tr>
+<tr>
+<td>A2</td>
+<td><strong>DDL gate (deploy-request style)</strong></td>
+<td>Intercept agent-issued DDL via log parsing, score it against schema-lint and migration-safety rules, surface a deploy-request-shaped artifact to a human (or to a higher-trust agent) before execution. Mirrors PlanetScale Deploy Requests.</td>
+<td>Advisory (default) — Auto for SAFE-tier DDL only</td>
+</tr>
+<tr>
+<td>A3</td>
+<td><strong>Workload fingerprinting</strong></td>
+<td>Detect "agent-flavored" workloads: heavy embedding writes, narrow tables, JSONB blobs, high write amplification, schema sprawl. Tag the database for agent-specific rule packs.</td>
+<td>Read-only</td>
+</tr>
+<tr>
+<td>A4</td>
+<td><strong>Memory hygiene rules</strong></td>
+<td>Stale embeddings (model fingerprint mismatch), orphan rows, duplicate facts, unbounded conversation logs. New rule class for agent memory tables.</td>
+<td>Advisory</td>
+</tr>
+<tr>
+<td>A5</td>
+<td><strong>Cost guardrails per agent</strong></td>
+<td>Per-<code>application_name</code> token / embedding / row-write budgets, surfaced via <code>cases</code> when exceeded.</td>
+<td>Advisory → Auto-suspend at budget breach</td>
+</tr>
+<tr>
+<td>A6</td>
+<td><strong>Runaway-agent detection + isolation</strong></td>
+<td>Detect agent stomping (concurrent transactions, lock contention, query-pattern explosion); rate-limit at the connection-string level. Higher-priority than the existing runaway-query feature.</td>
+<td>Advisory → Auto-cancel at policy threshold</td>
+</tr>
+<tr>
+<td>A7</td>
+<td><strong>Public dogfooding</strong></td>
+<td>pg_sage operates a Postgres. Document what <em>it</em> writes to its own DB, what its own memory hygiene rules are, what its own DDL gate caught. Distribution play.</td>
+<td>N/A (docs + blog)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="62-the-strategic-question-this-theater-forces">6.2 The strategic question this theater forces<a class="headerlink" href="#62-the-strategic-question-this-theater-forces" title="Permanent link">&para;</a></h3>
+<blockquote>
+<p>Should pg_sage offer a write API (<code>pg_sage.remember(...)</code>, <code>pg_sage.embed_and_insert(...)</code>) that agents call instead of issuing raw SQL?</p>
+</blockquote>
+<p>A write API would:
+- Centralize agent identity, cost accounting, schema validation.
+- Eliminate prompt-injection-into-SQL as an attack surface (P2SQL).
+- Give pg_sage a control plane, not just an observability plane.</p>
+<p>But it would also:
+- Make pg_sage a runtime dependency, not a sidecar (architectural shift).
+- Compete with LangChain SQL toolkits and LlamaIndex SQL.
+- Bind pg_sage to specific agent-side schemas (e.g. memory-store opinions).</p>
+<p>The agent-DB research lands on "ship A1–A6 first; revisit the write-API question in 6 months when we have data on what agents do that violates the SAFE tier." This is correct. Do not ship A1–A6 <em>and</em> a write API in v1.x. Ship the observability + advisory side, learn, then decide.</p>
+<hr />
+<h2 id="7-cross-db-strategic-moves">7. Cross-DB Strategic Moves<a class="headerlink" href="#7-cross-db-strategic-moves" title="Permanent link">&para;</a></h2>
+<p>From <code>v1_cross_db_ai_landscape.md</code>, the highest-leverage portable patterns:</p>
+<h3 id="71-steal-high-priority">7.1 Steal (high priority)<a class="headerlink" href="#71-steal-high-priority" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Deploy Requests for HIGH-risk DDL.</strong> PlanetScale's pattern: a DDL change opens a request, pre-flight runs, a human (or higher-trust agent) reviews, the change executes within a 30-minute revert window. Maps directly onto pg_sage's existing migration-safety + cases work. This is A2 above.</li>
+<li><strong>30-minute revert window for executed actions.</strong> Not just rollback SQL — <em>automatic</em> revert if a post-action verification fails or a regression metric trips. Strengthens the "Verify" leg of the Observe→Verify loop.</li>
+<li><strong>Open-source <code>pg_sage lint</code> CLI with stable rule IDs.</strong> Mirror Supabase Splinter's distribution play. Anyone can run <code>pg_sage lint schema.sql</code> in CI. Rule IDs live forever and become the lingua franca.</li>
+<li><strong>Recommendation overlays on the performance timeline.</strong> "Latency improved 40% at 14:32 because pg_sage applied recommendation R-1234." This is the cost-justification screenshot.</li>
+<li><strong><code>SELECT * FROM sage.findings_summary()</code> SQL-native surface.</strong> psql users see findings without leaving the terminal. Crunchy <code>cb psql --menu</code> pattern.</li>
+</ul>
+<h3 id="72-match-table-stakes">7.2 Match (table stakes)<a class="headerlink" href="#72-match-table-stakes" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Impact-ranked recommendations (Mongo Atlas).</li>
+<li>Per-finding impact score with auto-apply threshold toggle.</li>
+<li>Day-1 production-check report.</li>
+<li>Programmatic API (already partly there; document and stabilize).</li>
+</ul>
+<h3 id="73-dont-bother">7.3 Don't bother<a class="headerlink" href="#73-dont-bother" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Native vector search as a <em>core</em> feature — pg_sage manages pgvector, not its own engine.</li>
+<li>Cortex AISQL-style natural-language SQL — out of scope.</li>
+<li>Scale-to-zero compute — managed-platform concern.</li>
+<li>Boost-style cache layer — niche, doesn't fit the spec's non-goals.</li>
+<li>BI / dashboard agents — not the buyer.</li>
+</ul>
+<hr />
+<h2 id="8-v1x-roadmap-slot-in">8. v1.x Roadmap Slot-In<a class="headerlink" href="#8-v1x-roadmap-slot-in" title="Permanent link">&para;</a></h2>
+<p>Slotting the new work into the existing release train. Does not replace the autonomous-DBA spec's planned cases/shadow-mode work — it sits alongside.</p>
+<h3 id="v101-foundation-12-weeks">v1.0.1 — "Foundation" (1–2 weeks)<a class="headerlink" href="#v101-foundation-12-weeks" title="Permanent link">&para;</a></h3>
+<p>F1 risk-tier model fix, F2 LLM logging, F3 handlers split, F4 capability checks, F5 lint policy.</p>
+<h3 id="v11-vector-intelligence-phase-1-6-weeks">v1.1 — "Vector Intelligence Phase 1" (~6 weeks)<a class="headerlink" href="#v11-vector-intelligence-phase-1-6-weeks" title="Permanent link">&para;</a></h3>
+<p>V1 inventory + health rules, V2 recall measurement framework, V3 <code>ef_search</code> query-time autotuner, V5 hybrid plan-shape diagnostic, V7 vacuum/reindex scheduler. <strong>No build-time autotuner yet.</strong> Plus 7.1 #4 (recommendation overlays on timeline).</p>
+<h3 id="v12-agent-native-phase-1-6-weeks">v1.2 — "Agent-Native Phase 1" (~6 weeks)<a class="headerlink" href="#v12-agent-native-phase-1-6-weeks" title="Permanent link">&para;</a></h3>
+<p>A1 per-agent identity, A3 workload fingerprinting, A4 memory hygiene rules, A5 cost guardrails. Plus 7.1 #1 Deploy Requests for HIGH-risk DDL (which doubles as A2 for agent DDL).</p>
+<h3 id="v13-hnsw-autotuner-agent-isolation-8-weeks">v1.3 — "HNSW Autotuner + Agent Isolation" (~8 weeks)<a class="headerlink" href="#v13-hnsw-autotuner-agent-isolation-8-weeks" title="Permanent link">&para;</a></h3>
+<p>V4 build-cost forecaster, V6 build-time autotuner (Phase 4 of §5), A6 runaway-agent isolation. This is the heaviest release. Plus 7.1 #2 30-minute revert window. The autotuner <em>requires</em> F1 done and risk-tier model extended for "long-running with checkpoints."</p>
+<h3 id="v14-and-beyond">v1.4 and beyond<a class="headerlink" href="#v14-and-beyond" title="Permanent link">&para;</a></h3>
+<ul>
+<li>7.1 #3 <code>pg_sage lint</code> open-source CLI.</li>
+<li>A7 public dogfooding (this is a content/marketing track, can run in parallel).</li>
+<li>Revisit the agent write-API question (§6.2) with 6 months of A1–A6 data.</li>
+</ul>
+<h3 id="success-criteria-per-release">Success criteria per release<a class="headerlink" href="#success-criteria-per-release" title="Permanent link">&para;</a></h3>
+<p>Every v1.x release ships with <strong>measured success criteria</strong>, not aspirational ones:</p>
+<ul>
+<li>v1.0.1: zero new CRITICAL findings in <code>golangci-lint</code>, zero files &gt; 500 lines, every advisor has a startup capability check.</li>
+<li>v1.1: recall@10 reported continuously for ≥ 3 reference workloads; query-time autotuner produces ≥ 10% latency improvement on demo with no recall regression &gt; 1pp.</li>
+<li>v1.2: A4 memory-hygiene rules detect ≥ 5 distinct agent-DB anti-patterns on dogfood Postgres.</li>
+<li>v1.3: V6 autotuner converges on a Pareto-improving config in &lt; 2h for a 1M-row reference dataset; produces a no-op when defaults are already on the frontier.</li>
+</ul>
+<hr />
+<h2 id="9-questions-you-should-be-asking-that-you-are-not">9. Questions You Should Be Asking That You Are Not<a class="headerlink" href="#9-questions-you-should-be-asking-that-you-are-not" title="Permanent link">&para;</a></h2>
+<p>These are the strategic questions surfaced by the research that <em>no current spec or roadmap document addresses</em>. They are not in any priority order — every one of them is decision-forcing.</p>
+<ol>
+<li>
+<p><strong>Who is the buyer?</strong> The autonomous-DBA spec assumes "operator." The agent-DB research suggests it is increasingly "platform team that runs agents." These have different budgets, different procurement paths, different reference-deployment shapes. Until you decide, the pricing page and the docs both pull in two directions.</p>
+</li>
+<li>
+<p><strong>What is the right deployment unit?</strong> Sidecar-per-database (current), sidecar-per-cluster (fleet mode), or <em>control-plane-as-a-service</em>? The Lakebase/Genie threat is strongest against sidecar deployments because Lakebase ships its own. A managed pg_sage service may be defensive necessity, not optional.</p>
+</li>
+<li>
+<p><strong>How does pg_sage tell the difference between "an agent did something dumb" and "an agent did something we haven't seen before"?</strong> Workload fingerprinting (A3) detects new patterns; the harder question is whether to alert, observe, or learn. This is a policy question, not a code question, and you have not written the policy.</p>
+</li>
+<li>
+<p><strong>What happens when pg_sage IS the runaway query?</strong> When the autotuner takes 6 hours and consumes 12 GB on the staging replica because the workload changed mid-tuning, who detects it? Currently nothing. The dogfooding plan in A7 is not optional — it is a safety check on the product.</p>
+</li>
+<li>
+<p><strong>Are vector recommendations ever safe to apply autonomously?</strong> Index rebuilds are minutes-to-hours, lock contention is real, the rebuild blocks vacuum, and recall improvement is a probability not a guarantee. The current trust-ramp tiers (SAFE / MODERATE / HIGH) may not be the right vocabulary for vector actions. Do you need a new tier called "patient" or "scheduled-maintenance"?</p>
+</li>
+<li>
+<p><strong>What is the ground-truth obligation?</strong> If pg_sage recommends a change and it makes things worse, is pg_sage liable? AGPL helps but doesn't answer the trust question. Are you willing to ship "we measured recall@10 = 0.91 ± 0.02 on 200 sample queries" or is that a footgun for an enterprise sales conversation?</p>
+</li>
+<li>
+<p><strong>What about embedding model versioning?</strong> When the agent re-embeds the corpus with a new model, every existing index is wrong, recall reports become misleading, and previously-good recommendations turn bad. Detection requires a model fingerprint that is currently nowhere in the schema. Do you mandate a <code>sage.embedding_model</code> registration table, or do you fingerprint by column statistics? Both are research projects.</p>
+</li>
+<li>
+<p><strong>Is <code>pg_stat_statements</code> enough?</strong> Vector queries are often parameterized in ways that produce wildly different <code>queryid</code>s for semantically identical operations. The cross-domain landscape research notes that pg_stat_statements alone is insufficient for index ranking — Mongo Atlas combines it with Performance Advisor traces. Do you ship your own light statement-tracking layer, or accept the gap?</p>
+</li>
+<li>
+<p><strong>What is the "minimum viable agent" pg_sage assumes the user is running?</strong> Different agents emit different SQL shapes, different memory schemas, different cost profiles. Do you ship reference rule packs for Letta, Mem0, Zep, Claude memory, ChatGPT projects? Or do you make rule packs configurable and let the community publish them?</p>
+</li>
+<li>
+<p><strong>What is your story on managed-Postgres pgvector limits?</strong> Cloud SQL caps <code>maintenance_work_mem</code>. AlloyDB has its own ANN-aware extensions. Aurora ships pgvector 0.8.0 with a custom optimizer path. Each one breaks an autotuner assumption. The provider-aware-ops feature in the existing roadmap is the right answer; it must ship before V6, not after.</p>
+</li>
+<li>
+<p><strong>What does pg_sage <em>retire</em>?</strong> Every roadmap document adds. None subtract. The reality-check identifies orphan endpoints, the C extension legacy, and the unused MCP server. The autonomous-DBA spec lists Non-Goals but no removal plan. A "v1.x retirements" track is mandatory if the codebase is to stay maintainable.</p>
+</li>
+<li>
+<p><strong>Should pg_sage open-source the rule definitions while keeping the executor proprietary?</strong> Splinter's distribution play (open-source linter) drove ecosystem adoption beyond Supabase's platform. The same applies to pg_sage's deterministic Tier 1 rules. AGPL on the whole binary is the current answer; a dual-license with permissively-licensed rule definitions could 10× distribution at low cost — but only if the rules are clean enough to publish. They aren't yet (see F-risks).</p>
+</li>
+<li>
+<p><strong>Do you actually need an LLM, or do you need a <em>constrained</em> LLM?</strong> Several reality-check findings (silent LLM failures, opaque confidence, hardcoded threshold) suggest the LLM is a soft point. Vector autotuner doesn't need LLM at all — it's a BO loop. Agent-DB rules can be deterministic. Maybe v1.x is the release where pg_sage becomes "deterministic-first, LLM-augmented" instead of "deterministic + LLM." This was already principle 7.4 of the spec, but the code doesn't enforce it.</p>
+</li>
+<li>
+<p><strong>What's the recall test for the recall framework?</strong> When V2 reports <code>recall@10 = 0.94</code>, how do you know it's right? You need a meta-test: synthetic dataset with known ground truth, V2 measurement, expected ≥ 0.99 of true recall. Without this, V2 is unverifiable infrastructure underneath every vector recommendation.</p>
+</li>
+<li>
+<p><strong>Is "Cases" the right unit, or is "Workloads" the right unit?</strong> The autonomous-DBA spec centers cases (incident-driven). The agent-DB research suggests workloads (per-agent, per-app, per-tenant) are the unit operators care about. They are not the same thing — a vector workload generates many cases over time. Do they nest? Are workloads first-class? The spec doesn't say.</p>
+</li>
+</ol>
+<hr />
+<h2 id="appendix-files-written-by-this-exercise">Appendix — Files written by this exercise<a class="headerlink" href="#appendix-files-written-by-this-exercise" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>research/v1_codebase_reality_check.md</code> (~2,200 words; 3.2/5 audit, F1–F5)</li>
+<li><code>research/v1_vector_search_landscape.md</code> (~3,500 words; ecosystem + 8 failure modes + Top 5 features)</li>
+<li><code>research/v1_hnsw_autotuning_prior_art.md</code> (~3,500 words; VDTuner + FastPGT + 4-phase algorithm)</li>
+<li><code>research/v1_agent_created_databases.md</code> (~3,400 words; 5 agent-DB definitions + 10 features + Top 5 bets)</li>
+<li><code>research/v1_cross_db_ai_landscape.md</code> (~4,800 words; 10 targets + table stakes / differentiators / don't-bother)</li>
+<li>This addendum: <code>docs/ROADMAP_v1.x_addendum.md</code></li>
+</ul>
+<p>A reusable Claude Code skill for this exercise lives at <code>~/.claude/skills/roadmap-research/SKILL.md</code> (sister to the existing <code>~/.agents/skills/researching-pg-sage-roadmap/</code> used by Codex).</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
