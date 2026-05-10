@@ -15,6 +15,9 @@ traditional observability dashboard:
 - **Fleet** manages database connections and per-database runtime state.
 - **Settings** includes system configuration, emergency controls, and the
   Shadow Mode report proving what auto-safe policy would have handled.
+- **Agent DBs** provisions local agent databases, reviews LLM blueprints and
+  Terraform templates, and runs gated cloud workflows for RDS, Cloud SQL, and
+  Lakebase when provider setup is complete.
 
 The web UI and JSON API are authenticated by default. On first start, pg_sage
 prints a one-time password for `admin@pg-sage.local`; API clients authenticate
@@ -67,3 +70,4 @@ can differ by managed-service constraints.
 
 - [Deployment](deployment.md) — Docker, systemd, Kubernetes
 - [Security](security.md) — Least-privilege roles, network policies, audit logging
+- [AgentDB Cloud Provider Setup](runbooks/agentdb-cloud-provider-setup.md) -- AWS RDS, GCP Cloud SQL, Databricks Lakebase, safety gates, and cleanup

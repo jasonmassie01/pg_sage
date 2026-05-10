@@ -371,6 +371,14 @@ describe('AgentDBsPage', () => {
     openTab('Provider Settings')
     expect(screen.getByText(/Control which cloud providers may execute live/))
       .toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Cloud provider setup' }))
+      .toHaveAttribute('href', expect.stringContaining(
+        'agentdb-cloud-provider-setup.md',
+      ))
+    expect(screen.getByRole('link', { name: 'Cloud setup' }))
+      .toHaveAttribute('href', expect.stringContaining(
+        'agentdb-cloud-provider-setup.md',
+      ))
     expect(screen.getByTestId('agent-db-provision-tip-provider_settings_json'))
       .toHaveAttribute('title', expect.stringContaining('JSON policy'))
     openTab('Terraform')

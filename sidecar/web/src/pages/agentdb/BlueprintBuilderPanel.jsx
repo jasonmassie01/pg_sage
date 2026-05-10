@@ -22,6 +22,7 @@ export function BlueprintBuilderPanel({
   onGenerate,
   onApprove,
   onProvision,
+  docsUrl,
 }) {
   const [form, setForm] = useState(initialForm)
 
@@ -46,6 +47,7 @@ export function BlueprintBuilderPanel({
           style={{ color: 'var(--text-primary)' }}>
           Blueprint Builder
         </h2>
+        <DocsLink docsUrl={docsUrl} />
       </div>
 
       <form onSubmit={submit} className="grid gap-3 md:grid-cols-2">
@@ -103,6 +105,17 @@ export function BlueprintBuilderPanel({
         ))}
       </div>
     </section>
+  )
+}
+
+function DocsLink({ docsUrl }) {
+  if (!docsUrl) return null
+  return (
+    <a href={docsUrl} target="_blank" rel="noreferrer"
+      className="ml-auto text-xs underline"
+      style={{ color: 'var(--accent)' }}>
+      Cloud setup
+    </a>
   )
 }
 

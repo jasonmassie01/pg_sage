@@ -431,9 +431,9 @@ func TestGenerate_LivePG(t *testing.T) {
 		`INSERT INTO sage.findings
 		 (category, severity, object_identifier, title, detail,
 		  status, last_seen, occurrence_count)
-		 VALUES ('test_category', 'warning', 'public.test_table',
+		 VALUES ('test_category', 'critical', 'public.test_table',
 		         'Test finding for briefing', '{}'::jsonb,
-		         'open', now(), 1)`)
+		         'open', now(), 999999)`)
 	if err != nil {
 		t.Fatalf("inserting test finding: %v", err)
 	}
@@ -461,7 +461,7 @@ func TestGenerate_LivePG(t *testing.T) {
 	if !strings.Contains(output, "# pg_sage Health Briefing") {
 		t.Error("briefing output should contain the header")
 	}
-	if !strings.Contains(output, "warning") {
+	if !strings.Contains(output, "critical") {
 		t.Error("briefing output should contain severity level")
 	}
 }

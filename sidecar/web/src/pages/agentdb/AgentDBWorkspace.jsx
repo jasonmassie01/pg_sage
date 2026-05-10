@@ -8,6 +8,11 @@ import { ProviderSettingsPanel } from './ProviderSettingsPanel'
 import { TerraformTemplatePanel } from './TerraformTemplatePanel'
 import { BlueprintBuilderPanel } from './BlueprintBuilderPanel'
 
+const CLOUD_SETUP_DOC_URL = [
+  'https://github.com/jasonmassie01/pg_sage/blob/master/docs/runbooks/',
+  'agentdb-cloud-provider-setup.md',
+].join('')
+
 const TAB_DESCRIPTIONS = {
   deployments: [
     'Track every agent-created database, inspect its cost, backup, tuning,',
@@ -84,6 +89,14 @@ export function AgentDBWorkspace({
         data-testid="agent-db-tab-description"
         style={{ color: 'var(--text-secondary)' }}>
         {TAB_DESCRIPTIONS[activeTab]}
+        {' '}
+        {showCloudSetupLink(activeTab) && (
+          <a href={CLOUD_SETUP_DOC_URL} target="_blank" rel="noreferrer"
+            className="underline"
+            style={{ color: 'var(--accent)' }}>
+            Cloud provider setup
+          </a>
+        )}
       </p>
       {activeTab === 'deployments' && (
         <DeploymentsTab
@@ -128,6 +141,7 @@ export function AgentDBWorkspace({
           providers={providers}
           busy={busy}
           onSave={onSaveProviderSettings}
+          docsUrl={CLOUD_SETUP_DOC_URL}
         />
       )}
       {activeTab === 'terraform' && (
@@ -137,6 +151,7 @@ export function AgentDBWorkspace({
           onUpload={onUploadTerraformTemplate}
           onApprove={onApproveTerraformTemplate}
           onProvision={onProvisionTerraformTemplate}
+          docsUrl={CLOUD_SETUP_DOC_URL}
         />
       )}
       {activeTab === 'blueprints' && (
@@ -146,6 +161,7 @@ export function AgentDBWorkspace({
           onGenerate={onGenerateBlueprint}
           onApprove={onApproveBlueprint}
           onProvision={onProvisionBlueprint}
+          docsUrl={CLOUD_SETUP_DOC_URL}
         />
       )}
       {activeTab === 'activity' && (
@@ -157,6 +173,16 @@ export function AgentDBWorkspace({
       )}
     </div>
   )
+}
+
+function showCloudSetupLink(activeTab) {
+  return [
+    'provision',
+    'profiles',
+    'provider-settings',
+    'terraform',
+    'blueprints',
+  ].includes(activeTab)
 }
 
 function DeploymentsTab({

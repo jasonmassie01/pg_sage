@@ -2,7 +2,9 @@
 
 This runbook is for operators enabling AgentDB live provisioning after dry-run
 validation. Live provisioning is intentionally gated: local/UI dry-runs should
-pass before any real provider resource is created.
+pass before any real provider resource is created. For provider credential setup
+and per-cloud field guidance, start with
+[AgentDB Cloud Provider Setup](agentdb-cloud-provider-setup.md).
 
 ## Enablement
 
@@ -38,6 +40,11 @@ settings may store non-secret runtime knobs such as project, region, workspace,
 allowed instance classes, and safety limits. Credentials should come from AWS
 SDK default credentials, Google ADC/service account identity, or a Databricks
 service principal/workspace-native auth flow.
+
+The native sidecar runners are also gated by environment variables:
+`PG_SAGE_LIVE_PROVISIONING=1` for all live providers,
+`PG_SAGE_ENABLE_GCP_CLOUDSQL_RUNNER=1` for Cloud SQL, and
+`PG_SAGE_ENABLE_LAKEBASE_RUNNER=1` for Lakebase.
 
 ## Credential Setup
 

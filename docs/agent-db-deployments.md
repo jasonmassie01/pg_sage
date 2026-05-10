@@ -5,20 +5,21 @@ for agent workloads. The module is built for temporary and production-like agent
 runs that need a database, tuning context, cost tracking, backups, query
 recommendations, and automatic cleanup.
 
-The current cloud providers create reviewed dry-run execution plans only. Local
-Postgres schema and database provisioning can execute against the configured
-Postgres connection. Cloud instance execution is intentionally separated behind
-preflight, approval, and dry-run attempt records until live provider execution is
-enabled.
+Local Postgres schema and database provisioning can execute against the
+configured Postgres connection. Cloud providers support instance-level
+preflight, dry-run execution, and gated live execution when the sidecar has
+provider credentials, provider allowlists, and live provisioning enabled. See
+[AgentDB Cloud Provider Setup](runbooks/agentdb-cloud-provider-setup.md) before
+creating real cloud resources.
 
 ## Provisioning Model
 
 | Provider | Schema | Database | Instance |
 | --- | --- | --- | --- |
 | `local_postgres` | Executed | Executed | Not supported |
-| `aws_rds` | Not supported | Not supported | Planned |
-| `gcp_cloudsql` | Not supported | Not supported | Planned |
-| `databricks_lakebase` | Not supported | Not supported | Planned |
+| `aws_rds` | Not supported | Not supported | Dry-run or gated live |
+| `gcp_cloudsql` | Not supported | Not supported | Dry-run or gated live |
+| `databricks_lakebase` | Not supported | Not supported | Dry-run or gated live branch |
 
 Each deployment has:
 
@@ -33,10 +34,10 @@ Each deployment has:
 ## Databricks Lakebase Notes
 
 Lakebase is treated as a first-class Agent DB provider for instance-level
-planning, provider readiness, custom size profiles, lifecycle status checks,
-destroy dry-runs, backup checks, and restore-drill dry-runs. pg_sage does not
-currently run live Lakebase creation or deletion; it records the Databricks CLI
-commands as reviewed dry-run attempts for tomorrow's provider testing.
+planning, branch provisioning, provider readiness, custom size profiles,
+lifecycle status checks, destroy dry-runs, backup checks, and restore-drill
+dry-runs. Live Lakebase branch execution is gated by Databricks credentials,
+provider policy, and an explicit source instance or source branch.
 
 Current support assumptions to verify against the target workspace:
 
@@ -203,6 +204,10 @@ query tuning recommendations that an agent can consume and feed back through
 - `POST /cost-samples` records usage or provider cost samples.
 - `GET /cost` returns budget state and budget action.
 - Expired leases are archived by `POST /api/v1/agent-dbs/cleanup`.
+
+Live cloud setup, credential requirements, provider settings, and cleanup
+commands are documented in
+[AgentDB Cloud Provider Setup](runbooks/agentdb-cloud-provider-setup.md).
 
 ## Local UI Verification
 

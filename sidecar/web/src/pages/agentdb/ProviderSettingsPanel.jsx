@@ -15,6 +15,7 @@ export function ProviderSettingsPanel({
   providers,
   busy,
   onSave,
+  docsUrl,
 }) {
   const [provider, setProvider] = useState('aws_rds')
   const [draft, setDraft] = useState({
@@ -58,6 +59,7 @@ export function ProviderSettingsPanel({
           style={{ color: 'var(--text-primary)' }}>
           Provider Settings
         </h2>
+        <DocsLink docsUrl={docsUrl} />
       </div>
       <form onSubmit={submit} className="grid gap-3 md:grid-cols-2">
         <label className="block text-xs" style={{ color: 'var(--text-secondary)' }}>
@@ -134,6 +136,17 @@ export function ProviderSettingsPanel({
       </div>
       <ProviderReadiness providers={providers} />
     </section>
+  )
+}
+
+function DocsLink({ docsUrl }) {
+  if (!docsUrl) return null
+  return (
+    <a href={docsUrl} target="_blank" rel="noreferrer"
+      className="ml-auto text-xs underline"
+      style={{ color: 'var(--accent)' }}>
+      Cloud setup
+    </a>
   )
 }
 

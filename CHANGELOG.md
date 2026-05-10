@@ -1,5 +1,54 @@
 # Changelog
 
+## v1.1 (2026-05-10) -- AgentDB Cloud Provisioning Release
+
+### Added
+
+- AgentDB now supports gated live cloud provisioning paths for AWS RDS, GCP
+  Cloud SQL, and Databricks Lakebase branch workflows alongside local schema
+  and database provisioning.
+- Added LLM-required blueprint generation that turns English deployment intent
+  into typed AgentDB blueprints and draft Terraform templates for review.
+- Added Terraform upload/import review flow with static policy checks for
+  provider-specific shapes that change frequently across cloud vendors.
+- Added provider settings, custom size profiles, cloud field tooltips, and
+  compact AgentDB tabs for deployments, provisioning, profiles, provider
+  settings, Terraform, blueprints, and activity.
+- Added backup assurance, restore-verification gates, ping/token lifecycle,
+  TTL cleanup, cost samples, query tuning recommendation contracts, audit
+  export, and deploy-request promotion records for agent-owned databases.
+- Added a dedicated
+  [AgentDB Cloud Provider Setup](docs/runbooks/agentdb-cloud-provider-setup.md)
+  guide for AWS, GCP, Databricks, live safety gates, validation commands, and
+  cleanup evidence.
+
+### Changed
+
+- AgentDB provider documentation now reflects dry-run and gated live execution
+  instead of describing cloud providers as plan-only.
+- The AgentDB UI links directly to cloud setup guidance from provisioning,
+  provider settings, Terraform, and blueprint workflows.
+- Cloud provisioning requires explicit live gates, provider policy allowlists,
+  cost/TTL guardrails, and restore-verified backup evidence before destructive
+  live cleanup.
+
+### Fixed
+
+- Fixed bodyless AgentDB action requests that returned invalid request errors.
+- Fixed UI delete/lifecycle actions so archived deployments can run guarded
+  destroy flows when backup policy is satisfied.
+- Fixed cloud blueprint provisioning metadata so requested regions and provider
+  shape fields are preserved instead of silently falling back to defaults.
+- Fixed test login targeting for the `8085` sidecar and rebuilt the embedded UI.
+
+### Verification
+
+- `go test -cover -count=1 -p 1 ./...` passed from `sidecar`.
+- `npm test -- --run`, `npm run lint`, and `npm run build` passed from
+  `sidecar/web`.
+- `npx playwright test --workers=1` passed against `http://127.0.0.1:8085`;
+  provider-gated suites were intentionally skipped unless live flags were set.
+
 ## v1 (2026-04-28) — Autonomous DBA Release
 
 > Published on GitHub `master` as tag `v1`. This release includes the

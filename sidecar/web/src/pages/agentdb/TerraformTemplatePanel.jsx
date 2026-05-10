@@ -14,6 +14,7 @@ export function TerraformTemplatePanel({
   onUpload,
   onApprove,
   onProvision,
+  docsUrl,
 }) {
   const [form, setForm] = useState({
     template_id: '',
@@ -41,6 +42,7 @@ export function TerraformTemplatePanel({
           style={{ color: 'var(--text-primary)' }}>
           Terraform Templates
         </h2>
+        <DocsLink docsUrl={docsUrl} />
       </div>
       <form onSubmit={submit} className="grid gap-3 md:grid-cols-2">
         <TextField label="Template ID" value={form.template_id}
@@ -129,6 +131,17 @@ export function TerraformTemplatePanel({
         ))}
       </div>
     </section>
+  )
+}
+
+function DocsLink({ docsUrl }) {
+  if (!docsUrl) return null
+  return (
+    <a href={docsUrl} target="_blank" rel="noreferrer"
+      className="ml-auto text-xs underline"
+      style={{ color: 'var(--accent)' }}>
+      Cloud setup
+    </a>
   )
 }
 
