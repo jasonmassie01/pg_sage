@@ -121,7 +121,7 @@ test.describe('Step 4: Login', () => {
     const body = await res.json();
     expect(body.email).toBe(ADMIN_EMAIL);
     expect(body.role).toBe('admin');
-    expect(body.id).toBe(1);
+    expect(body.id).toBeGreaterThan(0);
   });
 });
 

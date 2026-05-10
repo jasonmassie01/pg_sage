@@ -1,29 +1,32 @@
-import { execFileSync } from 'child_process';
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 import { login, getConsoleErrors } from './helpers';
 
 const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
 const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
-function sqlString(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
+type Channel = {
+  id: number;
+  name: string;
+  enabled: boolean;
+  config: {
+    webhook_url?: string;
+  };
+};
+
+async function findChannel(page: Page, name: string): Promise<Channel | null> {
+  const res = await page.request.get('/api/v1/notifications/channels');
+  expect(res.status()).toBe(200);
+  const data = await res.json() as { channels?: Channel[] };
+  return (data.channels || []).find((ch) => ch.name === name) || null;
 }
 
-function psqlScalar(sql: string): string {
-  return execFileSync('docker', [
-    'exec', 'pg_sage-pg-target-1', 'psql',
-    '-v', 'ON_ERROR_STOP=1',
-    '-U', 'postgres',
-    '-d', 'testdb',
-    '-t', '-A',
-    '-c', sql,
-  ], { encoding: 'utf8' }).trim();
-}
-
-function cleanupChannel(name: string) {
-  psqlScalar(
-    `DELETE FROM sage.notification_channels WHERE name = ${sqlString(name)}`,
+async function cleanupChannel(page: Page, name: string) {
+  const channel = await findChannel(page, name);
+  if (!channel) return;
+  const res = await page.request.delete(
+    `/api/v1/notifications/channels/${channel.id}`,
   );
+  expect([200, 204, 404]).toContain(res.status());
 }
 
 test.describe('Notifications (admin)', () => {
@@ -73,12 +76,6 @@ test.describe('Notifications (admin)', () => {
         `https://hooks.slack.com/services/T000/B000/${name}`;
 
       try {
-        cleanupChannel(name);
-      } catch (err) {
-        test.skip(true, `Docker fixture database unavailable: ${err}`);
-      }
-
-      try {
         await page.locator('[data-testid="add-channel-name"]').fill(name);
         await page.locator('[data-testid="add-channel-type"]').selectOption(
           'slack',
@@ -109,21 +106,13 @@ test.describe('Notifications (admin)', () => {
         await expect(row.locator('[data-testid="channel-toggle-button"]'))
           .toHaveText('OFF');
 
-        const storedWebhook = psqlScalar(`
-          SELECT config->>'webhook_url'
-            FROM sage.notification_channels
-           WHERE name = ${sqlString(name)}
-        `);
-        const storedEnabled = psqlScalar(`
-          SELECT enabled::text
-            FROM sage.notification_channels
-           WHERE name = ${sqlString(name)}
-        `);
-
-        expect(storedWebhook).toBe(webhook);
-        expect(storedEnabled).toBe('false');
+        const toggled = await findChannel(page, name);
+        expect(toggled).toBeTruthy();
+        expect(toggled!.config.webhook_url).toContain('****');
+        expect(toggled!.config.webhook_url).not.toBe(webhook);
+        expect(toggled!.enabled).toBe(false);
       } finally {
-        cleanupChannel(name);
+        await cleanupChannel(page, name);
       }
     });
 

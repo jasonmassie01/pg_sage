@@ -37,13 +37,13 @@ test.describe('Login', () => {
   test('valid login redirects to dashboard', async ({ page }) => {
     await login(page, ADMIN_EMAIL, ADMIN_PASS);
 
-    // The nav sidebar should be visible with Dashboard link
-    const dashboardLink = page.locator('nav >> text=Dashboard');
-    await expect(dashboardLink).toBeVisible();
+    // The nav sidebar should be visible with the current overview link.
+    const overviewLink = page.locator('[data-testid="nav-dashboard"]');
+    await expect(overviewLink).toBeVisible();
 
-    // The header should show "Dashboard" or "pg_sage"
+    // The header should show the current landing page label.
     const header = page.locator('main h1');
-    await expect(header).toBeVisible();
+    await expect(header).toContainText('Overview');
   });
 
   // Verifies wrong credentials show an error message

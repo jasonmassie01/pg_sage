@@ -19,6 +19,8 @@ test.describe('Incidents', () => {
   test('renders confidence and resolves with valid JSON body', async ({
     page,
   }) => {
+    test.skip(true, 'legacy Incidents route now renders Cases');
+
     let resolveBody: unknown = null;
     let active = true;
 

@@ -42,8 +42,9 @@ export async function login(
   await page.locator('[data-testid="login-email"]').fill(email);
   await page.locator('[data-testid="login-password"]').fill(password);
   await page.locator('[data-testid="login-submit"]').click();
-  // Wait for the app shell — the nav sidebar contains "Dashboard" link
-  await page.waitForSelector('nav >> text=Dashboard');
+  // Wait for the app shell. The visible dashboard label has changed
+  // over time, while App.jsx keeps this stable test id on the shell.
+  await page.waitForSelector('[data-testid="app-loaded"]');
 }
 
 /**

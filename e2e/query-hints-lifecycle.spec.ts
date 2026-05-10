@@ -48,6 +48,11 @@ test.describe('Query Hints lifecycle', () => {
   test('API and UI show active, retired, and broken hints', async ({
     page,
   }) => {
+    test.skip(
+      process.env.PG_SAGE_E2E_FIXTURE !== 'full-surface',
+      'requires full-surface query-hints fixture',
+    );
+
     try {
       seedHintLifecycleRows();
     } catch (err) {
