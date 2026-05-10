@@ -25,6 +25,7 @@ export function BackupAssurancePanel({
   busy = false,
   onCheckBackups,
   onPlanRestoreDrill,
+  onMarkRestoreVerified,
 }) {
   return (
     <div className="rounded border p-3 space-y-3"
@@ -50,6 +51,12 @@ export function BackupAssurancePanel({
             icon={RotateCcw}
             disabled={busy}
             onClick={onPlanRestoreDrill}
+          />
+          <AssuranceButton
+            label="Mark restore verified"
+            icon={ShieldCheck}
+            disabled={busy}
+            onClick={onMarkRestoreVerified}
           />
         </div>
       </div>

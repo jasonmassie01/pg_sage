@@ -136,6 +136,26 @@ export function ProvisionForm({ form, busy, profiles, onChange, onSubmit }) {
         options={levels}
         tipKey="provisioning_level"
         onChange={value => update('provisioning_level', value)} />
+      {form.provider === 'aws_rds' && (
+        <div className="grid grid-cols-2 gap-3">
+          <TextField label="AWS region" value={form.cloud_region}
+            tipKey="cloud_region"
+            onChange={value => update('cloud_region', value)} />
+          <TextField label="AWS account" value={form.cloud_account}
+            tipKey="cloud_account"
+            onChange={value => update('cloud_account', value)} />
+        </div>
+      )}
+      {form.provider === 'gcp_cloudsql' && (
+        <div className="grid grid-cols-2 gap-3">
+          <TextField label="GCP project" value={form.cloud_project}
+            tipKey="cloud_project"
+            onChange={value => update('cloud_project', value)} />
+          <TextField label="Cloud SQL region" value={form.cloud_region}
+            tipKey="cloud_region"
+            onChange={value => update('cloud_region', value)} />
+        </div>
+      )}
       <SelectField label="Size" value={form.size_profile_id}
         options={profileOptions.map(profile => ({
           key: profile.profile_id,
@@ -145,6 +165,12 @@ export function ProvisionForm({ form, busy, profiles, onChange, onSubmit }) {
         onChange={value => update('size_profile_id', value)} />
       {form.provider === 'databricks_lakebase' && (
         <>
+          <TextField label="Lakebase project" value={form.lakebase_project || ''}
+            tipKey="lakebase_project"
+            onChange={value => update('lakebase_project', value)} />
+          <TextField label="Databricks workspace" value={form.cloud_workspace}
+            tipKey="cloud_workspace"
+            onChange={value => update('cloud_workspace', value)} />
           <SelectField label="Lakebase shape"
             value={form.lakebase_mode || 'autoscaling_branch'}
             tipKey="lakebase_mode"
@@ -280,6 +306,7 @@ export function DeploymentDetail({
   onProvisionDestroyLive,
   onBackupCheck,
   onRestoreDrillDryRun,
+  onMarkRestoreVerified,
   onCreateDeployRequest,
   onApproveDeployRequest,
   onDenyDeployRequest,
@@ -342,6 +369,9 @@ export function DeploymentDetail({
         onCheckBackups={() => onBackupCheck?.(deployment.deployment_id)}
         onPlanRestoreDrill={
           () => onRestoreDrillDryRun?.(deployment.deployment_id)
+        }
+        onMarkRestoreVerified={
+          () => onMarkRestoreVerified?.(deployment.deployment_id)
         }
       />
       <HintList hints={detail.hints} />

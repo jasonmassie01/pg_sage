@@ -62,6 +62,7 @@ export function AgentDBWorkspace({
   onProvisionAction,
   onBackupCheck,
   onRestoreDrillDryRun,
+  onMarkRestoreVerified,
   onCreateDeployRequest,
   onReviewDeployRequest,
   onRequestDeployReview,
@@ -96,6 +97,7 @@ export function AgentDBWorkspace({
           onProvisionAction={onProvisionAction}
           onBackupCheck={onBackupCheck}
           onRestoreDrillDryRun={onRestoreDrillDryRun}
+          onMarkRestoreVerified={onMarkRestoreVerified}
           onCreateDeployRequest={onCreateDeployRequest}
           onReviewDeployRequest={onReviewDeployRequest}
           onRequestDeployReview={onRequestDeployReview}
@@ -168,6 +170,7 @@ function DeploymentsTab({
   onProvisionAction,
   onBackupCheck,
   onRestoreDrillDryRun,
+  onMarkRestoreVerified,
   onCreateDeployRequest,
   onReviewDeployRequest,
   onRequestDeployReview,
@@ -193,6 +196,7 @@ function DeploymentsTab({
         onProvisionDestroyLive={id => onProvisionAction(id, 'destroy-live')}
         onBackupCheck={onBackupCheck}
         onRestoreDrillDryRun={onRestoreDrillDryRun}
+        onMarkRestoreVerified={onMarkRestoreVerified}
         onCreateDeployRequest={onCreateDeployRequest}
         onApproveDeployRequest={(id, requestID) =>
           onReviewDeployRequest(id, requestID, 'approve')}

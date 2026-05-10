@@ -328,6 +328,7 @@ describe('AgentDBsPage', () => {
   beforeEach(() => {
     refetch.mockClear()
     globalThis.fetch = vi.fn()
+    globalThis.confirm = vi.fn(() => true)
   })
 
   it('renders deployments, request queue, cost, backups, and tuning hints', async () => {
@@ -459,7 +460,6 @@ describe('AgentDBsPage', () => {
     expect(body.metadata.lakebase_mode).toBe('autoscaling_branch')
     expect(body.metadata.provider_params).toMatchObject({
       source_instance: 'projects/demo/branches/main',
-      source_branch: 'projects/demo/branches/main',
     })
   })
 
@@ -595,8 +595,6 @@ describe('AgentDBsPage', () => {
     expect(JSON.parse(globalThis.fetch.mock.calls[0][1].body))
       .toMatchObject({
         mode: 'live',
-        live_enabled: true,
-        provider_enabled: true,
       })
     expect(await screen.findByText('Provision live execute succeeded'))
       .toBeInTheDocument()
@@ -608,6 +606,9 @@ describe('AgentDBsPage', () => {
       .toBe('/api/v1/agent-dbs/adb_ui/provision/destroy-live')
     expect(await screen.findByText('Provision destroy live succeeded'))
       .toBeInTheDocument()
+    expect(globalThis.confirm).toHaveBeenCalledWith(
+      'Live destroy cloud resource for adb_ui?',
+    )
   })
 
   it('runs cloud status, destroy dry-run, and reconcile lifecycle actions', async () => {
@@ -652,7 +653,9 @@ describe('AgentDBsPage', () => {
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3))
     expect(globalThis.fetch.mock.calls[2][0])
       .toBe('/api/v1/agent-dbs/reconcile')
-    expect(await screen.findByText('Reconciled 1 archived, 1 destroy dry-run'))
+    expect(await screen.findByText(
+      'Reconciled 1 archived, 1 destroy dry-run, 0 live destroy',
+    ))
       .toBeInTheDocument()
   })
 
@@ -671,6 +674,7 @@ describe('AgentDBsPage', () => {
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1))
     expect(globalThis.fetch.mock.calls[0][0])
       .toBe('/api/v1/agent-dbs/adb_ui')
+    expect(globalThis.confirm).toHaveBeenCalledWith('delete adb_ui?')
     expect(globalThis.fetch.mock.calls[0][1]).toMatchObject({
       method: 'DELETE',
       credentials: 'include',
@@ -696,6 +700,13 @@ describe('AgentDBsPage', () => {
           kind: 'restore_drill_dry_run',
         }),
       })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          status: 'restore_verified',
+          backup_id: 'restore_verified_ui',
+        }),
+      })
 
     render(<AgentDBsPage />)
 
@@ -713,6 +724,16 @@ describe('AgentDBsPage', () => {
     expect(globalThis.fetch.mock.calls[1][0])
       .toBe('/api/v1/agent-dbs/adb_ui/backups/restore-drill-dry-run')
     expect(await screen.findByText('Restore drill dry-run planned'))
+      .toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Mark restore verified'))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3))
+    expect(globalThis.fetch.mock.calls[2][0])
+      .toBe('/api/v1/agent-dbs/adb_ui/backups')
+    expect(JSON.parse(globalThis.fetch.mock.calls[2][1].body))
+      .toMatchObject({ status: 'restore_verified' })
+    expect(await screen.findByText('Restore verification restore_verified'))
       .toBeInTheDocument()
   })
 
@@ -890,11 +911,11 @@ describe('AgentDBsPage', () => {
     expect(globalThis.fetch.mock.calls[1][0])
       .toBe('/api/v1/agent-dbs/terraform-templates/tf_aws_approved/provision')
     expect(JSON.parse(globalThis.fetch.mock.calls[1][1].body))
-      .toMatchObject({
-        deployment_id: 'tf_aws_approved_deployment',
+      .toEqual(expect.objectContaining({
+        deployment_id: expect.stringMatching(/^tf_aws_approved_[a-z0-9_]+_deployment$/),
         provider: 'aws_rds',
         provisioning_level: 'instance',
-      })
+      }))
     expect(await screen.findByText('Terraform template provisioned as deployment'))
       .toBeInTheDocument()
   })
@@ -991,11 +1012,11 @@ describe('AgentDBsPage', () => {
     expect(globalThis.fetch.mock.calls[1][0])
       .toBe('/api/v1/agent-dbs/blueprints/bp_approved/provision')
     expect(JSON.parse(globalThis.fetch.mock.calls[1][1].body))
-      .toMatchObject({
-        deployment_id: 'bp_approved_deployment',
+      .toEqual(expect.objectContaining({
+        deployment_id: expect.stringMatching(/^bp_approved_[a-z0-9_]+_deployment$/),
         tenant_id: 'tenant_agent',
         agent_id: 'agent_runner',
-      })
+      }))
     expect(await screen.findByText('Blueprint provisioned as deployment'))
       .toBeInTheDocument()
   })
@@ -1015,9 +1036,9 @@ describe('AgentDBsPage', () => {
     expect(globalThis.fetch.mock.calls[0][0])
       .toBe('/api/v1/agent-dbs/requests/req_ui/provision')
     expect(JSON.parse(globalThis.fetch.mock.calls[0][1].body))
-      .toMatchObject({
-        deployment_id: 'req_ui_deployment',
-      })
+      .toEqual(expect.objectContaining({
+        deployment_id: expect.stringMatching(/^req_ui_[a-z0-9_]+_deployment$/),
+      }))
     expect(await screen.findByText('Approved agent request provisioned'))
       .toBeInTheDocument()
   })

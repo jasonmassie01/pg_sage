@@ -22,7 +22,12 @@ const initialForm = {
   lease_seconds: '3600',
   workload_types: ['vector', 'jsonb'],
   extensions: ['pgvector', 'pg_stat_statements'],
+  cloud_region: '',
+  cloud_account: '',
+  cloud_project: '',
+  cloud_workspace: '',
   lakebase_mode: 'autoscaling_branch',
+  lakebase_project: '',
   lakebase_source_instance: '',
 }
 
@@ -78,15 +83,45 @@ function provisionMetadata(form) {
     extensions: form.extensions,
     lakebase_mode: form.lakebase_mode,
   }
+  const providerParams = {}
+  if (form.provider === 'aws_rds') {
+    if (form.cloud_region) providerParams.region = form.cloud_region
+    if (form.cloud_account) providerParams.account = form.cloud_account
+  }
+  if (form.provider === 'gcp_cloudsql') {
+    if (form.cloud_project) providerParams.project = form.cloud_project
+    if (form.cloud_region) providerParams.region = form.cloud_region
+  }
   if (form.provider === 'databricks_lakebase' &&
-    form.lakebase_mode !== 'provisioned_instance' &&
-    form.lakebase_source_instance) {
-    metadata.provider_params = {
-      source_instance: form.lakebase_source_instance,
-      source_branch: form.lakebase_source_instance,
+    form.lakebase_mode !== 'provisioned_instance') {
+    if (form.lakebase_project) providerParams.project = form.lakebase_project
+    if (form.cloud_workspace) providerParams.workspace = form.cloud_workspace
+    if (form.lakebase_source_instance) {
+      providerParams.source_instance = form.lakebase_source_instance
     }
   }
+  if (Object.keys(providerParams).length > 0) {
+    metadata.provider_params = providerParams
+  }
   return metadata
+}
+
+function uniqueDerivedID(prefix) {
+  return `${prefix}_${Date.now().toString(36)}_deployment`
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
+function liveExecuteBody(id, form) {
+  return {
+    mode: 'live',
+    cost_estimate_id: `ui-${id}-${Date.now()}`,
+    region: form.cloud_region,
+    account: form.cloud_account,
+    project: form.cloud_project || form.lakebase_project,
+    workspace: form.cloud_workspace,
+  }
 }
 
 export function AgentDBsPage() {
@@ -178,7 +213,8 @@ export function AgentDBsPage() {
         budget_usd: Number(form.budget_usd || 0),
         backup_required: true,
       }
-      const idem = `ui-${form.tenant_id}-${form.agent_id}-${form.run_id}`
+      const requestRun = form.run_id || Date.now().toString(36)
+      const idem = `ui-${form.tenant_id}-${form.agent_id}-${requestRun}`
       const request = await postJSON('/api/v1/agent-dbs/requests',
         requestBody, { 'Idempotency-Key': idem })
       if (request.status !== 'approved') {
@@ -309,7 +345,7 @@ export function AgentDBsPage() {
     setError(null)
     setMessage(null)
     try {
-      const id = `${blueprint.blueprint_id}_deployment`
+      const id = uniqueDerivedID(blueprint.blueprint_id)
       await postJSON(`/api/v1/agent-dbs/blueprints/${blueprint.blueprint_id}/provision`, {
         deployment_id: id,
         tenant_id: form.tenant_id || 'tenant_agent',
@@ -352,14 +388,18 @@ export function AgentDBsPage() {
     setError(null)
     setMessage(null)
     try {
-      const id = `${template.template_id}_deployment`
+      const provider = template.provider || form.provider
+      if (provider === 'local_postgres') {
+        throw new Error('Select a cloud provider before provisioning Terraform')
+      }
+      const id = uniqueDerivedID(template.template_id)
       await postJSON(
         `/api/v1/agent-dbs/terraform-templates/${template.template_id}/provision`,
         {
           deployment_id: id,
           tenant_id: form.tenant_id || 'tenant_agent',
           agent_id: form.agent_id || 'agent_runner',
-          provider: form.provider === 'local_postgres' ? 'aws_rds' : form.provider,
+          provider,
           provisioning_level: 'instance',
           database_name: form.database_name,
           lease_seconds: Number(form.lease_seconds || 3600),
@@ -379,6 +419,11 @@ export function AgentDBsPage() {
   async function lifecycle(id, action) {
     setError(null)
     try {
+      if (['archive', 'delete'].includes(action) &&
+        window.confirm &&
+        !window.confirm(`${action} ${id}?`)) {
+        return
+      }
       if (action === 'delete') {
         const res = await fetch(`/api/v1/agent-dbs/${id}`, {
           method: 'DELETE',
@@ -411,11 +456,17 @@ export function AgentDBsPage() {
     setError(null)
     setMessage(null)
     try {
+      if (window.confirm && !window.confirm(
+        'Reconcile abandoned deployments? Archived live cloud databases may be destroyed.',
+      )) {
+        return
+      }
       const result = await postJSON('/api/v1/agent-dbs/reconcile', {})
       const archived = result.archived?.length || 0
       const destroyDryRun = result.destroy_dry_run?.length || 0
+      const destroyLive = result.destroy_live?.length || 0
       setMessage(
-        `Reconciled ${archived} archived, ${destroyDryRun} destroy dry-run`,
+        `Reconciled ${archived} archived, ${destroyDryRun} destroy dry-run, ${destroyLive} live destroy`,
       )
       await refreshAll()
     } catch (err) {
@@ -432,13 +483,12 @@ export function AgentDBsPage() {
     try {
       const endpointAction = action === 'live-execute' ? 'execute' : action
       const body = action === 'live-execute'
-        ? {
-          mode: 'live',
-          live_enabled: true,
-          provider_enabled: true,
-          cost_estimate_id: `ui-${id}-${Date.now()}`,
-        }
+        ? liveExecuteBody(id, form)
         : {}
+      if (action === 'destroy-live' && window.confirm &&
+        !window.confirm(`Live destroy cloud resource for ${id}?`)) {
+        return
+      }
       const attempt = await postJSON(
         `/api/v1/agent-dbs/${id}/provision/${endpointAction}`,
         body,
@@ -478,6 +528,25 @@ export function AgentDBsPage() {
         {},
       )
       setMessage(`Restore drill dry-run ${attempt.status || 'planned'}`)
+      await detail.refetch()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function markRestoreVerified(id) {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const backup = await postJSON(`/api/v1/agent-dbs/${id}/backups`, {
+        backup_id: `restore_verified_${Date.now().toString(36)}`,
+        status: 'restore_verified',
+        detail: { source: 'operator_ui' },
+      })
+      setMessage(`Restore verification ${backup.status || 'recorded'}`)
       await detail.refetch()
     } catch (err) {
       setError(err.message)
@@ -546,7 +615,7 @@ export function AgentDBsPage() {
     setError(null)
     setMessage(null)
     try {
-      const id = `${requestID}_deployment`
+      const id = uniqueDerivedID(requestID)
       await postJSON(`/api/v1/agent-dbs/requests/${requestID}/provision`, {
         deployment_id: id,
         lease_seconds: Number(form.lease_seconds || 3600),
@@ -633,6 +702,7 @@ export function AgentDBsPage() {
         onProvisionAction={runProvisionAction}
         onBackupCheck={runBackupCheck}
         onRestoreDrillDryRun={planRestoreDrill}
+        onMarkRestoreVerified={markRestoreVerified}
         onCreateDeployRequest={createDeployRequest}
         onReviewDeployRequest={reviewDeployRequest}
         onRequestDeployReview={requestDeployReview}
