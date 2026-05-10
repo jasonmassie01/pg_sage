@@ -50,6 +50,9 @@ sidecar/web/node_modules/
 pg_sage_claude_code*.zip
 
 # Integration test logs and results
+test-output/
+sidecar/test-output/
+QA_*.md
 sidecar/tests/integration/*.log
 sidecar/tests/integration/results_*.md
 sidecar/aurora_test_output.log

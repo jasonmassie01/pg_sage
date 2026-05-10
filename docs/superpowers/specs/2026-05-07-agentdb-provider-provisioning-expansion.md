@@ -18,7 +18,7 @@ Postgres, AWS RDS, GCP Cloud SQL, and Databricks Lakebase.
 - API support so agents can request deployments, publish pings, and consume
   query tuning recommendations.
 - Lakebase is first-class in product language, profile metadata, and provider
-  command planning.
+  API/Terraform planning.
 
 ## Provisioning Model
 
@@ -38,10 +38,13 @@ requesting cloud providers must request `instance`.
 ## Execution Policy
 
 Local Postgres `schema` and `database` provisioning may execute immediately.
-Cloud providers generate deterministic instance-level command plans by default.
-The plan is stored with the deployment so an operator or future executor can run
-it with budget, approval, and account guardrails. This avoids silently creating
-paid cloud resources from a UI click.
+Cloud providers generate deterministic instance-level Terraform or cloud API
+intent plans by default. The plan is stored with the deployment so an operator
+or future executor can run it with budget, approval, and account guardrails.
+Provider CLIs such as `aws`, `gcloud`, and `databricks` may be useful for local
+human validation, but pg_sage provisioning should not depend on those CLIs as
+its execution path. This avoids silently creating paid cloud resources from a UI
+click and keeps the control plane suitable for service credentials.
 
 ## Size Profiles
 
@@ -79,7 +82,8 @@ The Agent DBs page shows:
 
 ## Verification
 
-- Unit tests for provider command plans and size profile validation.
+- Unit tests for provider Terraform/API intent plans and size profile
+  validation.
 - Store tests for profile persistence and local database provisioning.
 - API tests for provider readiness and profile CRUD.
 - UI unit tests for provider/level/profile controls.
