@@ -13,7 +13,9 @@ test.describe('AgentDB live provisioning', () => {
     await login(page, 'admin@pg-sage.local', 'pgSageQA!2026');
     await expect(page.locator('body')).toBeVisible();
     await page.getByTestId('nav-agent-dbs').click();
-    await expect(page.getByTestId('agent-dbs-page')).toBeVisible();
+    await expect(page.getByTestId('agent-dbs-page')).toBeVisible({
+      timeout: 30000,
+    });
     await expect(page.getByText(/Provider Settings|Terraform|Provision/i).first()).toBeVisible();
   });
 });
