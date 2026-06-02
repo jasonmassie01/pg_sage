@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Archive, RefreshCw } from 'lucide-react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
@@ -7,6 +7,10 @@ import { SummaryRow } from './agentdb/AgentDBSections'
 import { AgentDBWorkspaceTabs } from './agentdb/AgentDBWorkspaceTabs'
 import { AgentDBWorkspace } from './agentdb/AgentDBWorkspace'
 import { useAgentDBDetail } from './agentdb/useAgentDBDetail'
+
+// How many deployment refetches to wait for an optimistic selection to appear
+// before falling back to the first available deployment.
+const PENDING_SELECTION_MAX_REFRESHES = 2
 
 const initialForm = {
   tenant_id: 'tenant_agent',
@@ -176,6 +180,8 @@ export function AgentDBsPage() {
     [blueprintsAPI.data],
   )
 
+  const pendingWaitRef = useRef(0)
+
   useEffect(() => {
     if (deployments.length === 0) {
       if (selectedID) setSelectedID(null)
@@ -187,16 +193,29 @@ export function AgentDBsPage() {
       if (pendingSelectionID === selectedID) setPendingSelectionID(null)
       return
     }
-    if (selectedID && selectedID === pendingSelectionID) return
-    if (!selectedID || !selectedExists) {
-      setSelectedID(deployments[0].deployment_id)
+    // The selected deployment is not in the list. If it is an optimistic
+    // pending selection, wait a bounded number of refetches for it to land so
+    // a backend that never returns the new deployment can't pin us to a
+    // non-existent row indefinitely.
+    if (selectedID && selectedID === pendingSelectionID) {
+      pendingWaitRef.current += 1
+      if (pendingWaitRef.current <= PENDING_SELECTION_MAX_REFRESHES) return
+      setPendingSelectionID(null)
     }
+    setSelectedID(deployments[0].deployment_id)
   }, [deployments, pendingSelectionID, selectedID])
 
   const selected = deployments.find(d => d.deployment_id === selectedID)
   const detail = useAgentDBDetail(selectedID)
 
   const summary = useMemo(() => summarize(deployments), [deployments])
+
+  // Only surface the "View details" jump while its deployment is reachable —
+  // either already in the list or still pending its first appearance.
+  const messageTarget = messageDeploymentID && (
+    deployments.some(d => d.deployment_id === messageDeploymentID) ||
+    messageDeploymentID === pendingSelectionID
+  ) ? messageDeploymentID : null
 
   function clearStatus() {
     setError(null)
@@ -210,6 +229,7 @@ export function AgentDBsPage() {
   }
 
   function focusDeployment(id) {
+    pendingWaitRef.current = 0
     setPendingSelectionID(id)
     setSelectedID(id)
     setActiveTab('deployments')
@@ -223,7 +243,7 @@ export function AgentDBsPage() {
   }
 
   function viewMessageDeployment() {
-    if (messageDeploymentID) focusDeployment(messageDeploymentID)
+    if (messageTarget) focusDeployment(messageTarget)
   }
 
   async function refreshAll() {
@@ -712,7 +732,7 @@ export function AgentDBsPage() {
             background: 'rgba(52,211,153,0.08)',
           }}>
           <span>{message}</span>
-          {messageDeploymentID && (
+          {messageTarget && (
             <button type="button"
               data-testid="agent-db-view-deployment"
               onClick={viewMessageDeployment}

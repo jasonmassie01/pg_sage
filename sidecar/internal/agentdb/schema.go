@@ -26,10 +26,6 @@ func (s *Store) Ensure(ctx context.Context) error {
 	return s.seedDefaultSizeProfiles(ctx)
 }
 
-func (s *Store) ensure(ctx context.Context) error {
-	return s.Ensure(ctx)
-}
-
 func (s *Store) ProvisionSchema(
 	ctx context.Context,
 	req RegisterRequest,

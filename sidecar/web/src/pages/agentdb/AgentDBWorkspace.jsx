@@ -206,8 +206,14 @@ function DeploymentsTab({
   onRequestDeployReview,
 }) {
   const detailRef = useRef(null)
+  const lastFocusKeyRef = useRef(0)
 
   useEffect(() => {
+    // Only scroll/focus on an explicit selection or focus action (which bumps
+    // detailFocusKey). Auto-reselection after a delete changes selectedID
+    // without bumping the key and must not steal focus or move the viewport.
+    if (lastFocusKeyRef.current === detailFocusKey) return
+    lastFocusKeyRef.current = detailFocusKey
     if (!detailFocusKey || !selectedID || !detailRef.current) return
     if (typeof detailRef.current.scrollIntoView === 'function') {
       detailRef.current.scrollIntoView({ block: 'start', behavior: 'smooth' })

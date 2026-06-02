@@ -320,11 +320,13 @@ export async function registerAgentDBAPIs(
   await page.route('**/api/v1/agent-dbs**', route => {
     const url = route.request().url()
     const method = route.request().method()
-    const deploymentMatch = url.match(/\/api\/v1\/agent-dbs\/([^/]+)$/)
-    if (method === 'DELETE' && deploymentMatch) {
-      const id = decodeURIComponent(deploymentMatch[1])
-      state.deployments = state.deployments.filter(dep =>
-        dep.deployment_id !== id)
+    const deploymentMatch = url.match(/\/api\/v1\/agent-dbs\/([^/]+?)(?:\?.*)?$/)
+    if (method === 'DELETE') {
+      if (deploymentMatch) {
+        const id = decodeURIComponent(deploymentMatch[1])
+        state.deployments = state.deployments.filter(dep =>
+          dep.deployment_id !== id)
+      }
       return route.fulfill({ status: 200, json: { deleted: true } })
     }
     if (url.includes('/providers')) {
