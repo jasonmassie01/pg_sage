@@ -261,6 +261,9 @@ func ruleDuplicateIndexes(
 				if isConstraintBacked(a.info) {
 					continue
 				}
+				if !subsetWorthDropping(a.parsed, b.parsed, a.info, b.info) {
+					continue
+				}
 				if seen[aIdent] {
 					continue
 				}
@@ -270,6 +273,9 @@ func ruleDuplicateIndexes(
 				))
 			} else if IsSubset(b.parsed, a.parsed) {
 				if isConstraintBacked(b.info) {
+					continue
+				}
+				if !subsetWorthDropping(b.parsed, a.parsed, b.info, a.info) {
 					continue
 				}
 				if seen[bIdent] {
@@ -307,6 +313,44 @@ func chooseDuplicateDrop(
 
 func isConstraintBacked(idx collector.IndexStats) bool {
 	return idx.IsPrimary || idx.IsUnique
+}
+
+const (
+	// A wide/large superset is a poor replacement for a narrow index:
+	// serving a `WHERE c1 = ?` lookup from a fat composite reads much wider
+	// tuples (more I/O per probe) than the dedicated narrow index, so the
+	// narrow index earns its keep as a faster access path. Only recommend
+	// dropping the subset when the superset is a *close* replacement.
+	maxSubsetExtraKeyCols = 2   // superset may add at most this many key cols
+	maxSubsetSizeRatio    = 3.0 // superset may be at most this many x the size
+	// A heavily-used narrow index is actively serving lookups; even a
+	// modestly wider superset would slow them all down, so keep it.
+	subsetHeavyUseScans = 100_000
+)
+
+// subsetWorthDropping reports whether dropping the narrow `sub` index in
+// favor of the wider `sup` is a net win. Column count is the operator's
+// intuition ("don't replace (c1) with (c1..c12)"); index byte size is the
+// more accurate signal because it accounts for actual column widths, and
+// usage tells us whether the narrow index is even earning its keep.
+func subsetWorthDropping(
+	sub, sup ParsedIndex, subInfo, supInfo collector.IndexStats,
+) bool {
+	if len(sup.Columns)-len(sub.Columns) > maxSubsetExtraKeyCols {
+		return false
+	}
+	if subInfo.IndexBytes > 0 && supInfo.IndexBytes > 0 &&
+		float64(supInfo.IndexBytes) >
+			float64(subInfo.IndexBytes)*maxSubsetSizeRatio {
+		return false
+	}
+	// A heavily-used narrow index is worth keeping unless the superset is
+	// nearly the same width (≤1 extra key column).
+	if subInfo.IdxScan >= subsetHeavyUseScans &&
+		len(sup.Columns)-len(sub.Columns) > 1 {
+		return false
+	}
+	return true
 }
 
 func subsetFinding(

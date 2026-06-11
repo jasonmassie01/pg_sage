@@ -62,6 +62,10 @@
   - Subset-index detection now also requires the superset to serve the subset's
     `INCLUDE` columns, so an index supporting an index-only scan isn't flagged
     as redundant.
+  - Subset-index detection now only recommends dropping a narrow index when the
+    superset is a *close* replacement — at most ~2 extra key columns, not more
+    than ~3x the on-disk size, and not a heavily-used narrow index — so a `(c1)`
+    index is no longer replaced by a wide `(c1..c12)` one.
 
 ## v1.1 (2026-05-10) -- AgentDB Cloud Provisioning Release
 
