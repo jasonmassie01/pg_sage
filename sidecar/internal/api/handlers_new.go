@@ -178,7 +178,7 @@ func alertLogHandler(
 
 // --- Query helpers ---
 
-const forecastsSQL = `SELECT category, severity, title,
+const forecastsSQL = `/* pg_sage */SELECT category, severity, title,
  object_identifier, detail, occurrence_count, last_seen
  FROM sage.findings
  WHERE status = 'open' AND category LIKE 'forecast_%'
@@ -239,7 +239,7 @@ func scanForecastRows(rows pgx.Rows) ([]map[string]any, error) {
 	return results, nil
 }
 
-const queryHintsSQL = `SELECT queryid, hint_text, symptom,
+const queryHintsSQL = `/* pg_sage */SELECT queryid, hint_text, symptom,
  status, created_at, before_cost, after_cost,
  COALESCE(suggested_rewrite, '') AS suggested_rewrite,
  COALESCE(rewrite_rationale, '') AS rewrite_rationale,
@@ -329,7 +329,7 @@ func timeFromMap(row map[string]any, key string) time.Time {
 	return time.Time{}
 }
 
-const alertLogSQL = `SELECT a.id, a.sent_at, a.severity,
+const alertLogSQL = `/* pg_sage */SELECT a.id, a.sent_at, a.severity,
  a.channel, a.status, a.error_message,
  COALESCE(f.category, '') AS category,
  COALESCE(f.title, '') AS title

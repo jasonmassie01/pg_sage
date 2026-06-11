@@ -140,12 +140,12 @@ func (s *ConfigStore) DeleteOverride(
 	var err error
 	if databaseID == 0 {
 		_, err = s.pool.Exec(qctx,
-			`DELETE FROM sage.config
+			`/* pg_sage */ DELETE FROM sage.config
 			 WHERE key = $1 AND database_id IS NULL`,
 			key)
 	} else {
 		_, err = s.pool.Exec(qctx,
-			`DELETE FROM sage.config
+			`/* pg_sage */ DELETE FROM sage.config
 			 WHERE key = $1 AND database_id = $2`,
 			key, databaseID)
 	}
@@ -191,7 +191,7 @@ func (s *ConfigStore) GetAuditLog(
 	defer cancel()
 
 	rows, err := s.pool.Query(qctx,
-		`SELECT id, key, COALESCE(old_value, ''),
+		`/* pg_sage */ SELECT id, key, COALESCE(old_value, ''),
 			new_value, COALESCE(database_id, 0),
 			COALESCE(changed_by, 0), changed_at
 		 FROM sage.config_audit

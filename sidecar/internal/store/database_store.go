@@ -95,7 +95,7 @@ func (s *DatabaseStore) Create(
 
 	var id int
 	err = s.pool.QueryRow(qctx,
-		`INSERT INTO sage.databases
+		`/* pg_sage */ INSERT INTO sage.databases
 		    (name, host, port, database_name, username, password_enc,
 		     sslmode, max_connections, tags, trust_level,
 		     execution_mode, created_by)
@@ -117,7 +117,7 @@ func (s *DatabaseStore) List(ctx context.Context) ([]DatabaseRecord, error) {
 	defer cancel()
 
 	rows, err := s.pool.Query(qctx,
-		`SELECT id, name, host, port, database_name, username,
+		`/* pg_sage */ SELECT id, name, host, port, database_name, username,
 		        sslmode, max_connections, enabled, tags, trust_level,
 		        execution_mode, created_at, created_by, updated_at
 		 FROM sage.databases ORDER BY id`)
@@ -163,7 +163,7 @@ func (s *DatabaseStore) Get(ctx context.Context, id int) (*DatabaseRecord, error
 	var tagsJSON []byte
 	var createdBy *int
 	err := s.pool.QueryRow(qctx,
-		`SELECT id, name, host, port, database_name, username,
+		`/* pg_sage */ SELECT id, name, host, port, database_name, username,
 		        sslmode, max_connections, enabled, tags, trust_level,
 		        execution_mode, created_at, created_by, updated_at
 		 FROM sage.databases WHERE id = $1`, id,
@@ -217,7 +217,7 @@ func (s *DatabaseStore) Update(
 			return fmt.Errorf("encrypting password: %w", encErr)
 		}
 		tag, err = s.pool.Exec(qctx,
-			`UPDATE sage.databases SET
+			`/* pg_sage */ UPDATE sage.databases SET
 			    name=$1, host=$2, port=$3, database_name=$4,
 			    username=$5, password_enc=$6, sslmode=$7,
 			    max_connections=$8, tags=$9, trust_level=$10,
@@ -230,7 +230,7 @@ func (s *DatabaseStore) Update(
 		)
 	} else {
 		tag, err = s.pool.Exec(qctx,
-			`UPDATE sage.databases SET
+			`/* pg_sage */ UPDATE sage.databases SET
 			    name=$1, host=$2, port=$3, database_name=$4,
 			    username=$5, sslmode=$6, max_connections=$7,
 			    tags=$8, trust_level=$9, execution_mode=$10,
@@ -276,7 +276,7 @@ func (s *DatabaseStore) GetConnectionString(
 	var port int
 	var enc []byte
 	err := s.pool.QueryRow(qctx,
-		`SELECT host, port, database_name, username,
+		`/* pg_sage */ SELECT host, port, database_name, username,
 		        password_enc, sslmode
 		 FROM sage.databases WHERE id = $1`, id,
 	).Scan(&host, &port, &dbName, &user, &enc, &sslmode)

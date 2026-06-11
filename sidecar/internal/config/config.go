@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,6 +12,22 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+// braceEnvRe matches ${NAME} references only (NAME starts with a letter
+// or underscore). Bare $VAR is deliberately NOT matched.
+var braceEnvRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+// expandBracedEnv expands only ${NAME} references (set → value, unset →
+// empty string, matching the documented "empty when unset" behavior).
+// Unlike os.ExpandEnv it leaves bare '$' untouched, so a literal '$' in
+// a password or API key written directly into YAML is no longer
+// silently truncated (H5). Used by both initial load and hot-reload.
+func expandBracedEnv(raw string) string {
+	return braceEnvRe.ReplaceAllStringFunc(raw, func(match string) string {
+		name := braceEnvRe.FindStringSubmatch(match)[1]
+		return os.Getenv(name)
+	})
+}
 
 // hotReloadMu serializes hot-reload writes and any reads that need a
 // self-consistent view of multiple fields. Kept at package scope (not
@@ -103,10 +120,11 @@ type PostgresConfig struct {
 }
 
 type AgentDBConfig struct {
-	LiveProvisioningEnabled bool                             `yaml:"live_provisioning_enabled"`
-	AllowPublicIP           bool                             `yaml:"allow_public_ip"`
-	RequireBackupBeforeDrop bool                             `yaml:"require_backup_before_destroy"`
-	Providers               map[string]AgentDBProviderConfig `yaml:"providers"`
+	LiveProvisioningEnabled  bool                             `yaml:"live_provisioning_enabled"`
+	AllowPublicIP            bool                             `yaml:"allow_public_ip"`
+	RequireBackupBeforeDrop  bool                             `yaml:"require_backup_before_destroy"`
+	ReconcileIntervalSeconds int                              `yaml:"reconcile_interval_seconds" doc:"How often to reconcile agent-DB deployments: archive expired leases and destroy abandoned ones. 0 disables. Default: 300."`
+	Providers                map[string]AgentDBProviderConfig `yaml:"providers"`
 }
 
 type AgentDBProviderConfig struct {
@@ -133,6 +151,10 @@ type AnalyzerConfig struct {
 	IndexBloatThresholdPct       int     `yaml:"index_bloat_threshold_pct" doc:"Minimum bloat percentage (0-100) an index must exhibit before it becomes a REINDEX candidate."`
 	TableBloatDeadTuplePct       int     `yaml:"table_bloat_dead_tuple_pct" doc:"Dead-tuple percentage threshold for reporting table bloat. Above this the analyzer emits a vacuum or repack finding."`
 	TableBloatMinRows            int     `yaml:"table_bloat_min_rows" doc:"Minimum row count before a table is considered for bloat analysis. Tiny tables are noisy and not worth reporting."`
+	AutovacuumTuneMinRows        int     `yaml:"autovacuum_tune_min_rows" doc:"Minimum live-row count before the per-table autovacuum tuner recommends a lower scale factor. Tuning small tables is pointless. Default: 1000000."`
+	AnalyzeStaleMinRows          int     `yaml:"analyze_stale_min_rows" doc:"Minimum live rows before recommending ANALYZE on a stale/never-analyzed table. Default: 10000."`
+	AnalyzeStaleDays             int     `yaml:"analyze_stale_days" doc:"A table whose last (auto)analyze is older than this many days, with write activity, is flagged for ANALYZE. Default: 7."`
+	WraparoundFreezeXIDAge       int     `yaml:"wraparound_freeze_xid_age" doc:"Per-table transaction age (age(relfrozenxid)) at which to recommend VACUUM (FREEZE) to prevent XID wraparound. Default: 150000000."`
 	IdleInTxTimeoutMinutes       int     `yaml:"idle_in_transaction_timeout_minutes" doc:"Report sessions sitting in 'idle in transaction' longer than this. Long idle-in-tx sessions block vacuum and hold locks."`
 	CacheHitRatioWarning         float64 `yaml:"cache_hit_ratio_warning" doc:"Warn when the shared buffers cache hit ratio falls below this fraction (0.0-1.0). Low ratios suggest shared_buffers is under-sized or working set is too large."`
 	XIDWraparoundWarning         int64   `yaml:"xid_wraparound_warning" doc:"Transaction age at which the analyzer emits a wraparound warning. Normally ~200 million."`
@@ -183,6 +205,7 @@ type LLMConfig struct {
 	Model               string               `yaml:"model" doc:"Model identifier sent to the provider (e.g. gpt-4o-mini). Must support JSON-mode responses for structured outputs."`
 	TimeoutSeconds      int                  `yaml:"timeout_seconds" doc:"HTTP request timeout for each LLM call. Low values protect the analyzer cycle from slow providers; high values tolerate cold-start latency."`
 	TokenBudgetDaily    int                  `yaml:"token_budget_daily" doc:"Soft daily cap on total tokens (input + output) the sidecar will spend on LLM requests. Once exceeded the LLM is skipped until the next UTC day."`
+	FleetTokenBudgetDaily int                `yaml:"fleet_token_budget_daily" doc:"Fleet-wide daily token cap split per database so one noisy database can't drain the whole budget. 0 disables per-database budgeting (fleet mode only)."`
 	ContextBudgetTokens int                  `yaml:"context_budget_tokens" doc:"Maximum tokens attached as context (schema, stats, plans) to a single LLM request. Prevents oversized prompts from busting the model context window."`
 	CooldownSeconds     int                  `yaml:"cooldown_seconds" doc:"Minimum seconds between two LLM requests. Rate-limits the sidecar so it cannot burst the provider during a busy cycle."`
 	JSONMode            bool                 `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."`
@@ -678,6 +701,10 @@ func newDefaults() *Config {
 			IndexBloatThresholdPct:       DefaultIndexBloatThresholdPct,
 			TableBloatDeadTuplePct:       DefaultTableBloatDeadTuplePct,
 			TableBloatMinRows:            DefaultTableBloatMinRows,
+			AutovacuumTuneMinRows:        DefaultAutovacuumTuneMinRows,
+			AnalyzeStaleMinRows:          DefaultAnalyzeStaleMinRows,
+			AnalyzeStaleDays:             DefaultAnalyzeStaleDays,
+			WraparoundFreezeXIDAge:       DefaultWraparoundFreezeXIDAge,
 			IdleInTxTimeoutMinutes:       DefaultIdleInTxTimeoutMinutes,
 			CacheHitRatioWarning:         DefaultCacheHitRatioWarning,
 			XIDWraparoundWarning:         DefaultXIDWraparoundWarning,
@@ -791,6 +818,17 @@ func newDefaults() *Config {
 			DiskCapacityBytes:    0,
 			MinRSquared:          DefaultForecasterMinRSquared,
 		},
+		// LogWatch defaults were previously absent here, so with
+		// logwatch enabled but no explicit values, MaxLinesPerCycle and
+		// TempFileMinBytes defaulted to 0 — unbounded parsing and a
+		// defeated 10MB temp-file floor (W1, default-value masking).
+		LogWatch: LogWatchConfig{
+			PollIntervalMs:   DefaultLogWatchPollIntervalMs,
+			DedupWindowS:     DefaultLogWatchDedupWindowS,
+			MaxLineLenBytes:  DefaultLogWatchMaxLineLenBytes,
+			TempFileMinBytes: DefaultLogWatchTempFileMinBytes,
+			MaxLinesPerCycle: DefaultLogWatchMaxLinesPerCycle,
+		},
 		Tuner: TunerConfig{
 			Enabled:                true,
 			WorkMemMaxMB:           DefaultTunerWorkMemMaxMB,
@@ -854,10 +892,11 @@ func newDefaults() *Config {
 			ListenAddr: DefaultAPIListenAddr,
 		},
 		AgentDB: AgentDBConfig{
-			LiveProvisioningEnabled: false,
-			AllowPublicIP:           false,
-			RequireBackupBeforeDrop: true,
-			Providers:               map[string]AgentDBProviderConfig{},
+			LiveProvisioningEnabled:  false,
+			AllowPublicIP:            false,
+			RequireBackupBeforeDrop:  true,
+			ReconcileIntervalSeconds: DefaultAgentDBReconcileInterval,
+			Providers:                map[string]AgentDBProviderConfig{},
 		},
 		OAuth: OAuthConfig{
 			DefaultRole: "viewer",
@@ -870,9 +909,10 @@ func loadYAML(path string, cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	// Expand ${ENV_VAR} references with validation.
+	// Expand ${ENV_VAR} references with validation. Only the braced
+	// form is expanded; a bare '$' (e.g. in a password) is left intact.
 	raw := string(data)
-	expanded := os.ExpandEnv(raw)
+	expanded := expandBracedEnv(raw)
 
 	// Warn about env vars that expanded to empty strings. This catches the
 	// common case where ${SAGE_LLM_API_KEY} is in the YAML but the env var

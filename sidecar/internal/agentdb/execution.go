@@ -366,7 +366,7 @@ func (s *Store) ProvisionAttempts(
 	if err := s.Ensure(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.pool.Query(ctx, `/* pg_sage */ 
 		SELECT attempt_id, deployment_id, kind, status, runner, command,
 			exit_code, stdout, stderr, detail, created_at, finished_at
 		FROM sage.agent_db_provision_attempts
@@ -476,7 +476,7 @@ func (s *Store) updateProvisioningStatus(
 	connectionInfo map[string]any,
 ) error {
 	var current string
-	if err := s.pool.QueryRow(ctx, `
+	if err := s.pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT provisioning_status
 		FROM sage.agent_db_deployments
 		WHERE deployment_id=$1`, id).Scan(&current); err != nil {
@@ -488,7 +488,7 @@ func (s *Store) updateProvisioningStatus(
 	if connectionInfo == nil {
 		connectionInfo = map[string]any{}
 	}
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.pool.Exec(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_deployments
 		SET provisioning_status=$2,
 			connection_info=connection_info || $3::jsonb,
@@ -508,7 +508,7 @@ func (s *Store) applyProvisionResult(
 		result.ConnectionInfo = map[string]any{}
 	}
 	var current string
-	if err := s.pool.QueryRow(ctx, `
+	if err := s.pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT provisioning_status
 		FROM sage.agent_db_deployments
 		WHERE deployment_id=$1`, id).Scan(&current); err != nil {
@@ -517,7 +517,7 @@ func (s *Store) applyProvisionResult(
 	if err := requireProvisionTransition(current, status); err != nil {
 		return err
 	}
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.pool.Exec(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_deployments
 		SET provisioning_status=$2,
 			provider_resource_id=COALESCE(NULLIF($3, ''), provider_resource_id),
@@ -561,7 +561,7 @@ func (s *Store) recordProvisionAttempt(
 	}
 	input.Detail = RedactProviderDetail(input.Detail)
 	var attempt ProvisionAttempt
-	err := scanProvisionAttempt(s.pool.QueryRow(ctx, `
+	err := scanProvisionAttempt(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		INSERT INTO sage.agent_db_provision_attempts (
 			deployment_id, kind, status, runner, command, exit_code,
 			stdout, stderr, detail, finished_at
@@ -591,7 +591,7 @@ func (s *Store) RecordCreationReceipt(
 		return err
 	}
 	receipt.Detail = RedactProviderDetail(receipt.Detail)
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.pool.Exec(ctx, `/* pg_sage */ 
 		INSERT INTO sage.agent_db_creation_receipts (
 			deployment_id, provider, provider_resource_id, region, account_ref,
 			request_hash, operation_mode, detail

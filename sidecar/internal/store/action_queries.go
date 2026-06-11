@@ -8,14 +8,14 @@ import (
 	"github.com/pg-sage/sidecar/internal/rca"
 )
 
-const recentSageActionsSQL = `
+const recentSageActionsSQL = `/* pg_sage */
 SELECT id, action_type, executed_at, sql_executed,
        outcome, rollback_reason, measured_at
 FROM sage.action_log
 WHERE executed_at > now() - $1::interval
 ORDER BY executed_at DESC`
 
-const rollbackHistorySQL = `
+const rollbackHistorySQL = `/* pg_sage */
 SELECT id, action_type, executed_at, sql_executed,
        outcome, rollback_reason, measured_at
 FROM sage.action_log

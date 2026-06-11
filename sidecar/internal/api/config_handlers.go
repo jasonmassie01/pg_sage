@@ -334,7 +334,7 @@ func updateDBExecutionMode(
 		return fmt.Errorf("%w: got %q", errInvalidExecMode, mode)
 	}
 	tag, err := pool.Exec(ctx,
-		`UPDATE sage.databases
+		`/* pg_sage */ UPDATE sage.databases
 		 SET execution_mode = $1 WHERE id = $2`,
 		mode, dbID)
 	if err != nil {

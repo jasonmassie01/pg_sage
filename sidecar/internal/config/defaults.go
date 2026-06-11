@@ -29,6 +29,10 @@ const (
 	DefaultRegressionThresholdPct        = 50
 	DefaultRegressionLookbackDays        = 7
 	DefaultTableBloatMinRows             = 1000
+	DefaultAutovacuumTuneMinRows         = 1000000
+	DefaultAnalyzeStaleMinRows           = 10000
+	DefaultAnalyzeStaleDays              = 7
+	DefaultWraparoundFreezeXIDAge        = 150000000
 	DefaultCheckpointFreqWarningPerHour  = 12
 
 	DefaultCPUCeilingPct             = 90
@@ -168,4 +172,9 @@ const (
 	DefaultLogWatchMaxLineLenBytes  = 65536
 	DefaultLogWatchTempFileMinBytes = 10485760 // 10MB
 	DefaultLogWatchMaxLinesPerCycle = 10000
+
+	// DefaultAgentDBReconcileInterval is how often (seconds) the agent-DB
+	// lifecycle reconciler archives expired leases and destroys abandoned
+	// deployments.
+	DefaultAgentDBReconcileInterval = 300
 )

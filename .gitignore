@@ -82,3 +82,5 @@ sidecar/cmd/create_admin_alloydb/
 # intentionally tracked — they are valuable test infrastructure.
 # hint_verify skips in CI when port 5435 is unreachable (requires
 # the pg17+pg_hint_plan Docker image at sidecar/test/hint_verify/Dockerfile).
+__pycache__/
+*.pyc

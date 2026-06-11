@@ -16,7 +16,7 @@ func (s *Store) CreateTerraformTemplate(
 		return TerraformTemplate{}, err
 	}
 	template := ValidateTerraformTemplate(req)
-	err := scanTerraformTemplate(s.pool.QueryRow(ctx, `
+	err := scanTerraformTemplate(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		INSERT INTO sage.agent_db_terraform_templates (
 			template_id, name, status, source_kind, content_sha256,
 			files_json, manifest_json, policy_findings, created_by
@@ -51,7 +51,7 @@ func (s *Store) TerraformTemplates(ctx context.Context) ([]TerraformTemplate, er
 	if err := s.Ensure(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.pool.Query(ctx, `/* pg_sage */ 
 		SELECT template_id, name, status, source_kind, content_sha256,
 			files_json, manifest_json, policy_findings, created_by, approved_by,
 			created_at, updated_at
@@ -81,7 +81,7 @@ func (s *Store) ApproveTerraformTemplate(
 		return TerraformTemplate{}, err
 	}
 	var findings []string
-	if err := s.pool.QueryRow(ctx, `
+	if err := s.pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT policy_findings FROM sage.agent_db_terraform_templates
 		WHERE template_id=$1`, id).Scan(&findings); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -93,7 +93,7 @@ func (s *Store) ApproveTerraformTemplate(
 		return TerraformTemplate{}, ErrInvalid
 	}
 	var template TerraformTemplate
-	err := scanTerraformTemplate(s.pool.QueryRow(ctx, `
+	err := scanTerraformTemplate(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_terraform_templates
 		SET status='approved', approved_by=$2, updated_at=now()
 		WHERE template_id=$1

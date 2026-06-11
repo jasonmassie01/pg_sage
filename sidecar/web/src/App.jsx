@@ -91,6 +91,14 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handler)
   }, [])
 
+  // Return to the login screen when any polling request reports the
+  // session has expired, instead of leaving stale pages showing 401s.
+  useEffect(() => {
+    const onExpired = () => setUser(null)
+    window.addEventListener('sage:auth-expired', onExpired)
+    return () => window.removeEventListener('sage:auth-expired', onExpired)
+  }, [])
+
   useEffect(() => {
     localStorage.setItem('pg_sage_db', selectedDB)
   }, [selectedDB])

@@ -222,6 +222,29 @@ func TestPhase2_WarnUnexpandedEnvVars_EmptyVarName(t *testing.T) {
 	warnUnexpandedEnvVars(raw, expanded)
 }
 
+// TestExpandBracedEnv_PreservesBareDollar is the H5 regression: a literal
+// '$' in a secret written directly into YAML must survive expansion.
+// os.ExpandEnv treated p@ss$word as p@ss + $word (unset → ""), silently
+// corrupting the credential. expandBracedEnv expands only ${NAME}.
+func TestExpandBracedEnv_PreservesBareDollar(t *testing.T) {
+	t.Setenv("SAGE_TEST_PW_VAR", "fromenv")
+	os.Unsetenv("SAGE_TEST_DEFINITELY_UNSET_999")
+	cases := []struct{ name, in, want string }{
+		{"braced set expands", "pw: ${SAGE_TEST_PW_VAR}", "pw: fromenv"},
+		{"bare dollar in password kept", "pw: p@ss$word", "pw: p@ss$word"},
+		{"bare dollar before word kept", "k: s3cr$tValue", "k: s3cr$tValue"},
+		{"trailing bare dollar kept", "k: secret$", "k: secret$"},
+		{"unset braced -> empty", "pw: ${SAGE_TEST_DEFINITELY_UNSET_999}", "pw: "},
+		{"mixed braced and bare", "a: ${SAGE_TEST_PW_VAR} b: c$d", "a: fromenv b: c$d"},
+	}
+	for _, c := range cases {
+		if got := expandBracedEnv(c.in); got != c.want {
+			t.Errorf("%s: expandBracedEnv(%q) = %q, want %q",
+				c.name, c.in, got, c.want)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // envOr (66.7% coverage — need to hit the default branch)
 // ---------------------------------------------------------------------------

@@ -80,6 +80,7 @@ type Executor struct {
 	trustLevelOverride string
 	ddlSem             chan struct{} // limits concurrent DDL ops
 	analyzeSem         chan struct{} // shared fleet-wide for ANALYZE
+	justifier          ActionJustifier // optional LLM action justification (C4)
 
 	// monitors tracks background MonitorAndRollback goroutines so
 	// Shutdown can wait for them. shutdownCh is closed to signal
@@ -347,8 +348,12 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			continue
 		}
 
-		e.executeFinding(ctx, f, findingID)
-		<-e.ddlSem
+		// Release the DDL slot via defer so a panic in executeFinding
+		// can't leak it and permanently shrink concurrency (C4).
+		func() {
+			defer func() { <-e.ddlSem }()
+			e.executeFinding(ctx, f, findingID)
+		}()
 	}
 }
 
@@ -442,7 +447,7 @@ func estimatedToilForActionType(actionType string) int {
 func (e *Executor) executeFinding(
 	ctx context.Context, f analyzer.Finding, findingID int64,
 ) {
-	beforeState := e.snapshotBeforeState(ctx)
+	beforeState := e.snapshotBeforeState(ctx, targetQueryIDs(f))
 
 	ddlTimeout := e.cfg.Safety.DDLTimeout()
 	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
@@ -489,6 +494,13 @@ func (e *Executor) executeFinding(
 		notify.ActionExecutedEvent(
 			f.Title, f.RecommendedSQL, e.databaseName))
 	e.recentActions[f.ObjectIdentifier] = time.Now()
+
+	// Write a plain-English audit justification (C4). Async so the LLM
+	// latency never blocks the cycle; WithoutCancel so it survives the
+	// per-cycle context being cancelled.
+	if e.justifier != nil {
+		go e.justifyAndStore(context.WithoutCancel(ctx), actionID, f)
+	}
 
 	// Post-check: verify index validity after CREATE INDEX only. DROP INDEX
 	// and other concurrently-required statements do not produce a new index.
@@ -654,7 +666,7 @@ func (e *Executor) lookupFindingID(
 ) int64 {
 	var id int64
 	err := e.pool.QueryRow(ctx,
-		`SELECT id FROM sage.findings
+		`/* pg_sage */ SELECT id FROM sage.findings
 		 WHERE category = $1
 		   AND object_identifier = $2
 		   AND status = 'open'
@@ -682,7 +694,7 @@ func (e *Executor) exceedsMaxRetries(
 	}
 	var failCount int
 	err := e.pool.QueryRow(ctx,
-		`SELECT count(*) FROM sage.action_log
+		`/* pg_sage */ SELECT count(*) FROM sage.action_log
 		 WHERE finding_id = $1 AND outcome = 'failed'`,
 		findingID,
 	).Scan(&failCount)
@@ -694,7 +706,7 @@ func (e *Executor) exceedsMaxRetries(
 		// If the UPDATE fails silently we would retry forever, so
 		// log the failure to surface it to operators.
 		if _, err := e.pool.Exec(ctx,
-			`UPDATE sage.findings
+			`/* pg_sage */ UPDATE sage.findings
 			 SET acted_on_at = now()
 			 WHERE id = $1 AND acted_on_at IS NULL`,
 			findingID,
@@ -727,7 +739,7 @@ func (e *Executor) recordInvalidIndexCleanupFailure(
 			"manual cleanup required",
 		idxName, dropErr)
 	_, logErr := e.pool.Exec(ctx,
-		`INSERT INTO sage.action_log
+		`/* pg_sage */ INSERT INTO sage.action_log
 		 (action_type, finding_id, sql_executed, rollback_sql,
 		  before_state, outcome, rollback_reason)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -748,7 +760,7 @@ func (e *Executor) markFindingActioned(
 	actionID int64,
 ) {
 	tag, err := e.pool.Exec(ctx,
-		`UPDATE sage.findings
+		`/* pg_sage */ UPDATE sage.findings
 		 SET acted_on_at = now(),
 		     action_log_id = $1,
 		     status = 'resolved',
@@ -771,12 +783,20 @@ func (e *Executor) markFindingActioned(
 
 // snapshotBeforeState captures current database health metrics
 // to serve as a comparison baseline for rollback decisions.
-func (e *Executor) snapshotBeforeState(ctx context.Context) map[string]any {
+func (e *Executor) snapshotBeforeState(
+	ctx context.Context, queryIDs []int64,
+) map[string]any {
 	state := map[string]any{}
+	// Record which queries this action targets so verify-and-revert can
+	// compare their per-query latency before/after, instead of relying on
+	// coarse global metrics (F1).
+	if len(queryIDs) > 0 {
+		state["target_queryids"] = queryIDs
+	}
 
 	var cacheHit float64
 	err := e.pool.QueryRow(ctx,
-		`SELECT coalesce(
+		`/* pg_sage */ SELECT coalesce(
 			sum(blks_hit)::float /
 			nullif(sum(blks_hit) + sum(blks_read), 0),
 			1.0
@@ -788,7 +808,7 @@ func (e *Executor) snapshotBeforeState(ctx context.Context) map[string]any {
 
 	var activeBackends int
 	err = e.pool.QueryRow(ctx,
-		`SELECT count(*) FROM pg_stat_activity
+		`/* pg_sage */ SELECT count(*) FROM pg_stat_activity
 		 WHERE state = 'active'`,
 	).Scan(&activeBackends)
 	if err == nil {
@@ -797,7 +817,7 @@ func (e *Executor) snapshotBeforeState(ctx context.Context) map[string]any {
 
 	var meanExecMs float64
 	err = e.pool.QueryRow(ctx,
-		`SELECT coalesce(avg(mean_exec_time), 0)
+		`/* pg_sage */ SELECT coalesce(avg(mean_exec_time), 0)
 		 FROM pg_stat_statements
 		 WHERE query LIKE 'INSERT%' OR query LIKE 'UPDATE%'`,
 	).Scan(&meanExecMs)
@@ -830,7 +850,7 @@ func (e *Executor) logAction(
 
 	var actionID int64
 	err := e.pool.QueryRow(ctx,
-		`INSERT INTO sage.action_log
+		`/* pg_sage */ INSERT INTO sage.action_log
 		 (action_type, finding_id, sql_executed, rollback_sql,
 		  before_state, outcome, rollback_reason)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)

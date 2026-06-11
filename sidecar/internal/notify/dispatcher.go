@@ -95,7 +95,7 @@ func (d *Dispatcher) loadMatchingRules(
 	defer cancel()
 
 	rows, err := d.pool.Query(qctx,
-		`SELECT id, channel_id, event, min_severity
+		`/* pg_sage */ SELECT id, channel_id, event, min_severity
 		 FROM sage.notification_rules
 		 WHERE event = $1 AND enabled = true`, eventType)
 	if err != nil {
@@ -126,14 +126,18 @@ func (d *Dispatcher) loadChannel(
 	var ch Channel
 	var cfgJSON []byte
 	err := d.pool.QueryRow(qctx,
-		`SELECT id, name, type, config, enabled
+		`/* pg_sage */ SELECT id, name, type, config, enabled
 		 FROM sage.notification_channels
 		 WHERE id = $1`, id,
 	).Scan(&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled)
 	if err != nil {
 		return nil, fmt.Errorf("get channel %d: %w", id, err)
 	}
-	ch.Config = parseConfig(cfgJSON)
+	cfg, err := parseConfig(cfgJSON)
+	if err != nil {
+		return nil, fmt.Errorf("channel %d: %w", id, err)
+	}
+	ch.Config = cfg
 	return &ch, nil
 }
 
@@ -153,7 +157,7 @@ func (d *Dispatcher) logDelivery(
 	defer cancel()
 
 	_, err := d.pool.Exec(qctx,
-		`INSERT INTO sage.notification_log
+		`/* pg_sage */ INSERT INTO sage.notification_log
 		    (channel_id, event, subject, body, status, error)
 		 VALUES ($1, $2, $3, $4, $5, $6)`,
 		channelID, event.Type, event.Subject,

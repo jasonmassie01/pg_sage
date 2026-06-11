@@ -135,7 +135,7 @@ func fetchTableDetail(
 ) TableDetail {
 	td := TableDetail{Schema: schema, Name: table}
 	_ = pool.QueryRow(ctx,
-		`SELECT n_live_tup, n_dead_tup, pg_total_relation_size(c.oid)
+		`/* pg_sage */ SELECT n_live_tup, n_dead_tup, pg_total_relation_size(c.oid)
 		 FROM pg_stat_user_tables s
 		 JOIN pg_class c ON c.relname = s.relname
 		 JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -155,7 +155,7 @@ func fetchColumns(
 	schema, table string,
 ) []ColumnInfo {
 	rows, err := pool.Query(ctx,
-		`SELECT column_name, data_type, is_nullable
+		`/* pg_sage */ SELECT column_name, data_type, is_nullable
 		 FROM information_schema.columns
 		 WHERE table_schema = $1 AND table_name = $2
 		 ORDER BY ordinal_position`, schema, table)
@@ -182,7 +182,7 @@ func fetchIndexes(
 	schema, table string,
 ) []IndexDetail {
 	rows, err := pool.Query(ctx,
-		`SELECT s.indexrelname,
+		`/* pg_sage */ SELECT s.indexrelname,
 		        pg_get_indexdef(i.indexrelid),
 		        s.idx_scan,
 		        i.indisunique
@@ -213,7 +213,7 @@ func fetchColStats(
 	schema, table string,
 ) []ColStatInfo {
 	rows, err := pool.Query(ctx,
-		`SELECT attname, n_distinct, correlation
+		`/* pg_sage */ SELECT attname, n_distinct, correlation
 		 FROM pg_stats
 		 WHERE schemaname = $1 AND tablename = $2
 		 ORDER BY abs(correlation) DESC
@@ -250,7 +250,7 @@ func fetchSystemContext(
 	sc := SystemContext{}
 	gucs := make(map[string]string)
 	rows, err := pool.Query(ctx,
-		`SELECT name, setting FROM pg_settings
+		`/* pg_sage */ SELECT name, setting FROM pg_settings
 		 WHERE name = ANY($1)`, systemGUCNames)
 	if err != nil {
 		return sc
@@ -271,7 +271,7 @@ func fetchSystemContext(
 		gucs["max_parallel_workers_per_gather"],
 	)
 	_ = pool.QueryRow(ctx,
-		`SELECT count(*) FROM pg_stat_activity
+		`/* pg_sage */ SELECT count(*) FROM pg_stat_activity
 		 WHERE state = 'active'`,
 	).Scan(&sc.ActiveBackends)
 	return sc

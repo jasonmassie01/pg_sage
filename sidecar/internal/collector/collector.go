@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/querystore"
 )
 
 // Collector runs periodic stats collection against the target database.
@@ -95,6 +96,33 @@ func (c *Collector) cycle(ctx context.Context, ticker *time.Ticker) {
 	if err := c.persist(ctx, snap); err != nil {
 		c.logFn("ERROR", "snapshot persist failed: %v", err)
 	}
+
+	c.recordQueryStore(ctx, snap)
+}
+
+// recordQueryStore writes per-queryid samples to sage.query_store so
+// windowed latency can be computed for verify-and-revert (F1) and
+// plan-regression detection (A5). Non-fatal on error.
+func (c *Collector) recordQueryStore(ctx context.Context, snap *Snapshot) {
+	if len(snap.Queries) == 0 {
+		return
+	}
+	samples := make([]querystore.Sample, 0, len(snap.Queries))
+	for _, q := range snap.Queries {
+		if q.QueryID == 0 {
+			continue
+		}
+		samples = append(samples, querystore.Sample{
+			QueryID:     q.QueryID,
+			Calls:       q.Calls,
+			TotalExecMs: q.TotalExecTime,
+			MeanExecMs:  q.MeanExecTime,
+			Rows:        q.Rows,
+		})
+	}
+	if err := querystore.Record(ctx, c.pool, samples); err != nil {
+		c.logFn("WARN", "query_store record failed: %v", err)
+	}
 }
 
 // LatestSnapshot returns the most recent snapshot (thread-safe).
@@ -139,8 +167,12 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	if snap.Sequences, err = c.collectSequences(ctx); err != nil {
 		return nil, err
 	}
+	// Non-fatal: a single replication-slot quirk (e.g. an unreserved
+	// slot, or a hot standby) must not abort the entire snapshot cycle,
+	// which would silently halt all stats collection (H1/H2). Match the
+	// WARN-and-continue behavior of the sibling collectors below.
 	if snap.Replication, err = c.collectReplication(ctx); err != nil {
-		return nil, err
+		c.logFn("WARN", "replication collection failed: %v", err)
 	}
 	// pg_stat_io (PG16+)
 	if c.pgVersionNum >= 160000 {
@@ -262,7 +294,7 @@ func (c *Collector) collectTables(ctx context.Context) ([]TableStats, error) {
 				&t.VacuumCount, &t.AutovacuumCount,
 				&t.AnalyzeCount, &t.AutoanalyzeCount,
 				&t.TotalBytes, &t.TableBytes, &t.IndexBytes,
-				&t.Relpersistence,
+				&t.Relpersistence, &t.XIDAge,
 			); err != nil {
 				rows.Close()
 				return nil, err

@@ -11,6 +11,7 @@ type Recommendation struct {
 	IndexType               string        `json:"index_type"`
 	Category                string        `json:"category"`
 	AffectedQueries         []string      `json:"affected_queries,omitempty"`
+	AffectedQueryIDs        []int64       `json:"affected_query_ids,omitempty"`
 	EstimatedImprovementPct float64       `json:"estimated_improvement_pct"`
 	Validated               bool          `json:"validated"`
 	ActionLevel             string        `json:"action_level"`          // autonomous, advisory, informational

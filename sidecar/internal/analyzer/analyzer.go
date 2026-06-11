@@ -68,12 +68,22 @@ type Analyzer struct {
 	forecaster   WorkloadForecaster
 	tuner        QueryTuner
 	rcaEngine    RCAEngine
+	planNarrator PlanNarrator
 	logFn        func(string, string, ...any)
 	dispatcher   EventDispatcher
 	databaseName string
 	mu           sync.RWMutex
 	findings     []Finding
 }
+
+// PlanNarrator enriches plan_regression findings with an LLM-generated
+// "why did the plan change" narrative (C6). nil disables it.
+type PlanNarrator interface {
+	Narrate(ctx context.Context, findings []Finding) []Finding
+}
+
+// WithPlanNarrator attaches the LLM plan-regression narrator (C6).
+func (a *Analyzer) WithPlanNarrator(n PlanNarrator) { a.planNarrator = n }
 
 // New creates a new Analyzer.
 func New(
@@ -267,6 +277,11 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	// Plan regression (compares recent explain plans per query).
 	if !skipQueryRules {
 		planDiffFindings := a.checkPlanRegression(ctx)
+		// Enrich plan regressions with a plain-English "why did the plan
+		// change" narrative when the LLM narrator is attached (C6).
+		if a.planNarrator != nil && len(planDiffFindings) > 0 {
+			planDiffFindings = a.planNarrator.Narrate(ctx, planDiffFindings)
+		}
 		allFindings = append(allFindings, planDiffFindings...)
 	}
 
@@ -481,7 +496,7 @@ func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {
 		windowDays = 7
 	}
 	rows, err := a.pool.Query(ctx,
-		`SELECT sql_executed, executed_at FROM sage.action_log
+		`/* pg_sage */ SELECT sql_executed, executed_at FROM sage.action_log
 		 WHERE sql_executed ILIKE 'CREATE INDEX%'
 		   AND outcome = 'success'
 		   AND executed_at > now() - make_interval(days => $1)`,
@@ -511,7 +526,7 @@ func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {
 func (a *Analyzer) checkXIDWraparound(ctx context.Context) []Finding {
 	var xidAge int64
 	err := a.pool.QueryRow(ctx,
-		`SELECT age(datfrozenxid) FROM pg_database
+		`/* pg_sage */ SELECT age(datfrozenxid) FROM pg_database
 		 WHERE datname = current_database()`,
 	).Scan(&xidAge)
 	if err != nil {
@@ -523,7 +538,7 @@ func (a *Analyzer) checkXIDWraparound(ctx context.Context) []Finding {
 
 func (a *Analyzer) checkConnectionLeaks(ctx context.Context) []Finding {
 	rows, err := a.pool.Query(ctx,
-		`SELECT pid, usename, application_name, state,
+		`/* pg_sage */ SELECT pid, usename, application_name, state,
 		        now() - state_change AS idle_duration
 		 FROM pg_stat_activity
 		 WHERE state = 'idle in transaction'
@@ -562,7 +577,7 @@ func (a *Analyzer) buildHistoricalAverages(
 	ctx context.Context,
 ) map[int64]float64 {
 	rows, err := a.pool.Query(ctx,
-		`SELECT data FROM sage.snapshots
+		`/* pg_sage */ SELECT data FROM sage.snapshots
 		 WHERE category = 'queries'
 		   AND collected_at > now() - make_interval(days => $1)
 		 ORDER BY collected_at DESC`,
@@ -695,7 +710,7 @@ func (a *Analyzer) openIndexRecommendationTables(
 		return nil
 	}
 	rows, err := a.pool.Query(ctx,
-		`SELECT DISTINCT object_identifier
+		`/* pg_sage */ SELECT DISTINCT object_identifier
 		 FROM sage.findings
 		 WHERE category ILIKE '%index%'
 		   AND status NOT IN ('resolved','suppressed')`,

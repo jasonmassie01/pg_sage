@@ -267,19 +267,26 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
     }
     const dbParam = row.database_name
       ? `?database=${encodeURIComponent(row.database_name)}` : ''
-    const res = await fetch(`/api/v1/actions/${row.id}/rollback${dbParam}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason: 'manual rollback from actions UI' }),
-    })
-    const json = await res.json()
-    if (!res.ok || !json.ok) {
-      toast.error(json.error || 'Rollback failed')
-      return
+    try {
+      const res = await fetch(`/api/v1/actions/${row.id}/rollback${dbParam}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'manual rollback from actions UI' }),
+      })
+      let json = {}
+      try { json = await res.json() } catch { /* non-JSON error body */ }
+      if (!res.ok || !json.ok) {
+        toast.error(json.error || `Rollback failed (${res.status})`)
+        return
+      }
+      toast.success(`Action ${row.id} rolled back`)
+      refetch()
+    } catch (err) {
+      // A destructive rollback must never fail silently — a transport
+      // error here leaves the operator unsure whether the SQL ran.
+      toast.error(err.message || 'Rollback request failed')
     }
-    toast.success(`Action ${row.id} rolled back`)
-    refetch()
   }
 
   if (actions.length === 0) {

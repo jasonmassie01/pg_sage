@@ -94,8 +94,11 @@ func (e *testError) Error() string { return e.msg }
 func TestCoverage_BuildFindingsWhere_NoFilters(t *testing.T) {
 	f := fleet.FindingFilters{}
 	where, args := buildFindingsWhere(f)
-	if where != " WHERE 1=1" {
-		t.Errorf("where: got %q, want ' WHERE 1=1'", where)
+	if !strings.HasPrefix(where, " WHERE 1=1") {
+		t.Errorf("where should start with base predicate: %q", where)
+	}
+	if !strings.Contains(where, "pg_sage") {
+		t.Errorf("where should contain self-monitoring exclusion: %q", where)
 	}
 	if len(args) != 0 {
 		t.Errorf("args: got %d, want 0", len(args))

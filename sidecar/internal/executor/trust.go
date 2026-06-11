@@ -2,11 +2,13 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -57,13 +59,15 @@ func ShouldExecute(
 	}
 }
 
-// inMaintenanceWindow parses a simple cron expression (minute hour * * *)
-// and returns true if the current time is within a 1-hour window of the
-// scheduled time. Wildcards ("*") mean "any" for that field. Supports:
+// inMaintenanceWindow parses a maintenance-window expression and returns
+// true if the current time falls inside it. Supports:
 //   - "* * * * *" → always in window
-//   - "0 2 * * *" → 02:00-03:00 daily
+//   - "0 2 * * *" → 02:00-03:00 daily (cron minute hour)
 //   - "30 * * * *" → at minute 30 of every hour (1h window)
 //   - "always" → always in window
+//   - "HH:MM-HH:MM" → daily time range, wrapping midnight if start > end
+//     (e.g. "22:00-02:00"). This human-friendly form was previously
+//     parsed as garbage and treated as never-in-window (S4).
 func inMaintenanceWindow(cronExpr string) bool {
 	return inMaintenanceWindowAt(cronExpr, time.Now())
 }
@@ -76,6 +80,11 @@ func inMaintenanceWindowAt(cronExpr string, now time.Time) bool {
 	trimmed := strings.TrimSpace(cronExpr)
 	if strings.EqualFold(trimmed, "always") {
 		return true
+	}
+
+	// "HH:MM-HH:MM" daily time range.
+	if r, ok := parseTimeRange(trimmed); ok {
+		return r.contains(now)
 	}
 
 	parts := strings.Fields(trimmed)
@@ -133,15 +142,74 @@ func inMaintenanceWindowAt(cronExpr string, now time.Time) bool {
 	return !now.Before(windowStart) && now.Before(windowEnd)
 }
 
+// timeRange is a daily window expressed in minutes since midnight.
+type timeRange struct{ startMin, endMin int }
+
+func (r timeRange) contains(now time.Time) bool {
+	cur := now.Hour()*60 + now.Minute()
+	if r.startMin == r.endMin {
+		return false // zero-length window
+	}
+	if r.startMin < r.endMin {
+		return cur >= r.startMin && cur < r.endMin
+	}
+	// Wraps midnight, e.g. 22:00-02:00.
+	return cur >= r.startMin || cur < r.endMin
+}
+
+// parseTimeRange parses "HH:MM-HH:MM". Returns ok=false if the string
+// isn't in that form (so the caller falls through to cron parsing).
+func parseTimeRange(s string) (timeRange, bool) {
+	if strings.ContainsAny(s, " \t") {
+		return timeRange{}, false // whitespace ⇒ looks like cron
+	}
+	dash := strings.IndexByte(s, '-')
+	if dash <= 0 || dash >= len(s)-1 {
+		return timeRange{}, false
+	}
+	start, ok1 := parseHHMM(s[:dash])
+	end, ok2 := parseHHMM(s[dash+1:])
+	if !ok1 || !ok2 {
+		return timeRange{}, false
+	}
+	return timeRange{startMin: start, endMin: end}, true
+}
+
+// parseHHMM parses "HH:MM" into minutes-since-midnight.
+func parseHHMM(s string) (int, bool) {
+	colon := strings.IndexByte(s, ':')
+	if colon < 0 {
+		return 0, false
+	}
+	h, err1 := strconv.Atoi(strings.TrimSpace(s[:colon]))
+	m, err2 := strconv.Atoi(strings.TrimSpace(s[colon+1:]))
+	if err1 != nil || err2 != nil ||
+		h < 0 || h > 23 || m < 0 || m > 59 {
+		return 0, false
+	}
+	return h*60 + m, true
+}
+
 // CheckEmergencyStop queries sage.config for the emergency_stop flag.
-// Returns true if the value is "true".
+// Returns true (stopped) if the value is "true".
+//
+// It fails CLOSED: only a genuine "no flag set" result (ErrNoRows)
+// means "not stopped". Any other error — a transient connection blip,
+// statement timeout, lock contention — returns true so that a database
+// hiccup can never silently bypass an active emergency stop. The
+// kill-switch must not depend on the database being healthy (H7).
 func CheckEmergencyStop(ctx context.Context, pool *pgxpool.Pool) bool {
 	var value string
 	err := pool.QueryRow(ctx,
 		"SELECT value FROM sage.config WHERE key = 'emergency_stop'",
 	).Scan(&value)
 	if err != nil {
-		return false
+		// No row → the flag was never set → not stopped.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false
+		}
+		// Unknown/transient error → fail closed.
+		return true
 	}
 	return value == "true"
 }
@@ -156,7 +224,7 @@ func SetEmergencyStop(
 	}
 
 	_, err := pool.Exec(ctx,
-		`INSERT INTO sage.config (key, value, updated_at, updated_by)
+		`/* pg_sage */ INSERT INTO sage.config (key, value, updated_at, updated_by)
 		 VALUES ('emergency_stop', $1, now(), 'executor')
 		 ON CONFLICT (key, COALESCE(database_id, 0)) DO UPDATE
 		 SET value = $1, updated_at = now(), updated_by = 'executor'`,

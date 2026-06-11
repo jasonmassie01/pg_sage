@@ -319,6 +319,56 @@ func TestManager_PoolForDatabase_Unknown(t *testing.T) {
 	}
 }
 
+// TestManager_PrimarySkipsFailedInstance is a regression for the fleet
+// auth-lockout (LIVE-02). An instance that failed to connect is still
+// registered (nil Pool) so its error shows in fleet status, but it must
+// NOT become the primary: a nil-pool primary made PoolForDatabase("all")
+// return nil, which skipped auth-route registration and bricked the
+// dashboard. The first *connected* instance must win primary even when a
+// failed instance was registered first.
+func TestManager_PrimarySkipsFailedInstance(t *testing.T) {
+	mgr := NewManager(&config.Config{Mode: "fleet"})
+	connectedPool := &pgxpool.Pool{} // sentinel: identity-compared only
+
+	mgr.RegisterInstance(&DatabaseInstance{
+		Name:   "dead_first",
+		Config: config.DatabaseConfig{Name: "dead_first"},
+		Status: &InstanceStatus{Error: "ping: connection refused"},
+	})
+	mgr.RegisterInstance(&DatabaseInstance{
+		Name:   "live_second",
+		Config: config.DatabaseConfig{Name: "live_second"},
+		Pool:   connectedPool,
+		Status: &InstanceStatus{Connected: true},
+	})
+
+	if got := mgr.PoolForDatabase("all"); got != connectedPool {
+		t.Errorf("PoolForDatabase(all) = %v, want the connected pool", got)
+	}
+	if got := mgr.PoolForDatabase(""); got != connectedPool {
+		t.Errorf("PoolForDatabase(\"\") = %v, want the connected pool", got)
+	}
+	if got := mgr.PoolForDatabase("dead_first"); got != nil {
+		t.Errorf("PoolForDatabase(dead_first) = %v, want nil (its pool is nil)", got)
+	}
+}
+
+// TestManager_PoolForDatabaseAllNilWhenNoneConnected verifies that when
+// every instance failed to connect, "all" resolves to nil so callers can
+// detect the no-auth-pool condition, rather than receiving a nil-pool
+// instance dressed up as usable.
+func TestManager_PoolForDatabaseAllNilWhenNoneConnected(t *testing.T) {
+	mgr := NewManager(&config.Config{Mode: "fleet"})
+	mgr.RegisterInstance(&DatabaseInstance{
+		Name:   "dead",
+		Config: config.DatabaseConfig{Name: "dead"},
+		Status: &InstanceStatus{Error: "ping: connection refused"},
+	})
+	if got := mgr.PoolForDatabase("all"); got != nil {
+		t.Errorf("PoolForDatabase(all) = %v, want nil", got)
+	}
+}
+
 func TestManager_PoolForDatabase_EmptyManager(t *testing.T) {
 	cfg := &config.Config{Mode: "fleet"}
 	mgr := NewManager(cfg)

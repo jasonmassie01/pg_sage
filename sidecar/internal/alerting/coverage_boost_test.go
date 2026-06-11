@@ -1056,3 +1056,34 @@ func TestCoverage_New_EmptyRoutes(t *testing.T) {
 		t.Errorf("expected 0 routes, got %d", len(m.routes))
 	}
 }
+
+// TestDispatchGroup_NoThrottleOnTotalFailure is the H4 regression: when
+// every channel fails to deliver, the throttle key must NOT be recorded,
+// so the alert remains eligible to re-fire instead of being silently
+// suppressed for the whole cooldown window.
+func TestDispatchGroup_NoThrottleOnTotalFailure(t *testing.T) {
+	logFn := func(string, string, ...any) {}
+	mgr := New(nil, ManagerConfig{CooldownMinutes: 60}, nil, logFn)
+	f := AlertFinding{
+		ID: 1, Category: "vacuum",
+		ObjectIdentifier: "public.t", Severity: "critical",
+	}
+	key := FormatDedupKey(f.Category, f.ObjectIdentifier)
+
+	// All channels fail → must remain alertable.
+	mgr.dispatchGroup(context.Background(), "critical",
+		[]AlertFinding{f},
+		[]Channel{&failChannel{name: "slack", err: errors.New("down")}})
+	if !mgr.Throttle().ShouldAlert(key, "critical") {
+		t.Fatal("after total delivery failure the key must remain " +
+			"alertable (throttle wrongly recorded)")
+	}
+
+	// At least one channel succeeds → recorded → suppressed in cooldown.
+	mgr.dispatchGroup(context.Background(), "critical",
+		[]AlertFinding{f}, []Channel{&countChannel{name: "ok"}})
+	if mgr.Throttle().ShouldAlert(key, "critical") {
+		t.Error("after successful delivery the key should be throttled " +
+			"within the cooldown window")
+	}
+}

@@ -202,7 +202,7 @@ func (w *Worker) Generate(ctx context.Context) (string, error) {
 func (w *Worker) gatherFindings(ctx context.Context) (string, int, error) {
 	var result string
 	var totalOpen int
-	err := w.pool.QueryRow(ctx, `
+	err := w.pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT coalesce(
 			(SELECT json_agg(t) FROM (
 				SELECT
@@ -235,7 +235,7 @@ func (w *Worker) gatherFindings(ctx context.Context) (string, int, error) {
 
 func (w *Worker) gatherSystem(ctx context.Context) (string, error) {
 	var result string
-	err := w.pool.QueryRow(ctx, `
+	err := w.pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT json_build_object(
 			'db_size', pg_size_pretty(pg_database_size(current_database())),
 			'connections', (SELECT count(*) FROM pg_stat_activity),
@@ -254,7 +254,7 @@ func (w *Worker) gatherSystem(ctx context.Context) (string, error) {
 
 func (w *Worker) gatherRecentActions(ctx context.Context) (string, error) {
 	var result string
-	err := w.pool.QueryRow(ctx, `
+	err := w.pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT coalesce(
 			(SELECT json_agg(json_build_object(
 				'action_type', action_type,
@@ -350,7 +350,7 @@ Prioritize critical findings. Keep it under 2000 words.`
 
 func (w *Worker) storeBriefing(ctx context.Context, content string, llmUsed bool, tokens int) {
 	now := time.Now()
-	_, err := w.pool.Exec(ctx, `
+	_, err := w.pool.Exec(ctx, `/* pg_sage */ 
 		INSERT INTO sage.briefings (generated_at, period_start, period_end, mode, content_text, content_json, llm_used, token_count)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, now, now.Add(-24*time.Hour), now, "executive", content,

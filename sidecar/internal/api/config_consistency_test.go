@@ -156,6 +156,30 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "200000",
 		reader: func(c *config.Config) string { return itoa(c.LLM.TokenBudgetDaily) },
 	},
+	"llm.fleet_token_budget_daily": {
+		input:  "500000",
+		reader: func(c *config.Config) string { return itoa(c.LLM.FleetTokenBudgetDaily) },
+	},
+	"analyzer.autovacuum_tune_min_rows": {
+		input:  "2000000",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.AutovacuumTuneMinRows) },
+	},
+	"analyzer.analyze_stale_min_rows": {
+		input:  "20000",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.AnalyzeStaleMinRows) },
+	},
+	"analyzer.analyze_stale_days": {
+		input:  "14",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.AnalyzeStaleDays) },
+	},
+	"analyzer.wraparound_freeze_xid_age": {
+		input:  "120000000",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.WraparoundFreezeXIDAge) },
+	},
+	"agentdb.reconcile_interval_seconds": {
+		input:  "600",
+		reader: func(c *config.Config) string { return itoa(c.AgentDB.ReconcileIntervalSeconds) },
+	},
 	"llm.context_budget_tokens": {
 		input:  "8192",
 		reader: func(c *config.Config) string { return itoa(c.LLM.ContextBudgetTokens) },

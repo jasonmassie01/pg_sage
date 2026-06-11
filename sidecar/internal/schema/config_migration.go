@@ -47,7 +47,7 @@ func addConfigColumns(
 	defer cancel()
 
 	// Add database_id column if missing.
-	_, err := pool.Exec(qctx, `
+	_, err := pool.Exec(qctx, `/* pg_sage */ 
 		DO $$ BEGIN
 			ALTER TABLE sage.config
 				ADD COLUMN database_id INT;
@@ -60,7 +60,7 @@ func addConfigColumns(
 	}
 
 	// Add updated_by_user_id column if missing.
-	_, err = pool.Exec(qctx, `
+	_, err = pool.Exec(qctx, `/* pg_sage */ 
 		DO $$ BEGIN
 			ALTER TABLE sage.config
 				ADD COLUMN updated_by_user_id INT
@@ -81,7 +81,7 @@ func addConfigCompositeIndex(
 ) error {
 	// Drop the old single-column PK on (key) so per-database
 	// overrides can coexist with global config rows.
-	_, err := pool.Exec(ctx, `
+	_, err := pool.Exec(ctx, `/* pg_sage */ 
 		DO $$ BEGIN
 			ALTER TABLE sage.config
 				DROP CONSTRAINT IF EXISTS config_pkey;
@@ -93,7 +93,7 @@ func addConfigCompositeIndex(
 		return fmt.Errorf("dropping old PK: %w", err)
 	}
 
-	_, err = pool.Exec(ctx, `
+	_, err = pool.Exec(ctx, `/* pg_sage */ 
 		DO $$ BEGIN
 			CREATE UNIQUE INDEX IF NOT EXISTS
 				idx_config_key_db

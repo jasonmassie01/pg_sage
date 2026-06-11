@@ -15,7 +15,7 @@ import (
 // extension updates because they can require connection restarts
 // and function signature changes.
 func (a *Analyzer) checkExtensionDrift(ctx context.Context) []Finding {
-	rows, err := a.pool.Query(ctx, `
+	rows, err := a.pool.Query(ctx, `/* pg_sage */
 SELECT e.extname,
        e.extversion        AS installed_version,
        ae.default_version  AS default_version

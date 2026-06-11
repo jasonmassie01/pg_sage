@@ -22,6 +22,10 @@ var allowedConfigKeys = map[string]string{
 	"analyzer.unused_index_window_days":     "int_pos",
 	"analyzer.index_bloat_threshold_pct":    "pct",
 	"analyzer.table_bloat_dead_tuple_pct":   "pct",
+	"analyzer.autovacuum_tune_min_rows":     "int_pos",
+	"analyzer.analyze_stale_min_rows":       "int_pos",
+	"analyzer.analyze_stale_days":           "int_pos",
+	"analyzer.wraparound_freeze_xid_age":    "int_pos",
 	"analyzer.regression_threshold_pct":     "pct",
 	"analyzer.cache_hit_ratio_warning":      "float01",
 	"trust.level":                           "trust_level",
@@ -44,6 +48,7 @@ var allowedConfigKeys = map[string]string{
 	"llm.json_mode":                         "bool",
 	"llm.timeout_seconds":                   "int_pos",
 	"llm.token_budget_daily":                "int_pos",
+	"llm.fleet_token_budget_daily":          "int_nonneg",
 	"llm.context_budget_tokens":             "int_pos",
 	"advisor.enabled":                       "bool",
 	"advisor.interval_seconds":              "int_min5",
@@ -64,6 +69,7 @@ var allowedConfigKeys = map[string]string{
 	"agentdb.live_provisioning_enabled":     "bool",
 	"agentdb.allow_public_ip":               "bool",
 	"agentdb.require_backup_before_destroy": "bool",
+	"agentdb.reconcile_interval_seconds":   "int_nonneg",
 
 	// v0.9: RCA engine.
 	"rca.enabled":                           "bool",
@@ -236,12 +242,12 @@ func getOldValue(
 	var err error
 	if databaseID == 0 {
 		err = tx.QueryRow(ctx,
-			`SELECT value FROM sage.config
+			`/* pg_sage */ SELECT value FROM sage.config
 			 WHERE key = $1 AND database_id IS NULL`, key,
 		).Scan(&old)
 	} else {
 		err = tx.QueryRow(ctx,
-			`SELECT value FROM sage.config
+			`/* pg_sage */ SELECT value FROM sage.config
 			 WHERE key = $1 AND database_id = $2`, key, databaseID,
 		).Scan(&old)
 	}
@@ -257,7 +263,7 @@ func upsertOverride(
 ) error {
 	if databaseID == 0 {
 		_, err := tx.Exec(ctx,
-			`INSERT INTO sage.config
+			`/* pg_sage */ INSERT INTO sage.config
 				(key, value, database_id, updated_at, updated_by_user_id)
 			 VALUES ($1, $2, NULL, now(), $3)
 			 ON CONFLICT (key, COALESCE(database_id, 0))
@@ -267,7 +273,7 @@ func upsertOverride(
 		return err
 	}
 	_, err := tx.Exec(ctx,
-		`INSERT INTO sage.config
+		`/* pg_sage */ INSERT INTO sage.config
 			(key, value, database_id, updated_at, updated_by_user_id)
 		 VALUES ($1, $2, $3, now(), $4)
 		 ON CONFLICT (key, COALESCE(database_id, 0))
@@ -291,7 +297,7 @@ func insertAudit(
 		chBy = &userID
 	}
 	_, err := tx.Exec(ctx,
-		`INSERT INTO sage.config_audit
+		`/* pg_sage */ INSERT INTO sage.config_audit
 			(key, old_value, new_value, database_id, changed_by)
 		 VALUES ($1, $2, $3, $4, $5)`,
 		key, nullIfEmpty(oldValue), newValue, dbID, chBy)
@@ -381,6 +387,14 @@ func addAnalyzerFields(m map[string]any, a *config.AnalyzerConfig) {
 		a.IndexBloatThresholdPct, "yaml")
 	addField(m, "analyzer.table_bloat_dead_tuple_pct",
 		a.TableBloatDeadTuplePct, "yaml")
+	addField(m, "analyzer.autovacuum_tune_min_rows",
+		a.AutovacuumTuneMinRows, "yaml")
+	addField(m, "analyzer.analyze_stale_min_rows",
+		a.AnalyzeStaleMinRows, "yaml")
+	addField(m, "analyzer.analyze_stale_days",
+		a.AnalyzeStaleDays, "yaml")
+	addField(m, "analyzer.wraparound_freeze_xid_age",
+		a.WraparoundFreezeXIDAge, "yaml")
 	addField(m, "analyzer.regression_threshold_pct",
 		a.RegressionThresholdPct, "yaml")
 	addField(m, "analyzer.cache_hit_ratio_warning",
@@ -430,6 +444,8 @@ func addAgentDBFields(m map[string]any, a *config.AgentDBConfig) {
 	addField(m, "agentdb.allow_public_ip", a.AllowPublicIP, "yaml")
 	addField(m, "agentdb.require_backup_before_destroy",
 		a.RequireBackupBeforeDrop, "yaml")
+	addField(m, "agentdb.reconcile_interval_seconds",
+		a.ReconcileIntervalSeconds, "yaml")
 }
 
 func addLLMFields(m map[string]any, l *config.LLMConfig) {
@@ -441,6 +457,8 @@ func addLLMFields(m map[string]any, l *config.LLMConfig) {
 	addField(m, "llm.timeout_seconds", l.TimeoutSeconds, "yaml")
 	addField(m, "llm.token_budget_daily",
 		l.TokenBudgetDaily, "yaml")
+	addField(m, "llm.fleet_token_budget_daily",
+		l.FleetTokenBudgetDaily, "yaml")
 	addField(m, "llm.context_budget_tokens",
 		l.ContextBudgetTokens, "yaml")
 	addField(m, "llm.optimizer.enabled",

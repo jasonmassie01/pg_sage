@@ -25,7 +25,7 @@ func TestChatForPurpose_BudgetExhausted_ReturnsError(t *testing.T) {
 		CooldownSeconds:  10,
 	}
 	gen := New(cfg, noopLog)
-	gen.budgetResetDay = time.Now().YearDay()
+	gen.budgetResetDay.Store(int64(time.Now().YearDay()))
 	gen.tokensUsedToday.Store(100) // exactly at budget
 
 	mgr := NewManager(gen, nil, false)
@@ -75,7 +75,7 @@ func TestChatForPurpose_OptimizerExhausted_FallsBackToGeneral(
 		CooldownSeconds:  10,
 	}
 	opt := New(optCfg, noopLog)
-	opt.budgetResetDay = time.Now().YearDay()
+	opt.budgetResetDay.Store(int64(time.Now().YearDay()))
 	opt.tokensUsedToday.Store(100) // exhausted
 
 	mgr := NewManager(gen, opt, true) // fallback enabled
@@ -117,7 +117,7 @@ func TestChatForPurpose_OptimizerExhausted_NoFallback_ReturnsError(
 		CooldownSeconds:  10,
 	}
 	opt := New(optCfg, noopLog)
-	opt.budgetResetDay = time.Now().YearDay()
+	opt.budgetResetDay.Store(int64(time.Now().YearDay()))
 	opt.tokensUsedToday.Store(100)
 
 	mgr := NewManager(gen, opt, false) // fallback disabled
@@ -148,7 +148,7 @@ func TestChatForPurpose_BothExhausted_FallbackStillFails(
 		CooldownSeconds:  10,
 	}
 	gen := New(genCfg, noopLog)
-	gen.budgetResetDay = time.Now().YearDay()
+	gen.budgetResetDay.Store(int64(time.Now().YearDay()))
 	gen.tokensUsedToday.Store(50) // also exhausted
 
 	optCfg := &config.LLMConfig{
@@ -161,7 +161,7 @@ func TestChatForPurpose_BothExhausted_FallbackStillFails(
 		CooldownSeconds:  10,
 	}
 	opt := New(optCfg, noopLog)
-	opt.budgetResetDay = time.Now().YearDay()
+	opt.budgetResetDay.Store(int64(time.Now().YearDay()))
 	opt.tokensUsedToday.Store(100)
 
 	mgr := NewManager(gen, opt, true) // fallback enabled
@@ -235,11 +235,11 @@ func TestChatForPurpose_CircuitOpen_FallsBackToGeneral(
 
 func TestTokenStatus_ReflectsExhaustion(t *testing.T) {
 	gen := testClient("general")
-	gen.budgetResetDay = time.Now().YearDay()
+	gen.budgetResetDay.Store(int64(time.Now().YearDay()))
 	gen.tokensUsedToday.Store(5000) // 5000 >= 1000 budget
 
 	opt := testClient("optimizer")
-	opt.budgetResetDay = time.Now().YearDay()
+	opt.budgetResetDay.Store(int64(time.Now().YearDay()))
 	opt.tokensUsedToday.Store(500) // below budget
 
 	mgr := NewManager(gen, opt, false)
@@ -262,7 +262,7 @@ func TestTokenStatus_ReflectsExhaustion(t *testing.T) {
 
 func TestTokenStatus_AfterReset_NotExhausted(t *testing.T) {
 	gen := testClient("general")
-	gen.budgetResetDay = time.Now().YearDay()
+	gen.budgetResetDay.Store(int64(time.Now().YearDay()))
 	gen.tokensUsedToday.Store(5000)
 
 	mgr := NewManager(gen, nil, false)

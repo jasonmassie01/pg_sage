@@ -55,7 +55,7 @@ func (c *Collector) collectStatStatementsMax(
 	var val int
 	err := c.pool.QueryRow(
 		ctx,
-		`SELECT setting::int FROM pg_settings
+		`/* pg_sage */ SELECT setting::int FROM pg_settings
 		 WHERE name = 'pg_stat_statements.max'`,
 	).Scan(&val)
 	if err != nil {
@@ -91,7 +91,7 @@ func (c *Collector) persist(
 		"config_data":  snap.ConfigData,
 	}
 
-	const insertSQL = `
+	const insertSQL = `/* pg_sage */
 INSERT INTO sage.snapshots (collected_at, category, data)
 VALUES ($1, $2, $3)`
 

@@ -10,7 +10,7 @@ func (s *Store) AuditEvents(ctx context.Context, id string) ([]AuditEvent, error
 	if err := s.Ensure(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.pool.Query(ctx, `/* pg_sage */ 
 		SELECT audit_id, deployment_id, event, detail, created_at
 		FROM sage.agent_db_audit
 		WHERE deployment_id=$1

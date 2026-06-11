@@ -1,12 +1,45 @@
 package llm
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
+
+// UnwrapText returns plain prose from an LLM response. When json_mode is
+// enabled, models wrap a requested plain-text answer in a JSON object
+// (e.g. {"audit_note":"..."}); this extracts the inner string so audit
+// notes and narratives are stored as prose, not JSON. Non-JSON input is
+// returned trimmed and unchanged.
+func UnwrapText(raw string) string {
+	s := strings.TrimSpace(StripJSON(raw, JSONObject))
+	if !strings.HasPrefix(s, "{") {
+		return strings.TrimSpace(raw)
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return strings.TrimSpace(raw)
+	}
+	for _, k := range []string{"audit_note", "note", "narrative",
+		"explanation", "summary", "text", "answer"} {
+		if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	for _, v := range m {
+		if str, ok := v.(string); ok && strings.TrimSpace(str) != "" {
+			return strings.TrimSpace(str)
+		}
+	}
+	return strings.TrimSpace(raw)
+}
 
 // isThinkingModel returns true for models whose internal reasoning
-// tokens consume the max_tokens output budget (Gemini 2.5 series).
+// tokens consume the max_tokens output budget (Gemini 2.5+ series, which
+// emit a thought_signature, and OpenAI o-series).
 func isThinkingModel(model string) bool {
 	m := strings.ToLower(model)
 	return strings.Contains(m, "gemini-2.5") ||
+		strings.Contains(m, "gemini-3") ||
 		strings.Contains(m, "gemini-2.0-flash-thinking") ||
 		strings.Contains(m, "o1") ||
 		strings.Contains(m, "o3")

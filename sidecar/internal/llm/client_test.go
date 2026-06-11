@@ -70,7 +70,7 @@ func TestChat_BudgetExhausted(t *testing.T) {
 
 	client := New(cfg, noopLog)
 	// Set budget reset day to today so the daily reset doesn't clear our tokens.
-	client.budgetResetDay = time.Now().YearDay()
+	client.budgetResetDay.Store(int64(time.Now().YearDay()))
 	client.tokensUsedToday.Store(10)
 
 	_, _, err := client.Chat(context.Background(), "system", "user", 100)
@@ -187,7 +187,7 @@ func TestModel(t *testing.T) {
 func TestIsBudgetExhausted_BelowLimit(t *testing.T) {
 	cfg := &config.LLMConfig{TokenBudgetDaily: 10000}
 	client := New(cfg, noopLog)
-	client.budgetResetDay = time.Now().YearDay()
+	client.budgetResetDay.Store(int64(time.Now().YearDay()))
 	client.tokensUsedToday.Store(5000)
 
 	if client.IsBudgetExhausted() {
@@ -198,7 +198,7 @@ func TestIsBudgetExhausted_BelowLimit(t *testing.T) {
 func TestIsBudgetExhausted_AtLimit(t *testing.T) {
 	cfg := &config.LLMConfig{TokenBudgetDaily: 10000}
 	client := New(cfg, noopLog)
-	client.budgetResetDay = time.Now().YearDay()
+	client.budgetResetDay.Store(int64(time.Now().YearDay()))
 	client.tokensUsedToday.Store(10000)
 
 	if !client.IsBudgetExhausted() {
@@ -209,7 +209,7 @@ func TestIsBudgetExhausted_AtLimit(t *testing.T) {
 func TestIsBudgetExhausted_AboveLimit(t *testing.T) {
 	cfg := &config.LLMConfig{TokenBudgetDaily: 10000}
 	client := New(cfg, noopLog)
-	client.budgetResetDay = time.Now().YearDay()
+	client.budgetResetDay.Store(int64(time.Now().YearDay()))
 	client.tokensUsedToday.Store(15000)
 
 	if !client.IsBudgetExhausted() {
@@ -231,7 +231,7 @@ func TestIsBudgetExhausted_DayReset(t *testing.T) {
 	cfg := &config.LLMConfig{TokenBudgetDaily: 100}
 	client := New(cfg, noopLog)
 	// Set reset day to yesterday so tokens should be considered reset.
-	client.budgetResetDay = time.Now().YearDay() - 1
+	client.budgetResetDay.Store(int64(time.Now().YearDay() - 1))
 	client.tokensUsedToday.Store(200)
 
 	if client.IsBudgetExhausted() {
@@ -242,7 +242,7 @@ func TestIsBudgetExhausted_DayReset(t *testing.T) {
 func TestResetBudget(t *testing.T) {
 	cfg := &config.LLMConfig{TokenBudgetDaily: 1000}
 	client := New(cfg, noopLog)
-	client.budgetResetDay = time.Now().YearDay()
+	client.budgetResetDay.Store(int64(time.Now().YearDay()))
 	client.tokensUsedToday.Store(5000)
 
 	if !client.IsBudgetExhausted() {

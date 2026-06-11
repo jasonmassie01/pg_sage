@@ -161,7 +161,7 @@ func (s *Store) updateDeployRequestStatus(
 	reason string,
 	event string,
 ) (DeployRequest, error) {
-	tag, err := s.pool.Exec(ctx, `
+	tag, err := s.pool.Exec(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_deploy_requests
 		SET status=$3,
 			reviewed_by=CASE WHEN $4='' THEN reviewed_by ELSE $4 END,
@@ -275,7 +275,7 @@ func scanDeployRequest(row scanner, req *DeployRequest) error {
 	)
 }
 
-const selectDeployRequestsSQL = `
+const selectDeployRequestsSQL = `/* pg_sage */
 	SELECT deploy_request_id, deployment_id, tenant_id, agent_id, run_id,
 		target_database_name, target_schema_name, title, reason, status,
 		risk_tier, migration_sql, verification_sql, rollback_sql,
@@ -283,7 +283,7 @@ const selectDeployRequestsSQL = `
 		review_reason, created_at, updated_at, reviewed_at
 	FROM sage.agent_db_deploy_requests`
 
-const upsertDeployRequestSQL = `
+const upsertDeployRequestSQL = `/* pg_sage */
 	INSERT INTO sage.agent_db_deploy_requests (
 		deploy_request_id, deployment_id, tenant_id, agent_id, run_id,
 		target_database_name, target_schema_name, title, reason, status,

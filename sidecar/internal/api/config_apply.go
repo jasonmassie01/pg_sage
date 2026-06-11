@@ -189,6 +189,14 @@ func hotReloadAnalyzer(cfg *config.Config, key, v string) {
 		cfg.Analyzer.IndexBloatThresholdPct = atoi(v)
 	case "analyzer.table_bloat_dead_tuple_pct":
 		cfg.Analyzer.TableBloatDeadTuplePct = atoi(v)
+	case "analyzer.autovacuum_tune_min_rows":
+		cfg.Analyzer.AutovacuumTuneMinRows = atoi(v)
+	case "analyzer.analyze_stale_min_rows":
+		cfg.Analyzer.AnalyzeStaleMinRows = atoi(v)
+	case "analyzer.analyze_stale_days":
+		cfg.Analyzer.AnalyzeStaleDays = atoi(v)
+	case "analyzer.wraparound_freeze_xid_age":
+		cfg.Analyzer.WraparoundFreezeXIDAge = atoi(v)
 	case "analyzer.regression_threshold_pct":
 		cfg.Analyzer.RegressionThresholdPct = atoi(v)
 	case "analyzer.cache_hit_ratio_warning":
@@ -270,6 +278,8 @@ func hotReloadLLM(cfg *config.Config, key, v string) {
 		cfg.LLM.TimeoutSeconds = atoi(v)
 	case "llm.token_budget_daily":
 		cfg.LLM.TokenBudgetDaily = atoi(v)
+	case "llm.fleet_token_budget_daily":
+		cfg.LLM.FleetTokenBudgetDaily = atoi(v)
 	case "llm.context_budget_tokens":
 		cfg.LLM.ContextBudgetTokens = atoi(v)
 	case "llm.optimizer.enabled":
@@ -496,6 +506,8 @@ func hotReloadAgentDB(cfg *config.Config, key, v string) {
 		cfg.AgentDB.AllowPublicIP = v == "true"
 	case "agentdb.require_backup_before_destroy":
 		cfg.AgentDB.RequireBackupBeforeDrop = v == "true"
+	case "agentdb.reconcile_interval_seconds":
+		cfg.AgentDB.ReconcileIntervalSeconds = atoi(v)
 	}
 }
 

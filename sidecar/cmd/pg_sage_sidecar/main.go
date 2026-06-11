@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/advisor"
+	"github.com/pg-sage/sidecar/internal/agentdb"
 	"github.com/pg-sage/sidecar/internal/alerting"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/api"
@@ -89,6 +90,19 @@ var (
 	shutdownCancel      context.CancelFunc
 	rateLimiterInstance *RateLimiter
 )
+
+// fleetLLMBudget is the optional per-database LLM token budget (F5).
+// nil when llm.fleet_token_budget_daily is 0.
+var fleetLLMBudget *fleet.FleetBudget
+
+// dbBudget adapts a per-database FleetBudget allocation to llm.Budgeter.
+type dbBudget struct {
+	b  *fleet.FleetBudget
+	db string
+}
+
+func (d dbBudget) CanSpend(tokens int) bool { return d.b.CanSpend(d.db, tokens) }
+func (d dbBudget) Spend(tokens int)         { d.b.Spend(d.db, tokens) }
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
@@ -595,11 +609,19 @@ func initStandalone() {
 	// 9c. Notification dispatcher.
 	notifyDispatcher := notify.NewDispatcher(
 		pool, logStructuredWrapper)
+	registerNotifySenders(notifyDispatcher)
 	dbName := resolveDBName()
 	exec.WithDispatcher(notifyDispatcher)
 	exec.WithDatabaseName(dbName)
+	if llmClient != nil && llmClient.IsEnabled() {
+		exec.WithJustifier(llmClient)
+	}
 	anal.WithDispatcher(notifyDispatcher)
 	anal.WithDatabaseName(dbName)
+	if llmClient != nil && llmClient.IsEnabled() {
+		anal.WithPlanNarrator(
+			analyzer.NewLLMPlanNarrator(llmClient, logStructuredWrapper))
+	}
 
 	go store.StartActionExpiry(shutdownCtx, actionStore, logStructuredWrapper)
 
@@ -689,6 +711,16 @@ func initStandalone() {
 		cfg.Collector.IntervalSeconds, cfg.Analyzer.IntervalSeconds, cfg.Trust.Level)
 }
 
+// registerNotifySenders wires the built-in notification senders onto a
+// dispatcher. Without it, the executor/analyzer event path dispatched to
+// a sender-less dispatcher and every notification silently no-op'd with
+// "no sender for type" (F1).
+func registerNotifySenders(d *notify.Dispatcher) {
+	d.RegisterSender(notify.NewSlackSender())
+	d.RegisterSender(notify.NewEmailSender())
+	d.RegisterSender(notify.NewPagerDutySender())
+}
+
 func standaloneOrchestrator() {
 	// Run executor and retention after each analyzer interval.
 	ticker := time.NewTicker(cfg.Analyzer.Interval() + 5*time.Second)
@@ -702,10 +734,17 @@ func standaloneOrchestrator() {
 			}
 			ctx := shutdownCtx
 
-			// HA check.
+			// HA check. Suppress autonomous actions both on a replica
+			// and during a failover flap (safe mode) — running DDL
+			// against a node whose role is changing is unsafe (S3).
 			isReplica := false
 			if haMon != nil {
 				isReplica = haMon.Check(ctx)
+				if haMon.InSafeMode() {
+					logWarn("ha", "safe mode active — "+
+						"suppressing autonomous actions")
+					isReplica = true
+				}
 			}
 
 			// Executor.
@@ -832,7 +871,21 @@ func initFleetMultiDB() {
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
 	llmMgr = llm.NewManager(llmClient, nil, false)
 
+	// Per-database LLM token budget (F5): split a fleet-wide daily cap
+	// across databases so one noisy DB can't drain the whole budget.
+	if cfg.LLM.FleetTokenBudgetDaily > 0 {
+		names := make([]string, 0, len(cfg.Databases))
+		for _, d := range cfg.Databases {
+			names = append(names, d.Name)
+		}
+		fleetLLMBudget = fleet.NewBudget(cfg.LLM.FleetTokenBudgetDaily, names)
+		go resetFleetBudgetDaily(shutdownCtx, fleetLLMBudget)
+		logInfo("fleet", "per-database LLM budget enabled: %d tokens/day across %d databases",
+			cfg.LLM.FleetTokenBudgetDaily, len(names))
+	}
+
 	var configPool *pgxpool.Pool // first connected DB used for config store
+	adminBootstrapped := false   // admin is created on the first connected DB
 
 	// v0.9.1: fleet-mode logwatch — one watcher per cluster (host:port).
 	// Multiple databases on the same PostgreSQL instance share a log
@@ -840,7 +893,7 @@ func initFleetMultiDB() {
 	// signals to each database's RCA engine.
 	logFanouts := make(map[string]*logwatch.LogFanout)
 
-	for i, dbCfg := range cfg.Databases {
+	for _, dbCfg := range cfg.Databases {
 		name := dbCfg.Name
 		dsn := dbCfg.ConnString()
 		logInfo("fleet", "connecting to database %q", name)
@@ -927,13 +980,20 @@ func initFleetMultiDB() {
 			configPool = dbPool
 		}
 
-		// Bootstrap admin user on first database only.
-		if i == 0 {
+		// Bootstrap the admin user once, on the first database that
+		// actually connected. Gating on config index 0 (the old
+		// behavior) meant that if the first configured DB was
+		// unreachable, no admin was ever created and the dashboard was
+		// permanently locked out — even with other DBs healthy
+		// (LIVE-03). This is also the DB that becomes the auth/primary
+		// pool, so the admin lands where logins are validated.
+		if !adminBootstrapped {
 			if err := bootstrapAdminIfEmpty(
 				context.Background(), dbPool,
 			); err != nil {
 				logWarn("fleet", "admin bootstrap: %v", err)
 			}
+			adminBootstrapped = true
 		}
 
 		// Detect PG version for this database.
@@ -1173,10 +1233,18 @@ func initFleetMultiDB() {
 		// Notification dispatcher per database.
 		dbDispatcher := notify.NewDispatcher(
 			dbPool, logStructuredWrapper)
+		registerNotifySenders(dbDispatcher)
 		dbExec.WithDispatcher(dbDispatcher)
 		dbExec.WithDatabaseName(name)
+		if llmClient != nil && llmClient.IsEnabled() {
+			dbExec.WithJustifier(llmClient)
+		}
 		dbAnal.WithDispatcher(dbDispatcher)
 		dbAnal.WithDatabaseName(name)
+		if llmClient != nil && llmClient.IsEnabled() {
+			dbAnal.WithPlanNarrator(
+				analyzer.NewLLMPlanNarrator(llmClient, logStructuredWrapper))
+		}
 
 		go store.StartActionExpiry(
 			instCtx, dbActionStore, logStructuredWrapper)
@@ -1426,6 +1494,12 @@ func fleetDBOrchestrator(
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	// Per-database HA monitor so fleet executors gate autonomous actions
+	// on this DB's own replica/safe-mode state instead of the previous
+	// hardcoded RunCycle(ctx, false), which would run DDL on a replica
+	// or during a failover flap (S2/S3).
+	dbHA := ha.New(dbPool, logStructuredWrapper)
+
 	for {
 		select {
 		case <-ticker.C:
@@ -1433,7 +1507,13 @@ func fleetDBOrchestrator(
 				return
 			}
 			if dbExec != nil {
-				dbExec.RunCycle(ctx, false)
+				isReplica := dbHA.Check(ctx)
+				if dbHA.InSafeMode() {
+					logWarn("ha", "[%s] safe mode active — "+
+						"suppressing autonomous actions", name)
+					isReplica = true
+				}
+				dbExec.RunCycle(ctx, isReplica)
 			}
 			// Briefing (scheduled).
 			if dbBrief != nil &&
@@ -1484,6 +1564,13 @@ func buildFleetLLMFeatures(
 				&cfg.LLM, &cfg.LLM.OptimizerLLM,
 				logStructuredWrapper,
 			)
+		} else if fleetLLMBudget != nil {
+			// Per-DB client so the fleet budget attaches per database
+			// instead of to the shared client (F5).
+			optClient = llm.New(&cfg.LLM, logStructuredWrapper)
+		}
+		if fleetLLMBudget != nil {
+			optClient.SetBudget(dbBudget{b: fleetLLMBudget, db: databaseName})
 		}
 		var fallback *llm.Client
 		if cfg.LLM.OptimizerLLM.FallbackToGeneral &&
@@ -1651,6 +1738,26 @@ func startAPIServer(rl *RateLimiter) {
 		RateLimiter: rl,
 	})
 
+	// Fail loudly (not silently) when there is no usable auth pool.
+	// Without it, registerAuthRoutes is skipped and every /api/* path
+	// 401s with no /auth/login to recover — a bricked dashboard that
+	// otherwise looks healthy in the logs (LIVE-01/04).
+	if result.AuthPool == nil {
+		logError("api",
+			"AUTH DISABLED: no connected database available for session "+
+				"storage — dashboard login and all authenticated API "+
+				"endpoints are unavailable. Ensure at least one configured "+
+				"database is reachable (or configure a meta-database), then "+
+				"restart.")
+	}
+
+	// Start the agent-DB lifecycle reconciler: it archives expired leases
+	// and destroys abandoned deployments. The logic was built and tested
+	// but never scheduled (F4). Dormant when no agent DBs exist.
+	if result.AuthPool != nil {
+		startAgentDBReconciler(shutdownCtx, result.AuthPool)
+	}
+
 	apiServer = &http.Server{
 		Addr:              addr,
 		Handler:           result.Handler,
@@ -1667,6 +1774,76 @@ func startAPIServer(rl *RateLimiter) {
 			logError("api", "server error: %v", err)
 		}
 	}()
+}
+
+// startAgentDBReconciler launches the periodic agent-DB lifecycle
+// reconciler. interval <= 0 disables it.
+func startAgentDBReconciler(ctx context.Context, pool *pgxpool.Pool) {
+	interval := cfg.AgentDB.ReconcileIntervalSeconds
+	if interval <= 0 {
+		logInfo("agentdb", "lifecycle reconciler disabled (interval<=0)")
+		return
+	}
+	store := agentdb.NewStore(pool)
+	registry := agentdb.RuntimeRunnerRegistryFromEnv(ctx)
+	go func() {
+		ticker := time.NewTicker(time.Duration(interval) * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				reconcileAgentDBsOnce(ctx, store, registry)
+			}
+		}
+	}()
+	logInfo("agentdb",
+		"lifecycle reconciler started, interval=%ds", interval)
+}
+
+// reconcileAgentDBsOnce runs one reconcile pass (extracted for testing).
+func reconcileAgentDBsOnce(
+	ctx context.Context,
+	store *agentdb.Store,
+	registry *agentdb.RunnerRegistry,
+) {
+	rctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	res, err := store.ReconcileAbandonedDeployments(
+		rctx, time.Now(), registry)
+	if err != nil {
+		logWarn("agentdb", "reconcile abandoned: %v", err)
+	} else if len(res.Archived) > 0 || len(res.DestroyLive) > 0 ||
+		len(res.DestroyDryRun) > 0 || len(res.Blocked) > 0 {
+		logInfo("agentdb",
+			"reconcile: archived=%d destroyed=%d dry_run=%d blocked=%d",
+			len(res.Archived), len(res.DestroyLive),
+			len(res.DestroyDryRun), len(res.Blocked))
+	}
+	if _, err := store.ReconcileLiveProvisioning(rctx, registry); err != nil {
+		logWarn("agentdb", "reconcile live provisioning: %v", err)
+	}
+	// Bring newly-provisioned agent databases into the fleet so the
+	// collector monitors them (B1).
+	if fleetMgr != nil {
+		syncAgentDBsToFleet(rctx, store, fleetMgr)
+	}
+}
+
+// resetFleetBudgetDaily resets the per-database LLM token budget every
+// 24h so allocations refresh (F5).
+func resetFleetBudgetDaily(ctx context.Context, b *fleet.FleetBudget) {
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			b.ResetDaily()
+		}
+	}
 }
 
 func updateFleetStatus(ctx context.Context) {

@@ -25,7 +25,7 @@ func (s *Store) UpsertProviderConfig(
 		return ProviderConfig{}, err
 	}
 	var cfg ProviderConfig
-	err := scanProviderConfig(s.pool.QueryRow(ctx, `
+	err := scanProviderConfig(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		INSERT INTO sage.agent_db_provider_configs (provider, enabled, settings)
 		VALUES ($1, $2, $3::jsonb)
 		ON CONFLICT (provider) DO UPDATE
@@ -45,7 +45,7 @@ func (s *Store) ProviderConfig(ctx context.Context, provider string) (ProviderCo
 	}
 	provider = normalizeProvider(provider)
 	var cfg ProviderConfig
-	err := scanProviderConfig(s.pool.QueryRow(ctx, `
+	err := scanProviderConfig(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT provider, enabled, settings, last_validated_at, created_at, updated_at
 		FROM sage.agent_db_provider_configs
 		WHERE provider=$1`, provider), &cfg)
@@ -60,7 +60,7 @@ func (s *Store) ProviderConfigs(ctx context.Context) ([]ProviderConfig, error) {
 	if err := s.Ensure(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.pool.Query(ctx, `/* pg_sage */ 
 		SELECT provider, enabled, settings, last_validated_at, created_at, updated_at
 		FROM sage.agent_db_provider_configs
 		ORDER BY provider`)

@@ -34,6 +34,7 @@ var expectedTables = []struct {
 	{"schema_findings", ddlSchemaFindings},
 	{"crypto_meta", ddlCryptoMeta},
 	{"health_history", ddlHealthHistory},
+	{"query_store", ddlQueryStore},
 }
 
 // Bootstrap acquires an advisory lock, then ensures the sage schema and
@@ -287,7 +288,7 @@ CREATE SCHEMA IF NOT EXISTS sage;
 	ddlQueryHintsRewrite + ddlQueryHintsRevalidate +
 	ddlIncidents + ddlSizeHistory + ddlExplainResults +
 	ddlSchemaFindings + ddlCryptoMeta + ddlHealthHistory +
-	ddlFleetScaleIndexes
+	ddlFleetScaleIndexes + ddlQueryStore
 
 const ddlActionLog = `
 CREATE TABLE IF NOT EXISTS sage.action_log (
@@ -521,6 +522,8 @@ ALTER TABLE sage.action_log
     ADD COLUMN IF NOT EXISTS approved_by INT;
 ALTER TABLE sage.action_log
     ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+ALTER TABLE sage.action_log
+    ADD COLUMN IF NOT EXISTS justification TEXT;
 `
 
 const ddlActionQueueLifecycleCols = `
@@ -838,4 +841,26 @@ CREATE INDEX IF NOT EXISTS idx_health_history_lookup
     ON sage.health_history (database_name, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_health_history_recent
     ON sage.health_history (recorded_at DESC);
+`
+
+// ddlQueryStore is the per-queryid metrics time-series (F2). It records a
+// sample per top query each cycle so windowed latency can be computed
+// (pg_stat_statements only exposes lifetime averages). It is the
+// substrate for per-queryid verify-and-revert (F1) and plan-regression
+// detection (A5). Plan_hash is nullable until a plan is captured.
+const ddlQueryStore = `
+CREATE TABLE IF NOT EXISTS sage.query_store (
+    id              bigserial PRIMARY KEY,
+    captured_at     timestamptz NOT NULL DEFAULT now(),
+    queryid         bigint NOT NULL,
+    calls           bigint NOT NULL,
+    total_exec_time double precision NOT NULL,
+    mean_exec_time  double precision NOT NULL,
+    rows            bigint NOT NULL DEFAULT 0,
+    plan_hash       text
+);
+CREATE INDEX IF NOT EXISTS idx_query_store_qid_time
+    ON sage.query_store (queryid, captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_query_store_time
+    ON sage.query_store (captured_at DESC);
 `

@@ -52,12 +52,32 @@ func TestQueryStatsSQL_SelectsCorrectVariant(t *testing.T) {
 		variants := map[string]string{
 			"queryStatsSQL":                   queryStatsSQL,
 			"queryStatsWithWALSQL":            queryStatsWithWALSQL,
-			"queryStatsWithPlanTimeSQL":        queryStatsWithPlanTimeSQL,
+			"queryStatsWithPlanTimeSQL":       queryStatsWithPlanTimeSQL,
 			"queryStatsWithWALAndPlanTimeSQL": queryStatsWithWALAndPlanTimeSQL,
 		}
 		for name, sql := range variants {
 			if !strings.Contains(sql, "AND queryid IS NOT NULL") {
 				t.Errorf("%s must contain 'AND queryid IS NOT NULL'", name)
+			}
+		}
+	})
+
+	t.Run("all variants filter pg_sage self queries", func(t *testing.T) {
+		variants := map[string]string{
+			"queryStatsSQL":                   queryStatsSQL,
+			"queryStatsWithWALSQL":            queryStatsWithWALSQL,
+			"queryStatsWithPlanTimeSQL":       queryStatsWithPlanTimeSQL,
+			"queryStatsWithWALAndPlanTimeSQL": queryStatsWithWALAndPlanTimeSQL,
+		}
+		for name, sql := range variants {
+			if !strings.Contains(sql, "NOT ILIKE '%%pg_sage%%'") {
+				t.Errorf(
+					"%s must escape pg_sage ILIKE in fmt template",
+					name,
+				)
+			}
+			if !strings.Contains(sql, `"?sage"?`) {
+				t.Errorf("%s must filter sage schema references", name)
 			}
 		}
 	})
@@ -348,7 +368,7 @@ func TestQueryStatsSQL_HasLimitPlaceholder(t *testing.T) {
 	variants := map[string]string{
 		"queryStatsSQL":                   queryStatsSQL,
 		"queryStatsWithWALSQL":            queryStatsWithWALSQL,
-		"queryStatsWithPlanTimeSQL":        queryStatsWithPlanTimeSQL,
+		"queryStatsWithPlanTimeSQL":       queryStatsWithPlanTimeSQL,
 		"queryStatsWithWALAndPlanTimeSQL": queryStatsWithWALAndPlanTimeSQL,
 	}
 	for name, sql := range variants {

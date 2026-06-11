@@ -33,6 +33,7 @@ func optimizerRecommendationToFinding(
 			"hypopg_validated":          rec.Validated,
 			"plan_source":               planSource,
 			"affected_queries":          rec.AffectedQueries,
+			"queryids":                  rec.AffectedQueryIDs,
 		},
 		Recommendation: rec.Rationale,
 		RecommendedSQL: rec.DDL,

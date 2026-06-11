@@ -1,5 +1,48 @@
 # Changelog
 
+## v1.2 (2026-06-11) -- Autonomous DBA Core + LLM-Native Tier
+
+### Added
+
+- **Query store (F2):** `sage.query_store` records per-queryid metrics each
+  cycle, enabling *windowed* latency (pg_stat_statements only exposes lifetime
+  averages). Substrate for verify-and-revert and plan-regression detection.
+- **Per-queryid verify-and-revert (F1):** the executor's rollback check now
+  compares the targeted queries' before/after windowed latency instead of a
+  coarse global cache-hit/avg-write heuristic, so a change is reverted only if
+  the queries it targeted actually regressed.
+- **Index lifecycle (A2):** optimizer index recommendations now carry their
+  analyzed queryids, so F1 verifies a newly-created index and drops it (via its
+  `DROP INDEX` rollback) if a targeted query regresses; combined with the
+  existing measured-non-use auto-drop.
+- **Per-table autovacuum tuning (A1), ANALYZE / stale-statistics autopilot
+  (A4), and wraparound-freeze guard (A6)** — deterministic SAFE/critical
+  maintenance actions with rollback.
+- **Doc-grounded config tuning (A3):** a curated GUC knowledge base grounds the
+  advisor's LLM recommendations in documented semantics and gates any
+  `ALTER SYSTEM` value outside the documented safe range.
+- **Plain-English action justification (C4):** every executed action gets an
+  LLM-written audit note in `sage.action_log.justification`.
+- **Plan-change narrative (C6):** `plan_regression` findings are enriched with
+  an LLM "why did the plan change" explanation.
+- **AgentDB fleet integration (B1)**, lifecycle reconciler scheduling (F4), and
+  fleet LLM token-budget enforcement (F5).
+- `llm.UnwrapText` strips `json_mode` JSON wrapping from prose audit
+  notes/narratives.
+
+### Changed
+
+- **Self-monitoring:** every query pg_sage issues now carries a `/* pg_sage */`
+  marker, so the self-monitoring filter excludes them from analysis and they
+  are identifiable (not anonymous noise) in `pg_stat_statements`.
+- `isThinkingModel` now covers the `gemini-3.x` series (reserves output-token
+  budget for thinking models, e.g. `gemini-3.5-flash`).
+
+### Fixed
+
+- **Retention:** `cleanStaleFirstSeen` no longer skips stale-key cleanup when
+  the index snapshot is empty (a regression from an over-broad safety guard).
+
 ## v1.1 (2026-05-10) -- AgentDB Cloud Provisioning Release
 
 ### Added
