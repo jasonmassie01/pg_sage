@@ -50,6 +50,18 @@
   recognizes pg_sage's statistics-catalog reads (`pg_stat_statements`,
   `pg_stat_user_tables`, etc.) even in historical findings captured before
   queries were tagged.
+- **Recommendation quality:**
+  - The connection advisor now sizes `max_connections` against *total* (open)
+    backends, not just active ones, with a hard deterministic floor — it can
+    no longer recommend a value below current usage (previously it could
+    suggest `max_connections = 20` on a database with 28 open connections).
+  - Index rules (unused / duplicate / subset / missing-FK) now skip system and
+    extension-internal schemas (`pg_*`, `information_schema`, `_timescaledb_*`),
+    so pg_sage no longer recommends dropping or creating indexes it has no
+    business touching (e.g. `_timescaledb_catalog` indexes).
+  - Subset-index detection now also requires the superset to serve the subset's
+    `INCLUDE` columns, so an index supporting an index-only scan isn't flagged
+    as redundant.
 
 ## v1.1 (2026-05-10) -- AgentDB Cloud Provisioning Release
 
