@@ -204,6 +204,22 @@ func (e *Executor) ExecutionMode() string {
 	return e.execMode
 }
 
+// effectiveExecMode resolves the execution mode the gate should use.
+// "manual" combined with a non-observation trust level is contradictory:
+// the operator raised trust to act autonomously, but a manual gate would
+// silently block everything (the "I turned on autonomous and nothing
+// happened" trap). Honor the trust intent and treat it as "auto" — actions
+// are still gated by trust tier, ramp age, and the maintenance window.
+// "auto" and the explicit "approval" choice are returned unchanged.
+func (e *Executor) effectiveExecMode() string {
+	if e.execMode == "manual" {
+		if lvl := e.TrustLevel(); lvl != "" && lvl != "observation" {
+			return "auto"
+		}
+	}
+	return e.execMode
+}
+
 // shouldExecute checks whether a finding should be executed,
 // respecting any per-instance trust level override.
 func (e *Executor) shouldExecute(
@@ -222,8 +238,10 @@ func (e *Executor) shouldExecute(
 // RunCycle is called after each analyzer cycle to evaluate and execute
 // any actionable findings.
 func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
-	// Manual mode: no auto-proposals or executions.
-	if e.execMode == "manual" {
+	// Manual mode blocks all execution — but a non-observation trust level
+	// promotes manual to auto (see effectiveExecMode), so raising trust in
+	// the UI actually opens the gate without a separate execution_mode flip.
+	if e.effectiveExecMode() == "manual" {
 		return
 	}
 

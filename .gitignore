@@ -86,3 +86,5 @@ __pycache__/
 *.pyc
 DECISIONS.md
 REENTRY.md
+logs/
+*.log

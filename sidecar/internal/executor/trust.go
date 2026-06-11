@@ -73,21 +73,36 @@ func inMaintenanceWindow(cronExpr string) bool {
 }
 
 func inMaintenanceWindowAt(cronExpr string, now time.Time) bool {
-	if cronExpr == "" {
+	s := strings.TrimSpace(cronExpr)
+	if s == "" {
 		return false
 	}
 
-	trimmed := strings.TrimSpace(cronExpr)
-	if strings.EqualFold(trimmed, "always") {
+	// Friendly preset names (nights, weekends, off-hours, business-hours,
+	// ...) expand to a canonical form so users who have never touched cron
+	// can express a maintenance window.
+	if canon, ok := maintenancePresets[strings.ToLower(s)]; ok {
+		s = canon
+	}
+	switch strings.ToLower(s) {
+	case "never", "off", "none", "disabled":
+		return false
+	case "always", "anytime", "24x7", "24/7":
 		return true
 	}
 
 	// "HH:MM-HH:MM" daily time range.
-	if r, ok := parseTimeRange(trimmed); ok {
+	if r, ok := parseTimeRange(s); ok {
 		return r.contains(now)
 	}
 
-	parts := strings.Fields(trimmed)
+	// Friendly "<days> [HH:MM-HH:MM]" — e.g. "weekdays 01:00-05:00",
+	// "weekends", "Sat-Sun 02:00-06:00", "Mon,Wed,Fri 22:00-04:00".
+	if in, ok := parseFriendlyWindowAt(s, now); ok {
+		return in
+	}
+
+	parts := strings.Fields(s)
 	if len(parts) < 2 {
 		return false
 	}
@@ -140,6 +155,112 @@ func inMaintenanceWindowAt(cronExpr string, now time.Time) bool {
 	windowEnd := windowStart.Add(1 * time.Hour)
 
 	return !now.Before(windowStart) && now.Before(windowEnd)
+}
+
+// maintenancePresets map friendly names to a canonical maintenance-window
+// expression so a non-cron user can pick a sensible window by name.
+var maintenancePresets = map[string]string{
+	"nights":         "daily 22:00-06:00",
+	"nightly":        "daily 22:00-06:00",
+	"overnight":      "daily 22:00-06:00",
+	"weeknights":     "weekdays 22:00-06:00",
+	"off-hours":      "daily 20:00-08:00",
+	"off-peak":       "daily 20:00-08:00",
+	"business-hours": "weekdays 09:00-17:00",
+	"weekends":       "weekends",
+	"weekend":        "weekends",
+	"weekdays":       "weekdays",
+	"weekday":        "weekdays",
+}
+
+// parseFriendlyWindowAt handles "<days> [HH:MM-HH:MM]" expressions, where
+// days is a name (weekdays, weekends, daily), a list (Sat,Sun), or a range
+// (Mon-Fri). matched=false means the string is not this form, so the
+// caller falls through to cron parsing.
+func parseFriendlyWindowAt(s string, now time.Time) (inWindow, matched bool) {
+	fields := strings.Fields(s)
+	if len(fields) == 0 || len(fields) > 2 {
+		return false, false
+	}
+	dayMatch, ok := matchesDaySpec(fields[0], now.Weekday())
+	if !ok {
+		return false, false
+	}
+	if len(fields) == 1 {
+		return dayMatch, true // all day on those days
+	}
+	r, ok := parseTimeRange(fields[1])
+	if !ok {
+		return false, false
+	}
+	return dayMatch && r.contains(now), true
+}
+
+// matchesDaySpec reports whether weekday wd is covered by a day spec like
+// "daily", "weekdays", "weekends", "mon-fri", "sat,sun", or "mon,wed,fri".
+// ok=false means the token is not a recognized day spec.
+func matchesDaySpec(spec string, wd time.Weekday) (match, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(spec)) {
+	case "daily", "everyday", "every-day", "all", "all-days":
+		return true, true
+	case "weekday", "weekdays":
+		return wd >= time.Monday && wd <= time.Friday, true
+	case "weekend", "weekends":
+		return wd == time.Saturday || wd == time.Sunday, true
+	}
+	var set [7]bool
+	any := false
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if dash := strings.IndexByte(part, '-'); dash > 0 {
+			a, oka := dayNum(part[:dash])
+			b, okb := dayNum(part[dash+1:])
+			if !oka || !okb {
+				return false, false
+			}
+			for d := a; ; d = (d + 1) % 7 { // inclusive, wraps (fri-mon)
+				set[d] = true
+				if d == b {
+					break
+				}
+			}
+			any = true
+		} else {
+			d, okd := dayNum(part)
+			if !okd {
+				return false, false
+			}
+			set[d] = true
+			any = true
+		}
+	}
+	if !any {
+		return false, false
+	}
+	return set[int(wd)], true
+}
+
+func dayNum(s string) (int, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "sun", "sunday":
+		return 0, true
+	case "mon", "monday":
+		return 1, true
+	case "tue", "tues", "tuesday":
+		return 2, true
+	case "wed", "weds", "wednesday":
+		return 3, true
+	case "thu", "thur", "thurs", "thursday":
+		return 4, true
+	case "fri", "friday":
+		return 5, true
+	case "sat", "saturday":
+		return 6, true
+	}
+	return 0, false
 }
 
 // timeRange is a daily window expressed in minutes since midnight.

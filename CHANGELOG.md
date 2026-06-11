@@ -40,6 +40,17 @@
   marker and any `sage.`-schema query from analysis.
 - `isThinkingModel` now covers the `gemini-3.x` series (reserves output-token
   budget for thinking models, e.g. `gemini-3.5-flash`).
+- **Autonomy gate coupling:** raising the trust level to advisory/autonomous
+  now opens the execution gate. A `manual` execution_mode combined with a
+  non-observation trust level was a silent contradiction (the "turned on
+  autonomous, nothing happened" trap); the executor now treats that as `auto`
+  (still gated by trust tier, ramp age, and the maintenance window). Works live
+  and across restart, since trust level persists in `sage.config`.
+- **Maintenance windows are no longer cron-only.** The window accepts friendly
+  forms: presets (`nights`, `weeknights`, `weekends`, `off-hours`,
+  `business-hours`, `always`, `never`) and day-qualified ranges
+  (`weekdays 01:00-05:00`, `Sat-Sun 02:00-06:00`, `Mon,Wed,Fri 22:00-04:00`),
+  alongside the existing `HH:MM-HH:MM` and cron syntax.
 
 ### Fixed
 
