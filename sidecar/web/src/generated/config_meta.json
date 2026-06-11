@@ -39,6 +39,31 @@
     "default": true,
     "doc": ""
   },
+  "agentdb.allow_public_ip": {
+    "type": "bool",
+    "default": false,
+    "doc": ""
+  },
+  "agentdb.live_provisioning_enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": ""
+  },
+  "agentdb.providers": {
+    "type": "map[string]struct",
+    "default": null,
+    "doc": ""
+  },
+  "agentdb.reconcile_interval_seconds": {
+    "type": "int",
+    "default": 300,
+    "doc": "How often to reconcile agent-DB deployments: archive expired leases and destroy abandoned ones. 0 disables. Default: 300."
+  },
+  "agentdb.require_backup_before_destroy": {
+    "type": "bool",
+    "default": true,
+    "doc": ""
+  },
   "alerting.check_interval_seconds": {
     "type": "int",
     "default": 60,
@@ -104,6 +129,21 @@
     "default": "",
     "doc": ""
   },
+  "analyzer.analyze_stale_days": {
+    "type": "int",
+    "default": 7,
+    "doc": "A table whose last (auto)analyze is older than this many days, with write activity, is flagged for ANALYZE. Default: 7."
+  },
+  "analyzer.analyze_stale_min_rows": {
+    "type": "int",
+    "default": 10000,
+    "doc": "Minimum live rows before recommending ANALYZE on a stale/never-analyzed table. Default: 10000."
+  },
+  "analyzer.autovacuum_tune_min_rows": {
+    "type": "int",
+    "default": 1000000,
+    "doc": "Minimum live-row count before the per-table autovacuum tuner recommends a lower scale factor. Tuning small tables is pointless. Default: 1000000."
+  },
   "analyzer.cache_hit_ratio_warning": {
     "type": "float64",
     "default": 0.95,
@@ -129,6 +169,36 @@
     "default": 600,
     "doc": "How often the analyzer runs its rule checks, in seconds. Lower values detect issues faster but add load."
   },
+  "analyzer.lock_chain.active_query_cancel_minutes": {
+    "type": "int",
+    "default": 15,
+    "doc": "Minutes an active query root blocker must run before pg_cancel_backend is recommended. Default: 15."
+  },
+  "analyzer.lock_chain.critical_blocked_threshold": {
+    "type": "int",
+    "default": 10,
+    "doc": "Blocked session count that escalates finding to critical severity. Default: 10."
+  },
+  "analyzer.lock_chain.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Enable lock chain detection using pg_blocking_pids(). Detects cascading lock waits."
+  },
+  "analyzer.lock_chain.idle_in_tx_terminate_minutes": {
+    "type": "int",
+    "default": 5,
+    "doc": "Minutes an idle-in-transaction root blocker must wait before pg_terminate_backend is recommended. Default: 5."
+  },
+  "analyzer.lock_chain.min_blocked_threshold": {
+    "type": "int",
+    "default": 3,
+    "doc": "Minimum blocked sessions before a lock chain generates a finding. Default: 3."
+  },
+  "analyzer.lock_chain.safe_patterns": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Application name substrings that protect a process from automated termination/cancellation."
+  },
   "analyzer.regression_lookback_days": {
     "type": "int",
     "default": 7,
@@ -148,6 +218,11 @@
     "type": "int",
     "default": 1000,
     "doc": "Queries with mean_exec_time above this are considered slow and become candidates for optimization findings."
+  },
+  "analyzer.slow_slot_retained_bytes": {
+    "type": "int64",
+    "default": 0,
+    "doc": "Active slots retaining more WAL than this (bytes) are flagged as slow consumers. Default 1 GB. Slow consumers hold xmin, blocking vacuum."
   },
   "analyzer.table_bloat_dead_tuple_pct": {
     "type": "int",
@@ -170,6 +245,11 @@
     "default": 5,
     "doc": "How many active work_mem hints a single role must accumulate before the analyzer recommends promoting work_mem at the role level via ALTER ROLE. Set 0 to disable the advisor."
   },
+  "analyzer.wraparound_freeze_xid_age": {
+    "type": "int",
+    "default": 150000000,
+    "doc": "Per-table transaction age (age(relfrozenxid)) at which to recommend VACUUM (FREEZE) to prevent XID wraparound. Default: 150000000."
+  },
   "analyzer.xid_wraparound_critical": {
     "type": "int64",
     "default": 1000000000,
@@ -185,6 +265,12 @@
     "type": "string",
     "default": "0.0.0.0:8080",
     "doc": "Address the REST API and dashboard HTTP server binds to (host:port). Use :8080 to listen on all interfaces."
+  },
+  "api.trusted_proxies": {
+    "type": "[]string",
+    "default": null,
+    "doc": "IPs or CIDR blocks permitted to set X-Forwarded-For. Defaults to loopback only. Expand when running behind a trusted reverse proxy, load balancer, or CDN.",
+    "warning": "Adding an untrusted or externally-reachable proxy lets attackers spoof their client IP and bypass login rate limits."
   },
   "auto_explain.collect_interval_seconds": {
     "type": "int",
@@ -259,6 +345,12 @@
     "doc": "Database name on the target instance.",
     "mode": "fleet-only"
   },
+  "databases[].execution_mode": {
+    "type": "string",
+    "default": "",
+    "doc": "Per-database action execution mode: auto executes eligible actions, approval queues them for review, manual disables autonomous queueing. Defaults to defaults.execution_mode or auto.",
+    "mode": "fleet-only"
+  },
   "databases[].host": {
     "type": "string",
     "default": "",
@@ -326,6 +418,12 @@
     "doc": "Default collector interval applied to fleet databases that don't set their own value.",
     "mode": "fleet-only"
   },
+  "defaults.execution_mode": {
+    "type": "string",
+    "default": "",
+    "doc": "Default action execution mode applied to fleet databases that don't set their own value. One of auto, approval, manual.",
+    "mode": "fleet-only"
+  },
   "defaults.max_connections": {
     "type": "int",
     "default": 0,
@@ -344,6 +442,31 @@
     "doc": "Passphrase used to encrypt sensitive fleet-mode fields (per-database passwords). Rotate via the key-rotation runbook.",
     "secret": true
   },
+  "explain.cache_ttl_minutes": {
+    "type": "int",
+    "default": 60,
+    "doc": "TTL for cached explain results. Default: 60."
+  },
+  "explain.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Enable the LLM-powered natural language EXPLAIN API endpoint."
+  },
+  "explain.max_tokens": {
+    "type": "int",
+    "default": 4096,
+    "doc": "Maximum LLM output tokens for explain responses. Default: 4096."
+  },
+  "explain.timeout_ms": {
+    "type": "int",
+    "default": 10000,
+    "doc": "statement_timeout for EXPLAIN ANALYZE execution. Default: 10000."
+  },
+  "forecaster.alert_horizons": {
+    "type": "[]int",
+    "default": null,
+    "doc": "Days-until-full thresholds that generate findings. Default: [30, 7, 3]."
+  },
   "forecaster.cache_warn_threshold": {
     "type": "float64",
     "default": 0.95,
@@ -353,6 +476,11 @@
     "type": "float64",
     "default": 80,
     "doc": ""
+  },
+  "forecaster.disk_capacity_bytes": {
+    "type": "int64",
+    "default": 0,
+    "doc": "Total disk capacity in bytes. 0 = auto-detect. Set explicitly for managed services (RDS, Cloud SQL)."
   },
   "forecaster.disk_warn_growth_gb_day": {
     "type": "float64",
@@ -368,6 +496,16 @@
     "type": "int",
     "default": 30,
     "doc": ""
+  },
+  "forecaster.min_data_points": {
+    "type": "int",
+    "default": 24,
+    "doc": "Minimum data points required before generating a forecast. Default: 24."
+  },
+  "forecaster.min_r_squared": {
+    "type": "float64",
+    "default": 0.5,
+    "doc": "Minimum R-squared for forecast reliability. Below this, findings are info-only. Default: 0.5."
   },
   "forecaster.sequence_critical_days": {
     "type": "int",
@@ -405,6 +543,11 @@
     "default": "",
     "doc": "LLM provider base URL. Supports OpenAI-compatible chat-completions endpoints. Can be left blank to use the vendor default."
   },
+  "llm.fleet_token_budget_daily": {
+    "type": "int",
+    "default": 0,
+    "doc": "Fleet-wide daily token cap split per database so one noisy database can't drain the whole budget. 0 disables per-database budgeting (fleet mode only)."
+  },
   "llm.index_optimizer.enabled": {
     "type": "bool",
     "default": false,
@@ -434,6 +577,11 @@
     "type": "int",
     "default": 70,
     "doc": ""
+  },
+  "llm.json_mode": {
+    "type": "bool",
+    "default": false,
+    "doc": "When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."
   },
   "llm.model": {
     "type": "string",
@@ -556,10 +704,95 @@
     "default": 500000,
     "doc": "Soft daily cap on total tokens (input + output) the sidecar will spend on LLM requests. Once exceeded the LLM is skipped until the next UTC day."
   },
+  "logwatch.dedup_window_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Suppress duplicate log signals within this window. Default: 60."
+  },
+  "logwatch.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Enable log file monitoring for RCA. Requires log_destination includes jsonlog or csvlog. Requires rca.enabled=true."
+  },
+  "logwatch.exclude_applications": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Application names excluded from timeout/deadlock signals. Default: pg_sage."
+  },
+  "logwatch.format": {
+    "type": "string",
+    "default": "",
+    "doc": "Log format: jsonlog (PG15+) or csvlog. Auto-detected if blank."
+  },
+  "logwatch.log_directory": {
+    "type": "string",
+    "default": "",
+    "doc": "Path to PG log directory. Auto-detected from pg_settings if blank."
+  },
+  "logwatch.max_line_len_bytes": {
+    "type": "int",
+    "default": 65536,
+    "doc": "Discard log lines longer than this. Default: 65536."
+  },
+  "logwatch.max_lines_per_cycle": {
+    "type": "int",
+    "default": 10000,
+    "doc": "Stop parsing after this many lines per drain cycle. Default: 10000."
+  },
+  "logwatch.poll_interval_ms": {
+    "type": "int",
+    "default": 1000,
+    "doc": "Fallback poll interval when fsnotify is unavailable. Default: 1000."
+  },
+  "logwatch.slow_query_enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Opt-in: parse log_min_duration_statement output as log_slow_query signals. Default: false."
+  },
+  "logwatch.temp_file_min_bytes": {
+    "type": "int",
+    "default": 10485760,
+    "doc": "Minimum temp file size to trigger log_temp_file_created. Default: 10485760."
+  },
   "meta_db": {
     "type": "string",
     "default": "",
     "doc": "DSN of the metadata database used in fleet mode to persist cross-target state. Blank in standalone mode."
+  },
+  "migration.activity_polling": {
+    "type": "bool",
+    "default": false,
+    "doc": "Scan pg_stat_activity for active DDL."
+  },
+  "migration.ddl_row_threshold": {
+    "type": "int",
+    "default": 0,
+    "doc": "Row count below which DDL is considered low-risk. Default: 10000."
+  },
+  "migration.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Enable DDL safety advisory."
+  },
+  "migration.log_detection": {
+    "type": "bool",
+    "default": false,
+    "doc": "Parse DDL from PG logs (requires log_statement=ddl)."
+  },
+  "migration.managed_service": {
+    "type": "string",
+    "default": "",
+    "doc": "Cloud provider: none, rds, aurora, cloudsql, alloydb. Filters unavailable recommendations."
+  },
+  "migration.mode": {
+    "type": "string",
+    "default": "",
+    "doc": "Operating mode: advisory (default). Active mode deferred to future release."
+  },
+  "migration.poll_interval_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "How often to poll during active DDL. Default: 5."
   },
   "mode": {
     "type": "string",
@@ -648,6 +881,46 @@
     "default": "127.0.0.1:9187",
     "doc": ""
   },
+  "rca.connection_saturation_pct": {
+    "type": "int",
+    "default": 80,
+    "doc": "Percentage of max_connections that triggers the connections_high signal. Default: 80."
+  },
+  "rca.dedup_window_minutes": {
+    "type": "int",
+    "default": 30,
+    "doc": "Time window for deduplicating incidents with the same signals and root object. Default: 30."
+  },
+  "rca.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Enable the root cause analysis engine. Correlates multiple signals into unified incident narratives."
+  },
+  "rca.escalation_cycles": {
+    "type": "int",
+    "default": 5,
+    "doc": "Consecutive analyzer cycles an incident stays open before escalating warning to critical. Default: 5."
+  },
+  "rca.llm_correlation_threshold": {
+    "type": "int",
+    "default": 3,
+    "doc": "Minimum concurrent signals to trigger LLM-based correlation (Tier 2). Default: 3."
+  },
+  "rca.replication_lag_threshold_seconds": {
+    "type": "int",
+    "default": 30,
+    "doc": "Seconds of replay lag before the replication_lag_increasing signal fires. Default: 30."
+  },
+  "rca.resolution_cycles": {
+    "type": "int",
+    "default": 2,
+    "doc": "Consecutive clear cycles before an incident auto-resolves. Default: 2."
+  },
+  "rca.wal_spike_multiplier": {
+    "type": "float64",
+    "default": 2,
+    "doc": "WAL bytes delta must exceed previous delta by this multiplier to trigger wal_growth_spike. Default: 2.0."
+  },
   "retention.actions_days": {
     "type": "int",
     "default": 365,
@@ -667,6 +940,41 @@
     "type": "int",
     "default": 90,
     "doc": ""
+  },
+  "runaway.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Enable policy-based runaway query detection and escalation (warn -\u003e cancel -\u003e terminate)."
+  },
+  "runaway.policies[].cancel_cycles": {
+    "type": "int",
+    "default": 0,
+    "doc": ""
+  },
+  "runaway.policies[].max_blocked_sessions": {
+    "type": "int",
+    "default": 0,
+    "doc": ""
+  },
+  "runaway.policies[].max_duration_minutes": {
+    "type": "int",
+    "default": 0,
+    "doc": ""
+  },
+  "runaway.policies[].name": {
+    "type": "string",
+    "default": "",
+    "doc": ""
+  },
+  "runaway.policies[].warn_cycles": {
+    "type": "int",
+    "default": 0,
+    "doc": ""
+  },
+  "runaway.safe_patterns": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Application name substrings protected from runaway termination. Merged with lock_chain.safe_patterns at startup."
   },
   "safety.backoff_consecutive_skips": {
     "type": "int",
@@ -704,6 +1012,36 @@
     "default": 500,
     "doc": "statement_timeout applied to every collector and analyzer query issued by the sidecar. Protects the target from runaway introspection."
   },
+  "schema_lint.disabled_rules": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Rule IDs to skip (e.g. lint_serial_usage)."
+  },
+  "schema_lint.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Enable periodic schema anti-pattern scanning."
+  },
+  "schema_lint.exclude_schemas": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Schemas to exclude. Default: pg_catalog, information_schema."
+  },
+  "schema_lint.include_schemas": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Schemas to scan. Empty means all non-system schemas."
+  },
+  "schema_lint.min_table_rows": {
+    "type": "int",
+    "default": 0,
+    "doc": "Ignore findings on tables below this row count. Default: 1000."
+  },
+  "schema_lint.scan_interval_minutes": {
+    "type": "int",
+    "default": 0,
+    "doc": "How often to run the full schema lint scan. Default: 60."
+  },
   "trust.cascade_cooldown_cycles": {
     "type": "int",
     "default": 3,
@@ -718,7 +1056,7 @@
   "trust.maintenance_window": {
     "type": "string",
     "default": "",
-    "doc": "Cron-like window (e.g. 'Sun 02:00-06:00') during which heavy maintenance actions like ANALYZE on large tables or REINDEX are permitted."
+    "doc": "Window for MODERATE auto-actions and heavy maintenance. No cron needed: presets (always, never, nights, weeknights, weekends, off-hours), day ranges (weekdays 01:00-05:00), HH:MM-HH:MM, or cron."
   },
   "trust.ramp_start": {
     "type": "string",

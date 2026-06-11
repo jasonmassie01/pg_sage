@@ -5,7 +5,7 @@ mode: fleet
 # and passed as LIFEOS_POSTGRES_PASSWORD for env expansion below.
 defaults:
   max_connections: 2
-  trust_level: observation
+  trust_level: autonomous
   execution_mode: manual
   collector_interval_seconds: 30
   analyzer_interval_seconds: 60
@@ -134,10 +134,11 @@ safety:
   ddl_timeout_seconds: 60
 
 trust:
-  level: observation
-  maintenance_window: ""
-  tier3_safe: false
-  tier3_moderate: false
+  level: autonomous
+  ramp_start: "2026-02-01T00:00:00Z"
+  maintenance_window: "always"
+  tier3_safe: true
+  tier3_moderate: true
   tier3_high_risk: false
 
 llm:

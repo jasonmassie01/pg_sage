@@ -188,7 +188,7 @@ type SafetyConfig struct {
 type TrustConfig struct {
 	Level                 string `yaml:"level" doc:"Autonomy tier. observation = log only; advisory = queue actions for approval; autonomous = execute safe/moderate actions directly." warning:"Changing to autonomous enables DDL execution without human review."`
 	RampStart             string `yaml:"ramp_start" doc:"RFC3339 timestamp when the trust ramp began. Auto-persisted on first startup if empty. Used to gate newly-supported actions behind a soak period."`
-	MaintenanceWindow     string `yaml:"maintenance_window" doc:"Cron-like window (e.g. 'Sun 02:00-06:00') during which heavy maintenance actions like ANALYZE on large tables or REINDEX are permitted."`
+	MaintenanceWindow     string `yaml:"maintenance_window" doc:"Window for MODERATE auto-actions and heavy maintenance. No cron needed: presets (always, never, nights, weeknights, weekends, off-hours), day ranges (weekdays 01:00-05:00), HH:MM-HH:MM, or cron." example:"weeknights"`
 	Tier3Safe             bool   `yaml:"tier3_safe" doc:"Enable tier-3 actions classified as safe (e.g. CREATE INDEX CONCURRENTLY on small tables). Requires trust.level=autonomous."`
 	Tier3Moderate         bool   `yaml:"tier3_moderate" doc:"Enable tier-3 actions classified as moderate risk (e.g. VACUUM FULL on small tables). Requires trust.level=autonomous." warning:"Moderate actions can briefly lock tables."`
 	Tier3HighRisk         bool   `yaml:"tier3_high_risk" doc:"Enable tier-3 actions classified as high risk. Ignored outside fleet mode — standalone always forces this to false." mode:"fleet-only" warning:"High-risk actions can destabilize production — enable only with a reviewed rollback plan."`
