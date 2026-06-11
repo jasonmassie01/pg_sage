@@ -1,0 +1,1672 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/reverse_spec/07-data-model-support/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>07 — Data Model & Supporting Subsystems - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#07-data-model-supporting-subsystems" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              07 — Data Model &amp; Supporting Subsystems
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-the-sage-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. The sage.* Schema
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. The sage.* Schema">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-core-sage-tables-21-bootstrapped-2-migration-created" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Core sage.* tables (21 bootstrapped + 2 migration-created)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1.1 Core sage.* tables (21 bootstrapped + 2 migration-created)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#notable-migration-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notable migration behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-agentdb-tables-sageagent_db_-16-tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 AgentDB tables (sage.agent_db_*, 16 tables)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-config-reference-internalconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Config Reference (internal/config)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Config Reference (internal/config)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-top-level-blocks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Top-level blocks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-key-blocks-notable-defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Key blocks + notable defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-alerting-notification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Alerting &amp; Notification
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Alerting &amp; Notification">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-internalalerting-findings-polling-alert-manager" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 internal/alerting — findings-polling alert manager
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-internalnotify-event-driven-config-table-backed-dispatcher" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 internal/notify — event-driven, config-table-backed dispatcher
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-dead-unwired-alertingnotify" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Dead / unwired (alerting/notify)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-internalretention-data-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. internal/retention — Data Cleanup
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-internalha-replica-role-flip-monitor-safe-mode-unwired" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. internal/ha — Replica / Role-Flip Monitor (safe-mode unwired)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-internallogwatch-log-tailing-rca-fanout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. internal/logwatch — Log Tailing + RCA Fanout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-internalcrypto-internalsanitize" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. internal/crypto &amp; internal/sanitize
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. internal/crypto &amp; internal/sanitize">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-internalcrypto-encryption-at-rest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 internal/crypto — Encryption-at-rest
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-internalsanitize-sql-identifierliteral-quoting-quotego" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 internal/sanitize — SQL identifier/literal quoting (quote.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-dead-unwired-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Dead / Unwired Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="07-data-model-supporting-subsystems">07 — Data Model &amp; Supporting Subsystems<a class="headerlink" href="#07-data-model-supporting-subsystems" title="Permanent link">&para;</a></h1>
+<p>Reverse-engineered from the actual Go source under <code>sidecar/internal</code>. Cited as
+<code>file:line</code>. This section covers the <code>sage.*</code> schema, the full config surface,
+alerting/notification, retention, HA, log-watching, and crypto/sanitization.</p>
+<hr />
+<h2 id="1-the-sage-schema">1. The <code>sage.*</code> Schema<a class="headerlink" href="#1-the-sage-schema" title="Permanent link">&para;</a></h2>
+<p>The schema is bootstrapped in two layers:</p>
+<ol>
+<li><strong>Core schema</strong> — <code>internal/schema</code> package. <code>Bootstrap()</code>
+   (<code>bootstrap.go:49</code>) acquires a Postgres advisory lock
+   (<code>pg_advisory_lock(hashtext('pg_sage'))</code>, <code>bootstrap.go:168</code>), creates
+   <code>CREATE SCHEMA IF NOT EXISTS sage</code>, then either runs the full DDL
+   (<code>createFullSchema</code>, <code>bootstrap.go:195</code>) on a fresh install or, for an
+   existing schema, ensures each table from <code>expectedTables</code> exists
+   (<code>ensureTablesExist</code>, <code>bootstrap.go:217</code>) and runs idempotent migrations
+   (<code>migrationStatements</code>, <code>bootstrap.go:259</code>). Finally it folds in
+   <code>MigrateConfigSchema</code> (<code>config_migration.go:31</code>) and
+   <code>migrateIncidentConstraints</code> (<code>incident_migration.go:12</code>).</li>
+<li><strong>AgentDB schema</strong> — <code>internal/agentdb</code> package. A separate, self-contained
+   set of tables created by <code>Store.Ensure()</code> (<code>agentdb/schema.go:17</code>) from the
+   <code>schemaStatements</code> slice (<code>agentdb/schema.go:180</code>). Only created when the
+   AgentDB subsystem is initialized.</li>
+</ol>
+<h3 id="11-core-sage-tables-21-bootstrapped-2-migration-created">1.1 Core <code>sage.*</code> tables (21 bootstrapped + 2 migration-created)<a class="headerlink" href="#11-core-sage-tables-21-bootstrapped-2-migration-created" title="Permanent link">&para;</a></h3>
+<p><code>expectedTables</code> (<code>bootstrap.go:12</code>) lists 21 tables. Two more
+(<code>config_audit</code>, and the <code>databases</code> table is in the list) are created by the
+config migration. Full table reference:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Table</th>
+<th>Purpose</th>
+<th>Key columns</th>
+<th>DDL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>sage.action_log</code></td>
+<td>Immutable record of every executed Tier‑3 action with rollback metadata &amp; outcome</td>
+<td><code>id</code>, <code>action_type</code>, <code>finding_id</code>, <code>sql_executed</code>, <code>rollback_sql</code>, <code>before_state</code>/<code>after_state</code> (jsonb), <code>outcome</code> (default <code>pending</code>), <code>approved_by</code>/<code>approved_at</code> (migration <code>bootstrap.go:519</code>), <code>measured_at</code></td>
+<td><code>bootstrap.go:292</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>sage.snapshots</code></td>
+<td>Collector time-series of raw stats by category</td>
+<td><code>id</code>, <code>collected_at</code>, <code>category</code>, <code>data</code> (jsonb)</td>
+<td><code>bootstrap.go:313</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>sage.findings</code></td>
+<td>Central findings store (Tier‑1 + absorbs schema_lint in v0.11)</td>
+<td><code>id</code>, <code>category</code>, <code>severity</code>, <code>object_identifier</code>, <code>title</code>, <code>detail</code> (jsonb), <code>recommendation</code>, <code>recommended_sql</code>, <code>rollback_sql</code>, <code>status</code> (default <code>open</code>), <code>occurrence_count</code>, <code>suppressed_until</code>, <code>action_log_id</code> FK, <code>rule_id</code>+<code>impact_score</code> (lint)</td>
+<td><code>bootstrap.go:326</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>sage.explain_cache</code></td>
+<td>auto_explain plan captures keyed by queryid</td>
+<td><code>id</code>, <code>queryid</code>, <code>query_text</code>, <code>plan_json</code> (jsonb), <code>source</code>, <code>total_cost</code>, <code>execution_time</code></td>
+<td><code>bootstrap.go:364</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>sage.briefings</code></td>
+<td>Tier‑2 periodic health briefings</td>
+<td><code>id</code>, <code>period_start</code>/<code>period_end</code>, <code>mode</code>, <code>content_text</code>, <code>content_json</code> (jsonb), <code>llm_used</code>, <code>token_count</code>, <code>delivery_status</code> (jsonb)</td>
+<td><code>bootstrap.go:379</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>sage.config</code></td>
+<td>Runtime config key/value overrides (hot-reload)</td>
+<td><code>key</code> (PK→composite after migration), <code>value</code>, <code>updated_by</code>, + <code>database_id</code>, <code>updated_by_user_id</code> (migration)</td>
+<td><code>bootstrap.go:403</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>sage.alert_log</code></td>
+<td>Per-channel alert delivery history (internal/alerting)</td>
+<td><code>id</code>, <code>finding_id</code> FK, <code>severity</code>, <code>channel</code>, <code>dedup_key</code>, <code>status</code> (default <code>sent</code>), <code>error_message</code></td>
+<td><code>bootstrap.go:412</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>sage.query_hints</code></td>
+<td>pg_hint_plan hint lifecycle + rewrite suggestions</td>
+<td><code>id</code>, <code>queryid</code>, <code>hint_plan_id</code>, <code>hint_text</code>, <code>symptom</code>, <code>before_cost</code>/<code>after_cost</code>, <code>status</code> (default <code>active</code>), <code>suggested_rewrite</code>, <code>rewrite_rationale</code>, <code>calls_at_last_check</code>, <code>last_revalidated_at</code></td>
+<td><code>bootstrap.go:429</code></td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>sage.users</code></td>
+<td>Local auth users / OAuth identities</td>
+<td><code>id</code>, <code>email</code> (unique), <code>password</code> (nullable after OAuth migration), <code>role</code> (default <code>viewer</code>), <code>oauth_provider</code>, <code>last_login</code></td>
+<td><code>bootstrap.go:452</code></td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>sage.sessions</code></td>
+<td>Login session tokens</td>
+<td><code>id</code> (uuid), <code>user_id</code> FK (ON DELETE CASCADE), <code>expires_at</code></td>
+<td><code>bootstrap.go:463</code></td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>sage.databases</code></td>
+<td>Fleet-mode registry of monitored targets; passwords encrypted at rest</td>
+<td><code>id</code>, <code>name</code> (unique), <code>host</code>, <code>port</code>, <code>database_name</code>, <code>username</code>, <code>password_enc</code> (bytea), <code>sslmode</code>, <code>trust_level</code> (default <code>observation</code>), <code>execution_mode</code> (default <code>approval</code>), <code>tags</code> (jsonb), <code>enabled</code></td>
+<td><code>databases.go:11</code></td>
+</tr>
+<tr>
+<td>12</td>
+<td><code>sage.notification_channels</code></td>
+<td>Configured notification destinations (internal/notify)</td>
+<td><code>id</code>, <code>name</code> (unique), <code>type</code>, <code>config</code> (jsonb), <code>enabled</code></td>
+<td><code>notifications.go:3</code></td>
+</tr>
+<tr>
+<td>13</td>
+<td><code>sage.notification_rules</code></td>
+<td>Event→channel routing with min severity</td>
+<td><code>id</code>, <code>channel_id</code> FK, <code>event</code>, <code>min_severity</code> (default <code>warning</code>), <code>enabled</code></td>
+<td><code>notifications.go:15</code></td>
+</tr>
+<tr>
+<td>14</td>
+<td><code>sage.notification_log</code></td>
+<td>Notification delivery audit</td>
+<td><code>id</code>, <code>channel_id</code> FK (ON DELETE SET NULL), <code>event</code>, <code>subject</code>, <code>body</code>, <code>status</code> (default <code>pending</code>), <code>error</code>, <code>sent_at</code></td>
+<td><code>notifications.go:30</code></td>
+</tr>
+<tr>
+<td>15</td>
+<td><code>sage.action_queue</code></td>
+<td>Pending/approval action queue with lifecycle, cooldown, guardrails</td>
+<td><code>id</code>, <code>database_id</code>, <code>finding_id</code>, <code>proposed_sql</code>, <code>rollback_sql</code>, <code>action_risk</code>, <code>status</code> (default <code>pending</code>), <code>expires_at</code> (default now()+7d), <code>identity_key</code>, <code>policy_decision</code>, <code>guardrails</code> (jsonb), <code>attempt_count</code>, <code>cooldown_until</code>, <code>failure_fingerprint</code>, <code>verification_status</code>, <code>shadow_toil_minutes</code>, <code>action_log_id</code> FK</td>
+<td><code>bootstrap.go:476</code></td>
+</tr>
+<tr>
+<td>16</td>
+<td><code>sage.incidents</code></td>
+<td>RCA incidents (root-cause narratives + causal chains)</td>
+<td><code>id</code> (uuid), <code>severity</code> (CHECK info/warning/critical), <code>root_cause</code>, <code>causal_chain</code> (jsonb), <code>affected_objects</code>/<code>signal_ids</code> (text[]), <code>recommended_sql</code>, <code>action_risk</code>, <code>source</code> (CHECK enum), <code>confidence</code>, <code>database_name</code>, <code>occurrence_count</code>, <code>last_detected_at</code>, <code>escalated_at</code>, <code>resolved_at</code></td>
+<td><code>bootstrap.go:719</code></td>
+</tr>
+<tr>
+<td>17</td>
+<td><code>sage.size_history</code></td>
+<td>Storage growth forecasting time-series</td>
+<td><code>id</code>, <code>metric_type</code> (CHECK database/table/wal_slot), <code>object_name</code>, <code>size_bytes</code>, <code>dead_tuple_pct</code>, <code>database_name</code></td>
+<td><code>bootstrap.go:752</code></td>
+</tr>
+<tr>
+<td>18</td>
+<td><code>sage.schema_findings</code></td>
+<td>Schema-lint findings (v0.10; now read-only/legacy, absorbed by <code>findings</code> in v0.11)</td>
+<td><code>id</code> (uuid), <code>rule_id</code>, <code>schema_name</code>/<code>table_name</code>/<code>column_name</code>/<code>index_name</code>, <code>severity</code> (CHECK), <code>category</code> (CHECK 8-value enum), <code>description</code>, <code>suggestion</code>, <code>suggested_sql</code>, <code>impact_score</code>, <code>suppressed</code>, <code>query_count</code></td>
+<td><code>bootstrap.go:769</code></td>
+</tr>
+<tr>
+<td>19</td>
+<td><code>sage.crypto_meta</code></td>
+<td>Singleton: per-deployment argon2id KDF salt</td>
+<td><code>id</code> (PK, CHECK = 1), <code>kdf_salt</code> (bytea), <code>created_at</code></td>
+<td><code>bootstrap.go:394</code></td>
+</tr>
+<tr>
+<td>20</td>
+<td><code>sage.explain_results</code></td>
+<td>LLM natural-language EXPLAIN cache with TTL</td>
+<td><code>query_hash</code>+<code>database_name</code> (composite PK), <code>expires_at</code>, <code>plan_json</code> (jsonb), <code>explanation</code> (jsonb)</td>
+<td><code>bootstrap.go:809</code></td>
+</tr>
+<tr>
+<td>21</td>
+<td><code>sage.health_history</code></td>
+<td>Per-database fleet health-score time-series</td>
+<td><code>id</code>, <code>database_name</code>, <code>health_score</code>, <code>findings_open</code>/<code>_critical</code>/<code>_warning</code>/<code>_info</code>, <code>actions_total</code>, <code>recorded_at</code></td>
+<td><code>bootstrap.go:825</code></td>
+</tr>
+<tr>
+<td>22</td>
+<td><code>sage.config_audit</code></td>
+<td>Audit trail of <code>sage.config</code> mutations</td>
+<td><code>id</code>, <code>key</code>, <code>old_value</code>/<code>new_value</code>, <code>database_id</code>, <code>changed_by</code> FK→users, <code>changed_at</code></td>
+<td><code>config_migration.go:11</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Note: <code>sage.explain_cache</code> (#4, auto_explain captures) and
+<code>sage.explain_results</code> (#20, LLM NL-EXPLAIN cache) are distinct tables with
+different purposes (<code>bootstrap.go:806</code> comment).</p>
+</blockquote>
+<h4 id="notable-migration-behavior">Notable migration behavior<a class="headerlink" href="#notable-migration-behavior" title="Permanent link">&para;</a></h4>
+<ul>
+<li><strong><code>config</code> PK→composite</strong> (<code>config_migration.go:79</code>): drops the single-column
+  <code>key</code> PK and creates a composite unique <code>idx_config_key_db</code> on
+  <code>(key, COALESCE(database_id, 0))</code> so per-database overrides coexist with
+  global rows.</li>
+<li><strong>schema_findings → findings absorption</strong> (v0.11): <code>findings</code> gains
+  <code>rule_id</code>/<code>impact_score</code> (<code>bootstrap.go:591</code>) and a one-time backfill inserts
+  <code>schema_findings</code> rows as <code>category = 'schema_lint:&lt;rule_id&gt;'</code>
+  (<code>bootstrap.go:607</code>). <code>schema_findings</code> is retained as legacy/read-only.</li>
+<li><strong>incidents CHECK widening</strong> (<code>incident_migration.go</code>): severity adds <code>info</code>;
+  source adds <code>log_deterministic</code>, <code>self_action</code>, <code>manual_review_required</code>,
+  <code>schema_advisor</code>, <code>schema_lint</code>, <code>n_plus_one</code>; action_risk adds
+  <code>low/medium/high</code>.</li>
+</ul>
+<h3 id="12-agentdb-tables-sageagent_db_-16-tables">1.2 AgentDB tables (<code>sage.agent_db_*</code>, 16 tables)<a class="headerlink" href="#12-agentdb-tables-sageagent_db_-16-tables" title="Permanent link">&para;</a></h3>
+<p>Created by <code>agentdb.Store.Ensure()</code> (<code>agentdb/schema.go:17</code>) — a self-contained
+provisioning/lifecycle subsystem for agent-owned databases (local Postgres + AWS
+RDS / GCP Cloud SQL / Lakebase providers).</p>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Purpose</th>
+<th>DDL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sage.agent_identities</code></td>
+<td>Registered agents (tenant/owner/status)</td>
+<td><code>schema.go:182</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_requests</code></td>
+<td>Provisioning requests (policy decision, idempotency, budget)</td>
+<td><code>schema.go:194</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_deployments</code></td>
+<td>Provisioned deployments (safety_mode, lease, secret_ref, connection_info)</td>
+<td><code>schema.go:223</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_provider_configs</code></td>
+<td>Per-provider enable/settings</td>
+<td><code>schema.go:279</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_creation_receipts</code></td>
+<td>Provider resource creation receipts</td>
+<td><code>schema.go:287</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_terraform_templates</code></td>
+<td>Terraform template store + policy findings</td>
+<td><code>schema.go:300</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_blueprints</code></td>
+<td>LLM-generated provisioning blueprints</td>
+<td><code>schema.go:316</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_size_profiles</code></td>
+<td>CPU/mem/storage size profiles (seeded defaults)</td>
+<td><code>schema.go:342</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_pings</code></td>
+<td>Liveness/metrics pings per deployment</td>
+<td><code>schema.go:357</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_ping_tokens</code></td>
+<td>Hashed ping auth tokens (rotation)</td>
+<td><code>schema.go:367</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_ping_token_failures</code></td>
+<td>Failed ping-token attempts</td>
+<td><code>schema.go:387</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_recommendations</code></td>
+<td>Tuning/index recommendations for agent DBs</td>
+<td><code>schema.go:396</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_cost_samples</code></td>
+<td>Cost telemetry samples</td>
+<td><code>schema.go:424</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_backups</code></td>
+<td>Backup records (verify/restore-verify)</td>
+<td><code>schema.go:437</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_tuning_hints</code></td>
+<td>Per-deployment tuning hints</td>
+<td><code>schema.go:451</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_provision_attempts</code></td>
+<td>Provision runner attempts (dry_run/live, stdout/stderr)</td>
+<td><code>schema.go:465</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_audit</code></td>
+<td>AgentDB event audit log</td>
+<td><code>schema.go:482</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_deploy_requests</code></td>
+<td>DDL/migration deploy requests with gate results</td>
+<td><code>schema.go:491</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>The <code>internal/cases</code> package (incident/query-hint projectors, vacuum
+autopilot, shadow execution) defines <strong>no tables of its own</strong> — it projects
+onto <code>findings</code>, <code>incidents</code>, <code>query_hints</code>, and <code>action_queue</code>.</p>
+</blockquote>
+<hr />
+<h2 id="2-config-reference-internalconfig">2. Config Reference (<code>internal/config</code>)<a class="headerlink" href="#2-config-reference-internalconfig" title="Permanent link">&para;</a></h2>
+<p>Top-level <code>Config</code> struct (<code>config.go:63</code>). Load precedence: <strong>CLI &gt; env &gt; YAML &gt;
+defaults</strong> (<code>Load</code>, <code>config.go:498</code>). Defaults live in <code>defaults.go</code>; the
+<code>newDefaults()</code> constructor (<code>config.go:674</code>) wires them in. Standalone mode
+auto-synthesizes <code>Databases[0]</code> from the legacy <code>postgres</code> block (<code>normalize</code>,
+<code>fleet.go:89</code>).</p>
+<h3 id="21-top-level-blocks">2.1 Top-level blocks<a class="headerlink" href="#21-top-level-blocks" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Block</th>
+<th>YAML key</th>
+<th>Struct</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Mode</td>
+<td><code>mode</code></td>
+<td><code>string</code> (extension/standalone/fleet, default <code>extension</code>)</td>
+<td><code>config.go:64</code></td>
+</tr>
+<tr>
+<td>Postgres</td>
+<td><code>postgres</code></td>
+<td><code>PostgresConfig</code></td>
+<td><code>config.go:111</code></td>
+</tr>
+<tr>
+<td>Collector</td>
+<td><code>collector</code></td>
+<td><code>CollectorConfig</code></td>
+<td><code>config.go:139</code></td>
+</tr>
+<tr>
+<td>Analyzer</td>
+<td><code>analyzer</code></td>
+<td><code>AnalyzerConfig</code></td>
+<td><code>config.go:145</code></td>
+</tr>
+<tr>
+<td>Safety</td>
+<td><code>safety</code></td>
+<td><code>SafetyConfig</code></td>
+<td><code>config.go:173</code></td>
+</tr>
+<tr>
+<td>Trust</td>
+<td><code>trust</code></td>
+<td><code>TrustConfig</code></td>
+<td><code>config.go:183</code></td>
+</tr>
+<tr>
+<td>LLM</td>
+<td><code>llm</code></td>
+<td><code>LLMConfig</code> (+<code>optimizer</code>, <code>optimizer_llm</code>)</td>
+<td><code>config.go:196</code></td>
+</tr>
+<tr>
+<td>Advisor</td>
+<td><code>advisor</code></td>
+<td><code>AdvisorConfig</code></td>
+<td><code>config.go:249</code></td>
+</tr>
+<tr>
+<td>Briefing</td>
+<td><code>briefing</code></td>
+<td><code>BriefingConfig</code></td>
+<td><code>config.go:260</code></td>
+</tr>
+<tr>
+<td>Alerting</td>
+<td><code>alerting</code></td>
+<td><code>AlertingConfig</code></td>
+<td><code>config.go:266</code></td>
+</tr>
+<tr>
+<td>AutoExplain</td>
+<td><code>auto_explain</code></td>
+<td><code>AutoExplainConfig</code></td>
+<td><code>config.go:290</code></td>
+</tr>
+<tr>
+<td>Forecaster</td>
+<td><code>forecaster</code></td>
+<td><code>ForecasterConfig</code></td>
+<td><code>config.go:298</code></td>
+</tr>
+<tr>
+<td>Tuner</td>
+<td><code>tuner</code></td>
+<td><code>TunerConfig</code></td>
+<td><code>config.go:395</code></td>
+</tr>
+<tr>
+<td>RCA</td>
+<td><code>rca</code></td>
+<td><code>RCAConfig</code></td>
+<td><code>config.go:315</code></td>
+</tr>
+<tr>
+<td>Runaway</td>
+<td><code>runaway</code></td>
+<td><code>RunawayConfig</code></td>
+<td><code>config.go:360</code></td>
+</tr>
+<tr>
+<td>Explain</td>
+<td><code>explain</code></td>
+<td><code>ExplainConfig</code></td>
+<td><code>config.go:367</code></td>
+</tr>
+<tr>
+<td>LogWatch</td>
+<td><code>logwatch</code></td>
+<td><code>LogWatchConfig</code></td>
+<td><code>config.go:337</code></td>
+</tr>
+<tr>
+<td>SchemaLint</td>
+<td><code>schema_lint</code></td>
+<td><code>SchemaLintConfig</code></td>
+<td><code>config.go:375</code></td>
+</tr>
+<tr>
+<td>Migration</td>
+<td><code>migration</code></td>
+<td><code>MigrationConfig</code> (DDL safety advisor)</td>
+<td><code>config.go:385</code></td>
+</tr>
+<tr>
+<td>Retention</td>
+<td><code>retention</code></td>
+<td><code>RetentionConfig</code></td>
+<td><code>config.go:423</code></td>
+</tr>
+<tr>
+<td>Prometheus</td>
+<td><code>prometheus</code></td>
+<td><code>PrometheusConfig</code></td>
+<td><code>config.go:430</code></td>
+</tr>
+<tr>
+<td>OAuth</td>
+<td><code>oauth</code></td>
+<td><code>OAuthConfig</code></td>
+<td><code>config.go:435</code></td>
+</tr>
+<tr>
+<td>AgentDB</td>
+<td><code>agentdb</code></td>
+<td><code>AgentDBConfig</code></td>
+<td><code>config.go:122</code></td>
+</tr>
+<tr>
+<td>Databases</td>
+<td><code>databases</code></td>
+<td><code>[]DatabaseConfig</code> (fleet)</td>
+<td><code>fleet.go:6</code></td>
+</tr>
+<tr>
+<td>Defaults</td>
+<td><code>defaults</code></td>
+<td><code>DefaultsConfig</code> (fleet)</td>
+<td><code>fleet.go:64</code></td>
+</tr>
+<tr>
+<td>API</td>
+<td><code>api</code></td>
+<td><code>APIConfig</code></td>
+<td><code>fleet.go:73</code></td>
+</tr>
+<tr>
+<td>Meta DB / key</td>
+<td><code>meta_db</code>, <code>encryption_key</code></td>
+<td>strings (fleet)</td>
+<td><code>config.go:95</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="22-key-blocks-notable-defaults">2.2 Key blocks + notable defaults<a class="headerlink" href="#22-key-blocks-notable-defaults" title="Permanent link">&para;</a></h3>
+<p><strong>postgres</strong> — <code>host</code> (localhost), <code>port</code> (5432), <code>user</code> (<code>sage_agent</code>),
+<code>database</code> (<code>postgres</code>), <code>sslmode</code> (<code>prefer</code>), <code>max_connections</code> (2),
+<code>database_url</code> (overrides discrete fields). <code>DSN()</code>/<code>ConnString()</code> at
+<code>config.go:486</code> / <code>fleet.go:25</code>.</p>
+<p><strong>collector</strong> — <code>interval_seconds</code> (60), <code>batch_size</code> (1000), <code>max_queries</code>
+(500).</p>
+<p><strong>analyzer</strong> — <code>interval_seconds</code> (600), <code>slow_query_threshold_ms</code> (1000),
+<code>seq_scan_min_rows</code> (100000), <code>unused_index_window_days</code> (<strong>7</strong>),
+<code>index_bloat_threshold_pct</code> (30), <code>table_bloat_dead_tuple_pct</code> (20),
+<code>table_bloat_min_rows</code> (1000), <code>idle_in_transaction_timeout_minutes</code> (30),
+<code>cache_hit_ratio_warning</code> (0.95), <code>xid_wraparound_warning</code> (500M) /
+<code>_critical</code> (1B), <code>regression_threshold_pct</code> (50), <code>regression_lookback_days</code>
+(7), <code>checkpoint_frequency_warning_per_hour</code> (12),
+<code>work_mem_promotion_threshold</code> (5), <code>slow_slot_retained_bytes</code> (1GB), nested
+<code>lock_chain</code> (enabled, min_blocked 3, critical 10, idle_in_tx_terminate 5m,
+active_query_cancel 15m, safe_patterns <code>[pg_sage, replication, patroni]</code>).</p>
+<p><strong>safety</strong> — <code>cpu_ceiling_pct</code> (90), <code>query_timeout_ms</code> (500),
+<code>ddl_timeout_seconds</code> (300), <code>disk_pressure_threshold_pct</code> (5),
+<code>backoff_consecutive_skips</code> (3), <code>dormant_interval_seconds</code> (600),
+<code>lock_timeout_ms</code> (30000; <code>LockTimeout()</code> floors zero to default,
+<code>config.go:478</code>).</p>
+<p><strong>trust</strong> — <code>level</code> (<code>observation</code>; validated to observation/advisory/autonomous
+at <code>config.go:635</code>), <code>ramp_start</code> (auto-persisted, see
+<code>PersistTrustRampStart</code> <code>bootstrap.go:89</code>), <code>maintenance_window</code>, <code>tier3_safe</code>
+(<strong>true</strong>), <code>tier3_moderate</code> (false), <code>tier3_high_risk</code> (false; forced false
+outside fleet), <code>rollback_threshold_pct</code> (10), <code>rollback_window_minutes</code> (15),
+<code>rollback_cooldown_days</code> (7), <code>cascade_cooldown_cycles</code> (3).</p>
+<p><strong>llm</strong> — <code>enabled</code> (<strong>false</strong>), <code>endpoint</code>, <code>api_key</code> (secret), <code>model</code>,
+<code>timeout_seconds</code> (30), <code>token_budget_daily</code> (500000), <code>context_budget_tokens</code>
+(8192), <code>cooldown_seconds</code> (300), <code>json_mode</code>. Sub-blocks: <code>index_optimizer</code>
+(deprecated, migrated to <code>optimizer</code> at <code>config.go:593</code>), <code>optimizer</code>
+(enabled false, min_query_calls 100, confidence_threshold 0.5, plan_source
+<code>auto</code>, hypopg_min_improvement_pct 10), <code>optimizer_llm</code> (dedicated reasoning
+tier, timeout 120s, max_output_tokens 8192, fallback_to_general true).</p>
+<p><strong>advisor</strong> — <code>enabled</code> (false), <code>interval_seconds</code> (86400), and per-domain
+toggles <code>vacuum_enabled</code>/<code>wal_enabled</code>/<code>connection_enabled</code>/<code>memory_enabled</code>/
+<code>rewrite_enabled</code>/<code>bloat_enabled</code> (all true).</p>
+<p><strong>briefing</strong> — <code>schedule</code> (<code>0 6 * * *</code>), <code>channels</code> (<code>[stdout]</code>),
+<code>slack_webhook_url</code>.</p>
+<p><strong>alerting</strong> — <code>enabled</code> (false), <code>check_interval_seconds</code> (60),
+<code>cooldown_minutes</code> (15), <code>quiet_hours_start</code>/<code>_end</code>, <code>timezone</code> (<code>UTC</code>),
+<code>slack_webhook_url</code>, <code>pagerduty_routing_key</code>, <code>routes []{severity, channels}</code>,
+<code>webhooks []{name, url, headers}</code>.</p>
+<p><strong>auto_explain</strong> — <code>enabled</code> (true), <code>log_min_duration_ms</code> (1000),
+<code>collect_interval_seconds</code> (300), <code>max_plans_per_cycle</code> (100),
+<code>prefer_session_load</code> (true).</p>
+<p><strong>forecaster</strong> — <code>enabled</code> (true), <code>lookback_days</code> (30),
+<code>disk_warn_growth_gb_day</code> (5.0), <code>connection_warn_pct</code> (80),
+<code>cache_warn_threshold</code> (0.95), <code>sequence_warn_days</code> (90) / <code>_critical</code> (30),
+<code>min_data_points</code> (24), <code>alert_horizons</code> (<code>[30,7,3]</code>), <code>disk_capacity_bytes</code>
+(0=auto), <code>min_r_squared</code> (0.5).</p>
+<p><strong>tuner</strong> — <code>enabled</code> (true), <code>llm_enabled</code>, <code>work_mem_max_mb</code> (512),
+<code>plan_time_ratio</code> (3.0), <code>nested_loop_row_threshold</code> (10000),
+<code>parallel_min_table_rows</code> (1M), <code>min_query_calls</code> (100),
+<code>verify_after_apply</code> (true) + revalidation loop (<code>hint_retirement_days</code> 14,
+<code>revalidation_interval_hours</code> 24, keep_ratio 1.2, rollback_ratio 0.8) + stale-
+stats/ANALYZE (<code>analyze_max_table_mb</code> 10240, <code>analyze_timeout_ms</code> 600000,
+<code>max_concurrent_analyze</code> 1 — fleet-wide semaphore).</p>
+<p><strong>rca</strong> — <code>enabled</code> (true), <code>llm_correlation_threshold</code> (3),
+<code>dedup_window_minutes</code> (30), <code>escalation_cycles</code> (5), <code>resolution_cycles</code> (2),
+<code>connection_saturation_pct</code> (80), <code>replication_lag_threshold_seconds</code> (30),
+<code>wal_spike_multiplier</code> (2.0).</p>
+<p><strong>runaway</strong> — <code>enabled</code> (false), <code>policies</code> (default: <code>long_running</code> 30m,
+<code>blocker</code> 5 sessions), <code>safe_patterns</code> (<code>[pg_dump, pg_basebackup]</code>).</p>
+<p><strong>explain</strong> — <code>enabled</code> (true), <code>timeout_ms</code> (10000), <code>cache_ttl_minutes</code> (60),
+<code>max_tokens</code> (4096).</p>
+<p><strong>logwatch</strong> — <code>enabled</code> (false; requires <code>rca.enabled</code>), <code>log_directory</code>/
+<code>format</code> (auto-detected), <code>poll_interval_ms</code> (1000), <code>dedup_window_seconds</code>
+(60), <code>max_line_len_bytes</code> (65536), <code>temp_file_min_bytes</code> (10MB),
+<code>max_lines_per_cycle</code> (10000), <code>exclude_applications</code>, <code>slow_query_enabled</code>
+(false).</p>
+<p><strong>schema_lint</strong> — <code>enabled</code>, <code>scan_interval_minutes</code> (60), <code>include_schemas</code>,
+<code>exclude_schemas</code> (pg_catalog, information_schema), <code>disabled_rules</code>,
+<code>min_table_rows</code> (1000).</p>
+<p><strong>migration</strong> (DDL safety advisor) — <code>enabled</code>, <code>mode</code> (<code>advisory</code>),
+<code>managed_service</code> (none/rds/aurora/cloudsql/alloydb), <code>log_detection</code>,
+<code>activity_polling</code>, <code>poll_interval_seconds</code> (5), <code>ddl_row_threshold</code> (10000).</p>
+<p><strong>retention</strong> — <code>snapshots_days</code> (90), <code>findings_days</code> (180), <code>actions_days</code>
+(365), <code>explains_days</code> (90).</p>
+<p><strong>prometheus</strong> — <code>listen_addr</code> (<code>127.0.0.1:9187</code>).</p>
+<p><strong>oauth</strong> — <code>enabled</code>, <code>provider</code> (google/github/okta/oidc), <code>client_id</code>,
+<code>client_secret</code> (secret), <code>redirect_url</code>, <code>issuer_url</code>, <code>default_role</code>.</p>
+<p><strong>agentdb</strong> — <code>live_provisioning_enabled</code> (false), <code>allow_public_ip</code> (false),
+<code>require_backup_before_destroy</code> (true), <code>providers</code> map of
+<code>{enabled, allowed_regions/accounts/projects/workspaces, max_ttl_seconds,
+max_estimated_cost_usd}</code>.</p>
+<p><strong>api</strong> — <code>listen_addr</code> (<code>0.0.0.0:8080</code>), <code>trusted_proxies</code> (default loopback
+<code>[127.0.0.1, ::1]</code>).</p>
+<p><strong>fleet (<code>databases[]</code>)</strong> — per-DB <code>name</code>/<code>host</code>/<code>port</code>/<code>user</code>/<code>password</code>
+(encrypted at rest), <code>trust_level</code>, <code>execution_mode</code> (auto/approval/manual),
+<code>executor_enabled</code>/<code>llm_enabled</code> (<code>*bool</code>, nil=on), per-DB collector/analyzer
+intervals. <code>defaults</code> block supplies fallbacks (<code>normalize</code>, <code>fleet.go:113</code>).</p>
+<hr />
+<h2 id="3-alerting-notification">3. Alerting &amp; Notification<a class="headerlink" href="#3-alerting-notification" title="Permanent link">&para;</a></h2>
+<p>There are <strong>two independent, non-overlapping</strong> systems.</p>
+<h3 id="31-internalalerting-findings-polling-alert-manager">3.1 <code>internal/alerting</code> — findings-polling alert manager<a class="headerlink" href="#31-internalalerting-findings-polling-alert-manager" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>Manager.Run</code></strong> (<code>alerting.go:76</code>) ticks every <code>check_interval_seconds</code>
+  (default 60), calling <code>evaluate</code> (<code>alerting.go:102</code>) which queries
+  <code>sage.findings WHERE status='open' AND last_seen &gt; lastCheck</code>, groups by
+  severity, and dispatches per route. Wired in <code>main.go</code> only when
+  <code>alerting.enabled</code> (default false).</li>
+<li><strong>Channels</strong> (<code>Channel</code> interface, <code>channel.go:9</code>): <strong>Slack</strong> (<code>slack.go:14</code>,
+  3-attempt exponential backoff), <strong>PagerDuty</strong> (<code>pagerduty.go:17</code>, Events API
+  v2, self-managed <code>dedup_key</code>, 3-attempt retry), <strong>Webhook</strong> (<code>webhook.go:14</code>,
+  no retry). <strong>No email channel here.</strong></li>
+<li><strong>Severity routing</strong> via <code>AlertRoute{Severity, Channels}</code> (<code>config.go:279</code>);
+  severities absent from the route map are silently dropped.</li>
+<li><strong>Throttle</strong> (<code>throttle.go:12</code>): per-severity cooldowns floored by config —
+  critical max(5m), warning max(30m), info max(6h). <strong>Dedup key</strong> =
+  <code>category:objectIdentifier</code> (<code>FormatDedupKey</code>, <code>throttle.go:152</code>).
+  <strong>Escalation override</strong> fires immediately if severity rank rises.
+  <strong>Quiet hours</strong> (<code>isQuietHours</code>, <code>throttle.go:110</code>) in configured tz, supports
+  midnight wrap. <code>Record</code> is called only if at least one channel delivered
+  (<code>alerting.go:185</code>), so total-failure keys re-fire next cycle.</li>
+<li><strong>Delivery logging</strong>: one row per channel per finding into <code>sage.alert_log</code>
+  (<code>logAlert</code>/<code>insertAlertLog</code>, <code>alerting.go:227</code>/<code>:31</code>), status <code>sent</code>/<code>error</code>.</li>
+</ul>
+<h3 id="32-internalnotify-event-driven-config-table-backed-dispatcher">3.2 <code>internal/notify</code> — event-driven, config-table-backed dispatcher<a class="headerlink" href="#32-internalnotify-event-driven-config-table-backed-dispatcher" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>Dispatcher.Dispatch</code></strong> (<code>dispatcher.go:42</code>) loads matching rules from
+  <code>sage.notification_rules</code> (<code>loadMatchingRules</code>, <code>dispatcher.go:91</code>), resolves
+  the channel from <code>sage.notification_channels</code> (<code>loadChannel</code>,
+  <code>dispatcher.go:120</code>), checks <code>SeverityMeetsMin</code> (<code>types.go:47</code>), sends, and
+  logs to <code>sage.notification_log</code> (<code>logDelivery</code>, <code>dispatcher.go:140</code>).</li>
+<li><strong>Senders</strong> (registered in <code>api/router.go</code>): <strong>Slack</strong> (<code>slack.go</code>),
+  <strong>Email</strong> (<code>email.go</code>, SMTP+TLS, default port 587), <strong>PagerDuty</strong>
+  (<code>pagerduty.go</code>, Events API v2, 202). <strong>No webhook sender here.</strong></li>
+<li><strong>Event sources</strong> (<code>events.go</code>): <code>action_executed</code>, <code>action_failed</code>,
+  <code>approval_needed</code>, <code>finding_critical</code>, <code>query_rewrite_suggested</code>.</li>
+<li><strong>No throttle / quiet-hours / cooldown / dedup map</strong> — every qualifying event
+  fires immediately (PagerDuty's server-side dedup_key is the only dedup).</li>
+</ul>
+<h3 id="33-dead-unwired-alertingnotify">3.3 Dead / unwired (alerting/notify)<a class="headerlink" href="#33-dead-unwired-alertingnotify" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Event-path notifications are effectively broken</strong>: the executor/analyzer
+  <code>Dispatcher</code> instances (<code>main.go:596</code>, <code>:1182</code>) are created but <strong>never have
+  senders registered</strong> — only the API's separate dispatcher (<code>api/router.go</code>)
+  registers senders. Events therefore log <code>sage.notification_log</code> rows with
+  status <code>error</code> ("no sender for type") and <strong>never deliver</strong> Slack/email/PD
+  through the event path. Only the API "test notification" (<code>SendDirect</code>,
+  <code>dispatcher.go:172</code>) works.</li>
+<li>Channel coverage is asymmetric: <code>alerting</code> has webhook but no email;
+  <code>notify</code> has email but no webhook. A <code>type='webhook'</code> notification channel
+  can never deliver.</li>
+<li><code>internal/alerting</code> is off by default (<code>alerting.enabled=false</code>).</li>
+</ul>
+<hr />
+<h2 id="4-internalretention-data-cleanup">4. <code>internal/retention</code> — Data Cleanup<a class="headerlink" href="#4-internalretention-data-cleanup" title="Permanent link">&para;</a></h2>
+<p><code>Cleaner.Run</code> (<code>cleanup.go:30</code>) purges four tables, batched 1000 rows/call via
+<code>DELETE ... WHERE ctid IN (... LIMIT 1000)</code> (<code>purgeTable</code>, <code>cleanup.go:43</code>).
+<strong>Guard</strong>: <code>retentionDays &lt;= 0</code> skips the table entirely (<code>cleanup.go:50</code>) —
+zero means <em>keep forever</em>, not delete everything.</p>
+<table>
+<thead>
+<tr>
+<th>Table</th>
+<th>Time column</th>
+<th>Config field</th>
+<th>Extra filter</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sage.snapshots</code></td>
+<td><code>collected_at</code></td>
+<td><code>SnapshotsDays</code> (90)</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>sage.findings</code></td>
+<td><code>last_seen</code></td>
+<td><code>FindingsDays</code> (180)</td>
+<td><code>AND status='resolved'</code></td>
+</tr>
+<tr>
+<td><code>sage.action_log</code></td>
+<td><code>executed_at</code></td>
+<td><code>ActionsDays</code> (365)</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>sage.explain_cache</code></td>
+<td><code>captured_at</code></td>
+<td><code>ExplainsDays</code> (90)</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p>A fifth sweep, <code>cleanStaleFirstSeen</code> (<code>cleanup.go:93</code>), deletes <code>first_seen:*</code>
+keys from <code>sage.config</code> for indexes no longer present in the latest snapshot.</p>
+<p><strong>Wiring</strong>: WIRED. <code>retention.New</code> at <code>main.go:683</code>; run from the standalone
+orchestrator on an <code>analyzer.Interval()+5s</code> ticker (<code>main.go:692</code>), and via the
+fleet orchestrator. <code>Run</code> logs failures (never returns an error).</p>
+<hr />
+<h2 id="5-internalha-replica-role-flip-monitor-safe-mode-unwired">5. <code>internal/ha</code> — Replica / Role-Flip Monitor (safe-mode unwired)<a class="headerlink" href="#5-internalha-replica-role-flip-monitor-safe-mode-unwired" title="Permanent link">&para;</a></h2>
+<p><code>ha.go</code> tracks <strong>primary/replica role only</strong> via <code>SELECT pg_is_in_recovery()</code>
+(<code>ha.go:41</code>) and detects role flips between successive <code>Check</code> calls. After
+<code>flipThreshold = 5</code> consecutive flips it sets <code>safeMode=true</code> (<code>ha.go:76</code>);
+after <code>stableThreshold = 5</code> stable checks it clears it. <strong>No replication-lag or
+replica-state monitoring exists</strong> in this package — just the recovery boolean.</p>
+<p><strong>Wiring</strong>: PARTIAL. <code>haMon.Check(ctx)</code> runs in the standalone orchestrator
+(<code>main.go:707</code>) and its <code>isReplica</code> bool gates the executor
+(<code>exec.RunCycle(ctx, isReplica)</code>, <code>main.go:713</code>). <strong><code>InSafeMode()</code> is never
+read in production</strong> — the flip-counting safe-mode state machine runs but
+nothing consumes it (DEAD logic). <strong>Fleet mode ignores <code>ha</code> entirely</strong> —
+<code>RunCycle(ctx, false)</code> hardcodes <code>isReplica=false</code> (<code>main.go:1444</code>).</p>
+<hr />
+<h2 id="6-internallogwatch-log-tailing-rca-fanout">6. <code>internal/logwatch</code> — Log Tailing + RCA Fanout<a class="headerlink" href="#6-internallogwatch-log-tailing-rca-fanout" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Tailing is polling, not fsnotify</strong> (<code>Tailer</code>, <code>tailer.go:18</code>). <code>poll</code> ticks
+  at <code>poll_interval_ms</code> (default 1000) calling <code>ReadLines</code> (<code>tailer.go:142</code>),
+  handling copytruncate (<code>detectTruncation</code>, <code>tailer.go:184</code>) and new-file
+  rotation (<code>maybeRotate</code>, <code>tailer.go:276</code>); seeks 1MB back on first open. Log
+  dir/format auto-detected from <code>pg_settings</code> (<code>detect.go:20</code>); only
+  <code>jsonlog</code>/<code>csvlog</code> supported.</li>
+<li><strong>18 signal patterns</strong> (<code>classifier.go:23</code>): deadlock (40P01), statement
+  timeout (57014), lock timeout (55P03), temp file (size-gated by
+  <code>TempFileMinBytes</code>), checkpoint-too-frequent, slow query (opt-in via
+  <code>SlowQueryEnabled</code>), plus OOM, disk full, panic/crash, corruption, txid
+  wraparound, archive failure, replication conflict, WAL-segment removed,
+  autovacuum cancel, inactive replication slot, auth failure. Dedup by
+  <code>(signalID, database)</code> within <code>dedup_window_seconds</code> (<code>classifier.go:357</code>);
+  self-inflicted entries (<code>ExcludeApps</code>) dropped except deadlocks.</li>
+<li><strong>RCA handoff</strong>: <code>FileWatcher</code> implements <code>rca.LogSource</code> (Start/Drain/Stop,
+  <code>watcher.go:17</code>); <code>Drain</code> (<code>watcher.go:82</code>) returns <code>[]*rca.Signal</code>. Standalone
+  binds it via <code>rcaEng.SetLogSource(fw)</code> (<code>main.go:570</code>). Fleet uses <code>LogFanout</code>
+  (<code>fanout.go:23</code>) — one <code>FileWatcher</code> per host:port cluster fanned out to
+  per-database <code>FanoutSubscriber</code>s (priority-capped 10000-entry buffers,
+  critical never evicted), bound per-DB at <code>main.go:1147</code>.</li>
+<li><strong>Wiring</strong>: FULLY WIRED (standalone gated on <code>logwatch.enabled</code>, <code>main.go:547</code>;
+  fleet via <code>startClusterFanout</code>/<code>runFanoutDrain</code>, <code>main.go:1314</code>/<code>:1368</code>).</li>
+</ul>
+<hr />
+<h2 id="7-internalcrypto-internalsanitize">7. <code>internal/crypto</code> &amp; <code>internal/sanitize</code><a class="headerlink" href="#7-internalcrypto-internalsanitize" title="Permanent link">&para;</a></h2>
+<h3 id="71-internalcrypto-encryption-at-rest">7.1 <code>internal/crypto</code> — Encryption-at-rest<a class="headerlink" href="#71-internalcrypto-encryption-at-rest" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>AES-256-GCM</strong> (<code>crypto.go</code>), 12-byte nonce prepended to ciphertext.
+  <code>Encrypt</code>/<code>Decrypt</code> (<code>crypto.go:23</code>/<code>:50</code>) require a 32-byte key.</li>
+<li><strong>KDF</strong>: argon2id — <code>DeriveKey(passphrase, salt)</code> =
+  <code>argon2.IDKey(pass, salt, time=1, mem=64MB, threads=4, keyLen=32)</code>
+  (<code>crypto.go:113</code>; <strong>panics</strong> if salt &lt; 8 bytes). Salt is the per-deployment
+  random <code>NewKDFSalt()</code> (16 bytes, <code>crypto.go:127</code>) persisted in singleton
+  <code>sage.crypto_meta</code> (<code>ReadOrCreateKDFSalt</code>, <code>crypto_meta.go:22</code>).</li>
+<li><strong>Lazy key rotation</strong>: <code>DecryptWithMigration</code> (<code>crypto.go:144</code>) tries current
+  argon2id → v2 deterministic-salt argon2id → v1 bare SHA-256, returning
+  <code>needsReEncrypt=true</code> on a legacy hit. <code>DeriveKeyV1</code>/<code>DeriveKeyV2Legacy</code>
+  retained for decrypt-only migration.</li>
+<li><strong>What's encrypted</strong>: per-database connection passwords in
+  <code>sage.databases.password_enc</code>. Write/read via
+  <code>store/database_store.go:83</code>/<code>:287</code>. Key derived at startup in
+  <code>cmd/.../metadb.go:121</code> from <code>--encryption-key</code> + persisted salt; if no
+  passphrase, credentials are stored <strong>unencrypted</strong> with a warning.</li>
+</ul>
+<h3 id="72-internalsanitize-sql-identifierliteral-quoting-quotego">7.2 <code>internal/sanitize</code> — SQL identifier/literal quoting (<code>quote.go</code>)<a class="headerlink" href="#72-internalsanitize-sql-identifierliteral-quoting-quotego" title="Permanent link">&para;</a></h3>
+<p>Scope note: this is <strong>PostgreSQL escaping + a stacked-query guard</strong>, <em>not</em> LLM
+PII/literal redaction or prompt-injection filtering.
+- <code>QuoteIdentifier(name)</code> — doubles <code>"</code>, wraps in <code>"…"</code> (<code>quote.go:11</code>).
+- <code>QuoteQualifiedName(schema, name)</code> — quotes each part, joins with <code>.</code>
+  (<code>quote.go:16</code>).
+- <code>QuoteLiteral(s)</code> — doubles <code>'</code>, wraps in <code>'…'</code> (<code>quote.go:22</code>; safe only
+  under <code>standard_conforming_strings=on</code>).
+- <code>RejectMultiStatement(sql)</code> — rejects anything non-whitespace after the first
+  <code>;</code> (<code>quote.go:28</code>); a single trailing <code>;</code> is allowed. Naive string scan
+  (fails closed). Used to guard captured/LLM query text before EXPLAIN/HypoPG in
+  <code>autoexplain/collector.go:158</code>, <code>optimizer/hypopg.go:141</code>,
+  <code>optimizer/plancapture.go:134</code>.</p>
+<hr />
+<h2 id="8-dead-unwired-summary">8. Dead / Unwired Summary<a class="headerlink" href="#8-dead-unwired-summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>notify</code> event-path delivery</td>
+<td><strong>Broken</strong> — executor/analyzer dispatchers have no senders registered; events log <code>error</code> and never deliver.</td>
+</tr>
+<tr>
+<td><code>notify</code> webhook sender</td>
+<td>Missing — <code>type='webhook'</code> channels can't deliver.</td>
+</tr>
+<tr>
+<td><code>alerting</code> email channel</td>
+<td>Missing (only slack/pagerduty/webhook).</td>
+</tr>
+<tr>
+<td><code>ha.InSafeMode()</code> / safe-mode</td>
+<td>Dead — state machine runs, no consumer. Fleet ignores <code>ha</code> (hardcodes <code>isReplica=false</code>).</td>
+</tr>
+<tr>
+<td><code>alerting</code> (whole system)</td>
+<td>Off by default (<code>enabled=false</code>).</td>
+</tr>
+<tr>
+<td><code>sage.schema_findings</code> table</td>
+<td>Legacy/read-only since v0.11 (absorbed into <code>findings</code>).</td>
+</tr>
+<tr>
+<td><code>migration</code> active mode</td>
+<td>Advisory-only; active mode "deferred to future release".</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

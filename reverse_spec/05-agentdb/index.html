@@ -1,0 +1,1375 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/reverse_spec/05-agentdb/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>05 — AgentDB Subsystem (Agent-Deployed Database Provisioning) - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#05-agentdb-subsystem-agent-deployed-database-provisioning" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              05 — AgentDB Subsystem (Agent-Deployed Database Provisioning)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-execution-contract-provisioning-state-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Execution Contract / Provisioning State Machine
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Execution Contract / Provisioning State Machine">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-two-orthogonal-status-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Two orthogonal status fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-provisioning-state-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Provisioning state machine
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-receipts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 Receipts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-redaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.4 Redaction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-naming" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.5 Naming
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-provider-runners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Provider Runners
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Provider Runners">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-gating-env-flags-provider-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Gating — env flags + provider config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-aws-rds-aws_rds_runnergo-live-real-sdk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 AWS RDS (aws_rds_runner.go) — LIVE (real SDK)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-gcp-cloud-sql-gcp_cloudsql_runnergo-live-real-rest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 GCP Cloud SQL (gcp_cloudsql_runner.go) — LIVE (real REST)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-databricks-lakebase-lakebase_runnergo-live-real-rest-branch-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Databricks Lakebase (lakebase_runner.go) — LIVE (real REST), branch-only
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-dry-run-runner-provider_runnergo106-168" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 Dry-run runner (provider_runner.go:106-168)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-blueprints-terraform-and-the-store-persistence-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Blueprints, Terraform, and the Store Persistence Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Blueprints, Terraform, and the Store Persistence Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-deterministic-blueprint-generator-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Deterministic blueprint generator (LIVE)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-optional-llm-blueprint-generation-live-wiring-heuristic-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Optional LLM blueprint generation (LIVE wiring, heuristic fallback)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-blueprint-template-deployment-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Blueprint → template → deployment flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-terraform-template-upload-import-policy-terraform_policygo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 Terraform template upload / import / policy (terraform_policy.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-store-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.5 Store model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-agent-requests-deployment-flow-approval-cost-policy-gates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Agent Requests → Deployment Flow; Approval, Cost, Policy Gates
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Agent Requests → Deployment Flow; Approval, Cost, Policy Gates">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-request-intake-policy-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Request intake + policy decision
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-approval-provision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Approval → provision
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-cost-estimation-budget-gates-provider_costgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Cost estimation &amp; budget gates (provider_cost.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-live-provisioning-policy-gate-provider_policygo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Live provisioning policy gate (provider_policy.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-deploy-requests-schema-change-review-deploy_requestsgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 Deploy requests (schema-change review, deploy_requests.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-monitoring-registration-fleet-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Monitoring Registration / Fleet Integration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Monitoring Registration / Fleet Integration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-agent-ping-path-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Agent-ping path (LIVE)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-does-it-flow-into-the-fleet-no" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Does it flow into the fleet? — NO
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-lifecycle-reconciliation-live-logic-not-scheduled-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Lifecycle reconciliation (LIVE logic, not scheduled here)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-governance-security-chargeback-archival-today-vs-absent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Governance / Security / Chargeback / Archival — Today vs Absent
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Governance / Security / Chargeback / Archival — Today vs Absent">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#present-today-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Present today (LIVE)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#absent-scaffolding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Absent / scaffolding
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-frontend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Frontend
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="05-agentdb-subsystem-agent-deployed-database-provisioning">05 — AgentDB Subsystem (Agent-Deployed Database Provisioning)<a class="headerlink" href="#05-agentdb-subsystem-agent-deployed-database-provisioning" title="Permanent link">&para;</a></h1>
+<p>Reverse-engineered from <code>internal/agentdb/*</code>, <code>internal/api/agent_db_*.go</code>, and
+<code>web/src/pages/agentdb*</code>. This documents what is <em>actually implemented</em> as of the
+current tree, distinguishing <strong>live</strong>, <strong>scaffolding</strong>, and <strong>absent</strong>.</p>
+<p>The package lets an external "agent" request, provision, monitor, and tear down a
+Postgres it owns — across local Postgres (schema/database isolation) and three cloud
+providers at the instance level (AWS RDS, GCP Cloud SQL, Databricks Lakebase). Almost
+everything is persisted in <code>sage.agent_db_*</code> tables (DDL in
+<code>internal/agentdb/schema.go:180-520</code>) and exposed over REST under <code>/api/v1/agent-dbs</code>.</p>
+<hr />
+<h2 id="1-execution-contract-provisioning-state-machine">1. Execution Contract / Provisioning State Machine<a class="headerlink" href="#1-execution-contract-provisioning-state-machine" title="Permanent link">&para;</a></h2>
+<h3 id="11-two-orthogonal-status-fields">1.1 Two orthogonal status fields<a class="headerlink" href="#11-two-orthogonal-status-fields" title="Permanent link">&para;</a></h3>
+<p>Every deployment row (<code>Deployment</code>, <code>types.go:91-119</code>) carries two independent
+lifecycle fields:</p>
+<ul>
+<li><strong><code>status</code></strong> — the <em>ownership/monitoring</em> lifecycle:
+  <code>active</code> → <code>archived</code> → <code>deleted</code>, plus <code>budget_exceeded</code>. Driven by lease expiry,
+  pings, budget, and cleanup (<code>store.go</code>, <code>policy.go</code>).</li>
+<li><strong><code>provisioning_status</code></strong> — the <em>provider resource</em> state machine (below).</li>
+</ul>
+<h3 id="12-provisioning-state-machine">1.2 Provisioning state machine<a class="headerlink" href="#12-provisioning-state-machine" title="Permanent link">&para;</a></h3>
+<p>The transition table is the single source of truth: <code>provider_runner.go:170-205</code>
+(<code>validProvisionTransition</code>). It is enforced on <strong>every</strong> status write through
+<code>requireProvisionTransition</code>, called by <code>updateProvisioningStatus</code>
+(<code>execution.go:472-498</code>) and <code>applyProvisionResult</code> (<code>execution.go:500-539</code>). An illegal
+transition returns <code>ErrInvalid</code> — the state machine is real, not advisory.</p>
+<p>States and key edges:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>registered → planned → preflight_passed → provisioning → {available | dry_run_ready | failed | status_unknown}
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>planned    → {preflight_passed | preflight_failed | status_checked | destroy_dry_run_ready}
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>dry_run_ready    → {preflight_passed | status_checked | provisioning | destroy_pending}
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>available        → {status_checked | destroy_pending | status_unknown}
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>status_checked   → {available | preflight_passed | provisioning | destroy_pending | destroy_dry_run_ready}
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>status_unknown   → {status_checked | available | failed | provisioning}
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>destroy_pending  → {destroying | destroy_dry_run_ready}
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>destroying       → {destroyed | failed | status_unknown}
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>failed           → {preflight_passed | provisioning}
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>provisioned      → status_checked   (local schema/db terminal-ish)
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>queued → cancel_requested → cancelling → {destroyed | failed}   # declared, see note
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>archived         → {destroy_pending | destroy_dry_run_ready}
+</code></pre></div>
+<p>Operation methods (in <code>execution.go</code> unless noted):</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Kind recorded</th>
+<th>Gating</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PreflightProvision</code></td>
+<td><code>preflight</code></td>
+<td>requires cloud instance + valid plan commands; sets <code>preflight_passed</code></td>
+</tr>
+<tr>
+<td><code>ExecuteProvision</code> (dry-run)</td>
+<td><code>execute</code></td>
+<td>only from <code>preflight_passed</code>/<code>failed</code>; conflicts if already <code>dry_run_ready</code>/<code>ready</code>; runs <code>commands[0]</code> through <code>DryRunProvisionRunner</code></td>
+</tr>
+<tr>
+<td><code>ExecuteProvisionLive</code></td>
+<td><code>execute_live</code></td>
+<td>rejects nil/<code>dry_run</code> runner; <strong>requires <code>CostEstimateID</code></strong>; only from <code>preflight_passed</code>/<code>failed</code>/<code>dry_run_ready</code>/<code>status_checked</code>; records a creation receipt</td>
+</tr>
+<tr>
+<td><code>CheckProvisionStatus</code> / <code>...Live</code></td>
+<td><code>status_check[_live]</code></td>
+<td>live status maps provider state; if provider returns NotFound while <code>destroying</code>, transitions to <code>destroyed</code></td>
+</tr>
+<tr>
+<td><code>DestroyProvisionDryRun</code></td>
+<td><code>destroy_dry_run</code></td>
+<td>requires verified-restore backup if <code>BackupRequired</code></td>
+</tr>
+<tr>
+<td><code>DestroyProvisionLive</code></td>
+<td><code>destroy_live</code></td>
+<td>requires verified-restore backup; only from <code>available</code>/<code>status_checked</code>/<code>dry_run_ready</code></td>
+</tr>
+<tr>
+<td><code>CheckBackupAssurance[Live]</code> (<code>backup_assurance.go</code>)</td>
+<td><code>backup_check[_live]</code></td>
+<td>records a <code>verified</code> backup row</td>
+</tr>
+<tr>
+<td><code>PlanRestoreDrillDryRun</code></td>
+<td><code>restore_drill_dry_run</code></td>
+<td>dry-run only; explicitly does <strong>not</strong> grant restore verification</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Note (partial scaffolding):</strong> the <code>queued → cancel_requested → cancelling</code>
+sub-chain exists in the transition table but no method emits those states; there is no
+async job queue. Provisioning is synchronous within the HTTP request.</p>
+<h3 id="13-receipts">1.3 Receipts<a class="headerlink" href="#13-receipts" title="Permanent link">&para;</a></h3>
+<p><code>CreationReceipt</code> (<code>types.go:442-453</code>) is persisted to
+<code>sage.agent_db_creation_receipts</code> (one row per deployment, <code>ON CONFLICT DO UPDATE</code>,
+<code>execution.go:586-619</code>) only on a <strong>live</strong> create that returns a <code>ProviderResourceID</code>
+(<code>execution.go:180-191</code>). It captures provider, resource id, <code>operation_mode="live"</code>,
+and a <code>request_hash</code> (set to the cost-estimate id). Detail is redacted before write.</p>
+<h3 id="14-redaction">1.4 Redaction<a class="headerlink" href="#14-redaction" title="Permanent link">&para;</a></h3>
+<p><code>RedactProviderDetail</code> / <code>redactString</code> (<code>provider_redaction.go</code>) recursively scrub maps,
+slices, and URL credentials against a sensitive-key list (password, token, secret,
+access_key, private_key, client_email, x-amz, signature, dsn, connection_string, …).
+Redaction is applied at every persistence boundary: provision attempts
+(<code>recordProvisionAttempt</code>, <code>execution.go:562</code>), connection info (<code>applyProvisionResult</code>),
+audit detail (<code>operations.go:272-279</code>), creation receipts, and provider-config reads
+(<code>provider_config.go:55,91</code>). Secret <em>settings</em> are rejected on write
+(<code>rejectSecretSettings</code>, <code>provider_policy.go:110-122</code>) so credentials never land in
+<code>agent_db_provider_configs</code>.</p>
+<h3 id="15-naming">1.5 Naming<a class="headerlink" href="#15-naming" title="Permanent link">&para;</a></h3>
+<p><code>resourceName</code> (<code>providers.go:426-448</code>) lowercases, replaces non-alnum with <code>-</code>, trims,
+falls back to <code>agentdb</code>. <code>ProviderResourceName</code> (in <code>provider_naming.go</code>) adds
+provider-specific length/charset rules. Local schema/db names go through
+<code>sanitizeSchemaName</code> (<code>schema.go:143-170</code>, 63-char cap, underscore separators, numeric
+prefix guard). Identifiers are always quoted via <code>quoteIdent</code> for local DDL.</p>
+<hr />
+<h2 id="2-provider-runners">2. Provider Runners<a class="headerlink" href="#2-provider-runners" title="Permanent link">&para;</a></h2>
+<p>Interface <code>ProviderRunner</code> (<code>provider_runner.go:38-46</code>): <code>Name</code>, <code>Provider</code>,
+<code>Preflight</code>, <code>Create</code>, <code>Status</code>, <code>Destroy</code>, <code>BackupCheck</code>. Registry
+(<code>RunnerRegistry</code>) maps provider → runner with a <code>DryRunProvisionRunner</code> fallback.
+<code>ForProvider</code> refuses local Postgres and unknown providers (<code>ErrInvalid</code>).</p>
+<h3 id="21-gating-env-flags-provider-config">2.1 Gating — env flags + provider config<a class="headerlink" href="#21-gating-env-flags-provider-config" title="Permanent link">&para;</a></h3>
+<p>Runners are only wired live when <strong><code>PG_SAGE_LIVE_PROVISIONING=1</code></strong>
+(<code>runtime_registry.go:10-21</code>). Each provider has a second flag <em>and</em> required creds:</p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>Enable flag</th>
+<th>Required env</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AWS RDS</td>
+<td><code>PG_SAGE_ENABLE_AWS_RDS_RUNNER=1</code></td>
+<td>region via <code>PG_SAGE_AWS_REGION</code>/<code>AWS_REGION</code>/<code>AWS_DEFAULT_REGION</code> (uses AWS SDK default credential chain)</td>
+</tr>
+<tr>
+<td>GCP Cloud SQL</td>
+<td><code>PG_SAGE_ENABLE_GCP_CLOUDSQL_RUNNER=1</code></td>
+<td><code>PG_SAGE_GCP_ACCESS_TOKEN</code> + project (<code>PG_SAGE_GCP_PROJECT</code>/<code>GOOGLE_CLOUD_PROJECT</code>); region defaults <code>us-central1</code></td>
+</tr>
+<tr>
+<td>Databricks Lakebase</td>
+<td><code>PG_SAGE_ENABLE_LAKEBASE_RUNNER=1</code></td>
+<td>host + token (<code>PG_SAGE_DATABRICKS_HOST/TOKEN</code> or <code>DATABRICKS_*</code>); instance mode hard-disabled (<code>NewLakebaseRunner(..., false)</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>If a flag is set but creds are missing, the runner is silently <strong>not</strong> registered, so
+the registry returns the dry-run fallback. The default (no env) registry is pure dry-run.</p>
+<p>A <em>second</em> gate lives in the HTTP layer: <code>ExecuteProvisionLive</code> is only reached when the
+request body says <code>mode=live</code> AND <code>EvaluateLiveProvisionPolicy</code> passes against the
+provider config (<code>agent_db_execution_handlers.go:32-65, 95-113</code>). So live provisioning
+requires: env flags + creds <strong>and</strong> an enabled provider config with allowlists/TTL/cost
+caps satisfied.</p>
+<h3 id="22-aws-rds-aws_rds_runnergo-live-real-sdk">2.2 AWS RDS (<code>aws_rds_runner.go</code>) — LIVE (real SDK)<a class="headerlink" href="#22-aws-rds-aws_rds_runnergo-live-real-sdk" title="Permanent link">&para;</a></h3>
+<p>Uses <code>aws-sdk-go-v2</code> <code>rds</code> client. <code>Create</code> calls <code>CreateDBInstance</code> with
+<code>ManageMasterUserPassword=true</code> (so the master secret is an AWS Secrets Manager ARN,
+surfaced as <code>secret_ref</code>/<code>secret_ref_provider=aws_secrets_manager</code>), <code>StorageEncrypted</code>,
+<code>AutoMinorVersionUpgrade</code>, tags including <code>pg_sage_deployment_id</code> and a <code>ttl</code> tag from the
+lease. Defaults: <code>db.t4g.micro</code>, 20 GB, 7-day backup retention. <code>Status</code> maps RDS states
+to the provisioning state machine; <code>Destroy</code> skips the final snapshot only for
+<code>disposable</code> deployments and treats NotFound as <code>destroyed</code>. Public instances are denied
+unless <code>Policy.AllowPublicIP</code>. Errors are normalized by <code>mapAWSError</code> to typed
+<code>ProviderError</code> (Conflict/Throttle/Quota/NotFound/Invalid/Unavailable). <code>BackupCheck</code>
+== <code>Status</code>.</p>
+<h3 id="23-gcp-cloud-sql-gcp_cloudsql_runnergo-live-real-rest">2.3 GCP Cloud SQL (<code>gcp_cloudsql_runner.go</code>) — LIVE (real REST)<a class="headerlink" href="#23-gcp-cloud-sql-gcp_cloudsql_runnergo-live-real-rest" title="Permanent link">&para;</a></h3>
+<p><code>CloudSQLHTTPClient</code> calls the Cloud SQL Admin API (<code>sqladmin.googleapis.com</code>,
+<code>/sql/v1beta4/...</code>) with a bearer token. <code>Create</code> POSTs an instance with backups +
+PITR enabled, <code>requireSsl</code>, encryption implicit, <code>deletionProtection</code> on unless
+disposable. Policy guards: rejects public IPv4 unless allowed, rejects <code>0.0.0.0/0</code>
+authorized networks, enforces an edition rule for <code>db-f1-micro</code>. <code>Status</code> maps
+RUNNABLE/PENDING_<em>/MAINTENANCE; <code>secret_ref_provider=gcp_secret_manager</code> is advertised
+but </em><em>no secret ARN is actually retrieved</em>* — credential handoff for GCP is incomplete
+vs AWS. NotFound on delete → <code>destroyed</code>.</p>
+<h3 id="24-databricks-lakebase-lakebase_runnergo-live-real-rest-branch-only">2.4 Databricks Lakebase (<code>lakebase_runner.go</code>) — LIVE (real REST), branch-only<a class="headerlink" href="#24-databricks-lakebase-lakebase_runnergo-live-real-rest-branch-only" title="Permanent link">&para;</a></h3>
+<p><code>LakebaseHTTPClient</code> calls <code>/api/2.0/postgres/projects/{project}/branches</code>. Default mode
+is <code>autoscaling_branch</code> (cheap, copy-on-write branch off a <code>source_branch</code>, default
+<code>main</code>), TTL derived from the lease. <strong>Full-instance mode is hard-disabled</strong>
+(<code>allowInstanceMode=false</code> from env wiring); requesting it returns <code>ErrInvalid</code>. Requires
+<code>provider_params.project</code>. No secret ref is produced.</p>
+<h3 id="25-dry-run-runner-provider_runnergo106-168">2.5 Dry-run runner (<code>provider_runner.go:106-168</code>)<a class="headerlink" href="#25-dry-run-runner-provider_runnergo106-168" title="Permanent link">&para;</a></h3>
+<p>The default. <code>Preflight</code>/<code>Create</code>/<code>Status</code>/<code>Destroy</code>/<code>BackupCheck</code> echo the planned
+command, set <code>execution_mode=dry_run</code>, and advance to <code>*_ready</code> states. This is the path
+exercised when live provisioning is off — useful for plan validation without touching a
+cloud account.</p>
+<hr />
+<h2 id="3-blueprints-terraform-and-the-store-persistence-model">3. Blueprints, Terraform, and the Store Persistence Model<a class="headerlink" href="#3-blueprints-terraform-and-the-store-persistence-model" title="Permanent link">&para;</a></h2>
+<h3 id="31-deterministic-blueprint-generator-live">3.1 Deterministic blueprint generator (LIVE)<a class="headerlink" href="#31-deterministic-blueprint-generator-live" title="Permanent link">&para;</a></h3>
+<p><code>HeuristicBlueprintGenerator</code> (<code>blueprint.go:15-53</code>) parses a free-text <code>intent</code> with
+regexes to infer provider, region, storage, backup days, PITR/Multi-AZ, private/public
+networking, extensions (pgvector/postgis/…), and budget (<code>$NNN</code>). <code>NormalizeBlueprintSpec</code>
+fills provider defaults. It then renders Terraform via
+<code>RenderTerraformFromBlueprint</code> → <code>renderAWSRDS</code>/<code>renderCloudSQL</code>/<code>renderLakebase</code>
+(<code>blueprint.go:367-482</code>) producing a single <code>main.tf</code> with encryption, deletion
+protection, and backup config baked in.</p>
+<h3 id="32-optional-llm-blueprint-generation-live-wiring-heuristic-fallback">3.2 Optional LLM blueprint generation (LIVE wiring, heuristic fallback)<a class="headerlink" href="#32-optional-llm-blueprint-generation-live-wiring-heuristic-fallback" title="Permanent link">&para;</a></h3>
+<p><code>BlueprintGenerator</code> is an interface (<code>types.go:541-543</code>). The API wires a generator from
+the LLM manager (<code>newAgentDBBlueprintGenerator(llmMgr)</code> at <code>router.go:134</code>). When the LLM
+returns no files, the store falls back to deterministic Terraform rendering
+(<code>blueprint.go:127-133</code>). <code>CreateBlueprint</code> requires a non-nil generator
+(<code>ErrBlueprintLLMRequired</code>) and records <code>llm_used</code> + <code>raw_response</code>.</p>
+<h3 id="33-blueprint-template-deployment-flow">3.3 Blueprint → template → deployment flow<a class="headerlink" href="#33-blueprint-template-deployment-flow" title="Permanent link">&para;</a></h3>
+<p><code>CreateBlueprint</code> (<code>blueprint.go:108-197</code>) also persists a derived Terraform template
+(<code>{id}_tf</code>). Policy findings from both blueprint and template are merged; <strong>any finding
+sets status <code>rejected</code></strong> and blocks approval (<code>ApproveBlueprint</code>, <code>provision_links.go:21-45</code>).
+<code>ProvisionFromBlueprint</code> (<code>provision_links.go:47-73</code>) only works on an <code>approved</code>
+blueprint: it builds a <code>RegisterRequest</code> + <code>SizeProfile</code> from the spec, computes the
+provisioning plan, sets <code>provisioning_status=planned</code>, tags metadata with
+<code>blueprint_id</code>/<code>terraform_template_id</code>, and calls <code>Register</code>.</p>
+<h3 id="34-terraform-template-upload-import-policy-terraform_policygo">3.4 Terraform template upload / import / policy (<code>terraform_policy.go</code>)<a class="headerlink" href="#34-terraform-template-upload-import-policy-terraform_policygo" title="Permanent link">&para;</a></h3>
+<p>Templates can be uploaded inline or from a zip (<code>TerraformFilesFromZip</code>, 256 KB cap).
+<code>TerraformPolicyFindings</code> rejects: <code>.tfvars</code>/<code>.tfstate</code>/<code>.terraform/</code>/secret-named files,
+non-<code>.tf</code> files, dangerous constructs (<code>provisioner</code>, <code>local-exec</code>, <code>remote-exec</code>,
+<code>null_resource</code>, <code>local_file</code>, <code>data "external"</code>), and unpinned <code>git::</code> module sources.
+<code>TerraformManifest</code> extracts providers/resources/variables/outputs via regex. File bodies
+are redacted on store. There is <strong>no <code>terraform apply</code>/<code>plan</code> execution from templates</strong> —
+the plan command strings reference <code>terraform apply</code> but only the SDK/REST runners ever
+run; Terraform itself is never invoked. Template rendering/policy/import is real; Terraform
+<em>execution</em> is not.</p>
+<h3 id="35-store-model">3.5 Store model<a class="headerlink" href="#35-store-model" title="Permanent link">&para;</a></h3>
+<p><code>Store</code> (<code>schema.go:13</code>) wraps a <code>pgxpool.Pool</code>. <code>Ensure</code> (idempotent CREATE/ALTER) runs
+the full DDL set on first use and seeds default size profiles. Tables:
+<code>agent_identities</code>, <code>agent_db_requests</code>, <code>agent_db_deployments</code>,
+<code>agent_db_provider_configs</code>, <code>agent_db_creation_receipts</code>, <code>agent_db_terraform_templates</code>,
+<code>agent_db_blueprints</code>, <code>agent_db_size_profiles</code>, <code>agent_db_pings</code>,
+<code>agent_db_ping_tokens</code>, <code>agent_db_ping_token_failures</code>, <code>agent_db_recommendations</code>,
+<code>agent_db_cost_samples</code>, <code>agent_db_backups</code>, <code>agent_db_tuning_hints</code>,
+<code>agent_db_provision_attempts</code>, <code>agent_db_audit</code>, <code>agent_db_deploy_requests</code>. Child tables
+FK to deployments with <code>ON DELETE CASCADE</code>.</p>
+<hr />
+<h2 id="4-agent-requests-deployment-flow-approval-cost-policy-gates">4. Agent Requests → Deployment Flow; Approval, Cost, Policy Gates<a class="headerlink" href="#4-agent-requests-deployment-flow-approval-cost-policy-gates" title="Permanent link">&para;</a></h2>
+<h3 id="41-request-intake-policy-decision">4.1 Request intake + policy decision<a class="headerlink" href="#41-request-intake-policy-decision" title="Permanent link">&para;</a></h3>
+<p><code>CreateRequest</code> (<code>store.go:17-44</code>) normalizes, applies idempotency
+(<code>tenant_id + idempotency_key</code> unique; mismatched body hash → <code>ErrConflict</code>), and runs
+<code>DecideRequest</code> (<code>policy.go:12-44</code>). Decisions:</p>
+<ul>
+<li>Missing tenant/agent → <strong>deny</strong>.</li>
+<li>Region not in <code>AllowedRegions</code> → <strong>deny</strong>.</li>
+<li>Sensitive <code>DataClassification</code> (production/restricted/pii/phi/pci) without a
+  <code>MaskingPolicyID</code> → <strong>deny</strong>; with one → <strong>review</strong>.</li>
+<li><code>schema</code>/<code>database</code> isolation → <strong>allow</strong>.</li>
+<li><code>instance</code> on a cloud provider with <code>BudgetUSD&lt;=0</code> → <strong>review</strong> (budget approval);
+  otherwise <strong>allow</strong> (plan only).</li>
+<li><code>external</code> → review; <code>branch</code> → defer; else deny.</li>
+</ul>
+<p>Note: masking is a <strong>gate</strong> (it requires a policy id) but no data masking is actually
+applied anywhere — it is a precondition check, not an enforcement mechanism.</p>
+<h3 id="42-approval-provision">4.2 Approval → provision<a class="headerlink" href="#42-approval-provision" title="Permanent link">&para;</a></h3>
+<p><code>SetRequestDecision</code> records approve/deny. <code>ProvisionApprovedRequest</code>
+(<code>provision_links.go:139-171</code>) refuses unless <code>status=approved &amp;&amp; policy_decision=allow</code>,
+then builds a <code>RegisterRequest</code> and calls <code>Provision</code>. <code>Provision</code> (<code>schema.go:64-90</code>)
+routes: local → real <code>CREATE SCHEMA</code>/<code>CREATE DATABASE</code>; cloud instance → build plan +
+register with <code>planned</code> status (no cloud call yet — execution is a separate, gated step).</p>
+<h3 id="43-cost-estimation-budget-gates-provider_costgo">4.3 Cost estimation &amp; budget gates (<code>provider_cost.go</code>)<a class="headerlink" href="#43-cost-estimation-budget-gates-provider_costgo" title="Permanent link">&para;</a></h3>
+<p><code>EstimateAgentDBCost</code> returns a monthly + TTL-prorated estimate from small hardcoded
+price tables per provider/class, with <code>confidence</code> and <code>unknown_components</code>.
+<code>BudgetGate</code> doubles the compared cost when confidence is low/unknown; if it exceeds the
+budget → not allowed; if above half the budget → requires review. Separately,
+<code>BudgetStatus</code> (<code>policy.go:46-57</code>) classifies running cost (<code>under_budget</code>/<code>soft_limit</code>
+at 90%/<code>hard_limit</code>), and <code>applyBudgetStatus</code> (<code>operations.go:281-296</code>) flips a
+deployment to <code>budget_exceeded</code> when cost samples cross the hard limit. Cost samples are
+agent-reported via <code>AddCostSample</code> — there is <strong>no automatic metering</strong>; chargeback is
+self-reported.</p>
+<h3 id="44-live-provisioning-policy-gate-provider_policygo">4.4 Live provisioning policy gate (<code>provider_policy.go</code>)<a class="headerlink" href="#44-live-provisioning-policy-gate-provider_policygo" title="Permanent link">&para;</a></h3>
+<p><code>EvaluateLiveProvisionPolicy</code> is the strict pre-flight for live creates: global enable,
+provider enable, TTL required + under max, public-IP allowlist, region/account/project/
+workspace allowlists (<code>*</code> wildcard supported), max estimated cost, low-confidence review,
+admin-override note. This runs in the HTTP handler before <code>ExecuteProvisionLive</code>.</p>
+<h3 id="45-deploy-requests-schema-change-review-deploy_requestsgo">4.5 Deploy requests (schema-change review, <code>deploy_requests.go</code>)<a class="headerlink" href="#45-deploy-requests-schema-change-review-deploy_requestsgo" title="Permanent link">&para;</a></h3>
+<p>Distinct from <em>provisioning</em>: a <code>DeployRequest</code> is a reviewed schema migration <em>against</em>
+an agent DB. <code>draft → review_requested → approved|denied</code>. Gate results record
+<code>has_migration_sql</code>, <code>has_verification_sql</code>, <code>has_rollback_or_forward_fix</code>,
+<code>migration_statement_count</code>, and <code>review_only=true</code>. <strong>Critically, this is review-only
+metadata: pg_sage never executes the migration SQL.</strong> It captures intent + approval, not
+execution.</p>
+<hr />
+<h2 id="5-monitoring-registration-fleet-integration">5. Monitoring Registration / Fleet Integration<a class="headerlink" href="#5-monitoring-registration-fleet-integration" title="Permanent link">&para;</a></h2>
+<h3 id="51-agent-ping-path-live">5.1 Agent-ping path (LIVE)<a class="headerlink" href="#51-agent-ping-path-live" title="Permanent link">&para;</a></h3>
+<p>Each deployment can mint scoped ping tokens (<code>CreatePingToken</code>/<code>RotatePingToken</code>,
+<code>identity.go</code>), hashed (SHA-256) at rest, with expiry, rotation lineage, and a
+brute-force lockout (5 failures / 5 min → <code>ErrRateLimited</code>, <code>identity.go:15-18</code>,
+298-330). <code>AgentPing</code> (<code>identity.go:264-274</code>) validates the token then records a row in
+<code>agent_db_pings</code> and updates <code>last_ping_at</code>/<code>status</code>. The ping endpoint
+<code>POST /api/v1/agent-dbs/{id}/agent-ping</code> is the <strong>only</strong> AgentDB route not behind
+admin/operator role (<code>agent_db_handlers.go:26-29</code>) — it is token-authenticated for the
+agent itself.</p>
+<h3 id="52-does-it-flow-into-the-fleet-no">5.2 Does it flow into the fleet? — NO<a class="headerlink" href="#52-does-it-flow-into-the-fleet-no" title="Permanent link">&para;</a></h3>
+<p>Searched <code>internal/fleet</code> for any AgentDB linkage: <strong>none</strong>. Agent-deployed databases are
+<strong>not</strong> registered into <code>fleet.DatabaseManager</code>, are not collected/analyzed by the Tier-1
+rules engine, and do not appear in <code>/api/v1/databases</code>. The AgentDB subsystem is a
+self-contained provisioning/lifecycle ledger. "Monitoring" of an agent DB means: the agent
+pings liveness, reports cost samples, and receives <code>recommendations</code>/<code>tuning_hints</code> stored
+in <code>agent_db_*</code> tables (<code>operations.go</code>, <code>tuning.go</code>) — it is <strong>not</strong> the continuous
+collector/analyzer pipeline that the sidecar runs against its primary fleet.</p>
+<h3 id="53-lifecycle-reconciliation-live-logic-not-scheduled-here">5.3 Lifecycle reconciliation (LIVE logic, not scheduled here)<a class="headerlink" href="#53-lifecycle-reconciliation-live-logic-not-scheduled-here" title="Permanent link">&para;</a></h3>
+<p><code>ReconcileAbandonedDeployments</code> (<code>lifecycle.go:9-73</code>) archives lease-expired deployments
+(<code>ArchiveExpired</code>) then, for cloud instances, attempts live destroy (if live runner +
+live mode + destroyable status) or dry-run destroy, recording <code>Blocked</code> entries when a
+verified restore is required or the runner is unavailable. <code>ReconcileLiveProvisioning</code>
+(<code>lifecycle.go:93-172</code>) takes a <code>pg_try_advisory_lock</code>, sweeps in-flight states
+(<code>provisioning</code>/<code>destroying</code>/<code>status_unknown</code>), and reconciles against the provider's
+live status. <strong>No goroutine/cron in <code>cmd/</code> calls these</strong> (grep of <code>cmd/</code> for <code>agentdb</code>
+returns nothing) — reconciliation logic exists and is tested but is not yet scheduled by
+the running binary; it would need an external trigger or future wiring.</p>
+<hr />
+<h2 id="6-governance-security-chargeback-archival-today-vs-absent">6. Governance / Security / Chargeback / Archival — Today vs Absent<a class="headerlink" href="#6-governance-security-chargeback-archival-today-vs-absent" title="Permanent link">&para;</a></h2>
+<h3 id="present-today-live">Present today (LIVE)<a class="headerlink" href="#present-today-live" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Security:</strong> ping-token auth with hashing + rotation + lockout; admin/operator RBAC on
+  management routes (<code>RequireRole</code>, <code>agent_db_handlers.go:25</code>); pervasive secret redaction;
+  secret-settings rejection; AWS Secrets Manager–managed master passwords; storage
+  encryption + SSL enforced in plans/runners; public-IP and <code>0.0.0.0/0</code> denial; Terraform
+  policy scanner blocking dangerous constructs and state/secret files.</li>
+<li><strong>Governance:</strong> policy decision engine on intake; live-provision allowlist policy
+  (region/account/project/workspace/TTL/cost); blueprint/template approval workflow with
+  policy findings; deploy-request review workflow; full append-only <code>agent_db_audit</code> trail
+  on every state change.</li>
+<li><strong>Lifecycle / TTL:</strong> real — leases (<code>lease_expires_at</code>), <code>ExtendLease</code>, <code>ArchiveExpired</code>
+  on expiry, TTL propagated to RDS tags and Lakebase branch TTL, cleanup state machine
+  (<code>CleanupDecisionFor</code>) blocking deletion until provider resource destroyed + verified
+  backup exists.</li>
+<li><strong>Multi-tenancy:</strong> partial — <code>tenant_id</code> is first-class on identities, requests,
+  deployments, deploy-requests; idempotency and indexes are tenant-scoped; policy requires
+  tenant identity. <strong>But</strong> management list endpoints return all tenants (no row-level
+  tenant filtering / isolation enforcement on reads) — it is tenant-<em>tagged</em>, not
+  tenant-<em>isolated</em>.</li>
+<li><strong>Archival:</strong> partial — deployments archive on lease expiry and a verified-backup gate
+  precedes destructive cleanup; <code>CheckBackupAssurance</code> records backup rows. <strong>But</strong> there
+  is no actual data archival/export of the agent DB's contents; "archive" is a status, and
+  backup "verification" in dry-run mode is explicitly <em>not</em> a real restore drill
+  (<code>backup_assurance.go:141</code>).</li>
+<li><strong>Chargeback:</strong> partial — per-deployment <code>budget_usd</code>, cost samples, budget-state
+  classification, and auto-<code>budget_exceeded</code>. <strong>But</strong> cost is agent-self-reported; there is
+  no cloud billing integration or automatic metering, so chargeback is advisory.</li>
+</ul>
+<h3 id="absent-scaffolding">Absent / scaffolding<a class="headerlink" href="#absent-scaffolding" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>No fleet/monitoring integration</strong> of agent DBs (see §5.2).</li>
+<li><strong>No Terraform execution</strong> — only render/policy/manifest (see §3.4).</li>
+<li><strong>No scheduled reconciliation</strong> in the running binary (see §5.3).</li>
+<li><strong>No async provisioning queue</strong> — <code>queued/cancelling</code> states are declared but unused.</li>
+<li><strong>No data masking enforcement</strong> — masking is a request precondition only (§4.1).</li>
+<li><strong>No real restore-drill / data archival</strong> (§ Archival above).</li>
+<li><strong>GCP/Lakebase secret handoff</strong> is incomplete relative to AWS (no secret ARN retrieved).</li>
+</ul>
+<hr />
+<h2 id="7-frontend">7. Frontend<a class="headerlink" href="#7-frontend" title="Permanent link">&para;</a></h2>
+<p><code>web/src/pages/AgentDBsPage.jsx</code> + <code>web/src/pages/agentdb/*</code> provide the operator UI:
+workspace tabs, provisioning panels, form controls, and section views over the REST API.
+This is the primary management surface (consistent with the project's web-UI-first
+direction). It surfaces requests, deployments, blueprints, templates, provider configs,
+provision attempts, cost/budget, backups, and audit — i.e. the ledger, not a live monitor.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

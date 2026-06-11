@@ -1,0 +1,1348 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/ROADMAP_2026H2/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>pg_sage Roadmap — 2026 H2 (research-backed) - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pg_sage-roadmap-2026-h2-research-backed" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              pg_sage Roadmap — 2026 H2 (research-backed)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-thesis-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Thesis update
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-confirmed-by-research-findings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Confirmed-by-research findings
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-foundation-fixes-do-these-first-they-gate-everything-below" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Foundation fixes (do these FIRST — they gate everything below)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-theme-a-autonomous-core-dba" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Theme A — Autonomous Core DBA
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Theme A — Autonomous Core DBA">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a1-per-table-autovacuum-tuner-flagship-quick-win" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A1. Per-table autovacuum tuner ⭐ flagship quick-win
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a2-index-lifecycle-auto-create-verify-auto-drop-oracle-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A2. Index lifecycle: auto-create → verify → auto-drop (Oracle-model)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a3-version-aware-doc-grounded-config-tuning-gptuner-style-llm-native-moat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A3. Version-aware, doc-grounded config tuning (GPTuner-style) ⭐ LLM-native moat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a4-analyze-extended-statistics-autopilot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A4. ANALYZE / extended-statistics autopilot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a5-plan-regression-detection-advise-first-remediation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A5. Plan-regression detection + (advise-first) remediation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a6-dead-replication-slot-wraparound-guardian" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A6. Dead-replication-slot &amp; wraparound guardian
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-theme-b-agentdb-at-scale-the-new-theater" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Theme B — AgentDB at scale (the new theater)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Theme B — AgentDB at scale (the new theater)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#b1-bring-agentdbs-into-the-fleet-schedule-the-reconciler-near-free" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B1. Bring AgentDBs into the fleet + schedule the reconciler ⭐ near-free
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b2-zero-touch-tuning-of-freshly-spawned-dbs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B2. Zero-touch tuning of freshly-spawned DBs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b3-auto-rightsizing-scale-to-zero-for-sporadic-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B3. Auto-rightsizing &amp; scale-to-zero for sporadic usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b4-noisy-neighbor-auto-quarantine-nobody-does-this" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B4. Noisy-neighbor auto-quarantine ⭐ nobody does this
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b5-usage-metering-chargebackshowback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B5. Usage metering &amp; chargeback/showback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b6-fleet-wide-policy-drift-enforcement-at-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        B6. Fleet-wide policy &amp; drift enforcement at scale
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-theme-c-llm-native-differentiators-defensibility-ranked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Theme C — LLM-native differentiators (defensibility-ranked)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-quick-wins-vs-big-bets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Quick wins vs big bets
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-cross-db-scorecard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Cross-DB scorecard
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-questions-you-should-be-asking-that-you-mostly-arent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Questions you should be asking (that you mostly aren't)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-how-this-maps-to-the-existing-code-finish-build-cut" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. How this maps to the existing code (finish / build / cut)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="pg_sage-roadmap-2026-h2-research-backed">pg_sage Roadmap — 2026 H2 (research-backed)<a class="headerlink" href="#pg_sage-roadmap-2026-h2-research-backed" title="Permanent link">&para;</a></h1>
+<p><em>Synthesized 2026-06-10 from the as-built <a href="../REVERSE_SPEC/">REVERSE_SPEC</a> + five fresh
+research reports under <a href="../research/"><code>research/v2_*</code></a>. Every feature ends in an </em><em>autonomous
+action</em><em>, not a chart. Full citations live in the research files; the load-bearing ones are
+inline here.</em></p>
+<hr />
+<h2 id="1-thesis-update">1. Thesis update<a class="headerlink" href="#1-thesis-update" title="Permanent link">&para;</a></h2>
+<p>The original thesis — <em>an autonomous Postgres DBA that takes action</em> — is <strong>confirmed and
+sharpened by the research into a defensible wedge</strong>, with one reframing:</p>
+<blockquote>
+<p><strong>Reversibility, not autonomy, is the product.</strong> The community is openly hostile to LLMs with
+write access to production ("<em>Giving LLM agents direct, autonomous access to a real production
+database with write access seems insane</em>" — top-voted 2026 HN comment, cited in
+<a href="../research/v2_user_pain_autonomous.md">v2_user_pain</a>). The market has answered this hostility
+by converging on <strong>advise-only</strong>: pganalyze <em>explicitly refuses</em> auto-apply on accountability
+grounds ("The Dilemma of the AI DBA", Jan 2026); Postgres.ai's "Self-Driving Postgres" ships
+only at SAE Levels 0–1. The <strong>auto-apply-for-tuning rung in open, portable Postgres is empty.</strong>
+The only players who actually auto-apply physical/plan changes — <strong>Oracle Autonomous Database</strong>
+and <strong>Azure SQL automatic tuning</strong> — are proprietary, single-vendor, and locked to their cloud.</p>
+</blockquote>
+<p>pg_sage's wedge is the intersection nobody occupies: <strong>(a) no-extension sidecar</strong> (passes the
+security review that killed OtterTune's SaaS), <strong>(b) LLM-native reasoning</strong> (root cause,
+doc-grounded tuning, migration generation), and <strong>(c) a gated, reversible executor</strong> that can
+actually <em>fire</em> the change. The job for 2026 H2 is to <strong>earn trust by making every action
+verifiable and reversible</strong>, copying the verify-and-revert mechanics Oracle/Azure proved, and to
+<strong>claim the AgentDB-at-scale theater</strong> before the serverless-Postgres vendors build a DBA layer on top.</p>
+<p>Market context that shapes positioning (from <a href="../research/v2_competitive_postgres_autonomy.md">v2_competitive</a>):
+managed Postgres pivoted in 2025–26 toward <em>Postgres-as-substrate-for-AI</em> (vectors, MCP, agent
+branching — Neon reports <strong>97% of branches are now agent-created</strong>; Crunchy was acquired by
+Snowflake ~$250M; Timescale rebranded to Tiger Data). The vendors are racing to <em>host</em> agent
+workloads; <strong>none of them operates the resulting databases.</strong> That is our opening.</p>
+<hr />
+<h2 id="2-confirmed-by-research-findings">2. Confirmed-by-research findings<a class="headerlink" href="#2-confirmed-by-research-findings" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Verify-and-revert is the transferable IP, and pg_sage does it wrong today.</strong> Every engine
+   that auto-applies physical changes ties the revert decision to the <strong>specific queries</strong> the
+   change targeted and verifies over a <strong>frequency-scaled window</strong> (Oracle SQL Performance
+   Analyzer; Azure's 30-min–72-hr per-query window; SQL Server's &gt;3σ + &gt;10 CPU-sec gate). pg_sage's
+   executor instead rolls back on <strong>coarse global metrics after a fixed window</strong> (REVERSE_SPEC §4),
+   which masks per-table/per-query regressions. <strong>This is the #1 foundation fix</strong> — it unlocks
+   trustworthy index and config auto-apply.</li>
+<li><strong>LLMs don't hallucinate indexes much — validation cost is the real barrier.</strong> The 2026
+   Microsoft "LLM vs DTA" study found LLM index picks are rarely invalid but vary 4× run-to-run.
+   Conclusion (from <a href="../research/v2_llm_dba_prior_art.md">v2_llm_prior_art</a>): <strong>HypoPG what-if
+   validation is load-bearing</strong>, and the LLM must <em>steer, not replace</em> the deterministic validator
+   ("guilty until proven innocent", per Oracle SPM). pg_sage's tier split already encodes this.</li>
+<li><strong>The most-automatable pain is surgical and reversible, not dramatic.</strong> Top of the
+   recurrence × LLM-closeability ranking: <strong>per-table autovacuum reloptions tuning</strong> (<code>ALTER TABLE
+   … SET (autovacuum_vacuum_scale_factor=…)</code>) — not "run VACUUM." Then ANALYZE/extended-stats
+   creation, TXID-wraparound freeze, and dead-replication-slot cleanup (a cited 2025 postmortem
+   went <strong>1.06 TB → 40 GB</strong> by dropping two dead slots).</li>
+<li><strong>AgentDB's biggest win is nearly free.</strong> The lifecycle reconciler that bounds ephemeral-DB
+   sprawl is <strong>already built and tested but unscheduled</strong> (REVERSE_SPEC §5). Wiring it is a config
+   change, not a feature.</li>
+<li><strong>Nobody solves multi-tenant noisy-neighbor isolation cleanly</strong> (Nile: quotas "not yet
+   implemented"; Turso: isolation "not perfect"). An observe-then-throttle auto-quarantine loop
+   would exceed what any serverless-Postgres platform offers.</li>
+</ol>
+<hr />
+<h2 id="3-foundation-fixes-do-these-first-they-gate-everything-below">3. Foundation fixes (do these FIRST — they gate everything below)<a class="headerlink" href="#3-foundation-fixes-do-these-first-they-gate-everything-below" title="Permanent link">&para;</a></h2>
+<p>These are <em>finish/fix</em> items from the reverse-spec, not new features. Several roadmap items are
+blocked on them.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Item</th>
+<th>Type</th>
+<th>Why it gates the roadmap</th>
+<th>Effort</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F1</td>
+<td><strong>Per-queryid verify-and-revert window</strong> (replace global-metric rollback)</td>
+<td>FIX</td>
+<td>Prerequisite for <em>any</em> trustworthy index/plan auto-apply (Theme A). Copy Azure's model.</td>
+<td>M</td>
+</tr>
+<tr>
+<td>F2</td>
+<td><strong>Postgres "mini Query Store"</strong> — snapshot per-queryid plan hash + latency over time</td>
+<td>BUILD</td>
+<td>Substrate for F1, plan-regression detection, and "why did the plan change" narratives. No extension needed (<code>pg_stat_statements</code> + plan sampling).</td>
+<td>M–L</td>
+</tr>
+<tr>
+<td>F3</td>
+<td><strong>Wire HA safe-mode into the executor</strong> (<code>ha.InSafeMode()</code> is dead) + <strong>replica gating</strong> in fleet executors (<code>RunCycle(ctx,false)</code>)</td>
+<td>FINISH</td>
+<td>Without it, autonomous DDL can fire against a node whose role is changing, or a replica. Blocks turning autonomy on safely.</td>
+<td>S</td>
+</tr>
+<tr>
+<td>F4</td>
+<td><strong>Schedule the AgentDB lifecycle reconciler</strong> (built, tested, unwired)</td>
+<td>FINISH</td>
+<td>Unlocks TTL/archival/sprawl control (Theme B) at ~zero build cost.</td>
+<td>S</td>
+</tr>
+<tr>
+<td>F5</td>
+<td><strong>Wire <code>fleet.FleetBudget</code></strong> (per-DB LLM token budget — built, never constructed)</td>
+<td>FINISH</td>
+<td>Required before running LLM tuning across thousands of AgentDBs without cost blowups.</td>
+<td>S</td>
+</tr>
+<tr>
+<td>F6</td>
+<td><strong>Auto-promoting trust ramp</strong> (today day-8/31 thresholds gate a <em>manually-set</em> string; no auto-promotion) + <strong>per-action-class trust</strong></td>
+<td>FIX/BUILD</td>
+<td>The whole "earn trust over time" story is currently manual. Research flags time-based ramp conflates operator-confidence with intrinsic-action-risk — make trust per-action-class.</td>
+<td>M</td>
+</tr>
+<tr>
+<td>F7</td>
+<td><strong>Register event-path notification senders</strong> (executor/analyzer notifications silently no-op) + <strong>emergency-stop re-check in the rollback goroutine</strong></td>
+<td>FIX</td>
+<td>Safety/telemetry integrity for autonomous actions.</td>
+<td>S</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="4-theme-a-autonomous-core-dba">4. Theme A — Autonomous Core DBA<a class="headerlink" href="#4-theme-a-autonomous-core-dba" title="Permanent link">&para;</a></h2>
+<p><em>Each: problem (cited) → LLM call → autonomous action → safety/gating → competitor → effort.</em></p>
+<h3 id="a1-per-table-autovacuum-tuner-flagship-quick-win">A1. Per-table autovacuum tuner  ⭐ flagship quick-win<a class="headerlink" href="#a1-per-table-autovacuum-tuner-flagship-quick-win" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Problem:</strong> Global autovacuum settings are wrong for skewed tables; practitioners hand-tune
+  <code>autovacuum_vacuum_scale_factor</code> per hot table and beg for it to be automatic
+  (<a href="../research/v2_user_pain_autonomous.md">v2_user_pain</a>, multiple dba.SE/r/PostgreSQL threads).</li>
+<li><strong>LLM call:</strong> given a table's dead-tuple rate, size, write pattern, and current reloptions →
+  recommend per-table reloptions with a rationale.</li>
+<li><strong>Autonomous action:</strong> <code>ALTER TABLE … SET (autovacuum_vacuum_scale_factor=…, autovacuum_vacuum_cost_limit=…)</code>.
+  Fully reversible (store prior reloptions as rollback SQL).</li>
+<li><strong>Safety:</strong> SAFE tier; rollback = restore prior reloptions; verify dead-tuple ratio improves over
+  N cycles else revert. Deterministic rule decides <em>whether</em>; LLM decides <em>which values/why</em>.</li>
+<li><strong>Competitor:</strong> nobody in open Postgres auto-applies this; Azure does the equivalent for its knobs.</li>
+<li><strong>Effort:</strong> <strong>S–M.</strong> Reuses advisor + executor. <strong>Highest ROI item on the board.</strong></li>
+</ul>
+<h3 id="a2-index-lifecycle-auto-create-verify-auto-drop-oracle-model">A2. Index lifecycle: auto-create → verify → auto-drop (Oracle-model)<a class="headerlink" href="#a2-index-lifecycle-auto-create-verify-auto-drop-oracle-model" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Problem:</strong> Missing indexes and unused/duplicate index bloat are the perennial #1/#2 DBA chores.</li>
+<li><strong>LLM call:</strong> propose candidate indexes from slow-query + seq-scan evidence (already exists in the
+  optimizer); <strong>HypoPG validates</strong> the benefit before anything is built.</li>
+<li><strong>Autonomous action:</strong> <code>CREATE INDEX CONCURRENTLY</code> (exists) → <strong>F1 per-queryid verify</strong> → keep or
+  <code>DROP INDEX CONCURRENTLY</code>; separately, <strong>measured-non-use auto-drop</strong> of unused indexes after a
+  configurable observation window (copy Oracle's 373-day / Atlas's 7-day pattern).</li>
+<li><strong>Safety:</strong> MODERATE; never drop unique/PK/constraint-backing indexes; rejection blocklist for
+  candidates that didn't help; per-table index cap (Atlas caps at 4) to prevent write-amp.</li>
+<li><strong>Competitor:</strong> Oracle ADB gold standard; Azure SQL; pganalyze/AlloyDB advise only. <strong>This is the
+  white space.</strong></li>
+<li><strong>Effort:</strong> <strong>M</strong> (create exists; needs F1+F2 and the drop/verify loop).</li>
+</ul>
+<h3 id="a3-version-aware-doc-grounded-config-tuning-gptuner-style-llm-native-moat">A3. Version-aware, doc-grounded config tuning (GPTuner-style)  ⭐ LLM-native moat<a class="headerlink" href="#a3-version-aware-doc-grounded-config-tuning-gptuner-style-llm-native-moat" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Problem:</strong> <code>work_mem</code>, <code>shared_buffers</code>, <code>checkpoint_*</code>, WAL settings — endlessly asked, version-
+  and workload-dependent, easy to get wrong.</li>
+<li><strong>LLM call:</strong> the <strong>defensible</strong> shape from GPTuner/λ-Tune research: the LLM reads the <em>Postgres
+  manual + release notes for the detected major version</em> as a <strong>prior</strong>, proposes a knob region; a
+  deterministic/BO validator picks the value. The LLM is a prior generator, not the optimizer.</li>
+<li><strong>Autonomous action:</strong> <code>ALTER SYSTEM SET …</code> (or <code>ALTER DATABASE</code> per the cloud-transform that
+  already exists) + reload; rollback = prior value.</li>
+<li><strong>Safety:</strong> SAFE for session-scoped/reloadable knobs, MODERATE for restart-requiring; verify on
+  workload metrics over a window; never auto-apply restart-requiring changes outside a maintenance window.</li>
+<li><strong>Competitor:</strong> OtterTune (dead) did ML knobs; <strong>nobody ships LLM-doc-grounded tuning for Postgres.</strong></li>
+<li><strong>Effort:</strong> <strong>M–L.</strong> Advisor scaffolding exists; the doc-RAG + version-awareness is new and is a moat.</li>
+</ul>
+<h3 id="a4-analyze-extended-statistics-autopilot">A4. ANALYZE / extended-statistics autopilot<a class="headerlink" href="#a4-analyze-extended-statistics-autopilot" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Problem:</strong> Bad row estimates from missing/stale stats and absent multi-column stats cause plan
+  disasters; "run ANALYZE" and "create extended statistics" are constant advice.</li>
+<li><strong>LLM call:</strong> from estimate-vs-actual skew + correlated-column detection → recommend
+  <code>CREATE STATISTICS</code> (ndistinct/dependencies) and targeted <code>ANALYZE</code>.</li>
+<li><strong>Autonomous action:</strong> <code>ANALYZE table</code> (SAFE, exists partially) and <code>CREATE STATISTICS …</code> (SAFE,
+  reversible via DROP).</li>
+<li><strong>Safety:</strong> SAFE; cheap and reversible; process-wide ANALYZE semaphore already exists.</li>
+<li><strong>Effort:</strong> <strong>S.</strong> Quick win.</li>
+</ul>
+<h3 id="a5-plan-regression-detection-advise-first-remediation">A5. Plan-regression detection + (advise-first) remediation<a class="headerlink" href="#a5-plan-regression-detection-advise-first-remediation" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Problem:</strong> "The query was fast yesterday, slow today" — plan flips after a stats change or
+  version upgrade. Most-requested, but <strong>auto-remediation is dangerous</strong> (research explicitly
+  down-ranks auto plan-forcing).</li>
+<li><strong>LLM call:</strong> on F2's plan store detecting a regressed queryid → explain the likely cause and
+  propose a fix (index, stats, rewrite, or — last resort — a <code>pg_hint_plan</code> pin).</li>
+<li><strong>Autonomous action (staged):</strong> start <strong>advisory</strong> (open a finding/case with the diagnosis); only
+  auto-apply the <em>non-plan-forcing</em> fixes (stats/index) under trust. Plan-forcing stays manual until
+  F2 is mature, and likely requires relaxing the no-extension stance for <code>pg_hint_plan</code> (open question).</li>
+<li><strong>Safety:</strong> advisory → SAFE sub-actions only; never auto-force a plan in v1.</li>
+<li><strong>Effort:</strong> <strong>M</strong> (depends on F2). Big differentiator: <strong>"why did the plan change" narrative</strong> is
+  LLM-native and nobody explains it well.</li>
+</ul>
+<h3 id="a6-dead-replication-slot-wraparound-guardian">A6. Dead-replication-slot &amp; wraparound guardian<a class="headerlink" href="#a6-dead-replication-slot-wraparound-guardian" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Problem:</strong> Inactive replication slots silently block autovacuum cluster-wide → bloat →
+  TXID-wraparound emergency (cited postmortem: 1.06 TB → 40 GB after dropping two dead slots).</li>
+<li><strong>LLM call:</strong> classify whether a slot is genuinely abandoned vs a briefly-disconnected real
+  consumer (this judgment is exactly what an LLM + context is good at).</li>
+<li><strong>Autonomous action:</strong> escalating — <strong>advise</strong> for slot drop (irreversible! high bar), but
+  <strong>auto-fire</strong> the reversible mitigations: aggressive freeze/<code>VACUUM (FREEZE)</code> on at-risk tables,
+  per-table autovacuum cost-limit bumps as wraparound age climbs.</li>
+<li><strong>Safety:</strong> slot drop stays HIGH/manual (irreversible); freeze actions SAFE.</li>
+<li><strong>Effort:</strong> <strong>S–M.</strong> High-impact incident prevention.</li>
+</ul>
+<p><strong>Deliberately NOT building (research-driven cuts):</strong>
+- <strong>Partition maintenance</strong> — <code>pg_partman</code>'s background worker already owns it; only future-partition
+  pre-creation <em>where pg_partman is absent</em> is a clean slice. Don't re-implement.
+- <strong>Connection pooling auto-fix</strong> — the real fix lives outside the DB (PgBouncer); stay advisory.
+- <strong>Text-to-SQL</strong> — out of scope; that's human-to-data, pg_sage is database-to-database.</p>
+<hr />
+<h2 id="5-theme-b-agentdb-at-scale-the-new-theater">5. Theme B — AgentDB at scale (the new theater)<a class="headerlink" href="#5-theme-b-agentdb-at-scale-the-new-theater" title="Permanent link">&para;</a></h2>
+<p><em>Serving databases deployed BY agents: ephemeral, 100s–1000s/hour, poorly tuned, sporadic,
+multi-tenant. Today AgentDB provisions but does not operate them (REVERSE_SPEC §5).</em></p>
+<h3 id="b1-bring-agentdbs-into-the-fleet-schedule-the-reconciler-near-free">B1. Bring AgentDBs into the fleet + schedule the reconciler  ⭐ near-free<a class="headerlink" href="#b1-bring-agentdbs-into-the-fleet-schedule-the-reconciler-near-free" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Problem:</strong> Provisioned agent DBs aren't monitored or tuned, and orphaned DBs sprawl (Neon's
+  "2,847 branches vs two" problem).</li>
+<li><strong>Action:</strong> register agent-provisioned DBs into <code>fleet.DatabaseManager</code> so the existing
+  collector/analyzer/executor pipeline applies; <strong>schedule the built-but-unwired lifecycle
+  reconciler</strong> (F4) to enforce TTL/lease expiry/archival.</li>
+<li><strong>Effort:</strong> <strong>S.</strong> Mostly wiring existing parts. Unlocks everything else in Theme B.</li>
+</ul>
+<h3 id="b2-zero-touch-tuning-of-freshly-spawned-dbs">B2. Zero-touch tuning of freshly-spawned DBs<a class="headerlink" href="#b2-zero-touch-tuning-of-freshly-spawned-dbs" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Problem:</strong> Agent-created DBs are "often poorly tuned" — default config, no indexes, no stats.</li>
+<li><strong>LLM call + action:</strong> on first workload observation, apply a <strong>config template</strong> sized to the
+  instance + the Theme-A tuners (A1/A3/A4) automatically at a higher default trust for ephemeral
+  DBs (lower blast radius than production).</li>
+<li><strong>Safety:</strong> ephemeral/non-production DBs can ramp trust faster; per-tenant FleetBudget (F5) caps LLM cost.</li>
+<li><strong>Effort:</strong> <strong>M</strong> (composes A1/A3/A4 + B1).</li>
+</ul>
+<h3 id="b3-auto-rightsizing-scale-to-zero-for-sporadic-usage">B3. Auto-rightsizing &amp; scale-to-zero for sporadic usage<a class="headerlink" href="#b3-auto-rightsizing-scale-to-zero-for-sporadic-usage" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Problem:</strong> Agent workloads are bursty; idle DBs waste money. Neon/Aurora Serverless v2 scale to
+  zero; most platforms don't.</li>
+<li><strong>LLM call:</strong> classify a DB's usage pattern (steady / bursty / abandoned) from activity history →
+  recommend rightsizing or pause/archive.</li>
+<li><strong>Autonomous action:</strong> trigger provider rightsizing (the AgentDB runners already create/destroy);
+  pause-or-archive idle DBs; resume on demand.</li>
+<li><strong>Safety:</strong> reversible (archive then restore); chargeback (B5) makes savings visible.</li>
+<li><strong>Effort:</strong> <strong>M–L</strong> (provider-specific; reuses runners).</li>
+</ul>
+<h3 id="b4-noisy-neighbor-auto-quarantine-nobody-does-this">B4. Noisy-neighbor auto-quarantine  ⭐ nobody does this<a class="headerlink" href="#b4-noisy-neighbor-auto-quarantine-nobody-does-this" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Problem:</strong> One tenant's runaway query starves shared compute; <strong>no serverless-Postgres platform
+  isolates this cleanly</strong> (Nile/Turso admit it).</li>
+<li><strong>LLM call:</strong> detect a tenant exceeding its share → classify malicious/buggy/legitimate-spike.</li>
+<li><strong>Autonomous action:</strong> observe-then-throttle — set per-role <code>statement_timeout</code>/<code>work_mem</code> caps,
+  cancel runaway backends, rate-limit the tenant's connections; escalate to quarantine.</li>
+<li><strong>Safety:</strong> soft caps on shared compute (flagged honestly — memory/IO caps stay soft without
+  cgroups); reversible role-setting changes.</li>
+<li><strong>Effort:</strong> <strong>M.</strong> Genuine differentiator.</li>
+</ul>
+<h3 id="b5-usage-metering-chargebackshowback">B5. Usage metering &amp; chargeback/showback<a class="headerlink" href="#b5-usage-metering-chargebackshowback" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Problem:</strong> Chargeback today is <strong>agent-self-reported</strong> (REVERSE_SPEC §5) — untrustworthy. Finance
+  needs real per-tenant cost.</li>
+<li><strong>Action:</strong> meter real resource use (connections, storage, query time, LLM tokens) per tenant from
+  the collector; produce showback/chargeback; auto-enforce budgets (auto-<code>budget_exceeded</code> exists —
+  make it metered, not self-reported).</li>
+<li><strong>Effort:</strong> <strong>M.</strong> Mostly deterministic; high enterprise value.</li>
+</ul>
+<h3 id="b6-fleet-wide-policy-drift-enforcement-at-scale">B6. Fleet-wide policy &amp; drift enforcement at scale<a class="headerlink" href="#b6-fleet-wide-policy-drift-enforcement-at-scale" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Problem:</strong> Thousands of DBs drift from their config template; security defaults (least-privilege,
+  SSL, no public IP) need to hold across the fleet.</li>
+<li><strong>LLM call:</strong> explain <em>why</em> a DB drifted and the blast radius of correcting it.</li>
+<li><strong>Autonomous action:</strong> bulk-apply config templates; auto-correct drift; enforce per-tenant
+  least-privilege role defaults at provision time.</li>
+<li><strong>Safety:</strong> uses F5 budgets + trust ramp; dry-run preview for bulk ops.</li>
+<li><strong>Effort:</strong> <strong>M–L.</strong></li>
+</ul>
+<hr />
+<h2 id="6-theme-c-llm-native-differentiators-defensibility-ranked">6. Theme C — LLM-native differentiators (defensibility-ranked)<a class="headerlink" href="#6-theme-c-llm-native-differentiators-defensibility-ranked" title="Permanent link">&para;</a></h2>
+<p><em>These are hard for advise-only competitors to copy and compound the moat. From
+<a href="../research/v2_llm_dba_prior_art.md">v2_llm_prior_art</a>.</em></p>
+<table>
+<thead>
+<tr>
+<th>Rank</th>
+<th>Capability</th>
+<th>What it is</th>
+<th>Autonomous payoff</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>C1</td>
+<td><strong>Natural-language root cause across correlated signals</strong></td>
+<td>D-Bot-style tool-grounded diagnosis over the RCA signals pg_sage already has</td>
+<td>Turns an incident into a ranked, cited diagnosis → drives the right auto-action</td>
+</tr>
+<tr>
+<td>C2</td>
+<td><strong>Version-aware doc-grounded tuning</strong> (= A3)</td>
+<td>LLM reads PG manual/release-notes as a prior</td>
+<td>Safe, explainable config auto-tuning nobody else has</td>
+</tr>
+<tr>
+<td>C3</td>
+<td><strong>Migration generation + risk classification</strong></td>
+<td>Generate online-DDL migrations + classify risk (exists partially)</td>
+<td>Auto-stage safe migrations; gate risky ones</td>
+</tr>
+<tr>
+<td>C4</td>
+<td><strong>Plain-English justification of every autonomous action</strong></td>
+<td>LLM writes the "why" into the audit log</td>
+<td>The accountability answer to pganalyze's "AI DBA dilemma" — <em>this is what makes auto-apply acceptable</em></td>
+</tr>
+<tr>
+<td>C5</td>
+<td><strong>Cross-database fleet learning</strong></td>
+<td>What worked on DB X informs DB Y</td>
+<td>Compounds with AgentDB scale (thousands of DBs = training signal)</td>
+</tr>
+<tr>
+<td>C6</td>
+<td><strong>"Why did the plan change" narratives</strong> (= A5)</td>
+<td>Explain plan flips from the F2 plan store</td>
+<td>Differentiated incident UX → drives remediation</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Grounding discipline (non-negotiable, from research):</strong> the LLM never emits DDL that fires
+unvalidated. HypoPG/what-if or the deterministic validator gates physical changes; rollback SQL must
+be a stored statement or the action <strong>does not auto-fire</strong> (proposed hard boundary).</p>
+<hr />
+<h2 id="7-quick-wins-vs-big-bets">7. Quick wins vs big bets<a class="headerlink" href="#7-quick-wins-vs-big-bets" title="Permanent link">&para;</a></h2>
+<p><strong>Quick wins (S, ship in 2026 H2):</strong> F3 (HA/replica gating), F4 (schedule reconciler), F5 (wire
+FleetBudget), F7 (notification senders + estop re-check), A1 (autovacuum tuner), A4 (ANALYZE/stats
+autopilot), B1 (AgentDBs into fleet). <em>These earn trust and unlock the rest at low risk.</em></p>
+<p><strong>Big bets (M–L, start H2, land H1'27):</strong> F1+F2 (per-queryid verify + plan store) → A2 (index
+lifecycle) and A5 (plan regression); A3/C2 (doc-grounded tuning); B3/B4/B5 (rightsizing,
+quarantine, chargeback). <em>These are the moat.</em></p>
+<p><strong>Sequencing (dependency-ordered):</strong>
+1. <strong>Foundation:</strong> F3, F4, F5, F7 → then F6 (trust auto-promotion) and F1+F2 (verify + plan store).
+2. <strong>Core DBA quick wins:</strong> A1, A4 (ride existing executor) → A2 once F1+F2 land → A6.
+3. <strong>LLM moat:</strong> A3/C2, then C1 (NL root cause), C4 (action justification — ship <em>with</em> the first
+   auto-apply, it's the trust unlock), C6.
+4. <strong>AgentDB theater:</strong> B1 (now) → B2, B5 → B3, B4, B6.</p>
+<hr />
+<h2 id="8-cross-db-scorecard">8. Cross-DB scorecard<a class="headerlink" href="#8-cross-db-scorecard" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Table-stakes</th>
+<th>Differentiator for pg_sage</th>
+<th>Don't bother</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Index advice</td>
+<td>✅ (everyone has it)</td>
+<td><strong>Auto-create-verify-drop</strong> loop (open-PG white space)</td>
+<td></td>
+</tr>
+<tr>
+<td>Plan management</td>
+<td></td>
+<td><strong>NL plan-change narrative</strong>; advise-first remediation</td>
+<td>Auto plan-forcing in v1 (unsafe)</td>
+</tr>
+<tr>
+<td>Config tuning</td>
+<td>partial</td>
+<td><strong>Doc-grounded, version-aware, LLM-prior + validator</strong></td>
+<td>Pure-ML knob tuning (OtterTune died)</td>
+</tr>
+<tr>
+<td>Verify-and-revert</td>
+<td>(Oracle/Azure only)</td>
+<td><strong>Per-queryid window on open Postgres, no extension</strong></td>
+<td></td>
+</tr>
+<tr>
+<td>Autovacuum/stats</td>
+<td></td>
+<td><strong>Per-table reloptions auto-tuning</strong></td>
+<td>Re-implementing pg_partman</td>
+</tr>
+<tr>
+<td>Multi-tenant isolation</td>
+<td>(nobody clean)</td>
+<td><strong>Observe-then-throttle auto-quarantine</strong></td>
+<td>Hard cgroup isolation on shared compute</td>
+</tr>
+<tr>
+<td>Ephemeral DB ops</td>
+<td>(Neon hosts, doesn't operate)</td>
+<td><strong>Autonomous DBA layer for agent DBs</strong> (tune/rightsize/archive/chargeback)</td>
+<td>Building our own serverless storage engine</td>
+</tr>
+<tr>
+<td>Failover/HA</td>
+<td>✅ (Patroni/pg_auto_failover)</td>
+<td>wire HA safe-mode for <em>action safety</em>, not failover itself</td>
+<td>Competing with Patroni</td>
+</tr>
+<tr>
+<td>Text-to-SQL</td>
+<td></td>
+<td>—</td>
+<td><strong>Out of scope</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="9-questions-you-should-be-asking-that-you-mostly-arent">9. Questions you should be asking (that you mostly aren't)<a class="headerlink" href="#9-questions-you-should-be-asking-that-you-mostly-arent" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Is the no-extension stance a moat or a ceiling?</strong> It's why pg_sage passes security review
+   (OtterTune's killer), but it blocks <code>pg_hint_plan</code> plan-forcing and a real plan store. Where
+   exactly does "no extension" stop being worth it — and should there be an <em>optional</em> extension tier?</li>
+<li><strong>Should trust be per-action-class instead of one calendar-gated level?</strong> Research says time-based
+   ramp conflates <em>operator confidence over time</em> with <em>intrinsic action risk</em> — they're orthogonal.
+   Auto-applying an ANALYZE on day 1 is fine; dropping an index on day 40 may not be.</li>
+<li><strong>What is the hard line for "may auto-fire"?</strong> Proposed: <em>no autonomous action unless its rollback
+   is a single stored SQL statement.</em> That cleanly excludes irreversible ops (slot drop, partition
+   detach) from autonomy forever. Do you accept that as a product invariant?</li>
+<li><strong>Who is the buyer — the DBA, the platform team, or the AI-agent platform?</strong> The AgentDB theater
+   implies a <em>platform</em> buyer (someone running 10k agent DBs), which is a different GTM, pricing, and
+   security posture than a single-DB DBA tool. Picking one sharpens everything.</li>
+<li><strong>Does the AgentDB theater cannibalize or complement the core DBA product?</strong> They share an engine
+   but serve opposite customers (one big precious DB vs thousands of disposable ones). Are these one
+   product or two?</li>
+<li><strong>If Neon/Supabase/Aurora ship a built-in autonomous DBA layer, what's left?</strong> They host 97% of
+   agent DBs already. Is pg_sage's defensibility the <em>cross-provider, provider-neutral</em> control plane
+   — and does that survive a vendor building it in-house for their own platform?</li>
+<li><strong>How do you prove an autonomous action helped without a thin-clone?</strong> Postgres.ai's DBLab is the
+   "verify before apply" substrate. Should pg_sage consume it (adapter) rather than verify in prod?</li>
+<li><strong>What's the liability/audit story when an auto-action causes an outage?</strong> pganalyze refuses
+   auto-apply <em>specifically</em> to avoid this. C4 (plain-English justification + rollback) is the answer
+   — but is it enough for an enterprise to accept? What contractual/audit artifacts are needed?</li>
+<li><strong>Is "LLM reads the docs to tune" durable as base models get better at SQL natively?</strong> The moat is
+   the <em>grounded validator loop</em>, not the LLM — make sure the defensibility is in the
+   verify/HypoPG/plan-store machinery, not the prompt.</li>
+<li><strong>Are you measuring the right success metric?</strong> Not "findings surfaced" (observability) but
+    "<strong>DBA-hours saved</strong> and <strong>incidents prevented</strong>, with zero auto-action-caused regressions." If
+    the metric is still dashboard engagement, the product will drift back to observability.</li>
+<li><strong>Can the executor actually verify per-query without an INVISIBLE index flag?</strong> Postgres has no
+    Oracle-style invisible index; building-then-measuring exposes the index workload-wide. Is HypoPG
+    what-if enough, or do you need a thin-clone (Q7)?</li>
+<li><strong>What happens at 10k databases to the LLM cost curve?</strong> F5 (FleetBudget) caps it, but per-DB LLM
+    tuning at agent scale needs a <em>cheap deterministic default</em> with LLM only on the exceptions.
+    Where's the LLM/deterministic boundary at scale?</li>
+</ol>
+<hr />
+<h2 id="10-how-this-maps-to-the-existing-code-finish-build-cut">10. How this maps to the existing code (finish / build / cut)<a class="headerlink" href="#10-how-this-maps-to-the-existing-code-finish-build-cut" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>FINISH (built but dead — high leverage):</strong> HA safe-mode (F3), FleetBudget (F5), lifecycle
+  reconciler (F4), event-path notification senders (F7), optimizer confidence-threshold gate,
+  cases→executor connection.</li>
+<li><strong>FIX:</strong> global→per-queryid verify-and-revert (F1), replica gating in fleet executors (F3),
+  emergency-stop re-check in rollback goroutine (F7), trust auto-promotion + per-action-class (F6).</li>
+<li><strong>BUILD (new):</strong> F2 plan store; A1/A2/A3/A4/A5/A6; B2/B3/B4/B5/B6; C1/C4.</li>
+<li><strong>CUT / DEPRIORITIZE:</strong> partition maintenance (pg_partman owns it), auto plan-forcing v1,
+  text-to-SQL, Terraform execution (finish-or-cut the rendered-but-never-run Terraform path).</li>
+</ul>
+<p><em>Every recommendation above is grounded in the research files in <a href="../research/"><code>research/v2_*</code></a> and
+the as-built <a href="../REVERSE_SPEC/">REVERSE_SPEC</a>. Citations are inline in those source files.</em></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -2,210 +2,246 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
+    </url>
+    <url>
+         <loc>https://jasonmassie01.github.io/pg_sage/REVERSE_SPEC/</loc>
+         <lastmod>2026-06-11</lastmod>
+    </url>
+    <url>
+         <loc>https://jasonmassie01.github.io/pg_sage/ROADMAP_2026H2/</loc>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/ROADMAP_v1.x_addendum/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/agent-db-deployments/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/architecture/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/codex-bug-log/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/codex-security-review-blocked-2026-05-02/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/codex-session-handoff-2026-04-27/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/configuration/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/deployment/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/findings/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/hint-verification/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/installation/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/llm-costing/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/plan_v0.8.5/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/security/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/sql-reference/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/try-it-out/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/ui-redesign-v2/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/walkthrough-fleet/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/walkthrough-linux/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/walkthrough-windows/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/walkthrough/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/reports/2026-05-08-agentdb-work-report/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/reports/2026-05-09-agentdb-release-readiness-report/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/reports/2026-05-09-claude-opus-agentdb-live-provisioning-review/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/reports/2026-05-09-cloud-provisioning-live-validation/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/reports/2026-05-09-fresh-local-qa-report/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/reports/2026-05-09-sql-tuning-hardening-report/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/reports/2026-05-10-agentdb-release-hardening-report/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
+    </url>
+    <url>
+         <loc>https://jasonmassie01.github.io/pg_sage/reverse_spec/01-architecture/</loc>
+         <lastmod>2026-06-11</lastmod>
+    </url>
+    <url>
+         <loc>https://jasonmassie01.github.io/pg_sage/reverse_spec/02-tier1-rules/</loc>
+         <lastmod>2026-06-11</lastmod>
+    </url>
+    <url>
+         <loc>https://jasonmassie01.github.io/pg_sage/reverse_spec/03-tier2-llm/</loc>
+         <lastmod>2026-06-11</lastmod>
+    </url>
+    <url>
+         <loc>https://jasonmassie01.github.io/pg_sage/reverse_spec/04-tier3-executor/</loc>
+         <lastmod>2026-06-11</lastmod>
+    </url>
+    <url>
+         <loc>https://jasonmassie01.github.io/pg_sage/reverse_spec/05-agentdb/</loc>
+         <lastmod>2026-06-11</lastmod>
+    </url>
+    <url>
+         <loc>https://jasonmassie01.github.io/pg_sage/reverse_spec/06-api-auth-web/</loc>
+         <lastmod>2026-06-11</lastmod>
+    </url>
+    <url>
+         <loc>https://jasonmassie01.github.io/pg_sage/reverse_spec/07-data-model-support/</loc>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/runbooks/agentdb-cloud-provider-setup/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/runbooks/agentdb-live-provisioning/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-04-27-autonomous-dba-first-slice/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-04-27-autonomous-dba-stacked-slices/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-04-30-foundation-readiness-gate/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-04-30-roadmap-slices/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-07-agent-database-deployment-module/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-07-agentdb-provider-provisioning-expansion/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-08-agentdb-cloud-dry-run-executor/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-09-agentdb-audit-export/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-09-agentdb-backup-assurance/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-09-agentdb-blueprint-builder/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-09-agentdb-e2e-provisioning-gauntlet/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-09-agentdb-identity-ping-tokens/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-09-agentdb-lifecycle-controller/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-09-agentdb-live-provisioning-ga/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-09-agentdb-promotion-deploy-requests/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-09-agentdb-recommendation-contract/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/specs/2026-04-30-foundation-readiness-gate/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/specs/2026-05-07-agent-database-deployment-module/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/specs/2026-05-07-agentdb-provider-provisioning-expansion/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/specs/2026-05-09-agentdb-blueprint-builder-design/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
     <url>
          <loc>https://jasonmassie01.github.io/pg_sage/superpowers/specs/2026-05-09-agentdb-live-provisioning-ga/</loc>
-         <lastmod>2026-06-02</lastmod>
+         <lastmod>2026-06-11</lastmod>
     </url>
 </urlset>

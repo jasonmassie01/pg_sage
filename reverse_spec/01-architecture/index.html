@@ -1,0 +1,1250 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/reverse_spec/01-architecture/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>pg_sage Sidecar — Reverse Spec: Architecture & Process Model - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pg_sage-sidecar-reverse-spec-architecture-process-model" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              pg_sage Sidecar — Reverse Spec: Architecture &amp; Process Model
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-entry-point-orchestration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Entry Point &amp; Orchestration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Entry Point &amp; Orchestration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#startup-sequence-main-maingo93-261" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Startup sequence (main — main.go:93-261)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-three-deployment-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The three deployment modes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-per-database-goroutine-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Per-Database Goroutine Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Per-Database Goroutine Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#goroutines-launched-per-database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goroutines launched per database
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#orchestrator-the-real-per-db-control-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Orchestrator (the real per-DB control loop)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lifecycle-cancellation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lifecycle / cancellation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-internalfleet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. internal/fleet
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-startup-validation-schema-bootstrap-locks-migrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Startup Validation, Schema Bootstrap, Locks, Migrations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Startup Validation, Schema Bootstrap, Locks, Migrations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#internalstartup-checksgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        internal/startup (checks.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalschema-bootstrapgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        internal/schema (bootstrap.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalsmoke" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        internal/smoke
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internalselfmonitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        internal/selfmonitor
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-internalconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. internal/config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-shutdown-circuit-breakers-self-monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Shutdown, Circuit Breakers, Self-Monitoring
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Shutdown, Circuit Breakers, Self-Monitoring">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#shutdown-maingo216-260" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shutdown (main.go:216-260)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#circuit-breakers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Circuit breakers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#self-monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Self-monitoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notable-dead-aspirational-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notable Dead / Aspirational Code
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="pg_sage-sidecar-reverse-spec-architecture-process-model">pg_sage Sidecar — Reverse Spec: Architecture &amp; Process Model<a class="headerlink" href="#pg_sage-sidecar-reverse-spec-architecture-process-model" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Reverse-engineered from the actual code in <code>sidecar/</code> at the time of writing.
+All citations are <code>file:line</code>. This documents reality, not aspiration.</p>
+</blockquote>
+<h2 id="1-entry-point-orchestration">1. Entry Point &amp; Orchestration<a class="headerlink" href="#1-entry-point-orchestration" title="Permanent link">&para;</a></h2>
+<p>The binary is <code>cmd/pg_sage_sidecar</code>. Its three source files split as:</p>
+<ul>
+<li><code>main.go</code> — process lifecycle, mode dispatch, standalone + YAML-fleet
+  init, Prometheus server, metrics, rate limiter, detection helpers,
+  shutdown.</li>
+<li><code>metadb.go</code> — meta-DB connect/bootstrap, the store-backed (meta-DB)
+  fleet path, and the reconnect loop.</li>
+<li><code>wire.go</code> — pure, testable HTTP-router assembly (<code>wireRouter</code>).</li>
+<li><code>rca_adapter.go</code> — thin adapter wrapping the RCA engine for the
+  analyzer interface.</li>
+</ul>
+<p>The package uses <strong>global mutable state</strong> (<code>main.go:54-91</code>) — <code>pool</code>,
+<code>cfg</code>, <code>coll</code>, <code>anal</code>, <code>exec</code>, <code>fleetMgr</code>, <code>shutdownCtx</code>, etc. This
+contradicts the project's own "no global mutable state" rule in
+<code>CLAUDE.md</code>; the entry package is the one place it is pervasive.</p>
+<h3 id="startup-sequence-main-maingo93-261">Startup sequence (<code>main</code> — <code>main.go:93-261</code>)<a class="headerlink" href="#startup-sequence-main-maingo93-261" title="Permanent link">&para;</a></h3>
+<ol>
+<li><code>--version</code> short-circuit (<code>main.go:94-97</code>).</li>
+<li><code>config.Load(os.Args[1:])</code> (<code>main.go:100</code>). Fatal on error.</li>
+<li><code>setTrustedProxies(cfg.API.TrustedProxies)</code> before any listener
+   (<code>main.go:113</code>) so rate-limiter IP extraction is correct from request 1.</li>
+<li><strong>Connection setup, branching by mode:</strong></li>
+<li>Meta-DB present (<code>cfg.HasMetaDB()</code>): <code>connectMetaDB</code> then
+     <code>initMetaDB</code>; the meta pool becomes the global <code>pool</code>
+     (<code>main.go:117-135</code>).</li>
+<li>Else standalone (not meta, not fleet): <code>connectMonitoredDB</code> builds
+     the single global <code>pool</code> (<code>main.go:139-153</code>). DSN falls back to
+     <code>SAGE_DATABASE_URL</code> then a hardcoded <code>localhost:5432/postgres</code>.</li>
+<li>Fleet creates its own per-DB pools later; no global pool.</li>
+<li><code>shutdownCtx, shutdownCancel = context.WithCancel(...)</code> (<code>main.go:156</code>)
+   — the cancellation root for every background goroutine.</li>
+<li><code>go poolHealthCheck()</code> (<code>main.go:159</code>, body <code>main.go:2264</code>): 30s ping +
+   pool-exhaustion warning. No-op in fleet (no global pool).</li>
+<li><code>detectCloudEnvironment()</code> (<code>main.go:162</code>, <code>main.go:2231-2262</code>): probes
+   <code>aurora_version()</code>, <code>rds.extensions</code>, <code>alloydb.*</code>, <code>cloudsql.*</code>,
+   <code>azure.extensions</code> settings → <code>aurora|rds|alloydb|cloud-sql|azure|self-managed</code>.</li>
+<li><code>detectExtension()</code> (<code>main.go:167</code>, <code>main.go:2210</code>): true only if a
+   <code>sage</code> schema <strong>and</strong> a <code>sage.health_json</code> proc exist (the legacy C
+   extension). In sidecar deployments this is always false.</li>
+<li><code>parseConfigRampStart</code> (<code>main.go:174</code>) parses <code>trust.ramp_start</code>.</li>
+<li><strong>Mode-specific init</strong> (<code>main.go:181-187</code>): exactly one of
+    <code>initMetaDBFleet</code>, <code>initStandalone</code>, <code>initFleetMultiDB</code>.</li>
+<li><code>initFleetAndAPI()</code> (<code>main.go:190</code>) — always runs; wraps whatever was
+    built into a <code>fleet.DatabaseManager</code> and starts the API server.</li>
+<li>Config hot-reload watcher if <code>cfg.ConfigPath != ""</code> (<code>main.go:193-203</code>).</li>
+<li>Rate limiter (<code>main.go:206</code>), Prometheus server (<code>main.go:210</code>).</li>
+<li>Block on <code>SIGINT/SIGTERM</code> (<code>main.go:213-216</code>).</li>
+</ol>
+<h3 id="the-three-deployment-modes">The three deployment modes<a class="headerlink" href="#the-three-deployment-modes" title="Permanent link">&para;</a></h3>
+<p>Mode is selected by <code>cfg.Mode</code> (<code>standalone</code> | <code>fleet</code> | <code>extension</code>)
+plus the orthogonal <code>--meta-db</code> flag. Note <code>extension</code> is a <em>valid</em> mode
+in config validation (<code>config.go:582</code>) but <strong>the entry point never
+branches on it</strong> — <code>main.go:181-187</code> only handles meta-DB, standalone,
+and fleet. Extension mode is effectively dead at the process level; the
+only residue is <code>detectExtension()</code> and the <code>pg_sage_info{mode="extension"}</code>
+metric path (<code>main.go:1780</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Selector</th>
+<th>Pools</th>
+<th>Init function</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Standalone</strong></td>
+<td><code>mode: standalone</code>, no <code>--meta-db</code></td>
+<td>one global <code>pool</code></td>
+<td><code>initStandalone</code> (<code>main.go:295</code>)</td>
+</tr>
+<tr>
+<td><strong>YAML Fleet</strong></td>
+<td><code>mode: fleet</code>, <code>databases:</code> in YAML</td>
+<td>one pool per DB</td>
+<td><code>initFleetMultiDB</code> (<code>main.go:828</code>)</td>
+</tr>
+<tr>
+<td><strong>Meta-DB Fleet</strong></td>
+<td><code>--meta-db</code> set (any mode)</td>
+<td>meta pool + one pool per stored DB</td>
+<td><code>initMetaDBFleet</code> (<code>metadb.go:279</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><code>HasMetaDB()</code> takes precedence over <code>IsFleet()</code>/<code>IsStandalone()</code> in the
+connection branch (<code>main.go:117,139</code>) — a meta-DB DSN routes you to the
+store-backed fleet path regardless of <code>mode</code>.</p>
+<p><strong>Standalone</strong> (<code>initStandalone</code>, <code>main.go:295-690</code>): runs <code>startup.RunChecks</code>,
+<code>schema.Bootstrap</code>, admin bootstrap, builds the full single-DB pipeline
+(collector, analyzer + optimizer/advisor/forecaster/tuner, executor,
+briefing, alerting, autoexplain, schema-lint, migration advisor, RCA,
+retention), then <code>go standaloneOrchestrator()</code>.</p>
+<p><strong>YAML Fleet</strong> (<code>initFleetMultiDB</code>, <code>main.go:828-1280</code>): iterates
+<code>cfg.Databases</code>, building an independent pipeline per DB. Connection
+failures register a <em>failed</em> instance (nil pool, error string) so the
+dashboard shows them but they never run goroutines (<code>main.go:852-907</code>).
+A shared LLM client/manager is created once (<code>main.go:832-833</code>). <code>application_name=pg_sage</code>
+is stamped on every pool conn (<code>main.go:875</code>) so the analyzer/executor can
+recognise their own backends.</p>
+<p><strong>Meta-DB Fleet</strong> (<code>initMetaDBFleet</code>, <code>metadb.go:279-299</code>): loads enabled
+<code>store.DatabaseRecord</code>s from <code>sage.databases</code>, decrypts connection strings,
+and calls <code>registerStoreDatabase</code> → <code>bootstrapAndRegister</code> per DB. Adds a
+<code>fleetReconnectLoop</code> (30s ticker) that retries failed/errored instances
+(<code>metadb.go:406-470</code>). This is the only mode with dynamic
+add/remove/reconnect of databases at runtime.</p>
+<h2 id="2-per-database-goroutine-model">2. Per-Database Goroutine Model<a class="headerlink" href="#2-per-database-goroutine-model" title="Permanent link">&para;</a></h2>
+<p>There is no single "agent" goroutine. Each subsystem is its own
+long-lived goroutine plus a per-DB <strong>orchestrator</strong> that drives the
+executor/briefing/retention on the analyzer cadence.</p>
+<h3 id="goroutines-launched-per-database">Goroutines launched per database<a class="headerlink" href="#goroutines-launched-per-database" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Started by</th>
+<th>Cadence</th>
+<th>Cancellation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Collector</td>
+<td><code>coll.Run</code> (<code>main.go:394</code>, fleet <code>:968</code>/<code>:1154</code>)</td>
+<td><code>collector.interval_seconds</code> (internal ticker)</td>
+<td>instance ctx</td>
+</tr>
+<tr>
+<td>Analyzer</td>
+<td><code>anal.Run</code> (<code>main.go:580</code>, fleet <code>:1154</code>)</td>
+<td><code>analyzer.interval_seconds</code></td>
+<td>instance ctx</td>
+</tr>
+<tr>
+<td>Orchestrator</td>
+<td><code>standaloneOrchestrator</code> (<code>main.go:686</code>) / <code>fleetDBOrchestrator</code> (<code>main.go:1251</code>)</td>
+<td><code>analyzer.Interval()+5s</code> ticker</td>
+<td><code>shutdownFlag</code> / instance ctx</td>
+</tr>
+<tr>
+<td>Tuner revalidation</td>
+<td><code>qt.StartRevalidationLoop</code> (<code>main.go:521</code>, fleet <code>:1082</code>)</td>
+<td><code>revalidation_interval_hours</code></td>
+<td>ctx</td>
+</tr>
+<tr>
+<td>AutoExplain collector</td>
+<td><code>aec.Run</code> (<code>main.go:641</code>, fleet <code>:1112</code>)</td>
+<td><code>collect_interval_seconds</code></td>
+<td>ctx</td>
+</tr>
+<tr>
+<td>Schema lint</td>
+<td><code>lintRunner.Run</code> (<code>main.go:656</code>, fleet <code>:1202</code>)</td>
+<td><code>scan_interval_minutes</code></td>
+<td>ctx</td>
+</tr>
+<tr>
+<td>Migration detector</td>
+<td><code>migDetector.Run</code> (<code>main.go:677</code>, fleet <code>:1222</code>)</td>
+<td><code>poll_interval_seconds</code></td>
+<td>ctx</td>
+</tr>
+<tr>
+<td>Alerting (standalone only)</td>
+<td><code>alertMgr.Run</code> (<code>main.go:620</code>)</td>
+<td><code>check_interval_seconds</code></td>
+<td>shutdownCtx</td>
+</tr>
+<tr>
+<td>Action expiry</td>
+<td><code>store.StartActionExpiry</code> (<code>main.go:604</code>, fleet <code>:1189</code>)</td>
+<td>internal</td>
+<td>ctx</td>
+</tr>
+<tr>
+<td>Log-watch drain (fleet)</td>
+<td><code>runFanoutDrain</code> (<code>main.go:1364</code>)</td>
+<td><code>logwatch.poll_interval_ms</code></td>
+<td>shutdownCtx</td>
+</tr>
+</tbody>
+</table>
+<p>The <strong>briefing</strong>, <strong>optimizer</strong>, and <strong>advisor</strong> are <em>not</em> independent
+goroutines. The optimizer and advisor are dependencies injected into the
+analyzer (<code>analyzer.New(... opt, advIface ...)</code>, <code>main.go:533</code>) and run
+inside the analyzer cycle. The briefing worker is invoked from the
+orchestrator when <code>briefWorker.ShouldRun(now)</code> is true
+(<code>main.go:717-725</code>, <code>main.go:1447-1458</code>).</p>
+<h3 id="orchestrator-the-real-per-db-control-loop">Orchestrator (the real per-DB control loop)<a class="headerlink" href="#orchestrator-the-real-per-db-control-loop" title="Permanent link">&para;</a></h3>
+<p><code>standaloneOrchestrator</code> (<code>main.go:692-742</code>) ticks every
+<code>analyzer.Interval()+5s</code> and, per tick: runs an HA replica check
+(<code>haMon.Check</code>), <code>exec.RunCycle</code>, scheduled briefing, retention cleaner,
+and fleet-status refresh + <code>RecordHealthSnapshots</code>. <code>fleetDBOrchestrator</code>
+(<code>main.go:1425-1467</code>) is the per-instance equivalent minus HA and
+retention, plus per-instance finding refresh.</p>
+<h3 id="lifecycle-cancellation">Lifecycle / cancellation<a class="headerlink" href="#lifecycle-cancellation" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Standalone</strong> goroutines all take <code>shutdownCtx</code> and stop on
+  <code>shutdownCancel()</code>. The orchestrator also checks the global
+  <code>shutdownFlag</code> bool (<code>main.go:700</code>).</li>
+<li><strong>Fleet</strong> derives a <em>per-instance</em> context: <code>instCtx, instCancel :=
+  context.WithCancel(shutdownCtx)</code> (<code>main.go:962</code>, <code>metadb.go:363</code>). The
+  <code>instCancel</code> is stored on <code>DatabaseInstance.Cancel</code> and called by
+  <code>RemoveInstance</code> (<code>manager.go:325</code>), so a single DB can be torn down
+  (delete / edit) without affecting the rest of the fleet. Comments are
+  explicit that <strong>EmergencyStop deliberately does NOT call Cancel</strong> —
+  monitoring continues, only action execution is gated (<code>types.go:30-34</code>,
+  <code>manager.go:196-198</code>).</li>
+</ul>
+<h2 id="3-internalfleet">3. internal/fleet<a class="headerlink" href="#3-internalfleet" title="Permanent link">&para;</a></h2>
+<p><code>DatabaseManager</code> (<code>manager.go:21-26</code>) is a mutex-guarded
+<code>map[string]*DatabaseInstance</code> plus a <code>primaryName</code>.</p>
+<ul>
+<li><strong>Registration</strong> (<code>RegisterInstance</code>, <code>manager.go:43-50</code>): first
+  instance <strong>with a non-nil pool</strong> becomes primary. Failed (nil-pool)
+  instances are registered for visibility but can never be primary — a
+  nil-pool primary would break auth and all "all"-scoped queries.</li>
+<li><strong>Primary selection / "all" scoping</strong> (<code>PoolForDatabase</code>,
+  <code>manager.go:262-300</code>): a named DB returns that instance's pool; <code>""</code>
+  or <code>"all"</code> returns the primary's pool, falling back to
+  <code>firstConnectedPoolLocked()</code> (sorted-name order) if the primary is gone.
+  The primary pool is what auth/session storage and <code>sage.databases</code>
+  catalog writes use (<code>wire.go:44-52</code>, <code>main.go:815</code>).</li>
+<li><strong>Health score</strong> (<code>computeHealthScore</code>, <code>manager.go:131-146</code>):
+  <code>0</code> if disconnected or errored; else <code>100 − 25·critical − 5·warning</code>,
+  floored at 0. Warning-only (<code>s.FindingsWarning</code>) — no <code>info</code> penalty.
+  Computed lazily inside <code>FleetStatus</code> (<code>manager.go:93</code>) and persisted
+  by <code>RecordHealthSnapshots</code> into <code>sage.health_history</code> (<code>manager.go:153-193</code>).</li>
+<li><strong>Instance registration in catalog</strong>: YAML fleet upserts each DB into
+  <code>sage.databases</code> via <code>upsertFleetDatabase</code> (<code>main.go:1391-1419</code>) with a
+  <code>[]byte{0}</code> placeholder password (creds stay in YAML). Meta-DB fleet
+  reads them back from the store.</li>
+<li><strong>EmergencyStop / Resume</strong> (<code>manager.go:199-257</code>): toggles <code>inst.Stopped</code>
+  and persists via <code>executor.SetEmergencyStop</code> into each DB's
+  <code>sage.config</code> (<code>manager.go:230</code>). Empty name = whole fleet; named =
+  one DB. <code>*Strict</code> variants return <code>ErrDatabaseNotFound</code>.</li>
+<li><strong>Per-DB budgets</strong> (<code>budget.go</code>): <code>FleetBudget</code> divides
+  <code>TotalDaily / len(databases)</code> equally (<code>budget.go:18-31</code>) with
+  <code>CanSpend/Spend/Used/ResetDaily</code>. <strong>This type is defined but I found no
+  construction or call site in the entry point or fleet manager</strong> — token
+  budgeting in practice is enforced per-<code>llm.Client</code> (daily token budget),
+  not via <code>FleetBudget</code>. Treat <code>FleetBudget</code> as currently-unwired /
+  aspirational.</li>
+</ul>
+<h2 id="4-startup-validation-schema-bootstrap-locks-migrations">4. Startup Validation, Schema Bootstrap, Locks, Migrations<a class="headerlink" href="#4-startup-validation-schema-bootstrap-locks-migrations" title="Permanent link">&para;</a></h2>
+<h3 id="internalstartup-checksgo">internal/startup (<code>checks.go</code>)<a class="headerlink" href="#internalstartup-checksgo" title="Permanent link">&para;</a></h3>
+<p><code>RunChecks</code> (<code>checks.go:23-65</code>) is <strong>standalone-only</strong> (<code>main.go:300</code>) and
+fails the process if any check errors. It verifies: connectivity
+(<code>SELECT 1</code>), PG ≥ 14000 via <code>server_version_num</code>, <code>pg_stat_statements</code>
+installed + readable, and <strong>detects (not requires)</strong> query-text
+visibility, WAL columns (<code>wal_records</code>), and plan-time columns
+(<code>total_plan_time</code>) via <code>pg_attribute</code> on the view OID. Results populate
+<code>cfg.PGVersionNum / HasWALColumns / HasPlanTimeColumns</code>. Fleet/meta-DB
+paths skip <code>RunChecks</code> entirely and instead do a best-effort
+<code>SHOW server_version_num</code> per DB (<code>main.go:950</code>, <code>metadb.go:477</code>),
+defaulting to PG 14 (140000) on failure.</p>
+<h3 id="internalschema-bootstrapgo">internal/schema (<code>bootstrap.go</code>)<a class="headerlink" href="#internalschema-bootstrapgo" title="Permanent link">&para;</a></h3>
+<p><code>Bootstrap</code> (<code>bootstrap.go:49-76</code>): acquires the advisory lock, creates
+the full schema if absent or ensures each <code>expectedTables</code> entry exists,
+then folds in <code>MigrateConfigSchema</code> + <code>migrateIncidentConstraints</code>. It
+<strong>never drops</strong> objects. There are 21 <code>sage.*</code> tables (<code>bootstrap.go:12-37</code>):
+<code>action_log</code>, <code>snapshots</code>, <code>findings</code>, <code>explain_cache</code>, <code>briefings</code>,
+<code>config</code>, <code>alert_log</code>, <code>query_hints</code>, <code>users</code>, <code>sessions</code>, <code>databases</code>,
+<code>notification_*</code> (3), <code>action_queue</code>, <code>incidents</code>, <code>size_history</code>,
+<code>explain_results</code>, <code>schema_findings</code>, <code>crypto_meta</code>, <code>health_history</code>.</p>
+<ul>
+<li><strong>Advisory lock</strong> (<code>acquireAdvisoryLock</code>, <code>bootstrap.go:157-177</code>): a
+  <em>blocking</em> <code>pg_advisory_lock(hashtext('pg_sage'))</code> with a 30s context
+  timeout — chosen over <code>try_advisory_lock</code> so concurrent sidecars/test
+  packages serialize rather than spuriously fail. Standalone holds it for
+  the process lifetime and releases on shutdown (<code>main.go:237-240</code>); fleet
+  and meta-DB release it immediately after bootstrap per DB
+  (<code>main.go:917</code>, <code>metadb.go:351</code>) — i.e. fleet does <strong>not</strong> hold a
+  single-writer lock.</li>
+<li><strong>Migrations</strong> are append-only idempotent DDL: <code>ensureTablesExist</code> runs
+  <code>migrationStatements()</code> (<code>bootstrap.go:259-272</code>) — a fixed list of
+  <code>ALTER TABLE ... ADD COLUMN IF NOT EXISTS</code> / <code>CREATE INDEX IF NOT EXISTS</code>
+  blocks (OAuth cols, action-queue lifecycle cols, schema-lint absorption,
+  fleet-scale indexes, etc.). <code>MigrateConfigSchema</code> (separate file) adds
+  <code>database_id</code>/audit. There is no version table; idempotency is by
+  <code>IF NOT EXISTS</code>.</li>
+<li><strong>Trust ramp</strong> (<code>PersistTrustRampStart</code>, <code>bootstrap.go:89-155</code>):
+  reads/inserts <code>trust_ramp_start</code> in <code>sage.config</code>, honouring a
+  YAML-supplied <code>configRampStart</code> on first write and tolerating a
+  concurrent-insert race by re-selecting.</li>
+</ul>
+<h3 id="internalsmoke">internal/smoke<a class="headerlink" href="#internalsmoke" title="Permanent link">&para;</a></h3>
+<p>End-to-end tests only (<code>smoke_test.go</code>, <code>chaos_test.go</code>) — threads
+snapshot → analyzer → retention against a live PG, skipping when
+<code>SAGE_DATABASE_URL</code> is unset (<code>smoke_test.go:36-42</code>). Not part of the
+runtime.</p>
+<h3 id="internalselfmonitor">internal/selfmonitor<a class="headerlink" href="#internalselfmonitor" title="Permanent link">&para;</a></h3>
+<p>Despite the name, this is <strong>not a monitoring loop</strong> — it is a pure
+self-reference <em>filter</em> (<code>selfmonitor.go</code>). <code>IsFinding</code> / <code>IsQueryText</code> /
+<code>FindingsSQLExclusionClause</code> detect whether a finding/query refers to the
+<code>sage</code> schema or <code>pg_sage</code> app_name, so the analyzer excludes its own
+activity from findings (used at <code>analyzer/finding.go:129</code>). No goroutine,
+no state.</p>
+<h2 id="5-internalconfig">5. internal/config<a class="headerlink" href="#5-internalconfig" title="Permanent link">&para;</a></h2>
+<p><code>config.Load</code> (<code>config.go:498-617</code>) precedence is <strong>CLI &gt; env &gt; YAML &gt;
+defaults</strong>: <code>newDefaults()</code> → <code>loadYAML</code> (with <code>${ENV}</code> expansion only,
+bare <code>$</code> preserved — <code>expandBracedEnv</code>, <code>config.go:25-30</code>) → <code>overlayEnv</code>
+(<code>SAGE_*</code> vars, <code>config.go:924-1000</code>) → CLI flag overlay → <code>normalize()</code>
+→ <code>validate()</code>.</p>
+<ul>
+<li><strong>Modes &amp; validation</strong> (<code>config.go:582-589</code>, <code>619-672</code>): mode must be
+  <code>extension|standalone|fleet</code>; trust level must be
+  <code>observation|advisory|autonomous</code> (note: NOT <code>monitor</code>/<code>auto</code> — those
+  are <em>execution_mode</em> values, a separate axis); fleet requires ≥1 DB or
+  a meta-DB; fleet DB names must be non-empty and unique.</li>
+<li><strong>Normalization</strong> (<code>fleet.go:89-144</code>): standalone with legacy
+  <code>postgres:</code> config synthesizes <code>Databases[0]</code>; fleet applies
+  <code>DefaultsConfig</code> (max_conns, trust_level, execution_mode default <code>auto</code>,
+  intervals) to any zero-valued per-DB field.</li>
+<li><strong>Defaults</strong> live in <code>internal/config/defaults.go</code> (consts) wired in
+  <code>newDefaults()</code> (<code>config.go:674-883</code>). Notable real defaults: trust
+  level, <code>unused_index_window_days</code>, lock-chain enabled with safe-patterns
+  <code>pg_sage/replication/patroni</code>, forecaster <code>AlertHorizons [30,7,3]</code>,
+  tuner <code>MaxConcurrentAnalyze</code>.</li>
+<li><strong>Hot reload</strong> (<code>watcher.go</code>): <code>fsnotify</code> watch on the config path; on
+  Write/Create it re-parses, validates, and applies <strong>only</strong> hot-reloadable
+  fields via <code>applyHotReload</code> (<code>watcher.go:145-405</code>), logging
+  restart-required warnings for connection/mode/listener changes
+  (<code>warnNonReloadable</code>). The set is enumerated in <code>HotReloadable()</code>
+  (<code>config.go:1003-1019</code>): collector/analyzer/safety/trust(level,tiers,
+  window)/llm/briefing/alerting/auto_explain/forecaster/tuner/retention.
+  Postgres connection, listen addrs, and mode are intentionally <em>not</em>
+  reloadable. Reload mutates the live <code>*Config</code> in place under
+  <code>w.mu</code>; package-level <code>hotReloadMu</code> (<code>config.go:38-52</code>) guards
+  multi-field readers elsewhere.</li>
+<li><strong>Env-expansion caveat</strong>: <code>overlayEnv</code> has a dead branch for
+  <code>SAGE_RATE_LIMIT</code> that does nothing (<code>config.go:955-957</code>); the rate
+  limit is actually resolved later in <code>RateLimit()</code> (<code>config.go:1042-1047</code>).</li>
+</ul>
+<h2 id="6-shutdown-circuit-breakers-self-monitoring">6. Shutdown, Circuit Breakers, Self-Monitoring<a class="headerlink" href="#6-shutdown-circuit-breakers-self-monitoring" title="Permanent link">&para;</a></h2>
+<h3 id="shutdown-maingo216-260">Shutdown (<code>main.go:216-260</code>)<a class="headerlink" href="#shutdown-maingo216-260" title="Permanent link">&para;</a></h3>
+<p>On signal: set <code>shutdownFlag=true</code>, call <code>shutdownCancel()</code> (cancels every
+ctx-bound goroutine). A <strong>hard 10s watchdog</strong> <code>os.Exit(1)</code>s if graceful
+shutdown stalls (<code>main.go:222-226</code>). Then, under an 8s timeout: stop the
+rate limiter, release the standalone advisory lock (<code>main.go:237-240</code>),
+<code>Shutdown</code> the Prometheus + API servers, stop the login limiter, and
+<code>shutdownExecutors</code> (<code>main.go:266-293</code>) which drains every registered
+executor's rollback monitors in parallel via a <code>WaitGroup</code>.</p>
+<h3 id="circuit-breakers">Circuit breakers<a class="headerlink" href="#circuit-breakers" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>LLM</strong>: per-<code>llm.Client</code> breaker (<code>llm/client.go:18-28</code>,
+  <code>IsCircuitOpen</code> <code>:86-95</code>, opens after N failures <code>:248-250</code>, auto-closes
+  after a cooldown). Surfaced as <code>pg_sage_llm_circuit_open</code> metric
+  (<code>main.go:1910-1915</code>).</li>
+<li><strong>Executor table-level</strong>: a lock-timeout during DDL "circuit-breaks the
+  table" to avoid immediate retry (<code>executor/executor.go:470</code>,
+  <code>ddl.go:16</code>). This is per-table backoff, not a process breaker.</li>
+<li><strong>DB circuit breaker</strong>: only surfaced for the <em>extension</em> path
+  (<code>pg_sage_circuit_breaker_state{breaker="db"}</code> read from <code>sage.status()</code>,
+  <code>main.go:1862-1877</code>) — there is no sidecar-side DB circuit breaker
+  object; pool health is handled by <code>poolHealthCheck</code> pings.</li>
+</ul>
+<h3 id="self-monitoring">Self-monitoring<a class="headerlink" href="#self-monitoring" title="Permanent link">&para;</a></h3>
+<p>As above, <code>internal/selfmonitor</code> is a static filter, not telemetry. The
+closest thing to runtime self-monitoring is <code>poolHealthCheck</code>
+(<code>main.go:2264-2287</code>) and the Prometheus <code>/metrics</code> endpoint
+(<code>main.go:1752-2024</code>), which exposes connection/findings/fleet/LLM/optimizer
+gauges.</p>
+<hr />
+<h2 id="notable-dead-aspirational-code">Notable Dead / Aspirational Code<a class="headerlink" href="#notable-dead-aspirational-code" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong><code>extension</code> mode is a phantom</strong> — accepted by validation
+   (<code>config.go:582</code>) but never dispatched in <code>main</code> (<code>main.go:181-187</code>).
+   Only <code>detectExtension()</code> and an extension metrics branch remain.</li>
+<li><strong><code>fleet.FleetBudget</code></strong> (<code>budget.go</code>) is fully implemented and tested
+   but <strong>not constructed anywhere</strong> in the runtime path; per-DB token
+   budgeting is not actually wired. LLM budgeting is per-client daily
+   tokens instead.</li>
+<li><strong><code>SAGE_RATE_LIMIT</code> overlay branch is a no-op</strong> (<code>config.go:955-957</code>).</li>
+<li><strong>Global mutable state</strong> in <code>package main</code> contradicts the repo's own
+   <code>CLAUDE.md</code> rule; it is the architectural outlier.</li>
+<li><strong><code>envFloat</code> / <code>strings.Contains</code></strong> kept alive only by
+   <code>var _ = ...</code> suppressors (<code>config.go:1074-1076</code>).</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

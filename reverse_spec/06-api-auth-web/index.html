@@ -1,0 +1,2051 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/reverse_spec/06-api-auth-web/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>06 — API, Auth & Web Dashboard - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#06-api-auth-web-dashboard" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              06 — API, Auth &amp; Web Dashboard
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-server-topology" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Server Topology
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-middleware-stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Middleware Stack
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Middleware Stack">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#auth-middleware-auth_middlewarego" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Auth middleware (auth_middleware.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-auth-session-model-internalauth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Auth &amp; Session Model (internal/auth)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Auth &amp; Session Model (internal/auth)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#oauth-internalauthoauthgo-handlers-auth_handlersgo416-545" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OAuth (internal/auth/oauth.go, handlers auth_handlers.go:416-545)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-rest-api-route-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. REST API Route Table
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. REST API Route Table">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-core-monitoring-registerapiroutes-routergo181" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Core / monitoring (registerAPIRoutes, router.go:181)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-llm-routergo255-268" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 LLM (router.go:255-268)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-incidents-routergo270-292" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Incidents (router.go:270-292)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-auth-registerauthroutes-routergo320" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 Auth (registerAuthRoutes, router.go:320)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-users-registeruserroutes-routergo347-all-admin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 Users (registerUserRoutes, router.go:347) — all admin
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#46-config-store-registerconfigroutes-routergo369-all-admin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.6 Config store (registerConfigRoutes, router.go:369) — all admin
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#47-notifications-registernotificationroutes-routergo513-all-admin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.7 Notifications (registerNotificationRoutes, router.go:513) — all admin
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#48-actions-queue-registeractionroutes-routergo417-all-operator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.8 Actions queue (registerActionRoutes, router.go:417) — all operator+
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#49-managed-databases-registerdatabaseroutes-database_handlersgo28-all-admin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.9 Managed databases (registerDatabaseRoutes, database_handlers.go:28) — all admin
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#410-agent-dbs-registeragentdbroutes-agent_db_handlersgo15" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.10 Agent DBs (registerAgentDBRoutes, agent_db_handlers.go:15)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#endpoint-count" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Endpoint count
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-prometheus-metrics-9187metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Prometheus Metrics (:9187/metrics)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-web-dashboard-websrc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Web Dashboard (web/src)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Web Dashboard (web/src)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-routed-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Routed pages
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-dead-unrouted-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Dead / unrouted pages
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-useapi-polling-model-hooksuseapijs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 useAPI polling model (hooks/useAPI.js)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-client-side-auth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 Client-side auth
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65-toasts-componentstoastjsx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 Toasts (components/Toast.jsx)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#66-time-range-context-contexttimerangecontextjsx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.6 Time-range context (context/TimeRangeContext.jsx)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#67-fleet-database-selection-componentsdatabasepickerjsx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.7 Fleet ?database= selection (components/DatabasePicker.jsx)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-discrepancies-vs-project-docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Discrepancies vs. project docs
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="06-api-auth-web-dashboard">06 — API, Auth &amp; Web Dashboard<a class="headerlink" href="#06-api-auth-web-dashboard" title="Permanent link">&para;</a></h1>
+<p>Reverse-engineered from source. Citations are <code>file:line</code> relative to
+<code>sidecar/</code>. Module: <code>github.com/pg-sage/sidecar</code>.</p>
+<hr />
+<h2 id="1-server-topology">1. Server Topology<a class="headerlink" href="#1-server-topology" title="Permanent link">&para;</a></h2>
+<p>Two HTTP servers run in the process (<code>cmd/pg_sage_sidecar/main.go</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Server</th>
+<th>Default addr</th>
+<th>Handler</th>
+<th>Auth</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API + Dashboard</td>
+<td><code>cfg.API.ListenAddr</code> (<code>:8080</code>)</td>
+<td><code>api.NewRouterFull</code> (<code>wire.go:124</code>)</td>
+<td>session cookie</td>
+</tr>
+<tr>
+<td>Prometheus</td>
+<td><code>cfg.Prometheus.ListenAddr</code> (<code>:9187</code>)</td>
+<td><code>mux</code> → <code>/metrics</code> (<code>main.go:1752-1761</code>)</td>
+<td><strong>none</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The root mux (<code>router.go:162-178</code>) routes <code>/api/v1/</code> to the middleware-wrapped
+API handler and serves everything else from the embedded React build
+(<code>go:embed dist</code>, SPA fallback: any path with no <code>.</code> rewrites to <code>/</code>).</p>
+<blockquote>
+<p><strong>Dead allowlist entry:</strong> <code>shouldSkipAuth</code> (<code>auth_middleware.go:107</code>) special-cases
+<code>/health</code>, but <strong>no <code>/health</code> route is ever registered</strong> on either mux. The
+dashboard root mux only handles <code>/api/v1/</code> and <code>/</code>. <code>/health</code> therefore falls
+through to the SPA file server and returns <code>index.html</code>, not a health JSON.</p>
+</blockquote>
+<hr />
+<h2 id="2-middleware-stack">2. Middleware Stack<a class="headerlink" href="#2-middleware-stack" title="Permanent link">&para;</a></h2>
+<p>Applied to <code>/api/v1/*</code> only (<code>router.go:145-159</code>), outer→inner order as a
+request travels in:</p>
+<ol>
+<li><code>corsMiddleware</code> (<code>middleware.go:14</code>) — CORS for dev only; allowlist of
+   <code>localhost:5173/8080</code>, <code>127.0.0.1:5173/8080</code> (<code>middleware.go:47-59</code>).
+   Answers <code>OPTIONS</code> with 200.</li>
+<li><code>securityHeadersMiddleware</code> (<code>middleware.go:78</code>) — sets
+   <code>X-Content-Type-Options: nosniff</code>, <code>X-Frame-Options: DENY</code>,
+   <code>Referrer-Policy: strict-origin-when-cross-origin</code>,
+   <code>Permissions-Policy: camera=(),microphone=(),geolocation=()</code>.
+   <strong>No HSTS, no CSP</strong> (deliberately, comment <code>middleware.go:75-77</code>).</li>
+<li><code>timeoutMiddleware</code> (<code>middleware.go:115</code>) — 30 s per-request context deadline
+   (<code>defaultRequestTimeout</code>, <code>middleware.go:105</code>). <strong>Exempts <code>/api/v1/events</code></strong>
+   (SSE) from the deadline (<code>middleware.go:124</code>).</li>
+<li><code>maxBodyMiddleware</code> (<code>middleware.go:63</code>) — 1 MB body cap on
+   POST/PUT/PATCH.</li>
+<li><code>requireJSONMiddleware</code> (<code>middleware.go:137</code>) — rejects POST/PUT/PATCH
+   without <code>Content-Type: application/json</code> → <strong>415</strong>. (This is why the web
+   client sends a JSON content-type even on empty-body logout.)</li>
+<li>Caller-supplied <code>middlewares...</code>, applied innermost (<code>router.go:147-149</code>),
+   wired in <code>wire.go:112-122</code> as:</li>
+<li><code>SessionAuthMiddleware(authPool)</code> — cookie auth (always).</li>
+<li><code>rateLimitMiddleware(rl)</code> — per-IP token-bucket (only if a limiter is
+     configured). 429 with <code>{"error":"rate limit exceeded"}</code>
+     (<code>main.go:2096-2107</code>). Trusted-proxy aware via <code>X-Forwarded-For</code>
+     (<code>main.go:2109-2168</code>, default trusted = loopback only).</li>
+</ol>
+<h3 id="auth-middleware-auth_middlewarego">Auth middleware (<code>auth_middleware.go</code>)<a class="headerlink" href="#auth-middleware-auth_middlewarego" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>SessionAuthMiddleware</code> reads cookie <strong><code>sage_session</code></strong>, calls
+  <code>auth.ValidateSession</code>, injects <code>*auth.User</code> into request context under
+  <code>userContextKey</code> (<code>auth_middleware.go:19-58</code>). Missing cookie → 401; invalid/
+  expired session → 401.</li>
+<li><code>shouldSkipAuth</code> (<code>auth_middleware.go:97</code>) unauthenticated allowlist:
+  <code>POST /api/v1/auth/login</code>, <code>GET /api/v1/auth/oauth/{callback,config,authorize}</code>,
+  <code>/health</code> (dead, see above), <strong>any agent-ping path</strong> (<code>isAgentPingPath</code>,
+  <code>auth_middleware.go:117-125</code>: matches <code>/api/v1/agent-dbs/{id}/agent-ping</code>), and
+  any path not starting with <code>/api/</code> (static assets).</li>
+<li><code>RequireRole(roles...)</code> (<code>auth_middleware.go:63</code>) — per-route RBAC; 401 if no
+  user in context, 403 if role not allowed.</li>
+</ul>
+<hr />
+<h2 id="3-auth-session-model-internalauth">3. Auth &amp; Session Model (<code>internal/auth</code>)<a class="headerlink" href="#3-auth-session-model-internalauth" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Roles</strong> (<code>types.go:21-35</code>): <code>admin</code>, <code>operator</code>, <code>viewer</code>. <code>ValidRoles</code> map +
+  <code>IsValidRole</code>.</li>
+<li><strong>Session</strong> stored in <code>sage.sessions</code> (UUID PK, <code>user_id</code>, <code>expires_at</code>).
+  <code>SessionDuration = 24h</code>, <code>BcryptCost = 12</code> (<code>types.go:26-27</code>).</li>
+<li><code>CreateSession</code> (<code>auth.go:108</code>), <code>ValidateSession</code> joins sessions→users,
+    checks <code>expires_at &gt; now()</code> (<code>auth.go:124</code>), <code>DeleteSession</code> (logout),
+    <code>CleanExpiredSessions</code> (background cleaner, <code>cleaner.go</code>).</li>
+<li><strong>Passwords</strong>: bcrypt via <code>HashPassword</code>/<code>CheckPassword</code> (<code>auth.go:29-45</code>);
+  <code>CreateUser</code> enforces min 8 chars (<code>auth.go:52</code>).</li>
+<li><strong>Login cookie</strong> (<code>auth_handlers.go:225-233</code>): <code>sage_session</code>, <code>HttpOnly</code>,
+  <code>Secure = isSecureRequest(r)</code> (TLS or <code>X-Forwarded-Proto: https</code>),
+  <code>SameSite=Lax</code>, <code>MaxAge = 24h</code>.</li>
+<li><strong>Login brute-force limiter</strong> (<code>auth_handlers.go:25-175</code>): per-email, 5 failed
+  attempts / 15 min window, memory-capped at 10 000 entries with eviction,
+  background cleanup goroutine. Env <code>PG_SAGE_DISABLE_LOGIN_RATE_LIMIT=1</code>
+  disables it (test only, <code>auth_handlers.go:21</code>). Returns 429 on trip.</li>
+<li><strong>Admin bootstrap</strong> (<code>auth.go:439-452</code>): <code>BootstrapAdmin</code> creates the first
+  admin <strong>only if <code>UserCount == 0</code></strong>, else rejects.</li>
+<li><strong>Last-admin protection</strong>: <code>DeleteUserPreservingAdmin</code> /
+  <code>UpdateUserRolePreservingAdmin</code> (<code>auth.go:221-333</code>) take a
+  <code>LOCK TABLE sage.users IN EXCLUSIVE MODE</code> and refuse to remove/demote the last
+  admin (<code>ErrLastAdmin</code>). Handlers also block self-delete and self-demote
+  (<code>auth_handlers.go:387-392</code>, <code>:567-574</code>).</li>
+</ul>
+<h3 id="oauth-internalauthoauthgo-handlers-auth_handlersgo416-545">OAuth (<code>internal/auth/oauth.go</code>, handlers <code>auth_handlers.go:416-545</code>)<a class="headerlink" href="#oauth-internalauthoauthgo-handlers-auth_handlersgo416-545" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Providers: <code>github</code>, <code>google</code> (OIDC discovery on accounts.google.com),
+  <code>oidc</code> (custom issuer via <code>.well-known/openid-configuration</code>)
+  (<code>oauth.go:50-66</code>). Disabled by default; enabled via <code>cfg.OAuth.Enabled</code>
+  (<code>router.go:113-126</code>). Discovery failure → provider set to nil (degrades to
+  "disabled").</li>
+<li>CSRF: random <code>state</code> bound to browser via <code>oauth_state</code> cookie
+  (HttpOnly, Secure, SameSite=Lax, 10 min). Callback requires
+  <code>cookieState == state</code> AND a live server-side state entry
+  (<code>oauth.go:149-182</code>). State map capped at 10 000
+  (<code>maxOAuthStates</code>, <code>oauth.go:202</code>) with periodic cleaner goroutine
+  (<code>StartStateCleaner</code>, lifecycle bound to shutdown ctx via
+  <code>router.go:123</code> / <code>SetShutdownContext</code>).</li>
+<li>Callback exchanges code → fetches email (GitHub <code>/user</code> + <code>/user/emails</code>
+  fallback, or OIDC userinfo), then <code>FindOrCreateOAuthUser</code> with
+  <code>cfg.OAuth.DefaultRole</code> (defaults to <code>viewer</code>), issues a <code>sage_session</code>
+  cookie, and 302-redirects to <code>/</code>.</li>
+</ul>
+<hr />
+<h2 id="4-rest-api-route-table">4. REST API Route Table<a class="headerlink" href="#4-rest-api-route-table" title="Permanent link">&para;</a></h2>
+<p>All under <code>/api/v1/</code>. <strong>Auth = session cookie unless noted.</strong> "Role" = extra
+<code>RequireRole</code> gate. "DB?" = honors <code>?database=</code> fleet scoping (validated by
+<code>readDatabaseParam</code>, <code>helpers.go:85</code>; <code>""</code>/<code>all</code> = fleet-wide).</p>
+<h3 id="41-core-monitoring-registerapiroutes-routergo181">4.1 Core / monitoring (<code>registerAPIRoutes</code>, <code>router.go:181</code>)<a class="headerlink" href="#41-core-monitoring-registerapiroutes-routergo181" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Role</th>
+<th>DB?</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/databases</code></td>
+<td>—</td>
+<td>(fleet list)</td>
+<td>Fleet overview + health scores</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/findings</code></td>
+<td>—</td>
+<td>yes</td>
+<td>List findings (filters severity/status/db)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/findings/{id}</code></td>
+<td>—</td>
+<td>—</td>
+<td>Finding detail</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/findings/stats</code></td>
+<td>—</td>
+<td>yes</td>
+<td>Findings aggregate (<code>source=schema_lint</code> filter)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/findings/{id}/suppress</code></td>
+<td>operator+</td>
+<td>—</td>
+<td>Suppress finding</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/findings/{id}/unsuppress</code></td>
+<td>operator+</td>
+<td>—</td>
+<td>Unsuppress finding</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/cases</code></td>
+<td>—</td>
+<td>yes</td>
+<td>Unified cases feed (findings/hints/forecasts/incidents)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/shadow-report</code></td>
+<td>operator+</td>
+<td>yes</td>
+<td>Shadow-mode would-have-done report</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/actions</code></td>
+<td>—</td>
+<td>yes</td>
+<td>List executed actions</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/actions/{id}</code></td>
+<td>—</td>
+<td>—</td>
+<td>Action detail</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/forecasts</code></td>
+<td>—</td>
+<td>yes</td>
+<td>Forecaster predictions</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/forecasts/growth</code></td>
+<td>—</td>
+<td>yes</td>
+<td>Growth forecast (v0.9)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/query-hints</code></td>
+<td>—</td>
+<td>yes</td>
+<td>Query rewrite/hint suggestions</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/alert-log</code></td>
+<td>—</td>
+<td>yes</td>
+<td>Alert delivery history</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/snapshots/latest</code></td>
+<td>—</td>
+<td>yes</td>
+<td>Latest collector snapshot</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/snapshots/history</code></td>
+<td>—</td>
+<td>yes</td>
+<td>Snapshot time-series</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/fleet/health</code></td>
+<td>—</td>
+<td>(fleet)</td>
+<td>Fleet-wide health time-series (v0.12)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/fleet/readiness</code></td>
+<td>—</td>
+<td>(fleet)</td>
+<td>Provider readiness matrix</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/config</code></td>
+<td>—</td>
+<td>yes</td>
+<td>Effective config (per-db if scoped)</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/config</code></td>
+<td><strong>admin</strong></td>
+<td>—</td>
+<td>Update trust level (in-memory)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/metrics</code></td>
+<td>—</td>
+<td>yes</td>
+<td>JSON fleet/instance status (not Prometheus)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/emergency-stop</code></td>
+<td>operator+</td>
+<td>yes</td>
+<td>Halt autonomous actions</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/resume</code></td>
+<td>operator+</td>
+<td>yes</td>
+<td>Resume after emergency stop</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/events</code></td>
+<td>—</td>
+<td>—</td>
+<td><strong>SSE</strong> live-update stream (timeout-exempt)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="42-llm-routergo255-268">4.2 LLM (<code>router.go:255-268</code>)<a class="headerlink" href="#42-llm-routergo255-268" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Role</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/llm/models</code></td>
+<td>—</td>
+<td>List configured models</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/llm/models</code></td>
+<td>—</td>
+<td>Discover models from provider</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/llm/status</code></td>
+<td>—</td>
+<td>LLM manager status / circuit / budget</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/llm/budget/reset</code></td>
+<td><strong>admin</strong></td>
+<td>Reset daily token budget</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/explain</code></td>
+<td>operator+</td>
+<td>LLM EXPLAIN narrative (v0.9)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="43-incidents-routergo270-292">4.3 Incidents (<code>router.go:270-292</code>)<a class="headerlink" href="#43-incidents-routergo270-292" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Role</th>
+<th>DB?</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/incidents</code></td>
+<td>—</td>
+<td>yes</td>
+<td>List incidents</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/incidents/active</code></td>
+<td>—</td>
+<td>yes</td>
+<td>Active incidents</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/incidents/{id}</code></td>
+<td>—</td>
+<td>—</td>
+<td>Incident detail</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/incidents/{id}/resolve</code></td>
+<td>operator+</td>
+<td>—</td>
+<td>Resolve incident</td>
+</tr>
+</tbody>
+</table>
+<h3 id="44-auth-registerauthroutes-routergo320">4.4 Auth (<code>registerAuthRoutes</code>, <code>router.go:320</code>)<a class="headerlink" href="#44-auth-registerauthroutes-routergo320" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Auth</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/auth/login</code></td>
+<td>public</td>
+<td>Email/password login → <code>sage_session</code></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/auth/logout</code></td>
+<td>session</td>
+<td>Delete session, clear cookie</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/auth/me</code></td>
+<td>session</td>
+<td>Current user <code>{id,email,role}</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/auth/oauth/config</code></td>
+<td>public</td>
+<td><code>{enabled, provider}</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/auth/oauth/authorize</code></td>
+<td>public</td>
+<td>Returns <code>{url}</code> + sets <code>oauth_state</code> cookie</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/auth/oauth/callback</code></td>
+<td>public</td>
+<td>Code exchange → session → 302 <code>/</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="45-users-registeruserroutes-routergo347-all-admin">4.5 Users (<code>registerUserRoutes</code>, <code>router.go:347</code>) — all <strong>admin</strong><a class="headerlink" href="#45-users-registeruserroutes-routergo347-all-admin" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/users</code></td>
+<td>List users (no hashes)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/users</code></td>
+<td>Create user (201)</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/users/{id}</code></td>
+<td>Delete user (blocks self/last-admin)</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/users/{id}/role</code></td>
+<td>Change role (blocks self/last-admin demote)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="46-config-store-registerconfigroutes-routergo369-all-admin">4.6 Config store (<code>registerConfigRoutes</code>, <code>router.go:369</code>) — all <strong>admin</strong><a class="headerlink" href="#46-config-store-registerconfigroutes-routergo369-all-admin" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/config/global</code></td>
+<td>Effective global overrides</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/config/global</code></td>
+<td>Set global overrides (hot-reload)</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/config/global/{key}</code></td>
+<td>Remove a global override</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/config/databases/{id}</code></td>
+<td>Per-db effective config</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/config/databases/{id}</code></td>
+<td>Set per-db overrides</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/config/databases/{id}/{key}</code></td>
+<td>Remove a per-db override</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/config/audit</code></td>
+<td>Config change audit log</td>
+</tr>
+</tbody>
+</table>
+<h3 id="47-notifications-registernotificationroutes-routergo513-all-admin">4.7 Notifications (<code>registerNotificationRoutes</code>, <code>router.go:513</code>) — all <strong>admin</strong><a class="headerlink" href="#47-notifications-registernotificationroutes-routergo513-all-admin" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/notifications/channels</code></td>
+<td>List channels</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/notifications/channels</code></td>
+<td>Create channel</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/notifications/channels/{id}</code></td>
+<td>Update channel</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/notifications/channels/{id}</code></td>
+<td>Delete channel</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/notifications/channels/{id}/test</code></td>
+<td>Send test notification</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/notifications/rules</code></td>
+<td>List routing rules</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/notifications/rules</code></td>
+<td>Create rule</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/notifications/rules/{id}</code></td>
+<td>Update rule</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/notifications/rules/{id}</code></td>
+<td>Delete rule</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/notifications/log</code></td>
+<td>Delivery log</td>
+</tr>
+</tbody>
+</table>
+<p>Senders registered: Slack, Email, PagerDuty (<code>router.go:576-585</code>).</p>
+<h3 id="48-actions-queue-registeractionroutes-routergo417-all-operator">4.8 Actions queue (<code>registerActionRoutes</code>, <code>router.go:417</code>) — all <strong>operator+</strong><a class="headerlink" href="#48-actions-queue-registeractionroutes-routergo417-all-operator" title="Permanent link">&para;</a></h3>
+<p>Registered only when <code>ActionDeps.Store</code> or <code>.Fleet</code> is non-nil. Fleet vs
+standalone pick different handler impls; same routes.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/actions/pending</code></td>
+<td>Pending action queue</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/actions/pending/count</code></td>
+<td>Pending count (drives nav badge)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/findings/{id}/pending-actions</code></td>
+<td>Pending actions for a finding</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/actions/{id}/approve</code></td>
+<td>Approve queued action</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/actions/{id}/reject</code></td>
+<td>Reject queued action</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/actions/{id}/rollback</code></td>
+<td>Roll back executed action</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/actions/execute</code></td>
+<td>Manually execute an action</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>When neither Store+Executor nor Fleet is wired, the four mutating routes
+register a stub returning <strong>501 Not Implemented</strong> (<code>router.go:495-510</code>).</p>
+</blockquote>
+<h3 id="49-managed-databases-registerdatabaseroutes-database_handlersgo28-all-admin">4.9 Managed databases (<code>registerDatabaseRoutes</code>, <code>database_handlers.go:28</code>) — all <strong>admin</strong><a class="headerlink" href="#49-managed-databases-registerdatabaseroutes-database_handlersgo28-all-admin" title="Permanent link">&para;</a></h3>
+<p>Registered only when <code>DatabaseDeps.Store</code> is non-nil (meta-db/standalone/fleet,
+<code>wire.go:67-110</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/databases/managed</code></td>
+<td>List managed DB records</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/databases/managed</code></td>
+<td>Add managed DB</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/databases/managed/import</code></td>
+<td>CSV bulk import</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/databases/managed/{id}</code></td>
+<td>Get one</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/databases/managed/{id}</code></td>
+<td>Update</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/databases/managed/{id}</code></td>
+<td>Delete</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/databases/managed/{id}/test</code></td>
+<td>Test stored connection</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/databases/managed/test-connection</code></td>
+<td>Test ad-hoc connection (preview)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="410-agent-dbs-registeragentdbroutes-agent_db_handlersgo15">4.10 Agent DBs (<code>registerAgentDBRoutes</code>, <code>agent_db_handlers.go:15</code>)<a class="headerlink" href="#410-agent-dbs-registeragentdbroutes-agent_db_handlersgo15" title="Permanent link">&para;</a></h3>
+<p>The agent-DB area (ephemeral provisioned databases for AI agents) uses a hand-
+rolled subrouter (<code>agentDBSubrouterWithRegistry</code>, <code>agent_db_handlers.go:45</code>)
+mounted on the prefix <code>/api/v1/agent-dbs/</code>. Top-level routes are <strong>operator+</strong>;
+the subrouter is wrapped operator+ too, <strong>except</strong> the token agent-ping path
+which is unauthenticated (<code>shouldSkipAuth</code> → <code>isAgentPingPath</code>).</p>
+<p>Enumerated routes (method + path, all under <code>/api/v1/agent-dbs</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>POST   /{deployment_id}/agent-ping               (PUBLIC — token auth)
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>GET    /                                          list deployments
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>POST   /                                          register/provision
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>POST   /cleanup                                   archive all expired
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>GET    /{id}                                      get deployment
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>DELETE /{id}                                      delete (archive first)
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>POST   /{id}/ping                                 heartbeat
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>POST   /{id}/extend-lease
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>GET    /{id}/recommendations
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>POST   /{id}/recommendations
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>POST   /{id}/recommendations/{recId}/feedback
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>GET    /{id}/audit
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>GET    /{id}/audit/export
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>GET    /{id}/deploy-requests
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>POST   /{id}/deploy-requests
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>GET    /{id}/deploy-requests/{drId}
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>POST   /{id}/deploy-requests/{drId}/request-review
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>POST   /{id}/deploy-requests/{drId}/approve
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>POST   /{id}/deploy-requests/{drId}/deny
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>GET    /{id}/ping-tokens
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>POST   /{id}/ping-tokens
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>POST   /{id}/ping-tokens/{tokenId}/rotate
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>POST   /{id}/ping-tokens/{tokenId}/revoke
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>POST   /{id}/cost-samples
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>GET    /{id}/cost
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>GET    /{id}/backups
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>POST   /{id}/backups
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>POST   /{id}/backups/check
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>POST   /{id}/backups/restore-drill-dry-run
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>GET    /{id}/tuning-hints
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>POST   /{id}/provision/preflight
+<a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>POST   /{id}/provision/execute
+<a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>POST   /{id}/provision/status
+<a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>POST   /{id}/provision/destroy-dry-run
+<a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>POST   /{id}/provision/destroy-live
+<a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>GET    /{id}/provision/attempts
+<a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a>GET    /{id}/cleanup
+<a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>POST   /{id}/archive
+<a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>POST   /{id}/restore
+<a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a># collection sub-resources (not deployment-scoped):
+<a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>POST   /requests
+<a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>GET    /requests
+<a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>GET    /requests/{reqId}
+<a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>POST   /requests/{reqId}/approve
+<a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>POST   /requests/{reqId}/deny
+<a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>POST   /requests/{reqId}/provision
+<a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>GET    /providers
+<a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>GET    /provider-configs
+<a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>POST   /provider-configs/{provider}
+<a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a>GET    /terraform-templates
+<a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a>POST   /terraform-templates
+<a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a>POST   /terraform-templates/{tplId}/approve
+<a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a>POST   /terraform-templates/{tplId}/provision
+<a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a>GET    /blueprints
+<a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a>POST   /blueprints
+<a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a>POST   /blueprints/{bpId}/approve
+<a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a>POST   /blueprints/{bpId}/provision
+<a id="__codelineno-0-58" name="__codelineno-0-58" href="#__codelineno-0-58"></a>GET    /identities
+<a id="__codelineno-0-59" name="__codelineno-0-59" href="#__codelineno-0-59"></a>POST   /identities
+<a id="__codelineno-0-60" name="__codelineno-0-60" href="#__codelineno-0-60"></a>POST   /reconcile
+<a id="__codelineno-0-61" name="__codelineno-0-61" href="#__codelineno-0-61"></a>GET    /size-profiles
+<a id="__codelineno-0-62" name="__codelineno-0-62" href="#__codelineno-0-62"></a>POST   /size-profiles
+<a id="__codelineno-0-63" name="__codelineno-0-63" href="#__codelineno-0-63"></a>DELETE /size-profiles/{id}
+</code></pre></div>
+<p>Agent-DB error mapping (<code>agent_db_handlers.go:378-412</code>): <code>ErrNotFound</code>→404,
+<code>ErrRestoreRequired</code>→409, <code>ErrRateLimited</code>→429, <code>ErrRunnerUnavailable</code>→409,
+<code>ErrBlueprintLLMRequired</code>→503, <code>ErrDeleteBlocked</code>→409, <code>ErrInvalid</code>→400,
+<code>ErrConflict</code>→409.</p>
+<h3 id="endpoint-count">Endpoint count<a class="headerlink" href="#endpoint-count" title="Permanent link">&para;</a></h3>
+<p>Counting distinct method+path pairs registered:</p>
+<ul>
+<li>Core/monitoring: 26</li>
+<li>LLM: 5</li>
+<li>Incidents: 4</li>
+<li>Auth: 6</li>
+<li>Users: 4</li>
+<li>Config store: 7</li>
+<li>Notifications: 10</li>
+<li>Actions queue: 7</li>
+<li>Managed DBs: 8</li>
+<li>Agent DBs: 62</li>
+</ul>
+<p><strong>Total ≈ 139 REST endpoints</strong> (vs. the stale "17" claimed in <code>pg_sage/CLAUDE.md</code>;
+the agent-DB subsystem alone is 62). Without the agent-DB subsystem the
+"classic" DBA surface is ~77.</p>
+<hr />
+<h2 id="5-prometheus-metrics-9187metrics">5. Prometheus Metrics (<code>:9187/metrics</code>)<a class="headerlink" href="#5-prometheus-metrics-9187metrics" title="Permanent link">&para;</a></h2>
+<p>Hand-rendered text format (no client_golang) by <code>handleMetrics</code>
+(<code>main.go:1772+</code>). <strong>Unauthenticated</strong>, no labels-per-request scoping. Metric
+families emitted:</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Type</th>
+<th>Labels</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pg_sage_info</code></td>
+<td>gauge</td>
+<td><code>version</code>,<code>mode</code></td>
+<td>build (<code>main.go:1785-1787</code>)</td>
+</tr>
+<tr>
+<td><code>pg_sage_mode</code></td>
+<td>gauge</td>
+<td>—</td>
+<td>0=extension/1=standalone</td>
+</tr>
+<tr>
+<td><code>pg_sage_connection_up</code></td>
+<td>gauge</td>
+<td>—</td>
+<td>pool ping</td>
+</tr>
+<tr>
+<td><code>pg_sage_findings_total</code></td>
+<td>gauge</td>
+<td><code>severity</code></td>
+<td><code>sage.findings</code> open by severity</td>
+</tr>
+<tr>
+<td><code>pg_sage_circuit_breaker_state</code></td>
+<td>gauge</td>
+<td><code>breaker</code> (db/llm)</td>
+<td>breaker state</td>
+</tr>
+<tr>
+<td><code>pg_sage_collector_last_run_timestamp</code></td>
+<td>gauge</td>
+<td>—</td>
+<td>latest snapshot</td>
+</tr>
+<tr>
+<td><code>pg_sage_llm_enabled</code></td>
+<td>gauge</td>
+<td>—</td>
+<td>config</td>
+</tr>
+<tr>
+<td><code>pg_sage_llm_circuit_open</code></td>
+<td>gauge</td>
+<td>—</td>
+<td>LLM breaker</td>
+</tr>
+<tr>
+<td><code>pg_sage_llm_tokens_used_today</code></td>
+<td>gauge</td>
+<td>—</td>
+<td>client</td>
+</tr>
+<tr>
+<td><code>pg_sage_llm_tokens_budget_daily</code></td>
+<td>gauge</td>
+<td>—</td>
+<td>config</td>
+</tr>
+<tr>
+<td><code>pg_sage_optimizer_recommendations_total</code></td>
+<td>gauge</td>
+<td><code>category</code></td>
+<td>index findings</td>
+</tr>
+<tr>
+<td><code>pg_sage_optimizer_enabled</code></td>
+<td>gauge</td>
+<td>—</td>
+<td>config</td>
+</tr>
+<tr>
+<td><code>pg_sage_fleet_databases</code> / <code>_healthy</code> / <code>_findings_total</code> / <code>_findings_critical</code></td>
+<td>gauge</td>
+<td>—</td>
+<td>fleet summary (<code>main.go:1959-1991</code>)</td>
+</tr>
+<tr>
+<td><code>pg_sage_fleet_instance_findings</code> / <code>_instance_health</code></td>
+<td>gauge</td>
+<td><code>database</code></td>
+<td>per-instance</td>
+</tr>
+<tr>
+<td><code>pg_sage_connections_total</code></td>
+<td>gauge</td>
+<td><code>state</code></td>
+<td><code>pg_stat_activity</code></td>
+</tr>
+<tr>
+<td><code>pg_sage_database_size_bytes</code></td>
+<td>gauge</td>
+<td>—</td>
+<td><code>pg_database_size</code></td>
+</tr>
+<tr>
+<td>(cache-hit ratio etc.)</td>
+<td>gauge</td>
+<td>—</td>
+<td><code>writeDatabaseMetrics</code> (<code>main.go:1994+</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>Note: <code>/api/v1/metrics</code> (§4.1) is a <strong>different</strong> surface — JSON fleet/instance
+status, not Prometheus text (<code>handlers.go:844</code>).</p>
+<hr />
+<h2 id="6-web-dashboard-websrc">6. Web Dashboard (<code>web/src</code>)<a class="headerlink" href="#6-web-dashboard-websrc" title="Permanent link">&para;</a></h2>
+<p>React 19 + Vite, <strong>hash-based routing</strong> (no react-router). Route switch in
+<code>App.jsx:136-188</code>; <code>hashchange</code> listener re-renders (<code>App.jsx:88-92</code>).</p>
+<h3 id="61-routed-pages">6.1 Routed pages<a class="headerlink" href="#61-routed-pages" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Hash</th>
+<th>Component</th>
+<th>Gate</th>
+<th>Shows</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/</code></td>
+<td><code>Dashboard</code></td>
+<td>—</td>
+<td>Fleet hero, stat cards, <code>FleetHealthChart</code>, tabbed tiles/readiness/recos</td>
+</tr>
+<tr>
+<td><code>/manage-databases</code></td>
+<td><code>DatabasesPage</code></td>
+<td>admin</td>
+<td>Managed-DB CRUD + CSV import</td>
+</tr>
+<tr>
+<td><code>/agent-dbs</code></td>
+<td><code>AgentDBsPage</code></td>
+<td>—</td>
+<td>Ephemeral agent-DB provisioning workspace</td>
+</tr>
+<tr>
+<td><code>/findings</code>, <code>/cases</code></td>
+<td><code>CasesPage</code></td>
+<td>—</td>
+<td>Unified cases table (<code>/api/v1/cases</code>)</td>
+</tr>
+<tr>
+<td><code>/forecasts</code></td>
+<td><code>CasesPage initialSource=forecast</code></td>
+<td>—</td>
+<td>filtered cases</td>
+</tr>
+<tr>
+<td><code>/query-hints</code></td>
+<td><code>CasesPage initialSource=query_hint</code></td>
+<td>—</td>
+<td>filtered cases</td>
+</tr>
+<tr>
+<td><code>/schema-health</code></td>
+<td><code>CasesPage initialSource=schema_health</code></td>
+<td>—</td>
+<td>filtered cases</td>
+</tr>
+<tr>
+<td><code>/incidents</code></td>
+<td><code>CasesPage initialSource=incident</code></td>
+<td>—</td>
+<td>filtered cases</td>
+</tr>
+<tr>
+<td><code>/actions</code></td>
+<td><code>Actions</code></td>
+<td>—</td>
+<td>Executed + pending action queue (approve/reject)</td>
+</tr>
+<tr>
+<td><code>/database</code></td>
+<td><code>DatabasePage</code></td>
+<td>—</td>
+<td>Raw latest snapshot JSON viewer</td>
+</tr>
+<tr>
+<td><code>/alerts</code></td>
+<td><code>AlertLogPage</code></td>
+<td>—</td>
+<td>Alert delivery history</td>
+</tr>
+<tr>
+<td><code>/settings</code></td>
+<td><code>SettingsPage</code></td>
+<td>admin</td>
+<td>Global config editor, emergency stop, embeds ShadowMode</td>
+</tr>
+<tr>
+<td><code>/notifications</code></td>
+<td><code>NotificationsPage</code></td>
+<td>admin</td>
+<td>Channels/Rules/Log tabs (no nav entry)</td>
+</tr>
+<tr>
+<td><code>/users</code></td>
+<td><code>UsersPage</code></td>
+<td>admin</td>
+<td>User CRUD (no nav entry)</td>
+</tr>
+<tr>
+<td>default</td>
+<td><code>NotFound</code></td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Distinct routed components: 10</strong> (<code>Dashboard</code>, <code>DatabasesPage</code>, <code>AgentDBsPage</code>,
+<code>CasesPage</code>, <code>Actions</code>, <code>DatabasePage</code>, <code>AlertLogPage</code>, <code>SettingsPage</code>,
+<code>NotificationsPage</code>, <code>UsersPage</code>) + <code>LoginPage</code> (pre-auth) and
+<code>NotFound</code>/<code>AccessDenied</code> helpers. <strong>15 routed URL paths</strong> (6 collapse onto
+<code>CasesPage</code> via <code>initialSource</code>).</p>
+<p>Nav (<code>Layout.jsx:19-39</code>): one "Operate" group — Overview, Cases, Actions,
+Agent DBs, Fleet (admin), Settings (admin). Actions item shows a pending-count
+red badge fed by <code>/api/v1/actions/pending/count</code>. <code>/notifications</code> and <code>/users</code>
+are reachable by URL/Settings links but <strong>have no nav entry</strong>.</p>
+<h3 id="62-dead-unrouted-pages">6.2 Dead / unrouted pages<a class="headerlink" href="#62-dead-unrouted-pages" title="Permanent link">&para;</a></h3>
+<p>These page components exist but are imported only by their own tests — routing
+was consolidated into <code>CasesPage</code>:</p>
+<ul>
+<li><code>Findings.jsx</code> (legacy findings table)</li>
+<li><code>DatabaseSettingsPage.jsx</code> (per-db overrides — never imported anywhere)</li>
+<li><code>ForecastsPage.jsx</code></li>
+<li><code>IncidentsPage.jsx</code></li>
+<li><code>QueryHintsPage.jsx</code></li>
+<li><code>SchemaHealthPage.jsx</code></li>
+</ul>
+<p><code>ShadowModePage.jsx</code> is reachable <strong>only</strong> embedded in SettingsPage, never as a
+standalone route.</p>
+<h3 id="63-useapi-polling-model-hooksuseapijs">6.3 <code>useAPI</code> polling model (<code>hooks/useAPI.js</code>)<a class="headerlink" href="#63-useapi-polling-model-hooksuseapijs" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Signature <code>useAPI(url, interval = 30000)</code> — default <strong>30 s</strong> poll
+  (<code>useAPI.js:6</code>). <code>interval &lt;= 0</code> or <code>url === null</code> disables polling.</li>
+<li>Does <strong>not</strong> build URLs; callers append <code>?database=</code> and time-range params.
+  Helper <code>withTimeRange(base, range)</code> appends <code>from</code>/<code>to</code> ISO params
+  (<code>useAPI.js:74-81</code>).</li>
+<li><code>AbortController</code> cancels in-flight requests on dep change/unmount; non-OK
+  responses throw <code>Error("&lt;status&gt; &lt;statusText&gt;")</code> into <code>error</code> state.
+  <strong>No automatic 401→login redirect</strong> — auth-loss recovery is handled by the
+  App-level <code>/auth/me</code> gate, not useAPI.</li>
+<li>Returns <code>{ data, loading, error, refetch }</code>.</li>
+<li><strong>SSE</strong> via <code>hooks/useLiveEvents.jsx</code>: one <code>EventSource('/api/v1/events',
+  {withCredentials:true})</code> at mount, named events <code>findings</code>/<code>actions</code>/<code>health</code>/
+  <code>heartbeat</code>; <code>useLiveRefetch(types, refetch)</code> invalidates polled data live.</li>
+</ul>
+<h3 id="64-client-side-auth">6.4 Client-side auth<a class="headerlink" href="#64-client-side-auth" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>App.jsx</code> fetches <code>/api/v1/auth/me</code> (<code>credentials:'include'</code>) on mount; sets
+  user or shows <code>LoginPage</code>.</li>
+<li><code>LoginPage</code> POSTs <code>/api/v1/auth/login</code> JSON, calls <code>onLogin(user)</code> → re-render
+  (no redirect). OAuth button appears only if <code>/auth/oauth/config</code> →
+  <code>{enabled:true}</code>; click hits <code>/auth/oauth/authorize</code> then hard-redirects
+  <code>window.location.href = url</code>.</li>
+<li>Logout POSTs <code>/api/v1/auth/logout</code> with a JSON content-type header (required
+  by <code>requireJSONMiddleware</code>) then <code>setUser(null)</code>.</li>
+<li><code>isAdmin = user.role === 'admin'</code>; action review needs <code>admin || operator</code>.</li>
+</ul>
+<h3 id="65-toasts-componentstoastjsx">6.5 Toasts (<code>components/Toast.jsx</code>)<a class="headerlink" href="#65-toasts-componentstoastjsx" title="Permanent link">&para;</a></h3>
+<p><code>ToastProvider</code> (wraps app); <code>useToast()</code> → <code>{push,success,error,info,warning,
+dismiss}</code> (no-op shim outside a provider). Default duration 4 s, auto-dismiss,
+fixed bottom-right <code>aria-live=polite</code> viewport, per-variant color + lucide icon.</p>
+<h3 id="66-time-range-context-contexttimerangecontextjsx">6.6 Time-range context (<code>context/TimeRangeContext.jsx</code>)<a class="headerlink" href="#66-time-range-context-contexttimerangecontextjsx" title="Permanent link">&para;</a></h3>
+<p>Five fixed windows: <code>1h</code>, <code>6h</code>, <code>24h</code>, <code>7d</code>, <code>30d</code>. Default <code>24h</code>, persisted in
+<code>localStorage['pg_sage_range']</code>. Recomputes <code>from</code>/<code>to</code> every 30 s. Exposes
+<code>{rangeKey,setRangeKey,range,ranges,from,to,fromISO,toISO}</code>.
+Propagation is <strong>opt-in</strong> per page via <code>withTimeRange</code> (used by Actions,
+Findings); most pages ignore it. <code>TimeRangePicker</code> is a <code>&lt;select&gt;</code> in the header.</p>
+<h3 id="67-fleet-database-selection-componentsdatabasepickerjsx">6.7 Fleet <code>?database=</code> selection (<code>components/DatabasePicker.jsx</code>)<a class="headerlink" href="#67-fleet-database-selection-componentsdatabasepickerjsx" title="Permanent link">&para;</a></h3>
+<p><code>&lt;select&gt;</code> with <code>all</code> + one option per DB; rendered in the header <strong>only when
+<code>databases.length &gt; 1</code></strong>. Selection lives in <code>App.jsx selectedDB</code>
+(localStorage <code>pg_sage_db</code>, default <code>all</code>) and is passed to each page as the
+<code>database</code> prop. Pages append <code>?database=&lt;name&gt;</code> (skipped when <code>all</code>). A
+<code>TODO(fleet-ctx)</code> documents that id-scoped POSTs (approve/reject/suppress) and
+global-resource pages intentionally omit the param.</p>
+<hr />
+<h2 id="7-discrepancies-vs-project-docs">7. Discrepancies vs. project docs<a class="headerlink" href="#7-discrepancies-vs-project-docs" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>pg_sage/CLAUDE.md</code> claims <strong>17 REST endpoints</strong> and <strong>5 dashboard pages</strong> —
+  both are badly stale. Actual: ~139 endpoints, 10 distinct routed pages
+  (15 routes).</li>
+<li><code>/health</code> is in the auth-skip allowlist but is <strong>not a real endpoint</strong> — it
+  serves the SPA <code>index.html</code>.</li>
+<li><code>PUT /api/v1/config</code> only mutates the in-memory trust level
+  (<code>handlers.go:815-842</code>); durable config changes go through the
+  <code>/api/v1/config/global</code> and <code>/config/databases/{id}</code> store routes.</li>
+<li>Six page components (<code>Findings</code>, <code>DatabaseSettingsPage</code>, <code>ForecastsPage</code>,
+  <code>IncidentsPage</code>, <code>QueryHintsPage</code>, <code>SchemaHealthPage</code>) are dead code,
+  superseded by <code>CasesPage</code>.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

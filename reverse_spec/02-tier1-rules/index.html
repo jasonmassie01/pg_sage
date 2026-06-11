@@ -1,0 +1,1542 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/reverse_spec/02-tier1-rules/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Tier 1 — Collector & Deterministic Rules Engine - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tier-1-collector-deterministic-rules-engine" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Tier 1 — Collector &amp; Deterministic Rules Engine
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-collector-internalcollector" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Collector (internal/collector)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Collector (internal/collector)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-snapshot-data-model-snapshotgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Snapshot data model (snapshot.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-analyzer-rules-engine-internalanalyzer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Analyzer / Rules Engine (internal/analyzer)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Analyzer / Rules Engine (internal/analyzer)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-cycle-analyzergo202" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Cycle (analyzer.go:202)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-rule-families" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Rule families
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.2 Rule families">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#index-health-rules_indexgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Index health (rules_index.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#query-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Query performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#vacuum-dead-tuples-wraparound-rules_vacuumgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vacuum / dead tuples / wraparound (rules_vacuum.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sequence-exhaustion-rules_sequencego14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sequence exhaustion (rules_sequence.go:14)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#system-config-audit-rules_systemgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System / config audit (rules_system.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#replication-rules_replicationgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Replication (rules_replication.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lock-chains-rules_lockchaingo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lock chains (rules_lockchain.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#self-monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Self-monitoring
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workload-attribution-deadunwired" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workload attribution (dead/unwired)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-forecaster-findings-wired-via-analyzer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Forecaster findings (wired via analyzer)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-finding-lifecycle-findinggo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Finding lifecycle (finding.go)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-forecaster-internalforecaster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Forecaster (internal/forecaster)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-rca-engine-internalrca" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. RCA Engine (internal/rca)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. RCA Engine (internal/rca)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-signals-signalsgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Signals (signals.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-decision-trees-treesgo-heuristics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Decision trees (trees.go) — heuristics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-tier-2-llm-tier2go" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Tier 2 LLM (tier2.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-incident-lifecycle-rcago" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Incident lifecycle (rca.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-dead-unwired-notable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Dead / unwired / notable
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="tier-1-collector-deterministic-rules-engine">Tier 1 — Collector &amp; Deterministic Rules Engine<a class="headerlink" href="#tier-1-collector-deterministic-rules-engine" title="Permanent link">&para;</a></h1>
+<p>Reverse-engineered from source. Module <code>github.com/pg-sage/sidecar</code>, Go 1.24, PostgreSQL 14+.
+File:line citations are to <code>sidecar/internal/...</code>. Config defaults are in
+<code>internal/config/defaults.go</code>; structs/keys in <code>internal/config/config.go</code>.</p>
+<hr />
+<h2 id="1-collector-internalcollector">1. Collector (<code>internal/collector</code>)<a class="headerlink" href="#1-collector-internalcollector" title="Permanent link">&para;</a></h2>
+<h3 id="11-lifecycle">1.1 Lifecycle<a class="headerlink" href="#11-lifecycle" title="Permanent link">&para;</a></h3>
+<p><code>Collector.Run</code> (<code>collector.go:48</code>) ticks on <code>cfg.Collector.Interval()</code>
+(default <strong>60s</strong>, <code>defaults.go:15</code>). Each tick calls <code>cycle</code> (<code>collector.go:66</code>):</p>
+<ol>
+<li><strong>Circuit breaker gate</strong> (<code>circuit_breaker.go</code>). <code>ShouldSkip</code> runs <code>loadRatioSQL</code>
+   (<code>queries.go:248</code>): <code>active_backends / max_connections</code>. If <code>loadRatio &gt; CPUCeilingPct/100</code>
+   (default <strong>90%</strong>, <code>defaults.go:34</code>) the cycle is skipped and <code>consecutiveSkips++</code>.
+   After <code>BackoffConsecutiveSkips</code> skips (default <strong>3</strong>, <code>defaults.go:38</code>) the breaker goes
+   <strong>dormant</strong> and the ticker resets to <code>DormantInterval</code> (default <strong>600s</strong>, <code>defaults.go:39</code>).
+   <code>RecordSuccess</code> clears dormancy after 3 consecutive good cycles (<code>circuit_breaker.go:66</code>).
+   If the load query itself errors, it skips "to be safe" (<code>circuit_breaker.go:36</code>).</li>
+<li><strong>Collect</strong> (<code>collect</code>, <code>collector.go:115</code>) — gathers all categories (below) into a <code>Snapshot</code>.</li>
+<li>Swap <code>previous = latest; latest = snap</code> under <code>mu</code> (so the analyzer can diff cycles).</li>
+<li><code>persist</code> (<code>collector_helpers.go:70</code>) — writes one <code>sage.snapshots</code> row <strong>per category</strong>
+   (<code>queries</code>, <code>tables</code>, <code>indexes</code>, <code>foreign_keys</code>, <code>system</code>, <code>locks</code>, <code>sequences</code>,
+   <code>replication</code>, <code>io</code>, <code>partitions</code>, <code>config_data</code>) inside a single transaction.</li>
+</ol>
+<p>Fatal vs. non-fatal: queries/tables/indexes/FKs/system/locks/sequences are fatal (abort the
+cycle on error). Replication, IO, prepared-xacts, partitions, and config are <strong>WARN-and-continue</strong>
+(<code>collector.go:146-170</code>) so one quirk (e.g. unreserved slot on a standby) doesn't silently halt
+all collection.</p>
+<h3 id="12-snapshot-data-model-snapshotgo">1.2 Snapshot data model (<code>snapshot.go</code>)<a class="headerlink" href="#12-snapshot-data-model-snapshotgo" title="Permanent link">&para;</a></h3>
+<p><code>Snapshot</code> (<code>snapshot.go:6</code>): <code>CollectedAt</code>, <code>Queries[]</code>, <code>Tables[]</code>, <code>Indexes[]</code>,
+<code>ForeignKeys[]</code>, <code>System</code>, <code>Locks[]</code>, <code>Sequences[]</code>, <code>Replication*</code>, <code>IO[]</code>, <code>Partitions[]</code>,
+<code>PreparedXacts[]</code>, <code>ConfigData*</code>, <code>StatsReset bool</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Query (queries.go)</th>
+<th>Struct</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Query stats</td>
+<td><code>queryStatsSQL</code> + 3 variants (<code>:5-69</code>)</td>
+<td><code>QueryStats</code> (<code>:24</code>)</td>
+<td>from <code>pg_stat_statements</code>, filtered to current <code>dbid</code>; excludes pg_sage's own queries via <code>NOT ILIKE '%pg_sage%'</code> + a <code>sage.</code>-schema regex. <code>ORDER BY total_exec_time DESC LIMIT MaxQueries</code> (default <strong>500</strong>). WAL/plan-time columns appended conditionally on <code>cfg.HasWALColumns</code> / <code>cfg.HasPlanTimeColumns</code> (<code>collector.go:187</code>). <code>blk_read_time</code>/<code>blk_write_time</code> are hardcoded <code>0</code> in the SELECT.</td>
+</tr>
+<tr>
+<td>Table stats</td>
+<td><code>tableStatsSQL</code> (<code>:71</code>)</td>
+<td><code>TableStats</code> (<code>:50</code>)</td>
+<td><code>pg_stat_user_tables</code> JOIN <code>pg_class</code> + size functions. Excludes <code>sage,pg_catalog,information_schema,google_ml</code>. <strong>Keyset-paginated</strong> by <code>(schema, rel)</code> tuple, <code>BatchSize</code> rows/page (default <strong>1000</strong>) — a 2-bind tuple cursor (<code>collector.go:243</code>); single-string concat would skip rows. Captures <code>relpersistence</code> (unlogged detection).</td>
+</tr>
+<tr>
+<td>Index stats</td>
+<td><code>indexStatsSQL</code> (<code>:92</code>)</td>
+<td><code>IndexStats</code> (<code>:84</code>)</td>
+<td><code>pg_stat_user_indexes</code> + <code>pg_statio_user_indexes</code> + <code>pg_index</code> + <code>pg_am</code>. Carries <code>indisunique/indisprimary/indisvalid</code>, <code>indexdef</code>, <code>index_type</code> (am name).</td>
+</tr>
+<tr>
+<td>Foreign keys</td>
+<td><code>foreignKeysSQL</code> (<code>:109</code>)</td>
+<td><code>ForeignKey</code> (<code>:100</code>)</td>
+<td><code>pg_constraint contype='f'</code>, one row per FK column.</td>
+</tr>
+<tr>
+<td>System</td>
+<td><code>systemStatsSQL14</code>/<code>17</code> (<code>:150/157</code>)</td>
+<td><code>SystemStats</code> (<code>:107</code>)</td>
+<td>active/idle-in-tx/total backends, max_connections, cache hit ratio, deadlocks, blk_read/write_time, total checkpoints, <code>pg_is_in_recovery()</code>, db size. Uses <code>pg_stat_bgwriter</code> (PG14-16) vs <code>pg_stat_checkpointer</code> (PG17+) selected by <code>pgVersionNum</code>.</td>
+</tr>
+<tr>
+<td>Locks</td>
+<td><code>locksSQL</code> (<code>:163</code>)</td>
+<td><code>LockInfo</code> (<code>:124</code>)</td>
+<td><code>pg_locks</code> LEFT JOIN <code>pg_class</code>/<code>pg_stat_activity</code>, excludes own backend.</td>
+</tr>
+<tr>
+<td>Sequences</td>
+<td><code>sequencesSQL</code> (<code>:176</code>)</td>
+<td><code>SequenceStats</code> (<code>:138</code>)</td>
+<td><code>pg_sequences</code>, computes <code>pct_used = last_value/max_value*100</code>.</td>
+</tr>
+<tr>
+<td>Replication</td>
+<td><code>replicationReplicasSQL</code> (<code>:187</code>), <code>replicationSlotsSQL</code> (<code>:199</code>)</td>
+<td><code>ReplicationStats</code> (<code>:150</code>)</td>
+<td><code>pg_stat_replication</code> + <code>pg_replication_slots</code>. Slot query is standby-safe (<code>pg_last_wal_receive_lsn</code> when in recovery) and COALESCEs <code>restart_lsn</code> NULL→0. Returns <code>nil</code> when no replicas/slots (<code>collector.go:463</code>).</td>
+</tr>
+<tr>
+<td>IO (PG16+)</td>
+<td><code>ioStatsSQL</code> (<code>:211</code>)</td>
+<td><code>IOStats</code> (<code>:170</code>)</td>
+<td><code>pg_stat_io</code>, filtered to rows with activity, <code>LIMIT 100</code>. Gated on <code>pgVersionNum &gt;= 160000</code>.</td>
+</tr>
+<tr>
+<td>Partitions</td>
+<td><code>partitionInheritanceSQL</code> (<code>:226</code>)</td>
+<td><code>PartitionInfo</code> (<code>:189</code>)</td>
+<td><code>pg_inherits</code> child→parent map.</td>
+</tr>
+<tr>
+<td>Prepared xacts</td>
+<td><code>preparedXactsSQL</code> (<code>:242</code>)</td>
+<td><code>PreparedTransaction</code> (<code>:244</code>)</td>
+<td><code>pg_prepared_xacts</code> with <code>age(transaction)</code> xid age. Called out as a "critical blind spot" (invisible to <code>pg_stat_activity</code>).</td>
+</tr>
+<tr>
+<td>Config</td>
+<td><code>collectConfigSnapshot</code> (<code>queries_config.go:9</code>)</td>
+<td><code>ConfigSnapshot</code> (<code>:199</code>)</td>
+<td>Only when <code>cfg.Advisor.Enabled</code>. Pulls <code>pg_settings</code> (autovacuum* + a fixed whitelist of WAL/memory/connection GUCs), per-table reloptions, connection-state distribution, current WAL LSN, available extensions (<code>pg_repack,pg_buffercache,pgstattuple,hypopg</code>), and 5-minute connection churn.</td>
+</tr>
+</tbody>
+</table>
+<p><code>StatStatementsMax</code> is fetched separately (<code>collector_helpers.go:52</code>) from
+<code>pg_stat_statements.max</code>; returns 0 if extension absent.</p>
+<p><strong>Stats-reset detection</strong> (<code>detectStatsReset</code>, <code>collector_helpers.go:15</code>): returns true only when
+<strong>both</strong> &gt;50% of overlapping queryids show decreased calls <strong>and</strong> total calls dropped &gt;80%
+(<code>currTotal &lt; prevTotal/5</code>). Sets <code>snap.StatsReset</code>, which makes the analyzer skip query-based rules.</p>
+<hr />
+<h2 id="2-analyzer-rules-engine-internalanalyzer">2. Analyzer / Rules Engine (<code>internal/analyzer</code>)<a class="headerlink" href="#2-analyzer-rules-engine-internalanalyzer" title="Permanent link">&para;</a></h2>
+<h3 id="21-cycle-analyzergo202">2.1 Cycle (<code>analyzer.go:202</code>)<a class="headerlink" href="#21-cycle-analyzergo202" title="Permanent link">&para;</a></h3>
+<p>Runs immediately on start, then every <code>cfg.Analyzer.Interval()</code> (default <strong>600s</strong>,
+<code>defaults.go:19</code>). Per cycle:</p>
+<ol>
+<li>Pull <code>current</code>/<code>previous</code> from collector; skip if no snapshot yet.</li>
+<li><code>filterSchemaExclusions</code> (<code>analyzer.go:178</code>) — drops <code>sage,pgsnap,pg_catalog,information_schema,google_ml</code>
+   tables/indexes (belt-and-suspenders over the collector's SQL filter).</li>
+<li><code>loadRecentlyCreatedIndexes</code> — reads <code>sage.action_log</code> for <code>CREATE INDEX</code> in the last
+   <code>UnusedIndexWindowDays</code> (default <strong>7</strong>) to suppress unused-index findings on freshly created indexes.</li>
+<li>If <code>StatsReset</code>, skip the 3 query rules (<code>slow_queries</code>, <code>high_plan_time</code>, <code>high_total_time</code>)
+   plus regression/sort/plan-diff (<code>analyzer.go:220</code>).</li>
+<li>Run every <code>AllRules</code> entry (<code>rules.go:27</code>), then the DB-query-backed rules, optimizer, advisor,
+   forecaster, tuner, work_mem promotion, extension drift, lock chains, and RCA.</li>
+<li><code>DeduplicateFindings</code> (<code>dedup.go:67</code>) with computed I/O-util pct.</li>
+<li>Store in memory, <code>UpsertFindings</code>, dispatch critical/rewrite notifications, <code>ResolveCleared</code>.</li>
+</ol>
+<h3 id="22-rule-families">2.2 Rule families<a class="headerlink" href="#22-rule-families" title="Permanent link">&para;</a></h3>
+<p>Severity vocabulary: <code>info</code> &lt; <code>warning</code> &lt; <code>critical</code> (<code>dedup.go:10</code>).
+<code>ActionRisk</code>: <code>safe</code> / <code>moderate</code> / <code>high_risk</code>.</p>
+<h4 id="index-health-rules_indexgo">Index health (<code>rules_index.go</code>)<a class="headerlink" href="#index-health-rules_indexgo" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Trigger</th>
+<th>Thresholds (config key / default)</th>
+<th>Severity</th>
+<th>Finding category / SQL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ruleUnusedIndexes</code> (<code>:52</code>)</td>
+<td><code>idx_scan==0</code>, not primary/unique/invalid, not FK-only-support, first observed ≥ window ago</td>
+<td><code>UnusedIndexWindowDays</code> (<code>unused_index_window_days</code>, <strong>7</strong>). Window tracked in-process via <code>extras.FirstSeen</code>.</td>
+<td><code>warning</code> (<code>info</code> if unlogged)</td>
+<td><code>unused_index</code>; <code>DROP INDEX CONCURRENTLY</code>; rollback = recreate from indexdef</td>
+</tr>
+<tr>
+<td><code>ruleInvalidIndexes</code> (<code>:126</code>)</td>
+<td><code>indisvalid=false</code></td>
+<td>none</td>
+<td><code>warning</code> (<code>info</code> if unlogged)</td>
+<td><code>invalid_index</code>; <code>DROP INDEX CONCURRENTLY</code></td>
+</tr>
+<tr>
+<td><code>ruleDuplicateIndexes</code> (<code>:176</code>)</td>
+<td>Exact-duplicate <strong>or</strong> subset btree (via <code>ParseIndexDef</code>/<code>IsDuplicate</code>/<code>IsSubset</code>). Constraint-backed (PK/unique) indexes are protected from being dropped.</td>
+<td>none</td>
+<td><code>critical</code></td>
+<td><code>duplicate_index</code>; drops the lower-<code>idx_scan</code> / non-protected one</td>
+</tr>
+<tr>
+<td><code>ruleMissingFKIndexes</code> (<code>:318</code>)</td>
+<td>FK column not covered as a leading-prefix of any index</td>
+<td>none</td>
+<td><code>warning</code> (<code>info</code> if unlogged)</td>
+<td><code>missing_fk_index</code>; <code>CREATE INDEX CONCURRENTLY</code>. Tables flagged here are excluded from the seq-scan watchdog.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Index bloat / REINDEX is NOT implemented as a rule.</strong> <code>IndexBloatThresholdPct</code>
+(<code>index_bloat_threshold_pct</code>, default <strong>30</strong>, <code>defaults.go:23</code>) exists as a config key and is
+plumbed through the API/store, but there is <strong>no <code>ruleIndexBloat</code></strong> in the analyzer — dead config.</p>
+<h4 id="query-performance">Query performance<a class="headerlink" href="#query-performance" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>File:line</th>
+<th>Trigger</th>
+<th>Thresholds</th>
+<th>Severity</th>
+<th>Category</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ruleSlowQueries</code></td>
+<td><code>rules_query.go:12</code></td>
+<td><code>mean_exec_time &gt; threshold</code></td>
+<td><code>SlowQueryThresholdMs</code> (<code>slow_query_threshold_ms</code>, <strong>1000</strong>). <code>warning</code> 1–5×, <code>critical</code> &gt;5×</td>
+<td>warn/crit</td>
+<td><code>slow_query</code></td>
+</tr>
+<tr>
+<td><code>ruleHighPlanTime</code></td>
+<td><code>rules_query.go:58</code></td>
+<td><code>mean_plan_time &gt; mean_exec_time</code> AND <code>calls≥100</code> AND ratio≥2</td>
+<td>ratio&gt;10 → critical</td>
+<td>warn/crit</td>
+<td><code>high_plan_time</code></td>
+</tr>
+<tr>
+<td><code>ruleQueryRegression</code></td>
+<td><code>rules_query.go:111</code></td>
+<td>current mean &gt; historical avg × <code>(1+pct/100)</code>; skips if calls dropped &gt;90% (reset guard)</td>
+<td><code>RegressionThresholdPct</code> (<code>regression_threshold_pct</code>, <strong>50</strong>), <code>RegressionLookbackDays</code> (<strong>7</strong>). &gt;200% increase → critical. Historical avg built from <code>sage.snapshots</code> downsampled to ~100 (<code>analyzer.go:561</code>).</td>
+<td>warn/crit</td>
+<td><code>query_regression</code></td>
+</tr>
+<tr>
+<td><code>ruleSeqScanWatchdog</code></td>
+<td><code>rules_query.go:182</code></td>
+<td><code>seq_scan&gt;100</code> AND <code>n_live_tup≥minRows</code> AND not (<code>idx_scan&gt;0 &amp;&amp; seq_scan≤idx_scan*10</code>)</td>
+<td><code>SeqScanMinRows</code> (<code>seq_scan_min_rows</code>, <strong>100000</strong>)</td>
+<td><code>warning</code></td>
+<td><code>seq_scan_heavy</code></td>
+</tr>
+<tr>
+<td><code>ruleTotalTimeHeavy</code></td>
+<td><code>rules_total_time.go:14</code></td>
+<td>Δ<code>total_exec_time</code> between cycles &gt; 10% of wall-clock interval</td>
+<td>hardcoded 10% (warn), &gt;50% of wall → critical</td>
+<td>warn/crit</td>
+<td><code>high_total_time</code></td>
+</tr>
+<tr>
+<td><code>ruleHighFreqFirstCycle</code></td>
+<td><code>rules_total_time.go:93</code></td>
+<td>First cycle only (<code>previous==nil</code>), top-3 queries with <code>calls&gt;10000</code></td>
+<td>hardcoded</td>
+<td><code>info</code></td>
+<td><code>high_total_time</code></td>
+</tr>
+<tr>
+<td><code>ruleSortWithoutIndex</code></td>
+<td><code>rules_sort.go:28</code></td>
+<td>Plan JSON has Limit→Sort where <code>sortRows/limitRows ≥ 10</code></td>
+<td>hardcoded 10×</td>
+<td><code>warning</code></td>
+<td><code>sort_without_index</code>. Reads <code>sage.explain_cache</code> (last 1 day).</td>
+</tr>
+<tr>
+<td><code>rulePlanRegression</code></td>
+<td><code>rules_plan_diff.go:37</code></td>
+<td>Compares two most-recent plans/query: <code>cost_ratio≥2</code> (or ≥1.5 with node downgrade/new disk spill)</td>
+<td>ratio≥10 critical, ≥2 warning (<code>severityFromCostRatio</code>). Detects Index→Seq Scan downgrades, new disk spills.</td>
+<td>warn/crit</td>
+<td><code>plan_regression</code>. Reads <code>sage.explain_cache</code> (last 7 days).</td>
+</tr>
+</tbody>
+</table>
+<h4 id="vacuum-dead-tuples-wraparound-rules_vacuumgo">Vacuum / dead tuples / wraparound (<code>rules_vacuum.go</code>)<a class="headerlink" href="#vacuum-dead-tuples-wraparound-rules_vacuumgo" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Trigger</th>
+<th>Thresholds</th>
+<th>Severity</th>
+<th>Category / SQL</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ruleTableBloat</code> (<code>:42</code>)</td>
+<td><code>dead/(live+dead) &gt; threshold</code> AND <code>live+dead ≥ minRows</code></td>
+<td><code>TableBloatDeadTuplePct</code> (<code>table_bloat_dead_tuple_pct</code>, <strong>20</strong>), <code>TableBloatMinRows</code> (<code>table_bloat_min_rows</code>, <strong>1000</strong>)</td>
+<td><code>warning</code> → downgraded to <code>info</code> if I/O-saturated (<code>ioSaturated</code>&gt;50%)</td>
+<td><code>table_bloat</code>; <code>VACUUM &lt;table&gt;</code></td>
+</tr>
+<tr>
+<td><code>ruleXIDWraparound</code> (<code>:113</code>)</td>
+<td><code>age(datfrozenxid) ≥ warning</code> (queried separately, <code>analyzer.go:511</code>)</td>
+<td><code>XIDWraparoundWarning</code> (<strong>500M</strong>), <code>XIDWraparoundCritical</code> (<strong>1B</strong>)</td>
+<td>warn/crit</td>
+<td><code>xid_wraparound</code>; risk = <code>moderate</code>; SQL surfaces top xmin holders</td>
+</tr>
+</tbody>
+</table>
+<h4 id="sequence-exhaustion-rules_sequencego14">Sequence exhaustion (<code>rules_sequence.go:14</code>)<a class="headerlink" href="#sequence-exhaustion-rules_sequencego14" title="Permanent link">&para;</a></h4>
+<p>Trigger <code>pct_used ≥ 75</code>. <code>warning</code> 75–90%, <code>critical</code> ≥90%. <strong>Thresholds hardcoded</strong> (not config).
+Recommends bigint migration for <code>integer</code> sequences. Category <code>sequence_exhaustion</code>, risk <code>safe</code>.</p>
+<h4 id="system-config-audit-rules_systemgo">System / config audit (<code>rules_system.go</code>)<a class="headerlink" href="#system-config-audit-rules_systemgo" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Trigger</th>
+<th>Thresholds</th>
+<th>Severity</th>
+<th>Category</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ruleConnectionLeaks</code> (<code>:20</code>)</td>
+<td>idle-in-tx longer than timeout (queried separately, <code>analyzer.go:524</code>)</td>
+<td><code>IdleInTxTimeoutMinutes</code> (<code>idle_in_tx_timeout_minutes</code>, <strong>30</strong>)</td>
+<td><code>warning</code></td>
+<td><code>connection_leak</code>; <code>pg_terminate_backend(pid)</code></td>
+</tr>
+<tr>
+<td><code>ruleCacheHitRatio</code> (<code>:50</code>)</td>
+<td><code>cache_hit_ratio &lt; warning</code></td>
+<td><code>CacheHitRatioWarning</code> (<code>cache_hit_ratio_warning</code>, <strong>0.95</strong>); <code>&lt;0.80</code> → critical</td>
+<td>warn/crit</td>
+<td><code>cache_hit_ratio</code></td>
+</tr>
+<tr>
+<td><code>ruleCheckpointPressure</code> (<code>:91</code>)</td>
+<td>checkpoints/hr &gt; threshold (needs prev snapshot ≥60s apart)</td>
+<td><code>CheckpointFreqWarningPerHour</code> (<strong>12</strong>)</td>
+<td><code>warning</code></td>
+<td><code>checkpoint_pressure</code></td>
+</tr>
+<tr>
+<td><code>ruleStatStatementsCapacity</code> (<code>:142</code>)</td>
+<td><code>len(queries)/stat_statements_max ≥ 80%</code></td>
+<td>hardcoded; &gt;95% → critical</td>
+<td>warn/crit</td>
+<td><code>stat_statements_pressure</code></td>
+</tr>
+<tr>
+<td><code>checkExtensionDrift</code> (<code>rules_extension_drift.go:17</code>)</td>
+<td><code>extversion != default_version</code></td>
+<td>none</td>
+<td><code>warning</code></td>
+<td><code>extension_drift</code> (advisory-only, no SQL)</td>
+</tr>
+<tr>
+<td><code>checkWorkMemPromotion</code> (<code>rules_workmem_promotion.go:33</code>)</td>
+<td>A role has ≥ threshold active <code>Set(work_mem "NMB")</code> hints in <code>sage.query_hints</code></td>
+<td><code>WorkMemPromotionThreshold</code> (<code>work_mem_promotion_threshold</code>, <strong>5</strong>; 0 disables)</td>
+<td><code>info</code></td>
+<td><code>work_mem_promotion</code>; <code>ALTER ROLE ... SET work_mem</code> (risk <code>moderate</code>, advisory)</td>
+</tr>
+</tbody>
+</table>
+<h4 id="security">Security<a class="headerlink" href="#security" title="Permanent link">&para;</a></h4>
+<p>There is <strong>no dedicated security rule family</strong> in Tier 1. The closest analogues are the
+remediation-style findings (<code>connection_leak</code> → terminate, <code>lock_chain</code> → cancel/terminate)
+and <code>agent_workload</code> attribution (below). SQL is always built with <code>sanitize.QuoteQualifiedName</code>
+/ identifier quoting (e.g. <code>rules_vacuum.go:102</code>, <code>rules_workmem_promotion.go:134</code>). No
+pg_hba / role-privilege / SSL audit rule exists.</p>
+<h4 id="replication-rules_replicationgo">Replication (<code>rules_replication.go</code>)<a class="headerlink" href="#replication-rules_replicationgo" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Trigger</th>
+<th>Thresholds</th>
+<th>Severity</th>
+<th>Category</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ruleReplicationLag</code> (<code>:15</code>)</td>
+<td><code>replay_lag ≥ 30s</code> (<code>parsePGInterval</code>)</td>
+<td>hardcoded 30s warn / 5min critical</td>
+<td>warn/crit</td>
+<td><code>replication_lag</code></td>
+</tr>
+<tr>
+<td><code>ruleInactiveSlots</code> (<code>:82</code>)</td>
+<td>slot <code>active=false</code></td>
+<td>none</td>
+<td><code>warning</code></td>
+<td><code>inactive_slot</code>; <code>pg_drop_replication_slot</code></td>
+</tr>
+<tr>
+<td>(same fn) slow active slots</td>
+<td>active slot <code>retained_bytes ≥ threshold</code></td>
+<td><code>SlowSlotRetainedBytes</code> (<code>slow_slot_retained_bytes</code>, <strong>1 GiB</strong>); ≥5× → critical</td>
+<td>warn/crit</td>
+<td><code>slow_replication_slot</code> (risk <code>moderate</code>)</td>
+</tr>
+</tbody>
+</table>
+<h4 id="lock-chains-rules_lockchaingo">Lock chains (<code>rules_lockchain.go</code>)<a class="headerlink" href="#lock-chains-rules_lockchaingo" title="Permanent link">&para;</a></h4>
+<p><code>DetectLockChains</code> (<code>:123</code>) runs only when <code>cfg.Analyzer.LockChain.Enabled</code>. A recursive CTE over
+<code>pg_blocking_pids()</code> (depth ≤10) finds each root blocker and its blocked tree; a second query
+enriches up to 5 locked relations. <code>lockChainFindings</code> (<code>:238</code>):</p>
+<ul>
+<li><strong>Safe process</strong> (<code>isSafeProcess</code>: own PID, <code>application_name</code> contains <code>pg_sage</code>, or matches
+  <code>SafePatterns</code> default <code>[pg_sage, replication, patroni]</code>) → always <code>info</code>, no remediation SQL.</li>
+<li>Below <code>MinBlockedThreshold</code> (<strong>3</strong>) and not safe → skipped.</li>
+<li><code>critical</code> when <code>total_blocked ≥ CriticalBlockedThreshold</code> (<strong>10</strong>), else <code>warning</code>.</li>
+<li>Remediation depends on root state + duration: <code>idle in transaction ≥ IdleInTxTerminateMinutes</code>
+  (<strong>5</strong>) → <code>pg_terminate_backend</code> (risk <code>moderate</code>); <code>active ≥ ActiveQueryCancelMinutes</code> (<strong>15</strong>)
+  → <code>pg_cancel_backend</code> (risk <code>safe</code>); otherwise monitor-only. Category <code>lock_chain</code>.</li>
+</ul>
+<h4 id="self-monitoring">Self-monitoring<a class="headerlink" href="#self-monitoring" title="Permanent link">&para;</a></h4>
+<p>There is no self-monitoring rule that <em>produces</em> findings; instead self-monitoring findings are
+<strong>filtered out</strong> of persistence. <code>UpsertFindings</code> skips any finding for which
+<code>selfmonitor.IsFinding</code> is true (<code>finding.go:39</code>, <code>:128</code>) — pg_sage's own objects never become
+findings. (Self-action <em>correlation</em> lives in RCA, §4.)</p>
+<h4 id="workload-attribution-deadunwired">Workload attribution (dead/unwired)<a class="headerlink" href="#workload-attribution-deadunwired" title="Permanent link">&para;</a></h4>
+<p><code>ClassifyAgentWorkload</code> / <code>AgentWorkloadFinding</code> (<code>agent_workload.go</code>) classify connections as
+attributed/unattributed/ephemeral and emit an <code>info</code> <code>agent_workload</code> finding. <strong>Only referenced by
+tests</strong> — never called from the analyzer cycle. Effectively dead code.</p>
+<h3 id="23-forecaster-findings-wired-via-analyzer">2.3 Forecaster findings (wired via analyzer)<a class="headerlink" href="#23-forecaster-findings-wired-via-analyzer" title="Permanent link">&para;</a></h3>
+<p><code>forecastDiskGrowth</code>, <code>…ConnectionSaturation</code>, <code>…CachePressure</code>, <code>…SequenceExhaustion</code>,
+<code>…QueryVolume</code>, <code>…CheckpointPressure</code> (see §3) plus <code>GrowthFindings</code>/<code>storage_forecast</code>. These
+flow into <code>allFindings</code> through the <code>forecaster</code> interface (<code>analyzer.go:326</code>).</p>
+<hr />
+<h2 id="3-finding-lifecycle-findinggo">3. Finding lifecycle (<code>finding.go</code>)<a class="headerlink" href="#3-finding-lifecycle-findinggo" title="Permanent link">&para;</a></h2>
+<p><code>Finding</code> struct (<code>finding.go:15</code>): <code>Category, Severity, ObjectType, ObjectIdentifier, Title,
+Detail map[string]any, Recommendation, RecommendedSQL, RollbackSQL, ActionRisk, DatabaseName</code>
+(+ optional <code>RuleID</code>/<code>ImpactScore</code> for the schema-lint subsystem). Persisted to <code>sage.findings</code>.</p>
+<p><strong>Identity</strong> = <code>(Category, ObjectIdentifier)</code> among <code>status='open'</code>.</p>
+<p><strong>Creation / dedup-on-upsert</strong> (<code>UpsertFindings</code>, <code>:37</code>):
+- Self-monitoring findings skipped (<code>:39</code>).
+- If an open <code>(category, object_identifier)</code> exists → <strong>bump</strong> <code>occurrence_count</code>, refresh
+  <code>last_seen</code>, <code>detail</code>, <code>severity</code>, <code>title</code>, <code>recommendation</code>, <code>recommended_sql</code> (and rule_id/
+  impact_score when non-empty/non-zero). Titles/recs legitimately change between scans.
+- Else → check <strong>resolution-by-action grace</strong>: <code>recentlyResolvedByAction</code> (<code>:138</code>) — if the same
+  <code>(category, object)</code> was resolved by an action (<code>action_log_id IS NOT NULL</code>) within the last
+  <strong>2 minutes</strong> (<code>actionResolutionReopenGrace</code>, <code>:12</code>), <strong>do not re-insert</strong> (avoids flapping right
+  after the executor fixes something).
+- Else → INSERT new <code>status='open'</code>, <code>occurrence_count=1</code>.</p>
+<p><strong>Status transitions</strong>: <code>open</code> → <code>resolved</code> (<code>resolved_at</code> set). Suppression (<code>suppressed</code>) and
+unsuppression are driven by the REST API, not the rules engine. <code>ResolveCleared</code> (<code>:165</code>) marks
+open findings of a category <code>resolved</code> when their <code>object_identifier</code> is absent from the current
+cycle's active set for that category (<code>analyzer.go:403</code>).</p>
+<p><strong>In-cycle dedup</strong> (<code>DeduplicateFindings</code>, <code>dedup.go:67</code>) before persistence:
+1. If I/O-util &gt;50%, downgrade all vacuum-category findings to <code>info</code> (<code>:92</code>).
+2. Group by <code>ObjectIdentifier</code>. Within a group: per-query/tuning categories (<code>query_tuning</code>,
+   <code>plan_regression</code>, <code>*hint*</code>, <code>*tuner*</code>) <strong>beat</strong> global <code>*_tuning</code> config-advisor findings
+   (<code>applyQueryTuningRule</code>, <code>:149</code>). Same category → keep highest severity, tiebreak to the one
+   with <code>RecommendedSQL</code> (<code>pickBetter</code>, <code>:312</code>).
+3. <code>resolveGUCConflicts</code> (<code>:246</code>): when two findings target the same GUC (parsed from
+   <code>ALTER SYSTEM SET</code> / <code>SET</code> / <code>ALTER TABLE ... SET (...)</code>), per-table beats global, then higher
+   severity wins; the loser is dropped.</p>
+<p><strong>Notifications</strong>: critical findings → <code>FindingCriticalEvent</code>; <code>query_tuning</code> findings with a
+<code>suggested_rewrite</code> → <code>QueryRewriteEvent</code> (<code>analyzer.go:429</code>/<code>451</code>), only if a dispatcher is set.</p>
+<hr />
+<h2 id="4-forecaster-internalforecaster">4. Forecaster (<code>internal/forecaster</code>)<a class="headerlink" href="#4-forecaster-internalforecaster" title="Permanent link">&para;</a></h2>
+<p>Predicts capacity/exhaustion from historical <code>sage.snapshots</code> / <code>sage.size_history</code>. Math:</p>
+<ul>
+<li><strong><code>LinearRegression</code></strong> (<code>stats.go:20</code>) — OLS slope/intercept + R² on <code>(day_offset, value)</code>.</li>
+<li><strong><code>EWMA</code></strong> (<code>stats.go:67</code>) — exponentially weighted moving average (α=0.1 in callers).</li>
+<li><strong><code>DaysUntilThreshold</code></strong> (<code>stats.go:81</code>) — <code>(threshold−current)/slope</code>; <code>+Inf</code> if slope≤0.</li>
+<li><strong><code>WeekOverWeekGrowthPct</code></strong> (<code>stats.go:97</code>) — last-7 mean vs prior-7 mean.</li>
+<li><strong><code>linearRegression</code>/<code>forecastGrowth</code></strong> (<code>growth.go:40/85</code>) — OLS on <code>(unix_ts, bytes)</code>,
+  projects <code>days_until_full</code> against <code>DiskCapacityBytes</code>.</li>
+</ul>
+<p>All daily forecasters require <strong><code>minDataPoints=7</code></strong> (<code>rules.go:10</code>; query-volume needs 14;
+checkpoint needs 8). Findings (<code>rules.go</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Forecast</th>
+<th>Trigger / severity</th>
+<th>Config</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>forecast_disk_growth</code></td>
+<td>slope &gt; <code>DiskWarnGrowthGBDay</code> (default <strong>5.0</strong> GB/day) → warning</td>
+<td><code>DiskWarnGrowthGBDay</code></td>
+</tr>
+<tr>
+<td><code>forecast_connection_saturation</code></td>
+<td>days-to-<code>ConnectionWarnPct</code> (<strong>80%</strong>) via <code>severityByDays</code>: &lt;30 critical, 30–90 warning, ≥90 none</td>
+<td><code>ConnectionWarnPct</code></td>
+</tr>
+<tr>
+<td><code>forecast_cache_pressure</code></td>
+<td>EWMA &lt; <code>CacheWarnThreshold</code> (<strong>0.95</strong>) OR declining slope with R²&gt;0.5 → warning</td>
+<td><code>CacheWarnThreshold</code></td>
+</tr>
+<tr>
+<td><code>forecast_sequence_exhaustion</code></td>
+<td>days-to-100% ≤ <code>SequenceCriticalDays</code> (<strong>30</strong>) crit / ≤ <code>SequenceWarnDays</code> (<strong>90</strong>) warn</td>
+<td>per-sequence</td>
+</tr>
+<tr>
+<td><code>forecast_query_volume</code></td>
+<td>WoW growth &gt;100% critical / &gt;50% warning</td>
+<td>needs 14 days</td>
+</tr>
+<tr>
+<td><code>forecast_checkpoint_pressure</code></td>
+<td>EWMA rate &gt; 12/hr → warning</td>
+<td>hardcoded</td>
+</tr>
+<tr>
+<td><code>storage_forecast</code> (<code>growth.go:231</code>)</td>
+<td><code>days_until_full</code>: ≤3 &amp; R²≥0.8 critical, ≤7 &amp; R²≥0.5 warning, ≤30 &amp; R²≥0.5 info; R²&lt;<code>MinRSquared</code> → info "unreliable"</td>
+<td><code>DiskCapacityBytes</code>, <code>MinDataPoints</code> (<strong>24</strong>), <code>MinRSquared</code> (<strong>0.5</strong>)</td>
+</tr>
+</tbody>
+</table>
+<p>Defaults: <code>defaults.go:133-158</code>. <code>ForecastGrowth</code> is no-op unless <code>MinDataPoints&gt;0</code> (v0.9 fields configured).</p>
+<hr />
+<h2 id="5-rca-engine-internalrca">5. RCA Engine (<code>internal/rca</code>)<a class="headerlink" href="#5-rca-engine-internalrca" title="Permanent link">&para;</a></h2>
+<p>Root-cause correlation running <strong>after</strong> each analyzer cycle (<code>Engine.Analyze</code>, <code>rca.go:135</code>).
+Tier 1 = deterministic decision trees; Tier 2 = optional LLM correlation; plus self-action correlation.</p>
+<h3 id="51-signals-signalsgo">5.1 Signals (<code>signals.go</code>)<a class="headerlink" href="#51-signals-signalsgo" title="Permanent link">&para;</a></h3>
+<p>8 detectors (<code>detectSignals</code>, <code>:16</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Signal ID</th>
+<th>Fires when</th>
+<th>Threshold (config / default)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>connections_high</code></td>
+<td><code>total_backends/max_connections ≥ pct</code></td>
+<td><code>RCA.ConnectionSaturationPct</code> (<strong>80</strong>); ≥90 critical</td>
+</tr>
+<tr>
+<td><code>idle_in_tx_elevated</code></td>
+<td>idle-in-tx avg duration ≥ timeout (from <code>ConfigData.ConnectionStates</code>)</td>
+<td><code>IdleInTxTimeoutMinutes</code> (fallback 5)</td>
+</tr>
+<tr>
+<td><code>cache_hit_ratio_drop</code></td>
+<td><code>cache_hit_ratio &lt; warning</code></td>
+<td><code>CacheHitRatioWarning</code> (<strong>0.95</strong>); −0.05 → critical</td>
+</tr>
+<tr>
+<td><code>replication_lag_increasing</code></td>
+<td>worst replica replay lag ≥ threshold</td>
+<td><code>RCA.ReplicationLagThresholdS</code> (<strong>30s</strong>)</td>
+</tr>
+<tr>
+<td><code>vacuum_blocked</code></td>
+<td>any table dead% ≥ threshold</td>
+<td><code>TableBloatDeadTuplePct</code> (fallback 10)</td>
+</tr>
+<tr>
+<td><code>lock_contention</code></td>
+<td>any <code>lock_chain</code> finding passed in</td>
+<td>from lock-chain findings</td>
+</tr>
+<tr>
+<td><code>wal_growth_spike</code></td>
+<td><code>currWAL/prevWAL ≥ multiplier</code></td>
+<td><code>RCA.WALSpikeMultiplier</code> (<strong>2.0</strong>)</td>
+</tr>
+<tr>
+<td><code>orphaned_prepared_tx</code></td>
+<td><code>len(PreparedXacts)&gt;0</code></td>
+<td>xid age &gt;100M → critical</td>
+</tr>
+</tbody>
+</table>
+<h3 id="52-decision-trees-treesgo-heuristics">5.2 Decision trees (<code>trees.go</code>) — heuristics<a class="headerlink" href="#52-decision-trees-treesgo-heuristics" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>treeConnectionsHigh</code></strong> (<code>:76</code>): if <code>idle_in_tx_elevated</code> co-fires → "idle-in-tx saturating pool"
+  (moderate); elif churn <code>&gt; 2× previous</code> → "connection storm"; else "gradual growth" (safe).</li>
+<li><strong><code>treeCacheHitDrop</code></strong> (<code>:146</code>): if any query's <code>SharedBlksRead &gt; 10× previous</code> → "query evicting
+  buffers"; else "working set exceeds shared_buffers".</li>
+<li><strong><code>treeVacuumBlocked</code></strong> (<code>:202</code>): idle-in-tx lock holder → terminate (high_risk); elif prepared
+  xact → <code>ROLLBACK PREPARED</code> (high_risk, forced critical); else "autovacuum falling behind".</li>
+<li><strong><code>treeOrphanedPreparedTx</code></strong> (<code>:278</code>): always high_risk, surfaces <code>ROLLBACK PREPARED '&lt;gid&gt;'</code>.</li>
+<li>Simple 1:1 incidents for replication/lock/WAL signals (<code>simpleIncident</code>, <code>:313</code>).</li>
+</ul>
+<h3 id="53-tier-2-llm-tier2go">5.3 Tier 2 LLM (<code>tier2.go</code>)<a class="headerlink" href="#53-tier-2-llm-tier2go" title="Permanent link">&para;</a></h3>
+<p>When LLM enabled and uncovered-signal count ≥ <code>LLMCorrelationThreshold</code> (<strong>3</strong>), sends signals to
+the LLM (<code>callTier2LLM</code>, <code>:74</code>), parses markdown-fenced JSON via <code>llm.ParseJSON</code>, builds a
+<code>source="llm"</code> incident at fixed confidence <strong>0.6</strong>. 30s timeout.</p>
+<h3 id="54-incident-lifecycle-rcago">5.4 Incident lifecycle (<code>rca.go</code>)<a class="headerlink" href="#54-incident-lifecycle-rcago" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Dedup</strong> (<code>:204</code>): match on <code>source</code> + sorted <code>SignalIDs</code> + first affected object within
+  <code>DedupWindowMinutes</code> (<strong>30</strong>) → bump <code>OccurrenceCount</code>, raise severity, refresh <code>LastDetectedAt</code>.</li>
+<li><strong>Auto-resolve</strong> (<code>autoResolve</code>, <code>:259</code>): after <code>gracePeriodLeft</code> expires, an incident whose
+  signals stop firing for <code>ResolutionCycles</code> (<strong>2</strong>) consecutive cycles is resolved.</li>
+<li><strong>Escalate</strong> (<code>escalate</code>, <code>:295</code>): a <code>warning</code> incident with <code>OccurrenceCount ≥ EscalationCycles</code>
+  (<strong>5</strong>) is promoted to <code>critical</code>.</li>
+<li><strong>Self-action correlation</strong> (<code>self_action.go</code> via <code>applySelfActionCorrelation</code>, <code>:325</code>): queries
+  <code>sage.action_log</code> for recent actions (30 min) + rollback history (30 days) and flags incidents as
+  self-caused / manual-review.</li>
+<li><strong>Persist</strong> (<code>PersistIncidents</code>, <code>:385</code>): UPSERT into <code>sage.incidents</code>.</li>
+</ul>
+<p>RCA defaults: <code>defaults.go:141-148</code>.</p>
+<hr />
+<h2 id="6-dead-unwired-notable">6. Dead / unwired / notable<a class="headerlink" href="#6-dead-unwired-notable" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><code>agent_workload.go</code></strong> — classifier + finding builder exist but are never invoked from the
+  cycle; only tests call them. Dead.</li>
+<li><strong>Index bloat / REINDEX</strong> — <code>IndexBloatThresholdPct</code> config key + default (30) exist and are
+  API-editable, but no rule consumes them. The README/CLAUDE.md claim of "index bloat" detection is
+  unbacked in Tier 1.</li>
+<li><strong><code>blk_read_time</code>/<code>blk_write_time</code> in <code>pg_stat_statements</code></strong> are hardcoded to <code>0</code> in the SELECT
+  (<code>queries.go:11</code>), so <code>ioWaitRatio</code> (<code>rules_vacuum.go:16</code>) relies on the per-database
+  <code>blk_read_time</code>/<code>blk_write_time</code> in <code>SystemStats</code> instead (<code>analyzer.go:645</code>).</li>
+<li><strong><code>parsePGInterval</code></strong> appears in two places (<code>rules_replication.go:187</code> and rca <code>signals.go</code>'s
+  <code>parseIntervalSeconds</code>) — duplicate interval parsing.</li>
+<li>Sequence exhaustion thresholds (75/90), slow-query ratio cuts (5×), seq-scan ratio (10×),
+  total-time wall-clock % (10/50), sort waste (10×), and replication lag (30s/5min) are all
+  <strong>hardcoded</strong>, not config-driven, despite many having config-shaped siblings.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

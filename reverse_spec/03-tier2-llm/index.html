@@ -1,0 +1,1257 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/reverse_spec/03-tier2-llm/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Tier 2 — LLM-Enhanced Features (Reverse-Engineered Spec) - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tier-2-llm-enhanced-features-reverse-engineered-spec" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Tier 2 — LLM-Enhanced Features (Reverse-Engineered Spec)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-llm-provider-abstraction-internalllm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. LLM Provider Abstraction (internal/llm)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. LLM Provider Abstraction (internal/llm)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-client-internalllmclientgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Client (internal/llm/client.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-manager-internalllmmanagergo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Manager (internal/llm/manager.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-optimizer-client-factory-clientgo263-304" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 Optimizer client factory (client.go:263-304)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-json-parsing-fence-stripping-internalllmstripjsongo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.4 JSON parsing &amp; fence stripping (internal/llm/stripjson.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-truncated-json-repair-internalllmrepairgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.5 Truncated-JSON repair (internal/llm/repair.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#16-pre-llm-sanitization-internalllmsanitizego" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.6 Pre-LLM sanitization (internal/llm/sanitize.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#17-model-listing-internalllmmodelsgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.7 Model listing (internal/llm/models.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-daily-health-briefings-internalbriefing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Daily Health Briefings (internal/briefing)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-llm-index-recommendations-internaloptimizer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. LLM Index Recommendations (internal/optimizer)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-config-tuning-advisor-internaladvisor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Config Tuning Advisor (internal/advisor)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-per-query-tuning-pg_hint_plan-internaltuner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Per-Query Tuning / pg_hint_plan (internal/tuner)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-explain-narrative-on-demand-plan-capture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Explain Narrative + On-Demand Plan Capture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Explain Narrative + On-Demand Plan Capture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-explain-narrative-internalexplain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 EXPLAIN narrative (internal/explain)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-auto-explain-plan-capture-internalautoexplain-no-llm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Auto-explain plan capture (internal/autoexplain) — no LLM
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-rca-tier-2-llm-root-cause-internalrcatier2go" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. RCA Tier 2 — LLM Root Cause (internal/rca/tier2.go)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-interactive-diagnose-react-loop-does-not-exist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Interactive Diagnose / ReAct Loop — DOES NOT EXIST
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-additional-llm-features-beyond-the-brief-found-in-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Additional LLM Features Beyond the Brief (found in code)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-complete-list-of-distinct-llm-call-sites-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Complete List of Distinct LLM Call-Sites (today)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-dead-unwired-findings-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Dead / Unwired Findings Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="tier-2-llm-enhanced-features-reverse-engineered-spec">Tier 2 — LLM-Enhanced Features (Reverse-Engineered Spec)<a class="headerlink" href="#tier-2-llm-enhanced-features-reverse-engineered-spec" title="Permanent link">&para;</a></h1>
+<p>This documents every LLM-driven capability that exists in the pg_sage sidecar
+today, with exact contracts. All citations are <code>file:line</code> relative to
+<code>sidecar/</code>. Tier 2 is <strong>optional</strong>: every feature degrades to deterministic
+behavior (or no-op) when the LLM is disabled or its circuit breaker is open.</p>
+<p>Common pattern across all features:</p>
+<ul>
+<li>All LLM calls go through <code>llm.Client.Chat(ctx, system, user, maxTokens)</code>.</li>
+<li>All JSON responses are parsed via <code>llm.ParseJSON(raw, shape, &amp;out)</code>, which
+  strips fences/prose and repairs truncated arrays.</li>
+<li>LLM output never reaches the executor directly. It is converted to an
+  <code>analyzer.Finding</code> (or an <code>rca.Incident</code>), persisted, and only then gated by
+  the Tier 3 trust/risk system. The LLM picks rationale/SQL; risk tier and
+  trust gating are decided by deterministic code.</li>
+</ul>
+<hr />
+<h2 id="1-llm-provider-abstraction-internalllm">1. LLM Provider Abstraction (<code>internal/llm</code>)<a class="headerlink" href="#1-llm-provider-abstraction-internalllm" title="Permanent link">&para;</a></h2>
+<h3 id="11-client-internalllmclientgo">1.1 Client (<code>internal/llm/client.go</code>)<a class="headerlink" href="#11-client-internalllmclientgo" title="Permanent link">&para;</a></h3>
+<p>OpenAI-compatible chat client. One struct <code>Client</code> per logical model.</p>
+<ul>
+<li><strong>Endpoint shaping</strong> (<code>client.go:148-154</code>): trims trailing
+  <code>/chat/completions</code> / <code>/chat</code>, then re-appends <code>/chat/completions</code>. Prevents
+  double-path. Provider is whatever the OpenAI-compatible endpoint is (Gemini
+  via OpenAI-compat, OpenAI, Groq, Ollama, etc).</li>
+<li><strong>Request shape</strong> (<code>client.go:36-54</code>): <code>model</code>, <code>messages</code> (system+user),
+  <code>max_tokens</code>, optional <code>response_format: {type: "json_object"}</code> when
+  <code>cfg.JSONMode</code> is true (<code>client.go:139-141</code>).</li>
+<li><strong>Auth</strong>: <code>Authorization: Bearer &lt;APIKey&gt;</code> (<code>client.go:161</code>).</li>
+<li><strong>Enabled gate</strong> (<code>client.go:81-83</code>): <code>cfg.Enabled &amp;&amp; Endpoint != "" &amp;&amp; APIKey != ""</code>.</li>
+</ul>
+<p><strong>Circuit breaker</strong> (<code>client.go:85-99, 243-258</code>):
+- Opens after <strong>3 consecutive failures</strong> (<code>recordFailure</code>, threshold at
+  <code>client.go:247</code>).
+- Cooldown = <code>cfg.CooldownSeconds</code>; auto-closes when <code>time.Since(opened) &gt; cooldown</code>
+  (<code>client.go:92-97</code>). Success resets failure count to 0.</p>
+<p><strong>Token budget</strong> (<code>client.go:110-120, 306-335</code>):
+- Daily counter <code>tokensUsedToday</code> (atomic), reset on calendar-day change
+  (<code>YearDay()</code> comparison, <code>client.go:111-115</code>).
+- If <code>cfg.TokenBudgetDaily &gt; 0</code> and used &gt;= budget → returns error
+  <code>"daily token budget exhausted (used/budget)"</code> (<code>client.go:116-120</code>). Callers
+  detect this substring (<code>isBudgetExhausted</code> / <code>isBudgetError</code>) to stop early.
+- <code>ResetBudget()</code> / <code>Manager.ResetBudgets()</code> zero the counter on demand.</p>
+<p><strong>Thinking-model handling</strong> (<code>client.go:122-129</code>, <code>models.go:6-13</code>):
+- <code>isThinkingModel</code> matches <code>gemini-2.5</code>, <code>gemini-2.0-flash-thinking</code>, <code>o1</code>, <code>o3</code>.
+- For those models, <code>maxTokens += 16384</code> (reasoning tokens consume the output
+  budget). Default <code>maxTokens</code> when <code>&lt;= 0</code> is <code>16384</code>.</p>
+<p><strong>Retries</strong> (<code>doWithRetry</code>, <code>client.go:207-241</code>):
+- Exponential backoff delays <code>[1s, 4s, 16s]</code> (4 attempts total).
+- Retries only on HTTP <strong>429</strong> and <strong>503</strong>; other non-200 returns immediately as
+  an error. Request body is recreated each retry. Respects <code>ctx</code> cancellation.</p>
+<p><strong>Timeouts</strong>: HTTP client timeout = <code>cfg.TimeoutSeconds</code> (<code>client.go:72-74</code>).</p>
+<p><strong>Response handling</strong> (<code>client.go:170-204</code>):
+- Response body capped at <strong>1 MB</strong> (<code>io.LimitReader</code>).
+- On <code>finish_reason == "length" | "max_tokens"</code>, content is run through
+  <code>RepairTruncatedJSON</code> before returning (<code>client.go:197-202</code>).
+- Returns <code>(content, totalTokens, err)</code>.</p>
+<h3 id="12-manager-internalllmmanagergo">1.2 Manager (<code>internal/llm/manager.go</code>)<a class="headerlink" href="#12-manager-internalllmmanagergo" title="Permanent link">&para;</a></h3>
+<p>Routes by purpose and exposes budget status.</p>
+<ul>
+<li><code>ForPurpose(purpose)</code> (<code>manager.go:26-34</code>): returns <code>Optimizer</code> client for
+  <code>"index_optimization"</code> / <code>"query_tuning"</code> <strong>if non-nil</strong>, else <code>General</code>.</li>
+<li><code>ChatForPurpose</code> (<code>manager.go:37-48</code>): calls the purpose client; on error,
+  if it was a non-general client and <code>fallback</code> is true, retries on <code>General</code>.</li>
+<li><code>TokenStatus()</code> (<code>manager.go:62-71</code>): per-client <code>ClientStatus</code>
+  (model, enabled, tokens used, budget, exhausted, circuit open, reset
+  timestamp = next local midnight). Surfaced via the API/dashboard.</li>
+</ul>
+<p><strong>DEAD / UNWIRED ROUTING:</strong> In <code>cmd/pg_sage_sidecar/main.go:390</code> and <code>:833</code>,
+the Manager is always built as <code>NewManager(llmClient, nil, false)</code> — optimizer
+client <code>nil</code>, fallback <code>false</code>. The advisor calls
+<code>ChatForPurpose(ctx, "advisor", ...)</code> (e.g. <code>vacuum.go:142</code>), but <code>"advisor"</code>
+is <strong>not</strong> a case in the <code>ForPurpose</code> switch, so every advisor call routes to
+<code>General</code> and the per-purpose routing + fallback path are effectively unused in
+production. (The optimizer builds its own clients directly, not via the
+Manager — see §3.)</p>
+<h3 id="13-optimizer-client-factory-clientgo263-304">1.3 Optimizer client factory (<code>client.go:263-304</code>)<a class="headerlink" href="#13-optimizer-client-factory-clientgo263-304" title="Permanent link">&para;</a></h3>
+<p><code>NewOptimizerClient(parent, opt, logFn)</code> builds an independent client that
+inherits endpoint/key/model/timeout/budget/cooldown from the general
+<code>LLMConfig</code> when the optimizer-specific fields are empty. Lets reasoning spend
+be tracked separately.</p>
+<h3 id="14-json-parsing-fence-stripping-internalllmstripjsongo">1.4 JSON parsing &amp; fence stripping (<code>internal/llm/stripjson.go</code>)<a class="headerlink" href="#14-json-parsing-fence-stripping-internalllmstripjsongo" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>JSONShape</code> = <code>JSONObject | JSONArray | JSONAuto</code> (<code>stripjson.go:13-23</code>).</li>
+<li><code>StripJSON(s, shape)</code> (<code>stripjson.go:37-57</code>): <code>stripFences</code> then extract first
+  open delimiter → last matching close. <code>stripFences</code> (<code>stripjson.go:120-138</code>)
+  handles <code>```json</code> / <code>```</code> Gemini/OpenAI wrappers.</li>
+<li><strong><code>ParseJSON(raw, shape, out)</code></strong> (<code>stripjson.go:70-100</code>) — the unified parser
+  used everywhere:</li>
+<li>empty / <code>[]</code> / <code>{}</code> short-circuit to zero value, return nil (callers treat
+    "nothing recommended" as empty).</li>
+<li>First <code>json.Unmarshal</code>; on failure retries with <code>RepairTruncatedJSON</code>;
+    error reports both attempts + first 200 chars of response.</li>
+</ul>
+<h3 id="15-truncated-json-repair-internalllmrepairgo">1.5 Truncated-JSON repair (<code>internal/llm/repair.go</code>)<a class="headerlink" href="#15-truncated-json-repair-internalllmrepairgo" title="Permanent link">&para;</a></h3>
+<p><code>RepairTruncatedJSON</code> (<code>repair.go:24-76</code>): for an array cut mid-object (thinking
+model exhausted budget), finds the last complete top-level <code>}</code> (string/escape
+aware) and appends <code>]</code>. No-op if both <code>[</code> and <code>]</code> already present.</p>
+<h3 id="16-pre-llm-sanitization-internalllmsanitizego">1.6 Pre-LLM sanitization (<code>internal/llm/sanitize.go</code>)<a class="headerlink" href="#16-pre-llm-sanitization-internalllmsanitizego" title="Permanent link">&para;</a></h3>
+<p><code>SanitizeForLLM(text)</code> (<code>sanitize.go:178-180</code>) = <code>RedactSQLLiterals(StripSQLComments(text))</code>:
+- <code>StripSQLComments</code>: removes <code>/* */</code> (nested) and <code>--</code> comments; preserves
+  string literals (defeats prompt injection hidden in comments).
+- <code>RedactSQLLiterals</code>: <code>'literal'</code> → <code>'?'</code>, <code>$tag$..$tag$</code> → <code>$?$</code>, E-strings
+  handled (prevents PII/secret leakage). Used by the optimizer and rewrite
+  advisor before query text is put in a prompt (<code>prompt.go:115</code>, <code>rewrite.go:137</code>).</p>
+<h3 id="17-model-listing-internalllmmodelsgo">1.7 Model listing (<code>internal/llm/models.go</code>)<a class="headerlink" href="#17-model-listing-internalllmmodelsgo" title="Permanent link">&para;</a></h3>
+<p><code>ListModels(ctx, endpoint, apiKey)</code> with 1-hour cache. Dispatches to Gemini
+ListModels (<code>generativelanguage.googleapis.com</code>) or OpenAI <code>/models</code>. Used by
+the Settings/config UI to populate model dropdowns. Not part of an analysis
+loop.</p>
+<hr />
+<h2 id="2-daily-health-briefings-internalbriefing">2. Daily Health Briefings (<code>internal/briefing</code>)<a class="headerlink" href="#2-daily-health-briefings-internalbriefing" title="Permanent link">&para;</a></h2>
+<p><strong>Prompt job</strong> (<code>briefing.go:343-348</code>): system =
+<em>"You are pg_sage, a PostgreSQL DBA agent. Generate a concise health briefing
+from the structured data provided. Use markdown… Prioritize critical findings.
+Keep it under 2000 words."</em> User message = the deterministically-built
+structured briefing text.</p>
+<p><strong>Inputs</strong> (<code>Generate</code>, <code>briefing.go:167-200</code>):
+- Open findings (top 50 by severity then occurrence_count), <code>gatherFindings</code>
+  (<code>:202-234</code>).
+- System overview JSON: db size, connections, active, cache hit ratio, uptime
+  hours, <code>gatherSystem</code> (<code>:236-253</code>).
+- Recent actions (last 24h) from <code>sage.action_log</code>, <code>gatherRecentActions</code>
+  (<code>:255-270</code>).</p>
+<p><strong>Flow</strong>: always build the deterministic markdown briefing
+(<code>buildStructured</code>, <code>:272-341</code>). If <code>llm != nil &amp;&amp; IsEnabled() &amp;&amp; !IsCircuitOpen()</code>
+(<code>:188</code>), enhance with the LLM; on LLM error, fall back to the structured text.
+<code>maxTokens</code> = <code>cfg.LLM.ContextBudgetTokens</code>.</p>
+<p><strong>Output</strong>: markdown string. Stored in <code>sage.briefings</code> (<code>storeBriefing</code>,
+<code>:351-361</code>) with <code>llm_used</code> and <code>token_count</code>. <strong>Dispatched</strong> to configured
+channels — <code>stdout</code> and/or <code>slack</code> webhook (<code>Dispatch</code>, <code>:367-399</code>).</p>
+<p><strong>Cadence</strong> (<code>:115-156</code>): cron schedule <code>cfg.Briefing.Schedule</code> parsed into
+bitmask (<code>parseCron</code>, full 5-field cron with ranges/steps). <code>ShouldRun(now)</code>
+matches schedule + 30s debounce. Invoked from the analyzer-cadence loop in
+<code>main.go:718</code>.</p>
+<p><strong>Gating</strong>: <code>briefing.enabled</code> + LLM enabled. Read-only feature; never touches
+the executor.</p>
+<hr />
+<h2 id="3-llm-index-recommendations-internaloptimizer">3. LLM Index Recommendations (<code>internal/optimizer</code>)<a class="headerlink" href="#3-llm-index-recommendations-internaloptimizer" title="Permanent link">&para;</a></h2>
+<p>The single source of truth for <code>missing_index</code> recommendations (schema lint
+deliberately does not propose indexes — see package doc <code>optimizer.go:1-8</code>).</p>
+<p><strong>Prompt job</strong> (<code>prompt.go:14-54</code>): system prompt = "PostgreSQL index
+optimization expert"; 13 hard rules (CONCURRENTLY only, partial/INCLUDE/GIN/
+GiST guidance, write-heavy &gt;70% needs &gt;30% improvement, composite column-order
+rule, work_mem-not-index and matview-not-index escape hatches). Demands a bare
+JSON array.</p>
+<p><strong>Inputs</strong> (<code>FormatPrompt</code>, <code>prompt.go:57-166</code>): per-table context — columns,
+<code>pg_stats</code> (n_distinct, correlation, MCVs), existing indexes + scan counts,
+sanitized query list (calls/mean/total ms), execution-plan summaries, and
+specialized workload hints (JSON/JSONB, vector/pgvector, PostGIS — <code>prompt.go:168-231</code>),
+BRIN candidates (|correlation|&gt;0.8), join patterns. Prompt capped at 16384 chars
+→ <code>FormatPromptTruncated</code> keeps top-3 queries (<code>prompt.go:233-261</code>).</p>
+<p><strong>Output schema</strong> (<code>prompt.go:38-51</code>): JSON array of <code>{table, ddl, drop_ddl,
+rationale, severity, index_type, category, affected_queries,
+estimated_improvement_pct}</code>. Parsed via <code>llm.ParseJSON(..., JSONArray, ...)</code>
+(<code>prompt.go:264-270</code>).</p>
+<p><strong>Pipeline</strong> (<code>Analyze</code> <code>:84-177</code>, <code>analyzeTable</code> <code>:179-228</code>):
+1. Cold-start gate: wait for <code>cfg.MinSnapshots</code> (<code>:92-101</code>).
+2. Build table contexts, sort by total query time, cap at <code>maxTablesPerCycle</code>=10.
+3. Skip a table if circuit-open (per-table <code>CircuitBreaker</code>) or it has open
+   index findings (<code>hasOpenIndexFindings</code>, <code>:381-403</code>).
+4. Call LLM (primary client, then <code>fallbackClient</code> on error — <code>:186-199</code>).
+5. <strong>Validate</strong> each rec (<code>validator.Validate</code>); reject invalid (counts toward
+   <code>Rejections</code>).
+6. <strong>HypoPG enrichment</strong> (<code>enrichWithHypoPG</code>, <code>:230-254</code>): if <code>pg_hypopg</code>
+   available, create hypothetical index, measure improvement %, set
+   <code>Validated</code>, <code>EstimatedImprovementPct</code>, <code>CostEstimate.EstimatedSizeBytes</code>;
+   demote to <code>severity=info</code> if not accepted.
+7. <strong>Confidence scoring</strong> (<code>scoreConfidence</code>, <code>:256-347</code>).</p>
+<p><strong>Confidence scoring</strong> (<code>confidence.go</code>): weighted sum of six normalized
+signals — QueryVolume (0.25), PlanClarity (0.25), WriteRateKnown (0.15),
+HypoPGValidated (0.15), Selectivity (0.10), TableCallVolume (0.10), clamped
+0–1. <code>ActionLevel(conf)</code> (<code>confidence.go:43-51</code>): <code>&gt;=0.7</code> safe, <code>&gt;=0.4</code>
+moderate, else high_risk. PlanClarity is 1.0 with EXPLAIN plans, <strong>0.5 with
+query text only</strong> — so the optimizer can still reach the advisory threshold
+without HypoPG.</p>
+<p><strong>Advisory threshold (0.5):</strong> <code>DefaultOptConfidenceThreshold = 0.5</code>
+(<code>config/defaults.go:75</code>), config field
+<code>cfg.LLM.Optimizer.ConfidenceThreshold</code> (<code>config/config.go:232</code>).
+<strong>⚠ DEAD/UNWIRED:</strong> a repo-wide search shows <strong>zero non-test, non-config
+consumers</strong> of <code>ConfidenceThreshold</code>. Every accepted recommendation is mapped
+to a finding regardless of score (<code>analyzer.go:296-303</code>). The intended
+"suppress below 0.5" gate is not enforced anywhere in code today.</p>
+<p><strong>How output reaches executor</strong> (<code>optimizer_mapping.go</code>): each <code>Recommendation</code>
+→ <code>Finding</code> (category from rec, <code>RecommendedSQL = rec.DDL</code>, <code>RollbackSQL =
+rec.DropDDL</code>, detail carries confidence_score/action_level/hypopg_validated/
+plan_source). <code>ActionRisk = RiskTierForRecommendation(rec)</code> (<code>risk.go:13-30</code>:
+uses rec.ActionRisk, else maps ActionLevel; unknown → high_risk). The Tier 3
+executor then gates by trust level + risk tier.</p>
+<p><strong>Gating</strong>: <code>cfg.LLM.Optimizer.Enabled &amp;&amp; llmClient.IsEnabled()</code>
+(<code>main.go:997-998</code>); built with optional <code>WithAutoExplain()</code> plan source.</p>
+<hr />
+<h2 id="4-config-tuning-advisor-internaladvisor">4. Config Tuning Advisor (<code>internal/advisor</code>)<a class="headerlink" href="#4-config-tuning-advisor-internaladvisor" title="Permanent link">&para;</a></h2>
+<p>Six sub-advisors, each an independent LLM call producing config/remediation
+findings. Orchestrated by <code>Advisor.Analyze</code> (<code>advisor.go:69-218</code>).</p>
+<p><strong>Sub-advisors</strong> (each has its own system prompt + context builder):
+| Sub-advisor | File | Recommends |
+|---|---|---|
+| Vacuum | <code>vacuum.go</code> | Per-table <code>ALTER TABLE … SET</code> autovacuum overrides / global <code>ALTER SYSTEM</code> |
+| WAL | <code>wal.go</code> | WAL/checkpoint GUC tuning |
+| Connections | <code>connection.go</code> | <code>max_connections</code>, pooling guidance |
+| Memory | <code>memory.go</code> | <code>work_mem</code>, <code>shared_buffers</code>, <code>effective_cache_size</code> |
+| Query rewrites | <code>rewrite.go</code> | SQL rewrite suggestions (advisory only) |
+| Bloat | <code>bloat.go</code> | Bloat remediation (VACUUM FULL / repack guidance) |</p>
+<p><strong>Example prompt (vacuum, <code>vacuum.go:15-36</code>)</strong>: "PostgreSQL vacuum tuning
+expert"; 9 rules (only behind-tables, show the math, never scale_factor 0,
+skip &lt;1000 rows or &lt;5% dead ratio). Output array of
+<code>{object_identifier, severity, rationale, recommended_sql, current_settings,
+recommended_settings}</code>.</p>
+<p><strong>Inputs</strong>: latest + previous <code>collector.Snapshot</code> (config data, per-table
+stats, write rates computed from snapshot delta). Prompts capped at 16384 chars.
+Each sub-advisor is called with <code>mgr.ChatForPurpose(ctx, "advisor", system,
+prompt, 4096)</code> → routes to General (see §1.2 note).</p>
+<p><strong>Output → finding</strong> (<code>parseLLMFindings</code>, <code>prompt.go:37-81</code>): <code>llm.ParseJSON(..,
+JSONArray, ..)</code>; builds <code>analyzer.Finding{category, severity, ObjectType:
+"configuration", RecommendedSQL, ActionRisk}</code>. <strong>Risk derivation</strong>
+(<code>deriveActionRisk</code>, <code>prompt.go:87-97</code>): <code>ALTER SYSTEM</code> / <code>DROP INDEX</code> →
+moderate, else safe.</p>
+<p><strong>Cloud transform</strong> (<code>validate.go:104-181</code>, applied at <code>advisor.go:202</code>): on
+managed services (rds/aurora/cloud-sql/alloydb/azure) rewrites <code>ALTER SYSTEM SET</code>
+→ <code>ALTER DATABASE &lt;db&gt; SET</code>; restart-requiring or platform-restricted GUCs are
+stripped of executable SQL and downgraded to <code>info</code> with a console note.
+<code>ValidateConfigRecommendation</code> enforces safe value ranges (<code>validate.go:55-87</code>).</p>
+<p><strong>Rewrite advisor is always advisory</strong> (<code>rewrite.go:31, 178-184</code>): severity
+forced to <code>info</code>, <code>RecommendedSQL</code> and <code>ActionRisk</code> cleared — never
+auto-executed. CREATE INDEX rewrites are filtered out (belong to the optimizer).</p>
+<p><strong>Gating</strong> (<code>advisor.go:70-78</code>):
+- <code>cfg.Advisor.Enabled</code> required.
+- If advisor enabled but LLM disabled → emits a single <code>advisor_degraded</code>
+  warning finding (<code>advisorDegradedFinding</code>, <code>:220-236</code>) so a silent no-finding
+  cycle isn't mistaken for health.
+- Per-sub-advisor <code>*Enabled</code> flags + <code>hasOpenFindings(category)</code> dedup gate
+  (<code>:255-273</code>) to avoid redundant LLM calls.
+- Interval gate <code>ShouldRun()</code> (<code>:62-66</code>).
+- Budget-exhausted errors counted; remaining sub-advisors still attempted.</p>
+<hr />
+<h2 id="5-per-query-tuning-pg_hint_plan-internaltuner">5. Per-Query Tuning / pg_hint_plan (<code>internal/tuner</code>)<a class="headerlink" href="#5-per-query-tuning-pg_hint_plan-internaltuner" title="Permanent link">&para;</a></h2>
+<p><strong>Prompt job</strong> (<code>prompt.go:14-37</code>): "PostgreSQL query tuning expert specializing
+in pg_hint_plan directives"; 12 rules (only valid hint tokens, choose join
+strategy by table size/selectivity, IndexScan only if index exists, no
+<code>enable_*</code> GUC toggles, work_mem from spill / active_backends, confidence
+0–1, optional query rewrite). Demands a bare JSON array.</p>
+<p><strong>Inputs</strong> (<code>FormatTunerPrompt</code>, <code>prompt.go:40-69</code>): the slow-query candidate
+(queryid, text, mean exec/plan time, calls, temp blks), detected plan symptoms,
+specialized workload hints, execution plan JSON (capped 4000 chars), table
+details + indexes + col stats, system context (work_mem, shared_buffers,
+max_parallel_workers_per_gather, active_backends), and the deterministic
+fallback hint. Capped at 14000 chars → <code>truncatePrompt</code>.</p>
+<p><strong>Output schema</strong> (<code>llm_prescriber.go:14-21</code>): array of
+<code>{hint_directive, rationale, confidence, suggested_rewrite, rewrite_rationale}</code>.
+Parsed via <code>llm.ParseJSON(.., JSONArray, ..)</code>.</p>
+<p><strong>validateHintSyntax</strong> (<code>llm_prescriber.go:96-168</code>): rejects the prescription
+unless every directive starts with an allowed pg_hint_plan token (<code>Set(</code>,
+<code>HashJoin(</code>, <code>IndexScan(</code>, … 16 tokens) <strong>and</strong> matches no dangerous SQL
+(<code>dangerousPatterns</code> regex blocks <code>;</code>, <code>--</code>, DROP/DELETE/ALTER/…). This is the
+hard guard against the LLM emitting injection or arbitrary SQL.</p>
+<p><strong>Flow</strong> (<code>tuner.go</code>):
+1. <code>Tune</code> fetches slow candidates from <code>pg_stat_statements</code> (<code>candidateSQL</code>
+   <code>:284-299</code>), filters self-monitoring queries, skips recently-tuned and
+   <strong>deferred tables</strong> (tables with pending index recs — <code>:133-139, 203-219</code>).
+2. <code>processCandidate</code> (<code>:340-379</code>) gathers plan symptoms; computes deterministic
+   fallback hint; tries LLM (<code>tryLLMPrescribe</code>).
+3. <code>tryLLMPrescribe</code> (<code>:439-493</code>): skips LLM for a single symptom without plan
+   data (token saving); checks LLM-suppression dedup (fingerprint persisted in
+   <code>sage.findings</code>, category <code>query_tuning</code>, status <code>suppressed</code>); calls
+   <code>llmPrescribe</code> (primary→fallback). On error, records suppression and falls
+   back to deterministic hints.
+4. Empty/duplicate prescriptions are suppressed with a cooldown
+   (<code>filterRepeatedLLMPrescriptions</code>, <code>:495-521</code>).</p>
+<p><strong>Output → executor</strong>: <code>buildFinding</code> (<code>:780-820</code>) emits
+<code>Finding{category: "query_tuning", ActionRisk: "safe"}</code>. <code>RecommendedSQL</code> is set
+only when <code>hintPlan.Available &amp;&amp; HintTableReady</code> — <code>BuildInsertSQL</code> produces a
+dollar-quoted (<code>$sageqh$…</code>) INSERT into <code>hint_plan.hints</code> (<code>:874-886</code>),
+<code>RollbackSQL</code> a matching DELETE. Also upserts <code>sage.query_hints</code> for the
+dashboard query-hints page (<code>:824-858</code>), including any <code>suggested_rewrite</code>.</p>
+<p><strong>Gating</strong>: <code>cfg.Tuner.Enabled</code>; LLM path only when <code>cfg.Tuner.LLMEnabled &amp;&amp;
+llmMgr != nil</code> (<code>main.go:503-516</code>, <code>WithLLM</code>). Stale-stats symptoms bypass the
+hint flow entirely and become <code>stale_statistics</code> ANALYZE findings
+(<code>extractStaleStats</code>, <code>:385-437</code>).</p>
+<hr />
+<h2 id="6-explain-narrative-on-demand-plan-capture">6. Explain Narrative + On-Demand Plan Capture<a class="headerlink" href="#6-explain-narrative-on-demand-plan-capture" title="Permanent link">&para;</a></h2>
+<h3 id="61-explain-narrative-internalexplain">6.1 EXPLAIN narrative (<code>internal/explain</code>)<a class="headerlink" href="#61-explain-narrative-internalexplain" title="Permanent link">&para;</a></h3>
+<p><strong>Prompt job</strong> (<code>explain_llm.go:11-23</code>): "PostgreSQL query performance analyst";
+given EXPLAIN(ANALYZE) JSON + SQL, return <code>{summary, slow_because[],
+recommendations[]}</code>.</p>
+<p><strong>Flow</strong> (<code>explain.go:103-165</code>): validate (reject DDL, <code>query_id</code> lookup not
+implemented — <code>:112-116</code>), cache lookup (<code>sage.explain_results</code>, keyed by FNV
+hash + db, with TTL), run <code>EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)</code> (or plain
+EXPLAIN for parameterized queries via PREPARE/EXECUTE) in a <strong>read-only
+rolled-back transaction</strong> with <code>statement_timeout</code>. Build deterministic node
+breakdown, then <code>enhanceWithLLM</code> (<code>explain_llm.go:28-56</code>) overlays the LLM
+summary/slow_because/recommendations (<code>llm.ParseJSON(.., JSONAuto, ..)</code>).
+Graceful: LLM failure leaves deterministic values intact.</p>
+<p><strong>Output → user</strong>: HTTP only. <code>POST /api/v1/explain</code> (<code>router.go:291-292</code>,
+handler <code>handlers_v09.go:212-261</code>). Gated by <code>cfg.Explain.Enabled</code> (503 if off).
+This is an <strong>on-demand, user-triggered</strong> narrative — not part of the autonomous
+loop and not connected to the executor.</p>
+<h3 id="62-auto-explain-plan-capture-internalautoexplain-no-llm">6.2 Auto-explain plan capture (<code>internal/autoexplain</code>) — <strong>no LLM</strong><a class="headerlink" href="#62-auto-explain-plan-capture-internalautoexplain-no-llm" title="Permanent link">&para;</a></h3>
+<p><code>Collector.Collect</code> (<code>collector.go:73-116</code>) finds slow queries without recent
+cached plans and runs <code>EXPLAIN (FORMAT JSON)</code> (no ANALYZE) in a read-only
+rolled-back tx, storing into <code>sage.explain_cache</code> (source <code>auto_explain</code>).
+Purely deterministic plan capture; it <strong>feeds</strong> the optimizer/tuner prompts
+(those read <code>sage.explain_cache</code>) but makes no LLM call itself. Listed here
+because it is the plan-source backbone for the LLM features.</p>
+<hr />
+<h2 id="7-rca-tier-2-llm-root-cause-internalrcatier2go">7. RCA Tier 2 — LLM Root Cause (<code>internal/rca/tier2.go</code>)<a class="headerlink" href="#7-rca-tier-2-llm-root-cause-internalrcatier2go" title="Permanent link">&para;</a></h2>
+<p><strong>Prompt job</strong> (<code>tier2.go:97-109</code>): "PostgreSQL root cause analysis engine";
+given N signals that fired together but match no deterministic Tier-1 pattern,
+correlate them and return a single JSON object <code>{root_cause, severity
+(warning|critical), causal_chain (arrow notation), recommended_sql[],
+action_risk (low|medium|high)}</code>.</p>
+<p><strong>Inputs</strong> (<code>buildTier2UserPrompt</code>, <code>:112-124</code>): the <strong>uncovered</strong> signals
+(those not consumed by any Tier-1 incident — <code>findUncoveredSignals</code> <code>:53-70</code>),
+each with ID/severity/fired_at/metrics JSON.</p>
+<p><strong>Gating</strong> (<code>runTier2Correlation</code>, <code>:31-49</code>):
+- <code>llmClient != nil &amp;&amp; IsEnabled()</code>.
+- Only fires when <code>len(uncovered) &gt;= LLMCorrelationThreshold</code> (default <strong>3</strong>).
+- 30s timeout; 2048 max tokens.</p>
+<p><strong>Output</strong> (<code>parseTier2Response</code>/<code>buildTier2Incident</code>, <code>:128-178</code>):
+<code>llm.ParseJSON(.., JSONObject, ..)</code>. Empty <code>root_cause</code> → error (dropped).
+Builds an <code>Incident{Source: "llm", Confidence: 0.6}</code>, severity/risk clamped to
+valid values, causal chain parsed from <code>A -&gt; B -&gt; C</code>. The incident then flows
+through the normal RCA→cases pipeline (not directly to the executor). Wired via
+<code>rcaEng.WithLLM(llmClient)</code> when LLM enabled (<code>main.go:543-544</code>).</p>
+<hr />
+<h2 id="8-interactive-diagnose-react-loop-does-not-exist">8. Interactive Diagnose / ReAct Loop — <strong>DOES NOT EXIST</strong><a class="headerlink" href="#8-interactive-diagnose-react-loop-does-not-exist" title="Permanent link">&para;</a></h2>
+<p>The CLAUDE.md architecture notes mention "interactive diagnose (ReAct loop)",
+but <strong>no agentic/iterative LLM loop exists in the code today</strong>. The
+<code>diagnose_*</code> symbols (<code>internal/cases/incident_projector.go</code>,
+<code>internal/cases/vacuum_autopilot.go</code>, <code>internal/executor/action_contract.go</code>)
+are <strong>deterministic, hand-written read-only SQL probes</strong> (e.g.
+<code>diagnose_lock_blockers</code>, <code>diagnose_runaway_query</code>, <code>diagnose_vacuum_pressure</code>)
+emitted as executor action types — not LLM calls. There is no multi-turn
+tool-using/ReAct agent anywhere in <code>internal/</code> or <code>cmd/</code>. <strong>This Tier-2 feature
+is unimplemented.</strong></p>
+<hr />
+<h2 id="9-additional-llm-features-beyond-the-brief-found-in-code">9. Additional LLM Features Beyond the Brief (found in code)<a class="headerlink" href="#9-additional-llm-features-beyond-the-brief-found-in-code" title="Permanent link">&para;</a></h2>
+<p>These are real LLM call-sites that are wired and worth noting:</p>
+<ul>
+<li><strong>Migration DDL safety fallback</strong> (<code>internal/migration/llm_fallback.go:37</code>):
+  for DDL no deterministic rule matched, asks the LLM to classify
+  <code>{lock_level, requires_rewrite, risk_score, safe_alternative, explanation,
+  estimated_duration_seconds}</code>; returns nil if <code>risk_score &lt;= 0.3</code>. Wired via
+  <code>migration.NewAdvisor(..., migLLM)</code> (<code>main.go:667-668</code>), 30s timeout.</li>
+<li><strong>Migration script generation</strong> (<code>internal/migration/llm_scripts.go:59</code>):
+  <code>ScriptGenerator.Generate</code> produces a tailored migration SQL script; falls
+  back to the deterministic <code>SafeAlternative</code> if LLM unavailable. Invoked from
+  <code>advisor.go:124</code>.</li>
+<li><strong>JSONB lint enrichment</strong> (<code>internal/schema/lint/llm_jsonb.go:116</code>):
+  <code>LLMJsonbAnalyzer.Enhance</code> confirms which JSONB columns appear in JOIN/WHERE
+  via slow-query analysis, enriching <code>lint_jsonb_in_joins</code> findings. Wired via
+  <code>lintRunner.SetLLMClient(llmClient)</code> (<code>main.go:653-654</code>).</li>
+<li><strong>Agent-DB blueprint generation</strong> (<code>internal/api/agent_db_blueprint_handlers.go:118</code>):
+  translates a natural-language deployment intent into a strict blueprint JSON
+  object. HTTP-triggered, uses <code>mgr.General</code>.</li>
+</ul>
+<hr />
+<h2 id="10-complete-list-of-distinct-llm-call-sites-today">10. Complete List of Distinct LLM Call-Sites (today)<a class="headerlink" href="#10-complete-list-of-distinct-llm-call-sites-today" title="Permanent link">&para;</a></h2>
+<p>Every place that invokes <code>Client.Chat</code> (directly or via Manager):</p>
+<ol>
+<li><code>internal/briefing/briefing.go:348</code> — daily health briefing.</li>
+<li><code>internal/optimizer/optimizer.go:186</code> (+ <code>:193</code> fallback) — index recs.</li>
+<li><code>internal/advisor/vacuum.go:142</code> — vacuum tuning.</li>
+<li><code>internal/advisor/wal.go:107</code> — WAL tuning.</li>
+<li><code>internal/advisor/connection.go:96</code> — connection tuning.</li>
+<li><code>internal/advisor/memory.go:139</code> — memory tuning.</li>
+<li><code>internal/advisor/rewrite.go:160</code> — query-rewrite advisor (advisory only).</li>
+<li><code>internal/advisor/bloat.go:135</code> — bloat remediation.</li>
+<li><code>internal/tuner/llm_prescriber.go:34</code> (+ <code>:38</code> fallback) — pg_hint_plan prescriptions.</li>
+<li><code>internal/explain/explain_llm.go:45</code> — on-demand EXPLAIN narrative.</li>
+<li><code>internal/rca/tier2.go:82</code> — LLM root-cause correlation.</li>
+<li><code>internal/migration/llm_fallback.go:37</code> — DDL risk classification.</li>
+<li><code>internal/migration/llm_scripts.go:59</code> — migration script generation.</li>
+<li><code>internal/schema/lint/llm_jsonb.go:116</code> — JSONB-in-joins enrichment.</li>
+<li><code>internal/api/agent_db_blueprint_handlers.go:118</code> — deployment blueprint JSON.</li>
+</ol>
+<p>(#3–8 route through <code>Manager.ChatForPurpose("advisor", …)</code> which, given the
+<code>nil</code>/<code>false</code> Manager wiring, always uses the General client.)</p>
+<hr />
+<h2 id="11-dead-unwired-findings-summary">11. Dead / Unwired Findings Summary<a class="headerlink" href="#11-dead-unwired-findings-summary" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><code>OptimizerLLMConfig.ConfidenceThreshold</code> (0.5)</strong> — configured + defaulted,
+  but has <strong>zero consumers</strong>. The advisory-threshold gate it implies is not
+  enforced; all accepted recommendations become findings.</li>
+<li><strong>Manager per-purpose routing + fallback</strong> — <code>NewManager(general, nil, false)</code>
+  in both standalone and fleet wiring means <code>ForPurpose</code> always returns
+  <code>General</code> and the fallback branch never runs. The advisor's <code>"advisor"</code>
+  purpose string has no switch case anyway.</li>
+<li><strong>Interactive diagnose / ReAct loop</strong> — claimed in architecture docs,
+  not implemented (see §8).</li>
+<li><strong>Vestigial fence-strippers</strong> — <code>stripToJSON</code>, <code>stripMarkdownFences</code>,
+  <code>stripToJSONObject</code> exist in optimizer/advisor/tuner/explain/rca but the
+  production path uses <code>llm.ParseJSON</code>; these thin wrappers are retained mostly
+  for tests / belt-and-suspenders and are largely redundant with
+  <code>llm.StripJSON</code>.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

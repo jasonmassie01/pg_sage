@@ -1,0 +1,1299 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/reverse_spec/04-tier3-executor/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Tier 3 — Action Executor & Safety Model - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tier-3-action-executor-safety-model" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Tier 3 — Action Executor &amp; Safety Model
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-two-parallel-tier-3-subsystems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Two parallel "Tier 3" subsystems
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-the-trust-ramp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. The trust ramp
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. The trust ramp">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-ramp_start-computation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 ramp_start computation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-trust-levels-and-the-day-gates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Trust levels and the day gates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-per-instance-override" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Per-instance override
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-risk-tiers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Risk tiers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Risk tiers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-evaluateactionpolicy-the-projection-layer-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 EvaluateActionPolicy (the projection-layer gate)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-which-actions-exist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Which actions exist
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Which actions exist">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-sql-whitelist-the-real-enforcement-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 SQL whitelist (the real enforcement boundary)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-action-types-and-their-risk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Action types and their risk
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-runaway-query-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Runaway-query actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-action-execution-mechanics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Action execution mechanics
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Action execution mechanics">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-dispatch-executefinding-executorgo442" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Dispatch (executeFinding, executor.go:442)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-timeouts-ddlgo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Timeouts (ddl.go)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-concurrently-lock-failure-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 CONCURRENTLY / lock failure handling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-rollback-metadata-and-auto-rollback-goroutine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Rollback metadata and auto-rollback goroutine
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-safety-controls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Safety controls
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Safety controls">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-emergency-stop-kill-switch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Emergency stop (kill switch)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-replica-ha-gating" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Replica / HA gating
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-circuit-breakers-cooldowns-hysteresis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Circuit breakers / cooldowns / hysteresis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-maintenance-window" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 Maintenance window
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-cases-actions-flow-the-projection-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Cases → actions flow (the projection layer)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-end-to-end-flow-finding-execution-logged-action" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. End-to-end flow: finding → execution → logged action
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-wired-vs-documented-but-unwired-summary-of-gaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Wired vs documented-but-unwired (summary of gaps)
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="tier-3-action-executor-safety-model">Tier 3 — Action Executor &amp; Safety Model<a class="headerlink" href="#tier-3-action-executor-safety-model" title="Permanent link">&para;</a></h1>
+<p>Reverse-engineered from the actual code in <code>sidecar/internal/executor</code>,
+<code>sidecar/internal/cases</code>, <code>sidecar/internal/schema</code>, and the orchestration in
+<code>sidecar/cmd/pg_sage_sidecar</code>. File:line citations are to those paths.</p>
+<hr />
+<h2 id="1-two-parallel-tier-3-subsystems">1. Two parallel "Tier 3" subsystems<a class="headerlink" href="#1-two-parallel-tier-3-subsystems" title="Permanent link">&para;</a></h2>
+<p>There are <strong>two distinct action systems</strong> that both call themselves Tier 3, and
+they are largely <strong>not wired to each other</strong>:</p>
+<ol>
+<li><strong>The live Executor</strong> (<code>executor.Executor</code>, <code>executor.go</code>) — consumes
+   <code>analyzer.Finding</code> values directly, gates them through <code>ShouldExecute</code>
+   (<code>trust.go</code>), and runs SQL. This is the only path that actually mutates the
+   database.</li>
+<li><strong>The cases/policy projection layer</strong> (<code>internal/cases</code> + <code>action_policy.go</code></li>
+<li><code>action_contract.go</code>) — projects findings/incidents/query-hints into
+   <code>Case</code> objects with <code>ActionCandidate</code>s and an <code>ActionPolicyDecision</code>. This is
+   a <strong>read/advisory projection</strong> consumed only by the REST API
+   (<code>internal/api/cases_handlers.go</code>) and fleet capability reporting
+   (<code>internal/fleet/capabilities.go:133</code>). <code>cases.ProjectFinding</code> is <strong>never
+   called from the executor or RunCycle</strong> (grep confirms the only non-test
+   callers are API handlers).</li>
+</ol>
+<p>The richer risk model (<code>read_only</code>/<code>safe</code>/<code>moderate</code>/<code>high</code>, per-action
+<code>ActionContract</code>s, <code>EvaluateActionPolicy</code>) therefore governs <strong>what the
+dashboard shows and what approval metadata is attached</strong>, not what the
+autonomous loop actually executes. The autonomous loop uses the simpler
+<code>ShouldExecute</code> gate. This split is the single most important thing to know
+about Tier 3.</p>
+<hr />
+<h2 id="2-the-trust-ramp">2. The trust ramp<a class="headerlink" href="#2-the-trust-ramp" title="Permanent link">&para;</a></h2>
+<h3 id="21-ramp_start-computation">2.1 ramp_start computation<a class="headerlink" href="#21-ramp_start-computation" title="Permanent link">&para;</a></h3>
+<p><code>rampStart</code> is resolved once at startup, not from wall-clock "install date":</p>
+<ul>
+<li>YAML <code>trust.ramp_start</code> is parsed by <code>parseConfigRampStart</code>
+  (<code>main.go:2317</code>, accepts date or RFC3339 forms).</li>
+<li><code>schema.PersistTrustRampStart(ctx, pool, configRampStart)</code>
+  (<code>internal/schema/bootstrap.go:89</code>) reads <code>sage.config</code> key
+  <code>trust_ramp_start</code>. <strong>First-write-wins semantics:</strong></li>
+<li>If the row exists, its stored timestamp is parsed (several PG layouts
+    tried) and returned — the config value is <em>ignored</em> once persisted
+    (<code>bootstrap.go:100-116</code>).</li>
+<li>If the row is absent, <code>configRampStart</code> is inserted if non-zero, else
+    <code>now()</code> (<code>bootstrap.go:118+</code>).</li>
+<li>On parse failure <code>rampStart</code> falls back to <code>time.Now()</code> (<code>main.go:362</code>),
+  which silently resets the ramp to day 0.</li>
+<li>In fleet mode each database persists its own ramp_start
+  (<code>main.go:1160</code>, <code>metadb.go:513</code>), seeded from the same YAML
+  <code>configRampStart</code>.</li>
+</ul>
+<p><code>rampAge := time.Since(rampStart)</code> (<code>trust.go:30</code>).</p>
+<h3 id="22-trust-levels-and-the-day-gates">2.2 Trust levels and the day gates<a class="headerlink" href="#22-trust-levels-and-the-day-gates" title="Permanent link">&para;</a></h3>
+<p><code>ShouldExecute</code> (<code>trust.go:19-60</code>) is the real gate. It is keyed off
+<code>cfg.Trust.Level</code> (a string: <code>observation</code> / <code>advisory</code> / <code>autonomous</code>), <strong>not</strong>
+off rampAge directly — rampAge is an <em>additional</em> requirement layered on top:</p>
+<table>
+<thead>
+<tr>
+<th><code>Trust.Level</code></th>
+<th>Behavior in <code>ShouldExecute</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>observation</code></td>
+<td>Always returns <code>false</code>. Findings only, no execution.</td>
+</tr>
+<tr>
+<td><code>advisory</code></td>
+<td>Only <code>ActionRisk=="safe"</code> <strong>and</strong> <code>Trust.Tier3Safe</code> <strong>and</strong> <code>rampAge ≥ 8 days</code> (<code>trust.go:36-40</code>).</td>
+</tr>
+<tr>
+<td><code>autonomous</code></td>
+<td><code>safe</code>: <code>Tier3Safe &amp;&amp; rampAge ≥ 8d</code>. <code>moderate</code>: <code>Tier3Moderate &amp;&amp; rampAge ≥ 31d &amp;&amp; inMaintenanceWindow(...)</code>. <code>high_risk</code>: always <code>false</code>. (<code>trust.go:42-55</code>)</td>
+</tr>
+<tr>
+<td>anything else</td>
+<td><code>false</code> (<code>trust.go:57</code>).</td>
+</tr>
+</tbody>
+</table>
+<p>So the documented "OBSERVATION day0-7 / ADVISORY day8-30 / AUTONOMOUS day31+"
+ramp is enforced as <strong>day-8 and day-31 thresholds</strong>, and the <em>level</em> is a
+manually-set config string — the executor does <strong>not</strong> auto-promote
+<code>observation → advisory → autonomous</code> as days pass. An operator must change
+<code>trust.level</code>. The day gates only further restrict an already-chosen level.</p>
+<p>Hard short-circuits at the top of <code>ShouldExecute</code> (<code>trust.go:26-28</code>): if
+<code>emergencyStop || isReplica</code>, return <code>false</code> regardless of level.</p>
+<h3 id="23-per-instance-override">2.3 Per-instance override<a class="headerlink" href="#23-per-instance-override" title="Permanent link">&para;</a></h3>
+<p><code>Executor.SetTrustLevel</code> (<code>executor.go:180</code>) sets <code>trustLevelOverride</code>
+(validated against <code>observation|advisory|autonomous|""</code>). <code>shouldExecute</code>
+(<code>executor.go:208</code>) copies the config with the override applied. <code>TrustLevel()</code>
+returns override-or-config.</p>
+<hr />
+<h2 id="3-risk-tiers">3. Risk tiers<a class="headerlink" href="#3-risk-tiers" title="Permanent link">&para;</a></h2>
+<p>Two <strong>different</strong> risk vocabularies exist:</p>
+<ul>
+<li><strong>Executor/finding vocabulary</strong> (used by <code>ShouldExecute</code>): <code>analyzer.Finding.ActionRisk</code>
+  is <code>"safe"</code>, <code>"moderate"</code>, or <code>"high_risk"</code>. <code>high_risk</code> is never
+  auto-executed (<code>trust.go:51-52</code>).</li>
+<li><strong>Contract/policy vocabulary</strong> (<code>ActionContract.BaseRiskTier</code>, used by
+  <code>EvaluateActionPolicy</code>): <code>"read_only"</code>, <code>"safe"</code>, <code>"moderate"</code>, <code>"high"</code>
+  (<code>action_policy.go:50-60</code>). Note the names differ (<code>high</code> vs <code>high_risk</code>),
+  and there is no automatic mapping between the two systems.</li>
+</ul>
+<h3 id="31-evaluateactionpolicy-the-projection-layer-gate">3.1 EvaluateActionPolicy (the projection-layer gate)<a class="headerlink" href="#31-evaluateactionpolicy-the-projection-layer-gate" title="Permanent link">&para;</a></h3>
+<p><code>action_policy.go:39</code>. Returns one of <code>execute</code> / <code>queue_for_approval</code> /
+<code>blocked</code> / <code>observe_only</code>:</p>
+<ul>
+<li><strong>Hard blocks</strong> (<code>hardBlockReason</code>, <code>action_policy.go:76</code>): emergency stop
+  active; replica + non-read_only; provider unsupported.</li>
+<li><code>read_only</code> → <code>execute</code>.</li>
+<li><code>safe</code> (<code>evaluateSafePolicy</code>, :93): <code>observation</code>→<code>observe_only</code>;
+  <code>approval</code> mode or <code>advisory</code> level→<code>queue_for_approval</code>; else requires
+  <code>Tier3Safe &amp;&amp; rampAge ≥ 8d</code> and a safe-action concurrency slot
+  (<code>SafeActionLimit</code>), else <code>blocked</code>; finally <code>execute</code>.</li>
+<li><code>moderate</code>/<code>high</code> (<code>evaluateApprovalPolicy</code>, :118): always
+  <code>queue_for_approval</code>, <code>RequiresMaintenanceWindow=true</code>, with a
+  <code>BlockedReason</code> set if outside the maintenance window (but note the decision
+  is still <code>queue_for_approval</code>, not <code>blocked</code> — the window only annotates).</li>
+</ul>
+<p>This logic is exercised when building approval-proposal metadata
+(<code>executor.go:390-394</code>, only via the <code>ActionMetadataProposer</code> path) and in the
+API. It does <strong>not</strong> run inside the autonomous <code>executeFinding</code> path.</p>
+<hr />
+<h2 id="4-which-actions-exist">4. Which actions exist<a class="headerlink" href="#4-which-actions-exist" title="Permanent link">&para;</a></h2>
+<h3 id="41-sql-whitelist-the-real-enforcement-boundary">4.1 SQL whitelist (the real enforcement boundary)<a class="headerlink" href="#41-sql-whitelist-the-real-enforcement-boundary" title="Permanent link">&para;</a></h3>
+<p><code>ValidateExecutorSQL</code> (<code>validate.go:87</code>) is called by every execution helper
+(<code>ExecConcurrently</code>, <code>ExecInTransaction</code>, <code>runAnalyzeOnConn</code>, <code>ExecuteManual</code>,
+<code>RollbackAction</code>). It is the genuine guardrail on <em>what SQL can run</em>:</p>
+<ul>
+<li>Allowed statement prefixes (<code>validate.go:14-30</code>): <code>CREATE INDEX</code> /
+  <code>CREATE UNIQUE INDEX</code>, <code>DROP INDEX</code>, <code>REINDEX</code>, <code>VACUUM</code>, <code>ANALYZE</code>,
+  <code>ALTER TABLE</code>, <code>ALTER SYSTEM SET/RESET</code>, <code>ALTER DATABASE</code>, <code>SET</code>, <code>RESET</code>,
+  <code>SELECT</code> (restricted), <code>INSERT INTO hint_plan.hints</code>,
+  <code>DELETE FROM hint_plan.hints</code>.</li>
+<li><code>ALTER SYSTEM</code> restricted to a GUC whitelist (<code>safeAlterSystemParams</code>,
+  :35-67) — memory/WAL/autovacuum/planner knobs only.</li>
+<li><code>SELECT</code> restricted to <code>pg_terminate_backend(</code> / <code>pg_cancel_backend(</code>
+  (<code>allowedSelectPatterns</code>, :71-74).</li>
+<li><code>ALTER TABLE</code> restricted to <code>SET (</code>, <code>RESET (</code>, <code>SET TABLESPACE</code>
+  (<code>safeAlterTableSubcmds</code>, :78-82) — i.e. storage params, not column DDL.</li>
+<li>Multi-statement SQL rejected (<code>rejectMultiStatement</code>, :260).</li>
+<li>Protected-schema guard (<code>checkProtectedSchemaUsage</code>, :275):
+  <code>pg_catalog</code>, <code>information_schema</code>, <code>google_ml</code>, <code>_timescaledb_*</code> may not be
+  targeted.</li>
+</ul>
+<h3 id="42-action-types-and-their-risk">4.2 Action types and their risk<a class="headerlink" href="#42-action-types-and-their-risk" title="Permanent link">&para;</a></h3>
+<p><code>categorizeAction</code> (<code>executor.go:861</code>) labels for <code>action_log</code>:
+<code>create_index</code>, <code>drop_index</code>, <code>reindex</code>, <code>vacuum</code>, <code>analyze</code>,
+<code>terminate_backend</code>, <code>alter</code>, <code>ddl</code>.</p>
+<p><code>ActionContract</code>s exist (<code>action_contract.go</code>) for ~25 action types including
+<code>analyze_table</code>, <code>vacuum_table</code>, <code>create_index_concurrently</code>,
+<code>drop_unused_index</code>, <code>reindex_concurrently</code>, <code>set_table_autovacuum</code>,
+<code>promote_role_work_mem</code>, <code>create_statistics</code>, <code>cancel_backend</code>,
+<code>terminate_backend</code>, <code>alter_table</code> (high), <code>ddl_preflight</code> (high), and the
+incident <code>diagnose_*</code> family (safe/read_only). Each contract carries
+<code>Guardrails</code>, <code>Prechecks</code>, <code>PostChecks</code>, <code>RollbackClass</code>, <code>ProviderSupport</code>.
+These contracts are <strong>descriptive metadata</strong> consumed by the policy evaluator
+and API; they are not consulted by <code>executeFinding</code>.</p>
+<h3 id="43-runaway-query-actions">4.3 Runaway-query actions<a class="headerlink" href="#43-runaway-query-actions" title="Permanent link">&para;</a></h3>
+<p><code>runaway.go</code> implements a <code>warn → cancel → terminate</code> state machine
+(<code>advanceState</code>, :200) producing findings whose <code>RecommendedSQL</code> is
+<code>SELECT pg_cancel_backend(pid)</code> (<code>ActionRisk=safe</code>) then
+<code>SELECT pg_terminate_backend(pid)</code> (<code>ActionRisk=moderate</code>). Self-protection:
+<code>isSafeRunawayProcess</code> (:81) never targets the sidecar's own PID or any backend
+whose <code>application_name</code> contains <code>pg_sage</code>, plus configured safe patterns.
+Requires ≥2 observation cycles before warning (:207).</p>
+<hr />
+<h2 id="5-action-execution-mechanics">5. Action execution mechanics<a class="headerlink" href="#5-action-execution-mechanics" title="Permanent link">&para;</a></h2>
+<h3 id="51-dispatch-executefinding-executorgo442">5.1 Dispatch (<code>executeFinding</code>, <code>executor.go:442</code>)<a class="headerlink" href="#51-dispatch-executefinding-executorgo442" title="Permanent link">&para;</a></h3>
+<p>Selection of execution mode by SQL shape:</p>
+<ul>
+<li><code>analyze</code> → <code>executeAnalyze</code> (dedicated conn, <code>analyze.go</code>).</li>
+<li><code>NeedsConcurrently(sql)</code> (contains <code>CONCURRENTLY</code>) <strong>or</strong> <code>NeedsTopLevel(sql)</code>
+  (<code>VACUUM</code> / <code>ALTER SYSTEM</code>) → <code>ExecConcurrently</code> (raw pooled conn, <strong>no
+  transaction</strong>). (<code>ddl.go:170-181</code>)</li>
+<li>else → <code>ExecInTransaction</code> (atomic). (<code>ddl.go:95</code>)</li>
+</ul>
+<p>This correctly keeps <code>VACUUM</code> / <code>CREATE INDEX CONCURRENTLY</code> / <code>ALTER SYSTEM</code>
+out of transactions (a known Postgres footgun).</p>
+<h3 id="52-timeouts-ddlgo">5.2 Timeouts (<code>ddl.go</code>)<a class="headerlink" href="#52-timeouts-ddlgo" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>statement_timeout</code> = <code>cfg.Safety.DDLTimeout()</code> (<code>DDLTimeoutSeconds</code>,
+  default 300s; <code>config.go:474</code>). Set per-connection in <code>ExecConcurrently</code>
+  (<code>SET statement_timeout</code>, :64) or <code>SET LOCAL</code> in <code>ExecInTransaction</code> (:115).</li>
+<li><code>lock_timeout</code> = <code>cfg.Safety.LockTimeout()</code> (<code>LockTimeoutMs</code>, default 30000ms;
+  <code>config.go:478</code>, never returns 0 — clamps to default). Applied via
+  <code>WithLockTimeout</code> option (<code>ddl.go:162</code>).</li>
+<li>ANALYZE uses <code>Tuner.AnalyzeTimeoutMs</code> with a 10-min safety default
+  (<code>analyze.go:89-92</code>).</li>
+<li>Connection-level timeouts are reset to 0 before the raw connection is
+  returned to the pool (<code>ddl.go:83-84</code>, <code>analyze.go:146-147</code>). In the
+  transaction path <code>SET LOCAL</code> scopes automatically.</li>
+</ul>
+<h3 id="53-concurrently-lock-failure-handling">5.3 CONCURRENTLY / lock failure handling<a class="headerlink" href="#53-concurrently-lock-failure-handling" title="Permanent link">&para;</a></h3>
+<p><code>IsLockNotAvailable</code> matches SQLSTATE <code>55P03</code> (<code>ddl.go:22</code>) and
+<code>wrapDDLError</code> wraps it as the sentinel <code>ErrLockNotAvailable</code> (:14). On lock
+timeout, <code>executeFinding</code> circuit-breaks the table by stamping
+<code>recentActions[ObjectIdentifier]</code> (<code>executor.go:468-474</code>), so the cascade
+cooldown blocks immediate retry.</p>
+<p>After <code>CREATE INDEX</code>, a post-check (<code>optimizer.CheckIndexValid</code>,
+<code>executor.go:495-544</code>) drops an <strong>invalid</strong> index via
+<code>DROP INDEX CONCURRENTLY IF EXISTS</code>; if the cleanup drop itself fails it logs a
+CRITICAL, dispatches an <code>ActionFailedEvent</code>, and writes a durable
+<code>drop_index_failed</code> row to <code>action_log</code> (<code>recordInvalidIndexCleanupFailure</code>,
+:716). An INCLUDE-upgrade path drops the old index only after verifying the new
+one (:547-571).</p>
+<h3 id="54-rollback-metadata-and-auto-rollback-goroutine">5.4 Rollback metadata and auto-rollback goroutine<a class="headerlink" href="#54-rollback-metadata-and-auto-rollback-goroutine" title="Permanent link">&para;</a></h3>
+<p><code>logAction</code> (<code>executor.go:812</code>) inserts into <code>sage.action_log</code> with
+<code>before_state</code> (a JSON snapshot from <code>snapshotBeforeState</code>, :774 —
+cache-hit ratio, active backends, write mean-exec-time), <code>rollback_sql</code>,
+and <code>outcome</code>. <code>outcome</code> starts as <code>"monitoring"</code> on success, <code>"failed"</code> on
+error (<code>actionOutcome</code>, :888). <code>acted_on_at</code>/<code>resolved</code> on the finding is only
+set when outcome ≠ failed (<code>logAction:853</code>, <code>markFindingActioned:745</code>), so
+failed actions stay retryable.</p>
+<p>If <code>RollbackSQL != "" &amp;&amp; actionID &gt; 0</code>, a goroutine runs <code>MonitorAndRollback</code>
+(<code>rollback.go:57</code>), tracked under <code>e.monitors</code> WaitGroup and detached via
+<code>context.WithoutCancel(ctx)</code> so the window survives RunCycle/HTTP return
+(<code>executor.go:578-588</code>). The monitor:</p>
+<ol>
+<li>Waits <code>Trust.RollbackWindowMinutes</code> (default 15; <code>rollback.go:67</code>).</li>
+<li>On <code>shutdownCh</code> close → marks <code>"interrupted"</code> and returns without checking
+   (<code>rollback.go:74-80</code>).</li>
+<li>After the window → <code>checkRegression</code> (<code>rollback.go:120</code>): regression if
+   cache-hit ratio dropped by more than <code>Trust.RollbackThresholdPct</code> (default
+   10) <strong>or</strong> INSERT/UPDATE mean-exec-time rose &gt;20% (hardcoded, :180).</li>
+<li>Regression → execute <code>rollback_sql</code> (concurrently or transactional per
+   shape, 60s timeout) and mark <code>rolled_back</code>; else mark <code>success</code> with an
+   <code>after_state</code> snapshot (<code>updateActionSuccess</code>, :207).</li>
+</ol>
+<p>Actions with <strong>no</strong> rollback SQL (VACUUM, ANALYZE, pg_terminate_backend) are
+marked <code>success</code> immediately (<code>executor.go:589-593</code>). <code>RollbackAction</code>
+(<code>manual.go:108</code>) is the operator-triggered manual rollback (re-checks
+emergency stop and validates SQL first).</p>
+<hr />
+<h2 id="6-safety-controls">6. Safety controls<a class="headerlink" href="#6-safety-controls" title="Permanent link">&para;</a></h2>
+<h3 id="61-emergency-stop-kill-switch">6.1 Emergency stop (kill switch)<a class="headerlink" href="#61-emergency-stop-kill-switch" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>CheckEmergencyStop</code> (<code>trust.go:146</code>) reads <code>sage.config</code> key
+  <code>emergency_stop</code>. <strong>Fails closed</strong>: only <code>ErrNoRows</code> means "not stopped";
+  any other DB error returns <code>true</code> (<code>trust.go:151-158</code>) so a DB hiccup can't
+  bypass the stop.</li>
+<li><code>SetEmergencyStop</code> (<code>trust.go:163</code>) upserts the flag.</li>
+<li><strong>Checked at:</strong> start of <code>RunCycle</code> (<code>executor.go:229</code>), inside
+  <code>ShouldExecute</code> (<code>trust.go:26</code>), <code>ExecuteManual</code> (<code>manual.go:33</code>),
+  <code>RollbackAction</code> (<code>manual.go:135</code>), and as a <code>hardBlockReason</code> in the policy
+  evaluator (<code>action_policy.go:81</code>).</li>
+<li><strong>Gap:</strong> the autonomous loop checks emergency stop <strong>once</strong> at the top of
+  <code>RunCycle</code>, then iterates and executes findings. A stop set <em>mid-cycle</em> is
+  not re-checked before each <code>executeFinding</code>, and the detached rollback
+  goroutine does <strong>not</strong> re-check emergency stop before firing its rollback DDL
+  after the window elapses (<code>rollback.go:87-108</code>). Manual paths do re-check.</li>
+</ul>
+<h3 id="62-replica-ha-gating">6.2 Replica / HA gating<a class="headerlink" href="#62-replica-ha-gating" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>isReplica</code> comes from <code>haMon.Check(ctx)</code> in the standalone loop
+  (<code>main.go:706-708</code>) and short-circuits <code>ShouldExecute</code> (<code>trust.go:26</code>).</li>
+<li><strong>Gap (fleet mode):</strong> the fleet orchestrator calls <code>RunCycle(ctx, false)</code>
+  unconditionally (<code>main.go:1444</code>) — fleet-mode executors get <strong>no replica
+  gating at all</strong>.</li>
+<li><strong>Gap (HA safe-mode):</strong> <code>ha.Monitor.InSafeMode()</code> (<code>ha.go:110</code>, set when
+  excessive role flips/flapping is detected) is <strong>never consulted</strong> on any
+  execution path (grep finds no caller outside the <code>ha</code> package). The flapping
+  detector exists but is unwired to the executor.</li>
+</ul>
+<h3 id="63-circuit-breakers-cooldowns-hysteresis">6.3 Circuit breakers / cooldowns / hysteresis<a class="headerlink" href="#63-circuit-breakers-cooldowns-hysteresis" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>DDL concurrency cap:</strong> <code>ddlSem</code> (size <code>maxConcurrentDDL = 3</code>,
+  <code>executor.go:65</code>) — non-blocking acquire; if full the finding is skipped this
+  cycle (<code>executor.go:340-348</code>).</li>
+<li><strong>Cascade cooldown:</strong> <code>recentActions[objID]</code> timestamps; <code>isCascadeCooldown</code>
+  (<code>executor.go:625</code>) blocks re-action on the same object within
+  <code>CascadeCooldownCycles × Collector.IntervalSeconds</code> (fallback 5 min;
+  <code>cascadeCooldown</code>, :612). Pruned each cycle (<code>pruneRecentActions</code>, :642).</li>
+<li><strong>Lock-timeout circuit break:</strong> see §5.3 — a 55P03 stamps <code>recentActions</code>.</li>
+<li><strong>Hysteresis (rollback cooldown):</strong> <code>CheckHysteresis</code> (<code>rollback.go:29</code>)
+  blocks re-executing a finding rolled back within
+  <code>Trust.RollbackCooldownDays</code> (default 7). Checked in auto mode only
+  (<code>executor.go:330</code>).</li>
+<li><strong>Max retries:</strong> <code>exceedsMaxRetries</code> (<code>executor.go:677</code>,
+  <code>maxActionRetries = 3</code>) — after 3 failed <code>action_log</code> rows for a finding, the
+  finding is stamped <code>acted_on_at</code> to stop the retry loop.</li>
+<li><strong>Analyze cooldown + semaphore:</strong> per-table cooldown
+  (<code>Tuner.AnalyzeCooldownMinutes</code>) and a <strong>process-wide</strong> <code>analyzeSem</code>
+  (<code>analyze.go</code>, <code>WithAnalyzeSemaphore</code>, <code>executor.go:96</code>) serialize ANALYZE
+  fleet-wide; plus a size cap <code>AnalyzeMaxTableMB</code> (<code>analyze.go:57-68</code>).</li>
+<li><strong>Approval-mode dedup:</strong> in <code>approval</code> mode, <code>HasPendingForFinding</code>,
+  <code>HasPendingForSQL</code>, and recently-rejected checks
+  (<code>HasRecentlyRejectedForFinding/SQL</code>) avoid re-queueing
+  (<code>executor.go:261-312</code>).</li>
+</ul>
+<h3 id="64-maintenance-window">6.4 Maintenance window<a class="headerlink" href="#64-maintenance-window" title="Permanent link">&para;</a></h3>
+<p><code>inMaintenanceWindow</code> / <code>inMaintenanceWindowAt</code> (<code>trust.go:69-136</code>) parse a
+minimal cron (<code>minute hour * * *</code>), plus <code>"always"</code>. A match yields a <strong>1-hour
+window</strong> from the scheduled time. Only <code>moderate</code> autonomous actions require it
+(<code>trust.go:50</code>). Note the config doc strings suggest range syntax like
+<code>"02:00-06:00"</code> / <code>"Sun 02:00-06:00"</code>, but the parser only understands cron
+fields and <code>"always"</code> — a range string parses to <code>&lt; 2 fields</code> → <code>false</code>
+(<code>trust.go:84-86</code>), i.e. it would <strong>never</strong> be in-window. This is a
+config-format mismatch worth flagging.</p>
+<hr />
+<h2 id="7-cases-actions-flow-the-projection-layer">7. Cases → actions flow (the projection layer)<a class="headerlink" href="#7-cases-actions-flow-the-projection-layer" title="Permanent link">&para;</a></h2>
+<p><code>internal/cases</code> turns sources into <code>Case</code> objects (<code>case.go</code>):</p>
+<ul>
+<li><code>ProjectFinding</code> (<code>projector.go:9</code>) builds a <code>Case</code> with
+  <code>Why</code>/<code>WhyNow</code>/<code>Evidence</code> and <code>ActionCandidates</code>. Source type derived from
+  category prefix (<code>forecast_</code>, <code>schema_lint</code> → schema_health, else finding).</li>
+<li><code>actionCandidatesForFinding</code> (<code>projector.go:54</code>) dispatches:
+  <code>migration_safety</code> → <code>migrationSafetyCandidates</code>; vacuum/bloat/reindex/freeze
+  categories → <code>vacuumAutopilotCandidate</code> (<code>vacuum_autopilot.go:8</code>); query
+  categories → <code>queryTuningCandidate</code>; else a generic candidate keyed off
+  <code>actionTypeForSQL</code> (<code>projector.go:153</code>).</li>
+<li><strong>vacuum_autopilot</strong> (<code>vacuum_autopilot.go</code>) maps categories to candidates:
+  <code>table_bloat</code>→<code>vacuum_table</code> (safe), <code>bloat_remediation</code>→
+  <code>plan_bloat_remediation</code> (high, script-only, blocked by default),
+  <code>reindex_candidate</code>→<code>reindex_concurrently</code> (moderate),
+  <code>xid_wraparound</code>→<code>diagnose_freeze_blockers</code> (safe),
+  <code>vacuum_tuning</code>→<code>set_table_autovacuum</code> (moderate, PR/script),
+  <code>blocked_vacuum</code>→<code>diagnose_vacuum_pressure</code> (safe). Each candidate carries
+  <code>RiskTier</code>, <code>Confidence</code>, <code>ExpiresAt</code>, <code>OutputModes</code>
+  (<code>execute</code>/<code>queue_for_approval</code>/<code>generate_pr_or_script</code>/<code>script</code>),
+  <code>RollbackClass</code>, and a <code>VerificationPlan</code>.</li>
+<li>The API handler (<code>cases_handlers.go:495-508</code>) attaches an
+  <code>ActionPolicyDecision</code> per candidate by calling <code>EvaluateActionPolicy</code> with a
+  contract from <code>ContractForActionType</code>.</li>
+</ul>
+<p><strong>Crucially</strong>, executing a case action goes back through the <em>Executor</em> via the
+approval queue / manual path (<code>ExecuteManual</code>), which re-validates SQL against
+the <code>ShouldExecute</code> / whitelist gates — not through any case-specific executor.
+A case's <code>ActionCandidate</code> with <code>OutputModes:["execute"]</code> does not by itself
+cause execution; something must enqueue/approve it.</p>
+<hr />
+<h2 id="8-end-to-end-flow-finding-execution-logged-action">8. End-to-end flow: finding → execution → logged action<a class="headerlink" href="#8-end-to-end-flow-finding-execution-logged-action" title="Permanent link">&para;</a></h2>
+<p><strong>Autonomous (auto mode):</strong>
+1. Analyzer produces <code>analyzer.Finding</code>s (with <code>RecommendedSQL</code>, <code>RollbackSQL</code>,
+   <code>ActionRisk</code>).
+2. <code>RunCycle</code> (<code>executor.go:223</code>): skip if <code>manual</code> mode; <code>CheckEmergencyStop</code>
+   once; for each finding with non-empty <code>RecommendedSQL</code>:
+   <code>shouldExecute</code> (trust+ramp+replica+emergency) → cascade cooldown →
+   <code>lookupFindingID</code> → <code>exceedsMaxRetries</code> → (approval-mode branch) →
+   <code>CheckHysteresis</code> → acquire <code>ddlSem</code> → <code>executeFinding</code>.
+3. <code>executeFinding</code>: snapshot before-state → <code>ValidateExecutorSQL</code> (inside exec
+   helper) → dispatch (analyze / concurrently / transactional) → <code>logAction</code>
+   (insert <code>action_log</code>, mark finding resolved on success) → post-checks →
+   spawn <code>MonitorAndRollback</code> (or immediate success).
+4. After window: regression check → <code>rolled_back</code> or <code>success</code> (+<code>after_state</code>).</p>
+<p><strong>Manual / approval:</strong> finding surfaced → operator/queue calls
+<code>ExecuteManual(findingID, sql, rollbackSQL, approvedBy)</code> (<code>manual.go:24</code>) →
+re-validates SQL, re-checks emergency stop, verifies the SQL matches the
+finding's <code>recommended_sql</code> (<code>verifyManualFinding</code>, :161), handles
+CREATE INDEX coverage/invalid-blocker cleanup with up to 3 retries
+(<code>execManualSQLWithRetry</code>, :231) → <code>logManualAction</code> (records <code>approved_by</code>/
+<code>approved_at</code>) → same rollback-monitor path.</p>
+<hr />
+<h2 id="9-wired-vs-documented-but-unwired-summary-of-gaps">9. Wired vs documented-but-unwired (summary of gaps)<a class="headerlink" href="#9-wired-vs-documented-but-unwired-summary-of-gaps" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>cases/contract/policy model is advisory only.</strong> <code>cases.ProjectFinding</code>,
+  <code>ActionContract</code>, and <code>EvaluateActionPolicy</code> do not gate autonomous
+  execution; only <code>ShouldExecute</code> + <code>ValidateExecutorSQL</code> do. The two risk
+  vocabularies (<code>high_risk</code> vs <code>high</code>) never reconcile.</li>
+<li><strong>No auto-promotion of trust level.</strong> <code>trust.level</code> is a manual config
+  string; rampAge only restricts, it does not advance the level.</li>
+<li><strong>Fleet executors have no replica gating</strong> — <code>RunCycle(ctx, false)</code>
+  (<code>main.go:1444</code>).</li>
+<li><strong>HA <code>InSafeMode()</code> (flap detection) is wired to nothing</strong> on the execution
+  path (<code>ha.go:110</code>).</li>
+<li><strong>Emergency stop is not re-checked mid-cycle</strong> in the autonomous loop, nor by
+  the detached rollback goroutine before it fires rollback DDL.</li>
+<li><strong>Maintenance-window config format mismatch:</strong> docs imply <code>"HH:MM-HH:MM"</code>
+  ranges; the parser only handles cron <code>minute hour ...</code> and <code>"always"</code>, so a
+  range string is silently never-in-window.</li>
+<li><strong>Regression detection is a coarse proxy</strong> (global cache-hit ratio + global
+  INSERT/UPDATE mean time), not per-object — a healthy global metric can mask a
+  regression localized to the changed table.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
