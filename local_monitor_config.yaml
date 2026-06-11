@@ -6,7 +6,7 @@ mode: fleet
 defaults:
   max_connections: 2
   trust_level: observation
-  execution_mode: manual
+  execution_mode: auto
   collector_interval_seconds: 30
   analyzer_interval_seconds: 60
 

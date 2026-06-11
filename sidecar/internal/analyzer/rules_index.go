@@ -11,6 +11,19 @@ import (
 
 type tableKey struct{ schema, table string }
 
+// isSystemSchema reports whether a schema is owned by PostgreSQL or an
+// extension and must not be the target of index recommendations. The
+// executor protects these from execution, but findings about them should
+// never be generated in the first place (they are noise the user can do
+// nothing about, e.g. _timescaledb_catalog indexes).
+func isSystemSchema(schema string) bool {
+	s := strings.ToLower(schema)
+	return s == "information_schema" ||
+		s == "google_ml" ||
+		strings.HasPrefix(s, "pg_") ||
+		strings.HasPrefix(s, "_timescaledb")
+}
+
 // buildUnloggedSet returns a set of "schema.table" keys for unlogged
 // tables. Indexes on unlogged tables are lost on crash, so findings
 // about them should be downgraded to informational.
@@ -62,6 +75,9 @@ func ruleUnusedIndexes(
 	var findings []Finding
 
 	for _, idx := range current.Indexes {
+		if isSystemSchema(idx.SchemaName) {
+			continue
+		}
 		if idx.IdxScan > 0 || idx.IsPrimary || idx.IsUnique || !idx.IsValid {
 			continue
 		}
@@ -132,6 +148,9 @@ func ruleInvalidIndexes(
 	unlogged := buildUnloggedSet(current)
 	var findings []Finding
 	for _, idx := range current.Indexes {
+		if isSystemSchema(idx.SchemaName) {
+			continue
+		}
 		if idx.IsValid {
 			continue
 		}
@@ -181,6 +200,9 @@ func ruleDuplicateIndexes(
 ) []Finding {
 	var btrees []duplicateIndexCandidate
 	for _, idx := range current.Indexes {
+		if isSystemSchema(idx.SchemaName) {
+			continue
+		}
 		if !idx.IsValid {
 			continue
 		}
@@ -326,6 +348,9 @@ func ruleMissingFKIndexes(
 	indexed := make(map[tableKey][][]string)
 
 	for _, idx := range current.Indexes {
+		if isSystemSchema(idx.SchemaName) {
+			continue
+		}
 		if !idx.IsValid {
 			continue
 		}
@@ -347,6 +372,9 @@ func ruleMissingFKIndexes(
 				schema = t.SchemaName
 				break
 			}
+		}
+		if isSystemSchema(schema) {
+			continue
 		}
 
 		key := tableKey{schema, fk.TableName}
