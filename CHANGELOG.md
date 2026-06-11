@@ -59,6 +59,16 @@
 
 ### Fixed
 
+- **Config changes now take effect (and are cloud-aware).** Previously an
+  `ALTER SYSTEM` action wrote `postgresql.auto.conf` but never reloaded, so the
+  change silently never applied. The executor now: reloads (`pg_reload_conf`)
+  after a reload-only GUC on a self-managed server so it takes effect; marks a
+  restart-only GUC (`shared_buffers`, `max_connections`, …) as
+  `applied_pending_restart`; and on a **managed provider** (RDS/Aurora,
+  Cloud SQL/AlloyDB, Azure) skips `ALTER SYSTEM` entirely (it's blocked there)
+  and records that the change must be applied via the provider's parameter
+  group / database flags. The action log outcome now reflects whether a config
+  change is actually in effect.
 - **Retention:** `cleanStaleFirstSeen` no longer skips stale-key cleanup when
   the index snapshot is empty (a regression from an over-broad safety guard).
 - **Cases:** pg_sage no longer surfaces its own monitoring queries as Cases.
