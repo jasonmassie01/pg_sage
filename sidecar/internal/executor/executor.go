@@ -467,6 +467,22 @@ func (e *Executor) executeFinding(
 ) {
 	beforeState := e.snapshotBeforeState(ctx, targetQueryIDs(f))
 
+	// Config changes on managed providers must go through the provider's
+	// parameter group / database flags, not ALTER SYSTEM (which is blocked
+	// there). Don't attempt it — record why so the operator applies it via
+	// the cloud console instead of seeing a generic failure.
+	if isAlterSystem(f.RecommendedSQL) &&
+		isManagedProvider(e.cfg.CloudEnvironment) {
+		param := configParamFromSQL(f.RecommendedSQL)
+		e.logFn("executor",
+			"%s: %s must be set via the parameter group, not ALTER SYSTEM",
+			e.cfg.CloudEnvironment, param)
+		e.logAction(ctx, f, findingID, beforeState,
+			fmt.Errorf("managed provider %s: apply %s via parameter "+
+				"group/flags", e.cfg.CloudEnvironment, param))
+		return
+	}
+
 	ddlTimeout := e.cfg.Safety.DDLTimeout()
 	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
 	var execErr error
@@ -512,6 +528,17 @@ func (e *Executor) executeFinding(
 		notify.ActionExecutedEvent(
 			f.Title, f.RecommendedSQL, e.databaseName))
 	e.recentActions[f.ObjectIdentifier] = time.Now()
+
+	// Config changes: reload so a reload-only GUC takes effect now, or
+	// record that a restart is still required. Without this, ALTER SYSTEM
+	// only writes postgresql.auto.conf and the change never applies.
+	if isAlterSystem(f.RecommendedSQL) {
+		outcome := applyConfigChange(
+			ctx, e.pool, f.RecommendedSQL, e.cfg.CloudEnvironment, e.logFn)
+		e.logFn("executor", "config: %s", outcome.Note)
+		updateActionOutcome(ctx, e.pool, actionID,
+			outcomeStatus(outcome.InEffect), outcome.Note)
+	}
 
 	// Write a plain-English audit justification (C4). Async so the LLM
 	// latency never blocks the cycle; WithoutCancel so it survives the
