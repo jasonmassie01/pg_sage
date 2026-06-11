@@ -15,6 +15,15 @@ const QueryTextSQLRegex = `(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.`
 
 var sageSchemaRef = regexp.MustCompile(`(?i)(^|[^a-z0-9_])("?sage"?)[[:space:]]*\.`)
 
+// collectorCatalogRef matches pg_sage's own monitoring reads of the
+// statistics catalogs. Historical findings captured before queries were
+// tagged with /* pg_sage */ carry no marker and never reference the sage
+// schema, so this signature is needed to recognize them as self-queries.
+var collectorCatalogRef = regexp.MustCompile(
+	`(?is)\bfrom[[:space:]]+(pg_stat_statements|pg_stat_user_tables|` +
+		`pg_stat_user_indexes|pg_stat_activity|pg_stat_database|` +
+		`pg_stat_replication|pg_stat_bgwriter|pg_stat_checkpointer)\b`)
+
 type FindingFields struct {
 	ObjectIdentifier string
 	Title            string
@@ -30,7 +39,8 @@ func IsQueryText(query string) bool {
 	}
 	lower := strings.ToLower(query)
 	return strings.Contains(lower, ApplicationName) ||
-		sageSchemaRef.MatchString(query)
+		sageSchemaRef.MatchString(query) ||
+		collectorCatalogRef.MatchString(query)
 }
 
 func IsObjectIdentifier(identifier string) bool {
