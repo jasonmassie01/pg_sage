@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // Tuner produces per-query tuning findings from plan analysis.
@@ -120,6 +121,7 @@ func (t *Tuner) Tune(
 	if err != nil {
 		return nil, fmt.Errorf("tuner: fetch candidates: %w", err)
 	}
+	candidates = filterSelfMonitoringCandidates(candidates)
 	if len(t.recentlyTuned) == 0 {
 		t.loadActiveHints(ctx)
 	}
@@ -253,7 +255,7 @@ func (t *Tuner) loadActiveHints(ctx context.Context) {
 		return
 	}
 	rows, err := t.pool.Query(ctx,
-		`SELECT queryid FROM sage.query_hints
+		`/* pg_sage */ SELECT queryid FROM sage.query_hints
 		 WHERE status = 'active'`,
 	)
 	if err != nil {
@@ -279,17 +281,33 @@ func (t *Tuner) loadActiveHints(ctx context.Context) {
 	}
 }
 
-const candidateSQL = `
+const candidateSQL = `/* pg_sage */
 SELECT queryid, query, calls, mean_exec_time,
        mean_plan_time, temp_blks_read, temp_blks_written
 FROM pg_stat_statements
 WHERE calls >= $1
+  AND dbid = (
+      SELECT oid FROM pg_database WHERE datname = current_database()
+  )
+  AND COALESCE(query, '') NOT ILIKE '%pg_sage%'
+  AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
   AND (mean_exec_time > 100
        OR temp_blks_written > 0
        OR (mean_plan_time > 0
            AND mean_plan_time > mean_exec_time * $2))
 ORDER BY mean_exec_time * calls DESC
 LIMIT 50`
+
+func filterSelfMonitoringCandidates(candidates []candidate) []candidate {
+	out := candidates[:0]
+	for _, c := range candidates {
+		if selfmonitor.IsQueryText(c.Query) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
 
 func (t *Tuner) fetchCandidates(
 	ctx context.Context,
@@ -352,6 +370,15 @@ func (t *Tuner) processCandidate(
 	}
 
 	combined := CombineHints(prescriptions)
+	// Deterministic prescriptions interpolate plan-derived identifiers
+	// raw (e.g. HashJoin(alias)), so re-validate the combined directive
+	// the same way the LLM path validates its hints (W4). A malformed
+	// hint is dropped rather than emitted as an unparseable directive.
+	if combined != "" && !validateHintSyntax(combined) {
+		t.logFn("tuner",
+			"dropping unparseable combined hint: %s", combined)
+		combined = ""
+	}
 	title := buildTitle(symptoms)
 	rationale := buildRationale(prescriptions)
 	rewrite, rewriteRationale := extractRewrite(prescriptions)
@@ -564,7 +591,7 @@ func (t *Tuner) llmSuppressionActive(
 	}
 	var active bool
 	err := t.pool.QueryRow(ctx,
-		`SELECT EXISTS (
+		`/* pg_sage */ SELECT EXISTS (
 		    SELECT 1 FROM sage.findings
 		     WHERE category = $1
 		       AND status = $2
@@ -632,7 +659,7 @@ func (t *Tuner) updateLLMSuppression(
 	suppressedUntil time.Time,
 ) (bool, error) {
 	tag, err := t.pool.Exec(ctx,
-		`UPDATE sage.findings
+		`/* pg_sage */ UPDATE sage.findings
 		    SET last_seen = now(),
 		        detail = $3,
 		        recommendation = $4,
@@ -657,7 +684,7 @@ func (t *Tuner) insertLLMSuppression(
 	suppressedUntil time.Time,
 ) error {
 	_, err := t.pool.Exec(ctx,
-		`INSERT INTO sage.findings
+		`/* pg_sage */ INSERT INTO sage.findings
 		    (category, severity, object_type, object_identifier,
 		     title, detail, recommendation, status, suppressed_until)
 		 VALUES ($1, 'info', 'query', $2, $3, $4, $5, $6, $7)`,
@@ -729,7 +756,7 @@ func (t *Tuner) fetchPlanJSON(
 	}
 	var planJSON []byte
 	err := t.pool.QueryRow(ctx,
-		`SELECT plan_json FROM sage.explain_cache
+		`/* pg_sage */ SELECT plan_json FROM sage.explain_cache
 		 WHERE queryid = $1
 		 ORDER BY captured_at DESC LIMIT 1`,
 		queryID,
@@ -813,7 +840,7 @@ func (t *Tuner) upsertQueryHint(
 	}
 	// Update existing active hint, or insert new one.
 	tag, err := t.pool.Exec(ctx,
-		`UPDATE sage.query_hints
+		`/* pg_sage */ UPDATE sage.query_hints
 		 SET hint_text = $2, symptom = $3,
 		     suggested_rewrite = $4, rewrite_rationale = $5
 		 WHERE queryid = $1 AND status = 'active'`,
@@ -826,7 +853,7 @@ func (t *Tuner) upsertQueryHint(
 	}
 	if tag.RowsAffected() == 0 {
 		_, err = t.pool.Exec(ctx,
-			`INSERT INTO sage.query_hints
+			`/* pg_sage */ INSERT INTO sage.query_hints
 				(queryid, hint_text, symptom,
 				 suggested_rewrite, rewrite_rationale, status)
 			 VALUES ($1, $2, $3, $4, $5, 'active')`,

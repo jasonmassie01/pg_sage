@@ -2,10 +2,13 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/querystore"
 )
 
 // RollbackMonitor provides rollback monitoring for executed actions.
@@ -34,7 +37,7 @@ func CheckHysteresis(
 ) bool {
 	var one int
 	err := pool.QueryRow(ctx,
-		`SELECT 1 FROM sage.action_log
+		`/* pg_sage */ SELECT 1 FROM sage.action_log
 		 WHERE finding_id = $1
 		   AND outcome = 'rolled_back'
 		   AND executed_at > now() - make_interval(days => $2)`,
@@ -85,6 +88,17 @@ func MonitorAndRollback(
 	regressed := checkRegression(ctx, pool, actionID, thresholdPct)
 
 	if regressed {
+		// Honor an active emergency stop: the rollback fires autonomous
+		// DDL, so if the operator has halted all autonomous activity we
+		// must not run it. Flag the action for manual handling instead.
+		if CheckEmergencyStop(ctx, pool) {
+			logFn("rollback",
+				"emergency stop active — skipping auto-rollback for "+
+					"action %d (manual rollback required)", actionID)
+			updateActionOutcome(ctx, pool, actionID, "rollback_skipped",
+				"emergency stop active; automatic rollback withheld")
+			return
+		}
 		logFn("rollback",
 			"regression detected for action %d, executing rollback",
 			actionID,
@@ -123,10 +137,20 @@ func checkRegression(
 	actionID int64,
 	thresholdPct int,
 ) bool {
+	// Per-query verify-and-revert (F1): if the action recorded the
+	// queries it targeted, compare each query's latency before vs after
+	// the action using the query store. This is precise where the old
+	// global cache-hit / avg-write heuristic was coarse and could mask a
+	// per-query regression.
+	if ids, executedAt := actionTargetQueries(ctx, pool, actionID); len(ids) > 0 &&
+		!executedAt.IsZero() {
+		return perQueryRegression(ctx, pool, ids, executedAt, thresholdPct)
+	}
+
 	// Read the before_state to determine what metric to check.
 	var beforeCacheHit float64
 	err := pool.QueryRow(ctx,
-		`SELECT coalesce(
+		`/* pg_sage */ SELECT coalesce(
 			(before_state->>'cache_hit_ratio')::float, -1
 		 ) FROM sage.action_log WHERE id = $1`,
 		actionID,
@@ -139,7 +163,7 @@ func checkRegression(
 	// Measure current cache hit ratio as a proxy for overall health.
 	var currentCacheHit float64
 	err = pool.QueryRow(ctx,
-		`SELECT coalesce(
+		`/* pg_sage */ SELECT coalesce(
 			sum(blks_hit)::float /
 			nullif(sum(blks_hit) + sum(blks_read), 0),
 			1.0
@@ -162,7 +186,7 @@ func checkRegression(
 	// on the affected table spiked.
 	var beforeMeanMs, currentMeanMs float64
 	_ = pool.QueryRow(ctx,
-		`SELECT coalesce(
+		`/* pg_sage */ SELECT coalesce(
 			(before_state->>'mean_exec_time_ms')::float, -1
 		 ) FROM sage.action_log WHERE id = $1`,
 		actionID,
@@ -170,7 +194,7 @@ func checkRegression(
 
 	if beforeMeanMs > 0 {
 		_ = pool.QueryRow(ctx,
-			`SELECT coalesce(avg(mean_exec_time), 0)
+			`/* pg_sage */ SELECT coalesce(avg(mean_exec_time), 0)
 			 FROM pg_stat_statements
 			 WHERE query LIKE 'INSERT%' OR query LIKE 'UPDATE%'`,
 		).Scan(&currentMeanMs)
@@ -186,6 +210,109 @@ func checkRegression(
 	return false
 }
 
+// targetQueryIDs extracts the queryids an action targets from a finding's
+// detail (slow-query/tuning findings carry "queryid"). Used to seed
+// before_state for per-query verify-and-revert (F1).
+func targetQueryIDs(f analyzer.Finding) []int64 {
+	if f.Detail == nil {
+		return nil
+	}
+	var ids []int64
+	if id := detailInt64(f.Detail["queryid"]); id != 0 {
+		ids = append(ids, id)
+	}
+	// queryids may be []int64 (in-memory, from the optimizer) or []any
+	// (round-tripped through JSON).
+	switch list := f.Detail["queryids"].(type) {
+	case []int64:
+		for _, id := range list {
+			if id != 0 {
+				ids = append(ids, id)
+			}
+		}
+	case []any:
+		for _, x := range list {
+			if id := detailInt64(x); id != 0 {
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids
+}
+
+func detailInt64(v any) int64 {
+	switch x := v.(type) {
+	case int64:
+		return x
+	case int:
+		return int64(x)
+	case float64:
+		return int64(x)
+	}
+	return 0
+}
+
+// actionTargetQueries reads the target queryids and execution time an
+// action recorded in before_state.
+func actionTargetQueries(
+	ctx context.Context, pool *pgxpool.Pool, actionID int64,
+) ([]int64, time.Time) {
+	var idsJSON []byte
+	var executedAt time.Time
+	err := pool.QueryRow(ctx,
+		`/* pg_sage */ SELECT before_state->'target_queryids', executed_at
+		   FROM sage.action_log WHERE id = $1`,
+		actionID,
+	).Scan(&idsJSON, &executedAt)
+	if err != nil || len(idsJSON) == 0 {
+		return nil, time.Time{}
+	}
+	var ids []int64
+	if json.Unmarshal(idsJSON, &ids) != nil {
+		return nil, time.Time{}
+	}
+	return ids, executedAt
+}
+
+// isQueryRegressed reports whether currentMs is worse than baselineMs by
+// more than thresholdPct. Pure decision for F1.
+func isQueryRegressed(baselineMs, currentMs float64, thresholdPct int) bool {
+	if baselineMs <= 0 {
+		return false
+	}
+	deltaPct := ((currentMs - baselineMs) / baselineMs) * 100
+	return deltaPct > float64(thresholdPct)
+}
+
+// perQueryRegression returns true if any targeted query is slower after
+// the action than in the window before it, by more than thresholdPct,
+// using the query store windowed latency (F1).
+func perQueryRegression(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	queryIDs []int64,
+	executedAt time.Time,
+	thresholdPct int,
+) bool {
+	const baselineWindow = 30 * time.Minute
+	for _, qid := range queryIDs {
+		baseline, okB, err := querystore.WindowedLatencyMsBetween(
+			ctx, pool, qid, executedAt.Add(-baselineWindow), executedAt)
+		if err != nil || !okB {
+			continue
+		}
+		current, okC, err := querystore.WindowedLatencyMsBetween(
+			ctx, pool, qid, executedAt, time.Now())
+		if err != nil || !okC {
+			continue
+		}
+		if isQueryRegressed(baseline, current, thresholdPct) {
+			return true
+		}
+	}
+	return false
+}
+
 // updateActionOutcome sets the outcome and rollback_reason for an action.
 func updateActionOutcome(
 	ctx context.Context,
@@ -195,7 +322,7 @@ func updateActionOutcome(
 	reason string,
 ) {
 	_, _ = pool.Exec(ctx,
-		`UPDATE sage.action_log
+		`/* pg_sage */ UPDATE sage.action_log
 		 SET outcome = $1, rollback_reason = $2, measured_at = now()
 		 WHERE id = $3`,
 		outcome, reason, actionID,
@@ -212,7 +339,7 @@ func updateActionSuccess(
 	// Capture a lightweight after-state snapshot.
 	var cacheHit float64
 	_ = pool.QueryRow(ctx,
-		`SELECT coalesce(
+		`/* pg_sage */ SELECT coalesce(
 			sum(blks_hit)::float /
 			nullif(sum(blks_hit) + sum(blks_read), 0),
 			1.0
@@ -220,7 +347,7 @@ func updateActionSuccess(
 	).Scan(&cacheHit)
 
 	_, _ = pool.Exec(ctx,
-		`UPDATE sage.action_log
+		`/* pg_sage */ UPDATE sage.action_log
 		 SET outcome = 'success',
 		     after_state = jsonb_build_object('cache_hit_ratio', $1::float8),
 		     measured_at = now()

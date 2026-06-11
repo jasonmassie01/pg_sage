@@ -61,6 +61,15 @@ func parseLLMFindings(
 		rationale, _ := rec["rationale"].(string)
 		recSQL, _ := rec["recommended_sql"].(string)
 
+		// Doc-grounded validation (A3): drop any ALTER SYSTEM value the
+		// LLM proposed that falls outside the documented safe range.
+		if ok, reason := ValidateConfigSQL(recSQL); !ok {
+			if logFn != nil {
+				logFn("advisor", "rejecting recommendation: %s", reason)
+			}
+			continue
+		}
+
 		risk := deriveActionRisk(recSQL)
 
 		findings = append(findings, analyzer.Finding{

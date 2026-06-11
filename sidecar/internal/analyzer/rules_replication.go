@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 // ruleReplicationLag flags replicas with high replay lag.
@@ -120,7 +121,8 @@ func ruleInactiveSlots(
 				},
 				Recommendation: "Drop the inactive slot to free retained WAL.",
 				RecommendedSQL: fmt.Sprintf(
-					"SELECT pg_drop_replication_slot('%s');", s.SlotName,
+					"SELECT pg_drop_replication_slot(%s);",
+					sanitize.QuoteLiteral(s.SlotName),
 				),
 				ActionRisk: "safe",
 			})

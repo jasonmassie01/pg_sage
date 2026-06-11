@@ -28,10 +28,30 @@ type Client struct {
 	circuitOpened time.Time
 	cooldown      time.Duration
 
-	// Token budget tracking.
+	// Token budget tracking. Both fields are atomic because Chat is
+	// called concurrently from per-database analyzers/optimizers/advisors
+	// (C1); budgetResetDay was previously a plain int raced against the
+	// atomic counter.
 	tokensUsedToday atomic.Int64
-	budgetResetDay  int
+	budgetResetDay  atomic.Int64
+
+	// budget is an optional external token budget (e.g. a per-database
+	// allocation in fleet mode), enforced in addition to the daily
+	// budget. Set once before concurrent use via SetBudget; nil disables.
+	budget Budgeter
 }
+
+// Budgeter is an optional token budget supplied by the caller — used to
+// give each database its own LLM allocation in fleet mode so one noisy
+// DB can't drain the whole token budget (F5). nil disables it.
+type Budgeter interface {
+	CanSpend(tokens int) bool
+	Spend(tokens int)
+}
+
+// SetBudget attaches an external token budget. Call during wiring,
+// before the client is used concurrently.
+func (c *Client) SetBudget(b Budgeter) { c.budget = b }
 
 type ChatRequest struct {
 	Model          string          `json:"model"`
@@ -108,15 +128,19 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 	}
 
 	// Check token budget.
-	today := time.Now().YearDay()
-	if today != c.budgetResetDay {
+	today := int64(time.Now().YearDay())
+	if today != c.budgetResetDay.Load() {
 		c.tokensUsedToday.Store(0)
-		c.budgetResetDay = today
+		c.budgetResetDay.Store(today)
 	}
 	if c.cfg.TokenBudgetDaily > 0 &&
 		int(c.tokensUsedToday.Load()) >= c.cfg.TokenBudgetDaily {
 		return "", 0, fmt.Errorf("daily token budget exhausted (%d/%d)",
 			c.tokensUsedToday.Load(), c.cfg.TokenBudgetDaily)
+	}
+	// Per-database fleet budget (optional, in addition to the daily cap).
+	if c.budget != nil && !c.budget.CanSpend(maxTokens) {
+		return "", 0, fmt.Errorf("per-database token budget exhausted")
 	}
 
 	// Thinking models (Gemini 2.5 Flash/Pro) consume output budget for
@@ -191,6 +215,9 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 	c.recordSuccess()
 	tokens := chatResp.Usage.TotalTokens
 	c.tokensUsedToday.Add(int64(tokens))
+	if c.budget != nil {
+		c.budget.Spend(tokens)
+	}
 
 	content := chatResp.Choices[0].Message.Content
 	reason := chatResp.Choices[0].FinishReason
@@ -320,8 +347,8 @@ func (c *Client) IsBudgetExhausted() bool {
 	if c.cfg.TokenBudgetDaily <= 0 {
 		return false
 	}
-	today := time.Now().YearDay()
-	if today != c.budgetResetDay {
+	today := int64(time.Now().YearDay())
+	if today != c.budgetResetDay.Load() {
 		return false
 	}
 	return int(c.tokensUsedToday.Load()) >= c.cfg.TokenBudgetDaily
@@ -331,7 +358,7 @@ func (c *Client) IsBudgetExhausted() bool {
 // to resume immediately instead of waiting for the next calendar day.
 func (c *Client) ResetBudget() {
 	c.tokensUsedToday.Store(0)
-	c.budgetResetDay = time.Now().YearDay()
+	c.budgetResetDay.Store(int64(time.Now().YearDay()))
 }
 
 // Model returns the configured model name.

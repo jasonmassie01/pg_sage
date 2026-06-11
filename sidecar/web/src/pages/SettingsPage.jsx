@@ -768,6 +768,7 @@ function PasswordField({ value, onChange, testId }) {
 function GeneralTab({
   mode, databases, database, stopping, setStopping, refetch,
 }) {
+  const toast = useToast()
   const [armSeconds, setArmSeconds] = useState(0)
   const timerRef = useRef(null)
 
@@ -780,7 +781,7 @@ function GeneralTab({
     const dbParam = database && database !== 'all'
       ? `?database=${database}` : ''
     try {
-      await fetch(
+      const res = await fetch(
         `/api/v1/emergency-stop${dbParam}`,
         {
           method: 'POST',
@@ -788,6 +789,18 @@ function GeneralTab({
           headers: { 'Content-Type': 'application/json' },
         },
       )
+      // A failed kill-switch must NOT look like success: an HTTP error
+      // status does not reject fetch, so without this check the operator
+      // believes autonomous actions stopped when they did not (H6).
+      if (!res.ok) {
+        let msg = `Emergency stop failed (${res.status})`
+        try { const d = await res.json(); if (d && d.error) msg = d.error } catch { /* non-JSON */ }
+        toast.error(msg)
+      } else {
+        toast.success('Emergency stop engaged — autonomous actions halted')
+      }
+    } catch (err) {
+      toast.error(err.message || 'Emergency stop request failed')
     } finally {
       setStopping(false)
       refetch()
@@ -829,15 +842,27 @@ function GeneralTab({
   const resume = async () => {
     const dbParam = database && database !== 'all'
       ? `?database=${database}` : ''
-    await fetch(
-      `/api/v1/resume${dbParam}`,
-      {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-      },
-    )
-    refetch()
+    try {
+      const res = await fetch(
+        `/api/v1/resume${dbParam}`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
+      if (!res.ok) {
+        let msg = `Resume failed (${res.status})`
+        try { const d = await res.json(); if (d && d.error) msg = d.error } catch { /* non-JSON */ }
+        toast.error(msg)
+      } else {
+        toast.success('Resumed — autonomous actions re-enabled')
+      }
+    } catch (err) {
+      toast.error(err.message || 'Resume request failed')
+    } finally {
+      refetch()
+    }
   }
   return (
     <div className="space-y-4">

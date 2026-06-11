@@ -87,7 +87,7 @@ func (w *Watcher) reload() {
 		return
 	}
 
-	expanded := os.ExpandEnv(string(data))
+	expanded := expandBracedEnv(string(data))
 	var fresh Config
 	if err := yaml.Unmarshal([]byte(expanded), &fresh); err != nil {
 		log.Printf("[WARN] [config-watcher] parse failed: %v", err)

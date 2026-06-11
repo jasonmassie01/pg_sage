@@ -1,13 +1,13 @@
 package agentdb
 
-const selectRequestsSQL = `
+const selectRequestsSQL = `/* pg_sage */
 	SELECT request_id, tenant_id, agent_id, owner_id, run_id, purpose,
 		requested_isolation_type, database_name, provider, policy_decision, status,
 		idempotency_key, body_hash, budget_usd, backup_required, policy_reasons,
 		created_at, updated_at
 	FROM sage.agent_db_requests`
 
-const insertRequestSQL = `
+const insertRequestSQL = `/* pg_sage */
 	INSERT INTO sage.agent_db_requests (
 		request_id, tenant_id, agent_id, owner_id, run_id, purpose,
 		requested_isolation_type, database_name, provider, policy_decision, status,
@@ -20,7 +20,7 @@ const insertRequestSQL = `
 		idempotency_key, body_hash, budget_usd, backup_required, policy_reasons,
 		created_at, updated_at`
 
-const selectDeploymentsSQL = `
+const selectDeploymentsSQL = `/* pg_sage */
 	SELECT deployment_id, tenant_id, agent_id, run_id, database_name, status,
 		safety_mode, isolation_type, schema_name, provider, provisioning_level,
 		size_profile_id, provisioning_status, provider_resource_id, secret_ref,
@@ -29,7 +29,7 @@ const selectDeploymentsSQL = `
 		metadata, provisioning_plan, connection_info
 	FROM sage.agent_db_deployments`
 
-const registerSQL = `
+const registerSQL = `/* pg_sage */
 	INSERT INTO sage.agent_db_deployments (
 		deployment_id, tenant_id, agent_id, run_id, database_name, safety_mode,
 		isolation_type, schema_name, provider, provisioning_level,

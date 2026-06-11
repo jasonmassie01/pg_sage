@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/sanitize"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // CollectorConfig holds configuration for the auto_explain
@@ -70,17 +71,7 @@ func (c *Collector) Run(ctx context.Context) {
 // Collect finds slow queries without recent plans and captures
 // execution plans for them on-demand.
 func (c *Collector) Collect(ctx context.Context) error {
-	rows, err := c.pool.Query(ctx, `
-		SELECT s.queryid, s.query
-		FROM pg_stat_statements s
-		LEFT JOIN sage.explain_cache e
-			ON e.queryid = s.queryid
-			AND e.captured_at > now() - interval '1 day'
-		WHERE s.mean_exec_time > $1
-			AND s.calls > 10
-			AND e.id IS NULL
-		ORDER BY s.mean_exec_time DESC
-		LIMIT $2`,
+	rows, err := c.pool.Query(ctx, candidateSQL,
 		float64(c.cfg.LogMinDurationMs),
 		c.cfg.MaxPlansPerCycle,
 	)
@@ -98,6 +89,9 @@ func (c *Collector) Collect(ctx context.Context) error {
 		var cand candidate
 		if err := rows.Scan(&cand.queryID, &cand.query); err != nil {
 			return fmt.Errorf("scan candidate: %w", err)
+		}
+		if selfmonitor.IsQueryText(cand.query) {
+			continue
 		}
 		candidates = append(candidates, cand)
 	}
@@ -120,6 +114,24 @@ func (c *Collector) Collect(ctx context.Context) error {
 	}
 	return nil
 }
+
+const candidateSQL = `
+		SELECT s.queryid, s.query
+		FROM pg_stat_statements s
+		LEFT JOIN sage.explain_cache e
+			ON e.queryid = s.queryid
+			AND e.captured_at > now() - interval '1 day'
+		WHERE s.mean_exec_time > $1
+			AND s.calls > 10
+			AND s.dbid = (
+				SELECT oid FROM pg_database
+				WHERE datname = current_database()
+			)
+			AND COALESCE(s.query, '') NOT ILIKE '%pg_sage%'
+			AND COALESCE(s.query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
+			AND e.id IS NULL
+		ORDER BY s.mean_exec_time DESC
+		LIMIT $2`
 
 // captureOnDemand runs EXPLAIN on a single query inside a
 // rolled-back transaction so there are no side effects.

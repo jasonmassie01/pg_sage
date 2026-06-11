@@ -216,6 +216,22 @@ func (o *Optimizer) analyzeTable(
 		}
 		rec = o.enrichWithHypoPG(ctx, rec, tc)
 		rec = o.scoreConfidence(rec, tc)
+		// Record the queryids this index is expected to help so F1
+		// verify-and-revert can drop it if those queries regress (A2).
+		rec.AffectedQueryIDs = contextQueryIDs(tc)
+		// Enforce the configured confidence threshold (default 0.5).
+		// It had zero consumers, so low-confidence recommendations were
+		// emitted as findings unfiltered (reverse-spec / audit). A zero
+		// threshold (unset) disables the gate.
+		if o.cfg.ConfidenceThreshold > 0 &&
+			rec.Confidence < o.cfg.ConfidenceThreshold {
+			o.logFn("optimizer",
+				"below confidence threshold (%.2f < %.2f): %s on %s",
+				rec.Confidence, o.cfg.ConfidenceThreshold,
+				rec.DDL, rec.Table)
+			rejections++
+			continue
+		}
 		accepted = append(accepted, rec)
 	}
 
@@ -344,6 +360,19 @@ func (o *Optimizer) scoreConfidence(
 	rec.Confidence = ComputeConfidence(input)
 	rec.ActionLevel = ActionLevel(rec.Confidence)
 	return rec
+}
+
+// contextQueryIDs returns the queryids the optimizer analyzed for a
+// table — the queries a new index is expected to help. Used by F1
+// verify-and-revert (A2) to drop an index that regresses them.
+func contextQueryIDs(tc TableContext) []int64 {
+	ids := make([]int64, 0, len(tc.Queries))
+	for _, q := range tc.Queries {
+		if q.QueryID != 0 {
+			ids = append(ids, q.QueryID)
+		}
+	}
+	return ids
 }
 
 func (o *Optimizer) maxNewPerTable() int {

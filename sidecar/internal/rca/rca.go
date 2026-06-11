@@ -365,7 +365,7 @@ func (e *Engine) applySelfActionCorrelation(newIncidents []Incident) {
 // Persistence
 // ---------------------------------------------------------------------------
 
-const upsertSQL = `
+const upsertSQL = `/* pg_sage */
 INSERT INTO sage.incidents (
     id, detected_at, last_detected_at, severity, root_cause,
     causal_chain, affected_objects, signal_ids, recommended_sql,

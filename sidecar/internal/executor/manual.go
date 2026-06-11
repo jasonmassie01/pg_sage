@@ -37,7 +37,7 @@ func (e *Executor) ExecuteManual(
 		return 0, err
 	}
 
-	beforeState := e.snapshotBeforeState(ctx)
+	beforeState := e.snapshotBeforeState(ctx, nil)
 
 	ddlTimeout := e.cfg.Safety.DDLTimeout()
 	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
@@ -113,7 +113,7 @@ func (e *Executor) RollbackAction(
 	var rollbackSQL *string
 	var outcome string
 	err := e.pool.QueryRow(ctx,
-		`SELECT rollback_sql, outcome
+		`/* pg_sage */ SELECT rollback_sql, outcome
 		   FROM sage.action_log WHERE id = $1`,
 		actionID,
 	).Scan(&rollbackSQL, &outcome)
@@ -165,7 +165,7 @@ func (e *Executor) verifyManualFinding(
 ) error {
 	var recommendedSQL *string
 	err := e.pool.QueryRow(ctx,
-		`SELECT recommended_sql
+		`/* pg_sage */ SELECT recommended_sql
 		   FROM sage.findings
 		  WHERE id = $1
 		    AND status = 'open'
@@ -212,7 +212,7 @@ func (e *Executor) manualAnalyzeFinding(
 ) (analyzer.Finding, error) {
 	var objectIdentifier string
 	err := e.pool.QueryRow(ctx,
-		`SELECT COALESCE(object_identifier, '')
+		`/* pg_sage */ SELECT COALESCE(object_identifier, '')
 		   FROM sage.findings
 		  WHERE id = $1`,
 		findingID,
@@ -284,7 +284,7 @@ func (e *Executor) logManualAction(
 
 	var actionID int64
 	err := e.pool.QueryRow(ctx,
-		`INSERT INTO sage.action_log
+		`/* pg_sage */ INSERT INTO sage.action_log
 		 (action_type, finding_id, sql_executed, rollback_sql,
 		  before_state, outcome, approved_by, approved_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7,
@@ -320,7 +320,7 @@ func (e *Executor) dropInvalidCreateIndexBlockers(
 		schemaName = "public"
 	}
 	rows, err := e.pool.Query(ctx,
-		`WITH indexed AS (
+		`/* pg_sage */ WITH indexed AS (
 		    SELECT format('%I.%I', idx_ns.nspname, idx.relname) AS index_name,
 		           array_agg(a.attname::text ORDER BY ord.n) AS cols
 		      FROM pg_index i
@@ -386,7 +386,7 @@ func (e *Executor) createIndexCoverageExists(
 
 	var one int
 	err := e.pool.QueryRow(ctx,
-		`WITH indexed AS (
+		`/* pg_sage */ WITH indexed AS (
 		    SELECT i.indexrelid,
 		           array_agg(a.attname::text ORDER BY ord.n) AS cols
 		      FROM pg_index i

@@ -72,6 +72,7 @@ type TableStats struct {
 	TableBytes       int64      `json:"table_bytes"`
 	IndexBytes       int64      `json:"index_bytes"`
 	Relpersistence   string     `json:"relpersistence"`
+	XIDAge           int64      `json:"xid_age"`
 }
 
 // IsUnlogged returns true if the table has relpersistence = 'u'.

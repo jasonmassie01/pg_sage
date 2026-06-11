@@ -208,7 +208,7 @@ func TestAutovacuumFallingBehindIncidentAddsMaintenancePlaybook(t *testing.T) {
 	assertCandidate(t, got.ActionCandidates[0],
 		"diagnose_vacuum_pressure", "safe", "")
 	assertCandidate(t, got.ActionCandidates[1],
-		"vacuum_table", "safe", "VACUUM public.orders;")
+		"vacuum_table", "safe", `VACUUM "public"."orders";`)
 }
 
 func TestStandbyConflictIncidentAddsReplicaConflictPlaybook(t *testing.T) {

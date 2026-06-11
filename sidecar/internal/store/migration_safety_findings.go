@@ -47,7 +47,7 @@ func (s *MigrationSafetyFindingStore) openMigrationFindingID(
 ) (int64, bool, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx,
-		`SELECT id FROM sage.findings
+		`/* pg_sage */ SELECT id FROM sage.findings
 		  WHERE category = $1
 		    AND object_identifier = $2
 		    AND status = 'open'`,
@@ -69,7 +69,7 @@ func (s *MigrationSafetyFindingStore) updateMigrationFinding(
 	detail []byte,
 ) error {
 	_, err := s.pool.Exec(ctx,
-		`UPDATE sage.findings
+		`/* pg_sage */ UPDATE sage.findings
 		    SET last_seen = now(),
 		        occurrence_count = occurrence_count + 1,
 		        severity = $2,
@@ -97,7 +97,7 @@ func (s *MigrationSafetyFindingStore) insertMigrationFinding(
 ) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx,
-		`INSERT INTO sage.findings
+		`/* pg_sage */ INSERT INTO sage.findings
 		    (category, severity, object_type, object_identifier,
 		     title, detail, recommendation, recommended_sql,
 		     rollback_sql, status, last_seen, occurrence_count,

@@ -99,7 +99,7 @@ func (s *Store) ReconcileLiveProvisioning(
 	}
 	var locked bool
 	if err := s.pool.QueryRow(ctx,
-		`SELECT pg_try_advisory_lock(hashtext('agentdb-live-reconcile'))`,
+		`/* pg_sage */ SELECT pg_try_advisory_lock(hashtext('agentdb-live-reconcile'))`,
 	).Scan(&locked); err != nil {
 		return LifecycleReconcileResult{}, err
 	}
@@ -108,7 +108,7 @@ func (s *Store) ReconcileLiveProvisioning(
 	}
 	defer func() {
 		_, _ = s.pool.Exec(ctx,
-			`SELECT pg_advisory_unlock(hashtext('agentdb-live-reconcile'))`)
+			`/* pg_sage */ SELECT pg_advisory_unlock(hashtext('agentdb-live-reconcile'))`)
 	}()
 	rows, err := s.pool.Query(ctx, selectDeploymentsSQL+`
 		WHERE provisioning_level='instance'

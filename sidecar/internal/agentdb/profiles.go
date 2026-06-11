@@ -19,7 +19,7 @@ func (s *Store) UpsertSizeProfile(
 		return SizeProfile{}, err
 	}
 	var out SizeProfile
-	err := scanSizeProfile(s.pool.QueryRow(ctx, `
+	err := scanSizeProfile(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		INSERT INTO sage.agent_db_size_profiles (
 			profile_id, provider, provisioning_level, name, description, cpu,
 			memory_gb, storage_gb, max_connections, monthly_budget_usd,
@@ -60,7 +60,7 @@ func (s *Store) ListSizeProfiles(ctx context.Context) ([]SizeProfile, error) {
 	if err := s.Ensure(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.pool.Query(ctx, `/* pg_sage */ 
 		SELECT profile_id, provider, provisioning_level, name, description,
 			cpu, memory_gb, storage_gb, max_connections, monthly_budget_usd,
 			provider_params, created_at, updated_at
@@ -86,7 +86,7 @@ func (s *Store) GetSizeProfile(ctx context.Context, id string) (SizeProfile, err
 		return SizeProfile{}, err
 	}
 	var profile SizeProfile
-	err := scanSizeProfile(s.pool.QueryRow(ctx, `
+	err := scanSizeProfile(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT profile_id, provider, provisioning_level, name, description,
 			cpu, memory_gb, storage_gb, max_connections, monthly_budget_usd,
 			provider_params, created_at, updated_at
@@ -136,7 +136,7 @@ func (s *Store) profileForRequest(
 
 func (s *Store) seedDefaultSizeProfiles(ctx context.Context) error {
 	for _, profile := range defaultSizeProfiles() {
-		if _, err := s.pool.Exec(ctx, `
+		if _, err := s.pool.Exec(ctx, `/* pg_sage */ 
 			INSERT INTO sage.agent_db_size_profiles (
 				profile_id, provider, provisioning_level, name, description,
 				cpu, memory_gb, storage_gb, max_connections,

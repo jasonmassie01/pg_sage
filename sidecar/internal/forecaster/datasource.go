@@ -34,7 +34,7 @@ type DaySeqAgg struct {
 	MaxValue int64
 }
 
-const systemAggsSQL = `
+const systemAggsSQL = `/* pg_sage */
 SELECT date_trunc('day', collected_at) AS day,
        avg((data->>'db_size_bytes')::bigint)     AS avg_db_size,
        max((data->>'db_size_bytes')::bigint)     AS max_db_size,
@@ -82,7 +82,7 @@ func QueryDailySystemAggs(
 	return aggs, nil
 }
 
-const queryAggsSQL = `
+const queryAggsSQL = `/* pg_sage */
 SELECT day, sum(max_calls) AS total_calls
 FROM (
     SELECT date_trunc('day', s.collected_at) AS day,
@@ -122,7 +122,7 @@ func QueryDailyQueryAggs(
 	return aggs, nil
 }
 
-const seqAggsSQL = `
+const seqAggsSQL = `/* pg_sage */
 SELECT date_trunc('day', s.collected_at) AS day,
        (elem->>'schemaname') || '.' ||
            (elem->>'sequencename')       AS seq_name,

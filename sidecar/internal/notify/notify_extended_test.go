@@ -535,6 +535,7 @@ func TestParseConfig_Table(t *testing.T) {
 		name    string
 		input   []byte
 		wantLen int
+		wantErr bool
 	}{
 		{
 			name:    "nil input returns empty map",
@@ -552,17 +553,26 @@ func TestParseConfig_Table(t *testing.T) {
 			wantLen: 1,
 		},
 		{
-			name:    "invalid JSON returns empty map",
+			name:    "invalid JSON returns an error",
 			input:   []byte(`not json`),
-			wantLen: 0,
+			wantErr: true,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := parseConfig(tc.input)
+			got, err := parseConfig(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("parseConfig: expected error for malformed JSON, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseConfig: unexpected error: %v", err)
+			}
 			if got == nil {
-				t.Fatal("parseConfig returned nil, should always return a map")
+				t.Fatal("parseConfig returned nil map without error")
 			}
 			if len(got) != tc.wantLen {
 				t.Errorf("len(parseConfig) = %d, want %d", len(got), tc.wantLen)
@@ -573,7 +583,10 @@ func TestParseConfig_Table(t *testing.T) {
 
 func TestParseConfig_ValidJSON_CorrectValues(t *testing.T) {
 	input := []byte(`{"smtp_host":"mail.example.com","from":"a@b.com"}`)
-	got := parseConfig(input)
+	got, err := parseConfig(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if got["smtp_host"] != "mail.example.com" {
 		t.Errorf("smtp_host = %q, want 'mail.example.com'", got["smtp_host"])

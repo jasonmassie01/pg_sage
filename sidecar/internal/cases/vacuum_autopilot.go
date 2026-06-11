@@ -3,6 +3,8 @@ package cases
 import (
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 func vacuumAutopilotCandidate(f SourceFinding) (ActionCandidate, bool) {
@@ -44,7 +46,8 @@ func bloatRemediationCandidate(f SourceFinding) ActionCandidate {
 func reindexCandidate(f SourceFinding) ActionCandidate {
 	sql := strings.TrimSpace(f.RecommendedSQL)
 	if sql == "" {
-		sql = "REINDEX INDEX CONCURRENTLY " + f.ObjectIdentifier + ";"
+		sql = "REINDEX INDEX CONCURRENTLY " +
+			sanitize.QuoteQualifiedString(f.ObjectIdentifier) + ";"
 	}
 	expires := time.Now().UTC().Add(72 * time.Hour)
 	return ActionCandidate{
@@ -84,7 +87,8 @@ func bloatRemediationScriptOutput(
 			"-- Prefer pg_repack or a reviewed online rebuild for " + table + ".\n" +
 			"-- Avoid VACUUM FULL unless a maintenance outage is approved.\n",
 		VerificationSQL: []string{
-			"SELECT pg_total_relation_size('" + table + "'::regclass);",
+			"SELECT pg_total_relation_size(" +
+				sanitize.QuoteLiteral(table) + "::regclass);",
 			"-- Rerun bloat analyzer and confirm bloat ratio decreases.",
 		},
 		PRTitle: "Review bloat remediation plan: " + table,
@@ -172,7 +176,8 @@ LIMIT 20;`
 func diagnoseVacuumPressureSQL(table string) string {
 	tableFilter := ""
 	if strings.TrimSpace(table) != "" {
-		tableFilter = "WHERE relid = '" + table + "'::regclass"
+		tableFilter = "WHERE relid = " +
+			sanitize.QuoteLiteral(table) + "::regclass"
 	}
 	return `SELECT schemaname,
        relname,

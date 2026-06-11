@@ -33,7 +33,7 @@ func (s *Store) UpsertAgentIdentity(
 		req.Status = "active"
 	}
 	var identity AgentIdentity
-	err := scanAgentIdentity(s.pool.QueryRow(ctx, `
+	err := scanAgentIdentity(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		INSERT INTO sage.agent_identities (
 			agent_id, tenant_id, owner_id, display_name, status, metadata
 		)
@@ -61,7 +61,7 @@ func (s *Store) AgentIdentities(ctx context.Context) ([]AgentIdentity, error) {
 	if err := s.Ensure(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.pool.Query(ctx, `/* pg_sage */ 
 		SELECT agent_id, tenant_id, owner_id, display_name, status,
 			metadata, created_at, updated_at
 		FROM sage.agent_identities
@@ -105,7 +105,7 @@ func (s *Store) CreatePingToken(
 	}
 	tokenID := "pt_" + idFrom(id, token)
 	var out PingToken
-	err = scanPingToken(s.pool.QueryRow(ctx, `
+	err = scanPingToken(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		INSERT INTO sage.agent_db_ping_tokens (
 			token_id, deployment_id, agent_id, token_hash, scope,
 			expires_at, rotated_from_token_id
@@ -133,7 +133,7 @@ func (s *Store) PingTokens(ctx context.Context, id string) ([]PingToken, error) 
 	if err := s.Ensure(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.pool.Query(ctx, `/* pg_sage */ 
 		SELECT token_id, deployment_id, agent_id, token_hash, scope, status,
 			expires_at, created_at, last_used_at, revoked_at, rotated_from_token_id,
 			(
@@ -174,7 +174,7 @@ func (s *Store) RevokePingToken(
 		return PingToken{}, err
 	}
 	var out PingToken
-	err := scanPingToken(s.pool.QueryRow(ctx, `
+	err := scanPingToken(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_ping_tokens
 		SET status='revoked', revoked_at=COALESCE(revoked_at, now())
 		WHERE deployment_id=$1 AND token_id=$2
@@ -238,7 +238,7 @@ func (s *Store) ValidatePingToken(
 		return PingToken{}, err
 	}
 	var out PingToken
-	err := scanPingToken(s.pool.QueryRow(ctx, `
+	err := scanPingToken(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_ping_tokens
 		SET last_used_at=now()
 		WHERE deployment_id=$1
@@ -278,7 +278,7 @@ func (s *Store) pingToken(ctx context.Context, id, tokenID string) (PingToken, e
 		return PingToken{}, err
 	}
 	var out PingToken
-	err := scanPingToken(s.pool.QueryRow(ctx, `
+	err := scanPingToken(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT token_id, deployment_id, agent_id, token_hash, scope, status,
 			expires_at, created_at, last_used_at, revoked_at, rotated_from_token_id,
 			0 AS failed_attempts
@@ -302,7 +302,7 @@ func (s *Store) recordPingTokenFailure(
 	reason string,
 ) error {
 	hash := tokenHash(token)
-	if _, err := s.pool.Exec(ctx, `
+	if _, err := s.pool.Exec(ctx, `/* pg_sage */ 
 		INSERT INTO sage.agent_db_ping_token_failures (
 			deployment_id, token_hash, reason
 		)
@@ -316,7 +316,7 @@ func (s *Store) recordPingTokenFailure(
 		"reason":      reason,
 	})
 	var failures int
-	err := s.pool.QueryRow(ctx, `
+	err := s.pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT count(*)::int
 		FROM sage.agent_db_ping_token_failures
 		WHERE deployment_id=$1 AND token_hash=$2 AND created_at > $3`,

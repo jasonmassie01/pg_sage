@@ -161,7 +161,7 @@ func (s *Store) CreateBlueprint(
 		RawResponse:    generated.RawResponse,
 		CreatedBy:      req.CreatedBy,
 	}
-	err = scanBlueprint(s.pool.QueryRow(ctx, `
+	err = scanBlueprint(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		INSERT INTO sage.agent_db_blueprints (
 			blueprint_id, name, status, intent, provider, template_id,
 			blueprint_json, policy_findings, llm_used, raw_response, created_by
@@ -200,7 +200,7 @@ func (s *Store) Blueprints(ctx context.Context) ([]Blueprint, error) {
 	if err := s.Ensure(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.pool.Query(ctx, `/* pg_sage */ 
 		SELECT blueprint_id, name, status, intent, provider, template_id,
 			blueprint_json, policy_findings, llm_used, raw_response, created_by,
 			approved_by, created_at, updated_at

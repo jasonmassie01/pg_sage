@@ -10,7 +10,7 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 	cs := &ConfigSnapshot{}
 
 	// pg_settings for advisor features
-	rows, err := pool.Query(ctx, `
+	rows, err := pool.Query(ctx, `/* pg_sage */ 
 		SELECT name, setting, COALESCE(unit,''), source,
 		       COALESCE(pending_restart, false)
 		FROM pg_settings
@@ -37,7 +37,7 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 	}
 
 	// Table reloptions (autovacuum overrides)
-	rows2, err := pool.Query(ctx, `
+	rows2, err := pool.Query(ctx, `/* pg_sage */ 
 		SELECT n.nspname, c.relname, c.reloptions::text
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -56,7 +56,7 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 	}
 
 	// Connection state distribution
-	rows3, err := pool.Query(ctx, `
+	rows3, err := pool.Query(ctx, `/* pg_sage */ 
 		SELECT COALESCE(state,'unknown'), count(*)::int,
 		       COALESCE(avg(EXTRACT(EPOCH FROM (now() - state_change)))::int, 0)
 		FROM pg_stat_activity
@@ -76,13 +76,13 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 
 	// WAL position
 	var walPos string
-	err = pool.QueryRow(ctx, `SELECT pg_current_wal_lsn()::text`).Scan(&walPos)
+	err = pool.QueryRow(ctx, `/* pg_sage */ SELECT pg_current_wal_lsn()::text`).Scan(&walPos)
 	if err == nil {
 		cs.WALPosition = walPos
 	}
 
 	// Available extensions
-	rows4, err := pool.Query(ctx, `
+	rows4, err := pool.Query(ctx, `/* pg_sage */ 
 		SELECT name FROM pg_available_extensions
 		WHERE name IN ('pg_repack','pg_buffercache','pgstattuple','hypopg')`)
 	if err == nil {
@@ -98,7 +98,7 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 
 	// Connection churn (new connections in last 5 minutes)
 	var churn int
-	err = pool.QueryRow(ctx, `
+	err = pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT count(*)::int FROM pg_stat_activity
 		WHERE backend_start > now() - interval '5 minutes'
 		  AND backend_type = 'client backend'`).Scan(&churn)

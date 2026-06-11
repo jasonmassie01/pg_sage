@@ -85,7 +85,7 @@ func (s *ActionStore) ProposeWithMetadata(
 		return 0, fmt.Errorf("encoding action guardrails: %w", err)
 	}
 	err = s.pool.QueryRow(qctx,
-		`INSERT INTO sage.action_queue
+		`/* pg_sage */ INSERT INTO sage.action_queue
 		    (database_id, finding_id, proposed_sql,
 		     rollback_sql, action_risk, action_type,
 		     identity_key, policy_decision, guardrails,
@@ -186,7 +186,7 @@ func (s *ActionStore) ListLedgerByFindingIDs(
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	r, err := s.pool.Query(qctx, `
+	r, err := s.pool.Query(qctx, `/* pg_sage */ 
 SELECT id, database_id, finding_id, proposed_sql, rollback_sql,
        action_risk, status, proposed_at, decided_by, decided_at,
        expires_at, reason, action_type, identity_key, policy_decision,
@@ -233,7 +233,7 @@ ORDER BY finding_id, proposed_at DESC, id DESC`, findingIDs)
 	return out, nil
 }
 
-const listPendingBaseSQL = `SELECT q.id, q.database_id, q.finding_id,
+const listPendingBaseSQL = `/* pg_sage */SELECT q.id, q.database_id, q.finding_id,
  q.proposed_sql, q.rollback_sql, q.action_risk, q.status,
  q.proposed_at, q.decided_by, q.decided_at, q.expires_at,
  COALESCE(q.reason, ''), COALESCE(q.action_type, ''),
@@ -253,7 +253,7 @@ WHERE q.status = 'pending'
    AND f.acted_on_at IS NULL
    AND f.resolved_at IS NULL`
 
-const queuedActionSelectSQL = `SELECT q.id, q.database_id, q.finding_id,
+const queuedActionSelectSQL = `/* pg_sage */SELECT q.id, q.database_id, q.finding_id,
  q.proposed_sql, q.rollback_sql, q.action_risk, q.status,
  q.proposed_at, q.decided_by, q.decided_at, q.expires_at,
  COALESCE(q.reason, ''), COALESCE(q.action_type, ''),
@@ -277,7 +277,7 @@ func (s *ActionStore) Approve(
 	var rollback *string
 	var guardrails []byte
 	err := s.pool.QueryRow(qctx,
-		`UPDATE sage.action_queue q
+		`/* pg_sage */ UPDATE sage.action_queue q
 		 SET status = 'approved',
 		     decided_by = $1,
 		     decided_at = now()
@@ -334,7 +334,7 @@ func (s *ActionStore) Reject(
 	defer cancel()
 
 	tag, err := s.pool.Exec(qctx,
-		`UPDATE sage.action_queue
+		`/* pg_sage */ UPDATE sage.action_queue
 		 SET status = 'rejected',
 		     decided_by = $1,
 		     decided_at = now(),
@@ -362,7 +362,7 @@ func (s *ActionStore) MarkAttemptFailed(
 
 	cooldownUntil := time.Now().UTC().Add(cooldown)
 	tag, err := s.pool.Exec(qctx,
-		`UPDATE sage.action_queue
+		`/* pg_sage */ UPDATE sage.action_queue
 		 SET status = 'failed',
 		     attempt_count = attempt_count + 1,
 		     last_attempt_at = now(),
@@ -397,7 +397,7 @@ func (s *ActionStore) MarkExecuted(
 		verificationStatus = "verified"
 	}
 	tag, err := s.pool.Exec(qctx,
-		`UPDATE sage.action_queue
+		`/* pg_sage */ UPDATE sage.action_queue
 		 SET status = 'executed',
 		     action_log_id = $2,
 		     verification_status = $3,
@@ -423,7 +423,7 @@ func (s *ActionStore) ExpireStale(
 	defer cancel()
 
 	tag, err := s.pool.Exec(qctx,
-		`UPDATE sage.action_queue
+		`/* pg_sage */ UPDATE sage.action_queue
 		 SET status = 'expired'
 		 WHERE status = 'pending'
 		   AND expires_at <= now()`,
@@ -443,7 +443,7 @@ func (s *ActionStore) MarkExpiredByReadiness(
 	defer cancel()
 
 	tag, err := s.pool.Exec(qctx,
-		`UPDATE sage.action_queue
+		`/* pg_sage */ UPDATE sage.action_queue
 		 SET status = 'expired',
 		     reason = CASE
 		         WHEN expires_at <= now()
@@ -469,7 +469,7 @@ func (s *ActionStore) MarkReadinessOutcome(
 	defer cancel()
 
 	tag, err := s.pool.Exec(qctx,
-		`UPDATE sage.action_queue
+		`/* pg_sage */ UPDATE sage.action_queue
 		    SET status = $2,
 		        reason = $3
 		  WHERE id = $1
@@ -495,7 +495,7 @@ func (s *ActionStore) FindingEvidencePresent(
 
 	var one int
 	err := s.pool.QueryRow(qctx,
-		`SELECT 1
+		`/* pg_sage */ SELECT 1
 		   FROM sage.findings
 		  WHERE id = $1
 		    AND status = 'open'
@@ -525,7 +525,7 @@ func (s *ActionStore) GetByID(
 	var rollback *string
 	var guardrails []byte
 	err := s.pool.QueryRow(qctx,
-		`SELECT id, database_id, finding_id,
+		`/* pg_sage */ SELECT id, database_id, finding_id,
 		     proposed_sql, rollback_sql, action_risk,
 		     status, proposed_at, decided_by, decided_at,
 		     expires_at, COALESCE(reason, ''),
@@ -568,7 +568,7 @@ func (s *ActionStore) PendingCount(
 
 	var n int
 	err := s.pool.QueryRow(qctx,
-		`SELECT COUNT(*)
+		`/* pg_sage */ SELECT COUNT(*)
 		   FROM sage.action_queue q
 		   JOIN sage.findings f ON f.id = q.finding_id
 		  WHERE q.status = 'pending'
@@ -593,7 +593,7 @@ func (s *ActionStore) HasPendingForFinding(
 
 	var one int
 	err := s.pool.QueryRow(qctx,
-		`SELECT 1
+		`/* pg_sage */ SELECT 1
 		   FROM sage.action_queue q
 		   JOIN sage.findings f ON f.id = q.finding_id
 		  WHERE q.finding_id = $1
@@ -624,7 +624,7 @@ func (s *ActionStore) HasPendingForSQL(
 
 	var one int
 	err := s.pool.QueryRow(qctx,
-		`SELECT 1
+		`/* pg_sage */ SELECT 1
 		   FROM sage.action_queue q
 		   JOIN sage.findings f ON f.id = q.finding_id
 		  WHERE q.proposed_sql = $1
@@ -655,7 +655,7 @@ func (s *ActionStore) HasRecentlyRejectedForFinding(
 
 	var one int
 	err := s.pool.QueryRow(qctx,
-		`SELECT 1 FROM sage.action_queue
+		`/* pg_sage */ SELECT 1 FROM sage.action_queue
 		 WHERE finding_id = $1
 		   AND status = 'rejected'
 		   AND decided_at > now() - ($2::text)::interval
@@ -683,7 +683,7 @@ func (s *ActionStore) HasRecentlyRejectedForSQL(
 
 	var one int
 	err := s.pool.QueryRow(qctx,
-		`SELECT 1 FROM sage.action_queue
+		`/* pg_sage */ SELECT 1 FROM sage.action_queue
 		 WHERE proposed_sql = $1
 		   AND status = 'rejected'
 		   AND decided_at > now() - ($2::text)::interval

@@ -17,6 +17,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 func databasesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
@@ -718,7 +719,7 @@ func queryHealthHistory(
 	dbName string, from, to time.Time,
 ) ([]map[string]any, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT recorded_at, health_score, findings_open,
+		`/* pg_sage */ SELECT recorded_at, health_score, findings_open,
 		        findings_critical, findings_warning,
 		        findings_info, actions_total
 		 FROM sage.health_history
@@ -832,7 +833,11 @@ func configUpdateHandler(
 							http.StatusBadRequest)
 						return
 					}
-					cfg.Trust.Level = level
+					// Hot-reload lock: the config watcher and executor
+						// touch Trust.Level concurrently (C2).
+						config.LockForHotReload()
+						cfg.Trust.Level = level
+						config.UnlockForHotReload()
 				}
 			}
 		}
@@ -1196,7 +1201,7 @@ func compareTimeValue(a, b any) int {
 	return 0
 }
 
-const findingsSelectSQL = `SELECT id, created_at, last_seen,
+const findingsSelectSQL = `/* pg_sage */SELECT id, created_at, last_seen,
  occurrence_count, category, severity, object_type,
  object_identifier, title, detail, recommendation,
  recommended_sql, rollback_sql, status, rule_id, impact_score,
@@ -1208,6 +1213,7 @@ func buildFindingsWhere(
 	where := " WHERE 1=1"
 	var args []any
 	n := 1
+	where += selfmonitor.FindingsSQLExclusionClause()
 	if f.Status != "" {
 		where += fmt.Sprintf(" AND status = $%d", n)
 		args = append(args, f.Status)
@@ -1591,7 +1597,7 @@ func queryFindingByID(
 	}, nil
 }
 
-const findingDetailSQL = `SELECT id, created_at, last_seen,
+const findingDetailSQL = `/* pg_sage */SELECT id, created_at, last_seen,
  occurrence_count, category, severity, object_type,
  object_identifier, title, detail, recommendation,
  recommended_sql, rollback_sql, estimated_cost_usd,
@@ -1604,7 +1610,7 @@ func updateFindingStatus(
 	id, fromStatus, toStatus string,
 ) error {
 	tag, err := pool.Exec(ctx,
-		`UPDATE sage.findings SET status = $1
+		`/* pg_sage */ UPDATE sage.findings SET status = $1
 		 WHERE id = $2 AND status = $3`,
 		toStatus, id, fromStatus,
 	)
@@ -1616,7 +1622,7 @@ func updateFindingStatus(
 			// unsuppressing it since there's already an active
 			// open finding for the same issue.
 			_, delErr := pool.Exec(ctx,
-				`DELETE FROM sage.findings
+				`/* pg_sage */ DELETE FROM sage.findings
 				 WHERE id = $1 AND status = 'suppressed'`, id)
 			if delErr != nil {
 				return fmt.Errorf(
@@ -1825,7 +1831,7 @@ const actionsSelectSQLPrefix = `SELECT id, executed_at,
  before_state, after_state, outcome, rollback_reason,
  measured_at FROM sage.action_log`
 
-const queuedActionLedgerSQL = `SELECT q.id, q.finding_id,
+const queuedActionLedgerSQL = `/* pg_sage */SELECT q.id, q.finding_id,
  COALESCE(q.action_type, ''), q.proposed_sql, q.rollback_sql,
  q.action_risk, q.status, q.proposed_at, q.expires_at,
  COALESCE(q.reason, ''), COALESCE(q.policy_decision, ''),
@@ -2016,7 +2022,7 @@ func queryActionByID(
 	), nil
 }
 
-const actionDetailSQL = `SELECT id, executed_at,
+const actionDetailSQL = `/* pg_sage */SELECT id, executed_at,
  action_type, finding_id, sql_executed, rollback_sql,
  before_state, after_state, outcome, rollback_reason,
  measured_at FROM sage.action_log WHERE id = $1`
@@ -2028,7 +2034,7 @@ func querySnapshotLatest(
 ) (any, error) {
 	var data []byte
 	err := pool.QueryRow(ctx,
-		`SELECT data FROM sage.snapshots
+		`/* pg_sage */ SELECT data FROM sage.snapshots
 		 WHERE category = $1
 		 ORDER BY collected_at DESC LIMIT 1`,
 		metric,
@@ -2059,7 +2065,7 @@ func querySnapshotHistory(
 			to = time.Now().UTC()
 		}
 		rows, err = pool.Query(ctx,
-			`SELECT collected_at, data
+			`/* pg_sage */ SELECT collected_at, data
 			 FROM (
 			     SELECT collected_at, data
 			     FROM sage.snapshots
@@ -2073,7 +2079,7 @@ func querySnapshotHistory(
 		)
 	} else {
 		rows, err = pool.Query(ctx,
-			`SELECT collected_at, data
+			`/* pg_sage */ SELECT collected_at, data
 			 FROM (
 			     SELECT collected_at, data
 			     FROM sage.snapshots

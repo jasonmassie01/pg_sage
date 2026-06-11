@@ -17,6 +17,18 @@ func QuoteQualifiedName(schema, name string) string {
 	return QuoteIdentifier(schema) + "." + QuoteIdentifier(name)
 }
 
+// QuoteQualifiedString quotes a possibly schema-qualified identifier
+// supplied as one "schema.name" (or "name") string by quoting each
+// dot-separated part: "public.idx" -> "public"."idx". Use for
+// catalog-derived identifiers interpolated into DDL like REINDEX/VACUUM.
+func QuoteQualifiedString(qualified string) string {
+	parts := strings.Split(qualified, ".")
+	for i, p := range parts {
+		parts[i] = QuoteIdentifier(p)
+	}
+	return strings.Join(parts, ".")
+}
+
 // QuoteLiteral quotes a PostgreSQL string literal by doubling
 // any embedded single-quotes and wrapping in single-quotes.
 func QuoteLiteral(s string) string {

@@ -86,7 +86,7 @@ func (p *PlanCapture) fromExplainCache(
 	for _, q := range queries {
 		var planJSON []byte
 		err := p.pool.QueryRow(ctx,
-			`SELECT plan_json FROM sage.explain_cache
+			`/* pg_sage */ SELECT plan_json FROM sage.explain_cache
 			 WHERE queryid = $1 ORDER BY captured_at DESC LIMIT 1`,
 			q.QueryID).Scan(&planJSON)
 		if err != nil {
@@ -108,7 +108,7 @@ func (p *PlanCapture) fromAutoExplain(
 	for _, q := range queries {
 		var planJSON []byte
 		err := p.pool.QueryRow(ctx,
-			`SELECT plan_json FROM sage.explain_cache
+			`/* pg_sage */ SELECT plan_json FROM sage.explain_cache
 			 WHERE source = 'auto_explain' AND queryid = $1
 			 ORDER BY captured_at DESC LIMIT 1`,
 			q.QueryID).Scan(&planJSON)

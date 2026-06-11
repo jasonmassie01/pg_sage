@@ -260,7 +260,7 @@ func (a *Advisor) hasOpenFindings(
 	}
 	var count int
 	err := a.pool.QueryRow(ctx,
-		`SELECT count(*) FROM sage.findings
+		`/* pg_sage */ SELECT count(*) FROM sage.findings
 		 WHERE category = $1
 		   AND status = 'open'
 		   AND acted_on_at IS NULL`,

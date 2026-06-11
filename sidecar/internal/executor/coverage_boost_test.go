@@ -481,7 +481,7 @@ func TestCoverage_SnapshotBeforeState(t *testing.T) {
 		logFn:         func(string, string, ...any) {},
 	}
 
-	state := e.snapshotBeforeState(ctx)
+	state := e.snapshotBeforeState(ctx, nil)
 	if state == nil {
 		t.Fatal("snapshotBeforeState returned nil")
 	}

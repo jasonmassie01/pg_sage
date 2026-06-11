@@ -438,3 +438,43 @@ func TestCaseActionFromActionLogIncludesOutcome(t *testing.T) {
 		t.Fatalf("ProposedAt = %v, want executed_at", got.ProposedAt)
 	}
 }
+
+// TestQueryHintID_PreservesLargeQueryID is the D1 regression: a 64-bit
+// pg_stat_statements queryid beyond 2^53 must round-trip exactly.
+// The previous int64(floatValue(...)) path lost precision, so the
+// ANY($1::bigint[]) lookup missed and the self-monitoring filter
+// silently failed.
+func TestQueryHintID_PreservesLargeQueryID(t *testing.T) {
+	const big = int64(7656217072646174000) // > 2^53, typical 64-bit hash
+	if int64(float64(big)) == big {
+		t.Fatalf("test value %d does not exceed float64 precision; "+
+			"choose a larger one", big)
+	}
+	row := map[string]any{"queryid": big}
+	if got := queryHintID(row); got != big {
+		t.Errorf("queryHintID = %d, want %d (precision lost)", got, big)
+	}
+}
+
+// TestInt64Value_Types covers the integer and float branches and the
+// default zero for unexpected types.
+func TestInt64Value_Types(t *testing.T) {
+	cases := []struct {
+		name string
+		in   any
+		want int64
+	}{
+		{"int64", int64(9007199254740993), 9007199254740993},
+		{"int32", int32(42), 42},
+		{"int", int(7), 7},
+		{"float64 truncates", float64(3.9), 3},
+		{"nil -> 0", nil, 0},
+		{"string -> 0", "nope", 0},
+	}
+	for _, c := range cases {
+		if got := int64Value(c.in); got != c.want {
+			t.Errorf("%s: int64Value(%v) = %d, want %d",
+				c.name, c.in, got, c.want)
+		}
+	}
+}

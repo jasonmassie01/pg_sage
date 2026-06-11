@@ -34,12 +34,16 @@ func NewManager(cfg *config.Config) *DatabaseManager {
 }
 
 // RegisterInstance adds a pre-built instance (used by main.go
-// after connecting and creating components). The first registered
+// after connecting and creating components). The first *connected*
 // instance becomes the primary — used for auth and session storage.
+// Failed instances (nil Pool) are still registered so their error
+// surfaces in fleet status, but they must never become primary: a
+// nil-pool primary breaks auth-route registration and every
+// "all"-scoped query (see PoolForDatabase).
 func (m *DatabaseManager) RegisterInstance(inst *DatabaseInstance) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.primaryName == "" {
+	if m.primaryName == "" && inst.Pool != nil {
 		m.primaryName = inst.Name
 	}
 	m.instances[inst.Name] = inst
@@ -171,7 +175,7 @@ func (m *DatabaseManager) RecordHealthSnapshots(ctx context.Context) {
 	for _, x := range samples {
 		qctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		_, err := x.pool.Exec(qctx,
-			`INSERT INTO sage.health_history
+			`/* pg_sage */ INSERT INTO sage.health_history
 			 (database_name, health_score, findings_open,
 			  findings_critical, findings_warning,
 			  findings_info, actions_total)
@@ -268,7 +272,27 @@ func (m *DatabaseManager) PoolForDatabase(
 	}
 	// Return the primary instance's pool (deterministic).
 	if m.primaryName != "" {
-		if inst, ok := m.instances[m.primaryName]; ok {
+		if inst, ok := m.instances[m.primaryName]; ok && inst.Pool != nil {
+			return inst.Pool
+		}
+	}
+	// Fallback: the primary may be unset or its pool gone (e.g. the
+	// primary was removed). Return the first connected instance in
+	// deterministic name order so auth/"all"-scoped queries still work.
+	return m.firstConnectedPoolLocked()
+}
+
+// firstConnectedPoolLocked returns the pool of the first connected
+// instance in sorted name order, or nil if none are connected. The
+// caller must hold m.mu (read or write).
+func (m *DatabaseManager) firstConnectedPoolLocked() *pgxpool.Pool {
+	names := make([]string, 0, len(m.instances))
+	for n := range m.instances {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if inst := m.instances[n]; inst != nil && inst.Pool != nil {
 			return inst.Pool
 		}
 	}

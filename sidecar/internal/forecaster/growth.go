@@ -127,7 +127,7 @@ func forecastGrowth(
 
 // --- Database operations ---
 
-const recordSizeSQL = `
+const recordSizeSQL = `/* pg_sage */
 INSERT INTO sage.size_history
     (metric_type, object_name, size_bytes, dead_tuple_pct,
      database_name, collected_at)
@@ -159,7 +159,7 @@ func RecordSizeHistory(
 	return nil
 }
 
-const querySizeSQL = `
+const querySizeSQL = `/* pg_sage */
 SELECT collected_at, size_bytes
 FROM sage.size_history
 WHERE metric_type = $1

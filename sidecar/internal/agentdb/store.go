@@ -90,7 +90,7 @@ func (s *Store) SetRequestDecision(
 	if err != nil {
 		return Request{}, err
 	}
-	tag, err := s.pool.Exec(ctx, `
+	tag, err := s.pool.Exec(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_requests
 		SET status=$2,
 			policy_decision=$3,
@@ -193,7 +193,7 @@ func (s *Store) Ping(ctx context.Context, id string, req PingRequest) (Deploymen
 	if req.Status == "" {
 		req.Status = "active"
 	}
-	if _, err := s.pool.Exec(ctx, `
+	if _, err := s.pool.Exec(ctx, `/* pg_sage */ 
 		INSERT INTO sage.agent_db_pings(deployment_id, status, metrics)
 		VALUES ($1, $2, $3::jsonb)`,
 		id, req.Status, jsonBytes(req.Metrics),
@@ -214,7 +214,7 @@ func (s *Store) ExtendLease(
 	if req.LeaseSeconds <= 0 {
 		return Deployment{}, ErrInvalid
 	}
-	tag, err := s.pool.Exec(ctx, `
+	tag, err := s.pool.Exec(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_deployments
 		SET lease_expires_at=now()+make_interval(secs => $2),
 			updated_at=now()
@@ -261,7 +261,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		}
 		return fmt.Errorf("%w: %s", ErrDeleteBlocked, decision.Reason)
 	}
-	_, err = s.pool.Exec(ctx, `
+	_, err = s.pool.Exec(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_deployments
 		SET status='deleted', updated_at=now()
 		WHERE deployment_id=$1`,
@@ -341,7 +341,7 @@ func (s *Store) setStatusFields(
 	if extra != "" {
 		update += ", " + extra
 	}
-	tag, err := s.pool.Exec(ctx, `
+	tag, err := s.pool.Exec(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_deployments
 		SET `+update+`
 		WHERE deployment_id=$1`,

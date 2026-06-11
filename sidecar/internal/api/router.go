@@ -162,6 +162,17 @@ func NewRouterFull(
 	root := http.NewServeMux()
 	root.Handle("/api/v1/", apiHandler)
 
+	// Unauthenticated liveness endpoint. It was in the auth-skip
+	// allowlist but never registered, so /health fell through to the
+	// SPA and returned index.html instead of a real health check (W2).
+	root.HandleFunc("/health", func(
+		w http.ResponseWriter, _ *http.Request,
+	) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
 	// Embedded dashboard (SPA fallback).
 	staticSub, _ := fs.Sub(staticFiles, "dist")
 	fileServer := http.FileServer(http.FS(staticSub))

@@ -9,7 +9,7 @@ func (s *Store) GetBlueprint(ctx context.Context, id string) (Blueprint, error) 
 		return Blueprint{}, err
 	}
 	var blueprint Blueprint
-	err := scanBlueprint(s.pool.QueryRow(ctx, `
+	err := scanBlueprint(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT blueprint_id, name, status, intent, provider, template_id,
 			blueprint_json, policy_findings, llm_used, raw_response, created_by,
 			approved_by, created_at, updated_at
@@ -34,7 +34,7 @@ func (s *Store) ApproveBlueprint(
 		return Blueprint{}, ErrInvalid
 	}
 	var out Blueprint
-	err = scanBlueprint(s.pool.QueryRow(ctx, `
+	err = scanBlueprint(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_blueprints
 		SET status='approved', approved_by=$2, updated_at=now()
 		WHERE blueprint_id=$1
@@ -80,7 +80,7 @@ func (s *Store) GetTerraformTemplate(
 		return TerraformTemplate{}, err
 	}
 	var template TerraformTemplate
-	err := scanTerraformTemplate(s.pool.QueryRow(ctx, `
+	err := scanTerraformTemplate(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT template_id, name, status, source_kind, content_sha256,
 			files_json, manifest_json, policy_findings, created_by, approved_by,
 			created_at, updated_at

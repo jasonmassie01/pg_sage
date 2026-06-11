@@ -1,0 +1,175 @@
+mode: fleet
+
+# Local monitoring config for Jason's always-on pg_sage sidecar.
+# Secrets: LifeOS password is read from LIFEOS_DATABASE_URL by scripts/start_local_monitor.py
+# and passed as LIFEOS_POSTGRES_PASSWORD for env expansion below.
+defaults:
+  max_connections: 2
+  trust_level: observation
+  execution_mode: manual
+  collector_interval_seconds: 30
+  analyzer_interval_seconds: 60
+
+databases:
+  - name: local_pg17_postgres
+    host: 127.0.0.1
+    port: 5432
+    user: postgres
+    password: postgres
+    database: postgres
+    sslmode: disable
+    tags: [local, host, pg17]
+
+  - name: fleet_pg1_postgres
+    host: 127.0.0.1
+    port: 5433
+    user: postgres
+    password: postgres
+    database: postgres
+    sslmode: disable
+    tags: [local, docker, pg16, pg_sage]
+
+  - name: fleet_pg1_app_production
+    host: 127.0.0.1
+    port: 5433
+    user: postgres
+    password: postgres
+    database: app_production
+    sslmode: disable
+    tags: [local, docker, pg16, app]
+
+  - name: fleet_pg1_pgsage_meta
+    host: 127.0.0.1
+    port: 5433
+    user: postgres
+    password: postgres
+    database: pgsage_meta
+    sslmode: disable
+    tags: [local, docker, pg16, pg_sage, meta]
+
+  - name: fleet_pg1_testdb
+    host: 127.0.0.1
+    port: 5433
+    user: postgres
+    password: postgres
+    database: testdb
+    sslmode: disable
+    tags: [local, docker, pg16, test]
+
+  - name: fleet_pg2_postgres
+    host: 127.0.0.1
+    port: 5434
+    user: postgres
+    password: postgres
+    database: postgres
+    sslmode: disable
+    tags: [local, docker, pg16, pg_sage]
+
+  - name: fleet_pg2_app_staging
+    host: 127.0.0.1
+    port: 5434
+    user: postgres
+    password: postgres
+    database: app_staging
+    sslmode: disable
+    tags: [local, docker, pg16, app]
+
+  - name: fleet_pg2_testdb2
+    host: 127.0.0.1
+    port: 5434
+    user: postgres
+    password: postgres
+    database: testdb2
+    sslmode: disable
+    tags: [local, docker, pg16, test]
+
+  - name: health_pg_health
+    host: 127.0.0.1
+    port: 5436
+    user: postgres
+    password: postgres
+    database: health
+    sslmode: disable
+    tags: [local, docker, timescale, health]
+
+  - name: health_pg_finance
+    host: 127.0.0.1
+    port: 5436
+    user: postgres
+    password: postgres
+    database: finance
+    sslmode: disable
+    tags: [local, docker, timescale, finance]
+
+  - name: health_pg_lifeos_legacy
+    host: 127.0.0.1
+    port: 5436
+    user: postgres
+    password: postgres
+    database: lifeos
+    sslmode: disable
+    tags: [local, docker, timescale, lifeos, legacy]
+
+  - name: lifeos_postgres_lifeos
+    host: 127.0.0.1
+    port: 5440
+    user: lifeos
+    password: ${LIFEOS_POSTGRES_PASSWORD}
+    database: lifeos
+    sslmode: disable
+    tags: [local, docker, pg16, lifeos, primary]
+
+collector:
+  interval_seconds: 30
+
+analyzer:
+  interval_seconds: 60
+  slow_query_threshold_ms: 250
+  seq_scan_min_rows: 1000
+  unused_index_window_days: 7
+
+safety:
+  query_timeout_ms: 1000
+  lock_timeout_ms: 5000
+  ddl_timeout_seconds: 60
+
+trust:
+  level: observation
+  maintenance_window: ""
+  tier3_safe: false
+  tier3_moderate: false
+  tier3_high_risk: false
+
+llm:
+  enabled: true
+  endpoint: "https://generativelanguage.googleapis.com/v1beta/openai"
+  api_key: ${LLM_API_KEY}
+  model: gemini-3.5-flash
+  json_mode: true
+  timeout_seconds: 30
+  token_budget_daily: 2000000
+  optimizer:
+    enabled: true
+
+advisor:
+  enabled: true
+
+briefing:
+  channels: ["stdout"]
+
+alerting:
+  enabled: false
+
+tuner:
+  enabled: true
+  llm_enabled: true
+
+forecaster:
+  enabled: true
+  lookback_days: 30
+
+api:
+  listen_addr: "127.0.0.1:8085"
+
+prometheus:
+  listen_addr: "127.0.0.1:9187"

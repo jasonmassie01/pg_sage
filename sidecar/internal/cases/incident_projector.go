@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 type IncidentChainLink struct {
@@ -224,7 +226,7 @@ func autovacuumIncidentCandidates(i SourceIncident) []ActionCandidate {
 			ActionType:       "vacuum_table",
 			RiskTier:         "safe",
 			Confidence:       i.Confidence,
-			ProposedSQL:      "VACUUM " + object + ";",
+			ProposedSQL:      "VACUUM " + sanitize.QuoteQualifiedString(object) + ";",
 			ExpiresAt:        &expires,
 			OutputModes:      []string{"execute", "queue_for_approval"},
 			RollbackClass:    "no_rollback_needed",

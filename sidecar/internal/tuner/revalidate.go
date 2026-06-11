@@ -169,7 +169,7 @@ func (t *Tuner) decideHintFate(
 func (t *Tuner) loadHintsForRevalidation(
 	ctx context.Context,
 ) ([]hintRow, error) {
-	rows, err := t.pool.Query(ctx, `
+	rows, err := t.pool.Query(ctx, `/* pg_sage */ 
 SELECT id, queryid, status, COALESCE(hint_text, ''), created_at,
        last_revalidated_at, calls_at_last_check
 FROM sage.query_hints
@@ -201,7 +201,7 @@ func (t *Tuner) fetchQueryStats(
 	// lookup to the current database or we risk reading stats for a
 	// neighbouring DB that happens to share a queryid. dbid is the
 	// pg_database OID of the database where the statement ran.
-	err = t.pool.QueryRow(ctx, `
+	err = t.pool.QueryRow(ctx, `/* pg_sage */ 
 SELECT calls, mean_exec_time
 FROM pg_stat_statements
 WHERE queryid = $1
@@ -277,7 +277,7 @@ func (t *Tuner) indexExists(
 	ctx context.Context, idxName string,
 ) (bool, error) {
 	var n int
-	err := t.pool.QueryRow(ctx, `
+	err := t.pool.QueryRow(ctx, `/* pg_sage */ 
 SELECT count(*)
 FROM pg_class
 WHERE relname = $1
@@ -291,7 +291,7 @@ WHERE relname = $1
 func (t *Tuner) updateHintStatus(
 	ctx context.Context, hintID int64, status, reason string,
 ) {
-	_, err := t.pool.Exec(ctx, `
+	_, err := t.pool.Exec(ctx, `/* pg_sage */ 
 UPDATE sage.query_hints
 SET status = $2,
     rolled_back_at = CASE WHEN $2 = 'broken'
@@ -318,7 +318,7 @@ func (t *Tuner) updateRevalidationTimestamp(
 	if calls <= 0 {
 		return
 	}
-	_, err := t.pool.Exec(ctx, `
+	_, err := t.pool.Exec(ctx, `/* pg_sage */ 
 UPDATE sage.query_hints
 SET last_revalidated_at = now(),
     calls_at_last_check = $2

@@ -36,6 +36,9 @@ var AllRules = []struct {
 
 	// Vacuum / bloat rules
 	{"table_bloat", ruleTableBloat},
+	{"autovacuum_tuning", ruleAutovacuumTuning},
+	{"stale_statistics", ruleStaleStatistics},
+	{"wraparound_freeze", ruleWraparoundFreeze},
 
 	// Query rules
 	{"slow_queries", ruleSlowQueries},

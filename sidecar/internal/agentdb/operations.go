@@ -49,7 +49,7 @@ func (s *Store) Recommendations(
 	if err := s.Ensure(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.pool.Query(ctx, `/* pg_sage */ 
 		SELECT recommendation_id, kind, title, detail, status,
 			query_fingerprint, action_type, action_risk, confidence,
 			agent_instructions, payload, feedback, created_at
@@ -85,7 +85,7 @@ func (s *Store) Feedback(
 	if req.Decision == "" {
 		return ErrInvalid
 	}
-	tag, err := s.pool.Exec(ctx, `
+	tag, err := s.pool.Exec(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_recommendations
 		SET status=$3, feedback=$4::jsonb, updated_at=now()
 		WHERE deployment_id=$1 AND recommendation_id=$2`,
@@ -119,7 +119,7 @@ func (s *Store) AddCostSample(
 	if req.At.IsZero() {
 		req.At = time.Now().UTC()
 	}
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.pool.Exec(ctx, `/* pg_sage */ 
 		INSERT INTO sage.agent_db_cost_samples (
 			deployment_id, sampled_at, cost_usd, metric, value, unit, detail
 		)
@@ -142,7 +142,7 @@ func (s *Store) Cost(ctx context.Context, id string) (CostSummary, error) {
 		return CostSummary{}, err
 	}
 	var summary CostSummary
-	err = s.pool.QueryRow(ctx, `
+	err = s.pool.QueryRow(ctx, `/* pg_sage */ 
 		SELECT COALESCE(sum(cost_usd), 0), count(*), max(sampled_at)
 		FROM sage.agent_db_cost_samples
 		WHERE deployment_id=$1`,
@@ -175,7 +175,7 @@ func (s *Store) RecordBackup(
 	}
 	verifiedAt, restoreAt := backupTimes(req)
 	var backup Backup
-	err := scanBackup(s.pool.QueryRow(ctx, `
+	err := scanBackup(s.pool.QueryRow(ctx, `/* pg_sage */ 
 		INSERT INTO sage.agent_db_backups (
 			backup_id, deployment_id, provider, status, archive_uri,
 			verified_at, restore_verified_at, detail
@@ -213,7 +213,7 @@ func (s *Store) Backups(ctx context.Context, id string) ([]Backup, error) {
 	if err := s.Ensure(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.pool.Query(ctx, `/* pg_sage */ 
 		SELECT backup_id, deployment_id, provider, status, archive_uri,
 			verified_at, restore_verified_at, created_at, detail
 		FROM sage.agent_db_backups
@@ -240,7 +240,7 @@ func (s *Store) TuningHints(ctx context.Context, id string) ([]TuningHint, error
 	if err := s.Ensure(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.pool.Query(ctx, `/* pg_sage */ 
 		SELECT hint_id, kind, title, detail, severity, payload
 		FROM sage.agent_db_tuning_hints
 		WHERE deployment_id=$1
@@ -270,7 +270,7 @@ func (s *Store) TuningHints(ctx context.Context, id string) ([]TuningHint, error
 }
 
 func (s *Store) audit(ctx context.Context, id, event string, detail map[string]any) error {
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.pool.Exec(ctx, `/* pg_sage */ 
 		INSERT INTO sage.agent_db_audit(deployment_id, event, detail)
 		VALUES ($1, $2, $3::jsonb)`,
 		id, event, jsonBytes(RedactProviderDetail(detail)),
@@ -286,7 +286,7 @@ func (s *Store) applyBudgetStatus(ctx context.Context, id string) error {
 	if cost.BudgetState != "hard_limit" {
 		return nil
 	}
-	_, err = s.pool.Exec(ctx, `
+	_, err = s.pool.Exec(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_deployments
 		SET status='budget_exceeded', updated_at=now()
 		WHERE deployment_id=$1 AND status='active'`,
@@ -301,7 +301,7 @@ func (s *Store) seedTuningHints(
 	metadata map[string]any,
 ) error {
 	for _, hint := range BuildTuningHints(tuningContext(metadata)) {
-		if _, err := s.pool.Exec(ctx, `
+		if _, err := s.pool.Exec(ctx, `/* pg_sage */ 
 			INSERT INTO sage.agent_db_tuning_hints (
 				hint_id, deployment_id, kind, title, detail, severity, payload
 			)
@@ -415,7 +415,7 @@ func scanBackup(row scanner, backup *Backup) error {
 	return err
 }
 
-const upsertRecommendationSQL = `
+const upsertRecommendationSQL = `/* pg_sage */
 	INSERT INTO sage.agent_db_recommendations (
 		recommendation_id, deployment_id, kind, title, detail,
 		query_fingerprint, action_type, action_risk, confidence,
