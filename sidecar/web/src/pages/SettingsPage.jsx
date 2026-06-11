@@ -63,6 +63,7 @@ export function SettingsPage({ database, databaseId }) {
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState(null)
   const [stopping, setStopping] = useState(false)
+  const [restarting, setRestarting] = useState(false)
   const [pendingTrust, setPendingTrust] = useState(null)
   const [showDiff, setShowDiff] = useState(false)
 
@@ -207,6 +208,36 @@ export function SettingsPage({ database, databaseId }) {
     }
   }
 
+  const restartNow = async () => {
+    if (!window.confirm(
+      'Restart the pg_sage sidecar now? It will be unavailable for a few '
+      + 'seconds while startup-only settings take effect.')) {
+      return
+    }
+    setRestarting(true)
+    try {
+      const res = await fetch('/api/v1/restart', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (res.status === 501) {
+        toast.error('Restart not supported: no supervisor configured')
+        return
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        toast.error(err.error || 'Restart failed')
+        return
+      }
+      toast.success('Restarting — reconnecting in a few seconds…')
+      setTimeout(() => window.location.reload(), 6000)
+    } catch (e) {
+      toast.error(e.message || 'Restart failed')
+    } finally {
+      setRestarting(false)
+    }
+  }
+
   if (selectedDatabase && !isDatabaseScope) {
     return (
       <ErrorBanner
@@ -263,6 +294,29 @@ export function SettingsPage({ database, databaseId }) {
         Scope: {isDatabaseScope
           ? `Database ${database} (ID ${numericDatabaseId})`
           : 'Global defaults'}
+      </div>
+      <div
+        className="rounded p-3 text-xs flex items-center justify-between gap-3"
+        style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          color: 'var(--text-secondary)',
+        }}
+      >
+        <span>
+          Some settings — trust tiers, maintenance window, execution mode, and
+          collector/analyzer intervals — take effect only after a restart.
+        </span>
+        <button
+          data-testid="settings-restart-btn"
+          onClick={restartNow}
+          disabled={restarting}
+          className="text-xs px-3 py-1 rounded whitespace-nowrap inline-flex items-center gap-1"
+          style={{ color: 'var(--text)', border: '1px solid var(--border)' }}
+        >
+          <RotateCcw size={13} />
+          {restarting ? 'Restarting…' : 'Restart now'}
+        </button>
       </div>
       {tab === 'General' && <ShadowModePage database={database} />}
       {feedback && <FeedbackBanner {...feedback} />}

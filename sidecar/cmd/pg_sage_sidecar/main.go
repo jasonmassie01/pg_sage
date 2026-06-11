@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -91,6 +92,28 @@ var (
 	shutdownCancel      context.CancelFunc
 	rateLimiterInstance *RateLimiter
 )
+
+// restartExitCode is the exit status that signals a supervisor (the
+// launcher loop / orchestrator) to relaunch the process. Used by the
+// /api/v1/restart endpoint so startup-only settings take effect.
+const restartExitCode = 42
+
+// sigCh receives OS signals and the in-process restart request.
+var sigCh = make(chan os.Signal, 1)
+
+// restartRequested is set when a restart (not a plain shutdown) was asked
+// for, so the shutdown path exits with restartExitCode.
+var restartRequested atomic.Bool
+
+// triggerRestart asks the main loop to shut down and exit with the restart
+// code. Safe to call from an HTTP handler goroutine.
+func triggerRestart() {
+	restartRequested.Store(true)
+	select {
+	case sigCh <- syscall.SIGTERM:
+	default: // a shutdown is already in progress
+	}
+}
 
 // fleetLLMBudget is the optional per-database LLM token budget (F5).
 // nil when llm.fleet_token_budget_daily is 0.
@@ -225,7 +248,7 @@ func main() {
 	promServer := startPrometheusServer(cfg.Prometheus.ListenAddr)
 
 	// Graceful shutdown.
-	sigCh := make(chan os.Signal, 1)
+	// sigCh is package-level so the /restart endpoint can trigger shutdown.
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigCh
 	logInfo("shutdown", "received %s, shutting down…", sig)
@@ -273,6 +296,13 @@ func main() {
 	shutdownExecutors(shutCtx)
 
 	logInfo("shutdown", "stopped")
+
+	// If this was a restart request, exit with the restart code so the
+	// supervisor (launcher loop / orchestrator) relaunches the process.
+	if restartRequested.Load() {
+		logInfo("shutdown", "restarting (exit %d)", restartExitCode)
+		os.Exit(restartExitCode)
+	}
 }
 
 // shutdownExecutors calls Shutdown on every registered executor
@@ -1737,6 +1767,7 @@ func startAPIServer(rl *RateLimiter) {
 	// goroutines (OAuth CSRF state cleaner) so they exit on
 	// SIGINT/SIGTERM instead of leaking.
 	api.SetShutdownContext(shutdownCtx)
+	api.SetRestartFunc(triggerRestart)
 
 	result := wireRouter(WireParams{
 		Cfg:       cfg,

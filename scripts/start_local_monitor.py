@@ -58,13 +58,23 @@ def main() -> int:
         raise RuntimeError(f"missing sidecar binary: {SIDECAR}")
     env = os.environ.copy()
     env["LIFEOS_POSTGRES_PASSWORD"] = _lifeos_password()
-    print(f"Starting pg_sage local monitor with config {CONFIG}", flush=True)
-    proc = subprocess.Popen(
-        [str(SIDECAR), f"--config={CONFIG}"],
-        cwd=str(ROOT / "sidecar"),
-        env=env,
-    )
-    return proc.wait()
+    # Supervisor loop: the sidecar exits with RESTART_EXIT_CODE (42) when the
+    # /api/v1/restart endpoint is used (so startup-only settings take effect).
+    # Relaunch on that code; any other exit code stops the launcher.
+    RESTART_EXIT_CODE = 42
+    while True:
+        print(
+            f"Starting pg_sage local monitor with config {CONFIG}", flush=True
+        )
+        proc = subprocess.Popen(
+            [str(SIDECAR), f"--config={CONFIG}"],
+            cwd=str(ROOT / "sidecar"),
+            env=env,
+        )
+        code = proc.wait()
+        if code != RESTART_EXIT_CODE:
+            return code
+        print("Restart requested via UI — relaunching sidecar…", flush=True)
 
 
 if __name__ == "__main__":
