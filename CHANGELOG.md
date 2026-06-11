@@ -32,9 +32,12 @@
 
 ### Changed
 
-- **Self-monitoring:** every query pg_sage issues now carries a `/* pg_sage */`
-  marker, so the self-monitoring filter excludes them from analysis and they
-  are identifiable (not anonymous noise) in `pg_stat_statements`.
+- **Self-monitoring:** pg_sage now sets `pg_stat_statements.track = none` on
+  its own connections (best-effort, superuser only), so its monitoring queries
+  are never recorded and no longer pollute the user's `pg_stat_statements`. As
+  a fallback for restricted roles, every query pg_sage issues also carries a
+  `/* pg_sage */` marker and the self-monitoring filter excludes both the
+  marker and any `sage.`-schema query from analysis.
 - `isThinkingModel` now covers the `gemini-3.x` series (reserves output-token
   budget for thinking models, e.g. `gemini-3.5-flash`).
 

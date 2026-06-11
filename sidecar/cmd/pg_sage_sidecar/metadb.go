@@ -47,6 +47,7 @@ func connectMetaDB(dsn string) (*pgxpool.Pool, error) {
 	poolCfg.MinConns = 1
 	poolCfg.MaxConnLifetime = 30 * time.Minute
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
+	poolCfg.AfterConnect = silenceSelfStats
 
 	const maxAttempts = 5
 	backoff := 1 * time.Second
@@ -226,6 +227,7 @@ func connectMonitoredDB(
 		poolCfg.ConnConfig.RuntimeParams = map[string]string{}
 	}
 	poolCfg.ConnConfig.RuntimeParams["application_name"] = "pg_sage"
+	poolCfg.AfterConnect = silenceSelfStats
 
 	const maxAttempts = 5
 	backoff := 1 * time.Second
