@@ -45,6 +45,11 @@
 
 - **Retention:** `cleanStaleFirstSeen` no longer skips stale-key cleanup when
   the index snapshot is empty (a regression from an over-broad safety guard).
+- **Cases:** pg_sage no longer surfaces its own monitoring queries as Cases.
+  The case projection now skips self-monitoring findings, and detection
+  recognizes pg_sage's statistics-catalog reads (`pg_stat_statements`,
+  `pg_stat_user_tables`, etc.) even in historical findings captured before
+  queries were tagged.
 
 ## v1.1 (2026-05-10) -- AgentDB Cloud Provisioning Release
 

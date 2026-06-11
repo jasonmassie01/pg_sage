@@ -98,6 +98,18 @@ func queryProjectedCases(
 		selectedCases := make([]cases.Case, 0, len(rows))
 		findingIDs := make([]int, 0, len(rows))
 		for _, row := range rows {
+			// Never surface pg_sage's own monitoring queries as cases —
+			// including historical findings captured before queries were
+			// tagged (recognized by their catalog-read signature).
+			if selfmonitor.IsFinding(selfmonitor.FindingFields{
+				ObjectIdentifier: stringValue(row["object_identifier"]),
+				Title:            stringValue(row["title"]),
+				Detail:           detailMap(row["detail"]),
+				RecommendedSQL:   stringValue(row["recommended_sql"]),
+				RollbackSQL:      stringValue(row["rollback_sql"]),
+			}) {
+				continue
+			}
 			projected := cases.ProjectFinding(sourceFindingFromMap(row))
 			enrichCaseActionPolicies(&projected, mgr, selected.name)
 			if id, ok := caseFindingID(projected); ok {
