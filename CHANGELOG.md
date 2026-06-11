@@ -4,6 +4,11 @@
 
 ### Added
 
+- **Restart from the UI.** Settings now shows that some settings (trust tiers,
+  maintenance window, execution mode, intervals) take effect only after a
+  restart, with a **Restart now** button. `POST /api/v1/restart` (admin) exits
+  with code 42; the launcher (and any orchestrator restart policy) relaunches
+  the process. Returns 501 if no supervisor is configured.
 - **Query store (F2):** `sage.query_store` records per-queryid metrics each
   cycle, enabling *windowed* latency (pg_stat_statements only exposes lifetime
   averages). Substrate for verify-and-revert and plan-regression detection.

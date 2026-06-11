@@ -263,6 +263,13 @@ func registerAPIRoutes(
 		resumeHandler(mgr)))
 	mux.Handle("POST /api/v1/resume", resumeH)
 
+	// Restart the sidecar process so startup-only settings (trust tiers,
+	// maintenance window, execution mode, intervals) take effect. Requires
+	// a supervisor (launcher loop / orchestrator) that relaunches on the
+	// restart exit code; returns 501 if no restart hook is wired.
+	mux.Handle("POST /api/v1/restart",
+		adminOnly(http.HandlerFunc(restartHandler)))
+
 	mux.HandleFunc(
 		"GET /api/v1/llm/models",
 		listModelsHandler(&cfg.LLM))
