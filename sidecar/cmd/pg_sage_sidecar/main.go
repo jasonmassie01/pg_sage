@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/advisor"
@@ -925,6 +926,12 @@ func initFleetMultiDB() {
 			poolCfg.ConnConfig.RuntimeParams = map[string]string{}
 		}
 		poolCfg.ConnConfig.RuntimeParams["application_name"] = "pg_sage"
+		// Keep pg_sage's own monitoring queries out of pg_stat_statements so
+		// they never pollute the user's workload stats. Best-effort — requires
+		// a role allowed to set the GUC (superuser / rds_superuser); silently
+		// ignored otherwise, where the /* pg_sage */ tag + self-monitoring
+		// filter remain as a fallback.
+		poolCfg.AfterConnect = silenceSelfStats
 
 		dbPool, err := pgxpool.NewWithConfig(
 			context.Background(), poolCfg)
@@ -1681,6 +1688,15 @@ func buildDBConfig(name string) config.DatabaseConfig {
 // resolveExecutionMode returns the execution mode from config.
 // Standalone mode defaults to "auto"; fleet databases have their
 // own execution_mode per database record.
+// silenceSelfStats stops pg_stat_statements from recording pg_sage's own
+// monitoring queries on this connection. Best-effort: failures (e.g. a
+// non-superuser role on a managed provider) are ignored, leaving the
+// /* pg_sage */ query tag and self-monitoring filter as the fallback.
+func silenceSelfStats(ctx context.Context, c *pgx.Conn) error {
+	_, _ = c.Exec(ctx, "SET pg_stat_statements.track = 'none'")
+	return nil
+}
+
 func resolveExecutionMode() string {
 	if len(cfg.Databases) > 0 {
 		// Use first database's config if available.

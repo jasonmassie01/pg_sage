@@ -84,3 +84,5 @@ sidecar/cmd/create_admin_alloydb/
 # the pg17+pg_hint_plan Docker image at sidecar/test/hint_verify/Dockerfile).
 __pycache__/
 *.pyc
+DECISIONS.md
+REENTRY.md
