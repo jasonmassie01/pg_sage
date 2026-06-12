@@ -225,6 +225,11 @@ func TestExtractIndexName_Table(t *testing.T) {
 			sql:  "SELECT 1",
 			want: "",
 		},
+		{
+			name: "DROP INDEX CONCURRENTLY IF EXISTS",
+			sql:  "DROP INDEX CONCURRENTLY IF EXISTS idx_foo",
+			want: "idx_foo",
+		},
 	}
 
 	for _, tc := range tests {
@@ -233,6 +238,51 @@ func TestExtractIndexName_Table(t *testing.T) {
 			if got != tc.want {
 				t.Errorf("extractIndexName(%q) = %q, want %q",
 					tc.sql, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsSelfReferentialDrop(t *testing.T) {
+	tests := []struct {
+		name      string
+		createSQL string
+		dropDDL   string
+		want      bool
+	}{
+		{
+			name:      "rollback drops the index just created (GIN)",
+			createSQL: "CREATE INDEX CONCURRENTLY idx_events_payload_path_ops " +
+				"ON public.events USING gin (payload jsonb_path_ops)",
+			dropDDL: "DROP INDEX CONCURRENTLY IF EXISTS idx_events_payload_path_ops",
+			want:    true,
+		},
+		{
+			name:      "rollback with schema + semicolon still matches",
+			createSQL: "CREATE INDEX CONCURRENTLY documents_embedding_hnsw_idx " +
+				"ON public.documents USING hnsw (embedding vector_l2_ops)",
+			dropDDL: "DROP INDEX CONCURRENTLY IF EXISTS public.documents_embedding_hnsw_idx;",
+			want:    true,
+		},
+		{
+			name:      "genuine supersede targets a different old index",
+			createSQL: "CREATE INDEX CONCURRENTLY idx_orders_cust_incl " +
+				"ON public.orders (customer_id) INCLUDE (total_cents)",
+			dropDDL: "DROP INDEX CONCURRENTLY IF EXISTS idx_orders_cust_old",
+			want:    false,
+		},
+		{
+			name:      "empty drop is not self-referential",
+			createSQL: "CREATE INDEX CONCURRENTLY idx_a ON t (c)",
+			dropDDL:   "",
+			want:      false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isSelfReferentialDrop(tc.createSQL, tc.dropDDL); got != tc.want {
+				t.Errorf("isSelfReferentialDrop(%q, %q) = %v, want %v",
+					tc.createSQL, tc.dropDDL, got, tc.want)
 			}
 		})
 	}

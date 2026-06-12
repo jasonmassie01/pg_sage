@@ -68,7 +68,17 @@ func parseLLMFindings(
 		// single statement keeps its original shape (no behavior change).
 		stmts := splitSQLStatements(recSQL)
 		multi := len(stmts) > 1
-		if !multi {
+		if len(stmts) == 0 {
+			if rawStatementCount(recSQL) > 0 {
+				// recSQL was non-empty but only an apply mechanism
+				// (e.g. a bare reload) — nothing actionable to record.
+				continue
+			}
+			// Empty/null recommended_sql — preserve the original
+			// behavior: one advisory finding carrying no SQL.
+			stmts = []string{recSQL}
+		} else if !multi && rawStatementCount(recSQL) == 1 {
+			// Single statement to begin with — keep its verbatim shape.
 			stmts = []string{recSQL}
 		}
 		for _, stmt := range stmts {
@@ -109,14 +119,40 @@ func parseLLMFindings(
 // splitSQLStatements splits a recommendation into individual statements,
 // preserving a single statement unchanged. Each returned statement ends
 // with a semicolon so it is a complete, single-statement action.
+//
+// Config-apply mechanism statements (e.g. SELECT pg_reload_conf()) are
+// dropped: they are not independent recommendations, and the executor
+// already issues the reload itself after an ALTER SYSTEM via config_apply.
+// Emitting one as its own finding would create an orphan action that
+// reloads nothing meaningful on its own.
 func splitSQLStatements(sql string) []string {
 	var out []string
 	for _, s := range strings.Split(sql, ";") {
-		if s = strings.TrimSpace(s); s != "" {
+		if s = strings.TrimSpace(s); s != "" && !isApplyMechanism(s) {
 			out = append(out, s+";")
 		}
 	}
 	return out
+}
+
+// isApplyMechanism reports whether a statement is a config-apply mechanism
+// the executor performs automatically, rather than a tuning recommendation.
+func isApplyMechanism(stmt string) bool {
+	u := strings.ToUpper(strings.TrimSpace(stmt))
+	return strings.HasPrefix(u, "SELECT PG_RELOAD_CONF")
+}
+
+// rawStatementCount counts non-empty statements in the recommendation as
+// the LLM emitted it, including apply mechanisms. Used to decide whether a
+// single post-filter statement should keep its original verbatim shape.
+func rawStatementCount(sql string) int {
+	n := 0
+	for _, s := range strings.Split(sql, ";") {
+		if strings.TrimSpace(s) != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // deriveActionRisk returns the risk level for a recommended SQL

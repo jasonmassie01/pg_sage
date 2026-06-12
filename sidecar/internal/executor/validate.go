@@ -71,6 +71,10 @@ var safeAlterSystemParams = map[string]bool{
 var allowedSelectPatterns = []string{
 	"SELECT PG_TERMINATE_BACKEND(",
 	"SELECT PG_CANCEL_BACKEND(",
+	// pg_reload_conf() is how the config-apply path makes an ALTER SYSTEM
+	// change take effect (re-reads postgresql.conf/.auto.conf). It only
+	// signals the postmaster and returns a boolean — no destructive effect.
+	"SELECT PG_RELOAD_CONF(",
 }
 
 // safeAlterTableSubcmds restricts ALTER TABLE to safe
@@ -184,8 +188,8 @@ func checkSelectPattern(upper string) error {
 		}
 	}
 	return fmt.Errorf(
-		"%w: only pg_terminate_backend and pg_cancel_backend "+
-			"SELECT statements are allowed",
+		"%w: only pg_terminate_backend, pg_cancel_backend and "+
+			"pg_reload_conf SELECT statements are allowed",
 		ErrDisallowedSQL,
 	)
 }
