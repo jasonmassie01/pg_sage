@@ -59,6 +59,13 @@
 
 ### Fixed
 
+- **Anti-oscillation guard.** If pg_sage applies the same successful action
+  to an object repeatedly (e.g. dropping an index an app keeps re-creating),
+  it now backs off after a few cycles and marks the finding acted-on, instead
+  of churning drop→recreate→drop forever. The guard reads the action log, so it
+  survives restarts (the in-memory cascade cooldown did not). This fixes a
+  real runaway where thousands of duplicate-index drops accumulated against an
+  app-managed database.
 - **Config changes now take effect (and are cloud-aware).** Previously an
   `ALTER SYSTEM` action wrote `postgresql.auto.conf` but never reloaded, so the
   change silently never applied. The executor now: reloads (`pg_reload_conf`)

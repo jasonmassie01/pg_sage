@@ -276,6 +276,12 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			continue
 		}
 
+		// Anti-oscillation: if pg_sage has already applied this exact
+		// action repeatedly (the object keeps reverting externally), stop.
+		if e.exceedsOscillationLimit(ctx, f, findingID) {
+			continue
+		}
+
 		// Approval mode: queue for approval instead of executing.
 		if e.execMode == "approval" && e.actionStore != nil {
 			if checker, ok := e.actionStore.(PendingActionChecker); ok {
@@ -728,6 +734,50 @@ func (e *Executor) lookupFindingID(
 // maxActionRetries is the maximum number of times the executor
 // will retry a failed action before giving up permanently.
 const maxActionRetries = 3
+
+// oscillationLimit / oscillationWindowDays bound how many times pg_sage
+// will repeat the SAME successful action on an object before backing off.
+// An object that keeps reverting between cycles — e.g. an app re-creating
+// an index pg_sage dropped as redundant — would otherwise churn forever
+// (drop → recreate → drop → …). This is a persistent guard (reads the
+// action log) so it survives restarts, unlike the in-memory cascade
+// cooldown.
+const (
+	oscillationLimit      = 3
+	oscillationWindowDays = 7
+)
+
+// exceedsOscillationLimit reports whether pg_sage has already SUCCESSFULLY
+// executed this exact action enough times recently that repeating it is
+// harmful churn. When it does, the finding is marked acted_on so it stops
+// being re-proposed.
+func (e *Executor) exceedsOscillationLimit(
+	ctx context.Context, f analyzer.Finding, findingID int64,
+) bool {
+	if e.pool == nil || f.RecommendedSQL == "" {
+		return false
+	}
+	var n int
+	if err := e.pool.QueryRow(ctx,
+		`/* pg_sage */ SELECT count(*) FROM sage.action_log
+		 WHERE sql_executed = $1 AND outcome = 'success'
+		   AND executed_at > now() - make_interval(days => $2)`,
+		f.RecommendedSQL, oscillationWindowDays,
+	).Scan(&n); err != nil {
+		return false
+	}
+	if n >= oscillationLimit {
+		e.logFn("executor",
+			"anti-oscillation: already applied %q %d times in %dd — "+
+				"backing off (object reverts externally)",
+			f.Title, n, oscillationWindowDays)
+		_, _ = e.pool.Exec(ctx,
+			`/* pg_sage */ UPDATE sage.findings SET acted_on_at = now()
+			 WHERE id = $1 AND acted_on_at IS NULL`, findingID)
+		return true
+	}
+	return false
+}
 
 // exceedsMaxRetries checks if a finding has already failed more
 // than maxActionRetries times, preventing infinite retry loops.
