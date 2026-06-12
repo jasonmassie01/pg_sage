@@ -1829,7 +1829,9 @@ func buildActionsWhere(from, to time.Time) (string, []any) {
 const actionsSelectSQLPrefix = `SELECT id, executed_at,
  action_type, finding_id, sql_executed, rollback_sql,
  before_state, after_state, outcome, rollback_reason,
- measured_at FROM sage.action_log`
+ measured_at,
+ COUNT(*) OVER (PARTITION BY sql_executed) AS attempts
+ FROM sage.action_log`
 
 const queuedActionLedgerSQL = `/* pg_sage */SELECT q.id, q.finding_id,
  COALESCE(q.action_type, ''), q.proposed_sql, q.rollback_sql,
@@ -1855,12 +1857,13 @@ func scanActionRows(rows pgx.Rows) ([]map[string]any, error) {
 			outcome        string
 			rollbackReason *string
 			measuredAt     *time.Time
+			attempts       int
 		)
 		err := rows.Scan(
 			&id, &executedAt, &actionType, &findingID,
 			&sqlExecuted, &rollbackSQL, &beforeState,
 			&afterState, &outcome, &rollbackReason,
-			&measuredAt,
+			&measuredAt, &attempts,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan action: %w", err)
@@ -1870,12 +1873,28 @@ func scanActionRows(rows pgx.Rows) ([]map[string]any, error) {
 			sqlExecuted, rollbackSQL, beforeState,
 			afterState, outcome, rollbackReason, measuredAt,
 		)
+		a["attempts"] = attempts
+		a["action_risk"] = deriveDisplayActionRisk(sqlExecuted)
 		results = append(results, a)
 	}
 	if results == nil {
 		results = []map[string]any{}
 	}
 	return results, nil
+}
+
+// deriveDisplayActionRisk classifies an executed action's SQL into a risk
+// tier for the UI. Executed actions are always safe/moderate — advisory
+// (high_risk) findings never auto-run, so they don't appear here.
+func deriveDisplayActionRisk(sql string) string {
+	u := strings.ToUpper(strings.TrimSpace(sql))
+	switch {
+	case strings.HasPrefix(u, "ALTER SYSTEM"),
+		strings.HasPrefix(u, "DROP INDEX"):
+		return "moderate"
+	default:
+		return "safe"
+	}
 }
 
 func scanQueuedActionLedgerRows(rows pgx.Rows) ([]map[string]any, error) {
