@@ -261,11 +261,30 @@ func extractColumnsFromDDL(ddl string) []string {
 		col := strings.TrimSpace(part)
 		col = strings.Trim(col, "\"")
 		col = stripSortDirection(col)
+		col = stripOperatorClass(col)
 		if col != "" {
 			cols = append(cols, col)
 		}
 	}
 	return cols
+}
+
+// stripOperatorClass removes a trailing operator-class specifier from an
+// index column entry — e.g. "payload jsonb_path_ops" -> "payload",
+// "embedding vector_l2_ops" -> "embedding". Every Postgres operator class
+// name ends in "_ops", so the strip is precise: it only fires on a bare
+// "<column> <something>_ops" pair, leaving plain columns and expression
+// entries (which contain parentheses) untouched.
+func stripOperatorClass(col string) string {
+	if strings.ContainsAny(col, "()") {
+		return col
+	}
+	fields := strings.Fields(col)
+	if len(fields) == 2 &&
+		strings.HasSuffix(strings.ToLower(fields[1]), "_ops") {
+		return fields[0]
+	}
+	return col
 }
 
 func stripSortDirection(col string) string {

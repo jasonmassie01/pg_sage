@@ -110,6 +110,15 @@ databases:
     sslmode: disable
     tags: [local, docker, timescale, lifeos, legacy]
 
+  - name: pgsage_demo
+    host: 127.0.0.1
+    port: 5436
+    user: postgres
+    password: postgres
+    database: pgsage_demo
+    sslmode: disable
+    tags: [local, docker, demo, showcase]
+
   - name: lifeos_postgres_lifeos
     host: 127.0.0.1
     port: 5440

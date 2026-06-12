@@ -60,6 +60,28 @@
 
 ### Fixed
 
+- **Config reloads can execute.** `SELECT pg_reload_conf()` is now on the
+  executor's SELECT allowlist, so the apply-step after an autonomous
+  `ALTER SYSTEM` actually takes effect instead of failing validation.
+- **No more orphan reload findings.** When an advisor recommendation bundles
+  `ALTER SYSTEM ...; SELECT pg_reload_conf();`, the reload (an apply
+  mechanism the executor performs itself) is dropped from the statement
+  split rather than becoming its own unexecutable finding.
+- **Optimizer index recommendations auto-execute.** LLM index recs
+  (missing/composite/covering/GIN/HNSW) are now deterministically classified
+  `moderate` — `CREATE INDEX CONCURRENTLY` is online and reversible — so
+  they run autonomously under the moderate trust gate instead of being
+  stuck advisory behind the LLM's self-rated `high_risk`. Index DROPs keep
+  their conservative rating.
+- **GIN/HNSW DDL passes validation.** The column-existence check now strips
+  operator-class specifiers (`payload jsonb_path_ops`,
+  `embedding vector_l2_ops`) instead of rejecting them as nonexistent
+  columns.
+- **Optimizer indexes no longer self-destruct.** The INCLUDE-upgrade path
+  consumed `drop_ddl` — which doubles as the new index's own rollback — and
+  dropped the index it had just created. A self-reference guard now skips
+  the upgrade drop when it targets the newly created index; rollback remains
+  the job of the post-action monitor.
 - **Subset-index drops are advisory now.** A leading-prefix "subset" index
   (`(c1)` covered by `(c1, c2)`) is no longer auto-dropped — it's a judgment
   call (read-perf trade-off, and apps that re-create their own indexes turn an
