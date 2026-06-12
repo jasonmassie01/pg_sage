@@ -222,25 +222,30 @@ func (m *DatabaseManager) setEmergencyStopped(
 		if name != "" && name != n {
 			continue
 		}
-		if inst.Stopped != stopped {
-			if inst.Pool != nil {
-				ctx, cancel := context.WithTimeout(
-					context.Background(), 5*time.Second,
-				)
-				err := executor.SetEmergencyStop(ctx, inst.Pool, stopped)
-				cancel()
-				if err != nil {
-					return changed, fmt.Errorf(
-						"persisting emergency stop for %s: %w", n, err)
-				}
+		// Always reconcile the persistent flag (sage.config) with the
+		// target, even when the in-memory state already matches. After a
+		// restart the in-memory state resets to "running" while the
+		// persisted flag may still be "stopped"; gating the write on the
+		// in-memory state left resume unable to clear it.
+		if inst.Pool != nil {
+			ctx, cancel := context.WithTimeout(
+				context.Background(), 5*time.Second,
+			)
+			err := executor.SetEmergencyStop(ctx, inst.Pool, stopped)
+			cancel()
+			if err != nil {
+				return changed, fmt.Errorf(
+					"persisting emergency stop for %s: %w", n, err)
 			}
-			inst.Stopped = stopped
-			changed++
+		}
+		if inst.Stopped != stopped {
 			if stopped {
 				log.Printf("fleet: %s: emergency stop", n)
 			} else {
 				log.Printf("fleet: %s: resumed", n)
 			}
+			inst.Stopped = stopped
+			changed++
 		}
 	}
 	return changed, nil

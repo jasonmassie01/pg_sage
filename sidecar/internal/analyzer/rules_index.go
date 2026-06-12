@@ -359,7 +359,7 @@ func subsetFinding(
 ) Finding {
 	return Finding{
 		Category:         "duplicate_index",
-		Severity:         "critical",
+		Severity:         "info",
 		ObjectType:       "index",
 		ObjectIdentifier: subIdent,
 		Title: fmt.Sprintf(
@@ -371,12 +371,18 @@ func subsetFinding(
 			"subset_def":   sub.IndexDef,
 			"superset_def": sup.IndexDef,
 		},
-		Recommendation: "Drop subset index; the larger index covers it.",
+		Recommendation: "Subset index — likely covered by the larger index, " +
+			"but a dedicated narrow index can still be faster and may be " +
+			"app-managed. Review before dropping.",
 		RecommendedSQL: fmt.Sprintf(
 			"DROP INDEX CONCURRENTLY %s;", subIdent,
 		),
 		RollbackSQL: sub.IndexDef + ";",
-		ActionRisk:  "safe",
+		// Advisory only: a leading-prefix subset drop is a judgment call
+		// (read-perf trade-off, and apps that re-create their own indexes
+		// turn an auto-drop into an oscillation). high_risk never
+		// auto-executes — exact-duplicate drops stay auto (safe).
+		ActionRisk: "high_risk",
 	}
 }
 
