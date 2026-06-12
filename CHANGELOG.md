@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Actions UI shows attempts + risk.** The executed-actions table now shows an Attempts column (how many times pg_sage tried an action — surfacing retries that were previously only in the log) and a Risk badge (safe/moderate auto-run; advisory is recommend-only).
 - **Restart from the UI.** Settings now shows that some settings (trust tiers,
   maintenance window, execution mode, intervals) take effect only after a
   restart, with a **Restart now** button. `POST /api/v1/restart` (admin) exits

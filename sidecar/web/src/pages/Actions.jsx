@@ -248,6 +248,33 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
         )
       },
     },
+    {
+      key: 'action_risk', label: 'Risk',
+      render: r => {
+        const risk = actionRisk(r)
+        const c = { safe: 'var(--green)', moderate: '#b58900',
+          high_risk: 'var(--red)' }[risk] || 'var(--text-secondary)'
+        return (
+          <span className="px-2 py-0.5 rounded-full text-xs font-medium
+            inline-block"
+            title="safe/moderate auto-run; advisory is recommend-only"
+            style={{ border: `1px solid ${c}`, color: c }}>
+            {risk === 'high_risk' ? 'advisory' : (risk || 'safe')}
+          </span>
+        )
+      },
+    },
+    ...(actions.some(r => Number(r.attempts) > 1)
+      ? [{
+        key: 'attempts', label: 'Attempts',
+        render: r => {
+          const n = Number(r.attempts) || 1
+          return n > 1
+            ? <span title="times pg_sage attempted this action"
+                style={{ color: 'var(--amber, #b58900)' }}>{n}×</span>
+            : <span style={{ color: 'var(--text-secondary)' }}>1</span>
+        },
+      }] : []),
     ...(actions.some(r => r.verification_status)
       ? [{
         key: 'verification_status', label: 'Verification',
