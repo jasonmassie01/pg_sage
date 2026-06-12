@@ -61,32 +61,62 @@ func parseLLMFindings(
 		rationale, _ := rec["rationale"].(string)
 		recSQL, _ := rec["recommended_sql"].(string)
 
-		// Doc-grounded validation (A3): drop any ALTER SYSTEM value the
-		// LLM proposed that falls outside the documented safe range.
-		if ok, reason := ValidateConfigSQL(recSQL); !ok {
-			if logFn != nil {
-				logFn("advisor", "rejecting recommendation: %s", reason)
-			}
-			continue
+		// A single recommendation may carry several config statements (e.g.
+		// WAL tuning sets checkpoint_timeout, max_wal_size, min_wal_size).
+		// Split them so each is an atomic, individually validated and
+		// reloadable action — the executor rejects multi-statement SQL. A
+		// single statement keeps its original shape (no behavior change).
+		stmts := splitSQLStatements(recSQL)
+		multi := len(stmts) > 1
+		if !multi {
+			stmts = []string{recSQL}
 		}
+		for _, stmt := range stmts {
+			// Doc-grounded validation (A3): drop any ALTER SYSTEM value the
+			// LLM proposed that falls outside the documented safe range.
+			if ok, reason := ValidateConfigSQL(stmt); !ok {
+				if logFn != nil {
+					logFn("advisor", "rejecting recommendation: %s", reason)
+				}
+				continue
+			}
 
-		risk := deriveActionRisk(recSQL)
+			oid := objID
+			title := fmt.Sprintf("%s recommendation for %s", category, objID)
+			if multi {
+				if param, _, ok := parseAlterSystemSet(stmt); ok {
+					oid = objID + ":" + param
+					title = fmt.Sprintf("%s: set %s", category, param)
+				}
+			}
 
-		findings = append(findings, analyzer.Finding{
-			Category:         category,
-			Severity:         severity,
-			ObjectType:       "configuration",
-			ObjectIdentifier: objID,
-			Title: fmt.Sprintf(
-				"%s recommendation for %s", category, objID,
-			),
-			Detail:         rec,
-			Recommendation: rationale,
-			RecommendedSQL: recSQL,
-			ActionRisk:     risk,
-		})
+			findings = append(findings, analyzer.Finding{
+				Category:         category,
+				Severity:         severity,
+				ObjectType:       "configuration",
+				ObjectIdentifier: oid,
+				Title:            title,
+				Detail:           rec,
+				Recommendation:   rationale,
+				RecommendedSQL:   stmt,
+				ActionRisk:       deriveActionRisk(stmt),
+			})
+		}
 	}
 	return findings
+}
+
+// splitSQLStatements splits a recommendation into individual statements,
+// preserving a single statement unchanged. Each returned statement ends
+// with a semicolon so it is a complete, single-statement action.
+func splitSQLStatements(sql string) []string {
+	var out []string
+	for _, s := range strings.Split(sql, ";") {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s+";")
+		}
+	}
+	return out
 }
 
 // deriveActionRisk returns the risk level for a recommended SQL

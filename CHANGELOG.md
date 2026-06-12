@@ -59,6 +59,19 @@
 
 ### Fixed
 
+- **Subset-index drops are advisory now.** A leading-prefix "subset" index
+  (`(c1)` covered by `(c1, c2)`) is no longer auto-dropped — it's a judgment
+  call (read-perf trade-off, and apps that re-create their own indexes turn an
+  auto-drop into churn). It's surfaced as info/advisory; exact-duplicate index
+  drops remain automatic.
+- **Multi-statement config recommendations are split.** An advisor
+  recommendation carrying several `ALTER SYSTEM` statements (e.g. WAL tuning) is
+  split into one atomic, individually-validated action per parameter, instead
+  of being rejected by the executor as multi-statement SQL.
+- **Resume now works after a restart.** Resuming reconciled only the in-memory
+  state, so after a restart (in-memory "running", persisted flag "stopped")
+  resume couldn't clear the persisted `emergency_stop`. It now always
+  reconciles the persisted flag.
 - **Anti-oscillation guard.** If pg_sage applies the same successful action
   to an object repeatedly (e.g. dropping an index an app keeps re-creating),
   it now backs off after a few cycles and marks the finding acted-on, instead
