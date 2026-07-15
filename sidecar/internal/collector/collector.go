@@ -161,8 +161,15 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	if snap.System, err = c.collectSystem(ctx); err != nil {
 		return nil, err
 	}
+	// Non-fatal: pg_locks rows for non-client backends (autovacuum
+	// workers, replication workers) or advisory locks routinely carry
+	// NULL in columns such as state/wait_event/relname. A single such
+	// row must not abort the entire snapshot cycle, which would
+	// silently halt all stats collection (H1/H2) on any actively-used
+	// database. Match the WARN-and-continue behavior of the sibling
+	// collectors below.
 	if snap.Locks, err = c.collectLocks(ctx); err != nil {
-		return nil, err
+		c.logFn("WARN", "locks collection failed: %v", err)
 	}
 	if snap.Sequences, err = c.collectSequences(ctx); err != nil {
 		return nil, err
