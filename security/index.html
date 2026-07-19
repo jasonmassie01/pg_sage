@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -1282,25 +1282,29 @@ sidecar role ownership/write privileges:</p>
 <tr>
 <td><strong>advisory</strong></td>
 <td>Configured</td>
-<td>Queue or execute SAFE actions based on policy</td>
+<td>Auto executes eligible typed SAFE actions; higher risk queues</td>
 </tr>
 <tr>
 <td><strong>autonomous</strong></td>
 <td>Configured</td>
-<td>SAFE + approved MODERATE actions, bounded by maintenance windows</td>
+<td>Auto executes eligible typed SAFE/MODERATE actions; HIGH queues</td>
 </tr>
 </tbody>
 </table>
 <p>HIGH-risk actions always require manual approval, regardless of trust level.</p>
 <p>The executor checks all of these gates before acting:</p>
 <ol>
-<li>Trust level matches the action's risk category</li>
-<li>Trust ramp timeline has been met</li>
-<li>Per-tier toggles are enabled</li>
-<li>Maintenance window is active (if configured)</li>
-<li>Emergency stop is not set</li>
+<li>Execution mode is explicitly <code>auto</code> for automatic mutation</li>
+<li>The per-database executor is enabled</li>
+<li>Trust level matches the typed action contract's risk category</li>
+<li>Trust ramp timeline and per-tier toggles have been met</li>
+<li>Maintenance window is active when the contract requires it</li>
+<li>Emergency Stop is not set</li>
 <li>Database is not a replica</li>
 </ol>
+<p><code>manual</code> disables all background queueing and execution at every trust level;
+trust never promotes it to <code>auto</code>. Emergency Stop and executor disablement are
+rechecked for each candidate and immediately before the mutating SQL call.</p>
 <hr />
 <h2 id="advisory-lock">Advisory Lock<a class="headerlink" href="#advisory-lock" title="Permanent link">&para;</a></h2>
 <p>pg_sage acquires PostgreSQL advisory lock <code>710190109</code> (<code>hashtext('pg_sage')</code>) at startup. This prevents multiple sidecar instances from running against the same database simultaneously. If the lock is held, the sidecar waits or exits.</p>
@@ -1486,7 +1490,7 @@ to the API/dashboard listener to trusted networks.</p>
       <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

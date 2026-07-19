@@ -19,7 +19,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -27,7 +27,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -601,6 +601,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#live-mutation-authority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Live Mutation Authority
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#tuning-hints-and-query-recommendations" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -852,7 +863,7 @@ hash, never the bearer secret.</p>
 <p>Failed token validation writes <code>ping_token_failed</code> audit events with only a hash
 prefix. Repeated failures for the same deployment/token hash return HTTP <code>429</code>.</p>
 <h2 id="enterprise-policy-gates">Enterprise Policy Gates<a class="headerlink" href="#enterprise-policy-gates" title="Permanent link">&para;</a></h2>
-<p>Deployment requests are policy-scored before provisioning:</p>
+<p>Deployment requests are policy-scored before planning:</p>
 <ul>
 <li>Missing <code>tenant_id</code> or <code>agent_id</code> is denied.</li>
 <li>Restricted, production, PII, PHI, or PCI data without <code>masking_policy_id</code> is
@@ -862,8 +873,34 @@ prefix. Repeated failures for the same deployment/token hash return HTTP <code>4
 <li>Cloud instance requests without <code>budget_usd</code> are routed to review.</li>
 <li><code>approval_sla_seconds</code> is preserved as a policy reason for review queues.</li>
 </ul>
-<p>These gates are heuristics intended to be LLM-enriched later, but they are
-deterministic enough to enforce enterprise guardrails in API and UI flows today.</p>
+<p>These intake gates do not authorize provider mutation. Live create and destroy
+use a separate four-layer effective policy: runtime capability, global hard
+ceilings, persisted provider policy, and authorization for the exact operation.
+Every layer must be present and current. The resolver intersects allowlists and
+uses the narrowest TTL, cost, networking, backup, and execution-mode limits;
+provider settings cannot widen global policy. Provider policy mutation is
+admin-only.</p>
+<p><code>manual</code> denies live provider mutation. <code>approval</code> requires an administrator to
+issue the operation authorization. <code>auto_within_policy</code> also requires a
+high-confidence current cost estimate with no unknown components. Missing or
+stale policy, an unavailable runner, and unknown providers fail closed.</p>
+<h2 id="live-mutation-authority">Live Mutation Authority<a class="headerlink" href="#live-mutation-authority" title="Permanent link">&para;</a></h2>
+<p>Live execution is a two-step server-owned flow:</p>
+<ol>
+<li>An administrator calls
+   <code>POST /api/v1/agent-dbs/{id}/provision/authorize-live</code> with <code>operation</code> set
+   to <code>create</code> or <code>destroy</code> and an <code>Idempotency-Key</code>.</li>
+<li>pg_sage normalizes and hashes the deployment plan, issues a cost estimate,
+   resolves current policy, and persists the plan, estimate, policy generation,
+   requester, authorization, nonce, and idempotency tuple.</li>
+<li>The matching execute or destroy request supplies only the returned
+   <code>plan_hash</code>, <code>estimate_id</code>, <code>authorization_id</code>, and idempotency key.</li>
+</ol>
+<p>Create and destroy require separate authorization. Records have
+single-consumption semantics: an exact retry returns the stored receipt without
+calling the provider again, while a changed requester or tuple fails. Client
+claims such as <code>approved</code>, estimated cost, actor, policy, or override text do not
+grant authority.</p>
 <h2 id="tuning-hints-and-query-recommendations">Tuning, Hints, and Query Recommendations<a class="headerlink" href="#tuning-hints-and-query-recommendations" title="Permanent link">&para;</a></h2>
 <p>Use deployment metadata to publish tuning context:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span>
@@ -886,8 +923,29 @@ query tuning recommendations that an agent can consume and feed back through
   <code>restore_verified</code> backup exists.</li>
 <li><code>POST /cost-samples</code> records usage or provider cost samples.</li>
 <li><code>GET /cost</code> returns budget state and budget action.</li>
-<li>Expired leases are archived by <code>POST /api/v1/agent-dbs/cleanup</code>.</li>
+<li>Expired leases are archived by <code>POST /api/v1/agent-dbs/cleanup</code> through a
+  durable compare-and-swap cleanup claim. A lease renewal invalidates an
+  outstanding expiry claim before any provider mutation. Cleanup revalidates
+  the lease, deployment lifecycle version, provisioning policy fields, and
+  restore-verified backup immediately before it authorizes destruction.</li>
+<li>Concurrent cleanup controllers may discover the same fleet, but a deployment
+  can have only one active teardown operation. Provider retries reuse the
+  stored teardown operation ID, and a second controller cannot authorize the
+  same lifecycle version.</li>
 </ul>
+<p>The running binary schedules lifecycle and live-status reconciliation at
+<code>agentdb.reconcile_interval_seconds</code> (300 seconds by default). After a pass it
+registers eligible active deployments with inline connection credentials into
+the fleet collector. Deployments backed only by a <code>secret_ref</code> are skipped;
+the AgentDB fleet path currently collects snapshots but does not attach the
+analyzer or executor pipeline.</p>
+<p>Durable monitoring work primitives are also schema-backed. Scheduling scans at
+most 10,000 deployment rows, groups them into at most 100 physical targets per
+pass, and enqueues lightweight SQL-probe work. Claims are leased, bounded to 100 per batch,
+respect global/provider/tenant/deployment concurrency policy, and expose only a
+secret reference for just-in-time resolution. The runtime worker that calls the
+scheduler and completes these claims is not wired yet, so this queue is an
+implemented contract rather than an active adaptive monitoring loop.</p>
 <p>Live cloud setup, credential requirements, provider settings, and cleanup
 commands are documented in
 <a href="../runbooks/agentdb-cloud-provider-setup/">AgentDB Cloud Provider Setup</a>.</p>
@@ -987,7 +1045,7 @@ commands are documented in
       <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

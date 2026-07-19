@@ -19,7 +19,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -27,7 +27,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -807,10 +807,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#44-live-provisioning-policy-gate-provider_policygo" class="md-nav__link">
+  <a href="#44-live-provisioning-policy-and-authority" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4.4 Live provisioning policy gate (provider_policy.go)
+        4.4 Live provisioning policy and authority
       
     </span>
   </a>
@@ -857,10 +857,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#52-does-it-flow-into-the-fleet-no" class="md-nav__link">
+  <a href="#52-fleet-collector-integration-partial" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5.2 Does it flow into the fleet? — NO
+        5.2 Fleet collector integration (partial)
       
     </span>
   </a>
@@ -868,10 +868,21 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#53-lifecycle-reconciliation-live-logic-not-scheduled-here" class="md-nav__link">
+  <a href="#53-lifecycle-reconciliation-scheduled-live-logic" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5.3 Lifecycle reconciliation (LIVE logic, not scheduled here)
+        5.3 Lifecycle reconciliation (scheduled LIVE logic)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-durable-monitoring-work-implemented-worker-not-wired" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Durable monitoring work (implemented, worker not wired)
       
     </span>
   </a>
@@ -1016,7 +1027,7 @@ transition returns <code>ErrInvalid</code> — the state machine is real, not ad
 <tr>
 <td><code>ExecuteProvisionLive</code></td>
 <td><code>execute_live</code></td>
-<td>rejects nil/<code>dry_run</code> runner; <strong>requires <code>CostEstimateID</code></strong>; only from <code>preflight_passed</code>/<code>failed</code>/<code>dry_run_ready</code>/<code>status_checked</code>; records a creation receipt</td>
+<td>rejects nil/<code>dry_run</code> runner; requires the exact persisted plan, estimate, policy generation, authorization, requester, and idempotency tuple; records a creation receipt</td>
 </tr>
 <tr>
 <td><code>CheckProvisionStatus</code> / <code>...Live</code></td>
@@ -1031,7 +1042,7 @@ transition returns <code>ErrInvalid</code> — the state machine is real, not ad
 <tr>
 <td><code>DestroyProvisionLive</code></td>
 <td><code>destroy_live</code></td>
-<td>requires verified-restore backup; only from <code>available</code>/<code>status_checked</code>/<code>dry_run_ready</code></td>
+<td>requires a separate exact-operation authorization and verified-restore backup; only from <code>available</code>/<code>status_checked</code>/<code>dry_run_ready</code></td>
 </tr>
 <tr>
 <td><code>CheckBackupAssurance[Live]</code> (<code>backup_assurance.go</code>)</td>
@@ -1107,11 +1118,11 @@ prefix guard). Identifiers are always quoted via <code>quoteIdent</code> for loc
 </table>
 <p>If a flag is set but creds are missing, the runner is silently <strong>not</strong> registered, so
 the registry returns the dry-run fallback. The default (no env) registry is pure dry-run.</p>
-<p>A <em>second</em> gate lives in the HTTP layer: <code>ExecuteProvisionLive</code> is only reached when the
-request body says <code>mode=live</code> AND <code>EvaluateLiveProvisionPolicy</code> passes against the
-provider config (<code>agent_db_execution_handlers.go:32-65, 95-113</code>). So live provisioning
-requires: env flags + creds <strong>and</strong> an enabled provider config with allowlists/TTL/cost
-caps satisfied.</p>
+<p>Live execution is reached only after the admin-only <code>POST
+/{id}/provision/authorize-live</code> endpoint persists a server-owned plan, estimate,
+effective policy generation, operation authorization, requester, nonce, and idempotency
+tuple. The subsequent create or destroy request must repeat the exact returned identity.
+Client-supplied approval, actor, cost, policy, and override claims do not grant authority.</p>
 <h3 id="22-aws-rds-aws_rds_runnergo-live-real-sdk">2.2 AWS RDS (<code>aws_rds_runner.go</code>) — LIVE (real SDK)<a class="headerlink" href="#22-aws-rds-aws_rds_runnergo-live-real-sdk" title="Permanent link">&para;</a></h3>
 <p>Uses <code>aws-sdk-go-v2</code> <code>rds</code> client. <code>Create</code> calls <code>CreateDBInstance</code> with
 <code>ManageMasterUserPassword=true</code> (so the master secret is an AWS Secrets Manager ARN,
@@ -1185,8 +1196,11 @@ the full DDL set on first use and seeds default size profiles. Tables:
 <code>agent_db_blueprints</code>, <code>agent_db_size_profiles</code>, <code>agent_db_pings</code>,
 <code>agent_db_ping_tokens</code>, <code>agent_db_ping_token_failures</code>, <code>agent_db_recommendations</code>,
 <code>agent_db_cost_samples</code>, <code>agent_db_backups</code>, <code>agent_db_tuning_hints</code>,
-<code>agent_db_provision_attempts</code>, <code>agent_db_audit</code>, <code>agent_db_deploy_requests</code>. Child tables
-FK to deployments with <code>ON DELETE CASCADE</code>.</p>
+<code>agent_db_provision_attempts</code>, <code>agent_db_audit</code>, <code>agent_db_deploy_requests</code>,
+<code>agent_db_live_plans</code>, <code>agent_db_live_estimates</code>, <code>agent_db_live_authorizations</code>,
+<code>agent_db_live_receipts</code>, <code>agent_db_monitoring_policies</code>,
+<code>agent_db_monitoring_state</code>, and <code>agent_db_monitoring_work</code>. Child tables FK to
+deployments with <code>ON DELETE CASCADE</code> where applicable.</p>
 <hr />
 <h2 id="4-agent-requests-deployment-flow-approval-cost-policy-gates">4. Agent Requests → Deployment Flow; Approval, Cost, Policy Gates<a class="headerlink" href="#4-agent-requests-deployment-flow-approval-cost-policy-gates" title="Permanent link">&para;</a></h2>
 <h3 id="41-request-intake-policy-decision">4.1 Request intake + policy decision<a class="headerlink" href="#41-request-intake-policy-decision" title="Permanent link">&para;</a></h3>
@@ -1221,11 +1235,20 @@ at 90%/<code>hard_limit</code>), and <code>applyBudgetStatus</code> (<code>opera
 deployment to <code>budget_exceeded</code> when cost samples cross the hard limit. Cost samples are
 agent-reported via <code>AddCostSample</code> — there is <strong>no automatic metering</strong>; chargeback is
 self-reported.</p>
-<h3 id="44-live-provisioning-policy-gate-provider_policygo">4.4 Live provisioning policy gate (<code>provider_policy.go</code>)<a class="headerlink" href="#44-live-provisioning-policy-gate-provider_policygo" title="Permanent link">&para;</a></h3>
-<p><code>EvaluateLiveProvisionPolicy</code> is the strict pre-flight for live creates: global enable,
-provider enable, TTL required + under max, public-IP allowlist, region/account/project/
-workspace allowlists (<code>*</code> wildcard supported), max estimated cost, low-confidence review,
-admin-override note. This runs in the HTTP handler before <code>ExecuteProvisionLive</code>.</p>
+<h3 id="44-live-provisioning-policy-and-authority">4.4 Live provisioning policy and authority<a class="headerlink" href="#44-live-provisioning-policy-and-authority" title="Permanent link">&para;</a></h3>
+<p><code>ResolveEffectiveLiveProvisionPolicy</code> is fail-closed across runtime runner capability,
+global hard ceilings, persisted provider policy, and exact-operation authorization. It
+intersects allowlists and takes the narrowest positive TTL/cost limits. Missing,
+unreadable, stale, or provider-mismatched layers deny execution. <code>manual</code> denies provider
+mutation; <code>auto_within_policy</code> additionally requires a high-confidence current estimate
+with no unknown cost components. Provider settings can narrow but never widen global
+policy, and provider-policy mutation is admin-only.</p>
+<p><code>IssueLiveExecutionRecords</code> normalizes the size profile/provider parameters into an
+immutable hashed plan. The estimate, pricing revision, policy hash/generation,
+authorization nonce, authenticated requester, and idempotency key are persisted before
+execution. Create and destroy authorizations are distinct and single-consumption. An
+exact replay returns its stored receipt; any mismatched replay fails without a provider
+call.</p>
 <h3 id="45-deploy-requests-schema-change-review-deploy_requestsgo">4.5 Deploy requests (schema-change review, <code>deploy_requests.go</code>)<a class="headerlink" href="#45-deploy-requests-schema-change-review-deploy_requestsgo" title="Permanent link">&para;</a></h3>
 <p>Distinct from <em>provisioning</em>: a <code>DeployRequest</code> is a reviewed schema migration <em>against</em>
 an agent DB. <code>draft → review_requested → approved|denied</code>. Gate results record
@@ -1244,24 +1267,31 @@ brute-force lockout (5 failures / 5 min → <code>ErrRateLimited</code>, <code>i
 <code>POST /api/v1/agent-dbs/{id}/agent-ping</code> is the <strong>only</strong> AgentDB route not behind
 admin/operator role (<code>agent_db_handlers.go:26-29</code>) — it is token-authenticated for the
 agent itself.</p>
-<h3 id="52-does-it-flow-into-the-fleet-no">5.2 Does it flow into the fleet? — NO<a class="headerlink" href="#52-does-it-flow-into-the-fleet-no" title="Permanent link">&para;</a></h3>
-<p>Searched <code>internal/fleet</code> for any AgentDB linkage: <strong>none</strong>. Agent-deployed databases are
-<strong>not</strong> registered into <code>fleet.DatabaseManager</code>, are not collected/analyzed by the Tier-1
-rules engine, and do not appear in <code>/api/v1/databases</code>. The AgentDB subsystem is a
-self-contained provisioning/lifecycle ledger. "Monitoring" of an agent DB means: the agent
-pings liveness, reports cost samples, and receives <code>recommendations</code>/<code>tuning_hints</code> stored
-in <code>agent_db_*</code> tables (<code>operations.go</code>, <code>tuning.go</code>) — it is <strong>not</strong> the continuous
-collector/analyzer pipeline that the sidecar runs against its primary fleet.</p>
-<h3 id="53-lifecycle-reconciliation-live-logic-not-scheduled-here">5.3 Lifecycle reconciliation (LIVE logic, not scheduled here)<a class="headerlink" href="#53-lifecycle-reconciliation-live-logic-not-scheduled-here" title="Permanent link">&para;</a></h3>
+<h3 id="52-fleet-collector-integration-partial">5.2 Fleet collector integration (partial)<a class="headerlink" href="#52-fleet-collector-integration-partial" title="Permanent link">&para;</a></h3>
+<p>After lifecycle reconciliation, <code>syncAgentDBsToFleet</code> registers active deployments that
+carry inline host/database connection information under an <code>agentdb:</code> fleet name. It
+starts a collector and exposes snapshot-level fleet visibility. Deployments whose
+credentials are represented only by <code>secret_ref</code> are skipped because runtime secret
+resolution is not wired into this path. The analyzer and executor are also not attached,
+so this does not grant autonomous mutation authority.</p>
+<h3 id="53-lifecycle-reconciliation-scheduled-live-logic">5.3 Lifecycle reconciliation (scheduled LIVE logic)<a class="headerlink" href="#53-lifecycle-reconciliation-scheduled-live-logic" title="Permanent link">&para;</a></h3>
 <p><code>ReconcileAbandonedDeployments</code> (<code>lifecycle.go:9-73</code>) archives lease-expired deployments
 (<code>ArchiveExpired</code>) then, for cloud instances, attempts live destroy (if live runner +
 live mode + destroyable status) or dry-run destroy, recording <code>Blocked</code> entries when a
 verified restore is required or the runner is unavailable. <code>ReconcileLiveProvisioning</code>
-(<code>lifecycle.go:93-172</code>) takes a <code>pg_try_advisory_lock</code>, sweeps in-flight states
-(<code>provisioning</code>/<code>destroying</code>/<code>status_unknown</code>), and reconciles against the provider's
-live status. <strong>No goroutine/cron in <code>cmd/</code> calls these</strong> (grep of <code>cmd/</code> for <code>agentdb</code>
-returns nothing) — reconciliation logic exists and is tested but is not yet scheduled by
-the running binary; it would need an external trigger or future wiring.</p>
+sweeps in-flight states (<code>provisioning</code>/<code>destroying</code>/<code>status_unknown</code>) and reconciles
+against provider live status. <code>startAgentDBReconciler</code> schedules both paths at
+<code>agentdb.reconcile_interval_seconds</code> (300 seconds by default), then runs the partial fleet
+sync described above. Expiry uses durable compare-and-swap claims; renewal invalidates a
+stale claim and concurrent reconcilers cannot authorize two provider mutations for one
+lifecycle version.</p>
+<h3 id="54-durable-monitoring-work-implemented-worker-not-wired">5.4 Durable monitoring work (implemented, worker not wired)<a class="headerlink" href="#54-durable-monitoring-work-implemented-worker-not-wired" title="Permanent link">&para;</a></h3>
+<p><code>ScheduleMonitoring</code> persists <code>light_sql_probe</code> work after scanning at most 10,000 rows and grouping
+at most 100 physical targets per pass. <code>ClaimMonitoringWork</code> issues bounded leases (100
+maximum), reclaims expired leases with row locks, and enforces global, provider, tenant,
+and deployment concurrency policy. Claims carry <code>secret_ref</code>, not resolved credentials,
+for just-in-time secret acquisition. No running worker currently calls the scheduler,
+executes probes, escalates to costlier tiers, or completes the claims.</p>
 <hr />
 <h2 id="6-governance-security-chargeback-archival-today-vs-absent">6. Governance / Security / Chargeback / Archival — Today vs Absent<a class="headerlink" href="#6-governance-security-chargeback-archival-today-vs-absent" title="Permanent link">&para;</a></h2>
 <h3 id="present-today-live">Present today (LIVE)<a class="headerlink" href="#present-today-live" title="Permanent link">&para;</a></h3>
@@ -1295,9 +1325,9 @@ the running binary; it would need an external trigger or future wiring.</p>
 </ul>
 <h3 id="absent-scaffolding">Absent / scaffolding<a class="headerlink" href="#absent-scaffolding" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>No fleet/monitoring integration</strong> of agent DBs (see §5.2).</li>
 <li><strong>No Terraform execution</strong> — only render/policy/manifest (see §3.4).</li>
-<li><strong>No scheduled reconciliation</strong> in the running binary (see §5.3).</li>
+<li><strong>No runtime consumer for durable monitoring work</strong> (see §5.4).</li>
+<li><strong>No analyzer/executor attachment for AgentDB fleet entries</strong> (see §5.2).</li>
 <li><strong>No async provisioning queue</strong> — <code>queued/cancelling</code> states are declared but unused.</li>
 <li><strong>No data masking enforcement</strong> — masking is a request precondition only (§4.1).</li>
 <li><strong>No real restore-drill / data archival</strong> (§ Archival above).</li>
@@ -1309,7 +1339,9 @@ the running binary; it would need an external trigger or future wiring.</p>
 workspace tabs, provisioning panels, form controls, and section views over the REST API.
 This is the primary management surface (consistent with the project's web-UI-first
 direction). It surfaces requests, deployments, blueprints, templates, provider configs,
-provision attempts, cost/budget, backups, and audit — i.e. the ledger, not a live monitor.</p>
+provision attempts, cost/budget, backups, and audit. Runtime monitoring is partial:
+eligible inline-credential deployments receive fleet snapshots, while durable monitoring
+work has no worker and the analyzer/executor pipeline is not attached.</p>
 
 
 
@@ -1368,7 +1400,7 @@ provision attempts, cost/budget, backups, and audit — i.e. the ledger, not a l
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

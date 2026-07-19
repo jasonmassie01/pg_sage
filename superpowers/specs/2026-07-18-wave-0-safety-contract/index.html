@@ -10,7 +10,7 @@
       
       
       
-        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/superpowers/plans/2026-05-09-agentdb-lifecycle-controller/">
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/superpowers/specs/2026-07-18-wave-0-safety-contract/">
       
       
       
@@ -23,7 +23,7 @@
     
     
       
-        <title>Agent DB Lifecycle Controller Implementation Plan - pg_sage</title>
+        <title>Wave 0 Safety Contract - pg_sage</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#agent-db-lifecycle-controller-implementation-plan" class="md-skip">
+        <a href="#wave-0-safety-contract" class="md-skip">
           Skip to content
         </a>
       
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Agent DB Lifecycle Controller Implementation Plan
+              Wave 0 Safety Contract
             
           </span>
         </div>
@@ -546,10 +546,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#file-structure" class="md-nav__link">
+  <a href="#execution-authority" class="md-nav__link">
     <span class="md-ellipsis">
       
-        File Structure
+        Execution authority
       
     </span>
   </a>
@@ -557,10 +557,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#task-1-backend-lifecycle-domain-tests" class="md-nav__link">
+  <a href="#canonical-control-state" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Task 1: Backend Lifecycle Domain Tests
+        Canonical control state
       
     </span>
   </a>
@@ -568,10 +568,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#task-2-backend-lifecycle-implementation" class="md-nav__link">
+  <a href="#agentdb-policy-and-lifecycle" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Task 2: Backend Lifecycle Implementation
+        AgentDB policy and lifecycle
       
     </span>
   </a>
@@ -579,10 +579,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#task-3-api-tests-and-routes" class="md-nav__link">
+  <a href="#agentdb-monitoring" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Task 3: API Tests And Routes
+        AgentDB monitoring
       
     </span>
   </a>
@@ -590,10 +590,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#task-4-ui-lifecycle-controls" class="md-nav__link">
+  <a href="#product-surface" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Task 4: UI Lifecycle Controls
+        Product surface
       
     </span>
   </a>
@@ -601,10 +601,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#task-5-full-verification" class="md-nav__link">
+  <a href="#configuration-lifecycle" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Task 5: Full Verification
+        Configuration lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wave-1-acceptance-gates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Wave 1 acceptance gates
       
     </span>
   </a>
@@ -631,158 +642,111 @@
   
 
 
-<h1 id="agent-db-lifecycle-controller-implementation-plan">Agent DB Lifecycle Controller Implementation Plan<a class="headerlink" href="#agent-db-lifecycle-controller-implementation-plan" title="Permanent link">&para;</a></h1>
-<blockquote>
-<p><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (<code>- [ ]</code>) syntax for tracking.</p>
-</blockquote>
-<p><strong>Goal:</strong> Add the next Agent DB slice: cloud status dry-runs, destroy dry-runs, and abandoned deployment reconciliation without live cloud mutation.</p>
-<p><strong>Architecture:</strong> Reuse the existing Agent DB deployment, provisioning plan, and provision attempts model. Cloud providers remain dry-run/manual-review only; lifecycle actions record durable attempts and update pg_sage metadata while protecting backup-required deployments from deletion planning until restore verification exists.</p>
-<p><strong>Tech Stack:</strong> Go, pgx/PostgreSQL, net/http, React, Vitest, Playwright.</p>
-<hr />
-<h2 id="file-structure">File Structure<a class="headerlink" href="#file-structure" title="Permanent link">&para;</a></h2>
+<h1 id="wave-0-safety-contract">Wave 0 Safety Contract<a class="headerlink" href="#wave-0-safety-contract" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> Accepted for Wave 1 implementation
+<strong>Date:</strong> 2026-07-18</p>
+<p>This document fixes the safety semantics that Wave 1 must enforce. It is the
+decision source for current remediation work; it does not claim that later-wave
+operational changes are already implemented.</p>
+<h2 id="execution-authority">Execution authority<a class="headerlink" href="#execution-authority" title="Permanent link">&para;</a></h2>
+<p><code>execution_mode</code> and <code>trust_level</code> are independent controls. Authority is the
+intersection of both controls, never the more permissive of the two.</p>
+<table>
+<thead>
+<tr>
+<th>Trust level</th>
+<th><code>manual</code></th>
+<th><code>approval</code></th>
+<th><code>auto</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>observation</code></td>
+<td>Record cases only</td>
+<td>Record cases only</td>
+<td>Record cases only</td>
+</tr>
+<tr>
+<td><code>advisory</code></td>
+<td>No background queueing or execution</td>
+<td>Queue supported actions</td>
+<td>Execute safe eligible actions; queue higher-risk supported actions</td>
+</tr>
+<tr>
+<td><code>autonomous</code></td>
+<td>No background queueing or execution</td>
+<td>Queue supported actions</td>
+<td>Execute safe and moderate eligible actions; queue high-risk supported actions</td>
+</tr>
+</tbody>
+</table>
+<p>Additional rules:</p>
 <ul>
-<li>Modify <code>sidecar/internal/agentdb/types.go</code></li>
-<li>Add <code>LifecycleReconcileResult</code> for reconcile API responses.</li>
-<li>Modify <code>sidecar/internal/agentdb/providers.go</code></li>
-<li>Add provider-specific status and destroy command builders.</li>
-<li>Modify <code>sidecar/internal/agentdb/execution.go</code></li>
-<li>Add <code>CheckProvisionStatus</code>, <code>DestroyProvisionDryRun</code>, and helper recording logic.</li>
-<li>Modify <code>sidecar/internal/agentdb/operations.go</code></li>
-<li>Add <code>ReconcileAbandonedDeployments</code> that archives expired deployments and creates destroy dry-run attempts when backup policy allows.</li>
-<li>Modify <code>sidecar/internal/api/agent_db_execution_handlers.go</code></li>
-<li>Add status, destroy dry-run, and reconcile handlers.</li>
-<li>Modify <code>sidecar/internal/api/agent_db_handlers.go</code></li>
-<li>Wire <code>POST /api/v1/agent-dbs/reconcile</code>.</li>
-<li>Wire <code>POST /api/v1/agent-dbs/{id}/provision/status</code>.</li>
-<li>Wire <code>POST /api/v1/agent-dbs/{id}/provision/destroy-dry-run</code>.</li>
-<li>Modify <code>sidecar/web/src/pages/AgentDBsPage.jsx</code></li>
-<li>Add reconcile action and new provisioning lifecycle callbacks.</li>
-<li>Modify <code>sidecar/web/src/pages/agentdb/AgentDBSections.jsx</code></li>
-<li>Pass status and destroy handlers to the cloud panel.</li>
-<li>Modify <code>sidecar/web/src/pages/agentdb/CloudProvisioningPanel.jsx</code></li>
-<li>Add Check status and Destroy dry-run controls.</li>
-<li>Modify <code>sidecar/web/src/pages/AgentDBsPage.test.jsx</code></li>
-<li>Assert new controls call the new APIs.</li>
-<li>Modify <code>sidecar/web/e2e/agentdb-fixtures.ts</code></li>
-<li>Mock reconcile, status, and destroy dry-run endpoints.</li>
-<li>Modify <code>sidecar/web/e2e/agent-dbs.spec.ts</code></li>
-<li>Add browser coverage for status/destroy/reconcile flows.</li>
-<li>Modify <code>tasks/todo.md</code></li>
-<li>Add this slice and mark steps as implementation progresses.</li>
+<li><code>manual</code> is a hard disable for background execution and background approval
+  queueing. A manual API invocation remains an explicit, separately authorized
+  operation; it is not an implicit promotion to <code>auto</code>.</li>
+<li>Automatic execution occurs only when <code>execution_mode: auto</code> is configured.</li>
+<li>Approval mode determines whether a supported action can be queued. It must not
+  first pass the narrower automatic-execution eligibility test.</li>
+<li><code>executor_enabled: false</code> blocks every database mutation path, including
+  explicit manual execution.</li>
+<li>Emergency stop blocks every mutation path and is rechecked, together with the
+  current authorization snapshot, immediately before each action.</li>
+<li>Policy decisions use typed action semantics such as action kind, reversibility,
+  transactional constraints, and risk. Finding severity alone is not execution
+  authority.</li>
+<li>Per-database executor and trust overrides are authoritative for that database.</li>
 </ul>
-<h2 id="task-1-backend-lifecycle-domain-tests">Task 1: Backend Lifecycle Domain Tests<a class="headerlink" href="#task-1-backend-lifecycle-domain-tests" title="Permanent link">&para;</a></h2>
-<p><strong>Files:</strong>
-- Modify: <code>sidecar/internal/agentdb/execution_test.go</code></p>
+<h2 id="canonical-control-state">Canonical control state<a class="headerlink" href="#canonical-control-state" title="Permanent link">&para;</a></h2>
+<p>When meta-database mode is enabled, the meta database is the canonical store for
+authorization, execution control, approvals, and audit state. A monitored target
+database is not an alternative authority source. Missing, stale, or unavailable
+canonical control state fails closed for mutations.</p>
+<h2 id="agentdb-policy-and-lifecycle">AgentDB policy and lifecycle<a class="headerlink" href="#agentdb-policy-and-lifecycle" title="Permanent link">&para;</a></h2>
+<p>AgentDB mutation authority is the intersection of:</p>
+<ol>
+<li>runtime execution authority;</li>
+<li>global hard ceilings;</li>
+<li>provider-specific capabilities and narrower provider ceilings; and</li>
+<li>authorization for the exact requested operation and resource.</li>
+</ol>
+<p>Providers may narrow global policy but cannot widen it. Missing policy,
+unsupported operations, unknown providers, and stale authorization fail closed.
+Lease renewal wins over expiry cleanup when they race. Expiry reconciliation must
+claim work atomically, revalidate before provider mutation, and permit at most one
+provider mutation across concurrent reconcilers.</p>
+<h2 id="agentdb-monitoring">AgentDB monitoring<a class="headerlink" href="#agentdb-monitoring" title="Permanent link">&para;</a></h2>
+<p>The target monitoring model is tiered and adaptive: inexpensive health signals
+run most often, diagnostic collection escalates when evidence warrants it, and
+costly analysis backs off for stable databases. Monitoring cadence does not grant
+mutation authority; executor policy remains an orthogonal gate.</p>
+<h2 id="product-surface">Product surface<a class="headerlink" href="#product-surface" title="Permanent link">&para;</a></h2>
+<p>MCP is retired. Current configuration, examples, and roadmap language must not
+advertise MCP as an active interface. Historical changelog entries may retain
+accurate history.</p>
+<h2 id="configuration-lifecycle">Configuration lifecycle<a class="headerlink" href="#configuration-lifecycle" title="Permanent link">&para;</a></h2>
+<p>Each running component observes an immutable configuration snapshot. A reload
+constructs and validates a new snapshot before publication. Fields are classified
+as one of:</p>
 <ul>
-<li>[ ] Write failing tests:</li>
-<li><code>TestProvisionLifecycleStatusAndDestroyDryRun</code>:<ul>
-<li>Provision a Cloud SQL instance deployment.</li>
-<li>Call <code>CheckProvisionStatus</code>.</li>
-<li>Assert attempt kind <code>status_check</code>, status <code>succeeded</code>, command contains <code>gcloud sql instances describe</code>, and provisioning status becomes <code>status_checked</code>.</li>
-<li>Call <code>DestroyProvisionDryRun</code>.</li>
-<li>Assert <code>ErrRestoreRequired</code> because default backup policy requires restore verification.</li>
-<li>Record a <code>restore_verified</code> backup.</li>
-<li>Call <code>DestroyProvisionDryRun</code> again.</li>
-<li>Assert attempt kind <code>destroy_dry_run</code>, status <code>succeeded</code>, command contains <code>gcloud sql instances delete</code>, and provisioning status becomes <code>destroy_dry_run_ready</code>.</li>
+<li><strong>Live:</strong> safe to swap atomically for subsequent work.</li>
+<li><strong>Reconfigure:</strong> requires an explicit component teardown/rebuild boundary.</li>
+<li><strong>Restart:</strong> rejected during hot reload with an actionable restart requirement.</li>
 </ul>
-</li>
-<li>
-<p><code>TestReconcileAbandonedDeploymentsPlansSafeCloudDestroy</code>:</p>
+<p>In-flight work finishes against the snapshot with which it started. Configuration
+objects are not mutated piecemeal beneath running goroutines.</p>
+<h2 id="wave-1-acceptance-gates">Wave 1 acceptance gates<a class="headerlink" href="#wave-1-acceptance-gates" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Provision one expired Lakebase instance with backup required and restore-verified backup.</li>
-<li>Provision one expired AWS instance without restore-verified backup.</li>
-<li>Call <code>ReconcileAbandonedDeployments</code>.</li>
-<li>Assert both are archived.</li>
-<li>Assert one destroy dry-run is recorded.</li>
-<li>Assert one deployment is blocked with reason <code>verified restore required</code>.</li>
-</ul>
-</li>
-<li>
-<p>[ ] Run:</p>
-</li>
-<li><code>go test -count=1 ./internal/agentdb -run "TestProvisionLifecycle|TestReconcileAbandoned"</code></li>
-<li>Expected: fail because lifecycle functions do not exist.</li>
-</ul>
-<h2 id="task-2-backend-lifecycle-implementation">Task 2: Backend Lifecycle Implementation<a class="headerlink" href="#task-2-backend-lifecycle-implementation" title="Permanent link">&para;</a></h2>
-<p><strong>Files:</strong>
-- Modify: <code>sidecar/internal/agentdb/types.go</code>
-- Modify: <code>sidecar/internal/agentdb/providers.go</code>
-- Modify: <code>sidecar/internal/agentdb/execution.go</code>
-- Modify: <code>sidecar/internal/agentdb/operations.go</code></p>
-<ul>
-<li>[ ] Implement provider lifecycle commands:</li>
-<li>AWS status: <code>aws rds describe-db-instances --db-instance-identifier &lt;resource&gt;</code></li>
-<li>AWS destroy: <code>aws rds delete-db-instance --db-instance-identifier &lt;resource&gt; --skip-final-snapshot</code></li>
-<li>Cloud SQL status: <code>gcloud sql instances describe &lt;resource&gt;</code></li>
-<li>Cloud SQL destroy: <code>gcloud sql instances delete &lt;resource&gt; --quiet</code></li>
-<li>Lakebase status: <code>databricks database branches get &lt;resource&gt;</code></li>
-<li>Lakebase destroy: <code>databricks database branches delete &lt;resource&gt;</code></li>
-<li>[ ] Implement <code>CheckProvisionStatus</code>.</li>
-<li>[ ] Implement <code>DestroyProvisionDryRun</code>.</li>
-<li>[ ] Implement <code>ReconcileAbandonedDeployments</code>.</li>
-<li>[ ] Run:</li>
-<li><code>go test -count=1 ./internal/agentdb -run "TestProvisionLifecycle|TestReconcileAbandoned"</code></li>
-<li>Expected: pass.</li>
-</ul>
-<h2 id="task-3-api-tests-and-routes">Task 3: API Tests And Routes<a class="headerlink" href="#task-3-api-tests-and-routes" title="Permanent link">&para;</a></h2>
-<p><strong>Files:</strong>
-- Modify: <code>sidecar/internal/api/agent_db_handlers_test.go</code>
-- Modify: <code>sidecar/internal/api/agent_db_execution_handlers.go</code>
-- Modify: <code>sidecar/internal/api/agent_db_handlers.go</code></p>
-<ul>
-<li>[ ] Write failing API test <code>TestAgentDBProvisionLifecycleEndpoints</code>:</li>
-<li>POST <code>/api/v1/agent-dbs/{id}/provision/status</code> returns a <code>status_check</code> attempt.</li>
-<li>POST <code>/api/v1/agent-dbs/{id}/provision/destroy-dry-run</code> returns conflict before restore verification.</li>
-<li>POST backup with <code>restore_verified</code>.</li>
-<li>POST destroy dry-run returns a <code>destroy_dry_run</code> attempt.</li>
-<li>POST <code>/api/v1/agent-dbs/reconcile</code> returns archived and destroy_dry_run arrays.</li>
-<li>[ ] Run:</li>
-<li><code>go test -count=1 ./internal/api -run TestAgentDBProvisionLifecycleEndpoints</code></li>
-<li>Expected: fail because routes do not exist.</li>
-<li>[ ] Add handlers and route cases.</li>
-<li>[ ] Run:</li>
-<li><code>go test -count=1 ./internal/api -run TestAgentDBProvisionLifecycleEndpoints</code></li>
-<li>Expected: pass.</li>
-</ul>
-<h2 id="task-4-ui-lifecycle-controls">Task 4: UI Lifecycle Controls<a class="headerlink" href="#task-4-ui-lifecycle-controls" title="Permanent link">&para;</a></h2>
-<p><strong>Files:</strong>
-- Modify: <code>sidecar/web/src/pages/AgentDBsPage.jsx</code>
-- Modify: <code>sidecar/web/src/pages/agentdb/AgentDBSections.jsx</code>
-- Modify: <code>sidecar/web/src/pages/agentdb/CloudProvisioningPanel.jsx</code>
-- Modify: <code>sidecar/web/src/pages/AgentDBsPage.test.jsx</code>
-- Modify: <code>sidecar/web/e2e/agentdb-fixtures.ts</code>
-- Modify: <code>sidecar/web/e2e/agent-dbs.spec.ts</code></p>
-<ul>
-<li>[ ] Write failing Vitest assertion:</li>
-<li><code>Check status</code> calls <code>/api/v1/agent-dbs/adb_ui/provision/status</code>.</li>
-<li><code>Destroy dry-run</code> calls <code>/api/v1/agent-dbs/adb_ui/provision/destroy-dry-run</code>.</li>
-<li><code>Reconcile abandoned</code> calls <code>/api/v1/agent-dbs/reconcile</code>.</li>
-<li>[ ] Write failing Playwright assertions for the same controls using mocked routes.</li>
-<li>[ ] Implement UI controls and messages.</li>
-<li>[ ] Run:</li>
-<li><code>npm test -- --run AgentDBsPage.test.jsx</code></li>
-<li><code>npm run test:e2e -- agent-dbs.spec.ts</code></li>
-<li>Expected: pass.</li>
-</ul>
-<h2 id="task-5-full-verification">Task 5: Full Verification<a class="headerlink" href="#task-5-full-verification" title="Permanent link">&para;</a></h2>
-<p><strong>Files:</strong>
-- No new production files beyond Tasks 1-4.</p>
-<ul>
-<li>[ ] Run backend unit coverage:</li>
-<li><code>go test -cover -count=1 -p 1 ./...</code></li>
-<li>[ ] Scan Go test output for <code>SKIP</code>, <code>TODO</code>, and <code>PENDING</code>.</li>
-<li>[ ] Run integration suite:</li>
-<li><code>SAGE_DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable go test ./... -tags=integration -p 1 -count=1 -timeout 600s</code></li>
-<li>[ ] Run Go e2e:</li>
-<li><code>go test -tags=e2e -count=1 -timeout 180s ./e2e</code></li>
-<li>[ ] Run frontend checks:</li>
-<li><code>npm run lint</code></li>
-<li><code>npm test -- --run</code></li>
-<li><code>npm run build</code></li>
-<li><code>npm run test:e2e</code></li>
-<li>[ ] Run:</li>
-<li><code>git diff --check</code></li>
-<li>[ ] Report results using the project test-results format with skipped tests and coverage gaps.</li>
+<li>Tests demonstrate the execution matrix and the absence of manual-to-auto
+  promotion.</li>
+<li>API presentation and live execution share one typed action policy.</li>
+<li>Every action is authorized against current state immediately before mutation,
+  without data races.</li>
+<li>AgentDB expiry handling is renewal-safe and single-winner under concurrency.</li>
+<li>PostgreSQL advisory locks are acquired and released on the same pinned session.</li>
+<li>Focused tests, race tests, build, vet, and the full uncached coverage suite pass,
+  with skips and coverage gaps reported explicitly.</li>
 </ul>
 
 

@@ -19,7 +19,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -27,7 +27,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -750,13 +750,21 @@ databases because it is faster to create, cheaper to hold, and easier to clean.<
 - Branch delete
 - Token refresh or service principal auth</p>
 <h2 id="safety-gates">Safety Gates<a class="headerlink" href="#safety-gates" title="Permanent link">&para;</a></h2>
-<p>Every live request should have:
+<p>Every live request must have:
 - TTL
 - provider allowlist match
-- cost estimate ID
+- a server-issued plan hash, current cost estimate, and policy generation
+- an admin-issued authorization bound to the operation, requester, and
+  idempotency key
 - no public IP unless explicitly approved
 - backup/restore verification before destroy
 - <code>app=pg-sage</code> and <code>pg_sage_deployment_id</code> tags/metadata</p>
+<p>Issue authority first with <code>POST
+/api/v1/agent-dbs/{id}/provision/authorize-live</code>. Create and destroy require
+separate authorizations. The execute request must repeat the returned
+<code>plan_hash</code>, <code>estimate_id</code>, <code>authorization_id</code>, and idempotency key exactly.
+Authorization and estimate records are single-consumption; an exact replay
+returns the stored receipt and a mismatched replay fails closed.</p>
 <p>Terraform uploads are static-scanned. <code>.tfvars</code>, state files, provisioners,
 external data sources, <code>null_resource</code>, and unpinned external modules are
 rejected.</p>
@@ -885,7 +893,7 @@ available, cost guard text, and <code>cleanup_confirmed=true</code>.</p>
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

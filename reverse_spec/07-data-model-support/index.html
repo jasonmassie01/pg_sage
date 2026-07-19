@@ -19,7 +19,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -27,7 +27,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -586,10 +586,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#12-agentdb-tables-sageagent_db_-16-tables" class="md-nav__link">
+  <a href="#12-agentdb-owned-tables-25-tables" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1.2 AgentDB tables (sage.agent_db_*, 16 tables)
+        1.2 AgentDB-owned tables (25 tables)
       
     </span>
   </a>
@@ -812,9 +812,9 @@ alerting/notification, retention, HA, log-watching, and crypto/sanitization.</p>
    <code>MigrateConfigSchema</code> (<code>config_migration.go:31</code>) and
    <code>migrateIncidentConstraints</code> (<code>incident_migration.go:12</code>).</li>
 <li><strong>AgentDB schema</strong> — <code>internal/agentdb</code> package. A separate, self-contained
-   set of tables created by <code>Store.Ensure()</code> (<code>agentdb/schema.go:17</code>) from the
-   <code>schemaStatements</code> slice (<code>agentdb/schema.go:180</code>). Only created when the
-   AgentDB subsystem is initialized.</li>
+   set of tables created by <code>Store.Ensure()</code> from <code>schemaStatements</code>,
+   <code>liveExecutionSchemaStatements</code>, and <code>monitoringSchemaStatements</code>. These are
+   created only when the AgentDB subsystem is initialized.</li>
 </ol>
 <h3 id="11-core-sage-tables-21-bootstrapped-2-migration-created">1.1 Core <code>sage.*</code> tables (21 bootstrapped + 2 migration-created)<a class="headerlink" href="#11-core-sage-tables-21-bootstrapped-2-migration-created" title="Permanent link">&para;</a></h3>
 <p><code>expectedTables</code> (<code>bootstrap.go:12</code>) lists 21 tables. Two more
@@ -869,7 +869,7 @@ config migration. Full table reference:</p>
 <tr>
 <td>6</td>
 <td><code>sage.config</code></td>
-<td>Runtime config key/value overrides (hot-reload)</td>
+<td>Runtime overrides governed by typed field lifecycles</td>
 <td><code>key</code> (PK→composite after migration), <code>value</code>, <code>updated_by</code>, + <code>database_id</code>, <code>updated_by_user_id</code> (migration)</td>
 <td><code>bootstrap.go:403</code></td>
 </tr>
@@ -1007,7 +1007,7 @@ different purposes (<code>bootstrap.go:806</code> comment).</p>
   <code>schema_advisor</code>, <code>schema_lint</code>, <code>n_plus_one</code>; action_risk adds
   <code>low/medium/high</code>.</li>
 </ul>
-<h3 id="12-agentdb-tables-sageagent_db_-16-tables">1.2 AgentDB tables (<code>sage.agent_db_*</code>, 16 tables)<a class="headerlink" href="#12-agentdb-tables-sageagent_db_-16-tables" title="Permanent link">&para;</a></h3>
+<h3 id="12-agentdb-owned-tables-25-tables">1.2 AgentDB-owned tables (25 tables)<a class="headerlink" href="#12-agentdb-owned-tables-25-tables" title="Permanent link">&para;</a></h3>
 <p>Created by <code>agentdb.Store.Ensure()</code> (<code>agentdb/schema.go:17</code>) — a self-contained
 provisioning/lifecycle subsystem for agent-owned databases (local Postgres + AWS
 RDS / GCP Cloud SQL / Lakebase providers).</p>
@@ -1109,6 +1109,41 @@ RDS / GCP Cloud SQL / Lakebase providers).</p>
 <td><code>sage.agent_db_deploy_requests</code></td>
 <td>DDL/migration deploy requests with gate results</td>
 <td><code>schema.go:491</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_live_plans</code></td>
+<td>Immutable normalized live-operation plans</td>
+<td><code>live_execution_schema.go</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_live_estimates</code></td>
+<td>Server-issued cost estimates bound to plan hash</td>
+<td><code>live_execution_schema.go</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_live_authorizations</code></td>
+<td>Exact-operation authorization and consumption state</td>
+<td><code>live_execution_schema.go</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_live_receipts</code></td>
+<td>Idempotent provider mutation receipts</td>
+<td><code>live_execution_schema.go</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_monitoring_policies</code></td>
+<td>Scoped monitoring concurrency limits</td>
+<td><code>monitoring_schema.go</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_monitoring_state</code></td>
+<td>Per-physical-target scheduling state</td>
+<td><code>monitoring_schema.go</code></td>
+</tr>
+<tr>
+<td><code>sage.agent_db_monitoring_work</code></td>
+<td>Durable leased tiered monitoring work</td>
+<td><code>monitoring_schema.go</code></td>
 </tr>
 </tbody>
 </table>
@@ -1501,12 +1536,10 @@ fleet orchestrator. <code>Run</code> logs failures (never returns an error).</p>
 <code>flipThreshold = 5</code> consecutive flips it sets <code>safeMode=true</code> (<code>ha.go:76</code>);
 after <code>stableThreshold = 5</code> stable checks it clears it. <strong>No replication-lag or
 replica-state monitoring exists</strong> in this package — just the recovery boolean.</p>
-<p><strong>Wiring</strong>: PARTIAL. <code>haMon.Check(ctx)</code> runs in the standalone orchestrator
-(<code>main.go:707</code>) and its <code>isReplica</code> bool gates the executor
-(<code>exec.RunCycle(ctx, isReplica)</code>, <code>main.go:713</code>). <strong><code>InSafeMode()</code> is never
-read in production</strong> — the flip-counting safe-mode state machine runs but
-nothing consumes it (DEAD logic). <strong>Fleet mode ignores <code>ha</code> entirely</strong> —
-<code>RunCycle(ctx, false)</code> hardcodes <code>isReplica=false</code> (<code>main.go:1444</code>).</p>
+<p><strong>Wiring</strong>: PARTIAL. <code>haMon.Check(ctx)</code> runs in both standalone and fleet
+orchestrators and its <code>isReplica</code> bool gates the executor. <strong><code>InSafeMode()</code> is
+never read in production</strong> — the flip-counting safe-mode state machine runs but
+nothing consumes it (DEAD logic).</p>
 <hr />
 <h2 id="6-internallogwatch-log-tailing-rca-fanout">6. <code>internal/logwatch</code> — Log Tailing + RCA Fanout<a class="headerlink" href="#6-internallogwatch-log-tailing-rca-fanout" title="Permanent link">&para;</a></h2>
 <ul>
@@ -1665,7 +1698,7 @@ PII/literal redaction or prompt-injection filtering.
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

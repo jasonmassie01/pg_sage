@@ -19,7 +19,7 @@
       
       
       <link rel="icon" href="../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -27,7 +27,7 @@
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -590,10 +590,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-data-model-38-sage-tables" class="md-nav__link">
+  <a href="#5-data-model-47-sage-tables" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Data model (38 sage.* tables)
+        5. Data model (47 sage.* tables)
       
     </span>
   </a>
@@ -699,7 +699,7 @@ absent</strong>. These materially shape the roadmap (don't re-build what exists;
 </tr>
 <tr>
 <td>HA safe-mode halts actions during failover</td>
-<td><code>ha.InSafeMode()</code> is built + tested but <strong>wired to nothing</strong>; fleet hardcodes <code>isReplica=false</code>.</td>
+<td><code>ha.InSafeMode()</code> is built + tested but <strong>wired to nothing</strong>; replica state itself is gated in standalone and fleet modes.</td>
 </tr>
 <tr>
 <td>Per-database LLM token budgets (fleet isolation)</td>
@@ -719,7 +719,7 @@ absent</strong>. These materially shape the roadmap (don't re-build what exists;
 </tr>
 <tr>
 <td>Cases model drives execution</td>
-<td><strong>Two disconnected Tier-3 systems.</strong> The live executor gates <code>findings</code>; the richer <code>cases</code>/<code>ActionContract</code> model is API-advisory only (<code>ProjectFinding</code> never called from executor).</td>
+<td><code>ProjectFinding</code> remains a projection and does not trigger execution, but typed <code>ActionContract</code> policy now gates both live findings and API readiness.</td>
 </tr>
 <tr>
 <td>Event-path notifications (executor/analyzer → Slack/email)</td>
@@ -727,7 +727,7 @@ absent</strong>. These materially shape the roadmap (don't re-build what exists;
 </tr>
 <tr>
 <td>AgentDB databases are monitored</td>
-<td><strong>Not in the fleet.</strong> No collector/analyzer; "monitoring" = agent self-ping + self-reported cost. Reconciler exists but <strong>nothing schedules it</strong>.</td>
+<td><strong>Partial.</strong> Eligible inline-credential deployments join the fleet collector after scheduled reconciliation; analyzer/executor and secret-ref resolution are absent. Durable monitoring work exists but has no runtime worker.</td>
 </tr>
 <tr>
 <td>Terraform provisioning</td>
@@ -741,28 +741,28 @@ absent</strong>. These materially shape the roadmap (don't re-build what exists;
 </table>
 <h2 id="4-safety-model-what-genuinely-protects-the-database">4. Safety model (what genuinely protects the database)<a class="headerlink" href="#4-safety-model-what-genuinely-protects-the-database" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Emergency stop</strong> checked at RunCycle start, in <code>ShouldExecute</code>, and all manual paths; fails
-  closed on DB error (hardened 2026-06-10). <em>Gap:</em> not re-checked mid-cycle nor by the
-  auto-rollback goroutine before firing rollback DDL.</li>
+<li><strong>Emergency stop</strong> is checked per candidate, immediately before live SQL, and before manual
+  mutations; it fails closed on DB error. <em>Gap:</em> the detached auto-rollback goroutine does not
+  re-check it before firing rollback DDL.</li>
 <li><strong>SQL whitelist</strong> <code>ValidateExecutorSQL</code> + <code>RejectMultiStatement</code> (anti-stacked-query).</li>
 <li><strong>CONCURRENTLY/VACUUM/ALTER SYSTEM</strong> run outside transactions on dedicated conns; statement/
   lock/ddl timeouts set and reset; lock failure (55P03) circuit-breaks the table.</li>
 <li><strong>Auto-rollback</strong> goroutine reverses regressions after <code>RollbackWindowMinutes</code>; 7-day hysteresis.</li>
 <li><strong>Concurrency caps:</strong> <code>ddlSem</code>=3, process-wide ANALYZE semaphore + table-size cap.</li>
 <li><strong>Secrets</strong> encrypted AES-256-GCM (argon2id KDF) at rest in <code>sage.databases.password_enc</code>.</li>
-<li><em>Gaps:</em> fleet executors call <code>RunCycle(ctx, false)</code> with <strong>no replica gating</strong>; regression
-  detection uses coarse <em>global</em> metrics (masks per-table regressions).</li>
+<li><em>Gaps:</em> regression detection uses coarse <em>global</em> metrics (masks per-table regressions), and
+  <code>ha.InSafeMode()</code> is not consulted by the execution path.</li>
 </ul>
-<h2 id="5-data-model-38-sage-tables">5. Data model (38 <code>sage.*</code> tables)<a class="headerlink" href="#5-data-model-38-sage-tables" title="Permanent link">&para;</a></h2>
+<h2 id="5-data-model-47-sage-tables">5. Data model (47 <code>sage.*</code> tables)<a class="headerlink" href="#5-data-model-47-sage-tables" title="Permanent link">&para;</a></h2>
 <p>Core (22): <code>findings</code>, <code>action_log</code>, <code>action_queue</code>, <code>snapshots</code>, <code>config</code>, <code>config_audit</code>,
 <code>databases</code>, <code>users</code>, <code>sessions</code>, <code>incidents</code>, <code>cases</code>(projection), <code>explain_cache</code>,
 <code>explain_results</code>, <code>query_hints</code>, <code>briefings</code>, <code>alert_log</code>, <code>notification_channels/rules/log</code>,
-<code>size_history</code>, <code>health_history</code>, <code>schema_findings</code>(legacy), <code>crypto_meta</code>. AgentDB (16):
+<code>size_history</code>, <code>health_history</code>, <code>schema_findings</code>(legacy), <code>crypto_meta</code>. AgentDB (25):
 <code>agent_db_*</code> (instances, leases, costs, budgets, tokens, blueprints, templates, deploy_requests,
 audit, …). See section 7 for the full reference and the ~25 config blocks.</p>
 <h2 id="6-tech-stack-conventions">6. Tech stack &amp; conventions<a class="headerlink" href="#6-tech-stack-conventions" title="Permanent link">&para;</a></h2>
 <p>Go 1.24, <code>pgx/v5</code> + <code>pgxpool</code> (no <code>database/sql</code>, no ORM), <code>yaml.v3</code> + env + <code>sage.config</code>
-runtime overrides, <code>log/slog</code>, <code>fsnotify</code> hot-reload, stdlib <code>testing</code> (no testify), React 19 +
+runtime overrides, <code>log/slog</code>, typed config lifecycles, stdlib <code>testing</code> (no testify), React 19 +
 Vite + Tailwind v4 + Recharts, <code>go:embed</code> for the dashboard, goreleaser. Prometheus text metrics
 on <code>:9187</code> (hand-rendered, no client_golang); REST + SPA on <code>:8080</code> (<code>:8085</code> in the local config).</p>
 <hr />
@@ -826,7 +826,7 @@ citations for every claim above.</em></p>
       <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

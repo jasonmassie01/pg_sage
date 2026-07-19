@@ -19,7 +19,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -27,7 +27,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -546,10 +546,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-two-parallel-tier-3-subsystems" class="md-nav__link">
+  <a href="#1-one-typed-policy-across-tier-3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. Two parallel "Tier 3" subsystems
+        1. One typed policy across Tier 3
       
     </span>
   </a>
@@ -607,30 +607,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-risk-tiers" class="md-nav__link">
+  <a href="#3-risk-tiers-and-decisions" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Risk tiers
+        3. Risk tiers and decisions
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="3. Risk tiers">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#31-evaluateactionpolicy-the-projection-layer-gate" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3.1 EvaluateActionPolicy (the projection-layer gate)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -864,29 +847,19 @@
 <code>sidecar/internal/cases</code>, <code>sidecar/internal/schema</code>, and the orchestration in
 <code>sidecar/cmd/pg_sage_sidecar</code>. File:line citations are to those paths.</p>
 <hr />
-<h2 id="1-two-parallel-tier-3-subsystems">1. Two parallel "Tier 3" subsystems<a class="headerlink" href="#1-two-parallel-tier-3-subsystems" title="Permanent link">&para;</a></h2>
-<p>There are <strong>two distinct action systems</strong> that both call themselves Tier 3, and
-they are largely <strong>not wired to each other</strong>:</p>
+<h2 id="1-one-typed-policy-across-tier-3">1. One typed policy across Tier 3<a class="headerlink" href="#1-one-typed-policy-across-tier-3" title="Permanent link">&para;</a></h2>
+<p><code>ActionContract</code> and <code>EvaluateActionPolicy</code> are authoritative for both API
+presentation and background action disposition. Cases, fleet readiness, the
+approval queue, and <code>Executor.RunCycle</code> share the same decisions:</p>
 <ol>
-<li><strong>The live Executor</strong> (<code>executor.Executor</code>, <code>executor.go</code>) — consumes
-   <code>analyzer.Finding</code> values directly, gates them through <code>ShouldExecute</code>
-   (<code>trust.go</code>), and runs SQL. This is the only path that actually mutates the
-   database.</li>
-<li><strong>The cases/policy projection layer</strong> (<code>internal/cases</code> + <code>action_policy.go</code></li>
-<li><code>action_contract.go</code>) — projects findings/incidents/query-hints into
-   <code>Case</code> objects with <code>ActionCandidate</code>s and an <code>ActionPolicyDecision</code>. This is
-   a <strong>read/advisory projection</strong> consumed only by the REST API
-   (<code>internal/api/cases_handlers.go</code>) and fleet capability reporting
-   (<code>internal/fleet/capabilities.go:133</code>). <code>cases.ProjectFinding</code> is <strong>never
-   called from the executor or RunCycle</strong> (grep confirms the only non-test
-   callers are API handlers).</li>
+<li>Finding SQL must validate and map to a truthful typed contract.</li>
+<li>Contract risk—not the producer's raw <code>Finding.ActionRisk</code>—determines
+   whether a candidate is observed, queued, executed, or blocked.</li>
+<li>The executor reloads mode, trust, executor enablement, replica state, and
+   Emergency Stop for every candidate and again immediately before SQL.</li>
 </ol>
-<p>The richer risk model (<code>read_only</code>/<code>safe</code>/<code>moderate</code>/<code>high</code>, per-action
-<code>ActionContract</code>s, <code>EvaluateActionPolicy</code>) therefore governs <strong>what the
-dashboard shows and what approval metadata is attached</strong>, not what the
-autonomous loop actually executes. The autonomous loop uses the simpler
-<code>ShouldExecute</code> gate. This split is the single most important thing to know
-about Tier 3.</p>
+<p><code>ShouldExecute</code> remains as a legacy trust-eligibility helper used by tests; it
+is no longer the live <code>RunCycle</code> authorization boundary.</p>
 <hr />
 <h2 id="2-the-trust-ramp">2. The trust ramp<a class="headerlink" href="#2-the-trust-ramp" title="Permanent link">&para;</a></h2>
 <h3 id="21-ramp_start-computation">2.1 ramp_start computation<a class="headerlink" href="#21-ramp_start-computation" title="Permanent link">&para;</a></h3>
@@ -910,32 +883,32 @@ about Tier 3.</p>
 </ul>
 <p><code>rampAge := time.Since(rampStart)</code> (<code>trust.go:30</code>).</p>
 <h3 id="22-trust-levels-and-the-day-gates">2.2 Trust levels and the day gates<a class="headerlink" href="#22-trust-levels-and-the-day-gates" title="Permanent link">&para;</a></h3>
-<p><code>ShouldExecute</code> (<code>trust.go:19-60</code>) is the real gate. It is keyed off
-<code>cfg.Trust.Level</code> (a string: <code>observation</code> / <code>advisory</code> / <code>autonomous</code>), <strong>not</strong>
-off rampAge directly — rampAge is an <em>additional</em> requirement layered on top:</p>
+<p><code>EvaluateActionPolicy</code> combines the configured trust level with the explicit
+execution mode. Ramp age is an additional restriction; it never changes trust
+or mode by itself:</p>
 <table>
 <thead>
 <tr>
 <th><code>Trust.Level</code></th>
-<th>Behavior in <code>ShouldExecute</code></th>
+<th>Behavior with <code>execution_mode=auto</code></th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>observation</code></td>
-<td>Always returns <code>false</code>. Findings only, no execution.</td>
+<td>Cases and recommendations only.</td>
 </tr>
 <tr>
 <td><code>advisory</code></td>
-<td>Only <code>ActionRisk=="safe"</code> <strong>and</strong> <code>Trust.Tier3Safe</code> <strong>and</strong> <code>rampAge ≥ 8 days</code> (<code>trust.go:36-40</code>).</td>
+<td>Execute eligible typed <code>safe</code> actions after 8 days; queue <code>moderate</code> and <code>high</code>.</td>
 </tr>
 <tr>
 <td><code>autonomous</code></td>
-<td><code>safe</code>: <code>Tier3Safe &amp;&amp; rampAge ≥ 8d</code>. <code>moderate</code>: <code>Tier3Moderate &amp;&amp; rampAge ≥ 31d &amp;&amp; inMaintenanceWindow(...)</code>. <code>high_risk</code>: always <code>false</code>. (<code>trust.go:42-55</code>)</td>
+<td>Execute eligible <code>safe</code>; execute eligible <code>moderate</code> after 31 days and in-window; queue <code>high</code>.</td>
 </tr>
 <tr>
 <td>anything else</td>
-<td><code>false</code> (<code>trust.go:57</code>).</td>
+<td>Fail closed.</td>
 </tr>
 </tbody>
 </table>
@@ -944,44 +917,25 @@ ramp is enforced as <strong>day-8 and day-31 thresholds</strong>, and the <em>le
 manually-set config string — the executor does <strong>not</strong> auto-promote
 <code>observation → advisory → autonomous</code> as days pass. An operator must change
 <code>trust.level</code>. The day gates only further restrict an already-chosen level.</p>
-<p>Hard short-circuits at the top of <code>ShouldExecute</code> (<code>trust.go:26-28</code>): if
-<code>emergencyStop || isReplica</code>, return <code>false</code> regardless of level.</p>
+<p><code>manual</code> disables all background queueing and execution. <code>approval</code> queues
+supported actions under advisory/autonomous trust without applying the auto
+ramp first. Executor disablement, Emergency Stop, replicas, and unsupported
+providers are hard blocks.</p>
 <h3 id="23-per-instance-override">2.3 Per-instance override<a class="headerlink" href="#23-per-instance-override" title="Permanent link">&para;</a></h3>
 <p><code>Executor.SetTrustLevel</code> (<code>executor.go:180</code>) sets <code>trustLevelOverride</code>
 (validated against <code>observation|advisory|autonomous|""</code>). <code>shouldExecute</code>
 (<code>executor.go:208</code>) copies the config with the override applied. <code>TrustLevel()</code>
 returns override-or-config.</p>
 <hr />
-<h2 id="3-risk-tiers">3. Risk tiers<a class="headerlink" href="#3-risk-tiers" title="Permanent link">&para;</a></h2>
-<p>Two <strong>different</strong> risk vocabularies exist:</p>
-<ul>
-<li><strong>Executor/finding vocabulary</strong> (used by <code>ShouldExecute</code>): <code>analyzer.Finding.ActionRisk</code>
-  is <code>"safe"</code>, <code>"moderate"</code>, or <code>"high_risk"</code>. <code>high_risk</code> is never
-  auto-executed (<code>trust.go:51-52</code>).</li>
-<li><strong>Contract/policy vocabulary</strong> (<code>ActionContract.BaseRiskTier</code>, used by
-  <code>EvaluateActionPolicy</code>): <code>"read_only"</code>, <code>"safe"</code>, <code>"moderate"</code>, <code>"high"</code>
-  (<code>action_policy.go:50-60</code>). Note the names differ (<code>high</code> vs <code>high_risk</code>),
-  and there is no automatic mapping between the two systems.</li>
-</ul>
-<h3 id="31-evaluateactionpolicy-the-projection-layer-gate">3.1 EvaluateActionPolicy (the projection-layer gate)<a class="headerlink" href="#31-evaluateactionpolicy-the-projection-layer-gate" title="Permanent link">&para;</a></h3>
-<p><code>action_policy.go:39</code>. Returns one of <code>execute</code> / <code>queue_for_approval</code> /
-<code>blocked</code> / <code>observe_only</code>:</p>
-<ul>
-<li><strong>Hard blocks</strong> (<code>hardBlockReason</code>, <code>action_policy.go:76</code>): emergency stop
-  active; replica + non-read_only; provider unsupported.</li>
-<li><code>read_only</code> → <code>execute</code>.</li>
-<li><code>safe</code> (<code>evaluateSafePolicy</code>, :93): <code>observation</code>→<code>observe_only</code>;
-  <code>approval</code> mode or <code>advisory</code> level→<code>queue_for_approval</code>; else requires
-  <code>Tier3Safe &amp;&amp; rampAge ≥ 8d</code> and a safe-action concurrency slot
-  (<code>SafeActionLimit</code>), else <code>blocked</code>; finally <code>execute</code>.</li>
-<li><code>moderate</code>/<code>high</code> (<code>evaluateApprovalPolicy</code>, :118): always
-  <code>queue_for_approval</code>, <code>RequiresMaintenanceWindow=true</code>, with a
-  <code>BlockedReason</code> set if outside the maintenance window (but note the decision
-  is still <code>queue_for_approval</code>, not <code>blocked</code> — the window only annotates).</li>
-</ul>
-<p>This logic is exercised when building approval-proposal metadata
-(<code>executor.go:390-394</code>, only via the <code>ActionMetadataProposer</code> path) and in the
-API. It does <strong>not</strong> run inside the autonomous <code>executeFinding</code> path.</p>
+<h2 id="3-risk-tiers-and-decisions">3. Risk tiers and decisions<a class="headerlink" href="#3-risk-tiers-and-decisions" title="Permanent link">&para;</a></h2>
+<p>The authoritative contract vocabulary is <code>read_only</code>, <code>safe</code>, <code>moderate</code>, and
+<code>high</code>. <code>Finding.ActionRisk</code> remains source evidence but cannot lower the risk
+used by live execution.</p>
+<p><code>EvaluateActionPolicy</code> returns <code>execute</code>, <code>queue_for_approval</code>, <code>blocked</code>, or
+<code>observe_only</code>. Approval queueing is independent from auto eligibility, so an
+unsatisfied auto ramp does not make a supported review candidate disappear.
+Approved moderate/high actions are still deferred outside their required
+maintenance window by <code>ApprovalReadiness</code>.</p>
 <hr />
 <h2 id="4-which-actions-exist">4. Which actions exist<a class="headerlink" href="#4-which-actions-exist" title="Permanent link">&para;</a></h2>
 <h3 id="41-sql-whitelist-the-real-enforcement-boundary">4.1 SQL whitelist (the real enforcement boundary)<a class="headerlink" href="#41-sql-whitelist-the-real-enforcement-boundary" title="Permanent link">&para;</a></h3>
@@ -1102,23 +1056,20 @@ emergency stop and validates SQL first).</p>
   any other DB error returns <code>true</code> (<code>trust.go:151-158</code>) so a DB hiccup can't
   bypass the stop.</li>
 <li><code>SetEmergencyStop</code> (<code>trust.go:163</code>) upserts the flag.</li>
-<li><strong>Checked at:</strong> start of <code>RunCycle</code> (<code>executor.go:229</code>), inside
-  <code>ShouldExecute</code> (<code>trust.go:26</code>), <code>ExecuteManual</code> (<code>manual.go:33</code>),
-  <code>RollbackAction</code> (<code>manual.go:135</code>), and as a <code>hardBlockReason</code> in the policy
-  evaluator (<code>action_policy.go:81</code>).</li>
-<li><strong>Gap:</strong> the autonomous loop checks emergency stop <strong>once</strong> at the top of
-  <code>RunCycle</code>, then iterates and executes findings. A stop set <em>mid-cycle</em> is
-  not re-checked before each <code>executeFinding</code>, and the detached rollback
-  goroutine does <strong>not</strong> re-check emergency stop before firing its rollback DDL
-  after the window elapses (<code>rollback.go:87-108</code>). Manual paths do re-check.</li>
+<li><strong>Checked at:</strong> for every candidate in <code>RunCycle</code>, again before the DDL slot,
+  and once more after acquiring the slot immediately before <code>executeFinding</code>.
+  <code>ExecuteManual</code> and <code>RollbackAction</code> also check before their mutation and
+  re-check after any preflight work. <code>hardBlockReason</code> applies the same stop to
+  policy projections.</li>
+<li><strong>Remaining gap:</strong> the detached regression-triggered rollback goroutine does
+  not re-check Emergency Stop before firing rollback DDL after the observation
+  window elapses (<code>rollback.go:87-108</code>).</li>
 </ul>
 <h3 id="62-replica-ha-gating">6.2 Replica / HA gating<a class="headerlink" href="#62-replica-ha-gating" title="Permanent link">&para;</a></h3>
 <ul>
-<li><code>isReplica</code> comes from <code>haMon.Check(ctx)</code> in the standalone loop
-  (<code>main.go:706-708</code>) and short-circuits <code>ShouldExecute</code> (<code>trust.go:26</code>).</li>
-<li><strong>Gap (fleet mode):</strong> the fleet orchestrator calls <code>RunCycle(ctx, false)</code>
-  unconditionally (<code>main.go:1444</code>) — fleet-mode executors get <strong>no replica
-  gating at all</strong>.</li>
+<li><code>isReplica</code> comes from <code>haMon.Check(ctx)</code> in both standalone and fleet loops
+  and is passed into <code>RunCycle</code>. The unified policy blocks every non-read-only
+  contract on a replica.</li>
 <li><strong>Gap (HA safe-mode):</strong> <code>ha.Monitor.InSafeMode()</code> (<code>ha.go:110</code>, set when
   excessive role flips/flapping is detected) is <strong>never consulted</strong> on any
   execution path (grep finds no caller outside the <code>ha</code> package). The flapping
@@ -1186,20 +1137,22 @@ config-format mismatch worth flagging.</p>
   contract from <code>ContractForActionType</code>.</li>
 </ul>
 <p><strong>Crucially</strong>, executing a case action goes back through the <em>Executor</em> via the
-approval queue / manual path (<code>ExecuteManual</code>), which re-validates SQL against
-the <code>ShouldExecute</code> / whitelist gates — not through any case-specific executor.
-A case's <code>ActionCandidate</code> with <code>OutputModes:["execute"]</code> does not by itself
-cause execution; something must enqueue/approve it.</p>
+approval queue / manual path (<code>ExecuteManual</code>). That path re-validates SQL and
+re-checks the latest mode, trust, executor enablement, and Emergency Stop before
+mutation. A case's <code>ActionCandidate</code> with <code>OutputModes:["execute"]</code> does not by
+itself cause execution; something must enqueue/approve it.</p>
 <hr />
 <h2 id="8-end-to-end-flow-finding-execution-logged-action">8. End-to-end flow: finding → execution → logged action<a class="headerlink" href="#8-end-to-end-flow-finding-execution-logged-action" title="Permanent link">&para;</a></h2>
 <p><strong>Autonomous (auto mode):</strong>
 1. Analyzer produces <code>analyzer.Finding</code>s (with <code>RecommendedSQL</code>, <code>RollbackSQL</code>,
    <code>ActionRisk</code>).
-2. <code>RunCycle</code> (<code>executor.go:223</code>): skip if <code>manual</code> mode; <code>CheckEmergencyStop</code>
-   once; for each finding with non-empty <code>RecommendedSQL</code>:
-   <code>shouldExecute</code> (trust+ramp+replica+emergency) → cascade cooldown →
-   <code>lookupFindingID</code> → <code>exceedsMaxRetries</code> → (approval-mode branch) →
-   <code>CheckHysteresis</code> → acquire <code>ddlSem</code> → <code>executeFinding</code>.
+2. <code>RunCycle</code> skips manual or disabled execution. For every finding with SQL it
+   resolves a typed <code>ActionContract</code> and calls the unified policy with the
+   latest mode, trust, executor enablement, replica state, Emergency Stop, risk,
+   ramp, provider, and concurrency state. The decision is observe, block,
+   queue-for-approval, or execute. Executable findings then pass cascade
+   cooldown, retry, and hysteresis checks; policy is re-evaluated before and
+   after acquiring <code>ddlSem</code>, immediately before <code>executeFinding</code>.
 3. <code>executeFinding</code>: snapshot before-state → <code>ValidateExecutorSQL</code> (inside exec
    helper) → dispatch (analyze / concurrently / transactional) → <code>logAction</code>
    (insert <code>action_log</code>, mark finding resolved on success) → post-checks →
@@ -1207,26 +1160,20 @@ cause execution; something must enqueue/approve it.</p>
 4. After window: regression check → <code>rolled_back</code> or <code>success</code> (+<code>after_state</code>).</p>
 <p><strong>Manual / approval:</strong> finding surfaced → operator/queue calls
 <code>ExecuteManual(findingID, sql, rollbackSQL, approvedBy)</code> (<code>manual.go:24</code>) →
-re-validates SQL, re-checks emergency stop, verifies the SQL matches the
-finding's <code>recommended_sql</code> (<code>verifyManualFinding</code>, :161), handles
-CREATE INDEX coverage/invalid-blocker cleanup with up to 3 retries
-(<code>execManualSQLWithRetry</code>, :231) → <code>logManualAction</code> (records <code>approved_by</code>/
-<code>approved_at</code>) → same rollback-monitor path.</p>
+re-validates SQL; checks executor enablement, observation trust, and Emergency
+Stop; verifies the SQL matches the finding's <code>recommended_sql</code>; handles
+CREATE INDEX coverage/invalid-blocker cleanup with up to 3 retries and
+reauthorizes immediately before mutation → <code>logManualAction</code> (records
+<code>approved_by</code>/<code>approved_at</code>) → same rollback-monitor path.</p>
 <hr />
 <h2 id="9-wired-vs-documented-but-unwired-summary-of-gaps">9. Wired vs documented-but-unwired (summary of gaps)<a class="headerlink" href="#9-wired-vs-documented-but-unwired-summary-of-gaps" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>cases/contract/policy model is advisory only.</strong> <code>cases.ProjectFinding</code>,
-  <code>ActionContract</code>, and <code>EvaluateActionPolicy</code> do not gate autonomous
-  execution; only <code>ShouldExecute</code> + <code>ValidateExecutorSQL</code> do. The two risk
-  vocabularies (<code>high_risk</code> vs <code>high</code>) never reconcile.</li>
 <li><strong>No auto-promotion of trust level.</strong> <code>trust.level</code> is a manual config
   string; rampAge only restricts, it does not advance the level.</li>
-<li><strong>Fleet executors have no replica gating</strong> — <code>RunCycle(ctx, false)</code>
-  (<code>main.go:1444</code>).</li>
 <li><strong>HA <code>InSafeMode()</code> (flap detection) is wired to nothing</strong> on the execution
   path (<code>ha.go:110</code>).</li>
-<li><strong>Emergency stop is not re-checked mid-cycle</strong> in the autonomous loop, nor by
-  the detached rollback goroutine before it fires rollback DDL.</li>
+<li><strong>Detached regression rollback does not re-check Emergency Stop</strong> before it
+  fires rollback DDL.</li>
 <li><strong>Maintenance-window config format mismatch:</strong> docs imply <code>"HH:MM-HH:MM"</code>
   ranges; the parser only handles cron <code>minute hour ...</code> and <code>"always"</code>, so a
   range string is silently never-in-window.</li>
@@ -1292,7 +1239,7 @@ CREATE INDEX coverage/invalid-blocker cleanup with up to 3 retries
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

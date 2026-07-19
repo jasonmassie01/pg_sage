@@ -19,7 +19,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -27,7 +27,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -787,12 +787,19 @@ Lakebase for AgentDB live provisioning. AgentDB can always run local dry-runs
 and policy checks. Real cloud creation requires explicit sidecar enablement,
 provider allowlists, cloud credentials outside pg_sage, and cleanup evidence.</p>
 <h2 id="release-safety-model">Release Safety Model<a class="headerlink" href="#release-safety-model" title="Permanent link">&para;</a></h2>
-<p>AgentDB separates four concerns:</p>
+<p>AgentDB separates policy, authority, and provider execution:</p>
 <ul>
 <li>Provider settings in the UI store non-secret policy and shape defaults.</li>
 <li>Credentials come from the cloud SDK or environment at sidecar startup.</li>
 <li>Blueprints and Terraform templates are reviewed before provisioning.</li>
-<li>Live operations run only when global and provider-specific gates are enabled.</li>
+<li>Live operations resolve a fail-closed four-layer intersection: runtime
+  capability, global ceilings, persisted provider policy, and exact-operation
+  authorization. Provider policy can narrow but cannot widen global policy.</li>
+<li>An administrator must issue the server-owned plan, estimate, policy
+  generation, and authorization at <code>POST
+  /api/v1/agent-dbs/{id}/provision/authorize-live</code> before live execution.</li>
+<li>Create and destroy use separate, single-consumption authorizations. Exact
+  idempotent retries return the stored receipt without a second provider call.</li>
 </ul>
 <p>The UI should never be used to store cloud tokens, passwords, private keys, or
 access keys. Secret-shaped keys are stripped before provider settings are saved.</p>
@@ -1059,7 +1066,7 @@ available, cost guard evidence, and <code>cleanup_confirmed=true</code>.</p>
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
