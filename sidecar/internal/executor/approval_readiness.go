@@ -4,7 +4,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -111,12 +110,20 @@ func (e *Executor) withPolicyReadiness(
 	now time.Time,
 ) ApprovalReadiness {
 	readiness.PolicyKnown = true
+	cfg, mode, enabled := e.policySnapshot()
 	readiness.Policy = EvaluateActionPolicy(contract, ActionPolicyContext{
-		Config:        e.configForPolicy(),
-		ExecutionMode: e.ExecutionMode(),
-		Now:           now,
-		RampStart:     e.rampStart,
+		Config:          cfg,
+		ExecutionMode:   mode,
+		ExecutorEnabled: &enabled,
+		Now:             now,
+		RampStart:       e.rampStart,
 	})
+	if readiness.Policy.RequiresMaintenanceWindow &&
+		!inMaintenanceWindowForPolicy(cfg, now) {
+		readiness.Eligible = false
+		readiness.DeferReason = "outside maintenance window"
+		return readiness
+	}
 	if readiness.Policy.BlockedReason != "" {
 		readiness.Eligible = false
 		readiness.DeferReason = readiness.Policy.BlockedReason
@@ -128,11 +135,4 @@ func (e *Executor) withPolicyReadiness(
 		readiness.DeferReason = "policy does not allow execution"
 	}
 	return readiness
-}
-
-func (e *Executor) configForPolicy() *config.Config {
-	if e == nil {
-		return nil
-	}
-	return e.cfg
 }

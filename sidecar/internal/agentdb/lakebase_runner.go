@@ -277,7 +277,7 @@ func (c LakebaseHTTPClient) doBranch(
 	if err != nil {
 		return LakebaseBranch{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		return LakebaseBranch{}, fmt.Errorf("lakebase api status %d: %s",

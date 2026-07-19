@@ -6,30 +6,20 @@ Reverse-engineered from the actual code in `sidecar/internal/executor`,
 
 ---
 
-## 1. Two parallel "Tier 3" subsystems
+## 1. One typed policy across Tier 3
 
-There are **two distinct action systems** that both call themselves Tier 3, and
-they are largely **not wired to each other**:
+`ActionContract` and `EvaluateActionPolicy` are authoritative for both API
+presentation and background action disposition. Cases, fleet readiness, the
+approval queue, and `Executor.RunCycle` share the same decisions:
 
-1. **The live Executor** (`executor.Executor`, `executor.go`) — consumes
-   `analyzer.Finding` values directly, gates them through `ShouldExecute`
-   (`trust.go`), and runs SQL. This is the only path that actually mutates the
-   database.
-2. **The cases/policy projection layer** (`internal/cases` + `action_policy.go`
-   + `action_contract.go`) — projects findings/incidents/query-hints into
-   `Case` objects with `ActionCandidate`s and an `ActionPolicyDecision`. This is
-   a **read/advisory projection** consumed only by the REST API
-   (`internal/api/cases_handlers.go`) and fleet capability reporting
-   (`internal/fleet/capabilities.go:133`). `cases.ProjectFinding` is **never
-   called from the executor or RunCycle** (grep confirms the only non-test
-   callers are API handlers).
+1. Finding SQL must validate and map to a truthful typed contract.
+2. Contract risk—not the producer's raw `Finding.ActionRisk`—determines
+   whether a candidate is observed, queued, executed, or blocked.
+3. The executor reloads mode, trust, executor enablement, replica state, and
+   Emergency Stop for every candidate and again immediately before SQL.
 
-The richer risk model (`read_only`/`safe`/`moderate`/`high`, per-action
-`ActionContract`s, `EvaluateActionPolicy`) therefore governs **what the
-dashboard shows and what approval metadata is attached**, not what the
-autonomous loop actually executes. The autonomous loop uses the simpler
-`ShouldExecute` gate. This split is the single most important thing to know
-about Tier 3.
+`ShouldExecute` remains as a legacy trust-eligibility helper used by tests; it
+is no longer the live `RunCycle` authorization boundary.
 
 ---
 
@@ -59,16 +49,16 @@ about Tier 3.
 
 ### 2.2 Trust levels and the day gates
 
-`ShouldExecute` (`trust.go:19-60`) is the real gate. It is keyed off
-`cfg.Trust.Level` (a string: `observation` / `advisory` / `autonomous`), **not**
-off rampAge directly — rampAge is an *additional* requirement layered on top:
+`EvaluateActionPolicy` combines the configured trust level with the explicit
+execution mode. Ramp age is an additional restriction; it never changes trust
+or mode by itself:
 
-| `Trust.Level` | Behavior in `ShouldExecute` |
+| `Trust.Level` | Behavior with `execution_mode=auto` |
 |---|---|
-| `observation` | Always returns `false`. Findings only, no execution. |
-| `advisory` | Only `ActionRisk=="safe"` **and** `Trust.Tier3Safe` **and** `rampAge ≥ 8 days` (`trust.go:36-40`). |
-| `autonomous` | `safe`: `Tier3Safe && rampAge ≥ 8d`. `moderate`: `Tier3Moderate && rampAge ≥ 31d && inMaintenanceWindow(...)`. `high_risk`: always `false`. (`trust.go:42-55`) |
-| anything else | `false` (`trust.go:57`). |
+| `observation` | Cases and recommendations only. |
+| `advisory` | Execute eligible typed `safe` actions after 8 days; queue `moderate` and `high`. |
+| `autonomous` | Execute eligible `safe`; execute eligible `moderate` after 31 days and in-window; queue `high`. |
+| anything else | Fail closed. |
 
 So the documented "OBSERVATION day0-7 / ADVISORY day8-30 / AUTONOMOUS day31+"
 ramp is enforced as **day-8 and day-31 thresholds**, and the *level* is a
@@ -76,8 +66,10 @@ manually-set config string — the executor does **not** auto-promote
 `observation → advisory → autonomous` as days pass. An operator must change
 `trust.level`. The day gates only further restrict an already-chosen level.
 
-Hard short-circuits at the top of `ShouldExecute` (`trust.go:26-28`): if
-`emergencyStop || isReplica`, return `false` regardless of level.
+`manual` disables all background queueing and execution. `approval` queues
+supported actions under advisory/autonomous trust without applying the auto
+ramp first. Executor disablement, Emergency Stop, replicas, and unsupported
+providers are hard blocks.
 
 ### 2.3 Per-instance override
 
@@ -88,38 +80,17 @@ returns override-or-config.
 
 ---
 
-## 3. Risk tiers
+## 3. Risk tiers and decisions
 
-Two **different** risk vocabularies exist:
+The authoritative contract vocabulary is `read_only`, `safe`, `moderate`, and
+`high`. `Finding.ActionRisk` remains source evidence but cannot lower the risk
+used by live execution.
 
-- **Executor/finding vocabulary** (used by `ShouldExecute`): `analyzer.Finding.ActionRisk`
-  is `"safe"`, `"moderate"`, or `"high_risk"`. `high_risk` is never
-  auto-executed (`trust.go:51-52`).
-- **Contract/policy vocabulary** (`ActionContract.BaseRiskTier`, used by
-  `EvaluateActionPolicy`): `"read_only"`, `"safe"`, `"moderate"`, `"high"`
-  (`action_policy.go:50-60`). Note the names differ (`high` vs `high_risk`),
-  and there is no automatic mapping between the two systems.
-
-### 3.1 EvaluateActionPolicy (the projection-layer gate)
-
-`action_policy.go:39`. Returns one of `execute` / `queue_for_approval` /
-`blocked` / `observe_only`:
-
-- **Hard blocks** (`hardBlockReason`, `action_policy.go:76`): emergency stop
-  active; replica + non-read_only; provider unsupported.
-- `read_only` → `execute`.
-- `safe` (`evaluateSafePolicy`, :93): `observation`→`observe_only`;
-  `approval` mode or `advisory` level→`queue_for_approval`; else requires
-  `Tier3Safe && rampAge ≥ 8d` and a safe-action concurrency slot
-  (`SafeActionLimit`), else `blocked`; finally `execute`.
-- `moderate`/`high` (`evaluateApprovalPolicy`, :118): always
-  `queue_for_approval`, `RequiresMaintenanceWindow=true`, with a
-  `BlockedReason` set if outside the maintenance window (but note the decision
-  is still `queue_for_approval`, not `blocked` — the window only annotates).
-
-This logic is exercised when building approval-proposal metadata
-(`executor.go:390-394`, only via the `ActionMetadataProposer` path) and in the
-API. It does **not** run inside the autonomous `executeFinding` path.
+`EvaluateActionPolicy` returns `execute`, `queue_for_approval`, `blocked`, or
+`observe_only`. Approval queueing is independent from auto eligibility, so an
+unsatisfied auto ramp does not make a supported review candidate disappear.
+Approved moderate/high actions are still deferred outside their required
+maintenance window by `ApprovalReadiness`.
 
 ---
 
@@ -261,23 +232,20 @@ emergency stop and validates SQL first).
   any other DB error returns `true` (`trust.go:151-158`) so a DB hiccup can't
   bypass the stop.
 - `SetEmergencyStop` (`trust.go:163`) upserts the flag.
-- **Checked at:** start of `RunCycle` (`executor.go:229`), inside
-  `ShouldExecute` (`trust.go:26`), `ExecuteManual` (`manual.go:33`),
-  `RollbackAction` (`manual.go:135`), and as a `hardBlockReason` in the policy
-  evaluator (`action_policy.go:81`).
-- **Gap:** the autonomous loop checks emergency stop **once** at the top of
-  `RunCycle`, then iterates and executes findings. A stop set *mid-cycle* is
-  not re-checked before each `executeFinding`, and the detached rollback
-  goroutine does **not** re-check emergency stop before firing its rollback DDL
-  after the window elapses (`rollback.go:87-108`). Manual paths do re-check.
+- **Checked at:** for every candidate in `RunCycle`, again before the DDL slot,
+  and once more after acquiring the slot immediately before `executeFinding`.
+  `ExecuteManual` and `RollbackAction` also check before their mutation and
+  re-check after any preflight work. `hardBlockReason` applies the same stop to
+  policy projections.
+- **Remaining gap:** the detached regression-triggered rollback goroutine does
+  not re-check Emergency Stop before firing rollback DDL after the observation
+  window elapses (`rollback.go:87-108`).
 
 ### 6.2 Replica / HA gating
 
-- `isReplica` comes from `haMon.Check(ctx)` in the standalone loop
-  (`main.go:706-708`) and short-circuits `ShouldExecute` (`trust.go:26`).
-- **Gap (fleet mode):** the fleet orchestrator calls `RunCycle(ctx, false)`
-  unconditionally (`main.go:1444`) — fleet-mode executors get **no replica
-  gating at all**.
+- `isReplica` comes from `haMon.Check(ctx)` in both standalone and fleet loops
+  and is passed into `RunCycle`. The unified policy blocks every non-read-only
+  contract on a replica.
 - **Gap (HA safe-mode):** `ha.Monitor.InSafeMode()` (`ha.go:110`, set when
   excessive role flips/flapping is detected) is **never consulted** on any
   execution path (grep finds no caller outside the `ha` package). The flapping
@@ -349,10 +317,10 @@ config-format mismatch worth flagging.
   contract from `ContractForActionType`.
 
 **Crucially**, executing a case action goes back through the *Executor* via the
-approval queue / manual path (`ExecuteManual`), which re-validates SQL against
-the `ShouldExecute` / whitelist gates — not through any case-specific executor.
-A case's `ActionCandidate` with `OutputModes:["execute"]` does not by itself
-cause execution; something must enqueue/approve it.
+approval queue / manual path (`ExecuteManual`). That path re-validates SQL and
+re-checks the latest mode, trust, executor enablement, and Emergency Stop before
+mutation. A case's `ActionCandidate` with `OutputModes:["execute"]` does not by
+itself cause execution; something must enqueue/approve it.
 
 ---
 
@@ -361,11 +329,13 @@ cause execution; something must enqueue/approve it.
 **Autonomous (auto mode):**
 1. Analyzer produces `analyzer.Finding`s (with `RecommendedSQL`, `RollbackSQL`,
    `ActionRisk`).
-2. `RunCycle` (`executor.go:223`): skip if `manual` mode; `CheckEmergencyStop`
-   once; for each finding with non-empty `RecommendedSQL`:
-   `shouldExecute` (trust+ramp+replica+emergency) → cascade cooldown →
-   `lookupFindingID` → `exceedsMaxRetries` → (approval-mode branch) →
-   `CheckHysteresis` → acquire `ddlSem` → `executeFinding`.
+2. `RunCycle` skips manual or disabled execution. For every finding with SQL it
+   resolves a typed `ActionContract` and calls the unified policy with the
+   latest mode, trust, executor enablement, replica state, Emergency Stop, risk,
+   ramp, provider, and concurrency state. The decision is observe, block,
+   queue-for-approval, or execute. Executable findings then pass cascade
+   cooldown, retry, and hysteresis checks; policy is re-evaluated before and
+   after acquiring `ddlSem`, immediately before `executeFinding`.
 3. `executeFinding`: snapshot before-state → `ValidateExecutorSQL` (inside exec
    helper) → dispatch (analyze / concurrently / transactional) → `logAction`
    (insert `action_log`, mark finding resolved on success) → post-checks →
@@ -374,28 +344,22 @@ cause execution; something must enqueue/approve it.
 
 **Manual / approval:** finding surfaced → operator/queue calls
 `ExecuteManual(findingID, sql, rollbackSQL, approvedBy)` (`manual.go:24`) →
-re-validates SQL, re-checks emergency stop, verifies the SQL matches the
-finding's `recommended_sql` (`verifyManualFinding`, :161), handles
-CREATE INDEX coverage/invalid-blocker cleanup with up to 3 retries
-(`execManualSQLWithRetry`, :231) → `logManualAction` (records `approved_by`/
-`approved_at`) → same rollback-monitor path.
+re-validates SQL; checks executor enablement, observation trust, and Emergency
+Stop; verifies the SQL matches the finding's `recommended_sql`; handles
+CREATE INDEX coverage/invalid-blocker cleanup with up to 3 retries and
+reauthorizes immediately before mutation → `logManualAction` (records
+`approved_by`/`approved_at`) → same rollback-monitor path.
 
 ---
 
 ## 9. Wired vs documented-but-unwired (summary of gaps)
 
-- **cases/contract/policy model is advisory only.** `cases.ProjectFinding`,
-  `ActionContract`, and `EvaluateActionPolicy` do not gate autonomous
-  execution; only `ShouldExecute` + `ValidateExecutorSQL` do. The two risk
-  vocabularies (`high_risk` vs `high`) never reconcile.
 - **No auto-promotion of trust level.** `trust.level` is a manual config
   string; rampAge only restricts, it does not advance the level.
-- **Fleet executors have no replica gating** — `RunCycle(ctx, false)`
-  (`main.go:1444`).
 - **HA `InSafeMode()` (flap detection) is wired to nothing** on the execution
   path (`ha.go:110`).
-- **Emergency stop is not re-checked mid-cycle** in the autonomous loop, nor by
-  the detached rollback goroutine before it fires rollback DDL.
+- **Detached regression rollback does not re-check Emergency Stop** before it
+  fires rollback DDL.
 - **Maintenance-window config format mismatch:** docs imply `"HH:MM-HH:MM"`
   ranges; the parser only handles cron `minute hour ...` and `"always"`, so a
   range string is silently never-in-window.

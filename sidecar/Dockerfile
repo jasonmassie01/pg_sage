@@ -23,5 +23,5 @@ COPY --from=builder /build/sage-sidecar /usr/local/bin/sage-sidecar
 USER sage
 EXPOSE 8080 9187
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -sf http://localhost:8080/api/v1/metrics || exit 1
+    CMD curl -sf http://localhost:8080/health || exit 1
 ENTRYPOINT ["sage-sidecar"]

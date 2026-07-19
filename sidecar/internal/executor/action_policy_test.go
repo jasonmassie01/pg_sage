@@ -64,7 +64,7 @@ func TestEvaluateActionPolicy_BlocksSafeActionAtConcurrencyLimit(t *testing.T) {
 	}
 }
 
-func TestEvaluateActionPolicy_ModerateActionQueuesOutsideWindow(t *testing.T) {
+func TestEvaluateActionPolicy_ModerateActionBlocksOutsideWindow(t *testing.T) {
 	cfg := &config.Config{
 		Trust: config.TrustConfig{
 			Level:             "autonomous",
@@ -82,17 +82,17 @@ func TestEvaluateActionPolicy_ModerateActionQueuesOutsideWindow(t *testing.T) {
 		Config:        cfg,
 		ExecutionMode: "auto",
 		Now:           time.Date(2026, 4, 27, 4, 30, 0, 0, time.UTC),
-		RampStart:     time.Now().Add(-40 * 24 * time.Hour),
 	}
+	ctx.RampStart = ctx.Now.Add(-40 * 24 * time.Hour)
 
 	decision := EvaluateActionPolicy(contract, ctx)
 
-	if decision.Decision != PolicyDecisionQueueApproval {
-		t.Fatalf("Decision = %q, want queue_for_approval",
+	if decision.Decision != PolicyDecisionBlocked {
+		t.Fatalf("Decision = %q, want blocked",
 			decision.Decision)
 	}
-	if !decision.RequiresApproval || !decision.RequiresMaintenanceWindow {
-		t.Fatalf("expected approval and maintenance window requirements: %#v",
+	if decision.RequiresApproval || !decision.RequiresMaintenanceWindow {
+		t.Fatalf("expected maintenance-window requirement without approval: %#v",
 			decision)
 	}
 	if decision.BlockedReason != "outside maintenance window" {
@@ -124,16 +124,20 @@ func TestEvaluateActionPolicy_BlocksUnsupportedProvider(t *testing.T) {
 	}
 }
 
-func TestEvaluateActionPolicy_ReadOnlyAllowsReplicaDiagnostics(t *testing.T) {
-	cfg := &config.Config{CloudEnvironment: "postgres"}
+func TestEvaluateActionPolicy_ReadOnlyAutoAllowsReplicaDiagnostics(t *testing.T) {
+	cfg := &config.Config{
+		CloudEnvironment: "postgres",
+		Trust:            config.TrustConfig{Level: "autonomous"},
+	}
 	contract, ok := ContractForActionType("diagnose_standby_conflicts")
 	if !ok {
 		t.Fatal("diagnose_standby_conflicts contract missing")
 	}
 
 	decision := EvaluateActionPolicy(contract, ActionPolicyContext{
-		Config:    cfg,
-		IsReplica: true,
+		Config:        cfg,
+		ExecutionMode: "auto",
+		IsReplica:     true,
 	})
 
 	if decision.Decision != PolicyDecisionExecute {

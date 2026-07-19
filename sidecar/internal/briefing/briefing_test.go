@@ -32,19 +32,18 @@ func ensureSageSchema(t *testing.T, ctx context.Context) {
 		return
 	}
 	if err := schema.Bootstrap(ctx, testPool); err != nil {
-		t.Skipf("re-bootstrap sage failed: %v", err)
+		t.Fatalf("re-bootstrap sage failed: %v", err)
 	}
 	if err := schema.MigrateConfigSchema(ctx, testPool); err != nil {
-		t.Skipf("re-migrate sage config: %v", err)
+		t.Fatalf("re-migrate sage config: %v", err)
 	}
-	schema.ReleaseAdvisoryLock(ctx, testPool)
 }
 
 func testDSN() string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 var (
@@ -89,7 +88,6 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			testPool = nil
 			return
 		}
-		schema.ReleaseAdvisoryLock(ctx, testPool)
 	})
 	if testPoolErr != nil {
 		t.Skipf("database unavailable: %v", testPoolErr)
@@ -196,7 +194,7 @@ func TestBuildStructured_FindingSeverityIcons(t *testing.T) {
 	}{
 		{"critical", "\xf0\x9f\x94\xb4"}, // red circle
 		{"warning", "\xf0\x9f\x9f\xa1"},  // yellow circle
-		{"info", "\xe2\x84\xb9"},          // info
+		{"info", "\xe2\x84\xb9"},         // info
 	}
 
 	for _, tt := range tests {
@@ -286,9 +284,9 @@ func TestDispatch_EmptyChannels(t *testing.T) {
 
 func TestParseCron(t *testing.T) {
 	tests := []struct {
-		expr    string
-		valid   bool
-		desc    string
+		expr  string
+		valid bool
+		desc  string
 	}{
 		{"0 6 * * *", true, "daily at 6:00"},
 		{"*/2 * * * *", true, "every 2 minutes"},

@@ -108,13 +108,22 @@ Databricks Lakebase:
 
 ## Safety Gates
 
-Every live request should have:
+Every live request must have:
 - TTL
 - provider allowlist match
-- cost estimate ID
+- a server-issued plan hash, current cost estimate, and policy generation
+- an admin-issued authorization bound to the operation, requester, and
+  idempotency key
 - no public IP unless explicitly approved
 - backup/restore verification before destroy
 - `app=pg-sage` and `pg_sage_deployment_id` tags/metadata
+
+Issue authority first with `POST
+/api/v1/agent-dbs/{id}/provision/authorize-live`. Create and destroy require
+separate authorizations. The execute request must repeat the returned
+`plan_hash`, `estimate_id`, `authorization_id`, and idempotency key exactly.
+Authorization and estimate records are single-consumption; an exact replay
+returns the stored receipt and a mismatched replay fails closed.
 
 Terraform uploads are static-scanned. `.tfvars`, state files, provisioners,
 external data sources, `null_resource`, and unpinned external modules are

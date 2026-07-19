@@ -214,24 +214,43 @@ func (s *Store) ExtendLease(
 	if req.LeaseSeconds <= 0 {
 		return Deployment{}, ErrInvalid
 	}
-	tag, err := s.pool.Exec(ctx, `/* pg_sage */ 
+	var dep Deployment
+	err := scanDeployment(s.pool.QueryRow(ctx, `/* pg_sage */
 		UPDATE sage.agent_db_deployments
 		SET lease_expires_at=now()+make_interval(secs => $2),
+			status=CASE
+				WHEN status='archived' AND cleanup_claim_id <> '' THEN 'active'
+				ELSE status
+			END,
+			cleanup_claim_id='',
+			cleanup_claimed_at=NULL,
+			teardown_operation_id='',
+			provider_mutation_id='',
+			provider_mutation_expires_at=NULL,
+			lifecycle_version=lifecycle_version+1,
 			updated_at=now()
-		WHERE deployment_id=$1`,
+		WHERE deployment_id=$1
+			AND status <> 'deleted'
+			AND provisioning_status NOT IN (
+				'destroy_pending', 'destroying', 'destroyed'
+			)
+		RETURNING `+deploymentColumnsSQL,
 		id, req.LeaseSeconds,
-	)
+	), &dep)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if _, getErr := s.Get(ctx, id); errors.Is(getErr, ErrNotFound) {
+			return Deployment{}, ErrNotFound
+		}
+		return Deployment{}, ErrConflict
+	}
 	if err != nil {
 		return Deployment{}, err
-	}
-	if tag.RowsAffected() == 0 {
-		return Deployment{}, ErrNotFound
 	}
 	_ = s.audit(ctx, id, "extend_lease", map[string]any{
 		"lease_seconds": req.LeaseSeconds,
 		"reason":        req.Reason,
 	})
-	return s.Get(ctx, id)
+	return dep, nil
 }
 
 func (s *Store) Archive(ctx context.Context, id string) (Deployment, error) {
@@ -261,10 +280,18 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		}
 		return fmt.Errorf("%w: %s", ErrDeleteBlocked, decision.Reason)
 	}
-	_, err = s.pool.Exec(ctx, `/* pg_sage */ 
-		UPDATE sage.agent_db_deployments
-		SET status='deleted', updated_at=now()
-		WHERE deployment_id=$1`,
+	_, err = s.pool.Exec(ctx, `/* pg_sage */
+		WITH terminal AS (
+			UPDATE sage.agent_db_deployments
+			SET status='deleted', updated_at=now()
+			WHERE deployment_id=$1
+			RETURNING deployment_id
+		)
+		UPDATE sage.agent_db_monitoring_work AS work
+		SET status='revoked', revoked_at=now(), claim_id='', claim_owner='',
+			claim_expires_at=NULL, updated_at=now()
+		FROM terminal
+		WHERE work.deployment_id=terminal.deployment_id`,
 		id,
 	)
 	if err != nil {
@@ -296,35 +323,7 @@ func (s *Store) ArchiveExpired(
 	if err := s.Ensure(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, selectDeploymentsSQL+`
-		WHERE status IN ('active', 'budget_exceeded')
-			AND lease_expires_at IS NOT NULL
-			AND lease_expires_at < $1
-		FOR UPDATE`, now)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	expired := []Deployment{}
-	for rows.Next() {
-		var dep Deployment
-		if err := scanDeployment(rows, &dep); err != nil {
-			return nil, err
-		}
-		expired = append(expired, dep)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	archived := make([]Deployment, 0, len(expired))
-	for _, dep := range expired {
-		next, err := s.Archive(ctx, dep.DeploymentID)
-		if err != nil {
-			return nil, err
-		}
-		archived = append(archived, next)
-	}
-	return archived, nil
+	return s.claimExpiredDeployments(ctx, now)
 }
 
 func (s *Store) setStatus(ctx context.Context, id, status string) (Deployment, error) {
@@ -340,6 +339,12 @@ func (s *Store) setStatusFields(
 	update := "status=$2, updated_at=now()"
 	if extra != "" {
 		update += ", " + extra
+	}
+	update += ", lifecycle_version=lifecycle_version+1"
+	if status == "active" {
+		update += ", cleanup_claim_id='', cleanup_claimed_at=NULL, " +
+			"teardown_operation_id='', provider_mutation_id='', " +
+			"provider_mutation_expires_at=NULL"
 	}
 	tag, err := s.pool.Exec(ctx, `/* pg_sage */ 
 		UPDATE sage.agent_db_deployments
@@ -526,5 +531,11 @@ func scanDeployment(row scanner, dep *Deployment) error {
 		&dep.Metadata,
 		&dep.ProvisioningPlan,
 		&dep.ConnectionInfo,
+		&dep.LifecycleVersion,
+		&dep.CleanupClaimID,
+		&dep.CleanupClaimedAt,
+		&dep.TeardownOperationID,
+		&dep.ProviderMutationID,
+		&dep.ProviderMutationExpiresAt,
 	)
 }

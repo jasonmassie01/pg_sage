@@ -11,9 +11,11 @@ import (
 func TestApprovalReadinessBlocksModerateOutsideMaintenanceWindow(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trust.Level = "autonomous"
+	cfg.Trust.Tier3Moderate = true
 	cfg.Trust.MaintenanceWindow = "0 2 * * *"
 	exec := New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
 		func(string, string, ...any) {})
+	exec.SetExecutionMode("approval")
 	action := store.QueuedAction{
 		ActionType:  "create_index_concurrently",
 		ActionRisk:  "moderate",
@@ -39,9 +41,11 @@ func TestApprovalReadinessBlocksModerateOutsideMaintenanceWindow(t *testing.T) {
 func TestApprovalReadinessAllowsModerateInsideMaintenanceWindow(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trust.Level = "autonomous"
+	cfg.Trust.Tier3Moderate = true
 	cfg.Trust.MaintenanceWindow = "0 2 * * *"
 	exec := New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
 		func(string, string, ...any) {})
+	exec.SetExecutionMode("approval")
 	action := store.QueuedAction{
 		ActionType:  "create_index_concurrently",
 		ActionRisk:  "moderate",
@@ -115,5 +119,24 @@ func TestApprovalReadinessBlocksWhenEvidenceDisappears(t *testing.T) {
 	}
 	if got.DeferReason != "underlying evidence disappeared" {
 		t.Fatalf("DeferReason = %q", got.DeferReason)
+	}
+}
+
+func TestApprovalReadinessBlocksWhenExecutorDisabled(t *testing.T) {
+	cfg := wave1PolicyConfig("autonomous")
+	exec := New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
+		func(string, string, ...any) {})
+	exec.SetExecutorEnabled(false)
+	action := store.QueuedAction{
+		ActionType:  "analyze_table",
+		ActionRisk:  "safe",
+		Status:      "pending",
+		ProposedSQL: "ANALYZE public.orders",
+		ExpiresAt:   time.Now().Add(24 * time.Hour),
+	}
+
+	got := exec.ApprovalReadiness(action, time.Now())
+	if got.Eligible || got.DeferReason != "executor is disabled" {
+		t.Fatalf("readiness = %#v, want executor-disabled block", got)
 	}
 }

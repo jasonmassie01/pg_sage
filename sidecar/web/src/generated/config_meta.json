@@ -348,7 +348,7 @@
   "databases[].execution_mode": {
     "type": "string",
     "default": "",
-    "doc": "Per-database action execution mode: auto executes eligible actions, approval queues them for review, manual disables autonomous queueing. Defaults to defaults.execution_mode or auto.",
+    "doc": "Per-database mode: auto follows trust/risk policy; approval queues actions; manual disables background queueing and execution. Trust never promotes manual. Defaults to fleet default or auto.",
     "mode": "fleet-only"
   },
   "databases[].host": {
@@ -1050,8 +1050,8 @@
   "trust.level": {
     "type": "string",
     "default": "observation",
-    "doc": "Autonomy tier. observation = log only; advisory = queue actions for approval; autonomous = execute safe/moderate actions directly.",
-    "warning": "Changing to autonomous enables DDL execution without human review."
+    "doc": "Autonomy ceiling: observation is cases only; advisory auto executes eligible safe actions; autonomous auto executes eligible safe and moderate actions. Manual disables background actions.",
+    "warning": "Changing trust can expand what execution_mode=auto may execute without human review."
   },
   "trust.maintenance_window": {
     "type": "string",
@@ -1088,13 +1088,13 @@
   "trust.tier3_moderate": {
     "type": "bool",
     "default": false,
-    "doc": "Enable tier-3 actions classified as moderate risk (e.g. VACUUM FULL on small tables). Requires trust.level=autonomous.",
-    "warning": "Moderate actions can briefly lock tables."
+    "doc": "Enable typed moderate actions such as CREATE INDEX CONCURRENTLY after the longer trust ramp. Requires execution_mode=auto and trust.level=autonomous.",
+    "warning": "Moderate actions can consume IO or briefly contend for locks."
   },
   "trust.tier3_safe": {
     "type": "bool",
     "default": true,
-    "doc": "Enable tier-3 actions classified as safe (e.g. CREATE INDEX CONCURRENTLY on small tables). Requires trust.level=autonomous."
+    "doc": "Enable typed safe actions such as ANALYZE and non-FULL VACUUM after the trust ramp when execution_mode=auto and trust.level is advisory or autonomous."
   },
   "tuner.analyze_cooldown_minutes": {
     "type": "int",

@@ -54,6 +54,9 @@ func TestPipelineCoverage_FullBinary(t *testing.T) {
 func seedBinaryScenarios(t *testing.T, pool *pgxpool.Pool, dsn string) {
 	t.Helper()
 	mustExec(t, pool, `
+		DROP SCHEMA IF EXISTS public CASCADE;
+		CREATE SCHEMA public;
+		DROP SCHEMA IF EXISTS sage CASCADE;
 		DROP TABLE IF EXISTS pipe_dup, pipe_child, pipe_parent,
 			pipe_bloat, pipe_stale, pipe_av, pipe_invalid CASCADE;
 		DROP SEQUENCE IF EXISTS pipe_seq;`)
@@ -103,7 +106,8 @@ func seedBinaryScenarios(t *testing.T, pool *pgxpool.Pool, dsn string) {
 
 	// A7 slow_query → advisory finding, NO action. Needs
 	// pg_stat_statements (preloaded by the runner's container).
-	mustExec(t, pool, `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`)
+	mustExec(t, pool, `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+		SELECT pg_stat_statements_reset();`)
 	for i := 0; i < 3; i++ {
 		mustExec(t, pool, "SELECT pg_sleep(0.8)")
 	}
@@ -155,7 +159,7 @@ func writePipelineConfig(t *testing.T, dsn string) string {
 	t.Helper()
 	u, err := url.Parse(dsn)
 	if err != nil {
-		t.Fatalf("parse PIPELINE_PG_URL: %v", err)
+		t.Fatalf("parse SAGE_TEST_DATABASE_URL: %v", err)
 	}
 	pass, _ := u.User.Password()
 	host, port := u.Hostname(), u.Port()

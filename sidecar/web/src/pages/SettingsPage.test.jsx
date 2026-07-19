@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { isMaskedSecret, SettingsPage } from './SettingsPage'
 
 const refetch = vi.fn()
+let configReadOnly = false
 
 vi.mock('../hooks/useAPI', () => ({
   useAPI: vi.fn(url => {
@@ -25,13 +26,18 @@ vi.mock('../hooks/useAPI', () => ({
     return {
       data: {
         config: {
-          'retention.snapshots_days': { value: '14', source: 'yaml' },
+		  'retention.snapshots_days': { value: '14', source: 'override' },
           'retention.findings_days': { value: '60', source: 'yaml' },
           'retention.actions_days': { value: '180', source: 'yaml' },
           'retention.explains_days': { value: '30', source: 'yaml' },
+		  'trust.level': { value: 'observation', source: 'yaml' },
+		  execution_mode: { value: 'approval', source: 'db_override' },
         },
         mode: 'fleet',
         databases: 3,
+        desired_generation: 7,
+        read_only: configReadOnly,
+        write_guidance: configReadOnly ? 'edit the YAML file' : undefined,
       },
       loading: false,
       error: null,
@@ -55,6 +61,11 @@ describe('isMaskedSecret', () => {
 describe('SettingsPage', () => {
   beforeEach(() => {
     refetch.mockClear()
+    configReadOnly = false
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: 'updated' }),
+    })
     localStorage.setItem('pg_sage_settings_mode', 'advanced')
   })
 
@@ -74,4 +85,109 @@ describe('SettingsPage', () => {
 
     expect(screen.getByTestId('shadow-mode-report')).toBeInTheDocument()
   })
+
+  it('renders YAML fleet configuration as readable but not editable', () => {
+    configReadOnly = true
+    render(<SettingsPage database="all" />)
+
+    fireEvent.click(screen.getByTestId('settings-tab-retention'))
+
+    expect(screen.getByTestId('settings-read-only')).toHaveTextContent(
+      /edit the YAML file/i
+    )
+    expect(screen.getByTestId('setting-retention.snapshots_days'))
+      .toBeDisabled()
+    expect(screen.queryByTestId('settings-save')).not.toBeInTheDocument()
+  })
+
+  it('sends the desired generation with global config writes', async () => {
+    render(<SettingsPage database="all" />)
+    fireEvent.click(screen.getByTestId('settings-tab-retention'))
+    fireEvent.change(screen.getByTestId('setting-retention.snapshots_days'), {
+      target: { value: '21' },
+    })
+    fireEvent.click(screen.getByTestId('settings-save'))
+    fireEvent.click(screen.getByTestId('config-diff-confirm'))
+
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled())
+    const [, options] = globalThis.fetch.mock.calls[0]
+    expect(JSON.parse(options.body)).toMatchObject({
+      'retention.snapshots_days': '21',
+      expected_generation: 7,
+    })
+  })
+
+  it('sends the desired generation with database config writes', async () => {
+	  render(<SettingsPage database="orders" databaseId={12} />)
+	  fireEvent.click(screen.getByTestId('settings-tab-trust-safety'))
+	  fireEvent.change(screen.getByTestId('setting-execution_mode'), {
+	    target: { value: 'manual' },
+	  })
+	  fireEvent.click(screen.getByTestId('settings-save'))
+	  fireEvent.click(screen.getByTestId('config-diff-confirm'))
+
+	  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled())
+	  const [, options] = globalThis.fetch.mock.calls[0]
+	  expect(JSON.parse(options.body)).toMatchObject({
+	    execution_mode: 'manual',
+	    expected_generation: 7,
+	  })
+	})
+
+	it('refetches after a generation conflict', async () => {
+	  globalThis.fetch.mockResolvedValueOnce({
+	    ok: false,
+	    status: 409,
+	    json: async () => ({ error: 'config generation conflict' }),
+	  })
+	  render(<SettingsPage database="all" />)
+	  fireEvent.click(screen.getByTestId('settings-tab-retention'))
+	  fireEvent.change(screen.getByTestId('setting-retention.snapshots_days'), {
+	    target: { value: '21' },
+	  })
+	  fireEvent.click(screen.getByTestId('settings-save'))
+	  fireEvent.click(screen.getByTestId('config-diff-confirm'))
+
+	  await waitFor(() => expect(refetch).toHaveBeenCalled())
+	})
+
+	it('shows restart-pending fields returned by the server', async () => {
+	  globalThis.fetch.mockResolvedValueOnce({
+	    ok: true,
+	    status: 200,
+	    json: async () => ({
+	      status: 'updated',
+	      pending_restart: ['retention.snapshots_days'],
+	    }),
+	  })
+	  render(<SettingsPage database="all" />)
+	  fireEvent.click(screen.getByTestId('settings-tab-retention'))
+	  fireEvent.change(screen.getByTestId('setting-retention.snapshots_days'), {
+	    target: { value: '21' },
+	  })
+	  fireEvent.click(screen.getByTestId('settings-save'))
+	  fireEvent.click(screen.getByTestId('config-diff-confirm'))
+
+	  await waitFor(() => expect(screen.getByText(
+	    /pending restart.*retention\.snapshots_days/i
+	  )).toBeInTheDocument())
+	})
+
+	it('shows restart-pending fields returned by reset', async () => {
+	  globalThis.fetch.mockResolvedValueOnce({
+	    ok: true,
+	    status: 200,
+	    json: async () => ({
+	      status: 'deleted',
+	      pending_restart: ['retention.snapshots_days'],
+	    }),
+	  })
+	  render(<SettingsPage database="all" />)
+	  fireEvent.click(screen.getByTestId('settings-tab-retention'))
+	  fireEvent.click(screen.getByTestId('reset-retention.snapshots_days'))
+
+	  await waitFor(() => expect(screen.getByText(
+	    /pending restart.*retention\.snapshots_days/i
+	  )).toBeInTheDocument())
+	})
 })

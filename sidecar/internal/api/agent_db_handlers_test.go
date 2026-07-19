@@ -1083,6 +1083,7 @@ func TestAgentDBProviderConfigAPI(t *testing.T) {
 			"settings": {"allowed_regions": ["us-east-1"], "max_ttl_seconds": 3600}
 		}`)),
 	)
+	req = withUser(req, testAdminUser())
 	rr := httptest.NewRecorder()
 	agentDBSubrouter(st).ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
@@ -1104,6 +1105,7 @@ func TestAgentDBProviderConfigAPI(t *testing.T) {
 			"settings": {"secret_token": "do-not-store"}
 		}`)),
 	)
+	badReq = withUser(badReq, testAdminUser())
 	badRR := httptest.NewRecorder()
 	agentDBSubrouter(st).ServeHTTP(badRR, badReq)
 	if badRR.Code != http.StatusBadRequest {
@@ -1464,9 +1466,11 @@ func TestAgentDBBlueprintToLiveProvisioningAPI(t *testing.T) {
 			BackupRetentionDays: 1,
 			PrivateNetwork:      true,
 		}},
+		wave34TestLiveAuthority(),
 	)
 	post := func(path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader([]byte(body)))
+		req = withUser(req, testAdminUser())
 		rr := httptest.NewRecorder()
 		router.ServeHTTP(rr, req)
 		return rr
@@ -1496,10 +1500,12 @@ func TestAgentDBBlueprintToLiveProvisioningAPI(t *testing.T) {
 	if rr := post("/api/v1/agent-dbs/api_blueprint_live/provision/preflight", `{}`); rr.Code != http.StatusOK {
 		t.Fatalf("preflight status = %d body=%s", rr.Code, rr.Body.String())
 	}
-	if rr := post(
+	createTuple := issueWave34TupleForHandler(
+		t, router, id, "create", "blueprint-create",
+	)
+	if rr := wave34Post(t, router,
 		"/api/v1/agent-dbs/api_blueprint_live/provision/execute",
-		`{"mode":"live","live_enabled":true,"provider_enabled":true,"cost_estimate_id":"estimate-api"}`,
-	); rr.Code != http.StatusOK {
+		wave34TupleBody(createTuple), testAdminUser()); rr.Code != http.StatusOK {
 		t.Fatalf("live execute status = %d body=%s", rr.Code, rr.Body.String())
 	} else if !strings.Contains(rr.Body.String(), `"kind":"execute_live"`) {
 		t.Fatalf("live execute used wrong path body=%s", rr.Body.String())
@@ -1519,7 +1525,12 @@ func TestAgentDBBlueprintToLiveProvisioningAPI(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("RecordBackup restore verification: %v", err)
 	}
-	if rr := post("/api/v1/agent-dbs/api_blueprint_live/provision/destroy-live", `{}`); rr.Code != http.StatusOK {
+	destroyTuple := issueWave34TupleForHandler(
+		t, router, id, "destroy", "blueprint-destroy",
+	)
+	if rr := wave34Post(t, router,
+		"/api/v1/agent-dbs/api_blueprint_live/provision/destroy-live",
+		wave34TupleBody(destroyTuple), testAdminUser()); rr.Code != http.StatusOK {
 		t.Fatalf("live destroy status = %d body=%s", rr.Code, rr.Body.String())
 	}
 	dep, err := st.Get(ctx, id)
@@ -1561,7 +1572,7 @@ func TestAgentDBBlueprintLLMGeneratorParsesJSONResponse(t *testing.T) {
 		APIKey:           "test-key",
 		Model:            "test-model",
 		TimeoutSeconds:   2,
-		TokenBudgetDaily: 1000,
+		TokenBudgetDaily: 20000,
 	}, func(string, string, ...any) {})
 	gen := llmBlueprintGenerator{
 		client: client,
@@ -1603,7 +1614,7 @@ func TestAgentDBBlueprintLLMGeneratorDoesNotFallbackToHeuristics(t *testing.T) {
 		APIKey:           "test-key",
 		Model:            "test-model",
 		TimeoutSeconds:   2,
-		TokenBudgetDaily: 1000,
+		TokenBudgetDaily: 20000,
 	}, func(string, string, ...any) {})
 	gen := llmBlueprintGenerator{client: client}
 	_, err := gen.GenerateBlueprint(context.Background(), agentdb.BlueprintDraftRequest{
@@ -1637,7 +1648,7 @@ func TestAgentDBBlueprintLLMGeneratorRequiresCloudRegion(t *testing.T) {
 		APIKey:           "test-key",
 		Model:            "test-model",
 		TimeoutSeconds:   2,
-		TokenBudgetDaily: 1000,
+		TokenBudgetDaily: 20000,
 	}, func(string, string, ...any) {})
 	gen := llmBlueprintGenerator{client: client}
 	_, err := gen.GenerateBlueprint(context.Background(), agentdb.BlueprintDraftRequest{
@@ -1653,6 +1664,7 @@ func TestAgentDBLiveProvisionAPI(t *testing.T) {
 	st, ctx, pool := requireAgentDBAPIStore(t)
 	defer pool.Close()
 	id := "api_live_provision"
+	profileID := seedLiveAPIProfile(t, ctx, pool, st, id)
 	cleanupAgentDBTestRows(t, ctx, pool, id)
 	if _, err := st.Provision(ctx, agentdb.RegisterRequest{
 		DeploymentID:      id,
@@ -1660,6 +1672,7 @@ func TestAgentDBLiveProvisionAPI(t *testing.T) {
 		AgentID:           "agent_live_api",
 		Provider:          agentdb.ProviderAWSRDS,
 		ProvisioningLevel: agentdb.LevelInstance,
+		SizeProfileID:     profileID,
 		LeaseSeconds:      3600,
 	}); err != nil {
 		t.Fatalf("Provision: %v", err)
@@ -1680,18 +1693,13 @@ func TestAgentDBLiveProvisionAPI(t *testing.T) {
 	if disabledRR.Code != http.StatusBadRequest {
 		t.Fatalf("disabled live status = %d", disabledRR.Code)
 	}
-	liveReq := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/agent-dbs/"+id+"/provision/execute",
-		bytes.NewReader([]byte(`{
-			"mode":"live",
-			"live_enabled":true,
-			"provider_enabled":true,
-			"cost_estimate_id":"estimate-api"
-		}`)),
+	handler := agentDBSubrouterWithRegistry(
+		st, registry, nil, wave34TestLiveAuthority(),
 	)
-	liveRR := httptest.NewRecorder()
-	agentDBSubrouterWithRegistry(st, registry, nil).ServeHTTP(liveRR, liveReq)
+	tuple := issueWave34TupleForHandler(t, handler, id, "create", "api-create")
+	liveRR := wave34Post(t, handler,
+		"/api/v1/agent-dbs/"+id+"/provision/execute",
+		wave34TupleBody(tuple), testAdminUser())
 	if liveRR.Code != http.StatusOK {
 		t.Fatalf("live execute status = %d body=%s", liveRR.Code, liveRR.Body.String())
 	}
@@ -1761,22 +1769,16 @@ func TestAgentDBLiveProvisionAPIReportsUnavailableRunner(t *testing.T) {
 		t.Fatalf("PreflightProvision: %v", err)
 	}
 	seedEnabledProviderConfig(t, ctx, st, agentdb.ProviderAWSRDS)
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/agent-dbs/"+id+"/provision/execute",
-		bytes.NewReader([]byte(`{
-			"mode":"live",
-			"live_enabled":true,
-			"provider_enabled":true,
-			"cost_estimate_id":"estimate-api"
-		}`)),
-	)
-	rr := httptest.NewRecorder()
-	agentDBSubrouterWithRegistry(
+	handler := agentDBSubrouterWithRegistry(
 		st,
 		agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{}),
 		nil,
-	).ServeHTTP(rr, req)
+		wave34TestLiveAuthority(),
+	)
+	rr := wave34Post(t, handler,
+		"/api/v1/agent-dbs/"+id+"/provision/authorize-live",
+		map[string]any{"operation": "create", "idempotency_key": "unavailable"},
+		testAdminUser())
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
@@ -1789,6 +1791,7 @@ func TestAgentDBLiveProvisionAPIPromotesDryRunReadyDeployment(t *testing.T) {
 	st, ctx, pool := requireAgentDBAPIStore(t)
 	defer pool.Close()
 	id := "api_live_after_dry_run"
+	profileID := seedLiveAPIProfile(t, ctx, pool, st, id)
 	cleanupAgentDBTestRows(t, ctx, pool, id)
 	defer cleanupAgentDBTestRows(t, ctx, pool, id)
 	if _, err := st.Provision(ctx, agentdb.RegisterRequest{
@@ -1797,6 +1800,7 @@ func TestAgentDBLiveProvisionAPIPromotesDryRunReadyDeployment(t *testing.T) {
 		AgentID:           "agent_live_api",
 		Provider:          agentdb.ProviderAWSRDS,
 		ProvisioningLevel: agentdb.LevelInstance,
+		SizeProfileID:     profileID,
 		LeaseSeconds:      3600,
 	}); err != nil {
 		t.Fatalf("Provision: %v", err)
@@ -1810,18 +1814,13 @@ func TestAgentDBLiveProvisionAPIPromotesDryRunReadyDeployment(t *testing.T) {
 	seedEnabledProviderConfig(t, ctx, st, agentdb.ProviderAWSRDS)
 	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
 	registry.Register(apiFakeProviderRunner{})
-	req := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/agent-dbs/"+id+"/provision/execute",
-		bytes.NewReader([]byte(`{
-			"mode":"live",
-			"live_enabled":true,
-			"provider_enabled":true,
-			"cost_estimate_id":"estimate-api"
-		}`)),
+	handler := agentDBSubrouterWithRegistry(
+		st, registry, nil, wave34TestLiveAuthority(),
 	)
-	rr := httptest.NewRecorder()
-	agentDBSubrouterWithRegistry(st, registry, nil).ServeHTTP(rr, req)
+	tuple := issueWave34TupleForHandler(t, handler, id, "create", "dry-run-create")
+	rr := wave34Post(t, handler,
+		"/api/v1/agent-dbs/"+id+"/provision/execute",
+		wave34TupleBody(tuple), testAdminUser())
 	if rr.Code != http.StatusOK {
 		t.Fatalf("live execute status = %d body=%s", rr.Code, rr.Body.String())
 	}
@@ -1982,6 +1981,9 @@ func seedEnabledProviderConfig(
 		Enabled:  true,
 		Settings: map[string]any{
 			"allowed_regions":            []any{"*"},
+			"allowed_accounts":           []any{"*"},
+			"allowed_projects":           []any{"*"},
+			"allowed_workspaces":         []any{"*"},
 			"allow_public_ip":            false,
 			"max_ttl_seconds":            86400,
 			"max_estimated_cost_usd":     100,
@@ -1993,12 +1995,42 @@ func seedEnabledProviderConfig(
 	}
 }
 
+func seedLiveAPIProfile(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	st *agentdb.Store,
+	deploymentID string,
+) string {
+	t.Helper()
+	profileID := deploymentID + "_profile"
+	profile, err := st.UpsertSizeProfile(ctx, agentdb.SizeProfile{
+		ProfileID: profileID, Provider: agentdb.ProviderAWSRDS,
+		ProvisioningLevel: agentdb.LevelInstance, Name: profileID,
+		StorageGB: 20, MonthlyBudgetUSD: 75,
+		ProviderParams: map[string]any{
+			"region": "us-east-1", "account": "123456789012",
+			"db_instance_class": "db.t4g.micro",
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed live API profile: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx,
+			"DELETE FROM sage.agent_db_size_profiles WHERE profile_id=$1",
+			profileID,
+		)
+	})
+	return profile.ProfileID
+}
+
 func requireAgentDBAPIStore(t *testing.T) (*agentdb.Store, context.Context, *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
 	dsn := os.Getenv("SAGE_DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+		dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
 	}
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {

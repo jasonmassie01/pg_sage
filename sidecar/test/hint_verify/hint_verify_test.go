@@ -11,13 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// DSN targets the Docker PG17 container with pg_hint_plan 1.7.1.
-// Override with HINT_TEST_DSN env var.
+// testDSN uses the package-isolated database on the designated test server.
 func testDSN() string {
-	if v := os.Getenv("HINT_TEST_DSN"); v != "" {
-		return v
-	}
-	return "postgres://postgres:postgres@127.0.0.1:5435/hint_test?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 func setupPool(t *testing.T) (*pgxpool.Pool, context.Context) {

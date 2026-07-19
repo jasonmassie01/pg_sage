@@ -138,7 +138,6 @@ echo " Running test suites"
 echo "============================================================"
 
 export API_PORT=18080
-export MCP_PORT=15433
 export PROM_PORT=19187
 
 run_suite() {
@@ -160,7 +159,6 @@ run_suite() {
 }
 
 run_suite "API Tests"        "$SCRIPT_DIR/test_api.sh"
-run_suite "MCP Tests"        "$SCRIPT_DIR/test_mcp.sh"
 run_suite "Prometheus Tests"  "$SCRIPT_DIR/test_prometheus.sh"
 run_suite "Verify Rules"     "$SCRIPT_DIR/verify.sh"
 

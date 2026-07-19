@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func (s *Store) ReconcileAbandonedDeployments(
@@ -17,59 +19,95 @@ func (s *Store) ReconcileAbandonedDeployments(
 	}
 	result := LifecycleReconcileResult{Archived: archived}
 	for _, dep := range archived {
-		if dep.Provider == ProviderLocalPostgres || dep.ProvisioningLevel != LevelInstance {
-			continue
-		}
-		if liveRunner, ok := liveRunnerFromSource(runnerSource, dep.Provider); ok &&
-			dep.LiveMode &&
-			destroyableProvisioningStatus(dep.ProvisioningStatus) {
-			attempt, err := s.DestroyProvisionLive(ctx, dep.DeploymentID, liveRunner)
-			if err == nil {
-				result.DestroyLive = append(result.DestroyLive, attempt)
-				continue
-			}
-			if errors.Is(err, ErrRestoreRequired) {
-				result.Blocked = append(result.Blocked, LifecycleBlocked{
-					DeploymentID: dep.DeploymentID,
-					Reason:       "verified restore required",
-				})
-				continue
-			}
+		if err := s.reconcileExpiredDeployment(
+			ctx, now, runnerSource, dep, &result,
+		); err != nil {
 			return LifecycleReconcileResult{}, err
 		}
-		runner, err := commandRunnerFromSource(runnerSource, dep.Provider)
-		if err != nil {
-			if errors.Is(err, ErrInvalid) {
-				result.Blocked = append(result.Blocked, LifecycleBlocked{
-					DeploymentID: dep.DeploymentID,
-					Reason:       "provision runner unavailable",
-				})
-				continue
-			}
-			return LifecycleReconcileResult{}, err
-		}
-		attempt, err := s.DestroyProvisionDryRun(ctx, dep.DeploymentID, runner)
-		if err == nil {
-			result.DestroyDryRun = append(result.DestroyDryRun, attempt)
-			continue
-		}
-		if errors.Is(err, ErrRestoreRequired) {
-			result.Blocked = append(result.Blocked, LifecycleBlocked{
-				DeploymentID: dep.DeploymentID,
-				Reason:       "verified restore required",
-			})
-			continue
-		}
-		if errors.Is(err, ErrInvalid) {
-			result.Blocked = append(result.Blocked, LifecycleBlocked{
-				DeploymentID: dep.DeploymentID,
-				Reason:       "invalid provisioning plan or provider state",
-			})
-			continue
-		}
-		return LifecycleReconcileResult{}, err
 	}
 	return result, nil
+}
+
+func (s *Store) reconcileExpiredDeployment(
+	ctx context.Context,
+	now time.Time,
+	runnerSource any,
+	dep Deployment,
+	result *LifecycleReconcileResult,
+) error {
+	if dep.Provider == ProviderLocalPostgres || dep.ProvisioningLevel != LevelInstance {
+		return nil
+	}
+	if liveRunner, ok := liveRunnerFromSource(runnerSource, dep.Provider); ok &&
+		dep.LiveMode && destroyableProvisioningStatus(dep.ProvisioningStatus) {
+		authorized, proceed, err := s.authorizeCleanup(ctx, now, dep, result)
+		if err != nil || !proceed {
+			return err
+		}
+		attempt, err := s.destroyAuthorizedLive(ctx, authorized, liveRunner)
+		if err == nil {
+			result.DestroyLive = append(result.DestroyLive, attempt)
+		}
+		return err
+	}
+	runner, err := commandRunnerFromSource(runnerSource, dep.Provider)
+	if errors.Is(err, ErrInvalid) {
+		appendLifecycleBlock(result, dep.DeploymentID, "provision runner unavailable")
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	authorized, proceed, err := s.authorizeCleanup(ctx, now, dep, result)
+	if err != nil || !proceed {
+		return err
+	}
+	attempt, err := s.DestroyProvisionDryRun(ctx, authorized.DeploymentID, runner)
+	if err == nil {
+		result.DestroyDryRun = append(result.DestroyDryRun, attempt)
+		return nil
+	}
+	if appendCleanupError(result, dep.DeploymentID, err) {
+		return nil
+	}
+	return err
+}
+
+func (s *Store) authorizeCleanup(
+	ctx context.Context,
+	now time.Time,
+	dep Deployment,
+	result *LifecycleReconcileResult,
+) (Deployment, bool, error) {
+	authorized, err := s.authorizeTeardownClaim(ctx, dep, now)
+	if err == nil {
+		return authorized, true, nil
+	}
+	if appendCleanupError(result, dep.DeploymentID, err) {
+		return Deployment{}, false, nil
+	}
+	return Deployment{}, false, err
+}
+
+func appendCleanupError(result *LifecycleReconcileResult, id string, err error) bool {
+	switch {
+	case errors.Is(err, ErrRestoreRequired):
+		appendLifecycleBlock(result, id, "verified restore required")
+	case errors.Is(err, ErrInvalid):
+		appendLifecycleBlock(result, id, "invalid provisioning plan or provider state")
+	case errors.Is(err, ErrConflict):
+		appendLifecycleBlock(result, id, "cleanup claim invalidated")
+	default:
+		return false
+	}
+	return true
+}
+
+func appendLifecycleBlock(result *LifecycleReconcileResult, id, reason string) {
+	result.Blocked = append(result.Blocked, LifecycleBlocked{
+		DeploymentID: id,
+		Reason:       reason,
+	})
 }
 
 func liveRunnerFromSource(source any, provider string) (ProviderRunner, bool) {
@@ -97,8 +135,13 @@ func (s *Store) ReconcileLiveProvisioning(
 	if err := s.Ensure(ctx); err != nil {
 		return LifecycleReconcileResult{}, err
 	}
+	lockConn, releaseLock, err := acquireLiveReconcileLock(ctx, s.pool)
+	if err != nil {
+		return LifecycleReconcileResult{}, err
+	}
+	defer releaseLock()
 	var locked bool
-	if err := s.pool.QueryRow(ctx,
+	if err := lockConn.QueryRow(ctx,
 		`/* pg_sage */ SELECT pg_try_advisory_lock(hashtext('agentdb-live-reconcile'))`,
 	).Scan(&locked); err != nil {
 		return LifecycleReconcileResult{}, err
@@ -106,14 +149,12 @@ func (s *Store) ReconcileLiveProvisioning(
 	if !locked {
 		return LifecycleReconcileResult{}, ErrRateLimited
 	}
-	defer func() {
-		_, _ = s.pool.Exec(ctx,
-			`/* pg_sage */ SELECT pg_advisory_unlock(hashtext('agentdb-live-reconcile'))`)
-	}()
-	rows, err := s.pool.Query(ctx, selectDeploymentsSQL+`
+	rows, err := lockConn.Query(ctx, selectDeploymentsSQL+`
 		WHERE provisioning_level='instance'
 			AND provider <> $1
-			AND provisioning_status IN ('provisioning', 'destroying', 'status_unknown')`,
+			AND provisioning_status IN (
+				'provisioning', 'destroy_pending', 'destroying', 'status_unknown'
+			)`,
 		ProviderLocalPostgres,
 	)
 	if err != nil {
@@ -132,6 +173,21 @@ func (s *Store) ReconcileLiveProvisioning(
 				DeploymentID: dep.DeploymentID,
 				Reason:       "live runner unavailable",
 			})
+			continue
+		}
+		if dep.Status != "deleted" && dep.TeardownOperationID != "" &&
+			(dep.ProvisioningStatus == "destroy_pending" ||
+				dep.ProvisioningStatus == "destroying" ||
+				dep.ProvisioningStatus == "status_unknown") {
+			attempt, destroyErr := s.destroyAuthorizedLive(ctx, dep, runner)
+			if destroyErr != nil {
+				result.Blocked = append(result.Blocked, LifecycleBlocked{
+					DeploymentID: dep.DeploymentID,
+					Reason:       destroyErr.Error(),
+				})
+				continue
+			}
+			result.DestroyLive = append(result.DestroyLive, attempt)
 			continue
 		}
 		status := runner.Status(ctx, ProvisionRequest{
@@ -169,6 +225,32 @@ func (s *Store) ReconcileLiveProvisioning(
 		}
 	}
 	return result, rows.Err()
+}
+
+func acquireLiveReconcileLock(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+) (*pgxpool.Conn, func(), error) {
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	release := func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var unlocked bool
+		err := conn.QueryRow(cleanupCtx,
+			`/* pg_sage */ SELECT pg_advisory_unlock(`+
+				`hashtext('agentdb-live-reconcile'))`,
+		).Scan(&unlocked)
+		if err == nil && unlocked {
+			conn.Release()
+			return
+		}
+		raw := conn.Hijack()
+		_ = raw.Close(cleanupCtx)
+	}
+	return conn, release, nil
 }
 
 func commandRunnerFromSource(source any, provider string) (ProvisionRunner, error) {

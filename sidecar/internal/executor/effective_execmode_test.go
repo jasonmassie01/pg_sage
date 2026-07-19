@@ -15,14 +15,14 @@ func TestEffectiveExecMode(t *testing.T) {
 		}
 	}
 	cases := []struct {
-		name                        string
+		name                         string
 		execMode, override, cfgTrust string
-		want                        string
+		want                         string
 	}{
 		{"manual+observation stays manual", "manual", "", "observation", "manual"},
-		{"manual+advisory -> auto", "manual", "", "advisory", "auto"},
-		{"manual+autonomous -> auto", "manual", "", "autonomous", "auto"},
-		{"manual+autonomous via override -> auto", "manual", "autonomous", "observation", "auto"},
+		{"manual+advisory stays manual", "manual", "", "advisory", "manual"},
+		{"manual+autonomous stays manual", "manual", "", "autonomous", "manual"},
+		{"manual+autonomous override stays manual", "manual", "autonomous", "observation", "manual"},
 		{"manual+empty trust stays manual", "manual", "", "", "manual"},
 		{"auto always auto", "auto", "", "observation", "auto"},
 		{"approval is respected (not promoted)", "approval", "", "autonomous", "approval"},

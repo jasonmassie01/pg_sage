@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -18,8 +19,6 @@ import (
 // ---------------------------------------------------------------------------
 // DB setup helper — connects to local Postgres and skips if unavailable.
 // ---------------------------------------------------------------------------
-
-const coverageDSN = "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
 
 var (
 	cbPool     *pgxpool.Pool
@@ -36,14 +35,14 @@ func coverageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 		qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
-		cfg, err := pgxpool.ParseConfig(coverageDSN)
+		cfg, err := pgxpool.ParseConfig(os.Getenv("SAGE_DATABASE_URL"))
 		if err != nil {
 			cbPoolErr = fmt.Errorf("parsing DSN: %w", err)
 			return
 		}
-		// MaxConns=1 is required for session-scoped advisory locks
-		// (serializeAcrossPackages) to protect the test's own queries.
-		cfg.MaxConns = 1
+		// The cross-package test lock pins one connection while tests use
+		// the remaining pool capacity.
+		cfg.MaxConns = 4
 		cbPool, cbPoolErr = pgxpool.NewWithConfig(qctx, cfg)
 		if cbPoolErr != nil {
 			return
@@ -60,7 +59,6 @@ func coverageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			cbPool = nil
 			return
 		}
-		schema.ReleaseAdvisoryLock(qctx, cbPool)
 		if err := schema.EnsureDatabasesTable(qctx, cbPool); err != nil {
 			cbPoolErr = fmt.Errorf("ensure databases: %w", err)
 			return

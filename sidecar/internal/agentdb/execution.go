@@ -129,8 +129,30 @@ func (s *Store) ExecuteProvisionLive(
 	if runner == nil || runner.Name() == "dry_run" {
 		return ProvisionAttempt{}, ErrInvalid
 	}
-	if req.CostEstimateID == "" {
+	if req.Records == nil || req.Attempt == nil {
 		return ProvisionAttempt{}, ErrInvalid
+	}
+	trustedRecords, err := s.LoadLiveExecutionRecords(
+		ctx, *req.Attempt, *req.Records,
+	)
+	if err != nil {
+		return ProvisionAttempt{}, err
+	}
+	validation := ValidateLiveExecutionAttempt(trustedRecords, *req.Attempt, req.Now)
+	if validation.Replay {
+		return ProvisionAttempt{}, ErrConflict
+	}
+	if consumedLiveRecords(trustedRecords) {
+		return ProvisionAttempt{}, ErrConflict
+	}
+	if !validation.Allowed || trustedRecords.Estimate == nil {
+		return ProvisionAttempt{}, ErrInvalid
+	}
+	req.CostEstimateID = trustedRecords.Estimate.EstimateID
+	req.Policy = trustedRecords.CurrentPolicy
+	if dep.ProviderMutationID != "" && dep.ProviderMutationExpiresAt != nil &&
+		dep.ProviderMutationExpiresAt.After(time.Now().UTC()) {
+		return ProvisionAttempt{}, ErrRateLimited
 	}
 	if dep.ProvisioningStatus == "available" {
 		return ProvisionAttempt{}, ErrConflict
@@ -145,11 +167,20 @@ func (s *Store) ExecuteProvisionLive(
 	if err != nil {
 		return ProvisionAttempt{}, err
 	}
+	mutationID, err := s.beginProviderMutation(ctx, id)
+	if err != nil {
+		return ProvisionAttempt{}, err
+	}
+	defer s.releaseProviderMutation(id, mutationID)
+	if err := s.ClaimLiveExecution(ctx, *req.Attempt, req.Now); err != nil {
+		return ProvisionAttempt{}, err
+	}
 	if err := s.updateProvisioningStatus(ctx, id, "provisioning", nil); err != nil {
 		return ProvisionAttempt{}, err
 	}
 	provReq := ProvisionRequest{
 		Operation:     ProvisionOpCreate,
+		OperationID:   "create:" + req.CostEstimateID,
 		Deployment:    dep,
 		Plan:          dep.ProvisioningPlan,
 		Policy:        req.Policy,
@@ -157,6 +188,21 @@ func (s *Store) ExecuteProvisionLive(
 		DryRunCommand: commands[0],
 	}
 	result := runner.Create(ctx, provReq)
+	if result.Error == nil && result.ProviderResourceID == "" {
+		result.Error = errors.New("provider returned no resource identity")
+		result.Status = "status_unknown"
+	}
+	if result.Error == nil && result.ProviderResourceID != "" {
+		receipt := LiveExecutionReceipt{
+			AuthorizationID:    req.Attempt.AuthorizationID,
+			IdempotencyKey:     req.Attempt.IdempotencyKey,
+			PlanHash:           req.Attempt.PlanHash,
+			ProviderResourceID: result.ProviderResourceID,
+		}
+		if err := s.PersistLiveExecutionReceipt(ctx, receipt); err != nil {
+			return ProvisionAttempt{}, err
+		}
+	}
 	status := "succeeded"
 	nextStatus := firstNonEmpty(result.Status, "available")
 	if result.Error != nil {
@@ -214,34 +260,90 @@ func (s *Store) DestroyProvisionLive(
 	if err := s.requireRestoreVerifiedBackup(ctx, dep); err != nil {
 		return ProvisionAttempt{}, err
 	}
-	if dep.ProvisioningStatus != "available" &&
-		dep.ProvisioningStatus != "status_checked" &&
-		dep.ProvisioningStatus != "dry_run_ready" {
+	dep, err = s.prepareDirectTeardown(ctx, dep)
+	if err != nil {
+		return ProvisionAttempt{}, err
+	}
+	return s.runProviderDestroy(ctx, id, runner, dep.TeardownOperationID)
+}
+
+func (s *Store) destroyAuthorizedLive(
+	ctx context.Context,
+	authorized Deployment,
+	runner ProviderRunner,
+) (ProvisionAttempt, error) {
+	current, err := s.Get(ctx, authorized.DeploymentID)
+	if err != nil {
+		return ProvisionAttempt{}, err
+	}
+	if authorized.TeardownOperationID == "" ||
+		current.TeardownOperationID != authorized.TeardownOperationID ||
+		current.Status == "deleted" {
+		return ProvisionAttempt{}, ErrConflict
+	}
+	if current.ProvisioningStatus != "destroy_pending" &&
+		current.ProvisioningStatus != "destroying" &&
+		current.ProvisioningStatus != "status_unknown" {
+		return ProvisionAttempt{}, ErrConflict
+	}
+	return s.runProviderDestroy(
+		ctx, current.DeploymentID, runner, current.TeardownOperationID,
+	)
+}
+
+func (s *Store) runProviderDestroy(
+	ctx context.Context,
+	id string,
+	runner ProviderRunner,
+	operationID string,
+) (ProvisionAttempt, error) {
+	dep, err := s.cloudDeploymentForExecution(ctx, id)
+	if err != nil {
+		return ProvisionAttempt{}, err
+	}
+	if runner == nil || runner.Name() == "dry_run" {
 		return ProvisionAttempt{}, ErrInvalid
 	}
-	if err := s.updateProvisioningStatus(ctx, id, "destroy_pending", nil); err != nil {
+	if operationID == "" || dep.TeardownOperationID != operationID {
+		return ProvisionAttempt{}, ErrConflict
+	}
+	mutationID, err := s.beginProviderMutation(ctx, dep.DeploymentID)
+	if err != nil {
 		return ProvisionAttempt{}, err
 	}
-	if err := s.updateProvisioningStatus(ctx, id, "destroying", nil); err != nil {
-		return ProvisionAttempt{}, err
+	defer s.releaseProviderMutation(dep.DeploymentID, mutationID)
+	if dep.ProvisioningStatus != "destroying" {
+		if err := s.updateProvisioningStatus(ctx, id, "destroying", nil); err != nil {
+			return ProvisionAttempt{}, err
+		}
+		dep, err = s.cloudDeploymentForExecution(ctx, id)
+		if err != nil {
+			return ProvisionAttempt{}, err
+		}
 	}
 	result := runner.Destroy(ctx, ProvisionRequest{
 		Operation:   ProvisionOpDestroy,
+		OperationID: operationID,
 		Deployment:  dep,
 		Plan:        dep.ProvisioningPlan,
 		RequestedAt: time.Now().UTC(),
 	})
 	status := "succeeded"
 	nextStatus := firstNonEmpty(result.Status, "destroying")
-	if result.Error != nil {
+	providerErr := publicProviderError(result.Error)
+	if errors.Is(providerErr, ErrNotFound) {
+		nextStatus = "destroyed"
+	} else if result.Error != nil {
 		status = "failed"
-		nextStatus = "failed"
+		nextStatus = "status_unknown"
 	}
+	detail := RedactProviderDetail(result.Detail)
+	detail["operation_id"] = operationID
 	attempt, err := s.recordProvisionAttempt(ctx, id, provisionAttemptInput{
 		Kind:       "destroy_live",
 		Status:     status,
 		Runner:     runner.Name(),
-		Detail:     RedactProviderDetail(result.Detail),
+		Detail:     detail,
 		FinishedAt: time.Now().UTC(),
 	})
 	if err != nil {
@@ -251,8 +353,8 @@ func (s *Store) DestroyProvisionLive(
 		return ProvisionAttempt{}, err
 	}
 	_ = s.audit(ctx, id, "provision_destroy_live_"+status, attempt.Detail)
-	if result.Error != nil {
-		return attempt, publicProviderError(result.Error)
+	if result.Error != nil && !errors.Is(providerErr, ErrNotFound) {
+		return attempt, providerErr
 	}
 	return attempt, nil
 }
@@ -492,6 +594,7 @@ func (s *Store) updateProvisioningStatus(
 		UPDATE sage.agent_db_deployments
 		SET provisioning_status=$2,
 			connection_info=connection_info || $3::jsonb,
+			lifecycle_version=lifecycle_version+1,
 			updated_at=now()
 		WHERE deployment_id=$1`, id, status, jsonBytes(connectionInfo))
 	return err
@@ -525,6 +628,7 @@ func (s *Store) applyProvisionResult(
 			secret_ref_provider=COALESCE(NULLIF($5, ''), secret_ref_provider),
 			live_mode=CASE WHEN $7 THEN true ELSE live_mode END,
 			connection_info=connection_info || $6::jsonb,
+			lifecycle_version=lifecycle_version+1,
 			updated_at=now()
 		WHERE deployment_id=$1`,
 		id,

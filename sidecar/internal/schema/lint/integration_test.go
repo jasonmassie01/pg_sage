@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,8 +27,7 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	testPoolOnce.Do(func() {
 		dsn := os.Getenv("SAGE_DATABASE_URL")
 		if dsn == "" {
-			dsn = "postgres://postgres:postgres@localhost:5432/" +
-				"postgres?sslmode=disable"
+			dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
 		}
 		poolCfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
@@ -41,6 +41,12 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 		}
 		if err := testPool.Ping(ctx); err != nil {
 			testPoolErr = fmt.Errorf("ping: %w", err)
+			testPool.Close()
+			testPool = nil
+			return
+		}
+		if err := schema.Bootstrap(ctx, testPool); err != nil {
+			testPoolErr = fmt.Errorf("bootstrap: %w", err)
 			testPool.Close()
 			testPool = nil
 		}

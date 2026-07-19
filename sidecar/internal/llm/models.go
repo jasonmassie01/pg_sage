@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,28 +25,48 @@ type ModelInfo struct {
 // modelCache stores cached model listings with TTL.
 type modelCache struct {
 	mu      sync.Mutex
-	models  []ModelInfo
-	fetched time.Time
+	entries map[string]modelCacheEntry
 	ttl     time.Duration
 }
 
+type modelCacheEntry struct {
+	models  []ModelInfo
+	fetched time.Time
+}
+
 // defaultCache is the package-level cache (1-hour TTL).
-var defaultCache = &modelCache{ttl: time.Hour}
+var defaultCache = &modelCache{
+	entries: make(map[string]modelCacheEntry),
+	ttl:     time.Hour,
+}
 
 func (c *modelCache) get() ([]ModelInfo, bool) {
+	return c.getFor("")
+}
+
+func (c *modelCache) getFor(key string) ([]ModelInfo, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.models != nil && time.Since(c.fetched) < c.ttl {
-		return c.models, true
+	entry, ok := c.entries[key]
+	if ok && entry.models != nil && time.Since(entry.fetched) < c.ttl {
+		return append([]ModelInfo(nil), entry.models...), true
 	}
 	return nil, false
 }
 
 func (c *modelCache) set(models []ModelInfo) {
+	c.setFor("", models)
+}
+
+func (c *modelCache) setFor(key string, models []ModelInfo) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.models = models
-	c.fetched = time.Now()
+	if c.entries == nil {
+		c.entries = make(map[string]modelCacheEntry)
+	}
+	c.entries[key] = modelCacheEntry{
+		models: append([]ModelInfo(nil), models...), fetched: time.Now(),
+	}
 }
 
 // ListModels queries the LLM provider for available models.
@@ -53,14 +74,15 @@ func (c *modelCache) set(models []ModelInfo) {
 func ListModels(
 	ctx context.Context, endpoint, apiKey string,
 ) ([]ModelInfo, error) {
-	if cached, ok := defaultCache.get(); ok {
+	key := modelCacheKey(endpoint, apiKey)
+	if cached, ok := defaultCache.getFor(key); ok {
 		return cached, nil
 	}
 	models, err := fetchModels(ctx, endpoint, apiKey)
 	if err != nil {
 		return nil, err
 	}
-	defaultCache.set(models)
+	defaultCache.setFor(key, models)
 	return models, nil
 }
 
@@ -68,7 +90,13 @@ func ListModels(
 func InvalidateModelCache() {
 	defaultCache.mu.Lock()
 	defer defaultCache.mu.Unlock()
-	defaultCache.models = nil
+	defaultCache.entries = make(map[string]modelCacheEntry)
+}
+
+func modelCacheKey(endpoint, apiKey string) string {
+	digest := sha256.Sum256([]byte(apiKey))
+	return strings.TrimRight(strings.TrimSpace(endpoint), "/") + "|" +
+		fmt.Sprintf("%x", digest[:16])
 }
 
 // fetchModels dispatches to the correct provider parser.
@@ -198,7 +226,7 @@ func doModelRequest(
 	req, err := http.NewRequestWithContext(
 		ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, providerRequestError("create request", err)
 	}
 	if apiKey != "" {
 		req.Header.Set(
@@ -207,23 +235,71 @@ func doModelRequest(
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
+		return nil, providerRequestError("http request", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		redactedBody := redactProviderText(string(body))
 		slog.Warn("model list API error",
 			"status", resp.StatusCode,
-			"body", string(body))
+			"body", redactedBody)
 		return nil, fmt.Errorf(
 			"API returned %d: %s",
-			resp.StatusCode, truncate(string(body), 200))
+			resp.StatusCode, truncate(redactedBody, 200))
 	}
 	return body, nil
+}
+
+func providerRequestError(prefix string, err error) error {
+	return &redactedProviderError{prefix: prefix, cause: err}
+}
+
+type redactedProviderError struct {
+	prefix string
+	cause  error
+}
+
+func (e *redactedProviderError) Error() string {
+	return fmt.Sprintf("%s: %s", e.prefix, redactProviderText(e.cause.Error()))
+}
+
+func (e *redactedProviderError) Unwrap() error { return e.cause }
+
+func redactProviderText(value string) string {
+	for _, key := range []string{
+		"key", "api_key", "access_token", "token", "signature",
+	} {
+		value = redactQueryValue(value, key)
+	}
+	return value
+}
+
+func redactQueryValue(value, key string) string {
+	lower := strings.ToLower(value)
+	needle := strings.ToLower(key) + "="
+	for start := 0; ; {
+		index := strings.Index(lower[start:], needle)
+		if index < 0 {
+			return value
+		}
+		index += start
+		valueStart := index + len(needle)
+		valueEnd := len(value)
+		for i := valueStart; i < len(value); i++ {
+			if strings.ContainsRune("& #\"'", rune(value[i])) {
+				valueEnd = i
+				break
+			}
+		}
+		value = value[:valueStart] + "[REDACTED]" + value[valueEnd:]
+		lower = strings.ToLower(value)
+		start = valueStart + len("[REDACTED]")
+	}
 }
 
 func truncate(s string, maxLen int) string {

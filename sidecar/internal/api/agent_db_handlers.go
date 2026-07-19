@@ -17,11 +17,20 @@ func registerAgentDBRoutes(
 	st *agentdb.Store,
 	generators ...agentdb.BlueprintGenerator,
 ) {
-	registry := agentdb.RuntimeRunnerRegistryFromEnv(context.Background())
 	var blueprintGenerator agentdb.BlueprintGenerator
 	if len(generators) > 0 {
 		blueprintGenerator = generators[0]
 	}
+	registerAgentDBRoutesWithAuthority(mux, st, blueprintGenerator, nil)
+}
+
+func registerAgentDBRoutesWithAuthority(
+	mux *http.ServeMux,
+	st *agentdb.Store,
+	blueprintGenerator agentdb.BlueprintGenerator,
+	authority *agentDBLiveAuthority,
+) {
+	registry := agentdb.RuntimeRunnerRegistryFromEnv(context.Background())
 	operatorUp := RequireRole("admin", "operator")
 	mux.Handle(
 		"POST /api/v1/agent-dbs/{deployment_id}/agent-ping",
@@ -33,7 +42,7 @@ func registerAgentDBRoutes(
 	mux.Handle(
 		"/api/v1/agent-dbs/",
 		operatorUp(http.HandlerFunc(agentDBSubrouterWithRegistry(
-			st, registry, blueprintGenerator,
+			st, registry, blueprintGenerator, authority,
 		))),
 	)
 }
@@ -46,7 +55,12 @@ func agentDBSubrouterWithRegistry(
 	st *agentdb.Store,
 	registry *agentdb.RunnerRegistry,
 	blueprintGenerator agentdb.BlueprintGenerator,
+	authorities ...*agentDBLiveAuthority,
 ) http.HandlerFunc {
+	var authority *agentDBLiveAuthority
+	if len(authorities) > 0 {
+		authority = authorities[0]
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.URL.Path, "/api/v1/agent-dbs/")
 		parts := strings.Split(rest, "/")
@@ -92,7 +106,9 @@ func agentDBSubrouterWithRegistry(
 				agentDBProviderConfigsHandler(st)(w, r)
 				return
 			case r.Method == http.MethodPost && len(parts) == 2:
-				agentDBUpsertProviderConfigHandler(st)(w, r)
+				RequireRole("admin")(
+					http.HandlerFunc(agentDBUpsertProviderConfigHandler(st)),
+				).ServeHTTP(w, r)
 				return
 			}
 		}
@@ -237,14 +253,18 @@ func agentDBSubrouterWithRegistry(
 			agentDBTuningHintsHandler(st)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "provision" && parts[2] == "preflight":
 			agentDBProvisionPreflightHandler(st)(w, r)
+		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "provision" && parts[2] == "authorize-live":
+			RequireRole("admin")(http.HandlerFunc(agentDBAuthorizeLiveHandler(
+				st, registry, authority,
+			))).ServeHTTP(w, r)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "provision" && parts[2] == "execute":
-			agentDBProvisionExecuteHandler(st, registry)(w, r)
+			agentDBProvisionExecuteHandler(st, registry, authority)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "provision" && parts[2] == "status":
 			agentDBProvisionStatusHandler(st, registry)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "provision" && parts[2] == "destroy-dry-run":
 			agentDBProvisionDestroyDryRunHandler(st, registry)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "provision" && parts[2] == "destroy-live":
-			agentDBProvisionDestroyLiveHandler(st, registry)(w, r)
+			agentDBProvisionDestroyLiveHandler(st, registry, authority)(w, r)
 		case r.Method == http.MethodGet && len(parts) == 3 && parts[1] == "provision" && parts[2] == "attempts":
 			agentDBProvisionAttemptsHandler(st)(w, r)
 		case r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "cleanup":
@@ -356,12 +376,17 @@ func agentDBProvisionApprovedRequestHandler(st *agentdb.Store) http.HandlerFunc 
 }
 func agentDBListHandler(st *agentdb.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := st.List(r.Context())
+		options, err := agentDBListOptions(r)
 		if err != nil {
 			agentDBError(w, err)
 			return
 		}
-		jsonResponse(w, map[string]any{"deployments": rows})
+		page, err := st.ListPage(r.Context(), options)
+		if err != nil {
+			agentDBError(w, err)
+			return
+		}
+		jsonResponse(w, page)
 	}
 }
 func agentDBCleanupAllHandler(st *agentdb.Store) http.HandlerFunc {

@@ -1,5 +1,5 @@
 # pg_sage integration test config — GCP Cloud SQL
-# Ports: 38080 (API), 35433 (MCP), 39187 (Prometheus)
+# Ports: 38080 (API), 39187 (Prometheus)
 
 mode: standalone
 
@@ -119,10 +119,6 @@ retention:
   findings_days: 7
   actions_days: 7
   explains_days: 7
-
-mcp:
-  enabled: true
-  listen_addr: ":35433"
 
 prometheus:
   listen_addr: ":39187"

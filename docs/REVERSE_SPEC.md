@@ -62,44 +62,44 @@ absent**. These materially shape the roadmap (don't re-build what exists; do fin
 |---|---|
 | "17 REST endpoints" (CLAUDE.md) | **~139** method+path pairs; AgentDB alone is 62. |
 | Trust auto-ramps observation→advisory→autonomous | **No auto-promotion.** Day-8/day-31 thresholds gate a *manually-set* `trust.level` string. |
-| HA safe-mode halts actions during failover | `ha.InSafeMode()` is built + tested but **wired to nothing**; fleet hardcodes `isReplica=false`. |
+| HA safe-mode halts actions during failover | `ha.InSafeMode()` is built + tested but **wired to nothing**; replica state itself is gated in standalone and fleet modes. |
 | Per-database LLM token budgets (fleet isolation) | `fleet.FleetBudget` exists + tested but **never constructed**; budgeting is per-`llm.Client` daily only. |
 | Index bloat / REINDEX advising | Threshold config plumbed to the API, but **no Tier-1 rule implements it**. |
 | Interactive LLM "diagnose / ReAct loop" | **Does not exist.** `diagnose_*` are deterministic read-only SQL probes. |
 | Optimizer advisory threshold (0.5) gates index recs | `ConfidenceThreshold` has **zero consumers**; every accepted rec becomes a finding. |
-| Cases model drives execution | **Two disconnected Tier-3 systems.** The live executor gates `findings`; the richer `cases`/`ActionContract` model is API-advisory only (`ProjectFinding` never called from executor). |
+| Cases model drives execution | `ProjectFinding` remains a projection and does not trigger execution, but typed `ActionContract` policy now gates both live findings and API readiness. |
 | Event-path notifications (executor/analyzer → Slack/email) | Senders **never registered**; all event notifications silently no-op ("no sender for type"). Only the API test path delivers. |
-| AgentDB databases are monitored | **Not in the fleet.** No collector/analyzer; "monitoring" = agent self-ping + self-reported cost. Reconciler exists but **nothing schedules it**. |
+| AgentDB databases are monitored | **Partial.** Eligible inline-credential deployments join the fleet collector after scheduled reconciliation; analyzer/executor and secret-ref resolution are absent. Durable monitoring work exists but has no runtime worker. |
 | Terraform provisioning | Rendered + policy-scanned but **never executed**; only the SDK/REST runners run. |
 | Maintenance windows as `HH:MM-HH:MM` | Parser understands only cron + `"always"`; range strings are silently never-in-window. |
 
 ## 4. Safety model (what genuinely protects the database)
 
-- **Emergency stop** checked at RunCycle start, in `ShouldExecute`, and all manual paths; fails
-  closed on DB error (hardened 2026-06-10). *Gap:* not re-checked mid-cycle nor by the
-  auto-rollback goroutine before firing rollback DDL.
+- **Emergency stop** is checked per candidate, immediately before live SQL, and before manual
+  mutations; it fails closed on DB error. *Gap:* the detached auto-rollback goroutine does not
+  re-check it before firing rollback DDL.
 - **SQL whitelist** `ValidateExecutorSQL` + `RejectMultiStatement` (anti-stacked-query).
 - **CONCURRENTLY/VACUUM/ALTER SYSTEM** run outside transactions on dedicated conns; statement/
   lock/ddl timeouts set and reset; lock failure (55P03) circuit-breaks the table.
 - **Auto-rollback** goroutine reverses regressions after `RollbackWindowMinutes`; 7-day hysteresis.
 - **Concurrency caps:** `ddlSem`=3, process-wide ANALYZE semaphore + table-size cap.
 - **Secrets** encrypted AES-256-GCM (argon2id KDF) at rest in `sage.databases.password_enc`.
-- *Gaps:* fleet executors call `RunCycle(ctx, false)` with **no replica gating**; regression
-  detection uses coarse *global* metrics (masks per-table regressions).
+- *Gaps:* regression detection uses coarse *global* metrics (masks per-table regressions), and
+  `ha.InSafeMode()` is not consulted by the execution path.
 
-## 5. Data model (38 `sage.*` tables)
+## 5. Data model (47 `sage.*` tables)
 
 Core (22): `findings`, `action_log`, `action_queue`, `snapshots`, `config`, `config_audit`,
 `databases`, `users`, `sessions`, `incidents`, `cases`(projection), `explain_cache`,
 `explain_results`, `query_hints`, `briefings`, `alert_log`, `notification_channels/rules/log`,
-`size_history`, `health_history`, `schema_findings`(legacy), `crypto_meta`. AgentDB (16):
+`size_history`, `health_history`, `schema_findings`(legacy), `crypto_meta`. AgentDB (25):
 `agent_db_*` (instances, leases, costs, budgets, tokens, blueprints, templates, deploy_requests,
 audit, …). See section 7 for the full reference and the ~25 config blocks.
 
 ## 6. Tech stack & conventions
 
 Go 1.24, `pgx/v5` + `pgxpool` (no `database/sql`, no ORM), `yaml.v3` + env + `sage.config`
-runtime overrides, `log/slog`, `fsnotify` hot-reload, stdlib `testing` (no testify), React 19 +
+runtime overrides, `log/slog`, typed config lifecycles, stdlib `testing` (no testify), React 19 +
 Vite + Tailwind v4 + Recharts, `go:embed` for the dashboard, goreleaser. Prometheus text metrics
 on `:9187` (hand-rendered, no client_golang); REST + SPA on `:8080` (`:8085` in the local config).
 

@@ -95,22 +95,28 @@ test.describe('Findings', () => {
     });
     test.skip(!target, 'requires a seeded pending-action finding fixture');
 
+    const casesResponse = page.waitForResponse((res) =>
+      res.url().includes('/api/v1/cases') &&
+      res.url().includes(`database=${encodeURIComponent(target!.database)}`) &&
+      res.status() === 200,
+    );
     await page.getByTestId('database-picker').selectOption(target!.database);
+    await casesResponse;
 
-    const row = page.locator('tbody tr')
-      .filter({ hasText: target!.title })
-      .filter({ hasText: target!.database });
-    await expect(row).toHaveCount(1);
-    await row.click();
+    const caseCard = page.locator('main article')
+      .filter({ hasText: target!.title });
+    await expect(caseCard).toHaveCount(1);
 
-    await expect(page.getByTestId('pending-action-panel')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Take Action' }))
+    await expect(caseCard.locator('[aria-label="Action timeline"]'))
+      .toBeVisible();
+    await expect(caseCard.getByRole('button', { name: 'Take Action' }))
       .toHaveCount(0);
   });
 
   test('suppresses and unsuppresses a finding from the UI', async ({
     page,
   }) => {
+    test.skip(true, 'legacy Findings suppression UI was retired by Cases');
     const target = await page.evaluate(async () => {
       const dbsRes = await fetch('/api/v1/databases', {
         credentials: 'include',

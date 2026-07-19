@@ -55,6 +55,9 @@ WHERE  state = 'active'
 func (d *Detector) PollOnce(
 	ctx context.Context,
 ) ([]*rca.Incident, error) {
+	if !d.activityPollingEnabled() {
+		return nil, nil
+	}
 	rows, err := d.pool.Query(ctx, ddlActivitySQL)
 	if err != nil {
 		return nil, err
@@ -127,6 +130,9 @@ func (d *Detector) pruneStale(currentPIDs map[int]bool) {
 
 // Run starts the polling loop, blocking until ctx is cancelled.
 func (d *Detector) Run(ctx context.Context) {
+	if !d.activityPollingEnabled() {
+		return
+	}
 	interval := time.Duration(d.cfg.PollIntervalSeconds) * time.Second
 	if interval <= 0 {
 		interval = 5 * time.Second
@@ -155,4 +161,8 @@ func (d *Detector) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (d *Detector) activityPollingEnabled() bool {
+	return d != nil && d.cfg != nil && d.cfg.Enabled && d.cfg.ActivityPolling
 }

@@ -55,10 +55,10 @@ Operation methods (in `execution.go` unless noted):
 |---|---|---|
 | `PreflightProvision` | `preflight` | requires cloud instance + valid plan commands; sets `preflight_passed` |
 | `ExecuteProvision` (dry-run) | `execute` | only from `preflight_passed`/`failed`; conflicts if already `dry_run_ready`/`ready`; runs `commands[0]` through `DryRunProvisionRunner` |
-| `ExecuteProvisionLive` | `execute_live` | rejects nil/`dry_run` runner; **requires `CostEstimateID`**; only from `preflight_passed`/`failed`/`dry_run_ready`/`status_checked`; records a creation receipt |
+| `ExecuteProvisionLive` | `execute_live` | rejects nil/`dry_run` runner; requires the exact persisted plan, estimate, policy generation, authorization, requester, and idempotency tuple; records a creation receipt |
 | `CheckProvisionStatus` / `...Live` | `status_check[_live]` | live status maps provider state; if provider returns NotFound while `destroying`, transitions to `destroyed` |
 | `DestroyProvisionDryRun` | `destroy_dry_run` | requires verified-restore backup if `BackupRequired` |
-| `DestroyProvisionLive` | `destroy_live` | requires verified-restore backup; only from `available`/`status_checked`/`dry_run_ready` |
+| `DestroyProvisionLive` | `destroy_live` | requires a separate exact-operation authorization and verified-restore backup; only from `available`/`status_checked`/`dry_run_ready` |
 | `CheckBackupAssurance[Live]` (`backup_assurance.go`) | `backup_check[_live]` | records a `verified` backup row |
 | `PlanRestoreDrillDryRun` | `restore_drill_dry_run` | dry-run only; explicitly does **not** grant restore verification |
 
@@ -117,11 +117,11 @@ Runners are only wired live when **`PG_SAGE_LIVE_PROVISIONING=1`**
 If a flag is set but creds are missing, the runner is silently **not** registered, so
 the registry returns the dry-run fallback. The default (no env) registry is pure dry-run.
 
-A *second* gate lives in the HTTP layer: `ExecuteProvisionLive` is only reached when the
-request body says `mode=live` AND `EvaluateLiveProvisionPolicy` passes against the
-provider config (`agent_db_execution_handlers.go:32-65, 95-113`). So live provisioning
-requires: env flags + creds **and** an enabled provider config with allowlists/TTL/cost
-caps satisfied.
+Live execution is reached only after the admin-only `POST
+/{id}/provision/authorize-live` endpoint persists a server-owned plan, estimate,
+effective policy generation, operation authorization, requester, nonce, and idempotency
+tuple. The subsequent create or destroy request must repeat the exact returned identity.
+Client-supplied approval, actor, cost, policy, and override claims do not grant authority.
 
 ### 2.2 AWS RDS (`aws_rds_runner.go`) — LIVE (real SDK)
 
@@ -215,8 +215,11 @@ the full DDL set on first use and seeds default size profiles. Tables:
 `agent_db_blueprints`, `agent_db_size_profiles`, `agent_db_pings`,
 `agent_db_ping_tokens`, `agent_db_ping_token_failures`, `agent_db_recommendations`,
 `agent_db_cost_samples`, `agent_db_backups`, `agent_db_tuning_hints`,
-`agent_db_provision_attempts`, `agent_db_audit`, `agent_db_deploy_requests`. Child tables
-FK to deployments with `ON DELETE CASCADE`.
+`agent_db_provision_attempts`, `agent_db_audit`, `agent_db_deploy_requests`,
+`agent_db_live_plans`, `agent_db_live_estimates`, `agent_db_live_authorizations`,
+`agent_db_live_receipts`, `agent_db_monitoring_policies`,
+`agent_db_monitoring_state`, and `agent_db_monitoring_work`. Child tables FK to
+deployments with `ON DELETE CASCADE` where applicable.
 
 ---
 
@@ -260,12 +263,22 @@ deployment to `budget_exceeded` when cost samples cross the hard limit. Cost sam
 agent-reported via `AddCostSample` — there is **no automatic metering**; chargeback is
 self-reported.
 
-### 4.4 Live provisioning policy gate (`provider_policy.go`)
+### 4.4 Live provisioning policy and authority
 
-`EvaluateLiveProvisionPolicy` is the strict pre-flight for live creates: global enable,
-provider enable, TTL required + under max, public-IP allowlist, region/account/project/
-workspace allowlists (`*` wildcard supported), max estimated cost, low-confidence review,
-admin-override note. This runs in the HTTP handler before `ExecuteProvisionLive`.
+`ResolveEffectiveLiveProvisionPolicy` is fail-closed across runtime runner capability,
+global hard ceilings, persisted provider policy, and exact-operation authorization. It
+intersects allowlists and takes the narrowest positive TTL/cost limits. Missing,
+unreadable, stale, or provider-mismatched layers deny execution. `manual` denies provider
+mutation; `auto_within_policy` additionally requires a high-confidence current estimate
+with no unknown cost components. Provider settings can narrow but never widen global
+policy, and provider-policy mutation is admin-only.
+
+`IssueLiveExecutionRecords` normalizes the size profile/provider parameters into an
+immutable hashed plan. The estimate, pricing revision, policy hash/generation,
+authorization nonce, authenticated requester, and idempotency key are persisted before
+execution. Create and destroy authorizations are distinct and single-consumption. An
+exact replay returns its stored receipt; any mismatched replay fails without a provider
+call.
 
 ### 4.5 Deploy requests (schema-change review, `deploy_requests.go`)
 
@@ -291,27 +304,36 @@ brute-force lockout (5 failures / 5 min → `ErrRateLimited`, `identity.go:15-18
 admin/operator role (`agent_db_handlers.go:26-29`) — it is token-authenticated for the
 agent itself.
 
-### 5.2 Does it flow into the fleet? — NO
+### 5.2 Fleet collector integration (partial)
 
-Searched `internal/fleet` for any AgentDB linkage: **none**. Agent-deployed databases are
-**not** registered into `fleet.DatabaseManager`, are not collected/analyzed by the Tier-1
-rules engine, and do not appear in `/api/v1/databases`. The AgentDB subsystem is a
-self-contained provisioning/lifecycle ledger. "Monitoring" of an agent DB means: the agent
-pings liveness, reports cost samples, and receives `recommendations`/`tuning_hints` stored
-in `agent_db_*` tables (`operations.go`, `tuning.go`) — it is **not** the continuous
-collector/analyzer pipeline that the sidecar runs against its primary fleet.
+After lifecycle reconciliation, `syncAgentDBsToFleet` registers active deployments that
+carry inline host/database connection information under an `agentdb:` fleet name. It
+starts a collector and exposes snapshot-level fleet visibility. Deployments whose
+credentials are represented only by `secret_ref` are skipped because runtime secret
+resolution is not wired into this path. The analyzer and executor are also not attached,
+so this does not grant autonomous mutation authority.
 
-### 5.3 Lifecycle reconciliation (LIVE logic, not scheduled here)
+### 5.3 Lifecycle reconciliation (scheduled LIVE logic)
 
 `ReconcileAbandonedDeployments` (`lifecycle.go:9-73`) archives lease-expired deployments
 (`ArchiveExpired`) then, for cloud instances, attempts live destroy (if live runner +
 live mode + destroyable status) or dry-run destroy, recording `Blocked` entries when a
 verified restore is required or the runner is unavailable. `ReconcileLiveProvisioning`
-(`lifecycle.go:93-172`) takes a `pg_try_advisory_lock`, sweeps in-flight states
-(`provisioning`/`destroying`/`status_unknown`), and reconciles against the provider's
-live status. **No goroutine/cron in `cmd/` calls these** (grep of `cmd/` for `agentdb`
-returns nothing) — reconciliation logic exists and is tested but is not yet scheduled by
-the running binary; it would need an external trigger or future wiring.
+sweeps in-flight states (`provisioning`/`destroying`/`status_unknown`) and reconciles
+against provider live status. `startAgentDBReconciler` schedules both paths at
+`agentdb.reconcile_interval_seconds` (300 seconds by default), then runs the partial fleet
+sync described above. Expiry uses durable compare-and-swap claims; renewal invalidates a
+stale claim and concurrent reconcilers cannot authorize two provider mutations for one
+lifecycle version.
+
+### 5.4 Durable monitoring work (implemented, worker not wired)
+
+`ScheduleMonitoring` persists `light_sql_probe` work after scanning at most 10,000 rows and grouping
+at most 100 physical targets per pass. `ClaimMonitoringWork` issues bounded leases (100
+maximum), reclaims expired leases with row locks, and enforces global, provider, tenant,
+and deployment concurrency policy. Claims carry `secret_ref`, not resolved credentials,
+for just-in-time secret acquisition. No running worker currently calls the scheduler,
+executes probes, escalates to costlier tiers, or completes the claims.
 
 ---
 
@@ -348,9 +370,9 @@ the running binary; it would need an external trigger or future wiring.
 
 ### Absent / scaffolding
 
-- **No fleet/monitoring integration** of agent DBs (see §5.2).
 - **No Terraform execution** — only render/policy/manifest (see §3.4).
-- **No scheduled reconciliation** in the running binary (see §5.3).
+- **No runtime consumer for durable monitoring work** (see §5.4).
+- **No analyzer/executor attachment for AgentDB fleet entries** (see §5.2).
 - **No async provisioning queue** — `queued/cancelling` states are declared but unused.
 - **No data masking enforcement** — masking is a request precondition only (§4.1).
 - **No real restore-drill / data archival** (§ Archival above).
@@ -364,4 +386,6 @@ the running binary; it would need an external trigger or future wiring.
 workspace tabs, provisioning panels, form controls, and section views over the REST API.
 This is the primary management surface (consistent with the project's web-UI-first
 direction). It surfaces requests, deployments, blueprints, templates, provider configs,
-provision attempts, cost/budget, backups, and audit — i.e. the ledger, not a live monitor.
+provision attempts, cost/budget, backups, and audit. Runtime monitoring is partial:
+eligible inline-credential deployments receive fleet snapshots, while durable monitoring
+work has no worker and the analyzer/executor pipeline is not attached.

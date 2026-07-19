@@ -74,12 +74,15 @@ func ConfigureSessionBatch(
 		batch.Queue(stmt)
 	}
 	br := conn.SendBatch(ctx, batch)
-	defer br.Close()
 
 	for range batch.Len() {
 		if _, err := br.Exec(); err != nil {
+			_ = br.Close()
 			return fmt.Errorf("configure session batch: %w", err)
 		}
+	}
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("close configure session batch: %w", err)
 	}
 	return nil
 }

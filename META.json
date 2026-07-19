@@ -33,7 +33,7 @@
             "type": "git"
         }
     },
-    "tags": ["monitoring", "dba", "agentic", "performance", "mcp"],
+    "tags": ["monitoring", "dba", "agentic", "performance"],
     "generated_by": "pg_sage build system",
     "meta-spec": {
         "version": "1.0.0",

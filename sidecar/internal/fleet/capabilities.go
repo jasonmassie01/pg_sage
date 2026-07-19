@@ -66,6 +66,19 @@ func BuildProviderCapabilities(
 	stopped bool,
 	now time.Time,
 ) ProviderCapabilities {
+	return buildProviderCapabilities(
+		cfg, provider, isReplica, mode, stopped, true, now)
+}
+
+func buildProviderCapabilities(
+	cfg *config.Config,
+	provider string,
+	isReplica bool,
+	mode string,
+	stopped bool,
+	executorEnabled bool,
+	now time.Time,
+) ProviderCapabilities {
 	adapter := AdapterForProvider(provider)
 	caps := ProviderCapabilities{
 		Provider:    adapter.Provider,
@@ -75,7 +88,8 @@ func BuildProviderCapabilities(
 		LogAccess:   adapter.LogAccess,
 		Limitations: adapter.Limitations,
 	}
-	caps.ActionFamilies = BuildActionFamilyReadiness(cfg, caps, mode, stopped, now)
+	caps.ActionFamilies = buildActionFamilyReadiness(
+		cfg, caps, mode, stopped, executorEnabled, now)
 	caps.Blockers = readinessBlockers(caps)
 	caps.ReadyForAutoSafe = readyForAutoSafe(caps)
 	return caps
@@ -88,9 +102,22 @@ func BuildActionFamilyReadiness(
 	stopped bool,
 	now time.Time,
 ) []ActionFamilyReadiness {
+	return buildActionFamilyReadiness(cfg, caps, mode, stopped, true, now)
+}
+
+func buildActionFamilyReadiness(
+	cfg *config.Config,
+	caps ProviderCapabilities,
+	mode string,
+	stopped bool,
+	executorEnabled bool,
+	now time.Time,
+) []ActionFamilyReadiness {
 	actionTypes := []string{
 		"analyze_table",
 		"vacuum_table",
+		"alter_system_guc",
+		"alter_database_guc",
 		"diagnose_lock_blockers",
 		"diagnose_runaway_query",
 		"diagnose_connection_exhaustion",
@@ -111,6 +138,7 @@ func BuildActionFamilyReadiness(
 		"create_statistics",
 		"prepare_parameterized_query",
 		"retire_query_hint",
+		"apply_query_hint",
 		"ddl_preflight",
 		"alter_table",
 	}
@@ -118,6 +146,15 @@ func BuildActionFamilyReadiness(
 	for _, actionType := range actionTypes {
 		contract, ok := executor.ContractForActionType(actionType)
 		if !ok {
+			continue
+		}
+		if !directExecutionImplemented(actionType) {
+			out = append(out, ActionFamilyReadiness{
+				ActionType:    actionType,
+				Supported:     false,
+				Decision:      executor.PolicyDecisionBlocked,
+				BlockedReason: "direct execution is not implemented",
+			})
 			continue
 		}
 		if !AdapterForProvider(caps.Provider).SupportsAction(actionType) {
@@ -129,7 +166,8 @@ func BuildActionFamilyReadiness(
 			})
 			continue
 		}
-		ctx := readinessPolicyContext(cfg, caps, mode, stopped, now)
+		ctx := readinessPolicyContext(
+			cfg, caps, mode, stopped, executorEnabled, now)
 		decision := executor.EvaluateActionPolicy(contract, ctx)
 		out = append(out, ActionFamilyReadiness{
 			ActionType:                actionType,
@@ -142,6 +180,15 @@ func BuildActionFamilyReadiness(
 		})
 	}
 	return out
+}
+
+func directExecutionImplemented(actionType string) bool {
+	switch actionType {
+	case "create_statistics", "promote_role_work_mem":
+		return false
+	default:
+		return true
+	}
 }
 
 func CollectProviderCapabilities(
@@ -220,17 +267,34 @@ func EnsureCapabilities(
 	if snap.Platform == "" {
 		snap.Platform = "unknown"
 	}
-	if snap.Capabilities.Provider == "" ||
-		len(snap.Capabilities.ActionFamilies) == 0 {
-		mode := "auto"
-		if inst != nil && inst.Config.ExecutionMode != "" {
+	mode := "auto"
+	stopped := false
+	executorEnabled := true
+	effectiveCfg := cfg
+	if inst != nil {
+		if inst.Config.ExecutionMode != "" {
 			mode = inst.Config.ExecutionMode
 		}
-		stopped := inst != nil && inst.Stopped
-		snap.Capabilities = BuildProviderCapabilities(
-			cfg, snap.Platform, snap.Capabilities.IsReplica,
-			mode, stopped, now)
+		stopped = inst.Stopped
+		executorEnabled = inst.Config.IsExecutorEnabled()
+		if cfg != nil && inst.Config.TrustLevel != "" {
+			copied := *cfg
+			copied.Trust.Level = inst.Config.TrustLevel
+			effectiveCfg = &copied
+		}
 	}
+	caps := snap.Capabilities
+	if caps.Provider == "" {
+		caps = buildProviderCapabilities(
+			effectiveCfg, snap.Platform, caps.IsReplica,
+			mode, stopped, executorEnabled, now)
+	} else {
+		caps.ActionFamilies = buildActionFamilyReadiness(
+			effectiveCfg, caps, mode, stopped, executorEnabled, now)
+		caps.Blockers = readinessBlockers(caps)
+		caps.ReadyForAutoSafe = readyForAutoSafe(caps)
+	}
+	snap.Capabilities = caps
 	return snap
 }
 
@@ -239,6 +303,7 @@ func readinessPolicyContext(
 	caps ProviderCapabilities,
 	mode string,
 	stopped bool,
+	executorEnabled bool,
 	now time.Time,
 ) executor.ActionPolicyContext {
 	copied := &config.Config{}
@@ -250,6 +315,7 @@ func readinessPolicyContext(
 	return executor.ActionPolicyContext{
 		Config:          copied,
 		ExecutionMode:   mode,
+		ExecutorEnabled: &executorEnabled,
 		Now:             now,
 		RampStart:       now.Add(-365 * 24 * time.Hour),
 		IsReplica:       caps.IsReplica,
@@ -297,6 +363,14 @@ func readinessBlockers(caps ProviderCapabilities) []string {
 	}
 	if s := caps.Extensions["pg_stat_statements"]; s != "available" {
 		blockers = append(blockers, "pg_stat_statements "+s)
+	}
+	for _, family := range caps.ActionFamilies {
+		if family.ActionType == "analyze_table" &&
+			family.Decision != executor.PolicyDecisionExecute &&
+			family.BlockedReason != "" {
+			blockers = append(blockers, family.BlockedReason)
+			break
+		}
 	}
 	return blockers
 }

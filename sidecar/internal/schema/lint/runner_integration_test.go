@@ -297,8 +297,7 @@ func TestIntegration_Runner_SagePersistence(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	if !sageSchemaExists(t, pool, ctx) {
-		t.Skip("sage.findings table not present; " +
-			"skipping persistence test")
+		t.Fatal("isolated fixture is missing sage.findings")
 	}
 	serializeAcrossPackages(t, ctx, pool)
 
@@ -421,7 +420,7 @@ func TestIntegration_SagePersistence_UpsertIdempotent(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	if !sageSchemaExists(t, pool, ctx) {
-		t.Skip("sage.findings table not present")
+		t.Fatal("isolated fixture is missing sage.findings")
 	}
 	serializeAcrossPackages(t, ctx, pool)
 
@@ -482,7 +481,7 @@ func TestIntegration_SagePersistence_ResolveCleared(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	if !sageSchemaExists(t, pool, ctx) {
-		t.Skip("sage.findings table not present")
+		t.Fatal("isolated fixture is missing sage.findings")
 	}
 	serializeAcrossPackages(t, ctx, pool)
 
@@ -533,7 +532,7 @@ func TestIntegration_SagePersistence_ResolveAllEmpty(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	if !sageSchemaExists(t, pool, ctx) {
-		t.Skip("sage.findings table not present")
+		t.Fatal("isolated fixture is missing sage.findings")
 	}
 	serializeAcrossPackages(t, ctx, pool)
 

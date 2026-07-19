@@ -76,12 +76,17 @@ func (s *Store) Provision(ctx context.Context, req RegisterRequest) (Deployment,
 	if err != nil {
 		return Deployment{}, err
 	}
+	profile = normalizedProvisionProfile(profile)
 	plan, err := BuildProvisionPlan(req, profile)
 	if err != nil {
 		return Deployment{}, err
 	}
 	req.ProvisioningStatus = "planned"
 	req.ProvisioningPlan = planMap(plan)
+	req.SizeProfileID = profile.ProfileID
+	req.Metadata = cloneAnyMap(req.Metadata)
+	req.Metadata["provider_params"] = cloneAnyMap(profile.ProviderParams)
+	req.Metadata["size_profile_id"] = profile.ProfileID
 	return s.Register(ctx, req)
 }
 
@@ -264,6 +269,18 @@ var schemaStatements = []string{
 		ADD COLUMN IF NOT EXISTS provisioning_plan jsonb NOT NULL DEFAULT '{}'::jsonb`,
 	`ALTER TABLE sage.agent_db_deployments
 		ADD COLUMN IF NOT EXISTS connection_info jsonb NOT NULL DEFAULT '{}'::jsonb`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS lifecycle_version bigint NOT NULL DEFAULT 0`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS cleanup_claim_id text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS cleanup_claimed_at timestamptz`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS teardown_operation_id text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS provider_mutation_id text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS provider_mutation_expires_at timestamptz`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_db_deployments_tenant_status
 		ON sage.agent_db_deployments(tenant_id, status)`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_db_deployments_lease_expiry

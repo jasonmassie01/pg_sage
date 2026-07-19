@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -20,9 +21,6 @@ import (
 // Helpers
 // ---------------------------------------------------------------------------
 
-const phase2DSN = "postgres://postgres:postgres@localhost:5432/" +
-	"postgres?sslmode=disable"
-
 const destructiveTestLockKey = "pg_sage_test_cross_pkg"
 
 // phase2Pool connects to local Postgres and bootstraps the sage schema.
@@ -32,7 +30,7 @@ func phase2Pool(t *testing.T) *pgxpool.Pool {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, phase2DSN)
+	pool, err := pgxpool.New(ctx, os.Getenv("SAGE_DATABASE_URL"))
 	if err != nil {
 		t.Skipf("DB unavailable: %v", err)
 	}
@@ -44,9 +42,8 @@ func phase2Pool(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(func() { pool.Close() })
 	serializeAcrossPackages(t, context.Background(), pool)
 	if err := schema.Bootstrap(ctx, pool); err != nil {
-		t.Skipf("schema bootstrap failed: %v", err)
+		t.Fatalf("schema bootstrap failed: %v", err)
 	}
-	schema.ReleaseAdvisoryLock(ctx, pool)
 	releasePoolAdvisoryLocks(ctx, pool)
 
 	// Re-check while holding the cross-package lock.
@@ -96,12 +93,11 @@ func ensurePhase2SageSchema(t *testing.T, pool *pgxpool.Pool) {
 		return
 	}
 	if err := schema.Bootstrap(ctx, pool); err != nil {
-		t.Skipf("re-bootstrap sage failed: %v", err)
+		t.Fatalf("re-bootstrap sage failed: %v", err)
 	}
 	if err := schema.MigrateConfigSchema(ctx, pool); err != nil {
-		t.Skipf("re-migrate sage config: %v", err)
+		t.Fatalf("re-migrate sage config: %v", err)
 	}
-	schema.ReleaseAdvisoryLock(ctx, pool)
 	releasePoolAdvisoryLocks(ctx, pool)
 }
 

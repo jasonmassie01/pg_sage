@@ -12,6 +12,24 @@ func Clone(cfg *Config) *Config {
 	for i := range cp.Databases {
 		cp.Databases[i].Tags = append(
 			[]string(nil), cfg.Databases[i].Tags...)
+		cp.Databases[i].ExecutorEnabled = cloneBool(cfg.Databases[i].ExecutorEnabled)
+		cp.Databases[i].LLMEnabled = cloneBool(cfg.Databases[i].LLMEnabled)
+	}
+	cp.API.TrustedProxies = append([]string(nil), cfg.API.TrustedProxies...)
+	if cfg.AgentDB.Providers != nil {
+		cp.AgentDB.Providers = make(
+			map[string]AgentDBProviderConfig, len(cfg.AgentDB.Providers))
+		for name, provider := range cfg.AgentDB.Providers {
+			provider.AllowedRegions = append(
+				[]string(nil), provider.AllowedRegions...)
+			provider.AllowedAccounts = append(
+				[]string(nil), provider.AllowedAccounts...)
+			provider.AllowedProjects = append(
+				[]string(nil), provider.AllowedProjects...)
+			provider.AllowedWorkspaces = append(
+				[]string(nil), provider.AllowedWorkspaces...)
+			cp.AgentDB.Providers[name] = provider
+		}
 	}
 	cp.Briefing.Channels = append(
 		[]string(nil), cfg.Briefing.Channels...)
@@ -50,4 +68,12 @@ func Clone(cfg *Config) *Config {
 	cp.SchemaLint.DisabledRules = append(
 		[]string(nil), cfg.SchemaLint.DisabledRules...)
 	return &cp
+}
+
+func cloneBool(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }

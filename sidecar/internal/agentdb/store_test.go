@@ -16,7 +16,7 @@ func agentDBTestDSN() string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 func requireAgentDB(t *testing.T) (*Store, context.Context, *pgxpool.Pool) {
@@ -185,8 +185,9 @@ func TestProvisionApprovedRequestCreatesLinkedDeployment(t *testing.T) {
 		t.Fatalf("metadata = %#v", dep.Metadata)
 	}
 	params, ok := dep.Metadata["provider_params"].(map[string]any)
-	if !ok || params["project"] != "demo-project" {
-		t.Fatalf("provider params = %#v", dep.Metadata)
+	if !ok || params["tier"] != "db-custom-1-3840" ||
+		params["project"] != nil {
+		t.Fatalf("trusted profile params = %#v", dep.Metadata)
 	}
 	if dep.BudgetUSD != 0 || !dep.BackupRequired {
 		t.Fatalf("budget/backup = %.2f/%v", dep.BudgetUSD, dep.BackupRequired)

@@ -25,9 +25,8 @@ func TestLiveExecuteAndDestroyUseProviderRunner(t *testing.T) {
 		t.Fatalf("PreflightProvision: %v", err)
 	}
 	runner := fakeProviderRunner{provider: ProviderGCPCloudSQL, name: "fake_cloudsql"}
-	attempt, err := st.ExecuteProvisionLive(ctx, id, runner, LiveExecutionRequest{
-		CostEstimateID: "estimate-1",
-	})
+	liveReq := persistedLiveTestRequest(t, st, ctx, id, "initial")
+	attempt, err := st.ExecuteProvisionLive(ctx, id, runner, liveReq)
 	if err != nil {
 		t.Fatalf("ExecuteProvisionLive: %v", err)
 	}
@@ -89,12 +88,9 @@ func TestLiveExecuteCanPromoteAfterDryRun(t *testing.T) {
 		t.Fatalf("deployment after dry-run = %#v", dep)
 	}
 
-	attempt, err := st.ExecuteProvisionLive(
-		ctx,
-		id,
-		fakeProviderRunner{provider: ProviderAWSRDS, name: "fake_rds"},
-		LiveExecutionRequest{CostEstimateID: "estimate-after-dry-run"},
-	)
+	liveReq := persistedLiveTestRequest(t, st, ctx, id, "after-dry-run")
+	attempt, err := st.ExecuteProvisionLive(ctx, id,
+		fakeProviderRunner{provider: ProviderAWSRDS, name: "fake_rds"}, liveReq)
 	if err != nil {
 		t.Fatalf("ExecuteProvisionLive after dry-run: %v", err)
 	}

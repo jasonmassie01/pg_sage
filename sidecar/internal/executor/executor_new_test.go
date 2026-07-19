@@ -38,8 +38,10 @@ func TestExecuteManual_RejectsEmptySQL(t *testing.T) {
 
 func TestExecuteManual_RejectsDisallowedSQL(t *testing.T) {
 	e := &Executor{
-		pool:          nil,
-		cfg:           &config.Config{},
+		pool: nil,
+		cfg: &config.Config{
+			Trust: config.TrustConfig{Level: "advisory"},
+		},
 		recentActions: make(map[string]time.Time),
 		logFn:         func(string, string, ...any) {},
 		execMode:      "auto",
@@ -77,8 +79,10 @@ func TestExecuteManual_AcceptsValidSQL_ButNeedsDB(t *testing.T) {
 	// Valid SQL passes validation but will fail at the DB layer (pool is nil).
 	// This confirms the validation gate does NOT reject valid statements.
 	e := &Executor{
-		pool:          nil,
-		cfg:           &config.Config{},
+		pool: nil,
+		cfg: &config.Config{
+			Trust: config.TrustConfig{Level: "advisory"},
+		},
 		recentActions: make(map[string]time.Time),
 		logFn:         func(string, string, ...any) {},
 		execMode:      "auto",
@@ -251,21 +255,21 @@ func TestIsSelfReferentialDrop(t *testing.T) {
 		want      bool
 	}{
 		{
-			name:      "rollback drops the index just created (GIN)",
+			name: "rollback drops the index just created (GIN)",
 			createSQL: "CREATE INDEX CONCURRENTLY idx_events_payload_path_ops " +
 				"ON public.events USING gin (payload jsonb_path_ops)",
 			dropDDL: "DROP INDEX CONCURRENTLY IF EXISTS idx_events_payload_path_ops",
 			want:    true,
 		},
 		{
-			name:      "rollback with schema + semicolon still matches",
+			name: "rollback with schema + semicolon still matches",
 			createSQL: "CREATE INDEX CONCURRENTLY documents_embedding_hnsw_idx " +
 				"ON public.documents USING hnsw (embedding vector_l2_ops)",
 			dropDDL: "DROP INDEX CONCURRENTLY IF EXISTS public.documents_embedding_hnsw_idx;",
 			want:    true,
 		},
 		{
-			name:      "genuine supersede targets a different old index",
+			name: "genuine supersede targets a different old index",
 			createSQL: "CREATE INDEX CONCURRENTLY idx_orders_cust_incl " +
 				"ON public.orders (customer_id) INCLUDE (total_cents)",
 			dropDDL: "DROP INDEX CONCURRENTLY IF EXISTS idx_orders_cust_old",

@@ -1740,7 +1740,7 @@ func TestCoverage_ConfigDBPut_EmptyBodyWithFleet(t *testing.T) {
 
 	req := httptest.NewRequest(
 		"PUT", "/api/v1/config/databases/1",
-		strings.NewReader(`{}`))
+		strings.NewReader(`{"expected_generation":1}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)

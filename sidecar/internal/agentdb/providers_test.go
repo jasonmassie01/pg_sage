@@ -143,13 +143,13 @@ func TestBuildProvisionPlanRejectsCloudNonInstanceRequests(t *testing.T) {
 	}
 }
 
-func TestProviderReadinessUsesAPITerraformInterfaces(t *testing.T) {
+func TestProviderReadinessWithoutRuntimeFailsClosed(t *testing.T) {
 	providers := ProviderReadinessList(t.Context())
 
 	expected := map[string]string{
-		ProviderAWSRDS:             "terraform_or_aws_sdk",
-		ProviderGCPCloudSQL:        "terraform_or_cloudsql_admin_api",
-		ProviderDatabricksLakebase: "databricks_api_or_terraform",
+		ProviderAWSRDS:             "aws_sdk",
+		ProviderGCPCloudSQL:        "cloudsql_admin_api",
+		ProviderDatabricksLakebase: "databricks_api",
 	}
 	for _, provider := range providers {
 		if want := expected[provider.Provider]; want != "" {
@@ -160,8 +160,8 @@ func TestProviderReadinessUsesAPITerraformInterfaces(t *testing.T) {
 			if provider.CLI != "" {
 				t.Fatalf("%s CLI = %q, want empty", provider.Provider, provider.CLI)
 			}
-			if !provider.Found {
-				t.Fatalf("%s should report configured planning interface", provider.Provider)
+			if provider.Found || len(provider.DisabledReasons) == 0 {
+				t.Fatalf("%s readiness failed open: %+v", provider.Provider, provider)
 			}
 		}
 	}

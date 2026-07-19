@@ -1,16 +1,12 @@
 package schema
 
-import (
-	"context"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-)
+import "context"
 
 // migrateIncidentConstraints widens the CHECK constraints on
 // sage.incidents for v0.9.1 log-based RCA sources, info severity,
 // and Tier 2 action_risk values. Idempotent — safe to re-run.
 func migrateIncidentConstraints(
-	ctx context.Context, pool *pgxpool.Pool,
+	ctx context.Context, db bootstrapDB,
 ) error {
 	const ddl = `
 DO $$ BEGIN
@@ -64,6 +60,6 @@ DO $$ BEGIN
     END IF;
 END $$;`
 
-	_, err := pool.Exec(ctx, ddl)
+	_, err := db.Exec(ctx, ddl)
 	return err
 }

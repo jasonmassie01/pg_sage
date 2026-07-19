@@ -66,6 +66,7 @@ export function SettingsPage({ database, databaseId }) {
   const [restarting, setRestarting] = useState(false)
   const [pendingTrust, setPendingTrust] = useState(null)
   const [showDiff, setShowDiff] = useState(false)
+  const readOnly = data?.read_only === true
 
   const tabs = mode === 'simple' ? SIMPLE_TABS : ADVANCED_TABS
 
@@ -100,6 +101,14 @@ export function SettingsPage({ database, databaseId }) {
   }, [cfg, edits])
 
   const setVal = (key, val) => {
+	if (readOnly) return
+	if (isDatabaseScope
+	  && key !== 'trust.level' && key !== 'execution_mode') {
+	  toast.error(
+	    'Per-database overrides currently support only trust and execution mode'
+	  )
+	  return
+	}
     if (key === 'trust.level') {
       const current = getVal('trust.level')
       // Only confirm on escalations (observation -> advisory/auto,
@@ -127,6 +136,7 @@ export function SettingsPage({ database, databaseId }) {
   }
 
   const resetField = async (key) => {
+    if (readOnly) return
     if (key in edits) {
       setEdits(prev => {
         const next = { ...prev }
@@ -141,9 +151,10 @@ export function SettingsPage({ database, databaseId }) {
     const canResetGlobalOverride = !isDatabaseScope
       && source === 'override' && key !== 'execution_mode'
     if (canResetDBOverride || canResetGlobalOverride) {
-      const url = canResetDBOverride
+	  const baseUrl = canResetDBOverride
         ? `/api/v1/config/databases/${numericDatabaseId}/${encodeURIComponent(key)}`
         : `/api/v1/config/global/${encodeURIComponent(key)}`
+	  const url = `${baseUrl}?expected_generation=${data?.desired_generation ?? ''}`
       try {
         const res = await fetch(url, {
           method: 'DELETE',
@@ -152,9 +163,21 @@ export function SettingsPage({ database, databaseId }) {
         })
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
+		  if (res.status === 409) await refetch()
           toast.error(err.error || 'Reset failed')
           return
         }
+		const result = await res.json().catch(() => ({}))
+		if (result.pending_restart?.length) {
+		  setFeedback({
+			type: 'error',
+			msg: `Pending restart: ${result.pending_restart.join(', ')}`,
+		  })
+		} else if (result.warnings?.length) {
+		  setFeedback({ type: 'error', msg: result.warnings.join('; ') })
+		} else {
+		  setFeedback(null)
+		}
         toast.success(canResetDBOverride
           ? `Reset ${key} to inherited value`
           : `Reset ${key} to configured default`)
@@ -186,13 +209,28 @@ export function SettingsPage({ database, databaseId }) {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(edits),
+		body: JSON.stringify({
+          ...edits,
+          expected_generation: data?.desired_generation,
+        }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
+		if (res.status === 409) await refetch()
         toast.error(err.error || 'Save failed')
         return
       }
+	  const result = await res.json().catch(() => ({}))
+	  if (result.pending_restart?.length) {
+		setFeedback({
+		  type: 'error',
+		  msg: `Pending restart: ${result.pending_restart.join(', ')}`,
+		})
+	  } else if (result.warnings?.length) {
+		setFeedback({ type: 'error', msg: result.warnings.join('; ') })
+	  } else {
+		setFeedback(null)
+	  }
       toast.success(
         `Saved ${Object.keys(edits).length} `
         + `${isDatabaseScope ? 'database ' : 'global '}`
@@ -251,6 +289,7 @@ export function SettingsPage({ database, databaseId }) {
 
   const fieldProps = {
     getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+    readOnly,
   }
   const isGeneralTab = tab === 'General'
   const hasEdits = Object.keys(edits).length > 0
@@ -295,6 +334,20 @@ export function SettingsPage({ database, databaseId }) {
           ? `Database ${database} (ID ${numericDatabaseId})`
           : 'Global defaults'}
       </div>
+      {readOnly && (
+        <div
+          data-testid="settings-read-only"
+          className="rounded p-3 text-xs"
+          style={{
+            color: 'var(--yellow)',
+            border: '1px solid var(--yellow)',
+            background: 'var(--bg-card)',
+          }}
+        >
+          Configuration is read-only in YAML fleet mode. To change these
+          values, {data?.write_guidance || 'edit the YAML file'}.
+        </div>
+      )}
       <div
         className="rounded p-3 text-xs flex items-center justify-between gap-3"
         style={{
@@ -304,8 +357,8 @@ export function SettingsPage({ database, databaseId }) {
         }}
       >
         <span>
-          Some settings — trust tiers, maintenance window, execution mode, and
-          collector/analyzer intervals — take effect only after a restart.
+          Saved fields follow server lifecycle metadata. Reconfigured owners
+          rebuild in place; restart-bound fields are reported as pending.
         </span>
         <button
           data-testid="settings-restart-btn"
@@ -376,9 +429,11 @@ export function SettingsPage({ database, databaseId }) {
 function SimpleContent({
   tab, data, database, stopping, setStopping, refetch,
   getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+  readOnly,
 }) {
   const fieldProps = {
     getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+    readOnly,
   }
   if (tab === 'General') {
     return (
@@ -403,9 +458,11 @@ function SimpleContent({
 function AdvancedContent({
   tab, data, database, stopping, setStopping, refetch,
   getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+  readOnly,
 }) {
   const fieldProps = {
     getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+    readOnly,
   }
   if (tab === 'General') {
     return (
@@ -701,13 +758,13 @@ function SourceBadge({ source }) {
 
 function Field({
   label, configKey, type, getVal, setVal, getSource,
-  resetField, options, help,
+  resetField, options, help, readOnly = false,
 }) {
   const value = getVal(configKey)
   const source = getSource(configKey)
-  const canReset = source === 'modified'
+  const canReset = !readOnly && (source === 'modified'
     || ((source === 'override' || source === 'db_override')
-      && configKey !== 'execution_mode')
+      && configKey !== 'execution_mode'))
   return (
     <div className="flex items-center gap-3 py-2">
       <div className="w-64 flex-shrink-0">
@@ -729,6 +786,7 @@ function Field({
         {type === 'select' ? (
           <select value={value}
             data-testid={`setting-${configKey}`}
+            disabled={readOnly}
             onChange={e => setVal(configKey, e.target.value)}
             className="w-full px-3 py-1.5 rounded text-sm"
             style={{
@@ -745,6 +803,7 @@ function Field({
         ) : type === 'toggle' ? (
           <button
             data-testid={`setting-${configKey}`}
+            disabled={readOnly}
             onClick={() => setVal(
               configKey,
               String(value) !== 'true' ? 'true' : 'false'
@@ -764,11 +823,13 @@ function Field({
         ) : type === 'password' ? (
           <PasswordField value={value}
             testId={`setting-${configKey}`}
+            disabled={readOnly}
             onChange={v => setVal(configKey, v)} />
         ) : (
           <input type={type === 'float' ? 'number' : type || 'number'}
             step={type === 'float' ? '0.01' : '1'}
             data-testid={`setting-${configKey}`}
+            disabled={readOnly}
             value={value}
             onChange={e => setVal(configKey, e.target.value)}
             className="w-full px-3 py-1.5 rounded text-sm"
@@ -792,12 +853,13 @@ function Field({
   )
 }
 
-function PasswordField({ value, onChange, testId }) {
+function PasswordField({ value, onChange, testId, disabled = false }) {
   const [show, setShow] = useState(false)
   return (
     <div className="flex gap-2">
       <input type={show ? 'text' : 'password'} value={value}
         data-testid={testId}
+        disabled={disabled}
         onChange={e => onChange(e.target.value)}
         className="flex-1 px-3 py-1.5 rounded text-sm"
         style={{
@@ -1100,6 +1162,7 @@ function TrustSafetyTab(props) {
 
 function ModelField({
   getVal, setVal, getSource, resetField, help, configUrl,
+  readOnly = false,
 }) {
   const [models, setModels] = useState(null)
   const [loadingModels, setLoadingModels] = useState(false)
@@ -1140,7 +1203,8 @@ function ModelField({
 
   const value = getVal('llm.model')
   const source = getSource('llm.model')
-  const canReset = source === 'modified' || source === 'db_override'
+  const canReset = !readOnly
+    && (source === 'modified' || source === 'db_override')
 
   if (models && models.length > 0) {
     const options = models.map(m => ({
@@ -1168,6 +1232,7 @@ function ModelField({
         </div>
         <div className="flex-1 flex gap-2">
           <select value={value}
+            disabled={readOnly}
             onChange={e => setVal('llm.model', e.target.value)}
             className="flex-1 px-3 py-1.5 rounded text-sm"
             style={{
@@ -1219,6 +1284,7 @@ function ModelField({
       </div>
       <div className="flex-1 flex gap-2">
         <input type="text" value={value}
+          disabled={readOnly}
           onChange={e => setVal('llm.model', e.target.value)}
           className="flex-1 px-3 py-1.5 rounded text-sm"
           style={{

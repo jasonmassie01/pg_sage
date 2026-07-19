@@ -72,6 +72,14 @@ type ActionDeps struct {
 	Fleet    *fleet.DatabaseManager
 }
 
+// RuntimeDeps carries process-scoped controllers that are optional for
+// embedders and tests but required by the production sidecar.
+type RuntimeDeps struct {
+	ConfigController    *config.ConfigController
+	ConfigBase          *config.Config
+	DisableConfigWrites bool
+}
+
 // NewRouter creates the API + dashboard HTTP handler.
 // Pool is required for session-based auth queries.
 // Middlewares wrap /api/v1/* routes (auth, rate limiting).
@@ -107,8 +115,39 @@ func NewRouterFull(
 	llmMgr *llm.Manager,
 	middlewares ...func(http.Handler) http.Handler,
 ) http.Handler {
+	return NewRouterFullRuntime(
+		mgr, cfg, pool, actions, dbDeps, llmMgr, nil, middlewares...,
+	)
+}
+
+// NewRouterFullRuntime creates the API handler with process controllers.
+func NewRouterFullRuntime(
+	mgr *fleet.DatabaseManager,
+	cfg *config.Config,
+	pool *pgxpool.Pool,
+	actions *ActionDeps,
+	dbDeps *DatabaseDeps,
+	llmMgr *llm.Manager,
+	runtime *RuntimeDeps,
+	middlewares ...func(http.Handler) http.Handler,
+) http.Handler {
 	apiMux := http.NewServeMux()
-	registerAPIRoutes(apiMux, mgr, cfg, llmMgr)
+	var controller *config.ConfigController
+	var configBase *config.Config
+	var disableConfigWrites bool
+	if runtime != nil {
+		controller = runtime.ConfigController
+		configBase = runtime.ConfigBase
+		disableConfigWrites = runtime.DisableConfigWrites
+	}
+	var runtimeConfigStore *store.ConfigStore
+	if pool != nil && !disableConfigWrites {
+		runtimeConfigStore = store.NewConfigStore(pool)
+	}
+	registerAPIRoutes(
+		apiMux, mgr, cfg, llmMgr, controller, runtimeConfigStore,
+		disableConfigWrites,
+	)
 	if pool != nil {
 		var oauthProvider *auth.OAuthProvider
 		if cfg.OAuth.Enabled {
@@ -126,12 +165,16 @@ func NewRouterFull(
 		}
 		registerAuthRoutes(apiMux, pool, oauthProvider, cfg)
 		registerUserRoutes(apiMux, pool)
-		registerConfigRoutes(apiMux, pool, cfg, mgr)
+		registerConfigRoutesRuntime(
+			apiMux, pool, cfg, mgr, controller,
+			configBase, disableConfigWrites,
+		)
 		registerNotificationRoutes(apiMux, pool)
-		registerAgentDBRoutes(
+		registerAgentDBRoutesWithAuthority(
 			apiMux,
 			agentdb.NewStore(pool),
 			newAgentDBBlueprintGenerator(llmMgr),
+			newAgentDBLiveAuthority(cfg.AgentDB),
 		)
 	}
 	if actions != nil && (actions.Store != nil ||
@@ -194,6 +237,9 @@ func registerAPIRoutes(
 	mgr *fleet.DatabaseManager,
 	cfg *config.Config,
 	llmMgr *llm.Manager,
+	controller *config.ConfigController,
+	cs *store.ConfigStore,
+	disableConfigWrites bool,
 ) {
 	adminOnly := RequireRole("admin")
 	operatorUp := RequireRole("admin", "operator")
@@ -246,10 +292,15 @@ func registerAPIRoutes(
 		"GET /api/v1/fleet/readiness",
 		fleetReadinessHandler(mgr))
 	mux.HandleFunc(
-		"GET /api/v1/config", configGetHandler(mgr, cfg))
+		"GET /api/v1/config", configGetHandler(mgr, cfg, controller))
 
-	configPutH := adminOnly(http.HandlerFunc(
-		configUpdateHandler(mgr, cfg)))
+	configPutHandler := configUpdateHandlerWithStore(
+		mgr, cfg, controller, cs,
+	)
+	if disableConfigWrites {
+		configPutHandler = configPersistenceUnavailableHandler()
+	}
+	configPutH := adminOnly(http.HandlerFunc(configPutHandler))
 	mux.Handle("PUT /api/v1/config", configPutH)
 
 	mux.HandleFunc(
@@ -390,25 +441,60 @@ func registerConfigRoutes(
 	cfg *config.Config,
 	mgr ...*fleet.DatabaseManager,
 ) {
-	adminOnly := RequireRole("admin")
-	cs := store.NewConfigStore(pool)
-	baseCfg := config.Clone(cfg)
-
 	var fm *fleet.DatabaseManager
 	if len(mgr) > 0 {
 		fm = mgr[0]
 	}
+	registerConfigRoutesRuntime(mux, pool, cfg, fm, nil, nil, false)
+}
+
+func registerConfigRoutesRuntime(
+	mux *http.ServeMux,
+	pool *pgxpool.Pool,
+	cfg *config.Config,
+	fm *fleet.DatabaseManager,
+	controller *config.ConfigController,
+	cleanBase *config.Config,
+	disableWrites bool,
+) {
+	adminOnly := RequireRole("admin")
+	if disableWrites {
+		unavailable := adminOnly(http.HandlerFunc(
+			configPersistenceUnavailableHandler(),
+		))
+		globalGet := adminOnly(http.HandlerFunc(
+			configReadOnlyGlobalGetHandler(cfg, controller),
+		))
+		mux.Handle("GET /api/v1/config/global", globalGet)
+		mux.Handle("PUT /api/v1/config/global", unavailable)
+		mux.Handle("DELETE /api/v1/config/global/{key}", unavailable)
+		dbGet := adminOnly(http.HandlerFunc(
+			configReadOnlyDBGetHandler(cfg, fm, controller),
+		))
+		mux.Handle("GET /api/v1/config/databases/{id}", dbGet)
+		mux.Handle("PUT /api/v1/config/databases/{id}", unavailable)
+		mux.Handle("DELETE /api/v1/config/databases/{id}/{key}", unavailable)
+		mux.Handle("GET /api/v1/config/audit", unavailable)
+		return
+	}
+	cs := store.NewConfigStore(pool)
+	baseCfg := config.Clone(cleanBase)
+	if cleanBase == nil {
+		baseCfg = config.Clone(cfg)
+	}
 
 	globalGet := adminOnly(http.HandlerFunc(
-		configGlobalGetHandler(cs, baseCfg)))
+		configGlobalGetHandler(cs, baseCfg, controller)))
 	mux.Handle("GET /api/v1/config/global", globalGet)
 
-	globalPut := adminOnly(http.HandlerFunc(
-		configGlobalPutHandler(cs, cfg, fm)))
+	globalPutHandler := configGlobalPutHandler(cs, cfg, fm, controller)
+	globalPut := adminOnly(http.HandlerFunc(globalPutHandler))
 	mux.Handle("PUT /api/v1/config/global", globalPut)
 
-	globalDelete := adminOnly(http.HandlerFunc(
-		configGlobalDeleteHandler(cs, cfg, baseCfg, fm)))
+	globalDeleteHandler := configGlobalDeleteHandler(
+		cs, cfg, baseCfg, fm, controller,
+	)
+	globalDelete := adminOnly(http.HandlerFunc(globalDeleteHandler))
 	mux.Handle("DELETE /api/v1/config/global/{key}", globalDelete)
 
 	dbGet := adminOnly(http.HandlerFunc(
@@ -416,13 +502,13 @@ func registerConfigRoutes(
 	mux.Handle(
 		"GET /api/v1/config/databases/{id}", dbGet)
 
-	dbPut := adminOnly(http.HandlerFunc(
-		configDBPutHandler(cs, cfg, pool, fm)))
+	dbPutHandler := configDBPutHandler(cs, cfg, pool, fm)
+	dbPut := adminOnly(http.HandlerFunc(dbPutHandler))
 	mux.Handle(
 		"PUT /api/v1/config/databases/{id}", dbPut)
 
-	dbDelete := adminOnly(http.HandlerFunc(
-		configDBDeleteHandler(cs, cfg, fm)))
+	dbDeleteHandler := configDBDeleteHandler(cs, cfg, fm, controller)
+	dbDelete := adminOnly(http.HandlerFunc(dbDeleteHandler))
 	mux.Handle(
 		"DELETE /api/v1/config/databases/{id}/{key}",
 		dbDelete)
@@ -430,6 +516,15 @@ func registerConfigRoutes(
 	audit := adminOnly(http.HandlerFunc(
 		configAuditHandler(cs)))
 	mux.Handle("GET /api/v1/config/audit", audit)
+}
+
+func configPersistenceUnavailableHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		jsonError(w,
+			"persistent config API is unavailable in YAML fleet mode; edit the YAML file",
+			http.StatusServiceUnavailable,
+		)
+	}
 }
 
 func registerActionRoutes(

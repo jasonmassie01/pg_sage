@@ -56,6 +56,12 @@ type RCAEngine interface {
 	PersistIncidents(ctx context.Context, pool *pgxpool.Pool) error
 }
 
+// SupplementalDetector adds database-backed findings without coupling the
+// analyzer package to a detector implementation.
+type SupplementalDetector interface {
+	Detect(context.Context) ([]Finding, error)
+}
+
 // Analyzer runs the rules engine on a recurring interval, producing
 // findings and persisting them to the sage.findings table.
 type Analyzer struct {
@@ -68,6 +74,7 @@ type Analyzer struct {
 	forecaster   WorkloadForecaster
 	tuner        QueryTuner
 	rcaEngine    RCAEngine
+	detectors    []SupplementalDetector
 	planNarrator PlanNarrator
 	logFn        func(string, string, ...any)
 	dispatcher   EventDispatcher
@@ -121,6 +128,13 @@ func (a *Analyzer) WithDispatcher(d EventDispatcher) {
 // WithRCAEngine sets the root cause analysis engine for the analyzer.
 func (a *Analyzer) WithRCAEngine(e RCAEngine) {
 	a.rcaEngine = e
+}
+
+// WithSupplementalDetector attaches a detector before the analyzer starts.
+func (a *Analyzer) WithSupplementalDetector(detector SupplementalDetector) {
+	if detector != nil {
+		a.detectors = append(a.detectors, detector)
+	}
 }
 
 // WithDatabaseName sets the database name included in events.
@@ -209,9 +223,19 @@ func filterSchemaExclusions(snap *collector.Snapshot) {
 	snap.Indexes = idxFiltered
 }
 
+func snapshotForAnalysis(source *collector.Snapshot) *collector.Snapshot {
+	if source == nil {
+		return nil
+	}
+	private := *source
+	private.Tables = append([]collector.TableStats(nil), source.Tables...)
+	private.Indexes = append([]collector.IndexStats(nil), source.Indexes...)
+	return &private
+}
+
 func (a *Analyzer) cycle(ctx context.Context) {
-	current := a.collector.LatestSnapshot()
-	previous := a.collector.PreviousSnapshot()
+	current := snapshotForAnalysis(a.collector.LatestSnapshot())
+	previous := snapshotForAnalysis(a.collector.PreviousSnapshot())
 	if current == nil {
 		a.logFn("DEBUG", "analyzer: no snapshot yet, skipping")
 		return
@@ -377,6 +401,15 @@ func (a *Analyzer) cycle(ctx context.Context) {
 				chains, a.cfg.Analyzer.LockChain, ownPID)
 			allFindings = append(allFindings, lcFindings...)
 		}
+	}
+
+	for _, detector := range a.detectors {
+		findings, err := detector.Detect(ctx)
+		if err != nil {
+			a.logFn("WARN", "analyzer: supplemental detector: %v", err)
+			continue
+		}
+		allFindings = append(allFindings, findings...)
 	}
 
 	// v0.9 — Root Cause Analysis engine.

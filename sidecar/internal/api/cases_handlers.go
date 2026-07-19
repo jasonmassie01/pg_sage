@@ -547,10 +547,12 @@ func casePolicyContext(
 	mode := "auto"
 	stopped := false
 	isReplica := false
+	executorEnabled := true
 	if mgr != nil {
 		if inst := mgr.GetInstance(databaseName); inst != nil {
 			mode = executionModeForInstance(cfg, inst)
 			stopped = inst.Stopped
+			executorEnabled = inst.Config.IsExecutorEnabled()
 			snap := inst.SnapshotStatus()
 			if snap.Platform != "" {
 				cfg.CloudEnvironment = snap.Platform
@@ -567,6 +569,7 @@ func casePolicyContext(
 	return executor.ActionPolicyContext{
 		Config:          cfg,
 		ExecutionMode:   mode,
+		ExecutorEnabled: &executorEnabled,
 		RampStart:       rampStartForPolicy(cfg),
 		IsReplica:       isReplica,
 		EmergencyStop:   stopped,

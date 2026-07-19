@@ -20,7 +20,7 @@ func testDSN() string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 var (
@@ -90,8 +90,6 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			return
 		}
 
-		// Release the advisory lock so other tests/processes can proceed.
-		schema.ReleaseAdvisoryLock(ctx, testPool)
 		releasePoolAdvisoryLocks(ctx, testPool)
 	})
 
@@ -160,12 +158,11 @@ func ensureSageSchema(t *testing.T, ctx context.Context) {
 		return
 	}
 	if err := schema.Bootstrap(ctx, testPool); err != nil {
-		t.Skipf("re-bootstrap sage failed: %v", err)
+		t.Fatalf("re-bootstrap sage failed: %v", err)
 	}
 	if err := schema.MigrateConfigSchema(ctx, testPool); err != nil {
-		t.Skipf("re-migrate sage config: %v", err)
+		t.Fatalf("re-migrate sage config: %v", err)
 	}
-	schema.ReleaseAdvisoryLock(ctx, testPool)
 	releasePoolAdvisoryLocks(ctx, testPool)
 }
 
@@ -356,11 +353,6 @@ func TestConcurrentlyOnRawConn(t *testing.T) {
 		30*time.Second,
 	)
 	if err != nil {
-		msg := err.Error()
-		if strings.Contains(msg, "deadlock") ||
-			strings.Contains(msg, "lock") {
-			t.Skipf("skipping: concurrent lock contention: %v", err)
-		}
 		t.Fatalf("ExecConcurrently: %v", err)
 	}
 
@@ -562,9 +554,6 @@ func TestLockTimeoutSetBeforeDDL(t *testing.T) {
 		WithLockTimeout(lockMs),
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "does not exist") {
-			t.Skipf("sage schema dropped by concurrent test: %v", err)
-		}
 		t.Fatalf("ExecConcurrently with lock_timeout: %v", err)
 	}
 
@@ -591,9 +580,6 @@ func TestLockTimeoutSetBeforeDDL(t *testing.T) {
 		WithLockTimeout(lockMs),
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "does not exist") {
-			t.Skipf("sage schema dropped by concurrent test: %v", err)
-		}
 		t.Fatalf("ExecInTransaction with lock_timeout: %v", err)
 	}
 }
@@ -613,9 +599,6 @@ func TestLockTimeoutTriggersErrLockNotAvailable(t *testing.T) {
 		)`,
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "does not exist") {
-			t.Skipf("sage schema dropped by concurrent test: %v", err)
-		}
 		t.Fatalf("creating table: %v", err)
 	}
 	t.Cleanup(func() {

@@ -2,11 +2,33 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const (
+	bootstrapAdvisoryLockKey = "pg_sage"
+	bootstrapLockTimeout     = 30 * time.Second
+	bootstrapUnlockTimeout   = 5 * time.Second
+)
+
+type bootstrapDB interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+	Begin(context.Context) (pgx.Tx, error)
+}
+
+type advisoryLock struct {
+	mu       sync.Mutex
+	conn     *pgxpool.Conn
+	released bool
+}
 
 // expectedTables lists every table the sage schema must contain.
 var expectedTables = []struct {
@@ -48,39 +70,31 @@ var expectedTables = []struct {
 // which caused unrelated integration tests elsewhere to fail intermittently
 // when run in parallel.
 func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
-	if err := acquireAdvisoryLock(ctx, pool); err != nil {
-		return err
-	}
+	return withAdvisoryLock(
+		ctx, pool, bootstrapLockTimeout,
+		func(conn *pgxpool.Conn) error {
+			exists, err := schemaExists(ctx, conn)
+			if err != nil {
+				return fmt.Errorf("checking sage schema: %w", err)
+			}
 
-	exists, err := schemaExists(ctx, pool)
-	if err != nil {
-		return fmt.Errorf("checking sage schema: %w", err)
-	}
+			if !exists {
+				if err := createFullSchema(ctx, conn); err != nil {
+					return err
+				}
+			} else if err := ensureTablesExist(ctx, conn); err != nil {
+				return err
+			}
 
-	if !exists {
-		if err := createFullSchema(ctx, pool); err != nil {
-			return err
-		}
-	} else {
-		if err := ensureTablesExist(ctx, pool); err != nil {
-			return err
-		}
-	}
-
-	if err := MigrateConfigSchema(ctx, pool); err != nil {
-		return fmt.Errorf("config migration: %w", err)
-	}
-	if err := migrateIncidentConstraints(ctx, pool); err != nil {
-		return fmt.Errorf("incident constraint migration: %w", err)
-	}
-	return nil
-}
-
-// ReleaseAdvisoryLock releases the pg_sage advisory lock.
-func ReleaseAdvisoryLock(ctx context.Context, pool *pgxpool.Pool) {
-	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	_, _ = pool.Exec(qctx, "SELECT pg_advisory_unlock(hashtext('pg_sage'))")
+			if err := migrateConfigSchema(ctx, conn); err != nil {
+				return fmt.Errorf("config migration: %w", err)
+			}
+			if err := migrateIncidentConstraints(ctx, conn); err != nil {
+				return fmt.Errorf("incident constraint migration: %w", err)
+			}
+			return nil
+		},
+	)
 }
 
 // PersistTrustRampStart reads or initialises the trust_ramp_start
@@ -155,34 +169,107 @@ func PersistTrustRampStart(
 	return t, nil
 }
 
-func acquireAdvisoryLock(ctx context.Context, pool *pgxpool.Pool) error {
+func acquireAdvisoryLock(
+	ctx context.Context, pool *pgxpool.Pool, timeout time.Duration,
+) (*advisoryLock, error) {
 	// Use blocking pg_advisory_lock with a timeout instead of
 	// pg_try_advisory_lock. This prevents spurious failures when
 	// multiple sidecar instances or test packages start concurrently
 	// — the lock is held only briefly during schema bootstrap, so
 	// waiting up to 30 seconds is acceptable.
-	qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	qctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	_, err := pool.Exec(
+	conn, err := pool.Acquire(qctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquiring advisory-lock connection: %w", err)
+	}
+
+	_, err = conn.Exec(
 		qctx,
-		"SELECT pg_advisory_lock(hashtext('pg_sage'))",
+		"SELECT pg_advisory_lock(hashtext($1))",
+		bootstrapAdvisoryLockKey,
 	)
 	if err != nil {
-		return fmt.Errorf(
+		discardErr := discardPinnedConn(conn)
+		return nil, errors.Join(fmt.Errorf(
 			"advisory lock: %w (another pg_sage instance "+
 				"may be bootstrapping)", err,
-		)
+		), discardErr)
 	}
-	return nil
+	return &advisoryLock{conn: conn}, nil
 }
 
-func schemaExists(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
+func withAdvisoryLock(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	timeout time.Duration,
+	fn func(*pgxpool.Conn) error,
+) (returnErr error) {
+	lock, err := acquireAdvisoryLock(ctx, pool, timeout)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, lock.Release(ctx))
+	}()
+	return fn(lock.conn)
+}
+
+// Release unlocks on the exact PostgreSQL session that acquired the lock.
+// Cleanup is bounded independently of caller cancellation. If unlock fails,
+// the connection is discarded so PostgreSQL releases the session lock.
+func (l *advisoryLock) Release(ctx context.Context) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.released {
+		return nil
+	}
+	l.released = true
+
+	cleanupCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx), bootstrapUnlockTimeout,
+	)
+	defer cancel()
+
+	var unlocked bool
+	err := l.conn.QueryRow(
+		cleanupCtx,
+		"SELECT pg_advisory_unlock(hashtext($1))",
+		bootstrapAdvisoryLockKey,
+	).Scan(&unlocked)
+	if err == nil && unlocked {
+		l.conn.Release()
+		return nil
+	}
+
+	closeErr := discardPinnedConn(l.conn)
+	if err != nil {
+		return errors.Join(fmt.Errorf("release advisory lock: %w", err), closeErr)
+	}
+	if !unlocked {
+		return errors.Join(
+			errors.New("release advisory lock: lock not owned"), closeErr,
+		)
+	}
+	return closeErr
+}
+
+func discardPinnedConn(conn *pgxpool.Conn) error {
+	rawConn := conn.Hijack()
+	closeCtx, cancel := context.WithTimeout(
+		context.Background(), bootstrapUnlockTimeout,
+	)
+	defer cancel()
+	return rawConn.Close(closeCtx)
+}
+
+func schemaExists(ctx context.Context, db bootstrapDB) (bool, error) {
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	var one int
-	err := pool.QueryRow(
+	err := db.QueryRow(
 		qctx,
 		"SELECT 1 FROM information_schema.schemata "+
 			"WHERE schema_name = 'sage'",
@@ -193,11 +280,11 @@ func schemaExists(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
 	return true, nil
 }
 
-func createFullSchema(ctx context.Context, pool *pgxpool.Pool) error {
+func createFullSchema(ctx context.Context, db bootstrapDB) error {
 	qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	tx, err := pool.Begin(qctx)
+	tx, err := db.Begin(qctx)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
@@ -215,13 +302,13 @@ func createFullSchema(ctx context.Context, pool *pgxpool.Pool) error {
 	return tx.Commit(qctx)
 }
 
-func ensureTablesExist(ctx context.Context, pool *pgxpool.Pool) error {
+func ensureTablesExist(ctx context.Context, db bootstrapDB) error {
 	qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	for _, tbl := range expectedTables {
 		var one int
-		err := pool.QueryRow(
+		err := db.QueryRow(
 			qctx,
 			"SELECT 1 FROM information_schema.tables "+
 				"WHERE table_schema = 'sage' AND table_name = $1",
@@ -229,7 +316,7 @@ func ensureTablesExist(ctx context.Context, pool *pgxpool.Pool) error {
 		).Scan(&one)
 		if err != nil {
 			// Table missing — create it.
-			_, execErr := pool.Exec(qctx, tbl.ddl)
+			_, execErr := db.Exec(qctx, tbl.ddl)
 			if execErr != nil {
 				return fmt.Errorf("creating table sage.%s: %w", tbl.name, execErr)
 			}
@@ -237,20 +324,20 @@ func ensureTablesExist(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 
 	// Run idempotent migrations for existing schemas.
-	if err := runMigrations(ctx, pool); err != nil {
+	if err := runMigrations(ctx, db); err != nil {
 		return fmt.Errorf("running migrations: %w", err)
 	}
 	return nil
 }
 
 // runMigrations applies idempotent schema changes to existing installs.
-func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
+func runMigrations(ctx context.Context, db bootstrapDB) error {
 	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	migrations := migrationStatements()
 	for _, m := range migrations {
-		if _, err := pool.Exec(qctx, m); err != nil {
+		if _, err := db.Exec(qctx, m); err != nil {
 			return fmt.Errorf("migration failed: %w", err)
 		}
 	}

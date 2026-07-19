@@ -286,11 +286,9 @@ func runLiveProductChain(
 		t.Fatalf("preflight attempt=%#v err=%v", preflight, err)
 	}
 	createStart := time.Now()
-	execute, err := st.ExecuteProvisionLive(ctx, dep.DeploymentID, runner, LiveExecutionRequest{
-		Mode:           "live",
-		CostEstimateID: "live-gauntlet-" + dep.DeploymentID,
-		Policy:         policy,
-	})
+	liveReq := persistedLiveTestRequest(t, st, ctx, dep.DeploymentID, "gauntlet")
+	liveReq.Records.CurrentPolicy.AllowPublicIP = policy.AllowPublicIP
+	execute, err := st.ExecuteProvisionLive(ctx, dep.DeploymentID, runner, liveReq)
 	if err != nil || execute.Status != "succeeded" {
 		t.Fatalf("execute live attempt=%#v err=%v", execute, err)
 	}

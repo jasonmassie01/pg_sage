@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -27,6 +28,8 @@ type FileWatcher struct {
 	logFn      func(string, string, ...any)
 	tailer     *Tailer
 	classifier *Classifier
+	entryMu    sync.Mutex
+	entries    map[string]*entryBuffer
 }
 
 // NewFileWatcher creates a FileWatcher from the given config.
@@ -36,8 +39,9 @@ func NewFileWatcher(
 	logFn func(string, string, ...any),
 ) *FileWatcher {
 	return &FileWatcher{
-		cfg:   cfg,
-		logFn: logFn,
+		cfg:     cfg,
+		logFn:   logFn,
+		entries: make(map[string]*entryBuffer),
 	}
 }
 
@@ -87,7 +91,10 @@ func (fw *FileWatcher) Drain() []*rca.Signal {
 
 	var signals []*rca.Signal
 	for _, line := range lines {
-		sig := fw.processLine(line)
+		entry, sig, ok := fw.processEvent(line)
+		if ok {
+			fw.publishEntry(entry)
+		}
 		if sig != nil {
 			signals = append(signals, sig)
 		}
@@ -104,11 +111,12 @@ func (fw *FileWatcher) Stop() {
 		fw.tailer.Stop()
 		fw.log("info", "file watcher stopped")
 	}
+	fw.clearEntryBuffers()
 }
 
-// processLine parses a single raw line using the configured format
-// and classifies it. Returns nil if the line should be skipped.
-func (fw *FileWatcher) processLine(line []byte) *rca.Signal {
+func (fw *FileWatcher) processEvent(
+	line []byte,
+) (LogEntry, *rca.Signal, bool) {
 	format := fw.cfg.Format
 	if format == "" {
 		format = "jsonlog"
@@ -116,28 +124,29 @@ func (fw *FileWatcher) processLine(line []byte) *rca.Signal {
 
 	switch format {
 	case "jsonlog":
-		return fw.processJSONLine(line)
+		entry, err := ParseJSONLogLine(line)
+		return fw.classifyEvent(entry, err)
 	case "csvlog":
-		return fw.processCSVLine(line)
+		entry, err := fw.parseCSVLine(line)
+		return fw.classifyEvent(entry, err)
 	default:
-		return nil
+		return LogEntry{}, nil, false
 	}
 }
 
-// processJSONLine parses a jsonlog line, pre-filters, and classifies.
-func (fw *FileWatcher) processJSONLine(line []byte) *rca.Signal {
-	entry, err := ParseJSONLogLine(line)
+func (fw *FileWatcher) classifyEvent(
+	entry LogEntry, err error,
+) (LogEntry, *rca.Signal, bool) {
 	if err != nil {
-		return nil
+		return LogEntry{}, nil, false
 	}
 	if !ShouldParseLine(entry.ErrorLevel, entry.Message) {
-		return nil
+		return entry, nil, true
 	}
-	return fw.classifier.Classify(entry)
+	return entry, fw.classifier.Classify(entry), true
 }
 
-// processCSVLine parses a csvlog line, pre-filters, and classifies.
-func (fw *FileWatcher) processCSVLine(line []byte) *rca.Signal {
+func (fw *FileWatcher) parseCSVLine(line []byte) (LogEntry, error) {
 	reader := csv.NewReader(bytes.NewReader(line))
 	reader.FieldsPerRecord = -1 // variable columns across PG versions
 	record, err := reader.Read()
@@ -145,16 +154,9 @@ func (fw *FileWatcher) processCSVLine(line []byte) *rca.Signal {
 		if err != io.EOF {
 			fw.log("debug", "csv parse error: %v", err)
 		}
-		return nil
+		return LogEntry{}, err
 	}
-	entry, err := ParseCSVLogLine(record)
-	if err != nil {
-		return nil
-	}
-	if !ShouldParseLine(entry.ErrorLevel, entry.Message) {
-		return nil
-	}
-	return fw.classifier.Classify(entry)
+	return ParseCSVLogLine(record)
 }
 
 // log emits a diagnostic message via the configured logFn.

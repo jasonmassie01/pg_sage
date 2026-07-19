@@ -14,10 +14,7 @@ import (
 func freshPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
-	dsn := "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		dsn = v
-	}
+	dsn := os.Getenv("SAGE_DATABASE_URL")
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Skipf("database unavailable: %v", err)
@@ -35,10 +32,7 @@ func freshPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 func closedPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx := context.Background()
-	dsn := "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		dsn = v
-	}
+	dsn := os.Getenv("SAGE_DATABASE_URL")
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Skipf("database unavailable: %v", err)

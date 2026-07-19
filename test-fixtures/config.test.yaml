@@ -1,5 +1,4 @@
 mode: fleet
-api_listen: "0.0.0.0:8080"
 
 databases:
   - name: testdb
@@ -53,14 +52,11 @@ trust:
   rollback_cooldown_days: 0
   cascade_cooldown_cycles: 1
 
-executor:
-  mode: auto
-
 llm:
   enabled: true
-  endpoint: "https://generativelanguage.googleapis.com/v1beta/openai"
+  endpoint: "http://llm-mock:11434/v1"
   api_key: ${SAGE_LLM_API_KEY}
-  model: "gemini-2.5-flash"
+  model: "test-model"
   timeout_seconds: 30
   token_budget_daily: 1000000
   context_budget_tokens: 8192
@@ -112,10 +108,6 @@ retention:
   findings_days: 1
   actions_days: 1
   explains_days: 1
-
-auth:
-  admin_email: "admin@test.com"
-  admin_password: "testpassword123"
 
 prometheus:
   listen_addr: "0.0.0.0:9187"

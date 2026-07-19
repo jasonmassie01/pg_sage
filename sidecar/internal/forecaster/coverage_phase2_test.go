@@ -21,7 +21,7 @@ func phase2DSN() string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 var (
@@ -67,7 +67,6 @@ func phase2RequireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			p2Pool = nil
 			return
 		}
-		schema.ReleaseAdvisoryLock(ctx, p2Pool)
 		releasePoolAdvisoryLocks(ctx, p2Pool)
 	})
 	if p2PoolErr != nil {

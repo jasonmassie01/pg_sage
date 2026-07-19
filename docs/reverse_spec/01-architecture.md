@@ -266,17 +266,13 @@ bare `$` preserved — `expandBracedEnv`, `config.go:25-30`) → `overlayEnv`
   level, `unused_index_window_days`, lock-chain enabled with safe-patterns
   `pg_sage/replication/patroni`, forecaster `AlertHorizons [30,7,3]`,
   tuner `MaxConcurrentAnalyze`.
-- **Hot reload** (`watcher.go`): `fsnotify` watch on the config path; on
-  Write/Create it re-parses, validates, and applies **only** hot-reloadable
-  fields via `applyHotReload` (`watcher.go:145-405`), logging
-  restart-required warnings for connection/mode/listener changes
-  (`warnNonReloadable`). The set is enumerated in `HotReloadable()`
-  (`config.go:1003-1019`): collector/analyzer/safety/trust(level,tiers,
-  window)/llm/briefing/alerting/auto_explain/forecaster/tuner/retention.
-  Postgres connection, listen addrs, and mode are intentionally *not*
-  reloadable. Reload mutates the live `*Config` in place under
-  `w.mu`; package-level `hotReloadMu` (`config.go:38-52`) guards
-  multi-field readers elsewhere.
+- **Typed reload lifecycles** (`lifecycle.go`, `controller.go`, `watcher.go`):
+  `fsnotify` loads and validates a complete immutable candidate. The typed
+  registry classifies every YAML field as `live_policy`, `reconfigure`,
+  `restart`, or `lifecycle_api`. The controller atomically publishes adopted
+  fields, rebuilds registered runtime owners, and reports restart-bound fields
+  as pending. Unknown or unowned fields fail closed to restart. The generated
+  per-field reference is `docs/generated/config-lifecycles.md`.
 - **Env-expansion caveat**: `overlayEnv` has a dead branch for
   `SAGE_RATE_LIMIT` that does nothing (`config.go:955-957`); the rate
   limit is actually resolved later in `RateLimit()` (`config.go:1042-1047`).

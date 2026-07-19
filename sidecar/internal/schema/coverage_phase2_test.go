@@ -15,13 +15,11 @@ func TestPhase2_MigrateConfigSchema_FullRun(t *testing.T) {
 	pool, ctx := requireDB(t)
 	serializeAcrossPackages(t, ctx, pool)
 
-	// Acquire lock before dropping schema to prevent cross-package races.
-	_, _ = pool.Exec(ctx, "SELECT pg_advisory_lock(hashtext('pg_sage'))")
+	// The cross-package test lock protects this destructive setup.
 	_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS sage CASCADE")
 	if err := Bootstrap(ctx, pool); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
-	ReleaseAdvisoryLock(ctx, pool)
 
 	// Run MigrateConfigSchema — should succeed on fresh schema.
 	if err := MigrateConfigSchema(ctx, pool); err != nil {
@@ -72,7 +70,6 @@ func TestPhase2_MigrateConfigSchema_Idempotent(t *testing.T) {
 	// Ensure schema exists.
 	_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock_all()")
 	bootstrapWithRetry(t, ctx, pool)
-	ReleaseAdvisoryLock(ctx, pool)
 
 	// Run MigrateConfigSchema twice — second run should not error.
 	if err := MigrateConfigSchema(ctx, pool); err != nil {
@@ -89,7 +86,6 @@ func TestPhase2_MigrateConfigSchema_CompositeIndex(t *testing.T) {
 	// Ensure schema + migration have run.
 	_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock_all()")
 	bootstrapWithRetry(t, ctx, pool)
-	ReleaseAdvisoryLock(ctx, pool)
 
 	if err := MigrateConfigSchema(ctx, pool); err != nil {
 		t.Fatalf("MigrateConfigSchema: %v", err)
@@ -120,7 +116,6 @@ func TestPhase2_EnsureDatabasesTable_Creates(t *testing.T) {
 	// Ensure sage schema exists but drop databases table.
 	_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock_all()")
 	bootstrapWithRetry(t, ctx, pool)
-	ReleaseAdvisoryLock(ctx, pool)
 	// Cross-pkg lock acquired AFTER unlock_all so it survives.
 	serializeAcrossPackages(t, ctx, pool)
 
@@ -147,7 +142,6 @@ func TestPhase2_EnsureDatabasesTable_Idempotent(t *testing.T) {
 
 	_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock_all()")
 	bootstrapWithRetry(t, ctx, pool)
-	ReleaseAdvisoryLock(ctx, pool)
 
 	// Run twice — second call should not error.
 	if err := EnsureDatabasesTable(ctx, pool); err != nil {
@@ -163,7 +157,6 @@ func TestPhase2_EnsureDatabasesTable_ExpectedColumns(t *testing.T) {
 
 	_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock_all()")
 	bootstrapWithRetry(t, ctx, pool)
-	ReleaseAdvisoryLock(ctx, pool)
 
 	if err := EnsureDatabasesTable(ctx, pool); err != nil {
 		t.Fatalf("EnsureDatabasesTable: %v", err)
@@ -200,13 +193,11 @@ func TestPhase2_EnsureTablesExist_RecreatesMissing(t *testing.T) {
 	pool, ctx := requireDB(t)
 	serializeAcrossPackages(t, ctx, pool)
 
-	// Start with a full bootstrap under advisory lock.
-	_, _ = pool.Exec(ctx, "SELECT pg_advisory_lock(hashtext('pg_sage'))")
+	// Start with a full bootstrap under its pinned advisory lock.
 	_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS sage CASCADE")
 	if err := Bootstrap(ctx, pool); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
-	ReleaseAdvisoryLock(ctx, pool)
 
 	// Drop one table to simulate a partially-present schema.
 	_, err := pool.Exec(ctx, "DROP TABLE IF EXISTS sage.briefings CASCADE")
@@ -235,7 +226,6 @@ func TestPhase2_EnsureTablesExist_AllPresent(t *testing.T) {
 
 	_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock_all()")
 	bootstrapWithRetry(t, ctx, pool)
-	ReleaseAdvisoryLock(ctx, pool)
 
 	// All tables exist — should succeed without error.
 	if err := ensureTablesExist(ctx, pool); err != nil {
@@ -247,13 +237,11 @@ func TestPhase2_EnsureTablesExist_RecreatesMultipleMissing(t *testing.T) {
 	pool, ctx := requireDB(t)
 	serializeAcrossPackages(t, ctx, pool)
 
-	// Acquire lock before dropping schema to prevent cross-package races.
-	_, _ = pool.Exec(ctx, "SELECT pg_advisory_lock(hashtext('pg_sage'))")
+	// The cross-package test lock protects this destructive setup.
 	_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS sage CASCADE")
 	if err := Bootstrap(ctx, pool); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
-	ReleaseAdvisoryLock(ctx, pool)
 
 	// Drop multiple tables.
 	for _, tbl := range []string{"query_hints", "explain_cache"} {
@@ -431,14 +419,12 @@ func TestPhase2_Bootstrap_RunsMigrations(t *testing.T) {
 	pool, ctx := requireDB(t)
 	serializeAcrossPackages(t, ctx, pool)
 
-	// Acquire lock before dropping schema to prevent cross-package races.
-	_, _ = pool.Exec(ctx, "SELECT pg_advisory_lock(hashtext('pg_sage'))")
+	// The cross-package test lock protects this destructive setup.
 	_, _ = pool.Exec(ctx, "DROP SCHEMA IF EXISTS sage CASCADE")
 
 	if err := Bootstrap(ctx, pool); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
-	ReleaseAdvisoryLock(ctx, pool)
 
 	// Verify migration columns exist (approved_by on action_log).
 	var cnt int

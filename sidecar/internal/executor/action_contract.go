@@ -79,6 +79,11 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 	switch actionType {
 	case "analyze_table":
 		return AnalyzeTableContract(), true
+	case "alter_system_guc":
+		return gucChangeContract(actionType, "ALTER SYSTEM", []string{"postgres"}), true
+	case "alter_database_guc":
+		return gucChangeContract(actionType, "ALTER DATABASE",
+			[]string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"}), true
 	case "diagnose_lock_blockers":
 		return incidentDiagnoseLockBlockersContract(), true
 	case "diagnose_runaway_query":
@@ -242,6 +247,34 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		}, true
 	default:
 		return ActionContract{}, false
+	}
+}
+
+func gucChangeContract(
+	actionType string,
+	scope string,
+	providers []string,
+) ActionContract {
+	return ActionContract{
+		ActionType:          actionType,
+		BaseRiskTier:        "moderate",
+		ProviderSupport:     providers,
+		RequiredPermissions: []string{"permission to change database configuration"},
+		Prechecks: []string{
+			"parameter is in the executor GUC allowlist",
+			"current value is captured for rollback",
+		},
+		Guardrails: []string{
+			"approval or autonomous moderate policy required",
+			"single validated GUC change",
+			"maintenance-window enforcement",
+		},
+		ExecutionPlan:   []string{scope + " SET or RESET validated_parameter"},
+		SuccessCriteria: []string{"configured value matches the requested value"},
+		PostChecks:      []string{"read back the effective and pending value"},
+		RollbackClass:   "reversible",
+		Cooldown:        "configured cascade cooldown",
+		AuditFields:     []string{"database", "parameter", "old_value", "new_value"},
 	}
 }
 

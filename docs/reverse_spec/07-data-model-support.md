@@ -21,9 +21,9 @@ The schema is bootstrapped in two layers:
    `MigrateConfigSchema` (`config_migration.go:31`) and
    `migrateIncidentConstraints` (`incident_migration.go:12`).
 2. **AgentDB schema** — `internal/agentdb` package. A separate, self-contained
-   set of tables created by `Store.Ensure()` (`agentdb/schema.go:17`) from the
-   `schemaStatements` slice (`agentdb/schema.go:180`). Only created when the
-   AgentDB subsystem is initialized.
+   set of tables created by `Store.Ensure()` from `schemaStatements`,
+   `liveExecutionSchemaStatements`, and `monitoringSchemaStatements`. These are
+   created only when the AgentDB subsystem is initialized.
 
 ### 1.1 Core `sage.*` tables (21 bootstrapped + 2 migration-created)
 
@@ -38,7 +38,7 @@ config migration. Full table reference:
 | 3 | `sage.findings` | Central findings store (Tier‑1 + absorbs schema_lint in v0.11) | `id`, `category`, `severity`, `object_identifier`, `title`, `detail` (jsonb), `recommendation`, `recommended_sql`, `rollback_sql`, `status` (default `open`), `occurrence_count`, `suppressed_until`, `action_log_id` FK, `rule_id`+`impact_score` (lint) | `bootstrap.go:326` |
 | 4 | `sage.explain_cache` | auto_explain plan captures keyed by queryid | `id`, `queryid`, `query_text`, `plan_json` (jsonb), `source`, `total_cost`, `execution_time` | `bootstrap.go:364` |
 | 5 | `sage.briefings` | Tier‑2 periodic health briefings | `id`, `period_start`/`period_end`, `mode`, `content_text`, `content_json` (jsonb), `llm_used`, `token_count`, `delivery_status` (jsonb) | `bootstrap.go:379` |
-| 6 | `sage.config` | Runtime config key/value overrides (hot-reload) | `key` (PK→composite after migration), `value`, `updated_by`, + `database_id`, `updated_by_user_id` (migration) | `bootstrap.go:403` |
+| 6 | `sage.config` | Runtime overrides governed by typed field lifecycles | `key` (PK→composite after migration), `value`, `updated_by`, + `database_id`, `updated_by_user_id` (migration) | `bootstrap.go:403` |
 | 7 | `sage.alert_log` | Per-channel alert delivery history (internal/alerting) | `id`, `finding_id` FK, `severity`, `channel`, `dedup_key`, `status` (default `sent`), `error_message` | `bootstrap.go:412` |
 | 8 | `sage.query_hints` | pg_hint_plan hint lifecycle + rewrite suggestions | `id`, `queryid`, `hint_plan_id`, `hint_text`, `symptom`, `before_cost`/`after_cost`, `status` (default `active`), `suggested_rewrite`, `rewrite_rationale`, `calls_at_last_check`, `last_revalidated_at` | `bootstrap.go:429` |
 | 9 | `sage.users` | Local auth users / OAuth identities | `id`, `email` (unique), `password` (nullable after OAuth migration), `role` (default `viewer`), `oauth_provider`, `last_login` | `bootstrap.go:452` |
@@ -74,7 +74,7 @@ config migration. Full table reference:
   `schema_advisor`, `schema_lint`, `n_plus_one`; action_risk adds
   `low/medium/high`.
 
-### 1.2 AgentDB tables (`sage.agent_db_*`, 16 tables)
+### 1.2 AgentDB-owned tables (25 tables)
 
 Created by `agentdb.Store.Ensure()` (`agentdb/schema.go:17`) — a self-contained
 provisioning/lifecycle subsystem for agent-owned databases (local Postgres + AWS
@@ -100,6 +100,13 @@ RDS / GCP Cloud SQL / Lakebase providers).
 | `sage.agent_db_provision_attempts` | Provision runner attempts (dry_run/live, stdout/stderr) | `schema.go:465` |
 | `sage.agent_db_audit` | AgentDB event audit log | `schema.go:482` |
 | `sage.agent_db_deploy_requests` | DDL/migration deploy requests with gate results | `schema.go:491` |
+| `sage.agent_db_live_plans` | Immutable normalized live-operation plans | `live_execution_schema.go` |
+| `sage.agent_db_live_estimates` | Server-issued cost estimates bound to plan hash | `live_execution_schema.go` |
+| `sage.agent_db_live_authorizations` | Exact-operation authorization and consumption state | `live_execution_schema.go` |
+| `sage.agent_db_live_receipts` | Idempotent provider mutation receipts | `live_execution_schema.go` |
+| `sage.agent_db_monitoring_policies` | Scoped monitoring concurrency limits | `monitoring_schema.go` |
+| `sage.agent_db_monitoring_state` | Per-physical-target scheduling state | `monitoring_schema.go` |
+| `sage.agent_db_monitoring_work` | Durable leased tiered monitoring work | `monitoring_schema.go` |
 
 > The `internal/cases` package (incident/query-hint projectors, vacuum
 > autopilot, shadow execution) defines **no tables of its own** — it projects
@@ -353,12 +360,10 @@ fleet orchestrator. `Run` logs failures (never returns an error).
 after `stableThreshold = 5` stable checks it clears it. **No replication-lag or
 replica-state monitoring exists** in this package — just the recovery boolean.
 
-**Wiring**: PARTIAL. `haMon.Check(ctx)` runs in the standalone orchestrator
-(`main.go:707`) and its `isReplica` bool gates the executor
-(`exec.RunCycle(ctx, isReplica)`, `main.go:713`). **`InSafeMode()` is never
-read in production** — the flip-counting safe-mode state machine runs but
-nothing consumes it (DEAD logic). **Fleet mode ignores `ha` entirely** —
-`RunCycle(ctx, false)` hardcodes `isReplica=false` (`main.go:1444`).
+**Wiring**: PARTIAL. `haMon.Check(ctx)` runs in both standalone and fleet
+orchestrators and its `isReplica` bool gates the executor. **`InSafeMode()` is
+never read in production** — the flip-counting safe-mode state machine runs but
+nothing consumes it (DEAD logic).
 
 ---
 

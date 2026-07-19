@@ -3,6 +3,7 @@ package autoexplain
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -10,8 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/schema"
 )
-
-const testDSN = "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
 
 // acquireTestPool returns a pgxpool connected to local Postgres,
 // or skips the test if the database is not available.
@@ -22,7 +21,7 @@ func acquireTestPool(t *testing.T) *pgxpool.Pool {
 	)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, testDSN)
+	pool, err := pgxpool.New(ctx, os.Getenv("SAGE_DATABASE_URL"))
 	if err != nil {
 		t.Skipf("skip: cannot create pool: %v", err)
 	}

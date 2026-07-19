@@ -43,12 +43,11 @@ func ensurePhase2SageSchema(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		return
 	}
 	if err := schema.Bootstrap(ctx, pool); err != nil {
-		t.Skipf("re-bootstrap sage failed: %v", err)
+		t.Fatalf("re-bootstrap sage failed: %v", err)
 	}
 	if err := schema.MigrateConfigSchema(ctx, pool); err != nil {
-		t.Skipf("re-migrate sage config: %v", err)
+		t.Fatalf("re-migrate sage config: %v", err)
 	}
-	schema.ReleaseAdvisoryLock(ctx, pool)
 }
 
 // isStaleOIDError returns true when PostgreSQL reports a stale relation

@@ -31,7 +31,7 @@ func schemaExcludeSQL(extra []string) string {
 		// Only allow simple identifiers.
 		safe := true
 		for _, c := range s {
-			if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+			if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
 				safe = false
 				break
 			}

@@ -84,10 +84,20 @@ func run(args []string) error {
 	fs := flag.NewFlagSet("gen_config_meta", flag.ContinueOnError)
 	out := fs.String("out", "web/src/generated/config_meta.json",
 		"output path for config_meta.json (relative to sidecar/ or absolute)")
+	lifecycleOut := fs.String("lifecycle-out", "",
+		"optional output path for the generated field-lifecycle Markdown")
+	lifecycleOnly := fs.Bool("lifecycle-only", false,
+		"write only the lifecycle Markdown (requires -lifecycle-out)")
 	strict := fs.Bool("strict", false,
 		"fail if any yaml-tagged field lacks a doc tag (CHECK-T01)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *lifecycleOnly {
+		if *lifecycleOut == "" {
+			return fmt.Errorf("-lifecycle-only requires -lifecycle-out")
+		}
+		return writeLifecycleReference(*lifecycleOut)
 	}
 
 	meta, err := Generate(config.DefaultConfig(), *strict)
@@ -107,8 +117,27 @@ func run(args []string) error {
 	if err := os.WriteFile(*out, buf, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", *out, err)
 	}
+	if err := writeLifecycleReference(*lifecycleOut); err != nil {
+		return err
+	}
 	fmt.Fprintf(os.Stderr,
 		"gen_config_meta: wrote %d fields to %s\n", len(meta), *out)
+	return nil
+}
+
+func writeLifecycleReference(path string) error {
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(parentDir(path), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", parentDir(path), err)
+	}
+	if err := os.WriteFile(
+		path, []byte(config.ConfigLifecycleMarkdown()), 0o644,
+	); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	fmt.Fprintf(os.Stderr, "gen_config_meta: wrote lifecycles to %s\n", path)
 	return nil
 }
 

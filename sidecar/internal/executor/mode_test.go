@@ -138,13 +138,11 @@ func TestSetExecutionMode(t *testing.T) {
 }
 
 func TestManualMode_SkipsRunCycle(t *testing.T) {
-	// Manual mode + observation trust returns immediately without checking
-	// emergency stop or processing any findings. (Under a non-observation
-	// trust level the gate promotes manual to auto via effectiveExecMode,
-	// so this case specifically uses observation trust.)
+	// Manual mode always returns immediately without checking the database
+	// or processing findings, regardless of trust level.
 	e := &Executor{
 		cfg: &config.Config{
-			Trust: config.TrustConfig{Level: "observation"},
+			Trust: config.TrustConfig{Level: "autonomous"},
 		},
 		recentActions: make(map[string]time.Time),
 		logFn:         func(string, string, ...any) {},
@@ -157,16 +155,13 @@ func TestManualMode_SkipsRunCycle(t *testing.T) {
 	e.RunCycle(context.Background(), false)
 }
 
-// TestManualMode_AutonomousTrustOpensGate verifies the coupling: manual
-// execution_mode combined with a non-observation trust level is promoted
-// to auto, so RunCycle no longer short-circuits at the manual gate.
-func TestManualMode_AutonomousTrustOpensGate(t *testing.T) {
+func TestManualMode_AutonomousTrustDoesNotOpenGate(t *testing.T) {
 	e := &Executor{
 		cfg:      &config.Config{Trust: config.TrustConfig{Level: "autonomous"}},
 		execMode: "manual",
 	}
-	if got := e.effectiveExecMode(); got != "auto" {
-		t.Errorf("manual + autonomous trust = %q, want auto (gate should open)", got)
+	if got := e.effectiveExecMode(); got != "manual" {
+		t.Errorf("manual + autonomous trust = %q, want manual", got)
 	}
 }
 

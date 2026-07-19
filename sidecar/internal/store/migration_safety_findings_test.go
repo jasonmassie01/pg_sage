@@ -20,7 +20,7 @@ func requireMigrationSafetyDB(
 	t.Cleanup(cancel)
 	dsn := os.Getenv("SAGE_DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+		dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
 	}
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -32,9 +32,8 @@ func requireMigrationSafetyDB(
 	}
 	if err := schema.Bootstrap(ctx, pool); err != nil {
 		pool.Close()
-		t.Skipf("schema unavailable: %v", err)
+		t.Fatalf("schema unavailable: %v", err)
 	}
-	schema.ReleaseAdvisoryLock(ctx, pool)
 	t.Cleanup(pool.Close)
 	return pool, ctx
 }

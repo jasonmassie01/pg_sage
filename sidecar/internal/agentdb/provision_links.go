@@ -58,16 +58,21 @@ func (s *Store) ProvisionFromBlueprint(
 	}
 	reg := registerFromBlueprint(blueprint, req)
 	profile := profileFromBlueprint(blueprint.Spec, req.ProviderParams)
+	profile.ProfileID = "blueprint_" + idFrom(blueprint.BlueprintID, blueprint.TemplateID)
+	profile = normalizedProvisionProfile(profile)
 	plan, err := BuildProvisionPlan(reg, profile)
 	if err != nil {
 		return Deployment{}, err
 	}
 	reg.ProvisioningStatus = "planned"
+	reg.SizeProfileID = profile.ProfileID
 	reg.ProvisioningPlan = planMap(plan)
 	reg.ProvisioningPlan["source"] = "blueprint"
 	reg.Metadata = mergeMap(reg.Metadata, map[string]any{
 		"blueprint_id":          blueprint.BlueprintID,
 		"terraform_template_id": blueprint.TemplateID,
+		"provider_params":       cloneAnyMap(profile.ProviderParams),
+		"size_profile_id":       profile.ProfileID,
 	})
 	return s.Register(ctx, reg)
 }
@@ -121,15 +126,20 @@ func (s *Store) ProvisionFromTerraformTemplate(
 		return Deployment{}, ErrInvalid
 	}
 	profile := SizeProfile{
+		ProfileID:         "terraform_" + idFrom(template.TemplateID),
 		Provider:          req.Provider,
 		ProvisioningLevel: LevelInstance,
 		ProviderParams:    req.ProviderParams,
 	}
+	profile = normalizedProvisionProfile(profile)
 	plan, err := BuildProvisionPlan(reg, profile)
 	if err != nil {
 		return Deployment{}, err
 	}
 	reg.ProvisioningStatus = "planned"
+	reg.SizeProfileID = profile.ProfileID
+	reg.Metadata["provider_params"] = cloneAnyMap(profile.ProviderParams)
+	reg.Metadata["size_profile_id"] = profile.ProfileID
 	reg.ProvisioningPlan = planMap(plan)
 	reg.ProvisioningPlan["source"] = "terraform_template"
 	reg.ProvisioningPlan["terraform_template_id"] = template.TemplateID

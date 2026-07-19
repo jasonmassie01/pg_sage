@@ -26,8 +26,7 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	testPoolOnce.Do(func() {
 		dsn := os.Getenv("SAGE_DATABASE_URL")
 		if dsn == "" {
-			dsn = "postgres://postgres:postgres@localhost:5432/" +
-				"postgres?sslmode=disable"
+			dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
 		}
 		poolCfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
@@ -102,6 +101,7 @@ func newTestDetector(
 	cfg := &config.MigrationConfig{
 		Enabled:             true,
 		Mode:                "advisory",
+		ActivityPolling:     true,
 		PollIntervalSeconds: 5,
 	}
 	return NewDetector(pool, advisor, cfg, testLogFn(t))
@@ -200,7 +200,7 @@ func TestIntegration_RiskAssessor_TableStats(t *testing.T) {
 
 	assessor := NewRiskAssessor(pool, testLogFn(t))
 	classification := DDLClassification{
-		RuleID:    "ddl_alter_type_rewrite",
+		RuleID: "ddl_alter_type_rewrite",
 		Statement: fmt.Sprintf(
 			"ALTER TABLE %s.stats_test ALTER COLUMN payload TYPE varchar(100)",
 			schema),
@@ -502,8 +502,8 @@ func TestIntegration_RiskScore_Bounds(t *testing.T) {
 	assessor := NewRiskAssessor(pool, testLogFn(t))
 
 	classification := DDLClassification{
-		RuleID:          "ddl_alter_type_rewrite",
-		Statement:       fmt.Sprintf(
+		RuleID: "ddl_alter_type_rewrite",
+		Statement: fmt.Sprintf(
 			"ALTER TABLE %s.bounds_test ALTER COLUMN payload TYPE varchar(255)",
 			schema),
 		LockLevel:       "ACCESS EXCLUSIVE",

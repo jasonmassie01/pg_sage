@@ -15,7 +15,13 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 )
 
-var ErrDatabaseNotFound = errors.New("database not found")
+var (
+	ErrDatabaseNotFound = errors.New("database not found")
+	ErrInvalidInstance  = errors.New("invalid database instance")
+	ErrInstanceConflict = errors.New("database instance changed")
+)
+
+const defaultInstanceTeardownTimeout = 30 * time.Second
 
 // DatabaseManager manages multiple database instances.
 type DatabaseManager struct {
@@ -23,14 +29,18 @@ type DatabaseManager struct {
 	cfg         *config.Config
 	primaryName string // first registered instance name
 	mu          sync.RWMutex
+	lifecycle   chan struct{}
 }
 
 // NewManager creates a fleet manager from config.
 func NewManager(cfg *config.Config) *DatabaseManager {
-	return &DatabaseManager{
+	m := &DatabaseManager{
 		instances: make(map[string]*DatabaseInstance),
 		cfg:       cfg,
+		lifecycle: make(chan struct{}, 1),
 	}
+	m.lifecycle <- struct{}{}
+	return m
 }
 
 // RegisterInstance adds a pre-built instance (used by main.go
@@ -41,12 +51,20 @@ func NewManager(cfg *config.Config) *DatabaseManager {
 // nil-pool primary breaks auth-route registration and every
 // "all"-scoped query (see PoolForDatabase).
 func (m *DatabaseManager) RegisterInstance(inst *DatabaseInstance) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.primaryName == "" && inst.Pool != nil {
-		m.primaryName = inst.Name
+	var retired *DatabaseInstance
+	_ = m.WithLifecycle(context.Background(), func(*LifecycleMutation) error {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		retired = m.instances[inst.Name]
+		if m.primaryName == "" && inst.Pool != nil {
+			m.primaryName = inst.Name
+		}
+		m.instances[inst.Name] = inst
+		return nil
+	})
+	if retired != nil && retired != inst {
+		go func() { _ = cleanupRejectedCandidate(retired) }()
 	}
-	m.instances[inst.Name] = inst
 }
 
 // GetInstance returns a single instance by name.
@@ -319,24 +337,6 @@ func (m *DatabaseManager) AllPools() []*pgxpool.Pool {
 	return pools
 }
 
-// RemoveInstance removes an instance by name and closes its pool.
-func (m *DatabaseManager) RemoveInstance(name string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	inst, ok := m.instances[name]
-	if !ok {
-		return false
-	}
-	if inst.Cancel != nil {
-		inst.Cancel()
-	}
-	if inst.Pool != nil {
-		inst.Pool.Close()
-	}
-	delete(m.instances, name)
-	return true
-}
-
 // GetInstanceByDatabaseID returns the instance with the given
 // sage.databases ID, or nil if not found.
 func (m *DatabaseManager) GetInstanceByDatabaseID(
@@ -363,29 +363,33 @@ func (m *DatabaseManager) UpdateInstanceMetadata(
 	databaseID int,
 	trustLevel string,
 ) bool {
-	m.mu.Lock()
-	inst, ok := m.instances[oldName]
-	if !ok {
-		m.mu.Unlock()
-		return false
-	}
-	if oldName != newName {
-		delete(m.instances, oldName)
-		m.instances[newName] = inst
-		if m.primaryName == oldName {
-			m.primaryName = newName
+	updated := false
+	_ = m.WithLifecycle(context.Background(), func(*LifecycleMutation) error {
+		m.mu.Lock()
+		inst, ok := m.instances[oldName]
+		if !ok || (oldName != newName && m.instances[newName] != nil) {
+			m.mu.Unlock()
+			return nil
 		}
-	}
-	inst.Name = newName
-	inst.DatabaseID = databaseID
-	inst.Config = cfg
-	m.mu.Unlock()
-
-	inst.UpdateStatus(func(s *InstanceStatus) {
-		s.TrustLevel = trustLevel
-		s.DatabaseName = newName
+		if oldName != newName {
+			delete(m.instances, oldName)
+			m.instances[newName] = inst
+			if m.primaryName == oldName {
+				m.primaryName = newName
+			}
+		}
+		inst.Name = newName
+		inst.DatabaseID = databaseID
+		inst.Config = cfg
+		m.mu.Unlock()
+		inst.UpdateStatus(func(s *InstanceStatus) {
+			s.TrustLevel = trustLevel
+			s.DatabaseName = newName
+		})
+		updated = true
+		return nil
 	})
-	return true
+	return updated
 }
 
 // InstanceCount returns the number of registered instances.

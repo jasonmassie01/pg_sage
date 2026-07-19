@@ -3,7 +3,69 @@ package main
 import (
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/store"
 )
+
+func TestWave2SessionControlPoolPrefersMetaPool(t *testing.T) {
+	metaPool := &pgxpool.Pool{}
+	monitoredPool := &pgxpool.Pool{}
+	fallbackPool := &pgxpool.Pool{}
+	testCfg := config.DefaultConfig()
+	testCfg.Mode = "fleet"
+	mgr := fleet.NewManager(testCfg)
+	mgr.RegisterInstance(&fleet.DatabaseInstance{
+		Name: "monitored", Pool: monitoredPool,
+		Status: &fleet.InstanceStatus{Connected: true},
+	})
+
+	got := sessionControlPool(
+		&metaDBState{Pool: metaPool}, mgr, fallbackPool,
+	)
+	if got != metaPool {
+		t.Fatalf("session control pool = %p, want meta pool %p", got, metaPool)
+	}
+}
+
+func TestWave2SessionControlPoolFallbackOrder(t *testing.T) {
+	monitoredPool := &pgxpool.Pool{}
+	fallbackPool := &pgxpool.Pool{}
+	testCfg := config.DefaultConfig()
+	testCfg.Mode = "fleet"
+	mgr := fleet.NewManager(testCfg)
+	mgr.RegisterInstance(&fleet.DatabaseInstance{
+		Name: "monitored", Pool: monitoredPool,
+		Status: &fleet.InstanceStatus{Connected: true},
+	})
+
+	if got := sessionControlPool(nil, mgr, fallbackPool); got != monitoredPool {
+		t.Fatalf("fleet session pool = %p, want %p", got, monitoredPool)
+	}
+	if got := sessionControlPool(nil, nil, fallbackPool); got != fallbackPool {
+		t.Fatalf("fallback session pool = %p, want %p", got, fallbackPool)
+	}
+}
+
+func TestRegisterFailedInstanceCarriesCanonicalDatabaseID(t *testing.T) {
+	previousManager := fleetMgr
+	fleetMgr = fleet.NewManager(&config.Config{})
+	t.Cleanup(func() { fleetMgr = previousManager })
+
+	record := store.DatabaseRecord{ID: 42, Name: "broken"}
+	registerFailedInstance(record, "connection refused")
+
+	instance := fleetMgr.GetInstance("broken")
+	if instance == nil {
+		t.Fatal("failed database instance was not registered")
+	}
+	if instance.DatabaseID != record.ID {
+		t.Fatalf("DatabaseID = %d, want %d", instance.DatabaseID, record.ID)
+	}
+}
 
 // TestParseConfigRampStart covers the trust.ramp_start parser used by
 // both single-db and fleet-mode bootstrap paths. Regression guard for

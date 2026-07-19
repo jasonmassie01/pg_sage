@@ -31,9 +31,9 @@ import (
 // explicit reason (no silent skips: the runner script always sets it).
 func pipelineURL(t *testing.T) string {
 	t.Helper()
-	u := os.Getenv("PIPELINE_PG_URL")
+	u := os.Getenv("SAGE_TEST_DATABASE_URL")
 	if u == "" {
-		t.Skip("SKIPPED: PIPELINE_PG_URL not set — run via " +
+		t.Skip("SKIPPED: SAGE_TEST_DATABASE_URL not set — run via " +
 			"scripts/run_pipeline_coverage.sh (dedicated container)")
 	}
 	return u

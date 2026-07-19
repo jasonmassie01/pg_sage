@@ -31,23 +31,27 @@ CREATE INDEX IF NOT EXISTS idx_config_audit_db
 func MigrateConfigSchema(
 	ctx context.Context, pool *pgxpool.Pool,
 ) error {
-	if err := addConfigColumns(ctx, pool); err != nil {
+	return migrateConfigSchema(ctx, pool)
+}
+
+func migrateConfigSchema(ctx context.Context, db bootstrapDB) error {
+	if err := addConfigColumns(ctx, db); err != nil {
 		return fmt.Errorf("config columns: %w", err)
 	}
-	if err := ensureConfigAudit(ctx, pool); err != nil {
+	if err := ensureConfigAudit(ctx, db); err != nil {
 		return fmt.Errorf("config_audit: %w", err)
 	}
 	return nil
 }
 
 func addConfigColumns(
-	ctx context.Context, pool *pgxpool.Pool,
+	ctx context.Context, db bootstrapDB,
 ) error {
 	qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	// Add database_id column if missing.
-	_, err := pool.Exec(qctx, `/* pg_sage */ 
+	_, err := db.Exec(qctx, `/* pg_sage */
 		DO $$ BEGIN
 			ALTER TABLE sage.config
 				ADD COLUMN database_id INT;
@@ -60,7 +64,7 @@ func addConfigColumns(
 	}
 
 	// Add updated_by_user_id column if missing.
-	_, err = pool.Exec(qctx, `/* pg_sage */ 
+	_, err = db.Exec(qctx, `/* pg_sage */
 		DO $$ BEGIN
 			ALTER TABLE sage.config
 				ADD COLUMN updated_by_user_id INT
@@ -73,15 +77,15 @@ func addConfigColumns(
 		return fmt.Errorf("adding updated_by_user_id: %w", err)
 	}
 
-	return addConfigCompositeIndex(qctx, pool)
+	return addConfigCompositeIndex(qctx, db)
 }
 
 func addConfigCompositeIndex(
-	ctx context.Context, pool *pgxpool.Pool,
+	ctx context.Context, db bootstrapDB,
 ) error {
 	// Drop the old single-column PK on (key) so per-database
 	// overrides can coexist with global config rows.
-	_, err := pool.Exec(ctx, `/* pg_sage */ 
+	_, err := db.Exec(ctx, `/* pg_sage */
 		DO $$ BEGIN
 			ALTER TABLE sage.config
 				DROP CONSTRAINT IF EXISTS config_pkey;
@@ -93,7 +97,7 @@ func addConfigCompositeIndex(
 		return fmt.Errorf("dropping old PK: %w", err)
 	}
 
-	_, err = pool.Exec(ctx, `/* pg_sage */ 
+	_, err = db.Exec(ctx, `/* pg_sage */
 		DO $$ BEGIN
 			CREATE UNIQUE INDEX IF NOT EXISTS
 				idx_config_key_db
@@ -109,12 +113,12 @@ func addConfigCompositeIndex(
 }
 
 func ensureConfigAudit(
-	ctx context.Context, pool *pgxpool.Pool,
+	ctx context.Context, db bootstrapDB,
 ) error {
 	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	_, err := pool.Exec(qctx, ddlConfigAudit)
+	_, err := db.Exec(qctx, ddlConfigAudit)
 	if err != nil {
 		return fmt.Errorf("creating config_audit: %w", err)
 	}

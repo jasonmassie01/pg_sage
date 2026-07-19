@@ -58,6 +58,7 @@ func TestExecuteManualAnalyzeUsesDedicatedAnalyzePath(t *testing.T) {
 	e := &Executor{
 		pool: pool,
 		cfg: &config.Config{
+			Trust: config.TrustConfig{Level: "advisory"},
 			Safety: config.SafetyConfig{
 				DDLTimeoutSeconds: 10,
 				LockTimeoutMs:     5000,
