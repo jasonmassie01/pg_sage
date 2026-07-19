@@ -74,19 +74,24 @@ pg_sage uses graduated trust to control autonomous actions:
 | Trust Level | Timeline | Allowed Actions |
 |-------------|----------|----------------|
 | **observation** | Configured | No actions -- cases and recommendations only |
-| **advisory** | Configured | Queue or execute SAFE actions based on policy |
-| **autonomous** | Configured | SAFE + approved MODERATE actions, bounded by maintenance windows |
+| **advisory** | Configured | Auto executes eligible typed SAFE actions; higher risk queues |
+| **autonomous** | Configured | Auto executes eligible typed SAFE/MODERATE actions; HIGH queues |
 
 HIGH-risk actions always require manual approval, regardless of trust level.
 
 The executor checks all of these gates before acting:
 
-1. Trust level matches the action's risk category
-2. Trust ramp timeline has been met
-3. Per-tier toggles are enabled
-4. Maintenance window is active (if configured)
-5. Emergency stop is not set
-6. Database is not a replica
+1. Execution mode is explicitly `auto` for automatic mutation
+2. The per-database executor is enabled
+3. Trust level matches the typed action contract's risk category
+4. Trust ramp timeline and per-tier toggles have been met
+5. Maintenance window is active when the contract requires it
+6. Emergency Stop is not set
+7. Database is not a replica
+
+`manual` disables all background queueing and execution at every trust level;
+trust never promotes it to `auto`. Emergency Stop and executor disablement are
+rechecked for each candidate and immediately before the mutating SQL call.
 
 ---
 

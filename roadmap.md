@@ -7,7 +7,6 @@
 - Tier 1 rules engine (18+ deterministic checks)
 - Index Optimizer v2 (LLM-powered, HypoPG validation, confidence scoring, 8 validators)
 - 6 LLM advisor features (vacuum, WAL, connection, memory, query rewrite, bloat)
-- MCP server (Claude Desktop / AI agent interface)
 - Prometheus metrics
 - Trust-ramped executor (observation → advisory → autonomous)
 - Verified on self-managed PG14–17
@@ -21,10 +20,10 @@
 - Database-aware data model (every finding, action, metric carries `database_name`)
 - Prometheus labels: `{database="prod-orders"}`
 - Graceful per-database failure (one DB down doesn't crash others)
-- REST API: 14 endpoints on `:8080` alongside MCP
+- REST API: 14 endpoints on `:8080`
 - Fleet overview: `GET /api/v1/databases` with health scores
 - Findings, actions, snapshots, config — all filterable by `?database=`
-- Config hot-reload via `PUT /api/v1/config`
+- Typed config lifecycle updates via `PUT /api/v1/config`
 - Emergency stop/resume per-database and fleet-wide
 - Web dashboard (React SPA embedded in binary via `//go:embed`)
 - Demo environment: Docker Compose with 7 pre-planted problems, 46 verification checks

@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -17,10 +19,19 @@ import (
 
 // DatabaseDeps holds dependencies for managed database handlers.
 type DatabaseDeps struct {
-	Store    *store.DatabaseStore
-	Fleet    *fleet.DatabaseManager
-	OnCreate func(rec store.DatabaseRecord) // register with fleet
-	OnUpdate func(oldRec, newRec store.DatabaseRecord)
+	Store       *store.DatabaseStore
+	Fleet       *fleet.DatabaseManager
+	ApplyCreate func(
+		context.Context, store.DatabaseInput, int,
+	) (*store.DatabaseRecord, error)
+	OnCreate    func(context.Context, store.DatabaseRecord) error
+	ApplyUpdate func(
+		context.Context, int, store.DatabaseRecord, store.DatabaseInput,
+	) (*store.DatabaseRecord, error)
+	OnUpdate func(
+		context.Context, store.DatabaseRecord, store.DatabaseRecord,
+	) error
+	ApplyDelete func(context.Context, int, store.DatabaseRecord) error
 }
 
 // registerDatabaseRoutes registers /api/v1/databases/managed
@@ -123,6 +134,22 @@ func createManagedDBHandler(
 		if user != nil {
 			createdBy = user.ID
 		}
+		if deps.ApplyCreate != nil {
+			rec, applyErr := deps.ApplyCreate(
+				r.Context(), input, createdBy,
+			)
+			if applyErr != nil {
+				if errors.Is(applyErr, store.ErrValidation) {
+					jsonError(w, applyErr.Error(), http.StatusBadRequest)
+					return
+				}
+				internalError(w, r, "create and activate database", applyErr)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			jsonResponse(w, dbRecordToMap(*rec))
+			return
+		}
 		id, err := deps.Store.Create(
 			r.Context(), input, createdBy)
 		if err != nil {
@@ -140,8 +167,15 @@ func createManagedDBHandler(
 				http.StatusInternalServerError)
 			return
 		}
-		if deps.OnCreate != nil {
-			go deps.OnCreate(*rec)
+		if err := runDatabaseCreateHook(
+			r.Context(), deps, *rec,
+		); err != nil {
+			if deleteErr := deps.Store.Delete(r.Context(), id); deleteErr != nil {
+				slog.Error("rollback failed managed database create",
+					"database_id", id, "error", deleteErr)
+			}
+			internalError(w, r, "activate managed database", err)
+			return
 		}
 		w.WriteHeader(http.StatusCreated)
 		jsonResponse(w, dbRecordToMap(*rec))
@@ -164,19 +198,26 @@ func updateManagedDBHandler(
 				http.StatusBadRequest)
 			return
 		}
-		var oldRec *store.DatabaseRecord
-		if deps.OnUpdate != nil {
-			oldRec, err = deps.Store.Get(r.Context(), id)
-			if err != nil {
-				jsonError(w, "database not found",
-					http.StatusNotFound)
-				return
-			}
+		oldRec, err := deps.Store.Get(r.Context(), id)
+		if err != nil {
+			jsonError(w, "database not found",
+				http.StatusNotFound)
+			return
+		}
+		if req.TrustLevel != oldRec.TrustLevel ||
+			req.ExecutionMode != oldRec.ExecutionMode {
+			jsonError(w,
+				"trust_level and execution_mode must be changed in database Settings",
+				http.StatusBadRequest)
+			return
 		}
 		input := req.toInput()
-		if err := deps.Store.Update(
-			r.Context(), id, input,
-		); err != nil {
+		input.TrustLevel = oldRec.TrustLevel
+		input.ExecutionMode = oldRec.ExecutionMode
+		rec, err := applyDatabaseUpdate(
+			r.Context(), deps, id, oldRec, input,
+		)
+		if err != nil {
 			if errors.Is(err, store.ErrValidation) {
 				jsonError(w, err.Error(),
 					http.StatusBadRequest)
@@ -190,17 +231,55 @@ func updateManagedDBHandler(
 			internalError(w, r, "update database", err)
 			return
 		}
-		rec, err := deps.Store.Get(r.Context(), id)
-		if err != nil {
-			jsonError(w, "updated but failed to read back",
-				http.StatusInternalServerError)
-			return
-		}
-		if deps.OnUpdate != nil && oldRec != nil {
-			go deps.OnUpdate(*oldRec, *rec)
-		}
 		jsonResponse(w, dbRecordToMap(*rec))
 	}
+}
+
+func applyDatabaseUpdate(
+	ctx context.Context,
+	deps *DatabaseDeps,
+	id int,
+	oldRec *store.DatabaseRecord,
+	input store.DatabaseInput,
+) (*store.DatabaseRecord, error) {
+	if deps.ApplyUpdate != nil {
+		if oldRec == nil {
+			return nil, store.ErrNotFound
+		}
+		return deps.ApplyUpdate(ctx, id, *oldRec, input)
+	}
+	if err := deps.Store.Update(ctx, id, input); err != nil {
+		return nil, err
+	}
+	rec, err := deps.Store.Get(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("read back updated database: %w", err)
+	}
+	if oldRec != nil {
+		if err := runDatabaseUpdateHook(ctx, deps, *oldRec, *rec); err != nil {
+			return nil, err
+		}
+	}
+	return rec, nil
+}
+
+func runDatabaseCreateHook(
+	ctx context.Context, deps *DatabaseDeps, rec store.DatabaseRecord,
+) error {
+	if deps == nil || deps.OnCreate == nil {
+		return nil
+	}
+	return deps.OnCreate(ctx, rec)
+}
+
+func runDatabaseUpdateHook(
+	ctx context.Context, deps *DatabaseDeps,
+	oldRec, newRec store.DatabaseRecord,
+) error {
+	if deps == nil || deps.OnUpdate == nil {
+		return nil
+	}
+	return deps.OnUpdate(ctx, oldRec, newRec)
 }
 
 func deleteManagedDBHandler(
@@ -219,18 +298,37 @@ func deleteManagedDBHandler(
 				http.StatusNotFound)
 			return
 		}
-		if deps.Fleet != nil {
-			deps.Fleet.RemoveInstance(rec.Name)
-		}
-		if err := deps.Store.Delete(r.Context(), id); err != nil {
-			jsonError(w, "failed to delete database",
-				http.StatusInternalServerError)
-			return
+		if deps.ApplyDelete != nil {
+			if err := deps.ApplyDelete(r.Context(), id, *rec); err != nil {
+				internalError(w, r, "delete managed database", err)
+				return
+			}
+		} else {
+			if err := deps.Store.Delete(r.Context(), id); err != nil {
+				jsonError(w, "failed to delete database",
+					http.StatusInternalServerError)
+				return
+			}
+			if err := runDatabaseDeleteTeardown(
+				context.WithoutCancel(r.Context()), deps, rec.Name,
+			); err != nil {
+				internalError(w, r, "retire managed database", err)
+				return
+			}
 		}
 		jsonResponse(w, map[string]any{
 			"ok": true, "id": id,
 		})
 	}
+}
+
+func runDatabaseDeleteTeardown(
+	ctx context.Context, deps *DatabaseDeps, name string,
+) error {
+	if deps == nil || deps.Fleet == nil {
+		return nil
+	}
+	return deps.Fleet.RemoveInstanceContext(ctx, name)
 }
 
 func testManagedDBHandler(
@@ -265,10 +363,10 @@ func testManagedDBHandler(
 			return
 		}
 
-		fleetConnStr, fleetPassword, hasFleetConfig :=
+		fleetConnStr, fleetPassword, fleetFound :=
 			fleetManagedDBConnection(deps, id, rec.Name)
 
-		connStr := fleetConnStr
+		var connStr string
 		if hasPreviewBody {
 			if sameManagedHost(req.Host, rec.Host) {
 				applyManagedTestDefaults(&req)
@@ -293,7 +391,9 @@ func testManagedDBHandler(
 			}
 			connStr = buildManagedTestConnString(
 				req, fallbackPassword)
-		} else if !hasFleetConfig {
+		} else if fleetFound {
+			connStr = fleetConnStr
+		} else {
 			connStr, err = deps.Store.GetConnectionString(
 				r.Context(), id)
 			if err != nil {
@@ -534,7 +634,7 @@ func importCSVHandler(
 				http.StatusBadRequest)
 			return
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		user := UserFromContext(r.Context())
 		createdBy := 0

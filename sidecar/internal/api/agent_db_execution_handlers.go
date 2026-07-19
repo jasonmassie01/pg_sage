@@ -21,7 +21,12 @@ func agentDBProvisionPreflightHandler(st *agentdb.Store) http.HandlerFunc {
 func agentDBProvisionExecuteHandler(
 	st *agentdb.Store,
 	registry *agentdb.RunnerRegistry,
+	authorities ...*agentDBLiveAuthority,
 ) http.HandlerFunc {
+	var authority *agentDBLiveAuthority
+	if len(authorities) > 0 {
+		authority = authorities[0]
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		body := readMap(r)
 		dep, err := st.Get(r.Context(), agentDBID(r))
@@ -29,49 +34,15 @@ func agentDBProvisionExecuteHandler(
 			agentDBError(w, err)
 			return
 		}
-		if str(body, "mode") == "live" {
-			cfg, err := st.ProviderConfig(r.Context(), dep.Provider)
-			if err != nil {
-				agentDBError(w, err)
-				return
-			}
-			if !cfg.Enabled {
-				agentDBError(w, agentdb.ErrInvalid)
-				return
-			}
-			policy := livePolicyFromProviderConfig(dep.Provider, cfg)
-			decision := agentdb.EvaluateLiveProvisionPolicy(
-				policy,
-				liveRequestFromDeployment(dep, body),
-			)
-			if !decision.Allowed || decision.RequiresReview {
-				agentDBError(w, agentdb.ErrInvalid)
-				return
-			}
-			runner, err := registry.ForProvider(dep.Provider)
-			if err != nil {
-				agentDBError(w, err)
-				return
-			}
-			if runner.Name() == "dry_run" {
-				agentDBError(w, agentdb.ErrRunnerUnavailable)
-				return
-			}
-			attempt, err := st.ExecuteProvisionLive(
-				r.Context(),
-				agentDBID(r),
-				runner,
-				agentdb.LiveExecutionRequest{
-					Mode:           "live",
-					CostEstimateID: str(body, "cost_estimate_id"),
-					Policy:         policy,
-				},
+		if requestsLiveExecution(body) {
+			response, err := executeAuthorizedLiveCreate(
+				r.Context(), st, registry, authority, dep, body, r,
 			)
 			if err != nil {
 				agentDBError(w, err)
 				return
 			}
-			jsonResponse(w, attempt)
+			jsonResponse(w, response)
 			return
 		}
 		runner, err := registry.CommandRunnerForProvider(dep.Provider)
@@ -92,51 +63,45 @@ func agentDBProvisionExecuteHandler(
 	}
 }
 
+func requestsLiveExecution(body map[string]any) bool {
+	if str(body, "mode") == "live" {
+		return true
+	}
+	for _, key := range []string{
+		"plan_hash", "estimate_id", "authorization_id", "idempotency_key",
+		"approved", "estimated_cost_usd", "cost_estimate_id", "actor_id",
+		"admin_override_reason", "policy",
+	} {
+		if _, ok := body[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func livePolicyFromProviderConfig(
 	provider string,
 	cfg agentdb.ProviderConfig,
 ) agentdb.LiveProvisionPolicy {
 	settings := cfg.Settings
 	return agentdb.LiveProvisionPolicy{
-		LiveProvisioningEnabled: cfg.Enabled,
-		ProviderEnabled:         cfg.Enabled,
-		Provider:                provider,
-		AllowPublicIP:           boolValue(settings, "allow_public_ip"),
-		AllowedRegions:          stringSlice(settings, "allowed_regions"),
-		AllowedAccounts:         stringSlice(settings, "allowed_accounts"),
-		AllowedProjects:         stringSlice(settings, "allowed_projects"),
-		AllowedWorkspaces:       stringSlice(settings, "allowed_workspaces"),
-		RequireBackupBeforeDrop: boolValue(settings, "require_backup_before_drop"),
-		MaxTTLSeconds:           integer(settings, "max_ttl_seconds"),
-		MaxEstimatedCostUSD:     float(settings, "max_estimated_cost_usd"),
+		LiveProvisioningEnabled: cfg.Enabled &&
+			boolValue(settings, "live_provisioning_enabled"),
+		ProviderEnabled:   cfg.Enabled,
+		Provider:          provider,
+		AllowPublicIP:     boolValue(settings, "allow_public_ip"),
+		AllowedRegions:    stringSlice(settings, "allowed_regions"),
+		AllowedAccounts:   stringSlice(settings, "allowed_accounts"),
+		AllowedProjects:   stringSlice(settings, "allowed_projects"),
+		AllowedWorkspaces: stringSlice(settings, "allowed_workspaces"),
+		RequireBackupBeforeDrop: boolValue(settings, "require_backup_before_drop") ||
+			boolValue(settings, "require_backup_before_destroy"),
+		MaxTTLSeconds:       integer(settings, "max_ttl_seconds"),
+		MaxEstimatedCostUSD: float(settings, "max_estimated_cost_usd"),
+		ExecutionMode: firstString(
+			str(settings, "execution_mode"), agentdb.LiveModeApproval,
+		),
 	}
-}
-
-func liveRequestFromDeployment(
-	dep agentdb.Deployment,
-	body map[string]any,
-) agentdb.LiveProvisionRequest {
-	params, _ := dep.Metadata["provider_params"].(map[string]any)
-	return agentdb.LiveProvisionRequest{
-		Provider:             dep.Provider,
-		Region:               firstString(str(params, "region"), str(body, "region")),
-		Account:              firstString(str(params, "account"), str(body, "account")),
-		Project:              firstString(str(params, "project"), str(body, "project")),
-		Workspace:            firstString(str(params, "workspace"), str(body, "workspace")),
-		TTLSeconds:           ttlSeconds(dep),
-		PublicIP:             boolValue(params, "publicly_accessible") || boolValue(params, "ipv4_enabled"),
-		EstimatedCostUSD:     float(body, "estimated_cost_usd"),
-		EstimatedCostDoubled: boolValue(body, "estimated_cost_doubled"),
-		Approved:             boolValue(body, "approved"),
-		AdminOverrideReason:  str(body, "admin_override_reason"),
-	}
-}
-
-func ttlSeconds(dep agentdb.Deployment) int {
-	if dep.LeaseExpiresAt == nil {
-		return 0
-	}
-	return int(time.Until(*dep.LeaseExpiresAt).Seconds())
 }
 
 func agentDBProvisionStatusHandler(
@@ -214,37 +179,27 @@ func agentDBProvisionDestroyDryRunHandler(
 func agentDBProvisionDestroyLiveHandler(
 	st *agentdb.Store,
 	registry *agentdb.RunnerRegistry,
+	authorities ...*agentDBLiveAuthority,
 ) http.HandlerFunc {
+	var authority *agentDBLiveAuthority
+	if len(authorities) > 0 {
+		authority = authorities[0]
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
+		body := readMap(r)
 		dep, err := st.Get(r.Context(), agentDBID(r))
 		if err != nil {
 			agentDBError(w, err)
 			return
 		}
-		cfg, err := st.ProviderConfig(r.Context(), dep.Provider)
-		if err != nil {
-			agentDBError(w, err)
-			return
-		}
-		decision := agentdb.EvaluateLiveProvisionPolicy(
-			livePolicyFromProviderConfig(dep.Provider, cfg),
-			liveRequestFromDeployment(dep, nil),
+		response, err := executeAuthorizedLiveDestroy(
+			r.Context(), st, registry, authority, dep, body, r,
 		)
-		if !decision.Allowed || decision.RequiresReview {
-			agentDBError(w, agentdb.ErrInvalid)
-			return
-		}
-		runner, err := registry.ForProvider(dep.Provider)
 		if err != nil {
 			agentDBError(w, err)
 			return
 		}
-		attempt, err := st.DestroyProvisionLive(r.Context(), agentDBID(r), runner)
-		if err != nil {
-			agentDBError(w, err)
-			return
-		}
-		jsonResponse(w, attempt)
+		jsonResponse(w, response)
 	}
 }
 

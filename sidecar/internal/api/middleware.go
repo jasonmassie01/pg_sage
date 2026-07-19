@@ -144,6 +144,10 @@ func requireJSONMiddleware(
 		case http.MethodPost, http.MethodPut,
 			http.MethodPatch:
 			ct := r.Header.Get("Content-Type")
+			if r.URL.Path == "/api/v1/databases/managed/import" &&
+				strings.HasPrefix(ct, "multipart/form-data") {
+				break
+			}
 			if !strings.HasPrefix(ct, "application/json") {
 				jsonError(w,
 					"Content-Type must be application/json",

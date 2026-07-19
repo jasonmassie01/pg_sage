@@ -18,6 +18,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/store"
 )
 
 func databasesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
@@ -777,6 +778,7 @@ func validateMetric(metric string) bool {
 
 func configGetHandler(
 	mgr *fleet.DatabaseManager, cfg *config.Config,
+	controllers ...*config.ConfigController,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		database, ok := readDatabaseParam(w, r)
@@ -799,21 +801,39 @@ func configGetHandler(
 			})
 			return
 		}
-		jsonResponse(w, map[string]any{
-			"mode":        cfg.Mode,
-			"trust":       cfg.Trust,
-			"collector":   cfg.Collector,
-			"analyzer":    cfg.Analyzer,
-			"safety":      cfg.Safety,
-			"llm_enabled": cfg.LLM.Enabled,
-			"advisor":     cfg.Advisor,
-			"databases":   len(cfg.Databases),
-		})
+		responseCfg := cfg
+		response := make(map[string]any)
+		if controller := firstConfigController(controllers); controller != nil {
+			active := controller.Active()
+			desired := controller.Desired()
+			responseCfg = active.Config
+			response["active_generation"] = active.Generation
+			response["desired_generation"] = desired.Generation
+		}
+		response["mode"] = responseCfg.Mode
+		response["trust"] = responseCfg.Trust
+		response["collector"] = responseCfg.Collector
+		response["analyzer"] = responseCfg.Analyzer
+		response["safety"] = responseCfg.Safety
+		response["llm_enabled"] = responseCfg.LLM.Enabled
+		response["advisor"] = responseCfg.Advisor
+		response["databases"] = len(responseCfg.Databases)
+		jsonResponse(w, response)
 	}
 }
 
 func configUpdateHandler(
 	mgr *fleet.DatabaseManager, cfg *config.Config,
+	controllers ...*config.ConfigController,
+) http.HandlerFunc {
+	return configUpdateHandlerWithStore(
+		mgr, cfg, firstConfigController(controllers), nil,
+	)
+}
+
+func configUpdateHandlerWithStore(
+	mgr *fleet.DatabaseManager, cfg *config.Config,
+	controller *config.ConfigController, cs *store.ConfigStore,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
@@ -821,28 +841,108 @@ func configUpdateHandler(
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if trust, ok := body["trust"]; ok {
-			if trustMap, ok := trust.(map[string]any); ok {
-				if level, ok := trustMap["level"].(string); ok {
-					valid := map[string]bool{
-						"observation": true, "advisory": true,
-						"autonomous": true,
-					}
-					if !valid[level] {
-						jsonError(w, "invalid trust level",
-							http.StatusBadRequest)
-						return
-					}
-					// Hot-reload lock: the config watcher and executor
-						// touch Trust.Level concurrently (C2).
-						config.LockForHotReload()
-						cfg.Trust.Level = level
-						config.UnlockForHotReload()
-				}
+		if controller != nil {
+			expected, ok := configExpectedGeneration(body)
+			if !ok {
+				jsonError(w, "expected_generation is required",
+					http.StatusPreconditionRequired)
+				return
 			}
+			candidate := controller.Desired().Config
+			if !applyTrustConfigUpdate(w, body, candidate) {
+				return
+			}
+			result, err := applyConfigUpdateCandidate(
+				r, controller, cs, expected, candidate,
+			)
+			if err != nil {
+				if errors.Is(err, config.ErrGenerationConflict) {
+					jsonError(w, err.Error(), http.StatusConflict)
+					return
+				}
+				internalError(w, r, "apply config generation", err)
+				return
+			}
+			jsonResponse(w, result)
+			return
+		}
+		if !applyTrustConfigUpdate(w, body, cfg) {
+			return
 		}
 		jsonResponse(w, map[string]string{"status": "updated"})
 	}
+}
+
+func applyConfigUpdateCandidate(
+	r *http.Request, controller *config.ConfigController,
+	cs *store.ConfigStore, expected uint64, candidate *config.Config,
+) (config.ApplyResult, error) {
+	if cs == nil {
+		return controller.Apply(r.Context(), expected, candidate)
+	}
+	userID := 0
+	if user := UserFromContext(r.Context()); user != nil {
+		userID = user.ID
+	}
+	writes := []store.ConfigOverrideWrite{{
+		Key: "trust.level", Value: candidate.Trust.Level,
+	}}
+	return controller.ApplyWithPersistence(
+		r.Context(), expected, candidate,
+		func(ctx context.Context, snapshot config.ConfigSnapshot) error {
+			generation, err := cs.SetOverridesCAS(
+				ctx, writes, 0, userID, expected,
+			)
+			if err == nil && generation != snapshot.Generation {
+				return fmt.Errorf("durable generation %d, controller %d",
+					generation, snapshot.Generation)
+			}
+			return err
+		},
+	)
+}
+
+func applyTrustConfigUpdate(
+	w http.ResponseWriter, body map[string]any, candidate *config.Config,
+) bool {
+	if trust, ok := body["trust"]; ok {
+		if trustMap, ok := trust.(map[string]any); ok {
+			if level, ok := trustMap["level"].(string); ok {
+				valid := map[string]bool{
+					"observation": true, "advisory": true,
+					"autonomous": true,
+				}
+				if !valid[level] {
+					jsonError(w, "invalid trust level",
+						http.StatusBadRequest)
+					return false
+				}
+				candidate.Trust.Level = level
+			}
+		}
+	}
+	return true
+}
+
+func firstConfigController(
+	controllers []*config.ConfigController,
+) *config.ConfigController {
+	if len(controllers) == 0 {
+		return nil
+	}
+	return controllers[0]
+}
+
+func configExpectedGeneration(body map[string]any) (uint64, bool) {
+	raw, ok := body["expected_generation"]
+	if !ok {
+		return 0, false
+	}
+	value, ok := raw.(float64)
+	if !ok || value < 1 || value != float64(uint64(value)) {
+		return 0, false
+	}
+	return uint64(value), true
 }
 
 func metricsHandler(
@@ -1765,7 +1865,7 @@ func queryActionsAcrossPools(
 		return []map[string]any{}, 0, nil
 	}
 
-	var merged []map[string]any
+	merged := make([]map[string]any, 0)
 	total := 0
 	perDBLimit := limit + offset
 	if perDBLimit <= 0 {

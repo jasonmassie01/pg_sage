@@ -35,4 +35,17 @@ describe('DatabaseForm', () => {
     expect(body.max_connections).toBe(17)
     expect(typeof body.max_connections).toBe('number')
   })
+
+	it('makes policy fields read-only while editing', () => {
+	  render(<DatabaseForm db={{
+	    id: 7,
+	    name: 'prod',
+	    trust_level: 'advisory',
+	    execution_mode: 'approval',
+	  }} onClose={vi.fn()} onError={vi.fn()} />)
+
+	  expect(screen.getByTestId('db-trust-level')).toBeDisabled()
+	  expect(screen.getByTestId('db-execution-mode')).toBeDisabled()
+	  expect(screen.getByText(/change policy in settings/i)).toBeInTheDocument()
+	})
 })

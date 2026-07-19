@@ -98,7 +98,7 @@ test.describe('Fleet aggregation APIs', () => {
       expect(hintDBs.has(target.name)).toBeTruthy();
     }
 
-    const actionsRes = await page.request.get('/api/v1/actions?limit=20');
+    const actionsRes = await page.request.get('/api/v1/actions?limit=100');
     expect(actionsRes.status()).toBe(200);
     const actions = await actionsRes.json();
     const actionDBs = new Set(

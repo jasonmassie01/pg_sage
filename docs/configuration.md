@@ -7,7 +7,20 @@ pg_sage uses three configuration sources with the following precedence (highest 
 3. **YAML config file** (`config.yaml`)
 4. **Built-in defaults**
 
-The sidecar supports hot-reload: changes to the YAML config file are detected and applied without restarting. Connection settings (`postgres.*`, `prometheus.listen_addr`, `api.listen_addr`) require a restart.
+The sidecar validates a complete candidate before publishing a YAML reload.
+Every field has a typed lifecycle: `live_policy` swaps an immutable policy
+snapshot, `reconfigure` tears down and rebuilds its named runtime owner, and
+`restart` remains pending until process restart. Fleet database records use
+their dedicated lifecycle API. In-flight work keeps its original snapshot.
+
+The generated [per-field lifecycle reference](generated/config-lifecycles.md)
+is the authoritative list. Regenerate it from the typed registry with:
+
+```bash
+cd sidecar
+go run ./cmd/gen_config_meta -lifecycle-only \
+  -lifecycle-out ../docs/generated/config-lifecycles.md
+```
 
 ---
 
@@ -95,13 +108,14 @@ api:
   # Web UI and /api/v1 endpoints are session-authenticated.
   # The first local admin is bootstrapped automatically.
 
-notifications:
-  slack:
-    enabled: false
-    # webhook_url: ${SAGE_SLACK_WEBHOOK}
-  pagerduty:
-    enabled: false
-    # routing_key: ${SAGE_PAGERDUTY_KEY}
+alerting:
+  enabled: false
+  check_interval_seconds: 60
+  slack_webhook_url: ${SAGE_SLACK_WEBHOOK}
+  pagerduty_routing_key: ${SAGE_PAGERDUTY_KEY}
+  routes:
+    - severity: critical
+      channels: [slack, pagerduty]
 
 prometheus:
   listen_addr: "0.0.0.0:9187"
@@ -147,11 +161,17 @@ The trust model controls what pg_sage is allowed to do:
 
 | Trust Level | Actions Allowed |
 |---|---|
-| `observation` | No actions; findings only |
-| `advisory` | SAFE actions (drop unused/duplicate indexes, VACUUM) |
-| `autonomous` | SAFE + MODERATE actions (create indexes, reindex) |
+| `observation` | Cases and recommendations only |
+| `advisory` | With `auto`, execute eligible typed SAFE actions; queue higher risk |
+| `autonomous` | With `auto`, execute eligible typed SAFE/MODERATE actions; queue HIGH |
+
+Execution mode is independent from trust: `manual` disables background
+queueing and execution, `approval` queues supported actions, and `auto`
+applies the table above. Trust never promotes `manual` to `auto`.
 
 HIGH-risk actions always require manual confirmation regardless of trust level.
+Plain CREATE/DROP/REINDEX and `VACUUM FULL` do not satisfy the typed background
+contracts; concurrent or non-FULL forms are required.
 
 ### LLM
 

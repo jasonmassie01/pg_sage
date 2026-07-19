@@ -7,12 +7,19 @@ provider allowlists, cloud credentials outside pg_sage, and cleanup evidence.
 
 ## Release Safety Model
 
-AgentDB separates four concerns:
+AgentDB separates policy, authority, and provider execution:
 
 - Provider settings in the UI store non-secret policy and shape defaults.
 - Credentials come from the cloud SDK or environment at sidecar startup.
 - Blueprints and Terraform templates are reviewed before provisioning.
-- Live operations run only when global and provider-specific gates are enabled.
+- Live operations resolve a fail-closed four-layer intersection: runtime
+  capability, global ceilings, persisted provider policy, and exact-operation
+  authorization. Provider policy can narrow but cannot widen global policy.
+- An administrator must issue the server-owned plan, estimate, policy
+  generation, and authorization at `POST
+  /api/v1/agent-dbs/{id}/provision/authorize-live` before live execution.
+- Create and destroy use separate, single-consumption authorizations. Exact
+  idempotent retries return the stored receipt without a second provider call.
 
 The UI should never be used to store cloud tokens, passwords, private keys, or
 access keys. Secret-shaped keys are stripped before provider settings are saved.

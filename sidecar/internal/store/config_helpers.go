@@ -69,7 +69,7 @@ var allowedConfigKeys = map[string]string{
 	"agentdb.live_provisioning_enabled":     "bool",
 	"agentdb.allow_public_ip":               "bool",
 	"agentdb.require_backup_before_destroy": "bool",
-	"agentdb.reconcile_interval_seconds":   "int_nonneg",
+	"agentdb.reconcile_interval_seconds":    "int_nonneg",
 
 	// v0.9: RCA engine.
 	"rca.enabled":                           "bool",
@@ -288,6 +288,7 @@ func insertAudit(
 	key, oldValue, newValue string,
 	databaseID int, userID int,
 ) error {
+	oldValue, newValue = auditValues(key, oldValue, newValue)
 	var dbID *int
 	if databaseID > 0 {
 		dbID = &databaseID
@@ -302,6 +303,33 @@ func insertAudit(
 		 VALUES ($1, $2, $3, $4, $5)`,
 		key, nullIfEmpty(oldValue), newValue, dbID, chBy)
 	return err
+}
+
+const redactedSecret = "[REDACTED]"
+
+func isSecretConfigKey(key string) bool {
+	switch key {
+	case "llm.api_key",
+		"alerting.slack_webhook_url",
+		"alerting.pagerduty_routing_key",
+		"briefing.slack_webhook_url":
+		return true
+	default:
+		return false
+	}
+}
+
+func auditValues(key, oldValue, newValue string) (string, string) {
+	if !isSecretConfigKey(key) {
+		return oldValue, newValue
+	}
+	if oldValue != "" {
+		oldValue = redactedSecret
+	}
+	if newValue != "" {
+		newValue = redactedSecret
+	}
+	return oldValue, newValue
 }
 
 func nullIfEmpty(s string) *string {
@@ -338,6 +366,9 @@ func scanAuditRows(rows pgx.Rows) ([]ConfigAuditEntry, error) {
 		if err != nil {
 			return nil, fmt.Errorf("scanning audit: %w", err)
 		}
+		e.OldValue, e.NewValue = auditValues(
+			e.Key, e.OldValue, e.NewValue,
+		)
 		results = append(results, e)
 	}
 	return results, rows.Err()
@@ -368,6 +399,13 @@ func configToMap(cfg *config.Config) map[string]any {
 	addMigrationFields(m, &cfg.Migration)
 	addAgentDBFields(m, &cfg.AgentDB)
 	return m
+}
+
+// ConfigReadModel returns the effective configuration in the same redacted,
+// source-annotated shape used by the persistent configuration API. It does
+// not consult or mutate the override store.
+func ConfigReadModel(cfg *config.Config) map[string]any {
+	return configToMap(cfg)
 }
 
 func addField(m map[string]any, key string, val any, src string) {
@@ -601,7 +639,11 @@ func applyOverrides(
 	for _, o := range overrides {
 		if existing, ok := m[o.Key]; ok {
 			if em, ok := existing.(map[string]any); ok {
-				em["value"] = coerceValue(o.Key, o.Value)
+				value := coerceValue(o.Key, o.Value)
+				if isSecretConfigKey(o.Key) {
+					value = maskSecret(o.Value)
+				}
+				em["value"] = value
 				em["source"] = source
 			}
 		}

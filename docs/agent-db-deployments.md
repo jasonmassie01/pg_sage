@@ -163,7 +163,7 @@ prefix. Repeated failures for the same deployment/token hash return HTTP `429`.
 
 ## Enterprise Policy Gates
 
-Deployment requests are policy-scored before provisioning:
+Deployment requests are policy-scored before planning:
 
 - Missing `tenant_id` or `agent_id` is denied.
 - Restricted, production, PII, PHI, or PCI data without `masking_policy_id` is
@@ -173,8 +173,37 @@ Deployment requests are policy-scored before provisioning:
 - Cloud instance requests without `budget_usd` are routed to review.
 - `approval_sla_seconds` is preserved as a policy reason for review queues.
 
-These gates are heuristics intended to be LLM-enriched later, but they are
-deterministic enough to enforce enterprise guardrails in API and UI flows today.
+These intake gates do not authorize provider mutation. Live create and destroy
+use a separate four-layer effective policy: runtime capability, global hard
+ceilings, persisted provider policy, and authorization for the exact operation.
+Every layer must be present and current. The resolver intersects allowlists and
+uses the narrowest TTL, cost, networking, backup, and execution-mode limits;
+provider settings cannot widen global policy. Provider policy mutation is
+admin-only.
+
+`manual` denies live provider mutation. `approval` requires an administrator to
+issue the operation authorization. `auto_within_policy` also requires a
+high-confidence current cost estimate with no unknown components. Missing or
+stale policy, an unavailable runner, and unknown providers fail closed.
+
+## Live Mutation Authority
+
+Live execution is a two-step server-owned flow:
+
+1. An administrator calls
+   `POST /api/v1/agent-dbs/{id}/provision/authorize-live` with `operation` set
+   to `create` or `destroy` and an `Idempotency-Key`.
+2. pg_sage normalizes and hashes the deployment plan, issues a cost estimate,
+   resolves current policy, and persists the plan, estimate, policy generation,
+   requester, authorization, nonce, and idempotency tuple.
+3. The matching execute or destroy request supplies only the returned
+   `plan_hash`, `estimate_id`, `authorization_id`, and idempotency key.
+
+Create and destroy require separate authorization. Records have
+single-consumption semantics: an exact retry returns the stored receipt without
+calling the provider again, while a changed requester or tuple fails. Client
+claims such as `approved`, estimated cost, actor, policy, or override text do not
+grant authority.
 
 ## Tuning, Hints, and Query Recommendations
 
@@ -203,7 +232,30 @@ query tuning recommendations that an agent can consume and feed back through
   `restore_verified` backup exists.
 - `POST /cost-samples` records usage or provider cost samples.
 - `GET /cost` returns budget state and budget action.
-- Expired leases are archived by `POST /api/v1/agent-dbs/cleanup`.
+- Expired leases are archived by `POST /api/v1/agent-dbs/cleanup` through a
+  durable compare-and-swap cleanup claim. A lease renewal invalidates an
+  outstanding expiry claim before any provider mutation. Cleanup revalidates
+  the lease, deployment lifecycle version, provisioning policy fields, and
+  restore-verified backup immediately before it authorizes destruction.
+- Concurrent cleanup controllers may discover the same fleet, but a deployment
+  can have only one active teardown operation. Provider retries reuse the
+  stored teardown operation ID, and a second controller cannot authorize the
+  same lifecycle version.
+
+The running binary schedules lifecycle and live-status reconciliation at
+`agentdb.reconcile_interval_seconds` (300 seconds by default). After a pass it
+registers eligible active deployments with inline connection credentials into
+the fleet collector. Deployments backed only by a `secret_ref` are skipped;
+the AgentDB fleet path currently collects snapshots but does not attach the
+analyzer or executor pipeline.
+
+Durable monitoring work primitives are also schema-backed. Scheduling scans at
+most 10,000 deployment rows, groups them into at most 100 physical targets per
+pass, and enqueues lightweight SQL-probe work. Claims are leased, bounded to 100 per batch,
+respect global/provider/tenant/deployment concurrency policy, and expose only a
+secret reference for just-in-time resolution. The runtime worker that calls the
+scheduler and completes these claims is not wired yet, so this queue is an
+implemented contract rather than an active adaptive monitoring loop.
 
 Live cloud setup, credential requirements, provider settings, and cleanup
 commands are documented in

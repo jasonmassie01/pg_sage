@@ -14,6 +14,7 @@ type LiveProvisionPolicy struct {
 	RequireBackupBeforeDrop bool     `json:"require_backup_before_destroy"`
 	MaxTTLSeconds           int      `json:"max_ttl_seconds"`
 	MaxEstimatedCostUSD     float64  `json:"max_estimated_cost_usd"`
+	ExecutionMode           string   `json:"execution_mode"`
 }
 
 type LiveProvisionRequest struct {

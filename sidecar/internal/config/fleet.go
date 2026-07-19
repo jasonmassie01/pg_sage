@@ -14,8 +14,9 @@ type DatabaseConfig struct {
 	MaxConnections           int      `yaml:"max_connections" doc:"Maximum connections the sidecar pgx pool opens to this database. Falls back to defaults.max_connections when zero." mode:"fleet-only"`
 	Tags                     []string `yaml:"tags" doc:"Free-form tags used to group databases for fleet operations (e.g. tier=prod, team=payments)." mode:"fleet-only"`
 	TrustLevel               string   `yaml:"trust_level" doc:"Per-database override of the global trust.level. Useful for running a pilot database in autonomous while the fleet stays in advisory." mode:"fleet-only"`
-	ExecutionMode            string   `yaml:"execution_mode" doc:"Per-database action execution mode: auto executes eligible actions, approval queues them for review, manual disables autonomous queueing. Defaults to defaults.execution_mode or auto." mode:"fleet-only"`
-	ExecutorEnabled          *bool    `yaml:"executor_enabled" doc:"Per-database executor override. Nil defaults to enabled; set false to disable action execution on this database specifically." mode:"fleet-only"`
+	TrustLevelExplicit       bool     `yaml:"-"`
+	ExecutionMode            string   `yaml:"execution_mode" doc:"Per-database mode: auto follows trust/risk policy; approval queues actions; manual disables background queueing and execution. Trust never promotes manual. Defaults to fleet default or auto." mode:"fleet-only"`
+	ExecutorEnabled          *bool    `yaml:"executor_enabled" doc:"Per-database executor hard gate. Nil defaults to enabled; false blocks background queueing/execution and explicit manual mutations on this database." mode:"fleet-only"`
 	LLMEnabled               *bool    `yaml:"llm_enabled" doc:"Per-database LLM override. Nil defaults to enabled; set false to skip LLM calls for this database." mode:"fleet-only"`
 	CollectorIntervalSeconds int      `yaml:"collector_interval_seconds" doc:"Per-database collector interval override. Zero falls back to defaults.collector_interval_seconds." mode:"fleet-only"`
 	AnalyzerIntervalSeconds  int      `yaml:"analyzer_interval_seconds" doc:"Per-database analyzer interval override. Zero falls back to defaults.analyzer_interval_seconds." mode:"fleet-only"`
@@ -113,11 +114,15 @@ func (c *Config) normalize() {
 	if c.Mode == "fleet" {
 		for i := range c.Databases {
 			d := &c.Databases[i]
+			if d.TrustLevel != "" {
+				d.TrustLevelExplicit = true
+			}
 			if d.MaxConnections == 0 && c.Defaults.MaxConnections != 0 {
 				d.MaxConnections = c.Defaults.MaxConnections
 			}
 			if d.TrustLevel == "" && c.Defaults.TrustLevel != "" {
 				d.TrustLevel = c.Defaults.TrustLevel
+				d.TrustLevelExplicit = true
 			}
 			if d.TrustLevel == "" && c.Trust.Level != "" {
 				d.TrustLevel = c.Trust.Level

@@ -414,13 +414,13 @@ func shapeTerminateBackend(
 		RecommendedSQL: fmt.Sprintf("SELECT pg_terminate_backend(%d);", pid),
 		ActionRisk:     "safe",
 	})
-	act, ok := latestActionFor(t, pool, "connection_leak",
+	_, acted := latestActionFor(t, pool, "connection_leak",
 		fmt.Sprintf("pid:%d", pid))
-	r.add(t, "CHECK-B12a", ok && isExecutedOutcome(act.Outcome),
-		fmt.Sprintf("pg_terminate_backend executed (outcome=%s)", act.Outcome))
+	r.add(t, "CHECK-B12a", !acted,
+		"HIGH-risk pg_terminate_backend requires approval and did not execute")
 	gone := scalarString(t, pool, fmt.Sprintf(
 		`SELECT (count(*) = 0)::text FROM pg_stat_activity WHERE pid = %d`, pid))
-	r.add(t, "CHECK-B12b", gone == "true", "victim backend terminated")
+	r.add(t, "CHECK-B12b", gone == "false", "victim backend remains connected")
 }
 
 func shapeCancelBackend(
@@ -493,10 +493,10 @@ func shapeHighRiskBlocked(
 		RecommendedSQL: "DROP INDEX CONCURRENTLY public.shp_b14_subset;",
 		ActionRisk:     "high_risk",
 	})
-	_, acted := latestActionFor(t, pool, "duplicate_index", "public.shp_b14_subset")
+	act, acted := latestActionFor(t, pool, "duplicate_index", "public.shp_b14_subset")
 	_, _, exists := indexAccessMethod(t, pool, "shp_b14_subset")
-	r.add(t, "CHECK-B14", !acted && exists,
-		"high_risk finding produced NO action; index untouched")
+	r.add(t, "CHECK-B14", acted && isExecutedOutcome(act.Outcome) && !exists,
+		"typed DROP contract, not finding ActionRisk, governs execution")
 }
 
 func shapeObservationBlocked(
@@ -577,12 +577,9 @@ func shapeMultiStatementRejected(
 			"SELECT pg_reload_conf();",
 		ActionRisk: "moderate",
 	})
-	act, acted := latestActionFor(t, pool, "memory_tuning", "instance:multi")
-	r.add(t, "CHECK-B18",
-		acted && act.Outcome == "failed" &&
-			strings.Contains(act.RollbackReason, "multi-statement"),
-		fmt.Sprintf("multi-statement SQL rejected by validation "+
-			"(outcome=%s reason=%s)", act.Outcome, act.RollbackReason))
+	_, acted := latestActionFor(t, pool, "memory_tuning", "instance:multi")
+	r.add(t, "CHECK-B18", !acted,
+		"multi-statement SQL rejected before action execution/logging")
 }
 
 func shapeAlterRoleRejected(
@@ -597,8 +594,7 @@ func shapeAlterRoleRejected(
 	})
 	an, ex := newPipelineExecutor(t, pool, autonomousConfig())
 	// work_mem_promotion emits ALTER ROLE ... SET work_mem, which is NOT in
-	// the executor allowlist. The pipeline must fail it cleanly (logged
-	// failed action) rather than execute or crash.
+	// the executor allowlist. It must fail closed before execution.
 	driveFinding(t, pool, an, ex, analyzer.Finding{
 		Category: "work_mem_promotion", Severity: "warning",
 		ObjectType: "role", ObjectIdentifier: "role:shp_b19_role",
@@ -606,14 +602,12 @@ func shapeAlterRoleRejected(
 		RecommendedSQL: "ALTER ROLE shp_b19_role SET work_mem = '64MB';",
 		ActionRisk:     "moderate",
 	})
-	act, acted := latestActionFor(t, pool, "work_mem_promotion", "role:shp_b19_role")
+	_, acted := latestActionFor(t, pool, "work_mem_promotion", "role:shp_b19_role")
 	roleCfg := scalarString(t, pool,
 		`SELECT coalesce(array_to_string(rolconfig, ','), '')
 		   FROM pg_roles WHERE rolname = 'shp_b19_role'`)
-	r.add(t, "CHECK-B19",
-		acted && act.Outcome == "failed" && roleCfg == "",
-		fmt.Sprintf("ALTER ROLE rejected by allowlist, role untouched "+
-			"(outcome=%s reason=%s)", act.Outcome, act.RollbackReason))
+	r.add(t, "CHECK-B19", !acted && roleCfg == "",
+		"ALTER ROLE rejected before execution; role remains untouched")
 }
 
 func shapeNoSQLNoAction(

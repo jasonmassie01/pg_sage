@@ -80,14 +80,22 @@ Lives in `internal/optimizer/` (18 files, 4,640 lines, 144 tests). Key capabilit
 | Trust Level | Timeline | Allowed Actions |
 |-------------|----------|----------------|
 | **observation** | Configured | No actions -- cases and recommendations only |
-| **advisory** | Configured | Queue or execute SAFE actions based on policy |
-| **autonomous** | Configured | SAFE + approved MODERATE actions, bounded by maintenance windows |
+| **advisory** | Configured | Auto may execute eligible SAFE actions; higher risk queues |
+| **autonomous** | Configured | Auto may execute eligible SAFE and MODERATE actions; HIGH queues |
 
 HIGH-risk actions always require manual approval. Every action carries a typed
 contract: risk tier, guardrails, expiration, rollback or mitigation, policy
 decision, lifecycle state, and verification state. Execution outcomes are
 logged to `sage.action_log`; pending work and approval outcomes are tracked in
 the action queue.
+
+Execution mode is an independent operator control. `manual` disables all
+background queueing and execution at every trust level. `approval` queues
+supported actions whenever trust is advisory or autonomous. `auto` executes
+eligible SAFE actions at advisory trust, executes eligible SAFE and MODERATE
+actions at autonomous trust, and queues higher-risk supported actions. Neither
+trust nor its ramp can promote `manual` to `auto`. Emergency Stop and a
+per-database disabled executor are hard mutation blocks.
 
 High-risk schema changes are handled as migration-safety cases before direct
 execution. The case projector attaches deterministic DDL preflight evidence,

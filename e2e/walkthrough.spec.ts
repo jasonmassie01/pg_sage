@@ -15,6 +15,8 @@ import { test, expect, Page } from '@playwright/test';
 //   npx playwright test e2e/walkthrough.spec.ts
 const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL ?? 'admin@pg-sage.local';
 const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS ?? '';
+const METRICS_URL = process.env.PG_SAGE_E2E_METRICS_URL ??
+  'http://127.0.0.1:19187/metrics';
 const PROD_DB = {
   name: process.env.PG_SAGE_E2E_PROD_NAME ?? 'production',
   host: process.env.PG_SAGE_E2E_PROD_HOST ?? 'localhost',
@@ -265,28 +267,25 @@ test.describe('Step 6: Dashboard', () => {
 });
 
 // ─── Step 7: Findings / Recommendations ─────────────────────────
-test.describe('Step 7: Findings', () => {
-  test('CHECK-11: recommendations page loads with findings',
+test.describe('Step 7: Cases', () => {
+  test('CHECK-11: cases page loads with finding-backed cases',
     async ({ page }) => {
       await login(page);
-      await page.click('[data-testid="nav-findings"]');
+      await page.click('[data-testid="nav-cases"]');
 
       // Wait for collector + analyzer cycles (10s + 15s)
-      // Retry up to 60s for findings to appear
-      const count = page.locator('[data-testid="findings-count"]');
-      await expect(count).toBeVisible({ timeout: 5000 });
+      // Retry up to 60s for finding-backed cases to appear.
+      const casesPage = page.locator('[data-testid="cases-page"]');
+      await expect(casesPage).toBeVisible({ timeout: 5000 });
       let found = false;
       for (let i = 0; i < 12; i++) {
-        await page.waitForTimeout(5000);
-        await page.click('[data-testid="nav-dashboard"]');
-        await page.waitForTimeout(500);
-        await page.click('[data-testid="nav-findings"]');
-        await page.waitForTimeout(2000);
-        const text = await count.textContent();
-        if (parseInt(text || '0', 10) > 0) {
+        await page.getByRole('button', { name: 'Findings' }).click();
+        if (await casesPage.locator('article').count() > 0) {
           found = true;
           break;
         }
+        await page.waitForTimeout(5000);
+        await page.reload();
       }
       expect(found).toBeTruthy();
     });
@@ -309,113 +308,110 @@ test.describe('Step 7: Findings', () => {
     async ({ request }) => {
       await apiLogin(request);
 
-      const prodRes = await request.get(
-        '/api/v1/findings?database=production',
-      );
-      expect(prodRes.ok()).toBeTruthy();
-      const prodData = await prodRes.json();
-
-      const stagRes = await request.get(
-        '/api/v1/findings?database=staging',
-      );
-      expect(stagRes.ok()).toBeTruthy();
-      const stagData = await stagRes.json();
+      let prodData;
+      let stagData;
+      for (let i = 0; i < 12; i++) {
+        const prodRes = await request.get(
+          '/api/v1/findings?database=production',
+        );
+        const stagRes = await request.get(
+          '/api/v1/findings?database=staging',
+        );
+        expect(prodRes.ok()).toBeTruthy();
+        expect(stagRes.ok()).toBeTruthy();
+        prodData = await prodRes.json();
+        stagData = await stagRes.json();
+        if (prodData.findings.length > 0 &&
+          stagData.findings.length > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
 
       // Each should have findings from planted problems
       expect(prodData.findings.length).toBeGreaterThan(0);
       expect(stagData.findings.length).toBeGreaterThan(0);
     });
 
-  test('CHECK-14: expand a finding to see detail',
+  test('CHECK-14: finding-backed case shows evidence and next action',
     async ({ page }) => {
       await login(page);
-      await page.click('[data-testid="nav-findings"]');
-      await page.waitForTimeout(3000);
+      await page.click('[data-testid="nav-cases"]');
+      await page.getByRole('button', { name: 'Findings' }).click();
 
-      // Click on the first finding row to expand
-      const firstRow = page.locator('tr').filter({
-        hasText: /duplicate_index|sequence_exhaustion|checkpoint/,
-      }).first();
-      await firstRow.click();
-      await page.waitForTimeout(1000);
-
-      // Should see detail grid and recommendation
-      const detail = page.locator('[data-testid="detail-grid"]').first();
-      await expect(detail).toBeVisible({ timeout: 3000 });
+      const firstCase = page.locator('[data-testid="cases-page"] article')
+        .first();
+      await expect(firstCase).toBeVisible({ timeout: 5000 });
+      await expect(firstCase.getByLabel('Case evidence')).toBeVisible();
+      await expect(firstCase).toContainText(/Next:/);
     });
 
-  test('CHECK-15: severity filter works', async ({ page }) => {
+  test('CHECK-15: case source filter works', async ({ page }) => {
     await login(page);
-    await page.click('[data-testid="nav-findings"]');
-    await page.waitForTimeout(3000);
+    await page.click('[data-testid="nav-cases"]');
 
-    // Filter by critical
-    await page.locator('[data-testid="severity-filter"]')
-      .selectOption('critical');
-    await page.waitForTimeout(2000);
-
-    // All visible findings should be critical
-    const count = page.locator('[data-testid="findings-count"]');
-    const text = await count.textContent();
-    expect(parseInt(text || '0', 10)).toBeGreaterThan(0);
+    const findingsFilter = page.getByRole('button', { name: 'Findings' });
+    await findingsFilter.click();
+    await expect(findingsFilter).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-testid="cases-page"] article').first())
+      .toBeVisible({ timeout: 5000 });
   });
 });
 
 // ─── Step 8: Suppress / Unsuppress ──────────────────────────────
 test.describe('Step 8: Suppress/Unsuppress', () => {
-  test('CHECK-16: suppress finding via UI button', async ({ page }) => {
-    await login(page);
-    await page.click('[data-testid="nav-findings"]');
-    await page.waitForTimeout(3000);
+  let suppressedTarget: { id: number; database: string } | null = null;
 
-    // Click on first finding to expand
-    const firstRow = page.locator('tr').filter({
-      hasText: /duplicate_index|sequence_exhaustion|checkpoint/,
-    }).first();
-    await firstRow.click();
-    await page.waitForTimeout(1000);
+  test('CHECK-16: suppress finding via supported API', async ({ request }) => {
+    await apiLogin(request);
+    const findingsRes = await request.get('/api/v1/findings');
+    const data = await findingsRes.json();
+    expect(data.findings.length).toBeGreaterThan(0);
 
-    // Click Suppress button
-    const suppressBtn = page.locator(
-      '[data-testid="suppress-button"]',
-    ).first();
-    await expect(suppressBtn).toBeVisible({ timeout: 3000 });
-    await expect(suppressBtn).toContainText('Suppress');
-    await suppressBtn.click();
-    await page.waitForTimeout(2000);
+    const finding = data.findings[0];
+    const suppressRes = await request.post(
+      `/api/v1/findings/${finding.id}/suppress?database=${
+        encodeURIComponent(finding.database_name)
+      }`,
+      { data: {} },
+    );
+    expect(suppressRes.ok()).toBeTruthy();
+    suppressedTarget = {
+      id: Number(finding.id),
+      database: finding.database_name,
+    };
 
-    // Finding should disappear from open list (table refreshes)
+    const checkRes = await request.get(
+      `/api/v1/findings/${finding.id}?database=${
+        encodeURIComponent(finding.database_name)
+      }`,
+    );
+    expect((await checkRes.json()).status).toBe('suppressed');
   });
 
-  test('CHECK-17: unsuppress finding via UI button',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-findings"]');
-      await page.waitForTimeout(2000);
+  test('CHECK-17: unsuppress finding via supported API',
+    async ({ request }) => {
+      await apiLogin(request);
+      expect(suppressedTarget).not.toBeNull();
+      const target = suppressedTarget!;
+      const checkSuppressedRes = await request.get(
+        `/api/v1/findings/${target.id}?database=${
+          encodeURIComponent(target.database)
+        }`,
+      );
+      expect((await checkSuppressedRes.json()).status).toBe('suppressed');
+      const unsuppressRes = await request.post(
+        `/api/v1/findings/${target.id}/unsuppress?database=${
+          encodeURIComponent(target.database)
+        }`,
+        { data: {} },
+      );
+      expect(unsuppressRes.ok()).toBeTruthy();
 
-      // Click "Suppressed" status tab
-      await page.click('button:has-text("Suppressed")');
-      await page.waitForTimeout(2000);
-
-      // Should see suppressed finding
-      const firstRow = page.locator('tr').filter({
-        hasText: /duplicate_index|sequence_exhaustion|checkpoint/,
-      }).first();
-      if (await firstRow.isVisible({ timeout: 3000 })) {
-        await firstRow.click();
-        await page.waitForTimeout(1000);
-
-        // Click Unsuppress
-        const unsuppressBtn = page.locator(
-          '[data-testid="suppress-button"]',
-        ).first();
-        await expect(unsuppressBtn).toContainText('Unsuppress');
-        await unsuppressBtn.click();
-        await page.waitForTimeout(2000);
-      }
-
-      // Switch back to Open tab
-      await page.click('button:has-text("Open")');
+      const checkRes = await request.get(
+        `/api/v1/findings/${target.id}?database=${
+          encodeURIComponent(target.database)
+        }`,
+      );
+      expect((await checkRes.json()).status).toBe('open');
     });
 
   test('CHECK-18: suppress/unsuppress via API', async ({ request }) => {
@@ -425,19 +421,29 @@ test.describe('Step 8: Suppress/Unsuppress', () => {
     const data = await findingsRes.json();
 
     if (data.findings && data.findings.length > 0) {
-      const id = data.findings[0].id;
+      const finding = data.findings[0];
 
       const suppressRes = await request.post(
-        `/api/v1/findings/${id}/suppress`,
+        `/api/v1/findings/${finding.id}/suppress?database=${
+          encodeURIComponent(finding.database_name)
+        }`,
+        { data: {} },
       );
       expect(suppressRes.ok()).toBeTruthy();
 
-      const checkRes = await request.get(`/api/v1/findings/${id}`);
-      const finding = await checkRes.json();
-      expect(finding.status).toBe('suppressed');
+      const checkRes = await request.get(
+        `/api/v1/findings/${finding.id}?database=${
+          encodeURIComponent(finding.database_name)
+        }`,
+      );
+      const updatedFinding = await checkRes.json();
+      expect(updatedFinding.status).toBe('suppressed');
 
       const unsuppressRes = await request.post(
-        `/api/v1/findings/${id}/unsuppress`,
+        `/api/v1/findings/${finding.id}/unsuppress?database=${
+          encodeURIComponent(finding.database_name)
+        }`,
+        { data: {} },
       );
       expect(unsuppressRes.ok()).toBeTruthy();
     }
@@ -550,7 +556,7 @@ test.describe('Step 11: Notifications', () => {
   test('CHECK-25: notifications page loads with tabs',
     async ({ page }) => {
       await login(page);
-      await page.click('[data-testid="nav-notifications"]');
+      await page.goto('/#/notifications');
       await page.waitForTimeout(2000);
 
       await expect(
@@ -567,7 +573,7 @@ test.describe('Step 11: Notifications', () => {
   test('CHECK-26: create notification channel via UI form',
     async ({ page }) => {
       await login(page);
-      await page.click('[data-testid="nav-notifications"]');
+      await page.goto('/#/notifications');
       await page.waitForTimeout(1000);
 
       // Fill channel form
@@ -601,7 +607,7 @@ test.describe('Step 11: Notifications', () => {
   test('CHECK-27: create notification rule via UI form',
     async ({ page }) => {
       await login(page);
-      await page.click('[data-testid="nav-notifications"]');
+      await page.goto('/#/notifications');
       await page.waitForTimeout(1000);
 
       // Switch to Rules tab
@@ -631,7 +637,7 @@ test.describe('Step 11: Notifications', () => {
 
   test('CHECK-28: notification log tab loads', async ({ page }) => {
     await login(page);
-    await page.click('[data-testid="nav-notifications"]');
+    await page.goto('/#/notifications');
     await page.waitForTimeout(1000);
 
     await page.click('[data-testid="notifications-tab-log"]');
@@ -648,7 +654,7 @@ test.describe('Step 11: Notifications', () => {
 test.describe('Step 12: User Management', () => {
   test('CHECK-29: users page shows admin', async ({ page }) => {
     await login(page);
-    await page.click('[data-testid="nav-users"]');
+    await page.goto('/#/users');
     await page.waitForTimeout(2000);
 
     await expect(
@@ -658,7 +664,7 @@ test.describe('Step 12: User Management', () => {
 
   test('CHECK-30: create user via UI form', async ({ page }) => {
     await login(page);
-    await page.click('[data-testid="nav-users"]');
+    await page.goto('/#/users');
     await page.waitForTimeout(1000);
 
     // Fill the add user form
@@ -742,21 +748,17 @@ test.describe('Step 12: User Management', () => {
 
       // Viewer should NOT see admin nav items
       await expect(
-        page.locator('[data-testid="nav-users"]'),
+        page.locator('[data-testid="nav-settings"]'),
       ).not.toBeVisible();
       await expect(
         page.locator('[data-testid="nav-databases"]'),
       ).not.toBeVisible();
-      await expect(
-        page.locator('[data-testid="nav-notifications"]'),
-      ).not.toBeVisible();
-
-      // Should see Dashboard and Recommendations
+      // Should see Overview and Cases.
       await expect(
         page.locator('[data-testid="nav-dashboard"]'),
       ).toBeVisible();
       await expect(
-        page.locator('[data-testid="nav-findings"]'),
+        page.locator('[data-testid="nav-cases"]'),
       ).toBeVisible();
     });
 
@@ -803,7 +805,9 @@ test.describe('Step 13: Emergency Stop', () => {
   test('CHECK-36: emergency stop halts fleet', async ({ request }) => {
     await apiLogin(request);
 
-    const stopRes = await request.post('/api/v1/emergency-stop');
+    const stopRes = await request.post('/api/v1/emergency-stop', {
+      data: {},
+    });
     expect(stopRes.ok()).toBeTruthy();
     const stopData = await stopRes.json();
     expect(stopData.status).toBe('stopped');
@@ -834,7 +838,7 @@ test.describe('Step 13: Emergency Stop', () => {
   test('CHECK-39: resume restores fleet', async ({ request }) => {
     await apiLogin(request);
 
-    const resumeRes = await request.post('/api/v1/resume');
+    const resumeRes = await request.post('/api/v1/resume', { data: {} });
     expect(resumeRes.ok()).toBeTruthy();
     const resumeData = await resumeRes.json();
     expect(resumeData.status).toBe('resumed');
@@ -858,7 +862,7 @@ test.describe('Other Pages', () => {
 
   test('CHECK-41: forecasts page loads', async ({ page }) => {
     await login(page);
-    await page.click('[data-testid="nav-forecasts"]');
+    await page.goto('/#/forecasts');
     await page.waitForTimeout(2000);
 
     // Should load without errors
@@ -869,7 +873,7 @@ test.describe('Other Pages', () => {
 
   test('CHECK-42: performance page loads', async ({ page }) => {
     await login(page);
-    await page.click('[data-testid="nav-query-hints"]');
+    await page.goto('/#/query-hints');
     await page.waitForTimeout(2000);
 
     await expect(
@@ -879,7 +883,7 @@ test.describe('Other Pages', () => {
 
   test('CHECK-43: alerts page loads', async ({ page }) => {
     await login(page);
-    await page.click('[data-testid="nav-alerts"]');
+    await page.goto('/#/alerts');
     await page.waitForTimeout(2000);
 
     await expect(
@@ -892,7 +896,7 @@ test.describe('Other Pages', () => {
 test.describe('Step 14: Prometheus', () => {
   test('CHECK-44: prometheus serves pg_sage metrics',
     async ({ request }) => {
-      const res = await request.get('http://localhost:9187/metrics');
+      const res = await request.get(METRICS_URL);
       expect(res.ok()).toBeTruthy();
       const body = await res.text();
       expect(body).toContain('pg_sage_info');
@@ -900,7 +904,7 @@ test.describe('Step 14: Prometheus', () => {
     });
 
   test('CHECK-45: fleet metrics present', async ({ request }) => {
-    const res = await request.get('http://localhost:9187/metrics');
+    const res = await request.get(METRICS_URL);
     const body = await res.text();
     expect(body).toContain('pg_sage_fleet_databases');
   });
@@ -970,12 +974,13 @@ test.describe('Step 16: Dashboard Stat Cards', () => {
       expect(count).toBeGreaterThanOrEqual(2);
     });
 
-  test('CHECK-51: recent findings section visible',
+  test('CHECK-51: recent recommendations section visible',
     async ({ page }) => {
       await login(page);
       await page.waitForTimeout(3000);
 
-      // Recent findings should be visible if findings exist
+      await page.locator('[data-testid="overview-tab-recent-recos"]')
+        .click();
       const recent = page.locator(
         '[data-testid="recent-findings"]',
       );
@@ -1187,24 +1192,17 @@ test.describe('Step 19: Snapshots API', () => {
 });
 
 // ─── Step 20: Finding Detail Depth ─────────────────────────────
-test.describe('Step 20: Finding Detail Depth', () => {
-  test('CHECK-65: expanded finding shows recommended SQL',
+test.describe('Step 20: Case Detail Depth', () => {
+  test('CHECK-65: finding-backed case shows migration SQL',
     async ({ page }) => {
       await login(page);
-      await page.click('[data-testid="nav-findings"]');
-      await page.waitForTimeout(3000);
+      await page.click('[data-testid="nav-cases"]');
+      await page.getByRole('button', { name: 'Findings' }).click();
 
-      // Click on a duplicate_index finding (has recommended_sql)
-      const row = page.locator('tr').filter({
-        hasText: /duplicate_index/,
-      }).first();
-
-      await expect(row).toBeVisible({ timeout: 5000 });
-      await row.click();
-      await page.waitForTimeout(1000);
-
-      // Should show SQL (DROP INDEX, CREATE INDEX, etc.)
-      const body = await page.textContent('body');
+      const casesPage = page.locator('[data-testid="cases-page"]');
+      await expect(casesPage.getByText('Migration script').first())
+        .toBeVisible({ timeout: 5000 });
+      const body = await casesPage.textContent();
       expect(
         body!.includes('DROP INDEX') ||
         body!.includes('CREATE INDEX') ||
@@ -1221,9 +1219,11 @@ test.describe('Step 20: Finding Detail Depth', () => {
       const listData = await listRes.json();
       expect(listData.findings.length).toBeGreaterThan(0);
 
-      const id = listData.findings[0].id;
+      const target = listData.findings[0];
       const detailRes = await request.get(
-        `/api/v1/findings/${id}`,
+        `/api/v1/findings/${target.id}?database=${
+          encodeURIComponent(target.database_name)
+        }`,
       );
       expect(detailRes.ok()).toBeTruthy();
 
@@ -1237,25 +1237,15 @@ test.describe('Step 20: Finding Detail Depth', () => {
       expect(finding).toHaveProperty('recommended_sql');
     });
 
-  test('CHECK-67: expanded finding detail grid has content',
+  test('CHECK-67: finding-backed case evidence has content',
     async ({ page }) => {
       await login(page);
-      await page.click('[data-testid="nav-findings"]');
-      await page.waitForTimeout(3000);
+      await page.click('[data-testid="nav-cases"]');
+      await page.getByRole('button', { name: 'Findings' }).click();
 
-      const row = page.locator('tr').filter({
-        hasText: /duplicate_index|sequence_exhaustion|unused/,
-      }).first();
-
-      await expect(row).toBeVisible({ timeout: 5000 });
-      await row.click();
-      await page.waitForTimeout(1000);
-
-      const grid = page.locator('[data-testid="detail-grid"]');
-      await expect(grid).toBeVisible({ timeout: 3000 });
-
-      const gridText = await grid.textContent();
-      expect(gridText!.length).toBeGreaterThan(0);
+      const evidence = page.getByLabel('Case evidence').first();
+      await expect(evidence).toBeVisible({ timeout: 5000 });
+      expect((await evidence.textContent())!.length).toBeGreaterThan(0);
     });
 });
 
@@ -1277,7 +1267,7 @@ test.describe('Step 21: Database Picker', () => {
       expect(count).toBeGreaterThanOrEqual(3);
     });
 
-  test('CHECK-69: selecting database filters findings page',
+  test('CHECK-69: selecting database filters cases page',
     async ({ page }) => {
       await login(page);
       await page.waitForTimeout(2000);
@@ -1291,17 +1281,21 @@ test.describe('Step 21: Database Picker', () => {
       await picker.selectOption('production');
       await page.waitForTimeout(1000);
 
-      // Navigate to findings
-      await page.click('[data-testid="nav-findings"]');
-      await page.waitForTimeout(3000);
+      // Navigate to Cases; the global picker scopes the canonical surface.
+      await page.click('[data-testid="nav-cases"]');
+      await page.getByRole('button', { name: 'Findings' }).click();
 
-      // Findings count should still be visible (filtered)
-      const count = page.locator(
-        '[data-testid="findings-count"]',
-      );
-      await expect(count).toBeVisible({ timeout: 5000 });
-      const text = await count.textContent();
-      expect(parseInt(text || '0', 10)).toBeGreaterThan(0);
+      const casesPage = page.locator('[data-testid="cases-page"]');
+      await expect(casesPage).toBeVisible({ timeout: 5000 });
+      const expectedCount = await page.evaluate(async () => {
+        const res = await fetch('/api/v1/cases?database=production', {
+          credentials: 'include',
+        });
+        const data = await res.json();
+        return data.cases.length;
+      });
+      expect(expectedCount).toBeGreaterThan(0);
+      await expect(casesPage.locator('article')).toHaveCount(expectedCount);
     });
 });
 
@@ -1334,15 +1328,15 @@ test.describe('Step 22: Settings Save/Discard', () => {
       );
       await expect(saveBtn).toBeVisible({ timeout: 3000 });
       await saveBtn.click();
-      await page.waitForTimeout(2000);
+      const confirmBtn = page.locator(
+        '[data-testid="config-diff-confirm"]',
+      );
+      await expect(confirmBtn).toBeVisible({ timeout: 3000 });
+      await confirmBtn.click();
 
       // Should show success feedback
-      const body = await page.textContent('body');
-      expect(
-        body!.includes('saved') ||
-        body!.includes('Settings saved') ||
-        body!.includes('success'),
-      ).toBeTruthy();
+      await expect(page.getByText(/Saved 1 global configuration change/))
+        .toBeVisible({ timeout: 5000 });
     });
 
   test('CHECK-71: edit field and discard reverts value',
@@ -1427,6 +1421,7 @@ test.describe('Step 24: Per-DB Emergency Stop', () => {
 
       const res = await request.post(
         '/api/v1/emergency-stop?database=production',
+        { data: {} },
       );
       expect(res.ok()).toBeTruthy();
       const data = await res.json();
@@ -1446,6 +1441,7 @@ test.describe('Step 24: Per-DB Emergency Stop', () => {
 
       const res = await request.post(
         '/api/v1/resume?database=production',
+        { data: {} },
       );
       expect(res.ok()).toBeTruthy();
       const data = await res.json();
@@ -1458,7 +1454,7 @@ test.describe('Step 25: Page Content', () => {
   test('CHECK-77: forecasts page shows cards or empty state',
     async ({ page }) => {
       await login(page);
-      await page.click('[data-testid="nav-forecasts"]');
+      await page.goto('/#/forecasts');
       await page.waitForTimeout(3000);
 
       const body = await page.textContent('body');
@@ -1475,7 +1471,7 @@ test.describe('Step 25: Page Content', () => {
   test('CHECK-78: query hints page shows structure',
     async ({ page }) => {
       await login(page);
-      await page.click('[data-testid="nav-query-hints"]');
+      await page.goto('/#/query-hints');
       await page.waitForTimeout(3000);
 
       const body = await page.textContent('body');
@@ -1492,7 +1488,7 @@ test.describe('Step 25: Page Content', () => {
   test('CHECK-79: alerts page shows structure',
     async ({ page }) => {
       await login(page);
-      await page.click('[data-testid="nav-alerts"]');
+      await page.goto('/#/alerts');
       await page.waitForTimeout(3000);
 
       const body = await page.textContent('body');
@@ -1673,7 +1669,7 @@ test.describe('Step 27: Auth Endpoints', () => {
     async ({ request }) => {
       await apiLogin(request);
 
-      const res = await request.post('/api/v1/auth/logout');
+      const res = await request.post('/api/v1/auth/logout', { data: {} });
       expect(res.ok()).toBeTruthy();
 
       const data = await res.json();
@@ -1877,7 +1873,8 @@ test.describe('Step 30: Action Approve/Reject', () => {
       await apiLogin(request);
 
       const res = await request.post(
-        '/api/v1/actions/99999/approve',
+        '/api/v1/actions/99999/approve?database=production',
+        { data: {} },
       );
       // 404 (standalone, action not found) or
       // 501 (fleet, not yet implemented)
@@ -1889,7 +1886,7 @@ test.describe('Step 30: Action Approve/Reject', () => {
       await apiLogin(request);
 
       const res = await request.post(
-        '/api/v1/actions/99999/reject',
+        '/api/v1/actions/99999/reject?database=production',
         { data: { reason: 'test rejection' } },
       );
       expect([404, 501]).toContain(res.status());
@@ -1901,6 +1898,7 @@ test.describe('Step 30: Action Approve/Reject', () => {
 
       const res = await request.post(
         '/api/v1/actions/notanumber/approve',
+        { data: {} },
       );
       // 400 (standalone) or 501 (fleet)
       expect([400, 501]).toContain(res.status());
@@ -2039,6 +2037,7 @@ test.describe('Step 31: Notification CRUD', () => {
       // but endpoint should be reachable (not 404)
       const res = await request.post(
         `/api/v1/notifications/channels/${channelId}/test`,
+        { data: {} },
       );
       // 200 = test sent, 502 = test failed (expected for
       // fake URL) — both mean the endpoint works
@@ -2159,7 +2158,7 @@ test.describe('Step 33: Error Handling', () => {
       await apiLogin(request);
 
       const res = await request.get(
-        '/api/v1/findings/999999',
+        '/api/v1/findings/999999?database=production',
       );
       expect(res.status()).toBe(404);
     });
@@ -2221,7 +2220,7 @@ test.describe('Step 33: Error Handling', () => {
 
 // ─── Step 34: Database Managed CRUD ───────────────────────────
 test.describe('Step 34: Database Managed CRUD', () => {
-  test('CHECK-112: POST /databases/managed/test-connection',
+  test('CHECK-112: preview test blocks private connection targets',
     async ({ request }) => {
       await apiLogin(request);
 
@@ -2239,7 +2238,9 @@ test.describe('Step 34: Database Managed CRUD', () => {
           },
         },
       );
-      expect(res.ok()).toBeTruthy();
+      expect(res.status()).toBe(400);
+      const data = await res.json();
+      expect(data.error).toContain('private/internal');
     });
 
   test('CHECK-113: POST test-connection bad host fails',
@@ -2314,7 +2315,7 @@ test.describe('Step 36: Action Detail', () => {
       await apiLogin(request);
 
       const res = await request.get(
-        '/api/v1/actions/999999',
+        '/api/v1/actions/999999?database=production',
       );
       expect(res.status()).toBe(404);
     });
@@ -2354,7 +2355,7 @@ test.describe('Step 37: Manual Execute Endpoint', () => {
       expect([400, 501]).toContain(res.status());
     });
 
-  test('CHECK-119: POST /actions/execute with invalid finding',
+  test('CHECK-119: POST /actions/execute rejects unsupported SQL',
     async ({ request }) => {
       await apiLogin(request);
 
@@ -2364,12 +2365,13 @@ test.describe('Step 37: Manual Execute Endpoint', () => {
           data: {
             finding_id: 999999,
             sql: 'SELECT 1',
+            database: 'production',
           },
         },
       );
-      // 501 in fleet mode, 500 in standalone (finding
-      // not found or execution failure).
-      expect([500, 501]).toContain(res.status());
+      expect(res.status()).toBe(500);
+      const data = await res.json();
+      expect(data.error).toContain('SQL validation');
     });
 });
 
@@ -2388,6 +2390,7 @@ test.describe('Step 38: Test Existing DB Connection', () => {
 
       const res = await request.post(
         `/api/v1/databases/managed/${db.id}/test`,
+        { headers: { 'Content-Type': 'application/json' } },
       );
       expect(res.ok()).toBeTruthy();
       const data = await res.json();
@@ -2402,6 +2405,7 @@ test.describe('Step 38: Test Existing DB Connection', () => {
 
       const res = await request.post(
         '/api/v1/databases/managed/999999/test',
+        { headers: { 'Content-Type': 'application/json' } },
       );
       expect(res.status()).toBe(404);
     });

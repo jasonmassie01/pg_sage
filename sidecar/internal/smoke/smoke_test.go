@@ -37,8 +37,7 @@ func smokeDSN() string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 func requireSmokeDB(t *testing.T) (*pgxpool.Pool, context.Context) {
@@ -65,9 +64,6 @@ func requireSmokeDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			sPoolErr = fmt.Errorf("bootstrap: %w", err)
 			return
 		}
-		// Release the lock Bootstrap held so other tests proceed.
-		schema.ReleaseAdvisoryLock(qctx, pool)
-
 		sPool = pool
 	})
 

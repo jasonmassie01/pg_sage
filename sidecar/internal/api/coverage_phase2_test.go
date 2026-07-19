@@ -32,7 +32,8 @@ import (
 
 var (
 	p2Pool     *pgxpool.Pool
-	p2LockPool *pgxpool.Pool // MaxConns=1 side pool holding the advisory lock
+	p2LockPool *pgxpool.Pool
+	p2LockConn *pgxpool.Conn // Pinned owner of the test advisory lock.
 	p2PoolOnce sync.Once
 	p2PoolErr  error
 	p2Key      = crypto.DeriveKey("phase2-test-key",
@@ -43,8 +44,7 @@ func phase2DSN() string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 func phase2RequireDB(t *testing.T) (
@@ -82,8 +82,6 @@ func phase2RequireDB(t *testing.T) (
 			p2Pool = nil
 			return
 		}
-		schema.ReleaseAdvisoryLock(qctx, p2Pool)
-
 		if err := schema.EnsureDatabasesTable(
 			qctx, p2Pool); err != nil {
 			p2PoolErr = fmt.Errorf(
@@ -98,15 +96,13 @@ func phase2RequireDB(t *testing.T) (
 			return
 		}
 
-		// Side pool holds the pg_sage advisory lock for the
+		// Side pool holds the cross-package test advisory lock for the
 		// lifetime of the test binary. Without this, the
 		// schema-package tests (which run in parallel under
 		// `go test -p 4 ./...`) can DROP SCHEMA sage CASCADE
-		// mid-test and race this package's queries. MaxConns=1
-		// keeps the lock on a single pgx session so it does
-		// not get released when a connection returns to the
-		// pool. The lock is never explicitly released — the
-		// process exit releases the session.
+		// mid-test and race this package's queries. The acquired
+		// connection remains pinned for the package lifetime; process
+		// exit closes that session and releases the lock.
 		lockCfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
 			p2PoolErr = fmt.Errorf(
@@ -120,11 +116,22 @@ func phase2RequireDB(t *testing.T) (
 				"lock pool: %w", err)
 			return
 		}
-		if _, err := p2LockPool.Exec(qctx,
-			"SELECT pg_advisory_lock(hashtext('pg_sage'))",
+		p2LockConn, err = p2LockPool.Acquire(qctx)
+		if err != nil {
+			p2PoolErr = fmt.Errorf(
+				"acquiring lock connection: %w", err)
+			p2LockPool.Close()
+			p2LockPool = nil
+			return
+		}
+		if _, err := p2LockConn.Exec(qctx,
+			"SELECT pg_advisory_lock("+
+				"hashtext('pg_sage_test_cross_pkg'))",
 		); err != nil {
 			p2PoolErr = fmt.Errorf(
 				"acquiring advisory lock: %w", err)
+			p2LockConn.Release()
+			p2LockConn = nil
 			p2LockPool.Close()
 			p2LockPool = nil
 			return
@@ -2260,7 +2267,8 @@ func TestPhase2_ConfigDBDeleteHandler_RemovesDBOverride(
 		configDBDeleteHandler(cs, nil, nil))
 
 	req := httptest.NewRequest("DELETE",
-		"/api/v1/config/databases/1/collector.interval_seconds",
+		"/api/v1/config/databases/1/collector.interval_seconds"+
+			"?expected_generation=1",
 		nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -3080,8 +3088,11 @@ func TestPhase2_UpdateManagedDBHandler_CallsOnUpdate(t *testing.T) {
 	calls := make(chan updateCall, 1)
 	deps := &DatabaseDeps{
 		Store: ds,
-		OnUpdate: func(oldRec, newRec store.DatabaseRecord) {
+		OnUpdate: func(
+			_ context.Context, oldRec, newRec store.DatabaseRecord,
+		) error {
 			calls <- updateCall{oldRec: oldRec, newRec: newRec}
+			return nil
 		},
 	}
 
@@ -3098,8 +3109,8 @@ func TestPhase2_UpdateManagedDBHandler_CallsOnUpdate(t *testing.T) {
 		"username": "user",
 		"password": "",
 		"sslmode": "disable",
-		"trust_level": "advisory",
-		"execution_mode": "approval",
+		"trust_level": "observation",
+		"execution_mode": "manual",
 		"max_connections": 40
 	}`
 	req := httptest.NewRequest("PUT",
@@ -3130,7 +3141,7 @@ func TestPhase2_UpdateManagedDBHandler_CallsOnUpdate(t *testing.T) {
 		if call.newRec.Name != "new-runtime-db" {
 			t.Errorf("new name: got %s", call.newRec.Name)
 		}
-		if call.newRec.ExecutionMode != "approval" {
+		if call.newRec.ExecutionMode != "manual" {
 			t.Errorf("execution mode: got %s",
 				call.newRec.ExecutionMode)
 		}
@@ -3771,65 +3782,6 @@ func TestPhase2_ConfigAuditHandler_RealDB(t *testing.T) {
 	audit := resp["audit"].([]any)
 	if len(audit) < 1 {
 		t.Errorf("audit: got %d, want >= 1", len(audit))
-	}
-}
-
-// ================================================================
-// updateDBExecutionMode with real DB
-// ================================================================
-
-func TestPhase2_UpdateDBExecutionMode_Valid(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-	phase2CleanTables(t, pool, ctx)
-
-	_, err := pool.Exec(ctx,
-		`INSERT INTO sage.databases
-		 (id, name, host, port, database_name, username,
-		  password_enc, sslmode, execution_mode)
-		 VALUES (1, 'em-test', 'localhost', 5432, 'testdb',
-		  'user', '\x00', 'disable', 'manual')`)
-	if err != nil {
-		t.Fatalf("insert: %v", err)
-	}
-
-	err = updateDBExecutionMode(ctx, pool, 1, "auto")
-	if err != nil {
-		t.Fatalf("updateDBExecutionMode: %v", err)
-	}
-
-	var mode string
-	pool.QueryRow(ctx,
-		`SELECT execution_mode FROM sage.databases
-		 WHERE id = 1`).Scan(&mode)
-	if mode != "auto" {
-		t.Errorf("mode: got %q, want auto", mode)
-	}
-}
-
-func TestPhase2_UpdateDBExecutionMode_InvalidMode(
-	t *testing.T,
-) {
-	pool, ctx := phase2RequireDB(t)
-
-	err := updateDBExecutionMode(ctx, pool, 1, "invalid")
-	if err == nil {
-		t.Error("expected error for invalid mode")
-	}
-	if !strings.Contains(err.Error(), "must be") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestPhase2_UpdateDBExecutionMode_NotFound(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-	phase2CleanTables(t, pool, ctx)
-
-	err := updateDBExecutionMode(ctx, pool, 99999, "auto")
-	if err == nil {
-		t.Error("expected error for nonexistent DB")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("unexpected error: %v", err)
 	}
 }
 

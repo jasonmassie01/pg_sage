@@ -20,6 +20,10 @@ type Client struct {
 	cfg        *config.LLMConfig
 	httpClient *http.Client
 	logFn      func(string, string, ...any)
+	stateMu    sync.Mutex
+	generation uint64
+	inflightID uint64
+	inflight   map[uint64]context.CancelFunc
 
 	// Circuit breaker state.
 	mu            sync.Mutex
@@ -32,13 +36,20 @@ type Client struct {
 	// called concurrently from per-database analyzers/optimizers/advisors
 	// (C1); budgetResetDay was previously a plain int raced against the
 	// atomic counter.
-	tokensUsedToday atomic.Int64
-	budgetResetDay  atomic.Int64
+	tokensUsedToday  atomic.Int64
+	budgetResetDay   atomic.Int64
+	budgetMu         sync.Mutex
+	reservedTokens   int64
+	reservedExternal int
 
 	// budget is an optional external token budget (e.g. a per-database
 	// allocation in fleet mode), enforced in addition to the daily
 	// budget. Set once before concurrent use via SetBudget; nil disables.
 	budget Budgeter
+
+	throttleMu sync.Mutex
+	activeKeys map[string]struct{}
+	lastCalls  map[string]time.Time
 }
 
 // Budgeter is an optional token budget supplied by the caller — used to
@@ -87,19 +98,26 @@ type ChatResponse struct {
 
 // New creates a new LLM client.
 func New(cfg *config.LLMConfig, logFn func(string, string, ...any)) *Client {
+	if cfg == nil {
+		cfg = &config.LLMConfig{}
+	}
+	snapshot := *cfg
 	return &Client{
-		cfg: cfg,
-		httpClient: &http.Client{
-			Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second,
-		},
-		logFn:    logFn,
-		cooldown: time.Duration(cfg.CooldownSeconds) * time.Second,
+		cfg:        &snapshot,
+		httpClient: &http.Client{},
+		logFn:      logFn,
+		cooldown:   circuitCooldown(cfg.CooldownSeconds),
+		generation: 1,
+		inflight:   make(map[uint64]context.CancelFunc),
+		activeKeys: make(map[string]struct{}),
+		lastCalls:  make(map[string]time.Time),
 	}
 }
 
 // IsEnabled returns true if LLM is configured and enabled.
 func (c *Client) IsEnabled() bool {
-	return c.cfg.Enabled && c.cfg.Endpoint != "" && c.cfg.APIKey != ""
+	cfg, _ := c.configSnapshot()
+	return configEnabled(cfg)
 }
 
 // IsCircuitOpen returns true if the circuit breaker is open.
@@ -120,47 +138,41 @@ func (c *Client) IsCircuitOpen() bool {
 
 // Chat sends a chat completion request.
 func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (string, int, error) {
-	if !c.IsEnabled() {
+	requestCtx, cfg, generation, finish := c.beginRequest(ctx)
+	defer finish()
+	if !configEnabled(cfg) {
 		return "", 0, fmt.Errorf("LLM not enabled")
 	}
 	if c.IsCircuitOpen() {
 		return "", 0, fmt.Errorf("LLM circuit breaker open")
 	}
-
-	// Check token budget.
-	today := int64(time.Now().YearDay())
-	if today != c.budgetResetDay.Load() {
-		c.tokensUsedToday.Store(0)
-		c.budgetResetDay.Store(today)
+	maxTokens = normalizedMaxTokens(cfg.Model, maxTokens)
+	throttleKey := requestThrottleKey(cfg)
+	if err := c.acquireThrottle(throttleKey, cfg.CooldownSeconds); err != nil {
+		return "", 0, err
 	}
-	if c.cfg.TokenBudgetDaily > 0 &&
-		int(c.tokensUsedToday.Load()) >= c.cfg.TokenBudgetDaily {
-		return "", 0, fmt.Errorf("daily token budget exhausted (%d/%d)",
-			c.tokensUsedToday.Load(), c.cfg.TokenBudgetDaily)
+	throttleSuccess := false
+	defer func() { c.releaseThrottle(throttleKey, throttleSuccess) }()
+	reservation, err := c.reserveBudget(cfg, maxTokens)
+	if err != nil {
+		return "", 0, err
 	}
-	// Per-database fleet budget (optional, in addition to the daily cap).
-	if c.budget != nil && !c.budget.CanSpend(maxTokens) {
-		return "", 0, fmt.Errorf("per-database token budget exhausted")
-	}
-
-	// Thinking models (Gemini 2.5 Flash/Pro) consume output budget for
-	// internal reasoning. Add a fixed overhead so thinking tokens
-	// don't crowd out the actual response content.
-	if maxTokens <= 0 {
-		maxTokens = 16384
-	} else if isThinkingModel(c.cfg.Model) {
-		maxTokens += 16384
-	}
+	reconciled := false
+	defer func() {
+		if !reconciled {
+			c.releaseBudget(reservation)
+		}
+	}()
 
 	req := ChatRequest{
-		Model: c.cfg.Model,
+		Model: cfg.Model,
 		Messages: []ChatMessage{
 			{Role: "system", Content: system},
 			{Role: "user", Content: user},
 		},
 		MaxTokens: maxTokens,
 	}
-	if c.cfg.JSONMode {
+	if cfg.JSONMode {
 		req.ResponseFormat = &ResponseFormat{Type: "json_object"}
 	}
 
@@ -169,7 +181,7 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 		return "", 0, fmt.Errorf("marshal: %w", err)
 	}
 
-	endpoint := c.cfg.Endpoint
+	endpoint := cfg.Endpoint
 	// Strip trailing /chat/completions if already present to prevent
 	// double-path (e.g. .../v1/chat/completions/chat/completions).
 	endpoint = strings.TrimRight(endpoint, "/")
@@ -177,19 +189,23 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 	endpoint = strings.TrimSuffix(endpoint, "/chat")
 	endpoint += "/chat/completions"
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(
+		requestCtx, "POST", endpoint, bytes.NewReader(body),
+	)
 	if err != nil {
 		return "", 0, fmt.Errorf("request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 
-	resp, err := c.doWithRetry(ctx, httpReq, body)
+	resp, err := c.doWithRetry(requestCtx, httpReq, body, cfg.APIKey)
 	if err != nil {
-		c.recordFailure()
-		return "", 0, err
+		if requestCtx.Err() == nil {
+			c.recordFailure()
+		}
+		return "", 0, providerRequestError("LLM request", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Cap response body at 1MB to prevent memory exhaustion.
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -200,24 +216,32 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 
 	if resp.StatusCode != http.StatusOK {
 		c.recordFailure()
-		return "", 0, fmt.Errorf("LLM API error %d: %s", resp.StatusCode, string(respBody))
+		return "", 0, fmt.Errorf(
+			"LLM API error %d: %s",
+			resp.StatusCode,
+			redactProviderText(string(respBody)),
+		)
 	}
 
 	var chatResp ChatResponse
 	if err := json.Unmarshal(respBody, &chatResp); err != nil {
+		c.recordFailure()
 		return "", 0, fmt.Errorf("unmarshal: %w", err)
 	}
 
 	if len(chatResp.Choices) == 0 {
+		c.recordFailure()
 		return "", 0, fmt.Errorf("no choices in response")
+	}
+	if !c.generationCurrent(generation) {
+		return "", 0, fmt.Errorf("LLM disabled or reconfigured during request")
 	}
 
 	c.recordSuccess()
 	tokens := chatResp.Usage.TotalTokens
-	c.tokensUsedToday.Add(int64(tokens))
-	if c.budget != nil {
-		c.budget.Spend(tokens)
-	}
+	c.reconcileBudget(reservation, tokens)
+	reconciled = true
+	throttleSuccess = true
 
 	content := chatResp.Choices[0].Message.Content
 	reason := chatResp.Choices[0].FinishReason
@@ -231,7 +255,12 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 	return content, tokens, nil
 }
 
-func (c *Client) doWithRetry(ctx context.Context, req *http.Request, body []byte) (*http.Response, error) {
+func (c *Client) doWithRetry(
+	ctx context.Context,
+	req *http.Request,
+	body []byte,
+	apiKey string,
+) (*http.Response, error) {
 	delays := []time.Duration{1 * time.Second, 4 * time.Second, 16 * time.Second}
 	var lastErr error
 
@@ -249,7 +278,7 @@ func (c *Client) doWithRetry(ctx context.Context, req *http.Request, body []byte
 				return nil, err
 			}
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+			req.Header.Set("Authorization", "Bearer "+apiKey)
 		}
 
 		resp, err := c.httpClient.Do(req)
@@ -258,7 +287,7 @@ func (c *Client) doWithRetry(ctx context.Context, req *http.Request, body []byte
 			continue
 		}
 		if resp.StatusCode == 429 || resp.StatusCode == 503 {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			lastErr = fmt.Errorf("server error %d", resp.StatusCode)
 			continue
 		}
@@ -338,30 +367,37 @@ func (c *Client) TokensUsedToday() int64 {
 // TokenBudgetDaily returns the configured daily token budget.
 // Returns 0 if no budget is configured (unlimited).
 func (c *Client) TokenBudgetDaily() int {
-	return c.cfg.TokenBudgetDaily
+	cfg, _ := c.configSnapshot()
+	return cfg.TokenBudgetDaily
 }
 
 // IsBudgetExhausted returns true if the daily token budget has
 // been reached. Returns false when no budget is configured.
 func (c *Client) IsBudgetExhausted() bool {
-	if c.cfg.TokenBudgetDaily <= 0 {
+	cfg, _ := c.configSnapshot()
+	if cfg.TokenBudgetDaily <= 0 {
 		return false
 	}
 	today := int64(time.Now().YearDay())
 	if today != c.budgetResetDay.Load() {
 		return false
 	}
-	return int(c.tokensUsedToday.Load()) >= c.cfg.TokenBudgetDaily
+	return int(c.tokensUsedToday.Load()) >= cfg.TokenBudgetDaily
 }
 
 // ResetBudget zeroes the daily token counter, allowing LLM calls
 // to resume immediately instead of waiting for the next calendar day.
 func (c *Client) ResetBudget() {
+	c.budgetMu.Lock()
+	defer c.budgetMu.Unlock()
 	c.tokensUsedToday.Store(0)
+	c.reservedTokens = 0
+	c.reservedExternal = 0
 	c.budgetResetDay.Store(int64(time.Now().YearDay()))
 }
 
 // Model returns the configured model name.
 func (c *Client) Model() string {
-	return c.cfg.Model
+	cfg, _ := c.configSnapshot()
+	return cfg.Model
 }

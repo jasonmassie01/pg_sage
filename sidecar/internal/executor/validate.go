@@ -2,6 +2,8 @@ package executor
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -66,16 +68,14 @@ var safeAlterSystemParams = map[string]bool{
 	"jit":                                 true,
 }
 
-// allowedSelectPatterns restricts SELECT to specific safe
-// function calls instead of allowing arbitrary queries.
-var allowedSelectPatterns = []string{
-	"SELECT PG_TERMINATE_BACKEND(",
-	"SELECT PG_CANCEL_BACKEND(",
-	// pg_reload_conf() is how the config-apply path makes an ALTER SYSTEM
-	// change take effect (re-reads postgresql.conf/.auto.conf). It only
-	// signals the postmaster and returns a boolean — no destructive effect.
-	"SELECT PG_RELOAD_CONF(",
-}
+var backendSignalPattern = regexp.MustCompile(
+	`(?i)^\s*SELECT\s+PG_(CANCEL|TERMINATE)_BACKEND\s*` +
+		`\(\s*([0-9]+)\s*\)\s*;?\s*$`,
+)
+
+var reloadConfPattern = regexp.MustCompile(
+	`(?i)^\s*SELECT\s+PG_RELOAD_CONF\s*\(\s*\)\s*;?\s*$`,
+)
 
 // safeAlterTableSubcmds restricts ALTER TABLE to safe
 // sub-commands only (storage params, tablespace moves).
@@ -130,12 +130,62 @@ func checkSecondary(upper, prefix string) error {
 	switch prefix {
 	case "ALTER SYSTEM SET", "ALTER SYSTEM RESET":
 		return checkAlterSystemParam(upper)
+	case "ALTER DATABASE":
+		if !allowedAlterDatabaseParam(upper) {
+			return fmt.Errorf(
+				"%w: ALTER DATABASE parameter is not in the GUC allowlist",
+				ErrDisallowedSQL)
+		}
+		return nil
 	case "SELECT ":
 		return checkSelectPattern(upper)
 	case "ALTER TABLE":
 		return checkAlterTableSubcmd(upper)
 	}
 	return nil
+}
+
+func allowedAlterDatabaseParam(upper string) bool {
+	rest, ok := alterDatabaseClause(upper)
+	if !ok {
+		return false
+	}
+	if strings.HasPrefix(rest, "SET ") {
+		rest = strings.TrimPrefix(rest, "SET ")
+	} else if strings.HasPrefix(rest, "RESET ") {
+		rest = strings.TrimPrefix(rest, "RESET ")
+	} else {
+		return false
+	}
+	fields := strings.FieldsFunc(rest, func(r rune) bool {
+		return r == ' ' || r == '=' || r == '\t' || r == ';'
+	})
+	return len(fields) > 0 && safeAlterSystemParams[strings.ToLower(fields[0])]
+}
+
+func alterDatabaseClause(upper string) (string, bool) {
+	rest := strings.TrimSpace(strings.TrimPrefix(upper, "ALTER DATABASE "))
+	if rest == "" || rest == upper {
+		return "", false
+	}
+	if rest[0] != '"' {
+		idx := strings.IndexAny(rest, " \t\r\n")
+		if idx < 0 {
+			return "", false
+		}
+		return strings.TrimSpace(rest[idx:]), true
+	}
+	for i := 1; i < len(rest); i++ {
+		if rest[i] != '"' {
+			continue
+		}
+		if i+1 < len(rest) && rest[i+1] == '"' {
+			i++
+			continue
+		}
+		return strings.TrimSpace(rest[i+1:]), true
+	}
+	return "", false
 }
 
 // checkAlterSystemParam extracts the GUC parameter from an
@@ -182,16 +232,29 @@ func extractAlterSystemParam(upper string) string {
 // checkSelectPattern verifies the SELECT matches one of the
 // allowed function-call patterns.
 func checkSelectPattern(upper string) error {
-	for _, pat := range allowedSelectPatterns {
-		if strings.HasPrefix(upper, pat) {
-			return nil
-		}
+	if _, _, ok := parseBackendSignal(upper); ok {
+		return nil
+	}
+	if reloadConfPattern.MatchString(upper) {
+		return nil
 	}
 	return fmt.Errorf(
 		"%w: only pg_terminate_backend, pg_cancel_backend and "+
 			"pg_reload_conf SELECT statements are allowed",
 		ErrDisallowedSQL,
 	)
+}
+
+func parseBackendSignal(sql string) (string, int, bool) {
+	matches := backendSignalPattern.FindStringSubmatch(sql)
+	if len(matches) != 3 {
+		return "", 0, false
+	}
+	pid, err := strconv.Atoi(matches[2])
+	if err != nil || pid <= 0 {
+		return "", 0, false
+	}
+	return strings.ToLower(matches[1]), pid, true
 }
 
 // checkAlterTableSubcmd verifies that the ALTER TABLE statement
@@ -244,11 +307,17 @@ func findEndOfTableName(s string) int {
 		if s[i] == '"' {
 			// Skip quoted identifier.
 			i++ // opening quote
-			for i < len(s) && s[i] != '"' {
-				i++
-			}
-			if i < len(s) {
+			for i < len(s) {
+				if s[i] != '"' {
+					i++
+					continue
+				}
+				if i+1 < len(s) && s[i+1] == '"' {
+					i += 2
+					continue
+				}
 				i++ // closing quote
+				break
 			}
 		} else if s[i] == ' ' || s[i] == '\t' {
 			return i

@@ -29,11 +29,12 @@ func (e *Executor) ExecuteManual(
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return 0, fmt.Errorf("SQL validation: %w", err)
 	}
-
-	if CheckEmergencyStop(ctx, e.pool) {
-		return 0, fmt.Errorf("emergency stop active")
+	if err := e.manualMutationBlock(ctx); err != nil {
+		return 0, err
 	}
-	if err := e.verifyManualFinding(ctx, findingID, sql); err != nil {
+
+	findingDetail, err := e.verifyManualFinding(ctx, findingID, sql)
+	if err != nil {
 		return 0, err
 	}
 
@@ -42,6 +43,9 @@ func (e *Executor) ExecuteManual(
 	ddlTimeout := e.cfg.Safety.DDLTimeout()
 	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
 	if categorizeAction(sql) == "create_index" {
+		if err := e.manualMutationBlock(ctx); err != nil {
+			return 0, err
+		}
 		if err := e.dropInvalidCreateIndexBlockers(
 			ctx, sql, ddlTimeout, lockOpt,
 		); err != nil {
@@ -51,6 +55,9 @@ func (e *Executor) ExecuteManual(
 		exists, err := e.createIndexCoverageExists(ctx, sql)
 		if err != nil {
 			return 0, fmt.Errorf("checking existing index coverage: %w", err)
+		}
+		if err := e.manualMutationBlock(ctx); err != nil {
+			return 0, err
 		}
 		if exists {
 			actionID := e.logManualAction(
@@ -63,9 +70,16 @@ func (e *Executor) ExecuteManual(
 			return actionID, nil
 		}
 	}
+	if err := e.manualMutationBlock(ctx); err != nil {
+		return 0, err
+	}
 
 	var execErr error
-	if categorizeAction(sql) == "analyze" {
+	if _, _, isSignal := parseBackendSignal(sql); isSignal {
+		execErr = e.executeApprovedBackendSignal(
+			ctx, sql, findingDetail, approvedBy,
+		)
+	} else if categorizeAction(sql) == "analyze" {
 		execErr = e.executeManualAnalyze(ctx, findingID, sql)
 	} else {
 		execErr = e.execManualSQLWithRetry(ctx, sql, ddlTimeout, lockOpt)
@@ -86,9 +100,7 @@ func (e *Executor) ExecuteManual(
 		// the HTTP handler returns and the rollback-monitor
 		// window never elapses. Track under the executor's
 		// WaitGroup so Shutdown can wait for it.
-		e.monitors.Add(1)
-		go func() {
-			defer e.monitors.Done()
+		e.startRollbackMonitor(func() {
 			MonitorAndRollback(
 				context.WithoutCancel(ctx), e.pool, actionID, rollbackSQL,
 				e.cfg.Trust.RollbackThresholdPct,
@@ -96,7 +108,7 @@ func (e *Executor) ExecuteManual(
 				e.logFn,
 				e.shutdownCh,
 			)
-		}()
+		})
 	} else if actionID > 0 {
 		updateActionSuccess(ctx, e.pool, actionID)
 	}
@@ -110,6 +122,9 @@ func (e *Executor) RollbackAction(
 	actionID int64,
 	reason string,
 ) error {
+	if err := e.manualMutationBlock(ctx); err != nil {
+		return err
+	}
 	var rollbackSQL *string
 	var outcome string
 	err := e.pool.QueryRow(ctx,
@@ -132,8 +147,8 @@ func (e *Executor) RollbackAction(
 	if err := ValidateExecutorSQL(*rollbackSQL); err != nil {
 		return fmt.Errorf("rollback SQL validation: %w", err)
 	}
-	if CheckEmergencyStop(ctx, e.pool) {
-		return fmt.Errorf("emergency stop active")
+	if err := e.manualMutationBlock(ctx); err != nil {
+		return err
 	}
 
 	ddlTimeout := e.cfg.Safety.DDLTimeout()
@@ -158,33 +173,54 @@ func (e *Executor) RollbackAction(
 	return nil
 }
 
+func (e *Executor) manualMutationBlock(ctx context.Context) error {
+	cfg, _, enabled := e.policySnapshot()
+	if !enabled {
+		return fmt.Errorf("executor is disabled")
+	}
+	if cfg == nil {
+		return fmt.Errorf("execution policy is unavailable")
+	}
+	if cfg.Trust.Level == "observation" {
+		return fmt.Errorf("observation trust is cases only")
+	}
+	if cfg.Trust.Level != "advisory" && cfg.Trust.Level != "autonomous" {
+		return fmt.Errorf("unknown trust level")
+	}
+	if e.checkEmergencyStop(ctx) {
+		return fmt.Errorf("emergency stop active")
+	}
+	return nil
+}
+
 func (e *Executor) verifyManualFinding(
 	ctx context.Context,
 	findingID int,
 	sql string,
-) error {
+) (json.RawMessage, error) {
 	var recommendedSQL *string
+	var detail json.RawMessage
 	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT recommended_sql
+		`/* pg_sage */ SELECT recommended_sql, detail
 		   FROM sage.findings
 		  WHERE id = $1
 		    AND status = 'open'
 		    AND acted_on_at IS NULL
 		    AND resolved_at IS NULL`,
 		findingID,
-	).Scan(&recommendedSQL)
+	).Scan(&recommendedSQL, &detail)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrFindingNotActionable
+			return nil, ErrFindingNotActionable
 		}
-		return fmt.Errorf("checking finding %d: %w", findingID, err)
+		return nil, fmt.Errorf("checking finding %d: %w", findingID, err)
 	}
 	if recommendedSQL == nil ||
 		compactSQL(*recommendedSQL) == "" ||
 		!strings.EqualFold(compactSQL(*recommendedSQL), compactSQL(sql)) {
-		return ErrFindingSQLMismatch
+		return nil, ErrFindingSQLMismatch
 	}
-	return nil
+	return detail, nil
 }
 
 func compactSQL(sql string) string {

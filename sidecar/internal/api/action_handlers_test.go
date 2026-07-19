@@ -945,7 +945,9 @@ func TestRollbackActionHandler_StateTransitions(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)
 
-	exec := executor.New(pool, &config.Config{}, nil, time.Now(),
+	exec := executor.New(pool, &config.Config{
+		Trust: config.TrustConfig{Level: "advisory"},
+	}, nil, time.Now(),
 		func(string, string, ...any) {})
 	handler := rollbackActionHandler(exec)
 	mux := http.NewServeMux()

@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.3 (2026-07-19) -- Correctness and Safety Remediation
+
+### Fixed
+
+- Corrected the v1.2 execution-gate coupling: `execution_mode: manual` now
+  disables all background queueing and execution at every trust level. Trust
+  is an independent ceiling and never promotes manual mode to auto.
+- Unified live execution, approval queueing, Cases policy, and fleet readiness
+  on typed action contracts. Per-database executor disablement and Emergency
+  Stop are hard gates, and live actions reauthorize immediately before SQL.
+- Made runtime configuration immutable, generation-based, strict, and
+  compare-and-swap protected. Meta mode owns durable control state; YAML fleet
+  settings and membership are visible but explicitly read-only in the UI.
+- Added prepare/swap/drain ownership for fleet lifecycle changes, reliable
+  watcher shutdown, bounded worker teardown, session-pinned advisory locks,
+  and race-free executor safety state.
+- Enforced fail-closed AgentDB policy ceilings, server-owned execution plans,
+  exact-operation authorization, leased monitoring claims, JIT credentials,
+  bounded monitoring concurrency, and paginated control APIs.
+- Corrected log offset ownership, LLM admission and budget accounting,
+  runaway and migration detectors, pooled-session cleanup, and immediate
+  reauthorization of every mutating operation.
+- Removed retired MCP claims, generated configuration lifecycle documentation,
+  reconciled AgentDB documentation, and corrected Docker and browser fixtures.
+- Isolated database tests per package, migrated and pinned golangci-lint v2,
+  restored parallel-safe CI, and raised every business package above 70%
+  coverage and every command utility to at least 50%.
+
 ## v1.2 (2026-06-11) -- Autonomous DBA Core + LLM-Native Tier
 
 ### Added

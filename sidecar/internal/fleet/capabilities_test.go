@@ -124,6 +124,51 @@ func TestBuildActionFamilyReadinessBlocksReplicaWriteAction(t *testing.T) {
 	}
 }
 
+func TestEnsureCapabilitiesBlocksDisabledExecutor(t *testing.T) {
+	disabled := false
+	cfg := readinessTestConfig("autonomous")
+	inst := &DatabaseInstance{Config: config.DatabaseConfig{
+		ExecutionMode:   "auto",
+		ExecutorEnabled: &disabled,
+	}}
+	snap := EnsureCapabilities(cfg, inst, &InstanceStatus{
+		Platform: "postgres",
+		Capabilities: ProviderCapabilities{
+			Provider: "postgres",
+		},
+	}, time.Now())
+
+	analyze := actionReadiness(t, snap.Capabilities.ActionFamilies, "analyze_table")
+	if analyze.Supported || analyze.BlockedReason != "executor is disabled" {
+		t.Fatalf("analyze readiness = %#v", analyze)
+	}
+}
+
+func TestEnsureCapabilitiesPreservesCollectedRuntimeEvidence(t *testing.T) {
+	cfg := readinessTestConfig("autonomous")
+	inst := &DatabaseInstance{Config: config.DatabaseConfig{ExecutionMode: "auto"}}
+	snap := EnsureCapabilities(cfg, inst, &InstanceStatus{
+		Platform: "postgres",
+		Capabilities: ProviderCapabilities{
+			Provider: "postgres",
+			Permissions: map[string]CapabilityStatus{
+				"analyze": {Status: "ok", Reason: "runtime probe"},
+			},
+			Extensions: map[string]string{
+				"pg_stat_statements": "available",
+				"custom_extension":   "available",
+			},
+			Limitations: []string{"runtime limitation"},
+		},
+	}, time.Now())
+
+	if snap.Capabilities.Permissions["analyze"].Reason != "runtime probe" ||
+		snap.Capabilities.Extensions["custom_extension"] != "available" ||
+		len(snap.Capabilities.Limitations) != 1 {
+		t.Fatalf("runtime evidence was replaced: %#v", snap.Capabilities)
+	}
+}
+
 func TestBuildProviderCapabilitiesPermissionUnknownBlocksAutoSafe(t *testing.T) {
 	cfg := readinessTestConfig("autonomous")
 

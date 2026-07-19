@@ -92,7 +92,7 @@ func (s *SlackChannel) doPost(
 	if err != nil {
 		return fmt.Errorf("slack http post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {

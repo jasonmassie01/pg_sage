@@ -87,6 +87,8 @@ services:
     environment:
       SAGE_CONFIG_PATH: /app/config.yaml
       SAGE_LLM_API_KEY: ${SAGE_LLM_API_KEY:?SAGE_LLM_API_KEY must be set}
+      SAGE_RATE_LIMIT: 100000
+      PG_SAGE_DISABLE_LOGIN_RATE_LIMIT: 1
     networks:
       - test-net
 

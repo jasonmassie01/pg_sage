@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -21,12 +22,40 @@ func applyConfigOverrides(
 	databaseID int,
 	userID int,
 ) []string {
-	var errs []string
-	type override struct {
-		key   string
-		value string
+	overrides, errs := validatedConfigWrites(body)
+	if len(errs) > 0 {
+		return errs
 	}
-	overrides := make([]override, 0, len(body))
+
+	for _, override := range overrides {
+		err := cs.SetOverride(
+			ctx, override.Key, override.Value, databaseID, userID)
+		if err != nil {
+			// Validation errors (invalid key, invalid value, range
+			// violation) are safe to expose — the user needs them to
+			// correct the request. Anything else is a DB/internal
+			// failure whose text we must not leak.
+			msg := configErrorMessage(err)
+			if msg == internalConfigErrMsg {
+				slog.Error("config override failed",
+					"key", override.Key, "err", err)
+			}
+			errs = append(errs, fmt.Sprintf("%s: %s", override.Key, msg))
+			continue
+		}
+		// Hot-reload into running config when global.
+		if databaseID == 0 {
+			hotReload(cfg, override.Key, override.Value)
+		}
+	}
+	return errs
+}
+
+func validatedConfigWrites(
+	body map[string]any,
+) ([]store.ConfigOverrideWrite, []string) {
+	writes := make([]store.ConfigOverrideWrite, 0, len(body))
+	var errs []string
 	for key, raw := range body {
 		value := fmt.Sprintf("%v", raw)
 		if isMaskedSecretUpdate(key, value) {
@@ -37,34 +66,14 @@ func applyConfigOverrides(
 				"%s: %s", key, configErrorMessage(err)))
 			continue
 		}
-		overrides = append(overrides, override{key: key, value: value})
+		writes = append(writes, store.ConfigOverrideWrite{
+			Key: key, Value: value,
+		})
 	}
-	if len(errs) > 0 {
-		return errs
-	}
-
-	for _, override := range overrides {
-		err := cs.SetOverride(
-			ctx, override.key, override.value, databaseID, userID)
-		if err != nil {
-			// Validation errors (invalid key, invalid value, range
-			// violation) are safe to expose — the user needs them to
-			// correct the request. Anything else is a DB/internal
-			// failure whose text we must not leak.
-			msg := configErrorMessage(err)
-			if msg == internalConfigErrMsg {
-				slog.Error("config override failed",
-					"key", override.key, "err", err)
-			}
-			errs = append(errs, fmt.Sprintf("%s: %s", override.key, msg))
-			continue
-		}
-		// Hot-reload into running config when global.
-		if databaseID == 0 {
-			hotReload(cfg, override.key, override.value)
-		}
-	}
-	return errs
+	sort.Slice(writes, func(i, j int) bool {
+		return writes[i].Key < writes[j].Key
+	})
+	return writes, errs
 }
 
 func isMaskedSecretUpdate(key, value string) bool {
@@ -161,6 +170,14 @@ func hotReload(cfg *config.Config, key, value string) {
 	case strings.HasPrefix(key, "agentdb."):
 		hotReloadAgentDB(cfg, key, value)
 	}
+}
+
+// ApplyConfigOverrideSnapshot applies one validated persisted override while
+// assembling the startup snapshot. It must be called before workers start.
+func ApplyConfigOverrideSnapshot(
+	candidate *config.Config, key, value string,
+) {
+	hotReload(candidate, key, value)
 }
 
 func hotReloadCollector(cfg *config.Config, key, v string) {

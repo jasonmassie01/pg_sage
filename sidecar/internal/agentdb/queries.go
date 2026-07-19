@@ -20,13 +20,17 @@ const insertRequestSQL = `/* pg_sage */
 		idempotency_key, body_hash, budget_usd, backup_required, policy_reasons,
 		created_at, updated_at`
 
-const selectDeploymentsSQL = `/* pg_sage */
-	SELECT deployment_id, tenant_id, agent_id, run_id, database_name, status,
+const deploymentColumnsSQL = `deployment_id, tenant_id, agent_id, run_id, database_name, status,
 		safety_mode, isolation_type, schema_name, provider, provisioning_level,
 		size_profile_id, provisioning_status, provider_resource_id, secret_ref,
 		secret_ref_provider, secret_ref_expires_at, live_mode, budget_usd,
 		backup_required, created_at, updated_at, last_ping_at, lease_expires_at,
-		metadata, provisioning_plan, connection_info
+		metadata, provisioning_plan, connection_info, lifecycle_version,
+		cleanup_claim_id, cleanup_claimed_at, teardown_operation_id,
+		provider_mutation_id, provider_mutation_expires_at`
+
+const selectDeploymentsSQL = `/* pg_sage */
+	SELECT ` + deploymentColumnsSQL + `
 	FROM sage.agent_db_deployments`
 
 const registerSQL = `/* pg_sage */
@@ -65,10 +69,18 @@ const registerSQL = `/* pg_sage */
 		provisioning_plan=EXCLUDED.provisioning_plan,
 		connection_info=EXCLUDED.connection_info,
 		status='active',
+		cleanup_claim_id='',
+		cleanup_claimed_at=NULL,
+		teardown_operation_id='',
+		provider_mutation_id='',
+		provider_mutation_expires_at=NULL,
+		lifecycle_version=agent_db_deployments.lifecycle_version+1,
 		updated_at=now()
 	RETURNING deployment_id, tenant_id, agent_id, run_id, database_name, status,
 		safety_mode, isolation_type, schema_name, provider, provisioning_level,
 		size_profile_id, provisioning_status, provider_resource_id, secret_ref,
 		secret_ref_provider, secret_ref_expires_at, live_mode, budget_usd,
 		backup_required, created_at, updated_at, last_ping_at, lease_expires_at,
-		metadata, provisioning_plan, connection_info`
+		metadata, provisioning_plan, connection_info, lifecycle_version,
+		cleanup_claim_id, cleanup_claimed_at, teardown_operation_id,
+		provider_mutation_id, provider_mutation_expires_at`

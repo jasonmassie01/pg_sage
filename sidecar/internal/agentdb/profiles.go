@@ -8,6 +8,21 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+func normalizedProvisionProfile(profile SizeProfile) SizeProfile {
+	profile.ProviderParams = cloneAnyMap(profile.ProviderParams)
+	switch profile.Provider {
+	case ProviderAWSRDS:
+		if _, ok := profile.ProviderParams["allocated_storage"]; !ok && profile.StorageGB > 0 {
+			profile.ProviderParams["allocated_storage"] = profile.StorageGB
+		}
+	case ProviderGCPCloudSQL:
+		if _, ok := profile.ProviderParams["storage_size"]; !ok && profile.StorageGB > 0 {
+			profile.ProviderParams["storage_size"] = profile.StorageGB
+		}
+	}
+	return profile
+}
+
 func (s *Store) UpsertSizeProfile(
 	ctx context.Context,
 	profile SizeProfile,

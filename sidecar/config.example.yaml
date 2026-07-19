@@ -203,18 +203,6 @@ oauth:
 api:
   listen_addr: "0.0.0.0:8080"  # REST API + React dashboard
 
-# Hot-reloadable fields (change without restart):
-#   collector.interval_seconds
-#   analyzer.* (all thresholds)
-#   safety.* (all thresholds)
-#   trust.level, trust.tier3_safe, trust.tier3_moderate, trust.maintenance_window
-#   llm.* (all settings)
-#   briefing.schedule
-#   alerting.* (all settings)
-#   auto_explain.log_min_duration_ms, auto_explain.max_plans_per_cycle
-#   forecaster.* (all settings)
-#   tuner.* (all settings)
-#   retention.* (all settings)
-#
-# Non-hot-reloadable (require restart):
-#   mode, postgres.*, prometheus.listen_addr, api.listen_addr
+# Reload behavior is field-specific and generated from the typed registry.
+# See ../docs/generated/config-lifecycles.md. The API reports fields that
+# remain pending until restart; do not infer lifecycle from a config section.

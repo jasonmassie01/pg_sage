@@ -16,6 +16,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,8 +39,7 @@ func adminDSN(t *testing.T) string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 // createTestDB creates a database if it does not exist.
@@ -88,14 +88,14 @@ func dropTestDB(
 	}
 }
 
-// dbDSN builds a DSN targeting a specific database name on
-// localhost using the default postgres credentials.
+// dbDSN preserves the designated server and targets a fixture database.
 func dbDSN(dbName string) string {
-	return fmt.Sprintf(
-		"postgres://postgres:postgres@localhost:5432/%s"+
-			"?sslmode=disable",
-		dbName,
-	)
+	parsed, err := url.Parse(os.Getenv("SAGE_TEST_DATABASE_URL"))
+	if err != nil {
+		return ""
+	}
+	parsed.Path = "/" + dbName
+	return parsed.String()
 }
 
 // writeFleetConfig writes a fleet-mode YAML config file that
@@ -108,25 +108,35 @@ func writeFleetConfig(
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "fleet-config.yaml")
+	base, err := pgxpool.ParseConfig(adminDSN(t))
+	if err != nil {
+		t.Fatalf("parse designated fleet DSN: %v", err)
+	}
+	sslMode := "disable"
+	if parsed, parseErr := url.Parse(adminDSN(t)); parseErr == nil {
+		if value := parsed.Query().Get("sslmode"); value != "" {
+			sslMode = value
+		}
+	}
 
 	yaml := fmt.Sprintf(`mode: fleet
 
 databases:
   - name: %s
-    host: localhost
-    port: 5432
-    user: postgres
-    password: postgres
+    host: %q
+    port: %d
+    user: %q
+    password: %q
     database: %s
-    sslmode: disable
+    sslmode: %q
     max_connections: 3
   - name: %s
-    host: localhost
-    port: 5432
-    user: postgres
-    password: postgres
+    host: %q
+    port: %d
+    user: %q
+    password: %q
     database: %s
-    sslmode: disable
+    sslmode: %q
     max_connections: 3
 
 collector:
@@ -152,9 +162,13 @@ prometheus:
 
 api:
   listen_addr: "127.0.0.1:%d"
-`, db1, db1, db2, db2, promPort, apiPort)
+`, db1, base.ConnConfig.Host, base.ConnConfig.Port,
+		base.ConnConfig.User, base.ConnConfig.Password, db1, sslMode,
+		db2, base.ConnConfig.Host, base.ConnConfig.Port,
+		base.ConnConfig.User, base.ConnConfig.Password, db2, sslMode,
+		promPort, apiPort)
 
-	err := os.WriteFile(path, []byte(yaml), 0644)
+	err = os.WriteFile(path, []byte(yaml), 0644)
 	if err != nil {
 		t.Fatalf("writeFleetConfig: %v", err)
 	}

@@ -18,6 +18,7 @@ const (
 type ActionPolicyContext struct {
 	Config              *config.Config
 	ExecutionMode       string
+	ExecutorEnabled     *bool
 	Now                 time.Time
 	RampStart           time.Time
 	IsReplica           bool
@@ -46,14 +47,41 @@ func EvaluateActionPolicy(
 		decision.BlockedReason = blocked
 		return decision
 	}
+	if ctx.Config == nil {
+		decision.BlockedReason = "execution policy is unavailable"
+		return decision
+	}
+	if ctx.ExecutionMode == "manual" || ctx.Config.Trust.Level == "observation" {
+		decision.Decision = PolicyDecisionObserveOnly
+		decision.BlockedReason = "policy is observe_only"
+		return decision
+	}
+	if ctx.Config.Trust.Level != "advisory" &&
+		ctx.Config.Trust.Level != "autonomous" {
+		decision.BlockedReason = "unknown trust level"
+		return decision
+	}
+	if ctx.ExecutionMode == "approval" {
+		return queueForApproval(decision)
+	}
+	if ctx.ExecutionMode != "auto" {
+		decision.BlockedReason = "unknown execution mode"
+		return decision
+	}
+	if contract.ActionType == "cancel_backend" ||
+		contract.ActionType == "terminate_backend" {
+		return queueForApproval(decision)
+	}
 
 	switch contract.BaseRiskTier {
 	case "read_only":
 		decision.Decision = PolicyDecisionExecute
 	case "safe":
-		evaluateSafePolicy(&decision, ctx)
-	case "moderate", "high":
-		evaluateApprovalPolicy(&decision, ctx)
+		evaluateSafeAutoPolicy(&decision, ctx)
+	case "moderate":
+		evaluateModerateAutoPolicy(&decision, ctx)
+	case "high":
+		decision = queueForApproval(decision)
 	default:
 		decision.Decision = PolicyDecisionBlocked
 		decision.BlockedReason = "unknown or prohibited risk tier"
@@ -78,6 +106,9 @@ func hardBlockReason(
 	ctx ActionPolicyContext,
 	provider string,
 ) string {
+	if ctx.ExecutorEnabled != nil && !*ctx.ExecutorEnabled {
+		return "executor is disabled"
+	}
 	if ctx.EmergencyStop {
 		return "emergency stop is active"
 	}
@@ -90,18 +121,8 @@ func hardBlockReason(
 	return ""
 }
 
-func evaluateSafePolicy(decision *ActionPolicyDecision, ctx ActionPolicyContext) {
+func evaluateSafeAutoPolicy(decision *ActionPolicyDecision, ctx ActionPolicyContext) {
 	cfg := ctx.Config
-	if cfg == nil || cfg.Trust.Level == "observation" {
-		decision.Decision = PolicyDecisionObserveOnly
-		decision.BlockedReason = "policy is observe_only"
-		return
-	}
-	if ctx.ExecutionMode == "approval" || cfg.Trust.Level == "advisory" {
-		decision.Decision = PolicyDecisionQueueApproval
-		decision.RequiresApproval = true
-		return
-	}
 	if !cfg.Trust.Tier3Safe || rampAge(ctx) < 8*24*time.Hour {
 		decision.Decision = PolicyDecisionBlocked
 		decision.BlockedReason = "safe-action trust ramp is not satisfied"
@@ -115,16 +136,36 @@ func evaluateSafePolicy(decision *ActionPolicyDecision, ctx ActionPolicyContext)
 	decision.Decision = PolicyDecisionExecute
 }
 
-func evaluateApprovalPolicy(
+func evaluateModerateAutoPolicy(
 	decision *ActionPolicyDecision,
 	ctx ActionPolicyContext,
 ) {
+	decision.RequiresMaintenanceWindow = true
+	if ctx.Config.Trust.Level == "advisory" {
+		*decision = queueForApproval(*decision)
+		return
+	}
+	if ctx.Config.Trust.Level != "autonomous" ||
+		!ctx.Config.Trust.Tier3Moderate || rampAge(ctx) < 31*24*time.Hour {
+		decision.Decision = PolicyDecisionBlocked
+		decision.BlockedReason = "moderate-action trust ramp is not satisfied"
+		return
+	}
+	if !inMaintenanceWindowForPolicy(ctx.Config, ctx.Now) {
+		decision.Decision = PolicyDecisionBlocked
+		decision.BlockedReason = "outside maintenance window"
+		return
+	}
+	decision.Decision = PolicyDecisionExecute
+}
+
+func queueForApproval(decision ActionPolicyDecision) ActionPolicyDecision {
 	decision.Decision = PolicyDecisionQueueApproval
 	decision.RequiresApproval = true
-	decision.RequiresMaintenanceWindow = true
-	if !inMaintenanceWindowForPolicy(ctx.Config, ctx.Now) {
-		decision.BlockedReason = "outside maintenance window"
+	if decision.RiskTier == "moderate" || decision.RiskTier == "high" {
+		decision.RequiresMaintenanceWindow = true
 	}
+	return decision
 }
 
 func normalizedProvider(cfg *config.Config) string {

@@ -38,13 +38,13 @@ func Record(ctx context.Context, pool *pgxpool.Pool, samples []Sample) error {
 			s.QueryID, s.Calls, s.TotalExecMs, s.MeanExecMs, s.Rows)
 	}
 	br := pool.SendBatch(ctx, batch)
-	defer br.Close()
 	for range samples {
 		if _, err := br.Exec(); err != nil {
+			_ = br.Close()
 			return err
 		}
 	}
-	return nil
+	return br.Close()
 }
 
 type sampleRow struct {

@@ -44,6 +44,15 @@ func (f *LogFanout) Subscribe(id string) *FanoutSubscriber {
 	return &FanoutSubscriber{fanout: f, id: id}
 }
 
+// SubscribeEntries registers a parsed-entry consumer on the shared watcher.
+// The database filter prevents one fleet database from analyzing another
+// database's statements while preserving one cluster-level file offset.
+func (f *LogFanout) SubscribeEntries(
+	id string, database string,
+) *EntrySubscriber {
+	return f.source.SubscribeEntries(id, database)
+}
+
 // DrainSource drains the underlying FileWatcher once and appends
 // a copy of each signal to every subscriber's buffer. The caller
 // must invoke this periodically (e.g. on a ticker goroutine).

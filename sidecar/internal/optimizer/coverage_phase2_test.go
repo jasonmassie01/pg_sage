@@ -2,6 +2,7 @@ package optimizer
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -645,8 +646,7 @@ func TestPhase2_ExtractTotalCost_NullBytes(t *testing.T) {
 
 func connectTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
+	dsn := os.Getenv("SAGE_DATABASE_URL")
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Skipf("DB unavailable: %v", err)

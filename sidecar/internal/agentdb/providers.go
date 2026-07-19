@@ -1,7 +1,6 @@
 package agentdb
 
 import (
-	"context"
 	"strconv"
 	"strings"
 )
@@ -26,25 +25,6 @@ func BuildProvisionPlan(req RegisterRequest, profile SizeProfile) (ProvisionPlan
 		return lakebasePlan(req, profile), nil
 	default:
 		return ProvisionPlan{}, ErrInvalid
-	}
-}
-
-func ProviderReadinessList(ctx context.Context) []ProviderReadiness {
-	return []ProviderReadiness{
-		{
-			Provider:  ProviderLocalPostgres,
-			Label:     "Local Postgres",
-			Interface: "pg_sage",
-			Found:     true,
-			Detail:    "uses active pg_sage PostgreSQL connection",
-		},
-		readiness(ctx, ProviderAWSRDS, "AWS RDS", "terraform_or_aws_sdk",
-			"Terraform plan or AWS SDK client credentials required at execution boundary"),
-		readiness(ctx, ProviderGCPCloudSQL, "GCP Cloud SQL", "terraform_or_cloudsql_admin_api",
-			"Terraform plan or Cloud SQL Admin API credentials required at execution boundary"),
-		readiness(ctx, ProviderDatabricksLakebase, "Databricks Lakebase",
-			"databricks_api_or_terraform",
-			"Databricks API credentials or Terraform provider support required at execution boundary"),
 	}
 }
 
@@ -365,20 +345,19 @@ func restoreArchive(backups []Backup) string {
 	return "agentdb-restore-placeholder.dump"
 }
 
-func readiness(_ context.Context, provider, label, iface, detail string) ProviderReadiness {
-	return ProviderReadiness{
-		Provider:  provider,
-		Label:     label,
-		Interface: iface,
-		Found:     true,
-		Detail:    detail,
-	}
-}
-
 func param(profile SizeProfile, key, fallback string) string {
 	if profile.ProviderParams != nil {
-		if value, ok := profile.ProviderParams[key].(string); ok && value != "" {
-			return value
+		switch value := profile.ProviderParams[key].(type) {
+		case string:
+			if value != "" {
+				return value
+			}
+		case float64:
+			return strconv.FormatFloat(value, 'f', -1, 64)
+		case int:
+			return strconv.Itoa(value)
+		case int64:
+			return strconv.FormatInt(value, 10)
 		}
 	}
 	return fallback
@@ -387,6 +366,22 @@ func param(profile SizeProfile, key, fallback string) string {
 func intParam(profile SizeProfile, key string, numeric float64, fallback string) string {
 	if value := param(profile, key, ""); value != "" {
 		return value
+	}
+	if profile.ProviderParams != nil {
+		switch value := profile.ProviderParams[key].(type) {
+		case float64:
+			if value > 0 {
+				return strconv.FormatFloat(value, 'f', -1, 64)
+			}
+		case int:
+			if value > 0 {
+				return strconv.Itoa(value)
+			}
+		case int64:
+			if value > 0 {
+				return strconv.FormatInt(value, 10)
+			}
+		}
 	}
 	if numeric > 0 {
 		return strings.TrimSuffix(

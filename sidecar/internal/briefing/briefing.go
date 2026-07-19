@@ -273,14 +273,14 @@ func (w *Worker) buildStructured(findings string, totalOpen int, system, actions
 	var b strings.Builder
 	now := time.Now().Format("2006-01-02 15:04 MST")
 
-	b.WriteString(fmt.Sprintf("# pg_sage Health Briefing — %s\n\n", now))
+	fmt.Fprintf(&b, "# pg_sage Health Briefing — %s\n\n", now)
 
 	// System overview.
 	var sys map[string]any
 	if err := json.Unmarshal([]byte(system), &sys); err == nil {
 		b.WriteString("## System Overview\n")
 		for k, v := range sys {
-			b.WriteString(fmt.Sprintf("- **%s**: %v\n", k, v))
+			fmt.Fprintf(&b, "- **%s**: %v\n", k, v)
 		}
 		b.WriteString("\n")
 	}
@@ -301,26 +301,27 @@ func (w *Worker) buildStructured(findings string, totalOpen int, system, actions
 		}
 		shown := len(findingsList)
 		if totalOpen > shown {
-			b.WriteString(fmt.Sprintf(
+			fmt.Fprintf(&b,
 				"## Findings (%d of %d open): %d critical, %d warning, %d info\n\n",
-				shown, totalOpen, critical, warning, info))
+				shown, totalOpen, critical, warning, info)
 		} else {
-			b.WriteString(fmt.Sprintf(
+			fmt.Fprintf(&b,
 				"## Findings: %d critical, %d warning, %d info\n\n",
-				critical, warning, info))
+				critical, warning, info)
 		}
 
 		for _, f := range findingsList {
 			sev := f["severity"]
 			icon := "ℹ️"
-			if sev == "critical" {
+			switch sev {
+			case "critical":
 				icon = "🔴"
-			} else if sev == "warning" {
+			case "warning":
 				icon = "🟡"
 			}
-			b.WriteString(fmt.Sprintf("%s **%s** — %s", icon, f["severity"], f["title"]))
+			fmt.Fprintf(&b, "%s **%s** — %s", icon, f["severity"], f["title"])
 			if obj, ok := f["object_identifier"]; ok && obj != nil {
-				b.WriteString(fmt.Sprintf(" (`%s`)", obj))
+				fmt.Fprintf(&b, " (`%s`)", obj)
 			}
 			b.WriteString("\n")
 		}
@@ -332,7 +333,7 @@ func (w *Worker) buildStructured(findings string, totalOpen int, system, actions
 	if err := json.Unmarshal([]byte(actions), &actionsList); err == nil && len(actionsList) > 0 {
 		b.WriteString("## Recent Actions (24h)\n")
 		for _, a := range actionsList {
-			b.WriteString(fmt.Sprintf("- %s → %s\n", a["action_type"], a["outcome"]))
+			fmt.Fprintf(&b, "- %s → %s\n", a["action_type"], a["outcome"])
 		}
 		b.WriteString("\n")
 	}
@@ -395,5 +396,5 @@ func (w *Worker) sendSlack(ctx context.Context, text string) {
 		w.logFn("WARN", "briefing", "slack send error: %v", err)
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 }

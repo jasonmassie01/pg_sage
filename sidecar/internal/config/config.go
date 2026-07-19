@@ -3,6 +3,7 @@ package config
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strconv"
@@ -186,11 +187,11 @@ type SafetyConfig struct {
 }
 
 type TrustConfig struct {
-	Level                 string `yaml:"level" doc:"Autonomy tier. observation = log only; advisory = queue actions for approval; autonomous = execute safe/moderate actions directly." warning:"Changing to autonomous enables DDL execution without human review."`
+	Level                 string `yaml:"level" doc:"Autonomy ceiling: observation is cases only; advisory auto executes eligible safe actions; autonomous auto executes eligible safe and moderate actions. Manual disables background actions." warning:"Changing trust can expand what execution_mode=auto may execute without human review."`
 	RampStart             string `yaml:"ramp_start" doc:"RFC3339 timestamp when the trust ramp began. Auto-persisted on first startup if empty. Used to gate newly-supported actions behind a soak period."`
 	MaintenanceWindow     string `yaml:"maintenance_window" doc:"Window for MODERATE auto-actions and heavy maintenance. No cron needed: presets (always, never, nights, weeknights, weekends, off-hours), day ranges (weekdays 01:00-05:00), HH:MM-HH:MM, or cron." example:"weeknights"`
-	Tier3Safe             bool   `yaml:"tier3_safe" doc:"Enable tier-3 actions classified as safe (e.g. CREATE INDEX CONCURRENTLY on small tables). Requires trust.level=autonomous."`
-	Tier3Moderate         bool   `yaml:"tier3_moderate" doc:"Enable tier-3 actions classified as moderate risk (e.g. VACUUM FULL on small tables). Requires trust.level=autonomous." warning:"Moderate actions can briefly lock tables."`
+	Tier3Safe             bool   `yaml:"tier3_safe" doc:"Enable typed safe actions such as ANALYZE and non-FULL VACUUM after the trust ramp when execution_mode=auto and trust.level is advisory or autonomous."`
+	Tier3Moderate         bool   `yaml:"tier3_moderate" doc:"Enable typed moderate actions such as CREATE INDEX CONCURRENTLY after the longer trust ramp. Requires execution_mode=auto and trust.level=autonomous." warning:"Moderate actions can consume IO or briefly contend for locks."`
 	Tier3HighRisk         bool   `yaml:"tier3_high_risk" doc:"Enable tier-3 actions classified as high risk. Ignored outside fleet mode — standalone always forces this to false." mode:"fleet-only" warning:"High-risk actions can destabilize production — enable only with a reviewed rollback plan."`
 	RollbackThresholdPct  int    `yaml:"rollback_threshold_pct" doc:"Latency regression percentage (0-100) that triggers automatic rollback of a recently applied action. Lower = more sensitive."`
 	RollbackWindowMinutes int    `yaml:"rollback_window_minutes" doc:"How many minutes after applying an action pg_sage watches for regressions before considering it stable."`
@@ -199,19 +200,19 @@ type TrustConfig struct {
 }
 
 type LLMConfig struct {
-	Enabled             bool                 `yaml:"enabled" doc:"Global enable for LLM-assisted analysis (planner explanations, recommendation narratives). When disabled, pg_sage falls back to deterministic heuristics only."`
-	Endpoint            string               `yaml:"endpoint" doc:"LLM provider base URL. Supports OpenAI-compatible chat-completions endpoints. Can be left blank to use the vendor default."`
-	APIKey              string               `yaml:"api_key" doc:"Authentication token for the LLM provider. Prefer sourcing from environment via ${LLM_API_KEY} rather than committing literal values." secret:"true"`
-	Model               string               `yaml:"model" doc:"Model identifier sent to the provider (e.g. gpt-4o-mini). Must support JSON-mode responses for structured outputs."`
-	TimeoutSeconds      int                  `yaml:"timeout_seconds" doc:"HTTP request timeout for each LLM call. Low values protect the analyzer cycle from slow providers; high values tolerate cold-start latency."`
-	TokenBudgetDaily    int                  `yaml:"token_budget_daily" doc:"Soft daily cap on total tokens (input + output) the sidecar will spend on LLM requests. Once exceeded the LLM is skipped until the next UTC day."`
-	FleetTokenBudgetDaily int                `yaml:"fleet_token_budget_daily" doc:"Fleet-wide daily token cap split per database so one noisy database can't drain the whole budget. 0 disables per-database budgeting (fleet mode only)."`
-	ContextBudgetTokens int                  `yaml:"context_budget_tokens" doc:"Maximum tokens attached as context (schema, stats, plans) to a single LLM request. Prevents oversized prompts from busting the model context window."`
-	CooldownSeconds     int                  `yaml:"cooldown_seconds" doc:"Minimum seconds between two LLM requests. Rate-limits the sidecar so it cannot burst the provider during a busy cycle."`
-	JSONMode            bool                 `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."`
-	IndexOptimizer      IndexOptimizerConfig `yaml:"index_optimizer"` // Deprecated: use Optimizer.
-	Optimizer           OptimizerConfig      `yaml:"optimizer"`
-	OptimizerLLM        OptimizerLLMConfig   `yaml:"optimizer_llm"`
+	Enabled               bool                 `yaml:"enabled" doc:"Global enable for LLM-assisted analysis (planner explanations, recommendation narratives). When disabled, pg_sage falls back to deterministic heuristics only."`
+	Endpoint              string               `yaml:"endpoint" doc:"LLM provider base URL. Supports OpenAI-compatible chat-completions endpoints. Can be left blank to use the vendor default."`
+	APIKey                string               `yaml:"api_key" doc:"Authentication token for the LLM provider. Prefer sourcing from environment via ${LLM_API_KEY} rather than committing literal values." secret:"true"`
+	Model                 string               `yaml:"model" doc:"Model identifier sent to the provider (e.g. gpt-4o-mini). Must support JSON-mode responses for structured outputs."`
+	TimeoutSeconds        int                  `yaml:"timeout_seconds" doc:"HTTP request timeout for each LLM call. Low values protect the analyzer cycle from slow providers; high values tolerate cold-start latency."`
+	TokenBudgetDaily      int                  `yaml:"token_budget_daily" doc:"Soft daily cap on total tokens (input + output) the sidecar will spend on LLM requests. Once exceeded the LLM is skipped until the next UTC day."`
+	FleetTokenBudgetDaily int                  `yaml:"fleet_token_budget_daily" doc:"Fleet-wide daily token cap split per database so one noisy database can't drain the whole budget. 0 disables per-database budgeting (fleet mode only)."`
+	ContextBudgetTokens   int                  `yaml:"context_budget_tokens" doc:"Maximum tokens attached as context (schema, stats, plans) to a single LLM request. Prevents oversized prompts from busting the model context window."`
+	CooldownSeconds       int                  `yaml:"cooldown_seconds" doc:"Minimum seconds between two LLM requests. Rate-limits the sidecar so it cannot burst the provider during a busy cycle."`
+	JSONMode              bool                 `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."`
+	IndexOptimizer        IndexOptimizerConfig `yaml:"index_optimizer"` // Deprecated: use Optimizer.
+	Optimizer             OptimizerConfig      `yaml:"optimizer"`
+	OptimizerLLM          OptimizerLLMConfig   `yaml:"optimizer_llm"`
 }
 
 type IndexOptimizerConfig struct {
@@ -918,8 +919,56 @@ func loadYAML(path string, cfg *Config) error {
 	// common case where ${SAGE_LLM_API_KEY} is in the YAML but the env var
 	// is not set, leaving an empty value that silently breaks the feature.
 	warnUnexpandedEnvVars(raw, expanded)
+	if err := rejectRetiredTopLevelConfig(expanded); err != nil {
+		return err
+	}
 
-	return yaml.Unmarshal([]byte(expanded), cfg)
+	candidate := Clone(cfg)
+	decoder := yaml.NewDecoder(strings.NewReader(expanded))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(candidate); err != nil {
+		return err
+	}
+
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("config must contain exactly one YAML document")
+	}
+	*cfg = *candidate
+	return nil
+}
+
+func rejectRetiredTopLevelConfig(raw string) error {
+	var document yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &document); err != nil {
+		return err
+	}
+	if len(document.Content) == 0 ||
+		len(document.Content[0].Content) == 0 {
+		return nil
+	}
+	root := document.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		switch root.Content[i].Value {
+		case "notifications":
+			return fmt.Errorf(
+				"configuration key %q is retired; use %q instead",
+				"notifications", "alerting",
+			)
+		case "mcp":
+			return fmt.Errorf(
+				"configuration key %q is retired; use the REST API instead",
+				"mcp",
+			)
+		}
+	}
+	return nil
 }
 
 // warnUnexpandedEnvVars detects ${VAR} patterns in the raw YAML that expanded
@@ -1062,7 +1111,7 @@ func (c *Config) HasEncryptionKey() bool {
 
 // RateLimit returns the configured rate limit.
 func (c *Config) RateLimit() int {
-	if v := envInt("SAGE_RATE_LIMIT"); v != 0 {
+	if v := envInt("SAGE_RATE_LIMIT"); v > 0 {
 		return v
 	}
 	return DefaultRateLimit

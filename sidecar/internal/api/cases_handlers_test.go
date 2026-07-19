@@ -114,7 +114,7 @@ func TestEnrichCaseActionPoliciesAddsDeterministicDecision(t *testing.T) {
 	}
 }
 
-func TestEnrichCaseActionPoliciesShowsApprovalAndWindowBlock(t *testing.T) {
+func TestEnrichCaseActionPoliciesShowsAutoWindowBlock(t *testing.T) {
 	cfg := &config.Config{
 		Mode:             "fleet",
 		CloudEnvironment: "postgres",
@@ -146,8 +146,8 @@ func TestEnrichCaseActionPoliciesShowsApprovalAndWindowBlock(t *testing.T) {
 	if candidate.PolicyDecision == nil {
 		t.Fatal("missing policy decision")
 	}
-	if !candidate.RequiresApproval || !candidate.RequiresMaintenanceWindow {
-		t.Fatalf("expected approval and window flags: %#v", candidate)
+	if candidate.RequiresApproval || !candidate.RequiresMaintenanceWindow {
+		t.Fatalf("expected auto window block without approval: %#v", candidate)
 	}
 	if candidate.BlockedReason == "" {
 		t.Fatalf("expected blocked reason outside maintenance window")
@@ -180,6 +180,38 @@ func TestCasePolicyContextUsesInstancePlatform(t *testing.T) {
 	if got.Config.CloudEnvironment != "cloud-sql" {
 		t.Fatalf("CloudEnvironment = %q, want cloud-sql",
 			got.Config.CloudEnvironment)
+	}
+}
+
+func TestCasePolicyContextIncludesExecutorDisabled(t *testing.T) {
+	disabled := false
+	cfg := &config.Config{
+		Mode: "fleet",
+		Trust: config.TrustConfig{
+			Level:     "autonomous",
+			Tier3Safe: true,
+		},
+	}
+	mgr := fleet.NewManager(cfg)
+	mgr.RegisterInstance(&fleet.DatabaseInstance{
+		Name: "prod",
+		Config: config.DatabaseConfig{
+			Name:            "prod",
+			ExecutionMode:   "auto",
+			ExecutorEnabled: &disabled,
+		},
+		Status: &fleet.InstanceStatus{Platform: "postgres"},
+	})
+
+	got := casePolicyContext(mgr, "prod")
+	if got.ExecutorEnabled == nil || *got.ExecutorEnabled {
+		t.Fatalf("ExecutorEnabled = %v, want false", got.ExecutorEnabled)
+	}
+	decision := executor.EvaluateActionPolicy(
+		executor.AnalyzeTableContract(), got)
+	if decision.Decision != executor.PolicyDecisionBlocked ||
+		decision.BlockedReason != "executor is disabled" {
+		t.Fatalf("decision = %#v, want executor-disabled block", decision)
 	}
 }
 

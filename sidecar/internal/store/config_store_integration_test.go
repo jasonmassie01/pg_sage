@@ -17,7 +17,7 @@ import (
 
 func setupConfigTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("SAGE_TEST_DSN")
+	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
 	if dsn == "" {
 		dsn = testDSN()
 	}
@@ -51,7 +51,6 @@ func setupConfigTestDB(t *testing.T) *pgxpool.Pool {
 
 	t.Cleanup(func() {
 		cleanupConfig(pool)
-		schema.ReleaseAdvisoryLock(context.Background(), pool)
 		pool.Close()
 	})
 
@@ -66,6 +65,8 @@ func cleanupConfig(pool *pgxpool.Pool) {
 		"DELETE FROM sage.config_audit WHERE key LIKE 'test.%'")
 	pool.Exec(ctx,
 		"DELETE FROM sage.config WHERE key LIKE 'test.%'")
+	pool.Exec(ctx,
+		"DELETE FROM sage.config WHERE key = $1", configGenerationKey)
 	// Remove config rows that reference the seeded test user,
 	// then remove the test user itself to avoid FK conflicts
 	// with other packages' tests.
@@ -74,6 +75,165 @@ func cleanupConfig(pool *pgxpool.Pool) {
 			"WHERE updated_by_user_id = 1")
 	pool.Exec(ctx,
 		"DELETE FROM sage.users WHERE id = 1 AND email = 'test@test.com'")
+}
+
+func TestConfigStoreSameValueCASPersistsOverrideAndGeneration(t *testing.T) {
+	pool := setupConfigTestDB(t)
+	cs := NewConfigStore(pool)
+	ctx := context.Background()
+
+	generation, err := cs.SetOverridesCAS(ctx, []ConfigOverrideWrite{{
+		Key: "trust.level", Value: config.DefaultTrustLevel,
+	}}, 0, 1, 1)
+	if err != nil {
+		t.Fatalf("same-value CAS: %v", err)
+	}
+	if generation != 2 {
+		t.Fatalf("generation = %d, want 2", generation)
+	}
+	overrides, err := cs.GetOverrides(ctx, 0)
+	if err != nil {
+		t.Fatalf("get overrides: %v", err)
+	}
+	found := false
+	for _, override := range overrides {
+		if override.Key == "trust.level" {
+			found = override.Value == config.DefaultTrustLevel
+		}
+	}
+	if !found {
+		t.Fatal("same-effective explicit override was not persisted")
+	}
+}
+
+func TestConfigStoreSameEffectiveDeleteAdvancesGeneration(t *testing.T) {
+	pool := setupConfigTestDB(t)
+	cs := NewConfigStore(pool)
+	ctx := context.Background()
+	if err := cs.SetOverride(
+		ctx, "trust.level", config.DefaultTrustLevel, 0, 1,
+	); err != nil {
+		t.Fatalf("seed same-effective override: %v", err)
+	}
+
+	generation, err := cs.DeleteOverrideCAS(
+		ctx, "trust.level", 0, 1, 1,
+	)
+	if err != nil {
+		t.Fatalf("same-effective delete: %v", err)
+	}
+	if generation != 2 {
+		t.Fatalf("generation = %d, want 2", generation)
+	}
+	if durable, err := cs.GetGeneration(ctx, 0); err != nil || durable != 2 {
+		t.Fatalf("durable generation = %d, %v; want 2", durable, err)
+	}
+}
+
+func TestDatabaseTrustCASUsesCanonicalDatabasePolicyRow(t *testing.T) {
+	pool := setupConfigTestDB(t)
+	cs := NewConfigStore(pool)
+	ctx := context.Background()
+	_, err := pool.Exec(ctx, `INSERT INTO sage.databases
+		(id, name, host, port, database_name, username, password_enc,
+		 sslmode, trust_level, execution_mode)
+		VALUES (901, 'config-cas-policy', 'localhost', 5432, 'postgres',
+		 'postgres', '\x00', 'disable', 'observation', 'approval')
+		ON CONFLICT (id) DO UPDATE SET trust_level = 'observation'`)
+	if err != nil {
+		t.Fatalf("seed database: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM sage.config WHERE database_id = 901")
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM sage.databases WHERE id = 901")
+	})
+
+	generation, err := cs.SetDatabaseOverridesCAS(
+		ctx, []ConfigOverrideWrite{{Key: "trust.level", Value: "advisory"}},
+		901, 1, 1, nil,
+	)
+	if err != nil {
+		t.Fatalf("set database trust: %v", err)
+	}
+	if generation != 2 {
+		t.Fatalf("generation = %d, want 2", generation)
+	}
+	var trust string
+	if err := pool.QueryRow(ctx,
+		"SELECT trust_level FROM sage.databases WHERE id = 901",
+	).Scan(&trust); err != nil {
+		t.Fatalf("read database trust: %v", err)
+	}
+	if trust != "advisory" {
+		t.Fatalf("database trust = %q, want advisory", trust)
+	}
+	var legacyCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.config
+		WHERE database_id = 901 AND key = 'trust.level'`).Scan(&legacyCount); err != nil {
+		t.Fatalf("count legacy trust override: %v", err)
+	}
+	if legacyCount != 0 {
+		t.Fatalf("legacy trust overrides = %d, want 0", legacyCount)
+	}
+}
+
+func TestDatabaseExecutionModeCASWritesAudit(t *testing.T) {
+	pool := setupConfigTestDB(t)
+	cs := NewConfigStore(pool)
+	ctx := context.Background()
+	_, err := pool.Exec(ctx, `INSERT INTO sage.databases
+		(id, name, host, port, database_name, username, password_enc,
+		 sslmode, trust_level, execution_mode)
+		VALUES (902, 'config-cas-execution', 'localhost', 5432, 'postgres',
+		 'postgres', '\x00', 'disable', 'observation', 'approval')
+		ON CONFLICT (id) DO UPDATE SET execution_mode = 'approval'`)
+	if err != nil {
+		t.Fatalf("seed database: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM sage.config_audit WHERE database_id = 902")
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM sage.config WHERE database_id = 902")
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM sage.databases WHERE id = 902")
+	})
+
+	mode := "manual"
+	generation, err := cs.SetDatabaseOverridesCAS(
+		ctx, nil, 902, 1, 1, &mode,
+	)
+	if err != nil {
+		t.Fatalf("set database execution mode: %v", err)
+	}
+	if generation != 2 {
+		t.Fatalf("generation = %d, want 2", generation)
+	}
+	var storedMode string
+	if err := pool.QueryRow(ctx,
+		"SELECT execution_mode FROM sage.databases WHERE id = 902",
+	).Scan(&storedMode); err != nil {
+		t.Fatalf("read database execution mode: %v", err)
+	}
+	if storedMode != mode {
+		t.Fatalf("database execution mode = %q, want %q", storedMode, mode)
+	}
+	var oldValue, newValue string
+	var changedBy int
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(old_value, ''), new_value,
+		COALESCE(changed_by, 0) FROM sage.config_audit
+		WHERE database_id = 902 AND key = 'execution_mode'
+		ORDER BY changed_at DESC LIMIT 1`).Scan(
+		&oldValue, &newValue, &changedBy,
+	); err != nil {
+		t.Fatalf("read execution mode audit: %v", err)
+	}
+	if oldValue != "approval" || newValue != "manual" || changedBy != 1 {
+		t.Fatalf("execution audit = (%q, %q, %d), want (approval, manual, 1)",
+			oldValue, newValue, changedBy)
+	}
 }
 
 func TestConfigStoreSetAndGet(t *testing.T) {

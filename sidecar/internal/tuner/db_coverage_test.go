@@ -23,8 +23,7 @@ func tunerTestDSN() string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 func cleanTunerCoverageHints(t *testing.T, pool *pgxpool.Pool, ctx context.Context) {
@@ -66,7 +65,6 @@ func requireTunerDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			tunerTestPool = nil
 			return
 		}
-		schema.ReleaseAdvisoryLock(ctx, tunerTestPool)
 	})
 	if tunerTestPoolErr != nil {
 		t.Skipf("database unavailable: %v", tunerTestPoolErr)

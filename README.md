@@ -70,7 +70,7 @@ docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 See the [docs/](docs/) directory for guides and reference:
 
 - [Installation](docs/installation.md) -- database user setup, binary and Docker deployment
-- [Configuration](docs/configuration.md) -- YAML, environment variables, hot reload
+- [Configuration](docs/configuration.md) -- YAML, environment variables, typed reload lifecycles
 - [Architecture](docs/architecture.md) -- component design, goroutine model, data flow
 - [Deployment](docs/deployment.md) -- production hardening, resource sizing
 - [Security](docs/security.md) -- permissions model, network, secrets management

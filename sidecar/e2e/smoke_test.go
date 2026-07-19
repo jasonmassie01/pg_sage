@@ -100,8 +100,7 @@ func databaseURL(t *testing.T) string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 // pgAvailable checks whether PostgreSQL is reachable.
@@ -175,17 +174,10 @@ func writeConfig(
 	dir := t.TempDir()
 	path := filepath.Join(dir, "e2e-config.yaml")
 
-	// Parse DSN components for YAML config.
-	// DSN: postgres://user:pass@host:port/db?params
 	yamlContent := fmt.Sprintf(`mode: standalone
 
 postgres:
-  host: localhost
-  port: 5432
-  user: postgres
-  password: postgres
-  database: postgres
-  sslmode: disable
+  database_url: %q
   max_connections: 3
 
 collector:
@@ -213,7 +205,7 @@ prometheus:
 
 api:
   listen_addr: "127.0.0.1:%d"
-`, promPort, apiPort)
+`, dsn, promPort, apiPort)
 
 	if err := os.WriteFile(path, []byte(yamlContent), 0644); err != nil {
 		t.Fatalf("writeConfig: %v", err)

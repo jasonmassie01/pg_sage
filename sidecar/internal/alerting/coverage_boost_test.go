@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -246,8 +247,7 @@ func TestCoverage_LogAlert_NilPool(t *testing.T) {
 func TestCoverage_LogAlert_PoolExecError(t *testing.T) {
 	// Connect to a real DB to test logAlert with an invalid table.
 	// If DB not available, skip.
-	dsn := "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
+	dsn := os.Getenv("SAGE_DATABASE_URL")
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Skipf("DB unavailable: %v", err)
@@ -890,8 +890,7 @@ func TestCoverage_ShouldAlert_QuietHoursBlock(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCoverage_Manager_Evaluate_WithDB(t *testing.T) {
-	dsn := "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
+	dsn := os.Getenv("SAGE_DATABASE_URL")
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Skipf("DB unavailable: %v", err)
@@ -928,17 +927,8 @@ func TestCoverage_Manager_Evaluate_WithDB(t *testing.T) {
 }
 
 func TestCoverage_Manager_Evaluate_NoFindings(t *testing.T) {
-	dsn := "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Skipf("DB unavailable: %v", err)
-	}
+	pool := connectAlertTestDB(t)
 	defer pool.Close()
-
-	if err := pool.Ping(context.Background()); err != nil {
-		t.Skipf("DB ping failed: %v", err)
-	}
 
 	m := New(pool, ManagerConfig{}, nil, noop)
 	// Set lastCheck to now so no findings match.
@@ -946,15 +936,8 @@ func TestCoverage_Manager_Evaluate_NoFindings(t *testing.T) {
 	m.lastCheck = time.Now().Add(time.Hour)
 	m.mu.Unlock()
 
-	err = m.evaluate(context.Background())
-	// May fail if sage.findings doesn't exist, which is fine.
-	if err != nil {
-		if strings.Contains(err.Error(), "sage.findings") ||
-			strings.Contains(err.Error(), "does not exist") ||
-			strings.Contains(err.Error(), "relation") {
-			t.Skipf("sage.findings table not available: %v", err)
-		}
-		t.Fatalf("unexpected error: %v", err)
+	if err := m.evaluate(context.Background()); err != nil {
+		t.Fatalf("evaluate with no findings: %v", err)
 	}
 }
 

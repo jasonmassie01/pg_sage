@@ -402,7 +402,7 @@ func TestCoverage_StoreBriefing_InvalidTable_LivePG(t *testing.T) {
 		 WHERE content_text = 'no-llm briefing test'
 		 ORDER BY generated_at DESC LIMIT 1`).Scan(&content)
 	if err != nil && strings.Contains(err.Error(), "does not exist") {
-		t.Skipf("sage schema dropped by concurrent tests: %v", err)
+		t.Fatalf("query briefing actions: %v", err)
 	}
 	if err != nil {
 		t.Fatalf("expected stored briefing row: %v", err)
@@ -441,7 +441,7 @@ func TestCoverage_StoreBriefing_WithLLMTokens_LivePG(t *testing.T) {
 		ORDER BY generated_at DESC LIMIT 1
 	`).Scan(&content, &llmUsed, &tokenCount)
 	if err != nil && strings.Contains(err.Error(), "does not exist") {
-		t.Skipf("sage schema dropped by concurrent tests: %v", err)
+		t.Fatalf("query briefing findings: %v", err)
 	}
 	if err != nil {
 		t.Fatalf("querying stored briefing: %v", err)

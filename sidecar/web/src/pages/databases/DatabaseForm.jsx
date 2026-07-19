@@ -141,12 +141,20 @@ export function DatabaseForm({ db, onClose, onError }) {
             required data-testid="db-max-connections" />
           <SelectField label="Trust Level" value={form.trust_level}
             onChange={set('trust_level')} options={TRUST_LEVELS}
-            style={inputStyle} data-testid="db-trust-level" />
+			style={inputStyle} data-testid="db-trust-level"
+			disabled={isEdit} />
           <SelectField label="Execution Mode"
             value={form.execution_mode}
             onChange={set('execution_mode')} options={EXEC_MODES}
-            style={inputStyle} data-testid="db-execution-mode" />
+			style={inputStyle} data-testid="db-execution-mode"
+			disabled={isEdit} />
         </div>
+		{isEdit && (
+		  <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+		    Change policy in Settings; connection edits preserve the current
+		    trust level and execution mode.
+		  </p>
+		)}
 
         {testResult && (
           <TestResultBanner result={testResult} />
@@ -200,13 +208,14 @@ function Field({
 }
 
 function SelectField({
-  label, value, onChange, options, style, 'data-testid': testId,
+	label, value, onChange, options, style, disabled,
+	'data-testid': testId,
 }) {
   return (
     <div>
       <label className="block text-xs mb-1"
         style={{ color: 'var(--text-secondary)' }}>{label}</label>
-      <select value={value} onChange={onChange}
+	  <select value={value} onChange={onChange} disabled={disabled}
         data-testid={testId}
         className="w-full px-3 py-1.5 rounded text-sm"
         style={style}>

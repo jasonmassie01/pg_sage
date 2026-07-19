@@ -465,6 +465,18 @@ func TestPhase2_RateLimit_InvalidEnv(t *testing.T) {
 	}
 }
 
+func TestWave2_RateLimit_NonPositiveEnvUsesDefault(t *testing.T) {
+	for _, value := range []string{"0", "-1", "-60"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("SAGE_RATE_LIMIT", value)
+			if got := (&Config{}).RateLimit(); got != DefaultRateLimit {
+				t.Fatalf("RateLimit() with %q = %d, want default %d",
+					value, got, DefaultRateLimit)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // overlayEnv (59.2% coverage — need more env var branches)
 // ---------------------------------------------------------------------------
@@ -679,7 +691,7 @@ func TestPhase2_ApplyHotReload_AnalyzerFields(t *testing.T) {
 	}
 
 	expectChanged := map[string]bool{
-		"analyzer.interval_seconds":       true,
+		"analyzer.interval_seconds":        true,
 		"analyzer.slow_query_threshold_ms": true,
 	}
 	for _, c := range changed {

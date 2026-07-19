@@ -11,6 +11,8 @@ func TestAgentIdentityAndDeploymentPingToken(t *testing.T) {
 	defer pool.Close()
 	id := "adb_identity_token"
 	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
+	_, _ = pool.Exec(ctx,
+		"DELETE FROM sage.agent_db_ping_token_failures WHERE deployment_id=$1", id)
 	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_identities WHERE agent_id=$1", "agent_token")
 
 	identity, err := st.UpsertAgentIdentity(ctx, AgentIdentityRequest{

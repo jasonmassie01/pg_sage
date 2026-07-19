@@ -78,9 +78,12 @@ type Executor struct {
 	dispatcher         EventDispatcher
 	databaseName       string
 	trustLevelOverride string
-	ddlSem             chan struct{} // limits concurrent DDL ops
-	analyzeSem         chan struct{} // shared fleet-wide for ANALYZE
+	ddlSem             chan struct{}   // limits concurrent DDL ops
+	analyzeSem         chan struct{}   // shared fleet-wide for ANALYZE
 	justifier          ActionJustifier // optional LLM action justification (C4)
+	policyMu           sync.RWMutex
+	executorDisabled   bool
+	emergencyStopFn    func(context.Context) bool
 
 	// monitors tracks background MonitorAndRollback goroutines so
 	// Shutdown can wait for them. shutdownCh is closed to signal
@@ -116,6 +119,9 @@ func New(
 		execMode:      "auto",
 		ddlSem:        make(chan struct{}, maxConcurrentDDL),
 		shutdownCh:    make(chan struct{}),
+		emergencyStopFn: func(ctx context.Context) bool {
+			return CheckEmergencyStop(ctx, pool)
+		},
 	}
 }
 
@@ -144,6 +150,27 @@ func (e *Executor) Shutdown(ctx context.Context) error {
 	}
 }
 
+// startRollbackMonitor registers a background monitor only while the
+// executor still accepts work. Holding shutdownMu across WaitGroup.Add makes
+// Add mutually exclusive with Shutdown starting Wait, as required by the
+// sync.WaitGroup contract.
+func (e *Executor) startRollbackMonitor(run func()) bool {
+	if run == nil {
+		return false
+	}
+	e.shutdownMu.Lock()
+	defer e.shutdownMu.Unlock()
+	if e.shuttingDown {
+		return false
+	}
+	e.monitors.Add(1)
+	go func() {
+		defer e.monitors.Done()
+		run()
+	}()
+	return true
+}
+
 // WithActionStore sets the action store and execution mode.
 // This enables approval/manual mode queueing.
 func (e *Executor) WithActionStore(
@@ -151,7 +178,7 @@ func (e *Executor) WithActionStore(
 ) {
 	e.actionStore = as
 	if mode != "" {
-		e.execMode = mode
+		e.SetExecutionMode(mode)
 	}
 }
 
@@ -182,42 +209,55 @@ func (e *Executor) SetTrustLevel(level string) error {
 	if !validTrustLevels[level] {
 		return fmt.Errorf("invalid trust level: %q", level)
 	}
+	e.policyMu.Lock()
 	e.trustLevelOverride = level
+	e.policyMu.Unlock()
 	return nil
 }
 
 // TrustLevel returns the effective trust level for this executor.
 func (e *Executor) TrustLevel() string {
-	if e.trustLevelOverride != "" {
-		return e.trustLevelOverride
+	e.policyMu.RLock()
+	override := e.trustLevelOverride
+	e.policyMu.RUnlock()
+	if override != "" {
+		return override
 	}
 	return e.cfg.Trust.Level
 }
 
 // SetExecutionMode changes the execution mode at runtime.
 func (e *Executor) SetExecutionMode(mode string) {
+	e.policyMu.Lock()
 	e.execMode = mode
+	e.policyMu.Unlock()
 }
 
 // ExecutionMode returns the current execution mode.
 func (e *Executor) ExecutionMode() string {
+	e.policyMu.RLock()
+	defer e.policyMu.RUnlock()
 	return e.execMode
 }
 
-// effectiveExecMode resolves the execution mode the gate should use.
-// "manual" combined with a non-observation trust level is contradictory:
-// the operator raised trust to act autonomously, but a manual gate would
-// silently block everything (the "I turned on autonomous and nothing
-// happened" trap). Honor the trust intent and treat it as "auto" — actions
-// are still gated by trust tier, ramp age, and the maintenance window.
-// "auto" and the explicit "approval" choice are returned unchanged.
+// SetExecutorEnabled applies the per-database executor hard gate.
+func (e *Executor) SetExecutorEnabled(enabled bool) {
+	e.policyMu.Lock()
+	e.executorDisabled = !enabled
+	e.policyMu.Unlock()
+}
+
+// ExecutorEnabled reports whether mutation and queueing are enabled.
+func (e *Executor) ExecutorEnabled() bool {
+	e.policyMu.RLock()
+	defer e.policyMu.RUnlock()
+	return !e.executorDisabled
+}
+
+// effectiveExecMode returns the explicitly configured mode. Trust is an
+// independent ceiling and never promotes manual mode to auto.
 func (e *Executor) effectiveExecMode() string {
-	if e.execMode == "manual" {
-		if lvl := e.TrustLevel(); lvl != "" && lvl != "observation" {
-			return "auto"
-		}
-	}
-	return e.execMode
+	return e.ExecutionMode()
 }
 
 // shouldExecute checks whether a finding should be executed,
@@ -225,29 +265,83 @@ func (e *Executor) effectiveExecMode() string {
 func (e *Executor) shouldExecute(
 	f analyzer.Finding, isReplica, emergencyStop bool,
 ) bool {
-	if e.trustLevelOverride == "" {
+	e.policyMu.RLock()
+	override := e.trustLevelOverride
+	e.policyMu.RUnlock()
+	if override == "" {
 		return ShouldExecute(
 			f, e.cfg, e.rampStart, isReplica, emergencyStop)
 	}
 	cfgCopy := *e.cfg
-	cfgCopy.Trust.Level = e.trustLevelOverride
+	cfgCopy.Trust.Level = override
 	return ShouldExecute(
 		f, &cfgCopy, e.rampStart, isReplica, emergencyStop)
+}
+
+// evaluateFindingPolicy is the single background-action authorization path.
+// It reloads runtime mode, trust, enabled state, and emergency stop for every
+// candidate so a safety downgrade takes effect before the next action.
+func (e *Executor) evaluateFindingPolicy(
+	ctx context.Context,
+	f analyzer.Finding,
+	isReplica bool,
+) ActionPolicyDecision {
+	contract, ok := contractForFinding(f)
+	if !ok {
+		return ActionPolicyDecision{
+			Decision:      PolicyDecisionBlocked,
+			RiskTier:      "unknown",
+			BlockedReason: "action has no typed contract",
+		}
+	}
+	cfg, mode, enabled := e.policySnapshot()
+	emergencyStop := e.checkEmergencyStop(ctx)
+	return EvaluateActionPolicy(contract, ActionPolicyContext{
+		Config:              cfg,
+		ExecutionMode:       mode,
+		ExecutorEnabled:     &enabled,
+		Now:                 time.Now(),
+		RampStart:           e.rampStart,
+		IsReplica:           isReplica,
+		EmergencyStop:       emergencyStop,
+		SafeActionsInFlight: len(e.analyzeSem),
+		SafeActionLimit:     cap(e.analyzeSem),
+	})
+}
+
+func (e *Executor) policySnapshot() (*config.Config, string, bool) {
+	e.policyMu.RLock()
+	defer e.policyMu.RUnlock()
+	if e.cfg == nil {
+		return nil, e.execMode, !e.executorDisabled
+	}
+	cfgCopy := *e.cfg
+	if e.trustLevelOverride != "" {
+		cfgCopy.Trust.Level = e.trustLevelOverride
+	}
+	return &cfgCopy, e.execMode, !e.executorDisabled
+}
+
+func (e *Executor) checkEmergencyStop(ctx context.Context) bool {
+	if e.emergencyStopFn != nil {
+		return e.emergencyStopFn(ctx)
+	}
+	return CheckEmergencyStop(ctx, e.pool)
+}
+
+func contractForFinding(f analyzer.Finding) (ActionContract, bool) {
+	if err := ValidateExecutorSQL(f.RecommendedSQL); err != nil {
+		return ActionContract{}, false
+	}
+	actionType := actionTypeForProposalSQL(f.RecommendedSQL)
+	return ContractForActionType(actionType)
 }
 
 // RunCycle is called after each analyzer cycle to evaluate and execute
 // any actionable findings.
 func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
-	// Manual mode blocks all execution — but a non-observation trust level
-	// promotes manual to auto (see effectiveExecMode), so raising trust in
-	// the UI actually opens the gate without a separate execution_mode flip.
-	if e.effectiveExecMode() == "manual" {
-		return
-	}
-
-	emergencyStop := CheckEmergencyStop(ctx, e.pool)
-	if emergencyStop {
-		e.logFn("executor", "emergency stop active — skipping cycle")
+	// Manual mode and executor-disabled are hard background-action stops.
+	if e.effectiveExecMode() == "manual" || !e.ExecutorEnabled() {
 		return
 	}
 
@@ -259,7 +353,9 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			continue
 		}
 
-		if !e.shouldExecute(f, isReplica, emergencyStop) {
+		decision := e.evaluateFindingPolicy(ctx, f, isReplica)
+		if decision.Decision == PolicyDecisionBlocked ||
+			decision.Decision == PolicyDecisionObserveOnly {
 			continue
 		}
 
@@ -283,7 +379,12 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 		}
 
 		// Approval mode: queue for approval instead of executing.
-		if e.execMode == "approval" && e.actionStore != nil {
+		if decision.Decision == PolicyDecisionQueueApproval {
+			if e.actionStore == nil {
+				e.logFn("executor",
+					"cannot queue %q: action store unavailable", f.Title)
+				continue
+			}
 			if checker, ok := e.actionStore.(PendingActionChecker); ok {
 				hasPending, err := checker.HasPendingForFinding(
 					ctx, int(findingID))
@@ -336,7 +437,9 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 				}
 			}
 
-			_, propErr := e.proposeForApproval(ctx, int(findingID), f)
+			proposal := f
+			proposal.ActionRisk = decision.RiskTier
+			_, propErr := e.proposeForApproval(ctx, int(findingID), proposal)
 			if propErr != nil {
 				e.logFn("executor",
 					"failed to queue %q for approval: %v",
@@ -347,7 +450,7 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 				e.dispatchEvent(ctx,
 					notify.ApprovalNeededEvent(
 						f.Title, f.RecommendedSQL,
-						e.databaseName, f.ActionRisk))
+						e.databaseName, decision.RiskTier))
 			}
 			continue
 		}
@@ -358,6 +461,14 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 				"skipping %q — rolled back recently (cooldown)",
 				f.Title,
 			)
+			continue
+		}
+
+		// Reauthorize immediately before taking an execution slot. Runtime
+		// safety changes made while evidence/retry checks ran must stop this
+		// action rather than waiting for the next cycle.
+		latest := e.evaluateFindingPolicy(ctx, f, isReplica)
+		if latest.Decision != PolicyDecisionExecute {
 			continue
 		}
 
@@ -376,6 +487,10 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 		// can't leak it and permanently shrink concurrency (C4).
 		func() {
 			defer func() { <-e.ddlSem }()
+			latest = e.evaluateFindingPolicy(ctx, f, isReplica)
+			if latest.Decision != PolicyDecisionExecute {
+				return
+			}
 			e.executeFinding(ctx, f, findingID)
 		}()
 	}
@@ -425,9 +540,11 @@ func (e *Executor) buildApprovalProposalMetadata(
 }
 
 func (e *Executor) policyContext(now time.Time) ActionPolicyContext {
+	cfg, mode, enabled := e.policySnapshot()
 	return ActionPolicyContext{
-		Config:              e.cfg,
-		ExecutionMode:       e.execMode,
+		Config:              cfg,
+		ExecutionMode:       mode,
+		ExecutorEnabled:     &enabled,
 		Now:                 now,
 		RampStart:           e.rampStart,
 		SafeActionsInFlight: len(e.analyzeSem),
@@ -448,15 +565,82 @@ func actionTypeForProposalSQL(sql string) string {
 	switch {
 	case strings.HasPrefix(upper, "ANALYZE "):
 		return "analyze_table"
-	case strings.HasPrefix(upper, "CREATE INDEX CONCURRENTLY "):
+	case strings.HasPrefix(upper, "CREATE INDEX CONCURRENTLY ") ||
+		strings.HasPrefix(upper, "CREATE UNIQUE INDEX CONCURRENTLY "):
 		return "create_index_concurrently"
-	case strings.HasPrefix(upper, "CREATE INDEX "):
-		return "create_index"
-	case strings.HasPrefix(upper, "DROP INDEX "):
+	case strings.HasPrefix(upper, "DROP INDEX CONCURRENTLY "):
 		return "drop_unused_index"
+	case isConcurrentReindexSQL(upper):
+		return "reindex_concurrently"
+	case (strings.HasPrefix(upper, "VACUUM ") || upper == "VACUUM") &&
+		!isVacuumFullSQL(upper):
+		return "vacuum_table"
+	case strings.Contains(upper, "PG_CANCEL_BACKEND"):
+		return "cancel_backend"
+	case strings.Contains(upper, "PG_TERMINATE_BACKEND"):
+		return "terminate_backend"
+	case strings.Contains(upper, "PG_CANCEL_BACKEND"):
+		return "cancel_backend"
+	case strings.HasPrefix(upper, "ALTER SYSTEM SET ") ||
+		strings.HasPrefix(upper, "ALTER SYSTEM RESET "):
+		return "alter_system_guc"
+	case strings.HasPrefix(upper, "ALTER DATABASE ") &&
+		allowedAlterDatabaseParam(upper):
+		return "alter_database_guc"
+	case isSetTableAutovacuumSQL(upper):
+		return "set_table_autovacuum"
+	case strings.HasPrefix(upper, "ALTER TABLE "):
+		return "alter_table"
+	case strings.HasPrefix(upper, "INSERT INTO HINT_PLAN.HINTS"):
+		return "apply_query_hint"
+	case strings.HasPrefix(upper, "DELETE FROM HINT_PLAN.HINTS"):
+		return "retire_query_hint"
 	default:
-		return categorizeAction(sql)
+		return ""
 	}
+}
+
+func isConcurrentReindexSQL(upper string) bool {
+	rest := strings.TrimSpace(strings.TrimPrefix(upper, "REINDEX "))
+	for _, objectType := range []string{
+		"INDEX ", "TABLE ", "SCHEMA ", "DATABASE ", "SYSTEM ",
+	} {
+		if strings.HasPrefix(rest, objectType) {
+			rest = strings.TrimSpace(strings.TrimPrefix(rest, objectType))
+			return strings.HasPrefix(rest, "CONCURRENTLY ")
+		}
+	}
+	return false
+}
+
+func isSetTableAutovacuumSQL(upper string) bool {
+	if !strings.HasPrefix(upper, "ALTER TABLE ") {
+		return false
+	}
+	subcommand := stripAlterTablePrefix(upper)
+	return strings.HasPrefix(subcommand, "SET (") &&
+		strings.Contains(subcommand, "AUTOVACUUM_")
+}
+
+func isVacuumFullSQL(upper string) bool {
+	if strings.HasPrefix(upper, "VACUUM FULL ") || upper == "VACUUM FULL" {
+		return true
+	}
+	if !strings.HasPrefix(upper, "VACUUM (") {
+		return false
+	}
+	end := strings.IndexByte(upper, ')')
+	if end < 0 {
+		return true
+	}
+	options := strings.NewReplacer("(", " ", ")", " ", ",", " ").
+		Replace(upper[:end+1])
+	for _, option := range strings.Fields(options) {
+		if option == "FULL" {
+			return true
+		}
+	}
+	return false
 }
 
 func estimatedToilForActionType(actionType string) int {
@@ -642,9 +826,7 @@ func (e *Executor) executeFinding(
 		// rollback window can elapse even if RunCycle returns
 		// (or is called from an HTTP handler). Shutdown signals
 		// the monitor to abort early via e.shutdownCh.
-		e.monitors.Add(1)
-		go func() {
-			defer e.monitors.Done()
+		e.startRollbackMonitor(func() {
 			MonitorAndRollback(
 				context.WithoutCancel(ctx), e.pool, actionID, f.RollbackSQL,
 				e.cfg.Trust.RollbackThresholdPct,
@@ -652,7 +834,7 @@ func (e *Executor) executeFinding(
 				e.logFn,
 				e.shutdownCh,
 			)
-		}()
+		})
 	} else if actionID > 0 {
 		// No rollback possible (VACUUM, ANALYZE, pg_terminate_backend)
 		// — mark success immediately.

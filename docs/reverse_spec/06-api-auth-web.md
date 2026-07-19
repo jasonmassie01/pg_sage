@@ -196,7 +196,7 @@ All under `/api/v1/`. **Auth = session cookie unless noted.** "Role" = extra
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/config/global` | Effective global overrides |
-| PUT | `/config/global` | Set global overrides (hot-reload) |
+| PUT | `/config/global` | Set overrides; response reports applied and pending-restart fields |
 | DELETE | `/config/global/{key}` | Remove a global override |
 | GET | `/config/databases/{id}` | Per-db effective config |
 | PUT | `/config/databases/{id}` | Set per-db overrides |

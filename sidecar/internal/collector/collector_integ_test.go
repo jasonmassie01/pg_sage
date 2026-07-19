@@ -3,7 +3,6 @@ package collector
 import (
 	"context"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -16,9 +15,9 @@ import (
 // Skips the test if the connection cannot be established.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("PG_TEST_DSN")
+	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+		dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -43,9 +42,9 @@ func testConfig() *config.Config {
 			MaxQueries:      50,
 		},
 		Safety: config.SafetyConfig{
-			CPUCeilingPct:          90,
+			CPUCeilingPct:           90,
 			BackoffConsecutiveSkips: 5,
-			DormantIntervalSeconds: 600,
+			DormantIntervalSeconds:  600,
 		},
 		Advisor: config.AdvisorConfig{
 			Enabled: true,
@@ -515,9 +514,6 @@ func TestCollect_StatsResetDetection(t *testing.T) {
 
 	// First collection — no previous snapshot.
 	snap1, err := c.collect(ctx)
-	if err != nil && strings.Contains(err.Error(), "could not open relation") {
-		t.Skipf("stale OID from concurrent tests: %v", err)
-	}
 	if err != nil {
 		t.Fatalf("first collect: %v", err)
 	}
@@ -532,10 +528,6 @@ func TestCollect_StatsResetDetection(t *testing.T) {
 
 	// Second collection — should compare with first.
 	snap2, err := c.collect(ctx)
-	if err != nil && strings.Contains(err.Error(), "could not open relation") {
-		// Stale OID from concurrent schema tests — skip.
-		t.Skipf("stale OID from concurrent tests: %v", err)
-	}
 	if err != nil {
 		t.Fatalf("second collect: %v", err)
 	}

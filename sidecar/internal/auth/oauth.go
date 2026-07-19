@@ -89,7 +89,7 @@ func (p *OAuthProvider) discoverOIDC(
 	if err != nil {
 		return fmt.Errorf("oauth: fetching discovery doc: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf(
@@ -266,7 +266,7 @@ func (p *OAuthProvider) exchangeCode(
 	if err != nil {
 		return "", fmt.Errorf("oauth: token request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -319,7 +319,7 @@ func (p *OAuthProvider) fetchOIDCEmail(
 	if err != nil {
 		return "", fmt.Errorf("oauth: userinfo request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf(
@@ -357,7 +357,7 @@ func (p *OAuthProvider) fetchGitHubEmail(
 	if err != nil {
 		return "", fmt.Errorf("oauth: github user request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf(
@@ -401,7 +401,7 @@ func (p *OAuthProvider) fetchGitHubEmailsFallback(
 			"oauth: github emails request failed: %w", err,
 		)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf(

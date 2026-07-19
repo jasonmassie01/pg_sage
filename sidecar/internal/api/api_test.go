@@ -737,3 +737,27 @@ func TestAPI_Dashboard_Root(t *testing.T) {
 		t.Error("expected pg_sage in body")
 	}
 }
+
+func TestRequireJSONMiddlewareAllowsDatabaseCSVImport(t *testing.T) {
+	called := false
+	handler := requireJSONMiddleware(http.HandlerFunc(func(
+		w http.ResponseWriter, _ *http.Request,
+	) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/databases/managed/import", strings.NewReader("fixture"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=fixture")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if !called {
+		t.Fatal("multipart CSV import was rejected before its handler")
+	}
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d",
+			recorder.Code, http.StatusNoContent)
+	}
+}

@@ -115,7 +115,7 @@ func queryTableSchema(
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("-- Table: %s.%s\n", schema, table))
+	fmt.Fprintf(&b, "-- Table: %s.%s\n", schema, table)
 	if cols != "" {
 		b.WriteString("-- Columns:\n")
 		b.WriteString(cols)
@@ -197,7 +197,7 @@ func queryConstraints(
 		if err := rows.Scan(&name, &def); err != nil {
 			return "", err
 		}
-		b.WriteString(fmt.Sprintf("--   %s: %s\n", name, def))
+		fmt.Fprintf(&b, "--   %s: %s\n", name, def)
 	}
 	return b.String(), rows.Err()
 }
@@ -226,7 +226,7 @@ func queryIndexes(
 		if err := rows.Scan(&name, &def); err != nil {
 			return "", err
 		}
-		b.WriteString(fmt.Sprintf("--   %s\n", def))
+		fmt.Fprintf(&b, "--   %s\n", def)
 	}
 	return b.String(), rows.Err()
 }

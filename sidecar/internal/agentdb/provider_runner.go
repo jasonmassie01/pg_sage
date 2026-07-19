@@ -18,6 +18,7 @@ const (
 
 type ProvisionRequest struct {
 	Operation     ProvisionOperation  `json:"operation"`
+	OperationID   string              `json:"operation_id,omitempty"`
 	Deployment    Deployment          `json:"deployment"`
 	Plan          map[string]any      `json:"plan"`
 	Policy        LiveProvisionPolicy `json:"policy"`
@@ -181,11 +182,12 @@ func validProvisionTransition(from, to string) bool {
 		"provisioning":     {"available": true, "dry_run_ready": true, "failed": true, "status_unknown": true},
 		"dry_run_ready": {"preflight_passed": true, "status_checked": true,
 			"provisioning": true, "destroy_pending": true},
-		"available":        {"status_checked": true, "destroy_pending": true, "status_unknown": true},
+		"available": {"status_checked": true, "destroy_pending": true, "status_unknown": true},
 		"status_checked": {"available": true, "preflight_passed": true,
 			"provisioning": true, "destroy_pending": true,
 			"destroy_dry_run_ready": true},
-		"status_unknown":   {"status_checked": true, "available": true, "failed": true, "provisioning": true},
+		"status_unknown": {"status_checked": true, "available": true, "failed": true,
+			"provisioning": true, "destroying": true},
 		"archived":         {"destroy_pending": true, "destroy_dry_run_ready": true},
 		"destroy_pending":  {"destroying": true, "destroy_dry_run_ready": true},
 		"destroying":       {"destroyed": true, "failed": true, "status_unknown": true},
