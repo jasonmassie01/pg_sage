@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/sanitize"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
@@ -168,20 +171,52 @@ func (c *Collector) captureOnDemand(
 	_, _ = tx.Exec(ctx, "SET LOCAL statement_timeout = '5s'")
 	_, _ = tx.Exec(ctx, "SET TRANSACTION READ ONLY")
 
-	explainSQL := fmt.Sprintf(
-		"EXPLAIN (FORMAT JSON) %s", query,
-	)
-	var planJSON []byte
-	if err := tx.QueryRow(ctx, explainSQL).Scan(
-		&planJSON,
-	); err != nil {
-		return fmt.Errorf("explain: %w", err)
+	planJSON, err := capturePlanJSON(ctx, tx, query)
+	if err != nil {
+		return err
 	}
 
 	totalCost, execTime := extractPlanMetrics(planJSON)
 	return c.storePlan(
 		ctx, queryID, query, planJSON, totalCost, execTime,
 	)
+}
+
+var parameterPlaceholder = regexp.MustCompile(`\$([1-9][0-9]*)`)
+
+func capturePlanJSON(ctx context.Context, tx pgx.Tx, query string) ([]byte, error) {
+	count := parameterCount(query)
+	if count == 0 {
+		return scanPlanJSON(ctx, tx, "EXPLAIN (FORMAT JSON) "+query)
+	}
+	const statement = "pg_sage_autoexplain"
+	if _, err := tx.Exec(ctx, "PREPARE "+statement+" AS "+query); err != nil {
+		return nil, fmt.Errorf("prepare parameterized query: %w", err)
+	}
+	defer func() { _, _ = tx.Exec(ctx, "DEALLOCATE "+statement) }()
+	params := strings.TrimSuffix(strings.Repeat("NULL,", count), ",")
+	return scanPlanJSON(ctx, tx, fmt.Sprintf(
+		"EXPLAIN (FORMAT JSON) EXECUTE %s(%s)", statement, params,
+	))
+}
+
+func scanPlanJSON(ctx context.Context, tx pgx.Tx, sql string) ([]byte, error) {
+	var planJSON []byte
+	if err := tx.QueryRow(ctx, sql).Scan(&planJSON); err != nil {
+		return nil, fmt.Errorf("explain: %w", err)
+	}
+	return planJSON, nil
+}
+
+func parameterCount(query string) int {
+	maxParam := 0
+	for _, match := range parameterPlaceholder.FindAllStringSubmatch(query, -1) {
+		param, err := strconv.Atoi(match[1])
+		if err == nil && param > maxParam {
+			maxParam = param
+		}
+	}
+	return maxParam
 }
 
 // storePlan inserts a captured plan into sage.explain_cache.

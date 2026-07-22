@@ -324,9 +324,9 @@ func registerAPIRoutes(
 	mux.HandleFunc(
 		"GET /api/v1/llm/models",
 		listModelsHandler(&cfg.LLM))
-	mux.HandleFunc(
+	mux.Handle(
 		"POST /api/v1/llm/models",
-		discoverModelsHandler(&cfg.LLM))
+		adminOnly(http.HandlerFunc(discoverModelsHandler(&cfg.LLM))))
 	mux.HandleFunc(
 		"GET /api/v1/llm/status",
 		llmStatusHandler(llmMgr))

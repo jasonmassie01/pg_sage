@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/agentdb"
@@ -109,17 +110,30 @@ func connectAgentDBToFleet(
 	mgr *fleet.DatabaseManager,
 	dbCfg config.DatabaseConfig,
 ) {
+	if ctx != nil && ctx.Err() != nil {
+		return
+	}
 	pool, err := connectMonitoredDB(dbCfg.ConnString(), dbCfg.MaxConnections)
 	if err != nil {
 		logWarn("agentdb", "fleet sync: connect %q: %v", dbCfg.Name, err)
 		return
 	}
-	instCtx, cancel := context.WithCancel(ctx)
+	parent := agentDBRuntimeParent(ctx)
+	if parent.Err() != nil {
+		pool.Close()
+		return
+	}
+	instCtx, cancel := context.WithCancel(parent)
+	workers := &sync.WaitGroup{}
+	dbColl := collector.New(pool, cfg, detectPGVersion(pool),
+		logStructuredWrapper)
 	inst := &fleet.DatabaseInstance{
-		Name:   dbCfg.Name,
-		Config: dbCfg,
-		Pool:   pool,
-		Cancel: cancel,
+		Name:      dbCfg.Name,
+		Config:    dbCfg,
+		Pool:      pool,
+		Collector: dbColl,
+		Cancel:    cancel,
+		Workers:   workers,
 		Status: &fleet.InstanceStatus{
 			Connected:    true,
 			DatabaseName: dbCfg.Database,
@@ -127,11 +141,15 @@ func connectAgentDBToFleet(
 		},
 	}
 	mgr.RegisterInstance(inst)
-
-	dbColl := collector.New(pool, cfg, detectPGVersion(pool),
-		logStructuredWrapper)
-	go dbColl.Run(instCtx)
+	startInstanceWorker(workers, func() { dbColl.Run(instCtx) })
 	logInfo("agentdb", "registered agent database %q in fleet", dbCfg.Name)
+}
+
+func agentDBRuntimeParent(_ context.Context) context.Context {
+	if shutdownCtx != nil {
+		return shutdownCtx
+	}
+	return context.Background()
 }
 
 func mapString(m map[string]any, key string) string {

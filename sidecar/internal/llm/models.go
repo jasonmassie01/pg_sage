@@ -74,11 +74,29 @@ func (c *modelCache) setFor(key string, models []ModelInfo) {
 func ListModels(
 	ctx context.Context, endpoint, apiKey string,
 ) ([]ModelInfo, error) {
+	return ListModelsWithClient(
+		ctx, endpoint, apiKey, http.DefaultClient,
+	)
+}
+
+// ListModelsWithClient queries models with a caller-controlled HTTP client.
+// Security-sensitive callers use this to pin validated DNS resolutions.
+func ListModelsWithClient(
+	ctx context.Context,
+	endpoint string,
+	apiKey string,
+	httpClient *http.Client,
+) ([]ModelInfo, error) {
+	if httpClient == nil {
+		return nil, fmt.Errorf("HTTP client is required")
+	}
 	key := modelCacheKey(endpoint, apiKey)
 	if cached, ok := defaultCache.getFor(key); ok {
 		return cached, nil
 	}
-	models, err := fetchModels(ctx, endpoint, apiKey)
+	models, err := fetchModelsWithClient(
+		ctx, endpoint, apiKey, httpClient,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -99,14 +117,18 @@ func modelCacheKey(endpoint, apiKey string) string {
 		fmt.Sprintf("%x", digest[:16])
 }
 
-// fetchModels dispatches to the correct provider parser.
-func fetchModels(
-	ctx context.Context, endpoint, apiKey string,
+func fetchModelsWithClient(
+	ctx context.Context,
+	endpoint string,
+	apiKey string,
+	httpClient *http.Client,
 ) ([]ModelInfo, error) {
 	if isGeminiEndpoint(endpoint) {
-		return fetchGeminiModels(ctx, apiKey)
+		return fetchGeminiModelsWithClient(ctx, apiKey, httpClient)
 	}
-	return fetchOpenAIModels(ctx, endpoint, apiKey)
+	return fetchOpenAIModelsWithClient(
+		ctx, endpoint, apiKey, httpClient,
+	)
 }
 
 func isGeminiEndpoint(endpoint string) bool {
@@ -114,13 +136,14 @@ func isGeminiEndpoint(endpoint string) bool {
 		endpoint, "generativelanguage.googleapis.com")
 }
 
-// fetchGeminiModels calls the Gemini ListModels API.
-func fetchGeminiModels(
-	ctx context.Context, apiKey string,
+func fetchGeminiModelsWithClient(
+	ctx context.Context,
+	apiKey string,
+	httpClient *http.Client,
 ) ([]ModelInfo, error) {
 	url := "https://generativelanguage.googleapis.com/" +
 		"v1beta/models?key=" + apiKey
-	body, err := doModelRequest(ctx, url, "")
+	body, err := doModelRequestWithClient(ctx, url, "", httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("gemini list models: %w", err)
 	}
@@ -179,12 +202,23 @@ func stripModelsPrefix(name string) string {
 func fetchOpenAIModels(
 	ctx context.Context, endpoint, apiKey string,
 ) ([]ModelInfo, error) {
+	return fetchOpenAIModelsWithClient(
+		ctx, endpoint, apiKey, http.DefaultClient,
+	)
+}
+
+func fetchOpenAIModelsWithClient(
+	ctx context.Context,
+	endpoint string,
+	apiKey string,
+	httpClient *http.Client,
+) ([]ModelInfo, error) {
 	base := strings.TrimRight(endpoint, "/")
 	// Strip chat/completions suffixes to get the base URL.
 	base = strings.TrimSuffix(base, "/chat/completions")
 	base = strings.TrimSuffix(base, "/chat")
 	url := base + "/models"
-	body, err := doModelRequest(ctx, url, apiKey)
+	body, err := doModelRequestWithClient(ctx, url, apiKey, httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("openai list models: %w", err)
 	}
@@ -220,6 +254,17 @@ func parseOpenAIModels(data []byte) ([]ModelInfo, error) {
 func doModelRequest(
 	ctx context.Context, url, apiKey string,
 ) ([]byte, error) {
+	return doModelRequestWithClient(
+		ctx, url, apiKey, http.DefaultClient,
+	)
+}
+
+func doModelRequestWithClient(
+	ctx context.Context,
+	url string,
+	apiKey string,
+	httpClient *http.Client,
+) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -233,7 +278,7 @@ func doModelRequest(
 			"Authorization", "Bearer "+apiKey)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, providerRequestError("http request", err)
 	}

@@ -67,3 +67,61 @@ func TestInMaintenanceWindow_TimeRange(t *testing.T) {
 		}
 	}
 }
+
+func TestInMaintenanceWindow_CronHonorsDayOfMonthAndWeek(t *testing.T) {
+	date := func(year int, month time.Month, day int) time.Time {
+		return time.Date(year, month, day, 2, 30, 0, 0, time.UTC)
+	}
+	cases := []struct {
+		name string
+		expr string
+		now  time.Time
+		want bool
+	}{
+		{
+			name: "Sunday schedule rejects Monday",
+			expr: "0 2 * * 0",
+			now:  date(2026, time.July, 20),
+			want: false,
+		},
+		{
+			name: "Sunday schedule accepts Sunday",
+			expr: "0 2 * * 0",
+			now:  date(2026, time.July, 19),
+			want: true,
+		},
+		{
+			name: "day of month rejects adjacent date",
+			expr: "0 2 15 * *",
+			now:  date(2026, time.July, 14),
+			want: false,
+		},
+		{
+			name: "day of month accepts matching date",
+			expr: "0 2 15 * *",
+			now:  date(2026, time.July, 15),
+			want: true,
+		},
+		{
+			name: "restricted DOM and DOW use cron OR semantics",
+			expr: "0 2 15 * 1",
+			now:  date(2026, time.July, 20),
+			want: true,
+		},
+		{
+			name: "restricted DOM and DOW reject when neither matches",
+			expr: "0 2 15 * 1",
+			now:  date(2026, time.July, 14),
+			want: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := inMaintenanceWindowAt(tc.expr, tc.now); got != tc.want {
+				t.Fatalf("inMaintenanceWindowAt(%q, %s) = %v, want %v",
+					tc.expr, tc.now.Format("2006-01-02 Mon 15:04"), got, tc.want)
+			}
+		})
+	}
+}

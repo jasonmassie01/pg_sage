@@ -50,6 +50,9 @@ func discoverModelsHandler(
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		discoveryCfg := *cfg
+		configuredEndpoint := discoveryCfg.Endpoint
+		endpointSupplied := false
+		apiKeySupplied := false
 		var req modelDiscoveryRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
@@ -63,12 +66,29 @@ func discoverModelsHandler(
 			switch key {
 			case "llm.endpoint":
 				discoveryCfg.Endpoint = value
+				endpointSupplied = true
 			case "llm.api_key":
 				if !isMaskedSecretUpdate(key, value) {
 					discoveryCfg.APIKey = value
+					apiKeySupplied = value != ""
 				}
 			case "llm.model":
 				discoveryCfg.Model = value
+			}
+		}
+		if endpointSupplied {
+			if err := validateLLMDiscoveryEndpoint(
+				r.Context(), discoveryCfg.Endpoint,
+			); err != nil {
+				jsonError(w, "invalid LLM endpoint", http.StatusBadRequest)
+				return
+			}
+			if !sameLLMEndpoint(discoveryCfg.Endpoint, configuredEndpoint) &&
+				!apiKeySupplied {
+				jsonError(w,
+					"API key required for endpoint override",
+					http.StatusBadRequest)
+				return
 			}
 		}
 
@@ -79,8 +99,14 @@ func discoverModelsHandler(
 			return
 		}
 
-		models, err := llm.ListModels(
-			r.Context(), discoveryCfg.Endpoint, discoveryCfg.APIKey)
+		httpClient := http.DefaultClient
+		if endpointSupplied {
+			httpClient = safeLLMDiscoveryHTTPClient()
+		}
+		models, err := llm.ListModelsWithClient(
+			r.Context(), discoveryCfg.Endpoint,
+			discoveryCfg.APIKey, httpClient,
+		)
 		if err != nil {
 			slog.Error("LLM list models failed", "error", err)
 			jsonError(w, "LLM request failed",

@@ -2,11 +2,9 @@ package collector
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnapshot, error) {
+func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSnapshot, error) {
 	cs := &ConfigSnapshot{}
 
 	// pg_settings for advisor features
@@ -27,7 +25,6 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 	if err != nil {
 		return cs, err
 	}
-	defer rows.Close()
 	for rows.Next() {
 		var s PGSetting
 		if err := rows.Scan(&s.Name, &s.Setting, &s.Unit, &s.Source, &s.PendingRestart); err != nil {
@@ -35,6 +32,7 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 		}
 		cs.PGSettings = append(cs.PGSettings, s)
 	}
+	rows.Close()
 
 	// Table reloptions (autovacuum overrides)
 	rows2, err := pool.Query(ctx, `/* pg_sage */ 
@@ -45,7 +43,6 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 		  AND c.relkind = 'r'
 		  AND c.reloptions IS NOT NULL`)
 	if err == nil {
-		defer rows2.Close()
 		for rows2.Next() {
 			var t TableReloption
 			if err := rows2.Scan(&t.SchemaName, &t.RelName, &t.Reloptions); err != nil {
@@ -53,6 +50,7 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 			}
 			cs.TableReloptions = append(cs.TableReloptions, t)
 		}
+		rows2.Close()
 	}
 
 	// Connection state distribution
@@ -64,7 +62,6 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 		  AND datname = current_database()
 		GROUP BY state`)
 	if err == nil {
-		defer rows3.Close()
 		for rows3.Next() {
 			var c ConnectionState
 			if err := rows3.Scan(&c.State, &c.Count, &c.AvgDurationSeconds); err != nil {
@@ -72,6 +69,7 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 			}
 			cs.ConnectionStates = append(cs.ConnectionStates, c)
 		}
+		rows3.Close()
 	}
 
 	// WAL position
@@ -86,7 +84,6 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 		SELECT name FROM pg_available_extensions
 		WHERE name IN ('pg_repack','pg_buffercache','pgstattuple','hypopg')`)
 	if err == nil {
-		defer rows4.Close()
 		for rows4.Next() {
 			var name string
 			if err := rows4.Scan(&name); err != nil {
@@ -94,6 +91,7 @@ func collectConfigSnapshot(ctx context.Context, pool *pgxpool.Pool) (*ConfigSnap
 			}
 			cs.ExtensionsAvailable = append(cs.ExtensionsAvailable, name)
 		}
+		rows4.Close()
 	}
 
 	// Connection churn (new connections in last 5 minutes)
