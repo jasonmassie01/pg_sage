@@ -8,3 +8,6 @@ docker-entrypoint-initdb.d/ export-ignore
 .github/            export-ignore
 .gitattributes      export-ignore
 .gitignore          export-ignore
+
+# Byte-exact generated reference; tests compare it with Go generator output.
+docs/generated/config-lifecycles.md text eol=lf

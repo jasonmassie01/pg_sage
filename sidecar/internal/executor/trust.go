@@ -103,48 +103,28 @@ func inMaintenanceWindowAt(cronExpr string, now time.Time) bool {
 	}
 
 	parts := strings.Fields(s)
-	if len(parts) < 2 {
+	if len(parts) != 5 || !cronCalendarMatches(parts[2:], now) {
 		return false
 	}
+	return cronTimeMatches(parts[0], parts[1], now)
+}
 
-	// Parse minute field: "*" means any minute.
-	minuteWild := parts[0] == "*"
-	var minute int
-	if !minuteWild {
-		var err error
-		minute, err = strconv.Atoi(parts[0])
-		if err != nil {
-			return false
-		}
+func cronTimeMatches(minuteField, hourField string, now time.Time) bool {
+	minute, minuteWild, minuteOK := cronTimeField(minuteField, 0, 59)
+	hour, hourWild, hourOK := cronTimeField(hourField, 0, 23)
+	if !minuteOK || !hourOK {
+		return false
 	}
-
-	// Parse hour field: "*" means any hour.
-	hourWild := parts[1] == "*"
-	var hour int
-	if !hourWild {
-		var err error
-		hour, err = strconv.Atoi(parts[1])
-		if err != nil {
-			return false
-		}
-	}
-
-	// Both wildcards → always in window.
 	if minuteWild && hourWild {
 		return true
 	}
-
 	if hourWild {
-		// Any hour, specific minute: 1-hour window starting at :minute.
 		windowStart := time.Date(
 			now.Year(), now.Month(), now.Day(),
 			now.Hour(), minute, 0, 0, now.Location(),
 		)
-		windowEnd := windowStart.Add(1 * time.Hour)
-		return !now.Before(windowStart) && now.Before(windowEnd)
+		return inCronHour(now, windowStart)
 	}
-
-	// Specific hour (minute may be wild or specific).
 	if minuteWild {
 		minute = 0
 	}
@@ -152,9 +132,54 @@ func inMaintenanceWindowAt(cronExpr string, now time.Time) bool {
 		now.Year(), now.Month(), now.Day(),
 		hour, minute, 0, 0, now.Location(),
 	)
-	windowEnd := windowStart.Add(1 * time.Hour)
+	return inCronHour(now, windowStart)
+}
 
-	return !now.Before(windowStart) && now.Before(windowEnd)
+func cronTimeField(field string, minValue, maxValue int) (int, bool, bool) {
+	if field == "*" {
+		return 0, true, true
+	}
+	value, err := strconv.Atoi(field)
+	return value, false, err == nil && value >= minValue && value <= maxValue
+}
+
+func inCronHour(now, start time.Time) bool {
+	return !now.Before(start) && now.Before(start.Add(time.Hour))
+}
+
+func cronCalendarMatches(fields []string, now time.Time) bool {
+	domMatch, domWild := cronNumberMatches(fields[0], now.Day(), 1, 31, false)
+	monthMatch, _ := cronNumberMatches(fields[1], int(now.Month()), 1, 12, false)
+	dowMatch, dowWild := cronNumberMatches(fields[2], int(now.Weekday()), 0, 7, true)
+	if !monthMatch {
+		return false
+	}
+	switch {
+	case domWild && dowWild:
+		return true
+	case domWild:
+		return dowMatch
+	case dowWild:
+		return domMatch
+	default:
+		return domMatch || dowMatch
+	}
+}
+
+func cronNumberMatches(
+	field string, value, minValue, maxValue int, sundayAlias bool,
+) (match, wildcard bool) {
+	if field == "*" {
+		return true, true
+	}
+	parsed, err := strconv.Atoi(field)
+	if err != nil || parsed < minValue || parsed > maxValue {
+		return false, false
+	}
+	if sundayAlias && parsed == 7 {
+		parsed = 0
+	}
+	return parsed == value, false
 }
 
 // maintenancePresets map friendly names to a canonical maintenance-window

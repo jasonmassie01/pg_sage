@@ -191,22 +191,48 @@ func (m *DatabaseManager) RecordHealthSnapshots(ctx context.Context) {
 	m.mu.RUnlock()
 
 	for _, x := range samples {
-		qctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		_, err := x.pool.Exec(qctx,
-			`/* pg_sage */ INSERT INTO sage.health_history
-			 (database_name, health_score, findings_open,
-			  findings_critical, findings_warning,
-			  findings_info, actions_total)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-			x.name, x.s.HealthScore, x.s.FindingsOpen,
-			x.s.FindingsCritical, x.s.FindingsWarning,
-			x.s.FindingsInfo, x.s.ActionsTotal,
-		)
-		cancel()
-		if err != nil {
-			log.Printf("fleet: %s: health_history write failed: %v",
-				x.name, err)
-		}
+		recordHealthSample(ctx, x.name, x.pool, x.s)
+	}
+}
+
+// RecordHealthSnapshot persists one instance's current fleet health. Per-DB
+// orchestrators use this instead of recording the entire fleet on every tick.
+func (m *DatabaseManager) RecordHealthSnapshot(
+	ctx context.Context, name string,
+) {
+	m.mu.RLock()
+	inst := m.instances[name]
+	if inst == nil || inst.Pool == nil {
+		m.mu.RUnlock()
+		return
+	}
+	pool := inst.Pool
+	snapshot := inst.SnapshotStatus()
+	m.mu.RUnlock()
+	snapshot.HealthScore = computeHealthScore(snapshot)
+	recordHealthSample(ctx, name, pool, snapshot)
+}
+
+func recordHealthSample(
+	ctx context.Context,
+	name string,
+	pool *pgxpool.Pool,
+	snapshot *InstanceStatus,
+) {
+	qctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_, err := pool.Exec(qctx,
+		`/* pg_sage */ INSERT INTO sage.health_history
+		 (database_name, health_score, findings_open,
+		  findings_critical, findings_warning,
+		  findings_info, actions_total)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		name, snapshot.HealthScore, snapshot.FindingsOpen,
+		snapshot.FindingsCritical, snapshot.FindingsWarning,
+		snapshot.FindingsInfo, snapshot.ActionsTotal,
+	)
+	if err != nil {
+		log.Printf("fleet: %s: health_history write failed: %v", name, err)
 	}
 }
 

@@ -53,7 +53,7 @@ func (c *Collector) collectStatStatementsMax(
 	ctx context.Context,
 ) int {
 	var val int
-	err := c.pool.QueryRow(
+	err := c.catalogQueryRow(
 		ctx,
 		`/* pg_sage */ SELECT setting::int FROM pg_settings
 		 WHERE name = 'pg_stat_statements.max'`,

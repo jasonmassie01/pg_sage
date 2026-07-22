@@ -9,6 +9,7 @@ package optimizer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -163,7 +164,9 @@ func (o *Optimizer) Analyze(
 			o.logFn("optimizer",
 				"table %s.%s: %v", tc.Schema, tc.Table, err,
 			)
-			o.breaker.RecordFailure(tc.Schema, tc.Table)
+			if shouldTripTableCircuit(err) {
+				o.breaker.RecordFailure(tc.Schema, tc.Table)
+			}
 			continue
 		}
 		if len(recs) > 0 {
@@ -174,6 +177,10 @@ func (o *Optimizer) Analyze(
 		result.Recommendations = append(result.Recommendations, recs...)
 	}
 	return result, nil
+}
+
+func shouldTripTableCircuit(err error) bool {
+	return err != nil && !errors.Is(err, llm.ErrRequestCooldown)
 }
 
 func (o *Optimizer) analyzeTable(

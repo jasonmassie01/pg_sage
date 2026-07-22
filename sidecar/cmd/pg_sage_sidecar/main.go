@@ -523,14 +523,7 @@ func initStandalone() {
 
 	// 3c. Fleet-wide ANALYZE semaphore — bounds parallel
 	// ANALYZE execution across every Executor instance.
-	maxAnalyze := cfg.Tuner.MaxConcurrentAnalyze
-	if maxAnalyze <= 0 {
-		maxAnalyze = 1
-	}
-	analyzeSem = make(chan struct{}, maxAnalyze)
-	logInfo("startup",
-		"ANALYZE semaphore sized to %d concurrent slots",
-		maxAnalyze)
+	initializeAnalyzeSemaphore()
 
 	// 4. Verify grants.
 	executor.VerifyGrants(ctx, pool, cfg.Postgres.User, logStructuredWrapper)
@@ -1145,6 +1138,7 @@ func startInstanceWorker(workers *sync.WaitGroup, run func()) {
 // and executors for each database in fleet config.
 func initFleetMultiDB() {
 	fleetMgr = fleet.NewManager(cfg)
+	initializeAnalyzeSemaphore()
 
 	// LLM client + manager (shared across fleet).
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
@@ -1153,16 +1147,11 @@ func initFleetMultiDB() {
 
 	// Per-database LLM token budget (F5): split a fleet-wide daily cap
 	// across databases so one noisy DB can't drain the whole budget.
-	if cfg.LLM.FleetTokenBudgetDaily > 0 {
-		names := make([]string, 0, len(cfg.Databases))
-		for _, d := range cfg.Databases {
-			names = append(names, d.Name)
-		}
-		fleetLLMBudget = fleet.NewBudget(cfg.LLM.FleetTokenBudgetDaily, names)
-		go resetFleetBudgetDaily(shutdownCtx, fleetLLMBudget)
-		logInfo("fleet", "per-database LLM budget enabled: %d tokens/day across %d databases",
-			cfg.LLM.FleetTokenBudgetDaily, len(names))
+	names := make([]string, 0, len(cfg.Databases))
+	for _, database := range cfg.Databases {
+		names = append(names, database.Name)
 	}
+	initializeFleetBudget(names)
 
 	var configPool *pgxpool.Pool // first connected DB used for config store
 	adminBootstrapped := false   // admin is created on the first connected DB
@@ -1329,20 +1318,25 @@ func initFleetMultiDB() {
 			fcIface = fc
 		}
 
+		// Every LLM consumer for this database shares the same scoped budget.
+		dbLLMClient := llm.New(&cfg.LLM, logStructuredWrapper)
+		if fleetLLMBudget != nil {
+			dbLLMClient.SetBudget(dbBudget{b: fleetLLMBudget, db: name})
+		}
+		dbOptimizerClient := newFleetOptimizerClient(name, dbLLMClient)
+		dbLLMManager := llm.NewManager(
+			dbLLMClient, dbOptimizerClient,
+			cfg.LLM.OptimizerLLM.FallbackToGeneral,
+		)
+
 		// Per-database optimizer.
 		var dbOpt *optimizer.Optimizer
 		if cfg.LLM.Optimizer.Enabled && llmClient.IsEnabled() {
-			optClient := llmClient
-			if cfg.LLM.OptimizerLLM.Enabled {
-				optClient = llm.NewOptimizerClient(
-					&cfg.LLM, &cfg.LLM.OptimizerLLM,
-					logStructuredWrapper,
-				)
-			}
+			optClient := dbOptimizerClient
 			var fallback *llm.Client
 			if cfg.LLM.OptimizerLLM.FallbackToGeneral &&
-				optClient != llmClient {
-				fallback = llmClient
+				optClient != dbLLMClient {
+				fallback = dbLLMClient
 			}
 			dbOpt = optimizer.New(
 				optClient, fallback, dbPool,
@@ -1361,7 +1355,7 @@ func initFleetMultiDB() {
 		var dbAdvIface analyzer.ConfigAdvisor
 		if cfg.Advisor.Enabled && llmClient.IsEnabled() {
 			dbAdv := advisor.New(
-				dbPool, cfg, dbColl, llmMgr,
+				dbPool, cfg, dbColl, dbLLMManager,
 				logStructuredWrapper,
 			)
 			dbAdv.WithCloudEnv(dbCloudEnv)
@@ -1403,12 +1397,12 @@ func initFleetMultiDB() {
 				MaxConcurrentAnalyze:          cfg.Tuner.MaxConcurrentAnalyze,
 			}
 			var tunerOpts []tuner.Option
-			if cfg.Tuner.LLMEnabled && llmMgr != nil {
-				tc := llmMgr.ForPurpose("query_tuning")
+			if cfg.Tuner.LLMEnabled && dbLLMManager != nil {
+				tc := dbLLMManager.ForPurpose("query_tuning")
 				var fb *llm.Client
 				if cfg.LLM.OptimizerLLM.FallbackToGeneral &&
-					llmMgr.General != nil {
-					fb = llmMgr.General
+					dbLLMManager.General != nil {
+					fb = dbLLMManager.General
 				}
 				tunerOpts = append(tunerOpts,
 					tuner.WithLLM(tc, fb))
@@ -1455,7 +1449,7 @@ func initFleetMultiDB() {
 		var dbBrief *briefing.Worker
 		if llmClient.IsEnabled() {
 			dbBrief = briefing.New(
-				dbPool, cfg, llmClient,
+				dbPool, cfg, dbLLMClient,
 				logStructuredWrapper,
 			)
 		}
@@ -1484,7 +1478,7 @@ func initFleetMultiDB() {
 			dbRCAEng = rca.NewEngine(
 				&cfg.RCA, logStructuredWrapper)
 			if llmClient.IsEnabled() {
-				dbRCAEng.WithLLM(llmClient)
+				dbRCAEng.WithLLM(dbLLMClient)
 			}
 			// v0.9.1: fleet-mode logwatch via per-cluster fanout.
 			if dbLogFanout != nil {
@@ -1533,13 +1527,14 @@ func initFleetMultiDB() {
 		dbExec.WithDispatcher(dbDispatcher)
 		dbExec.WithDatabaseName(name)
 		if llmClient != nil && llmClient.IsEnabled() {
-			dbExec.WithJustifier(llmClient)
+			dbExec.WithJustifier(dbLLMClient)
 		}
 		dbAnal.WithDispatcher(dbDispatcher)
 		dbAnal.WithDatabaseName(name)
 		if llmClient != nil && llmClient.IsEnabled() {
-			dbAnal.WithPlanNarrator(
-				analyzer.NewLLMPlanNarrator(llmClient, logStructuredWrapper))
+			dbAnal.WithPlanNarrator(analyzer.NewLLMPlanNarrator(
+				dbLLMClient, logStructuredWrapper,
+			))
 		}
 
 		startInstanceWorker(instWorkers, func() {
@@ -1555,7 +1550,7 @@ func initFleetMultiDB() {
 				logStructuredWrapper,
 			)
 			if llmClient != nil && llmClient.IsEnabled() {
-				dbLint.SetLLMClient(llmClient)
+				dbLint.SetLLMClient(dbLLMClient)
 			}
 			startInstanceWorker(instWorkers, func() { dbLint.Run(instCtx) })
 		}
@@ -1563,8 +1558,8 @@ func initFleetMultiDB() {
 		// Per-database migration DDL safety advisor.
 		if cfg.Migration.Enabled {
 			var dbMigLLM *llm.Client
-			if llmMgr != nil {
-				dbMigLLM = llmMgr.General
+			if dbLLMManager != nil {
+				dbMigLLM = dbLLMManager.General
 			}
 			dbAdvisor := migration.NewAdvisor(
 				dbPool, &cfg.Migration,
@@ -1848,6 +1843,7 @@ func fleetDBOrchestrator(
 			// Update fleet status for this instance.
 			if inst := fleetMgr.GetInstance(name); inst != nil {
 				updateInstanceFindings(ctx, inst)
+				fleetMgr.RecordHealthSnapshot(ctx, name)
 			}
 		case <-ctx.Done():
 			return
@@ -1867,108 +1863,38 @@ func buildFleetLLMFeatures(
 	analyzer.ConfigAdvisor,
 	*tuner.Tuner,
 	*briefing.Worker,
+	*llm.Client,
+	*llm.Manager,
 ) {
 	if llmClient == nil || !llmClient.IsEnabled() {
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil, nil
 	}
-
-	// Optimizer.
-	var dbOpt *optimizer.Optimizer
-	if cfg.LLM.Optimizer.Enabled {
-		optClient := llmClient
-		if cfg.LLM.OptimizerLLM.Enabled {
-			optClient = llm.NewOptimizerClient(
-				&cfg.LLM, &cfg.LLM.OptimizerLLM,
-				logStructuredWrapper,
-			)
-		} else if fleetLLMBudget != nil {
-			// Per-DB client so the fleet budget attaches per database
-			// instead of to the shared client (F5).
-			optClient = llm.New(&cfg.LLM, logStructuredWrapper)
-		}
-		if fleetLLMBudget != nil {
-			optClient.SetBudget(dbBudget{b: fleetLLMBudget, db: databaseName})
-		}
-		var fallback *llm.Client
-		if cfg.LLM.OptimizerLLM.FallbackToGeneral &&
-			optClient != llmClient {
-			fallback = llmClient
-		}
-		dbOpt = optimizer.New(
-			optClient, fallback, dbPool,
-			&cfg.LLM.Optimizer, dbPGVersion, false,
-			cfg.LLM.OptimizerLLM.MaxOutputTokens,
-			logStructuredWrapper,
-		)
+	dbClient := llm.New(&cfg.LLM, logStructuredWrapper)
+	if fleetLLMBudget != nil {
+		dbClient.SetBudget(dbBudget{b: fleetLLMBudget, db: databaseName})
 	}
+	managerOptimizer := newFleetOptimizerClient(databaseName, dbClient)
+	dbLLMMgr := llm.NewManager(
+		dbClient, managerOptimizer,
+		cfg.LLM.OptimizerLLM.FallbackToGeneral,
+	)
 
-	// Advisor (with per-database cloud detection).
-	var dbAdvIface analyzer.ConfigAdvisor
-	if cfg.Advisor.Enabled {
-		dbAdv := advisor.New(
-			dbPool, cfg, dbColl, llmMgr,
-			logStructuredWrapper,
-		)
-		dbCloudEnv := detectCloudEnv(dbPool)
-		dbAdv.WithCloudEnv(dbCloudEnv)
-		dbAdv.WithDatabaseName(databaseName)
-		dbAdvIface = dbAdv
-	}
+	dbOpt := newFleetOptimizer(
+		dbPool, dbPGVersion, dbClient, managerOptimizer,
+	)
 
-	// Tuner.
-	var dbTuner *tuner.Tuner
-	if cfg.Tuner.Enabled {
-		hpAvail, _ := tuner.DetectHintPlan(
-			context.Background(), dbPool)
-		tunerCfg := tuner.TunerConfig{
-			Enabled:                cfg.Tuner.Enabled,
-			LLMEnabled:             cfg.Tuner.LLMEnabled,
-			WorkMemMaxMB:           cfg.Tuner.WorkMemMaxMB,
-			PlanTimeRatio:          cfg.Tuner.PlanTimeRatio,
-			NestedLoopRowThreshold: cfg.Tuner.NestedLoopRowThreshold,
-			ParallelMinTableRows:   cfg.Tuner.ParallelMinTableRows,
-			MinQueryCalls:          cfg.Tuner.MinQueryCalls,
-			VerifyAfterApply:       cfg.Tuner.VerifyAfterApply,
-			CascadeCooldownCycles:  cfg.Trust.CascadeCooldownCycles,
+	dbAdvIface := newFleetAdvisor(
+		dbPool, dbColl, databaseName, dbLLMMgr,
+	)
 
-			// v0.8.5 Feature 1 — Hint revalidation loop.
-			HintRetirementDays:           cfg.Tuner.HintRetirementDays,
-			RevalidationIntervalHours:    cfg.Tuner.RevalidationIntervalHours,
-			RevalidationKeepRatio:        cfg.Tuner.RevalidationKeepRatio,
-			RevalidationRollbackRatio:    cfg.Tuner.RevalidationRollbackRatio,
-			RevalidationExplainTimeoutMs: cfg.Tuner.RevalidationExplainTimeoutMs,
-
-			// v0.8.5 Feature 2 — Stale-stats detection + ANALYZE.
-			StaleStatsEstimateSkew:        cfg.Tuner.StaleStatsEstimateSkew,
-			StaleStatsModRatio:            cfg.Tuner.StaleStatsModRatio,
-			StaleStatsAgeMinutes:          cfg.Tuner.StaleStatsAgeMinutes,
-			AnalyzeMaxTableMB:             cfg.Tuner.AnalyzeMaxTableMB,
-			AnalyzeCooldownMinutes:        cfg.Tuner.AnalyzeCooldownMinutes,
-			AnalyzeMaintenanceThresholdMB: cfg.Tuner.AnalyzeMaintenanceThresholdMB,
-			AnalyzeTimeoutMs:              cfg.Tuner.AnalyzeTimeoutMs,
-			MaxConcurrentAnalyze:          cfg.Tuner.MaxConcurrentAnalyze,
-		}
-		var tunerOpts []tuner.Option
-		if cfg.Tuner.LLMEnabled && llmMgr != nil {
-			tc := llmMgr.ForPurpose("query_tuning")
-			var fb *llm.Client
-			if cfg.LLM.OptimizerLLM.FallbackToGeneral &&
-				llmMgr.General != nil {
-				fb = llmMgr.General
-			}
-			tunerOpts = append(tunerOpts,
-				tuner.WithLLM(tc, fb))
-		}
-		dbTuner = tuner.New(dbPool, tunerCfg, hpAvail,
-			logStructuredWrapper, tunerOpts...)
-	}
+	dbTuner := newFleetTuner(dbPool, dbLLMMgr)
 
 	// Briefing.
 	dbBrief := briefing.New(
-		dbPool, cfg, llmClient, logStructuredWrapper,
+		dbPool, cfg, dbClient, logStructuredWrapper,
 	)
 
-	return dbOpt, dbAdvIface, dbTuner, dbBrief
+	return dbOpt, dbAdvIface, dbTuner, dbBrief, dbClient, dbLLMMgr
 }
 
 func resolveDBName() string {

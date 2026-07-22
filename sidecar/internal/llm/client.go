@@ -36,11 +36,10 @@ type Client struct {
 	// called concurrently from per-database analyzers/optimizers/advisors
 	// (C1); budgetResetDay was previously a plain int raced against the
 	// atomic counter.
-	tokensUsedToday  atomic.Int64
-	budgetResetDay   atomic.Int64
-	budgetMu         sync.Mutex
-	reservedTokens   int64
-	reservedExternal int
+	tokensUsedToday atomic.Int64
+	budgetResetDay  atomic.Int64
+	budgetMu        sync.Mutex
+	reservedTokens  int64
 
 	// budget is an optional external token budget (e.g. a per-database
 	// allocation in fleet mode), enforced in addition to the daily
@@ -57,6 +56,8 @@ type Client struct {
 // DB can't drain the whole token budget (F5). nil disables it.
 type Budgeter interface {
 	CanSpend(tokens int) bool
+	// Spend applies a usage delta. Negative deltas release a reservation
+	// after a request fails or uses fewer tokens than estimated.
 	Spend(tokens int)
 }
 
@@ -137,7 +138,12 @@ func (c *Client) IsCircuitOpen() bool {
 }
 
 // Chat sends a chat completion request.
-func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (string, int, error) {
+func (c *Client) Chat(
+	ctx context.Context,
+	system string,
+	user string,
+	maxTokens int,
+) (string, int, error) {
 	requestCtx, cfg, generation, finish := c.beginRequest(ctx)
 	defer finish()
 	if !configEnabled(cfg) {
@@ -147,7 +153,7 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 		return "", 0, fmt.Errorf("LLM circuit breaker open")
 	}
 	maxTokens = normalizedMaxTokens(cfg.Model, maxTokens)
-	throttleKey := requestThrottleKey(cfg)
+	throttleKey := requestThrottleKey(cfg, system, user)
 	if err := c.acquireThrottle(throttleKey, cfg.CooldownSeconds); err != nil {
 		return "", 0, err
 	}
@@ -200,7 +206,7 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 
 	resp, err := c.doWithRetry(requestCtx, httpReq, body, cfg.APIKey)
 	if err != nil {
-		if requestCtx.Err() == nil {
+		if shouldRecordProviderFailure(ctx, requestCtx) {
 			c.recordFailure()
 		}
 		return "", 0, providerRequestError("LLM request", err)
@@ -253,6 +259,19 @@ func (c *Client) Chat(ctx context.Context, system, user string, maxTokens int) (
 	}
 
 	return content, tokens, nil
+}
+
+func shouldRecordProviderFailure(
+	callerCtx context.Context,
+	requestCtx context.Context,
+) bool {
+	if requestCtx.Err() == nil {
+		return true
+	}
+	if callerCtx != nil && callerCtx.Err() != nil {
+		return false
+	}
+	return requestCtx.Err() == context.DeadlineExceeded
 }
 
 func (c *Client) doWithRetry(
@@ -392,7 +411,6 @@ func (c *Client) ResetBudget() {
 	defer c.budgetMu.Unlock()
 	c.tokensUsedToday.Store(0)
 	c.reservedTokens = 0
-	c.reservedExternal = 0
 	c.budgetResetDay.Store(int64(time.Now().YearDay()))
 }
 

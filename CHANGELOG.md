@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.3.1 (2026-07-22) -- Correctness and Safety Audit Follow-up
+
+### Fixed
+
+- Restricted LLM model discovery to administrators and blocked SSRF through
+  private, loopback, metadata, redirected, or DNS-rebound provider endpoints.
+- Scoped LLM cooldowns to logical work items, counted provider timeouts toward
+  circuit health, and prevented local admission throttles from poisoning
+  optimizer table circuit breakers.
+- Enforced atomic per-database token budgets across optimizer, advisor, tuner,
+  briefing, RCA, narration, justification, schema lint, and migration clients.
+- Restored fleet health-history samples, initialized fleet and meta-database
+  ANALYZE concurrency limits, and made AgentDB collectors process-owned and
+  drainable instead of inheriting a short reconciliation context.
+- Initialized the general LLM runtime in meta-database mode and wired scoped
+  LLM clients through every per-database consumer.
+- Made executor policy reads race-free during configuration hot reload.
+- Corrected cron maintenance windows to honor month, day-of-month, and
+  day-of-week semantics before autonomous moderate-risk maintenance.
+- Applied transaction-local statement and lock timeouts to collector catalog
+  reads, including early-error cleanup of pooled transactions.
+- Added safe on-demand EXPLAIN capture for normalized parameterized queries.
+- Clarified that interactive ReAct diagnosis belongs to the frozen C extension,
+  not the Go sidecar, and made generated lifecycle documentation byte-stable.
+
 ## v1.3 (2026-07-19) -- Correctness and Safety Remediation
 
 ### Fixed

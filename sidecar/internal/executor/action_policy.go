@@ -41,6 +41,7 @@ func EvaluateActionPolicy(
 	contract ActionContract,
 	ctx ActionPolicyContext,
 ) ActionPolicyDecision {
+	ctx.Config = snapshotPolicyConfig(ctx.Config)
 	decision := newPolicyDecision(contract, ctx)
 	if blocked := hardBlockReason(contract, ctx, decision.Provider); blocked != "" {
 		decision.Decision = PolicyDecisionBlocked
@@ -87,6 +88,18 @@ func EvaluateActionPolicy(
 		decision.BlockedReason = "unknown or prohibited risk tier"
 	}
 	return decision
+}
+
+func snapshotPolicyConfig(cfg *config.Config) *config.Config {
+	if cfg == nil {
+		return nil
+	}
+	config.RLockForHotReload()
+	defer config.RUnlockForHotReload()
+	return &config.Config{
+		CloudEnvironment: cfg.CloudEnvironment,
+		Trust:            cfg.Trust,
+	}
 }
 
 func newPolicyDecision(

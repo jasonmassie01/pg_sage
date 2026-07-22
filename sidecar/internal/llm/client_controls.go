@@ -4,12 +4,24 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
 )
+
+// externalBudgetMu makes reservation and reconciliation atomic across distinct
+// Client instances that share one fleet budget. Per-client budgetMu cannot
+// provide that guarantee because fleet mode intentionally builds one client per
+// database and purpose.
+var externalBudgetMu sync.Mutex
+
+// ErrRequestCooldown identifies local duplicate suppression. Callers can use
+// errors.Is to avoid treating admission control as a provider failure.
+var ErrRequestCooldown = errors.New("LLM request cooldown active")
 
 type budgetReservation struct {
 	tokens   int
@@ -103,12 +115,14 @@ func (c *Client) Reconfigure(next *config.LLMConfig) {
 	c.mu.Unlock()
 }
 
-func requestThrottleKey(cfg config.LLMConfig) string {
+func requestThrottleKey(cfg config.LLMConfig, system, user string) string {
 	credential := sha256.Sum256([]byte(cfg.APIKey))
+	workItem := sha256.Sum256([]byte(system + "\x00" + user))
 	return strings.Join([]string{
 		strings.TrimRight(cfg.Endpoint, "/"),
 		cfg.Model,
 		hex.EncodeToString(credential[:8]),
+		hex.EncodeToString(workItem[:16]),
 	}, "|")
 }
 
@@ -119,11 +133,11 @@ func (c *Client) acquireThrottle(key string, cooldownSeconds int) error {
 	c.throttleMu.Lock()
 	defer c.throttleMu.Unlock()
 	if _, active := c.activeKeys[key]; active {
-		return fmt.Errorf("LLM request cooldown active for model key")
+		return fmt.Errorf("%w for work item", ErrRequestCooldown)
 	}
 	cooldown := time.Duration(cooldownSeconds) * time.Second
 	if last := c.lastCalls[key]; !last.IsZero() && time.Since(last) < cooldown {
-		return fmt.Errorf("LLM request cooldown active for model key")
+		return fmt.Errorf("%w for work item", ErrRequestCooldown)
 	}
 	c.activeKeys[key] = struct{}{}
 	return nil
@@ -151,7 +165,6 @@ func (c *Client) reserveBudget(
 	if today != c.budgetResetDay.Load() {
 		c.tokensUsedToday.Store(0)
 		c.reservedTokens = 0
-		c.reservedExternal = 0
 		c.budgetResetDay.Store(today)
 	}
 	used := c.tokensUsedToday.Load()
@@ -167,13 +180,21 @@ func (c *Client) reserveBudget(
 			used+c.reservedTokens, cfg.TokenBudgetDaily,
 		)
 	}
-	if c.budget != nil && !c.budget.CanSpend(tokens+c.reservedExternal) {
-		return budgetReservation{}, fmt.Errorf("per-database token budget exhausted")
-	}
 	c.reservedTokens += int64(tokens)
 	reservation := budgetReservation{tokens: tokens}
 	if c.budget != nil {
-		c.reservedExternal += tokens
+		externalBudgetMu.Lock()
+		if !c.budget.CanSpend(tokens) {
+			externalBudgetMu.Unlock()
+			c.reservedTokens -= int64(tokens)
+			return budgetReservation{}, fmt.Errorf(
+				"per-database token budget exhausted",
+			)
+		}
+		// Charge the estimate as a reservation before provider I/O. A failed
+		// request releases it; a completed request reconciles it to actual use.
+		c.budget.Spend(tokens)
+		externalBudgetMu.Unlock()
 		reservation.external = tokens
 	}
 	return reservation, nil
@@ -183,16 +204,21 @@ func (c *Client) releaseBudget(reservation budgetReservation) {
 	c.budgetMu.Lock()
 	defer c.budgetMu.Unlock()
 	c.reservedTokens -= int64(reservation.tokens)
-	c.reservedExternal -= reservation.external
+	if c.budget != nil && reservation.external > 0 {
+		externalBudgetMu.Lock()
+		c.budget.Spend(-reservation.external)
+		externalBudgetMu.Unlock()
+	}
 }
 
 func (c *Client) reconcileBudget(reservation budgetReservation, actual int) {
 	c.budgetMu.Lock()
 	defer c.budgetMu.Unlock()
 	c.reservedTokens -= int64(reservation.tokens)
-	c.reservedExternal -= reservation.external
 	c.tokensUsedToday.Add(int64(actual))
 	if c.budget != nil {
-		c.budget.Spend(actual)
+		externalBudgetMu.Lock()
+		c.budget.Spend(actual - reservation.external)
+		externalBudgetMu.Unlock()
 	}
 }

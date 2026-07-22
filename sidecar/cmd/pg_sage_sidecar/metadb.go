@@ -19,6 +19,8 @@ import (
 	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -313,6 +315,10 @@ func logRetry(
 // Starts a background goroutine to reconnect failed databases.
 func initMetaDBFleet(state *metaDBState) {
 	fleetMgr = fleet.NewManager(cfg)
+	initializeAnalyzeSemaphore()
+	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
+	registerLLMConfigOwner()
+	llmMgr = llm.NewManager(llmClient, nil, false)
 
 	ctx, cancel := context.WithTimeout(
 		context.Background(), metaDBTimeout,
@@ -326,6 +332,11 @@ func initMetaDBFleet(state *metaDBState) {
 	}
 
 	logInfo("meta-db", "found %d enabled databases", len(records))
+	names := make([]string, 0, len(records))
+	for _, record := range records {
+		names = append(names, record.Name)
+	}
+	initializeFleetBudget(names)
 	for _, rec := range records {
 		registerStoreDatabase(state, rec)
 	}
@@ -414,9 +425,9 @@ func buildStoreDatabaseRuntime(
 	startInstanceWorker(instWorkers, func() { dbColl.Run(instCtx) })
 
 	// LLM features for meta-db registered databases.
-	dbOpt, dbAdvIface, dbTuner, dbBrief :=
+	dbOpt, dbAdvIface, dbTuner, dbBrief, dbLLMClient, _ :=
 		buildFleetLLMFeatures(dbPool, dbPGVersion, dbColl,
-			rec.DatabaseName)
+			rec.Name)
 
 	// dbTuner is a *tuner.Tuner which may be nil when cfg.Tuner.Enabled
 	// is false. Passing the typed nil directly produces a non-nil
@@ -433,10 +444,29 @@ func buildStoreDatabaseRuntime(
 	dbAnal.WithSupplementalDetector(executor.NewRunawayDetector(
 		dbPool, &cfg.Runaway, logStructuredWrapper,
 	))
+	var dbRCAEng *rca.Engine
+	if cfg.RCA.Enabled {
+		dbRCAEng = rca.NewEngine(&cfg.RCA, logStructuredWrapper)
+		if dbLLMClient != nil {
+			dbRCAEng.WithLLM(dbLLMClient)
+		}
+		dbAnal.WithRCAEngine(&rcaAdapter{e: dbRCAEng})
+	}
+	if dbLLMClient != nil {
+		dbAnal.WithPlanNarrator(analyzer.NewLLMPlanNarrator(
+			dbLLMClient, logStructuredWrapper,
+		))
+	}
 	startInstanceWorker(instWorkers, func() { dbAnal.Run(instCtx) })
 
 	dbExec := buildExecutor(rec, dbPool, dbAnal, dbCloudEnv)
 	dbActionStore := store.NewActionStore(dbPool)
+	if dbLLMClient != nil {
+		dbExec.WithJustifier(dbLLMClient)
+	}
+	if dbRCAEng != nil {
+		dbRCAEng.WithActionStore(dbActionStore)
+	}
 	startInstanceWorker(instWorkers, func() {
 		store.StartActionExpiry(
 			instCtx, dbActionStore, logStructuredWrapper)
@@ -615,6 +645,7 @@ func buildExecutor(
 	dbExec := executor.New(
 		dbPool, dbExecCfg, dbAnal, rStart, logStructuredWrapper,
 	)
+	dbExec.WithAnalyzeSemaphore(analyzeSem)
 	dbActionStore := store.NewActionStore(dbPool)
 	dbExec.WithActionStore(dbActionStore, resolveExecMode(rec))
 	if err := dbExec.SetTrustLevel(rec.TrustLevel); err != nil {
