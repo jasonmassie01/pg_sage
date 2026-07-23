@@ -10,54 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pg-sage/sidecar/internal/analyzer"
-	"github.com/pg-sage/sidecar/internal/config"
 )
-
-// ShouldExecute determines whether a finding should be auto-remediated
-// based on trust level, risk tier, ramp age, and maintenance window.
-func ShouldExecute(
-	f analyzer.Finding,
-	cfg *config.Config,
-	rampStart time.Time,
-	isReplica bool,
-	emergencyStop bool,
-) bool {
-	if emergencyStop || isReplica {
-		return false
-	}
-
-	rampAge := time.Since(rampStart)
-
-	switch cfg.Trust.Level {
-	case "observation":
-		return false
-
-	case "advisory":
-		// Advisory: only SAFE actions after 8-day ramp.
-		return f.ActionRisk == "safe" &&
-			cfg.Trust.Tier3Safe &&
-			rampAge >= 8*24*time.Hour
-
-	case "autonomous":
-		switch f.ActionRisk {
-		case "safe":
-			return cfg.Trust.Tier3Safe &&
-				rampAge >= 8*24*time.Hour
-		case "moderate":
-			return cfg.Trust.Tier3Moderate &&
-				rampAge >= 31*24*time.Hour &&
-				inMaintenanceWindow(cfg.Trust.MaintenanceWindow)
-		case "high_risk":
-			return false
-		default:
-			return false
-		}
-
-	default:
-		return false
-	}
-}
 
 // inMaintenanceWindow parses a maintenance-window expression and returns
 // true if the current time falls inside it. Supports:

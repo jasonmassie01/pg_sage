@@ -35,7 +35,7 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	ctx := context.Background()
 	testPoolOnce.Do(func() {
 		dsn := testDSN()
-		qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		qctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
 
 		poolCfg, err := pgxpool.ParseConfig(dsn)

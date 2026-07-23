@@ -6,7 +6,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/stretchr/testify/assert"
+	"github.com/pg-sage/sidecar/internal/testsupport/assert"
 )
 
 // ---------------------------------------------------------------------------

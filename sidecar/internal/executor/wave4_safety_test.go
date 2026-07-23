@@ -161,7 +161,7 @@ func TestWave4SessionSettingFailureCannotPoisonPool(t *testing.T) {
 	conn.Release()
 
 	err = ExecConcurrently(
-		t.Context(), pool, "ANALYZE sage.findings", 1234*time.Millisecond,
+		t.Context(), pool, "ANALYZE public.missing_timeout_fixture", 1234*time.Millisecond,
 		WithLockTimeout(-1),
 	)
 	if err == nil {

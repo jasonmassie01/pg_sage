@@ -2,10 +2,12 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -389,6 +391,17 @@ func (c *Collector) collectSystem(ctx context.Context) (SystemStats, error) {
 		&s.TotalCheckpoints, &s.IsReplica,
 		&s.DBSizeBytes,
 	)
+	var pgErr *pgconn.PgError
+	if c.pgVersionNum >= 170000 && errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+		err = c.catalogQueryRow(ctx, systemStatsSQL14).Scan(
+			&s.ActiveBackends, &s.IdleInTransaction,
+			&s.TotalBackends, &s.MaxConnections,
+			&s.CacheHitRatio, &s.Deadlocks,
+			&s.BlkReadTime, &s.BlkWriteTime,
+			&s.TotalCheckpoints, &s.IsReplica,
+			&s.DBSizeBytes,
+		)
+	}
 	return s, err
 }
 

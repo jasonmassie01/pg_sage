@@ -11,6 +11,7 @@ import { UsersPage } from './pages/UsersPage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { AgentDBsPage } from './pages/AgentDBsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
+import { ValuePage } from './pages/ValuePage'
 import { useAPI } from './hooks/useAPI'
 import { TimeRangeProvider } from './context/TimeRangeContext'
 import { CommandPalette } from './components/CommandPalette'
@@ -144,8 +145,17 @@ export default function App() {
   const pageState = (() => {
     switch (route) {
       case '/':
-        return { title: 'Overview', node: <Dashboard database={selectedDB}
-          onSelectDB={setSelectedDB} /> }
+        return { title: 'Value', node: <ValuePage database={selectedDB} /> }
+      case '/advanced':
+        return { title: 'Snapshot & metrics',
+          node: <Dashboard database={selectedDB}
+            onSelectDB={setSelectedDB} /> }
+      case '/advanced/findings':
+        return { title: 'Findings explorer',
+          node: <CasesPage database={selectedDB} user={user} /> }
+      case '/advanced/actions':
+        return { title: 'Action history',
+          node: <Actions database={selectedDB} user={user} /> }
       case '/manage-databases':
         return isAdmin ? { title: 'Databases', node: <DatabasesPage /> }
           : denied

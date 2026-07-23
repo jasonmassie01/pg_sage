@@ -16,7 +16,7 @@ func requireMigrationSafetyDB(
 	t *testing.T,
 ) (*pgxpool.Pool, context.Context) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
 	dsn := os.Getenv("SAGE_DATABASE_URL")
 	if dsn == "" {

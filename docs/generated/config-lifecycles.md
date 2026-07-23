@@ -65,9 +65,16 @@
 | `briefing.channels` | `reconfigure` | `briefing` |
 | `briefing.schedule` | `reconfigure` | `briefing` |
 | `briefing.slack_webhook_url` | `reconfigure` | `briefing` |
+| `clone.dle_endpoint` | `restart` | `-` |
+| `clone.dle_token` | `restart` | `-` |
+| `clone.max_clone_age_minutes` | `restart` | `-` |
+| `clone.provider` | `restart` | `-` |
 | `collector.batch_size` | `restart` | `-` |
 | `collector.interval_seconds` | `reconfigure` | `collector` |
 | `collector.max_queries` | `restart` | `-` |
+| `custodian.freeze.red_buffer_pct` | `restart` | `-` |
+| `custodian.wal.abandon_after_minutes` | `restart` | `-` |
+| `custodian.wal.retained_wal_disk_pct_ceiling` | `restart` | `-` |
 | `databases` | `lifecycle_api` | `-` |
 | `defaults.analyzer_interval_seconds` | `restart` | `-` |
 | `defaults.collector_interval_seconds` | `restart` | `-` |
@@ -137,6 +144,8 @@
 | `logwatch.poll_interval_ms` | `restart` | `-` |
 | `logwatch.slow_query_enabled` | `restart` | `-` |
 | `logwatch.temp_file_min_bytes` | `restart` | `-` |
+| `mcp.enabled` | `restart` | `-` |
+| `mcp.transport` | `restart` | `-` |
 | `meta_db` | `restart` | `-` |
 | `migration.activity_polling` | `restart` | `-` |
 | `migration.ddl_row_threshold` | `restart` | `-` |
@@ -153,6 +162,7 @@
 | `oauth.issuer_url` | `restart` | `-` |
 | `oauth.provider` | `restart` | `-` |
 | `oauth.redirect_url` | `restart` | `-` |
+| `policy.profile` | `restart` | `-` |
 | `postgres.database` | `restart` | `-` |
 | `postgres.database_url` | `restart` | `-` |
 | `postgres.host` | `restart` | `-` |
@@ -221,3 +231,10 @@
 | `tuner.stale_stats_mod_ratio` | `restart` | `-` |
 | `tuner.verify_after_apply` | `restart` | `-` |
 | `tuner.work_mem_max_mb` | `restart` | `-` |
+| `value.toil_model_version` | `restart` | `-` |
+| `verify.min_gain_pct` | `restart` | `-` |
+| `verify.min_samples` | `restart` | `-` |
+| `verify.regress_pct` | `restart` | `-` |
+| `verify.window_max_minutes` | `restart` | `-` |
+| `verify.window_minutes` | `restart` | `-` |
+| `verify.write_impact_pct` | `restart` | `-` |

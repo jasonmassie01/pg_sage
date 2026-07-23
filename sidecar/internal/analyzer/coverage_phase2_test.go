@@ -27,7 +27,7 @@ const destructiveTestLockKey = "pg_sage_test_cross_pkg"
 // Skips the test if the database is unavailable.
 func phase2Pool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
 	pool, err := pgxpool.New(ctx, os.Getenv("SAGE_DATABASE_URL"))

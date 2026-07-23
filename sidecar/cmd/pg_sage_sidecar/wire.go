@@ -32,6 +32,7 @@ type WireParams struct {
 	RateLimiter *RateLimiter
 	Config      *config.ConfigController
 	ConfigBase  *config.Config
+	MCPHandler  http.Handler
 }
 
 // WireResult holds the assembled router and resolved deps for
@@ -142,6 +143,7 @@ func wireRouter(p WireParams) WireResult {
 			ConfigBase:       p.ConfigBase,
 			DisableConfigWrites: p.Cfg != nil && p.Cfg.IsFleet() &&
 				!p.Cfg.HasMetaDB(),
+			MCPHandler: p.MCPHandler,
 		},
 		middlewares...,
 	)

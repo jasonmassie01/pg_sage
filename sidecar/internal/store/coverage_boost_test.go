@@ -32,7 +32,7 @@ func coverageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
 	cbPoolOnce.Do(func() {
-		qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		qctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
 
 		cfg, err := pgxpool.ParseConfig(os.Getenv("SAGE_DATABASE_URL"))

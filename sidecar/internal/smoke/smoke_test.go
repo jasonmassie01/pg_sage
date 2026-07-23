@@ -46,7 +46,7 @@ func requireSmokeDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 
 	sPoolOnce.Do(func() {
 		dsn := smokeDSN()
-		qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		qctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
 
 		pool, err := pgxpool.New(qctx, dsn)

@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/schema"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/pg-sage/sidecar/internal/testsupport/assert"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 var (

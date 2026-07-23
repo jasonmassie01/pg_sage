@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -84,6 +85,11 @@ type Executor struct {
 	policyMu           sync.RWMutex
 	executorDisabled   bool
 	emergencyStopFn    func(context.Context) bool
+	policyGate         policy.Gate
+	managedConfig      ManagedConfigAdapter
+	indexVerification  *verifiedIndexLifecycle
+	postDDLMu          sync.RWMutex
+	postDDLHook        func(context.Context) error
 
 	// monitors tracks background MonitorAndRollback goroutines so
 	// Shutdown can wait for them. shutdownCh is closed to signal
@@ -101,6 +107,41 @@ func (e *Executor) WithAnalyzeSemaphore(sem chan struct{}) {
 	e.analyzeSem = sem
 }
 
+// WithPolicyGate installs the standing-policy gate. Once installed, every
+// background candidate is authorized exclusively by this gate.
+func (e *Executor) WithPolicyGate(gate policy.Gate) {
+	e.policyMu.Lock()
+	defer e.policyMu.Unlock()
+	e.policyGate = gate
+}
+
+// WithManagedConfigAdapter installs the provider-specific configuration
+// integration used instead of ALTER SYSTEM on managed PostgreSQL services.
+// A managed configuration change fails closed when no adapter is installed.
+func (e *Executor) WithManagedConfigAdapter(adapter ManagedConfigAdapter) {
+	e.policyMu.Lock()
+	defer e.policyMu.Unlock()
+	e.managedConfig = adapter
+}
+
+func (e *Executor) WithPostDDLHook(hook func(context.Context) error) {
+	e.postDDLMu.Lock()
+	defer e.postDDLMu.Unlock()
+	e.postDDLHook = hook
+}
+
+// StandingPolicyGate returns the exact gate used by autonomous executor work.
+// External intent surfaces must reuse this instance instead of recreating
+// authorization logic.
+func (e *Executor) StandingPolicyGate() policy.Gate {
+	if e == nil {
+		return nil
+	}
+	e.policyMu.RLock()
+	defer e.policyMu.RUnlock()
+	return e.policyGate
+}
+
 // New creates a new Executor.
 func New(
 	pool *pgxpool.Pool,
@@ -109,7 +150,7 @@ func New(
 	rampStart time.Time,
 	logFn func(string, string, ...any),
 ) *Executor {
-	return &Executor{
+	executor := &Executor{
 		pool:          pool,
 		cfg:           cfg,
 		analyzer:      a,
@@ -123,6 +164,8 @@ func New(
 			return CheckEmergencyStop(ctx, pool)
 		},
 	}
+	executor.configureIndexVerification()
+	return executor
 }
 
 // Shutdown signals in-flight rollback monitors to abort their
@@ -260,24 +303,6 @@ func (e *Executor) effectiveExecMode() string {
 	return e.ExecutionMode()
 }
 
-// shouldExecute checks whether a finding should be executed,
-// respecting any per-instance trust level override.
-func (e *Executor) shouldExecute(
-	f analyzer.Finding, isReplica, emergencyStop bool,
-) bool {
-	e.policyMu.RLock()
-	override := e.trustLevelOverride
-	e.policyMu.RUnlock()
-	if override == "" {
-		return ShouldExecute(
-			f, e.cfg, e.rampStart, isReplica, emergencyStop)
-	}
-	cfgCopy := *e.cfg
-	cfgCopy.Trust.Level = override
-	return ShouldExecute(
-		f, &cfgCopy, e.rampStart, isReplica, emergencyStop)
-}
-
 // evaluateFindingPolicy is the single background-action authorization path.
 // It reloads runtime mode, trust, enabled state, and emergency stop for every
 // candidate so a safety downgrade takes effect before the next action.
@@ -286,6 +311,12 @@ func (e *Executor) evaluateFindingPolicy(
 	f analyzer.Finding,
 	isReplica bool,
 ) ActionPolicyDecision {
+	e.policyMu.RLock()
+	gate := e.policyGate
+	e.policyMu.RUnlock()
+	if gate != nil {
+		return e.evaluateStandingPolicy(ctx, gate, f, isReplica)
+	}
 	contract, ok := contractForFinding(f)
 	if !ok {
 		return ActionPolicyDecision{
@@ -307,6 +338,79 @@ func (e *Executor) evaluateFindingPolicy(
 		SafeActionsInFlight: len(e.analyzeSem),
 		SafeActionLimit:     cap(e.analyzeSem),
 	})
+}
+
+func (e *Executor) evaluateStandingPolicy(
+	ctx context.Context, gate policy.Gate, finding analyzer.Finding, isReplica bool,
+) ActionPolicyDecision {
+	request := policy.ActionRequest{
+		SQL: finding.RecommendedSQL, Feature: featureForFinding(finding),
+		TargetObjs: targetObjectsForFinding(finding),
+		IsReplica:  isReplica,
+	}
+	if contract, ok := contractForFinding(finding); ok {
+		request.Contract = policyContract(contract)
+	}
+	return standingPolicyDecision(gate.Authorize(ctx, request))
+}
+
+func policyContract(contract ActionContract) *policy.ActionContract {
+	result := &policy.ActionContract{
+		ActionType: contract.ActionType, RiskTier: policy.RiskTier(contract.BaseRiskTier),
+	}
+	for _, guardrail := range contract.Guardrails {
+		if strings.EqualFold(strings.TrimSpace(guardrail), "approval_required") {
+			result.Guardrails = append(result.Guardrails, policy.GuardrailApprovalRequired)
+		}
+	}
+	return result
+}
+
+func targetObjectsForFinding(finding analyzer.Finding) []string {
+	target := strings.TrimSpace(finding.ObjectIdentifier)
+	if target == "" {
+		return nil
+	}
+	return []string{target}
+}
+
+func featureForFinding(finding analyzer.Finding) string {
+	switch actionTypeForProposalSQL(finding.RecommendedSQL) {
+	case "analyze_table":
+		return "analyze"
+	case "vacuum_table":
+		return "vacuum"
+	case "set_table_autovacuum":
+		return "autovacuum_tuning"
+	case "alter_system_guc", "alter_database_guc":
+		return "config_guc"
+	default:
+		return "index"
+	}
+}
+
+func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
+	result := ActionPolicyDecision{
+		RiskTier: string(decision.RiskTier), BlockedReason: string(decision.Reason),
+		RequiresApproval: decision.Verdict == policy.VerdictQueueApproval,
+		EvidenceID:       decision.EvidenceID, DecisionID: decision.DecisionID,
+	}
+	switch decision.Verdict {
+	case policy.VerdictExecute:
+		result.Decision = PolicyDecisionExecute
+	case policy.VerdictQueueApproval:
+		result.Decision = PolicyDecisionQueueApproval
+	case policy.VerdictPark:
+		result.Decision = PolicyDecisionParked
+	case policy.VerdictObserveOnly:
+		result.Decision = PolicyDecisionObserveOnly
+	default:
+		result.Decision = PolicyDecisionBlocked
+	}
+	for _, guardrail := range decision.Guardrails {
+		result.Guardrails = append(result.Guardrails, string(guardrail))
+	}
+	return result
 }
 
 func (e *Executor) policySnapshot() (*config.Config, string, bool) {
@@ -340,6 +444,11 @@ func contractForFinding(f analyzer.Finding) (ActionContract, bool) {
 // RunCycle is called after each analyzer cycle to evaluate and execute
 // any actionable findings.
 func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
+	if e.indexVerification != nil {
+		if err := e.indexVerification.ResumeDue(ctx); err != nil {
+			e.logFn("executor", "resume index verification: %v", err)
+		}
+	}
 	// Manual mode and executor-disabled are hard background-action stops.
 	if e.effectiveExecMode() == "manual" || !e.ExecutorEnabled() {
 		return
@@ -491,7 +600,7 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			if latest.Decision != PolicyDecisionExecute {
 				return
 			}
-			e.executeFinding(ctx, f, findingID)
+			e.executeFinding(ctx, f, findingID, latest.DecisionID)
 		}()
 	}
 }
@@ -653,9 +762,16 @@ func estimatedToilForActionType(actionType string) int {
 // executeFinding runs the DDL for a single finding and handles
 // post-execution checks, rollback monitoring, and invalid index cleanup.
 func (e *Executor) executeFinding(
-	ctx context.Context, f analyzer.Finding, findingID int64,
+	ctx context.Context, f analyzer.Finding, findingID int64, decisionID int64,
 ) {
 	beforeState := e.snapshotBeforeState(ctx, targetQueryIDs(f))
+	releaseLease, leaseErr := e.acquireDDLLease(ctx, f, decisionID)
+	if leaseErr != nil {
+		e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID, leaseErr)
+		e.logFn("executor", "DDL lease denied for %q: %v", f.Title, leaseErr)
+		return
+	}
+	defer releaseLease()
 
 	// Config changes on managed providers must go through the provider's
 	// parameter group / database flags, not ALTER SYSTEM (which is blocked
@@ -667,7 +783,8 @@ func (e *Executor) executeFinding(
 		e.logFn("executor",
 			"%s: %s must be set via the parameter group, not ALTER SYSTEM",
 			e.cfg.CloudEnvironment, param)
-		e.logAction(ctx, f, findingID, beforeState,
+		e.logActionWithDecision(ctx, f, findingID, beforeState,
+			decisionID,
 			fmt.Errorf("managed provider %s: apply %s via parameter "+
 				"group/flags", e.cfg.CloudEnvironment, param))
 		return
@@ -675,6 +792,25 @@ func (e *Executor) executeFinding(
 
 	ddlTimeout := e.cfg.Safety.DDLTimeout()
 	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
+	var verifiedAction verifiedIndexAction
+	verifiedCreate := categorizeAction(f.RecommendedSQL) == "create_index"
+	if verifiedCreate {
+		var verificationErr error
+		verifiedAction, verificationErr = verifiedActionForFinding(f)
+		if verificationErr == nil && e.indexVerification != nil {
+			verificationErr = e.indexVerification.Admit(ctx)
+		} else if verificationErr == nil {
+			verificationErr = ErrVerificationUnavailable
+		}
+		if verificationErr != nil {
+			e.logActionWithDecision(
+				ctx, f, findingID, beforeState, decisionID, verificationErr,
+			)
+			e.logFn("executor", "withheld unverifiable CREATE INDEX %q: %v",
+				f.Title, verificationErr)
+			return
+		}
+	}
 	var execErr error
 	switch {
 	case categorizeAction(f.RecommendedSQL) == "analyze":
@@ -692,8 +828,13 @@ func (e *Executor) executeFinding(
 		)
 	}
 
-	actionID := e.logAction(ctx, f, findingID, beforeState, execErr)
+	actionID := e.logActionWithDecision(
+		ctx, f, findingID, beforeState, decisionID, execErr,
+	)
 	if execErr != nil {
+		_, _ = finalizeActionVerification(
+			ctx, e.pool, actionID, "failed", execErr.Error(),
+		)
 		if errors.Is(execErr, ErrLockNotAvailable) {
 			e.logFn("executor",
 				"lock timeout for %q on %s — circuit-breaking table",
@@ -710,6 +851,7 @@ func (e *Executor) executeFinding(
 				e.databaseName, execErr.Error()))
 		return
 	}
+	e.notifyPostDDL(ctx, f.RecommendedSQL)
 
 	e.logFn("executor",
 		"executed %q (action %d)", f.Title, actionID,
@@ -736,6 +878,16 @@ func (e *Executor) executeFinding(
 	if e.justifier != nil {
 		go e.justifyAndStore(context.WithoutCancel(ctx), actionID, f)
 	}
+	if verifiedCreate {
+		verifiedAction.WatchID = fmt.Sprintf("index-action-%d", actionID)
+		if err := e.indexVerification.WatchApplied(
+			context.WithoutCancel(ctx), verifiedAction, actionID,
+		); err != nil {
+			e.logFn("executor", "index verification failed for action %d: %v",
+				actionID, err)
+		}
+		return
+	}
 
 	// Post-check: verify index validity after CREATE INDEX only. DROP INDEX
 	// and other concurrently-required statements do not produce a new index.
@@ -760,9 +912,18 @@ func (e *Executor) executeFinding(
 					"DROP INDEX CONCURRENTLY IF EXISTS %s",
 					idxName,
 				)
-				dropErr := ExecConcurrently(
-					ctx, e.pool, dropSQL, ddlTimeout, lockOpt,
-				)
+				cleanup := f
+				cleanup.RecommendedSQL = dropSQL
+				cleanupDecision := e.evaluateFindingPolicy(ctx, cleanup, false)
+				var dropErr error
+				if cleanupDecision.Decision != PolicyDecisionExecute {
+					dropErr = errors.New(
+						"standing policy withheld invalid-index cleanup")
+				} else {
+					dropErr = ExecConcurrently(
+						ctx, e.pool, dropSQL, ddlTimeout, lockOpt,
+					)
+				}
 				if dropErr != nil {
 					// Surface loudly: the invalid index is now
 					// occupying disk, blocking future CREATE
@@ -806,9 +967,18 @@ func (e *Executor) executeFinding(
 				"new index %s invalid — preserving old index",
 				idxName)
 		} else {
-			dropErr := ExecConcurrently(
-				ctx, e.pool, dropOld, ddlTimeout, lockOpt,
-			)
+			cleanup := f
+			cleanup.RecommendedSQL = dropOld
+			cleanupDecision := e.evaluateFindingPolicy(ctx, cleanup, false)
+			var dropErr error
+			if cleanupDecision.Decision != PolicyDecisionExecute {
+				dropErr = errors.New(
+					"standing policy withheld superseded-index cleanup")
+			} else {
+				dropErr = ExecConcurrently(
+					ctx, e.pool, dropOld, ddlTimeout, lockOpt,
+				)
+			}
 			if dropErr != nil {
 				e.logFn("executor",
 					"DROP old index failed (new index valid): %v",
@@ -833,12 +1003,73 @@ func (e *Executor) executeFinding(
 				e.cfg.Trust.RollbackWindowMinutes,
 				e.logFn,
 				e.shutdownCh,
+				func(authCtx context.Context, rollbackSQL string) bool {
+					candidate := f
+					candidate.RecommendedSQL = rollbackSQL
+					decision := e.evaluateFindingPolicy(authCtx, candidate, false)
+					return decision.Decision == PolicyDecisionExecute
+				},
 			)
 		})
 	} else if actionID > 0 {
 		// No rollback possible (VACUUM, ANALYZE, pg_terminate_backend)
 		// — mark success immediately.
 		updateActionSuccess(ctx, e.pool, actionID)
+	}
+}
+
+func (e *Executor) acquireDDLLease(
+	ctx context.Context, finding analyzer.Finding, decisionID int64,
+) (func(), error) {
+	if decisionID <= 0 || !isDDLMutation(finding.RecommendedSQL) {
+		return func() {}, nil
+	}
+	objects, err := policy.NormalizeTargetObjects(
+		targetObjectsForFinding(finding),
+	)
+	if err != nil {
+		return func() {}, fmt.Errorf("normalize DDL lease targets: %w", err)
+	}
+	ttl := e.cfg.Safety.DDLTimeout() + time.Minute
+	manager := policy.NewPostgresLeaseManager(e.pool, nil, decisionID, ttl)
+	leaseID, err := manager.AcquireLease(
+		ctx, "executor", objects, finding.RecommendedSQL,
+	)
+	if err != nil {
+		return func() {}, err
+	}
+	return func() {
+		if err := manager.ReleaseLease(context.WithoutCancel(ctx), leaseID); err != nil {
+			e.logFn("executor", "release DDL lease %s: %v", leaseID, err)
+		}
+	}, nil
+}
+
+func isDDLMutation(sql string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(sql))
+	for _, prefix := range []string{
+		"CREATE INDEX ", "CREATE UNIQUE INDEX ", "DROP INDEX ",
+		"REINDEX ", "ALTER TABLE ",
+	} {
+		if strings.HasPrefix(upper, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Executor) notifyPostDDL(ctx context.Context, sql string) {
+	if !isDDLMutation(sql) {
+		return
+	}
+	e.postDDLMu.RLock()
+	hook := e.postDDLHook
+	e.postDDLMu.RUnlock()
+	if hook == nil {
+		return
+	}
+	if err := hook(ctx); err != nil {
+		e.logFn("executor", "post-DDL schema guard failed: %v", err)
 	}
 }
 
@@ -1117,6 +1348,17 @@ func (e *Executor) logAction(
 	beforeState map[string]any,
 	execErr error,
 ) int64 {
+	return e.logActionWithDecision(ctx, f, findingID, beforeState, 0, execErr)
+}
+
+func (e *Executor) logActionWithDecision(
+	ctx context.Context,
+	f analyzer.Finding,
+	findingID int64,
+	beforeState map[string]any,
+	decisionID int64,
+	execErr error,
+) int64 {
 	beforeJSON, _ := json.Marshal(beforeState)
 
 	outcome := actionOutcome(execErr)
@@ -1133,12 +1375,12 @@ func (e *Executor) logAction(
 	err := e.pool.QueryRow(ctx,
 		`/* pg_sage */ INSERT INTO sage.action_log
 		 (action_type, finding_id, sql_executed, rollback_sql,
-		  before_state, outcome, rollback_reason)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		  before_state, outcome, rollback_reason, decision_id)
+		 VALUES ($1, NULLIF($2, 0), $3, $4, $5, $6, $7, NULLIF($8, 0))
 		 RETURNING id`,
 		actionType, findingID, f.RecommendedSQL,
 		nilIfEmpty(f.RollbackSQL), beforeJSON, outcome,
-		errReason,
+		errReason, decisionID,
 	).Scan(&actionID)
 	if err != nil {
 		e.logFn("executor",
@@ -1151,7 +1393,7 @@ func (e *Executor) logAction(
 	// Only mark acted_on_at when the action succeeded so that failed
 	// findings remain eligible for retry (lookupFindingID filters on
 	// acted_on_at IS NULL).
-	if outcome != "failed" {
+	if outcome != "failed" && findingID > 0 {
 		e.markFindingActioned(ctx, findingID, actionID)
 	}
 

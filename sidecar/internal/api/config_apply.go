@@ -77,7 +77,7 @@ func validatedConfigWrites(
 }
 
 func isMaskedSecretUpdate(key, value string) bool {
-	if key != "llm.api_key" || value == "" {
+	if (key != "llm.api_key" && key != "clone.dle_token") || value == "" {
 		return false
 	}
 	starCount := 0
@@ -169,6 +169,13 @@ func hotReload(cfg *config.Config, key, value string) {
 		hotReloadMigration(cfg, key, value)
 	case strings.HasPrefix(key, "agentdb."):
 		hotReloadAgentDB(cfg, key, value)
+	case strings.HasPrefix(key, "policy."),
+		strings.HasPrefix(key, "value."),
+		strings.HasPrefix(key, "verify."),
+		strings.HasPrefix(key, "clone."),
+		strings.HasPrefix(key, "custodian."),
+		strings.HasPrefix(key, "mcp."):
+		hotReloadAgentNative(cfg, key, value)
 	}
 }
 
@@ -525,6 +532,45 @@ func hotReloadAgentDB(cfg *config.Config, key, v string) {
 		cfg.AgentDB.RequireBackupBeforeDrop = v == "true"
 	case "agentdb.reconcile_interval_seconds":
 		cfg.AgentDB.ReconcileIntervalSeconds = atoi(v)
+	}
+}
+
+func hotReloadAgentNative(cfg *config.Config, key, v string) {
+	switch key {
+	case "policy.profile":
+		cfg.Policy.Profile = v
+	case "value.toil_model_version":
+		cfg.Value.ToilModelVersion = atoi(v)
+	case "verify.window_minutes":
+		cfg.Verify.WindowMinutes = atoi(v)
+	case "verify.window_max_minutes":
+		cfg.Verify.WindowMaxMinutes = atoi(v)
+	case "verify.min_gain_pct":
+		cfg.Verify.MinGainPct = atof(v)
+	case "verify.regress_pct":
+		cfg.Verify.RegressPct = atof(v)
+	case "verify.write_impact_pct":
+		cfg.Verify.WriteImpactPct = atof(v)
+	case "verify.min_samples":
+		cfg.Verify.MinSamples = atoi(v)
+	case "clone.provider":
+		cfg.Clone.Provider = v
+	case "clone.dle_endpoint":
+		cfg.Clone.DLEEndpoint = v
+	case "clone.dle_token":
+		cfg.Clone.DLEToken = v
+	case "clone.max_clone_age_minutes":
+		cfg.Clone.MaxCloneAgeMinutes = atoi(v)
+	case "custodian.freeze.red_buffer_pct":
+		cfg.Custodian.Freeze.RedBufferPct = atof(v)
+	case "custodian.wal.abandon_after_minutes":
+		cfg.Custodian.WAL.AbandonAfterMinutes = atoi(v)
+	case "custodian.wal.retained_wal_disk_pct_ceiling":
+		cfg.Custodian.WAL.RetainedWALDiskPctCeiling = atof(v)
+	case "mcp.enabled":
+		cfg.MCP.Enabled = v == "true"
+	case "mcp.transport":
+		cfg.MCP.Transport = v
 	}
 }
 

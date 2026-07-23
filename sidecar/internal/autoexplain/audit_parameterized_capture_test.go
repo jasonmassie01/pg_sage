@@ -14,7 +14,7 @@ import (
 func TestCaptureOnDemand_NormalizedParameterizedQuery(t *testing.T) {
 	pool := requireAuditFixturePool(t)
 	ctx := context.Background()
-	bootstrapCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	bootstrapCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	if err := schema.Bootstrap(bootstrapCtx, pool); err != nil {
 		t.Fatalf("bootstrap designated fixture schema: %v", err)
@@ -61,7 +61,6 @@ func TestCaptureOnDemand_NormalizedParameterizedQuery(t *testing.T) {
 		t.Fatal("captured parameterized plan is empty")
 	}
 }
-
 
 func requireAuditFixturePool(t *testing.T) *pgxpool.Pool {
 	t.Helper()

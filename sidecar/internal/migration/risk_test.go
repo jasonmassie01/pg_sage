@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/pg-sage/sidecar/internal/testsupport/assert"
 )
 
 func TestComputeRiskScore_TableDriven(t *testing.T) {

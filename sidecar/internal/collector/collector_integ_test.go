@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // testPool creates a pgxpool connected to the local PostgreSQL instance.
@@ -16,9 +17,6 @@ import (
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if dsn == "" {
-		dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dsn)
@@ -712,7 +710,7 @@ func TestCollectQueries_CancelledContext(t *testing.T) {
 }
 
 func TestCollectQueries_AppliesConfiguredStatementAndLockTimeouts(t *testing.T) {
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
+	dsn := testdb.SkipUnlessLive(t)
 	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatalf("parse test database config: %v", err)

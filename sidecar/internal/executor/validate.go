@@ -41,6 +41,7 @@ var safeAlterSystemParams = map[string]bool{
 	"shared_buffers":                      true,
 	"max_wal_size":                        true,
 	"min_wal_size":                        true,
+	"max_slot_wal_keep_size":              true,
 	"checkpoint_completion_target":        true,
 	"checkpoint_timeout":                  true,
 	"random_page_cost":                    true,
@@ -76,6 +77,20 @@ var backendSignalPattern = regexp.MustCompile(
 var reloadConfPattern = regexp.MustCompile(
 	`(?i)^\s*SELECT\s+PG_RELOAD_CONF\s*\(\s*\)\s*;?\s*$`,
 )
+
+const migrationIdentifier = `(?:"(?:[^"]|"")*"|[A-Z_][A-Z0-9_$]*)`
+
+var safeMigrationSubcommands = []*regexp.Regexp{
+	regexp.MustCompile(`^ADD\s+CONSTRAINT\s+` + migrationIdentifier +
+		`\s+CHECK\s*\(\s*` + migrationIdentifier + `\s+IS\s+NOT\s+NULL\s*\)` +
+		`\s+NOT\s+VALID\s*;?$`),
+	regexp.MustCompile(`^VALIDATE\s+CONSTRAINT\s+` + migrationIdentifier + `\s*;?$`),
+	regexp.MustCompile(`^ALTER\s+COLUMN\s+` + migrationIdentifier +
+		`\s+SET\s+NOT\s+NULL\s*;?$`),
+	regexp.MustCompile(`^ADD\s+CONSTRAINT\s+` + migrationIdentifier +
+		`\s+UNIQUE\s+USING\s+INDEX\s+` + migrationIdentifier + `\s*;?$`),
+	regexp.MustCompile(`^DROP\s+CONSTRAINT\s+` + migrationIdentifier + `\s*;?$`),
+}
 
 // safeAlterTableSubcmds restricts ALTER TABLE to safe
 // sub-commands only (storage params, tablespace moves).
@@ -274,9 +289,14 @@ func checkAlterTableSubcmd(upper string) error {
 			return nil
 		}
 	}
+	for _, pattern := range safeMigrationSubcommands {
+		if pattern.MatchString(sub) {
+			return nil
+		}
+	}
 	return fmt.Errorf(
 		"%w: ALTER TABLE sub-command not allowed "+
-			"(only SET/RESET storage params and SET TABLESPACE)",
+			"(only safe storage or rehearsed migration forms)",
 		ErrDisallowedSQL,
 	)
 }
@@ -470,7 +490,7 @@ func schemaFromIdentifier(ident string) string {
 func isProtectedExecutorSchema(schema string) bool {
 	schema = strings.ToLower(strings.Trim(schema, `"`))
 	switch schema {
-	case "pg_catalog", "information_schema", "google_ml":
+	case "pg_catalog", "information_schema", "google_ml", "sage":
 		return true
 	}
 	return strings.HasPrefix(schema, "_timescaledb_")

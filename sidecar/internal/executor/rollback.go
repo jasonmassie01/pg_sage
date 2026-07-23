@@ -3,12 +3,15 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/querystore"
+	"github.com/pg-sage/sidecar/internal/value"
 )
 
 // RollbackMonitor provides rollback monitoring for executed actions.
@@ -66,6 +69,7 @@ func MonitorAndRollback(
 	windowMinutes int,
 	logFn func(string, string, ...any),
 	shutdownCh <-chan struct{},
+	authorize ...func(context.Context, string) bool,
 ) {
 	timer := time.NewTimer(time.Duration(windowMinutes) * time.Minute)
 	defer timer.Stop()
@@ -99,6 +103,14 @@ func MonitorAndRollback(
 				"emergency stop active; automatic rollback withheld")
 			return
 		}
+		if len(authorize) > 0 && authorize[0] != nil &&
+			!authorize[0](ctx, rollbackSQL) {
+			logFn("rollback",
+				"standing policy withheld rollback for action %d", actionID)
+			updateActionOutcome(ctx, pool, actionID, "rollback_skipped",
+				"standing policy withheld automatic rollback")
+			return
+		}
 		logFn("rollback",
 			"regression detected for action %d, executing rollback",
 			actionID,
@@ -119,6 +131,12 @@ func MonitorAndRollback(
 		}
 		updateActionOutcome(ctx, pool, actionID, "rolled_back",
 			"automatic rollback due to regression")
+		_, _ = finalizeActionVerification(
+			ctx, pool, actionID, "revert", "automatic rollback due to regression",
+		)
+		_, _ = value.NewPostgresRepository(pool).ZeroCreditOnRevert(
+			ctx, actionID, "rolled_back",
+		)
 		return
 	}
 
@@ -354,4 +372,39 @@ func updateActionSuccess(
 		 WHERE id = $2`,
 		cacheHit, actionID,
 	)
+	verificationID, err := finalizeActionVerification(
+		ctx, pool, actionID, "success", "post-action checks passed",
+	)
+	if err == nil && verificationID > 0 {
+		_, _ = value.NewService(value.NewPostgresRepository(pool)).
+			CreditVerifiedAction(ctx, actionID)
+	}
+}
+
+func finalizeActionVerification(
+	ctx context.Context, pool *pgxpool.Pool, actionID int64, verdict, reason string,
+) (int64, error) {
+	if pool == nil || actionID <= 0 {
+		return 0, nil
+	}
+	var verificationID int64
+	err := pool.QueryRow(ctx, `WITH candidate AS (
+		SELECT decision_id FROM sage.action_log
+		WHERE id=$1 AND decision_id IS NOT NULL AND verification_id IS NULL
+		FOR UPDATE
+	), inserted AS (
+		INSERT INTO sage.verification
+			(decision_id, action_log_id, criterion, baseline, minimum_samples,
+			 next_evaluation_at, hard_deadline_at, verdict, reason, completed_at)
+		SELECT decision_id, $1, '{"kind":"executor_postcheck"}'::jsonb,
+			'{}'::jsonb, 1, now(), now(), $2, $3, now() FROM candidate
+		RETURNING id
+	)
+	UPDATE sage.action_log al SET verification_id=inserted.id
+	FROM inserted WHERE al.id=$1 RETURNING inserted.id`,
+		actionID, verdict, reason).Scan(&verificationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	return verificationID, err
 }

@@ -13,6 +13,7 @@ const (
 	PolicyDecisionQueueApproval = "queue_for_approval"
 	PolicyDecisionBlocked       = "blocked"
 	PolicyDecisionObserveOnly   = "observe_only"
+	PolicyDecisionParked        = "parked"
 )
 
 type ActionPolicyContext struct {
@@ -35,6 +36,8 @@ type ActionPolicyDecision struct {
 	BlockedReason             string   `json:"blocked_reason,omitempty"`
 	Guardrails                []string `json:"guardrails,omitempty"`
 	Provider                  string   `json:"provider,omitempty"`
+	EvidenceID                string   `json:"evidence_id,omitempty"`
+	DecisionID                int64    `json:"decision_id,omitempty"`
 }
 
 func EvaluateActionPolicy(
@@ -68,6 +71,11 @@ func EvaluateActionPolicy(
 	if ctx.ExecutionMode != "auto" {
 		decision.BlockedReason = "unknown execution mode"
 		return decision
+	}
+	for _, guardrail := range contract.Guardrails {
+		if strings.EqualFold(strings.TrimSpace(guardrail), "approval_required") {
+			return queueForApproval(decision)
+		}
 	}
 	if contract.ActionType == "cancel_backend" ||
 		contract.ActionType == "terminate_backend" {

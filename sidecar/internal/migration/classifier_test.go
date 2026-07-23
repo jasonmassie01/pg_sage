@@ -3,8 +3,8 @@ package migration
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/pg-sage/sidecar/internal/testsupport/assert"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 func TestClassifier_IndexNotConcurrent(t *testing.T) {

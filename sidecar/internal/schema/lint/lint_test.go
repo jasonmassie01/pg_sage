@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/pg-sage/sidecar/internal/testsupport/assert"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 
 	"github.com/pg-sage/sidecar/internal/config"
 )

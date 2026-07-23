@@ -309,17 +309,22 @@ func TestConfigConsistency_HotReloadCoversAllAllowedKeys(
 
 	// Build a map of test values per validation type.
 	testValues := map[string]string{
-		"int_pos":     "42",
-		"int_nonneg":  "7",
-		"int_min5":    "15",
-		"pct":         "50",
-		"pct1_100":    "75",
-		"float01":     "0.5",
-		"bool":        "true",
-		"trust_level": "advisory",
-		"exec_mode":   "auto",
-		"string":      "test-value",
-		"float_pos":   "2.0",
+		"int_pos":        "42",
+		"int_nonneg":     "7",
+		"int_min5":       "15",
+		"pct":            "50",
+		"pct1_100":       "75",
+		"float01":        "0.5",
+		"bool":           "true",
+		"trust_level":    "advisory",
+		"exec_mode":      "auto",
+		"string":         "test-value",
+		"float_pos":      "2.0",
+		"float_nonneg":   "0.5",
+		"float_pct_pos":  "25.0",
+		"policy_profile": "staffed",
+		"clone_provider": "none",
+		"mcp_transport":  "stdio",
 	}
 
 	for key, vtype := range allowedConfigKeys {
@@ -541,17 +546,22 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 	// and "trust_level"/"exec_mode" which legitimately return
 	// strings).
 	testInputs := map[string]string{
-		"int_pos":     "10",
-		"int_nonneg":  "0",
-		"int_min5":    "10",
-		"pct":         "50",
-		"pct1_100":    "50",
-		"float01":     "0.5",
-		"bool":        "true",
-		"trust_level": "advisory",
-		"exec_mode":   "auto",
-		"string":      "hello",
-		"float_pos":   "2.0",
+		"int_pos":        "10",
+		"int_nonneg":     "0",
+		"int_min5":       "10",
+		"pct":            "50",
+		"pct1_100":       "50",
+		"float01":        "0.5",
+		"bool":           "true",
+		"trust_level":    "advisory",
+		"exec_mode":      "auto",
+		"string":         "hello",
+		"float_pos":      "2.0",
+		"float_nonneg":   "0.5",
+		"float_pct_pos":  "25.0",
+		"policy_profile": "staffed",
+		"clone_provider": "none",
+		"mcp_transport":  "stdio",
 	}
 
 	for vtype := range vtypes {
@@ -590,7 +600,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 						"want int",
 					sampleKey, input, vtype, result)
 			}
-		case "float01":
+		case "float01", "float_pos", "float_nonneg", "float_pct_pos":
 			if _, ok := result.(float64); !ok {
 				t.Errorf(
 					"coerceValue(%q, %q) [type %s] = %T, "+
@@ -604,7 +614,8 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 						"want bool",
 					sampleKey, input, vtype, result)
 			}
-		case "trust_level", "exec_mode", "string":
+		case "trust_level", "exec_mode", "policy_profile",
+			"clone_provider", "mcp_transport", "string":
 			if _, ok := result.(string); !ok {
 				t.Errorf(
 					"coerceValue(%q, %q) [type %s] = %T, "+
@@ -619,7 +630,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 // fails when someone adds or removes a key without updating the
 // test. Update the expected count when intentionally changing keys.
 func TestConfigConsistency_AllowedKeyCount(t *testing.T) {
-	const expectedCount = 96 // Update when adding/removing keys.
+	const expectedCount = 113 // Update when adding/removing keys.
 
 	actual := len(allowedConfigKeys)
 	if actual != expectedCount {
@@ -648,7 +659,7 @@ func TestConfigConsistency_ConfigToMapKeyCount(t *testing.T) {
 	}
 	m := configToMap(cfg)
 
-	const expectedCount = 96 // Should match allowedConfigKeys.
+	const expectedCount = 113 // Should match allowedConfigKeys.
 
 	actual := len(m)
 	if actual != expectedCount {

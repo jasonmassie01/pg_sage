@@ -60,8 +60,8 @@ func TestGlobalPut_MixedPayload_WithExecutionMode(
 		"safety.cpu_ceiling_pct": "90"
 	}`
 
-	w := doRequestWithUser(
-		handler, "PUT", "/api/v1/config/global",
+	w := doRequestWithUserRetry(
+		t, handler, "PUT", "/api/v1/config/global",
 		body, user)
 
 	if w.Code != http.StatusOK {
@@ -116,8 +116,8 @@ func TestGlobalPut_AllSimpleModeFields(t *testing.T) {
 		"safety.cpu_ceiling_pct": "85"
 	}`
 
-	w := doRequestWithUser(
-		handler, "PUT", "/api/v1/config/global",
+	w := doRequestWithUserRetry(
+		t, handler, "PUT", "/api/v1/config/global",
 		body, user)
 
 	if w.Code != http.StatusOK {
@@ -178,8 +178,8 @@ func TestGlobalPut_AllAdvancedLLMFields(t *testing.T) {
 		"llm.optimizer.max_new_per_table": "2"
 	}`
 
-	w := doRequestWithUser(
-		handler, "PUT", "/api/v1/config/global",
+	w := doRequestWithUserRetry(
+		t, handler, "PUT", "/api/v1/config/global",
 		body, user)
 
 	if w.Code != http.StatusOK {

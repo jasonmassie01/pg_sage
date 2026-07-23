@@ -125,6 +125,25 @@ var allowedConfigKeys = map[string]string{
 	"migration.activity_polling":      "bool",
 	"migration.poll_interval_seconds": "int_pos",
 	"migration.ddl_row_threshold":     "int_pos",
+
+	// v1.4: Agent-native autonomy.
+	"policy.profile":                              "policy_profile",
+	"value.toil_model_version":                    "int_pos",
+	"verify.window_minutes":                       "int_pos",
+	"verify.window_max_minutes":                   "int_pos",
+	"verify.min_gain_pct":                         "float_nonneg",
+	"verify.regress_pct":                          "float_nonneg",
+	"verify.write_impact_pct":                     "float_nonneg",
+	"verify.min_samples":                          "int_pos",
+	"clone.provider":                              "clone_provider",
+	"clone.dle_endpoint":                          "string",
+	"clone.dle_token":                             "string",
+	"clone.max_clone_age_minutes":                 "int_pos",
+	"custodian.freeze.red_buffer_pct":             "float_pct_pos",
+	"custodian.wal.abandon_after_minutes":         "int_pos",
+	"custodian.wal.retained_wal_disk_pct_ceiling": "float_pct_pos",
+	"mcp.enabled":                                 "bool",
+	"mcp.transport":                               "mcp_transport",
 }
 
 func validateConfigKey(key string) error {
@@ -167,12 +186,28 @@ func validateByType(vtype, key, value string) error {
 		return validateFloatRange(key, value, 0, 1)
 	case "float_pos":
 		return validateFloatRange(key, value, 0.001, 1e9)
+	case "float_nonneg":
+		return validateFloatRange(key, value, 0, 1e9)
+	case "float_pct_pos":
+		return validateFloatRange(key, value, 0.001, 100)
 	case "bool":
 		return validateBool(key, value)
 	case "trust_level":
 		return validateEnum(key, value, validTrustLevels)
 	case "exec_mode":
 		return validateEnum(key, value, validExecutionModes)
+	case "policy_profile":
+		return validateEnum(key, value, map[string]bool{
+			"staffed": true, "unattended": true,
+		})
+	case "clone_provider":
+		return validateEnum(key, value, map[string]bool{
+			"none": true, "dle": true, "snapshot": true,
+		})
+	case "mcp_transport":
+		return validateEnum(key, value, map[string]bool{
+			"stdio": true, "http": true,
+		})
 	case "string":
 		return nil
 	default:
@@ -312,7 +347,8 @@ func isSecretConfigKey(key string) bool {
 	case "llm.api_key",
 		"alerting.slack_webhook_url",
 		"alerting.pagerduty_routing_key",
-		"briefing.slack_webhook_url":
+		"briefing.slack_webhook_url",
+		"clone.dle_token":
 		return true
 	default:
 		return false
@@ -398,6 +434,7 @@ func configToMap(cfg *config.Config) map[string]any {
 	addSchemaLintFields(m, &cfg.SchemaLint)
 	addMigrationFields(m, &cfg.Migration)
 	addAgentDBFields(m, &cfg.AgentDB)
+	addAgentNativeFields(m, cfg)
 	return m
 }
 
@@ -624,6 +661,27 @@ func addMigrationFields(
 		mg.DDLRowThreshold, "yaml")
 }
 
+func addAgentNativeFields(m map[string]any, cfg *config.Config) {
+	addField(m, "policy.profile", cfg.Policy.Profile, "yaml")
+	addField(m, "value.toil_model_version", cfg.Value.ToilModelVersion, "yaml")
+	addField(m, "verify.window_minutes", cfg.Verify.WindowMinutes, "yaml")
+	addField(m, "verify.window_max_minutes", cfg.Verify.WindowMaxMinutes, "yaml")
+	addField(m, "verify.min_gain_pct", cfg.Verify.MinGainPct, "yaml")
+	addField(m, "verify.regress_pct", cfg.Verify.RegressPct, "yaml")
+	addField(m, "verify.write_impact_pct", cfg.Verify.WriteImpactPct, "yaml")
+	addField(m, "verify.min_samples", cfg.Verify.MinSamples, "yaml")
+	addField(m, "clone.provider", cfg.Clone.Provider, "yaml")
+	addField(m, "clone.dle_endpoint", cfg.Clone.DLEEndpoint, "yaml")
+	addField(m, "clone.dle_token", maskSecret(cfg.Clone.DLEToken), "yaml")
+	addField(m, "clone.max_clone_age_minutes", cfg.Clone.MaxCloneAgeMinutes, "yaml")
+	addField(m, "custodian.freeze.red_buffer_pct", cfg.Custodian.Freeze.RedBufferPct, "yaml")
+	addField(m, "custodian.wal.abandon_after_minutes", cfg.Custodian.WAL.AbandonAfterMinutes, "yaml")
+	addField(m, "custodian.wal.retained_wal_disk_pct_ceiling",
+		cfg.Custodian.WAL.RetainedWALDiskPctCeiling, "yaml")
+	addField(m, "mcp.enabled", cfg.MCP.Enabled, "yaml")
+	addField(m, "mcp.transport", cfg.MCP.Transport, "yaml")
+}
+
 func maskSecret(s string) string {
 	if len(s) <= 4 {
 		return strings.Repeat("*", len(s))
@@ -659,7 +717,7 @@ func coerceValue(key, value string) any {
 		if n, err := strconv.Atoi(value); err == nil {
 			return n
 		}
-	case "float01", "float_pos":
+	case "float01", "float_pos", "float_nonneg", "float_pct_pos":
 		if f, err := strconv.ParseFloat(value, 64); err == nil {
 			return f
 		}

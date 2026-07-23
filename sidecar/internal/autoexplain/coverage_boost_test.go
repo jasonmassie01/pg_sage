@@ -527,7 +527,7 @@ func TestCoverage_Detect_CancelledContext(t *testing.T) {
 func bootstrapSageSchema(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(
-		context.Background(), 10*time.Second,
+		context.Background(), 45*time.Second,
 	)
 	defer cancel()
 

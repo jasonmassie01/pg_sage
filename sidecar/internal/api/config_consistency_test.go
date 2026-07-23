@@ -442,6 +442,59 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "50000",
 		reader: func(c *config.Config) string { return itoa(c.Migration.DDLRowThreshold) },
 	},
+
+	// --- v1.4: Agent-native autonomy ---
+	"policy.profile": {
+		input: "staffed", reader: func(c *config.Config) string { return c.Policy.Profile },
+	},
+	"value.toil_model_version": {
+		input: "2", reader: func(c *config.Config) string { return itoa(c.Value.ToilModelVersion) },
+	},
+	"verify.window_minutes": {
+		input: "10", reader: func(c *config.Config) string { return itoa(c.Verify.WindowMinutes) },
+	},
+	"verify.window_max_minutes": {
+		input: "60", reader: func(c *config.Config) string { return itoa(c.Verify.WindowMaxMinutes) },
+	},
+	"verify.min_gain_pct": {
+		input: "5.5", reader: func(c *config.Config) string { return ftoa(c.Verify.MinGainPct) },
+	},
+	"verify.regress_pct": {
+		input: "7.5", reader: func(c *config.Config) string { return ftoa(c.Verify.RegressPct) },
+	},
+	"verify.write_impact_pct": {
+		input: "3.5", reader: func(c *config.Config) string { return ftoa(c.Verify.WriteImpactPct) },
+	},
+	"verify.min_samples": {
+		input: "20", reader: func(c *config.Config) string { return itoa(c.Verify.MinSamples) },
+	},
+	"clone.provider": {
+		input: "dle", reader: func(c *config.Config) string { return c.Clone.Provider },
+	},
+	"clone.dle_endpoint": {
+		input: "https://dle.invalid", reader: func(c *config.Config) string { return c.Clone.DLEEndpoint },
+	},
+	"clone.dle_token": {
+		input: "test-token", reader: func(c *config.Config) string { return c.Clone.DLEToken },
+	},
+	"clone.max_clone_age_minutes": {
+		input: "30", reader: func(c *config.Config) string { return itoa(c.Clone.MaxCloneAgeMinutes) },
+	},
+	"custodian.freeze.red_buffer_pct": {
+		input: "12.5", reader: func(c *config.Config) string { return ftoa(c.Custodian.Freeze.RedBufferPct) },
+	},
+	"custodian.wal.abandon_after_minutes": {
+		input: "90", reader: func(c *config.Config) string { return itoa(c.Custodian.WAL.AbandonAfterMinutes) },
+	},
+	"custodian.wal.retained_wal_disk_pct_ceiling": {
+		input: "25.5", reader: func(c *config.Config) string { return ftoa(c.Custodian.WAL.RetainedWALDiskPctCeiling) },
+	},
+	"mcp.enabled": {
+		input: "true", reader: func(c *config.Config) string { return btoa(c.MCP.Enabled) },
+	},
+	"mcp.transport": {
+		input: "http", reader: func(c *config.Config) string { return c.MCP.Transport },
+	},
 }
 
 // itoa formats an int for comparison.
