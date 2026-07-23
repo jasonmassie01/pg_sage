@@ -501,6 +501,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#agent-native-autonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent-native autonomy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#retention" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -806,6 +817,17 @@
     <span class="md-ellipsis">
       
         Web UI and API Authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agent-native-autonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent-native autonomy
       
     </span>
   </a>
@@ -1205,6 +1227,16 @@ returned <code>sage_session</code> cookie:</p>
 <a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
 <a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>http://localhost:8080/api/v1/cases
 </code></pre></div>
+<h3 id="agent-native-autonomy">Agent-native autonomy<a class="headerlink" href="#agent-native-autonomy" title="Permanent link">&para;</a></h3>
+<p>The <code>policy</code>, <code>verify</code>, <code>clone</code>, <code>custodian</code>, <code>value</code>, and <code>mcp</code> sections
+configure the closed-loop autonomy stack. MCP is an intent-level JSON-RPC
+surface: it exposes policy, change-request, and evidence-ledger tools, never
+raw SQL execution. Caller claims are recorded as untrusted input and do not
+grant authority.</p>
+<p>The default <code>unattended</code> policy profile permits explicitly bounded deadline
+overrides for XID and disk emergencies. Use <code>staffed</code> for narrow maintenance
+windows without deadline overrides. Clone-backed migration rehearsal defaults
+to disabled (<code>clone.provider: none</code>) and stale clones are recommendation-only.</p>
 <h3 id="retention">Retention<a class="headerlink" href="#retention" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
