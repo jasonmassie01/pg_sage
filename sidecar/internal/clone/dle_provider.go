@@ -58,7 +58,7 @@ func (p *DLEProvider) Create(ctx context.Context, spec CloneSpec) (Clone, error)
 	if err != nil {
 		return Clone{}, fmt.Errorf("DLE create request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusCreated {
 		return Clone{}, fmt.Errorf("DLE create failed with status %d", response.StatusCode)
 	}
@@ -96,7 +96,7 @@ func (p *DLEProvider) Destroy(ctx context.Context, target Clone) error {
 	if err != nil {
 		return fmt.Errorf("DLE destroy request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusNoContent && response.StatusCode != http.StatusOK {
 		return fmt.Errorf("DLE destroy failed with status %d", response.StatusCode)
 	}
@@ -112,7 +112,7 @@ func (p *DLEProvider) SnapshotAge(ctx context.Context) (time.Duration, error) {
 	if err != nil {
 		return 0, fmt.Errorf("DLE snapshot request: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("DLE snapshot failed with status %d", response.StatusCode)
 	}

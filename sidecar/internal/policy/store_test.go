@@ -295,21 +295,6 @@ func profileJSON(t *testing.T, document Document) string {
 	return string(raw)
 }
 
-func unattendedDocument() string {
-	return `{
-		"allowed_change_classes":["index","analyze","vacuum","freeze"],
-		"maintenance_windows":["always"],
-		"lock_duration_ceiling_ms":3000,
-		"blast_radius":{"max_rows_rewritten":5000000,"max_tables_per_window":20},
-		"unknown_classification":"fail_closed",
-		"budgets":{"storage_bytes":0,"spend_daily":null,"llm_tokens_daily":500000},
-		"rate_limits":{"max_self_initiated_changes_per_window":50},
-		"deadline_overrides":{"xid":true,"disk":true},
-		"refusal_set":["rls_change","grant_expansion"],
-		"serialize_mode":"park"
-	}`
-}
-
 func staffedDocument() string {
 	return `{
 		"allowed_change_classes":["index","analyze","vacuum","freeze"],

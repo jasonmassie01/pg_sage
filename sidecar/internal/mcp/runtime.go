@@ -51,7 +51,7 @@ func (r *Runtime) Serve(ctx context.Context) error {
 	}
 	scanner := bufio.NewScanner(r.input)
 	writer := bufio.NewWriter(r.output)
-	defer writer.Flush()
+	defer func() { _ = writer.Flush() }()
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
 			return err
