@@ -104,10 +104,10 @@ func freezeResponseProposal(
 	deadline freeze.Proposal, response freeze.Response,
 ) Proposal {
 	feature := "freeze"
-	if response.Kind == freeze.ResponseCancelBlocker ||
-		response.Kind == freeze.ResponseTerminateBlocker {
+	switch response.Kind {
+	case freeze.ResponseCancelBlocker, freeze.ResponseTerminateBlocker:
 		feature = "freeze_blocker"
-	} else if response.Kind == freeze.ResponseTuneAutovacuum {
+	case freeze.ResponseTuneAutovacuum:
 		feature = "autovacuum_tuning"
 	}
 	evidence := response.Evidence

@@ -15,12 +15,6 @@ var fleetRolloutFactoryState struct {
 	factory rollout.RuntimeFactory
 }
 
-func setFleetRolloutRuntimeFactory(factory rollout.RuntimeFactory) {
-	fleetRolloutFactoryState.Lock()
-	defer fleetRolloutFactoryState.Unlock()
-	fleetRolloutFactoryState.factory = factory
-}
-
 func currentFleetRolloutRuntime(ctx context.Context) (*rollout.Runtime, error) {
 	fleetRolloutFactoryState.RLock()
 	factory := fleetRolloutFactoryState.factory

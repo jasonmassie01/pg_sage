@@ -101,7 +101,7 @@ func (s *Store) Ratify(
 	if err != nil {
 		return Policy{}, fmt.Errorf("begin policy ratification: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	policy, err := ratifyInTransaction(ctx, tx, request)
 	if err != nil {
 		return Policy{}, err
