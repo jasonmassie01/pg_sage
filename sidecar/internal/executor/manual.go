@@ -92,6 +92,7 @@ func (e *Executor) ExecuteManual(
 	if execErr != nil {
 		return 0, fmt.Errorf("executing SQL: %w", execErr)
 	}
+	e.notifyPostDDL(ctx, sql)
 
 	if rollbackSQL != "" && actionID > 0 {
 		// Detach the monitor from the caller's context so it
@@ -166,6 +167,7 @@ func (e *Executor) RollbackAction(
 			"manual rollback failed: "+execErr.Error())
 		return fmt.Errorf("executing rollback SQL: %w", execErr)
 	}
+	e.notifyPostDDL(ctx, *rollbackSQL)
 	if strings.TrimSpace(reason) == "" {
 		reason = "manual rollback"
 	}

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/pg-sage/sidecar/internal/testsupport/assert"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 // ---------------------------------------------------------------------------

@@ -55,7 +55,7 @@ func phase2RequireDB(t *testing.T) (
 	p2PoolOnce.Do(func() {
 		dsn := phase2DSN()
 		qctx, cancel := context.WithTimeout(
-			ctx, 15*time.Second)
+			ctx, 45*time.Second)
 		defer cancel()
 
 		cfg, err := pgxpool.ParseConfig(dsn)
@@ -175,6 +175,67 @@ func phase2CleanTables(
 			t.Logf("clean %s: %v", tbl, err)
 		}
 	}
+	phase2WaitNotificationTablesEmpty(t, pool, ctx)
+}
+
+// phase2WaitNotificationTablesEmpty re-sweeps the notification tables
+// until they are stably empty. A previous test's INSERT can time out
+// client-side (the store's 5s statement cap) yet still commit
+// server-side moments later, landing after the sweep above and breaking
+// tests that assert an empty database.
+func phase2WaitNotificationTablesEmpty(
+	t *testing.T, pool *pgxpool.Pool, ctx context.Context,
+) {
+	t.Helper()
+	tables := []string{
+		"sage.notification_log",
+		"sage.notification_rules",
+		"sage.notification_channels",
+	}
+	for attempt := 0; attempt < 5; attempt++ {
+		var remaining int
+		err := pool.QueryRow(ctx, `SELECT
+			(SELECT count(*) FROM sage.notification_log) +
+			(SELECT count(*) FROM sage.notification_rules) +
+			(SELECT count(*) FROM sage.notification_channels)`,
+		).Scan(&remaining)
+		if err != nil || remaining == 0 {
+			return
+		}
+		for _, tbl := range tables {
+			_, _ = pool.Exec(ctx, "DELETE FROM "+tbl)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// phase2CreateChannel creates a notification channel fixture, retrying
+// when the store's 5s statement timeout trips under full-suite DB
+// contention. A timed-out INSERT can still commit server-side, so each
+// retry clears the name first to keep the fixture deterministic.
+func phase2CreateChannel(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	ns *store.NotificationStore, name, typ string,
+	channelCfg map[string]string,
+) int {
+	t.Helper()
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		id, err := ns.CreateChannel(ctx, name, typ, channelCfg, 0)
+		if err == nil {
+			return id
+		}
+		lastErr = err
+		if !errors.Is(err, context.DeadlineExceeded) {
+			break
+		}
+		_, _ = pool.Exec(ctx,
+			`DELETE FROM sage.notification_channels WHERE name=$1`,
+			name)
+		time.Sleep(300 * time.Millisecond)
+	}
+	t.Fatalf("create channel %q: %v", name, lastErr)
+	return 0
 }
 
 // phase2MgrWithPool creates a fleet manager backed by a real pool.
@@ -2780,11 +2841,8 @@ func TestPhase2_ListChannelsHandler_RealDB(t *testing.T) {
 	d := notify.NewDispatcher(pool, logFn)
 	ns := store.NewNotificationStore(pool, d)
 
-	_, err := ns.CreateChannel(ctx, "test-slack", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	phase2CreateChannel(t, ctx, pool, ns, "test-slack", "slack",
+		map[string]string{"webhook_url": "https://x"})
 
 	handler := listChannelsHandler(ns)
 	req := httptest.NewRequest("GET",
@@ -2816,11 +2874,8 @@ func TestPhase2_UpdateChannelHandler_MaskedSecretReplayPreservesSecret(
 	ns := store.NewNotificationStore(pool, d)
 
 	originalURL := "https://hooks.slack.com/services/REAL/SECRET/TOKEN"
-	id, err := ns.CreateChannel(ctx, "masked-slack", "slack",
-		map[string]string{"webhook_url": originalURL}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	id := phase2CreateChannel(t, ctx, pool, ns, "masked-slack", "slack",
+		map[string]string{"webhook_url": originalURL})
 
 	listHandler := listChannelsHandler(ns)
 	listReq := httptest.NewRequest("GET",
@@ -2915,13 +2970,10 @@ func TestPhase2_ListRulesHandler_RealDB(t *testing.T) {
 	ns := store.NewNotificationStore(pool, d)
 
 	// Create channel first.
-	chID, err := ns.CreateChannel(ctx, "rule-ch", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	chID := phase2CreateChannel(t, ctx, pool, ns, "rule-ch", "slack",
+		map[string]string{"webhook_url": "https://x"})
 
-	_, err = ns.CreateRule(ctx, chID,
+	_, err := ns.CreateRule(ctx, chID,
 		"finding_critical", "warning")
 	if err != nil {
 		t.Fatalf("create rule: %v", err)
@@ -4056,11 +4108,8 @@ func TestPhase2_DeleteChannelHandler_RealDB(t *testing.T) {
 	d := notify.NewDispatcher(pool, logFn)
 	ns := store.NewNotificationStore(pool, d)
 
-	id, err := ns.CreateChannel(ctx, "del-ch", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	id := phase2CreateChannel(t, ctx, pool, ns, "del-ch", "slack",
+		map[string]string{"webhook_url": "https://x"})
 
 	handler := deleteChannelHandler(ns)
 	mux := http.NewServeMux()
@@ -4113,11 +4162,8 @@ func TestPhase2_CreateRuleHandler_RealDB(t *testing.T) {
 	d := notify.NewDispatcher(pool, logFn)
 	ns := store.NewNotificationStore(pool, d)
 
-	chID, err := ns.CreateChannel(ctx, "rule-ch", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	chID := phase2CreateChannel(t, ctx, pool, ns, "rule-ch", "slack",
+		map[string]string{"webhook_url": "https://x"})
 
 	handler := createRuleHandler(ns)
 	body := fmt.Sprintf(
@@ -4190,11 +4236,8 @@ func TestPhase2_DeleteRuleHandler_RealDB(t *testing.T) {
 	d := notify.NewDispatcher(pool, logFn)
 	ns := store.NewNotificationStore(pool, d)
 
-	chID, err := ns.CreateChannel(ctx, "rule-ch2", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	chID := phase2CreateChannel(t, ctx, pool, ns, "rule-ch2", "slack",
+		map[string]string{"webhook_url": "https://x"})
 	ruleID, err := ns.CreateRule(ctx, chID,
 		"finding_critical", "warning")
 	if err != nil {
@@ -4252,11 +4295,8 @@ func TestPhase2_UpdateRuleHandler_RealDB(t *testing.T) {
 	d := notify.NewDispatcher(pool, logFn)
 	ns := store.NewNotificationStore(pool, d)
 
-	chID, err := ns.CreateChannel(ctx, "upd-rule-ch", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	chID := phase2CreateChannel(t, ctx, pool, ns, "upd-rule-ch", "slack",
+		map[string]string{"webhook_url": "https://x"})
 	ruleID, err := ns.CreateRule(ctx, chID,
 		"finding_critical", "warning")
 	if err != nil {
@@ -4317,11 +4357,8 @@ func TestPhase2_UpdateChannelHandler_RealDB(t *testing.T) {
 	d := notify.NewDispatcher(pool, logFn)
 	ns := store.NewNotificationStore(pool, d)
 
-	id, err := ns.CreateChannel(ctx, "upd-ch", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	id := phase2CreateChannel(t, ctx, pool, ns, "upd-ch", "slack",
+		map[string]string{"webhook_url": "https://x"})
 
 	handler := updateChannelHandler(ns)
 	mux := http.NewServeMux()
@@ -4355,11 +4392,8 @@ func TestPhase2_UpdateChannelHandler_OmittedFieldsPreserved(
 	ns := store.NewNotificationStore(pool, d)
 
 	originalURL := "https://hooks.slack.com/services/REAL/SECRET/TOKEN"
-	id, err := ns.CreateChannel(ctx, "partial-ch", "slack",
-		map[string]string{"webhook_url": originalURL}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	id := phase2CreateChannel(t, ctx, pool, ns, "partial-ch", "slack",
+		map[string]string{"webhook_url": originalURL})
 
 	handler := updateChannelHandler(ns)
 	mux := http.NewServeMux()

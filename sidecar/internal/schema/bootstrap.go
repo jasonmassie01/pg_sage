@@ -16,6 +16,7 @@ const (
 	bootstrapAdvisoryLockKey = "pg_sage"
 	bootstrapLockTimeout     = 30 * time.Second
 	bootstrapUnlockTimeout   = 5 * time.Second
+	migrationBatchTimeout    = 30 * time.Second
 )
 
 type bootstrapDB interface {
@@ -299,7 +300,13 @@ func createFullSchema(ctx context.Context, db bootstrapDB) error {
 				"GRANT ALL ON SCHEMA sage TO sage_agent;", err)
 	}
 
-	return tx.Commit(qctx)
+	if err := tx.Commit(qctx); err != nil {
+		return fmt.Errorf("commit schema DDL: %w", err)
+	}
+	if err := runMigrations(ctx, db); err != nil {
+		return fmt.Errorf("running migrations: %w", err)
+	}
+	return nil
 }
 
 func ensureTablesExist(ctx context.Context, db bootstrapDB) error {
@@ -332,7 +339,7 @@ func ensureTablesExist(ctx context.Context, db bootstrapDB) error {
 
 // runMigrations applies idempotent schema changes to existing installs.
 func runMigrations(ctx context.Context, db bootstrapDB) error {
-	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	qctx, cancel := context.WithTimeout(ctx, migrationBatchTimeout)
 	defer cancel()
 
 	migrations := migrationStatements()
@@ -345,7 +352,7 @@ func runMigrations(ctx context.Context, db bootstrapDB) error {
 }
 
 func migrationStatements() []string {
-	return []string{
+	statements := []string{
 		ddlActionLogApprovalCols,
 		ddlUsersOAuth,
 		ddlQueryHintsRewrite,
@@ -357,6 +364,7 @@ func migrationStatements() []string {
 		ddlFindingsBackfillFromSchemaFindings,
 		ddlFleetScaleIndexes,
 	}
+	return append(statements, agentNativeMigrationStatements()...)
 }
 
 // ---------------------------------------------------------------------------

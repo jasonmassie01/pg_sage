@@ -333,6 +333,7 @@ func main() {
 	// MonitorAndRollback finish cleanly (or time out) instead
 	// of leaking. The per-executor Shutdown waits on its
 	// internal WaitGroup, so we can run them in parallel.
+	shutdownStandaloneAutonomy(shutCtx)
 	shutdownExecutors(shutCtx)
 
 	logInfo("shutdown", "stopped")
@@ -742,6 +743,14 @@ func initStandalone() {
 	// 9b. Action queue store + execution mode.
 	actionStore = store.NewActionStore(pool)
 	exec.WithActionStore(actionStore, resolveExecutionMode())
+	if err := exec.EnableStandingPolicy(ctx, cfg.Policy.Profile, nil); err != nil {
+		logError("startup", "standing policy unavailable; executor is fail-closed: %v", err)
+	}
+	if err := startStandaloneAutonomy(
+		shutdownCtx, pool, cfg, resolveDBName(), exec,
+	); err != nil {
+		logError("startup", "continuous autonomy unavailable: %v", err)
+	}
 
 	// 9b-ii. Wire action store into RCA for self-action correlation.
 	if rcaEng != nil {
@@ -1095,6 +1104,8 @@ func initFleetAndAPI() {
 		fleetMgr.RegisterInstance(inst)
 	}
 	// Fleet instances are already registered by initFleetMultiDB.
+	startMCPRuntime()
+	startFleetRolloutScheduler()
 
 	startAPIServer(rateLimiterInstance)
 
@@ -1509,11 +1520,21 @@ func initFleetMultiDB() {
 			name, execMode, dbCfg.ExecutionMode,
 			cfg.Defaults.ExecutionMode)
 		dbExec.WithActionStore(dbActionStore, execMode)
+		if err := dbExec.EnableStandingPolicy(
+			context.Background(), cfg.Policy.Profile, nil,
+		); err != nil {
+			logError("fleet", "db %q standing policy unavailable; fail-closed: %v", name, err)
+		}
 		if err := dbExec.SetTrustLevel(dbCfg.TrustLevel); err != nil {
 			logWarn("fleet", "db %q: invalid trust level %q: %v",
 				name, dbCfg.TrustLevel, err)
 		}
 		dbExec.SetExecutorEnabled(dbCfg.IsExecutorEnabled())
+		if err := startInstanceAutonomy(
+			instCtx, instWorkers, dbPool, dbExecCfg, name, dbExec,
+		); err != nil {
+			logError("fleet", "db %q autonomy unavailable: %v", name, err)
+		}
 
 		// Wire action store into per-database RCA engine.
 		if dbRCAEng != nil {
@@ -1995,6 +2016,7 @@ func startAPIServer(rl *RateLimiter) {
 		RateLimiter: rl,
 		Config:      configController,
 		ConfigBase:  configBase,
+		MCPHandler:  mcpHTTPHandler(),
 	})
 
 	// Fail loudly (not silently) when there is no usable auth pool.
@@ -2247,6 +2269,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	// Database metrics (only when global pool exists).
 	if pool != nil {
 		writeDatabaseMetrics(&b, ctx)
+		writeValueMetrics(&b, ctx)
 	}
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")

@@ -460,6 +460,12 @@ func buildStoreDatabaseRuntime(
 	startInstanceWorker(instWorkers, func() { dbAnal.Run(instCtx) })
 
 	dbExec := buildExecutor(rec, dbPool, dbAnal, dbCloudEnv)
+	if err := startInstanceAutonomy(
+		instCtx, instWorkers, dbPool, cfg, rec.Name, dbExec,
+	); err != nil {
+		instCancel()
+		return nil, fmt.Errorf("start autonomy for %q: %w", rec.Name, err)
+	}
 	dbActionStore := store.NewActionStore(dbPool)
 	if dbLLMClient != nil {
 		dbExec.WithJustifier(dbLLMClient)
@@ -648,6 +654,12 @@ func buildExecutor(
 	dbExec.WithAnalyzeSemaphore(analyzeSem)
 	dbActionStore := store.NewActionStore(dbPool)
 	dbExec.WithActionStore(dbActionStore, resolveExecMode(rec))
+	databaseID := rec.ID
+	if err := dbExec.EnableStandingPolicy(
+		ctx, cfg.Policy.Profile, &databaseID,
+	); err != nil {
+		logError("fleet", "db %q standing policy unavailable; fail-closed: %v", rec.Name, err)
+	}
 	if err := dbExec.SetTrustLevel(rec.TrustLevel); err != nil {
 		logWarn("fleet", "db %q: invalid trust level %q: %v",
 			rec.Name, rec.TrustLevel, err)

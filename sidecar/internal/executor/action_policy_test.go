@@ -39,6 +39,23 @@ func TestEvaluateActionPolicy_AutoSafeAllowsAnalyzeWithGuardrails(t *testing.T) 
 	}
 }
 
+func TestEvaluateActionPolicyApprovalGuardrailAlwaysQueues(t *testing.T) {
+	contract := ActionContract{
+		ActionType: "create_index", BaseRiskTier: "safe",
+		Guardrails: []string{"approval_required"},
+	}
+	cfg := &config.Config{Trust: config.TrustConfig{
+		Level: "autonomous", Tier3Safe: true,
+	}}
+	decision := EvaluateActionPolicy(contract, ActionPolicyContext{
+		Config: cfg, ExecutionMode: "auto", Now: time.Now(),
+		RampStart: time.Now().Add(-40 * 24 * time.Hour),
+	})
+	if decision.Decision != PolicyDecisionQueueApproval || !decision.RequiresApproval {
+		t.Fatalf("approval guardrail decision = %#v", decision)
+	}
+}
+
 func TestEvaluateActionPolicy_BlocksSafeActionAtConcurrencyLimit(t *testing.T) {
 	cfg := &config.Config{
 		Trust: config.TrustConfig{

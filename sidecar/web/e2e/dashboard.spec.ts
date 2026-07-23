@@ -12,7 +12,7 @@ test.describe('Dashboard page', () => {
   })
 
   test('health hero renders with healthy status', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/#/advanced')
 
     const hero = page.locator('[data-testid="health-hero"]')
     await expect(hero).toBeVisible()
@@ -21,7 +21,7 @@ test.describe('Dashboard page', () => {
   })
 
   test('stat cards display correct counts', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/#/advanced')
 
     const dbStat = page.locator('[data-testid="stat-databases"]')
     await expect(dbStat).toBeVisible()
@@ -39,7 +39,7 @@ test.describe('Dashboard page', () => {
   })
 
   test('database list table renders with entries', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/#/advanced')
 
     const list = page.locator('[data-testid="db-list"]')
     await expect(list).toBeVisible()
@@ -54,7 +54,7 @@ test.describe('Dashboard page', () => {
   })
 
   test('database list items show health scores', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/#/advanced')
 
     const items = page.locator('[data-testid="db-list-item"]')
     await expect(items.first()).toContainText('Health')
@@ -64,7 +64,7 @@ test.describe('Dashboard page', () => {
   })
 
   test('trust level badges render on database items', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/#/advanced')
 
     const advisoryBadge = page.locator('[data-testid="trust-badge-advisory"]')
     await expect(advisoryBadge).toBeVisible()
@@ -77,7 +77,7 @@ test.describe('Dashboard page', () => {
   })
 
   test('recent findings section appears with data', async ({ page }) => {
-    await page.goto('/')
+    await page.goto('/#/advanced')
     await page.locator('[data-testid="overview-tab-recent-recos"]').click()
 
     const findings = page.locator('[data-testid="recent-findings"]')
@@ -107,7 +107,7 @@ test.describe('Dashboard page', () => {
         })
       })
 
-      await page.goto('/')
+      await page.goto('/#/advanced')
 
       const hero = page.locator('[data-testid="health-hero"]')
       await expect(hero).toBeVisible()
@@ -135,7 +135,7 @@ test.describe('Dashboard page', () => {
         })
       })
 
-      await page.goto('/')
+      await page.goto('/#/advanced')
 
       const welcome = page.locator('[data-testid="onboarding-welcome"]')
       await expect(welcome).toBeVisible()

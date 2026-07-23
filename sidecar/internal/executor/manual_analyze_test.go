@@ -12,15 +12,15 @@ func TestExecuteManualAnalyzeUsesDedicatedAnalyzePath(t *testing.T) {
 	pool, ctx := requireDB(t)
 	_ = SetEmergencyStop(ctx, pool, false)
 
-	const tableName = "sage.test_manual_analyze_path"
-	_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS sage.test_manual_analyze_path`)
+	const tableName = "public.test_manual_analyze_path"
+	_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS public.test_manual_analyze_path`)
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE sage.test_manual_analyze_path (id int)`)
+		`CREATE TABLE public.test_manual_analyze_path (id int)`)
 	if err != nil {
 		t.Fatalf("create table: %v", err)
 	}
 	_, err = pool.Exec(ctx,
-		`INSERT INTO sage.test_manual_analyze_path (id) VALUES (1), (2)`)
+		`INSERT INTO public.test_manual_analyze_path (id) VALUES (1), (2)`)
 	if err != nil {
 		t.Fatalf("insert rows: %v", err)
 	}
@@ -28,12 +28,12 @@ func TestExecuteManualAnalyzeUsesDedicatedAnalyzePath(t *testing.T) {
 		cctx := context.Background()
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.action_log WHERE sql_executed = $1",
-			"ANALYZE sage.test_manual_analyze_path")
+			"ANALYZE public.test_manual_analyze_path")
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE object_identifier = $1",
 			tableName)
 		_, _ = pool.Exec(cctx,
-			`DROP TABLE IF EXISTS sage.test_manual_analyze_path`)
+			`DROP TABLE IF EXISTS public.test_manual_analyze_path`)
 	})
 
 	recentAnalyzesMu.Lock()
@@ -47,7 +47,7 @@ func TestExecuteManualAnalyzeUsesDedicatedAnalyzePath(t *testing.T) {
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('stale_statistics', 'warning', 'table', $1,
 		         'manual analyze stale stats', '{}', 'run analyze',
-		         'ANALYZE sage.test_manual_analyze_path')
+		         'ANALYZE public.test_manual_analyze_path')
 		 RETURNING id`,
 		tableName,
 	).Scan(&findingID)
@@ -74,7 +74,7 @@ func TestExecuteManualAnalyzeUsesDedicatedAnalyzePath(t *testing.T) {
 	}
 
 	actionID, err := e.ExecuteManual(
-		ctx, findingID, "ANALYZE sage.test_manual_analyze_path", "", nil)
+		ctx, findingID, "ANALYZE public.test_manual_analyze_path", "", nil)
 	if err != nil {
 		t.Fatalf("ExecuteManual analyze: %v", err)
 	}

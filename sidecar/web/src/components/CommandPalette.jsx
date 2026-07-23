@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
 
 const NAV_COMMANDS = [
-  { id: 'nav-dashboard', label: 'Go to Overview',
-    hint: 'Agent state + fleet health', hash: '#/' },
+  { id: 'nav-value', label: 'Go to Value',
+    hint: 'Verified DBA hours saved', hash: '#/' },
   { id: 'nav-cases', label: 'Go to Cases',
     hint: 'Open DBA work queue', hash: '#/cases' },
   { id: 'nav-actions', label: 'Go to Actions',

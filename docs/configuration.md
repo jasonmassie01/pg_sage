@@ -202,6 +202,19 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
 curl -b cookies.txt http://localhost:8080/api/v1/cases
 ```
 
+### Agent-native autonomy
+
+The `policy`, `verify`, `clone`, `custodian`, `value`, and `mcp` sections
+configure the closed-loop autonomy stack. MCP is an intent-level JSON-RPC
+surface: it exposes policy, change-request, and evidence-ledger tools, never
+raw SQL execution. Caller claims are recorded as untrusted input and do not
+grant authority.
+
+The default `unattended` policy profile permits explicitly bounded deadline
+overrides for XID and disk emergencies. Use `staffed` for narrow maintenance
+windows without deadline overrides. Clone-backed migration rehearsal defaults
+to disabled (`clone.provider: none`) and stale clones are recommendation-only.
+
 ### Retention
 
 | Parameter | Default | Description |

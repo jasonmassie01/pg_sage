@@ -186,6 +186,34 @@ retention:
   actions_days: 365
   explains_days: 90
 
+# Agent-native autonomy. Every mutation still traverses the standing policy,
+# evidence ledger, typed executor contract, and verification engine.
+policy:
+  profile: "unattended"       # staffed or unattended
+value:
+  toil_model_version: 1
+verify:
+  window_minutes: 120
+  window_max_minutes: 4320
+  min_gain_pct: 20
+  regress_pct: 15
+  write_impact_pct: 20
+  min_samples: 30
+clone:
+  provider: "none"            # none, dle, or snapshot
+  dle_endpoint: ""
+  dle_token: "${DLE_TOKEN}"
+  max_clone_age_minutes: 1440
+custodian:
+  freeze:
+    red_buffer_pct: 25
+  wal:
+    abandon_after_minutes: 1440
+    retained_wal_disk_pct_ceiling: 10
+mcp:
+  enabled: true
+  transport: "stdio"          # intent-only JSON-RPC; never raw SQL
+
 prometheus:
   listen_addr: "0.0.0.0:9187"
 

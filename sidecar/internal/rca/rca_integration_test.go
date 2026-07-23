@@ -34,7 +34,7 @@ func requireDB(t *testing.T) *pgxpool.Pool {
 		if dsn == "" {
 			dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 
 		pool, err := pgxpool.New(ctx, dsn)

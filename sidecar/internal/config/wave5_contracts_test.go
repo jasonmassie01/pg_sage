@@ -8,19 +8,17 @@ import (
 	"testing"
 )
 
-func TestWave5CurrentSurfacesDoNotAdvertiseMCP(t *testing.T) {
+func TestAgentNativeSurfacesDescribeIntentLevelMCP(t *testing.T) {
 	root := wave5RepoRoot(t)
 	paths := []string{
-		"META.json",
-		"roadmap.md",
 		filepath.Join("docs", "configuration.md"),
-		filepath.Join("sidecar", "tests", "integration", "run_tests.sh"),
+		filepath.Join("sidecar", "config.example.yaml"),
 	}
 	for _, path := range paths {
 		t.Run(filepath.ToSlash(path), func(t *testing.T) {
 			body := strings.ToLower(wave5ReadFile(t, filepath.Join(root, path)))
-			if strings.Contains(body, "mcp") {
-				t.Fatalf("current-facing surface still contains retired MCP claim: %s", path)
+			if !strings.Contains(body, "mcp") || !strings.Contains(body, "intent") {
+				t.Fatalf("agent-native surface omits intent-level MCP: %s", path)
 			}
 		})
 	}

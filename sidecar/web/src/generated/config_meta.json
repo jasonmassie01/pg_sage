@@ -312,6 +312,27 @@
     "default": "",
     "doc": ""
   },
+  "clone.dle_endpoint": {
+    "type": "string",
+    "default": "",
+    "doc": "Database Lab Engine API endpoint."
+  },
+  "clone.dle_token": {
+    "type": "string",
+    "default": null,
+    "doc": "Database Lab bearer token.",
+    "secret": true
+  },
+  "clone.max_clone_age_minutes": {
+    "type": "int",
+    "default": 1440,
+    "doc": "Maximum source snapshot age."
+  },
+  "clone.provider": {
+    "type": "string",
+    "default": "none",
+    "doc": "Clone provider: none, dle, or snapshot."
+  },
   "collector.batch_size": {
     "type": "int",
     "default": 1000,
@@ -326,6 +347,21 @@
     "type": "int",
     "default": 500,
     "doc": ""
+  },
+  "custodian.freeze.red_buffer_pct": {
+    "type": "float64",
+    "default": 25,
+    "doc": "Remaining XID percentage classified red."
+  },
+  "custodian.wal.abandon_after_minutes": {
+    "type": "int",
+    "default": 1440,
+    "doc": "Inactive abandonment age."
+  },
+  "custodian.wal.retained_wal_disk_pct_ceiling": {
+    "type": "float64",
+    "default": 10,
+    "doc": "WAL retention limit."
   },
   "databases[].analyzer_interval_seconds": {
     "type": "int",
@@ -754,6 +790,16 @@
     "default": 10485760,
     "doc": "Minimum temp file size to trigger log_temp_file_created. Default: 10485760."
   },
+  "mcp.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Enable the intent-level MCP server."
+  },
+  "mcp.transport": {
+    "type": "string",
+    "default": "stdio",
+    "doc": "MCP transport: stdio or http."
+  },
   "meta_db": {
     "type": "string",
     "default": "",
@@ -834,6 +880,11 @@
     "type": "string",
     "default": "",
     "doc": "Absolute URL the provider redirects to after authentication. Must match the URI registered at the provider."
+  },
+  "policy.profile": {
+    "type": "string",
+    "default": "unattended",
+    "doc": "Bootstrap standing-policy profile: staffed or unattended."
   },
   "postgres.database": {
     "type": "string",
@@ -1202,5 +1253,40 @@
     "type": "int",
     "default": 512,
     "doc": "Maximum per-query work_mem (MB) the tuner is allowed to prescribe via Set(work_mem) hints. Ceiling prevents runaway memory suggestions."
+  },
+  "value.toil_model_version": {
+    "type": "int",
+    "default": 1,
+    "doc": "Active calibrated toil-model version."
+  },
+  "verify.min_gain_pct": {
+    "type": "float64",
+    "default": 20,
+    "doc": "Minimum gain required to retain a change."
+  },
+  "verify.min_samples": {
+    "type": "int",
+    "default": 30,
+    "doc": "Minimum verification samples."
+  },
+  "verify.regress_pct": {
+    "type": "float64",
+    "default": 15,
+    "doc": "Regression percentage that triggers revert."
+  },
+  "verify.window_max_minutes": {
+    "type": "int",
+    "default": 4320,
+    "doc": "Maximum verification window."
+  },
+  "verify.window_minutes": {
+    "type": "int",
+    "default": 120,
+    "doc": "Initial verification window."
+  },
+  "verify.write_impact_pct": {
+    "type": "float64",
+    "default": 20,
+    "doc": "Maximum write-latency increase."
   }
 }

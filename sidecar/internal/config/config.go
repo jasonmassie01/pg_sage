@@ -64,28 +64,34 @@ func RUnlockForHotReload() { hotReloadMu.RUnlock() }
 type Config struct {
 	Mode string `yaml:"mode" doc:"Operating mode: extension, standalone, or fleet. Standalone connects to one PostgreSQL target; fleet manages many databases from one sidecar."`
 
-	Postgres    PostgresConfig    `yaml:"postgres"`
-	Collector   CollectorConfig   `yaml:"collector"`
-	Analyzer    AnalyzerConfig    `yaml:"analyzer"`
-	Safety      SafetyConfig      `yaml:"safety"`
-	Trust       TrustConfig       `yaml:"trust"`
-	LLM         LLMConfig         `yaml:"llm"`
-	Advisor     AdvisorConfig     `yaml:"advisor"`
-	Briefing    BriefingConfig    `yaml:"briefing"`
-	Alerting    AlertingConfig    `yaml:"alerting"`
-	AutoExplain AutoExplainConfig `yaml:"auto_explain"`
-	Forecaster  ForecasterConfig  `yaml:"forecaster"`
-	Tuner       TunerConfig       `yaml:"tuner"`
-	RCA         RCAConfig         `yaml:"rca"`
-	Runaway     RunawayConfig     `yaml:"runaway"`
-	Explain     ExplainConfig     `yaml:"explain"`
-	LogWatch    LogWatchConfig    `yaml:"logwatch"`
-	SchemaLint  SchemaLintConfig  `yaml:"schema_lint"`
-	Migration   MigrationConfig   `yaml:"migration"`
-	Retention   RetentionConfig   `yaml:"retention"`
-	Prometheus  PrometheusConfig  `yaml:"prometheus"`
-	OAuth       OAuthConfig       `yaml:"oauth"`
-	AgentDB     AgentDBConfig     `yaml:"agentdb"`
+	Postgres    PostgresConfig      `yaml:"postgres"`
+	Collector   CollectorConfig     `yaml:"collector"`
+	Analyzer    AnalyzerConfig      `yaml:"analyzer"`
+	Safety      SafetyConfig        `yaml:"safety"`
+	Trust       TrustConfig         `yaml:"trust"`
+	LLM         LLMConfig           `yaml:"llm"`
+	Advisor     AdvisorConfig       `yaml:"advisor"`
+	Briefing    BriefingConfig      `yaml:"briefing"`
+	Alerting    AlertingConfig      `yaml:"alerting"`
+	AutoExplain AutoExplainConfig   `yaml:"auto_explain"`
+	Forecaster  ForecasterConfig    `yaml:"forecaster"`
+	Tuner       TunerConfig         `yaml:"tuner"`
+	RCA         RCAConfig           `yaml:"rca"`
+	Runaway     RunawayConfig       `yaml:"runaway"`
+	Explain     ExplainConfig       `yaml:"explain"`
+	LogWatch    LogWatchConfig      `yaml:"logwatch"`
+	SchemaLint  SchemaLintConfig    `yaml:"schema_lint"`
+	Migration   MigrationConfig     `yaml:"migration"`
+	Retention   RetentionConfig     `yaml:"retention"`
+	Prometheus  PrometheusConfig    `yaml:"prometheus"`
+	OAuth       OAuthConfig         `yaml:"oauth"`
+	AgentDB     AgentDBConfig       `yaml:"agentdb"`
+	Policy      PolicyConfig        `yaml:"policy"`
+	Value       ValueConfig         `yaml:"value"`
+	Verify      VerifyConfig        `yaml:"verify"`
+	Clone       CloneProviderConfig `yaml:"clone"`
+	Custodian   CustodianConfig     `yaml:"custodian"`
+	MCP         MCPConfig           `yaml:"mcp"`
 
 	// Fleet mode fields.
 	Databases []DatabaseConfig `yaml:"databases"`
@@ -624,6 +630,9 @@ func Load(args []string) (*Config, error) {
 }
 
 func (c *Config) validate() error {
+	if err := c.validateAgentNative(); err != nil {
+		return err
+	}
 	if c.Collector.IntervalSeconds <= 0 {
 		return fmt.Errorf("collector.interval_seconds must be positive")
 	}
@@ -899,6 +908,28 @@ func newDefaults() *Config {
 			ReconcileIntervalSeconds: DefaultAgentDBReconcileInterval,
 			Providers:                map[string]AgentDBProviderConfig{},
 		},
+		Policy: PolicyConfig{Profile: DefaultPolicyProfile},
+		Value:  ValueConfig{ToilModelVersion: DefaultToilModelVersion},
+		Verify: VerifyConfig{
+			WindowMinutes:    DefaultVerifyWindowMinutes,
+			WindowMaxMinutes: DefaultVerifyWindowMaxMinutes,
+			MinGainPct:       DefaultVerifyMinGainPct,
+			RegressPct:       DefaultVerifyRegressPct,
+			WriteImpactPct:   DefaultVerifyWriteImpactPct,
+			MinSamples:       DefaultVerifyMinSamples,
+		},
+		Clone: CloneProviderConfig{
+			Provider:           DefaultCloneProvider,
+			MaxCloneAgeMinutes: DefaultCloneMaxAgeMinutes,
+		},
+		Custodian: CustodianConfig{
+			Freeze: FreezeCustodianConfig{RedBufferPct: DefaultFreezeRedBufferPct},
+			WAL: WALCustodianConfig{
+				AbandonAfterMinutes:       DefaultWALAbandonAfterMinutes,
+				RetainedWALDiskPctCeiling: DefaultWALRetainedDiskPctCeiling,
+			},
+		},
+		MCP: MCPConfig{Enabled: DefaultMCPEnabled, Transport: DefaultMCPTransport},
 		OAuth: OAuthConfig{
 			DefaultRole: "viewer",
 		},
@@ -960,11 +991,6 @@ func rejectRetiredTopLevelConfig(raw string) error {
 			return fmt.Errorf(
 				"configuration key %q is retired; use %q instead",
 				"notifications", "alerting",
-			)
-		case "mcp":
-			return fmt.Errorf(
-				"configuration key %q is retired; use the REST API instead",
-				"mcp",
 			)
 		}
 	}
@@ -1068,6 +1094,61 @@ func overlayEnv(cfg *Config) {
 	if v := os.Getenv("SAGE_OAUTH_PROVIDER"); v != "" {
 		cfg.OAuth.Provider = v
 	}
+	overlayAgentNativeEnv(cfg)
+}
+
+func overlayAgentNativeEnv(cfg *Config) {
+	if v := os.Getenv("SAGE_POLICY_PROFILE"); v != "" {
+		cfg.Policy.Profile = v
+	}
+	if v := envInt("SAGE_VALUE_TOIL_MODEL_VERSION"); v != 0 {
+		cfg.Value.ToilModelVersion = v
+	}
+	if v := envInt("SAGE_VERIFY_WINDOW_MINUTES"); v != 0 {
+		cfg.Verify.WindowMinutes = v
+	}
+	if v := envInt("SAGE_VERIFY_WINDOW_MAX_MINUTES"); v != 0 {
+		cfg.Verify.WindowMaxMinutes = v
+	}
+	if v := envFloat("SAGE_VERIFY_MIN_GAIN_PCT"); v != 0 {
+		cfg.Verify.MinGainPct = v
+	}
+	if v := envFloat("SAGE_VERIFY_REGRESS_PCT"); v != 0 {
+		cfg.Verify.RegressPct = v
+	}
+	if v := envFloat("SAGE_VERIFY_WRITE_IMPACT_PCT"); v != 0 {
+		cfg.Verify.WriteImpactPct = v
+	}
+	if v := envInt("SAGE_VERIFY_MIN_SAMPLES"); v != 0 {
+		cfg.Verify.MinSamples = v
+	}
+	if v := os.Getenv("SAGE_CLONE_PROVIDER"); v != "" {
+		cfg.Clone.Provider = v
+	}
+	if v := os.Getenv("SAGE_CLONE_DLE_ENDPOINT"); v != "" {
+		cfg.Clone.DLEEndpoint = v
+	}
+	if v := os.Getenv("SAGE_CLONE_DLE_TOKEN"); v != "" {
+		cfg.Clone.DLEToken = v
+	}
+	if v := envInt("SAGE_CLONE_MAX_AGE_MINUTES"); v != 0 {
+		cfg.Clone.MaxCloneAgeMinutes = v
+	}
+	if v := envFloat("SAGE_CUSTODIAN_FREEZE_RED_BUFFER_PCT"); v != 0 {
+		cfg.Custodian.Freeze.RedBufferPct = v
+	}
+	if v := envInt("SAGE_CUSTODIAN_WAL_ABANDON_AFTER_MINUTES"); v != 0 {
+		cfg.Custodian.WAL.AbandonAfterMinutes = v
+	}
+	if v := envFloat("SAGE_CUSTODIAN_WAL_DISK_PCT_CEILING"); v != 0 {
+		cfg.Custodian.WAL.RetainedWALDiskPctCeiling = v
+	}
+	if v, ok := envBool("SAGE_MCP_ENABLED"); ok {
+		cfg.MCP.Enabled = v
+	}
+	if v := os.Getenv("SAGE_MCP_TRANSPORT"); v != "" {
+		cfg.MCP.Transport = v
+	}
 }
 
 // HotReloadable returns the fields that can be reloaded without restart.
@@ -1140,6 +1221,15 @@ func envFloat(key string) float64 {
 	}
 	f, _ := strconv.ParseFloat(v, 64)
 	return f
+}
+
+func envBool(key string) (bool, bool) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return false, false
+	}
+	value, err := strconv.ParseBool(raw)
+	return value, err == nil
 }
 
 // Suppress unused warnings.

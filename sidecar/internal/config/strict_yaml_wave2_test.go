@@ -13,7 +13,7 @@ func TestLoadYAMLRejectsUnknownKeysWithoutMutatingCandidate(t *testing.T) {
 		yaml string
 		path string
 	}{
-		{"top level", "mcp:\n  enabled: true\n", "mcp"},
+		{"top level", "unknown_agent_feature:\n  enabled: true\n", "unknown_agent_feature"},
 		{"nested", "collector:\n  interval_second: 12\n", "interval_second"},
 	}
 	for _, tt := range tests {

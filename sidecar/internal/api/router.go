@@ -17,7 +17,9 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/notify"
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/value"
 )
 
 // routerShutdownCtx is the context used by long-running router-owned
@@ -78,6 +80,7 @@ type RuntimeDeps struct {
 	ConfigController    *config.ConfigController
 	ConfigBase          *config.Config
 	DisableConfigWrites bool
+	MCPHandler          http.Handler
 }
 
 // NewRouter creates the API + dashboard HTTP handler.
@@ -135,10 +138,12 @@ func NewRouterFullRuntime(
 	var controller *config.ConfigController
 	var configBase *config.Config
 	var disableConfigWrites bool
+	var mcpHandler http.Handler
 	if runtime != nil {
 		controller = runtime.ConfigController
 		configBase = runtime.ConfigBase
 		disableConfigWrites = runtime.DisableConfigWrites
+		mcpHandler = runtime.MCPHandler
 	}
 	var runtimeConfigStore *store.ConfigStore
 	if pool != nil && !disableConfigWrites {
@@ -148,6 +153,10 @@ func NewRouterFullRuntime(
 		apiMux, mgr, cfg, llmMgr, controller, runtimeConfigStore,
 		disableConfigWrites,
 	)
+	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
+		mcpHandler != nil {
+		apiMux.Handle("POST /api/v1/mcp", mcpHandler)
+	}
 	if pool != nil {
 		var oauthProvider *auth.OAuthProvider
 		if cfg.OAuth.Enabled {
@@ -170,6 +179,9 @@ func NewRouterFullRuntime(
 			configBase, disableConfigWrites,
 		)
 		registerNotificationRoutes(apiMux, pool)
+		registerPolicyRoutes(apiMux, policy.NewStore(pool))
+		apiMux.Handle("GET /api/v1/value", valueHandler(
+			value.NewService(value.NewPostgresRepository(pool))))
 		registerAgentDBRoutesWithAuthority(
 			apiMux,
 			agentdb.NewStore(pool),

@@ -21,7 +21,7 @@ import (
 
 func connectTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 
 	pool, err := pgxpool.New(ctx, os.Getenv("SAGE_DATABASE_URL"))

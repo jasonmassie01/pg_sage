@@ -1,5 +1,66 @@
 # Changelog
 
+## v1.4.0 (2026-07-23) -- Agent-Native Autonomy
+
+### Added
+
+- Standing-policy control plane (`sage.policy`): a declarative, validated
+  policy object is now the sole source of autonomous authority, with
+  `staffed` and `unattended` profiles, budget semantics where `0` means
+  "none" (never "unlimited"), fail-closed unknown classification, and
+  operator-gated propose/dry-run/ratify policy changes.
+- Single authorization gate: every autonomous mutation routes through
+  `policy.Gate` with fail-closed ordering, enforced guardrails, DDL
+  change-leases (advisory locks + `sage.change_lease`), and drift
+  reconciliation against `sage.schema_baseline`.
+- Evidence Ledger (`sage.decision`) recording every parked, recommended,
+  blocked, and executed decision, with a self-audit that re-opens
+  decisions when past fixes regress.
+- Verify-and-revert engine: per-query verification with no-gain,
+  regression, write-impact, and invalid-index reverts; adaptive windows
+  that extend then revert-to-safe on insufficient samples; a low-load
+  apply gate; and the coupling rule that nothing auto-applies unless it
+  can be auto-verified.
+- Verified index lifecycle: candidate generation, HypoPG pre-estimates,
+  concurrent builds under lease, and post-apply verification with
+  automatic revert.
+- Wraparound/bloat custodian and replication-slot/WAL guardian with
+  deterministic deadline math, graduated urgency, policy-gated deadline
+  overrides, slot bounding before dropping, and a consumer registry that
+  protects declared slots.
+- Rehearse-on-clone migration gate: lint-and-rewrite of hazardous DDL,
+  expand/contract planning, rehearsal on thin clones, bounded auto-revert
+  windows, and recommend-only degradation when no clone provider exists.
+- Pluggable `clone.Provider` with Database Lab Engine and
+  snapshot-restore adapters, including snapshot-freshness enforcement.
+- Agent-native schema custodian: invariant catalog (FK-without-index,
+  unbounded append tables, missing constraints), table contracts declared
+  over MCP, dry-run-first retention, and structural changes that never
+  auto-apply.
+- Intent-level MCP server (stdio JSON-RPC) whose every tool routes
+  through the same standing-policy gate; caller claims can never widen
+  authority.
+- DBA-hours-saved value model: table-driven `sage.toil_model`,
+  conservative `sage.incident_avoided` credit, verified-success-only
+  stamping with zero credit on revert, the `/api/v1/value` endpoint, and
+  Prometheus gauges `pg_sage_toil_minutes_saved_total` and
+  `pg_sage_incidents_avoided_total`.
+- Value view as the dashboard's default landing page, with telemetry
+  moved to a secondary Advanced view.
+- Fleet staged-rollout scaffolding for cohort canaries with per-instance
+  re-verification.
+
+### Changed
+
+- Replaced testify with a stdlib-only internal assertion library
+  (`internal/testsupport`), keeping the repo's no-testify convention.
+- DB-dependent tests now skip with an explicit reason when
+  `SAGE_TEST_DATABASE_URL` is not set instead of failing against a
+  sentinel address; with a database configured nothing skips.
+- Notification and config API tests are hardened against full-suite DB
+  contention (stable cleanup sweeps and bounded retries on transient
+  timeout signatures only).
+
 ## v1.3.1 (2026-07-22) -- Correctness and Safety Audit Follow-up
 
 ### Fixed
