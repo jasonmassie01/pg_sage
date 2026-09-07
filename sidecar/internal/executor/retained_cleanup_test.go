@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ func TestRetainedIndexCleanupRequiresVerdictAndSeparatePolicy(t *testing.T) {
 	for _, tc := range []struct {
 		name                       string
 		retain, allowed, emergency bool
-		wantDrop                   bool
+		wantReview                 bool
 	}{
 		{"retain authorized", true, true, false, true},
 		{"pending", false, true, false, false},
@@ -33,11 +34,11 @@ func TestRetainedIndexCleanupRequiresVerdictAndSeparatePolicy(t *testing.T) {
 			}
 			err := (&executorIndexActions{exec: e}).Retain(t.Context(), id,
 				verify.Verdict{Retain: tc.retain, Status: "success"})
-			if (err == nil) != tc.wantDrop {
+			if err == nil || errors.Is(err, ErrReviewedCleanupRequired) != tc.wantReview {
 				t.Fatalf("Retain error=%v", err)
 			}
-			assertCleanupIndexes(t, e, tc.wantDrop)
-			if tc.wantDrop {
+			assertCleanupIndexes(t, e, false)
+			if tc.wantReview {
 				if gate.calls != 1 || !strings.HasPrefix(gate.request.SQL, "DROP INDEX") {
 					t.Fatalf("separate DROP authorization = %#v", gate)
 				}
@@ -45,9 +46,10 @@ func TestRetainedIndexCleanupRequiresVerdictAndSeparatePolicy(t *testing.T) {
 				_ = e.pool.QueryRow(t.Context(), `SELECT count(*) FROM sage.action_log
 					WHERE action_type='drop_index' AND before_state->>'retained_action_id'=$1`,
 					strconv.FormatInt(id, 10)).Scan(&n)
-				if n != 1 {
-					t.Fatalf("cleanup audit rows=%d", n)
+				if n != 0 {
+					t.Fatalf("withheld cleanup incorrectly logged an execution: rows=%d", n)
 				}
+				assertCleanupReviewReason(t, e, id)
 			}
 		})
 	}
@@ -141,6 +143,19 @@ func assertCleanupIndexes(t *testing.T, e *Executor, dropped bool) {
 	}
 }
 
+func assertCleanupReviewReason(t *testing.T, e *Executor, actionID int64) {
+	t.Helper()
+	var reason, verdict, outcome string
+	err := e.pool.QueryRow(t.Context(), `SELECT v.reason,v.verdict,a.outcome
+		FROM sage.verification v JOIN sage.action_log a ON a.id=v.action_log_id
+		WHERE a.id=$1`, actionID).Scan(&reason, &verdict, &outcome)
+	if err != nil || reason != ErrReviewedCleanupRequired.Error() ||
+		verdict != "success" || outcome != "success" {
+		t.Fatalf("retained cleanup review: reason=%q verdict=%q outcome=%q error=%v",
+			reason, verdict, outcome, err)
+	}
+}
+
 // This fixture represents the durable result of a completed verifier watch.
 // The hook tests isolate finalization; lifecycle tests independently prove ordering.
 func seedRetainedVerification(t *testing.T, pool *pgxpool.Pool, actionID int64) {
@@ -183,14 +198,15 @@ func TestRetainedCleanupPersistsIntentAndIsIdempotent(t *testing.T) {
 	for range 2 {
 		err := (&executorIndexActions{exec: e}).Retain(
 			t.Context(), id, verify.Verdict{Retain: true})
-		if err != nil {
+		if !errors.Is(err, ErrReviewedCleanupRequired) {
 			t.Fatal(err)
 		}
 	}
 	if gate.calls != 1 {
 		t.Fatalf("repeated retention authorization count=%d", gate.calls)
 	}
-	assertCleanupIndexes(t, e, true)
+	assertCleanupIndexes(t, e, false)
+	assertCleanupReviewReason(t, e, id)
 }
 
 func TestSupersededSnapshotEmptySelfAndMissingTargets(t *testing.T) {
@@ -214,7 +230,7 @@ func TestSupersededSnapshotEmptySelfAndMissingTargets(t *testing.T) {
 	}
 }
 
-func TestConcurrentRetainedCleanupExecutesOnce(t *testing.T) {
+func TestConcurrentRetainedCleanupRecordsReviewOnce(t *testing.T) {
 	e, id, gate := retainedFixture(t, true, "")
 	results := make(chan error, 4)
 	for range 4 {
@@ -224,14 +240,15 @@ func TestConcurrentRetainedCleanupExecutesOnce(t *testing.T) {
 		}()
 	}
 	for range 4 {
-		if err := <-results; err != nil {
+		if err := <-results; !errors.Is(err, ErrReviewedCleanupRequired) {
 			t.Errorf("concurrent retain: %v", err)
 		}
 	}
 	if gate.calls != 1 {
 		t.Fatalf("concurrent DROP authorizations=%d", gate.calls)
 	}
-	assertCleanupIndexes(t, e, true)
+	assertCleanupIndexes(t, e, false)
+	assertCleanupReviewReason(t, e, id)
 }
 
 func mutateRetainedFixture(t *testing.T, e *Executor, id int64, kind string) {

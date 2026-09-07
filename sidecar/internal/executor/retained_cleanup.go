@@ -5,13 +5,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
+	"regexp"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 )
 
 var errSupersededIndexGone = errors.New("superseded index already removed")
+
+var ErrReviewedCleanupRequired = errors.New(
+	"reviewed_cleanup_required: retained new index; superseded index preserved because " +
+		"DROP INDEX CONCURRENTLY cannot bind to the verified object identity",
+)
+
+var supersededDropPattern = regexp.MustCompile(
+	`(?i)^\s*DROP\s+INDEX\s+CONCURRENTLY\s+(?:IF\s+EXISTS\s+)?(` +
+		migrationIdentifier + `(?:\s*\.\s*` + migrationIdentifier + `)?)` +
+		`\s*(?:RESTRICT\s*)?;?\s*$`,
+)
 
 // Preserve immutable cleanup intent with the CREATE action so resumed watches do
 // not depend on a later, edited finding. The OID detects a replaced old index.
@@ -22,12 +33,12 @@ func (e *Executor) snapshotSupersededIndex(
 	if drop == "" || isSelfReferentialDrop(f.RecommendedSQL, drop) {
 		return nil
 	}
-	if err := validateSupersededDrop(drop); err != nil {
+	target, err := supersededIndexTarget(drop)
+	if err != nil {
 		return err
 	}
 	var oid int64
-	err := e.pool.QueryRow(ctx, `SELECT COALESCE(to_regclass($1)::bigint,0)`,
-		extractIndexName(drop)).Scan(&oid)
+	err = e.pool.QueryRow(ctx, `SELECT COALESCE(to_regclass($1)::bigint,0)`, target).Scan(&oid)
 	if err != nil {
 		return fmt.Errorf("snapshot superseded index: %w", err)
 	}
@@ -40,14 +51,19 @@ func (e *Executor) snapshotSupersededIndex(
 }
 
 func validateSupersededDrop(sql string) error {
+	_, err := supersededIndexTarget(sql)
+	return err
+}
+
+func supersededIndexTarget(sql string) (string, error) {
 	if err := ValidateExecutorSQL(sql); err != nil {
-		return err
+		return "", err
 	}
-	if !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(sql)), "DROP INDEX ") ||
-		!NeedsConcurrently(sql) || extractIndexName(sql) == "" {
-		return errors.New("superseded cleanup requires one DROP INDEX CONCURRENTLY")
+	match := supersededDropPattern.FindStringSubmatch(sql)
+	if len(match) != 2 {
+		return "", errors.New("superseded cleanup requires one DROP INDEX CONCURRENTLY target")
 	}
-	return nil
+	return match[1], nil
 }
 
 func (e *Executor) cleanupRetainedIndex(ctx context.Context, actionID int64) error {
@@ -55,9 +71,12 @@ func (e *Executor) cleanupRetainedIndex(ctx context.Context, actionID int64) err
 	defer e.retainedCleanupMu.Unlock()
 	var createSQL string
 	var data []byte
-	err := e.pool.QueryRow(ctx, `SELECT sql_executed,COALESCE(before_state,'{}'::jsonb)
-		FROM sage.action_log WHERE id=$1 AND action_type='create_index'`, actionID).
-		Scan(&createSQL, &data)
+	var reviewed bool
+	err := e.pool.QueryRow(ctx, `SELECT sql_executed,COALESCE(before_state,'{}'::jsonb),
+		EXISTS(SELECT 1 FROM sage.verification WHERE action_log_id=$1 AND reason=$2)
+		FROM sage.action_log WHERE id=$1 AND action_type='create_index'`,
+		actionID, ErrReviewedCleanupRequired.Error()).
+		Scan(&createSQL, &data, &reviewed)
 	if err != nil {
 		return fmt.Errorf("load retained index cleanup: %w", err)
 	}
@@ -71,6 +90,9 @@ func (e *Executor) cleanupRetainedIndex(ctx context.Context, actionID int64) err
 	if state.DropSQL == "" || isSelfReferentialDrop(createSQL, state.DropSQL) {
 		return nil
 	}
+	if reviewed {
+		return ErrReviewedCleanupRequired
+	}
 	if err := validateSupersededDrop(state.DropSQL); err != nil {
 		return err
 	}
@@ -80,15 +102,18 @@ func (e *Executor) cleanupRetainedIndex(ctx context.Context, actionID int64) err
 		}
 		return err
 	}
-	return e.dropSupersededIndex(ctx, actionID, state.DropSQL)
+	return e.reviewSupersededIndexCleanup(ctx, actionID, state.DropSQL)
 }
 
 func (e *Executor) validateRetainedReplacement(
 	ctx context.Context, createSQL, dropSQL string, oid int64,
 ) error {
+	target, err := supersededIndexTarget(dropSQL)
+	if err != nil {
+		return err
+	}
 	var current int64
-	err := e.pool.QueryRow(ctx, `SELECT COALESCE(to_regclass($1)::bigint,0)`,
-		extractIndexName(dropSQL)).Scan(&current)
+	err = e.pool.QueryRow(ctx, `SELECT COALESCE(to_regclass($1)::bigint,0)`, target).Scan(&current)
 	if err != nil {
 		return fmt.Errorf("lookup superseded index: %w", err)
 	}
@@ -101,33 +126,33 @@ func (e *Executor) validateRetainedReplacement(
 	return e.checkRetainedCoverage(ctx, createSQL, current)
 }
 
-func (e *Executor) dropSupersededIndex(ctx context.Context, actionID int64, sql string) error {
+func (e *Executor) reviewSupersededIndexCleanup(
+	ctx context.Context, actionID int64, sql string,
+) error {
+	target, err := supersededIndexTarget(sql)
+	if err != nil {
+		return err
+	}
 	if e.checkEmergencyStop(ctx) {
 		return errors.New("emergency stop withheld superseded cleanup")
 	}
 	candidate := analyzer.Finding{RecommendedSQL: sql, ObjectType: "index",
-		ObjectIdentifier: extractIndexName(sql), Title: "Retained index superseded cleanup"}
+		ObjectIdentifier: target, Title: "Retained index superseded cleanup"}
 	decision := e.evaluateFindingPolicy(ctx, candidate, false)
 	if decision.Decision != PolicyDecisionExecute {
 		return errors.New("standing policy withheld superseded-index cleanup")
 	}
-	cfg, _, _ := e.policySnapshot()
-	if cfg == nil {
-		return errors.New("cleanup execution configuration unavailable")
-	}
-	err := ExecConcurrently(ctx, e.pool, sql, cfg.Safety.DDLTimeout(),
-		WithLockTimeout(cfg.Safety.LockTimeout()))
-	id := e.logActionWithDecision(ctx, candidate, 0,
-		map[string]any{"retained_action_id": actionID}, decision.DecisionID, err)
+	// Neither a process mutex nor a cooperative lease protects against external
+	// DDL replacing this name. Preserve both indexes instead of a name-based DROP.
+	result, err := e.pool.Exec(ctx, `UPDATE sage.verification SET reason=$2,updated_at=now()
+		WHERE action_log_id=$1 AND verdict='success'`, actionID, ErrReviewedCleanupRequired.Error())
 	if err != nil {
-		return fmt.Errorf("drop superseded index: %w", err)
+		return fmt.Errorf("record superseded cleanup review requirement: %w", err)
 	}
-	if id == 0 {
-		return errors.New("superseded cleanup executed but audit write failed")
+	if result.RowsAffected() == 0 {
+		return errors.New("retained verification missing; cleanup review requirement was not recorded")
 	}
-	updateActionSuccess(ctx, e.pool, id)
-	e.notifyPostDDL(ctx, sql)
-	return nil
+	return ErrReviewedCleanupRequired
 }
 
 // Only an equivalent key definition with at least the old included columns can
