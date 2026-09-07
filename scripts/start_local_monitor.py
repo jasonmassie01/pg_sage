@@ -11,20 +11,22 @@ CONFIG = ROOT / "local_monitor_config.yaml"
 SIDECAR = ROOT / "sidecar" / "pg_sage_sidecar_qa.exe"
 
 
-def _docker_lifeos_password() -> str | None:
+def _docker_postgres_password(container: str) -> str | None:
     try:
         proc = subprocess.run(
             [
                 "docker",
                 "inspect",
                 "--format={{range .Config.Env}}{{println .}}{{end}}",
-                "lifeos_postgres",
+                container,
             ],
             check=True,
             capture_output=True,
             text=True,
+            timeout=10,
         )
-    except Exception:
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        print(f"Docker password lookup failed: {type(exc).__name__}", file=sys.stderr)
         return None
     prefix = "POSTGRES_" + "PASS" + "WORD" + "="
     for line in proc.stdout.splitlines():
@@ -41,7 +43,7 @@ def _lifeos_password() -> str:
         if password is None:
             raise RuntimeError("LIFEOS_DATABASE_URL does not contain a password")
         return unquote(password)
-    password = _docker_lifeos_password()
+    password = _docker_postgres_password("lifeos_postgres")
     if password:
         quoted = quote(password, safe="")
         os.environ["LIFEOS_DATABASE_URL"] = (
@@ -51,13 +53,32 @@ def _lifeos_password() -> str:
     raise RuntimeError("LIFEOS_DATABASE_URL is required, or lifeos_postgres must expose POSTGRES_PASSWORD")
 
 
+def _load_local_fleet_credentials(env: dict[str, str]) -> None:
+    configured = CONFIG.read_text(encoding="utf-8")
+    targets = {
+        "FLEET_PG1_PASSWORD": "pg_sage-pg-target-1",
+        "FLEET_PG2_PASSWORD": "pg_sage-pg-target-2-1",
+    }
+    for key, container in targets.items():
+        if "${" + key + "}" not in configured or env.get(key):
+            continue
+        password = _docker_postgres_password(container)
+        if not password:
+            raise RuntimeError(f"{key} is required or {container} must expose POSTGRES_PASSWORD")
+        env[key] = password
+
+
 def main() -> int:
     if not CONFIG.exists():
         raise RuntimeError(f"missing config: {CONFIG}")
     if not SIDECAR.exists():
         raise RuntimeError(f"missing sidecar binary: {SIDECAR}")
+    password = _lifeos_password()
     env = os.environ.copy()
-    env["LIFEOS_POSTGRES_PASSWORD"] = _lifeos_password()
+    env["LIFEOS_POSTGRES_PASSWORD"] = password
+    _load_local_fleet_credentials(env)
+    log_dir = ROOT / "logs"
+    log_dir.mkdir(exist_ok=True)
     # Supervisor loop: the sidecar exits with RESTART_EXIT_CODE (42) when the
     # /api/v1/restart endpoint is used (so startup-only settings take effect).
     # Relaunch on that code; any other exit code stops the launcher.
@@ -66,12 +87,16 @@ def main() -> int:
         print(
             f"Starting pg_sage local monitor with config {CONFIG}", flush=True
         )
-        proc = subprocess.Popen(
-            [str(SIDECAR), f"--config={CONFIG}"],
-            cwd=str(ROOT / "sidecar"),
-            env=env,
-        )
-        code = proc.wait()
+        with (log_dir / "sidecar.runtime.out.log").open("ab") as stdout, \
+                (log_dir / "sidecar.runtime.err.log").open("ab") as stderr:
+            proc = subprocess.Popen(
+                [str(SIDECAR), f"--config={CONFIG}"],
+                cwd=str(ROOT / "sidecar"),
+                env=env,
+                stdout=stdout,
+                stderr=stderr,
+            )
+            code = proc.wait()
         if code != RESTART_EXIT_CODE:
             return code
         print("Restart requested via UI — relaunching sidecar…", flush=True)
@@ -80,6 +105,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except Exception as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         print(f"pg_sage local monitor launcher failed: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
         raise SystemExit(1)

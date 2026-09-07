@@ -7,51 +7,24 @@ defaults:
   max_connections: 2
   trust_level: autonomous
   execution_mode: manual
-  collector_interval_seconds: 30
-  analyzer_interval_seconds: 60
+  collector_interval_seconds: 300
+  analyzer_interval_seconds: 600
 
 databases:
-  - name: local_pg17_postgres
-    host: 127.0.0.1
-    port: 5432
-    user: postgres
-    password: postgres
-    database: postgres
-    sslmode: disable
-    tags: [local, host, pg17]
-
   - name: fleet_pg1_postgres
     host: 127.0.0.1
     port: 5433
     user: postgres
-    password: postgres
+    password: ${FLEET_PG1_PASSWORD}
     database: postgres
     sslmode: disable
     tags: [local, docker, pg16, pg_sage]
-
-  - name: fleet_pg1_app_production
-    host: 127.0.0.1
-    port: 5433
-    user: postgres
-    password: postgres
-    database: app_production
-    sslmode: disable
-    tags: [local, docker, pg16, app]
-
-  - name: fleet_pg1_pgsage_meta
-    host: 127.0.0.1
-    port: 5433
-    user: postgres
-    password: postgres
-    database: pgsage_meta
-    sslmode: disable
-    tags: [local, docker, pg16, pg_sage, meta]
 
   - name: fleet_pg1_testdb
     host: 127.0.0.1
     port: 5433
     user: postgres
-    password: postgres
+    password: ${FLEET_PG1_PASSWORD}
     database: testdb
     sslmode: disable
     tags: [local, docker, pg16, test]
@@ -60,25 +33,16 @@ databases:
     host: 127.0.0.1
     port: 5434
     user: postgres
-    password: postgres
+    password: ${FLEET_PG2_PASSWORD}
     database: postgres
     sslmode: disable
     tags: [local, docker, pg16, pg_sage]
-
-  - name: fleet_pg2_app_staging
-    host: 127.0.0.1
-    port: 5434
-    user: postgres
-    password: postgres
-    database: app_staging
-    sslmode: disable
-    tags: [local, docker, pg16, app]
 
   - name: fleet_pg2_testdb2
     host: 127.0.0.1
     port: 5434
     user: postgres
-    password: postgres
+    password: ${FLEET_PG2_PASSWORD}
     database: testdb2
     sslmode: disable
     tags: [local, docker, pg16, test]
@@ -129,10 +93,10 @@ databases:
     tags: [local, docker, pg16, lifeos, primary]
 
 collector:
-  interval_seconds: 30
+  interval_seconds: 300
 
 analyzer:
-  interval_seconds: 60
+  interval_seconds: 600
   slow_query_threshold_ms: 250
   seq_scan_min_rows: 1000
   unused_index_window_days: 7
@@ -177,6 +141,12 @@ tuner:
 forecaster:
   enabled: true
   lookback_days: 30
+
+retention:
+  snapshots_days: 90
+  findings_days: 180
+  actions_days: 365
+  explains_days: 90
 
 api:
   listen_addr: "127.0.0.1:8085"
