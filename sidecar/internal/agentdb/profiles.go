@@ -149,9 +149,9 @@ func (s *Store) profileForRequest(
 	return SizeProfile{}, ErrNotFound
 }
 
-func (s *Store) seedDefaultSizeProfiles(ctx context.Context) error {
+func seedDefaultSizeProfiles(ctx context.Context, tx pgx.Tx) error {
 	for _, profile := range defaultSizeProfiles() {
-		if _, err := s.pool.Exec(ctx, `/* pg_sage */ 
+		if _, err := tx.Exec(ctx, `/* pg_sage */
 			INSERT INTO sage.agent_db_size_profiles (
 				profile_id, provider, provisioning_level, name, description,
 				cpu, memory_gb, storage_gb, max_connections,
