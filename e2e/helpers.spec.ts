@@ -13,6 +13,25 @@ test('error filtering keeps API failures and narrowly permits expected responses
   expect(isExpectedError('401')).toBe(false);
 });
 
+test('error filtering preserves malformed locations and unrelated status digits', () => {
+  const base = 'http://localhost:8086';
+  for (const url of ['not a URL', '/api/v1/auth/me', 'http://[invalid']) {
+    expect(isExpectedError('Failed to load resource: 401', url)).toBe(false);
+  }
+  for (const message of ['Parser failed at line 401', 'Failed to load resource: 1401']) {
+    expect(isExpectedError(message, base + '/api/v1/auth/me')).toBe(false);
+  }
+  expect(isExpectedError('Parser failed at line 404', base + '/favicon.ico')).toBe(false);
+  expect(isExpectedError(
+    'Failed to load resource: the server responded with a status of 401 (Unauthorized)',
+    base + '/api/v1/auth/login',
+  )).toBe(true);
+  expect(isExpectedError(
+    'Failed to load resource: the server responded with a status of 404 (Not Found)',
+    base + '/favicon.ico',
+  )).toBe(true);
+});
+
 test('console collector captures application errors and uncaught exceptions', async ({ page }) => {
   const errors = getConsoleErrors(page);
   await page.goto('about:blank');

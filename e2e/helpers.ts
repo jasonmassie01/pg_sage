@@ -5,9 +5,13 @@ import { Page } from '@playwright/test';
  * pattern and should be ignored in afterEach assertions.
  */
 export function isExpectedError(message: string, url = ''): boolean {
-  const path = url ? new URL(url).pathname : '';
-  if (path === '/favicon.ico' && /404/.test(message)) return true;
-  return /^\/api\/v1\/auth\/(me|login)$/.test(path) && /401/.test(message);
+  if (!URL.canParse(url)) return false;
+  const path = new URL(url).pathname;
+  const status = message.match(
+    /^Failed to load resource: (?:the server responded with a status of )?(\d{3})(?:\s|\(|$)/,
+  )?.[1];
+  if (path === '/favicon.ico' && status === '404') return true;
+  return /^\/api\/v1\/auth\/(me|login)$/.test(path) && status === '401';
 }
 
 /**
