@@ -52,7 +52,7 @@ jobs:
 
       - name: Test
         working-directory: sidecar
-        run: go test ./... -count=1 -timeout 300s
+        run: go test ./... -cover -count=1 -timeout 300s
 
   lint:
     runs-on: ubuntu-latest

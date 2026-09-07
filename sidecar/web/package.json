@@ -29,14 +29,14 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
-    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/coverage-v8": "^3.2.7",
     "eslint": "^9.39.4",
-    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-hooks": "7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
     "jsdom": "^25.0.1",
     "tailwindcss": "^4.2.4",
-    "vite": "^8.0.10",
-    "vitest": "^3.2.4"
+    "vite": "^8.0.16",
+    "vitest": "^3.2.7"
   }
 }

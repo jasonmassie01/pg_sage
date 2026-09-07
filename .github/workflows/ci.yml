@@ -50,9 +50,13 @@ jobs:
           until pg_isready -h localhost -U postgres; do sleep 1; done
           psql -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
 
-      - name: Build frontend
+      - name: Verify and build frontend
         working-directory: sidecar/web
-        run: npm ci && npm run build
+        run: |
+          npm ci
+          npm run lint
+          npm run test -- --maxWorkers=2
+          npm run build
 
       - name: Go vet
         working-directory: sidecar
@@ -60,11 +64,11 @@ jobs:
 
       - name: Unit tests
         working-directory: sidecar
-        run: go test ./... -count=1 -timeout 300s
+        run: go test ./... -cover -count=1 -timeout 300s
 
       - name: Integration tests
         working-directory: sidecar
-        run: go test ./... -tags=integration -count=1 -timeout 300s
+        run: go test ./... -cover -tags=integration -count=1 -timeout 300s
 
   docker:
     runs-on: ubuntu-latest
