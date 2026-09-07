@@ -24,7 +24,7 @@ test.describe('Navigation', () => {
   }) => {
     // Labels must match Layout.jsx NAV_GROUPS — see sidecar/web/src/components/Layout.jsx
     const links = [
-      { tid: 'nav-dashboard', label: 'Overview' },
+      { tid: 'nav-value', label: 'Value' },
       { tid: 'nav-cases', label: 'Cases' },
       { tid: 'nav-actions', label: 'Actions' },
       { tid: 'nav-agent-dbs', label: 'Agent DBs' },
@@ -39,7 +39,7 @@ test.describe('Navigation', () => {
       await expect(navLink).toBeVisible();
       await navLink.click();
       // Verify the header updates to show the page name
-      const header = page.locator('main h1');
+      const header = page.locator('main header h1');
       await expect(header).toContainText(link.label);
     }
   });
@@ -77,7 +77,7 @@ test.describe('Navigation', () => {
   // Verifies the database picker header area renders without crashing
   test('database picker is present', async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('[data-testid="nav-dashboard"]');
+    await page.waitForSelector('[data-testid="nav-value"]');
 
     // The header with h1 always exists inside main.
     // The database picker select only appears when there are

@@ -1,83 +1,28 @@
 import { test, expect } from '@playwright/test';
 import { login, getConsoleErrors } from './helpers';
 
-const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
-const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
+const EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
+const PASSWORD = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
-test.describe('Incidents', () => {
-  let consoleErrors: string[];
-
-  test.beforeEach(async ({ page }) => {
-    consoleErrors = getConsoleErrors(page);
-    await login(page, ADMIN_EMAIL, ADMIN_PASS);
-  });
-
-  test.afterEach(async () => {
-    expect(consoleErrors).toEqual([]);
-  });
-
-  test('renders confidence and resolves with valid JSON body', async ({
-    page,
-  }) => {
-    test.skip(true, 'legacy Incidents route now renders Cases');
-
-    let resolveBody: unknown = null;
-    let active = true;
-
-    await page.route('**/api/v1/incidents?**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          incidents: active
-            ? [{
-                id: 'incident-1',
-                severity: 'warning',
-                root_cause: 'Autovacuum lag caused table bloat',
-                source: 'schema_lint',
-                database_name: 'primary',
-                occurrence_count: 2,
-                detected_at: new Date().toISOString(),
-                confidence: 0.87,
-                action_risk: 'high',
-                causal_chain: [],
-                signal_ids: ['bloat-high'],
-                affected_objects: ['public.orders'],
-              }]
-            : [],
-          total: active ? 1 : 0,
-        }),
-      });
-    });
-
-    await page.route('**/api/v1/incidents/incident-1/resolve',
-      async (route) => {
-        resolveBody = route.request().postDataJSON();
-        active = false;
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            id: 'incident-1',
-            status: 'resolved',
-          }),
-        });
-      });
-
-    await page.goto('/#/incidents');
-    await expect(page.getByTestId('incidents-table')).toBeVisible();
-    await expect(page.getByText('Schema Lint')).toBeVisible();
-    await page.locator('[data-row-key="incident-1"]').click();
-
-    await expect(page.getByText('Confidence: 87%')).toBeVisible();
-    await expect(page.getByText('High', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Resolve Incident' }).click();
-
-    expect(resolveBody).toEqual({ reason: '' });
-    await expect(page.getByText('No active incidents')).toBeVisible();
-    await expect(page.getByTestId('incidents-count')).toContainText(
-      '0 total incidents',
-    );
-  });
+test('incident cases preserve observed evidence and policy blocking reason', async ({ page }) => {
+  const errors = getConsoleErrors(page);
+  await login(page, EMAIL, PASSWORD);
+  await page.route('**/api/v1/cases**', route => route.fulfill({ json: { cases: [{
+    case_id: 'incident-review', source_type: 'incident', title: 'Autovacuum lag',
+    severity: 'warning', state: 'open', why_now: 'Dead tuples exceed the observed threshold',
+    evidence: [{ type: 'incident', summary: 'Vacuum has fallen behind',
+      detail: { confidence: 0.87, affected_object: 'public.orders' } }],
+    action_candidates: [{ action_type: 'vacuum', blocked_reason: 'Load telemetry unavailable',
+      policy_decision: { decision: 'deny' } }],
+  }] } }));
+  await page.goto('/#/incidents');
+  await expect(page.getByRole('button', { name: 'Incidents', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
+  const card = page.locator('main article');
+  await expect(card).toContainText('Dead tuples exceed the observed threshold');
+  await expect(card.getByLabel('Case evidence')).toContainText('confidence: 0.87');
+  await expect(card.getByLabel('Case evidence')).toContainText('public.orders');
+  await expect(card).toContainText('vacuum: Load telemetry unavailable');
+  await expect(card).toContainText('Policy: deny');
+  expect(errors).toEqual([]);
 });

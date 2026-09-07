@@ -19,7 +19,7 @@ test.describe('Dashboard', () => {
 
   // Verifies stat cards render on the dashboard (Databases, Healthy, etc.)
   test('dashboard loads with stat cards', async ({ page }) => {
-    await page.goto('/#/');
+    await page.goto('/#/advanced');
     // Wait for the stat card that proves the API data loaded
     await page.waitForSelector('[data-testid="stat-databases"]');
 
@@ -36,7 +36,7 @@ test.describe('Dashboard', () => {
   test('database list shows items (not empty, not "all")', async ({
     page,
   }) => {
-    await page.goto('/#/');
+    await page.goto('/#/advanced');
     // Wait for the database list to render
     await page.waitForSelector('[data-testid="db-list"]');
 
@@ -57,18 +57,13 @@ test.describe('Dashboard', () => {
 
   // Verifies the recent findings section renders (may be empty)
   test('recent findings section renders', async ({ page }) => {
-    await page.goto('/#/');
+    await page.goto('/#/advanced');
     // Wait for the dashboard to finish loading (stat cards prove it)
     await page.waitForSelector('[data-testid="stat-databases"]');
 
-    // The recent findings section has an h2 heading "Recent Findings"
-    // but only if there are findings. Either way, the page should
-    // not crash.
-    const mainContent = page.locator('main');
-    await expect(mainContent).toBeVisible();
-
-    // If findings exist, the heading should appear; if not, that
-    // is fine. We just verify no errors occurred (checked in
-    // afterEach).
+    await page.getByTestId('overview-tab-recent-recos').click();
+    await expect(page.getByTestId('recent-findings')).toBeVisible();
+    await expect(page.getByTestId('recent-findings'))
+      .toContainText('Recent Recommendations');
   });
 });

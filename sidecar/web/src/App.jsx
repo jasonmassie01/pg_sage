@@ -152,7 +152,7 @@ export default function App() {
             onSelectDB={setSelectedDB} /> }
       case '/advanced/findings':
         return { title: 'Findings explorer',
-          node: <CasesPage database={selectedDB} user={user} /> }
+          node: <CasesPage key={route} database={selectedDB} user={user} /> }
       case '/advanced/actions':
         return { title: 'Action history',
           node: <Actions database={selectedDB} user={user} /> }
@@ -164,7 +164,7 @@ export default function App() {
       case '/findings':
       case '/cases':
         return { title: 'Cases',
-          node: <CasesPage database={selectedDB} user={user} /> }
+          node: <CasesPage key={route} database={selectedDB} user={user} /> }
       case '/actions':
         return { title: 'Actions',
           node: <Actions database={selectedDB} user={user} /> }
@@ -173,20 +173,20 @@ export default function App() {
           node: <DatabasePage database={selectedDB} /> }
       case '/forecasts':
         return { title: 'Cases',
-          node: <CasesPage database={selectedDB} initialSource="forecast" /> }
+          node: <CasesPage key={route} database={selectedDB} initialSource="forecast" /> }
       case '/query-hints':
         return { title: 'Cases',
-          node: <CasesPage database={selectedDB} initialSource="query_hint" /> }
+          node: <CasesPage key={route} database={selectedDB} initialSource="query_hint" /> }
       case '/schema-health':
         return { title: 'Cases',
-          node: <CasesPage database={selectedDB}
+          node: <CasesPage key={route} database={selectedDB}
             initialSource="schema_health" /> }
       case '/alerts':
         return { title: 'Alerts',
           node: <AlertLogPage database={selectedDB} /> }
       case '/incidents':
         return { title: 'Cases',
-          node: <CasesPage database={selectedDB} user={user}
+          node: <CasesPage key={route} database={selectedDB} user={user}
             initialSource="incident" /> }
       case '/settings':
         return isAdmin ? { title: 'Settings',

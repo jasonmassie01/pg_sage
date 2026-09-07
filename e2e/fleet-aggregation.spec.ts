@@ -5,11 +5,7 @@ import { login, getConsoleErrors } from './helpers';
 const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
 const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
-const targets = [
-  { name: 'testdb', container: 'pg_sage-pg-target-1', db: 'testdb' },
-  { name: 'testdb2', container: 'pg_sage-pg-target-2-1', db: 'testdb2' },
-  { name: 'health_test', container: 'health_pg', db: 'health_test' },
-];
+import { fixtureTargets as targets } from './fixture-targets';
 
 function psql(target: typeof targets[number], sql: string) {
   execFileSync('docker', [
@@ -78,11 +74,7 @@ test.describe('Fleet aggregation APIs', () => {
   test('all-database views include secondary database rows', async ({
     page,
   }) => {
-    try {
-      seedFleetRows();
-    } catch (err) {
-      test.skip(true, `Docker fixture databases unavailable: ${err}`);
-    }
+    seedFleetRows();
 
     const hintsRes = await page.request.get('/api/v1/query-hints');
     expect(hintsRes.status()).toBe(200);

@@ -1,2494 +1,440 @@
-import { test, expect, Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { getConsoleErrors } from './helpers';
+import { fixtureTargets } from './fixture-targets';
+import {
+  adminEmail, adminPassword, apiLogin, body, databaseInput, databaseLifecycle, get,
+  localSink, login, managed, notificationLifecycle, object, open, path, post, put,
+  remove, rows, secondTarget, seedQueryWorkload, target, unique, withConfig, withUser,
+} from './walkthrough-support';
 
-// Keep this spec runnable with --workers=1 so the database setup steps happen
-// before dependent checks. Do not use Playwright serial mode: serial mode
-// skips every later check after the first failure, hiding unrelated regressions.
+// Scenario consolidation/mapping: tasks/walkthrough-repair-2026-09-04.md.
+// Run only against disposable fixture targets, with --workers=1 and no other
+// mutable suites. Independent tests restore their own changes in finally blocks.
+// Browser/API suites exercise real services; no mocked API responses or outbound providers.
+test.setTimeout(60_000);
+test.beforeEach(async ({ request }, info) => {
+  expect(adminPassword, 'Missing explicit admin setup').not.toBe('');
+  if (!info.title.startsWith('AUTH:')) await apiLogin(request);
+});
 
-// All tests run serially — later steps depend on databases added in step 5
+test('AUTH: CHECK-01/03/46 invalid login retains form and error', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#root')).toBeVisible();
+  await expect(page.getByTestId('login-email')).toBeVisible();
+  await page.getByTestId('login-email').fill(adminEmail);
+  await page.getByTestId('login-password').fill('known-invalid-audit-password');
+  await page.getByTestId('login-submit').click();
+  await expect(page.getByTestId('login-error')).toBeVisible();
+  await expect(page.getByTestId('login-submit')).toBeVisible();
+});
 
-// Admin credentials are read from the environment so the spec is safe
-// to commit. pg_sage prints the auto-generated admin password to stderr
-// on first boot — export it before running this suite:
-//
-//   export PG_SAGE_ADMIN_EMAIL=admin@pg-sage.local
-//   export PG_SAGE_ADMIN_PASS=<password from sidecar stderr>
-//   npx playwright test e2e/walkthrough.spec.ts
-const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL ?? 'admin@pg-sage.local';
-const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS ?? '';
-const METRICS_URL = process.env.PG_SAGE_E2E_METRICS_URL ??
-  'http://127.0.0.1:19187/metrics';
-const PROD_DB = {
-  name: process.env.PG_SAGE_E2E_PROD_NAME ?? 'production',
-  host: process.env.PG_SAGE_E2E_PROD_HOST ?? 'localhost',
-  port: Number(process.env.PG_SAGE_E2E_PROD_PORT ?? 5433),
-  database: process.env.PG_SAGE_E2E_PROD_DB ?? 'app_production',
-  username: process.env.PG_SAGE_E2E_PROD_USER ?? 'postgres',
-  password: process.env.PG_SAGE_E2E_PROD_PASS ?? 'postgres',
-};
-const STAGING_DB = {
-  name: process.env.PG_SAGE_E2E_STAGING_NAME ?? 'staging',
-  host: process.env.PG_SAGE_E2E_STAGING_HOST ?? 'localhost',
-  port: Number(process.env.PG_SAGE_E2E_STAGING_PORT ?? 5434),
-  database: process.env.PG_SAGE_E2E_STAGING_DB ?? 'app_staging',
-  username: process.env.PG_SAGE_E2E_STAGING_USER ?? 'postgres',
-  password: process.env.PG_SAGE_E2E_STAGING_PASS ?? 'postgres',
-};
-const IMPORT_DB = {
-  host: process.env.PG_SAGE_E2E_IMPORT_HOST ?? PROD_DB.host,
-  port: Number(process.env.PG_SAGE_E2E_IMPORT_PORT ?? PROD_DB.port),
-  database: process.env.PG_SAGE_E2E_IMPORT_DB ?? PROD_DB.database,
-  username: process.env.PG_SAGE_E2E_IMPORT_USER ?? PROD_DB.username,
-  password: process.env.PG_SAGE_E2E_IMPORT_PASS ?? PROD_DB.password,
-};
+test('AUTH: CHECK-02/04/34/86/87 login and logout revoke session', async ({ page, request }) => {
+  const user = await apiLogin(request);
+  expect(user.role).toBe('admin');
+  expect(Number(user.id)).toBeGreaterThan(0);
+  expect((await get(request, '/auth/me')).email).toBe(adminEmail);
+  await post(request, '/auth/logout');
+  expect((await request.get(path('/auth/me'))).status()).toBe(401);
+  await login(page);
+  await expect(page.getByTestId('value-page')).toBeVisible();
+  await page.getByTestId('sign-out-button').click();
+  await expect(page.getByTestId('login-submit')).toBeVisible();
+  await login(page);
+});
 
-// Steps 5+ require fixture databases on localhost:5433 (app_production,
-// postgres/postgres) and :5434 (app_staging). When fixtures aren't
-// provisioned, the walkthrough's DB-add steps will fail. Gate behind an
-// explicit env var so the login-only checks still run everywhere.
-const HAS_FIXTURES = process.env.PG_SAGE_E2E_FIXTURES === '1';
+test('AUTH: CHECK-107/110 missing login fields and unauthenticated APIs fail',
+  async ({ request }) => {
+  expect((await request.post(path('/auth/login'), { data: { email: '' } })).status()).toBe(400);
+  expect((await request.get(path('/databases'))).status()).toBe(401);
+});
 
-// Skip every test in the walkthrough suite at runtime when the admin password
-// isn't exported, so other spec files still collect. Throwing at module load
-// would fail Playwright's discovery pass for the entire directory.
-//
-// Also skip fixture-dependent steps (Step 5+) when HAS_FIXTURES is false.
-// Login-only steps (CHECK-01..CHECK-04) still run since they only need the
-// admin user, which the spec sweep provisions on pgsage_demo_a.
-test.beforeEach(({}, testInfo) => {
-  test.skip(
-    !ADMIN_PASS,
-    'PG_SAGE_ADMIN_PASS env var is required — see comment at top of this file',
-  );
-  const loginOnly = /^CHECK-0[1-4]\b/.test(testInfo.title);
-  if (!loginOnly) {
-    test.skip(
-      !HAS_FIXTURES,
-      'PG_SAGE_E2E_FIXTURES=1 required — walkthrough adds DBs on :5433/:5434',
-    );
+test('CHECK-07/08/10/90 fixture fleet identity and active context agree',
+  async ({ request, page }) => {
+  const active = await get(request, '/databases');
+  const configured = rows((await get(request, '/databases/managed')).databases);
+  const expected = fixtureTargets.map(db => db.name).sort();
+  expect(rows(active.databases).map(db => db.name).sort()).toEqual(expected);
+  expect(configured.map(db => db.name).sort()).toEqual(expected);
+  expect(object(active.summary).total_databases).toBe(expected.length);
+  await login(page);
+  await open(page, 'manage-databases', 'databases-table');
+  for (const name of expected) await expect(page.getByTestId('db-row')
+    .filter({ has: page.getByRole('cell', { name, exact: true }) }))
+    .toBeVisible();
+});
+
+test('CHECK-05/06/83/84/85/91/112/114/120 managed database UI CRUD and real connection',
+  async ({ request, page }) => {
+    await login(page);
+    await databaseLifecycle(page, request);
+  });
+
+test('CHECK-09/47/48/49/50/51 Value and advanced metrics render without JS errors',
+  async ({ page }) => {
+    const errors = getConsoleErrors(page);
+    await login(page);
+    await expect(page.getByTestId('value-page')).toBeVisible();
+    await open(page, 'advanced', 'health-hero');
+    await expect(page.getByTestId('stat-databases')).toContainText(String(fixtureTargets.length));
+    await expect(page.getByTestId('db-list')).toContainText(target);
+    await page.getByTestId('overview-tab-recent-recos').click();
+    await expect(page.getByTestId('recent-findings')).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+for (const [route, label, source] of [
+  ['cases', 'All', 'all'], ['forecasts', 'Forecasts', 'forecast'],
+  ['query-hints', 'Query Hints', 'query_hint'], ['schema-health', 'Schema', 'schema_health'],
+  ['incidents', 'Incidents', 'incident'],
+]) {
+  test(`CHECK-11/15/41/42/77/78 Cases route ${route} selects ${source}`,
+  async ({ page, request }) => {
+    const all = rows((await get(request, '/cases')).cases);
+    const expected = source === 'all' ? all : all.filter(c => c.source_type === source);
+    await login(page);
+    await open(page, route, 'cases-page');
+    await expect(page.getByRole('button', { name: label, exact: true }))
+      .toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('cases-page').locator('article')).toHaveCount(expected.length);
+    await expect(page.getByTestId('cases-page-description'))
+      .toContainText(`${expected.length} of ${all.length} cases are visible`);
+  });
+}
+
+test('CHECK-12/13/14/65/66/67 case evidence, SQL and finding identity agree',
+  async ({ request, page }) => {
+  const findings = rows((await get(request, `/findings?database=${target}`)).findings);
+  expect(findings.length).toBeGreaterThan(0);
+  expect(findings.every(f => f.database_name === target)).toBe(true);
+  const other = rows((await get(request, `/findings?database=${secondTarget}`)).findings);
+  expect(other.every(f => f.database_name === secondTarget)).toBe(true);
+  const detail = await get(request, `/findings/${findings[0].id}?database=${target}`);
+  expect(detail.id).toBe(findings[0].id);
+  expect(detail.title).toBe(findings[0].title);
+  expect(String(detail.category)).not.toBe('');
+  const cases = rows((await get(request, `/cases?database=${target}`)).cases);
+  const findingCase = cases.find(c => c.source_type === 'finding');
+  expect(findingCase).toBeDefined();
+  expect(rows(findingCase!.evidence).length).toBeGreaterThan(0);
+  expect(rows(findingCase!.action_candidates).length).toBeGreaterThan(0);
+  await login(page);
+  await page.getByTestId('database-picker').selectOption(target);
+  await open(page, 'cases', 'cases-page');
+  await page.getByRole('button', { name: 'Findings', exact: true }).click();
+  await expect(page.getByLabel('Case evidence').first()).toBeVisible();
+  await expect(page.getByTestId('cases-page')).toContainText('Migration script');
+  await expect(page.getByTestId('cases-page')).toContainText(String(detail.recommended_sql));
+});
+
+test('CHECK-16/17/18 suppression changes persisted state and restores it', async ({ request }) => {
+  const finding = rows((await get(request, `/findings?database=${target}`)).findings)[0];
+  expect(finding).toBeDefined();
+  const route = `/findings/${finding.id}`;
+  let suppressed = false;
+  try {
+    await post(request, `${route}/suppress?database=${target}`);
+    suppressed = true;
+    expect((await get(request, `${route}?database=${target}`)).status).toBe('suppressed');
+    await post(request, `${route}/unsuppress?database=${target}`);
+    suppressed = false;
+    expect((await get(request, `${route}?database=${target}`)).status).toBe('open');
+  } finally {
+    if (suppressed) await post(request, `${route}/unsuppress?database=${target}`);
+    expect((await get(request, `${route}?database=${target}`)).status).toBe('open');
   }
 });
 
-async function login(
-  page: Page,
-  email = ADMIN_EMAIL,
-  password = ADMIN_PASS,
-) {
-  await page.goto('/');
-  await page.fill('[data-testid="login-email"]', email);
-  await page.fill('[data-testid="login-password"]', password);
-  await page.click('[data-testid="login-submit"]');
-  await expect(page.locator('[data-testid="login-submit"]')).not.toBeVisible({
-    timeout: 10000,
+test('CHECK-19/20/24 settings simple and advanced tabs expose scoped fields', async ({ page }) => {
+  await login(page);
+  await open(page, 'settings', 'settings-tab-monitoring');
+  await page.getByTestId('settings-tab-monitoring').click();
+  await expect(page.getByTestId('setting-analyzer.slow_query_threshold_ms')).toBeVisible();
+  await page.getByTestId('settings-tab-ai-alerts').click();
+  await expect(page.getByTestId('setting-llm.enabled')).toBeVisible();
+  await page.getByTestId('settings-mode-toggle').click();
+  await expect(page.getByTestId('settings-mode-toggle')).toHaveText('Show Simple');
+  await expect(page.getByTestId('settings-tab-analyzer')).toBeVisible();
+});
+
+test('CHECK-21/22/70/71/72/102/105 settings save and discard preserve original config',
+  async ({ page, request }) => {
+    const key = 'analyzer.slow_query_threshold_ms';
+    await withConfig(request, '/config/global', { [key]: 2000 }, async () => {
+      await login(page);
+      await open(page, 'settings', 'settings-tab-monitoring');
+      await page.getByTestId('settings-tab-monitoring').click();
+      const input = page.getByTestId(`setting-${key}`);
+      await expect(input).toHaveValue('2000');
+      await input.fill('2500');
+      await page.getByTestId('settings-discard').click();
+      await expect(input).toHaveValue('2000');
+      await input.fill('3000');
+      await page.getByTestId('settings-save').click();
+      await page.getByTestId('config-diff-confirm').click();
+      await expect.poll(async () => object(object((await get(request, '/config/global'))
+        .config)[key]).value).toBe(3000);
+      expect(rows((await get(request, '/config/audit')).audit).length).toBeGreaterThan(0);
+    });
+  });
+
+test('CHECK-23/115 local LLM model discovery uses configured endpoint', async ({ request }) => {
+  const sink = await localSink();
+  try {
+    await withConfig(request, '/config/global', {
+      'llm.enabled': true, 'llm.endpoint': `${sink.url}/v1`, 'llm.model': 'local-audit-model',
+      'llm.api_key': 'local-audit-key',
+    }, async () => {
+      const models = await get(request, '/llm/models');
+      expect(JSON.stringify(models.models)).toContain('local-audit-model');
+      expect(sink.received.some(v => String(v.url).endsWith('/models'))).toBe(true);
+    });
+  } finally { await sink.close(); }
+});
+
+test('CHECK-25/26/27/28/96/97/98/99/100/101 notification CRUD delivers only to local sink',
+  async ({ page, request }) => {
+    await login(page);
+    await notificationLifecycle(page, request);
+  });
+
+test('CHECK-29/30/35 user UI creation owns and removes only its generated user',
+  async ({ page, request }) => {
+  const email = `${unique()}@test.local`;
+  let id: unknown;
+  try {
+    await login(page);
+    await open(page, 'users', 'users-table');
+    await expect(page.getByTestId('users-table')).toContainText(adminEmail);
+    await page.getByTestId('add-user-email').fill(email);
+    await page.getByTestId('add-user-password').fill(`${unique()}!`);
+    await page.getByTestId('add-user-role').selectOption('viewer');
+    await page.getByTestId('add-user-submit').click();
+    await expect(page.getByTestId('users-table')).toContainText(email);
+    id = rows((await get(request, '/users')).users).find(u => u.email === email)?.id;
+    expect(id).toBeDefined();
+  } finally { if (id !== undefined) await remove(request, `/users/${id}`); }
+  expect(rows((await get(request, '/users')).users).some(u => u.email === email)).toBe(false);
+});
+
+for (const role of ['viewer', 'operator']) {
+  test(`CHECK-31/32/33/89 ${role} cannot access admin resources`, async ({ request, page }) => {
+    await withUser(request, role, async (user, password) => {
+      await apiLogin(request, String(user.email), password);
+      for (const route of ['/users', '/config/global', '/databases/managed'])
+        expect((await request.get(path(route))).status()).toBe(403);
+      expect((await request.get(path('/actions/pending'))).status())
+        .toBe(role === 'viewer' ? 403 : 200);
+      await login(page, String(user.email), password);
+      await expect(page.getByTestId('nav-settings')).toHaveCount(0);
+      await expect(page.getByTestId('nav-databases')).toHaveCount(0);
+      await open(page, 'settings', 'access-denied');
+    });
   });
 }
 
-async function apiLogin(request: any) {
-  const res = await request.post('/api/v1/auth/login', {
-    data: { email: ADMIN_EMAIL, password: ADMIN_PASS },
+test('CHECK-88 role update persists and a new login observes it', async ({ request }) => {
+  await withUser(request, 'viewer', async (user, password) => {
+    await put(request, `/users/${user.id}/role`, { role: 'operator' });
+    expect(rows((await get(request, '/users')).users).find(u => u.id === user.id)?.role)
+      .toBe('operator');
+    expect((await apiLogin(request, String(user.email), password)).role).toBe('operator');
   });
-  expect(res.ok()).toBeTruthy();
+});
+
+for (const scope of ['', `?database=${target}`]) {
+  test(`CHECK-36/37/38/39/75/76 emergency stop and resume ${scope || 'fleet'}`,
+    async ({ request, page }) => {
+      expect(object((await get(request, '/databases')).summary).emergency_stopped).toBe(false);
+      try {
+        const stopped = await post(request, `/emergency-stop${scope}`);
+        expect(stopped.status).toBe('stopped');
+        expect(stopped.stopped).toBe(scope ? 1 : fixtureTargets.length);
+        expect(object((await get(request, '/databases')).summary).emergency_stopped).toBe(true);
+        await login(page);
+        await expect(page.getByTestId('emergency-stop-badge')).toBeVisible();
+        await open(page, 'settings', 'resume-button');
+      } finally {
+        expect((await post(request, `/resume${scope}`)).status).toBe('resumed');
+        expect(object((await get(request, '/databases')).summary).emergency_stopped).toBe(false);
+      }
+    });
 }
 
-// ─── Step 4: Login ───────────────────────────────────────────────
-test.describe('Step 4: Login', () => {
-  test('CHECK-01: login page loads with form', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('h1')).toContainText('pg_sage');
-    await expect(page.locator('[data-testid="login-email"]')).toBeVisible();
-    await expect(page.locator('[data-testid="login-password"]')).toBeVisible();
-    await expect(page.locator('[data-testid="login-submit"]')).toBeVisible();
-  });
-
-  test('CHECK-02: login with valid admin credentials', async ({ page }) => {
-    await login(page);
-    await expect(page.locator('[data-testid="login-submit"]')).not.toBeVisible();
-    await expect(page.locator('[data-testid="nav-dashboard"]')).toBeVisible();
-  });
-
-  test('CHECK-03: login with wrong password shows error', async ({ page }) => {
-    await page.goto('/');
-    await page.fill('[data-testid="login-email"]', ADMIN_EMAIL);
-    await page.fill('[data-testid="login-password"]', 'wrongpassword');
-    await page.click('[data-testid="login-submit"]');
-    await expect(page.locator('[data-testid="login-error"]')).toBeVisible({
-      timeout: 5000,
-    });
-  });
-
-  test('CHECK-04: login via API returns user info', async ({ request }) => {
-    const res = await request.post('/api/v1/auth/login', {
-      data: { email: ADMIN_EMAIL, password: ADMIN_PASS },
-    });
-    expect(res.ok()).toBeTruthy();
-    const body = await res.json();
-    expect(body.email).toBe(ADMIN_EMAIL);
-    expect(body.role).toBe('admin');
-    expect(body.id).toBeGreaterThan(0);
-  });
+test('CHECK-40/54/55/56/57/92/117 actions tabs and pagination match API',
+  async ({ request, page }) => {
+  const actions = await get(request, `/actions?database=${target}&limit=5&offset=0`);
+  expect(actions.database).toBe(target);
+  expect(actions.limit).toBe(5);
+  expect(actions.offset).toBe(0);
+  expect(rows(actions.actions).length).toBeLessThanOrEqual(5);
+  expect(Number(actions.total)).toBeGreaterThanOrEqual(rows(actions.actions).length);
+  expect(Number((await get(request, '/actions/pending/count')).count)).toBeGreaterThanOrEqual(0);
+  await login(page);
+  await open(page, 'actions', 'actions-tab-pending');
+  await page.getByTestId('actions-tab-pending').click();
+  await expect(page.getByTestId('actions-tab-pending')).toBeVisible();
+  await page.getByTestId('actions-tab-executed').click();
+  await expect(page.getByTestId('actions-page-description')).toContainText('Actions');
 });
 
-// ─── Step 5: Add Databases via UI ────────────────────────────────
-test.describe('Step 5: Add Databases', () => {
-  test('CHECK-05: add production database with test connection',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-databases"]');
-      await expect(
-        page.locator('[data-testid="add-database-button"]'),
-      ).toBeVisible({ timeout: 5000 });
-
-      await page.click('[data-testid="add-database-button"]');
-      await expect(
-        page.locator('[data-testid="db-form"]'),
-      ).toBeVisible({ timeout: 3000 });
-
-      await page.fill('[data-testid="db-name"]', PROD_DB.name);
-      await page.fill('[data-testid="db-host"]', PROD_DB.host);
-
-      const portInput = page.locator('[data-testid="db-port"]');
-      await portInput.clear();
-      await portInput.fill(String(PROD_DB.port));
-
-      await page.fill('[data-testid="db-database"]', PROD_DB.database);
-      await page.fill('[data-testid="db-username"]', PROD_DB.username);
-      await page.fill('[data-testid="db-password"]', PROD_DB.password);
-
-      // Set SSL mode to disable
-      await page.locator('[data-testid="db-form"] select').first()
-        .selectOption('disable');
-
-      // Test Connection before saving — this exercises the UI flow
-      // regardless of whether the backing Postgres on 5433 accepts creds.
-      // Success renders "Connected - <version>" (DatabaseForm.jsx:219);
-      // failure renders the backend error. Either proves the flow ran.
-      await page.click('[data-testid="db-test-connection"]');
-      await page.waitForTimeout(3000);
-      const body = await page.textContent('body');
-      const sawResult =
-        /Connected/i.test(body!) ||
-        /failed|error|refused|timeout|authentication/i.test(body!);
-      expect(sawResult).toBeTruthy();
-
-      await page.click('[data-testid="db-save-button"]');
-      await page.waitForTimeout(2000);
-
-      await expect(
-        page.locator('[data-testid="databases-table"]'),
-      ).toContainText(PROD_DB.name, { timeout: 5000 });
-    });
-
-  test('CHECK-06: add staging database via form', async ({ page }) => {
-    await login(page);
-    await page.click('[data-testid="nav-databases"]');
-    await expect(
-      page.locator('[data-testid="add-database-button"]'),
-    ).toBeVisible({ timeout: 5000 });
-
-    await page.click('[data-testid="add-database-button"]');
-    await expect(
-      page.locator('[data-testid="db-form"]'),
-    ).toBeVisible({ timeout: 3000 });
-
-    await page.fill('[data-testid="db-name"]', STAGING_DB.name);
-    await page.fill('[data-testid="db-host"]', STAGING_DB.host);
-
-    const portInput = page.locator('[data-testid="db-port"]');
-    await portInput.clear();
-    await portInput.fill(String(STAGING_DB.port));
-
-    await page.fill('[data-testid="db-database"]', STAGING_DB.database);
-    await page.fill('[data-testid="db-username"]', STAGING_DB.username);
-    await page.fill('[data-testid="db-password"]', STAGING_DB.password);
-
-    await page.locator('[data-testid="db-form"] select').first()
-      .selectOption('disable');
-
-    await page.click('[data-testid="db-save-button"]');
-    await page.waitForTimeout(2000);
-
-    await expect(
-      page.locator('[data-testid="databases-table"]'),
-    ).toContainText(STAGING_DB.name, { timeout: 5000 });
-  });
-
-  test('CHECK-07: both databases listed in table', async ({ page }) => {
-    await login(page);
-    await page.click('[data-testid="nav-databases"]');
-    await page.waitForTimeout(2000);
-
-    const table = page.locator('[data-testid="databases-table"]');
-    await expect(table).toContainText(PROD_DB.name);
-    await expect(table).toContainText(STAGING_DB.name);
-  });
-
-  test('CHECK-08: verify databases via API', async ({ request }) => {
-    await apiLogin(request);
-
-    const res = await request.get('/api/v1/databases/managed');
-    expect(res.ok()).toBeTruthy();
-    const data = await res.json();
-    expect(data.databases.length).toBe(2);
-
-    const names = data.databases.map((d: any) => d.name);
-    expect(names).toContain(PROD_DB.name);
-    expect(names).toContain(STAGING_DB.name);
-  });
+test('CHECK-43/79 alerts expose date filters and alert records', async ({ request, page }) => {
+  const alerts = await get(request, `/alert-log?database=${target}`);
+  expect(alerts.database).toBe(target);
+  rows(alerts.alerts);
+  await login(page);
+  await page.goto('/#/alerts');
+  if (rows(alerts.alerts).length === 0) {
+    await expect(page.getByText('No alerts sent yet.', { exact: false })).toBeVisible();
+  } else {
+    await expect(page.getByTestId('alert-log-date-from')).toBeVisible();
+    await expect(page.getByTestId('alert-log-date-to')).toBeVisible();
+  }
 });
 
-// ─── Step 6: Dashboard / Fleet Overview ──────────────────────────
-test.describe('Step 6: Dashboard', () => {
-  test('CHECK-09: dashboard shows fleet info', async ({ page }) => {
-    await login(page);
-    await page.waitForTimeout(3000);
+test('CHECK-44/45/73/74 metrics expose actual fleet and per-database identity',
+  async ({ request }) => {
+  const metricsUrl = process.env.PG_SAGE_E2E_METRICS_URL ?? 'http://127.0.0.1:9189/metrics';
+  const metrics = await request.get(metricsUrl);
+  expect(metrics.status()).toBe(200);
+  expect(await metrics.text()).toMatch(/^pg_sage_/m);
+  expect(object((await get(request, '/metrics')).fleet).total_databases)
+    .toBe(fixtureTargets.length);
+  const perDatabase = await get(request, `/metrics?database=${target}`);
+  expect(perDatabase.database).toBe(target);
+  expect(object(perDatabase.status).connected).toBe(true);
+});
 
-    const body = await page.textContent('body');
-    const hasDatabaseInfo =
-      body!.includes('production') ||
-      body!.includes('staging') ||
-      body!.includes('database');
-    expect(hasDatabaseInfo).toBeTruthy();
-  });
-
-  test('CHECK-10: fleet API returns 2 databases', async ({ request }) => {
-    await apiLogin(request);
-
-    let data: any;
-    for (let i = 0; i < 15; i++) {
-      const res = await request.get('/api/v1/databases');
-      expect(res.ok()).toBeTruthy();
-      data = await res.json();
-      if (data.summary.total_databases >= 2) break;
-      await new Promise((r) => setTimeout(r, 1000));
+for (const metric of ['tables', 'indexes', 'queries', 'sequences']) {
+  test(`CHECK-52/53/58/59/60/61/62 actual ${metric} snapshot`, async ({ request, page }) => {
+    if (metric === 'queries') {
+      seedQueryWorkload();
+      await expect.poll(async () => JSON.stringify((await get(request,
+        `/snapshots/latest?database=${target}&metric=queries`)).snapshot),
+      { timeout: 20000 }).toContain('walkthrough_query_probe');
     }
-    expect(data.mode).toBe('fleet');
-    expect(data.summary.total_databases).toBe(2);
-    expect(data.databases.length).toBe(2);
-  });
-});
-
-// ─── Step 7: Findings / Recommendations ─────────────────────────
-test.describe('Step 7: Cases', () => {
-  test('CHECK-11: cases page loads with finding-backed cases',
-    async ({ page }) => {
+    const snapshot = await get(request, `/snapshots/latest?database=${target}&metric=${metric}`);
+    expect(snapshot.database).toBe(target);
+    expect(snapshot.snapshot, 'Collector snapshot must exist').not.toBeNull();
+    expect(typeof snapshot.snapshot).toBe('object');
+    if (metric === 'tables') {
       await login(page);
-      await page.click('[data-testid="nav-cases"]');
-
-      // Wait for collector + analyzer cycles (10s + 15s)
-      // Retry up to 60s for finding-backed cases to appear.
-      const casesPage = page.locator('[data-testid="cases-page"]');
-      await expect(casesPage).toBeVisible({ timeout: 5000 });
-      let found = false;
-      for (let i = 0; i < 12; i++) {
-        await page.getByRole('button', { name: 'Findings' }).click();
-        if (await casesPage.locator('article').count() > 0) {
-          found = true;
-          break;
-        }
-        await page.waitForTimeout(5000);
-        await page.reload();
-      }
-      expect(found).toBeTruthy();
-    });
-
-  test('CHECK-12: findings include expected categories',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get('/api/v1/findings');
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data.findings.length).toBeGreaterThan(0);
-
-      const categories = data.findings.map((f: any) => f.category);
-      // Should have duplicate_index from planted problems
-      expect(categories).toContain('duplicate_index');
-    });
-
-  test('CHECK-13: findings filter by database via API',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      let prodData;
-      let stagData;
-      for (let i = 0; i < 12; i++) {
-        const prodRes = await request.get(
-          '/api/v1/findings?database=production',
-        );
-        const stagRes = await request.get(
-          '/api/v1/findings?database=staging',
-        );
-        expect(prodRes.ok()).toBeTruthy();
-        expect(stagRes.ok()).toBeTruthy();
-        prodData = await prodRes.json();
-        stagData = await stagRes.json();
-        if (prodData.findings.length > 0 &&
-          stagData.findings.length > 0) break;
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-
-      // Each should have findings from planted problems
-      expect(prodData.findings.length).toBeGreaterThan(0);
-      expect(stagData.findings.length).toBeGreaterThan(0);
-    });
-
-  test('CHECK-14: finding-backed case shows evidence and next action',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-cases"]');
-      await page.getByRole('button', { name: 'Findings' }).click();
-
-      const firstCase = page.locator('[data-testid="cases-page"] article')
-        .first();
-      await expect(firstCase).toBeVisible({ timeout: 5000 });
-      await expect(firstCase.getByLabel('Case evidence')).toBeVisible();
-      await expect(firstCase).toContainText(/Next:/);
-    });
-
-  test('CHECK-15: case source filter works', async ({ page }) => {
-    await login(page);
-    await page.click('[data-testid="nav-cases"]');
-
-    const findingsFilter = page.getByRole('button', { name: 'Findings' });
-    await findingsFilter.click();
-    await expect(findingsFilter).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('[data-testid="cases-page"] article').first())
-      .toBeVisible({ timeout: 5000 });
-  });
-});
-
-// ─── Step 8: Suppress / Unsuppress ──────────────────────────────
-test.describe('Step 8: Suppress/Unsuppress', () => {
-  let suppressedTarget: { id: number; database: string } | null = null;
-
-  test('CHECK-16: suppress finding via supported API', async ({ request }) => {
-    await apiLogin(request);
-    const findingsRes = await request.get('/api/v1/findings');
-    const data = await findingsRes.json();
-    expect(data.findings.length).toBeGreaterThan(0);
-
-    const finding = data.findings[0];
-    const suppressRes = await request.post(
-      `/api/v1/findings/${finding.id}/suppress?database=${
-        encodeURIComponent(finding.database_name)
-      }`,
-      { data: {} },
-    );
-    expect(suppressRes.ok()).toBeTruthy();
-    suppressedTarget = {
-      id: Number(finding.id),
-      database: finding.database_name,
-    };
-
-    const checkRes = await request.get(
-      `/api/v1/findings/${finding.id}?database=${
-        encodeURIComponent(finding.database_name)
-      }`,
-    );
-    expect((await checkRes.json()).status).toBe('suppressed');
-  });
-
-  test('CHECK-17: unsuppress finding via supported API',
-    async ({ request }) => {
-      await apiLogin(request);
-      expect(suppressedTarget).not.toBeNull();
-      const target = suppressedTarget!;
-      const checkSuppressedRes = await request.get(
-        `/api/v1/findings/${target.id}?database=${
-          encodeURIComponent(target.database)
-        }`,
-      );
-      expect((await checkSuppressedRes.json()).status).toBe('suppressed');
-      const unsuppressRes = await request.post(
-        `/api/v1/findings/${target.id}/unsuppress?database=${
-          encodeURIComponent(target.database)
-        }`,
-        { data: {} },
-      );
-      expect(unsuppressRes.ok()).toBeTruthy();
-
-      const checkRes = await request.get(
-        `/api/v1/findings/${target.id}?database=${
-          encodeURIComponent(target.database)
-        }`,
-      );
-      expect((await checkRes.json()).status).toBe('open');
-    });
-
-  test('CHECK-18: suppress/unsuppress via API', async ({ request }) => {
-    await apiLogin(request);
-
-    const findingsRes = await request.get('/api/v1/findings');
-    const data = await findingsRes.json();
-
-    if (data.findings && data.findings.length > 0) {
-      const finding = data.findings[0];
-
-      const suppressRes = await request.post(
-        `/api/v1/findings/${finding.id}/suppress?database=${
-          encodeURIComponent(finding.database_name)
-        }`,
-        { data: {} },
-      );
-      expect(suppressRes.ok()).toBeTruthy();
-
-      const checkRes = await request.get(
-        `/api/v1/findings/${finding.id}?database=${
-          encodeURIComponent(finding.database_name)
-        }`,
-      );
-      const updatedFinding = await checkRes.json();
-      expect(updatedFinding.status).toBe('suppressed');
-
-      const unsuppressRes = await request.post(
-        `/api/v1/findings/${finding.id}/unsuppress?database=${
-          encodeURIComponent(finding.database_name)
-        }`,
-        { data: {} },
-      );
-      expect(unsuppressRes.ok()).toBeTruthy();
-    }
-  });
-});
-
-// ─── Step 9: Settings Page ──────────────────────────────────────
-test.describe('Step 9: Settings', () => {
-  test('CHECK-19: settings page loads with simple tabs',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-settings"]');
-      await page.waitForTimeout(2000);
-
-      await expect(
-        page.locator('[data-testid="settings-tab-general"]'),
-      ).toBeVisible();
-      await expect(
-        page.locator('[data-testid="settings-tab-monitoring"]'),
-      ).toBeVisible();
-      await expect(
-        page.locator('[data-testid="settings-tab-ai-alerts"]'),
-      ).toBeVisible();
-    });
-
-  test('CHECK-20: toggle to advanced mode shows more tabs',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-settings"]');
-      await page.waitForTimeout(1000);
-
-      await page.click('[data-testid="settings-mode-toggle"]');
-      await page.waitForTimeout(500);
-
-      await expect(
-        page.locator('[data-testid="settings-tab-llm"]'),
-      ).toBeVisible();
-      await expect(
-        page.locator('[data-testid="settings-tab-analyzer"]'),
-      ).toBeVisible();
-    });
-
-  test('CHECK-21: config API returns config structure',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get('/api/v1/config');
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data).toHaveProperty('analyzer');
-      expect(data).toHaveProperty('collector');
-      expect(data).toHaveProperty('mode');
-    });
-
-  test('CHECK-22: update config via API and verify',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const updateRes = await request.put('/api/v1/config/global', {
-        data: { 'analyzer.slow_query_threshold_ms': 2000 },
-      });
-      expect(updateRes.ok()).toBeTruthy();
-
-      // Reset
-      await request.put('/api/v1/config/global', {
-        data: { 'analyzer.slow_query_threshold_ms': 1000 },
-      });
-    });
-});
-
-// ─── Step 10: LLM Config ────────────────────────────────────────
-test.describe('Step 10: LLM Config', () => {
-  test('CHECK-23: configure LLM settings via API',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.put('/api/v1/config/global', {
-        data: {
-          'llm.enabled': true,
-          'llm.endpoint':
-            'https://generativelanguage.googleapis.com/v1beta/openai',
-          'llm.api_key': 'test-key-placeholder',
-          'llm.model': 'gemini-2.0-flash',
-        },
-      });
-      expect(res.ok()).toBeTruthy();
-    });
-
-  test('CHECK-24: LLM config visible in settings AI tab',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-settings"]');
-      await page.waitForTimeout(1000);
-
-      await page.click('[data-testid="settings-tab-ai-alerts"]');
-      await page.waitForTimeout(1000);
-
-      const body = await page.textContent('body');
-      const hasLLM =
-        body!.includes('LLM') ||
-        body!.includes('llm') ||
-        body!.includes('AI') ||
-        body!.includes('Model');
-      expect(hasLLM).toBeTruthy();
-    });
-});
-
-// ─── Step 11: Notifications ─────────────────────────────────────
-test.describe('Step 11: Notifications', () => {
-  test('CHECK-25: notifications page loads with tabs',
-    async ({ page }) => {
-      await login(page);
-      await page.goto('/#/notifications');
-      await page.waitForTimeout(2000);
-
-      await expect(
-        page.locator('[data-testid="notifications-tab-channels"]'),
-      ).toBeVisible();
-      await expect(
-        page.locator('[data-testid="notifications-tab-rules"]'),
-      ).toBeVisible();
-      await expect(
-        page.locator('[data-testid="notifications-tab-log"]'),
-      ).toBeVisible();
-    });
-
-  test('CHECK-26: create notification channel via UI form',
-    async ({ page }) => {
-      await login(page);
-      await page.goto('/#/notifications');
-      await page.waitForTimeout(1000);
-
-      // Fill channel form
-      await page.fill(
-        '[data-testid="add-channel-name"]',
-        'team-alerts',
-      );
-      await page.locator('[data-testid="add-channel-type"]')
-        .selectOption('slack');
-      await page.waitForTimeout(500);
-
-      // Fill webhook URL (appears when slack is selected)
-      const webhookInput = page.locator(
-        'input[placeholder*="hooks.slack.com"]',
-      );
-      if (await webhookInput.isVisible()) {
-        await webhookInput.fill(
-          'https://hooks.slack.com/e2e-test',
-        );
-      }
-
-      await page.click('[data-testid="add-channel-submit"]');
-      await page.waitForTimeout(2000);
-
-      // Channel should appear in table
-      await expect(
-        page.locator('[data-testid="channels-table"]'),
-      ).toContainText('team-alerts', { timeout: 5000 });
-    });
-
-  test('CHECK-27: create notification rule via UI form',
-    async ({ page }) => {
-      await login(page);
-      await page.goto('/#/notifications');
-      await page.waitForTimeout(1000);
-
-      // Switch to Rules tab
-      await page.click('[data-testid="notifications-tab-rules"]');
-      await page.waitForTimeout(1000);
-
-      // Fill rule form
-      const channelSelect = page.locator(
-        '[data-testid="add-rule-channel"]',
-      );
-      await page.waitForTimeout(1000);
-      await channelSelect.selectOption({ index: 0 });
-
-      await page.locator('[data-testid="add-rule-event"]')
-        .selectOption('finding_critical');
-      await page.locator('[data-testid="add-rule-severity"]')
-        .selectOption('critical');
-
-      await page.click('[data-testid="add-rule-submit"]');
-      await page.waitForTimeout(2000);
-
-      // Rule should appear in table
-      await expect(
-        page.locator('[data-testid="rules-table"]'),
-      ).toContainText('finding_critical', { timeout: 5000 });
-    });
-
-  test('CHECK-28: notification log tab loads', async ({ page }) => {
-    await login(page);
-    await page.goto('/#/notifications');
-    await page.waitForTimeout(1000);
-
-    await page.click('[data-testid="notifications-tab-log"]');
-    await page.waitForTimeout(1000);
-
-    // Log tab should load without errors
-    await expect(
-      page.locator('[data-testid="login-submit"]'),
-    ).not.toBeVisible();
-  });
-});
-
-// ─── Step 12: User Management ───────────────────────────────────
-test.describe('Step 12: User Management', () => {
-  test('CHECK-29: users page shows admin', async ({ page }) => {
-    await login(page);
-    await page.goto('/#/users');
-    await page.waitForTimeout(2000);
-
-    await expect(
-      page.locator('[data-testid="users-table"]'),
-    ).toContainText('admin@pg-sage.local');
-  });
-
-  test('CHECK-30: create user via UI form', async ({ page }) => {
-    await login(page);
-    await page.goto('/#/users');
-    await page.waitForTimeout(1000);
-
-    // Fill the add user form
-    await page.fill(
-      '[data-testid="add-user-email"]',
-      'e2e-uiuser@example.com',
-    );
-    await page.fill(
-      '[data-testid="add-user-password"]',
-      'uipass12345!',
-    );
-    await page.locator('[data-testid="add-user-role"]')
-      .selectOption('viewer');
-
-    await page.click('[data-testid="add-user-submit"]');
-    await page.waitForTimeout(2000);
-
-    // User should appear in table
-    await expect(
-      page.locator('[data-testid="users-table"]'),
-    ).toContainText('e2e-uiuser@example.com', { timeout: 5000 });
-  });
-
-  test('CHECK-31: create operator and viewer via API',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const opsRes = await request.post('/api/v1/users', {
-        data: {
-          email: 'e2e-ops@example.com',
-          password: 'ops12345!',
-          role: 'operator',
-        },
-      });
-      expect(opsRes.ok()).toBeTruthy();
-
-      const viewRes = await request.post('/api/v1/users', {
-        data: {
-          email: 'e2e-viewer@example.com',
-          password: 'view12345!',
-          role: 'viewer',
-        },
-      });
-      expect(viewRes.ok()).toBeTruthy();
-
-      const listRes = await request.get('/api/v1/users');
-      expect(listRes.ok()).toBeTruthy();
-      const users = await listRes.json();
-      expect(users.users.length).toBeGreaterThanOrEqual(4);
-    });
-
-  test('CHECK-32: viewer gets 403 on admin routes',
-    async ({ request }) => {
-      const viewerLogin = await request.post('/api/v1/auth/login', {
-        data: {
-          email: 'e2e-viewer@example.com',
-          password: 'view12345!',
-        },
-      });
-      expect(viewerLogin.ok()).toBeTruthy();
-
-      const usersRes = await request.get('/api/v1/users');
-      expect(usersRes.status()).toBe(403);
-    });
-
-  test('CHECK-33: viewer sidebar hides admin nav items',
-    async ({ page }) => {
-      await page.goto('/');
-      await page.fill(
-        '[data-testid="login-email"]',
-        'e2e-viewer@example.com',
-      );
-      await page.fill(
-        '[data-testid="login-password"]',
-        'view12345!',
-      );
-      await page.click('[data-testid="login-submit"]');
-      await expect(
-        page.locator('[data-testid="login-submit"]'),
-      ).not.toBeVisible({ timeout: 10000 });
-
-      // Viewer should NOT see admin nav items
-      await expect(
-        page.locator('[data-testid="nav-settings"]'),
-      ).not.toBeVisible();
-      await expect(
-        page.locator('[data-testid="nav-databases"]'),
-      ).not.toBeVisible();
-      // Should see Overview and Cases.
-      await expect(
-        page.locator('[data-testid="nav-dashboard"]'),
-      ).toBeVisible();
-      await expect(
-        page.locator('[data-testid="nav-cases"]'),
-      ).toBeVisible();
-    });
-
-  test('CHECK-34: sign out and sign back in', async ({ page }) => {
-    await login(page);
-
-    // Click sign out
-    await page.click('[data-testid="sign-out-button"]');
-    await page.waitForTimeout(2000);
-
-    // Should be back at login page
-    await expect(
-      page.locator('[data-testid="login-submit"]'),
-    ).toBeVisible({ timeout: 5000 });
-
-    // Sign back in
-    await login(page);
-    await expect(
-      page.locator('[data-testid="nav-dashboard"]'),
-    ).toBeVisible();
-  });
-
-  test('CHECK-35: clean up test users', async ({ request }) => {
-    await apiLogin(request);
-
-    const listRes = await request.get('/api/v1/users');
-    const users = await listRes.json();
-
-    for (const u of users.users) {
-      if (u.email.startsWith('e2e-')) {
-        const delRes = await request.delete(`/api/v1/users/${u.id}`);
-        expect(delRes.ok()).toBeTruthy();
-      }
-    }
-
-    const finalRes = await request.get('/api/v1/users');
-    const finalUsers = await finalRes.json();
-    expect(finalUsers.users.length).toBe(1);
-  });
-});
-
-// ─── Step 13: Emergency Stop / Resume ───────────────────────────
-test.describe('Step 13: Emergency Stop', () => {
-  test('CHECK-36: emergency stop halts fleet', async ({ request }) => {
-    await apiLogin(request);
-
-    const stopRes = await request.post('/api/v1/emergency-stop', {
-      data: {},
-    });
-    expect(stopRes.ok()).toBeTruthy();
-    const stopData = await stopRes.json();
-    expect(stopData.status).toBe('stopped');
-  });
-
-  test('CHECK-37: emergency stop badge visible',
-    async ({ page }) => {
-      await login(page);
-      await page.waitForTimeout(2000);
-
-      // Emergency stop badge should be visible in sidebar
-      const badge = page.locator(
-        '[data-testid="emergency-stop-badge"]',
-      );
-      await expect(badge).toBeVisible({ timeout: 5000 });
-    });
-
-  test('CHECK-38: resume button visible on settings page',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-settings"]');
-      await page.waitForTimeout(2000);
-
-      const resumeBtn = page.locator('[data-testid="resume-button"]');
-      await expect(resumeBtn).toBeVisible({ timeout: 5000 });
-    });
-
-  test('CHECK-39: resume restores fleet', async ({ request }) => {
-    await apiLogin(request);
-
-    const resumeRes = await request.post('/api/v1/resume', { data: {} });
-    expect(resumeRes.ok()).toBeTruthy();
-    const resumeData = await resumeRes.json();
-    expect(resumeData.status).toBe('resumed');
-  });
-});
-
-// ─── Other Pages ────────────────────────────────────────────────
-test.describe('Other Pages', () => {
-  test('CHECK-40: actions page loads', async ({ page }) => {
-    await login(page);
-    await page.click('[data-testid="nav-actions"]');
-    await page.waitForTimeout(2000);
-
-    await expect(
-      page.locator('[data-testid="actions-tab-executed"]'),
-    ).toBeVisible();
-    await expect(
-      page.locator('[data-testid="actions-tab-pending"]'),
-    ).toBeVisible();
-  });
-
-  test('CHECK-41: forecasts page loads', async ({ page }) => {
-    await login(page);
-    await page.goto('/#/forecasts');
-    await page.waitForTimeout(2000);
-
-    // Should load without errors
-    await expect(
-      page.locator('[data-testid="login-submit"]'),
-    ).not.toBeVisible();
-  });
-
-  test('CHECK-42: performance page loads', async ({ page }) => {
-    await login(page);
-    await page.goto('/#/query-hints');
-    await page.waitForTimeout(2000);
-
-    await expect(
-      page.locator('[data-testid="login-submit"]'),
-    ).not.toBeVisible();
-  });
-
-  test('CHECK-43: alerts page loads', async ({ page }) => {
-    await login(page);
-    await page.goto('/#/alerts');
-    await page.waitForTimeout(2000);
-
-    await expect(
-      page.locator('[data-testid="login-submit"]'),
-    ).not.toBeVisible();
-  });
-});
-
-// ─── Step 14: Prometheus Metrics ────────────────────────────────
-test.describe('Step 14: Prometheus', () => {
-  test('CHECK-44: prometheus serves pg_sage metrics',
-    async ({ request }) => {
-      const res = await request.get(METRICS_URL);
-      expect(res.ok()).toBeTruthy();
-      const body = await res.text();
-      expect(body).toContain('pg_sage_info');
-      expect(body).toContain('pg_sage_connection_up');
-    });
-
-  test('CHECK-45: fleet metrics present', async ({ request }) => {
-    const res = await request.get(METRICS_URL);
-    const body = await res.text();
-    expect(body).toContain('pg_sage_fleet_databases');
-  });
-});
-
-// ─── Step 15: Static Assets ────────────────────────────────────
-test.describe('Step 15: Static Assets', () => {
-  test('CHECK-46: React SPA loads with root div',
-    async ({ page }) => {
-      await page.goto('/');
-      await expect(page.locator('#root')).toBeVisible();
-      await expect(page).toHaveTitle(/pg_sage/);
-    });
-
-  test('CHECK-47: no JS errors on page load', async ({ page }) => {
-    const errors: string[] = [];
-    page.on('pageerror', (err) => errors.push(err.message));
-
-    await page.goto('/');
-    await page.waitForTimeout(3000);
-
-    const real = errors.filter(
-      (e) => !e.includes('favicon') && !e.includes('404'),
-    );
-    expect(real).toHaveLength(0);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// GAP-CLOSING TESTS — Coverage for walkthrough sections not
-// covered by CHECK-01 through CHECK-47
-// ═══════════════════════════════════════════════════════════════
-
-// ─── Step 16: Dashboard Stat Cards ─────────────────────────────
-test.describe('Step 16: Dashboard Stat Cards', () => {
-  test('CHECK-48: health hero shows status', async ({ page }) => {
-    await login(page);
-    await page.waitForTimeout(3000);
-
-    const hero = page.locator('[data-testid="health-hero"]');
-    await expect(hero).toBeVisible({ timeout: 5000 });
-    const text = await hero.textContent();
-    expect(text!.length).toBeGreaterThan(0);
-  });
-
-  test('CHECK-49: stat-databases shows count >= 2',
-    async ({ page }) => {
-      await login(page);
-      await page.waitForTimeout(3000);
-
-      const dbStat = page.locator('[data-testid="stat-databases"]');
-      await expect(dbStat).toBeVisible({ timeout: 5000 });
-      const text = await dbStat.textContent();
-      expect(text).toContain('2');
-    });
-
-  test('CHECK-50: db-list shows database entries',
-    async ({ page }) => {
-      await login(page);
-      await page.waitForTimeout(3000);
-
-      const dbList = page.locator('[data-testid="db-list"]');
-      await expect(dbList).toBeVisible({ timeout: 5000 });
-
-      const items = page.locator('[data-testid="db-list-item"]');
-      const count = await items.count();
-      expect(count).toBeGreaterThanOrEqual(2);
-    });
-
-  test('CHECK-51: recent recommendations section visible',
-    async ({ page }) => {
-      await login(page);
-      await page.waitForTimeout(3000);
-
-      await page.locator('[data-testid="overview-tab-recent-recos"]')
-        .click();
-      const recent = page.locator(
-        '[data-testid="recent-findings"]',
-      );
-      await expect(recent).toBeVisible({ timeout: 10000 });
-    });
-});
-
-// ─── Step 17: Database Detail Page ─────────────────────────────
-test.describe('Step 17: Database Detail', () => {
-  test('CHECK-52: database page loads with snapshot data',
-    async ({ page }) => {
-      await login(page);
-      await page.waitForTimeout(2000);
-
-      // Select a database from picker
-      const picker = page.locator(
-        '[data-testid="database-picker"]',
-      );
-      if (await picker.isVisible({ timeout: 3000 })) {
-        await picker.selectOption('production');
-        await page.waitForTimeout(1000);
-      }
-
-      // Navigate to database page
+      await page.getByTestId('database-picker').selectOption(target);
       await page.goto('/#/database');
-      await page.waitForTimeout(3000);
+      await expect(page.getByRole('heading', { name: `Database: ${target}` })).toBeVisible();
+      await expect(page.locator('pre')).toContainText('{');
+    }
+  });
+}
 
-      // Should show database name and snapshot data
-      const body = await page.textContent('body');
-      expect(
-        body!.includes('production') ||
-        body!.includes('snapshot') ||
-        body!.includes('Database'),
-      ).toBeTruthy();
-    });
-
-  test('CHECK-53: snapshots/latest API returns data',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/snapshots/latest?database=production',
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data).toHaveProperty('database');
-      expect(data).toHaveProperty('snapshot');
-    });
+test('CHECK-63/64 snapshot history and invalid metric contracts', async ({ request }) => {
+  const history = await get(request,
+    `/snapshots/history?database=${target}&metric=cache_hit_ratio&hours=1`);
+  expect(history.metric).toBe('cache_hit_ratio');
+  rows(history.points);
+  expect((await get(request, '/snapshots/latest?metric=nonexistent')).snapshot).toBeNull();
 });
 
-// ─── Step 18: Actions API & Detail ─────────────────────────────
-test.describe('Step 18: Actions Detail', () => {
-  test('CHECK-54: GET /actions returns list structure',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get('/api/v1/actions');
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data).toHaveProperty('database');
-      expect(data).toHaveProperty('actions');
-      expect(data).toHaveProperty('total');
-      expect(data).toHaveProperty('limit');
-      expect(data).toHaveProperty('offset');
-      expect(Array.isArray(data.actions)).toBeTruthy();
-    });
-
-  test('CHECK-55: GET /actions with database filter',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/actions?database=production',
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data.database).toBe('production');
-    });
-
-  test('CHECK-56: actions page loads executed tab',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-actions"]');
-      await page.waitForTimeout(2000);
-
-      // In observation trust level, no actions exist yet —
-      // page shows either the table or an empty state
-      const table = page.locator(
-        '[data-testid="executed-actions-table"]',
-      );
-      const hasTable = await table.isVisible()
-        .catch(() => false);
-      if (!hasTable) {
-        const body = await page.textContent('body');
-        expect(body).toContain('No actions');
-      }
-    });
-
-  test('CHECK-57: actions pending tab shows structure',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-actions"]');
-      await page.waitForTimeout(1000);
-
-      await page.click('[data-testid="actions-tab-pending"]');
-      await page.waitForTimeout(1000);
-
-      // Pending tab shows table, help text, or empty state
-      const helpText = page.locator(
-        '[data-testid="pending-help-text"]',
-      );
-      const pendingTable = page.locator(
-        '[data-testid="pending-actions-table"]',
-      );
-
-      const hasHelp =
-        await helpText.isVisible().catch(() => false);
-      const hasTable =
-        await pendingTable.isVisible().catch(() => false);
-      if (!hasHelp && !hasTable) {
-        const body = await page.textContent('body');
-        expect(body).toContain('No actions waiting');
-      }
-    });
+test('CHECK-68/69 database picker scopes Cases exactly', async ({ page, request }) => {
+  await login(page);
+  const picker = page.getByTestId('database-picker');
+  await expect(picker).toBeVisible();
+  for (const name of [target, secondTarget]) {
+    await picker.selectOption(name);
+    await open(page, 'cases', 'cases-page');
+    const expected = rows((await get(request, `/cases?database=${name}`)).cases);
+    expect(expected.every(c => c.database_name === name)).toBe(true);
+    await expect(page.getByTestId('cases-page').locator('article')).toHaveCount(expected.length);
+  }
 });
 
-// ─── Step 19: Snapshots API ────────────────────────────────────
-test.describe('Step 19: Snapshots API', () => {
-  test('CHECK-58: GET /snapshots/latest default metric',
-    async ({ request }) => {
-      await apiLogin(request);
+for (const [route, key] of [
+  ['forecasts', 'forecasts'], ['query-hints', 'hints'], ['alert-log', 'alerts'],
+]) {
+  test(`CHECK-80/81/82 ${route} database-scoped collection`, async ({ request }) => {
+    const response = await get(request, `/${route}?database=${target}`);
+    expect(response.database).toBe(target);
+    rows(response[key]);
+  });
+}
 
-      const res = await request.get('/api/v1/snapshots/latest');
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data).toHaveProperty('database');
-      expect(data).toHaveProperty('snapshot');
-    });
-
-  test('CHECK-59: GET /snapshots/latest?metric=tables',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/snapshots/latest?metric=tables&database=production',
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data).toHaveProperty('snapshot');
-    });
-
-  test('CHECK-60: GET /snapshots/latest?metric=indexes',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/snapshots/latest?metric=indexes&database=production',
-      );
-      expect(res.ok()).toBeTruthy();
-    });
-
-  test('CHECK-61: GET /snapshots/latest?metric=queries',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/snapshots/latest?metric=queries&database=production',
-      );
-      expect(res.ok()).toBeTruthy();
-    });
-
-  test('CHECK-62: GET /snapshots/latest?metric=sequences',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/snapshots/latest?metric=sequences&database=production',
-      );
-      expect(res.ok()).toBeTruthy();
-    });
-
-  test('CHECK-63: GET /snapshots/history returns time series',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/snapshots/history?metric=cache_hit_ratio'
-        + '&hours=1&database=production',
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data).toHaveProperty('metric', 'cache_hit_ratio');
-      expect(data).toHaveProperty('points');
-      expect(Array.isArray(data.points)).toBeTruthy();
-    });
-
-  test('CHECK-64: GET /snapshots/latest invalid metric returns null',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/snapshots/latest?metric=nonexistent',
-      );
-      // API returns 200 with null snapshot for unknown metrics
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data.snapshot).toBeNull();
-    });
+test('CHECK-103/104 per-database execution policy persists; unsupported override fails',
+  async ({ request }) => {
+  const db = await managed(request);
+  const route = `/config/databases/${db.id}`;
+  expect((await get(request, route)).database_id).toBe(db.id);
+  const before = object((await get(request, route)).config);
+  const nextMode = object(before.execution_mode).value === 'manual' ? 'approval' : 'manual';
+  await withConfig(request, route, { execution_mode: nextMode }, async () => {
+    expect((await managed(request)).execution_mode).toBe(nextMode);
+  });
+  const current = await get(request, route);
+  const rejected = await request.put(path(route), { data: {
+    'analyzer.slow_query_threshold_ms': 750, expected_generation: current.desired_generation,
+  } });
+  expect(rejected.status()).toBe(400);
+  expect(String(object(await rejected.json()).error)).toContain('not supported');
 });
 
-// ─── Step 20: Finding Detail Depth ─────────────────────────────
-test.describe('Step 20: Case Detail Depth', () => {
-  test('CHECK-65: finding-backed case shows migration SQL',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-cases"]');
-      await page.getByRole('button', { name: 'Findings' }).click();
-
-      const casesPage = page.locator('[data-testid="cases-page"]');
-      await expect(casesPage.getByText('Migration script').first())
-        .toBeVisible({ timeout: 5000 });
-      const body = await casesPage.textContent();
-      expect(
-        body!.includes('DROP INDEX') ||
-        body!.includes('CREATE INDEX') ||
-        body!.includes('ALTER') ||
-        body!.includes('VACUUM'),
-      ).toBeTruthy();
-    });
-
-  test('CHECK-66: finding detail API includes all fields',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const listRes = await request.get('/api/v1/findings');
-      const listData = await listRes.json();
-      expect(listData.findings.length).toBeGreaterThan(0);
-
-      const target = listData.findings[0];
-      const detailRes = await request.get(
-        `/api/v1/findings/${target.id}?database=${
-          encodeURIComponent(target.database_name)
-        }`,
-      );
-      expect(detailRes.ok()).toBeTruthy();
-
-      const finding = await detailRes.json();
-      expect(finding).toHaveProperty('id');
-      expect(finding).toHaveProperty('category');
-      expect(finding).toHaveProperty('severity');
-      expect(finding).toHaveProperty('title');
-      expect(finding).toHaveProperty('status');
-      expect(finding).toHaveProperty('recommendation');
-      expect(finding).toHaveProperty('recommended_sql');
-    });
-
-  test('CHECK-67: finding-backed case evidence has content',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-cases"]');
-      await page.getByRole('button', { name: 'Findings' }).click();
-
-      const evidence = page.getByLabel('Case evidence').first();
-      await expect(evidence).toBeVisible({ timeout: 5000 });
-      expect((await evidence.textContent())!.length).toBeGreaterThan(0);
-    });
+for (const route of [
+  `/findings/999999?database=${target}`, '/databases/managed/999999',
+  `/actions/999999?database=${target}`,
+]) test(`CHECK-106/111/116 missing resource ${route}`, async ({ request }) => {
+  const response = await body(await request.get(path(route)), 404);
+  expect(String(response.error).length).toBeGreaterThan(0);
 });
 
-// ─── Step 21: Database Picker ──────────────────────────────────
-test.describe('Step 21: Database Picker', () => {
-  test('CHECK-68: picker visible with 2+ databases',
-    async ({ page }) => {
-      await login(page);
-      await page.waitForTimeout(3000);
-
-      const picker = page.locator(
-        '[data-testid="database-picker"]',
-      );
-      await expect(picker).toBeVisible({ timeout: 5000 });
-
-      // Should have "All Databases" + production + staging
-      const options = picker.locator('option');
-      const count = await options.count();
-      expect(count).toBeGreaterThanOrEqual(3);
-    });
-
-  test('CHECK-69: selecting database filters cases page',
-    async ({ page }) => {
-      await login(page);
-      await page.waitForTimeout(2000);
-
-      const picker = page.locator(
-        '[data-testid="database-picker"]',
-      );
-      await expect(picker).toBeVisible({ timeout: 5000 });
-
-      // Select production
-      await picker.selectOption('production');
-      await page.waitForTimeout(1000);
-
-      // Navigate to Cases; the global picker scopes the canonical surface.
-      await page.click('[data-testid="nav-cases"]');
-      await page.getByRole('button', { name: 'Findings' }).click();
-
-      const casesPage = page.locator('[data-testid="cases-page"]');
-      await expect(casesPage).toBeVisible({ timeout: 5000 });
-      const expectedCount = await page.evaluate(async () => {
-        const res = await fetch('/api/v1/cases?database=production', {
-          credentials: 'include',
-        });
-        const data = await res.json();
-        return data.cases.length;
-      });
-      expect(expectedCount).toBeGreaterThan(0);
-      await expect(casesPage.locator('article')).toHaveCount(expectedCount);
-    });
+test('CHECK-108/109 duplicate user and malformed user ID fail clearly', async ({ request }) => {
+  const duplicate = await request.post(path('/users'), {
+    data: { email: adminEmail, password: `${unique()}!`, role: 'viewer' },
+  });
+  expect(duplicate.status()).toBe(409);
+  expect((await request.delete(path('/users/notanumber'))).status()).toBe(400);
 });
 
-// ─── Step 22: Settings Save/Discard ────────────────────────────
-test.describe('Step 22: Settings Save/Discard', () => {
-  test('CHECK-70: edit monitoring field and save',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-settings"]');
-      await page.waitForTimeout(2000);
-
-      // Switch to monitoring tab
-      await page.click(
-        '[data-testid="settings-tab-monitoring"]',
-      );
-      await page.waitForTimeout(1000);
-
-      // Find a number input and change it
-      const inputs = page.locator('input[type="number"]');
-      const firstInput = inputs.first();
-      await expect(firstInput).toBeVisible({ timeout: 3000 });
-
-      await firstInput.clear();
-      await firstInput.fill('2000');
-      await page.waitForTimeout(500);
-
-      // Save button should appear
-      const saveBtn = page.locator(
-        '[data-testid="settings-save"]',
-      );
-      await expect(saveBtn).toBeVisible({ timeout: 3000 });
-      await saveBtn.click();
-      const confirmBtn = page.locator(
-        '[data-testid="config-diff-confirm"]',
-      );
-      await expect(confirmBtn).toBeVisible({ timeout: 3000 });
-      await confirmBtn.click();
-
-      // Should show success feedback
-      await expect(page.getByText(/Saved 1 global configuration change/))
-        .toBeVisible({ timeout: 5000 });
-    });
-
-  test('CHECK-71: edit field and discard reverts value',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-settings"]');
-      await page.waitForTimeout(2000);
-
-      await page.click(
-        '[data-testid="settings-tab-monitoring"]',
-      );
-      await page.waitForTimeout(1000);
-
-      const inputs = page.locator('input[type="number"]');
-      const firstInput = inputs.first();
-      await expect(firstInput).toBeVisible({ timeout: 3000 });
-
-      await firstInput.clear();
-      await firstInput.fill('9999');
-      await page.waitForTimeout(500);
-
-      // Discard button should appear
-      const discardBtn = page.locator(
-        '[data-testid="settings-discard"]',
-      );
-      await expect(discardBtn).toBeVisible({ timeout: 3000 });
-      await discardBtn.click();
-      await page.waitForTimeout(1000);
-
-      // Value should revert (not be 9999)
-      const currentValue = await firstInput.inputValue();
-      expect(currentValue).not.toBe('9999');
-    });
-
-  test('CHECK-72: reset monitoring value via API',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.put('/api/v1/config/global', {
-        data: { 'analyzer.slow_query_threshold_ms': 1000 },
-      });
-      expect(res.ok()).toBeTruthy();
-    });
+test('CHECK-93/94/95 missing pending actions reject approval and rejection',
+  async ({ request }) => {
+  for (const verb of ['approve', 'reject']) {
+    const response = await request.post(path(`/actions/pending/999999/${verb}?database=${target}`),
+      { data: { reason: 'isolated missing-id test' } });
+    expect(response.status()).toBe(404);
+  }
+  expect((await request.post(path('/actions/pending/notanumber/approve'),
+    { data: {} })).status()).toBe(404);
 });
 
-// ─── Step 23: JSON Metrics API ─────────────────────────────────
-test.describe('Step 23: JSON Metrics API', () => {
-  test('CHECK-73: GET /metrics returns fleet structure',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get('/api/v1/metrics');
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-
-      expect(data).toHaveProperty('fleet');
-      expect(data.fleet).toHaveProperty('total_databases');
-      expect(data.fleet.total_databases).toBeGreaterThanOrEqual(2);
-    });
-
-  test('CHECK-74: GET /metrics?database returns per-db',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/metrics?database=production',
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-
-      expect(data).toHaveProperty('database', 'production');
-      expect(data).toHaveProperty('status');
-      expect(data.status).toHaveProperty('connected');
-    });
+test('CHECK-113/118/119/121 invalid connection and execution requests fail',
+  async ({ request }) => {
+  const invalidHost = await request.post(path('/databases/managed/test-connection'), {
+    data: { ...databaseInput(), host: 'nonexistent.invalid' },
+  });
+  expect(invalidHost.status()).toBe(400);
+  expect(String(object(await invalidHost.json()).error).length).toBeGreaterThan(0);
+  expect((await request.post(path('/actions/execute'), { data: {} })).status()).toBe(400);
+  const invalidSQL = await request.post(path('/actions/execute'), {
+    data: { finding_id: 999999, sql: 'SELECT 1', database: target },
+  });
+  expect(invalidSQL.status()).toBe(500);
+  expect(String(object(await invalidSQL.json()).error)).toContain('SQL validation');
+  expect((await request.post(path('/databases/managed/999999/test'),
+    { data: {} })).status()).toBe(404);
 });
 
-// ─── Step 24: Per-Database Emergency Stop ──────────────────────
-test.describe('Step 24: Per-DB Emergency Stop', () => {
-  test('CHECK-75: stop only production database',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.post(
-        '/api/v1/emergency-stop?database=production',
-        { data: {} },
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data.status).toBe('stopped');
-      expect(data.stopped).toBe(1);
-
-      // Fleet should show emergency_stopped
-      const fleetRes = await request.get('/api/v1/databases');
-      expect(fleetRes.ok()).toBeTruthy();
-      const fleet = await fleetRes.json();
-      expect(fleet.summary.emergency_stopped).toBe(true);
-    });
-
-  test('CHECK-76: resume production database',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.post(
-        '/api/v1/resume?database=production',
-        { data: {} },
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data.status).toBe('resumed');
-    });
-});
-
-// ─── Step 25: Page Content Depth ───────────────────────────────
-test.describe('Step 25: Page Content', () => {
-  test('CHECK-77: forecasts page shows cards or empty state',
-    async ({ page }) => {
-      await login(page);
-      await page.goto('/#/forecasts');
-      await page.waitForTimeout(3000);
-
-      const body = await page.textContent('body');
-      expect(
-        body!.includes('forecast') ||
-        body!.includes('Forecast') ||
-        body!.includes('Critical') ||
-        body!.includes('Warning') ||
-        body!.includes('No ') ||
-        body!.includes('empty'),
-      ).toBeTruthy();
-    });
-
-  test('CHECK-78: query hints page shows structure',
-    async ({ page }) => {
-      await login(page);
-      await page.goto('/#/query-hints');
-      await page.waitForTimeout(3000);
-
-      const body = await page.textContent('body');
-      expect(
-        body!.includes('Active Hints') ||
-        body!.includes('Performance') ||
-        body!.includes('hint') ||
-        body!.includes('Hint') ||
-        body!.includes('No ') ||
-        body!.includes('Cost'),
-      ).toBeTruthy();
-    });
-
-  test('CHECK-79: alerts page shows structure',
-    async ({ page }) => {
-      await login(page);
-      await page.goto('/#/alerts');
-      await page.waitForTimeout(3000);
-
-      const body = await page.textContent('body');
-      expect(
-        body!.includes('alert') ||
-        body!.includes('Alert') ||
-        body!.includes('Total') ||
-        body!.includes('No ') ||
-        body!.includes('Slack') ||
-        body!.includes('slack'),
-      ).toBeTruthy();
-    });
-
-  test('CHECK-80: forecasts API returns structure',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get('/api/v1/forecasts');
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data).toHaveProperty('database');
-      expect(data).toHaveProperty('forecasts');
-      expect(Array.isArray(data.forecasts)).toBeTruthy();
-    });
-
-  test('CHECK-81: query-hints API returns structure',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get('/api/v1/query-hints');
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data).toHaveProperty('database');
-      expect(data).toHaveProperty('hints');
-      expect(Array.isArray(data.hints)).toBeTruthy();
-    });
-
-  test('CHECK-82: alert-log API returns structure',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get('/api/v1/alert-log');
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data).toHaveProperty('database');
-      expect(data).toHaveProperty('alerts');
-      expect(Array.isArray(data.alerts)).toBeTruthy();
-    });
-});
-
-// ─── Step 26: Database Edit/Delete ─────────────────────────────
-test.describe('Step 26: Database Edit/Delete', () => {
-  test('CHECK-83: edit button opens form with populated fields',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-databases"]');
-      await page.waitForTimeout(2000);
-
-      // Find staging row and click edit
-      const stagingRow = page.locator(
-        '[data-testid="db-row"]',
-      ).filter({ hasText: 'staging' });
-      await expect(stagingRow).toBeVisible({ timeout: 5000 });
-
-      const editBtn = stagingRow.locator(
-        '[data-testid="db-edit-button"]',
-      );
-      await editBtn.click();
-      await page.waitForTimeout(1000);
-
-      // Form should open with pre-filled data
-      const form = page.locator('[data-testid="db-form"]');
-      await expect(form).toBeVisible({ timeout: 3000 });
-
-      // Verify name field is populated
-      const nameInput = page.locator('[data-testid="db-name"]');
-      const nameValue = await nameInput.inputValue();
-      expect(nameValue).toBe('staging');
-
-      // Cancel without saving
-      await page.click('[data-testid="db-cancel-button"]');
-      await page.waitForTimeout(500);
-    });
-
-  test('CHECK-84: delete staging database via UI',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-databases"]');
-      await page.waitForTimeout(2000);
-
-      const stagingRow = page.locator(
-        '[data-testid="db-row"]',
-      ).filter({ hasText: 'staging' });
-      await expect(stagingRow).toBeVisible({ timeout: 5000 });
-
-      const deleteBtn = stagingRow.locator(
-        '[data-testid="db-delete-button"]',
-      );
-      await deleteBtn.click();
-      await page.waitForTimeout(1000);
-
-      // Confirmation modal should appear
-      const confirm = page.locator(
-        '[data-testid="delete-confirm"]',
-      );
-      await expect(confirm).toBeVisible({ timeout: 3000 });
-
-      // Click confirm delete
-      await page.click('[data-testid="delete-confirm-yes"]');
-      await page.waitForTimeout(2000);
-
-      // Staging should be gone from table
-      const table = page.locator(
-        '[data-testid="databases-table"]',
-      );
-      await expect(table).not.toContainText('staging', {
-        timeout: 5000,
-      });
-    });
-
-  test('CHECK-85: re-add staging database after delete',
-    async ({ page }) => {
-      await login(page);
-      await page.click('[data-testid="nav-databases"]');
-      await page.waitForTimeout(1000);
-
-      await page.click('[data-testid="add-database-button"]');
-      await expect(
-        page.locator('[data-testid="db-form"]'),
-      ).toBeVisible({ timeout: 3000 });
-
-      await page.fill('[data-testid="db-name"]', 'staging');
-      await page.fill('[data-testid="db-host"]', 'localhost');
-
-      const portInput = page.locator('[data-testid="db-port"]');
-      await portInput.clear();
-      await portInput.fill(String(STAGING_DB.port));
-
-      await page.fill(
-        '[data-testid="db-database"]', STAGING_DB.database,
-      );
-      await page.fill(
-        '[data-testid="db-username"]', STAGING_DB.username,
-      );
-      await page.fill(
-        '[data-testid="db-password"]', STAGING_DB.password,
-      );
-
-      await page.locator(
-        '[data-testid="db-form"] select',
-      ).first().selectOption('disable');
-
-      await page.click('[data-testid="db-save-button"]');
-      await page.waitForTimeout(2000);
-
-      await expect(
-        page.locator('[data-testid="databases-table"]'),
-      ).toContainText('staging', { timeout: 5000 });
-    });
-});
-
-// ─── Step 27: Auth Endpoints ──────────────────────────────────
-test.describe('Step 27: Auth Endpoints', () => {
-  test('CHECK-86: GET /auth/me returns current user',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get('/api/v1/auth/me');
-      expect(res.ok()).toBeTruthy();
-
-      const data = await res.json();
-      expect(data.email).toBe(ADMIN_EMAIL);
-      expect(data.role).toBe('admin');
-      expect(data).toHaveProperty('id');
-    });
-
-  test('CHECK-87: POST /auth/logout clears session',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.post('/api/v1/auth/logout', { data: {} });
-      expect(res.ok()).toBeTruthy();
-
-      const data = await res.json();
-      expect(data.status).toBe('logged out');
-
-      // After logout, /auth/me should fail
-      const meRes = await request.get('/api/v1/auth/me');
-      expect(meRes.status()).toBe(401);
-    });
-});
-
-// ─── Step 28: User Role Change ────────────────────────────────
-test.describe('Step 28: User Role Change', () => {
-  test('CHECK-88: create user then change role via API',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      // Create a viewer
-      const createRes = await request.post('/api/v1/users', {
-        data: {
-          email: 'roletest@test.local',
-          password: 'testpass123',
-          role: 'viewer',
-        },
-      });
-      expect(createRes.status()).toBe(201);
-      const user = await createRes.json();
-      expect(user.role).toBe('viewer');
-
-      // Change to operator
-      const roleRes = await request.put(
-        `/api/v1/users/${user.id}/role`,
-        { data: { role: 'operator' } },
-      );
-      expect(roleRes.ok()).toBeTruthy();
-      const roleData = await roleRes.json();
-      expect(roleData.status).toBe('updated');
-
-      // Verify by listing users
-      const listRes = await request.get('/api/v1/users');
-      const listData = await listRes.json();
-      const updated = listData.users.find(
-        (u: { email: string }) =>
-          u.email === 'roletest@test.local',
-      );
-      expect(updated.role).toBe('operator');
-
-      // Cleanup
-      await request.delete(`/api/v1/users/${user.id}`);
-    });
-
-  test('CHECK-89: operator cannot access admin routes',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      // Create operator
-      const createRes = await request.post('/api/v1/users', {
-        data: {
-          email: 'optest@test.local',
-          password: 'testpass123',
-          role: 'operator',
-        },
-      });
-      expect(createRes.status()).toBe(201);
-      const user = await createRes.json();
-
-      // Login as operator
-      const loginRes = await request.post(
-        '/api/v1/auth/login',
-        {
-          data: {
-            email: 'optest@test.local',
-            password: 'testpass123',
-          },
-        },
-      );
-      expect(loginRes.ok()).toBeTruthy();
-
-      // Operator should NOT access admin routes
-      const usersRes = await request.get('/api/v1/users');
-      expect(usersRes.status()).toBe(403);
-
-      const configRes = await request.get(
-        '/api/v1/config/global',
-      );
-      expect(configRes.status()).toBe(403);
-
-      // Operator SHOULD access pending actions
-      const pendingRes = await request.get(
-        '/api/v1/actions/pending',
-      );
-      expect(pendingRes.ok()).toBeTruthy();
-
-      // Cleanup: re-login as admin and delete
-      await apiLogin(request);
-      await request.delete(`/api/v1/users/${user.id}`);
-    });
-});
-
-// ─── Step 29: Database Edit via API ───────────────────────────
-test.describe('Step 29: Database Edit via API', () => {
-  test('CHECK-90: GET /databases/managed lists databases',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/databases/managed',
-      );
-      expect(res.ok()).toBeTruthy();
-
-      const data = await res.json();
-      expect(data.databases.length).toBeGreaterThanOrEqual(2);
-      const names = data.databases.map(
-        (d: { name: string }) => d.name,
-      );
-      expect(names).toContain('production');
-      expect(names).toContain('staging');
-    });
-
-  test('CHECK-91: PUT /databases/managed/{id} edits database',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      // Get staging database ID
-      const listRes = await request.get(
-        '/api/v1/databases/managed',
-      );
-      const listData = await listRes.json();
-      const staging = listData.databases.find(
-        (d: { name: string }) => d.name === 'staging',
-      );
-      expect(staging).toBeTruthy();
-
-      // Edit: change trust_level
-      const editRes = await request.put(
-        `/api/v1/databases/managed/${staging.id}`,
-        {
-          data: {
-            name: staging.name,
-            host: staging.host,
-            port: staging.port,
-            database_name: staging.database_name,
-            username: staging.username,
-            password: STAGING_DB.password,
-            sslmode: staging.sslmode,
-            trust_level: 'advisory',
-            execution_mode: staging.execution_mode
-              || 'approval',
-          },
-        },
-      );
-      expect(editRes.ok()).toBeTruthy();
-
-      // Verify the change persisted
-      const getRes = await request.get(
-        `/api/v1/databases/managed/${staging.id}`,
-      );
-      expect(getRes.ok()).toBeTruthy();
-      const updated = await getRes.json();
-      expect(updated.trust_level).toBe('advisory');
-
-      // Revert to observation
-      await request.put(
-        `/api/v1/databases/managed/${staging.id}`,
-        {
-          data: {
-            name: staging.name,
-            host: staging.host,
-            port: staging.port,
-            database_name: staging.database_name,
-            username: staging.username,
-            password: STAGING_DB.password,
-            sslmode: staging.sslmode,
-            trust_level: 'observation',
-            execution_mode: staging.execution_mode
-              || 'approval',
-          },
-        },
-      );
-    });
-});
-
-// ─── Step 30: Action Approve/Reject ───────────────────────────
-test.describe('Step 30: Action Approve/Reject', () => {
-  test('CHECK-92: pending count endpoint works',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/actions/pending/count',
-      );
-      expect(res.ok()).toBeTruthy();
-
-      const data = await res.json();
-      expect(typeof data.count).toBe('number');
-      expect(data.count).toBeGreaterThanOrEqual(0);
-    });
-
-  test('CHECK-93: approve action endpoint reachable',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.post(
-        '/api/v1/actions/99999/approve?database=production',
-        { data: {} },
-      );
-      // 404 (standalone, action not found) or
-      // 501 (fleet, not yet implemented)
-      expect([404, 501]).toContain(res.status());
-    });
-
-  test('CHECK-94: reject action endpoint reachable',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.post(
-        '/api/v1/actions/99999/reject?database=production',
-        { data: { reason: 'test rejection' } },
-      );
-      expect([404, 501]).toContain(res.status());
-    });
-
-  test('CHECK-95: approve with invalid ID returns error',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.post(
-        '/api/v1/actions/notanumber/approve',
-        { data: {} },
-      );
-      // 400 (standalone) or 501 (fleet)
-      expect([400, 501]).toContain(res.status());
-    });
-});
-
-// ─── Step 31: Notification CRUD ───────────────────────────────
-test.describe('Step 31: Notification CRUD', () => {
-  let channelId: number;
-  let ruleId: number;
-
-  test('CHECK-96: create channel and rule for CRUD tests',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      // Clean up any leftover channels from prior runs
-      const listRes = await request.get(
-        '/api/v1/notifications/channels',
-      );
-      if (listRes.ok()) {
-        const listData = await listRes.json();
-        const channels = listData.channels || [];
-        for (const ch of channels) {
-          if (ch.name?.startsWith('crud-test-')) {
-            // Delete rules referencing this channel first
-            const rulesRes = await request.get(
-              '/api/v1/notifications/rules',
-            );
-            if (rulesRes.ok()) {
-              const rulesData = await rulesRes.json();
-              for (const r of (rulesData.rules || [])) {
-                if (r.channel_id === ch.id) {
-                  await request.delete(
-                    `/api/v1/notifications/rules/${r.id}`,
-                  );
-                }
-              }
-            }
-            await request.delete(
-              `/api/v1/notifications/channels/${ch.id}`,
-            );
-          }
-        }
-      }
-
-      // Create a channel (valid types: slack, email, pagerduty)
-      const chName = `crud-test-${Date.now()}`;
-      const chRes = await request.post(
-        '/api/v1/notifications/channels',
-        {
-          data: {
-            name: chName,
-            type: 'slack',
-            config: {
-              webhook_url: 'https://hooks.slack.com/test',
-            },
-          },
-        },
-      );
-      expect(chRes.status()).toBe(201);
-      const ch = await chRes.json();
-      channelId = ch.id;
-
-      // Create a rule
-      const ruleRes = await request.post(
-        '/api/v1/notifications/rules',
-        {
-          data: {
-            channel_id: channelId,
-            event: 'finding_critical',
-            min_severity: 'critical',
-          },
-        },
-      );
-      expect(ruleRes.status()).toBe(201);
-      const rule = await ruleRes.json();
-      ruleId = rule.id;
-    });
-
-  test('CHECK-97: edit notification channel via PUT',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const newName = `crud-test-renamed-${Date.now()}`;
-      const res = await request.put(
-        `/api/v1/notifications/channels/${channelId}`,
-        {
-          data: {
-            name: newName,
-            config: {
-              webhook_url: 'https://hooks.slack.com/updated',
-            },
-            enabled: true,
-          },
-        },
-      );
-      const body = await res.json();
-      expect(res.ok(),
-        `PUT channel failed: ${JSON.stringify(body)}`,
-      ).toBeTruthy();
-      expect(body.status).toBe('updated');
-
-      // Verify the channel was renamed
-      const listRes = await request.get(
-        '/api/v1/notifications/channels',
-      );
-      expect(listRes.ok()).toBeTruthy();
-      const listData = await listRes.json();
-      const channels = listData.channels || [];
-      expect(channels.length).toBeGreaterThan(0);
-      const ch = channels.find(
-        (c: { id: number }) => c.id === channelId,
-      );
-      expect(ch).toBeTruthy();
-      expect(ch.name).toBe(newName);
-    });
-
-  test('CHECK-98: edit notification rule via PUT',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.put(
-        `/api/v1/notifications/rules/${ruleId}`,
-        { data: { enabled: false } },
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data.status).toBe('updated');
-    });
-
-  test('CHECK-99: test notification channel send',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      // Test send — may fail since webhook URL is fake,
-      // but endpoint should be reachable (not 404)
-      const res = await request.post(
-        `/api/v1/notifications/channels/${channelId}/test`,
-        { data: {} },
-      );
-      // 200 = test sent, 502 = test failed (expected for
-      // fake URL) — both mean the endpoint works
-      expect([200, 502]).toContain(res.status());
-    });
-
-  test('CHECK-100: delete notification rule',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.delete(
-        `/api/v1/notifications/rules/${ruleId}`,
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data.status).toBe('deleted');
-    });
-
-  test('CHECK-101: delete notification channel',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.delete(
-        `/api/v1/notifications/channels/${channelId}`,
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data.status).toBe('deleted');
-    });
-});
-
-// ─── Step 32: Per-Database Config ─────────────────────────────
-test.describe('Step 32: Per-Database Config', () => {
-  test('CHECK-102: GET /config/global returns config',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get('/api/v1/config/global');
-      expect(res.ok()).toBeTruthy();
-
-      const data = await res.json();
-      expect(data).toHaveProperty('config');
-      expect(data).toHaveProperty('mode');
-    });
-
-  test('CHECK-103: GET /config/databases/{id} returns config',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      // Get a database ID
-      const listRes = await request.get(
-        '/api/v1/databases/managed',
-      );
-      const listData = await listRes.json();
-      const dbId = listData.databases[0].id;
-
-      const res = await request.get(
-        `/api/v1/config/databases/${dbId}`,
-      );
-      expect(res.ok()).toBeTruthy();
-
-      const data = await res.json();
-      expect(data).toHaveProperty('database_id');
-      expect(data).toHaveProperty('config');
-      expect(data.database_id).toBe(dbId);
-    });
-
-  test('CHECK-104: PUT /config/databases/{id} updates config',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const listRes = await request.get(
-        '/api/v1/databases/managed',
-      );
-      const listData = await listRes.json();
-      const dbId = listData.databases[0].id;
-
-      const res = await request.put(
-        `/api/v1/config/databases/${dbId}`,
-        {
-          data: {
-            'analyzer.slow_query_threshold_ms': 750,
-          },
-        },
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data.status).toBe('updated');
-
-      // Reset
-      await request.put(
-        `/api/v1/config/databases/${dbId}`,
-        {
-          data: {
-            'analyzer.slow_query_threshold_ms': 500,
-          },
-        },
-      );
-    });
-
-  test('CHECK-105: GET /config/audit returns audit trail',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get('/api/v1/config/audit');
-      expect(res.ok()).toBeTruthy();
-
-      const data = await res.json();
-      expect(data).toHaveProperty('audit');
-      expect(Array.isArray(data.audit)).toBeTruthy();
-    });
-});
-
-// ─── Step 33: Error Handling ──────────────────────────────────
-test.describe('Step 33: Error Handling', () => {
-  test('CHECK-106: GET /findings/999999 returns 404',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/findings/999999?database=production',
-      );
-      expect(res.status()).toBe(404);
-    });
-
-  test('CHECK-107: POST /auth/login with missing fields',
-    async ({ request }) => {
-      const res = await request.post('/api/v1/auth/login', {
-        data: { email: '' },
-      });
-      expect(res.ok()).toBeFalsy();
-      expect([400, 401]).toContain(res.status());
-    });
-
-  test('CHECK-108: POST /users with duplicate email fails',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      // Try to create user with admin's email
-      const res = await request.post('/api/v1/users', {
-        data: {
-          email: ADMIN_EMAIL,
-          password: 'anything',
-          role: 'viewer',
-        },
-      });
-      expect(res.ok()).toBeFalsy();
-      expect([400, 409]).toContain(res.status());
-    });
-
-  test('CHECK-109: DELETE /users with invalid ID returns 400',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.delete(
-        '/api/v1/users/notanumber',
-      );
-      expect(res.status()).toBe(400);
-    });
-
-  test('CHECK-110: unauthenticated request returns 401',
-    async ({ request }) => {
-      // No login — direct request
-      const res = await request.get('/api/v1/databases', {
-        headers: { cookie: '' },
-      });
-      expect(res.status()).toBe(401);
-    });
-
-  test('CHECK-111: GET /databases/managed/999999 returns 404',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/databases/managed/999999',
-      );
-      expect(res.status()).toBe(404);
-    });
-});
-
-// ─── Step 34: Database Managed CRUD ───────────────────────────
-test.describe('Step 34: Database Managed CRUD', () => {
-  test('CHECK-112: preview test blocks private connection targets',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.post(
-        '/api/v1/databases/managed/test-connection',
-        {
-          data: {
-            name: 'test-conn',
-            host: PROD_DB.host,
-            port: PROD_DB.port,
-            database_name: PROD_DB.database,
-            username: PROD_DB.username,
-            password: PROD_DB.password,
-            sslmode: 'disable',
-          },
-        },
-      );
-      expect(res.status()).toBe(400);
-      const data = await res.json();
-      expect(data.error).toContain('private/internal');
-    });
-
-  test('CHECK-113: POST test-connection bad host fails',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.post(
-        '/api/v1/databases/managed/test-connection',
-        {
-          data: {
-            name: 'bad-host',
-            host: 'nonexistent.invalid',
-            port: 5432,
-            database_name: 'test',
-            username: 'test',
-            password: 'test',
-            sslmode: 'disable',
-          },
-        },
-      );
-      const data = await res.json();
-      // Connection should fail
-      expect(
-        data.error || data.status === 'error'
-        || !res.ok(),
-      ).toBeTruthy();
-    });
-
-  test('CHECK-114: GET /databases/managed/{id} single db',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const listRes = await request.get(
-        '/api/v1/databases/managed',
-      );
-      const listData = await listRes.json();
-      const id = listData.databases[0].id;
-
-      const res = await request.get(
-        `/api/v1/databases/managed/${id}`,
-      );
-      expect(res.ok()).toBeTruthy();
-
-      const data = await res.json();
-      expect(data).toHaveProperty('name');
-      expect(data).toHaveProperty('host');
-      expect(data).toHaveProperty('port');
-    });
-});
-
-// ─── Step 35: LLM Models Endpoint ────────────────────────────
-test.describe('Step 35: LLM Models Endpoint', () => {
-  test('CHECK-115: GET /llm/models returns status',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get('/api/v1/llm/models');
-      // 200 if configured, 502/503 if LLM unreachable
-      expect([200, 502, 503]).toContain(res.status());
-
-      if (res.status() === 200) {
-        const data = await res.json();
-        expect(data).toHaveProperty('models');
-      }
-    });
-});
-
-// ─── Step 36: Action Detail ──────────────────────────────────
-test.describe('Step 36: Action Detail', () => {
-  test('CHECK-116: GET /actions/{id} with invalid ID',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/actions/999999?database=production',
-      );
-      expect(res.status()).toBe(404);
-    });
-
-  test('CHECK-117: GET /actions with pagination params',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.get(
-        '/api/v1/actions?limit=5&offset=0',
-      );
-      expect(res.ok()).toBeTruthy();
-
-      const data = await res.json();
-      expect(data).toHaveProperty('total');
-      expect(data).toHaveProperty('actions');
-      expect(data).toHaveProperty('limit');
-      expect(data.limit).toBe(5);
-      expect(data).toHaveProperty('offset');
-      expect(data.offset).toBe(0);
-    });
-});
-
-// ─── Step 37: Manual Execute Endpoint ────────────────────────
-test.describe('Step 37: Manual Execute Endpoint', () => {
-  test('CHECK-118: POST /actions/execute with missing fields',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      // Missing both required fields
-      const res = await request.post(
-        '/api/v1/actions/execute',
-        { data: {} },
-      );
-      // In fleet mode this returns 501 (not implemented);
-      // in standalone it returns 400 for missing fields.
-      expect([400, 501]).toContain(res.status());
-    });
-
-  test('CHECK-119: POST /actions/execute rejects unsupported SQL',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.post(
-        '/api/v1/actions/execute',
-        {
-          data: {
-            finding_id: 999999,
-            sql: 'SELECT 1',
-            database: 'production',
-          },
-        },
-      );
-      expect(res.status()).toBe(500);
-      const data = await res.json();
-      expect(data.error).toContain('SQL validation');
-    });
-});
-
-// ─── Step 38: Test Existing DB Connection ────────────────────
-test.describe('Step 38: Test Existing DB Connection', () => {
-  test('CHECK-120: POST /databases/managed/{id}/test succeeds',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      // Get a managed database ID
-      const listRes = await request.get(
-        '/api/v1/databases/managed',
-      );
-      const listData = await listRes.json();
-      const db = listData.databases[0];
-
-      const res = await request.post(
-        `/api/v1/databases/managed/${db.id}/test`,
-        { headers: { 'Content-Type': 'application/json' } },
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data.status).toBe('ok');
-      expect(data.pg_version).toBeTruthy();
-      expect(Array.isArray(data.extensions)).toBe(true);
-    });
-
-  test('CHECK-121: POST /databases/managed/999999/test 404',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.post(
-        '/api/v1/databases/managed/999999/test',
-        { headers: { 'Content-Type': 'application/json' } },
-      );
-      expect(res.status()).toBe(404);
-    });
-});
-
-// ─── Step 39: CSV Import Endpoint ────────────────────────────
-test.describe('Step 39: CSV Import Endpoint', () => {
-  test('CHECK-122: POST /databases/managed/import with valid CSV',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const csv = [
-        'name,host,port,database_name,username,password,sslmode',
-        `import-test,${IMPORT_DB.host},${IMPORT_DB.port},${IMPORT_DB.database},${IMPORT_DB.username},${IMPORT_DB.password},disable`,
-      ].join('\n');
-
-      const res = await request.post(
-        '/api/v1/databases/managed/import',
-        {
-          multipart: {
-            file: {
-              name: 'databases.csv',
-              mimeType: 'text/csv',
-              buffer: Buffer.from(csv),
-            },
-          },
-        },
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data).toHaveProperty('imported');
-      expect(data).toHaveProperty('errors');
-
-      // Clean up: delete the imported database
-      if (data.imported > 0) {
-        const listRes = await request.get(
-          '/api/v1/databases/managed',
-        );
-        const listData = await listRes.json();
-        const imported = (listData.databases || []).find(
-          (d: { name: string }) => d.name === 'import-test',
-        );
-        if (imported) {
-          await request.delete(
-            `/api/v1/databases/managed/${imported.id}`,
-          );
-        }
-      }
-    });
-
-  test('CHECK-123: POST /databases/managed/import bad header',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const csv = 'bad,header,row\nfoo,bar,baz\n';
-
-      const res = await request.post(
-        '/api/v1/databases/managed/import',
-        {
-          multipart: {
-            file: {
-              name: 'bad.csv',
-              mimeType: 'text/csv',
-              buffer: Buffer.from(csv),
-            },
-          },
-        },
-      );
-      expect(res.ok()).toBeTruthy();
-      const data = await res.json();
-      expect(data.imported).toBe(0);
-      expect(data.errors.length).toBeGreaterThan(0);
-      expect(data.errors[0].error).toContain('invalid CSV header');
-    });
-
-  test('CHECK-124: POST /databases/managed/import no file',
-    async ({ request }) => {
-      await apiLogin(request);
-
-      const res = await request.post(
-        '/api/v1/databases/managed/import',
-        { data: {} },
-      );
-      expect(res.status()).toBe(400);
-    });
+test('CHECK-122/123/124 CSV imports exact row and rejects malformed input', async ({ request }) => {
+  const input = databaseInput();
+  let id: unknown;
+  const upload = async (csv: string) => body(await request.post(path('/databases/managed/import'), {
+    multipart: { file: { name: 'audit.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) } },
+  }));
+  try {
+    const csv = 'name,host,port,database_name,username,password,sslmode\n' +
+      `${input.name},${input.host},${input.port},${input.database_name},postgres,postgres,disable`;
+    const imported = await upload(csv);
+    expect(imported.imported).toBe(1);
+    expect(imported.errors).toEqual([]);
+    id = (await managed(request, input.name)).id;
+  } finally { if (id !== undefined) await remove(request, `/databases/managed/${id}`); }
+  const invalid = await upload('bad,header,row\nfoo,bar,baz\n');
+  expect(invalid.imported).toBe(0);
+  expect(rows(invalid.errors)[0].error).toContain('invalid CSV header');
+  expect((await request.post(path('/databases/managed/import'), { data: {} })).status()).toBe(400);
 });

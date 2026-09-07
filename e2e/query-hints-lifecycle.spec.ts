@@ -7,10 +7,10 @@ const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
 function psql(sql: string) {
   execFileSync('docker', [
-    'exec', 'pg_sage-pg-target-1', 'psql',
+    'exec', 'pgsage_audit_20260904', 'psql',
     '-v', 'ON_ERROR_STOP=1',
     '-U', 'postgres',
-    '-d', 'testdb',
+    '-d', 'audit_browser_target1',
     '-c', sql,
   ], { stdio: 'pipe' });
 }
@@ -53,11 +53,7 @@ test.describe('Query Hints lifecycle', () => {
       'requires full-surface query-hints fixture',
     );
 
-    try {
-      seedHintLifecycleRows();
-    } catch (err) {
-      test.skip(true, `Docker fixture database unavailable: ${err}`);
-    }
+    seedHintLifecycleRows();
 
     const allRes = await page.request.get('/api/v1/query-hints');
     expect(allRes.status()).toBe(200);

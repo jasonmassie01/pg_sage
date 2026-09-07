@@ -322,7 +322,7 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
 
   return (
     <DataTable data-testid="executed-actions-table"
-      columns={columns} rows={actions} expandable
+      columns={columns} rows={actions} expandable rowKey={actionRowKey}
       renderExpanded={row => (
         <div className="space-y-3">
           {row.outcome === 'failed' && row.rollback_reason && (
@@ -426,6 +426,10 @@ function PendingSkeleton() {
   )
 }
 
+function actionRowKey(row) {
+  return JSON.stringify([row.database_name || '', row.id])
+}
+
 function PendingTab({
   data, loading, error, refetch,
 }) {
@@ -441,10 +445,10 @@ function PendingTab({
 
   const actions = data?.pending || []
 
-  async function handleApprove(id) {
+  async function handleApprove(action) {
+    const id = action.id
     setActionMsg(null)
     try {
-      const action = actions.find(a => a.id === id)
       const dbParam = action?.database_name
         ? `?database=${encodeURIComponent(action.database_name)}` : ''
       const res = await fetch(
@@ -473,7 +477,8 @@ function PendingTab({
     }
   }
 
-  async function handleReject(id) {
+  async function handleReject(action) {
+    const id = action.id
     setActionMsg(null)
     const reason = rejectReason.trim()
     if (!reason) {
@@ -482,7 +487,6 @@ function PendingTab({
       return
     }
     try {
-      const action = actions.find(a => a.id === id)
       const dbParam = action?.database_name
         ? `?database=${encodeURIComponent(action.database_name)}` : ''
       const res = await fetch(
@@ -558,7 +562,7 @@ function PendingTab({
       key: 'actions', label: '',
       render: r => (
         <div className="flex gap-2">
-          <button onClick={() => handleApprove(r.id)}
+          <button onClick={() => handleApprove(r)}
             data-testid="approve-button"
             disabled={r.eligible === false}
             title={r.eligible === false
@@ -575,7 +579,7 @@ function PendingTab({
           </button>
           <button
             onClick={() => setRejectId(
-              rejectId === r.id ? null : r.id)}
+              rejectId === actionRowKey(r) ? null : actionRowKey(r))}
             data-testid="reject-button"
             className="px-2 py-1 rounded text-xs"
             style={{
@@ -589,9 +593,6 @@ function PendingTab({
     },
   ]
 
-  if (actions.length === 0) {
-    return <EmptyState message="No actions waiting for approval. When pg_sage identifies improvements that need your OK, they'll appear here." />
-  }
 
   return (
     <div className="space-y-3">
@@ -612,8 +613,10 @@ function PendingTab({
           {actionMsg.text}
         </div>
       )}
-      <DataTable data-testid="pending-actions-table"
-        columns={columns} rows={actions} expandable
+      {actions.length === 0 ? (
+        <EmptyState message="No actions waiting for approval. When pg_sage identifies improvements that need your OK, they'll appear here." />
+      ) : <DataTable data-testid="pending-actions-table"
+        columns={columns} rows={actions} expandable rowKey={actionRowKey}
         renderExpanded={row => (
           <div className="space-y-3">
             <div>
@@ -682,7 +685,7 @@ function PendingTab({
               </div>
             )}
             <LifecycleDetails row={row} />
-            {rejectId === row.id && (
+            {rejectId === actionRowKey(row) && (
               <div className="flex gap-2 items-center">
                 <input
                   value={rejectReason}
@@ -697,7 +700,7 @@ function PendingTab({
                   }}
                 />
                 <button
-                  onClick={() => handleReject(row.id)}
+                  onClick={() => handleReject(row)}
                   disabled={!rejectReason.trim()}
                   className="px-2 py-1 rounded text-xs"
                   style={{
@@ -712,7 +715,7 @@ function PendingTab({
             )}
           </div>
         )}
-      />
+      />}
     </div>
   )
 }

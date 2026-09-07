@@ -214,7 +214,7 @@ test.describe('Databases (admin)', () => {
       await expect(page.locator('[data-testid="db-form"]')).not.toBeVisible();
     });
 
-  test('saving an edit preserves max connections and refreshes runtime',
+  test('connection edits preserve policy and refresh max connections',
     async ({ page }) => {
       if (await isYAMLFleetReadOnly(page)) {
         await expect(page.locator('[data-testid="db-delete-button"]'))
@@ -233,9 +233,7 @@ test.describe('Databases (admin)', () => {
       if (!db) return;
 
       const originalTrust = db.trust_level;
-      const newTrust = originalTrust === 'observation'
-        ? 'advisory'
-        : 'observation';
+      const updatedMaxConnections = (db.max_connections || 2) + 1;
       const maxConnections = db.max_connections || 2;
 
       try {
@@ -247,9 +245,9 @@ test.describe('Databases (admin)', () => {
 
         await expect(page.locator('[data-testid="db-max-connections"]'))
           .toHaveValue(String(maxConnections));
-        await page.locator('[data-testid="db-trust-level"]').selectOption(
-          newTrust,
-        );
+        await expect(page.getByTestId('db-trust-level')).toBeDisabled();
+        await expect(page.getByTestId('db-execution-mode')).toBeDisabled();
+        await page.getByTestId('db-max-connections').fill(String(updatedMaxConnections));
 
         await Promise.all([
           page.waitForResponse((res) =>
@@ -270,7 +268,9 @@ test.describe('Databases (admin)', () => {
         );
         expect(afterDB, 'updated managed database').toBeTruthy();
         if (!afterDB) return;
-        expect(afterDB.max_connections).toBe(maxConnections);
+        expect(afterDB.max_connections).toBe(updatedMaxConnections);
+        expect(afterDB.trust_level).toBe(originalTrust);
+        expect(afterDB.execution_mode).toBe(db.execution_mode);
 
         await expect.poll(async () => {
           const statusRes = await page.request.get('/api/v1/databases');
@@ -284,7 +284,7 @@ test.describe('Databases (admin)', () => {
             row => row.name === db.name,
           );
           return statusDB?.status?.trust_level;
-        }, { timeout: 15000 }).toBe(newTrust);
+        }, { timeout: 15000 }).toBe(originalTrust);
       } finally {
         await page.request.put(`/api/v1/databases/managed/${db.id}`, {
           data: {

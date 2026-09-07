@@ -5,11 +5,7 @@ import { login, getConsoleErrors } from './helpers';
 const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
 const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
-const targets = [
-  { name: 'testdb', container: 'pg_sage-pg-target-1', db: 'testdb' },
-  { name: 'testdb2', container: 'pg_sage-pg-target-2-1', db: 'testdb2' },
-  { name: 'health_test', container: 'health_pg', db: 'health_test' },
-];
+import { fixtureTargets as targets } from './fixture-targets';
 
 function psql(target: typeof targets[number], sql: string) {
   execFileSync('docker', [
@@ -61,11 +57,7 @@ test.describe('Fleet Health chart', () => {
   test('renders live health history for all local databases', async ({
     page,
   }) => {
-    try {
-      seedHealthHistory();
-    } catch (err) {
-      test.skip(true, `Docker fixture databases unavailable: ${err}`);
-    }
+    seedHealthHistory();
 
     const res = await page.request.get('/api/v1/fleet/health?hours=2');
     expect(res.status()).toBe(200);
@@ -77,7 +69,7 @@ test.describe('Fleet Health chart', () => {
     await page.evaluate(() => {
       window.localStorage.setItem('pg_sage_range', '24h');
     });
-    await page.goto('/#/');
+    await page.goto('/#/advanced');
     const chart = page.getByTestId('fleet-health-chart');
     await expect(chart).toBeVisible();
     for (const target of targets) {

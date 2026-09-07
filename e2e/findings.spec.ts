@@ -1,228 +1,43 @@
 import { test, expect } from '@playwright/test';
 import { login, getConsoleErrors } from './helpers';
 
-const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
-const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
+const EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
+const PASSWORD = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
-test.describe('Findings', () => {
-  let consoleErrors: string[];
-
+test.describe('Findings in Cases', () => {
+  let errors: string[];
   test.beforeEach(async ({ page }) => {
-    consoleErrors = getConsoleErrors(page);
-    await login(page, ADMIN_EMAIL, ADMIN_PASS);
+    errors = getConsoleErrors(page);
+    await login(page, EMAIL, PASSWORD);
+    await page.route('**/api/v1/cases**', route => route.fulfill({ json: { cases: [{
+      case_id: 'pending-finding', source_type: 'finding', title: 'Orders index review',
+      severity: 'warning', state: 'open', impact_score: 0.8,
+      action_candidates: [{ action_type: 'create_index', blocked_reason: 'Review required',
+        policy_decision: { decision: 'require_approval' }, guardrails: ['No automatic DDL'] }],
+      actions: [{ id: 91, type: 'create_index', status: 'pending_approval',
+        lifecycle_state: 'awaiting_review', verification_status: 'not_started',
+        blocked_reason: 'Approval required' }],
+    }] } }));
     await page.goto('/#/findings');
   });
+  test.afterEach(() => expect(errors).toEqual([]));
 
-  test.afterEach(async () => {
-    // getConsoleErrors already filters expected errors at collection time.
-    expect(consoleErrors).toEqual([]);
+  test('legacy findings route exposes current Cases filters and count', async ({ page }) => {
+    await expect(page.locator('main header h1')).toHaveText('Cases');
+    await expect(page.getByTestId('cases-page-description')).toContainText('1 of 1');
+    await page.getByRole('button', { name: 'Schema', exact: true }).click();
+    await expect(page.locator('main article')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Findings', exact: true }).click();
+    await expect(page.locator('main article')).toHaveCount(1);
   });
 
-  // Verifies the findings page loads with status filter tabs and content
-  test('findings page loads with table', async ({ page }) => {
-    await expect(page.getByTestId('cases-page')).toBeVisible();
-    await expect(page.locator('main h1')).toContainText('Cases');
-    await expect(page.getByRole('button', { name: 'All' }))
-      .toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('button', { name: 'Findings' }))
-      .toBeVisible();
-  });
-
-  // Verifies the severity filter dropdown changes the API call
-  test('severity filter changes displayed findings', async ({ page }) => {
-    test.skip(true, 'legacy Findings table route now renders Cases');
-    // Use the stable testid — the Layout header may render a DatabasePicker
-    // <select> as well, which would make a bare `select` locator ambiguous.
-    const severitySelect = page.locator('[data-testid="severity-filter"]');
-    await expect(severitySelect).toBeVisible();
-
-    // Change to "critical" and wait for the filtered API response
-    const [response] = await Promise.all([
-      page.waitForResponse(
-        (res) =>
-          res.url().includes('/api/v1/findings') &&
-          res.url().includes('severity=critical'),
-        { timeout: 10000 },
-      ),
-      severitySelect.selectOption('critical'),
-    ]);
-    expect(response.status()).toBe(200);
-  });
-
-  // Verifies the total findings count is displayed at the bottom
-  test('findings count is displayed', async ({ page }) => {
-    test.skip(true, 'legacy Findings count route now renders Cases');
-    // Findings.jsx:118-122 renders "<n> total recommendations" with this testid
-    const countText = page.locator('[data-testid="findings-count"]');
-    await expect(countText).toBeVisible();
-    await expect(countText).toHaveText(/\d+ total recommendations/);
-  });
-
-  test('pending approval findings do not show manual Take Action', async ({
-    page,
-  }) => {
-    const target = await page.evaluate(async () => {
-      const pendingRes = await fetch('/api/v1/actions/pending', {
-        credentials: 'include',
-      });
-      const pendingJson = await pendingRes.json();
-      const pending = pendingJson.pending || [];
-      const preferred = [
-        ...pending.filter((a) => a.database_name === 'testdb2'),
-        ...pending,
-      ];
-      const seen = new Set();
-      for (const action of preferred) {
-        if (seen.has(action.database_name)) continue;
-        seen.add(action.database_name);
-        const findingsRes = await fetch(
-          `/api/v1/findings?status=open&database=${
-            encodeURIComponent(action.database_name)
-          }&limit=50`,
-          { credentials: 'include' },
-        );
-        const findingsJson = await findingsRes.json();
-        const finding = (findingsJson.findings || [])
-          .find((f) => Number(f.id) === Number(action.finding_id));
-        if (finding) {
-          return {
-            title: finding.title,
-            database: finding.database_name,
-          };
-        }
-      }
-      return null;
-    });
-    test.skip(!target, 'requires a seeded pending-action finding fixture');
-
-    const casesResponse = page.waitForResponse((res) =>
-      res.url().includes('/api/v1/cases') &&
-      res.url().includes(`database=${encodeURIComponent(target!.database)}`) &&
-      res.status() === 200,
-    );
-    await page.getByTestId('database-picker').selectOption(target!.database);
-    await casesResponse;
-
-    const caseCard = page.locator('main article')
-      .filter({ hasText: target!.title });
-    await expect(caseCard).toHaveCount(1);
-
-    await expect(caseCard.locator('[aria-label="Action timeline"]'))
-      .toBeVisible();
-    await expect(caseCard.getByRole('button', { name: 'Take Action' }))
-      .toHaveCount(0);
-  });
-
-  test('suppresses and unsuppresses a finding from the UI', async ({
-    page,
-  }) => {
-    test.skip(true, 'legacy Findings suppression UI was retired by Cases');
-    const target = await page.evaluate(async () => {
-      const dbsRes = await fetch('/api/v1/databases', {
-        credentials: 'include',
-      });
-      const dbsJson = await dbsRes.json();
-      const names = (dbsJson.databases || []).map((d) => d.name);
-      const preferred = [
-        ...names.filter((n) => n === 'testdb2'),
-        ...names.filter((n) => n !== 'testdb2'),
-      ];
-
-      for (const database of preferred) {
-        const res = await fetch(
-          `/api/v1/findings?status=open&database=${
-            encodeURIComponent(database)
-          }&limit=50`,
-          { credentials: 'include' },
-        );
-        const json = await res.json();
-        const findings = json.findings || [];
-        const counts = findings.reduce((acc, f) => {
-          const key = `${f.title}|${f.category}|${f.database_name}`;
-          acc[key] = (acc[key] || 0) + 1;
-          return acc;
-        }, {});
-        const finding = findings.find((f) =>
-          f.category === 'schema_lint:lint_no_primary_key' &&
-          counts[`${f.title}|${f.category}|${f.database_name}`] === 1
-        ) || findings.find((f) =>
-          f.category.startsWith('schema_lint:') &&
-          counts[`${f.title}|${f.category}|${f.database_name}`] === 1
-        );
-        if (finding) {
-          return {
-            id: Number(finding.id),
-            title: finding.title,
-            category: finding.category,
-            database: finding.database_name,
-          };
-        }
-      }
-      return null;
-    });
-    test.skip(!target, 'requires a seeded suppressible schema finding fixture');
-
-    await page.getByTestId('database-picker').selectOption(target!.database);
-
-    const openRow = page.locator(`tbody tr[data-row-key="${target!.id}"]`);
-    await expect(openRow).toHaveCount(1);
-    await openRow.click();
-
-    await page.getByTestId('suppress-button').click();
-    await expect(page.getByTestId('suppress-confirm-modal')).toBeVisible();
-
-    const suppressResponse = page.waitForResponse((res) =>
-      res.url().includes(`/api/v1/findings/${target!.id}/suppress`) &&
-      res.status() === 200,
-    );
-    await page.getByTestId('suppress-confirm').click();
-    const suppressJson = await (await suppressResponse).json();
-    expect(suppressJson.ok).toBe(true);
-    expect(suppressJson.status).toBe('suppressed');
-
-    await expect(openRow).toHaveCount(0);
-
-    const suppressedJson = await page.evaluate(async ({ id, database }) => {
-      const res = await fetch(
-        `/api/v1/findings?status=suppressed&database=${
-          encodeURIComponent(database)
-        }&limit=50`,
-        { credentials: 'include' },
-      );
-      return res.json().then((json) =>
-        (json.findings || []).find((f) => Number(f.id) === id) || null
-      );
-    }, target);
-    expect(suppressedJson).toBeTruthy();
-
-    const suppressedListResponse = page.waitForResponse((res) =>
-      res.url().includes('/api/v1/findings') &&
-      res.url().includes('status=suppressed') &&
-      res.url().includes(`database=${encodeURIComponent(target!.database)}`) &&
-      res.status() === 200,
-    );
-    await page.getByRole('button', { name: 'Suppressed' }).click();
-    await suppressedListResponse;
-    const suppressedRow = page.locator(
-      `tbody tr[data-row-key="${target!.id}"]`,
-    );
-    await expect(suppressedRow).toHaveCount(1);
-    if (await page.getByTestId('suppress-button').count() === 0) {
-      await suppressedRow.click();
-    }
-    await expect(page.getByTestId('suppress-button'))
-      .toHaveText('Unsuppress');
-
-    const unsuppressResponse = page.waitForResponse((res) =>
-      res.url().includes(`/api/v1/findings/${target!.id}/unsuppress`) &&
-      res.status() === 200,
-    );
-    await page.getByTestId('suppress-button').click();
-    const unsuppressJson = await (await unsuppressResponse).json();
-    expect(unsuppressJson.ok).toBe(true);
-    expect(unsuppressJson.status).toBe('open');
-
-    await page.getByRole('button', { name: 'Open' }).click();
-    await expect(openRow).toHaveCount(1);
+  test('pending finding shows guarded action timeline without direct execution', async ({ page }) => {
+    const card = page.locator('main article');
+    await expect(card).toContainText('create_index: Review required');
+    await expect(card).toContainText('Policy: require_approval');
+    await expect(card.getByLabel('Action guardrails')).toContainText('No automatic DDL');
+    await expect(card.getByLabel('Action timeline')).toContainText('pending_approval');
+    await expect(card.getByLabel('Action timeline')).toContainText('Approval required');
+    await expect(card.getByRole('button', { name: 'Take Action' })).toHaveCount(0);
   });
 });

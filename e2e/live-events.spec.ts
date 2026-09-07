@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { login, getConsoleErrors } from './helpers';
+import { seedAction } from './action-fixtures';
 
 const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
 const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
@@ -19,9 +20,10 @@ test.describe.serial('Live events', () => {
   test('updates the pending actions badge from action SSE events', async ({
     page,
   }) => {
+    const queueID = seedAction('events');
     await page.goto('/#/');
 
-    const setup = await page.evaluate(async () => {
+    const setup = await page.evaluate(async (queueID) => {
       const countRes = await fetch('/api/v1/actions/pending/count', {
         credentials: 'include',
       });
@@ -31,16 +33,12 @@ test.describe.serial('Live events', () => {
       });
       const pending = (await pendingRes.json()).pending || [];
       const target = pending.find((a) =>
-        a.database_name === 'testdb' &&
-        !a.proposed_sql.includes('child_bigint_fk')
-      ) || pending.find((a) =>
-        a.database_name !== 'health_test' &&
-        !a.proposed_sql.includes('child_bigint_fk')
-      ) || pending[0] || null;
+        a.database_name === 'testdb' && a.id === queueID
+      );
       return { beforeCount, target };
-    });
+    }, queueID);
 
-    test.skip(!setup.target, 'requires at least one pending action');
+    expect(setup.target, 'seeded event action must be returned').toBeTruthy();
     expect(setup.beforeCount).toBeGreaterThan(0);
 
     const actionsNav = page.getByTestId('nav-actions');
