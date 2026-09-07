@@ -131,6 +131,9 @@ func (d dbBudget) CanSpend(tokens int) bool { return d.b.CanSpend(d.db, tokens) 
 func (d dbBudget) Spend(tokens int)         { d.b.Spend(d.db, tokens) }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "vector-lab" {
+		os.Exit(runVectorLab())
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
 		fmt.Printf("pg_sage %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
@@ -1172,6 +1175,7 @@ func initFleetMultiDB() {
 	// directory, so we create one FileWatcher per cluster and fan out
 	// signals to each database's RCA engine.
 	logFanouts := make(map[string]*logwatch.LogFanout)
+	initialized := 0
 
 	for _, dbCfg := range cfg.Databases {
 		name := dbCfg.Name
@@ -1658,6 +1662,7 @@ func initFleetMultiDB() {
 			features += "+briefing"
 		}
 		logInfo("fleet", "db %q: initialized (%s)", name, features)
+		initialized++
 	}
 
 	// v0.9.1: start periodic drain goroutine for each cluster fanout.
@@ -1668,8 +1673,8 @@ func initFleetMultiDB() {
 		registerFleetDatabases(configPool)
 	}
 
-	logInfo("fleet", "%d databases initialized",
-		len(cfg.Databases))
+	logInfo("fleet", "%d of %d configured databases initialized",
+		initialized, len(cfg.Databases))
 }
 
 // registerFleetDatabases upserts all YAML-defined fleet databases
@@ -2811,6 +2816,11 @@ func logStructured(level, component, msg string, args ...any) {
 }
 
 func logStructuredWrapper(component, msg string, args ...any) {
+	switch level := strings.ToUpper(component); level {
+	case "DEBUG", "INFO", "WARN", "ERROR":
+		logStructured(level, "sidecar", msg, args...)
+		return
+	}
 	logStructured("INFO", component, msg, args...)
 }
 

@@ -31,6 +31,15 @@ docker run --name pg_sage \
 
 Dashboard at `http://localhost:8080` -- API and Prometheus metrics at `:8080/api/v1/` and `:9187/metrics`.
 
+For bounded, read-only pgvector recall and latency experiments, run
+`pg_sage vector-lab --manifest workload.json` with `SAGE_VECTORLAB_DATABASE_URL`.
+See the [Vector Evidence Lab guide](research/2026-09-04-product/README.md) for
+the manifest, explicit budgets, report format, and supported query shapes.
+
+Automatic index builds require verified host CPU and data/log I/O utilization.
+The catalog-only PostgreSQL adapter cannot supply those metrics, so it withholds
+automatic index admission; reviewed manual index actions remain available.
+
 On first start, pg_sage creates `admin@pg-sage.local` and prints a one-time
 initial admin password to stderr. The dashboard and JSON API use the
 `sage_session` login cookie; unauthenticated API calls return `401`.
