@@ -834,7 +834,7 @@ existing pg_sage config and Agent DB API patterns.</p>
 <li>destroy from <code>planned</code> returns <code>ErrInvalid</code></li>
 </ul>
 <p>Run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestProvisionStateTransitions|TestLiveExecuteRejectsInvalidTransitions|TestProviderResourceName|TestRedactProviderDetail&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">"TestProvisionStateTransitions|TestLiveExecuteRejectsInvalidTransitions|TestProviderResourceName|TestRedactProviderDetail"</span>
 </code></pre></div>
 <p>Expected: fail because the new transition validator and live states do not
 exist yet.</p>
@@ -877,7 +877,7 @@ new interface.</p>
 <li>[ ] <strong>Step 6: Rerun focused tests</strong></li>
 </ul>
 <p>Run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestProvisionStateTransitions|TestLiveExecuteRejectsInvalidTransitions|TestProviderResourceName|TestRedactProviderDetail&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">"TestProvisionStateTransitions|TestLiveExecuteRejectsInvalidTransitions|TestProviderResourceName|TestRedactProviderDetail"</span>
 </code></pre></div>
 <p>Expected: pass.</p>
 <hr />
@@ -909,7 +909,7 @@ new interface.</p>
   registry for future operations</li>
 </ul>
 <p>Run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">&quot;TestRunnerRegistry|TestAgentDBExecuteUsesInjectedRunner&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">"TestRunnerRegistry|TestAgentDBExecuteUsesInjectedRunner"</span>
 </code></pre></div>
 <p>Expected: fail.</p>
 <ul>
@@ -965,7 +965,7 @@ which implementation handled the operation.</p>
 <li>admin override records reason but does not bypass secret redaction</li>
 </ul>
 <p>Run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">&quot;TestLiveProvisionPolicy|TestProviderConfigAPI&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">"TestLiveProvisionPolicy|TestProviderConfigAPI"</span>
 </code></pre></div>
 <p>Expected: fail.</p>
 <ul>
@@ -1015,7 +1015,7 @@ existing deploy-request approval reference when approval is required.</p>
 Assert no value containing <code>password</code>, <code>token</code>, <code>secret</code>, or connection DSN
 survives in provision attempts or audit detail.</p>
 <p>Run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestRedactProviderDetail|TestProvisionAttemptsDoNotLeakSecrets&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">"TestRedactProviderDetail|TestProvisionAttemptsDoNotLeakSecrets"</span>
 </code></pre></div>
 <p>Expected: fail.</p>
 <ul>
@@ -1069,7 +1069,7 @@ keys never survive:</p>
 <code>db-custom-1-3840</code>, Lakebase branch, unknown size, TTL-cost calculation, and
 budget denial.</p>
 <p>Run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestEstimateAgentDBCost|TestBudgetGate&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">"TestEstimateAgentDBCost|TestBudgetGate"</span>
 </code></pre></div>
 <p>Expected: fail.</p>
 <ul>
@@ -1118,7 +1118,7 @@ and require admin override above 50% of budget.</p>
   <code>DBInstanceAlreadyExists</code> map to typed provider errors</li>
 </ul>
 <p>Run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestAWSRDSRunner&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">"TestAWSRDSRunner"</span>
 </code></pre></div>
 <p>Expected: fail.</p>
 <ul>
@@ -1169,7 +1169,7 @@ deletion. Always tag <code>app=pg-sage</code>, <code>ttl</code>, and <code>pg_sa
   to typed provider errors</li>
 </ul>
 <p>Run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestCloudSQLRunner&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">"TestCloudSQLRunner"</span>
 </code></pre></div>
 <p>Expected: fail.</p>
 <ul>
@@ -1219,7 +1219,7 @@ with low-cost Enterprise settings.</p>
 <li>OAuth token not persisted</li>
 </ul>
 <p>Run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestLakebaseRunner&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">"TestLakebaseRunner"</span>
 </code></pre></div>
 <p>Expected: fail.</p>
 <ul>
@@ -1273,7 +1273,7 @@ branch and verify not found after delete.</p>
 <li><code>destroy</code> requires backup/restore gate</li>
 </ul>
 <p>Run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">&quot;TestAgentDBLiveProvisionAPI&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">"TestAgentDBLiveProvisionAPI"</span>
 </code></pre></div>
 <p>Expected: fail.</p>
 <ul>
@@ -1340,7 +1340,7 @@ clear without instructional wall text.</p>
   variables, and outputs.</li>
 </ul>
 <p>Run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestTerraformTemplatePolicy|TestTerraformTemplateManifest&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">"TestTerraformTemplatePolicy|TestTerraformTemplateManifest"</span>
 </code></pre></div>
 <p>Expected: fail.</p>
 <ul>
@@ -1357,7 +1357,7 @@ clear without instructional wall text.</p>
   <code>terraform_template_id</code>.</li>
 </ul>
 <p>Run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">&quot;TestAgentDBTerraformTemplateAPI&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">api</span> <span class="n">-run</span> <span class="s2">"TestAgentDBTerraformTemplateAPI"</span>
 </code></pre></div>
 <p>Expected: fail.</p>
 <ul>
@@ -1451,7 +1451,7 @@ files.</p>
   provider resource</li>
 </ul>
 <p>Run:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestReconcileLiveProvisioning&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">"TestReconcileLiveProvisioning"</span>
 </code></pre></div>
 <p>Expected: fail.</p>
 <ul>
@@ -1505,10 +1505,10 @@ work so HA or duplicated sidecars cannot issue duplicate destroys.</p>
 <a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="n">git</span> <span class="nb">diff </span><span class="p">-</span><span class="n">-check</span>
 </code></pre></div>
 <p>Live run only when credentials and cost approval are explicitly present:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nv">$env:PG_SAGE_LIVE_AWS_RDS</span><span class="p">=</span><span class="s1">&#39;1&#39;</span>
-<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="nv">$env:PG_SAGE_LIVE_GCP_CLOUDSQL</span><span class="p">=</span><span class="s1">&#39;1&#39;</span>
-<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="nv">$env:PG_SAGE_LIVE_DATABRICKS_LAKEBASE</span><span class="p">=</span><span class="s1">&#39;1&#39;</span>
-<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="n">-p</span> <span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">&quot;TestLive&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="nv">$env:PG_SAGE_LIVE_AWS_RDS</span><span class="p">=</span><span class="s1">'1'</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a><span class="nv">$env:PG_SAGE_LIVE_GCP_CLOUDSQL</span><span class="p">=</span><span class="s1">'1'</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a><span class="nv">$env:PG_SAGE_LIVE_DATABRICKS_LAKEBASE</span><span class="p">=</span><span class="s1">'1'</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="n">-p</span> <span class="n">1</span> <span class="p">./</span><span class="n">internal</span><span class="p">/</span><span class="n">agentdb</span> <span class="n">-run</span> <span class="s2">"TestLive"</span>
 <a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a><span class="n">npm</span> <span class="n">run</span> <span class="n">test</span><span class="p">:</span><span class="n">e2e</span> <span class="p">--</span> <span class="n">e2e</span><span class="p">/</span><span class="n">agentdb-live-provisioning</span><span class="p">.</span><span class="n">spec</span><span class="p">.</span><span class="n">ts</span> <span class="p">-</span><span class="n">-workers</span><span class="p">=</span><span class="n">1</span>
 </code></pre></div>
 <p>Expected: all non-live tests pass; live tests pass only in explicitly enabled

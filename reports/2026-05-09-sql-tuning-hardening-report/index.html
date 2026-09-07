@@ -659,7 +659,7 @@
 <p>CHECK-02: PASS - <code>go test -count=1 ./internal/store ./internal/api ./internal/schema ./internal/agentdb</code> passed.</p>
 <p>CHECK-03: PASS - Full Go coverage passed on isolated PostgreSQL 17 with <code>pg_stat_statements</code> preloaded:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd </span><span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span><span class="p">\</span><span class="n">sidecar</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nv">$env:SAGE_DATABASE_URL</span><span class="p">=</span><span class="s1">&#39;postgres://postgres:postgres@127.0.0.1:55555/postgres?sslmode=disable&#39;</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nv">$env:SAGE_DATABASE_URL</span><span class="p">=</span><span class="s1">'postgres://postgres:postgres@127.0.0.1:55555/postgres?sslmode=disable'</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">go</span> <span class="n">test</span> <span class="n">-cover</span> <span class="n">-count</span><span class="p">=</span><span class="n">1</span> <span class="n">-p</span> <span class="n">1</span> <span class="p">./...</span>
 </code></pre></div>
 <p>Log: <code>C:\Users\jmass\pg_sage\test-output\sql-tuning-go-cover-rerun.log</code></p>

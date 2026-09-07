@@ -1364,10 +1364,10 @@
 <p><strong>Severity:</strong> warning</p>
 <p><strong>What it detects:</strong> Replication slots without active consumers, causing WAL to accumulate and disk usage to grow.</p>
 <p><strong>Example output:</strong></p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>Replication slot &#39;old_subscriber&#39; is inactive (consuming 12 GB WAL)
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>Replication slot 'old_subscriber' is inactive (consuming 12 GB WAL)
 </code></pre></div>
 <p><strong>Recommended action:</strong> Drop the inactive slot if the consumer is permanently gone.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">pg_drop_replication_slot</span><span class="p">(</span><span class="s1">&#39;old_subscriber&#39;</span><span class="p">);</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">pg_drop_replication_slot</span><span class="p">(</span><span class="s1">'old_subscriber'</span><span class="p">);</span>
 </code></pre></div>
 <hr />
 <h2 id="tier-2-llm-index-optimizer">Tier 2 -- LLM Index Optimizer<a class="headerlink" href="#tier-2-llm-index-optimizer" title="Permanent link">&para;</a></h2>

@@ -589,7 +589,7 @@
 <li>UI-triggered mutating workflows that could bypass backend invariants.</li>
 </ul>
 <p>Recommended first recovery step in Codex Desktop:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">powershell</span> <span class="n">-NoProfile</span> <span class="n">-ExecutionPolicy</span> <span class="n">Bypass</span> <span class="n">-Command</span> <span class="s2">&quot;$PSVersionTable.PSVersion&quot;</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">powershell</span> <span class="n">-NoProfile</span> <span class="n">-ExecutionPolicy</span> <span class="n">Bypass</span> <span class="n">-Command</span> <span class="s2">"$PSVersionTable.PSVersion"</span>
 </code></pre></div>
 <p>If that fails inside Codex but works in a normal terminal, restart Codex Desktop or switch the shell integration. If it fails in a normal terminal too, reboot Windows and repair Windows PowerShell/.NET before continuing.</p>
 
