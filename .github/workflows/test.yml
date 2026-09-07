@@ -9,18 +9,42 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      SAGE_TEST_DATABASE_URL: >-
+        postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: sidecar/go.mod
           cache-dependency-path: sidecar/go.sum
 
       - name: Build
         working-directory: sidecar
         run: go build ./...
+
+      - name: Enable PostgreSQL test capabilities
+        run: |
+          docker exec ${{ job.services.postgres.id }} \
+            bash -c "echo \"shared_preload_libraries = 'pg_stat_statements'\" >> /var/lib/postgresql/data/postgresql.conf"
+          docker restart ${{ job.services.postgres.id }}
+          until pg_isready -h localhost -U postgres; do sleep 1; done
 
       - name: Vet
         working-directory: sidecar
@@ -28,7 +52,7 @@ jobs:
 
       - name: Test
         working-directory: sidecar
-        run: go test ./... -count=1 -timeout 300s -p 1
+        run: go test ./... -count=1 -timeout 300s
 
   lint:
     runs-on: ubuntu-latest
@@ -38,12 +62,12 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: sidecar/go.mod
           cache-dependency-path: sidecar/go.sum
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           working-directory: sidecar
-          version: latest
+          version: v2.11.4
           args: --timeout 5m

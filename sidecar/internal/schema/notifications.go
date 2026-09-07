@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS sage.notification_rules (
     enabled      BOOLEAN DEFAULT true,
     created_at   TIMESTAMPTZ DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_notification_rules_event_enabled
+    ON sage.notification_rules (event, min_severity)
+    WHERE enabled = true;
 `
 
 const ddlNotificationLog = `
@@ -36,4 +39,9 @@ CREATE TABLE IF NOT EXISTS sage.notification_log (
     error       TEXT,
     sent_at     TIMESTAMPTZ DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_notification_log_sent_at
+    ON sage.notification_log (sent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_log_channel_sent
+    ON sage.notification_log (channel_id, sent_at DESC)
+    WHERE channel_id IS NOT NULL;
 `

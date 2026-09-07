@@ -21,7 +21,7 @@ func CheckIndexValid(
 	for attempt := range maxAttempts {
 		var valid bool
 		err := pool.QueryRow(ctx,
-			`SELECT i.indisvalid
+			`/* pg_sage */ SELECT i.indisvalid
 			 FROM pg_index i
 			 JOIN pg_class c ON c.oid = i.indexrelid
 			 WHERE c.relname = $1`,

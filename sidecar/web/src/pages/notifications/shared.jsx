@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 export const inputStyle = {
   background: 'var(--bg-main)',
   border: '1px solid var(--border)',

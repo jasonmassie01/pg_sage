@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { login, getConsoleErrors } from './helpers';
 
-const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL || 'admin@localhost';
-const ADMIN_PASS = process.env.E2E_ADMIN_PASSWORD || 'admin';
+const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
+const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
 test.describe('Navigation', () => {
   let consoleErrors: string[];
@@ -19,20 +19,17 @@ test.describe('Navigation', () => {
   });
 
   // Verifies all standard nav links are clickable and update the header
-  test('all nav links work (dashboard, findings, actions, settings)', async ({
+  test('all nav links work (overview, cases, actions, settings)', async ({
     page,
   }) => {
-    // Use data-testid selectors to avoid ambiguous text matches
-    // (e.g. "Database" vs "Databases")
+    // Labels must match Layout.jsx NAV_GROUPS — see sidecar/web/src/components/Layout.jsx
     const links = [
-      { tid: 'nav-dashboard', label: 'Dashboard' },
-      { tid: 'nav-findings', label: 'Findings' },
+      { tid: 'nav-dashboard', label: 'Overview' },
+      { tid: 'nav-cases', label: 'Cases' },
       { tid: 'nav-actions', label: 'Actions' },
+      { tid: 'nav-agent-dbs', label: 'Agent DBs' },
+      { tid: 'nav-databases', label: 'Databases' },
       { tid: 'nav-settings', label: 'Settings' },
-      { tid: 'nav-forecasts', label: 'Forecasts' },
-      { tid: 'nav-query-hints', label: 'Query Hints' },
-      { tid: 'nav-alerts', label: 'Alert Log' },
-      { tid: 'nav-database', label: 'Database' },
     ];
 
     for (const link of links) {
@@ -48,13 +45,12 @@ test.describe('Navigation', () => {
   });
 
   // Verifies admin-only links are visible for admin users
-  test('admin-only links visible for admin (databases, users, notifications)', async ({
+  test('admin-only links visible for admin (fleet, settings)', async ({
     page,
   }) => {
     const adminTids = [
       'nav-databases',
-      'nav-users',
-      'nav-notifications',
+      'nav-settings',
     ];
     for (const tid of adminTids) {
       const navLink = page.locator(`[data-testid="${tid}"]`);
@@ -65,10 +61,8 @@ test.describe('Navigation', () => {
   // Verifies no unexpected console errors during full page navigation
   test('no console errors on any page navigation', async ({ page }) => {
     const allHashes = [
-      '#/', '#/findings', '#/actions', '#/settings',
-      '#/forecasts', '#/query-hints', '#/alerts',
-      '#/database', '#/manage-databases', '#/users',
-      '#/notifications',
+      '#/', '#/cases', '#/actions', '#/agent-dbs', '#/settings',
+      '#/manage-databases',
     ];
 
     for (const hash of allHashes) {

@@ -7,7 +7,20 @@ pg_sage uses three configuration sources with the following precedence (highest 
 3. **YAML config file** (`config.yaml`)
 4. **Built-in defaults**
 
-The sidecar supports hot-reload: changes to the YAML config file are detected and applied without restarting. Connection settings (`postgres.*`, `prometheus.listen_addr`, `api.listen_addr`) require a restart.
+The sidecar validates a complete candidate before publishing a YAML reload.
+Every field has a typed lifecycle: `live_policy` swaps an immutable policy
+snapshot, `reconfigure` tears down and rebuilds its named runtime owner, and
+`restart` remains pending until process restart. Fleet database records use
+their dedicated lifecycle API. In-flight work keeps its original snapshot.
+
+The generated [per-field lifecycle reference](generated/config-lifecycles.md)
+is the authoritative list. Regenerate it from the typed registry with:
+
+```bash
+cd sidecar
+go run ./cmd/gen_config_meta -lifecycle-only \
+  -lifecycle-out ../docs/generated/config-lifecycles.md
+```
 
 ---
 
@@ -34,9 +47,9 @@ The sidecar supports hot-reload: changes to the YAML config file are detected an
 | `SAGE_DATABASE_URL` | (none) | PostgreSQL connection string |
 | `SAGE_LLM_API_KEY` | (none) | API key for Gemini or any OpenAI-compatible LLM |
 | `SAGE_OPTIMIZER_LLM_API_KEY` | (none) | Separate API key for the optimizer model (optional) |
-| `SAGE_API_KEY` | (none) | API key for REST API authentication (empty = no auth) |
-| `SAGE_TLS_CERT` | (none) | Path to TLS certificate file |
-| `SAGE_TLS_KEY` | (none) | Path to TLS private key file |
+| `SAGE_API_KEY` | (none) | Legacy config field; the current web/API path uses session login cookies |
+| `SAGE_TLS_CERT` | (none) | Legacy/reserved; terminate TLS at a reverse proxy |
+| `SAGE_TLS_KEY` | (none) | Legacy/reserved; terminate TLS at a reverse proxy |
 | `SAGE_PROMETHEUS_PORT` | `9187` | Port for Prometheus metrics |
 | `SAGE_RATE_LIMIT` | `60` | Max requests per minute per IP on REST API |
 | `SAGE_PG_MAX_CONNS` | `2` | Max PostgreSQL connections in pool |
@@ -92,17 +105,17 @@ llm:
 
 api:
   listen_addr: "0.0.0.0:8080"
-  auth:
-    enabled: false
-    # session_secret: ${SAGE_SESSION_SECRET}
+  # Web UI and /api/v1 endpoints are session-authenticated.
+  # The first local admin is bootstrapped automatically.
 
-notifications:
-  slack:
-    enabled: false
-    # webhook_url: ${SAGE_SLACK_WEBHOOK}
-  pagerduty:
-    enabled: false
-    # routing_key: ${SAGE_PAGERDUTY_KEY}
+alerting:
+  enabled: false
+  check_interval_seconds: 60
+  slack_webhook_url: ${SAGE_SLACK_WEBHOOK}
+  pagerduty_routing_key: ${SAGE_PAGERDUTY_KEY}
+  routes:
+    - severity: critical
+      channels: [slack, pagerduty]
 
 prometheus:
   listen_addr: "0.0.0.0:9187"
@@ -125,7 +138,7 @@ briefing:
 
 | Parameter | Default | Description |
 |---|---|---|
-| `mode` | `standalone` | Operating mode |
+| `mode` | `extension` | Operating mode; set `standalone` explicitly for sidecar-only deployments |
 | `postgres.max_connections` | `2` | Connection pool size |
 | `postgres.sslmode` | `prefer` | SSL mode (`disable`, `prefer`, `require`, `verify-ca`, `verify-full`) |
 
@@ -148,11 +161,17 @@ The trust model controls what pg_sage is allowed to do:
 
 | Trust Level | Actions Allowed |
 |---|---|
-| `observation` | No actions; findings only |
-| `advisory` | SAFE actions (drop unused/duplicate indexes, VACUUM) |
-| `autonomous` | SAFE + MODERATE actions (create indexes, reindex) |
+| `observation` | Cases and recommendations only |
+| `advisory` | With `auto`, execute eligible typed SAFE actions; queue higher risk |
+| `autonomous` | With `auto`, execute eligible typed SAFE/MODERATE actions; queue HIGH |
+
+Execution mode is independent from trust: `manual` disables background
+queueing and execution, `approval` queues supported actions, and `auto`
+applies the table above. Trust never promotes `manual` to `auto`.
 
 HIGH-risk actions always require manual confirmation regardless of trust level.
+Plain CREATE/DROP/REINDEX and `VACUUM FULL` do not satisfy the typed background
+contracts; concurrent or non-FULL forms are required.
 
 ### LLM
 
@@ -167,6 +186,34 @@ HIGH-risk actions always require manual confirmation regardless of trust level.
 | `llm.optimizer.enabled` | `false` | Enable index optimizer |
 | `llm.optimizer.min_query_calls` | `100` | Minimum query calls before optimizing a table |
 | `llm.optimizer.max_new_per_table` | `3` | Max new indexes per table per cycle |
+
+### Web UI and API Authentication
+
+The embedded web UI and `/api/v1/*` endpoints require a session login. On first
+start, pg_sage creates `admin@pg-sage.local` and prints a one-time initial
+password to stderr. Use `/api/v1/auth/login` for API scripts and keep the
+returned `sage_session` cookie:
+
+```bash
+curl -c cookies.txt -H 'Content-Type: application/json' \
+  -X POST http://localhost:8080/api/v1/auth/login \
+  --data '{"email":"admin@pg-sage.local","password":"INITIAL_PASSWORD"}'
+
+curl -b cookies.txt http://localhost:8080/api/v1/cases
+```
+
+### Agent-native autonomy
+
+The `policy`, `verify`, `clone`, `custodian`, `value`, and `mcp` sections
+configure the closed-loop autonomy stack. MCP is an intent-level JSON-RPC
+surface: it exposes policy, change-request, and evidence-ledger tools, never
+raw SQL execution. Caller claims are recorded as untrusted input and do not
+grant authority.
+
+The default `unattended` policy profile permits explicitly bounded deadline
+overrides for XID and disk emergencies. Use `staffed` for narrow maintenance
+windows without deadline overrides. Clone-backed migration rehearsal defaults
+to disabled (`clone.provider: none`) and stale clones are recommendation-only.
 
 ### Retention
 

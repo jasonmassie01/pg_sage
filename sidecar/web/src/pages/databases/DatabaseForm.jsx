@@ -6,6 +6,7 @@ const SSL_MODES = [
 ]
 const TRUST_LEVELS = ['observation', 'advisory', 'autonomous']
 const EXEC_MODES = ['auto', 'approval', 'manual']
+const NUMERIC_FIELDS = new Set(['port', 'max_connections'])
 
 export function DatabaseForm({ db, onClose, onError }) {
   const isEdit = !!db
@@ -17,6 +18,7 @@ export function DatabaseForm({ db, onClose, onError }) {
     username: db?.username || '',
     password: '',
     sslmode: db?.sslmode || 'require',
+    max_connections: db?.max_connections || 2,
     trust_level: db?.trust_level || 'observation',
     execution_mode: db?.execution_mode || 'approval',
   })
@@ -27,7 +29,7 @@ export function DatabaseForm({ db, onClose, onError }) {
   function set(field) {
     return e => setForm(f => ({
       ...f,
-      [field]: field === 'port'
+      [field]: NUMERIC_FIELDS.has(field)
         ? parseInt(e.target.value, 10) || 0
         : e.target.value,
     }))
@@ -41,7 +43,12 @@ export function DatabaseForm({ db, onClose, onError }) {
       if (db?.id) {
         res = await fetch(
           `/api/v1/databases/managed/${db.id}/test`,
-          { method: 'POST', credentials: 'include' })
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(form),
+          })
       } else {
         res = await fetch(
           '/api/v1/databases/managed/test-connection',
@@ -127,15 +134,27 @@ export function DatabaseForm({ db, onClose, onError }) {
             required={!isEdit} data-testid="db-password" />
           <SelectField label="SSL Mode" value={form.sslmode}
             onChange={set('sslmode')} options={SSL_MODES}
-            style={inputStyle} />
+            style={inputStyle} data-testid="db-sslmode" />
+          <Field label="Max Connections" type="number"
+            value={form.max_connections}
+            onChange={set('max_connections')} style={inputStyle}
+            required data-testid="db-max-connections" />
           <SelectField label="Trust Level" value={form.trust_level}
             onChange={set('trust_level')} options={TRUST_LEVELS}
-            style={inputStyle} />
+			style={inputStyle} data-testid="db-trust-level"
+			disabled={isEdit} />
           <SelectField label="Execution Mode"
             value={form.execution_mode}
             onChange={set('execution_mode')} options={EXEC_MODES}
-            style={inputStyle} />
+			style={inputStyle} data-testid="db-execution-mode"
+			disabled={isEdit} />
         </div>
+		{isEdit && (
+		  <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+		    Change policy in Settings; connection edits preserve the current
+		    trust level and execution mode.
+		  </p>
+		)}
 
         {testResult && (
           <TestResultBanner result={testResult} />
@@ -188,12 +207,16 @@ function Field({
   )
 }
 
-function SelectField({ label, value, onChange, options, style }) {
+function SelectField({
+	label, value, onChange, options, style, disabled,
+	'data-testid': testId,
+}) {
   return (
     <div>
       <label className="block text-xs mb-1"
         style={{ color: 'var(--text-secondary)' }}>{label}</label>
-      <select value={value} onChange={onChange}
+	  <select value={value} onChange={onChange} disabled={disabled}
+        data-testid={testId}
         className="w-full px-3 py-1.5 rounded text-sm"
         style={style}>
         {options.map(o => (

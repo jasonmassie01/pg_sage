@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/schema"
 )
 
 func noopLog2(_ string, _ string, _ ...any) {}
@@ -23,8 +25,7 @@ func noopLog2(_ string, _ string, _ ...any) {}
 
 func connectTunerTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
+	dsn := os.Getenv("SAGE_DATABASE_URL")
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Skipf("DB unavailable: %v", err)
@@ -32,6 +33,10 @@ func connectTunerTestDB(t *testing.T) *pgxpool.Pool {
 	if err := pool.Ping(context.Background()); err != nil {
 		pool.Close()
 		t.Skipf("DB ping failed: %v", err)
+	}
+	if err := schema.Bootstrap(context.Background(), pool); err != nil {
+		pool.Close()
+		t.Fatalf("bootstrap tuner fixture: %v", err)
 	}
 	return pool
 }
@@ -160,6 +165,10 @@ func TestPhase2_Tune_CooldownSkip(t *testing.T) {
 		PlanTimeRatio:         0.5,
 		CascadeCooldownCycles: 10,
 	}, nil, noopLog2)
+	seedSQL := "SELECT pg_sleep(0.12), current_schema()"
+	if _, err := pool.Exec(context.Background(), seedSQL); err != nil {
+		t.Fatalf("seed cooldown candidate: %v", err)
+	}
 
 	// Pre-seed recentlyTuned so all candidates are skipped.
 	// We need to get real candidate IDs first.
@@ -413,9 +422,9 @@ func TestPhase2_TryLLMPrescribe_FallbackClient(t *testing.T) {
 	rx := tu.tryLLMPrescribe(
 		context.Background(),
 		candidate{
-			QueryID:  2,
-			Query:    "SELECT * FROM users",
-			Calls:    50,
+			QueryID:      2,
+			Query:        "SELECT * FROM users",
+			Calls:        50,
 			MeanExecTime: 200.0,
 		},
 		[]PlanSymptom{{Kind: SymptomHashSpill}, {Kind: SymptomDiskSort}},
@@ -511,9 +520,6 @@ func TestPhase2_ScanPlanForQuery_WithSeededCache(t *testing.T) {
 		testQueryID, planJSON,
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "does not exist") {
-			t.Skipf("sage.explain_cache not available: %v", err)
-		}
 		t.Fatalf("insert plan: %v", err)
 	}
 	defer func() {
@@ -553,9 +559,6 @@ func TestPhase2_ScanPlanForQuery_InvalidPlanJSON(t *testing.T) {
 		testQueryID, `{"not": "a plan"}`,
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "does not exist") {
-			t.Skipf("sage.explain_cache not available: %v", err)
-		}
 		t.Fatalf("insert: %v", err)
 	}
 	defer func() {

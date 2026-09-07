@@ -22,6 +22,9 @@ func TestValidateSQL_AllowedStatements(t *testing.T) {
 		"RESET lock_timeout",
 		"SELECT pg_terminate_backend(12345)",
 		"SELECT pg_cancel_backend(12345)",
+		// reload after ALTER SYSTEM must be allowed or config changes
+		// never take effect autonomously.
+		"SELECT pg_reload_conf()",
 		"  CREATE INDEX idx ON t(id)  ",
 		"create index concurrently idx on t(id)",
 	}
@@ -64,6 +67,29 @@ func TestValidateSQL_RejectedStatements(t *testing.T) {
 		err := ValidateExecutorSQL(sql)
 		if err == nil {
 			t.Errorf("expected rejected: %q", sql)
+			continue
+		}
+		if !errors.Is(err, ErrDisallowedSQL) {
+			t.Errorf(
+				"expected ErrDisallowedSQL for %q, got: %v",
+				sql, err,
+			)
+		}
+	}
+}
+
+func TestValidateSQL_RejectsProtectedSchemas(t *testing.T) {
+	rejected := []string{
+		"DROP INDEX CONCURRENTLY _timescaledb_internal.idx_chunk",
+		"CREATE INDEX idx_catalog ON pg_catalog.pg_class(oid)",
+		"ANALYZE information_schema.tables",
+		"VACUUM ANALYZE _timescaledb_catalog.hypertable",
+		"ALTER TABLE google_ml.embedding SET (fillfactor = 90)",
+	}
+	for _, sql := range rejected {
+		err := ValidateExecutorSQL(sql)
+		if err == nil {
+			t.Errorf("expected protected schema rejection: %q", sql)
 			continue
 		}
 		if !errors.Is(err, ErrDisallowedSQL) {

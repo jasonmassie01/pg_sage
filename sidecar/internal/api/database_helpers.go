@@ -47,7 +47,7 @@ func testFromConnString(
 			Error:  "connection failed",
 		}
 	}
-	defer conn.Close(testCtx)
+	defer func() { _ = conn.Close(testCtx) }()
 
 	version, err := queryPGVersion(testCtx, conn)
 	if err != nil {

@@ -39,13 +39,16 @@ func New(pool *pgxpool.Pool, logFn func(string, string, ...any)) *Monitor {
 func (m *Monitor) Check(ctx context.Context) bool {
 	var inRecovery bool
 	err := m.pool.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
-	if err != nil {
-		m.logFn("ha", "pg_is_in_recovery() failed: %v", err)
-		return m.wasReplica
-	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if err != nil {
+		// Read wasReplica under the lock — concurrent Check calls write
+		// it (C3). On a transient error, hold the last known role.
+		m.logFn("ha", "pg_is_in_recovery() failed: %v", err)
+		return m.wasReplica
+	}
 
 	if !m.initialized {
 		m.wasReplica = inRecovery

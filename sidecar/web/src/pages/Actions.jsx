@@ -1,54 +1,116 @@
 import { useState } from 'react'
-import { useAPI } from '../hooks/useAPI'
+import { useAPI, withTimeRange } from '../hooks/useAPI'
+import { useTimeRange } from '../context/TimeRangeContext'
 import { SQLBlock } from '../components/SQLBlock'
 import { DataTable } from '../components/DataTable'
-import { TimeAgo } from '../components/TimeAgo'
-import { LoadingSpinner } from '../components/LoadingSpinner'
+import { LiveTimeAgo } from '../components/TimeAgo'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { EmptyState } from '../components/EmptyState'
+import { SkeletonRow } from '../components/Skeleton'
+import { usePendingActionsRefetch } from '../components/Layout'
+import { useToast } from '../components/Toast'
+import { useLiveRefetch } from '../hooks/useLiveEvents'
+
+function actionStatus(row) {
+  return row.status || row.action_status || row.outcome || 'unknown'
+}
+
+function actionRisk(row) {
+  return row.risk_tier || row.action_risk || row.risk || 'unknown'
+}
+
+function verificationStatus(row) {
+  return row.verification_status || row.status || 'not_started'
+}
+
+function lifecycleStatus(row) {
+  return row.lifecycle_state || row.status || 'ready'
+}
+
+function rollbackClassLabel(value) {
+  switch (value) {
+  case 'no_rollback_needed':
+    return 'Rollback: not needed'
+  case 'reversible':
+    return 'Rollback: reversible'
+  case 'forward_fix_only':
+    return 'Rollback: forward fix only'
+  default:
+    return value ? `Rollback: ${value}` : null
+  }
+}
+
+function formatActionTime(value) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString()
+}
 
 export function Actions({ database, user }) {
   const [tab, setTab] = useState('executed')
+  const range = useTimeRange()
+  const canReview = user?.role === 'admin' || user?.role === 'operator'
+  const activeTab = canReview ? tab : 'executed'
   const dbParam = database && database !== 'all'
     ? `?database=${database}` : ''
 
   const { data, loading, error, refetch } =
-    useAPI(`/api/v1/actions${dbParam}`)
+    useAPI(withTimeRange(`/api/v1/actions${dbParam}`, range))
   const {
     data: pendingData,
     loading: pendingLoading,
     error: pendingError,
     refetch: pendingRefetch,
-  } = useAPI('/api/v1/actions/pending')
+  } = useAPI(canReview ? `/api/v1/actions/pending${dbParam}` : null)
+  useLiveRefetch(['actions'], refetch)
+  useLiveRefetch(['actions'], canReview ? pendingRefetch : null)
 
-  if (tab === 'executed') {
+  if (activeTab === 'executed') {
     return (
       <div className="space-y-4">
-        <TabBar tab={tab} setTab={setTab}
-          pendingCount={pendingData?.total || 0} />
+        <ActionsDescription />
+        <TabBar tab={activeTab} setTab={setTab}
+          pendingCount={pendingData?.total || 0}
+          canReview={canReview} />
         <ExecutedTab data={data} loading={loading}
-          error={error} refetch={refetch} />
+          error={error} refetch={refetch} user={user} />
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
-      <TabBar tab={tab} setTab={setTab}
-        pendingCount={pendingData?.total || 0} />
+      <ActionsDescription />
+      <TabBar tab={activeTab} setTab={setTab}
+        pendingCount={pendingData?.total || 0}
+        canReview={canReview} />
       <PendingTab data={pendingData}
         loading={pendingLoading}
         error={pendingError}
-        refetch={pendingRefetch} user={user} />
+        refetch={pendingRefetch} />
     </div>
   )
 }
 
-function TabBar({ tab, setTab, pendingCount }) {
+function ActionsDescription() {
+  return (
+    <p className="text-sm" data-testid="actions-page-description"
+      style={{ color: 'var(--text-secondary)' }}>
+      Actions are the executable side of Cases. Safe work can run under
+      policy, higher-risk work is queued for approval, and every result is
+      logged here with scripts, rollback context, and verification status.
+    </p>
+  )
+}
+
+function TabBar({ tab, setTab, pendingCount, canReview }) {
   const tabs = [
     { key: 'executed', label: 'Executed' },
-    { key: 'pending', label: 'Pending Approval' },
   ]
+  if (canReview) {
+    tabs.push({ key: 'pending', label: 'Pending Approval' })
+  }
 
   return (
     <div className="flex gap-2">
@@ -79,8 +141,19 @@ function TabBar({ tab, setTab, pendingCount }) {
   )
 }
 
-function ExecutedTab({ data, loading, error, refetch }) {
-  if (loading) return <LoadingSpinner />
+function ExecutedTab({ data, loading, error, refetch, user }) {
+  const toast = useToast()
+  const canRollback = user?.role === 'admin' || user?.role === 'operator'
+  if (loading) {
+    return (
+      <div className="space-y-2"
+        data-testid="executed-actions-loading">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <SkeletonRow key={i} cols={4} />
+        ))}
+      </div>
+    )
+  }
   if (error) return <ErrorBanner message={error}
     onRetry={refetch} />
 
@@ -94,6 +167,12 @@ function ExecutedTab({ data, loading, error, refetch }) {
     case 'failed':
       return { bg: 'rgba(239,68,68,0.15)', color: 'var(--red)',
         label: 'Failed' }
+    case 'expired':
+      return { bg: 'rgba(107,114,128,0.15)',
+        color: 'var(--text-secondary)', label: 'Expired' }
+    case 'rejected':
+      return { bg: 'rgba(107,114,128,0.15)',
+        color: 'var(--text-secondary)', label: 'Rejected' }
     case 'rolled_back':
       return { bg: 'rgba(245,158,11,0.15)',
         color: 'var(--yellow)', label: 'Rolled Back' }
@@ -119,6 +198,10 @@ function ExecutedTab({ data, loading, error, refetch }) {
       return <span style={{ color: 'var(--red)' }}>
         {short}
       </span>
+    }
+    if ((r.outcome === 'expired' || r.outcome === 'rejected') &&
+      r.rollback_reason) {
+      return r.rollback_reason
     }
     if (t === 'drop_index') {
       return `Dropped index${target ? ' ' + target : ''}`
@@ -155,7 +238,7 @@ function ExecutedTab({ data, loading, error, refetch }) {
     {
       key: 'outcome', label: 'Outcome',
       render: r => {
-        const s = outcomeStyle(r.outcome)
+        const s = outcomeStyle(actionStatus(r))
         return (
           <span className="px-2 py-0.5 rounded-full text-xs
             font-medium inline-block"
@@ -166,10 +249,72 @@ function ExecutedTab({ data, loading, error, refetch }) {
       },
     },
     {
+      key: 'action_risk', label: 'Risk',
+      render: r => {
+        const risk = actionRisk(r)
+        const c = { safe: 'var(--green)', moderate: '#b58900',
+          high_risk: 'var(--red)' }[risk] || 'var(--text-secondary)'
+        return (
+          <span className="px-2 py-0.5 rounded-full text-xs font-medium
+            inline-block"
+            title="safe/moderate auto-run; advisory is recommend-only"
+            style={{ border: `1px solid ${c}`, color: c }}>
+            {risk === 'high_risk' ? 'advisory' : (risk || 'safe')}
+          </span>
+        )
+      },
+    },
+    ...(actions.some(r => Number(r.attempts) > 1)
+      ? [{
+        key: 'attempts', label: 'Attempts',
+        render: r => {
+          const n = Number(r.attempts) || 1
+          return n > 1
+            ? <span title="times pg_sage attempted this action"
+                style={{ color: 'var(--amber, #b58900)' }}>{n}×</span>
+            : <span style={{ color: 'var(--text-secondary)' }}>1</span>
+        },
+      }] : []),
+    ...(actions.some(r => r.verification_status)
+      ? [{
+        key: 'verification_status', label: 'Verification',
+        render: r => verificationStatus(r),
+      }] : []),
+    ...(actions.some(r => r.database_name)
+      ? [{ key: 'database_name', label: 'Database' }] : []),
+    {
       key: 'executed_at', label: 'When',
-      render: r => <TimeAgo timestamp={r.executed_at} />,
+      render: r => <LiveTimeAgo timestamp={r.executed_at} />,
     },
   ]
+
+  async function handleRollback(row) {
+    if (!window.confirm('Run the stored rollback SQL for this action?')) {
+      return
+    }
+    const dbParam = row.database_name
+      ? `?database=${encodeURIComponent(row.database_name)}` : ''
+    try {
+      const res = await fetch(`/api/v1/actions/${row.id}/rollback${dbParam}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'manual rollback from actions UI' }),
+      })
+      let json = {}
+      try { json = await res.json() } catch { /* non-JSON error body */ }
+      if (!res.ok || !json.ok) {
+        toast.error(json.error || `Rollback failed (${res.status})`)
+        return
+      }
+      toast.success(`Action ${row.id} rolled back`)
+      refetch()
+    } catch (err) {
+      // A destructive rollback must never fail silently — a transport
+      // error here leaves the operator unsure whether the SQL ran.
+      toast.error(err.message || 'Rollback request failed')
+    }
+  }
 
   if (actions.length === 0) {
     return <EmptyState message="No actions have been executed yet. Actions will appear here as pg_sage works on your databases." />
@@ -219,7 +364,8 @@ function ExecutedTab({ data, loading, error, refetch }) {
           <div>
             <div className="text-xs font-medium mb-1"
               style={{ color: 'var(--text-secondary)' }}>
-              SQL Executed
+              {row.outcome === 'expired' || row.outcome === 'rejected'
+                ? 'Proposed SQL' : 'SQL Executed'}
             </div>
             <SQLBlock sql={row.sql_executed} />
           </div>
@@ -230,6 +376,22 @@ function ExecutedTab({ data, loading, error, refetch }) {
                 Rollback SQL
               </div>
               <SQLBlock sql={row.rollback_sql} />
+              {canRollback
+                && (row.outcome === 'success'
+                  || row.outcome === 'monitoring'
+                  || row.outcome === 'pending') && (
+                <button
+                  type="button"
+                  data-testid="rollback-action-button"
+                  onClick={() => handleRollback(row)}
+                  className="mt-2 px-2 py-1 rounded text-xs"
+                  style={{
+                    background: 'var(--yellow)',
+                    color: '#111827',
+                  }}>
+                  Roll Back Action
+                </button>
+              )}
             </div>
           )}
           <div className="flex gap-4 text-xs" style={{
@@ -238,8 +400,11 @@ function ExecutedTab({ data, loading, error, refetch }) {
             {row.finding_id && (
               <span>Finding #{row.finding_id}</span>
             )}
+            {row.database_name && (
+              <span>Database: {row.database_name}</span>
+            )}
             {row.measured_at && (
-              <span>Verified: <TimeAgo
+              <span>Verified: <LiveTimeAgo
                 timestamp={row.measured_at} /></span>
             )}
           </div>
@@ -249,14 +414,28 @@ function ExecutedTab({ data, loading, error, refetch }) {
   )
 }
 
+function PendingSkeleton() {
+  return (
+    <div className="space-y-2" data-testid="pending-skeleton">
+      {[0, 1, 2].map(i => (
+        <div key={i}
+          className="h-10 rounded animate-pulse"
+          style={{ background: 'var(--bg-hover)' }} />
+      ))}
+    </div>
+  )
+}
+
 function PendingTab({
-  data, loading, error, refetch, user,
+  data, loading, error, refetch,
 }) {
   const [rejectId, setRejectId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [actionMsg, setActionMsg] = useState(null)
+  const refetchPendingCount = usePendingActionsRefetch()
+  const toast = useToast()
 
-  if (loading) return <LoadingSpinner />
+  if (loading) return <PendingSkeleton />
   if (error) return <ErrorBanner message={error}
     onRetry={refetch} />
 
@@ -265,48 +444,72 @@ function PendingTab({
   async function handleApprove(id) {
     setActionMsg(null)
     try {
+      const action = actions.find(a => a.id === id)
+      const dbParam = action?.database_name
+        ? `?database=${encodeURIComponent(action.database_name)}` : ''
       const res = await fetch(
-        `/api/v1/actions/${id}/approve`,
-        { method: 'POST', credentials: 'include' },
+        `/api/v1/actions/${id}/approve${dbParam}`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        },
       )
       const json = await res.json()
       if (json.ok) {
+        toast.success(`Action ${id} approved and executed`)
         setActionMsg({ type: 'success',
           text: `Action ${id} approved and executed` })
       } else {
+        toast.error(json.error || 'Approve failed')
         setActionMsg({ type: 'error',
           text: json.error || 'Approve failed' })
       }
       refetch()
+      refetchPendingCount()
     } catch (err) {
+      toast.error(`Approve failed: ${err.message}`)
       setActionMsg({ type: 'error', text: err.message })
     }
   }
 
   async function handleReject(id) {
     setActionMsg(null)
+    const reason = rejectReason.trim()
+    if (!reason) {
+      setActionMsg({ type: 'error',
+        text: 'A rejection reason is required' })
+      return
+    }
     try {
+      const action = actions.find(a => a.id === id)
+      const dbParam = action?.database_name
+        ? `?database=${encodeURIComponent(action.database_name)}` : ''
       const res = await fetch(
-        `/api/v1/actions/${id}/reject`,
+        `/api/v1/actions/${id}/reject${dbParam}`,
         {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason: rejectReason }),
+          body: JSON.stringify({ reason }),
         },
       )
       const json = await res.json()
       if (json.ok) {
+        toast.success(`Action ${id} rejected`)
         setActionMsg({ type: 'success',
           text: `Action ${id} rejected` })
       } else {
+        toast.error(json.error || 'Reject failed')
         setActionMsg({ type: 'error',
           text: json.error || 'Reject failed' })
       }
       setRejectId(null)
       setRejectReason('')
       refetch()
+      refetchPendingCount()
     } catch (err) {
+      toast.error(`Reject failed: ${err.message}`)
       setActionMsg({ type: 'error', text: err.message })
     }
   }
@@ -321,8 +524,9 @@ function PendingTab({
           },
           high: { label: 'High Risk', color: 'var(--red)' },
         }
-        const info = riskMap[r.action_risk] || {
-          label: r.action_risk,
+        const risk = actionRisk(r)
+        const info = riskMap[risk] || {
+          label: risk,
           color: 'var(--text-secondary)',
         }
         return (
@@ -332,10 +536,23 @@ function PendingTab({
         )
       },
     },
+    { key: 'database_name', label: 'Database' },
     { key: 'finding_id', label: 'Finding' },
+    ...(actions.some(r => r.policy_decision)
+      ? [{ key: 'policy_decision', label: 'Policy' }] : []),
+    ...(actions.some(r => r.lifecycle_state || r.cooldown_until)
+      ? [{
+        key: 'lifecycle_state', label: 'Lifecycle',
+        render: r => lifecycleStatus(r),
+      }] : []),
+    { key: 'proposed_sql', label: 'SQL Preview',
+      render: r => {
+        const sql = (r.proposed_sql || '').replace(/\s+/g, ' ').trim()
+        return sql.length > 90 ? sql.slice(0, 90) + '...' : sql
+      } },
     {
       key: 'proposed_at', label: 'Proposed',
-      render: r => <TimeAgo timestamp={r.proposed_at} />,
+      render: r => <LiveTimeAgo timestamp={r.proposed_at} />,
     },
     {
       key: 'actions', label: '',
@@ -343,10 +560,16 @@ function PendingTab({
         <div className="flex gap-2">
           <button onClick={() => handleApprove(r.id)}
             data-testid="approve-button"
+            disabled={r.eligible === false}
+            title={r.eligible === false
+              ? (r.defer_reason || r.blocked_reason || 'Action is not eligible')
+              : undefined}
             className="px-2 py-1 rounded text-xs"
             style={{
               background: 'var(--green)',
               color: '#fff',
+              opacity: r.eligible === false ? 0.45 : 1,
+              cursor: r.eligible === false ? 'not-allowed' : 'pointer',
             }}>
             Approve
           </button>
@@ -409,6 +632,56 @@ function PendingTab({
                 <SQLBlock sql={row.rollback_sql} />
               </div>
             )}
+            {row.script_output && (
+              <div>
+                <div className="text-xs font-medium mb-1"
+                  style={{ color: 'var(--text-secondary)' }}>
+                  Migration script
+                </div>
+                <div className="text-xs mb-2"
+                  style={{ color: 'var(--text-secondary)' }}>
+                  {row.script_output.filename}
+                </div>
+                <SQLBlock sql={row.script_output.migration_sql} />
+                {row.script_output.rollback_sql && (
+                  <div className="mt-2">
+                    <div className="text-xs font-medium mb-1"
+                      style={{ color: 'var(--text-secondary)' }}>
+                      Rollback script
+                    </div>
+                    <SQLBlock sql={row.script_output.rollback_sql} />
+                  </div>
+                )}
+                {(row.script_output.verification_sql || []).length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-xs font-medium mb-1"
+                      style={{ color: 'var(--text-secondary)' }}>
+                      Verification SQL
+                    </div>
+                    {row.script_output.verification_sql.map(sql => (
+                      <SQLBlock key={sql} sql={sql} />
+                    ))}
+                  </div>
+                )}
+                {(row.script_output.pr_title ||
+                  row.script_output.pr_body) && (
+                  <div className="mt-2 text-xs"
+                    style={{ color: 'var(--text-secondary)' }}>
+                    <div className="font-medium"
+                      style={{ color: 'var(--text-primary)' }}>
+                      PR / CI output
+                    </div>
+                    {row.script_output.pr_title && (
+                      <div>{row.script_output.pr_title}</div>
+                    )}
+                    {row.script_output.pr_body && (
+                      <div>{row.script_output.pr_body}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            <LifecycleDetails row={row} />
             {rejectId === row.id && (
               <div className="flex gap-2 items-center">
                 <input
@@ -425,10 +698,13 @@ function PendingTab({
                 />
                 <button
                   onClick={() => handleReject(row.id)}
+                  disabled={!rejectReason.trim()}
                   className="px-2 py-1 rounded text-xs"
                   style={{
                     background: 'var(--red)',
                     color: '#fff',
+                    opacity: rejectReason.trim() ? 1 : 0.45,
+                    cursor: rejectReason.trim() ? 'pointer' : 'not-allowed',
                   }}>
                   Confirm Reject
                 </button>
@@ -437,6 +713,51 @@ function PendingTab({
           </div>
         )}
       />
+    </div>
+  )
+}
+
+function LifecycleDetails({ row }) {
+  const expiresAt = formatActionTime(row.expires_at)
+  const cooldownUntil = formatActionTime(row.cooldown_until)
+  const guardrails = row.guardrails || []
+  const rollbackClass = rollbackClassLabel(row.rollback_class)
+  if (!expiresAt && !cooldownUntil && guardrails.length === 0 &&
+    !row.blocked_reason && !row.attempt_count && !rollbackClass) {
+    return null
+  }
+  return (
+    <div className="space-y-2 text-xs"
+      style={{ color: 'var(--text-secondary)' }}>
+      <div className="flex flex-wrap gap-2">
+        {row.attempt_count > 0 && <span>Attempts: {row.attempt_count}</span>}
+        {expiresAt && <span>Expires: {expiresAt}</span>}
+        {cooldownUntil && <span>Cooldown until: {cooldownUntil}</span>}
+        {rollbackClass && <span>{rollbackClass}</span>}
+        {row.verification_status && (
+          <span>Verification: {row.verification_status}</span>
+        )}
+      </div>
+      {row.blocked_reason && (
+        <div style={{ color: 'var(--text-primary)' }}>
+          {row.blocked_reason}
+        </div>
+      )}
+      {row.defer_reason && row.defer_reason !== row.blocked_reason && (
+        <div style={{ color: 'var(--text-primary)' }}>
+          {row.defer_reason}
+        </div>
+      )}
+      {guardrails.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {guardrails.map(g => (
+            <span key={g} className="rounded px-1.5 py-0.5"
+              style={{ border: '1px solid var(--border)' }}>
+              {g}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

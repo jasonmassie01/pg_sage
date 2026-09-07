@@ -13,6 +13,8 @@ export function ErrorBanner({ message, onRetry }) {
       </span>
       {onRetry && (
         <button onClick={onRetry} className="p-1.5 rounded"
+          aria-label="Retry"
+          title="Retry"
           style={{ color: 'var(--text-secondary)' }}>
           <RefreshCw size={14} />
         </button>

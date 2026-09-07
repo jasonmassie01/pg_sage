@@ -1,16 +1,59 @@
+/* eslint-disable react-refresh/only-export-components */
+import { useEffect, useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
-import { StatusDot } from '../components/StatusDot'
+import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { SeverityBadge } from '../components/SeverityBadge'
-import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
+import { FleetHealthChart } from '../components/FleetHealthChart'
+import { DatabaseTile } from '../components/DatabaseTile'
+import { ProviderReadinessMatrix } from '../components/ProviderReadinessMatrix'
 import {
   CheckCircle, Clock, ListChecks, Server,
 } from 'lucide-react'
 
-function StatCard({ label, value, color, 'data-testid': testId }) {
+const TRUST_LEVEL_LABELS = {
+  0: 'Observation',
+  1: 'Advisory',
+  2: 'Autonomous',
+  observation: 'Observation',
+  advisory: 'Advisory',
+  autonomous: 'Autonomous',
+}
+
+const OVERVIEW_TABS = [
+  {
+    key: 'databases',
+    label: 'Databases',
+    description:
+      'Registered Postgres databases, health, and selection state for this fleet.',
+  },
+  {
+    key: 'provider-readiness',
+    label: 'Provider Readiness',
+    description:
+      'Cloud provider credentials and policy readiness before live provisioning.',
+  },
+  {
+    key: 'recent-recos',
+    label: 'Recent Recos',
+    description:
+      'Newest recommendations from pg_sage before they become cases and actions.',
+  },
+]
+
+export function formatTrustLevel(raw) {
+  if (raw === null || raw === undefined || raw === '') return null
+  const key = typeof raw === 'number' ? raw : String(raw).toLowerCase()
+  return TRUST_LEVEL_LABELS[key] || String(raw)
+}
+
+function StatCard({
+  label, value, color, 'data-testid': testId, badge,
+}) {
+  const isLoading = value === undefined || value === null
   return (
-    <div className="rounded p-4"
+    <div className="rounded p-4 relative"
       data-testid={testId}
       style={{
         background: 'var(--bg-card)',
@@ -18,8 +61,25 @@ function StatCard({ label, value, color, 'data-testid': testId }) {
       }}>
       <div className="text-xs mb-1"
         style={{ color: 'var(--text-secondary)' }}>{label}</div>
-      <div className="text-2xl font-bold"
-        style={{ color: color || 'var(--text-primary)' }}>{value}</div>
+      {isLoading ? (
+        <div className="h-7 w-16 rounded animate-pulse"
+          data-testid="stat-card-skeleton"
+          style={{ background: 'var(--bg-hover)' }} />
+      ) : (
+        <div className="text-2xl font-bold"
+          style={{ color: color || 'var(--text-primary)' }}>
+          {value}
+        </div>
+      )}
+      {badge !== undefined && badge !== null && badge > 0 && (
+        <span
+          data-testid="new-since-visit-badge"
+          className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full
+            text-xs font-semibold"
+          style={{ background: 'var(--red)', color: '#fff' }}>
+          +{badge} new
+        </span>
+      )}
     </div>
   )
 }
@@ -180,142 +240,195 @@ function OnboardingWelcome() {
   )
 }
 
-function StatusLabel({ connected, error }) {
-  if (!connected) {
-    return (
-      <span className="text-xs" style={{ color: 'var(--red)' }}>
-        Disconnected
-      </span>
-    )
-  }
-  if (error) {
-    return (
-      <span className="text-xs"
-        style={{ color: 'var(--yellow)' }}>
-        Warning
-      </span>
-    )
-  }
+function OverviewTabs({ activeTab, setActiveTab }) {
   return (
-    <span className="text-xs" style={{ color: 'var(--green)' }}>
-      Connected
-    </span>
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2" role="tablist"
+        aria-label="Overview sections">
+        {OVERVIEW_TABS.map(tab => (
+          <button key={tab.key} type="button" role="tab"
+            data-testid={`overview-tab-${tab.key}`}
+            aria-selected={activeTab === tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className="px-3 py-1.5 rounded text-sm"
+            style={{
+              background: activeTab === tab.key
+                ? 'var(--accent)' : 'var(--bg-card)',
+              color: activeTab === tab.key
+                ? '#fff' : 'var(--text-secondary)',
+              border: '1px solid var(--border)',
+            }}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-sm" data-testid="overview-tab-description"
+        style={{ color: 'var(--text-secondary)' }}>
+        {OVERVIEW_TABS.find(tab => tab.key === activeTab)?.description}
+      </p>
+    </div>
   )
 }
 
-export function Dashboard({ database }) {
+function DatabaseOverviewPanel({
+  databases, database, loading, onSelectDB,
+}) {
+  return (
+    <div className="rounded p-4"
+      data-testid="db-list"
+      style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+      }}>
+      <h2 className="text-sm font-medium mb-3"
+        style={{ color: 'var(--text-secondary)' }}>
+        Databases
+      </h2>
+      {loading && !databases && (
+        <div className="h-24 rounded animate-pulse"
+          data-testid="db-list-skeleton"
+          style={{ background: 'var(--bg-hover)' }} />
+      )}
+      <div
+        className="grid gap-3"
+        data-testid="db-tile-grid"
+        style={{
+          gridTemplateColumns:
+            'repeat(auto-fill, minmax(220px, 1fr))',
+        }}>
+        {(databases || []).map(db => (
+          <DatabaseTile
+            key={db.name}
+            db={db}
+            selected={database === db.name}
+            onSelect={onSelectDB}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RecentRecommendationsPanel({ findings }) {
+  return (
+    <div className="rounded p-4"
+      data-testid="recent-findings"
+      style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+      }}>
+      <h2 className="text-sm font-medium mb-3"
+        style={{ color: 'var(--text-secondary)' }}>
+        Recent Recommendations
+      </h2>
+      {findings.length > 0 ? (
+        <div className="space-y-2">
+          {findings.slice(0, 5).map((f, i) => (
+            <div key={i}
+              className="flex items-center gap-3 p-2 rounded"
+              style={{ background: 'var(--bg-primary)' }}>
+              <SeverityBadge severity={f.severity} />
+              <span className="flex-1 text-sm">{f.title}</span>
+              <span className="text-xs"
+                style={{ color: 'var(--text-secondary)' }}>
+                {f.database_name}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+          No recent recommendations for the selected scope.
+        </div>
+      )}
+      <a href="#/findings" className="inline-block mt-3 text-sm"
+        style={{ color: 'var(--accent)' }}>
+        View all recommendations
+      </a>
+    </div>
+  )
+}
+
+export function Dashboard({ database, onSelectDB }) {
+  const [overviewTab, setOverviewTab] = useState('databases')
   const dbParam = database && database !== 'all'
     ? `?database=${database}` : ''
   const { data, loading, error, refetch } = useAPI('/api/v1/databases')
   const sep = dbParam ? '&' : '?'
   const findings = useAPI(`/api/v1/findings${dbParam}${sep}limit=5`)
+  useLiveRefetch(['findings', 'health'], refetch)
+  useLiveRefetch(['findings'], findings.refetch)
 
-  if (loading) return <LoadingSpinner />
+  const [lastVisitAt, setLastVisitAt] = useState(() => {
+    try {
+      const v = localStorage.getItem('pg_sage_findings_visit')
+      return v ? parseInt(v, 10) : 0
+    } catch {
+      return 0
+    }
+  })
+
+  useEffect(() => {
+    const onStorage = e => {
+      if (e.key === 'pg_sage_findings_visit') {
+        setLastVisitAt(parseInt(e.newValue, 10) || 0)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+
+  const newSinceVisit = (() => {
+    const list = findings.data?.findings
+    if (!Array.isArray(list) || !lastVisitAt) return 0
+    return list.filter(f => {
+      const t = f.first_seen || f.created_at || f.last_seen
+      if (!t) return false
+      return new Date(t).getTime() > lastVisitAt
+    }).length
+  })()
+
   if (error) return <ErrorBanner message={error} onRetry={refetch} />
-  if (!data) return null
 
-  const { summary, databases } = data
+  const summary = data?.summary
+  const databases = data?.databases
+  const recentFindings = findings.data?.findings || []
 
-  if (!summary || summary.total_databases === 0) {
+  if (!loading && (!summary || summary.total_databases === 0)) {
     return <OnboardingWelcome />
   }
 
   return (
     <div className="space-y-6">
       <TokenBudgetBanner />
-      <HealthHero summary={summary} />
+      {summary && <HealthHero summary={summary} />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Databases"
-          value={summary.total_databases}
+          value={summary?.total_databases}
           data-testid="stat-databases" />
         <StatCard label="Healthy"
-          value={summary.healthy} color="var(--green)"
+          value={summary?.healthy} color="var(--green)"
           data-testid="stat-healthy" />
-        <StatCard label="Degraded" value={summary.degraded}
-          color={summary.degraded > 0
+        <StatCard label="Degraded" value={summary?.degraded}
+          color={summary?.degraded > 0
             ? 'var(--red)' : 'var(--green)'} />
         <StatCard label="Critical Findings"
-          value={summary.total_critical}
-          color={summary.total_critical > 0
-            ? 'var(--red)' : 'var(--text-primary)'} />
+          value={summary?.total_critical}
+          color={summary?.total_critical > 0
+            ? 'var(--red)' : 'var(--text-primary)'}
+          badge={newSinceVisit} />
       </div>
 
-      <div className="rounded p-4"
-        data-testid="db-list"
-        style={{
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border)',
-        }}>
-        <h2 className="text-sm font-medium mb-3"
-          style={{ color: 'var(--text-secondary)' }}>
-          Databases
-        </h2>
-        <div className="space-y-2">
-          {databases.map(db => (
-            <div key={db.name}
-              data-testid="db-list-item"
-              className="flex items-center gap-3 p-2 rounded"
-              style={{ background: 'var(--bg-primary)' }}>
-              <StatusDot connected={db.status.connected}
-                error={db.status.error} />
-              <StatusLabel connected={db.status.connected}
-                error={db.status.error} />
-              <span className="font-medium flex-1">{db.name}</span>
-              <span className="text-xs px-2 py-0.5 rounded"
-                style={{
-                  background: 'var(--bg-hover)',
-                  color: 'var(--text-secondary)',
-                }}>
-                Score: {db.status.health_score}
-              </span>
-              {db.trust_level && (
-                <span className="text-xs px-2 py-0.5 rounded"
-                  data-testid="trust-level-badge"
-                  style={{
-                    background: 'var(--bg-hover)',
-                    color: 'var(--text-secondary)',
-                  }}>
-                  Trust: {db.trust_level}
-                </span>
-              )}
-              {db.status.findings_critical > 0 && (
-                <SeverityBadge severity="critical" />
-              )}
-              {db.status.findings_warning > 0 && (
-                <SeverityBadge severity="warning" />
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {findings.data?.findings?.length > 0 && (
-        <div className="rounded p-4"
-          data-testid="recent-findings"
-          style={{
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border)',
-          }}>
-          <h2 className="text-sm font-medium mb-3"
-            style={{ color: 'var(--text-secondary)' }}>
-            Recent Recommendations
-          </h2>
-          <div className="space-y-2">
-            {findings.data.findings.map((f, i) => (
-              <div key={i}
-                className="flex items-center gap-3 p-2 rounded"
-                style={{ background: 'var(--bg-primary)' }}>
-                <SeverityBadge severity={f.severity} />
-                <span className="flex-1 text-sm">{f.title}</span>
-                <span className="text-xs"
-                  style={{ color: 'var(--text-secondary)' }}>
-                  {f.database_name}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
+      <FleetHealthChart database={database} />
+      <OverviewTabs activeTab={overviewTab} setActiveTab={setOverviewTab} />
+      {overviewTab === 'databases' && (
+        <DatabaseOverviewPanel databases={databases}
+          database={database} loading={loading} onSelectDB={onSelectDB} />
+      )}
+      {overviewTab === 'provider-readiness' && <ProviderReadinessMatrix />}
+      {overviewTab === 'recent-recos' && (
+        <RecentRecommendationsPanel findings={recentFindings} />
       )}
     </div>
   )

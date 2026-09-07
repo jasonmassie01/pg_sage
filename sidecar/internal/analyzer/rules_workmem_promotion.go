@@ -38,7 +38,7 @@ func (a *Analyzer) checkWorkMemPromotion(ctx context.Context) []Finding {
 	if threshold <= 0 {
 		return nil
 	}
-	rows, err := a.pool.Query(ctx, `
+	rows, err := a.pool.Query(ctx, `/* pg_sage */ 
 SELECT
     r.rolname AS role_name,
     count(*)  AS hint_count,

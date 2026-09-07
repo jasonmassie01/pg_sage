@@ -11,6 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 const rewriteSystemPrompt = `You are a PostgreSQL query optimization expert.
@@ -69,6 +70,9 @@ func analyzeQueryRewrites(
 		if q.Calls < 100 || q.MeanExecTime < 50 {
 			continue
 		}
+		if selfmonitor.IsQueryText(q.Query) {
+			continue
+		}
 		candidates = append(candidates,
 			candidate{q, "high total time"},
 		)
@@ -77,6 +81,9 @@ func analyzeQueryRewrites(
 	// Queries with temp spills.
 	for _, q := range snap.Queries {
 		if q.TempBlksWritten > 0 && q.Calls > 50 {
+			if selfmonitor.IsQueryText(q.Query) {
+				continue
+			}
 			candidates = append(candidates,
 				candidate{q, "temp spills"},
 			)
@@ -127,7 +134,7 @@ func analyzeQueryRewrites(
 	var queryLines []string
 	for _, c := range unique {
 		q := c.query
-		truncQuery := llm.StripSQLComments(q.Query)
+		truncQuery := llm.SanitizeForLLM(q.Query)
 		if len(truncQuery) > 300 {
 			truncQuery = truncQuery[:300] + "..."
 		}
@@ -166,7 +173,11 @@ func analyzeQueryRewrites(
 		if isCreateIndexRewrite(f) {
 			continue
 		}
-		f.Severity = "warning"
+		// Rewrites are advisory suggestions for developers, never
+		// auto-executed (see system prompt). The prompt asks the LLM
+		// for severity "info"; force it here so a mis-behaving model
+		// cannot escalate these into operator-actionable warnings.
+		f.Severity = "info"
 		f.RecommendedSQL = ""
 		f.ActionRisk = ""
 		findings = append(findings, f)
@@ -183,7 +194,7 @@ func openRewriteQueryIDs(
 	logFn func(string, string, ...any),
 ) map[int64]bool {
 	rows, err := pool.Query(ctx,
-		`SELECT object_identifier FROM sage.findings
+		`/* pg_sage */ SELECT object_identifier FROM sage.findings
 		 WHERE category = 'query_rewrite'
 		   AND status = 'open'
 		   AND acted_on_at IS NULL`,

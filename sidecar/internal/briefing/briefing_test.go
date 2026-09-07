@@ -15,11 +15,35 @@ import (
 	"github.com/pg-sage/sidecar/internal/schema"
 )
 
+var sageMu sync.Mutex
+
+// ensureSageSchema re-bootstraps if the sage schema was dropped by
+// concurrent test packages (e.g., internal/schema tests DROP and recreate).
+func ensureSageSchema(t *testing.T, ctx context.Context) {
+	t.Helper()
+	sageMu.Lock()
+	defer sageMu.Unlock()
+	var n int
+	err := testPool.QueryRow(ctx,
+		`SELECT 1 FROM information_schema.tables
+		 WHERE table_schema = 'sage'
+		   AND table_name = 'findings'`).Scan(&n)
+	if err == nil {
+		return
+	}
+	if err := schema.Bootstrap(ctx, testPool); err != nil {
+		t.Fatalf("re-bootstrap sage failed: %v", err)
+	}
+	if err := schema.MigrateConfigSchema(ctx, testPool); err != nil {
+		t.Fatalf("re-migrate sage config: %v", err)
+	}
+}
+
 func testDSN() string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 var (
@@ -56,11 +80,23 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			testPool = nil
 			return
 		}
-		schema.ReleaseAdvisoryLock(ctx, testPool)
+		// Run config migration so database_id column and composite
+		// unique index exist (required by ON CONFLICT clauses).
+		if err := schema.MigrateConfigSchema(ctx, testPool); err != nil {
+			testPoolErr = fmt.Errorf("config migration: %w", err)
+			testPool.Close()
+			testPool = nil
+			return
+		}
 	})
 	if testPoolErr != nil {
 		t.Skipf("database unavailable: %v", testPoolErr)
 	}
+
+	// Verify sage schema is intact — it may have been dropped by
+	// concurrent schema package tests running in parallel via go test ./...
+	ensureSageSchema(t, ctx)
+
 	return testPool, ctx
 }
 
@@ -158,7 +194,7 @@ func TestBuildStructured_FindingSeverityIcons(t *testing.T) {
 	}{
 		{"critical", "\xf0\x9f\x94\xb4"}, // red circle
 		{"warning", "\xf0\x9f\x9f\xa1"},  // yellow circle
-		{"info", "\xe2\x84\xb9"},          // info
+		{"info", "\xe2\x84\xb9"},         // info
 	}
 
 	for _, tt := range tests {
@@ -221,7 +257,7 @@ func TestDispatch_Stdout(t *testing.T) {
 	}
 	w := newTestWorker(cfg)
 	// Should not panic.
-	w.Dispatch("test briefing")
+	w.Dispatch(context.Background(), "test briefing")
 }
 
 func TestDispatch_SlackWithoutURL(t *testing.T) {
@@ -233,7 +269,7 @@ func TestDispatch_SlackWithoutURL(t *testing.T) {
 	}
 	w := newTestWorker(cfg)
 	// Should not panic; slack is skipped when URL is empty.
-	w.Dispatch("test briefing")
+	w.Dispatch(context.Background(), "test briefing")
 }
 
 func TestDispatch_EmptyChannels(t *testing.T) {
@@ -243,14 +279,14 @@ func TestDispatch_EmptyChannels(t *testing.T) {
 		},
 	}
 	w := newTestWorker(cfg)
-	w.Dispatch("test briefing")
+	w.Dispatch(context.Background(), "test briefing")
 }
 
 func TestParseCron(t *testing.T) {
 	tests := []struct {
-		expr    string
-		valid   bool
-		desc    string
+		expr  string
+		valid bool
+		desc  string
 	}{
 		{"0 6 * * *", true, "daily at 6:00"},
 		{"*/2 * * * *", true, "every 2 minutes"},
@@ -393,9 +429,9 @@ func TestGenerate_LivePG(t *testing.T) {
 		`INSERT INTO sage.findings
 		 (category, severity, object_identifier, title, detail,
 		  status, last_seen, occurrence_count)
-		 VALUES ('test_category', 'warning', 'public.test_table',
+		 VALUES ('test_category', 'critical', 'public.test_table',
 		         'Test finding for briefing', '{}'::jsonb,
-		         'open', now(), 1)`)
+		         'open', now(), 999999)`)
 	if err != nil {
 		t.Fatalf("inserting test finding: %v", err)
 	}
@@ -423,7 +459,7 @@ func TestGenerate_LivePG(t *testing.T) {
 	if !strings.Contains(output, "# pg_sage Health Briefing") {
 		t.Error("briefing output should contain the header")
 	}
-	if !strings.Contains(output, "warning") {
+	if !strings.Contains(output, "critical") {
 		t.Error("briefing output should contain severity level")
 	}
 }

@@ -8,6 +8,7 @@
 // Override the port via PLAYWRIGHT_PORT env var if the default
 // conflicts with another service (e.g. Docker).
 
+/* global process */
 import { defineConfig, devices } from '@playwright/test'
 
 const port = process.env.PLAYWRIGHT_PORT || '5175'

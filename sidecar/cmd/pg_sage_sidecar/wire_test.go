@@ -132,8 +132,8 @@ func TestWireRouter_MetaDB_DBDepsFromStore(t *testing.T) {
 	cfg.Mode = "fleet"
 	fm := testFleetMgr(cfg)
 
-	// Meta-db mode: globalMetaState has a Store, so dbDeps
-	// should be wired with Store + Fleet + OnCreate.
+	// Meta-db mode owns catalog persistence and runtime publication in
+	// lifecycle-serialized apply callbacks.
 	metaState := &metaDBState{
 		Store: store.NewDatabaseStore(nil, nil),
 	}
@@ -153,8 +153,10 @@ func TestWireRouter_MetaDB_DBDepsFromStore(t *testing.T) {
 	if result.DBDeps.Fleet != fm {
 		t.Error("dbDeps.Fleet should be the fleet manager")
 	}
-	if result.DBDeps.OnCreate == nil {
-		t.Error("dbDeps.OnCreate should be set in meta-db mode")
+	if result.DBDeps.ApplyCreate == nil ||
+		result.DBDeps.ApplyUpdate == nil ||
+		result.DBDeps.ApplyDelete == nil {
+		t.Error("meta-db lifecycle apply callbacks must all be wired")
 	}
 }
 

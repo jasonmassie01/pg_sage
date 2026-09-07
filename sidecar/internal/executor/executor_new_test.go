@@ -38,8 +38,10 @@ func TestExecuteManual_RejectsEmptySQL(t *testing.T) {
 
 func TestExecuteManual_RejectsDisallowedSQL(t *testing.T) {
 	e := &Executor{
-		pool:          nil,
-		cfg:           &config.Config{},
+		pool: nil,
+		cfg: &config.Config{
+			Trust: config.TrustConfig{Level: "advisory"},
+		},
 		recentActions: make(map[string]time.Time),
 		logFn:         func(string, string, ...any) {},
 		execMode:      "auto",
@@ -77,8 +79,10 @@ func TestExecuteManual_AcceptsValidSQL_ButNeedsDB(t *testing.T) {
 	// Valid SQL passes validation but will fail at the DB layer (pool is nil).
 	// This confirms the validation gate does NOT reject valid statements.
 	e := &Executor{
-		pool:          nil,
-		cfg:           &config.Config{},
+		pool: nil,
+		cfg: &config.Config{
+			Trust: config.TrustConfig{Level: "advisory"},
+		},
 		recentActions: make(map[string]time.Time),
 		logFn:         func(string, string, ...any) {},
 		execMode:      "auto",
@@ -105,14 +109,14 @@ func TestExecuteManual_AcceptsValidSQL_ButNeedsDB(t *testing.T) {
 
 func TestActionOutcome_Table(t *testing.T) {
 	tests := []struct {
-		name    string
-		err     error
-		want    string
+		name string
+		err  error
+		want string
 	}{
 		{
-			name: "nil error returns pending",
+			name: "nil error returns monitoring",
 			err:  nil,
-			want: "pending",
+			want: "monitoring",
 		},
 		{
 			name: "non-nil error returns failed",
@@ -225,6 +229,11 @@ func TestExtractIndexName_Table(t *testing.T) {
 			sql:  "SELECT 1",
 			want: "",
 		},
+		{
+			name: "DROP INDEX CONCURRENTLY IF EXISTS",
+			sql:  "DROP INDEX CONCURRENTLY IF EXISTS idx_foo",
+			want: "idx_foo",
+		},
 	}
 
 	for _, tc := range tests {
@@ -233,6 +242,51 @@ func TestExtractIndexName_Table(t *testing.T) {
 			if got != tc.want {
 				t.Errorf("extractIndexName(%q) = %q, want %q",
 					tc.sql, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsSelfReferentialDrop(t *testing.T) {
+	tests := []struct {
+		name      string
+		createSQL string
+		dropDDL   string
+		want      bool
+	}{
+		{
+			name: "rollback drops the index just created (GIN)",
+			createSQL: "CREATE INDEX CONCURRENTLY idx_events_payload_path_ops " +
+				"ON public.events USING gin (payload jsonb_path_ops)",
+			dropDDL: "DROP INDEX CONCURRENTLY IF EXISTS idx_events_payload_path_ops",
+			want:    true,
+		},
+		{
+			name: "rollback with schema + semicolon still matches",
+			createSQL: "CREATE INDEX CONCURRENTLY documents_embedding_hnsw_idx " +
+				"ON public.documents USING hnsw (embedding vector_l2_ops)",
+			dropDDL: "DROP INDEX CONCURRENTLY IF EXISTS public.documents_embedding_hnsw_idx;",
+			want:    true,
+		},
+		{
+			name: "genuine supersede targets a different old index",
+			createSQL: "CREATE INDEX CONCURRENTLY idx_orders_cust_incl " +
+				"ON public.orders (customer_id) INCLUDE (total_cents)",
+			dropDDL: "DROP INDEX CONCURRENTLY IF EXISTS idx_orders_cust_old",
+			want:    false,
+		},
+		{
+			name:      "empty drop is not self-referential",
+			createSQL: "CREATE INDEX CONCURRENTLY idx_a ON t (c)",
+			dropDDL:   "",
+			want:      false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isSelfReferentialDrop(tc.createSQL, tc.dropDDL); got != tc.want {
+				t.Errorf("isSelfReferentialDrop(%q, %q) = %v, want %v",
+					tc.createSQL, tc.dropDDL, got, tc.want)
 			}
 		})
 	}
@@ -396,13 +450,13 @@ func TestActedOnAt_NotSetOnFailure(t *testing.T) {
 func TestActedOnAt_SetOnSuccess(t *testing.T) {
 	outcome := actionOutcome(nil)
 
-	if outcome != "pending" {
-		t.Fatalf("expected outcome 'pending', got %q", outcome)
+	if outcome != "monitoring" {
+		t.Fatalf("expected outcome 'monitoring', got %q", outcome)
 	}
 
 	shouldSetActedOn := outcome != "failed"
 	if !shouldSetActedOn {
-		t.Error("pending outcome SHOULD set acted_on_at")
+		t.Error("monitoring outcome SHOULD set acted_on_at")
 	}
 }
 
@@ -419,7 +473,7 @@ func TestActedOnAt_LogManualAction_SameContract(t *testing.T) {
 		{
 			name:             "manual action success",
 			execErr:          nil,
-			wantOutcome:      "pending",
+			wantOutcome:      "monitoring",
 			wantActedOnAtSet: true,
 		},
 		{
@@ -451,10 +505,10 @@ func TestActedOnAt_LogManualAction_SameContract(t *testing.T) {
 
 func TestWrapDDLError_Table(t *testing.T) {
 	tests := []struct {
-		name          string
-		err           error
-		wantLockErr   bool
-		wantContains  string
+		name         string
+		err          error
+		wantLockErr  bool
+		wantContains string
 	}{
 		{
 			name:         "55P03 lock error wraps with ErrLockNotAvailable",

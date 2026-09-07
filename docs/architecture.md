@@ -27,6 +27,12 @@ pg_sage sidecar (single Go binary)
   │
   ├── Executor         [trust-gated]
   │   ├── CONCURRENTLY DDL on raw pgx connection
+  │   ├── DDL lock/rewrite/live-risk preflight + PR/CI script output
+  │   ├── Incident playbooks for locks, runaway queries, connections, WAL,
+  │   │   replication, and sequence exhaustion
+  │   ├── Vacuum/bloat/freeze autopilot with IO and XID guardrails
+  │   ├── Query tuning artifacts beyond hints: rewrites, statistics,
+  │   │   parameterization, hint retirement, and role work_mem promotion
   │   ├── Rollback monitor (read + write latency regression)
   │   └── Emergency stop via sage.config
   │
@@ -73,17 +79,70 @@ Lives in `internal/optimizer/` (18 files, 4,640 lines, 144 tests). Key capabilit
 
 | Trust Level | Timeline | Allowed Actions |
 |-------------|----------|----------------|
-| **observation** | Day 0-7 | No actions -- findings only |
-| **advisory** | Day 8-30 | SAFE: drop unused/duplicate indexes, VACUUM |
-| **autonomous** | Day 31+ | MODERATE: create indexes, reindex |
+| **observation** | Configured | No actions -- cases and recommendations only |
+| **advisory** | Configured | Auto may execute eligible SAFE actions; higher risk queues |
+| **autonomous** | Configured | Auto may execute eligible SAFE and MODERATE actions; HIGH queues |
 
-HIGH-risk actions always require manual confirmation. Every action is logged to `sage.action_log` with before/after state and rollback SQL. Regression triggers automatic rollback.
+HIGH-risk actions always require manual approval. Every action carries a typed
+contract: risk tier, guardrails, expiration, rollback or mitigation, policy
+decision, lifecycle state, and verification state. Execution outcomes are
+logged to `sage.action_log`; pending work and approval outcomes are tracked in
+the action queue.
+
+Execution mode is an independent operator control. `manual` disables all
+background queueing and execution at every trust level. `approval` queues
+supported actions whenever trust is advisory or autonomous. `auto` executes
+eligible SAFE actions at advisory trust, executes eligible SAFE and MODERATE
+actions at autonomous trust, and queues higher-risk supported actions. Neither
+trust nor its ramp can promote `manual` to `auto`. Emergency Stop and a
+per-database disabled executor are hard mutation blocks.
+
+High-risk schema changes are handled as migration-safety cases before direct
+execution. The case projector attaches deterministic DDL preflight evidence,
+including lock/rewrite classification plus live table-size, activity, pending
+lock, replica-lag, and lock-timeout checks. It also attaches generated
+migration SQL, rollback or forward-fix guidance, verification SQL, and PR/CI
+metadata. These artifacts are shown in Cases and Actions so teams can review
+schema work through their normal change-control process.
+
+Incident playbooks follow the same typed-action model. Read-only diagnostics
+can inspect blocker graphs, runaway queries, connection pressure,
+WAL/replication state, standby conflicts, and vacuum pressure. Backend
+cancel/terminate actions require exact PID evidence and approval. Sequence
+capacity changes are treated as forward-fix migrations with script and
+verification output rather than autonomous DDL.
+
+Vacuum, bloat, and freeze autopilot turns maintenance findings into bounded
+actions. Small table-bloat cases can propose guarded `VACUUM`; IO-saturated
+cases are blocked to script/review output; XID wraparound cases diagnose oldest
+`backend_xmin` holders; concurrent reindex handles index-bloat remediation;
+and high-blast-radius table bloat produces reviewed online remediation plans
+instead of `VACUUM FULL` by default.
+
+Query tuning has multiple paths. `pg_hint_plan` remains useful for reversible
+planner experiments, but pg_sage can also generate application-query rewrite
+artifacts, retire broken hint experiments, recommend `CREATE STATISTICS`, draft
+parameterization changes, and promote repeated per-role `work_mem` patterns
+into reviewed role settings. Those actions are modeled as typed cases with
+rollback class, verification steps, and PR/script output so they can move
+through change control like schema work.
 
 The executor checks: trust level, trust ramp, per-tier toggles, maintenance window, emergency stop flag, and replica status before acting.
 
 ### API + Dashboard (Web UI)
 
-REST API and embedded React SPA on `:8080` (configurable). Provides 17 endpoints for findings, actions, snapshots, config, forecasts, query hints, alert log, emergency stop, and fleet management. The web UI includes authentication and notification support.
+REST API and embedded React SPA on `:8080` (configurable). The v1 UI is
+organized around Overview, Cases, Actions, Fleet, and Settings. The legacy
+`#/findings`, `#/schema-health`, `#/query-hints`, `#/forecasts`, and
+`#/incidents` routes open Cases with the appropriate source context. The API
+includes case projection, shadow report, action queue, provider readiness,
+findings, snapshots, config, forecasts, query hints, alerts, emergency stop,
+and fleet management. UI and `/api/v1/*` routes are session-authenticated.
+
+Provider readiness uses adapters for Postgres, Cloud SQL, AlloyDB, RDS, and
+Aurora. Adapters describe extension enablement paths, log access, managed
+service limitations, and supported action families before policy evaluation
+decides whether a specific database can execute, queue, or only observe.
 
 ### Alerting
 
@@ -120,7 +179,10 @@ Metrics endpoint on `:9187`. Exports findings count by severity, circuit breaker
 5. **Validator** runs 8 checks; **HypoPG** validates if available.
 6. **Confidence scorer** assigns action level.
 7. Findings are persisted to `sage.findings`.
-8. **Executor** acts on findings based on trust level, confidence, and maintenance window.
+8. **Case projection** combines findings, incidents, and action state into DBA
+   cases and shadow-mode proof.
+9. **Executor** queues, blocks, approves, or executes typed actions based on
+   trust level, policy, evidence freshness, maintenance window, and guardrails.
 
 ---
 

@@ -100,7 +100,7 @@ func analyzeMemory(
 		}
 		spills[i], spills[maxIdx] = spills[maxIdx], spills[i]
 		q := spills[i]
-		truncQuery := llm.StripSQLComments(q.query)
+		truncQuery := llm.SanitizeForLLM(q.query)
 		if len(truncQuery) > 120 {
 			truncQuery = truncQuery[:120] + "..."
 		}
@@ -131,6 +131,12 @@ func analyzeMemory(
 		strings.Join(spillLines, "\n"),
 		platform,
 	)
+
+	// Ground the recommendation in the documented semantics and safe
+	// ranges of the memory parameters (A3, GPTuner-style).
+	prompt = DocContext(0,
+		"shared_buffers", "work_mem", "maintenance_work_mem",
+		"effective_cache_size") + "\n" + prompt
 
 	if len(prompt) > maxAdvisorPromptChars {
 		prompt = prompt[:maxAdvisorPromptChars]

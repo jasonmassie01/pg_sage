@@ -19,15 +19,15 @@ func testDSN() string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/postgres" +
-		"?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 var (
 	testPool     *pgxpool.Pool
 	testPoolOnce sync.Once
 	testPoolErr  error
-	testKey      = crypto.DeriveKey("integration-test-key")
+	testKey      = crypto.DeriveKey("integration-test-key",
+		[]byte("int-test-salt-16"))
 )
 
 func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
@@ -35,7 +35,7 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	ctx := context.Background()
 	testPoolOnce.Do(func() {
 		dsn := testDSN()
-		qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		qctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
 
 		poolCfg, err := pgxpool.ParseConfig(dsn)
@@ -43,6 +43,9 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			testPoolErr = fmt.Errorf("parsing DSN: %w", err)
 			return
 		}
+		// The cross-package test lock pins one connection while tests use
+		// the remaining pool capacity.
+		poolCfg.MaxConns = 4
 
 		testPool, testPoolErr = pgxpool.NewWithConfig(qctx, poolCfg)
 		if testPoolErr != nil {
@@ -62,8 +65,6 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			testPool = nil
 			return
 		}
-		schema.ReleaseAdvisoryLock(qctx, testPool)
-
 		if err := schema.EnsureDatabasesTable(qctx, testPool); err != nil {
 			testPoolErr = fmt.Errorf("ensure databases: %w", err)
 			return
@@ -73,5 +74,6 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	if testPoolErr != nil {
 		t.Skipf("database unavailable: %v", testPoolErr)
 	}
+	serializeAcrossPackages(t, ctx, testPool)
 	return testPool, ctx
 }

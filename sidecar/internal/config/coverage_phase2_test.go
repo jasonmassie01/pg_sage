@@ -222,6 +222,29 @@ func TestPhase2_WarnUnexpandedEnvVars_EmptyVarName(t *testing.T) {
 	warnUnexpandedEnvVars(raw, expanded)
 }
 
+// TestExpandBracedEnv_PreservesBareDollar is the H5 regression: a literal
+// '$' in a secret written directly into YAML must survive expansion.
+// os.ExpandEnv treated p@ss$word as p@ss + $word (unset → ""), silently
+// corrupting the credential. expandBracedEnv expands only ${NAME}.
+func TestExpandBracedEnv_PreservesBareDollar(t *testing.T) {
+	t.Setenv("SAGE_TEST_PW_VAR", "fromenv")
+	os.Unsetenv("SAGE_TEST_DEFINITELY_UNSET_999")
+	cases := []struct{ name, in, want string }{
+		{"braced set expands", "pw: ${SAGE_TEST_PW_VAR}", "pw: fromenv"},
+		{"bare dollar in password kept", "pw: p@ss$word", "pw: p@ss$word"},
+		{"bare dollar before word kept", "k: s3cr$tValue", "k: s3cr$tValue"},
+		{"trailing bare dollar kept", "k: secret$", "k: secret$"},
+		{"unset braced -> empty", "pw: ${SAGE_TEST_DEFINITELY_UNSET_999}", "pw: "},
+		{"mixed braced and bare", "a: ${SAGE_TEST_PW_VAR} b: c$d", "a: fromenv b: c$d"},
+	}
+	for _, c := range cases {
+		if got := expandBracedEnv(c.in); got != c.want {
+			t.Errorf("%s: expandBracedEnv(%q) = %q, want %q",
+				c.name, c.in, got, c.want)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // envOr (66.7% coverage — need to hit the default branch)
 // ---------------------------------------------------------------------------
@@ -442,6 +465,18 @@ func TestPhase2_RateLimit_InvalidEnv(t *testing.T) {
 	}
 }
 
+func TestWave2_RateLimit_NonPositiveEnvUsesDefault(t *testing.T) {
+	for _, value := range []string{"0", "-1", "-60"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("SAGE_RATE_LIMIT", value)
+			if got := (&Config{}).RateLimit(); got != DefaultRateLimit {
+				t.Fatalf("RateLimit() with %q = %d, want default %d",
+					value, got, DefaultRateLimit)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // overlayEnv (59.2% coverage — need more env var branches)
 // ---------------------------------------------------------------------------
@@ -656,7 +691,7 @@ func TestPhase2_ApplyHotReload_AnalyzerFields(t *testing.T) {
 	}
 
 	expectChanged := map[string]bool{
-		"analyzer.interval_seconds":       true,
+		"analyzer.interval_seconds":        true,
 		"analyzer.slow_query_threshold_ms": true,
 	}
 	for _, c := range changed {
@@ -984,6 +1019,10 @@ func TestPhase2_ApplyHotReload_NoChanges(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPhase2_LoadYAML_EnvExpansion(t *testing.T) {
+	// Clear the live-env override so the YAML-expanded value survives.
+	// Load() reads SAGE_LLM_API_KEY at config.go:917 and clobbers whatever
+	// came from the YAML, so this test must isolate from the ambient env.
+	t.Setenv("SAGE_LLM_API_KEY", "")
 	t.Setenv("SAGE_TEST_LLM_KEY", "test-api-key")
 	tmp := t.TempDir()
 	yamlContent := `mode: extension

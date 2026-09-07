@@ -33,8 +33,18 @@ export function LoginPage({ onLogin }) {
         body: JSON.stringify({ email, password }),
       })
       if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Login failed')
+        // The error body may not be JSON (e.g. a 404 plaintext page when
+        // auth routes aren't registered, or a proxy error page). Guard
+        // the parse so the user sees the status instead of a cryptic
+        // "Unexpected token" from a thrown JSON parse (LIVE-05).
+        let message = `Login failed (${res.status})`
+        try {
+          const data = await res.json()
+          if (data && data.error) message = data.error
+        } catch {
+          /* non-JSON error body — keep the status-based message */
+        }
+        throw new Error(message)
       }
       const user = await res.json()
       onLogin(user)

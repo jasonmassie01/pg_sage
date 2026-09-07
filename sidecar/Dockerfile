@@ -6,7 +6,7 @@ COPY web/ ./web/
 COPY internal/api/dist/ ./internal/api/dist/
 RUN cd web && npm run build
 
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 RUN apk add --no-cache git
 WORKDIR /build
 COPY go.mod go.sum ./
@@ -23,5 +23,5 @@ COPY --from=builder /build/sage-sidecar /usr/local/bin/sage-sidecar
 USER sage
 EXPOSE 8080 9187
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -sf http://localhost:8080/api/v1/metrics || exit 1
+    CMD curl -sf http://localhost:8080/health || exit 1
 ENTRYPOINT ["sage-sidecar"]

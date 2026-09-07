@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 
-export function UsersPage() {
+export function UsersPage({ currentUser }) {
   const [users, setUsers] = useState([])
   const [error, setError] = useState(null)
   const [email, setEmail] = useState('')
@@ -71,7 +71,10 @@ export function UsersPage() {
         credentials: 'include',
         body: JSON.stringify({ role: newRole }),
       })
-      if (!res.ok) throw new Error('Failed to update role')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to update role')
+      }
       fetchUsers()
     } catch (err) {
       setError(err.message)
@@ -83,6 +86,7 @@ export function UsersPage() {
     border: '1px solid var(--border)',
     color: 'var(--text-primary)',
   }
+  const adminCount = users.filter(u => u.role === 'admin').length
 
   return (
     <div>
@@ -176,7 +180,17 @@ export function UsersPage() {
             </tr>
           </thead>
           <tbody>
-            {users.map(u => (
+            {users.map(u => {
+              const isCurrentUser = currentUser?.id === u.id
+              const isLastAdmin =
+                u.role === 'admin' && adminCount <= 1
+              const roleLocked = isCurrentUser || isLastAdmin
+              const lockTitle = isCurrentUser
+                ? 'You cannot change your own admin role'
+                : isLastAdmin
+                  ? 'At least one admin must remain'
+                  : undefined
+              return (
               <tr key={u.id}
                 style={{
                   borderBottom: '1px solid var(--border)',
@@ -190,8 +204,14 @@ export function UsersPage() {
                     onChange={e =>
                       handleRoleChange(u.id, e.target.value)
                     }
+                    disabled={roleLocked}
+                    title={lockTitle}
+                    data-testid="user-role-select"
                     className="px-2 py-1 rounded text-xs"
-                    style={inputStyle}>
+                    style={{
+                      ...inputStyle,
+                      opacity: roleLocked ? 0.6 : 1,
+                    }}>
                     <option value="viewer">viewer</option>
                     <option value="operator">operator</option>
                     <option value="admin">admin</option>
@@ -210,14 +230,24 @@ export function UsersPage() {
                 <td className="px-4 py-2 text-right">
                   <button
                     onClick={() => handleDelete(u.id, u.email)}
+                    disabled={isCurrentUser || isLastAdmin}
+                    title={isCurrentUser
+                      ? 'You cannot delete your own account'
+                      : isLastAdmin
+                        ? 'At least one admin must remain'
+                        : undefined}
                     data-testid="user-delete-button"
                     className="px-2 py-1 rounded text-xs"
-                    style={{ color: '#ef4444' }}>
+                    style={{
+                      color: '#ef4444',
+                      opacity: (isCurrentUser || isLastAdmin) ? 0.6 : 1,
+                    }}>
                     Delete
                   </button>
                 </td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       </div>

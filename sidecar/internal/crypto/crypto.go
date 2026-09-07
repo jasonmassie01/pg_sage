@@ -11,7 +11,12 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-const nonceSize = 12
+const (
+	nonceSize = 12
+	// KDFSaltSize is the byte length of the per-deployment argon2id
+	// salt persisted in sage.crypto_meta.
+	KDFSaltSize = 16
+)
 
 // Encrypt encrypts plaintext using AES-256-GCM with the provided key.
 // Key must be 32 bytes. Returns ciphertext with 12-byte nonce prepended.
@@ -75,47 +80,97 @@ func Decrypt(ciphertext []byte, key []byte) (string, error) {
 // DeriveKeyV1 derives a 32-byte key from a passphrase using SHA-256.
 // Deprecated: retained only for backward-compatible decryption of data
 // encrypted before the argon2id migration. New encryptions must use
-// DeriveKey.
+// DeriveKey with a per-deployment random salt.
 func DeriveKeyV1(passphrase string) []byte {
 	hash := sha256.Sum256([]byte(passphrase))
 	return hash[:]
 }
 
-// DeriveKey derives a 32-byte key from a passphrase using argon2id.
-// A deterministic salt is derived from the passphrase so that the same
-// passphrase always produces the same key without storing a separate
-// salt. The argon2id work factor provides brute-force protection.
-func DeriveKey(passphrase string) []byte {
+// DeriveKeyV2Legacy derives a 32-byte key from a passphrase using
+// argon2id with a deterministic passphrase-derived salt.
+//
+// Deprecated: retained only for backward-compatible decryption of data
+// encrypted before the per-deployment-random-salt migration. The
+// deterministic salt made precomputed dictionary attacks cheaper
+// because every deployment sharing a passphrase produced the same
+// key. New encryptions must use DeriveKey with a random salt read
+// from sage.crypto_meta.
+func DeriveKeyV2Legacy(passphrase string) []byte {
 	salt := sha256.Sum256([]byte("pg_sage_kdf_v1:" + passphrase))
-	return argon2.IDKey([]byte(passphrase), salt[:16], 1, 64*1024, 4, 32)
+	return argon2.IDKey(
+		[]byte(passphrase), salt[:16], 1, 64*1024, 4, 32,
+	)
 }
 
-// DecryptWithMigration attempts to decrypt ciphertext with the current
-// argon2id-derived key. If that fails, it falls back to the legacy
-// SHA-256 key (v1). On a successful v1 decryption it returns the
-// plaintext along with reEncrypted — the same plaintext re-encrypted
-// under the new key — so the caller can update stored data.
+// DeriveKey derives a 32-byte key from a passphrase using argon2id
+// with the supplied per-deployment random salt. The salt must be
+// stable across restarts (persisted in sage.crypto_meta) so that keys
+// derived at startup match the keys used to encrypt prior records.
 //
-// If needsReEncrypt is true the caller should persist reEncrypted in
+// A random per-deployment salt prevents attackers with stolen
+// ciphertexts from amortizing dictionary attacks across multiple
+// pg_sage deployments that share a common passphrase.
+func DeriveKey(passphrase string, salt []byte) []byte {
+	if len(salt) < 8 {
+		// Enforce a minimum salt length to catch accidental zero-
+		// length salts; argon2.IDKey panics on nil so we want to
+		// fail loudly with a clear message instead.
+		panic(fmt.Sprintf(
+			"crypto.DeriveKey: salt too short (%d bytes); "+
+				"expected >= 8", len(salt)))
+	}
+	return argon2.IDKey([]byte(passphrase), salt, 1, 64*1024, 4, 32)
+}
+
+// NewKDFSalt generates a cryptographically random KDFSaltSize-byte
+// salt for persisting in sage.crypto_meta at first bootstrap.
+func NewKDFSalt() ([]byte, error) {
+	b := make([]byte, KDFSaltSize)
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		return nil, fmt.Errorf("crypto: generating kdf salt: %w", err)
+	}
+	return b, nil
+}
+
+// DecryptWithMigration attempts to decrypt ciphertext using the current
+// salted argon2id key. If that fails it falls back, in order, to the
+// legacy deterministic-salt argon2id key and then to the original
+// SHA-256 key. On a successful legacy decryption the plaintext is
+// returned along with reEncrypted — the same plaintext re-encrypted
+// under the current key — so the caller can persist the upgrade.
+//
+// If needsReEncrypt is true the caller must persist reEncrypted in
 // place of the original ciphertext.
 func DecryptWithMigration(
-	ciphertext []byte, passphrase string,
+	ciphertext []byte, passphrase string, salt []byte,
 ) (plaintext string, reEncrypted []byte, needsReEncrypt bool, err error) {
-	newKey := DeriveKey(passphrase)
+	newKey := DeriveKey(passphrase, salt)
 	plaintext, err = Decrypt(ciphertext, newKey)
 	if err == nil {
 		return plaintext, nil, false, nil
 	}
 
-	// Try legacy key.
-	oldKey := DeriveKeyV1(passphrase)
-	plaintext, err = Decrypt(ciphertext, oldKey)
-	if err != nil {
-		return "", nil, false, fmt.Errorf(
-			"decrypt: failed with both v2 and v1 keys: %w", err)
+	// Try deterministic-salt argon2id (v2 legacy).
+	v2Key := DeriveKeyV2Legacy(passphrase)
+	plaintext, err = Decrypt(ciphertext, v2Key)
+	if err == nil {
+		reEncrypted, encErr := Encrypt(plaintext, newKey)
+		if encErr != nil {
+			return "", nil, false, fmt.Errorf(
+				"decrypt: re-encrypt after v2 migration: %w", encErr)
+		}
+		return plaintext, reEncrypted, true, nil
 	}
 
-	// Re-encrypt under the new key.
+	// Try SHA-256 (v1 legacy).
+	v1Key := DeriveKeyV1(passphrase)
+	plaintext, err = Decrypt(ciphertext, v1Key)
+	if err != nil {
+		return "", nil, false, fmt.Errorf(
+			"decrypt: failed with v3, v2, and v1 keys: %w", err)
+	}
+
+	// Re-encrypt under the current key.
 	reEncrypted, err = Encrypt(plaintext, newKey)
 	if err != nil {
 		return "", nil, false, fmt.Errorf(

@@ -63,7 +63,7 @@ func (w *WebhookChannel) Send(
 	if err != nil {
 		return fmt.Errorf("webhook http post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

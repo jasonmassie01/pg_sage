@@ -1,5 +1,402 @@
 # Changelog
 
+## v1.4.0 (2026-07-23) -- Agent-Native Autonomy
+
+### Added
+
+- Standing-policy control plane (`sage.policy`): a declarative, validated
+  policy object is now the sole source of autonomous authority, with
+  `staffed` and `unattended` profiles, budget semantics where `0` means
+  "none" (never "unlimited"), fail-closed unknown classification, and
+  operator-gated propose/dry-run/ratify policy changes.
+- Single authorization gate: every autonomous mutation routes through
+  `policy.Gate` with fail-closed ordering, enforced guardrails, DDL
+  change-leases (advisory locks + `sage.change_lease`), and drift
+  reconciliation against `sage.schema_baseline`.
+- Evidence Ledger (`sage.decision`) recording every parked, recommended,
+  blocked, and executed decision, with a self-audit that re-opens
+  decisions when past fixes regress.
+- Verify-and-revert engine: per-query verification with no-gain,
+  regression, write-impact, and invalid-index reverts; adaptive windows
+  that extend then revert-to-safe on insufficient samples; a low-load
+  apply gate; and the coupling rule that nothing auto-applies unless it
+  can be auto-verified.
+- Verified index lifecycle: candidate generation, HypoPG pre-estimates,
+  concurrent builds under lease, and post-apply verification with
+  automatic revert.
+- Wraparound/bloat custodian and replication-slot/WAL guardian with
+  deterministic deadline math, graduated urgency, policy-gated deadline
+  overrides, slot bounding before dropping, and a consumer registry that
+  protects declared slots.
+- Rehearse-on-clone migration gate: lint-and-rewrite of hazardous DDL,
+  expand/contract planning, rehearsal on thin clones, bounded auto-revert
+  windows, and recommend-only degradation when no clone provider exists.
+- Pluggable `clone.Provider` with Database Lab Engine and
+  snapshot-restore adapters, including snapshot-freshness enforcement.
+- Agent-native schema custodian: invariant catalog (FK-without-index,
+  unbounded append tables, missing constraints), table contracts declared
+  over MCP, dry-run-first retention, and structural changes that never
+  auto-apply.
+- Intent-level MCP server (stdio JSON-RPC) whose every tool routes
+  through the same standing-policy gate; caller claims can never widen
+  authority.
+- DBA-hours-saved value model: table-driven `sage.toil_model`,
+  conservative `sage.incident_avoided` credit, verified-success-only
+  stamping with zero credit on revert, the `/api/v1/value` endpoint, and
+  Prometheus gauges `pg_sage_toil_minutes_saved_total` and
+  `pg_sage_incidents_avoided_total`.
+- Value view as the dashboard's default landing page, with telemetry
+  moved to a secondary Advanced view.
+- Fleet staged-rollout scaffolding for cohort canaries with per-instance
+  re-verification.
+
+### Changed
+
+- Replaced testify with a stdlib-only internal assertion library
+  (`internal/testsupport`), keeping the repo's no-testify convention.
+- DB-dependent tests now skip with an explicit reason when
+  `SAGE_TEST_DATABASE_URL` is not set instead of failing against a
+  sentinel address; with a database configured nothing skips.
+- Notification and config API tests are hardened against full-suite DB
+  contention (stable cleanup sweeps and bounded retries on transient
+  timeout signatures only).
+
+## v1.3.1 (2026-07-22) -- Correctness and Safety Audit Follow-up
+
+### Fixed
+
+- Restricted LLM model discovery to administrators and blocked SSRF through
+  private, loopback, metadata, redirected, or DNS-rebound provider endpoints.
+- Scoped LLM cooldowns to logical work items, counted provider timeouts toward
+  circuit health, and prevented local admission throttles from poisoning
+  optimizer table circuit breakers.
+- Enforced atomic per-database token budgets across optimizer, advisor, tuner,
+  briefing, RCA, narration, justification, schema lint, and migration clients.
+- Restored fleet health-history samples, initialized fleet and meta-database
+  ANALYZE concurrency limits, and made AgentDB collectors process-owned and
+  drainable instead of inheriting a short reconciliation context.
+- Initialized the general LLM runtime in meta-database mode and wired scoped
+  LLM clients through every per-database consumer.
+- Made executor policy reads race-free during configuration hot reload.
+- Corrected cron maintenance windows to honor month, day-of-month, and
+  day-of-week semantics before autonomous moderate-risk maintenance.
+- Applied transaction-local statement and lock timeouts to collector catalog
+  reads, including early-error cleanup of pooled transactions.
+- Added safe on-demand EXPLAIN capture for normalized parameterized queries.
+- Clarified that interactive ReAct diagnosis belongs to the frozen C extension,
+  not the Go sidecar, and made generated lifecycle documentation byte-stable.
+
+## v1.3 (2026-07-19) -- Correctness and Safety Remediation
+
+### Fixed
+
+- Corrected the v1.2 execution-gate coupling: `execution_mode: manual` now
+  disables all background queueing and execution at every trust level. Trust
+  is an independent ceiling and never promotes manual mode to auto.
+- Unified live execution, approval queueing, Cases policy, and fleet readiness
+  on typed action contracts. Per-database executor disablement and Emergency
+  Stop are hard gates, and live actions reauthorize immediately before SQL.
+- Made runtime configuration immutable, generation-based, strict, and
+  compare-and-swap protected. Meta mode owns durable control state; YAML fleet
+  settings and membership are visible but explicitly read-only in the UI.
+- Added prepare/swap/drain ownership for fleet lifecycle changes, reliable
+  watcher shutdown, bounded worker teardown, session-pinned advisory locks,
+  and race-free executor safety state.
+- Enforced fail-closed AgentDB policy ceilings, server-owned execution plans,
+  exact-operation authorization, leased monitoring claims, JIT credentials,
+  bounded monitoring concurrency, and paginated control APIs.
+- Corrected log offset ownership, LLM admission and budget accounting,
+  runaway and migration detectors, pooled-session cleanup, and immediate
+  reauthorization of every mutating operation.
+- Removed retired MCP claims, generated configuration lifecycle documentation,
+  reconciled AgentDB documentation, and corrected Docker and browser fixtures.
+- Isolated database tests per package, migrated and pinned golangci-lint v2,
+  restored parallel-safe CI, and raised every business package above 70%
+  coverage and every command utility to at least 50%.
+
+## v1.2 (2026-06-11) -- Autonomous DBA Core + LLM-Native Tier
+
+### Added
+
+- **Actions UI shows attempts + risk.** The executed-actions table now shows an Attempts column (how many times pg_sage tried an action — surfacing retries that were previously only in the log) and a Risk badge (safe/moderate auto-run; advisory is recommend-only).
+- **Restart from the UI.** Settings now shows that some settings (trust tiers,
+  maintenance window, execution mode, intervals) take effect only after a
+  restart, with a **Restart now** button. `POST /api/v1/restart` (admin) exits
+  with code 42; the launcher (and any orchestrator restart policy) relaunches
+  the process. Returns 501 if no supervisor is configured.
+- **Query store (F2):** `sage.query_store` records per-queryid metrics each
+  cycle, enabling *windowed* latency (pg_stat_statements only exposes lifetime
+  averages). Substrate for verify-and-revert and plan-regression detection.
+- **Per-queryid verify-and-revert (F1):** the executor's rollback check now
+  compares the targeted queries' before/after windowed latency instead of a
+  coarse global cache-hit/avg-write heuristic, so a change is reverted only if
+  the queries it targeted actually regressed.
+- **Index lifecycle (A2):** optimizer index recommendations now carry their
+  analyzed queryids, so F1 verifies a newly-created index and drops it (via its
+  `DROP INDEX` rollback) if a targeted query regresses; combined with the
+  existing measured-non-use auto-drop.
+- **Per-table autovacuum tuning (A1), ANALYZE / stale-statistics autopilot
+  (A4), and wraparound-freeze guard (A6)** — deterministic SAFE/critical
+  maintenance actions with rollback.
+- **Doc-grounded config tuning (A3):** a curated GUC knowledge base grounds the
+  advisor's LLM recommendations in documented semantics and gates any
+  `ALTER SYSTEM` value outside the documented safe range.
+- **Plain-English action justification (C4):** every executed action gets an
+  LLM-written audit note in `sage.action_log.justification`.
+- **Plan-change narrative (C6):** `plan_regression` findings are enriched with
+  an LLM "why did the plan change" explanation.
+- **AgentDB fleet integration (B1)**, lifecycle reconciler scheduling (F4), and
+  fleet LLM token-budget enforcement (F5).
+- `llm.UnwrapText` strips `json_mode` JSON wrapping from prose audit
+  notes/narratives.
+
+### Changed
+
+- **Self-monitoring:** pg_sage now sets `pg_stat_statements.track = none` on
+  its own connections (best-effort, superuser only), so its monitoring queries
+  are never recorded and no longer pollute the user's `pg_stat_statements`. As
+  a fallback for restricted roles, every query pg_sage issues also carries a
+  `/* pg_sage */` marker and the self-monitoring filter excludes both the
+  marker and any `sage.`-schema query from analysis.
+- `isThinkingModel` now covers the `gemini-3.x` series (reserves output-token
+  budget for thinking models, e.g. `gemini-3.5-flash`).
+- **Autonomy gate coupling:** raising the trust level to advisory/autonomous
+  now opens the execution gate. A `manual` execution_mode combined with a
+  non-observation trust level was a silent contradiction (the "turned on
+  autonomous, nothing happened" trap); the executor now treats that as `auto`
+  (still gated by trust tier, ramp age, and the maintenance window). Works live
+  and across restart, since trust level persists in `sage.config`.
+- **Maintenance windows are no longer cron-only.** The window accepts friendly
+  forms: presets (`nights`, `weeknights`, `weekends`, `off-hours`,
+  `business-hours`, `always`, `never`) and day-qualified ranges
+  (`weekdays 01:00-05:00`, `Sat-Sun 02:00-06:00`, `Mon,Wed,Fri 22:00-04:00`),
+  alongside the existing `HH:MM-HH:MM` and cron syntax.
+
+### Fixed
+
+- **Config reloads can execute.** `SELECT pg_reload_conf()` is now on the
+  executor's SELECT allowlist, so the apply-step after an autonomous
+  `ALTER SYSTEM` actually takes effect instead of failing validation.
+- **No more orphan reload findings.** When an advisor recommendation bundles
+  `ALTER SYSTEM ...; SELECT pg_reload_conf();`, the reload (an apply
+  mechanism the executor performs itself) is dropped from the statement
+  split rather than becoming its own unexecutable finding.
+- **Optimizer index recommendations auto-execute.** LLM index recs
+  (missing/composite/covering/GIN/HNSW) are now deterministically classified
+  `moderate` — `CREATE INDEX CONCURRENTLY` is online and reversible — so
+  they run autonomously under the moderate trust gate instead of being
+  stuck advisory behind the LLM's self-rated `high_risk`. Index DROPs keep
+  their conservative rating.
+- **GIN/HNSW DDL passes validation.** The column-existence check now strips
+  operator-class specifiers (`payload jsonb_path_ops`,
+  `embedding vector_l2_ops`) instead of rejecting them as nonexistent
+  columns.
+- **Optimizer indexes no longer self-destruct.** The INCLUDE-upgrade path
+  consumed `drop_ddl` — which doubles as the new index's own rollback — and
+  dropped the index it had just created. A self-reference guard now skips
+  the upgrade drop when it targets the newly created index; rollback remains
+  the job of the post-action monitor.
+- **Subset-index drops are advisory now.** A leading-prefix "subset" index
+  (`(c1)` covered by `(c1, c2)`) is no longer auto-dropped — it's a judgment
+  call (read-perf trade-off, and apps that re-create their own indexes turn an
+  auto-drop into churn). It's surfaced as info/advisory; exact-duplicate index
+  drops remain automatic.
+- **Multi-statement config recommendations are split.** An advisor
+  recommendation carrying several `ALTER SYSTEM` statements (e.g. WAL tuning) is
+  split into one atomic, individually-validated action per parameter, instead
+  of being rejected by the executor as multi-statement SQL.
+- **Resume now works after a restart.** Resuming reconciled only the in-memory
+  state, so after a restart (in-memory "running", persisted flag "stopped")
+  resume couldn't clear the persisted `emergency_stop`. It now always
+  reconciles the persisted flag.
+- **Anti-oscillation guard.** If pg_sage applies the same successful action
+  to an object repeatedly (e.g. dropping an index an app keeps re-creating),
+  it now backs off after a few cycles and marks the finding acted-on, instead
+  of churning drop→recreate→drop forever. The guard reads the action log, so it
+  survives restarts (the in-memory cascade cooldown did not). This fixes a
+  real runaway where thousands of duplicate-index drops accumulated against an
+  app-managed database.
+- **Config changes now take effect (and are cloud-aware).** Previously an
+  `ALTER SYSTEM` action wrote `postgresql.auto.conf` but never reloaded, so the
+  change silently never applied. The executor now: reloads (`pg_reload_conf`)
+  after a reload-only GUC on a self-managed server so it takes effect; marks a
+  restart-only GUC (`shared_buffers`, `max_connections`, …) as
+  `applied_pending_restart`; and on a **managed provider** (RDS/Aurora,
+  Cloud SQL/AlloyDB, Azure) skips `ALTER SYSTEM` entirely (it's blocked there)
+  and records that the change must be applied via the provider's parameter
+  group / database flags. The action log outcome now reflects whether a config
+  change is actually in effect.
+- **Retention:** `cleanStaleFirstSeen` no longer skips stale-key cleanup when
+  the index snapshot is empty (a regression from an over-broad safety guard).
+- **Cases:** pg_sage no longer surfaces its own monitoring queries as Cases.
+  The case projection now skips self-monitoring findings, and detection
+  recognizes pg_sage's statistics-catalog reads (`pg_stat_statements`,
+  `pg_stat_user_tables`, etc.) even in historical findings captured before
+  queries were tagged.
+- **Recommendation quality:**
+  - The connection advisor now sizes `max_connections` against *total* (open)
+    backends, not just active ones, with a hard deterministic floor — it can
+    no longer recommend a value below current usage (previously it could
+    suggest `max_connections = 20` on a database with 28 open connections).
+  - Index rules (unused / duplicate / subset / missing-FK) now skip system and
+    extension-internal schemas (`pg_*`, `information_schema`, `_timescaledb_*`),
+    so pg_sage no longer recommends dropping or creating indexes it has no
+    business touching (e.g. `_timescaledb_catalog` indexes).
+  - Subset-index detection now also requires the superset to serve the subset's
+    `INCLUDE` columns, so an index supporting an index-only scan isn't flagged
+    as redundant.
+  - Subset-index detection now only recommends dropping a narrow index when the
+    superset is a *close* replacement — at most ~2 extra key columns, not more
+    than ~3x the on-disk size, and not a heavily-used narrow index — so a `(c1)`
+    index is no longer replaced by a wide `(c1..c12)` one.
+
+## v1.1 (2026-05-10) -- AgentDB Cloud Provisioning Release
+
+### Added
+
+- AgentDB now supports gated live cloud provisioning paths for AWS RDS, GCP
+  Cloud SQL, and Databricks Lakebase branch workflows alongside local schema
+  and database provisioning.
+- Added LLM-required blueprint generation that turns English deployment intent
+  into typed AgentDB blueprints and draft Terraform templates for review.
+- Added Terraform upload/import review flow with static policy checks for
+  provider-specific shapes that change frequently across cloud vendors.
+- Added provider settings, custom size profiles, cloud field tooltips, and
+  compact AgentDB tabs for deployments, provisioning, profiles, provider
+  settings, Terraform, blueprints, and activity.
+- Added backup assurance, restore-verification gates, ping/token lifecycle,
+  TTL cleanup, cost samples, query tuning recommendation contracts, audit
+  export, and deploy-request promotion records for agent-owned databases.
+- Added a dedicated
+  [AgentDB Cloud Provider Setup](docs/runbooks/agentdb-cloud-provider-setup.md)
+  guide for AWS, GCP, Databricks, live safety gates, validation commands, and
+  cleanup evidence.
+
+### Changed
+
+- AgentDB provider documentation now reflects dry-run and gated live execution
+  instead of describing cloud providers as plan-only.
+- The AgentDB UI links directly to cloud setup guidance from provisioning,
+  provider settings, Terraform, and blueprint workflows.
+- Cloud provisioning requires explicit live gates, provider policy allowlists,
+  cost/TTL guardrails, and restore-verified backup evidence before destructive
+  live cleanup.
+
+### Fixed
+
+- Fixed bodyless AgentDB action requests that returned invalid request errors.
+- Fixed UI delete/lifecycle actions so archived deployments can run guarded
+  destroy flows when backup policy is satisfied.
+- Fixed cloud blueprint provisioning metadata so requested regions and provider
+  shape fields are preserved instead of silently falling back to defaults.
+- Fixed test login targeting for the `8085` sidecar and rebuilt the embedded UI.
+
+### Verification
+
+- `go test -cover -count=1 -p 1 ./...` passed from `sidecar`.
+- `npm test -- --run`, `npm run lint`, and `npm run build` passed from
+  `sidecar/web`.
+- `npx playwright test --workers=1` passed against `http://127.0.0.1:8085`;
+  provider-gated suites were intentionally skipped unless live flags were set.
+
+## v1 (2026-04-28) — Autonomous DBA Release
+
+> Published on GitHub `master` as tag `v1`. This release includes the
+> autonomous DBA feature slices, the prior verification bug pass tracked in
+> `docs/codex-bug-log.md`, the final provider-readiness contract updates, and
+> the admin/legacy workflow verification pass.
+
+### Functionality Change
+
+This release moves pg_sage further away from a passive observability dashboard and closer to an autonomous DBA workflow. Findings, incidents, migration risks, proposed actions, approval state, and execution history now behave more like a single operational case queue that a DBA can triage end to end. The goal is for pg_sage to preserve the full story around a database problem: what was detected, why it matters, what the system recommends, what action was proposed, whether a human approved or rejected it, and what happened after execution.
+
+The action lifecycle is now more deterministic and safer under real operating conditions. Proposed actions are filtered when their source finding has already been resolved, successful executions close the loop back to the finding, rejected actions observe cooldowns, and stale or duplicate create-index work is suppressed before it can create noise or risk. This matters because autonomous database work cannot rely on optimistic UI state alone; every action needs fresh evidence, an auditable state transition, and guardrails that prevent the system from repeatedly proposing or executing work that has already been handled.
+
+Fleet behavior was tightened across settings, detail lookups, action execution, incident resolution, and managed database editing. In multi-database mode, pg_sage now requires explicit database targeting for mutations and ambiguous detail reads, refreshes runtime state after managed database changes, and keeps selected-database configuration separate from global configuration. These changes are intentionally conservative: once a product can operate across a fleet, wrong-database reads or writes become one of the highest-risk failure modes, so v1 prioritizes precise scoping over convenience.
+
+The release also adds more trust-building surface for teams evaluating autonomy. Provider readiness, shadow-mode reporting, durable LLM cooldown tracking, migration safety cases, and incident playbook actions give operators a clearer view of what pg_sage can do, what is blocking it, and what it would have done before automation is enabled. The reasoning behind these additions is adoption-oriented: DB teams are more likely to trust autonomous execution when the product can first prove avoided toil, expose its constraints, and show a reliable decision trail.
+
+### Added
+
+- Cases now consolidate schema-health, forecast, incident, and query-hint work into one DBA case surface. Legacy `#/schema-health`, `#/forecasts`, `#/incidents`, and `#/query-hints` routes now open Cases with the relevant source filter selected, while the Cases API projects active/broken query hints as case evidence alongside existing findings and incidents.
+- Migration-safety cases now include a deterministic DDL preflight report and PR/CI-ready script output. Case and action detail surfaces show lock/rewrite risk, live-risk checks when available, generated migration SQL, rollback or forward-fix guidance, verification SQL, and PR metadata without directly executing high-risk DDL.
+- Incident playbook automation now covers runaway queries, connection exhaustion, WAL/replication risk, and sequence exhaustion in addition to lock blockers and idle-in-transaction incidents. Low-risk playbooks emit read-only diagnostics, PID actions still require exact PID evidence and approval, and sequence capacity work is generated as a forward-fix migration script instead of direct execution.
+- Vacuum, bloat, and freeze cases now project explicit autopilot candidates. Table-bloat findings can propose guarded `VACUUM`, IO-saturated bloat cases are blocked to script/review output, XID wraparound findings get freeze-blocker diagnostics, and per-table autovacuum tuning produces PR/CI-ready reloption scripts with verification SQL.
+- Query tuning now extends beyond `pg_hint_plan` hints. Suggested rewrites become PR-ready query rewrite artifacts with semantic and plan verification, broken hints can be retired through a safe metadata action, and repeated per-role `work_mem` hints can be promoted to reviewed role-level configuration changes.
+- Provider readiness now uses provider-specific capability adapters for self-managed Postgres, Cloud SQL, AlloyDB, RDS, and Aurora. The readiness matrix exposes extension enablement paths, log-access expectations, provider limitations, and the expanded action family support instead of treating every Postgres endpoint as operationally identical.
+- DDL safety preflight now records live-risk checks for table size, active workload, pending locks, replica lag, and lock-timeout configuration. High-warning live preflight output blocks direct execution and keeps the action in reviewed PR/script mode.
+- Incident and maintenance coverage now adds autovacuum-falling-behind, standby-conflict, blocked-vacuum, concurrent reindex, bloat-remediation planning, `CREATE STATISTICS`, and parameterized-query action families, each with typed contracts and verification plans.
+- Provider readiness now exposes the expanded action-family detail in the UI, including `ddl_preflight` and standby-conflict diagnostics, so operators can see exactly which autonomous capabilities are blocked, observable, script-only, or executable for each provider.
+- Admin and legacy workflows were rechecked for v1: Users, Notifications, Fleet add/edit/import surfaces, Database and Alerts empty states, command palette navigation, not-found handling, and legacy `#/findings`, `#/schema-health`, `#/query-hints`, `#/forecasts`, and `#/incidents` routes.
+
+### Fixed
+
+- Fleet incident, finding, and action detail endpoints could scan all pools by ID and return the first matching row, so duplicate IDs across databases could surface the wrong record. Detail endpoints now require an explicit `?database=` in multi-pool fleet mode, while still allowing implicit lookup when exactly one database is registered.
+- Successful recommendation actions left source findings open, so the UI could continue to offer the same action. Successful action execution now marks linked findings resolved and stores the action log id.
+- Rejected recommendations could immediately reappear as pending approvals. Approval mode now suppresses recently rejected finding/SQL pairs during the cooldown window.
+- Pending approval counts did not update live. SSE now emits action events from both `sage.action_queue` and `sage.action_log`, and the layout subscribes to refresh pending counts.
+- Recommendations could still show manual action controls while a matching approval was pending. The UI now hides duplicate manual action controls when pending approvals exist.
+- Emergency Stop cancelled monitoring goroutines, and Resume could not restart them. Emergency Stop now gates actions without cancelling monitoring, so Resume restores operation.
+- Several bodyless UI `POST` calls were rejected with HTTP 415 because they omitted `Content-Type: application/json`. Fixed emergency stop/resume, notification test-send, DB test, incident resolve, and token budget reset call sites.
+- Managed database edits updated `sage.databases` but did not refresh the active fleet runtime instance. Updates now remove the old runtime name and register the updated record.
+- Managed database updates against missing ids could report an internal readback failure instead of not found. Store updates now check affected rows and the API maps missing records to 404.
+- Notification channel toggles could persist masked secrets returned by the list API, corrupting Slack webhooks, PagerDuty routing keys, or email passwords. Store updates now preserve existing real secrets when masked placeholders are replayed, and API masking covers `smtp_pass`.
+- Notification channel/rule update and delete calls reported success for missing ids, and rule creation relied on database FK errors for missing channels. Notification stores now return not-found/validation errors deterministically and handlers map them to 404/400.
+- Notification channel updates treated omitted `enabled`, `name`, or `config` fields as false/empty values, so partial clients could accidentally disable or invalidate channels. The update handler now preserves existing omitted fields.
+- Admin users could demote themselves or demote the last admin, potentially leaving the system with no administrator. The API now forbids self admin-role changes and last-admin demotion; the Users UI disables those controls.
+- Edit Database `Test Connection` tested the saved connection instead of unsaved form edits. The edit form now submits current fields, and the backend merges the stored password when the password field is left blank.
+- Edit Database `Test Connection` with unsaved preview fields bypassed the SSRF host guard used by Add Database testing. Preview edit tests now resolve and block unsafe hosts through the same safety path.
+- Editing a managed database could send `max_connections` as a string from the UI, failing JSON decode into the Go integer field. The form now coerces `max_connections` numerically like `port`.
+- The edit-form SSRF guard initially blocked testing an already-managed local/private database host, breaking legitimate local fixture edits. Edit tests now allow the stored managed host while still blocking unsafe host changes.
+- Settings always saved global config, even when a specific database was selected. Fleet status now exposes database ids, Settings maps the selected database name to id, and selected-database edits use `/api/v1/config/databases/{id}`.
+- Global Settings exposed `execution_mode` as an editable field even though global saves discarded it. The global UI now marks execution mode as database-only, while selected-database Settings can edit and persist it.
+- `GET /api/v1/config/databases/{id}` returned config for nonexistent ids and defaulted null `execution_mode` to `manual`. It now returns 404 for missing databases and uses the managed DB default `approval`.
+- Saved per-database config overrides could not be reset from Settings. A per-database override delete endpoint now removes stored DB overrides, and the Settings reset button calls it for DB overrides.
+- Per-database `trust.level` reset removed the stored override but did not update the running fleet executor/status. Reset now synchronizes the effective inherited trust level back into runtime state.
+- Multi-key config saves could partially persist earlier keys before later validation failures returned 400. Config batch saves now prevalidate all keys before writing any overrides.
+- LLM model discovery could write a masked `llm.api_key` back into global config and ignored selected database scope. Discovery now uses a non-persistent model-discovery request and skips masked keys.
+- `/api/v1/explain` accepted viewer-role requests even though it can run database queries. The route now requires operator-or-admin access and has API coverage for valid and invalid explain requests.
+- Parameterized explain requests interpolated caller-supplied parameter strings directly into `EXPLAIN EXECUTE`. Parameters are now emitted as escaped SQL literals, with NUL bytes rejected as invalid input.
+- Incident resolution from the UI sent an empty JSON request despite the API requiring a JSON body, so resolving incidents could fail with HTTP 400. The UI now sends `{ "reason": "" }`.
+- Incident confidence never rendered because the API returns `confidence` but the UI read `confidence_score`. The incident detail drawer now renders the API field.
+- Fleet-wide Query Hints, Incidents, and Action History read only the primary database for all-database views, hiding secondary database rows. These handlers now merge all registered pools, include `database_name`, sort deterministically, and apply global limits where needed.
+- Action details searched only the primary database. Detail lookup now searches all pools so secondary-database action history rows are reachable.
+- Manual action execution accepted any valid SQL for any numeric finding id, including missing, resolved, or mismatched findings. Execution now verifies the finding is open/unresolved and the SQL matches the recommendation before running DDL.
+- Pending action lists and counts could expose queue rows for findings already resolved by another action, leading users to approve stale actions that could not safely run. Pending action queries and approval now require the linked finding to still be open and actionable.
+- Fleet suppress/unsuppress without `?database=` could mutate the first matching finding id by map-order scan across databases. Mutations now require a database when more than one instance exists and only allow implicit targeting for a single connected instance.
+- Emergency stop/resume returned 200 with zero changes for unknown database names and ignored persistence errors from writing the stop flag. Handlers now return 404 for unknown databases and surface persistence failures instead of reporting success.
+- Fleet Health chart used raw database aliases as Recharts `dataKey` values. Aliases containing dots could be interpreted as object paths and fail to render; the chart now uses safe internal series keys and display names separately.
+- Schema Health applied status/severity/category filters to the table but not to the summary stats, so the summary could contradict the visible rows. Stats now use the same filters, and the summary label now describes matching findings rather than always saying open findings.
+- Query Hints treated missing `after_cost` as zero due JavaScript null coercion, creating fake 100% cost improvements. Cost improvement and average improvement now require both before and after costs.
+- Query Hints lifecycle states existed (`retired`, `broken`) but `/api/v1/query-hints` only returned active rows, making the UI Status column misleading and hiding revalidation outcomes. The endpoint now returns recent hints across statuses by default and supports `status=active|retired|broken` filtering.
+- Schema Health could not filter the `safety` thematic category even though the backend schema linter emits it. The category dropdown now includes safety, and live coverage verifies expanded rows show impact, recommendation, and suggested SQL.
+- Fleet Health chart series keys were safe for dotted aliases but still depended on unsorted response object order, so series key-to-database mapping could shift between refreshes. Series are now sorted deterministically, and live coverage verifies chart rendering from seeded `health_history` rows across all three local databases.
+- Incidents accepted `low`, `medium`, and `high` risk values plus newer source values, but the UI only labeled the older `safe`, `moderate`, and `high_risk` variants. The detail drawer now labels all valid risk/source values.
+- Viewer users were shown the Pending Approval tab and the Actions page fetched operator-only pending approvals, causing forbidden requests for read-only users. Pending-review UI and polling now render only for admin/operator roles, with live viewer/operator boundary coverage.
+- Notification channel UI did not expose PagerDuty even though the backend supports it, and selecting unsupported types would fall through to the email form shape. The Channels form now exposes PagerDuty with a routing-key field and stable browser-test selectors for all channel types.
+- Notification masked-secret preservation now has browser-level coverage: creating a Slack channel through the UI, receiving a masked webhook from the API, toggling the channel from the UI, and verifying the database still stores the original webhook rather than the masked placeholder.
+- Existing managed database connection tests in YAML fleet mode tried to decrypt the `sage.databases.password_enc` placeholder even though runtime credentials live in the fleet instance config. The endpoint now uses fleet runtime credentials for fleet-registered rows and only reports 404 for actual missing database records.
+- Managed Database edit-form connection testing now has browser-level coverage for unsaved field changes and empty password fallback, including a failing unsaved database name followed by a successful retry without saving.
+- Managed Database API/UI edits did not round-trip `max_connections`; saving from the UI could overwrite a configured fleet limit with `0`. The API now returns and accepts `max_connections`, defaults absent values safely, and the UI includes the field.
+- In local YAML fleet mode, saving a managed database edit could close the primary fleet pool, which is also captured for auth and catalog storage, causing subsequent logins/API calls to hang or fail. No-meta fleet edits now refresh runtime metadata in place without closing the primary pool, with browser coverage for saved edits updating runtime trust state.
+- Background/live refetches set `loading=true` even when data was already rendered, unmounting tables and collapsing/detaching expanded finding action panels while a user was approving or rejecting queued work. `useAPI` now keeps existing data mounted during background refetches and only shows loading on initial load or URL changes.
+- Local no-meta fleet mode exposed Add Database even though new database credentials cannot be encrypted without an `encryption_key`, causing a 500. The store now returns a validation error, and browser coverage verifies the UI surfaces the `encryption_key` requirement.
+- Global Settings reset could not remove global overrides correctly because hot reload mutated the live config and the API no longer had an immutable YAML/default baseline to restore from. Config routes now keep a detached baseline snapshot, expose `DELETE /api/v1/config/global/{key}`, reload live config from baseline plus remaining overrides, and the Settings UI can reset global overrides.
+- The full-surface fixture did not include a deterministic invalid-index case and only printed finding summaries. The fixture now creates a failed concurrent unique index, asserts expected analyzer categories, schema-lint rule IDs, and active query hints across all three local databases, and polls until the expected surface appears.
+- The legacy serial walkthrough could not run against local Docker fixtures without hardcoded database credentials and failed strict-mode locators when multiple finding detail/suppress controls were visible. The walkthrough now supports fixture DB credential env vars, has an encrypted meta-db config for add/edit/delete flows, and scopes duplicate UI controls to the first visible target.
+- The encrypted walkthrough fixture was still a manual setup sequence. `run_walkthrough_fixture.ps1` now provisions isolated meta/target databases, seeds the fixture schema, starts the encrypted sidecar, resets the admin password, runs the 124-check walkthrough, and can restore the standard full-surface sidecar afterward.
+- The long walkthrough used Playwright serial mode, so one failed checkpoint skipped every later check and hid independent endpoint/UI regressions. The global serial mode is now removed; the wrapper still runs the file with one worker to preserve fixture ordering, but later checks continue after failures.
+- Successful create-index approvals could be followed by a stale analyzer cycle reopening the same missing-index finding as a new open row. Finding upserts now suppress immediate reopen of recently action-resolved findings while still allowing genuinely unresolved issues to reappear after the grace window.
+- Stale or parallel create-index approvals could execute after an equivalent index already existed, creating duplicate indexes with auto-generated names. Manual/approved create-index execution now checks for an existing valid covering index before running DDL and records the action as successful without creating another index.
+- Action lifecycle verification only checked row presence in browser tests. The full-surface harness now verifies pending rows across all three local databases, approve execution, rejected queue removal, executed action logs, resolved finding links, and no post-refresh missing/duplicate-index noise.
+- Failed `CREATE INDEX CONCURRENTLY` attempts could leave invalid autogenerated index stubs that blocked the next approval of the same recommendation. Create-index execution now drops invalid covering index blockers before retrying the DDL.
+- Transient lock timeouts during approved `CREATE INDEX CONCURRENTLY` actions could fail the UI workflow and leave an invalid index stub. Create-index execution now retries lock-timeout failures and cleans invalid blockers between attempts.
+- Mutating action browser specs selected the first available pending create/drop action, so parallel runs could contend for the same database/object depending on queue order. The specs now use disjoint deterministic database/action targets.
+- The full-surface high-total-time fixture used a PL/pgSQL loop that pg_stat_statements counted as one call, making the `high_total_time` category intermittent. The workload now uses psql `\gexec` so the high-frequency query is recorded as thousands of real calls.
+- Incident resolve mutations in a multi-database fleet could resolve the first matching incident UUID by pool order when the UI did not send a database target. Resolve now requires an explicit database when multiple pools are connected, the UI sends the row database, and duplicate incident UUID coverage verifies only the selected database is mutated.
+- Incident listing for a selected fleet alias could drop rows whose stored `database_name` was the physical PostgreSQL database name, and the UI could then resolve against that physical name instead of the fleet alias. Incident list responses now include `fleet_database_name` for mutations, and selected-pool listing no longer filters rows by alias.
+- Last-admin demote/delete checks were split from the mutation, so concurrent requests could both pass a stale admin count and leave the system without an admin. User role changes and deletes now run in a locked transaction with DB-backed concurrency coverage.
+
 ## v0.8.5 (2026-04-12) — Hint Lifecycle, Stale-Stats ANALYZE, Security Hardening, Full Test Sweep
 
 > 91 files changed across the sidecar. 17,016 lines added. 3,480 Go tests + 44 Playwright e2e tests across 6 spec files. Zero skips, zero failures. This is the most thoroughly tested release pg_sage has shipped.

@@ -3,12 +3,14 @@ package alerting
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/schema"
 )
 
 func noopLog2(_ string, _ string, _ ...any) {}
@@ -19,8 +21,7 @@ func noopLog2(_ string, _ string, _ ...any) {}
 
 func connectAlertTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
+	dsn := os.Getenv("SAGE_DATABASE_URL")
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Skipf("DB unavailable: %v", err)
@@ -28,6 +29,10 @@ func connectAlertTestDB(t *testing.T) *pgxpool.Pool {
 	if err := pool.Ping(context.Background()); err != nil {
 		pool.Close()
 		t.Skipf("DB ping failed: %v", err)
+	}
+	if err := schema.Bootstrap(context.Background(), pool); err != nil {
+		pool.Close()
+		t.Fatalf("bootstrap alerting test schema: %v", err)
 	}
 	return pool
 }
@@ -60,7 +65,7 @@ func TestPhase2_Evaluate_NoRoutes(t *testing.T) {
 		// If sage.findings doesn't exist, skip gracefully.
 		if strings.Contains(err.Error(), "does not exist") ||
 			strings.Contains(err.Error(), "relation") {
-			t.Skipf("sage.findings not available: %v", err)
+			t.Fatalf("isolated fixture missing sage.findings: %v", err)
 		}
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -85,7 +90,7 @@ func TestPhase2_Evaluate_DispatchesToChannels(t *testing.T) {
 		uniqueObj)
 	if err != nil {
 		if strings.Contains(err.Error(), "does not exist") {
-			t.Skipf("sage.findings not available: %v", err)
+			t.Fatalf("isolated fixture missing sage.findings: %v", err)
 		}
 		t.Fatalf("insert finding: %v", err)
 	}
@@ -165,7 +170,7 @@ func TestPhase2_QueryFindings_ReturnsResults(t *testing.T) {
 		uniqueObj)
 	if err != nil {
 		if strings.Contains(err.Error(), "does not exist") {
-			t.Skipf("sage.findings not available: %v", err)
+			t.Fatalf("isolated fixture missing sage.findings: %v", err)
 		}
 		t.Fatalf("insert: %v", err)
 	}
@@ -210,7 +215,7 @@ func TestPhase2_QueryFindings_FutureSince(t *testing.T) {
 	findings, err := m.queryFindings(context.Background(), since)
 	if err != nil {
 		if strings.Contains(err.Error(), "does not exist") {
-			t.Skipf("sage.findings not available: %v", err)
+			t.Fatalf("isolated fixture missing sage.findings: %v", err)
 		}
 		t.Fatalf("queryFindings: %v", err)
 	}
@@ -253,7 +258,7 @@ func TestPhase2_Evaluate_EmptyFindings_UpdatesLastCheck(
 	err := m.evaluate(context.Background())
 	if err != nil {
 		if strings.Contains(err.Error(), "does not exist") {
-			t.Skipf("sage.findings not available: %v", err)
+			t.Fatalf("isolated fixture missing sage.findings: %v", err)
 		}
 		t.Fatalf("evaluate: %v", err)
 	}
@@ -292,7 +297,7 @@ func TestPhase2_Evaluate_NoChannelForSeverity(t *testing.T) {
 		uniqueObj)
 	if err != nil {
 		if strings.Contains(err.Error(), "does not exist") {
-			t.Skipf("sage.findings not available: %v", err)
+			t.Fatalf("isolated fixture missing sage.findings: %v", err)
 		}
 		t.Fatalf("insert: %v", err)
 	}
@@ -451,8 +456,28 @@ func TestPhase2_LogAlert_Integration(t *testing.T) {
 			  AND table_name = 'alert_log'
 		)`).Scan(&exists)
 	if err != nil || !exists {
-		t.Skipf("sage.alert_log not available")
+		t.Fatalf("isolated fixture missing sage.alert_log: %v", err)
 	}
+
+	uniqueObj := fmt.Sprintf("test_log_alert_%d", time.Now().UnixNano())
+	var findingID int64
+	err = pool.QueryRow(context.Background(),
+		`INSERT INTO sage.findings
+			(category, severity, title, object_type,
+			 object_identifier, status, last_seen, detail)
+		 VALUES
+			('test_phase2_log_alert', 'warning',
+			 'Phase2 Log Alert Finding',
+			 'table', $1, 'open', now(), '{}'::jsonb)
+		 RETURNING id`,
+		uniqueObj).Scan(&findingID)
+	if err != nil {
+		t.Fatalf("insert finding: %v", err)
+	}
+	defer func() {
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM sage.findings WHERE id=$1`, findingID)
+	}()
 
 	var loggedErr string
 	logFn := func(_ string, msg string, args ...any) {
@@ -462,12 +487,11 @@ func TestPhase2_LogAlert_Integration(t *testing.T) {
 	m := New(pool, ManagerConfig{}, nil, logFn)
 	m.logAlert(
 		context.Background(),
-		1, "warning", "test_channel", "test:key", "sent", "",
+		findingID, "warning", "test_channel", "test:key", "sent", "",
 	)
 
 	if loggedErr != "" {
-		t.Skipf("logAlert insert failed (schema mismatch): %s",
-			loggedErr)
+		t.Fatalf("logAlert insert failed: %s", loggedErr)
 	}
 
 	// Verify the row was inserted.

@@ -197,6 +197,9 @@ sage_collect_stat_statements(void)
             "JOIN pg_database d ON d.oid = s.dbid "
             "WHERE d.datname = current_database() "
             "  AND s.queryid IS NOT NULL "
+            "  AND COALESCE(s.query, '') NOT ILIKE '%pg_sage%' "
+            "  AND COALESCE(s.query, '') !~* "
+            "      '(^|[^[:alnum:]_])(\"?sage\"?)[[:space:]]*[.]' "
             "ORDER BY total_exec_time DESC "
             "LIMIT 500",
             0);

@@ -11,13 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// DSN targets the Docker PG17 container with pg_hint_plan 1.7.1.
-// Override with HINT_TEST_DSN env var.
+// testDSN uses the package-isolated database on the designated test server.
 func testDSN() string {
-	if v := os.Getenv("HINT_TEST_DSN"); v != "" {
-		return v
-	}
-	return "postgres://postgres:postgres@127.0.0.1:5435/hint_test?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 func setupPool(t *testing.T) (*pgxpool.Pool, context.Context) {
@@ -109,6 +105,24 @@ func planContains(plan, substr string) bool {
 	return strings.Contains(
 		strings.ToLower(plan), strings.ToLower(substr),
 	)
+}
+
+// requireHintPlan skips the test when pg_hint_plan is not installed.
+// Tests that depend on hint directives (/*+ ... */) or the hint_plan.hints
+// table cannot verify behavior otherwise — PG silently treats directives as
+// comments, producing misleading planner output.
+func requireHintPlan(ctx context.Context, pool *pgxpool.Pool, t *testing.T) {
+	t.Helper()
+	var installed bool
+	err := pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_hint_plan')`,
+	).Scan(&installed)
+	if err != nil {
+		t.Skipf("pg_hint_plan check failed: %v", err)
+	}
+	if !installed {
+		t.Skip("pg_hint_plan extension not installed on target PG")
+	}
 }
 
 // bootstrap creates test tables with enough data to produce
@@ -395,6 +409,7 @@ func TestHint_HashSpill(t *testing.T) {
 // Hint forces Hash Join.
 func TestHint_BadNestedLoop(t *testing.T) {
 	pool, ctx := setupPool(t)
+	requireHintPlan(ctx, pool, t)
 	bootstrap(ctx, pool, t)
 
 	// Force nested loop for baseline
@@ -653,6 +668,7 @@ func TestHint_MissingFKIndex(t *testing.T) {
 // (the way pg_sage tuner does it) actually affect query plans.
 func TestHint_HintTableIntegration(t *testing.T) {
 	pool, ctx := setupPool(t)
+	requireHintPlan(ctx, pool, t)
 	bootstrap(ctx, pool, t)
 
 	// We need a single connection for session-level settings
@@ -753,6 +769,7 @@ func TestHint_HintTableIntegration(t *testing.T) {
 // Case 11: MergeJoin hint — force merge join instead of hash/nested
 func TestHint_MergeJoin(t *testing.T) {
 	pool, ctx := setupPool(t)
+	requireHintPlan(ctx, pool, t)
 	bootstrap(ctx, pool, t)
 
 	query := `SELECT o.id, l.qty
@@ -784,6 +801,7 @@ func TestHint_MergeJoin(t *testing.T) {
 // Case 12: NoSeqScan + NoHashJoin — combined hint enforcement
 func TestHint_CombinedHints(t *testing.T) {
 	pool, ctx := setupPool(t)
+	requireHintPlan(ctx, pool, t)
 	bootstrap(ctx, pool, t)
 
 	query := `SELECT c.name, count(o.id)

@@ -170,9 +170,9 @@ func TestShouldExecute_AllCombinations(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &config.Config{
 				Trust: config.TrustConfig{
-					Level:         tc.trustLevel,
-					Tier3Safe:     tc.tier3Safe,
-					Tier3Moderate: tc.tier3Moderate,
+					Level:             tc.trustLevel,
+					Tier3Safe:         tc.tier3Safe,
+					Tier3Moderate:     tc.tier3Moderate,
 					MaintenanceWindow: tc.maintWindow,
 				},
 			}
@@ -434,8 +434,8 @@ func TestIsLockNotAvailable(t *testing.T) {
 
 func TestActionOutcome_Success(t *testing.T) {
 	got := actionOutcome(nil)
-	if got != "pending" {
-		t.Errorf("actionOutcome(nil) = %q, want %q", got, "pending")
+	if got != "monitoring" {
+		t.Errorf("actionOutcome(nil) = %q, want %q", got, "monitoring")
 	}
 }
 

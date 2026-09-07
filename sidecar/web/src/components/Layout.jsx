@@ -1,53 +1,54 @@
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useContext, useState, useEffect } from 'react'
 import {
-  AlertTriangle, Activity, Bell, Settings,
-  Home, TrendingUp, Zap, Users, LogOut, Mail, Server,
-  ShieldAlert,
+  AlertTriangle, Activity, Settings,
+  Bot, Home, LogOut, Server, ShieldAlert, Menu, X, ChevronDown,
 } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
 import { useAPI } from '../hooks/useAPI'
+import { useLiveRefetch } from '../hooks/useLiveEvents'
+import { TimeRangePicker } from './TimeRangePicker'
+import { TrustBadge } from './TrustBadge'
+
+const PendingActionsContext = createContext({ refetch: () => {} })
+
+export function usePendingActionsRefetch() {
+  return useContext(PendingActionsContext).refetch
+}
 
 const NAV_GROUPS = [
   {
-    heading: 'Monitor',
+    heading: 'Operate',
     items: [
-      { path: '#/', icon: Home, label: 'Dashboard',
-        tid: 'nav-dashboard' },
-      { path: '#/findings', icon: AlertTriangle,
-        label: 'Recommendations', tid: 'nav-findings' },
+      { path: '#/', icon: Home, label: 'Value',
+        tid: 'nav-value' },
+      { path: '#/cases', icon: AlertTriangle,
+        label: 'Cases', tid: 'nav-cases',
+        aliases: ['#/findings'] },
       { path: '#/actions', icon: Activity, label: 'Actions',
         tid: 'nav-actions' },
-    ],
-  },
-  {
-    heading: 'Analyze',
-    items: [
-      { path: '#/forecasts', icon: TrendingUp,
-        label: 'Forecasts', tid: 'nav-forecasts' },
-      { path: '#/query-hints', icon: Zap, label: 'Performance',
-        tid: 'nav-query-hints' },
-      { path: '#/alerts', icon: Bell, label: 'Alerts',
-        tid: 'nav-alerts' },
-    ],
-  },
-  {
-    heading: 'Configure',
-    items: [
-      { path: '#/settings', icon: Settings, label: 'Settings',
-        tid: 'nav-settings' },
+      { path: '#/agent-dbs', icon: Bot, label: 'Agent DBs',
+        tid: 'nav-agent-dbs' },
       { path: '#/manage-databases', icon: Server,
-        label: 'Databases', admin: true,
+        label: 'Fleet', admin: true,
         tid: 'nav-databases' },
-      { path: '#/notifications', icon: Mail,
-        label: 'Notifications', admin: true,
-        tid: 'nav-notifications' },
-      { path: '#/users', icon: Users, label: 'Users',
-        admin: true, tid: 'nav-users' },
+      { path: '#/settings', icon: Settings, label: 'Settings',
+        admin: true, tid: 'nav-settings' },
     ],
   },
 ]
 
+const ADVANCED_ITEMS = [
+  { path: '#/advanced/findings', label: 'Findings explorer' },
+  { path: '#/advanced/actions', label: 'Action history' },
+  { path: '#/advanced', label: 'Snapshot & metrics' },
+]
+
 /* Flat list of all nav items for header label lookup */
-const ALL_NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items)
+const ALL_NAV_ITEMS = [
+  ...NAV_GROUPS.flatMap(g => g.items),
+  ...ADVANCED_ITEMS,
+]
 
 function NavHeading({ children }) {
   return (
@@ -112,95 +113,229 @@ function EmergencyBadge() {
 
 export function Layout({
   children, databases, selectedDB, onSelectDB,
-  user, onLogout, ...rest
+  user, fleetData: fleetDataProp, onLogout, pageTitle, ...rest
 }) {
   const hash = window.location.hash || '#/'
-  const { data: countData } = useAPI(
-    user ? '/api/v1/actions/pending/count' : null, 30000,
+  const canReviewActions =
+    user?.role === 'admin' || user?.role === 'operator'
+  const { data: countData, refetch: refetchPending } = useAPI(
+    canReviewActions ? '/api/v1/actions/pending/count' : null, 30000,
   )
+  useLiveRefetch(['actions'], refetchPending)
   const pendingCount = countData?.count || 0
 
-  const { data: fleetData } = useAPI(
-    user ? '/api/v1/databases' : null, 10000,
+  // Reuse the fleet data App.jsx already fetches to avoid a
+  // duplicate 30s poll. Fall back to our own useAPI when the
+  // prop is absent (kept for older callers/tests).
+  const { data: fleetDataOwn } = useAPI(
+    user && !fleetDataProp ? '/api/v1/databases' : null, 30000,
   )
+  const fleetData = fleetDataProp || fleetDataOwn
   const emergencyStopped =
     fleetData?.summary?.emergency_stopped === true
 
+  // TrustBadge reflects the selected database's trust_level.
+  // "all" collapses to the worst (least autonomous) across the
+  // fleet so a single observation-mode instance still shows up
+  // on the overview.
+  const trustLevel = (() => {
+    if (!fleetData?.databases?.length) return null
+    if (selectedDB && selectedDB !== 'all') {
+      const d = fleetData.databases.find(x => x.name === selectedDB)
+      return d?.status?.trust_level || null
+    }
+    const order = { observation: 0, advisory: 1, autonomous: 2 }
+    let worst = null
+    for (const d of fleetData.databases) {
+      const t = d.status?.trust_level
+      if (!t) continue
+      if (worst == null || order[t] < order[worst]) worst = t
+    }
+    return worst
+  })()
+
   const isAdmin = user?.role === 'admin'
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+
+  // Close the drawer on navigation. Listen for hashchange so that
+  // clicking a link inside the drawer (which is a plain anchor)
+  // doesn't leave the overlay stuck over the content.
+  useEffect(() => {
+    const close = () => setDrawerOpen(false)
+    window.addEventListener('hashchange', close)
+    return () => window.removeEventListener('hashchange', close)
+  }, [])
+
+  // Lock body scroll while the drawer is open on mobile.
+  useEffect(() => {
+    if (!drawerOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [drawerOpen])
+
+  const navContent = (
+    <>
+      <div
+        className="text-lg font-bold mb-4 flex items-center
+          justify-between"
+        style={{ color: 'var(--accent)' }}>
+        <span>pg_sage</span>
+        <button
+          type="button"
+          aria-label="Close navigation"
+          data-testid="sidebar-close"
+          onClick={() => setDrawerOpen(false)}
+          className="md:hidden p-1 rounded"
+          style={{ color: 'var(--text-secondary)' }}>
+          <X size={18} />
+        </button>
+      </div>
+
+      {NAV_GROUPS.map(group => {
+        const visible = group.items.filter(
+          n => !n.admin || isAdmin,
+        )
+        if (visible.length === 0) return null
+        return (
+          <div key={group.heading}>
+            <NavHeading>{group.heading}</NavHeading>
+            {visible.map(n => (
+              <NavLink
+                key={n.path}
+                item={n}
+                active={hash === n.path || n.aliases?.includes(hash)}
+                pendingCount={pendingCount}
+              />
+            ))}
+          </div>
+        )
+      })}
+
+      <div>
+        <button type="button" aria-expanded={advancedOpen}
+          aria-controls="advanced-navigation"
+          onClick={() => setAdvancedOpen(open => !open)}
+          className="mt-3 flex w-full items-center gap-2 rounded px-3 py-2 text-sm"
+          style={{ color: 'var(--text-secondary)' }}>
+          <ChevronDown size={16} aria-hidden="true"
+            style={{ transform: advancedOpen ? 'rotate(180deg)' : 'none' }} />
+          Advanced
+        </button>
+        {advancedOpen && (
+          <div id="advanced-navigation" className="ml-3 border-l pl-2"
+            style={{ borderColor: 'var(--border)' }}>
+            {ADVANCED_ITEMS.map(item => (
+              <a key={item.path} href={item.path}
+                className="block rounded px-3 py-2 text-sm"
+                style={{
+                  color: hash === item.path
+                    ? 'var(--accent)' : 'var(--text-secondary)',
+                  background: hash === item.path
+                    ? 'var(--bg-hover)' : 'transparent',
+                }}>
+                {item.label}
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div
+        className="mt-auto pt-4"
+        style={{ borderTop: '1px solid var(--border)' }}>
+        {user && (
+          <div
+            className="px-3 py-1 text-xs mb-2"
+            data-testid="user-email"
+            style={{ color: 'var(--text-secondary)' }}>
+            {user.email}
+            <span className="ml-1 opacity-60">
+              ({user.role})
+            </span>
+          </div>
+        )}
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            data-testid="sign-out-button"
+            className="flex items-center gap-2 px-3 py-2 rounded text-sm w-full"
+            style={{ color: 'var(--text-secondary)' }}>
+            <LogOut size={16} />
+            Sign Out
+          </button>
+        )}
+      </div>
+    </>
+  )
 
   return (
-    <div className="flex h-screen" {...rest}>
+    <div className="flex h-screen min-w-0 overflow-hidden" {...rest}>
+      {/* Desktop sidebar */}
       <nav
-        className="w-56 flex-shrink-0 border-r flex flex-col p-4 gap-1"
+        data-testid="sidebar-desktop"
+        className="hidden md:flex w-56 flex-shrink-0 border-r
+          flex-col p-4 gap-1"
         style={{
           background: 'var(--bg-card)',
           borderColor: 'var(--border)',
         }}>
-        <div
-          className="text-lg font-bold mb-4"
-          style={{ color: 'var(--accent)' }}>
-          pg_sage
-        </div>
-
-        {NAV_GROUPS.map(group => {
-          const visible = group.items.filter(
-            n => !n.admin || isAdmin,
-          )
-          if (visible.length === 0) return null
-          return (
-            <div key={group.heading}>
-              <NavHeading>{group.heading}</NavHeading>
-              {visible.map(n => (
-                <NavLink
-                  key={n.path}
-                  item={n}
-                  active={hash === n.path}
-                  pendingCount={pendingCount}
-                />
-              ))}
-            </div>
-          )
-        })}
-
-        <div
-          className="mt-auto pt-4"
-          style={{ borderTop: '1px solid var(--border)' }}>
-          {user && (
-            <div
-              className="px-3 py-1 text-xs mb-2"
-              data-testid="user-email"
-              style={{ color: 'var(--text-secondary)' }}>
-              {user.email}
-              <span className="ml-1 opacity-60">
-                ({user.role})
-              </span>
-            </div>
-          )}
-          {onLogout && (
-            <button
-              onClick={onLogout}
-              data-testid="sign-out-button"
-              className="flex items-center gap-2 px-3 py-2 rounded text-sm w-full"
-              style={{ color: 'var(--text-secondary)' }}>
-              <LogOut size={16} />
-              Sign Out
-            </button>
-          )}
-        </div>
+        {navContent}
       </nav>
 
-      <main className="flex-1 overflow-auto">
+      {/* Mobile drawer (shown only when open) */}
+      {drawerOpen && (
+        <>
+          <div
+            data-testid="sidebar-overlay"
+            className="md:hidden fixed inset-0 z-40"
+            style={{ background: 'rgba(0,0,0,0.5)' }}
+            onClick={() => setDrawerOpen(false)}
+          />
+          <nav
+            data-testid="sidebar-drawer"
+            className="md:hidden fixed top-0 left-0 bottom-0 z-50
+              w-64 border-r flex flex-col p-4 gap-1 overflow-y-auto"
+            style={{
+              background: 'var(--bg-card)',
+              borderColor: 'var(--border)',
+            }}>
+            {navContent}
+          </nav>
+        </>
+      )}
+
+      <main className="flex-1 overflow-auto min-w-0">
         <header
-          className="flex items-center justify-between p-4 border-b"
+          className="flex items-center justify-between gap-2
+            px-3 md:px-4 py-3 md:py-4 border-b"
           style={{ borderColor: 'var(--border)' }}>
-          <h1
-            className="text-lg font-semibold"
-            style={{ color: 'var(--text-primary)' }}>
-            {ALL_NAV_ITEMS.find(n => n.path === hash)?.label
-              || 'pg_sage'}
-          </h1>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              aria-label="Open navigation"
+              data-testid="sidebar-open"
+              onClick={() => setDrawerOpen(true)}
+              className="md:hidden p-1.5 rounded flex-shrink-0"
+              style={{
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border)',
+              }}>
+              <Menu size={18} />
+            </button>
+            <h1
+              className="text-base md:text-lg font-semibold truncate"
+              style={{ color: 'var(--text-primary)' }}>
+              {pageTitle || ALL_NAV_ITEMS.find(n => n.path === hash)?.label
+                || 'pg_sage'}
+            </h1>
+          </div>
+          <div className="flex items-center gap-1.5 md:gap-3
+            flex-wrap justify-end min-w-0">
             {emergencyStopped && <EmergencyBadge />}
+            {trustLevel && <TrustBadge level={trustLevel} />}
+            <TimeRangePicker />
             {databases && databases.length > 1 && (
               <DatabasePicker
                 data-testid="database-picker"
@@ -211,7 +346,12 @@ export function Layout({
             )}
           </div>
         </header>
-        <div className="p-6">{children}</div>
+        <div className="p-3 md:p-6">
+          <PendingActionsContext.Provider
+            value={{ refetch: refetchPending }}>
+            {children}
+          </PendingActionsContext.Provider>
+        </div>
       </main>
     </div>
   )

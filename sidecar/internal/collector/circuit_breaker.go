@@ -3,8 +3,6 @@ package collector
 import (
 	"context"
 	"sync"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // CircuitBreaker prevents collection when the database is under heavy load.
@@ -28,7 +26,7 @@ func NewCircuitBreaker(cpuCeilingPct, maxSkips int) *CircuitBreaker {
 
 // ShouldSkip checks active_backends / max_connections against the ceiling.
 // Returns true if the current cycle should be skipped.
-func (cb *CircuitBreaker) ShouldSkip(ctx context.Context, pool *pgxpool.Pool) bool {
+func (cb *CircuitBreaker) ShouldSkip(ctx context.Context, pool catalogQuerier) bool {
 	var loadRatio float64
 	err := pool.QueryRow(ctx, loadRatioSQL).Scan(&loadRatio)
 	if err != nil {

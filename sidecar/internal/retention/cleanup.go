@@ -36,6 +36,10 @@ func (c *Cleaner) Run(ctx context.Context) {
 		c.cfg.Retention.ActionsDays, "")
 	c.purgeTable(ctx, "explain_cache", "captured_at",
 		c.cfg.Retention.ExplainsDays, "")
+	// Keep the per-queryid query store (F2) bounded using the snapshots
+	// retention window — it samples every cycle and would grow unbounded.
+	c.purgeTable(ctx, "query_store", "captured_at",
+		c.cfg.Retention.SnapshotsDays, "")
 	c.cleanStaleFirstSeen(ctx)
 }
 
@@ -93,7 +97,7 @@ func (c *Cleaner) purgeTable(
 func (c *Cleaner) cleanStaleFirstSeen(ctx context.Context) {
 	// Collect all first_seen keys from config.
 	rows, err := c.pool.Query(ctx,
-		`SELECT key FROM sage.config WHERE key LIKE 'first_seen:%'`,
+		`/* pg_sage */ SELECT key FROM sage.config WHERE key LIKE 'first_seen:%'`,
 	)
 	if err != nil {
 		c.logFn("retention",
@@ -125,7 +129,7 @@ func (c *Cleaner) cleanStaleFirstSeen(ctx context.Context) {
 	// Get current index names from the latest snapshot.
 	currentIndexes := make(map[string]bool)
 	idxRows, err := c.pool.Query(ctx,
-		`SELECT DISTINCT data->>'indexrelname'
+		`/* pg_sage */ SELECT DISTINCT data->>'indexrelname'
 		 FROM sage.snapshots
 		 WHERE category = 'indexes'
 		   AND collected_at = (
@@ -149,7 +153,10 @@ func (c *Cleaner) cleanStaleFirstSeen(ctx context.Context) {
 		currentIndexes["first_seen:"+name] = true
 	}
 
-	// Delete config entries for indexes no longer present.
+	// Delete config entries for indexes no longer present. first_seen:*
+	// keys are orphaned legacy data (nothing writes or reads them), so
+	// removing them when the index snapshot is empty is harmless cleanup,
+	// which is this function's purpose (the D1 audit "danger" was benign).
 	deleted := 0
 	for _, key := range keys {
 		if currentIndexes[key] {

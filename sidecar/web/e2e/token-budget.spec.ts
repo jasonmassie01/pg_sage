@@ -14,7 +14,7 @@ test.describe('Token budget banner', () => {
   test('banner is hidden when budget is not exhausted', async ({
     page,
   }) => {
-    await page.goto('/')
+    await page.goto('/#/advanced')
 
     // Default mock has budget_exhausted: false — banner should not
     // appear.
@@ -31,7 +31,7 @@ test.describe('Token budget banner', () => {
       route.fulfill({ json: mockLLMStatusExhausted }),
     )
 
-    await page.goto('/')
+    await page.goto('/#/advanced')
 
     const banner = page.locator('[data-testid="token-budget-banner"]')
     await expect(banner).toBeVisible()
@@ -59,7 +59,7 @@ test.describe('Token budget banner', () => {
       }),
     )
 
-    await page.goto('/')
+    await page.goto('/#/advanced')
 
     const banner = page.locator('[data-testid="token-budget-banner"]')
     await expect(banner).toBeVisible()
@@ -78,7 +78,7 @@ test.describe('Token budget banner', () => {
       return route.fulfill({ status: 200, json: { ok: true } })
     })
 
-    await page.goto('/')
+    await page.goto('/#/advanced')
 
     const resetBtn = page.locator('[data-testid="token-budget-reset"]')
     await expect(resetBtn).toBeVisible()
