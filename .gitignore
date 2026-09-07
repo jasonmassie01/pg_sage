@@ -9,6 +9,7 @@
 /regression.diffs
 /regression.out
 /log/
+/logs/
 /tmp_check/
 sidecar/sage-sidecar
 sidecar/sage-sidecar-standalone.exe
