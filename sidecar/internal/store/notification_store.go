@@ -3,9 +3,12 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/notify"
 )
@@ -64,7 +67,7 @@ func (s *NotificationStore) CreateChannel(
 
 	var id int
 	err = s.pool.QueryRow(qctx,
-		`INSERT INTO sage.notification_channels
+		`/* pg_sage */ INSERT INTO sage.notification_channels
 		    (name, type, config, created_by)
 		 VALUES ($1, $2, $3, $4)
 		 RETURNING id`,
@@ -84,7 +87,7 @@ func (s *NotificationStore) ListChannels(
 	defer cancel()
 
 	rows, err := s.pool.Query(qctx,
-		`SELECT id, name, type, config, enabled
+		`/* pg_sage */ SELECT id, name, type, config, enabled
 		 FROM sage.notification_channels ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("listing channels: %w", err)
@@ -116,10 +119,13 @@ func (s *NotificationStore) GetChannel(
 	var ch notify.Channel
 	var cfgJSON []byte
 	err := s.pool.QueryRow(qctx,
-		`SELECT id, name, type, config, enabled
+		`/* pg_sage */ SELECT id, name, type, config, enabled
 		 FROM sage.notification_channels WHERE id = $1`, id,
 	).Scan(&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: channel %d", ErrNotFound, id)
+		}
 		return nil, fmt.Errorf("getting channel %d: %w", id, err)
 	}
 	ch.Config = parseJSONConfig(cfgJSON)
@@ -137,6 +143,7 @@ func (s *NotificationStore) UpdateChannel(
 	if err != nil {
 		return err
 	}
+	config = preserveMaskedNotificationSecrets(ch.Config, config)
 	if err := validateChannelConfig(ch.Type, config); err != nil {
 		return err
 	}
@@ -149,15 +156,42 @@ func (s *NotificationStore) UpdateChannel(
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_, err = s.pool.Exec(qctx,
-		`UPDATE sage.notification_channels
+	tag, err := s.pool.Exec(qctx,
+		`/* pg_sage */ UPDATE sage.notification_channels
 		 SET name = $1, config = $2, enabled = $3
 		 WHERE id = $4`,
 		name, cfgJSON, enabled, id)
 	if err != nil {
 		return fmt.Errorf("updating channel %d: %w", id, err)
 	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: channel %d", ErrNotFound, id)
+	}
 	return nil
+}
+
+func preserveMaskedNotificationSecrets(
+	existing, incoming map[string]string,
+) map[string]string {
+	if incoming == nil {
+		incoming = map[string]string{}
+	}
+	merged := make(map[string]string, len(incoming))
+	for key, value := range incoming {
+		merged[key] = value
+	}
+	for _, key := range notificationSecretKeys {
+		if isMaskedNotificationSecret(merged[key]) {
+			if existingValue, ok := existing[key]; ok {
+				merged[key] = existingValue
+			}
+		}
+	}
+	return merged
+}
+
+func isMaskedNotificationSecret(value string) bool {
+	return value == "****" || strings.Contains(value, "****")
 }
 
 // DeleteChannel removes a notification channel.
@@ -167,10 +201,13 @@ func (s *NotificationStore) DeleteChannel(
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_, err := s.pool.Exec(qctx,
+	tag, err := s.pool.Exec(qctx,
 		"DELETE FROM sage.notification_channels WHERE id = $1", id)
 	if err != nil {
 		return fmt.Errorf("deleting channel %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: channel %d", ErrNotFound, id)
 	}
 	return nil
 }

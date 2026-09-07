@@ -5,7 +5,7 @@ export default defineConfig({
   timeout: 30000,
   retries: 0,
   use: {
-    baseURL: 'http://localhost:8080',
+    baseURL: process.env.PG_SAGE_E2E_BASE_URL || 'http://localhost:8085',
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
   },

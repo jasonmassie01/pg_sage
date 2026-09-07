@@ -1,8 +1,33 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 import { login, getConsoleErrors } from './helpers';
 
-const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL || 'admin@localhost';
-const ADMIN_PASS = process.env.E2E_ADMIN_PASSWORD || 'admin';
+const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
+const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
+
+type Channel = {
+  id: number;
+  name: string;
+  enabled: boolean;
+  config: {
+    webhook_url?: string;
+  };
+};
+
+async function findChannel(page: Page, name: string): Promise<Channel | null> {
+  const res = await page.request.get('/api/v1/notifications/channels');
+  expect(res.status()).toBe(200);
+  const data = await res.json() as { channels?: Channel[] };
+  return (data.channels || []).find((ch) => ch.name === name) || null;
+}
+
+async function cleanupChannel(page: Page, name: string) {
+  const channel = await findChannel(page, name);
+  if (!channel) return;
+  const res = await page.request.delete(
+    `/api/v1/notifications/channels/${channel.id}`,
+  );
+  expect([200, 204, 404]).toContain(res.status());
+}
 
 test.describe('Notifications (admin)', () => {
   let consoleErrors: string[];
@@ -43,6 +68,74 @@ test.describe('Notifications (admin)', () => {
     const form = page.locator('form');
     await expect(form).toBeVisible();
   });
+
+  test('channels preserve masked secrets when toggled from UI',
+    async ({ page }, testInfo) => {
+      const name = `codex-ui-secret-${testInfo.workerIndex}-${Date.now()}`;
+      const webhook =
+        `https://hooks.slack.com/services/T000/B000/${name}`;
+
+      try {
+        await page.locator('[data-testid="add-channel-name"]').fill(name);
+        await page.locator('[data-testid="add-channel-type"]').selectOption(
+          'slack',
+        );
+        await page.locator('[data-testid="add-channel-webhook-url"]').fill(
+          webhook,
+        );
+        await page.locator('[data-testid="add-channel-submit"]').click();
+
+        const row = page.locator('[data-testid="channel-row"]', {
+          hasText: name,
+        });
+        await expect(row).toBeVisible();
+
+        const listRes = await page.request.get(
+          '/api/v1/notifications/channels',
+        );
+        expect(listRes.status()).toBe(200);
+        const listData = await listRes.json();
+        const channel = (listData.channels || []).find(
+          (ch: any) => ch.name === name,
+        );
+        expect(channel).toBeTruthy();
+        expect(channel.config.webhook_url).toContain('****');
+        expect(channel.config.webhook_url).not.toBe(webhook);
+
+        await row.locator('[data-testid="channel-toggle-button"]').click();
+        await expect(row.locator('[data-testid="channel-toggle-button"]'))
+          .toHaveText('OFF');
+
+        const toggled = await findChannel(page, name);
+        expect(toggled).toBeTruthy();
+        expect(toggled!.config.webhook_url).toContain('****');
+        expect(toggled!.config.webhook_url).not.toBe(webhook);
+        expect(toggled!.enabled).toBe(false);
+      } finally {
+        await cleanupChannel(page, name);
+      }
+    });
+
+  test('channels form exposes every backend channel type',
+    async ({ page }) => {
+      const typeSelect = page.locator('[data-testid="add-channel-type"]');
+
+      await expect(typeSelect.locator('option')).toHaveText([
+        'Slack',
+        'Email',
+        'PagerDuty',
+      ]);
+
+      await typeSelect.selectOption('pagerduty');
+      await expect(page.locator('[data-testid="add-channel-routing-key"]'))
+        .toBeVisible();
+
+      await typeSelect.selectOption('email');
+      await expect(page.locator('[data-testid="add-channel-smtp-host"]'))
+        .toBeVisible();
+      await expect(page.locator('[data-testid="add-channel-smtp-pass"]'))
+        .toBeVisible();
+    });
 
   // Verifies the Rules tab shows an add form
   test('rules tab shows add form', async ({ page }) => {

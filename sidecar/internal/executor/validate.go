@@ -2,6 +2,8 @@ package executor
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -33,44 +35,61 @@ var allowedPrefixes = []string{
 // ALTER SYSTEM SET/RESET may target. Any parameter not in this
 // list is rejected to prevent dangerous runtime changes.
 var safeAlterSystemParams = map[string]bool{
-	"work_mem":                             true,
-	"maintenance_work_mem":                 true,
-	"effective_cache_size":                 true,
-	"shared_buffers":                       true,
-	"max_wal_size":                         true,
-	"min_wal_size":                         true,
-	"checkpoint_completion_target":         true,
-	"checkpoint_timeout":                   true,
-	"random_page_cost":                     true,
-	"effective_io_concurrency":             true,
-	"max_parallel_workers_per_gather":      true,
-	"max_parallel_workers":                 true,
-	"max_parallel_maintenance_workers":     true,
-	"autovacuum_vacuum_cost_delay":         true,
-	"autovacuum_vacuum_cost_limit":         true,
-	"autovacuum_naptime":                   true,
-	"autovacuum_max_workers":               true,
-	"autovacuum_vacuum_threshold":          true,
-	"autovacuum_vacuum_scale_factor":       true,
-	"autovacuum_analyze_threshold":         true,
-	"autovacuum_analyze_scale_factor":      true,
-	"wal_buffers":                          true,
-	"default_statistics_target":            true,
-	"huge_pages":                           true,
-	"temp_buffers":                         true,
-	"statement_timeout":                    true,
-	"lock_timeout":                         true,
-	"idle_in_transaction_session_timeout":  true,
-	"log_min_duration_statement":           true,
-	"track_activity_query_size":            true,
-	"jit":                                  true,
+	"work_mem":                            true,
+	"maintenance_work_mem":                true,
+	"effective_cache_size":                true,
+	"shared_buffers":                      true,
+	"max_wal_size":                        true,
+	"min_wal_size":                        true,
+	"max_slot_wal_keep_size":              true,
+	"checkpoint_completion_target":        true,
+	"checkpoint_timeout":                  true,
+	"random_page_cost":                    true,
+	"effective_io_concurrency":            true,
+	"max_parallel_workers_per_gather":     true,
+	"max_parallel_workers":                true,
+	"max_parallel_maintenance_workers":    true,
+	"autovacuum_vacuum_cost_delay":        true,
+	"autovacuum_vacuum_cost_limit":        true,
+	"autovacuum_naptime":                  true,
+	"autovacuum_max_workers":              true,
+	"autovacuum_vacuum_threshold":         true,
+	"autovacuum_vacuum_scale_factor":      true,
+	"autovacuum_analyze_threshold":        true,
+	"autovacuum_analyze_scale_factor":     true,
+	"wal_buffers":                         true,
+	"default_statistics_target":           true,
+	"huge_pages":                          true,
+	"temp_buffers":                        true,
+	"statement_timeout":                   true,
+	"lock_timeout":                        true,
+	"idle_in_transaction_session_timeout": true,
+	"log_min_duration_statement":          true,
+	"track_activity_query_size":           true,
+	"jit":                                 true,
 }
 
-// allowedSelectPatterns restricts SELECT to specific safe
-// function calls instead of allowing arbitrary queries.
-var allowedSelectPatterns = []string{
-	"SELECT PG_TERMINATE_BACKEND(",
-	"SELECT PG_CANCEL_BACKEND(",
+var backendSignalPattern = regexp.MustCompile(
+	`(?i)^\s*SELECT\s+PG_(CANCEL|TERMINATE)_BACKEND\s*` +
+		`\(\s*([0-9]+)\s*\)\s*;?\s*$`,
+)
+
+var reloadConfPattern = regexp.MustCompile(
+	`(?i)^\s*SELECT\s+PG_RELOAD_CONF\s*\(\s*\)\s*;?\s*$`,
+)
+
+const migrationIdentifier = `(?:"(?:[^"]|"")*"|[A-Z_][A-Z0-9_$]*)`
+
+var safeMigrationSubcommands = []*regexp.Regexp{
+	regexp.MustCompile(`^ADD\s+CONSTRAINT\s+` + migrationIdentifier +
+		`\s+CHECK\s*\(\s*` + migrationIdentifier + `\s+IS\s+NOT\s+NULL\s*\)` +
+		`\s+NOT\s+VALID\s*;?$`),
+	regexp.MustCompile(`^VALIDATE\s+CONSTRAINT\s+` + migrationIdentifier + `\s*;?$`),
+	regexp.MustCompile(`^ALTER\s+COLUMN\s+` + migrationIdentifier +
+		`\s+SET\s+NOT\s+NULL\s*;?$`),
+	regexp.MustCompile(`^ADD\s+CONSTRAINT\s+` + migrationIdentifier +
+		`\s+UNIQUE\s+USING\s+INDEX\s+` + migrationIdentifier + `\s*;?$`),
+	regexp.MustCompile(`^DROP\s+CONSTRAINT\s+` + migrationIdentifier + `\s*;?$`),
 }
 
 // safeAlterTableSubcmds restricts ALTER TABLE to safe
@@ -103,6 +122,9 @@ func ValidateExecutorSQL(sql string) error {
 		if err := checkSecondary(upper, prefix); err != nil {
 			return err
 		}
+		if err := checkProtectedSchemaUsage(trimmed, prefix); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -123,12 +145,62 @@ func checkSecondary(upper, prefix string) error {
 	switch prefix {
 	case "ALTER SYSTEM SET", "ALTER SYSTEM RESET":
 		return checkAlterSystemParam(upper)
+	case "ALTER DATABASE":
+		if !allowedAlterDatabaseParam(upper) {
+			return fmt.Errorf(
+				"%w: ALTER DATABASE parameter is not in the GUC allowlist",
+				ErrDisallowedSQL)
+		}
+		return nil
 	case "SELECT ":
 		return checkSelectPattern(upper)
 	case "ALTER TABLE":
 		return checkAlterTableSubcmd(upper)
 	}
 	return nil
+}
+
+func allowedAlterDatabaseParam(upper string) bool {
+	rest, ok := alterDatabaseClause(upper)
+	if !ok {
+		return false
+	}
+	if strings.HasPrefix(rest, "SET ") {
+		rest = strings.TrimPrefix(rest, "SET ")
+	} else if strings.HasPrefix(rest, "RESET ") {
+		rest = strings.TrimPrefix(rest, "RESET ")
+	} else {
+		return false
+	}
+	fields := strings.FieldsFunc(rest, func(r rune) bool {
+		return r == ' ' || r == '=' || r == '\t' || r == ';'
+	})
+	return len(fields) > 0 && safeAlterSystemParams[strings.ToLower(fields[0])]
+}
+
+func alterDatabaseClause(upper string) (string, bool) {
+	rest := strings.TrimSpace(strings.TrimPrefix(upper, "ALTER DATABASE "))
+	if rest == "" || rest == upper {
+		return "", false
+	}
+	if rest[0] != '"' {
+		idx := strings.IndexAny(rest, " \t\r\n")
+		if idx < 0 {
+			return "", false
+		}
+		return strings.TrimSpace(rest[idx:]), true
+	}
+	for i := 1; i < len(rest); i++ {
+		if rest[i] != '"' {
+			continue
+		}
+		if i+1 < len(rest) && rest[i+1] == '"' {
+			i++
+			continue
+		}
+		return strings.TrimSpace(rest[i+1:]), true
+	}
+	return "", false
 }
 
 // checkAlterSystemParam extracts the GUC parameter from an
@@ -175,16 +247,29 @@ func extractAlterSystemParam(upper string) string {
 // checkSelectPattern verifies the SELECT matches one of the
 // allowed function-call patterns.
 func checkSelectPattern(upper string) error {
-	for _, pat := range allowedSelectPatterns {
-		if strings.HasPrefix(upper, pat) {
-			return nil
-		}
+	if _, _, ok := parseBackendSignal(upper); ok {
+		return nil
+	}
+	if reloadConfPattern.MatchString(upper) {
+		return nil
 	}
 	return fmt.Errorf(
-		"%w: only pg_terminate_backend and pg_cancel_backend "+
-			"SELECT statements are allowed",
+		"%w: only pg_terminate_backend, pg_cancel_backend and "+
+			"pg_reload_conf SELECT statements are allowed",
 		ErrDisallowedSQL,
 	)
+}
+
+func parseBackendSignal(sql string) (string, int, bool) {
+	matches := backendSignalPattern.FindStringSubmatch(sql)
+	if len(matches) != 3 {
+		return "", 0, false
+	}
+	pid, err := strconv.Atoi(matches[2])
+	if err != nil || pid <= 0 {
+		return "", 0, false
+	}
+	return strings.ToLower(matches[1]), pid, true
 }
 
 // checkAlterTableSubcmd verifies that the ALTER TABLE statement
@@ -204,9 +289,14 @@ func checkAlterTableSubcmd(upper string) error {
 			return nil
 		}
 	}
+	for _, pattern := range safeMigrationSubcommands {
+		if pattern.MatchString(sub) {
+			return nil
+		}
+	}
 	return fmt.Errorf(
 		"%w: ALTER TABLE sub-command not allowed "+
-			"(only SET/RESET storage params and SET TABLESPACE)",
+			"(only safe storage or rehearsed migration forms)",
 		ErrDisallowedSQL,
 	)
 }
@@ -237,11 +327,17 @@ func findEndOfTableName(s string) int {
 		if s[i] == '"' {
 			// Skip quoted identifier.
 			i++ // opening quote
-			for i < len(s) && s[i] != '"' {
-				i++
-			}
-			if i < len(s) {
+			for i < len(s) {
+				if s[i] != '"' {
+					i++
+					continue
+				}
+				if i+1 < len(s) && s[i+1] == '"' {
+					i += 2
+					continue
+				}
 				i++ // closing quote
+				break
 			}
 		} else if s[i] == ' ' || s[i] == '\t' {
 			return i
@@ -267,4 +363,135 @@ func rejectMultiStatement(sql string) error {
 		)
 	}
 	return nil
+}
+
+func checkProtectedSchemaUsage(trimmed, prefix string) error {
+	var ident string
+	switch prefix {
+	case "CREATE INDEX", "CREATE UNIQUE INDEX":
+		ident = tokenAfterKeyword(trimmed, "ON")
+	case "DROP INDEX":
+		ident = firstObjectAfter(
+			trimmed, "DROP INDEX",
+			"CONCURRENTLY", "IF", "EXISTS")
+	case "REINDEX":
+		ident = reindexObject(trimmed)
+	case "VACUUM":
+		ident = vacuumObject(trimmed)
+	case "ANALYZE":
+		ident = firstObjectAfter(trimmed, "ANALYZE", "VERBOSE")
+	case "ALTER TABLE":
+		ident = firstObjectAfter(trimmed, "ALTER TABLE", "IF", "EXISTS")
+	default:
+		return nil
+	}
+	if ident == "" {
+		return nil
+	}
+	schema := schemaFromIdentifier(ident)
+	if isProtectedExecutorSchema(schema) {
+		return fmt.Errorf(
+			"%w: executor may not target protected schema %q",
+			ErrDisallowedSQL, schema)
+	}
+	return nil
+}
+
+func tokenAfterKeyword(sql, keyword string) string {
+	fields := strings.Fields(sql)
+	for i := 0; i < len(fields)-1; i++ {
+		if strings.EqualFold(fields[i], keyword) {
+			return cleanupIdentifierToken(fields[i+1])
+		}
+	}
+	return ""
+}
+
+func firstObjectAfter(sql, prefix string, skip ...string) string {
+	fields := strings.Fields(sql)
+	prefixFields := strings.Fields(prefix)
+	if len(fields) < len(prefixFields)+1 {
+		return ""
+	}
+	i := len(prefixFields)
+	for i < len(fields) && containsFold(skip, fields[i]) {
+		i++
+	}
+	if i >= len(fields) {
+		return ""
+	}
+	return cleanupIdentifierToken(fields[i])
+}
+
+func reindexObject(sql string) string {
+	fields := strings.Fields(sql)
+	if len(fields) < 3 {
+		return ""
+	}
+	i := 1
+	if strings.EqualFold(fields[i], "(VERBOSE)") {
+		i++
+	}
+	if i >= len(fields)-1 {
+		return ""
+	}
+	scope := strings.ToUpper(fields[i])
+	if scope == "DATABASE" || scope == "SYSTEM" || scope == "SCHEMA" {
+		return ""
+	}
+	return cleanupIdentifierToken(fields[i+1])
+}
+
+func vacuumObject(sql string) string {
+	fields := strings.Fields(sql)
+	for i := 1; i < len(fields); i++ {
+		token := strings.Trim(fields[i], ",;")
+		upper := strings.ToUpper(token)
+		if upper == "FULL" || upper == "FREEZE" ||
+			upper == "VERBOSE" || upper == "ANALYZE" ||
+			strings.HasPrefix(upper, "(") {
+			continue
+		}
+		return cleanupIdentifierToken(token)
+	}
+	return ""
+}
+
+func containsFold(values []string, v string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, v) {
+			return true
+		}
+	}
+	return false
+}
+
+func cleanupIdentifierToken(token string) string {
+	token = strings.TrimSpace(token)
+	token = strings.TrimRight(token, ";,")
+	if idx := strings.Index(token, "("); idx > 0 {
+		token = token[:idx]
+	}
+	return token
+}
+
+func schemaFromIdentifier(ident string) string {
+	ident = strings.TrimSpace(ident)
+	if ident == "" {
+		return ""
+	}
+	dot := strings.LastIndex(ident, ".")
+	if dot < 0 {
+		return ""
+	}
+	return strings.Trim(ident[:dot], `"`)
+}
+
+func isProtectedExecutorSchema(schema string) bool {
+	schema = strings.ToLower(strings.Trim(schema, `"`))
+	switch schema {
+	case "pg_catalog", "information_schema", "google_ml", "sage":
+		return true
+	}
+	return strings.HasPrefix(schema, "_timescaledb_")
 }

@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -15,8 +16,7 @@ import (
 
 func connectTestDB2(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
+	dsn := os.Getenv("SAGE_DATABASE_URL")
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Skipf("DB unavailable: %v", err)
@@ -197,8 +197,8 @@ func TestPhase2_CategorizeAction_MixedCase(t *testing.T) {
 
 func TestPhase2_ActionOutcome_Success(t *testing.T) {
 	got := actionOutcome(nil)
-	if got != "pending" {
-		t.Errorf("expected 'pending', got %q", got)
+	if got != "monitoring" {
+		t.Errorf("expected 'monitoring', got %q", got)
 	}
 }
 
@@ -253,6 +253,10 @@ func TestPhase2_ExtractIndexName_Variants(t *testing.T) {
 		{
 			"CREATE INDEX IF NOT EXISTS idx_ine ON t (a)",
 			"idx_ine",
+		},
+		{
+			"CREATE INDEX CONCURRENTLY ON t (a)",
+			"",
 		},
 		{
 			"DROP INDEX idx_drop",

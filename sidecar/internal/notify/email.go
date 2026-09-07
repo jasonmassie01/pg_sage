@@ -98,10 +98,10 @@ func sendEmail(
 
 	client, err := smtp.NewClient(conn, cfg.Host)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("smtp client: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	if err := authenticateSMTP(client, cfg); err != nil {
 		return err
@@ -152,7 +152,7 @@ func writeMessage(
 
 	msg := formatEmailMessage(cfg, evt)
 	if _, err := wc.Write([]byte(msg)); err != nil {
-		wc.Close()
+		_ = wc.Close()
 		return fmt.Errorf("smtp write body: %w", err)
 	}
 

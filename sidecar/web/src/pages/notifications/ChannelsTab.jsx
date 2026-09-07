@@ -29,11 +29,19 @@ export function ChannelsTab() {
 
   function handleTypeChange(newType) {
     setType(newType)
-    setConfig(newType === 'slack'
-      ? { webhook_url: '' }
-      : { smtp_host: '', smtp_port: '587',
-          smtp_user: '', smtp_pass: '',
-          from: '', to: '' })
+    if (newType === 'slack') {
+      setConfig({ webhook_url: '' })
+      return
+    }
+    if (newType === 'pagerduty') {
+      setConfig({ routing_key: '' })
+      return
+    }
+    setConfig({
+      smtp_host: '', smtp_port: '587',
+      smtp_user: '', smtp_pass: '',
+      from: '', to: '',
+    })
   }
 
   async function handleCreate(e) {
@@ -68,7 +76,10 @@ export function ChannelsTab() {
     try {
       const res = await fetch(
         `/api/v1/notifications/channels/${id}/test`, {
-          method: 'POST', credentials: 'include' })
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        })
       if (!res.ok) {
         const d = await res.json()
         throw new Error(d.error || 'Test failed')
@@ -140,6 +151,7 @@ export function ChannelsTab() {
                 style={inputStyle}>
                 <option value="slack">Slack</option>
                 <option value="email">Email</option>
+                <option value="pagerduty">PagerDuty</option>
               </select>
             </FormField>
           </div>
@@ -174,6 +186,7 @@ function ConfigFields({ type, config, setConfig }) {
       <div className="flex gap-3 flex-wrap">
         <FormField label="Webhook URL">
           <input value={config.webhook_url || ''} required
+            data-testid="add-channel-webhook-url"
             onChange={e =>
               upd('webhook_url', e.target.value)}
             className="px-3 py-1.5 rounded text-sm w-80"
@@ -184,22 +197,41 @@ function ConfigFields({ type, config, setConfig }) {
     )
   }
 
+  if (type === 'pagerduty') {
+    return (
+      <div className="flex gap-3 flex-wrap">
+        <FormField label="Routing Key">
+          <input value={config.routing_key || ''} required
+            data-testid="add-channel-routing-key"
+            onChange={e =>
+              upd('routing_key', e.target.value)}
+            className="px-3 py-1.5 rounded text-sm w-80"
+            style={inputStyle}
+            placeholder="PagerDuty routing key" />
+        </FormField>
+      </div>
+    )
+  }
+
   return (
     <div className="flex gap-3 flex-wrap">
       <FormField label="SMTP Host">
         <input value={config.smtp_host || ''} required
+          data-testid="add-channel-smtp-host"
           onChange={e => upd('smtp_host', e.target.value)}
           className="px-3 py-1.5 rounded text-sm"
           style={inputStyle} />
       </FormField>
       <FormField label="Port">
         <input value={config.smtp_port || '587'}
+          data-testid="add-channel-smtp-port"
           onChange={e => upd('smtp_port', e.target.value)}
           className="px-3 py-1.5 rounded text-sm w-20"
           style={inputStyle} />
       </FormField>
       <FormField label="User">
         <input value={config.smtp_user || ''}
+          data-testid="add-channel-smtp-user"
           onChange={e => upd('smtp_user', e.target.value)}
           className="px-3 py-1.5 rounded text-sm"
           style={inputStyle} />
@@ -207,18 +239,21 @@ function ConfigFields({ type, config, setConfig }) {
       <FormField label="Password">
         <input type="password"
           value={config.smtp_pass || ''}
+          data-testid="add-channel-smtp-pass"
           onChange={e => upd('smtp_pass', e.target.value)}
           className="px-3 py-1.5 rounded text-sm"
           style={inputStyle} />
       </FormField>
       <FormField label="From">
         <input value={config.from || ''} required
+          data-testid="add-channel-from"
           onChange={e => upd('from', e.target.value)}
           className="px-3 py-1.5 rounded text-sm"
           style={inputStyle} />
       </FormField>
       <FormField label="To (comma-separated)">
         <input value={config.to || ''} required
+          data-testid="add-channel-to"
           onChange={e => upd('to', e.target.value)}
           className="px-3 py-1.5 rounded text-sm w-64"
           style={inputStyle} />
@@ -260,7 +295,7 @@ function ChannelTable({
         </thead>
         <tbody>
           {channels.map(ch => (
-            <tr key={ch.id} style={{
+            <tr key={ch.id} data-testid="channel-row" style={{
               borderBottom: '1px solid var(--border)',
             }}>
               <td className="px-4 py-2"
@@ -273,6 +308,7 @@ function ChannelTable({
               </td>
               <td className="px-4 py-2">
                 <button onClick={() => onToggle(ch)}
+                  data-testid="channel-toggle-button"
                   className="text-xs px-2 py-1 rounded"
                   style={{
                     color: ch.enabled
@@ -283,11 +319,13 @@ function ChannelTable({
               </td>
               <td className="px-4 py-2 text-right">
                 <button onClick={() => onTest(ch.id)}
+                  data-testid="channel-test-button"
                   className="px-2 py-1 rounded text-xs mr-2"
                   style={{ color: 'var(--accent)' }}>
                   Test
                 </button>
                 <button onClick={() => onDelete(ch.id)}
+                  data-testid="channel-delete-button"
                   className="px-2 py-1 rounded text-xs"
                   style={{ color: '#ef4444' }}>
                   Delete

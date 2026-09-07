@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -26,9 +27,9 @@ func TestValidateChannelType_Invalid(t *testing.T) {
 			t.Errorf("validateChannelType(%q) = nil, want error", typ)
 			continue
 		}
-		if !strings.Contains(err.Error(), "validate") {
-			t.Errorf("validateChannelType(%q) error = %q, "+
-				"want to contain 'validate'", typ, err.Error())
+		if !errors.Is(err, ErrValidation) {
+			t.Errorf("validateChannelType(%q) error = %v, "+
+				"want errors.Is(err, ErrValidation)", typ, err)
 		}
 	}
 }

@@ -136,9 +136,18 @@ func ruleXIDWraparound(xidAge int64, cfg *config.Config) []Finding {
 			"warning_threshold":  cfg.Analyzer.XIDWraparoundWarning,
 			"critical_threshold": cfg.Analyzer.XIDWraparoundCritical,
 		},
-		Recommendation: "Run VACUUM FREEZE on high-age tables.",
-		RecommendedSQL: "VACUUM FREEZE;",
-		ActionRisk:     "safe",
+		Recommendation: "Identify what holds the xmin horizon: " +
+			"long-running transactions (pg_stat_activity backend_xmin), " +
+			"replication slots (catalog_xmin), or orphaned prepared " +
+			"transactions (pg_prepared_xacts). Autovacuum is already " +
+			"trying to freeze -- unblock it by resolving the holder.",
+		RecommendedSQL: "SELECT pid, usename, state, " +
+			"age(backend_xmin) AS xmin_age, " +
+			"left(query,80) AS query " +
+			"FROM pg_stat_activity " +
+			"WHERE backend_xmin IS NOT NULL " +
+			"ORDER BY age(backend_xmin) DESC LIMIT 5;",
+		ActionRisk: "moderate",
 	})
 	return findings
 }

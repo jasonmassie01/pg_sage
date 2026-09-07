@@ -15,9 +15,106 @@
 #include "access/xact.h"
 #include "funcapi.h"
 #include "catalog/pg_type.h"
+#include <ctype.h>
 
 /* SQL-callable function declarations */
 PG_FUNCTION_INFO_V1(sage_suppress);
+
+static bool
+sage_is_ident_char(char c)
+{
+    return isalnum((unsigned char) c) || c == '_';
+}
+
+static bool
+sage_ci_starts_with(const char *s, const char *prefix)
+{
+    while (*prefix)
+    {
+        if (*s == '\0')
+            return false;
+        if (tolower((unsigned char) *s) !=
+            tolower((unsigned char) *prefix))
+            return false;
+        s++;
+        prefix++;
+    }
+    return true;
+}
+
+static bool
+sage_ci_contains(const char *haystack, const char *needle)
+{
+    if (haystack == NULL || needle == NULL || *needle == '\0')
+        return false;
+
+    for (; *haystack; haystack++)
+    {
+        if (sage_ci_starts_with(haystack, needle))
+            return true;
+    }
+    return false;
+}
+
+static bool
+sage_has_schema_reference(const char *s)
+{
+    const char *p;
+
+    if (s == NULL)
+        return false;
+
+    for (p = s; *p; p++)
+    {
+        const char *q = p;
+
+        if (p > s && sage_is_ident_char(*(p - 1)))
+            continue;
+
+        if (*q == '"')
+        {
+            q++;
+            if (!sage_ci_starts_with(q, "sage"))
+                continue;
+            q += 4;
+            if (*q != '"')
+                continue;
+            q++;
+        }
+        else
+        {
+            if (!sage_ci_starts_with(q, "sage"))
+                continue;
+            q += 4;
+        }
+
+        while (*q && isspace((unsigned char) *q))
+            q++;
+        if (*q == '.')
+            return true;
+    }
+    return false;
+}
+
+static bool
+sage_is_self_monitoring_finding(const char *category,
+                                const char *object_id, const char *title,
+                                const char *detail_json,
+                                const char *recommended_sql,
+                                const char *rollback_sql)
+{
+    if (category && pg_strcasecmp(category, "sage_health") == 0)
+        return false;
+
+    return sage_has_schema_reference(object_id) ||
+           sage_ci_contains(title, "pg_sage") ||
+           sage_ci_contains(detail_json, "pg_sage") ||
+           sage_has_schema_reference(detail_json) ||
+           sage_ci_contains(recommended_sql, "pg_sage") ||
+           sage_has_schema_reference(recommended_sql) ||
+           sage_ci_contains(rollback_sql, "pg_sage") ||
+           sage_has_schema_reference(rollback_sql);
+}
 
 /* ----------------------------------------------------------------
  * sage_upsert_finding
@@ -61,6 +158,10 @@ sage_upsert_finding(const char *category, const char *severity,
     char        nulls[9];
     int         ret;
     int         i;
+
+    if (sage_is_self_monitoring_finding(category, object_id, title, detail_json,
+                                        recommended_sql, rollback_sql))
+        return;
 
     /*
      * Save caller's SPI result set.  SPI_execute_with_args overwrites

@@ -34,7 +34,7 @@ func fakeAdminMiddleware(next http.Handler) http.Handler {
 
 func testRouter(databases ...string) http.Handler {
 	cfg := &config.Config{
-		Mode: "fleet",
+		Mode:  "fleet",
 		Trust: config.TrustConfig{Level: "advisory"},
 		Collector: config.CollectorConfig{
 			IntervalSeconds: 60,
@@ -236,30 +236,27 @@ func TestAPI_FindingDetail_NotFound(t *testing.T) {
 	}
 }
 
+func TestAPI_FindingDetail_RequiresDatabaseForFleet(t *testing.T) {
+	r := testRouter("db1", "db2")
+	w := get(t, r, "/api/v1/findings/99999")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400", w.Code)
+	}
+}
+
 func TestAPI_Suppress(t *testing.T) {
 	r := testRouter("db1")
 	w := post(t, r, "/api/v1/findings/42/suppress", "")
-	if w.Code != 200 {
-		t.Fatalf("status: %d", w.Code)
-	}
-	m := decodeJSON(t, w)
-	if m["status"] != "suppressed" {
-		t.Errorf("status: %v", m["status"])
-	}
-	if m["id"] != "42" {
-		t.Errorf("id: %v", m["id"])
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404", w.Code)
 	}
 }
 
 func TestAPI_Unsuppress(t *testing.T) {
 	r := testRouter("db1")
 	w := post(t, r, "/api/v1/findings/42/unsuppress", "")
-	if w.Code != 200 {
-		t.Fatalf("status: %d", w.Code)
-	}
-	m := decodeJSON(t, w)
-	if m["status"] != "open" {
-		t.Errorf("status: %v", m["status"])
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404", w.Code)
 	}
 }
 
@@ -303,6 +300,14 @@ func TestAPI_ActionDetail_NotFound(t *testing.T) {
 	}
 }
 
+func TestAPI_ActionDetail_RequiresDatabaseForFleet(t *testing.T) {
+	r := testRouter("db1", "db2")
+	w := get(t, r, "/api/v1/actions/99999")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d, want 400", w.Code)
+	}
+}
+
 // --- Snapshots endpoint ---
 
 func TestAPI_SnapshotLatest_DefaultsToAll(t *testing.T) {
@@ -316,8 +321,8 @@ func TestAPI_SnapshotLatest_DefaultsToAll(t *testing.T) {
 func TestAPI_SnapshotLatest_UnknownDB(t *testing.T) {
 	r := testRouter("db1")
 	w := get(t, r, "/api/v1/snapshots/latest?database=nope")
-	if w.Code != 200 {
-		t.Errorf("status: %d", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status: got %d, want 404", w.Code)
 	}
 }
 
@@ -479,6 +484,14 @@ func TestAPI_EmergencyStop_FleetWide(t *testing.T) {
 	}
 }
 
+func TestAPI_EmergencyStop_UnknownDatabase(t *testing.T) {
+	r := testRouter("db1")
+	w := post(t, r, "/api/v1/emergency-stop?database=missing", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404", w.Code)
+	}
+}
+
 func TestAPI_Resume(t *testing.T) {
 	cfg := &config.Config{Mode: "fleet"}
 	mgr := fleet.NewManager(cfg)
@@ -496,6 +509,14 @@ func TestAPI_Resume(t *testing.T) {
 	m := decodeJSON(t, w)
 	if m["resumed"].(float64) != 1 {
 		t.Errorf("resumed: %v", m["resumed"])
+	}
+}
+
+func TestAPI_Resume_UnknownDatabase(t *testing.T) {
+	r := testRouter("db1")
+	w := post(t, r, "/api/v1/resume?database=missing", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404", w.Code)
 	}
 }
 
@@ -564,13 +585,8 @@ func TestAPI_Forecasts_FilterByDatabase(t *testing.T) {
 func TestAPI_Forecasts_UnknownDB(t *testing.T) {
 	r := testRouter("db1")
 	w := get(t, r, "/api/v1/forecasts?database=nope")
-	if w.Code != 200 {
-		t.Fatalf("status: %d", w.Code)
-	}
-	m := decodeJSON(t, w)
-	forecasts := m["forecasts"].([]any)
-	if len(forecasts) != 0 {
-		t.Errorf("forecasts: got %d, want 0", len(forecasts))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404", w.Code)
 	}
 }
 
@@ -616,13 +632,8 @@ func TestAPI_QueryHints_FilterByDatabase(t *testing.T) {
 func TestAPI_QueryHints_UnknownDB(t *testing.T) {
 	r := testRouter("db1")
 	w := get(t, r, "/api/v1/query-hints?database=nope")
-	if w.Code != 200 {
-		t.Fatalf("status: %d", w.Code)
-	}
-	m := decodeJSON(t, w)
-	hints := m["hints"].([]any)
-	if len(hints) != 0 {
-		t.Errorf("hints: got %d, want 0", len(hints))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404", w.Code)
 	}
 }
 
@@ -668,13 +679,8 @@ func TestAPI_AlertLog_FilterByDatabase(t *testing.T) {
 func TestAPI_AlertLog_UnknownDB(t *testing.T) {
 	r := testRouter("db1")
 	w := get(t, r, "/api/v1/alert-log?database=nope")
-	if w.Code != 200 {
-		t.Fatalf("status: %d", w.Code)
-	}
-	m := decodeJSON(t, w)
-	alerts := m["alerts"].([]any)
-	if len(alerts) != 0 {
-		t.Errorf("alerts: got %d, want 0", len(alerts))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want 404", w.Code)
 	}
 }
 
@@ -729,5 +735,29 @@ func TestAPI_Dashboard_Root(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "pg_sage") {
 		t.Error("expected pg_sage in body")
+	}
+}
+
+func TestRequireJSONMiddlewareAllowsDatabaseCSVImport(t *testing.T) {
+	called := false
+	handler := requireJSONMiddleware(http.HandlerFunc(func(
+		w http.ResponseWriter, _ *http.Request,
+	) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/databases/managed/import", strings.NewReader("fixture"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=fixture")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if !called {
+		t.Fatal("multipart CSV import was rejected before its handler")
+	}
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d",
+			recorder.Code, http.StatusNoContent)
 	}
 }

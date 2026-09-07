@@ -1,0 +1,154 @@
+2026-04-27T01:16:37Z [INFO] [startup] pg_sage sidecar vdev — mode=fleet
+2026-04-27T01:16:37Z [INFO] [startup] Prometheus=127.0.0.1:19187 API=127.0.0.1:18085
+2026-04-27T01:16:37Z [INFO] [startup] connecting to meta database…
+First admin created: admin@pg-sage.local
+Initial password: f0b4cae6aadff1be
+Change this password immediately.
+2026-04-27T01:16:37Z [INFO] [startup] meta database initialized
+2026-04-27T01:16:37Z [INFO] [startup] cloud environment: self-managed
+2026-04-27T01:16:37Z [INFO] [startup] mode: SIDECAR — no extension, using catalog queries
+2026-04-27T01:16:37Z [INFO] [meta-db] found 0 enabled databases
+2026-04-27T01:16:37Z [INFO] [api] listening on 127.0.0.1:18085
+2026-04-27T01:16:37Z [INFO] [prometheus] listening on 127.0.0.1:19187
+2026-04-27T01:16:53Z [INFO] [INFO] collector started, interval=5s
+2026-04-27T01:16:53Z [INFO] [INFO] analyzer started, interval=5s
+2026-04-27T01:16:53Z [INFO] [DEBUG] analyzer: no snapshot yet, skipping
+2026-04-27T01:16:53Z [INFO] [meta-db] db "production": initialized
+2026-04-27T01:16:56Z [INFO] [INFO] collector started, interval=5s
+2026-04-27T01:16:56Z [INFO] [INFO] analyzer started, interval=5s
+2026-04-27T01:16:56Z [INFO] [DEBUG] analyzer: no snapshot yet, skipping
+2026-04-27T01:16:56Z [INFO] [meta-db] db "staging": initialized
+2026-04-27T01:16:58Z [INFO] [DEBUG] analyzer: no snapshot yet, skipping
+2026-04-27T01:17:01Z [INFO] [DEBUG] analyzer: no snapshot yet, skipping
+2026-04-27T01:17:03Z [INFO] [INFO] analyzer cycle: 27 findings
+2026-04-27T01:17:06Z [INFO] [INFO] analyzer cycle: 25 findings
+2026-04-27T01:17:08Z [INFO] [INFO] analyzer cycle: 34 findings
+2026-04-27T01:17:11Z [INFO] [INFO] analyzer cycle: 32 findings
+2026-04-27T01:17:13Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_customers_active (0 scans for 0+ days)" for approval
+2026-04-27T01:17:13Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_customers_region_unused (0 scans for 0+ days)" for approval
+2026-04-27T01:17:13Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_join_right_key (0 scans for 0+ days)" for approval
+2026-04-27T01:17:13Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_orders_created_at (0 scans for 0+ days)" for approval
+2026-04-27T01:17:13Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_orders_created_at_amount (0 scans for 0+ days)" for approval
+2026-04-27T01:17:13Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_orders_status_a (0 scans for 0+ days)" for approval
+2026-04-27T01:17:13Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_orders_status_b (0 scans for 0+ days)" for approval
+2026-04-27T01:17:13Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_sort_target_group (0 scans for 0+ days)" for approval
+2026-04-27T01:17:13Z [INFO] [executor] queued "Invalid index sage_verify.idx_verify_invalid_unique" for approval
+2026-04-27T01:17:13Z [INFO] [executor] queued "Missing index on FK column sage_verify.child_bigint_fk(parent_id)" for approval
+2026-04-27T01:17:13Z [INFO] [executor] queued "Missing index on FK column sage_verify.orders(customer_id)" for approval
+2026-04-27T01:17:13Z [INFO] [INFO] analyzer cycle: 34 findings
+2026-04-27T01:17:13Z [INFO] [executor] queued "Table sage_verify.bloated_table has 66.7% dead tuples" for approval
+2026-04-27T01:17:16Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_customers_active (0 scans for 0+ days)" for approval
+2026-04-27T01:17:16Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_customers_region_unused (0 scans for 0+ days)" for approval
+2026-04-27T01:17:16Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_join_right_key (0 scans for 0+ days)" for approval
+2026-04-27T01:17:16Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_orders_created_at (0 scans for 0+ days)" for approval
+2026-04-27T01:17:16Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_orders_created_at_amount (0 scans for 0+ days)" for approval
+2026-04-27T01:17:16Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_orders_status_a (0 scans for 0+ days)" for approval
+2026-04-27T01:17:16Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_orders_status_b (0 scans for 0+ days)" for approval
+2026-04-27T01:17:16Z [INFO] [executor] queued "Unused index sage_verify.idx_verify_sort_target_group (0 scans for 0+ days)" for approval
+2026-04-27T01:17:16Z [INFO] [executor] queued "Invalid index sage_verify.idx_verify_invalid_unique" for approval
+2026-04-27T01:17:16Z [INFO] [executor] queued "Missing index on FK column sage_verify.child_bigint_fk(parent_id)" for approval
+2026-04-27T01:17:16Z [INFO] [executor] queued "Missing index on FK column sage_verify.orders(customer_id)" for approval
+2026-04-27T01:17:16Z [INFO] [INFO] analyzer cycle: 32 findings
+2026-04-27T01:17:16Z [INFO] [executor] queued "Table sage_verify.bloated_table has 66.7% dead tuples" for approval
+2026/04/26 20:17:18 ERROR query fleet findings failed error="count findings: context canceled"
+2026-04-27T01:17:18Z [INFO] [INFO] analyzer cycle: 34 findings
+2026-04-27T01:17:21Z [INFO] [INFO] analyzer cycle: 32 findings
+2026-04-27T01:17:23Z [INFO] [INFO] analyzer cycle: 34 findings
+2026-04-27T01:17:26Z [INFO] [INFO] analyzer cycle: 32 findings
+2026-04-27T01:17:28Z [INFO] [INFO] analyzer cycle: 34 findings
+2026-04-27T01:17:31Z [INFO] [INFO] analyzer cycle: 32 findings
+2026-04-27T01:17:33Z [INFO] [INFO] analyzer cycle: 34 findings
+2026-04-27T01:17:36Z [INFO] [INFO] analyzer cycle: 32 findings
+2026-04-27T01:17:38Z [INFO] [INFO] analyzer cycle: 34 findings
+2026-04-27T01:17:41Z [INFO] [INFO] analyzer cycle: 32 findings
+2026-04-27T01:17:43Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:17:46Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:17:48Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:17:51Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:17:53Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:17:56Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:17:58Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:01Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:03Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:06Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:08Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:11Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:13Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:16Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:18Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:21Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:23Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:26Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:28Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:31Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:33Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:36Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:38Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:41Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:43Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:46Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:48Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:51Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:53Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:56Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:18:58Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:01Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:03Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:06Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:08Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:11Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:13Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:16Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:18Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:21Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:23Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:26Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:28Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:31Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:33Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:36Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:38Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:41Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:43Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:46Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:48Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:51Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:53Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:56Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:19:58Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:20:01Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:20:03Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:20:06Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:20:08Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:20:09Z [INFO] [INFO] analyzer stopped
+2026-04-27T01:20:09Z [INFO] [INFO] collector stopped
+2026-04-27T01:20:13Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:20:13Z [INFO] [INFO] collector started, interval=5s
+2026-04-27T01:20:13Z [INFO] [INFO] analyzer started, interval=5s
+2026-04-27T01:20:13Z [INFO] [DEBUG] analyzer: no snapshot yet, skipping
+2026-04-27T01:20:13Z [INFO] [meta-db] db "staging": initialized
+2026-04-27T01:20:18Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:20:18Z [INFO] [DEBUG] analyzer: no snapshot yet, skipping
+2026-04-27T01:20:18Z [INFO] [INFO] collector stopped
+2026-04-27T01:20:18Z [INFO] [INFO] analyzer stopped
+2026-04-27T01:20:19Z [INFO] [INFO] collector started, interval=5s
+2026-04-27T01:20:19Z [INFO] [INFO] analyzer started, interval=5s
+2026-04-27T01:20:19Z [INFO] [DEBUG] analyzer: no snapshot yet, skipping
+2026-04-27T01:20:19Z [INFO] [meta-db] db "staging": initialized
+2026-04-27T01:20:19Z [INFO] [INFO] collector started, interval=5s
+2026-04-27T01:20:19Z [INFO] [INFO] analyzer started, interval=5s
+2026-04-27T01:20:19Z [INFO] [DEBUG] analyzer: no snapshot yet, skipping
+2026-04-27T01:20:19Z [INFO] [meta-db] db "staging": initialized
+2026-04-27T01:20:23Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:20:24Z [INFO] [DEBUG] analyzer: no snapshot yet, skipping
+2026-04-27T01:20:24Z [INFO] [DEBUG] analyzer: no snapshot yet, skipping
+2026-04-27T01:20:28Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:20:29Z [INFO] [INFO] analyzer cycle: 9 findings
+2026-04-27T01:20:29Z [INFO] [INFO] analyzer cycle: 9 findings
+2026/04/26 20:20:29 ERROR failed to create user email=admin@pg-sage.local error="creating user: ERROR: duplicate key value violates unique constraint \"users_email_key\" (SQLSTATE 23505)"
+2026/04/26 20:20:31 WARN model list API error status=400 body="{\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"API key not valid. Please pass a valid API key.\",\n    \"status\": \"INVALID_ARGUMENT\",\n    \"details\": [\n      {\n        \"@type\": \"type.googleapis.com/google.rpc.ErrorInfo\",\n        \"reason\": \"API_KEY_INVALID\",\n        \"domain\": \"googleapis.com\",\n        \"metadata\": {\n          \"service\": \"generativelanguage.googleapis.com\"\n        }\n      },\n      {\n        \"@type\": \"type.googleapis.com/google.rpc.LocalizedMessage\",\n        \"locale\": \"en-US\",\n        \"message\": \"API key not valid. Please pass a valid API key.\"\n      }\n    ]\n  }\n}\n"
+2026/04/26 20:20:31 ERROR LLM list models failed error="gemini list models: API returned 400: {\n  \"error\": {\n    \"code\": 400,\n    \"message\": \"API key not valid. Please pass a valid API key.\",\n    \"status\": \"INVALID_ARGUMENT\",\n    \"details\": [\n      {\n        \"@type\": \"type.googleapis.com/googl..."
+2026-04-27T01:20:33Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:20:34Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:20:34Z [INFO] [INFO] analyzer cycle: 16 findings
+2026-04-27T01:20:38Z [INFO] [INFO] analyzer cycle: 16 findings

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,15 +16,16 @@ import (
 func setupPhase2Pool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
-	dsn := "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+	dsn := os.Getenv("SAGE_DATABASE_URL")
 	ctx := context.Background()
 
 	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Skipf("skipping: cannot parse DSN: %v", err)
 	}
-	// Single connection so advisory lock stays on the same session.
-	poolCfg.MaxConns = 1
+	// The cross-package test lock pins one connection while setup and
+	// assertions use the remaining pool capacity.
+	poolCfg.MaxConns = 2
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		t.Skipf("skipping: cannot create pool: %v", err)
@@ -33,18 +35,37 @@ func setupPhase2Pool(t *testing.T) *pgxpool.Pool {
 		t.Skipf("skipping: database unavailable: %v", err)
 	}
 
-	// Hold the pg_sage advisory lock for the entire test to prevent
+	// Hold the cross-package test lock for the entire test to prevent
 	// schema tests from dropping the sage schema mid-test.
-	_, err = pool.Exec(ctx,
-		"SELECT pg_advisory_lock(hashtext('pg_sage'))")
+	lockConn, err := pool.Acquire(ctx)
 	if err != nil {
+		pool.Close()
+		t.Fatalf("acquiring lock connection: %v", err)
+	}
+	_, err = lockConn.Exec(ctx,
+		"SELECT pg_advisory_lock(hashtext('pg_sage_test_cross_pkg'))")
+	if err != nil {
+		lockConn.Release()
 		pool.Close()
 		t.Fatalf("acquiring advisory lock: %v", err)
 	}
 
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(),
-			"SELECT pg_advisory_unlock(hashtext('pg_sage'))")
+		var unlocked bool
+		err := lockConn.QueryRow(context.Background(),
+			"SELECT pg_advisory_unlock("+
+				"hashtext('pg_sage_test_cross_pkg'))").Scan(&unlocked)
+		if err != nil {
+			raw := lockConn.Hijack()
+			_ = raw.Close(context.Background())
+			t.Errorf("release cross-package test lock: %v", err)
+		} else if !unlocked {
+			raw := lockConn.Hijack()
+			_ = raw.Close(context.Background())
+			t.Error("release cross-package test lock: lock not owned")
+		} else {
+			lockConn.Release()
+		}
 		pool.Close()
 	})
 
@@ -836,6 +857,184 @@ func TestPhase2_UpdateUserRole_NonexistentUser(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "user not found") {
 		t.Errorf("error = %q, want 'user not found'", err)
+	}
+}
+
+// -------------------------------------------------------------------------
+// GetUserByID
+// -------------------------------------------------------------------------
+
+func TestPhase2_GetUserByID_Found(t *testing.T) {
+	pool := setupPhase2Pool(t)
+	ctx := context.Background()
+
+	id, err := CreateUser(ctx, pool,
+		"lookup@example.com", "password", RoleOperator)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	user, err := GetUserByID(ctx, pool, id)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if user == nil {
+		t.Fatal("GetUserByID returned nil user")
+	}
+	if user.ID != id {
+		t.Errorf("ID = %d, want %d", user.ID, id)
+	}
+	if user.Email != "lookup@example.com" {
+		t.Errorf("Email = %q, want lookup@example.com", user.Email)
+	}
+	if user.Role != RoleOperator {
+		t.Errorf("Role = %q, want %q", user.Role, RoleOperator)
+	}
+	if user.CreatedAt.IsZero() {
+		t.Error("CreatedAt is zero")
+	}
+	if user.LastLogin != nil {
+		t.Errorf("LastLogin = %v, want nil before login", user.LastLogin)
+	}
+}
+
+func TestPhase2_GetUserByID_NotFound(t *testing.T) {
+	pool := setupPhase2Pool(t)
+	ctx := context.Background()
+
+	user, err := GetUserByID(ctx, pool, 99999)
+	if err == nil {
+		t.Fatal("expected error for missing user")
+	}
+	if user != nil {
+		t.Fatalf("user = %#v, want nil on error", user)
+	}
+	if !strings.Contains(err.Error(), "getting user") {
+		t.Errorf("error = %q, want getting user context", err)
+	}
+}
+
+func TestPhase2_GetUserByID_CancelledContext(t *testing.T) {
+	pool := setupPhase2Pool(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	user, err := GetUserByID(ctx, pool, 1)
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+	if user != nil {
+		t.Fatalf("user = %#v, want nil on error", user)
+	}
+	if !strings.Contains(err.Error(), "context canceled") {
+		t.Errorf("error = %q, want context canceled", err)
+	}
+}
+
+// -------------------------------------------------------------------------
+// UpdateUserRolePreservingAdmin
+// -------------------------------------------------------------------------
+
+func TestPhase2_UpdateUserRolePreservingAdmin_RejectsOnlyAdminDemotion(t *testing.T) {
+	pool := setupPhase2Pool(t)
+	ctx := context.Background()
+
+	adminID, err := CreateUser(ctx, pool,
+		"only-admin@example.com", "password", RoleAdmin)
+	if err != nil {
+		t.Fatalf("CreateUser admin: %v", err)
+	}
+
+	err = UpdateUserRolePreservingAdmin(ctx, pool, adminID, RoleViewer)
+	if err == nil {
+		t.Fatal("expected ErrLastAdmin")
+	}
+	if err != ErrLastAdmin {
+		t.Fatalf("error = %v, want %v", err, ErrLastAdmin)
+	}
+
+	user, err := GetUserByID(ctx, pool, adminID)
+	if err != nil {
+		t.Fatalf("GetUserByID after failed demotion: %v", err)
+	}
+	if user.Role != RoleAdmin {
+		t.Errorf("role after ErrLastAdmin = %q, want %q", user.Role, RoleAdmin)
+	}
+}
+
+func TestPhase2_UpdateUserRolePreservingAdmin_AllowsOneOfTwoAdminsDemotion(t *testing.T) {
+	pool := setupPhase2Pool(t)
+	ctx := context.Background()
+
+	firstID, err := CreateUser(ctx, pool,
+		"first-admin@example.com", "password", RoleAdmin)
+	if err != nil {
+		t.Fatalf("CreateUser first admin: %v", err)
+	}
+	if _, err := CreateUser(ctx, pool,
+		"second-admin@example.com", "password", RoleAdmin); err != nil {
+		t.Fatalf("CreateUser second admin: %v", err)
+	}
+
+	err = UpdateUserRolePreservingAdmin(ctx, pool, firstID, RoleOperator)
+	if err != nil {
+		t.Fatalf("UpdateUserRolePreservingAdmin: %v", err)
+	}
+
+	user, err := GetUserByID(ctx, pool, firstID)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if user.Role != RoleOperator {
+		t.Errorf("role = %q, want %q", user.Role, RoleOperator)
+	}
+	count, err := CountAdmins(ctx, pool)
+	if err != nil {
+		t.Fatalf("CountAdmins: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("admin count = %d, want 1", count)
+	}
+}
+
+func TestPhase2_UpdateUserRolePreservingAdmin_MissingUser(t *testing.T) {
+	pool := setupPhase2Pool(t)
+	ctx := context.Background()
+
+	err := UpdateUserRolePreservingAdmin(ctx, pool, 99999, RoleAdmin)
+	if err == nil {
+		t.Fatal("expected ErrUserNotFound")
+	}
+	if err != ErrUserNotFound {
+		t.Fatalf("error = %v, want %v", err, ErrUserNotFound)
+	}
+}
+
+func TestPhase2_UpdateUserRolePreservingAdmin_InvalidRolePreservesRole(t *testing.T) {
+	pool := setupPhase2Pool(t)
+	ctx := context.Background()
+
+	id, err := CreateUser(ctx, pool,
+		"invalid-preserve@example.com", "password", RoleOperator)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	err = UpdateUserRolePreservingAdmin(ctx, pool, id, "superadmin")
+	if err == nil {
+		t.Fatal("expected invalid role error")
+	}
+	if !strings.Contains(err.Error(), ErrInvalidRole.Error()) {
+		t.Fatalf("error = %v, want %v", err, ErrInvalidRole)
+	}
+
+	user, err := GetUserByID(ctx, pool, id)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if user.Role != RoleOperator {
+		t.Errorf("role after invalid update = %q, want %q",
+			user.Role, RoleOperator)
 	}
 }
 

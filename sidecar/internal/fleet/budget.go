@@ -47,6 +47,9 @@ func (b *FleetBudget) Spend(database string, tokens int) {
 	defer b.mu.Unlock()
 	if db := b.perDB[database]; db != nil {
 		db.used += tokens
+		if db.used < 0 {
+			db.used = 0
+		}
 	}
 }
 

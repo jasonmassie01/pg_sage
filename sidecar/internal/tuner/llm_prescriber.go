@@ -2,7 +2,6 @@ package tuner
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -80,33 +79,18 @@ func convertPrescriptions(
 func parseLLMPrescriptions(
 	response string,
 ) ([]LLMPrescription, error) {
-	cleaned := stripToJSON(response)
-	cleaned = strings.TrimSpace(cleaned)
-	if cleaned == "" || cleaned == "[]" {
-		return nil, nil
-	}
 	var recs []LLMPrescription
-	if err := json.Unmarshal([]byte(cleaned), &recs); err != nil {
-		return nil, fmt.Errorf(
-			"json unmarshal: %w (response: %.200s)", err, cleaned,
-		)
+	if err := llm.ParseJSON(response, llm.JSONArray, &recs); err != nil {
+		return nil, err
 	}
 	return recs, nil
 }
 
 // stripToJSON extracts the JSON array from a response that may
-// contain thinking text, markdown fences, or other non-JSON content.
+// contain thinking text, markdown fences, or other non-JSON
+// content. Delegates to the canonical llm.StripJSON.
 func stripToJSON(s string) string {
-	s = strings.TrimSpace(s)
-	start := strings.Index(s, "[")
-	end := strings.LastIndex(s, "]")
-	if start >= 0 && end > start {
-		return s[start : end+1]
-	}
-	s = strings.TrimPrefix(s, "```json")
-	s = strings.TrimPrefix(s, "```")
-	s = strings.TrimSuffix(s, "```")
-	return strings.TrimSpace(s)
+	return llm.StripJSON(s, llm.JSONArray)
 }
 
 // validHintTokens are the allowed pg_hint_plan directive prefixes.

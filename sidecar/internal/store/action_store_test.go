@@ -4,7 +4,10 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestPropose(t *testing.T) {
@@ -34,9 +37,10 @@ func TestPropose(t *testing.T) {
 func TestListPending(t *testing.T) {
 	pool, ctx := requireDB(t)
 	s := NewActionStore(pool)
+	findingID := insertActionFinding(t, pool, ctx, "list_pending")
 
 	id, err := s.Propose(
-		ctx, nil, 2,
+		ctx, nil, findingID,
 		"ANALYZE public.orders",
 		"", "safe",
 	)
@@ -71,9 +75,10 @@ func TestListPending(t *testing.T) {
 func TestApprove(t *testing.T) {
 	pool, ctx := requireDB(t)
 	s := NewActionStore(pool)
+	findingID := insertActionFinding(t, pool, ctx, "approve")
 
 	id, err := s.Propose(
-		ctx, nil, 3,
+		ctx, nil, findingID,
 		"VACUUM public.orders", "", "safe",
 	)
 	if err != nil {
@@ -199,4 +204,29 @@ func TestApproveAlreadyDecided(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error approving already-decided action")
 	}
+}
+
+func insertActionFinding(
+	t *testing.T, pool *pgxpool.Pool, ctx context.Context, suffix string,
+) int {
+	t.Helper()
+	var id int
+	err := pool.QueryRow(ctx,
+		`INSERT INTO sage.findings
+		    (category, severity, object_type, object_identifier,
+		     title, detail, status)
+		 VALUES ($1, 'warning', 'table', $2, $3, '{}'::jsonb, 'open')
+		 RETURNING id`,
+		"action_store_test",
+		fmt.Sprintf("action_store_test_%s", suffix),
+		fmt.Sprintf("Action store test %s", suffix),
+	).Scan(&id)
+	if err != nil {
+		t.Fatalf("insert finding: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM sage.findings WHERE id = $1", id)
+	})
+	return id
 }

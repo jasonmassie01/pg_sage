@@ -1,0 +1,112 @@
+mode: fleet
+meta_db: "postgres://postgres:test@127.0.0.1:5433/pgsage_meta?sslmode=disable"
+encryption_key: "codex-walkthrough-local-only"
+
+defaults:
+  max_connections: 5
+  trust_level: advisory
+  execution_mode: approval
+  collector_interval_seconds: 5
+  analyzer_interval_seconds: 5
+
+collector:
+  interval_seconds: 5
+  max_queries: 500
+
+analyzer:
+  interval_seconds: 5
+  slow_query_threshold_ms: 5
+  seq_scan_min_rows: 100
+  unused_index_window_days: 0
+  table_bloat_dead_tuple_pct: 10
+  table_bloat_min_rows: 100
+  cache_hit_ratio_warning: 1.01
+  checkpoint_frequency_warning_per_hour: 0
+  xid_wraparound_warning: 1
+  xid_wraparound_critical: 2000000000
+  regression_threshold_pct: 10
+  regression_lookback_days: 1
+  slow_slot_retained_bytes: 1024
+  work_mem_promotion_threshold: 2
+  lock_chain:
+    enabled: true
+    min_blocked_threshold: 1
+    critical_blocked_threshold: 3
+    idle_in_tx_terminate_minutes: 0
+    active_query_cancel_minutes: 0
+    safe_patterns: [pg_sage]
+
+safety:
+  query_timeout_ms: 30000
+  ddl_timeout_seconds: 60
+  lock_timeout_ms: 5000
+
+trust:
+  level: advisory
+  ramp_start: "2026-02-01T00:00:00Z"
+  maintenance_window: "* * * * *"
+  tier3_safe: true
+  tier3_moderate: true
+  rollback_window_minutes: 1
+  rollback_threshold_pct: 5
+  cascade_cooldown_cycles: 1
+
+llm:
+  enabled: false
+  optimizer:
+    enabled: false
+
+advisor:
+  enabled: false
+
+tuner:
+  enabled: true
+  llm_enabled: false
+  min_query_calls: 1
+  plan_time_ratio: 0.1
+  work_mem_max_mb: 256
+  nested_loop_row_threshold: 10
+  parallel_min_table_rows: 100
+  stale_stats_mod_ratio: 0.01
+  stale_stats_age_minutes: 0
+  analyze_max_table_mb: 1024
+  analyze_cooldown_minutes: 0
+  analyze_maintenance_threshold_mb: 1024
+  analyze_timeout_ms: 60000
+  max_concurrent_analyze: 1
+  verify_after_apply: false
+  revalidation_interval_hours: 0
+
+schema_lint:
+  enabled: true
+  scan_interval_minutes: 1
+  include_schemas: [sage_verify]
+  exclude_schemas: [pg_catalog, information_schema, sage]
+  min_table_rows: 10
+
+forecaster:
+  enabled: false
+
+alerting:
+  enabled: false
+
+auto_explain:
+  enabled: false
+
+rca:
+  enabled: false
+
+runaway:
+  enabled: false
+
+logwatch:
+  enabled: false
+
+migration:
+  enabled: false
+
+api:
+  listen_addr: "127.0.0.1:18085"
+
+prometheus:
+  listen_addr: "127.0.0.1:19187"

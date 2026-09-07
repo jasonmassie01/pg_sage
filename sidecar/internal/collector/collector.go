@@ -2,26 +2,30 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/querystore"
 )
 
 // Collector runs periodic stats collection against the target database.
 type Collector struct {
-	pool         *pgxpool.Pool
-	cfg          *config.Config
-	breaker      *CircuitBreaker
-	mu           sync.RWMutex
-	latest       *Snapshot
-	previous     *Snapshot
-	tablePageKey string
-	pgVersionNum int // e.g. 170009 for PG 17.9
-	logFn        func(string, string, ...any)
+	pool            *pgxpool.Pool
+	cfg             *config.Config
+	breaker         *CircuitBreaker
+	mu              sync.RWMutex
+	latest          *Snapshot
+	previous        *Snapshot
+	tablePageSchema string
+	tablePageRel    string
+	pgVersionNum    int // e.g. 170009 for PG 17.9
+	logFn           func(string, string, ...any)
 }
 
 // New creates a Collector wired to the given pool and config.
@@ -63,7 +67,7 @@ func (c *Collector) Run(ctx context.Context) {
 }
 
 func (c *Collector) cycle(ctx context.Context, ticker *time.Ticker) {
-	if c.breaker.ShouldSkip(ctx, c.pool) {
+	if c.breaker.ShouldSkip(ctx, timedCatalogQuerier{collector: c}) {
 		if c.breaker.IsDormant() {
 			c.logFn("WARN", "circuit breaker dormant, using dormant interval")
 			ticker.Reset(c.cfg.Safety.DormantInterval())
@@ -93,6 +97,33 @@ func (c *Collector) cycle(ctx context.Context, ticker *time.Ticker) {
 
 	if err := c.persist(ctx, snap); err != nil {
 		c.logFn("ERROR", "snapshot persist failed: %v", err)
+	}
+
+	c.recordQueryStore(ctx, snap)
+}
+
+// recordQueryStore writes per-queryid samples to sage.query_store so
+// windowed latency can be computed for verify-and-revert (F1) and
+// plan-regression detection (A5). Non-fatal on error.
+func (c *Collector) recordQueryStore(ctx context.Context, snap *Snapshot) {
+	if len(snap.Queries) == 0 {
+		return
+	}
+	samples := make([]querystore.Sample, 0, len(snap.Queries))
+	for _, q := range snap.Queries {
+		if q.QueryID == 0 {
+			continue
+		}
+		samples = append(samples, querystore.Sample{
+			QueryID:     q.QueryID,
+			Calls:       q.Calls,
+			TotalExecMs: q.TotalExecTime,
+			MeanExecMs:  q.MeanExecTime,
+			Rows:        q.Rows,
+		})
+	}
+	if err := querystore.Record(ctx, c.pool, samples); err != nil {
+		c.logFn("WARN", "query_store record failed: %v", err)
 	}
 }
 
@@ -138,8 +169,12 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	if snap.Sequences, err = c.collectSequences(ctx); err != nil {
 		return nil, err
 	}
+	// Non-fatal: a single replication-slot quirk (e.g. an unreserved
+	// slot, or a hot standby) must not abort the entire snapshot cycle,
+	// which would silently halt all stats collection (H1/H2). Match the
+	// WARN-and-continue behavior of the sibling collectors below.
 	if snap.Replication, err = c.collectReplication(ctx); err != nil {
-		return nil, err
+		c.logFn("WARN", "replication collection failed: %v", err)
 	}
 	// pg_stat_io (PG16+)
 	if c.pgVersionNum >= 160000 {
@@ -148,13 +183,19 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 			// Non-fatal — continue without IO stats.
 		}
 	}
+	// Prepared transactions (2PC) — invisible to pg_stat_activity,
+	// hold xmin and locks indefinitely.
+	if snap.PreparedXacts, err = c.collectPreparedXacts(ctx); err != nil {
+		c.logFn("WARN", "prepared xacts collection failed: %v", err)
+	}
 	// Partition inheritance
 	if snap.Partitions, err = c.collectPartitions(ctx); err != nil {
 		c.logFn("WARN", "partition collection failed: %v", err)
 	}
 	// Config data for advisor features
 	if c.cfg.Advisor.Enabled {
-		if snap.ConfigData, err = collectConfigSnapshot(ctx, c.pool); err != nil {
+		querier := timedCatalogQuerier{collector: c}
+		if snap.ConfigData, err = collectConfigSnapshot(ctx, querier); err != nil {
 			c.logFn("WARN", "config snapshot collection failed: %v", err)
 		}
 	}
@@ -194,7 +235,7 @@ func (c *Collector) collectQueries(ctx context.Context) ([]QueryStats, error) {
 	}
 	sql := fmt.Sprintf(tpl, limit)
 
-	rows, err := c.pool.Query(ctx, sql)
+	rows, err := c.catalogQuery(ctx, sql)
 	if err != nil {
 		return nil, err
 	}
@@ -230,9 +271,15 @@ func (c *Collector) collectTables(ctx context.Context) ([]TableStats, error) {
 	batchSize := c.cfg.Collector.BatchSize
 	var allTables []TableStats
 
-	pageKey := c.tablePageKey
+	// Tuple cursor: (schema, rel). Must be two separate bind params so
+	// that PostgreSQL compares tuple-wise. Concatenating into a single
+	// string silently skips tables: e.g. ('public','users') produces
+	// cursor 'public.users', and 'public' < 'public.users' causes every
+	// subsequent row in the public schema to be filtered out.
+	pageSchema := c.tablePageSchema
+	pageRel := c.tablePageRel
 	for {
-		rows, err := c.pool.Query(ctx, tableStatsSQL, pageKey, batchSize)
+		rows, err := c.catalogQuery(ctx, tableStatsSQL, pageSchema, pageRel, batchSize)
 		if err != nil {
 			return nil, err
 		}
@@ -250,7 +297,7 @@ func (c *Collector) collectTables(ctx context.Context) ([]TableStats, error) {
 				&t.VacuumCount, &t.AutovacuumCount,
 				&t.AnalyzeCount, &t.AutoanalyzeCount,
 				&t.TotalBytes, &t.TableBytes, &t.IndexBytes,
-				&t.Relpersistence,
+				&t.Relpersistence, &t.XIDAge,
 			); err != nil {
 				rows.Close()
 				return nil, err
@@ -264,22 +311,28 @@ func (c *Collector) collectTables(ctx context.Context) ([]TableStats, error) {
 
 		allTables = append(allTables, batch...)
 
-		if len(batch) < batchSize {
+		// Empty batch → nothing more to page through. This also
+		// guards against panic when batchSize is 0 (len(batch) >=
+		// batchSize would otherwise be trivially true).
+		if len(batch) == 0 || len(batch) < batchSize {
 			// All tables collected; reset cursor for next cycle.
-			c.tablePageKey = ""
+			c.tablePageSchema = ""
+			c.tablePageRel = ""
 			break
 		}
 
 		last := batch[len(batch)-1]
-		pageKey = last.SchemaName + "." + last.RelName
-		c.tablePageKey = pageKey
+		pageSchema = last.SchemaName
+		pageRel = last.RelName
+		c.tablePageSchema = pageSchema
+		c.tablePageRel = pageRel
 	}
 
 	return allTables, nil
 }
 
 func (c *Collector) collectIndexes(ctx context.Context) ([]IndexStats, error) {
-	rows, err := c.pool.Query(ctx, indexStatsSQL)
+	rows, err := c.catalogQuery(ctx, indexStatsSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -303,7 +356,7 @@ func (c *Collector) collectIndexes(ctx context.Context) ([]IndexStats, error) {
 }
 
 func (c *Collector) collectForeignKeys(ctx context.Context) ([]ForeignKey, error) {
-	rows, err := c.pool.Query(ctx, foreignKeysSQL)
+	rows, err := c.catalogQuery(ctx, foreignKeysSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +383,7 @@ func (c *Collector) collectSystem(ctx context.Context) (SystemStats, error) {
 	}
 
 	var s SystemStats
-	err := c.pool.QueryRow(ctx, sql).Scan(
+	err := c.catalogQueryRow(ctx, sql).Scan(
 		&s.ActiveBackends, &s.IdleInTransaction,
 		&s.TotalBackends, &s.MaxConnections,
 		&s.CacheHitRatio, &s.Deadlocks,
@@ -338,11 +391,22 @@ func (c *Collector) collectSystem(ctx context.Context) (SystemStats, error) {
 		&s.TotalCheckpoints, &s.IsReplica,
 		&s.DBSizeBytes,
 	)
+	var pgErr *pgconn.PgError
+	if c.pgVersionNum >= 170000 && errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+		err = c.catalogQueryRow(ctx, systemStatsSQL14).Scan(
+			&s.ActiveBackends, &s.IdleInTransaction,
+			&s.TotalBackends, &s.MaxConnections,
+			&s.CacheHitRatio, &s.Deadlocks,
+			&s.BlkReadTime, &s.BlkWriteTime,
+			&s.TotalCheckpoints, &s.IsReplica,
+			&s.DBSizeBytes,
+		)
+	}
 	return s, err
 }
 
 func (c *Collector) collectLocks(ctx context.Context) ([]LockInfo, error) {
-	rows, err := c.pool.Query(ctx, locksSQL)
+	rows, err := c.catalogQuery(ctx, locksSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +431,7 @@ func (c *Collector) collectLocks(ctx context.Context) ([]LockInfo, error) {
 }
 
 func (c *Collector) collectSequences(ctx context.Context) ([]SequenceStats, error) {
-	rows, err := c.pool.Query(ctx, sequencesSQL)
+	rows, err := c.catalogQuery(ctx, sequencesSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -394,12 +458,10 @@ func (c *Collector) collectReplication(
 	rs := &ReplicationStats{}
 
 	// Collect replicas.
-	replicaRows, err := c.pool.Query(ctx, replicationReplicasSQL)
+	replicaRows, err := c.catalogQuery(ctx, replicationReplicasSQL)
 	if err != nil {
 		return nil, err
 	}
-	defer replicaRows.Close()
-
 	for replicaRows.Next() {
 		var r ReplicaInfo
 		if err := replicaRows.Scan(
@@ -408,27 +470,29 @@ func (c *Collector) collectReplication(
 			&r.WriteLag, &r.FlushLag, &r.ReplayLag,
 			&r.SyncState,
 		); err != nil {
+			replicaRows.Close()
 			return nil, err
 		}
 		rs.Replicas = append(rs.Replicas, r)
 	}
 	if err := replicaRows.Err(); err != nil {
+		replicaRows.Close()
 		return nil, err
 	}
+	replicaRows.Close()
 
 	// Collect slots.
-	slotRows, err := c.pool.Query(ctx, replicationSlotsSQL)
+	slotRows, err := c.catalogQuery(ctx, replicationSlotsSQL)
 	if err != nil {
 		return nil, err
 	}
-	defer slotRows.Close()
-
 	for slotRows.Next() {
 		var s SlotInfo
 		if err := slotRows.Scan(
 			&s.SlotName, &s.SlotType, &s.Active,
 			&s.RetainedBytes,
 		); err != nil {
+			slotRows.Close()
 			return nil, err
 		}
 		rs.Slots = append(rs.Slots, s)
@@ -446,7 +510,7 @@ func (c *Collector) collectReplication(
 }
 
 func (c *Collector) collectIO(ctx context.Context) ([]IOStats, error) {
-	rows, err := c.pool.Query(ctx, ioStatsSQL)
+	rows, err := c.catalogQuery(ctx, ioStatsSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +539,7 @@ func (c *Collector) collectIO(ctx context.Context) ([]IOStats, error) {
 func (c *Collector) collectPartitions(
 	ctx context.Context,
 ) ([]PartitionInfo, error) {
-	rows, err := c.pool.Query(ctx, partitionInheritanceSQL)
+	rows, err := c.catalogQuery(ctx, partitionInheritanceSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -495,3 +559,25 @@ func (c *Collector) collectPartitions(
 	return result, rows.Err()
 }
 
+func (c *Collector) collectPreparedXacts(
+	ctx context.Context,
+) ([]PreparedTransaction, error) {
+	rows, err := c.catalogQuery(ctx, preparedXactsSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []PreparedTransaction
+	for rows.Next() {
+		var pt PreparedTransaction
+		if err := rows.Scan(
+			&pt.GID, &pt.Prepared, &pt.Owner,
+			&pt.Database, &pt.XIDAge,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, pt)
+	}
+	return result, rows.Err()
+}

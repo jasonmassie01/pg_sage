@@ -316,7 +316,7 @@ func findSortDisk(node planNodeFull) bool {
 func (a *Analyzer) checkPlanRegression(
 	ctx context.Context,
 ) []Finding {
-	rows, err := a.pool.Query(ctx, `
+	rows, err := a.pool.Query(ctx, `/* pg_sage */ 
 		WITH ranked AS (
 			SELECT queryid, query_text, plan_json,
 				total_cost, execution_time,

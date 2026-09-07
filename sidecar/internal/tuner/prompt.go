@@ -3,6 +3,8 @@ package tuner
 import (
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
 const maxTunerPromptChars = 14000
@@ -15,16 +17,18 @@ func TunerSystemPrompt() string {
 You are a PostgreSQL query tuning expert specializing in pg_hint_plan directives. Given a slow query with detected performance symptoms, its execution plan, table statistics, indexes, and system context, prescribe the optimal pg_hint_plan hints.
 
 Rules:
-1. Output ONLY valid pg_hint_plan syntax: Set(), HashJoin(), MergeJoin(), NestLoop(), IndexScan(), IndexOnlyScan(), SeqScan(), NoSeqScan(), Parallel(), NoParallel().
+1. Output ONLY valid pg_hint_plan syntax: Set(), HashJoin(), MergeJoin(), NestLoop(), IndexScan(), IndexOnlyScan(), SeqScan(), NoSeqScan(), Parallel(), NoParallel(), BitmapScan(), NoBitmapScan(), NoIndexScan(), NoNestLoop(), NoHashJoin(), NoMergeJoin().
 2. Join strategy: choose based on table sizes, join selectivity, and whether join columns have high correlation (high correlation + sorted data favors MergeJoin). Small outer with indexed inner favors NestLoop. Large unsorted joins favor HashJoin. Do NOT blindly default to HashJoin.
 3. IndexScan: ONLY prescribe if a suitable index EXISTS in the provided index list. If no matching index exists, omit the hint and explain in rationale.
-4. work_mem: calculate from spill size, but divide by active_backends to avoid memory contention. Never exceed shared_buffers / max_connections.
-5. Parallel workers: scale to table size (1M+ rows). Never exceed the system max_parallel_workers_per_gather value.
-6. Sort+Limit: if a sort processes 10x+ more rows than LIMIT needs, prescribe IndexScan on sort columns IF a suitable index exists.
-7. Consider ALL symptoms together and produce ONE coherent hint string that addresses the root cause.
-8. If deterministic fallback hints are provided, improve on them or confirm them if correct.
-9. Confidence: 0.0-1.0 based on completeness of available data and certainty of recommendation.
-10. Query rewrite: if the hint is a workaround and the query itself could be rewritten for better performance (e.g., replacing correlated subqueries with JOINs, using EXISTS instead of IN, removing unnecessary DISTINCT, adding proper WHERE clauses), include the rewritten SQL in "suggested_rewrite" and explain why in "rewrite_rationale". Only suggest a rewrite when it would meaningfully improve performance beyond what hints alone achieve. Leave both fields empty string if no rewrite is needed.
+4. For OR predicates across separately indexed columns, prefer BitmapScan(table index_name) or NoSeqScan(table) over broad planner GUCs.
+5. Do NOT use Set(enable_seqscan false), Set(enable_indexscan false), Set(enable_bitmapscan false), or other enable_* planner toggles. Use table-scoped pg_hint_plan directives instead.
+6. work_mem: calculate from spill size, but divide by active_backends to avoid memory contention. Never exceed shared_buffers / max_connections.
+7. Parallel workers: scale to table size (1M+ rows). Never exceed the system max_parallel_workers_per_gather value.
+8. Sort+Limit: if a sort processes 10x+ more rows than LIMIT needs, prescribe IndexScan on sort columns IF a suitable index exists.
+9. Consider ALL symptoms together and produce ONE coherent hint string that addresses the root cause.
+10. If deterministic fallback hints are provided, improve on them or confirm them if correct.
+11. Confidence: 0.0-1.0 based on completeness of available data and certainty of recommendation.
+12. Query rewrite: if the hint is a workaround and the query itself could be rewritten for better performance (e.g., replacing correlated subqueries with JOINs, using EXISTS instead of IN, removing unnecessary DISTINCT, adding proper WHERE clauses), include the rewritten SQL in "suggested_rewrite" and explain why in "rewrite_rationale". Only suggest a rewrite when it would meaningfully improve performance beyond what hints alone achieve. Leave both fields empty string if no rewrite is needed.
 
 Output format:
 [{"hint_directive": "Set(work_mem \"256MB\") HashJoin(t1 t2)", "rationale": "Why these hints help", "confidence": 0.85, "suggested_rewrite": "", "rewrite_rationale": ""}]
@@ -47,6 +51,7 @@ func FormatTunerPrompt(qctx QueryContext) string {
 	)
 
 	formatSymptoms(&b, qctx.Symptoms)
+	formatSpecializedWorkloadHints(&b, c.Query)
 	formatPlan(&b, qctx.PlanJSON)
 	formatTables(&b, qctx.Tables)
 	formatSystem(&b, qctx.System)
@@ -61,6 +66,52 @@ func FormatTunerPrompt(qctx QueryContext) string {
 			"Start with [ immediately.",
 	)
 	return b.String()
+}
+
+func formatSpecializedWorkloadHints(b *strings.Builder, query string) {
+	info := optimizer.QueryInfo{Text: query}
+	jsonWorkload := optimizer.ClassifyJSONWorkload(info)
+	vectorWorkload := optimizer.ClassifyVectorWorkload(info)
+	postGISWorkload := optimizer.ClassifyPostGISWorkload(info)
+	if jsonWorkload.Shape == "" &&
+		vectorWorkload.Shape == "" &&
+		postGISWorkload.Shape == "" {
+		return
+	}
+
+	b.WriteString("## Specialized Workload Hints\n")
+	b.WriteString("- Only prescribe pg_hint_plan directives for indexes that ")
+	b.WriteString("exist in the provided index list; otherwise explain the ")
+	b.WriteString("missing JSON/vector/PostGIS index or rewrite in rationale.\n")
+	if jsonWorkload.Shape != "" {
+		fmt.Fprintf(b, "- JSON/JSONB workload: shape=%s, recommendation=%s",
+			jsonWorkload.Shape, jsonWorkload.PrimaryRecommendation)
+		if len(jsonWorkload.Evidence) > 0 {
+			fmt.Fprintf(b, ", evidence=%s",
+				strings.Join(jsonWorkload.Evidence, "; "))
+		}
+		b.WriteString("\n")
+	}
+	if vectorWorkload.Shape != "" {
+		fmt.Fprintf(b, "- Vector workload: shape=%s, recommendation=%s",
+			vectorWorkload.Shape, vectorWorkload.PrimaryRecommendation)
+		if len(vectorWorkload.Warnings) > 0 {
+			fmt.Fprintf(b, ", warnings=%s",
+				strings.Join(vectorWorkload.Warnings, "; "))
+		}
+		b.WriteString("\n")
+	}
+	if postGISWorkload.Shape != "" {
+		fmt.Fprintf(b, "- PostGIS workload: shape=%s, recommendation=%s",
+			postGISWorkload.Shape,
+			postGISWorkload.PrimaryRecommendation)
+		if len(postGISWorkload.Warnings) > 0 {
+			fmt.Fprintf(b, ", warnings=%s",
+				strings.Join(postGISWorkload.Warnings, "; "))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 }
 
 func formatSymptoms(b *strings.Builder, symptoms []PlanSymptom) {
@@ -175,6 +226,7 @@ func truncatePrompt(qctx QueryContext) string {
 	)
 
 	formatSymptoms(&b, qctx.Symptoms)
+	formatSpecializedWorkloadHints(&b, c.Query)
 
 	// Truncated plan
 	if qctx.PlanJSON != "" {

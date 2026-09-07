@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -18,6 +19,8 @@ import (
 	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -27,6 +30,8 @@ const (
 	adminPassLen  = 16
 	metaDBTimeout = 10 * time.Second
 )
+
+var bootstrapManagedDatabaseSchema = schema.Bootstrap
 
 // metaDBState holds state derived from the --meta-db flag.
 type metaDBState struct {
@@ -47,6 +52,7 @@ func connectMetaDB(dsn string) (*pgxpool.Pool, error) {
 	poolCfg.MinConns = 1
 	poolCfg.MaxConnLifetime = 30 * time.Minute
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
+	poolCfg.AfterConnect = silenceSelfStats
 
 	const maxAttempts = 5
 	backoff := 1 * time.Second
@@ -106,10 +112,19 @@ func initMetaDB(
 		return nil, fmt.Errorf("config schema migration: %w", err)
 	}
 
-	// Derive encryption key if provided.
+	// Derive encryption key if provided. A per-deployment random
+	// salt is persisted in sage.crypto_meta on first bootstrap and
+	// reused on every subsequent startup, so keys derived here
+	// match keys used to encrypt prior records. The salt must be
+	// stable across restarts — if it is lost, all encrypted
+	// credentials become unrecoverable.
 	var encKey []byte
 	if encKeyPassphrase != "" {
-		encKey = crypto.DeriveKey(encKeyPassphrase)
+		salt, err := schema.ReadOrCreateKDFSalt(ctx, metaPool)
+		if err != nil {
+			return nil, fmt.Errorf("kdf salt: %w", err)
+		}
+		encKey = crypto.DeriveKey(encKeyPassphrase, salt)
 	} else {
 		log.Println(
 			"WARNING: --encryption-key not set; " +
@@ -196,6 +211,17 @@ func loadDatabasesFromStore(
 func connectMonitoredDB(
 	dsn string, maxConns int,
 ) (*pgxpool.Pool, error) {
+	return connectMonitoredDBContext(
+		context.Background(), dsn, maxConns,
+	)
+}
+
+func connectMonitoredDBContext(
+	ctx context.Context, dsn string, maxConns int,
+) (*pgxpool.Pool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("invalid DSN: %w", err)
@@ -209,26 +235,42 @@ func connectMonitoredDB(
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
 	poolCfg.HealthCheckPeriod = 30 * time.Second
 
+	// Tag every pool connection with a stable application_name so the
+	// analyzer/executor can recognize all sidecar backends (not just the
+	// one returned by pg_backend_pid() on some arbitrary pool conn) when
+	// deciding whether a query is safe to terminate.
+	if poolCfg.ConnConfig.RuntimeParams == nil {
+		poolCfg.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	poolCfg.ConnConfig.RuntimeParams["application_name"] = "pg_sage"
+	poolCfg.AfterConnect = silenceSelfStats
+
 	const maxAttempts = 5
 	backoff := 1 * time.Second
 	var lastErr error
 
 	for attempt := range maxAttempts {
-		p, err := pgxpool.NewWithConfig(
-			context.Background(), poolCfg)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		p, err := pgxpool.NewWithConfig(ctx, poolCfg)
 		if err != nil {
 			lastErr = fmt.Errorf("creating pool: %w", err)
-			logRetry("connect", attempt, maxAttempts,
-				backoff, lastErr)
-			time.Sleep(backoff)
-			backoff *= 2
+			if attempt < maxAttempts-1 {
+				logRetry("connect", attempt, maxAttempts,
+					backoff, lastErr)
+				if err := waitForRetry(ctx, backoff); err != nil {
+					return nil, err
+				}
+				backoff *= 2
+			}
 			continue
 		}
 
-		ctx, cancel := context.WithTimeout(
-			context.Background(), 5*time.Second,
+		pingCtx, cancel := context.WithTimeout(
+			ctx, 5*time.Second,
 		)
-		err = p.Ping(ctx)
+		err = p.Ping(pingCtx)
 		cancel()
 		if err == nil {
 			return p, nil
@@ -238,12 +280,25 @@ func connectMonitoredDB(
 		if attempt < maxAttempts-1 {
 			logRetry("connect", attempt, maxAttempts,
 				backoff, lastErr)
-			time.Sleep(backoff)
+			if err := waitForRetry(ctx, backoff); err != nil {
+				return nil, err
+			}
 			backoff *= 2
 		}
 	}
 	return nil, fmt.Errorf(
 		"failed after %d attempts: %w", maxAttempts, lastErr)
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func logRetry(
@@ -260,6 +315,10 @@ func logRetry(
 // Starts a background goroutine to reconnect failed databases.
 func initMetaDBFleet(state *metaDBState) {
 	fleetMgr = fleet.NewManager(cfg)
+	initializeAnalyzeSemaphore()
+	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
+	registerLLMConfigOwner()
+	llmMgr = llm.NewManager(llmClient, nil, false)
 
 	ctx, cancel := context.WithTimeout(
 		context.Background(), metaDBTimeout,
@@ -273,6 +332,11 @@ func initMetaDBFleet(state *metaDBState) {
 	}
 
 	logInfo("meta-db", "found %d enabled databases", len(records))
+	names := make([]string, 0, len(records))
+	for _, record := range records {
+		names = append(names, record.Name)
+	}
+	initializeFleetBudget(names)
 	for _, rec := range records {
 		registerStoreDatabase(state, rec)
 	}
@@ -285,24 +349,15 @@ func initMetaDBFleet(state *metaDBState) {
 func registerStoreDatabase(
 	state *metaDBState, rec store.DatabaseRecord,
 ) {
-	connStr, err := state.Store.GetConnectionString(
-		context.Background(), rec.ID,
+	inst, err := prepareStoreDatabase(
+		context.Background(), state, rec,
 	)
 	if err != nil {
-		logError("meta-db", "db %q: get connection: %v",
-			rec.Name, err)
+		logError("meta-db", "db %q: prepare: %v", rec.Name, err)
 		registerFailedInstance(rec, err.Error())
 		return
 	}
-
-	dbPool, err := connectMonitoredDB(connStr, rec.MaxConnections)
-	if err != nil {
-		logError("meta-db", "db %q: connect: %v", rec.Name, err)
-		registerFailedInstance(rec, err.Error())
-		return
-	}
-
-	bootstrapAndRegister(rec, dbPool)
+	activateStoreDatabase(inst)
 }
 
 // registerFailedInstance adds a non-connected instance to the
@@ -310,8 +365,9 @@ func registerStoreDatabase(
 func registerFailedInstance(rec store.DatabaseRecord, errMsg string) {
 	dbCfg := storeRecordToDBConfig(rec)
 	fleetMgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name:   rec.Name,
-		Config: dbCfg,
+		Name:       rec.Name,
+		DatabaseID: rec.ID,
+		Config:     dbCfg,
 		Status: &fleet.InstanceStatus{
 			Error:    errMsg,
 			LastSeen: time.Now(),
@@ -319,48 +375,156 @@ func registerFailedInstance(rec store.DatabaseRecord, errMsg string) {
 	})
 }
 
-// bootstrapAndRegister runs schema bootstrap, creates components,
-// and registers a healthy instance with the fleet manager.
-func bootstrapAndRegister(
-	rec store.DatabaseRecord, dbPool *pgxpool.Pool,
-) {
-	ctx := context.Background()
-
-	if err := schema.Bootstrap(ctx, dbPool); err != nil {
-		logWarn("meta-db", "db %q: schema bootstrap: %v",
-			rec.Name, err)
+func prepareStoreDatabase(
+	ctx context.Context, state *metaDBState, rec store.DatabaseRecord,
+) (*fleet.DatabaseInstance, error) {
+	connStr, err := state.Store.GetConnectionString(ctx, rec.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get connection string: %w", err)
 	}
-	schema.ReleaseAdvisoryLock(ctx, dbPool)
+	return prepareStoreDatabaseConnection(ctx, rec, connStr)
+}
 
+func prepareStoreDatabaseConnection(
+	ctx context.Context, rec store.DatabaseRecord, connStr string,
+) (*fleet.DatabaseInstance, error) {
+	dbPool, err := connectMonitoredDBContext(ctx, connStr, rec.MaxConnections)
+	if err != nil {
+		return nil, err
+	}
+	inst, err := buildStoreDatabaseRuntime(ctx, rec, dbPool)
+	if err != nil {
+		dbPool.Close()
+		return nil, err
+	}
+	return inst, nil
+}
+
+func buildStoreDatabaseRuntime(
+	ctx context.Context, rec store.DatabaseRecord, dbPool *pgxpool.Pool,
+) (*fleet.DatabaseInstance, error) {
+	if err := bootstrapManagedDatabaseSchema(ctx, dbPool); err != nil {
+		return nil, fmt.Errorf("bootstrap schema for %q: %w", rec.Name, err)
+	}
 	dbPGVersion := detectPGVersion(dbPool)
+	dbCloudEnv := detectCloudEnv(dbPool)
+
+	// Derive a per-instance context from the process shutdownCtx so
+	// that RemoveInstance can cancel the collector, analyzer, and
+	// orchestrator goroutines without also taking down the whole
+	// process. Without this, deleting a fleet DB closes its pool but
+	// leaves its goroutines spinning on shutdownCtx (they spam "pool
+	// closed" errors until process exit). EmergencyStop intentionally
+	// does not cancel this context; it only blocks action execution.
+	instCtx, instCancel := context.WithCancel(shutdownCtx)
+	instWorkers := &sync.WaitGroup{}
 
 	dbColl := collector.New(
 		dbPool, cfg, dbPGVersion, logStructuredWrapper,
 	)
-	go dbColl.Run(shutdownCtx)
+	startInstanceWorker(instWorkers, func() { dbColl.Run(instCtx) })
 
 	// LLM features for meta-db registered databases.
-	dbOpt, dbAdvIface, dbTuner, dbBrief :=
+	dbOpt, dbAdvIface, dbTuner, dbBrief, dbLLMClient, _ :=
 		buildFleetLLMFeatures(dbPool, dbPGVersion, dbColl,
-			rec.DatabaseName)
+			rec.Name)
 
+	// dbTuner is a *tuner.Tuner which may be nil when cfg.Tuner.Enabled
+	// is false. Passing the typed nil directly produces a non-nil
+	// analyzer.QueryTuner interface that panics on Tune(). Normalize
+	// to a true-nil interface before handing to analyzer.New.
+	var qt analyzer.QueryTuner
+	if dbTuner != nil {
+		qt = dbTuner
+	}
 	dbAnal := analyzer.New(
-		dbPool, cfg, dbColl, dbOpt, dbAdvIface, nil, dbTuner,
+		dbPool, cfg, dbColl, dbOpt, dbAdvIface, nil, qt,
 		logStructuredWrapper,
 	)
-	go dbAnal.Run(shutdownCtx)
-
-	dbExec := buildExecutor(rec, dbPool, dbAnal)
-
-	registerHealthyInstance(rec, dbPool, dbColl, dbAnal, dbExec)
-
-	// Populate findings immediately then start orchestrator.
-	if inst := fleetMgr.GetInstance(rec.Name); inst != nil {
-		updateInstanceFindings(ctx, inst)
+	dbAnal.WithSupplementalDetector(executor.NewRunawayDetector(
+		dbPool, &cfg.Runaway, logStructuredWrapper,
+	))
+	var dbRCAEng *rca.Engine
+	if cfg.RCA.Enabled {
+		dbRCAEng = rca.NewEngine(&cfg.RCA, logStructuredWrapper)
+		if dbLLMClient != nil {
+			dbRCAEng.WithLLM(dbLLMClient)
+		}
+		dbAnal.WithRCAEngine(&rcaAdapter{e: dbRCAEng})
 	}
+	if dbLLMClient != nil {
+		dbAnal.WithPlanNarrator(analyzer.NewLLMPlanNarrator(
+			dbLLMClient, logStructuredWrapper,
+		))
+	}
+	startInstanceWorker(instWorkers, func() { dbAnal.Run(instCtx) })
+
+	dbExec := buildExecutor(rec, dbPool, dbAnal, dbCloudEnv)
+	if err := startInstanceAutonomy(
+		instCtx, instWorkers, dbPool, cfg, rec.Name, dbExec,
+	); err != nil {
+		instCancel()
+		return nil, fmt.Errorf("start autonomy for %q: %w", rec.Name, err)
+	}
+	dbActionStore := store.NewActionStore(dbPool)
+	if dbLLMClient != nil {
+		dbExec.WithJustifier(dbLLMClient)
+	}
+	if dbRCAEng != nil {
+		dbRCAEng.WithActionStore(dbActionStore)
+	}
+	startInstanceWorker(instWorkers, func() {
+		store.StartActionExpiry(
+			instCtx, dbActionStore, logStructuredWrapper)
+	})
+
+	inst := newHealthyInstance(
+		rec, dbPool, dbColl, dbAnal, dbExec, instCancel,
+		instWorkers, dbCloudEnv)
 	dbCfg := storeRecordToDBConfig(rec)
-	go fleetDBOrchestrator(
-		rec.Name, dbPool, dbExec, dbBrief, dbCfg)
+	startInstanceWorker(instWorkers, func() {
+		fleetDBOrchestrator(
+			instCtx, rec.Name, dbPool, dbExec, dbBrief, dbCfg)
+	})
+	return inst, nil
+}
+
+func activateStoreDatabase(inst *fleet.DatabaseInstance) {
+	activateStoreDatabaseWithManager(fleetMgr, inst)
+}
+
+func activateStoreDatabaseWithManager(
+	mgr *fleet.DatabaseManager, inst *fleet.DatabaseInstance,
+) {
+	mgr.RegisterInstance(inst)
+	updateInstanceFindings(context.Background(), inst)
+	logInfo("meta-db", "db %q: initialized", inst.Name)
+}
+
+func healthCheckStoreDatabase(
+	ctx context.Context, inst *fleet.DatabaseInstance,
+) error {
+	if inst == nil || inst.Pool == nil {
+		return fleet.ErrInvalidInstance
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var databaseName string
+	if err := inst.Pool.QueryRow(
+		checkCtx, "SELECT current_database()",
+	).Scan(&databaseName); err != nil {
+		return fmt.Errorf("health check database: %w", err)
+	}
+	if inst.Config.Database != "" && databaseName != inst.Config.Database {
+		return fmt.Errorf(
+			"health check connected to %q, expected %q",
+			databaseName, inst.Config.Database,
+		)
+	}
+	return nil
 }
 
 // fleetReconnectLoop periodically checks for failed instances and
@@ -385,7 +549,8 @@ func fleetReconnectLoop(state *metaDBState) {
 func retryFailedInstances(state *metaDBState) {
 	instances := fleetMgr.Instances()
 	for name, inst := range instances {
-		if inst.Pool != nil && inst.Status.Error == "" {
+		snap := inst.SnapshotStatus()
+		if inst.Pool != nil && snap.Error == "" {
 			continue // healthy
 		}
 		if inst.Stopped {
@@ -398,8 +563,8 @@ func retryFailedInstances(state *metaDBState) {
 			context.Background(), metaDBTimeout,
 		)
 		records, err := loadDatabasesFromStore(ctx, state.Store)
-		cancel()
 		if err != nil {
+			cancel()
 			logWarn("reconnect", "load databases: %v", err)
 			return
 		}
@@ -408,39 +573,61 @@ func retryFailedInstances(state *metaDBState) {
 			if rec.Name != name {
 				continue
 			}
-			connStr, err := state.Store.GetConnectionString(
-				context.Background(), rec.ID)
-			if err != nil {
-				logWarn("reconnect",
-					"db %q: get connection: %v", name, err)
-				break
-			}
-			dbPool, err := connectMonitoredDB(
-				connStr, rec.MaxConnections)
+			candidate, err := prepareStoreDatabase(ctx, state, rec)
 			if err != nil {
 				logWarn("reconnect",
 					"db %q: still unreachable: %v", name, err)
 				break
 			}
 			// Success — bootstrap and re-register.
-			logInfo("reconnect",
-				"db %q: reconnected successfully", name)
-			bootstrapAndRegister(rec, dbPool)
+			err = fleetMgr.ReplaceInstanceIfCurrent(
+				ctx, name, inst, candidate, healthCheckStoreDatabase,
+			)
+			if err != nil {
+				if fleetMgr.GetInstance(candidate.Name) == candidate {
+					logWarn("reconnect",
+						"db %q: published but old runtime drain failed: %v",
+						name, err)
+				} else {
+					logWarn("reconnect", "db %q: candidate rejected: %v",
+						name, err)
+				}
+				break
+			}
+			updateInstanceFindings(context.Background(), candidate)
+			logInfo("reconnect", "db %q: reconnected successfully", name)
 			break
 		}
+		cancel()
 	}
 }
 
-// detectPGVersion queries the PG version number from the pool.
+// detectPGVersion queries the PG version number from the pool and
+// falls back to PG 14 if the query fails or the response is
+// unparsable. Failures are logged so operators can spot config
+// rules that silently use the default (e.g. tuner rules gated on
+// a specific PG version).
 func detectPGVersion(p *pgxpool.Pool) int {
+	const fallback = 140000
+	ctx, cancel := context.WithTimeout(
+		context.Background(), 5*time.Second)
+	defer cancel()
+
 	var verStr string
 	var ver int
-	_ = p.QueryRow(
-		context.Background(), "SHOW server_version_num",
-	).Scan(&verStr)
-	_, _ = fmt.Sscanf(verStr, "%d", &ver)
-	if ver == 0 {
-		ver = 140000
+	if err := p.QueryRow(
+		ctx, "SHOW server_version_num",
+	).Scan(&verStr); err != nil {
+		logWarn("meta-db",
+			"detectPGVersion: SHOW server_version_num failed: %v; "+
+				"assuming PG %d", err, fallback/10000)
+		return fallback
+	}
+	if _, err := fmt.Sscanf(verStr, "%d", &ver); err != nil || ver == 0 {
+		logWarn("meta-db",
+			"detectPGVersion: unparsable server_version_num %q: %v; "+
+				"assuming PG %d", verStr, err, fallback/10000)
+		return fallback
 	}
 	return ver
 }
@@ -450,6 +637,7 @@ func detectPGVersion(p *pgxpool.Pool) int {
 func buildExecutor(
 	rec store.DatabaseRecord,
 	dbPool *pgxpool.Pool, dbAnal *analyzer.Analyzer,
+	provider string,
 ) *executor.Executor {
 	ctx := context.Background()
 	// Honour the YAML-configured trust.ramp_start on first bootstrap
@@ -458,41 +646,62 @@ func buildExecutor(
 	rStart, _ := schema.PersistTrustRampStart(
 		ctx, dbPool, configRampStart,
 	)
+	dbExecCfg := config.Clone(cfg)
+	dbExecCfg.CloudEnvironment = provider
 	dbExec := executor.New(
-		dbPool, cfg, dbAnal, rStart, logStructuredWrapper,
+		dbPool, dbExecCfg, dbAnal, rStart, logStructuredWrapper,
 	)
+	dbExec.WithAnalyzeSemaphore(analyzeSem)
 	dbActionStore := store.NewActionStore(dbPool)
 	dbExec.WithActionStore(dbActionStore, resolveExecMode(rec))
-	go store.StartActionExpiry(
-		shutdownCtx, dbActionStore, logStructuredWrapper,
-	)
+	databaseID := rec.ID
+	if err := dbExec.EnableStandingPolicy(
+		ctx, cfg.Policy.Profile, &databaseID,
+	); err != nil {
+		logError("fleet", "db %q standing policy unavailable; fail-closed: %v", rec.Name, err)
+	}
+	if err := dbExec.SetTrustLevel(rec.TrustLevel); err != nil {
+		logWarn("fleet", "db %q: invalid trust level %q: %v",
+			rec.Name, rec.TrustLevel, err)
+	}
 	return dbExec
 }
 
-// registerHealthyInstance registers a connected instance with the
-// fleet manager.
-func registerHealthyInstance(
+// newHealthyInstance assembles the runtime generation. Publication is
+// deliberately separate so replacements can be checked before a manager swap.
+func newHealthyInstance(
 	rec store.DatabaseRecord, dbPool *pgxpool.Pool,
 	dbColl *collector.Collector, dbAnal *analyzer.Analyzer,
 	dbExec *executor.Executor,
-) {
+	cancel context.CancelFunc,
+	workers *sync.WaitGroup,
+	provider string,
+) *fleet.DatabaseInstance {
 	dbCfg := storeRecordToDBConfig(rec)
 	inst := &fleet.DatabaseInstance{
-		Name:      rec.Name,
-		Config:    dbCfg,
-		Pool:      dbPool,
-		Collector: dbColl,
-		Analyzer:  dbAnal,
-		Executor:  dbExec,
+		Name:             rec.Name,
+		DatabaseID:       rec.ID,
+		Config:           dbCfg,
+		Pool:             dbPool,
+		Collector:        dbColl,
+		Analyzer:         dbAnal,
+		Executor:         dbExec,
+		Cancel:           cancel,
+		Workers:          workers,
+		ExecutorShutdown: dbExec.Shutdown,
 		Status: &fleet.InstanceStatus{
 			Connected:    true,
+			Platform:     provider,
 			TrustLevel:   rec.TrustLevel,
 			DatabaseName: rec.Name,
 			LastSeen:     time.Now(),
+			Capabilities: fleet.CollectProviderCapabilities(
+				context.Background(), dbPool, cfg, provider,
+				dbCfg.ExecutionMode, false, time.Now().UTC(),
+			),
 		},
 	}
-	fleetMgr.RegisterInstance(inst)
-	logInfo("meta-db", "db %q: initialized", rec.Name)
+	return inst
 }
 
 // storeRecordToDBConfig converts a store.DatabaseRecord to a
@@ -501,14 +710,15 @@ func storeRecordToDBConfig(
 	rec store.DatabaseRecord,
 ) config.DatabaseConfig {
 	return config.DatabaseConfig{
-		Name:           rec.Name,
-		Host:           rec.Host,
-		Port:           rec.Port,
-		Database:       rec.DatabaseName,
-		User:           rec.Username,
-		SSLMode:        rec.SSLMode,
-		MaxConnections: rec.MaxConnections,
-		TrustLevel:     rec.TrustLevel,
+		Name:               rec.Name,
+		Host:               rec.Host,
+		Port:               rec.Port,
+		Database:           rec.DatabaseName,
+		User:               rec.Username,
+		SSLMode:            rec.SSLMode,
+		MaxConnections:     rec.MaxConnections,
+		TrustLevel:         rec.TrustLevel,
+		TrustLevelExplicit: true,
 	}
 }
 

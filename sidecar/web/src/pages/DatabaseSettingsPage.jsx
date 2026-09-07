@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -54,7 +54,7 @@ export function DatabaseSettingsPage({ databaseId }) {
 
   useEffect(() => { setEdits({}); setFeedback(null) }, [databaseId])
 
-  const cfg = data?.config || {}
+  const cfg = useMemo(() => data?.config || {}, [data?.config])
 
   const getVal = useCallback((key) => {
     if (key in edits) return edits[key]
@@ -214,6 +214,7 @@ function DBField({ field, getVal, setVal, getSource, resetField }) {
       {source === 'db_override' || source === 'modified' ? (
         <button onClick={() => resetField(field.key)}
           title="Reset to global"
+          aria-label={`Reset ${field.label} to global default`}
           className="p-1 rounded"
           style={{ color: 'var(--text-secondary)' }}>
           <RotateCcw size={14} />

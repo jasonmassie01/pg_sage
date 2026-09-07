@@ -57,6 +57,7 @@ export function TokenBudgetBanner() {
       const res = await fetch('/api/v1/llm/budget/reset', {
         method: 'POST',
         credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))

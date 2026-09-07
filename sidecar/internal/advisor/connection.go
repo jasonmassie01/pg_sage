@@ -3,6 +3,7 @@ package advisor
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
@@ -16,12 +17,18 @@ const connectionSystemPrompt = `You are a PostgreSQL connection management exper
 CRITICAL: Respond with ONLY a JSON array. No thinking, no reasoning outside JSON.
 
 RULES:
-1. If max_connections > 4x peak active, recommend reducing.
-2. If new connections/minute > 10 with short duration, recommend PgBouncer.
-3. If idle_in_transaction > 60s average, recommend ` +
+1. max_connections caps the number of OPEN connections (active AND idle),
+   not just active ones. Size every recommendation against TOTAL backends.
+   NEVER size against active-only counts.
+2. Only recommend reducing max_connections if it exceeds ~4x the peak TOTAL
+   connections AND there is comfortable headroom; reduce conservatively.
+3. NEVER recommend max_connections below
+   max(current total backends, peak total backends) + superuser_reserved_connections
+   + a safety margin of at least 10. Cutting below current usage rejects live
+   connections — this is a hard rule.
+4. If new connections/minute > 10 with short duration, recommend PgBouncer.
+5. If idle_in_transaction > 60s average, recommend ` +
 	`idle_in_transaction_session_timeout.
-4. Calculate memory savings from reducing max_connections.
-5. Never recommend max_connections below (peak_active * 1.5 + reserved + 5).
 6. If a pooler is detected (from application_name), don't recommend adding one.
 7. Recommend specific timeout values.
 8. If everything is healthy (utilization < 50%, no long idle tx), return [].
@@ -100,5 +107,64 @@ func analyzeConnections(
 		return nil, fmt.Errorf("connection LLM: %w", err)
 	}
 
-	return parseLLMFindings(resp, "connection_tuning", logFn), nil
+	findings := parseLLMFindings(resp, "connection_tuning", logFn)
+	return filterUnsafeMaxConnections(findings, sys, logFn), nil
+}
+
+// filterUnsafeMaxConnections drops any recommendation that would set
+// max_connections below the number of connections already open (plus
+// reserved slots and a safety margin). The LLM is instructed to size
+// against total backends, but this is the hard deterministic backstop:
+// cutting below current usage would reject live connections.
+func filterUnsafeMaxConnections(
+	findings []analyzer.Finding,
+	sys collector.SystemStats,
+	logFn func(string, string, ...any),
+) []analyzer.Finding {
+	// superuser_reserved_connections defaults to 3; the margin covers it
+	// plus headroom for spikes and pg_sage's own pool.
+	const reservedAndMargin = 13
+	floor := sys.TotalBackends + reservedAndMargin
+	out := findings[:0]
+	for _, f := range findings {
+		if n, ok := parseMaxConnectionsTarget(f.RecommendedSQL); ok && n < floor {
+			if logFn != nil {
+				logFn("advisor",
+					"rejecting max_connections=%d: below safe floor %d "+
+						"(total backends %d + reserved/margin %d)",
+					n, floor, sys.TotalBackends, reservedAndMargin)
+			}
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+// parseMaxConnectionsTarget extracts N from an
+// "ALTER SYSTEM SET max_connections = N" statement.
+func parseMaxConnectionsTarget(sql string) (int, bool) {
+	low := strings.ToLower(sql)
+	i := strings.Index(low, "max_connections")
+	if i < 0 {
+		return 0, false
+	}
+	rest := sql[i+len("max_connections"):]
+	rest = strings.TrimLeft(rest, " \t=")
+	rest = strings.Trim(strings.TrimSpace(rest), "'\";")
+	digits := strings.Builder{}
+	for _, r := range rest {
+		if r < '0' || r > '9' {
+			break
+		}
+		digits.WriteRune(r)
+	}
+	if digits.Len() == 0 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(digits.String())
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }

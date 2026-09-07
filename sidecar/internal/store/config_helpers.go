@@ -13,53 +13,137 @@ import (
 
 // allowedConfigKeys maps dot-notation keys to their value type.
 var allowedConfigKeys = map[string]string{
-	"collector.interval_seconds":     "int_min5",
-	"collector.batch_size":           "int_pos",
-	"collector.max_queries":          "int_pos",
-	"analyzer.interval_seconds":      "int_min5",
-	"analyzer.slow_query_threshold_ms": "int_nonneg",
-	"analyzer.seq_scan_min_rows":     "int_pos",
-	"analyzer.unused_index_window_days": "int_pos",
-	"analyzer.index_bloat_threshold_pct": "pct",
-	"analyzer.table_bloat_dead_tuple_pct": "pct",
-	"analyzer.regression_threshold_pct": "pct",
-	"analyzer.cache_hit_ratio_warning": "float01",
-	"trust.level":                    "trust_level",
-	"trust.tier3_safe":               "bool",
-	"trust.tier3_moderate":           "bool",
-	"trust.tier3_high_risk":          "bool",
-	"trust.maintenance_window":       "string",
-	"trust.rollback_threshold_pct":   "pct",
-	"trust.rollback_window_minutes":  "int_pos",
-	"trust.rollback_cooldown_days":   "int_pos",
-	"trust.cascade_cooldown_cycles":  "int_pos",
-	"safety.cpu_ceiling_pct":         "pct1_100",
-	"safety.query_timeout_ms":        "int_pos",
-	"safety.ddl_timeout_seconds":     "int_pos",
-	"safety.lock_timeout_ms":         "int_pos",
-	"llm.enabled":                    "bool",
-	"llm.endpoint":                   "string",
-	"llm.api_key":                    "string",
-	"llm.model":                      "string",
-	"llm.timeout_seconds":            "int_pos",
-	"llm.token_budget_daily":         "int_pos",
-	"llm.context_budget_tokens":      "int_pos",
-	"advisor.enabled":                "bool",
-	"advisor.interval_seconds":       "int_min5",
-	"llm.optimizer.enabled":          "bool",
-	"llm.optimizer.min_query_calls":  "int_pos",
-	"llm.optimizer.max_new_per_table": "int_pos",
-	"alerting.enabled":               "bool",
-	"alerting.slack_webhook_url":     "string",
-	"alerting.pagerduty_routing_key": "string",
-	"alerting.check_interval_seconds": "int_min5",
-	"alerting.cooldown_minutes":      "int_pos",
-	"alerting.quiet_hours_start":     "string",
-	"alerting.quiet_hours_end":       "string",
-	"retention.snapshots_days":       "int_pos",
-	"retention.findings_days":        "int_pos",
-	"retention.actions_days":         "int_pos",
-	"retention.explains_days":        "int_pos",
+	"collector.interval_seconds":            "int_min5",
+	"collector.batch_size":                  "int_pos",
+	"collector.max_queries":                 "int_pos",
+	"analyzer.interval_seconds":             "int_min5",
+	"analyzer.slow_query_threshold_ms":      "int_nonneg",
+	"analyzer.seq_scan_min_rows":            "int_pos",
+	"analyzer.unused_index_window_days":     "int_pos",
+	"analyzer.index_bloat_threshold_pct":    "pct",
+	"analyzer.table_bloat_dead_tuple_pct":   "pct",
+	"analyzer.autovacuum_tune_min_rows":     "int_pos",
+	"analyzer.analyze_stale_min_rows":       "int_pos",
+	"analyzer.analyze_stale_days":           "int_pos",
+	"analyzer.wraparound_freeze_xid_age":    "int_pos",
+	"analyzer.regression_threshold_pct":     "pct",
+	"analyzer.cache_hit_ratio_warning":      "float01",
+	"trust.level":                           "trust_level",
+	"trust.tier3_safe":                      "bool",
+	"trust.tier3_moderate":                  "bool",
+	"trust.tier3_high_risk":                 "bool",
+	"trust.maintenance_window":              "string",
+	"trust.rollback_threshold_pct":          "pct",
+	"trust.rollback_window_minutes":         "int_pos",
+	"trust.rollback_cooldown_days":          "int_pos",
+	"trust.cascade_cooldown_cycles":         "int_pos",
+	"safety.cpu_ceiling_pct":                "pct1_100",
+	"safety.query_timeout_ms":               "int_pos",
+	"safety.ddl_timeout_seconds":            "int_pos",
+	"safety.lock_timeout_ms":                "int_pos",
+	"llm.enabled":                           "bool",
+	"llm.endpoint":                          "string",
+	"llm.api_key":                           "string",
+	"llm.model":                             "string",
+	"llm.json_mode":                         "bool",
+	"llm.timeout_seconds":                   "int_pos",
+	"llm.token_budget_daily":                "int_pos",
+	"llm.fleet_token_budget_daily":          "int_nonneg",
+	"llm.context_budget_tokens":             "int_pos",
+	"advisor.enabled":                       "bool",
+	"advisor.interval_seconds":              "int_min5",
+	"llm.optimizer.enabled":                 "bool",
+	"llm.optimizer.min_query_calls":         "int_pos",
+	"llm.optimizer.max_new_per_table":       "int_pos",
+	"alerting.enabled":                      "bool",
+	"alerting.slack_webhook_url":            "string",
+	"alerting.pagerduty_routing_key":        "string",
+	"alerting.check_interval_seconds":       "int_min5",
+	"alerting.cooldown_minutes":             "int_pos",
+	"alerting.quiet_hours_start":            "string",
+	"alerting.quiet_hours_end":              "string",
+	"retention.snapshots_days":              "int_pos",
+	"retention.findings_days":               "int_pos",
+	"retention.actions_days":                "int_pos",
+	"retention.explains_days":               "int_pos",
+	"agentdb.live_provisioning_enabled":     "bool",
+	"agentdb.allow_public_ip":               "bool",
+	"agentdb.require_backup_before_destroy": "bool",
+	"agentdb.reconcile_interval_seconds":    "int_nonneg",
+
+	// v0.9: RCA engine.
+	"rca.enabled":                           "bool",
+	"rca.llm_correlation_threshold":         "int_pos",
+	"rca.dedup_window_minutes":              "int_pos",
+	"rca.escalation_cycles":                 "int_pos",
+	"rca.resolution_cycles":                 "int_pos",
+	"rca.connection_saturation_pct":         "pct",
+	"rca.replication_lag_threshold_seconds": "int_pos",
+	"rca.wal_spike_multiplier":              "float_pos",
+
+	// v0.9.2: Slow active replication slot threshold.
+	"analyzer.slow_slot_retained_bytes": "int_pos",
+
+	// v0.9: Lock chain detection.
+	"analyzer.lock_chain.enabled":                      "bool",
+	"analyzer.lock_chain.min_blocked_threshold":        "int_pos",
+	"analyzer.lock_chain.critical_blocked_threshold":   "int_pos",
+	"analyzer.lock_chain.idle_in_tx_terminate_minutes": "int_pos",
+	"analyzer.lock_chain.active_query_cancel_minutes":  "int_pos",
+
+	// v0.9: Runaway query termination.
+	"runaway.enabled": "bool",
+
+	// v0.9: Natural language EXPLAIN.
+	"explain.enabled":           "bool",
+	"explain.timeout_ms":        "int_pos",
+	"explain.cache_ttl_minutes": "int_pos",
+	"explain.max_tokens":        "int_pos",
+
+	// v0.9.1: LogWatch (log-based RCA).
+	"logwatch.enabled":              "bool",
+	"logwatch.log_directory":        "string",
+	"logwatch.format":               "string",
+	"logwatch.poll_interval_ms":     "int_pos",
+	"logwatch.dedup_window_seconds": "int_pos",
+	"logwatch.max_line_len_bytes":   "int_pos",
+	"logwatch.temp_file_min_bytes":  "int_pos",
+	"logwatch.max_lines_per_cycle":  "int_pos",
+	"logwatch.exclude_applications": "string",
+	"logwatch.slow_query_enabled":   "bool",
+
+	// v0.10: Schema lint.
+	"schema_lint.enabled":               "bool",
+	"schema_lint.scan_interval_minutes": "int_pos",
+	"schema_lint.min_table_rows":        "int_pos",
+
+	// v0.10: Migration / DDL safety.
+	"migration.enabled":               "bool",
+	"migration.mode":                  "string",
+	"migration.managed_service":       "string",
+	"migration.log_detection":         "bool",
+	"migration.activity_polling":      "bool",
+	"migration.poll_interval_seconds": "int_pos",
+	"migration.ddl_row_threshold":     "int_pos",
+
+	// v1.4: Agent-native autonomy.
+	"policy.profile":                              "policy_profile",
+	"value.toil_model_version":                    "int_pos",
+	"verify.window_minutes":                       "int_pos",
+	"verify.window_max_minutes":                   "int_pos",
+	"verify.min_gain_pct":                         "float_nonneg",
+	"verify.regress_pct":                          "float_nonneg",
+	"verify.write_impact_pct":                     "float_nonneg",
+	"verify.min_samples":                          "int_pos",
+	"clone.provider":                              "clone_provider",
+	"clone.dle_endpoint":                          "string",
+	"clone.dle_token":                             "string",
+	"clone.max_clone_age_minutes":                 "int_pos",
+	"custodian.freeze.red_buffer_pct":             "float_pct_pos",
+	"custodian.wal.abandon_after_minutes":         "int_pos",
+	"custodian.wal.retained_wal_disk_pct_ceiling": "float_pct_pos",
+	"mcp.enabled":                                 "bool",
+	"mcp.transport":                               "mcp_transport",
 }
 
 func validateConfigKey(key string) error {
@@ -77,6 +161,15 @@ func validateConfigValue(key, value string) error {
 	return validateByType(vtype, key, value)
 }
 
+// ValidateConfigOverride validates a single config override without
+// persisting it. Handlers use this to make multi-key saves atomic.
+func ValidateConfigOverride(key, value string) error {
+	if err := validateConfigKey(key); err != nil {
+		return err
+	}
+	return validateConfigValue(key, value)
+}
+
 func validateByType(vtype, key, value string) error {
 	switch vtype {
 	case "int_pos":
@@ -91,12 +184,30 @@ func validateByType(vtype, key, value string) error {
 		return validateIntRange(key, value, 1, 100)
 	case "float01":
 		return validateFloatRange(key, value, 0, 1)
+	case "float_pos":
+		return validateFloatRange(key, value, 0.001, 1e9)
+	case "float_nonneg":
+		return validateFloatRange(key, value, 0, 1e9)
+	case "float_pct_pos":
+		return validateFloatRange(key, value, 0.001, 100)
 	case "bool":
 		return validateBool(key, value)
 	case "trust_level":
 		return validateEnum(key, value, validTrustLevels)
 	case "exec_mode":
 		return validateEnum(key, value, validExecutionModes)
+	case "policy_profile":
+		return validateEnum(key, value, map[string]bool{
+			"staffed": true, "unattended": true,
+		})
+	case "clone_provider":
+		return validateEnum(key, value, map[string]bool{
+			"none": true, "dle": true, "snapshot": true,
+		})
+	case "mcp_transport":
+		return validateEnum(key, value, map[string]bool{
+			"stdio": true, "http": true,
+		})
 	case "string":
 		return nil
 	default:
@@ -166,12 +277,12 @@ func getOldValue(
 	var err error
 	if databaseID == 0 {
 		err = tx.QueryRow(ctx,
-			`SELECT value FROM sage.config
+			`/* pg_sage */ SELECT value FROM sage.config
 			 WHERE key = $1 AND database_id IS NULL`, key,
 		).Scan(&old)
 	} else {
 		err = tx.QueryRow(ctx,
-			`SELECT value FROM sage.config
+			`/* pg_sage */ SELECT value FROM sage.config
 			 WHERE key = $1 AND database_id = $2`, key, databaseID,
 		).Scan(&old)
 	}
@@ -187,7 +298,7 @@ func upsertOverride(
 ) error {
 	if databaseID == 0 {
 		_, err := tx.Exec(ctx,
-			`INSERT INTO sage.config
+			`/* pg_sage */ INSERT INTO sage.config
 				(key, value, database_id, updated_at, updated_by_user_id)
 			 VALUES ($1, $2, NULL, now(), $3)
 			 ON CONFLICT (key, COALESCE(database_id, 0))
@@ -197,7 +308,7 @@ func upsertOverride(
 		return err
 	}
 	_, err := tx.Exec(ctx,
-		`INSERT INTO sage.config
+		`/* pg_sage */ INSERT INTO sage.config
 			(key, value, database_id, updated_at, updated_by_user_id)
 		 VALUES ($1, $2, $3, now(), $4)
 		 ON CONFLICT (key, COALESCE(database_id, 0))
@@ -212,6 +323,7 @@ func insertAudit(
 	key, oldValue, newValue string,
 	databaseID int, userID int,
 ) error {
+	oldValue, newValue = auditValues(key, oldValue, newValue)
 	var dbID *int
 	if databaseID > 0 {
 		dbID = &databaseID
@@ -221,11 +333,39 @@ func insertAudit(
 		chBy = &userID
 	}
 	_, err := tx.Exec(ctx,
-		`INSERT INTO sage.config_audit
+		`/* pg_sage */ INSERT INTO sage.config_audit
 			(key, old_value, new_value, database_id, changed_by)
 		 VALUES ($1, $2, $3, $4, $5)`,
 		key, nullIfEmpty(oldValue), newValue, dbID, chBy)
 	return err
+}
+
+const redactedSecret = "[REDACTED]"
+
+func isSecretConfigKey(key string) bool {
+	switch key {
+	case "llm.api_key",
+		"alerting.slack_webhook_url",
+		"alerting.pagerduty_routing_key",
+		"briefing.slack_webhook_url",
+		"clone.dle_token":
+		return true
+	default:
+		return false
+	}
+}
+
+func auditValues(key, oldValue, newValue string) (string, string) {
+	if !isSecretConfigKey(key) {
+		return oldValue, newValue
+	}
+	if oldValue != "" {
+		oldValue = redactedSecret
+	}
+	if newValue != "" {
+		newValue = redactedSecret
+	}
+	return oldValue, newValue
 }
 
 func nullIfEmpty(s string) *string {
@@ -262,6 +402,9 @@ func scanAuditRows(rows pgx.Rows) ([]ConfigAuditEntry, error) {
 		if err != nil {
 			return nil, fmt.Errorf("scanning audit: %w", err)
 		}
+		e.OldValue, e.NewValue = auditValues(
+			e.Key, e.OldValue, e.NewValue,
+		)
 		results = append(results, e)
 	}
 	return results, rows.Err()
@@ -270,7 +413,7 @@ func scanAuditRows(rows pgx.Rows) ([]ConfigAuditEntry, error) {
 // configToMap converts a Config struct into a flat map with source
 // indicators.
 func configToMap(cfg *config.Config) map[string]any {
-	m := make(map[string]any, 60)
+	m := make(map[string]any, 70)
 	addField(m, "collector.interval_seconds",
 		cfg.Collector.IntervalSeconds, "yaml")
 	addField(m, "collector.batch_size",
@@ -284,7 +427,22 @@ func configToMap(cfg *config.Config) map[string]any {
 	addAdvisorFields(m, &cfg.Advisor)
 	addAlertingFields(m, &cfg.Alerting)
 	addRetentionFields(m, &cfg.Retention)
+	addRCAFields(m, &cfg.RCA)
+	addRunawayFields(m, &cfg.Runaway)
+	addExplainFields(m, &cfg.Explain)
+	addLogWatchFields(m, &cfg.LogWatch)
+	addSchemaLintFields(m, &cfg.SchemaLint)
+	addMigrationFields(m, &cfg.Migration)
+	addAgentDBFields(m, &cfg.AgentDB)
+	addAgentNativeFields(m, cfg)
 	return m
+}
+
+// ConfigReadModel returns the effective configuration in the same redacted,
+// source-annotated shape used by the persistent configuration API. It does
+// not consult or mutate the override store.
+func ConfigReadModel(cfg *config.Config) map[string]any {
+	return configToMap(cfg)
 }
 
 func addField(m map[string]any, key string, val any, src string) {
@@ -304,10 +462,30 @@ func addAnalyzerFields(m map[string]any, a *config.AnalyzerConfig) {
 		a.IndexBloatThresholdPct, "yaml")
 	addField(m, "analyzer.table_bloat_dead_tuple_pct",
 		a.TableBloatDeadTuplePct, "yaml")
+	addField(m, "analyzer.autovacuum_tune_min_rows",
+		a.AutovacuumTuneMinRows, "yaml")
+	addField(m, "analyzer.analyze_stale_min_rows",
+		a.AnalyzeStaleMinRows, "yaml")
+	addField(m, "analyzer.analyze_stale_days",
+		a.AnalyzeStaleDays, "yaml")
+	addField(m, "analyzer.wraparound_freeze_xid_age",
+		a.WraparoundFreezeXIDAge, "yaml")
 	addField(m, "analyzer.regression_threshold_pct",
 		a.RegressionThresholdPct, "yaml")
 	addField(m, "analyzer.cache_hit_ratio_warning",
 		a.CacheHitRatioWarning, "yaml")
+	addField(m, "analyzer.slow_slot_retained_bytes",
+		a.SlowSlotRetainedBytes, "yaml")
+	addField(m, "analyzer.lock_chain.enabled",
+		a.LockChain.Enabled, "yaml")
+	addField(m, "analyzer.lock_chain.min_blocked_threshold",
+		a.LockChain.MinBlockedThreshold, "yaml")
+	addField(m, "analyzer.lock_chain.critical_blocked_threshold",
+		a.LockChain.CriticalBlockedThreshold, "yaml")
+	addField(m, "analyzer.lock_chain.idle_in_tx_terminate_minutes",
+		a.LockChain.IdleInTxTerminateMinutes, "yaml")
+	addField(m, "analyzer.lock_chain.active_query_cancel_minutes",
+		a.LockChain.ActiveQueryCancelMinutes, "yaml")
 }
 
 func addTrustFields(m map[string]any, t *config.TrustConfig) {
@@ -335,14 +513,27 @@ func addSafetyFields(m map[string]any, s *config.SafetyConfig) {
 	addField(m, "safety.lock_timeout_ms", s.LockTimeoutMs, "yaml")
 }
 
+func addAgentDBFields(m map[string]any, a *config.AgentDBConfig) {
+	addField(m, "agentdb.live_provisioning_enabled",
+		a.LiveProvisioningEnabled, "yaml")
+	addField(m, "agentdb.allow_public_ip", a.AllowPublicIP, "yaml")
+	addField(m, "agentdb.require_backup_before_destroy",
+		a.RequireBackupBeforeDrop, "yaml")
+	addField(m, "agentdb.reconcile_interval_seconds",
+		a.ReconcileIntervalSeconds, "yaml")
+}
+
 func addLLMFields(m map[string]any, l *config.LLMConfig) {
 	addField(m, "llm.enabled", l.Enabled, "yaml")
 	addField(m, "llm.endpoint", l.Endpoint, "yaml")
 	addField(m, "llm.api_key", maskSecret(l.APIKey), "yaml")
 	addField(m, "llm.model", l.Model, "yaml")
+	addField(m, "llm.json_mode", l.JSONMode, "yaml")
 	addField(m, "llm.timeout_seconds", l.TimeoutSeconds, "yaml")
 	addField(m, "llm.token_budget_daily",
 		l.TokenBudgetDaily, "yaml")
+	addField(m, "llm.fleet_token_budget_daily",
+		l.FleetTokenBudgetDaily, "yaml")
 	addField(m, "llm.context_budget_tokens",
 		l.ContextBudgetTokens, "yaml")
 	addField(m, "llm.optimizer.enabled",
@@ -390,6 +581,107 @@ func addRetentionFields(
 		r.ExplainsDays, "yaml")
 }
 
+func addRCAFields(m map[string]any, r *config.RCAConfig) {
+	addField(m, "rca.enabled", r.Enabled, "yaml")
+	addField(m, "rca.llm_correlation_threshold",
+		r.LLMCorrelationThreshold, "yaml")
+	addField(m, "rca.dedup_window_minutes",
+		r.DedupWindowMinutes, "yaml")
+	addField(m, "rca.escalation_cycles",
+		r.EscalationCycles, "yaml")
+	addField(m, "rca.resolution_cycles",
+		r.ResolutionCycles, "yaml")
+	addField(m, "rca.connection_saturation_pct",
+		r.ConnectionSaturationPct, "yaml")
+	addField(m, "rca.replication_lag_threshold_seconds",
+		r.ReplicationLagThresholdS, "yaml")
+	addField(m, "rca.wal_spike_multiplier",
+		r.WALSpikeMultiplier, "yaml")
+}
+
+func addRunawayFields(m map[string]any, r *config.RunawayConfig) {
+	addField(m, "runaway.enabled", r.Enabled, "yaml")
+}
+
+func addExplainFields(m map[string]any, e *config.ExplainConfig) {
+	addField(m, "explain.enabled", e.Enabled, "yaml")
+	addField(m, "explain.timeout_ms", e.TimeoutMs, "yaml")
+	addField(m, "explain.cache_ttl_minutes",
+		e.CacheTTLMinutes, "yaml")
+	addField(m, "explain.max_tokens", e.MaxTokens, "yaml")
+}
+
+func addLogWatchFields(
+	m map[string]any, lw *config.LogWatchConfig,
+) {
+	addField(m, "logwatch.enabled", lw.Enabled, "yaml")
+	addField(m, "logwatch.log_directory",
+		lw.LogDirectory, "yaml")
+	addField(m, "logwatch.format", lw.Format, "yaml")
+	addField(m, "logwatch.poll_interval_ms",
+		lw.PollIntervalMs, "yaml")
+	addField(m, "logwatch.dedup_window_seconds",
+		lw.DedupWindowS, "yaml")
+	addField(m, "logwatch.max_line_len_bytes",
+		lw.MaxLineLenBytes, "yaml")
+	addField(m, "logwatch.temp_file_min_bytes",
+		lw.TempFileMinBytes, "yaml")
+	addField(m, "logwatch.max_lines_per_cycle",
+		lw.MaxLinesPerCycle, "yaml")
+	addField(m, "logwatch.exclude_applications",
+		strings.Join(lw.ExcludeApplications, ","), "yaml")
+	addField(m, "logwatch.slow_query_enabled",
+		lw.SlowQueryEnabled, "yaml")
+}
+
+func addSchemaLintFields(
+	m map[string]any, sl *config.SchemaLintConfig,
+) {
+	addField(m, "schema_lint.enabled", sl.Enabled, "yaml")
+	addField(m, "schema_lint.scan_interval_minutes",
+		sl.ScanIntervalMinutes, "yaml")
+	addField(m, "schema_lint.min_table_rows",
+		sl.MinTableRows, "yaml")
+}
+
+func addMigrationFields(
+	m map[string]any, mg *config.MigrationConfig,
+) {
+	addField(m, "migration.enabled", mg.Enabled, "yaml")
+	addField(m, "migration.mode", mg.Mode, "yaml")
+	addField(m, "migration.managed_service",
+		mg.ManagedService, "yaml")
+	addField(m, "migration.log_detection",
+		mg.LogDetection, "yaml")
+	addField(m, "migration.activity_polling",
+		mg.ActivityPolling, "yaml")
+	addField(m, "migration.poll_interval_seconds",
+		mg.PollIntervalSeconds, "yaml")
+	addField(m, "migration.ddl_row_threshold",
+		mg.DDLRowThreshold, "yaml")
+}
+
+func addAgentNativeFields(m map[string]any, cfg *config.Config) {
+	addField(m, "policy.profile", cfg.Policy.Profile, "yaml")
+	addField(m, "value.toil_model_version", cfg.Value.ToilModelVersion, "yaml")
+	addField(m, "verify.window_minutes", cfg.Verify.WindowMinutes, "yaml")
+	addField(m, "verify.window_max_minutes", cfg.Verify.WindowMaxMinutes, "yaml")
+	addField(m, "verify.min_gain_pct", cfg.Verify.MinGainPct, "yaml")
+	addField(m, "verify.regress_pct", cfg.Verify.RegressPct, "yaml")
+	addField(m, "verify.write_impact_pct", cfg.Verify.WriteImpactPct, "yaml")
+	addField(m, "verify.min_samples", cfg.Verify.MinSamples, "yaml")
+	addField(m, "clone.provider", cfg.Clone.Provider, "yaml")
+	addField(m, "clone.dle_endpoint", cfg.Clone.DLEEndpoint, "yaml")
+	addField(m, "clone.dle_token", maskSecret(cfg.Clone.DLEToken), "yaml")
+	addField(m, "clone.max_clone_age_minutes", cfg.Clone.MaxCloneAgeMinutes, "yaml")
+	addField(m, "custodian.freeze.red_buffer_pct", cfg.Custodian.Freeze.RedBufferPct, "yaml")
+	addField(m, "custodian.wal.abandon_after_minutes", cfg.Custodian.WAL.AbandonAfterMinutes, "yaml")
+	addField(m, "custodian.wal.retained_wal_disk_pct_ceiling",
+		cfg.Custodian.WAL.RetainedWALDiskPctCeiling, "yaml")
+	addField(m, "mcp.enabled", cfg.MCP.Enabled, "yaml")
+	addField(m, "mcp.transport", cfg.MCP.Transport, "yaml")
+}
+
 func maskSecret(s string) string {
 	if len(s) <= 4 {
 		return strings.Repeat("*", len(s))
@@ -405,7 +697,11 @@ func applyOverrides(
 	for _, o := range overrides {
 		if existing, ok := m[o.Key]; ok {
 			if em, ok := existing.(map[string]any); ok {
-				em["value"] = coerceValue(o.Key, o.Value)
+				value := coerceValue(o.Key, o.Value)
+				if isSecretConfigKey(o.Key) {
+					value = maskSecret(o.Value)
+				}
+				em["value"] = value
 				em["source"] = source
 			}
 		}
@@ -421,7 +717,7 @@ func coerceValue(key, value string) any {
 		if n, err := strconv.Atoi(value); err == nil {
 			return n
 		}
-	case "float01":
+	case "float01", "float_pos", "float_nonneg", "float_pct_pos":
 		if f, err := strconv.ParseFloat(value, 64); err == nil {
 			return f
 		}

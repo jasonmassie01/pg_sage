@@ -386,7 +386,7 @@ func TestAuthorizationURL_NoDiscovery(t *testing.T) {
 	cfg := &config.OAuthConfig{Provider: "github"}
 	p := NewOAuthProvider(cfg)
 	// Don't call Discover — discovery is nil.
-	_, err := p.AuthorizationURL()
+	_, _, err := p.AuthorizationURL()
 	if err == nil {
 		t.Fatal("expected error when discovery not performed")
 	}
@@ -406,9 +406,12 @@ func TestAuthorizationURL_GitHub(t *testing.T) {
 		t.Fatalf("Discover: %v", err)
 	}
 
-	authURL, err := p.AuthorizationURL()
+	authURL, state, err := p.AuthorizationURL()
 	if err != nil {
 		t.Fatalf("AuthorizationURL: %v", err)
+	}
+	if state == "" {
+		t.Error("AuthorizationURL should return a non-empty state")
 	}
 
 	// Verify the URL structure.
@@ -454,7 +457,7 @@ func TestAuthorizationURL_OIDC_Scope(t *testing.T) {
 		t.Fatalf("Discover: %v", err)
 	}
 
-	authURL, err := p.AuthorizationURL()
+	authURL, _, err := p.AuthorizationURL()
 	if err != nil {
 		t.Fatalf("AuthorizationURL: %v", err)
 	}
@@ -478,7 +481,7 @@ func TestAuthorizationURL_StoresState(t *testing.T) {
 		t.Fatalf("Discover: %v", err)
 	}
 
-	_, err := p.AuthorizationURL()
+	_, _, err := p.AuthorizationURL()
 	if err != nil {
 		t.Fatalf("AuthorizationURL: %v", err)
 	}
@@ -502,11 +505,11 @@ func TestAuthorizationURL_MultipleCallsCreateDistinctStates(t *testing.T) {
 		t.Fatalf("Discover: %v", err)
 	}
 
-	url1, err := p.AuthorizationURL()
+	url1, _, err := p.AuthorizationURL()
 	if err != nil {
 		t.Fatalf("first AuthorizationURL: %v", err)
 	}
-	url2, err := p.AuthorizationURL()
+	url2, _, err := p.AuthorizationURL()
 	if err != nil {
 		t.Fatalf("second AuthorizationURL: %v", err)
 	}
@@ -717,6 +720,60 @@ func TestCleanStates_AllValid(t *testing.T) {
 
 	if count != 2 {
 		t.Errorf("expected 2 states (all valid), got %d", count)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// evictExpiredAndCapLocked
+// ---------------------------------------------------------------------------
+
+func TestEvictExpiredAndCapLocked_RemovesExpiredBeforeCapCheck(t *testing.T) {
+	p := NewOAuthProvider(&config.OAuthConfig{Provider: "github"})
+	now := time.Now()
+
+	p.mu.Lock()
+	p.states["expired"] = now.Add(-1 * time.Second)
+	p.states["valid"] = now.Add(10 * time.Minute)
+	p.evictExpiredAndCapLocked()
+	count := len(p.states)
+	_, hasExpired := p.states["expired"]
+	_, hasValid := p.states["valid"]
+	p.mu.Unlock()
+
+	if count != 1 {
+		t.Fatalf("state count = %d, want 1", count)
+	}
+	if hasExpired {
+		t.Fatal("expired state should be deleted")
+	}
+	if !hasValid {
+		t.Fatal("valid state should remain")
+	}
+}
+
+func TestEvictExpiredAndCapLocked_EvictsOldestAtCap(t *testing.T) {
+	p := NewOAuthProvider(&config.OAuthConfig{Provider: "github"})
+	base := time.Now().Add(10 * time.Minute)
+
+	p.mu.Lock()
+	p.states["oldest"] = base
+	for i := 1; i < maxOAuthStates; i++ {
+		p.states[fmt.Sprintf("state-%05d", i)] = base.Add(time.Duration(i) * time.Second)
+	}
+	p.evictExpiredAndCapLocked()
+	count := len(p.states)
+	_, hasOldest := p.states["oldest"]
+	_, hasNewest := p.states[fmt.Sprintf("state-%05d", maxOAuthStates-1)]
+	p.mu.Unlock()
+
+	if count != maxOAuthStates-1 {
+		t.Fatalf("state count = %d, want %d", count, maxOAuthStates-1)
+	}
+	if hasOldest {
+		t.Fatal("oldest state should be evicted")
+	}
+	if !hasNewest {
+		t.Fatal("newest state should remain")
 	}
 }
 
@@ -956,12 +1013,53 @@ func TestExchange_InvalidState(t *testing.T) {
 		t.Fatalf("Discover: %v", err)
 	}
 
-	_, err := p.Exchange(context.Background(), "code", "bad-state")
+	// Pass matching cookieState so we reach the in-memory state check;
+	// bad-state is absent from the map so it fails with invalid state.
+	_, err := p.Exchange(
+		context.Background(), "code", "bad-state", "bad-state")
 	if err == nil {
 		t.Fatal("expected error for invalid state")
 	}
 	if !strings.Contains(err.Error(), "invalid or expired state") {
 		t.Errorf("error should mention state, got: %v", err)
+	}
+}
+
+func TestExchange_CookieStateMismatch(t *testing.T) {
+	cfg := &config.OAuthConfig{Provider: "github"}
+	p := NewOAuthProvider(cfg)
+	if err := p.Discover(context.Background()); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	p.mu.Lock()
+	p.states["real-state"] = time.Now().Add(10 * time.Minute)
+	p.mu.Unlock()
+
+	// cookieState differs from state param → CSRF check rejects before
+	// we ever hit the state map.
+	_, err := p.Exchange(
+		context.Background(), "code", "real-state", "attacker-cookie")
+	if err == nil {
+		t.Fatal("expected state-cookie mismatch rejection")
+	}
+	if !strings.Contains(err.Error(), "state cookie mismatch") {
+		t.Errorf("error should mention cookie mismatch, got: %v", err)
+	}
+
+	// Empty cookie also rejected.
+	_, err = p.Exchange(
+		context.Background(), "code", "real-state", "")
+	if err == nil ||
+		!strings.Contains(err.Error(), "state cookie mismatch") {
+		t.Errorf("empty cookieState should be rejected, got: %v", err)
+	}
+
+	// Verify legitimate flow still consumes state exactly once.
+	p.mu.RLock()
+	_, stillStored := p.states["real-state"]
+	p.mu.RUnlock()
+	if !stillStored {
+		t.Error("state should not have been consumed by failed CSRF check")
 	}
 }
 
@@ -973,7 +1071,8 @@ func TestExchange_NoDiscovery(t *testing.T) {
 	p.states["valid-state"] = time.Now().Add(10 * time.Minute)
 	p.mu.Unlock()
 
-	_, err := p.Exchange(context.Background(), "code", "valid-state")
+	_, err := p.Exchange(
+		context.Background(), "code", "valid-state", "valid-state")
 	if err == nil {
 		t.Fatal("expected error when discovery not performed")
 	}
@@ -1449,7 +1548,8 @@ func TestExchange_FullFlow_OIDC(t *testing.T) {
 	p.states[state] = time.Now().Add(10 * time.Minute)
 	p.mu.Unlock()
 
-	email, err := p.Exchange(context.Background(), "auth-code", state)
+	email, err := p.Exchange(
+		context.Background(), "auth-code", state, state)
 	if err != nil {
 		t.Fatalf("Exchange error: %v", err)
 	}
@@ -1486,7 +1586,8 @@ func TestExchange_TokenExchangeFails(t *testing.T) {
 	p.states[state] = time.Now().Add(10 * time.Minute)
 	p.mu.Unlock()
 
-	_, err := p.Exchange(context.Background(), "bad-code", state)
+	_, err := p.Exchange(
+		context.Background(), "bad-code", state, state)
 	if err == nil {
 		t.Fatal("expected error when token exchange fails")
 	}
@@ -1603,7 +1704,8 @@ func TestExchange_ExpiredState(t *testing.T) {
 	p.states["expired"] = time.Now().Add(-1 * time.Minute)
 	p.mu.Unlock()
 
-	_, err := p.Exchange(context.Background(), "code", "expired")
+	_, err := p.Exchange(
+		context.Background(), "code", "expired", "expired")
 	if err == nil {
 		t.Fatal("expected error for expired state")
 	}

@@ -20,7 +20,7 @@ func testDSN() string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 var (
@@ -28,6 +28,8 @@ var (
 	testPoolOnce sync.Once
 	testPoolErr  error
 )
+
+const destructiveTestLockKey = "pg_sage_test_cross_pkg"
 
 // requireDB returns a shared pgxpool connected to Cloud SQL.
 // It bootstraps the sage schema on first call and skips the
@@ -39,7 +41,7 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 		dsn := testDSN()
 
 		ctx, cancel := context.WithTimeout(
-			context.Background(), 15*time.Second,
+			context.Background(), 45*time.Second,
 		)
 		defer cancel()
 
@@ -62,6 +64,15 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			return
 		}
 
+		releaseLock, err := lockCrossPackage(ctx, testPool)
+		if err != nil {
+			testPoolErr = fmt.Errorf("cross-package test lock: %w", err)
+			testPool.Close()
+			testPool = nil
+			return
+		}
+		defer releaseLock()
+
 		// Bootstrap sage schema and tables.
 		if err := schema.Bootstrap(ctx, testPool); err != nil {
 			testPoolErr = fmt.Errorf("bootstrap: %w", err)
@@ -79,8 +90,7 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			return
 		}
 
-		// Release the advisory lock so other tests/processes can proceed.
-		schema.ReleaseAdvisoryLock(ctx, testPool)
+		releasePoolAdvisoryLocks(ctx, testPool)
 	})
 
 	if testPoolErr != nil {
@@ -88,7 +98,90 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	}
 
 	ctx := context.Background()
+
+	serializeAcrossPackages(t, ctx, testPool)
+	// Verify sage schema is intact after acquiring the cross-package
+	// lock so schema teardown tests cannot drop it mid-check.
+	ensureSageSchema(t, ctx)
+
 	return testPool, ctx
+}
+
+var sageMu sync.Mutex
+
+func serializeAcrossPackages(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+) {
+	t.Helper()
+	releaseLock, err := lockCrossPackage(ctx, pool)
+	if err != nil {
+		t.Fatalf("acquire cross-package test lock: %v", err)
+	}
+	t.Cleanup(releaseLock)
+}
+
+func lockCrossPackage(
+	ctx context.Context, pool *pgxpool.Pool,
+) (func(), error) {
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire conn for cross-pkg lock: %w", err)
+	}
+	_, err = conn.Exec(ctx,
+		"SELECT pg_advisory_lock(hashtext($1))",
+		destructiveTestLockKey)
+	if err != nil {
+		conn.Release()
+		return nil, err
+	}
+	return func() {
+		_, _ = conn.Exec(context.Background(),
+			"SELECT pg_advisory_unlock(hashtext($1))",
+			destructiveTestLockKey)
+		conn.Release()
+	}, nil
+}
+
+// ensureSageSchema re-bootstraps if the sage schema was dropped by
+// concurrent test packages (e.g. internal/schema drops and recreates
+// sage during its own bootstrap tests).
+func ensureSageSchema(t *testing.T, ctx context.Context) {
+	t.Helper()
+	sageMu.Lock()
+	defer sageMu.Unlock()
+	var n int
+	err := testPool.QueryRow(ctx,
+		`SELECT 1 FROM information_schema.tables
+		 WHERE table_schema = 'sage'
+		   AND table_name = 'action_log'`).Scan(&n)
+	if err == nil {
+		return
+	}
+	if err := schema.Bootstrap(ctx, testPool); err != nil {
+		t.Fatalf("re-bootstrap sage failed: %v", err)
+	}
+	if err := schema.MigrateConfigSchema(ctx, testPool); err != nil {
+		t.Fatalf("re-migrate sage config: %v", err)
+	}
+	releasePoolAdvisoryLocks(ctx, testPool)
+}
+
+func releasePoolAdvisoryLocks(ctx context.Context, pool *pgxpool.Pool) {
+	total := int(pool.Stat().TotalConns())
+	conns := make([]*pgxpool.Conn, 0, total)
+	for i := 0; i < total; i++ {
+		qctx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+		conn, err := pool.Acquire(qctx)
+		cancel()
+		if err != nil {
+			break
+		}
+		conns = append(conns, conn)
+	}
+	for _, conn := range conns {
+		_, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock_all()")
+		conn.Release()
+	}
 }
 
 func TestInMaintenanceWindow_Variations(t *testing.T) {
@@ -225,7 +318,7 @@ func TestConcurrentlyOnRawConn(t *testing.T) {
 
 	// Create a temp table inside the sage schema.
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.test_concurrent_idx (
+		`CREATE TABLE IF NOT EXISTS public.test_concurrent_idx (
 			id  int,
 			val text
 		)`,
@@ -237,15 +330,15 @@ func TestConcurrentlyOnRawConn(t *testing.T) {
 	t.Cleanup(func() {
 		cctx := context.Background()
 		_, _ = pool.Exec(cctx,
-			"DROP INDEX CONCURRENTLY IF EXISTS sage.idx_test_conc")
+			"DROP INDEX CONCURRENTLY IF EXISTS public.idx_test_conc")
 		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS sage.test_concurrent_idx")
+			"DROP TABLE IF EXISTS public.test_concurrent_idx")
 	})
 
 	// Insert a few rows.
 	for i := 0; i < 5; i++ {
 		_, err = pool.Exec(ctx,
-			"INSERT INTO sage.test_concurrent_idx (id, val) VALUES ($1, $2)",
+			"INSERT INTO public.test_concurrent_idx (id, val) VALUES ($1, $2)",
 			i, fmt.Sprintf("row_%d", i),
 		)
 		if err != nil {
@@ -256,7 +349,7 @@ func TestConcurrentlyOnRawConn(t *testing.T) {
 	// Use ExecConcurrently to create an index CONCURRENTLY.
 	err = ExecConcurrently(ctx, pool,
 		"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_test_conc "+
-			"ON sage.test_concurrent_idx (id)",
+			"ON public.test_concurrent_idx (id)",
 		30*time.Second,
 	)
 	if err != nil {
@@ -399,15 +492,22 @@ func TestGrantVerification(t *testing.T) {
 
 func TestDDLTimeout(t *testing.T) {
 	pool, ctx := requireDB(t)
+	_, err := pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS public.test_ddl_timeout(id int)")
+	if err != nil {
+		t.Fatalf("create test table: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS public.test_ddl_timeout")
+	})
 
 	// Use ANALYZE on a bootstrapped sage table — it is on the
 	// executor whitelist, runs quickly, and is safe inside a
 	// transaction. SELECT 1 is no longer permitted by the
 	// post-hardening validator.
-	const noopSQL = "ANALYZE sage.findings"
+	const noopSQL = "ANALYZE public.test_ddl_timeout"
 
 	// ExecInTransaction should succeed with an allowed statement.
-	err := ExecInTransaction(ctx, pool, noopSQL, 5*time.Second)
+	err = ExecInTransaction(ctx, pool, noopSQL, 5*time.Second)
 	if err != nil {
 		t.Fatalf("ExecInTransaction(%s): %v", noopSQL, err)
 	}
@@ -443,16 +543,28 @@ func TestDDLTimeout(t *testing.T) {
 
 func TestLockTimeoutSetBeforeDDL(t *testing.T) {
 	pool, ctx := requireDB(t)
+	_, err := pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS public.test_lock_timeout_config(id int)")
+	if err != nil {
+		t.Fatalf("create test table: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			"DROP TABLE IF EXISTS public.test_lock_timeout_config")
+	})
+
+	// Guard against cross-package race where internal/schema tests
+	// DROP the sage schema between requireDB and the SQL below.
+	ensureSageSchema(t, ctx)
 
 	// ANALYZE is on the executor whitelist and acquires only a
 	// brief SHARE UPDATE EXCLUSIVE lock — perfect for verifying
 	// the lock_timeout plumbing without exercising SQL validation.
-	const noopSQL = "ANALYZE sage.findings"
+	const noopSQL = "ANALYZE public.test_lock_timeout_config"
 
 	// Use ExecConcurrently with a lock_timeout and verify the
 	// statement still succeeds against an unblocked table.
 	lockMs := 5000
-	err := ExecConcurrently(
+	err = ExecConcurrently(
 		ctx, pool, noopSQL, 10*time.Second,
 		WithLockTimeout(lockMs),
 	)
@@ -490,10 +602,14 @@ func TestLockTimeoutSetBeforeDDL(t *testing.T) {
 func TestLockTimeoutTriggersErrLockNotAvailable(t *testing.T) {
 	pool, ctx := requireDB(t)
 
+	// Guard against cross-package race where internal/schema tests
+	// DROP the sage schema between requireDB and the SQL below.
+	ensureSageSchema(t, ctx)
+
 	// Hold an exclusive lock on a table in one transaction, then
 	// try DDL with a very short lock_timeout to trigger 55P03.
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.test_lock_timeout (
+		`CREATE TABLE IF NOT EXISTS public.test_lock_timeout (
 			id int PRIMARY KEY
 		)`,
 	)
@@ -502,7 +618,7 @@ func TestLockTimeoutTriggersErrLockNotAvailable(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		cctx := context.Background()
-		_, _ = pool.Exec(cctx, "DROP TABLE IF EXISTS sage.test_lock_timeout")
+		_, _ = pool.Exec(cctx, "DROP TABLE IF EXISTS public.test_lock_timeout")
 	})
 
 	// Start a transaction that holds ACCESS EXCLUSIVE lock.
@@ -512,7 +628,7 @@ func TestLockTimeoutTriggersErrLockNotAvailable(t *testing.T) {
 	}
 	defer tx.Rollback(ctx)
 
-	_, err = tx.Exec(ctx, "LOCK TABLE sage.test_lock_timeout IN ACCESS EXCLUSIVE MODE")
+	_, err = tx.Exec(ctx, "LOCK TABLE public.test_lock_timeout IN ACCESS EXCLUSIVE MODE")
 	if err != nil {
 		t.Fatalf("locking table: %v", err)
 	}
@@ -524,7 +640,7 @@ func TestLockTimeoutTriggersErrLockNotAvailable(t *testing.T) {
 	// so the lock_timeout will fire before the lock is granted.
 	ddlErr := ExecInTransaction(
 		ctx, pool,
-		"ALTER TABLE sage.test_lock_timeout SET (autovacuum_enabled = false)",
+		"ALTER TABLE public.test_lock_timeout SET (autovacuum_enabled = false)",
 		10*time.Second,
 		WithLockTimeout(1),
 	)

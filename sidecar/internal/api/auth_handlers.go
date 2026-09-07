@@ -2,8 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -12,10 +14,20 @@ import (
 	"github.com/pg-sage/sidecar/internal/auth"
 )
 
+// loginRateLimitDisabled reads PG_SAGE_DISABLE_LOGIN_RATE_LIMIT=1
+// at process start. Purpose: let the Playwright suite exercise dozens
+// of logins per email without tripping the 5-per-15-min limiter. Never
+// set this in production — it disables brute-force protection.
+var loginRateLimitDisabled = os.Getenv(
+	"PG_SAGE_DISABLE_LOGIN_RATE_LIMIT",
+) == "1"
+
 // loginRateLimiter tracks failed login attempts per email.
 type loginRateLimiter struct {
 	mu       sync.Mutex
 	attempts map[string][]time.Time
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 var loginLimiter = newLoginRateLimiter()
@@ -30,19 +42,43 @@ const (
 func newLoginRateLimiter() *loginRateLimiter {
 	l := &loginRateLimiter{
 		attempts: make(map[string][]time.Time),
+		stop:     make(chan struct{}),
 	}
 	go l.cleanupLoop()
 	return l
 }
 
 // cleanupLoop periodically purges expired entries to bound
-// memory growth from distributed login spray attacks.
+// memory growth from distributed login spray attacks. It exits
+// when Stop is called, allowing tests and shutdown paths to
+// reclaim the goroutine instead of leaking one per process.
 func (l *loginRateLimiter) cleanupLoop() {
 	ticker := time.NewTicker(loginCleanupFreq)
 	defer ticker.Stop()
-	for range ticker.C {
-		l.purgeExpired()
+	for {
+		select {
+		case <-l.stop:
+			return
+		case <-ticker.C:
+			l.purgeExpired()
+		}
 	}
+}
+
+// Stop halts the cleanup goroutine. Idempotent — safe to call
+// multiple times. After Stop, purgeExpired no longer runs in the
+// background; allow/record/reset remain functional.
+func (l *loginRateLimiter) Stop() {
+	l.stopOnce.Do(func() {
+		close(l.stop)
+	})
+}
+
+// ShutdownLoginLimiter stops the package-level login rate limiter's
+// background cleanup goroutine. Call during graceful shutdown so the
+// goroutine doesn't outlive the process's API server.
+func ShutdownLoginLimiter() {
+	loginLimiter.Stop()
 }
 
 func (l *loginRateLimiter) purgeExpired() {
@@ -86,12 +122,49 @@ func (l *loginRateLimiter) allow(email string) bool {
 func (l *loginRateLimiter) record(email string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	// Cap total entries to bound memory under spray attacks.
-	if len(l.attempts) >= loginMaxEntries {
+	// If the key already exists, recording another attempt does not
+	// grow the map. Always allow that case so an attacker cannot
+	// freeze the limiter for real administrators by first filling the
+	// map with random emails.
+	if _, exists := l.attempts[email]; exists {
+		l.attempts[email] = append(l.attempts[email], time.Now())
 		return
 	}
-	l.attempts[email] = append(
-		l.attempts[email], time.Now())
+	// New key: if the map is at capacity, evict an expired entry
+	// before inserting. If no expired entry exists, evict the oldest
+	// tracked email. This bounds memory without silently dropping
+	// tracking for the real target of a spray attack.
+	if len(l.attempts) >= loginMaxEntries {
+		l.evictOneLocked()
+	}
+	l.attempts[email] = append(l.attempts[email], time.Now())
+}
+
+// evictOneLocked removes one entry from the map. Caller must hold mu.
+// Prefers entries whose most recent attempt is outside the window;
+// otherwise evicts the entry with the oldest most-recent attempt.
+func (l *loginRateLimiter) evictOneLocked() {
+	cutoff := time.Now().Add(-loginWindow)
+	var oldestEmail string
+	var oldestLast time.Time
+	for email, attempts := range l.attempts {
+		if len(attempts) == 0 {
+			delete(l.attempts, email)
+			return
+		}
+		last := attempts[len(attempts)-1]
+		if last.Before(cutoff) {
+			delete(l.attempts, email)
+			return
+		}
+		if oldestEmail == "" || last.Before(oldestLast) {
+			oldestEmail = email
+			oldestLast = last
+		}
+	}
+	if oldestEmail != "" {
+		delete(l.attempts, oldestEmail)
+	}
 }
 
 // reset clears failed attempts for the email on success.
@@ -120,7 +193,8 @@ func loginHandler(
 			return
 		}
 
-		if !loginLimiter.allow(req.Email) {
+		if !loginRateLimitDisabled &&
+			!loginLimiter.allow(req.Email) {
 			jsonError(w, "too many login attempts, "+
 				"try again later",
 				http.StatusTooManyRequests)
@@ -153,7 +227,7 @@ func loginHandler(
 			Value:    sessionID,
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   true,
+			Secure:   isSecureRequest(r),
 			SameSite: http.SameSiteLaxMode,
 			MaxAge:   int(auth.SessionDuration.Seconds()),
 		})
@@ -181,13 +255,20 @@ func logoutHandler(
 			Value:    "",
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   true,
+			Secure:   isSecureRequest(r),
 			MaxAge:   -1,
 		})
 		jsonResponse(w, map[string]string{
 			"status": "logged out",
 		})
 	}
+}
+
+func isSecureRequest(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
 func meHandler() http.HandlerFunc {
@@ -310,38 +391,20 @@ func deleteUserHandler(
 			return
 		}
 
-		// Ensure at least one admin remains after deletion.
-		target, err := auth.GetUserByID(
-			r.Context(), pool, id)
-		if err != nil {
-			jsonError(w, "user not found",
-				http.StatusNotFound)
-			return
-		}
-		if target.Role == auth.RoleAdmin {
-			count, err := auth.CountAdmins(
-				r.Context(), pool)
-			if err != nil {
-				slog.Error("failed to count admins",
-					"error", err)
-				jsonError(w,
-					"internal error",
-					http.StatusInternalServerError)
-				return
-			}
-			if count <= 1 {
+		if err := auth.DeleteUserPreservingAdmin(
+			r.Context(), pool, id,
+		); err != nil {
+			switch {
+			case errors.Is(err, auth.ErrLastAdmin):
 				jsonError(w,
 					"cannot delete the last admin",
 					http.StatusForbidden)
-				return
+			case errors.Is(err, auth.ErrUserNotFound):
+				jsonError(w, "user not found",
+					http.StatusNotFound)
+			default:
+				internalError(w, r, "delete user", err)
 			}
-		}
-
-		if err := auth.DeleteUser(
-			r.Context(), pool, id,
-		); err != nil {
-			jsonError(w, "user not found",
-				http.StatusNotFound)
 			return
 		}
 		jsonResponse(w, map[string]string{
@@ -363,6 +426,10 @@ func oauthConfigHandler(
 	}
 }
 
+// oauthStateCookieName is the browser-bound CSRF cookie for the
+// OAuth state token. It must match the state query param on callback.
+const oauthStateCookieName = "oauth_state"
+
 func oauthAuthorizeHandler(
 	provider *auth.OAuthProvider,
 ) http.HandlerFunc {
@@ -372,12 +439,23 @@ func oauthAuthorizeHandler(
 				http.StatusNotFound)
 			return
 		}
-		authURL, err := provider.AuthorizationURL()
+		authURL, state, err := provider.AuthorizationURL()
 		if err != nil {
-			jsonError(w, "failed to generate auth URL: "+err.Error(),
-				http.StatusInternalServerError)
+			internalError(w, r, "oauth authorization url", err)
 			return
 		}
+		// Bind state to this browser: only a request that echoes this
+		// cookie on the callback can complete the flow. SameSite=Lax
+		// still allows the top-level redirect back from the provider.
+		http.SetCookie(w, &http.Cookie{
+			Name:     oauthStateCookieName,
+			Value:    state,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   600, // 10 min — matches state TTL
+		})
 		jsonResponse(w, map[string]string{"url": authURL})
 	}
 }
@@ -402,8 +480,26 @@ func oauthCallbackHandler(
 			return
 		}
 
+		// Cookie-bound state check: defeats login CSRF where an
+		// attacker tricks a victim's browser into completing the
+		// attacker's half-finished OAuth flow.
+		var cookieState string
+		if c, cerr := r.Cookie(oauthStateCookieName); cerr == nil {
+			cookieState = c.Value
+		}
+		// Always clear the cookie before returning (success or fail).
+		http.SetCookie(w, &http.Cookie{
+			Name:     oauthStateCookieName,
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+		})
+
 		email, err := provider.Exchange(
-			r.Context(), code, state,
+			r.Context(), code, state, cookieState,
 		)
 		if err != nil {
 			slog.Error("oauth exchange failed",
@@ -467,11 +563,32 @@ func updateUserRoleHandler(
 				http.StatusBadRequest)
 			return
 		}
-		if err := auth.UpdateUserRole(
+
+		if req.Role != auth.RoleAdmin {
+			caller := UserFromContext(r.Context())
+			if caller != nil && caller.ID == id {
+				jsonError(w, "cannot change your own admin role",
+					http.StatusForbidden)
+				return
+			}
+		}
+
+		if err := auth.UpdateUserRolePreservingAdmin(
 			r.Context(), pool, id, req.Role,
 		); err != nil {
-			jsonError(w, err.Error(),
-				http.StatusBadRequest)
+			switch {
+			case errors.Is(err, auth.ErrInvalidRole):
+				jsonError(w, err.Error(),
+					http.StatusBadRequest)
+			case errors.Is(err, auth.ErrUserNotFound):
+				jsonError(w, "user not found",
+					http.StatusNotFound)
+			case errors.Is(err, auth.ErrLastAdmin):
+				jsonError(w, "cannot demote the last admin",
+					http.StatusForbidden)
+			default:
+				internalError(w, r, "update user role", err)
+			}
 			return
 		}
 		jsonResponse(w, map[string]string{

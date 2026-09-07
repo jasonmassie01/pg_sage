@@ -1,12 +1,31 @@
-import { useState, useEffect, useCallback } from 'react'
+/* eslint-disable react-refresh/only-export-components */
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
 import { ConfigTooltip } from '../components/ConfigTooltip'
+import { ConfigDiff } from '../components/ConfigDiff'
+import { useToast } from '../components/Toast'
+import { ShadowModePage } from './ShadowModePage'
 import {
   ShieldAlert, Play, Save, RotateCcw, Check, X,
 } from 'lucide-react'
+
+const TRUST_LEVEL_EXPLAIN = {
+  observation:
+    'Observation: pg_sage only monitors and surfaces findings.'
+    + ' No automated actions will run.',
+  advisory:
+    'Advisory: pg_sage may automatically execute SAFE actions'
+    + ' (ANALYZE, non-destructive index hints). Moderate and'
+    + ' high-risk actions still require manual approval.',
+  autonomous:
+    'Autonomous: pg_sage may automatically execute SAFE and'
+    + ' MODERATE actions (CREATE INDEX CONCURRENTLY, VACUUM,'
+    + ' dropping unused indexes). High-risk actions still require'
+    + ' manual approval.',
+}
 
 const ADVANCED_TABS = [
   'General', 'Collector', 'Analyzer', 'Trust & Safety',
@@ -25,20 +44,36 @@ function getInitialMode() {
   return 'simple'
 }
 
-export function SettingsPage({ database }) {
-  const { data, loading, error, refetch } = useAPI(
-    '/api/v1/config/global', 0
-  )
+export function SettingsPage({ database, databaseId }) {
+  const selectedDatabase = database && database !== 'all'
+  const numericDatabaseId = Number(databaseId)
+  const isDatabaseScope =
+    selectedDatabase && Number.isFinite(numericDatabaseId)
+    && numericDatabaseId > 0
+  const configUrl = selectedDatabase
+    ? isDatabaseScope
+      ? `/api/v1/config/databases/${numericDatabaseId}`
+      : null
+    : '/api/v1/config/global'
+  const { data, loading, error, refetch } = useAPI(configUrl, 0)
+  const toast = useToast()
   const [mode, setMode] = useState(getInitialMode)
   const [tab, setTab] = useState('General')
   const [edits, setEdits] = useState({})
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState(null)
   const [stopping, setStopping] = useState(false)
+  const [restarting, setRestarting] = useState(false)
+  const [pendingTrust, setPendingTrust] = useState(null)
+  const [showDiff, setShowDiff] = useState(false)
+  const readOnly = data?.read_only === true
 
   const tabs = mode === 'simple' ? SIMPLE_TABS : ADVANCED_TABS
 
-  useEffect(() => { setEdits({}); setFeedback(null) }, [tab])
+  useEffect(() => {
+    setEdits({})
+    setFeedback(null)
+  }, [tab, configUrl])
 
   useEffect(() => {
     if (!tabs.includes(tab)) setTab('General')
@@ -52,7 +87,7 @@ export function SettingsPage({ database }) {
     }
   }
 
-  const cfg = data?.config || {}
+  const cfg = useMemo(() => data?.config || {}, [data?.config])
 
   const getVal = useCallback((key) => {
     if (key in edits) return edits[key]
@@ -66,53 +101,218 @@ export function SettingsPage({ database }) {
   }, [cfg, edits])
 
   const setVal = (key, val) => {
+	if (readOnly) return
+	if (isDatabaseScope
+	  && key !== 'trust.level' && key !== 'execution_mode') {
+	  toast.error(
+	    'Per-database overrides currently support only trust and execution mode'
+	  )
+	  return
+	}
+    if (key === 'trust.level') {
+      const current = getVal('trust.level')
+      // Only confirm on escalations (observation -> advisory/auto,
+      // or any -> autonomous). De-escalation is always safe.
+      const escalating =
+        (current === 'observation'
+          && (val === 'advisory' || val === 'autonomous'))
+        || (current === 'advisory' && val === 'autonomous')
+      if (escalating && val !== current) {
+        setPendingTrust({ key, val, from: current })
+        return
+      }
+    }
     setEdits(prev => ({ ...prev, [key]: val }))
     setFeedback(null)
   }
 
-  const resetField = (key) => {
-    setEdits(prev => {
-      const next = { ...prev }
-      delete next[key]
-      return next
-    })
+  const applyPendingTrust = () => {
+    if (!pendingTrust) return
+    setEdits(prev => ({
+      ...prev, [pendingTrust.key]: pendingTrust.val,
+    }))
+    setFeedback(null)
+    setPendingTrust(null)
   }
 
-  const saveChanges = async () => {
+  const resetField = async (key) => {
+    if (readOnly) return
+    if (key in edits) {
+      setEdits(prev => {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+      return
+    }
+    const source = cfg[key]?.source
+    const canResetDBOverride = isDatabaseScope
+      && source === 'db_override' && key !== 'execution_mode'
+    const canResetGlobalOverride = !isDatabaseScope
+      && source === 'override' && key !== 'execution_mode'
+    if (canResetDBOverride || canResetGlobalOverride) {
+	  const baseUrl = canResetDBOverride
+        ? `/api/v1/config/databases/${numericDatabaseId}/${encodeURIComponent(key)}`
+        : `/api/v1/config/global/${encodeURIComponent(key)}`
+	  const url = `${baseUrl}?expected_generation=${data?.desired_generation ?? ''}`
+      try {
+        const res = await fetch(url, {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+		  if (res.status === 409) await refetch()
+          toast.error(err.error || 'Reset failed')
+          return
+        }
+		const result = await res.json().catch(() => ({}))
+		if (result.pending_restart?.length) {
+		  setFeedback({
+			type: 'error',
+			msg: `Pending restart: ${result.pending_restart.join(', ')}`,
+		  })
+		} else if (result.warnings?.length) {
+		  setFeedback({ type: 'error', msg: result.warnings.join('; ') })
+		} else {
+		  setFeedback(null)
+		}
+        toast.success(canResetDBOverride
+          ? `Reset ${key} to inherited value`
+          : `Reset ${key} to configured default`)
+        refetch()
+      } catch (e) {
+        toast.error(e.message || 'Reset failed')
+      }
+    }
+  }
+
+  const requestSave = () => {
     if (Object.keys(edits).length === 0) return
-    setSaving(true)
     setFeedback(null)
+    setShowDiff(true)
+  }
+
+  const confirmSave = async () => {
+    if (Object.keys(edits).length === 0) {
+      setShowDiff(false)
+      return
+    }
+    setSaving(true)
     try {
-      const res = await fetch('/api/v1/config/global', {
+      if (!configUrl) {
+        toast.error('Selected database is not available')
+        return
+      }
+      const res = await fetch(configUrl, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(edits),
+		body: JSON.stringify({
+          ...edits,
+          expected_generation: data?.desired_generation,
+        }),
       })
       if (!res.ok) {
-        const err = await res.json()
-        setFeedback({ type: 'error', msg: err.error || 'Save failed' })
+        const err = await res.json().catch(() => ({}))
+		if (res.status === 409) await refetch()
+        toast.error(err.error || 'Save failed')
         return
       }
-      setFeedback({ type: 'success', msg: 'Settings saved' })
+	  const result = await res.json().catch(() => ({}))
+	  if (result.pending_restart?.length) {
+		setFeedback({
+		  type: 'error',
+		  msg: `Pending restart: ${result.pending_restart.join(', ')}`,
+		})
+	  } else if (result.warnings?.length) {
+		setFeedback({ type: 'error', msg: result.warnings.join('; ') })
+	  } else {
+		setFeedback(null)
+	  }
+      toast.success(
+        `Saved ${Object.keys(edits).length} `
+        + `${isDatabaseScope ? 'database ' : 'global '}`
+        + 'configuration change(s)'
+      )
       setEdits({})
+      setShowDiff(false)
       refetch()
     } catch (e) {
-      setFeedback({ type: 'error', msg: e.message })
+      toast.error(e.message || 'Save failed')
     } finally {
       setSaving(false)
     }
   }
 
+  const restartNow = async () => {
+    if (!window.confirm(
+      'Restart the pg_sage sidecar now? It will be unavailable for a few '
+      + 'seconds while startup-only settings take effect.')) {
+      return
+    }
+    setRestarting(true)
+    try {
+      const res = await fetch('/api/v1/restart', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (res.status === 501) {
+        toast.error('Restart not supported: no supervisor configured')
+        return
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        toast.error(err.error || 'Restart failed')
+        return
+      }
+      toast.success('Restarting — reconnecting in a few seconds…')
+      setTimeout(() => window.location.reload(), 6000)
+    } catch (e) {
+      toast.error(e.message || 'Restart failed')
+    } finally {
+      setRestarting(false)
+    }
+  }
+
+  if (selectedDatabase && !isDatabaseScope) {
+    return (
+      <ErrorBanner
+        message={`Selected database "${database}" is not available`}
+        onRetry={refetch}
+      />
+    )
+  }
   if (loading) return <LoadingSpinner />
   if (error) return <ErrorBanner message={error} onRetry={refetch} />
 
-  const fieldProps = { getVal, setVal, getSource, resetField }
+  const fieldProps = {
+    getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+    readOnly,
+  }
   const isGeneralTab = tab === 'General'
   const hasEdits = Object.keys(edits).length > 0
 
   return (
     <div className="space-y-4 max-w-3xl">
+      {pendingTrust && (
+        <TrustLevelConfirm
+          from={pendingTrust.from}
+          to={pendingTrust.val}
+          onConfirm={applyPendingTrust}
+          onCancel={() => setPendingTrust(null)}
+        />
+      )}
+      {showDiff && (
+        <ConfigDiff
+          edits={edits}
+          cfg={cfg}
+          saving={saving}
+          onConfirm={confirmSave}
+          onCancel={() => setShowDiff(false)}
+        />
+      )}
       <div className="flex items-center justify-between">
         <TabBar tabs={tabs} active={tab} onSelect={setTab} />
         <button
@@ -127,6 +327,51 @@ export function SettingsPage({ database }) {
           {mode === 'simple' ? 'Show Advanced' : 'Show Simple'}
         </button>
       </div>
+      <div className="text-xs"
+        data-testid="settings-scope"
+        style={{ color: 'var(--text-secondary)' }}>
+        Scope: {isDatabaseScope
+          ? `Database ${database} (ID ${numericDatabaseId})`
+          : 'Global defaults'}
+      </div>
+      {readOnly && (
+        <div
+          data-testid="settings-read-only"
+          className="rounded p-3 text-xs"
+          style={{
+            color: 'var(--yellow)',
+            border: '1px solid var(--yellow)',
+            background: 'var(--bg-card)',
+          }}
+        >
+          Configuration is read-only in YAML fleet mode. To change these
+          values, {data?.write_guidance || 'edit the YAML file'}.
+        </div>
+      )}
+      <div
+        className="rounded p-3 text-xs flex items-center justify-between gap-3"
+        style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          color: 'var(--text-secondary)',
+        }}
+      >
+        <span>
+          Saved fields follow server lifecycle metadata. Reconfigured owners
+          rebuild in place; restart-bound fields are reported as pending.
+        </span>
+        <button
+          data-testid="settings-restart-btn"
+          onClick={restartNow}
+          disabled={restarting}
+          className="text-xs px-3 py-1 rounded whitespace-nowrap inline-flex items-center gap-1"
+          style={{ color: 'var(--text)', border: '1px solid var(--border)' }}
+        >
+          <RotateCcw size={13} />
+          {restarting ? 'Restarting…' : 'Restart now'}
+        </button>
+      </div>
+      {tab === 'General' && <ShadowModePage database={database} />}
       {feedback && <FeedbackBanner {...feedback} />}
       <div className="rounded p-5"
         style={{
@@ -157,12 +402,12 @@ export function SettingsPage({ database }) {
       </div>
       {!isGeneralTab && hasEdits && (
         <div className="flex gap-3">
-          <button onClick={saveChanges} disabled={saving}
+          <button onClick={requestSave} disabled={saving}
             data-testid="settings-save"
             className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium"
             style={{ background: 'var(--accent)', color: '#fff' }}>
             <Save size={16} />
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving ? 'Saving...' : 'Review & Save'}
           </button>
           <button onClick={() => setEdits({})}
             data-testid="settings-discard"
@@ -183,9 +428,13 @@ export function SettingsPage({ database }) {
 
 function SimpleContent({
   tab, data, database, stopping, setStopping, refetch,
-  getVal, setVal, getSource, resetField,
+  getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+  readOnly,
 }) {
-  const fieldProps = { getVal, setVal, getSource, resetField }
+  const fieldProps = {
+    getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+    readOnly,
+  }
   if (tab === 'General') {
     return (
       <GeneralTab
@@ -208,9 +457,13 @@ function SimpleContent({
 
 function AdvancedContent({
   tab, data, database, stopping, setStopping, refetch,
-  getVal, setVal, getSource, resetField,
+  getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+  readOnly,
 }) {
-  const fieldProps = { getVal, setVal, getSource, resetField }
+  const fieldProps = {
+    getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+    readOnly,
+  }
   if (tab === 'General') {
     return (
       <GeneralTab
@@ -275,14 +528,18 @@ function SimpleMonitoringTab(props) {
           help="Controls how much autonomy pg_sage has. Start with Observation to just watch, then graduate to Advisory for safe recommendations."
           {...props}
         />
-        <Field
-          label="Execution Mode"
-          configKey="execution_mode"
-          type="select"
-          options={execOptions}
-          help="How pg_sage handles approved actions. Auto executes immediately, Approval waits for your OK."
-          {...props}
-        />
+        {props.isDatabaseScope ? (
+          <Field
+            label="Execution Mode"
+            configKey="execution_mode"
+            type="select"
+            options={execOptions}
+            help="How pg_sage handles approved actions. Auto executes immediately, Approval waits for your OK."
+            {...props}
+          />
+        ) : (
+          <DatabaseOnlySetting label="Execution Mode" />
+        )}
         <Field
           label="CPU Ceiling (%)"
           configKey="safety.cpu_ceiling_pct"
@@ -366,6 +623,24 @@ function SectionHeading({ children }) {
   )
 }
 
+function DatabaseOnlySetting({ label }) {
+  return (
+    <div className="flex items-center gap-3 py-2">
+      <div className="w-64 flex-shrink-0">
+        <span className="text-sm"
+          style={{ color: 'var(--text-primary)' }}>
+          {label}
+        </span>
+      </div>
+      <div className="text-xs"
+        data-testid={`database-only-${label.toLowerCase().replace(/\s+/g, '-')}`}
+        style={{ color: 'var(--text-secondary)' }}>
+        Select a single database to configure this setting.
+      </div>
+    </div>
+  )
+}
+
 /* ---------- Shared UI components ---------- */
 
 function TabBar({ tabs, active, onSelect }) {
@@ -386,6 +661,64 @@ function TabBar({ tabs, active, onSelect }) {
           {t}
         </button>
       ))}
+    </div>
+  )
+}
+
+function TrustLevelConfirm({ from, to, onConfirm, onCancel }) {
+  useEffect(() => {
+    const handler = e => {
+      if (e.key === 'Escape') onCancel()
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onCancel])
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center"
+      role="dialog" aria-modal="true"
+      data-testid="trust-level-confirm"
+      style={{ background: 'rgba(0,0,0,0.5)' }}
+      onClick={onCancel}>
+      <div className="rounded p-5 max-w-md w-full mx-4"
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+        }}>
+        <div className="flex items-center gap-2 mb-3">
+          <ShieldAlert size={20} style={{ color: 'var(--yellow)' }} />
+          <h3 className="text-sm font-semibold"
+            style={{ color: 'var(--text-primary)' }}>
+            Confirm Trust Level Change
+          </h3>
+        </div>
+        <p className="text-sm mb-3"
+          style={{ color: 'var(--text-secondary)' }}>
+          Changing trust from <b>{from || 'unknown'}</b> to <b>{to}</b>.
+        </p>
+        <p className="text-xs mb-4"
+          style={{ color: 'var(--text-secondary)' }}>
+          {TRUST_LEVEL_EXPLAIN[to] || 'Unknown trust level.'}
+        </p>
+        <div className="flex gap-2 justify-end">
+          <button onClick={onCancel}
+            data-testid="trust-level-cancel"
+            className="px-3 py-1.5 rounded text-sm"
+            style={{
+              background: 'var(--bg-card)',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border)',
+            }}>
+            Cancel
+          </button>
+          <button onClick={onConfirm}
+            data-testid="trust-level-confirm-btn"
+            className="px-3 py-1.5 rounded text-sm font-medium"
+            style={{ background: 'var(--accent)', color: '#fff' }}>
+            Confirm
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -425,10 +758,13 @@ function SourceBadge({ source }) {
 
 function Field({
   label, configKey, type, getVal, setVal, getSource,
-  resetField, options, help,
+  resetField, options, help, readOnly = false,
 }) {
   const value = getVal(configKey)
   const source = getSource(configKey)
+  const canReset = !readOnly && (source === 'modified'
+    || ((source === 'override' || source === 'db_override')
+      && configKey !== 'execution_mode'))
   return (
     <div className="flex items-center gap-3 py-2">
       <div className="w-64 flex-shrink-0">
@@ -449,6 +785,8 @@ function Field({
       <div className="flex-1">
         {type === 'select' ? (
           <select value={value}
+            data-testid={`setting-${configKey}`}
+            disabled={readOnly}
             onChange={e => setVal(configKey, e.target.value)}
             className="w-full px-3 py-1.5 rounded text-sm"
             style={{
@@ -464,6 +802,8 @@ function Field({
           </select>
         ) : type === 'toggle' ? (
           <button
+            data-testid={`setting-${configKey}`}
+            disabled={readOnly}
             onClick={() => setVal(
               configKey,
               String(value) !== 'true' ? 'true' : 'false'
@@ -482,10 +822,14 @@ function Field({
           </button>
         ) : type === 'password' ? (
           <PasswordField value={value}
+            testId={`setting-${configKey}`}
+            disabled={readOnly}
             onChange={v => setVal(configKey, v)} />
         ) : (
           <input type={type === 'float' ? 'number' : type || 'number'}
             step={type === 'float' ? '0.01' : '1'}
+            data-testid={`setting-${configKey}`}
+            disabled={readOnly}
             value={value}
             onChange={e => setVal(configKey, e.target.value)}
             className="w-full px-3 py-1.5 rounded text-sm"
@@ -496,8 +840,10 @@ function Field({
             }} />
         )}
       </div>
-      {source !== 'default' && source !== 'yaml' && (
+      {canReset && (
         <button onClick={() => resetField(configKey)} title="Reset"
+          aria-label={`Reset ${label}`}
+          data-testid={`reset-${configKey}`}
           className="p-1 rounded"
           style={{ color: 'var(--text-secondary)' }}>
           <RotateCcw size={14} />
@@ -507,11 +853,13 @@ function Field({
   )
 }
 
-function PasswordField({ value, onChange }) {
+function PasswordField({ value, onChange, testId, disabled = false }) {
   const [show, setShow] = useState(false)
   return (
     <div className="flex gap-2">
       <input type={show ? 'text' : 'password'} value={value}
+        data-testid={testId}
+        disabled={disabled}
         onChange={e => onChange(e.target.value)}
         className="flex-1 px-3 py-1.5 rounded text-sm"
         style={{
@@ -536,28 +884,101 @@ function PasswordField({ value, onChange }) {
 function GeneralTab({
   mode, databases, database, stopping, setStopping, refetch,
 }) {
-  const emergencyStop = async () => {
+  const toast = useToast()
+  const [armSeconds, setArmSeconds] = useState(0)
+  const timerRef = useRef(null)
+
+  useEffect(() => () => {
+    if (timerRef.current) clearInterval(timerRef.current)
+  }, [])
+
+  const doEmergencyStop = async () => {
     setStopping(true)
     const dbParam = database && database !== 'all'
       ? `?database=${database}` : ''
     try {
-      await fetch(
+      const res = await fetch(
         `/api/v1/emergency-stop${dbParam}`,
-        { method: 'POST', credentials: 'include' },
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        },
       )
+      // A failed kill-switch must NOT look like success: an HTTP error
+      // status does not reject fetch, so without this check the operator
+      // believes autonomous actions stopped when they did not (H6).
+      if (!res.ok) {
+        let msg = `Emergency stop failed (${res.status})`
+        try { const d = await res.json(); if (d && d.error) msg = d.error } catch { /* non-JSON */ }
+        toast.error(msg)
+      } else {
+        toast.success('Emergency stop engaged — autonomous actions halted')
+      }
+    } catch (err) {
+      toast.error(err.message || 'Emergency stop request failed')
     } finally {
       setStopping(false)
       refetch()
     }
   }
+
+  const armEmergencyStop = () => {
+    setArmSeconds(5)
+    if (timerRef.current) clearInterval(timerRef.current)
+    timerRef.current = setInterval(() => {
+      setArmSeconds(s => {
+        if (s <= 1) {
+          clearInterval(timerRef.current)
+          timerRef.current = null
+          return 0
+        }
+        return s - 1
+      })
+    }, 1000)
+  }
+
+  const onEmergencyClick = () => {
+    if (armSeconds > 0) {
+      if (timerRef.current) clearInterval(timerRef.current)
+      timerRef.current = null
+      setArmSeconds(0)
+      doEmergencyStop()
+    } else {
+      armEmergencyStop()
+    }
+  }
+
+  const cancelArm = () => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    timerRef.current = null
+    setArmSeconds(0)
+  }
+
   const resume = async () => {
     const dbParam = database && database !== 'all'
       ? `?database=${database}` : ''
-    await fetch(
-      `/api/v1/resume${dbParam}`,
-      { method: 'POST', credentials: 'include' },
-    )
-    refetch()
+    try {
+      const res = await fetch(
+        `/api/v1/resume${dbParam}`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
+      if (!res.ok) {
+        let msg = `Resume failed (${res.status})`
+        try { const d = await res.json(); if (d && d.error) msg = d.error } catch { /* non-JSON */ }
+        toast.error(msg)
+      } else {
+        toast.success('Resumed — autonomous actions re-enabled')
+      }
+    } catch (err) {
+      toast.error(err.message || 'Resume request failed')
+    } finally {
+      refetch()
+    }
   }
   return (
     <div className="space-y-4">
@@ -566,31 +987,60 @@ function GeneralTab({
         System Info
       </h3>
       <div className="grid grid-cols-2 gap-3 text-sm">
-        <div style={{ color: 'var(--text-secondary)' }}>Mode</div>
-        <div style={{ color: 'var(--text-primary)' }}>
-          {mode || 'unknown'}
-        </div>
-        <div style={{ color: 'var(--text-secondary)' }}>Databases</div>
-        <div style={{ color: 'var(--text-primary)' }}>
-          {databases ?? 0}
-        </div>
+        {database && database !== 'all' ? (
+          <>
+            <div style={{ color: 'var(--text-secondary)' }}>Scope</div>
+            <div style={{ color: 'var(--text-primary)' }}>
+              Database override
+            </div>
+            <div style={{ color: 'var(--text-secondary)' }}>Database</div>
+            <div style={{ color: 'var(--text-primary)' }}>
+              {database}
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ color: 'var(--text-secondary)' }}>Mode</div>
+            <div style={{ color: 'var(--text-primary)' }}>
+              {mode || 'unknown'}
+            </div>
+            <div style={{ color: 'var(--text-secondary)' }}>Databases</div>
+            <div style={{ color: 'var(--text-primary)' }}>
+              {databases ?? 0}
+            </div>
+          </>
+        )}
       </div>
       <h3 className="text-sm font-medium mt-6"
         style={{ color: 'var(--text-secondary)' }}>
         Emergency Controls
       </h3>
       <div className="flex gap-3">
-        <button onClick={emergencyStop} disabled={stopping}
+        <button onClick={onEmergencyClick} disabled={stopping}
           data-testid="emergency-stop-button"
           className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium"
           style={{
-            background: '#3b1111',
-            color: 'var(--red)',
+            background: armSeconds > 0 ? 'var(--red)' : '#3b1111',
+            color: armSeconds > 0 ? '#fff' : 'var(--red)',
             border: '1px solid var(--red)',
           }}>
           <ShieldAlert size={16} />
-          {stopping ? 'Stopping...' : 'Emergency Stop'}
+          {stopping ? 'Stopping...'
+            : armSeconds > 0
+              ? `Confirm Emergency Stop (${armSeconds})`
+              : 'Emergency Stop'}
         </button>
+        {armSeconds > 0 && (
+          <button onClick={cancelArm}
+            data-testid="emergency-stop-cancel"
+            className="flex items-center gap-2 px-4 py-2 rounded text-sm"
+            style={{
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border)',
+            }}>
+            Cancel
+          </button>
+        )}
         <button onClick={resume}
           data-testid="resume-button"
           className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium"
@@ -666,8 +1116,12 @@ function TrustSafetyTab(props) {
           style={{ color: 'var(--text-secondary)' }}>Trust</h3>
         <Field label="Trust Level" configKey="trust.level"
           type="select" options={trustOptions} {...props} />
-        <Field label="Execution Mode" configKey="execution_mode"
-          type="select" options={execOptions} {...props} />
+        {props.isDatabaseScope ? (
+          <Field label="Execution Mode" configKey="execution_mode"
+            type="select" options={execOptions} {...props} />
+        ) : (
+          <DatabaseOnlySetting label="Execution Mode" />
+        )}
         <Field label="Tier 3: Safe" configKey="trust.tier3_safe"
           type="toggle" {...props} />
         <Field label="Tier 3: Moderate" configKey="trust.tier3_moderate"
@@ -706,7 +1160,10 @@ function TrustSafetyTab(props) {
   )
 }
 
-function ModelField({ getVal, setVal, getSource, resetField, help }) {
+function ModelField({
+  getVal, setVal, getSource, resetField, help, configUrl,
+  readOnly = false,
+}) {
   const [models, setModels] = useState(null)
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelError, setModelError] = useState(null)
@@ -715,24 +1172,21 @@ function ModelField({ getVal, setVal, getSource, resetField, help }) {
     setLoadingModels(true)
     setModelError(null)
     try {
-      // Save endpoint + key first so the backend can use them.
       const llmFields = {}
       const ep = getVal('llm.endpoint')
       const key = getVal('llm.api_key')
       const enabled = getVal('llm.enabled')
       if (ep) llmFields['llm.endpoint'] = ep
-      if (key) llmFields['llm.api_key'] = key
+      if (key && !isMaskedSecret(key)) llmFields['llm.api_key'] = key
       if (enabled !== undefined) llmFields['llm.enabled'] = enabled
-      if (Object.keys(llmFields).length > 0) {
-        await fetch('/api/v1/config/global', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(llmFields),
-        })
-      }
       const res = await fetch('/api/v1/llm/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        body: JSON.stringify({
+          scope_url: configUrl,
+          config: llmFields,
+        }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -749,6 +1203,8 @@ function ModelField({ getVal, setVal, getSource, resetField, help }) {
 
   const value = getVal('llm.model')
   const source = getSource('llm.model')
+  const canReset = !readOnly
+    && (source === 'modified' || source === 'db_override')
 
   if (models && models.length > 0) {
     const options = models.map(m => ({
@@ -776,6 +1232,7 @@ function ModelField({ getVal, setVal, getSource, resetField, help }) {
         </div>
         <div className="flex-1 flex gap-2">
           <select value={value}
+            disabled={readOnly}
             onChange={e => setVal('llm.model', e.target.value)}
             className="flex-1 px-3 py-1.5 rounded text-sm"
             style={{
@@ -799,7 +1256,7 @@ function ModelField({ getVal, setVal, getSource, resetField, help }) {
             Manual
           </button>
         </div>
-        {source !== 'default' && source !== 'yaml' && (
+        {canReset && (
           <button onClick={() => resetField('llm.model')}
             title="Reset" className="p-1 rounded"
             style={{ color: 'var(--text-secondary)' }}>
@@ -827,6 +1284,7 @@ function ModelField({ getVal, setVal, getSource, resetField, help }) {
       </div>
       <div className="flex-1 flex gap-2">
         <input type="text" value={value}
+          disabled={readOnly}
           onChange={e => setVal('llm.model', e.target.value)}
           className="flex-1 px-3 py-1.5 rounded text-sm"
           style={{
@@ -851,7 +1309,7 @@ function ModelField({ getVal, setVal, getSource, resetField, help }) {
           {modelError}
         </span>
       )}
-      {source !== 'default' && source !== 'yaml' && (
+      {canReset && (
         <button onClick={() => resetField('llm.model')}
           title="Reset" className="p-1 rounded"
           style={{ color: 'var(--text-secondary)' }}>
@@ -860,6 +1318,13 @@ function ModelField({ getVal, setVal, getSource, resetField, help }) {
       )}
     </div>
   )
+}
+
+export function isMaskedSecret(value) {
+  if (!value) return false
+  const stars = value.match(/^\*+/)?.[0]?.length || 0
+  if (stars === 0) return false
+  return stars === value.length || value.length - stars <= 4
 }
 
 function LLMTab(props) {

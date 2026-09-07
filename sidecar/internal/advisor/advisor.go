@@ -67,8 +67,11 @@ func (a *Advisor) ShouldRun() bool {
 
 // Analyze runs all enabled sub-advisors and returns findings.
 func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
-	if !a.cfg.Advisor.Enabled || !a.cfg.LLM.Enabled {
+	if !a.cfg.Advisor.Enabled {
 		return nil, nil
+	}
+	if !a.cfg.LLM.Enabled {
+		return []analyzer.Finding{advisorDegradedFinding()}, nil
 	}
 	if !a.ShouldRun() {
 		return nil, nil
@@ -214,6 +217,24 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 	return all, nil
 }
 
+func advisorDegradedFinding() analyzer.Finding {
+	return analyzer.Finding{
+		Category:         "advisor_degraded",
+		Severity:         "warning",
+		ObjectType:       "advisor",
+		ObjectIdentifier: "llm",
+		Title:            "Configuration advisor is enabled but LLM is disabled",
+		Detail: map[string]any{
+			"advisor_enabled": true,
+			"llm_enabled":     false,
+			"mode":            "degraded",
+		},
+		Recommendation: "Enable and configure the LLM provider, or disable " +
+			"advisor features intentionally so this is not mistaken for a " +
+			"healthy no-finding cycle.",
+	}
+}
+
 // isBudgetError returns true if the error indicates
 // the daily token budget has been exhausted.
 func isBudgetError(err error) bool {
@@ -239,7 +260,7 @@ func (a *Advisor) hasOpenFindings(
 	}
 	var count int
 	err := a.pool.QueryRow(ctx,
-		`SELECT count(*) FROM sage.findings
+		`/* pg_sage */ SELECT count(*) FROM sage.findings
 		 WHERE category = $1
 		   AND status = 'open'
 		   AND acted_on_at IS NULL`,

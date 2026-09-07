@@ -165,7 +165,7 @@ func TestClientConcurrentRequests(t *testing.T) {
 	cfg := &config.LLMConfig{
 		Enabled: true, Endpoint: srv.URL + "/",
 		APIKey: "k", Model: "m",
-		TimeoutSeconds: 5, TokenBudgetDaily: 100000, CooldownSeconds: 10,
+		TimeoutSeconds: 5, TokenBudgetDaily: 100000, CooldownSeconds: 0,
 	}
 	client := New(cfg, noopLog)
 

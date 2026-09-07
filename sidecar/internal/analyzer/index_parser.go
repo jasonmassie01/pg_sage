@@ -83,7 +83,9 @@ func splitColumns(s string) []string {
 // in the same order, on the same table, with the same WHERE clause
 // and INCLUDE columns.
 func IsDuplicate(a, b ParsedIndex) bool {
-	if a.Table != b.Table || a.WhereClause != b.WhereClause {
+	if a.Schema != b.Schema ||
+		a.Table != b.Table ||
+		a.WhereClause != b.WhereClause {
 		return false
 	}
 	if len(a.Columns) != len(b.Columns) {
@@ -108,7 +110,9 @@ func IsDuplicate(a, b ParsedIndex) bool {
 // IsSubset returns true if a's columns are a leading prefix of b's columns,
 // on the same table with the same WHERE clause.
 func IsSubset(a, b ParsedIndex) bool {
-	if a.Table != b.Table || a.WhereClause != b.WhereClause {
+	if a.Schema != b.Schema ||
+		a.Table != b.Table ||
+		a.WhereClause != b.WhereClause {
 		return false
 	}
 	if len(a.Columns) >= len(b.Columns) {
@@ -116,6 +120,21 @@ func IsSubset(a, b ParsedIndex) bool {
 	}
 	for i := range a.Columns {
 		if a.Columns[i] != b.Columns[i] {
+			return false
+		}
+	}
+	// a's INCLUDE columns must also be served by b (as a key or INCLUDE
+	// column); otherwise a supports index-only scans that b does not, and
+	// dropping a would regress those queries.
+	bServes := make(map[string]bool, len(b.Columns)+len(b.IncludeCols))
+	for _, c := range b.Columns {
+		bServes[c] = true
+	}
+	for _, c := range b.IncludeCols {
+		bServes[c] = true
+	}
+	for _, c := range a.IncludeCols {
+		if !bServes[c] {
 			return false
 		}
 	}

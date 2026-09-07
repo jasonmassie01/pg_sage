@@ -38,7 +38,7 @@ export function RulesTab() {
       if (chs.length > 0 && !channelId) {
         setChannelId(String(chs[0].id))
       }
-    } catch (_) { /* ignore */ }
+    } catch { /* ignore */ }
   }, [channelId])
 
   useEffect(() => {

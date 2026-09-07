@@ -9,6 +9,21 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
+type tableKey struct{ schema, table string }
+
+// isSystemSchema reports whether a schema is owned by PostgreSQL or an
+// extension and must not be the target of index recommendations. The
+// executor protects these from execution, but findings about them should
+// never be generated in the first place (they are noise the user can do
+// nothing about, e.g. _timescaledb_catalog indexes).
+func isSystemSchema(schema string) bool {
+	s := strings.ToLower(schema)
+	return s == "information_schema" ||
+		s == "google_ml" ||
+		strings.HasPrefix(s, "pg_") ||
+		strings.HasPrefix(s, "_timescaledb")
+}
+
 // buildUnloggedSet returns a set of "schema.table" keys for unlogged
 // tables. Indexes on unlogged tables are lost on crash, so findings
 // about them should be downgraded to informational.
@@ -30,6 +45,11 @@ func extractIndexNameFromSQL(sql string) string {
 	for i, f := range fields {
 		if strings.EqualFold(f, "ON") && i > 0 {
 			name := fields[i-1]
+			if strings.EqualFold(name, "INDEX") ||
+				strings.EqualFold(name, "CONCURRENTLY") ||
+				strings.EqualFold(name, "EXISTS") {
+				return ""
+			}
 			// Strip schema prefix (schema.name -> name)
 			if dot := strings.LastIndex(name, "."); dot >= 0 {
 				name = name[dot+1:]
@@ -51,15 +71,22 @@ func ruleUnusedIndexes(
 	window := time.Duration(cfg.Analyzer.UnusedIndexWindowDays) * 24 * time.Hour
 	now := time.Now()
 	unlogged := buildUnloggedSet(current)
+	fkRequirements := buildFKRequirements(current)
 	var findings []Finding
 
 	for _, idx := range current.Indexes {
+		if isSystemSchema(idx.SchemaName) {
+			continue
+		}
 		if idx.IdxScan > 0 || idx.IsPrimary || idx.IsUnique || !idx.IsValid {
 			continue
 		}
 
 		// Skip indexes recently created by the executor.
 		if _, ok := extras.RecentlyCreated[idx.IndexRelName]; ok {
+			continue
+		}
+		if indexIsOnlyFKSupport(idx, current.Indexes, fkRequirements) {
 			continue
 		}
 
@@ -121,6 +148,9 @@ func ruleInvalidIndexes(
 	unlogged := buildUnloggedSet(current)
 	var findings []Finding
 	for _, idx := range current.Indexes {
+		if isSystemSchema(idx.SchemaName) {
+			continue
+		}
 		if idx.IsValid {
 			continue
 		}
@@ -157,18 +187,22 @@ func ruleInvalidIndexes(
 }
 
 // ruleDuplicateIndexes detects exact-duplicate and subset btree indexes.
+type duplicateIndexCandidate struct {
+	info   collector.IndexStats
+	parsed ParsedIndex
+}
+
 func ruleDuplicateIndexes(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
 	_ *config.Config,
 	_ *RuleExtras,
 ) []Finding {
-	type parsed struct {
-		info   collector.IndexStats
-		parsed ParsedIndex
-	}
-	var btrees []parsed
+	var btrees []duplicateIndexCandidate
 	for _, idx := range current.Indexes {
+		if isSystemSchema(idx.SchemaName) {
+			continue
+		}
 		if !idx.IsValid {
 			continue
 		}
@@ -176,7 +210,9 @@ func ruleDuplicateIndexes(
 		if p.IndexType != "btree" {
 			continue
 		}
-		btrees = append(btrees, parsed{info: idx, parsed: p})
+		btrees = append(btrees, duplicateIndexCandidate{
+			info: idx, parsed: p,
+		})
 	}
 
 	seen := make(map[string]bool)
@@ -189,11 +225,10 @@ func ruleDuplicateIndexes(
 			bIdent := b.info.SchemaName + "." + b.info.IndexRelName
 
 			if IsDuplicate(a.parsed, b.parsed) {
-				drop, keep := a, b
-				dropIdent, keepIdent := aIdent, bIdent
-				if a.info.IdxScan > b.info.IdxScan {
-					drop, keep = b, a
-					dropIdent, keepIdent = bIdent, aIdent
+				drop, keep, dropIdent, keepIdent, ok :=
+					chooseDuplicateDrop(a, b, aIdent, bIdent)
+				if !ok {
+					continue
 				}
 				if seen[dropIdent] {
 					continue
@@ -223,6 +258,12 @@ func ruleDuplicateIndexes(
 					ActionRisk:  "safe",
 				})
 			} else if IsSubset(a.parsed, b.parsed) {
+				if isConstraintBacked(a.info) {
+					continue
+				}
+				if !subsetWorthDropping(a.parsed, b.parsed, a.info, b.info) {
+					continue
+				}
 				if seen[aIdent] {
 					continue
 				}
@@ -231,6 +272,12 @@ func ruleDuplicateIndexes(
 					a.info, b.info, aIdent, bIdent,
 				))
 			} else if IsSubset(b.parsed, a.parsed) {
+				if isConstraintBacked(b.info) {
+					continue
+				}
+				if !subsetWorthDropping(b.parsed, a.parsed, b.info, a.info) {
+					continue
+				}
 				if seen[bIdent] {
 					continue
 				}
@@ -244,13 +291,75 @@ func ruleDuplicateIndexes(
 	return findings
 }
 
+func chooseDuplicateDrop(
+	a, b duplicateIndexCandidate, aIdent, bIdent string,
+) (duplicateIndexCandidate, duplicateIndexCandidate, string, string, bool) {
+	aProtected := isConstraintBacked(a.info)
+	bProtected := isConstraintBacked(b.info)
+	switch {
+	case aProtected && bProtected:
+		return duplicateIndexCandidate{}, duplicateIndexCandidate{},
+			"", "", false
+	case aProtected:
+		return b, a, bIdent, aIdent, true
+	case bProtected:
+		return a, b, aIdent, bIdent, true
+	case a.info.IdxScan > b.info.IdxScan:
+		return b, a, bIdent, aIdent, true
+	default:
+		return a, b, aIdent, bIdent, true
+	}
+}
+
+func isConstraintBacked(idx collector.IndexStats) bool {
+	return idx.IsPrimary || idx.IsUnique
+}
+
+const (
+	// A wide/large superset is a poor replacement for a narrow index:
+	// serving a `WHERE c1 = ?` lookup from a fat composite reads much wider
+	// tuples (more I/O per probe) than the dedicated narrow index, so the
+	// narrow index earns its keep as a faster access path. Only recommend
+	// dropping the subset when the superset is a *close* replacement.
+	maxSubsetExtraKeyCols = 2   // superset may add at most this many key cols
+	maxSubsetSizeRatio    = 3.0 // superset may be at most this many x the size
+	// A heavily-used narrow index is actively serving lookups; even a
+	// modestly wider superset would slow them all down, so keep it.
+	subsetHeavyUseScans = 100_000
+)
+
+// subsetWorthDropping reports whether dropping the narrow `sub` index in
+// favor of the wider `sup` is a net win. Column count is the operator's
+// intuition ("don't replace (c1) with (c1..c12)"); index byte size is the
+// more accurate signal because it accounts for actual column widths, and
+// usage tells us whether the narrow index is even earning its keep.
+func subsetWorthDropping(
+	sub, sup ParsedIndex, subInfo, supInfo collector.IndexStats,
+) bool {
+	if len(sup.Columns)-len(sub.Columns) > maxSubsetExtraKeyCols {
+		return false
+	}
+	if subInfo.IndexBytes > 0 && supInfo.IndexBytes > 0 &&
+		float64(supInfo.IndexBytes) >
+			float64(subInfo.IndexBytes)*maxSubsetSizeRatio {
+		return false
+	}
+	// A heavily-used narrow index is worth keeping unless the superset is
+	// nearly the same width (≤1 extra key column).
+	if subInfo.IdxScan >= subsetHeavyUseScans &&
+		len(sup.Columns)-len(sub.Columns) > 1 {
+		return false
+	}
+	return true
+}
+
 func subsetFinding(
 	sub, sup collector.IndexStats,
 	subIdent, supIdent string,
 ) Finding {
 	return Finding{
 		Category:         "duplicate_index",
-		Severity:         "critical",
+		Severity:         "info",
 		ObjectType:       "index",
 		ObjectIdentifier: subIdent,
 		Title: fmt.Sprintf(
@@ -262,12 +371,18 @@ func subsetFinding(
 			"subset_def":   sub.IndexDef,
 			"superset_def": sup.IndexDef,
 		},
-		Recommendation: "Drop subset index; the larger index covers it.",
+		Recommendation: "Subset index — likely covered by the larger index, " +
+			"but a dedicated narrow index can still be faster and may be " +
+			"app-managed. Review before dropping.",
 		RecommendedSQL: fmt.Sprintf(
 			"DROP INDEX CONCURRENTLY %s;", subIdent,
 		),
 		RollbackSQL: sub.IndexDef + ";",
-		ActionRisk:  "safe",
+		// Advisory only: a leading-prefix subset drop is a judgment call
+		// (read-perf trade-off, and apps that re-create their own indexes
+		// turn an auto-drop into an oscillation). high_risk never
+		// auto-executes — exact-duplicate drops stay auto (safe).
+		ActionRisk: "high_risk",
 	}
 }
 
@@ -279,11 +394,13 @@ func ruleMissingFKIndexes(
 	_ *RuleExtras,
 ) []Finding {
 	// Build set of indexed leading columns per table.
-	type tableKey struct{ schema, table string }
 	unlogged := buildUnloggedSet(current)
 	indexed := make(map[tableKey][][]string)
 
 	for _, idx := range current.Indexes {
+		if isSystemSchema(idx.SchemaName) {
+			continue
+		}
 		if !idx.IsValid {
 			continue
 		}
@@ -305,6 +422,9 @@ func ruleMissingFKIndexes(
 				schema = t.SchemaName
 				break
 			}
+		}
+		if isSystemSchema(schema) {
+			continue
 		}
 
 		key := tableKey{schema, fk.TableName}
@@ -357,6 +477,97 @@ func ruleMissingFKIndexes(
 		})
 	}
 	return findings
+}
+
+func buildFKRequirements(
+	snap *collector.Snapshot,
+) map[tableKey][][]string {
+	out := make(map[tableKey][][]string)
+	for _, fk := range snap.ForeignKeys {
+		schema := "public"
+		for _, t := range snap.Tables {
+			if t.RelName == fk.TableName {
+				schema = t.SchemaName
+				break
+			}
+		}
+		key := tableKey{schema, fk.TableName}
+		out[key] = append(out[key], []string{fk.FKColumn})
+	}
+	return out
+}
+
+func indexSupportsFKRequirement(
+	idx collector.IndexStats,
+	requirements map[tableKey][][]string,
+) bool {
+	if !idx.IsValid {
+		return false
+	}
+	p := ParseIndexDef(idx.IndexDef)
+	if p.Table == "" || len(p.Columns) == 0 {
+		return false
+	}
+	schema := p.Schema
+	if schema == "" {
+		schema = idx.SchemaName
+	}
+	reqs := requirements[tableKey{schema, p.Table}]
+	for _, req := range reqs {
+		if isLeadingPrefix(req, p.Columns) {
+			return true
+		}
+	}
+	return false
+}
+
+func indexIsOnlyFKSupport(
+	idx collector.IndexStats,
+	all []collector.IndexStats,
+	requirements map[tableKey][][]string,
+) bool {
+	if !indexSupportsFKRequirement(idx, requirements) {
+		return false
+	}
+	p := ParseIndexDef(idx.IndexDef)
+	schema := p.Schema
+	if schema == "" {
+		schema = idx.SchemaName
+	}
+	reqs := requirements[tableKey{schema, p.Table}]
+	for _, req := range reqs {
+		if !isLeadingPrefix(req, p.Columns) {
+			continue
+		}
+		for _, other := range all {
+			if other.IndexRelName == idx.IndexRelName &&
+				other.SchemaName == idx.SchemaName {
+				continue
+			}
+			if indexCoversRequirement(other, req, schema, p.Table) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func indexCoversRequirement(
+	idx collector.IndexStats, req []string, schema, table string,
+) bool {
+	if !idx.IsValid {
+		return false
+	}
+	p := ParseIndexDef(idx.IndexDef)
+	if p.Table != table {
+		return false
+	}
+	pSchema := p.Schema
+	if pSchema == "" {
+		pSchema = idx.SchemaName
+	}
+	return pSchema == schema && isLeadingPrefix(req, p.Columns)
 }
 
 func isLeadingPrefix(need, have []string) bool {

@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/sanitize"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // CollectorConfig holds configuration for the auto_explain
@@ -70,17 +74,7 @@ func (c *Collector) Run(ctx context.Context) {
 // Collect finds slow queries without recent plans and captures
 // execution plans for them on-demand.
 func (c *Collector) Collect(ctx context.Context) error {
-	rows, err := c.pool.Query(ctx, `
-		SELECT s.queryid, s.query
-		FROM pg_stat_statements s
-		LEFT JOIN sage.explain_cache e
-			ON e.queryid = s.queryid
-			AND e.captured_at > now() - interval '1 day'
-		WHERE s.mean_exec_time > $1
-			AND s.calls > 10
-			AND e.id IS NULL
-		ORDER BY s.mean_exec_time DESC
-		LIMIT $2`,
+	rows, err := c.pool.Query(ctx, candidateSQL,
 		float64(c.cfg.LogMinDurationMs),
 		c.cfg.MaxPlansPerCycle,
 	)
@@ -98,6 +92,9 @@ func (c *Collector) Collect(ctx context.Context) error {
 		var cand candidate
 		if err := rows.Scan(&cand.queryID, &cand.query); err != nil {
 			return fmt.Errorf("scan candidate: %w", err)
+		}
+		if selfmonitor.IsQueryText(cand.query) {
+			continue
 		}
 		candidates = append(candidates, cand)
 	}
@@ -120,6 +117,24 @@ func (c *Collector) Collect(ctx context.Context) error {
 	}
 	return nil
 }
+
+const candidateSQL = `
+		SELECT s.queryid, s.query
+		FROM pg_stat_statements s
+		LEFT JOIN sage.explain_cache e
+			ON e.queryid = s.queryid
+			AND e.captured_at > now() - interval '1 day'
+		WHERE s.mean_exec_time > $1
+			AND s.calls > 10
+			AND s.dbid = (
+				SELECT oid FROM pg_database
+				WHERE datname = current_database()
+			)
+			AND COALESCE(s.query, '') NOT ILIKE '%pg_sage%'
+			AND COALESCE(s.query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
+			AND e.id IS NULL
+		ORDER BY s.mean_exec_time DESC
+		LIMIT $2`
 
 // captureOnDemand runs EXPLAIN on a single query inside a
 // rolled-back transaction so there are no side effects.
@@ -156,20 +171,52 @@ func (c *Collector) captureOnDemand(
 	_, _ = tx.Exec(ctx, "SET LOCAL statement_timeout = '5s'")
 	_, _ = tx.Exec(ctx, "SET TRANSACTION READ ONLY")
 
-	explainSQL := fmt.Sprintf(
-		"EXPLAIN (FORMAT JSON) %s", query,
-	)
-	var planJSON []byte
-	if err := tx.QueryRow(ctx, explainSQL).Scan(
-		&planJSON,
-	); err != nil {
-		return fmt.Errorf("explain: %w", err)
+	planJSON, err := capturePlanJSON(ctx, tx, query)
+	if err != nil {
+		return err
 	}
 
 	totalCost, execTime := extractPlanMetrics(planJSON)
 	return c.storePlan(
 		ctx, queryID, query, planJSON, totalCost, execTime,
 	)
+}
+
+var parameterPlaceholder = regexp.MustCompile(`\$([1-9][0-9]*)`)
+
+func capturePlanJSON(ctx context.Context, tx pgx.Tx, query string) ([]byte, error) {
+	count := parameterCount(query)
+	if count == 0 {
+		return scanPlanJSON(ctx, tx, "EXPLAIN (FORMAT JSON) "+query)
+	}
+	const statement = "pg_sage_autoexplain"
+	if _, err := tx.Exec(ctx, "PREPARE "+statement+" AS "+query); err != nil {
+		return nil, fmt.Errorf("prepare parameterized query: %w", err)
+	}
+	defer func() { _, _ = tx.Exec(ctx, "DEALLOCATE "+statement) }()
+	params := strings.TrimSuffix(strings.Repeat("NULL,", count), ",")
+	return scanPlanJSON(ctx, tx, fmt.Sprintf(
+		"EXPLAIN (FORMAT JSON) EXECUTE %s(%s)", statement, params,
+	))
+}
+
+func scanPlanJSON(ctx context.Context, tx pgx.Tx, sql string) ([]byte, error) {
+	var planJSON []byte
+	if err := tx.QueryRow(ctx, sql).Scan(&planJSON); err != nil {
+		return nil, fmt.Errorf("explain: %w", err)
+	}
+	return planJSON, nil
+}
+
+func parameterCount(query string) int {
+	maxParam := 0
+	for _, match := range parameterPlaceholder.FindAllStringSubmatch(query, -1) {
+		param, err := strconv.Atoi(match[1])
+		if err == nil && param > maxParam {
+			maxParam = param
+		}
+	}
+	return maxParam
 }
 
 // storePlan inserts a captured plan into sage.explain_cache.

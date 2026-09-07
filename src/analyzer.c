@@ -865,6 +865,9 @@ sage_analyze_missing_indexes(void)
         "JOIN pg_database d ON d.oid = s.dbid "
         "WHERE d.datname = current_database() "
         "  AND s.mean_exec_time > %d "
+        "  AND COALESCE(s.query, '') NOT ILIKE '%%pg_sage%%' "
+        "  AND COALESCE(s.query, '') !~* "
+        "      '(^|[^[:alnum:]_])(\"?sage\"?)[[:space:]]*[.]' "
         "ORDER BY s.total_exec_time DESC "
         "LIMIT 50",
         sage_slow_query_threshold);
@@ -1021,6 +1024,9 @@ sage_analyze_slow_queries(void)
         "JOIN pg_database d ON d.oid = s.dbid "
         "WHERE d.datname = current_database() "
         "  AND s.mean_exec_time > %d "
+        "  AND COALESCE(s.query, '') NOT ILIKE '%%pg_sage%%' "
+        "  AND COALESCE(s.query, '') !~* "
+        "      '(^|[^[:alnum:]_])(\"?sage\"?)[[:space:]]*[.]' "
         "ORDER BY s.total_exec_time DESC "
         "LIMIT 20",
         sage_slow_query_threshold);
@@ -1143,6 +1149,9 @@ sage_analyze_query_regressions(void)
         "    FROM pg_stat_statements s "
         "    JOIN pg_database d ON d.oid = s.dbid "
         "    WHERE d.datname = current_database() "
+        "      AND COALESCE(s.query, '') NOT ILIKE '%pg_sage%' "
+        "      AND COALESCE(s.query, '') !~* "
+        "          '(^|[^[:alnum:]_])(\"?sage\"?)[[:space:]]*[.]' "
         "), "
         "baseline AS ( "
         "    SELECT (elem->>'queryid')::bigint as queryid, "

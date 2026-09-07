@@ -8,6 +8,33 @@ import (
 	"testing"
 )
 
+func TestMaskChannelSecretsMasksAllKnownSecretKeys(t *testing.T) {
+	config := map[string]string{
+		"webhook_url":   "https://hooks.slack.com/services/REAL/SECRET/TOKEN",
+		"routing_key":   "pagerduty-routing-key",
+		"smtp_pass":     "email-password",
+		"smtp_password": "legacy-email-password",
+		"api_key":       "api-key-secret",
+		"token":         "token-secret",
+		"secret":        "plain-secret",
+		"to":            "alerts@example.com",
+	}
+
+	maskChannelSecrets(config)
+
+	for _, key := range []string{
+		"webhook_url", "routing_key", "smtp_pass",
+		"smtp_password", "api_key", "token", "secret",
+	} {
+		if config[key] == "" || !strings.Contains(config[key], "****") {
+			t.Fatalf("%s was not masked: %q", key, config[key])
+		}
+	}
+	if config["to"] != "alerts@example.com" {
+		t.Fatalf("non-secret value was changed: %q", config["to"])
+	}
+}
+
 // The notification handlers all depend on *store.NotificationStore
 // which is a concrete type backed by *pgxpool.Pool. We cannot mock
 // the store without an interface. Tests here cover request parsing,

@@ -134,7 +134,7 @@ func postPagerDuty(
 	if err != nil {
 		return fmt.Errorf("pagerduty http post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	// PagerDuty Events API v2 returns 202 Accepted on success.

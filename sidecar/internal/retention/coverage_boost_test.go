@@ -29,9 +29,7 @@ func TestCoverage_Run_AllTablesPositiveRetention(t *testing.T) {
 		 VALUES (now() - interval '400 days', -999999, '{}'::jsonb, 'cov_run_all')`,
 	}
 	for _, q := range seed {
-		if _, err := pool.Exec(ctx, q); err != nil {
-			t.Fatalf("seeding data: %v", err)
-		}
+		execRetry(t, ctx, q)
 	}
 
 	cfg := &config.Config{
@@ -64,9 +62,7 @@ func TestCoverage_Run_AllTablesPositiveRetention(t *testing.T) {
 		{`SELECT count(*) FROM sage.explain_cache WHERE source='cov_run_all'`, "explain_cache"},
 	} {
 		var cnt int
-		if err := pool.QueryRow(ctx, check.query).Scan(&cnt); err != nil {
-			t.Fatalf("counting %s: %v", check.label, err)
-		}
+		queryRetry(t, ctx, check.query, &cnt)
 		if cnt != 0 {
 			t.Errorf("expected 0 rows in %s after Run, got %d", check.label, cnt)
 		}
@@ -94,20 +90,14 @@ func TestCoverage_PurgeTable_PositiveRetention(t *testing.T) {
 
 	tag := "cov_purge_pos"
 	// Insert a row that is older than the retention window.
-	_, err := pool.Exec(ctx,
+	execRetry(t, ctx,
 		`INSERT INTO sage.snapshots (collected_at, category, data)
 		 VALUES (now() - interval '200 days', $1, '{}'::jsonb)`, tag)
-	if err != nil {
-		t.Fatalf("inserting old snapshot: %v", err)
-	}
 
 	// Also insert a recent row that should NOT be purged.
-	_, err = pool.Exec(ctx,
+	execRetry(t, ctx,
 		`INSERT INTO sage.snapshots (collected_at, category, data)
 		 VALUES (now(), $1, '{}'::jsonb)`, tag)
-	if err != nil {
-		t.Fatalf("inserting recent snapshot: %v", err)
-	}
 
 	var logged []string
 	var mu sync.Mutex
@@ -123,17 +113,16 @@ func TestCoverage_PurgeTable_PositiveRetention(t *testing.T) {
 
 	// The old row should be gone, but the recent one should remain.
 	var cnt int
-	err = pool.QueryRow(ctx,
-		`SELECT count(*) FROM sage.snapshots WHERE category=$1`, tag).Scan(&cnt)
-	if err != nil {
-		t.Fatalf("counting: %v", err)
-	}
+	queryRetry(t, ctx,
+		`SELECT count(*) FROM sage.snapshots WHERE category='cov_purge_pos'`,
+		&cnt)
 	if cnt != 1 {
 		t.Errorf("expected 1 remaining row (recent), got %d", cnt)
 	}
 
 	// Clean up.
-	_, _ = pool.Exec(ctx, `DELETE FROM sage.snapshots WHERE category=$1`, tag)
+	execRetry(t, ctx,
+		`DELETE FROM sage.snapshots WHERE category='cov_purge_pos'`)
 }
 
 // TestCoverage_PurgeTable_WithExtraWhere exercises purgeTable with an extra
@@ -144,24 +133,18 @@ func TestCoverage_PurgeTable_WithExtraWhere(t *testing.T) {
 	// The findings table needs specific columns. Check if the table
 	// has the expected shape first.
 	tag := "cov_purge_extra"
-	_, err := pool.Exec(ctx,
+	execRetry(t, ctx,
 		`INSERT INTO sage.findings
 			(category, severity, title, detail, last_seen, status)
 		 VALUES ($1, 'low', 'test', '{}'::jsonb,
 				 now() - interval '200 days', 'resolved')`, tag)
-	if err != nil {
-		t.Fatalf("inserting old resolved finding: %v", err)
-	}
 
 	// Insert an old finding that is NOT resolved -- should NOT be purged.
-	_, err = pool.Exec(ctx,
+	execRetry(t, ctx,
 		`INSERT INTO sage.findings
 			(category, severity, title, detail, last_seen, status)
 		 VALUES ($1, 'low', 'test', '{}'::jsonb,
 				 now() - interval '200 days', 'open')`, tag)
-	if err != nil {
-		t.Fatalf("inserting old active finding: %v", err)
-	}
 
 	cfg := &config.Config{}
 	c := New(pool, cfg, noopLog)
@@ -169,17 +152,16 @@ func TestCoverage_PurgeTable_WithExtraWhere(t *testing.T) {
 
 	// Only the resolved finding should have been purged.
 	var cnt int
-	err = pool.QueryRow(ctx,
-		`SELECT count(*) FROM sage.findings WHERE category=$1`, tag).Scan(&cnt)
-	if err != nil {
-		t.Fatalf("counting: %v", err)
-	}
+	queryRetry(t, ctx,
+		`SELECT count(*) FROM sage.findings WHERE category='cov_purge_extra'`,
+		&cnt)
 	if cnt != 1 {
 		t.Errorf("expected 1 remaining finding (open), got %d", cnt)
 	}
 
 	// Clean up.
-	_, _ = pool.Exec(ctx, `DELETE FROM sage.findings WHERE category=$1`, tag)
+	execRetry(t, ctx,
+		`DELETE FROM sage.findings WHERE category='cov_purge_extra'`)
 }
 
 // TestCoverage_PurgeTable_NothingToDelete exercises purgeTable when no rows
@@ -226,7 +208,8 @@ func TestCoverage_CleanStaleFirstSeen_NoKeys(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	// Remove any existing first_seen keys to ensure a clean state.
-	_, _ = pool.Exec(ctx, `DELETE FROM sage.config WHERE key LIKE 'first_seen:cov_%'`)
+	execRetry(t, ctx,
+		`DELETE FROM sage.config WHERE key LIKE 'first_seen:cov_%'`)
 
 	var logged []string
 	var mu sync.Mutex
@@ -256,14 +239,11 @@ func TestCoverage_CleanStaleFirstSeen_StaleKeyRemoved(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	staleKey := "first_seen:cov_test_nonexistent_idx"
-	_, err := pool.Exec(ctx,
+	execRetry(t, ctx,
 		`INSERT INTO sage.config (key, value)
 		 VALUES ($1, '2024-01-01')
 		 ON CONFLICT (key, COALESCE(database_id, 0))
 		 DO UPDATE SET value = '2024-01-01'`, staleKey)
-	if err != nil {
-		t.Fatalf("inserting stale key: %v", err)
-	}
 
 	var logged []string
 	var mu sync.Mutex
@@ -279,11 +259,9 @@ func TestCoverage_CleanStaleFirstSeen_StaleKeyRemoved(t *testing.T) {
 
 	// Verify the key was removed.
 	var cnt int
-	err = pool.QueryRow(ctx,
-		`SELECT count(*) FROM sage.config WHERE key = $1`, staleKey).Scan(&cnt)
-	if err != nil {
-		t.Fatalf("counting: %v", err)
-	}
+	queryRetry(t, ctx,
+		`SELECT count(*) FROM sage.config
+		 WHERE key = 'first_seen:cov_test_nonexistent_idx'`, &cnt)
 	if cnt != 0 {
 		t.Errorf("expected stale key to be removed, got count=%d", cnt)
 	}
@@ -314,14 +292,11 @@ func TestCoverage_CleanStaleFirstSeen_MultipleStaleKeys(t *testing.T) {
 	}
 
 	for _, k := range keys {
-		_, err := pool.Exec(ctx,
+		execRetry(t, ctx,
 			`INSERT INTO sage.config (key, value)
 			 VALUES ($1, '2024-01-01')
 			 ON CONFLICT (key, COALESCE(database_id, 0))
 			 DO UPDATE SET value = '2024-01-01'`, k)
-		if err != nil {
-			t.Fatalf("inserting key %s: %v", k, err)
-		}
 	}
 
 	cfg := &config.Config{}
@@ -331,11 +306,10 @@ func TestCoverage_CleanStaleFirstSeen_MultipleStaleKeys(t *testing.T) {
 	// All should be removed (none of these indexes exist).
 	for _, k := range keys {
 		var cnt int
-		err := pool.QueryRow(ctx,
-			`SELECT count(*) FROM sage.config WHERE key = $1`, k).Scan(&cnt)
-		if err != nil {
-			t.Fatalf("counting %s: %v", k, err)
-		}
+		queryRetry(t, ctx,
+			fmt.Sprintf(
+				`SELECT count(*) FROM sage.config WHERE key = '%s'`, k),
+			&cnt)
 		if cnt != 0 {
 			t.Errorf("expected key %s to be removed, got count=%d", k, cnt)
 		}
