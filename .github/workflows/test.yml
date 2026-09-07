@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: sidecar/go.mod
           cache-dependency-path: sidecar/go.sum
 
       - name: Build
@@ -62,7 +62,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: sidecar/go.mod
           cache-dependency-path: sidecar/go.sum
 
       - name: golangci-lint
