@@ -165,10 +165,10 @@ else
 fi
 
 # ===============================================================
-# 8. MCP Tools (LLM-dependent)
+# 8. API health during LLM verification
 # ===============================================================
 echo ""
-echo "--- MCP LLM Tools ---"
+echo "--- API Health ---"
 API_BASE="http://localhost:${API_PORT:-18080}/api/v1"
 
 # sage_briefing tool — check via API that briefings exist

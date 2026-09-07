@@ -22,6 +22,9 @@ func TestValidateSQL_AllowedStatements(t *testing.T) {
 		"RESET lock_timeout",
 		"SELECT pg_terminate_backend(12345)",
 		"SELECT pg_cancel_backend(12345)",
+		// reload after ALTER SYSTEM must be allowed or config changes
+		// never take effect autonomously.
+		"SELECT pg_reload_conf()",
 		"  CREATE INDEX idx ON t(id)  ",
 		"create index concurrently idx on t(id)",
 	}

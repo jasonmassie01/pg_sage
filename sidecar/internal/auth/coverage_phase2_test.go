@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,15 +16,16 @@ import (
 func setupPhase2Pool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
-	dsn := "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+	dsn := os.Getenv("SAGE_DATABASE_URL")
 	ctx := context.Background()
 
 	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Skipf("skipping: cannot parse DSN: %v", err)
 	}
-	// Single connection so advisory lock stays on the same session.
-	poolCfg.MaxConns = 1
+	// The cross-package test lock pins one connection while setup and
+	// assertions use the remaining pool capacity.
+	poolCfg.MaxConns = 2
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		t.Skipf("skipping: cannot create pool: %v", err)
@@ -33,18 +35,37 @@ func setupPhase2Pool(t *testing.T) *pgxpool.Pool {
 		t.Skipf("skipping: database unavailable: %v", err)
 	}
 
-	// Hold the pg_sage advisory lock for the entire test to prevent
+	// Hold the cross-package test lock for the entire test to prevent
 	// schema tests from dropping the sage schema mid-test.
-	_, err = pool.Exec(ctx,
-		"SELECT pg_advisory_lock(hashtext('pg_sage'))")
+	lockConn, err := pool.Acquire(ctx)
 	if err != nil {
+		pool.Close()
+		t.Fatalf("acquiring lock connection: %v", err)
+	}
+	_, err = lockConn.Exec(ctx,
+		"SELECT pg_advisory_lock(hashtext('pg_sage_test_cross_pkg'))")
+	if err != nil {
+		lockConn.Release()
 		pool.Close()
 		t.Fatalf("acquiring advisory lock: %v", err)
 	}
 
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(),
-			"SELECT pg_advisory_unlock(hashtext('pg_sage'))")
+		var unlocked bool
+		err := lockConn.QueryRow(context.Background(),
+			"SELECT pg_advisory_unlock("+
+				"hashtext('pg_sage_test_cross_pkg'))").Scan(&unlocked)
+		if err != nil {
+			raw := lockConn.Hijack()
+			_ = raw.Close(context.Background())
+			t.Errorf("release cross-package test lock: %v", err)
+		} else if !unlocked {
+			raw := lockConn.Hijack()
+			_ = raw.Close(context.Background())
+			t.Error("release cross-package test lock: lock not owned")
+		} else {
+			lockConn.Release()
+		}
 		pool.Close()
 	})
 

@@ -2,7 +2,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import {
   AlertTriangle, Activity, Settings,
-  Home, LogOut, Server, ShieldAlert, Menu, X,
+  Bot, Home, LogOut, Server, ShieldAlert, Menu, X, ChevronDown,
 } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
 import { useAPI } from '../hooks/useAPI'
@@ -20,13 +20,15 @@ const NAV_GROUPS = [
   {
     heading: 'Operate',
     items: [
-      { path: '#/', icon: Home, label: 'Overview',
-        tid: 'nav-dashboard' },
+      { path: '#/', icon: Home, label: 'Value',
+        tid: 'nav-value' },
       { path: '#/cases', icon: AlertTriangle,
         label: 'Cases', tid: 'nav-cases',
         aliases: ['#/findings'] },
       { path: '#/actions', icon: Activity, label: 'Actions',
         tid: 'nav-actions' },
+      { path: '#/agent-dbs', icon: Bot, label: 'Agent DBs',
+        tid: 'nav-agent-dbs' },
       { path: '#/manage-databases', icon: Server,
         label: 'Fleet', admin: true,
         tid: 'nav-databases' },
@@ -36,8 +38,17 @@ const NAV_GROUPS = [
   },
 ]
 
+const ADVANCED_ITEMS = [
+  { path: '#/advanced/findings', label: 'Findings explorer' },
+  { path: '#/advanced/actions', label: 'Action history' },
+  { path: '#/advanced', label: 'Snapshot & metrics' },
+]
+
 /* Flat list of all nav items for header label lookup */
-const ALL_NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items)
+const ALL_NAV_ITEMS = [
+  ...NAV_GROUPS.flatMap(g => g.items),
+  ...ADVANCED_ITEMS,
+]
 
 function NavHeading({ children }) {
   return (
@@ -145,6 +156,7 @@ export function Layout({
 
   const isAdmin = user?.role === 'admin'
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
 
   // Close the drawer on navigation. Listen for hashchange so that
   // clicking a link inside the drawer (which is a plain anchor)
@@ -200,6 +212,35 @@ export function Layout({
           </div>
         )
       })}
+
+      <div>
+        <button type="button" aria-expanded={advancedOpen}
+          aria-controls="advanced-navigation"
+          onClick={() => setAdvancedOpen(open => !open)}
+          className="mt-3 flex w-full items-center gap-2 rounded px-3 py-2 text-sm"
+          style={{ color: 'var(--text-secondary)' }}>
+          <ChevronDown size={16} aria-hidden="true"
+            style={{ transform: advancedOpen ? 'rotate(180deg)' : 'none' }} />
+          Advanced
+        </button>
+        {advancedOpen && (
+          <div id="advanced-navigation" className="ml-3 border-l pl-2"
+            style={{ borderColor: 'var(--border)' }}>
+            {ADVANCED_ITEMS.map(item => (
+              <a key={item.path} href={item.path}
+                className="block rounded px-3 py-2 text-sm"
+                style={{
+                  color: hash === item.path
+                    ? 'var(--accent)' : 'var(--text-secondary)',
+                  background: hash === item.path
+                    ? 'var(--bg-hover)' : 'transparent',
+                }}>
+                {item.label}
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div
         className="mt-auto pt-4"

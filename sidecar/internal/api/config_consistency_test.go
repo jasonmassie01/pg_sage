@@ -156,6 +156,30 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "200000",
 		reader: func(c *config.Config) string { return itoa(c.LLM.TokenBudgetDaily) },
 	},
+	"llm.fleet_token_budget_daily": {
+		input:  "500000",
+		reader: func(c *config.Config) string { return itoa(c.LLM.FleetTokenBudgetDaily) },
+	},
+	"analyzer.autovacuum_tune_min_rows": {
+		input:  "2000000",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.AutovacuumTuneMinRows) },
+	},
+	"analyzer.analyze_stale_min_rows": {
+		input:  "20000",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.AnalyzeStaleMinRows) },
+	},
+	"analyzer.analyze_stale_days": {
+		input:  "14",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.AnalyzeStaleDays) },
+	},
+	"analyzer.wraparound_freeze_xid_age": {
+		input:  "120000000",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.WraparoundFreezeXIDAge) },
+	},
+	"agentdb.reconcile_interval_seconds": {
+		input:  "600",
+		reader: func(c *config.Config) string { return itoa(c.AgentDB.ReconcileIntervalSeconds) },
+	},
 	"llm.context_budget_tokens": {
 		input:  "8192",
 		reader: func(c *config.Config) string { return itoa(c.LLM.ContextBudgetTokens) },
@@ -229,6 +253,20 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 	"retention.explains_days": {
 		input:  "30",
 		reader: func(c *config.Config) string { return itoa(c.Retention.ExplainsDays) },
+	},
+
+	// --- agentdb ---
+	"agentdb.live_provisioning_enabled": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.AgentDB.LiveProvisioningEnabled) },
+	},
+	"agentdb.allow_public_ip": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.AgentDB.AllowPublicIP) },
+	},
+	"agentdb.require_backup_before_destroy": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.AgentDB.RequireBackupBeforeDrop) },
 	},
 
 	// --- v0.9.2: slow active replication slot threshold ---
@@ -403,6 +441,59 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 	"migration.ddl_row_threshold": {
 		input:  "50000",
 		reader: func(c *config.Config) string { return itoa(c.Migration.DDLRowThreshold) },
+	},
+
+	// --- v1.4: Agent-native autonomy ---
+	"policy.profile": {
+		input: "staffed", reader: func(c *config.Config) string { return c.Policy.Profile },
+	},
+	"value.toil_model_version": {
+		input: "2", reader: func(c *config.Config) string { return itoa(c.Value.ToilModelVersion) },
+	},
+	"verify.window_minutes": {
+		input: "10", reader: func(c *config.Config) string { return itoa(c.Verify.WindowMinutes) },
+	},
+	"verify.window_max_minutes": {
+		input: "60", reader: func(c *config.Config) string { return itoa(c.Verify.WindowMaxMinutes) },
+	},
+	"verify.min_gain_pct": {
+		input: "5.5", reader: func(c *config.Config) string { return ftoa(c.Verify.MinGainPct) },
+	},
+	"verify.regress_pct": {
+		input: "7.5", reader: func(c *config.Config) string { return ftoa(c.Verify.RegressPct) },
+	},
+	"verify.write_impact_pct": {
+		input: "3.5", reader: func(c *config.Config) string { return ftoa(c.Verify.WriteImpactPct) },
+	},
+	"verify.min_samples": {
+		input: "20", reader: func(c *config.Config) string { return itoa(c.Verify.MinSamples) },
+	},
+	"clone.provider": {
+		input: "dle", reader: func(c *config.Config) string { return c.Clone.Provider },
+	},
+	"clone.dle_endpoint": {
+		input: "https://dle.invalid", reader: func(c *config.Config) string { return c.Clone.DLEEndpoint },
+	},
+	"clone.dle_token": {
+		input: "test-token", reader: func(c *config.Config) string { return c.Clone.DLEToken },
+	},
+	"clone.max_clone_age_minutes": {
+		input: "30", reader: func(c *config.Config) string { return itoa(c.Clone.MaxCloneAgeMinutes) },
+	},
+	"custodian.freeze.red_buffer_pct": {
+		input: "12.5", reader: func(c *config.Config) string { return ftoa(c.Custodian.Freeze.RedBufferPct) },
+	},
+	"custodian.wal.abandon_after_minutes": {
+		input: "90", reader: func(c *config.Config) string { return itoa(c.Custodian.WAL.AbandonAfterMinutes) },
+	},
+	"custodian.wal.retained_wal_disk_pct_ceiling": {
+		input: "25.5", reader: func(c *config.Config) string { return ftoa(c.Custodian.WAL.RetainedWALDiskPctCeiling) },
+	},
+	"mcp.enabled": {
+		input: "true", reader: func(c *config.Config) string { return btoa(c.MCP.Enabled) },
+	},
+	"mcp.transport": {
+		input: "http", reader: func(c *config.Config) string { return c.MCP.Transport },
 	},
 }
 

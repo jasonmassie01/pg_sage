@@ -2,13 +2,18 @@ package tuner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // Tuner produces per-query tuning findings from plan analysis.
@@ -34,6 +39,8 @@ type Tuner struct {
 	// multiple queries touching the same stale table produce
 	// exactly one ANALYZE finding.
 	staleStatsEmitted map[string]bool
+
+	llmPrescriptionCooldown map[string]int
 }
 
 // Option configures optional Tuner behavior.
@@ -56,11 +63,12 @@ func New(
 	opts ...Option,
 ) *Tuner {
 	t := &Tuner{
-		pool:          pool,
-		cfg:           cfg,
-		hintPlan:      hintPlan,
-		logFn:         logFn,
-		recentlyTuned: make(map[int64]int),
+		pool:                    pool,
+		cfg:                     cfg,
+		hintPlan:                hintPlan,
+		logFn:                   logFn,
+		recentlyTuned:           make(map[int64]int),
+		llmPrescriptionCooldown: make(map[string]int),
 	}
 	for _, o := range opts {
 		o(t)
@@ -72,13 +80,13 @@ func New(
 }
 
 type candidate struct {
-	QueryID          int64
-	Query            string
-	Calls            int64
-	MeanExecTime     float64
-	MeanPlanTime     float64
-	TempBlksRead     int64
-	TempBlksWritten  int64
+	QueryID         int64
+	Query           string
+	Calls           int64
+	MeanExecTime    float64
+	MeanPlanTime    float64
+	TempBlksRead    int64
+	TempBlksWritten int64
 }
 
 // Tune queries pg_stat_statements for slow queries, scans
@@ -113,6 +121,7 @@ func (t *Tuner) Tune(
 	if err != nil {
 		return nil, fmt.Errorf("tuner: fetch candidates: %w", err)
 	}
+	candidates = filterSelfMonitoringCandidates(candidates)
 	if len(t.recentlyTuned) == 0 {
 		t.loadActiveHints(ctx)
 	}
@@ -220,6 +229,14 @@ func (t *Tuner) tickCooldowns() {
 			t.recentlyTuned[qid] = remaining
 		}
 	}
+	for key, remaining := range t.llmPrescriptionCooldown {
+		remaining--
+		if remaining <= 0 {
+			delete(t.llmPrescriptionCooldown, key)
+		} else {
+			t.llmPrescriptionCooldown[key] = remaining
+		}
+	}
 }
 
 // cooldownCycles returns the configured cascade cooldown,
@@ -238,7 +255,7 @@ func (t *Tuner) loadActiveHints(ctx context.Context) {
 		return
 	}
 	rows, err := t.pool.Query(ctx,
-		`SELECT queryid FROM sage.query_hints
+		`/* pg_sage */ SELECT queryid FROM sage.query_hints
 		 WHERE status = 'active'`,
 	)
 	if err != nil {
@@ -264,17 +281,33 @@ func (t *Tuner) loadActiveHints(ctx context.Context) {
 	}
 }
 
-const candidateSQL = `
+const candidateSQL = `/* pg_sage */
 SELECT queryid, query, calls, mean_exec_time,
        mean_plan_time, temp_blks_read, temp_blks_written
 FROM pg_stat_statements
 WHERE calls >= $1
+  AND dbid = (
+      SELECT oid FROM pg_database WHERE datname = current_database()
+  )
+  AND COALESCE(query, '') NOT ILIKE '%pg_sage%'
+  AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
   AND (mean_exec_time > 100
        OR temp_blks_written > 0
        OR (mean_plan_time > 0
            AND mean_plan_time > mean_exec_time * $2))
 ORDER BY mean_exec_time * calls DESC
 LIMIT 50`
+
+func filterSelfMonitoringCandidates(candidates []candidate) []candidate {
+	out := candidates[:0]
+	for _, c := range candidates {
+		if selfmonitor.IsQueryText(c.Query) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
 
 func (t *Tuner) fetchCandidates(
 	ctx context.Context,
@@ -337,6 +370,15 @@ func (t *Tuner) processCandidate(
 	}
 
 	combined := CombineHints(prescriptions)
+	// Deterministic prescriptions interpolate plan-derived identifiers
+	// raw (e.g. HashJoin(alias)), so re-validate the combined directive
+	// the same way the LLM path validates its hints (W4). A malformed
+	// hint is dropped rather than emitted as an unparseable directive.
+	if combined != "" && !validateHintSyntax(combined) {
+		t.logFn("tuner",
+			"dropping unparseable combined hint: %s", combined)
+		combined = ""
+	}
 	title := buildTitle(symptoms)
 	rationale := buildRationale(prescriptions)
 	rewrite, rewriteRationale := extractRewrite(prescriptions)
@@ -422,6 +464,13 @@ func (t *Tuner) tryLLMPrescribe(
 			c.QueryID)
 		return nil
 	}
+	contextKey := llmContextFingerprint(c, planJSON, symptoms, fallbackHint)
+	if t.llmSuppressionActive(ctx, contextKey) {
+		t.logFn("tuner",
+			"suppressing repeated LLM attempt for queryid %d",
+			c.QueryID)
+		return nil
+	}
 	qctx := buildQueryContext(
 		ctx, t.pool, c, symptoms, planJSON, fallbackHint,
 	)
@@ -432,7 +481,17 @@ func (t *Tuner) tryLLMPrescribe(
 		t.logFn("tuner",
 			"LLM prescribe failed for queryid %d, "+
 				"using deterministic: %v", c.QueryID, err)
+		t.recordLLMSuppression(ctx, c, contextKey, "",
+			"llm_error", err.Error())
 		return nil
+	}
+	if len(rx) > 0 {
+		rx = t.filterRepeatedLLMPrescriptions(ctx, c, planJSON,
+			contextKey, rx)
+	}
+	if len(rx) == 0 {
+		t.recordLLMSuppression(ctx, c, contextKey, "",
+			"empty_or_duplicate", "LLM returned no usable prescription")
 	}
 	if len(rx) > 0 {
 		t.logFn("tuner",
@@ -440,6 +499,205 @@ func (t *Tuner) tryLLMPrescribe(
 			c.QueryID, rx[0].HintDirective)
 	}
 	return rx
+}
+
+func (t *Tuner) filterRepeatedLLMPrescriptions(
+	ctx context.Context,
+	c candidate,
+	planJSON string,
+	contextKey string,
+	prescriptions []Prescription,
+) []Prescription {
+	var kept []Prescription
+	for _, p := range prescriptions {
+		key := llmPrescriptionFingerprint(c, planJSON, p)
+		if t.llmPrescriptionCooldown[key] > 0 ||
+			t.llmSuppressionActive(ctx, key) {
+			t.logFn("tuner",
+				"suppressing repeated LLM prescription for queryid %d",
+				c.QueryID)
+			t.recordLLMSuppression(ctx, c, contextKey, key,
+				"duplicate_prescription",
+				"same LLM prescription is still cooling down")
+			continue
+		}
+		t.llmPrescriptionCooldown[key] = t.cooldownCycles()
+		t.recordLLMSuppression(ctx, c, contextKey, key,
+			"accepted", "accepted LLM prescription cooldown")
+		kept = append(kept, p)
+	}
+	return kept
+}
+
+func llmContextFingerprint(
+	c candidate,
+	planJSON string,
+	symptoms []PlanSymptom,
+	fallbackHint string,
+) string {
+	parts := []string{
+		fmt.Sprintf("%d", c.QueryID),
+		normalizeFingerprintText(c.Query),
+		normalizeFingerprintText(planJSON),
+		normalizeFingerprintText(fallbackHint),
+	}
+	for _, s := range symptoms {
+		parts = append(parts, normalizeFingerprintText(string(s.Kind)))
+		parts = append(parts, normalizeFingerprintText(s.RelationName))
+		parts = append(parts, normalizeFingerprintText(s.Schema))
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
+	return hex.EncodeToString(sum[:])
+}
+
+func llmPrescriptionFingerprint(
+	c candidate,
+	planJSON string,
+	p Prescription,
+) string {
+	normalized := strings.Join([]string{
+		fmt.Sprintf("%d", c.QueryID),
+		normalizeFingerprintText(c.Query),
+		normalizeFingerprintText(planJSON),
+		normalizeFingerprintText(p.HintDirective),
+		normalizeFingerprintText(p.SuggestedRewrite),
+	}, "\n")
+	sum := sha256.Sum256([]byte(normalized))
+	return hex.EncodeToString(sum[:])
+}
+
+func normalizeFingerprintText(s string) string {
+	return strings.Join(strings.Fields(strings.ToLower(s)), " ")
+}
+
+const llmSuppressionCategory = "query_tuning"
+const llmSuppressionStatus = "suppressed"
+
+type llmSuppressionDetail struct {
+	QueryID                    int64  `json:"queryid"`
+	Query                      string `json:"query"`
+	LLMContextFingerprint      string `json:"llm_context_fingerprint"`
+	LLMPrescriptionFingerprint string `json:"llm_prescription_fingerprint"`
+	LLMOutcome                 string `json:"llm_outcome"`
+	Reason                     string `json:"reason"`
+}
+
+func (t *Tuner) llmSuppressionActive(
+	ctx context.Context,
+	fingerprint string,
+) bool {
+	if t.pool == nil || fingerprint == "" {
+		return false
+	}
+	var active bool
+	err := t.pool.QueryRow(ctx,
+		`/* pg_sage */ SELECT EXISTS (
+		    SELECT 1 FROM sage.findings
+		     WHERE category = $1
+		       AND status = $2
+		       AND suppressed_until > now()
+		       AND (
+		           detail->>'llm_context_fingerprint' = $3
+		           OR detail->>'llm_prescription_fingerprint' = $3
+		       )
+		)`,
+		llmSuppressionCategory, llmSuppressionStatus, fingerprint,
+	).Scan(&active)
+	if err != nil {
+		t.logFn("WARN", "tuner: check LLM suppression: %v", err)
+		return false
+	}
+	return active
+}
+
+func (t *Tuner) recordLLMSuppression(
+	ctx context.Context,
+	c candidate,
+	contextKey string,
+	prescriptionKey string,
+	outcome string,
+	reason string,
+) {
+	if t.pool == nil || contextKey == "" {
+		return
+	}
+	detail := llmSuppressionDetail{
+		QueryID:                    c.QueryID,
+		Query:                      c.Query,
+		LLMContextFingerprint:      contextKey,
+		LLMPrescriptionFingerprint: prescriptionKey,
+		LLMOutcome:                 outcome,
+		Reason:                     reason,
+	}
+	detailJSON, err := json.Marshal(detail)
+	if err != nil {
+		t.logFn("WARN", "tuner: encode LLM suppression: %v", err)
+		return
+	}
+	objectID := "llm_suppression:" + contextKey
+	suppressedUntil := time.Now().UTC().Add(t.llmSuppressionDuration())
+	updated, err := t.updateLLMSuppression(
+		ctx, objectID, detailJSON, outcome, suppressedUntil)
+	if err != nil {
+		t.logFn("WARN", "tuner: update LLM suppression: %v", err)
+		return
+	}
+	if updated {
+		return
+	}
+	if err := t.insertLLMSuppression(
+		ctx, objectID, detailJSON, outcome, suppressedUntil); err != nil {
+		t.logFn("WARN", "tuner: insert LLM suppression: %v", err)
+	}
+}
+
+func (t *Tuner) updateLLMSuppression(
+	ctx context.Context,
+	objectID string,
+	detailJSON []byte,
+	outcome string,
+	suppressedUntil time.Time,
+) (bool, error) {
+	tag, err := t.pool.Exec(ctx,
+		`/* pg_sage */ UPDATE sage.findings
+		    SET last_seen = now(),
+		        detail = $3,
+		        recommendation = $4,
+		        suppressed_until = $5
+		  WHERE category = $1
+		    AND object_identifier = $2
+		    AND status = 'suppressed'`,
+		llmSuppressionCategory, objectID, detailJSON,
+		"LLM tuner attempt suppressed: "+outcome, suppressedUntil,
+	)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+func (t *Tuner) insertLLMSuppression(
+	ctx context.Context,
+	objectID string,
+	detailJSON []byte,
+	outcome string,
+	suppressedUntil time.Time,
+) error {
+	_, err := t.pool.Exec(ctx,
+		`/* pg_sage */ INSERT INTO sage.findings
+		    (category, severity, object_type, object_identifier,
+		     title, detail, recommendation, status, suppressed_until)
+		 VALUES ($1, 'info', 'query', $2, $3, $4, $5, $6, $7)`,
+		llmSuppressionCategory, objectID,
+		"Suppressed repeated LLM tuner attempt",
+		detailJSON, "LLM tuner attempt suppressed: "+outcome,
+		llmSuppressionStatus, suppressedUntil,
+	)
+	return err
+}
+
+func (t *Tuner) llmSuppressionDuration() time.Duration {
+	return time.Duration(t.cooldownCycles()) * time.Hour
 }
 
 func (t *Tuner) gatherSymptoms(
@@ -498,7 +756,7 @@ func (t *Tuner) fetchPlanJSON(
 	}
 	var planJSON []byte
 	err := t.pool.QueryRow(ctx,
-		`SELECT plan_json FROM sage.explain_cache
+		`/* pg_sage */ SELECT plan_json FROM sage.explain_cache
 		 WHERE queryid = $1
 		 ORDER BY captured_at DESC LIMIT 1`,
 		queryID,
@@ -558,9 +816,9 @@ func (t *Tuner) buildFinding(
 	}
 	if t.hintPlan != nil && t.hintPlan.Available && t.hintPlan.HintTableReady {
 		f.RecommendedSQL = BuildInsertSQL(
-			c.Query, combinedHint,
+			c.QueryID, combinedHint,
 		)
-		f.RollbackSQL = BuildDeleteSQL(c.Query)
+		f.RollbackSQL = BuildDeleteSQL(c.QueryID)
 	}
 
 	// Persist to sage.query_hints for the dashboard query-hints page.
@@ -582,7 +840,7 @@ func (t *Tuner) upsertQueryHint(
 	}
 	// Update existing active hint, or insert new one.
 	tag, err := t.pool.Exec(ctx,
-		`UPDATE sage.query_hints
+		`/* pg_sage */ UPDATE sage.query_hints
 		 SET hint_text = $2, symptom = $3,
 		     suggested_rewrite = $4, rewrite_rationale = $5
 		 WHERE queryid = $1 AND status = 'active'`,
@@ -595,7 +853,7 @@ func (t *Tuner) upsertQueryHint(
 	}
 	if tag.RowsAffected() == 0 {
 		_, err = t.pool.Exec(ctx,
-			`INSERT INTO sage.query_hints
+			`/* pg_sage */ INSERT INTO sage.query_hints
 				(queryid, hint_text, symptom,
 				 suggested_rewrite, rewrite_rationale, status)
 			 VALUES ($1, $2, $3, $4, $5, 'active')`,
@@ -614,7 +872,7 @@ func (t *Tuner) upsertQueryHint(
 // executed later by the executor (see executor.ExecInTransaction),
 // so it must be self-contained — we cannot use bind parameters.
 //
-// Safety: we emit the query text and hint as PostgreSQL dollar-
+// Safety: we emit the hint as a PostgreSQL dollar-
 // quoted string literals ($sageqh$…$sageqh$). Dollar-quoted
 // strings do not interpret backslash escapes or double single
 // quotes, so they are immune to single-quote-based injection
@@ -622,30 +880,28 @@ func (t *Tuner) upsertQueryHint(
 // surface is a literal that itself contains the tag; we pick a
 // unique tag for each call to eliminate that case and strip NUL
 // bytes as extra defense-in-depth.
-func BuildInsertSQL(queryText string, hint string) string {
-	queryText = stripNULs(queryText)
+func BuildInsertSQL(queryID int64, hint string) string {
 	hint = stripNULs(hint)
-	tag := chooseDollarTag(queryText, hint)
+	tag := chooseDollarTag(hint)
 	return fmt.Sprintf(
 		"INSERT INTO hint_plan.hints "+
-			"(norm_query_string, application_name, hints) "+
-			"VALUES (%s%s%s, '', %s%s%s) "+
-			"ON CONFLICT (norm_query_string, application_name) "+
-			"DO UPDATE SET hints = EXCLUDED.hints",
-		tag, queryText, tag, tag, hint, tag,
+			"(query_id, application_name, hints) "+
+			"SELECT %d, '', %s%s%s "+
+			"WHERE NOT EXISTS ("+
+			"SELECT 1 FROM hint_plan.hints "+
+			"WHERE query_id = %d AND application_name = '')",
+		queryID, tag, hint, tag, queryID,
 	)
 }
 
 // BuildDeleteSQL generates a DELETE for hint_plan.hints.
 // See BuildInsertSQL for the dollar-quoting safety rationale.
-func BuildDeleteSQL(queryText string) string {
-	queryText = stripNULs(queryText)
-	tag := chooseDollarTag(queryText, "")
+func BuildDeleteSQL(queryID int64) string {
 	return fmt.Sprintf(
 		"DELETE FROM hint_plan.hints "+
-			"WHERE norm_query_string = %s%s%s "+
+			"WHERE query_id = %d "+
 			"AND application_name = ''",
-		tag, queryText, tag,
+		queryID,
 	)
 }
 

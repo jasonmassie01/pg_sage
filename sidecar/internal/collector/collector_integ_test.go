@@ -3,23 +3,20 @@ package collector
 import (
 	"context"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // testPool creates a pgxpool connected to the local PostgreSQL instance.
 // Skips the test if the connection cannot be established.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("PG_TEST_DSN")
-	if dsn == "" {
-		dsn = "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
-	}
+	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dsn)
@@ -43,9 +40,9 @@ func testConfig() *config.Config {
 			MaxQueries:      50,
 		},
 		Safety: config.SafetyConfig{
-			CPUCeilingPct:          90,
+			CPUCeilingPct:           90,
 			BackoffConsecutiveSkips: 5,
-			DormantIntervalSeconds: 600,
+			DormantIntervalSeconds:  600,
 		},
 		Advisor: config.AdvisorConfig{
 			Enabled: true,
@@ -515,9 +512,6 @@ func TestCollect_StatsResetDetection(t *testing.T) {
 
 	// First collection — no previous snapshot.
 	snap1, err := c.collect(ctx)
-	if err != nil && strings.Contains(err.Error(), "could not open relation") {
-		t.Skipf("stale OID from concurrent tests: %v", err)
-	}
 	if err != nil {
 		t.Fatalf("first collect: %v", err)
 	}
@@ -532,10 +526,6 @@ func TestCollect_StatsResetDetection(t *testing.T) {
 
 	// Second collection — should compare with first.
 	snap2, err := c.collect(ctx)
-	if err != nil && strings.Contains(err.Error(), "could not open relation") {
-		// Stale OID from concurrent schema tests — skip.
-		t.Skipf("stale OID from concurrent tests: %v", err)
-	}
 	if err != nil {
 		t.Fatalf("second collect: %v", err)
 	}
@@ -716,5 +706,73 @@ func TestCollectQueries_CancelledContext(t *testing.T) {
 	_, err := c.collectQueries(ctx)
 	if err == nil {
 		t.Error("collectQueries with cancelled context should error")
+	}
+}
+
+func TestCollectQueries_AppliesConfiguredStatementAndLockTimeouts(t *testing.T) {
+	dsn := testdb.SkipUnlessLive(t)
+	poolCfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("parse test database config: %v", err)
+	}
+	poolCfg.MaxConns = 1
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		t.Fatalf("create single-connection pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	const fakeStatements = `CREATE TEMP VIEW pg_stat_statements AS
+		SELECT 1::bigint AS queryid,
+		       current_setting('statement_timeout') || '/' ||
+		           current_setting('lock_timeout') AS query,
+		       1::bigint AS calls,
+		       0::double precision AS total_exec_time,
+		       0::double precision AS mean_exec_time,
+		       0::double precision AS min_exec_time,
+		       0::double precision AS max_exec_time,
+		       0::double precision AS stddev_exec_time,
+		       0::bigint AS rows,
+		       0::bigint AS shared_blks_hit,
+		       0::bigint AS shared_blks_read,
+		       0::bigint AS shared_blks_dirtied,
+		       0::bigint AS shared_blks_written,
+		       0::bigint AS temp_blks_read,
+		       0::bigint AS temp_blks_written,
+		       (SELECT oid FROM pg_database
+		          WHERE datname = current_database()) AS dbid`
+	if _, err := pool.Exec(context.Background(), fakeStatements); err != nil {
+		t.Fatalf("create timeout-observing pg_stat_statements view: %v", err)
+	}
+
+	cfg := testConfig()
+	cfg.HasWALColumns = false
+	cfg.HasPlanTimeColumns = false
+	cfg.Safety.QueryTimeoutMs = 75
+	cfg.Safety.LockTimeoutMs = 40
+	c := New(pool, cfg, 170000, noopLog)
+
+	queries, err := c.collectQueries(context.Background())
+	if err != nil {
+		t.Fatalf("collect queries: %v", err)
+	}
+	if len(queries) != 1 {
+		t.Fatalf("collected %d queries, want 1", len(queries))
+	}
+	if got, want := queries[0].Query, "75ms/40ms"; got != want {
+		t.Fatalf("collector query timeouts = %q, want %q", got, want)
+	}
+	var statementTimeout string
+	var lockTimeout string
+	if err := pool.QueryRow(context.Background(), `SELECT
+		current_setting('statement_timeout'),
+		current_setting('lock_timeout')`).Scan(
+		&statementTimeout, &lockTimeout,
+	); err != nil {
+		t.Fatalf("read pooled session timeouts after collection: %v", err)
+	}
+	if statementTimeout != "0" || lockTimeout != "0" {
+		t.Fatalf("collector leaked timeouts into pool: statement=%q lock=%q",
+			statementTimeout, lockTimeout)
 	}
 }

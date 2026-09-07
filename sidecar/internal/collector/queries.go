@@ -2,7 +2,16 @@ package collector
 
 // SQL constants for each collection category.
 
-const queryStatsSQL = `
+// sageTag marks every collector query so pg_sage's own catalog reads
+// (pg_stat_activity, pg_stat_user_tables, pg_replication_slots, …) are
+// recognized and excluded by the self-monitoring filter. These queries
+// don't reference the sage schema or the literal "pg_sage", so without
+// the marker they leak into pg_stat_statements and surface as findings.
+// The comment survives pg_stat_statements normalization (verified), so a
+// query carrying it matches the filter's `ILIKE '%pg_sage%'`.
+const sageTag = "/* pg_sage */ "
+
+const queryStatsSQL = sageTag + `
 SELECT COALESCE(queryid, 0), query, calls,
        total_exec_time, mean_exec_time, min_exec_time, max_exec_time,
        stddev_exec_time, rows,
@@ -12,10 +21,12 @@ SELECT COALESCE(queryid, 0), query, calls,
   FROM pg_stat_statements
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND queryid IS NOT NULL
+   AND COALESCE(query, '') NOT ILIKE '%%pg_sage%%'
+   AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
  ORDER BY total_exec_time DESC
  LIMIT %d`
 
-const queryStatsWithWALSQL = `
+const queryStatsWithWALSQL = sageTag + `
 SELECT COALESCE(queryid, 0), query, calls,
        total_exec_time, mean_exec_time, min_exec_time, max_exec_time,
        stddev_exec_time, rows,
@@ -26,10 +37,12 @@ SELECT COALESCE(queryid, 0), query, calls,
   FROM pg_stat_statements
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND queryid IS NOT NULL
+   AND COALESCE(query, '') NOT ILIKE '%%pg_sage%%'
+   AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
  ORDER BY total_exec_time DESC
  LIMIT %d`
 
-const queryStatsWithPlanTimeSQL = `
+const queryStatsWithPlanTimeSQL = sageTag + `
 SELECT COALESCE(queryid, 0), query, calls,
        total_exec_time, mean_exec_time, min_exec_time, max_exec_time,
        stddev_exec_time, rows,
@@ -41,10 +54,12 @@ SELECT COALESCE(queryid, 0), query, calls,
   FROM pg_stat_statements
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND queryid IS NOT NULL
+   AND COALESCE(query, '') NOT ILIKE '%%pg_sage%%'
+   AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
  ORDER BY total_exec_time DESC
  LIMIT %d`
 
-const queryStatsWithWALAndPlanTimeSQL = `
+const queryStatsWithWALAndPlanTimeSQL = sageTag + `
 SELECT COALESCE(queryid, 0), query, calls,
        total_exec_time, mean_exec_time, min_exec_time, max_exec_time,
        stddev_exec_time, rows,
@@ -57,10 +72,12 @@ SELECT COALESCE(queryid, 0), query, calls,
   FROM pg_stat_statements
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND queryid IS NOT NULL
+   AND COALESCE(query, '') NOT ILIKE '%%pg_sage%%'
+   AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
  ORDER BY total_exec_time DESC
  LIMIT %d`
 
-const tableStatsSQL = `
+const tableStatsSQL = sageTag + `
 SELECT s.schemaname, s.relname,
        COALESCE(s.seq_scan, 0), COALESCE(s.seq_tup_read, 0),
        COALESCE(s.idx_scan, 0), COALESCE(s.idx_tup_fetch, 0),
@@ -72,7 +89,8 @@ SELECT s.schemaname, s.relname,
        COALESCE(pg_total_relation_size(c.oid), 0) AS total_bytes,
        COALESCE(pg_table_size(c.oid), 0) AS table_bytes,
        COALESCE(pg_indexes_size(c.oid), 0) AS index_bytes,
-       c.relpersistence::text
+       c.relpersistence::text,
+       age(c.relfrozenxid) AS xid_age
   FROM pg_stat_user_tables s
   JOIN pg_class c ON c.relname = s.relname
   JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = s.schemaname
@@ -81,7 +99,7 @@ SELECT s.schemaname, s.relname,
  ORDER BY s.schemaname, s.relname
  LIMIT $3`
 
-const indexStatsSQL = `
+const indexStatsSQL = sageTag + `
 SELECT s.schemaname, s.relname, s.indexrelname,
        COALESCE(s.idx_scan, 0), COALESCE(s.idx_tup_read, 0),
        COALESCE(s.idx_tup_fetch, 0),
@@ -98,7 +116,7 @@ SELECT s.schemaname, s.relname, s.indexrelname,
  WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
  ORDER BY s.schemaname, s.relname, s.indexrelname`
 
-const foreignKeysSQL = `
+const foreignKeysSQL = sageTag + `
 SELECT cl.relname AS table_name,
        cl2.relname AS referenced_table,
        a.attname AS fk_column,
@@ -114,7 +132,7 @@ SELECT cl.relname AS table_name,
  ORDER BY cl.relname, con.conname`
 
 // systemStatsSQLBase is the common prefix for system stats (all PG versions).
-const systemStatsSQLBase = `
+const systemStatsSQLBase = sageTag + `
 SELECT
   (SELECT count(*) FROM pg_stat_activity
     WHERE state = 'active' AND pid <> pg_backend_pid()) AS active_backends,
@@ -152,7 +170,7 @@ const systemStatsSQL17 = systemStatsSQLBase + `
   pg_is_in_recovery() AS is_replica,
   pg_database_size(current_database()) AS db_size_bytes`
 
-const locksSQL = `
+const locksSQL = sageTag + `
 SELECT l.locktype, l.mode, l.granted,
        c.relname,
        a.query, a.state,
@@ -165,7 +183,7 @@ SELECT l.locktype, l.mode, l.granted,
  WHERE l.pid <> pg_backend_pid()
  ORDER BY l.granted, l.pid`
 
-const sequencesSQL = `
+const sequencesSQL = sageTag + `
 SELECT schemaname, sequencename, data_type,
        COALESCE(last_value, 0), max_value, increment_by,
        CASE WHEN max_value > 0 AND last_value IS NOT NULL
@@ -176,20 +194,31 @@ SELECT schemaname, sequencename, data_type,
  WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
  ORDER BY pct_used DESC`
 
-const replicationReplicasSQL = `
+const replicationReplicasSQL = sageTag + `
 SELECT client_addr::text, state,
        sent_lsn::text, write_lsn::text, flush_lsn::text, replay_lsn::text,
        write_lag::text, flush_lag::text, replay_lag::text,
        sync_state
   FROM pg_stat_replication`
 
-const replicationSlotsSQL = `
+// replicationSlotsSQL must work on both primaries and hot standbys.
+// pg_current_wal_lsn() raises "recovery is in progress" on a standby,
+// so we pick the receive LSN there instead. restart_lsn is NULL for a
+// slot that has not reserved WAL yet, which would make the diff NULL
+// and break the scan into a non-nullable int64 — COALESCE guards it.
+const replicationSlotsSQL = sageTag + `
 SELECT slot_name, slot_type, active,
-       pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) AS retained_bytes
+       COALESCE(
+         pg_wal_lsn_diff(
+           CASE WHEN pg_is_in_recovery()
+                THEN pg_last_wal_receive_lsn()
+                ELSE pg_current_wal_lsn() END,
+           restart_lsn),
+         0) AS retained_bytes
   FROM pg_replication_slots`
 
 // pg_stat_io (PG16+): I/O statistics by backend type.
-const ioStatsSQL = `
+const ioStatsSQL = sageTag + `
 SELECT backend_type, object, context,
        COALESCE(reads, 0), COALESCE(read_time, 0),
        COALESCE(writes, 0), COALESCE(write_time, 0),
@@ -204,7 +233,7 @@ SELECT backend_type, object, context,
  LIMIT 100`
 
 // Partition inheritance: maps child tables to their parent.
-const partitionInheritanceSQL = `
+const partitionInheritanceSQL = sageTag + `
 SELECT c.relname AS child_table,
        n.nspname AS child_schema,
        p.relname AS parent_table,
@@ -220,13 +249,13 @@ SELECT c.relname AS child_table,
 // pg_prepared_xacts: two-phase commit transactions that survive
 // connection drops and server restarts. They hold xmin and locks
 // indefinitely and are invisible to pg_stat_activity.
-const preparedXactsSQL = `
+const preparedXactsSQL = sageTag + `
 SELECT gid, prepared, owner, database,
        age(transaction) AS xid_age
   FROM pg_prepared_xacts
  ORDER BY prepared`
 
-const loadRatioSQL = `
+const loadRatioSQL = sageTag + `
 SELECT count(*)::float /
        (SELECT setting::float FROM pg_settings WHERE name = 'max_connections')
        AS load_ratio

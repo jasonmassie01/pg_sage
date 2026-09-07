@@ -123,5 +123,20 @@ func IsSubset(a, b ParsedIndex) bool {
 			return false
 		}
 	}
+	// a's INCLUDE columns must also be served by b (as a key or INCLUDE
+	// column); otherwise a supports index-only scans that b does not, and
+	// dropping a would regress those queries.
+	bServes := make(map[string]bool, len(b.Columns)+len(b.IncludeCols))
+	for _, c := range b.Columns {
+		bServes[c] = true
+	}
+	for _, c := range b.IncludeCols {
+		bServes[c] = true
+	}
+	for _, c := range a.IncludeCols {
+		if !bServes[c] {
+			return false
+		}
+	}
 	return true
 }

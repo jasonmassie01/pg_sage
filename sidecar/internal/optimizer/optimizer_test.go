@@ -106,6 +106,22 @@ func TestExtractColumnsFromDDL(t *testing.T) {
 			"CREATE INDEX idx ON t (a) INCLUDE (b, c)",
 			[]string{"a"},
 		},
+		{
+			// GIN with an operator class — column is "payload", not
+			// "payload jsonb_path_ops".
+			"CREATE INDEX CONCURRENTLY ON e USING gin (payload jsonb_path_ops)",
+			[]string{"payload"},
+		},
+		{
+			// HNSW vector index — column is "embedding".
+			"CREATE INDEX CONCURRENTLY ON d USING hnsw (embedding vector_l2_ops)",
+			[]string{"embedding"},
+		},
+		{
+			// opclass + sort direction together.
+			"CREATE INDEX idx ON t (name text_pattern_ops DESC)",
+			[]string{"name"},
+		},
 	}
 	for _, tt := range tests {
 		got := extractColumnsFromDDL(tt.ddl)

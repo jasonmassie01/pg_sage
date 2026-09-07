@@ -3,6 +3,7 @@ package logwatch
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,14 +36,20 @@ type Tailer struct {
 	// safe resync point. Prevents unbounded partial-buffer growth when
 	// a producer writes a huge line or never terminates one.
 	discardUntilNewline bool
+	queue               [][]byte
+	checkpoint          []byte
+	checkpointOffset    int64
+	started             bool
+	pumpRequests        chan chan struct{}
+	stopCh              chan struct{}
+	doneCh              chan struct{}
 	mu                  sync.Mutex
 }
 
 // NewTailer creates a Tailer that will watch dir for log files in the
-// given format. pollInterval controls how often ReadLines checks for
-// new data when driven by an external loop. maxLineLen silently
-// discards any line exceeding that length. logFn is called for
-// diagnostic messages (level, msg, args).
+// given format. pollInterval controls how often the single offset-owning
+// pump checks for new data. maxLineLen silently discards any line exceeding
+// that length. logFn is called for diagnostic messages (level, msg, args).
 func NewTailer(
 	dir, format string,
 	pollInterval time.Duration,
@@ -58,13 +65,33 @@ func NewTailer(
 	}
 }
 
-// Start opens the most recent log file and begins a background
-// goroutine that periodically calls ReadLines until ctx is cancelled.
+// Start opens the most recent log file and begins the background pump that
+// fills the bounded line queue until ctx is cancelled.
 func (t *Tailer) Start(ctx context.Context) error {
+	t.mu.Lock()
+	if t.file != nil {
+		t.mu.Unlock()
+		return fmt.Errorf("tailer already started")
+	}
 	if err := t.openLatest(); err != nil {
+		t.mu.Unlock()
 		return err
 	}
-	go t.poll(ctx)
+	if err := t.pumpLocked(); err != nil {
+		_ = t.file.Close()
+		t.file = nil
+		t.mu.Unlock()
+		return err
+	}
+	requests := make(chan chan struct{})
+	stopCh := make(chan struct{})
+	doneCh := make(chan struct{})
+	t.pumpRequests = requests
+	t.stopCh = stopCh
+	t.doneCh = doneCh
+	t.started = true
+	t.mu.Unlock()
+	go t.poll(ctx, requests, stopCh, doneCh)
 	return nil
 }
 
@@ -87,7 +114,7 @@ func (t *Tailer) openAndSeek(path string) error {
 	}
 	info, err := f.Stat()
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	seekPos := info.Size() - startupLookbackBytes
@@ -95,14 +122,14 @@ func (t *Tailer) openAndSeek(path string) error {
 		seekPos = 0
 	}
 	if _, err := f.Seek(seekPos, io.SeekStart); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	offset := seekPos
 	if seekPos > 0 {
 		aligned, aerr := alignToNewline(f, seekPos)
 		if aerr != nil {
-			f.Close()
+			_ = f.Close()
 			return aerr
 		}
 		offset = aligned
@@ -112,6 +139,8 @@ func (t *Tailer) openAndSeek(path string) error {
 	t.currentPath = path
 	t.partial = nil
 	t.discardUntilNewline = false
+	t.queue = nil
+	t.captureCheckpoint()
 	return nil
 }
 
@@ -135,72 +164,6 @@ func alignToNewline(f *os.File, pos int64) (int64, error) {
 			return cur, err
 		}
 	}
-}
-
-// poll runs in a goroutine, calling ReadLines at pollInterval until
-// ctx is done.
-func (t *Tailer) poll(ctx context.Context) {
-	ticker := time.NewTicker(t.pollInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			_ = t.ReadLines() // consumers retrieve lines via direct call
-		}
-	}
-}
-
-// ReadLines returns all new complete lines since the last call.
-// It is safe to call from multiple goroutines.
-func (t *Tailer) ReadLines() [][]byte {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.file == nil {
-		return nil
-	}
-	if t.detectTruncation() {
-		t.offset = 0
-		t.partial = nil
-		t.discardUntilNewline = false
-		if _, err := t.file.Seek(0, io.SeekStart); err != nil {
-			t.log("error", "seek after truncation: %v", err)
-			return nil
-		}
-	}
-	raw, err := t.readFromOffset()
-	if err != nil {
-		t.log("error", "read: %v", err)
-		return nil
-	}
-	lines := t.splitLines(raw)
-	t.maybeRotate()
-	return lines
-}
-
-// detectTruncation returns true if the file was truncated (e.g.
-// copytruncate rotation), meaning current size < our offset.
-func (t *Tailer) detectTruncation() bool {
-	info, err := t.file.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Size() < t.offset
-}
-
-// readFromOffset reads all bytes from the current offset to EOF and
-// advances offset accordingly.
-func (t *Tailer) readFromOffset() ([]byte, error) {
-	if _, err := t.file.Seek(t.offset, io.SeekStart); err != nil {
-		return nil, err
-	}
-	data, err := io.ReadAll(t.file)
-	if err != nil {
-		return nil, err
-	}
-	t.offset += int64(len(data))
-	return data, nil
 }
 
 // splitLines splits raw bytes into complete lines, prepending any
@@ -279,10 +242,12 @@ func (t *Tailer) maybeRotate() {
 		return
 	}
 	t.log("info", "rotating to newer log file: %s", newest)
-	t.file.Close()
+	oldFile := t.file
 	if err := t.openFileAtStart(newest); err != nil {
 		t.log("error", "open new log file %s: %v", newest, err)
+		return
 	}
+	_ = oldFile.Close()
 }
 
 // openFileAtStart opens path at offset 0 (used for rotation, where
@@ -297,17 +262,41 @@ func (t *Tailer) openFileAtStart(path string) error {
 	t.currentPath = path
 	t.partial = nil
 	t.discardUntilNewline = false
+	t.checkpoint = nil
+	t.checkpointOffset = 0
 	return nil
 }
 
 // Stop closes the underlying file handle.
 func (t *Tailer) Stop() {
 	t.mu.Lock()
+	stopCh := t.stopCh
+	doneCh := t.doneCh
+	if stopCh != nil {
+		select {
+		case <-stopCh:
+		default:
+			close(stopCh)
+		}
+	}
+	t.mu.Unlock()
+	if doneCh != nil {
+		<-doneCh
+	}
+
+	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.file != nil {
-		t.file.Close()
+		_ = t.file.Close()
 		t.file = nil
 	}
+	t.queue = nil
+	t.partial = nil
+	t.checkpoint = nil
+	t.pumpRequests = nil
+	t.stopCh = nil
+	t.doneCh = nil
+	t.started = false
 }
 
 // log emits a diagnostic message via the configured logFn.

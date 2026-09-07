@@ -292,7 +292,9 @@ func eventsHandler(b *EventBroker) http.HandlerFunc {
 
 		// Greet with a retry hint and an initial heartbeat so the
 		// client's EventSource fires onopen quickly.
-		fmt.Fprintf(w, "retry: 3000\n\n")
+		if _, err := fmt.Fprint(w, "retry: 3000\n\n"); err != nil {
+			return
+		}
 		flusher.Flush()
 
 		ch, cancel := b.Subscribe()
@@ -313,8 +315,12 @@ func eventsHandler(b *EventBroker) http.HandlerFunc {
 				}
 				// "event:" lets client code dispatch per type if
 				// it prefers addEventListener over onmessage.
-				fmt.Fprintf(w, "event: %s\n", evt.Type)
-				fmt.Fprintf(w, "data: %s\n\n", data)
+				if _, err := fmt.Fprintf(w, "event: %s\n", evt.Type); err != nil {
+					return
+				}
+				if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+					return
+				}
 				flusher.Flush()
 			}
 		}

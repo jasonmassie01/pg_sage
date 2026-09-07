@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -21,12 +22,40 @@ func applyConfigOverrides(
 	databaseID int,
 	userID int,
 ) []string {
-	var errs []string
-	type override struct {
-		key   string
-		value string
+	overrides, errs := validatedConfigWrites(body)
+	if len(errs) > 0 {
+		return errs
 	}
-	overrides := make([]override, 0, len(body))
+
+	for _, override := range overrides {
+		err := cs.SetOverride(
+			ctx, override.Key, override.Value, databaseID, userID)
+		if err != nil {
+			// Validation errors (invalid key, invalid value, range
+			// violation) are safe to expose — the user needs them to
+			// correct the request. Anything else is a DB/internal
+			// failure whose text we must not leak.
+			msg := configErrorMessage(err)
+			if msg == internalConfigErrMsg {
+				slog.Error("config override failed",
+					"key", override.Key, "err", err)
+			}
+			errs = append(errs, fmt.Sprintf("%s: %s", override.Key, msg))
+			continue
+		}
+		// Hot-reload into running config when global.
+		if databaseID == 0 {
+			hotReload(cfg, override.Key, override.Value)
+		}
+	}
+	return errs
+}
+
+func validatedConfigWrites(
+	body map[string]any,
+) ([]store.ConfigOverrideWrite, []string) {
+	writes := make([]store.ConfigOverrideWrite, 0, len(body))
+	var errs []string
 	for key, raw := range body {
 		value := fmt.Sprintf("%v", raw)
 		if isMaskedSecretUpdate(key, value) {
@@ -37,38 +66,18 @@ func applyConfigOverrides(
 				"%s: %s", key, configErrorMessage(err)))
 			continue
 		}
-		overrides = append(overrides, override{key: key, value: value})
+		writes = append(writes, store.ConfigOverrideWrite{
+			Key: key, Value: value,
+		})
 	}
-	if len(errs) > 0 {
-		return errs
-	}
-
-	for _, override := range overrides {
-		err := cs.SetOverride(
-			ctx, override.key, override.value, databaseID, userID)
-		if err != nil {
-			// Validation errors (invalid key, invalid value, range
-			// violation) are safe to expose — the user needs them to
-			// correct the request. Anything else is a DB/internal
-			// failure whose text we must not leak.
-			msg := configErrorMessage(err)
-			if msg == internalConfigErrMsg {
-				slog.Error("config override failed",
-					"key", override.key, "err", err)
-			}
-			errs = append(errs, fmt.Sprintf("%s: %s", override.key, msg))
-			continue
-		}
-		// Hot-reload into running config when global.
-		if databaseID == 0 {
-			hotReload(cfg, override.key, override.value)
-		}
-	}
-	return errs
+	sort.Slice(writes, func(i, j int) bool {
+		return writes[i].Key < writes[j].Key
+	})
+	return writes, errs
 }
 
 func isMaskedSecretUpdate(key, value string) bool {
-	if key != "llm.api_key" || value == "" {
+	if (key != "llm.api_key" && key != "clone.dle_token") || value == "" {
 		return false
 	}
 	starCount := 0
@@ -158,7 +167,24 @@ func hotReload(cfg *config.Config, key, value string) {
 		hotReloadSchemaLint(cfg, key, value)
 	case strings.HasPrefix(key, "migration."):
 		hotReloadMigration(cfg, key, value)
+	case strings.HasPrefix(key, "agentdb."):
+		hotReloadAgentDB(cfg, key, value)
+	case strings.HasPrefix(key, "policy."),
+		strings.HasPrefix(key, "value."),
+		strings.HasPrefix(key, "verify."),
+		strings.HasPrefix(key, "clone."),
+		strings.HasPrefix(key, "custodian."),
+		strings.HasPrefix(key, "mcp."):
+		hotReloadAgentNative(cfg, key, value)
 	}
+}
+
+// ApplyConfigOverrideSnapshot applies one validated persisted override while
+// assembling the startup snapshot. It must be called before workers start.
+func ApplyConfigOverrideSnapshot(
+	candidate *config.Config, key, value string,
+) {
+	hotReload(candidate, key, value)
 }
 
 func hotReloadCollector(cfg *config.Config, key, v string) {
@@ -187,6 +213,14 @@ func hotReloadAnalyzer(cfg *config.Config, key, v string) {
 		cfg.Analyzer.IndexBloatThresholdPct = atoi(v)
 	case "analyzer.table_bloat_dead_tuple_pct":
 		cfg.Analyzer.TableBloatDeadTuplePct = atoi(v)
+	case "analyzer.autovacuum_tune_min_rows":
+		cfg.Analyzer.AutovacuumTuneMinRows = atoi(v)
+	case "analyzer.analyze_stale_min_rows":
+		cfg.Analyzer.AnalyzeStaleMinRows = atoi(v)
+	case "analyzer.analyze_stale_days":
+		cfg.Analyzer.AnalyzeStaleDays = atoi(v)
+	case "analyzer.wraparound_freeze_xid_age":
+		cfg.Analyzer.WraparoundFreezeXIDAge = atoi(v)
 	case "analyzer.regression_threshold_pct":
 		cfg.Analyzer.RegressionThresholdPct = atoi(v)
 	case "analyzer.cache_hit_ratio_warning":
@@ -268,6 +302,8 @@ func hotReloadLLM(cfg *config.Config, key, v string) {
 		cfg.LLM.TimeoutSeconds = atoi(v)
 	case "llm.token_budget_daily":
 		cfg.LLM.TokenBudgetDaily = atoi(v)
+	case "llm.fleet_token_budget_daily":
+		cfg.LLM.FleetTokenBudgetDaily = atoi(v)
 	case "llm.context_budget_tokens":
 		cfg.LLM.ContextBudgetTokens = atoi(v)
 	case "llm.optimizer.enabled":
@@ -483,6 +519,58 @@ func hotReloadMigration(cfg *config.Config, key, v string) {
 		cfg.Migration.PollIntervalSeconds = atoi(v)
 	case "migration.ddl_row_threshold":
 		cfg.Migration.DDLRowThreshold = atoi(v)
+	}
+}
+
+func hotReloadAgentDB(cfg *config.Config, key, v string) {
+	switch key {
+	case "agentdb.live_provisioning_enabled":
+		cfg.AgentDB.LiveProvisioningEnabled = v == "true"
+	case "agentdb.allow_public_ip":
+		cfg.AgentDB.AllowPublicIP = v == "true"
+	case "agentdb.require_backup_before_destroy":
+		cfg.AgentDB.RequireBackupBeforeDrop = v == "true"
+	case "agentdb.reconcile_interval_seconds":
+		cfg.AgentDB.ReconcileIntervalSeconds = atoi(v)
+	}
+}
+
+func hotReloadAgentNative(cfg *config.Config, key, v string) {
+	switch key {
+	case "policy.profile":
+		cfg.Policy.Profile = v
+	case "value.toil_model_version":
+		cfg.Value.ToilModelVersion = atoi(v)
+	case "verify.window_minutes":
+		cfg.Verify.WindowMinutes = atoi(v)
+	case "verify.window_max_minutes":
+		cfg.Verify.WindowMaxMinutes = atoi(v)
+	case "verify.min_gain_pct":
+		cfg.Verify.MinGainPct = atof(v)
+	case "verify.regress_pct":
+		cfg.Verify.RegressPct = atof(v)
+	case "verify.write_impact_pct":
+		cfg.Verify.WriteImpactPct = atof(v)
+	case "verify.min_samples":
+		cfg.Verify.MinSamples = atoi(v)
+	case "clone.provider":
+		cfg.Clone.Provider = v
+	case "clone.dle_endpoint":
+		cfg.Clone.DLEEndpoint = v
+	case "clone.dle_token":
+		cfg.Clone.DLEToken = v
+	case "clone.max_clone_age_minutes":
+		cfg.Clone.MaxCloneAgeMinutes = atoi(v)
+	case "custodian.freeze.red_buffer_pct":
+		cfg.Custodian.Freeze.RedBufferPct = atof(v)
+	case "custodian.wal.abandon_after_minutes":
+		cfg.Custodian.WAL.AbandonAfterMinutes = atoi(v)
+	case "custodian.wal.retained_wal_disk_pct_ceiling":
+		cfg.Custodian.WAL.RetainedWALDiskPctCeiling = atof(v)
+	case "mcp.enabled":
+		cfg.MCP.Enabled = v == "true"
+	case "mcp.transport":
+		cfg.MCP.Transport = v
 	}
 }
 

@@ -52,7 +52,7 @@ func isSafeProcess(appName string, pid int, ownPID int, patterns []string) bool 
 
 // lockChainQuery is the recursive CTE that walks pg_blocking_pids() to
 // find every root blocker and the tree of sessions it blocks.
-const lockChainQuery = `
+const lockChainQuery = `/* pg_sage */
 WITH RECURSIVE lock_chain AS (
     SELECT
         sa.pid              AS blocked_pid,
@@ -107,7 +107,7 @@ ORDER BY total_blocked DESC`
 // lockedRelationQuery finds relations a root blocker holds locks on,
 // limited to 5 to avoid noise when migrations lock hundreds of tables.
 // Also returns the total count so the UI can show "and N more".
-const lockedRelationQuery = `
+const lockedRelationQuery = `/* pg_sage */
 WITH rel_locks AS (
     SELECT DISTINCT l.relation::regclass::text AS locked_relation, l.mode
     FROM pg_locks l

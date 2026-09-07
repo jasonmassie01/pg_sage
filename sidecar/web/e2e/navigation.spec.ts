@@ -29,9 +29,10 @@ test.describe('Sidebar navigation', () => {
 
     // These nav items are always visible (no admin gate).
     const navItems = [
-      { testid: 'nav-dashboard', label: 'Overview' },
+      { testid: 'nav-value', label: 'Value' },
       { testid: 'nav-cases', label: 'Cases' },
       { testid: 'nav-actions', label: 'Actions' },
+      { testid: 'nav-agent-dbs', label: 'Agent DBs' },
     ]
 
     for (const item of navItems) {
@@ -63,8 +64,9 @@ test.describe('Sidebar navigation', () => {
     const routes = [
       { testid: 'nav-cases', hash: '#/cases' },
       { testid: 'nav-actions', hash: '#/actions' },
+      { testid: 'nav-agent-dbs', hash: '#/agent-dbs' },
       { testid: 'nav-settings', hash: '#/settings' },
-      { testid: 'nav-dashboard', hash: '#/' },
+      { testid: 'nav-value', hash: '#/' },
     ]
 
     for (const route of routes) {
@@ -77,7 +79,7 @@ test.describe('Sidebar navigation', () => {
     await page.goto('/')
 
     const header = page.locator('header h1')
-    await expect(header).toContainText('Overview')
+    await expect(header).toContainText('Value')
 
     await page.locator('[data-testid="nav-settings"]').click()
     await expect(header).toContainText('Settings')
@@ -109,7 +111,7 @@ test.describe('Sidebar navigation', () => {
     await page.goto('/')
     await page.locator('[data-testid="nav-cases"]').click()
     await page.locator('[data-testid="nav-settings"]').click()
-    await page.locator('[data-testid="nav-dashboard"]').click()
+    await page.locator('[data-testid="nav-value"]').click()
 
     // Filter out known benign errors (e.g. favicon 404).
     const real = errors.filter(

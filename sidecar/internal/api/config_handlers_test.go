@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
@@ -306,7 +305,7 @@ func TestConfigDBPutHandler_EmptyBody(t *testing.T) {
 
 	req := httptest.NewRequest(
 		"PUT", "/api/v1/config/databases/1",
-		strings.NewReader("{}"))
+		strings.NewReader(`{"expected_generation":1}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -346,7 +345,7 @@ func TestConfigDBPutHandler_FleetValidation_NotFound(
 	// Request for DB ID 99 — does not exist.
 	req := httptest.NewRequest(
 		"PUT", "/api/v1/config/databases/99",
-		strings.NewReader(`{}`))
+		strings.NewReader(`{"expected_generation":1}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -384,7 +383,7 @@ func TestConfigDBPutHandler_FleetValidation_Found(
 	// Request for DB ID 1 — exists, empty body → success.
 	req := httptest.NewRequest(
 		"PUT", "/api/v1/config/databases/1",
-		strings.NewReader(`{}`))
+		strings.NewReader(`{"expected_generation":1}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -425,40 +424,6 @@ func TestSyncTrustLevelToFleet(t *testing.T) {
 			t.Errorf("db %q: trust level got %q, want autonomous",
 				name, inst.Status.TrustLevel)
 		}
-	}
-}
-
-func TestSyncDatabaseTrustLevelResetClearsExecutorOverride(
-	t *testing.T,
-) {
-	cfg := &config.Config{
-		Trust: config.TrustConfig{Level: "advisory"},
-	}
-	exec := executor.New(nil, cfg, nil, time.Now(),
-		func(string, string, ...any) {})
-	if err := exec.SetTrustLevel("autonomous"); err != nil {
-		t.Fatalf("set trust override: %v", err)
-	}
-
-	mgr := fleet.NewManager(cfg)
-	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name:       "db1",
-		DatabaseID: 1,
-		Config:     config.DatabaseConfig{Name: "db1"},
-		Executor:   exec,
-		Status: &fleet.InstanceStatus{
-			TrustLevel: "autonomous",
-		},
-	})
-
-	syncDatabaseTrustLevelReset(mgr, cfg, 1)
-
-	if got := exec.TrustLevel(); got != "advisory" {
-		t.Fatalf("executor trust level = %q, want advisory", got)
-	}
-	inst := mgr.GetInstance("db1")
-	if got := inst.SnapshotStatus().TrustLevel; got != "advisory" {
-		t.Fatalf("status trust level = %q, want advisory", got)
 	}
 }
 

@@ -182,18 +182,26 @@ func (m *Manager) dispatchGroup(
 			Severity:  sev,
 			Timestamp: time.Now(),
 		}
-		m.dispatch(ctx, channels, alert, f.ID, key)
-		m.throttle.Record(key, sev)
+		// Only record the throttle key when at least one channel
+		// actually delivered. Recording on total failure would suppress
+		// re-firing for the whole cooldown window, silently dropping a
+		// critical page with no retry (H4).
+		if m.dispatch(ctx, channels, alert, f.ID, key) {
+			m.throttle.Record(key, sev)
+		}
 	}
 }
 
+// dispatch sends the alert to every channel and returns true if at
+// least one channel delivered successfully.
 func (m *Manager) dispatch(
 	ctx context.Context,
 	channels []Channel,
 	alert Alert,
 	findingID int64,
 	dedupKey string,
-) {
+) bool {
+	anyDelivered := false
 	for _, ch := range channels {
 		err := ch.Send(ctx, alert)
 		status := "sent"
@@ -204,6 +212,7 @@ func (m *Manager) dispatch(
 			m.logFn("ERROR", "alert to %s failed: %v",
 				ch.Name(), err)
 		} else {
+			anyDelivered = true
 			m.logFn("INFO", "alert sent to %s for %s",
 				ch.Name(), dedupKey)
 		}
@@ -212,6 +221,7 @@ func (m *Manager) dispatch(
 			ch.Name(), dedupKey, status, errMsg,
 		)
 	}
+	return anyDelivered
 }
 
 func (m *Manager) logAlert(

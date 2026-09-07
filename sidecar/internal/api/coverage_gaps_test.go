@@ -202,7 +202,7 @@ func TestPendingActionsHandler_Empty(t *testing.T) {
 	phase2CleanTables(t, pool, ctx)
 
 	as := store.NewActionStore(pool)
-	handler := pendingActionsHandler(as)
+	handler := pendingActionsHandler(as, nil)
 
 	w := doRequest(handler, "GET", "/api/v1/actions/pending", "")
 	if w.Code != http.StatusOK {
@@ -246,7 +246,7 @@ func TestPendingActionsHandler_WithData(t *testing.T) {
 		t.Fatalf("propose: %v", err)
 	}
 
-	handler := pendingActionsHandler(as)
+	handler := pendingActionsHandler(as, nil)
 	w := doRequest(handler, "GET", "/api/v1/actions/pending", "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200", w.Code)
@@ -293,7 +293,7 @@ func TestPendingActionsHandler_DatabaseFilter(t *testing.T) {
 		t.Fatalf("propose: %v", err)
 	}
 
-	handler := pendingActionsHandler(as)
+	handler := pendingActionsHandler(as, nil)
 	w := doRequest(handler, "GET",
 		"/api/v1/actions/pending?database=999", "")
 	if w.Code != http.StatusOK {
@@ -315,7 +315,7 @@ func TestPendingActionsHandler_InvalidDatabaseID(t *testing.T) {
 	phase2CleanTables(t, pool, ctx)
 
 	as := store.NewActionStore(pool)
-	handler := pendingActionsHandler(as)
+	handler := pendingActionsHandler(as, nil)
 
 	// database=notanumber should be silently ignored (dbID stays nil).
 	w := doRequest(handler, "GET",

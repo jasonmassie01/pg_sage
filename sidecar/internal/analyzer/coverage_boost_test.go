@@ -2134,8 +2134,14 @@ func TestCoverage_SubsetFinding(t *testing.T) {
 	if f.Category != "duplicate_index" {
 		t.Errorf("Category = %q, want duplicate_index", f.Category)
 	}
-	if f.Severity != "critical" {
-		t.Errorf("Severity = %q, want critical", f.Severity)
+	// Subset drops are advisory: info severity + high_risk so they never
+	// auto-execute (auto-dropping a leading-prefix subset is a judgment call
+	// and fought app-managed indexes). Exact-duplicate drops stay auto/safe.
+	if f.Severity != "info" {
+		t.Errorf("Severity = %q, want info", f.Severity)
+	}
+	if f.ActionRisk != "high_risk" {
+		t.Errorf("ActionRisk = %q, want high_risk (advisory)", f.ActionRisk)
 	}
 	if f.ObjectIdentifier != "public.idx_sub" {
 		t.Errorf("ObjectIdentifier = %q, want public.idx_sub", f.ObjectIdentifier)

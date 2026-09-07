@@ -31,7 +31,7 @@ func (s *NotificationStore) CreateRule(
 
 	var id int
 	err := s.pool.QueryRow(qctx,
-		`INSERT INTO sage.notification_rules
+		`/* pg_sage */ INSERT INTO sage.notification_rules
 		    (channel_id, event, min_severity)
 		 VALUES ($1, $2, $3) RETURNING id`,
 		channelID, event, minSeverity,
@@ -50,7 +50,7 @@ func (s *NotificationStore) ListRules(
 	defer cancel()
 
 	rows, err := s.pool.Query(qctx,
-		`SELECT id, channel_id, event, min_severity, enabled
+		`/* pg_sage */ SELECT id, channel_id, event, min_severity, enabled
 		 FROM sage.notification_rules ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("listing rules: %w", err)
@@ -97,7 +97,7 @@ func (s *NotificationStore) UpdateRule(
 	defer cancel()
 
 	tag, err := s.pool.Exec(qctx,
-		`UPDATE sage.notification_rules
+		`/* pg_sage */ UPDATE sage.notification_rules
 		 SET enabled = $1 WHERE id = $2`,
 		enabled, id)
 	if err != nil {

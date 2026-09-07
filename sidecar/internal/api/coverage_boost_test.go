@@ -94,8 +94,11 @@ func (e *testError) Error() string { return e.msg }
 func TestCoverage_BuildFindingsWhere_NoFilters(t *testing.T) {
 	f := fleet.FindingFilters{}
 	where, args := buildFindingsWhere(f)
-	if where != " WHERE 1=1" {
-		t.Errorf("where: got %q, want ' WHERE 1=1'", where)
+	if !strings.HasPrefix(where, " WHERE 1=1") {
+		t.Errorf("where should start with base predicate: %q", where)
+	}
+	if !strings.Contains(where, "pg_sage") {
+		t.Errorf("where should contain self-monitoring exclusion: %q", where)
 	}
 	if len(args) != 0 {
 		t.Errorf("args: got %d, want 0", len(args))
@@ -509,7 +512,7 @@ func TestCoverage_BuildActionMap_AllKeys(t *testing.T) {
 		"success", nil, nil,
 	)
 	expectedKeys := []string{
-		"id", "executed_at", "action_type", "finding_id",
+		"id", "executed_at", "event_at", "action_type", "finding_id",
 		"sql_executed", "rollback_sql", "before_state",
 		"after_state", "outcome", "rollback_reason",
 		"measured_at",
@@ -1737,7 +1740,7 @@ func TestCoverage_ConfigDBPut_EmptyBodyWithFleet(t *testing.T) {
 
 	req := httptest.NewRequest(
 		"PUT", "/api/v1/config/databases/1",
-		strings.NewReader(`{}`))
+		strings.NewReader(`{"expected_generation":1}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)

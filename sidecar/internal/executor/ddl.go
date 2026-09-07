@@ -54,40 +54,13 @@ func ExecConcurrently(
 
 	o := applyDDLOpts(opts)
 
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return fmt.Errorf("acquiring connection: %w", err)
-	}
-	defer conn.Release()
-
-	timeoutMs := int(timeout.Milliseconds())
-	_, err = conn.Exec(ctx,
-		fmt.Sprintf("SET statement_timeout = %d", timeoutMs),
-	)
-	if err != nil {
-		return fmt.Errorf("setting statement_timeout: %w", err)
-	}
-
-	if o.lockTimeoutMs > 0 {
-		_, err = conn.Exec(ctx, fmt.Sprintf(
-			"SET lock_timeout = '%dms'", o.lockTimeoutMs,
-		))
-		if err != nil {
-			return fmt.Errorf("setting lock_timeout: %w", err)
+	return withTopLevelSession(ctx, pool, timeout, o, func(conn pooledExecutor) error {
+		_, execErr := conn.Exec(ctx, sql)
+		if execErr != nil {
+			return wrapDDLError(execErr)
 		}
-	}
-
-	_, err = conn.Exec(ctx, sql)
-
-	// Reset timeouts before returning connection to pool.
-	_, _ = conn.Exec(ctx, "SET statement_timeout = 0")
-	_, _ = conn.Exec(ctx, "SET lock_timeout = 0")
-
-	if err != nil {
-		return wrapDDLError(err)
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // ExecInTransaction executes a SQL statement within a transaction
@@ -109,7 +82,11 @@ func ExecInTransaction(
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		rollbackCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = tx.Rollback(rollbackCtx)
+	}()
 
 	timeoutMs := int(timeout.Milliseconds())
 	_, err = tx.Exec(ctx,

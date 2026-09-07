@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -15,8 +16,7 @@ import (
 
 func connectTestDB2(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
+	dsn := os.Getenv("SAGE_DATABASE_URL")
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Skipf("DB unavailable: %v", err)

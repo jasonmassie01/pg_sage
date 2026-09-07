@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/smtp"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -18,56 +19,24 @@ import (
 // Helpers
 // ---------------------------------------------------------------------------
 
-const testDSN = "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
-
 func connectTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 
-	poolCfg, err := pgxpool.ParseConfig(testDSN)
-	if err != nil {
-		t.Skipf("test DSN invalid: %v", err)
-		return nil
-	}
-	// Single connection so advisory lock stays on the same session.
-	poolCfg.MaxConns = 1
-	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	pool, err := pgxpool.New(ctx, os.Getenv("SAGE_DATABASE_URL"))
 	if err != nil {
 		t.Skipf("test database unavailable: %v", err)
-		return nil
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
 		t.Skipf("test database ping failed: %v", err)
-		return nil
 	}
-
-	// Hold pg_sage advisory lock for entire test to prevent schema
-	// tests from dropping tables mid-test.
-	_, err = pool.Exec(ctx,
-		"SELECT pg_advisory_lock(hashtext('pg_sage'))")
-	if err != nil {
-		pool.Close()
-		t.Skipf("advisory lock failed: %v", err)
-		return nil
-	}
-
 	if err := schema.Bootstrap(ctx, pool); err != nil {
-		_, _ = pool.Exec(context.Background(),
-			"SELECT pg_advisory_unlock(hashtext('pg_sage'))")
 		pool.Close()
-		t.Skipf("schema bootstrap failed: %v", err)
-		return nil
+		t.Fatalf("schema bootstrap failed: %v", err)
 	}
-	// Don't release the advisory lock — Bootstrap already acquired it.
-	// Keep it held until cleanup.
-
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(),
-			"SELECT pg_advisory_unlock_all()")
-		pool.Close()
-	})
+	t.Cleanup(pool.Close)
 	return pool
 }
 

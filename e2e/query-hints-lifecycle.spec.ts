@@ -48,6 +48,11 @@ test.describe('Query Hints lifecycle', () => {
   test('API and UI show active, retired, and broken hints', async ({
     page,
   }) => {
+    test.skip(
+      process.env.PG_SAGE_E2E_FIXTURE !== 'full-surface',
+      'requires full-surface query-hints fixture',
+    );
+
     try {
       seedHintLifecycleRows();
     } catch (err) {
@@ -58,6 +63,7 @@ test.describe('Query Hints lifecycle', () => {
     expect(allRes.status()).toBe(200);
     const all = await allRes.json();
     const lifecycle = (all.hints || []).filter((h: any) =>
+      h.database_name === 'testdb' &&
       String(h.hint_text).startsWith('codex lifecycle '),
     );
     expect(new Set(lifecycle.map((h: any) => h.status))).toEqual(
@@ -70,15 +76,21 @@ test.describe('Query Hints lifecycle', () => {
     expect(activeRes.status()).toBe(200);
     const active = await activeRes.json();
     const activeLifecycle = (active.hints || []).filter((h: any) =>
+      h.database_name === 'testdb' &&
       String(h.hint_text).startsWith('codex lifecycle '),
     );
     expect(activeLifecycle).toHaveLength(1);
     expect(activeLifecycle[0].status).toBe('active');
 
     await page.goto('/#/query-hints');
-    await expect(page.getByTestId('query-hints-table')).toBeVisible();
-    await expect(page.getByText('active').first()).toBeVisible();
-    await expect(page.getByText('retired').first()).toBeVisible();
-    await expect(page.getByText('broken').first()).toBeVisible();
+    await expect(page.getByTestId('cases-page')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Query Hints' }))
+      .toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByText('Query hint active for query 910001'))
+      .toBeVisible();
+    await expect(page.getByText('Query hint broken for query 910003'))
+      .toBeVisible();
+    await expect(page.getByText('Query hint retired for query 910002'))
+      .not.toBeVisible();
   });
 });

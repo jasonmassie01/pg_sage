@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,28 +25,48 @@ type ModelInfo struct {
 // modelCache stores cached model listings with TTL.
 type modelCache struct {
 	mu      sync.Mutex
-	models  []ModelInfo
-	fetched time.Time
+	entries map[string]modelCacheEntry
 	ttl     time.Duration
 }
 
+type modelCacheEntry struct {
+	models  []ModelInfo
+	fetched time.Time
+}
+
 // defaultCache is the package-level cache (1-hour TTL).
-var defaultCache = &modelCache{ttl: time.Hour}
+var defaultCache = &modelCache{
+	entries: make(map[string]modelCacheEntry),
+	ttl:     time.Hour,
+}
 
 func (c *modelCache) get() ([]ModelInfo, bool) {
+	return c.getFor("")
+}
+
+func (c *modelCache) getFor(key string) ([]ModelInfo, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.models != nil && time.Since(c.fetched) < c.ttl {
-		return c.models, true
+	entry, ok := c.entries[key]
+	if ok && entry.models != nil && time.Since(entry.fetched) < c.ttl {
+		return append([]ModelInfo(nil), entry.models...), true
 	}
 	return nil, false
 }
 
 func (c *modelCache) set(models []ModelInfo) {
+	c.setFor("", models)
+}
+
+func (c *modelCache) setFor(key string, models []ModelInfo) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.models = models
-	c.fetched = time.Now()
+	if c.entries == nil {
+		c.entries = make(map[string]modelCacheEntry)
+	}
+	c.entries[key] = modelCacheEntry{
+		models: append([]ModelInfo(nil), models...), fetched: time.Now(),
+	}
 }
 
 // ListModels queries the LLM provider for available models.
@@ -53,14 +74,33 @@ func (c *modelCache) set(models []ModelInfo) {
 func ListModels(
 	ctx context.Context, endpoint, apiKey string,
 ) ([]ModelInfo, error) {
-	if cached, ok := defaultCache.get(); ok {
+	return ListModelsWithClient(
+		ctx, endpoint, apiKey, http.DefaultClient,
+	)
+}
+
+// ListModelsWithClient queries models with a caller-controlled HTTP client.
+// Security-sensitive callers use this to pin validated DNS resolutions.
+func ListModelsWithClient(
+	ctx context.Context,
+	endpoint string,
+	apiKey string,
+	httpClient *http.Client,
+) ([]ModelInfo, error) {
+	if httpClient == nil {
+		return nil, fmt.Errorf("HTTP client is required")
+	}
+	key := modelCacheKey(endpoint, apiKey)
+	if cached, ok := defaultCache.getFor(key); ok {
 		return cached, nil
 	}
-	models, err := fetchModels(ctx, endpoint, apiKey)
+	models, err := fetchModelsWithClient(
+		ctx, endpoint, apiKey, httpClient,
+	)
 	if err != nil {
 		return nil, err
 	}
-	defaultCache.set(models)
+	defaultCache.setFor(key, models)
 	return models, nil
 }
 
@@ -68,17 +108,27 @@ func ListModels(
 func InvalidateModelCache() {
 	defaultCache.mu.Lock()
 	defer defaultCache.mu.Unlock()
-	defaultCache.models = nil
+	defaultCache.entries = make(map[string]modelCacheEntry)
 }
 
-// fetchModels dispatches to the correct provider parser.
-func fetchModels(
-	ctx context.Context, endpoint, apiKey string,
+func modelCacheKey(endpoint, apiKey string) string {
+	digest := sha256.Sum256([]byte(apiKey))
+	return strings.TrimRight(strings.TrimSpace(endpoint), "/") + "|" +
+		fmt.Sprintf("%x", digest[:16])
+}
+
+func fetchModelsWithClient(
+	ctx context.Context,
+	endpoint string,
+	apiKey string,
+	httpClient *http.Client,
 ) ([]ModelInfo, error) {
 	if isGeminiEndpoint(endpoint) {
-		return fetchGeminiModels(ctx, apiKey)
+		return fetchGeminiModelsWithClient(ctx, apiKey, httpClient)
 	}
-	return fetchOpenAIModels(ctx, endpoint, apiKey)
+	return fetchOpenAIModelsWithClient(
+		ctx, endpoint, apiKey, httpClient,
+	)
 }
 
 func isGeminiEndpoint(endpoint string) bool {
@@ -86,13 +136,14 @@ func isGeminiEndpoint(endpoint string) bool {
 		endpoint, "generativelanguage.googleapis.com")
 }
 
-// fetchGeminiModels calls the Gemini ListModels API.
-func fetchGeminiModels(
-	ctx context.Context, apiKey string,
+func fetchGeminiModelsWithClient(
+	ctx context.Context,
+	apiKey string,
+	httpClient *http.Client,
 ) ([]ModelInfo, error) {
 	url := "https://generativelanguage.googleapis.com/" +
 		"v1beta/models?key=" + apiKey
-	body, err := doModelRequest(ctx, url, "")
+	body, err := doModelRequestWithClient(ctx, url, "", httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("gemini list models: %w", err)
 	}
@@ -151,12 +202,23 @@ func stripModelsPrefix(name string) string {
 func fetchOpenAIModels(
 	ctx context.Context, endpoint, apiKey string,
 ) ([]ModelInfo, error) {
+	return fetchOpenAIModelsWithClient(
+		ctx, endpoint, apiKey, http.DefaultClient,
+	)
+}
+
+func fetchOpenAIModelsWithClient(
+	ctx context.Context,
+	endpoint string,
+	apiKey string,
+	httpClient *http.Client,
+) ([]ModelInfo, error) {
 	base := strings.TrimRight(endpoint, "/")
 	// Strip chat/completions suffixes to get the base URL.
 	base = strings.TrimSuffix(base, "/chat/completions")
 	base = strings.TrimSuffix(base, "/chat")
 	url := base + "/models"
-	body, err := doModelRequest(ctx, url, apiKey)
+	body, err := doModelRequestWithClient(ctx, url, apiKey, httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("openai list models: %w", err)
 	}
@@ -192,38 +254,97 @@ func parseOpenAIModels(data []byte) ([]ModelInfo, error) {
 func doModelRequest(
 	ctx context.Context, url, apiKey string,
 ) ([]byte, error) {
+	return doModelRequestWithClient(
+		ctx, url, apiKey, http.DefaultClient,
+	)
+}
+
+func doModelRequestWithClient(
+	ctx context.Context,
+	url string,
+	apiKey string,
+	httpClient *http.Client,
+) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(
 		ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return nil, providerRequestError("create request", err)
 	}
 	if apiKey != "" {
 		req.Header.Set(
 			"Authorization", "Bearer "+apiKey)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
+		return nil, providerRequestError("http request", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		redactedBody := redactProviderText(string(body))
 		slog.Warn("model list API error",
 			"status", resp.StatusCode,
-			"body", string(body))
+			"body", redactedBody)
 		return nil, fmt.Errorf(
 			"API returned %d: %s",
-			resp.StatusCode, truncate(string(body), 200))
+			resp.StatusCode, truncate(redactedBody, 200))
 	}
 	return body, nil
+}
+
+func providerRequestError(prefix string, err error) error {
+	return &redactedProviderError{prefix: prefix, cause: err}
+}
+
+type redactedProviderError struct {
+	prefix string
+	cause  error
+}
+
+func (e *redactedProviderError) Error() string {
+	return fmt.Sprintf("%s: %s", e.prefix, redactProviderText(e.cause.Error()))
+}
+
+func (e *redactedProviderError) Unwrap() error { return e.cause }
+
+func redactProviderText(value string) string {
+	for _, key := range []string{
+		"key", "api_key", "access_token", "token", "signature",
+	} {
+		value = redactQueryValue(value, key)
+	}
+	return value
+}
+
+func redactQueryValue(value, key string) string {
+	lower := strings.ToLower(value)
+	needle := strings.ToLower(key) + "="
+	for start := 0; ; {
+		index := strings.Index(lower[start:], needle)
+		if index < 0 {
+			return value
+		}
+		index += start
+		valueStart := index + len(needle)
+		valueEnd := len(value)
+		for i := valueStart; i < len(value); i++ {
+			if strings.ContainsRune("& #\"'", rune(value[i])) {
+				valueEnd = i
+				break
+			}
+		}
+		value = value[:valueStart] + "[REDACTED]" + value[valueEnd:]
+		lower = strings.ToLower(value)
+		start = valueStart + len("[REDACTED]")
+	}
 }
 
 func truncate(s string, maxLen int) string {

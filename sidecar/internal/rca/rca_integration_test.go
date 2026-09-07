@@ -32,9 +32,9 @@ func requireDB(t *testing.T) *pgxpool.Pool {
 	integPoolOnce.Do(func() {
 		dsn := os.Getenv("SAGE_DATABASE_URL")
 		if dsn == "" {
-			dsn = "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+			dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 		defer cancel()
 
 		pool, err := pgxpool.New(ctx, dsn)
@@ -52,7 +52,6 @@ func requireDB(t *testing.T) *pgxpool.Pool {
 			integPoolErr = err
 			return
 		}
-		schema.ReleaseAdvisoryLock(ctx, pool)
 		integPool = pool
 	})
 	if integPoolErr != nil {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 const actionResolutionReopenGrace = "2 minutes"
@@ -35,6 +36,9 @@ type Finding struct {
 // for existing open findings and inserting new ones.
 func UpsertFindings(ctx context.Context, pool *pgxpool.Pool, findings []Finding) error {
 	for _, f := range findings {
+		if isSelfMonitoringFinding(f) {
+			continue
+		}
 		detailJSON, err := json.Marshal(f.Detail)
 		if err != nil {
 			return err
@@ -43,7 +47,7 @@ func UpsertFindings(ctx context.Context, pool *pgxpool.Pool, findings []Finding)
 		var existingID string
 		var count int
 		err = pool.QueryRow(ctx,
-			`SELECT id, occurrence_count FROM sage.findings
+			`/* pg_sage */ SELECT id, occurrence_count FROM sage.findings
 			 WHERE category = $1 AND object_identifier = $2 AND status = 'open'`,
 			f.Category, f.ObjectIdentifier,
 		).Scan(&existingID, &count)
@@ -57,7 +61,7 @@ func UpsertFindings(ctx context.Context, pool *pgxpool.Pool, findings []Finding)
 			// correct. rule_id / impact_score are only refreshed when
 			// the caller supplied a non-empty / non-zero value.
 			_, err = pool.Exec(ctx,
-				`UPDATE sage.findings
+				`/* pg_sage */ UPDATE sage.findings
 				 SET last_seen = now(),
 				     occurrence_count = occurrence_count + 1,
 				     detail = $1,
@@ -103,7 +107,7 @@ func UpsertFindings(ctx context.Context, pool *pgxpool.Pool, findings []Finding)
 			impactScore = f.ImpactScore
 		}
 		_, err = pool.Exec(ctx,
-			`INSERT INTO sage.findings
+			`/* pg_sage */ INSERT INTO sage.findings
 			 (category, severity, object_type, object_identifier,
 			  title, detail, recommendation, recommended_sql,
 			  rollback_sql, status, last_seen, occurrence_count,
@@ -121,6 +125,16 @@ func UpsertFindings(ctx context.Context, pool *pgxpool.Pool, findings []Finding)
 	return nil
 }
 
+func isSelfMonitoringFinding(f Finding) bool {
+	return selfmonitor.IsFinding(selfmonitor.FindingFields{
+		ObjectIdentifier: f.ObjectIdentifier,
+		Title:            f.Title,
+		Detail:           f.Detail,
+		RecommendedSQL:   f.RecommendedSQL,
+		RollbackSQL:      f.RollbackSQL,
+	})
+}
+
 func recentlyResolvedByAction(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -128,7 +142,7 @@ func recentlyResolvedByAction(
 ) (bool, error) {
 	var one int
 	err := pool.QueryRow(ctx,
-		`SELECT 1 FROM sage.findings
+		`/* pg_sage */ SELECT 1 FROM sage.findings
 		  WHERE category = $1
 		    AND object_identifier = $2
 		    AND status = 'resolved'
@@ -155,7 +169,7 @@ func ResolveCleared(
 	category string,
 ) error {
 	rows, err := pool.Query(ctx,
-		`SELECT id, object_identifier FROM sage.findings
+		`/* pg_sage */ SELECT id, object_identifier FROM sage.findings
 		 WHERE category = $1 AND status = 'open'`,
 		category,
 	)
@@ -180,7 +194,7 @@ func ResolveCleared(
 
 	for _, id := range toResolve {
 		_, err := pool.Exec(ctx,
-			`UPDATE sage.findings
+			`/* pg_sage */ UPDATE sage.findings
 			 SET status = 'resolved', resolved_at = now()
 			 WHERE id = $1`,
 			id,

@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/pg-sage/sidecar/internal/testsupport/assert"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 
 	"github.com/pg-sage/sidecar/internal/config"
 )
@@ -297,8 +297,7 @@ func TestIntegration_Runner_SagePersistence(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	if !sageSchemaExists(t, pool, ctx) {
-		t.Skip("sage.findings table not present; " +
-			"skipping persistence test")
+		t.Fatal("isolated fixture is missing sage.findings")
 	}
 	serializeAcrossPackages(t, ctx, pool)
 
@@ -421,7 +420,7 @@ func TestIntegration_SagePersistence_UpsertIdempotent(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	if !sageSchemaExists(t, pool, ctx) {
-		t.Skip("sage.findings table not present")
+		t.Fatal("isolated fixture is missing sage.findings")
 	}
 	serializeAcrossPackages(t, ctx, pool)
 
@@ -482,7 +481,7 @@ func TestIntegration_SagePersistence_ResolveCleared(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	if !sageSchemaExists(t, pool, ctx) {
-		t.Skip("sage.findings table not present")
+		t.Fatal("isolated fixture is missing sage.findings")
 	}
 	serializeAcrossPackages(t, ctx, pool)
 
@@ -533,7 +532,7 @@ func TestIntegration_SagePersistence_ResolveAllEmpty(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	if !sageSchemaExists(t, pool, ctx) {
-		t.Skip("sage.findings table not present")
+		t.Fatal("isolated fixture is missing sage.findings")
 	}
 	serializeAcrossPackages(t, ctx, pool)
 

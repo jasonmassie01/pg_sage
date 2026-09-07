@@ -125,11 +125,15 @@ func checkExtensionReadable(ctx context.Context, pool *pgxpool.Pool) error {
 	qctx, cancel := queryCtx(ctx)
 	defer cancel()
 
-	var one int
+	// count(*) always returns exactly one row, so an *empty*
+	// pg_stat_statements (post-reset, track=none, idle) no longer trips
+	// ErrNoRows and gets misreported as a permission failure (audit L).
+	// A genuine permission error still surfaces here.
+	var n int
 	err := pool.QueryRow(
 		qctx,
-		"SELECT 1 FROM pg_stat_statements LIMIT 1",
-	).Scan(&one)
+		"/* pg_sage */ SELECT count(*) FROM pg_stat_statements",
+	).Scan(&n)
 	if err != nil {
 		return fmt.Errorf(
 			"cannot read pg_stat_statements — ensure the connected role "+
@@ -148,7 +152,7 @@ func checkQueryTextVisible(
 	var query *string
 	err := pool.QueryRow(
 		qctx,
-		"SELECT query FROM pg_stat_statements WHERE query IS NOT NULL LIMIT 1",
+		"/* pg_sage */ SELECT query FROM pg_stat_statements WHERE query IS NOT NULL LIMIT 1",
 	).Scan(&query)
 	if err != nil {
 		// No rows with non-null query text — likely all NULL.

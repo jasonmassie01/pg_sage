@@ -67,7 +67,7 @@ func (s *NotificationStore) CreateChannel(
 
 	var id int
 	err = s.pool.QueryRow(qctx,
-		`INSERT INTO sage.notification_channels
+		`/* pg_sage */ INSERT INTO sage.notification_channels
 		    (name, type, config, created_by)
 		 VALUES ($1, $2, $3, $4)
 		 RETURNING id`,
@@ -87,7 +87,7 @@ func (s *NotificationStore) ListChannels(
 	defer cancel()
 
 	rows, err := s.pool.Query(qctx,
-		`SELECT id, name, type, config, enabled
+		`/* pg_sage */ SELECT id, name, type, config, enabled
 		 FROM sage.notification_channels ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("listing channels: %w", err)
@@ -119,7 +119,7 @@ func (s *NotificationStore) GetChannel(
 	var ch notify.Channel
 	var cfgJSON []byte
 	err := s.pool.QueryRow(qctx,
-		`SELECT id, name, type, config, enabled
+		`/* pg_sage */ SELECT id, name, type, config, enabled
 		 FROM sage.notification_channels WHERE id = $1`, id,
 	).Scan(&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled)
 	if err != nil {
@@ -157,7 +157,7 @@ func (s *NotificationStore) UpdateChannel(
 	defer cancel()
 
 	tag, err := s.pool.Exec(qctx,
-		`UPDATE sage.notification_channels
+		`/* pg_sage */ UPDATE sage.notification_channels
 		 SET name = $1, config = $2, enabled = $3
 		 WHERE id = $4`,
 		name, cfgJSON, enabled, id)

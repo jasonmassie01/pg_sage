@@ -32,7 +32,8 @@ import (
 
 var (
 	p2Pool     *pgxpool.Pool
-	p2LockPool *pgxpool.Pool // MaxConns=1 side pool holding the advisory lock
+	p2LockPool *pgxpool.Pool
+	p2LockConn *pgxpool.Conn // Pinned owner of the test advisory lock.
 	p2PoolOnce sync.Once
 	p2PoolErr  error
 	p2Key      = crypto.DeriveKey("phase2-test-key",
@@ -43,8 +44,7 @@ func phase2DSN() string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/" +
-		"postgres?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 func phase2RequireDB(t *testing.T) (
@@ -55,7 +55,7 @@ func phase2RequireDB(t *testing.T) (
 	p2PoolOnce.Do(func() {
 		dsn := phase2DSN()
 		qctx, cancel := context.WithTimeout(
-			ctx, 15*time.Second)
+			ctx, 45*time.Second)
 		defer cancel()
 
 		cfg, err := pgxpool.ParseConfig(dsn)
@@ -82,8 +82,6 @@ func phase2RequireDB(t *testing.T) (
 			p2Pool = nil
 			return
 		}
-		schema.ReleaseAdvisoryLock(qctx, p2Pool)
-
 		if err := schema.EnsureDatabasesTable(
 			qctx, p2Pool); err != nil {
 			p2PoolErr = fmt.Errorf(
@@ -98,15 +96,13 @@ func phase2RequireDB(t *testing.T) (
 			return
 		}
 
-		// Side pool holds the pg_sage advisory lock for the
+		// Side pool holds the cross-package test advisory lock for the
 		// lifetime of the test binary. Without this, the
 		// schema-package tests (which run in parallel under
 		// `go test -p 4 ./...`) can DROP SCHEMA sage CASCADE
-		// mid-test and race this package's queries. MaxConns=1
-		// keeps the lock on a single pgx session so it does
-		// not get released when a connection returns to the
-		// pool. The lock is never explicitly released — the
-		// process exit releases the session.
+		// mid-test and race this package's queries. The acquired
+		// connection remains pinned for the package lifetime; process
+		// exit closes that session and releases the lock.
 		lockCfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
 			p2PoolErr = fmt.Errorf(
@@ -120,11 +116,22 @@ func phase2RequireDB(t *testing.T) (
 				"lock pool: %w", err)
 			return
 		}
-		if _, err := p2LockPool.Exec(qctx,
-			"SELECT pg_advisory_lock(hashtext('pg_sage'))",
+		p2LockConn, err = p2LockPool.Acquire(qctx)
+		if err != nil {
+			p2PoolErr = fmt.Errorf(
+				"acquiring lock connection: %w", err)
+			p2LockPool.Close()
+			p2LockPool = nil
+			return
+		}
+		if _, err := p2LockConn.Exec(qctx,
+			"SELECT pg_advisory_lock("+
+				"hashtext('pg_sage_test_cross_pkg'))",
 		); err != nil {
 			p2PoolErr = fmt.Errorf(
 				"acquiring advisory lock: %w", err)
+			p2LockConn.Release()
+			p2LockConn = nil
 			p2LockPool.Close()
 			p2LockPool = nil
 			return
@@ -168,6 +175,67 @@ func phase2CleanTables(
 			t.Logf("clean %s: %v", tbl, err)
 		}
 	}
+	phase2WaitNotificationTablesEmpty(t, pool, ctx)
+}
+
+// phase2WaitNotificationTablesEmpty re-sweeps the notification tables
+// until they are stably empty. A previous test's INSERT can time out
+// client-side (the store's 5s statement cap) yet still commit
+// server-side moments later, landing after the sweep above and breaking
+// tests that assert an empty database.
+func phase2WaitNotificationTablesEmpty(
+	t *testing.T, pool *pgxpool.Pool, ctx context.Context,
+) {
+	t.Helper()
+	tables := []string{
+		"sage.notification_log",
+		"sage.notification_rules",
+		"sage.notification_channels",
+	}
+	for attempt := 0; attempt < 5; attempt++ {
+		var remaining int
+		err := pool.QueryRow(ctx, `SELECT
+			(SELECT count(*) FROM sage.notification_log) +
+			(SELECT count(*) FROM sage.notification_rules) +
+			(SELECT count(*) FROM sage.notification_channels)`,
+		).Scan(&remaining)
+		if err != nil || remaining == 0 {
+			return
+		}
+		for _, tbl := range tables {
+			_, _ = pool.Exec(ctx, "DELETE FROM "+tbl)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// phase2CreateChannel creates a notification channel fixture, retrying
+// when the store's 5s statement timeout trips under full-suite DB
+// contention. A timed-out INSERT can still commit server-side, so each
+// retry clears the name first to keep the fixture deterministic.
+func phase2CreateChannel(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	ns *store.NotificationStore, name, typ string,
+	channelCfg map[string]string,
+) int {
+	t.Helper()
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		id, err := ns.CreateChannel(ctx, name, typ, channelCfg, 0)
+		if err == nil {
+			return id
+		}
+		lastErr = err
+		if !errors.Is(err, context.DeadlineExceeded) {
+			break
+		}
+		_, _ = pool.Exec(ctx,
+			`DELETE FROM sage.notification_channels WHERE name=$1`,
+			name)
+		time.Sleep(300 * time.Millisecond)
+	}
+	t.Fatalf("create channel %q: %v", name, lastErr)
+	return 0
 }
 
 // phase2MgrWithPool creates a fleet manager backed by a real pool.
@@ -813,6 +881,48 @@ func TestPhase2_QuerySnapshotHistory_HoursFilter(
 	}
 }
 
+func TestPhase2_QuerySnapshotHistory_CapsLargeFleetPayloads(
+	t *testing.T,
+) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+
+	for i := 0; i < 550; i++ {
+		_, err := pool.Exec(ctx,
+			`INSERT INTO sage.snapshots
+			 (category, data, collected_at)
+			 VALUES ('tps', jsonb_build_object('v', $1::int),
+			         now() - make_interval(mins => $2::int))`,
+			i, 550-i,
+		)
+		if err != nil {
+			t.Fatalf("insert snapshot %d: %v", i, err)
+		}
+	}
+
+	points, err := querySnapshotHistory(
+		ctx, pool, "tps", 24*365, time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatalf("querySnapshotHistory: %v", err)
+	}
+	if len(points) != snapshotHistoryMaxPoints {
+		t.Fatalf("points: got %d, want cap %d",
+			len(points), snapshotHistoryMaxPoints)
+	}
+	firstData, ok := points[0]["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("first point data type = %T", points[0]["data"])
+	}
+	lastData, ok := points[len(points)-1]["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("last point data type = %T", points[len(points)-1]["data"])
+	}
+	if firstData["v"].(float64) != 50 || lastData["v"].(float64) != 549 {
+		t.Fatalf("expected newest capped window 50..549, got %v..%v",
+			firstData["v"], lastData["v"])
+	}
+}
+
 // ================================================================
 // queryForecasts / scanForecastRows
 // ================================================================
@@ -1006,13 +1116,16 @@ func TestPhase2_FindingsListHandler_RealDB(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)
 
-	// Insert a finding.
+	// Insert a finding with a unique category so this assertion stays
+	// independent of other live DB tests sharing the same schema.
+	category := fmt.Sprintf("phase2_handler_%d", time.Now().UnixNano())
 	_, err := pool.Exec(ctx,
 		`INSERT INTO sage.findings
 		 (category, severity, title, detail, status,
 		  object_identifier)
-		 VALUES ('test', 'warning', 'Test finding',
-		  '{"info":"details"}', 'open', 'handler_obj')`)
+		 VALUES ($1, 'warning', 'Test finding',
+		  '{"info":"details"}', 'open', 'handler_obj')`,
+		category)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -1021,7 +1134,8 @@ func TestPhase2_FindingsListHandler_RealDB(t *testing.T) {
 	handler := findingsListHandler(mgr)
 
 	req := httptest.NewRequest(
-		"GET", "/api/v1/findings?database=testdb", nil)
+		"GET", "/api/v1/findings?database=testdb&category="+category,
+		nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -1038,6 +1152,13 @@ func TestPhase2_FindingsListHandler_RealDB(t *testing.T) {
 	findings := resp["findings"].([]any)
 	if len(findings) != 1 {
 		t.Errorf("findings: got %d", len(findings))
+	}
+	got := findings[0].(map[string]any)
+	if got["category"] != category {
+		t.Errorf("category: got %v, want %s", got["category"], category)
+	}
+	if got["database_name"] != "testdb" {
+		t.Errorf("database_name: got %v", got["database_name"])
 	}
 }
 
@@ -1194,6 +1315,52 @@ func TestPhase2_ActionsListHandler_RealDB(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 	if resp["total"].(float64) != 1 {
 		t.Errorf("total: got %v", resp["total"])
+	}
+}
+
+func TestActionsListHandler_IncludesExpiredQueueLedger(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	findingID := insertActionHandlerFinding(t, pool, ctx, "public.orders")
+	_, err := pool.Exec(ctx,
+		`INSERT INTO sage.action_queue
+		 (finding_id, proposed_sql, action_risk, status, reason,
+		  action_type, expires_at)
+		 VALUES ($1, 'ANALYZE public.orders', 'safe', 'expired',
+		  'action proposal expired', 'analyze_table', now() - interval '1 hour')`,
+		findingID)
+	if err != nil {
+		t.Fatalf("insert action queue: %v", err)
+	}
+
+	mgr := phase2MgrWithPool(pool)
+	handler := actionsListHandler(mgr)
+	req := httptest.NewRequest(
+		"GET", "/api/v1/actions?database=testdb", nil)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d, body: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["total"].(float64) != 1 {
+		t.Fatalf("total = %v, want 1", resp["total"])
+	}
+	actions := resp["actions"].([]any)
+	action := actions[0].(map[string]any)
+	if action["outcome"] != "expired" {
+		t.Fatalf("outcome = %v, want expired", action["outcome"])
+	}
+	if action["rollback_reason"] != "action proposal expired" {
+		t.Fatalf("rollback_reason = %v", action["rollback_reason"])
+	}
+	if action["sql_executed"] != "ANALYZE public.orders" {
+		t.Fatalf("sql_executed = %v", action["sql_executed"])
 	}
 }
 
@@ -2161,7 +2328,8 @@ func TestPhase2_ConfigDBDeleteHandler_RemovesDBOverride(
 		configDBDeleteHandler(cs, nil, nil))
 
 	req := httptest.NewRequest("DELETE",
-		"/api/v1/config/databases/1/collector.interval_seconds",
+		"/api/v1/config/databases/1/collector.interval_seconds"+
+			"?expected_generation=1",
 		nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -2673,11 +2841,8 @@ func TestPhase2_ListChannelsHandler_RealDB(t *testing.T) {
 	d := notify.NewDispatcher(pool, logFn)
 	ns := store.NewNotificationStore(pool, d)
 
-	_, err := ns.CreateChannel(ctx, "test-slack", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	phase2CreateChannel(t, ctx, pool, ns, "test-slack", "slack",
+		map[string]string{"webhook_url": "https://x"})
 
 	handler := listChannelsHandler(ns)
 	req := httptest.NewRequest("GET",
@@ -2709,11 +2874,8 @@ func TestPhase2_UpdateChannelHandler_MaskedSecretReplayPreservesSecret(
 	ns := store.NewNotificationStore(pool, d)
 
 	originalURL := "https://hooks.slack.com/services/REAL/SECRET/TOKEN"
-	id, err := ns.CreateChannel(ctx, "masked-slack", "slack",
-		map[string]string{"webhook_url": originalURL}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	id := phase2CreateChannel(t, ctx, pool, ns, "masked-slack", "slack",
+		map[string]string{"webhook_url": originalURL})
 
 	listHandler := listChannelsHandler(ns)
 	listReq := httptest.NewRequest("GET",
@@ -2808,13 +2970,10 @@ func TestPhase2_ListRulesHandler_RealDB(t *testing.T) {
 	ns := store.NewNotificationStore(pool, d)
 
 	// Create channel first.
-	chID, err := ns.CreateChannel(ctx, "rule-ch", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	chID := phase2CreateChannel(t, ctx, pool, ns, "rule-ch", "slack",
+		map[string]string{"webhook_url": "https://x"})
 
-	_, err = ns.CreateRule(ctx, chID,
+	_, err := ns.CreateRule(ctx, chID,
 		"finding_critical", "warning")
 	if err != nil {
 		t.Fatalf("create rule: %v", err)
@@ -2981,8 +3140,11 @@ func TestPhase2_UpdateManagedDBHandler_CallsOnUpdate(t *testing.T) {
 	calls := make(chan updateCall, 1)
 	deps := &DatabaseDeps{
 		Store: ds,
-		OnUpdate: func(oldRec, newRec store.DatabaseRecord) {
+		OnUpdate: func(
+			_ context.Context, oldRec, newRec store.DatabaseRecord,
+		) error {
 			calls <- updateCall{oldRec: oldRec, newRec: newRec}
+			return nil
 		},
 	}
 
@@ -2999,8 +3161,8 @@ func TestPhase2_UpdateManagedDBHandler_CallsOnUpdate(t *testing.T) {
 		"username": "user",
 		"password": "",
 		"sslmode": "disable",
-		"trust_level": "advisory",
-		"execution_mode": "approval",
+		"trust_level": "observation",
+		"execution_mode": "manual",
 		"max_connections": 40
 	}`
 	req := httptest.NewRequest("PUT",
@@ -3031,7 +3193,7 @@ func TestPhase2_UpdateManagedDBHandler_CallsOnUpdate(t *testing.T) {
 		if call.newRec.Name != "new-runtime-db" {
 			t.Errorf("new name: got %s", call.newRec.Name)
 		}
-		if call.newRec.ExecutionMode != "approval" {
+		if call.newRec.ExecutionMode != "manual" {
 			t.Errorf("execution mode: got %s",
 				call.newRec.ExecutionMode)
 		}
@@ -3676,65 +3838,6 @@ func TestPhase2_ConfigAuditHandler_RealDB(t *testing.T) {
 }
 
 // ================================================================
-// updateDBExecutionMode with real DB
-// ================================================================
-
-func TestPhase2_UpdateDBExecutionMode_Valid(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-	phase2CleanTables(t, pool, ctx)
-
-	_, err := pool.Exec(ctx,
-		`INSERT INTO sage.databases
-		 (id, name, host, port, database_name, username,
-		  password_enc, sslmode, execution_mode)
-		 VALUES (1, 'em-test', 'localhost', 5432, 'testdb',
-		  'user', '\x00', 'disable', 'manual')`)
-	if err != nil {
-		t.Fatalf("insert: %v", err)
-	}
-
-	err = updateDBExecutionMode(ctx, pool, 1, "auto")
-	if err != nil {
-		t.Fatalf("updateDBExecutionMode: %v", err)
-	}
-
-	var mode string
-	pool.QueryRow(ctx,
-		`SELECT execution_mode FROM sage.databases
-		 WHERE id = 1`).Scan(&mode)
-	if mode != "auto" {
-		t.Errorf("mode: got %q, want auto", mode)
-	}
-}
-
-func TestPhase2_UpdateDBExecutionMode_InvalidMode(
-	t *testing.T,
-) {
-	pool, ctx := phase2RequireDB(t)
-
-	err := updateDBExecutionMode(ctx, pool, 1, "invalid")
-	if err == nil {
-		t.Error("expected error for invalid mode")
-	}
-	if !strings.Contains(err.Error(), "must be") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestPhase2_UpdateDBExecutionMode_NotFound(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-	phase2CleanTables(t, pool, ctx)
-
-	err := updateDBExecutionMode(ctx, pool, 99999, "auto")
-	if err == nil {
-		t.Error("expected error for nonexistent DB")
-	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-// ================================================================
 // logoutHandler with real DB
 // ================================================================
 
@@ -4005,11 +4108,8 @@ func TestPhase2_DeleteChannelHandler_RealDB(t *testing.T) {
 	d := notify.NewDispatcher(pool, logFn)
 	ns := store.NewNotificationStore(pool, d)
 
-	id, err := ns.CreateChannel(ctx, "del-ch", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	id := phase2CreateChannel(t, ctx, pool, ns, "del-ch", "slack",
+		map[string]string{"webhook_url": "https://x"})
 
 	handler := deleteChannelHandler(ns)
 	mux := http.NewServeMux()
@@ -4062,11 +4162,8 @@ func TestPhase2_CreateRuleHandler_RealDB(t *testing.T) {
 	d := notify.NewDispatcher(pool, logFn)
 	ns := store.NewNotificationStore(pool, d)
 
-	chID, err := ns.CreateChannel(ctx, "rule-ch", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	chID := phase2CreateChannel(t, ctx, pool, ns, "rule-ch", "slack",
+		map[string]string{"webhook_url": "https://x"})
 
 	handler := createRuleHandler(ns)
 	body := fmt.Sprintf(
@@ -4139,11 +4236,8 @@ func TestPhase2_DeleteRuleHandler_RealDB(t *testing.T) {
 	d := notify.NewDispatcher(pool, logFn)
 	ns := store.NewNotificationStore(pool, d)
 
-	chID, err := ns.CreateChannel(ctx, "rule-ch2", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	chID := phase2CreateChannel(t, ctx, pool, ns, "rule-ch2", "slack",
+		map[string]string{"webhook_url": "https://x"})
 	ruleID, err := ns.CreateRule(ctx, chID,
 		"finding_critical", "warning")
 	if err != nil {
@@ -4201,11 +4295,8 @@ func TestPhase2_UpdateRuleHandler_RealDB(t *testing.T) {
 	d := notify.NewDispatcher(pool, logFn)
 	ns := store.NewNotificationStore(pool, d)
 
-	chID, err := ns.CreateChannel(ctx, "upd-rule-ch", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	chID := phase2CreateChannel(t, ctx, pool, ns, "upd-rule-ch", "slack",
+		map[string]string{"webhook_url": "https://x"})
 	ruleID, err := ns.CreateRule(ctx, chID,
 		"finding_critical", "warning")
 	if err != nil {
@@ -4266,11 +4357,8 @@ func TestPhase2_UpdateChannelHandler_RealDB(t *testing.T) {
 	d := notify.NewDispatcher(pool, logFn)
 	ns := store.NewNotificationStore(pool, d)
 
-	id, err := ns.CreateChannel(ctx, "upd-ch", "slack",
-		map[string]string{"webhook_url": "https://x"}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	id := phase2CreateChannel(t, ctx, pool, ns, "upd-ch", "slack",
+		map[string]string{"webhook_url": "https://x"})
 
 	handler := updateChannelHandler(ns)
 	mux := http.NewServeMux()
@@ -4304,11 +4392,8 @@ func TestPhase2_UpdateChannelHandler_OmittedFieldsPreserved(
 	ns := store.NewNotificationStore(pool, d)
 
 	originalURL := "https://hooks.slack.com/services/REAL/SECRET/TOKEN"
-	id, err := ns.CreateChannel(ctx, "partial-ch", "slack",
-		map[string]string{"webhook_url": originalURL}, 0)
-	if err != nil {
-		t.Fatalf("create channel: %v", err)
-	}
+	id := phase2CreateChannel(t, ctx, pool, ns, "partial-ch", "slack",
+		map[string]string{"webhook_url": originalURL})
 
 	handler := updateChannelHandler(ns)
 	mux := http.NewServeMux()
@@ -4721,9 +4806,9 @@ func TestPhase2_FindingsStatsHandler_FleetAggregatesInOrder(t *testing.T) {
 		  object_identifier)
 		 VALUES
 		 ('index_health', 'warning', 'Index one', '{}',
-		  'open', 'fleet_stats_idx'),
+		  'fleet_stats_open', 'fleet_stats_idx'),
 		 ('vacuum', 'critical', 'Vacuum one', '{}',
-		  'open', 'fleet_stats_vac')`)
+		  'fleet_stats_open', 'fleet_stats_vac')`)
 	if err != nil {
 		t.Fatalf("insert findings: %v", err)
 	}
@@ -4737,7 +4822,7 @@ func TestPhase2_FindingsStatsHandler_FleetAggregatesInOrder(t *testing.T) {
 		})
 	}
 	stats, total, err := queryFindingsStatsAcrossFleet(
-		ctx, mgr, fleet.FindingFilters{Status: "open"})
+		ctx, mgr, fleet.FindingFilters{Status: "fleet_stats_open"})
 	if err != nil {
 		t.Fatalf("queryFindingsStatsAcrossFleet: %v", err)
 	}
@@ -4757,7 +4842,7 @@ func TestPhase2_FindingsStatsHandler_FleetAggregatesInOrder(t *testing.T) {
 
 	handler := findingsStatsHandler(mgr)
 	req := httptest.NewRequest("GET",
-		"/api/v1/findings/stats?database=all&status=open", nil)
+		"/api/v1/findings/stats?database=all&status=fleet_stats_open", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {

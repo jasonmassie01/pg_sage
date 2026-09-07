@@ -16,7 +16,7 @@ func testDSN() string {
 	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+	return os.Getenv("SAGE_TEST_DATABASE_URL")
 }
 
 var (
@@ -35,9 +35,9 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			testPoolErr = fmt.Errorf("parsing DSN: %w", err)
 			return
 		}
-		// Use a single connection so advisory locks are always on the
-		// same session, preventing lock contention between tests.
-		poolCfg.MaxConns = 1
+		// Test-only advisory locks pin one connection while Bootstrap
+		// pins another for its production lock.
+		poolCfg.MaxConns = 4
 		testPool, testPoolErr = pgxpool.NewWithConfig(ctx, poolCfg)
 		if testPoolErr != nil {
 			return
@@ -88,6 +88,7 @@ func TestExpectedTables_AllPresent(t *testing.T) {
 		"schema_findings",
 		"crypto_meta",
 		"health_history",
+		"query_store",
 	}
 
 	if len(expectedTables) != len(want) {
@@ -165,9 +166,7 @@ func TestFullSchemaDDL_NoDrop(t *testing.T) {
 }
 
 func TestAdvisoryLockKey_UsesHashText(t *testing.T) {
-	// The advisory lock functions must use hashtext('pg_sage') as the key.
-	// Verify this by checking the DDL-adjacent lock/unlock SQL
-	// embedded in acquireAdvisoryLock and ReleaseAdvisoryLock.
+	// The advisory lock must use hashtext('pg_sage') as the key.
 	// We verify the constant string is present in the source via
 	// the fullSchemaDDL not containing it (it's in Go code, not DDL),
 	// but we can verify the config table DDL references the
@@ -209,6 +208,28 @@ func TestDDLFindings_HasDedupIndex(t *testing.T) {
 func TestDDLExplainCache_HasQueryidIndex(t *testing.T) {
 	if !strings.Contains(ddlExplainCache, "idx_explain_queryid") {
 		t.Error("ddlExplainCache missing queryid index")
+	}
+}
+
+func TestDDL_HasFleetScaleOperationalIndexes(t *testing.T) {
+	required := map[string]string{
+		"ddlSessions":          "idx_sessions_expires",
+		"ddlNotificationRules": "idx_notification_rules_event_enabled",
+		"ddlNotificationLog":   "idx_notification_log_sent_at",
+		"fullSchemaDDL":        "idx_action_log_outcome_time",
+		"runMigrations":        "idx_action_log_outcome_time",
+	}
+	sources := map[string]string{
+		"ddlSessions":          ddlSessions,
+		"ddlNotificationRules": ddlNotificationRules,
+		"ddlNotificationLog":   ddlNotificationLog,
+		"fullSchemaDDL":        fullSchemaDDL,
+		"runMigrations":        strings.Join(migrationStatements(), "\n"),
+	}
+	for name, idx := range required {
+		if !strings.Contains(sources[name], idx) {
+			t.Errorf("%s missing %s", name, idx)
+		}
 	}
 }
 
@@ -274,19 +295,15 @@ func TestBootstrap_FreshDatabase(t *testing.T) {
 	pool, ctx := requireDB(t)
 	serializeAcrossPackages(t, ctx, pool)
 
-	// Acquire lock before dropping schema to prevent cross-package races.
-	_, _ = pool.Exec(ctx, "SELECT pg_advisory_lock(hashtext('pg_sage'))")
-
 	_, err := pool.Exec(ctx, "DROP SCHEMA IF EXISTS sage CASCADE")
 	if err != nil {
 		t.Fatalf("dropping sage schema: %v", err)
 	}
 
-	// Bootstrap should create everything (lock already held).
+	// Bootstrap should create everything under its pinned lock.
 	if err := Bootstrap(ctx, pool); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
-	ReleaseAdvisoryLock(ctx, pool)
 
 	// Assert schema exists.
 	var one int
@@ -325,11 +342,9 @@ func TestBootstrap_Idempotent(t *testing.T) {
 
 	// First bootstrap (may already exist from previous test).
 	bootstrapWithRetry(t, ctx, pool)
-	ReleaseAdvisoryLock(ctx, pool)
 
 	// Second bootstrap — should not error.
 	bootstrapWithRetry(t, ctx, pool)
-	ReleaseAdvisoryLock(ctx, pool)
 
 	// PersistTrustRampStart should return a valid time.
 	ts1, err := PersistTrustRampStart(ctx, pool, time.Time{})

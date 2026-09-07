@@ -3,7 +3,6 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -57,24 +56,41 @@ type RCAEngine interface {
 	PersistIncidents(ctx context.Context, pool *pgxpool.Pool) error
 }
 
+// SupplementalDetector adds database-backed findings without coupling the
+// analyzer package to a detector implementation.
+type SupplementalDetector interface {
+	Detect(context.Context) ([]Finding, error)
+}
+
 // Analyzer runs the rules engine on a recurring interval, producing
 // findings and persisting them to the sage.findings table.
 type Analyzer struct {
-	pool      *pgxpool.Pool
-	cfg       *config.Config
-	collector *collector.Collector
-	extras    *RuleExtras
-	optimizer  *optimizer.Optimizer
-	advisor    ConfigAdvisor
-	forecaster WorkloadForecaster
-	tuner      QueryTuner
+	pool         *pgxpool.Pool
+	cfg          *config.Config
+	collector    *collector.Collector
+	extras       *RuleExtras
+	optimizer    *optimizer.Optimizer
+	advisor      ConfigAdvisor
+	forecaster   WorkloadForecaster
+	tuner        QueryTuner
 	rcaEngine    RCAEngine
+	detectors    []SupplementalDetector
+	planNarrator PlanNarrator
 	logFn        func(string, string, ...any)
 	dispatcher   EventDispatcher
 	databaseName string
 	mu           sync.RWMutex
 	findings     []Finding
 }
+
+// PlanNarrator enriches plan_regression findings with an LLM-generated
+// "why did the plan change" narrative (C6). nil disables it.
+type PlanNarrator interface {
+	Narrate(ctx context.Context, findings []Finding) []Finding
+}
+
+// WithPlanNarrator attaches the LLM plan-regression narrator (C6).
+func (a *Analyzer) WithPlanNarrator(n PlanNarrator) { a.planNarrator = n }
 
 // New creates a new Analyzer.
 func New(
@@ -112,6 +128,13 @@ func (a *Analyzer) WithDispatcher(d EventDispatcher) {
 // WithRCAEngine sets the root cause analysis engine for the analyzer.
 func (a *Analyzer) WithRCAEngine(e RCAEngine) {
 	a.rcaEngine = e
+}
+
+// WithSupplementalDetector attaches a detector before the analyzer starts.
+func (a *Analyzer) WithSupplementalDetector(detector SupplementalDetector) {
+	if detector != nil {
+		a.detectors = append(a.detectors, detector)
+	}
 }
 
 // WithDatabaseName sets the database name included in events.
@@ -200,9 +223,19 @@ func filterSchemaExclusions(snap *collector.Snapshot) {
 	snap.Indexes = idxFiltered
 }
 
+func snapshotForAnalysis(source *collector.Snapshot) *collector.Snapshot {
+	if source == nil {
+		return nil
+	}
+	private := *source
+	private.Tables = append([]collector.TableStats(nil), source.Tables...)
+	private.Indexes = append([]collector.IndexStats(nil), source.Indexes...)
+	return &private
+}
+
 func (a *Analyzer) cycle(ctx context.Context) {
-	current := a.collector.LatestSnapshot()
-	previous := a.collector.PreviousSnapshot()
+	current := snapshotForAnalysis(a.collector.LatestSnapshot())
+	previous := snapshotForAnalysis(a.collector.PreviousSnapshot())
 	if current == nil {
 		a.logFn("DEBUG", "analyzer: no snapshot yet, skipping")
 		return
@@ -268,6 +301,11 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	// Plan regression (compares recent explain plans per query).
 	if !skipQueryRules {
 		planDiffFindings := a.checkPlanRegression(ctx)
+		// Enrich plan regressions with a plain-English "why did the plan
+		// change" narrative when the LLM narrator is attached (C6).
+		if a.planNarrator != nil && len(planDiffFindings) > 0 {
+			planDiffFindings = a.planNarrator.Narrate(ctx, planDiffFindings)
+		}
 		allFindings = append(allFindings, planDiffFindings...)
 	}
 
@@ -299,32 +337,8 @@ func (a *Analyzer) cycle(ctx context.Context) {
 				if t := canonicalTable(rec.Table); t != "" {
 					deferredTables[t] = true
 				}
-				allFindings = append(allFindings, Finding{
-					Category:         rec.Category,
-					Severity:         rec.Severity,
-					ObjectType:       "index",
-					ObjectIdentifier: rec.Table,
-					Title: fmt.Sprintf(
-						"Index recommendation for %s", rec.Table,
-					),
-					Detail: map[string]any{
-						"ddl":                      rec.DDL,
-						"drop_ddl":                 rec.DropDDL,
-						"llm_rationale":            rec.Rationale,
-						"confidence_score":         rec.Confidence,
-						"action_level":             rec.ActionLevel,
-						"index_type":               rec.IndexType,
-						"category":                 rec.Category,
-						"estimated_improvement_pct": rec.EstimatedImprovementPct,
-						"hypopg_validated":         rec.Validated,
-						"plan_source":              optResult.PlanSource,
-						"affected_queries":         rec.AffectedQueries,
-					},
-					Recommendation: rec.Rationale,
-					RecommendedSQL: rec.DDL,
-					RollbackSQL:    rec.DropDDL,
-					ActionRisk:     rec.ActionLevel,
-				})
+				allFindings = append(allFindings,
+					optimizerRecommendationToFinding(rec, optResult))
 			}
 		}
 	}
@@ -387,6 +401,15 @@ func (a *Analyzer) cycle(ctx context.Context) {
 				chains, a.cfg.Analyzer.LockChain, ownPID)
 			allFindings = append(allFindings, lcFindings...)
 		}
+	}
+
+	for _, detector := range a.detectors {
+		findings, err := detector.Detect(ctx)
+		if err != nil {
+			a.logFn("WARN", "analyzer: supplemental detector: %v", err)
+			continue
+		}
+		allFindings = append(allFindings, findings...)
 	}
 
 	// v0.9 — Root Cause Analysis engine.
@@ -506,7 +529,7 @@ func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {
 		windowDays = 7
 	}
 	rows, err := a.pool.Query(ctx,
-		`SELECT sql_executed, executed_at FROM sage.action_log
+		`/* pg_sage */ SELECT sql_executed, executed_at FROM sage.action_log
 		 WHERE sql_executed ILIKE 'CREATE INDEX%'
 		   AND outcome = 'success'
 		   AND executed_at > now() - make_interval(days => $1)`,
@@ -536,7 +559,7 @@ func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {
 func (a *Analyzer) checkXIDWraparound(ctx context.Context) []Finding {
 	var xidAge int64
 	err := a.pool.QueryRow(ctx,
-		`SELECT age(datfrozenxid) FROM pg_database
+		`/* pg_sage */ SELECT age(datfrozenxid) FROM pg_database
 		 WHERE datname = current_database()`,
 	).Scan(&xidAge)
 	if err != nil {
@@ -548,7 +571,7 @@ func (a *Analyzer) checkXIDWraparound(ctx context.Context) []Finding {
 
 func (a *Analyzer) checkConnectionLeaks(ctx context.Context) []Finding {
 	rows, err := a.pool.Query(ctx,
-		`SELECT pid, usename, application_name, state,
+		`/* pg_sage */ SELECT pid, usename, application_name, state,
 		        now() - state_change AS idle_duration
 		 FROM pg_stat_activity
 		 WHERE state = 'idle in transaction'
@@ -587,7 +610,7 @@ func (a *Analyzer) buildHistoricalAverages(
 	ctx context.Context,
 ) map[int64]float64 {
 	rows, err := a.pool.Query(ctx,
-		`SELECT data FROM sage.snapshots
+		`/* pg_sage */ SELECT data FROM sage.snapshots
 		 WHERE category = 'queries'
 		   AND collected_at > now() - make_interval(days => $1)
 		 ORDER BY collected_at DESC`,
@@ -720,7 +743,7 @@ func (a *Analyzer) openIndexRecommendationTables(
 		return nil
 	}
 	rows, err := a.pool.Query(ctx,
-		`SELECT DISTINCT object_identifier
+		`/* pg_sage */ SELECT DISTINCT object_identifier
 		 FROM sage.findings
 		 WHERE category ILIKE '%index%'
 		   AND status NOT IN ('resolved','suppressed')`,

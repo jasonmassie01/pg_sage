@@ -95,7 +95,7 @@ func (s *DatabaseStore) Create(
 
 	var id int
 	err = s.pool.QueryRow(qctx,
-		`INSERT INTO sage.databases
+		`/* pg_sage */ INSERT INTO sage.databases
 		    (name, host, port, database_name, username, password_enc,
 		     sslmode, max_connections, tags, trust_level,
 		     execution_mode, created_by)
@@ -117,7 +117,7 @@ func (s *DatabaseStore) List(ctx context.Context) ([]DatabaseRecord, error) {
 	defer cancel()
 
 	rows, err := s.pool.Query(qctx,
-		`SELECT id, name, host, port, database_name, username,
+		`/* pg_sage */ SELECT id, name, host, port, database_name, username,
 		        sslmode, max_connections, enabled, tags, trust_level,
 		        execution_mode, created_at, created_by, updated_at
 		 FROM sage.databases ORDER BY id`)
@@ -163,7 +163,7 @@ func (s *DatabaseStore) Get(ctx context.Context, id int) (*DatabaseRecord, error
 	var tagsJSON []byte
 	var createdBy *int
 	err := s.pool.QueryRow(qctx,
-		`SELECT id, name, host, port, database_name, username,
+		`/* pg_sage */ SELECT id, name, host, port, database_name, username,
 		        sslmode, max_connections, enabled, tags, trust_level,
 		        execution_mode, created_at, created_by, updated_at
 		 FROM sage.databases WHERE id = $1`, id,
@@ -217,29 +217,25 @@ func (s *DatabaseStore) Update(
 			return fmt.Errorf("encrypting password: %w", encErr)
 		}
 		tag, err = s.pool.Exec(qctx,
-			`UPDATE sage.databases SET
+			`/* pg_sage */ UPDATE sage.databases SET
 			    name=$1, host=$2, port=$3, database_name=$4,
 			    username=$5, password_enc=$6, sslmode=$7,
-			    max_connections=$8, tags=$9, trust_level=$10,
-			    execution_mode=$11, updated_at=now()
-			 WHERE id=$12`,
+			    max_connections=$8, tags=$9, updated_at=now()
+			 WHERE id=$10`,
 			input.Name, input.Host, input.Port, input.DatabaseName,
 			input.Username, enc, input.SSLMode,
-			input.MaxConnections, tagsJSON, input.TrustLevel,
-			input.ExecutionMode, id,
+			input.MaxConnections, tagsJSON, id,
 		)
 	} else {
 		tag, err = s.pool.Exec(qctx,
-			`UPDATE sage.databases SET
+			`/* pg_sage */ UPDATE sage.databases SET
 			    name=$1, host=$2, port=$3, database_name=$4,
 			    username=$5, sslmode=$6, max_connections=$7,
-			    tags=$8, trust_level=$9, execution_mode=$10,
-			    updated_at=now()
-			 WHERE id=$11`,
+			    tags=$8, updated_at=now()
+			 WHERE id=$9`,
 			input.Name, input.Host, input.Port, input.DatabaseName,
 			input.Username, input.SSLMode,
-			input.MaxConnections, tagsJSON, input.TrustLevel,
-			input.ExecutionMode, id,
+			input.MaxConnections, tagsJSON, id,
 		)
 	}
 	if err != nil {
@@ -276,7 +272,7 @@ func (s *DatabaseStore) GetConnectionString(
 	var port int
 	var enc []byte
 	err := s.pool.QueryRow(qctx,
-		`SELECT host, port, database_name, username,
+		`/* pg_sage */ SELECT host, port, database_name, username,
 		        password_enc, sslmode
 		 FROM sage.databases WHERE id = $1`, id,
 	).Scan(&host, &port, &dbName, &user, &enc, &sslmode)
@@ -289,14 +285,54 @@ func (s *DatabaseStore) GetConnectionString(
 		return "", fmt.Errorf("decrypting password: %w", err)
 	}
 
+	return databaseConnectionString(
+		host, port, dbName, user, password, sslmode,
+	), nil
+}
+
+// GetUpdateConnectionString builds the candidate connection string for an
+// update without persisting it. An empty input password reuses and decrypts
+// the currently stored password.
+func (s *DatabaseStore) GetUpdateConnectionString(
+	ctx context.Context, id int, input DatabaseInput,
+) (string, error) {
+	if err := validateInput(input, false); err != nil {
+		return "", err
+	}
+	password := input.Password
+	if password == "" {
+		qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		var enc []byte
+		if err := s.pool.QueryRow(qctx,
+			`/* pg_sage */ SELECT password_enc
+			 FROM sage.databases WHERE id = $1`, id,
+		).Scan(&enc); err != nil {
+			return "", fmt.Errorf("reading database %d password: %w", id, err)
+		}
+		var err error
+		password, err = crypto.Decrypt(enc, s.encryptKey)
+		if err != nil {
+			return "", fmt.Errorf("decrypting password: %w", err)
+		}
+	}
+	return databaseConnectionString(
+		input.Host, input.Port, input.DatabaseName,
+		input.Username, password, input.SSLMode,
+	), nil
+}
+
+func databaseConnectionString(
+	host string, port int, databaseName, username, password, sslMode string,
+) string {
 	u := &url.URL{
 		Scheme:   "postgres",
-		User:     url.UserPassword(user, password),
+		User:     url.UserPassword(username, password),
 		Host:     fmt.Sprintf("%s:%d", host, port),
-		Path:     dbName,
-		RawQuery: url.Values{"sslmode": {sslmode}}.Encode(),
+		Path:     databaseName,
+		RawQuery: url.Values{"sslmode": {sslMode}}.Encode(),
 	}
-	return u.String(), nil
+	return u.String()
 }
 
 // Count returns the number of databases.

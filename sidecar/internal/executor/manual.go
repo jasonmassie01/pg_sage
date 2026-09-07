@@ -29,19 +29,23 @@ func (e *Executor) ExecuteManual(
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return 0, fmt.Errorf("SQL validation: %w", err)
 	}
-
-	if CheckEmergencyStop(ctx, e.pool) {
-		return 0, fmt.Errorf("emergency stop active")
-	}
-	if err := e.verifyManualFinding(ctx, findingID, sql); err != nil {
+	if err := e.manualMutationBlock(ctx); err != nil {
 		return 0, err
 	}
 
-	beforeState := e.snapshotBeforeState(ctx)
+	findingDetail, err := e.verifyManualFinding(ctx, findingID, sql)
+	if err != nil {
+		return 0, err
+	}
+
+	beforeState := e.snapshotBeforeState(ctx, nil)
 
 	ddlTimeout := e.cfg.Safety.DDLTimeout()
 	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
 	if categorizeAction(sql) == "create_index" {
+		if err := e.manualMutationBlock(ctx); err != nil {
+			return 0, err
+		}
 		if err := e.dropInvalidCreateIndexBlockers(
 			ctx, sql, ddlTimeout, lockOpt,
 		); err != nil {
@@ -51,6 +55,9 @@ func (e *Executor) ExecuteManual(
 		exists, err := e.createIndexCoverageExists(ctx, sql)
 		if err != nil {
 			return 0, fmt.Errorf("checking existing index coverage: %w", err)
+		}
+		if err := e.manualMutationBlock(ctx); err != nil {
+			return 0, err
 		}
 		if exists {
 			actionID := e.logManualAction(
@@ -63,9 +70,16 @@ func (e *Executor) ExecuteManual(
 			return actionID, nil
 		}
 	}
+	if err := e.manualMutationBlock(ctx); err != nil {
+		return 0, err
+	}
 
 	var execErr error
-	if categorizeAction(sql) == "analyze" {
+	if _, _, isSignal := parseBackendSignal(sql); isSignal {
+		execErr = e.executeApprovedBackendSignal(
+			ctx, sql, findingDetail, approvedBy,
+		)
+	} else if categorizeAction(sql) == "analyze" {
 		execErr = e.executeManualAnalyze(ctx, findingID, sql)
 	} else {
 		execErr = e.execManualSQLWithRetry(ctx, sql, ddlTimeout, lockOpt)
@@ -78,6 +92,7 @@ func (e *Executor) ExecuteManual(
 	if execErr != nil {
 		return 0, fmt.Errorf("executing SQL: %w", execErr)
 	}
+	e.notifyPostDDL(ctx, sql)
 
 	if rollbackSQL != "" && actionID > 0 {
 		// Detach the monitor from the caller's context so it
@@ -86,9 +101,7 @@ func (e *Executor) ExecuteManual(
 		// the HTTP handler returns and the rollback-monitor
 		// window never elapses. Track under the executor's
 		// WaitGroup so Shutdown can wait for it.
-		e.monitors.Add(1)
-		go func() {
-			defer e.monitors.Done()
+		e.startRollbackMonitor(func() {
 			MonitorAndRollback(
 				context.WithoutCancel(ctx), e.pool, actionID, rollbackSQL,
 				e.cfg.Trust.RollbackThresholdPct,
@@ -96,7 +109,7 @@ func (e *Executor) ExecuteManual(
 				e.logFn,
 				e.shutdownCh,
 			)
-		}()
+		})
 	} else if actionID > 0 {
 		updateActionSuccess(ctx, e.pool, actionID)
 	}
@@ -110,10 +123,13 @@ func (e *Executor) RollbackAction(
 	actionID int64,
 	reason string,
 ) error {
+	if err := e.manualMutationBlock(ctx); err != nil {
+		return err
+	}
 	var rollbackSQL *string
 	var outcome string
 	err := e.pool.QueryRow(ctx,
-		`SELECT rollback_sql, outcome
+		`/* pg_sage */ SELECT rollback_sql, outcome
 		   FROM sage.action_log WHERE id = $1`,
 		actionID,
 	).Scan(&rollbackSQL, &outcome)
@@ -132,8 +148,8 @@ func (e *Executor) RollbackAction(
 	if err := ValidateExecutorSQL(*rollbackSQL); err != nil {
 		return fmt.Errorf("rollback SQL validation: %w", err)
 	}
-	if CheckEmergencyStop(ctx, e.pool) {
-		return fmt.Errorf("emergency stop active")
+	if err := e.manualMutationBlock(ctx); err != nil {
+		return err
 	}
 
 	ddlTimeout := e.cfg.Safety.DDLTimeout()
@@ -151,6 +167,7 @@ func (e *Executor) RollbackAction(
 			"manual rollback failed: "+execErr.Error())
 		return fmt.Errorf("executing rollback SQL: %w", execErr)
 	}
+	e.notifyPostDDL(ctx, *rollbackSQL)
 	if strings.TrimSpace(reason) == "" {
 		reason = "manual rollback"
 	}
@@ -158,33 +175,54 @@ func (e *Executor) RollbackAction(
 	return nil
 }
 
+func (e *Executor) manualMutationBlock(ctx context.Context) error {
+	cfg, _, enabled := e.policySnapshot()
+	if !enabled {
+		return fmt.Errorf("executor is disabled")
+	}
+	if cfg == nil {
+		return fmt.Errorf("execution policy is unavailable")
+	}
+	if cfg.Trust.Level == "observation" {
+		return fmt.Errorf("observation trust is cases only")
+	}
+	if cfg.Trust.Level != "advisory" && cfg.Trust.Level != "autonomous" {
+		return fmt.Errorf("unknown trust level")
+	}
+	if e.checkEmergencyStop(ctx) {
+		return fmt.Errorf("emergency stop active")
+	}
+	return nil
+}
+
 func (e *Executor) verifyManualFinding(
 	ctx context.Context,
 	findingID int,
 	sql string,
-) error {
+) (json.RawMessage, error) {
 	var recommendedSQL *string
+	var detail json.RawMessage
 	err := e.pool.QueryRow(ctx,
-		`SELECT recommended_sql
+		`/* pg_sage */ SELECT recommended_sql, detail
 		   FROM sage.findings
 		  WHERE id = $1
 		    AND status = 'open'
 		    AND acted_on_at IS NULL
 		    AND resolved_at IS NULL`,
 		findingID,
-	).Scan(&recommendedSQL)
+	).Scan(&recommendedSQL, &detail)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrFindingNotActionable
+			return nil, ErrFindingNotActionable
 		}
-		return fmt.Errorf("checking finding %d: %w", findingID, err)
+		return nil, fmt.Errorf("checking finding %d: %w", findingID, err)
 	}
 	if recommendedSQL == nil ||
 		compactSQL(*recommendedSQL) == "" ||
 		!strings.EqualFold(compactSQL(*recommendedSQL), compactSQL(sql)) {
-		return ErrFindingSQLMismatch
+		return nil, ErrFindingSQLMismatch
 	}
-	return nil
+	return detail, nil
 }
 
 func compactSQL(sql string) string {
@@ -212,7 +250,7 @@ func (e *Executor) manualAnalyzeFinding(
 ) (analyzer.Finding, error) {
 	var objectIdentifier string
 	err := e.pool.QueryRow(ctx,
-		`SELECT COALESCE(object_identifier, '')
+		`/* pg_sage */ SELECT COALESCE(object_identifier, '')
 		   FROM sage.findings
 		  WHERE id = $1`,
 		findingID,
@@ -284,7 +322,7 @@ func (e *Executor) logManualAction(
 
 	var actionID int64
 	err := e.pool.QueryRow(ctx,
-		`INSERT INTO sage.action_log
+		`/* pg_sage */ INSERT INTO sage.action_log
 		 (action_type, finding_id, sql_executed, rollback_sql,
 		  before_state, outcome, approved_by, approved_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7,
@@ -320,7 +358,7 @@ func (e *Executor) dropInvalidCreateIndexBlockers(
 		schemaName = "public"
 	}
 	rows, err := e.pool.Query(ctx,
-		`WITH indexed AS (
+		`/* pg_sage */ WITH indexed AS (
 		    SELECT format('%I.%I', idx_ns.nspname, idx.relname) AS index_name,
 		           array_agg(a.attname::text ORDER BY ord.n) AS cols
 		      FROM pg_index i
@@ -386,7 +424,7 @@ func (e *Executor) createIndexCoverageExists(
 
 	var one int
 	err := e.pool.QueryRow(ctx,
-		`WITH indexed AS (
+		`/* pg_sage */ WITH indexed AS (
 		    SELECT i.indexrelid,
 		           array_agg(a.attname::text ORDER BY ord.n) AS cols
 		      FROM pg_index i

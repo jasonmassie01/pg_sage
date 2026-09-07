@@ -465,7 +465,7 @@ SELECT count(*) FROM pg_stat_statements WHERE queryid = $1`, realQID,
 	err = postgresPool.QueryRow(ctx, `
 SELECT calls FROM pg_stat_statements
 WHERE queryid = $1
-  AND dbid = (SELECT oid FROM pg_database WHERE datname = 'postgres')
+  AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 LIMIT 1`, realQID).Scan(&postgresCalls)
 	if err != nil {
 		t.Fatalf("read postgres-scoped calls: %v", err)

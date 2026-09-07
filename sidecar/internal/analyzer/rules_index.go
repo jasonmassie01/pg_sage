@@ -11,6 +11,19 @@ import (
 
 type tableKey struct{ schema, table string }
 
+// isSystemSchema reports whether a schema is owned by PostgreSQL or an
+// extension and must not be the target of index recommendations. The
+// executor protects these from execution, but findings about them should
+// never be generated in the first place (they are noise the user can do
+// nothing about, e.g. _timescaledb_catalog indexes).
+func isSystemSchema(schema string) bool {
+	s := strings.ToLower(schema)
+	return s == "information_schema" ||
+		s == "google_ml" ||
+		strings.HasPrefix(s, "pg_") ||
+		strings.HasPrefix(s, "_timescaledb")
+}
+
 // buildUnloggedSet returns a set of "schema.table" keys for unlogged
 // tables. Indexes on unlogged tables are lost on crash, so findings
 // about them should be downgraded to informational.
@@ -62,6 +75,9 @@ func ruleUnusedIndexes(
 	var findings []Finding
 
 	for _, idx := range current.Indexes {
+		if isSystemSchema(idx.SchemaName) {
+			continue
+		}
 		if idx.IdxScan > 0 || idx.IsPrimary || idx.IsUnique || !idx.IsValid {
 			continue
 		}
@@ -132,6 +148,9 @@ func ruleInvalidIndexes(
 	unlogged := buildUnloggedSet(current)
 	var findings []Finding
 	for _, idx := range current.Indexes {
+		if isSystemSchema(idx.SchemaName) {
+			continue
+		}
 		if idx.IsValid {
 			continue
 		}
@@ -181,6 +200,9 @@ func ruleDuplicateIndexes(
 ) []Finding {
 	var btrees []duplicateIndexCandidate
 	for _, idx := range current.Indexes {
+		if isSystemSchema(idx.SchemaName) {
+			continue
+		}
 		if !idx.IsValid {
 			continue
 		}
@@ -239,6 +261,9 @@ func ruleDuplicateIndexes(
 				if isConstraintBacked(a.info) {
 					continue
 				}
+				if !subsetWorthDropping(a.parsed, b.parsed, a.info, b.info) {
+					continue
+				}
 				if seen[aIdent] {
 					continue
 				}
@@ -248,6 +273,9 @@ func ruleDuplicateIndexes(
 				))
 			} else if IsSubset(b.parsed, a.parsed) {
 				if isConstraintBacked(b.info) {
+					continue
+				}
+				if !subsetWorthDropping(b.parsed, a.parsed, b.info, a.info) {
 					continue
 				}
 				if seen[bIdent] {
@@ -287,13 +315,51 @@ func isConstraintBacked(idx collector.IndexStats) bool {
 	return idx.IsPrimary || idx.IsUnique
 }
 
+const (
+	// A wide/large superset is a poor replacement for a narrow index:
+	// serving a `WHERE c1 = ?` lookup from a fat composite reads much wider
+	// tuples (more I/O per probe) than the dedicated narrow index, so the
+	// narrow index earns its keep as a faster access path. Only recommend
+	// dropping the subset when the superset is a *close* replacement.
+	maxSubsetExtraKeyCols = 2   // superset may add at most this many key cols
+	maxSubsetSizeRatio    = 3.0 // superset may be at most this many x the size
+	// A heavily-used narrow index is actively serving lookups; even a
+	// modestly wider superset would slow them all down, so keep it.
+	subsetHeavyUseScans = 100_000
+)
+
+// subsetWorthDropping reports whether dropping the narrow `sub` index in
+// favor of the wider `sup` is a net win. Column count is the operator's
+// intuition ("don't replace (c1) with (c1..c12)"); index byte size is the
+// more accurate signal because it accounts for actual column widths, and
+// usage tells us whether the narrow index is even earning its keep.
+func subsetWorthDropping(
+	sub, sup ParsedIndex, subInfo, supInfo collector.IndexStats,
+) bool {
+	if len(sup.Columns)-len(sub.Columns) > maxSubsetExtraKeyCols {
+		return false
+	}
+	if subInfo.IndexBytes > 0 && supInfo.IndexBytes > 0 &&
+		float64(supInfo.IndexBytes) >
+			float64(subInfo.IndexBytes)*maxSubsetSizeRatio {
+		return false
+	}
+	// A heavily-used narrow index is worth keeping unless the superset is
+	// nearly the same width (≤1 extra key column).
+	if subInfo.IdxScan >= subsetHeavyUseScans &&
+		len(sup.Columns)-len(sub.Columns) > 1 {
+		return false
+	}
+	return true
+}
+
 func subsetFinding(
 	sub, sup collector.IndexStats,
 	subIdent, supIdent string,
 ) Finding {
 	return Finding{
 		Category:         "duplicate_index",
-		Severity:         "critical",
+		Severity:         "info",
 		ObjectType:       "index",
 		ObjectIdentifier: subIdent,
 		Title: fmt.Sprintf(
@@ -305,12 +371,18 @@ func subsetFinding(
 			"subset_def":   sub.IndexDef,
 			"superset_def": sup.IndexDef,
 		},
-		Recommendation: "Drop subset index; the larger index covers it.",
+		Recommendation: "Subset index — likely covered by the larger index, " +
+			"but a dedicated narrow index can still be faster and may be " +
+			"app-managed. Review before dropping.",
 		RecommendedSQL: fmt.Sprintf(
 			"DROP INDEX CONCURRENTLY %s;", subIdent,
 		),
 		RollbackSQL: sub.IndexDef + ";",
-		ActionRisk:  "safe",
+		// Advisory only: a leading-prefix subset drop is a judgment call
+		// (read-perf trade-off, and apps that re-create their own indexes
+		// turn an auto-drop into an oscillation). high_risk never
+		// auto-executes — exact-duplicate drops stay auto (safe).
+		ActionRisk: "high_risk",
 	}
 }
 
@@ -326,6 +398,9 @@ func ruleMissingFKIndexes(
 	indexed := make(map[tableKey][][]string)
 
 	for _, idx := range current.Indexes {
+		if isSystemSchema(idx.SchemaName) {
+			continue
+		}
 		if !idx.IsValid {
 			continue
 		}
@@ -347,6 +422,9 @@ func ruleMissingFKIndexes(
 				schema = t.SchemaName
 				break
 			}
+		}
+		if isSystemSchema(schema) {
+			continue
 		}
 
 		key := tableKey{schema, fk.TableName}

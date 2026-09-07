@@ -18,7 +18,7 @@ func (s *NotificationStore) ListLog(
 	defer cancel()
 
 	rows, err := s.pool.Query(qctx,
-		`SELECT id, channel_id, event, subject,
+		`/* pg_sage */ SELECT id, channel_id, event, subject,
 		        COALESCE(body, ''), status,
 		        COALESCE(error, ''), sent_at
 		 FROM sage.notification_log

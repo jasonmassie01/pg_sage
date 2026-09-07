@@ -108,6 +108,10 @@ func (rt *RunawayTracker) Evaluate(
 ) []analyzer.Finding {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if rt.cfg == nil || !rt.cfg.Enabled {
+		clear(rt.tracked)
+		return nil
+	}
 
 	rt.cycle++
 
@@ -255,6 +259,8 @@ func buildRunawayFinding(tq *TrackedQuery, cycle uint64) analyzer.Finding {
 		Detail: map[string]any{
 			"pid":         tq.PID,
 			"query":       tq.QueryText,
+			"query_id":    tq.QueryID,
+			"query_start": tq.QueryStart.UTC().Format(time.RFC3339Nano),
 			"app_name":    tq.AppName,
 			"policy":      tq.MatchedPolicy,
 			"state":       tq.State,

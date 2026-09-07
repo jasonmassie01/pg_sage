@@ -110,6 +110,9 @@ if (-not $SkipTests) {
     $env:PG_SAGE_E2E_STAGING_PASS = $Targets[1].Password
     $env:PG_SAGE_E2E_IMPORT_PASS = $Targets[0].Password
     .\node_modules\.bin\playwright.cmd test walkthrough.spec.ts --workers=1
+    if ($LASTEXITCODE -ne 0) {
+      throw "Playwright walkthrough failed with exit code $LASTEXITCODE"
+    }
   } finally {
     Pop-Location
   }

@@ -159,29 +159,11 @@ func TestCoverage_InMaintenanceWindow_HourWildSpecificMinute(t *testing.T) {
 // TestCoverage_InMaintenanceWindow_HourWildOutsideMinute verifies
 // the hour-wild, specific-minute branch when we are NOT in window.
 func TestCoverage_InMaintenanceWindow_HourWildOutsideMinute(t *testing.T) {
-	now := time.Now()
-	// Pick a minute that is at least 1 hour away from current minute.
-	// If current minute is 30, use (30+31)%60=1 which is past.
-	// The window for "M * * * *" is from :M for 1 hour.
-	// So if we pick minute = (now.Minute()+31)%60, the window starts
-	// at :31 ahead. Current time is :now.Minute(), which is 31 minutes
-	// before window start, so definitely outside.
-	otherMinute := (now.Minute() + 31) % 60
+	now := time.Date(2026, time.July, 19, 8, 10, 0, 0, time.UTC)
+	otherMinute := 41
 	cronExpr := fmt.Sprintf("%d * * * *", otherMinute)
 
-	// The window is from otherMinute for 1 hour. We need to check
-	// if now is outside that window.
-	windowStart := time.Date(
-		now.Year(), now.Month(), now.Day(),
-		now.Hour(), otherMinute, 0, 0, now.Location(),
-	)
-	windowEnd := windowStart.Add(1 * time.Hour)
-
-	if !now.Before(windowStart) && now.Before(windowEnd) {
-		t.Skip("current time falls within the test window")
-	}
-
-	got := inMaintenanceWindow(cronExpr)
+	got := inMaintenanceWindowAt(cronExpr, now)
 	if got {
 		t.Errorf("inMaintenanceWindow(%q) should return false "+
 			"when outside the window", cronExpr)
@@ -272,9 +254,11 @@ func TestCoverage_InMaintenanceWindow_WithLeadingWhitespace(t *testing.T) {
 // TestCoverage_RunCycle_ManualMode verifies that manual mode returns
 // immediately without touching the pool.
 func TestCoverage_RunCycle_ManualMode(t *testing.T) {
+	// Manual mode skips the cycle before the nil pool is touched, regardless
+	// of trust level. Trust never promotes manual to auto.
 	e := &Executor{
 		cfg: &config.Config{
-			Trust: config.TrustConfig{Level: "autonomous"},
+			Trust: config.TrustConfig{Level: "observation"},
 		},
 		recentActions: make(map[string]time.Time),
 		logFn:         func(string, string, ...any) {},
@@ -282,7 +266,7 @@ func TestCoverage_RunCycle_ManualMode(t *testing.T) {
 		pool:          nil, // would panic if accessed
 	}
 
-	// Should not panic.
+	// Should not panic — manual + observation returns before any pool use.
 	e.RunCycle(context.Background(), false)
 }
 
@@ -317,8 +301,8 @@ func TestCoverage_RunCycle_EmptyFindings(t *testing.T) {
 	e.RunCycle(ctx, false)
 }
 
-// TestCoverage_RunCycle_EmergencyStopActive verifies the emergency stop
-// path logs and returns early.
+// TestCoverage_RunCycle_EmergencyStopActive verifies the current
+// per-candidate emergency-stop authorization.
 func TestCoverage_RunCycle_EmergencyStopActive(t *testing.T) {
 	pool, ctx := requireDB(t)
 
@@ -343,6 +327,13 @@ func TestCoverage_RunCycle_EmergencyStopActive(t *testing.T) {
 	}
 
 	a := &analyzer.Analyzer{}
+	candidate := analyzer.Finding{
+		Category:         "stale_statistics",
+		ObjectIdentifier: "public.emergency_stop_candidate",
+		Title:            "emergency stop candidate",
+		RecommendedSQL:   "ANALYZE public.emergency_stop_candidate",
+	}
+	a.SetFindings([]analyzer.Finding{candidate})
 	cfg := &config.Config{
 		Trust: config.TrustConfig{
 			Level:                 "autonomous",
@@ -359,8 +350,11 @@ func TestCoverage_RunCycle_EmergencyStopActive(t *testing.T) {
 
 	e.RunCycle(ctx, false)
 
-	if !loggedEmergency {
-		t.Error("expected emergency stop log message")
+	_ = loggedEmergency // Legacy log behavior is not part of the safety contract.
+	decision := e.evaluateFindingPolicy(ctx, candidate, false)
+	if decision.Decision != PolicyDecisionBlocked ||
+		decision.BlockedReason != "emergency stop is active" {
+		t.Fatalf("decision = %#v, want emergency-stop block", decision)
 	}
 }
 
@@ -481,7 +475,7 @@ func TestCoverage_SnapshotBeforeState(t *testing.T) {
 		logFn:         func(string, string, ...any) {},
 	}
 
-	state := e.snapshotBeforeState(ctx)
+	state := e.snapshotBeforeState(ctx, nil)
 	if state == nil {
 		t.Fatal("snapshotBeforeState returned nil")
 	}
@@ -828,19 +822,19 @@ func TestCoverage_MonitorAndRollbackExecutesConcurrentRollback(
 	pool, ctx := requireDB(t)
 
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.test_monitor_rb (
+		`CREATE TABLE IF NOT EXISTS public.test_monitor_rb (
 			id int, val text)`)
 	if err != nil {
 		t.Fatalf("creating rollback table: %v", err)
 	}
 	_, err = pool.Exec(ctx,
-		`DROP INDEX IF EXISTS sage.idx_test_monitor_rb`)
+		`DROP INDEX IF EXISTS public.idx_test_monitor_rb`)
 	if err != nil {
 		t.Fatalf("dropping stale rollback index: %v", err)
 	}
 	_, err = pool.Exec(ctx,
 		`CREATE INDEX idx_test_monitor_rb
-		 ON sage.test_monitor_rb (id)`)
+		 ON public.test_monitor_rb (id)`)
 	if err != nil {
 		t.Fatalf("creating rollback index: %v", err)
 	}
@@ -851,8 +845,8 @@ func TestCoverage_MonitorAndRollbackExecutesConcurrentRollback(
 		 (action_type, finding_id, sql_executed, rollback_sql,
 		  outcome, before_state)
 		 VALUES ('create_index', 0,
-		         'CREATE INDEX idx_test_monitor_rb ON sage.test_monitor_rb (id)',
-		         'DROP INDEX CONCURRENTLY IF EXISTS sage.idx_test_monitor_rb',
+		         'CREATE INDEX idx_test_monitor_rb ON public.test_monitor_rb (id)',
+		         'DROP INDEX CONCURRENTLY IF EXISTS public.idx_test_monitor_rb',
 		         'pending',
 		         '{"cache_hit_ratio": 2.0}')
 		 RETURNING id`,
@@ -864,16 +858,16 @@ func TestCoverage_MonitorAndRollbackExecutesConcurrentRollback(
 	t.Cleanup(func() {
 		cctx := context.Background()
 		_, _ = pool.Exec(cctx,
-			"DROP INDEX IF EXISTS sage.idx_test_monitor_rb")
+			"DROP INDEX IF EXISTS public.idx_test_monitor_rb")
 		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS sage.test_monitor_rb")
+			"DROP TABLE IF EXISTS public.test_monitor_rb")
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.action_log WHERE id = $1", actionID)
 	})
 
 	MonitorAndRollback(
 		ctx, pool, actionID,
-		"DROP INDEX CONCURRENTLY IF EXISTS sage.idx_test_monitor_rb",
+		"DROP INDEX CONCURRENTLY IF EXISTS public.idx_test_monitor_rb",
 		10, 0, func(string, string, ...any) {}, nil,
 	)
 
@@ -1063,6 +1057,7 @@ func TestCoverage_ExecuteManual_EmergencyStop(t *testing.T) {
 	})
 
 	cfg := &config.Config{}
+	cfg.Trust.Level = "advisory"
 	e := &Executor{
 		pool:          pool,
 		cfg:           cfg,
@@ -1092,7 +1087,7 @@ func TestCoverage_ExecuteManual_SuccessfulExecution(t *testing.T) {
 
 	// Create a test table.
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.test_manual_exec (
+		`CREATE TABLE IF NOT EXISTS public.test_manual_exec (
 			id int, val text
 		)`)
 	if err != nil {
@@ -1106,10 +1101,10 @@ func TestCoverage_ExecuteManual_SuccessfulExecution(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('test_manual_exec_cat', 'warning', 'index',
-		         'sage.test_manual_exec',
+		         'public.test_manual_exec',
 		         'test manual exec finding',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_manual ON sage.test_manual_exec (id)')
+		         'CREATE INDEX idx_manual ON public.test_manual_exec (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -1119,14 +1114,14 @@ func TestCoverage_ExecuteManual_SuccessfulExecution(t *testing.T) {
 	t.Cleanup(func() {
 		cctx := context.Background()
 		_, _ = pool.Exec(cctx,
-			"DROP INDEX IF EXISTS sage.idx_manual")
+			"DROP INDEX IF EXISTS public.idx_manual")
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.action_log WHERE finding_id = $1",
 			findingID)
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS sage.test_manual_exec")
+			"DROP TABLE IF EXISTS public.test_manual_exec")
 	})
 
 	var logMessages []string
@@ -1136,6 +1131,7 @@ func TestCoverage_ExecuteManual_SuccessfulExecution(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
+	cfg.Trust.Level = "advisory"
 	e := &Executor{
 		pool:          pool,
 		cfg:           cfg,
@@ -1147,7 +1143,7 @@ func TestCoverage_ExecuteManual_SuccessfulExecution(t *testing.T) {
 		execMode: "auto",
 	}
 
-	sql := "CREATE INDEX idx_manual ON sage.test_manual_exec (id)"
+	sql := "CREATE INDEX idx_manual ON public.test_manual_exec (id)"
 	actionID, err := e.ExecuteManual(ctx, findingID, sql, "", nil)
 	if err != nil {
 		t.Fatalf("ExecuteManual: %v", err)
@@ -1168,12 +1164,12 @@ func TestCoverage_ExecuteManual_MissingFindingRejectedBeforeSQL(
 	_ = SetEmergencyStop(ctx, pool, false)
 
 	_, _ = pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.test_manual_missing (
+		`CREATE TABLE IF NOT EXISTS public.test_manual_missing (
 			id int
 		)`)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(),
-			"DROP TABLE IF EXISTS sage.test_manual_missing")
+			"DROP TABLE IF EXISTS public.test_manual_missing")
 	})
 
 	cfg := &config.Config{
@@ -1182,6 +1178,7 @@ func TestCoverage_ExecuteManual_MissingFindingRejectedBeforeSQL(
 			LockTimeoutMs:     5000,
 		},
 	}
+	cfg.Trust.Level = "advisory"
 	e := &Executor{
 		pool:          pool,
 		cfg:           cfg,
@@ -1191,7 +1188,7 @@ func TestCoverage_ExecuteManual_MissingFindingRejectedBeforeSQL(
 	}
 
 	_, err := e.ExecuteManual(ctx, 999999999,
-		"CREATE INDEX idx_manual_missing ON sage.test_manual_missing (id)",
+		"CREATE INDEX idx_manual_missing ON public.test_manual_missing (id)",
 		"", nil)
 	if !errors.Is(err, ErrFindingNotActionable) {
 		t.Fatalf("error = %v, want ErrFindingNotActionable", err)
@@ -1217,7 +1214,7 @@ func TestCoverage_ExecuteManual_SQLMismatchRejected(t *testing.T) {
 	_ = SetEmergencyStop(ctx, pool, false)
 
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.test_manual_mismatch (
+		`CREATE TABLE IF NOT EXISTS public.test_manual_mismatch (
 			id int, other int
 		)`)
 	if err != nil {
@@ -1230,10 +1227,10 @@ func TestCoverage_ExecuteManual_SQLMismatchRejected(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('test_manual_mismatch_cat', 'warning', 'index',
-		         'sage.test_manual_mismatch',
+		         'public.test_manual_mismatch',
 		         'test manual mismatch finding',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_manual_match ON sage.test_manual_mismatch (id)')
+		         'CREATE INDEX idx_manual_match ON public.test_manual_mismatch (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -1242,16 +1239,16 @@ func TestCoverage_ExecuteManual_SQLMismatchRejected(t *testing.T) {
 	t.Cleanup(func() {
 		cctx := context.Background()
 		_, _ = pool.Exec(cctx,
-			"DROP INDEX IF EXISTS sage.idx_manual_other")
+			"DROP INDEX IF EXISTS public.idx_manual_other")
 		_, _ = pool.Exec(cctx,
-			"DROP INDEX IF EXISTS sage.idx_manual_match")
+			"DROP INDEX IF EXISTS public.idx_manual_match")
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.action_log WHERE finding_id = $1",
 			findingID)
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS sage.test_manual_mismatch")
+			"DROP TABLE IF EXISTS public.test_manual_mismatch")
 	})
 
 	cfg := &config.Config{
@@ -1260,6 +1257,7 @@ func TestCoverage_ExecuteManual_SQLMismatchRejected(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
+	cfg.Trust.Level = "advisory"
 	e := &Executor{
 		pool:          pool,
 		cfg:           cfg,
@@ -1269,7 +1267,7 @@ func TestCoverage_ExecuteManual_SQLMismatchRejected(t *testing.T) {
 	}
 
 	_, err = e.ExecuteManual(ctx, findingID,
-		"CREATE INDEX idx_manual_other ON sage.test_manual_mismatch (other)",
+		"CREATE INDEX idx_manual_other ON public.test_manual_mismatch (other)",
 		"", nil)
 	if !errors.Is(err, ErrFindingSQLMismatch) {
 		t.Fatalf("error = %v, want ErrFindingSQLMismatch", err)
@@ -1278,15 +1276,15 @@ func TestCoverage_ExecuteManual_SQLMismatchRejected(t *testing.T) {
 
 func TestCoverage_ExecuteManual_CreateIndexIsIdempotentWhenCovered(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS sage.test_manual_idempotent`)
+	_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS public.test_manual_idempotent`)
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE sage.test_manual_idempotent (id int, payload text)`)
+		`CREATE TABLE public.test_manual_idempotent (id int, payload text)`)
 	if err != nil {
 		t.Fatalf("create table: %v", err)
 	}
 	_, err = pool.Exec(ctx,
 		`CREATE INDEX idx_manual_idempotent_existing
-		   ON sage.test_manual_idempotent (id)`)
+		   ON public.test_manual_idempotent (id)`)
 	if err != nil {
 		t.Fatalf("create existing index: %v", err)
 	}
@@ -1297,9 +1295,9 @@ func TestCoverage_ExecuteManual_CreateIndexIsIdempotentWhenCovered(t *testing.T)
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('test_manual_idempotent', 'warning', 'table',
-		         'sage.test_manual_idempotent(id)',
+		         'public.test_manual_idempotent(id)',
 		         'idempotent create index', '{}', 'rec',
-		         'CREATE INDEX CONCURRENTLY ON sage.test_manual_idempotent (id)')
+		         'CREATE INDEX CONCURRENTLY ON public.test_manual_idempotent (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -1314,7 +1312,7 @@ func TestCoverage_ExecuteManual_CreateIndexIsIdempotentWhenCovered(t *testing.T)
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 		_, _ = pool.Exec(cctx,
-			`DROP TABLE IF EXISTS sage.test_manual_idempotent`)
+			`DROP TABLE IF EXISTS public.test_manual_idempotent`)
 	})
 
 	cfg := &config.Config{
@@ -1323,6 +1321,7 @@ func TestCoverage_ExecuteManual_CreateIndexIsIdempotentWhenCovered(t *testing.T)
 			LockTimeoutMs:     5000,
 		},
 	}
+	cfg.Trust.Level = "advisory"
 	e := &Executor{
 		pool:          pool,
 		cfg:           cfg,
@@ -1331,7 +1330,7 @@ func TestCoverage_ExecuteManual_CreateIndexIsIdempotentWhenCovered(t *testing.T)
 		shutdownCh:    make(chan struct{}),
 	}
 	actionID, err := e.ExecuteManual(ctx, int(findingID),
-		"CREATE INDEX CONCURRENTLY ON sage.test_manual_idempotent (id)",
+		"CREATE INDEX CONCURRENTLY ON public.test_manual_idempotent (id)",
 		"", nil)
 	if err != nil {
 		t.Fatalf("ExecuteManual idempotent create index: %v", err)
@@ -1344,7 +1343,7 @@ func TestCoverage_ExecuteManual_CreateIndexIsIdempotentWhenCovered(t *testing.T)
 	err = pool.QueryRow(ctx,
 		`SELECT count(*)
 		   FROM pg_indexes
-		  WHERE schemaname = 'sage'
+		  WHERE schemaname = 'public'
 		    AND tablename = 'test_manual_idempotent'
 		    AND indexdef LIKE '%(id)%'`,
 	).Scan(&idxCount)
@@ -1449,6 +1448,7 @@ func TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
+	cfg.Trust.Level = "advisory"
 	e := &Executor{
 		pool:          pool,
 		cfg:           cfg,
@@ -1493,7 +1493,7 @@ func TestCoverage_ExecuteManual_WithRollbackSQL(t *testing.T) {
 	_ = SetEmergencyStop(ctx, pool, false)
 
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.test_manual_rb (
+		`CREATE TABLE IF NOT EXISTS public.test_manual_rb (
 			id int, val text
 		)`)
 	if err != nil {
@@ -1506,10 +1506,10 @@ func TestCoverage_ExecuteManual_WithRollbackSQL(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('test_manual_rb_cat', 'warning', 'index',
-		         'sage.test_manual_rb',
+		         'public.test_manual_rb',
 		         'test manual rb finding',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_manual_rb ON sage.test_manual_rb (id)')
+		         'CREATE INDEX idx_manual_rb ON public.test_manual_rb (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -1519,14 +1519,14 @@ func TestCoverage_ExecuteManual_WithRollbackSQL(t *testing.T) {
 	t.Cleanup(func() {
 		cctx := context.Background()
 		_, _ = pool.Exec(cctx,
-			"DROP INDEX IF EXISTS sage.idx_manual_rb")
+			"DROP INDEX IF EXISTS public.idx_manual_rb")
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.action_log WHERE finding_id = $1",
 			findingID)
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS sage.test_manual_rb")
+			"DROP TABLE IF EXISTS public.test_manual_rb")
 	})
 
 	cfg := &config.Config{
@@ -1539,6 +1539,7 @@ func TestCoverage_ExecuteManual_WithRollbackSQL(t *testing.T) {
 			RollbackWindowMinutes: 1,
 		},
 	}
+	cfg.Trust.Level = "advisory"
 	e := &Executor{
 		pool:          pool,
 		cfg:           cfg,
@@ -1547,8 +1548,8 @@ func TestCoverage_ExecuteManual_WithRollbackSQL(t *testing.T) {
 		execMode:      "auto",
 	}
 
-	sql := "CREATE INDEX idx_manual_rb ON sage.test_manual_rb (id)"
-	rollbackSQL := "DROP INDEX IF EXISTS sage.idx_manual_rb"
+	sql := "CREATE INDEX idx_manual_rb ON public.test_manual_rb (id)"
+	rollbackSQL := "DROP INDEX IF EXISTS public.idx_manual_rb"
 	actionID, err := e.ExecuteManual(
 		ctx, findingID, sql, rollbackSQL, nil)
 	if err != nil {
@@ -1566,7 +1567,7 @@ func TestCoverage_ExecuteManual_VacuumTopLevel(t *testing.T) {
 	_ = SetEmergencyStop(ctx, pool, false)
 
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.test_manual_vacuum (
+		`CREATE TABLE IF NOT EXISTS public.test_manual_vacuum (
 			id int, val text
 		)`)
 	if err != nil {
@@ -1579,9 +1580,9 @@ func TestCoverage_ExecuteManual_VacuumTopLevel(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('test_vacuum_cat', 'warning', 'table',
-		         'sage.test_manual_vacuum',
+		         'public.test_manual_vacuum',
 		         'test vacuum finding',
-		         '{}', 'rec', 'VACUUM sage.test_manual_vacuum')
+		         '{}', 'rec', 'VACUUM public.test_manual_vacuum')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -1596,7 +1597,7 @@ func TestCoverage_ExecuteManual_VacuumTopLevel(t *testing.T) {
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS sage.test_manual_vacuum")
+			"DROP TABLE IF EXISTS public.test_manual_vacuum")
 	})
 
 	cfg := &config.Config{
@@ -1605,6 +1606,7 @@ func TestCoverage_ExecuteManual_VacuumTopLevel(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
+	cfg.Trust.Level = "advisory"
 	e := &Executor{
 		pool:          pool,
 		cfg:           cfg,
@@ -1614,7 +1616,7 @@ func TestCoverage_ExecuteManual_VacuumTopLevel(t *testing.T) {
 	}
 
 	actionID, err := e.ExecuteManual(
-		ctx, findingID, "VACUUM sage.test_manual_vacuum", "", nil)
+		ctx, findingID, "VACUUM public.test_manual_vacuum", "", nil)
 	if err != nil {
 		t.Fatalf("ExecuteManual(VACUUM): %v", err)
 	}
@@ -1903,7 +1905,7 @@ func TestCoverage_ExecuteManual_ConcurrentlyPath(t *testing.T) {
 	_ = SetEmergencyStop(ctx, pool, false)
 
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.test_manual_conc (
+		`CREATE TABLE IF NOT EXISTS public.test_manual_conc (
 			id int, val text
 		)`)
 	if err != nil {
@@ -1916,10 +1918,10 @@ func TestCoverage_ExecuteManual_ConcurrentlyPath(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('test_conc_cat', 'warning', 'index',
-		         'sage.test_manual_conc',
+		         'public.test_manual_conc',
 		         'test conc finding',
 		         '{}', 'rec',
-		         'CREATE INDEX CONCURRENTLY idx_manual_conc ON sage.test_manual_conc (id)')
+		         'CREATE INDEX CONCURRENTLY idx_manual_conc ON public.test_manual_conc (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -1929,14 +1931,14 @@ func TestCoverage_ExecuteManual_ConcurrentlyPath(t *testing.T) {
 	t.Cleanup(func() {
 		cctx := context.Background()
 		_, _ = pool.Exec(cctx,
-			"DROP INDEX CONCURRENTLY IF EXISTS sage.idx_manual_conc")
+			"DROP INDEX CONCURRENTLY IF EXISTS public.idx_manual_conc")
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.action_log WHERE finding_id = $1",
 			findingID)
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS sage.test_manual_conc")
+			"DROP TABLE IF EXISTS public.test_manual_conc")
 	})
 
 	cfg := &config.Config{
@@ -1945,6 +1947,7 @@ func TestCoverage_ExecuteManual_ConcurrentlyPath(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
+	cfg.Trust.Level = "advisory"
 	e := &Executor{
 		pool:          pool,
 		cfg:           cfg,
@@ -1954,16 +1957,11 @@ func TestCoverage_ExecuteManual_ConcurrentlyPath(t *testing.T) {
 	}
 
 	sql := "CREATE INDEX CONCURRENTLY idx_manual_conc " +
-		"ON sage.test_manual_conc (id)"
+		"ON public.test_manual_conc (id)"
 	actionID, err := e.ExecuteManual(ctx, findingID, sql, "", nil)
 	if err != nil {
 		// Lock timeout / deadlock from concurrent schema tests is not
 		// a real failure — this test passes reliably in isolation.
-		msg := err.Error()
-		if strings.Contains(msg, "deadlock") ||
-			strings.Contains(msg, "lock") {
-			t.Skipf("skipping: concurrent lock contention: %v", err)
-		}
 		t.Fatalf("ExecuteManual(CONCURRENTLY): %v", err)
 	}
 	// actionID may be 0 due to pgx type inference in logManualAction.
@@ -1983,10 +1981,10 @@ func TestCoverage_ExecuteManual_FailedSQL(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('test_manual_failed_sql_cat', 'warning', 'index',
-		         'sage.nonexistent_table_xyz123',
+		         'public.nonexistent_table_xyz123',
 		         'test manual failed sql',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_no_table ON sage.nonexistent_table_xyz123 (id)')
+		         'CREATE INDEX idx_no_table ON public.nonexistent_table_xyz123 (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2007,6 +2005,7 @@ func TestCoverage_ExecuteManual_FailedSQL(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
+	cfg.Trust.Level = "advisory"
 	e := &Executor{
 		pool:          pool,
 		cfg:           cfg,
@@ -2017,7 +2016,7 @@ func TestCoverage_ExecuteManual_FailedSQL(t *testing.T) {
 
 	// This will fail because the table doesn't exist.
 	sql := "CREATE INDEX idx_no_table ON " +
-		"sage.nonexistent_table_xyz123 (id)"
+		"public.nonexistent_table_xyz123 (id)"
 	_, err = e.ExecuteManual(ctx, findingID, sql, "", nil)
 	if err == nil {
 		t.Fatal("expected error for nonexistent table, got nil")
@@ -2032,7 +2031,7 @@ func TestCoverage_ExecuteManual_WithApprovedBy(t *testing.T) {
 	_ = SetEmergencyStop(ctx, pool, false)
 
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.test_approved_by (
+		`CREATE TABLE IF NOT EXISTS public.test_approved_by (
 			id int
 		)`)
 	if err != nil {
@@ -2045,10 +2044,10 @@ func TestCoverage_ExecuteManual_WithApprovedBy(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('test_approved_cat', 'warning', 'index',
-		         'sage.test_approved_by',
+		         'public.test_approved_by',
 		         'test approved by',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_approved ON sage.test_approved_by (id)')
+		         'CREATE INDEX idx_approved ON public.test_approved_by (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2058,14 +2057,14 @@ func TestCoverage_ExecuteManual_WithApprovedBy(t *testing.T) {
 	t.Cleanup(func() {
 		cctx := context.Background()
 		_, _ = pool.Exec(cctx,
-			"DROP INDEX IF EXISTS sage.idx_approved")
+			"DROP INDEX IF EXISTS public.idx_approved")
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.action_log WHERE finding_id = $1",
 			findingID)
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS sage.test_approved_by")
+			"DROP TABLE IF EXISTS public.test_approved_by")
 	})
 
 	cfg := &config.Config{
@@ -2074,6 +2073,7 @@ func TestCoverage_ExecuteManual_WithApprovedBy(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
+	cfg.Trust.Level = "advisory"
 	e := &Executor{
 		pool:          pool,
 		cfg:           cfg,
@@ -2083,7 +2083,7 @@ func TestCoverage_ExecuteManual_WithApprovedBy(t *testing.T) {
 	}
 
 	approvedBy := 7
-	sql := "CREATE INDEX idx_approved ON sage.test_approved_by (id)"
+	sql := "CREATE INDEX idx_approved ON public.test_approved_by (id)"
 	actionID, err := e.ExecuteManual(
 		ctx, findingID, sql, "", &approvedBy)
 	if err != nil {
@@ -2315,7 +2315,7 @@ func TestCoverage_RunCycle_ApprovalMode(t *testing.T) {
 		         'public.rc_approval_obj',
 		         'approval mode test',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_appr ON t (c)')
+		         'CREATE INDEX CONCURRENTLY idx_appr ON t (c)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2338,7 +2338,7 @@ func TestCoverage_RunCycle_ApprovalMode(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_approval_obj",
 			Title:            "approval mode test",
-			RecommendedSQL:   "CREATE INDEX idx_appr ON t (c)",
+			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_appr ON t (c)",
 			RollbackSQL:      "DROP INDEX idx_appr",
 			ActionRisk:       "safe",
 		},
@@ -2367,7 +2367,7 @@ func TestCoverage_RunCycle_ApprovalMode(t *testing.T) {
 		t.Errorf("proposed findingID = %d, want %d",
 			mp.calls[0].findingID, findingID)
 	}
-	if mp.calls[0].sql != "CREATE INDEX idx_appr ON t (c)" {
+	if mp.calls[0].sql != "CREATE INDEX CONCURRENTLY idx_appr ON t (c)" {
 		t.Errorf("proposed sql = %q", mp.calls[0].sql)
 	}
 }
@@ -2385,7 +2385,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsExistingPending(t *testing.T) {
 		         'public.rc_appr_pending_obj',
 		         'approval pending test',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_appr_pending ON t (c)')
+		         'CREATE INDEX CONCURRENTLY idx_appr_pending ON t (c)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2408,7 +2408,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsExistingPending(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_appr_pending_obj",
 			Title:            "approval pending test",
-			RecommendedSQL:   "CREATE INDEX idx_appr_pending ON t (c)",
+			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_appr_pending ON t (c)",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2515,7 +2515,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsRecentRejection(
 		         'public.rc_appr_reject_obj',
 		         'approval rejected test',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_appr_reject ON t (c)')
+		         'CREATE INDEX CONCURRENTLY idx_appr_reject ON t (c)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2538,7 +2538,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsRecentRejection(
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_appr_reject_obj",
 			Title:            "approval rejected test",
-			RecommendedSQL:   "CREATE INDEX idx_appr_reject ON t (c)",
+			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_appr_reject ON t (c)",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2582,7 +2582,7 @@ func TestCoverage_RunCycle_ApprovalModeWithDispatcher(t *testing.T) {
 		         'public.rc_appr_disp_obj',
 		         'approval dispatch test',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_ad ON t (c)')
+		         'CREATE INDEX CONCURRENTLY idx_ad ON t (c)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2605,7 +2605,7 @@ func TestCoverage_RunCycle_ApprovalModeWithDispatcher(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_appr_disp_obj",
 			Title:            "approval dispatch test",
-			RecommendedSQL:   "CREATE INDEX idx_ad ON t (c)",
+			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_ad ON t (c)",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2652,7 +2652,7 @@ func TestCoverage_RunCycle_ApprovalModeProposeError(t *testing.T) {
 		         'public.rc_appr_err_obj',
 		         'approval error test',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_ae ON t (c)')
+		         'CREATE INDEX CONCURRENTLY idx_ae ON t (c)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2675,7 +2675,7 @@ func TestCoverage_RunCycle_ApprovalModeProposeError(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_appr_err_obj",
 			Title:            "approval error test",
-			RecommendedSQL:   "CREATE INDEX idx_ae ON t (c)",
+			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_ae ON t (c)",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2716,7 +2716,7 @@ func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 
 	// Create a test table for the index.
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.rc_auto_exec (
+		`CREATE TABLE IF NOT EXISTS public.rc_auto_exec (
 			id int, val text)`)
 	if err != nil {
 		t.Fatalf("creating test table: %v", err)
@@ -2728,10 +2728,10 @@ func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('rc_auto_exec_cat', 'warning', 'index',
-		         'sage.rc_auto_exec',
+		         'public.rc_auto_exec',
 		         'auto exec test',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_rc_auto ON sage.rc_auto_exec (id)')
+		         'ALTER TABLE public.rc_auto_exec SET (autovacuum_vacuum_scale_factor = 0.15)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2741,14 +2741,14 @@ func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 	t.Cleanup(func() {
 		cctx := context.Background()
 		_, _ = pool.Exec(cctx,
-			"DROP INDEX IF EXISTS sage.idx_rc_auto")
+			"DROP INDEX IF EXISTS public.idx_rc_auto")
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.action_log WHERE finding_id = $1",
 			findingID)
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS sage.rc_auto_exec")
+			"DROP TABLE IF EXISTS public.rc_auto_exec")
 	})
 
 	a := &analyzer.Analyzer{}
@@ -2756,17 +2756,20 @@ func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 		{
 			Category:         "rc_auto_exec_cat",
 			Severity:         "warning",
-			ObjectIdentifier: "sage.rc_auto_exec",
+			ObjectIdentifier: "public.rc_auto_exec",
 			Title:            "auto exec test",
-			RecommendedSQL:   "CREATE INDEX idx_rc_auto ON sage.rc_auto_exec (id)",
-			ActionRisk:       "safe",
+			RecommendedSQL: "ALTER TABLE public.rc_auto_exec " +
+				"SET (autovacuum_vacuum_scale_factor = 0.15)",
+			ActionRisk: "safe",
 		},
 	})
 
 	cfg := &config.Config{
 		Trust: config.TrustConfig{
-			Level:                 "advisory",
+			Level:                 "autonomous",
 			Tier3Safe:             true,
+			Tier3Moderate:         true,
+			MaintenanceWindow:     "always",
 			CascadeCooldownCycles: 3,
 		},
 		Collector: config.CollectorConfig{IntervalSeconds: 60},
@@ -2775,7 +2778,7 @@ func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
-	rampStart := time.Now().Add(-30 * 24 * time.Hour)
+	rampStart := time.Now().Add(-40 * 24 * time.Hour)
 
 	var executed bool
 	logFn := func(_, msg string, args ...any) {
@@ -2794,17 +2797,22 @@ func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 	}
 }
 
-// TestCoverage_RunCycle_AutoExecConcurrently verifies the
-// CONCURRENTLY execution path + post-check in RunCycle.
+// TestCoverage_RunCycle_AutoExecConcurrently verifies the generic
+// CONCURRENTLY execution path in RunCycle.
 func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 	pool, ctx := requireDB(t)
 	_ = SetEmergencyStop(ctx, pool, false)
 
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.rc_conc_exec (
+		`CREATE TABLE IF NOT EXISTS public.rc_conc_exec (
 			id int, val text)`)
 	if err != nil {
 		t.Fatalf("creating test table: %v", err)
+	}
+	_, err = pool.Exec(ctx,
+		`CREATE INDEX IF NOT EXISTS idx_rc_conc ON public.rc_conc_exec (id)`)
+	if err != nil {
+		t.Fatalf("creating test index: %v", err)
 	}
 
 	var findingID int64
@@ -2813,10 +2821,10 @@ func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('rc_conc_exec_cat', 'warning', 'index',
-		         'sage.rc_conc_exec',
+		         'public.rc_conc_exec',
 		         'conc exec test',
 		         '{}', 'rec',
-		         'CREATE INDEX CONCURRENTLY idx_rc_conc ON sage.rc_conc_exec (id)')
+		         'REINDEX INDEX CONCURRENTLY public.idx_rc_conc')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2826,14 +2834,14 @@ func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 	t.Cleanup(func() {
 		cctx := context.Background()
 		_, _ = pool.Exec(cctx,
-			"DROP INDEX CONCURRENTLY IF EXISTS sage.idx_rc_conc")
+			"DROP INDEX CONCURRENTLY IF EXISTS public.idx_rc_conc")
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.action_log WHERE finding_id = $1",
 			findingID)
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS sage.rc_conc_exec")
+			"DROP TABLE IF EXISTS public.rc_conc_exec")
 	})
 
 	a := &analyzer.Analyzer{}
@@ -2841,17 +2849,19 @@ func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 		{
 			Category:         "rc_conc_exec_cat",
 			Severity:         "warning",
-			ObjectIdentifier: "sage.rc_conc_exec",
+			ObjectIdentifier: "public.rc_conc_exec",
 			Title:            "conc exec test",
-			RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_rc_conc ON sage.rc_conc_exec (id)",
+			RecommendedSQL:   "REINDEX INDEX CONCURRENTLY public.idx_rc_conc",
 			ActionRisk:       "safe",
 		},
 	})
 
 	cfg := &config.Config{
 		Trust: config.TrustConfig{
-			Level:                 "advisory",
+			Level:                 "autonomous",
 			Tier3Safe:             true,
+			Tier3Moderate:         true,
+			MaintenanceWindow:     "always",
 			CascadeCooldownCycles: 3,
 		},
 		Collector: config.CollectorConfig{IntervalSeconds: 60},
@@ -2860,7 +2870,7 @@ func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
-	rampStart := time.Now().Add(-30 * 24 * time.Hour)
+	rampStart := time.Now().Add(-40 * 24 * time.Hour)
 
 	var executed bool
 	var lockErr bool
@@ -2880,7 +2890,7 @@ func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 	if !executed && lockErr {
 		// Lock contention from concurrent schema tests — not a real
 		// failure. This test passes reliably in isolation.
-		t.Skip("skipping: concurrent lock contention during CONCURRENTLY")
+		t.Error("unexpected lock contention on isolated test database")
 	}
 	if !executed {
 		t.Error("expected 'executed' log from CONCURRENTLY path")
@@ -2899,10 +2909,10 @@ func TestCoverage_RunCycle_ExecFailure(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('rc_fail_cat', 'warning', 'index',
-		         'sage.rc_fail_nonexist_xyz',
+		         'public.idx_rc_fail_nonexist_xyz',
 		         'fail exec test',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_rc_fail ON sage.rc_fail_nonexist_xyz (id)')
+		         'REINDEX INDEX CONCURRENTLY public.idx_rc_fail_nonexist_xyz')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2923,17 +2933,19 @@ func TestCoverage_RunCycle_ExecFailure(t *testing.T) {
 		{
 			Category:         "rc_fail_cat",
 			Severity:         "warning",
-			ObjectIdentifier: "sage.rc_fail_nonexist_xyz",
+			ObjectIdentifier: "public.idx_rc_fail_nonexist_xyz",
 			Title:            "fail exec test",
-			RecommendedSQL:   "CREATE INDEX idx_rc_fail ON sage.rc_fail_nonexist_xyz (id)",
+			RecommendedSQL:   "REINDEX INDEX CONCURRENTLY public.idx_rc_fail_nonexist_xyz",
 			ActionRisk:       "safe",
 		},
 	})
 
 	cfg := &config.Config{
 		Trust: config.TrustConfig{
-			Level:                 "advisory",
+			Level:                 "autonomous",
 			Tier3Safe:             true,
+			Tier3Moderate:         true,
+			MaintenanceWindow:     "always",
 			CascadeCooldownCycles: 3,
 		},
 		Collector: config.CollectorConfig{IntervalSeconds: 60},
@@ -2942,7 +2954,7 @@ func TestCoverage_RunCycle_ExecFailure(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
-	rampStart := time.Now().Add(-30 * 24 * time.Hour)
+	rampStart := time.Now().Add(-40 * 24 * time.Hour)
 
 	var failLogged bool
 	logFn := func(_, msg string, args ...any) {
@@ -2972,10 +2984,10 @@ func TestCoverage_RunCycle_ExecFailureWithDispatcher(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('rc_fail_disp_cat', 'warning', 'index',
-		         'sage.rc_fail_disp_xyz',
+		         'public.idx_rc_fail_disp_xyz',
 		         'fail dispatch test',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_rc_fd ON sage.rc_fail_disp_xyz (id)')
+		         'REINDEX INDEX CONCURRENTLY public.idx_rc_fail_disp_xyz')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2996,17 +3008,20 @@ func TestCoverage_RunCycle_ExecFailureWithDispatcher(t *testing.T) {
 		{
 			Category:         "rc_fail_disp_cat",
 			Severity:         "warning",
-			ObjectIdentifier: "sage.rc_fail_disp_xyz",
+			ObjectIdentifier: "public.idx_rc_fail_disp_xyz",
 			Title:            "fail dispatch test",
-			RecommendedSQL:   "CREATE INDEX idx_rc_fd ON sage.rc_fail_disp_xyz (id)",
-			ActionRisk:       "safe",
+			RecommendedSQL: "REINDEX INDEX CONCURRENTLY " +
+				"public.idx_rc_fail_disp_xyz",
+			ActionRisk: "safe",
 		},
 	})
 
 	cfg := &config.Config{
 		Trust: config.TrustConfig{
-			Level:                 "advisory",
+			Level:                 "autonomous",
 			Tier3Safe:             true,
+			Tier3Moderate:         true,
+			MaintenanceWindow:     "always",
 			CascadeCooldownCycles: 3,
 		},
 		Collector: config.CollectorConfig{IntervalSeconds: 60},
@@ -3015,7 +3030,7 @@ func TestCoverage_RunCycle_ExecFailureWithDispatcher(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
-	rampStart := time.Now().Add(-30 * 24 * time.Hour)
+	rampStart := time.Now().Add(-40 * 24 * time.Hour)
 
 	md := &mockDispatcher{}
 	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
@@ -3039,10 +3054,15 @@ func TestCoverage_RunCycle_SuccessWithDispatcher(t *testing.T) {
 	_ = SetEmergencyStop(ctx, pool, false)
 
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.rc_succ_disp (
+		`CREATE TABLE IF NOT EXISTS public.rc_succ_disp (
 			id int, val text)`)
 	if err != nil {
 		t.Fatalf("creating test table: %v", err)
+	}
+	_, err = pool.Exec(ctx,
+		`CREATE INDEX IF NOT EXISTS idx_rc_sd ON public.rc_succ_disp (id)`)
+	if err != nil {
+		t.Fatalf("creating test index: %v", err)
 	}
 
 	var findingID int64
@@ -3051,10 +3071,10 @@ func TestCoverage_RunCycle_SuccessWithDispatcher(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('rc_succ_disp_cat', 'warning', 'index',
-		         'sage.rc_succ_disp',
+		         'public.rc_succ_disp',
 		         'success dispatch test',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_rc_sd ON sage.rc_succ_disp (id)')
+		         'REINDEX INDEX CONCURRENTLY public.idx_rc_sd')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -3064,14 +3084,14 @@ func TestCoverage_RunCycle_SuccessWithDispatcher(t *testing.T) {
 	t.Cleanup(func() {
 		cctx := context.Background()
 		_, _ = pool.Exec(cctx,
-			"DROP INDEX IF EXISTS sage.idx_rc_sd")
+			"DROP INDEX IF EXISTS public.idx_rc_sd")
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.action_log WHERE finding_id = $1",
 			findingID)
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS sage.rc_succ_disp")
+			"DROP TABLE IF EXISTS public.rc_succ_disp")
 	})
 
 	a := &analyzer.Analyzer{}
@@ -3079,17 +3099,19 @@ func TestCoverage_RunCycle_SuccessWithDispatcher(t *testing.T) {
 		{
 			Category:         "rc_succ_disp_cat",
 			Severity:         "warning",
-			ObjectIdentifier: "sage.rc_succ_disp",
+			ObjectIdentifier: "public.rc_succ_disp",
 			Title:            "success dispatch test",
-			RecommendedSQL:   "CREATE INDEX idx_rc_sd ON sage.rc_succ_disp (id)",
+			RecommendedSQL:   "REINDEX INDEX CONCURRENTLY public.idx_rc_sd",
 			ActionRisk:       "safe",
 		},
 	})
 
 	cfg := &config.Config{
 		Trust: config.TrustConfig{
-			Level:                 "advisory",
+			Level:                 "autonomous",
 			Tier3Safe:             true,
+			Tier3Moderate:         true,
+			MaintenanceWindow:     "always",
 			CascadeCooldownCycles: 3,
 		},
 		Collector: config.CollectorConfig{IntervalSeconds: 60},
@@ -3098,7 +3120,7 @@ func TestCoverage_RunCycle_SuccessWithDispatcher(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
-	rampStart := time.Now().Add(-30 * 24 * time.Hour)
+	rampStart := time.Now().Add(-40 * 24 * time.Hour)
 
 	md := &mockDispatcher{}
 	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
@@ -3123,7 +3145,7 @@ func TestCoverage_RunCycle_VacuumNoRollback(t *testing.T) {
 	_ = SetEmergencyStop(ctx, pool, false)
 
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.rc_vacuum_tbl (
+		`CREATE TABLE IF NOT EXISTS public.rc_vacuum_tbl (
 			id int, val text)`)
 	if err != nil {
 		t.Fatalf("creating test table: %v", err)
@@ -3135,10 +3157,10 @@ func TestCoverage_RunCycle_VacuumNoRollback(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('rc_vacuum_cat', 'warning', 'table',
-		         'sage.rc_vacuum_tbl',
+		         'public.rc_vacuum_tbl',
 		         'vacuum test',
 		         '{}', 'rec',
-		         'VACUUM sage.rc_vacuum_tbl')
+		         'VACUUM public.rc_vacuum_tbl')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -3153,7 +3175,7 @@ func TestCoverage_RunCycle_VacuumNoRollback(t *testing.T) {
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS sage.rc_vacuum_tbl")
+			"DROP TABLE IF EXISTS public.rc_vacuum_tbl")
 	})
 
 	a := &analyzer.Analyzer{}
@@ -3161,9 +3183,9 @@ func TestCoverage_RunCycle_VacuumNoRollback(t *testing.T) {
 		{
 			Category:         "rc_vacuum_cat",
 			Severity:         "warning",
-			ObjectIdentifier: "sage.rc_vacuum_tbl",
+			ObjectIdentifier: "public.rc_vacuum_tbl",
 			Title:            "vacuum test",
-			RecommendedSQL:   "VACUUM sage.rc_vacuum_tbl",
+			RecommendedSQL:   "VACUUM public.rc_vacuum_tbl",
 			RollbackSQL:      "", // no rollback for VACUUM
 			ActionRisk:       "safe",
 		},
@@ -3206,7 +3228,7 @@ func TestCoverage_RunCycle_WithRollbackSQL(t *testing.T) {
 	_ = SetEmergencyStop(ctx, pool, false)
 
 	_, err := pool.Exec(ctx,
-		`CREATE TABLE IF NOT EXISTS sage.rc_rollback_tbl (
+		`CREATE TABLE IF NOT EXISTS public.rc_rollback_tbl (
 			id int, val text)`)
 	if err != nil {
 		t.Fatalf("creating test table: %v", err)
@@ -3218,10 +3240,10 @@ func TestCoverage_RunCycle_WithRollbackSQL(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('rc_rollback_cat', 'warning', 'index',
-		         'sage.rc_rollback_tbl',
+		         'public.rc_rollback_tbl',
 		         'rollback branch test',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_rc_rb ON sage.rc_rollback_tbl (id)')
+		         'ALTER TABLE public.rc_rollback_tbl SET (autovacuum_vacuum_scale_factor=0.2)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -3231,14 +3253,14 @@ func TestCoverage_RunCycle_WithRollbackSQL(t *testing.T) {
 	t.Cleanup(func() {
 		cctx := context.Background()
 		_, _ = pool.Exec(cctx,
-			"DROP INDEX IF EXISTS sage.idx_rc_rb")
+			"DROP INDEX IF EXISTS public.idx_rc_rb")
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.action_log WHERE finding_id = $1",
 			findingID)
 		_, _ = pool.Exec(cctx,
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 		_, _ = pool.Exec(cctx,
-			"DROP TABLE IF EXISTS sage.rc_rollback_tbl")
+			"DROP TABLE IF EXISTS public.rc_rollback_tbl")
 	})
 
 	a := &analyzer.Analyzer{}
@@ -3246,18 +3268,22 @@ func TestCoverage_RunCycle_WithRollbackSQL(t *testing.T) {
 		{
 			Category:         "rc_rollback_cat",
 			Severity:         "warning",
-			ObjectIdentifier: "sage.rc_rollback_tbl",
+			ObjectIdentifier: "public.rc_rollback_tbl",
 			Title:            "rollback branch test",
-			RecommendedSQL:   "CREATE INDEX idx_rc_rb ON sage.rc_rollback_tbl (id)",
-			RollbackSQL:      "DROP INDEX IF EXISTS sage.idx_rc_rb",
-			ActionRisk:       "safe",
+			RecommendedSQL: "ALTER TABLE public.rc_rollback_tbl " +
+				"SET (autovacuum_vacuum_scale_factor=0.2)",
+			RollbackSQL: "ALTER TABLE public.rc_rollback_tbl " +
+				"RESET (autovacuum_vacuum_scale_factor)",
+			ActionRisk: "safe",
 		},
 	})
 
 	cfg := &config.Config{
 		Trust: config.TrustConfig{
-			Level:                 "advisory",
+			Level:                 "autonomous",
 			Tier3Safe:             true,
+			Tier3Moderate:         true,
+			MaintenanceWindow:     "always",
 			CascadeCooldownCycles: 3,
 			RollbackThresholdPct:  10,
 			RollbackWindowMinutes: 1,
@@ -3268,7 +3294,7 @@ func TestCoverage_RunCycle_WithRollbackSQL(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
-	rampStart := time.Now().Add(-30 * 24 * time.Hour)
+	rampStart := time.Now().Add(-40 * 24 * time.Hour)
 
 	var executed bool
 	logFn := func(_, msg string, args ...any) {
@@ -3299,10 +3325,10 @@ func TestCoverage_RunCycle_HysteresisBlocks(t *testing.T) {
 		 (category, severity, object_type, object_identifier,
 		  title, detail, recommendation, recommended_sql)
 		 VALUES ('rc_hyst_cat', 'warning', 'index',
-		         'sage.rc_hyst_obj',
+		         'public.rc_hyst_obj',
 		         'hysteresis test',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_rc_hyst ON sage.rc_hyst_obj (id)')
+		         'CREATE INDEX CONCURRENTLY idx_rc_hyst ON public.rc_hyst_obj (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -3315,7 +3341,7 @@ func TestCoverage_RunCycle_HysteresisBlocks(t *testing.T) {
 		 (action_type, finding_id, sql_executed, outcome,
 		  executed_at)
 		 VALUES ('create_index', $1,
-		         'CREATE INDEX idx_rc_hyst ON sage.rc_hyst_obj (id)',
+		         'CREATE INDEX CONCURRENTLY idx_rc_hyst ON public.rc_hyst_obj (id)',
 		         'rolled_back', now())`,
 		findingID,
 	)
@@ -3337,17 +3363,20 @@ func TestCoverage_RunCycle_HysteresisBlocks(t *testing.T) {
 		{
 			Category:         "rc_hyst_cat",
 			Severity:         "warning",
-			ObjectIdentifier: "sage.rc_hyst_obj",
+			ObjectIdentifier: "public.rc_hyst_obj",
 			Title:            "hysteresis test",
-			RecommendedSQL:   "CREATE INDEX idx_rc_hyst ON sage.rc_hyst_obj (id)",
-			ActionRisk:       "safe",
+			RecommendedSQL: "CREATE INDEX CONCURRENTLY idx_rc_hyst " +
+				"ON public.rc_hyst_obj (id)",
+			ActionRisk: "safe",
 		},
 	})
 
 	cfg := &config.Config{
 		Trust: config.TrustConfig{
-			Level:                 "advisory",
+			Level:                 "autonomous",
 			Tier3Safe:             true,
+			Tier3Moderate:         true,
+			MaintenanceWindow:     "always",
 			CascadeCooldownCycles: 3,
 			RollbackCooldownDays:  30, // 30-day cooldown
 		},
@@ -3357,7 +3386,7 @@ func TestCoverage_RunCycle_HysteresisBlocks(t *testing.T) {
 			LockTimeoutMs:     5000,
 		},
 	}
-	rampStart := time.Now().Add(-30 * 24 * time.Hour)
+	rampStart := time.Now().Add(-40 * 24 * time.Hour)
 
 	var hystLogged bool
 	logFn := func(_, msg string, args ...any) {

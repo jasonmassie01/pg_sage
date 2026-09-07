@@ -90,8 +90,24 @@ func TestAdvisor_Analyze_LLMDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if findings != nil {
-		t.Fatalf("expected nil findings when LLM disabled, got %v", findings)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 degraded-mode finding, got %d", len(findings))
+	}
+	finding := findings[0]
+	if finding.Category != "advisor_degraded" {
+		t.Fatalf("Category = %q, want advisor_degraded", finding.Category)
+	}
+	if finding.Severity != "warning" {
+		t.Fatalf("Severity = %q, want warning", finding.Severity)
+	}
+	if finding.ObjectIdentifier != "llm" {
+		t.Fatalf("ObjectIdentifier = %q, want llm", finding.ObjectIdentifier)
+	}
+	if finding.RecommendedSQL != "" {
+		t.Fatalf("RecommendedSQL = %q, want empty", finding.RecommendedSQL)
+	}
+	if finding.ActionRisk != "" {
+		t.Fatalf("ActionRisk = %q, want empty", finding.ActionRisk)
 	}
 }
 

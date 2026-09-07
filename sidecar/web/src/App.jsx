@@ -5,15 +5,13 @@ import { CasesPage } from './pages/CasesPage'
 import { Actions } from './pages/Actions'
 import { DatabasePage } from './pages/DatabasePage'
 import { SettingsPage } from './pages/SettingsPage'
-import { ForecastsPage } from './pages/ForecastsPage'
-import { QueryHintsPage } from './pages/QueryHintsPage'
 import { AlertLogPage } from './pages/AlertLogPage'
-import { IncidentsPage } from './pages/IncidentsPage'
 import { LoginPage } from './pages/LoginPage'
 import { UsersPage } from './pages/UsersPage'
 import { NotificationsPage } from './pages/NotificationsPage'
+import { AgentDBsPage } from './pages/AgentDBsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
-import { SchemaHealthPage } from './pages/SchemaHealthPage'
+import { ValuePage } from './pages/ValuePage'
 import { useAPI } from './hooks/useAPI'
 import { TimeRangeProvider } from './context/TimeRangeContext'
 import { CommandPalette } from './components/CommandPalette'
@@ -94,6 +92,14 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handler)
   }, [])
 
+  // Return to the login screen when any polling request reports the
+  // session has expired, instead of leaving stale pages showing 401s.
+  useEffect(() => {
+    const onExpired = () => setUser(null)
+    window.addEventListener('sage:auth-expired', onExpired)
+    return () => window.removeEventListener('sage:auth-expired', onExpired)
+  }, [])
+
   useEffect(() => {
     localStorage.setItem('pg_sage_db', selectedDB)
   }, [selectedDB])
@@ -139,11 +145,22 @@ export default function App() {
   const pageState = (() => {
     switch (route) {
       case '/':
-        return { title: 'Overview', node: <Dashboard database={selectedDB}
-          onSelectDB={setSelectedDB} /> }
+        return { title: 'Value', node: <ValuePage database={selectedDB} /> }
+      case '/advanced':
+        return { title: 'Snapshot & metrics',
+          node: <Dashboard database={selectedDB}
+            onSelectDB={setSelectedDB} /> }
+      case '/advanced/findings':
+        return { title: 'Findings explorer',
+          node: <CasesPage database={selectedDB} user={user} /> }
+      case '/advanced/actions':
+        return { title: 'Action history',
+          node: <Actions database={selectedDB} user={user} /> }
       case '/manage-databases':
         return isAdmin ? { title: 'Databases', node: <DatabasesPage /> }
           : denied
+      case '/agent-dbs':
+        return { title: 'Agent DBs', node: <AgentDBsPage /> }
       case '/findings':
       case '/cases':
         return { title: 'Cases',
@@ -155,20 +172,22 @@ export default function App() {
         return { title: 'Database',
           node: <DatabasePage database={selectedDB} /> }
       case '/forecasts':
-        return { title: 'Forecasts',
-          node: <ForecastsPage database={selectedDB} /> }
+        return { title: 'Cases',
+          node: <CasesPage database={selectedDB} initialSource="forecast" /> }
       case '/query-hints':
-        return { title: 'Performance',
-          node: <QueryHintsPage database={selectedDB} /> }
+        return { title: 'Cases',
+          node: <CasesPage database={selectedDB} initialSource="query_hint" /> }
       case '/schema-health':
-        return { title: 'Schema Health',
-          node: <SchemaHealthPage database={selectedDB} /> }
+        return { title: 'Cases',
+          node: <CasesPage database={selectedDB}
+            initialSource="schema_health" /> }
       case '/alerts':
         return { title: 'Alerts',
           node: <AlertLogPage database={selectedDB} /> }
       case '/incidents':
-        return { title: 'Incidents',
-          node: <IncidentsPage database={selectedDB} user={user} /> }
+        return { title: 'Cases',
+          node: <CasesPage database={selectedDB} user={user}
+            initialSource="incident" /> }
       case '/settings':
         return isAdmin ? { title: 'Settings',
           node: <SettingsPage

@@ -210,7 +210,7 @@ func TestDocLengthBounds(t *testing.T) {
 // generator's contract that only tagged fields are considered).
 func TestMalformedYamlTag(t *testing.T) {
 	type s struct {
-		Good int `yaml:"good" doc:"Present in output because its yaml tag is non-empty and valid."`
+		Good  int `yaml:"good" doc:"Present in output because its yaml tag is non-empty and valid."`
 		Blank int `yaml:""`
 	}
 	out, err := walkAny(&s{}, false)
@@ -246,14 +246,14 @@ func TestStrictMode(t *testing.T) {
 // float field to Config doesn't silently emit null.
 func TestScalarDefaults(t *testing.T) {
 	type s struct {
-		B bool    `yaml:"b" doc:"Boolean field with sufficient doc length for validation."`
-		I int     `yaml:"i" doc:"Signed integer field with sufficient doc length for validation."`
-		I64 int64 `yaml:"i64" doc:"Signed 64-bit field with sufficient doc length for validation."`
-		U   uint  `yaml:"u" doc:"Unsigned integer field with sufficient doc length for validation."`
-		U64 uint64 `yaml:"u64" doc:"Unsigned 64-bit field with sufficient doc length for validation."`
+		B   bool    `yaml:"b" doc:"Boolean field with sufficient doc length for validation."`
+		I   int     `yaml:"i" doc:"Signed integer field with sufficient doc length for validation."`
+		I64 int64   `yaml:"i64" doc:"Signed 64-bit field with sufficient doc length for validation."`
+		U   uint    `yaml:"u" doc:"Unsigned integer field with sufficient doc length for validation."`
+		U64 uint64  `yaml:"u64" doc:"Unsigned 64-bit field with sufficient doc length for validation."`
 		F32 float32 `yaml:"f32" doc:"32-bit float field with sufficient doc length for validation."`
 		F64 float64 `yaml:"f64" doc:"64-bit float field with sufficient doc length for validation."`
-		Str string `yaml:"str" doc:"String field with sufficient doc length for validation."`
+		Str string  `yaml:"str" doc:"String field with sufficient doc length for validation."`
 	}
 	sample := s{
 		B: true, I: -3, I64: 1 << 40,
@@ -329,6 +329,29 @@ func TestRun_BadFlag(t *testing.T) {
 	}
 }
 
+func TestWave5RunLifecycleOnlyWritesTypedRegistry(t *testing.T) {
+	out := t.TempDir() + "/config-lifecycles.md"
+	if err := run([]string{
+		"-lifecycle-only", "-lifecycle-out", out,
+	}); err != nil {
+		t.Fatalf("run lifecycle-only: %v", err)
+	}
+	body, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("read lifecycle output: %v", err)
+	}
+	if got, want := string(body), config.ConfigLifecycleMarkdown(); got != want {
+		t.Fatal("lifecycle-only output did not match the typed registry")
+	}
+}
+
+func TestWave5RunLifecycleOnlyRequiresOutput(t *testing.T) {
+	err := run([]string{"-lifecycle-only"})
+	if err == nil || !strings.Contains(err.Error(), "requires -lifecycle-out") {
+		t.Fatalf("run lifecycle-only error = %v, want output requirement", err)
+	}
+}
+
 // readFile is a small helper to avoid importing os/ioutil redundantly.
 func readFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
@@ -337,10 +360,10 @@ func readFile(path string) ([]byte, error) {
 // TestParentDir — utility coverage for the output-directory helper.
 func TestParentDir(t *testing.T) {
 	cases := map[string]string{
-		"a/b/c":       "a/b",
-		`a\b\c`:       `a\b`,
-		"no_slashes":  ".",
-		"/abs/path":   "/abs",
+		"a/b/c":      "a/b",
+		`a\b\c`:      `a\b`,
+		"no_slashes": ".",
+		"/abs/path":  "/abs",
 	}
 	for in, want := range cases {
 		got := parentDir(in)

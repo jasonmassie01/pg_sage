@@ -35,6 +35,15 @@ export function useAPI(url, interval = 30000) {
     }
     try {
       const res = await fetch(url, { signal: ctrl.signal })
+      if (res.status === 401) {
+        // Session expired mid-session: notify the app to return to the
+        // login screen instead of showing a 401 banner on every polling
+        // page until a full reload (FE1).
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('sage:auth-expired'))
+        }
+        throw new Error('session expired')
+      }
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
       const json = await res.json()
       dataRef.current = json

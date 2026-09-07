@@ -147,11 +147,13 @@ func TestDiscoverModelsHandler_UsesRequestPayload(t *testing.T) {
 
 	llm.InvalidateModelCache()
 
-	cfg := &config.LLMConfig{}
+	// The endpoint is trusted configuration. Request payloads may supply a
+	// credential/model for discovery, but must not redirect configured
+	// credentials to an arbitrary private host.
+	cfg := &config.LLMConfig{Endpoint: srv.URL}
 	handler := discoverModelsHandler(cfg)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/llm/models",
 		strings.NewReader(`{"config":{
-			"llm.endpoint":"`+srv.URL+`",
 			"llm.api_key":"payload-key",
 			"llm.model":"payload-model"
 		}}`))
@@ -162,7 +164,7 @@ func TestDiscoverModelsHandler_UsesRequestPayload(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if cfg.Endpoint != "" || cfg.APIKey != "" {
+	if cfg.Endpoint != srv.URL || cfg.APIKey != "" {
 		t.Fatalf("handler persisted discovery payload into cfg: %+v", cfg)
 	}
 }

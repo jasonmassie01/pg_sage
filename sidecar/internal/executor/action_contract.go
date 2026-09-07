@@ -74,3 +74,778 @@ func AnalyzeTableContract() ActionContract {
 		},
 	}
 }
+
+func ContractForActionType(actionType string) (ActionContract, bool) {
+	switch actionType {
+	case "analyze_table":
+		return AnalyzeTableContract(), true
+	case "alter_system_guc":
+		return gucChangeContract(actionType, "ALTER SYSTEM", []string{"postgres"}), true
+	case "alter_database_guc":
+		return gucChangeContract(actionType, "ALTER DATABASE",
+			[]string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"}), true
+	case "diagnose_lock_blockers":
+		return incidentDiagnoseLockBlockersContract(), true
+	case "diagnose_runaway_query":
+		return incidentDiagnoseRunawayQueryContract(), true
+	case "diagnose_connection_exhaustion":
+		return incidentDiagnoseConnectionExhaustionContract(), true
+	case "diagnose_wal_replication":
+		return incidentDiagnoseWALReplicationContract(), true
+	case "diagnose_standby_conflicts":
+		return incidentDiagnoseStandbyConflictsContract(), true
+	case "prepare_sequence_capacity_migration":
+		return incidentSequenceCapacityMigrationContract(), true
+	case "cancel_backend":
+		return incidentCancelBackendContract(), true
+	case "terminate_backend":
+		return incidentTerminateBackendContract(), true
+	case "vacuum_table":
+		return vacuumTableContract(), true
+	case "diagnose_freeze_blockers":
+		return diagnoseFreezeBlockersContract(), true
+	case "set_table_autovacuum":
+		return setTableAutovacuumContract(), true
+	case "diagnose_vacuum_pressure":
+		return diagnoseVacuumPressureContract(), true
+	case "plan_bloat_remediation":
+		return planBloatRemediationContract(), true
+	case "reindex_concurrently":
+		return reindexConcurrentlyContract(), true
+	case "prepare_query_rewrite":
+		return prepareQueryRewriteContract(), true
+	case "promote_role_work_mem":
+		return promoteRoleWorkMemContract(), true
+	case "retire_query_hint":
+		return retireQueryHintContract(), true
+	case "apply_query_hint":
+		return applyQueryHintContract(), true
+	case "investigate_query_plan":
+		return investigateQueryPlanContract(), true
+	case "create_statistics":
+		return createStatisticsContract(), true
+	case "prepare_parameterized_query":
+		return prepareParameterizedQueryContract(), true
+	case "create_index_concurrently":
+		return ActionContract{
+			ActionType:      actionType,
+			BaseRiskTier:    "moderate",
+			ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+			RequiredPermissions: []string{
+				"schema CREATE privilege",
+				"table ownership or maintenance role",
+			},
+			Prechecks: []string{
+				"table exists",
+				"index does not already cover target columns",
+				"disk pressure is below safety threshold",
+			},
+			Guardrails: []string{
+				"CREATE INDEX CONCURRENTLY",
+				"lock_timeout",
+				"statement_timeout",
+				"maintenance-window enforcement",
+			},
+			ExecutionPlan: []string{"CREATE INDEX CONCURRENTLY ..."},
+			SuccessCriteria: []string{
+				"index is valid and ready",
+				"planner can choose the index where applicable",
+			},
+			PostChecks:    []string{"verify pg_index.indisvalid and indisready"},
+			RollbackClass: "reversible",
+			Cooldown:      "configured cascade cooldown",
+			AuditFields:   []string{"table", "columns", "index_name", "case_id"},
+		}, true
+	case "drop_unused_index":
+		return ActionContract{
+			ActionType:      actionType,
+			BaseRiskTier:    "moderate",
+			ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+			RequiredPermissions: []string{
+				"index ownership or maintenance role",
+			},
+			Prechecks: []string{
+				"index exists",
+				"unused window has elapsed",
+				"index is not protected by policy",
+			},
+			Guardrails: []string{
+				"DROP INDEX CONCURRENTLY",
+				"approval required",
+				"maintenance-window enforcement",
+			},
+			ExecutionPlan: []string{"DROP INDEX CONCURRENTLY ..."},
+			SuccessCriteria: []string{
+				"index is absent",
+				"no protected dependency was removed",
+			},
+			PostChecks:    []string{"verify index no longer exists"},
+			RollbackClass: "reversible",
+			Cooldown:      "configured cascade cooldown",
+			AuditFields:   []string{"index_name", "table", "case_id"},
+		}, true
+	case "alter_table":
+		return ActionContract{
+			ActionType:      actionType,
+			BaseRiskTier:    "high",
+			ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+			RequiredPermissions: []string{
+				"table ownership or maintenance role",
+			},
+			Prechecks: []string{
+				"table exists",
+				"DDL has a reviewed forward-fix plan",
+				"maintenance window is active",
+			},
+			Guardrails: []string{
+				"approval required",
+				"lock_timeout",
+				"statement_timeout",
+				"maintenance-window enforcement",
+			},
+			ExecutionPlan:   []string{"ALTER TABLE ..."},
+			SuccessCriteria: []string{"schema change is visible in catalog"},
+			PostChecks:      []string{"verify expected schema state"},
+			RollbackClass:   "forward_fix_only",
+			Cooldown:        "configured cascade cooldown",
+			AuditFields:     []string{"table", "ddl", "case_id"},
+		}, true
+	case "ddl_preflight":
+		return ActionContract{
+			ActionType:      actionType,
+			BaseRiskTier:    "high",
+			ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+			RequiredPermissions: []string{
+				"read catalog statistics",
+				"review migration output in PR or CI",
+			},
+			Prechecks: []string{
+				"classify DDL lock level and rewrite behavior",
+				"check live table size and activity evidence",
+				"check pending locks and replica lag evidence",
+			},
+			Guardrails: []string{
+				"direct execution disabled",
+				"generate PR or migration script",
+				"manual review required",
+				"maintenance-window recommendation",
+			},
+			ExecutionPlan: []string{
+				"generate migration SQL, rollback or mitigation plan, and verification SQL",
+			},
+			SuccessCriteria: []string{
+				"reviewable migration artifact is produced",
+				"verification SQL is attached to the originating case",
+			},
+			PostChecks: []string{
+				"run verification SQL in CI or staging",
+				"rerun migration safety analyzer after deployment",
+			},
+			RollbackClass: "forward_fix_only",
+			Cooldown:      "none",
+			AuditFields:   []string{"table", "ddl", "case_id", "risk_score"},
+		}, true
+	default:
+		return ActionContract{}, false
+	}
+}
+
+func gucChangeContract(
+	actionType string,
+	scope string,
+	providers []string,
+) ActionContract {
+	return ActionContract{
+		ActionType:          actionType,
+		BaseRiskTier:        "moderate",
+		ProviderSupport:     providers,
+		RequiredPermissions: []string{"permission to change database configuration"},
+		Prechecks: []string{
+			"parameter is in the executor GUC allowlist",
+			"current value is captured for rollback",
+		},
+		Guardrails: []string{
+			"approval or autonomous moderate policy required",
+			"single validated GUC change",
+			"maintenance-window enforcement",
+		},
+		ExecutionPlan:   []string{scope + " SET or RESET validated_parameter"},
+		SuccessCriteria: []string{"configured value matches the requested value"},
+		PostChecks:      []string{"read back the effective and pending value"},
+		RollbackClass:   "reversible",
+		Cooldown:        "configured cascade cooldown",
+		AuditFields:     []string{"database", "parameter", "old_value", "new_value"},
+	}
+}
+
+func incidentDiagnoseLockBlockersContract() ActionContract {
+	return ActionContract{
+		ActionType:      "diagnose_lock_blockers",
+		BaseRiskTier:    "safe",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"pg_monitor or pg_read_all_stats",
+		},
+		Prechecks: []string{
+			"incident evidence is still open",
+			"emergency stop is not active",
+		},
+		Guardrails: []string{
+			"read-only lock graph query",
+			"statement_timeout",
+			"no backend state changes",
+		},
+		ExecutionPlan: []string{"query pg_stat_activity and pg_locks"},
+		SuccessCriteria: []string{
+			"current blocker and blocked sessions are identified",
+		},
+		PostChecks:    []string{"refresh lock wait graph"},
+		RollbackClass: "not_applicable",
+		Cooldown:      "none",
+		AuditFields:   []string{"case_id", "database", "blocker_pid"},
+	}
+}
+
+func applyQueryHintContract() ActionContract {
+	return ActionContract{
+		ActionType:      "apply_query_hint",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"write access to hint_plan.hints",
+			"pg_hint_plan installed and active",
+		},
+		Prechecks: []string{
+			"query still appears in pg_stat_statements",
+			"hint syntax validates",
+			"rollback SQL is available",
+			"recent rejected hint cooldown has elapsed",
+		},
+		Guardrails: []string{
+			"approval required",
+			"revalidation required",
+			"cooldown after rollback",
+			"no broad planner enable/disable toggles",
+		},
+		ExecutionPlan: []string{"insert reviewed hint into hint_plan.hints"},
+		SuccessCriteria: []string{
+			"hint row exists",
+			"hinted EXPLAIN does not regress versus unhinted plan",
+		},
+		PostChecks: []string{
+			"run hint revalidation loop",
+			"monitor query latency and error rate",
+		},
+		RollbackClass: "reversible",
+		Cooldown:      "configured hint rollback cooldown",
+		AuditFields:   []string{"queryid", "hint_text", "case_id"},
+	}
+}
+
+func investigateQueryPlanContract() ActionContract {
+	return ActionContract{
+		ActionType:      "investigate_query_plan",
+		BaseRiskTier:    "safe",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"read access to query text and EXPLAIN",
+		},
+		Prechecks: []string{
+			"query text or queryid evidence exists",
+			"statement_timeout is configured",
+		},
+		Guardrails: []string{
+			"read-only investigation",
+			"statement_timeout",
+			"no catalog changes",
+		},
+		ExecutionPlan: []string{"capture EXPLAIN (ANALYZE, BUFFERS, VERBOSE)"},
+		SuccessCriteria: []string{
+			"plan evidence attached",
+			"follow-up remediation path classified",
+		},
+		PostChecks: []string{
+			"review plan for missing index, stale stats, memory spill, or rewrite",
+		},
+		RollbackClass: "not_applicable",
+		Cooldown:      "none",
+		AuditFields:   []string{"queryid", "case_id"},
+	}
+}
+
+func incidentDiagnoseRunawayQueryContract() ActionContract {
+	return diagnosticContract(
+		"diagnose_runaway_query",
+		"read current query age, wait state, temp spill, and text",
+		"confirm query is still active and matches incident evidence",
+	)
+}
+
+func incidentDiagnoseConnectionExhaustionContract() ActionContract {
+	return diagnosticContract(
+		"diagnose_connection_exhaustion",
+		"group pg_stat_activity by role, application, and state",
+		"identify connection pressure source without changing sessions",
+	)
+}
+
+func incidentDiagnoseWALReplicationContract() ActionContract {
+	return diagnosticContract(
+		"diagnose_wal_replication",
+		"read replication lag and slot retention evidence",
+		"identify WAL retention cause without dropping slots",
+	)
+}
+
+func incidentDiagnoseStandbyConflictsContract() ActionContract {
+	c := diagnosticContract(
+		"diagnose_standby_conflicts",
+		"read standby conflict counters by database",
+		"identify replay conflict type without changing replica settings",
+	)
+	c.BaseRiskTier = "read_only"
+	return c
+}
+
+func incidentSequenceCapacityMigrationContract() ActionContract {
+	return ActionContract{
+		ActionType:      "prepare_sequence_capacity_migration",
+		BaseRiskTier:    "high",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"read sequence metadata",
+			"submit reviewed migration through version control",
+		},
+		Prechecks: []string{
+			"sequence still approaches max_value",
+			"owning table and column are identified",
+			"forward-fix migration is reviewed",
+		},
+		Guardrails: []string{
+			"direct execution disabled",
+			"generate PR or migration script",
+			"manual review required",
+		},
+		ExecutionPlan: []string{
+			"prepare capacity migration and verification SQL",
+		},
+		SuccessCriteria: []string{
+			"sequence or owning column has sufficient runway",
+		},
+		PostChecks: []string{
+			"verify sequence last_value and max_value",
+			"confirm dependent column type has headroom",
+		},
+		RollbackClass: "forward_fix_only",
+		Cooldown:      "none",
+		AuditFields:   []string{"case_id", "database", "sequence"},
+	}
+}
+
+func incidentCancelBackendContract() ActionContract {
+	return ActionContract{
+		ActionType:      "cancel_backend",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"pg_signal_backend or role membership allowing cancellation",
+		},
+		Prechecks: []string{
+			"exact backend PID from current incident evidence",
+			"PID still exists and still matches user/query/state evidence",
+			"target is not a pg_sage backend",
+		},
+		Guardrails: []string{
+			"approval required",
+			"revalidate PID immediately before execution",
+			"never target pg_sage backend",
+			"prefer cancel before terminate",
+		},
+		ExecutionPlan: []string{"SELECT pg_cancel_backend(validated_pid)"},
+		SuccessCriteria: []string{
+			"blocked sessions no longer wait on the same backend",
+		},
+		PostChecks:    []string{"verify blocker PID no longer blocks waiters"},
+		RollbackClass: "not_reversible",
+		Cooldown:      "incident-scoped",
+		AuditFields:   []string{"case_id", "database", "pid", "query"},
+	}
+}
+
+func incidentTerminateBackendContract() ActionContract {
+	return ActionContract{
+		ActionType:      "terminate_backend",
+		BaseRiskTier:    "high",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"pg_signal_backend or role membership allowing termination",
+		},
+		Prechecks: []string{
+			"exact backend PID from current incident evidence",
+			"PID still exists and still matches user/query/state evidence",
+			"cancel was attempted or judged insufficient",
+			"target is not superuser, replication, autovacuum, or pg_sage",
+		},
+		Guardrails: []string{
+			"approval required",
+			"incident responder review",
+			"revalidate PID immediately before execution",
+			"never target superuser/replication/autovacuum/pg_sage backend",
+			"prefer cancel first",
+		},
+		ExecutionPlan: []string{"SELECT pg_terminate_backend(validated_pid)"},
+		SuccessCriteria: []string{
+			"validated blocker backend is gone",
+			"blocked workload is no longer waiting on the same blocker",
+		},
+		PostChecks: []string{
+			"verify blocker PID is gone",
+			"verify blocked sessions cleared or changed blockers",
+		},
+		RollbackClass: "not_reversible",
+		Cooldown:      "incident-scoped",
+		AuditFields:   []string{"case_id", "database", "pid", "query"},
+	}
+}
+
+func diagnosticContract(actionType, execution, success string) ActionContract {
+	return ActionContract{
+		ActionType:      actionType,
+		BaseRiskTier:    "safe",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"pg_monitor or pg_read_all_stats",
+		},
+		Prechecks: []string{
+			"incident evidence is still open",
+			"emergency stop is not active",
+		},
+		Guardrails: []string{
+			"read-only diagnostic query",
+			"statement_timeout",
+			"no backend state changes",
+		},
+		ExecutionPlan:   []string{execution},
+		SuccessCriteria: []string{success},
+		PostChecks:      []string{"refresh incident evidence"},
+		RollbackClass:   "not_applicable",
+		Cooldown:        "none",
+		AuditFields:     []string{"case_id", "database"},
+	}
+}
+
+func vacuumTableContract() ActionContract {
+	return ActionContract{
+		ActionType:      "vacuum_table",
+		BaseRiskTier:    "safe",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"table ownership or VACUUM privilege",
+		},
+		Prechecks: []string{
+			"table exists",
+			"dead tuple or bloat evidence still exceeds threshold",
+			"IO pressure is below policy threshold",
+		},
+		Guardrails: []string{
+			"dedicated connection",
+			"statement_timeout",
+			"per-table cooldown",
+			"per-cluster safe-action concurrency limit",
+		},
+		ExecutionPlan: []string{"VACUUM qualified_table"},
+		SuccessCriteria: []string{
+			"last_vacuum advances or vacuum_count increases",
+			"dead tuple ratio improves",
+		},
+		PostChecks: []string{
+			"verify last_vacuum or vacuum_count changed",
+			"rerun bloat analyzer",
+		},
+		RollbackClass: "no_rollback_needed",
+		Cooldown:      "configured vacuum cooldown",
+		AuditFields:   []string{"case_id", "database", "table"},
+	}
+}
+
+func diagnoseFreezeBlockersContract() ActionContract {
+	return diagnosticContract(
+		"diagnose_freeze_blockers",
+		"query database XID age and oldest backend_xmin holders",
+		"freeze blockers and XID runway are identified",
+	)
+}
+
+func setTableAutovacuumContract() ActionContract {
+	return ActionContract{
+		ActionType:      "set_table_autovacuum",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"table ownership or maintenance role",
+		},
+		Prechecks: []string{
+			"table exists",
+			"recommended reloptions are bounded by policy",
+			"current reloptions captured for review",
+		},
+		Guardrails: []string{
+			"approval required",
+			"generate PR or migration script",
+			"monitor post-change vacuum cadence",
+		},
+		ExecutionPlan: []string{"ALTER TABLE ... SET (autovacuum_*)"},
+		SuccessCriteria: []string{
+			"reloptions contain expected autovacuum settings",
+			"future dead tuple ratio trends down",
+		},
+		PostChecks: []string{
+			"verify pg_class.reloptions",
+			"rerun vacuum tuning analyzer after one churn window",
+		},
+		RollbackClass: "forward_fix_only",
+		Cooldown:      "configured cascade cooldown",
+		AuditFields:   []string{"case_id", "database", "table", "reloptions"},
+	}
+}
+
+func diagnoseVacuumPressureContract() ActionContract {
+	return diagnosticContract(
+		"diagnose_vacuum_pressure",
+		"query table vacuum stats and oldest xmin holders",
+		"vacuum blockers and maintenance pressure are identified",
+	)
+}
+
+func planBloatRemediationContract() ActionContract {
+	return ActionContract{
+		ActionType:      "plan_bloat_remediation",
+		BaseRiskTier:    "high",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"read relation size and bloat evidence",
+			"submit online rebuild plan through change control",
+		},
+		Prechecks: []string{
+			"bloat evidence still exceeds threshold",
+			"maintenance window and disk headroom are reviewed",
+			"online rebuild path is selected before execution",
+		},
+		Guardrails: []string{
+			"direct execution disabled",
+			"manual review required",
+			"avoid VACUUM FULL without outage approval",
+		},
+		ExecutionPlan: []string{"generate online bloat remediation plan"},
+		SuccessCriteria: []string{
+			"table size or bloat ratio decreases",
+			"application latency remains acceptable",
+		},
+		PostChecks: []string{
+			"rerun bloat analyzer",
+			"compare relation size and error rate",
+		},
+		RollbackClass: "forward_fix_only",
+		Cooldown:      "table-scoped",
+		AuditFields:   []string{"case_id", "database", "table"},
+	}
+}
+
+func reindexConcurrentlyContract() ActionContract {
+	return ActionContract{
+		ActionType:      "reindex_concurrently",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"index ownership or maintenance role",
+		},
+		Prechecks: []string{
+			"index exists",
+			"disk headroom is sufficient for concurrent rebuild",
+			"replica lag is acceptable",
+		},
+		Guardrails: []string{
+			"REINDEX CONCURRENTLY",
+			"approval required",
+			"maintenance-window enforcement",
+		},
+		ExecutionPlan: []string{"REINDEX INDEX CONCURRENTLY ..."},
+		SuccessCriteria: []string{
+			"rebuilt index is valid",
+			"index bloat or size decreases",
+		},
+		PostChecks: []string{
+			"verify pg_index validity",
+			"compare index size before and after",
+		},
+		RollbackClass: "reversible",
+		Cooldown:      "index-scoped",
+		AuditFields:   []string{"case_id", "database", "index"},
+	}
+}
+
+func prepareQueryRewriteContract() ActionContract {
+	return ActionContract{
+		ActionType:      "prepare_query_rewrite",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"read query statistics and plans",
+			"submit application query change through version control",
+		},
+		Prechecks: []string{
+			"rewrite has deterministic rationale",
+			"semantic equivalence can be tested in CI or staging",
+			"baseline plan and latency evidence are attached",
+		},
+		Guardrails: []string{
+			"direct database execution disabled",
+			"generate PR or script",
+			"approval required",
+		},
+		ExecutionPlan: []string{
+			"generate query rewrite artifact and verification checklist",
+		},
+		SuccessCriteria: []string{
+			"rewritten query returns equivalent rows",
+			"plan cost, latency, or temp IO improves",
+		},
+		PostChecks: []string{
+			"compare old and rewritten EXPLAIN plans",
+			"monitor query latency and error rate after deployment",
+		},
+		RollbackClass: "application_rollback",
+		Cooldown:      "query-scoped",
+		AuditFields:   []string{"case_id", "database", "queryid"},
+	}
+}
+
+func promoteRoleWorkMemContract() ActionContract {
+	return ActionContract{
+		ActionType:      "promote_role_work_mem",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"ALTER ROLE privilege or admin role",
+		},
+		Prechecks: []string{
+			"multiple queries for same role need repeated work_mem hints",
+			"recommended value is below configured maximum",
+			"role-level memory blast radius is estimated",
+		},
+		Guardrails: []string{
+			"approval required",
+			"bounded work_mem value",
+			"verification after one workload window",
+		},
+		ExecutionPlan: []string{"ALTER ROLE ... SET work_mem"},
+		SuccessCriteria: []string{
+			"representative queries stop spilling to temp",
+			"database memory pressure remains acceptable",
+		},
+		PostChecks: []string{
+			"verify pg_roles.rolconfig",
+			"monitor temp blocks and memory pressure",
+		},
+		RollbackClass: "reversible",
+		Cooldown:      "role-scoped",
+		AuditFields:   []string{"case_id", "database", "role", "work_mem"},
+	}
+}
+
+func retireQueryHintContract() ActionContract {
+	return ActionContract{
+		ActionType:      "retire_query_hint",
+		BaseRiskTier:    "safe",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"write access to sage query hint metadata",
+		},
+		Prechecks: []string{
+			"hint status is broken or superseded",
+			"replacement action is absent or already generated",
+		},
+		Guardrails: []string{
+			"metadata-only update",
+			"query-scoped cooldown",
+			"no user table writes",
+		},
+		ExecutionPlan: []string{"mark query hint retired"},
+		SuccessCriteria: []string{
+			"hint no longer appears in active hint inventory",
+		},
+		PostChecks: []string{
+			"verify hint no longer appears in active hints",
+			"rerun tuner revalidation",
+		},
+		RollbackClass: "reversible",
+		Cooldown:      "query-scoped",
+		AuditFields:   []string{"case_id", "database", "queryid", "hint_text"},
+	}
+}
+
+func createStatisticsContract() ActionContract {
+	return ActionContract{
+		ActionType:      "create_statistics",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"CREATE privilege on schema or table ownership",
+		},
+		Prechecks: []string{
+			"correlated predicate evidence still exists",
+			"statistics object does not already exist",
+			"sample query is attached for verification",
+		},
+		Guardrails: []string{
+			"approval required",
+			"run ANALYZE after CREATE STATISTICS",
+			"verification SQL required",
+		},
+		ExecutionPlan: []string{"CREATE STATISTICS ...; ANALYZE table"},
+		SuccessCriteria: []string{
+			"extended statistics object exists",
+			"planner row estimates improve",
+		},
+		PostChecks: []string{
+			"verify pg_statistic_ext row",
+			"compare EXPLAIN row estimates",
+		},
+		RollbackClass: "reversible",
+		Cooldown:      "query-scoped",
+		AuditFields:   []string{"case_id", "database", "statistics_name"},
+	}
+}
+
+func prepareParameterizedQueryContract() ActionContract {
+	return ActionContract{
+		ActionType:      "prepare_parameterized_query",
+		BaseRiskTier:    "moderate",
+		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		RequiredPermissions: []string{
+			"read query statistics and submit application PR",
+		},
+		Prechecks: []string{
+			"literal-heavy query evidence is attached",
+			"normalized query shape is available",
+			"semantic equivalence can be tested",
+		},
+		Guardrails: []string{
+			"direct database execution disabled",
+			"generate PR or script",
+			"approval required",
+		},
+		ExecutionPlan: []string{"generate application parameterization plan"},
+		SuccessCriteria: []string{
+			"queryid churn decreases",
+			"latency and plan stability remain acceptable",
+		},
+		PostChecks: []string{
+			"compare pg_stat_statements fingerprints",
+			"monitor latency and errors after deployment",
+		},
+		RollbackClass: "application_rollback",
+		Cooldown:      "query-scoped",
+		AuditFields:   []string{"case_id", "database", "queryid"},
+	}
+}

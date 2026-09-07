@@ -17,6 +17,8 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/store"
 )
 
 func databasesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
@@ -486,7 +488,7 @@ func actionsListHandler(
 			})
 			return
 		}
-		actions, total, err := queryActions(
+		actions, total, err := queryActionsWithQueueLedger(
 			r.Context(), pool, limit, offset, from, to,
 		)
 		if err != nil {
@@ -718,7 +720,7 @@ func queryHealthHistory(
 	dbName string, from, to time.Time,
 ) ([]map[string]any, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT recorded_at, health_score, findings_open,
+		`/* pg_sage */ SELECT recorded_at, health_score, findings_open,
 		        findings_critical, findings_warning,
 		        findings_info, actions_total
 		 FROM sage.health_history
@@ -776,6 +778,7 @@ func validateMetric(metric string) bool {
 
 func configGetHandler(
 	mgr *fleet.DatabaseManager, cfg *config.Config,
+	controllers ...*config.ConfigController,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		database, ok := readDatabaseParam(w, r)
@@ -798,21 +801,39 @@ func configGetHandler(
 			})
 			return
 		}
-		jsonResponse(w, map[string]any{
-			"mode":        cfg.Mode,
-			"trust":       cfg.Trust,
-			"collector":   cfg.Collector,
-			"analyzer":    cfg.Analyzer,
-			"safety":      cfg.Safety,
-			"llm_enabled": cfg.LLM.Enabled,
-			"advisor":     cfg.Advisor,
-			"databases":   len(cfg.Databases),
-		})
+		responseCfg := cfg
+		response := make(map[string]any)
+		if controller := firstConfigController(controllers); controller != nil {
+			active := controller.Active()
+			desired := controller.Desired()
+			responseCfg = active.Config
+			response["active_generation"] = active.Generation
+			response["desired_generation"] = desired.Generation
+		}
+		response["mode"] = responseCfg.Mode
+		response["trust"] = responseCfg.Trust
+		response["collector"] = responseCfg.Collector
+		response["analyzer"] = responseCfg.Analyzer
+		response["safety"] = responseCfg.Safety
+		response["llm_enabled"] = responseCfg.LLM.Enabled
+		response["advisor"] = responseCfg.Advisor
+		response["databases"] = len(responseCfg.Databases)
+		jsonResponse(w, response)
 	}
 }
 
 func configUpdateHandler(
 	mgr *fleet.DatabaseManager, cfg *config.Config,
+	controllers ...*config.ConfigController,
+) http.HandlerFunc {
+	return configUpdateHandlerWithStore(
+		mgr, cfg, firstConfigController(controllers), nil,
+	)
+}
+
+func configUpdateHandlerWithStore(
+	mgr *fleet.DatabaseManager, cfg *config.Config,
+	controller *config.ConfigController, cs *store.ConfigStore,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
@@ -820,24 +841,108 @@ func configUpdateHandler(
 			jsonError(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if trust, ok := body["trust"]; ok {
-			if trustMap, ok := trust.(map[string]any); ok {
-				if level, ok := trustMap["level"].(string); ok {
-					valid := map[string]bool{
-						"observation": true, "advisory": true,
-						"autonomous": true,
-					}
-					if !valid[level] {
-						jsonError(w, "invalid trust level",
-							http.StatusBadRequest)
-						return
-					}
-					cfg.Trust.Level = level
-				}
+		if controller != nil {
+			expected, ok := configExpectedGeneration(body)
+			if !ok {
+				jsonError(w, "expected_generation is required",
+					http.StatusPreconditionRequired)
+				return
 			}
+			candidate := controller.Desired().Config
+			if !applyTrustConfigUpdate(w, body, candidate) {
+				return
+			}
+			result, err := applyConfigUpdateCandidate(
+				r, controller, cs, expected, candidate,
+			)
+			if err != nil {
+				if errors.Is(err, config.ErrGenerationConflict) {
+					jsonError(w, err.Error(), http.StatusConflict)
+					return
+				}
+				internalError(w, r, "apply config generation", err)
+				return
+			}
+			jsonResponse(w, result)
+			return
+		}
+		if !applyTrustConfigUpdate(w, body, cfg) {
+			return
 		}
 		jsonResponse(w, map[string]string{"status": "updated"})
 	}
+}
+
+func applyConfigUpdateCandidate(
+	r *http.Request, controller *config.ConfigController,
+	cs *store.ConfigStore, expected uint64, candidate *config.Config,
+) (config.ApplyResult, error) {
+	if cs == nil {
+		return controller.Apply(r.Context(), expected, candidate)
+	}
+	userID := 0
+	if user := UserFromContext(r.Context()); user != nil {
+		userID = user.ID
+	}
+	writes := []store.ConfigOverrideWrite{{
+		Key: "trust.level", Value: candidate.Trust.Level,
+	}}
+	return controller.ApplyWithPersistence(
+		r.Context(), expected, candidate,
+		func(ctx context.Context, snapshot config.ConfigSnapshot) error {
+			generation, err := cs.SetOverridesCAS(
+				ctx, writes, 0, userID, expected,
+			)
+			if err == nil && generation != snapshot.Generation {
+				return fmt.Errorf("durable generation %d, controller %d",
+					generation, snapshot.Generation)
+			}
+			return err
+		},
+	)
+}
+
+func applyTrustConfigUpdate(
+	w http.ResponseWriter, body map[string]any, candidate *config.Config,
+) bool {
+	if trust, ok := body["trust"]; ok {
+		if trustMap, ok := trust.(map[string]any); ok {
+			if level, ok := trustMap["level"].(string); ok {
+				valid := map[string]bool{
+					"observation": true, "advisory": true,
+					"autonomous": true,
+				}
+				if !valid[level] {
+					jsonError(w, "invalid trust level",
+						http.StatusBadRequest)
+					return false
+				}
+				candidate.Trust.Level = level
+			}
+		}
+	}
+	return true
+}
+
+func firstConfigController(
+	controllers []*config.ConfigController,
+) *config.ConfigController {
+	if len(controllers) == 0 {
+		return nil
+	}
+	return controllers[0]
+}
+
+func configExpectedGeneration(body map[string]any) (uint64, bool) {
+	raw, ok := body["expected_generation"]
+	if !ok {
+		return 0, false
+	}
+	value, ok := raw.(float64)
+	if !ok || value < 1 || value != float64(uint64(value)) {
+		return 0, false
+	}
+	return uint64(value), true
 }
 
 func metricsHandler(
@@ -1196,7 +1301,7 @@ func compareTimeValue(a, b any) int {
 	return 0
 }
 
-const findingsSelectSQL = `SELECT id, created_at, last_seen,
+const findingsSelectSQL = `/* pg_sage */SELECT id, created_at, last_seen,
  occurrence_count, category, severity, object_type,
  object_identifier, title, detail, recommendation,
  recommended_sql, rollback_sql, status, rule_id, impact_score,
@@ -1208,6 +1313,7 @@ func buildFindingsWhere(
 	where := " WHERE 1=1"
 	var args []any
 	n := 1
+	where += selfmonitor.FindingsSQLExclusionClause()
 	if f.Status != "" {
 		where += fmt.Sprintf(" AND status = $%d", n)
 		args = append(args, f.Status)
@@ -1591,7 +1697,7 @@ func queryFindingByID(
 	}, nil
 }
 
-const findingDetailSQL = `SELECT id, created_at, last_seen,
+const findingDetailSQL = `/* pg_sage */SELECT id, created_at, last_seen,
  occurrence_count, category, severity, object_type,
  object_identifier, title, detail, recommendation,
  recommended_sql, rollback_sql, estimated_cost_usd,
@@ -1604,7 +1710,7 @@ func updateFindingStatus(
 	id, fromStatus, toStatus string,
 ) error {
 	tag, err := pool.Exec(ctx,
-		`UPDATE sage.findings SET status = $1
+		`/* pg_sage */ UPDATE sage.findings SET status = $1
 		 WHERE id = $2 AND status = $3`,
 		toStatus, id, fromStatus,
 	)
@@ -1616,7 +1722,7 @@ func updateFindingStatus(
 			// unsuppressing it since there's already an active
 			// open finding for the same issue.
 			_, delErr := pool.Exec(ctx,
-				`DELETE FROM sage.findings
+				`/* pg_sage */ DELETE FROM sage.findings
 				 WHERE id = $1 AND status = 'suppressed'`, id)
 			if delErr != nil {
 				return fmt.Errorf(
@@ -1686,6 +1792,70 @@ func queryActions(
 	return actions, total, nil
 }
 
+func queryActionsWithQueueLedger(
+	ctx context.Context, pool *pgxpool.Pool,
+	limit, offset int, from, to time.Time,
+) ([]map[string]any, int, error) {
+	executed, total, err := queryActions(ctx, pool, limit, offset, from, to)
+	if err != nil {
+		return nil, 0, err
+	}
+	queued, qTotal, err := queryQueuedActionLedger(ctx, pool, limit, from, to)
+	if err != nil {
+		return nil, 0, err
+	}
+	merged := append(executed, queued...)
+	sort.SliceStable(merged, func(i, j int) bool {
+		return timeFromMap(merged[i], "event_at").After(
+			timeFromMap(merged[j], "event_at"))
+	})
+	if len(merged) > limit {
+		merged = merged[:limit]
+	}
+	return merged, total + qTotal, nil
+}
+
+func queryQueuedActionLedger(
+	ctx context.Context, pool *pgxpool.Pool,
+	limit int, from, to time.Time,
+) ([]map[string]any, int, error) {
+	where, args := buildQueuedActionsLedgerWhere(from, to)
+	countQ := "SELECT COUNT(*) FROM sage.action_queue q" + where
+	var total int
+	if err := pool.QueryRow(ctx, countQ, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count queued action ledger: %w", err)
+	}
+	selectQ := queuedActionLedgerSQL + where +
+		fmt.Sprintf(" ORDER BY q.proposed_at DESC LIMIT $%d", len(args)+1)
+	args = append(args, limit)
+	rows, err := pool.Query(ctx, selectQ, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query queued action ledger: %w", err)
+	}
+	defer rows.Close()
+	actions, err := scanQueuedActionLedgerRows(rows)
+	if err != nil {
+		return nil, 0, err
+	}
+	return actions, total, nil
+}
+
+func buildQueuedActionsLedgerWhere(from, to time.Time) (string, []any) {
+	where := " WHERE q.status <> 'executed'"
+	var args []any
+	n := 1
+	if !from.IsZero() {
+		where += fmt.Sprintf(" AND q.proposed_at >= $%d", n)
+		args = append(args, from)
+		n++
+	}
+	if !to.IsZero() {
+		where += fmt.Sprintf(" AND q.proposed_at <= $%d", n)
+		args = append(args, to)
+	}
+	return where, args
+}
+
 func queryActionsAcrossPools(
 	ctx context.Context, mgr *fleet.DatabaseManager,
 	limit, offset int, from, to time.Time,
@@ -1695,14 +1865,14 @@ func queryActionsAcrossPools(
 		return []map[string]any{}, 0, nil
 	}
 
-	var merged []map[string]any
+	merged := make([]map[string]any, 0)
 	total := 0
 	perDBLimit := limit + offset
 	if perDBLimit <= 0 {
 		perDBLimit = limit
 	}
 	for _, selected := range pools {
-		actions, dbTotal, err := queryActions(
+		actions, dbTotal, err := queryActionsWithQueueLedger(
 			ctx, selected.pool, perDBLimit, 0, from, to)
 		if err != nil {
 			return nil, 0, fmt.Errorf(
@@ -1759,7 +1929,18 @@ func buildActionsWhere(from, to time.Time) (string, []any) {
 const actionsSelectSQLPrefix = `SELECT id, executed_at,
  action_type, finding_id, sql_executed, rollback_sql,
  before_state, after_state, outcome, rollback_reason,
- measured_at FROM sage.action_log`
+ measured_at,
+ COUNT(*) OVER (PARTITION BY sql_executed) AS attempts
+ FROM sage.action_log`
+
+const queuedActionLedgerSQL = `/* pg_sage */SELECT q.id, q.finding_id,
+ COALESCE(q.action_type, ''), q.proposed_sql, q.rollback_sql,
+ q.action_risk, q.status, q.proposed_at, q.expires_at,
+ COALESCE(q.reason, ''), COALESCE(q.policy_decision, ''),
+ COALESCE(q.guardrails, '[]'::jsonb), COALESCE(q.attempt_count, 0),
+ q.cooldown_until, COALESCE(q.verification_status, ''),
+ COALESCE(q.shadow_toil_minutes, 0)
+ FROM sage.action_queue q`
 
 func scanActionRows(rows pgx.Rows) ([]map[string]any, error) {
 	var results []map[string]any
@@ -1776,12 +1957,13 @@ func scanActionRows(rows pgx.Rows) ([]map[string]any, error) {
 			outcome        string
 			rollbackReason *string
 			measuredAt     *time.Time
+			attempts       int
 		)
 		err := rows.Scan(
 			&id, &executedAt, &actionType, &findingID,
 			&sqlExecuted, &rollbackSQL, &beforeState,
 			&afterState, &outcome, &rollbackReason,
-			&measuredAt,
+			&measuredAt, &attempts,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan action: %w", err)
@@ -1791,12 +1973,106 @@ func scanActionRows(rows pgx.Rows) ([]map[string]any, error) {
 			sqlExecuted, rollbackSQL, beforeState,
 			afterState, outcome, rollbackReason, measuredAt,
 		)
+		a["attempts"] = attempts
+		a["action_risk"] = deriveDisplayActionRisk(sqlExecuted)
 		results = append(results, a)
 	}
 	if results == nil {
 		results = []map[string]any{}
 	}
 	return results, nil
+}
+
+// deriveDisplayActionRisk classifies an executed action's SQL into a risk
+// tier for the UI. Executed actions are always safe/moderate — advisory
+// (high_risk) findings never auto-run, so they don't appear here.
+func deriveDisplayActionRisk(sql string) string {
+	u := strings.ToUpper(strings.TrimSpace(sql))
+	switch {
+	case strings.HasPrefix(u, "ALTER SYSTEM"),
+		strings.HasPrefix(u, "DROP INDEX"):
+		return "moderate"
+	default:
+		return "safe"
+	}
+}
+
+func scanQueuedActionLedgerRows(rows pgx.Rows) ([]map[string]any, error) {
+	var results []map[string]any
+	for rows.Next() {
+		action, err := scanQueuedActionLedgerRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, action)
+	}
+	if results == nil {
+		results = []map[string]any{}
+	}
+	return results, nil
+}
+
+func scanQueuedActionLedgerRow(rows pgx.Rows) (map[string]any, error) {
+	var id, findingID int
+	var actionType, sql, risk, status, reason, policy, verification string
+	var rollback *string
+	var proposedAt, expiresAt time.Time
+	var guardrails []byte
+	var attemptCount, shadowToil int
+	var cooldownUntil *time.Time
+	err := rows.Scan(&id, &findingID, &actionType, &sql, &rollback,
+		&risk, &status, &proposedAt, &expiresAt, &reason, &policy,
+		&guardrails, &attemptCount, &cooldownUntil, &verification,
+		&shadowToil)
+	if err != nil {
+		return nil, fmt.Errorf("scan queued action ledger: %w", err)
+	}
+	if actionType == "" {
+		actionType = "queued_action"
+	}
+	return buildQueuedActionLedgerMap(id, findingID, actionType, sql,
+		rollback, risk, status, proposedAt, expiresAt, reason, policy,
+		decodeStringSlice(guardrails), attemptCount, cooldownUntil,
+		verification, shadowToil), nil
+}
+
+func buildQueuedActionLedgerMap(
+	id, findingID int, actionType, sql string, rollback *string,
+	risk, status string, proposedAt, expiresAt time.Time,
+	reason, policy string, guardrails []string, attemptCount int,
+	cooldownUntil *time.Time, verification string, shadowToil int,
+) map[string]any {
+	return map[string]any{
+		"id":                  strconv.Itoa(id),
+		"finding_id":          strconv.Itoa(findingID),
+		"action_type":         actionType,
+		"sql_executed":        sql,
+		"rollback_sql":        derefStr(rollback),
+		"outcome":             status,
+		"status":              status,
+		"action_risk":         risk,
+		"executed_at":         proposedAt,
+		"event_at":            proposedAt,
+		"expires_at":          expiresAt,
+		"rollback_reason":     reason,
+		"policy_decision":     policy,
+		"guardrails":          guardrails,
+		"attempt_count":       attemptCount,
+		"cooldown_until":      cooldownUntil,
+		"verification_status": verification,
+		"shadow_toil_minutes": shadowToil,
+	}
+}
+
+func decodeStringSlice(data []byte) []string {
+	if len(data) == 0 {
+		return nil
+	}
+	var values []string
+	if err := json.Unmarshal(data, &values); err != nil {
+		return nil
+	}
+	return values
 }
 
 func buildActionMap(
@@ -1821,6 +2097,7 @@ func buildActionMap(
 	return map[string]any{
 		"id":              strconv.FormatInt(id, 10),
 		"executed_at":     executedAt,
+		"event_at":        executedAt,
 		"action_type":     actionType,
 		"finding_id":      fID,
 		"sql_executed":    sqlExecuted,
@@ -1864,17 +2141,19 @@ func queryActionByID(
 	), nil
 }
 
-const actionDetailSQL = `SELECT id, executed_at,
+const actionDetailSQL = `/* pg_sage */SELECT id, executed_at,
  action_type, finding_id, sql_executed, rollback_sql,
  before_state, after_state, outcome, rollback_reason,
  measured_at FROM sage.action_log WHERE id = $1`
+
+const snapshotHistoryMaxPoints = 500
 
 func querySnapshotLatest(
 	ctx context.Context, pool *pgxpool.Pool, metric string,
 ) (any, error) {
 	var data []byte
 	err := pool.QueryRow(ctx,
-		`SELECT data FROM sage.snapshots
+		`/* pg_sage */ SELECT data FROM sage.snapshots
 		 WHERE category = $1
 		 ORDER BY collected_at DESC LIMIT 1`,
 		metric,
@@ -1905,19 +2184,31 @@ func querySnapshotHistory(
 			to = time.Now().UTC()
 		}
 		rows, err = pool.Query(ctx,
-			`SELECT collected_at, data FROM sage.snapshots
-			 WHERE category = $1
-			 AND collected_at BETWEEN $2 AND $3
+			`/* pg_sage */ SELECT collected_at, data
+			 FROM (
+			     SELECT collected_at, data
+			     FROM sage.snapshots
+			     WHERE category = $1
+			       AND collected_at BETWEEN $2 AND $3
+			     ORDER BY collected_at DESC
+			     LIMIT $4
+			 ) capped
 			 ORDER BY collected_at`,
-			metric, from, to,
+			metric, from, to, snapshotHistoryMaxPoints,
 		)
 	} else {
 		rows, err = pool.Query(ctx,
-			`SELECT collected_at, data FROM sage.snapshots
-			 WHERE category = $1
-			 AND collected_at > now() - ($2 || ' hours')::interval
+			`/* pg_sage */ SELECT collected_at, data
+			 FROM (
+			     SELECT collected_at, data
+			     FROM sage.snapshots
+			     WHERE category = $1
+			       AND collected_at > now() - ($2 || ' hours')::interval
+			     ORDER BY collected_at DESC
+			     LIMIT $3
+			 ) capped
 			 ORDER BY collected_at`,
-			metric, strconv.Itoa(hours),
+			metric, strconv.Itoa(hours), snapshotHistoryMaxPoints,
 		)
 	}
 	if err != nil {

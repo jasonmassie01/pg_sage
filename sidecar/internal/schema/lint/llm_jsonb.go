@@ -41,6 +41,8 @@ const slowQuerySQL = `
 SELECT query, calls, mean_exec_time, rows
   FROM pg_stat_statements
  WHERE query ~* any($1)
+   AND COALESCE(query, '') NOT ILIKE '%pg_sage%'
+   AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
  ORDER BY mean_exec_time DESC
  LIMIT 50`
 
@@ -72,8 +74,8 @@ func (a *LLMJsonbAnalyzer) Enhance(
 func (a *LLMJsonbAnalyzer) extractJsonbFindings(
 	findings []Finding,
 ) (map[string]int, []string) {
-	jsonbIdx := make(map[string]int)   // "schema.table.column" -> index
-	tableSet := make(map[string]bool)  // unique table names
+	jsonbIdx := make(map[string]int)  // "schema.table.column" -> index
+	tableSet := make(map[string]bool) // unique table names
 
 	for i, f := range findings {
 		if f.RuleID != "lint_jsonb_in_joins" {

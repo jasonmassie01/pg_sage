@@ -1,13 +1,29 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
-	"gopkg.in/yaml.v3"
-	"os"
+)
+
+var (
+	ErrWatcherStarted = errors.New("config watcher already started")
+	ErrWatcherStopped = errors.New("config watcher already stopped")
+)
+
+type watcherState uint8
+
+const (
+	watcherNew watcherState = iota
+	watcherStarted
+	watcherStopping
+	watcherStopped
 )
 
 // Watcher monitors config.yaml for changes and calls onChange with
@@ -17,24 +33,70 @@ type Watcher struct {
 	path     string
 	mu       sync.RWMutex
 	current  *Config
-	onChange func(*Config)
-	stop     chan struct{}
+	loader   func() (*Config, error)
+	onChange func(*Config) error
+
+	lifecycleMu sync.Mutex
+	state       watcherState
+	stop        chan struct{}
+	done        chan struct{}
+	stopOnce    sync.Once
+	doneOnce    sync.Once
 }
 
 // NewWatcher creates a config file watcher. Call Start() to begin watching.
 func NewWatcher(path string, current *Config, onChange func(*Config)) *Watcher {
+	return NewWatcherWithLoader(path, current, nil, onChange)
+}
+
+// NewWatcherWithLoader reloads a complete precedence-resolved candidate.
+// Production uses this so environment and CLI overlays remain authoritative.
+func NewWatcherWithLoader(
+	path string, current *Config,
+	loader func() (*Config, error), onChange func(*Config),
+) *Watcher {
+	var acknowledged func(*Config) error
+	if onChange != nil {
+		acknowledged = func(candidate *Config) error {
+			onChange(candidate)
+			return nil
+		}
+	}
+	return NewAcknowledgedWatcherWithLoader(
+		path, current, loader, acknowledged,
+	)
+}
+
+// NewAcknowledgedWatcherWithLoader only advances Current after onChange
+// accepts the candidate. Rejected candidates remain retryable.
+func NewAcknowledgedWatcherWithLoader(
+	path string, current *Config,
+	loader func() (*Config, error), onChange func(*Config) error,
+) *Watcher {
 	return &Watcher{
-		path:     path,
-		current:  current,
+		path:     normalizedPath(path),
+		current:  Clone(current),
+		loader:   loader,
 		onChange: onChange,
 		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 }
 
 // Start begins watching the config file for changes.
 func (w *Watcher) Start() error {
+	w.lifecycleMu.Lock()
+	defer w.lifecycleMu.Unlock()
+	switch w.state {
+	case watcherStarted, watcherStopping:
+		return ErrWatcherStarted
+	case watcherStopped:
+		return ErrWatcherStopped
+	}
 	if w.path == "" {
-		return nil // no config file to watch
+		w.state = watcherStopped
+		w.doneOnce.Do(func() { close(w.done) })
+		return nil
 	}
 
 	watcher, err := fsnotify.NewWatcher()
@@ -42,54 +104,82 @@ func (w *Watcher) Start() error {
 		return fmt.Errorf("fsnotify: %w", err)
 	}
 
-	if err := watcher.Add(w.path); err != nil {
-		watcher.Close()
-		return fmt.Errorf("watch %s: %w", w.path, err)
+	watchDir := filepath.Dir(w.path)
+	if err := watcher.Add(watchDir); err != nil {
+		_ = watcher.Close()
+		return fmt.Errorf("watch %s: %w", watchDir, err)
 	}
-
-	go func() {
-		defer watcher.Close()
-		for {
-			select {
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
-					w.reload()
-				}
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				log.Printf("[WARN] [config-watcher] error: %v", err)
-			case <-w.stop:
-				return
-			}
-		}
-	}()
-
+	w.state = watcherStarted
+	go w.run(watcher)
 	return nil
 }
 
 // Stop stops watching.
 func (w *Watcher) Stop() {
-	select {
-	case w.stop <- struct{}{}:
-	default:
+	w.lifecycleMu.Lock()
+	if w.state == watcherNew {
+		w.state = watcherStopped
+		w.stopOnce.Do(func() { close(w.stop) })
+		w.doneOnce.Do(func() { close(w.done) })
+		w.lifecycleMu.Unlock()
+		return
+	}
+	if w.state == watcherStarted {
+		w.state = watcherStopping
+	}
+	w.stopOnce.Do(func() { close(w.stop) })
+	done := w.done
+	w.lifecycleMu.Unlock()
+	<-done
+}
+
+// Done closes only after the watcher goroutine and fsnotify handle exit.
+func (w *Watcher) Done() <-chan struct{} {
+	return w.done
+}
+
+func (w *Watcher) run(watcher *fsnotify.Watcher) {
+	defer func() {
+		_ = watcher.Close()
+		w.lifecycleMu.Lock()
+		w.state = watcherStopped
+		w.lifecycleMu.Unlock()
+		w.doneOnce.Do(func() { close(w.done) })
+	}()
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
+			if w.isConfigEvent(event) {
+				w.reload()
+			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			log.Printf("[WARN] [config-watcher] error: %v", err)
+		case <-w.stop:
+			return
+		}
 	}
 }
 
-func (w *Watcher) reload() {
-	data, err := os.ReadFile(w.path)
-	if err != nil {
-		log.Printf("[WARN] [config-watcher] read failed: %v", err)
-		return
+func (w *Watcher) isConfigEvent(event fsnotify.Event) bool {
+	if !samePath(normalizedPath(event.Name), w.path) {
+		return false
 	}
+	return event.Has(fsnotify.Write) || event.Has(fsnotify.Create) ||
+		event.Has(fsnotify.Rename)
+}
 
-	expanded := os.ExpandEnv(string(data))
-	var fresh Config
-	if err := yaml.Unmarshal([]byte(expanded), &fresh); err != nil {
+func (w *Watcher) reload() {
+	w.mu.RLock()
+	current := Clone(w.current)
+	w.mu.RUnlock()
+	fresh, err := w.loadCandidate(current)
+	if err != nil {
 		log.Printf("[WARN] [config-watcher] parse failed: %v", err)
 		return
 	}
@@ -98,23 +188,59 @@ func (w *Watcher) reload() {
 		return
 	}
 
-	w.mu.Lock()
-	old := w.current
-
 	// Warn about non-hot-reloadable fields that changed.
-	warnNonReloadable(old, &fresh)
+	warnNonReloadable(current, fresh)
 
-	// Apply only hot-reloadable fields.
-	changed := applyHotReload(old, &fresh)
-	w.current = old
-	w.mu.Unlock()
+	changed := changedConfigPaths(current, fresh)
 
 	if len(changed) > 0 {
-		log.Printf("[INFO] [config-watcher] reloaded: %v", changed)
 		if w.onChange != nil {
-			w.onChange(old)
+			if err := w.onChange(Clone(fresh)); err != nil {
+				log.Printf("[WARN] [config-watcher] reload rejected: %v", err)
+				return
+			}
 		}
+		w.mu.Lock()
+		w.current = Clone(fresh)
+		w.mu.Unlock()
+		log.Printf("[INFO] [config-watcher] reloaded: %v", changed)
 	}
+}
+
+func (w *Watcher) loadCandidate(current *Config) (*Config, error) {
+	if w.loader != nil {
+		candidate, err := w.loader()
+		if err != nil {
+			return nil, err
+		}
+		if candidate == nil {
+			return nil, fmt.Errorf("candidate loader returned nil config")
+		}
+		return Clone(candidate), nil
+	}
+	candidate := Clone(current)
+	if err := loadYAML(w.path, candidate); err != nil {
+		return nil, err
+	}
+	return candidate, nil
+}
+
+func normalizedPath(path string) string {
+	if path == "" {
+		return ""
+	}
+	absolute, err := filepath.Abs(path)
+	if err == nil {
+		path = absolute
+	}
+	return filepath.Clean(path)
+}
+
+func samePath(left, right string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }
 
 // warnNonReloadable logs warnings for fields that changed but require restart.
@@ -408,6 +534,5 @@ func applyHotReload(target, fresh *Config) []string {
 func (w *Watcher) Current() *Config {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	c := *w.current
-	return &c
+	return Clone(w.current)
 }

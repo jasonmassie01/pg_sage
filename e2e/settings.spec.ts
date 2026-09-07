@@ -92,6 +92,22 @@ test.describe('Settings', () => {
     ).first();
     await expect(firstInput).toBeVisible();
 
+    const configState = await page.evaluate(async () => {
+      const res = await fetch('/api/v1/config/global', {
+        credentials: 'include',
+      });
+      return res.json();
+    });
+    if (configState.read_only === true) {
+      await expect(page.getByTestId('settings-read-only')).toContainText(
+        'edit the YAML file',
+      );
+      await expect(firstInput).toBeDisabled();
+      await expect(page.getByTestId('settings-save')).toHaveCount(0);
+      await expect(page.getByTestId('settings-discard')).toHaveCount(0);
+      return;
+    }
+
     // Clear and type a new value to trigger the "modified" state
     await firstInput.fill('999');
 
@@ -129,33 +145,43 @@ test.describe('Settings', () => {
     await page.waitForSelector('button:has-text("General")');
     const key = 'collector.max_queries';
 
-    await page.evaluate(async (configKey) => {
-      await fetch(`/api/v1/config/global/${encodeURIComponent(configKey)}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-    }, key);
-
-    const baseline = await page.evaluate(async (configKey) => {
+    const initial = await page.evaluate(async () => {
       const res = await fetch('/api/v1/config/global', {
         credentials: 'include',
       });
-      const body = await res.json();
-      return body.config[configKey];
-    }, key);
+      return res.json();
+    });
+    if (initial.read_only === true) {
+      await page.getByTestId('settings-tab-collector').click();
+      await expect(page.getByTestId('settings-read-only')).toContainText(
+        'edit the YAML file',
+      );
+      await expect(page.getByTestId(`setting-${key}`)).toBeDisabled();
+      await expect(page.getByTestId(`reset-${key}`)).toHaveCount(0);
+      return;
+    }
+
+    const baseline = initial.config[key];
     const baselineValue = Number(baseline.value);
     const overrideValue = baselineValue + 17;
 
     try {
-      await page.evaluate(async ({ configKey, value }) => {
+      await page.evaluate(async ({ configKey, value, generation }) => {
         const res = await fetch('/api/v1/config/global', {
           method: 'PUT',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ [configKey]: value }),
+          body: JSON.stringify({
+            [configKey]: value,
+            expected_generation: generation,
+          }),
         });
         if (!res.ok) throw new Error(`override failed: ${res.status}`);
-      }, { configKey: key, value: overrideValue });
+      }, {
+        configKey: key,
+        value: overrideValue,
+        generation: initial.desired_generation,
+      });
 
       const saved = await page.evaluate(async (configKey) => {
         const res = await fetch('/api/v1/config/global', {
@@ -199,10 +225,18 @@ test.describe('Settings', () => {
       expect(after.source).not.toBe('override');
     } finally {
       await page.evaluate(async (configKey) => {
-        await fetch(`/api/v1/config/global/${encodeURIComponent(configKey)}`, {
+        const current = await fetch('/api/v1/config/global', {
+          credentials: 'include',
+        }).then(res => res.json());
+        const generation = current.desired_generation;
+        await fetch(
+          `/api/v1/config/global/${encodeURIComponent(configKey)}`
+          + `?expected_generation=${generation}`,
+          {
           method: 'DELETE',
           credentials: 'include',
-        });
+          },
+        );
       }, key);
     }
   });
@@ -216,10 +250,14 @@ test.describe('Settings', () => {
       });
       return res.json();
     });
-    const db = (fleet.databases || []).find((d: any) =>
+    const databases = Array.isArray(fleet.databases) ? fleet.databases : [];
+    const db = databases.find((d: {
+      id?: number; database_id?: number; name?: string;
+    }) =>
       (d.id || d.database_id) && d.name,
     );
-    test.skip(!db, 'No managed database with id is available');
+    expect(db, 'managed database with id').toBeTruthy();
+    if (!db) return;
     const dbId = db.id || db.database_id;
 
     const before = await page.evaluate(async (id) => {
@@ -230,6 +268,18 @@ test.describe('Settings', () => {
     }, dbId);
     const oldMode = before.config.execution_mode.value;
     const nextMode = oldMode === 'manual' ? 'approval' : 'manual';
+
+    if (before.read_only === true) {
+      await page.getByTestId('database-picker').selectOption(db.name);
+      await page.goto('/#/settings');
+      await page.getByTestId('settings-tab-trust-safety').click();
+      await expect(page.getByTestId('settings-read-only')).toContainText(
+        'edit the YAML file',
+      );
+      await expect(page.getByTestId('setting-execution_mode')).toBeDisabled();
+      await expect(page.getByTestId('settings-save')).toHaveCount(0);
+      return;
+    }
 
     try {
       await page.getByTestId('database-picker').selectOption(db.name);
@@ -260,11 +310,17 @@ test.describe('Settings', () => {
       expect(after.config.execution_mode.value).toBe(nextMode);
     } finally {
       await page.evaluate(async ({ id, mode }) => {
+        const current = await fetch(`/api/v1/config/databases/${id}`, {
+          credentials: 'include',
+        }).then(res => res.json());
         await fetch(`/api/v1/config/databases/${id}`, {
           method: 'PUT',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ execution_mode: mode }),
+          body: JSON.stringify({
+            execution_mode: mode,
+            expected_generation: current.desired_generation,
+          }),
         });
       }, { id: dbId, mode: oldMode });
     }

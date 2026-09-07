@@ -15,7 +15,13 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 )
 
-var ErrDatabaseNotFound = errors.New("database not found")
+var (
+	ErrDatabaseNotFound = errors.New("database not found")
+	ErrInvalidInstance  = errors.New("invalid database instance")
+	ErrInstanceConflict = errors.New("database instance changed")
+)
+
+const defaultInstanceTeardownTimeout = 30 * time.Second
 
 // DatabaseManager manages multiple database instances.
 type DatabaseManager struct {
@@ -23,26 +29,42 @@ type DatabaseManager struct {
 	cfg         *config.Config
 	primaryName string // first registered instance name
 	mu          sync.RWMutex
+	lifecycle   chan struct{}
 }
 
 // NewManager creates a fleet manager from config.
 func NewManager(cfg *config.Config) *DatabaseManager {
-	return &DatabaseManager{
+	m := &DatabaseManager{
 		instances: make(map[string]*DatabaseInstance),
 		cfg:       cfg,
+		lifecycle: make(chan struct{}, 1),
 	}
+	m.lifecycle <- struct{}{}
+	return m
 }
 
 // RegisterInstance adds a pre-built instance (used by main.go
-// after connecting and creating components). The first registered
+// after connecting and creating components). The first *connected*
 // instance becomes the primary — used for auth and session storage.
+// Failed instances (nil Pool) are still registered so their error
+// surfaces in fleet status, but they must never become primary: a
+// nil-pool primary breaks auth-route registration and every
+// "all"-scoped query (see PoolForDatabase).
 func (m *DatabaseManager) RegisterInstance(inst *DatabaseInstance) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.primaryName == "" {
-		m.primaryName = inst.Name
+	var retired *DatabaseInstance
+	_ = m.WithLifecycle(context.Background(), func(*LifecycleMutation) error {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		retired = m.instances[inst.Name]
+		if m.primaryName == "" && inst.Pool != nil {
+			m.primaryName = inst.Name
+		}
+		m.instances[inst.Name] = inst
+		return nil
+	})
+	if retired != nil && retired != inst {
+		go func() { _ = cleanupRejectedCandidate(retired) }()
 	}
-	m.instances[inst.Name] = inst
 }
 
 // GetInstance returns a single instance by name.
@@ -85,6 +107,7 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 		// writers (updateInstanceFindings, config_handlers) don't race
 		// with the health-score compute or the JSON marshaller.
 		snap := inst.SnapshotStatus()
+		snap = EnsureCapabilities(m.cfg, inst, snap, time.Now().UTC())
 		snap.HealthScore = computeHealthScore(snap)
 		snap.DatabaseName = inst.Name
 		ds := DatabaseStatus{
@@ -168,22 +191,48 @@ func (m *DatabaseManager) RecordHealthSnapshots(ctx context.Context) {
 	m.mu.RUnlock()
 
 	for _, x := range samples {
-		qctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		_, err := x.pool.Exec(qctx,
-			`INSERT INTO sage.health_history
-			 (database_name, health_score, findings_open,
-			  findings_critical, findings_warning,
-			  findings_info, actions_total)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-			x.name, x.s.HealthScore, x.s.FindingsOpen,
-			x.s.FindingsCritical, x.s.FindingsWarning,
-			x.s.FindingsInfo, x.s.ActionsTotal,
-		)
-		cancel()
-		if err != nil {
-			log.Printf("fleet: %s: health_history write failed: %v",
-				x.name, err)
-		}
+		recordHealthSample(ctx, x.name, x.pool, x.s)
+	}
+}
+
+// RecordHealthSnapshot persists one instance's current fleet health. Per-DB
+// orchestrators use this instead of recording the entire fleet on every tick.
+func (m *DatabaseManager) RecordHealthSnapshot(
+	ctx context.Context, name string,
+) {
+	m.mu.RLock()
+	inst := m.instances[name]
+	if inst == nil || inst.Pool == nil {
+		m.mu.RUnlock()
+		return
+	}
+	pool := inst.Pool
+	snapshot := inst.SnapshotStatus()
+	m.mu.RUnlock()
+	snapshot.HealthScore = computeHealthScore(snapshot)
+	recordHealthSample(ctx, name, pool, snapshot)
+}
+
+func recordHealthSample(
+	ctx context.Context,
+	name string,
+	pool *pgxpool.Pool,
+	snapshot *InstanceStatus,
+) {
+	qctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_, err := pool.Exec(qctx,
+		`/* pg_sage */ INSERT INTO sage.health_history
+		 (database_name, health_score, findings_open,
+		  findings_critical, findings_warning,
+		  findings_info, actions_total)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		name, snapshot.HealthScore, snapshot.FindingsOpen,
+		snapshot.FindingsCritical, snapshot.FindingsWarning,
+		snapshot.FindingsInfo, snapshot.ActionsTotal,
+	)
+	if err != nil {
+		log.Printf("fleet: %s: health_history write failed: %v", name, err)
 	}
 }
 
@@ -217,25 +266,30 @@ func (m *DatabaseManager) setEmergencyStopped(
 		if name != "" && name != n {
 			continue
 		}
-		if inst.Stopped != stopped {
-			if inst.Pool != nil {
-				ctx, cancel := context.WithTimeout(
-					context.Background(), 5*time.Second,
-				)
-				err := executor.SetEmergencyStop(ctx, inst.Pool, stopped)
-				cancel()
-				if err != nil {
-					return changed, fmt.Errorf(
-						"persisting emergency stop for %s: %w", n, err)
-				}
+		// Always reconcile the persistent flag (sage.config) with the
+		// target, even when the in-memory state already matches. After a
+		// restart the in-memory state resets to "running" while the
+		// persisted flag may still be "stopped"; gating the write on the
+		// in-memory state left resume unable to clear it.
+		if inst.Pool != nil {
+			ctx, cancel := context.WithTimeout(
+				context.Background(), 5*time.Second,
+			)
+			err := executor.SetEmergencyStop(ctx, inst.Pool, stopped)
+			cancel()
+			if err != nil {
+				return changed, fmt.Errorf(
+					"persisting emergency stop for %s: %w", n, err)
 			}
-			inst.Stopped = stopped
-			changed++
+		}
+		if inst.Stopped != stopped {
 			if stopped {
 				log.Printf("fleet: %s: emergency stop", n)
 			} else {
 				log.Printf("fleet: %s: resumed", n)
 			}
+			inst.Stopped = stopped
+			changed++
 		}
 	}
 	return changed, nil
@@ -267,7 +321,27 @@ func (m *DatabaseManager) PoolForDatabase(
 	}
 	// Return the primary instance's pool (deterministic).
 	if m.primaryName != "" {
-		if inst, ok := m.instances[m.primaryName]; ok {
+		if inst, ok := m.instances[m.primaryName]; ok && inst.Pool != nil {
+			return inst.Pool
+		}
+	}
+	// Fallback: the primary may be unset or its pool gone (e.g. the
+	// primary was removed). Return the first connected instance in
+	// deterministic name order so auth/"all"-scoped queries still work.
+	return m.firstConnectedPoolLocked()
+}
+
+// firstConnectedPoolLocked returns the pool of the first connected
+// instance in sorted name order, or nil if none are connected. The
+// caller must hold m.mu (read or write).
+func (m *DatabaseManager) firstConnectedPoolLocked() *pgxpool.Pool {
+	names := make([]string, 0, len(m.instances))
+	for n := range m.instances {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		if inst := m.instances[n]; inst != nil && inst.Pool != nil {
 			return inst.Pool
 		}
 	}
@@ -287,24 +361,6 @@ func (m *DatabaseManager) AllPools() []*pgxpool.Pool {
 		}
 	}
 	return pools
-}
-
-// RemoveInstance removes an instance by name and closes its pool.
-func (m *DatabaseManager) RemoveInstance(name string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	inst, ok := m.instances[name]
-	if !ok {
-		return false
-	}
-	if inst.Cancel != nil {
-		inst.Cancel()
-	}
-	if inst.Pool != nil {
-		inst.Pool.Close()
-	}
-	delete(m.instances, name)
-	return true
 }
 
 // GetInstanceByDatabaseID returns the instance with the given
@@ -333,29 +389,33 @@ func (m *DatabaseManager) UpdateInstanceMetadata(
 	databaseID int,
 	trustLevel string,
 ) bool {
-	m.mu.Lock()
-	inst, ok := m.instances[oldName]
-	if !ok {
-		m.mu.Unlock()
-		return false
-	}
-	if oldName != newName {
-		delete(m.instances, oldName)
-		m.instances[newName] = inst
-		if m.primaryName == oldName {
-			m.primaryName = newName
+	updated := false
+	_ = m.WithLifecycle(context.Background(), func(*LifecycleMutation) error {
+		m.mu.Lock()
+		inst, ok := m.instances[oldName]
+		if !ok || (oldName != newName && m.instances[newName] != nil) {
+			m.mu.Unlock()
+			return nil
 		}
-	}
-	inst.Name = newName
-	inst.DatabaseID = databaseID
-	inst.Config = cfg
-	m.mu.Unlock()
-
-	inst.UpdateStatus(func(s *InstanceStatus) {
-		s.TrustLevel = trustLevel
-		s.DatabaseName = newName
+		if oldName != newName {
+			delete(m.instances, oldName)
+			m.instances[newName] = inst
+			if m.primaryName == oldName {
+				m.primaryName = newName
+			}
+		}
+		inst.Name = newName
+		inst.DatabaseID = databaseID
+		inst.Config = cfg
+		m.mu.Unlock()
+		inst.UpdateStatus(func(s *InstanceStatus) {
+			s.TrustLevel = trustLevel
+			s.DatabaseName = newName
+		})
+		updated = true
+		return nil
 	})
-	return true
+	return updated
 }
 
 // InstanceCount returns the number of registered instances.

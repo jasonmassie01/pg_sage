@@ -63,8 +63,10 @@ export function SettingsPage({ database, databaseId }) {
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState(null)
   const [stopping, setStopping] = useState(false)
+  const [restarting, setRestarting] = useState(false)
   const [pendingTrust, setPendingTrust] = useState(null)
   const [showDiff, setShowDiff] = useState(false)
+  const readOnly = data?.read_only === true
 
   const tabs = mode === 'simple' ? SIMPLE_TABS : ADVANCED_TABS
 
@@ -99,6 +101,14 @@ export function SettingsPage({ database, databaseId }) {
   }, [cfg, edits])
 
   const setVal = (key, val) => {
+	if (readOnly) return
+	if (isDatabaseScope
+	  && key !== 'trust.level' && key !== 'execution_mode') {
+	  toast.error(
+	    'Per-database overrides currently support only trust and execution mode'
+	  )
+	  return
+	}
     if (key === 'trust.level') {
       const current = getVal('trust.level')
       // Only confirm on escalations (observation -> advisory/auto,
@@ -126,6 +136,7 @@ export function SettingsPage({ database, databaseId }) {
   }
 
   const resetField = async (key) => {
+    if (readOnly) return
     if (key in edits) {
       setEdits(prev => {
         const next = { ...prev }
@@ -140,9 +151,10 @@ export function SettingsPage({ database, databaseId }) {
     const canResetGlobalOverride = !isDatabaseScope
       && source === 'override' && key !== 'execution_mode'
     if (canResetDBOverride || canResetGlobalOverride) {
-      const url = canResetDBOverride
+	  const baseUrl = canResetDBOverride
         ? `/api/v1/config/databases/${numericDatabaseId}/${encodeURIComponent(key)}`
         : `/api/v1/config/global/${encodeURIComponent(key)}`
+	  const url = `${baseUrl}?expected_generation=${data?.desired_generation ?? ''}`
       try {
         const res = await fetch(url, {
           method: 'DELETE',
@@ -151,9 +163,21 @@ export function SettingsPage({ database, databaseId }) {
         })
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
+		  if (res.status === 409) await refetch()
           toast.error(err.error || 'Reset failed')
           return
         }
+		const result = await res.json().catch(() => ({}))
+		if (result.pending_restart?.length) {
+		  setFeedback({
+			type: 'error',
+			msg: `Pending restart: ${result.pending_restart.join(', ')}`,
+		  })
+		} else if (result.warnings?.length) {
+		  setFeedback({ type: 'error', msg: result.warnings.join('; ') })
+		} else {
+		  setFeedback(null)
+		}
         toast.success(canResetDBOverride
           ? `Reset ${key} to inherited value`
           : `Reset ${key} to configured default`)
@@ -185,13 +209,28 @@ export function SettingsPage({ database, databaseId }) {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(edits),
+		body: JSON.stringify({
+          ...edits,
+          expected_generation: data?.desired_generation,
+        }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
+		if (res.status === 409) await refetch()
         toast.error(err.error || 'Save failed')
         return
       }
+	  const result = await res.json().catch(() => ({}))
+	  if (result.pending_restart?.length) {
+		setFeedback({
+		  type: 'error',
+		  msg: `Pending restart: ${result.pending_restart.join(', ')}`,
+		})
+	  } else if (result.warnings?.length) {
+		setFeedback({ type: 'error', msg: result.warnings.join('; ') })
+	  } else {
+		setFeedback(null)
+	  }
       toast.success(
         `Saved ${Object.keys(edits).length} `
         + `${isDatabaseScope ? 'database ' : 'global '}`
@@ -204,6 +243,36 @@ export function SettingsPage({ database, databaseId }) {
       toast.error(e.message || 'Save failed')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const restartNow = async () => {
+    if (!window.confirm(
+      'Restart the pg_sage sidecar now? It will be unavailable for a few '
+      + 'seconds while startup-only settings take effect.')) {
+      return
+    }
+    setRestarting(true)
+    try {
+      const res = await fetch('/api/v1/restart', {
+        method: 'POST',
+        credentials: 'include',
+      })
+      if (res.status === 501) {
+        toast.error('Restart not supported: no supervisor configured')
+        return
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        toast.error(err.error || 'Restart failed')
+        return
+      }
+      toast.success('Restarting — reconnecting in a few seconds…')
+      setTimeout(() => window.location.reload(), 6000)
+    } catch (e) {
+      toast.error(e.message || 'Restart failed')
+    } finally {
+      setRestarting(false)
     }
   }
 
@@ -220,6 +289,7 @@ export function SettingsPage({ database, databaseId }) {
 
   const fieldProps = {
     getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+    readOnly,
   }
   const isGeneralTab = tab === 'General'
   const hasEdits = Object.keys(edits).length > 0
@@ -264,7 +334,44 @@ export function SettingsPage({ database, databaseId }) {
           ? `Database ${database} (ID ${numericDatabaseId})`
           : 'Global defaults'}
       </div>
-      <ShadowModePage database={database} />
+      {readOnly && (
+        <div
+          data-testid="settings-read-only"
+          className="rounded p-3 text-xs"
+          style={{
+            color: 'var(--yellow)',
+            border: '1px solid var(--yellow)',
+            background: 'var(--bg-card)',
+          }}
+        >
+          Configuration is read-only in YAML fleet mode. To change these
+          values, {data?.write_guidance || 'edit the YAML file'}.
+        </div>
+      )}
+      <div
+        className="rounded p-3 text-xs flex items-center justify-between gap-3"
+        style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          color: 'var(--text-secondary)',
+        }}
+      >
+        <span>
+          Saved fields follow server lifecycle metadata. Reconfigured owners
+          rebuild in place; restart-bound fields are reported as pending.
+        </span>
+        <button
+          data-testid="settings-restart-btn"
+          onClick={restartNow}
+          disabled={restarting}
+          className="text-xs px-3 py-1 rounded whitespace-nowrap inline-flex items-center gap-1"
+          style={{ color: 'var(--text)', border: '1px solid var(--border)' }}
+        >
+          <RotateCcw size={13} />
+          {restarting ? 'Restarting…' : 'Restart now'}
+        </button>
+      </div>
+      {tab === 'General' && <ShadowModePage database={database} />}
       {feedback && <FeedbackBanner {...feedback} />}
       <div className="rounded p-5"
         style={{
@@ -322,9 +429,11 @@ export function SettingsPage({ database, databaseId }) {
 function SimpleContent({
   tab, data, database, stopping, setStopping, refetch,
   getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+  readOnly,
 }) {
   const fieldProps = {
     getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+    readOnly,
   }
   if (tab === 'General') {
     return (
@@ -349,9 +458,11 @@ function SimpleContent({
 function AdvancedContent({
   tab, data, database, stopping, setStopping, refetch,
   getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+  readOnly,
 }) {
   const fieldProps = {
     getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
+    readOnly,
   }
   if (tab === 'General') {
     return (
@@ -647,13 +758,13 @@ function SourceBadge({ source }) {
 
 function Field({
   label, configKey, type, getVal, setVal, getSource,
-  resetField, options, help,
+  resetField, options, help, readOnly = false,
 }) {
   const value = getVal(configKey)
   const source = getSource(configKey)
-  const canReset = source === 'modified'
+  const canReset = !readOnly && (source === 'modified'
     || ((source === 'override' || source === 'db_override')
-      && configKey !== 'execution_mode')
+      && configKey !== 'execution_mode'))
   return (
     <div className="flex items-center gap-3 py-2">
       <div className="w-64 flex-shrink-0">
@@ -675,6 +786,7 @@ function Field({
         {type === 'select' ? (
           <select value={value}
             data-testid={`setting-${configKey}`}
+            disabled={readOnly}
             onChange={e => setVal(configKey, e.target.value)}
             className="w-full px-3 py-1.5 rounded text-sm"
             style={{
@@ -691,6 +803,7 @@ function Field({
         ) : type === 'toggle' ? (
           <button
             data-testid={`setting-${configKey}`}
+            disabled={readOnly}
             onClick={() => setVal(
               configKey,
               String(value) !== 'true' ? 'true' : 'false'
@@ -710,11 +823,13 @@ function Field({
         ) : type === 'password' ? (
           <PasswordField value={value}
             testId={`setting-${configKey}`}
+            disabled={readOnly}
             onChange={v => setVal(configKey, v)} />
         ) : (
           <input type={type === 'float' ? 'number' : type || 'number'}
             step={type === 'float' ? '0.01' : '1'}
             data-testid={`setting-${configKey}`}
+            disabled={readOnly}
             value={value}
             onChange={e => setVal(configKey, e.target.value)}
             className="w-full px-3 py-1.5 rounded text-sm"
@@ -738,12 +853,13 @@ function Field({
   )
 }
 
-function PasswordField({ value, onChange, testId }) {
+function PasswordField({ value, onChange, testId, disabled = false }) {
   const [show, setShow] = useState(false)
   return (
     <div className="flex gap-2">
       <input type={show ? 'text' : 'password'} value={value}
         data-testid={testId}
+        disabled={disabled}
         onChange={e => onChange(e.target.value)}
         className="flex-1 px-3 py-1.5 rounded text-sm"
         style={{
@@ -768,6 +884,7 @@ function PasswordField({ value, onChange, testId }) {
 function GeneralTab({
   mode, databases, database, stopping, setStopping, refetch,
 }) {
+  const toast = useToast()
   const [armSeconds, setArmSeconds] = useState(0)
   const timerRef = useRef(null)
 
@@ -780,7 +897,7 @@ function GeneralTab({
     const dbParam = database && database !== 'all'
       ? `?database=${database}` : ''
     try {
-      await fetch(
+      const res = await fetch(
         `/api/v1/emergency-stop${dbParam}`,
         {
           method: 'POST',
@@ -788,6 +905,18 @@ function GeneralTab({
           headers: { 'Content-Type': 'application/json' },
         },
       )
+      // A failed kill-switch must NOT look like success: an HTTP error
+      // status does not reject fetch, so without this check the operator
+      // believes autonomous actions stopped when they did not (H6).
+      if (!res.ok) {
+        let msg = `Emergency stop failed (${res.status})`
+        try { const d = await res.json(); if (d && d.error) msg = d.error } catch { /* non-JSON */ }
+        toast.error(msg)
+      } else {
+        toast.success('Emergency stop engaged — autonomous actions halted')
+      }
+    } catch (err) {
+      toast.error(err.message || 'Emergency stop request failed')
     } finally {
       setStopping(false)
       refetch()
@@ -829,15 +958,27 @@ function GeneralTab({
   const resume = async () => {
     const dbParam = database && database !== 'all'
       ? `?database=${database}` : ''
-    await fetch(
-      `/api/v1/resume${dbParam}`,
-      {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-      },
-    )
-    refetch()
+    try {
+      const res = await fetch(
+        `/api/v1/resume${dbParam}`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
+      if (!res.ok) {
+        let msg = `Resume failed (${res.status})`
+        try { const d = await res.json(); if (d && d.error) msg = d.error } catch { /* non-JSON */ }
+        toast.error(msg)
+      } else {
+        toast.success('Resumed — autonomous actions re-enabled')
+      }
+    } catch (err) {
+      toast.error(err.message || 'Resume request failed')
+    } finally {
+      refetch()
+    }
   }
   return (
     <div className="space-y-4">
@@ -1021,6 +1162,7 @@ function TrustSafetyTab(props) {
 
 function ModelField({
   getVal, setVal, getSource, resetField, help, configUrl,
+  readOnly = false,
 }) {
   const [models, setModels] = useState(null)
   const [loadingModels, setLoadingModels] = useState(false)
@@ -1061,7 +1203,8 @@ function ModelField({
 
   const value = getVal('llm.model')
   const source = getSource('llm.model')
-  const canReset = source === 'modified' || source === 'db_override'
+  const canReset = !readOnly
+    && (source === 'modified' || source === 'db_override')
 
   if (models && models.length > 0) {
     const options = models.map(m => ({
@@ -1089,6 +1232,7 @@ function ModelField({
         </div>
         <div className="flex-1 flex gap-2">
           <select value={value}
+            disabled={readOnly}
             onChange={e => setVal('llm.model', e.target.value)}
             className="flex-1 px-3 py-1.5 rounded text-sm"
             style={{
@@ -1140,6 +1284,7 @@ function ModelField({
       </div>
       <div className="flex-1 flex gap-2">
         <input type="text" value={value}
+          disabled={readOnly}
           onChange={e => setVal('llm.model', e.target.value)}
           className="flex-1 px-3 py-1.5 rounded text-sm"
           style={{

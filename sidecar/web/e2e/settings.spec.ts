@@ -79,8 +79,8 @@ test.describe('Settings page', () => {
 
     // General tab is active by default — shows system info.
     await expect(page.getByText('System Info')).toBeVisible()
-    await expect(page.getByText('Mode')).toBeVisible()
-    await expect(page.getByText('fleet')).toBeVisible()
+    await expect(page.getByText('Mode', { exact: true })).toBeVisible()
+    await expect(page.getByText('fleet', { exact: true })).toBeVisible()
 
     // Emergency controls
     const stopBtn = page.locator(
@@ -160,7 +160,7 @@ test.describe('Settings page', () => {
     ).toBeVisible()
     await expect(
       page.locator('[data-testid="settings-save"]'),
-    ).toContainText('Save Changes')
+    ).toContainText('Review & Save')
 
     // Discard button should also be present.
     await expect(

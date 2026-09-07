@@ -18,6 +18,7 @@ type Detector struct {
 	cfg          *config.MigrationConfig
 	logFn        func(string, string, ...any)
 	knownQueries map[int]string // pid -> last seen query
+	findingSink  FindingSink
 }
 
 // NewDetector creates a Detector for activity-based DDL detection.
@@ -36,6 +37,11 @@ func NewDetector(
 	}
 }
 
+func (d *Detector) WithFindingSink(sink FindingSink) *Detector {
+	d.findingSink = sink
+	return d
+}
+
 const ddlActivitySQL = `
 SELECT pid, query
 FROM   pg_stat_activity
@@ -49,6 +55,9 @@ WHERE  state = 'active'
 func (d *Detector) PollOnce(
 	ctx context.Context,
 ) ([]*rca.Incident, error) {
+	if !d.activityPollingEnabled() {
+		return nil, nil
+	}
 	rows, err := d.pool.Query(ctx, ddlActivitySQL)
 	if err != nil {
 		return nil, err
@@ -81,6 +90,7 @@ func (d *Detector) PollOnce(
 		}
 		if inc != nil {
 			incidents = append(incidents, inc)
+			d.persistFinding(ctx, pid, query, inc)
 		}
 	}
 
@@ -88,6 +98,25 @@ func (d *Detector) PollOnce(
 	d.pruneStale(currentPIDs)
 
 	return incidents, rows.Err()
+}
+
+func (d *Detector) persistFinding(
+	ctx context.Context,
+	pid int,
+	query string,
+	inc *rca.Incident,
+) {
+	if d.findingSink == nil {
+		return
+	}
+	finding, ok := FindingFromIncident(pid, query, inc)
+	if !ok {
+		return
+	}
+	if _, err := d.findingSink.UpsertMigrationSafetyFinding(
+		ctx, finding); err != nil {
+		d.logFn("warn", "migration: persist finding failed: %v", err)
+	}
 }
 
 // pruneStale removes entries for PIDs that are no longer active.
@@ -101,6 +130,9 @@ func (d *Detector) pruneStale(currentPIDs map[int]bool) {
 
 // Run starts the polling loop, blocking until ctx is cancelled.
 func (d *Detector) Run(ctx context.Context) {
+	if !d.activityPollingEnabled() {
+		return
+	}
 	interval := time.Duration(d.cfg.PollIntervalSeconds) * time.Second
 	if interval <= 0 {
 		interval = 5 * time.Second
@@ -129,4 +161,8 @@ func (d *Detector) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (d *Detector) activityPollingEnabled() bool {
+	return d != nil && d.cfg != nil && d.cfg.Enabled && d.cfg.ActivityPolling
 }

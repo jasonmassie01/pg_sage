@@ -522,6 +522,36 @@ func TestParseLLMFindings_NullRecommendedSQL(t *testing.T) {
 	}
 }
 
+func TestParseLLMFindings_DropsReloadFromMultiStatement(t *testing.T) {
+	// A config rec that bundles the apply mechanism must yield only the
+	// real tuning statement — the executor issues the reload itself.
+	raw := `[{"category":"memory_tuning","object_identifier":"instance",` +
+		`"recommended_sql":"ALTER SYSTEM SET work_mem = '64MB'; ` +
+		`SELECT pg_reload_conf();"}]`
+	findings := parseLLMFindings(raw, "test", noopLog)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding (reload dropped), got %d", len(findings))
+	}
+	got := findings[0].RecommendedSQL
+	if !strings.Contains(strings.ToUpper(got), "ALTER SYSTEM SET WORK_MEM") {
+		t.Fatalf("expected the ALTER SYSTEM statement, got %q", got)
+	}
+	if strings.Contains(strings.ToUpper(got), "PG_RELOAD_CONF") {
+		t.Fatalf("reload mechanism must not appear in finding SQL: %q", got)
+	}
+}
+
+func TestParseLLMFindings_BareReloadProducesNoFinding(t *testing.T) {
+	// A recommendation that is ONLY the apply mechanism is not an
+	// actionable tuning finding and must be dropped entirely (no orphan).
+	raw := `[{"category":"memory_tuning","object_identifier":"instance",` +
+		`"recommended_sql":"SELECT pg_reload_conf();"}]`
+	findings := parseLLMFindings(raw, "test", noopLog)
+	if len(findings) != 0 {
+		t.Fatalf("expected 0 findings for bare reload, got %d", len(findings))
+	}
+}
+
 func TestParseLLMFindings_NumericSeverityIgnored(t *testing.T) {
 	raw := `[{"object_identifier":"x","severity":5}]`
 	findings := parseLLMFindings(raw, "test", noopLog)

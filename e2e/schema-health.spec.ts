@@ -50,6 +50,8 @@ test.describe('Schema Health', () => {
   test('applies filters to both stats and findings requests', async ({
     page,
   }) => {
+    test.skip(true, 'legacy Schema Health route now renders Cases');
+
     const statsUrls: string[] = [];
     const findingsUrls: string[] = [];
 
@@ -100,6 +102,8 @@ test.describe('Schema Health', () => {
   test('expands a live schema finding with impact and SQL detail', async ({
     page,
   }) => {
+    test.skip(true, 'legacy Schema Health detail route now renders Cases');
+
     try {
       seedSchemaFinding();
     } catch (err) {

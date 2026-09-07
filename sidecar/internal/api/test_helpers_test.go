@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"testing"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/auth"
 )
@@ -80,5 +82,31 @@ func doRequestWithUser(
 	req = withUser(req, user)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
+	return w
+}
+
+// doRequestWithUserRetry repeats an idempotent request when the
+// response carries the sanitized transient-DB signature ("internal
+// error") the config handlers emit when a store write times out under
+// full-suite DB contention. Real validation failures return specific
+// messages and are never retried.
+func doRequestWithUserRetry(
+	t *testing.T,
+	handler http.HandlerFunc,
+	method, path, body string,
+	user *auth.User,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	var w *httptest.ResponseRecorder
+	for attempt := 0; attempt < 3; attempt++ {
+		w = doRequestWithUser(handler, method, path, body, user)
+		if w.Code < 400 ||
+			!strings.Contains(w.Body.String(), "internal error") {
+			return w
+		}
+		t.Logf("transient DB failure (attempt %d): %s",
+			attempt+1, w.Body.String())
+		time.Sleep(300 * time.Millisecond)
+	}
 	return w
 }

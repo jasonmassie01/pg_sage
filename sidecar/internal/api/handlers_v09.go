@@ -345,7 +345,7 @@ func annotateIncidentFleetDatabase(incident map[string]any, alias string) {
 	}
 }
 
-const incidentsBaseSQL = `SELECT id, detected_at,
+const incidentsBaseSQL = `/* pg_sage */SELECT id, detected_at,
  COALESCE(last_detected_at, detected_at) AS last_detected_at,
  severity, root_cause, causal_chain, affected_objects, signal_ids,
  recommended_sql, action_risk, source, confidence,
@@ -422,7 +422,7 @@ func resolveIncident(
 	id, reason string,
 ) error {
 	tag, err := pool.Exec(ctx,
-		`UPDATE sage.incidents
+		`/* pg_sage */ UPDATE sage.incidents
 		 SET resolved_at = now()
 		 WHERE id = $1 AND resolved_at IS NULL`,
 		id,
@@ -522,7 +522,7 @@ func scanIncidentRow(
 
 // ---------- Growth forecast queries ----------
 
-const growthForecastSQL = `SELECT sh.metric_type,
+const growthForecastSQL = `/* pg_sage */SELECT sh.metric_type,
  sh.object_name, sh.database_name,
  MIN(sh.size_bytes) AS earliest_bytes,
  MAX(sh.size_bytes) AS latest_bytes,

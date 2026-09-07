@@ -15,7 +15,7 @@ import (
 // extension updates because they can require connection restarts
 // and function signature changes.
 func (a *Analyzer) checkExtensionDrift(ctx context.Context) []Finding {
-	rows, err := a.pool.Query(ctx, `
+	rows, err := a.pool.Query(ctx, `/* pg_sage */
 SELECT e.extname,
        e.extversion        AS installed_version,
        ae.default_version  AS default_version
@@ -38,34 +38,21 @@ ORDER BY e.extname`)
 				"analyzer", "extension drift scan: %v", err)
 			continue
 		}
-		title := fmt.Sprintf(
-			"Extension %s is out of date (%s → %s)",
-			name, installed, defaultVer,
-		)
-		rec := fmt.Sprintf(
-			"Extension %s is installed at version %s but the "+
-				"packaged default is %s. Run ALTER EXTENSION to "+
-				"pick up bug fixes and schema additions. Review "+
-				"the extension changelog before applying in "+
-				"production — some upgrades require catalog "+
-				"rewrites or new dependencies.",
-			name, installed, defaultVer,
-		)
-		sql := fmt.Sprintf("ALTER EXTENSION %s UPDATE", name)
 		findings = append(findings, Finding{
 			Category:         "extension_drift",
-			Severity:         "info",
+			Severity:         "warning",
 			ObjectType:       "extension",
 			ObjectIdentifier: name,
-			Title:            title,
+			Title: fmt.Sprintf(
+				"Extension %s can be updated from %s to %s",
+				name, installed, defaultVer,
+			),
 			Detail: map[string]any{
-				"extension_name":    name,
+				"extension":         name,
 				"installed_version": installed,
 				"default_version":   defaultVer,
 			},
-			Recommendation: rec,
-			RecommendedSQL: sql,
-			ActionRisk:     "moderate",
+			Recommendation: "Review extension release notes, then run ALTER EXTENSION during a maintenance window if appropriate.",
 		})
 	}
 	if err := rows.Err(); err != nil {

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/pg-sage/sidecar/internal/testsupport/assert"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 // ---------------------------------------------------------------------------
@@ -69,9 +69,9 @@ func TestScenario_MultipleRules_HighestRiskWins(t *testing.T) {
 // buildIncident assigns severity based on the 0.7 threshold.
 func TestScenario_IncidentSeverity_WarningVsCritical(t *testing.T) {
 	tests := []struct {
-		name     string
-		score    float64
-		wantSev  string
+		name    string
+		score   float64
+		wantSev string
 	}{
 		{"low_warning", 0.31, "warning"},
 		{"mid_warning", 0.50, "warning"},
@@ -635,6 +635,7 @@ func TestScenario_Detector_RunCancellation(t *testing.T) {
 	cfg := &config.MigrationConfig{
 		Enabled:             true,
 		Mode:                "advisory",
+		ActivityPolling:     true,
 		PollIntervalSeconds: 1,
 	}
 	detector := NewDetector(pool, advisor, cfg, testLogFn(t))
@@ -880,10 +881,10 @@ func TestScenario_Classifier_MaintenanceRules(t *testing.T) {
 	classifier := NewRegexClassifier()
 
 	tests := []struct {
-		name      string
-		sql       string
-		wantRule  string
-		wantLock  string
+		name     string
+		sql      string
+		wantRule string
+		wantLock string
 	}{
 		{
 			name:     "cluster",

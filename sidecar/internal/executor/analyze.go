@@ -101,10 +101,8 @@ func (e *Executor) executeAnalyze(
 	return nil
 }
 
-// runAnalyzeOnConn executes ANALYZE on a dedicated pooled
-// connection outside any transaction, with statement_timeout
-// and lock_timeout scoped to the connection. Connection-level
-// settings are reset before release.
+// runAnalyzeOnConn executes ANALYZE in a transaction so timeout settings use
+// SET LOCAL and cannot escape through the pool on any error path.
 func runAnalyzeOnConn(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -120,36 +118,13 @@ func runAnalyzeOnConn(
 			"analyze: expected ANALYZE statement, got %q", sql,
 		)
 	}
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return fmt.Errorf("analyze acquire conn: %w", err)
-	}
-	defer conn.Release()
-
-	_, err = conn.Exec(ctx,
-		fmt.Sprintf("SET statement_timeout = %d", timeoutMs),
+	return ExecInTransaction(
+		ctx,
+		pool,
+		sql,
+		time.Duration(timeoutMs)*time.Millisecond,
+		WithLockTimeout(lockTimeoutMs),
 	)
-	if err != nil {
-		return fmt.Errorf("analyze set stmt_timeout: %w", err)
-	}
-	if lockTimeoutMs > 0 {
-		_, err = conn.Exec(ctx, fmt.Sprintf(
-			"SET lock_timeout = '%dms'", lockTimeoutMs,
-		))
-		if err != nil {
-			return fmt.Errorf("analyze set lock_timeout: %w", err)
-		}
-	}
-	_, execErr := conn.Exec(ctx, sql)
-
-	// Reset connection-level overrides before returning to pool.
-	_, _ = conn.Exec(ctx, "SET statement_timeout = 0")
-	_, _ = conn.Exec(ctx, "SET lock_timeout = 0")
-
-	if execErr != nil {
-		return wrapDDLError(execErr)
-	}
-	return nil
 }
 
 // isAnalyzeStatement verifies the leading token is ANALYZE so

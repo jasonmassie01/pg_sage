@@ -453,7 +453,8 @@ func TestTier2E2E_ConcurrentAnalyze(t *testing.T) {
 // TestTier2E2E_TokenBudgetExhausted: LLM budget exhausted → no
 // Tier 2 incident, Tier 1 still works.
 func TestTier2E2E_TokenBudgetExhausted(t *testing.T) {
-	srv := tier2FakeServer(validTier2Response())
+	var requests atomic.Int32
+	srv := tier2CountingServer(validTier2Response(), &requests)
 	defer srv.Close()
 
 	client := llm.New(&config.LLMConfig{
@@ -471,23 +472,9 @@ func TestTier2E2E_TokenBudgetExhausted(t *testing.T) {
 
 	cfg := testConfig()
 
-	// Cycle 1: should use tokens and produce Tier 2 incident.
-	eng.SetLogSource(&mockLogSource{signals: uncoveredSignals(3)})
-	inc1 := eng.Analyze(quietSnapshot(), quietSnapshot(), cfg, nil)
-	var gotT2 bool
-	for _, inc := range inc1 {
-		if inc.Source == "llm" {
-			gotT2 = true
-		}
-	}
-	if !gotT2 {
-		t.Fatal("cycle 1: expected Tier 2 incident")
-	}
-
-	// Budget should now be exhausted (50 tokens used > 10 budget).
-	if !client.IsBudgetExhausted() {
-		t.Skip("budget not exhausted after first call; test needs adjustment")
-	}
+	// A request whose maximum reservation exceeds the remaining budget must
+	// be rejected before HTTP. Spending 50 tokens from a budget of 10 was the
+	// old unsafe behavior this test used to expect.
 
 	// Cycle 2: budget exhausted → no new Tier 2, but Tier 1 logs work.
 	eng.SetLogSource(&mockLogSource{signals: append(
@@ -496,15 +483,24 @@ func TestTier2E2E_TokenBudgetExhausted(t *testing.T) {
 			Severity: "critical",
 			Metrics:  map[string]any{"message": "no space"}},
 	)})
-	inc2 := eng.Analyze(quietSnapshot(), quietSnapshot(), cfg, nil)
+	incidents := eng.Analyze(quietSnapshot(), quietSnapshot(), cfg, nil)
 
-	var tier1Found bool
-	for _, inc := range inc2 {
+	var tier1Found, tier2Found bool
+	for _, inc := range incidents {
 		if inc.Source == "log_deterministic" {
 			tier1Found = true
+		}
+		if inc.Source == "llm" {
+			tier2Found = true
 		}
 	}
 	if !tier1Found {
 		t.Error("Tier 1 log incident missing after budget exhaustion")
+	}
+	if tier2Found {
+		t.Error("Tier 2 incident created despite insufficient reservation budget")
+	}
+	if got := requests.Load(); got != 0 {
+		t.Errorf("LLM HTTP requests = %d, want 0", got)
 	}
 }

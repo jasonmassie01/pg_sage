@@ -2,11 +2,34 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const (
+	bootstrapAdvisoryLockKey = "pg_sage"
+	bootstrapLockTimeout     = 30 * time.Second
+	bootstrapUnlockTimeout   = 5 * time.Second
+	migrationBatchTimeout    = 30 * time.Second
+)
+
+type bootstrapDB interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+	Begin(context.Context) (pgx.Tx, error)
+}
+
+type advisoryLock struct {
+	mu       sync.Mutex
+	conn     *pgxpool.Conn
+	released bool
+}
 
 // expectedTables lists every table the sage schema must contain.
 var expectedTables = []struct {
@@ -34,6 +57,7 @@ var expectedTables = []struct {
 	{"schema_findings", ddlSchemaFindings},
 	{"crypto_meta", ddlCryptoMeta},
 	{"health_history", ddlHealthHistory},
+	{"query_store", ddlQueryStore},
 }
 
 // Bootstrap acquires an advisory lock, then ensures the sage schema and
@@ -47,39 +71,31 @@ var expectedTables = []struct {
 // which caused unrelated integration tests elsewhere to fail intermittently
 // when run in parallel.
 func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
-	if err := acquireAdvisoryLock(ctx, pool); err != nil {
-		return err
-	}
+	return withAdvisoryLock(
+		ctx, pool, bootstrapLockTimeout,
+		func(conn *pgxpool.Conn) error {
+			exists, err := schemaExists(ctx, conn)
+			if err != nil {
+				return fmt.Errorf("checking sage schema: %w", err)
+			}
 
-	exists, err := schemaExists(ctx, pool)
-	if err != nil {
-		return fmt.Errorf("checking sage schema: %w", err)
-	}
+			if !exists {
+				if err := createFullSchema(ctx, conn); err != nil {
+					return err
+				}
+			} else if err := ensureTablesExist(ctx, conn); err != nil {
+				return err
+			}
 
-	if !exists {
-		if err := createFullSchema(ctx, pool); err != nil {
-			return err
-		}
-	} else {
-		if err := ensureTablesExist(ctx, pool); err != nil {
-			return err
-		}
-	}
-
-	if err := MigrateConfigSchema(ctx, pool); err != nil {
-		return fmt.Errorf("config migration: %w", err)
-	}
-	if err := migrateIncidentConstraints(ctx, pool); err != nil {
-		return fmt.Errorf("incident constraint migration: %w", err)
-	}
-	return nil
-}
-
-// ReleaseAdvisoryLock releases the pg_sage advisory lock.
-func ReleaseAdvisoryLock(ctx context.Context, pool *pgxpool.Pool) {
-	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	_, _ = pool.Exec(qctx, "SELECT pg_advisory_unlock(hashtext('pg_sage'))")
+			if err := migrateConfigSchema(ctx, conn); err != nil {
+				return fmt.Errorf("config migration: %w", err)
+			}
+			if err := migrateIncidentConstraints(ctx, conn); err != nil {
+				return fmt.Errorf("incident constraint migration: %w", err)
+			}
+			return nil
+		},
+	)
 }
 
 // PersistTrustRampStart reads or initialises the trust_ramp_start
@@ -154,34 +170,107 @@ func PersistTrustRampStart(
 	return t, nil
 }
 
-func acquireAdvisoryLock(ctx context.Context, pool *pgxpool.Pool) error {
+func acquireAdvisoryLock(
+	ctx context.Context, pool *pgxpool.Pool, timeout time.Duration,
+) (*advisoryLock, error) {
 	// Use blocking pg_advisory_lock with a timeout instead of
 	// pg_try_advisory_lock. This prevents spurious failures when
 	// multiple sidecar instances or test packages start concurrently
 	// — the lock is held only briefly during schema bootstrap, so
 	// waiting up to 30 seconds is acceptable.
-	qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	qctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	_, err := pool.Exec(
+	conn, err := pool.Acquire(qctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquiring advisory-lock connection: %w", err)
+	}
+
+	_, err = conn.Exec(
 		qctx,
-		"SELECT pg_advisory_lock(hashtext('pg_sage'))",
+		"SELECT pg_advisory_lock(hashtext($1))",
+		bootstrapAdvisoryLockKey,
 	)
 	if err != nil {
-		return fmt.Errorf(
+		discardErr := discardPinnedConn(conn)
+		return nil, errors.Join(fmt.Errorf(
 			"advisory lock: %w (another pg_sage instance "+
 				"may be bootstrapping)", err,
-		)
+		), discardErr)
 	}
-	return nil
+	return &advisoryLock{conn: conn}, nil
 }
 
-func schemaExists(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
+func withAdvisoryLock(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	timeout time.Duration,
+	fn func(*pgxpool.Conn) error,
+) (returnErr error) {
+	lock, err := acquireAdvisoryLock(ctx, pool, timeout)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, lock.Release(ctx))
+	}()
+	return fn(lock.conn)
+}
+
+// Release unlocks on the exact PostgreSQL session that acquired the lock.
+// Cleanup is bounded independently of caller cancellation. If unlock fails,
+// the connection is discarded so PostgreSQL releases the session lock.
+func (l *advisoryLock) Release(ctx context.Context) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.released {
+		return nil
+	}
+	l.released = true
+
+	cleanupCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx), bootstrapUnlockTimeout,
+	)
+	defer cancel()
+
+	var unlocked bool
+	err := l.conn.QueryRow(
+		cleanupCtx,
+		"SELECT pg_advisory_unlock(hashtext($1))",
+		bootstrapAdvisoryLockKey,
+	).Scan(&unlocked)
+	if err == nil && unlocked {
+		l.conn.Release()
+		return nil
+	}
+
+	closeErr := discardPinnedConn(l.conn)
+	if err != nil {
+		return errors.Join(fmt.Errorf("release advisory lock: %w", err), closeErr)
+	}
+	if !unlocked {
+		return errors.Join(
+			errors.New("release advisory lock: lock not owned"), closeErr,
+		)
+	}
+	return closeErr
+}
+
+func discardPinnedConn(conn *pgxpool.Conn) error {
+	rawConn := conn.Hijack()
+	closeCtx, cancel := context.WithTimeout(
+		context.Background(), bootstrapUnlockTimeout,
+	)
+	defer cancel()
+	return rawConn.Close(closeCtx)
+}
+
+func schemaExists(ctx context.Context, db bootstrapDB) (bool, error) {
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	var one int
-	err := pool.QueryRow(
+	err := db.QueryRow(
 		qctx,
 		"SELECT 1 FROM information_schema.schemata "+
 			"WHERE schema_name = 'sage'",
@@ -192,11 +281,11 @@ func schemaExists(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
 	return true, nil
 }
 
-func createFullSchema(ctx context.Context, pool *pgxpool.Pool) error {
+func createFullSchema(ctx context.Context, db bootstrapDB) error {
 	qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	tx, err := pool.Begin(qctx)
+	tx, err := db.Begin(qctx)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
@@ -211,16 +300,22 @@ func createFullSchema(ctx context.Context, pool *pgxpool.Pool) error {
 				"GRANT ALL ON SCHEMA sage TO sage_agent;", err)
 	}
 
-	return tx.Commit(qctx)
+	if err := tx.Commit(qctx); err != nil {
+		return fmt.Errorf("commit schema DDL: %w", err)
+	}
+	if err := runMigrations(ctx, db); err != nil {
+		return fmt.Errorf("running migrations: %w", err)
+	}
+	return nil
 }
 
-func ensureTablesExist(ctx context.Context, pool *pgxpool.Pool) error {
+func ensureTablesExist(ctx context.Context, db bootstrapDB) error {
 	qctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	for _, tbl := range expectedTables {
 		var one int
-		err := pool.QueryRow(
+		err := db.QueryRow(
 			qctx,
 			"SELECT 1 FROM information_schema.tables "+
 				"WHERE table_schema = 'sage' AND table_name = $1",
@@ -228,7 +323,7 @@ func ensureTablesExist(ctx context.Context, pool *pgxpool.Pool) error {
 		).Scan(&one)
 		if err != nil {
 			// Table missing — create it.
-			_, execErr := pool.Exec(qctx, tbl.ddl)
+			_, execErr := db.Exec(qctx, tbl.ddl)
 			if execErr != nil {
 				return fmt.Errorf("creating table sage.%s: %w", tbl.name, execErr)
 			}
@@ -236,33 +331,40 @@ func ensureTablesExist(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 
 	// Run idempotent migrations for existing schemas.
-	if err := runMigrations(ctx, pool); err != nil {
+	if err := runMigrations(ctx, db); err != nil {
 		return fmt.Errorf("running migrations: %w", err)
 	}
 	return nil
 }
 
 // runMigrations applies idempotent schema changes to existing installs.
-func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+func runMigrations(ctx context.Context, db bootstrapDB) error {
+	qctx, cancel := context.WithTimeout(ctx, migrationBatchTimeout)
 	defer cancel()
 
-	migrations := []string{
+	migrations := migrationStatements()
+	for _, m := range migrations {
+		if _, err := db.Exec(qctx, m); err != nil {
+			return fmt.Errorf("migration failed: %w", err)
+		}
+	}
+	return nil
+}
+
+func migrationStatements() []string {
+	statements := []string{
 		ddlActionLogApprovalCols,
 		ddlUsersOAuth,
 		ddlQueryHintsRewrite,
 		ddlQueryHintsRevalidate,
 		ddlIncidentsLastDetected,
+		ddlActionQueueLifecycleCols,
 		ddlSchemaFindingsLintRunner,
 		ddlFindingsAbsorbsSchemaFindings,
 		ddlFindingsBackfillFromSchemaFindings,
+		ddlFleetScaleIndexes,
 	}
-	for _, m := range migrations {
-		if _, err := pool.Exec(qctx, m); err != nil {
-			return fmt.Errorf("migration failed: %w", err)
-		}
-	}
-	return nil
+	return append(statements, agentNativeMigrationStatements()...)
 }
 
 // ---------------------------------------------------------------------------
@@ -280,7 +382,8 @@ CREATE SCHEMA IF NOT EXISTS sage;
 	ddlActionLogApprovalCols + ddlUsersOAuth +
 	ddlQueryHintsRewrite + ddlQueryHintsRevalidate +
 	ddlIncidents + ddlSizeHistory + ddlExplainResults +
-	ddlSchemaFindings + ddlCryptoMeta + ddlHealthHistory
+	ddlSchemaFindings + ddlCryptoMeta + ddlHealthHistory +
+	ddlFleetScaleIndexes + ddlQueryStore
 
 const ddlActionLog = `
 CREATE TABLE IF NOT EXISTS sage.action_log (
@@ -460,6 +563,10 @@ CREATE TABLE IF NOT EXISTS sage.sessions (
     expires_at  TIMESTAMPTZ NOT NULL,
     created_at  TIMESTAMPTZ DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_sessions_expires
+    ON sage.sessions (expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_user
+    ON sage.sessions (user_id);
 `
 
 const ddlActionQueue = `
@@ -475,13 +582,34 @@ CREATE TABLE IF NOT EXISTS sage.action_queue (
     decided_by      INT,
     decided_at      TIMESTAMPTZ,
     expires_at      TIMESTAMPTZ DEFAULT now() + INTERVAL '7 days',
-    reason          TEXT
+    reason          TEXT,
+    action_type     TEXT,
+    identity_key    TEXT,
+    policy_decision TEXT,
+    guardrails      JSONB NOT NULL DEFAULT '[]'::jsonb,
+    attempt_count   INT NOT NULL DEFAULT 0,
+    last_attempt_at TIMESTAMPTZ,
+    cooldown_until  TIMESTAMPTZ,
+    failure_fingerprint TEXT,
+    last_failure_fingerprint TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'not_started',
+    shadow_toil_minutes INT NOT NULL DEFAULT 0,
+    action_log_id  BIGINT REFERENCES sage.action_log(id)
 );
 CREATE INDEX IF NOT EXISTS idx_action_queue_status
     ON sage.action_queue (status, proposed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_action_queue_finding
     ON sage.action_queue (finding_id)
     WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_action_queue_identity
+    ON sage.action_queue (identity_key, status)
+    WHERE identity_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_action_queue_database_pending
+    ON sage.action_queue (database_id, status, proposed_at DESC)
+    WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_action_queue_expiry
+    ON sage.action_queue (expires_at)
+    WHERE status IN ('pending', 'failed');
 `
 
 const ddlActionLogApprovalCols = `
@@ -489,6 +617,33 @@ ALTER TABLE sage.action_log
     ADD COLUMN IF NOT EXISTS approved_by INT;
 ALTER TABLE sage.action_log
     ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+ALTER TABLE sage.action_log
+    ADD COLUMN IF NOT EXISTS justification TEXT;
+`
+
+const ddlActionQueueLifecycleCols = `
+ALTER TABLE sage.action_queue
+    ADD COLUMN IF NOT EXISTS action_type TEXT,
+    ADD COLUMN IF NOT EXISTS identity_key TEXT,
+    ADD COLUMN IF NOT EXISTS policy_decision TEXT,
+    ADD COLUMN IF NOT EXISTS guardrails JSONB NOT NULL DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS attempt_count INT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS cooldown_until TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS failure_fingerprint TEXT,
+    ADD COLUMN IF NOT EXISTS last_failure_fingerprint TEXT,
+    ADD COLUMN IF NOT EXISTS verification_status TEXT NOT NULL DEFAULT 'not_started',
+    ADD COLUMN IF NOT EXISTS shadow_toil_minutes INT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS action_log_id BIGINT REFERENCES sage.action_log(id);
+CREATE INDEX IF NOT EXISTS idx_action_queue_identity
+    ON sage.action_queue (identity_key, status)
+    WHERE identity_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_action_queue_database_pending
+    ON sage.action_queue (database_id, status, proposed_at DESC)
+    WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_action_queue_expiry
+    ON sage.action_queue (expires_at)
+    WHERE status IN ('pending', 'failed');
 `
 
 const ddlUsersOAuth = `
@@ -602,6 +757,29 @@ WHERE NOT EXISTS (
 
 // v0.10.1 — lint runner: add query_count column and partial unique index
 // for active findings (needed by the upsert in lint.Runner).
+const ddlFleetScaleIndexes = `
+CREATE INDEX IF NOT EXISTS idx_sessions_expires
+    ON sage.sessions (expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_user
+    ON sage.sessions (user_id);
+CREATE INDEX IF NOT EXISTS idx_notification_rules_event_enabled
+    ON sage.notification_rules (event, min_severity)
+    WHERE enabled = true;
+CREATE INDEX IF NOT EXISTS idx_notification_log_sent_at
+    ON sage.notification_log (sent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_log_channel_sent
+    ON sage.notification_log (channel_id, sent_at DESC)
+    WHERE channel_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_action_queue_database_pending
+    ON sage.action_queue (database_id, status, proposed_at DESC)
+    WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_action_queue_expiry
+    ON sage.action_queue (expires_at)
+    WHERE status IN ('pending', 'failed');
+CREATE INDEX IF NOT EXISTS idx_action_log_outcome_time
+    ON sage.action_log (outcome, executed_at DESC);
+`
+
 const ddlSchemaFindingsLintRunner = `
 ALTER TABLE sage.schema_findings
     ADD COLUMN IF NOT EXISTS query_count BIGINT;
@@ -758,4 +936,26 @@ CREATE INDEX IF NOT EXISTS idx_health_history_lookup
     ON sage.health_history (database_name, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_health_history_recent
     ON sage.health_history (recorded_at DESC);
+`
+
+// ddlQueryStore is the per-queryid metrics time-series (F2). It records a
+// sample per top query each cycle so windowed latency can be computed
+// (pg_stat_statements only exposes lifetime averages). It is the
+// substrate for per-queryid verify-and-revert (F1) and plan-regression
+// detection (A5). Plan_hash is nullable until a plan is captured.
+const ddlQueryStore = `
+CREATE TABLE IF NOT EXISTS sage.query_store (
+    id              bigserial PRIMARY KEY,
+    captured_at     timestamptz NOT NULL DEFAULT now(),
+    queryid         bigint NOT NULL,
+    calls           bigint NOT NULL,
+    total_exec_time double precision NOT NULL,
+    mean_exec_time  double precision NOT NULL,
+    rows            bigint NOT NULL DEFAULT 0,
+    plan_hash       text
+);
+CREATE INDEX IF NOT EXISTS idx_query_store_qid_time
+    ON sage.query_store (queryid, captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_query_store_time
+    ON sage.query_store (captured_at DESC);
 `

@@ -56,7 +56,7 @@ func ReadOrCreateKDFSalt(
 	// ON CONFLICT covers the race where two sidecars race to insert;
 	// the first wins and we return whatever landed in the row.
 	_, err = pool.Exec(ictx,
-		`INSERT INTO sage.crypto_meta (id, kdf_salt)
+		`/* pg_sage */ INSERT INTO sage.crypto_meta (id, kdf_salt)
 		 VALUES (1, $1)
 		 ON CONFLICT (id) DO NOTHING`,
 		newSalt,
