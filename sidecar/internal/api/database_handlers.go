@@ -420,6 +420,10 @@ func fleetManagedDBConnection(
 	if inst == nil {
 		return "", "", false
 	}
+	if inst.Pool != nil {
+		connection := inst.Pool.Config().ConnConfig
+		return connection.ConnString(), connection.Password, true
+	}
 	return inst.Config.ConnString(), inst.Config.Password, true
 }
 

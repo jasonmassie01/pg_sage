@@ -80,15 +80,18 @@ func (a *executorIndexActions) Apply(
 }
 
 func (a *executorIndexActions) Retain(
-	ctx context.Context, actionID int64, _ verify.Verdict,
+	ctx context.Context, actionID int64, verdict verify.Verdict,
 ) error {
+	if !verdict.Retain || verdict.Revert {
+		return errors.New("superseded cleanup requires an unambiguous retained verdict")
+	}
 	updateActionSuccess(ctx, a.exec.pool, actionID)
 	_, err := value.NewService(value.NewPostgresRepository(a.exec.pool)).
 		CreditVerifiedAction(ctx, actionID)
 	if err != nil && !errors.Is(err, value.ErrToilModelUnavailable) {
 		return fmt.Errorf("credit verified action %d: %w", actionID, err)
 	}
-	return nil
+	return a.exec.cleanupRetainedIndex(ctx, actionID)
 }
 
 func (a *executorIndexActions) Revert(

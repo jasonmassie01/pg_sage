@@ -1,16 +1,17 @@
 import { execFileSync } from 'child_process';
 import { test, expect } from '@playwright/test';
 import { login, getConsoleErrors } from './helpers';
+import { object, rows } from './walkthrough-support';
 
 const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
 const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
 function psql(sql: string) {
   execFileSync('docker', [
-    'exec', 'pg_sage-pg-target-1', 'psql',
+    'exec', 'pgsage_audit_20260904', 'psql',
     '-v', 'ON_ERROR_STOP=1',
     '-U', 'postgres',
-    '-d', 'testdb',
+    '-d', 'audit_browser_target1',
     '-c', sql,
   ], { stdio: 'pipe' });
 }
@@ -53,20 +54,16 @@ test.describe('Query Hints lifecycle', () => {
       'requires full-surface query-hints fixture',
     );
 
-    try {
-      seedHintLifecycleRows();
-    } catch (err) {
-      test.skip(true, `Docker fixture database unavailable: ${err}`);
-    }
+    seedHintLifecycleRows();
 
     const allRes = await page.request.get('/api/v1/query-hints');
     expect(allRes.status()).toBe(200);
-    const all = await allRes.json();
-    const lifecycle = (all.hints || []).filter((h: any) =>
+    const all = object(await allRes.json());
+    const lifecycle = rows(all.hints).filter(h =>
       h.database_name === 'testdb' &&
       String(h.hint_text).startsWith('codex lifecycle '),
     );
-    expect(new Set(lifecycle.map((h: any) => h.status))).toEqual(
+    expect(new Set(lifecycle.map(h => h.status))).toEqual(
       new Set(['active', 'retired', 'broken']),
     );
 
@@ -74,8 +71,8 @@ test.describe('Query Hints lifecycle', () => {
       '/api/v1/query-hints?status=active',
     );
     expect(activeRes.status()).toBe(200);
-    const active = await activeRes.json();
-    const activeLifecycle = (active.hints || []).filter((h: any) =>
+    const active = object(await activeRes.json());
+    const activeLifecycle = rows(active.hints).filter(h =>
       h.database_name === 'testdb' &&
       String(h.hint_text).startsWith('codex lifecycle '),
     );

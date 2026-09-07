@@ -25,7 +25,7 @@ WHERE ae.default_version IS NOT NULL
   AND e.extversion IS DISTINCT FROM ae.default_version
 ORDER BY e.extname`)
 	if err != nil {
-		a.logFn("WARN", "analyzer", "extension drift query: %v", err)
+		a.logFn("WARN", "analyzer: extension drift query: %v", err)
 		return nil
 	}
 	defer rows.Close()
@@ -34,8 +34,7 @@ ORDER BY e.extname`)
 	for rows.Next() {
 		var name, installed, defaultVer string
 		if err := rows.Scan(&name, &installed, &defaultVer); err != nil {
-			a.logFn("WARN",
-				"analyzer", "extension drift scan: %v", err)
+			a.logFn("WARN", "analyzer: extension drift scan: %v", err)
 			continue
 		}
 		findings = append(findings, Finding{
@@ -56,8 +55,7 @@ ORDER BY e.extname`)
 		})
 	}
 	if err := rows.Err(); err != nil {
-		a.logFn("WARN",
-			"analyzer", "extension drift rows: %v", err)
+		a.logFn("WARN", "analyzer: extension drift rows: %v", err)
 	}
 	return findings
 }

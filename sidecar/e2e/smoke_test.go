@@ -123,7 +123,7 @@ func pgAvailable(t *testing.T, dsn string) bool {
 }
 
 // buildBinary compiles the pg_sage_sidecar binary into a temp dir
-// and returns its path. Skips the test if the build fails.
+// and returns its path. A build failure must fail the scenario.
 func buildBinary(t *testing.T) string {
 	t.Helper()
 	tmpDir := t.TempDir()
@@ -148,7 +148,7 @@ func buildBinary(t *testing.T) string {
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Skipf("cannot build binary: %v\n%s", err, out)
+		t.Fatalf("cannot build binary: %v\n%s", err, out)
 	}
 	return binPath
 }
@@ -192,10 +192,10 @@ analyzer:
 
 trust:
   level: observation
+  maintenance_window: "always"
 
-executor:
+safety:
   ddl_timeout_seconds: 30
-  maintenance_window: "* * * * *"
 
 llm:
   enabled: false
@@ -232,6 +232,9 @@ func startBinary(
 		"SAGE_LLM_API_KEY=",
 		"SAGE_META_DB=",
 	)
+	if directory := os.Getenv("SAGE_E2E_COVERAGE_DIR"); directory != "" {
+		cmd.Env = append(cmd.Env, "GOCOVERDIR="+directory)
+	}
 
 	env.stdout = &syncBuffer{}
 	env.stderr = &syncBuffer{}

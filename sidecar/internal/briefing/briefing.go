@@ -3,8 +3,10 @@ package briefing
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -131,8 +133,7 @@ func New(
 ) *Worker {
 	sched, err := parseCron(cfg.Briefing.Schedule)
 	if err != nil {
-		logFn("WARN", "briefing",
-			"invalid schedule %q: %v", cfg.Briefing.Schedule, err)
+		logFn("WARN", "briefing: invalid schedule %q: %v", cfg.Briefing.Schedule, err)
 	}
 	return &Worker{
 		pool:     pool,
@@ -188,7 +189,7 @@ func (w *Worker) Generate(ctx context.Context) (string, error) {
 	if w.llm != nil && w.llm.IsEnabled() && !w.llm.IsCircuitOpen() {
 		enhanced, tokens, err := w.enhanceWithLLM(ctx, structured)
 		if err != nil {
-			w.logFn("WARN", "briefing", "LLM enhancement failed: %v, using structured", err)
+			w.logFn("WARN", "briefing: LLM enhancement failed: %v, using structured", err)
 		} else {
 			w.storeBriefing(ctx, enhanced, true, tokens)
 			return enhanced, nil
@@ -357,7 +358,7 @@ func (w *Worker) storeBriefing(ctx context.Context, content string, llmUsed bool
 	`, now, now.Add(-24*time.Hour), now, "executive", content,
 		json.RawMessage(`{}`), llmUsed, tokens)
 	if err != nil {
-		w.logFn("WARN", "briefing", "failed to store briefing: %v", err)
+		w.logFn("WARN", "briefing: failed to store briefing: %v", err)
 	}
 }
 
@@ -387,14 +388,27 @@ func (w *Worker) sendSlack(ctx context.Context, text string) {
 	req, err := http.NewRequestWithContext(sendCtx, "POST", w.cfg.Briefing.SlackWebhookURL,
 		strings.NewReader(string(payload)))
 	if err != nil {
-		w.logFn("WARN", "briefing", "slack request error: %v", err)
+		w.logFn("WARN", "briefing: slack request error: %v", webhookFailureCause(err))
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		w.logFn("WARN", "briefing", "slack send error: %v", err)
+		w.logFn("WARN", "briefing: slack send error: %v", webhookFailureCause(err))
 		return
 	}
 	_ = resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		w.logFn("WARN", "briefing: slack delivery rejected: HTTP %d", resp.StatusCode)
+	}
+}
+
+// A webhook URL contains its credential; url.Error includes that URL in Error().
+// Preserve the underlying failure without copying the credential into logs.
+func webhookFailureCause(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return urlErr.Err
+	}
+	return err
 }

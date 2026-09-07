@@ -38,12 +38,12 @@ test.describe('Login', () => {
     await login(page, ADMIN_EMAIL, ADMIN_PASS);
 
     // The nav sidebar should be visible with the current overview link.
-    const overviewLink = page.locator('[data-testid="nav-dashboard"]');
+    const overviewLink = page.locator('[data-testid="nav-value"]');
     await expect(overviewLink).toBeVisible();
 
     // The header should show the current landing page label.
-    const header = page.locator('main h1');
-    await expect(header).toContainText('Overview');
+    const header = page.locator('main header h1');
+    await expect(header).toContainText('Value');
   });
 
   // Verifies wrong credentials show an error message

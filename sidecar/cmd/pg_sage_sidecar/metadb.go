@@ -341,7 +341,7 @@ func initMetaDBFleet(state *metaDBState) {
 		registerStoreDatabase(state, rec)
 	}
 
-	go fleetReconnectLoop(state)
+	go fleetReconnectLoop(shutdownCtx, state)
 }
 
 // registerStoreDatabase connects to a database from a store
@@ -530,7 +530,7 @@ func healthCheckStoreDatabase(
 // fleetReconnectLoop periodically checks for failed instances and
 // attempts to reconnect with exponential backoff. Runs every 30s,
 // caps backoff at 5 minutes per database.
-func fleetReconnectLoop(state *metaDBState) {
+func fleetReconnectLoop(ctx context.Context, state *metaDBState) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -538,7 +538,7 @@ func fleetReconnectLoop(state *metaDBState) {
 		select {
 		case <-ticker.C:
 			retryFailedInstances(state)
-		case <-shutdownCtx.Done():
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -719,6 +719,7 @@ func storeRecordToDBConfig(
 		MaxConnections:     rec.MaxConnections,
 		TrustLevel:         rec.TrustLevel,
 		TrustLevelExplicit: true,
+		ExecutionMode:      resolveExecMode(rec),
 	}
 }
 

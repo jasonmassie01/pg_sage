@@ -24,12 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-)
-
-const (
-	fleetDB1 = "sage_fleet_test_1"
-	fleetDB2 = "sage_fleet_test_2"
 )
 
 // adminDSN returns the admin Postgres DSN pointing at the
@@ -52,13 +48,7 @@ func createTestDB(
 	)
 	defer cancel()
 
-	// Drop first for a clean slate.
-	_, _ = pool.Exec(ctx, fmt.Sprintf(
-		"DROP DATABASE IF EXISTS %s", name,
-	))
-	_, err := pool.Exec(ctx, fmt.Sprintf(
-		"CREATE DATABASE %s", name,
-	))
+	_, err := pool.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize())
 	if err != nil {
 		t.Fatalf("CREATE DATABASE %s: %v", name, err)
 	}
@@ -75,16 +65,10 @@ func dropTestDB(
 	defer cancel()
 
 	// Terminate backends connected to the target database.
-	_, _ = pool.Exec(ctx, fmt.Sprintf(
-		"SELECT pg_terminate_backend(pid) "+
-			"FROM pg_stat_activity WHERE datname='%s'",
-		name,
-	))
-	_, err := pool.Exec(ctx, fmt.Sprintf(
-		"DROP DATABASE IF EXISTS %s", name,
-	))
+	_, err := pool.Exec(ctx, "DROP DATABASE IF EXISTS "+
+		pgx.Identifier{name}.Sanitize()+" WITH (FORCE)")
 	if err != nil {
-		t.Logf("DROP DATABASE %s: %v", name, err)
+		t.Errorf("DROP DATABASE %s: %v", name, err)
 	}
 }
 
@@ -195,6 +179,9 @@ func startFleetBinary(
 		"SAGE_LLM_API_KEY=",
 		"SAGE_META_DB=",
 	)
+	if directory := os.Getenv("SAGE_E2E_COVERAGE_DIR"); directory != "" {
+		cmd.Env = append(cmd.Env, "GOCOVERDIR="+directory)
+	}
 
 	env.stdout = &syncBuffer{}
 	env.stderr = &syncBuffer{}
@@ -263,8 +250,10 @@ func TestFleet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("admin pool: %v", err)
 	}
-	defer adminPool.Close()
+	t.Cleanup(adminPool.Close)
 
+	fleetDB1 := fmt.Sprintf("sage_fleet_test_%d_%d_1", os.Getpid(), time.Now().UnixNano())
+	fleetDB2 := strings.TrimSuffix(fleetDB1, "_1") + "_2"
 	createTestDB(t, adminPool, fleetDB1)
 	createTestDB(t, adminPool, fleetDB2)
 	t.Cleanup(func() {

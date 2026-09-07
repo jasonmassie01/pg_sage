@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: pgvector/pgvector:0.8.2-pg17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -46,6 +46,8 @@ jobs:
         run: |
           docker exec ${{ job.services.postgres.id }} \
             bash -c "echo \"shared_preload_libraries = 'pg_stat_statements'\" >> /var/lib/postgresql/data/postgresql.conf"
+          docker exec ${{ job.services.postgres.id }} \
+            bash -c "echo 'wal_level = logical' >> /var/lib/postgresql/data/postgresql.conf"
           docker restart ${{ job.services.postgres.id }}
           until pg_isready -h localhost -U postgres; do sleep 1; done
           psql -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
@@ -69,6 +71,10 @@ jobs:
       - name: Integration tests
         working-directory: sidecar
         run: go test ./... -v -cover -tags=integration -count=1 -timeout 300s
+
+      - name: Sidecar end-to-end tests
+        working-directory: sidecar
+        run: go test ./e2e -v -cover -tags=e2e -count=1 -timeout 900s
 
   docker:
     runs-on: ubuntu-latest

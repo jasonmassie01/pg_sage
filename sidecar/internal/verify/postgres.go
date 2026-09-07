@@ -127,21 +127,13 @@ func (s *PostgresObservationSource) IndexValid(
 func (s *PostgresObservationSource) CurrentLoad(
 	ctx context.Context,
 ) (LoadSample, error) {
-	if s == nil || s.queryer == nil {
-		return LoadSample{}, errors.New("verify observation pool is unavailable")
-	}
-	var ratio float64
-	err := s.queryer.QueryRow(ctx, `SELECT COALESCE(
-		count(*) FILTER (WHERE state='active')::float8 /
-		NULLIF(current_setting('max_connections')::float8, 0), 1)
-		FROM pg_stat_activity`).Scan(&ratio)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return LoadSample{}, err
 	}
-	percentage := ratio * 100
-	return LoadSample{
-		CPUPct: percentage, DataIOPct: percentage, LogIOPct: percentage,
-	}, nil
+	// Catalogs expose connection counts, not host CPU or disk utilization. A
+	// single active query can saturate either resource; reporting that ratio as
+	// three utilization metrics silently defeats every load ceiling.
+	return LoadSample{}, ErrLoadTelemetryUnavailable
 }
 
 // PostgresStateStore persists watch state in sage.verification.

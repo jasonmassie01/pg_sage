@@ -2,6 +2,7 @@ package verify
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -68,8 +69,8 @@ func TestPostgresObservationSourceReadsRealCollectorTables(t *testing.T) {
 	if err != nil || !valid {
 		t.Fatalf("IndexValid() = %v, %v", valid, err)
 	}
-	if _, err := source.CurrentLoad(ctx); err != nil {
-		t.Fatalf("CurrentLoad() error = %v", err)
+	if _, err := source.CurrentLoad(ctx); !errors.Is(err, ErrLoadTelemetryUnavailable) {
+		t.Fatalf("PostgreSQL catalogs cannot prove host utilization: %v", err)
 	}
 }
 

@@ -1,28 +1,17 @@
-import { Page, expect } from '@playwright/test';
-
-/**
- * Patterns for console errors that are expected in normal operation
- * and should not cause test failures.
- */
-const EXPECTED_ERROR_PATTERNS: RegExp[] = [
-  // favicon.ico 404 from the Go server (no favicon served)
-  /favicon\.ico/i,
-  // Resource load failures for missing static assets (404)
-  /Failed to load resource.*404/i,
-  /net::ERR_/i,
-  // Pre-login API calls that return 401
-  /401/,
-  /not authenticated/i,
-  // Fetch failures during page transitions
-  /Failed to fetch/i,
-];
+import { Page } from '@playwright/test';
 
 /**
  * Returns true if a console error message matches a known expected
  * pattern and should be ignored in afterEach assertions.
  */
-export function isExpectedError(message: string): boolean {
-  return EXPECTED_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+export function isExpectedError(message: string, url = ''): boolean {
+  if (!URL.canParse(url)) return false;
+  const path = new URL(url).pathname;
+  const status = message.match(
+    /^Failed to load resource: (?:the server responded with a status of )?(\d{3})(?:\s|\(|$)/,
+  )?.[1];
+  if (path === '/favicon.ico' && status === '404') return true;
+  return /^\/api\/v1\/auth\/(me|login)$/.test(path) && status === '401';
 }
 
 /**
@@ -88,8 +77,8 @@ export async function waitForAPI(
 
 /**
  * Collects unexpected console errors that occur during a test.
- * Automatically filters out known expected errors (favicon 404,
- * pre-login 401s, fetch failures during navigation, etc.).
+ * Filters only favicon 404 and authentication endpoint 401 responses.
+ * Failed application requests and uncaught exceptions remain observable.
  *
  * Call this in beforeEach, then assert the array is empty in afterEach.
  */
@@ -98,11 +87,12 @@ export function getConsoleErrors(page: Page): string[] {
   page.on('console', (msg) => {
     if (msg.type() === 'error') {
       const text = msg.text();
-      if (!isExpectedError(text)) {
+      if (!isExpectedError(text, msg.location().url)) {
         errors.push(text);
       }
     }
   });
+  page.on('pageerror', (error) => errors.push(error.message));
   return errors;
 }
 

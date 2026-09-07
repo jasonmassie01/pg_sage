@@ -377,7 +377,7 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	if a.tuner != nil {
 		tunerFindings, err := a.tuner.Tune(ctx, deferredTables)
 		if err != nil {
-			a.logFn("WARN", "analyzer", "tuner: %v", err)
+			a.logFn("WARN", "analyzer: tuner: %v", err)
 		} else {
 			allFindings = append(allFindings, tunerFindings...)
 		}

@@ -211,21 +211,21 @@ func (rt *RunawayTracker) advanceState(
 		if rt.cycle-tq.FirstSeenCycle >= 2 {
 			tq.State = "warned"
 			tq.WarnedAtCycle = rt.cycle
-			rt.logFn("WARN", "runaway query warned",
-				"pid", tq.PID, "policy", tq.MatchedPolicy)
+			rt.logFn("WARN", "runaway query warned pid=%d policy=%s",
+				tq.PID, tq.MatchedPolicy)
 		}
 	case "warned":
 		if rt.cycle-tq.WarnedAtCycle >= uint64(policy.WarnCycles) {
 			tq.State = "cancelled"
 			tq.CancelledAtCycle = rt.cycle
-			rt.logFn("WARN", "runaway query escalated to cancel",
-				"pid", tq.PID, "policy", tq.MatchedPolicy)
+			rt.logFn("WARN", "runaway query escalated to cancel pid=%d policy=%s",
+				tq.PID, tq.MatchedPolicy)
 		}
 	case "cancelled":
 		if rt.cycle-tq.CancelledAtCycle >= uint64(policy.CancelCycles) {
 			tq.State = "terminated"
-			rt.logFn("ERROR", "runaway query escalated to terminate",
-				"pid", tq.PID, "policy", tq.MatchedPolicy)
+			rt.logFn("ERROR", "runaway query escalated to terminate pid=%d policy=%s",
+				tq.PID, tq.MatchedPolicy)
 		}
 	}
 }

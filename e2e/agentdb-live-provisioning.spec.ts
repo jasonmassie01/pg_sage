@@ -1,21 +1,22 @@
 import { test, expect } from '@playwright/test';
-import { login } from './helpers';
+import { login, getConsoleErrors } from './helpers';
 
-const liveEnabled =
-  process.env.PG_SAGE_LIVE_AWS_RDS === '1' ||
-  process.env.PG_SAGE_LIVE_GCP_CLOUDSQL === '1' ||
-  process.env.PG_SAGE_LIVE_DATABRICKS_LAKEBASE === '1';
+const EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
+const PASSWORD = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
-test.describe('AgentDB live provisioning', () => {
-  test.skip(!liveEnabled, 'live cloud provisioning requires explicit env flag');
-
-  test('operator can reach Agent DB live provisioning surface', async ({ page }) => {
-    await login(page, 'admin@pg-sage.local', 'pgSageQA!2026');
-    await expect(page.locator('body')).toBeVisible();
-    await page.getByTestId('nav-agent-dbs').click();
-    await expect(page.getByTestId('agent-dbs-page')).toBeVisible({
-      timeout: 30000,
-    });
-    await expect(page.getByText(/Provider Settings|Terraform|Provision/i).first()).toBeVisible();
-  });
+// Navigation does not create cloud resources or require provider credentials.
+test('operator can navigate Agent DB provider and provisioning panels', async ({ page }) => {
+  const errors = getConsoleErrors(page);
+  await login(page, EMAIL, PASSWORD);
+  await page.getByTestId('nav-agent-dbs').click();
+  await expect(page.getByTestId('agent-dbs-page')).toBeVisible();
+  for (const name of ['Provider Settings', 'Terraform', 'Provision']) {
+    const tab = page.getByRole('tab', { name, exact: true });
+    await tab.click();
+    await expect(tab).toHaveAttribute('aria-selected', 'true');
+    const panelID = await tab.getAttribute('aria-controls');
+    expect(panelID).toBeTruthy();
+    await expect(page.locator(`[id="${panelID}"]`)).toBeVisible();
+  }
+  expect(errors).toEqual([]);
 });

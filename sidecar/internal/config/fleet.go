@@ -1,6 +1,11 @@
 package config
 
-import "fmt"
+import (
+	"net"
+	"net/url"
+	"strconv"
+	"strings"
+)
 
 // DatabaseConfig describes a single database in fleet mode.
 type DatabaseConfig struct {
@@ -28,8 +33,19 @@ func (d DatabaseConfig) ConnString() string {
 	if sslMode == "" {
 		sslMode = "prefer"
 	}
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		d.User, d.Password, d.Host, d.Port, d.Database, sslMode)
+	query := url.Values{"sslmode": {sslMode}}
+	path := "/" + d.Database
+	if strings.HasPrefix(d.Database, "/") {
+		// pgx strips all leading path slashes; dbname retains the literal name.
+		query.Set("dbname", d.Database)
+		path = "/"
+	}
+	u := url.URL{
+		Scheme: "postgres", User: url.UserPassword(d.User, d.Password),
+		Host: net.JoinHostPort(d.Host, strconv.Itoa(d.Port)),
+		Path: path, RawQuery: query.Encode(),
+	}
+	return u.String()
 }
 
 // HasTag reports whether this database has the given tag.

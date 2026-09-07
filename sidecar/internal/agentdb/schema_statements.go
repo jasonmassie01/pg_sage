@@ -1,0 +1,355 @@
+package agentdb
+
+var schemaStatements = []string{
+	`CREATE SCHEMA IF NOT EXISTS sage`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_identities (
+		agent_id text PRIMARY KEY,
+		tenant_id text NOT NULL,
+		owner_id text NOT NULL DEFAULT '',
+		display_name text NOT NULL DEFAULT '',
+		status text NOT NULL DEFAULT 'active',
+		metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_identities_tenant_status
+		ON sage.agent_identities(tenant_id, status)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_requests (
+		request_id text PRIMARY KEY,
+		tenant_id text NOT NULL,
+		agent_id text NOT NULL,
+		owner_id text NOT NULL DEFAULT '',
+		run_id text NOT NULL DEFAULT '',
+		purpose text NOT NULL DEFAULT '',
+		requested_isolation_type text NOT NULL DEFAULT 'schema',
+		database_name text NOT NULL DEFAULT '',
+		provider text NOT NULL DEFAULT 'local_postgres',
+		policy_decision text NOT NULL DEFAULT 'review',
+		status text NOT NULL DEFAULT 'requested',
+		idempotency_key text NOT NULL DEFAULT '',
+		body_hash text NOT NULL DEFAULT '',
+		budget_usd double precision NOT NULL DEFAULT 0,
+		backup_required boolean NOT NULL DEFAULT true,
+		policy_reasons jsonb NOT NULL DEFAULT '{}'::jsonb,
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`ALTER TABLE sage.agent_db_requests
+		ADD COLUMN IF NOT EXISTS budget_usd double precision NOT NULL DEFAULT 0`,
+	`ALTER TABLE sage.agent_db_requests
+		ADD COLUMN IF NOT EXISTS backup_required boolean NOT NULL DEFAULT true`,
+	`ALTER TABLE sage.agent_db_requests
+		ADD COLUMN IF NOT EXISTS provider text NOT NULL DEFAULT 'local_postgres'`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_db_requests_idempotency
+		ON sage.agent_db_requests(tenant_id, idempotency_key)
+		WHERE idempotency_key <> ''`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_deployments (
+		deployment_id text PRIMARY KEY,
+		tenant_id text NOT NULL,
+		agent_id text NOT NULL,
+		run_id text NOT NULL DEFAULT '',
+		database_name text NOT NULL DEFAULT '',
+		status text NOT NULL DEFAULT 'active',
+		safety_mode text NOT NULL DEFAULT 'observation',
+		isolation_type text NOT NULL DEFAULT 'schema',
+		schema_name text NOT NULL DEFAULT '',
+		budget_usd double precision NOT NULL DEFAULT 0,
+		backup_required boolean NOT NULL DEFAULT true,
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now(),
+		last_ping_at timestamptz,
+		lease_expires_at timestamptz,
+		metadata jsonb NOT NULL DEFAULT '{}'::jsonb
+	)`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS isolation_type text NOT NULL DEFAULT 'schema'`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS schema_name text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS budget_usd double precision NOT NULL DEFAULT 0`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS backup_required boolean NOT NULL DEFAULT true`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS provider text NOT NULL DEFAULT 'local_postgres'`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS provisioning_level text NOT NULL DEFAULT 'schema'`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS size_profile_id text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS provisioning_status text NOT NULL DEFAULT 'registered'`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS provider_resource_id text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS secret_ref text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS secret_ref_provider text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS secret_ref_expires_at timestamptz`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS live_mode boolean NOT NULL DEFAULT false`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS provisioning_plan jsonb NOT NULL DEFAULT '{}'::jsonb`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS connection_info jsonb NOT NULL DEFAULT '{}'::jsonb`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS lifecycle_version bigint NOT NULL DEFAULT 0`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS cleanup_claim_id text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS cleanup_claimed_at timestamptz`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS teardown_operation_id text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS provider_mutation_id text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_deployments
+		ADD COLUMN IF NOT EXISTS provider_mutation_expires_at timestamptz`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_deployments_tenant_status
+		ON sage.agent_db_deployments(tenant_id, status)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_deployments_lease_expiry
+		ON sage.agent_db_deployments(lease_expires_at, status)
+		WHERE lease_expires_at IS NOT NULL`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_deployments_provider_resource
+		ON sage.agent_db_deployments(provider, provider_resource_id)
+		WHERE provider_resource_id <> ''`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_provider_configs (
+		provider text PRIMARY KEY,
+		enabled boolean NOT NULL DEFAULT false,
+		settings jsonb NOT NULL DEFAULT '{}'::jsonb,
+		last_validated_at timestamptz,
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_creation_receipts (
+		deployment_id text PRIMARY KEY
+			REFERENCES sage.agent_db_deployments(deployment_id) ON DELETE CASCADE,
+		provider text NOT NULL,
+		provider_resource_id text NOT NULL,
+		region text NOT NULL DEFAULT '',
+		account_ref text NOT NULL DEFAULT '',
+		request_hash text NOT NULL DEFAULT '',
+		operation_mode text NOT NULL DEFAULT 'dry_run',
+		detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_terraform_templates (
+		template_id text PRIMARY KEY,
+		name text NOT NULL,
+		status text NOT NULL DEFAULT 'draft',
+		source_kind text NOT NULL DEFAULT 'inline',
+		content_sha256 text NOT NULL DEFAULT '',
+		files_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+		manifest_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+		policy_findings jsonb NOT NULL DEFAULT '[]'::jsonb,
+		created_by text NOT NULL DEFAULT '',
+		approved_by text NOT NULL DEFAULT '',
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_terraform_templates_status
+		ON sage.agent_db_terraform_templates(status, created_at DESC)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_blueprints (
+		blueprint_id text PRIMARY KEY,
+		name text NOT NULL,
+		status text NOT NULL DEFAULT 'draft',
+		intent text NOT NULL DEFAULT '',
+		provider text NOT NULL DEFAULT '',
+		template_id text NOT NULL DEFAULT '',
+		blueprint_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+		policy_findings jsonb NOT NULL DEFAULT '[]'::jsonb,
+		llm_used boolean NOT NULL DEFAULT false,
+		raw_response text NOT NULL DEFAULT '',
+		created_by text NOT NULL DEFAULT '',
+		approved_by text NOT NULL DEFAULT '',
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_blueprints_status
+		ON sage.agent_db_blueprints(status, created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_blueprints_provider
+		ON sage.agent_db_blueprints(provider, status)`,
+	`UPDATE sage.agent_db_blueprints
+		SET status='generated',
+			updated_at=now()
+		WHERE status='draft'
+			AND template_id <> ''
+			AND jsonb_array_length(policy_findings) = 0`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_size_profiles (
+		profile_id text PRIMARY KEY,
+		provider text NOT NULL,
+		provisioning_level text NOT NULL,
+		name text NOT NULL,
+		description text NOT NULL DEFAULT '',
+		cpu double precision NOT NULL DEFAULT 0,
+		memory_gb double precision NOT NULL DEFAULT 0,
+		storage_gb double precision NOT NULL DEFAULT 0,
+		max_connections integer NOT NULL DEFAULT 0,
+		monthly_budget_usd double precision NOT NULL DEFAULT 0,
+		provider_params jsonb NOT NULL DEFAULT '{}'::jsonb,
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_pings (
+		ping_id bigserial PRIMARY KEY,
+		deployment_id text NOT NULL
+			REFERENCES sage.agent_db_deployments(deployment_id) ON DELETE CASCADE,
+		status text NOT NULL,
+		metrics jsonb NOT NULL DEFAULT '{}'::jsonb,
+		created_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_pings_deployment_time
+		ON sage.agent_db_pings(deployment_id, created_at DESC)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_ping_tokens (
+		token_id text PRIMARY KEY,
+		deployment_id text NOT NULL
+			REFERENCES sage.agent_db_deployments(deployment_id) ON DELETE CASCADE,
+		agent_id text NOT NULL,
+		token_hash text NOT NULL UNIQUE,
+		scope text NOT NULL DEFAULT 'ping',
+		status text NOT NULL DEFAULT 'active',
+		expires_at timestamptz NOT NULL,
+		created_at timestamptz NOT NULL DEFAULT now(),
+		last_used_at timestamptz,
+		revoked_at timestamptz,
+		rotated_from_token_id text NOT NULL DEFAULT ''
+	)`,
+	`ALTER TABLE sage.agent_db_ping_tokens
+		ADD COLUMN IF NOT EXISTS revoked_at timestamptz`,
+	`ALTER TABLE sage.agent_db_ping_tokens
+		ADD COLUMN IF NOT EXISTS rotated_from_token_id text NOT NULL DEFAULT ''`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_ping_tokens_deployment
+		ON sage.agent_db_ping_tokens(deployment_id, status)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_ping_token_failures (
+		failure_id bigserial PRIMARY KEY,
+		deployment_id text NOT NULL DEFAULT '',
+		token_hash text NOT NULL DEFAULT '',
+		reason text NOT NULL DEFAULT '',
+		created_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_ping_token_failures_recent
+		ON sage.agent_db_ping_token_failures(deployment_id, token_hash, created_at DESC)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_recommendations (
+		recommendation_id text PRIMARY KEY,
+		deployment_id text NOT NULL
+			REFERENCES sage.agent_db_deployments(deployment_id) ON DELETE CASCADE,
+		kind text NOT NULL,
+		title text NOT NULL,
+		detail text NOT NULL DEFAULT '',
+		query_fingerprint text NOT NULL DEFAULT '',
+		status text NOT NULL DEFAULT 'active',
+		feedback jsonb NOT NULL DEFAULT '{}'::jsonb,
+		payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`ALTER TABLE sage.agent_db_recommendations
+		ADD COLUMN IF NOT EXISTS query_fingerprint text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_recommendations
+		ADD COLUMN IF NOT EXISTS payload jsonb NOT NULL DEFAULT '{}'::jsonb`,
+	`ALTER TABLE sage.agent_db_recommendations
+		ADD COLUMN IF NOT EXISTS action_type text NOT NULL DEFAULT ''`,
+	`ALTER TABLE sage.agent_db_recommendations
+		ADD COLUMN IF NOT EXISTS action_risk text NOT NULL DEFAULT 'review'`,
+	`ALTER TABLE sage.agent_db_recommendations
+		ADD COLUMN IF NOT EXISTS confidence double precision NOT NULL DEFAULT 0`,
+	`ALTER TABLE sage.agent_db_recommendations
+		ADD COLUMN IF NOT EXISTS agent_instructions jsonb NOT NULL DEFAULT '{}'::jsonb`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_recommendations_deployment
+		ON sage.agent_db_recommendations(deployment_id, status)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_cost_samples (
+		sample_id bigserial PRIMARY KEY,
+		deployment_id text NOT NULL
+			REFERENCES sage.agent_db_deployments(deployment_id) ON DELETE CASCADE,
+		sampled_at timestamptz NOT NULL DEFAULT now(),
+		cost_usd double precision NOT NULL DEFAULT 0,
+		metric text NOT NULL DEFAULT '',
+		value double precision NOT NULL DEFAULT 0,
+		unit text NOT NULL DEFAULT '',
+		detail jsonb NOT NULL DEFAULT '{}'::jsonb
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_cost_samples_deployment_time
+		ON sage.agent_db_cost_samples(deployment_id, sampled_at DESC)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_backups (
+		backup_id text PRIMARY KEY,
+		deployment_id text NOT NULL
+			REFERENCES sage.agent_db_deployments(deployment_id) ON DELETE CASCADE,
+		provider text NOT NULL DEFAULT '',
+		status text NOT NULL DEFAULT 'ready',
+		archive_uri text NOT NULL DEFAULT '',
+		verified_at timestamptz,
+		restore_verified_at timestamptz,
+		created_at timestamptz NOT NULL DEFAULT now(),
+		detail jsonb NOT NULL DEFAULT '{}'::jsonb
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_backups_deployment_time
+		ON sage.agent_db_backups(deployment_id, created_at DESC)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_tuning_hints (
+		hint_id text NOT NULL,
+		deployment_id text NOT NULL
+			REFERENCES sage.agent_db_deployments(deployment_id) ON DELETE CASCADE,
+		kind text NOT NULL,
+		title text NOT NULL,
+		detail text NOT NULL,
+		severity text NOT NULL DEFAULT 'advisory',
+		payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+		created_at timestamptz NOT NULL DEFAULT now(),
+		PRIMARY KEY (hint_id, deployment_id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_tuning_hints_deployment_order
+		ON sage.agent_db_tuning_hints(deployment_id, kind, title)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_provision_attempts (
+		attempt_id bigserial PRIMARY KEY,
+		deployment_id text NOT NULL
+			REFERENCES sage.agent_db_deployments(deployment_id) ON DELETE CASCADE,
+		kind text NOT NULL,
+		status text NOT NULL,
+		runner text NOT NULL DEFAULT 'dry_run',
+		command jsonb NOT NULL DEFAULT '[]'::jsonb,
+		exit_code integer NOT NULL DEFAULT 0,
+		stdout text NOT NULL DEFAULT '',
+		stderr text NOT NULL DEFAULT '',
+		detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+		created_at timestamptz NOT NULL DEFAULT now(),
+		finished_at timestamptz
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_provision_attempts_deployment
+		ON sage.agent_db_provision_attempts(deployment_id, created_at DESC)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_audit (
+		audit_id bigserial PRIMARY KEY,
+		deployment_id text NOT NULL DEFAULT '',
+		event text NOT NULL,
+		detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+		created_at timestamptz NOT NULL DEFAULT now()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_audit_deployment_time
+		ON sage.agent_db_audit(deployment_id, created_at ASC, audit_id ASC)`,
+	`CREATE TABLE IF NOT EXISTS sage.agent_db_deploy_requests (
+		deploy_request_id text PRIMARY KEY,
+		deployment_id text NOT NULL
+			REFERENCES sage.agent_db_deployments(deployment_id) ON DELETE CASCADE,
+		tenant_id text NOT NULL,
+		agent_id text NOT NULL,
+		run_id text NOT NULL DEFAULT '',
+		target_database_name text NOT NULL DEFAULT '',
+		target_schema_name text NOT NULL DEFAULT '',
+		title text NOT NULL,
+		reason text NOT NULL DEFAULT '',
+		status text NOT NULL DEFAULT 'draft',
+		risk_tier text NOT NULL DEFAULT 'moderate',
+		migration_sql text NOT NULL DEFAULT '',
+		verification_sql text NOT NULL DEFAULT '',
+		rollback_sql text NOT NULL DEFAULT '',
+		forward_fix_notes text NOT NULL DEFAULT '',
+		gate_results jsonb NOT NULL DEFAULT '{}'::jsonb,
+		created_by text NOT NULL DEFAULT '',
+		reviewed_by text NOT NULL DEFAULT '',
+		review_reason text NOT NULL DEFAULT '',
+		created_at timestamptz NOT NULL DEFAULT now(),
+		updated_at timestamptz NOT NULL DEFAULT now(),
+		reviewed_at timestamptz
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_deploy_requests_deployment
+		ON sage.agent_db_deploy_requests(deployment_id, created_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_db_deploy_requests_tenant_status
+		ON sage.agent_db_deploy_requests(tenant_id, status)`,
+}

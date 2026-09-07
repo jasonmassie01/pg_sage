@@ -1,15 +1,12 @@
 import { execFileSync } from 'child_process';
 import { test, expect } from '@playwright/test';
 import { login, getConsoleErrors } from './helpers';
+import { object, rows } from './walkthrough-support';
 
 const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
 const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
-const targets = [
-  { name: 'testdb', container: 'pg_sage-pg-target-1', db: 'testdb' },
-  { name: 'testdb2', container: 'pg_sage-pg-target-2-1', db: 'testdb2' },
-  { name: 'health_test', container: 'health_pg', db: 'health_test' },
-];
+import { fixtureTargets as targets } from './fixture-targets';
 
 function psql(target: typeof targets[number], sql: string) {
   execFileSync('docker', [
@@ -78,21 +75,17 @@ test.describe('Fleet aggregation APIs', () => {
   test('all-database views include secondary database rows', async ({
     page,
   }) => {
-    try {
-      seedFleetRows();
-    } catch (err) {
-      test.skip(true, `Docker fixture databases unavailable: ${err}`);
-    }
+    seedFleetRows();
 
     const hintsRes = await page.request.get('/api/v1/query-hints');
     expect(hintsRes.status()).toBe(200);
-    const hints = await hintsRes.json();
+    const hints = object(await hintsRes.json());
     const hintDBs = new Set(
-      (hints.hints || [])
-        .filter((h: any) => String(h.hint_text).startsWith(
+      rows(hints.hints)
+        .filter(h => String(h.hint_text).startsWith(
           'codex aggregation ',
         ))
-        .map((h: any) => h.database_name),
+        .map(h => h.database_name),
     );
     for (const target of targets) {
       expect(hintDBs.has(target.name)).toBeTruthy();
@@ -100,13 +93,13 @@ test.describe('Fleet aggregation APIs', () => {
 
     const actionsRes = await page.request.get('/api/v1/actions?limit=100');
     expect(actionsRes.status()).toBe(200);
-    const actions = await actionsRes.json();
+    const actions = object(await actionsRes.json());
     const actionDBs = new Set(
-      (actions.actions || [])
-        .filter((a: any) => String(a.sql_executed).includes(
+      rows(actions.actions)
+        .filter(a => String(a.sql_executed).includes(
           'codex aggregation ',
         ))
-        .map((a: any) => a.database_name),
+        .map(a => a.database_name),
     );
     for (const target of targets) {
       expect(actionDBs.has(target.name)).toBeTruthy();
@@ -116,13 +109,13 @@ test.describe('Fleet aggregation APIs', () => {
       '/api/v1/incidents?status=active',
     );
     expect(incidentsRes.status()).toBe(200);
-    const incidents = await incidentsRes.json();
+    const incidents = object(await incidentsRes.json());
     const incidentDBs = new Set(
-      (incidents.incidents || [])
-        .filter((i: any) => String(i.root_cause).startsWith(
+      rows(incidents.incidents)
+        .filter(i => String(i.root_cause).startsWith(
           'codex aggregation ',
         ))
-        .map((i: any) => i.database_name),
+        .map(i => i.database_name),
     );
     for (const target of targets) {
       expect(incidentDBs.has(target.name)).toBeTruthy();

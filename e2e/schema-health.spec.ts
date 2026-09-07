@@ -1,129 +1,34 @@
 import { test, expect } from '@playwright/test';
-import { execFileSync } from 'child_process';
 import { login, getConsoleErrors } from './helpers';
 
-const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
-const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
+const EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
+const PASSWORD = process.env.PG_SAGE_ADMIN_PASS || 'admin';
 
-function psql(sql: string) {
-  execFileSync('docker', [
-    'exec', 'pg_sage-pg-target-1', 'psql',
-    '-v', 'ON_ERROR_STOP=1',
-    '-U', 'postgres',
-    '-d', 'testdb',
-    '-c', sql,
-  ], { stdio: 'pipe' });
-}
-
-function seedSchemaFinding() {
-  psql(`
-    DELETE FROM sage.findings
-     WHERE object_identifier = 'codex_schema_health.detail';
-
-    INSERT INTO sage.findings
-      (category, severity, object_type, object_identifier, title,
-       detail, recommendation, recommended_sql, status, rule_id,
-       impact_score)
-    VALUES
-      ('schema_lint:codex_detail', 'critical', 'table',
-       'codex_schema_health.detail',
-       'Codex schema detail finding',
-       '{"thematic_category":"safety","schema_name":"public","table_name":"codex_schema_health","database_name":"testdb","impact":"Codex impact text"}',
-       'Codex recommendation text',
-       'ALTER TABLE public.codex_schema_health ADD PRIMARY KEY (id);',
-       'open', 'codex_detail', 0.91);
-  `);
-}
-
-test.describe('Schema Health', () => {
-  let consoleErrors: string[];
-
-  test.beforeEach(async ({ page }) => {
-    consoleErrors = getConsoleErrors(page);
-    await login(page, ADMIN_EMAIL, ADMIN_PASS);
-  });
-
-  test.afterEach(async () => {
-    expect(consoleErrors).toEqual([]);
-  });
-
-  test('applies filters to both stats and findings requests', async ({
-    page,
-  }) => {
-    test.skip(true, 'legacy Schema Health route now renders Cases');
-
-    const statsUrls: string[] = [];
-    const findingsUrls: string[] = [];
-
-    await page.route('**/api/v1/findings/stats?**', async (route) => {
-      const url = route.request().url();
-      statsUrls.push(url);
-      const parsed = new URL(url);
-      const filtered = parsed.searchParams.get('severity') === 'critical'
-        && parsed.searchParams.get('thematic_category') === 'indexing';
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          database: 'all',
-          stats: filtered
-            ? [{ severity: 'critical', category: 'schema_lint:x', count: 1 }]
-            : [{ severity: 'warning', category: 'schema_lint:y', count: 2 }],
-          total_open: filtered ? 1 : 2,
-        }),
-      });
-    });
-
-    await page.route('**/api/v1/findings?**', async (route) => {
-      findingsUrls.push(route.request().url());
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          total: 0,
-          findings: [],
-        }),
-      });
-    });
-
-    await page.goto('/#/schema-health');
-    await expect(page.getByTestId('stats-summary')).toContainText('2');
-
-    await page.getByTestId('severity-filter').selectOption('critical');
-    await page.getByTestId('category-filter').selectOption('indexing');
-
-    await expect(page.getByTestId('stats-summary')).toContainText('1');
-    expect(statsUrls.at(-1)).toContain('severity=critical');
-    expect(statsUrls.at(-1)).toContain('thematic_category=indexing');
-    expect(findingsUrls.at(-1)).toContain('severity=critical');
-    expect(findingsUrls.at(-1)).toContain('thematic_category=indexing');
-  });
-
-  test('expands a live schema finding with impact and SQL detail', async ({
-    page,
-  }) => {
-    test.skip(true, 'legacy Schema Health detail route now renders Cases');
-
-    try {
-      seedSchemaFinding();
-    } catch (err) {
-      test.skip(true, `Docker fixture database unavailable: ${err}`);
-    }
-
-    await page.goto('/#/schema-health');
-    await page.getByTestId('category-filter').selectOption('safety');
-    await expect(page.getByText('Codex schema detail finding'))
-      .toBeVisible();
-    await expect(page.getByTestId('schema-findings-table')).toBeVisible();
-    await page.locator('[data-row-key]').filter({
-      hasText: 'Codex schema detail finding',
-    }).click();
-
-    await expect(page.getByTestId('finding-detail')).toBeVisible();
-    await expect(page.getByText('Codex impact text')).toBeVisible();
-    await expect(page.getByText('Codex recommendation text')).toBeVisible();
-    await expect(page.getByText(
-      'ALTER TABLE public.codex_schema_health ADD PRIMARY KEY (id);',
-    )).toBeVisible();
-  });
+test('schema cases display evidence, migration, rollback, and verification SQL', async ({ page }) => {
+  const errors = getConsoleErrors(page);
+  await login(page, EMAIL, PASSWORD);
+  await page.route('**/api/v1/cases**', route => route.fulfill({ json: { cases: [{
+    case_id: 'schema-review', source_type: 'schema_health', title: 'Missing primary key',
+    severity: 'critical', state: 'open', why: 'Writes need stable row identity',
+    evidence: [{ type: 'schema', summary: 'orders has no primary key',
+      detail: { query: 'SELECT id FROM public.orders;', table_name: 'orders' } }],
+    action_candidates: [{ action_type: 'add_primary_key',
+      script_output: { filename: 'orders_key.sql',
+        migration_sql: 'ALTER TABLE public.orders ADD PRIMARY KEY (id);',
+        rollback_sql: 'ALTER TABLE public.orders DROP CONSTRAINT orders_pkey;',
+        verification_sql: ['SELECT count(*) FROM public.orders;'] } }],
+  }] } }));
+  await page.goto('/#/schema-health');
+  await expect(page.getByRole('button', { name: 'Schema', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
+  const card = page.locator('main article');
+  await expect(card).toContainText('Writes need stable row identity');
+  await expect(card.getByLabel('Case evidence')).toContainText('orders has no primary key');
+  for (const sql of [
+    'SELECT id FROM public.orders;',
+    'ALTER TABLE public.orders ADD PRIMARY KEY (id);',
+    'ALTER TABLE public.orders DROP CONSTRAINT orders_pkey;',
+    'SELECT count(*) FROM public.orders;',
+  ]) await expect(card).toContainText(sql);
+  expect(errors).toEqual([]);
 });

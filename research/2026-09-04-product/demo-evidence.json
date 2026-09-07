@@ -1,0 +1,148 @@
+{
+  "format_version": 1,
+  "manifest_sha256": "dae5d8f85d2cfd467aae426cf7b4d82d42bbac36f52b34712199a3857a2f5e6a",
+  "started_at": "2026-09-05T03:17:41.1323237Z",
+  "postgres_version": "16.14 (Debian 16.14-1.pgdg12+1)",
+  "vector_version": "0.8.2",
+  "snapshot": "116904:116904:",
+  "query_count": 3,
+  "repeats": 3,
+  "exact_p95_ms": 3.4876,
+  "variants": [
+    {
+      "settings": {
+        "name": "small-off",
+        "ef_search": 10,
+        "iterative_scan": "off"
+      },
+      "min_recall": 0.2,
+      "p95_ms": 1.9618,
+      "qualified": false,
+      "reasons": [
+        "recall_below_target",
+        "underfilled"
+      ],
+      "queries": [
+        {
+          "query_id": "tenant-a-near",
+          "min_recall": 0.2,
+          "underfilled_trials": 3,
+          "truth_count": 10,
+          "ambiguous_boundary_tie": false,
+          "hnsw_indexes": [
+            "documents_embedding_hnsw"
+          ]
+        },
+        {
+          "query_id": "tenant-b-middle",
+          "min_recall": 0.2,
+          "underfilled_trials": 3,
+          "truth_count": 10,
+          "ambiguous_boundary_tie": false,
+          "hnsw_indexes": [
+            "documents_embedding_hnsw"
+          ]
+        },
+        {
+          "query_id": "tenant-c-far",
+          "min_recall": 0.2,
+          "underfilled_trials": 3,
+          "truth_count": 10,
+          "ambiguous_boundary_tie": false,
+          "hnsw_indexes": [
+            "documents_embedding_hnsw"
+          ]
+        }
+      ]
+    },
+    {
+      "settings": {
+        "name": "balanced-strict",
+        "ef_search": 100,
+        "iterative_scan": "strict_order"
+      },
+      "min_recall": 1,
+      "p95_ms": 2.0008,
+      "qualified": true,
+      "reasons": [],
+      "queries": [
+        {
+          "query_id": "tenant-a-near",
+          "min_recall": 1,
+          "underfilled_trials": 0,
+          "truth_count": 10,
+          "ambiguous_boundary_tie": false,
+          "hnsw_indexes": [
+            "documents_embedding_hnsw"
+          ]
+        },
+        {
+          "query_id": "tenant-b-middle",
+          "min_recall": 1,
+          "underfilled_trials": 0,
+          "truth_count": 10,
+          "ambiguous_boundary_tie": false,
+          "hnsw_indexes": [
+            "documents_embedding_hnsw"
+          ]
+        },
+        {
+          "query_id": "tenant-c-far",
+          "min_recall": 1,
+          "underfilled_trials": 0,
+          "truth_count": 10,
+          "ambiguous_boundary_tie": false,
+          "hnsw_indexes": [
+            "documents_embedding_hnsw"
+          ]
+        }
+      ]
+    },
+    {
+      "settings": {
+        "name": "wide-strict",
+        "ef_search": 200,
+        "iterative_scan": "strict_order"
+      },
+      "min_recall": 1,
+      "p95_ms": 7.5679,
+      "qualified": true,
+      "reasons": [],
+      "queries": [
+        {
+          "query_id": "tenant-a-near",
+          "min_recall": 1,
+          "underfilled_trials": 0,
+          "truth_count": 10,
+          "ambiguous_boundary_tie": false,
+          "hnsw_indexes": [
+            "documents_embedding_hnsw"
+          ]
+        },
+        {
+          "query_id": "tenant-b-middle",
+          "min_recall": 1,
+          "underfilled_trials": 0,
+          "truth_count": 10,
+          "ambiguous_boundary_tie": false,
+          "hnsw_indexes": [
+            "documents_embedding_hnsw"
+          ]
+        },
+        {
+          "query_id": "tenant-c-far",
+          "min_recall": 1,
+          "underfilled_trials": 0,
+          "truth_count": 10,
+          "ambiguous_boundary_tie": false,
+          "hnsw_indexes": [
+            "documents_embedding_hnsw"
+          ]
+        }
+      ]
+    }
+  ],
+  "recommendation": "balanced-strict",
+  "auto_apply": false,
+  "scope": "advisory warm-cache experiment; sample evidence, not production certification"
+}

@@ -332,7 +332,30 @@ func (c *Collector) collectTables(ctx context.Context) ([]TableStats, error) {
 }
 
 func (c *Collector) collectIndexes(ctx context.Context) ([]IndexStats, error) {
-	rows, err := c.catalogQuery(ctx, indexStatsSQL)
+	batchSize := c.cfg.Collector.BatchSize
+	if batchSize <= 0 {
+		batchSize = config.DefaultCollectorBatchSize
+	}
+	var result []IndexStats
+	var schemaName, tableName, indexName string
+	for {
+		batch, err := c.collectIndexBatch(ctx, schemaName, tableName, indexName, batchSize)
+		if err != nil {
+			return nil, fmt.Errorf("collect indexes: %w", err)
+		}
+		result = append(result, batch...)
+		if len(batch) < batchSize {
+			return result, nil
+		}
+		last := batch[len(batch)-1]
+		schemaName, tableName, indexName = last.SchemaName, last.RelName, last.IndexRelName
+	}
+}
+
+func (c *Collector) collectIndexBatch(
+	ctx context.Context, schemaName, tableName, indexName string, batchSize int,
+) ([]IndexStats, error) {
+	rows, err := c.catalogQuery(ctx, indexStatsSQL, schemaName, tableName, indexName, batchSize)
 	if err != nil {
 		return nil, err
 	}

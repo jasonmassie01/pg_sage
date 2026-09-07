@@ -1,0 +1,6 @@
+{"ImportPath":"../research/2026-09-04-product/vectorlab-coverage.out","Action":"build-output","Output":"# ../research/2026-09-04-product/vectorlab-coverage.out\n"}
+{"ImportPath":"../research/2026-09-04-product/vectorlab-coverage.out","Action":"build-output","Output":"stat C:\\Users\\jmass\\pg_sage\\research\\2026-09-04-product\\vectorlab-coverage.out: directory not found\n"}
+{"ImportPath":"../research/2026-09-04-product/vectorlab-coverage.out","Action":"build-fail"}
+{"Time":"2026-09-04T22:10:07.36056-05:00","Action":"start","Package":"../research/2026-09-04-product/vectorlab-coverage.out"}
+{"Time":"2026-09-04T22:10:07.36056-05:00","Action":"output","Package":"../research/2026-09-04-product/vectorlab-coverage.out","Output":"FAIL\t../research/2026-09-04-product/vectorlab-coverage.out [setup failed]\n"}
+{"Time":"2026-09-04T22:10:07.36056-05:00","Action":"fail","Package":"../research/2026-09-04-product/vectorlab-coverage.out","Elapsed":0,"FailedBuild":"../research/2026-09-04-product/vectorlab-coverage.out"}

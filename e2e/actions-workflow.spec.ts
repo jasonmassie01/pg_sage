@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 import { login, getConsoleErrors } from './helpers';
+import { seedAction, fixtureSQL } from './action-fixtures';
 
 const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
 const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
@@ -88,12 +89,13 @@ test.describe.serial('Actions workflow', () => {
   test('rejects a pending action from the UI and removes it from pending', async ({
     page,
   }) => {
+    const queueID = seedAction('reject');
     const pending = await fetchPending(page);
     const target = pending.find((a) =>
-      a.database_name === 'health_test' &&
+      a.id === queueID && a.database_name === 'health_test' &&
       a.proposed_sql.startsWith('DROP INDEX CONCURRENTLY'),
     );
-    test.skip(!target, 'requires the full-surface health_test action fixture');
+    expect(target, 'seeded rejection action must be returned').toBeTruthy();
 
     await page.goto('/#/actions');
     await page.getByTestId('actions-tab-pending').click();
@@ -118,6 +120,8 @@ test.describe.serial('Actions workflow', () => {
       `Action ${target!.id} rejected`,
     )).toBeVisible();
 
+    expect(fixtureSQL('health_test', `SELECT to_regclass(
+      'public.e2e_workflow_reject_idx') IS NOT NULL`)).toBe('t');
     const after = await fetchPending(page);
     expect(after.some((a) => a.id === target!.id &&
       a.database_name === target!.database_name)).toBe(false);
@@ -126,14 +130,15 @@ test.describe.serial('Actions workflow', () => {
   test('approves a pending create-index action and keeps it resolved after refresh', async ({
     page,
   }) => {
+    const queueID = seedAction('approve');
     const pending = await fetchPending(page);
     const target = pending.find((a) =>
-      a.database_name === 'testdb' &&
+      a.id === queueID && a.database_name === 'testdb' &&
       a.proposed_sql.includes(
-        'CREATE INDEX CONCURRENTLY ON public.orders',
+        'CREATE INDEX CONCURRENTLY e2e_workflow_idx ON public.e2e_workflow_orders',
       ),
     );
-    test.skip(!target, 'requires the testdb public.orders action');
+    expect(target, 'seeded approval action must be returned').toBeTruthy();
 
     await page.goto('/#/actions');
     await page.getByTestId('actions-tab-pending').click();
@@ -150,6 +155,8 @@ test.describe.serial('Actions workflow', () => {
     expect(approveJson.executed).toBe(true);
     expect(approveJson.database).toBe(target!.database_name);
     expect(approveJson.action_log_id).toBeGreaterThan(0);
+    expect(fixtureSQL('testdb', `SELECT indisvalid AND indisready FROM pg_index
+      WHERE indexrelid = 'public.e2e_workflow_idx'::regclass`)).toBe('t');
 
     await expect(page.locator('main').getByText(
       `Action ${target!.id} approved and executed`,
@@ -181,7 +188,7 @@ test.describe.serial('Actions workflow', () => {
     expect(Number(actionLog!.finding_id)).toBe(target!.finding_id);
     expect(actionLog!.outcome).toBe('success');
     expect(actionLog!.sql_executed).toContain(
-      'CREATE INDEX CONCURRENTLY ON public.orders',
+      'CREATE INDEX CONCURRENTLY e2e_workflow_idx ON public.e2e_workflow_orders',
     );
 
     const findingState = await page.evaluate(async (target) => {
