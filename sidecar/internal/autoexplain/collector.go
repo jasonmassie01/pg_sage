@@ -61,8 +61,7 @@ func (c *Collector) Run(ctx context.Context) {
 		case <-ticker.C:
 			if err := c.Collect(ctx); err != nil {
 				c.logFn(
-					"WARN", "autoexplain",
-					"collect cycle: %v", err,
+					"WARN", "autoexplain: collect cycle: %v", err,
 				)
 			}
 		case <-ctx.Done():
@@ -110,8 +109,7 @@ func (c *Collector) Collect(ctx context.Context) error {
 			ctx, cand.queryID, cand.query,
 		); err != nil {
 			c.logFn(
-				"WARN", "autoexplain",
-				"capture queryid=%d: %v", cand.queryID, err,
+				"WARN", "autoexplain: capture queryid=%d: %v", cand.queryID, err,
 			)
 		}
 	}

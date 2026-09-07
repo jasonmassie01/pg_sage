@@ -8,8 +8,10 @@
 //
 // LLM generation is intentionally out of scope here (non-deterministic);
 // each case injects the exact RecommendedSQL shape the LLM/rule produces,
-// so the contract "a finding with this SQL comes all the way through
-// actions correctly" is what is under test.
+// verifies the applicable authority gate, then checks real side effects.
+// Index cases prove automatic withholding without host telemetry before
+// using explicit reviewed execution. Backend signals require matching evidence
+// and explicit approval; SQL shape alone never supplies that authority.
 package e2e
 
 import (
@@ -108,7 +110,7 @@ func shapeCreateIndexBtree(
 		CREATE TABLE shp_b01 (id bigint, v text);
 		INSERT INTO shp_b01 SELECT g, g::text FROM generate_series(1,1000) g;`)
 	an, ex := newPipelineExecutor(t, pool, autonomousConfig())
-	driveFinding(t, pool, an, ex, analyzer.Finding{
+	driveReviewedIndexFinding(t, pool, an, ex, analyzer.Finding{
 		Category: "missing_index", Severity: "warning",
 		ObjectType: "table", ObjectIdentifier: "public.shp_b01",
 		Title:          "missing index on shp_b01(id)",
@@ -118,7 +120,7 @@ func shapeCreateIndexBtree(
 	})
 	act, ok := latestActionFor(t, pool, "missing_index", "public.shp_b01")
 	r.add(t, "CHECK-B01a", ok && isExecutedOutcome(act.Outcome),
-		fmt.Sprintf("btree CREATE INDEX executed (outcome=%s)", act.Outcome))
+		fmt.Sprintf("reviewed btree CREATE INDEX executed (outcome=%s)", act.Outcome))
 	am, valid, exists := indexAccessMethod(t, pool, "shp_b01_id_idx")
 	r.add(t, "CHECK-B01b", exists && valid && am == "btree",
 		"index shp_b01_id_idx exists, valid, am=btree")
@@ -134,7 +136,7 @@ func shapeCreateIndexIncludeSelfDrop(
 	// Mirrors a real covering_index rec: drop_ddl is the NEW index's own
 	// rollback. The executor must NOT consume it as an INCLUDE-upgrade
 	// supersede (the self-drop bug fixed 2026-06-12).
-	driveFinding(t, pool, an, ex, analyzer.Finding{
+	driveReviewedIndexFinding(t, pool, an, ex, analyzer.Finding{
 		Category: "covering_index", Severity: "warning",
 		ObjectType: "table", ObjectIdentifier: "public.shp_b02",
 		Title: "covering index on shp_b02",
@@ -148,7 +150,7 @@ func shapeCreateIndexIncludeSelfDrop(
 	})
 	act, ok := latestActionFor(t, pool, "covering_index", "public.shp_b02")
 	r.add(t, "CHECK-B02a", ok && isExecutedOutcome(act.Outcome),
-		fmt.Sprintf("covering INCLUDE index executed (outcome=%s)", act.Outcome))
+		fmt.Sprintf("reviewed covering INCLUDE index executed (outcome=%s)", act.Outcome))
 	_, valid, exists := indexAccessMethod(t, pool, "shp_b02_cov_idx")
 	r.add(t, "CHECK-B02b", exists && valid,
 		"index survives its own drop_ddl (self-drop guard)")
@@ -162,7 +164,7 @@ func shapeCreateIndexGIN(
 		INSERT INTO shp_b03
 		SELECT jsonb_build_object('k', g) FROM generate_series(1,1000) g;`)
 	an, ex := newPipelineExecutor(t, pool, autonomousConfig())
-	driveFinding(t, pool, an, ex, analyzer.Finding{
+	driveReviewedIndexFinding(t, pool, an, ex, analyzer.Finding{
 		Category: "missing_index", Severity: "warning",
 		ObjectType: "table", ObjectIdentifier: "public.shp_b03",
 		Title: "gin index for jsonb containment",
@@ -173,7 +175,7 @@ func shapeCreateIndexGIN(
 	})
 	act, ok := latestActionFor(t, pool, "missing_index", "public.shp_b03")
 	r.add(t, "CHECK-B03a", ok && isExecutedOutcome(act.Outcome),
-		fmt.Sprintf("GIN jsonb_path_ops index executed (outcome=%s)", act.Outcome))
+		fmt.Sprintf("reviewed GIN jsonb_path_ops index executed (outcome=%s)", act.Outcome))
 	am, valid, exists := indexAccessMethod(t, pool, "shp_b03_gin_idx")
 	r.add(t, "CHECK-B03b", exists && valid && am == "gin",
 		"index shp_b03_gin_idx exists, valid, am=gin")
@@ -195,7 +197,7 @@ func shapeCreateIndexHNSW(
 		SELECT ('['||g%10||',0,0,0,0,0,0,'||g%7||']')::vector
 		  FROM generate_series(1,500) g;`)
 	an, ex := newPipelineExecutor(t, pool, autonomousConfig())
-	driveFinding(t, pool, an, ex, analyzer.Finding{
+	driveReviewedIndexFinding(t, pool, an, ex, analyzer.Finding{
 		Category: "missing_index", Severity: "warning",
 		ObjectType: "table", ObjectIdentifier: "public.shp_b04",
 		Title: "hnsw index for vector knn",
@@ -206,7 +208,7 @@ func shapeCreateIndexHNSW(
 	})
 	act, ok := latestActionFor(t, pool, "missing_index", "public.shp_b04")
 	r.add(t, "CHECK-B04a", ok && isExecutedOutcome(act.Outcome),
-		fmt.Sprintf("HNSW vector index executed (outcome=%s)", act.Outcome))
+		fmt.Sprintf("reviewed HNSW vector index executed (outcome=%s)", act.Outcome))
 	am, valid, exists := indexAccessMethod(t, pool, "shp_b04_hnsw_idx")
 	r.add(t, "CHECK-B04b", exists && valid && am == "hnsw",
 		"index shp_b04_hnsw_idx exists, valid, am=hnsw")
@@ -219,7 +221,7 @@ func shapeCreateIndexPartial(
 		CREATE TABLE shp_b05 (id bigint, deleted_at timestamptz);
 		INSERT INTO shp_b05 SELECT g, NULL FROM generate_series(1,1000) g;`)
 	an, ex := newPipelineExecutor(t, pool, autonomousConfig())
-	driveFinding(t, pool, an, ex, analyzer.Finding{
+	driveReviewedIndexFinding(t, pool, an, ex, analyzer.Finding{
 		Category: "partial_index", Severity: "warning",
 		ObjectType: "table", ObjectIdentifier: "public.shp_b05",
 		Title: "partial index on live rows",
@@ -230,7 +232,7 @@ func shapeCreateIndexPartial(
 	})
 	act, ok := latestActionFor(t, pool, "partial_index", "public.shp_b05")
 	r.add(t, "CHECK-B05a", ok && isExecutedOutcome(act.Outcome),
-		fmt.Sprintf("partial index executed (outcome=%s)", act.Outcome))
+		fmt.Sprintf("reviewed partial index executed (outcome=%s)", act.Outcome))
 	_, valid, exists := indexAccessMethod(t, pool, "shp_b05_live_idx")
 	r.add(t, "CHECK-B05b", exists && valid, "partial index exists and valid")
 }
@@ -426,53 +428,24 @@ func shapeTerminateBackend(
 func shapeCancelBackend(
 	t *testing.T, pool *pgxpool.Pool, r *checkReport,
 ) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	victim, err := pgx.Connect(ctx, pipelineURL(t))
-	if err != nil {
-		t.Fatalf("victim connect: %v", err)
-	}
-	defer victim.Close(context.Background())
-	var pid int
-	if err := victim.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid); err != nil {
-		t.Fatalf("victim pid: %v", err)
-	}
-	errCh := make(chan error, 1)
-	go func() {
-		_, qErr := victim.Exec(context.Background(), "SELECT pg_sleep(30)")
-		errCh <- qErr
-	}()
-	// Wait until the sleep is visibly active before cancelling it.
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		state := scalarString(t, pool, fmt.Sprintf(
-			`SELECT coalesce(max(state),'') FROM pg_stat_activity
-			  WHERE pid = %d AND query LIKE '%%pg_sleep%%'`, pid))
-		if state == "active" {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
+	pid, errCh := startPipelineSleeper(t)
+	finding := pipelineCancelFinding(t, pool, pid)
 	an, ex := newPipelineExecutor(t, pool, autonomousConfig())
-	driveFinding(t, pool, an, ex, analyzer.Finding{
-		Category: "runaway_query", Severity: "warning",
-		ObjectType: "backend", ObjectIdentifier: fmt.Sprintf("pid:%d", pid),
-		Title:          "runaway query",
-		RecommendedSQL: fmt.Sprintf("SELECT pg_cancel_backend(%d);", pid),
-		ActionRisk:     "moderate",
-	})
-	act, ok := latestActionFor(t, pool, "runaway_query",
-		fmt.Sprintf("pid:%d", pid))
-	r.add(t, "CHECK-B13a", ok && isExecutedOutcome(act.Outcome),
-		fmt.Sprintf("pg_cancel_backend executed (outcome=%s)", act.Outcome))
+	driveFinding(t, pool, an, ex, finding)
+	_, acted := latestActionFor(t, pool, finding.Category, finding.ObjectIdentifier)
+	r.add(t, "CHECK-B13a", !acted, "backend cancellation withheld until explicit approval")
+	select {
+	case err := <-errCh:
+		t.Fatalf("victim stopped before approval: %v", err)
+	default:
+	}
+	approvePipelineCancel(t, pool, ex, finding)
 	select {
 	case qErr := <-errCh:
-		r.add(t, "CHECK-B13b",
-			qErr != nil && strings.Contains(qErr.Error(), "cancel"),
-			fmt.Sprintf("victim query cancelled (err=%v)", qErr))
-	case <-time.After(15 * time.Second):
-		r.add(t, "CHECK-B13b", false,
-			"victim query cancelled (timed out still sleeping)")
+		r.add(t, "CHECK-B13b", qErr != nil && strings.Contains(qErr.Error(), "cancel"),
+			fmt.Sprintf("approved matching victim query cancelled (err=%v)", qErr))
+	case <-time.After(5 * time.Second):
+		r.add(t, "CHECK-B13b", false, "approved victim cancellation timed out")
 	}
 }
 

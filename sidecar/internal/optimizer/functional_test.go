@@ -124,7 +124,7 @@ func sampleTableContext() TableContext {
 			{
 				QueryID: 2,
 				Text:    "SELECT * FROM orders WHERE customer_id = $1",
-				Calls: 200, MeanTimeMs: 3.0, TotalTimeMs: 600.0,
+				Calls:   200, MeanTimeMs: 3.0, TotalTimeMs: 600.0,
 			},
 			{
 				QueryID: 3,
@@ -144,7 +144,7 @@ func sampleTableContext() TableContext {
 		ColStats: []ColStat{
 			{
 				Column: "status", NDistinct: 5,
-				Correlation: 0.1,
+				Correlation:     0.1,
 				MostCommonVals:  []string{"pending", "shipped"},
 				MostCommonFreqs: []float64{0.4, 0.3},
 			},
@@ -158,12 +158,12 @@ func sampleTableContext() TableContext {
 
 func sampleRecommendation() Recommendation {
 	return Recommendation{
-		Table:     "public.orders",
-		DDL:       "CREATE INDEX CONCURRENTLY idx_orders_status ON public.orders (status)",
-		Rationale: "speed up status lookups",
-		Severity:  "warning",
-		IndexType: "btree",
-		Category:  "missing_index",
+		Table:                   "public.orders",
+		DDL:                     "CREATE INDEX CONCURRENTLY idx_orders_status ON public.orders (status)",
+		Rationale:               "speed up status lookups",
+		Severity:                "warning",
+		IndexType:               "btree",
+		Category:                "missing_index",
 		EstimatedImprovementPct: 25.0,
 	}
 }
@@ -363,9 +363,9 @@ func TestFunctional_PromptNonCCollation(t *testing.T) {
 
 func TestFunctional_Confidence_QueryVolume(t *testing.T) {
 	tests := []struct {
-		name     string
-		calls    int64
-		wantQV   float64
+		name   string
+		calls  int64
+		wantQV float64
 	}{
 		{"High_500Plus", 500, 1.0},
 		{"High_1000", 1000, 1.0},
@@ -2188,32 +2188,6 @@ func TestFunctional_Decay_AnalyzeDecay_ThresholdFiltering(t *testing.T) {
 }
 
 // ----------------------------------------------------------------
-// Section 12: Post-Check (15.X)
-// ----------------------------------------------------------------
-
-func TestFunctional_PostCheck_RetrySignature(t *testing.T) {
-	// Verify CheckIndexValid exists with the expected signature.
-	// We can't call it with nil pool (pgxpool panics on nil receiver),
-	// so we verify the function signature by assigning it to a
-	// typed variable.
-	var fn func(
-		ctx context.Context,
-		pool interface{ QueryRow(context.Context, string, ...any) interface{ Scan(...any) error } },
-		indexName string,
-	)
-	// Suppress unused variable warning; the point is compile-time
-	// signature verification.
-	_ = fn
-
-	// Verify the function is callable with correct types at compile
-	// time by referencing it.
-	f := CheckIndexValid
-	if f == nil {
-		t.Fatal("CheckIndexValid is nil")
-	}
-}
-
-// ----------------------------------------------------------------
 // Section 13: Coverage Gap Tests (16.X)
 // ----------------------------------------------------------------
 
@@ -2301,10 +2275,10 @@ func TestFunctional_Coverage_FilterPlansForTable_EmptyQueries(t *testing.T) {
 
 func TestFunctional_Coverage_WithAutoExplain(t *testing.T) {
 	cfg := &config.OptimizerConfig{
-		MinSnapshots:      1,
-		MinQueryCalls:     1,
+		MinSnapshots:       1,
+		MinQueryCalls:      1,
 		MaxIndexesPerTable: 10,
-		MaxNewPerTable:    3,
+		MaxNewPerTable:     3,
 	}
 	client := llm.New(fnTestLLMConfig("http://localhost:0"), fnNoopLog)
 	o := New(client, nil, nil, cfg, 160000, false, 8192, fnNoopLog)
@@ -2324,10 +2298,10 @@ func TestFunctional_Coverage_WithAutoExplain(t *testing.T) {
 
 func TestFunctional_Coverage_WithAutoExplain_ViaConstructor(t *testing.T) {
 	cfg := &config.OptimizerConfig{
-		MinSnapshots:      1,
-		MinQueryCalls:     1,
+		MinSnapshots:       1,
+		MinQueryCalls:      1,
 		MaxIndexesPerTable: 10,
-		MaxNewPerTable:    3,
+		MaxNewPerTable:     3,
 	}
 	client := llm.New(fnTestLLMConfig("http://localhost:0"), fnNoopLog)
 	o := New(
@@ -2581,7 +2555,7 @@ func TestFunctional_Coverage_MergeChildQueries_DeduplicateByQueryID(t *testing.T
 	}
 	tableQueries := map[string][]QueryInfo{
 		"public.child_a": {
-			{QueryID: 1, Text: "SELECT 1"},  // duplicate of parent
+			{QueryID: 1, Text: "SELECT 1"}, // duplicate of parent
 			{QueryID: 2, Text: "SELECT 2"},
 		},
 	}

@@ -103,18 +103,18 @@ const indexStatsSQL = sageTag + `
 SELECT s.schemaname, s.relname, s.indexrelname,
        COALESCE(s.idx_scan, 0), COALESCE(s.idx_tup_read, 0),
        COALESCE(s.idx_tup_fetch, 0),
-       COALESCE(pg_relation_size(i.indexrelid), 0) AS index_bytes,
+       COALESCE(pg_relation_size(s.indexrelid), 0) AS index_bytes,
        ix.indisunique, ix.indisprimary, ix.indisvalid,
-       COALESCE(pg_get_indexdef(i.indexrelid), '') AS indexdef,
+       COALESCE(pg_get_indexdef(s.indexrelid), '') AS indexdef,
        COALESCE(am.amname, 'unknown') AS index_type
   FROM pg_stat_user_indexes s
-  JOIN pg_statio_user_indexes i ON i.indexrelid = s.indexrelid
   JOIN pg_index ix ON ix.indexrelid = s.indexrelid
-  JOIN pg_am am ON am.oid = (
-       SELECT c.relam FROM pg_class c WHERE c.oid = s.indexrelid
-  )
+  JOIN pg_class ic ON ic.oid = s.indexrelid
+  JOIN pg_am am ON am.oid = ic.relam
  WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
- ORDER BY s.schemaname, s.relname, s.indexrelname`
+   AND (s.schemaname, s.relname, s.indexrelname) > ($1, $2, $3)
+ ORDER BY s.schemaname, s.relname, s.indexrelname
+ LIMIT $4`
 
 const foreignKeysSQL = sageTag + `
 SELECT cl.relname AS table_name,

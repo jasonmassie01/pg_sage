@@ -3,7 +3,7 @@
 // Layer A of the pipeline-coverage suite: the REAL sidecar binary runs
 // against the throwaway Postgres with autonomous trust, and every
 // deterministically-seedable Tier-1 rule must travel detection → finding →
-// trust gate → executed action → observable side effect, unaided.
+// trust gate → authorized side effect or evidenced withholding, unaided.
 //
 // LLM-driven categories (optimizer/advisor/tuner) are excluded here — the
 // binary runs with llm.enabled=false — their executor tails are covered
@@ -68,7 +68,8 @@ func seedBinaryScenarios(t *testing.T, pool *pgxpool.Pool, dsn string) {
 		CREATE INDEX pipe_dup_a ON pipe_dup (s);
 		CREATE INDEX pipe_dup_b ON pipe_dup (s);`)
 
-	// A2 missing_fk_index → executor creates the FK index.
+	// A2 missing_fk_index is detected, but missing verification evidence must
+	// withhold automatic creation. SQL-shape execution is reviewed in Layer B.
 	mustExec(t, pool, `
 		CREATE TABLE pipe_parent (id bigint PRIMARY KEY);
 		INSERT INTO pipe_parent SELECT g FROM generate_series(1,2000) g;
@@ -311,7 +312,7 @@ func assertBinaryExpectations(
 		},
 		{
 			id:   "CHECK-A02",
-			desc: "missing_fk_index: index auto-created on pipe_child(parent_id)",
+			desc: "missing_fk_index: detected; unverifiable automatic CREATE withheld",
 			check: func(p *pgxpool.Pool) (bool, string) {
 				n := quickScalar(p, `SELECT count(*)::text FROM pg_indexes
 					WHERE tablename = 'pipe_child'
@@ -320,8 +321,15 @@ func assertBinaryExpectations(
 					WHERE action_type = 'create_index'
 					  AND sql_executed LIKE '%pipe_child%'
 					  AND outcome IN ('success','monitoring')`)
-				return n != "0" && act != "0",
-					fmt.Sprintf("fk_indexes=%s create_actions=%s", n, act)
+				finding := quickScalar(p, `SELECT count(*)::text FROM sage.findings
+					WHERE category='missing_fk_index' AND object_identifier LIKE '%pipe_child%'`)
+				withheld := quickScalar(p, `SELECT count(*)::text FROM sage.decision
+					WHERE evidence->>'proposed_sql' LIKE '%pipe_child%'
+					AND verdict IN ('parked','blocked','queue_approval','observe_only')`)
+				return n == "0" && act == "0" && finding != "0" && withheld != "0" &&
+						!strings.HasPrefix(finding, "<err") && !strings.HasPrefix(withheld, "<err"),
+					fmt.Sprintf("fk_indexes=%s creates=%s findings=%s withheld=%s",
+						n, act, finding, withheld)
 			},
 		},
 		{

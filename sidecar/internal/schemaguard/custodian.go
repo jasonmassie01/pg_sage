@@ -2,6 +2,7 @@ package schemaguard
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -104,7 +105,7 @@ func (c *Custodian) process(
 	item := Remediation{Invariant: invariant, Contract: contract, Decision: decision}
 	if shouldRoute(decision) {
 		if err := c.router.Route(ctx, item); err != nil {
-			return fmt.Errorf("route schema remediation: %w", err)
+			return c.recordRouteFailure(ctx, item, result, err)
 		}
 		result.Routed++
 	}
@@ -113,6 +114,23 @@ func (c *Custodian) process(
 	}
 	result.Recorded++
 	return nil
+}
+
+func (c *Custodian) recordRouteFailure(
+	ctx context.Context, item Remediation, result *CycleResult, routeErr error,
+) error {
+	// A route can refuse verification after policy authorization was recorded.
+	// Preserve that unsuccessful outcome without implying no partial work occurred.
+	item.Decision.Disposition = DispositionPark
+	item.Decision.AutoApply = false
+	item.Decision.MayDeleteData = false
+	item.Decision.Reason = "schema remediation routing failed; review runtime error before retrying"
+	err := fmt.Errorf("route schema remediation: %w", routeErr)
+	if recordErr := c.recorder.Record(ctx, item); recordErr != nil {
+		return errors.Join(err, fmt.Errorf("record failed schema remediation: %w", recordErr))
+	}
+	result.Recorded++
+	return err
 }
 
 func shouldRoute(decision Decision) bool {

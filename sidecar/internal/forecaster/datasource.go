@@ -89,7 +89,7 @@ FROM (
            (elem->>'queryid')::bigint        AS qid,
            max((elem->>'calls')::bigint)     AS max_calls
     FROM sage.snapshots s,
-         jsonb_array_elements(s.data) AS elem
+         jsonb_array_elements(COALESCE(NULLIF(s.data, 'null'::jsonb), '[]'::jsonb)) AS elem
     WHERE s.category = 'queries'
       AND s.collected_at > now() - make_interval(days => $1)
     GROUP BY 1, 2
@@ -129,7 +129,7 @@ SELECT date_trunc('day', s.collected_at) AS day,
        max((elem->>'pct_used')::float)   AS pct_used,
        max((elem->>'max_value')::bigint) AS max_value
 FROM sage.snapshots s,
-     jsonb_array_elements(s.data) AS elem
+     jsonb_array_elements(COALESCE(NULLIF(s.data, 'null'::jsonb), '[]'::jsonb)) AS elem
 WHERE s.category = 'sequences'
   AND s.collected_at > now() - make_interval(days => $1)
 GROUP BY 1, 2 ORDER BY 1`

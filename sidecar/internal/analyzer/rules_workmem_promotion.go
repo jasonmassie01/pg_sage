@@ -52,8 +52,7 @@ GROUP BY r.rolname
 HAVING count(*) >= $1
 ORDER BY r.rolname`, threshold)
 	if err != nil {
-		a.logFn("WARN", "analyzer",
-			"work_mem promotion query: %v", err)
+		a.logFn("WARN", "analyzer: work_mem promotion query: %v", err)
 		return nil
 	}
 	defer rows.Close()
@@ -63,16 +62,14 @@ ORDER BY r.rolname`, threshold)
 		var role string
 		var hintCount, maxMB int
 		if err := rows.Scan(&role, &hintCount, &maxMB); err != nil {
-			a.logFn("WARN", "analyzer",
-				"work_mem promotion scan: %v", err)
+			a.logFn("WARN", "analyzer: work_mem promotion scan: %v", err)
 			continue
 		}
 		findings = append(findings,
 			buildWorkMemPromotionFinding(role, hintCount, maxMB, threshold))
 	}
 	if err := rows.Err(); err != nil {
-		a.logFn("WARN", "analyzer",
-			"work_mem promotion rows: %v", err)
+		a.logFn("WARN", "analyzer: work_mem promotion rows: %v", err)
 	}
 	return findings
 }

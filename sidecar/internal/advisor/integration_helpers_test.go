@@ -21,5 +21,6 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(func() { pool.Close() })
+	seedAuditWorkload(t, pool)
 	return pool
 }

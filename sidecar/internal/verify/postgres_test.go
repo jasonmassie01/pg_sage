@@ -101,7 +101,6 @@ func TestPostgresObservationSourceReadsCollectorEvidence(t *testing.T) {
 		&valueRow{values: []any{int64(25), float64(8)}},
 		&valueRow{values: []any{4, float64(30)}},
 		&valueRow{values: []any{true}},
-		&valueRow{values: []any{float64(0.42)}},
 	}}
 	source := &PostgresObservationSource{queryer: queryer}
 	from, to := time.Now().Add(-time.Hour), time.Now()
@@ -120,7 +119,7 @@ func TestPostgresObservationSourceReadsCollectorEvidence(t *testing.T) {
 		t.Fatalf("IndexValid() = %v, %v", valid, err)
 	}
 	load, err := source.CurrentLoad(context.Background())
-	if err != nil || load.CPUPct != 42 || load.DataIOPct != 42 || load.LogIOPct != 42 {
+	if !errors.Is(err, ErrLoadTelemetryUnavailable) || load != (LoadSample{}) {
 		t.Fatalf("CurrentLoad() = %#v, %v", load, err)
 	}
 }

@@ -27,10 +27,10 @@ import (
 const (
 	geminiEndpoint = "https://generativelanguage.googleapis.com" +
 		"/v1beta/openai"
-	geminiModel  = "gemini-2.5-flash"
-	llmTestTTL   = 30 * time.Second
-	smallBudget  = 1000
-	largeBudget  = 1_000_000
+	geminiModel = "gemini-2.5-flash"
+	llmTestTTL  = 30 * time.Second
+	smallBudget = 20000 // Includes Gemini's 16,384-token thinking reservation.
+	largeBudget = 1_000_000
 )
 
 // requireAPIKey skips the test if SAGE_LLM_API_KEY is unset.
@@ -518,31 +518,14 @@ func TestLLMTokenBudgetTracking(t *testing.T) {
 	}
 	t.Logf("Tokens used: %d -> %d", before, after)
 
-	// With a budget of 1000, a second big call should
-	// eventually exhaust it. Make a call that will push
-	// us over if we haven't already.
-	if after < int64(smallBudget) {
-		_, _, err2 := client.Chat(
-			ctx,
-			"You are a helpful assistant.",
-			"Write a 500-word essay about PostgreSQL MVCC.",
-			512,
-		)
-		// The call may succeed (if tokens used < budget)
-		// or fail with budget exhausted. Either is valid.
-		if err2 != nil {
-			if !strings.Contains(
-				err2.Error(), "budget exhausted",
-			) {
-				t.Fatalf(
-					"expected budget error, got: %v", err2,
-				)
-			}
-			t.Logf("Budget correctly exhausted: %v", err2)
-		} else {
-			final := client.TokensUsedToday()
-			t.Logf("Tokens after 2nd call: %d", final)
-		}
+	// An oversized reservation must fail before spending more provider tokens.
+	_, _, err = client.Chat(ctx, "You are a helpful assistant.",
+		"Write an essay about PostgreSQL MVCC.", smallBudget)
+	if err == nil || !strings.Contains(err.Error(), "budget exhausted") {
+		t.Fatalf("expected admission budget error, got: %v", err)
+	}
+	if final := client.TokensUsedToday(); final != after {
+		t.Fatalf("rejected request changed charged tokens: %d -> %d", after, final)
 	}
 }
 

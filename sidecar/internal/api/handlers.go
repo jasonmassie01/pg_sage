@@ -565,7 +565,7 @@ func snapshotLatestHandler(
 		}
 		metric := r.URL.Query().Get("metric")
 		if metric == "" {
-			metric = "cache_hit_ratio"
+			metric = "system"
 		}
 		if selected.pool == nil {
 			if selected.name == "" {
@@ -582,6 +582,10 @@ func snapshotLatestHandler(
 			r.Context(), selected.pool, metric,
 		)
 		if err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				internalError(w, r, "read latest snapshot", err)
+				return
+			}
 			jsonResponse(w, map[string]any{
 				"database": displayName, "snapshot": nil,
 			})

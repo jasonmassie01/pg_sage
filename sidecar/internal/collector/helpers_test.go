@@ -1069,7 +1069,7 @@ func TestPartitionSQL_JoinsParentAndChild(t *testing.T) {
 func TestIndexStatsSQL_JoinsRequiredCatalogs(t *testing.T) {
 	required := []string{
 		"pg_stat_user_indexes",
-		"pg_statio_user_indexes",
+		"pg_class",
 		"pg_index",
 		"pg_am",
 	}

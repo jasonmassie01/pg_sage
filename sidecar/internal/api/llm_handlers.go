@@ -14,8 +14,10 @@ import (
 // configured provider. Results are cached in the llm package.
 func listModelsHandler(
 	cfg *config.LLMConfig,
+	controllers ...*config.ConfigController,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := activeLLMConfig(cfg, controllers)
 		if cfg.Endpoint == "" || cfg.APIKey == "" {
 			jsonError(w,
 				"LLM not configured (missing endpoint or API key)",
@@ -39,6 +41,20 @@ func listModelsHandler(
 	}
 }
 
+// Model discovery follows committed runtime config, never a startup pointer or
+// a desired revision whose reconfiguration has not completed.
+func activeLLMConfig(
+	fallback *config.LLMConfig, controllers []*config.ConfigController,
+) config.LLMConfig {
+	if controller := firstConfigController(controllers); controller != nil {
+		return controller.Active().Config.LLM
+	}
+	if fallback != nil {
+		return *fallback
+	}
+	return config.LLMConfig{}
+}
+
 type modelDiscoveryRequest struct {
 	Config map[string]any `json:"config"`
 }
@@ -47,9 +63,10 @@ type modelDiscoveryRequest struct {
 // payload. It intentionally does not persist endpoint/API key edits.
 func discoverModelsHandler(
 	cfg *config.LLMConfig,
+	controllers ...*config.ConfigController,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		discoveryCfg := *cfg
+		discoveryCfg := activeLLMConfig(cfg, controllers)
 		configuredEndpoint := discoveryCfg.Endpoint
 		endpointSupplied := false
 		apiKeySupplied := false

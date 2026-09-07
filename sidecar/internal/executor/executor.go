@@ -13,7 +13,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/notify"
-	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -88,6 +87,7 @@ type Executor struct {
 	policyGate         policy.Gate
 	managedConfig      ManagedConfigAdapter
 	indexVerification  *verifiedIndexLifecycle
+	retainedCleanupMu  sync.Mutex
 	postDDLMu          sync.RWMutex
 	postDDLHook        func(context.Context) error
 
@@ -802,6 +802,9 @@ func (e *Executor) executeFinding(
 		} else if verificationErr == nil {
 			verificationErr = ErrVerificationUnavailable
 		}
+		if verificationErr == nil {
+			verificationErr = e.snapshotSupersededIndex(ctx, f, beforeState)
+		}
 		if verificationErr != nil {
 			e.logActionWithDecision(
 				ctx, f, findingID, beforeState, decisionID, verificationErr,
@@ -887,108 +890,6 @@ func (e *Executor) executeFinding(
 				actionID, err)
 		}
 		return
-	}
-
-	// Post-check: verify index validity after CREATE INDEX only. DROP INDEX
-	// and other concurrently-required statements do not produce a new index.
-	if categorizeAction(f.RecommendedSQL) == "create_index" {
-		idxName := extractIndexName(f.RecommendedSQL)
-		if idxName != "" {
-			valid, err := optimizer.CheckIndexValid(
-				ctx, e.pool, idxName,
-			)
-			if err != nil {
-				e.logFn("executor",
-					"post-check failed for index %s: %v",
-					idxName, err,
-				)
-			} else if !valid {
-				e.logFn("executor",
-					"CRITICAL: index %s is INVALID after creation",
-					idxName,
-				)
-				// Auto-cleanup: drop the invalid index.
-				dropSQL := fmt.Sprintf(
-					"DROP INDEX CONCURRENTLY IF EXISTS %s",
-					idxName,
-				)
-				cleanup := f
-				cleanup.RecommendedSQL = dropSQL
-				cleanupDecision := e.evaluateFindingPolicy(ctx, cleanup, false)
-				var dropErr error
-				if cleanupDecision.Decision != PolicyDecisionExecute {
-					dropErr = errors.New(
-						"standing policy withheld invalid-index cleanup")
-				} else {
-					dropErr = ExecConcurrently(
-						ctx, e.pool, dropSQL, ddlTimeout, lockOpt,
-					)
-				}
-				if dropErr != nil {
-					// Surface loudly: the invalid index is now
-					// occupying disk, blocking future CREATE
-					// INDEX with the same name, and slowing
-					// writes until it is removed manually.
-					e.logFn("executor",
-						"CRITICAL: failed to drop invalid index %s: "+
-							"%v — manual cleanup required "+
-							"(run: %s)",
-						idxName, dropErr, dropSQL)
-					e.dispatchEvent(ctx,
-						notify.ActionFailedEvent(
-							"Invalid index cleanup failed: "+idxName,
-							dropSQL,
-							e.databaseName,
-							fmt.Sprintf("manual DROP required: %v",
-								dropErr)))
-					e.recordInvalidIndexCleanupFailure(
-						ctx, findingID, idxName, dropErr)
-				} else {
-					e.logFn("executor",
-						"cleaned up invalid index %s", idxName)
-				}
-			}
-		}
-	}
-
-	// Handle INCLUDE upgrade: DROP the SUPERSEDED (old) index after verifying
-	// the new one. drop_ddl doubles as the new index's own rollback
-	// (RollbackSQL), so skip it when it targets the index we just created —
-	// that case is a rollback, handled by MonitorAndRollback below, not an
-	// upgrade. Dropping it here would undo every optimizer index immediately.
-	if dropOld, ok := f.Detail["drop_ddl"].(string); ok &&
-		dropOld != "" && !isSelfReferentialDrop(f.RecommendedSQL, dropOld) {
-		idxName := extractIndexName(f.RecommendedSQL)
-		valid, checkErr := optimizer.CheckIndexValid(
-			ctx, e.pool, idxName,
-		)
-		if checkErr != nil || !valid {
-			e.logFn("executor",
-				"new index %s invalid — preserving old index",
-				idxName)
-		} else {
-			cleanup := f
-			cleanup.RecommendedSQL = dropOld
-			cleanupDecision := e.evaluateFindingPolicy(ctx, cleanup, false)
-			var dropErr error
-			if cleanupDecision.Decision != PolicyDecisionExecute {
-				dropErr = errors.New(
-					"standing policy withheld superseded-index cleanup")
-			} else {
-				dropErr = ExecConcurrently(
-					ctx, e.pool, dropOld, ddlTimeout, lockOpt,
-				)
-			}
-			if dropErr != nil {
-				e.logFn("executor",
-					"DROP old index failed (new index valid): %v",
-					dropErr)
-			} else {
-				e.logFn("executor",
-					"dropped old index after INCLUDE upgrade: %s",
-					dropOld)
-			}
-		}
 	}
 
 	if f.RollbackSQL != "" && actionID > 0 {
@@ -1231,39 +1132,6 @@ func (e *Executor) exceedsMaxRetries(
 		return true
 	}
 	return false
-}
-
-// recordInvalidIndexCleanupFailure persists a failed cleanup
-// attempt into sage.action_log so the operator sees a durable
-// record in the dashboard. Best-effort: a logging failure here
-// is itself just logged.
-func (e *Executor) recordInvalidIndexCleanupFailure(
-	ctx context.Context,
-	findingID int64,
-	idxName string,
-	dropErr error,
-) {
-	if e.pool == nil {
-		return
-	}
-	reason := fmt.Sprintf(
-		"invalid index %s; DROP CONCURRENTLY failed: %v — "+
-			"manual cleanup required",
-		idxName, dropErr)
-	_, logErr := e.pool.Exec(ctx,
-		`/* pg_sage */ INSERT INTO sage.action_log
-		 (action_type, finding_id, sql_executed, rollback_sql,
-		  before_state, outcome, rollback_reason)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		"drop_index_failed", findingID,
-		fmt.Sprintf("DROP INDEX CONCURRENTLY IF EXISTS %s", idxName),
-		nil, []byte("{}"), "failed", reason,
-	)
-	if logErr != nil {
-		e.logFn("executor",
-			"failed to record invalid-index cleanup failure "+
-				"for %s: %v", idxName, logErr)
-	}
 }
 
 func (e *Executor) markFindingActioned(
