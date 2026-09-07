@@ -191,7 +191,7 @@ export async function notificationLifecycle(page: Page, r: APIRequestContext) {
 
 export const databaseInput = () => ({
   name: unique(), host: '127.0.0.1', port: 5455,
-  database_name: 'audit_browser', username: 'postgres', password: 'postgres',
+  database_name: 'audit_browser_target1', username: 'postgres', password: 'postgres',
   sslmode: 'disable', trust_level: 'observation', execution_mode: 'approval',
 });
 

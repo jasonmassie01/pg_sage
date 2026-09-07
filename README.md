@@ -40,6 +40,10 @@ Automatic index builds require verified host CPU and data/log I/O utilization.
 The catalog-only PostgreSQL adapter cannot supply those metrics, so it withholds
 automatic index admission; reviewed manual index actions remain available.
 
+After verification retains a replacement index, superseded indexes are preserved
+for reviewed cleanup. The verification reason records `reviewed_cleanup_required`
+while the verified index remains retained.
+
 On first start, pg_sage creates `admin@pg-sage.local` and prints a one-time
 initial admin password to stderr. The dashboard and JSON API use the
 `sage_session` login cookie; unauthenticated API calls return `401`.

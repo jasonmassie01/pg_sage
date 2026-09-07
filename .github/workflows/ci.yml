@@ -46,6 +46,8 @@ jobs:
         run: |
           docker exec ${{ job.services.postgres.id }} \
             bash -c "echo \"shared_preload_libraries = 'pg_stat_statements'\" >> /var/lib/postgresql/data/postgresql.conf"
+          docker exec ${{ job.services.postgres.id }} \
+            bash -c "echo 'wal_level = logical' >> /var/lib/postgresql/data/postgresql.conf"
           docker restart ${{ job.services.postgres.id }}
           until pg_isready -h localhost -U postgres; do sleep 1; done
           psql -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"

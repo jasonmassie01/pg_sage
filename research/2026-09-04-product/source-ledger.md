@@ -48,4 +48,3 @@ provider docs and original papers; it checked current repository specs and code.
 The Neon docs open failed once; original public engineering documentation filled
 that factual gap. Repeated generic search variants were stopped after the first
 slice had primary support and all material uncertainties were explicit.
-
