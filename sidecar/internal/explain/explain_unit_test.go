@@ -1532,6 +1532,10 @@ func (s *fakePGServer) handleConn(conn net.Conn) {
 		case 'E': // Execute
 			hasExecute = true
 
+		case 'C': // Close a prepared statement or portal.
+			// pgx pipelines statement-cache deallocation before later queries.
+			pgMsg(conn, '3', nil) // CloseComplete
+
 		case 'H': // Flush
 			// Ignore.
 
