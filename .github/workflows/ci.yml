@@ -64,11 +64,11 @@ jobs:
 
       - name: Unit tests
         working-directory: sidecar
-        run: go test ./... -cover -count=1 -timeout 300s
+        run: go test ./... -v -cover -count=1 -timeout 300s
 
       - name: Integration tests
         working-directory: sidecar
-        run: go test ./... -cover -tags=integration -count=1 -timeout 300s
+        run: go test ./... -v -cover -tags=integration -count=1 -timeout 300s
 
   docker:
     runs-on: ubuntu-latest
