@@ -72,6 +72,10 @@ jobs:
         working-directory: sidecar
         run: go test ./... -v -cover -tags=integration -count=1 -timeout 300s
 
+      - name: Sidecar end-to-end tests
+        working-directory: sidecar
+        run: go test ./e2e -v -cover -tags=e2e -count=1 -timeout 900s
+
   docker:
     runs-on: ubuntu-latest
     needs: test
