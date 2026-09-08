@@ -1,0 +1,840 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/neon-supabase/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Neon and Supabase - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#neon-and-supabase" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Neon and Supabase
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#connect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#capabilities-and-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capabilities and configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agentdb-management-apis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AgentDB management APIs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verified-limitations-and-remaining-integrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verified limitations and remaining integrations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#terraform-blueprints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terraform blueprints
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backup-and-rehearsal-evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backup and rehearsal evidence
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="neon-and-supabase">Neon and Supabase<a class="headerlink" href="#neon-and-supabase" title="Permanent link">&para;</a></h1>
+<p>Use a persistent PostgreSQL connection for the sidecar. Neon direct endpoints and Supabase direct
+endpoints have been tested against disposable hosted databases. Supabase's shared <strong>session</strong>
+pooler on port 5432 is the IPv4 alternative when direct IPv6 connectivity is unavailable.</p>
+<p>Neon pooled endpoints and Supabase transaction poolers are useful for application traffic, but
+transaction pooling does not preserve the session state required by every pg_sage feature.
+Startup locks, HypoPG, session settings and listeners need a direct or compatible session connection.
+The startup guard also rejects Supabase's dedicated transaction pooler on port 6543.
+Neon protocol prepared statements are supported by its pooler; the restriction is broader session
+state, not all prepared statements. See <a href="https://neon.com/docs/connect/connection-pooling">Neon pooling</a> and <a href="https://supabase.com/docs/guides/database/connecting-to-postgres">Supabase connections</a>.</p>
+<h2 id="connect">Connect<a class="headerlink" href="#connect" title="Permanent link">&para;</a></h2>
+<p>Put credentials in environment variables or your secret manager. For example, if your secret
+manager already supplies NEON_DATABASE_URL:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nv">$env:SAGE_DATABASE_URL</span> <span class="p">=</span> <span class="nv">$env:NEON_DATABASE_URL</span>
+</code></pre></div>
+<p>Use SUPABASE_DATABASE_URL in the same way for Supabase. Include the provider's TLS options in
+the URL. Supabase pooler usernames include the project reference; use the connection details from
+the provider dashboard instead of changing only the host in a direct URL.</p>
+<p>Alternatively configure SAGE_PG_HOST, SAGE_PG_PORT, SAGE_PG_USER, SAGE_PG_PASSWORD,
+SAGE_PG_DATABASE and SAGE_PG_SSLMODE. SAGE_PG_MAX_CONNS bounds the sidecar pool. Start with a small
+pool on Free plans and leave capacity for your application and provider services.</p>
+<p>For a fleet, register each database endpoint independently and preserve its provider, database name,
+trust level and connection settings. Provider detection recognizes the hosted endpoint domains.
+Keep observation mode until findings and permissions have been reviewed.</p>
+<h2 id="capabilities-and-configuration">Capabilities and configuration<a class="headerlink" href="#capabilities-and-configuration" title="Permanent link">&para;</a></h2>
+<p>Both providers offer pg_stat_statements, HypoPG and pgvector. Extension installation, version,
+namespace and privileges are discovered on the actual database. Supabase commonly installs
+extensions in the extensions schema. A supported extension is not necessarily already installed.
+Neon also lists pg_hint_plan; Supabase's current hosted extension list does not. Unavailable hints
+must leave ordinary explain, index advice and vector workflows usable. <a href="https://neon.com/docs/extensions/pg-extensions">Neon extensions</a>,
+<a href="https://supabase.com/docs/guides/database/extensions">Supabase extensions</a></p>
+<p>Neon and Supabase have no ordinary PostgreSQL superuser access. Portable maintenance actions on
+owned objects retain pg_sage's approvals, trust ramps, replica checks, maintenance windows and
+resource admission. User-context GUCs can use database/session/role scope. Recommendations use
+the collected pg_settings.context before generating ALTER DATABASE SQL. Unknown or instance scopes
+remain advisory; pg_sage does not send ALTER SYSTEM to these services. <a href="https://neon.com/docs/reference/compatibility">Neon compatibility</a>,
+<a href="https://supabase.com/docs/guides/database/custom-postgres-config">Supabase configuration</a></p>
+<p>Executable database setting recommendations require an explicit inverse for the same parameter.
+An existing inverse SET value is preserved. Missing or invalid rollback information leaves the
+change advisory until the prior database override is captured; RESET does not necessarily restore
+the previous value.</p>
+<p>Supabase documents preinstalled auto_explain and selected privileged role settings. Use its
+supported log/configuration controls; do not assume host log files are accessible. Hosted metrics
+can be supplied through the optional SAGE_SUPABASE_OBSERVABILITY_TOKEN integration when configured.
+This is a management/observability credential, separate from the PostgreSQL password. Missing or
+stale CPU/IO evidence must never be treated as zero utilization. <a href="https://supabase.com/docs/guides/observability/metrics">Supabase metrics</a></p>
+<p>The Supabase integration polls management logs and parses auto_explain plans into the query store
+and RCA input. It derives CPU utilization from core idle metrics and exposes memory evidence.
+Data/WAL device utilization remains unknown, so actions requiring complete host-load admission
+stay blocked. Malformed log records are reported without stopping valid records; transient storage
+errors remain retryable. Neon Free did not expose the paid log/metrics export integration.</p>
+<h2 id="agentdb-management-apis">AgentDB management APIs<a class="headerlink" href="#agentdb-management-apis" title="Permanent link">&para;</a></h2>
+<p>AgentDB can plan Neon/Supabase project or branch resources. Profiles are neon_project, neon_branch,
+supabase_project and supabase_branch. Set provider parameters explicitly:</p>
+<ul>
+<li>mode: project or branch.</li>
+<li>project: existing parent project for branch mode.</li>
+<li>source_branch: Neon source branch; schema-only copies are requested.</li>
+<li>organization: organization ID/slug for project mode.</li>
+<li>region: provider region; required for Supabase project creation.</li>
+</ul>
+<p>Runtime runners require PG_SAGE_LIVE_PROVISIONING=1 and the corresponding enable flag:</p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>Enable flag</th>
+<th>Credential</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Neon</td>
+<td>PG_SAGE_ENABLE_NEON_RUNNER=1</td>
+<td>PG_SAGE_NEON_API_KEY</td>
+</tr>
+<tr>
+<td>Supabase</td>
+<td>PG_SAGE_ENABLE_SUPABASE_RUNNER=1</td>
+<td>PG_SAGE_SUPABASE_ACCESS_TOKEN</td>
+</tr>
+</tbody>
+</table>
+<p>Supabase project creation additionally requires PG_SAGE_SUPABASE_DATABASE_PASSWORD. Keep the
+password in a secret manager and provide a deployment secret reference where needed; it is never
+included in the provider plan or returned API detail. The API runner preserves an existing secret
+reference; it does not automatically create a new secret-manager entry.</p>
+<p>To connect an active AgentDB deployment to fleet monitoring, set its secret_ref to
+<code>env:AGENT_DATABASE_URL</code> or <code>env://AGENT_DATABASE_URL</code>, and supply that environment variable to the
+sidecar process. Its value must be a full PostgreSQL URL for the recorded resource endpoint.
+The resolver rejects mismatched hosts or database identities, expired references and hosted connections
+without required TLS. Advanced TLS and session URL options are preserved in runtime memory.
+Credentials are read only into runtime memory. An unresolved cloud secret-manager ARN is
+not treated as a usable password. Update the environment reference when a resource's endpoint or
+credentials change; a source branch URL does not automatically authorize a different endpoint.</p>
+<p>Prefer a project-scoped Neon key for branch operations. Project creation needs broader permissions.
+Use scoped Supabase management credentials where available; a PostgREST service_role key does not
+authorize management APIs. Enable the persisted AgentDB provider policy and appropriate
+organization/project/region allowlists. Existing authorization receipts, budgets, TTL, public endpoint
+policy and backup-before-destroy gates still apply.</p>
+<p>Creation is asynchronous. The runner records the server-generated resource ID, verifies its exact
+deployment name and parent ownership before deletion, and refuses default/protected branches.
+Uncertain POST outcomes require reconciliation, not automatic retry. Native Neon branch expiry is
+not assumed; pg_sage keeps its TTL cleanup responsibility.</p>
+<h2 id="verified-limitations-and-remaining-integrations">Verified limitations and remaining integrations<a class="headerlink" href="#verified-limitations-and-remaining-integrations" title="Permanent link">&para;</a></h2>
+<p>The Free Supabase organization used for verification reported no branch entitlement and no managed
+backup retention. The runner checks branch entitlement before creation. Free project lifecycle and
+SQL schema isolation remain available within the account quota. Sending plan=free cannot enforce
+billing: Supabase ignores that deprecated field and uses the organization plan. <a href="https://supabase.com/docs/reference/api/v1-create-a-project">Project API</a>,
+<a href="https://supabase.com/docs/guides/platform/backups">backup plans</a></p>
+<p>Neon Free rejected a custom suspend timeout. The runner therefore retains the provider's default
+instead of changing that setting. Schema-only branch creation, availability and deletion were
+verified live. Supabase Free project creation, availability and deletion were also verified live.</p>
+<p>The tested Neon role could install pg_hint_plan but could not load it or enable effective hints.
+Capability reporting distinguishes installation from a loaded, enabled module. Supabase did not
+offer pg_hint_plan in its extension catalog. These results apply to the tested projects and roles.</p>
+<p>Backup checks describe completed backups or the configured restoration window and explicitly do
+not claim a restore drill. Free Supabase needs logical exports for backup assurance. Existing
+backup-before-destroy policy must not be bypassed because a managed backup feature is unavailable.</p>
+<h2 id="terraform-blueprints">Terraform blueprints<a class="headerlink" href="#terraform-blueprints" title="Permanent link">&para;</a></h2>
+<p>Project and branch intents generate provider-specific Terraform using <code>kislerdm/neon</code> 0.15.0 or
+<code>supabase/supabase</code> 1.10.1. All four generated configurations were validated with Terraform against
+the installed provider schemas. Organization, name and parent identifiers are Terraform variables;
+Supabase project passwords use a sensitive variable without a default. Keep provider credentials
+in their documented environment variables and protect Terraform state, which can contain secrets.
+<a href="https://registry.terraform.io/providers/kislerdm/neon/latest/docs">Neon provider</a>, <a href="https://supabase.com/docs/guides/deployment/terraform">Supabase provider</a></p>
+<p>Neon Terraform branches copy parent data; the native AgentDB API runner instead requests a
+schema-only branch. Branch blueprints flag isolation and entitlement review. Supabase Free branch
+entitlement was unavailable, so its Terraform configuration was validated but never applied.
+Requested private networking, HA or backup controls that a generated template does not configure
+are explicit policy findings, as are unconfigured storage, compute, version and extension requests.
+Unknown hosted modes are rejected. Existing approval and minimum-backup policies remain in force.</p>
+<h2 id="backup-and-rehearsal-evidence">Backup and rehearsal evidence<a class="headerlink" href="#backup-and-rehearsal-evidence" title="Permanent link">&para;</a></h2>
+<p>Application-schema logical export and restore were verified live for both providers using
+PostgreSQL 17 pg_dump and pg_restore. Fresh disposable local databases reproduced all 100 rows,
+ordered content hashes including vectors, HNSW and other indexes, constraints, partition children
+and identity sequence state. Negative foreign-key and check-constraint writes failed correctly.
+This test excludes provider-owned schemas, roles and ACLs; it does not claim a complete platform
+restore, automated AgentDB restore drill or managed PITR execution.</p>
+<p>The existing MCP snapshot factory remains unconfigured for all native providers;
+its clone-unavailable path yields a recommendation rather than a successful rehearsal. These are
+implementation gaps, not provider impossibilities. A configured external DLE provider remains a
+separate option. Do not claim full migration rehearsal or automatic backup restoration from a
+successful connection or create/status/delete test.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
