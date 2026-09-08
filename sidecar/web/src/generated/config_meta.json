@@ -748,7 +748,7 @@
   "logwatch.enabled": {
     "type": "bool",
     "default": false,
-    "doc": "Enable log file monitoring for RCA. Requires log_destination includes jsonlog or csvlog. Requires rca.enabled=true."
+    "doc": "Enable RCA logs from a configured provider API or local PostgreSQL jsonlog/csvlog files. Requires rca.enabled=true."
   },
   "logwatch.exclude_applications": {
     "type": "[]string",
@@ -828,7 +828,7 @@
   "migration.managed_service": {
     "type": "string",
     "default": "",
-    "doc": "Cloud provider: none, rds, aurora, cloudsql, alloydb. Filters unavailable recommendations."
+    "doc": "Cloud provider: none, rds, aurora, cloudsql, alloydb, neon, supabase. Filters unavailable recommendations."
   },
   "migration.mode": {
     "type": "string",

@@ -21,6 +21,13 @@ type CheckResult struct {
 // prerequisites for pg_sage operation. It returns a CheckResult
 // describing the capabilities of the instance.
 func RunChecks(ctx context.Context, pool *pgxpool.Pool) (*CheckResult, error) {
+	if pool == nil {
+		return nil, errors.New("startup checks require a PostgreSQL connection pool")
+	}
+	endpoint := pool.Config().ConnConfig
+	if err := ValidateSessionEndpoint(endpoint.Host, endpoint.Port); err != nil {
+		return nil, err
+	}
 	result := &CheckResult{
 		QueryTextVisible: true, // assume true, flip if disproved
 	}

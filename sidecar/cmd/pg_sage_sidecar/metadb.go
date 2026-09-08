@@ -460,6 +460,7 @@ func buildStoreDatabaseRuntime(
 	startInstanceWorker(instWorkers, func() { dbAnal.Run(instCtx) })
 
 	dbExec := buildExecutor(rec, dbPool, dbAnal, dbCloudEnv)
+	startProviderObservability(instCtx, instWorkers, dbPool, cfg, dbExec, dbRCAEng)
 	if err := startInstanceAutonomy(
 		instCtx, instWorkers, dbPool, cfg, rec.Name, dbExec,
 	); err != nil {

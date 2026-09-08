@@ -284,8 +284,11 @@ func TestPhase2_Evaluate_NoChannelForSeverity(t *testing.T) {
 
 	uniqueObj := fmt.Sprintf("noroute_%d", time.Now().UnixNano())
 
-	// Record the time just before inserting our warning finding.
-	beforeInsert := time.Now()
+	// Use the same clock as last_seen; host/DB clock skew can admit older critical fixtures.
+	var beforeInsert time.Time
+	if err := pool.QueryRow(t.Context(), "SELECT clock_timestamp()").Scan(&beforeInsert); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := pool.Exec(context.Background(),
 		`INSERT INTO sage.findings

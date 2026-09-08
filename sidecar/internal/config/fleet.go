@@ -9,6 +9,7 @@ import (
 
 // DatabaseConfig describes a single database in fleet mode.
 type DatabaseConfig struct {
+	connectionOptions        string
 	Name                     string   `yaml:"name" doc:"Logical name for this database in fleet mode. Must be unique across the fleet." mode:"fleet-only"`
 	Host                     string   `yaml:"host" doc:"Hostname or IP of this fleet database." mode:"fleet-only"`
 	Port                     int      `yaml:"port" doc:"TCP port of this fleet database." mode:"fleet-only"`
@@ -33,7 +34,8 @@ func (d DatabaseConfig) ConnString() string {
 	if sslMode == "" {
 		sslMode = "prefer"
 	}
-	query := url.Values{"sslmode": {sslMode}}
+	query, _ := url.ParseQuery(d.connectionOptions)
+	query.Set("sslmode", sslMode)
 	path := "/" + d.Database
 	if strings.HasPrefix(d.Database, "/") {
 		// pgx strips all leading path slashes; dbname retains the literal name.

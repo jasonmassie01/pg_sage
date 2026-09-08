@@ -12,7 +12,7 @@ function extensionText(row, key) {
 }
 
 function readinessIcon(row) {
-  if (row.ready_for_auto_safe) {
+  if (row.ready_for_auto_safe === true) {
     return <CheckCircle size={14} style={{ color: 'var(--green)' }} />
   }
   if ((row.blockers || []).length > 0) {
@@ -109,7 +109,8 @@ export function ProviderReadinessMatrix() {
                     <span className="inline-flex items-center gap-1"
                       style={{ color: 'var(--text-secondary)' }}>
                       {readinessIcon(row)}
-                      {row.ready_for_auto_safe ? 'ready' : 'blocked'}
+                      {row.ready_for_auto_safe === true ? 'ready'
+                        : row.ready_for_auto_safe === false ? 'blocked' : 'unknown'}
                     </span>
                   </td>
                   <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
@@ -122,7 +123,8 @@ export function ProviderReadinessMatrix() {
                     {extensionText(row, 'pg_hint_plan')}
                   </td>
                   <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
-                    {row.capabilities?.is_replica ? 'yes' : 'no'}
+                    {row.capabilities?.is_replica === true ? 'yes'
+                      : row.capabilities?.is_replica === false ? 'no' : 'unknown'}
                   </td>
                   <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
                     {blockerText(row)}

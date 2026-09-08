@@ -65,6 +65,11 @@ func BuildNormalizedLivePlan(input LivePlanInput) (NormalizedLivePlan, error) {
 	input.Project = strings.TrimSpace(input.Project)
 	input.Workspace = strings.TrimSpace(input.Workspace)
 	input.SizeProfileID = strings.TrimSpace(input.SizeProfileID)
+	if input.Provider == ProviderNeon || input.Provider == ProviderSupabase {
+		input.PublicIP = true
+		input.Account = firstNonEmpty(input.Account, stringParam(input.ProviderParams, "organization"))
+		input.Project = firstNonEmpty(input.Project, stringParam(input.ProviderParams, "project"))
+	}
 	if input.DeploymentID == "" || !cloudProvider(input.Provider) ||
 		!validProvider(input.Provider) || input.Operation == "" ||
 		input.Region == "" || input.SizeProfileID == "" ||

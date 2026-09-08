@@ -64,6 +64,14 @@ func RenderTerraformFromBlueprint(spec BlueprintSpec) ([]TerraformFile, error) {
 		return []TerraformFile{{Path: "main.tf", Body: renderCloudSQL(spec)}}, nil
 	case ProviderDatabricksLakebase:
 		return []TerraformFile{{Path: "main.tf", Body: renderLakebase(spec)}}, nil
+	case ProviderNeon, ProviderSupabase:
+		if spec.HostedMode != "project" && spec.HostedMode != "branch" {
+			return nil, fmt.Errorf("%w: hosted mode must be project or branch", ErrInvalid)
+		}
+		if spec.HostedMode == "branch" {
+			return []TerraformFile{{Path: "main.tf", Body: renderHostedBranch(spec)}}, nil
+		}
+		return []TerraformFile{{Path: "main.tf", Body: renderHostedProject(spec)}}, nil
 	default:
 		return nil, ErrInvalid
 	}
@@ -102,7 +110,7 @@ func BlueprintPolicyFindings(spec BlueprintSpec, policy BlueprintPolicy) []strin
 	if spec.BackupRetentionDays < policy.MinimumBackupRetentionDays {
 		findings = append(findings, "backup retention is below blueprint policy minimum")
 	}
-	return findings
+	return append(findings, hostedBlueprintFindings(spec)...)
 }
 
 func (s *Store) CreateBlueprint(
@@ -257,6 +265,10 @@ func inferProvider(provider, intent string) string {
 	}
 	lower := strings.ToLower(intent)
 	switch {
+	case strings.Contains(lower, "supabase"):
+		return ProviderSupabase
+	case strings.Contains(lower, "neon"):
+		return ProviderNeon
 	case strings.Contains(lower, "cloud sql") || strings.Contains(lower, "gcp"):
 		return ProviderGCPCloudSQL
 	case strings.Contains(lower, "lakebase") || strings.Contains(lower, "databricks"):
@@ -268,6 +280,17 @@ func inferProvider(provider, intent string) string {
 
 func fillProviderDefaults(spec *BlueprintSpec, intent string) {
 	switch spec.Provider {
+	case ProviderNeon, ProviderSupabase:
+		spec.PublicIP = true
+		if spec.HostedMode == "" {
+			spec.HostedMode = "project"
+			if hasAny(intent, "branch") {
+				spec.HostedMode = "branch"
+			}
+		}
+		if spec.Provider == ProviderNeon && spec.Region == "" {
+			spec.Region = "aws-us-east-1"
+		}
 	case ProviderAWSRDS:
 		spec.InstanceClass = firstNonEmpty(spec.InstanceClass, inferClass(intent, `db\.[a-z0-9.]+`), "db.t4g.micro")
 		spec.DatabaseVersion = firstNonEmpty(spec.DatabaseVersion, "16")
@@ -284,7 +307,7 @@ func fillProviderDefaults(spec *BlueprintSpec, intent string) {
 	if spec.Region == "" {
 		spec.Region = defaultRegion(spec.Provider)
 	}
-	if spec.StorageGB == 0 {
+	if spec.StorageGB == 0 && spec.Provider != ProviderNeon && spec.Provider != ProviderSupabase {
 		spec.StorageGB = 20
 	}
 	if spec.BackupRetentionDays == 0 && (spec.PITR || spec.MultiAZ) {

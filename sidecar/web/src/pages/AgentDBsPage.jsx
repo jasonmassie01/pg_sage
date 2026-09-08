@@ -7,6 +7,7 @@ import { SummaryRow } from './agentdb/AgentDBSections'
 import { AgentDBWorkspaceTabs } from './agentdb/AgentDBWorkspaceTabs'
 import { AgentDBWorkspace } from './agentdb/AgentDBWorkspace'
 import { useAgentDBDetail } from './agentdb/useAgentDBDetail'
+import { hostedMetadata, hostedSecretReference } from './agentdb/hostedMetadata'
 
 // How many deployment refetches to wait for an optimistic selection to appear
 // before falling back to the first available deployment.
@@ -88,6 +89,9 @@ function provisionMetadata(form) {
     lakebase_mode: form.lakebase_mode,
   }
   const providerParams = {}
+  if (form.provider === 'neon' || form.provider === 'supabase') {
+    Object.assign(providerParams, hostedMetadata(form))
+  }
   if (form.provider === 'aws_rds') {
     if (form.cloud_region) providerParams.region = form.cloud_region
     if (form.cloud_account) providerParams.account = form.cloud_account
@@ -264,6 +268,7 @@ export function AgentDBsPage() {
     setBusy(true)
     clearStatus()
     try {
+      const secretReference = hostedSecretReference(form)
       const requestBody = {
         tenant_id: form.tenant_id,
         agent_id: form.agent_id,
@@ -285,6 +290,7 @@ export function AgentDBsPage() {
       }
       const generatedID = deploymentID(form)
       const created = await postJSON('/api/v1/agent-dbs', {
+        ...secretReference,
         deployment_id: generatedID,
         tenant_id: form.tenant_id,
         agent_id: form.agent_id,

@@ -1,6 +1,8 @@
 package agentdb
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"strings"
 	"unicode"
 )
@@ -8,6 +10,15 @@ import (
 func ProviderResourceName(provider string, deploymentID string) (string, error) {
 	base := resourceName(deploymentID)
 	switch normalizeProvider(provider) {
+	case ProviderNeon, ProviderSupabase:
+		if strings.TrimSpace(deploymentID) == "" {
+			return "", ErrInvalid
+		}
+		digest := sha256.Sum256([]byte(deploymentID))
+		if len(base) > 46 {
+			base = base[:46]
+		}
+		return providerDNSLabel(fmt.Sprintf("pgsage-%s-%x", base, digest[:4])), nil
 	case ProviderAWSRDS:
 		return providerDNSLabel("pgsage-" + base), nil
 	case ProviderGCPCloudSQL:

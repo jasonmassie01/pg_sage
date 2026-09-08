@@ -12,16 +12,16 @@ import (
 // ALTER SYSTEM for these is written to postgresql.auto.conf but does not
 // apply until the operator restarts.
 var restartRequiredParams = map[string]bool{
-	"shared_buffers":           true,
-	"max_connections":          true,
-	"wal_buffers":              true,
-	"max_worker_processes":     true,
-	"max_prepared_transactions": true,
-	"max_wal_senders":          true,
-	"max_replication_slots":    true,
-	"huge_pages":               true,
-	"shared_preload_libraries": true,
-	"max_locks_per_transaction": true,
+	"shared_buffers":                 true,
+	"max_connections":                true,
+	"wal_buffers":                    true,
+	"max_worker_processes":           true,
+	"max_prepared_transactions":      true,
+	"max_wal_senders":                true,
+	"max_replication_slots":          true,
+	"huge_pages":                     true,
+	"shared_preload_libraries":       true,
+	"max_locks_per_transaction":      true,
 	"superuser_reserved_connections": true,
 }
 
@@ -31,7 +31,7 @@ var restartRequiredParams = map[string]bool{
 var managedProviders = map[string]bool{
 	"rds": true, "aurora": true, "aws": true,
 	"cloud-sql": true, "cloudsql": true, "gcp": true,
-	"alloydb": true,
+	"alloydb": true, "neon": true, "supabase": true,
 	"azure": true, "azure-flexible": true, "azure-single": true,
 }
 
@@ -104,9 +104,7 @@ func applyConfigChange(
 	if isManagedProvider(cloudEnv) {
 		return configApplyOutcome{
 			InEffect: false,
-			Note: "managed provider (" + cloudEnv + "): apply " + param +
-				" via the provider parameter group / database flags — " +
-				"ALTER SYSTEM does not take effect here",
+			Note:     managedConfigGuidance(cloudEnv, param),
 		}
 	}
 	if restartRequiredParams[strings.ToLower(param)] {

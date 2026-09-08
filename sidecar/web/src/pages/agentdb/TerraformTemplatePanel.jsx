@@ -3,6 +3,8 @@ import { FileCode, Upload } from 'lucide-react'
 import { FieldTip } from './AgentDBFormControls'
 
 const PROVIDERS = [
+  { key: 'neon', label: 'Neon' },
+  { key: 'supabase', label: 'Supabase' },
   { key: 'aws_rds', label: 'AWS RDS' },
   { key: 'gcp_cloudsql', label: 'Cloud SQL' },
   { key: 'databricks_lakebase', label: 'Lakebase' },

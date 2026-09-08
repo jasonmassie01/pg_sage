@@ -200,8 +200,12 @@ func CollectProviderCapabilities(
 	stopped bool,
 	now time.Time,
 ) ProviderCapabilities {
-	return BuildProviderCapabilities(
+	caps := BuildProviderCapabilities(
 		cfg, provider, detectReplica(ctx, pool), mode, stopped, now)
+	collectRuntimeEvidence(ctx, pool, &caps)
+	caps.Blockers = readinessBlockers(caps)
+	caps.ReadyForAutoSafe = readyForAutoSafe(caps)
+	return caps
 }
 
 func BuildFleetReadiness(

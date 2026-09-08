@@ -109,8 +109,8 @@ func (p *PlanCapture) fromAutoExplain(
 		var planJSON []byte
 		err := p.pool.QueryRow(ctx,
 			`/* pg_sage */ SELECT plan_json FROM sage.explain_cache
-			 WHERE source = 'auto_explain' AND queryid = $1
-			 ORDER BY captured_at DESC LIMIT 1`,
+			 WHERE source IN ('auto_explain_log', 'auto_explain') AND queryid = $1
+			 ORDER BY (source = 'auto_explain_log') DESC, captured_at DESC LIMIT 1`,
 			q.QueryID).Scan(&planJSON)
 		if err != nil {
 			continue
@@ -135,13 +135,7 @@ func (p *PlanCapture) fromGenericPlan(
 				continue
 			}
 			// GENERIC_PLAN works with parameterized queries.
-			var planJSON []byte
-			err := p.pool.QueryRow(ctx,
-				fmt.Sprintf(
-					"EXPLAIN (GENERIC_PLAN, FORMAT JSON) %s",
-					query,
-				),
-			).Scan(&planJSON)
+			planJSON, err := p.genericPlan(ctx, query)
 			if err != nil {
 				continue
 			}
@@ -152,6 +146,25 @@ func (p *PlanCapture) fromGenericPlan(
 		}
 	}
 	return plans
+}
+
+func (p *PlanCapture) genericPlan(ctx context.Context, query string) ([]byte, error) {
+	conn, err := p.pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Release()
+	// pgx parameter interpolation rejects intentionally unbound $n placeholders. Send the
+	// validated single EXPLAIN directly and drain every result before returning the session.
+	results, err := conn.Conn().PgConn().Exec(ctx,
+		"EXPLAIN (GENERIC_PLAN, FORMAT JSON) "+query).ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	if len(results) != 1 || len(results[0].Rows) != 1 || len(results[0].Rows[0]) != 1 {
+		return nil, fmt.Errorf("generic EXPLAIN returned no single JSON plan")
+	}
+	return results[0].Rows[0][0], nil
 }
 
 // summarizePlan extracts key info from EXPLAIN JSON output.

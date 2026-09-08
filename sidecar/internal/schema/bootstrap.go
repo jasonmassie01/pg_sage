@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/startup"
 )
 
 const (
@@ -71,6 +72,13 @@ var expectedTables = []struct {
 // which caused unrelated integration tests elsewhere to fail intermittently
 // when run in parallel.
 func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
+	if pool == nil {
+		return errors.New("schema bootstrap requires a PostgreSQL connection pool")
+	}
+	endpoint := pool.Config().ConnConfig
+	if err := startup.ValidateSessionEndpoint(endpoint.Host, endpoint.Port); err != nil {
+		return err
+	}
 	return withAdvisoryLock(
 		ctx, pool, bootstrapLockTimeout,
 		func(conn *pgxpool.Conn) error {

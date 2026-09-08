@@ -50,6 +50,8 @@ const (
 	ProviderAWSRDS             = "aws_rds"
 	ProviderGCPCloudSQL        = "gcp_cloudsql"
 	ProviderDatabricksLakebase = "databricks_lakebase"
+	ProviderNeon               = "neon"
+	ProviderSupabase           = "supabase"
 
 	LevelSchema   = "schema"
 	LevelDatabase = "database"
@@ -516,6 +518,7 @@ type BlueprintSpec struct {
 	InstanceClass       string            `json:"instance_class"`
 	DatabaseVersion     string            `json:"database_version"`
 	LakebaseMode        string            `json:"lakebase_mode"`
+	HostedMode          string            `json:"hosted_mode,omitempty"`
 	StorageGB           int               `json:"storage_gb"`
 	BackupRetentionDays int               `json:"backup_retention_days"`
 	PITR                bool              `json:"pitr"`

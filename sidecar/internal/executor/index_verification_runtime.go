@@ -133,7 +133,9 @@ func (e *Executor) configureIndexVerification() {
 	options := verificationOptions(e.cfg)
 	store := verify.NewPostgresStateStore(e.pool, options.MinSamples)
 	engine, err := verify.NewEngine(
-		verify.NewPostgresObservationSource(e.pool), store, options,
+		executorObservationSource{
+			ObservationSource: verify.NewPostgresObservationSource(e.pool), executor: e,
+		}, store, options,
 	)
 	if err != nil {
 		e.logFn("executor", "index verification unavailable: %v", err)

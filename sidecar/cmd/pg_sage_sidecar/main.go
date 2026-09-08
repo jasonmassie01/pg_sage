@@ -337,6 +337,9 @@ func main() {
 	// of leaking. The per-executor Shutdown waits on its
 	// internal WaitGroup, so we can run them in parallel.
 	shutdownStandaloneAutonomy(shutCtx)
+	if !waitProviderWorkers(shutCtx, &standaloneProviderWorkers) {
+		logWarn("shutdown", "provider observability workers exceeded shutdown deadline")
+	}
 	shutdownExecutors(shutCtx)
 
 	logInfo("shutdown", "stopped")
@@ -741,6 +744,7 @@ func initStandalone() {
 
 	// 9. Executor runs after analyzer (called from analyzer loop).
 	exec = executor.New(pool, cfg, anal, rampStart, logStructuredWrapper)
+	startProviderObservability(shutdownCtx, &standaloneProviderWorkers, pool, cfg, exec, rcaEng)
 	exec.WithAnalyzeSemaphore(analyzeSem)
 
 	// 9b. Action queue store + execution mode.
@@ -1517,6 +1521,7 @@ func initFleetMultiDB() {
 			dbPool, dbExecCfg, dbAnal, rStart,
 			logStructuredWrapper)
 		dbExec.WithAnalyzeSemaphore(analyzeSem)
+		startProviderObservability(instCtx, instWorkers, dbPool, dbExecCfg, dbExec, dbRCAEng)
 		dbActionStore := store.NewActionStore(dbPool)
 		execMode := resolveStaticFleetExecMode(dbCfg)
 		logInfo("fleet",
@@ -2143,10 +2148,8 @@ func updateInstanceFindings(
 	ctx context.Context,
 	inst *fleet.DatabaseInstance,
 ) {
+	refreshCollectionStatus(ctx, inst)
 	dbPool := inst.Pool
-	if dbPool == nil {
-		dbPool = pool // fallback to global for standalone
-	}
 	if dbPool == nil {
 		return
 	}
@@ -2711,6 +2714,9 @@ func detectCloudEnvironment() string {
 func detectCloudEnv(p *pgxpool.Pool) string {
 	if p == nil {
 		return "unknown"
+	}
+	if provider := hostedProviderFromHost(p.Config().ConnConfig.Host); provider != "" {
+		return provider
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

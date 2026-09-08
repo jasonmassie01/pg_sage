@@ -17,6 +17,7 @@ func RuntimeRunnerRegistryFromEnv(ctx context.Context) *RunnerRegistry {
 	registerAWSRDSFromEnv(ctx, registry)
 	registerCloudSQLFromEnv(registry)
 	registerLakebaseFromEnv(registry)
+	registerHostedFromEnv(registry)
 	return registry
 }
 

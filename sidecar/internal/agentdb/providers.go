@@ -23,6 +23,8 @@ func BuildProvisionPlan(req RegisterRequest, profile SizeProfile) (ProvisionPlan
 		return cloudSQLPlan(req, profile), nil
 	case ProviderDatabricksLakebase:
 		return lakebasePlan(req, profile), nil
+	case ProviderNeon, ProviderSupabase:
+		return hostedProvisionPlan(req, profile), nil
 	default:
 		return ProvisionPlan{}, ErrInvalid
 	}
@@ -64,7 +66,7 @@ func normalizeProvisioningLevel(level string) string {
 func validProvider(provider string) bool {
 	switch normalizeProvider(provider) {
 	case ProviderLocalPostgres, ProviderAWSRDS, ProviderGCPCloudSQL,
-		ProviderDatabricksLakebase:
+		ProviderDatabricksLakebase, ProviderNeon, ProviderSupabase:
 		return true
 	default:
 		return false
@@ -192,6 +194,8 @@ func providerLifecycleCommand(dep Deployment, action string) (ProviderCommand, e
 		return cloudSQLLifecycleCommand(id, action)
 	case ProviderDatabricksLakebase:
 		return lakebaseLifecycleCommand(dep, id, action)
+	case ProviderNeon, ProviderSupabase:
+		return hostedLifecycleCommand(dep, action)
 	default:
 		return ProviderCommand{}, ErrInvalid
 	}
@@ -283,6 +287,9 @@ func providerBackupCheckCommand(dep Deployment) (ProviderCommand, string, error)
 	case ProviderDatabricksLakebase:
 		command, err := lakebaseLifecycleCommand(dep, id, "status")
 		return command, "managed_provider", err
+	case ProviderNeon, ProviderSupabase:
+		command, err := hostedLifecycleCommand(dep, "backup_check")
+		return command, "managed_provider", err
 	default:
 		return ProviderCommand{}, "", ErrInvalid
 	}
@@ -308,6 +315,8 @@ func providerRestoreDrillCommand(
 		}}, nil
 	case ProviderDatabricksLakebase:
 		return lakebaseLifecycleCommand(dep, id, "status")
+	case ProviderNeon, ProviderSupabase:
+		return hostedLifecycleCommand(dep, "backup_check")
 	default:
 		return ProviderCommand{}, ErrInvalid
 	}

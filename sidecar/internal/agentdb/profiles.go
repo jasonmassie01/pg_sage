@@ -181,6 +181,10 @@ func defaultSizeProfiles() []SizeProfile {
 	return []SizeProfile{
 		localProfile("local_schema_xs", LevelSchema, "Local schema XS"),
 		localProfile("local_database_s", LevelDatabase, "Local database S"),
+		hostedSizeProfile(ProviderNeon, "branch"),
+		hostedSizeProfile(ProviderNeon, "project"),
+		hostedSizeProfile(ProviderSupabase, "branch"),
+		hostedSizeProfile(ProviderSupabase, "project"),
 		cloudProfile("rds_instance_s", ProviderAWSRDS, "RDS instance S",
 			map[string]any{"db_instance_class": "db.t4g.micro"}),
 		cloudProfile("cloudsql_instance_s", ProviderGCPCloudSQL, "Cloud SQL instance S",

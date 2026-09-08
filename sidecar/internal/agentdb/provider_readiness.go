@@ -36,6 +36,8 @@ func ProviderReadinessList(
 	opts := options[0]
 	return []ProviderReadiness{
 		localProviderReadiness(),
+		providerReadiness(opts, ProviderNeon, "Neon", "neon_management_api"),
+		providerReadiness(opts, ProviderSupabase, "Supabase", "supabase_management_api"),
 		providerReadiness(opts, ProviderAWSRDS, "AWS RDS", "aws_sdk"),
 		providerReadiness(opts, ProviderGCPCloudSQL, "GCP Cloud SQL", "cloudsql_admin_api"),
 		providerReadiness(
@@ -54,6 +56,8 @@ func providerReadinessWithoutRuntime() []ProviderReadiness {
 	}
 	return []ProviderReadiness{
 		localProviderReadiness(),
+		blockedProviderReadiness(ProviderNeon, "Neon", "neon_management_api", disabled),
+		blockedProviderReadiness(ProviderSupabase, "Supabase", "supabase_management_api", disabled),
 		blockedProviderReadiness(ProviderAWSRDS, "AWS RDS", "aws_sdk", disabled),
 		blockedProviderReadiness(
 			ProviderGCPCloudSQL, "GCP Cloud SQL", "cloudsql_admin_api", disabled,

@@ -118,8 +118,9 @@ func TestEvaluateActionPolicy_ModerateActionBlocksOutsideWindow(t *testing.T) {
 }
 
 func TestEvaluateActionPolicy_BlocksUnsupportedProvider(t *testing.T) {
+	// Neon now supports portable actions; use a truly unknown provider for this guard.
 	cfg := &config.Config{
-		CloudEnvironment: "neon",
+		CloudEnvironment: "unknown-provider",
 		Trust: config.TrustConfig{
 			Level:     "autonomous",
 			Tier3Safe: true,
@@ -136,7 +137,7 @@ func TestEvaluateActionPolicy_BlocksUnsupportedProvider(t *testing.T) {
 	if decision.Decision != PolicyDecisionBlocked {
 		t.Fatalf("Decision = %q, want blocked", decision.Decision)
 	}
-	if decision.BlockedReason != "provider neon is not supported" {
+	if decision.BlockedReason != "provider unknown-provider is not supported" {
 		t.Fatalf("BlockedReason = %q", decision.BlockedReason)
 	}
 }

@@ -13,8 +13,9 @@ import (
 type Availability struct {
 	SharedPreload bool   // loaded via shared_preload_libraries
 	SessionLoad   bool   // can use LOAD 'auto_explain' per-session
+	AlreadyLoaded bool   // module GUC is registered in an existing provider-managed session
 	Available     bool   // at least one method works
-	Method        string // "shared_preload", "session_load", "unavailable"
+	Method        string // "shared_preload", "already_loaded", "session_load", "unavailable"
 }
 
 // Detect probes the database to determine auto_explain availability.
@@ -25,7 +26,7 @@ func Detect(
 	pool *pgxpool.Pool,
 ) (*Availability, error) {
 	found, err := checkSharedPreload(ctx, pool)
-	if err != nil {
+	if err != nil && !isPermissionDenied(err) {
 		return nil, fmt.Errorf("detect auto_explain: %w", err)
 	}
 	if found {
@@ -34,6 +35,14 @@ func Detect(
 			Available:     true,
 			Method:        "shared_preload",
 		}, nil
+	}
+
+	registered, err := checkRegisteredModule(ctx, pool)
+	if err != nil {
+		return nil, fmt.Errorf("detect auto_explain settings: %w", err)
+	}
+	if registered {
+		return &Availability{AlreadyLoaded: true, Available: true, Method: "already_loaded"}, nil
 	}
 
 	session, err := checkSessionLoad(ctx, pool)
@@ -52,6 +61,14 @@ func Detect(
 		Available: false,
 		Method:    "unavailable",
 	}, nil
+}
+
+// pg_settings contains registered module GUCs; current_setting alone accepts placeholder GUCs.
+func checkRegisteredModule(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
+	var found bool
+	err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_settings
+		WHERE name='auto_explain.log_min_duration' AND vartype='integer')`).Scan(&found)
+	return found, err
 }
 
 // checkSharedPreload queries shared_preload_libraries for

@@ -315,6 +315,10 @@ func TestCoverage_Detect(t *testing.T) {
 	// We don't know if auto_explain is available on this
 	// instance, but the result must be internally consistent.
 	switch avail.Method {
+	case "already_loaded":
+		if !avail.AlreadyLoaded || !avail.Available || avail.SessionLoad {
+			t.Error("registered module must be available without asserting LOAD permission")
+		}
 	case "shared_preload":
 		if !avail.SharedPreload {
 			t.Error("Method=shared_preload but SharedPreload=false")
