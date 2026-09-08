@@ -14,7 +14,8 @@ over the standard wire protocol, collects performance data from catalog views an
 LLM for deeper analysis. A trust-ramped executor proposes or applies typed
 actions with guardrails, approval gates, rollback metadata, and a shadow-mode
 report showing what autonomous policy would have handled. Works on Lakebase, Cloud SQL,
-AlloyDB, Aurora, RDS, and self-managed Postgres.
+AlloyDB, Aurora, RDS, Neon, Supabase, and self-managed Postgres.
+See [Neon and Supabase setup](docs/neon-supabase.md) for hosted connection requirements.
 
 ## Quick Start
 

@@ -1,5 +1,67 @@
 # Changelog
 
+## v1.5.0 (2026-09-07) -- Neon and Supabase
+
+### Added
+
+- Neon and Supabase provider detection, runtime extension/permission discovery,
+  portable maintenance actions, and database-scoped setting recommendations.
+- AgentDB project/branch lifecycle runners with ownership, entitlement, expiry,
+  asynchronous status, and protected-resource checks; provider-specific profiles,
+  dashboard fields, and validated Terraform templates.
+- Supabase management log and metrics ingestion, including actual auto_explain
+  plans, deduplicated query-store records, RCA input, and CPU/memory evidence.
+- Environment secret references for AgentDB fleet connections, preserving TLS
+  and session options while validating resource endpoint and database identity.
+- Vector Evidence Lab with bounded, read-only HNSW experiments and measured
+  recall, latency, plan, and resource-admission evidence.
+- Live provider regression harnesses for direct/session connections, synthetic
+  maintenance and vector workloads, lifecycle cleanup, and logical backup/restore.
+
+### Fixed
+
+- Keep HypoPG evaluation and cleanup on one physical session, discover extension
+  namespaces, and support normalized EXPLAIN workloads without pgx bind errors.
+- Prefer actual observed execution plans over recaptured legacy plans; distinguish
+  installed extensions from loaded/enabled modules and recognize provider-loaded
+  auto_explain when LOAD is restricted.
+- Report malformed provider logs without stalling valid records; preserve retryable
+  storage errors and unknown/stale host-load evidence.
+- Preserve explicit inverse database settings during rollback and keep unsupported
+  instance settings advisory instead of issuing ALTER SYSTEM to hosted providers.
+- Refresh per-database fleet version, size, and collection timestamps; preserve
+  observation/manual mode and unknown capabilities in dashboard views.
+- Preserve unverified backup-assurance status and reject Terraform mode errors
+  or unconfigured sizing/version/extension claims rather than silently accepting them.
+- Serialize AgentDB metadata initialization, preserve superseded indexes for
+  reviewed cleanup, and harden backend lifecycle, local launcher, and test fixtures.
+
+### Changed
+
+- Reject Neon pooled and Supabase transaction-pooler endpoints for sidecar sessions;
+  use Neon direct or Supabase direct/session connections.
+- Refresh dependency updates and embedded dashboard assets. CI verifies frontend,
+  Go unit/integration/e2e layers and installs the required pgvector/HypoPG capabilities.
+
+### Verification and limitations
+
+- Live Neon and Supabase direct checks and Supabase session checks passed for the
+  covered SQL, HypoPG, and vector workflows. Synthetic logical exports restored
+  rows, vector hashes, indexes, constraints, and identity state into fresh databases.
+- Neon branch and Supabase free project create/status/delete were verified live;
+  temporary API credentials were revoked after testing.
+- Free-plan entitlements and unavailable hints remain explicit. In the tested
+  projects, Neon hints could not be enabled and Supabase did not offer pg_hint_plan.
+  Supabase Free branch/managed-backup and Neon Free log-export limits remain.
+- Missing data/WAL utilization blocks actions requiring complete host-load evidence.
+  Neon exhausted the test project's free transfer quota before the final dashboard
+  repeat; earlier live checks passed. No paid upgrade was performed.
+- Native snapshot rehearsal and automatic restore drills remain existing product
+  gaps; logical restore verification does not claim those workflows or managed PITR.
+
+See [Neon and Supabase setup](docs/neon-supabase.md) for connection requirements,
+configuration, and the verified feature boundaries.
+
 ## v1.4.0 (2026-07-23) -- Agent-Native Autonomy
 
 ### Added
