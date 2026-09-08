@@ -11,6 +11,8 @@ type ProviderAdapter struct {
 func AdapterForProvider(provider string) ProviderAdapter {
 	normalized := normalizeProviderName(provider)
 	switch normalized {
+	case "neon", "supabase":
+		return hostedPostgresAdapter(normalized)
 	case "cloud-sql":
 		return managedAdapter(normalized, "provider_logging",
 			map[string]string{
@@ -79,6 +81,18 @@ func AdapterForProvider(provider string) ProviderAdapter {
 		adapter.SupportedActions = map[string]bool{}
 		return adapter
 	}
+}
+
+func hostedPostgresAdapter(provider string) ProviderAdapter {
+	extensions := defaultExtensionReadiness()
+	extensions["vector"] = "unknown"
+	adapter := managedAdapter(provider, "provider_console", extensions, []string{
+		"use a direct or session connection for session-dependent operations",
+		"extension installation and role privileges must be checked on the target",
+		"server configuration and host telemetry are controlled by the provider",
+	})
+	adapter.SupportedActions["alter_database_guc"] = true
+	return adapter
 }
 
 func managedAdapter(

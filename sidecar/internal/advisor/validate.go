@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
@@ -94,8 +95,8 @@ func RequiresRestart(settingName string) bool {
 // IsManagedService returns true if the platform is a managed cloud
 // service where ALTER SYSTEM is unavailable.
 func IsManagedService(platform string) bool {
-	switch platform {
-	case "rds", "aurora", "cloud-sql", "alloydb", "azure":
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case "rds", "aurora", "cloud-sql", "alloydb", "azure", "neon", "supabase":
 		return true
 	}
 	return false
@@ -107,7 +108,12 @@ func IsManagedService(platform string) bool {
 func TransformForCloud(
 	findings []analyzer.Finding,
 	platform, dbName string,
+	settings ...[]collector.PGSetting,
 ) []analyzer.Finding {
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	if platform == "neon" || platform == "supabase" {
+		return transformTenantConfig(findings, platform, dbName, settings)
+	}
 	if !IsManagedService(platform) {
 		return findings
 	}
@@ -198,7 +204,7 @@ func extractSettingName(sql string) string {
 	if len(fields) == 0 {
 		return ""
 	}
-	return strings.ToLower(fields[0])
+	return strings.ToLower(strings.TrimSuffix(fields[0], ";"))
 }
 
 func parseNumericValue(s string) (float64, error) {

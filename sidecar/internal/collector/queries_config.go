@@ -10,14 +10,17 @@ func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSna
 	// pg_settings for advisor features
 	rows, err := pool.Query(ctx, `/* pg_sage */ 
 		SELECT name, setting, COALESCE(unit,''), source,
-		       COALESCE(pending_restart, false)
+		       COALESCE(pending_restart, false), context
 		FROM pg_settings
 		WHERE name LIKE 'autovacuum%'
+		   OR name LIKE 'auto_explain.%'
 		   OR name IN (
-		      'max_wal_size','min_wal_size','checkpoint_completion_target',
+		      'max_wal_size','min_wal_size','max_slot_wal_keep_size',
+		      'checkpoint_completion_target',
 		      'wal_compression','wal_level','wal_buffers','checkpoint_timeout',
 		      'full_page_writes','shared_buffers','work_mem',
 		      'maintenance_work_mem','effective_cache_size','huge_pages',
+		      'random_page_cost','default_statistics_target','effective_io_concurrency',
 		      'temp_buffers','max_connections','superuser_reserved_connections',
 		      'idle_in_transaction_session_timeout','statement_timeout',
 		      'tcp_keepalives_idle','tcp_keepalives_interval',
@@ -27,7 +30,8 @@ func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSna
 	}
 	for rows.Next() {
 		var s PGSetting
-		if err := rows.Scan(&s.Name, &s.Setting, &s.Unit, &s.Source, &s.PendingRestart); err != nil {
+		if err := rows.Scan(&s.Name, &s.Setting, &s.Unit, &s.Source,
+			&s.PendingRestart, &s.Context); err != nil {
 			continue
 		}
 		cs.PGSettings = append(cs.PGSettings, s)

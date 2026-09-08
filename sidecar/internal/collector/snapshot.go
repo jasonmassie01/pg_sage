@@ -4,15 +4,15 @@ import "time"
 
 // Snapshot holds all stats collected in a single cycle.
 type Snapshot struct {
-	CollectedAt time.Time
-	Queries     []QueryStats
-	Tables      []TableStats
-	Indexes     []IndexStats
-	ForeignKeys []ForeignKey
-	System      SystemStats
-	Locks       []LockInfo
-	Sequences   []SequenceStats
-	Replication *ReplicationStats
+	CollectedAt   time.Time
+	Queries       []QueryStats
+	Tables        []TableStats
+	Indexes       []IndexStats
+	ForeignKeys   []ForeignKey
+	System        SystemStats
+	Locks         []LockInfo
+	Sequences     []SequenceStats
+	Replication   *ReplicationStats
 	IO            []IOStats             `json:"io,omitempty"`
 	Partitions    []PartitionInfo       `json:"partitions,omitempty"`
 	PreparedXacts []PreparedTransaction `json:"prepared_xacts,omitempty"`
@@ -209,6 +209,7 @@ type ConfigSnapshot struct {
 // PGSetting holds a single row from pg_settings.
 type PGSetting struct {
 	Name           string `json:"name"`
+	Context        string `json:"context"`
 	Setting        string `json:"setting"`
 	Unit           string `json:"unit"`
 	Source         string `json:"source"`

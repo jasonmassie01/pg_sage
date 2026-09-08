@@ -87,6 +87,7 @@ type Executor struct {
 	policyGate         policy.Gate
 	managedConfig      ManagedConfigAdapter
 	indexVerification  *verifiedIndexLifecycle
+	hostLoad           HostLoadReader
 	retainedCleanupMu  sync.Mutex
 	postDDLMu          sync.RWMutex
 	postDDLHook        func(context.Context) error
@@ -780,13 +781,11 @@ func (e *Executor) executeFinding(
 	if isAlterSystem(f.RecommendedSQL) &&
 		isManagedProvider(e.cfg.CloudEnvironment) {
 		param := configParamFromSQL(f.RecommendedSQL)
-		e.logFn("executor",
-			"%s: %s must be set via the parameter group, not ALTER SYSTEM",
-			e.cfg.CloudEnvironment, param)
+		guidance := managedConfigGuidance(e.cfg.CloudEnvironment, param)
+		e.logFn("executor", "%s", guidance)
 		e.logActionWithDecision(ctx, f, findingID, beforeState,
 			decisionID,
-			fmt.Errorf("managed provider %s: apply %s via parameter "+
-				"group/flags", e.cfg.CloudEnvironment, param))
+			fmt.Errorf("%s", guidance))
 		return
 	}
 

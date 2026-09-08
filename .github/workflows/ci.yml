@@ -44,6 +44,9 @@ jobs:
 
       - name: Enable pg_stat_statements
         run: |
+          docker exec -e DEBIAN_FRONTEND=noninteractive ${{ job.services.postgres.id }} \
+            sh -c 'apt-get update -qq &&
+              apt-get install -y --no-install-recommends postgresql-17-hypopg'
           docker exec ${{ job.services.postgres.id }} \
             bash -c "echo \"shared_preload_libraries = 'pg_stat_statements'\" >> /var/lib/postgresql/data/postgresql.conf"
           docker exec ${{ job.services.postgres.id }} \

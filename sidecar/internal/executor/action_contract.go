@@ -34,7 +34,7 @@ func AnalyzeTableContract() ActionContract {
 	return ActionContract{
 		ActionType:      "analyze_table",
 		BaseRiskTier:    "safe",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"table ownership or ANALYZE privilege",
 		},
@@ -83,7 +83,7 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return gucChangeContract(actionType, "ALTER SYSTEM", []string{"postgres"}), true
 	case "alter_database_guc":
 		return gucChangeContract(actionType, "ALTER DATABASE",
-			[]string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"}), true
+			portableActionProviders()), true
 	case "diagnose_lock_blockers":
 		return incidentDiagnoseLockBlockersContract(), true
 	case "diagnose_runaway_query":
@@ -130,7 +130,7 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return ActionContract{
 			ActionType:      actionType,
 			BaseRiskTier:    "moderate",
-			ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+			ProviderSupport: portableActionProviders(),
 			RequiredPermissions: []string{
 				"schema CREATE privilege",
 				"table ownership or maintenance role",
@@ -160,7 +160,7 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return ActionContract{
 			ActionType:      actionType,
 			BaseRiskTier:    "moderate",
-			ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+			ProviderSupport: portableActionProviders(),
 			RequiredPermissions: []string{
 				"index ownership or maintenance role",
 			},
@@ -188,7 +188,7 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return ActionContract{
 			ActionType:      actionType,
 			BaseRiskTier:    "high",
-			ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+			ProviderSupport: portableActionProviders(),
 			RequiredPermissions: []string{
 				"table ownership or maintenance role",
 			},
@@ -214,7 +214,7 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return ActionContract{
 			ActionType:      actionType,
 			BaseRiskTier:    "high",
-			ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+			ProviderSupport: portableActionProviders(),
 			RequiredPermissions: []string{
 				"read catalog statistics",
 				"review migration output in PR or CI",
@@ -282,7 +282,7 @@ func incidentDiagnoseLockBlockersContract() ActionContract {
 	return ActionContract{
 		ActionType:      "diagnose_lock_blockers",
 		BaseRiskTier:    "safe",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"pg_monitor or pg_read_all_stats",
 		},
@@ -310,7 +310,7 @@ func applyQueryHintContract() ActionContract {
 	return ActionContract{
 		ActionType:      "apply_query_hint",
 		BaseRiskTier:    "moderate",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"write access to hint_plan.hints",
 			"pg_hint_plan installed and active",
@@ -346,7 +346,7 @@ func investigateQueryPlanContract() ActionContract {
 	return ActionContract{
 		ActionType:      "investigate_query_plan",
 		BaseRiskTier:    "safe",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"read access to query text and EXPLAIN",
 		},
@@ -411,7 +411,7 @@ func incidentSequenceCapacityMigrationContract() ActionContract {
 	return ActionContract{
 		ActionType:      "prepare_sequence_capacity_migration",
 		BaseRiskTier:    "high",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"read sequence metadata",
 			"submit reviewed migration through version control",
@@ -446,7 +446,7 @@ func incidentCancelBackendContract() ActionContract {
 	return ActionContract{
 		ActionType:      "cancel_backend",
 		BaseRiskTier:    "moderate",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"pg_signal_backend or role membership allowing cancellation",
 		},
@@ -476,7 +476,7 @@ func incidentTerminateBackendContract() ActionContract {
 	return ActionContract{
 		ActionType:      "terminate_backend",
 		BaseRiskTier:    "high",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"pg_signal_backend or role membership allowing termination",
 		},
@@ -512,7 +512,7 @@ func diagnosticContract(actionType, execution, success string) ActionContract {
 	return ActionContract{
 		ActionType:      actionType,
 		BaseRiskTier:    "safe",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"pg_monitor or pg_read_all_stats",
 		},
@@ -538,7 +538,7 @@ func vacuumTableContract() ActionContract {
 	return ActionContract{
 		ActionType:      "vacuum_table",
 		BaseRiskTier:    "safe",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"table ownership or VACUUM privilege",
 		},
@@ -580,7 +580,7 @@ func setTableAutovacuumContract() ActionContract {
 	return ActionContract{
 		ActionType:      "set_table_autovacuum",
 		BaseRiskTier:    "moderate",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"table ownership or maintenance role",
 		},
@@ -621,7 +621,7 @@ func planBloatRemediationContract() ActionContract {
 	return ActionContract{
 		ActionType:      "plan_bloat_remediation",
 		BaseRiskTier:    "high",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"read relation size and bloat evidence",
 			"submit online rebuild plan through change control",
@@ -655,7 +655,7 @@ func reindexConcurrentlyContract() ActionContract {
 	return ActionContract{
 		ActionType:      "reindex_concurrently",
 		BaseRiskTier:    "moderate",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"index ownership or maintenance role",
 		},
@@ -688,7 +688,7 @@ func prepareQueryRewriteContract() ActionContract {
 	return ActionContract{
 		ActionType:      "prepare_query_rewrite",
 		BaseRiskTier:    "moderate",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"read query statistics and plans",
 			"submit application query change through version control",
@@ -724,7 +724,7 @@ func promoteRoleWorkMemContract() ActionContract {
 	return ActionContract{
 		ActionType:      "promote_role_work_mem",
 		BaseRiskTier:    "moderate",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"ALTER ROLE privilege or admin role",
 		},
@@ -757,7 +757,7 @@ func retireQueryHintContract() ActionContract {
 	return ActionContract{
 		ActionType:      "retire_query_hint",
 		BaseRiskTier:    "safe",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"write access to sage query hint metadata",
 		},
@@ -788,7 +788,7 @@ func createStatisticsContract() ActionContract {
 	return ActionContract{
 		ActionType:      "create_statistics",
 		BaseRiskTier:    "moderate",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"CREATE privilege on schema or table ownership",
 		},
@@ -821,7 +821,7 @@ func prepareParameterizedQueryContract() ActionContract {
 	return ActionContract{
 		ActionType:      "prepare_parameterized_query",
 		BaseRiskTier:    "moderate",
-		ProviderSupport: []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb"},
+		ProviderSupport: portableActionProviders(),
 		RequiredPermissions: []string{
 			"read query statistics and submit application PR",
 		},
@@ -848,4 +848,9 @@ func prepareParameterizedQueryContract() ActionContract {
 		Cooldown:      "query-scoped",
 		AuditFields:   []string{"case_id", "database", "queryid"},
 	}
+}
+
+func portableActionProviders() []string {
+	return []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb",
+		"neon", "supabase"}
 }

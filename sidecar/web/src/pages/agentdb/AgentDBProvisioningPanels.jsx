@@ -6,6 +6,8 @@ const PROVIDERS = [
   { key: 'aws_rds', label: 'AWS RDS' },
   { key: 'gcp_cloudsql', label: 'Cloud SQL' },
   { key: 'databricks_lakebase', label: 'Lakebase' },
+  { key: 'neon', label: 'Neon' },
+  { key: 'supabase', label: 'Supabase' },
 ]
 
 const FIELD_HELP = {
@@ -270,7 +272,7 @@ function ProviderRow({ provider }) {
           {provider.label}
         </div>
         <div className="truncate text-xs" style={{ color: 'var(--text-secondary)' }}>
-          {provider.interface || provider.version || provider.detail}
+          {provider.interface || provider.version}
         </div>
         {provider.detail && (
           <div className="truncate text-xs" style={{ color: 'var(--text-secondary)' }}>
@@ -279,8 +281,8 @@ function ProviderRow({ provider }) {
         )}
       </div>
       <span className="text-xs font-medium"
-        style={{ color: provider.found ? 'var(--green)' : 'var(--yellow)' }}>
-        {provider.found ? 'ready' : 'missing'}
+        style={{ color: provider.found === true ? 'var(--green)' : 'var(--yellow)' }}>
+        {provider.found === true ? 'ready' : provider.found === false ? 'missing' : 'unknown'}
       </span>
     </div>
   )

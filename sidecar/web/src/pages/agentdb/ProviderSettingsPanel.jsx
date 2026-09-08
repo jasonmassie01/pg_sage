@@ -6,6 +6,8 @@ const PROVIDERS = [
   { key: 'aws_rds', label: 'AWS RDS' },
   { key: 'gcp_cloudsql', label: 'Cloud SQL' },
   { key: 'databricks_lakebase', label: 'Lakebase' },
+  { key: 'neon', label: 'Neon' },
+  { key: 'supabase', label: 'Supabase' },
 ]
 
 const SENSITIVE_KEY = /(secret|token|password|credential|private_key|access_key)/i

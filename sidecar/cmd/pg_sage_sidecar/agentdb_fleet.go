@@ -18,10 +18,12 @@ import (
 const agentFleetPrefix = "agentdb:"
 
 // eligibleForFleet reports whether an agent deployment can be monitored:
-// it must be active and carry inline connection info (host + database).
-// Cloud deployments whose credentials live behind an unresolved
-// secret_ref are skipped here until secret resolution is wired (B1).
+// it must be active and carry resolvable connection info.
 func eligibleForFleet(dep agentdb.Deployment) bool {
+	if agentDeploymentSecretRef(dep) != "" {
+		_, ok := resolveAgentEnvironmentSecret(dep)
+		return ok
+	}
 	if dep.Status != "active" {
 		return false
 	}
@@ -41,6 +43,9 @@ func eligibleForFleet(dep agentdb.Deployment) bool {
 func agentDeploymentToFleetConfig(
 	dep agentdb.Deployment,
 ) (config.DatabaseConfig, bool) {
+	if agentDeploymentSecretRef(dep) != "" {
+		return resolveAgentEnvironmentSecret(dep)
+	}
 	if !eligibleForFleet(dep) {
 		return config.DatabaseConfig{}, false
 	}

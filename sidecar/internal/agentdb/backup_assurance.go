@@ -93,11 +93,11 @@ func (s *Store) CheckBackupAssuranceLive(
 	backup, err := s.RecordBackup(ctx, id, BackupRequest{
 		BackupID: "backup_check_live_" + idFrom(id, attempt.CreatedAt.String()),
 		Provider: dep.Provider,
-		Status:   "verified",
-		Detail: map[string]any{
-			"mode":       "live",
-			"attempt_id": attempt.AttemptID,
-		},
+		Status:   backupEvidenceStatus(result.Status),
+		Detail: mergeDetail(detail, map[string]any{
+			"attempt_id":       attempt.AttemptID,
+			"restore_verified": false,
+		}),
 	})
 	if err != nil {
 		return BackupAssurance{}, err
@@ -114,6 +114,13 @@ func (s *Store) CheckBackupAssuranceLive(
 		Attempt:        attempt,
 		Backup:         backup,
 	}, nil
+}
+
+func backupEvidenceStatus(status string) string {
+	if status == "verified" {
+		return "verified"
+	}
+	return "unverified"
 }
 
 func (s *Store) PlanRestoreDrillDryRun(

@@ -147,7 +147,7 @@ func (c *Collector) captureOnDemand(
 	}
 	defer conn.Release()
 
-	if c.avail.SessionLoad || c.avail.SharedPreload {
+	if c.avail.SessionLoad || c.avail.SharedPreload || c.avail.AlreadyLoaded {
 		scfg := DefaultSessionConfig(c.cfg.LogMinDurationMs)
 		if err := ConfigureSession(
 			ctx, conn, c.avail, scfg,

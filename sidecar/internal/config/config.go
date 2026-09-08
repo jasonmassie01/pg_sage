@@ -348,7 +348,7 @@ type LockChainConfig struct {
 
 // LogWatchConfig controls PostgreSQL log file monitoring (v0.9.1).
 type LogWatchConfig struct {
-	Enabled             bool     `yaml:"enabled" doc:"Enable log file monitoring for RCA. Requires log_destination includes jsonlog or csvlog. Requires rca.enabled=true."`
+	Enabled             bool     `yaml:"enabled" doc:"Enable RCA logs from a configured provider API or local PostgreSQL jsonlog/csvlog files. Requires rca.enabled=true."`
 	LogDirectory        string   `yaml:"log_directory" doc:"Path to PG log directory. Auto-detected from pg_settings if blank."`
 	Format              string   `yaml:"format" doc:"Log format: jsonlog (PG15+) or csvlog. Auto-detected if blank."`
 	PollIntervalMs      int      `yaml:"poll_interval_ms" doc:"Fallback poll interval when fsnotify is unavailable. Default: 1000."`
@@ -398,7 +398,7 @@ type SchemaLintConfig struct {
 type MigrationConfig struct {
 	Enabled             bool   `yaml:"enabled" doc:"Enable DDL safety advisory."`
 	Mode                string `yaml:"mode" doc:"Operating mode: advisory (default). Active mode deferred to future release."`
-	ManagedService      string `yaml:"managed_service" doc:"Cloud provider: none, rds, aurora, cloudsql, alloydb. Filters unavailable recommendations."`
+	ManagedService      string `yaml:"managed_service" doc:"Cloud provider: none, rds, aurora, cloudsql, alloydb, neon, supabase. Filters unavailable recommendations."`
 	LogDetection        bool   `yaml:"log_detection" doc:"Parse DDL from PG logs (requires log_statement=ddl)."`
 	ActivityPolling     bool   `yaml:"activity_polling" doc:"Scan pg_stat_activity for active DDL."`
 	PollIntervalSeconds int    `yaml:"poll_interval_seconds" doc:"How often to poll during active DDL. Default: 5."`

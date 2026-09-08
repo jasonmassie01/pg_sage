@@ -199,7 +199,7 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 	if dbName == "" {
 		dbName = a.cfg.Postgres.Database
 	}
-	all = TransformForCloud(all, cloudEnv, dbName)
+	all = TransformForCloud(all, cloudEnv, dbName, snap.ConfigData.PGSettings)
 
 	a.mu.Lock()
 	a.lastRunAt = time.Now()

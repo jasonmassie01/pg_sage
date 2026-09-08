@@ -12,6 +12,7 @@ import (
 var (
 	ErrManagedConfigAdapterUnavailable = errors.New("managed config adapter unavailable")
 	ErrManagedConfigNotEffective       = errors.New("managed config is not effective")
+	ErrManagedConfigUnsupported        = errors.New("managed parameter is provider-controlled")
 )
 
 type ManagedConfigMechanism string
@@ -20,6 +21,7 @@ const (
 	ManagedParameterGroup  ManagedConfigMechanism = "parameter_group"
 	ManagedDatabaseFlag    ManagedConfigMechanism = "database_flag"
 	ManagedServerParameter ManagedConfigMechanism = "server_parameter"
+	ManagedProviderConfig  ManagedConfigMechanism = "provider_config"
 )
 
 type ManagedConfigChange struct {
@@ -51,6 +53,10 @@ func (e *Executor) applyManagedCustodianConfig(
 	change, err := parseManagedConfigChange(provider, proposal.SQL)
 	if err != nil {
 		return ManagedConfigResult{}, true, err
+	}
+	if provider == "neon" {
+		return ManagedConfigResult{}, true, fmt.Errorf("%w: %s",
+			ErrManagedConfigUnsupported, managedConfigGuidance(provider, change.Parameter))
 	}
 	e.policyMu.RLock()
 	adapter := e.managedConfig
@@ -116,11 +122,28 @@ func parseManagedConfigValue(raw string) (string, error) {
 
 func managedConfigMechanism(provider string) ManagedConfigMechanism {
 	switch provider {
+	case "neon", "supabase":
+		return ManagedProviderConfig
 	case "cloud-sql", "cloudsql", "gcp", "alloydb":
 		return ManagedDatabaseFlag
 	case "azure", "azure-flexible", "azure-single":
 		return ManagedServerParameter
 	default:
 		return ManagedParameterGroup
+	}
+}
+
+func managedConfigGuidance(provider, parameter string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "neon":
+		return "Neon controls instance parameter " + parameter +
+			"; only permitted session, database, or role settings can be changed through SQL"
+	case "supabase":
+		return "Supabase instance parameter " + parameter +
+			" requires a supported Postgres config control through the Supabase API/CLI; " +
+			"verify availability and effective state; ALTER SYSTEM is unavailable"
+	default:
+		return "managed provider (" + provider + "): apply " + parameter +
+			" via the provider parameter group / database flags; ALTER SYSTEM is unavailable"
 	}
 }

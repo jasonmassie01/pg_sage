@@ -9,6 +9,7 @@ import { AuditEventsPanel } from './AuditEventsPanel'
 import { PromotionPanel } from './PromotionPanel'
 import { RecommendationList } from './RecommendationList'
 import { OptionGroup, SelectField, TextField } from './AgentDBFormControls'
+import { HostedProviderFields } from './HostedProviderFields'
 
 const WORKLOADS = [
   { key: 'vector', label: 'Vector' },
@@ -27,6 +28,8 @@ const PROVIDERS = [
   { key: 'aws_rds', label: 'AWS RDS' },
   { key: 'gcp_cloudsql', label: 'Cloud SQL' },
   { key: 'databricks_lakebase', label: 'Lakebase' },
+  { key: 'neon', label: 'Neon' },
+  { key: 'supabase', label: 'Supabase' },
 ]
 
 function toggleValue(values, value) {
@@ -92,6 +95,10 @@ export function ProvisionForm({ form, busy, profiles, onChange, onSubmit }) {
     if (key === 'provider' && value !== 'local_postgres') {
       next.provisioning_level = 'instance'
     }
+    if (key === 'provider' && (value === 'neon' || value === 'supabase')) {
+      next.size_profile_id = profiles.find(profile => profile.provider === value &&
+        profile.provisioning_level === 'instance')?.profile_id || ''
+    }
     if (key === 'provider' && value === 'local_postgres' &&
       form.provisioning_level === 'instance') {
       next.provisioning_level = 'schema'
@@ -136,6 +143,8 @@ export function ProvisionForm({ form, busy, profiles, onChange, onSubmit }) {
         options={levels}
         tipKey="provisioning_level"
         onChange={value => update('provisioning_level', value)} />
+      {(form.provider === 'neon' || form.provider === 'supabase') &&
+        <HostedProviderFields form={form} update={update} />}
       {form.provider === 'aws_rds' && (
         <div className="grid grid-cols-2 gap-3">
           <TextField label="AWS region" value={form.cloud_region}

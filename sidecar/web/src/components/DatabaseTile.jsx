@@ -21,6 +21,7 @@ export function DatabaseTile({ db, selected, onSelect }) {
   const provider = s.platform || caps.provider || 'unknown'
   const blocker = (caps.blockers || [])[0]
   const ready = caps.ready_for_auto_safe
+  const readiness = ready === true ? 'ready' : ready === false ? 'blocked' : 'unknown'
 
   return (
     <button
@@ -113,8 +114,9 @@ export function DatabaseTile({ db, selected, onSelect }) {
             {provider}
           </span>
           <span className="text-xs"
-            style={{ color: ready ? 'var(--green)' : 'var(--yellow)' }}>
-            {ready ? 'Auto-safe ready' : 'Auto-safe blocked'}
+            style={{ color: ready === true ? 'var(--green)'
+              : ready === false ? 'var(--yellow)' : 'var(--text-secondary)' }}>
+            Auto-safe {readiness}
           </span>
         </div>
         {blocker && (
