@@ -93,7 +93,9 @@ func assertHostedCreatePayload(t *testing.T, provider, mode string, payload map[
 		return
 	}
 	if mode == "project" {
-		if payload["organization_slug"] != "owned-org" || payload["db_pass"] != "synthetic-password" {
+		// G8-B19: the configured secret is a master key, never the db_pass.
+		want := supabaseProjectPassword("synthetic-password", "pgsage-test")
+		if payload["organization_slug"] != "owned-org" || payload["db_pass"] != want {
 			t.Fatal("Supabase organization/password missing")
 		}
 		if _, ok := payload["plan"]; ok {

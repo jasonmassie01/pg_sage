@@ -475,6 +475,9 @@ func normalizeRegister(req *RegisterRequest, requireBackup bool) error {
 	if !validProvider(req.Provider) || !validLevel(req.ProvisioningLevel) {
 		return ErrInvalid
 	}
+	if err := ValidateSecretRef(req.SecretRef); err != nil {
+		return err
+	}
 	if cloudProvider(req.Provider) && req.ProvisioningLevel != LevelInstance {
 		return ErrInvalid
 	}

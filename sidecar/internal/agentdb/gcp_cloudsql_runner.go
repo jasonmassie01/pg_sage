@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type CloudSQLCreateInput struct {
@@ -209,6 +210,24 @@ type CloudSQLHTTPClient struct {
 	BaseURL    string
 	TokenFunc  func(context.Context) (string, error)
 	HTTPClient *http.Client
+	// Credentials, when set, reports token expiry for provider readiness.
+	Credentials interface{ CredentialError(time.Time) error }
+}
+
+// CredentialError reports an expired or unusable credential for readiness.
+func (c CloudSQLHTTPClient) CredentialError(now time.Time) error {
+	if c.Credentials == nil {
+		return nil
+	}
+	return c.Credentials.CredentialError(now)
+}
+
+// CredentialError delegates to the client's credential reporter, if any.
+func (r CloudSQLRunner) CredentialError(now time.Time) error {
+	if reporter, ok := r.client.(interface{ CredentialError(time.Time) error }); ok {
+		return reporter.CredentialError(now)
+	}
+	return nil
 }
 
 func (c CloudSQLHTTPClient) CreateInstance(
@@ -343,8 +362,9 @@ func (c CloudSQLHTTPClient) do(
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, fmt.Errorf("cloud sql api status %d: %s",
-			resp.StatusCode, redactString(string(body)))
+		return nil, providerError(ProviderGCPCloudSQL, httpStatusKind(resp.StatusCode),
+			fmt.Sprintf("cloud sql api status %d: %s", resp.StatusCode,
+				redactString(string(body))), "")
 	}
 	var raw map[string]any
 	if out != nil {

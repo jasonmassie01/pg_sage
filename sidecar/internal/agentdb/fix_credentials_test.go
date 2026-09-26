@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 // G8-B19: Supabase projects never share one database password.
@@ -62,5 +64,43 @@ func TestRegisterRejectsSecretRefOutsideAllowlist(t *testing.T) {
 		SecretRef: "env:PG_SAGE_AGENTDB_ORDERS_DSN"})
 	if err != nil || dep.SecretRef != "env:PG_SAGE_AGENTDB_ORDERS_DSN" {
 		t.Fatalf("allow-listed secret_ref: dep=%q err=%v", dep.SecretRef, err)
+	}
+}
+
+// SURF-20: a static token reports expiry; the metadata source refreshes.
+func TestGCPTokenSourcesReportExpiryAndRefresh(t *testing.T) {
+	static := newStaticGCPToken("tok", time.Hour)
+	if _, err := static.Token(context.Background()); err != nil {
+		t.Fatalf("fresh static token: %v", err)
+	}
+	static.now = func() time.Time { return time.Now().Add(2 * time.Hour) }
+	if _, err := static.Token(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), "expired") {
+		t.Fatalf("expired static token err = %v", err)
+	}
+	if err := static.CredentialError(time.Now().Add(2 * time.Hour)); err == nil {
+		t.Fatal("readiness did not report the expired credential")
+	}
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Header.Get("Metadata-Flavor") != "Google" {
+			t.Error("metadata request without Metadata-Flavor header")
+		}
+		_, _ = w.Write([]byte(`{"access_token":"fresh-` + string(rune('0'+calls)) +
+			`","expires_in":3600}`))
+	}))
+	defer server.Close()
+	source := newMetadataGCPToken(server.URL)
+	first, err := source.Token(context.Background())
+	if err != nil || first != "fresh-1" {
+		t.Fatalf("metadata token = %q err=%v", first, err)
+	}
+	if again, _ := source.Token(context.Background()); again != "fresh-1" || calls != 1 {
+		t.Fatalf("metadata token not cached: %q calls=%d", again, calls)
+	}
+	source.expires = time.Now().Add(-time.Second)
+	if next, _ := source.Token(context.Background()); next != "fresh-2" {
+		t.Fatalf("metadata token not refreshed after expiry: %q", next)
 	}
 }

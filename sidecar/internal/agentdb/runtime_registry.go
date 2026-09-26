@@ -43,18 +43,16 @@ func registerCloudSQLFromEnv(registry *RunnerRegistry) {
 	if os.Getenv("PG_SAGE_ENABLE_GCP_CLOUDSQL_RUNNER") != "1" {
 		return
 	}
-	token := os.Getenv("PG_SAGE_GCP_ACCESS_TOKEN")
+	source := gcpTokenSourceFromEnv()
 	project := firstNonEmpty(
 		os.Getenv("PG_SAGE_GCP_PROJECT"),
 		os.Getenv("GOOGLE_CLOUD_PROJECT"),
 	)
 	region := firstNonEmpty(os.Getenv("PG_SAGE_GCP_REGION"), "us-central1")
-	if token == "" || project == "" {
+	if source == nil || project == "" {
 		return
 	}
-	client := CloudSQLHTTPClient{
-		TokenFunc: staticToken(token),
-	}
+	client := CloudSQLHTTPClient{TokenFunc: source.Token, Credentials: source}
 	registry.Register(NewCloudSQLRunner(client, project, region))
 }
 

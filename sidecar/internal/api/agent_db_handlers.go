@@ -81,7 +81,7 @@ func agentDBSubrouterWithRegistry(
 			}
 		}
 		if parts[0] == "providers" && r.Method == http.MethodGet && len(parts) == 1 {
-			agentDBProvidersHandler()(w, r)
+			agentDBProvidersHandler(st, registry, authority)(w, r)
 			return
 		}
 		if parts[0] == "provider-configs" {
@@ -432,6 +432,9 @@ func agentDBRegisterHandler(st *agentdb.Store) http.HandlerFunc {
 			),
 			SizeProfileID:  str(m, "size_profile_id"),
 			SchemaName:     str(m, "schema_name"),
+			// G8-B14: validated against the env allow-list by the store.
+			SecretRef:         str(m, "secret_ref"),
+			SecretRefProvider: str(m, "secret_ref_provider"),
 			LeaseSeconds:   integer(m, "lease_seconds"),
 			BudgetUSD:      float(m, "budget_usd"),
 			BackupRequired: boolValue(m, "backup_required"),
