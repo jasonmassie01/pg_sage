@@ -164,31 +164,30 @@ func TestPurgeExpired_ConcurrentSafety(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			l.purgeExpired()
-			l.allow("concurrent@test.com")
-			l.record("concurrent@test.com")
+			l.reserve("concurrent@test.com")
 		}()
 	}
 	wg.Wait()
 }
 
-func TestLoginRateLimiter_AllowRecordReset(t *testing.T) {
-	// Covers allow/record/reset behavior in one pass.
+func TestLoginRateLimiter_ReserveReset(t *testing.T) {
+	// Covers reserve/reset behavior in one pass (reserve replaced
+	// allow+record for SURF-16).
 	l := &loginRateLimiter{
 		attempts: make(map[string][]time.Time),
 	}
 	email := "ratelimit@test.com"
 
-	if !l.allow(email) {
-		t.Fatal("first attempt should be allowed")
-	}
 	for i := 0; i < loginMaxAttempts; i++ {
-		l.record(email)
+		if !l.reserve(email) {
+			t.Fatalf("attempt %d should be allowed", i+1)
+		}
 	}
-	if l.allow(email) {
+	if l.reserve(email) {
 		t.Error("should be rate-limited after max attempts")
 	}
 	l.reset(email)
-	if !l.allow(email) {
+	if !l.reserve(email) {
 		t.Error("should be allowed after reset")
 	}
 }

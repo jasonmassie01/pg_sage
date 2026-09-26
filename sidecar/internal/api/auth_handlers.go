@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,158 +20,6 @@ import (
 var loginRateLimitDisabled = os.Getenv(
 	"PG_SAGE_DISABLE_LOGIN_RATE_LIMIT",
 ) == "1"
-
-// loginRateLimiter tracks failed login attempts per email.
-type loginRateLimiter struct {
-	mu       sync.Mutex
-	attempts map[string][]time.Time
-	stop     chan struct{}
-	stopOnce sync.Once
-}
-
-var loginLimiter = newLoginRateLimiter()
-
-const (
-	loginMaxAttempts = 5
-	loginWindow      = 15 * time.Minute
-	loginMaxEntries  = 10000
-	loginCleanupFreq = 5 * time.Minute
-)
-
-func newLoginRateLimiter() *loginRateLimiter {
-	l := &loginRateLimiter{
-		attempts: make(map[string][]time.Time),
-		stop:     make(chan struct{}),
-	}
-	go l.cleanupLoop()
-	return l
-}
-
-// cleanupLoop periodically purges expired entries to bound
-// memory growth from distributed login spray attacks. It exits
-// when Stop is called, allowing tests and shutdown paths to
-// reclaim the goroutine instead of leaking one per process.
-func (l *loginRateLimiter) cleanupLoop() {
-	ticker := time.NewTicker(loginCleanupFreq)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-l.stop:
-			return
-		case <-ticker.C:
-			l.purgeExpired()
-		}
-	}
-}
-
-// Stop halts the cleanup goroutine. Idempotent — safe to call
-// multiple times. After Stop, purgeExpired no longer runs in the
-// background; allow/record/reset remain functional.
-func (l *loginRateLimiter) Stop() {
-	l.stopOnce.Do(func() {
-		close(l.stop)
-	})
-}
-
-// ShutdownLoginLimiter stops the package-level login rate limiter's
-// background cleanup goroutine. Call during graceful shutdown so the
-// goroutine doesn't outlive the process's API server.
-func ShutdownLoginLimiter() {
-	loginLimiter.Stop()
-}
-
-func (l *loginRateLimiter) purgeExpired() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	cutoff := time.Now().Add(-loginWindow)
-	for email, attempts := range l.attempts {
-		valid := attempts[:0]
-		for _, t := range attempts {
-			if t.After(cutoff) {
-				valid = append(valid, t)
-			}
-		}
-		if len(valid) == 0 {
-			delete(l.attempts, email)
-		} else {
-			l.attempts[email] = valid
-		}
-	}
-}
-
-// allow returns true if the email is not rate-limited.
-// It prunes expired entries on each call.
-func (l *loginRateLimiter) allow(email string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	cutoff := time.Now().Add(-loginWindow)
-	attempts := l.attempts[email]
-	valid := attempts[:0]
-	for _, t := range attempts {
-		if t.After(cutoff) {
-			valid = append(valid, t)
-		}
-	}
-	l.attempts[email] = valid
-	return len(valid) < loginMaxAttempts
-}
-
-// record adds a failed attempt for the given email.
-func (l *loginRateLimiter) record(email string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	// If the key already exists, recording another attempt does not
-	// grow the map. Always allow that case so an attacker cannot
-	// freeze the limiter for real administrators by first filling the
-	// map with random emails.
-	if _, exists := l.attempts[email]; exists {
-		l.attempts[email] = append(l.attempts[email], time.Now())
-		return
-	}
-	// New key: if the map is at capacity, evict an expired entry
-	// before inserting. If no expired entry exists, evict the oldest
-	// tracked email. This bounds memory without silently dropping
-	// tracking for the real target of a spray attack.
-	if len(l.attempts) >= loginMaxEntries {
-		l.evictOneLocked()
-	}
-	l.attempts[email] = append(l.attempts[email], time.Now())
-}
-
-// evictOneLocked removes one entry from the map. Caller must hold mu.
-// Prefers entries whose most recent attempt is outside the window;
-// otherwise evicts the entry with the oldest most-recent attempt.
-func (l *loginRateLimiter) evictOneLocked() {
-	cutoff := time.Now().Add(-loginWindow)
-	var oldestEmail string
-	var oldestLast time.Time
-	for email, attempts := range l.attempts {
-		if len(attempts) == 0 {
-			delete(l.attempts, email)
-			return
-		}
-		last := attempts[len(attempts)-1]
-		if last.Before(cutoff) {
-			delete(l.attempts, email)
-			return
-		}
-		if oldestEmail == "" || last.Before(oldestLast) {
-			oldestEmail = email
-			oldestLast = last
-		}
-	}
-	if oldestEmail != "" {
-		delete(l.attempts, oldestEmail)
-	}
-}
-
-// reset clears failed attempts for the email on success.
-func (l *loginRateLimiter) reset(email string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	delete(l.attempts, email)
-}
 
 func loginHandler(
 	pool *pgxpool.Pool,
@@ -194,7 +41,7 @@ func loginHandler(
 		}
 
 		if !loginRateLimitDisabled &&
-			!loginLimiter.allow(req.Email) {
+			!loginLimiter.reserve(req.Email) {
 			jsonError(w, "too many login attempts, "+
 				"try again later",
 				http.StatusTooManyRequests)
@@ -205,7 +52,6 @@ func loginHandler(
 			r.Context(), pool, req.Email, req.Password,
 		)
 		if err != nil {
-			loginLimiter.record(req.Email)
 			jsonError(w, "invalid credentials",
 				http.StatusUnauthorized)
 			return
