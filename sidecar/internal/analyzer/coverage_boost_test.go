@@ -1714,24 +1714,30 @@ func TestCoverage_PickBetter_HigherSeverityWins(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// rules_index.go: isLeadingPrefix, extractIndexNameFromSQL
+// rules_index.go: isLeadingSet, extractIndexNameFromSQL
 // ---------------------------------------------------------------------------
 
-func TestCoverage_IsLeadingPrefix_Match(t *testing.T) {
-	if !isLeadingPrefix([]string{"a"}, []string{"a", "b"}) {
+func TestCoverage_IsLeadingSet_Match(t *testing.T) {
+	if !isLeadingSet([]string{"a"}, []string{"a", "b"}) {
 		t.Error("expected true for leading prefix")
 	}
 }
 
-func TestCoverage_IsLeadingPrefix_NeedLongerThanHave(t *testing.T) {
-	if isLeadingPrefix([]string{"a", "b"}, []string{"a"}) {
+func TestCoverage_IsLeadingSet_NeedLongerThanHave(t *testing.T) {
+	if isLeadingSet([]string{"a", "b"}, []string{"a"}) {
 		t.Error("expected false when need > have")
 	}
 }
 
-func TestCoverage_IsLeadingPrefix_Mismatch(t *testing.T) {
-	if isLeadingPrefix([]string{"b"}, []string{"a", "b"}) {
+func TestCoverage_IsLeadingSet_Mismatch(t *testing.T) {
+	if isLeadingSet([]string{"b"}, []string{"a", "b"}) {
 		t.Error("expected false for non-prefix match")
+	}
+}
+
+func TestCoverage_IsLeadingSet_Permutation(t *testing.T) {
+	if !isLeadingSet([]string{"b", "a"}, []string{"a", "b", "c"}) {
+		t.Error("expected true: leading columns are a permutation of the FK")
 	}
 }
 

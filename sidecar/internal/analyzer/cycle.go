@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"strings"
 
 	"github.com/pg-sage/sidecar/internal/collector"
 )
@@ -113,7 +114,10 @@ func missingFKTables(findings []Finding) map[string]bool {
 	out := make(map[string]bool)
 	for _, f := range findings {
 		if f.Category == "missing_fk_index" {
-			out[f.ObjectIdentifier] = true
+			// Identifier is "schema.table(cols)"; the watchdog keys on
+			// "schema.table".
+			table, _, _ := strings.Cut(f.ObjectIdentifier, "(")
+			out[table] = true
 		}
 	}
 	return out
