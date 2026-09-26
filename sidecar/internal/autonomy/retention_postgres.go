@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/schemaguard"
@@ -94,11 +95,8 @@ func (enforcer *postgresRetentionEnforcer) authorizedDelete(
 	if err := enforcer.authorize(ctx, intent); err != nil {
 		return fmt.Errorf("retention delete withheld: %w", err)
 	}
-	deleted, err := enforcer.deleteBatch(ctx, item.Invariant, cutoff)
-	if err != nil {
-		return err
-	}
-	return enforcer.record(ctx, item.Invariant, cutoff, candidates, deleted, "applied")
+	_, err := enforcer.deleteBatch(ctx, item.Invariant, cutoff, candidates)
+	return err
 }
 
 func (enforcer *postgresRetentionEnforcer) requirePolicyConsent(
@@ -172,8 +170,12 @@ func (enforcer *postgresRetentionEnforcer) requireReviewedDryRun(
 // deleteBatch deletes at most one bounded batch. Victims are bound to
 // (tableoid, ctid) — a ctid alone repeats across partitions — and the cutoff
 // is re-checked on the row actually deleted. Timeouts bound lock waits.
+// The 'applied' audit row is written in the same transaction as the delete:
+// either both commit or neither does, so a deletion can never exist without
+// its durable outcome record (and an ambiguous commit leaves no half state).
 func (enforcer *postgresRetentionEnforcer) deleteBatch(
 	ctx context.Context, invariant schemaguard.Invariant, cutoff time.Time,
+	candidates int64,
 ) (int64, error) {
 	tx, err := enforcer.pool.Begin(ctx)
 	if err != nil {
@@ -193,6 +195,10 @@ func (enforcer *postgresRetentionEnforcer) deleteBatch(
 	tag, err := tx.Exec(ctx, query, cutoff, enforcer.limit())
 	if err != nil {
 		return 0, fmt.Errorf("apply bounded retention batch: %w", err)
+	}
+	if err := recordRetentionRun(ctx, tx, invariant, cutoff, candidates,
+		tag.RowsAffected(), "applied"); err != nil {
+		return 0, fmt.Errorf("retention batch rolled back: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit retention batch: %w", err)
@@ -220,7 +226,19 @@ func (enforcer *postgresRetentionEnforcer) record(
 	ctx context.Context, invariant schemaguard.Invariant, cutoff time.Time,
 	candidates, deleted int64, disposition string,
 ) error {
-	_, err := enforcer.pool.Exec(ctx, `INSERT INTO sage.retention_run
+	return recordRetentionRun(ctx, enforcer.pool, invariant, cutoff,
+		candidates, deleted, disposition)
+}
+
+type retentionExecer interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+func recordRetentionRun(
+	ctx context.Context, db retentionExecer, invariant schemaguard.Invariant,
+	cutoff time.Time, candidates, deleted int64, disposition string,
+) error {
+	_, err := db.Exec(ctx, `INSERT INTO sage.retention_run
 		(schema_name, table_name, retention_column, cutoff_at,
 		 candidate_rows, deleted_rows, disposition)
 		VALUES ($1,$2,$3,$4,$5,$6,$7)`, invariant.Schema, invariant.Table,

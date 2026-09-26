@@ -87,6 +87,14 @@ type StateStore interface {
 	Update(context.Context, WatchState) error
 	Get(context.Context, string) (WatchState, error)
 	ListDue(context.Context, time.Time) ([]WatchState, error)
+	// Claim takes exclusive ownership of a listed watch that is still due at
+	// now by moving its next evaluation to leaseUntil, and returns the
+	// current durable state. It reports false when the watch is no longer
+	// due (another worker claimed or finished it). Ownership lapses at
+	// leaseUntil, so a worker that died is retried after its lease.
+	Claim(ctx context.Context, listed WatchState, now, leaseUntil time.Time) (
+		WatchState, bool, error,
+	)
 }
 
 type Options struct {
