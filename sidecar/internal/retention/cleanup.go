@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/rca"
 )
 
 const batchSize = 1000
@@ -77,7 +78,6 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{"health_history", "recorded_at", r.SnapshotsDays, ""},
 		{"size_history", "collected_at", r.SnapshotsDays, ""},
 		{"findings", "last_seen", r.FindingsDays, "AND status = 'resolved'"},
-		{"incidents", "last_detected_at", r.FindingsDays, "AND resolved_at IS NOT NULL"},
 		{"briefings", "generated_at", r.FindingsDays, ""},
 		{"alert_log", "sent_at", r.ActionsDays, ""},
 		{"notification_log", "sent_at", r.ActionsDays, ""},
@@ -101,6 +101,7 @@ var retentionExemptions = map[string]string{
 	"crypto_meta":            "key metadata, not a time-series",
 	"databases":              "fleet registry, not a time-series",
 	"incident_avoided":       "value ledger; low volume, kept as evidence",
+	"incidents":              "pruned by rca.PruneResolvedIncidents (resolved_at, findings_days)",
 	"migration_run":          "low-volume migration evidence ledger",
 	"notification_channels":  "configuration",
 	"notification_rules":     "configuration",
@@ -124,6 +125,30 @@ func (c *Cleaner) Run(ctx context.Context) {
 			return
 		}
 		c.purgeTable(ctx, rule.table, rule.timeCol, rule.days, rule.extra)
+	}
+	if ctx.Err() == nil {
+		c.pruneIncidents(ctx)
+	}
+}
+
+// pruneIncidents deletes incidents resolved more than findings_days ago
+// through the RCA package's own hook, so the resolution-age rule lives in
+// one place (substrate-B7). Open incidents are never deleted.
+func (c *Cleaner) pruneIncidents(ctx context.Context) {
+	days := c.cfg.Retention.FindingsDays
+	if days <= 0 {
+		return
+	}
+	window := time.Duration(days) * 24 * time.Hour
+	deleted, err := rca.PruneResolvedIncidents(ctx, c.pool, window)
+	if err != nil {
+		c.logFn("ERROR", "retention: pruning resolved sage.incidents failed "+
+			"after %d rows (retention: %d days): %v", deleted, days, err)
+		return
+	}
+	if deleted > 0 {
+		c.logFn("INFO", "retention: pruned %d resolved incidents "+
+			"(retention: %d days)", deleted, days)
 	}
 }
 
