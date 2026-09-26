@@ -118,9 +118,10 @@ func initMetaDB(
 	// match keys used to encrypt prior records. The salt must be
 	// stable across restarts — if it is lost, all encrypted
 	// credentials become unrecoverable.
-	var encKey []byte
+	var encKey, salt []byte
 	if encKeyPassphrase != "" {
-		salt, err := schema.ReadOrCreateKDFSalt(ctx, metaPool)
+		var err error
+		salt, err = schema.ReadOrCreateKDFSalt(ctx, metaPool)
 		if err != nil {
 			return nil, fmt.Errorf("kdf salt: %w", err)
 		}
@@ -138,6 +139,11 @@ func initMetaDB(
 	}
 
 	dbStore := store.NewDatabaseStore(metaPool, encKey)
+	if encKeyPassphrase != "" {
+		// Credentials written by v0.8.4/v0.8.5 used legacy key
+		// derivations; decrypt and re-encrypt them on first read (G5-B05).
+		dbStore.WithKeyMigration(encKeyPassphrase, salt)
+	}
 
 	return &metaDBState{
 		Pool:       metaPool,
