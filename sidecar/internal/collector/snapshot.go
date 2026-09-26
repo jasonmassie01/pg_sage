@@ -111,7 +111,7 @@ type SystemStats struct {
 	IdleInTransaction int     `json:"idle_in_transaction"`
 	TotalBackends     int     `json:"total_backends"`
 	MaxConnections    int     `json:"max_connections"`
-	CacheHitRatio     float64 `json:"cache_hit_ratio"`
+	CacheHitRatio     float64 `json:"cache_hit_ratio"` // fraction 0..1, or CacheHitRatioUnknown
 	Deadlocks         int64   `json:"deadlocks"`
 	BlkReadTime       float64 `json:"blk_read_time"`
 	BlkWriteTime      float64 `json:"blk_write_time"`
@@ -142,9 +142,11 @@ type SequenceStats struct {
 	SequenceName string  `json:"sequencename"`
 	DataType     string  `json:"data_type"`
 	LastValue    int64   `json:"last_value"`
+	MinValue     int64   `json:"min_value"`
 	MaxValue     int64   `json:"max_value"`
 	IncrementBy  int64   `json:"increment_by"`
-	PctUsed      float64 `json:"pct_used"`
+	Cycle        bool    `json:"cycle"`
+	PctUsed      float64 `json:"pct_used"` // consumed share of [min,max] in travel direction
 }
 
 // ReplicationStats aggregates replica and slot info.
@@ -153,14 +155,15 @@ type ReplicationStats struct {
 	Slots    []SlotInfo    `json:"slots"`
 }
 
-// ReplicaInfo describes a single streaming replica.
+// ReplicaInfo describes a single streaming replica. LSNs are NULL while a
+// walsender is starting up or catching up (G1-B20).
 type ReplicaInfo struct {
 	ClientAddr *string `json:"client_addr"`
 	State      string  `json:"state"`
-	SentLSN    string  `json:"sent_lsn"`
-	WriteLSN   string  `json:"write_lsn"`
-	FlushLSN   string  `json:"flush_lsn"`
-	ReplayLSN  string  `json:"replay_lsn"`
+	SentLSN    *string `json:"sent_lsn"`
+	WriteLSN   *string `json:"write_lsn"`
+	FlushLSN   *string `json:"flush_lsn"`
+	ReplayLSN  *string `json:"replay_lsn"`
 	WriteLag   *string `json:"write_lag"`
 	FlushLag   *string `json:"flush_lag"`
 	ReplayLag  *string `json:"replay_lag"`

@@ -11,71 +11,67 @@ package collector
 // query carrying it matches the filter's `ILIKE '%pg_sage%'`.
 const sageTag = "/* pg_sage */ "
 
-const queryStatsSQL = sageTag + `
-SELECT COALESCE(queryid, 0), query, calls,
-       total_exec_time, mean_exec_time, min_exec_time, max_exec_time,
-       stddev_exec_time, rows,
-       shared_blks_hit, shared_blks_read, shared_blks_dirtied, shared_blks_written,
-       temp_blks_read, temp_blks_written,
-       0::float8 AS blk_read_time, 0::float8 AS blk_write_time
+// queryStatsSelect aggregates pg_stat_statements to ONE row per queryid.
+// pg_stat_statements keys rows by (userid, dbid, queryid, toplevel), so the
+// same statement run by two roles (or top-level and nested) would otherwise
+// produce duplicate query_store samples with one captured_at (G1-B05).
+// Means and the population stddev are recombined from per-row calls.
+// The two %s verbs are the block read/write time expressions chosen by
+// blockTimeColumns (PG17 renamed blk_*_time to shared_/local_blk_*_time).
+const queryStatsSelect = sageTag + `
+SELECT COALESCE(queryid, 0) AS queryid,
+       (array_agg(query ORDER BY calls DESC))[1] AS query,
+       sum(calls)::bigint AS calls,
+       sum(total_exec_time)::float8 AS total_exec_time,
+       COALESCE(sum(total_exec_time) / NULLIF(sum(calls), 0), 0)::float8 AS mean_exec_time,
+       COALESCE(min(min_exec_time), 0)::float8 AS min_exec_time,
+       COALESCE(max(max_exec_time), 0)::float8 AS max_exec_time,
+       COALESCE(sqrt(GREATEST(
+         sum(calls * (stddev_exec_time ^ 2 + mean_exec_time ^ 2)) / NULLIF(sum(calls), 0)
+         - (sum(total_exec_time) / NULLIF(sum(calls), 0)) ^ 2, 0)), 0)::float8
+         AS stddev_exec_time,
+       sum(rows)::bigint AS rows,
+       sum(shared_blks_hit)::bigint, sum(shared_blks_read)::bigint,
+       sum(shared_blks_dirtied)::bigint, sum(shared_blks_written)::bigint,
+       sum(temp_blks_read)::bigint, sum(temp_blks_written)::bigint,
+       COALESCE(sum(%s), 0)::float8 AS blk_read_time,
+       COALESCE(sum(%s), 0)::float8 AS blk_write_time`
+
+const queryStatsWALColumns = `,
+       sum(wal_records)::bigint, sum(wal_fpi)::bigint, sum(wal_bytes)::bigint`
+
+const queryStatsPlanColumns = `,
+       COALESCE(sum(total_plan_time), 0)::float8 AS total_plan_time,
+       COALESCE(sum(total_plan_time) / NULLIF(sum(plans), 0), 0)::float8
+         AS mean_plan_time`
+
+const queryStatsFrom = `
   FROM pg_stat_statements
  WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
    AND queryid IS NOT NULL
    AND COALESCE(query, '') NOT ILIKE '%%pg_sage%%'
    AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
- ORDER BY total_exec_time DESC
+ GROUP BY queryid
+ ORDER BY sum(total_exec_time) DESC
  LIMIT %d`
 
-const queryStatsWithWALSQL = sageTag + `
-SELECT COALESCE(queryid, 0), query, calls,
-       total_exec_time, mean_exec_time, min_exec_time, max_exec_time,
-       stddev_exec_time, rows,
-       shared_blks_hit, shared_blks_read, shared_blks_dirtied, shared_blks_written,
-       temp_blks_read, temp_blks_written,
-       0::float8 AS blk_read_time, 0::float8 AS blk_write_time,
-       wal_records, wal_fpi, wal_bytes
-  FROM pg_stat_statements
- WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-   AND queryid IS NOT NULL
-   AND COALESCE(query, '') NOT ILIKE '%%pg_sage%%'
-   AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
- ORDER BY total_exec_time DESC
- LIMIT %d`
+const queryStatsSQL = queryStatsSelect + queryStatsFrom
 
-const queryStatsWithPlanTimeSQL = sageTag + `
-SELECT COALESCE(queryid, 0), query, calls,
-       total_exec_time, mean_exec_time, min_exec_time, max_exec_time,
-       stddev_exec_time, rows,
-       shared_blks_hit, shared_blks_read, shared_blks_dirtied, shared_blks_written,
-       temp_blks_read, temp_blks_written,
-       0::float8 AS blk_read_time, 0::float8 AS blk_write_time,
-       COALESCE(total_plan_time, 0) AS total_plan_time,
-       COALESCE(mean_plan_time, 0) AS mean_plan_time
-  FROM pg_stat_statements
- WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-   AND queryid IS NOT NULL
-   AND COALESCE(query, '') NOT ILIKE '%%pg_sage%%'
-   AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
- ORDER BY total_exec_time DESC
- LIMIT %d`
+const queryStatsWithWALSQL = queryStatsSelect + queryStatsWALColumns + queryStatsFrom
 
-const queryStatsWithWALAndPlanTimeSQL = sageTag + `
-SELECT COALESCE(queryid, 0), query, calls,
-       total_exec_time, mean_exec_time, min_exec_time, max_exec_time,
-       stddev_exec_time, rows,
-       shared_blks_hit, shared_blks_read, shared_blks_dirtied, shared_blks_written,
-       temp_blks_read, temp_blks_written,
-       0::float8 AS blk_read_time, 0::float8 AS blk_write_time,
-       wal_records, wal_fpi, wal_bytes,
-       COALESCE(total_plan_time, 0) AS total_plan_time,
-       COALESCE(mean_plan_time, 0) AS mean_plan_time
-  FROM pg_stat_statements
- WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-   AND queryid IS NOT NULL
-   AND COALESCE(query, '') NOT ILIKE '%%pg_sage%%'
-   AND COALESCE(query, '') !~* '(^|[^[:alnum:]_])("?sage"?)[[:space:]]*\.'
- ORDER BY total_exec_time DESC
- LIMIT %d`
+const queryStatsWithPlanTimeSQL = queryStatsSelect + queryStatsPlanColumns + queryStatsFrom
+
+const queryStatsWithWALAndPlanTimeSQL = queryStatsSelect + queryStatsWALColumns +
+	queryStatsPlanColumns + queryStatsFrom
+
+// blockTimeColumnsSQL finds which block-time columns the installed
+// pg_stat_statements view exposes (depends on the extension version, not
+// only the server version).
+const blockTimeColumnsSQL = sageTag + `
+SELECT attname::text FROM pg_attribute
+ WHERE attrelid = to_regclass('pg_stat_statements')
+   AND attnum > 0 AND NOT attisdropped
+   AND attname IN ('shared_blk_read_time', 'blk_read_time')`
 
 const tableStatsSQL = sageTag + `
 SELECT s.schemaname, s.relname,
@@ -131,23 +127,26 @@ SELECT cl.relname AS table_name,
    AND n.nspname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
  ORDER BY cl.relname, con.conname`
 
+// cacheHitRatioExpr is the buffer cache hit ratio as a FRACTION in
+// [0,1] (G1-B08/C01: it used to be a percent compared against fractional
+// thresholds). No block accesses yields NULL, i.e. unknown, never 0.
+const cacheHitRatioExpr = `round(sum(blks_hit)::numeric /
+       NULLIF(sum(blks_hit) + sum(blks_read), 0), 4)`
+
 // systemStatsSQLBase is the common prefix for system stats (all PG versions).
 const systemStatsSQLBase = sageTag + `
 SELECT
   (SELECT count(*) FROM pg_stat_activity
     WHERE state = 'active' AND pid <> pg_backend_pid()) AS active_backends,
   (SELECT count(*) FROM pg_stat_activity
-    WHERE state = 'idle in transaction') AS idle_in_transaction,
+    WHERE state = 'idle in transaction'
+      AND datname = current_database()) AS idle_in_transaction,
   (SELECT count(*) FROM pg_stat_activity
     WHERE pid <> pg_backend_pid()) AS total_backends,
   (SELECT setting::int FROM pg_settings
     WHERE name = 'max_connections') AS max_connections,
-  COALESCE(
-    (SELECT round(
-       sum(blks_hit)::numeric /
-       NULLIF(sum(blks_hit) + sum(blks_read), 0) * 100, 2)
-     FROM pg_stat_database
-     WHERE datname = current_database()), 0) AS cache_hit_ratio,
+  (SELECT ` + cacheHitRatioExpr + ` FROM pg_stat_database
+    WHERE datname = current_database()) AS cache_hit_ratio,
   COALESCE((SELECT deadlocks FROM pg_stat_database
     WHERE datname = current_database()), 0) AS deadlocks,
   COALESCE((SELECT blk_read_time FROM pg_stat_database
@@ -170,6 +169,10 @@ const systemStatsSQL17 = systemStatsSQLBase + `
   pg_is_in_recovery() AS is_replica,
   pg_database_size(current_database()) AS db_size_bytes`
 
+// locksSQL is scoped to the current database (G1-B17): relation locks
+// must belong to this database (pg_class OIDs are per-database, so a
+// foreign lock would resolve to the wrong relname), and database-less
+// locks (transactionid, virtualxid) only count for local backends.
 const locksSQL = sageTag + `
 SELECT l.locktype, l.mode, l.granted,
        c.relname,
@@ -178,20 +181,30 @@ SELECT l.locktype, l.mode, l.granted,
        l.pid,
        a.backend_start, a.query_start
   FROM pg_locks l
-  LEFT JOIN pg_class c ON c.oid = l.relation
+ CROSS JOIN (SELECT oid FROM pg_database WHERE datname = current_database()) d
   LEFT JOIN pg_stat_activity a ON a.pid = l.pid
+  LEFT JOIN pg_class c ON c.oid = l.relation AND l.database = d.oid
  WHERE l.pid <> pg_backend_pid()
+   AND (l.database = d.oid OR (l.database IS NULL AND a.datid = d.oid))
  ORDER BY l.granted, l.pid`
 
+// sequencesSQL reports consumption in the direction of travel over the
+// configured [min_value, max_value] range (C18/G1-B35): ascending
+// sequences consume from min toward max, descending ones from max toward
+// min. Arithmetic is numeric to avoid bigint overflow. sage-owned
+// sequences are excluded.
 const sequencesSQL = sageTag + `
 SELECT schemaname, sequencename, data_type,
-       COALESCE(last_value, 0), max_value, increment_by,
-       CASE WHEN max_value > 0 AND last_value IS NOT NULL
-            THEN round((last_value::numeric / max_value) * 100, 2)
-            ELSE 0
+       COALESCE(last_value, 0), min_value, max_value, increment_by, cycle,
+       CASE WHEN last_value IS NULL OR max_value = min_value THEN 0
+            WHEN increment_by > 0
+            THEN round((last_value::numeric - min_value::numeric) /
+                       (max_value::numeric - min_value::numeric) * 100, 2)
+            ELSE round((max_value::numeric - last_value::numeric) /
+                       (max_value::numeric - min_value::numeric) * 100, 2)
        END AS pct_used
   FROM pg_sequences
- WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+ WHERE schemaname NOT IN ('pg_catalog', 'information_schema', 'sage')
  ORDER BY pct_used DESC`
 
 const replicationReplicasSQL = sageTag + `

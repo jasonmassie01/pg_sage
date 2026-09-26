@@ -195,3 +195,5 @@ func TestCollectSequences_DirectionAndRange(t *testing.T) {
 			got["shift_seq"].Cycle, got["asc_seq"].Cycle)
 	}
 }
+
+func lsnPtr(s string) *string { return &s }
