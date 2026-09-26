@@ -692,6 +692,13 @@ func seedExpiredLiveDeployment(
 		WHERE deployment_id=$1`, id); err != nil {
 		t.Fatalf("expire live deployment: %v", err)
 	}
+	// A live deployment is backed by a live creation receipt (G8-B04).
+	if err := st.RecordCreationReceipt(ctx, CreationReceipt{
+		DeploymentID: id, Provider: ProviderAWSRDS,
+		ProviderResourceID: "live-resource", OperationMode: "live",
+	}); err != nil {
+		t.Fatalf("seed creation receipt: %v", err)
+	}
 }
 
 func seedRestoreVerifiedBackup(t *testing.T, st *Store, ctx context.Context, id string) {
