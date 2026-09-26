@@ -91,37 +91,6 @@ func rollbackSchemaInit(tx pgx.Tx) {
 	_ = tx.Rollback(ctx)
 }
 
-func (s *Store) ProvisionSchema(
-	ctx context.Context,
-	req RegisterRequest,
-) (Deployment, error) {
-	normalizeProviderFields(&req)
-	if req.Provider != ProviderLocalPostgres || req.ProvisioningLevel != LevelSchema {
-		return Deployment{}, ErrInvalid
-	}
-	req.SchemaName = sanitizeSchemaName(req.SchemaName)
-	if req.SchemaName == "" {
-		req.SchemaName = "agentdb_" + idFrom(req.TenantID, req.AgentID)
-	}
-	if err := s.Ensure(ctx); err != nil {
-		return Deployment{}, err
-	}
-	sql := fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", quoteIdent(req.SchemaName))
-	if _, err := s.pool.Exec(ctx, sql); err != nil {
-		return Deployment{}, err
-	}
-	if req.Metadata == nil {
-		req.Metadata = map[string]any{}
-	}
-	req.Metadata["credential_scope"] = req.SchemaName
-	req.ProvisioningStatus = "provisioned"
-	req.ConnectionInfo = map[string]any{
-		"provider":    req.Provider,
-		"schema_name": req.SchemaName,
-	}
-	return s.Register(ctx, req)
-}
-
 func (s *Store) Provision(ctx context.Context, req RegisterRequest) (Deployment, error) {
 	normalizeProviderFields(&req)
 	if req.Provider == ProviderLocalPostgres {
@@ -152,35 +121,6 @@ func (s *Store) Provision(ctx context.Context, req RegisterRequest) (Deployment,
 	req.Metadata = cloneAnyMap(req.Metadata)
 	req.Metadata["provider_params"] = cloneAnyMap(profile.ProviderParams)
 	req.Metadata["size_profile_id"] = profile.ProfileID
-	return s.Register(ctx, req)
-}
-
-func (s *Store) provisionLocalDatabase(
-	ctx context.Context,
-	req RegisterRequest,
-) (Deployment, error) {
-	req.DatabaseName = sanitizeDatabaseName(req.DatabaseName)
-	if req.DatabaseName == "" {
-		req.DatabaseName = "agentdb_" + idFrom(req.TenantID, req.AgentID)
-	}
-	if err := s.Ensure(ctx); err != nil {
-		return Deployment{}, err
-	}
-	sql := fmt.Sprintf("CREATE DATABASE %s", quoteIdent(req.DatabaseName))
-	if _, err := s.pool.Exec(ctx, sql); err != nil {
-		if !strings.Contains(err.Error(), "already exists") {
-			return Deployment{}, err
-		}
-	}
-	if req.Metadata == nil {
-		req.Metadata = map[string]any{}
-	}
-	req.Metadata["credential_scope"] = req.DatabaseName
-	req.ProvisioningStatus = "provisioned"
-	req.ConnectionInfo = map[string]any{
-		"provider":      req.Provider,
-		"database_name": req.DatabaseName,
-	}
 	return s.Register(ctx, req)
 }
 

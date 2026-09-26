@@ -117,7 +117,7 @@ func (s *Store) Register(ctx context.Context, req RegisterRequest) (Deployment, 
 	if err := s.Ensure(ctx); err != nil {
 		return Deployment{}, err
 	}
-	if err := normalizeRegister(&req); err != nil {
+	if err := normalizeRegister(&req, s.opts.RequireBackupBeforeDestroy); err != nil {
 		return Deployment{}, err
 	}
 	var dep Deployment
@@ -461,7 +461,10 @@ func requestDecision(decision string) (string, string, error) {
 	}
 }
 
-func normalizeRegister(req *RegisterRequest) error {
+// normalizeRegister validates and defaults a registration. backup_required
+// is forced on while agentdb.require_backup_before_destroy is set, and
+// otherwise honours the request (G8-B12).
+func normalizeRegister(req *RegisterRequest, requireBackup bool) error {
 	req.DeploymentID = strings.TrimSpace(req.DeploymentID)
 	req.TenantID = strings.TrimSpace(req.TenantID)
 	req.AgentID = strings.TrimSpace(req.AgentID)
@@ -496,7 +499,7 @@ func normalizeRegister(req *RegisterRequest) error {
 	if req.ConnectionInfo == nil {
 		req.ConnectionInfo = map[string]any{}
 	}
-	req.BackupRequired = true
+	req.BackupRequired = req.BackupRequired || requireBackup
 	return nil
 }
 

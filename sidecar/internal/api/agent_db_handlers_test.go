@@ -2033,6 +2033,8 @@ func requireAgentDBAPIStore(t *testing.T) (*agentdb.Store, context.Context, *pgx
 		t.Skipf("database unavailable: %v", err)
 	}
 	st := agentdb.NewStore(pool)
+	// The fixture database is disposable, so local DDL is explicitly enabled.
+	st.EnableLocalProvisioning(true)
 	if err := st.Ensure(ctx); err != nil {
 		pool.Close()
 		t.Fatalf("ensure schema: %v", err)

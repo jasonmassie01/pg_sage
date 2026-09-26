@@ -32,6 +32,7 @@ func registerAgentDBRoutesWithAuthority(
 	authority *agentDBLiveAuthority,
 ) {
 	registry := agentdb.RuntimeRunnerRegistryFromEnv(context.Background())
+	applyAgentDBStorePolicy(st, authority)
 	operatorUp := RequireRole("admin", "operator")
 	mux.Handle(
 		"POST /api/v1/agent-dbs/{deployment_id}/agent-ping",

@@ -167,3 +167,18 @@ func authenticatedActor(r *http.Request) string {
 	}
 	return liveRequesterID(r)
 }
+
+// applyAgentDBStorePolicy applies runtime policy the store enforces itself:
+// the backup-before-destroy config and the explicit local provisioning
+// opt-in (never disabled here, so a caller-configured store keeps it).
+func applyAgentDBStorePolicy(st *agentdb.Store, authority *agentDBLiveAuthority) {
+	if st == nil {
+		return
+	}
+	if authority != nil {
+		st.SetRequireBackupBeforeDestroy(authority.config.RequireBackupBeforeDrop)
+	}
+	if agentdb.LocalProvisioningEnabledFromEnv() {
+		st.EnableLocalProvisioning(true)
+	}
+}
