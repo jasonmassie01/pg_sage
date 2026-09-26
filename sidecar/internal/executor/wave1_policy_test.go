@@ -189,8 +189,8 @@ func TestWave1ContractMappingRejectsMismatchedOrUnsupportedSQL(t *testing.T) {
 
 func TestWave1QuotedIdentifiersCannotSpoofActionClassification(t *testing.T) {
 	tests := map[string]string{
-		`REINDEX INDEX "idx CONCURRENTLY orders"`:                     "",
-		`ALTER TABLE "tenant AUTOVACUUM_enabled" SET TABLESPACE fast`: "alter_table",
+		`REINDEX INDEX "idx CONCURRENTLY orders"`:                       "",
+		`ALTER TABLE "tenant AUTOVACUUM_enabled" VALIDATE CONSTRAINT c`: "alter_table",
 	}
 	for sql, want := range tests {
 		t.Run(sql, func(t *testing.T) {

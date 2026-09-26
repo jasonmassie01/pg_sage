@@ -129,7 +129,7 @@ func TestValidateSQL_CaseInsensitive(t *testing.T) {
 		"Vacuum Analyze public.t",
 		"ALTER system SET work_mem = '64MB'",
 		"REINDEX index idx",
-		"set lock_timeout = '5s'",
+		"analyze public.t",
 	}
 	for _, sql := range cases {
 		if err := ValidateExecutorSQL(sql); err != nil {
