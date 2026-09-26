@@ -44,16 +44,18 @@ func EstimateWriteAmplification(
 	return (1.0 / float64(currentIndexCount+1)) * 100.0
 }
 
-// ComputeQuerySavings estimates daily time saved from the index.
-// Cost units are treated as 0.01ms each.
+// ComputeQuerySavings estimates daily time saved from the index. Inputs
+// are mean execution times in milliseconds (callers pass
+// pg_stat_statements mean_exec_time), not planner cost units; the old
+// 0.01 ms-per-unit factor under-stated savings 100x (G3-D10).
 func ComputeQuerySavings(
-	beforeCostMs, afterCostMs float64,
+	beforeMs, afterMs float64,
 	callsPerDay int64,
 ) time.Duration {
-	if afterCostMs >= beforeCostMs || callsPerDay <= 0 {
+	if afterMs >= beforeMs || callsPerDay <= 0 {
 		return 0
 	}
-	savedPerCall := (beforeCostMs - afterCostMs) * 0.01
+	savedPerCall := beforeMs - afterMs
 	totalMs := savedPerCall * float64(callsPerDay)
 	return time.Duration(totalMs * float64(time.Millisecond))
 }
