@@ -289,46 +289,53 @@ export const mockOAuthConfig = {
   enabled: false,
 }
 
+// Mirrors llmStatusHandler: {clients: {general, optimizer}, any_exhausted}.
 export const mockLLMStatus = {
-  general: {
-    model: 'gpt-4o',
-    enabled: true,
-    tokens_used: 250000,
-    token_budget: 500000,
-    budget_exhausted: false,
-    circuit_open: false,
-    resets_at: '2026-04-13T00:00:00Z',
+  clients: {
+    general: {
+      model: 'gpt-4o',
+      enabled: true,
+      tokens_used: 250000,
+      token_budget: 500000,
+      budget_exhausted: false,
+      circuit_open: false,
+      resets_at: '2026-04-13T00:00:00Z',
+    },
+    optimizer: {
+      model: 'gpt-4o',
+      enabled: true,
+      tokens_used: 50000,
+      token_budget: 200000,
+      budget_exhausted: false,
+      circuit_open: false,
+      resets_at: '2026-04-13T00:00:00Z',
+    },
   },
-  optimizer: {
-    model: 'gpt-4o',
-    enabled: true,
-    tokens_used: 50000,
-    token_budget: 200000,
-    budget_exhausted: false,
-    circuit_open: false,
-    resets_at: '2026-04-13T00:00:00Z',
-  },
+  any_exhausted: false,
 }
 
 export const mockLLMStatusExhausted = {
-  general: {
-    model: 'gpt-4o',
-    enabled: true,
-    tokens_used: 500000,
-    token_budget: 500000,
-    budget_exhausted: true,
-    circuit_open: false,
-    resets_at: '2026-04-13T00:00:00Z',
+  clients: {
+    general: {
+      model: 'gpt-4o',
+      enabled: true,
+      tokens_used: 500000,
+      token_budget: 500000,
+      budget_exhausted: true,
+      circuit_open: false,
+      resets_at: '2026-04-13T00:00:00Z',
+    },
+    optimizer: {
+      model: 'gpt-4o',
+      enabled: true,
+      tokens_used: 200000,
+      token_budget: 200000,
+      budget_exhausted: true,
+      circuit_open: false,
+      resets_at: '2026-04-13T00:00:00Z',
+    },
   },
-  optimizer: {
-    model: 'gpt-4o',
-    enabled: true,
-    tokens_used: 200000,
-    token_budget: 200000,
-    budget_exhausted: true,
-    circuit_open: false,
-    resets_at: '2026-04-13T00:00:00Z',
-  },
+  any_exhausted: true,
 }
 
 /**

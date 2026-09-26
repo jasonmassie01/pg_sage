@@ -349,7 +349,7 @@ function RecentRecommendationsPanel({ findings }) {
   )
 }
 
-export function Dashboard({ database, onSelectDB }) {
+export function Dashboard({ database, onSelectDB, user }) {
   const [overviewTab, setOverviewTab] = useState('databases')
   const dbParam = database && database !== 'all'
     ? `?database=${database}` : ''
@@ -400,7 +400,7 @@ export function Dashboard({ database, onSelectDB }) {
 
   return (
     <div className="space-y-6">
-      <TokenBudgetBanner />
+      <TokenBudgetBanner canReset={user?.role === 'admin'} />
       {summary && <HealthHero summary={summary} />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

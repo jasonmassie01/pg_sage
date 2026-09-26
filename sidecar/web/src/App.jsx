@@ -149,7 +149,7 @@ export default function App() {
       case '/advanced':
         return { title: 'Snapshot & metrics',
           node: <Dashboard database={selectedDB}
-            onSelectDB={setSelectedDB} /> }
+            onSelectDB={setSelectedDB} user={user} /> }
       case '/advanced/findings':
         return { title: 'Findings explorer',
           node: <CasesPage key={route} database={selectedDB} user={user} /> }

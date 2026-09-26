@@ -556,7 +556,7 @@ function SimpleMonitoringTab(props) {
 function SimpleAIAlertsTab(props) {
   return (
     <div className="space-y-6">
-      <TokenBudgetBanner />
+      <TokenBudgetBanner canReset />
       <div>
         <SectionHeading>AI Analysis</SectionHeading>
         <Field
@@ -1330,7 +1330,7 @@ export function isMaskedSecret(value) {
 function LLMTab(props) {
   return (
     <div className="space-y-6">
-      <TokenBudgetBanner />
+      <TokenBudgetBanner canReset />
       <div>
         <h3 className="text-sm font-medium mb-3"
           style={{ color: 'var(--text-secondary)' }}>LLM</h3>
