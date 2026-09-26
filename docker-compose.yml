@@ -63,11 +63,19 @@ services:
 
   sidecar:
     build: ./sidecar
+    # The dashboard's "Restart now" exits with code 42 so startup-only
+    # settings take effect; the restart policy relaunches it, and
+    # SAGE_SUPERVISED=1 tells the sidecar a supervisor exists (G5-B09).
+    restart: unless-stopped
     depends_on:
       pg_sage:
         condition: service_healthy
     environment:
       SAGE_DATABASE_URL: postgres://postgres:postgres@pg_sage:5432/postgres?sslmode=disable
+      # This stack targets the legacy C-extension database. A DSN with no
+      # mode now selects standalone (G10-B01), so keep extension explicit.
+      SAGE_MODE: extension
+      SAGE_SUPERVISED: "1"
       SAGE_PROMETHEUS_PORT: "9187"
       SAGE_RATE_LIMIT: "60"
     ports:
