@@ -10,8 +10,8 @@ are end-of-life and will not receive patches.
 | 1.5.x   | Yes                |
 | < 1.5   | No (EOL)           |
 
-The frozen C extension (`src/`, `pg_sage.control`, version 0.5.0) is not a
-supported release line and receives no security fixes.
+The C extension (version 0.5.0) was removed from the repository and receives no
+security fixes. Its last source is preserved at the `c-extension-final` tag.
 
 When a new minor version is released, update this table in the same change
 as the CHANGELOG entry.

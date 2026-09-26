@@ -1,6 +1,6 @@
 # Architecture
 
-pg_sage is a Go sidecar that connects to any PostgreSQL 14-17 over the network. The C extension is frozen at v0.6.0-rc3 and is not the product.
+pg_sage is a Go sidecar that connects to any PostgreSQL 14-17 over the network. The former C extension was removed (see the `c-extension-final` tag).
 
 ## Why a Sidecar
 
@@ -192,6 +192,8 @@ On startup, pg_sage acquires advisory lock `710190109` (`hashtext('pg_sage')`), 
 
 ---
 
-## C Extension (Frozen)
+## C Extension (Removed)
 
-The C extension at `src/` is frozen at v0.6.0-rc3. When co-deployed on self-managed PostgreSQL, it adds `sage.explain_cache` via executor hooks and in-process SQL functions (`sage.explain()`, `sage.diagnose()`, `sage.briefing()`). The sidecar detects the extension at startup and uses it opportunistically. All core functionality works without it.
+The C extension, frozen at v0.6.0-rc3, was removed from the repository. Its last source is
+preserved at the `c-extension-final` tag. The sidecar needs only the catalog views,
+`pg_stat_statements`, and optional extensions such as HypoPG and pg_hint_plan.
