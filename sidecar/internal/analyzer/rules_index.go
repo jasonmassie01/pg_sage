@@ -62,7 +62,8 @@ func extractIndexNameFromSQL(sql string) string {
 }
 
 // ruleUnusedIndexes flags indexes with zero scans that are not primary keys,
-// not unique, and have been observed longer than the configured window.
+// not unique, and have been observed unused longer than the configured
+// window -- and longer than the statistics have existed (G2-B07).
 func ruleUnusedIndexes(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
@@ -76,13 +77,17 @@ func ruleUnusedIndexes(
 	var findings []Finding
 
 	for _, idx := range current.Indexes {
-		if isSystemSchema(idx.SchemaName) {
+		ident := idx.SchemaName + "." + idx.IndexRelName
+		if idx.IdxScan > 0 {
+			// Used since the stats epoch: restart the observation window so
+			// a later pg_stat_reset/crash does not look like weeks of disuse.
+			delete(extras.FirstSeen, ident)
 			continue
 		}
-		if idx.IdxScan > 0 || idx.IsPrimary || idx.IsUnique || !idx.IsValid {
+		if isSystemSchema(idx.SchemaName) ||
+			idx.IsPrimary || idx.IsUnique || !idx.IsValid {
 			continue
 		}
-
 		// Skip indexes recently created by the executor.
 		if _, ok := extras.RecentlyCreated[idx.IndexRelName]; ok {
 			continue
@@ -90,50 +95,62 @@ func ruleUnusedIndexes(
 		if indexIsOnlyFKSupport(idx, current.Indexes, fkRequirements) {
 			continue
 		}
-
-		ident := idx.SchemaName + "." + idx.IndexRelName
-		first, ok := extras.FirstSeen[ident]
-		if !ok {
-			extras.FirstSeen[ident] = now
+		if !unusedForWindow(extras, ident, window, now) {
 			continue
 		}
-		if now.Sub(first) < window {
-			continue
-		}
-
-		dropSQL := dropIndexSQL(idx)
-
-		tableKey := idx.SchemaName + "." + idx.RelName
-		severity := "warning"
-		rec := "Drop unused index to save disk and write overhead."
-		detail := map[string]any{
-			"table":     idx.RelName,
-			"index_def": idx.IndexDef,
-			"size":      idx.IndexBytes,
-		}
-		if unlogged[tableKey] {
-			severity = "info"
-			detail["unlogged"] = true
-			rec += " (unlogged table — indexes lost on crash)"
-		}
-
-		findings = append(findings, Finding{
-			Category:         "unused_index",
-			Severity:         severity,
-			ObjectType:       "index",
-			ObjectIdentifier: ident,
-			Title: fmt.Sprintf(
-				"Unused index %s (0 scans for %d+ days)",
-				ident, cfg.Analyzer.UnusedIndexWindowDays,
-			),
-			Detail:         detail,
-			Recommendation: rec,
-			RecommendedSQL: dropSQL,
-			RollbackSQL:    idx.IndexDef + ";",
-			ActionRisk:     "safe",
-		})
+		findings = append(findings, unusedIndexFinding(
+			idx, ident, unlogged, cfg.Analyzer.UnusedIndexWindowDays))
 	}
 	return findings
+}
+
+// unusedForWindow records the first zero-scan observation and reports
+// whether both that observation and the stats epoch (latest of
+// stats_reset and postmaster start) are at least window old.
+func unusedForWindow(
+	extras *RuleExtras, ident string, window time.Duration, now time.Time,
+) bool {
+	first, ok := extras.FirstSeen[ident]
+	if !ok {
+		extras.FirstSeen[ident] = now
+		return false
+	}
+	if now.Sub(first) < window {
+		return false
+	}
+	return extras.StatsEpoch.IsZero() || now.Sub(extras.StatsEpoch) >= window
+}
+
+func unusedIndexFinding(
+	idx collector.IndexStats, ident string,
+	unlogged map[string]bool, windowDays int,
+) Finding {
+	severity := "warning"
+	rec := "Drop unused index to save disk and write overhead."
+	detail := map[string]any{
+		"table":     idx.RelName,
+		"index_def": idx.IndexDef,
+		"size":      idx.IndexBytes,
+	}
+	if unlogged[idx.SchemaName+"."+idx.RelName] {
+		severity = "info"
+		detail["unlogged"] = true
+		rec += " (unlogged table — indexes lost on crash)"
+	}
+	return Finding{
+		Category:         "unused_index",
+		Severity:         severity,
+		ObjectType:       "index",
+		ObjectIdentifier: ident,
+		Title: fmt.Sprintf(
+			"Unused index %s (0 scans for %d+ days)", ident, windowDays,
+		),
+		Detail:         detail,
+		Recommendation: rec,
+		RecommendedSQL: dropIndexSQL(idx),
+		RollbackSQL:    idx.IndexDef + ";",
+		ActionRisk:     "safe",
+	}
 }
 
 // ruleInvalidIndexes flags indexes where IsValid is false.

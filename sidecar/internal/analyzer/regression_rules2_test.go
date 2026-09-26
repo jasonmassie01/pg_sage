@@ -179,3 +179,22 @@ func TestRegression_HistoricalAveragesReadCollectorField(t *testing.T) {
 		t.Fatalf("historical avg = %v, want 20", avg)
 	}
 }
+
+// G2-B07: the analyzer loads a real stats epoch from the catalog.
+func TestRegression_LoadStatsEpoch(t *testing.T) {
+	pool := phase2Pool(t)
+	a := New(pool, phase2Config(), nil, nil, nil, nil, nil, noopLog)
+	a.loadStatsEpoch(context.Background())
+	epoch := a.extras.StatsEpoch
+	if epoch.IsZero() || epoch.After(time.Now()) {
+		t.Fatalf("stats epoch = %v, want a past instant", epoch)
+	}
+	var started time.Time
+	if err := pool.QueryRow(context.Background(),
+		"SELECT pg_postmaster_start_time()").Scan(&started); err != nil {
+		t.Fatalf("postmaster start: %v", err)
+	}
+	if epoch.Before(started) {
+		t.Fatalf("epoch %v before postmaster start %v", epoch, started)
+	}
+}

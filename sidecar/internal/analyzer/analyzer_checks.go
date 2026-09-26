@@ -264,3 +264,26 @@ func (a *Analyzer) openIndexRecommendationTables(
 	}
 	return out
 }
+
+// statsEpochSQL returns the instant since which cumulative index counters
+// have been accumulating: the later of the last pg_stat_reset for this
+// database and the postmaster start (crash recovery discards stats).
+const statsEpochSQL = `/* pg_sage */ SELECT GREATEST(
+    COALESCE(d.stats_reset, '-infinity'::timestamptz),
+    pg_postmaster_start_time())
+  FROM pg_stat_database d
+ WHERE d.datname = current_database()`
+
+// loadStatsEpoch refreshes extras.StatsEpoch (G2-B07). On failure it
+// fails closed: the epoch is set to now, so no index can look unused for
+// longer than the window, and unused_index is not resolved this cycle.
+func (a *Analyzer) loadStatsEpoch(ctx context.Context) {
+	var epoch time.Time
+	if err := a.pool.QueryRow(ctx, statsEpochSQL).Scan(&epoch); err != nil {
+		a.logFn("WARN", "analyzer: load stats epoch: %v", err)
+		a.extras.StatsEpoch = time.Now()
+		a.evalFail("unused_index")
+		return
+	}
+	a.extras.StatsEpoch = epoch
+}

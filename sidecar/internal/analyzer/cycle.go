@@ -26,8 +26,10 @@ func (a *Analyzer) cycle(ctx context.Context) {
 		filterSchemaExclusions(previous)
 	}
 
+	a.eval = newCycleEval()
 	// Load recently created indexes to prevent cooldown violations.
 	a.loadRecentlyCreatedIndexes(ctx)
+	a.loadStatsEpoch(ctx)
 
 	// Skip query-based rules when pg_stat_statements was reset.
 	skipQueryRules := current.StatsReset
@@ -35,7 +37,6 @@ func (a *Analyzer) cycle(ctx context.Context) {
 		a.logFn("WARN", "stats reset detected, skipping query rules")
 	}
 
-	a.eval = newCycleEval()
 	all := a.runSnapshotRules(current, previous, skipQueryRules)
 	all = append(all, a.runDatabaseRules(ctx, current, previous, skipQueryRules)...)
 	all = append(all, a.runSeqScanWatchdog(current, previous, all)...)
