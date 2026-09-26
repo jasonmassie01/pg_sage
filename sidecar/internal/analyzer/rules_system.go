@@ -53,16 +53,18 @@ func ruleCacheHitRatio(
 	cfg *config.Config,
 	_ *RuleExtras,
 ) []Finding {
-	if current.System.CacheHitRatio < 0 {
-		return nil // no data
+	ratio := NormalizeCacheHitRatio(current.System.CacheHitRatio)
+	// <= 0 is "no data": the legacy collector COALESCEd a missing ratio
+	// to 0 and the current one reports -1.
+	if ratio <= 0 {
+		return nil
 	}
-
-	if current.System.CacheHitRatio >= cfg.Analyzer.CacheHitRatioWarning {
+	if ratio >= cfg.Analyzer.CacheHitRatioWarning {
 		return nil
 	}
 
 	severity := "warning"
-	if current.System.CacheHitRatio < 0.80 {
+	if ratio < 0.80 {
 		severity = "critical"
 	}
 
@@ -73,11 +75,11 @@ func ruleCacheHitRatio(
 		ObjectIdentifier: "buffer_cache",
 		Title: fmt.Sprintf(
 			"Cache hit ratio %.2f%% (threshold %.2f%%)",
-			current.System.CacheHitRatio*100,
+			ratio*100,
 			cfg.Analyzer.CacheHitRatioWarning*100,
 		),
 		Detail: map[string]any{
-			"cache_hit_ratio": current.System.CacheHitRatio,
+			"cache_hit_ratio": ratio,
 			"threshold":       cfg.Analyzer.CacheHitRatioWarning,
 		},
 		Recommendation: "Increase shared_buffers or investigate heavy sequential scans.",

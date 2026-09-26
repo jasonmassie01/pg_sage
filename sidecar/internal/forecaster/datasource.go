@@ -41,7 +41,13 @@ SELECT date_trunc('day', collected_at) AS day,
        max((data->>'active_backends')::int)      AS max_active,
        max((data->>'total_backends')::int)       AS max_total,
        max((data->>'max_connections')::int)      AS max_conns,
-       avg((data->>'cache_hit_ratio')::float)    AS avg_cache_hit,
+       -- cache_hit_ratio is a fraction; legacy rows stored a percent and
+       -- negative values mean "no data" (C01).
+       COALESCE(avg(CASE WHEN (data->>'cache_hit_ratio')::float > 1
+                         THEN (data->>'cache_hit_ratio')::float / 100
+                         ELSE (data->>'cache_hit_ratio')::float END)
+                FILTER (WHERE (data->>'cache_hit_ratio')::float > 0),
+                -1)                              AS avg_cache_hit,
        max((data->>'total_checkpoints')::bigint) AS total_chkpts
 FROM sage.snapshots
 WHERE category = 'system'

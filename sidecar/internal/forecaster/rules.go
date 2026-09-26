@@ -105,71 +105,74 @@ func forecastConnectionSaturation(
 	}}
 }
 
-// forecastCachePressure detects declining buffer cache hit ratio.
+// forecastCachePressure detects low or declining buffer cache hit ratio.
+// Ratios are fractions (0-1); legacy percent rows are normalised with
+// analyzer.NormalizeCacheHitRatio (C01).
 func forecastCachePressure(
 	aggs []DaySystemAgg, cfg ForecasterConfig,
 ) []analyzer.Finding {
 	if len(aggs) < minDataPoints {
 		return nil
 	}
-
 	values := make([]float64, len(aggs))
 	for i, a := range aggs {
-		values[i] = a.AvgCacheHitRatio
+		values[i] = analyzer.NormalizeCacheHitRatio(a.AvgCacheHitRatio)
 	}
-
 	smoothed := EWMA(values, 0.1)
-	warnThreshold := cfg.CacheWarnThreshold * 100 // pct
 
 	var findings []analyzer.Finding
-
-	if smoothed < warnThreshold {
-		findings = append(findings, analyzer.Finding{
-			Category:   "forecast_cache_pressure",
-			Severity:   "warning",
-			ObjectType: "database",
-			Title: fmt.Sprintf(
-				"Cache hit ratio low, EWMA at %.1f%%",
-				smoothed,
-			),
-			Detail: map[string]any{
-				"forecast_type": "cache_pressure",
-				"ewma_value":    smoothed,
-				"threshold":     warnThreshold,
-			},
-			Recommendation: "Cache hit ratio is below threshold. " +
-				"Consider increasing shared_buffers or " +
-				"reviewing query patterns.",
-		})
+	if smoothed < cfg.CacheWarnThreshold {
+		findings = append(findings,
+			cacheLowFinding(smoothed, cfg.CacheWarnThreshold))
 	}
-
 	points := sysToDataPoints(aggs, func(a DaySystemAgg) float64 {
-		return a.AvgCacheHitRatio
+		return analyzer.NormalizeCacheHitRatio(a.AvgCacheHitRatio)
 	})
 	reg := LinearRegression(points)
 	if reg.Slope < 0 && reg.R2 > 0.5 {
-		findings = append(findings, analyzer.Finding{
-			Category:   "forecast_cache_pressure",
-			Severity:   "warning",
-			ObjectType: "database",
-			Title: fmt.Sprintf(
-				"Cache hit ratio declining, trending toward "+
-					"%.1f%%",
-				smoothed,
-			),
-			Detail: map[string]any{
-				"forecast_type": "cache_decline",
-				"slope_per_day": reg.Slope,
-				"r_squared":     reg.R2,
-				"ewma_value":    smoothed,
-			},
-			Recommendation: "Cache hit ratio shows a declining " +
-				"trend. Monitor shared_buffers usage and " +
-				"working set size.",
-		})
+		findings = append(findings, cacheDecliningFinding(smoothed, reg))
 	}
-
 	return findings
+}
+
+func cacheLowFinding(smoothed, threshold float64) analyzer.Finding {
+	return analyzer.Finding{
+		Category:   "forecast_cache_pressure",
+		Severity:   "warning",
+		ObjectType: "database",
+		Title: fmt.Sprintf(
+			"Cache hit ratio low, EWMA at %.1f%%", smoothed*100,
+		),
+		Detail: map[string]any{
+			"forecast_type": "cache_pressure",
+			"ewma_value":    smoothed,
+			"threshold":     threshold,
+		},
+		Recommendation: "Cache hit ratio is below threshold. " +
+			"Consider increasing shared_buffers or " +
+			"reviewing query patterns.",
+	}
+}
+
+func cacheDecliningFinding(smoothed float64, reg RegressionResult) analyzer.Finding {
+	return analyzer.Finding{
+		Category:   "forecast_cache_pressure",
+		Severity:   "warning",
+		ObjectType: "database",
+		Title: fmt.Sprintf(
+			"Cache hit ratio declining, trending toward %.1f%%",
+			smoothed*100,
+		),
+		Detail: map[string]any{
+			"forecast_type": "cache_decline",
+			"slope_per_day": reg.Slope,
+			"r_squared":     reg.R2,
+			"ewma_value":    smoothed,
+		},
+		Recommendation: "Cache hit ratio shows a declining " +
+			"trend. Monitor shared_buffers usage and " +
+			"working set size.",
+	}
 }
 
 // forecastSequenceExhaustion projects when sequences will reach
@@ -255,7 +258,7 @@ func forecastQueryVolume(
 			"Query volume growing %.0f%%/week", growth,
 		),
 		Detail: map[string]any{
-			"forecast_type": "query_volume",
+			"forecast_type":  "query_volume",
 			"wow_growth_pct": growth,
 		},
 		Recommendation: "Query volume is rising rapidly. " +
@@ -296,9 +299,9 @@ func forecastCheckpointPressure(
 			"Checkpoint rate trending to %.1f/hr", smoothed,
 		),
 		Detail: map[string]any{
-			"forecast_type":  "checkpoint_pressure",
-			"ewma_rate_hr":   smoothed,
-			"daily_rates":    rates,
+			"forecast_type": "checkpoint_pressure",
+			"ewma_rate_hr":  smoothed,
+			"daily_rates":   rates,
 		},
 		Recommendation: "Checkpoint rate is high. Consider " +
 			"increasing checkpoint_completion_target or " +
