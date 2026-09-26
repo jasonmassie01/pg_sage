@@ -100,6 +100,25 @@ func TestRuleCanFire_FixedEventSeverities(t *testing.T) {
 	}
 }
 
+// Incident events carry the incident's severity, so a critical-only rule
+// must be fireable and the default rule must not require critical.
+func TestRuleCanFire_VariableSeverityIncidentEvents(t *testing.T) {
+	for _, event := range []string{
+		"incident_detected", "incident_escalated", "incident_resolved",
+	} {
+		if !RuleCanFire(event, "critical") {
+			t.Fatalf("%s rule with min_severity=critical can never fire", event)
+		}
+		if got := DefaultMinSeverity(event); got != "warning" {
+			t.Fatalf("default min severity for %s = %q, want warning", event, got)
+		}
+	}
+	critical := IncidentDetectedEvent(IncidentInfo{Severity: "critical"})
+	if !SeverityMeetsMin(critical.Severity, "critical") {
+		t.Fatalf("critical incident event severity = %q", critical.Severity)
+	}
+}
+
 // --- G7-B08 / G7-B16: email transport ---------------------------------
 
 func testEmailChannel(port string, extra map[string]string) Channel {

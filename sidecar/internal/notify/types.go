@@ -68,13 +68,34 @@ func DefaultMinSeverity(event string) string {
 	if sev, ok := EventSeverity[event]; ok {
 		return sev
 	}
+	if _, ok := variableSeverityEvents[event]; ok {
+		return "warning"
+	}
 	return "info"
+}
+
+// variableSeverityEvents carry the severity of their subject (incident
+// events follow the incident) and map to the highest severity they can
+// be emitted with.
+var variableSeverityEvents = map[string]string{
+	"incident_detected":  "critical",
+	"incident_escalated": "critical",
+	"incident_resolved":  "critical",
+}
+
+// maxEventSeverity returns the highest severity an event type can carry.
+func maxEventSeverity(event string) (string, bool) {
+	if sev, ok := EventSeverity[event]; ok {
+		return sev, true
+	}
+	sev, ok := variableSeverityEvents[event]
+	return sev, ok
 }
 
 // RuleCanFire reports whether a rule (event, minSeverity) can ever
 // match an event of that type.
 func RuleCanFire(event, minSeverity string) bool {
-	sev, ok := EventSeverity[event]
+	sev, ok := maxEventSeverity(event)
 	if !ok {
 		return false
 	}
