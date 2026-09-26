@@ -3,7 +3,6 @@ package explain
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/pg-sage/sidecar/internal/llm"
 )
@@ -85,24 +84,4 @@ func (ex *Explainer) applyLLMResponse(
 	if len(resp.Recommendations) > 0 {
 		result.Recommendations = resp.Recommendations
 	}
-}
-
-// stripToJSON extracts JSON from LLM output that may contain
-// thinking tokens or markdown fences. Delegates to the canonical
-// llm.StripJSON with JSONAuto since this caller accepts either
-// object- or array-shaped responses.
-func stripToJSON(s string) string {
-	return llm.StripJSON(s, llm.JSONAuto)
-}
-
-// stripMarkdownFences removes ```json ... ``` wrappers.
-func stripMarkdownFences(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "```json") {
-		s = strings.TrimPrefix(s, "```json")
-	} else if strings.HasPrefix(s, "```") {
-		s = strings.TrimPrefix(s, "```")
-	}
-	s = strings.TrimSuffix(s, "```")
-	return strings.TrimSpace(s)
 }

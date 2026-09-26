@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
 )
 
@@ -109,4 +110,14 @@ func doRequestWithUserRetry(
 		time.Sleep(300 * time.Millisecond)
 	}
 	return w
+}
+
+// countAdminsViaSQL replaces the removed auth.CountAdmins (G6-D06) in
+// the last-admin race tests.
+func countAdminsViaSQL(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+	var n int
+	err := pool.QueryRow(ctx,
+		"SELECT count(*) FROM sage.users WHERE role = $1",
+		auth.RoleAdmin).Scan(&n)
+	return n, err
 }

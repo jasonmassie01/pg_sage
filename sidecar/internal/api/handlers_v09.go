@@ -280,10 +280,12 @@ func explainHandler(
 		if !ok {
 			return
 		}
-		pool := mgr.PoolForDatabase(dbName)
-		if pool == nil {
-			pool = mgr.PoolForDatabase("all")
+		// An unknown database must 404; never fall back to the
+		// primary pool (G1-B22).
+		if rejectUnknownDatabase(w, mgr, dbName) {
+			return
 		}
+		pool := mgr.PoolForDatabase(dbName)
 		if pool == nil {
 			jsonError(w, "no database pool available",
 				http.StatusServiceUnavailable)

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -141,32 +140,33 @@ func (p *OAuthProvider) AuthorizationURL() (string, string, error) {
 		params.Encode(), state, nil
 }
 
-// Exchange trades an authorization code for user email. cookieState
+// Exchange trades an authorization code for the caller's verified
+// identity (issuer, subject, email). cookieState
 // is the value of the oauth_state cookie set on the browser when the
 // authorize step ran — it must equal the state query param for the
 // callback to be accepted. This binds the state token to the
 // originating browser and defeats login CSRF.
 func (p *OAuthProvider) Exchange(
 	ctx context.Context, code, state, cookieState string,
-) (string, error) {
+) (Identity, error) {
 	// Constant-time-ish equality via plain compare is fine here: the
 	// length of hex-encoded state is fixed, and leaking one bit via
 	// timing does not help an attacker who must also know the random
 	// state value itself.
 	if cookieState == "" || cookieState != state {
-		return "", fmt.Errorf("oauth: state cookie mismatch")
+		return Identity{}, fmt.Errorf("oauth: state cookie mismatch")
 	}
 	if !p.ValidateState(state) {
-		return "", fmt.Errorf("oauth: invalid or expired state")
+		return Identity{}, fmt.Errorf("oauth: invalid or expired state")
 	}
 	if p.discovery == nil {
-		return "", fmt.Errorf("oauth: discovery not performed")
+		return Identity{}, fmt.Errorf("oauth: discovery not performed")
 	}
 	token, err := p.exchangeCode(ctx, code)
 	if err != nil {
-		return "", err
+		return Identity{}, err
 	}
-	return p.fetchEmail(ctx, token)
+	return p.fetchIdentity(ctx, token)
 }
 
 // ValidateState checks and consumes a CSRF state token.
@@ -289,144 +289,6 @@ func (p *OAuthProvider) exchangeCode(
 		return "", fmt.Errorf("oauth: empty access_token in response")
 	}
 	return tokenResp.AccessToken, nil
-}
-
-func (p *OAuthProvider) fetchEmail(
-	ctx context.Context, accessToken string,
-) (string, error) {
-	if p.cfg.Provider == "github" {
-		return p.fetchGitHubEmail(ctx, accessToken)
-	}
-	return p.fetchOIDCEmail(ctx, accessToken)
-}
-
-func (p *OAuthProvider) fetchOIDCEmail(
-	ctx context.Context, accessToken string,
-) (string, error) {
-	endpoint := p.discovery.UserinfoEndpoint
-	if endpoint == "" {
-		return "", fmt.Errorf("oauth: no userinfo endpoint")
-	}
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodGet, endpoint, nil,
-	)
-	if err != nil {
-		return "", fmt.Errorf("oauth: building userinfo request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("oauth: userinfo request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf(
-			"oauth: userinfo returned status %d", resp.StatusCode,
-		)
-	}
-	var info struct {
-		Email string `json:"email"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return "", fmt.Errorf("oauth: decoding userinfo: %w", err)
-	}
-	if info.Email == "" {
-		return "", fmt.Errorf("oauth: no email in userinfo response")
-	}
-	slog.Info("oauth: authenticated user", "email", info.Email)
-	return info.Email, nil
-}
-
-func (p *OAuthProvider) fetchGitHubEmail(
-	ctx context.Context, accessToken string,
-) (string, error) {
-	// Try primary user endpoint first.
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodGet,
-		"https://api.github.com/user", nil,
-	)
-	if err != nil {
-		return "", fmt.Errorf("oauth: building github user request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("oauth: github user request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf(
-			"oauth: github /user returned status %d", resp.StatusCode,
-		)
-	}
-	var user struct {
-		Email string `json:"email"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
-		return "", fmt.Errorf("oauth: decoding github user: %w", err)
-	}
-	if user.Email != "" {
-		slog.Info("oauth: authenticated github user",
-			"email", user.Email)
-		return user.Email, nil
-	}
-
-	// Fallback: fetch from /user/emails endpoint.
-	return p.fetchGitHubEmailsFallback(ctx, accessToken)
-}
-
-func (p *OAuthProvider) fetchGitHubEmailsFallback(
-	ctx context.Context, accessToken string,
-) (string, error) {
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodGet,
-		"https://api.github.com/user/emails", nil,
-	)
-	if err != nil {
-		return "", fmt.Errorf(
-			"oauth: building github emails request: %w", err,
-		)
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf(
-			"oauth: github emails request failed: %w", err,
-		)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf(
-			"oauth: github /user/emails returned %d",
-			resp.StatusCode,
-		)
-	}
-	var emails []struct {
-		Email    string `json:"email"`
-		Primary  bool   `json:"primary"`
-		Verified bool   `json:"verified"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&emails); err != nil {
-		return "", fmt.Errorf(
-			"oauth: decoding github emails: %w", err,
-		)
-	}
-	for _, e := range emails {
-		if e.Primary && e.Verified {
-			slog.Info("oauth: authenticated github user",
-				"email", e.Email)
-			return e.Email, nil
-		}
-	}
-	return "", fmt.Errorf("oauth: no verified primary email on github")
 }
 
 func randomState() (string, error) {

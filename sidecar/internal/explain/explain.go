@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -115,12 +116,14 @@ func (ex *Explainer) Explain(
 			ErrExplainInvalidRequest)
 	}
 
-	// 2. DDL rejection.
-	if isDDL(req.Query) {
-		return nil, fmt.Errorf(
-			"%w: DDL/admin statements cannot be explained",
-			ErrExplainInvalidRequest)
+	// 2. Single read-statement allowlist (G6-B01). The body is the
+	// query without a trailing terminator so it can be embedded in
+	// EXPLAIN / PREPARE.
+	body, err := explainBody(req.Query)
+	if err != nil {
+		return nil, err
 	}
+	req.Query = body
 
 	// 3. Check cache.
 	dbName := ex.databaseName()
@@ -169,11 +172,7 @@ func (ex *Explainer) Explain(
 func (ex *Explainer) runExplain(
 	ctx context.Context, query string, analyze bool,
 ) (json.RawMessage, error) {
-	timeout := time.Duration(ex.cfg.TimeoutMs) * time.Millisecond
-	if timeout == 0 {
-		timeout = 10 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, ex.timeout())
 	defer cancel()
 
 	conn, err := ex.pool.Acquire(ctx)
@@ -191,19 +190,34 @@ func (ex *Explainer) runExplain(
 	return collectPlanJSON(ctx, conn, explainSQL)
 }
 
+func (ex *Explainer) timeout() time.Duration {
+	timeout := time.Duration(ex.cfg.TimeoutMs) * time.Millisecond
+	if timeout == 0 {
+		timeout = 10 * time.Second
+	}
+	return timeout
+}
+
+const explainStmtName = "_sage_explain"
+
 // runExplainParameterized handles queries with $N placeholders
 // (typically from pg_stat_statements). PG cannot EXPLAIN these
 // directly. We use PREPARE + EXPLAIN EXECUTE with NULL values to
 // get the plan. If the caller provided explicit params, those are
 // used instead of NULLs.
+//
+// PREPARE is sent over the extended protocol, which PostgreSQL
+// restricts to a single statement, so a body such as
+// "SELECT $1; COMMIT; DELETE ..." cannot leave the READ ONLY
+// transaction (G6-B01).
 func (ex *Explainer) runExplainParameterized(
 	ctx context.Context, query string, params []string,
 ) (json.RawMessage, error) {
-	timeout := time.Duration(ex.cfg.TimeoutMs) * time.Millisecond
-	if timeout == 0 {
-		timeout = 10 * time.Second
+	paramList, err := explainParamList(query, params)
+	if err != nil {
+		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, ex.timeout())
 	defer cancel()
 
 	conn, err := ex.pool.Acquire(ctx)
@@ -215,41 +229,42 @@ func (ex *Explainer) runExplainParameterized(
 	if err = ex.prepareConn(ctx, conn); err != nil {
 		return nil, err
 	}
-	defer func() { _, _ = conn.Exec(ctx, "ROLLBACK") }()
-
-	stmtName := "_sage_explain"
-	nParams := countParamPlaceholders(query)
-
-	// PREPARE _sage_explain AS <query>
-	prepSQL := fmt.Sprintf("PREPARE %s AS %s", stmtName, query)
-	if _, err = conn.Exec(ctx, prepSQL); err != nil {
-		return nil, fmt.Errorf("prepare parameterized: %w", err)
-	}
+	// Prepared statements survive ROLLBACK, and DEALLOCATE fails in
+	// an aborted transaction, so release it after the rollback.
 	defer func() {
-		_, _ = conn.Exec(ctx, "DEALLOCATE "+stmtName)
+		_, _ = conn.Exec(ctx, "ROLLBACK")
+		_, _ = conn.Exec(ctx, "DEALLOCATE "+explainStmtName)
 	}()
 
-	// Build param list: use provided params as escaped SQL literals
-	// or NULLs. EXECUTE arguments are SQL expressions, so user input
-	// must not be interpolated raw.
-	paramValues := make([]string, nParams)
-	for i := range paramValues {
-		if i < len(params) && params[i] != "" {
-			paramValues[i], err = explainParamLiteral(params[i])
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			paramValues[i] = "NULL"
-		}
+	prepSQL := fmt.Sprintf("PREPARE %s AS %s", explainStmtName, query)
+	_, err = conn.Conn().PgConn().ExecParams(
+		ctx, prepSQL, nil, nil, nil, nil).Close()
+	if err != nil {
+		return nil, fmt.Errorf("prepare parameterized: %w", err)
 	}
-
-	paramList := strings.Join(paramValues, ", ")
 	explainExec := fmt.Sprintf(
 		"EXPLAIN (FORMAT JSON) EXECUTE %s(%s)",
-		stmtName, paramList,
+		explainStmtName, paramList,
 	)
 	return collectPlanJSON(ctx, conn, explainExec)
+}
+
+// explainParamList renders EXECUTE arguments: provided params as
+// escaped SQL literals, NULL otherwise. EXECUTE arguments are SQL
+// expressions, so user input must never be interpolated raw.
+func explainParamList(query string, params []string) (string, error) {
+	values := make([]string, countParamPlaceholders(query))
+	for i := range values {
+		values[i] = "NULL"
+		if i < len(params) && params[i] != "" {
+			literal, err := explainParamLiteral(params[i])
+			if err != nil {
+				return "", err
+			}
+			values[i] = literal
+		}
+	}
+	return strings.Join(values, ", "), nil
 }
 
 // countParamPlaceholders returns the highest $N placeholder number
@@ -313,7 +328,7 @@ func explainParamLiteral(value string) (string, error) {
 func collectPlanJSON(
 	ctx context.Context, conn *pgxpool.Conn, sql string,
 ) (json.RawMessage, error) {
-	rows, err := conn.Query(ctx, sql)
+	rows, err := conn.Query(ctx, sql, pgx.QueryExecModeExec)
 	if err != nil {
 		return nil, fmt.Errorf("execute explain: %w", err)
 	}
@@ -385,147 +400,7 @@ func buildResult(
 	return result
 }
 
-// ---------- node extraction ----------
-
-// extractNodes walks the plan JSON tree and flattens it into a slice.
-func extractNodes(planJSON json.RawMessage) []NodeExplain {
-	type pgNode struct {
-		NodeType     string   `json:"Node Type"`
-		RelationName string   `json:"Relation Name"`
-		TotalCost    float64  `json:"Total Cost"`
-		ActualTime   *float64 `json:"Actual Total Time"`
-		PlanRows     int64    `json:"Plan Rows"`
-		ActualRows   *int64   `json:"Actual Rows"`
-		Plans        []pgNode `json:"Plans"`
-	}
-	type planWrapper struct {
-		Plan pgNode `json:"Plan"`
-	}
-	var wrappers []planWrapper
-	if err := json.Unmarshal(planJSON, &wrappers); err != nil || len(wrappers) == 0 {
-		return nil
-	}
-
-	var out []NodeExplain
-	var walk func(n pgNode)
-	walk = func(n pgNode) {
-		ne := NodeExplain{
-			NodeType:    n.NodeType,
-			Relation:    n.RelationName,
-			Description: describeNode(n.NodeType, n.RelationName),
-			RowEstimate: n.PlanRows,
-		}
-		if n.ActualTime != nil {
-			ne.TimeMs = n.ActualTime
-		}
-		if n.ActualRows != nil {
-			ne.Rows = *n.ActualRows
-		}
-		if n.ActualRows != nil && n.PlanRows > 0 {
-			ratio := float64(*n.ActualRows) / float64(n.PlanRows)
-			if ratio > 10 {
-				ne.Warning = fmt.Sprintf(
-					"row estimate off by %.0fx (est %d, actual %d)",
-					ratio, n.PlanRows, *n.ActualRows,
-				)
-			}
-		}
-		out = append(out, ne)
-		for _, child := range n.Plans {
-			walk(child)
-		}
-	}
-	walk(wrappers[0].Plan)
-	return out
-}
-
-func describeNode(nodeType, relation string) string {
-	desc := nodeType
-	if relation != "" {
-		desc += " on " + relation
-	}
-	return desc
-}
-
-// ---------- cache ----------
-
-func (ex *Explainer) checkCache(
-	ctx context.Context, hash int64, dbName string,
-) (*ExplainResult, error) {
-	const q = `SELECT plan_json, explanation, created_at
-		FROM sage.explain_results
-		WHERE query_hash = $1 AND database_name = $2
-		  AND expires_at > now()
-		ORDER BY created_at DESC LIMIT 1`
-
-	row := ex.pool.QueryRow(ctx, q, hash, dbName)
-
-	var planRaw, explanationRaw []byte
-	var createdAt time.Time
-	if err := row.Scan(&planRaw, &explanationRaw, &createdAt); err != nil {
-		if err.Error() == "no rows in result set" {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("cache query: %w", err)
-	}
-
-	var result ExplainResult
-	if err := json.Unmarshal(explanationRaw, &result); err != nil {
-		return nil, fmt.Errorf("cache unmarshal: %w", err)
-	}
-	result.PlanJSON = json.RawMessage(planRaw)
-	result.CachedAt = &createdAt
-	return &result, nil
-}
-
-func (ex *Explainer) saveCache(
-	ctx context.Context, hash int64, dbName string, result *ExplainResult,
-) error {
-	ttl := ex.cfg.CacheTTLMinutes
-	if ttl == 0 {
-		ttl = 60
-	}
-
-	explanationJSON, err := json.Marshal(result)
-	if err != nil {
-		return fmt.Errorf("marshal explanation: %w", err)
-	}
-
-	const q = `INSERT INTO sage.explain_results
-		(query_hash, expires_at, plan_json, explanation, database_name)
-		VALUES ($1, now() + $2 * interval '1 minute', $3, $4, $5)
-		ON CONFLICT (query_hash, database_name) DO UPDATE
-		SET plan_json = EXCLUDED.plan_json,
-		    explanation = EXCLUDED.explanation,
-		    expires_at = EXCLUDED.expires_at,
-		    created_at = now()`
-
-	_, err = ex.pool.Exec(
-		ctx, q, hash, ttl, result.PlanJSON, explanationJSON, dbName,
-	)
-	if err != nil {
-		return fmt.Errorf("cache insert: %w", err)
-	}
-	return nil
-}
-
 // ---------- helpers ----------
-
-var ddlPrefixes = []string{
-	"CREATE", "DROP", "ALTER", "TRUNCATE",
-	"GRANT", "REVOKE", "COPY", "CLUSTER", "REINDEX",
-}
-
-// isDDL checks if a query is a DDL/admin statement that should be rejected.
-func isDDL(query string) bool {
-	upper := strings.ToUpper(strings.TrimSpace(query))
-	for _, p := range ddlPrefixes {
-		if strings.HasPrefix(upper, p) {
-			return true
-		}
-	}
-	return false
-}
 
 var paramRe = regexp.MustCompile(`\$\d`)
 var paramNumRe = regexp.MustCompile(`\$(\d+)`)

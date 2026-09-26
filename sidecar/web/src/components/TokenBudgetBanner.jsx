@@ -45,7 +45,9 @@ function ClientLine({ label, client }) {
   )
 }
 
-export function TokenBudgetBanner() {
+// canReset: the reset endpoint is admin-only, so callers pass whether the
+// current user is an admin (G9-B22).
+export function TokenBudgetBanner({ canReset = false }) {
   const { data, refetch } = useAPI('/api/v1/llm/status', 30000)
   const [resetting, setResetting] = useState(false)
   const [resetError, setResetError] = useState(null)
@@ -73,8 +75,12 @@ export function TokenBudgetBanner() {
 
   if (!data) return null
 
-  const generalExhausted = data.general?.budget_exhausted === true
-  const optimizerExhausted = data.optimizer?.budget_exhausted === true
+  // /api/v1/llm/status returns {clients: {general, optimizer},
+  // any_exhausted} (G9-B02).
+  const clients = data.clients && !Array.isArray(data.clients)
+    ? data.clients : {}
+  const generalExhausted = clients.general?.budget_exhausted === true
+  const optimizerExhausted = clients.optimizer?.budget_exhausted === true
 
   if (!generalExhausted && !optimizerExhausted) return null
 
@@ -100,10 +106,10 @@ export function TokenBudgetBanner() {
           LLM token budget exhausted
         </div>
         {generalExhausted && (
-          <ClientLine label="General" client={data.general} />
+          <ClientLine label="General" client={clients.general} />
         )}
         {optimizerExhausted && (
-          <ClientLine label="Optimizer" client={data.optimizer} />
+          <ClientLine label="Optimizer" client={clients.optimizer} />
         )}
         {resetError && (
           <div
@@ -114,6 +120,7 @@ export function TokenBudgetBanner() {
           </div>
         )}
       </div>
+      {canReset && (
       <button
         data-testid="token-budget-reset"
         onClick={handleReset}
@@ -130,6 +137,7 @@ export function TokenBudgetBanner() {
         <RotateCcw size={14} />
         {resetting ? 'Resetting...' : 'Reset Budget'}
       </button>
+      )}
     </div>
   )
 }

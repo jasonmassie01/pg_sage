@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -93,6 +94,13 @@ func setupPhase2Pool(t *testing.T) *pgxpool.Pool {
 			ADD COLUMN IF NOT EXISTS oauth_provider TEXT DEFAULT '';
 		ALTER TABLE sage.users
 			ALTER COLUMN password DROP NOT NULL;
+		ALTER TABLE sage.users
+			ADD COLUMN IF NOT EXISTS oauth_issuer TEXT;
+		ALTER TABLE sage.users
+			ADD COLUMN IF NOT EXISTS oauth_subject TEXT;
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth_identity
+			ON sage.users (oauth_issuer, oauth_subject)
+			WHERE oauth_issuer IS NOT NULL;
 	`)
 	if err != nil {
 		t.Fatalf("bootstrap DDL failed: %v", err)
@@ -324,7 +332,7 @@ func TestPhase2_Authenticate_OAuthUserNoPassword(t *testing.T) {
 
 	// Create an OAuth user (password is NULL).
 	_, err := FindOrCreateOAuthUser(ctx, pool,
-		"oauth-only@example.com", "github", RoleViewer)
+		legacyTestIdentity("oauth-only@example.com"), "github", RoleViewer)
 	if err != nil {
 		t.Fatalf("FindOrCreateOAuthUser: %v", err)
 	}
@@ -688,248 +696,13 @@ func TestPhase2_ListUsers_DoesNotExposePassword(t *testing.T) {
 // DeleteUser
 // -------------------------------------------------------------------------
 
-func TestPhase2_DeleteUser_HappyPath(t *testing.T) {
-	pool := setupPhase2Pool(t)
-	ctx := context.Background()
-
-	id, err := CreateUser(ctx, pool,
-		"delete-me@example.com", "password", RoleViewer)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-
-	err = DeleteUser(ctx, pool, id)
-	if err != nil {
-		t.Fatalf("DeleteUser: %v", err)
-	}
-
-	users, err := ListUsers(ctx, pool)
-	if err != nil {
-		t.Fatalf("ListUsers: %v", err)
-	}
-	if len(users) != 0 {
-		t.Errorf("expected 0 users, got %d", len(users))
-	}
-}
-
-func TestPhase2_DeleteUser_Nonexistent(t *testing.T) {
-	pool := setupPhase2Pool(t)
-	ctx := context.Background()
-
-	err := DeleteUser(ctx, pool, 99999)
-	if err == nil {
-		t.Fatal("expected error deleting nonexistent user")
-	}
-	if !strings.Contains(err.Error(), "user not found") {
-		t.Errorf("error = %q, want 'user not found'", err)
-	}
-}
-
-func TestPhase2_DeleteUser_CascadesSessions(t *testing.T) {
-	pool := setupPhase2Pool(t)
-	ctx := context.Background()
-
-	id, err := CreateUser(ctx, pool,
-		"cascade@example.com", "password", RoleViewer)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-
-	sessionID, err := CreateSession(ctx, pool, id)
-	if err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
-
-	err = DeleteUser(ctx, pool, id)
-	if err != nil {
-		t.Fatalf("DeleteUser: %v", err)
-	}
-
-	// Session should be gone due to ON DELETE CASCADE.
-	_, err = ValidateSession(ctx, pool, sessionID)
-	if err == nil {
-		t.Fatal("expected session to be cascaded on user delete")
-	}
-}
-
 // -------------------------------------------------------------------------
 // UpdateUserRole
 // -------------------------------------------------------------------------
 
-func TestPhase2_UpdateUserRole_HappyPath(t *testing.T) {
-	pool := setupPhase2Pool(t)
-	ctx := context.Background()
-
-	id, err := CreateUser(ctx, pool,
-		"role-change@example.com", "password", RoleViewer)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-
-	err = UpdateUserRole(ctx, pool, id, RoleAdmin)
-	if err != nil {
-		t.Fatalf("UpdateUserRole: %v", err)
-	}
-
-	// Verify role changed.
-	var role string
-	err = pool.QueryRow(ctx,
-		"SELECT role FROM sage.users WHERE id = $1", id,
-	).Scan(&role)
-	if err != nil {
-		t.Fatalf("querying role: %v", err)
-	}
-	if role != RoleAdmin {
-		t.Errorf("role = %q, want %q", role, RoleAdmin)
-	}
-}
-
-func TestPhase2_UpdateUserRole_AllTransitions(t *testing.T) {
-	pool := setupPhase2Pool(t)
-	ctx := context.Background()
-
-	id, err := CreateUser(ctx, pool,
-		"transitions@example.com", "password", RoleViewer)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-
-	transitions := []string{
-		RoleOperator, RoleAdmin, RoleViewer,
-		RoleAdmin, RoleOperator, RoleViewer,
-	}
-	for _, newRole := range transitions {
-		err = UpdateUserRole(ctx, pool, id, newRole)
-		if err != nil {
-			t.Fatalf("UpdateUserRole to %q: %v", newRole, err)
-		}
-		var got string
-		err = pool.QueryRow(ctx,
-			"SELECT role FROM sage.users WHERE id = $1", id,
-		).Scan(&got)
-		if err != nil {
-			t.Fatalf("querying role: %v", err)
-		}
-		if got != newRole {
-			t.Errorf("after transition: role = %q, want %q", got, newRole)
-		}
-	}
-}
-
-func TestPhase2_UpdateUserRole_InvalidRole(t *testing.T) {
-	pool := setupPhase2Pool(t)
-	ctx := context.Background()
-
-	id, err := CreateUser(ctx, pool,
-		"badrole2@example.com", "password", RoleViewer)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-
-	err = UpdateUserRole(ctx, pool, id, "superadmin")
-	if err == nil {
-		t.Fatal("expected error for invalid role")
-	}
-	if !strings.Contains(err.Error(), "invalid role") {
-		t.Errorf("error = %q, want 'invalid role'", err)
-	}
-
-	// Verify role was NOT changed.
-	var role string
-	err = pool.QueryRow(ctx,
-		"SELECT role FROM sage.users WHERE id = $1", id,
-	).Scan(&role)
-	if err != nil {
-		t.Fatalf("querying role: %v", err)
-	}
-	if role != RoleViewer {
-		t.Errorf("role should still be %q, got %q", RoleViewer, role)
-	}
-}
-
-func TestPhase2_UpdateUserRole_NonexistentUser(t *testing.T) {
-	pool := setupPhase2Pool(t)
-	ctx := context.Background()
-
-	err := UpdateUserRole(ctx, pool, 99999, RoleAdmin)
-	if err == nil {
-		t.Fatal("expected error for nonexistent user")
-	}
-	if !strings.Contains(err.Error(), "user not found") {
-		t.Errorf("error = %q, want 'user not found'", err)
-	}
-}
-
 // -------------------------------------------------------------------------
 // GetUserByID
 // -------------------------------------------------------------------------
-
-func TestPhase2_GetUserByID_Found(t *testing.T) {
-	pool := setupPhase2Pool(t)
-	ctx := context.Background()
-
-	id, err := CreateUser(ctx, pool,
-		"lookup@example.com", "password", RoleOperator)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-
-	user, err := GetUserByID(ctx, pool, id)
-	if err != nil {
-		t.Fatalf("GetUserByID: %v", err)
-	}
-	if user == nil {
-		t.Fatal("GetUserByID returned nil user")
-	}
-	if user.ID != id {
-		t.Errorf("ID = %d, want %d", user.ID, id)
-	}
-	if user.Email != "lookup@example.com" {
-		t.Errorf("Email = %q, want lookup@example.com", user.Email)
-	}
-	if user.Role != RoleOperator {
-		t.Errorf("Role = %q, want %q", user.Role, RoleOperator)
-	}
-	if user.CreatedAt.IsZero() {
-		t.Error("CreatedAt is zero")
-	}
-	if user.LastLogin != nil {
-		t.Errorf("LastLogin = %v, want nil before login", user.LastLogin)
-	}
-}
-
-func TestPhase2_GetUserByID_NotFound(t *testing.T) {
-	pool := setupPhase2Pool(t)
-	ctx := context.Background()
-
-	user, err := GetUserByID(ctx, pool, 99999)
-	if err == nil {
-		t.Fatal("expected error for missing user")
-	}
-	if user != nil {
-		t.Fatalf("user = %#v, want nil on error", user)
-	}
-	if !strings.Contains(err.Error(), "getting user") {
-		t.Errorf("error = %q, want getting user context", err)
-	}
-}
-
-func TestPhase2_GetUserByID_CancelledContext(t *testing.T) {
-	pool := setupPhase2Pool(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	user, err := GetUserByID(ctx, pool, 1)
-	if err == nil {
-		t.Fatal("expected error for cancelled context")
-	}
-	if user != nil {
-		t.Fatalf("user = %#v, want nil on error", user)
-	}
-	if !strings.Contains(err.Error(), "context canceled") {
-		t.Errorf("error = %q, want context canceled", err)
-	}
-}
 
 // -------------------------------------------------------------------------
 // UpdateUserRolePreservingAdmin
@@ -953,7 +726,7 @@ func TestPhase2_UpdateUserRolePreservingAdmin_RejectsOnlyAdminDemotion(t *testin
 		t.Fatalf("error = %v, want %v", err, ErrLastAdmin)
 	}
 
-	user, err := GetUserByID(ctx, pool, adminID)
+	user, err := lookupUserForTest(ctx, pool, adminID)
 	if err != nil {
 		t.Fatalf("GetUserByID after failed demotion: %v", err)
 	}
@@ -981,14 +754,14 @@ func TestPhase2_UpdateUserRolePreservingAdmin_AllowsOneOfTwoAdminsDemotion(t *te
 		t.Fatalf("UpdateUserRolePreservingAdmin: %v", err)
 	}
 
-	user, err := GetUserByID(ctx, pool, firstID)
+	user, err := lookupUserForTest(ctx, pool, firstID)
 	if err != nil {
 		t.Fatalf("GetUserByID: %v", err)
 	}
 	if user.Role != RoleOperator {
 		t.Errorf("role = %q, want %q", user.Role, RoleOperator)
 	}
-	count, err := CountAdmins(ctx, pool)
+	count, err := countAdminsForTest(ctx, pool)
 	if err != nil {
 		t.Fatalf("CountAdmins: %v", err)
 	}
@@ -1028,7 +801,7 @@ func TestPhase2_UpdateUserRolePreservingAdmin_InvalidRolePreservesRole(t *testin
 		t.Fatalf("error = %v, want %v", err, ErrInvalidRole)
 	}
 
-	user, err := GetUserByID(ctx, pool, id)
+	user, err := lookupUserForTest(ctx, pool, id)
 	if err != nil {
 		t.Fatalf("GetUserByID: %v", err)
 	}
@@ -1047,7 +820,7 @@ func TestPhase2_FindOrCreateOAuthUser_CreatesNew(t *testing.T) {
 	ctx := context.Background()
 
 	user, err := FindOrCreateOAuthUser(ctx, pool,
-		"new-oauth@example.com", "github", RoleViewer)
+		legacyTestIdentity("new-oauth@example.com"), "github", RoleViewer)
 	if err != nil {
 		t.Fatalf("FindOrCreateOAuthUser: %v", err)
 	}
@@ -1084,14 +857,14 @@ func TestPhase2_FindOrCreateOAuthUser_FindsExisting(t *testing.T) {
 
 	// Create via OAuth first.
 	u1, err := FindOrCreateOAuthUser(ctx, pool,
-		"existing-oauth@example.com", "github", RoleViewer)
+		legacyTestIdentity("existing-oauth@example.com"), "github", RoleViewer)
 	if err != nil {
 		t.Fatalf("first FindOrCreateOAuthUser: %v", err)
 	}
 
 	// Find the same user.
 	u2, err := FindOrCreateOAuthUser(ctx, pool,
-		"existing-oauth@example.com", "github", RoleAdmin)
+		legacyTestIdentity("existing-oauth@example.com"), "github", RoleAdmin)
 	if err != nil {
 		t.Fatalf("second FindOrCreateOAuthUser: %v", err)
 	}
@@ -1111,7 +884,7 @@ func TestPhase2_FindOrCreateOAuthUser_DefaultRoleEmpty(t *testing.T) {
 
 	// Empty defaultRole should default to "viewer".
 	user, err := FindOrCreateOAuthUser(ctx, pool,
-		"default-role@example.com", "google", "")
+		legacyTestIdentity("default-role@example.com"), "google", "")
 	if err != nil {
 		t.Fatalf("FindOrCreateOAuthUser: %v", err)
 	}
@@ -1125,7 +898,7 @@ func TestPhase2_FindOrCreateOAuthUser_InvalidRole(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := FindOrCreateOAuthUser(ctx, pool,
-		"invalid-role-oauth@example.com", "github", "superadmin")
+		legacyTestIdentity("invalid-role-oauth@example.com"), "github", "superadmin")
 	if err == nil {
 		t.Fatal("expected error for invalid default role")
 	}
@@ -1145,15 +918,15 @@ func TestPhase2_FindOrCreateOAuthUser_FindsPasswordUser(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	// FindOrCreate with same email should return the existing user.
+	// SURF-02: an OAuth login must not inherit a password account (here
+	// an admin) by email alone; explicit linking is required.
 	user, err := FindOrCreateOAuthUser(ctx, pool,
-		"pw-user@example.com", "google", RoleViewer)
-	if err != nil {
-		t.Fatalf("FindOrCreateOAuthUser: %v", err)
+		legacyTestIdentity("pw-user@example.com"), "google", RoleViewer)
+	if !errors.Is(err, ErrOAuthLinkRequired) {
+		t.Fatalf("err = %v, want %v", err, ErrOAuthLinkRequired)
 	}
-	if user.Role != RoleAdmin {
-		t.Errorf("Role = %q, want %q (original role preserved)",
-			user.Role, RoleAdmin)
+	if user != nil {
+		t.Errorf("user = %+v, want nil", user)
 	}
 }
 
@@ -1214,7 +987,7 @@ func TestPhase2_UserCount_AfterDelete(t *testing.T) {
 		t.Errorf("expected 1, got %d", count)
 	}
 
-	err = DeleteUser(ctx, pool, id)
+	err = deleteUserForTest(ctx, pool, id)
 	if err != nil {
 		t.Fatalf("DeleteUser: %v", err)
 	}
@@ -1353,7 +1126,7 @@ func TestPhase2_FullWorkflow_BootstrapAuthSession(t *testing.T) {
 
 	// 5. Create second user via OAuth.
 	oauthUser, err := FindOrCreateOAuthUser(ctx, pool,
-		"dev@corp.com", "google", RoleOperator)
+		legacyTestIdentity("dev@corp.com"), "google", RoleOperator)
 	if err != nil {
 		t.Fatalf("FindOrCreateOAuthUser: %v", err)
 	}
@@ -1371,7 +1144,7 @@ func TestPhase2_FullWorkflow_BootstrapAuthSession(t *testing.T) {
 	}
 
 	// 7. Update OAuth user role.
-	err = UpdateUserRole(ctx, pool, oauthUser.ID, RoleAdmin)
+	err = setRoleForTest(ctx, pool, oauthUser.ID, RoleAdmin)
 	if err != nil {
 		t.Fatalf("UpdateUserRole: %v", err)
 	}
@@ -1386,7 +1159,7 @@ func TestPhase2_FullWorkflow_BootstrapAuthSession(t *testing.T) {
 	}
 
 	// 9. Delete OAuth user.
-	err = DeleteUser(ctx, pool, oauthUser.ID)
+	err = deleteUserForTest(ctx, pool, oauthUser.ID)
 	if err != nil {
 		t.Fatalf("DeleteUser: %v", err)
 	}
@@ -1410,5 +1183,15 @@ func TestPhase2_FullWorkflow_BootstrapAuthSession(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected 1 user, got %d", count)
+	}
+}
+
+// legacyTestIdentity wraps an email in a verified identity whose
+// subject is derived from the email, so repeated logins with the same
+// email resolve to the same issuer+subject (G6-B04).
+func legacyTestIdentity(email string) Identity {
+	return Identity{
+		Issuer: "https://idp.test", Subject: "sub:" + email,
+		Email: email, EmailVerified: true,
 	}
 }

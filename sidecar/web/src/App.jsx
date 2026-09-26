@@ -13,6 +13,7 @@ import { AgentDBsPage } from './pages/AgentDBsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
 import { ValuePage } from './pages/ValuePage'
 import { useAPI } from './hooks/useAPI'
+import { resolveSelectedDB } from './lib/selectedDatabase'
 import { TimeRangeProvider } from './context/TimeRangeContext'
 import { CommandPalette } from './components/CommandPalette'
 import { LiveEventsProvider } from './hooks/useLiveEvents'
@@ -123,9 +124,12 @@ export default function App() {
   }
 
   const databases = fleetData?.databases || []
-  const selectedDatabase = selectedDB === 'all'
+  // A stored selection for a deleted or renamed database would hide the
+  // picker and 404 every page; fall back to all databases (G9-B09).
+  const effectiveDB = resolveSelectedDB(selectedDB, fleetData?.databases)
+  const selectedDatabase = effectiveDB === 'all'
     ? null
-    : databases.find(db => db.name === selectedDB)
+    : databases.find(db => db.name === effectiveDB)
 
   // TODO(fleet-ctx): Audit every fetch() call site and ensure
   // per-database context is forwarded via ?database= where the
@@ -145,17 +149,17 @@ export default function App() {
   const pageState = (() => {
     switch (route) {
       case '/':
-        return { title: 'Value', node: <ValuePage database={selectedDB} /> }
+        return { title: 'Value', node: <ValuePage database={effectiveDB} /> }
       case '/advanced':
         return { title: 'Snapshot & metrics',
-          node: <Dashboard database={selectedDB}
-            onSelectDB={setSelectedDB} /> }
+          node: <Dashboard database={effectiveDB}
+            onSelectDB={setSelectedDB} user={user} /> }
       case '/advanced/findings':
         return { title: 'Findings explorer',
-          node: <CasesPage key={route} database={selectedDB} user={user} /> }
+          node: <CasesPage key={route} database={effectiveDB} user={user} /> }
       case '/advanced/actions':
         return { title: 'Action history',
-          node: <Actions database={selectedDB} user={user} /> }
+          node: <Actions database={effectiveDB} user={user} /> }
       case '/manage-databases':
         return isAdmin ? { title: 'Databases', node: <DatabasesPage /> }
           : denied
@@ -164,34 +168,36 @@ export default function App() {
       case '/findings':
       case '/cases':
         return { title: 'Cases',
-          node: <CasesPage key={route} database={selectedDB} user={user} /> }
+          node: <CasesPage key={route} database={effectiveDB} user={user} /> }
       case '/actions':
         return { title: 'Actions',
-          node: <Actions database={selectedDB} user={user} /> }
+          node: <Actions database={effectiveDB} user={user} /> }
       case '/database':
         return { title: 'Database',
-          node: <DatabasePage database={selectedDB} /> }
+          node: <DatabasePage database={effectiveDB} /> }
       case '/forecasts':
         return { title: 'Cases',
-          node: <CasesPage key={route} database={selectedDB} initialSource="forecast" /> }
+          node: <CasesPage key={route} database={effectiveDB} user={user}
+            initialSource="forecast" /> }
       case '/query-hints':
         return { title: 'Cases',
-          node: <CasesPage key={route} database={selectedDB} initialSource="query_hint" /> }
+          node: <CasesPage key={route} database={effectiveDB} user={user}
+            initialSource="query_hint" /> }
       case '/schema-health':
         return { title: 'Cases',
-          node: <CasesPage key={route} database={selectedDB}
+          node: <CasesPage key={route} database={effectiveDB} user={user}
             initialSource="schema_health" /> }
       case '/alerts':
         return { title: 'Alerts',
-          node: <AlertLogPage database={selectedDB} /> }
+          node: <AlertLogPage database={effectiveDB} /> }
       case '/incidents':
         return { title: 'Cases',
-          node: <CasesPage key={route} database={selectedDB} user={user}
+          node: <CasesPage key={route} database={effectiveDB} user={user}
             initialSource="incident" /> }
       case '/settings':
         return isAdmin ? { title: 'Settings',
           node: <SettingsPage
-            database={selectedDB}
+            database={effectiveDB}
             databaseId={selectedDatabase?.id || selectedDatabase?.database_id}
           /> } : denied
       case '/notifications':
@@ -210,7 +216,7 @@ export default function App() {
       <ToastProvider>
         <TimeRangeProvider>
           <Layout data-testid="app-loaded" databases={databases}
-            selectedDB={selectedDB}
+            selectedDB={effectiveDB}
             onSelectDB={setSelectedDB} user={user}
             fleetData={fleetData}
             onLogout={handleLogout}
@@ -219,7 +225,7 @@ export default function App() {
           </Layout>
           <CommandPalette
             databases={databases}
-            selectedDB={selectedDB}
+            selectedDB={effectiveDB}
             onSelectDB={setSelectedDB}
             user={user}
           />

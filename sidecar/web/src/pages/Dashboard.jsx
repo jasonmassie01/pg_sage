@@ -309,7 +309,7 @@ function DatabaseOverviewPanel({
   )
 }
 
-function RecentRecommendationsPanel({ findings }) {
+function RecentRecommendationsPanel({ findings, error, onRetry }) {
   return (
     <div className="rounded p-4"
       data-testid="recent-findings"
@@ -321,7 +321,9 @@ function RecentRecommendationsPanel({ findings }) {
         style={{ color: 'var(--text-secondary)' }}>
         Recent Recommendations
       </h2>
-      {findings.length > 0 ? (
+      {error ? (
+        <ErrorBanner message={error} onRetry={onRetry} />
+      ) : findings.length > 0 ? (
         <div className="space-y-2">
           {findings.slice(0, 5).map((f, i) => (
             <div key={i}
@@ -349,13 +351,15 @@ function RecentRecommendationsPanel({ findings }) {
   )
 }
 
-export function Dashboard({ database, onSelectDB }) {
+export function Dashboard({ database, onSelectDB, user }) {
   const [overviewTab, setOverviewTab] = useState('databases')
   const dbParam = database && database !== 'all'
-    ? `?database=${database}` : ''
+    ? `?database=${encodeURIComponent(database)}` : ''
   const { data, loading, error, refetch } = useAPI('/api/v1/databases')
   const sep = dbParam ? '&' : '?'
-  const findings = useAPI(`/api/v1/findings${dbParam}${sep}limit=5`)
+  // Newest first: the API default sort is severity (G9-B08).
+  const findings = useAPI(
+    `/api/v1/findings${dbParam}${sep}limit=5&sort=last_seen&order=desc`)
   useLiveRefetch(['findings', 'health'], refetch)
   useLiveRefetch(['findings'], findings.refetch)
 
@@ -400,7 +404,7 @@ export function Dashboard({ database, onSelectDB }) {
 
   return (
     <div className="space-y-6">
-      <TokenBudgetBanner />
+      <TokenBudgetBanner canReset={user?.role === 'admin'} />
       {summary && <HealthHero summary={summary} />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -428,7 +432,8 @@ export function Dashboard({ database, onSelectDB }) {
       )}
       {overviewTab === 'provider-readiness' && <ProviderReadinessMatrix />}
       {overviewTab === 'recent-recos' && (
-        <RecentRecommendationsPanel findings={recentFindings} />
+        <RecentRecommendationsPanel findings={recentFindings}
+          error={findings.error} onRetry={findings.refetch} />
       )}
     </div>
   )

@@ -83,46 +83,6 @@ type RuntimeDeps struct {
 	MCPHandler          http.Handler
 }
 
-// NewRouter creates the API + dashboard HTTP handler.
-// Pool is required for session-based auth queries.
-// Middlewares wrap /api/v1/* routes (auth, rate limiting).
-func NewRouter(
-	mgr *fleet.DatabaseManager,
-	cfg *config.Config,
-	pool *pgxpool.Pool,
-	middlewares ...func(http.Handler) http.Handler,
-) http.Handler {
-	return NewRouterWithActions(mgr, cfg, pool, nil, middlewares...)
-}
-
-// NewRouterWithActions creates the API handler with optional
-// action management routes.
-func NewRouterWithActions(
-	mgr *fleet.DatabaseManager,
-	cfg *config.Config,
-	pool *pgxpool.Pool,
-	actions *ActionDeps,
-	middlewares ...func(http.Handler) http.Handler,
-) http.Handler {
-	return NewRouterFull(
-		mgr, cfg, pool, actions, nil, nil, middlewares...)
-}
-
-// NewRouterFull creates the API handler with all optional deps.
-func NewRouterFull(
-	mgr *fleet.DatabaseManager,
-	cfg *config.Config,
-	pool *pgxpool.Pool,
-	actions *ActionDeps,
-	dbDeps *DatabaseDeps,
-	llmMgr *llm.Manager,
-	middlewares ...func(http.Handler) http.Handler,
-) http.Handler {
-	return NewRouterFullRuntime(
-		mgr, cfg, pool, actions, dbDeps, llmMgr, nil, middlewares...,
-	)
-}
-
 // NewRouterFullRuntime creates the API handler with process controllers.
 func NewRouterFullRuntime(
 	mgr *fleet.DatabaseManager,
@@ -155,7 +115,7 @@ func NewRouterFullRuntime(
 	)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		mcpHandler != nil {
-		apiMux.Handle("POST /api/v1/mcp", mcpHandler)
+		apiMux.Handle("POST /api/v1/mcp", bindMCPPrincipal(mcpHandler))
 	}
 	if pool != nil {
 		var oauthProvider *auth.OAuthProvider
@@ -445,19 +405,6 @@ func registerUserRoutes(
 	roleH := adminOnly(http.HandlerFunc(
 		updateUserRoleHandler(pool)))
 	mux.Handle("PUT /api/v1/users/{id}/role", roleH)
-}
-
-func registerConfigRoutes(
-	mux *http.ServeMux,
-	pool *pgxpool.Pool,
-	cfg *config.Config,
-	mgr ...*fleet.DatabaseManager,
-) {
-	var fm *fleet.DatabaseManager
-	if len(mgr) > 0 {
-		fm = mgr[0]
-	}
-	registerConfigRoutesRuntime(mux, pool, cfg, fm, nil, nil, false)
 }
 
 func registerConfigRoutesRuntime(

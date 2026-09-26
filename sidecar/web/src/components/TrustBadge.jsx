@@ -15,7 +15,9 @@ const LEVELS = {
     bg: 'rgba(250,170,60,0.15)',
     fg: '#f0a54a',
     border: 'rgba(250,170,60,0.4)',
-    hint: 'SAFE actions executed autonomously',
+    hint: 'SAFE actions may auto-execute only when execution_mode=auto,'
+      + ' tier3_safe is on and the 8-day trust ramp has passed;'
+      + ' otherwise they queue for approval',
   },
   autonomous: {
     label: 'Autonomous',
@@ -23,15 +25,22 @@ const LEVELS = {
     bg: 'rgba(90,200,130,0.15)',
     fg: '#5ac882',
     border: 'rgba(90,200,130,0.4)',
-    hint: 'SAFE + MODERATE actions executed autonomously',
+    hint: 'SAFE (8-day ramp) and MODERATE (31-day ramp, maintenance'
+      + ' window) actions may auto-execute only when execution_mode=auto'
+      + ' and the matching tier3 flag is on; otherwise they queue',
   },
 }
 
-export function TrustBadge({ level, compact = false }) {
+// autoFamilies: action types whose current policy decision is
+// "execute" (from capabilities.action_families). When supplied, the hint
+// states what would actually auto-run right now (G9-B12).
+export function TrustBadge({ level, compact = false, autoFamilies }) {
   const norm = (level || '').toLowerCase()
   const meta = LEVELS[norm]
   if (!meta) return null
-  const { label, Icon, bg, fg, border, hint } = meta
+  const { label, Icon, bg, fg, border } = meta
+  const hint = Array.isArray(autoFamilies) && norm !== 'observation'
+    ? liveHint(autoFamilies) : meta.hint
   return (
     <span
       data-testid={`trust-badge-${norm}`}
@@ -47,4 +56,12 @@ export function TrustBadge({ level, compact = false }) {
       {compact ? label.slice(0, 1) : label}
     </span>
   )
+}
+
+function liveHint(autoFamilies) {
+  if (autoFamilies.length === 0) {
+    return 'Nothing auto-executes right now; actions queue for approval'
+      + ' or are observe-only'
+  }
+  return `Auto-executes now: ${autoFamilies.join(', ')}`
 }

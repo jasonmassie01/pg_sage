@@ -17,30 +17,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
-func TestActionsTimelineResponseIncludesStatusRiskAndVerification(t *testing.T) {
-	row := map[string]any{
-		"id":                  1,
-		"status":              "pending",
-		"action_type":         "analyze_table",
-		"risk_tier":           "safe",
-		"verification_status": "not_started",
-		"lifecycle_state":     "blocked",
-		"blocked_reason":      "action is in cooldown",
-		"attempt_count":       2,
-	}
-
-	got := actionTimelineMap(row)
-
-	for _, key := range []string{
-		"id", "status", "action_type", "risk_tier", "verification_status",
-		"lifecycle_state", "blocked_reason", "attempt_count",
-	} {
-		if _, ok := got[key]; !ok {
-			t.Fatalf("missing %s in timeline map", key)
-		}
-	}
-}
-
 func TestQueuedActionMapIncludesLifecycleMetadata(t *testing.T) {
 	cooldownUntil := time.Date(2026, 4, 27, 12, 30, 0, 0, time.UTC)
 	action := store.QueuedAction{

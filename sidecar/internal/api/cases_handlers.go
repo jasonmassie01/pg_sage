@@ -133,6 +133,7 @@ func queryProjectedCases(
 		}
 		out = append(out, queryHintCases...)
 	}
+	sortCasesGlobally(out)
 	return out, nil
 }
 
@@ -266,6 +267,12 @@ func int64Value(value any) int64 {
 		return int64(v)
 	case float32:
 		return int64(v)
+	case string:
+		parsed, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return 0
+		}
+		return parsed
 	default:
 		return 0
 	}
@@ -282,38 +289,6 @@ func filterSelfMonitoringHintRows(
 		out = append(out, row)
 	}
 	return out
-}
-
-func enrichCaseActionTimeline(
-	ctx context.Context,
-	c *cases.Case,
-	pool *pgxpool.Pool,
-	actionStore *store.ActionStore,
-) {
-	if len(c.SourceIDs) == 0 {
-		return
-	}
-	findingID, err := strconv.Atoi(c.SourceIDs[0])
-	if err != nil || findingID <= 0 {
-		return
-	}
-	if actionStore != nil {
-		queued, err := actionStore.ListLedgerByFinding(ctx, findingID)
-		if err == nil {
-			now := time.Now().UTC()
-			for _, action := range queued {
-				c.Actions = append(c.Actions,
-					caseActionFromQueuedAction(action, now))
-			}
-		}
-	}
-	logged, err := queryActionLogsByFinding(ctx, pool, findingID)
-	if err != nil {
-		return
-	}
-	for _, action := range logged {
-		c.Actions = append(c.Actions, caseActionFromActionLog(action))
-	}
 }
 
 func enrichCaseActionTimelines(
@@ -406,24 +381,6 @@ func queuedActionType(action store.QueuedAction) string {
 	return action.ActionRisk
 }
 
-func queryActionLogsByFinding(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	findingID int,
-) ([]map[string]any, error) {
-	if pool == nil {
-		return []map[string]any{}, nil
-	}
-	rows, err := pool.Query(ctx, actionsSelectSQLPrefix+
-		` WHERE finding_id = $1 ORDER BY executed_at DESC LIMIT 20`,
-		findingID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanActionRows(rows)
-}
-
 func queryActionLogsByFindingIDs(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -483,24 +440,43 @@ func caseActionFromActionLog(row map[string]any) cases.CaseAction {
 	return action
 }
 
+// actionLogVerificationStatus reports what is actually known about an
+// executed action. A successful SQL return is only "applied"; the
+// action is "verified" only when the durable sage.verification record
+// completed with verdict=success (SURF-12 / G6-B10, matching the value
+// service's credit rule).
 func actionLogVerificationStatus(row map[string]any) string {
-	outcome := stringValue(row["outcome"])
-	if outcome == "success" && row["measured_at"] != nil {
-		return "verified"
-	}
-	if outcome == "pending" || outcome == "monitoring" {
-		return "monitoring"
-	}
-	if outcome == "failed" || outcome == "rollback_failed" {
+	switch stringValue(row["outcome"]) {
+	case "rolled_back", "reverted":
+		return "reverted"
+	case "failed", "rollback_failed":
 		return "failed"
+	case "pending", "monitoring":
+		return "pending"
+	case "success":
+		return durableVerificationStatus(row)
+	default:
+		return "not_started"
 	}
-	if outcome == "rolled_back" {
-		return "rolled_back"
-	}
-	if outcome == "success" {
+}
+
+func durableVerificationStatus(row map[string]any) string {
+	verdict := stringValue(row["verification_verdict"])
+	completed := row["verification_completed_at"] != nil
+	switch {
+	case verdict == "":
+		return "applied"
+	case verdict == "success" && completed:
 		return "verified"
+	case verdict == "revert":
+		return "reverted"
+	case verdict == "failed":
+		return "failed"
+	case verdict == "unverifiable":
+		return "inconclusive"
+	default:
+		return "pending"
 	}
-	return "not_started"
 }
 
 func enrichCaseActionPolicies(
@@ -641,7 +617,7 @@ func sourceIncidentFromMap(row map[string]any) cases.SourceIncident {
 
 func sourceQueryHintFromMap(row map[string]any) cases.SourceQueryHint {
 	return cases.SourceQueryHint{
-		QueryID:          int64(floatValue(row["queryid"])),
+		QueryID:          int64Value(row["queryid"]),
 		DatabaseName:     stringValue(row["database_name"]),
 		HintText:         stringValue(row["hint_text"]),
 		Symptom:          stringValue(row["symptom"]),

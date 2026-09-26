@@ -1095,6 +1095,7 @@ func TestFetchOIDCEmail_Success(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{
+				"sub": "sub-1", "email_verified": "true", "id": "1",
 				"email": "user@example.com",
 			})
 		}))
@@ -1106,10 +1107,11 @@ func TestFetchOIDCEmail_Success(t *testing.T) {
 		UserinfoEndpoint: userinfoSrv.URL,
 	}
 
-	email, err := p.fetchOIDCEmail(context.Background(), "test-token")
+	ident, err := p.fetchOIDCIdentity(context.Background(), "test-token")
 	if err != nil {
 		t.Fatalf("fetchOIDCEmail error: %v", err)
 	}
+	email := ident.Email
 	if email != "user@example.com" {
 		t.Errorf("email = %q, want 'user@example.com'", email)
 	}
@@ -1119,6 +1121,7 @@ func TestFetchOIDCEmail_EmptyEmail(t *testing.T) {
 	userinfoSrv := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, _ *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{
+				"sub": "sub-1", "email_verified": "true", "id": "1",
 				"email": "",
 			})
 		}))
@@ -1128,7 +1131,7 @@ func TestFetchOIDCEmail_EmptyEmail(t *testing.T) {
 	p := NewOAuthProvider(cfg)
 	p.discovery = &OIDCDiscovery{UserinfoEndpoint: userinfoSrv.URL}
 
-	_, err := p.fetchOIDCEmail(context.Background(), "token")
+	_, err := p.fetchOIDCIdentity(context.Background(), "token")
 	if err == nil {
 		t.Fatal("expected error for empty email")
 	}
@@ -1142,7 +1145,7 @@ func TestFetchOIDCEmail_MissingEndpoint(t *testing.T) {
 	p := NewOAuthProvider(cfg)
 	p.discovery = &OIDCDiscovery{UserinfoEndpoint: ""}
 
-	_, err := p.fetchOIDCEmail(context.Background(), "token")
+	_, err := p.fetchOIDCIdentity(context.Background(), "token")
 	if err == nil {
 		t.Fatal("expected error for missing endpoint")
 	}
@@ -1162,7 +1165,7 @@ func TestFetchOIDCEmail_Non200Status(t *testing.T) {
 	p := NewOAuthProvider(cfg)
 	p.discovery = &OIDCDiscovery{UserinfoEndpoint: srv.URL}
 
-	_, err := p.fetchOIDCEmail(context.Background(), "bad-token")
+	_, err := p.fetchOIDCIdentity(context.Background(), "bad-token")
 	if err == nil {
 		t.Fatal("expected error for 401 response")
 	}
@@ -1182,7 +1185,7 @@ func TestFetchOIDCEmail_InvalidJSON(t *testing.T) {
 	p := NewOAuthProvider(cfg)
 	p.discovery = &OIDCDiscovery{UserinfoEndpoint: srv.URL}
 
-	_, err := p.fetchOIDCEmail(context.Background(), "token")
+	_, err := p.fetchOIDCIdentity(context.Background(), "token")
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
@@ -1200,6 +1203,7 @@ func TestFetchGitHubEmail_PrimaryEmailInUserEndpoint(t *testing.T) {
 		func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/user" {
 				json.NewEncoder(w).Encode(map[string]string{
+					"sub": "sub-1", "email_verified": "true", "id": "1",
 					"email": "gh-user@example.com",
 				})
 				return
@@ -1230,6 +1234,7 @@ func TestFetchGitHubEmail_PrimaryEmailInUserEndpoint(t *testing.T) {
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]string{
+			"sub": "sub-1", "email_verified": "true", "id": "1",
 			"email": "gh@example.com",
 		})
 	})
@@ -1246,10 +1251,11 @@ func TestFetchGitHubEmail_PrimaryEmailInUserEndpoint(t *testing.T) {
 	pOIDC := NewOAuthProvider(cfgOIDC)
 	pOIDC.discovery = &OIDCDiscovery{UserinfoEndpoint: ghSrv.URL + "/user"}
 
-	email, err := pOIDC.fetchEmail(context.Background(), "gh-token")
+	ident, err := pOIDC.fetchIdentity(context.Background(), "gh-token")
 	if err != nil {
 		t.Fatalf("fetchEmail(oidc) error: %v", err)
 	}
+	email := ident.Email
 	if email != "gh@example.com" {
 		t.Errorf("email = %q, want 'gh@example.com'", email)
 	}
@@ -1261,6 +1267,7 @@ func TestFetchEmail_DispatchesCorrectly(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/userinfo", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{
+			"sub": "sub-1", "email_verified": "true", "id": "1",
 			"email": "oidc@example.com",
 		})
 	})
@@ -1273,10 +1280,11 @@ func TestFetchEmail_DispatchesCorrectly(t *testing.T) {
 	pOIDC.discovery = &OIDCDiscovery{
 		UserinfoEndpoint: srv.URL + "/userinfo",
 	}
-	email, err := pOIDC.fetchEmail(context.Background(), "token")
+	ident, err := pOIDC.fetchIdentity(context.Background(), "token")
 	if err != nil {
 		t.Fatalf("fetchEmail(oidc) error: %v", err)
 	}
+	email := ident.Email
 	if email != "oidc@example.com" {
 		t.Errorf("email = %q, want 'oidc@example.com'", email)
 	}
@@ -1414,6 +1422,7 @@ func TestFetchGitHubEmail_EmailInUserResponse(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/user", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{
+			"sub": "sub-1", "email_verified": "true", "id": "1",
 			"email": "direct@example.com",
 		})
 	})
@@ -1432,10 +1441,11 @@ func TestFetchGitHubEmail_EmailInUserResponse(t *testing.T) {
 		UserinfoEndpoint: srv.URL + "/user",
 	}
 
-	email, err := p.fetchGitHubEmail(context.Background(), "token")
+	ident, err := p.fetchGitHubIdentity(context.Background(), "token")
 	if err != nil {
 		t.Fatalf("fetchGitHubEmail error: %v", err)
 	}
+	email := ident.Email
 	if email != "direct@example.com" {
 		t.Errorf("email = %q, want 'direct@example.com'", email)
 	}
@@ -1446,6 +1456,7 @@ func TestFetchGitHubEmail_FallbackWhenNoEmailInUser(t *testing.T) {
 	mux.HandleFunc("/user", func(w http.ResponseWriter, _ *http.Request) {
 		// Return user without email — triggers fallback.
 		json.NewEncoder(w).Encode(map[string]string{
+			"id":    "7",
 			"login": "testuser",
 		})
 	})
@@ -1467,10 +1478,11 @@ func TestFetchGitHubEmail_FallbackWhenNoEmailInUser(t *testing.T) {
 		},
 	}
 
-	email, err := p.fetchGitHubEmail(context.Background(), "token")
+	ident, err := p.fetchGitHubIdentity(context.Background(), "token")
 	if err != nil {
 		t.Fatalf("fetchGitHubEmail fallback error: %v", err)
 	}
+	email := ident.Email
 	if email != "fallback@example.com" {
 		t.Errorf("email = %q, want 'fallback@example.com'", email)
 	}
@@ -1493,7 +1505,7 @@ func TestFetchGitHubEmail_UserEndpointNon200(t *testing.T) {
 		},
 	}
 
-	_, err := p.fetchGitHubEmail(context.Background(), "bad-token")
+	_, err := p.fetchGitHubIdentity(context.Background(), "bad-token")
 	if err == nil {
 		t.Fatal("expected error for 401 response")
 	}
@@ -1524,6 +1536,7 @@ func TestExchange_FullFlow_OIDC(t *testing.T) {
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]string{
+			"sub": "sub-1", "email_verified": "true", "id": "1",
 			"email": "exchanged@example.com",
 		})
 	})
@@ -1548,11 +1561,12 @@ func TestExchange_FullFlow_OIDC(t *testing.T) {
 	p.states[state] = time.Now().Add(10 * time.Minute)
 	p.mu.Unlock()
 
-	email, err := p.Exchange(
+	ident, err := p.Exchange(
 		context.Background(), "auth-code", state, state)
 	if err != nil {
 		t.Fatalf("Exchange error: %v", err)
 	}
+	email := ident.Email
 	if email != "exchanged@example.com" {
 		t.Errorf("email = %q, want 'exchanged@example.com'", email)
 	}

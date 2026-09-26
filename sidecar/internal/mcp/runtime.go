@@ -49,6 +49,7 @@ func (r *Runtime) Serve(ctx context.Context) error {
 	if r.transport != "stdio" {
 		return fmt.Errorf("Serve is only valid for stdio transport")
 	}
+	ctx = WithPrincipal(ctx, stdioPrincipal)
 	scanner := bufio.NewScanner(r.input)
 	writer := bufio.NewWriter(r.output)
 	defer func() { _ = writer.Flush() }()

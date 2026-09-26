@@ -3,6 +3,7 @@ import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { SQLBlock } from '../components/SQLBlock'
+import { CaseControls, SuppressedFindings } from './cases/CaseControls'
 
 const SOURCE_FILTERS = [
   { value: 'all', label: 'All' },
@@ -21,10 +22,6 @@ function dbParam(database) {
 
 function caseID(caseRow) {
   return caseRow.case_id || caseRow.id || caseRow.identity_key
-}
-
-function scoreValue(caseRow, key) {
-  return caseRow[key] ?? 'n/a'
 }
 
 function nextStep(caseRow) {
@@ -49,12 +46,16 @@ function guardrails(candidate) {
 function formatDate(value) {
   if (!value) return null
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
+  // Go zero times (0001-01-01) mean "unset" (G9-B06).
+  if (Number.isNaN(date.getTime()) || date.getUTCFullYear() < 1971) {
+    return null
+  }
   return date.toLocaleString()
 }
 
-export function CasesPage({ database, initialSource = 'all' }) {
+export function CasesPage({ database, initialSource = 'all', user }) {
   const [sourceFilter, setSourceFilter] = useState(initialSource)
+  const [showSuppressed, setShowSuppressed] = useState(false)
   const { data, loading, error, refetch } = useAPI(
     `/api/v1/cases${dbParam(database)}`,
     30000,
@@ -77,7 +78,9 @@ export function CasesPage({ database, initialSource = 'all' }) {
         </h2>
         <p className="text-sm" data-testid="cases-page-description"
           style={{ color: 'var(--text-secondary)' }}>
-          Cases group findings into ranked work items. pg_sage attaches
+          Cases group findings into ranked work items (by severity, then most
+          recent observation) across findings, incidents and query hints.
+          pg_sage attaches
           evidence and action candidates here, then approved or executable
           work flows to Actions for review, execution, and audit history.
           {' '}{filteredCases.length} of {cases.length} cases are visible.
@@ -104,16 +107,35 @@ export function CasesPage({ database, initialSource = 'all' }) {
         ))}
       </div>
 
+      <div>
+        <button type="button" data-testid="cases-show-suppressed"
+          aria-pressed={showSuppressed}
+          onClick={() => setShowSuppressed(v => !v)}
+          className="rounded px-2.5 py-1 text-xs"
+          style={{ color: 'var(--text-secondary)',
+            border: '1px solid var(--border)' }}>
+          {showSuppressed ? 'Hide suppressed findings'
+            : 'Show suppressed findings'}
+        </button>
+        {showSuppressed && (
+          <div className="mt-2">
+            <SuppressedFindings database={database} user={user}
+              onDone={refetch} />
+          </div>
+        )}
+      </div>
+
       <div className="space-y-2">
         {filteredCases.map(c => (
-          <CaseCard key={caseID(c)} caseRow={c} />
+          <CaseCard key={caseID(c)} caseRow={c} user={user}
+            onDone={refetch} />
         ))}
       </div>
     </div>
   )
 }
 
-function CaseCard({ caseRow }) {
+function CaseCard({ caseRow, user, onDone }) {
   const candidate = caseRow.action_candidates?.[0]
   const candidateGuardrails = guardrails(candidate)
 
@@ -142,8 +164,9 @@ function CaseCard({ caseRow }) {
       <div className="mt-3 flex flex-wrap gap-2 text-xs"
         style={{ color: 'var(--text-secondary)' }}>
         <span>State: {caseRow.state}</span>
-        <span>Impact: {scoreValue(caseRow, 'impact_score')}</span>
-        <span>Urgency: {scoreValue(caseRow, 'urgency_score')}</span>
+        {caseRow.database_name && (
+          <span data-testid="case-database">DB: {caseRow.database_name}</span>
+        )}
         <span>Next: <span>{nextStep(caseRow)}</span></span>
         {candidate && <span>Policy: {policyLabel(candidate)}</span>}
       </div>
@@ -183,6 +206,7 @@ function CaseCard({ caseRow }) {
           ))}
         </div>
       )}
+      <CaseControls caseRow={caseRow} user={user} onDone={onDone} />
     </article>
   )
 }
