@@ -446,6 +446,9 @@ func TestCaseActionFromActionLogIncludesOutcome(t *testing.T) {
 		"measured_at":  &measuredAt,
 		"finding_id":   "42",
 		"rollback_sql": "",
+		// SURF-12: "verified" requires a completed durable verification.
+		"verification_verdict":      "success",
+		"verification_completed_at": &measuredAt,
 	}
 
 	got := caseActionFromActionLog(row)

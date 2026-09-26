@@ -530,11 +530,8 @@ func rollbackActionHandler(
 		if !ok {
 			return
 		}
-		var body struct {
-			Reason string `json:"reason"`
-		}
-		if decErr := json.NewDecoder(r.Body).Decode(&body); decErr != nil {
-			jsonError(w, "invalid JSON", http.StatusBadRequest)
+		body, ok := decodeRollbackBody(w, r)
+		if !ok {
 			return
 		}
 		if err := exec.RollbackAction(
@@ -675,15 +672,12 @@ func fleetRollbackActionHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		inst, id, ok := actionInstanceAndID(w, r, mgr)
+		body, ok := decodeRollbackBody(w, r)
 		if !ok {
 			return
 		}
-		var body struct {
-			Reason string `json:"reason"`
-		}
-		if decErr := json.NewDecoder(r.Body).Decode(&body); decErr != nil {
-			jsonError(w, "invalid JSON", http.StatusBadRequest)
+		inst, id, ok := actionInstanceAndID(w, r, mgr)
+		if !ok {
 			return
 		}
 		if err := inst.Executor.RollbackAction(

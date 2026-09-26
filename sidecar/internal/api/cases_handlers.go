@@ -483,24 +483,43 @@ func caseActionFromActionLog(row map[string]any) cases.CaseAction {
 	return action
 }
 
+// actionLogVerificationStatus reports what is actually known about an
+// executed action. A successful SQL return is only "applied"; the
+// action is "verified" only when the durable sage.verification record
+// completed with verdict=success (SURF-12 / G6-B10, matching the value
+// service's credit rule).
 func actionLogVerificationStatus(row map[string]any) string {
-	outcome := stringValue(row["outcome"])
-	if outcome == "success" && row["measured_at"] != nil {
-		return "verified"
-	}
-	if outcome == "pending" || outcome == "monitoring" {
-		return "monitoring"
-	}
-	if outcome == "failed" || outcome == "rollback_failed" {
+	switch stringValue(row["outcome"]) {
+	case "rolled_back", "reverted":
+		return "reverted"
+	case "failed", "rollback_failed":
 		return "failed"
+	case "pending", "monitoring":
+		return "pending"
+	case "success":
+		return durableVerificationStatus(row)
+	default:
+		return "not_started"
 	}
-	if outcome == "rolled_back" {
-		return "rolled_back"
-	}
-	if outcome == "success" {
+}
+
+func durableVerificationStatus(row map[string]any) string {
+	verdict := stringValue(row["verification_verdict"])
+	completed := row["verification_completed_at"] != nil
+	switch {
+	case verdict == "":
+		return "applied"
+	case verdict == "success" && completed:
 		return "verified"
+	case verdict == "revert":
+		return "reverted"
+	case verdict == "failed":
+		return "failed"
+	case verdict == "unverifiable":
+		return "inconclusive"
+	default:
+		return "pending"
 	}
-	return "not_started"
 }
 
 func enrichCaseActionPolicies(

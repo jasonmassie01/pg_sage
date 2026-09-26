@@ -131,6 +131,10 @@ func cleanLedgerTables(
 	t *testing.T, pool *pgxpool.Pool, ctx context.Context,
 ) {
 	t.Helper()
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, "DELETE FROM sage.verification")
+		_, _ = pool.Exec(ctx, "DELETE FROM sage.decision")
+	})
 	for _, q := range []string{
 		"DELETE FROM sage.verification",
 		"DELETE FROM sage.decision",

@@ -515,7 +515,7 @@ func TestCoverage_BuildActionMap_AllKeys(t *testing.T) {
 		"id", "executed_at", "event_at", "action_type", "finding_id",
 		"sql_executed", "rollback_sql", "before_state",
 		"after_state", "outcome", "rollback_reason",
-		"measured_at",
+		"measured_at", "record_kind", "ledger_key",
 	}
 	for _, key := range expectedKeys {
 		if _, ok := m[key]; !ok {
