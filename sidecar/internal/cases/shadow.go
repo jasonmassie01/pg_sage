@@ -31,6 +31,7 @@ type ShadowProofItem struct {
 
 func BuildShadowReport(cases []Case) ShadowReport {
 	report := ShadowReport{TotalCases: len(cases)}
+	now := time.Now()
 	reasons := map[string]bool{}
 
 	for _, c := range cases {
@@ -49,7 +50,7 @@ func BuildShadowReport(cases []Case) ShadowReport {
 				BlockedReason:     a.BlockedReason,
 			}
 			switch {
-			case a.RiskTier == "safe" && a.BlockedReason == "":
+			case candidateWouldAutoResolve(a, proof.PolicyDecision, now):
 				report.WouldAutoResolve++
 				report.EstimatedToilMins += toil
 			default:
@@ -160,4 +161,16 @@ func shadowProofTime(value *time.Time) string {
 		return ""
 	}
 	return value.UTC().Format(time.RFC3339)
+}
+
+// candidateWouldAutoResolve counts a candidate as automatic only when
+// the attached policy decision is "execute", nothing blocks it, it is
+// safe, and its evidence has not expired (SURF-13).
+func candidateWouldAutoResolve(
+	a ActionCandidate, policy string, now time.Time,
+) bool {
+	if policy != "execute" || a.BlockedReason != "" || a.RiskTier != "safe" {
+		return false
+	}
+	return a.ExpiresAt == nil || a.ExpiresAt.After(now)
 }
