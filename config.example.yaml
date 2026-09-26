@@ -67,6 +67,13 @@ advisor:
 #   max_output_tokens: 2048
 #   fallback_to_general: true
 
+# Notification channel targets (Slack/webhook URLs, SMTP hosts). Private
+# addresses (loopback, RFC 1918, ULA, CGNAT) and plain http are refused
+# unless allowed here, e.g. for an internal SMTP relay. Link-local and
+# cloud metadata addresses are always refused. YAML only; requires restart.
+# notification_policy:
+#   allow_private_targets: false
+
 # Prometheus metrics endpoint
 prometheus:
   listen_addr: "0.0.0.0:9187"

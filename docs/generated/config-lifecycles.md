@@ -155,6 +155,7 @@
 | `migration.mode` | `restart` | `-` |
 | `migration.poll_interval_seconds` | `restart` | `-` |
 | `mode` | `restart` | `-` |
+| `notification_policy.allow_private_targets` | `restart` | `-` |
 | `oauth.client_id` | `restart` | `-` |
 | `oauth.client_secret` | `restart` | `-` |
 | `oauth.default_role` | `restart` | `-` |

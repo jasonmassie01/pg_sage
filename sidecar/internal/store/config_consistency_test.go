@@ -54,6 +54,11 @@ var excludedExactKeys = map[string]bool{
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,
 
+	// Notification target policy is a security boundary (G7-B21): an
+	// API admin must not be able to open SSRF to private networks, so it
+	// is YAML-only and restart-bound.
+	"notification_policy.allow_private_targets": true,
+
 	// LLM sub-struct fields not (yet) exposed as overrides.
 	"llm.cooldown_seconds":                       true,
 	"llm.index_optimizer.enabled":                true,
