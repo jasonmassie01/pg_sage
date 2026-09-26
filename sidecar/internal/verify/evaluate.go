@@ -138,7 +138,8 @@ func anyGain(criterion Criterion, observed observations) bool {
 
 func writeRegressed(criterion Criterion, observed observations) bool {
 	if observed.writeBefore.AverageLatency <= 0 {
-		return observed.writeAfter.AverageLatency > 0
+		// No pre-action write baseline: insufficient evidence, not a regression.
+		return false
 	}
 	return exceeds(observed.writeAfter.AverageLatency, observed.writeBefore.AverageLatency,
 		criterion.WriteImpactPct)

@@ -229,7 +229,9 @@ func (s *PostgresStateStore) ListDue(
 	rows, err := s.pool.Query(ctx, `SELECT action_log_id, criterion,
 		baseline, verdict, COALESCE(reason, ''), completed_at IS NOT NULL,
 		next_evaluation_at FROM sage.verification
-		WHERE verdict IN ('pending', 'extended') AND next_evaluation_at <= $1
+		WHERE completed_at IS NULL
+		  AND verdict IN ('pending', 'extended', 'revert', 'unverifiable')
+		  AND next_evaluation_at <= $1
 		ORDER BY next_evaluation_at, id`, now)
 	if err != nil {
 		return nil, err
