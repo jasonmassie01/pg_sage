@@ -96,6 +96,9 @@ func (p *Planner) Plan(ctx context.Context, request Request) (Plan, error) {
 	if err := ctx.Err(); err != nil {
 		return Plan{}, fmt.Errorf("plan migration: %w", err)
 	}
+	if err := validateStatement(request); err != nil {
+		return Plan{}, err
+	}
 	if match := addUniquePattern.FindStringSubmatch(request.SQL); len(match) == 3 {
 		return planUnique(request, match[1], splitColumns(match[2])), nil
 	}
