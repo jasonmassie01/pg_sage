@@ -80,6 +80,9 @@ type Analyzer struct {
 	databaseName string
 	mu           sync.RWMutex
 	findings     []Finding
+	// notifiedAt records the last critical notification per identity;
+	// only touched by the cycle goroutine.
+	notifiedAt map[string]time.Time
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated

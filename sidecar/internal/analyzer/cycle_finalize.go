@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/notify"
 )
@@ -75,8 +76,10 @@ func (a *Analyzer) finalizeCycle(
 	a.mu.Lock()
 	a.findings = findings
 	a.mu.Unlock()
-	a.dispatchCriticalFindings(ctx, findings)
-	a.dispatchRewriteFindings(ctx, findings)
+	// Notify only on new information: newly opened or severity-escalated
+	// findings, subject to a per-identity cooldown (G2-B06/G7-B07).
+	a.dispatchCriticalFindings(ctx, a.notifiableCritical(res, time.Now()))
+	a.dispatchRewriteFindings(ctx, res.Opened)
 
 	activeByCategory := make(map[string]map[string]bool)
 	for _, f := range findings {
@@ -104,6 +107,36 @@ func withoutSuppressed(findings []Finding, res UpsertResult) []Finding {
 		if !res.IsSuppressed(f) {
 			out = append(out, f)
 		}
+	}
+	return out
+}
+
+// criticalNotifyCooldown bounds how often the same critical identity can
+// be re-paged when it flaps between resolved and re-opened.
+const criticalNotifyCooldown = time.Hour
+
+// notifiableCritical returns the critical findings that were opened or
+// escalated this cycle and have not been notified within the cooldown.
+// It is only called from the analyzer's cycle goroutine.
+func (a *Analyzer) notifiableCritical(res UpsertResult, now time.Time) []Finding {
+	if a.dispatcher == nil {
+		return nil
+	}
+	candidates := append(append([]Finding(nil), res.Opened...), res.Escalated...)
+	var out []Finding
+	for _, f := range candidates {
+		if f.Severity != "critical" {
+			continue
+		}
+		key := f.Category + "|" + f.ObjectIdentifier + "|" + f.Severity
+		if last, ok := a.notifiedAt[key]; ok && now.Sub(last) < criticalNotifyCooldown {
+			continue
+		}
+		if a.notifiedAt == nil {
+			a.notifiedAt = make(map[string]time.Time)
+		}
+		a.notifiedAt[key] = now
+		out = append(out, f)
 	}
 	return out
 }
