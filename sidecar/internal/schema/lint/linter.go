@@ -42,6 +42,16 @@ func New(
 
 // Scan runs all enabled rules and returns findings.
 func (l *Linter) Scan(ctx context.Context) ([]Finding, error) {
+	findings, _, err := l.ScanReport(ctx)
+	return findings, err
+}
+
+// ScanReport runs all enabled rules and also returns the IDs of rules
+// that failed this scan, whose open findings must not be resolved
+// (G2-B14).
+func (l *Linter) ScanReport(
+	ctx context.Context,
+) ([]Finding, map[string]bool, error) {
 	disabled := make(map[string]bool, len(l.cfg.DisabledRules))
 	for _, id := range l.cfg.DisabledRules {
 		disabled[id] = true
@@ -57,6 +67,7 @@ func (l *Linter) Scan(ctx context.Context) ([]Finding, error) {
 	}
 
 	var all []Finding
+	failed := make(map[string]bool)
 	for _, r := range l.rules {
 		if disabled[r.ID()] {
 			continue
@@ -66,6 +77,7 @@ func (l *Linter) Scan(ctx context.Context) ([]Finding, error) {
 		elapsed := time.Since(start)
 		if err != nil {
 			l.logFn("warn", "lint rule %s failed: %v", r.ID(), err)
+			failed[r.ID()] = true
 			continue
 		}
 		if len(findings) > 0 {
@@ -81,8 +93,7 @@ func (l *Linter) Scan(ctx context.Context) ([]Finding, error) {
 		}
 		all = enhancer.Enhance(ctx, all)
 	}
-
-	return all, nil
+	return all, failed, nil
 }
 
 func filterIncludedSchemas(findings []Finding, include []string) []Finding {
