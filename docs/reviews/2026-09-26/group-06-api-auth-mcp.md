@@ -35,9 +35,10 @@ Codex cross-references (`codex/surface-audit.md`) are given as `SURF-nn`.
   gate, emergency-stop check or action_log entry.
 - **Impact:** an operator (or a stolen operator session) can mutate or read anything on a
   monitored database, outside every safety mechanism the product advertises.
-- **Fix:** (1) run PREPARE through the extended protocol
-  (`conn.Exec(ctx, prepSQL, pgx.QueryExecModeExec)`), which PostgreSQL restricts to one
-  statement; (2) replace the DDL denylist with an allowlist: exactly one statement whose
+- **Fix:** (1) run PREPARE through the extended protocol, which PostgreSQL restricts to one
+  statement. *Correction (fix phase):* `conn.Exec(ctx, sql, pgx.QueryExecModeExec)` with no
+  bind arguments still uses the simple protocol in pgx; the shipped fix sends PREPARE via
+  `PgConn().ExecParams` instead (commit `5489570`); (2) replace the DDL denylist with an allowlist: exactly one statement whose
   first keyword is `SELECT`, `WITH`, `VALUES` or `TABLE`, rejecting `;` outside
   literals/comments via the existing executor multi-statement scanner; (3) keep EXPLAIN
   ANALYZE for read-only statements only.
