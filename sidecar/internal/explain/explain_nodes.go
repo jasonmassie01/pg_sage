@@ -3,6 +3,7 @@ package explain
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 )
 
 // ---------- node extraction ----------
@@ -15,7 +16,7 @@ func extractNodes(planJSON json.RawMessage) []NodeExplain {
 		TotalCost    float64  `json:"Total Cost"`
 		ActualTime   *float64 `json:"Actual Total Time"`
 		PlanRows     int64    `json:"Plan Rows"`
-		ActualRows   *int64   `json:"Actual Rows"`
+		ActualRows   *float64 `json:"Actual Rows"` // PG18: per-loop average, 2 decimals
 		Plans        []pgNode `json:"Plans"`
 	}
 	type planWrapper struct {
@@ -39,14 +40,14 @@ func extractNodes(planJSON json.RawMessage) []NodeExplain {
 			ne.TimeMs = n.ActualTime
 		}
 		if n.ActualRows != nil {
-			ne.Rows = *n.ActualRows
+			ne.Rows = int64(math.Round(*n.ActualRows))
 		}
 		if n.ActualRows != nil && n.PlanRows > 0 {
-			ratio := float64(*n.ActualRows) / float64(n.PlanRows)
+			ratio := *n.ActualRows / float64(n.PlanRows)
 			if ratio > 10 {
 				ne.Warning = fmt.Sprintf(
 					"row estimate off by %.0fx (est %d, actual %d)",
-					ratio, n.PlanRows, *n.ActualRows,
+					ratio, n.PlanRows, ne.Rows,
 				)
 			}
 		}

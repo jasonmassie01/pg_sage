@@ -2189,7 +2189,7 @@ func TestFunctional_Coverage_BuildFinding_MultipleSymptoms(
 
 func TestFunctional_Coverage_BadNestedLoop_NotNestedLoop(t *testing.T) {
 	n := planNode{NodeType: "Hash Join", PlanRows: 10,
-		ActualRows: ptr(int64(200))}
+		ActualRows: ptr(float64(200))}
 	s := checkBadNestedLoop(n, 0)
 	if s != nil {
 		t.Error("expected nil for non-Nested Loop node")
@@ -2207,7 +2207,7 @@ func TestFunctional_Coverage_BadNestedLoop_NilActualRows(t *testing.T) {
 
 func TestFunctional_Coverage_BadNestedLoop_ZeroPlanRows(t *testing.T) {
 	n := planNode{NodeType: "Nested Loop", PlanRows: 0,
-		ActualRows: ptr(int64(1000))}
+		ActualRows: ptr(float64(1000))}
 	s := checkBadNestedLoop(n, 0)
 	if s != nil {
 		t.Error("expected nil when PlanRows <= 0")
@@ -2218,7 +2218,7 @@ func TestFunctional_Coverage_BadNestedLoop_NegativePlanRows(
 	t *testing.T,
 ) {
 	n := planNode{NodeType: "Nested Loop", PlanRows: -1,
-		ActualRows: ptr(int64(100))}
+		ActualRows: ptr(float64(100))}
 	s := checkBadNestedLoop(n, 0)
 	if s != nil {
 		t.Error("expected nil when PlanRows is negative")
@@ -2230,7 +2230,7 @@ func TestFunctional_Coverage_BadNestedLoop_WithinThreshold(
 ) {
 	// actual(100) <= plan(10)*10=100 → no symptom
 	n := planNode{NodeType: "Nested Loop", PlanRows: 10,
-		ActualRows: ptr(int64(100))}
+		ActualRows: ptr(float64(100))}
 	s := checkBadNestedLoop(n, 0)
 	if s != nil {
 		t.Error("expected nil when actual rows exactly at 10x")
@@ -2242,7 +2242,7 @@ func TestFunctional_Coverage_BadNestedLoop_JustOverThreshold(
 ) {
 	// actual(101) > plan(10)*10=100 → symptom
 	n := planNode{NodeType: "Nested Loop", PlanRows: 10,
-		ActualRows: ptr(int64(101))}
+		ActualRows: ptr(float64(101))}
 	s := checkBadNestedLoop(n, 2)
 	if s == nil {
 		t.Fatal("expected symptom when actual > 10x plan rows")
@@ -2261,7 +2261,7 @@ func TestFunctional_Coverage_BadNestedLoop_AliasPreserved(
 	n := planNode{
 		NodeType:   "Nested Loop",
 		PlanRows:   1,
-		ActualRows: ptr(int64(100)),
+		ActualRows: ptr(float64(100)),
 		Alias:      "nl_alias",
 	}
 	s := checkBadNestedLoop(n, 0)

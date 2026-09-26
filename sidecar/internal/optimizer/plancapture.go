@@ -147,15 +147,15 @@ func summarizePlan(planJSON []byte, queryID int64) PlanSummary {
 	}
 
 	var plan struct {
-		NodeType      string  `json:"Node Type"`
-		TotalCost     float64 `json:"Total Cost"`
-		PlanRows      int64   `json:"Plan Rows"`
-		ActualRows    *int64  `json:"Actual Rows"`
-		HeapFetches   *int64  `json:"Heap Fetches"`
-		SortMethod    *string `json:"Sort Method"`
-		SortSpaceUsed *int64  `json:"Sort Space Used"`
-		SortSpaceType *string `json:"Sort Space Type"`
-		RowsRemoved   *int64  `json:"Rows Removed by Filter"`
+		NodeType      string   `json:"Node Type"`
+		TotalCost     float64  `json:"Total Cost"`
+		PlanRows      int64    `json:"Plan Rows"`
+		ActualRows    *float64 `json:"Actual Rows"` // PG18: 2 decimals
+		HeapFetches   *int64   `json:"Heap Fetches"`
+		SortMethod    *string  `json:"Sort Method"`
+		SortSpaceUsed *int64   `json:"Sort Space Used"`
+		SortSpaceType *string  `json:"Sort Space Type"`
+		RowsRemoved   *int64   `json:"Rows Removed by Filter"`
 	}
 	if err := json.Unmarshal(wrapper[0].Plan, &plan); err != nil {
 		return ps
