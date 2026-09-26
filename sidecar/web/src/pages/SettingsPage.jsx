@@ -257,6 +257,8 @@ export function SettingsPage({ database, databaseId }) {
       const res = await fetch('/api/v1/restart', {
         method: 'POST',
         credentials: 'include',
+        // requireJSONMiddleware rejects POSTs without it (G9-B03).
+        headers: { 'Content-Type': 'application/json' },
       })
       if (res.status === 501) {
         toast.error('Restart not supported: no supervisor configured')
