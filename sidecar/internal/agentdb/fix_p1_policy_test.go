@@ -301,3 +301,40 @@ func TestLocalProvisioningDisabledByDefault(t *testing.T) {
 	}
 	_ = st
 }
+
+// G8-B12: require_backup_before_destroy=false is honoured at registration.
+func TestRegisterHonoursBackupPolicyOption(t *testing.T) {
+	_, ctx, pool := requireAgentDB(t)
+	defer pool.Close()
+	id := "adb_fix_backup_optional_register"
+	cleanupDeployment(t, ctx, pool, id)
+	relaxed := NewStoreWithOptions(pool, StoreOptions{RequireBackupBeforeDestroy: false})
+	dep, err := relaxed.Register(ctx, RegisterRequest{DeploymentID: id,
+		TenantID: "tenant_agentdb_test", AgentID: "agent_backup_opt",
+		Provider: ProviderAWSRDS, ProvisioningLevel: LevelInstance})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if dep.BackupRequired {
+		t.Fatal("backup_required forced true although policy disables it")
+	}
+}
+
+// G8-B17: local provisioning never adopts an existing schema.
+func TestLocalProvisioningRefusesToAdoptExistingSchema(t *testing.T) {
+	_, ctx, pool := requireAgentDB(t)
+	defer pool.Close()
+	id := "adb_fix_local_adopt"
+	cleanupDeployment(t, ctx, pool, id)
+	local := NewStoreWithOptions(pool, StoreOptions{
+		RequireBackupBeforeDestroy: true, LocalProvisioning: true})
+	_, err := local.Provision(ctx, RegisterRequest{DeploymentID: id,
+		TenantID: "tenant_agentdb_test", AgentID: "agent_local", Provider: ProviderLocalPostgres,
+		ProvisioningLevel: LevelSchema, SchemaName: "sage"})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("adopting existing schema err = %v, want ErrConflict", err)
+	}
+	if _, err := local.Get(ctx, id); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deployment registered over an adopted schema: %v", err)
+	}
+}
