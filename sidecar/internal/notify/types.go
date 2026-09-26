@@ -34,6 +34,9 @@ var ValidEventTypes = map[string]bool{
 	"approval_needed":         true,
 	"finding_critical":        true,
 	"query_rewrite_suggested": true,
+	"incident_detected":       true,
+	"incident_escalated":      true,
+	"incident_resolved":       true,
 }
 
 // ValidSeverities lists all supported severity levels with numeric rank.
