@@ -172,6 +172,7 @@ func (a *Analyzer) checkSortWithoutIndex(
 		WHERE captured_at > now() - interval '1 day'
 		ORDER BY queryid, captured_at DESC`)
 	if err != nil {
+		a.evalFail("sort_without_index")
 		a.logFn(
 			"ERROR",
 			"analyzer: sort_without_index query: %v", err,
@@ -195,6 +196,7 @@ func (a *Analyzer) checkSortWithoutIndex(
 		entries = append(entries, e)
 	}
 	if err := rows.Err(); err != nil {
+		a.evalFail("sort_without_index")
 		a.logFn(
 			"ERROR",
 			"analyzer: iterate explain entries: %v", err,

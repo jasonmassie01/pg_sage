@@ -35,17 +35,17 @@ func (a *Analyzer) cycle(ctx context.Context) {
 		a.logFn("WARN", "stats reset detected, skipping query rules")
 	}
 
+	a.eval = newCycleEval()
 	all := a.runSnapshotRules(current, previous, skipQueryRules)
 	all = append(all, a.runDatabaseRules(ctx, current, previous, skipQueryRules)...)
-	all = append(all, ruleSeqScanWatchdog(
-		current, previous, a.cfg, missingFKTables(all))...)
+	all = append(all, a.runSeqScanWatchdog(current, previous, all)...)
 	all = append(all, a.runProducers(ctx, current)...)
 	all = append(all, a.runLateChecks(ctx)...)
 	a.runRCA(ctx, current, previous, all)
 
 	// Deduplicate conflicting findings across advisors.
 	all = DeduplicateFindings(all, computeIOUtilPct(current), a.logFn)
-	a.finalizeCycle(ctx, all, nil)
+	a.finalizeCycle(ctx, all, a.eval.resolvable(all))
 }
 
 // runSnapshotRules runs every registered snapshot-based rule.
@@ -54,15 +54,21 @@ func (a *Analyzer) runSnapshotRules(
 ) []Finding {
 	var out []Finding
 	for _, rule := range AllRules {
-		if skipQueryRules && queryRuleNames[rule.Name] {
+		skip := skipQueryRules && queryRuleNames[rule.Name]
+		if skip || (rule.Needs != nil && !rule.Needs(current, previous)) {
+			a.eval.fail(rule.Categories...)
+		}
+		if skip {
 			continue
 		}
+		a.eval.evaluated(rule.Categories...)
 		out = append(out, rule.Fn(current, previous, a.cfg, a.extras)...)
 	}
 	return out
 }
 
 // runDatabaseRules runs rules that need their own catalog/sage queries.
+// Each check marks its category failed on a query error (evalFail).
 func (a *Analyzer) runDatabaseRules(
 	ctx context.Context,
 	current, previous *collector.Snapshot,
@@ -70,7 +76,9 @@ func (a *Analyzer) runDatabaseRules(
 ) []Finding {
 	out := a.checkXIDWraparound(ctx)
 	out = append(out, a.checkConnectionLeaks(ctx)...)
+	a.eval.evaluated("xid_wraparound", "connection_leak")
 	if skipQueryRules {
+		a.eval.fail("query_regression", "sort_without_index", "plan_regression")
 		return out
 	}
 	historicalAvg := a.buildHistoricalAverages(ctx)
@@ -83,7 +91,19 @@ func (a *Analyzer) runDatabaseRules(
 	if a.planNarrator != nil && len(planDiff) > 0 {
 		planDiff = a.planNarrator.Narrate(ctx, planDiff)
 	}
+	a.eval.evaluated("query_regression", "sort_without_index", "plan_regression")
 	return append(out, planDiff...)
+}
+
+// runSeqScanWatchdog skips tables already flagged by the missing-FK rule.
+func (a *Analyzer) runSeqScanWatchdog(
+	current, previous *collector.Snapshot, prior []Finding,
+) []Finding {
+	if len(current.Tables) == 0 {
+		a.eval.fail("seq_scan_heavy")
+	}
+	a.eval.evaluated("seq_scan_heavy")
+	return ruleSeqScanWatchdog(current, previous, a.cfg, missingFKTables(prior))
 }
 
 // missingFKTables returns the identifiers already flagged by the missing
@@ -151,6 +171,9 @@ func (a *Analyzer) runAdvisorAndForecaster(ctx context.Context) []Finding {
 			a.logFn("WARN", "analyzer: forecaster: %v", err)
 		} else {
 			out = append(out, fcFindings...)
+			if r, ok := a.forecaster.(EvaluatedCategoryReporter); ok {
+				a.eval.evaluated(r.LastEvaluatedCategories()...)
+			}
 		}
 	}
 	return out
@@ -160,10 +183,16 @@ func (a *Analyzer) runAdvisorAndForecaster(ctx context.Context) []Finding {
 // (work_mem promotion) plus extension drift, lock chains and detectors.
 func (a *Analyzer) runLateChecks(ctx context.Context) []Finding {
 	out := a.checkWorkMemPromotion(ctx)
+	if a.pool != nil && a.cfg.Analyzer.WorkMemPromotionThreshold > 0 {
+		a.eval.evaluated("work_mem_promotion")
+	}
 	out = append(out, a.checkExtensionDrift(ctx)...)
+	a.eval.evaluated("extension_drift")
 	if a.cfg.Analyzer.LockChain.Enabled {
 		chains, err := DetectLockChains(ctx, a.pool, a.cfg)
+		a.eval.evaluated("lock_chain")
 		if err != nil {
+			a.eval.fail("lock_chain")
 			a.logFn("WARN", "analyzer: lock chains: %v", err)
 		} else if len(chains) > 0 {
 			ownPID := a.getOwnPID(ctx)

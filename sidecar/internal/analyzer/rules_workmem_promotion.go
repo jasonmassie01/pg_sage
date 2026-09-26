@@ -52,6 +52,7 @@ GROUP BY r.rolname
 HAVING count(*) >= $1
 ORDER BY r.rolname`, threshold)
 	if err != nil {
+		a.evalFail("work_mem_promotion")
 		a.logFn("WARN", "analyzer: work_mem promotion query: %v", err)
 		return nil
 	}
@@ -69,6 +70,7 @@ ORDER BY r.rolname`, threshold)
 			buildWorkMemPromotionFinding(role, hintCount, maxMB, threshold))
 	}
 	if err := rows.Err(); err != nil {
+		a.evalFail("work_mem_promotion")
 		a.logFn("WARN", "analyzer: work_mem promotion rows: %v", err)
 	}
 	return findings

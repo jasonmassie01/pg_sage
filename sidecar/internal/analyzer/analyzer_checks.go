@@ -55,6 +55,7 @@ func (a *Analyzer) checkXIDWraparound(ctx context.Context) []Finding {
 		 WHERE datname = current_database()`,
 	).Scan(&xidAge)
 	if err != nil {
+		a.evalFail("xid_wraparound")
 		a.logFn("ERROR", "analyzer: xid query: %v", err)
 		return nil
 	}
@@ -72,6 +73,7 @@ func (a *Analyzer) checkConnectionLeaks(ctx context.Context) []Finding {
 		a.cfg.Analyzer.IdleInTxTimeoutMinutes,
 	)
 	if err != nil {
+		a.evalFail("connection_leak")
 		a.logFn("ERROR", "analyzer: leak query: %v", err)
 		return nil
 	}
@@ -91,6 +93,7 @@ func (a *Analyzer) checkConnectionLeaks(ctx context.Context) []Finding {
 		leaked = append(leaked, c)
 	}
 	if err := rows.Err(); err != nil {
+		a.evalFail("connection_leak")
 		a.logFn("ERROR", "analyzer: iterate leaks: %v", err)
 	}
 	return ruleConnectionLeaks(leaked)
@@ -109,6 +112,7 @@ func (a *Analyzer) buildHistoricalAverages(
 		a.cfg.Analyzer.RegressionLookbackDays,
 	)
 	if err != nil {
+		a.evalFail("query_regression")
 		a.logFn("ERROR", "analyzer: history query: %v", err)
 		return nil
 	}
@@ -128,6 +132,7 @@ func (a *Analyzer) buildHistoricalAverages(
 		allSnapshots = append(allSnapshots, data)
 	}
 	if err := rows.Err(); err != nil {
+		a.evalFail("query_regression")
 		a.logFn("ERROR", "analyzer: iterate history: %v", err)
 	}
 

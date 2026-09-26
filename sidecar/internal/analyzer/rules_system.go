@@ -173,9 +173,9 @@ func ruleStatStatementsCapacity(
 			pct, count, maxSt,
 		),
 		Detail: map[string]any{
-			"tracked_queries":        count,
-			"stat_statements_max":    maxSt,
-			"utilization_pct":        pct,
+			"tracked_queries":     count,
+			"stat_statements_max": maxSt,
+			"utilization_pct":     pct,
 		},
 		Recommendation: "Increase pg_stat_statements.max or review tracked queries.",
 		ActionRisk:     "safe",

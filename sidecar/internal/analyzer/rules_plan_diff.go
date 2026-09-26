@@ -335,6 +335,7 @@ func (a *Analyzer) checkPlanRegression(
 		JOIN ranked p ON c.queryid = p.queryid AND p.rn = 2
 		WHERE c.rn = 1`)
 	if err != nil {
+		a.evalFail("plan_regression")
 		a.logFn(
 			"ERROR",
 			"analyzer: plan_regression query: %v", err,
@@ -360,6 +361,7 @@ func (a *Analyzer) checkPlanRegression(
 		pairs = append(pairs, p)
 	}
 	if err := rows.Err(); err != nil {
+		a.evalFail("plan_regression")
 		a.logFn(
 			"ERROR",
 			"analyzer: iterate plan pairs: %v", err,

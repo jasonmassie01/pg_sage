@@ -65,7 +65,6 @@ func (a *Analyzer) dispatchRewriteFindings(
 func (a *Analyzer) finalizeCycle(
 	ctx context.Context, findings []Finding, evaluated map[string]bool,
 ) {
-	_ = evaluated
 	res, err := UpsertFindingsWithResult(ctx, a.pool, findings)
 	if err != nil {
 		a.logFn("ERROR", "analyzer: upsert findings: %v", err)
@@ -81,19 +80,33 @@ func (a *Analyzer) finalizeCycle(
 	a.dispatchCriticalFindings(ctx, a.notifiableCritical(res, time.Now()))
 	a.dispatchRewriteFindings(ctx, res.Opened)
 
-	activeByCategory := make(map[string]map[string]bool)
+	a.resolveCleared(ctx, findings, evaluated)
+	a.logFn("INFO", "analyzer cycle: %d findings", len(findings))
+}
+
+// resolveCleared resolves open findings that are absent from this cycle's
+// output, for every category in evaluated -- including categories that
+// produced nothing, so the last finding of a category resolves (G2-B02).
+// Categories not in evaluated (failed or skipped evaluators) are left
+// untouched. Suppressed identities are absent from findings, so a legacy
+// duplicate open row for them is resolved too.
+func (a *Analyzer) resolveCleared(
+	ctx context.Context, findings []Finding, evaluated map[string]bool,
+) {
+	activeByCategory := make(map[string]map[string]bool, len(evaluated))
+	for cat := range evaluated {
+		activeByCategory[cat] = make(map[string]bool)
+	}
 	for _, f := range findings {
-		if activeByCategory[f.Category] == nil {
-			activeByCategory[f.Category] = make(map[string]bool)
+		if idents, ok := activeByCategory[f.Category]; ok {
+			idents[f.ObjectIdentifier] = true
 		}
-		activeByCategory[f.Category][f.ObjectIdentifier] = true
 	}
 	for cat, idents := range activeByCategory {
 		if err := ResolveCleared(ctx, a.pool, idents, cat); err != nil {
 			a.logFn("ERROR", "analyzer: resolve cleared %s: %v", cat, err)
 		}
 	}
-	a.logFn("INFO", "analyzer cycle: %d findings", len(findings))
 }
 
 // withoutSuppressed drops findings whose identity is under an active

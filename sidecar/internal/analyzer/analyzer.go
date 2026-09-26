@@ -83,6 +83,9 @@ type Analyzer struct {
 	// notifiedAt records the last critical notification per identity;
 	// only touched by the cycle goroutine.
 	notifiedAt map[string]time.Time
+	// eval tracks evaluated categories for the running cycle; only
+	// touched by the cycle goroutine.
+	eval *cycleEval
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated
