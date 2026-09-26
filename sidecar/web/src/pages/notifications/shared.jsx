@@ -10,14 +10,26 @@ export const cardStyle = {
   border: '1px solid var(--border)',
 }
 
-export const EVENT_TYPES = [
-  'action_executed',
-  'action_failed',
-  'approval_needed',
-  'finding_critical',
-  // Mirrors notify.ValidEventTypes (G9-B28).
-  'query_rewrite_suggested',
-]
+// Mirrors notify.EventSeverity: the severity each event is emitted with.
+// A rule whose min_severity is above it can never fire, so new rules
+// default to the event's own severity (notify.DefaultMinSeverity).
+// Incident events carry variable severity; warning is the default.
+export const EVENT_SEVERITY = {
+  action_executed: 'info',
+  action_failed: 'warning',
+  approval_needed: 'warning',
+  finding_critical: 'critical',
+  query_rewrite_suggested: 'warning',
+  incident_detected: 'warning',
+  incident_escalated: 'warning',
+  incident_resolved: 'warning',
+}
+
+export const EVENT_TYPES = Object.keys(EVENT_SEVERITY)
+
+export function defaultMinSeverity(event) {
+  return EVENT_SEVERITY[event] || 'info'
+}
 
 export const SEVERITIES = ['info', 'warning', 'critical']
 
