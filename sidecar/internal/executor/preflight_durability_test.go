@@ -174,7 +174,8 @@ func preflightActions(f *preflightFixture) *executorIndexActions {
 
 func preflightLifecycle(f *preflightFixture, engine *verify.Engine) *verifiedIndexLifecycle {
 	actions := preflightActions(f)
-	l := newVerifiedIndexLifecycle(&postgresIndexVerifier{engine: engine, exec: actions.exec}, actions)
+	l := newVerifiedIndexLifecycle(
+		&postgresIndexVerifier{engine: engine, exec: actions.exec}, actions)
 	l.now = func() time.Time { return f.at }
 	return l
 }

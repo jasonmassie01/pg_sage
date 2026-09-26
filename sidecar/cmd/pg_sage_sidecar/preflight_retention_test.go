@@ -147,9 +147,49 @@ func preflightRetentionTable(t *testing.T, p *pgxpool.Pool) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = policy.NewStore(p).Bootstrap(ctx, policy.Scope{}, "unattended", "preflight")
+	preflightActivateUnattended(t, p)
+	return table
+}
+
+// preflightActivateUnattended makes the unattended profile the active global
+// policy through the production propose/ratify path, and restores the prior
+// policy afterwards. Bootstrap alone keeps whatever profile an earlier test
+// in this package activated (e.g. staffed, whose window is weekdays 01-05).
+func preflightActivateUnattended(t *testing.T, p *pgxpool.Pool) {
+	t.Helper()
+	store := policy.NewStore(p)
+	prior, err := store.Bootstrap(context.Background(), policy.Scope{}, "unattended", "preflight")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return table
+	if prior.Profile == "unattended" {
+		return
+	}
+	doc, err := policy.MarshalDocument(policy.UnattendedProfile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	preflightRatify(t, store, "unattended", doc)
+	t.Cleanup(func() { preflightRatify(t, store, prior.Profile, prior.Document) })
+}
+
+func preflightRatify(t *testing.T, store *policy.Store, profile string, doc []byte) {
+	t.Helper()
+	ctx := context.Background()
+	current, err := store.Current(ctx, policy.Scope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := store.Propose(ctx, policy.ProposalRequest{
+		ExpectedVersion: current.Version, Profile: profile, Document: doc,
+		Actor: "preflight",
+	})
+	if err != nil {
+		t.Fatalf("propose %s policy: %v", profile, err)
+	}
+	if _, err := store.Ratify(ctx, policy.RatifyRequest{
+		ProposalID: proposal.ID, ExpectedVersion: current.Version, Actor: "preflight",
+	}); err != nil {
+		t.Fatalf("ratify %s policy: %v", profile, err)
+	}
 }

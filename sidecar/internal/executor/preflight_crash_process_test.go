@@ -15,10 +15,12 @@ import (
 
 // Helper is invoked only by the parent test with a designated fixture and ID.
 // Exit 77 occurs after the durable verdict commit, before lifecycle finalization.
+// It is a child-process entry point, not a test: in an ordinary package run
+// (no parent fixture in the environment) it returns without doing anything.
 func TestVerifierCrashChildFixture(t *testing.T) {
 	dsn := os.Getenv("PREFLIGHT_SHARED_VERIFY_DSN")
 	if dsn == "" {
-		t.Fatal("crash helper requires an explicit disposable parent fixture")
+		return
 	}
 	pool, err := pgxpool.New(t.Context(), dsn)
 	if err != nil {
