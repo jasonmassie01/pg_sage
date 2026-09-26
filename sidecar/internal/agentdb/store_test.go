@@ -31,6 +31,8 @@ func requireAgentDB(t *testing.T) (*Store, context.Context, *pgxpool.Pool) {
 		t.Skipf("database unavailable: %v", err)
 	}
 	st := NewStore(pool)
+	// The fixture database is disposable, so local DDL is explicitly enabled.
+	st.EnableLocalProvisioning(true)
 	if err := st.Ensure(ctx); err != nil {
 		pool.Close()
 		t.Fatalf("ensure schema: %v", err)
@@ -290,11 +292,7 @@ func TestStoreDeploymentLifecycleRecommendationsAndCost(t *testing.T) {
 	if err := st.Delete(ctx, id); !errors.Is(err, ErrRestoreRequired) {
 		t.Fatalf("delete before verified restore err = %v, want ErrRestoreRequired", err)
 	}
-	if _, err := st.RecordBackup(ctx, id, BackupRequest{
-		BackupID: "backup_store_test",
-		Provider: "managed",
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, testDrill("backup_store_test")); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 	restored, err := st.Restore(ctx, id)
@@ -439,11 +437,7 @@ func TestAuditEventsListAndExportJSONL(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Feedback: %v", err)
 	}
-	if _, err := st.RecordBackup(ctx, id, BackupRequest{
-		BackupID: "backup_audit",
-		Provider: "managed",
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, testDrill("backup_audit")); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 
@@ -451,7 +445,9 @@ func TestAuditEventsListAndExportJSONL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AuditEvents: %v", err)
 	}
-	if len(events) < 4 {
+	// A heartbeat is liveness only (G8-B01): it no longer writes a lifecycle
+	// "active" status audit row, so register + feedback + backup remain.
+	if len(events) < 3 {
 		t.Fatalf("audit event count = %d, events=%#v", len(events), events)
 	}
 	if events[0].Event != "register" || events[0].DeploymentID != id {

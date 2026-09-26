@@ -10,20 +10,19 @@ import (
 
 const teardownMutationLease = 15 * time.Minute
 
+// prepareDirectTeardown makes a direct (operator-authorized) destroy durable.
+// requireBackup comes from the effective live policy, not the row default,
+// so require_backup_before_destroy=false is honoured (G8-B12).
 func (s *Store) prepareDirectTeardown(
 	ctx context.Context,
 	dep Deployment,
+	requireBackup bool,
 ) (Deployment, error) {
-	if dep.TeardownOperationID != "" &&
-		(dep.ProvisioningStatus == "destroy_pending" ||
-			dep.ProvisioningStatus == "destroying" ||
-			dep.ProvisioningStatus == "status_unknown") {
-		return dep, nil
+	if err := s.validateDirectTeardownState(ctx, dep); err != nil {
+		return Deployment{}, err
 	}
-	if dep.ProvisioningStatus != "available" &&
-		dep.ProvisioningStatus != "status_checked" &&
-		dep.ProvisioningStatus != "dry_run_ready" {
-		return Deployment{}, ErrInvalid
+	if resumableTeardown(dep) {
+		return dep, nil
 	}
 	operationID, err := lifecycleOperationID("teardown")
 	if err != nil {
@@ -37,13 +36,15 @@ func (s *Store) prepareDirectTeardown(
 			lifecycle_version=lifecycle_version+1, updated_at=now()
 		WHERE deployment_id=$1 AND lifecycle_version=$2
 			AND provisioning_status=$3 AND teardown_operation_id=''
-			AND (NOT backup_required OR EXISTS (
+			AND live_mode AND provider_resource_id <> ''
+			AND (NOT $5 OR EXISTS (
 				SELECT 1 FROM sage.agent_db_backups backup
 				WHERE backup.deployment_id=$1 AND backup.status='restore_verified'
 					AND backup.restore_verified_at IS NOT NULL
 			))
 		RETURNING `+deploymentColumnsSQL,
 		dep.DeploymentID, dep.LifecycleVersion, dep.ProvisioningStatus, operationID,
+		requireBackup,
 	), &prepared)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Deployment{}, ErrConflict

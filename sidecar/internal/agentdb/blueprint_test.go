@@ -338,6 +338,13 @@ func TestEnsurePromotesCleanDraftBlueprints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed draft blueprints: %v", err)
 	}
+	// The draft->generated promotion is a schema migration; with Ensure
+	// memoized (G8-B16) it runs when the schema version changes, so simulate
+	// an upgrade from a pre-versioned schema.
+	if _, err := pool.Exec(ctx, "DELETE FROM sage.agent_db_schema_version"); err != nil {
+		t.Fatalf("reset schema version: %v", err)
+	}
+	schemaReady.Delete(pool)
 
 	if err := st.Ensure(ctx); err != nil {
 		t.Fatalf("Ensure: %v", err)

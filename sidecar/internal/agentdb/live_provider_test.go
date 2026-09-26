@@ -42,14 +42,10 @@ func TestLiveExecuteAndDestroyUseProviderRunner(t *testing.T) {
 		!dep.LiveMode {
 		t.Fatalf("deployment after live execute = %#v", dep)
 	}
-	if _, err := st.RecordBackup(ctx, id, BackupRequest{
-		BackupID: "backup_live_exec",
-		Provider: ProviderGCPCloudSQL,
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, testDrill("backup_live_exec")); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
-	destroy, err := st.DestroyProvisionLive(ctx, id, runner)
+	destroy, err := directDestroyForTest(ctx, st, id, runner)
 	if err != nil {
 		t.Fatalf("DestroyProvisionLive: %v", err)
 	}
@@ -135,7 +131,9 @@ func TestReconcileLiveProvisioning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReconcileLiveProvisioning: %v", err)
 	}
-	if len(result.DestroyDryRun) == 0 {
+	// G8-B23: status refreshes are reported as StatusChecked, not as
+	// destroy dry-runs.
+	if len(result.StatusChecked) == 0 || len(result.DestroyDryRun) != 0 {
 		t.Fatalf("expected reconcile attempt: %#v", result)
 	}
 	dep, err := st.Get(ctx, id)
@@ -173,11 +171,13 @@ func TestReconcileAbandonedDeploymentsDestroysLiveCloudResources(t *testing.T) {
 		WHERE deployment_id=$1`, id); err != nil {
 		t.Fatalf("expire live deployment: %v", err)
 	}
-	if _, err := st.RecordBackup(ctx, id, BackupRequest{
-		BackupID: "backup_reconcile_live_destroy",
-		Provider: ProviderAWSRDS,
-		Status:   "restore_verified",
+	if err := st.RecordCreationReceipt(ctx, CreationReceipt{
+		DeploymentID: id, Provider: ProviderAWSRDS,
+		ProviderResourceID: "live-resource", OperationMode: "live",
 	}); err != nil {
+		t.Fatalf("seed creation receipt: %v", err)
+	}
+	if _, err := st.RecordRestoreDrill(ctx, id, testDrill("backup_reconcile_live_destroy")); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 	registry := NewRunnerRegistry(DryRunProvisionRunner{})
@@ -263,7 +263,7 @@ func TestLiveBackupCheckDoesNotUnlockDestroy(t *testing.T) {
 	if _, err := st.CheckBackupAssuranceLive(ctx, id, runner); err != nil {
 		t.Fatalf("CheckBackupAssuranceLive: %v", err)
 	}
-	if _, err := st.DestroyProvisionLive(ctx, id, runner); err == nil {
+	if _, err := directDestroyForTest(ctx, st, id, runner); err == nil {
 		t.Fatal("DestroyProvisionLive succeeded without a restore-verified backup")
 	}
 }

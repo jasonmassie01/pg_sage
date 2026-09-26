@@ -2042,6 +2042,10 @@ func startAgentDBReconciler(ctx context.Context, pool *pgxpool.Pool) {
 		return
 	}
 	store := agentdb.NewStore(pool)
+	store.SetRequireBackupBeforeDestroy(cfg.AgentDB.RequireBackupBeforeDrop)
+	store.SetMutationGate(func(c context.Context) error {
+		return agentDBMutationGate(fleetMgr)(c) // read fleetMgr at call time
+	})
 	registry := agentdb.RuntimeRunnerRegistryFromEnv(ctx)
 	go func() {
 		ticker := time.NewTicker(time.Duration(interval) * time.Second)

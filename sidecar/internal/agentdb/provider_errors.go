@@ -1,6 +1,7 @@
 package agentdb
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -55,15 +56,40 @@ func publicProviderError(err error) error {
 	return err
 }
 
+// httpStatusKind classifies provider HTTP failures by status code rather
+// than by substrings of the message (G8-B22).
+func httpStatusKind(status int) ProviderErrorKind {
+	switch {
+	case status == 401 || status == 403:
+		return ProviderErrPermission
+	case status == 404:
+		return ProviderErrNotFound
+	case status == 409:
+		return ProviderErrConflict
+	case status == 429:
+		return ProviderErrThrottle
+	case status == 400 || status == 422:
+		return ProviderErrInvalid
+	default:
+		return ProviderErrUnavailable
+	}
+}
+
 func mapProviderError(provider string, err error) error {
 	if err == nil {
 		return nil
+	}
+	var typed ProviderError
+	if errors.As(err, &typed) {
+		return typed
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "already") || strings.Contains(msg, "exists"):
 		return providerError(provider, ProviderErrConflict, err.Error(), "")
-	case strings.Contains(msg, "throttl") || strings.Contains(msg, "rate"):
+	case strings.Contains(msg, "throttl") || strings.Contains(msg, "rate limit") ||
+		strings.Contains(msg, "rate exceeded") || strings.Contains(msg, "too many requests") ||
+		strings.Contains(msg, "status 429"):
 		return providerError(provider, ProviderErrThrottle, err.Error(), "retry later")
 	case strings.Contains(msg, "quota") || strings.Contains(msg, "limit"):
 		return providerError(provider, ProviderErrQuota, err.Error(), "request quota")

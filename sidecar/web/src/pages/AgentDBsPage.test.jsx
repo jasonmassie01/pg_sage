@@ -585,12 +585,23 @@ describe('AgentDBsPage', () => {
       .toBeInTheDocument()
   })
 
-  it('runs live cloud execute and live destroy actions from the UI', async () => {
+  it('authorizes live execute and destroy before calling the provider', async () => {
+    const authorization = operation => ({
+      ok: true,
+      json: async () => ({
+        plan_hash: `hash-${operation}`, estimate_id: `est-${operation}`,
+        authorization_id: `auth-${operation}`, idempotency_key: `idem-${operation}`,
+        plan: { provider: 'databricks_lakebase', region: 'us-east-1' },
+        estimate: { estimated_cost_usd: 1.5, confidence: 'low' },
+      }),
+    })
     globalThis.fetch
+      .mockResolvedValueOnce(authorization('create'))
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ status: 'succeeded', kind: 'execute_live' }),
       })
+      .mockResolvedValueOnce(authorization('destroy'))
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ status: 'succeeded', kind: 'destroy_live' }),
@@ -600,26 +611,51 @@ describe('AgentDBsPage', () => {
 
     fireEvent.click(screen.getByText('Live execute'))
 
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
     expect(globalThis.fetch.mock.calls[0][0])
-      .toBe('/api/v1/agent-dbs/adb_ui/provision/execute')
+      .toBe('/api/v1/agent-dbs/adb_ui/provision/authorize-live')
     expect(JSON.parse(globalThis.fetch.mock.calls[0][1].body))
-      .toMatchObject({
-        mode: 'live',
-      })
+      .toMatchObject({ operation: 'create' })
+    expect(globalThis.fetch.mock.calls[1][0])
+      .toBe('/api/v1/agent-dbs/adb_ui/provision/execute')
+    const executeBody = JSON.parse(globalThis.fetch.mock.calls[1][1].body)
+    expect(executeBody).toEqual({
+      plan_hash: 'hash-create', estimate_id: 'est-create',
+      authorization_id: 'auth-create', idempotency_key: 'idem-create',
+    })
+    expect(executeBody).not.toHaveProperty('mode')
     expect(await screen.findByText('Provision live execute succeeded'))
       .toBeInTheDocument()
+    expect(globalThis.confirm.mock.calls[0][0]).toContain('Estimated lease cost $1.50')
 
     fireEvent.click(screen.getByText('Destroy live'))
 
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
-    expect(globalThis.fetch.mock.calls[1][0])
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(4))
+    expect(JSON.parse(globalThis.fetch.mock.calls[2][1].body))
+      .toMatchObject({ operation: 'destroy' })
+    expect(globalThis.fetch.mock.calls[3][0])
       .toBe('/api/v1/agent-dbs/adb_ui/provision/destroy-live')
+    expect(JSON.parse(globalThis.fetch.mock.calls[3][1].body))
+      .toMatchObject({ authorization_id: 'auth-destroy' })
     expect(await screen.findByText('Provision destroy live succeeded'))
       .toBeInTheDocument()
-    expect(globalThis.confirm).toHaveBeenCalledWith(
-      'Live destroy cloud resource for adb_ui?',
-    )
+    expect(globalThis.confirm.mock.calls[1][0])
+      .toContain('Live destroy cloud resource for adb_ui?')
+  })
+
+  it('does not execute live work when the operator declines the estimate', async () => {
+    globalThis.confirm = vi.fn(() => false)
+    globalThis.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ plan_hash: 'h', estimate_id: 'e', authorization_id: 'a',
+        idempotency_key: 'i', plan: {}, estimate: {} }),
+    })
+
+    render(<AgentDBsPage />)
+    fireEvent.click(screen.getByText('Live execute'))
+
+    await waitFor(() => expect(globalThis.confirm).toHaveBeenCalledTimes(1))
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
   })
 
   it('runs cloud status, destroy dry-run, and reconcile lifecycle actions', async () => {
@@ -715,9 +751,10 @@ describe('AgentDBsPage', () => {
         ok: true,
         json: async () => ({
           status: 'restore_verified',
-          backup_id: 'restore_verified_ui',
+          backup_id: 'restore_drill_ui',
         }),
       })
+    globalThis.prompt = vi.fn(() => 's3://drills/adb_ui.json')
 
     render(<AgentDBsPage />)
 
@@ -737,13 +774,14 @@ describe('AgentDBsPage', () => {
     expect(await screen.findByText('Restore drill dry-run planned'))
       .toBeInTheDocument()
 
-    fireEvent.click(screen.getByText('Mark restore verified'))
+    fireEvent.click(screen.getByText('Attest restore drill (admin)'))
 
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3))
     expect(globalThis.fetch.mock.calls[2][0])
-      .toBe('/api/v1/agent-dbs/adb_ui/backups')
-    expect(JSON.parse(globalThis.fetch.mock.calls[2][1].body))
-      .toMatchObject({ status: 'restore_verified' })
+      .toBe('/api/v1/agent-dbs/adb_ui/backups/restore-drill')
+    const drill = JSON.parse(globalThis.fetch.mock.calls[2][1].body)
+    expect(drill).toMatchObject({ evidence_uri: 's3://drills/adb_ui.json' })
+    expect(drill).not.toHaveProperty('status')
     expect(await screen.findByText('Restore verification restore_verified'))
       .toBeInTheDocument()
   })

@@ -37,6 +37,9 @@ func IssueLiveExecutionRecords(
 	if err != nil {
 		return LiveExecutionRecords{}, err
 	}
+	if err := liveCostAllowed(input, estimate); err != nil {
+		return LiveExecutionRecords{}, err
+	}
 	authz, err := issueLiveAuthorization(input, plan, estimate)
 	if err != nil {
 		return LiveExecutionRecords{}, err

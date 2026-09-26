@@ -40,27 +40,36 @@ func (s *Store) ScheduleMonitoring(
 }
 
 const scheduleMonitoringSQL = `/* pg_sage */
-	WITH selected AS MATERIALIZED (
-		SELECT deployment_id, tenant_id, provider, provider_resource_id,
-			database_name
-		FROM sage.agent_db_deployments
-		WHERE status = 'active'
-			AND monitoring_mode = 'adaptive'
-		ORDER BY deployment_id
-		LIMIT $2
-	), physical AS MATERIALIZED (
+	WITH keyed AS MATERIALIZED (
 		SELECT deployment_id, tenant_id, provider,
 			tenant_id || '|' || provider || '|' ||
 			COALESCE(NULLIF(provider_resource_id, ''),
 				NULLIF(database_name, ''), deployment_id) || '|' ||
 			database_name AS physical_target_key
+		FROM sage.agent_db_deployments
+		WHERE status = 'active'
+			AND monitoring_mode = 'adaptive'
+	), selected AS MATERIALIZED (
+		-- SURF-08: only due targets, least recently scheduled first, so a
+		-- fixed deployment-id prefix can never starve the rest of the fleet.
+		SELECT keyed.deployment_id, keyed.tenant_id, keyed.provider,
+			keyed.physical_target_key, state.last_scheduled_at
+		FROM keyed
+		LEFT JOIN sage.agent_db_monitoring_state AS state
+			ON state.physical_target_key = keyed.physical_target_key
+		WHERE state.next_due_at IS NULL OR state.next_due_at <= $1
+		ORDER BY state.last_scheduled_at NULLS FIRST, keyed.deployment_id
+		LIMIT $2
+	), physical AS MATERIALIZED (
+		SELECT deployment_id, tenant_id, provider, physical_target_key,
+			last_scheduled_at
 		FROM selected
 	), targets AS MATERIALIZED (
 		SELECT min(deployment_id) AS deployment_id, tenant_id, provider,
 			physical_target_key
 		FROM physical
 		GROUP BY tenant_id, provider, physical_target_key
-		ORDER BY count(*) DESC, physical_target_key
+		ORDER BY min(last_scheduled_at) NULLS FIRST, count(*) DESC, physical_target_key
 		LIMIT $3
 	), state_upsert AS (
 		INSERT INTO sage.agent_db_monitoring_state AS current (

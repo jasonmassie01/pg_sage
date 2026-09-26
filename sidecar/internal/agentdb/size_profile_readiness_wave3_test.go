@@ -259,7 +259,9 @@ func assertWave3PersistedParams(
 
 func assertWave3AWSNativeInput(t *testing.T, dep Deployment) {
 	t.Helper()
-	input, err := NewAWSRDSRunner(&fakeRDSClient{}, "fallback-region").createInput(
+	// The SDK client is bound to the runner region, so the runner must be
+	// configured for the profile's region (G8-B07).
+	input, err := NewAWSRDSRunner(&fakeRDSClient{}, "eu-central-1").createInput(
 		ProvisionRequest{Deployment: dep, Policy: LiveProvisionPolicy{AllowPublicIP: true}},
 	)
 	if err != nil {

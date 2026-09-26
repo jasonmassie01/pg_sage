@@ -3,6 +3,7 @@ package agentdb
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -116,6 +117,9 @@ func (s *Store) AddCostSample(
 	if err := s.Ensure(ctx); err != nil {
 		return err
 	}
+	if req.CostUSD < 0 {
+		return fmt.Errorf("%w: cost_usd must not be negative", ErrInvalid)
+	}
 	if req.At.IsZero() {
 		req.At = time.Now().UTC()
 	}
@@ -159,7 +163,22 @@ func (s *Store) Cost(ctx context.Context, id string) (CostSummary, error) {
 	return summary, nil
 }
 
+// RecordBackup records backup evidence for one deployment. It can never
+// grant restore_verified (only RecordRestoreDrill can) and can never modify
+// a backup that belongs to another deployment (G8-B11).
 func (s *Store) RecordBackup(
+	ctx context.Context,
+	id string,
+	req BackupRequest,
+) (Backup, error) {
+	if req.Status == "restore_verified" {
+		return Backup{}, fmt.Errorf("%w: restore_verified requires a recorded restore drill",
+			ErrInvalid)
+	}
+	return s.writeBackup(ctx, id, req)
+}
+
+func (s *Store) writeBackup(
 	ctx context.Context,
 	id string,
 	req BackupRequest,
@@ -175,21 +194,7 @@ func (s *Store) RecordBackup(
 	}
 	verifiedAt, restoreAt := backupTimes(req)
 	var backup Backup
-	err := scanBackup(s.pool.QueryRow(ctx, `/* pg_sage */ 
-		INSERT INTO sage.agent_db_backups (
-			backup_id, deployment_id, provider, status, archive_uri,
-			verified_at, restore_verified_at, detail
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-		ON CONFLICT (backup_id) DO UPDATE
-		SET provider=EXCLUDED.provider,
-			status=EXCLUDED.status,
-			archive_uri=EXCLUDED.archive_uri,
-			verified_at=EXCLUDED.verified_at,
-			restore_verified_at=EXCLUDED.restore_verified_at,
-			detail=EXCLUDED.detail
-		RETURNING backup_id, deployment_id, provider, status, archive_uri,
-			verified_at, restore_verified_at, created_at, detail`,
+	err := scanBackup(s.pool.QueryRow(ctx, upsertBackupSQL,
 		req.BackupID,
 		id,
 		req.Provider,
@@ -199,6 +204,10 @@ func (s *Store) RecordBackup(
 		restoreAt,
 		jsonBytes(req.Detail),
 	), &backup)
+	if errors.Is(err, ErrNotFound) {
+		// The backup id already belongs to another deployment.
+		return Backup{}, ErrConflict
+	}
 	if err != nil {
 		return Backup{}, err
 	}
@@ -436,3 +445,22 @@ const upsertRecommendationSQL = `/* pg_sage */
 	RETURNING recommendation_id, kind, title, detail, status,
 		query_fingerprint, action_type, action_risk, confidence,
 		agent_instructions, payload, feedback, created_at`
+
+// upsertBackupSQL is scoped to the owning deployment: a backup_id that
+// belongs to another deployment returns no row (G8-B11).
+const upsertBackupSQL = `/* pg_sage */ 
+		INSERT INTO sage.agent_db_backups (
+			backup_id, deployment_id, provider, status, archive_uri,
+			verified_at, restore_verified_at, detail
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+		ON CONFLICT (backup_id) DO UPDATE
+		SET provider=EXCLUDED.provider,
+			status=EXCLUDED.status,
+			archive_uri=EXCLUDED.archive_uri,
+			verified_at=EXCLUDED.verified_at,
+			restore_verified_at=EXCLUDED.restore_verified_at,
+			detail=EXCLUDED.detail
+		WHERE agent_db_backups.deployment_id=EXCLUDED.deployment_id
+		RETURNING backup_id, deployment_id, provider, status, archive_uri,
+			verified_at, restore_verified_at, created_at, detail`

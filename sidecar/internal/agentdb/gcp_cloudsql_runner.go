@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type CloudSQLCreateInput struct {
@@ -24,21 +25,25 @@ type CloudSQLCreateInput struct {
 	RequireSSL         bool
 	BackupEnabled      bool
 	DeletionProtection bool
+	AvailabilityType   string
 	Labels             map[string]string
 }
 
 type CloudSQLInstance struct {
-	Name             string
-	State            string
-	ConnectionName   string
-	PublicIPAddress  string
-	PrivateIPAddress string
+	Name               string
+	State              string
+	ConnectionName     string
+	PublicIPAddress    string
+	PrivateIPAddress   string
+	Labels             map[string]string
+	DeletionProtection bool
 }
 
 type CloudSQLClient interface {
 	CreateInstance(ctx context.Context, input CloudSQLCreateInput) (CloudSQLInstance, error)
 	GetInstance(ctx context.Context, project string, name string) (CloudSQLInstance, error)
 	DeleteInstance(ctx context.Context, project string, name string) error
+	SetDeletionProtection(ctx context.Context, project, name string, enabled bool) error
 }
 
 type CloudSQLRunner struct {
@@ -72,60 +77,6 @@ func (r CloudSQLRunner) Preflight(_ context.Context, req ProvisionRequest) Provi
 			"backup_enabled":   input.BackupEnabled,
 			"authorized_count": len(input.AuthorizedNetworks),
 		},
-	}
-}
-
-func (r CloudSQLRunner) Create(
-	ctx context.Context,
-	req ProvisionRequest,
-) ProvisionResult {
-	input, err := r.createInput(req)
-	if err != nil {
-		return ProvisionResult{Status: "failed", Error: err}
-	}
-	instance, err := r.client.CreateInstance(ctx, input)
-	if err != nil {
-		return ProvisionResult{Status: "failed", Error: mapProviderError(r.Provider(), err)}
-	}
-	return cloudSQLProvisionResult(instance)
-}
-
-func (r CloudSQLRunner) Status(
-	ctx context.Context,
-	req ProvisionRequest,
-) ProvisionResult {
-	project := cloudSQLProject(r, req.Deployment)
-	name := req.Deployment.ProviderResourceID
-	if name == "" {
-		name, _ = ProviderResourceName(ProviderGCPCloudSQL, req.Deployment.DeploymentID)
-	}
-	instance, err := r.client.GetInstance(ctx, project, name)
-	if err != nil {
-		return ProvisionResult{Status: "status_unknown", Error: mapProviderError(r.Provider(), err)}
-	}
-	return cloudSQLProvisionResult(instance)
-}
-
-func (r CloudSQLRunner) Destroy(
-	ctx context.Context,
-	req ProvisionRequest,
-) ProvisionResult {
-	project := cloudSQLProject(r, req.Deployment)
-	name := req.Deployment.ProviderResourceID
-	if name == "" {
-		name, _ = ProviderResourceName(ProviderGCPCloudSQL, req.Deployment.DeploymentID)
-	}
-	if err := r.client.DeleteInstance(ctx, project, name); err != nil {
-		mapped := mapProviderError(r.Provider(), err)
-		if pe, ok := mapped.(ProviderError); ok && pe.Kind == ProviderErrNotFound {
-			return ProvisionResult{Status: "destroyed"}
-		}
-		return ProvisionResult{Status: "failed", Error: mapped}
-	}
-	return ProvisionResult{
-		Status:             "destroying",
-		ProviderResourceID: name,
-		Detail:             map[string]any{"project": project},
 	}
 }
 
@@ -216,9 +167,10 @@ func (r CloudSQLRunner) createInput(req ProvisionRequest) (CloudSQLCreateInput, 
 		RequireSSL:         true,
 		BackupEnabled:      true,
 		DeletionProtection: !isDisposable(req.Deployment),
+		AvailabilityType:   availabilityType(boolParamAny(params, "multi_az")),
 		Labels: map[string]string{
 			"app":                   "pg-sage",
-			"pg_sage_deployment_id": req.Deployment.DeploymentID,
+			"pg_sage_deployment_id": gcpLabelValue(req.Deployment.DeploymentID),
 		},
 	}, nil
 }
@@ -258,6 +210,24 @@ type CloudSQLHTTPClient struct {
 	BaseURL    string
 	TokenFunc  func(context.Context) (string, error)
 	HTTPClient *http.Client
+	// Credentials, when set, reports token expiry for provider readiness.
+	Credentials interface{ CredentialError(time.Time) error }
+}
+
+// CredentialError reports an expired or unusable credential for readiness.
+func (c CloudSQLHTTPClient) CredentialError(now time.Time) error {
+	if c.Credentials == nil {
+		return nil
+	}
+	return c.Credentials.CredentialError(now)
+}
+
+// CredentialError delegates to the client's credential reporter, if any.
+func (r CloudSQLRunner) CredentialError(now time.Time) error {
+	if reporter, ok := r.client.(interface{ CredentialError(time.Time) error }); ok {
+		return reporter.CredentialError(now)
+	}
+	return nil
 }
 
 func (c CloudSQLHTTPClient) CreateInstance(
@@ -273,6 +243,7 @@ func (c CloudSQLHTTPClient) CreateInstance(
 			"edition":                   input.Edition,
 			"dataDiskSizeGb":            input.StorageGB,
 			"deletionProtectionEnabled": input.DeletionProtection,
+			"availabilityType":          firstNonEmpty(input.AvailabilityType, "ZONAL"),
 			"userLabels":                input.Labels,
 			"backupConfiguration": map[string]any{
 				"enabled":                    input.BackupEnabled,
@@ -320,6 +291,40 @@ func (c CloudSQLHTTPClient) DeleteInstance(
 	return err
 }
 
+// SetDeletionProtection patches deletionProtectionEnabled on an instance.
+func (c CloudSQLHTTPClient) SetDeletionProtection(
+	ctx context.Context,
+	project string,
+	name string,
+	enabled bool,
+) error {
+	body := map[string]any{"settings": map[string]any{
+		"deletionProtectionEnabled": enabled,
+	}}
+	_, err := c.do(ctx, http.MethodPatch,
+		"/sql/v1beta4/projects/"+url.PathEscape(project)+
+			"/instances/"+url.PathEscape(name), body, nil)
+	return err
+}
+
+// gcpLabelValue converts an identifier into a valid Cloud SQL label value
+// (lowercase letters, digits, '_' and '-', at most 63 characters).
+func gcpLabelValue(value string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(value) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('_')
+	}
+	out := b.String()
+	if len(out) > 63 {
+		out = out[:63]
+	}
+	return out
+}
+
 func (c CloudSQLHTTPClient) do(
 	ctx context.Context,
 	method string,
@@ -357,8 +362,9 @@ func (c CloudSQLHTTPClient) do(
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, fmt.Errorf("cloud sql api status %d: %s",
-			resp.StatusCode, redactString(string(body)))
+		return nil, providerError(ProviderGCPCloudSQL, httpStatusKind(resp.StatusCode),
+			fmt.Sprintf("cloud sql api status %d: %s", resp.StatusCode,
+				redactString(string(body))), "")
 	}
 	var raw map[string]any
 	if out != nil {
@@ -388,12 +394,16 @@ func cloudSQLAuthorizedNetworks(networks []string) []map[string]string {
 
 func cloudSQLInstanceFromAPI(raw map[string]any) CloudSQLInstance {
 	ipAddresses := mapSliceValue(raw, "ipAddresses")
+	settings := mapMapValue(raw, "settings")
+	protected, _ := settings["deletionProtectionEnabled"].(bool)
 	return CloudSQLInstance{
-		Name:             stringMapValue(raw, "name"),
-		State:            stringMapValue(raw, "state"),
-		ConnectionName:   stringMapValue(raw, "connectionName"),
-		PublicIPAddress:  cloudSQLIPAddress(ipAddresses, "PRIMARY"),
-		PrivateIPAddress: cloudSQLIPAddress(ipAddresses, "PRIVATE"),
+		Labels:             stringMapFromAny(settings["userLabels"]),
+		DeletionProtection: protected,
+		Name:               stringMapValue(raw, "name"),
+		State:              stringMapValue(raw, "state"),
+		ConnectionName:     stringMapValue(raw, "connectionName"),
+		PublicIPAddress:    cloudSQLIPAddress(ipAddresses, "PRIMARY"),
+		PrivateIPAddress:   cloudSQLIPAddress(ipAddresses, "PRIVATE"),
 	}
 }
 

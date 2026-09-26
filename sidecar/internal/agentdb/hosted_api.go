@@ -74,11 +74,14 @@ func (c HostedHTTPClient) supabaseCreateBody(
 	if c.PasswordFunc == nil {
 		return nil, fmt.Errorf("supabase database password callback is required")
 	}
-	password, err := c.PasswordFunc(ctx)
-	if err != nil || strings.TrimSpace(password) == "" {
+	master, err := c.PasswordFunc(ctx)
+	if err != nil || strings.TrimSpace(master) == "" {
 		return nil, fmt.Errorf("supabase database password is unavailable")
 	}
-	body := map[string]any{"name": in.Name, "organization_slug": in.Scope, "db_pass": password}
+	// The configured secret is a master key; each project gets its own
+	// derived password so tenants never share database credentials.
+	body := map[string]any{"name": in.Name, "organization_slug": in.Scope,
+		"db_pass": supabaseProjectPassword(master, in.Name)}
 	if in.Region != "" {
 		body["region_selection"] = map[string]any{"type": "specific", "code": in.Region}
 	}

@@ -34,6 +34,10 @@ func agentDBGetDeployRequestHandler(st *agentdb.Store) http.HandlerFunc {
 
 func agentDBCreateDeployRequestHandler(st *agentdb.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := requireActor(w, r)
+		if !ok {
+			return
+		}
 		m := readMap(r)
 		row, err := st.CreateDeployRequest(
 			r.Context(),
@@ -51,7 +55,7 @@ func agentDBCreateDeployRequestHandler(st *agentdb.Store) http.HandlerFunc {
 				RollbackSQL:        str(m, "rollback_sql"),
 				ForwardFixNotes:    str(m, "forward_fix_notes"),
 				GateResults:        obj(m, "gate_results"),
-				CreatedBy:          str(m, "created_by"),
+				CreatedBy:          actor,
 			},
 		)
 		if err != nil {
@@ -82,6 +86,10 @@ func agentDBReviewDeployRequestHandler(
 	decision string,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := requireActor(w, r)
+		if !ok {
+			return
+		}
 		m := readMap(r)
 		row, err := st.ReviewDeployRequest(
 			r.Context(),
@@ -89,7 +97,7 @@ func agentDBReviewDeployRequestHandler(
 			r.PathValue("deploy_request_id"),
 			agentdb.DeployRequestReview{
 				Decision:     decision,
-				ReviewedBy:   str(m, "reviewed_by"),
+				ReviewedBy:   actor,
 				ReviewReason: str(m, "review_reason"),
 			},
 		)

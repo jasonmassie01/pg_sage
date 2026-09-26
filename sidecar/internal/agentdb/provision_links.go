@@ -141,8 +141,7 @@ func (s *Store) ProvisionFromTerraformTemplate(
 	reg.Metadata["provider_params"] = cloneAnyMap(profile.ProviderParams)
 	reg.Metadata["size_profile_id"] = profile.ProfileID
 	reg.ProvisioningPlan = planMap(plan)
-	reg.ProvisioningPlan["source"] = "terraform_template"
-	reg.ProvisioningPlan["terraform_template_id"] = template.TemplateID
+	labelTemplateProvision(&reg, template)
 	return s.Register(ctx, reg)
 }
 
@@ -158,8 +157,12 @@ func (s *Store) ProvisionApprovedRequest(
 	if agentReq.Status != "approved" || agentReq.PolicyDecision != "allow" {
 		return Deployment{}, ErrInvalid
 	}
+	deploymentID := firstNonEmpty(req.DeploymentID, "dep_"+idFrom(id))
+	if err := s.consumeApprovedRequest(ctx, id, deploymentID); err != nil {
+		return Deployment{}, err
+	}
 	reg := RegisterRequest{
-		DeploymentID: firstNonEmpty(req.DeploymentID, "dep_"+idFrom(id)),
+		DeploymentID: deploymentID,
 		TenantID:     agentReq.TenantID,
 		AgentID:      agentReq.AgentID,
 		RunID:        agentReq.RunID,
@@ -216,14 +219,22 @@ func profileFromBlueprint(
 	for key, value := range overrides {
 		params[key] = value
 	}
-	setIfMissing(params, "region", spec.Region)
-	setIfMissing(params, "db_instance_class", spec.InstanceClass)
-	setIfMissing(params, "tier", spec.InstanceClass)
-	setIfMissing(params, "database_version", spec.DatabaseVersion)
-	setIfMissing(params, "backup_retention_days", spec.BackupRetentionDays)
-	setIfMissing(params, "allocated_storage", spec.StorageGB)
-	setIfMissing(params, "storage_size", spec.StorageGB)
-	setIfMissing(params, "mode", spec.LakebaseMode)
+	// The approved spec wins; overrides only fill what the spec leaves open
+	// (G8-B10). Settings the runners enforce are carried through (G8-B20).
+	setApproved(params, "region", spec.Region)
+	setApproved(params, "db_instance_class", spec.InstanceClass)
+	setApproved(params, "tier", spec.InstanceClass)
+	setApproved(params, "database_version", spec.DatabaseVersion)
+	setApproved(params, "backup_retention_days", spec.BackupRetentionDays)
+	setApproved(params, "allocated_storage", spec.StorageGB)
+	setApproved(params, "storage_size", spec.StorageGB)
+	setApproved(params, "mode", spec.LakebaseMode)
+	if spec.MultiAZ {
+		params["multi_az"] = true
+	}
+	if spec.PrivateNetwork {
+		params["private_network"] = true
+	}
 	return SizeProfile{
 		Provider:          spec.Provider,
 		ProvisioningLevel: spec.ProvisioningLevel,
@@ -246,11 +257,27 @@ func mergeMap(base map[string]any, extra map[string]any) map[string]any {
 	return out
 }
 
-func setIfMissing(values map[string]any, key string, value any) {
-	if _, ok := values[key]; ok || emptyAny(value) {
+func setApproved(values map[string]any, key string, value any) {
+	if emptyAny(value) {
 		return
 	}
 	values[key] = value
+}
+
+// consumeApprovedRequest makes an approval single-use: it binds the
+// request to one deployment id; replays with the same id stay idempotent.
+func (s *Store) consumeApprovedRequest(ctx context.Context, id, deploymentID string) error {
+	tag, err := s.pool.Exec(ctx, `/* pg_sage */
+		UPDATE sage.agent_db_requests
+		SET consumed_deployment_id=$2, updated_at=now()
+		WHERE request_id=$1 AND consumed_deployment_id IN ('', $2)`, id, deploymentID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrConflict
+	}
+	return nil
 }
 
 func emptyAny(value any) bool {
@@ -283,4 +310,16 @@ func stringsAny(values []string) []any {
 		out = append(out, value)
 	}
 	return out
+}
+
+// labelTemplateProvision marks a template-backed plan as review-only
+// (SURF-05): the runner provisions from provider_params, not from the
+// template body, and the approval is bound to the reviewed content hash.
+func labelTemplateProvision(reg *RegisterRequest, template TerraformTemplate) {
+	reg.ProvisioningPlan["source"] = "terraform_template"
+	reg.ProvisioningPlan["terraform_template_id"] = template.TemplateID
+	reg.ProvisioningPlan["template_semantics"] = "review_only"
+	reg.ProvisioningPlan["template_semantics_note"] = "template content is stored " +
+		"for review only; the live runner provisions from provider_params"
+	reg.Metadata["terraform_template_sha256"] = template.ContentSHA256
 }

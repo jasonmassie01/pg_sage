@@ -96,57 +96,21 @@ func (s *Store) SetRequestDecision(
 			policy_decision=$3,
 			policy_reasons=$4::jsonb,
 			updated_at=now()
-		WHERE request_id=$1`,
+		WHERE request_id=$1
+			AND NOT ($2='approved' AND policy_decision='deny')`,
 		id, status, policy, jsonBytes(map[string]any{"reason": req.Reason}),
 	)
 	if err != nil {
 		return Request{}, err
 	}
 	if tag.RowsAffected() == 0 {
-		return Request{}, ErrNotFound
+		// A policy deny is terminal for operators (G8-B10).
+		if _, getErr := s.GetRequest(ctx, id); getErr != nil {
+			return Request{}, getErr
+		}
+		return Request{}, ErrConflict
 	}
 	return s.GetRequest(ctx, id)
-}
-
-func (s *Store) Register(ctx context.Context, req RegisterRequest) (Deployment, error) {
-	if err := s.Ensure(ctx); err != nil {
-		return Deployment{}, err
-	}
-	if err := normalizeRegister(&req); err != nil {
-		return Deployment{}, err
-	}
-	var dep Deployment
-	err := scanDeployment(s.pool.QueryRow(ctx, registerSQL,
-		req.DeploymentID,
-		req.TenantID,
-		req.AgentID,
-		req.RunID,
-		req.DatabaseName,
-		req.SafetyMode,
-		req.IsolationType,
-		req.SchemaName,
-		req.Provider,
-		req.ProvisioningLevel,
-		req.SizeProfileID,
-		req.ProvisioningStatus,
-		req.ProviderResourceID,
-		req.SecretRef,
-		req.SecretRefProvider,
-		req.SecretRefExpiresAt,
-		req.LiveMode,
-		req.BudgetUSD,
-		req.BackupRequired,
-		req.LeaseSeconds,
-		jsonBytes(req.Metadata),
-		jsonBytes(req.ProvisioningPlan),
-		jsonBytes(req.ConnectionInfo),
-	), &dep)
-	if err != nil {
-		return Deployment{}, err
-	}
-	_ = s.audit(ctx, req.DeploymentID, "register", nil)
-	_ = s.seedTuningHints(ctx, req.DeploymentID, req.Metadata)
-	return dep, nil
 }
 
 func (s *Store) List(ctx context.Context) ([]Deployment, error) {
@@ -190,17 +154,47 @@ func (s *Store) Ping(ctx context.Context, id string, req PingRequest) (Deploymen
 	if err := s.Ensure(ctx); err != nil {
 		return Deployment{}, err
 	}
-	if req.Status == "" {
-		req.Status = "active"
+	health, err := normalizeAgentHealth(req.Status)
+	if err != nil {
+		return Deployment{}, err
 	}
-	if _, err := s.pool.Exec(ctx, `/* pg_sage */ 
+	if _, err := s.pool.Exec(ctx, `/* pg_sage */
 		INSERT INTO sage.agent_db_pings(deployment_id, status, metrics)
 		VALUES ($1, $2, $3::jsonb)`,
-		id, req.Status, jsonBytes(req.Metrics),
+		id, health, jsonBytes(req.Metrics),
 	); err != nil {
 		return Deployment{}, err
 	}
-	return s.setStatusFields(ctx, id, req.Status, "last_ping_at=now()")
+	// A heartbeat records liveness only. Lifecycle status, cleanup claims,
+	// teardown state and budget enforcement are owned by operator and
+	// reconciler paths and must never be reachable with a ping token.
+	var dep Deployment
+	err = scanDeployment(s.pool.QueryRow(ctx, `/* pg_sage */
+		UPDATE sage.agent_db_deployments
+		SET last_ping_at=now(), agent_status=$2
+		WHERE deployment_id=$1
+		RETURNING `+deploymentColumnsSQL, id, health), &dep)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Deployment{}, ErrNotFound
+	}
+	return dep, err
+}
+
+// normalizeAgentHealth maps an agent-reported heartbeat status onto the
+// closed agent health vocabulary. Lifecycle words are rejected.
+func normalizeAgentHealth(status string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "", "active", "healthy", "ok":
+		return "healthy", nil
+	case "degraded":
+		return "degraded", nil
+	case "busy":
+		return "busy", nil
+	case "idle":
+		return "idle", nil
+	default:
+		return "", ErrInvalid
+	}
 }
 
 func (s *Store) ExtendLease(
@@ -214,27 +208,15 @@ func (s *Store) ExtendLease(
 	if req.LeaseSeconds <= 0 {
 		return Deployment{}, ErrInvalid
 	}
+	current, err := s.Get(ctx, id)
+	if err != nil {
+		return Deployment{}, err
+	}
+	if err := leaseExtensionAllowed(current, req); err != nil {
+		return Deployment{}, err
+	}
 	var dep Deployment
-	err := scanDeployment(s.pool.QueryRow(ctx, `/* pg_sage */
-		UPDATE sage.agent_db_deployments
-		SET lease_expires_at=now()+make_interval(secs => $2),
-			status=CASE
-				WHEN status='archived' AND cleanup_claim_id <> '' THEN 'active'
-				ELSE status
-			END,
-			cleanup_claim_id='',
-			cleanup_claimed_at=NULL,
-			teardown_operation_id='',
-			provider_mutation_id='',
-			provider_mutation_expires_at=NULL,
-			lifecycle_version=lifecycle_version+1,
-			updated_at=now()
-		WHERE deployment_id=$1
-			AND status <> 'deleted'
-			AND provisioning_status NOT IN (
-				'destroy_pending', 'destroying', 'destroyed'
-			)
-		RETURNING `+deploymentColumnsSQL,
+	err = scanDeployment(s.pool.QueryRow(ctx, extendLeaseSQL,
 		id, req.LeaseSeconds,
 	), &dep)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -396,45 +378,6 @@ func requestDecision(decision string) (string, string, error) {
 	}
 }
 
-func normalizeRegister(req *RegisterRequest) error {
-	req.DeploymentID = strings.TrimSpace(req.DeploymentID)
-	req.TenantID = strings.TrimSpace(req.TenantID)
-	req.AgentID = strings.TrimSpace(req.AgentID)
-	if req.DeploymentID == "" || req.TenantID == "" || req.AgentID == "" {
-		return ErrInvalid
-	}
-	normalizeProviderFields(req)
-	if !validProvider(req.Provider) || !validLevel(req.ProvisioningLevel) {
-		return ErrInvalid
-	}
-	if cloudProvider(req.Provider) && req.ProvisioningLevel != LevelInstance {
-		return ErrInvalid
-	}
-	if req.Provider == ProviderLocalPostgres && req.ProvisioningLevel == LevelInstance {
-		return ErrInvalid
-	}
-	if req.SafetyMode == "" {
-		req.SafetyMode = "observation"
-	}
-	if req.ProvisioningStatus == "" {
-		req.ProvisioningStatus = "registered"
-	}
-	if req.LeaseSeconds <= 0 {
-		req.LeaseSeconds = 3600
-	}
-	if req.Metadata == nil {
-		req.Metadata = map[string]any{}
-	}
-	if req.ProvisioningPlan == nil {
-		req.ProvisioningPlan = map[string]any{}
-	}
-	if req.ConnectionInfo == nil {
-		req.ConnectionInfo = map[string]any{}
-	}
-	req.BackupRequired = true
-	return nil
-}
-
 func (s *Store) insertRequest(
 	ctx context.Context,
 	req RequestCreate,
@@ -537,5 +480,9 @@ func scanDeployment(row scanner, dep *Deployment) error {
 		&dep.TeardownOperationID,
 		&dep.ProviderMutationID,
 		&dep.ProviderMutationExpiresAt,
+		&dep.AgentStatus,
+		&dep.TeardownBlockedReason,
+		&dep.TeardownBlockedAt,
+		&dep.CreateOperationID,
 	)
 }

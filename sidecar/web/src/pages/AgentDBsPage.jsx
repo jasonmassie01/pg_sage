@@ -7,7 +7,20 @@ import { SummaryRow } from './agentdb/AgentDBSections'
 import { AgentDBWorkspaceTabs } from './agentdb/AgentDBWorkspaceTabs'
 import { AgentDBWorkspace } from './agentdb/AgentDBWorkspace'
 import { useAgentDBDetail } from './agentdb/useAgentDBDetail'
-import { hostedMetadata, hostedSecretReference } from './agentdb/hostedMetadata'
+import { hostedSecretReference } from './agentdb/hostedMetadata'
+import {
+  backupActionStatus,
+  deploymentID,
+  provisionActionLabel,
+  provisionMetadata,
+  uniqueDerivedID,
+} from './agentdb/agentDBFormHelpers'
+import {
+  attestRestoreDrill,
+  fetchDeploymentPage,
+  mergeDeployments,
+  runLiveProvisionAction,
+} from './agentdb/agentDBLiveActions'
 
 // How many deployment refetches to wait for an optimistic selection to appear
 // before falling back to the first available deployment.
@@ -64,74 +77,6 @@ async function postJSON(url, body, headers = {}) {
   return data
 }
 
-function deploymentID(form) {
-  const stamp = Date.now().toString(36)
-  return `${form.tenant_id}-${form.agent_id}-${stamp}`
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-}
-
-function provisionActionLabel(action) {
-  if (action === 'destroy-dry-run') return 'destroy dry-run'
-  return action.replaceAll('-', ' ')
-}
-
-function backupActionStatus(result) {
-  return result.backup_status || result.attempt?.status || result.status || 'recorded'
-}
-
-function provisionMetadata(form) {
-  const metadata = {
-    purpose: form.purpose,
-    workload_types: form.workload_types,
-    extensions: form.extensions,
-    lakebase_mode: form.lakebase_mode,
-  }
-  const providerParams = {}
-  if (form.provider === 'neon' || form.provider === 'supabase') {
-    Object.assign(providerParams, hostedMetadata(form))
-  }
-  if (form.provider === 'aws_rds') {
-    if (form.cloud_region) providerParams.region = form.cloud_region
-    if (form.cloud_account) providerParams.account = form.cloud_account
-  }
-  if (form.provider === 'gcp_cloudsql') {
-    if (form.cloud_project) providerParams.project = form.cloud_project
-    if (form.cloud_region) providerParams.region = form.cloud_region
-  }
-  if (form.provider === 'databricks_lakebase' &&
-    form.lakebase_mode !== 'provisioned_instance') {
-    if (form.lakebase_project) providerParams.project = form.lakebase_project
-    if (form.cloud_workspace) providerParams.workspace = form.cloud_workspace
-    if (form.lakebase_source_instance) {
-      providerParams.source_instance = form.lakebase_source_instance
-    }
-  }
-  if (Object.keys(providerParams).length > 0) {
-    metadata.provider_params = providerParams
-  }
-  return metadata
-}
-
-function uniqueDerivedID(prefix) {
-  return `${prefix}_${Date.now().toString(36)}_deployment`
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-}
-
-function liveExecuteBody(id, form) {
-  return {
-    mode: 'live',
-    cost_estimate_id: `ui-${id}-${Date.now()}`,
-    region: form.cloud_region,
-    account: form.cloud_account,
-    project: form.cloud_project || form.lakebase_project,
-    workspace: form.cloud_workspace,
-  }
-}
-
 export function AgentDBsPage() {
   const deploymentsAPI = useAPI('/api/v1/agent-dbs', 15000)
   const requestsAPI = useAPI('/api/v1/agent-dbs/requests', 15000)
@@ -153,11 +98,14 @@ export function AgentDBsPage() {
   const [message, setMessage] = useState(null)
   const [messageDeploymentID, setMessageDeploymentID] = useState(null)
   const [error, setError] = useState(null)
+  const [extraDeployments, setExtraDeployments] = useState([])
+  const [extraCursor, setExtraCursor] = useState(null)
 
   const deployments = useMemo(
-    () => deploymentsAPI.data?.deployments || [],
-    [deploymentsAPI.data],
+    () => mergeDeployments(deploymentsAPI.data?.deployments || [], extraDeployments),
+    [deploymentsAPI.data, extraDeployments],
   )
+  const nextCursor = extraCursor ?? deploymentsAPI.data?.next_cursor ?? ''
   const requests = useMemo(
     () => requestsAPI.data?.requests || [],
     [requestsAPI.data],
@@ -540,22 +488,27 @@ export function AgentDBsPage() {
     }
   }
 
+  async function loadMoreDeployments() {
+    clearStatus()
+    try {
+      const page = await fetchDeploymentPage(nextCursor)
+      setExtraDeployments(prev => [...prev, ...(page.deployments || [])])
+      setExtraCursor(page.next_cursor || '')
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   async function runProvisionAction(id, action) {
     setBusy(true)
     clearStatus()
     try {
-      const endpointAction = action === 'live-execute' ? 'execute' : action
-      const body = action === 'live-execute'
-        ? liveExecuteBody(id, form)
-        : {}
-      if (action === 'destroy-live' && window.confirm &&
-        !window.confirm(`Live destroy cloud resource for ${id}?`)) {
-        return
-      }
-      const attempt = await postJSON(
-        `/api/v1/agent-dbs/${id}/provision/${endpointAction}`,
-        body,
-      )
+      const live = action === 'live-execute' || action === 'destroy-live'
+      const confirmFn = window.confirm ? msg => window.confirm(msg) : null
+      const attempt = live
+        ? await runLiveProvisionAction(postJSON, id, action, confirmFn)
+        : await postJSON(`/api/v1/agent-dbs/${id}/provision/${action}`, {})
+      if (!attempt) return
       const status = attempt.status || 'recorded'
       showMessage(`Provision ${provisionActionLabel(action)} ${status}`)
       await detail.refetch()
@@ -598,14 +551,14 @@ export function AgentDBsPage() {
   }
 
   async function markRestoreVerified(id) {
+    const evidence = window.prompt
+      ? window.prompt('Restore drill evidence URI (admin attestation)')
+      : ''
+    if (!evidence) return
     setBusy(true)
     clearStatus()
     try {
-      const backup = await postJSON(`/api/v1/agent-dbs/${id}/backups`, {
-        backup_id: `restore_verified_${Date.now().toString(36)}`,
-        status: 'restore_verified',
-        detail: { source: 'operator_ui' },
-      })
+      const backup = await attestRestoreDrill(postJSON, id, evidence)
       showMessage(`Restore verification ${backup.status || 'recorded'}`)
       await detail.refetch()
     } catch (err) {
@@ -751,6 +704,15 @@ export function AgentDBsPage() {
             </button>
           )}
         </div>
+      )}
+
+      {nextCursor && (
+        <button type="button" onClick={loadMoreDeployments}
+          data-testid="agent-db-load-more"
+          className="rounded border px-3 py-2 text-sm"
+          style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+          Load more deployments
+        </button>
       )}
 
       <AgentDBWorkspaceTabs activeTab={activeTab} onChange={setActiveTab} />

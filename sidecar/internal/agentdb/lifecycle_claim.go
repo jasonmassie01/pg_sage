@@ -31,6 +31,7 @@ const authorizeTeardownSQL = `/* pg_sage */
 	UPDATE sage.agent_db_deployments
 	SET provisioning_status='destroy_pending', teardown_operation_id=$4,
 		provider_mutation_id='', provider_mutation_expires_at=NULL,
+		teardown_blocked_reason='', teardown_blocked_at=NULL,
 		lifecycle_version=lifecycle_version+1, updated_at=now()
 	WHERE deployment_id=$1 AND status='archived' AND cleanup_claim_id=$2
 		AND lifecycle_version=$3 AND lease_expires_at IS NOT NULL

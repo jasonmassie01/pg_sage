@@ -124,9 +124,17 @@ func TestAgentDBLifecycleEndpointsExposeCostBackupsAndHints(t *testing.T) {
 		t.Fatalf("cost summary = %#v", cost["cost"])
 	}
 
+	// G8-B11: restore_verified cannot be self-attested via the generic
+	// backup endpoint; plain evidence is still recorded.
 	if rr := postJSON(
 		"/api/v1/agent-dbs/api_deployment_route/backups",
 		`{"backup_id":"api_backup","status":"restore_verified","provider":"managed"}`,
+	); rr.Code != http.StatusBadRequest {
+		t.Fatalf("self-attested restore status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr := postJSON(
+		"/api/v1/agent-dbs/api_deployment_route/backups",
+		`{"backup_id":"api_backup","status":"verified","provider":"managed"}`,
 	); rr.Code != http.StatusOK {
 		t.Fatalf("backup status = %d body=%s", rr.Code, rr.Body.String())
 	}
@@ -498,11 +506,7 @@ func TestAgentDBProvisionLifecycleEndpoints(t *testing.T) {
 		t.Fatalf("blocked destroy = %d body=%s", blockedRR.Code, blockedRR.Body.String())
 	}
 
-	if _, err := st.RecordBackup(ctx, "api_lifecycle_plan", agentdb.BackupRequest{
-		BackupID: "api_lifecycle_backup",
-		Provider: agentdb.ProviderGCPCloudSQL,
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, "api_lifecycle_plan", testDrill("api_lifecycle_backup")); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 	destroyReq := httptest.NewRequest(
@@ -538,11 +542,7 @@ func TestAgentDBProvisionLifecycleEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expire plan: %v", err)
 	}
-	if _, err := st.RecordBackup(ctx, "api_lifecycle_expired", agentdb.BackupRequest{
-		BackupID: "api_lifecycle_expired_backup",
-		Provider: agentdb.ProviderDatabricksLakebase,
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, "api_lifecycle_expired", testDrill("api_lifecycle_expired_backup")); err != nil {
 		t.Fatalf("RecordBackup expired: %v", err)
 	}
 	reconcileReq := httptest.NewRequest(
@@ -836,6 +836,11 @@ func TestAgentDBDeployRequestEndpoints(t *testing.T) {
 	}
 	if !bytes.Contains(approveRR.Body.Bytes(), []byte(`"status":"approved"`)) {
 		t.Fatalf("expected approved response, got %s", approveRR.Body.String())
+	}
+	// SURF-17/G8-B26: the reviewer is the session user, never the body value.
+	if bytes.Contains(approveRR.Body.Bytes(), []byte(`"dba"`)) ||
+		!bytes.Contains(approveRR.Body.Bytes(), []byte("operator@test.invalid")) {
+		t.Fatalf("review actor taken from request body: %s", approveRR.Body.String())
 	}
 
 	wrongReq := httptest.NewRequest(
@@ -1260,7 +1265,7 @@ func TestAgentDBRequestApprovalProvisionAPI(t *testing.T) {
 	deploymentID := "req_api_provision_dep"
 	cleanupAgentDBTestRows(t, ctx, pool, requestID)
 	cleanupAgentDBTestRows(t, ctx, pool, deploymentID)
-	handler := agentDBSubrouterWithRegistry(
+	handler := withTestOperator(agentDBSubrouterWithRegistry(
 		st,
 		agentdb.DefaultRunnerRegistry(),
 		apiStaticBlueprintGenerator{spec: agentdb.BlueprintSpec{
@@ -1275,7 +1280,7 @@ func TestAgentDBRequestApprovalProvisionAPI(t *testing.T) {
 			PrivateNetwork:      true,
 			Extensions:          []string{"pgvector"},
 		}},
-	)
+	))
 
 	createReq := httptest.NewRequest(
 		http.MethodPost,
@@ -1352,7 +1357,7 @@ func TestAgentDBBlueprintAPI(t *testing.T) {
 	defer pool.Exec(ctx, "DELETE FROM sage.agent_db_blueprints WHERE blueprint_id=$1", id)
 	defer pool.Exec(ctx, "DELETE FROM sage.agent_db_terraform_templates WHERE template_id=$1", id+"_tf")
 
-	handler := agentDBSubrouterWithRegistry(
+	handler := withTestOperator(agentDBSubrouterWithRegistry(
 		st,
 		agentdb.DefaultRunnerRegistry(),
 		apiStaticBlueprintGenerator{spec: agentdb.BlueprintSpec{
@@ -1367,7 +1372,7 @@ func TestAgentDBBlueprintAPI(t *testing.T) {
 			PrivateNetwork:      true,
 			Extensions:          []string{"pgvector"},
 		}},
-	)
+	))
 	body := `{
 		"blueprint_id":"bp_api_unit",
 		"name":"API unit",
@@ -1454,7 +1459,7 @@ func TestAgentDBBlueprintToLiveProvisioningAPI(t *testing.T) {
 	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
 	registry.Register(apiFakeProviderRunner{})
 	seedEnabledProviderConfig(t, ctx, st, agentdb.ProviderAWSRDS)
-	router := agentDBSubrouterWithRegistry(
+	router := withTestOperator(agentDBSubrouterWithRegistry(
 		st,
 		registry,
 		apiStaticBlueprintGenerator{spec: agentdb.BlueprintSpec{
@@ -1467,7 +1472,7 @@ func TestAgentDBBlueprintToLiveProvisioningAPI(t *testing.T) {
 			PrivateNetwork:      true,
 		}},
 		wave34TestLiveAuthority(),
-	)
+	))
 	post := func(path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader([]byte(body)))
 		req = withUser(req, testAdminUser())
@@ -1518,11 +1523,7 @@ func TestAgentDBBlueprintToLiveProvisioningAPI(t *testing.T) {
 	} else if !strings.Contains(rr.Body.String(), `"safe_for_destroy":false`) {
 		t.Fatalf("backup check must not grant restore verification body=%s", rr.Body.String())
 	}
-	if _, err := st.RecordBackup(ctx, id, agentdb.BackupRequest{
-		BackupID: "api_blueprint_live_restore_verified",
-		Provider: agentdb.ProviderAWSRDS,
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, testDrill("api_blueprint_live_restore_verified")); err != nil {
 		t.Fatalf("RecordBackup restore verification: %v", err)
 	}
 	destroyTuple := issueWave34TupleForHandler(
@@ -1693,9 +1694,9 @@ func TestAgentDBLiveProvisionAPI(t *testing.T) {
 	if disabledRR.Code != http.StatusBadRequest {
 		t.Fatalf("disabled live status = %d", disabledRR.Code)
 	}
-	handler := agentDBSubrouterWithRegistry(
+	handler := withTestOperator(agentDBSubrouterWithRegistry(
 		st, registry, nil, wave34TestLiveAuthority(),
-	)
+	))
 	tuple := issueWave34TupleForHandler(t, handler, id, "create", "api-create")
 	liveRR := wave34Post(t, handler,
 		"/api/v1/agent-dbs/"+id+"/provision/execute",
@@ -1769,12 +1770,12 @@ func TestAgentDBLiveProvisionAPIReportsUnavailableRunner(t *testing.T) {
 		t.Fatalf("PreflightProvision: %v", err)
 	}
 	seedEnabledProviderConfig(t, ctx, st, agentdb.ProviderAWSRDS)
-	handler := agentDBSubrouterWithRegistry(
+	handler := withTestOperator(agentDBSubrouterWithRegistry(
 		st,
 		agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{}),
 		nil,
 		wave34TestLiveAuthority(),
-	)
+	))
 	rr := wave34Post(t, handler,
 		"/api/v1/agent-dbs/"+id+"/provision/authorize-live",
 		map[string]any{"operation": "create", "idempotency_key": "unavailable"},
@@ -1814,9 +1815,9 @@ func TestAgentDBLiveProvisionAPIPromotesDryRunReadyDeployment(t *testing.T) {
 	seedEnabledProviderConfig(t, ctx, st, agentdb.ProviderAWSRDS)
 	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
 	registry.Register(apiFakeProviderRunner{})
-	handler := agentDBSubrouterWithRegistry(
+	handler := withTestOperator(agentDBSubrouterWithRegistry(
 		st, registry, nil, wave34TestLiveAuthority(),
-	)
+	))
 	tuple := issueWave34TupleForHandler(t, handler, id, "create", "dry-run-create")
 	rr := wave34Post(t, handler,
 		"/api/v1/agent-dbs/"+id+"/provision/execute",
@@ -1898,11 +1899,7 @@ func TestAgentDBLiveDestroyAPIUsesServerProviderConfig(t *testing.T) {
 		WHERE deployment_id=$1`, id); err != nil {
 		t.Fatalf("seed live deployment: %v", err)
 	}
-	if _, err := st.RecordBackup(ctx, id, agentdb.BackupRequest{
-		BackupID: "api_live_destroy_restore_verified",
-		Provider: agentdb.ProviderAWSRDS,
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, testDrill("api_live_destroy_restore_verified")); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 	if _, err := st.UpsertProviderConfig(ctx, agentdb.ProviderConfigRequest{
@@ -2041,6 +2038,8 @@ func requireAgentDBAPIStore(t *testing.T) (*agentdb.Store, context.Context, *pgx
 		t.Skipf("database unavailable: %v", err)
 	}
 	st := agentdb.NewStore(pool)
+	// The fixture database is disposable, so local DDL is explicitly enabled.
+	st.EnableLocalProvisioning(true)
 	if err := st.Ensure(ctx); err != nil {
 		pool.Close()
 		t.Fatalf("ensure schema: %v", err)

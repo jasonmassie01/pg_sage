@@ -97,6 +97,7 @@ func livePolicyFromProviderConfig(
 		RequireBackupBeforeDrop: boolValue(settings, "require_backup_before_drop") ||
 			boolValue(settings, "require_backup_before_destroy"),
 		MaxTTLSeconds:       integer(settings, "max_ttl_seconds"),
+		AllowUnknownPricing: boolValue(settings, "allow_unknown_instance_pricing"),
 		MaxEstimatedCostUSD: float(settings, "max_estimated_cost_usd"),
 		ExecutionMode: firstString(
 			str(settings, "execution_mode"), agentdb.LiveModeApproval,

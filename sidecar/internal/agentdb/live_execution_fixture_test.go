@@ -14,6 +14,23 @@ func persistedLiveTestRequest(
 	suffix string,
 ) LiveExecutionRequest {
 	t.Helper()
+	return persistedLiveOpTestRequest(
+		t, store, ctx, deploymentID, suffix, ProvisionOpCreate, nil,
+	)
+}
+
+// persistedLiveOpTestRequest persists server-owned live records for any
+// operation; mutate adjusts the current effective policy (nil keeps defaults).
+func persistedLiveOpTestRequest(
+	t *testing.T,
+	store *Store,
+	ctx context.Context,
+	deploymentID string,
+	suffix string,
+	op ProvisionOperation,
+	mutate func(*LiveProvisionPolicy),
+) LiveExecutionRequest {
+	t.Helper()
 	dep, err := store.Get(ctx, deploymentID)
 	if err != nil {
 		t.Fatalf("load live fixture deployment: %v", err)
@@ -40,7 +57,7 @@ func persistedLiveTestRequest(
 	}
 	plan, err := BuildNormalizedLivePlan(LivePlanInput{
 		DeploymentID: dep.DeploymentID, Provider: dep.Provider,
-		Operation: ProvisionOpCreate, Region: region,
+		Operation: op, Region: region,
 		Account:       stringParam(params, "account"),
 		Project:       stringParam(params, "project"),
 		Workspace:     stringParam(params, "workspace"),
@@ -60,7 +77,10 @@ func persistedLiveTestRequest(
 		AllowedAccounts: []string{"*"}, AllowedProjects: []string{"*"},
 		AllowedWorkspaces: []string{"*"}, MaxTTLSeconds: 86400,
 		AllowPublicIP: plan.PublicIP, MaxEstimatedCostUSD: 1000,
-		ExecutionMode: LiveModeApproval,
+		ExecutionMode: LiveModeApproval, RequireBackupBeforeDrop: true,
+	}
+	if mutate != nil {
+		mutate(&policy)
 	}
 	estimate := &IssuedLiveCostEstimate{
 		EstimateID: estimateID, PlanHash: plan.Hash,

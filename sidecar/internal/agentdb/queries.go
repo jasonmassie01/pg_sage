@@ -27,7 +27,8 @@ const deploymentColumnsSQL = `deployment_id, tenant_id, agent_id, run_id, databa
 		backup_required, created_at, updated_at, last_ping_at, lease_expires_at,
 		metadata, provisioning_plan, connection_info, lifecycle_version,
 		cleanup_claim_id, cleanup_claimed_at, teardown_operation_id,
-		provider_mutation_id, provider_mutation_expires_at`
+		provider_mutation_id, provider_mutation_expires_at, agent_status,
+		teardown_blocked_reason, teardown_blocked_at, create_operation_id`
 
 const selectDeploymentsSQL = `/* pg_sage */
 	SELECT ` + deploymentColumnsSQL + `
@@ -76,11 +77,17 @@ const registerSQL = `/* pg_sage */
 		provider_mutation_expires_at=NULL,
 		lifecycle_version=agent_db_deployments.lifecycle_version+1,
 		updated_at=now()
-	RETURNING deployment_id, tenant_id, agent_id, run_id, database_name, status,
-		safety_mode, isolation_type, schema_name, provider, provisioning_level,
-		size_profile_id, provisioning_status, provider_resource_id, secret_ref,
-		secret_ref_provider, secret_ref_expires_at, live_mode, budget_usd,
-		backup_required, created_at, updated_at, last_ping_at, lease_expires_at,
-		metadata, provisioning_plan, connection_info, lifecycle_version,
-		cleanup_claim_id, cleanup_claimed_at, teardown_operation_id,
-		provider_mutation_id, provider_mutation_expires_at`
+	WHERE agent_db_deployments.tenant_id=EXCLUDED.tenant_id
+		AND agent_db_deployments.agent_id=EXCLUDED.agent_id
+		AND NOT agent_db_deployments.live_mode
+		AND agent_db_deployments.provider_resource_id=''
+		AND agent_db_deployments.create_operation_id=''
+		AND agent_db_deployments.status <> 'deleted'
+		AND agent_db_deployments.provisioning_status IN (` + replannableStatusesSQL + `)
+	RETURNING ` + deploymentColumnsSQL
+
+// replannableStatusesSQL lists provisioning states that own no provider
+// resource, so a same-owner re-register may replace the plan.
+const replannableStatusesSQL = `'registered', 'planned', 'provisioned',
+		'preflight_passed', 'preflight_failed', 'dry_run_ready', 'status_checked',
+		'destroy_dry_run_ready'`

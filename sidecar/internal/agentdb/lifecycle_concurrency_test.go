@@ -207,10 +207,14 @@ func TestLiveReconcileRetriesUncertainDestroyWithStableOperationID(t *testing.T)
 	registry := NewRunnerRegistry(DryRunProvisionRunner{})
 	registry.Register(runner)
 
-	if _, err := st.ReconcileAbandonedDeployments(
-		ctx, time.Now().UTC(), registry,
-	); err == nil {
-		t.Fatal("first reconcile succeeded despite uncertain provider destroy")
+	// G8-B02: an uncertain destroy is reported as a blocked row, not a pass
+	// error, so sibling deployments in the batch are still processed.
+	first, err := st.ReconcileAbandonedDeployments(ctx, time.Now().UTC(), registry)
+	if err != nil {
+		t.Fatalf("first reconcile aborted: %v", err)
+	}
+	if !containsBlockedID(first.Blocked, id) {
+		t.Fatalf("uncertain provider destroy not reported blocked: %#v", first.Blocked)
 	}
 	if _, err := st.ReconcileLiveProvisioning(ctx, registry); err != nil {
 		t.Fatalf("ReconcileLiveProvisioning retry: %v", err)
@@ -290,7 +294,7 @@ func TestConcurrentDirectDestroyUsesOneDurableOperation(t *testing.T) {
 
 	firstDone := make(chan error, 1)
 	go func() {
-		_, destroyErr := st.DestroyProvisionLive(ctx, id, runner)
+		_, destroyErr := directDestroyForTest(ctx, st, id, runner)
 		firstDone <- destroyErr
 	}()
 	select {
@@ -307,7 +311,7 @@ func TestConcurrentDirectDestroyUsesOneDurableOperation(t *testing.T) {
 	if dep.TeardownOperationID == "" {
 		t.Fatal("direct destroy did not persist its operation ID")
 	}
-	if _, err := st.DestroyProvisionLive(ctx, id, runner); !errors.Is(err, ErrRateLimited) {
+	if _, err := directDestroyForTest(ctx, st, id, runner); !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("concurrent direct destroy error = %v, want ErrRateLimited", err)
 	}
 	if got := runner.destroyCount(); got != 1 {
@@ -317,7 +321,7 @@ func TestConcurrentDirectDestroyUsesOneDurableOperation(t *testing.T) {
 	if err := <-firstDone; err != nil {
 		t.Fatalf("first direct destroy: %v", err)
 	}
-	if _, err := st.DestroyProvisionLive(ctx, id, runner); err != nil {
+	if _, err := directDestroyForTest(ctx, st, id, runner); err != nil {
 		t.Fatalf("direct sequential retry: %v", err)
 	}
 	ids := runner.operationIDs()
@@ -345,7 +349,7 @@ func TestLiveReconcileResumesUncertainDirectDestroy(t *testing.T) {
 	registry := NewRunnerRegistry(DryRunProvisionRunner{})
 	registry.Register(runner)
 
-	if _, err := st.DestroyProvisionLive(ctx, id, runner); err == nil {
+	if _, err := directDestroyForTest(ctx, st, id, runner); err == nil {
 		t.Fatal("direct destroy succeeded despite uncertain provider result")
 	}
 	if _, err := st.ReconcileLiveProvisioning(ctx, registry); err != nil {
@@ -669,10 +673,7 @@ func seedExpiredLiveDeployment(
 	t.Helper()
 	_, _ = pool.Exec(ctx,
 		"DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(),
-			"DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
-	})
+	t.Cleanup(func() { deleteDeploymentFresh(t, id) })
 	if _, err := st.Provision(ctx, RegisterRequest{
 		DeploymentID:       id,
 		TenantID:           "tenant_agentdb_test",
@@ -692,15 +693,18 @@ func seedExpiredLiveDeployment(
 		WHERE deployment_id=$1`, id); err != nil {
 		t.Fatalf("expire live deployment: %v", err)
 	}
+	// A live deployment is backed by a live creation receipt (G8-B04).
+	if err := st.RecordCreationReceipt(ctx, CreationReceipt{
+		DeploymentID: id, Provider: ProviderAWSRDS,
+		ProviderResourceID: "live-resource", OperationMode: "live",
+	}); err != nil {
+		t.Fatalf("seed creation receipt: %v", err)
+	}
 }
 
 func seedRestoreVerifiedBackup(t *testing.T, st *Store, ctx context.Context, id string) {
 	t.Helper()
-	if _, err := st.RecordBackup(ctx, id, BackupRequest{
-		BackupID: "backup_" + id,
-		Provider: ProviderAWSRDS,
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, testDrill("backup_" + id)); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 }
@@ -714,4 +718,29 @@ func deploymentByID(t *testing.T, deployments []Deployment, id string) Deploymen
 	}
 	t.Fatalf("deployment %s not found in %#v", id, deployments)
 	return Deployment{}
+}
+
+// directDestroyForTest drives the direct-teardown internals (durable
+// operation id, mutation lease, provider destroy) without the live
+// authorization tuple. It replaces the removed exported
+// Store.DestroyProvisionLive (G8-D02) so the concurrency tests keep
+// exercising the same code path.
+func directDestroyForTest(
+	ctx context.Context, st *Store, id string, runner ProviderRunner,
+) (ProvisionAttempt, error) {
+	dep, err := st.cloudDeploymentForExecution(ctx, id)
+	if err != nil {
+		return ProvisionAttempt{}, err
+	}
+	if runner == nil || runner.Name() == "dry_run" {
+		return ProvisionAttempt{}, ErrInvalid
+	}
+	if err := st.requireRestoreVerifiedBackup(ctx, dep); err != nil {
+		return ProvisionAttempt{}, err
+	}
+	dep, err = st.prepareDirectTeardown(ctx, dep, dep.BackupRequired)
+	if err != nil {
+		return ProvisionAttempt{}, err
+	}
+	return st.runProviderDestroy(ctx, id, runner, dep.TeardownOperationID)
 }

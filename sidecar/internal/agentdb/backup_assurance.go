@@ -27,13 +27,17 @@ func (s *Store) CheckBackupAssurance(
 	if err != nil {
 		return BackupAssurance{}, err
 	}
+	// The command path is always recorded as a dry run: it observes no
+	// provider backup, so it may only record a plan, never "verified"
+	// evidence (SURF-06). Provider evidence comes from CheckBackupAssuranceLive.
 	backup, err := s.RecordBackup(ctx, id, BackupRequest{
 		BackupID: "backup_check_" + idFrom(id, attempt.CreatedAt.String()),
 		Provider: dep.Provider,
-		Status:   "verified",
+		Status:   "planned",
 		Detail: map[string]any{
-			"mode":       mode,
-			"attempt_id": attempt.AttemptID,
+			"mode":           mode,
+			"execution_mode": "dry_run",
+			"attempt_id":     attempt.AttemptID,
 		},
 	})
 	if err != nil {

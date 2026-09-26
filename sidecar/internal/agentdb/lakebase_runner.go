@@ -74,7 +74,8 @@ func (r LakebaseRunner) Create(
 	}
 	branch, err := r.client.CreateBranch(ctx, branchReq)
 	if err != nil {
-		return ProvisionResult{Status: "failed", Error: mapProviderError(r.Provider(), err)}
+		mapped := mapProviderError(r.Provider(), err)
+		return ProvisionResult{Status: createFailureStatus(mapped), Error: mapped}
 	}
 	return lakebaseResult(branch)
 }
@@ -85,9 +86,12 @@ func (r LakebaseRunner) Status(
 ) ProvisionResult {
 	params := providerParams(req.Deployment)
 	project := stringParam(params, "project")
+	// Lakebase exposes no ownership tags, so a derived branch name is never
+	// adopted: an uncertain create stays blocked for manual reconciliation.
 	branch := req.Deployment.ProviderResourceID
 	if branch == "" {
-		branch, _ = ProviderResourceName(ProviderDatabricksLakebase, req.Deployment.DeploymentID)
+		return ProvisionResult{Status: "status_unknown",
+			Error: errRecordedIDRequired(ProviderDatabricksLakebase)}
 	}
 	got, err := r.client.GetBranch(ctx, project, branch)
 	if err != nil {
@@ -104,7 +108,8 @@ func (r LakebaseRunner) Destroy(
 	project := stringParam(params, "project")
 	branch := req.Deployment.ProviderResourceID
 	if branch == "" {
-		branch, _ = ProviderResourceName(ProviderDatabricksLakebase, req.Deployment.DeploymentID)
+		return ProvisionResult{Status: "failed",
+			Error: errRecordedIDRequired(ProviderDatabricksLakebase)}
 	}
 	if err := r.client.DeleteBranch(ctx, project, branch); err != nil {
 		mapped := mapProviderError(r.Provider(), err)
