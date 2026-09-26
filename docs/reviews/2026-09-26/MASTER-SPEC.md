@@ -552,6 +552,45 @@ every behavioral assertion kept; each adaptation is explained in its commit.
   `local_monitor_config.yaml` in your main checkout before pulling this branch**, or git will
   delete it. Live LLM tests need `PG_SAGE_LIVE_LLM=1`.
 
+### 10.3a Final verification (final HEAD of this branch)
+
+```
+## Test Results
+
+**Commands:** go build ./... ; go vet ./... ; go vet -tags=integration ./...
+  go test -v -cover -count=1 ./...                      (Windows, PG17 fixture + hypopg)
+  go test -v -cover -count=1 -tags=integration ./...
+  go test -race -count=1 ./...                          (golang:1.25 Linux container)
+  go test ./e2e -v -tags=e2e -count=1                   (golang:1.25 Linux container)
+  golangci-lint v2.11.4 run ./...  (CI-pinned)          web: eslint; vitest; vite build
+**Total:** unit 7,541 passed / 0 failed / 13 skipped; integration 7,695 / 0 / 13;
+  race: 58 packages ok, 0 data races; e2e 73 / 0 / 13 (baseline master e2e: 73 / 0 / 13);
+  lint 0 issues; web 134 tests passed, lint clean, build reproduces committed dist.
+  Baseline for comparison (b396595): unit 7,144 / 1 (env) / 11; integration 7,292 / 0 / 11.
+**Coverage:** every internal business package ≥ 70% (lowest: sanitize 71.4%, store 73.4/77.6,
+  api 73.6/74.1, agentdb 74.0, selfmonitor 75.0). Raised from baseline: collector 9.7→85.5,
+  querystore 11.9→89.1, retention 16.7→100, schema 6.9→81.5, schema/lint 23.4→77.1,
+  value 24.4→91.5, executor 47.5→79.6, autonomy 33.2→80.1, api 40.1→73.6, auth 47.9→81.0.
+
+### Skipped Tests (all justified)
+- Live cloud: AWS RDS, Cloud SQL, Lakebase, 3× AgentDB gauntlet (need PG_SAGE_LIVE_* + creds)
+- Live LLM: rca TestTier2Live_RealGemini (PG_SAGE_LIVE_LLM=1); e2e LLM/tuner suites (API key)
+- pg_hint_plan not installed on the fixture: 4 hint_verify tests (CI gap G10-B21)
+- OS: logwatch TestResolveLogDir_AbsoluteUnix on Windows
+- Helper: rca TestRCAChildProcessFixture (runs only under its parent tests, which pass)
+
+### Coverage Gaps
+- cmd/pg_sage_sidecar 51.0% (baseline 43.5%): startup wiring; Codex's subprocess-instrumented
+  measurement puts it at 73.8%. Utility commands meet the 50% floor. All other packages meet
+  thresholds.
+
+### Manual Checks Remaining
+- MANUAL: browser pass over Cases suppress/resolve, Actions queue vs executed, AgentDB
+  authorize-live + restore-drill prompts.
+- MANUAL: docker compose "Restart now" returns (restart policy), meta-db trust ceiling in the UI.
+- MANUAL: pg_hint_plan live checks (C11 retired-hint removal); live provider/LLM suites.
+```
+
 ### 10.4 Decisions needed from you
 
 1. **Should duplicate/invalid-index drops and per-table autovacuum tuning auto-run in autonomous
