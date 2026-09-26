@@ -308,13 +308,8 @@ func applyControlledGlobalDelete(
 			http.StatusPreconditionRequired)
 		return
 	}
-	baseCfg, err := base()
-	if err != nil {
-		internalError(w, r, "load config base", err)
-		return
-	}
 	candidate, err := globalCandidateWithoutOverride(
-		r.Context(), cs, baseCfg, key,
+		r.Context(), cs, base, key,
 	)
 	if err != nil {
 		internalError(w, r, "load desired config revision", err)
@@ -350,15 +345,20 @@ func applyControlledGlobalDelete(
 	})
 }
 
+// globalCandidateWithoutOverride rebuilds the desired config from the
+// current file base plus every override except omittedKey (G5-B03).
 func globalCandidateWithoutOverride(
 	ctx context.Context, cs *store.ConfigStore,
-	baseCfg *config.Config, omittedKey string,
+	base configBaseSource, omittedKey string,
 ) (*config.Config, error) {
+	candidate, err := base()
+	if err != nil {
+		return nil, err
+	}
 	overrides, err := cs.GetOverrides(ctx, 0)
 	if err != nil {
 		return nil, err
 	}
-	candidate := config.Clone(baseCfg)
 	for _, override := range overrides {
 		if override.Key != omittedKey {
 			hotReload(candidate, override.Key, override.Value)

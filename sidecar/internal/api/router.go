@@ -107,25 +107,13 @@ func NewRouterFullRuntime(
 	middlewares ...func(http.Handler) http.Handler,
 ) http.Handler {
 	apiMux := http.NewServeMux()
-	var controller *config.ConfigController
-	var configBase *config.Config
-	var configBaseLoader func() (*config.Config, error)
-	var disableConfigWrites bool
-	var mcpHandler http.Handler
-	var budgets LLMBudgetRegistry
-	var notifications notificationRouteDeps
+	var rt RuntimeDeps
 	if runtime != nil {
-		controller = runtime.ConfigController
-		configBase = runtime.ConfigBase
-		configBaseLoader = runtime.ConfigBaseLoader
-		disableConfigWrites = runtime.DisableConfigWrites
-		mcpHandler = runtime.MCPHandler
-		budgets = runtime.LLMBudgets
-		notifications = notificationRouteDeps{
-			secretKey: runtime.NotificationSecretKey,
-			policy:    runtime.NotificationTargetPolicy,
-		}
+		rt = *runtime
 	}
+	controller := rt.ConfigController
+	disableConfigWrites := rt.DisableConfigWrites
+	mcpHandler := rt.MCPHandler
 	var runtimeConfigStore *store.ConfigStore
 	if pool != nil && !disableConfigWrites {
 		runtimeConfigStore = store.NewConfigStore(pool)
@@ -134,7 +122,7 @@ func NewRouterFullRuntime(
 		apiMux, mgr, cfg, llmMgr, controller, runtimeConfigStore,
 		disableConfigWrites,
 	)
-	registerLLMBudgetRoutes(apiMux, llmBudgetSource(budgets, llmMgr))
+	registerLLMBudgetRoutes(apiMux, llmBudgetSource(rt.LLMBudgets, llmMgr))
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		mcpHandler != nil {
 		apiMux.Handle("POST /api/v1/mcp", bindMCPPrincipal(mcpHandler))
@@ -158,10 +146,13 @@ func NewRouterFullRuntime(
 		registerUserRoutes(apiMux, pool)
 		registerConfigRoutesRuntime(
 			apiMux, pool, cfg, mgr, controller,
-			runtimeConfigBase(configBaseLoader, configBase, cfg),
+			runtimeConfigBase(rt.ConfigBaseLoader, rt.ConfigBase, cfg),
 			disableConfigWrites,
 		)
-		registerNotificationRoutes(apiMux, pool, notifications)
+		registerNotificationRoutes(apiMux, pool, notificationRouteDeps{
+			secretKey: rt.NotificationSecretKey,
+			policy:    rt.NotificationTargetPolicy,
+		})
 		registerPolicyRoutes(apiMux, policy.NewStore(pool))
 		apiMux.Handle("GET /api/v1/value", valueHandler(
 			value.NewService(value.NewPostgresRepository(pool))))
