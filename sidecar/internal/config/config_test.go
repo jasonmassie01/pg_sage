@@ -213,7 +213,10 @@ func TestDSN_BuildsLibpq(t *testing.T) {
 		Database: "mydb",
 		SSLMode:  "require",
 	}
-	want := "host=myhost port=5433 user=myuser password=mypass dbname=mydb sslmode=require"
+	// Values are quoted per libpq rules (G5-B22); the unquoted form let a
+	// password such as "x sslmode=disable" inject parameters.
+	want := "host='myhost' port=5433 user='myuser' password='mypass' " +
+		"dbname='mydb' sslmode='require'"
 	if got := p.DSN(); got != want {
 		t.Errorf("DSN() = %q, want %q", got, want)
 	}

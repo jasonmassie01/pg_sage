@@ -502,8 +502,18 @@ func (p *PostgresConfig) DSN() string {
 	}
 	return fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		p.Host, p.Port, p.User, p.Password, p.Database, p.SSLMode,
+		conninfoValue(p.Host), p.Port, conninfoValue(p.User),
+		conninfoValue(p.Password), conninfoValue(p.Database),
+		conninfoValue(p.SSLMode),
 	)
+}
+
+// conninfoValue quotes a libpq key/value conninfo value so spaces, quotes
+// and embedded "key=value" text cannot break or inject parameters
+// (G5-B22). libpq escapes backslash and single quote with a backslash.
+func conninfoValue(value string) string {
+	escaped := strings.NewReplacer(`\`, `\\`, "'", `\'`).Replace(value)
+	return "'" + escaped + "'"
 }
 
 // Load reads config from YAML file, then overlays env vars, then CLI flags.
