@@ -42,16 +42,6 @@ func isVacuumCategory(cat string) bool {
 	return strings.Contains(cat, "vacuum")
 }
 
-// DedupFindings resolves conflicts among findings targeting the
-// same object. Delegates to DeduplicateFindings with no I/O
-// utilization data.
-func DedupFindings(
-	findings []Finding,
-	logFn func(string, string, ...any),
-) []Finding {
-	return DeduplicateFindings(findings, 0, logFn)
-}
-
 // DeduplicateFindings resolves conflicts among findings targeting
 // the same object.
 //

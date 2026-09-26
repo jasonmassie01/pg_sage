@@ -9,7 +9,7 @@ import (
 func noopLog(string, string, ...any) {}
 
 func TestDedupFindings_Empty(t *testing.T) {
-	got := DedupFindings(nil, noopLog)
+	got := DeduplicateFindings(nil, 0, noopLog)
 	if got != nil {
 		t.Fatalf("expected nil, got %v", got)
 	}
@@ -21,7 +21,7 @@ func TestDedupFindings_Single(t *testing.T) {
 		Severity:         "warning",
 		ObjectIdentifier: "q:123",
 	}}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(got))
 	}
@@ -42,7 +42,7 @@ func TestDedupFindings_NoDuplicates(t *testing.T) {
 			ObjectIdentifier: "t:3",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 3 {
 		t.Fatalf("expected 3 findings, got %d", len(got))
 	}
@@ -59,7 +59,7 @@ func TestDedupFindings_SameObjectSameCategory(t *testing.T) {
 			ObjectIdentifier: "q:1", Title: "high",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(got))
 	}
@@ -79,7 +79,7 @@ func TestDedupFindings_SameObjectDiffCategory(t *testing.T) {
 			ObjectIdentifier: "q:1",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 2 {
 		t.Fatalf(
 			"expected 2 (different categories), got %d",
@@ -104,7 +104,7 @@ func TestDedupFindings_QueryTuningBeatsGlobal(t *testing.T) {
 			RecommendedSQL:   "SET work_mem = '256MB'",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(got))
 	}
@@ -128,7 +128,7 @@ func TestDedupFindings_SameSeverityPrefersSQL(t *testing.T) {
 			RecommendedSQL: "CREATE INDEX ...",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(got))
 	}
@@ -152,7 +152,7 @@ func TestDedupFindings_ThreeSameTwoSameCategory(t *testing.T) {
 			ObjectIdentifier: "q:9", Title: "c",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 findings, got %d", len(got))
 	}
@@ -188,7 +188,7 @@ func TestDedupFindings_VacuumTuningBeatenByQueryTuning(
 			ObjectIdentifier: "q:7",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(got))
 	}
@@ -212,7 +212,7 @@ func TestDedupFindings_NonTuningCategoryKept(t *testing.T) {
 			ObjectIdentifier: "q:10",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 2 {
 		t.Fatalf(
 			"expected 2 (slow_query not global config), got %d",
@@ -237,7 +237,7 @@ func TestDedupFindings_HintCategoryBeatsGlobal(t *testing.T) {
 			RecommendedSQL:   "SET work_mem = '512MB'",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(got))
 	}
@@ -264,7 +264,7 @@ func TestDedupFindings_TunerCategoryBeatsGlobal(t *testing.T) {
 			Title:            "raise work_mem for this query",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(got))
 	}
@@ -385,7 +385,7 @@ func TestDedupFindings_ConflictingSQLKeepsHigherSeverity(
 			RecommendedSQL:   "CREATE INDEX idx_b ON orders(id)",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(got))
 	}
@@ -553,7 +553,7 @@ func TestDedupFindings_ConflictingGUC_HigherSeverityWins(
 			RecommendedSQL:   "ALTER SYSTEM SET work_mem = '256MB'",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(got))
 	}
@@ -586,7 +586,7 @@ func TestDedupFindings_ConflictingGUC_PerTableBeatsGlobal(
 				"(autovacuum_vacuum_cost_delay = 10)",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(got))
 	}
@@ -615,7 +615,7 @@ func TestDedupFindings_NoGUCConflict(t *testing.T) {
 				"shared_buffers = '2GB'",
 		},
 	}
-	got := DedupFindings(in, noopLog)
+	got := DeduplicateFindings(in, 0, noopLog)
 	if len(got) != 2 {
 		t.Fatalf(
 			"expected 2 (different GUCs), got %d", len(got),

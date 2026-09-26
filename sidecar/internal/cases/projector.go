@@ -349,15 +349,3 @@ func whyNowForFinding(f SourceFinding) string {
 	}
 	return "not urgent"
 }
-
-func ResolveIfEvidenceMissing(c Case, evidencePresent bool) Case {
-	if evidencePresent {
-		return c
-	}
-
-	c.State = StateResolvedEphemeral
-	c.ActionCandidates = nil
-	c.WhyNow = "underlying evidence disappeared before action"
-	c.UpdatedAt = time.Now().UTC()
-	return c
-}

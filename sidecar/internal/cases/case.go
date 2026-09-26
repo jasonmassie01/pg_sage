@@ -23,10 +23,9 @@ const (
 type State string
 
 const (
-	StateOpen              State = "open"
-	StateResolved          State = "resolved"
-	StateExpired           State = "expired"
-	StateResolvedEphemeral State = "resolved_ephemeral"
+	StateOpen     State = "open"
+	StateResolved State = "resolved"
+	StateExpired  State = "expired"
 )
 
 type Evidence struct {
