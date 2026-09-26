@@ -45,6 +45,14 @@ function ClientLine({ label, client }) {
   )
 }
 
+// clientLabel names a status key: "general", "optimizer", or
+// "<database>/<general|optimizer|fleet_budget>" (G3-B14).
+function clientLabel(key) {
+  if (key === 'general') return 'General'
+  if (key === 'optimizer') return 'Optimizer'
+  return key.split('/').join(' / ')
+}
+
 // canReset: the reset endpoint is admin-only, so callers pass whether the
 // current user is an admin (G9-B22).
 export function TokenBudgetBanner({ canReset = false }) {
@@ -75,14 +83,16 @@ export function TokenBudgetBanner({ canReset = false }) {
 
   if (!data) return null
 
-  // /api/v1/llm/status returns {clients: {general, optimizer},
-  // any_exhausted} (G9-B02).
+  // /api/v1/llm/status returns {clients: {<key>: status}, any_exhausted}
+  // covering shared, optimizer, per-database and fleet-budget clients
+  // (G9-B02, G3-B14).
   const clients = data.clients && !Array.isArray(data.clients)
     ? data.clients : {}
-  const generalExhausted = clients.general?.budget_exhausted === true
-  const optimizerExhausted = clients.optimizer?.budget_exhausted === true
+  const exhausted = Object.keys(clients)
+    .filter((key) => clients[key]?.budget_exhausted === true)
+    .sort()
 
-  if (!generalExhausted && !optimizerExhausted) return null
+  if (exhausted.length === 0) return null
 
   return (
     <div
@@ -105,12 +115,9 @@ export function TokenBudgetBanner({ canReset = false }) {
         >
           LLM token budget exhausted
         </div>
-        {generalExhausted && (
-          <ClientLine label="General" client={clients.general} />
-        )}
-        {optimizerExhausted && (
-          <ClientLine label="Optimizer" client={clients.optimizer} />
-        )}
+        {exhausted.map((key) => (
+          <ClientLine key={key} label={clientLabel(key)} client={clients[key]} />
+        ))}
         {resetError && (
           <div
             className="text-xs mt-1"

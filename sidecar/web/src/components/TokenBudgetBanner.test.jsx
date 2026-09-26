@@ -55,6 +55,24 @@ describe('TokenBudgetBanner', () => {
     expect(screen.queryByTestId('token-budget-reset')).toBeNull()
   })
 
+  // G3-B14: the status now covers per-database and fleet-budget clients.
+  it('renders an exhausted per-database client', () => {
+    payload = {
+      clients: {
+        general: { budget_exhausted: false, tokens_used: 1, token_budget: 10 },
+        'orders/general': {
+          tokens_used: 900, token_budget: 900, budget_exhausted: true,
+          resets_at: '2026-09-27T00:00:00Z',
+        },
+      },
+      any_exhausted: true,
+    }
+    render(<TokenBudgetBanner canReset />)
+    expect(screen.getByTestId('token-budget-banner')).toBeInTheDocument()
+    expect(screen.getByText('orders / general:')).toBeInTheDocument()
+    expect(screen.queryByText('General:')).toBeNull()
+  })
+
   it('shows the reset control to admins', () => {
     payload = exhausted
     render(<TokenBudgetBanner canReset />)

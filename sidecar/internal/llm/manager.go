@@ -81,6 +81,12 @@ func (m *Manager) ResetBudgets() {
 	}
 }
 
+// StatusOf reports one client's token budget state, for callers that
+// track clients outside a Manager (the sidecar's client registry).
+func StatusOf(c *Client) ClientStatus {
+	return clientStatus(c)
+}
+
 func clientStatus(c *Client) ClientStatus {
 	// Budgets reset at UTC midnight (see budgetDay).
 	now := time.Now().UTC()

@@ -46,6 +46,21 @@ func ProjectQueryHint(h SourceQueryHint) Case {
 	return c
 }
 
+// queryHintEvidenceTime is the hint's latest recorded evidence: rollback,
+// else verification, else creation. Candidate expiry is anchored to it so
+// a proposal does not slide forward on every read (G2-B24).
+func queryHintEvidenceTime(h SourceQueryHint) time.Time {
+	switch {
+	case h.RolledBackAt != nil && !h.RolledBackAt.IsZero():
+		return h.RolledBackAt.UTC()
+	case h.VerifiedAt != nil && !h.VerifiedAt.IsZero():
+		return h.VerifiedAt.UTC()
+	case !h.CreatedAt.IsZero():
+		return h.CreatedAt.UTC()
+	}
+	return time.Now().UTC()
+}
+
 func queryHintActions(h SourceQueryHint) []ActionCandidate {
 	if h.Status == "retired" {
 		return nil

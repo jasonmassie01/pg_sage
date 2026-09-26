@@ -77,10 +77,22 @@ type ActionDeps struct {
 // RuntimeDeps carries process-scoped controllers that are optional for
 // embedders and tests but required by the production sidecar.
 type RuntimeDeps struct {
-	ConfigController    *config.ConfigController
-	ConfigBase          *config.Config
+	ConfigController *config.ConfigController
+	ConfigBase       *config.Config
+	// ConfigBaseLoader reloads the current file config (no overrides) so
+	// override deletes rebase on it instead of the startup clone (G5-B03).
+	ConfigBaseLoader    func() (*config.Config, error)
 	DisableConfigWrites bool
 	MCPHandler          http.Handler
+	// LLMBudgets covers every LLM client (general, optimizer, per-database)
+	// and the fleet budget; nil falls back to the shared manager (G3-B14).
+	LLMBudgets LLMBudgetRegistry
+	// NotificationSecretKey seals channel secrets at rest; every runtime
+	// dispatcher must read with the same key (G7-B20). nil = plaintext.
+	NotificationSecretKey []byte
+	// NotificationTargetPolicy validates channel targets on write and at
+	// test-send time (G7-B21).
+	NotificationTargetPolicy notify.TargetPolicy
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -95,16 +107,13 @@ func NewRouterFullRuntime(
 	middlewares ...func(http.Handler) http.Handler,
 ) http.Handler {
 	apiMux := http.NewServeMux()
-	var controller *config.ConfigController
-	var configBase *config.Config
-	var disableConfigWrites bool
-	var mcpHandler http.Handler
+	var rt RuntimeDeps
 	if runtime != nil {
-		controller = runtime.ConfigController
-		configBase = runtime.ConfigBase
-		disableConfigWrites = runtime.DisableConfigWrites
-		mcpHandler = runtime.MCPHandler
+		rt = *runtime
 	}
+	controller := rt.ConfigController
+	disableConfigWrites := rt.DisableConfigWrites
+	mcpHandler := rt.MCPHandler
 	var runtimeConfigStore *store.ConfigStore
 	if pool != nil && !disableConfigWrites {
 		runtimeConfigStore = store.NewConfigStore(pool)
@@ -113,6 +122,7 @@ func NewRouterFullRuntime(
 		apiMux, mgr, cfg, llmMgr, controller, runtimeConfigStore,
 		disableConfigWrites,
 	)
+	registerLLMBudgetRoutes(apiMux, llmBudgetSource(rt.LLMBudgets, llmMgr))
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		mcpHandler != nil {
 		apiMux.Handle("POST /api/v1/mcp", bindMCPPrincipal(mcpHandler))
@@ -136,9 +146,13 @@ func NewRouterFullRuntime(
 		registerUserRoutes(apiMux, pool)
 		registerConfigRoutesRuntime(
 			apiMux, pool, cfg, mgr, controller,
-			configBase, disableConfigWrites,
+			runtimeConfigBase(rt.ConfigBaseLoader, rt.ConfigBase, cfg),
+			disableConfigWrites,
 		)
-		registerNotificationRoutes(apiMux, pool)
+		registerNotificationRoutes(apiMux, pool, notificationRouteDeps{
+			secretKey: rt.NotificationSecretKey,
+			policy:    rt.NotificationTargetPolicy,
+		})
 		registerPolicyRoutes(apiMux, policy.NewStore(pool))
 		apiMux.Handle("GET /api/v1/value", valueHandler(
 			value.NewService(value.NewPostgresRepository(pool))))
@@ -299,15 +313,6 @@ func registerAPIRoutes(
 	mux.Handle(
 		"POST /api/v1/llm/models",
 		adminOnly(http.HandlerFunc(discoverModelsHandler(&cfg.LLM, controller))))
-	mux.HandleFunc(
-		"GET /api/v1/llm/status",
-		llmStatusHandler(llmMgr))
-
-	budgetResetH := adminOnly(http.HandlerFunc(
-		llmBudgetResetHandler(llmMgr)))
-	mux.Handle(
-		"POST /api/v1/llm/budget/reset", budgetResetH)
-
 	// v0.9 — Incident endpoints
 	mux.HandleFunc(
 		"GET /api/v1/incidents",
@@ -413,7 +418,7 @@ func registerConfigRoutesRuntime(
 	cfg *config.Config,
 	fm *fleet.DatabaseManager,
 	controller *config.ConfigController,
-	cleanBase *config.Config,
+	base configBaseSource,
 	disableWrites bool,
 ) {
 	adminOnly := RequireRole("admin")
@@ -437,8 +442,9 @@ func registerConfigRoutesRuntime(
 		return
 	}
 	cs := store.NewConfigStore(pool)
-	baseCfg := config.Clone(cleanBase)
-	if cleanBase == nil {
+	baseCfg, err := base()
+	if err != nil {
+		slog.Error("config base unavailable for read handlers", "error", err)
 		baseCfg = config.Clone(cfg)
 	}
 
@@ -451,7 +457,7 @@ func registerConfigRoutesRuntime(
 	mux.Handle("PUT /api/v1/config/global", globalPut)
 
 	globalDeleteHandler := configGlobalDeleteHandler(
-		cs, cfg, baseCfg, fm, controller,
+		cs, cfg, base, fm, controller,
 	)
 	globalDelete := adminOnly(http.HandlerFunc(globalDeleteHandler))
 	mux.Handle("DELETE /api/v1/config/global/{key}", globalDelete)
@@ -582,12 +588,20 @@ func registerActionRoutes(
 	}
 }
 
+// notificationRouteDeps carries the channel secret key and target policy
+// the runtime dispatchers use, so API writes and runtime reads agree.
+type notificationRouteDeps struct {
+	secretKey []byte
+	policy    notify.TargetPolicy
+}
+
 func registerNotificationRoutes(
-	mux *http.ServeMux, pool *pgxpool.Pool,
+	mux *http.ServeMux, pool *pgxpool.Pool, deps notificationRouteDeps,
 ) {
 	adminOnly := RequireRole("admin")
-	d := newDefaultDispatcher(pool)
-	ns := store.NewNotificationStore(pool, d)
+	d := newDefaultDispatcher(pool, deps)
+	ns := store.NewNotificationStore(pool, d).
+		WithSecretKey(deps.secretKey).WithTargetPolicy(deps.policy)
 
 	chList := adminOnly(http.HandlerFunc(
 		listChannelsHandler(ns)))
@@ -646,12 +660,14 @@ func registerNotificationRoutes(
 }
 
 func newDefaultDispatcher(
-	pool *pgxpool.Pool,
+	pool *pgxpool.Pool, deps notificationRouteDeps,
 ) *notify.Dispatcher {
 	logFn := func(_, _ string, _ ...any) {}
-	d := notify.NewDispatcher(pool, logFn)
-	d.RegisterSender(notify.NewSlackSender())
-	d.RegisterSender(notify.NewEmailSender())
+	d := notify.NewDispatcherWithStore(
+		notify.NewPoolStore(pool, deps.secretKey), logFn,
+	)
+	d.RegisterSender(notify.NewSlackSenderWithPolicy(deps.policy))
+	d.RegisterSender(notify.NewEmailSenderWithPolicy(deps.policy))
 	d.RegisterSender(notify.NewPagerDutySender())
 	return d
 }

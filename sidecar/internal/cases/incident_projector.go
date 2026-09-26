@@ -97,25 +97,22 @@ func actionCandidatesForIncident(i SourceIncident) []ActionCandidate {
 	}
 	if connectionExhaustionIncident(i) {
 		return []ActionCandidate{diagnosticIncidentCandidate(
-			"diagnose_connection_exhaustion",
+			i, "diagnose_connection_exhaustion",
 			diagnoseConnectionExhaustionSQL(),
-			i.Confidence,
 			[]string{"identify connection pressure by role, app, and state"},
 		)}
 	}
 	if walOrReplicationIncident(i) {
 		if standbyConflictIncident(i) {
 			return []ActionCandidate{diagnosticIncidentCandidate(
-				"diagnose_standby_conflicts",
+				i, "diagnose_standby_conflicts",
 				diagnoseStandbyConflictsSQL(),
-				i.Confidence,
 				[]string{"verify standby conflict type and replay pressure"},
 			)}
 		}
 		return []ActionCandidate{diagnosticIncidentCandidate(
-			"diagnose_wal_replication",
+			i, "diagnose_wal_replication",
 			diagnoseWALReplicationSQL(),
-			i.Confidence,
 			[]string{"verify WAL retention, slot status, and replay lag"},
 		)}
 	}
@@ -129,7 +126,7 @@ func actionCandidatesForIncident(i SourceIncident) []ActionCandidate {
 }
 
 func idleTxnPlaybookCandidates(i SourceIncident) []ActionCandidate {
-	expires := time.Now().UTC().Add(15 * time.Minute)
+	expires := incidentExpiry(i, 15*time.Minute)
 	pid, ok := extractSinglePID(i)
 	candidates := []ActionCandidate{
 		{
@@ -152,13 +149,12 @@ func idleTxnPlaybookCandidates(i SourceIncident) []ActionCandidate {
 }
 
 func runawayQueryPlaybookCandidates(i SourceIncident) []ActionCandidate {
-	expires := time.Now().UTC().Add(15 * time.Minute)
+	expires := incidentExpiry(i, 15*time.Minute)
 	pid, ok := extractSinglePID(i)
 	return []ActionCandidate{
 		diagnosticIncidentCandidate(
-			"diagnose_runaway_query",
+			i, "diagnose_runaway_query",
 			diagnoseRunawayQuerySQL(pid, ok),
-			i.Confidence,
 			[]string{"confirm query age, wait state, and temp spill evidence"},
 		),
 		cancelBackendCandidate(pid, ok, expires, i.Confidence),
@@ -166,16 +162,16 @@ func runawayQueryPlaybookCandidates(i SourceIncident) []ActionCandidate {
 }
 
 func diagnosticIncidentCandidate(
+	i SourceIncident,
 	actionType string,
 	sql string,
-	confidence float64,
 	verification []string,
 ) ActionCandidate {
-	expires := time.Now().UTC().Add(15 * time.Minute)
+	expires := incidentExpiry(i, 15*time.Minute)
 	return ActionCandidate{
 		ActionType:       actionType,
 		RiskTier:         "safe",
-		Confidence:       confidence,
+		Confidence:       i.Confidence,
 		ProposedSQL:      sql,
 		ExpiresAt:        &expires,
 		OutputModes:      []string{"execute", "script"},
@@ -185,7 +181,7 @@ func diagnosticIncidentCandidate(
 }
 
 func sequenceCapacityMigrationCandidate(i SourceIncident) ActionCandidate {
-	expires := time.Now().UTC().Add(24 * time.Hour)
+	expires := incidentExpiry(i, 24*time.Hour)
 	object := incidentPrimaryObject(i, "affected_sequence")
 	return ActionCandidate{
 		ActionType:       "prepare_sequence_capacity_migration",
@@ -215,13 +211,12 @@ func sequenceCapacityMigrationCandidate(i SourceIncident) ActionCandidate {
 func autovacuumIncidentCandidates(i SourceIncident) []ActionCandidate {
 	object := incidentPrimaryObject(i, "")
 	candidates := []ActionCandidate{diagnosticIncidentCandidate(
-		"diagnose_vacuum_pressure",
+		i, "diagnose_vacuum_pressure",
 		diagnoseVacuumPressureSQL(object),
-		i.Confidence,
 		[]string{"identify blockers, dead tuples, and oldest xmin holders"},
 	)}
 	if object != "" {
-		expires := time.Now().UTC().Add(24 * time.Hour)
+		expires := incidentExpiry(i, 24*time.Hour)
 		candidates = append(candidates, ActionCandidate{
 			ActionType:       "vacuum_table",
 			RiskTier:         "safe",
@@ -438,6 +433,17 @@ func incidentObservedAt(i SourceIncident) time.Time {
 		return i.LastDetectedAt
 	}
 	return i.DetectedAt
+}
+
+// incidentExpiry anchors a candidate's expiry to the incident's latest
+// detection, so a stale incident's proposal expires instead of sliding
+// forward on every read (G2-B24). Unknown detection time falls back to now.
+func incidentExpiry(i SourceIncident, ttl time.Duration) time.Time {
+	anchor := incidentObservedAt(i)
+	if anchor.IsZero() {
+		anchor = time.Now()
+	}
+	return anchor.UTC().Add(ttl)
 }
 
 func incidentTitle(i SourceIncident) string {

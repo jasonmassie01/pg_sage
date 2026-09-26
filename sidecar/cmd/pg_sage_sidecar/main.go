@@ -335,10 +335,7 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 		}
 	}
 	configController = config.NewConfigControllerAtGeneration(
-		cfg, generation, nil,
-		&trustPolicyOwner{manager: func() *fleet.DatabaseManager {
-			return fleetMgr
-		}},
+		cfg, generation, nil, newTrustPolicyOwner(),
 	)
 	return nil
 }
@@ -558,7 +555,7 @@ func initStandalone() {
 	// 6. LLM client.
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
 	registerLLMConfigOwner()
-	llmMgr = llm.NewManager(llmClient, nil, false)
+	llmMgr = newStandaloneLLMManager(llmClient)
 
 	// 7. Start collector.
 	coll = collector.New(pool, cfg, cfg.PGVersionNum, logStructuredWrapper)
@@ -567,9 +564,8 @@ func initStandalone() {
 	// 8. Start analyzer with v2 index optimizer.
 	var opt *optimizer.Optimizer
 	if cfg.LLM.Optimizer.Enabled {
-		optClient := llmClient
-		if cfg.LLM.OptimizerLLM.Enabled {
-			optClient = llmClients.newClient(llmRoleOptimizer, "", true)
+		optClient := llmMgr.ForPurpose("index_optimization")
+		if optClient != llmClient {
 			logInfo("startup", "optimizer using dedicated LLM model")
 		}
 		if optClient.IsEnabled() {
@@ -670,17 +666,12 @@ func initStandalone() {
 		}
 		var tunerOpts []tuner.Option
 		if cfg.Tuner.LLMEnabled && llmMgr != nil {
-			tc := llmMgr.ForPurpose("query_tuning")
-			var fb *llm.Client
-			if cfg.LLM.OptimizerLLM.FallbackToGeneral &&
-				llmMgr.General != nil {
-				fb = llmMgr.General
-			}
+			tc, fb := tunerLLMClients(llmMgr)
 			tunerOpts = append(tunerOpts,
 				tuner.WithLLM(tc, fb))
 			logInfo("startup",
-				"tuner LLM-enhanced mode enabled "+
-					"(uses optimizer_llm)")
+				"tuner LLM-enhanced mode enabled (dedicated optimizer_llm: %t)",
+				tc != llmClient)
 		}
 		qt = tuner.New(pool, tunerCfg, hpAvail,
 			logStructuredWrapper, tunerOpts...)
@@ -755,9 +746,7 @@ func initStandalone() {
 
 	// 8b. Configure the analyzer before its goroutine starts: the first
 	// cycle runs immediately and used to race these setters (G2-B15).
-	notifyDispatcher := notify.NewDispatcher(
-		pool, logStructuredWrapper)
-	registerNotifySenders(notifyDispatcher)
+	notifyDispatcher := sharedNotifyDispatcher(pool)
 	dbName := resolveDBName()
 	anal.WithDispatcher(notifyDispatcher)
 	anal.WithDatabaseName(dbName)
@@ -992,8 +981,9 @@ func stopLogWatcherOnShutdown(
 // a sender-less dispatcher and every notification silently no-op'd with
 // "no sender for type" (F1).
 func registerNotifySenders(d *notify.Dispatcher) {
-	d.RegisterSender(notify.NewSlackSender())
-	d.RegisterSender(notify.NewEmailSender())
+	policy := notificationTargetPolicy()
+	d.RegisterSender(notify.NewSlackSenderWithPolicy(policy))
+	d.RegisterSender(notify.NewEmailSenderWithPolicy(policy))
 	d.RegisterSender(notify.NewPagerDutySender())
 }
 
@@ -1989,10 +1979,12 @@ func startAPIServer(rl *RateLimiter) {
 			Store:    actionStore,
 			Executor: exec,
 		},
-		RateLimiter: rl,
-		Config:      configController,
-		ConfigBase:  configBase,
-		MCPHandler:  mcpHTTPHandler(),
+		RateLimiter:      rl,
+		Config:           configController,
+		ConfigBase:       configBase,
+		ConfigBaseLoader: loadFileConfigBase,
+		LLMBudgets:       llmBudgetRegistry(),
+		MCPHandler:       mcpHTTPHandler(),
 	})
 
 	// Fail loudly (not silently) when there is no usable auth pool.

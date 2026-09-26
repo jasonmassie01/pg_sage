@@ -92,6 +92,10 @@ const (
 	DefaultRetentionActionsDays   = 365
 	DefaultRetentionExplainsDays  = 90
 
+	// Notification targets on private networks are refused unless an
+	// operator opts in (G7-B21).
+	DefaultNotificationPolicyAllowPrivateTargets = false
+
 	DefaultPrometheusListenAddr = "127.0.0.1:9187"
 
 	DefaultRateLimit = 60

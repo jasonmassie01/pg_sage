@@ -93,6 +93,10 @@ type Config struct {
 	Custodian   CustodianConfig     `yaml:"custodian"`
 	MCP         MCPConfig           `yaml:"mcp"`
 
+	// NotificationPolicy governs notification channel targets (G7-B21). The
+	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
+	NotificationPolicy NotificationPolicyConfig `yaml:"notification_policy"`
+
 	// Fleet mode fields.
 	Databases []DatabaseConfig `yaml:"databases"`
 	Defaults  DefaultsConfig   `yaml:"defaults"`
@@ -438,6 +442,13 @@ type RetentionConfig struct {
 	FindingsDays  int `yaml:"findings_days"`
 	ActionsDays   int `yaml:"actions_days"`
 	ExplainsDays  int `yaml:"explains_days"`
+}
+
+// NotificationPolicyConfig holds notification delivery policy. It is YAML-only
+// and restart-bound: the target policy is a security boundary baked into
+// senders at startup, so it is deliberately not an API override.
+type NotificationPolicyConfig struct {
+	AllowPrivateTargets bool `yaml:"allow_private_targets" doc:"Allow webhook and SMTP channels to target loopback, RFC 1918, ULA or CGNAT hosts and plain http (e.g. an internal SMTP relay). Metadata and link-local stay blocked. Requires restart."`
 }
 
 type PrometheusConfig struct {
@@ -913,6 +924,9 @@ func newDefaults() *Config {
 			FindingsDays:  DefaultRetentionFindingsDays,
 			ActionsDays:   DefaultRetentionActionsDays,
 			ExplainsDays:  DefaultRetentionExplainsDays,
+		},
+		NotificationPolicy: NotificationPolicyConfig{
+			AllowPrivateTargets: DefaultNotificationPolicyAllowPrivateTargets,
 		},
 		Prometheus: PrometheusConfig{
 			ListenAddr: DefaultPrometheusListenAddr,

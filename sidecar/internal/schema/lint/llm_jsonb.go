@@ -2,8 +2,8 @@ package lint
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -35,7 +35,8 @@ const jsonbSystemPrompt = `You are a PostgreSQL query analyst. ` +
 	`JSONB columns are used in JOIN conditions or WHERE clauses.
 Return ONLY a JSON array of objects: ` +
 	`[{"schema":"...","table":"...","column":"...","used_in":"join|where|both","query_snippet":"..."}]
-Return an empty array [] if no JSONB columns are used in joins or where clauses.`
+Return an empty array [] if no JSONB columns are used in joins or where clauses.
+` + llm.UntrustedDataRule
 
 const slowQuerySQL = `
 SELECT query, calls, mean_exec_time, rows
@@ -160,53 +161,34 @@ func (a *LLMJsonbAnalyzer) fetchSlowQueries(
 func (a *LLMJsonbAnalyzer) buildUserPrompt(
 	jsonbIdx map[string]int, queries []slowQueryRow,
 ) string {
+	// Object names and query text are database content: delimit them as
+	// untrusted data and redact literals and comments (G3-B07).
+	columns := make([]string, 0, len(jsonbIdx))
+	for key := range jsonbIdx {
+		columns = append(columns, "- "+key)
+	}
+	sort.Strings(columns)
 	var b strings.Builder
 	b.WriteString("JSONB columns found on large tables without GIN indexes:\n")
-	for key := range jsonbIdx {
-		fmt.Fprintf(&b, "- %s\n", key)
-	}
-
-	b.WriteString("\nTop slow queries referencing these tables:\n")
+	b.WriteString(llm.UntrustedData("jsonb_columns", strings.Join(columns, "\n")))
+	b.WriteString("\n\nTop slow queries referencing these tables:\n")
 	for _, q := range queries {
-		fmt.Fprintf(&b, "\n-- calls=%d mean_time=%.2fms rows=%d\n%s\n",
-			q.Calls, q.MeanExecTime, q.Rows, q.Query)
+		fmt.Fprintf(&b, "\ncalls=%d mean_time=%.2fms rows=%d\n%s\n",
+			q.Calls, q.MeanExecTime, q.Rows,
+			llm.SanitizePromptSQL("slow_query", q.Query))
 	}
 	return b.String()
 }
 
-// parseLLMJsonbResponse extracts the JSON array from an LLM response,
-// handling markdown-wrapped fences.
+// parseLLMJsonbResponse extracts the JSON array from an LLM response via
+// the shared llm.ParseJSON (fences, prose, truncation repair; G3-B28). A
+// blank answer is llm.ErrEmptyResponse.
 func parseLLMJsonbResponse(raw string) ([]llmJsonbMatch, error) {
-	cleaned := stripJsonbToJSON(raw)
 	var matches []llmJsonbMatch
-	if err := json.Unmarshal([]byte(cleaned), &matches); err != nil {
+	if err := llm.ParseJSON(raw, llm.JSONArray, &matches); err != nil {
 		return nil, fmt.Errorf("parse llm jsonb response: %w", err)
 	}
 	return matches, nil
-}
-
-// stripJsonbToJSON extracts a JSON array from potentially
-// markdown-fenced LLM output.
-func stripJsonbToJSON(s string) string {
-	s = strings.TrimSpace(s)
-	first := strings.Index(s, "[")
-	last := strings.LastIndex(s, "]")
-	if first >= 0 && last > first {
-		return s[first : last+1]
-	}
-	return stripJsonbMarkdownFences(s)
-}
-
-// stripJsonbMarkdownFences removes ```json ... ``` wrappers.
-func stripJsonbMarkdownFences(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "```json") {
-		s = strings.TrimPrefix(s, "```json")
-	} else if strings.HasPrefix(s, "```") {
-		s = strings.TrimPrefix(s, "```")
-	}
-	s = strings.TrimSuffix(s, "```")
-	return strings.TrimSpace(s)
 }
 
 // applyMatches upgrades confirmed JSONB findings and removes those

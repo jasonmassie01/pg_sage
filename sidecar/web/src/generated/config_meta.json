@@ -845,6 +845,11 @@
     "default": "extension",
     "doc": "Operating mode: extension, standalone, or fleet. Standalone connects to one PostgreSQL target; fleet manages many databases from one sidecar."
   },
+  "notification_policy.allow_private_targets": {
+    "type": "bool",
+    "default": false,
+    "doc": "Allow webhook and SMTP channels to target loopback, RFC 1918, ULA or CGNAT hosts and plain http (e.g. an internal SMTP relay). Metadata and link-local stay blocked. Requires restart."
+  },
   "oauth.client_id": {
     "type": "string",
     "default": "",

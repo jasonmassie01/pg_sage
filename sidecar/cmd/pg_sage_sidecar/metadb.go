@@ -496,6 +496,9 @@ func buildStoreDatabaseRuntime(
 	dbActionStore := store.NewActionStore(dbPool)
 	if dispatcher != nil {
 		dbExec.WithDispatcher(dispatcher)
+		if dbRCAEng != nil {
+			dbRCAEng.WithDispatcher(dispatcher)
+		}
 	}
 	dbExec.WithDatabaseName(rec.Name)
 	if dbLLMClient != nil {
