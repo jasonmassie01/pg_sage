@@ -1427,8 +1427,8 @@ func TestCoverage_RuleXIDWraparound_Warning(t *testing.T) {
 	if findings[0].Category != "xid_wraparound" {
 		t.Errorf("Category = %q, want xid_wraparound", findings[0].Category)
 	}
-	if findings[0].RecommendedSQL == "" {
-		t.Error("expected VACUUM FREEZE SQL")
+	if sql, _ := findings[0].Detail["diagnostic_sql"].(string); sql == "" {
+		t.Error("expected xmin-holder diagnostic SQL in detail")
 	}
 }
 
