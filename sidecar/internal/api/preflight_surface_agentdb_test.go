@@ -56,6 +56,8 @@ func TestPreflightSurfaceAgentDBRoleAndLiveBoundary(t *testing.T) {
 
 func TestPreflightSurfaceAgentDBSchemaLifecycle(t *testing.T) {
 	pool := surfacePool(t)
+	// G8-B17: local_postgres DDL requires the explicit opt-in.
+	t.Setenv("PG_SAGE_AGENTDB_LOCAL_PROVISIONING", "1")
 	f := surfaceRouter(t, pool, config.DefaultConfig(), nil)
 	f.login(t, "operator")
 	root := "/api/v1/agent-dbs/surface_lifecycle"
@@ -87,11 +89,28 @@ func TestPreflightSurfaceAgentDBSchemaLifecycle(t *testing.T) {
 	if status != 409 {
 		t.Fatalf("missing restore verification delete=%d %s", status, body)
 	}
+	// G8-B11: restore_verified cannot be self-attested through the generic
+	// backup endpoint; an admin records a restore drill with evidence.
 	status, body = f.request(t, "POST", root+"/backups",
 		`{"backup_id":"surface_backup","provider":"fixture","status":"restore_verified"}`)
-	if status != 200 {
-		t.Fatalf("operator backup attestation=%d %s", status, body)
+	if status != 400 {
+		t.Fatalf("self-attested restore_verified=%d %s", status, body)
 	}
+	status, body = f.request(t, "POST", root+"/backups/restore-drill",
+		`{"backup_id":"surface_backup","evidence_uri":"s3://fixture/drill.json",`+
+			`"target":"scratch","checks":["select 1"]}`)
+	if status != 403 {
+		t.Fatalf("operator restore-drill attestation=%d %s", status, body)
+	}
+	t.Run("admin_attests", func(t *testing.T) {
+		f.login(t, "admin")
+		status, body := f.request(t, "POST", root+"/backups/restore-drill",
+			`{"backup_id":"surface_backup","evidence_uri":"s3://fixture/drill.json",`+
+				`"target":"scratch","checks":["select 1"]}`)
+		if status != 200 {
+			t.Fatalf("admin restore-drill attestation=%d %s", status, body)
+		}
+	})
 	status, body = f.request(t, "DELETE", root, "")
 	if status != 200 || !strings.Contains(body, `"deleted":true`) {
 		t.Fatalf("delete after attestation=%d %s", status, body)

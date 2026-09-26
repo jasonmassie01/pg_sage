@@ -13,18 +13,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/agentdb"
 )
 
-func registerAgentDBRoutes(
-	mux *http.ServeMux,
-	st *agentdb.Store,
-	generators ...agentdb.BlueprintGenerator,
-) {
-	var blueprintGenerator agentdb.BlueprintGenerator
-	if len(generators) > 0 {
-		blueprintGenerator = generators[0]
-	}
-	registerAgentDBRoutesWithAuthority(mux, st, blueprintGenerator, nil)
-}
-
 func registerAgentDBRoutesWithAuthority(
 	mux *http.ServeMux,
 	st *agentdb.Store,
@@ -48,10 +36,6 @@ func registerAgentDBRoutesWithAuthority(
 			st, registry, blueprintGenerator, authority,
 		))),
 	)
-}
-
-func agentDBSubrouter(st *agentdb.Store) http.HandlerFunc {
-	return agentDBSubrouterWithRegistry(st, agentdb.DefaultRunnerRegistry(), nil)
 }
 
 func agentDBSubrouterWithRegistry(
@@ -254,6 +238,11 @@ func agentDBSubrouterWithRegistry(
 			agentDBBackupsHandler(st)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "backups":
 			agentDBRecordBackupHandler(st)(w, r)
+		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "backups" &&
+			parts[2] == "restore-drill":
+			RequireRole("admin")(
+				http.HandlerFunc(agentDBRestoreDrillHandler(st)),
+			).ServeHTTP(w, r)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "backups" && parts[2] == "check":
 			agentDBBackupCheckHandler(st, registry)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 3 && parts[1] == "backups" && parts[2] == "restore-drill-dry-run":

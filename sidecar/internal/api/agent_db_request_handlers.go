@@ -136,3 +136,30 @@ func agentDBProvisionApprovedRequestHandler(st *agentdb.Store) http.HandlerFunc 
 		jsonResponse(w, dep)
 	}
 }
+
+// agentDBRestoreDrillHandler records an admin attestation of a completed
+// restore drill with evidence; it is the only way to reach restore_verified
+// (G8-B11). The attesting actor is the session user.
+func agentDBRestoreDrillHandler(st *agentdb.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := requireActor(w, r)
+		if !ok {
+			return
+		}
+		m, err := readJSONMap(r)
+		if err != nil {
+			agentDBError(w, err)
+			return
+		}
+		backup, err := st.RecordRestoreDrill(r.Context(), agentDBID(r),
+			agentdb.RestoreDrillRequest{
+				BackupID: str(m, "backup_id"), EvidenceURI: str(m, "evidence_uri"),
+				Target: str(m, "target"), Checks: stringSlice(m, "checks"), ActorID: actor,
+			})
+		if err != nil {
+			agentDBError(w, err)
+			return
+		}
+		jsonResponse(w, backup)
+	}
+}

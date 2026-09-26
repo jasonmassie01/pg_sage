@@ -182,3 +182,13 @@ func applyAgentDBStorePolicy(st *agentdb.Store, authority *agentDBLiveAuthority)
 		st.EnableLocalProvisioning(true)
 	}
 }
+
+// requireActor resolves the authenticated audit actor or rejects the call.
+func requireActor(w http.ResponseWriter, r *http.Request) (string, bool) {
+	actor := authenticatedActor(r)
+	if actor == "" {
+		jsonError(w, "authenticated actor required", http.StatusUnauthorized)
+		return "", false
+	}
+	return actor, true
+}

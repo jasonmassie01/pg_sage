@@ -837,6 +837,11 @@ func TestAgentDBDeployRequestEndpoints(t *testing.T) {
 	if !bytes.Contains(approveRR.Body.Bytes(), []byte(`"status":"approved"`)) {
 		t.Fatalf("expected approved response, got %s", approveRR.Body.String())
 	}
+	// SURF-17/G8-B26: the reviewer is the session user, never the body value.
+	if bytes.Contains(approveRR.Body.Bytes(), []byte(`"dba"`)) ||
+		!bytes.Contains(approveRR.Body.Bytes(), []byte("operator@test.invalid")) {
+		t.Fatalf("review actor taken from request body: %s", approveRR.Body.String())
+	}
 
 	wrongReq := httptest.NewRequest(
 		http.MethodPost,
@@ -1260,7 +1265,7 @@ func TestAgentDBRequestApprovalProvisionAPI(t *testing.T) {
 	deploymentID := "req_api_provision_dep"
 	cleanupAgentDBTestRows(t, ctx, pool, requestID)
 	cleanupAgentDBTestRows(t, ctx, pool, deploymentID)
-	handler := agentDBSubrouterWithRegistry(
+	handler := withTestOperator(agentDBSubrouterWithRegistry(
 		st,
 		agentdb.DefaultRunnerRegistry(),
 		apiStaticBlueprintGenerator{spec: agentdb.BlueprintSpec{
@@ -1275,7 +1280,7 @@ func TestAgentDBRequestApprovalProvisionAPI(t *testing.T) {
 			PrivateNetwork:      true,
 			Extensions:          []string{"pgvector"},
 		}},
-	)
+	))
 
 	createReq := httptest.NewRequest(
 		http.MethodPost,
@@ -1352,7 +1357,7 @@ func TestAgentDBBlueprintAPI(t *testing.T) {
 	defer pool.Exec(ctx, "DELETE FROM sage.agent_db_blueprints WHERE blueprint_id=$1", id)
 	defer pool.Exec(ctx, "DELETE FROM sage.agent_db_terraform_templates WHERE template_id=$1", id+"_tf")
 
-	handler := agentDBSubrouterWithRegistry(
+	handler := withTestOperator(agentDBSubrouterWithRegistry(
 		st,
 		agentdb.DefaultRunnerRegistry(),
 		apiStaticBlueprintGenerator{spec: agentdb.BlueprintSpec{
@@ -1367,7 +1372,7 @@ func TestAgentDBBlueprintAPI(t *testing.T) {
 			PrivateNetwork:      true,
 			Extensions:          []string{"pgvector"},
 		}},
-	)
+	))
 	body := `{
 		"blueprint_id":"bp_api_unit",
 		"name":"API unit",
@@ -1454,7 +1459,7 @@ func TestAgentDBBlueprintToLiveProvisioningAPI(t *testing.T) {
 	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
 	registry.Register(apiFakeProviderRunner{})
 	seedEnabledProviderConfig(t, ctx, st, agentdb.ProviderAWSRDS)
-	router := agentDBSubrouterWithRegistry(
+	router := withTestOperator(agentDBSubrouterWithRegistry(
 		st,
 		registry,
 		apiStaticBlueprintGenerator{spec: agentdb.BlueprintSpec{
@@ -1467,7 +1472,7 @@ func TestAgentDBBlueprintToLiveProvisioningAPI(t *testing.T) {
 			PrivateNetwork:      true,
 		}},
 		wave34TestLiveAuthority(),
-	)
+	))
 	post := func(path, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader([]byte(body)))
 		req = withUser(req, testAdminUser())
@@ -1689,9 +1694,9 @@ func TestAgentDBLiveProvisionAPI(t *testing.T) {
 	if disabledRR.Code != http.StatusBadRequest {
 		t.Fatalf("disabled live status = %d", disabledRR.Code)
 	}
-	handler := agentDBSubrouterWithRegistry(
+	handler := withTestOperator(agentDBSubrouterWithRegistry(
 		st, registry, nil, wave34TestLiveAuthority(),
-	)
+	))
 	tuple := issueWave34TupleForHandler(t, handler, id, "create", "api-create")
 	liveRR := wave34Post(t, handler,
 		"/api/v1/agent-dbs/"+id+"/provision/execute",
@@ -1765,12 +1770,12 @@ func TestAgentDBLiveProvisionAPIReportsUnavailableRunner(t *testing.T) {
 		t.Fatalf("PreflightProvision: %v", err)
 	}
 	seedEnabledProviderConfig(t, ctx, st, agentdb.ProviderAWSRDS)
-	handler := agentDBSubrouterWithRegistry(
+	handler := withTestOperator(agentDBSubrouterWithRegistry(
 		st,
 		agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{}),
 		nil,
 		wave34TestLiveAuthority(),
-	)
+	))
 	rr := wave34Post(t, handler,
 		"/api/v1/agent-dbs/"+id+"/provision/authorize-live",
 		map[string]any{"operation": "create", "idempotency_key": "unavailable"},
@@ -1810,9 +1815,9 @@ func TestAgentDBLiveProvisionAPIPromotesDryRunReadyDeployment(t *testing.T) {
 	seedEnabledProviderConfig(t, ctx, st, agentdb.ProviderAWSRDS)
 	registry := agentdb.NewRunnerRegistry(agentdb.DryRunProvisionRunner{})
 	registry.Register(apiFakeProviderRunner{})
-	handler := agentDBSubrouterWithRegistry(
+	handler := withTestOperator(agentDBSubrouterWithRegistry(
 		st, registry, nil, wave34TestLiveAuthority(),
-	)
+	))
 	tuple := issueWave34TupleForHandler(t, handler, id, "create", "dry-run-create")
 	rr := wave34Post(t, handler,
 		"/api/v1/agent-dbs/"+id+"/provision/execute",
