@@ -20,7 +20,26 @@ function actionRisk(row) {
 }
 
 function verificationStatus(row) {
-  return row.verification_status || row.status || 'not_started'
+  return row.verification_status || 'not_started'
+}
+
+// Ledger rows come from two id spaces. Only rows the server marks as
+// executed (sage.action_log) can be rolled back (G9-B01).
+function isQueuedRow(row) {
+  return row.record_kind === 'queued'
+}
+
+function canRollBackRow(row) {
+  return row.record_kind === 'executed' && Boolean(row.rollback_sql)
+    && ['success', 'monitoring', 'pending'].includes(row.outcome)
+}
+
+const queuedLabels = {
+  pending: 'Pending approval',
+  approved: 'Approved',
+  failed: 'Failed',
+  expired: 'Expired',
+  rejected: 'Rejected',
 }
 
 function lifecycleStatus(row) {
@@ -239,6 +258,9 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
       key: 'outcome', label: 'Outcome',
       render: r => {
         const s = outcomeStyle(actionStatus(r))
+        if (isQueuedRow(r)) {
+          s.label = queuedLabels[actionStatus(r)] || s.label
+        }
         return (
           <span className="px-2 py-0.5 rounded-full text-xs
             font-medium inline-block"
@@ -257,7 +279,7 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
         return (
           <span className="px-2 py-0.5 rounded-full text-xs font-medium
             inline-block"
-            title="safe/moderate auto-run; advisory is recommend-only"
+            title="risk tier; executed rows are only logged here, queued rows await approval"
             style={{ border: `1px solid ${c}`, color: c }}>
             {risk === 'high_risk' ? 'advisory' : (risk || 'safe')}
           </span>
@@ -299,7 +321,10 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'manual rollback from actions UI' }),
+        body: JSON.stringify({
+          reason: 'manual rollback from actions UI',
+          record_kind: row.record_kind,
+        }),
       })
       let json = {}
       try { json = await res.json() } catch { /* non-JSON error body */ }
@@ -364,7 +389,8 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
           <div>
             <div className="text-xs font-medium mb-1"
               style={{ color: 'var(--text-secondary)' }}>
-              {row.outcome === 'expired' || row.outcome === 'rejected'
+              {isQueuedRow(row) || row.outcome === 'expired'
+                || row.outcome === 'rejected'
                 ? 'Proposed SQL' : 'SQL Executed'}
             </div>
             <SQLBlock sql={row.sql_executed} />
@@ -376,10 +402,7 @@ function ExecutedTab({ data, loading, error, refetch, user }) {
                 Rollback SQL
               </div>
               <SQLBlock sql={row.rollback_sql} />
-              {canRollback
-                && (row.outcome === 'success'
-                  || row.outcome === 'monitoring'
-                  || row.outcome === 'pending') && (
+              {canRollback && canRollBackRow(row) && (
                 <button
                   type="button"
                   data-testid="rollback-action-button"
@@ -427,7 +450,8 @@ function PendingSkeleton() {
 }
 
 function actionRowKey(row) {
-  return JSON.stringify([row.database_name || '', row.id])
+  // ledger_key (log:N / queue:N) is unique across both id spaces (G9-B14).
+  return JSON.stringify([row.database_name || '', row.ledger_key || row.id])
 }
 
 function PendingTab({
