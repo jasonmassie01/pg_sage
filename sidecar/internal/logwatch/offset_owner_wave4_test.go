@@ -238,8 +238,8 @@ func appendOOMBatch(t *testing.T, path string, start, count int) {
 	var buf bytes.Buffer
 	for i := start; i < start+count; i++ {
 		line := map[string]any{
-			"timestamp": "2026-07-19T12:00:00.000+00:00",
-			"pid":       i + 1, "database_name": fmt.Sprintf("db-%d", i),
+			"timestamp": "2026-07-19 12:00:00.000 UTC",
+			"pid":       i + 1, "dbname": fmt.Sprintf("db-%d", i),
 			"error_severity": "ERROR", "state_code": "53200",
 			"message": "out of memory",
 		}
