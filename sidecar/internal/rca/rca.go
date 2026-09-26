@@ -2,7 +2,6 @@ package rca
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/notify"
 )
 
 // Incident represents a correlated root cause analysis result.
@@ -32,6 +32,13 @@ type Incident struct {
 	DatabaseName    string      `json:"database_name,omitempty"`
 	OccurrenceCount int         `json:"occurrence_count"`
 	EscalatedAt     *time.Time  `json:"escalated_at,omitempty"`
+	// ResolvedBy and ResolutionReason record who resolved the incident
+	// and why (an operator or the engine itself).
+	ResolvedBy       string `json:"resolved_by,omitempty"`
+	ResolutionReason string `json:"resolution_reason,omitempty"`
+	// PreviousIncidentID links a recurrence to the resolved incident with
+	// the same identity that preceded it.
+	PreviousIncidentID string `json:"previous_incident_id,omitempty"`
 }
 
 // ChainLink is one step in the causal chain leading to an incident.
@@ -68,28 +75,53 @@ type ActionQuerier interface {
 	) ([]SageAction, error)
 }
 
+// EventDispatcher delivers incident notifications. Satisfied by
+// *notify.Dispatcher.
+type EventDispatcher interface {
+	Dispatch(ctx context.Context, event notify.Event) error
+}
+
 // Engine is the root cause analysis engine supporting Tier 1
 // (deterministic decision trees) and Tier 2 (LLM correlation).
+//
+// The engine is the single owner of incident state: it hydrates open
+// incidents from sage.incidents, never overwrites a resolution recorded
+// in the database, and drops resolved incidents from memory once their
+// resolution is durable.
 type Engine struct {
 	cfg             *config.RCAConfig
 	incidents       []Incident
-	clearCounts     map[string]int // incidentID -> consecutive clear cycles
+	clearCounts     map[string]int         // incidentID -> clear cycles
+	track           map[string]*trackState // incidentID -> persistence
 	cycleCount      int
 	gracePeriodLeft int
+	capWarned       bool
 	logFn           func(string, string, ...any)
 	llmClient       *llm.Client
 	logSource       LogSource
 	actionStore     ActionQuerier
 	correlator      *SelfActionCorrelator
-	mu              sync.Mutex
+	dispatcher      EventDispatcher
+	databaseName    string
+	logDatabase     string
+	logReplayCutoff time.Time
+	store           *pgxpool.Pool
+	hydrated        bool
+	// cycleMu serializes analysis, hydration and persistence cycles.
+	// mu guards the fields above and is never held across I/O.
+	cycleMu sync.Mutex
+	mu      sync.Mutex
 }
+
+// defaultLogReplayGrace tolerates clock skew between the PostgreSQL
+// server (log timestamps) and the sidecar when ignoring log lines that
+// were written before the engine started (G1-B25).
+const defaultLogReplayGrace = 5 * time.Minute
 
 // WithLLM attaches an LLM client to enable Tier 2 correlation.
 // Safe to call on a nil client — Tier 2 simply stays disabled.
 // The setter holds e.mu because wiring may happen after the
-// analyzer goroutine has already started calling Analyze
-// (see main.go where rcaEng.WithActionStore is invoked after
-// go anal.Run).
+// analyzer goroutine has already started calling Analyze.
 func (e *Engine) WithLLM(client *llm.Client) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -97,8 +129,7 @@ func (e *Engine) WithLLM(client *llm.Client) {
 }
 
 // SetLogSource attaches a log-based signal source (logwatch adapter).
-// When set, Analyze drains log signals each cycle. Takes e.mu for the
-// same reason as WithLLM — late binding from startup code.
+// When set, Analyze drains log signals each cycle.
 func (e *Engine) SetLogSource(src LogSource) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -107,12 +138,51 @@ func (e *Engine) SetLogSource(src LogSource) {
 
 // WithActionStore enables self-action correlation by wiring in a
 // store that can query sage.action_log for recent actions and
-// rollback history. Takes e.mu for the same reason as WithLLM.
+// rollback history. The store must be scoped to this engine's
+// database: actions it returns are attributed to that database.
 func (e *Engine) WithActionStore(store ActionQuerier) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.actionStore = store
 	e.correlator = NewSelfActionCorrelator(e.logFn)
+}
+
+// WithDispatcher enables incident_detected / incident_escalated /
+// incident_resolved notifications. Events are sent after the state
+// change is durable.
+func (e *Engine) WithDispatcher(d EventDispatcher) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.dispatcher = d
+}
+
+// WithDatabaseName sets the database identity stamped on every incident
+// this engine constructs (R05). Use the same name the executor and
+// notifications use for this database.
+func (e *Engine) WithDatabaseName(name string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.databaseName = name
+}
+
+// WithLogDatabase restricts log signals to lines from the given
+// PostgreSQL database (current_database()). Lines without a database
+// (cluster-wide events) are always kept. Hydrate fills this from
+// current_database() when it is unset (G1-B11).
+func (e *Engine) WithLogDatabase(datname string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.logDatabase = datname
+}
+
+// WithLogReplayCutoff ignores log signals timestamped before t. NewEngine
+// defaults it to engine start minus defaultLogReplayGrace so a restart
+// does not re-fire incidents from the replayed log tail (G1-B25). A zero
+// time disables the cutoff.
+func (e *Engine) WithLogReplayCutoff(t time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.logReplayCutoff = t
 }
 
 // NewEngine creates a new RCA engine with the given configuration.
@@ -124,60 +194,47 @@ func NewEngine(
 		cfg:             cfg,
 		incidents:       make([]Incident, 0),
 		clearCounts:     make(map[string]int),
+		track:           make(map[string]*trackState),
 		gracePeriodLeft: cfg.ResolutionCycles + 1,
 		logFn:           logFn,
+		logReplayCutoff: time.Now().Add(-defaultLogReplayGrace),
 	}
 }
 
-// Analyze runs after every analyzer cycle. It detects signals, produces
-// Tier 1 incidents via decision trees, deduplicates, auto-resolves, and
-// escalates long-running incidents.
+// Analyze runs one RCA cycle without a caller context. Prefer
+// AnalyzeContext.
 func (e *Engine) Analyze(
 	current *collector.Snapshot,
 	previous *collector.Snapshot,
 	cfg *config.Config,
 	lockChainFindings []analyzer.Finding,
 ) []Incident {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	return e.AnalyzeContext(context.Background(),
+		current, previous, cfg, lockChainFindings)
+}
 
-	e.cycleCount++
-	if e.gracePeriodLeft > 0 {
-		e.gracePeriodLeft--
+// AnalyzeContext detects signals, produces Tier 1 incidents via decision
+// trees, optionally correlates unexplained signals with the LLM (without
+// holding the engine mutex), deduplicates, auto-resolves and escalates.
+// ctx bounds every database and LLM call made during the cycle.
+func (e *Engine) AnalyzeContext(
+	ctx context.Context,
+	current *collector.Snapshot,
+	previous *collector.Snapshot,
+	cfg *config.Config,
+	lockChainFindings []analyzer.Finding,
+) []Incident {
+	e.cycleMu.Lock()
+	defer e.cycleMu.Unlock()
+
+	e.syncResolved(ctx)
+	plan := e.prepareCycle(current, previous, cfg, lockChainFindings)
+	if plan.tier2 != nil {
+		plan.incidents = append(plan.incidents,
+			e.runTier2(ctx, plan.tier2)...)
 	}
-
-	signals := e.detectSignals(current, previous, cfg, lockChainFindings)
-
-	if e.logSource != nil {
-		logSignals := e.logSource.Drain()
-		signals = append(signals, logSignals...)
-	}
-
-	firedIDs := make(map[string]bool, len(signals))
-	for _, s := range signals {
-		firedIDs[s.ID] = true
-	}
-
-	newIncidents := e.runDecisionTrees(signals, current, previous, cfg)
-
-	logIncidents := e.runLogDecisionTrees(signals)
-	newIncidents = append(newIncidents, logIncidents...)
-
-	tier2 := e.runTier2Correlation(signals, newIncidents)
-	newIncidents = append(newIncidents, tier2...)
-
-	for i := range newIncidents {
-		e.dedup(&newIncidents[i])
-	}
-
-	if e.correlator != nil && e.actionStore != nil {
-		e.applySelfActionCorrelation(newIncidents)
-	}
-
-	e.autoResolve(firedIDs)
-	e.escalate()
-
-	return e.activeIncidents()
+	actions := e.fetchSageActions(ctx, plan)
+	return e.commitCycle(plan, actions)
 }
 
 // ActiveIncidents returns a copy of all unresolved incidents.
@@ -195,215 +252,4 @@ func (e *Engine) activeIncidents() []Incident {
 		}
 	}
 	return active
-}
-
-// ---------------------------------------------------------------------------
-// Dedup, auto-resolve, escalate
-// ---------------------------------------------------------------------------
-
-func (e *Engine) dedup(inc *Incident) {
-	window := time.Duration(e.cfg.DedupWindowMinutes) * time.Minute
-	if window == 0 {
-		window = 30 * time.Minute
-	}
-	normalizedIDs := sortedCopy(inc.SignalIDs)
-	firstObj := ""
-	if len(inc.AffectedObjects) > 0 {
-		firstObj = inc.AffectedObjects[0]
-	}
-
-	for i := range e.incidents {
-		existing := &e.incidents[i]
-		if existing.ResolvedAt != nil {
-			continue
-		}
-		if existing.Source != inc.Source {
-			continue
-		}
-		existingIDs := sortedCopy(existing.SignalIDs)
-		if !stringsEqual(existingIDs, normalizedIDs) {
-			continue
-		}
-		existingFirst := ""
-		if len(existing.AffectedObjects) > 0 {
-			existingFirst = existing.AffectedObjects[0]
-		}
-		if existingFirst != firstObj {
-			continue
-		}
-		lastSeen := existing.LastDetectedAt
-		if lastSeen.IsZero() {
-			lastSeen = existing.DetectedAt
-		}
-		if inc.DetectedAt.Sub(lastSeen) > window {
-			continue
-		}
-		// Match found: update existing incident.
-		existing.OccurrenceCount++
-		existing.LastDetectedAt = inc.DetectedAt
-		if severityRank(inc.Severity) > severityRank(existing.Severity) {
-			existing.Severity = inc.Severity
-		}
-		// Reset clear counter since the incident fired again.
-		delete(e.clearCounts, existing.ID)
-		return
-	}
-
-	// No match: insert new incident.
-	inc.ID = newUUID()
-	inc.OccurrenceCount = 1
-	inc.LastDetectedAt = inc.DetectedAt
-	e.incidents = append(e.incidents, *inc)
-}
-
-func (e *Engine) autoResolve(firedIDs map[string]bool) {
-	if e.gracePeriodLeft > 0 {
-		return
-	}
-	needed := e.cfg.ResolutionCycles
-	if needed == 0 {
-		needed = 2
-	}
-
-	for i := range e.incidents {
-		inc := &e.incidents[i]
-		if inc.ResolvedAt != nil {
-			continue
-		}
-		stillFiring := false
-		for _, sid := range inc.SignalIDs {
-			if firedIDs[sid] {
-				stillFiring = true
-				break
-			}
-		}
-		if stillFiring {
-			delete(e.clearCounts, inc.ID)
-			continue
-		}
-		e.clearCounts[inc.ID]++
-		if e.clearCounts[inc.ID] >= needed {
-			now := time.Now()
-			inc.ResolvedAt = &now
-			delete(e.clearCounts, inc.ID)
-			e.logFn("info", "rca: auto-resolved incident %s (%s)",
-				inc.ID, inc.RootCause)
-		}
-	}
-}
-
-func (e *Engine) escalate() {
-	needed := e.cfg.EscalationCycles
-	if needed == 0 {
-		needed = 5
-	}
-	for i := range e.incidents {
-		inc := &e.incidents[i]
-		if inc.ResolvedAt != nil || inc.EscalatedAt != nil {
-			continue
-		}
-		if inc.Severity != "warning" {
-			continue
-		}
-		if inc.OccurrenceCount >= needed {
-			now := time.Now()
-			inc.Severity = "critical"
-			inc.EscalatedAt = &now
-			e.logFn("warn", "rca: escalated incident %s to critical (%s)",
-				inc.ID, inc.RootCause)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Self-action correlation
-// ---------------------------------------------------------------------------
-
-// applySelfActionCorrelation queries recent actions and rollback
-// history, then correlates them with new incidents. Any self-caused
-// or manual-review incidents are deduped and added to e.incidents.
-func (e *Engine) applySelfActionCorrelation(newIncidents []Incident) {
-	ctx := context.Background()
-
-	recentActions, err := e.actionStore.RecentSageActions(
-		ctx, 30*time.Minute)
-	if err != nil {
-		e.logFn("warn",
-			"rca: failed to query recent actions: %v", err)
-		return
-	}
-
-	rollbackHistory, err := e.actionStore.RollbackHistory(
-		ctx, 30*24*time.Hour)
-	if err != nil {
-		e.logFn("warn",
-			"rca: failed to query rollback history: %v", err)
-		return
-	}
-
-	if len(recentActions) == 0 {
-		return
-	}
-
-	_, selfCaused, manualReview := e.correlator.Correlate(
-		newIncidents, recentActions, rollbackHistory)
-
-	for i := range selfCaused {
-		e.logFn("warn",
-			"rca: self-caused incident: %s", selfCaused[i].RootCause)
-		e.dedup(&selfCaused[i])
-	}
-	for i := range manualReview {
-		e.logFn("warn",
-			"rca: manual review required: %s",
-			manualReview[i].RootCause)
-		e.dedup(&manualReview[i])
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Persistence
-// ---------------------------------------------------------------------------
-
-const upsertSQL = `/* pg_sage */
-INSERT INTO sage.incidents (
-    id, detected_at, last_detected_at, severity, root_cause,
-    causal_chain, affected_objects, signal_ids, recommended_sql,
-    rollback_sql, action_risk, source, confidence, resolved_at,
-    database_name, occurrence_count, escalated_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-ON CONFLICT (id) DO UPDATE SET
-    severity         = EXCLUDED.severity,
-    root_cause       = EXCLUDED.root_cause,
-    causal_chain     = EXCLUDED.causal_chain,
-    last_detected_at = EXCLUDED.last_detected_at,
-    resolved_at      = EXCLUDED.resolved_at,
-    occurrence_count = EXCLUDED.occurrence_count,
-    escalated_at     = EXCLUDED.escalated_at`
-
-// PersistIncidents upserts all tracked incidents to sage.incidents.
-func (e *Engine) PersistIncidents(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-) error {
-	e.mu.Lock()
-	snapshot := make([]Incident, len(e.incidents))
-	copy(snapshot, e.incidents)
-	e.mu.Unlock()
-
-	for _, inc := range snapshot {
-		chainJSON := marshalChain(inc.CausalChain)
-		_, err := pool.Exec(ctx, upsertSQL,
-			inc.ID, inc.DetectedAt, inc.LastDetectedAt,
-			inc.Severity, inc.RootCause,
-			chainJSON, inc.AffectedObjects, inc.SignalIDs,
-			inc.RecommendedSQL, inc.RollbackSQL, inc.ActionRisk,
-			inc.Source, inc.Confidence, inc.ResolvedAt,
-			inc.DatabaseName, inc.OccurrenceCount, inc.EscalatedAt,
-		)
-		if err != nil {
-			return fmt.Errorf("rca: upsert incident %s: %w", inc.ID, err)
-		}
-	}
-	return nil
 }

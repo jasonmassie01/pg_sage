@@ -463,7 +463,8 @@ func buildStoreDatabaseRuntime(
 		if dbLLMClient != nil {
 			dbRCAEng.WithLLM(dbLLMClient)
 		}
-		dbAnal.WithRCAEngine(&rcaAdapter{e: dbRCAEng})
+		dbAnal.WithRCAEngine(newRCAAdapter(instCtx, dbRCAEng, dbPool,
+			rec.Name, logStructuredWrapper))
 	}
 	if dbLLMClient != nil {
 		dbAnal.WithPlanNarrator(analyzer.NewLLMPlanNarrator(

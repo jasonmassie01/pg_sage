@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -11,41 +13,93 @@ import (
 )
 
 // tier2Response is the expected JSON structure from the LLM.
+// causal_steps is preferred; causal_chain (arrow notation) is accepted
+// for backward compatibility.
 type tier2Response struct {
-	RootCause      string   `json:"root_cause"`
-	Severity       string   `json:"severity"`
-	CausalChain    string   `json:"causal_chain"`
-	RecommendedSQL []string `json:"recommended_sql"`
-	ActionRisk     string   `json:"action_risk"`
+	RootCause      string      `json:"root_cause"`
+	Severity       string      `json:"severity"`
+	CausalChain    string      `json:"causal_chain"`
+	CausalSteps    []tier2Step `json:"causal_steps"`
+	RecommendedSQL []string    `json:"recommended_sql"`
+	ActionRisk     string      `json:"action_risk"`
 }
 
-// tier2LLMTimeout is the context deadline for a single Tier 2 call.
+// tier2Step is one causal step; Signal must be one of the input IDs.
+type tier2Step struct {
+	Signal      string `json:"signal"`
+	Description string `json:"description"`
+}
+
+// tier2LLMTimeout is the upper bound for a single Tier 2 call; the caller
+// context may end it sooner.
 const tier2LLMTimeout = 30 * time.Second
 
 // tier2DefaultConfidence is the confidence score for LLM incidents.
 const tier2DefaultConfidence = 0.6
 
-// runTier2Correlation identifies uncovered signals and, when the
-// threshold is met and an LLM client is available, asks the LLM to
-// correlate them into an incident.
-func (e *Engine) runTier2Correlation(
-	signals []*Signal,
-	tier1Incidents []Incident,
-) []Incident {
-	if e.llmClient == nil || !e.llmClient.IsEnabled() {
-		return nil
-	}
+// tier2LowConfidence marks deterministic incidents weak enough that their
+// signals are also offered to Tier 2 for correlation.
+const tier2LowConfidence = 0.7
 
-	uncovered := findUncoveredSignals(signals, tier1Incidents)
+// tier2Request is a Tier 2 call planned under e.mu and executed without
+// it. candidates are the signals Tier 1 did not explain (the identity of
+// the resulting incident); context is every signal of the cycle.
+type tier2Request struct {
+	client     *llm.Client
+	candidates []*Signal
+	context    []*Signal
+	database   string
+}
+
+// planTier2 decides whether Tier 2 should run. It fires when at least
+// llm_correlation_threshold signals co-occur and at least one of them is
+// unexplained (no Tier 1 tree consumed it, or only a low-confidence one
+// did). Before, it required threshold *unexplained* signals, which the
+// production signal set can never produce (substrate-B2). If an open LLM
+// incident already covers the same unexplained signals, no call is made
+// and the incident is re-observed instead (G3-B17). Caller holds e.mu.
+func (e *Engine) planTier2(
+	signals []*Signal, tier1 []Incident,
+) (*tier2Request, []Incident) {
+	if e.llmClient == nil || !e.llmClient.IsEnabled() {
+		return nil, nil
+	}
 	threshold := e.cfg.LLMCorrelationThreshold
-	if threshold == 0 {
+	if threshold <= 0 {
 		threshold = 3
 	}
-	if len(uncovered) < threshold {
-		return nil
+	candidates := tier2Candidates(signals, tier1)
+	if len(candidates) == 0 || len(signals) < threshold {
+		return nil, nil
 	}
+	probe := Incident{
+		Source: "llm", DatabaseName: e.databaseName,
+		SignalIDs: signalIDs(candidates),
+	}
+	key := identityString(&probe)
+	for i := range e.incidents {
+		existing := e.incidents[i]
+		if existing.ResolvedAt == nil && identityString(&existing) == key {
+			existing.DetectedAt = time.Now()
+			return nil, []Incident{existing}
+		}
+	}
+	return &tier2Request{
+		client: e.llmClient, candidates: candidates,
+		context: signals, database: e.databaseName,
+	}, nil
+}
 
-	return e.callTier2LLM(uncovered)
+// tier2Candidates returns signals not consumed by any Tier 1 incident,
+// plus signals consumed only by low-confidence incidents.
+func tier2Candidates(signals []*Signal, tier1 []Incident) []*Signal {
+	var strong []Incident
+	for _, inc := range tier1 {
+		if inc.Confidence >= tier2LowConfidence {
+			strong = append(strong, inc)
+		}
+	}
+	return findUncoveredSignals(signals, strong)
 }
 
 // findUncoveredSignals returns signals whose IDs were not consumed
@@ -69,65 +123,118 @@ func findUncoveredSignals(
 	return uncovered
 }
 
-// callTier2LLM sends uncovered signals to the LLM and parses the
-// response into an Incident. Returns nil on any error.
-func (e *Engine) callTier2LLM(uncovered []*Signal) []Incident {
-	ctx, cancel := context.WithTimeout(
-		context.Background(), tier2LLMTimeout)
+func signalIDs(signals []*Signal) []string {
+	ids := make([]string, len(signals))
+	for i, s := range signals {
+		ids[i] = s.ID
+	}
+	return ids
+}
+
+// runTier2 performs the LLM call outside the engine lock, bounded by the
+// caller context (G3-B17). Returns nil on any error.
+func (e *Engine) runTier2(ctx context.Context, req *tier2Request) []Incident {
+	if err := ctx.Err(); err != nil {
+		e.logFn("warn", "rca: tier2 skipped: %v", err)
+		return nil
+	}
+	cctx, cancel := context.WithTimeout(ctx, tier2LLMTimeout)
 	defer cancel()
 
-	system := buildTier2SystemPrompt()
-	user := buildTier2UserPrompt(uncovered)
-
-	raw, _, err := e.llmClient.Chat(ctx, system, user, 2048)
+	user := buildTier2UserPrompt(req.candidates, req.context)
+	raw, _, err := req.client.Chat(cctx, buildTier2SystemPrompt(), user, 2048)
 	if err != nil {
 		e.logFn("warn", "rca: tier2 LLM call failed: %v", err)
 		return nil
 	}
-
-	inc, err := parseTier2Response(raw, uncovered)
+	inc, err := parseTier2Response(raw, req.candidates, req.context...)
 	if err != nil {
 		e.logFn("warn", "rca: tier2 parse failed: %v", err)
 		return nil
 	}
+	inc.DatabaseName = req.database
 	return []Incident{inc}
 }
 
 // buildTier2SystemPrompt returns the system message for Tier 2.
 func buildTier2SystemPrompt() string {
 	return "You are a PostgreSQL root cause analysis engine. " +
-		"You are given N signals that fired simultaneously " +
-		"but do not match any known deterministic pattern. " +
-		"Correlate the signals, identify the most likely " +
-		"root cause, and return ONLY a JSON object with " +
-		"these fields: root_cause (string), severity " +
-		"(\"warning\" or \"critical\"), causal_chain " +
-		"(string, use arrow notation A -> B -> C), " +
-		"recommended_sql (array of SQL strings, may be " +
-		"empty), action_risk (\"low\", \"medium\", or " +
-		"\"high\"). No markdown fences. No extra text."
+		"You are given signals that fired together. Some are marked " +
+		"UNEXPLAINED: no deterministic rule accounts for them. " +
+		"Correlate the signals, identify the most likely root cause " +
+		"of the unexplained ones, and return ONLY a JSON object with " +
+		"these fields: root_cause (string), severity (\"warning\" or " +
+		"\"critical\"), causal_steps (array of objects with " +
+		"\"signal\" set to one of the given signal IDs or \"\" and " +
+		"\"description\"), recommended_sql (array with at most one " +
+		"read-only diagnostic SQL statement, may be empty), " +
+		"action_risk (\"low\", \"medium\", or \"high\"). " +
+		"No markdown fences. No extra text."
 }
 
-// buildTier2UserPrompt formats uncovered signals for the LLM.
-func buildTier2UserPrompt(uncovered []*Signal) string {
+// buildTier2UserPrompt formats signals for the LLM, redacting free text
+// that may carry data values or identities.
+func buildTier2UserPrompt(candidates, all []*Signal) string {
+	unexplained := make(map[string]bool, len(candidates))
+	for _, s := range candidates {
+		unexplained[s.ID] = true
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d uncovered signals fired:\n\n",
-		len(uncovered))
-	for i, s := range uncovered {
-		metricsJSON, _ := json.Marshal(s.Metrics)
-		fmt.Fprintf(&b, "%d. ID=%s severity=%s fired_at=%s "+
-			"metrics=%s\n",
-			i+1, s.ID, s.Severity,
+	fmt.Fprintf(&b, "%d uncovered signals fired among %d "+
+		"co-occurring signals:\n\n", len(candidates), len(all))
+	for i, s := range all {
+		status := "explained"
+		if unexplained[s.ID] {
+			status = "UNEXPLAINED"
+		}
+		metricsJSON, err := json.Marshal(redactSignalMetrics(s.Metrics))
+		if err != nil {
+			metricsJSON = []byte(`{}`)
+		}
+		fmt.Fprintf(&b, "%d. ID=%s status=%s severity=%s fired_at=%s "+
+			"metrics=%s\n", i+1, s.ID, status, s.Severity,
 			s.FiredAt.Format(time.RFC3339), string(metricsJSON))
 	}
 	return b.String()
 }
 
+// droppedPromptMetrics never leave the sidecar: DETAIL lines carry key
+// values ("Key (email)=(...)") and user names identify people.
+var droppedPromptMetrics = map[string]bool{"detail": true, "user": true}
+
+var doubleQuoted = regexp.MustCompile(`"[^"]*"`)
+
+// redactSignalMetrics copies metrics for an LLM prompt: log messages have
+// quoted values redacted and queries are comment-stripped and have
+// literals redacted.
+func redactSignalMetrics(m map[string]any) map[string]any {
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		if droppedPromptMetrics[k] {
+			continue
+		}
+		s, isString := v.(string)
+		switch {
+		case isString && k == "query":
+			out[k] = llm.SanitizeForLLM(s)
+		case isString && k == "message":
+			out[k] = doubleQuoted.ReplaceAllString(
+				llm.RedactSQLLiterals(s), `"?"`)
+		default:
+			out[k] = v
+		}
+	}
+	return out
+}
+
 // parseTier2Response extracts a tier2Response from possibly
-// markdown-fenced LLM output and builds an Incident.
+// markdown-fenced LLM output and builds an Incident for the uncovered
+// signals. Causal steps may also reference the co-occurring context
+// signals.
 func parseTier2Response(
 	raw string,
 	uncovered []*Signal,
+	context ...*Signal,
 ) (Incident, error) {
 	var resp tier2Response
 	if err := llm.ParseJSON(raw, llm.JSONObject, &resp); err != nil {
@@ -136,21 +243,23 @@ func parseTier2Response(
 	if resp.RootCause == "" {
 		return Incident{}, fmt.Errorf("empty root_cause in response")
 	}
-
-	return buildTier2Incident(resp, uncovered), nil
+	if len(context) == 0 {
+		return buildTier2Incident(resp, uncovered), nil
+	}
+	return buildTier2IncidentFrom(resp, uncovered, context), nil
 }
 
-// buildTier2Incident constructs an Incident from the parsed LLM
-// response and the uncovered signals that produced it.
-func buildTier2Incident(
-	resp tier2Response,
-	uncovered []*Signal,
-) Incident {
-	ids := make([]string, len(uncovered))
-	for i, s := range uncovered {
-		ids[i] = s.ID
-	}
+// buildTier2Incident constructs an Incident whose identity is the given
+// signals and whose chain may reference only those signals.
+func buildTier2Incident(resp tier2Response, uncovered []*Signal) Incident {
+	return buildTier2IncidentFrom(resp, uncovered, uncovered)
+}
 
+// buildTier2IncidentFrom constructs an Incident for candidates; causal
+// steps may reference any signal in known.
+func buildTier2IncidentFrom(
+	resp tier2Response, candidates, known []*Signal,
+) Incident {
 	severity := resp.Severity
 	if severity != "warning" && severity != "critical" {
 		severity = "warning"
@@ -159,51 +268,104 @@ func buildTier2Incident(
 	if risk != "low" && risk != "medium" && risk != "high" {
 		risk = "medium"
 	}
-
-	chain := parseCausalChainString(resp.CausalChain, uncovered)
-	sql := strings.Join(resp.RecommendedSQL, "; ")
-
+	chain := chainFromSteps(resp.CausalSteps, known)
+	if len(chain) == 0 {
+		chain = parseCausalChainString(resp.CausalChain, known)
+	}
 	return Incident{
-		DetectedAt:      time.Now(),
-		Severity:        severity,
-		RootCause:       resp.RootCause,
-		CausalChain:     chain,
-		AffectedObjects: nil,
-		SignalIDs:       ids,
-		RecommendedSQL:  sql,
-		ActionRisk:      risk,
-		Source:          "llm",
-		Confidence:      tier2DefaultConfidence,
+		DetectedAt:     time.Now(),
+		Severity:       severity,
+		RootCause:      resp.RootCause,
+		CausalChain:    chain,
+		SignalIDs:      signalIDs(candidates),
+		RecommendedSQL: firstSingleStatement(resp.RecommendedSQL),
+		ActionRisk:     risk,
+		Source:         "llm",
+		Confidence:     tier2DefaultConfidence,
 	}
 }
 
-// parseCausalChainString converts "A -> B -> C" into ChainLinks.
-func parseCausalChainString(
-	raw string,
-	uncovered []*Signal,
-) []ChainLink {
-	// Split on various arrow notations.
-	parts := strings.Split(raw, "->")
-	if len(parts) <= 1 {
-		parts = strings.Split(raw, "\u2192") // unicode arrow
+// chainFromSteps keeps a step's signal only when it names a real input
+// signal (G3-B27).
+func chainFromSteps(steps []tier2Step, known []*Signal) []ChainLink {
+	ids := make(map[string]bool, len(known))
+	for _, s := range known {
+		ids[s.ID] = true
 	}
 	var chain []ChainLink
-	for i, part := range parts {
-		desc := strings.TrimSpace(part)
+	for _, st := range steps {
+		desc := strings.TrimSpace(st.Description)
 		if desc == "" {
 			continue
 		}
 		sig := ""
-		if i < len(uncovered) {
-			sig = uncovered[i].ID
+		if ids[st.Signal] {
+			sig = st.Signal
 		}
 		chain = append(chain, ChainLink{
-			Order:       i + 1,
-			Signal:      sig,
+			Order: len(chain) + 1, Signal: sig, Description: desc,
+		})
+	}
+	return chain
+}
+
+var signalToken = regexp.MustCompile(`[A-Za-z0-9_]+`)
+
+// parseCausalChainString converts "A -> B -> C" into ChainLinks. A step is
+// attributed to a signal only when its text names that signal ID; steps
+// are never mapped to signals by position (G3-B27).
+func parseCausalChainString(raw string, known []*Signal) []ChainLink {
+	ids := make([]string, 0, len(known))
+	for _, s := range known {
+		ids = append(ids, s.ID)
+	}
+	sort.Strings(ids)
+	parts := strings.Split(raw, "->")
+	if len(parts) <= 1 {
+		parts = strings.Split(raw, "→") // unicode arrow
+	}
+	var chain []ChainLink
+	for _, part := range parts {
+		desc := strings.TrimSpace(part)
+		if desc == "" {
+			continue
+		}
+		chain = append(chain, ChainLink{
+			Order:       len(chain) + 1,
+			Signal:      namedSignal(desc, ids),
 			Description: desc,
 		})
 	}
 	return chain
+}
+
+// namedSignal returns the first token of desc that is a known signal ID.
+func namedSignal(desc string, sortedIDs []string) string {
+	for _, tok := range signalToken.FindAllString(desc, -1) {
+		i := sort.SearchStrings(sortedIDs, tok)
+		if i < len(sortedIDs) && sortedIDs[i] == tok {
+			return tok
+		}
+	}
+	return ""
+}
+
+// firstSingleStatement returns the first non-empty recommended statement
+// with trailing semicolons removed. Statements are never joined, and a
+// statement that itself contains ';' is rejected (G3-B27): LLM SQL is
+// unvalidated and must not become a multi-statement batch.
+func firstSingleStatement(stmts []string) string {
+	for _, raw := range stmts {
+		s := strings.TrimRight(strings.TrimSpace(raw), "; \t\r\n")
+		if s == "" {
+			continue
+		}
+		if strings.Contains(s, ";") {
+			return ""
+		}
+		return s
+	}
+	return ""
 }
 
 // stripToJSONObject extracts a JSON object from text that may

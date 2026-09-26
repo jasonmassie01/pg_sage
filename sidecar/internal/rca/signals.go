@@ -111,11 +111,12 @@ func (e *Engine) detectCacheHitDrop(
 	if warnThreshold == 0 {
 		warnThreshold = 0.95
 	}
-	if curr.System.CacheHitRatio >= warnThreshold {
+	ratio, ok := normalizeCacheHitRatio(curr.System.CacheHitRatio)
+	if !ok || ratio >= warnThreshold {
 		return nil
 	}
 	sev := "warning"
-	if curr.System.CacheHitRatio < warnThreshold-0.05 {
+	if ratio < warnThreshold-0.05 {
 		sev = "critical"
 	}
 	return &Signal{
@@ -123,10 +124,29 @@ func (e *Engine) detectCacheHitDrop(
 		FiredAt:  curr.CollectedAt,
 		Severity: sev,
 		Metrics: map[string]any{
-			"cache_hit_ratio": curr.System.CacheHitRatio,
+			"cache_hit_ratio": ratio,
 			"threshold":       warnThreshold,
 		},
 	}
+}
+
+// normalizeCacheHitRatio returns the cache hit ratio as a fraction.
+// The collector has reported a percentage (0-100) and is moving to a
+// fraction (0-1); values above 1 are treated as percentages. A value of
+// zero or below means "no data" (the collector COALESCEs a missing ratio
+// to 0) and must not fire a critical signal; values above 100% are
+// invalid.
+func normalizeCacheHitRatio(v float64) (float64, bool) {
+	if v <= 0 {
+		return 0, false
+	}
+	if v > 1 {
+		v /= 100
+	}
+	if v > 1 {
+		return 0, false
+	}
+	return v, true
 }
 
 func (e *Engine) detectReplicationLag(

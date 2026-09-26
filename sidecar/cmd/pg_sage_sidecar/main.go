@@ -745,7 +745,8 @@ func initStandalone() {
 				stopLogWatcherOnShutdown(shutdownCtx, fw)
 			}
 		}
-		anal.WithRCAEngine(&rcaAdapter{e: rcaEng})
+		anal.WithRCAEngine(newRCAAdapter(shutdownCtx, rcaEng, pool,
+			resolveDBName(), logStructuredWrapper))
 		logInfo("startup", "rca engine enabled — "+
 			"resolution_cycles=%d, escalation_cycles=%d",
 			cfg.RCA.ResolutionCycles,
@@ -790,6 +791,9 @@ func initStandalone() {
 
 	// 9c. Notification dispatcher.
 	exec.WithDispatcher(notifyDispatcher)
+	if rcaEng != nil {
+		rcaEng.WithDispatcher(notifyDispatcher)
+	}
 	exec.WithDatabaseName(dbName)
 	if llmClient != nil && llmClient.IsEnabled() {
 		exec.WithJustifier(llmClient)
@@ -1518,7 +1522,8 @@ func initFleetMultiDB() {
 				sub := dbLogFanout.Subscribe(name)
 				dbRCAEng.SetLogSource(sub)
 			}
-			dbAnal.WithRCAEngine(&rcaAdapter{e: dbRCAEng})
+			dbAnal.WithRCAEngine(newRCAAdapter(instCtx, dbRCAEng, dbPool,
+				name, logStructuredWrapper))
 		}
 
 		// Notifications read rules from the control (primary/auth) pool,
@@ -1579,6 +1584,9 @@ func initFleetMultiDB() {
 		}
 
 		dbExec.WithDispatcher(dbDispatcher)
+		if dbRCAEng != nil {
+			dbRCAEng.WithDispatcher(dbDispatcher)
+		}
 		dbExec.WithDatabaseName(name)
 		if dbLLMOn {
 			dbExec.WithJustifier(dbLLMClient)
