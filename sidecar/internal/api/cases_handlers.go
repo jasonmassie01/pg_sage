@@ -291,38 +291,6 @@ func filterSelfMonitoringHintRows(
 	return out
 }
 
-func enrichCaseActionTimeline(
-	ctx context.Context,
-	c *cases.Case,
-	pool *pgxpool.Pool,
-	actionStore *store.ActionStore,
-) {
-	if len(c.SourceIDs) == 0 {
-		return
-	}
-	findingID, err := strconv.Atoi(c.SourceIDs[0])
-	if err != nil || findingID <= 0 {
-		return
-	}
-	if actionStore != nil {
-		queued, err := actionStore.ListLedgerByFinding(ctx, findingID)
-		if err == nil {
-			now := time.Now().UTC()
-			for _, action := range queued {
-				c.Actions = append(c.Actions,
-					caseActionFromQueuedAction(action, now))
-			}
-		}
-	}
-	logged, err := queryActionLogsByFinding(ctx, pool, findingID)
-	if err != nil {
-		return
-	}
-	for _, action := range logged {
-		c.Actions = append(c.Actions, caseActionFromActionLog(action))
-	}
-}
-
 func enrichCaseActionTimelines(
 	ctx context.Context,
 	projected []cases.Case,
@@ -411,24 +379,6 @@ func queuedActionType(action store.QueuedAction) string {
 		return action.ActionType
 	}
 	return action.ActionRisk
-}
-
-func queryActionLogsByFinding(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	findingID int,
-) ([]map[string]any, error) {
-	if pool == nil {
-		return []map[string]any{}, nil
-	}
-	rows, err := pool.Query(ctx, actionsSelectSQLPrefix+
-		` WHERE finding_id = $1 ORDER BY executed_at DESC LIMIT 20`,
-		findingID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanActionRows(rows)
 }
 
 func queryActionLogsByFindingIDs(

@@ -198,22 +198,6 @@ func ListUsers(
 	return users, nil
 }
 
-// DeleteUser removes a user and all their sessions.
-func DeleteUser(
-	ctx context.Context, pool *pgxpool.Pool, userID int,
-) error {
-	tag, err := pool.Exec(ctx,
-		"DELETE FROM sage.users WHERE id = $1", userID,
-	)
-	if err != nil {
-		return fmt.Errorf("deleting user: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("user not found")
-	}
-	return nil
-}
-
 // DeleteUserPreservingAdmin removes a user while atomically ensuring
 // at least one admin remains. It serializes user-role mutations with
 // a table lock so concurrent demote/delete requests cannot both pass
@@ -257,27 +241,6 @@ func DeleteUserPreservingAdmin(
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit delete user: %w", err)
-	}
-	return nil
-}
-
-// UpdateUserRole changes a user's role.
-func UpdateUserRole(
-	ctx context.Context, pool *pgxpool.Pool,
-	userID int, role string,
-) error {
-	if !IsValidRole(role) {
-		return fmt.Errorf("%w: %q", ErrInvalidRole, role)
-	}
-	tag, err := pool.Exec(ctx,
-		"UPDATE sage.users SET role = $1 WHERE id = $2",
-		role, userID,
-	)
-	if err != nil {
-		return fmt.Errorf("updating user role: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrUserNotFound
 	}
 	return nil
 }
@@ -336,39 +299,6 @@ func countAdminsTx(ctx context.Context, tx pgx.Tx) (int, error) {
 	var count int
 	err := tx.QueryRow(ctx,
 		"SELECT count(*) FROM sage.users WHERE role = $1",
-		RoleAdmin,
-	).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("counting admins: %w", err)
-	}
-	return count, nil
-}
-
-// GetUserByID returns a user by ID (no password).
-func GetUserByID(
-	ctx context.Context, pool *pgxpool.Pool, userID int,
-) (*User, error) {
-	var u User
-	err := pool.QueryRow(ctx,
-		"SELECT id, email, role, created_at, last_login "+
-			"FROM sage.users WHERE id = $1",
-		userID,
-	).Scan(&u.ID, &u.Email, &u.Role,
-		&u.CreatedAt, &u.LastLogin)
-	if err != nil {
-		return nil, fmt.Errorf("getting user: %w", err)
-	}
-	return &u, nil
-}
-
-// CountAdmins returns the number of users with admin role.
-func CountAdmins(
-	ctx context.Context, pool *pgxpool.Pool,
-) (int, error) {
-	var count int
-	err := pool.QueryRow(ctx,
-		"SELECT count(*) FROM sage.users "+
-			"WHERE role = $1",
 		RoleAdmin,
 	).Scan(&count)
 	if err != nil {

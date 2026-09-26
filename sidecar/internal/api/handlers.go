@@ -826,15 +826,6 @@ func configGetHandler(
 	}
 }
 
-func configUpdateHandler(
-	mgr *fleet.DatabaseManager, cfg *config.Config,
-	controllers ...*config.ConfigController,
-) http.HandlerFunc {
-	return configUpdateHandlerWithStore(
-		mgr, cfg, firstConfigController(controllers), nil,
-	)
-}
-
 func configUpdateHandlerWithStore(
 	mgr *fleet.DatabaseManager, cfg *config.Config,
 	controller *config.ConfigController, cs *store.ConfigStore,
@@ -1530,22 +1521,6 @@ func scanFindingRows(
 		results = []map[string]any{}
 	}
 	return results, nil
-}
-
-func buildFindingMap(
-	id int64, createdAt, lastSeen time.Time,
-	occurrenceCount int, category, severity string,
-	objectType, objectIdent *string, title string,
-	detail []byte, recommendation, recommendedSQL *string,
-	status, database string, ruleID *string,
-	impactScore *float64, resolvedAt *time.Time,
-) map[string]any {
-	return buildFindingMapWithAction(
-		id, createdAt, lastSeen, occurrenceCount,
-		category, severity, objectType, objectIdent,
-		title, detail, recommendation, recommendedSQL, nil,
-		status, database, ruleID, impactScore, resolvedAt, nil, nil,
-	)
 }
 
 func buildFindingMapWithAction(

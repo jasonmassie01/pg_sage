@@ -882,36 +882,3 @@ func isDDLScriptAction(a store.QueuedAction) bool {
 		strings.HasPrefix(sql, "DROP ") ||
 		strings.HasPrefix(sql, "REINDEX ")
 }
-
-func actionTimelineMap(row map[string]any) map[string]any {
-	out := map[string]any{}
-	for _, key := range []string{
-		"id",
-		"case_id",
-		"finding_id",
-		"status",
-		"action_type",
-		"risk_tier",
-		"proposed_sql",
-		"actor",
-		"verification_status",
-		"rollback_status",
-		"created_at",
-		"approved_at",
-		"executed_at",
-		"verified_at",
-		"expires_at",
-		"lifecycle_state",
-		"blocked_reason",
-		"attempt_count",
-		"cooldown_until",
-		"policy_decision",
-		"guardrails",
-		"shadow_toil_minutes",
-	} {
-		if v, ok := row[key]; ok {
-			out[key] = v
-		}
-	}
-	return out
-}
