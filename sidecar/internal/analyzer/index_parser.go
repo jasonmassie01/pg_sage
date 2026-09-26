@@ -5,7 +5,9 @@ import (
 	"strings"
 )
 
-// ParsedIndex holds the decomposed parts of a pg_get_indexdef() output.
+// ParsedIndex holds the decomposed parts of a pg_get_indexdef() string.
+// Schema, Table and simple column names are unquoted ("Sales" -> Sales)
+// so they compare equal to catalog names.
 type ParsedIndex struct {
 	Schema      string
 	Table       string
@@ -16,66 +18,166 @@ type ParsedIndex struct {
 	IndexType   string
 }
 
-var indexDefRe = regexp.MustCompile(
-	`(?i)CREATE\s+(?:UNIQUE\s+)?INDEX\s+(\S+)\s+ON\s+(?:ONLY\s+)?` +
-		`(\S+)\s+USING\s+(\w+)\s+\((.+)\)` +
-		`(?:\s+INCLUDE\s+\((.+)\))?` +
-		`(?:\s+WHERE\s+(.+))?$`,
+// indexDefHead matches everything up to the opening parenthesis of the
+// key column list. The key list, INCLUDE list and WHERE predicate are
+// then extracted with a paren/quote-aware scanner: the previous greedy
+// regex swallowed INCLUDE and WHERE into the key columns (G2-B13).
+var indexDefHead = regexp.MustCompile(
+	`(?i)^CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?` +
+		`(?:IF\s+NOT\s+EXISTS\s+)?(\S+)\s+ON\s+(?:ONLY\s+)?` +
+		`(\S+)\s+USING\s+(\w+)\s*\(`,
 )
 
 // ParseIndexDef parses a pg_get_indexdef() string into structured parts.
 func ParseIndexDef(indexdef string) ParsedIndex {
-	m := indexDefRe.FindStringSubmatch(strings.TrimSpace(indexdef))
-	if m == nil {
+	def := strings.TrimSpace(indexdef)
+	loc := indexDefHead.FindStringSubmatchIndex(def)
+	if loc == nil {
 		return ParsedIndex{}
 	}
+	m := func(i int) string { return def[loc[2*i]:loc[2*i+1]] }
+	p := ParsedIndex{Name: unquoteIdent(m(1)), IndexType: strings.ToLower(m(3))}
+	p.Schema, p.Table = splitQualified(m(2))
 
-	p := ParsedIndex{
-		Name:      m[1],
-		IndexType: strings.ToLower(m[3]),
+	keys, rest, ok := parenGroup(def[loc[1]-1:])
+	if !ok {
+		return ParsedIndex{}
 	}
-
-	// Table may be schema-qualified.
-	table := m[2]
-	if dot := strings.LastIndex(table, "."); dot >= 0 {
-		p.Schema = table[:dot]
-		p.Table = table[dot+1:]
-	} else {
-		p.Table = table
+	p.Columns = unquoteColumns(splitColumns(keys))
+	rest = strings.TrimSpace(rest)
+	if upper := strings.ToUpper(rest); strings.HasPrefix(upper, "INCLUDE") {
+		inc, after, ok := parenGroup(strings.TrimSpace(rest[len("INCLUDE"):]))
+		if !ok {
+			return ParsedIndex{}
+		}
+		p.IncludeCols = unquoteColumns(splitColumns(inc))
+		rest = after
 	}
-
-	p.Columns = splitColumns(m[4])
-
-	if m[5] != "" {
-		p.IncludeCols = splitColumns(m[5])
-	}
-	if m[6] != "" {
-		p.WhereClause = strings.TrimSpace(m[6])
-	}
-
+	p.WhereClause = topLevelWhere(rest)
 	return p
 }
 
+// parenGroup expects s to start with "(" and returns the text inside the
+// matching ")" and the text after it. Quotes and literals are respected.
+func parenGroup(s string) (inside, rest string, ok bool) {
+	if !strings.HasPrefix(s, "(") {
+		return "", "", false
+	}
+	depth := 0
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+			if depth == 0 {
+				return s[1:i], s[i+1:], true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// topLevelWhere returns the predicate after a WHERE keyword that is
+// outside parentheses and quotes, or "".
+func topLevelWhere(s string) string {
+	s = " " + s
+	upper := strings.ToUpper(s)
+	depth := 0
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+		case depth == 0 && strings.HasPrefix(upper[i:], " WHERE "):
+			return strings.TrimSpace(s[i+len(" WHERE "):])
+		}
+	}
+	return ""
+}
+
 // splitColumns splits a comma-separated column list, respecting
-// parenthesized expressions (e.g. "lower(name), id").
+// parenthesized expressions (e.g. "lower(name), id") and quotes.
 func splitColumns(s string) []string {
 	var cols []string
 	depth := 0
 	start := 0
+	var quote byte
 	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '(':
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '(':
 			depth++
-		case ')':
+		case c == ')':
 			depth--
-		case ',':
-			if depth == 0 {
-				cols = append(cols, strings.TrimSpace(s[start:i]))
-				start = i + 1
+		case c == ',' && depth == 0:
+			cols = append(cols, strings.TrimSpace(s[start:i]))
+			start = i + 1
+		}
+	}
+	return append(cols, strings.TrimSpace(s[start:]))
+}
+
+// splitQualified splits a possibly quoted "schema.table" at the dot that
+// is outside quotes and unquotes both parts.
+func splitQualified(name string) (schema, table string) {
+	inQuote := false
+	for i := len(name) - 1; i >= 0; i-- {
+		switch name[i] {
+		case '"':
+			inQuote = !inQuote
+		case '.':
+			if !inQuote {
+				return unquoteIdent(name[:i]), unquoteIdent(name[i+1:])
 			}
 		}
 	}
-	cols = append(cols, strings.TrimSpace(s[start:]))
+	return "", unquoteIdent(name)
+}
+
+// unquoteIdent strips identifier quotes: "Foo""Bar" -> Foo"Bar.
+func unquoteIdent(s string) string {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return strings.ReplaceAll(s[1:len(s)-1], `""`, `"`)
+	}
+	return s
+}
+
+// unquoteColumns unquotes columns that are a single quoted identifier,
+// leaving expressions untouched.
+func unquoteColumns(cols []string) []string {
+	for i, c := range cols {
+		inner := c
+		if len(c) >= 2 && c[0] == '"' && c[len(c)-1] == '"' {
+			inner = strings.ReplaceAll(c[1:len(c)-1], `""`, "")
+		}
+		if !strings.Contains(inner, `"`) {
+			cols[i] = unquoteIdent(c)
+		}
+	}
 	return cols
 }
 

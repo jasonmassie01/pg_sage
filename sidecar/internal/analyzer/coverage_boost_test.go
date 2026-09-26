@@ -372,12 +372,14 @@ func TestCoverage_ParseIndexDef_MultiColumn(t *testing.T) {
 }
 
 func TestCoverage_ParseIndexDef_WithInclude(t *testing.T) {
-	// The regex is greedy: (.+) in the columns group consumes
-	// the INCLUDE clause. This test documents actual behavior.
 	def := "CREATE INDEX idx_inc ON public.orders USING btree (id) INCLUDE (name, email)"
 	p := ParseIndexDef(def)
-	// Due to greedy matching, INCLUDE is captured as part of
-	// columns. Verify the parse at least succeeds.
+	if len(p.Columns) != 1 || p.Columns[0] != "id" {
+		t.Errorf("Columns = %q, want [id]", p.Columns)
+	}
+	if len(p.IncludeCols) != 2 || p.IncludeCols[1] != "email" {
+		t.Errorf("IncludeCols = %q, want [name email]", p.IncludeCols)
+	}
 	if p.Name != "idx_inc" {
 		t.Errorf("Name = %q, want idx_inc", p.Name)
 	}
@@ -387,10 +389,14 @@ func TestCoverage_ParseIndexDef_WithInclude(t *testing.T) {
 }
 
 func TestCoverage_ParseIndexDef_WithWhere(t *testing.T) {
-	// The regex is greedy: (.+) in the columns group consumes
-	// the WHERE clause. This test documents actual behavior.
 	def := "CREATE INDEX idx_partial ON public.orders USING btree (status) WHERE (status = 'active')"
 	p := ParseIndexDef(def)
+	if len(p.Columns) != 1 || p.Columns[0] != "status" {
+		t.Errorf("Columns = %q, want [status]", p.Columns)
+	}
+	if p.WhereClause != "(status = 'active')" {
+		t.Errorf("WhereClause = %q", p.WhereClause)
+	}
 	if p.Name != "idx_partial" {
 		t.Errorf("Name = %q, want idx_partial", p.Name)
 	}
