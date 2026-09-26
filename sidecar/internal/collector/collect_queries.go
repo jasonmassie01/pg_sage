@@ -83,19 +83,23 @@ func (c *Collector) cacheBlockTime(exprs blockTimeExprs) blockTimeExprs {
 	return exprs
 }
 
-func (c *Collector) collectQueries(ctx context.Context) ([]QueryStats, error) {
-	tpl := queryStatsSQL
-	hasWAL := c.cfg.HasWALColumns
-	hasPlan := c.cfg.HasPlanTimeColumns
-
+// queryStatsTemplate picks the SQL variant for the available columns.
+func queryStatsTemplate(hasWAL, hasPlan bool) string {
 	switch {
 	case hasWAL && hasPlan:
-		tpl = queryStatsWithWALAndPlanTimeSQL
+		return queryStatsWithWALAndPlanTimeSQL
 	case hasWAL:
-		tpl = queryStatsWithWALSQL
+		return queryStatsWithWALSQL
 	case hasPlan:
-		tpl = queryStatsWithPlanTimeSQL
+		return queryStatsWithPlanTimeSQL
 	}
+	return queryStatsSQL
+}
+
+func (c *Collector) collectQueries(ctx context.Context) ([]QueryStats, error) {
+	hasWAL := c.cfg.HasWALColumns
+	hasPlan := c.cfg.HasPlanTimeColumns
+	tpl := queryStatsTemplate(hasWAL, hasPlan)
 
 	limit := c.cfg.Collector.MaxQueries
 	if limit <= 0 {
