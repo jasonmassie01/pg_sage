@@ -558,7 +558,7 @@ func initStandalone() {
 	// 6. LLM client.
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
 	registerLLMConfigOwner()
-	llmMgr = llm.NewManager(llmClient, nil, false)
+	llmMgr = newStandaloneLLMManager(llmClient)
 
 	// 7. Start collector.
 	coll = collector.New(pool, cfg, cfg.PGVersionNum, logStructuredWrapper)
@@ -567,9 +567,8 @@ func initStandalone() {
 	// 8. Start analyzer with v2 index optimizer.
 	var opt *optimizer.Optimizer
 	if cfg.LLM.Optimizer.Enabled {
-		optClient := llmClient
-		if cfg.LLM.OptimizerLLM.Enabled {
-			optClient = llmClients.newClient(llmRoleOptimizer, "", true)
+		optClient := llmMgr.ForPurpose("index_optimization")
+		if optClient != llmClient {
 			logInfo("startup", "optimizer using dedicated LLM model")
 		}
 		if optClient.IsEnabled() {
@@ -670,17 +669,12 @@ func initStandalone() {
 		}
 		var tunerOpts []tuner.Option
 		if cfg.Tuner.LLMEnabled && llmMgr != nil {
-			tc := llmMgr.ForPurpose("query_tuning")
-			var fb *llm.Client
-			if cfg.LLM.OptimizerLLM.FallbackToGeneral &&
-				llmMgr.General != nil {
-				fb = llmMgr.General
-			}
+			tc, fb := tunerLLMClients(llmMgr)
 			tunerOpts = append(tunerOpts,
 				tuner.WithLLM(tc, fb))
 			logInfo("startup",
-				"tuner LLM-enhanced mode enabled "+
-					"(uses optimizer_llm)")
+				"tuner LLM-enhanced mode enabled (dedicated optimizer_llm: %t)",
+				tc != llmClient)
 		}
 		qt = tuner.New(pool, tunerCfg, hpAvail,
 			logStructuredWrapper, tunerOpts...)
