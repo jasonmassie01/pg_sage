@@ -596,7 +596,7 @@ func TestCoverage_RuleInvalidIndexes(t *testing.T) {
 		},
 	}
 
-	findings := ruleInvalidIndexes(snap, nil, nil, nil)
+	findings := invalidIndexesTwice(snap)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -632,7 +632,7 @@ func TestCoverage_RuleInvalidIndexes_UnloggedTable(t *testing.T) {
 		},
 	}
 
-	findings := ruleInvalidIndexes(snap, nil, nil, nil)
+	findings := invalidIndexesTwice(snap)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -2193,4 +2193,16 @@ func TestFilterSchemaExclusions_PgSnap(t *testing.T) {
 	if len(snap.Indexes) != 1 {
 		t.Errorf("indexes = %d, want 1 (public only)", len(snap.Indexes))
 	}
+}
+
+// invalidIndexesTwice runs the invalid-index rule for two cycles: since
+// G2-B09 an index must be seen invalid twice (and not be building)
+// before a drop is recommended.
+func invalidIndexesTwice(snap *collector.Snapshot) []Finding {
+	extras := &RuleExtras{
+		InvalidFirstSeen: map[string]time.Time{},
+		IndexBuildTables: map[string]bool{},
+	}
+	ruleInvalidIndexes(snap, nil, nil, extras)
+	return ruleInvalidIndexes(snap, nil, nil, extras)
 }

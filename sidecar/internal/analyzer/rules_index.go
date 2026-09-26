@@ -153,49 +153,73 @@ func unusedIndexFinding(
 	}
 }
 
-// ruleInvalidIndexes flags indexes where IsValid is false.
+// ruleInvalidIndexes flags indexes where IsValid is false. An index is
+// invalid for the whole duration of CREATE INDEX CONCURRENTLY / REINDEX
+// CONCURRENTLY, so (G2-B09) nothing is reported for a table with a build
+// in progress, when the build probe failed, or before the index has been
+// seen invalid in two cycles (closing the snapshot-vs-probe race).
 func ruleInvalidIndexes(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
 	_ *config.Config,
-	_ *RuleExtras,
+	extras *RuleExtras,
 ) []Finding {
+	if extras == nil || extras.IndexBuildProbeFailed {
+		return nil
+	}
+	if extras.InvalidFirstSeen == nil {
+		extras.InvalidFirstSeen = make(map[string]time.Time)
+	}
 	unlogged := buildUnloggedSet(current)
+	stillInvalid := make(map[string]bool)
 	var findings []Finding
 	for _, idx := range current.Indexes {
-		if isSystemSchema(idx.SchemaName) {
-			continue
-		}
-		if idx.IsValid {
-			continue
-		}
 		ident := idx.SchemaName + "." + idx.IndexRelName
-		tableKey := idx.SchemaName + "." + idx.RelName
-		severity := "warning"
-		rec := "Drop the invalid index and recreate if needed."
-		detail := map[string]any{
-			"table":     idx.RelName,
-			"index_def": idx.IndexDef,
+		if idx.IsValid || isSystemSchema(idx.SchemaName) ||
+			extras.IndexBuildTables[idx.SchemaName+"."+idx.RelName] {
+			continue
 		}
-		if unlogged[tableKey] {
-			severity = "info"
-			detail["unlogged"] = true
-			rec += " (unlogged table — indexes lost on crash)"
+		stillInvalid[ident] = true
+		if _, seen := extras.InvalidFirstSeen[ident]; !seen {
+			extras.InvalidFirstSeen[ident] = time.Now()
+			continue
 		}
-		findings = append(findings, Finding{
-			Category:         "invalid_index",
-			Severity:         severity,
-			ObjectType:       "index",
-			ObjectIdentifier: ident,
-			Title:            fmt.Sprintf("Invalid index %s", ident),
-			Detail:           detail,
-			Recommendation:   rec,
-			RecommendedSQL:   dropIndexSQL(idx),
-			RollbackSQL:      idx.IndexDef + ";",
-			ActionRisk:       "safe",
-		})
+		findings = append(findings, invalidIndexFinding(idx, ident, unlogged))
+	}
+	for ident := range extras.InvalidFirstSeen {
+		if !stillInvalid[ident] {
+			delete(extras.InvalidFirstSeen, ident)
+		}
 	}
 	return findings
+}
+
+func invalidIndexFinding(
+	idx collector.IndexStats, ident string, unlogged map[string]bool,
+) Finding {
+	severity := "warning"
+	rec := "Drop the invalid index and recreate if needed."
+	detail := map[string]any{
+		"table":     idx.RelName,
+		"index_def": idx.IndexDef,
+	}
+	if unlogged[idx.SchemaName+"."+idx.RelName] {
+		severity = "info"
+		detail["unlogged"] = true
+		rec += " (unlogged table — indexes lost on crash)"
+	}
+	return Finding{
+		Category:         "invalid_index",
+		Severity:         severity,
+		ObjectType:       "index",
+		ObjectIdentifier: ident,
+		Title:            fmt.Sprintf("Invalid index %s", ident),
+		Detail:           detail,
+		Recommendation:   rec,
+		RecommendedSQL:   dropIndexSQL(idx),
+		RollbackSQL:      idx.IndexDef + ";",
+		ActionRisk:       "safe",
+	}
 }
 
 // ruleDuplicateIndexes detects exact-duplicate and subset btree indexes.

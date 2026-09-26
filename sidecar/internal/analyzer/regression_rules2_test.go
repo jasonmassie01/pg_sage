@@ -198,3 +198,15 @@ func TestRegression_LoadStatsEpoch(t *testing.T) {
 		t.Fatalf("epoch %v before postmaster start %v", epoch, started)
 	}
 }
+
+// G2-B09: the build probe runs against the catalog and reports success.
+func TestRegression_LoadIndexBuilds(t *testing.T) {
+	pool := phase2Pool(t)
+	a := New(pool, phase2Config(), nil, nil, nil, nil, nil, noopLog)
+	a.extras.IndexBuildProbeFailed = true
+	a.loadIndexBuilds(context.Background())
+	if a.extras.IndexBuildProbeFailed || a.extras.IndexBuildTables == nil {
+		t.Fatalf("probe failed=%v tables=%v", a.extras.IndexBuildProbeFailed,
+			a.extras.IndexBuildTables)
+	}
+}
