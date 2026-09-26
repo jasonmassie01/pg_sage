@@ -231,7 +231,7 @@ func TestIsBudgetExhausted_DayReset(t *testing.T) {
 	cfg := &config.LLMConfig{TokenBudgetDaily: 100}
 	client := New(cfg, noopLog)
 	// Set reset day to yesterday so tokens should be considered reset.
-	client.budgetResetDay.Store(budgetDay(time.Now())-1)
+	client.budgetResetDay.Store(budgetDay(time.Now()) - 1)
 	client.tokensUsedToday.Store(200)
 
 	if client.IsBudgetExhausted() {

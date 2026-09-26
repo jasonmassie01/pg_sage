@@ -516,4 +516,3 @@ func TestRepairTruncatedJSON_InChat(t *testing.T) {
 		t.Errorf("unexpected hint: %q", result[0]["hint"])
 	}
 }
-

@@ -89,9 +89,11 @@ func TestParseJSON_EmptyObjectLeavesZeroStruct(t *testing.T) {
 }
 
 func TestParseJSON_ShapeMismatchReturnsError(t *testing.T) {
-	// Caller expected an array but the model returned an object.
+	// Caller expected an array of ints but the model returned an object.
+	// ({} alone now means "empty" in json_object mode, G3-B09, so a
+	// non-empty object whose element type cannot fit is used.)
 	var out []int
-	err := ParseJSON("{}", JSONArray, &out)
+	err := ParseJSON(`{"a":"x"}`, JSONArray, &out)
 	if err == nil {
 		t.Fatal("expected error for shape mismatch")
 	}

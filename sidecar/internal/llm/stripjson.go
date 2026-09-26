@@ -135,11 +135,14 @@ func scanJSON(s string, shape JSONShape) (string, bool) {
 }
 
 // objectAsArray returns the array held by a single-field object (the
-// json_object-mode wrapper {"items":[...]}), or wraps the object as a
-// one-element array.
+// json_object-mode wrapper {"items":[...]}), "[]" for an empty object,
+// or wraps the object as a one-element array.
 func objectAsArray(raw json.RawMessage) string {
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err == nil && len(fields) == 1 {
+	if err := json.Unmarshal(raw, &fields); err == nil && len(fields) == 0 {
+		return "[]" // json_object mode's "nothing to recommend"
+	}
+	if len(fields) == 1 {
 		for _, v := range fields {
 			v = json.RawMessage(strings.TrimSpace(string(v)))
 			if len(v) > 0 && v[0] == '[' {

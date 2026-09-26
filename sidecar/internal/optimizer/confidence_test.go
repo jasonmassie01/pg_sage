@@ -185,12 +185,12 @@ func TestComputeConfidence_CloudSQLTypical(t *testing.T) {
 	// Simulates Cloud SQL PG16: high-traffic table, GENERIC_PLAN available,
 	// write rate known, no HypoPG, pg_stats available.
 	input := ConfidenceInput{
-		QueryVolume:      1.0,  // 500+ calls
-		PlanClarity:      1.0,  // GENERIC_PLAN available
-		WriteRateKnown:   1.0,  // multiple snapshots
-		HypoPGValidated:  0.0,  // unavailable on Cloud SQL
-		SelectivityKnown: 1.0,  // pg_stats with n_distinct + MCV
-		TableCallVolume:  1.0,  // 1000+ total calls
+		QueryVolume:      1.0, // 500+ calls
+		PlanClarity:      1.0, // GENERIC_PLAN available
+		WriteRateKnown:   1.0, // multiple snapshots
+		HypoPGValidated:  0.0, // unavailable on Cloud SQL
+		SelectivityKnown: 1.0, // pg_stats with n_distinct + MCV
+		TableCallVolume:  1.0, // 1000+ total calls
 	}
 	got := ComputeConfidence(input)
 	if got < 0.8 {
@@ -205,12 +205,12 @@ func TestComputeConfidence_CloudSQLTypical(t *testing.T) {
 func TestComputeConfidence_CloudSQLMedium(t *testing.T) {
 	// Medium-traffic table on Cloud SQL, query text only (no plans).
 	input := ConfidenceInput{
-		QueryVolume:      0.7,  // 100-499 calls
-		PlanClarity:      0.5,  // query text only
+		QueryVolume:      0.7, // 100-499 calls
+		PlanClarity:      0.5, // query text only
 		WriteRateKnown:   1.0,
 		HypoPGValidated:  0.0,
-		SelectivityKnown: 0.5,  // n_distinct only
-		TableCallVolume:  0.6,  // 100-999 calls
+		SelectivityKnown: 0.5, // n_distinct only
+		TableCallVolume:  0.6, // 100-999 calls
 	}
 	got := ComputeConfidence(input)
 	if got < 0.4 || got > 0.7 {

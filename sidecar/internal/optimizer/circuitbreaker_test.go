@@ -14,10 +14,10 @@ func TestNewCircuitBreaker_ShouldSkipFalse(t *testing.T) {
 
 func TestRecordFailure(t *testing.T) {
 	tests := []struct {
-		name       string
-		failures   int
-		wantSkip   bool
-		wantState  CircuitState
+		name      string
+		failures  int
+		wantSkip  bool
+		wantState CircuitState
 	}{
 		{"1 failure stays closed", 1, false, CircuitClosed},
 		{"2 failures stays closed", 2, false, CircuitClosed},

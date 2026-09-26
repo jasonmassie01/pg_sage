@@ -3,6 +3,7 @@ package optimizer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -1547,8 +1548,10 @@ func TestFunctional_LLMResponse_EmptyString(t *testing.T) {
 	accepted, _, _, err := opt.analyzeTable(
 		context.Background(), tc,
 	)
-	if err != nil {
-		t.Fatalf("analyzeTable error: %v", err)
+	// An empty completion is surfaced as an error (G3-B10), not as a
+	// successful "no recommendations" cycle.
+	if !errors.Is(err, llm.ErrEmptyResponse) {
+		t.Fatalf("analyzeTable err = %v, want llm.ErrEmptyResponse", err)
 	}
 	if len(accepted) != 0 {
 		t.Errorf(

@@ -103,3 +103,15 @@ func TestParseJSON_EmptyArrayStillValid(t *testing.T) {
 		t.Errorf("out = %v, want nil", out)
 	}
 }
+
+// json_object mode answers "nothing to recommend" with {} for an array
+// prompt; that is an empty result, not one zero-valued element.
+func TestParseJSON_EmptyObjectForArrayIsEmpty(t *testing.T) {
+	var out []parsedRec
+	if err := ParseJSON("{}", JSONArray, &out); err != nil {
+		t.Fatalf("ParseJSON({}): %v", err)
+	}
+	if len(out) != 0 {
+		t.Errorf("out = %+v, want empty", out)
+	}
+}

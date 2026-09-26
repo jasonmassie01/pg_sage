@@ -1,6 +1,8 @@
 package optimizer
 
 import (
+	"errors"
+	"github.com/pg-sage/sidecar/internal/llm"
 	"strings"
 	"testing"
 )
@@ -12,10 +14,12 @@ func TestParseRecommendations_InvalidJSON(t *testing.T) {
 	}
 }
 
+// json_object mode answers an array prompt with {} for "nothing to
+// recommend" (G3-B09); it is an empty result, not a parse error.
 func TestParseRecommendations_JSONObject(t *testing.T) {
-	_, err := parseRecommendations(`{}`)
-	if err == nil {
-		t.Fatal("expected error for JSON object instead of array")
+	recs, err := parseRecommendations(`{}`)
+	if err != nil || len(recs) != 0 {
+		t.Fatalf("recs=%v err=%v, want empty and nil", recs, err)
 	}
 }
 
@@ -77,10 +81,11 @@ func TestParseRecommendations_NestedJSONFence(t *testing.T) {
 	}
 }
 
+// Blank output is ErrEmptyResponse (G3-B10), not an empty result.
 func TestParseRecommendations_WhitespaceOnly(t *testing.T) {
 	recs, err := parseRecommendations("   ")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if !errors.Is(err, llm.ErrEmptyResponse) {
+		t.Fatalf("err = %v, want llm.ErrEmptyResponse", err)
 	}
 	if recs != nil {
 		t.Fatalf("expected nil for whitespace-only, got %v", recs)
