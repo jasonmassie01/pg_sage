@@ -61,7 +61,11 @@ func preflightRCAChild(t *testing.T, mode string) {
 		"PREFLIGHT_SHARED_RCA_DSN="+os.Getenv("SAGE_TEST_DATABASE_URL"),
 		"PREFLIGHT_RCA_MODE="+mode)
 	out, err := cmd.CombinedOutput()
-	t.Logf("fresh RCA process mode=%s: %s", mode, out)
+	// Adapted: under `go test -cover -v` the child's own "coverage:" line,
+	// echoed in this log, was taken as the package figure (96% reported
+	// as 30%). Rename it in the echo; the child's output is otherwise kept.
+	echo := strings.ReplaceAll(string(out), "coverage: ", "coverage (child) ")
+	t.Logf("fresh RCA process mode=%s: %s", mode, echo)
 	if err != nil {
 		t.Fatalf("RCA child process failed: %v", err)
 	}
