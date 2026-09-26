@@ -50,7 +50,9 @@ Output format — a JSON array of objects:
   }
 ]
 
-If no indexes are recommended, return an empty array: []`
+If no indexes are recommended, return an empty array: []
+
+` + llm.UntrustedDataRule
 }
 
 // FormatPrompt builds the user prompt from a TableContext.
@@ -91,8 +93,10 @@ func FormatPrompt(tc TableContext) string {
 		for _, s := range tc.ColStats {
 			line := fmt.Sprintf("- %s: n_distinct=%.2f, correlation=%.4f",
 				s.Column, s.NDistinct, s.Correlation)
-			if len(s.MostCommonVals) > 0 && len(s.MostCommonVals) <= 5 {
-				line += fmt.Sprintf(", top_vals=%v", s.MostCommonVals)
+			// MCV values are row data (possible PII); only their
+			// frequencies are sent (G3-B07).
+			if len(s.MostCommonFreqs) > 0 && len(s.MostCommonFreqs) <= 5 {
+				line += fmt.Sprintf(", top_freqs=%v", s.MostCommonFreqs)
 			}
 			b.WriteString(line + "\n")
 		}
@@ -106,7 +110,7 @@ func FormatPrompt(tc TableContext) string {
 				unique = " [UNIQUE]"
 			}
 			fmt.Fprintf(&b, "- %s%s: %s (scans: %d)\n",
-				idx.Name, unique, idx.Definition, idx.Scans)
+				idx.Name, unique, llm.SanitizeForLLM(idx.Definition), idx.Scans)
 		}
 	}
 
@@ -125,7 +129,8 @@ func FormatPrompt(tc TableContext) string {
 	if len(tc.Plans) > 0 {
 		b.WriteString("\n### Execution Plans\n")
 		for _, p := range tc.Plans {
-			fmt.Fprintf(&b, "- QueryID %d: %s\n", p.QueryID, p.Summary)
+			fmt.Fprintf(&b, "- QueryID %d: %s\n",
+				p.QueryID, llm.SanitizeForLLM(p.Summary))
 		}
 	}
 
@@ -160,9 +165,8 @@ func FormatPrompt(tc TableContext) string {
 		return FormatPromptTruncated(tc)
 	}
 
-	b.WriteString("\nRESPOND NOW with ONLY the JSON array. Start with [ immediately.")
-
-	return b.String()
+	return llm.UntrustedData("table_context", prompt) +
+		"\n\nRESPOND NOW with ONLY the JSON array. Start with [ immediately."
 }
 
 func writeJSONWorkloadHints(b *strings.Builder, queries []QueryInfo) {
