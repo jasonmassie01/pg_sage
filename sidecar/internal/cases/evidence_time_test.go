@@ -96,7 +96,8 @@ func TestQueryHintCandidateExpiryAnchoredToHintEvidence(t *testing.T) {
 		QueryID: 43, DatabaseName: "prod", Status: "active",
 		CreatedAt: evidenceAnchor, SuggestedRewrite: "SELECT 1",
 	}
-	if got := expiryOffsets(t, ProjectQueryHint(rewrite), evidenceAnchor); got[0] != 7*24*time.Hour {
+	got := expiryOffsets(t, ProjectQueryHint(rewrite), evidenceAnchor)
+	if got[0] != 7*24*time.Hour {
 		t.Fatalf("rewrite expiry = created%+v, want created+7d", got[0])
 	}
 }
