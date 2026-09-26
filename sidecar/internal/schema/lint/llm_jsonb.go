@@ -191,30 +191,6 @@ func parseLLMJsonbResponse(raw string) ([]llmJsonbMatch, error) {
 	return matches, nil
 }
 
-// stripJsonbToJSON extracts a JSON array from potentially
-// markdown-fenced LLM output.
-func stripJsonbToJSON(s string) string {
-	s = strings.TrimSpace(s)
-	first := strings.Index(s, "[")
-	last := strings.LastIndex(s, "]")
-	if first >= 0 && last > first {
-		return s[first : last+1]
-	}
-	return stripJsonbMarkdownFences(s)
-}
-
-// stripJsonbMarkdownFences removes ```json ... ``` wrappers.
-func stripJsonbMarkdownFences(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "```json") {
-		s = strings.TrimPrefix(s, "```json")
-	} else if strings.HasPrefix(s, "```") {
-		s = strings.TrimPrefix(s, "```")
-	}
-	s = strings.TrimSuffix(s, "```")
-	return strings.TrimSpace(s)
-}
-
 // applyMatches upgrades confirmed JSONB findings and removes those
 // the LLM says are not used in joins/where.
 func (a *LLMJsonbAnalyzer) applyMatches(
