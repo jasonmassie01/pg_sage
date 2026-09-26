@@ -152,7 +152,7 @@ func (r DryRunProvisionRunner) BackupCheck(
 	req ProvisionRequest,
 ) ProvisionResult {
 	result := r.Run(ctx, req.DryRunCommand)
-	return commandResult("verified", result)
+	return commandResult("planned", result)
 }
 
 func commandResult(status string, result ProvisionRunResult) ProvisionResult {

@@ -704,11 +704,7 @@ func seedExpiredLiveDeployment(
 
 func seedRestoreVerifiedBackup(t *testing.T, st *Store, ctx context.Context, id string) {
 	t.Helper()
-	if _, err := st.RecordBackup(ctx, id, BackupRequest{
-		BackupID: "backup_" + id,
-		Provider: ProviderAWSRDS,
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, RestoreDrillRequest{BackupID: "backup_" + id, EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"}); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 }

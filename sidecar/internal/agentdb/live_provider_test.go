@@ -42,11 +42,7 @@ func TestLiveExecuteAndDestroyUseProviderRunner(t *testing.T) {
 		!dep.LiveMode {
 		t.Fatalf("deployment after live execute = %#v", dep)
 	}
-	if _, err := st.RecordBackup(ctx, id, BackupRequest{
-		BackupID: "backup_live_exec",
-		Provider: ProviderGCPCloudSQL,
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, RestoreDrillRequest{BackupID: "backup_live_exec", EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"}); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 	destroy, err := st.DestroyProvisionLive(ctx, id, runner)
@@ -181,11 +177,7 @@ func TestReconcileAbandonedDeploymentsDestroysLiveCloudResources(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed creation receipt: %v", err)
 	}
-	if _, err := st.RecordBackup(ctx, id, BackupRequest{
-		BackupID: "backup_reconcile_live_destroy",
-		Provider: ProviderAWSRDS,
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, RestoreDrillRequest{BackupID: "backup_reconcile_live_destroy", EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"}); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 	registry := NewRunnerRegistry(DryRunProvisionRunner{})

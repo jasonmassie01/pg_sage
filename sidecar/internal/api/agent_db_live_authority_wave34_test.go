@@ -220,10 +220,7 @@ func (f *wave34AuthorityFixture) promoteToLive(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("record creation receipt: %v", err)
 	}
-	_, err = f.store.RecordBackup(f.ctx, f.id, agentdb.BackupRequest{
-		BackupID: f.id + "_restore_verified", Provider: agentdb.ProviderAWSRDS,
-		Status: "restore_verified",
-	})
+	_, err = f.store.RecordRestoreDrill(f.ctx, f.id, agentdb.RestoreDrillRequest{BackupID: f.id + "_restore_verified", EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"})
 	if err != nil {
 		t.Fatalf("record verified restore: %v", err)
 	}

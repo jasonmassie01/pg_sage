@@ -290,11 +290,7 @@ func TestStoreDeploymentLifecycleRecommendationsAndCost(t *testing.T) {
 	if err := st.Delete(ctx, id); !errors.Is(err, ErrRestoreRequired) {
 		t.Fatalf("delete before verified restore err = %v, want ErrRestoreRequired", err)
 	}
-	if _, err := st.RecordBackup(ctx, id, BackupRequest{
-		BackupID: "backup_store_test",
-		Provider: "managed",
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, RestoreDrillRequest{BackupID: "backup_store_test", EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"}); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 	restored, err := st.Restore(ctx, id)
@@ -439,11 +435,7 @@ func TestAuditEventsListAndExportJSONL(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Feedback: %v", err)
 	}
-	if _, err := st.RecordBackup(ctx, id, BackupRequest{
-		BackupID: "backup_audit",
-		Provider: "managed",
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, RestoreDrillRequest{BackupID: "backup_audit", EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"}); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 

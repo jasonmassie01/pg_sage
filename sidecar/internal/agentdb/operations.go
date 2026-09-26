@@ -3,6 +3,7 @@ package agentdb
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -159,7 +160,22 @@ func (s *Store) Cost(ctx context.Context, id string) (CostSummary, error) {
 	return summary, nil
 }
 
+// RecordBackup records backup evidence for one deployment. It can never
+// grant restore_verified (only RecordRestoreDrill can) and can never modify
+// a backup that belongs to another deployment (G8-B11).
 func (s *Store) RecordBackup(
+	ctx context.Context,
+	id string,
+	req BackupRequest,
+) (Backup, error) {
+	if req.Status == "restore_verified" {
+		return Backup{}, fmt.Errorf("%w: restore_verified requires a recorded restore drill",
+			ErrInvalid)
+	}
+	return s.writeBackup(ctx, id, req)
+}
+
+func (s *Store) writeBackup(
 	ctx context.Context,
 	id string,
 	req BackupRequest,
@@ -188,6 +204,7 @@ func (s *Store) RecordBackup(
 			verified_at=EXCLUDED.verified_at,
 			restore_verified_at=EXCLUDED.restore_verified_at,
 			detail=EXCLUDED.detail
+		WHERE agent_db_backups.deployment_id=EXCLUDED.deployment_id
 		RETURNING backup_id, deployment_id, provider, status, archive_uri,
 			verified_at, restore_verified_at, created_at, detail`,
 		req.BackupID,
@@ -199,6 +216,10 @@ func (s *Store) RecordBackup(
 		restoreAt,
 		jsonBytes(req.Detail),
 	), &backup)
+	if errors.Is(err, ErrNotFound) {
+		// The backup id already belongs to another deployment.
+		return Backup{}, ErrConflict
+	}
 	if err != nil {
 		return Backup{}, err
 	}
