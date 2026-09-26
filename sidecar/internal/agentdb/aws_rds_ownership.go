@@ -172,7 +172,7 @@ func statusIdentifier(provider string, dep Deployment) (string, error) {
 	if dep.ProviderResourceID != "" {
 		return dep.ProviderResourceID, nil
 	}
-	if dep.ProvisioningStatus != "create_uncertain" {
+	if dep.ProvisioningStatus != "create_uncertain" && dep.CreateOperationID == "" {
 		return "", errRecordedIDRequired(provider)
 	}
 	return ProviderResourceName(provider, dep.DeploymentID)

@@ -130,3 +130,29 @@ func TestHostedStatusUnknownCreateIsNotRetryable(t *testing.T) {
 		t.Fatal("ambiguous create became retryable 'failed'")
 	}
 }
+
+// G8-B23: a destroying row without a teardown id is resolved to destroyed
+// when the provider reports the resource gone, instead of blocking forever.
+func TestReconcileResolvesDestroyingWithoutTeardownID(t *testing.T) {
+	st, ctx, pool := requireAgentDB(t)
+	defer pool.Close()
+	id := "adb_fix_destroying_no_teardown"
+	seedExpiredLiveDeployment(t, st, ctx, pool, id)
+	if _, err := pool.Exec(ctx, `UPDATE sage.agent_db_deployments
+		SET provisioning_status='destroying', teardown_operation_id=''
+		WHERE deployment_id=$1`, id); err != nil {
+		t.Fatal(err)
+	}
+	runner := notFoundStatusRunner{fakeProviderRunner{provider: ProviderAWSRDS, name: "gone_rds"}}
+	result, err := st.ReconcileLiveProvisioning(ctx, registryWith(runner))
+	if err != nil {
+		t.Fatalf("ReconcileLiveProvisioning: %v", err)
+	}
+	dep, err := st.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dep.ProvisioningStatus != "destroyed" || containsBlockedID(result.Blocked, id) {
+		t.Fatalf("status=%s blocked=%#v", dep.ProvisioningStatus, result.Blocked)
+	}
+}

@@ -135,7 +135,9 @@ func TestReconcileLiveProvisioning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReconcileLiveProvisioning: %v", err)
 	}
-	if len(result.DestroyDryRun) == 0 {
+	// G8-B23: status refreshes are reported as StatusChecked, not as
+	// destroy dry-runs.
+	if len(result.StatusChecked) == 0 || len(result.DestroyDryRun) != 0 {
 		t.Fatalf("expected reconcile attempt: %#v", result)
 	}
 	dep, err := st.Get(ctx, id)
