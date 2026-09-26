@@ -14,7 +14,7 @@ func TestBuildActionFamilyReadinessAnalyzeSupportedCloudSQL(t *testing.T) {
 		Provider: "cloud-sql",
 	}
 
-	got := BuildActionFamilyReadiness(cfg, caps, "auto", false, time.Now())
+	got := buildActionFamilyReadiness(cfg, caps, "auto", false, true, time.Now())
 	analyze := actionReadiness(t, got, "analyze_table")
 
 	if !analyze.Supported {
@@ -30,7 +30,7 @@ func TestBuildActionFamilyReadinessBlocksUnsupportedProvider(t *testing.T) {
 	cfg := readinessTestConfig("autonomous")
 	caps := ProviderCapabilities{Provider: "azure"}
 
-	got := BuildActionFamilyReadiness(cfg, caps, "auto", false, time.Now())
+	got := buildActionFamilyReadiness(cfg, caps, "auto", false, true, time.Now())
 	analyze := actionReadiness(t, got, "analyze_table")
 
 	if analyze.Supported {
@@ -79,7 +79,7 @@ func TestBuildActionFamilyReadinessIncludesNewAutonomyFamilies(t *testing.T) {
 	cfg := readinessTestConfig("autonomous")
 	caps := ProviderCapabilities{Provider: "postgres"}
 
-	got := BuildActionFamilyReadiness(cfg, caps, "auto", false, time.Now())
+	got := buildActionFamilyReadiness(cfg, caps, "auto", false, true, time.Now())
 
 	for _, actionType := range []string{
 		"vacuum_table",
@@ -113,7 +113,7 @@ func TestBuildActionFamilyReadinessBlocksReplicaWriteAction(t *testing.T) {
 	cfg := readinessTestConfig("autonomous")
 	caps := ProviderCapabilities{Provider: "postgres", IsReplica: true}
 
-	got := BuildActionFamilyReadiness(cfg, caps, "auto", false, time.Now())
+	got := buildActionFamilyReadiness(cfg, caps, "auto", false, true, time.Now())
 	analyze := actionReadiness(t, got, "analyze_table")
 
 	if analyze.Supported {
