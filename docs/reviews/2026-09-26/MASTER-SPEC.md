@@ -552,7 +552,28 @@ every behavioral assertion kept; each adaptation is explained in its commit.
   `local_monitor_config.yaml` in your main checkout before pulling this branch**, or git will
   delete it. Live LLM tests need `PG_SAGE_LIVE_LLM=1`.
 
-### 10.4 Deferred (with reason)
+### 10.4 Decisions needed from you
+
+1. **Should duplicate/invalid-index drops and per-table autovacuum tuning auto-run in autonomous
+   mode?** The April action contracts mark `drop_index` and `autovacuum_tuning` "approval
+   required". That guardrail never matched (P0-04), so they auto-ran, and the June e2e
+   pipeline suite and the H2 roadmap (A1, A2) assume auto-run. This branch honors the contracts
+   (fail-closed). The e2e checks now assert "withheld, then executed after approval". To make
+   them autonomous, remove the "approval required" guardrail from those two contracts in
+   `executor/action_contract.go`. Recommendation: keep approval until per-queryid
+   verify-and-revert covers them (roadmap F1), then remove it for these reversible classes.
+2. **Codex `SchemaLifecycle` test change** (§10.2) and the two contract-agent fixture choices:
+   a withheld retention delete returns a policy error, and crash recovery waits for the 5-minute
+   claim lease.
+3. **Meta-db global trust as a ceiling** (never escalates a database), and
+   `notification_policy.allow_private_targets` being YAML-only.
+4. **Delete the frozen C extension from master** (§7).
+5. **Publishing:** `docs.yml` publishes all of `docs/` to GitHub Pages on merge, including
+   `docs/reviews/2026-09-26/`, which describes security defects in detail. Most are fixed here,
+   but several are deferred. Consider moving this folder out of `docs/` (or excluding it from
+   mkdocs) before merging to master.
+
+### 10.5 Deferred (with reason)
 
 | Item | Why deferred |
 |---|---|
