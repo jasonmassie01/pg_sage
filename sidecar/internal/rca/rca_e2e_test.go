@@ -315,6 +315,9 @@ func TestAnalyzeE2E_LogAndMetricSignalsCombined(t *testing.T) {
 // TestAnalyzeE2E_SelfActionWithLogSignal: log signal + self-action correlation.
 func TestAnalyzeE2E_SelfActionWithLogSignal(t *testing.T) {
 	eng := testEngine()
+	// R05: self-action matching needs a database identity; an empty
+	// identity used to act as a wildcard.
+	eng.WithDatabaseName("mydb")
 	now := time.Now()
 	store := &mockActionStore{
 		recentActions: []SageAction{

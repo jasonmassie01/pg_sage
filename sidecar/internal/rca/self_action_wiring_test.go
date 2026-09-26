@@ -201,21 +201,21 @@ func TestAnalyze_SelfCausedIncidentCreated(t *testing.T) {
 	// correlation in isolation via applySelfActionCorrelation.
 	eng.mu.Lock()
 	eng.incidents = append(eng.incidents, Incident{
-		ID:           newUUID(),
-		DetectedAt:   now,
-		Severity:     "warning",
-		SignalIDs:    []string{"log_slow_query"},
-		RootCause:    "slow query detected",
-		Source:       "log_deterministic",
-		Confidence:   0.85,
-		DatabaseName: "",
+		ID:              newUUID(),
+		DetectedAt:      now,
+		Severity:        "warning",
+		SignalIDs:       []string{"log_slow_query"},
+		RootCause:       "slow query detected",
+		Source:          "log_deterministic",
+		Confidence:      0.85,
+		DatabaseName:    "mydb",
 		OccurrenceCount: 1,
 	})
 	eng.mu.Unlock()
 
 	// Run the correlation directly with the existing incidents.
 	newIncidents := eng.incidents
-	eng.applySelfActionCorrelation(newIncidents)
+	applyCorrelationForTest(eng, store, newIncidents)
 
 	// Find self-caused incidents.
 	var selfCaused int
@@ -264,12 +264,13 @@ func TestAnalyze_ManualReviewOnRepeatedRollback(t *testing.T) {
 		RootCause:       "slow query detected",
 		Source:          "log_deterministic",
 		Confidence:      0.85,
+		DatabaseName:    "mydb",
 		OccurrenceCount: 1,
 	})
 	eng.mu.Unlock()
 
 	newIncidents := eng.incidents
-	eng.applySelfActionCorrelation(newIncidents)
+	applyCorrelationForTest(eng, store, newIncidents)
 
 	var manualReview int
 	for _, inc := range eng.incidents {
@@ -324,4 +325,21 @@ func TestAnalyze_FullCycleWithSelfAction(t *testing.T) {
 		t.Errorf("RecentSageActions called %d, want 5",
 			store.recentCalls)
 	}
+}
+
+// applyCorrelationForTest runs self-action correlation for incidents the
+// way commitCycle does, with the engine bound to database "mydb" (an
+// empty identity never matches, R05).
+func applyCorrelationForTest(
+	eng *Engine, store *mockActionStore, incidents []Incident,
+) {
+	eng.WithDatabaseName("mydb")
+	eng.mu.Lock()
+	defer eng.mu.Unlock()
+	eng.applySelfActionCorrelation(
+		cyclePlan{incidents: incidents, correlator: eng.correlator},
+		sageActions{
+			recent: store.recentActions, rollbacks: store.rollbackHistory,
+			ok: true,
+		})
 }

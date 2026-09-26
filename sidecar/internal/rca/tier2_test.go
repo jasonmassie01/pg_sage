@@ -1,6 +1,7 @@
 package rca
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -216,7 +217,7 @@ func TestBuildTier2UserPrompt_Format(t *testing.T) {
 			Metrics:  map[string]any{"count": 42},
 		},
 	}
-	got := buildTier2UserPrompt(sigs)
+	got := buildTier2UserPrompt(sigs, sigs)
 	if !strings.Contains(got, "2 uncovered signals") {
 		t.Errorf("missing signal count header: %s", got)
 	}
@@ -235,7 +236,7 @@ func TestBuildTier2UserPrompt_Format(t *testing.T) {
 }
 
 func TestBuildTier2UserPrompt_Empty(t *testing.T) {
-	got := buildTier2UserPrompt(nil)
+	got := buildTier2UserPrompt(nil, nil)
 	if !strings.Contains(got, "0 uncovered signals") {
 		t.Errorf("expected 0 count header, got: %s", got)
 	}
@@ -513,4 +514,18 @@ func TestStripToJSONObject(t *testing.T) {
 			t.Errorf("content lost: %q", got)
 		}
 	})
+}
+
+// runTier2Correlation plans and runs one Tier 2 call synchronously, the
+// way AnalyzeContext does (test helper).
+func (e *Engine) runTier2Correlation(
+	signals []*Signal, tier1 []Incident,
+) []Incident {
+	e.mu.Lock()
+	req, reobserved := e.planTier2(signals, tier1)
+	e.mu.Unlock()
+	if req == nil {
+		return reobserved
+	}
+	return e.runTier2(context.Background(), req)
 }
