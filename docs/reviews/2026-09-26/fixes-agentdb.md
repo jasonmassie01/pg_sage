@@ -93,7 +93,7 @@ Copied verbatim in 156ac43: `sidecar/internal/api/preflight_surface_agentdb_test
 **Command:** `go test -cover -count=1 -v ./internal/agentdb ./internal/api ./cmd/pg_sage_sidecar`
 (and again with `-tags=integration`), `SAGE_TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:55499/postgres?sslmode=disable`;
 `go build ./...` and `go vet ./...` clean.
-Web: `npm ci`, `npm run lint` (clean), `npx vitest run src/pages` (71 passed); production bundle
+Web: `npm ci`, `npm run lint` (clean), `npm run test -- --run` (20 files, 92 passed); production bundle
 verified with `vite build --outDir <scratch>` (dist intentionally not rebuilt).
 
 **Total (unit run):** 1409 passed, 0 failed, 6 skipped (counts include subtests)
