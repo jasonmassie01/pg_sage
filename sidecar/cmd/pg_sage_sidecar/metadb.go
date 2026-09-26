@@ -554,7 +554,7 @@ func retryFailedInstances(state *metaDBState) {
 		if inst.Pool != nil && snap.Error == "" {
 			continue // healthy
 		}
-		if inst.Stopped {
+		if fleetMgr.InstanceStopped(inst) {
 			continue // manually stopped
 		}
 
