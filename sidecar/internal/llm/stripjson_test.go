@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -136,10 +137,13 @@ func TestParseJSON_InvalidJSONErrorIncludesSnippet(t *testing.T) {
 	}
 }
 
-func TestParseJSON_EmptyInputNoError(t *testing.T) {
+// An empty response is a provider/truncation failure, not "nothing
+// recommended" (G3-B10). This test previously asserted a nil error, which
+// encoded the bug; see review_parse_test.go for the full contract.
+func TestParseJSON_EmptyInputIsError(t *testing.T) {
 	var out []int
-	if err := ParseJSON("", JSONArray, &out); err != nil {
-		t.Fatalf("err: %v", err)
+	if err := ParseJSON("", JSONArray, &out); !errors.Is(err, ErrEmptyResponse) {
+		t.Fatalf("err = %v, want ErrEmptyResponse", err)
 	}
 	if out != nil {
 		t.Errorf("expected nil, got %v", out)

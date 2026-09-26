@@ -282,8 +282,10 @@ func TestChat_JSONModeSendsResponseFormat(t *testing.T) {
 		JSONMode:         true,
 	}
 	client := New(cfg, noopLog)
+	// json_object mode is only sent for prompts that ask for JSON
+	// (G3-B11); OpenAI rejects it when no message mentions JSON.
 	if _, _, err := client.Chat(
-		context.Background(), "sys", "user", 50,
+		context.Background(), "Respond in JSON.", "user", 50,
 	); err != nil {
 		t.Fatalf("chat: %v", err)
 	}
