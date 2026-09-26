@@ -358,7 +358,7 @@ Verdicts from the group files, reconciled with Codex. **WIRE** = valuable, finis
 | `agentdb.HeuristicBlueprintGenerator` | TEST-ONLY (product must fail closed without an LLM) | agentdb |
 | Legacy UI pages (`Findings.jsx`, `IncidentsPage`, `ForecastsPage`, `QueryHintsPage`, `SchemaHealthPage`, `DatabaseSettingsPage`) | DELETE after their workflows exist in Cases (SURF-10) | api-web |
 | `tuner` verification controls (C12) | DELETE inert keys (or implement); no silent no-op config | llm |
-| Frozen C extension (`src/`, `sql/`, `include/`, root Makefile/Dockerfile, `META.json`, `pg_sage.control`) | DELETE from master (tag archive) — **needs your decision** | deferred |
+| Frozen C extension (`src/`, `sql/`, `include/`, root Makefile/Dockerfile, `META.json`, `pg_sage.control`) | DELETE from master (tag archive) | ✅ deleted; archive at local tag `c-extension-final`; sidecar `extension` mode removed |
 
 ---
 
@@ -531,8 +531,12 @@ every behavioral assertion kept; each adaptation is explained in its commit.
 - **Retention deletes** need a matching dry run 24 h–7 d old and go through the gate. A
   withheld delete returns a policy error.
 - **Crash recovery of a pending revert** resumes after the 5-minute claim lease expires.
-- **Mode default:** a DSN with no mode now runs **standalone** (the quick start works); with no
-  DSN the default stays `extension`.
+- **Modes:** the default is **standalone** (the quick start works, and with no DSN it targets
+  localhost). `--meta-db` with no mode infers `meta`. `mode: extension` fails at startup
+  because the C extension was removed. `pg_sage_info{mode}` reports `meta` where it used to
+  report `extension`; the `pg_sage_mode` gauge value (0) is unchanged.
+- **vectorlab** bounds idle-in-transaction time by the run budget, not the 25 ms-scale
+  statement timeout.
 - **LLM kill switch** now also disables the optimizer client; LLM hot reload reaches every
   client.
 - **OIDC** requires `email_verified` and matches issuer+subject. Existing password accounts are
@@ -629,5 +633,4 @@ every behavioral assertion kept; each adaptation is explained in its commit.
 | G9-B13 operator header e-stop control | Needs state plumbing + UX decision |
 | Two concurrent sidecars can duplicate an open incident; partial pg_stat_statements resets; "keep" verdict completion before credit | Residual risks noted by the contract agents; low likelihood |
 | ~11 G5 P2/P3s, `inst.DatabaseID` publish race, G7-D05/D06, lint `bloated_table` | Low value or blocked on the runtime refactor |
-| Frozen C extension removal | Needs your decision (§7) |
 
