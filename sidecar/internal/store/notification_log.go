@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/notify"
 )
 
 // ListLog returns the most recent notification log entries.
@@ -37,6 +39,8 @@ func (s *NotificationStore) ListLog(
 		); err != nil {
 			return nil, fmt.Errorf("scanning log entry: %w", err)
 		}
+		// Rows written before G7-B10 can embed webhook URLs.
+		e.Error = notify.RedactURLs(e.Error)
 		result = append(result, e)
 	}
 	return result, rows.Err()

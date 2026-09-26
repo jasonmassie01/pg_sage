@@ -10,7 +10,8 @@ export function RulesTab() {
   const [error, setError] = useState(null)
   const [channelId, setChannelId] = useState('')
   const [event, setEvent] = useState(EVENT_TYPES[0])
-  const [minSeverity, setMinSeverity] = useState('warning')
+  // G7-B06: 'info' so the default action_executed rule can fire.
+  const [minSeverity, setMinSeverity] = useState('info')
   const [creating, setCreating] = useState(false)
 
   const fetchRules = useCallback(async () => {

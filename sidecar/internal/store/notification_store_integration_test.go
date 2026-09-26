@@ -123,7 +123,7 @@ func TestCreateRule(t *testing.T) {
 	})
 
 	ruleID, err := ns.CreateRule(
-		ctx, chID, "action_executed", "warning")
+		ctx, chID, "action_executed", "info") // G7-B06: reachable
 	if err != nil {
 		t.Fatalf("CreateRule: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestDeleteRule(t *testing.T) {
 	})
 
 	ruleID, err := ns.CreateRule(
-		ctx, chID, "approval_needed", "critical")
+		ctx, chID, "approval_needed", "warning") // G7-B06: reachable
 	if err != nil {
 		t.Fatalf("CreateRule: %v", err)
 	}
