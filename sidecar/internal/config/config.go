@@ -510,6 +510,9 @@ func (p *PostgresConfig) DSN() string {
 // Precedence: CLI > env > YAML > defaults.
 func Load(args []string) (*Config, error) {
 	cfg := newDefaults()
+	// Mode starts unset so inferMode can tell an explicit choice (YAML,
+	// SAGE_MODE, --mode) from the built-in default.
+	cfg.Mode = ""
 
 	// Parse CLI flags to get config path and mode early.
 	fs := flag.NewFlagSet("pg_sage_sidecar", flag.ContinueOnError)
@@ -525,7 +528,9 @@ func Load(args []string) (*Config, error) {
 	promAddr := fs.String("prom-addr", "", "Prometheus listen address")
 	metaDB := fs.String("meta-db", "", "Metadata database connection string")
 	encryptionKey := fs.String("encryption-key", "", "Passphrase for credential encryption")
-	_ = fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return nil, fmt.Errorf("parse flags: %w", err)
+	}
 
 	// Step 1: Load YAML (if provided or auto-detected).
 	yamlPath := *configPath
@@ -587,6 +592,10 @@ func Load(args []string) (*Config, error) {
 	cfg.APIKey = os.Getenv("SAGE_API_KEY")
 	cfg.TLSCert = os.Getenv("SAGE_TLS_CERT")
 	cfg.TLSKey = os.Getenv("SAGE_TLS_KEY")
+
+	if cfg.Mode == "" {
+		cfg.Mode = inferMode(cfg)
+	}
 
 	// Normalize fleet/standalone config before validation.
 	cfg.normalize()
@@ -949,7 +958,9 @@ func loadYAML(path string, cfg *Config) error {
 	// Warn about env vars that expanded to empty strings. This catches the
 	// common case where ${SAGE_LLM_API_KEY} is in the YAML but the env var
 	// is not set, leaving an empty value that silently breaks the feature.
-	warnUnexpandedEnvVars(raw, expanded)
+	for _, warning := range unexpandedEnvWarnings(path, raw) {
+		fmt.Fprintln(configWarningOutput, warning)
+	}
 	if err := rejectRetiredTopLevelConfig(expanded); err != nil {
 		return err
 	}
@@ -997,25 +1008,62 @@ func rejectRetiredTopLevelConfig(raw string) error {
 	return nil
 }
 
-// warnUnexpandedEnvVars detects ${VAR} patterns in the raw YAML that expanded
-// to empty strings (meaning the env var was not set) and logs a warning.
-func warnUnexpandedEnvVars(raw, expanded string) {
-	// Find all ${...} references in the raw YAML.
-	for i := 0; i < len(raw); i++ {
-		if i+1 < len(raw) && raw[i] == '$' && raw[i+1] == '{' {
-			end := strings.Index(raw[i:], "}")
-			if end < 0 {
+// configWarningOutput receives configuration warnings (stderr in
+// production; tests capture it).
+var configWarningOutput io.Writer = os.Stderr
+
+// unexpandedEnvWarnings lists ${VAR} references in YAML scalar values whose
+// variable is unset. Comments are not configuration and are ignored.
+func unexpandedEnvWarnings(path, raw string) []string {
+	var document yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &document); err != nil {
+		return nil // the strict decoder reports the syntax error
+	}
+	var warnings []string
+	seen := map[string]bool{}
+	walkScalars(&document, func(value string) {
+		for _, name := range bracedEnvNames(value) {
+			if seen[name] || os.Getenv(name) != "" {
 				continue
 			}
-			varName := raw[i+2 : i+end]
-			if os.Getenv(varName) == "" {
-				fmt.Fprintf(os.Stderr,
-					"WARNING: config %q references ${%s} but it is not set in the environment\n",
-					"config.yaml", varName)
-			}
-			i += end
+			seen[name] = true
+			warnings = append(warnings, fmt.Sprintf(
+				"WARNING: config %q references ${%s} but it is not set "+
+					"in the environment", path, name))
 		}
+	})
+	return warnings
+}
+
+func walkScalars(node *yaml.Node, visit func(string)) {
+	if node == nil {
+		return
 	}
+	if node.Kind == yaml.ScalarNode {
+		visit(node.Value)
+	}
+	for _, child := range node.Content {
+		walkScalars(child, visit)
+	}
+}
+
+func bracedEnvNames(value string) []string {
+	var names []string
+	for _, match := range braceEnvRe.FindAllStringSubmatch(value, -1) {
+		names = append(names, match[1])
+	}
+	return names
+}
+
+// inferMode picks the mode when none was configured. A DSN supplied by
+// --pg-url, SAGE_DATABASE_URL or postgres.database_url is the documented
+// quick start and runs the standalone pipeline; meta-db deployments keep
+// the default because standalone+meta registers a phantom instance.
+func inferMode(cfg *Config) string {
+	if cfg.Postgres.DatabaseURL != "" && cfg.MetaDB == "" {
+		return "standalone"
+	}
+	return DefaultMode
 }
 
 func overlayEnv(cfg *Config) {
