@@ -35,7 +35,9 @@ type WireParams struct {
 	// ConfigBaseLoader reloads the current file config for override
 	// deletes (G5-B03); nil falls back to ConfigBase.
 	ConfigBaseLoader func() (*config.Config, error)
-	MCPHandler       http.Handler
+	// LLMBudgets covers every LLM client and the fleet budget (G3-B14).
+	LLMBudgets api.LLMBudgetRegistry
+	MCPHandler http.Handler
 }
 
 // WireResult holds the assembled router and resolved deps for
@@ -145,6 +147,7 @@ func wireRouter(p WireParams) WireResult {
 			ConfigController: p.Config,
 			ConfigBase:       p.ConfigBase,
 			ConfigBaseLoader: p.ConfigBaseLoader,
+			LLMBudgets:       p.LLMBudgets,
 			DisableConfigWrites: p.Cfg != nil && p.Cfg.IsFleet() &&
 				!p.Cfg.HasMetaDB(),
 			MCPHandler: p.MCPHandler,

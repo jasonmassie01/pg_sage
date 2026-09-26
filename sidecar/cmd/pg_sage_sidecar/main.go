@@ -1993,6 +1993,7 @@ func startAPIServer(rl *RateLimiter) {
 		Config:           configController,
 		ConfigBase:       configBase,
 		ConfigBaseLoader: loadFileConfigBase,
+		LLMBudgets:       llmBudgetRegistry(),
 		MCPHandler:       mcpHTTPHandler(),
 	})
 

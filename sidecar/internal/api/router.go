@@ -84,6 +84,9 @@ type RuntimeDeps struct {
 	ConfigBaseLoader    func() (*config.Config, error)
 	DisableConfigWrites bool
 	MCPHandler          http.Handler
+	// LLMBudgets covers every LLM client (general, optimizer, per-database)
+	// and the fleet budget; nil falls back to the shared manager (G3-B14).
+	LLMBudgets LLMBudgetRegistry
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -103,12 +106,14 @@ func NewRouterFullRuntime(
 	var configBaseLoader func() (*config.Config, error)
 	var disableConfigWrites bool
 	var mcpHandler http.Handler
+	var budgets LLMBudgetRegistry
 	if runtime != nil {
 		controller = runtime.ConfigController
 		configBase = runtime.ConfigBase
 		configBaseLoader = runtime.ConfigBaseLoader
 		disableConfigWrites = runtime.DisableConfigWrites
 		mcpHandler = runtime.MCPHandler
+		budgets = runtime.LLMBudgets
 	}
 	var runtimeConfigStore *store.ConfigStore
 	if pool != nil && !disableConfigWrites {
@@ -118,6 +123,7 @@ func NewRouterFullRuntime(
 		apiMux, mgr, cfg, llmMgr, controller, runtimeConfigStore,
 		disableConfigWrites,
 	)
+	registerLLMBudgetRoutes(apiMux, llmBudgetSource(budgets, llmMgr))
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		mcpHandler != nil {
 		apiMux.Handle("POST /api/v1/mcp", bindMCPPrincipal(mcpHandler))
@@ -305,15 +311,6 @@ func registerAPIRoutes(
 	mux.Handle(
 		"POST /api/v1/llm/models",
 		adminOnly(http.HandlerFunc(discoverModelsHandler(&cfg.LLM, controller))))
-	mux.HandleFunc(
-		"GET /api/v1/llm/status",
-		llmStatusHandler(llmMgr))
-
-	budgetResetH := adminOnly(http.HandlerFunc(
-		llmBudgetResetHandler(llmMgr)))
-	mux.Handle(
-		"POST /api/v1/llm/budget/reset", budgetResetH)
-
 	// v0.9 — Incident endpoints
 	mux.HandleFunc(
 		"GET /api/v1/incidents",

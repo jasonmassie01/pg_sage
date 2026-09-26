@@ -93,8 +93,7 @@ func TestLLMBudgetResetReachesEveryRegisteredClient(t *testing.T) {
 	handler := budgetRouter(budgets, nil)
 
 	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, httptest.NewRequest(http.MethodPost,
-		"/api/v1/llm/budget/reset", nil))
+	handler.ServeHTTP(w, jsonPost("/api/v1/llm/budget/reset"))
 	body := decodeLLMStatus(t, w)
 
 	if budgets.resets != 1 {
@@ -124,9 +123,16 @@ func TestLLMStatusFallsBackToManagerAndEmptyState(t *testing.T) {
 		t.Fatalf("no-LLM status = %d, want 200", empty.Code)
 	}
 	reset := httptest.NewRecorder()
-	budgetRouter(nil, nil).ServeHTTP(reset,
-		httptest.NewRequest(http.MethodPost, "/api/v1/llm/budget/reset", nil))
+	budgetRouter(nil, nil).ServeHTTP(reset, jsonPost("/api/v1/llm/budget/reset"))
 	if reset.Code != http.StatusServiceUnavailable {
 		t.Fatalf("no-LLM reset = %d, want 503", reset.Code)
 	}
+}
+
+// jsonPost mirrors the dashboard, which sends a JSON content type on every
+// mutation (the API rejects others with 415).
+func jsonPost(path string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, path, nil)
+	req.Header.Set("Content-Type", "application/json")
+	return req
 }
