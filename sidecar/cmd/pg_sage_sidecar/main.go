@@ -740,7 +740,6 @@ func initStandalone() {
 			cfg.RCA.EscalationCycles)
 	}
 
-	go anal.Run(shutdownCtx)
 
 	// 9. Executor runs after analyzer (called from analyzer loop).
 	exec = executor.New(pool, cfg, anal, rampStart, logStructuredWrapper)
@@ -780,6 +779,9 @@ func initStandalone() {
 		anal.WithPlanNarrator(
 			analyzer.NewLLMPlanNarrator(llmClient, logStructuredWrapper))
 	}
+	// Start the analyzer only after it is fully configured: its first
+	// cycle runs immediately and reads dispatcher/name/narrator (G2-B15).
+	go anal.Run(shutdownCtx)
 
 	go store.StartActionExpiry(shutdownCtx, actionStore, logStructuredWrapper)
 
@@ -1507,8 +1509,6 @@ func initFleetMultiDB() {
 			dbAnal.WithRCAEngine(&rcaAdapter{e: dbRCAEng})
 		}
 
-		startInstanceWorker(instWorkers, func() { dbAnal.Run(instCtx) })
-
 		// Per-database executor. Pass the YAML-parsed configRampStart
 		// so the first-time bootstrap of each database's sage.config
 		// row honours the operator's configured ramp start rather than
@@ -1566,6 +1566,8 @@ func initFleetMultiDB() {
 				dbLLMClient, logStructuredWrapper,
 			))
 		}
+		// Start only after full configuration (G2-B15).
+		startInstanceWorker(instWorkers, func() { dbAnal.Run(instCtx) })
 
 		startInstanceWorker(instWorkers, func() {
 			store.StartActionExpiry(
