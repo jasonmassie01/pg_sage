@@ -49,7 +49,9 @@ func TestAgentDeploymentToFleetConfig_Defaults(t *testing.T) {
 	if !ok {
 		t.Fatal("expected eligible")
 	}
-	if cfg.Port != 5432 || cfg.SSLMode != "disable" {
+	// G5-B15: provisioned agent databases are remote; never default to
+	// plaintext credentials.
+	if cfg.Port != 5432 || cfg.SSLMode != "require" {
 		t.Errorf("defaults wrong: port=%d sslmode=%q", cfg.Port, cfg.SSLMode)
 	}
 }

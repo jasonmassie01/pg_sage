@@ -175,53 +175,6 @@ func TestPhase2_SafetyLockTimeout_Positive(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// warnUnexpandedEnvVars (22.2% coverage)
-// ---------------------------------------------------------------------------
-
-func TestPhase2_WarnUnexpandedEnvVars_NoVars(t *testing.T) {
-	// No ${} references — should not panic or error.
-	warnUnexpandedEnvVars("key: value", "key: value")
-}
-
-func TestPhase2_WarnUnexpandedEnvVars_SetVar(t *testing.T) {
-	t.Setenv("SAGE_TEST_WARN_VAR", "hello")
-	raw := "api_key: ${SAGE_TEST_WARN_VAR}"
-	expanded := os.ExpandEnv(raw)
-	// Should not warn because the env var IS set.
-	warnUnexpandedEnvVars(raw, expanded)
-}
-
-func TestPhase2_WarnUnexpandedEnvVars_UnsetVar(t *testing.T) {
-	// Ensure this var is NOT set.
-	os.Unsetenv("SAGE_TEST_UNSET_VAR_12345")
-	raw := "api_key: ${SAGE_TEST_UNSET_VAR_12345}"
-	expanded := os.ExpandEnv(raw)
-	// Should warn (writes to stderr). We just verify no panic.
-	warnUnexpandedEnvVars(raw, expanded)
-}
-
-func TestPhase2_WarnUnexpandedEnvVars_MultipleVars(t *testing.T) {
-	t.Setenv("SAGE_TEST_SET_A", "aaa")
-	os.Unsetenv("SAGE_TEST_UNSET_B")
-	raw := "a: ${SAGE_TEST_SET_A}\nb: ${SAGE_TEST_UNSET_B}"
-	expanded := os.ExpandEnv(raw)
-	warnUnexpandedEnvVars(raw, expanded)
-}
-
-func TestPhase2_WarnUnexpandedEnvVars_UnclosedBrace(t *testing.T) {
-	// Unclosed ${... should not panic.
-	raw := "api_key: ${SAGE_UNCLOSED"
-	expanded := os.ExpandEnv(raw)
-	warnUnexpandedEnvVars(raw, expanded)
-}
-
-func TestPhase2_WarnUnexpandedEnvVars_EmptyVarName(t *testing.T) {
-	raw := "api_key: ${}"
-	expanded := os.ExpandEnv(raw)
-	warnUnexpandedEnvVars(raw, expanded)
-}
-
 // TestExpandBracedEnv_PreservesBareDollar is the H5 regression: a literal
 // '$' in a secret written directly into YAML must survive expansion.
 // os.ExpandEnv treated p@ss$word as p@ss + $word (unset → ""), silently

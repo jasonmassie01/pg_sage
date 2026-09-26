@@ -206,21 +206,27 @@ func TestManager_EmergencyStopStrict_PersistenceError(t *testing.T) {
 
 	mgr := NewManager(&config.Config{Mode: "fleet"})
 	mgr.RegisterInstance(&DatabaseInstance{
-		Name:   "a",
-		Pool:   pool,
-		Config: config.DatabaseConfig{Name: "a"},
-		Status: &InstanceStatus{Connected: true},
+		Name:     "a",
+		Pool:     pool,
+		Config:   config.DatabaseConfig{Name: "a"},
+		Executor: newGateExecutor(),
+		Status:   &InstanceStatus{Connected: true},
 	})
 
+	// The kill switch fails CLOSED: an unwritable sage.config still stops
+	// the instance in memory and gates its executor, and the error names
+	// the database whose persisted flag could not be written.
 	stopped, err := mgr.EmergencyStopStrict("a")
-	if err == nil {
-		t.Fatal("expected persistence error")
+	var stopErr *EmergencyStopError
+	if !errors.As(err, &stopErr) || stopErr.Failed["a"] == nil {
+		t.Fatalf("error = %v, want EmergencyStopError naming a", err)
 	}
-	if stopped != 0 {
-		t.Fatalf("stopped = %d, want 0", stopped)
+	if stopped != 1 {
+		t.Fatalf("stopped = %d, want 1", stopped)
 	}
-	if mgr.GetInstance("a").Stopped {
-		t.Fatal("instance marked stopped despite persistence failure")
+	inst := mgr.GetInstance("a")
+	if !mgr.InstanceStopped(inst) || inst.Executor.ExecutorEnabled() {
+		t.Fatal("persistence failure must still stop the instance in memory")
 	}
 }
 

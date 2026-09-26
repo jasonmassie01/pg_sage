@@ -16,6 +16,10 @@ func TestConfigDefaults(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chdir(orig) })
 	os.Chdir(tmp)
+	// A DSN with no explicit mode now selects standalone (G10-B01), so the
+	// no-input default is only defined when no DSN is present in the shell.
+	t.Setenv("SAGE_DATABASE_URL", "")
+	t.Setenv("SAGE_MODE", "")
 
 	cfg, err := Load([]string{})
 	if err != nil {
