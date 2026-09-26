@@ -250,7 +250,7 @@ func writeConfigApplyError(
 func configGlobalDeleteHandler(
 	cs *store.ConfigStore,
 	cfg *config.Config,
-	baseCfg *config.Config,
+	base configBaseSource,
 	mgr *fleet.DatabaseManager,
 	controllers ...*config.ConfigController,
 ) http.HandlerFunc {
@@ -268,8 +268,13 @@ func configGlobalDeleteHandler(
 		}
 		if controller := firstConfigController(controllers); controller != nil {
 			applyControlledGlobalDelete(
-				w, r, cs, baseCfg, mgr, controller, key,
+				w, r, cs, base, mgr, controller, key,
 			)
+			return
+		}
+		baseCfg, err := base()
+		if err != nil {
+			internalError(w, r, "load config base", err)
 			return
 		}
 		if err := cs.DeleteOverride(r.Context(), key, 0); err != nil {
@@ -291,7 +296,7 @@ func configGlobalDeleteHandler(
 
 func applyControlledGlobalDelete(
 	w http.ResponseWriter, r *http.Request,
-	cs *store.ConfigStore, baseCfg *config.Config,
+	cs *store.ConfigStore, base configBaseSource,
 	mgr *fleet.DatabaseManager, controller *config.ConfigController,
 	key string,
 ) {
@@ -301,6 +306,11 @@ func applyControlledGlobalDelete(
 	if err != nil || expected == 0 {
 		jsonError(w, "expected_generation is required",
 			http.StatusPreconditionRequired)
+		return
+	}
+	baseCfg, err := base()
+	if err != nil {
+		internalError(w, r, "load config base", err)
 		return
 	}
 	candidate, err := globalCandidateWithoutOverride(

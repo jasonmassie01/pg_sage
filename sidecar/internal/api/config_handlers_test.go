@@ -102,7 +102,7 @@ func TestConfigGlobalPutHandler_ContentType(t *testing.T) {
 
 func TestConfigGlobalDeleteHandler_RejectsExecutionMode(t *testing.T) {
 	cfg := &config.Config{}
-	handler := configGlobalDeleteHandler(nil, cfg, cfg, nil)
+	handler := configGlobalDeleteHandler(nil, cfg, staticConfigBase(cfg), nil)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("DELETE /api/v1/config/global/{key}", handler)
@@ -126,7 +126,7 @@ func TestConfigGlobalDeleteHandler_RejectsExecutionMode(t *testing.T) {
 
 func TestConfigGlobalDeleteHandler_RejectsUnknownKey(t *testing.T) {
 	cfg := &config.Config{}
-	handler := configGlobalDeleteHandler(nil, cfg, cfg, nil)
+	handler := configGlobalDeleteHandler(nil, cfg, staticConfigBase(cfg), nil)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("DELETE /api/v1/config/global/{key}", handler)

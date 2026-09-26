@@ -77,8 +77,11 @@ type ActionDeps struct {
 // RuntimeDeps carries process-scoped controllers that are optional for
 // embedders and tests but required by the production sidecar.
 type RuntimeDeps struct {
-	ConfigController    *config.ConfigController
-	ConfigBase          *config.Config
+	ConfigController *config.ConfigController
+	ConfigBase       *config.Config
+	// ConfigBaseLoader reloads the current file config (no overrides) so
+	// override deletes rebase on it instead of the startup clone (G5-B03).
+	ConfigBaseLoader    func() (*config.Config, error)
 	DisableConfigWrites bool
 	MCPHandler          http.Handler
 }
@@ -97,11 +100,13 @@ func NewRouterFullRuntime(
 	apiMux := http.NewServeMux()
 	var controller *config.ConfigController
 	var configBase *config.Config
+	var configBaseLoader func() (*config.Config, error)
 	var disableConfigWrites bool
 	var mcpHandler http.Handler
 	if runtime != nil {
 		controller = runtime.ConfigController
 		configBase = runtime.ConfigBase
+		configBaseLoader = runtime.ConfigBaseLoader
 		disableConfigWrites = runtime.DisableConfigWrites
 		mcpHandler = runtime.MCPHandler
 	}
@@ -136,7 +141,8 @@ func NewRouterFullRuntime(
 		registerUserRoutes(apiMux, pool)
 		registerConfigRoutesRuntime(
 			apiMux, pool, cfg, mgr, controller,
-			configBase, disableConfigWrites,
+			runtimeConfigBase(configBaseLoader, configBase, cfg),
+			disableConfigWrites,
 		)
 		registerNotificationRoutes(apiMux, pool)
 		registerPolicyRoutes(apiMux, policy.NewStore(pool))
@@ -413,7 +419,7 @@ func registerConfigRoutesRuntime(
 	cfg *config.Config,
 	fm *fleet.DatabaseManager,
 	controller *config.ConfigController,
-	cleanBase *config.Config,
+	base configBaseSource,
 	disableWrites bool,
 ) {
 	adminOnly := RequireRole("admin")
@@ -437,8 +443,9 @@ func registerConfigRoutesRuntime(
 		return
 	}
 	cs := store.NewConfigStore(pool)
-	baseCfg := config.Clone(cleanBase)
-	if cleanBase == nil {
+	baseCfg, err := base()
+	if err != nil {
+		slog.Error("config base unavailable for read handlers", "error", err)
 		baseCfg = config.Clone(cfg)
 	}
 
@@ -451,7 +458,7 @@ func registerConfigRoutesRuntime(
 	mux.Handle("PUT /api/v1/config/global", globalPut)
 
 	globalDeleteHandler := configGlobalDeleteHandler(
-		cs, cfg, baseCfg, fm, controller,
+		cs, cfg, base, fm, controller,
 	)
 	globalDelete := adminOnly(http.HandlerFunc(globalDeleteHandler))
 	mux.Handle("DELETE /api/v1/config/global/{key}", globalDelete)

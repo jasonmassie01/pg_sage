@@ -28,7 +28,7 @@ func TestWave5YAMLFleetConfigIsReadableButNotWritable(t *testing.T) {
 
 	mux := http.NewServeMux()
 	registerConfigRoutesRuntime(
-		mux, nil, cfg, mgr, controller, cfg, true,
+		mux, nil, cfg, mgr, controller, staticConfigBase(cfg), true,
 	)
 	admin := &auth.User{ID: 1, Role: "admin"}
 

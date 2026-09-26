@@ -32,7 +32,10 @@ type WireParams struct {
 	RateLimiter *RateLimiter
 	Config      *config.ConfigController
 	ConfigBase  *config.Config
-	MCPHandler  http.Handler
+	// ConfigBaseLoader reloads the current file config for override
+	// deletes (G5-B03); nil falls back to ConfigBase.
+	ConfigBaseLoader func() (*config.Config, error)
+	MCPHandler       http.Handler
 }
 
 // WireResult holds the assembled router and resolved deps for
@@ -141,6 +144,7 @@ func wireRouter(p WireParams) WireResult {
 		p.LLMMgr, &api.RuntimeDeps{
 			ConfigController: p.Config,
 			ConfigBase:       p.ConfigBase,
+			ConfigBaseLoader: p.ConfigBaseLoader,
 			DisableConfigWrites: p.Cfg != nil && p.Cfg.IsFleet() &&
 				!p.Cfg.HasMetaDB(),
 			MCPHandler: p.MCPHandler,

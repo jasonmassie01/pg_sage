@@ -39,8 +39,10 @@ func TestGlobalDeleteRebasesOnCurrentFileConfig(t *testing.T) {
 	if put.Code != http.StatusOK {
 		t.Fatalf("put status = %d; body=%s", put.Code, put.Body.String())
 	}
-	if got := controller.Active().Config.Analyzer.SlowQueryThresholdMs; got != 2500 {
-		t.Fatalf("override not active: slow_query_threshold_ms = %d", got)
+	// slow_query_threshold_ms is restart-bound: the override lands in the
+	// desired revision, not the active one.
+	if got := controller.Desired().Config.Analyzer.SlowQueryThresholdMs; got != 2500 {
+		t.Fatalf("override not desired: slow_query_threshold_ms = %d", got)
 	}
 
 	del := serveRebase(handler, http.MethodDelete,
@@ -48,14 +50,17 @@ func TestGlobalDeleteRebasesOnCurrentFileConfig(t *testing.T) {
 	if del.Code != http.StatusOK {
 		t.Fatalf("delete status = %d; body=%s", del.Code, del.Body.String())
 	}
-	active := controller.Active().Config
-	if active.Trust.Level != "observation" {
-		t.Fatalf("delete re-escalated trust to %q, want observation (file value)",
-			active.Trust.Level)
+	if got := controller.Active().Config.Trust.Level; got != "observation" {
+		t.Fatalf("delete re-escalated live trust to %q, want observation (file value)",
+			got)
 	}
-	if active.Analyzer.SlowQueryThresholdMs != fileNow.Analyzer.SlowQueryThresholdMs {
+	desired := controller.Desired().Config
+	if desired.Trust.Level != "observation" {
+		t.Fatalf("desired trust = %q, want observation", desired.Trust.Level)
+	}
+	if desired.Analyzer.SlowQueryThresholdMs != fileNow.Analyzer.SlowQueryThresholdMs {
 		t.Fatalf("deleted key = %d, want file value %d",
-			active.Analyzer.SlowQueryThresholdMs, fileNow.Analyzer.SlowQueryThresholdMs)
+			desired.Analyzer.SlowQueryThresholdMs, fileNow.Analyzer.SlowQueryThresholdMs)
 	}
 }
 
@@ -84,7 +89,7 @@ func TestGlobalDeleteFailsClosedWhenFileConfigUnreadable(t *testing.T) {
 	if got := controller.Desired().Generation; got != 2 {
 		t.Fatalf("desired generation = %d, want 2 (nothing published)", got)
 	}
-	if got := controller.Active().Config.Analyzer.SlowQueryThresholdMs; got != 2500 {
+	if got := controller.Desired().Config.Analyzer.SlowQueryThresholdMs; got != 2500 {
 		t.Fatalf("override lost after failed delete: %d", got)
 	}
 }

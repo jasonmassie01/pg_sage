@@ -60,7 +60,7 @@ func TestWave2GlobalConfigHandlersRoundTripRevision(t *testing.T) {
 	}
 
 	deleteHandler := configGlobalDeleteHandler(
-		cs, base, base, nil, controller,
+		cs, base, staticConfigBase(base), nil, controller,
 	)
 	deleteMux := http.NewServeMux()
 	deleteMux.HandleFunc("DELETE /api/v1/config/global/{key}", deleteHandler)

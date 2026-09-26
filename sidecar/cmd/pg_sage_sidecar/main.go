@@ -1989,10 +1989,11 @@ func startAPIServer(rl *RateLimiter) {
 			Store:    actionStore,
 			Executor: exec,
 		},
-		RateLimiter: rl,
-		Config:      configController,
-		ConfigBase:  configBase,
-		MCPHandler:  mcpHTTPHandler(),
+		RateLimiter:      rl,
+		Config:           configController,
+		ConfigBase:       configBase,
+		ConfigBaseLoader: loadFileConfigBase,
+		MCPHandler:       mcpHTTPHandler(),
 	})
 
 	// Fail loudly (not silently) when there is no usable auth pool.
