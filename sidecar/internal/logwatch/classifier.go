@@ -32,35 +32,35 @@ var patterns = []signalPattern{
 		SQLStates: []string{"53100"}, MinLevel: "ERROR"},
 	{ID: "log_panic_server_crash", Severity: "critical",
 		Substrings: []string{"server process was terminated by signal"},
-		MinLevel: "LOG"},
+		MinLevel:   "LOG"},
 	{ID: "log_data_corruption", Severity: "critical",
 		MinLevel: "WARNING"},
 	{ID: "log_txid_wraparound_warning", Severity: "critical",
 		Substrings: []string{"must be vacuumed within"},
-		MinLevel: "WARNING"},
+		MinLevel:   "WARNING"},
 	{ID: "log_archive_failed", Severity: "critical",
 		Substrings: []string{"archive command failed"}, MinLevel: "LOG"},
 	{ID: "log_temp_file_created", Severity: "warning",
 		Substrings: []string{"temporary file"}, MinLevel: "LOG"},
 	{ID: "log_checkpoint_too_frequent", Severity: "warning",
 		Substrings: []string{"checkpoints are occurring too frequently"},
-		MinLevel: "LOG"},
+		MinLevel:   "LOG"},
 	{ID: "log_lock_timeout", Severity: "warning",
 		SQLStates: []string{"55P03"}, MinLevel: "ERROR"},
 	{ID: "log_statement_timeout", Severity: "warning",
 		SQLStates: []string{"57014"}, MinLevel: "ERROR"},
 	{ID: "log_replication_conflict", Severity: "warning",
 		Substrings: []string{"conflict with recovery"},
-		MinLevel: "ERROR"},
+		MinLevel:   "ERROR"},
 	{ID: "log_wal_segment_removed", Severity: "critical",
 		Substrings: []string{"WAL segment has already been removed"},
-		MinLevel: "ERROR"},
+		MinLevel:   "ERROR"},
 	{ID: "log_autovacuum_cancel", Severity: "warning",
 		Substrings: []string{"canceling autovacuum task"},
-		MinLevel: "LOG"},
+		MinLevel:   "LOG"},
 	{ID: "log_replication_slot_inactive", Severity: "warning",
 		Substrings: []string{"replication slot", "inactive"},
-		MinLevel: "WARNING"},
+		MinLevel:   "WARNING"},
 	{ID: "log_authentication_failure", Severity: "warning",
 		MinLevel: "FATAL"},
 	{ID: "log_slow_query", Severity: "info",
@@ -127,10 +127,15 @@ func parseSlowQueryDuration(msg string) float64 {
 // Classifier
 // ---------------------------------------------------------------------------
 
+// DefaultExcludeApplications is used when no exclude list is configured.
+// The sidecar tags every pool connection with application_name=pg_sage,
+// so its own statement/lock timeouts are not treated as incidents.
+var DefaultExcludeApplications = []string{"pg_sage"}
+
 // ClassifierConfig holds tunables for the Classifier.
 type ClassifierConfig struct {
 	DedupWindowS     int      // seconds; default 60
-	ExcludeApps      []string // application_name values to skip
+	ExcludeApps      []string // application_name values to skip; empty = default
 	SlowQueryEnabled bool
 	TempFileMinBytes int64 // skip temp-file signals below this
 	MaxLinesPerCycle int   // 0 = unlimited
@@ -167,8 +172,12 @@ func NewClassifier(
 	if window == 0 {
 		window = 60 * time.Second
 	}
-	apps := make(map[string]bool, len(cfg.ExcludeApps))
-	for _, a := range cfg.ExcludeApps {
+	exclude := cfg.ExcludeApps
+	if len(exclude) == 0 {
+		exclude = DefaultExcludeApplications
+	}
+	apps := make(map[string]bool, len(exclude))
+	for _, a := range exclude {
 		apps[a] = true
 	}
 	return &Classifier{

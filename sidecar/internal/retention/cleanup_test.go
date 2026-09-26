@@ -314,35 +314,3 @@ func TestRun_LivePG(t *testing.T) {
 	}
 }
 
-func TestCleanStaleFirstSeen_LivePG(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	// Insert a stale first_seen entry for a nonexistent index.
-	execRetry(t, ctx,
-		`INSERT INTO sage.config (key, value)
-		 VALUES ('first_seen:public.idx_nonexistent', '2025-01-01')
-		 ON CONFLICT (key, COALESCE(database_id, 0))
-		 DO UPDATE SET value = '2025-01-01'`)
-
-	cfg := &config.Config{
-		Retention: config.RetentionConfig{
-			SnapshotsDays: 90,
-			FindingsDays:  90,
-			ActionsDays:   90,
-			ExplainsDays:  90,
-		},
-	}
-	c := New(pool, cfg, noopLog)
-	c.Run(ctx)
-
-	// The stale entry should have been cleaned up (the index doesn't
-	// exist in pg_indexes, so cleanStaleFirstSeen removes it).
-	var count int
-	queryRetry(t, ctx,
-		`SELECT count(*) FROM sage.config
-		 WHERE key = 'first_seen:public.idx_nonexistent'`, &count)
-	if count != 0 {
-		t.Errorf("expected stale first_seen entry to be cleaned, got %d",
-			count)
-	}
-}

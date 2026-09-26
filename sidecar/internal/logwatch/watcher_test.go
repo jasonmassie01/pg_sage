@@ -66,17 +66,17 @@ func TestFileWatcher_Integration_Jsonlog(t *testing.T) {
 
 	// Build a FATAL line with SQLState 53300 (connection refused).
 	logLine := map[string]any{
-		"timestamp":        "2024-03-10T14:30:00.000+00:00",
+		"timestamp":        "2024-03-10 14:30:00.000 UTC",
 		"pid":              1234,
 		"session_id":       "sess1",
-		"database_name":    "prod",
-		"user_name":        "app",
+		"dbname":    "prod",
+		"user":        "app",
 		"error_severity":   "FATAL",
 		"state_code":       "53300",
 		"message":          "sorry, too many clients already",
 		"detail":           "",
 		"hint":             "",
-		"query":            "",
+		"statement":            "",
 		"application_name": "myapp",
 	}
 	data, err := json.Marshal(logLine)
@@ -246,7 +246,7 @@ func TestFileWatcher_Start_InvalidDir(t *testing.T) {
 func TestFileWatcher_DefaultFormat(t *testing.T) {
 	dir := t.TempDir()
 	logFile := filepath.Join(dir, "postgresql.json")
-	line := `{"timestamp":"2024-03-10T14:30:00.000+00:00","pid":1,"error_severity":"ERROR","state_code":"53200","message":"out of memory"}`
+	line := `{"timestamp":"2024-03-10 14:30:00.000 UTC","pid":1,"error_severity":"ERROR","state_code":"53200","message":"out of memory"}`
 	if err := os.WriteFile(logFile, []byte(line+"\n"), 0644); err != nil {
 		t.Fatal(err)
 	}

@@ -166,8 +166,9 @@ func alignToNewline(f *os.File, pos int64) (int64, error) {
 	}
 }
 
-// splitLines splits raw bytes into complete lines, prepending any
-// partial line from the previous call. An incomplete trailing chunk
+// splitLines splits raw bytes into complete records (lines, or whole
+// csvlog records that may contain quoted newlines), prepending any
+// partial record from the previous call. An incomplete trailing chunk
 // (no terminating newline) is saved in t.partial for next time,
 // but bounded at maxLineLen — once exceeded, the partial is dropped
 // and subsequent bytes are discarded until the next newline to resync.
@@ -195,9 +196,10 @@ func (t *Tailer) splitLines(raw []byte) [][]byte {
 	}
 	var lines [][]byte
 	start := 0
-	for i, b := range raw {
-		if b != '\n' {
-			continue
+	for {
+		i := t.recordEnd(raw, start)
+		if i < 0 {
+			break
 		}
 		line := raw[start:i]
 		start = i + 1

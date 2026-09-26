@@ -60,11 +60,11 @@ func TestSnapshot_JSONRoundTrip_Full(t *testing.T) {
 			{
 				SchemaName: "public", RelName: "users",
 				IndexRelName: "users_pkey",
-				IdxScan: 1000, IdxTupRead: 950,
+				IdxScan:      1000, IdxTupRead: 950,
 				IdxTupFetch: 900, IndexBytes: 65536,
 				IsUnique: true, IsPrimary: true,
-				IsValid: true,
-				IndexDef: "CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)",
+				IsValid:   true,
+				IndexDef:  "CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)",
 				IndexType: "btree",
 			},
 		},
@@ -103,8 +103,8 @@ func TestSnapshot_JSONRoundTrip_Full(t *testing.T) {
 			Replicas: []ReplicaInfo{
 				{
 					ClientAddr: &addr, State: "streaming",
-					SentLSN: "0/1000000", WriteLSN: "0/1000000",
-					FlushLSN: "0/1000000", ReplayLSN: "0/F00000",
+					SentLSN: lsnPtr("0/1000000"), WriteLSN: lsnPtr("0/1000000"),
+					FlushLSN: lsnPtr("0/1000000"), ReplayLSN: lsnPtr("0/F00000"),
 					SyncState: "async",
 				},
 			},
@@ -119,7 +119,7 @@ func TestSnapshot_JSONRoundTrip_Full(t *testing.T) {
 			{
 				BackendType: "client backend", Object: "relation",
 				Context: "normal",
-				Reads: 100, ReadTime: 10.5,
+				Reads:   100, ReadTime: 10.5,
 				Writes: 50, WriteTime: 5.2,
 				Writebacks: 10, WritebackTime: 1.1,
 				Extends: 5, ExtendTime: 0.5,
@@ -702,10 +702,10 @@ func TestReplicaInfo_NilAddr(t *testing.T) {
 	ri := ReplicaInfo{
 		ClientAddr: nil,
 		State:      "streaming",
-		SentLSN:    "0/1000",
-		WriteLSN:   "0/1000",
-		FlushLSN:   "0/1000",
-		ReplayLSN:  "0/1000",
+		SentLSN:    lsnPtr("0/1000"),
+		WriteLSN:   lsnPtr("0/1000"),
+		FlushLSN:   lsnPtr("0/1000"),
+		ReplayLSN:  lsnPtr("0/1000"),
 		WriteLag:   nil,
 		FlushLag:   nil,
 		ReplayLag:  nil,
@@ -1052,7 +1052,7 @@ func TestCircuitBreaker_IsDormant_ThreadSafe(t *testing.T) {
 func TestCollector_LatestSnapshot_InitiallyNil(t *testing.T) {
 	cfg := &config.Config{
 		Safety: config.SafetyConfig{
-			CPUCeilingPct:          90,
+			CPUCeilingPct:           90,
 			BackoffConsecutiveSkips: 5,
 		},
 	}
@@ -1068,7 +1068,7 @@ func TestCollector_LatestSnapshot_InitiallyNil(t *testing.T) {
 func TestCollector_SnapshotAccess_ThreadSafe(t *testing.T) {
 	cfg := &config.Config{
 		Safety: config.SafetyConfig{
-			CPUCeilingPct:          90,
+			CPUCeilingPct:           90,
 			BackoffConsecutiveSkips: 5,
 		},
 	}
@@ -1102,7 +1102,7 @@ func TestCollector_SnapshotAccess_ThreadSafe(t *testing.T) {
 func TestCollector_SnapshotRotation(t *testing.T) {
 	cfg := &config.Config{
 		Safety: config.SafetyConfig{
-			CPUCeilingPct:          90,
+			CPUCeilingPct:           90,
 			BackoffConsecutiveSkips: 5,
 		},
 	}
@@ -1149,7 +1149,7 @@ func TestCollector_SnapshotRotation(t *testing.T) {
 func TestNew_SetsFieldsCorrectly(t *testing.T) {
 	cfg := &config.Config{
 		Safety: config.SafetyConfig{
-			CPUCeilingPct:          85,
+			CPUCeilingPct:           85,
 			BackoffConsecutiveSkips: 7,
 		},
 	}
