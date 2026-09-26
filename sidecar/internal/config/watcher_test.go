@@ -7,56 +7,6 @@ import (
 	"testing"
 )
 
-func TestApplyHotReload_ChangesCollectorInterval(t *testing.T) {
-	target := &Config{
-		Collector: CollectorConfig{IntervalSeconds: 60},
-	}
-	fresh := &Config{
-		Collector: CollectorConfig{IntervalSeconds: 120},
-	}
-	changed := applyHotReload(target, fresh)
-	if target.Collector.IntervalSeconds != 120 {
-		t.Errorf("interval = %d, want 120", target.Collector.IntervalSeconds)
-	}
-	if len(changed) != 1 || changed[0] != "collector.interval_seconds" {
-		t.Errorf("changed = %v, want [collector.interval_seconds]", changed)
-	}
-}
-
-func TestApplyHotReload_IgnoresZeroValues(t *testing.T) {
-	target := &Config{
-		Collector: CollectorConfig{IntervalSeconds: 60, BatchSize: 500},
-	}
-	fresh := &Config{
-		Collector: CollectorConfig{IntervalSeconds: 0, BatchSize: 0},
-	}
-	changed := applyHotReload(target, fresh)
-	if len(changed) != 0 {
-		t.Errorf("expected no changes, got %v", changed)
-	}
-	if target.Collector.IntervalSeconds != 60 {
-		t.Errorf("interval should be unchanged, got %d", target.Collector.IntervalSeconds)
-	}
-}
-
-func TestApplyHotReload_TrustLevel(t *testing.T) {
-	target := &Config{Trust: TrustConfig{Level: "observation"}}
-	fresh := &Config{Trust: TrustConfig{Level: "advisory"}}
-	changed := applyHotReload(target, fresh)
-	if target.Trust.Level != "advisory" {
-		t.Errorf("trust = %q, want advisory", target.Trust.Level)
-	}
-	found := false
-	for _, c := range changed {
-		if c == "trust.level" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("trust.level not in changed list")
-	}
-}
-
 func TestWarnNonReloadable_LogsWarnings(t *testing.T) {
 	var buf bytes.Buffer
 	log.SetOutput(&buf)

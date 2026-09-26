@@ -12,7 +12,7 @@ import (
 
 func TestWatcherStopIsConcurrentAndIdempotent(t *testing.T) {
 	path := writeWatcherConfig(t, DefaultConfig())
-	watcher := NewWatcher(path, DefaultConfig(), nil)
+	watcher := NewAcknowledgedWatcherWithLoader(path, DefaultConfig(), nil, nil)
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -34,7 +34,9 @@ func TestWatcherStopIsConcurrentAndIdempotent(t *testing.T) {
 }
 
 func TestWatcherStopBeforeStartIsSafe(t *testing.T) {
-	watcher := NewWatcher(writeWatcherConfig(t, DefaultConfig()), DefaultConfig(), nil)
+	watcher := NewAcknowledgedWatcherWithLoader(
+		writeWatcherConfig(t, DefaultConfig()), DefaultConfig(), nil, nil,
+	)
 	watcher.Stop()
 	watcher.Stop()
 	waitClosed(t, watcher.Done(), "pre-start shutdown")
@@ -44,7 +46,9 @@ func TestWatcherStopBeforeStartIsSafe(t *testing.T) {
 }
 
 func TestWatcherRejectsSecondStart(t *testing.T) {
-	watcher := NewWatcher(writeWatcherConfig(t, DefaultConfig()), DefaultConfig(), nil)
+	watcher := NewAcknowledgedWatcherWithLoader(
+		writeWatcherConfig(t, DefaultConfig()), DefaultConfig(), nil, nil,
+	)
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
@@ -61,9 +65,10 @@ func TestWatcherStopCannotLoseCancellationDuringBlockedCallback(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	var callbackOnce sync.Once
-	watcher := NewWatcher(path, initial, func(*Config) {
+	watcher := NewAcknowledgedWatcherWithLoader(path, initial, nil, func(*Config) error {
 		callbackOnce.Do(func() { close(entered) })
 		<-release
+		return nil
 	})
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -96,10 +101,10 @@ func TestWatcherCandidateLoaderPublishesCompletePrecedenceResolvedSnapshot(
 	loaded.Postgres.Host = "cli-wins.example"
 	loaded.Collector.IntervalSeconds++
 	var published *Config
-	watcher := NewWatcherWithLoader(
+	watcher := NewAcknowledgedWatcherWithLoader(
 		"config.yaml", initial,
 		func() (*Config, error) { return Clone(loaded), nil },
-		func(candidate *Config) { published = candidate },
+		func(candidate *Config) error { published = candidate; return nil },
 	)
 
 	watcher.reload()
