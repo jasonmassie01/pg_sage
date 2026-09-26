@@ -14,8 +14,8 @@ import (
 // Regression tests for G4-B01, G4-B02, G4-B16, G4-B18 and G4-B36.
 
 var approvalGuardedActionTypes = []string{
-	"drop_unused_index", "alter_table", "cancel_backend", "terminate_backend",
-	"set_table_autovacuum", "reindex_concurrently", "apply_query_hint",
+	"alter_table", "cancel_backend", "terminate_backend",
+	"reindex_concurrently", "apply_query_hint",
 	"create_statistics", "prepare_query_rewrite", "promote_role_work_mem",
 	"prepare_parameterized_query",
 }
@@ -82,9 +82,7 @@ func TestStandingGateQueuesApprovalGuardedFindings(t *testing.T) {
 	exec := New(nil, &config.Config{}, nil, time.Time{}, func(string, string, ...any) {})
 	exec.WithPolicyGate(fullyEnabledGate(time.Now()))
 	for _, sql := range []string{
-		"DROP INDEX CONCURRENTLY public.idx_x;",
 		"REINDEX INDEX CONCURRENTLY public.idx_x",
-		"ALTER TABLE public.t SET (autovacuum_vacuum_scale_factor = 0.01)",
 		"SELECT pg_cancel_backend(4711);",
 	} {
 		finding := analyzer.Finding{ObjectIdentifier: "public.t", RecommendedSQL: sql}
@@ -100,7 +98,7 @@ func TestLegacyPolicyQueuesApprovalGuardedContract(t *testing.T) {
 	cfg.Trust.Tier3Moderate = true
 	cfg.Trust.MaintenanceWindow = "always"
 	enabled := true
-	contract, _ := ContractForActionType("drop_unused_index")
+	contract, _ := ContractForActionType("reindex_concurrently")
 
 	decision := EvaluateActionPolicy(contract, ActionPolicyContext{
 		Config: cfg, ExecutionMode: "auto", ExecutorEnabled: &enabled,
@@ -228,4 +226,62 @@ func TestApprovalReadinessStillRefusesObservationTrust(t *testing.T) {
 	if got.Eligible {
 		t.Fatalf("observation trust readiness = %#v, want refused", got)
 	}
+}
+
+// Product decision (2026-09-26): unused/duplicate/invalid index drops and
+// per-table autovacuum tuning run autonomously once trust is earned —
+// autonomous trust, tier3_moderate, 31-day ramp, windows open — and queue
+// for approval otherwise.
+var earnedAutonomyActionTypes = []string{"drop_unused_index", "set_table_autovacuum"}
+
+func TestEarnedAutonomyContractsCarryNoApprovalGuardrail(t *testing.T) {
+	for _, actionType := range earnedAutonomyActionTypes {
+		contract, ok := ContractForActionType(actionType)
+		if !ok {
+			t.Fatalf("no contract for %s", actionType)
+		}
+		if got := policyContract(contract).Guardrails; len(got) != 0 {
+			t.Fatalf("%s guardrails = %#v, want none", actionType, got)
+		}
+	}
+}
+
+func TestEarnedAutonomyExecutesOnlyAfterTrustIsEarned(t *testing.T) {
+	cases := []string{
+		"DROP INDEX CONCURRENTLY public.idx_x;",
+		"ALTER TABLE public.t SET (autovacuum_vacuum_scale_factor = 0.01)",
+	}
+	earned := New(nil, &config.Config{}, nil, time.Time{}, func(string, string, ...any) {})
+	earned.WithPolicyGate(fullyEnabledGate(time.Now()))
+	young := New(nil, &config.Config{}, nil, time.Time{}, func(string, string, ...any) {})
+	young.WithPolicyGate(rampAgeGate(time.Now(), 10*24*time.Hour))
+	for _, sql := range cases {
+		finding := analyzer.Finding{ObjectIdentifier: "public.t", RecommendedSQL: sql}
+		got := earned.evaluateFindingPolicy(context.Background(), finding, false)
+		if got.Decision != PolicyDecisionExecute {
+			t.Fatalf("%q with earned trust: %#v, want execute", sql, got)
+		}
+		got = young.evaluateFindingPolicy(context.Background(), finding, false)
+		if got.Decision == PolicyDecisionExecute {
+			t.Fatalf("%q executed before the 31-day ramp: %#v", sql, got)
+		}
+	}
+}
+
+func rampAgeGate(now time.Time, age time.Duration) policy.Gate {
+	doc := policy.UnattendedProfile()
+	return policy.NewGate(policy.GateConfig{
+		Runtime: func(context.Context, policy.ActionRequest) (policy.RuntimeState, error) {
+			return policy.RuntimeState{
+				ExecutorEnabled: true, TrustLevel: policy.TrustAutonomous,
+				ExecutionMode: policy.ExecutionAuto, Tier3Safe: true, Tier3Moderate: true,
+				RampStart: now.Add(-age), InConfiguredWindow: true,
+			}, nil
+		},
+		ValidateSQL: ValidateExecutorSQL,
+		Policy: func(context.Context, policy.ActionRequest) (policy.Document, error) {
+			return doc, nil
+		},
+		Now: func() time.Time { return now },
+	})
 }

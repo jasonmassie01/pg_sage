@@ -175,7 +175,7 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 			},
 			Guardrails: []string{
 				"DROP INDEX CONCURRENTLY",
-				"approval required",
+				"earned autonomy: autonomous trust, tier3_moderate, 31-day ramp",
 				"maintenance-window enforcement",
 			},
 			ExecutionPlan: []string{"DROP INDEX CONCURRENTLY ..."},
@@ -594,7 +594,7 @@ func setTableAutovacuumContract() ActionContract {
 			"current reloptions captured for review",
 		},
 		Guardrails: []string{
-			"approval required",
+			"earned autonomy: autonomous trust, tier3_moderate, 31-day ramp",
 			"generate PR or migration script",
 			"monitor post-change vacuum cadence",
 		},

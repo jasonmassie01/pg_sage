@@ -97,12 +97,3 @@ func approvePipelineCancel(
 		t.Fatalf("approved action: action=%d err=%v", id, err)
 	}
 }
-
-// approvePipelineFinding executes an approval-gated finding through the
-// operator approval path (ExecuteManual), as the Actions UI does.
-func approvePipelineFinding(
-	t *testing.T, pool *pgxpool.Pool, ex *executor.Executor, f analyzer.Finding,
-) {
-	t.Helper()
-	approvePipelineCancel(t, pool, ex, f)
-}

@@ -245,23 +245,17 @@ func shapeDropDuplicateIndex(
 		CREATE INDEX shp_b06_dup_a ON shp_b06 (s);
 		CREATE INDEX shp_b06_dup_b ON shp_b06 (s);`)
 	an, ex := newPipelineExecutor(t, pool, autonomousConfig())
-	dup := analyzer.Finding{
+	driveFinding(t, pool, an, ex, analyzer.Finding{
 		Category: "duplicate_index", Severity: "warning",
 		ObjectType: "index", ObjectIdentifier: "public.shp_b06_dup_a",
 		Title:          "duplicate of shp_b06_dup_b",
 		RecommendedSQL: "DROP INDEX CONCURRENTLY public.shp_b06_dup_a;",
 		RollbackSQL:    "CREATE INDEX CONCURRENTLY shp_b06_dup_a ON public.shp_b06 (s)",
 		ActionRisk:     "safe",
-	}
-	driveFinding(t, pool, an, ex, dup)
-	// The drop_index contract carries an approval guardrail (G4-B01): it is
-	// withheld in autonomous mode and executes only after approval.
-	_, autoActed := latestActionFor(t, pool, "duplicate_index", "public.shp_b06_dup_a")
-	r.add(t, "CHECK-B06a0", !autoActed, "duplicate DROP INDEX withheld until approval")
-	approvePipelineFinding(t, pool, ex, dup)
+	})
 	act, ok := latestActionFor(t, pool, "duplicate_index", "public.shp_b06_dup_a")
 	r.add(t, "CHECK-B06a", ok && isExecutedOutcome(act.Outcome),
-		fmt.Sprintf("approved duplicate DROP INDEX executed (outcome=%s)", act.Outcome))
+		fmt.Sprintf("duplicate DROP INDEX executed (outcome=%s)", act.Outcome))
 	_, _, aExists := indexAccessMethod(t, pool, "shp_b06_dup_a")
 	_, bValid, bExists := indexAccessMethod(t, pool, "shp_b06_dup_b")
 	r.add(t, "CHECK-B06b", !aExists && bExists && bValid,
@@ -341,7 +335,7 @@ func shapeAlterTableAutovacuum(
 	mustExec(t, pool, `DROP TABLE IF EXISTS shp_b10;
 		CREATE TABLE shp_b10 (id int);`)
 	an, ex := newPipelineExecutor(t, pool, autonomousConfig())
-	tuning := analyzer.Finding{
+	driveFinding(t, pool, an, ex, analyzer.Finding{
 		Category: "autovacuum_tuning", Severity: "warning",
 		ObjectType: "table", ObjectIdentifier: "public.shp_b10",
 		Title: "tune scale factor",
@@ -350,15 +344,10 @@ func shapeAlterTableAutovacuum(
 		RollbackSQL: `ALTER TABLE "public"."shp_b10" ` +
 			`RESET (autovacuum_vacuum_scale_factor);`,
 		ActionRisk: "safe",
-	}
-	driveFinding(t, pool, an, ex, tuning)
-	// autovacuum_tuning carries an approval guardrail (G4-B01).
-	_, autoActed := latestActionFor(t, pool, "autovacuum_tuning", "public.shp_b10")
-	r.add(t, "CHECK-B10a0", !autoActed, "ALTER TABLE SET withheld until approval")
-	approvePipelineFinding(t, pool, ex, tuning)
+	})
 	act, ok := latestActionFor(t, pool, "autovacuum_tuning", "public.shp_b10")
 	r.add(t, "CHECK-B10a", ok && isExecutedOutcome(act.Outcome),
-		fmt.Sprintf("approved ALTER TABLE SET executed (outcome=%s)", act.Outcome))
+		fmt.Sprintf("ALTER TABLE SET executed (outcome=%s)", act.Outcome))
 	opts := scalarString(t, pool,
 		`SELECT coalesce(array_to_string(reloptions, ','), '')
 		   FROM pg_class WHERE relname = 'shp_b10'`)
@@ -470,21 +459,13 @@ func shapeHighRiskBlocked(
 		CREATE INDEX shp_b14_subset ON shp_b14 (a);
 		CREATE INDEX shp_b14_wide ON shp_b14 (a, b);`)
 	an, ex := newPipelineExecutor(t, pool, autonomousConfig())
-	subset := analyzer.Finding{
+	driveFinding(t, pool, an, ex, analyzer.Finding{
 		Category: "duplicate_index", Severity: "info",
 		ObjectType: "index", ObjectIdentifier: "public.shp_b14_subset",
 		Title:          "subset of shp_b14_wide (advisory)",
 		RecommendedSQL: "DROP INDEX CONCURRENTLY public.shp_b14_subset;",
 		ActionRisk:     "high_risk",
-	}
-	driveFinding(t, pool, an, ex, subset)
-	// The typed drop_index contract (approval guardrail), not the finding's
-	// ActionRisk label, governs: withheld, then executed once approved.
-	_, autoActed := latestActionFor(t, pool, "duplicate_index", "public.shp_b14_subset")
-	_, _, stillThere := indexAccessMethod(t, pool, "shp_b14_subset")
-	r.add(t, "CHECK-B14a", !autoActed && stillThere,
-		"typed DROP contract withholds the drop until approval")
-	approvePipelineFinding(t, pool, ex, subset)
+	})
 	act, acted := latestActionFor(t, pool, "duplicate_index", "public.shp_b14_subset")
 	_, _, exists := indexAccessMethod(t, pool, "shp_b14_subset")
 	r.add(t, "CHECK-B14", acted && isExecutedOutcome(act.Outcome) && !exists,

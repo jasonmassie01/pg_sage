@@ -525,6 +525,9 @@ every behavioral assertion kept; each adaptation is explained in its commit.
   open; otherwise they queue. Backend signals always queue. Existing policy documents lack the
   new change classes (`backend_signal`, `query_hint`, `schema_change`), so those actions stay
   blocked until the documents are updated.
+- **Approval guardrails now bind.** `alter_table`, `reindex_concurrently`, cancel/terminate
+  backend and `apply_query_hint` always queue for approval. Unused, duplicate and invalid index
+  drops and per-table autovacuum tuning run unattended only once moderate trust is earned.
 - **Retention deletes** need a matching dry run 24 h–7 d old and go through the gate. A
   withheld delete returns a policy error.
 - **Crash recovery of a pending revert** resumes after the 5-minute claim lease expires.
@@ -591,26 +594,23 @@ every behavioral assertion kept; each adaptation is explained in its commit.
 - MANUAL: pg_hint_plan live checks (C11 retired-hint removal); live provider/LLM suites.
 ```
 
-### 10.4 Decisions needed from you
+### 10.4 Decisions (resolved 2026-09-26)
 
-1. **Should duplicate/invalid-index drops and per-table autovacuum tuning auto-run in autonomous
-   mode?** The April action contracts mark `drop_index` and `autovacuum_tuning` "approval
-   required". That guardrail never matched (P0-04), so they auto-ran, and the June e2e
-   pipeline suite and the H2 roadmap (A1, A2) assume auto-run. This branch honors the contracts
-   (fail-closed). The e2e checks now assert "withheld, then executed after approval". To make
-   them autonomous, remove the "approval required" guardrail from those two contracts in
-   `executor/action_contract.go`. Recommendation: keep approval until per-queryid
-   verify-and-revert covers them (roadmap F1), then remove it for these reversible classes.
-2. **Codex `SchemaLifecycle` test change** (§10.2) and the two contract-agent fixture choices:
-   a withheld retention delete returns a policy error, and crash recovery waits for the 5-minute
-   claim lease.
-3. **Meta-db global trust as a ceiling** (never escalates a database), and
-   `notification_policy.allow_private_targets` being YAML-only.
-4. **Delete the frozen C extension from master** (§7).
-5. **Publishing:** `docs.yml` publishes all of `docs/` to GitHub Pages on merge, including
-   `docs/reviews/2026-09-26/`, which describes security defects in detail. Most are fixed here,
-   but several are deferred. Consider moving this folder out of `docs/` (or excluding it from
-   mkdocs) before merging to master.
+1. **Index drops and per-table autovacuum tuning: autonomous once trust is earned.** The
+   `drop_unused_index` and `set_table_autovacuum` contracts no longer carry the "approval
+   required" guardrail. They run unattended only at trust `autonomous` with `tier3_moderate`,
+   the 31-day ramp, and open windows; otherwise the standing gate queues them for approval
+   (`TestEarnedAutonomyExecutesOnlyAfterTrustIsEarned`). The e2e checks A01/A05/A08 and
+   B06/B10/B14 again assert auto-execution. `alter_table`, `reindex_concurrently`,
+   cancel/terminate backend and `apply_query_hint` stay approval-guarded.
+2. **Codex `SchemaLifecycle` change and contract-agent fixtures:** kept. A withheld retention
+   delete returns a policy error, and crash recovery waits for the 5-minute claim lease.
+3. **Meta-db global trust as a ceiling, and YAML-only `allow_private_targets`:** kept. A
+   fleet-wide setting must not escalate one database, and private notification targets are an
+   operator-host decision that should not be toggled from the dashboard.
+4. **Frozen C extension:** deleted from master (see §7).
+5. **Publishing:** the review folder moved from `docs/reviews/` to `reviews/` at the repository
+   root, so `docs.yml` and mkdocs no longer publish it.
 
 ### 10.5 Deferred (with reason)
 
