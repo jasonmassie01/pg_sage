@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/ledger"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
@@ -15,10 +16,24 @@ import (
 func (e *Executor) EnableStandingPolicy(
 	ctx context.Context, profile string, databaseID *int,
 ) error {
+	return e.EnableStandingPolicyWithStore(ctx, nil, profile, databaseID)
+}
+
+// EnableStandingPolicyWithStore reads the standing policy from policyPool
+// (the control/meta database the API writes to) while decisions stay in
+// the executor's own database. A nil policyPool uses the executor pool
+// (standalone). Fleet executors must pass the control pool (G5-B11).
+func (e *Executor) EnableStandingPolicyWithStore(
+	ctx context.Context, policyPool *pgxpool.Pool,
+	profile string, databaseID *int,
+) error {
 	if e == nil || e.pool == nil {
 		return fmt.Errorf("standing policy requires a database pool")
 	}
-	policyStore := policy.NewStore(e.pool)
+	if policyPool == nil {
+		policyPool = e.pool
+	}
+	policyStore := policy.NewStore(policyPool)
 	ledgerService := ledger.NewService(ledger.NewPostgresRepository(e.pool))
 	scope := policy.Scope{DatabaseID: int64Pointer(databaseID)}
 	e.policyMu.Lock()

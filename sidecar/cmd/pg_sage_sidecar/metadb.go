@@ -690,8 +690,10 @@ func buildExecutor(
 	dbActionStore := store.NewActionStore(dbPool)
 	dbExec.WithActionStore(dbActionStore, resolveExecMode(rec))
 	databaseID := rec.ID
-	if err := dbExec.EnableStandingPolicy(
-		ctx, cfg.Policy.Profile, &databaseID,
+	// Policy lives in the meta DB the API writes to (G5-B11).
+	if err := dbExec.EnableStandingPolicyWithStore(
+		ctx, notificationControlPool(globalMetaState, nil),
+		cfg.Policy.Profile, &databaseID,
 	); err != nil {
 		logError("fleet", "db %q standing policy unavailable; fail-closed: %v", rec.Name, err)
 	}

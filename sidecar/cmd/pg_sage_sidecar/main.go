@@ -1552,8 +1552,9 @@ func initFleetMultiDB() {
 			name, execMode, dbCfg.ExecutionMode,
 			cfg.Defaults.ExecutionMode)
 		dbExec.WithActionStore(dbActionStore, execMode)
-		if err := dbExec.EnableStandingPolicy(
-			context.Background(), cfg.Policy.Profile, nil,
+		// Policy lives in the control pool the API writes to (G5-B11).
+		if err := dbExec.EnableStandingPolicyWithStore(
+			context.Background(), configPool, cfg.Policy.Profile, nil,
 		); err != nil {
 			logError("fleet", "db %q standing policy unavailable; fail-closed: %v", name, err)
 		}
