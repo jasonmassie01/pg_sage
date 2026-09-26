@@ -57,19 +57,26 @@ func TestOldestXminBlockerExcludesProtectedApplications(t *testing.T) {
 
 func TestOldestXminBlockerCapturesBackendIdentity(t *testing.T) {
 	pool := requireAutonomyDB(t)
-	holder := holdSnapshot(t, pool, "xmin_holder_app")
+	holdSnapshot(t, pool, "xmin_holder_app")
 	custodian := NewPostgresFreezeCustodian(pool, "testdb", 25)
 
 	blocker, err := custodian.oldestXminBlocker(context.Background())
 
-	if err != nil {
-		t.Fatalf("oldestXminBlocker: %v", err)
+	if err != nil || blocker == nil {
+		t.Fatalf("oldestXminBlocker = %#v, %v; want a blocker", blocker, err)
 	}
-	if blocker == nil || blocker.PID != holder {
-		t.Fatalf("blocker = %#v, want pid %d", blocker, holder)
+	// Another client session of this database may hold an older xmin; the
+	// identity must describe whichever backend was selected.
+	var backendStart time.Time
+	var appName string
+	if err := pool.QueryRow(context.Background(), `SELECT backend_start,
+		COALESCE(application_name, '') FROM pg_stat_activity WHERE pid=$1`,
+		blocker.PID).Scan(&backendStart, &appName); err != nil {
+		t.Fatalf("read blocker session: %v", err)
 	}
-	if blocker.BackendStart.IsZero() || blocker.AppName != "xmin_holder_app" {
-		t.Fatalf("blocker identity incomplete: %#v", blocker)
+	if !blocker.BackendStart.Equal(backendStart) || blocker.AppName != appName {
+		t.Fatalf("blocker identity %#v does not match session (%s, %q)",
+			blocker, backendStart, appName)
 	}
 }
 
