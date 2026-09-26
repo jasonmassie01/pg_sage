@@ -64,7 +64,7 @@ func notificationSecretKey(controlPool *pgxpool.Pool) []byte {
 	if globalMetaState != nil && globalMetaState.Pool == controlPool {
 		return globalMetaState.EncryptKey
 	}
-	if cfg.EncryptionKey == "" || !(cfg.IsStandalone() || cfg.IsFleet()) {
+	if cfg.EncryptionKey == "" || (!cfg.IsStandalone() && !cfg.IsFleet()) {
 		return nil
 	}
 	salt, err := schema.ReadOrCreateKDFSalt(context.Background(), controlPool)

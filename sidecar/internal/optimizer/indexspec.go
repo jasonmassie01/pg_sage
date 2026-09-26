@@ -43,7 +43,7 @@ func ParseIndexDDL(ddl string) (IndexSpec, error) {
 		return spec, errNotCreateIndex
 	}
 	s.keyword("CONCURRENTLY")
-	if s.keyword("IF") && !(s.keyword("NOT") && s.keyword("EXISTS")) {
+	if s.keyword("IF") && (!s.keyword("NOT") || !s.keyword("EXISTS")) {
 		return spec, fmt.Errorf("malformed IF NOT EXISTS")
 	}
 	if !s.peekKeyword("ON") {

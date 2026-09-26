@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -51,13 +50,3 @@ func (apiPreparedConfig) Commit(context.Context) error   { return nil }
 func (apiPreparedConfig) Rollback(context.Context) error { return nil }
 func (apiPreparedConfig) Drain(context.Context) error    { return nil }
 
-func wave2ConfigRequest(
-	t *testing.T, handler http.Handler, body string,
-) *httptest.ResponseRecorder {
-	t.Helper()
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(
-		http.MethodPut, "/api/v1/config", strings.NewReader(body),
-	))
-	return response
-}

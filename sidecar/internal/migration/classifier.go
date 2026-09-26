@@ -2,7 +2,6 @@ package migration
 
 import (
 	"regexp"
-	"strings"
 )
 
 // RegexClassifier implements SQLParser using regex/token matching.
@@ -52,13 +51,6 @@ func (rc *RegexClassifier) classifyStatement(
 	results = append(results, rc.matchDropRules(sql)...)
 	results = append(results, rc.matchMaintenanceRules(sql, pgVersion)...)
 	return results
-}
-
-// normalizeSQL collapses whitespace for regex matching while
-// preserving the original statement text in classifications.
-func normalizeSQL(sql string) string {
-	s := strings.TrimSpace(sql)
-	return collapseWhitespace(s)
 }
 
 var wsRegex = regexp.MustCompile(`\s+`)

@@ -983,7 +983,7 @@ func loadYAML(path string, cfg *Config) error {
 	// common case where ${SAGE_LLM_API_KEY} is in the YAML but the env var
 	// is not set, leaving an empty value that silently breaks the feature.
 	for _, warning := range unexpandedEnvWarnings(path, raw) {
-		fmt.Fprintln(configWarningOutput, warning)
+		_, _ = fmt.Fprintln(configWarningOutput, warning)
 	}
 	if err := rejectRetiredTopLevelConfig(expanded); err != nil {
 		return err

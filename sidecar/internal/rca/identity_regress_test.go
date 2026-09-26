@@ -2,7 +2,6 @@ package rca
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -285,11 +284,3 @@ func hotSnapshotForRegress() *collector.Snapshot {
 	}
 }
 
-func containsAll(s string, parts ...string) bool {
-	for _, p := range parts {
-		if !strings.Contains(s, p) {
-			return false
-		}
-	}
-	return true
-}

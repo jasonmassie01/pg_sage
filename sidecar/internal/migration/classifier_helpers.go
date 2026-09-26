@@ -33,7 +33,7 @@ func newClassification(r ruleDefinition, sql string) DDLClassification {
 // c. Bare keywords (e.g. VACUUM FULL with no table) are ignored.
 func fillTarget(re *regexp.Regexp, sql string, c *DDLClassification) {
 	m := re.FindStringSubmatch(sql)
-	if m == nil || len(m) < 3 || !isColumnIdent(m[len(m)-1]) {
+	if len(m) < 3 || !isColumnIdent(m[len(m)-1]) {
 		return
 	}
 	if schema := m[len(m)-2]; schema != "" {
