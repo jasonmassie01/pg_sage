@@ -65,13 +65,16 @@ func (a *Analyzer) finalizeCycle(
 	ctx context.Context, findings []Finding, evaluated map[string]bool,
 ) {
 	_ = evaluated
+	res, err := UpsertFindingsWithResult(ctx, a.pool, findings)
+	if err != nil {
+		a.logFn("ERROR", "analyzer: upsert findings: %v", err)
+	}
+	// Operator-suppressed identities are never published to the executor
+	// or notifications (G2-B01).
+	findings = withoutSuppressed(findings, res)
 	a.mu.Lock()
 	a.findings = findings
 	a.mu.Unlock()
-
-	if err := UpsertFindings(ctx, a.pool, findings); err != nil {
-		a.logFn("ERROR", "analyzer: upsert findings: %v", err)
-	}
 	a.dispatchCriticalFindings(ctx, findings)
 	a.dispatchRewriteFindings(ctx, findings)
 
@@ -88,4 +91,19 @@ func (a *Analyzer) finalizeCycle(
 		}
 	}
 	a.logFn("INFO", "analyzer cycle: %d findings", len(findings))
+}
+
+// withoutSuppressed drops findings whose identity is under an active
+// operator suppression.
+func withoutSuppressed(findings []Finding, res UpsertResult) []Finding {
+	if len(res.Suppressed) == 0 {
+		return findings
+	}
+	out := make([]Finding, 0, len(findings))
+	for _, f := range findings {
+		if !res.IsSuppressed(f) {
+			out = append(out, f)
+		}
+	}
+	return out
 }
