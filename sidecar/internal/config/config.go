@@ -214,7 +214,7 @@ type LLMConfig struct {
 	TokenBudgetDaily      int                  `yaml:"token_budget_daily" doc:"Soft daily cap on total tokens (input + output) the sidecar will spend on LLM requests. Once exceeded the LLM is skipped until the next UTC day."`
 	FleetTokenBudgetDaily int                  `yaml:"fleet_token_budget_daily" doc:"Fleet-wide daily token cap split per database so one noisy database can't drain the whole budget. 0 disables per-database budgeting (fleet mode only)."`
 	ContextBudgetTokens   int                  `yaml:"context_budget_tokens" doc:"Maximum tokens attached as context (schema, stats, plans) to a single LLM request. Prevents oversized prompts from busting the model context window."`
-	CooldownSeconds       int                  `yaml:"cooldown_seconds" doc:"Minimum seconds between two LLM requests. Rate-limits the sidecar so it cannot burst the provider during a busy cycle."`
+	CooldownSeconds       int                  `yaml:"cooldown_seconds" doc:"Per-prompt dedup window and breaker cooldown: an identical request is not re-sent within this many seconds; after 3 provider failures calls pause this long. Not a global rate limit."`
 	JSONMode              bool                 `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."`
 	IndexOptimizer        IndexOptimizerConfig `yaml:"index_optimizer"` // Deprecated: use Optimizer.
 	Optimizer             OptimizerConfig      `yaml:"optimizer"`
@@ -418,9 +418,9 @@ type TunerConfig struct {
 	// v0.8.5 Feature 1 — Hint revalidation loop.
 	HintRetirementDays           int     `yaml:"hint_retirement_days" doc:"Hints older than this many days are retired unconditionally, regardless of current query behavior. Safety net against stale hint accumulation."`
 	RevalidationIntervalHours    int     `yaml:"revalidation_interval_hours" doc:"How often the hint revalidation loop runs. Set to 0 to disable the loop entirely. Default 24 hours."`
-	RevalidationKeepRatio        float64 `yaml:"revalidation_keep_ratio" doc:"During cost comparison, hinted plan cost must be at most this ratio of the unhinted plan to keep the hint. Default 1.2 (hinted <= 120% of unhinted)."`
-	RevalidationRollbackRatio    float64 `yaml:"revalidation_rollback_ratio" doc:"When hinted-plan cost exceeds unhinted by this ratio, the hint is marked broken and rolled back. Default 0.8 (hinted >= 125% of unhinted)."`
-	RevalidationExplainTimeoutMs int     `yaml:"revalidation_explain_timeout_ms" doc:"statement_timeout applied to EXPLAIN queries issued by the revalidation loop. Queries that cannot be explained in time are deferred."`
+	RevalidationKeepRatio        float64 `yaml:"revalidation_keep_ratio" doc:"Reserved; no effect. Revalidation does no hinted-vs-unhinted cost comparison (it uses age, missing objects, stale queryids, latency). Kept so existing configs load."`
+	RevalidationRollbackRatio    float64 `yaml:"revalidation_rollback_ratio" doc:"Reserved; currently has no effect. No hinted-vs-unhinted cost comparison is performed. Kept so existing config files still load."`
+	RevalidationExplainTimeoutMs int     `yaml:"revalidation_explain_timeout_ms" doc:"Reserved; currently has no effect. The revalidation loop issues no EXPLAIN queries. Kept so existing config files still load."`
 
 	// v0.8.5 Feature 2 — Stale-stats detection + ANALYZE action.
 	StaleStatsEstimateSkew        float64 `yaml:"stale_stats_estimate_skew" doc:"Ratio ActualRows / PlanRows above which a plan node is considered row-estimate skewed. Default 10 — same threshold as the bad-nested-loop check."`
