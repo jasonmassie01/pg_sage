@@ -49,6 +49,7 @@ const (
 	ReasonDeadlineOverride         Reason = "deadline_override"
 	ReasonUnknownRiskTier          Reason = "unknown_risk_tier"
 	ReasonChangeClassNotAllowed    Reason = "change_class_not_allowed"
+	ReasonTrustRampNotSatisfied    Reason = "trust_ramp_not_satisfied"
 )
 
 type DeadlineKind string
@@ -98,12 +99,21 @@ type Decision struct {
 	DecisionID  int64
 }
 
+// RuntimeState is the live authority snapshot for one authorization.
+// Tier3Safe, Tier3Moderate, RampStart and InConfiguredWindow carry the
+// sidecar config ceilings (trust.tier3_*, the trust ramp and
+// trust.maintenance_window). Their zero values fail closed: a caller that
+// does not supply them never gets autonomous safe/moderate execution.
 type RuntimeState struct {
-	ExecutorEnabled bool
-	EmergencyStop   bool
-	IsReplica       bool
-	TrustLevel      string
-	ExecutionMode   string
+	ExecutorEnabled    bool
+	EmergencyStop      bool
+	IsReplica          bool
+	TrustLevel         string
+	ExecutionMode      string
+	Tier3Safe          bool
+	Tier3Moderate      bool
+	RampStart          time.Time
+	InConfiguredWindow bool
 }
 
 const (
