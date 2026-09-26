@@ -39,21 +39,22 @@ func TestIntegration_Advisor_ReportsEveryRuleOnLargeTable(t *testing.T) {
 	schema := createSchema(t, pool, ctx)
 	fakeLargeTable(t, pool, schema, "big", 5_000_000)
 	big := schema + ".big"
+	alter := "ALTER TABLE " + big + " "
 	cases := map[string]string{
 		"ddl_index_not_concurrent":        "CREATE INDEX big_a ON " + big + " (a)",
-		"ddl_constraint_not_valid":        "ALTER TABLE " + big + " ADD CONSTRAINT c CHECK (a > 0)",
-		"ddl_fk_not_valid":                "ALTER TABLE " + big + " ADD CONSTRAINT f FOREIGN KEY (a) REFERENCES x (id)",
-		"ddl_drop_column":                 "ALTER TABLE " + big + " DROP COLUMN a",
+		"ddl_constraint_not_valid":        alter + "ADD CONSTRAINT c CHECK (a > 0)",
+		"ddl_fk_not_valid":                alter + "ADD CONSTRAINT f FOREIGN KEY (a) REFERENCES x (id)",
+		"ddl_drop_column":                 alter + "DROP COLUMN a",
 		"ddl_drop_table":                  "DROP TABLE " + big,
-		"ddl_attach_partition_no_check":   "ALTER TABLE " + big + " ATTACH PARTITION p FOR VALUES IN (1)",
-		"ddl_set_not_null":                "ALTER TABLE " + big + " ALTER COLUMN a SET NOT NULL",
-		"ddl_alter_type_rewrite":          "ALTER TABLE " + big + " ALTER COLUMN a TYPE bigint",
-		"ddl_add_column_volatile_default": "ALTER TABLE " + big + " ADD COLUMN r float DEFAULT random()",
+		"ddl_attach_partition_no_check":   alter + "ATTACH PARTITION p FOR VALUES IN (1)",
+		"ddl_set_not_null":                alter + "ALTER COLUMN a SET NOT NULL",
+		"ddl_alter_type_rewrite":          alter + "ALTER COLUMN a TYPE bigint",
+		"ddl_add_column_volatile_default": alter + "ADD COLUMN r float DEFAULT random()",
 		"ddl_reindex_not_concurrent":      "REINDEX TABLE " + big,
 		"ddl_vacuum_full":                 "VACUUM FULL " + big,
 		"ddl_refresh_not_concurrent":      "REFRESH MATERIALIZED VIEW " + big,
 		"ddl_cluster":                     "CLUSTER " + big + " USING big_pkey",
-		"ddl_set_tablespace":              "ALTER TABLE " + big + " SET TABLESPACE fast",
+		"ddl_set_tablespace":              alter + "SET TABLESPACE fast",
 	}
 	advisor := newTestAdvisor(t, pool)
 	for rule, sql := range cases {
