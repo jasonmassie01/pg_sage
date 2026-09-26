@@ -50,7 +50,14 @@ func forecastDiskGrowth(
 	}}
 }
 
-// forecastConnectionSaturation projects when active connections
+// connectionsInUse counts every backend holding a connection slot. Idle
+// and idle-in-transaction sessions consume slots too, so saturation is
+// measured on total backends, not active ones (G2-B18).
+func connectionsInUse(a DaySystemAgg) float64 {
+	return math.Max(a.MaxTotalBackends, a.MaxActiveBackends)
+}
+
+// forecastConnectionSaturation projects when connections in use
 // will reach a dangerous fraction of max_connections.
 func forecastConnectionSaturation(
 	aggs []DaySystemAgg, cfg ForecasterConfig,
@@ -59,9 +66,7 @@ func forecastConnectionSaturation(
 		return nil
 	}
 
-	points := sysToDataPoints(aggs, func(a DaySystemAgg) float64 {
-		return a.MaxActiveBackends
-	})
+	points := sysToDataPoints(aggs, connectionsInUse)
 	reg := LinearRegression(points)
 
 	latest := aggs[len(aggs)-1]
@@ -71,7 +76,7 @@ func forecastConnectionSaturation(
 	}
 
 	threshold := maxConns * cfg.ConnectionWarnPct / 100
-	current := latest.MaxActiveBackends
+	current := connectionsInUse(latest)
 	days := DaysUntilThreshold(current, reg.Slope, threshold)
 
 	severity := severityByDays(days)
@@ -90,14 +95,14 @@ func forecastConnectionSaturation(
 		),
 		Detail: map[string]any{
 			"forecast_type":    "connection_saturation",
-			"current_active":   current,
+			"current_in_use":   current,
 			"max_connections":  maxConns,
 			"slope_per_day":    reg.Slope,
 			"days_to_warn_pct": days,
 			"r_squared":        reg.R2,
 		},
 		Recommendation: fmt.Sprintf(
-			"Active connections are trending toward %.0f%% "+
+			"Connections in use (active + idle) are trending toward %.0f%% "+
 				"of max_connections. Consider connection "+
 				"pooling or increasing max_connections.",
 			cfg.ConnectionWarnPct,
