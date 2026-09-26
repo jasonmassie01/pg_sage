@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,7 +59,8 @@ func agentDeploymentToFleetConfig(
 	}
 	sslmode := mapString(ci, "sslmode")
 	if sslmode == "" {
-		sslmode = "disable"
+		// Agent databases are remote; never default to plaintext (G8-B21).
+		sslmode = "require"
 	}
 	return config.DatabaseConfig{
 		Name:     agentFleetPrefix + dep.DeploymentID,
@@ -81,9 +85,10 @@ func agentDBName(dep agentdb.Deployment) string {
 	return dep.DatabaseName
 }
 
-// syncAgentDBsToFleet registers eligible agent-provisioned databases into
-// the fleet so the collector monitors them. It connects new ones and
-// skips any already registered. Dormant when no agent DBs exist (B1).
+// syncAgentDBsToFleet reconciles the fleet with the desired set of agent
+// databases: it adds eligible deployments, replaces instances whose
+// connection or credentials changed, and removes instances whose deployment
+// was archived, deleted, destroyed or lost its credentials (G8-B21, SURF-07).
 func syncAgentDBsToFleet(
 	ctx context.Context,
 	store *agentdb.Store,
@@ -94,15 +99,76 @@ func syncAgentDBsToFleet(
 		logWarn("agentdb", "fleet sync: list deployments: %v", err)
 		return
 	}
-	for _, dep := range deployments {
-		dbCfg, ok := agentDeploymentToFleetConfig(dep)
-		if !ok {
+	current := map[string]config.DatabaseConfig{}
+	for name, inst := range mgr.Instances() {
+		if strings.HasPrefix(name, agentFleetPrefix) && inst != nil {
+			current[name] = inst.Config
+		}
+	}
+	add, remove := agentFleetPlan(deployments, current)
+	for _, name := range remove {
+		if err := mgr.RemoveInstanceContext(ctx, name); err != nil &&
+			!errors.Is(err, fleet.ErrDatabaseNotFound) {
+			logWarn("agentdb", "fleet sync: remove %q: %v", name, err)
 			continue
 		}
-		if mgr.GetInstance(dbCfg.Name) != nil {
-			continue // already registered
-		}
+		logInfo("agentdb", "removed agent database %q from fleet", name)
+	}
+	for _, dbCfg := range add {
 		connectAgentDBToFleet(ctx, mgr, dbCfg)
+	}
+}
+
+// agentFleetPlan computes the fleet changes. A changed connection is a
+// remove plus an add so the old pool and credentials are retired.
+func agentFleetPlan(
+	deployments []agentdb.Deployment,
+	current map[string]config.DatabaseConfig,
+) ([]config.DatabaseConfig, []string) {
+	desired := map[string]config.DatabaseConfig{}
+	for _, dep := range deployments {
+		if dbCfg, ok := agentDeploymentToFleetConfig(dep); ok {
+			desired[dbCfg.Name] = dbCfg
+		}
+	}
+	var add []config.DatabaseConfig
+	var remove []string
+	for name, have := range current {
+		want, ok := desired[name]
+		if !ok || !sameAgentConnection(have, want) {
+			remove = append(remove, name)
+		}
+	}
+	for name, want := range desired {
+		have, ok := current[name]
+		if !ok || !sameAgentConnection(have, want) {
+			add = append(add, want)
+		}
+	}
+	sort.Strings(remove)
+	sort.Slice(add, func(i, j int) bool { return add[i].Name < add[j].Name })
+	return add, remove
+}
+
+func sameAgentConnection(a, b config.DatabaseConfig) bool {
+	return a.Host == b.Host && a.Port == b.Port && a.User == b.User &&
+		a.Password == b.Password && a.Database == b.Database && a.SSLMode == b.SSLMode
+}
+
+// agentDBMutationGate blocks AgentDB provider/DDL mutations while any fleet
+// instance is emergency-stopped (G8-B18); the store also checks the
+// persisted flag on its own pool.
+func agentDBMutationGate(mgr *fleet.DatabaseManager) agentdb.MutationGate {
+	return func(context.Context) error {
+		if mgr == nil {
+			return nil
+		}
+		for name, inst := range mgr.Instances() {
+			if inst != nil && inst.Stopped {
+				return fmt.Errorf("fleet emergency stop active on %s", name)
+			}
+		}
+		return nil
 	}
 }
 

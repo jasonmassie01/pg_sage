@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
+	"strings"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/fleet"
 
 	"github.com/pg-sage/sidecar/internal/agentdb"
 )
@@ -49,7 +54,8 @@ func TestAgentDeploymentToFleetConfig_Defaults(t *testing.T) {
 	if !ok {
 		t.Fatal("expected eligible")
 	}
-	if cfg.Port != 5432 || cfg.SSLMode != "disable" {
+	// G8-B21: remote agent databases never default to plaintext.
+	if cfg.Port != 5432 || cfg.SSLMode != "require" {
 		t.Errorf("defaults wrong: port=%d sslmode=%q", cfg.Port, cfg.SSLMode)
 	}
 }
@@ -74,5 +80,48 @@ func TestEligibleForFleet_Rejections(t *testing.T) {
 		if _, ok := agentDeploymentToFleetConfig(c.dep); ok {
 			t.Errorf("%s: conversion should fail", c.name)
 		}
+	}
+}
+
+// G8-B21/SURF-07: fleet sync removes archived deployments and replaces an
+// instance whose connection changed.
+func TestAgentFleetPlanRemovesInactiveAndReplacesChanged(t *testing.T) {
+	live := func(id, host string) agentdb.Deployment {
+		return agentdb.Deployment{DeploymentID: id, Status: "active", DatabaseName: "db",
+			ConnectionInfo: map[string]any{"host": host, "database": "db", "user": "u"}}
+	}
+	archived := live("gone", "h1")
+	archived.Status = "archived"
+	current := map[string]config.DatabaseConfig{
+		"agentdb:gone":    {Name: "agentdb:gone", Host: "h1", Port: 5432, User: "u", Database: "db", SSLMode: "require"},
+		"agentdb:moved":   {Name: "agentdb:moved", Host: "old", Port: 5432, User: "u", Database: "db", SSLMode: "require"},
+		"agentdb:same":    {Name: "agentdb:same", Host: "h3", Port: 5432, User: "u", Database: "db", SSLMode: "require"},
+		"agentdb:deleted": {Name: "agentdb:deleted", Host: "h4"},
+	}
+	add, remove := agentFleetPlan([]agentdb.Deployment{
+		archived, live("moved", "new"), live("same", "h3"), live("fresh", "h5"),
+	}, current)
+	if strings.Join(remove, ",") != "agentdb:deleted,agentdb:gone,agentdb:moved" {
+		t.Fatalf("remove = %v", remove)
+	}
+	names := []string{}
+	for _, cfg := range add {
+		names = append(names, cfg.Name+"@"+cfg.Host)
+	}
+	if strings.Join(names, ",") != "agentdb:fresh@h5,agentdb:moved@new" {
+		t.Fatalf("add = %v", names)
+	}
+}
+
+// G8-B18: any emergency-stopped fleet instance blocks AgentDB mutations.
+func TestAgentDBMutationGateHonoursFleetEmergencyStop(t *testing.T) {
+	mgr := fleet.NewManager(&config.Config{})
+	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "prod", Stopped: true,
+		Status: &fleet.InstanceStatus{}})
+	if err := agentDBMutationGate(mgr)(context.Background()); err == nil {
+		t.Fatal("gate allowed mutations during a fleet emergency stop")
+	}
+	if err := agentDBMutationGate(nil)(context.Background()); err != nil {
+		t.Fatalf("nil manager gate: %v", err)
 	}
 }
