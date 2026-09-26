@@ -28,9 +28,9 @@ func TestEmailSend_MissingHost(t *testing.T) {
 func TestEmailSend_MissingFrom(t *testing.T) {
 	sender := NewEmailSender()
 	ch := Channel{
-		ID:     1,
-		Name:   "no-from",
-		Type:   "email",
+		ID:   1,
+		Name: "no-from",
+		Type: "email",
 		Config: map[string]string{
 			"smtp_host": "mail.example.com", "to": "c@d.com",
 		},
@@ -50,9 +50,9 @@ func TestEmailSend_MissingFrom(t *testing.T) {
 func TestEmailSend_MissingTo(t *testing.T) {
 	sender := NewEmailSender()
 	ch := Channel{
-		ID:     1,
-		Name:   "no-to",
-		Type:   "email",
+		ID:   1,
+		Name: "no-to",
+		Type: "email",
 		Config: map[string]string{
 			"smtp_host": "mail.example.com",
 			"from":      "a@b.com",

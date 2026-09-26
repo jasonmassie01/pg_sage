@@ -29,7 +29,9 @@ func TestSlackSend_FormatMessage(t *testing.T) {
 		}))
 	defer srv.Close()
 
-	sender := NewSlackSender()
+	// G7-B21: the default sender refuses loopback targets; httptest
+	// servers need an explicit AllowPrivate policy.
+	sender := NewSlackSenderWithPolicy(TargetPolicy{AllowPrivate: true})
 	ch := Channel{
 		ID:     1,
 		Name:   "test-slack",
@@ -65,9 +67,9 @@ func TestSlackSend_FormatMessage(t *testing.T) {
 func TestSlackSend_BadWebhook(t *testing.T) {
 	sender := NewSlackSender()
 	ch := Channel{
-		ID:     1,
-		Name:   "bad",
-		Type:   "slack",
+		ID:   1,
+		Name: "bad",
+		Type: "slack",
 		Config: map[string]string{
 			"webhook_url": "http://127.0.0.1:1/nope",
 		},
@@ -113,7 +115,9 @@ func TestSlackSend_ServerError(t *testing.T) {
 		}))
 	defer srv.Close()
 
-	sender := NewSlackSender()
+	// G7-B21: the default sender refuses loopback targets; httptest
+	// servers need an explicit AllowPrivate policy.
+	sender := NewSlackSenderWithPolicy(TargetPolicy{AllowPrivate: true})
 	ch := Channel{
 		ID:     1,
 		Name:   "err",

@@ -10,15 +10,30 @@ import (
 	"time"
 )
 
+// Slack Block Kit limits: header plain_text 150 chars, section text
+// 3000 chars (G7-B15).
+const (
+	slackHeaderMax  = 150
+	slackSectionMax = 3000
+)
+
 // SlackSender delivers notifications via Slack incoming webhooks.
 type SlackSender struct {
 	client *http.Client
+	policy TargetPolicy
 }
 
-// NewSlackSender creates a SlackSender with a default HTTP client.
+// NewSlackSender creates a SlackSender that refuses internal targets.
 func NewSlackSender() *SlackSender {
+	return NewSlackSenderWithPolicy(TargetPolicy{})
+}
+
+// NewSlackSenderWithPolicy creates a SlackSender with an explicit
+// target policy (AllowPrivate for on-prem relays and tests).
+func NewSlackSenderWithPolicy(policy TargetPolicy) *SlackSender {
 	return &SlackSender{
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: policy.HTTPClient(10 * time.Second),
+		policy: policy,
 	}
 }
 
@@ -35,17 +50,21 @@ func (s *SlackSender) Send(
 			ch.Name)
 	}
 
+	if err := s.policy.ValidateURL(webhookURL); err != nil {
+		return fmt.Errorf("slack channel %q: %w", ch.Name, err)
+	}
 	payload, err := buildSlackPayload(evt)
 	if err != nil {
 		return fmt.Errorf("build slack payload: %w", err)
 	}
 
-	return postSlackWebhook(ctx, s.client, webhookURL, payload)
+	return redactErr(postSlackWebhook(ctx, s.client, webhookURL, payload))
 }
 
 func buildSlackPayload(evt Event) ([]byte, error) {
 	emoji := notifySeverityEmoji(evt.Severity)
-	header := fmt.Sprintf("%s %s", emoji, evt.Subject)
+	header := truncateRunes(fmt.Sprintf("%s %s", emoji, evt.Subject),
+		slackHeaderMax)
 
 	blocks := []map[string]any{
 		{
@@ -62,7 +81,7 @@ func buildSlackPayload(evt Event) ([]byte, error) {
 			"type": "section",
 			"text": map[string]any{
 				"type": "mrkdwn",
-				"text": evt.Body,
+				"text": truncateRunes(escapeMrkdwn(evt.Body), slackSectionMax),
 			},
 		})
 	}
@@ -75,7 +94,7 @@ func buildSlackPayload(evt Event) ([]byte, error) {
 				"type": "mrkdwn",
 				"text": fmt.Sprintf(
 					"*Event:* %s | *Severity:* %s | %s",
-					evt.Type, evt.Severity, ts),
+					escapeMrkdwn(evt.Type), escapeMrkdwn(evt.Severity), ts),
 			},
 		},
 	})

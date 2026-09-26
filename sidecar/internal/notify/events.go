@@ -1,6 +1,10 @@
 package notify
 
-import "fmt"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+)
 
 // ActionExecutedEvent creates an event for a successfully executed action.
 // Call from executor after an action completes successfully.
@@ -104,4 +108,30 @@ func QueryRewriteEvent(
 			"database":  database,
 		},
 	}
+}
+
+// ResolvedEvent builds the recovery notification for a previously
+// dispatched event: same dedup identity, Resolve set (G7-B14).
+func ResolvedEvent(original Event) Event {
+	resolved := original
+	resolved.DedupKey = EventDedupKey(original)
+	resolved.Resolve = true
+	resolved.Subject = "Resolved: " + original.Subject
+	return resolved
+}
+
+// EventDedupKey is the incident identity used by PagerDuty and other
+// deduplicating channels: explicit DedupKey, else type + database +
+// a hash of the subject (which names the finding/object), so distinct
+// findings on one database no longer collapse into one incident.
+func EventDedupKey(evt Event) string {
+	if evt.DedupKey != "" {
+		return evt.DedupKey
+	}
+	key := evt.Type
+	if db, ok := evt.Data["database"]; ok {
+		key += ":" + fmt.Sprintf("%v", db)
+	}
+	sum := sha256.Sum256([]byte(evt.Subject))
+	return key + ":" + hex.EncodeToString(sum[:6])
 }

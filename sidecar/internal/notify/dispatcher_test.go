@@ -48,7 +48,7 @@ var errSendFailed = errorf("mock send failed")
 
 type errString string
 
-func errorf(s string) errString { return errString(s) }
+func errorf(s string) errString   { return errString(s) }
 func (e errString) Error() string { return string(e) }
 
 func TestSeverityMeetsMin(t *testing.T) {
