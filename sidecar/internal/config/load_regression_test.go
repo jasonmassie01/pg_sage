@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -35,8 +36,10 @@ func TestLoad_PgURLWithoutModeRunsStandalone(t *testing.T) {
 	if cfg.Mode != "standalone" {
 		t.Fatalf("Mode = %q, want standalone", cfg.Mode)
 	}
-	if len(cfg.Databases) != 0 && cfg.Databases[0].Host == "localhost" {
-		t.Fatal("standalone quick start must not silently target localhost")
+	if len(cfg.Databases) != 1 || cfg.Databases[0].Host != "db.example" ||
+		cfg.Databases[0].Database != "app" {
+		t.Fatalf("standalone instance identity = %+v, want host db.example db app",
+			cfg.Databases)
 	}
 }
 
@@ -174,7 +177,10 @@ func TestUnexpandedEnvWarnings_WrittenDuringLoad(t *testing.T) {
 	}
 
 	text := out.String()
-	if !strings.Contains(text, path) || !strings.Contains(text, "SAGE_TEST_LOAD_UNSET") {
+	// The warning quotes the path with %q, so compare the quoted form
+	// (Windows paths contain escaped backslashes).
+	if !strings.Contains(text, strconv.Quote(path)) ||
+		!strings.Contains(text, "SAGE_TEST_LOAD_UNSET") {
 		t.Fatalf("warning output %q lacks path or variable", text)
 	}
 	if strings.Contains(text, "SAGE_TEST_LOAD_COMMENT") {
