@@ -287,6 +287,9 @@ func (e *Executor) executeCustodianSQL(ctx context.Context, sql string) error {
 	if _, _, isSignal := parseBackendSignal(sql); isSignal {
 		return ErrBackendApprovalRequired
 	}
+	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
+		return err
+	}
 	timeout := e.cfg.Safety.DDLTimeout()
 	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
 	var err error

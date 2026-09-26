@@ -129,6 +129,9 @@ func (e *Executor) runManualSQL(
 	if categorizeAction(sql) == "analyze" {
 		return e.executeManualAnalyze(ctx, findingID, sql)
 	}
+	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
+		return err
+	}
 	ddlTimeout, lockOpt := e.manualDDLOptions()
 	return e.execManualSQLWithRetry(ctx, sql, ddlTimeout, lockOpt)
 }

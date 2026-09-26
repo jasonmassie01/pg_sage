@@ -798,8 +798,9 @@ func (e *Executor) executeFinding(
 			return
 		}
 	}
-	var execErr error
+	execErr := e.checkGUCValueSafety(ctx, f.RecommendedSQL)
 	switch {
+	case execErr != nil:
 	case categorizeAction(f.RecommendedSQL) == "analyze":
 		execErr = e.executeAnalyze(ctx, f)
 	case NeedsConcurrently(f.RecommendedSQL) ||
