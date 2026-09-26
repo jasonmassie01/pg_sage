@@ -178,7 +178,8 @@ func verificationOptions(cfg *config.Config) verify.Options {
 func verifiedActionForFinding(f analyzer.Finding) (verifiedIndexAction, error) {
 	queryIDs := targetQueryIDs(f)
 	indexName := extractIndexName(f.RecommendedSQL)
-	table := strings.TrimSpace(f.ObjectIdentifier)
+	// Optimizer identities are "schema.table|<index definition>" (C05).
+	table := strings.TrimSpace(analyzer.OptimizerFindingTable(f))
 	if indexName == "" || table == "" || len(queryIDs) == 0 || f.RollbackSQL == "" {
 		return verifiedIndexAction{}, ErrVerificationUnavailable
 	}

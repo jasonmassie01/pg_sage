@@ -10,11 +10,12 @@ type Recommendation struct {
 	Confidence              float64       `json:"confidence"`
 	IndexType               string        `json:"index_type"`
 	Category                string        `json:"category"`
+	IndexCategory           string        `json:"index_category,omitempty"` // LLM label; Category is fixed
 	AffectedQueries         []string      `json:"affected_queries,omitempty"`
 	AffectedQueryIDs        []int64       `json:"affected_query_ids,omitempty"`
 	EstimatedImprovementPct float64       `json:"estimated_improvement_pct"`
 	Validated               bool          `json:"validated"`
-	ActionLevel             string        `json:"action_level"`          // autonomous, advisory, informational
+	ActionLevel             string        `json:"action_level"`          // confidence tier: safe, moderate, high_risk
 	ActionRisk              string        `json:"action_risk,omitempty"` // safe, moderate, high_risk
 	CostEstimate            *CostEstimate `json:"cost_estimate,omitempty"`
 }
@@ -50,6 +51,7 @@ type TableContext struct {
 	JoinPairs        []JoinPair
 	IsPartitioned    bool // true if table is a partitioned parent (PG11+)
 	IsPartitionChild bool // true if table is a child partition
+	WriteRateKnown   bool // true when the table had recorded scan/write activity
 }
 
 // ColumnInfo describes a table column.

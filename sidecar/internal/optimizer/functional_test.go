@@ -560,7 +560,8 @@ func TestFunctional_Confidence_BoundaryValues(t *testing.T) {
 	t.Run("Exact500Calls", func(t *testing.T) {
 		// 500 calls should give qv=1.0 (the >= 500 threshold).
 		tc := TableContext{
-			Queries: []QueryInfo{{Calls: 500}},
+			Queries:        []QueryInfo{{Calls: 500}},
+			WriteRateKnown: true, // no longer implied (G3-B23)
 		}
 		o := &Optimizer{
 			cfg:    fnTestOptimizerConfig(),

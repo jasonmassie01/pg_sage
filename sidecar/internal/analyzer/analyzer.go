@@ -761,7 +761,9 @@ func (a *Analyzer) openIndexRecommendationTables(
 		if err := rows.Scan(&ident); err != nil {
 			continue
 		}
-		if t := canonicalTable(ident); t != "" {
+		// Optimizer identities are "schema.table|<index definition>".
+		table, _, _ := strings.Cut(ident, "|")
+		if t := canonicalTable(table); t != "" {
 			out = append(out, t)
 		}
 	}

@@ -41,9 +41,10 @@ func TestComputeConfidence_HighConfidence_NoHypoPG(t *testing.T) {
 		TableCallVolume:  1.0,
 	}
 	got := ComputeConfidence(input)
-	// 0.25 + 0.25 + 0.15 + 0.0 + 0.10 + 0.10 = 0.85
-	if !approxEqual(got, 0.85, 0.001) {
-		t.Errorf("high no-hypopg: got %.4f, want 0.85", got)
+	// Weights rebalanced for G3-B06 (HypoPG .10, selectivity .15):
+	// 0.25 + 0.25 + 0.15 + 0.0 + 0.15 + 0.10 = 0.90
+	if !approxEqual(got, 0.90, 0.001) {
+		t.Errorf("high no-hypopg: got %.4f, want 0.90", got)
 	}
 }
 
@@ -57,9 +58,9 @@ func TestComputeConfidence_MediumConfidence_NoHypoPG(t *testing.T) {
 		TableCallVolume:  0.6,
 	}
 	got := ComputeConfidence(input)
-	// 0.175 + 0.125 + 0.15 + 0.0 + 0.05 + 0.06 = 0.56
-	if !approxEqual(got, 0.56, 0.001) {
-		t.Errorf("medium no-hypopg: got %.4f, want 0.56", got)
+	// 0.175 + 0.125 + 0.15 + 0.0 + 0.075 + 0.06 = 0.585
+	if !approxEqual(got, 0.585, 0.001) {
+		t.Errorf("medium no-hypopg: got %.4f, want 0.585", got)
 	}
 }
 
@@ -89,9 +90,9 @@ func TestComputeConfidence_WithHypoPG_Boost(t *testing.T) {
 		TableCallVolume:  0.6,
 	}
 	got := ComputeConfidence(input)
-	// 0.175 + 0.125 + 0.15 + 0.15 + 0.05 + 0.06 = 0.71
-	if !approxEqual(got, 0.71, 0.001) {
-		t.Errorf("with hypopg: got %.4f, want 0.71", got)
+	// 0.175 + 0.125 + 0.15 + 0.10 + 0.075 + 0.06 = 0.685
+	if !approxEqual(got, 0.685, 0.001) {
+		t.Errorf("with hypopg: got %.4f, want 0.685", got)
 	}
 }
 
@@ -105,9 +106,11 @@ func TestComputeConfidence_HypoPGNoImprovement(t *testing.T) {
 		TableCallVolume:  0.6,
 	}
 	got := ComputeConfidence(input)
-	// 0.175 + 0.125 + 0.15 + 0.03 + 0.05 + 0.06 = 0.59
-	if !approxEqual(got, 0.59, 0.001) {
-		t.Errorf("hypopg no improvement: got %.4f, want 0.59", got)
+	// ComputeConfidence is linear in the input; scoreConfidence no longer
+	// produces 0.2 (a measured rejection drops the rec, G3-B06).
+	// 0.175 + 0.125 + 0.15 + 0.02 + 0.075 + 0.06 = 0.605
+	if !approxEqual(got, 0.605, 0.001) {
+		t.Errorf("hypopg no improvement: got %.4f, want 0.605", got)
 	}
 }
 
