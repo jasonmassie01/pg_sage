@@ -211,3 +211,22 @@ describe('SettingsPage restart', () => {
     expect(init.headers['Content-Type']).toBe('application/json')
   })
 })
+
+// G9-B11: trust.tier3_high_risk has no runtime reader.
+// G9-B13: emergency controls state their scope.
+describe('SettingsPage trust and emergency controls', () => {
+  it('does not offer the unused Tier 3 High Risk toggle', () => {
+    localStorage.setItem('pg_sage_settings_mode', 'advanced')
+    render(<SettingsPage database="all" />)
+    fireEvent.click(screen.getByTestId('settings-tab-trust-safety'))
+    expect(screen.queryByText('Tier 3: High Risk')).toBeNull()
+    expect(screen.getByText('Tier 3: Safe')).toBeInTheDocument()
+  })
+
+  it('labels the emergency stop scope', () => {
+    localStorage.setItem('pg_sage_settings_mode', 'advanced')
+    render(<SettingsPage database="prod" />)
+    expect(screen.getByTestId('emergency-scope'))
+      .toHaveTextContent('prod')
+  })
+})
