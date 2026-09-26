@@ -18,6 +18,9 @@ type Snapshot struct {
 	PreparedXacts []PreparedTransaction `json:"prepared_xacts,omitempty"`
 	ConfigData    *ConfigSnapshot       `json:"config_data,omitempty"`
 	StatsReset    bool                  `json:"stats_reset,omitempty"`
+	// StatsEpoch is the pg_stat_statements statistics epoch the query
+	// counters belong to; zero when it could not be read.
+	StatsEpoch time.Time `json:"stats_epoch,omitzero"`
 }
 
 // QueryStats mirrors pg_stat_statements columns.

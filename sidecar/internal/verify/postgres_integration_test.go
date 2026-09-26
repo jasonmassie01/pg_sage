@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/schema"
 )
 
 func TestPostgresStateStorePersistsAndReloadsWatch(t *testing.T) {
@@ -89,6 +91,9 @@ func verifyIntegrationPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("test database unavailable: %v", err)
 	}
 	t.Cleanup(pool.Close)
+	if err := schema.Bootstrap(t.Context(), pool); err != nil {
+		t.Fatalf("bootstrap sage schema: %v", err)
+	}
 	return pool
 }
 

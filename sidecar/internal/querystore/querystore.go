@@ -7,7 +7,6 @@ package querystore
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,6 +20,10 @@ type Sample struct {
 	TotalExecMs float64 // pg_stat_statements.total_exec_time (already ms)
 	MeanExecMs  float64
 	Rows        int64
+	// StatsEpoch is the pg_stat_statements statistics epoch the counters
+	// belong to (zero = unknown, stored as NULL). Samples from different
+	// epochs are never differenced (R10).
+	StatsEpoch time.Time
 }
 
 // Record writes a batch of samples to sage.query_store. A nil/empty
@@ -36,9 +39,11 @@ func Record(ctx context.Context, pool *pgxpool.Pool, samples []Sample) error {
 	for _, s := range samples {
 		batch.Queue(
 			`/* pg_sage */ INSERT INTO sage.query_store
-			   (queryid, calls, total_exec_time, mean_exec_time, rows)
-			 VALUES ($1, $2, $3, $4, $5)`,
-			s.QueryID, s.Calls, s.TotalExecMs, s.MeanExecMs, s.Rows)
+			   (queryid, calls, total_exec_time, mean_exec_time, rows,
+			    stats_epoch)
+			 VALUES ($1, $2, $3, $4, $5, $6)`,
+			s.QueryID, s.Calls, s.TotalExecMs, s.MeanExecMs, s.Rows,
+			epochParam(s.StatsEpoch))
 	}
 	br := pool.SendBatch(ctx, batch)
 	for range samples {
@@ -50,48 +55,35 @@ func Record(ctx context.Context, pool *pgxpool.Pool, samples []Sample) error {
 	return br.Close()
 }
 
+// epochParam maps an unknown (zero) epoch to NULL.
+func epochParam(epoch time.Time) *time.Time {
+	if epoch.IsZero() {
+		return nil
+	}
+	return &epoch
+}
+
 type sampleRow struct {
 	calls int64
 	total float64
 }
 
 // WindowedLatencyMs returns the average per-call latency (ms) for a
-// queryid over the window starting at `since`, computed from the delta
-// between the earliest sample at/after `since` and the latest sample.
-// ok is false when there is insufficient data (no samples, only one
-// sample, no new calls in the window, or a pg_stat_statements reset).
+// queryid over every sample captured at or after `since`. ok is false
+// unless the window is measurable: at least two samples, new calls, no
+// counter decrease and a single known statistics epoch (see
+// WindowedLatencyEvidence).
 func WindowedLatencyMs(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	queryid int64,
 	since time.Time,
 ) (float64, bool, error) {
-	var earliest, latest sampleRow
-	err := pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT calls, total_exec_time
-		   FROM sage.query_store
-		  WHERE queryid = $1 AND captured_at >= $2
-		  ORDER BY captured_at ASC LIMIT 1`,
-		queryid, since,
-	).Scan(&earliest.calls, &earliest.total)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, false, nil
-		}
-		return 0, false, err
-	}
-	err = pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT calls, total_exec_time
-		   FROM sage.query_store
-		  WHERE queryid = $1
-		  ORDER BY captured_at DESC LIMIT 1`,
-		queryid,
-	).Scan(&latest.calls, &latest.total)
+	ev, err := windowEvidence(ctx, pool, queryid, since, nil)
 	if err != nil {
 		return 0, false, err
 	}
-	ms, ok := windowedLatencyMs(earliest, latest)
-	return ms, ok, nil
+	return ev.LatencyMs, ev.Status == EvidenceMeasured, nil
 }
 
 // WindowedLatencyMsBetween returns the average per-call latency (ms) for
