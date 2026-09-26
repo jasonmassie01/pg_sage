@@ -175,7 +175,8 @@ func TestBuildDDLUserPrompt_ContainsAllFields(t *testing.T) {
 	sql := "ALTER TABLE foo ADD COLUMN bar int"
 	prompt := buildDDLUserPrompt(sql, 160000, "mydb")
 
-	if !contains(prompt, "160000") {
+	// G7-B27: the prompt renders server_version_num as major.minor.
+	if !contains(prompt, "16.0") {
 		t.Error("user prompt missing PG version")
 	}
 	if !contains(prompt, "mydb") {
@@ -188,7 +189,7 @@ func TestBuildDDLUserPrompt_ContainsAllFields(t *testing.T) {
 
 func TestBuildDDLUserPrompt_EmptyDBName(t *testing.T) {
 	prompt := buildDDLUserPrompt("SELECT 1", 150000, "")
-	if !contains(prompt, "150000") {
+	if !contains(prompt, "15.0") {
 		t.Error("user prompt missing PG version")
 	}
 }

@@ -247,11 +247,11 @@ func TestFindingFromIncident_RedactsLiterals(t *testing.T) {
 	sql := "ALTER TABLE t ADD CONSTRAINT c CHECK (pw <> 'S3cretPw!')"
 	inc := &rca.Incident{
 		Severity: "warning", Source: "schema_advisor",
-		RootCause: "Dangerous DDL: ddl_constraint_not_valid",
-		SignalIDs: []string{"ddl_constraint_not_valid"},
+		RootCause:       "Dangerous DDL: ddl_constraint_not_valid",
+		SignalIDs:       []string{"ddl_constraint_not_valid"},
 		AffectedObjects: []string{"public.t"},
-		CausalChain: []rca.ChainLink{{Order: 1, Evidence: sql}},
-		DatabaseName: "db",
+		CausalChain:     []rca.ChainLink{{Order: 1, Evidence: sql}},
+		DatabaseName:    "db",
 	}
 	finding, ok := FindingFromIncident(42, sql, inc)
 	if !ok {

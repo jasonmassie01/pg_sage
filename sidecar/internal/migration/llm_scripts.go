@@ -259,8 +259,9 @@ func scriptUserPrompt(
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "PostgreSQL version: %d\n", pgVersion)
-	fmt.Fprintf(&b, "Original DDL (dangerous):\n%s\n\n", risk.Statement)
+	fmt.Fprintf(&b, "PostgreSQL version: %s\n", formatPGVersion(pgVersion))
+	fmt.Fprintf(&b, "Original DDL (dangerous):\n%s\n\n",
+		sanitizeDDL(risk.Statement))
 	fmt.Fprintf(&b, "Risk: %s -- %s\n", risk.RuleID, risk.Description)
 	fmt.Fprintf(&b, "Lock level: %s\n", risk.LockLevel)
 	fmt.Fprintf(&b, "Table: %s.%s (%d rows, %d bytes)\n\n",
@@ -268,7 +269,10 @@ func scriptUserPrompt(
 		risk.EstimatedRows, risk.TableSizeBytes)
 
 	if tableSchema != "" {
-		fmt.Fprintf(&b, "Table schema:\n%s\n", tableSchema)
+		// Column defaults, CHECK bodies and index predicates can hold
+		// literals; redact them before egress (G7-B01).
+		fmt.Fprintf(&b, "Table schema:\n%s\n",
+			redactSchemaLiterals(tableSchema))
 	}
 
 	if risk.SafeAlternative != "" {
@@ -278,6 +282,19 @@ func scriptUserPrompt(
 
 	b.WriteString("Generate a complete, safe migration script.")
 	return b.String()
+}
+
+// redactSchemaLiterals redacts literals in the catalog-derived schema
+// description line by line, so a "--" prefix does not swallow a line.
+func redactSchemaLiterals(schema string) string {
+	lines := strings.Split(schema, "\n")
+	for i, line := range lines {
+		body := strings.TrimPrefix(line, "--")
+		if body != line {
+			lines[i] = "--" + sanitizeDDL(body)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // extractSQLFromResponse extracts SQL from an LLM response that may

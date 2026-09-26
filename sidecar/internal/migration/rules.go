@@ -8,10 +8,10 @@ type ruleDefinition struct {
 	RequiresRewrite bool
 	MinPGVersion    int
 	Description     string
-	SafeAltTemplate string // may contain %s placeholders
+	SafeAltTemplate string // prose or SQL; never a format string
 }
 
-// ruleCatalog returns the 16 rule definitions.
+// ruleCatalog returns the rule definitions.
 func ruleCatalog() []ruleDefinition {
 	rules := schemaRules()
 	rules = append(rules, columnRules()...)
@@ -25,7 +25,7 @@ func schemaRules() []ruleDefinition {
 		{
 			ID: "ddl_index_not_concurrent", LockLevel: "SHARE",
 			Description:     "CREATE INDEX without CONCURRENTLY blocks writes",
-			SafeAltTemplate: "CREATE INDEX CONCURRENTLY %s",
+			SafeAltTemplate: "Use CREATE INDEX CONCURRENTLY with the same definition",
 		},
 		{
 			ID: "ddl_constraint_not_valid", LockLevel: "ACCESS EXCLUSIVE",
@@ -52,6 +52,13 @@ func schemaRules() []ruleDefinition {
 			Description:     "ATTACH PARTITION without prior CHECK scans the partition",
 			SafeAltTemplate: "Add CHECK matching partition bound on child before ATTACH",
 		},
+		{
+			ID: "ddl_add_key_builds_index", LockLevel: "ACCESS EXCLUSIVE",
+			Description: "ADD PRIMARY KEY/UNIQUE builds an index while holding " +
+				"ACCESS EXCLUSIVE",
+			SafeAltTemplate: "CREATE UNIQUE INDEX CONCURRENTLY, then " +
+				"ADD CONSTRAINT ... USING INDEX",
+		},
 	}
 }
 
@@ -72,7 +79,8 @@ func columnRules() []ruleDefinition {
 		{
 			ID: "ddl_add_column_volatile_default", LockLevel: "ACCESS EXCLUSIVE",
 			RequiresRewrite: true,
-			Description:     "ADD COLUMN with volatile DEFAULT rewrites table on PG < 11",
+			Description: "ADD COLUMN with a volatile DEFAULT (or serial, IDENTITY, " +
+				"GENERATED ... STORED) rewrites the whole table",
 			SafeAltTemplate: "Add nullable, backfill in batches, then add constraint",
 		},
 		{
@@ -95,21 +103,25 @@ func maintenanceRules() []ruleDefinition {
 		},
 		{
 			ID: "ddl_vacuum_full", LockLevel: "ACCESS EXCLUSIVE",
+			RequiresRewrite: true,
 			Description:     "VACUUM FULL rewrites the table and blocks all access",
 			SafeAltTemplate: "Use pg_repack or regular VACUUM instead",
 		},
 		{
 			ID: "ddl_refresh_not_concurrent", LockLevel: "ACCESS EXCLUSIVE",
+			RequiresRewrite: true,
 			Description:     "REFRESH MATERIALIZED VIEW without CONCURRENTLY blocks reads",
 			SafeAltTemplate: "REFRESH MATERIALIZED VIEW CONCURRENTLY (needs unique index)",
 		},
 		{
 			ID: "ddl_cluster", LockLevel: "ACCESS EXCLUSIVE",
+			RequiresRewrite: true,
 			Description:     "CLUSTER rewrites the table and blocks all access",
 			SafeAltTemplate: "Schedule during maintenance window or use pg_repack",
 		},
 		{
 			ID: "ddl_set_tablespace", LockLevel: "ACCESS EXCLUSIVE",
+			RequiresRewrite: true,
 			Description:     "SET TABLESPACE moves data under ACCESS EXCLUSIVE lock",
 			SafeAltTemplate: "Schedule during low-traffic window",
 		},

@@ -98,7 +98,7 @@ func TestNewLogDetector_Roundtrip(t *testing.T) {
 	}
 
 	advisor := NewAdvisor(
-		nil,                           // pool — risk assessor tolerates nil
+		nil, // pool — risk assessor tolerates nil
 		&config.MigrationConfig{Mode: "advisory"},
 		160000,
 		"testdb",
