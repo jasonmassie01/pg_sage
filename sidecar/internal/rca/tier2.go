@@ -93,22 +93,13 @@ func (e *Engine) planTier2(
 // tier2Candidates returns signals not consumed by any Tier 1 incident,
 // plus signals consumed only by low-confidence incidents.
 func tier2Candidates(signals []*Signal, tier1 []Incident) []*Signal {
-	strong := make(map[string]bool)
+	var strong []Incident
 	for _, inc := range tier1 {
-		if inc.Confidence < tier2LowConfidence {
-			continue
-		}
-		for _, sid := range inc.SignalIDs {
-			strong[sid] = true
+		if inc.Confidence >= tier2LowConfidence {
+			strong = append(strong, inc)
 		}
 	}
-	var out []*Signal
-	for _, s := range signals {
-		if !strong[s.ID] {
-			out = append(out, s)
-		}
-	}
-	return out
+	return findUncoveredSignals(signals, strong)
 }
 
 // findUncoveredSignals returns signals whose IDs were not consumed
@@ -156,16 +147,11 @@ func (e *Engine) runTier2(ctx context.Context, req *tier2Request) []Incident {
 		e.logFn("warn", "rca: tier2 LLM call failed: %v", err)
 		return nil
 	}
-	var resp tier2Response
-	if err := llm.ParseJSON(raw, llm.JSONObject, &resp); err != nil {
+	inc, err := parseTier2Response(raw, req.candidates, req.context...)
+	if err != nil {
 		e.logFn("warn", "rca: tier2 parse failed: %v", err)
 		return nil
 	}
-	if resp.RootCause == "" {
-		e.logFn("warn", "rca: tier2 parse failed: empty root_cause")
-		return nil
-	}
-	inc := buildTier2IncidentFrom(resp, req.candidates, req.context)
 	inc.DatabaseName = req.database
 	return []Incident{inc}
 }
@@ -242,10 +228,13 @@ func redactSignalMetrics(m map[string]any) map[string]any {
 }
 
 // parseTier2Response extracts a tier2Response from possibly
-// markdown-fenced LLM output and builds an Incident.
+// markdown-fenced LLM output and builds an Incident for the uncovered
+// signals. Causal steps may also reference the co-occurring context
+// signals.
 func parseTier2Response(
 	raw string,
 	uncovered []*Signal,
+	context ...*Signal,
 ) (Incident, error) {
 	var resp tier2Response
 	if err := llm.ParseJSON(raw, llm.JSONObject, &resp); err != nil {
@@ -254,7 +243,10 @@ func parseTier2Response(
 	if resp.RootCause == "" {
 		return Incident{}, fmt.Errorf("empty root_cause in response")
 	}
-	return buildTier2Incident(resp, uncovered), nil
+	if len(context) == 0 {
+		return buildTier2Incident(resp, uncovered), nil
+	}
+	return buildTier2IncidentFrom(resp, uncovered, context), nil
 }
 
 // buildTier2Incident constructs an Incident whose identity is the given
