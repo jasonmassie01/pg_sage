@@ -133,6 +133,7 @@ func queryProjectedCases(
 		}
 		out = append(out, queryHintCases...)
 	}
+	sortCasesGlobally(out)
 	return out, nil
 }
 
