@@ -451,7 +451,9 @@ func TestAuditEventsListAndExportJSONL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AuditEvents: %v", err)
 	}
-	if len(events) < 4 {
+	// A heartbeat is liveness only (G8-B01): it no longer writes a lifecycle
+	// "active" status audit row, so register + feedback + backup remain.
+	if len(events) < 3 {
 		t.Fatalf("audit event count = %d, events=%#v", len(events), events)
 	}
 	if events[0].Event != "register" || events[0].DeploymentID != id {

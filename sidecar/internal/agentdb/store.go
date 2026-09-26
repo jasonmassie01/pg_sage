@@ -141,12 +141,35 @@ func (s *Store) Register(ctx context.Context, req RegisterRequest) (Deployment, 
 		jsonBytes(req.ProvisioningPlan),
 		jsonBytes(req.ConnectionInfo),
 	), &dep)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return s.existingRegistration(ctx, req)
+	}
 	if err != nil {
 		return Deployment{}, err
 	}
 	_ = s.audit(ctx, req.DeploymentID, "register", nil)
 	_ = s.seedTuningHints(ctx, req.DeploymentID, req.Metadata)
 	return dep, nil
+}
+
+// existingRegistration resolves a register that collided with a row the
+// upsert refused to overwrite (live resource, other owner, in-flight state).
+// The same owner and shape is an idempotent replay; anything else conflicts.
+func (s *Store) existingRegistration(
+	ctx context.Context,
+	req RegisterRequest,
+) (Deployment, error) {
+	current, err := s.Get(ctx, req.DeploymentID)
+	if err != nil {
+		return Deployment{}, err
+	}
+	if current.TenantID != req.TenantID || current.AgentID != req.AgentID ||
+		current.Provider != req.Provider ||
+		current.ProvisioningLevel != req.ProvisioningLevel ||
+		current.Status == "deleted" {
+		return Deployment{}, ErrConflict
+	}
+	return current, nil
 }
 
 func (s *Store) List(ctx context.Context) ([]Deployment, error) {
@@ -190,17 +213,47 @@ func (s *Store) Ping(ctx context.Context, id string, req PingRequest) (Deploymen
 	if err := s.Ensure(ctx); err != nil {
 		return Deployment{}, err
 	}
-	if req.Status == "" {
-		req.Status = "active"
+	health, err := normalizeAgentHealth(req.Status)
+	if err != nil {
+		return Deployment{}, err
 	}
-	if _, err := s.pool.Exec(ctx, `/* pg_sage */ 
+	if _, err := s.pool.Exec(ctx, `/* pg_sage */
 		INSERT INTO sage.agent_db_pings(deployment_id, status, metrics)
 		VALUES ($1, $2, $3::jsonb)`,
-		id, req.Status, jsonBytes(req.Metrics),
+		id, health, jsonBytes(req.Metrics),
 	); err != nil {
 		return Deployment{}, err
 	}
-	return s.setStatusFields(ctx, id, req.Status, "last_ping_at=now()")
+	// A heartbeat records liveness only. Lifecycle status, cleanup claims,
+	// teardown state and budget enforcement are owned by operator and
+	// reconciler paths and must never be reachable with a ping token.
+	var dep Deployment
+	err = scanDeployment(s.pool.QueryRow(ctx, `/* pg_sage */
+		UPDATE sage.agent_db_deployments
+		SET last_ping_at=now(), agent_status=$2
+		WHERE deployment_id=$1
+		RETURNING `+deploymentColumnsSQL, id, health), &dep)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Deployment{}, ErrNotFound
+	}
+	return dep, err
+}
+
+// normalizeAgentHealth maps an agent-reported heartbeat status onto the
+// closed agent health vocabulary. Lifecycle words are rejected.
+func normalizeAgentHealth(status string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "", "active", "healthy", "ok":
+		return "healthy", nil
+	case "degraded":
+		return "degraded", nil
+	case "busy":
+		return "busy", nil
+	case "idle":
+		return "idle", nil
+	default:
+		return "", ErrInvalid
+	}
 }
 
 func (s *Store) ExtendLease(
@@ -537,5 +590,9 @@ func scanDeployment(row scanner, dep *Deployment) error {
 		&dep.TeardownOperationID,
 		&dep.ProviderMutationID,
 		&dep.ProviderMutationExpiresAt,
+		&dep.AgentStatus,
+		&dep.TeardownBlockedReason,
+		&dep.TeardownBlockedAt,
+		&dep.CreateOperationID,
 	)
 }
