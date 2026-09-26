@@ -101,7 +101,7 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 			if err := migrateIncidentConstraints(ctx, conn); err != nil {
 				return fmt.Errorf("incident constraint migration: %w", err)
 			}
-			return nil
+			return migrateRetentionForeignKeys(ctx, conn)
 		},
 	)
 }
