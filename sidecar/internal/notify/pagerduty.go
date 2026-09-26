@@ -21,7 +21,7 @@ type PagerDutySender struct {
 // NewPagerDutySender creates a PagerDutySender with default settings.
 func NewPagerDutySender() *PagerDutySender {
 	return &PagerDutySender{
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: TargetPolicy{}.HTTPClient(10 * time.Second),
 		apiURL: pdEventsURL,
 	}
 }
@@ -44,7 +44,7 @@ func (p *PagerDutySender) Send(
 		return fmt.Errorf("build pagerduty payload: %w", err)
 	}
 
-	return postPagerDuty(ctx, p.client, p.apiURL, payload)
+	return RedactError(postPagerDuty(ctx, p.client, p.apiURL, payload))
 }
 
 type pdEvent struct {
@@ -80,18 +80,18 @@ func buildPagerDutyPayload(
 		}
 	}
 
-	dedupPrefix := ch.Config["dedup_key_prefix"]
-	dedupKey := evt.Type
-	if db, ok := evt.Data["database"]; ok {
-		dedupKey += ":" + fmt.Sprintf("%v", db)
+	dedupKey := EventDedupKey(evt)
+	if prefix := ch.Config["dedup_key_prefix"]; prefix != "" {
+		dedupKey = prefix + ":" + dedupKey
 	}
-	if dedupPrefix != "" {
-		dedupKey = dedupPrefix + ":" + dedupKey
+	action := "trigger"
+	if evt.Resolve {
+		action = "resolve"
 	}
 
 	pd := pdEvent{
 		RoutingKey:  routingKey,
-		EventAction: "trigger",
+		EventAction: action,
 		DedupKey:    dedupKey,
 		Payload: pdPayload{
 			Summary:       evt.Subject,

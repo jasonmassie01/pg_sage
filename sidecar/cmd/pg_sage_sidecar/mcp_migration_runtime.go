@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	clonepkg "github.com/pg-sage/sidecar/internal/clone"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -75,8 +76,21 @@ func (wrapper recommendOnlyOnCloneFailure) Rehearse(
 	if err == nil || ctx.Err() != nil {
 		return result, err
 	}
-	return rehearsalpkg.Result{
-		Verdict: rehearsalpkg.VerdictRecommendOnly,
-		Reason:  rehearsalpkg.Reason("clone_unavailable"),
-	}, nil
+	result.Verdict = rehearsalpkg.VerdictRecommendOnly
+	result.Reason = rehearsalFailureReason(err)
+	return result, nil
+}
+
+// rehearsalFailureReason separates clone-provider outages from genuine
+// step failures on an existing clone, which carry their SQLSTATE
+// (G7-B25). Unclassified errors keep the conservative clone reason.
+func rehearsalFailureReason(err error) rehearsalpkg.Reason {
+	if !errors.Is(err, rehearsalpkg.ErrStepFailed) {
+		return rehearsalpkg.Reason("clone_unavailable")
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code != "" {
+		return rehearsalpkg.Reason("rehearsal_failed:" + pgErr.Code)
+	}
+	return rehearsalpkg.Reason("rehearsal_failed")
 }

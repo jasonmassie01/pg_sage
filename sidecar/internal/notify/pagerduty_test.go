@@ -304,8 +304,10 @@ func TestPagerDutySend_DedupKey(t *testing.T) {
 
 	var pd pdEvent
 	json.Unmarshal(received, &pd)
-	if pd.DedupKey != "finding_critical:orders" {
-		t.Errorf("dedup_key = %q, want finding_critical:orders",
+	// G7-B14: the key now also carries a hash of the subject so two
+	// findings on one database are two incidents.
+	if !strings.HasPrefix(pd.DedupKey, "finding_critical:orders:") {
+		t.Errorf("dedup_key = %q, want finding_critical:orders:<hash>",
 			pd.DedupKey)
 	}
 }
@@ -335,9 +337,9 @@ func TestPagerDutySend_DedupKeyWithPrefix(t *testing.T) {
 
 	var pd pdEvent
 	json.Unmarshal(received, &pd)
-	want := "env-prod:action_failed:db1"
-	if pd.DedupKey != want {
-		t.Errorf("dedup_key = %q, want %q", pd.DedupKey, want)
+	want := "env-prod:action_failed:db1:"
+	if !strings.HasPrefix(pd.DedupKey, want) {
+		t.Errorf("dedup_key = %q, want prefix %q", pd.DedupKey, want)
 	}
 }
 
@@ -362,8 +364,8 @@ func TestPagerDutySend_DedupKeyNoDatabase(t *testing.T) {
 
 	var pd pdEvent
 	json.Unmarshal(received, &pd)
-	if pd.DedupKey != "action_executed" {
-		t.Errorf("dedup_key = %q, want action_executed",
+	if !strings.HasPrefix(pd.DedupKey, "action_executed:") {
+		t.Errorf("dedup_key = %q, want action_executed:<hash>",
 			pd.DedupKey)
 	}
 }

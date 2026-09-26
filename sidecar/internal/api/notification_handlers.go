@@ -177,7 +177,13 @@ func testChannelHandler(
 			return
 		}
 		if err := ns.TestChannel(r.Context(), id); err != nil {
-			jsonError(w, "test failed: "+err.Error(),
+			if errors.Is(err, store.ErrNotFound) {
+				jsonError(w, "channel not found", http.StatusNotFound)
+				return
+			}
+			// Never echo raw delivery errors: they can carry webhook
+			// secrets and act as an SSRF/port-scan oracle (G7-B10/B21).
+			jsonError(w, store.ErrTestDeliveryFailed.Error(),
 				http.StatusBadGateway)
 			return
 		}
@@ -218,9 +224,7 @@ func createRuleHandler(
 				http.StatusBadRequest)
 			return
 		}
-		if req.MinSeverity == "" {
-			req.MinSeverity = "warning"
-		}
+		req.MinSeverity = defaultRuleSeverity(req.Event, req.MinSeverity)
 
 		id, err := ns.CreateRule(
 			r.Context(), req.ChannelID,
@@ -283,15 +287,22 @@ func updateRuleHandler(
 			return
 		}
 		var req struct {
-			Enabled bool `json:"enabled"`
+			Enabled *bool `json:"enabled"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, "invalid request body",
 				http.StatusBadRequest)
 			return
 		}
+		// A missing field used to decode as false and silently disable
+		// the rule (G7-B29).
+		if req.Enabled == nil {
+			jsonError(w, "enabled (boolean) is required",
+				http.StatusBadRequest)
+			return
+		}
 		if err := ns.UpdateRule(
-			r.Context(), id, req.Enabled,
+			r.Context(), id, *req.Enabled,
 		); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				jsonError(w, "rule not found",
@@ -322,6 +333,16 @@ func listNotificationLogHandler(
 		}
 		jsonResponse(w, map[string]any{"log": entries})
 	}
+}
+
+// defaultRuleSeverity returns the requested min_severity, or the event's
+// own fixed severity when none is given, so a default rule can always
+// fire (G7-B06: the old "warning" default never matched info events).
+func defaultRuleSeverity(event, requested string) string {
+	if requested != "" {
+		return requested
+	}
+	return notify.DefaultMinSeverity(event)
 }
 
 // maskChannelSecrets redacts sensitive values in a channel config

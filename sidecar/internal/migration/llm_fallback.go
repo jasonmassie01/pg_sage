@@ -3,6 +3,7 @@ package migration
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -48,7 +49,8 @@ func (a *Advisor) llmFallback(
 		return nil, nil
 	}
 
-	if resp.RiskScore <= 0.3 {
+	resp.RiskScore = math.Min(1, math.Max(0, resp.RiskScore))
+	if resp.RiskScore <= incidentThreshold {
 		return nil, nil
 	}
 
@@ -90,16 +92,16 @@ func (a *Advisor) buildLLMIncident(
 	}
 
 	return &rca.Incident{
-		DetectedAt:   time.Now(),
-		Severity:     severity,
-		Source:       "schema_advisor_llm",
-		RootCause:    fmt.Sprintf("LLM-detected risky DDL: %s", resp.Explanation),
-		CausalChain:  chain,
-		SignalIDs:    []string{"llm_ddl_fallback"},
+		DetectedAt:     time.Now(),
+		Severity:       severity,
+		Source:         "schema_advisor_llm",
+		RootCause:      fmt.Sprintf("LLM-detected risky DDL: %s", resp.Explanation),
+		CausalChain:    chain,
+		SignalIDs:      []string{"llm_ddl_fallback"},
 		RecommendedSQL: resp.SafeAlternative,
-		ActionRisk:   fmt.Sprintf("risk_score=%.2f", resp.RiskScore),
-		Confidence:   resp.RiskScore,
-		DatabaseName: a.dbName,
+		ActionRisk:     fmt.Sprintf("risk_score=%.2f", resp.RiskScore),
+		Confidence:     resp.RiskScore,
+		DatabaseName:   a.dbName,
 	}
 }
 
@@ -122,8 +124,8 @@ func buildDDLSystemPrompt() string {
 // buildDDLUserPrompt formats the DDL statement for the LLM.
 func buildDDLUserPrompt(sql string, pgVersion int, dbName string) string {
 	return fmt.Sprintf(
-		"PostgreSQL version: %d\nDatabase: %s\nDDL statement:\n%s",
-		pgVersion, dbName, sql,
+		"PostgreSQL version: %s\nDatabase: %s\nDDL statement:\n%s",
+		formatPGVersion(pgVersion), dbName, sanitizeDDL(sql),
 	)
 }
 
@@ -138,11 +140,4 @@ func parseDDLLLMResponse(raw string) (*llmDDLResponse, error) {
 		return nil, fmt.Errorf("empty explanation in LLM response")
 	}
 	return &resp, nil
-}
-
-// stripToJSONObject extracts a JSON object from text that may
-// contain markdown fences or thinking tokens. Delegates to the
-// canonical llm.StripJSON implementation.
-func stripToJSONObject(s string) string {
-	return llm.StripJSON(s, llm.JSONObject)
 }

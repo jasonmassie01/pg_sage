@@ -11,22 +11,23 @@ import (
 
 const (
 	defaultCheckInterval = 60
-	findingsQuery        = `
-SELECT id, category, severity, title,
-       COALESCE(object_type, ''),
-       COALESCE(object_identifier, ''),
-       occurrence_count,
-       COALESCE(recommendation, ''),
-       created_at, last_seen
-FROM sage.findings
-WHERE status = 'open' AND last_seen > $1
+	findingColumns       = `f.id, f.category, f.severity, f.title,
+       COALESCE(f.object_type, ''),
+       COALESCE(f.object_identifier, ''),
+       f.occurrence_count,
+       COALESCE(f.recommendation, ''),
+       f.created_at, f.last_seen`
+	findingsQuery = `
+SELECT ` + findingColumns + `
+FROM sage.findings f
+WHERE f.status = 'open' AND f.last_seen > $1
 ORDER BY
-    CASE severity
+    CASE f.severity
         WHEN 'critical' THEN 0
         WHEN 'warning'  THEN 1
         ELSE 2
     END,
-    last_seen DESC`
+    f.last_seen DESC`
 
 	insertAlertLog = `
 INSERT INTO sage.alert_log
@@ -36,17 +37,27 @@ VALUES ($1, $2, $3, $4, $5, $6)`
 )
 
 // Manager manages alert routing, deduplication, and dispatch.
+//
+// Reliability contract (SURF-15): the read watermark is the database
+// clock captured BEFORE the findings query, so rows that change during
+// a slow dispatch are read next cycle. A finding counts as delivered
+// when at least one channel accepted it; when every channel failed, or
+// quiet hours deferred it, the attempt is recorded in sage.alert_log
+// (status 'error' / 'deferred') and the finding is re-read from there
+// on later cycles (bounded attempts within a 24h window).
 type Manager struct {
 	pool      *pgxpool.Pool
 	mcfg      ManagerConfig
 	routes    map[string][]Channel
 	throttle  *Throttle
 	lastCheck time.Time
+	seeded    bool
 	logFn     func(string, string, ...any)
 	mu        sync.Mutex
 }
 
-// New creates an alert Manager.
+// New creates an alert Manager. Configuration problems (invalid
+// timezone, malformed quiet hours) are logged as warnings.
 func New(
 	pool *pgxpool.Pool,
 	mcfg ManagerConfig,
@@ -59,6 +70,9 @@ func New(
 		mcfg.QuietHoursEnd,
 		mcfg.Timezone,
 	)
+	for _, w := range throttle.Warnings() {
+		logFn("WARN", "alerting: %s", w)
+	}
 	return &Manager{
 		pool:      pool,
 		mcfg:      mcfg,
@@ -98,12 +112,16 @@ func (m *Manager) Run(ctx context.Context) {
 	}
 }
 
-// evaluate queries new findings and dispatches alerts.
+// evaluate queries new and pending findings and dispatches alerts.
 func (m *Manager) evaluate(ctx context.Context) error {
 	if m.pool == nil {
 		return fmt.Errorf("query findings: pool is nil")
 	}
-
+	m.seedThrottle(ctx)
+	snapshot, err := m.dbNow(ctx)
+	if err != nil {
+		return fmt.Errorf("query findings: %w", err)
+	}
 	m.mu.Lock()
 	since := m.lastCheck
 	m.mu.Unlock()
@@ -112,35 +130,44 @@ func (m *Manager) evaluate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("query findings: %w", err)
 	}
-
-	if len(findings) == 0 {
-		m.mu.Lock()
-		m.lastCheck = time.Now()
-		m.mu.Unlock()
-		return nil
+	pending, err := m.queryPending(ctx)
+	if err != nil {
+		return fmt.Errorf("query pending alerts: %w", err)
 	}
-
-	grouped := groupBySeverity(findings)
-
-	for sev, group := range grouped {
-		channels, ok := m.routes[sev]
-		if !ok {
-			continue
+	for sev, group := range groupBySeverity(mergeFindings(findings, pending)) {
+		if channels, ok := m.routes[sev]; ok {
+			m.dispatchGroup(ctx, sev, group, channels)
 		}
-		m.dispatchGroup(ctx, sev, group, channels)
 	}
+	m.sendResolutions(ctx)
 
 	m.mu.Lock()
-	m.lastCheck = time.Now()
+	m.lastCheck = snapshot
 	m.mu.Unlock()
 	return nil
+}
+
+// dbNow reads the watermark from the database clock, the same clock
+// that stamps findings.last_seen (G7-B18: no host/DB skew).
+func (m *Manager) dbNow(ctx context.Context) (time.Time, error) {
+	var now time.Time
+	if err := m.pool.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&now); err != nil {
+		return time.Time{}, fmt.Errorf("read database clock: %w", err)
+	}
+	return now, nil
 }
 
 // queryFindings loads open findings updated since the given time.
 func (m *Manager) queryFindings(
 	ctx context.Context, since time.Time,
 ) ([]AlertFinding, error) {
-	rows, err := m.pool.Query(ctx, findingsQuery, since)
+	return m.scanFindings(ctx, findingsQuery, since)
+}
+
+func (m *Manager) scanFindings(
+	ctx context.Context, sql string, args ...any,
+) ([]AlertFinding, error) {
+	rows, err := m.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("execute findings query: %w", err)
 	}
@@ -173,27 +200,37 @@ func (m *Manager) dispatchGroup(
 ) {
 	for _, f := range findings {
 		key := FormatDedupKey(f.Category, f.ObjectIdentifier)
-		if !m.throttle.ShouldAlert(key, sev) {
+		switch m.throttle.Decide(key, sev) {
+		case DecisionThrottled:
+			continue
+		case DecisionDefer:
+			m.recordDeferred(ctx, f, sev, key)
 			continue
 		}
-
-		alert := Alert{
-			Findings:  []AlertFinding{f},
-			Severity:  sev,
-			Timestamp: time.Now(),
-		}
+		alert := m.newAlert(sev, f)
 		// Only record the throttle key when at least one channel
 		// actually delivered. Recording on total failure would suppress
-		// re-firing for the whole cooldown window, silently dropping a
-		// critical page with no retry (H4).
+		// re-firing for the whole cooldown window (H4); the failure is
+		// retried from alert_log instead.
 		if m.dispatch(ctx, channels, alert, f.ID, key) {
 			m.throttle.Record(key, sev)
 		}
 	}
 }
 
+func (m *Manager) newAlert(sev string, findings ...AlertFinding) Alert {
+	return Alert{
+		Findings:  findings,
+		Severity:  sev,
+		Timestamp: time.Now(),
+		Database:  m.mcfg.DatabaseName,
+	}
+}
+
 // dispatch sends the alert to every channel and returns true if at
-// least one channel delivered successfully.
+// least one channel delivered successfully. Failed rows are logged
+// before successful ones so the newest alert_log row of a finding is
+// 'error' only when no channel delivered.
 func (m *Manager) dispatch(
 	ctx context.Context,
 	channels []Channel,
@@ -201,27 +238,26 @@ func (m *Manager) dispatch(
 	findingID int64,
 	dedupKey string,
 ) bool {
-	anyDelivered := false
+	var failed, delivered []string
+	errs := map[string]string{}
 	for _, ch := range channels {
-		err := ch.Send(ctx, alert)
-		status := "sent"
-		errMsg := ""
-		if err != nil {
-			status = "error"
-			errMsg = err.Error()
-			m.logFn("ERROR", "alert to %s failed: %v",
-				ch.Name(), err)
-		} else {
-			anyDelivered = true
-			m.logFn("INFO", "alert sent to %s for %s",
-				ch.Name(), dedupKey)
+		if err := ch.Send(ctx, alert); err != nil {
+			failed = append(failed, ch.Name())
+			errs[ch.Name()] = err.Error()
+			m.logFn("ERROR", "alert to %s failed: %v", ch.Name(), err)
+			continue
 		}
-		m.logAlert(
-			ctx, findingID, alert.Severity,
-			ch.Name(), dedupKey, status, errMsg,
-		)
+		delivered = append(delivered, ch.Name())
+		m.logFn("INFO", "alert sent to %s for %s", ch.Name(), dedupKey)
 	}
-	return anyDelivered
+	for _, name := range failed {
+		m.logAlert(ctx, findingID, alert.Severity, name, dedupKey,
+			"error", errs[name])
+	}
+	for _, name := range delivered {
+		m.logAlert(ctx, findingID, alert.Severity, name, dedupKey, "sent", "")
+	}
+	return len(delivered) > 0
 }
 
 func (m *Manager) logAlert(
@@ -250,4 +286,19 @@ func groupBySeverity(
 		groups[f.Severity] = append(groups[f.Severity], f)
 	}
 	return groups
+}
+
+// mergeFindings appends pending findings not already in fresh.
+func mergeFindings(fresh, pending []AlertFinding) []AlertFinding {
+	seen := make(map[int64]bool, len(fresh))
+	for _, f := range fresh {
+		seen[f.ID] = true
+	}
+	for _, f := range pending {
+		if !seen[f.ID] {
+			fresh = append(fresh, f)
+			seen[f.ID] = true
+		}
+	}
+	return fresh
 }

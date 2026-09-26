@@ -22,8 +22,8 @@ type Advisor struct {
 	pgVersion  int
 	dbName     string
 	logFn      func(string, string, ...any)
-	llmClient  *llm.Client          // nil = deterministic-only, no LLM fallback
-	scriptGen  *ScriptGenerator     // nil = deterministic SafeAlternative only
+	llmClient  *llm.Client      // nil = deterministic-only, no LLM fallback
+	scriptGen  *ScriptGenerator // nil = deterministic SafeAlternative only
 }
 
 // NewAdvisor creates an Advisor. If cfg.Mode is not "advisory", it
@@ -51,6 +51,9 @@ func NewAdvisor(
 		logFn:      logFn,
 		llmClient:  llmClient,
 	}
+	if cfg.DDLRowThreshold > 0 {
+		a.assessor.rowThreshold = int64(cfg.DDLRowThreshold)
+	}
 	if llmClient != nil {
 		a.scriptGen = NewScriptGenerator(
 			llmClient, pool, pgVersion, logFn)
@@ -61,19 +64,55 @@ func NewAdvisor(
 // Analyze classifies the SQL, assesses risk for each classification,
 // and returns an rca.Incident for the highest-risk finding above the
 // threshold (risk_score > 0.3). Returns nil if all risks are low.
+//
+// The statement is sanitized first (comments stripped, literals
+// redacted) so no observed literal reaches a log, the findings table,
+// or the LLM. Only table-level DDL that no rule classified and that is
+// not already in its safe form may be sent to the LLM (G7-B01, G7-B27).
 func (a *Advisor) Analyze(
 	ctx context.Context, sql string,
 ) (*rca.Incident, error) {
-	classifications := a.classifier.Classify(sql, a.pgVersion)
+	clean := sanitizeDDL(sql)
+	classifications := a.classifier.Classify(clean, a.pgVersion)
 	if len(classifications) == 0 {
-		if a.llmClient != nil && a.llmClient.IsEnabled() {
-			return a.llmFallback(ctx, sql)
+		if a.llmClient != nil && a.llmClient.IsEnabled() &&
+			llmEgressAllowed(clean) {
+			return a.llmFallback(ctx, clean)
 		}
 		return nil, nil
 	}
 
+	highest, lockTimeout := a.assessHighest(ctx, classifications)
+	if highest == nil || highest.RiskScore <= incidentThreshold {
+		return nil, nil
+	}
+	incident := a.buildIncident(ctx, highest)
+	if lockTimeout != nil && highest.LockLevel == "ACCESS EXCLUSIVE" {
+		incident.CausalChain = append(incident.CausalChain, rca.ChainLink{
+			Order:  len(incident.CausalChain) + 1,
+			Signal: lockTimeout.RuleID,
+			Description: lockTimeout.Description + ". " +
+				lockTimeout.SafeAlternative,
+		})
+	}
+	return incident, nil
+}
+
+// assessHighest scores every classification except the lock_timeout
+// annotation (which has no intrinsic hazard of its own, G7-B33) and
+// returns the highest-risk one plus the annotation, if present.
+func (a *Advisor) assessHighest(
+	ctx context.Context, classifications []DDLClassification,
+) (*DDLRisk, *DDLClassification) {
 	var highest *DDLRisk
-	for _, c := range classifications {
+	var lockTimeout *DDLClassification
+	for i := range classifications {
+		c := classifications[i]
+		if c.RuleID == "ddl_missing_lock_timeout" {
+			lockTimeout = &classifications[i]
+			continue
+		}
+		a.refineAlterType(ctx, &c)
 		risk, err := a.assessor.Assess(ctx, c)
 		if err != nil {
 			a.logFn("warn",
@@ -85,11 +124,7 @@ func (a *Advisor) Analyze(
 			highest = risk
 		}
 	}
-	if highest == nil || highest.RiskScore <= 0.3 {
-		return nil, nil
-	}
-
-	return a.buildIncident(ctx, highest), nil
+	return highest, lockTimeout
 }
 
 // buildIncident converts a DDLRisk into an rca.Incident. When a
