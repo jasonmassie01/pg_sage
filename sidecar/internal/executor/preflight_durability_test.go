@@ -74,7 +74,7 @@ func preflightNewFixture(t *testing.T) *preflightFixture {
 	err = f.pool.QueryRow(t.Context(), `INSERT INTO sage.decision
 		(feature,intent,verdict,risk_tier,reason,evidence_id)
 		VALUES ('index','index','execute','safe','preflight',$1) RETURNING id`,
-		t.Name()).Scan(&decisionID)
+		fmt.Sprintf("%s-%d", t.Name(), time.Now().UnixNano())).Scan(&decisionID)
 	if err != nil {
 		t.Fatal(err)
 	}
