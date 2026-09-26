@@ -22,6 +22,7 @@ type trackerKey struct {
 type TrackedQuery struct {
 	PID              int
 	QueryStart       time.Time
+	BackendStart     time.Time
 	QueryID          int64
 	QueryText        string // Truncated to 200 chars.
 	AppName          string
@@ -34,13 +35,14 @@ type TrackedQuery struct {
 
 // ActiveQuery represents a currently running query from pg_stat_activity.
 type ActiveQuery struct {
-	PID        int
-	QueryStart time.Time
-	QueryID    int64
-	Query      string
-	AppName    string
-	Duration   time.Duration
-	State      string
+	PID          int
+	QueryStart   time.Time
+	BackendStart time.Time
+	QueryID      int64
+	Query        string
+	AppName      string
+	Duration     time.Duration
+	State        string
 }
 
 // RunawayTracker implements the warn -> cancel -> terminate state
@@ -147,6 +149,7 @@ func (rt *RunawayTracker) Evaluate(
 			rt.tracked[key] = &TrackedQuery{
 				PID:            aq.PID,
 				QueryStart:     aq.QueryStart,
+				BackendStart:   aq.BackendStart,
 				QueryID:        aq.QueryID,
 				QueryText:      truncateQuery(aq.Query, 200),
 				AppName:        aq.AppName,
@@ -257,15 +260,16 @@ func buildRunawayFinding(tq *TrackedQuery, cycle uint64) analyzer.Finding {
 			"Runaway query PID %d: %s for %s (policy: %s)",
 			tq.PID, tq.State, elapsed.Truncate(time.Second), tq.MatchedPolicy),
 		Detail: map[string]any{
-			"pid":         tq.PID,
-			"query":       tq.QueryText,
-			"query_id":    tq.QueryID,
-			"query_start": tq.QueryStart.UTC().Format(time.RFC3339Nano),
-			"app_name":    tq.AppName,
-			"policy":      tq.MatchedPolicy,
-			"state":       tq.State,
-			"duration_s":  int(elapsed.Seconds()),
-			"cycle_count": cycle - tq.FirstSeenCycle,
+			"pid":           tq.PID,
+			"query":         tq.QueryText,
+			"query_id":      tq.QueryID,
+			"query_start":   tq.QueryStart.UTC().Format(time.RFC3339Nano),
+			"backend_start": tq.BackendStart.UTC().Format(time.RFC3339Nano),
+			"app_name":      tq.AppName,
+			"policy":        tq.MatchedPolicy,
+			"state":         tq.State,
+			"duration_s":    int(elapsed.Seconds()),
+			"cycle_count":   cycle - tq.FirstSeenCycle,
 		},
 		Recommendation: narrative,
 		RecommendedSQL: sql,

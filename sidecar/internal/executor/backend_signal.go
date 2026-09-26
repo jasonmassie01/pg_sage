@@ -17,11 +17,12 @@ var (
 )
 
 type backendSignalEvidence struct {
-	PID        int       `json:"pid"`
-	QueryID    int64     `json:"query_id"`
-	QueryStart time.Time `json:"query_start"`
-	Query      string    `json:"query"`
-	AppName    string    `json:"app_name"`
+	PID          int       `json:"pid"`
+	QueryID      int64     `json:"query_id"`
+	QueryStart   time.Time `json:"query_start"`
+	BackendStart time.Time `json:"backend_start"`
+	Query        string    `json:"query"`
+	AppName      string    `json:"app_name"`
 }
 
 func (e *Executor) executeApprovedBackendSignal(
@@ -52,9 +53,10 @@ func parseBackendEvidence(
 	if err := json.Unmarshal(detail, &evidence); err != nil {
 		return evidence, fmt.Errorf("backend evidence is invalid: %w", err)
 	}
-	if evidence.PID != pid || evidence.PID <= 0 ||
-		evidence.QueryStart.IsZero() || strings.TrimSpace(evidence.Query) == "" {
-		return evidence, fmt.Errorf("%w: incomplete or mismatched evidence", ErrBackendEvidenceStale)
+	if evidence.PID != pid || evidence.PID <= 0 || evidence.QueryStart.IsZero() ||
+		evidence.BackendStart.IsZero() || strings.TrimSpace(evidence.Query) == "" {
+		return evidence, fmt.Errorf("%w: incomplete or mismatched evidence",
+			ErrBackendEvidenceStale)
 	}
 	return evidence, nil
 }
@@ -77,6 +79,7 @@ func (e *Executor) signalMatchingBackend(
 		evidence.QueryID,
 		evidence.AppName,
 		evidence.Query,
+		evidence.BackendStart,
 	).Scan(&signaled)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !signaled) {
 		return fmt.Errorf("%w: backend no longer matches", ErrBackendEvidenceStale)
@@ -87,6 +90,19 @@ func (e *Executor) signalMatchingBackend(
 	return nil
 }
 
+// protectedBackendPredicate excludes sessions pg_sage must never signal:
+// other databases, non-client backends (walsenders, autovacuum, background
+// workers), backup/dump tools and pg_sage itself. backend_start pins the
+// exact session so a reused PID never matches.
+const protectedBackendPredicate = `
+   AND a.backend_start = $6
+   AND a.datname = current_database()
+   AND a.backend_type = 'client backend'
+   AND a.application_name NOT ILIKE '%pg_sage%'
+   AND a.application_name NOT ILIKE '%pg_dump%'
+   AND a.application_name NOT ILIKE '%pg_basebackup%'
+   AND a.application_name NOT ILIKE '%pg_restore%'`
+
 const cancelMatchingBackendSQL = `/* pg_sage */
 SELECT pg_cancel_backend(a.pid)
   FROM pg_stat_activity AS a
@@ -95,8 +111,7 @@ SELECT pg_cancel_backend(a.pid)
    AND COALESCE(a.query_id, 0) = $3
    AND a.application_name = $4
    AND LEFT(a.query, 200) = $5
-   AND a.state = 'active'
-   AND a.application_name NOT ILIKE '%pg_sage%'`
+   AND a.state = 'active'` + protectedBackendPredicate
 
 const terminateMatchingBackendSQL = `/* pg_sage */
 SELECT pg_terminate_backend(a.pid)
@@ -108,7 +123,5 @@ SELECT pg_terminate_backend(a.pid)
    AND a.application_name = $4
    AND LEFT(a.query, 200) = $5
    AND a.state = 'active'
-   AND a.backend_type = 'client backend'
    AND NOT r.rolsuper
-   AND a.application_name NOT ILIKE '%pg_sage%'
-   AND a.application_name NOT ILIKE '%autovacuum%'`
+   AND a.application_name NOT ILIKE '%autovacuum%'` + protectedBackendPredicate

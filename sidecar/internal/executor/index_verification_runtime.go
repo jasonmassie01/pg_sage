@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/value"
 	"github.com/pg-sage/sidecar/internal/verify"
@@ -94,36 +93,78 @@ func (a *executorIndexActions) Retain(
 	return a.exec.cleanupRetainedIndex(ctx, actionID)
 }
 
+// Revert drops the index this action created. It proves identity first:
+// the recorded OID must still own the name. Until the revert effect
+// succeeds the durable verification stays open and is retried.
 func (a *executorIndexActions) Revert(
-	ctx context.Context, actionID int64, rollbackSQL string, verdict verify.Verdict,
+	ctx context.Context, actionID int64, _ string, verdict verify.Verdict,
 ) error {
-	if strings.TrimSpace(rollbackSQL) == "" {
-		return errors.New("verified index rollback SQL is empty")
-	}
-	if a.exec.checkEmergencyStop(ctx) {
-		updateActionOutcome(ctx, a.exec.pool, actionID, "rollback_skipped",
+	exec := a.exec
+	if exec.checkEmergencyStop(ctx) {
+		updateActionOutcome(ctx, exec.pool, actionID, "rollback_skipped",
 			"emergency stop active; automatic rollback withheld")
 		return errors.New("emergency stop withheld verified index rollback")
 	}
-	candidate := analyzer.Finding{
-		RecommendedSQL:   rollbackSQL,
-		ObjectIdentifier: extractIndexName(rollbackSQL),
-		ObjectType:       "index",
+	identity, err := exec.loadCreatedIndexIdentity(ctx, actionID)
+	if err != nil {
+		return exec.abandonRevert(ctx, actionID, err.Error())
 	}
-	decision := a.exec.evaluateFindingPolicy(ctx, candidate, false)
-	if decision.Decision != PolicyDecisionExecute {
-		updateActionOutcome(ctx, a.exec.pool, actionID, "rollback_skipped",
+	current, err := exec.currentIndexOID(ctx, identity.Name)
+	if err != nil {
+		return fmt.Errorf("resolve created index %s: %w", identity.Name, err)
+	}
+	if current == 0 {
+		exec.finishRevert(ctx, actionID, verdict.Reason+"; index already absent")
+		return nil
+	}
+	if current != identity.OID {
+		return exec.abandonRevert(ctx, actionID,
+			"index "+identity.Name+" is no longer the object pg_sage created")
+	}
+	return exec.dropCreatedIndex(ctx, actionID, identity.Name, verdict)
+}
+
+func (e *Executor) dropCreatedIndex(
+	ctx context.Context, actionID int64, qualified string, verdict verify.Verdict,
+) error {
+	dropSQL := "DROP INDEX CONCURRENTLY IF EXISTS " + qualified
+	if !e.authorizeCreatedIndexRevert(ctx, dropSQL, qualified) {
+		updateActionOutcome(ctx, e.pool, actionID, "rollback_skipped",
 			"standing policy withheld automatic rollback")
 		return errors.New("standing policy withheld verified index rollback")
 	}
-	if err := ExecConcurrently(ctx, a.exec.pool, rollbackSQL, 60*time.Second); err != nil {
-		updateActionOutcome(ctx, a.exec.pool, actionID, "rollback_failed", err.Error())
+	release, err := e.acquireDDLSlot(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	cfg, _, _ := e.policySnapshot()
+	lockOpt := WithLockTimeout(0)
+	timeout := time.Minute
+	if cfg != nil {
+		lockOpt, timeout = WithLockTimeout(cfg.Safety.LockTimeout()), cfg.Safety.DDLTimeout()
+	}
+	if err := ExecConcurrently(ctx, e.pool, dropSQL, timeout, lockOpt); err != nil {
+		updateActionOutcome(ctx, e.pool, actionID, "rollback_failed", err.Error())
 		return fmt.Errorf("revert verified index action %d: %w", actionID, err)
 	}
-	updateActionOutcome(ctx, a.exec.pool, actionID, "rolled_back", verdict.Reason)
-	_, _ = value.NewPostgresRepository(a.exec.pool).
-		ZeroCreditOnRevert(ctx, actionID, "rolled_back")
+	e.finishRevert(ctx, actionID, verdict.Reason)
 	return nil
+}
+
+func (e *Executor) finishRevert(ctx context.Context, actionID int64, reason string) {
+	updateActionOutcome(ctx, e.pool, actionID, "rolled_back", reason)
+	e.completeVerificationRevert(ctx, actionID)
+	_, _ = value.NewPostgresRepository(e.pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
+}
+
+// abandonRevert records a revert that can never be performed safely and
+// closes the verification so it is not retried against the wrong object.
+func (e *Executor) abandonRevert(ctx context.Context, actionID int64, reason string) error {
+	updateActionOutcome(ctx, e.pool, actionID, "rollback_skipped",
+		"revert refused: "+reason)
+	e.completeVerificationRevert(ctx, actionID)
+	return fmt.Errorf("revert of action %d refused: %s", actionID, reason)
 }
 
 func (e *Executor) configureIndexVerification() {
@@ -173,18 +214,4 @@ func verificationOptions(cfg *config.Config) verify.Options {
 		options.LogIOCeilingPct = float64(cfg.Safety.CPUCeilingPct)
 	}
 	return options
-}
-
-func verifiedActionForFinding(f analyzer.Finding) (verifiedIndexAction, error) {
-	queryIDs := targetQueryIDs(f)
-	indexName := extractIndexName(f.RecommendedSQL)
-	table := strings.TrimSpace(f.ObjectIdentifier)
-	if indexName == "" || table == "" || len(queryIDs) == 0 || f.RollbackSQL == "" {
-		return verifiedIndexAction{}, ErrVerificationUnavailable
-	}
-	return verifiedIndexAction{
-		SQL: f.RecommendedSQL, RollbackSQL: f.RollbackSQL,
-		Table: table, IndexName: indexName, QueryIDs: queryIDs,
-		Criterion: verify.Criterion{Kind: "per_query_latency"},
-	}, nil
 }

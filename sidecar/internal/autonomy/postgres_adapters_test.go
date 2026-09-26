@@ -91,9 +91,12 @@ func TestPostgresFreezeCustodianScansLiveCatalog(t *testing.T) {
 			t.Fatalf("unsafe or unscoped freeze proposal: %#v", proposal)
 		}
 	}
-	rate, err := custodian.transactionRate(ctx)
-	if err != nil || rate <= 0 {
-		t.Fatalf("transactionRate = %v, %v", rate, err)
+	if _, err := custodian.transactionRates(ctx); err != nil {
+		t.Fatalf("first transactionRates: %v", err)
+	}
+	rates, err := custodian.transactionRates(ctx)
+	if err != nil || !rates.known || rates.xid <= 0 || rates.mxid <= 0 {
+		t.Fatalf("transactionRates = %#v, %v", rates, err)
 	}
 }
 
@@ -103,41 +106,43 @@ func TestFreezeAdapterRowsAndThresholdDefaults(t *testing.T) {
 	if red != 25 || amber != 50 || custodian.threshold.RedBufferPct != red {
 		t.Fatalf("thresholds = %v/%v custodian=%#v", red, amber, custodian.threshold)
 	}
-	proposal, err := custodian.scanRow(adapterRow{values: []any{
-		"public", "orders", int64(90), int64(100), int64(1), int64(100),
-	}}, 1)
+	proposal, err := custodian.scanResponseRow(adapterRow{values: []any{
+		"public", "orders", int64(90), int64(100), int64(1), int64(100), 0.0,
+	}}, knownRates, nil, false)
 	if err != nil || proposal.SQL == "" || proposal.Deadline == nil {
-		t.Fatalf("scanRow proposal=%#v err=%v", proposal, err)
+		t.Fatalf("scanResponseRow proposal=%#v err=%v", proposal, err)
 	}
 	if proposal.Deadline.HardAt.Before(time.Now()) {
 		t.Fatalf("deadline already expired: %#v", proposal.Deadline)
 	}
-	_, err = custodian.scanRow(adapterRow{values: []any{
-		"", "orders", int64(1), int64(100), int64(1), int64(100),
-	}}, 1)
+	_, err = custodian.scanResponseRow(adapterRow{values: []any{
+		"", "orders", int64(1), int64(100), int64(1), int64(100), 0.0,
+	}}, knownRates, nil, false)
 	if err == nil {
 		t.Fatal("invalid freeze identity was accepted")
 	}
 }
+
+var knownRates = freezeRateSample{xid: 1, mxid: 1, known: true}
 
 func TestFreezeAdapterBuildsBlockerTuneAndBloatResponses(t *testing.T) {
 	custodian := NewPostgresFreezeCustodian(nil, "orders", 25)
 	blocker := &freeze.XminBlocker{PID: 42, XminAge: 900, User: "app"}
 	red, err := custodian.scanResponseRow(adapterRow{values: []any{
 		"public", "orders", int64(90), int64(100), int64(1), int64(100), 0.1,
-	}}, 1, blocker, false)
+	}}, knownRates, blocker, false)
 	if err != nil || red.Feature != "freeze_blocker" || red.Evidence["pid"] != 42 {
 		t.Fatalf("blocker proposal=%#v err=%v", red, err)
 	}
 	amber, err := custodian.scanResponseRow(adapterRow{values: []any{
 		"public", "orders", int64(60), int64(100), int64(1), int64(100), 0.25,
-	}}, 1, nil, false)
+	}}, knownRates, nil, false)
 	if err != nil || amber.Feature != "autovacuum_tuning" || amber.SQL == "" {
 		t.Fatalf("autovacuum proposal=%#v err=%v", amber, err)
 	}
 	bloat, err := custodian.scanResponseRow(adapterRow{values: []any{
 		"public", "orders", int64(1), int64(100), int64(1), int64(100), 0.6,
-	}}, 1, nil, true)
+	}}, knownRates, nil, true)
 	if err != nil || bloat.Plan == "" || bloat.SQL != "" {
 		t.Fatalf("bloat proposal=%#v err=%v", bloat, err)
 	}
@@ -194,7 +199,8 @@ func TestWALAdapterDefaultsEvidenceAndEscaping(t *testing.T) {
 	if got := custodian.dropProposal("owner's").SQL; got != escapedDropSQL {
 		t.Fatalf("escaped drop SQL = %q", got)
 	}
-	if got := custodian.boundProposal("slot"); got.Feature != "wal" || got.SQL == "" {
+	got := custodian.boundProposal("slot", defaultWALBackstopBytes)
+	if got.Feature != "wal" || got.SQL == "" {
 		t.Fatalf("bound proposal = %#v", got)
 	}
 	decision, err := wal.Classify(context.Background(), wal.SlotEvidence{

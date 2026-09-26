@@ -24,8 +24,6 @@ var allowedPrefixes = []string{
 	"ALTER SYSTEM SET",
 	"ALTER SYSTEM RESET",
 	"ALTER DATABASE",
-	"SET ",
-	"RESET ",
 	"SELECT ",
 	"INSERT INTO HINT_PLAN.HINTS",
 	"DELETE FROM HINT_PLAN.HINTS",
@@ -35,47 +33,40 @@ var allowedPrefixes = []string{
 // ALTER SYSTEM SET/RESET may target. Any parameter not in this
 // list is rejected to prevent dangerous runtime changes.
 var safeAlterSystemParams = map[string]bool{
-	"work_mem":                            true,
-	"maintenance_work_mem":                true,
-	"effective_cache_size":                true,
-	"shared_buffers":                      true,
-	"max_wal_size":                        true,
-	"min_wal_size":                        true,
-	"max_slot_wal_keep_size":              true,
-	"checkpoint_completion_target":        true,
-	"checkpoint_timeout":                  true,
-	"random_page_cost":                    true,
-	"effective_io_concurrency":            true,
-	"max_parallel_workers_per_gather":     true,
-	"max_parallel_workers":                true,
-	"max_parallel_maintenance_workers":    true,
-	"autovacuum_vacuum_cost_delay":        true,
-	"autovacuum_vacuum_cost_limit":        true,
-	"autovacuum_naptime":                  true,
-	"autovacuum_max_workers":              true,
-	"autovacuum_vacuum_threshold":         true,
-	"autovacuum_vacuum_scale_factor":      true,
-	"autovacuum_analyze_threshold":        true,
-	"autovacuum_analyze_scale_factor":     true,
-	"wal_buffers":                         true,
-	"default_statistics_target":           true,
-	"huge_pages":                          true,
-	"temp_buffers":                        true,
-	"statement_timeout":                   true,
-	"lock_timeout":                        true,
-	"idle_in_transaction_session_timeout": true,
-	"log_min_duration_statement":          true,
-	"track_activity_query_size":           true,
-	"jit":                                 true,
+	"work_mem":                         true,
+	"maintenance_work_mem":             true,
+	"effective_cache_size":             true,
+	"shared_buffers":                   true,
+	"max_wal_size":                     true,
+	"min_wal_size":                     true,
+	"max_slot_wal_keep_size":           true,
+	"checkpoint_completion_target":     true,
+	"checkpoint_timeout":               true,
+	"random_page_cost":                 true,
+	"effective_io_concurrency":         true,
+	"max_parallel_workers_per_gather":  true,
+	"max_parallel_workers":             true,
+	"max_parallel_maintenance_workers": true,
+	"autovacuum_vacuum_cost_delay":     true,
+	"autovacuum_vacuum_cost_limit":     true,
+	"autovacuum_naptime":               true,
+	"autovacuum_max_workers":           true,
+	"autovacuum_vacuum_threshold":      true,
+	"autovacuum_vacuum_scale_factor":   true,
+	"autovacuum_analyze_threshold":     true,
+	"autovacuum_analyze_scale_factor":  true,
+	"wal_buffers":                      true,
+	"default_statistics_target":        true,
+	"huge_pages":                       true,
+	"temp_buffers":                     true,
+	"log_min_duration_statement":       true,
+	"track_activity_query_size":        true,
+	"jit":                              true,
 }
 
 var backendSignalPattern = regexp.MustCompile(
 	`(?i)^\s*SELECT\s+PG_(CANCEL|TERMINATE)_BACKEND\s*` +
 		`\(\s*([0-9]+)\s*\)\s*;?\s*$`,
-)
-
-var reloadConfPattern = regexp.MustCompile(
-	`(?i)^\s*SELECT\s+PG_RELOAD_CONF\s*\(\s*\)\s*;?\s*$`,
 )
 
 const migrationIdentifier = `(?:"(?:[^"]|"")*"|[A-Z_][A-Z0-9_$]*)`
@@ -92,12 +83,12 @@ var safeMigrationSubcommands = []*regexp.Regexp{
 	regexp.MustCompile(`^DROP\s+CONSTRAINT\s+` + migrationIdentifier + `\s*;?$`),
 }
 
-// safeAlterTableSubcmds restricts ALTER TABLE to safe
-// sub-commands only (storage params, tablespace moves).
+// safeAlterTableSubcmds restricts ALTER TABLE to a single storage
+// parameter sub-command. SET TABLESPACE (a full rewrite under ACCESS
+// EXCLUSIVE) is not executor work.
 var safeAlterTableSubcmds = []string{
 	"SET (",
 	"RESET (",
-	"SET TABLESPACE",
 }
 
 // ValidateExecutorSQL checks that sql is a single allowed
@@ -112,8 +103,12 @@ func ValidateExecutorSQL(sql string) error {
 	if err := rejectMultiStatement(trimmed); err != nil {
 		return err
 	}
+	if hasSQLComment(trimmed) {
+		return fmt.Errorf("%w: SQL comments are not allowed", ErrDisallowedSQL)
+	}
 
-	upper := strings.ToUpper(trimmed)
+	normalized := normalizeSQLText(trimmed)
+	upper := strings.ToUpper(normalized)
 	for _, prefix := range allowedPrefixes {
 		if !strings.HasPrefix(upper, prefix) {
 			continue
@@ -122,7 +117,7 @@ func ValidateExecutorSQL(sql string) error {
 		if err := checkSecondary(upper, prefix); err != nil {
 			return err
 		}
-		if err := checkProtectedSchemaUsage(trimmed, prefix); err != nil {
+		if err := checkProtectedSchemaUsage(normalized, prefix); err != nil {
 			return err
 		}
 		return nil
@@ -132,7 +127,7 @@ func ValidateExecutorSQL(sql string) error {
 		"%w: statement must start with one of the "+
 			"allowed prefixes (CREATE INDEX, DROP INDEX, "+
 			"REINDEX, VACUUM, ANALYZE, ALTER TABLE, "+
-			"ALTER SYSTEM, ALTER DATABASE, SET, RESET, "+
+			"ALTER SYSTEM, ALTER DATABASE, "+
 			"SELECT, INSERT INTO hint_plan.hints, "+
 			"DELETE FROM hint_plan.hints)",
 		ErrDisallowedSQL,
@@ -250,12 +245,9 @@ func checkSelectPattern(upper string) error {
 	if _, _, ok := parseBackendSignal(upper); ok {
 		return nil
 	}
-	if reloadConfPattern.MatchString(upper) {
-		return nil
-	}
 	return fmt.Errorf(
-		"%w: only pg_terminate_backend, pg_cancel_backend and "+
-			"pg_reload_conf SELECT statements are allowed",
+		"%w: only pg_terminate_backend and pg_cancel_backend "+
+			"SELECT statements are allowed",
 		ErrDisallowedSQL,
 	)
 }
@@ -286,7 +278,7 @@ func checkAlterTableSubcmd(upper string) error {
 	}
 	for _, safe := range safeAlterTableSubcmds {
 		if strings.HasPrefix(sub, safe) {
-			return nil
+			return requireSingleReloptionSubcmd(sub)
 		}
 	}
 	for _, pattern := range safeMigrationSubcommands {

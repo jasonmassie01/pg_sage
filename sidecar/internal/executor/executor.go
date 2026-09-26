@@ -71,12 +71,14 @@ type Executor struct {
 	cfg                *config.Config
 	analyzer           *analyzer.Analyzer
 	rampStart          time.Time
+	recentMu           sync.Mutex
 	recentActions      map[string]time.Time
 	logFn              func(string, string, ...any)
 	actionStore        ActionProposer
 	execMode           string // auto, approval, manual
 	dispatcher         EventDispatcher
 	databaseName       string
+	databaseID         *int
 	trustLevelOverride string
 	ddlSem             chan struct{}   // limits concurrent DDL ops
 	analyzeSem         chan struct{}   // shared fleet-wide for ANALYZE
@@ -89,6 +91,7 @@ type Executor struct {
 	indexVerification  *verifiedIndexLifecycle
 	hostLoad           HostLoadReader
 	retainedCleanupMu  sync.Mutex
+	resumeOnce         sync.Once
 	postDDLMu          sync.RWMutex
 	postDDLHook        func(context.Context) error
 
@@ -267,6 +270,8 @@ func (e *Executor) TrustLevel() string {
 	if override != "" {
 		return override
 	}
+	config.RLockForHotReload()
+	defer config.RUnlockForHotReload()
 	return e.cfg.Trust.Level
 }
 
@@ -360,8 +365,8 @@ func policyContract(contract ActionContract) *policy.ActionContract {
 		ActionType: contract.ActionType, RiskTier: policy.RiskTier(contract.BaseRiskTier),
 	}
 	for _, guardrail := range contract.Guardrails {
-		if strings.EqualFold(strings.TrimSpace(guardrail), "approval_required") {
-			result.Guardrails = append(result.Guardrails, policy.GuardrailApprovalRequired)
+		if isApprovalRequiredGuardrail(guardrail) {
+			result.Guardrails = []policy.Guardrail{policy.GuardrailApprovalRequired}
 		}
 	}
 	return result
@@ -376,18 +381,7 @@ func targetObjectsForFinding(finding analyzer.Finding) []string {
 }
 
 func featureForFinding(finding analyzer.Finding) string {
-	switch actionTypeForProposalSQL(finding.RecommendedSQL) {
-	case "analyze_table":
-		return "analyze"
-	case "vacuum_table":
-		return "vacuum"
-	case "set_table_autovacuum":
-		return "autovacuum_tuning"
-	case "alter_system_guc", "alter_database_guc":
-		return "config_guc"
-	default:
-		return "index"
-	}
+	return changeClassForActionType(actionTypeForProposalSQL(finding.RecommendedSQL))
 }
 
 func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
@@ -414,19 +408,6 @@ func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
 	return result
 }
 
-func (e *Executor) policySnapshot() (*config.Config, string, bool) {
-	e.policyMu.RLock()
-	defer e.policyMu.RUnlock()
-	if e.cfg == nil {
-		return nil, e.execMode, !e.executorDisabled
-	}
-	cfgCopy := *e.cfg
-	if e.trustLevelOverride != "" {
-		cfgCopy.Trust.Level = e.trustLevelOverride
-	}
-	return &cfgCopy, e.execMode, !e.executorDisabled
-}
-
 func (e *Executor) checkEmergencyStop(ctx context.Context) bool {
 	if e.emergencyStopFn != nil {
 		return e.emergencyStopFn(ctx)
@@ -445,6 +426,11 @@ func contractForFinding(f analyzer.Finding) (ActionContract, bool) {
 // RunCycle is called after each analyzer cycle to evaluate and execute
 // any actionable findings.
 func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
+	e.resumeOnce.Do(func() {
+		if err := e.resumeOrphanedMonitors(ctx); err != nil {
+			e.logFn("executor", "resume rollback monitors: %v", err)
+		}
+	})
 	if e.indexVerification != nil {
 		if err := e.indexVerification.ResumeDue(ctx); err != nil {
 			e.logFn("executor", "resume index verification: %v", err)
@@ -671,7 +657,7 @@ func actionIdentityKey(f analyzer.Finding, actionType string) string {
 }
 
 func actionTypeForProposalSQL(sql string) string {
-	upper := strings.ToUpper(strings.TrimSpace(sql))
+	upper := strings.ToUpper(normalizeSQLText(sql))
 	switch {
 	case strings.HasPrefix(upper, "ANALYZE "):
 		return "analyze_table"
@@ -689,8 +675,6 @@ func actionTypeForProposalSQL(sql string) string {
 		return "cancel_backend"
 	case strings.Contains(upper, "PG_TERMINATE_BACKEND"):
 		return "terminate_backend"
-	case strings.Contains(upper, "PG_CANCEL_BACKEND"):
-		return "cancel_backend"
 	case strings.HasPrefix(upper, "ALTER SYSTEM SET ") ||
 		strings.HasPrefix(upper, "ALTER SYSTEM RESET "):
 		return "alter_system_guc"
@@ -729,7 +713,8 @@ func isSetTableAutovacuumSQL(upper string) bool {
 	}
 	subcommand := stripAlterTablePrefix(upper)
 	return strings.HasPrefix(subcommand, "SET (") &&
-		strings.Contains(subcommand, "AUTOVACUUM_")
+		strings.Contains(subcommand, "AUTOVACUUM_") &&
+		requireSingleReloptionSubcmd(subcommand) == nil
 }
 
 func isVacuumFullSQL(upper string) bool {
@@ -766,6 +751,14 @@ func (e *Executor) executeFinding(
 	ctx context.Context, f analyzer.Finding, findingID int64, decisionID int64,
 ) {
 	beforeState := e.snapshotBeforeState(ctx, targetQueryIDs(f))
+	if _, _, isSignal := parseBackendSignal(f.RecommendedSQL); isSignal {
+		// Backend signals never run as raw SQL; they need an operator
+		// approval and the evidence-matched signalMatchingBackend path.
+		e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID,
+			ErrBackendApprovalRequired)
+		e.logFn("executor", "refused autonomous backend signal %q", f.Title)
+		return
+	}
 	releaseLease, leaseErr := e.acquireDDLLease(ctx, f, decisionID)
 	if leaseErr != nil {
 		e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID, leaseErr)
@@ -795,15 +788,7 @@ func (e *Executor) executeFinding(
 	verifiedCreate := categorizeAction(f.RecommendedSQL) == "create_index"
 	if verifiedCreate {
 		var verificationErr error
-		verifiedAction, verificationErr = verifiedActionForFinding(f)
-		if verificationErr == nil && e.indexVerification != nil {
-			verificationErr = e.indexVerification.Admit(ctx)
-		} else if verificationErr == nil {
-			verificationErr = ErrVerificationUnavailable
-		}
-		if verificationErr == nil {
-			verificationErr = e.snapshotSupersededIndex(ctx, f, beforeState)
-		}
+		verifiedAction, verificationErr = e.admitVerifiedCreate(ctx, &f, beforeState)
 		if verificationErr != nil {
 			e.logActionWithDecision(
 				ctx, f, findingID, beforeState, decisionID, verificationErr,
@@ -813,8 +798,9 @@ func (e *Executor) executeFinding(
 			return
 		}
 	}
-	var execErr error
+	execErr := e.checkGUCValueSafety(ctx, f.RecommendedSQL)
 	switch {
+	case execErr != nil:
 	case categorizeAction(f.RecommendedSQL) == "analyze":
 		execErr = e.executeAnalyze(ctx, f)
 	case NeedsConcurrently(f.RecommendedSQL) ||
@@ -830,6 +816,9 @@ func (e *Executor) executeFinding(
 		)
 	}
 
+	if verifiedCreate && execErr == nil {
+		e.recordCreatedIndexIdentity(ctx, verifiedAction.IndexName, beforeState)
+	}
 	actionID := e.logActionWithDecision(
 		ctx, f, findingID, beforeState, decisionID, execErr,
 	)
@@ -842,7 +831,7 @@ func (e *Executor) executeFinding(
 				"lock timeout for %q on %s — circuit-breaking table",
 				f.Title, f.ObjectIdentifier,
 			)
-			e.recentActions[f.ObjectIdentifier] = time.Now()
+			e.noteRecentAction(f.ObjectIdentifier)
 		}
 		e.logFn("executor",
 			"execution failed for %q: %v", f.Title, execErr,
@@ -861,7 +850,7 @@ func (e *Executor) executeFinding(
 	e.dispatchEvent(ctx,
 		notify.ActionExecutedEvent(
 			f.Title, f.RecommendedSQL, e.databaseName))
-	e.recentActions[f.ObjectIdentifier] = time.Now()
+	e.noteRecentAction(f.ObjectIdentifier)
 
 	// Config changes: reload so a reload-only GUC takes effect now, or
 	// record that a restart is still required. Without this, ALTER SYSTEM
@@ -896,19 +885,11 @@ func (e *Executor) executeFinding(
 		// rollback window can elapse even if RunCycle returns
 		// (or is called from an HTTP handler). Shutdown signals
 		// the monitor to abort early via e.shutdownCh.
+		monitorCfg := e.rollbackMonitorConfig(e.standingRollbackAuthorizer(f))
 		e.startRollbackMonitor(func() {
 			MonitorAndRollback(
 				context.WithoutCancel(ctx), e.pool, actionID, f.RollbackSQL,
-				e.cfg.Trust.RollbackThresholdPct,
-				e.cfg.Trust.RollbackWindowMinutes,
-				e.logFn,
-				e.shutdownCh,
-				func(authCtx context.Context, rollbackSQL string) bool {
-					candidate := f
-					candidate.RecommendedSQL = rollbackSQL
-					decision := e.evaluateFindingPolicy(authCtx, candidate, false)
-					return decision.Decision == PolicyDecisionExecute
-				},
+				monitorCfg, e.logFn, e.shutdownCh,
 			)
 		})
 	} else if actionID > 0 {
@@ -1000,34 +981,6 @@ func (e *Executor) cascadeCooldown() time.Duration {
 	return d
 }
 
-// isCascadeCooldown returns true if an action was recently
-// executed for the given object identifier.
-func (e *Executor) isCascadeCooldown(objID string) bool {
-	t, ok := e.recentActions[objID]
-	if !ok {
-		return false
-	}
-	if time.Since(t) < e.cascadeCooldown() {
-		e.logFn("executor",
-			"cascade guard: skipping %q (action %v ago)",
-			objID, time.Since(t),
-		)
-		return true
-	}
-	return false
-}
-
-// pruneRecentActions removes entries older than the cascade
-// cooldown to prevent unbounded map growth.
-func (e *Executor) pruneRecentActions() {
-	maxAge := e.cascadeCooldown()
-	for k, t := range e.recentActions {
-		if time.Since(t) > maxAge {
-			delete(e.recentActions, k)
-		}
-	}
-}
-
 // lookupFindingID retrieves the database ID for an open finding.
 func (e *Executor) lookupFindingID(
 	ctx context.Context, f analyzer.Finding,
@@ -1077,7 +1030,9 @@ func (e *Executor) exceedsOscillationLimit(
 	var n int
 	if err := e.pool.QueryRow(ctx,
 		`/* pg_sage */ SELECT count(*) FROM sage.action_log
-		 WHERE sql_executed = $1 AND outcome = 'success'
+		 WHERE sql_executed = $1
+		   AND outcome IN ('success', 'rolled_back', 'rollback_failed',
+		                   'rollback_skipped')
 		   AND executed_at > now() - make_interval(days => $2)`,
 		f.RecommendedSQL, oscillationWindowDays,
 	).Scan(&n); err != nil {
@@ -1106,8 +1061,13 @@ func (e *Executor) exceedsMaxRetries(
 	}
 	var failCount int
 	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT count(*) FROM sage.action_log
-		 WHERE finding_id = $1 AND outcome = 'failed'`,
+		`/* pg_sage */ SELECT count(*) FROM sage.action_log al
+		 LEFT JOIN sage.findings prev ON prev.id = al.finding_id
+		 WHERE al.outcome = 'failed'
+		   AND (al.finding_id = $1 OR EXISTS (
+		        SELECT 1 FROM sage.findings cur WHERE cur.id = $1
+		           AND cur.category = prev.category
+		           AND cur.object_identifier = prev.object_identifier))`,
 		findingID,
 	).Scan(&failCount)
 	if err != nil {
@@ -1174,13 +1134,7 @@ func (e *Executor) snapshotBeforeState(
 	}
 
 	var cacheHit float64
-	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT coalesce(
-			sum(blks_hit)::float /
-			nullif(sum(blks_hit) + sum(blks_read), 0),
-			1.0
-		 ) FROM pg_stat_database`,
-	).Scan(&cacheHit)
+	err := e.pool.QueryRow(ctx, cacheHitRatioSQL).Scan(&cacheHit)
 	if err == nil {
 		state["cache_hit_ratio"] = cacheHit
 	}
@@ -1188,18 +1142,14 @@ func (e *Executor) snapshotBeforeState(
 	var activeBackends int
 	err = e.pool.QueryRow(ctx,
 		`/* pg_sage */ SELECT count(*) FROM pg_stat_activity
-		 WHERE state = 'active'`,
+		 WHERE state = 'active' AND datname = current_database()`,
 	).Scan(&activeBackends)
 	if err == nil {
 		state["active_backends"] = activeBackends
 	}
 
 	var meanExecMs float64
-	err = e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT coalesce(avg(mean_exec_time), 0)
-		 FROM pg_stat_statements
-		 WHERE query LIKE 'INSERT%' OR query LIKE 'UPDATE%'`,
-	).Scan(&meanExecMs)
+	err = e.pool.QueryRow(ctx, writeLatencySQL).Scan(&meanExecMs)
 	if err == nil && meanExecMs > 0 {
 		state["mean_exec_time_ms"] = meanExecMs
 	}
@@ -1242,12 +1192,12 @@ func (e *Executor) logActionWithDecision(
 	err := e.pool.QueryRow(ctx,
 		`/* pg_sage */ INSERT INTO sage.action_log
 		 (action_type, finding_id, sql_executed, rollback_sql,
-		  before_state, outcome, rollback_reason, decision_id)
-		 VALUES ($1, NULLIF($2, 0), $3, $4, $5, $6, $7, NULLIF($8, 0))
+		  before_state, outcome, rollback_reason, decision_id, database_id)
+		 VALUES ($1, NULLIF($2, 0), $3, $4, $5, $6, $7, NULLIF($8, 0), $9::bigint)
 		 RETURNING id`,
 		actionType, findingID, f.RecommendedSQL,
 		nilIfEmpty(f.RollbackSQL), beforeJSON, outcome,
-		errReason, decisionID,
+		errReason, decisionID, e.databaseIDValue(),
 	).Scan(&actionID)
 	if err != nil {
 		e.logFn("executor",

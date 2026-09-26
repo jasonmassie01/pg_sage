@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/value"
 )
 
 var (
@@ -21,6 +22,12 @@ var (
 // ExecuteManual runs a specific SQL action outside the normal cycle.
 // Used for manual "Take Action" and approved queue items.
 // Returns the action_log ID.
+//
+// The caller's context only bounds the wait for a shared DDL slot. Once a
+// slot is held, execution and logging run on a context detached from the
+// caller (an HTTP request) with an explicit DDL deadline, so a client
+// disconnect cannot cancel CREATE INDEX CONCURRENTLY half way and leave an
+// INVALID index with no action_log row.
 func (e *Executor) ExecuteManual(
 	ctx context.Context,
 	findingID int, sql, rollbackSQL string,
@@ -29,95 +36,127 @@ func (e *Executor) ExecuteManual(
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return 0, fmt.Errorf("SQL validation: %w", err)
 	}
+	release, err := e.acquireDDLSlot(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+	runCtx, cancel := e.detachedDDLContext(ctx)
+	defer cancel()
+	return e.executeManualDetached(runCtx, findingID, sql, rollbackSQL, approvedBy)
+}
+
+func (e *Executor) detachedDDLContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := 5 * time.Minute
+	if cfg, _, _ := e.policySnapshot(); cfg != nil {
+		timeout = cfg.Safety.DDLTimeout() + time.Minute
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
+}
+
+func (e *Executor) executeManualDetached(
+	ctx context.Context, findingID int, sql, rollbackSQL string, approvedBy *int,
+) (int64, error) {
 	if err := e.manualMutationBlock(ctx); err != nil {
 		return 0, err
 	}
-
 	findingDetail, err := e.verifyManualFinding(ctx, findingID, sql)
 	if err != nil {
 		return 0, err
 	}
-
 	beforeState := e.snapshotBeforeState(ctx, nil)
-
-	ddlTimeout := e.cfg.Safety.DDLTimeout()
-	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
+	decisionID := e.recordOperatorDecision(ctx, sql, findingID, approvedBy)
 	if categorizeAction(sql) == "create_index" {
-		if err := e.manualMutationBlock(ctx); err != nil {
-			return 0, err
-		}
-		if err := e.dropInvalidCreateIndexBlockers(
-			ctx, sql, ddlTimeout, lockOpt,
-		); err != nil {
-			return 0, fmt.Errorf(
-				"dropping invalid index blocker: %w", err)
-		}
-		exists, err := e.createIndexCoverageExists(ctx, sql)
-		if err != nil {
-			return 0, fmt.Errorf("checking existing index coverage: %w", err)
-		}
-		if err := e.manualMutationBlock(ctx); err != nil {
-			return 0, err
-		}
-		if exists {
-			actionID := e.logManualAction(
-				ctx, findingID, sql, rollbackSQL, beforeState, nil,
-				approvedBy,
-			)
-			if actionID > 0 {
-				updateActionSuccess(ctx, e.pool, actionID)
-			}
-			return actionID, nil
+		done, actionID, err := e.prepareManualCreateIndex(
+			ctx, findingID, sql, rollbackSQL, beforeState, approvedBy, decisionID)
+		if err != nil || done {
+			return actionID, err
 		}
 	}
 	if err := e.manualMutationBlock(ctx); err != nil {
 		return 0, err
 	}
-
-	var execErr error
-	if _, _, isSignal := parseBackendSignal(sql); isSignal {
-		execErr = e.executeApprovedBackendSignal(
-			ctx, sql, findingDetail, approvedBy,
-		)
-	} else if categorizeAction(sql) == "analyze" {
-		execErr = e.executeManualAnalyze(ctx, findingID, sql)
-	} else {
-		execErr = e.execManualSQLWithRetry(ctx, sql, ddlTimeout, lockOpt)
-	}
-
-	actionID := e.logManualAction(
-		ctx, findingID, sql, rollbackSQL,
-		beforeState, execErr, approvedBy,
-	)
+	execErr := e.runManualSQL(ctx, findingID, sql, findingDetail, approvedBy)
+	actionID := e.logManualActionWithDecision(ctx, findingID, sql, rollbackSQL,
+		beforeState, execErr, approvedBy, decisionID)
 	if execErr != nil {
 		return 0, fmt.Errorf("executing SQL: %w", execErr)
 	}
 	e.notifyPostDDL(ctx, sql)
-
-	if rollbackSQL != "" && actionID > 0 {
-		// Detach the monitor from the caller's context so it
-		// survives the HTTP request that approved this action.
-		// Without this, the goroutine receives Done() the moment
-		// the HTTP handler returns and the rollback-monitor
-		// window never elapses. Track under the executor's
-		// WaitGroup so Shutdown can wait for it.
-		e.startRollbackMonitor(func() {
-			MonitorAndRollback(
-				context.WithoutCancel(ctx), e.pool, actionID, rollbackSQL,
-				e.cfg.Trust.RollbackThresholdPct,
-				e.cfg.Trust.RollbackWindowMinutes,
-				e.logFn,
-				e.shutdownCh,
-			)
-		})
-	} else if actionID > 0 {
-		updateActionSuccess(ctx, e.pool, actionID)
-	}
-
+	e.finishManualAction(ctx, actionID, rollbackSQL)
 	return actionID, nil
 }
 
+// prepareManualCreateIndex removes a failed remnant of this exact index and
+// short-circuits when a valid index already covers the columns.
+func (e *Executor) prepareManualCreateIndex(
+	ctx context.Context, findingID int, sql, rollbackSQL string,
+	beforeState map[string]any, approvedBy *int, decisionID int64,
+) (bool, int64, error) {
+	ddlTimeout, lockOpt := e.manualDDLOptions()
+	if err := e.dropFailedCreateIndexRemnant(ctx, sql, ddlTimeout, lockOpt); err != nil {
+		return true, 0, fmt.Errorf("dropping invalid index remnant: %w", err)
+	}
+	exists, err := e.createIndexCoverageExists(ctx, sql)
+	if err != nil {
+		return true, 0, fmt.Errorf("checking existing index coverage: %w", err)
+	}
+	if !exists {
+		return false, 0, nil
+	}
+	if err := e.manualMutationBlock(ctx); err != nil {
+		return true, 0, err
+	}
+	actionID := e.logManualActionWithDecision(ctx, findingID, sql, rollbackSQL,
+		beforeState, nil, approvedBy, decisionID)
+	if actionID > 0 {
+		updateActionSuccess(ctx, e.pool, actionID)
+	}
+	return true, actionID, nil
+}
+
+func (e *Executor) manualDDLOptions() (time.Duration, DDLOption) {
+	return e.cfg.Safety.DDLTimeout(), WithLockTimeout(e.cfg.Safety.LockTimeout())
+}
+
+func (e *Executor) runManualSQL(
+	ctx context.Context, findingID int, sql string,
+	findingDetail json.RawMessage, approvedBy *int,
+) error {
+	if _, _, isSignal := parseBackendSignal(sql); isSignal {
+		return e.executeApprovedBackendSignal(ctx, sql, findingDetail, approvedBy)
+	}
+	if categorizeAction(sql) == "analyze" {
+		return e.executeManualAnalyze(ctx, findingID, sql)
+	}
+	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
+		return err
+	}
+	ddlTimeout, lockOpt := e.manualDDLOptions()
+	return e.execManualSQLWithRetry(ctx, sql, ddlTimeout, lockOpt)
+}
+
+// finishManualAction starts the rollback monitor (which re-authorizes the
+// rollback against the live operator gates) or records immediate success.
+func (e *Executor) finishManualAction(ctx context.Context, actionID int64, rollbackSQL string) {
+	if actionID <= 0 {
+		return
+	}
+	if rollbackSQL == "" {
+		updateActionSuccess(ctx, e.pool, actionID)
+		return
+	}
+	monitorCfg := e.rollbackMonitorConfig(e.manualRollbackAuthorizer())
+	e.startRollbackMonitor(func() {
+		MonitorAndRollback(context.WithoutCancel(ctx), e.pool, actionID, rollbackSQL,
+			monitorCfg, e.logFn, e.shutdownCh)
+	})
+}
+
 // RollbackAction executes the stored rollback SQL for an action log row.
+// The row is claimed with a compare-and-set so a concurrent monitor cannot
+// repeat or overwrite the rollback; index rollbacks run CONCURRENTLY under
+// the lock timeout, and GUC rollbacks are reloaded.
 func (e *Executor) RollbackAction(
 	ctx context.Context,
 	actionID int64,
@@ -126,6 +165,50 @@ func (e *Executor) RollbackAction(
 	if err := e.manualMutationBlock(ctx); err != nil {
 		return err
 	}
+	rollbackSQL, err := e.loadRollbackSQL(ctx, actionID)
+	if err != nil {
+		return err
+	}
+	release, err := e.acquireDDLSlot(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	runCtx, cancel := e.detachedDDLContext(ctx)
+	defer cancel()
+	if err := e.manualMutationBlock(runCtx); err != nil {
+		return err
+	}
+	if !e.claimRollback(runCtx, actionID) {
+		return fmt.Errorf("action already rolled back or rollback in progress")
+	}
+	return e.runClaimedRollback(runCtx, actionID, rollbackSQL, reason)
+}
+
+func (e *Executor) runClaimedRollback(
+	ctx context.Context, actionID int64, rollbackSQL, reason string,
+) error {
+	cfg := e.rollbackMonitorConfig(e.manualRollbackAuthorizer())
+	cfg.Acquire = nil // the caller already holds the DDL slot
+	note, execErr := executeRollbackSQL(ctx, e.pool, rollbackSQL, cfg)
+	if execErr != nil {
+		updateActionOutcome(ctx, e.pool, actionID, "rollback_failed",
+			"manual rollback failed: "+execErr.Error())
+		return fmt.Errorf("executing rollback SQL: %w", execErr)
+	}
+	e.notifyPostDDL(ctx, rollbackSQL)
+	if strings.TrimSpace(reason) == "" {
+		reason = "manual rollback"
+	}
+	if isAlterSystem(rollbackSQL) {
+		reason += " (" + note + ")"
+	}
+	updateActionOutcome(ctx, e.pool, actionID, "rolled_back", reason)
+	_, _ = value.NewPostgresRepository(e.pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
+	return nil
+}
+
+func (e *Executor) loadRollbackSQL(ctx context.Context, actionID int64) (string, error) {
 	var rollbackSQL *string
 	var outcome string
 	err := e.pool.QueryRow(ctx,
@@ -135,44 +218,27 @@ func (e *Executor) RollbackAction(
 	).Scan(&rollbackSQL, &outcome)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("action not found")
+			return "", fmt.Errorf("action not found")
 		}
-		return fmt.Errorf("loading action %d: %w", actionID, err)
+		return "", fmt.Errorf("loading action %d: %w", actionID, err)
 	}
 	if outcome == "rolled_back" {
-		return fmt.Errorf("action already rolled back")
+		return "", fmt.Errorf("action already rolled back")
 	}
 	if rollbackSQL == nil || strings.TrimSpace(*rollbackSQL) == "" {
-		return fmt.Errorf("action has no rollback SQL")
+		return "", fmt.Errorf("action has no rollback SQL")
 	}
 	if err := ValidateExecutorSQL(*rollbackSQL); err != nil {
-		return fmt.Errorf("rollback SQL validation: %w", err)
+		return "", fmt.Errorf("rollback SQL validation: %w", err)
 	}
-	if err := e.manualMutationBlock(ctx); err != nil {
-		return err
-	}
+	return *rollbackSQL, nil
+}
 
-	ddlTimeout := e.cfg.Safety.DDLTimeout()
-	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
-	var execErr error
-	if NeedsConcurrently(*rollbackSQL) || NeedsTopLevel(*rollbackSQL) {
-		execErr = ExecConcurrently(ctx, e.pool, *rollbackSQL,
-			ddlTimeout, lockOpt)
-	} else {
-		execErr = ExecInTransaction(ctx, e.pool, *rollbackSQL,
-			ddlTimeout, lockOpt)
-	}
-	if execErr != nil {
-		updateActionOutcome(ctx, e.pool, actionID, "rollback_failed",
-			"manual rollback failed: "+execErr.Error())
-		return fmt.Errorf("executing rollback SQL: %w", execErr)
-	}
-	e.notifyPostDDL(ctx, *rollbackSQL)
-	if strings.TrimSpace(reason) == "" {
-		reason = "manual rollback"
-	}
-	updateActionOutcome(ctx, e.pool, actionID, "rolled_back", reason)
-	return nil
+func (e *Executor) claimRollback(ctx context.Context, actionID int64) bool {
+	tag, err := e.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
+		SET outcome = 'rolling_back', measured_at = now()
+		WHERE id = $1 AND outcome NOT IN ('rolled_back', 'rolling_back')`, actionID)
+	return err == nil && tag.RowsAffected() == 1
 }
 
 func (e *Executor) manualMutationBlock(ctx context.Context) error {
@@ -276,16 +342,11 @@ func (e *Executor) execManualSQLWithRetry(
 	attempts := 1
 	if isCreateIndex {
 		attempts = 3
-		if err := e.dropInvalidCreateIndexBlockers(
-			ctx, sql, ddlTimeout, lockOpt,
-		); err != nil {
-			return err
-		}
 	}
 	var lastErr error
 	for i := 0; i < attempts; i++ {
 		if i > 0 {
-			if err := e.dropInvalidCreateIndexBlockers(
+			if err := e.dropFailedCreateIndexRemnant(
 				ctx, sql, ddlTimeout, lockOpt,
 			); err != nil {
 				return err
@@ -316,6 +377,18 @@ func (e *Executor) logManualAction(
 	beforeState map[string]any,
 	execErr error, approvedBy *int,
 ) int64 {
+	return e.logManualActionWithDecision(ctx, findingID, sql, rollbackSQL,
+		beforeState, execErr, approvedBy, 0)
+}
+
+// logManualActionWithDecision records a manual action linked to its
+// operator decision and stamped with the executor's database identity.
+func (e *Executor) logManualActionWithDecision(
+	ctx context.Context,
+	findingID int, sql, rollbackSQL string,
+	beforeState map[string]any,
+	execErr error, approvedBy *int, decisionID int64,
+) int64 {
 	beforeJSON, _ := json.Marshal(beforeState)
 	outcome := actionOutcome(execErr)
 	actionType := categorizeAction(sql)
@@ -324,13 +397,14 @@ func (e *Executor) logManualAction(
 	err := e.pool.QueryRow(ctx,
 		`/* pg_sage */ INSERT INTO sage.action_log
 		 (action_type, finding_id, sql_executed, rollback_sql,
-		  before_state, outcome, approved_by, approved_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7,
-		  CASE WHEN $7::int IS NOT NULL THEN now() ELSE NULL END)
+		  before_state, outcome, approved_by, approved_at, decision_id, database_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7::int,
+		  CASE WHEN $7::int IS NOT NULL THEN now() ELSE NULL END,
+		  NULLIF($8::bigint, 0), $9::bigint)
 		 RETURNING id`,
 		actionType, findingID, sql,
 		store.NilIfEmpty(rollbackSQL), beforeJSON, outcome,
-		approvedBy,
+		approvedBy, decisionID, e.databaseIDValue(),
 	).Scan(&actionID)
 	if err != nil {
 		e.logFn("executor",
@@ -342,256 +416,4 @@ func (e *Executor) logManualAction(
 		e.markFindingActioned(ctx, int64(findingID), actionID)
 	}
 	return actionID
-}
-
-func (e *Executor) dropInvalidCreateIndexBlockers(
-	ctx context.Context,
-	sql string,
-	timeout time.Duration,
-	opts ...DDLOption,
-) error {
-	schemaName, tableName, cols, ok := parseCreateIndexTarget(sql)
-	if !ok || len(cols) == 0 {
-		return nil
-	}
-	if schemaName == "" {
-		schemaName = "public"
-	}
-	rows, err := e.pool.Query(ctx,
-		`/* pg_sage */ WITH indexed AS (
-		    SELECT format('%I.%I', idx_ns.nspname, idx.relname) AS index_name,
-		           array_agg(a.attname::text ORDER BY ord.n) AS cols
-		      FROM pg_index i
-		      JOIN pg_class tbl ON tbl.oid = i.indrelid
-		      JOIN pg_namespace tbl_ns ON tbl_ns.oid = tbl.relnamespace
-		      JOIN pg_class idx ON idx.oid = i.indexrelid
-		      JOIN pg_namespace idx_ns ON idx_ns.oid = idx.relnamespace
-		      JOIN unnest(i.indkey) WITH ORDINALITY AS ord(attnum, n)
-		           ON ord.attnum > 0
-		      JOIN pg_attribute a
-		           ON a.attrelid = tbl.oid
-		          AND a.attnum = ord.attnum
-		     WHERE tbl_ns.nspname = $1
-		       AND tbl.relname = $2
-		       AND NOT i.indisvalid
-		       AND i.indpred IS NULL
-		     GROUP BY idx_ns.nspname, idx.relname
-		)
-		SELECT index_name
-		  FROM indexed
-		 WHERE cols[1:cardinality($3::text[])] = $3::text[]`,
-		schemaName, tableName, cols,
-	)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	var indexes []string
-	for rows.Next() {
-		var indexName string
-		if err := rows.Scan(&indexName); err != nil {
-			return err
-		}
-		indexes = append(indexes, indexName)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, indexName := range indexes {
-		if err := ExecConcurrently(
-			ctx, e.pool,
-			fmt.Sprintf("DROP INDEX CONCURRENTLY IF EXISTS %s", indexName),
-			timeout, opts...,
-		); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (e *Executor) createIndexCoverageExists(
-	ctx context.Context,
-	sql string,
-) (bool, error) {
-	schemaName, tableName, cols, ok := parseCreateIndexTarget(sql)
-	if !ok || len(cols) == 0 {
-		return false, nil
-	}
-	if schemaName == "" {
-		schemaName = "public"
-	}
-
-	var one int
-	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ WITH indexed AS (
-		    SELECT i.indexrelid,
-		           array_agg(a.attname::text ORDER BY ord.n) AS cols
-		      FROM pg_index i
-		      JOIN pg_class tbl ON tbl.oid = i.indrelid
-		      JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
-		      JOIN unnest(i.indkey) WITH ORDINALITY AS ord(attnum, n)
-		           ON ord.attnum > 0
-		      JOIN pg_attribute a
-		           ON a.attrelid = tbl.oid
-		          AND a.attnum = ord.attnum
-		     WHERE ns.nspname = $1
-		       AND tbl.relname = $2
-		       AND i.indisvalid
-		       AND i.indisready
-		       AND i.indpred IS NULL
-		     GROUP BY i.indexrelid
-		)
-		SELECT 1
-		  FROM indexed
-		 WHERE cols[1:cardinality($3::text[])] = $3::text[]
-		 LIMIT 1`,
-		schemaName, tableName, cols,
-	).Scan(&one)
-	if err == nil {
-		return true, nil
-	}
-	if err == pgx.ErrNoRows {
-		return false, nil
-	}
-	return false, err
-}
-
-func parseCreateIndexTarget(sql string) (string, string, []string, bool) {
-	compact := strings.Join(strings.Fields(strings.TrimSuffix(
-		strings.TrimSpace(sql), ";")), " ")
-	upper := strings.ToUpper(compact)
-	onIdx := strings.Index(upper, " ON ")
-	if onIdx < 0 {
-		return "", "", nil, false
-	}
-	afterOn := strings.TrimSpace(compact[onIdx+4:])
-	if strings.HasPrefix(strings.ToUpper(afterOn), "ONLY ") {
-		afterOn = strings.TrimSpace(afterOn[5:])
-	}
-	openParen := strings.Index(afterOn, "(")
-	if openParen < 0 {
-		return "", "", nil, false
-	}
-	tableSpec := strings.TrimSpace(afterOn[:openParen])
-	if usingIdx := strings.Index(strings.ToUpper(tableSpec), " USING "); usingIdx >= 0 {
-		tableSpec = strings.TrimSpace(tableSpec[:usingIdx])
-	}
-	tableSpec = strings.TrimSpace(tableSpec)
-	if tableSpec == "" {
-		return "", "", nil, false
-	}
-
-	closeParen := matchingCloseParen(afterOn, openParen)
-	if closeParen < 0 {
-		return "", "", nil, false
-	}
-	cols := normalizeIndexColumns(afterOn[openParen+1 : closeParen])
-	if len(cols) == 0 {
-		return "", "", nil, false
-	}
-
-	parts := splitQualifiedIdentifier(tableSpec)
-	if len(parts) == 1 {
-		return "", parts[0], cols, true
-	}
-	if len(parts) == 2 {
-		return parts[0], parts[1], cols, true
-	}
-	return "", "", nil, false
-}
-
-func matchingCloseParen(s string, open int) int {
-	depth := 0
-	inQuote := false
-	for i := open; i < len(s); i++ {
-		switch s[i] {
-		case '"':
-			inQuote = !inQuote
-		case '(':
-			if !inQuote {
-				depth++
-			}
-		case ')':
-			if !inQuote {
-				depth--
-				if depth == 0 {
-					return i
-				}
-			}
-		}
-	}
-	return -1
-}
-
-func normalizeIndexColumns(s string) []string {
-	parts := splitTopLevelCSV(s)
-	cols := make([]string, 0, len(parts))
-	for _, part := range parts {
-		col := strings.TrimSpace(part)
-		if col == "" || strings.ContainsAny(col, "()") {
-			continue
-		}
-		fields := strings.Fields(col)
-		if len(fields) == 0 {
-			continue
-		}
-		cols = append(cols, unquoteIdentifier(fields[0]))
-	}
-	return cols
-}
-
-func splitTopLevelCSV(s string) []string {
-	var parts []string
-	depth := 0
-	inQuote := false
-	start := 0
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '"':
-			inQuote = !inQuote
-		case '(':
-			if !inQuote {
-				depth++
-			}
-		case ')':
-			if !inQuote {
-				depth--
-			}
-		case ',':
-			if !inQuote && depth == 0 {
-				parts = append(parts, s[start:i])
-				start = i + 1
-			}
-		}
-	}
-	parts = append(parts, s[start:])
-	return parts
-}
-
-func splitQualifiedIdentifier(s string) []string {
-	var parts []string
-	inQuote := false
-	start := 0
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '"':
-			inQuote = !inQuote
-		case '.':
-			if !inQuote {
-				parts = append(parts, unquoteIdentifier(s[start:i]))
-				start = i + 1
-			}
-		}
-	}
-	parts = append(parts, unquoteIdentifier(s[start:]))
-	return parts
-}
-
-func unquoteIdentifier(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return strings.ReplaceAll(s[1:len(s)-1], `""`, `"`)
-	}
-	return s
 }

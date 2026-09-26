@@ -1112,7 +1112,6 @@ func initFleetAndAPI() {
 	}
 	// Fleet instances are already registered by initFleetMultiDB.
 	startMCPRuntime()
-	startFleetRolloutScheduler()
 
 	startAPIServer(rateLimiterInstance)
 

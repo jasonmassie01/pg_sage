@@ -11,6 +11,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/autonomy"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/ledger"
 )
 
@@ -19,7 +20,21 @@ var (
 	standaloneAutonomy   *autonomy.Supervisor
 )
 
-type executorProposalRouter struct{ executor *executor.Executor }
+// executorProposalRouter hands custodian proposals to the executor. Every
+// proposal carries the HA state: a replica, or a primary in failover safe
+// mode, is marked IsReplica so the gate refuses mutations. Without an HA
+// probe the target is treated as a replica (fail closed).
+type executorProposalRouter struct {
+	executor  *executor.Executor
+	isReplica func(context.Context) bool
+}
+
+func (r executorProposalRouter) replica(ctx context.Context) bool {
+	if r.isReplica == nil {
+		return true
+	}
+	return r.isReplica(ctx)
+}
 
 func (r executorProposalRouter) Route(
 	ctx context.Context, proposal autonomy.Proposal,
@@ -29,6 +44,7 @@ func (r executorProposalRouter) Route(
 		TargetObjects: append([]string(nil), proposal.TargetObjects...),
 		Deadline:      proposal.Deadline,
 		Evidence:      proposal.Evidence,
+		IsReplica:     r.replica(ctx),
 	}
 	if strings.TrimSpace(proposal.SQL) == "" {
 		r.executor.EvaluateCustodianProposal(ctx, candidate)
@@ -45,7 +61,27 @@ func (r executorProposalRouter) RouteVerifiedIndex(
 		Feature: proposal.Feature, SQL: proposal.SQL,
 		TargetObjects: append([]string(nil), proposal.TargetObjects...),
 		Deadline:      proposal.Deadline,
+		IsReplica:     r.replica(ctx),
 	}, rollbackSQL, queryIDs)
+}
+
+// authorizeRetention adapts retention intents to the executor's gate.
+func (r executorProposalRouter) authorizeRetention(
+	ctx context.Context, intent autonomy.RetentionIntent,
+) error {
+	return r.executor.AuthorizeRetention(ctx, executor.RetentionRequest{
+		Target: intent.Schema + "." + intent.Table, Column: intent.Column,
+		Cutoff: intent.Cutoff, Window: intent.Window, BatchLimit: intent.BatchLimit,
+		Candidates: intent.Candidates, IsReplica: r.replica(ctx),
+	})
+}
+
+// haReplicaProbe reports replica or failover safe mode for one database.
+func haReplicaProbe(pool *pgxpool.Pool) func(context.Context) bool {
+	monitor := ha.New(pool, logStructuredWrapper)
+	return func(ctx context.Context) bool {
+		return monitor.Check(ctx) || monitor.InSafeMode()
+	}
 }
 
 type autonomyLogReporter struct{}
@@ -77,8 +113,9 @@ func newDatabaseAutonomy(
 		},
 	)
 	auditor := ledger.NewService(ledger.NewPostgresRepository(pool))
-	router := executorProposalRouter{executor: exec}
-	schemaGuard, err := autonomy.NewPostgresSchemaGuard(pool, database, router, auditor)
+	router := executorProposalRouter{executor: exec, isReplica: haReplicaProbe(pool)}
+	schemaGuard, err := autonomy.NewPostgresSchemaGuard(
+		pool, database, router, auditor, router.authorizeRetention)
 	if err != nil {
 		return nil, err
 	}

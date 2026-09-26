@@ -42,6 +42,18 @@ func (e *Executor) SubmitVerifiedIndexProposal(
 	if err := e.indexVerification.Admit(ctx); err != nil {
 		return err
 	}
+	release, err := e.acquireDDLSlot(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	// Re-authorize immediately before DDL: emergency stop or a policy change
+	// during admission must stop this action.
+	decision = e.EvaluateCustodianProposal(ctx, proposal)
+	if decision.Decision != PolicyDecisionExecute {
+		return fmt.Errorf("%w after admission: %s",
+			ErrCustodianProposalWithheld, decision.BlockedReason)
+	}
 	e.executeFinding(ctx, finding, 0, decision.DecisionID)
 	return nil
 }
@@ -82,6 +94,9 @@ func cloneCustodianEvidence(source map[string]any) map[string]any {
 func (e *Executor) SubmitCustodianProposal(
 	ctx context.Context, proposal CustodianProposal,
 ) error {
+	if err := e.custodianBackoff(ctx, proposal.SQL); err != nil {
+		return err
+	}
 	decision := e.EvaluateCustodianProposal(ctx, proposal)
 	if decision.Decision != PolicyDecisionExecute {
 		return fmt.Errorf("%w: %s", ErrCustodianProposalWithheld, decision.BlockedReason)
@@ -95,11 +110,25 @@ func (e *Executor) SubmitCustodianProposal(
 		return fmt.Errorf("acquire custodian change lease: %w", err)
 	}
 	defer releaseLease()
+	releaseSlot, err := e.acquireDDLSlot(ctx)
+	if err != nil {
+		return err
+	}
+	defer releaseSlot()
 	decision = e.EvaluateCustodianProposal(ctx, proposal)
 	if decision.Decision != PolicyDecisionExecute {
 		return fmt.Errorf("%w after lease: %s",
 			ErrCustodianProposalWithheld, decision.BlockedReason)
 	}
+	return e.runAuthorizedCustodian(ctx, proposal, finding, decision.DecisionID)
+}
+
+// runAuthorizedCustodian executes, logs and post-checks a custodian proposal
+// that holds its lease, a DDL slot and a fresh execute authorization.
+func (e *Executor) runAuthorizedCustodian(
+	ctx context.Context, proposal CustodianProposal, finding analyzer.Finding,
+	decisionID int64,
+) error {
 	baseline, err := e.captureCustodianBaseline(ctx, proposal)
 	if err != nil {
 		return fmt.Errorf("capture custodian verification baseline: %w", err)
@@ -109,7 +138,7 @@ func (e *Executor) SubmitCustodianProposal(
 		execErr = e.executeCustodianSQL(ctx, proposal.SQL)
 	}
 	actionID := e.logActionWithDecision(
-		ctx, finding, 0, e.snapshotBeforeState(ctx, nil), decision.DecisionID, execErr,
+		ctx, finding, 0, e.snapshotBeforeState(ctx, nil), decisionID, execErr,
 	)
 	if execErr != nil {
 		return fmt.Errorf("execute custodian proposal: %w", execErr)
@@ -255,13 +284,19 @@ func (e *Executor) executeCustodianSQL(ctx context.Context, sql string) error {
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return err
 	}
+	if _, _, isSignal := parseBackendSignal(sql); isSignal {
+		return ErrBackendApprovalRequired
+	}
+	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
+		return err
+	}
 	timeout := e.cfg.Safety.DDLTimeout()
+	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
 	var err error
 	if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
-		err = ExecConcurrently(ctx, e.pool, sql, timeout,
-			WithLockTimeout(e.cfg.Safety.LockTimeout()))
+		err = ExecConcurrently(ctx, e.pool, sql, timeout, lockOpt)
 	} else {
-		err = ExecInTransaction(ctx, e.pool, sql, timeout)
+		err = ExecInTransaction(ctx, e.pool, sql, timeout, lockOpt)
 	}
 	if err == nil {
 		e.notifyPostDDL(ctx, sql)

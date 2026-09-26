@@ -73,7 +73,7 @@ func EvaluateActionPolicy(
 		return decision
 	}
 	for _, guardrail := range contract.Guardrails {
-		if strings.EqualFold(strings.TrimSpace(guardrail), "approval_required") {
+		if isApprovalRequiredGuardrail(guardrail) {
 			return queueForApproval(decision)
 		}
 	}

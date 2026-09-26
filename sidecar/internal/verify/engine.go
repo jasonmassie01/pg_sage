@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 func (e *Engine) Watch(ctx context.Context, request WatchRequest) (Verdict, error) {
@@ -41,6 +42,16 @@ func (e *Engine) ResumeDueResults(ctx context.Context) ([]ResumeResult, error) {
 	}
 	results := make([]ResumeResult, 0, len(states))
 	for _, state := range states {
+		if revertPending(state) {
+			verdict, err := e.retryPendingRevert(ctx, state)
+			results = append(results, ResumeResult{
+				WatchID: state.ID, ActionID: state.ActionID, Verdict: verdict,
+			})
+			if err != nil {
+				return results, err
+			}
+			continue
+		}
 		verdict, evaluateErr := e.evaluateAndPersist(ctx, state)
 		results = append(results, ResumeResult{
 			WatchID: state.ID, ActionID: state.ActionID, Verdict: verdict,
@@ -58,9 +69,14 @@ func (e *Engine) evaluateAndPersist(
 	verdict, evaluateErr := e.evaluate(ctx, state)
 	state.Status = verdict.Status
 	state.Reason = verdict.Reason
-	state.Completed = verdict.Status != "extended"
+	// A revert verdict is a decision, not a completed effect: the watch stays
+	// open (and is retried) until the executor confirms the revert ran.
+	state.Completed = verdict.Status != "extended" && !verdict.Revert
 	state.Window = verdict.Window
 	state.NextEvaluationAt = verdict.NextEvaluationAt
+	if verdict.Revert {
+		state.NextEvaluationAt = e.options.Now().Add(RevertRetryInterval)
+	}
 	if err := e.store.Update(ctx, state); err != nil {
 		return persistenceFailure(), errors.Join(
 			evaluateErr, fmt.Errorf("update verification state: %w", err),
@@ -98,4 +114,36 @@ func contextFailure() Verdict {
 
 func persistenceFailure() Verdict {
 	return Verdict{Revert: true, Status: "unverifiable", Reason: "state_persist_failed"}
+}
+
+// RevertRetryInterval is how long a revert verdict waits before it is
+// handed back to the executor again when its revert has not completed.
+const RevertRetryInterval = 5 * time.Minute
+
+func revertPending(state WatchState) bool {
+	if state.Completed {
+		return false
+	}
+	switch state.Status {
+	case "revert", "reverted", "unverifiable":
+		return true
+	default:
+		return false
+	}
+}
+
+// retryPendingRevert returns the stored revert decision without observing
+// again, and schedules the next retry in case this attempt fails too.
+func (e *Engine) retryPendingRevert(ctx context.Context, state WatchState) (Verdict, error) {
+	verdict := Verdict{
+		Revert: true, Status: "reverted", Reason: state.Reason, Window: state.Window,
+	}
+	if state.Status == "unverifiable" {
+		verdict.Status = "unverifiable"
+	}
+	state.NextEvaluationAt = e.options.Now().Add(RevertRetryInterval)
+	if err := e.store.Update(ctx, state); err != nil {
+		return verdict, fmt.Errorf("reschedule pending revert: %w", err)
+	}
+	return verdict, nil
 }

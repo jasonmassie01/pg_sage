@@ -18,13 +18,8 @@ func TestValidateSQL_AllowedStatements(t *testing.T) {
 		"ALTER TABLE public.t SET (fillfactor = 90)",
 		"ALTER SYSTEM SET work_mem = '256MB'",
 		"ALTER SYSTEM RESET work_mem",
-		"SET lock_timeout = '5s'",
-		"RESET lock_timeout",
 		"SELECT pg_terminate_backend(12345)",
 		"SELECT pg_cancel_backend(12345)",
-		// reload after ALTER SYSTEM must be allowed or config changes
-		// never take effect autonomously.
-		"SELECT pg_reload_conf()",
 		"  CREATE INDEX idx ON t(id)  ",
 		"create index concurrently idx on t(id)",
 	}
@@ -40,6 +35,12 @@ func TestValidateSQL_AllowedStatements(t *testing.T) {
 
 func TestValidateSQL_RejectedStatements(t *testing.T) {
 	rejected := []string{
+		// Session-state and reload statements are never executor work:
+		// ALTER SYSTEM reloads run through applyConfigChange directly, and a
+		// committed SET leaks into the pooled connection (G4-B22, G4-D20).
+		"SET lock_timeout = '5s'",
+		"RESET lock_timeout",
+		"SELECT pg_reload_conf()",
 		"DROP TABLE users",
 		"DELETE FROM users WHERE 1=1",
 		"INSERT INTO users VALUES (1)",
@@ -128,7 +129,7 @@ func TestValidateSQL_CaseInsensitive(t *testing.T) {
 		"Vacuum Analyze public.t",
 		"ALTER system SET work_mem = '64MB'",
 		"REINDEX index idx",
-		"set lock_timeout = '5s'",
+		"analyze public.t",
 	}
 	for _, sql := range cases {
 		if err := ValidateExecutorSQL(sql); err != nil {
