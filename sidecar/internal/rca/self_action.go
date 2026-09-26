@@ -2,6 +2,8 @@ package rca
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -10,7 +12,7 @@ import (
 // sage.action_log table).
 type SageAction struct {
 	ID           string
-	Family       string // e.g. "set_work_mem", "create_index", "vacuum_full", "drop_index"
+	Family       string // sage.action_log.action_type (executor family)
 	ExecutedAt   time.Time
 	Database     string
 	Description  string
@@ -27,14 +29,44 @@ type IncidentAnnotation struct {
 	CausalReason string       // explanation of the causal path
 }
 
-// causalPaths maps "action_family:signal_id" to a human-readable
-// explanation of why that action likely caused that signal.
+// causalPaths maps "causal_family:signal_id" to a human-readable
+// explanation of why that action likely caused that signal. Causal
+// families are derived from executor action families by causalFamily.
 var causalPaths = map[string]string{
-	"set_work_mem:log_out_of_memory":    "Increasing work_mem may have caused out-of-memory condition",
+	"set_work_mem:log_out_of_memory":     "Increasing work_mem may have caused out-of-memory condition",
 	"create_index:log_disk_full":         "Index creation consumed remaining disk space",
 	"vacuum_full:log_lock_timeout":       "VACUUM FULL holds AccessExclusive lock, causing lock timeouts",
 	"create_index:log_temp_file_created": "Index build operation spilled to disk",
 	"drop_index:log_slow_query":          "Dropping index may have caused query performance regression",
+}
+
+// vacuumFullPattern matches VACUUM FULL and VACUUM (..., FULL, ...).
+var vacuumFullPattern = regexp.MustCompile(
+	`\bVACUUM\s*(\([^)]*\bFULL\b[^)]*\)|\s+FULL\b)`)
+
+// workMemPattern matches a statement that sets or resets work_mem.
+var workMemPattern = regexp.MustCompile(`\b(SET|RESET)\b[^;]*\bWORK_MEM\b`)
+
+// causalFamily maps an executor action family (categorizeAction in
+// internal/executor/executor.go: create_index, drop_index, reindex,
+// vacuum, analyze, terminate_backend, alter, ddl) plus its SQL to the
+// finer family used by causalPaths. Executor families are coarse:
+// "vacuum" covers VACUUM FULL and "alter"/"ddl" cover work_mem changes,
+// so without this mapping three of the five causal paths never matched
+// (substrate-B11).
+func causalFamily(a SageAction) string {
+	sql := strings.ToUpper(a.Description)
+	switch a.Family {
+	case "vacuum":
+		if vacuumFullPattern.MatchString(sql) {
+			return "vacuum_full"
+		}
+	case "alter", "ddl":
+		if workMemPattern.MatchString(sql) {
+			return "set_work_mem"
+		}
+	}
+	return a.Family
 }
 
 // SelfActionCorrelator checks whether recent pg_sage actions may
@@ -87,7 +119,8 @@ func (c *SelfActionCorrelator) Correlate(
 			ann.CausalAction = causal.action
 			ann.CausalReason = causal.reason
 
-			if rollbackCounts[causal.action.Family] >= c.rollbackThreshold {
+			if rollbackCounts[causalFamily(*causal.action)] >=
+				c.rollbackThreshold {
 				manualReview = append(manualReview,
 					c.buildManualReviewIncident(inc, causal))
 			} else {
@@ -137,12 +170,13 @@ func (c *SelfActionCorrelator) findCausalMatch(
 ) *causalMatch {
 	for i := range nearby {
 		a := &nearby[i]
+		family := causalFamily(*a)
 		for _, sid := range inc.SignalIDs {
-			key := a.Family + ":" + sid
+			key := family + ":" + sid
 			if reason, ok := causalPaths[key]; ok {
 				c.logFn("warn",
 					"rca: self-action causal match: %s -> %s (action %s)",
-					a.Family, sid, a.ID)
+					family, sid, a.ID)
 				return &causalMatch{action: a, reason: reason}
 			}
 		}
@@ -225,19 +259,17 @@ func countRollbacksByFamily(history []SageAction) map[string]int {
 	counts := make(map[string]int, len(history))
 	for _, a := range history {
 		if a.RolledBack {
-			counts[a.Family]++
+			counts[causalFamily(a)]++
 		}
 	}
 	return counts
 }
 
 // databaseMatches returns true if the incident and action refer to
-// the same database. Empty incident database matches any action.
+// the same, known database. An empty name is an unknown identity and
+// never matches (R05).
 func databaseMatches(incidentDB, actionDB string) bool {
-	if incidentDB == "" {
-		return true
-	}
-	return incidentDB == actionDB
+	return incidentDB != "" && incidentDB == actionDB
 }
 
 // escalateSeverity bumps severity one level for self-caused incidents.
