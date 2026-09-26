@@ -21,6 +21,9 @@ export function DatabaseForm({ db, onClose, onError }) {
     max_connections: db?.max_connections || 2,
     trust_level: db?.trust_level || 'observation',
     execution_mode: db?.execution_mode || 'approval',
+    // Round-trip tags: the PUT replaces them, so omitting them wiped
+    // tags set through the API or MCP (G9-B10).
+    ...(db?.tags ? { tags: db.tags } : {}),
   })
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState(null)
