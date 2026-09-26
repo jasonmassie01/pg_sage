@@ -779,8 +779,9 @@ func TestDatabaseMatches(t *testing.T) {
 	}{
 		{"same database", "mydb", "mydb", true},
 		{"different database", "mydb", "otherdb", false},
-		{"empty incident matches any", "", "anydb", true},
-		{"empty incident matches empty action", "", "", true},
+		// R05: an empty identity is unknown, never a wildcard.
+		{"empty incident never matches", "", "anydb", false},
+		{"empty incident and empty action never match", "", "", false},
 		{"non-empty incident vs empty action", "mydb", "", false},
 	}
 	for _, tt := range tests {

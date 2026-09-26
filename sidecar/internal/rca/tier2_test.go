@@ -382,12 +382,14 @@ func TestBuildTier2Incident(t *testing.T) {
 			}
 		}
 	})
-	t.Run("recommended SQL joined", func(t *testing.T) {
+	// G3-B27: statements are never joined into one multi-statement
+	// string; only the first single statement is kept.
+	t.Run("recommended SQL not joined", func(t *testing.T) {
 		inc := buildTier2Incident(tier2Response{
 			RootCause:      "t",
 			RecommendedSQL: []string{"SELECT 1", "VACUUM"},
 		}, testSignals(1))
-		if inc.RecommendedSQL != "SELECT 1; VACUUM" {
+		if inc.RecommendedSQL != "SELECT 1" {
 			t.Errorf("RecommendedSQL = %q", inc.RecommendedSQL)
 		}
 	})
@@ -448,8 +450,22 @@ func TestParseCausalChainString_SingleItem(t *testing.T) {
 	if chain[0].Description != "only node" {
 		t.Errorf("Description = %q", chain[0].Description)
 	}
-	if chain[0].Signal != "sig_a" {
-		t.Errorf("Signal = %q, want sig_a", chain[0].Signal)
+	// G3-B27: a step is attributed to a signal only when it names one.
+	if chain[0].Signal != "" {
+		t.Errorf("Signal = %q, want empty (step names no signal)",
+			chain[0].Signal)
+	}
+}
+
+func TestParseCausalChainString_AttributesByName(t *testing.T) {
+	sigs := testSignals(2)
+	chain := parseCausalChainString("sig_b spikes -> sig_a follows", sigs)
+	if len(chain) != 2 {
+		t.Fatalf("chain len = %d, want 2", len(chain))
+	}
+	if chain[0].Signal != "sig_b" || chain[1].Signal != "sig_a" {
+		t.Errorf("signals = [%q, %q], want [sig_b, sig_a]",
+			chain[0].Signal, chain[1].Signal)
 	}
 }
 
@@ -459,9 +475,9 @@ func TestParseCausalChainString_MorePartsThanSignals(t *testing.T) {
 	if len(chain) != 3 {
 		t.Fatalf("chain len = %d, want 3", len(chain))
 	}
-	// First link gets signal ID, rest get empty string
-	if chain[0].Signal != "sig_a" {
-		t.Errorf("chain[0].Signal = %q, want sig_a", chain[0].Signal)
+	// G3-B27: no positional attribution; no step names a signal.
+	if chain[0].Signal != "" {
+		t.Errorf("chain[0].Signal = %q, want empty", chain[0].Signal)
 	}
 	if chain[1].Signal != "" {
 		t.Errorf("chain[1].Signal = %q, want empty", chain[1].Signal)
