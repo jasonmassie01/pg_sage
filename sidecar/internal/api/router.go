@@ -155,7 +155,7 @@ func NewRouterFullRuntime(
 	)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		mcpHandler != nil {
-		apiMux.Handle("POST /api/v1/mcp", mcpHandler)
+		apiMux.Handle("POST /api/v1/mcp", bindMCPPrincipal(mcpHandler))
 	}
 	if pool != nil {
 		var oauthProvider *auth.OAuthProvider

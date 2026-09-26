@@ -158,7 +158,7 @@ func TestHTTPTransportPropagatesCancellation(t *testing.T) {
 		NewServer(backend), nil, nil,
 	)
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(operatorContext(context.Background()))
 	cancel()
 	request := httptest.NewRequest(
 		http.MethodPost,

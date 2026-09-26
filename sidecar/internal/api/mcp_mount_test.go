@@ -92,7 +92,9 @@ func testMCPAuthentication(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"authentication required"}`, http.StatusUnauthorized)
 			return
 		}
-		next.ServeHTTP(w, request)
+		// Real session auth always places the user on the context;
+		// the MCP mount now requires it (G6-B02).
+		next.ServeHTTP(w, withUser(request, testViewerUser()))
 	})
 }
 

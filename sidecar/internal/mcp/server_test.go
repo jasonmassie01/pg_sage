@@ -57,7 +57,7 @@ func TestToolRegistryExposesF6IntentsWithoutRawSQL(t *testing.T) {
 func TestInitializeAndToolsListAreValidJSONRPC(t *testing.T) {
 	server := NewServer(&recordingBackend{})
 
-	initialize := invoke(t, server, context.Background(), `{
+	initialize := invoke(t, server, operatorContext(context.Background()), `{
 		"jsonrpc":"2.0","id":1,"method":"initialize",
 		"params":{"protocolVersion":"2025-03-26","capabilities":{},
 		"clientInfo":{"name":"test-agent","version":"1"}}
@@ -71,7 +71,7 @@ func TestInitializeAndToolsListAreValidJSONRPC(t *testing.T) {
 	serverInfo := objectMap(t, result["serverInfo"])
 	require.Equal(t, "pg_sage", serverInfo["name"])
 
-	listed := invoke(t, server, context.Background(), `{
+	listed := invoke(t, server, operatorContext(context.Background()), `{
 		"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}
 	}`)
 	require.Empty(t, listed.Error.Code)
@@ -99,7 +99,7 @@ func TestPolicyToolsRouteTypedRequestsToPolicyBackend(t *testing.T) {
 	}
 	server := NewServer(backend)
 
-	policyResponse := invoke(t, server, context.Background(), `{
+	policyResponse := invoke(t, server, operatorContext(context.Background()), `{
 		"jsonrpc":"2.0","id":1,"method":"tools/call",
 		"params":{"name":"get_policy","arguments":{"database_id":42}}
 	}`)
@@ -109,7 +109,7 @@ func TestPolicyToolsRouteTypedRequestsToPolicyBackend(t *testing.T) {
 	require.Equal(t, json.Number("7"), policyPayload["version"])
 	require.Equal(t, "unattended", policyPayload["profile"])
 
-	proposalResponse := invoke(t, server, context.Background(), `{
+	proposalResponse := invoke(t, server, operatorContext(context.Background()), `{
 		"jsonrpc":"2.0","id":2,"method":"tools/call",
 		"params":{"name":"propose_policy_change","arguments":{
 			"database_id":42,
@@ -139,7 +139,7 @@ func TestRequestChangeRoutesIntentThroughPolicyWithoutTrustingClaims(t *testing.
 	}
 	server := NewServer(backend)
 
-	response := invoke(t, server, context.Background(), `{
+	response := invoke(t, server, operatorContext(context.Background()), `{
 		"jsonrpc":"2.0","id":3,"method":"tools/call",
 		"params":{"name":"request_change","arguments":{
 			"database_id":42,
@@ -171,7 +171,7 @@ func TestGetLedgerRoutesMachineReadableFilter(t *testing.T) {
 	}
 	server := NewServer(backend)
 
-	response := invoke(t, server, context.Background(), `{
+	response := invoke(t, server, operatorContext(context.Background()), `{
 		"jsonrpc":"2.0","id":4,"method":"tools/call",
 		"params":{"name":"get_ledger","arguments":{
 			"filter":{"database_id":42,"decision":"parked","limit":25}
@@ -219,7 +219,8 @@ func TestMalformedAndInvalidRequestsReturnProtocolErrors(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			backend := &recordingBackend{}
-			response := invoke(t, NewServer(backend), context.Background(), testCase.body)
+			response := invoke(t, NewServer(backend),
+				operatorContext(context.Background()), testCase.body)
 			require.Equal(t, testCase.code, response.Error.Code)
 			require.Equal(t, 0, backend.totalCalls())
 		})
@@ -232,7 +233,7 @@ func TestCancellationPropagatesAndReturnsRequestCancelled(t *testing.T) {
 		backend.changeContextErr = ctx.Err()
 		return ChangeResult{}, ctx.Err()
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(operatorContext(context.Background()))
 	cancel()
 
 	response := invoke(t, NewServer(backend), ctx, `{
@@ -379,4 +380,10 @@ func stringSlice(value any) []string {
 		}
 	}
 	return result
+}
+
+// operatorContext binds an operator principal. Routing tests exercise
+// mutating tools, which require one since G6-B02.
+func operatorContext(ctx context.Context) context.Context {
+	return WithPrincipal(ctx, Principal{Actor: "user:test", Role: "operator"})
 }
