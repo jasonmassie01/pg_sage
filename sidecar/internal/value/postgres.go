@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -225,18 +226,30 @@ func startOfWeek(value time.Time) time.Time {
 	return day.AddDate(0, 0, -offset)
 }
 
+// databaseRows orders databases by minutes descending, then name, so the
+// report is stable across requests (G2-B25).
 func databaseRows(values map[string]float64) []DatabaseMinutes {
 	result := make([]DatabaseMinutes, 0, len(values))
 	for name, minutes := range values {
 		result = append(result, DatabaseMinutes{name, minutes})
 	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Minutes != result[j].Minutes {
+			return result[i].Minutes > result[j].Minutes
+		}
+		return result[i].Name < result[j].Name
+	})
 	return result
 }
 
+// dayRows orders the daily trend by day ascending (G2-B25).
 func dayRows(values map[string]float64) []DayMinutes {
 	result := make([]DayMinutes, 0, len(values))
 	for day, minutes := range values {
 		result = append(result, DayMinutes{day, minutes})
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Day < result[j].Day
+	})
 	return result
 }

@@ -224,7 +224,7 @@ func TestSlowSlot_MixedActiveAndInactive(t *testing.T) {
 // ruleXIDWraparound — updated recommendation and SQL assertions
 // ---------------------------------------------------------------------------
 
-func TestXIDWraparound_RecommendedSQL_ContainsPgStatActivity(t *testing.T) {
+func TestXIDWraparound_DiagnosticSQL_ContainsPgStatActivity(t *testing.T) {
 	cfg := &config.Config{
 		Analyzer: config.AnalyzerConfig{
 			XIDWraparoundWarning:  500000000,
@@ -236,10 +236,13 @@ func TestXIDWraparound_RecommendedSQL_ContainsPgStatActivity(t *testing.T) {
 
 	if assert.Len(t, findings, 1) {
 		f := findings[0]
-		assert.Contains(t, f.RecommendedSQL, "pg_stat_activity",
-			"RecommendedSQL should query pg_stat_activity for xmin holders")
-		assert.Contains(t, f.RecommendedSQL, "backend_xmin",
-			"RecommendedSQL should reference backend_xmin column")
+		diag, _ := f.Detail["diagnostic_sql"].(string)
+		assert.Contains(t, diag, "pg_stat_activity",
+			"diagnostic_sql should query pg_stat_activity for xmin holders")
+		assert.Contains(t, diag, "backend_xmin",
+			"diagnostic_sql should reference backend_xmin column")
+		assert.Equal(t, "", f.RecommendedSQL,
+			"a read-only diagnostic is not an executable action")
 	}
 }
 

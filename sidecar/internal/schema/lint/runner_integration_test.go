@@ -355,7 +355,7 @@ func TestIntegration_Runner_SagePersistence(t *testing.T) {
 
 	// --- Phase 3: resolveCleared with empty active set resolves it ---
 	require.NoError(t,
-		runner.resolveCleared(ctx, []Finding{}),
+		runner.resolveClearedExcept(ctx, []Finding{}, nil),
 		"resolve cleared with empty set")
 
 	assert.Equal(t, 0,
@@ -513,7 +513,7 @@ func TestIntegration_SagePersistence_ResolveCleared(t *testing.T) {
 
 	// Now run resolveCleared with only lint_persist in the active set.
 	activeFindings := []Finding{seed[0]}
-	require.NoError(t, runner.resolveCleared(ctx, activeFindings))
+	require.NoError(t, runner.resolveClearedExcept(ctx, activeFindings, nil))
 
 	assert.Equal(t, 1,
 		lintFindingCount(t, pool, ctx, "lint_persist", dbName, "open"),
@@ -560,7 +560,7 @@ func TestIntegration_SagePersistence_ResolveAllEmpty(t *testing.T) {
 	// Empty findings slice should resolve all open lint findings for
 	// this database_name.
 	require.NoError(t,
-		runner.resolveCleared(ctx, []Finding{}))
+		runner.resolveClearedExcept(ctx, []Finding{}, nil))
 
 	assert.Equal(t, 0,
 		lintFindingCount(t, pool, ctx,

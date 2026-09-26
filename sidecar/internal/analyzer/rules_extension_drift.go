@@ -25,6 +25,7 @@ WHERE ae.default_version IS NOT NULL
   AND e.extversion IS DISTINCT FROM ae.default_version
 ORDER BY e.extname`)
 	if err != nil {
+		a.evalFail("extension_drift")
 		a.logFn("WARN", "analyzer: extension drift query: %v", err)
 		return nil
 	}
@@ -55,6 +56,7 @@ ORDER BY e.extname`)
 		})
 	}
 	if err := rows.Err(); err != nil {
+		a.evalFail("extension_drift")
 		a.logFn("WARN", "analyzer: extension drift rows: %v", err)
 	}
 	return findings

@@ -18,13 +18,18 @@ type LockChain struct {
 	RootBlockerState string    `json:"root_blocker_state"`
 	RootBlockerApp   string    `json:"root_blocker_app"`
 	RootBlockerSince time.Time `json:"root_blocker_since"`
-	LockedRelation   string    `json:"locked_relation"`
-	LockedRelations  []string  `json:"locked_relations,omitempty"`
-	TotalRelations   int       `json:"total_relations,omitempty"`
-	BlockerMode      string    `json:"blocker_mode"`
-	ChainDepth       int       `json:"chain_depth"`
-	BlockedPIDs      []int     `json:"blocked_pids"`
-	TotalBlocked     int       `json:"total_blocked"`
+	// RootBlockerBackendStart and RootBlockerQueryID pin the exact session
+	// and statement so an approved cancel/terminate can be re-verified
+	// against pg_stat_activity (PIDs are reused).
+	RootBlockerBackendStart time.Time `json:"root_blocker_backend_start"`
+	RootBlockerQueryID      int64     `json:"root_blocker_query_id"`
+	LockedRelation          string    `json:"locked_relation"`
+	LockedRelations         []string  `json:"locked_relations,omitempty"`
+	TotalRelations          int       `json:"total_relations,omitempty"`
+	BlockerMode             string    `json:"blocker_mode"`
+	ChainDepth              int       `json:"chain_depth"`
+	BlockedPIDs             []int     `json:"blocked_pids"`
+	TotalBlocked            int       `json:"total_blocked"`
 }
 
 // isSafeProcess returns true if the given PID or application name matches
@@ -93,6 +98,8 @@ SELECT
     sa.query_start                     AS root_blocker_since,
     sa.application_name                AS root_blocker_app,
     sa.wait_event_type                 AS root_blocker_wait_type,
+    sa.backend_start                   AS root_blocker_backend_start,
+    sa.query_id                        AS root_blocker_query_id,
     max(lc.depth)                      AS chain_depth,
     array_agg(DISTINCT lc.blocked_pid) AS blocked_pids,
     count(DISTINCT lc.blocked_pid)     AS total_blocked
@@ -101,7 +108,8 @@ JOIN lock_chain lc ON lc.blocker_pid = rb.root_pid
     OR (rb.root_pid = ANY(lc.chain) AND lc.blocked_pid != rb.root_pid)
 JOIN pg_stat_activity sa ON sa.pid = rb.root_pid
 GROUP BY rb.root_pid, sa.query, sa.state, sa.query_start,
-         sa.application_name, sa.wait_event_type
+         sa.application_name, sa.wait_event_type,
+         sa.backend_start, sa.query_id
 ORDER BY total_blocked DESC`
 
 // lockedRelationQuery finds relations a root blocker holds locks on,
@@ -140,57 +148,62 @@ func DetectLockChains(
 
 	var chains []LockChain
 	for rows.Next() {
-		var (
-			c             LockChain
-			blockedPIDs32 []int32
-			rootQuery     *string
-			rootState     *string
-			rootSince     *time.Time
-			rootApp       *string
-			waitType      *string
-		)
-
-		if err := rows.Scan(
-			&c.RootBlockerPID,
-			&rootQuery,
-			&rootState,
-			&rootSince,
-			&rootApp,
-			&waitType,
-			&c.ChainDepth,
-			&blockedPIDs32,
-			&c.TotalBlocked,
-		); err != nil {
-			return nil, fmt.Errorf("scan lock chain row: %w", err)
+		c, err := scanLockChain(rows)
+		if err != nil {
+			return nil, err
 		}
-
-		if rootQuery != nil {
-			c.RootBlockerQuery = *rootQuery
-		}
-		if rootState != nil {
-			c.RootBlockerState = *rootState
-		}
-		if rootSince != nil {
-			c.RootBlockerSince = *rootSince
-		}
-		if rootApp != nil {
-			c.RootBlockerApp = *rootApp
-		}
-
-		c.BlockedPIDs = make([]int, len(blockedPIDs32))
-		for i, pid := range blockedPIDs32 {
-			c.BlockedPIDs[i] = int(pid)
-		}
-
 		// Supplementary: find the locked relation.
 		enrichLockedRelation(queryCtx, pool, &c)
-
 		chains = append(chains, c)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate lock chains: %w", err)
 	}
 	return chains, nil
+}
+
+func scanLockChain(rows interface{ Scan(...any) error }) (LockChain, error) {
+	var (
+		c             LockChain
+		blockedPIDs32 []int32
+		rootQuery     *string
+		rootState     *string
+		rootSince     *time.Time
+		rootApp       *string
+		waitType      *string
+		backendStart  *time.Time
+		queryID       *int64
+	)
+	if err := rows.Scan(
+		&c.RootBlockerPID, &rootQuery, &rootState, &rootSince, &rootApp,
+		&waitType, &backendStart, &queryID,
+		&c.ChainDepth, &blockedPIDs32, &c.TotalBlocked,
+	); err != nil {
+		return c, fmt.Errorf("scan lock chain row: %w", err)
+	}
+	if rootQuery != nil {
+		c.RootBlockerQuery = *rootQuery
+	}
+	if rootState != nil {
+		c.RootBlockerState = *rootState
+	}
+	if rootSince != nil {
+		c.RootBlockerSince = *rootSince
+	}
+	if rootApp != nil {
+		c.RootBlockerApp = *rootApp
+	}
+	if backendStart != nil {
+		c.RootBlockerBackendStart = *backendStart
+	}
+	if queryID != nil {
+		c.RootBlockerQueryID = *queryID
+	}
+	c.BlockedPIDs = make([]int, len(blockedPIDs32))
+	for i, pid := range blockedPIDs32 {
+		c.BlockedPIDs[i] = int(pid)
+	}
+	return c, nil
 }
 
 // enrichLockedRelation fills LockedRelation(s) and BlockerMode from pg_locks.
@@ -356,5 +369,31 @@ func lockChainDetail(c LockChain) map[string]any {
 		detail["locked_relations"] = c.LockedRelations
 		detail["total_relations"] = c.TotalRelations
 	}
+	addBackendEvidence(detail, c)
 	return detail
+}
+
+// addBackendEvidence records the identity the executor re-checks before
+// an approved pg_cancel_backend/pg_terminate_backend: pid, backend_start
+// (pins the session across PID reuse), query_start, query_id, the first
+// 200 characters of the query (compared with LEFT(query, 200)) and
+// application_name.
+func addBackendEvidence(detail map[string]any, c LockChain) {
+	detail["pid"] = c.RootBlockerPID
+	detail["query_start"] = c.RootBlockerSince
+	detail["query_id"] = c.RootBlockerQueryID
+	detail["query"] = leftChars(c.RootBlockerQuery, 200)
+	detail["app_name"] = c.RootBlockerApp
+	if !c.RootBlockerBackendStart.IsZero() {
+		detail["backend_start"] = c.RootBlockerBackendStart
+	}
+}
+
+// leftChars mirrors SQL LEFT(s, n): the first n characters (not bytes).
+func leftChars(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }

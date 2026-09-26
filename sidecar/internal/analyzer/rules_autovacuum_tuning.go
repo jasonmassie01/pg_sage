@@ -2,6 +2,8 @@ package analyzer
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -29,6 +31,7 @@ func ruleAutovacuumTuning(
 		minRows = 1_000_000
 	}
 
+	tuned := tableScaleFactors(current)
 	var findings []Finding
 	for _, t := range current.Tables {
 		live := t.NLiveTup
@@ -44,6 +47,11 @@ func ruleAutovacuumTuning(
 
 		target := targetScaleFactor(live)
 		ident := t.SchemaName + "." + t.RelName
+		// Already tuned at or below the target: re-recommending it would
+		// re-apply the same setting forever (G2-B05).
+		if sf, ok := tuned[ident]; ok && sf <= target {
+			continue
+		}
 		q := sanitize.QuoteQualifiedName(t.SchemaName, t.RelName)
 
 		findings = append(findings, Finding{
@@ -91,4 +99,27 @@ func targetScaleFactor(liveRows int64) float64 {
 	default:
 		return 0.05
 	}
+}
+
+// tableScaleFactors returns the per-table autovacuum_vacuum_scale_factor
+// reloption keyed by "schema.table", parsed from pg_class.reloptions text
+// such as "{autovacuum_vacuum_scale_factor=0.05,fillfactor=90}".
+func tableScaleFactors(snap *collector.Snapshot) map[string]float64 {
+	out := make(map[string]float64)
+	if snap.ConfigData == nil {
+		return out
+	}
+	for _, r := range snap.ConfigData.TableReloptions {
+		opts := strings.Trim(r.Reloptions, "{}")
+		for _, opt := range strings.Split(opts, ",") {
+			name, value, ok := strings.Cut(strings.Trim(opt, `"`), "=")
+			if !ok || name != "autovacuum_vacuum_scale_factor" {
+				continue
+			}
+			if sf, err := strconv.ParseFloat(value, 64); err == nil {
+				out[r.SchemaName+"."+r.RelName] = sf
+			}
+		}
+	}
+	return out
 }

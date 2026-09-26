@@ -16,6 +16,11 @@ func ruleSlowQueries(
 	_ *RuleExtras,
 ) []Finding {
 	threshold := float64(cfg.Analyzer.SlowQueryThresholdMs)
+	if threshold <= 0 {
+		// 0 passes config validation but would make every query
+		// "+Inf x threshold, critical" (G2-B23).
+		threshold = config.DefaultSlowQueryThresholdMs
+	}
 	var findings []Finding
 
 	for _, q := range current.Queries {
@@ -40,12 +45,12 @@ func ruleSlowQueries(
 				q.MeanExecTime, ratio,
 			),
 			Detail: map[string]any{
-				"queryid":        q.QueryID,
-				"query":          q.Query,
-				"mean_exec_ms":   q.MeanExecTime,
-				"calls":          q.Calls,
-				"total_exec_ms":  q.TotalExecTime,
-				"threshold_ms":   threshold,
+				"queryid":       q.QueryID,
+				"query":         q.Query,
+				"mean_exec_ms":  q.MeanExecTime,
+				"calls":         q.Calls,
+				"total_exec_ms": q.TotalExecTime,
+				"threshold_ms":  threshold,
 			},
 			Recommendation: "Review query plan with EXPLAIN ANALYZE and optimize.",
 			ActionRisk:     "safe",
@@ -89,12 +94,12 @@ func ruleHighPlanTime(
 				q.MeanPlanTime, q.MeanExecTime, ratio,
 			),
 			Detail: map[string]any{
-				"queryid":        q.QueryID,
-				"query":          q.Query,
-				"mean_plan_ms":   q.MeanPlanTime,
-				"mean_exec_ms":   q.MeanExecTime,
-				"ratio":          ratio,
-				"calls":          q.Calls,
+				"queryid":      q.QueryID,
+				"query":        q.Query,
+				"mean_plan_ms": q.MeanPlanTime,
+				"mean_exec_ms": q.MeanExecTime,
+				"ratio":        ratio,
+				"calls":        q.Calls,
 			},
 			Recommendation: "Consider using prepared statements or simplifying the query.",
 			ActionRisk:     "safe",

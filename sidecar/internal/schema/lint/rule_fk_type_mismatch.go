@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 type ruleFKTypeMismatch struct{}
@@ -84,11 +86,13 @@ func (r *ruleFKTypeMismatch) collect(rows interface {
 			Impact: "Type mismatches force implicit casts during JOINs, " +
 				"preventing index usage and degrading query performance",
 			Suggestion: fmt.Sprintf(
-				"ALTER TABLE %s.%s ALTER COLUMN %s TYPE %s",
-				fkSchema, fkTable, fkCol, refType),
+				"ALTER TABLE %s ALTER COLUMN %s TYPE %s",
+				sanitize.QuoteQualifiedName(fkSchema, fkTable),
+				sanitize.QuoteIdentifier(fkCol), refType),
 			SQL: fmt.Sprintf(
-				"ALTER TABLE %s.%s ALTER COLUMN %s TYPE %s;",
-				fkSchema, fkTable, fkCol, refType),
+				"ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
+				sanitize.QuoteQualifiedName(fkSchema, fkTable),
+				sanitize.QuoteIdentifier(fkCol), refType),
 			FirstSeen: now,
 			LastSeen:  now,
 		})

@@ -825,7 +825,7 @@ func TestPhase2_BuildHistoricalAverages_WithData(t *testing.T) {
 	// Insert test snapshot data.
 	type queryEntry struct {
 		QueryID        int64   `json:"queryid"`
-		MeanExecTimeMs float64 `json:"mean_exec_time_ms"`
+		MeanExecTimeMs float64 `json:"mean_exec_time"` // collector.QueryStats field (G1-B06)
 		Phase2Test     string  `json:"phase2_test"`
 	}
 
