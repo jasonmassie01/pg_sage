@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/ledger"
 	planpkg "github.com/pg-sage/sidecar/internal/migration/plan"
+	rehearsalpkg "github.com/pg-sage/sidecar/internal/migration/rehearsal"
 )
 
 type PostgresApplier struct {
@@ -65,21 +67,54 @@ func (r *PostgresRecorder) Record(ctx context.Context, record Record) error {
 		evidenceID = ledger.NewEvidenceID()
 	}
 	contractAt := contractTime(r.now(), record)
-	_, err := r.pool.Exec(ctx, `INSERT INTO sage.migration_run
+	measurement, err := measurementJSON(record)
+	if err != nil {
+		return err
+	}
+	_, err = r.pool.Exec(ctx, `INSERT INTO sage.migration_run
 		(database_id, evidence_id, phase, source_sql_hash, measurement, verdict,
 		 contract_not_before)
-		VALUES ($1, $2, 'expand', $3, '{}'::jsonb, $4, $5)
+		VALUES ($1, $2, 'expand', $3, $6::jsonb, $4, $5)
 		ON CONFLICT (evidence_id) DO UPDATE SET
 		database_id=EXCLUDED.database_id, phase=EXCLUDED.phase,
 		measurement=EXCLUDED.measurement,
 		verdict=EXCLUDED.verdict, contract_not_before=EXCLUDED.contract_not_before,
 		updated_at=now()`, record.Request.DatabaseID, evidenceID,
 		migrationHash(record.Request.SQL),
-		databaseMigrationVerdict(record.Verdict), contractAt)
+		databaseMigrationVerdict(record.Verdict), contractAt, measurement)
 	if err != nil {
 		return fmt.Errorf("persist migration continuation: %w", err)
 	}
 	return nil
+}
+
+// measurementJSON persists the rehearsal evidence and the reason (which
+// carries clone-cleanup failures) instead of an empty object (G7-B22).
+func measurementJSON(record Record) ([]byte, error) {
+	doc := map[string]any{"reason": record.Reason}
+	if m := record.Measurement; m != nil {
+		doc["max_lock_duration_ms"] = float64(m.MaxLockDuration.Microseconds()) / 1000
+		doc["backfill_duration_ms"] = float64(m.BackfillDuration.Microseconds()) / 1000
+		doc["disk_delta_bytes"] = m.DiskDeltaBytes
+		doc["affected_queries"] = affectedQueriesJSON(m.AffectedQueries)
+	}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("encode migration measurement: %w", err)
+	}
+	return raw, nil
+}
+
+func affectedQueriesJSON(queries []rehearsalpkg.QueryMeasurement) []map[string]any {
+	out := make([]map[string]any, 0, len(queries))
+	for _, q := range queries {
+		out = append(out, map[string]any{
+			"query_id": q.QueryID, "before_latency_ms": q.BeforeLatencyMS,
+			"after_latency_ms": q.AfterLatencyMS, "before_plan_hash": q.BeforePlanHash,
+			"after_plan_hash": q.AfterPlanHash,
+		})
+	}
+	return out
 }
 
 func contractTime(now time.Time, record Record) *time.Time {
