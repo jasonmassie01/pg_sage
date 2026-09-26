@@ -1107,9 +1107,6 @@ func overlayEnv(cfg *Config) {
 	if v := os.Getenv("SAGE_PROMETHEUS_PORT"); v != "" {
 		cfg.Prometheus.ListenAddr = "0.0.0.0:" + v
 	}
-	if v := envInt("SAGE_RATE_LIMIT"); v != 0 {
-		// Store in a field we can access later; use default.
-	}
 	if v := os.Getenv("SAGE_LLM_API_KEY"); v != "" {
 		cfg.LLM.APIKey = v
 	}
