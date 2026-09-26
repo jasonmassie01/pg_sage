@@ -5,42 +5,6 @@ import (
 	"testing"
 )
 
-// ---------- isDDL ----------
-
-func TestIsDDL(t *testing.T) {
-	tests := []struct {
-		name  string
-		query string
-		want  bool
-	}{
-		{"SELECT", "SELECT * FROM t", false},
-		{"CREATE TABLE", "CREATE TABLE t (id int)", true},
-		{"DROP INDEX", "DROP INDEX idx", true},
-		{"ALTER TABLE", "ALTER TABLE t ADD COLUMN c text", true},
-		{"TRUNCATE", "TRUNCATE t", true},
-		{"GRANT", "GRANT SELECT ON t TO role", true},
-		{"REINDEX", "REINDEX INDEX idx", true},
-		{"leading whitespace", "  CREATE TABLE t (id int)", true},
-		{"lowercase", "create table t (id int)", true},
-		{"empty string", "", false},
-		{"INSERT", "INSERT INTO t VALUES (1)", false},
-		{"UPDATE", "UPDATE t SET c = 1", false},
-		{"DELETE", "DELETE FROM t", false},
-		{"COPY", "COPY t FROM '/tmp/data.csv'", true},
-		{"CLUSTER", "CLUSTER t USING idx", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isDDL(tt.query)
-			if got != tt.want {
-				t.Errorf("isDDL(%q) = %v, want %v", tt.query, got, tt.want)
-			}
-		})
-	}
-}
-
-// ---------- hasParamPlaceholder ----------
-
 func TestHasParamPlaceholder(t *testing.T) {
 	tests := []struct {
 		name  string

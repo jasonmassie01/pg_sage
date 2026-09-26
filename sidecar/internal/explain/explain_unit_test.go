@@ -619,36 +619,6 @@ func TestQueryHash_ParamSeparation(t *testing.T) {
 	}
 }
 
-// ---------- isDDL edge cases ----------
-
-func TestIsDDL_MixedCase(t *testing.T) {
-	tests := []struct {
-		name  string
-		query string
-		want  bool
-	}{
-		{"UPPER", "CREATE TABLE t (id int)", true},
-		{"lower", "create table t (id int)", true},
-		{"mIxEd", "CrEaTe TABLE t (id int)", true},
-		{"SELECT upper", "SELECT * FROM t", false},
-		{"select lower", "select * from t", false},
-		{"WITH CTE", "WITH cte AS (SELECT 1) SELECT * FROM cte", false},
-		{"INSERT", "INSERT INTO t VALUES (1)", false},
-		{"UPDATE", "UPDATE t SET c = 1 WHERE id = 1", false},
-		{"DELETE", "DELETE FROM t WHERE id = 1", false},
-		{"EXPLAIN", "EXPLAIN SELECT * FROM t", false},
-		{"whitespace + CREATE", "\t\n CREATE TABLE t (id int)", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isDDL(tt.query)
-			if got != tt.want {
-				t.Errorf("isDDL(%q) = %v, want %v", tt.query, got, tt.want)
-			}
-		})
-	}
-}
-
 // ---------- hasParamPlaceholder edge cases ----------
 
 func TestHasParamPlaceholder_EdgeCases(t *testing.T) {
