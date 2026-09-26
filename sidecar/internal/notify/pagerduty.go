@@ -44,7 +44,7 @@ func (p *PagerDutySender) Send(
 		return fmt.Errorf("build pagerduty payload: %w", err)
 	}
 
-	return redactErr(postPagerDuty(ctx, p.client, p.apiURL, payload))
+	return RedactError(postPagerDuty(ctx, p.client, p.apiURL, payload))
 }
 
 type pdEvent struct {

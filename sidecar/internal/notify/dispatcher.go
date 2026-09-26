@@ -93,7 +93,7 @@ func (d *Dispatcher) processRule(
 func (d *Dispatcher) deliver(
 	ctx context.Context, sender Sender, ch Channel, event Event,
 ) error {
-	sendErr := redactErr(sender.Send(ctx, ch, event))
+	sendErr := RedactError(sender.Send(ctx, ch, event))
 	status, errMsg := "sent", ""
 	if sendErr != nil {
 		status, errMsg = "error", sendErr.Error()

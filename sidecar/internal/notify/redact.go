@@ -29,10 +29,10 @@ func RedactURLs(s string) string {
 	return urlPattern.ReplaceAllStringFunc(s, RedactURL)
 }
 
-// redactErr strips URL secrets from an error. *url.Error embeds the full
+// RedactError strips URL secrets from an error. *url.Error embeds the full
 // request URL (Go only masks userinfo passwords), so it is rebuilt with
 // a redacted URL; other errors are redacted textually (G7-B10).
-func redactErr(err error) error {
+func RedactError(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -40,7 +40,7 @@ func redactErr(err error) error {
 	if errors.As(err, &ue) {
 		copied := *ue
 		copied.URL = RedactURL(ue.URL)
-		copied.Err = redactErr(ue.Err)
+		copied.Err = RedactError(ue.Err)
 		return &copied
 	}
 	if RedactURLs(err.Error()) != err.Error() {
@@ -49,9 +49,9 @@ func redactErr(err error) error {
 	return err
 }
 
-// truncateRunes shortens s to at most max runes, ending with an ellipsis
+// TruncateRunes shortens s to at most max runes, ending with an ellipsis
 // when cut, and never splits a UTF-8 sequence.
-func truncateRunes(s string, max int) string {
+func TruncateRunes(s string, max int) string {
 	if max <= 0 || utf8.RuneCountInString(s) <= max {
 		return s
 	}
@@ -61,9 +61,9 @@ func truncateRunes(s string, max int) string {
 
 var mrkdwnEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 
-// escapeMrkdwn neutralizes Slack control sequences (<!channel>,
+// EscapeMrkdwn neutralizes Slack control sequences (<!channel>,
 // <url|text>) in untrusted text such as query text or identifiers.
-func escapeMrkdwn(s string) string {
+func EscapeMrkdwn(s string) string {
 	return mrkdwnEscaper.Replace(s)
 }
 

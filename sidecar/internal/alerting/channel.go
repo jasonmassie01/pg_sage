@@ -16,6 +16,11 @@ type Alert struct {
 	Findings  []AlertFinding `json:"findings"`
 	Severity  string         `json:"severity"`
 	Timestamp time.Time      `json:"timestamp"`
+	// Database names the monitored database (fleet mode, G7-B09).
+	Database string `json:"database,omitempty"`
+	// Resolved marks a recovery notification for earlier alerts on the
+	// same findings (G7-B14).
+	Resolved bool `json:"resolved,omitempty"`
 }
 
 // AlertFinding is a finding enriched for alerting.
@@ -39,6 +44,9 @@ type ManagerConfig struct {
 	QuietHoursStart      string
 	QuietHoursEnd        string
 	Timezone             string
+	// DatabaseName is stamped on every alert so one Manager per fleet
+	// database produces distinguishable notifications (G7-B09).
+	DatabaseName string
 }
 
 // RouteConfig maps a severity level to channel names.

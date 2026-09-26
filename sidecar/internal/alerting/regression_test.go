@@ -237,8 +237,8 @@ func TestThrottle_EvictsExpiredEntries(t *testing.T) {
 // timezone silently became UTC.
 func TestNew_WarnsOnInvalidTimezone(t *testing.T) {
 	var warned atomic.Bool
-	logFn := func(level, msg string, _ ...any) {
-		if level == "WARN" && strings.Contains(msg, "timezone") {
+	logFn := func(level, msg string, args ...any) {
+		if level == "WARN" && strings.Contains(fmt.Sprintf(msg, args...), "timezone") {
 			warned.Store(true)
 		}
 	}
@@ -376,4 +376,3 @@ func TestEvaluate_SendsResolveForAlertedFinding(t *testing.T) {
 		t.Fatalf("resolve notifications = %d, want 1", resolves)
 	}
 }
-

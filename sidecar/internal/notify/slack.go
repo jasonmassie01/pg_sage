@@ -58,12 +58,12 @@ func (s *SlackSender) Send(
 		return fmt.Errorf("build slack payload: %w", err)
 	}
 
-	return redactErr(postSlackWebhook(ctx, s.client, webhookURL, payload))
+	return RedactError(postSlackWebhook(ctx, s.client, webhookURL, payload))
 }
 
 func buildSlackPayload(evt Event) ([]byte, error) {
 	emoji := notifySeverityEmoji(evt.Severity)
-	header := truncateRunes(fmt.Sprintf("%s %s", emoji, evt.Subject),
+	header := TruncateRunes(fmt.Sprintf("%s %s", emoji, evt.Subject),
 		slackHeaderMax)
 
 	blocks := []map[string]any{
@@ -81,7 +81,7 @@ func buildSlackPayload(evt Event) ([]byte, error) {
 			"type": "section",
 			"text": map[string]any{
 				"type": "mrkdwn",
-				"text": truncateRunes(escapeMrkdwn(evt.Body), slackSectionMax),
+				"text": TruncateRunes(EscapeMrkdwn(evt.Body), slackSectionMax),
 			},
 		})
 	}
@@ -94,7 +94,7 @@ func buildSlackPayload(evt Event) ([]byte, error) {
 				"type": "mrkdwn",
 				"text": fmt.Sprintf(
 					"*Event:* %s | *Severity:* %s | %s",
-					escapeMrkdwn(evt.Type), escapeMrkdwn(evt.Severity), ts),
+					EscapeMrkdwn(evt.Type), EscapeMrkdwn(evt.Severity), ts),
 			},
 		},
 	})

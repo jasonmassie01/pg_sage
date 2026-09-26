@@ -1,13 +1,19 @@
 package alerting
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/notify"
+)
+
+// Slack Block Kit limits (G7-B15).
+const (
+	slackHeaderMax  = 150
+	slackSectionMax = 3000
 )
 
 // SlackChannel sends alerts via Slack webhook with Block Kit.
@@ -40,66 +46,15 @@ func (s *SlackChannel) Send(
 	if err != nil {
 		return fmt.Errorf("build slack payload: %w", err)
 	}
-	return s.sendWithRetry(ctx, payload)
-}
-
-func (s *SlackChannel) sendWithRetry(
-	ctx context.Context, payload []byte,
-) error {
-	const maxAttempts = 3
-	backoff := 1 * time.Second
-
-	var lastErr error
-	for i := range maxAttempts {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("slack send cancelled: %w", err)
-		}
-
-		lastErr = s.doPost(ctx, payload)
-		if lastErr == nil {
-			return nil
-		}
-
-		if i < maxAttempts-1 {
-			s.logFn("WARN", "slack retry %d/%d: %v",
-				i+1, maxAttempts, lastErr)
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-				return fmt.Errorf("slack send cancelled: %w",
-					ctx.Err())
-			}
-			backoff *= 2
-		}
-	}
-	return fmt.Errorf("slack send failed after %d attempts: %w",
-		maxAttempts, lastErr)
+	return sendWithRetry(ctx, "slack", s.logFn, func() error {
+		return s.doPost(ctx, payload)
+	})
 }
 
 func (s *SlackChannel) doPost(
 	ctx context.Context, payload []byte,
 ) error {
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodPost, s.webhookURL,
-		bytes.NewReader(payload),
-	)
-	if err != nil {
-		return fmt.Errorf("create slack request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("slack http post: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	io.Copy(io.Discard, resp.Body) //nolint:errcheck
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("slack returned status %d",
-			resp.StatusCode)
-	}
-	return nil
+	return postJSON(ctx, s.client, "slack", s.webhookURL, payload, nil)
 }
 
 func severityEmoji(sev string) string {
@@ -113,40 +68,48 @@ func severityEmoji(sev string) string {
 	}
 }
 
-// buildPayload constructs a Slack Block Kit message.
+// buildPayload constructs a Slack Block Kit message. Untrusted text
+// (titles, identifiers, recommendations) is mrkdwn-escaped and every
+// block is kept within Slack's limits (G7-B15, G7-B31).
 func (s *SlackChannel) buildPayload(
 	alert Alert,
 ) ([]byte, error) {
-	emoji := severityEmoji(alert.Severity)
-	header := fmt.Sprintf("%s pg_sage: %d %s finding(s)",
-		emoji, len(alert.Findings), alert.Severity)
-
-	blocks := []map[string]any{
-		{
-			"type": "header",
-			"text": map[string]any{
-				"type": "plain_text",
-				"text": header,
-			},
-		},
+	header := fmt.Sprintf("%s pg_sage%s: %d %s finding(s)",
+		severityEmoji(alert.Severity), databaseLabel(alert.Database),
+		len(alert.Findings), alert.Severity)
+	if alert.Resolved {
+		header = fmt.Sprintf("pg_sage%s: resolved %d finding(s)",
+			databaseLabel(alert.Database), len(alert.Findings))
 	}
-
+	blocks := []map[string]any{{
+		"type": "header",
+		"text": map[string]any{
+			"type": "plain_text",
+			"text": notify.TruncateRunes(header, slackHeaderMax),
+		},
+	}}
 	for _, f := range alert.Findings {
 		text := fmt.Sprintf(
 			"*%s*\nObject: `%s` (%s)\nSeen %d time(s)\n%s",
-			f.Title, f.ObjectIdentifier,
-			f.ObjectType, f.OccurrenceCount,
-			f.Recommendation,
+			notify.EscapeMrkdwn(f.Title),
+			notify.EscapeMrkdwn(f.ObjectIdentifier),
+			notify.EscapeMrkdwn(f.ObjectType), f.OccurrenceCount,
+			notify.EscapeMrkdwn(f.Recommendation),
 		)
 		blocks = append(blocks, map[string]any{
 			"type": "section",
 			"text": map[string]any{
 				"type": "mrkdwn",
-				"text": text,
+				"text": notify.TruncateRunes(text, slackSectionMax),
 			},
 		})
 	}
+	return json.Marshal(map[string]any{"blocks": blocks})
+}
 
-	payload := map[string]any{"blocks": blocks}
-	return json.Marshal(payload)
+func databaseLabel(db string) string {
+	if db == "" {
+		return ""
+	}
+	return " [" + db + "]"
 }
