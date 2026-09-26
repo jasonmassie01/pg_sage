@@ -95,16 +95,6 @@ func buildProviderCapabilities(
 	return caps
 }
 
-func BuildActionFamilyReadiness(
-	cfg *config.Config,
-	caps ProviderCapabilities,
-	mode string,
-	stopped bool,
-	now time.Time,
-) []ActionFamilyReadiness {
-	return buildActionFamilyReadiness(cfg, caps, mode, stopped, true, now)
-}
-
 func buildActionFamilyReadiness(
 	cfg *config.Config,
 	caps ProviderCapabilities,

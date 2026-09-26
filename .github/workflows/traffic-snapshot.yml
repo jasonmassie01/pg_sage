@@ -36,18 +36,32 @@ concurrency:
 jobs:
   snapshot:
     runs-on: ubuntu-latest
+    # Without the TRAFFIC_TOKEN secret every run failed and kept master red
+    # (G10-B05); skip the job cleanly until the secret is configured.
+    env:
+      HAS_TRAFFIC_TOKEN: ${{ secrets.TRAFFIC_TOKEN != '' }}
     steps:
+      - name: Report missing TRAFFIC_TOKEN
+        if: env.HAS_TRAFFIC_TOKEN != 'true'
+        run: |
+          echo "::notice::TRAFFIC_TOKEN secret is not set; skipping traffic snapshot."
+          echo "Create a fine-grained PAT with Administration:Read on this repo"
+          echo "and add it as the TRAFFIC_TOKEN repo secret to enable snapshots."
+
       - name: Checkout repo
+        if: env.HAS_TRAFFIC_TOKEN == 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
       - name: Configure git identity
+        if: env.HAS_TRAFFIC_TOKEN == 'true'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
       - name: Create analytics branch if missing
+        if: env.HAS_TRAFFIC_TOKEN == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -80,11 +94,13 @@ jobs:
           git push origin analytics
 
       - name: Fetch analytics branch
+        if: env.HAS_TRAFFIC_TOKEN == 'true'
         run: |
           git fetch origin analytics
           git checkout analytics
 
       - name: Pull traffic data
+        if: env.HAS_TRAFFIC_TOKEN == 'true'
         env:
           # Traffic API requires a PAT with Administration:Read.
           # The default GITHUB_TOKEN returns HTTP 403 here.
@@ -114,6 +130,7 @@ jobs:
           ls -la "data/$DATE"
 
       - name: Commit and push snapshot
+        if: env.HAS_TRAFFIC_TOKEN == 'true'
         run: |
           set -euo pipefail
           DATE=$(date -u +%Y-%m-%d)

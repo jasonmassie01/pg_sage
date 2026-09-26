@@ -51,12 +51,28 @@ type DatabaseInput struct {
 type DatabaseStore struct {
 	pool       *pgxpool.Pool
 	encryptKey []byte
+	// passphrase and salt enable lazy migration of ciphertext written by
+	// pre-v0.9 key derivations. Empty passphrase disables migration.
+	passphrase string
+	salt       []byte
 }
 
 // NewDatabaseStore creates a DatabaseStore with the given pool and
 // 32-byte encryption key.
 func NewDatabaseStore(pool *pgxpool.Pool, encryptKey []byte) *DatabaseStore {
 	return &DatabaseStore{pool: pool, encryptKey: encryptKey}
+}
+
+// WithKeyMigration lets reads decrypt passwords stored by v0.8.x key
+// derivations (SHA-256 and deterministic-salt argon2id) and re-encrypt
+// them under the current key. passphrase and salt must be the inputs that
+// derived encryptKey.
+func (s *DatabaseStore) WithKeyMigration(
+	passphrase string, salt []byte,
+) *DatabaseStore {
+	s.passphrase = passphrase
+	s.salt = append([]byte(nil), salt...)
+	return s
 }
 
 // Create inserts a new database record. Returns the ID.
@@ -280,9 +296,9 @@ func (s *DatabaseStore) GetConnectionString(
 		return "", fmt.Errorf("reading database %d: %w", id, err)
 	}
 
-	password, err := crypto.Decrypt(enc, s.encryptKey)
+	password, err := s.decryptPassword(ctx, id, enc)
 	if err != nil {
-		return "", fmt.Errorf("decrypting password: %w", err)
+		return "", err
 	}
 
 	return databaseConnectionString(
@@ -311,9 +327,9 @@ func (s *DatabaseStore) GetUpdateConnectionString(
 			return "", fmt.Errorf("reading database %d password: %w", id, err)
 		}
 		var err error
-		password, err = crypto.Decrypt(enc, s.encryptKey)
+		password, err = s.decryptPassword(ctx, id, enc)
 		if err != nil {
-			return "", fmt.Errorf("decrypting password: %w", err)
+			return "", err
 		}
 	}
 	return databaseConnectionString(

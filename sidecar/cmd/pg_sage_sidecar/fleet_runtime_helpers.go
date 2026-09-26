@@ -8,9 +8,11 @@ import (
 	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/startup"
 	"github.com/pg-sage/sidecar/internal/tuner"
 )
 
@@ -24,19 +26,34 @@ func initializeAnalyzeSemaphore() {
 		maxAnalyze)
 }
 
-func newFleetOptimizerClient(
-	databaseName string, general *llm.Client,
-) *llm.Client {
-	if !cfg.LLM.OptimizerLLM.Enabled {
-		return general
+// newFleetDBLLMClients builds the registry-tracked general and optimizer
+// clients for one database. allowed=false (databases[].llm_enabled: false)
+// yields clients that stay disabled across every reconfigure (G5-B07).
+func newFleetDBLLMClients(
+	databaseName string, allowed bool,
+) (*llm.Client, *llm.Manager) {
+	general := llmClients.newClient(llmRoleGeneral, databaseName, allowed)
+	attachFleetBudget(general, databaseName)
+	optimizerClient := general
+	if cfg.LLM.OptimizerLLM.Enabled {
+		optimizerClient = llmClients.newClient(
+			llmRoleOptimizer, databaseName, allowed,
+		)
+		attachFleetBudget(optimizerClient, databaseName)
 	}
-	client := llm.NewOptimizerClient(
-		&cfg.LLM, &cfg.LLM.OptimizerLLM, logStructuredWrapper,
+	return general, llm.NewManager(
+		general, optimizerClient, cfg.LLM.OptimizerLLM.FallbackToGeneral,
 	)
-	if fleetLLMBudget != nil {
-		client.SetBudget(dbBudget{b: fleetLLMBudget, db: databaseName})
+}
+
+// attachFleetBudget registers the database with the fleet budget (so
+// databases added at runtime get a share, G5-B06) and scopes the client.
+func attachFleetBudget(client *llm.Client, databaseName string) {
+	if fleetLLMBudget == nil {
+		return
 	}
-	return client
+	fleetLLMBudget.Register(databaseName)
+	client.SetBudget(dbBudget{b: fleetLLMBudget, db: databaseName})
 }
 
 func newFleetOptimizer(
@@ -139,4 +156,19 @@ func initializeFleetBudget(databaseNames []string) {
 	logInfo("fleet", "per-database LLM budget enabled: "+
 		"%d tokens/day across %d databases",
 		cfg.LLM.FleetTokenBudgetDaily, len(databaseNames))
+}
+
+// runInstanceChecks validates one monitored database's prerequisites. A
+// variable so tests can stub it.
+var runInstanceChecks = startup.RunChecks
+
+// instanceRuntimeConfig clones the global config and carries the database's
+// own capability flags, so fleet and meta collectors select WAL and
+// plan-time columns per instance (G5-B13, G1-B07).
+func instanceRuntimeConfig(checks *startup.CheckResult) *config.Config {
+	runtimeCfg := config.Clone(cfg)
+	runtimeCfg.PGVersionNum = checks.PGVersionNum
+	runtimeCfg.HasWALColumns = checks.HasWALColumns
+	runtimeCfg.HasPlanTimeColumns = checks.HasPlanTimeColumns
+	return runtimeCfg
 }

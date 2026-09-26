@@ -111,13 +111,11 @@ func (c *Config) normalize() {
 	}
 
 	// Standalone with legacy Postgres config: synthesize Databases[0].
+	// When a DSN URL is the connection source, its identity (host, db,
+	// user) wins over the localhost defaults so the registered instance
+	// names the database actually monitored.
 	if c.Mode == "standalone" && len(c.Databases) == 0 && c.Postgres.Host != "" {
-		name := c.Postgres.Database
-		if name == "" {
-			name = "default"
-		}
-		c.Databases = []DatabaseConfig{{
-			Name:           name,
+		db := DatabaseConfig{
 			Host:           c.Postgres.Host,
 			Port:           c.Postgres.Port,
 			User:           c.Postgres.User,
@@ -125,7 +123,13 @@ func (c *Config) normalize() {
 			Database:       c.Postgres.Database,
 			SSLMode:        c.Postgres.SSLMode,
 			MaxConnections: c.Postgres.MaxConnections,
-		}}
+		}
+		applyDatabaseURL(&db, c.Postgres.DatabaseURL)
+		db.Name = db.Database
+		if db.Name == "" {
+			db.Name = "default"
+		}
+		c.Databases = []DatabaseConfig{db}
 	}
 
 	// Fleet mode: apply DefaultsConfig to databases with zero-valued fields.
@@ -163,5 +167,33 @@ func (c *Config) normalize() {
 	// Set API listen addr if empty.
 	if c.API.ListenAddr == "" {
 		c.API.ListenAddr = DefaultAPIListenAddr
+	}
+}
+
+// applyDatabaseURL overlays the identity carried by a postgres:// URL.
+// Key/value DSNs and unparsable values leave db unchanged; the runtime
+// connects with the raw DSN either way.
+func applyDatabaseURL(db *DatabaseConfig, raw string) {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
+		return
+	}
+	if host := u.Hostname(); host != "" {
+		db.Host = host
+	}
+	if port, err := strconv.Atoi(u.Port()); err == nil && port > 0 {
+		db.Port = port
+	}
+	if u.User != nil {
+		db.User = u.User.Username()
+		if password, ok := u.User.Password(); ok {
+			db.Password = password
+		}
+	}
+	if name := strings.TrimPrefix(u.Path, "/"); name != "" {
+		db.Database = name
+	}
+	if mode := u.Query().Get("sslmode"); mode != "" {
+		db.SSLMode = mode
 	}
 }

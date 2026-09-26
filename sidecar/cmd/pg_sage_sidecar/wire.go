@@ -230,6 +230,9 @@ func applyMetaDatabaseUpdate(
 	if err != nil {
 		return nil, err
 	}
+	if oldRec.Name != candidate.Name {
+		unregisterFleetBudget(oldRec.Name)
+	}
 	if err := fleet.ShutdownInstance(ctx, retired); err != nil {
 		logWarn("meta-db",
 			"db %q: replacement published; old runtime still draining: %v",
@@ -257,6 +260,7 @@ func applyMetaDatabaseDelete(
 	if err != nil {
 		return err
 	}
+	unregisterFleetBudget(rec.Name)
 	if err := fleet.ShutdownInstance(context.WithoutCancel(ctx), retired); err != nil {
 		logWarn("meta-db",
 			"db %q: delete committed; runtime drain incomplete: %v",
@@ -318,6 +322,14 @@ func replaceManagedDatabase(
 		err = errors.Join(err, cleanupManagedCandidate(candidate))
 	}
 	return candidate, retired, err
+}
+
+// unregisterFleetBudget returns a deleted or renamed database's LLM budget
+// share to the remaining databases (G5-B06).
+func unregisterFleetBudget(name string) {
+	if fleetLLMBudget != nil {
+		fleetLLMBudget.Unregister(name)
+	}
 }
 
 func cleanupManagedCandidate(candidate *fleet.DatabaseInstance) error {

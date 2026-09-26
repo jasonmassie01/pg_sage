@@ -82,7 +82,6 @@ var (
 	// that YAML-configured ramp starts are not silently replaced by
 	// now() at first run. Zero value means YAML had no override.
 	configRampStart  time.Time
-	shutdownFlag     bool
 	fleetMgr         *fleet.DatabaseManager
 	apiServer        *http.Server
 	globalMetaState  *metaDBState
@@ -235,6 +234,12 @@ func main() {
 	} else if cfg.IsFleet() {
 		initFleetMultiDB()
 	}
+	// Every mode needs a controller: the config watcher and API writes go
+	// through it (extension mode used to leave it nil, G5-B02).
+	if err := ensureConfigController(); err != nil {
+		logError("startup", "config controller: %v", err)
+		os.Exit(1)
+	}
 
 	// Construct the API rate limiter before initFleetAndAPI captures its
 	// dependencies and starts the HTTP server.
@@ -246,45 +251,7 @@ func main() {
 	// Config hot-reload.
 	if cfg.ConfigPath != "" {
 		watcher := config.NewAcknowledgedWatcherWithLoader(
-			cfg.ConfigPath, cfg,
-			loadConfigCandidate,
-			func(updated *config.Config) error {
-				desired := configController.Desired()
-				var result config.ApplyResult
-				var applyErr error
-				controlPool := configControlPool()
-				if controlPool == nil {
-					result, applyErr = configController.Apply(
-						shutdownCtx, desired.Generation, updated,
-					)
-				} else {
-					configStore := store.NewConfigStore(controlPool)
-					result, applyErr = configController.ApplyWithPersistence(
-						shutdownCtx, desired.Generation, updated,
-						func(ctx context.Context, snapshot config.ConfigSnapshot) error {
-							generation, err := configStore.SetOverridesCAS(
-								ctx, nil, 0, 0, desired.Generation,
-							)
-							if err == nil && generation != snapshot.Generation {
-								return fmt.Errorf(
-									"durable generation %d, controller %d",
-									generation, snapshot.Generation,
-								)
-							}
-							return err
-						},
-					)
-				}
-				if applyErr != nil {
-					return applyErr
-				}
-				logInfo("config",
-					"hot-reload desired=%d active=%d pending_restart=%d",
-					result.DesiredGeneration, result.ActiveGeneration,
-					len(result.PendingRestart),
-				)
-				return nil
-			},
+			cfg.ConfigPath, cfg, loadConfigCandidate, applyWatchedConfig,
 		)
 		if err := watcher.Start(); err != nil {
 			logWarn("config", "hot-reload disabled: %v", err)
@@ -301,7 +268,6 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigCh
 	logInfo("shutdown", "received %s, shutting down…", sig)
-	shutdownFlag = true
 	shutdownCancel()
 
 	// Hard deadline: if graceful shutdown doesn't complete in 10s,
@@ -309,7 +275,7 @@ func main() {
 	go func() {
 		time.Sleep(10 * time.Second)
 		logError("shutdown", "timed out after 10s, forcing exit")
-		os.Exit(1)
+		os.Exit(forcedShutdownExitCode())
 	}()
 
 	if rateLimiterInstance != nil {
@@ -377,6 +343,51 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 	return nil
 }
 
+// ensureConfigController builds the controller for modes whose
+// initialization did not (extension). It never replaces a live controller.
+func ensureConfigController() error {
+	if configController != nil {
+		return nil
+	}
+	return initializeConfigController(configControlPool())
+}
+
+// applyWatchedConfig publishes a reloaded config.yaml candidate through the
+// controller, persisting the generation when a control database exists.
+func applyWatchedConfig(updated *config.Config) error {
+	desired := configController.Desired()
+	var result config.ApplyResult
+	var applyErr error
+	controlPool := configControlPool()
+	if controlPool == nil {
+		result, applyErr = configController.Apply(
+			shutdownCtx, desired.Generation, updated,
+		)
+	} else {
+		configStore := store.NewConfigStore(controlPool)
+		result, applyErr = configController.ApplyWithPersistence(
+			shutdownCtx, desired.Generation, updated,
+			func(ctx context.Context, snapshot config.ConfigSnapshot) error {
+				generation, err := configStore.SetOverridesCAS(
+					ctx, nil, 0, 0, desired.Generation,
+				)
+				if err == nil && generation != snapshot.Generation {
+					return fmt.Errorf("durable generation %d, controller %d",
+						generation, snapshot.Generation)
+				}
+				return err
+			},
+		)
+	}
+	if applyErr != nil {
+		return applyErr
+	}
+	logInfo("config", "hot-reload desired=%d active=%d pending_restart=%d",
+		result.DesiredGeneration, result.ActiveGeneration,
+		len(result.PendingRestart))
+	return nil
+}
+
 func loadConfigCandidate() (*config.Config, error) {
 	candidate, err := config.Load(os.Args[1:])
 	if err != nil {
@@ -393,10 +404,13 @@ func configControlPool() *pgxpool.Pool {
 	if globalMetaState != nil {
 		return globalMetaState.Pool
 	}
-	if cfg != nil && cfg.IsFleet() {
-		return nil
+	// Only standalone owns its monitored database's sage schema. YAML fleet
+	// has no stable control DB, and extension mode must not write sidecar
+	// config rows into the C extension's schema.
+	if cfg != nil && cfg.IsStandalone() {
+		return pool
 	}
-	return pool
+	return nil
 }
 
 func applyPersistedGlobalOverrides(
@@ -555,9 +569,7 @@ func initStandalone() {
 	if cfg.LLM.Optimizer.Enabled {
 		optClient := llmClient
 		if cfg.LLM.OptimizerLLM.Enabled {
-			optClient = llm.NewOptimizerClient(
-				&cfg.LLM, &cfg.LLM.OptimizerLLM, logStructuredWrapper,
-			)
+			optClient = llmClients.newClient(llmRoleOptimizer, "", true)
 			logInfo("startup", "optimizer using dedicated LLM model")
 		}
 		if optClient.IsEnabled() {
@@ -740,6 +752,18 @@ func initStandalone() {
 			cfg.RCA.EscalationCycles)
 	}
 
+	// 8b. Configure the analyzer before its goroutine starts: the first
+	// cycle runs immediately and used to race these setters (G2-B15).
+	notifyDispatcher := notify.NewDispatcher(
+		pool, logStructuredWrapper)
+	registerNotifySenders(notifyDispatcher)
+	dbName := resolveDBName()
+	anal.WithDispatcher(notifyDispatcher)
+	anal.WithDatabaseName(dbName)
+	if llmClient != nil && llmClient.IsEnabled() {
+		anal.WithPlanNarrator(
+			analyzer.NewLLMPlanNarrator(llmClient, logStructuredWrapper))
+	}
 	go anal.Run(shutdownCtx)
 
 	// 9. Executor runs after analyzer (called from analyzer loop).
@@ -765,20 +789,10 @@ func initStandalone() {
 	}
 
 	// 9c. Notification dispatcher.
-	notifyDispatcher := notify.NewDispatcher(
-		pool, logStructuredWrapper)
-	registerNotifySenders(notifyDispatcher)
-	dbName := resolveDBName()
 	exec.WithDispatcher(notifyDispatcher)
 	exec.WithDatabaseName(dbName)
 	if llmClient != nil && llmClient.IsEnabled() {
 		exec.WithJustifier(llmClient)
-	}
-	anal.WithDispatcher(notifyDispatcher)
-	anal.WithDatabaseName(dbName)
-	if llmClient != nil && llmClient.IsEnabled() {
-		anal.WithPlanNarrator(
-			analyzer.NewLLMPlanNarrator(llmClient, logStructuredWrapper))
 	}
 
 	go store.StartActionExpiry(shutdownCtx, actionStore, logStructuredWrapper)
@@ -787,16 +801,7 @@ func initStandalone() {
 	briefWorker = briefing.New(pool, cfg, llmClient, logStructuredWrapper)
 
 	// 10b. Alert manager.
-	if cfg.Alerting.Enabled {
-		routes := buildAlertRoutes(cfg, logStructuredWrapper)
-		mcfg := alerting.ManagerConfig{
-			CheckIntervalSeconds: cfg.Alerting.CheckIntervalSeconds,
-			CooldownMinutes:      cfg.Alerting.CooldownMinutes,
-			QuietHoursStart:      cfg.Alerting.QuietHoursStart,
-			QuietHoursEnd:        cfg.Alerting.QuietHoursEnd,
-			Timezone:             cfg.Alerting.Timezone,
-		}
-		alertMgr = alerting.New(pool, mcfg, routes, logStructuredWrapper)
+	if alertMgr = newInstanceAlertManager(pool); alertMgr != nil {
 		go alertMgr.Run(shutdownCtx)
 		logInfo("startup", "alerting enabled, check_interval=%ds",
 			cfg.Alerting.CheckIntervalSeconds)
@@ -994,7 +999,7 @@ func standaloneOrchestrator() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		if shutdownFlag {
+		if shutdownCtx.Err() != nil {
 			return
 		}
 		ctx := shutdownCtx
@@ -1253,6 +1258,25 @@ func initFleetMultiDB() {
 		cancel()
 		logInfo("fleet", "db %q: connected", name)
 
+		// Per-database prerequisites and capability flags (G5-B13):
+		// standalone runs these at startup; fleet databases did not.
+		checks, err := runInstanceChecks(context.Background(), dbPool)
+		if err != nil {
+			logError("fleet", "db %q: prerequisite checks: %v", name, err)
+			dbPool.Close()
+			fleetMgr.RegisterInstance(&fleet.DatabaseInstance{
+				Name:   name,
+				Config: dbCfg,
+				Status: &fleet.InstanceStatus{
+					Error:    fmt.Sprintf("prerequisites: %v", err),
+					LastSeen: time.Now(),
+				},
+			})
+			continue
+		}
+		dbRuntimeCfg := instanceRuntimeConfig(checks)
+		dbPGVersion := checks.PGVersionNum
+
 		// Bootstrap schema on each database.
 		if err := schema.Bootstrap(
 			context.Background(), dbPool); err != nil {
@@ -1287,16 +1311,9 @@ func initFleetMultiDB() {
 			adminBootstrapped = true
 		}
 
-		// Detect PG version for this database.
-		var dbPGVersionStr string
-		var dbPGVersion int
-		_ = dbPool.QueryRow(context.Background(),
-			"SHOW server_version_num").Scan(&dbPGVersionStr)
-		fmt.Sscanf(dbPGVersionStr, "%d", &dbPGVersion)
-		if dbPGVersion == 0 {
-			dbPGVersion = 140000 // safe fallback
-		}
-		logInfo("fleet", "db %q: PG version %d", name, dbPGVersion)
+		logInfo("fleet", "db %q: PG version %d, WAL columns: %v, "+
+			"plan_time columns: %v", name, dbPGVersion,
+			checks.HasWALColumns, checks.HasPlanTimeColumns)
 
 		// Derive a per-instance context from shutdownCtx so that
 		// RemoveInstance can terminate this database's goroutines
@@ -1307,7 +1324,7 @@ func initFleetMultiDB() {
 
 		// Per-database collector.
 		dbColl := collector.New(
-			dbPool, cfg, dbPGVersion,
+			dbPool, dbRuntimeCfg, dbPGVersion,
 			logStructuredWrapper)
 		startInstanceWorker(instWorkers, func() { dbColl.Run(instCtx) })
 
@@ -1336,20 +1353,18 @@ func initFleetMultiDB() {
 			fcIface = fc
 		}
 
-		// Every LLM consumer for this database shares the same scoped budget.
-		dbLLMClient := llm.New(&cfg.LLM, logStructuredWrapper)
-		if fleetLLMBudget != nil {
-			dbLLMClient.SetBudget(dbBudget{b: fleetLLMBudget, db: name})
-		}
-		dbOptimizerClient := newFleetOptimizerClient(name, dbLLMClient)
-		dbLLMManager := llm.NewManager(
-			dbLLMClient, dbOptimizerClient,
-			cfg.LLM.OptimizerLLM.FallbackToGeneral,
+		// Every LLM consumer for this database shares the same scoped budget
+		// and honours databases[].llm_enabled (G5-B07).
+		dbLLMOn := llmClient.IsEnabled() && dbCfg.IsLLMEnabled()
+		dbLLMClient, dbLLMManager := newFleetDBLLMClients(
+			name, dbCfg.IsLLMEnabled(),
 		)
+		releaseLLMClientsOnDone(instCtx, dbLLMManager)
+		dbOptimizerClient := dbLLMManager.ForPurpose("index_optimization")
 
 		// Per-database optimizer.
 		var dbOpt *optimizer.Optimizer
-		if cfg.LLM.Optimizer.Enabled && llmClient.IsEnabled() {
+		if cfg.LLM.Optimizer.Enabled && dbLLMOn {
 			optClient := dbOptimizerClient
 			var fallback *llm.Client
 			if cfg.LLM.OptimizerLLM.FallbackToGeneral &&
@@ -1371,7 +1386,7 @@ func initFleetMultiDB() {
 
 		// Per-database advisor.
 		var dbAdvIface analyzer.ConfigAdvisor
-		if cfg.Advisor.Enabled && llmClient.IsEnabled() {
+		if cfg.Advisor.Enabled && dbLLMOn {
 			dbAdv := advisor.New(
 				dbPool, cfg, dbColl, dbLLMManager,
 				logStructuredWrapper,
@@ -1465,7 +1480,7 @@ func initFleetMultiDB() {
 
 		// Per-database briefing worker.
 		var dbBrief *briefing.Worker
-		if llmClient.IsEnabled() {
+		if dbLLMOn {
 			dbBrief = briefing.New(
 				dbPool, cfg, dbLLMClient,
 				logStructuredWrapper,
@@ -1495,7 +1510,7 @@ func initFleetMultiDB() {
 		if cfg.RCA.Enabled {
 			dbRCAEng = rca.NewEngine(
 				&cfg.RCA, logStructuredWrapper)
-			if llmClient.IsEnabled() {
+			if dbLLMOn {
 				dbRCAEng.WithLLM(dbLLMClient)
 			}
 			// v0.9.1: fleet-mode logwatch via per-cluster fanout.
@@ -1506,7 +1521,21 @@ func initFleetMultiDB() {
 			dbAnal.WithRCAEngine(&rcaAdapter{e: dbRCAEng})
 		}
 
+		// Notifications read rules from the control (primary/auth) pool,
+		// and the analyzer is configured before its goroutine starts
+		// (G5-B10, G7-B05, G2-B15).
+		dbDispatcher := sharedNotifyDispatcher(configPool)
+		dbAnal.WithDispatcher(dbDispatcher)
+		dbAnal.WithDatabaseName(name)
+		if dbLLMOn {
+			dbAnal.WithPlanNarrator(analyzer.NewLLMPlanNarrator(
+				dbLLMClient, logStructuredWrapper,
+			))
+		}
 		startInstanceWorker(instWorkers, func() { dbAnal.Run(instCtx) })
+		if alerts := newInstanceAlertManager(dbPool); alerts != nil {
+			startInstanceWorker(instWorkers, func() { alerts.Run(instCtx) })
+		}
 
 		// Per-database executor. Pass the YAML-parsed configRampStart
 		// so the first-time bootstrap of each database's sage.config
@@ -1549,21 +1578,10 @@ func initFleetMultiDB() {
 			dbRCAEng.WithActionStore(dbActionStore)
 		}
 
-		// Notification dispatcher per database.
-		dbDispatcher := notify.NewDispatcher(
-			dbPool, logStructuredWrapper)
-		registerNotifySenders(dbDispatcher)
 		dbExec.WithDispatcher(dbDispatcher)
 		dbExec.WithDatabaseName(name)
-		if llmClient != nil && llmClient.IsEnabled() {
+		if dbLLMOn {
 			dbExec.WithJustifier(dbLLMClient)
-		}
-		dbAnal.WithDispatcher(dbDispatcher)
-		dbAnal.WithDatabaseName(name)
-		if llmClient != nil && llmClient.IsEnabled() {
-			dbAnal.WithPlanNarrator(analyzer.NewLLMPlanNarrator(
-				dbLLMClient, logStructuredWrapper,
-			))
 		}
 
 		startInstanceWorker(instWorkers, func() {
@@ -1575,10 +1593,10 @@ func initFleetMultiDB() {
 		if cfg.SchemaLint.Enabled {
 			dbLint := lint.NewRunner(
 				dbPool, &cfg.SchemaLint,
-				cfg.PGVersionNum, name,
+				dbPGVersion, name,
 				logStructuredWrapper,
 			)
-			if llmClient != nil && llmClient.IsEnabled() {
+			if dbLLMOn {
 				dbLint.SetLLMClient(dbLLMClient)
 			}
 			startInstanceWorker(instWorkers, func() { dbLint.Run(instCtx) })
@@ -1592,7 +1610,7 @@ func initFleetMultiDB() {
 			}
 			dbAdvisor := migration.NewAdvisor(
 				dbPool, &cfg.Migration,
-				cfg.PGVersionNum, name,
+				dbPGVersion, name,
 				logStructuredWrapper, dbMigLLM,
 			)
 			findingStore := store.NewMigrationSafetyFindingStore(dbPool)
@@ -1648,8 +1666,10 @@ func initFleetMultiDB() {
 
 		// Per-database orchestrator.
 		startInstanceWorker(instWorkers, func() {
-			fleetDBOrchestrator(
-				instCtx, name, dbPool, dbExec, dbBrief, dbCfg)
+			fleetDBOrchestrator(instCtx, fleetCycleDeps{
+				name: name, pool: dbPool, exec: dbExec, brief: dbBrief,
+				cleaner: retention.New(dbPool, cfg, logStructuredWrapper),
+			})
 		})
 
 		features := "collector+analyzer+executor"
@@ -1820,67 +1840,6 @@ func upsertFleetDatabase(
 	return id, err
 }
 
-// fleetDBOrchestrator runs executor, briefing, and retention cycles for a
-// single fleet database. The ctx is the per-instance context so that
-// RemoveInstance can terminate this orchestrator without shutting down the
-// fleet. EmergencyStop only blocks action execution; monitoring continues.
-func fleetDBOrchestrator(
-	ctx context.Context,
-	name string,
-	dbPool *pgxpool.Pool,
-	dbExec *executor.Executor,
-	dbBrief *briefing.Worker,
-	dbCfg config.DatabaseConfig,
-) {
-	interval := cfg.Analyzer.Interval() + 5*time.Second
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	// Per-database HA monitor so fleet executors gate autonomous actions
-	// on this DB's own replica/safe-mode state instead of the previous
-	// hardcoded RunCycle(ctx, false), which would run DDL on a replica
-	// or during a failover flap (S2/S3).
-	dbHA := ha.New(dbPool, logStructuredWrapper)
-
-	for {
-		select {
-		case <-ticker.C:
-			if shutdownFlag {
-				return
-			}
-			if dbExec != nil {
-				isReplica := dbHA.Check(ctx)
-				if dbHA.InSafeMode() {
-					logWarn("ha", "[%s] safe mode active — "+
-						"suppressing autonomous actions", name)
-					isReplica = true
-				}
-				dbExec.RunCycle(ctx, isReplica)
-			}
-			// Briefing (scheduled).
-			if dbBrief != nil &&
-				dbBrief.ShouldRun(time.Now()) {
-				text, bErr := dbBrief.Generate(ctx)
-				if bErr != nil {
-					logWarn("briefing",
-						"[%s] generation failed: %v",
-						name, bErr)
-				} else {
-					dbBrief.Dispatch(ctx, text)
-					dbBrief.MarkRan()
-				}
-			}
-			// Update fleet status for this instance.
-			if inst := fleetMgr.GetInstance(name); inst != nil {
-				updateInstanceFindings(ctx, inst)
-				fleetMgr.RecordHealthSnapshot(ctx, name)
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
 // buildFleetLLMFeatures creates per-database optimizer, advisor,
 // tuner, and briefing worker using the shared LLM client.
 func buildFleetLLMFeatures(
@@ -1899,15 +1858,8 @@ func buildFleetLLMFeatures(
 	if llmClient == nil || !llmClient.IsEnabled() {
 		return nil, nil, nil, nil, nil, nil
 	}
-	dbClient := llm.New(&cfg.LLM, logStructuredWrapper)
-	if fleetLLMBudget != nil {
-		dbClient.SetBudget(dbBudget{b: fleetLLMBudget, db: databaseName})
-	}
-	managerOptimizer := newFleetOptimizerClient(databaseName, dbClient)
-	dbLLMMgr := llm.NewManager(
-		dbClient, managerOptimizer,
-		cfg.LLM.OptimizerLLM.FallbackToGeneral,
-	)
+	dbClient, dbLLMMgr := newFleetDBLLMClients(databaseName, true)
+	managerOptimizer := dbLLMMgr.ForPurpose("index_optimization")
 
 	dbOpt := newFleetOptimizer(
 		dbPool, dbPGVersion, dbClient, managerOptimizer,
@@ -2007,7 +1959,14 @@ func startAPIServer(rl *RateLimiter) {
 	// goroutines (OAuth CSRF state cleaner) so they exit on
 	// SIGINT/SIGTERM instead of leaking.
 	api.SetShutdownContext(shutdownCtx)
-	api.SetRestartFunc(triggerRestart)
+	// Offer restart only under a declared supervisor; otherwise the API
+	// answers 501 instead of exiting 42 into nothing (G5-B09).
+	if supervisorDeclared(os.Getenv) {
+		api.SetRestartFunc(triggerRestart)
+	} else {
+		logInfo("api", "restart endpoint disabled: set SAGE_SUPERVISED=1 "+
+			"when a supervisor relaunches the sidecar on exit %d", restartExitCode)
+	}
 
 	result := wireRouter(WireParams{
 		Cfg:       cfg,
@@ -2121,19 +2080,27 @@ func reconcileAgentDBsOnce(
 	}
 }
 
-// resetFleetBudgetDaily resets the per-database LLM token budget every
-// 24h so allocations refresh (F5).
+// resetFleetBudgetDaily resets the per-database LLM token budget at each
+// UTC midnight (F5). A 24h ticker drifted with process start time.
 func resetFleetBudgetDaily(ctx context.Context, b *fleet.FleetBudget) {
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
 	for {
+		timer := time.NewTimer(durationUntilNextUTCMidnight(time.Now()))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			b.ResetDaily()
 		}
 	}
+}
+
+// durationUntilNextUTCMidnight is strictly positive: at exactly midnight the
+// next reset is 24h away.
+func durationUntilNextUTCMidnight(now time.Time) time.Duration {
+	utc := now.UTC()
+	next := time.Date(utc.Year(), utc.Month(), utc.Day()+1, 0, 0, 0, 0, time.UTC)
+	return next.Sub(utc)
 }
 
 func updateFleetStatus(ctx context.Context) {
@@ -2158,7 +2125,8 @@ func updateInstanceFindings(
 		  WHERE status = 'open'
 		  GROUP BY severity`)
 	if err != nil {
-		logWarn("fleet", "findings query: %v", err)
+		logWarn("fleet", "db %q: findings query: %v", inst.Name, err)
+		markInstanceConnectivity(ctx, inst, dbPool)
 		return
 	}
 	defer rows.Close()
@@ -2188,6 +2156,30 @@ func updateInstanceFindings(
 		s.FindingsInfo = info
 		s.AnalyzerLastRun = now
 		s.LastSeen = now
+		s.Connected = true
+		s.Error = ""
+		if fleetLLMBudget != nil {
+			s.LLMTokensUsed = fleetLLMBudget.Used(inst.Name)
+		}
+	})
+}
+
+// markInstanceConnectivity distinguishes a down database from a query
+// error: only a failed ping flips the instance to disconnected, so a
+// missing table does not trigger meta-mode reconnect churn (G5-B12).
+func markInstanceConnectivity(
+	ctx context.Context, inst *fleet.DatabaseInstance, dbPool *pgxpool.Pool,
+) {
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	pingErr := dbPool.Ping(pingCtx)
+	if pingErr == nil {
+		return
+	}
+	logWarn("fleet", "db %q: unreachable: %v", inst.Name, pingErr)
+	inst.UpdateStatus(func(s *fleet.InstanceStatus) {
+		s.Connected = false
+		s.Error = fmt.Sprintf("unreachable: %v", pingErr)
 	})
 }
 
@@ -2231,13 +2223,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&b, "pg_sage_info{version=%q,mode=%q} 1\n\n", version, cfg.Mode)
 	}
 
-	// Mode metric.
-	b.WriteString("# HELP pg_sage_mode Operating mode (0=extension, 1=standalone)\n# TYPE pg_sage_mode gauge\n")
-	modeVal := 0
-	if cfg.IsStandalone() {
-		modeVal = 1
-	}
-	fmt.Fprintf(&b, "pg_sage_mode %d\n\n", modeVal)
+	writeModeMetric(&b, cfg.Mode)
 
 	// Connection metric.
 	b.WriteString("# HELP pg_sage_connection_up PostgreSQL connection status\n# TYPE pg_sage_connection_up gauge\n")
@@ -2272,6 +2258,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	if cfg.Mode == "fleet" && fleetMgr != nil {
 		writeFleetMetrics(&b)
 	}
+	writeFleetBudgetMetrics(&b, fleetLLMBudget)
 
 	// Database metrics (only when global pool exists).
 	if pool != nil {

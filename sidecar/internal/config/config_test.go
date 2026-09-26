@@ -16,6 +16,10 @@ func TestConfigDefaults(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chdir(orig) })
 	os.Chdir(tmp)
+	// A DSN with no explicit mode now selects standalone (G10-B01), so the
+	// no-input default is only defined when no DSN is present in the shell.
+	t.Setenv("SAGE_DATABASE_URL", "")
+	t.Setenv("SAGE_MODE", "")
 
 	cfg, err := Load([]string{})
 	if err != nil {
@@ -209,7 +213,10 @@ func TestDSN_BuildsLibpq(t *testing.T) {
 		Database: "mydb",
 		SSLMode:  "require",
 	}
-	want := "host=myhost port=5433 user=myuser password=mypass dbname=mydb sslmode=require"
+	// Values are quoted per libpq rules (G5-B22); the unquoted form let a
+	// password such as "x sslmode=disable" inject parameters.
+	want := "host='myhost' port=5433 user='myuser' password='mypass' " +
+		"dbname='mydb' sslmode='require'"
 	if got := p.DSN(); got != want {
 		t.Errorf("DSN() = %q, want %q", got, want)
 	}
@@ -425,47 +432,5 @@ postgres:
 	}
 	if !cfg.HasMetaDB() {
 		t.Error("HasMetaDB() = false, want true")
-	}
-}
-
-func TestApplyHotReload(t *testing.T) {
-	target := newDefaults()
-	target.Collector.IntervalSeconds = 60
-
-	fresh := newDefaults()
-	fresh.Collector.IntervalSeconds = 30
-
-	changed := applyHotReload(target, fresh)
-
-	if target.Collector.IntervalSeconds != 30 {
-		t.Errorf("Collector.IntervalSeconds = %d, want 30",
-			target.Collector.IntervalSeconds)
-	}
-
-	found := false
-	for _, c := range changed {
-		if c == "collector.interval_seconds" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("changed = %v, want it to contain %q",
-			changed, "collector.interval_seconds")
-	}
-}
-
-func TestApplyHotReload_PostgresNotChanged(t *testing.T) {
-	target := newDefaults()
-	target.Postgres.Host = "original"
-
-	fresh := newDefaults()
-	fresh.Postgres.Host = "new-host"
-
-	applyHotReload(target, fresh)
-
-	if target.Postgres.Host != "original" {
-		t.Errorf("Postgres.Host = %q, want %q (postgres should not be hot-reloadable)",
-			target.Postgres.Host, "original")
 	}
 }

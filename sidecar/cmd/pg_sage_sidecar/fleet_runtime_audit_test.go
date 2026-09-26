@@ -50,9 +50,9 @@ func TestFleetRuntimeInitializesAnalyzeSemaphore(t *testing.T) {
 }
 
 func TestFleetOrchestratorRecordsHealthHistory(t *testing.T) {
-	fn := productionFunction(t, "main.go", "fleetDBOrchestrator")
+	fn := productionFunction(t, "fleet_orchestrator.go", "runFleetDBCycle")
 	if !callsSelectorWithPrefix(fn, "RecordHealth") {
-		t.Fatal("fleetDBOrchestrator never persists a health-history sample")
+		t.Fatal("fleet orchestrator cycle never persists a health-history sample")
 	}
 
 	// Error propagation is deliberately not applicable here: one database's
@@ -118,11 +118,19 @@ func TestMetaDBBootstrapBuildsGeneralLLMRuntime(t *testing.T) {
 
 func TestFleetLLMBudgetScopesEveryConsumer(t *testing.T) {
 	fn := productionFunction(t, "main.go", "buildFleetLLMFeatures")
-	if !callsSelector(fn, "SetBudget") {
-		t.Fatal("fleet LLM feature builder never attaches the per-database budget")
+	if !callsIdentifier(fn, "newFleetDBLLMClients") {
+		t.Fatal("fleet LLM feature builder bypasses the per-database client factory")
 	}
-	if !callsPackageSelector(fn, "llm", "NewManager") {
+	clients := productionFunction(t, "fleet_runtime_helpers.go", "newFleetDBLLMClients")
+	if !callsIdentifier(clients, "attachFleetBudget") {
+		t.Fatal("per-database LLM clients never attach the fleet budget")
+	}
+	if !callsPackageSelector(clients, "llm", "NewManager") {
 		t.Error("advisor and tuner do not receive a database-scoped LLM manager")
+	}
+	attach := productionFunction(t, "fleet_runtime_helpers.go", "attachFleetBudget")
+	if !callsSelector(attach, "SetBudget") {
+		t.Fatal("attachFleetBudget does not scope the client to its budget")
 	}
 	assertCallOmitsGlobal(t, fn, "advisor", "New", "llmMgr")
 	assertCallOmitsGlobal(t, fn, "briefing", "New", "llmClient")
@@ -148,7 +156,10 @@ func preserveFleetRuntimeGlobals(t *testing.T) {
 	oldSemaphore := analyzeSem
 	oldBudget := fleetLLMBudget
 	oldController := configController
+	oldRegistry := llmClients
+	llmClients = &llmClientRegistry{}
 	t.Cleanup(func() {
+		llmClients = oldRegistry
 		cfg = oldCfg
 		fleetMgr = oldManager
 		llmClient = oldClient

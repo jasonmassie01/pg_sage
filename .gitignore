@@ -89,3 +89,9 @@ DECISIONS.md
 REENTRY.md
 logs/
 *.log
+
+# Local-only runtime artifacts (G10-B12): personal monitor config, fixture
+# run logs (they contain generated admin passwords) and briefing dumps.
+local_monitor_config.yaml
+test-fixtures/full_surface/*.log
+test_briefing.txt

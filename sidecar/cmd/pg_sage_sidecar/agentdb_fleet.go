@@ -54,9 +54,12 @@ func agentDeploymentToFleetConfig(
 	if port == 0 {
 		port = 5432
 	}
+	// Provisioned agent databases are remote (RDS, Cloud SQL, Lakebase);
+	// never default to plaintext credentials (G5-B15). An explicit
+	// connection_info.sslmode still wins.
 	sslmode := mapString(ci, "sslmode")
 	if sslmode == "" {
-		sslmode = "disable"
+		sslmode = "require"
 	}
 	return config.DatabaseConfig{
 		Name:     agentFleetPrefix + dep.DeploymentID,
