@@ -335,6 +335,13 @@ WHERE id = $1 AND status = 'active'`, hintID, calls)
 func (t *Tuner) StartRevalidationLoop(
 	ctx context.Context, intervalHours int,
 ) {
+	if !t.cfg.VerifyAfterApply {
+		// C12: verify_after_apply is documented as the switch for this
+		// loop; it was previously read nowhere.
+		t.logFn("INFO",
+			"revalidate: loop disabled (tuner.verify_after_apply=false)")
+		return
+	}
 	if intervalHours <= 0 {
 		t.logFn("INFO",
 			"revalidate: loop disabled (interval_hours=%d)",

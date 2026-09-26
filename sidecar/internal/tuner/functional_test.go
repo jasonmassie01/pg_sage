@@ -3,6 +3,7 @@ package tuner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -1038,8 +1039,10 @@ func TestFunctional_ParseLLMPrescriptions_EmptyString(
 	t *testing.T,
 ) {
 	recs, err := parseLLMPrescriptions("")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Blank output is llm.ErrEmptyResponse (G3-B10); this test asserted a
+	// nil error, which let empty completions look like "no hints".
+	if !errors.Is(err, llm.ErrEmptyResponse) {
+		t.Fatalf("err = %v, want llm.ErrEmptyResponse", err)
 	}
 	if recs != nil {
 		t.Errorf("expected nil for empty string, got %v", recs)
@@ -1087,7 +1090,7 @@ func TestFunctional_ConvertPrescriptions_ValidHint(
 			Confidence:    0.9,
 		},
 	}
-	out := convertPrescriptions(recs, noopLogFn)
+	out := convertPrescriptions(recs, 0, noopLogFn)
 	if len(out) != 1 {
 		t.Fatalf("expected 1 valid, got %d", len(out))
 	}
@@ -1110,7 +1113,7 @@ func TestFunctional_ConvertPrescriptions_InvalidRejected(
 		{HintDirective: "DROP TABLE users", Rationale: "bad"},
 		{HintDirective: "", Rationale: "empty"},
 	}
-	out := convertPrescriptions(recs, logFn)
+	out := convertPrescriptions(recs, 0, logFn)
 	if len(out) != 0 {
 		t.Errorf("expected 0 valid, got %d", len(out))
 	}
@@ -1129,7 +1132,7 @@ func TestFunctional_ConvertPrescriptions_SetsLLMRecommended(
 			Confidence:    0.8,
 		},
 	}
-	out := convertPrescriptions(recs, noopLogFn)
+	out := convertPrescriptions(recs, 0, noopLogFn)
 	if len(out) != 1 {
 		t.Fatalf("expected 1, got %d", len(out))
 	}
@@ -2610,7 +2613,7 @@ func TestFunctional_Coverage_LLMPrescribe_ValidResponse(
 	}
 
 	rx, err := llmPrescribe(
-		t_ctx(), client, nil, qctx, noopLogFn,
+		t_ctx(), client, nil, qctx, 0, noopLogFn,
 	)
 	if err != nil {
 		t.Fatalf("llmPrescribe error: %v", err)
@@ -2638,7 +2641,7 @@ func TestFunctional_Coverage_LLMPrescribe_MalformedJSON(
 	}
 
 	_, err := llmPrescribe(
-		t_ctx(), client, nil, qctx, noopLogFn,
+		t_ctx(), client, nil, qctx, 0, noopLogFn,
 	)
 	if err == nil {
 		t.Error("expected error for malformed JSON response")
@@ -2662,7 +2665,7 @@ func TestFunctional_Coverage_LLMPrescribe_EmptyResponse(
 	}
 
 	rx, err := llmPrescribe(
-		t_ctx(), client, nil, qctx, noopLogFn,
+		t_ctx(), client, nil, qctx, 0, noopLogFn,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2696,7 +2699,7 @@ func TestFunctional_Coverage_LLMPrescribe_FallbackOnPrimaryFail(
 	}
 
 	rx, err := llmPrescribe(
-		t_ctx(), primary, fallback, qctx, noopLogFn,
+		t_ctx(), primary, fallback, qctx, 0, noopLogFn,
 	)
 	if err != nil {
 		t.Fatalf("expected fallback to succeed, got error: %v", err)
@@ -2727,7 +2730,7 @@ func TestFunctional_Coverage_LLMPrescribe_BothFail(t *testing.T) {
 	}
 
 	_, err := llmPrescribe(
-		t_ctx(), primary, fallback, qctx, noopLogFn,
+		t_ctx(), primary, fallback, qctx, 0, noopLogFn,
 	)
 	if err == nil {
 		t.Error("expected error when both primary and fallback fail")
@@ -2753,7 +2756,7 @@ func TestFunctional_Coverage_LLMPrescribe_InvalidHintRejected(
 	}
 
 	rx, err := llmPrescribe(
-		t_ctx(), client, nil, qctx, noopLogFn,
+		t_ctx(), client, nil, qctx, 0, noopLogFn,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2786,7 +2789,7 @@ func TestFunctional_Coverage_LLMPrescribe_MarkdownWrapped(
 	}
 
 	rx, err := llmPrescribe(
-		t_ctx(), client, nil, qctx, noopLogFn,
+		t_ctx(), client, nil, qctx, 0, noopLogFn,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2813,7 +2816,7 @@ func TestFunctional_Coverage_LLMPrescribe_NilFallbackPrimaryFail(
 	}
 
 	_, err := llmPrescribe(
-		t_ctx(), primary, nil, qctx, noopLogFn,
+		t_ctx(), primary, nil, qctx, 0, noopLogFn,
 	)
 	if err == nil {
 		t.Error("expected error when primary fails and no fallback")
@@ -3472,7 +3475,7 @@ func TestFunctional_Coverage_ConvertPrescriptions_Mixed(
 		{HintDirective: "",
 			Rationale: "empty", Confidence: 0.1},
 	}
-	out := convertPrescriptions(recs, noopLogFn)
+	out := convertPrescriptions(recs, 0, noopLogFn)
 	if len(out) != 2 {
 		t.Errorf("expected 2 valid prescriptions, got %d", len(out))
 	}
@@ -3487,7 +3490,7 @@ func TestFunctional_Coverage_ConvertPrescriptions_AllValid(
 		{HintDirective: "NestLoop(a b)",
 			Rationale: "join"},
 	}
-	out := convertPrescriptions(recs, noopLogFn)
+	out := convertPrescriptions(recs, 0, noopLogFn)
 	if len(out) != 2 {
 		t.Errorf("expected 2, got %d", len(out))
 	}
@@ -3520,8 +3523,10 @@ func TestFunctional_Coverage_ParseLLMPrescriptions_Whitespace(
 	t *testing.T,
 ) {
 	recs, err := parseLLMPrescriptions("   ")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Blank output is llm.ErrEmptyResponse (G3-B10); this test asserted a
+	// nil error, which let empty completions look like "no hints".
+	if !errors.Is(err, llm.ErrEmptyResponse) {
+		t.Fatalf("err = %v, want llm.ErrEmptyResponse", err)
 	}
 	if recs != nil {
 		t.Errorf("expected nil for whitespace, got %v", recs)
