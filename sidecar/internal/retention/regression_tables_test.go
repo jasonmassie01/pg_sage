@@ -1,8 +1,10 @@
 package retention
 
 import (
+	"context"
 	"sort"
 	"testing"
+	"time"
 )
 
 // G7-B12 / G4-B26: previously unbounded sage time-series are purged in
@@ -94,5 +96,34 @@ func TestRetentionRules_CoverEveryTimeSeriesTable(t *testing.T) {
 	sort.Strings(missing)
 	if len(missing) > 0 {
 		t.Fatalf("sage tables with no purge rule or exemption: %v", missing)
+	}
+}
+
+// RunEvery (the per-instance entry point for fleet wiring) purges
+// immediately and returns when its context ends, even with a bad interval.
+func TestRunEvery_RunsImmediatelyAndStops(t *testing.T) {
+	_, ctx := requireDB(t)
+	tag := uniqueTag("run_every")
+	execRetry(t, ctx, `INSERT INTO sage.snapshots (collected_at, category, data)
+		VALUES (now() - interval '400 days', $1, '{}'::jsonb)`, tag)
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		New(testPool, allDays(30), noopLog).RunEvery(runCtx, 0)
+		close(done)
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for countWhere(t, ctx, `SELECT count(*) FROM sage.snapshots WHERE category=$1`, tag) != 0 {
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatal("RunEvery did not purge on its first pass")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("RunEvery did not return after cancellation")
 	}
 }

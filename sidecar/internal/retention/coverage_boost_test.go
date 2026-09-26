@@ -342,13 +342,14 @@ func TestCoverage_PurgeTable_LogsError(t *testing.T) {
 	defer mu.Unlock()
 	foundError := false
 	for _, m := range logged {
-		if strings.Contains(m, "error purging") {
+		if strings.HasPrefix(m, "[ERROR]") &&
+			strings.Contains(m, "purging sage.snapshots failed") {
 			foundError = true
 			break
 		}
 	}
 	if !foundError {
-		t.Error("expected error log from purgeTable with cancelled context")
+		t.Errorf("expected ERROR-level purge failure log, got %q", logged)
 	}
 }
 
