@@ -39,6 +39,7 @@ func TestHintRemovalFindings_RetiredAndBrokenOnly(t *testing.T) {
 	pool := connectTunerTestDB(t)
 	defer pool.Close()
 	ctx := context.Background()
+	requireQueryIDHintTable(t, pool)
 	ids := []int64{9001, 9002, 9003, 9004}
 	prepareHintTables(t, pool, ids)
 	for _, row := range []struct {

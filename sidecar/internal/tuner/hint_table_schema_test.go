@@ -8,7 +8,7 @@ import (
 )
 
 // hintTableLayout reports whether hint_plan.hints exists and whether it has
-// the pg_hint_plan 1.6+ query_id column (1.4/1.5, shipped for PG14/15, key
+// the pg_hint_plan 1.7+ query_id column (1.4-1.6, shipped for PG14-16, key
 // hints by norm_query_string instead).
 func hintTableLayout(t *testing.T, pool *pgxpool.Pool) (exists, hasQueryID bool) {
 	t.Helper()
@@ -24,17 +24,17 @@ func hintTableLayout(t *testing.T, pool *pgxpool.Pool) (exists, hasQueryID bool)
 }
 
 // requireQueryIDHintTable skips tests of the query_id hint-table path on a
-// server whose installed pg_hint_plan predates 1.6. The product never takes
+// server whose installed pg_hint_plan predates 1.7. The product never takes
 // that path there: checkHintTable reports the table as not ready.
 func requireQueryIDHintTable(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	if exists, hasQueryID := hintTableLayout(t, pool); exists && !hasQueryID {
-		t.Skip("pg_hint_plan < 1.6: hint_plan.hints has no query_id column")
+		t.Skip("pg_hint_plan < 1.7: hint_plan.hints has no query_id column")
 	}
 }
 
-// pg_hint_plan 1.4/1.5 create hint_plan.hints without query_id. Treating
-// that table as ready made every hint insert fail on PG14/15.
+// pg_hint_plan 1.4-1.6 create hint_plan.hints without query_id. Treating
+// that table as ready made every hint insert fail on PG14-16.
 func TestCheckHintTableRequiresQueryIDLayout(t *testing.T) {
 	pool := connectTunerTestDB(t)
 	defer pool.Close()

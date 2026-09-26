@@ -109,15 +109,17 @@ func checkHintSessionLoad(
 	return true, nil
 }
 
-// checkHintTable probes hint_plan.hints to see if the table
-// exists and is accessible.
+// checkHintTable probes hint_plan.hints for the pg_hint_plan 1.7+ layout
+// the tuner writes (query_id, application_name, hints). pg_hint_plan
+// 1.4-1.6, shipped for PG14-16, key hints by norm_query_string; that table
+// is not ready, so tuning findings stay advisory (no executable SQL).
 func checkHintTable(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 ) bool {
 	_, err := pool.Exec(
 		ctx,
-		"SELECT 1 FROM hint_plan.hints LIMIT 0",
+		"SELECT query_id, application_name, hints FROM hint_plan.hints LIMIT 0",
 	)
 	return err == nil
 }
