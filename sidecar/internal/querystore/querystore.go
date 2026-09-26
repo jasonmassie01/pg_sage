@@ -24,8 +24,11 @@ type Sample struct {
 }
 
 // Record writes a batch of samples to sage.query_store. A nil/empty
-// batch is a no-op.
+// batch is a no-op. Samples sharing a queryid (pg_stat_statements splits
+// a statement by userid and toplevel) are summed into one row so each
+// cycle has exactly one sample per queryid (G1-B05).
 func Record(ctx context.Context, pool *pgxpool.Pool, samples []Sample) error {
+	samples = aggregateSamples(samples)
 	if len(samples) == 0 {
 		return nil
 	}
@@ -92,41 +95,20 @@ func WindowedLatencyMs(
 }
 
 // WindowedLatencyMsBetween returns the average per-call latency (ms) for
-// a queryid between the earliest sample at/after `from` and the latest
-// sample at/before `to`. Used to compare a query's latency before an
-// action (baseline window) against after it (verify window) for F1.
+// a queryid between the earliest and latest samples inside [from, to].
+// ok is false for any non-measured evidence; callers that must tell
+// "not sampled" apart from "no regression" use WindowedLatencyEvidence.
 func WindowedLatencyMsBetween(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	queryid int64,
 	from, to time.Time,
 ) (float64, bool, error) {
-	var earliest, latest sampleRow
-	err := pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT calls, total_exec_time
-		   FROM sage.query_store
-		  WHERE queryid = $1 AND captured_at >= $2 AND captured_at <= $3
-		  ORDER BY captured_at ASC LIMIT 1`,
-		queryid, from, to,
-	).Scan(&earliest.calls, &earliest.total)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, false, nil
-		}
-		return 0, false, err
-	}
-	err = pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT calls, total_exec_time
-		   FROM sage.query_store
-		  WHERE queryid = $1 AND captured_at >= $2 AND captured_at <= $3
-		  ORDER BY captured_at DESC LIMIT 1`,
-		queryid, from, to,
-	).Scan(&latest.calls, &latest.total)
+	ev, err := WindowedLatencyEvidence(ctx, pool, queryid, from, to)
 	if err != nil {
 		return 0, false, err
 	}
-	ms, ok := windowedLatencyMs(earliest, latest)
-	return ms, ok, nil
+	return ev.LatencyMs, ev.Status == EvidenceMeasured, nil
 }
 
 // windowedLatencyMs is the pure delta computation. A pg_stat_statements
