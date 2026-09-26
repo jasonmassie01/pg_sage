@@ -4,7 +4,9 @@ import "time"
 
 // Default values matching the spec.
 const (
-	DefaultMode = "extension"
+	DefaultMode = "standalone"
+	// ModeMeta labels a meta-db fleet (--meta-db with no explicit mode).
+	ModeMeta = "meta"
 
 	DefaultPGPort           = 5432
 	DefaultPGUser           = "sage_agent"

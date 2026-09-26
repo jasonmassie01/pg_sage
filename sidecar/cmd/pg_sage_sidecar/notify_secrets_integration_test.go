@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/auth"
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/schema"
@@ -179,8 +180,8 @@ func TestNotificationSecretKeyDerivation(t *testing.T) {
 		t.Fatal("key is not stable across calls")
 	}
 	resetNotifyDispatchers(t)
-	cfg.Mode = "extension"
+	cfg.Mode = config.ModeMeta
 	if key := notificationSecretKey(p); key != nil {
-		t.Fatal("extension mode derived a key (would write sidecar rows)")
+		t.Fatal("meta mode derived a key from a non-meta pool (would write sidecar rows)")
 	}
 }

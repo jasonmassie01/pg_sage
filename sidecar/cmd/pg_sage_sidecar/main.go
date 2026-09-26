@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -58,24 +57,23 @@ var (
 	// analyzeSem serializes ANALYZE actions fleet-wide across
 	// every Executor instance in this process. Sized from
 	// cfg.Tuner.MaxConcurrentAnalyze at startup.
-	analyzeSem         chan struct{}
-	pool               *pgxpool.Pool
-	extensionAvailable bool
-	cloudEnvironment   string
-	cfg                *config.Config
-	configBase         *config.Config
-	coll               *collector.Collector
-	anal               *analyzer.Analyzer
-	adv                *advisor.Advisor
-	llmMgr             *llm.Manager
-	exec               *executor.Executor
-	actionStore        *store.ActionStore
-	haMon              *ha.Monitor
-	briefWorker        *briefing.Worker
-	llmClient          *llm.Client
-	cleaner            *retention.Cleaner
-	alertMgr           *alerting.Manager
-	rampStart          time.Time
+	analyzeSem       chan struct{}
+	pool             *pgxpool.Pool
+	cloudEnvironment string
+	cfg              *config.Config
+	configBase       *config.Config
+	coll             *collector.Collector
+	anal             *analyzer.Analyzer
+	adv              *advisor.Advisor
+	llmMgr           *llm.Manager
+	exec             *executor.Executor
+	actionStore      *store.ActionStore
+	haMon            *ha.Monitor
+	briefWorker      *briefing.Worker
+	llmClient        *llm.Client
+	cleaner          *retention.Cleaner
+	alertMgr         *alerting.Manager
+	rampStart        time.Time
 	// configRampStart is the raw trust.ramp_start timestamp parsed
 	// from YAML at startup. Fleet-mode per-database bootstraps reuse
 	// this value when seeding each database's sage.config row so
@@ -206,14 +204,6 @@ func main() {
 	cfg.CloudEnvironment = cloudEnvironment
 	logInfo("startup", "cloud environment: %s", cloudEnvironment)
 
-	// Extension detection.
-	extensionAvailable = detectExtension()
-	if extensionAvailable {
-		logInfo("startup", "mode: EXTENSION — pg_sage C extension detected")
-	} else {
-		logInfo("startup", "mode: SIDECAR — no extension, using catalog queries")
-	}
-
 	configRampStart = parseConfigRampStart(cfg.Trust.RampStart)
 	if cfg.Trust.RampStart != "" && configRampStart.IsZero() {
 		logWarn("startup", "could not parse trust.ramp_start %q, using now()",
@@ -235,7 +225,7 @@ func main() {
 		initFleetMultiDB()
 	}
 	// Every mode needs a controller: the config watcher and API writes go
-	// through it (extension mode used to leave it nil, G5-B02).
+	// through it (a mode used to leave it nil, G5-B02).
 	if err := ensureConfigController(); err != nil {
 		logError("startup", "config controller: %v", err)
 		os.Exit(1)
@@ -402,8 +392,7 @@ func configControlPool() *pgxpool.Pool {
 		return globalMetaState.Pool
 	}
 	// Only standalone owns its monitored database's sage schema. YAML fleet
-	// has no stable control DB, and extension mode must not write sidecar
-	// config rows into the C extension's schema.
+	// has no stable control DB; meta mode persists through globalMetaState.
 	if cfg != nil && cfg.IsStandalone() {
 		return pool
 	}
@@ -580,7 +569,7 @@ func initStandalone() {
 			}
 			opt = optimizer.New(
 				optClient, fallback, pool, &cfg.LLM.Optimizer,
-				cfg.PGVersionNum, extensionAvailable,
+				cfg.PGVersionNum,
 				cfg.LLM.OptimizerLLM.MaxOutputTokens,
 				logStructuredWrapper,
 				optOpts...,
@@ -1360,7 +1349,7 @@ func initFleetMultiDB() {
 			}
 			dbOpt = optimizer.New(
 				optClient, fallback, dbPool,
-				&cfg.LLM.Optimizer, dbPGVersion, false,
+				&cfg.LLM.Optimizer, dbPGVersion,
 				cfg.LLM.OptimizerLLM.MaxOutputTokens,
 				logStructuredWrapper,
 			)
@@ -2211,15 +2200,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 	// Info metric.
 	b.WriteString("# HELP pg_sage_info pg_sage version\n# TYPE pg_sage_info gauge\n")
-	if extensionAvailable {
-		var ver string
-		if err := pool.QueryRow(ctx, "SELECT sage.status()->>'version'").Scan(&ver); err != nil {
-			ver = "unknown"
-		}
-		fmt.Fprintf(&b, "pg_sage_info{version=%q,mode=\"extension\"} 1\n\n", ver)
-	} else {
-		fmt.Fprintf(&b, "pg_sage_info{version=%q,mode=%q} 1\n\n", version, cfg.Mode)
-	}
+	fmt.Fprintf(&b, "pg_sage_info{version=%q,mode=%q} 1\n\n", version, cfg.Mode)
 
 	writeModeMetric(&b, cfg.Mode)
 
@@ -2243,10 +2224,6 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintf(&b, "pg_sage_connection_up %d\n\n", connUp)
 
-	if extensionAvailable {
-		writeExtensionMetrics(&b, ctx)
-	}
-
 	// Standalone metrics.
 	if cfg.IsStandalone() {
 		writeStandaloneMetrics(&b, ctx)
@@ -2266,46 +2243,6 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	fmt.Fprint(w, b.String())
-}
-
-func writeExtensionMetrics(b *strings.Builder, ctx context.Context) {
-	// Findings.
-	b.WriteString("# HELP pg_sage_findings_total Open findings by severity\n# TYPE pg_sage_findings_total gauge\n")
-	rows, err := pool.Query(ctx, `SELECT severity, count(*) FROM sage.findings WHERE status = 'open' GROUP BY severity`)
-	if err == nil {
-		defer rows.Close()
-		found := map[string]int64{}
-		for rows.Next() {
-			var sev string
-			var cnt int64
-			if rows.Scan(&sev, &cnt) == nil {
-				found[sev] = cnt
-			}
-		}
-		for _, sev := range []string{"critical", "warning", "info"} {
-			fmt.Fprintf(b, "pg_sage_findings_total{severity=%q} %d\n", sev, found[sev])
-		}
-		b.WriteString("\n")
-	}
-
-	// Circuit breaker.
-	b.WriteString("# HELP pg_sage_circuit_breaker_state Circuit breaker (0=closed, 1=open)\n# TYPE pg_sage_circuit_breaker_state gauge\n")
-	var statusJSON string
-	if err := pool.QueryRow(ctx, "SELECT sage.status()::text").Scan(&statusJSON); err == nil {
-		var status map[string]any
-		if json.Unmarshal([]byte(statusJSON), &status) == nil {
-			dbState, llmState := 0, 0
-			if v, ok := status["circuit_state"].(string); ok && v != "closed" {
-				dbState = 1
-			}
-			if v, ok := status["llm_circuit_state"].(string); ok && v != "closed" {
-				llmState = 1
-			}
-			fmt.Fprintf(b, "pg_sage_circuit_breaker_state{breaker=\"db\"} %d\n", dbState)
-			fmt.Fprintf(b, "pg_sage_circuit_breaker_state{breaker=\"llm\"} %d\n", llmState)
-		}
-	}
-	b.WriteString("\n")
 }
 
 func writeStandaloneMetrics(b *strings.Builder, ctx context.Context) {
@@ -2667,27 +2604,6 @@ func forwardedClientIP(xff, remote string) string {
 }
 
 // --- Detection ---
-
-func detectExtension() bool {
-	if pool == nil {
-		return false // fleet mode: no global pool
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	var exists bool
-	err := pool.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'sage')
-		AND EXISTS (
-			SELECT 1 FROM pg_proc p
-			JOIN pg_namespace n ON n.oid = p.pronamespace
-			WHERE n.nspname = 'sage' AND p.proname = 'health_json'
-		)
-	`).Scan(&exists)
-	if err != nil {
-		return false
-	}
-	return exists
-}
 
 func detectCloudEnvironment() string {
 	return detectCloudEnv(pool)

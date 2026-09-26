@@ -842,8 +842,8 @@
   },
   "mode": {
     "type": "string",
-    "default": "extension",
-    "doc": "Operating mode: extension, standalone, or fleet. Standalone connects to one PostgreSQL target; fleet manages many databases from one sidecar."
+    "default": "standalone",
+    "doc": "Operating mode: standalone, fleet, or meta. Standalone connects to one PostgreSQL target; fleet manages many databases from one sidecar."
   },
   "notification_policy.allow_private_targets": {
     "type": "bool",

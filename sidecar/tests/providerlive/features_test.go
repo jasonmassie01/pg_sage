@@ -156,8 +156,9 @@ func checkOptimizer(t *testing.T, f fixture) {
 		Query: "SELECT id FROM " + f.namespace + ".items WHERE category = $1"}
 	snap := &collector.Snapshot{Queries: []collector.QueryStats{query},
 		Tables: []collector.TableStats{{SchemaName: f.namespace, RelName: "items", NLiveTup: 1900}}}
-	planner := optimizer.NewPlanCapture(f.pool, version, false, false, "generic_plan",
+	planner := optimizer.NewPlanCapture(f.pool, version, false, "generic_plan",
 		func(string, string, ...any) {})
+
 	contexts, source, err := optimizer.BuildTableContexts(ctx, f.pool, snap, planner, 1)
 	checkError(t, "build real optimizer context", err)
 	if len(contexts) != 1 || contexts[0].Schema != f.namespace ||

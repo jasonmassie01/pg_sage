@@ -107,7 +107,7 @@ type APIConfig struct {
 // config but before validate().
 func (c *Config) normalize() {
 	if c.Mode == "" {
-		c.Mode = "extension"
+		c.Mode = DefaultMode
 	}
 
 	// Standalone with legacy Postgres config: synthesize Databases[0].

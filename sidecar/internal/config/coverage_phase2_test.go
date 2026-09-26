@@ -378,7 +378,7 @@ func TestPhase2_IsStandalone_True(t *testing.T) {
 }
 
 func TestPhase2_IsStandalone_False(t *testing.T) {
-	for _, mode := range []string{"extension", "fleet", ""} {
+	for _, mode := range []string{ModeMeta, "fleet", ""} {
 		cfg := &Config{Mode: mode}
 		if cfg.IsStandalone() {
 			t.Errorf("IsStandalone() = true for mode %q", mode)
@@ -630,7 +630,7 @@ func TestPhase2_LoadYAML_EnvExpansion(t *testing.T) {
 	t.Setenv("SAGE_LLM_API_KEY", "")
 	t.Setenv("SAGE_TEST_LLM_KEY", "test-api-key")
 	tmp := t.TempDir()
-	yamlContent := `mode: extension
+	yamlContent := `mode: standalone
 llm:
   api_key: "${SAGE_TEST_LLM_KEY}"
 `
@@ -677,7 +677,7 @@ func TestPhase2_Validate_NegativeSlowQueryThreshold(t *testing.T) {
 	cfgPath := filepath.Join(tmp, "config.yaml")
 	os.WriteFile(cfgPath, []byte(yamlContent), 0644)
 
-	_, err := Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err := Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for negative slow_query_threshold_ms")
 	}
@@ -695,7 +695,7 @@ func TestPhase2_Validate_CPUCeilingOver100(t *testing.T) {
 	cfgPath := filepath.Join(tmp, "config.yaml")
 	os.WriteFile(cfgPath, []byte(yamlContent), 0644)
 
-	_, err := Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err := Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for cpu_ceiling_pct > 100")
 	}
@@ -713,7 +713,7 @@ func TestPhase2_Validate_ZeroBatchSize(t *testing.T) {
 	cfgPath := filepath.Join(tmp, "config.yaml")
 	os.WriteFile(cfgPath, []byte(yamlContent), 0644)
 
-	_, err := Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err := Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for zero batch_size")
 	}
@@ -731,7 +731,7 @@ func TestPhase2_Validate_ZeroQueryTimeout(t *testing.T) {
 	cfgPath := filepath.Join(tmp, "config.yaml")
 	os.WriteFile(cfgPath, []byte(yamlContent), 0644)
 
-	_, err := Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err := Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for zero query_timeout_ms")
 	}
@@ -749,7 +749,7 @@ func TestPhase2_Validate_ZeroAnalyzerInterval(t *testing.T) {
 	cfgPath := filepath.Join(tmp, "config.yaml")
 	os.WriteFile(cfgPath, []byte(yamlContent), 0644)
 
-	_, err := Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err := Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for zero analyzer interval")
 	}

@@ -62,7 +62,7 @@ func RUnlockForHotReload() { hotReloadMu.RUnlock() }
 // most architectures but will still trip the race detector — new code
 // should prefer the explicit lock.
 type Config struct {
-	Mode string `yaml:"mode" doc:"Operating mode: extension, standalone, or fleet. Standalone connects to one PostgreSQL target; fleet manages many databases from one sidecar."`
+	Mode string `yaml:"mode" doc:"Operating mode: standalone, fleet, or meta. Standalone connects to one PostgreSQL target; fleet manages many databases from one sidecar."`
 
 	Postgres    PostgresConfig      `yaml:"postgres"`
 	Collector   CollectorConfig     `yaml:"collector"`
@@ -106,7 +106,7 @@ type Config struct {
 	MetaDB        string `yaml:"meta_db" doc:"DSN of the metadata database used in fleet mode to persist cross-target state. Blank in standalone mode."`
 	EncryptionKey string `yaml:"encryption_key" doc:"Passphrase used to encrypt sensitive fleet-mode fields (per-database passwords). Rotate via the key-rotation runbook." secret:"true"`
 
-	// Legacy env-var fields (extension mode compat)
+	// Legacy env-var fields
 	APIKey  string `yaml:"-"`
 	TLSCert string `yaml:"-"`
 	TLSKey  string `yaml:"-"`
@@ -538,7 +538,7 @@ func Load(args []string) (*Config, error) {
 	// Parse CLI flags to get config path and mode early.
 	fs := flag.NewFlagSet("pg_sage_sidecar", flag.ContinueOnError)
 	configPath := fs.String("config", "", "Path to config.yaml")
-	mode := fs.String("mode", "", "Operating mode: extension or standalone")
+	mode := fs.String("mode", "", "Operating mode: standalone, fleet, or meta")
 	pgHost := fs.String("pg-host", "", "PostgreSQL host")
 	pgPort := fs.Int("pg-port", 0, "PostgreSQL port")
 	pgUser := fs.String("pg-user", "", "PostgreSQL user")
@@ -621,10 +621,8 @@ func Load(args []string) (*Config, error) {
 	// Normalize fleet/standalone config before validation.
 	cfg.normalize()
 
-	// Validate mode.
-	if cfg.Mode != "extension" && cfg.Mode != "standalone" && cfg.Mode != "fleet" {
-		return nil, fmt.Errorf(
-			"invalid mode %q: must be 'extension', 'standalone', or 'fleet'", cfg.Mode)
+	if err := validateMode(cfg); err != nil {
+		return nil, err
 	}
 	if cfg.Mode == "standalone" && cfg.Postgres.DSN() == "" && cfg.MetaDB == "" {
 		return nil, fmt.Errorf(
@@ -1079,15 +1077,36 @@ func bracedEnvNames(value string) []string {
 	return names
 }
 
-// inferMode picks the mode when none was configured. A DSN supplied by
-// --pg-url, SAGE_DATABASE_URL or postgres.database_url is the documented
-// quick start and runs the standalone pipeline; meta-db deployments keep
-// the default because standalone+meta registers a phantom instance.
+// inferMode picks the mode when none was configured. A meta database means
+// a meta-db fleet (never standalone: standalone+meta registers a phantom
+// instance); anything else monitors one database standalone (G10-B01).
 func inferMode(cfg *Config) string {
-	if cfg.Postgres.DatabaseURL != "" && cfg.MetaDB == "" {
-		return "standalone"
+	if cfg.MetaDB != "" {
+		return ModeMeta
 	}
 	return DefaultMode
+}
+
+// validateMode rejects unknown modes, meta mode without a meta database,
+// and the removed extension mode, which served the API over the deleted C
+// extension's schema.
+func validateMode(cfg *Config) error {
+	switch cfg.Mode {
+	case "standalone", "fleet":
+		return nil
+	case ModeMeta:
+		if cfg.MetaDB == "" {
+			return fmt.Errorf("mode %q requires --meta-db (meta_db)", ModeMeta)
+		}
+		return nil
+	case "extension":
+		return fmt.Errorf("mode %q was removed with the C extension: use "+
+			"standalone for one database, fleet for several, or --meta-db "+
+			"for a meta-db fleet", cfg.Mode)
+	default:
+		return fmt.Errorf("invalid mode %q: must be 'standalone', 'fleet', "+
+			"or 'meta'", cfg.Mode)
+	}
 }
 
 func overlayEnv(cfg *Config) {

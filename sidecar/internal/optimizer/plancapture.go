@@ -15,7 +15,6 @@ import (
 type PlanCapture struct {
 	pool                 *pgxpool.Pool
 	pgVersionNum         int
-	extensionPresent     bool
 	autoExplainAvailable bool
 	preferredSource      string
 	logFn                func(string, string, ...any)
@@ -25,7 +24,6 @@ type PlanCapture struct {
 func NewPlanCapture(
 	pool *pgxpool.Pool,
 	pgVersionNum int,
-	extensionPresent bool,
 	autoExplainAvailable bool,
 	preferredSource string,
 	logFn func(string, string, ...any),
@@ -33,7 +31,6 @@ func NewPlanCapture(
 	return &PlanCapture{
 		pool:                 pool,
 		pgVersionNum:         pgVersionNum,
-		extensionPresent:     extensionPresent,
 		autoExplainAvailable: autoExplainAvailable,
 		preferredSource:      preferredSource,
 		logFn:                logFn,
@@ -50,15 +47,7 @@ func (p *PlanCapture) CapturePlans(
 		return nil, "none"
 	}
 
-	// Strategy 1: Extension's explain_cache.
-	if p.extensionPresent && p.preferredSource != "generic_plan" {
-		plans := p.fromExplainCache(ctx, queries)
-		if len(plans) > 0 {
-			return plans, "explain_cache"
-		}
-	}
-
-	// Strategy 1.5: auto_explain cached plans.
+	// Strategy 1: auto_explain cached plans.
 	if p.autoExplainAvailable {
 		plans := p.fromAutoExplain(ctx, queries)
 		if len(plans) > 0 {
@@ -76,28 +65,6 @@ func (p *PlanCapture) CapturePlans(
 
 	// Strategy 3: No plans available.
 	return nil, "query_text_only"
-}
-
-func (p *PlanCapture) fromExplainCache(
-	ctx context.Context,
-	queries []collector.QueryStats,
-) []PlanSummary {
-	var plans []PlanSummary
-	for _, q := range queries {
-		var planJSON []byte
-		err := p.pool.QueryRow(ctx,
-			`/* pg_sage */ SELECT plan_json FROM sage.explain_cache
-			 WHERE queryid = $1 ORDER BY captured_at DESC LIMIT 1`,
-			q.QueryID).Scan(&planJSON)
-		if err != nil {
-			continue
-		}
-		ps := summarizePlan(planJSON, q.QueryID)
-		if ps.ScanType != "" {
-			plans = append(plans, ps)
-		}
-	}
-	return plans
 }
 
 func (p *PlanCapture) fromAutoExplain(

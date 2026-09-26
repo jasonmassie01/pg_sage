@@ -46,7 +46,6 @@ func New(
 	pool *pgxpool.Pool,
 	cfg *config.OptimizerConfig,
 	pgVersionNum int,
-	extensionPresent bool,
 	maxOutputTokens int,
 	logFn func(string, string, ...any),
 	options ...func(*Optimizer),
@@ -61,7 +60,7 @@ func New(
 		cfg:            cfg,
 		validator:      NewValidator(pool, cfg, logFn),
 		planner: NewPlanCapture(
-			pool, pgVersionNum, extensionPresent, false,
+			pool, pgVersionNum, false,
 			cfg.PlanSource, logFn,
 		),
 		hypopg:    NewHypoPG(pool, cfg.HypoPGMinImprovePct, logFn),

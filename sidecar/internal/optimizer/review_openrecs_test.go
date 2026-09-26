@@ -66,7 +66,8 @@ func TestOpenRecommendations_SkipLLMAndReEmit(t *testing.T) {
 	}))
 	defer srv.Close()
 	o := New(llm.New(fnTestLLMConfig(srv.URL), fnNoopLog), nil, pool,
-		fnTestOptimizerConfig(), 160000, false, 8192, fnNoopLog)
+		fnTestOptimizerConfig(), 160000, 8192, fnNoopLog)
+
 	unavailable := false
 	o.hypopg.available = &unavailable
 
@@ -93,7 +94,7 @@ func TestOpenRecommendations_ExactTableMatch(t *testing.T) {
 		map[string]any{"ddl": "CREATE INDEX CONCURRENTLY i ON public.aXb (x)"})
 	insertOpenFinding(t, pool, "unused_index", "public.a_b.idx",
 		map[string]any{"ddl": "DROP INDEX CONCURRENTLY idx"})
-	o := New(nil, nil, pool, fnTestOptimizerConfig(), 160000, false, 8192, fnNoopLog)
+	o := New(nil, nil, pool, fnTestOptimizerConfig(), 160000, 8192, fnNoopLog)
 	tc := sampleTableContext()
 	tc.Table = "a_b"
 	if _, open := o.openRecommendations(context.Background(), tc); open {

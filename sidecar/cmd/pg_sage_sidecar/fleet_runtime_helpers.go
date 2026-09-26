@@ -72,7 +72,7 @@ func newFleetOptimizer(
 	}
 	return optimizer.New(
 		optimizerClient, fallback, pool, &cfg.LLM.Optimizer,
-		pgVersion, false, cfg.LLM.OptimizerLLM.MaxOutputTokens,
+		pgVersion, cfg.LLM.OptimizerLLM.MaxOutputTokens,
 		logStructuredWrapper,
 	)
 }

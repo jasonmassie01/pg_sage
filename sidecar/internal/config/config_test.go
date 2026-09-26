@@ -26,8 +26,8 @@ func TestConfigDefaults(t *testing.T) {
 		t.Fatalf("Load with defaults failed: %v", err)
 	}
 
-	if cfg.Mode != "extension" {
-		t.Errorf("Mode = %q, want %q", cfg.Mode, "extension")
+	if cfg.Mode != "standalone" {
+		t.Errorf("Mode = %q, want %q", cfg.Mode, "standalone")
 	}
 	if cfg.Postgres.Host != "localhost" {
 		t.Errorf("Postgres.Host = %q, want %q", cfg.Postgres.Host, "localhost")
@@ -74,7 +74,7 @@ func TestConfigPrecedence_CLIOverEnv(t *testing.T) {
 
 	t.Setenv("SAGE_PG_HOST", "env-host")
 
-	cfg, err := Load([]string{"--pg-host=cli-host", "--mode=extension"})
+	cfg, err := Load([]string{"--pg-host=cli-host", "--mode=standalone"})
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestConfigValidation_InvalidTrustLevel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err = Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for invalid trust level, got nil")
 	}
@@ -148,7 +148,7 @@ func TestConfigValidation_ZeroCollectorInterval(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err = Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for zero collector interval, got nil")
 	}
@@ -175,7 +175,7 @@ func TestConfigValidation_ZeroMaxQueries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err = Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for zero max_queries, got nil")
 	}
@@ -264,7 +264,7 @@ func TestEncryptionKeyFromEnv(t *testing.T) {
 
 	t.Setenv("SAGE_ENCRYPTION_KEY", "my-secret-key")
 
-	cfg, err := Load([]string{"--mode=extension"})
+	cfg, err := Load([]string{"--mode=standalone"})
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}

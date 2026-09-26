@@ -6,15 +6,16 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
-// G5-B02: extension mode used to leave configController nil, so the first
-// config.yaml edit dereferenced nil inside the watcher goroutine.
-func TestWatchedConfigApplyInExtensionModeAdvancesGeneration(t *testing.T) {
+// G5-B02: the removed extension mode left configController nil, so the
+// first config.yaml edit dereferenced nil inside the watcher goroutine. A
+// mode without a standalone control database must still get a controller.
+func TestWatchedConfigApplyWithoutControlPoolAdvancesGeneration(t *testing.T) {
 	preserveFleetRuntimeGlobals(t)
 	oldMeta, oldPool := globalMetaState, pool
 	t.Cleanup(func() { globalMetaState, pool = oldMeta, oldPool })
 	globalMetaState, pool = nil, nil
 	cfg = config.DefaultConfig()
-	cfg.Mode = "extension"
+	cfg.Mode = config.ModeMeta
 	cfg.Trust.Level = "advisory"
 	configController = nil
 	fleetMgr = nil
@@ -23,7 +24,7 @@ func TestWatchedConfigApplyInExtensionModeAdvancesGeneration(t *testing.T) {
 		t.Fatalf("ensure controller: %v", err)
 	}
 	if configController == nil {
-		t.Fatal("extension mode must still build a config controller")
+		t.Fatal("meta mode must still build a config controller")
 	}
 	before := configController.Desired().Generation
 	updated := config.Clone(cfg)
@@ -41,7 +42,7 @@ func TestWatchedConfigApplyInExtensionModeAdvancesGeneration(t *testing.T) {
 		t.Fatalf("desired trust = %q, want observation", desired.Config.Trust.Level)
 	}
 	if configControlPool() != nil {
-		t.Fatal("extension mode must not persist config into the monitored database")
+		t.Fatal("meta mode without meta state must not persist into the monitored database")
 	}
 }
 

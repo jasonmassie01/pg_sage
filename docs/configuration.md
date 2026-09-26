@@ -138,7 +138,7 @@ briefing:
 
 | Parameter | Default | Description |
 |---|---|---|
-| `mode` | `extension` | Operating mode; set `standalone` explicitly for sidecar-only deployments |
+| `mode` | `standalone` | `standalone` (one database), `fleet` (YAML `databases`), or `meta` (inferred from `--meta-db`). The former `extension` mode was removed with the C extension and is rejected at startup |
 | `postgres.max_connections` | `2` | Connection pool size |
 | `postgres.sslmode` | `prefer` | SSL mode (`disable`, `prefer`, `require`, `verify-ca`, `verify-full`) |
 

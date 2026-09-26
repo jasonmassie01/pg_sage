@@ -9,7 +9,8 @@ import (
 )
 
 // modeGaugeValue encodes the operating mode for pg_sage_mode. Fleet used
-// to report 0, indistinguishable from extension (G10-B11).
+// to report 0, indistinguishable from the meta-db mode (G10-B11). Meta
+// keeps 0, the value it reported under the removed "extension" label.
 func modeGaugeValue(mode string) int {
 	switch mode {
 	case "standalone":
@@ -23,7 +24,7 @@ func modeGaugeValue(mode string) int {
 
 func writeModeMetric(b *strings.Builder, mode string) {
 	b.WriteString("# HELP pg_sage_mode Operating mode " +
-		"(0=extension, 1=standalone, 2=fleet)\n# TYPE pg_sage_mode gauge\n")
+		"(0=meta, 1=standalone, 2=fleet)\n# TYPE pg_sage_mode gauge\n")
 	fmt.Fprintf(b, "pg_sage_mode %d\n\n", modeGaugeValue(mode))
 }
 

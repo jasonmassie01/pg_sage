@@ -55,8 +55,8 @@ func sharedNotifyDispatcher(controlPool *pgxpool.Pool) *notify.Dispatcher {
 // in standalone / YAML fleet the same passphrase derived with that
 // database's persisted KDF salt. The API router and every dispatcher call
 // this with the same pool, so writes and reads agree. nil means secrets
-// stay plaintext (no passphrase, or extension mode, which must not write
-// sidecar rows into the C extension's schema).
+// stay plaintext (no passphrase, or a pool that is neither the meta pool
+// nor a standalone/fleet control database).
 func notificationSecretKey(controlPool *pgxpool.Pool) []byte {
 	if controlPool == nil || cfg == nil {
 		return nil

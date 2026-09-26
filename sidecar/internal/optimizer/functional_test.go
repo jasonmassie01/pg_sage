@@ -75,7 +75,7 @@ func newTestOptimizer(
 ) *Optimizer {
 	t.Helper()
 	client := llm.New(fnTestLLMConfig(srvURL), fnNoopLog)
-	o := New(client, nil, nil, cfg, 160000, false, 8192, fnNoopLog)
+	o := New(client, nil, nil, cfg, 160000, 8192, fnNoopLog)
 	// Pre-set HypoPG as unavailable to avoid nil pool panic.
 	unavailable := false
 	o.hypopg.available = &unavailable
@@ -92,8 +92,8 @@ func newTestOptimizerWithFallback(
 	primary := llm.New(fnTestLLMConfig(primaryURL), fnNoopLog)
 	fallback := llm.New(fnTestLLMConfig(fallbackURL), fnNoopLog)
 	o := New(
-		primary, fallback, nil, cfg, 160000, false, 8192, fnNoopLog,
-	)
+		primary, fallback, nil, cfg, 160000, 8192, fnNoopLog)
+
 	unavailable := false
 	o.hypopg.available = &unavailable
 	return o
@@ -1077,8 +1077,8 @@ func TestFunctional_Validate_MaxNewPerTable(t *testing.T) {
 
 	client := llm.New(fnTestLLMConfig(srv.URL), fnNoopLog)
 	o := New(
-		client, nil, nil, cfg, 160000, false, 8192, fnNoopLog,
-	)
+		client, nil, nil, cfg, 160000, 8192, fnNoopLog)
+
 	// Pre-set HypoPG as unavailable to avoid nil pool panic.
 	unavailable := false
 	o.hypopg.available = &unavailable
@@ -2130,7 +2130,7 @@ func TestFunctional_Coverage_WithAutoExplain(t *testing.T) {
 		MaxNewPerTable:     3,
 	}
 	client := llm.New(fnTestLLMConfig("http://localhost:0"), fnNoopLog)
-	o := New(client, nil, nil, cfg, 160000, false, 8192, fnNoopLog)
+	o := New(client, nil, nil, cfg, 160000, 8192, fnNoopLog)
 
 	if o.planner.autoExplainAvailable {
 		t.Fatal("autoExplainAvailable should be false before option")
@@ -2154,9 +2154,8 @@ func TestFunctional_Coverage_WithAutoExplain_ViaConstructor(t *testing.T) {
 	}
 	client := llm.New(fnTestLLMConfig("http://localhost:0"), fnNoopLog)
 	o := New(
-		client, nil, nil, cfg, 160000, false, 8192, fnNoopLog,
-		WithAutoExplain(),
-	)
+		client, nil, nil, cfg, 160000, 8192, fnNoopLog,
+		WithAutoExplain())
 
 	if !o.planner.autoExplainAvailable {
 		t.Fatal("autoExplainAvailable should be true when passed to New")

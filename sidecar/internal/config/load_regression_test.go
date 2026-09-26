@@ -55,20 +55,84 @@ func TestLoad_EnvDatabaseURLWithoutModeRunsStandalone(t *testing.T) {
 	}
 }
 
-func TestLoad_ExplicitExtensionModeIsKept(t *testing.T) {
+// The C extension was removed, so "extension" mode (API over the
+// extension's schema) no longer exists. Every source of the setting must
+// fail with a hint naming the replacement modes.
+func TestLoad_ExtensionModeIsRemoved(t *testing.T) {
 	chdirTemp(t)
-	t.Setenv("SAGE_DATABASE_URL", "postgres://u:p@db.example:5432/app")
-	for _, args := range [][]string{{"--mode", "extension"}, nil} {
-		if args == nil {
-			t.Setenv("SAGE_MODE", "extension")
-		}
+	check := func(label string, args []string) {
+		t.Helper()
 		cfg, err := Load(args)
-		if err != nil {
-			t.Fatalf("Load(%v): %v", args, err)
+		if err == nil || cfg != nil {
+			t.Fatalf("%s: extension mode accepted (cfg=%v)", label, cfg != nil)
 		}
-		if cfg.Mode != "extension" {
-			t.Fatalf("Load(%v) Mode = %q, want extension", args, cfg.Mode)
+		msg := err.Error()
+		for _, want := range []string{`"extension"`, "removed", "standalone", "meta-db"} {
+			if !strings.Contains(msg, want) {
+				t.Fatalf("%s: error %q lacks %q", label, msg, want)
+			}
 		}
+	}
+	check("flag", []string{"--mode", "extension"})
+	check("flag with meta-db", []string{
+		"--mode", "extension", "--meta-db", "postgres://u:p@meta.example:5432/meta",
+	})
+	t.Setenv("SAGE_MODE", "extension")
+	check("env", nil)
+	t.Setenv("SAGE_MODE", "")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("mode: extension\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check("yaml", []string{"--config", path})
+}
+
+func TestLoad_NoInputDefaultsToStandalone(t *testing.T) {
+	chdirTemp(t)
+	if DefaultMode != "standalone" {
+		t.Fatalf("DefaultMode = %q, want standalone", DefaultMode)
+	}
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Mode != "standalone" || !cfg.IsStandalone() {
+		t.Fatalf("Mode = %q, want standalone", cfg.Mode)
+	}
+	if cfg.Postgres.Host != "localhost" || cfg.Postgres.Port != 5432 {
+		t.Fatalf("default target = %s:%d, want localhost:5432",
+			cfg.Postgres.Host, cfg.Postgres.Port)
+	}
+}
+
+// A meta-db deployment with no explicit mode used to carry the "extension"
+// label. It is now "meta": neither standalone nor fleet, so the meta-db
+// runtime paths are unchanged.
+func TestLoad_MetaDBWithoutModeRunsMeta(t *testing.T) {
+	chdirTemp(t)
+	cfg, err := Load([]string{"--meta-db", "postgres://u:p@meta.example:5432/meta"})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Mode != ModeMeta || cfg.IsStandalone() || cfg.IsFleet() {
+		t.Fatalf("Mode = %q, want %q", cfg.Mode, ModeMeta)
+	}
+}
+
+func TestLoad_MetaModeRequiresMetaDB(t *testing.T) {
+	chdirTemp(t)
+	cfg, err := Load([]string{"--mode", "meta"})
+	if err == nil || cfg != nil {
+		t.Fatalf("meta mode without a meta database accepted (cfg=%v)", cfg != nil)
+	}
+	if !strings.Contains(err.Error(), "meta-db") {
+		t.Fatalf("error %q does not name --meta-db", err)
+	}
+	cfg, err = Load([]string{
+		"--mode", "meta", "--meta-db", "postgres://u:p@meta.example:5432/meta",
+	})
+	if err != nil || cfg.Mode != ModeMeta {
+		t.Fatalf("explicit meta mode with meta-db: cfg=%v err=%v", cfg, err)
 	}
 }
 

@@ -236,7 +236,7 @@ func TestAnalyzeTable_SameFallbackNotRetried(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := llm.New(fnTestLLMConfig(srv.URL), fnNoopLog)
-	opt := New(client, client, nil, fnTestOptimizerConfig(), 160000, false, 8192, fnNoopLog)
+	opt := New(client, client, nil, fnTestOptimizerConfig(), 160000, 8192, fnNoopLog)
 	unavailable := false
 	opt.hypopg.available = &unavailable
 	if _, _, _, err := opt.analyzeTable(context.Background(), sampleTableContext()); err == nil {

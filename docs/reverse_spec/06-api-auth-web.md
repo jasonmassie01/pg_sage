@@ -365,7 +365,7 @@ families emitted:
 | Metric | Type | Labels | Source |
 |---|---|---|---|
 | `pg_sage_info` | gauge | `version`,`mode` | build (`main.go:1785-1787`) |
-| `pg_sage_mode` | gauge | — | 0=extension/1=standalone |
+| `pg_sage_mode` | gauge | — | 0=meta/1=standalone/2=fleet |
 | `pg_sage_connection_up` | gauge | — | pool ping |
 | `pg_sage_findings_total` | gauge | `severity` | `sage.findings` open by severity |
 | `pg_sage_circuit_breaker_state` | gauge | `breaker` (db/llm) | breaker state |

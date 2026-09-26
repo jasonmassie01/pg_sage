@@ -611,7 +611,7 @@ func TestDefaultConfig_NonZeroFields(t *testing.T) {
 	cfg := newDefaults()
 
 	// Mode
-	assertEqual(t, "Mode", cfg.Mode, "extension")
+	assertEqual(t, "Mode", cfg.Mode, "standalone")
 
 	// Collector: interval should be 60s, not 0
 	assertEqualInt(t, "Collector.IntervalSeconds",

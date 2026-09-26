@@ -265,9 +265,11 @@ func TestForcedShutdownExitCodeHonoursRestart(t *testing.T) {
 	}
 }
 
-// G10-B11: the mode gauge must distinguish fleet from extension.
+// G10-B11: the mode gauge must distinguish fleet from the meta-db mode.
+// Meta keeps 0, the value meta-db deployments reported under the removed
+// "extension" label, so existing dashboards keep working.
 func TestModeGaugeValue(t *testing.T) {
-	want := map[string]int{"extension": 0, "standalone": 1, "fleet": 2}
+	want := map[string]int{"meta": 0, "standalone": 1, "fleet": 2}
 	for mode, value := range want {
 		if got := modeGaugeValue(mode); got != value {
 			t.Errorf("modeGaugeValue(%q) = %d, want %d", mode, got, value)
@@ -276,7 +278,7 @@ func TestModeGaugeValue(t *testing.T) {
 	var b strings.Builder
 	writeModeMetric(&b, "fleet")
 	if !strings.Contains(b.String(), "pg_sage_mode 2") ||
-		!strings.Contains(b.String(), "2=fleet") {
+		!strings.Contains(b.String(), "0=meta, 1=standalone, 2=fleet") {
 		t.Fatalf("mode metric output:\n%s", b.String())
 	}
 }

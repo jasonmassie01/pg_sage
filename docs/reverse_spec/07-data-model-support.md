@@ -126,7 +126,7 @@ auto-synthesizes `Databases[0]` from the legacy `postgres` block (`normalize`,
 
 | Block | YAML key | Struct | Source |
 |-------|----------|--------|--------|
-| Mode | `mode` | `string` (extension/standalone/fleet, default `extension`) | `config.go:64` |
+| Mode | `mode` | `string` (standalone/fleet/meta, default `standalone`) | `config.go:64` |
 | Postgres | `postgres` | `PostgresConfig` | `config.go:111` |
 | Collector | `collector` | `CollectorConfig` | `config.go:139` |
 | Analyzer | `analyzer` | `AnalyzerConfig` | `config.go:145` |
