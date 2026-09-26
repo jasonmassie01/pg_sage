@@ -215,7 +215,9 @@ func TestRegression_FKSchemaNotGuessed(t *testing.T) {
 		}
 	}
 	extras := &RuleExtras{
-		FirstSeen:       map[string]time.Time{"tenant_b.idx_cust": time.Now().Add(-30 * 24 * time.Hour)},
+		FirstSeen: map[string]time.Time{
+			"tenant_b.idx_cust": time.Now().Add(-30 * 24 * time.Hour),
+		},
 		RecentlyCreated: map[string]time.Time{},
 	}
 	if got := ruleUnusedIndexes(tenantSnap(), nil, unusedCfg(), extras); len(got) != 0 {
@@ -226,7 +228,7 @@ func TestRegression_FKSchemaNotGuessed(t *testing.T) {
 func invalidSnap() *collector.Snapshot {
 	return &collector.Snapshot{Indexes: []collector.IndexStats{{
 		SchemaName: "public", RelName: "orders", IndexRelName: "idx_building",
-		IsValid: false,
+		IsValid:  false,
 		IndexDef: "CREATE INDEX idx_building ON public.orders USING btree (x)",
 	}}}
 }
