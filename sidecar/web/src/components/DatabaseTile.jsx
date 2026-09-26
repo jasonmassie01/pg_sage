@@ -15,7 +15,9 @@ export function DatabaseTile({ db, selected, onSelect }) {
   const critical = s.findings_critical || 0
   const warning = s.findings_warning || 0
   const info = s.findings_info || 0
+  // A disconnected or erroring database is never "Clean" (G9-B30).
   const healthy = critical === 0 && warning === 0
+    && s.connected === true && !s.error
   const trust = s.trust_level || db.trust_level || null
   const caps = s.capabilities || {}
   const provider = s.platform || caps.provider || 'unknown'
@@ -103,7 +105,8 @@ export function DatabaseTile({ db, selected, onSelect }) {
             style={{ color: 'var(--text-secondary)' }}>
             {formatTrustLevel(trust) || trust}
           </span>
-          <TrustBadge level={trust} compact />
+          <TrustBadge level={trust} compact
+            autoFamilies={autoFamilies(caps)} />
         </div>
       )}
       <div className="mt-3 pt-2"
@@ -128,4 +131,11 @@ export function DatabaseTile({ db, selected, onSelect }) {
       </div>
     </button>
   )
+}
+
+function autoFamilies(caps) {
+  if (!Array.isArray(caps.action_families)) return undefined
+  return caps.action_families
+    .filter(f => f?.decision === 'execute')
+    .map(f => f.action_type)
 }

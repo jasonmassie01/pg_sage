@@ -225,7 +225,7 @@ describe('SettingsPage trust and emergency controls', () => {
 
   it('labels the emergency stop scope', () => {
     localStorage.setItem('pg_sage_settings_mode', 'advanced')
-    render(<SettingsPage database="prod" />)
+    render(<SettingsPage database="prod" databaseId={12} />)
     expect(screen.getByTestId('emergency-scope'))
       .toHaveTextContent('prod')
   })

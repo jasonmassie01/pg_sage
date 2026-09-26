@@ -16,15 +16,18 @@ const TRUST_LEVEL_EXPLAIN = {
   observation:
     'Observation: pg_sage only monitors and surfaces findings.'
     + ' No automated actions will run.',
+  // Copy mirrors executor.EvaluateActionPolicy (G9-B12): nothing runs
+  // automatically unless execution_mode is auto for the database.
   advisory:
-    'Advisory: pg_sage may automatically execute SAFE actions'
-    + ' (ANALYZE, non-destructive index hints). Moderate and'
-    + ' high-risk actions still require manual approval.',
+    'Advisory: when execution_mode is auto, Tier 3 Safe is on and the'
+    + ' 8-day trust ramp has passed, pg_sage may execute SAFE actions'
+    + ' (ANALYZE, non-destructive index hints). Everything else, and'
+    + ' everything under approval/manual mode, queues for approval.',
   autonomous:
-    'Autonomous: pg_sage may automatically execute SAFE and'
-    + ' MODERATE actions (CREATE INDEX CONCURRENTLY, VACUUM,'
-    + ' dropping unused indexes). High-risk actions still require'
-    + ' manual approval.',
+    'Autonomous: when execution_mode is auto, pg_sage may execute SAFE'
+    + ' actions (Tier 3 Safe, 8-day ramp) and MODERATE actions (Tier 3'
+    + ' Moderate, 31-day ramp, inside the maintenance window).'
+    + ' High-risk actions always require approval.',
 }
 
 const ADVANCED_TABS = [
@@ -1017,6 +1020,12 @@ function GeneralTab({
         style={{ color: 'var(--text-secondary)' }}>
         Emergency Controls
       </h3>
+      <p className="text-xs" data-testid="emergency-scope"
+        style={{ color: 'var(--text-secondary)' }}>
+        Scope: {database && database !== 'all'
+          ? `database ${database} only`
+          : 'all databases in the fleet'}
+      </p>
       <div className="flex gap-3">
         <button onClick={onEmergencyClick} disabled={stopping}
           data-testid="emergency-stop-button"
@@ -1127,8 +1136,6 @@ function TrustSafetyTab(props) {
         <Field label="Tier 3: Safe" configKey="trust.tier3_safe"
           type="toggle" {...props} />
         <Field label="Tier 3: Moderate" configKey="trust.tier3_moderate"
-          type="toggle" {...props} />
-        <Field label="Tier 3: High Risk" configKey="trust.tier3_high_risk"
           type="toggle" {...props} />
         <Field label="Maintenance Window (cron)"
           configKey="trust.maintenance_window" type="text"
