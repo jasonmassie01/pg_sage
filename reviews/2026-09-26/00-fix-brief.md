@@ -2,7 +2,7 @@
 
 You own ONE fix area in ONE git worktree (path given in your prompt), on branch
 `fix/2026-09-26-<area>`. Findings live in
-`C:/Users/jmass/pg_sage-claude-review/docs/reviews/2026-09-26/` (group-NN files + `codex/`).
+`C:/Users/jmass/pg_sage-claude-review/reviews/2026-09-26/` (group-NN files + `codex/`).
 
 ## Process (mandatory, from the user's CLAUDE.md)
 1. **Read before changing.** Re-verify each assigned bug in current code. If a finding is
@@ -21,7 +21,7 @@ You own ONE fix area in ONE git worktree (path given in your prompt), on branch
    for touched packages. grep output for SKIP. Web changes: `npm ci` (from lockfile) then
    `npm run lint && npm run test -- --run && npm run build` in `sidecar/web`.
    If you change web source, rebuild `sidecar/internal/api/dist` via `npm run build`.
-5. **Report.** Write `docs/reviews/2026-09-26/fixes-<area>.md` in YOUR worktree:
+5. **Report.** Write `reviews/2026-09-26/fixes-<area>.md` in YOUR worktree:
    table `ID | status (FIXED / NOT A BUG / DEFERRED) | commit | test name | notes`,
    plus the CLAUDE.md "Test Results" block (command, pass/fail/skip counts, per-package
    coverage, skipped tests, bugs found). Commit it as `docs(review): record <area> fixes`.

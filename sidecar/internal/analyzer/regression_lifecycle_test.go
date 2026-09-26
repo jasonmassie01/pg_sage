@@ -8,7 +8,7 @@ import (
 )
 
 // Regression tests for the finding lifecycle bugs recorded in
-// docs/reviews/2026-09-26 (G2-B01/C02, G2-B02/C03, C04, G2-B06/G7-B07).
+// reviews/2026-09-26 (G2-B01/C02, G2-B02/C03, C04, G2-B06/G7-B07).
 
 func lifecycleFinding(cat, ident, sev string) Finding {
 	return Finding{

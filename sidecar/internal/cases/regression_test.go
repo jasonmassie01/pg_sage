@@ -6,7 +6,7 @@ import (
 )
 
 // Regression tests for case projection bugs recorded in
-// docs/reviews/2026-09-26 (G2-B24/SURF-11, C16).
+// reviews/2026-09-26 (G2-B24/SURF-11, C16).
 
 // G2-B24/SURF-11: observed_at must come from the source finding and the
 // candidate expiry must be anchored to evidence time, not to the request.

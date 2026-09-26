@@ -14,7 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
-// Regression tests for schema-lint bugs recorded in docs/reviews/2026-09-26.
+// Regression tests for schema-lint bugs recorded in reviews/2026-09-26.
 
 // fakeRows feeds fixed rows into a rule's collect() method.
 type fakeRows struct {

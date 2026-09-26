@@ -1,6 +1,6 @@
 # 2026-09-26 Full review + AI SRE spec + bug fixes
 
-Branch `claude/full-review-ai-sre-2026-09-26`. Output dir `docs/reviews/2026-09-26/`.
+Branch `claude/full-review-ai-sre-2026-09-26`. Output dir `reviews/2026-09-26/`.
 
 - [x] Worktree + baseline build/vet/staticcheck/deadcode
 - [x] Disposable CI-equivalent PG17 (+hypopg, pg_stat_statements) on 127.0.0.1:55499

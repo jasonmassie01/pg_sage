@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Regression tests for forecaster bugs recorded in docs/reviews/2026-09-26.
+// Regression tests for forecaster bugs recorded in reviews/2026-09-26.
 
 // C01/G2-B04: cache hit ratio is a fraction (0-1). Healthy fractional data
 // must not trigger a warning, and titles must render percent correctly.

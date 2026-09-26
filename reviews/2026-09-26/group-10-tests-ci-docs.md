@@ -110,7 +110,7 @@ add the `TRAFFIC_TOKEN` secret or guard the step with `if: secrets.TRAFFIC_TOKEN
 Also 9 orphaned draft releases (8 × `v1.2`) exist — delete drafts (user action).
 
 ### G10-B06 — Inconsistent no-DB behavior; contributor test command is red (P2)
-- `docs/reviews/2026-09-26/raw-baseline-unit.txt`: `FAIL cmd/pg_sage_sidecar 211.8s` (14 tests,
+- `reviews/2026-09-26/raw-baseline-unit.txt`: `FAIL cmd/pg_sage_sidecar 211.8s` (14 tests,
   each 15 s of meta-db retry against the disabled sentinel DSN `127.0.0.1:1`), `FAIL
   internal/agentdb` (reproduced: `schema_concurrency_test.go:60,84` call `freshEnsurePool` which
   `t.Fatal`s on connect). Every other DB test uses `t.Skip` on the same condition.

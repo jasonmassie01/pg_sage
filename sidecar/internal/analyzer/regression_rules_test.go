@@ -9,7 +9,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
-// Regression tests for rule bugs recorded in docs/reviews/2026-09-26.
+// Regression tests for rule bugs recorded in reviews/2026-09-26.
 
 // G2-B04/C01/G1-B08: the collector historically emitted a percent while
 // the rule compared a fraction. Both encodings must be interpreted as the

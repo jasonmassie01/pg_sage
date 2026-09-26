@@ -45,7 +45,7 @@ based on `origin/master` @ `b396595` (v1.5.0).
 
 ## Constraints for review agents
 
-- READ-ONLY on source. Only write your findings file under `docs/reviews/2026-09-26/`.
+- READ-ONLY on source. Only write your findings file under `reviews/2026-09-26/`.
 - You may run `go build`, `go vet`, and **unit** `go test -count=1` for your packages.
   Do not run `-tags=integration`/e2e, do not touch local Postgres/Docker, do not start servers.
 - Hard limits from CLAUDE.md apply to suggested fixes: funcs ≤50 lines, files ≤500 lines,
