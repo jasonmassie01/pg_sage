@@ -7,7 +7,7 @@ import (
 )
 
 func prepareQueryRewriteCandidate(h SourceQueryHint) ActionCandidate {
-	expires := time.Now().UTC().Add(7 * 24 * time.Hour)
+	expires := queryHintEvidenceTime(h).Add(7 * 24 * time.Hour)
 	candidate := ActionCandidate{
 		ActionType:       "prepare_query_rewrite",
 		RiskTier:         "moderate",
@@ -22,7 +22,7 @@ func prepareQueryRewriteCandidate(h SourceQueryHint) ActionCandidate {
 }
 
 func retireQueryHintCandidate(h SourceQueryHint) ActionCandidate {
-	expires := time.Now().UTC().Add(24 * time.Hour)
+	expires := queryHintEvidenceTime(h).Add(24 * time.Hour)
 	return ActionCandidate{
 		ActionType:    "retire_query_hint",
 		RiskTier:      "safe",
