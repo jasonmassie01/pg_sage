@@ -106,18 +106,18 @@ func TestFreezeAdapterRowsAndThresholdDefaults(t *testing.T) {
 	if red != 25 || amber != 50 || custodian.threshold.RedBufferPct != red {
 		t.Fatalf("thresholds = %v/%v custodian=%#v", red, amber, custodian.threshold)
 	}
-	proposal, err := custodian.scanRow(adapterRow{values: []any{
-		"public", "orders", int64(90), int64(100), int64(1), int64(100),
-	}}, 1)
+	proposal, err := custodian.scanResponseRow(adapterRow{values: []any{
+		"public", "orders", int64(90), int64(100), int64(1), int64(100), 0.0,
+	}}, knownRates, nil, false)
 	if err != nil || proposal.SQL == "" || proposal.Deadline == nil {
-		t.Fatalf("scanRow proposal=%#v err=%v", proposal, err)
+		t.Fatalf("scanResponseRow proposal=%#v err=%v", proposal, err)
 	}
 	if proposal.Deadline.HardAt.Before(time.Now()) {
 		t.Fatalf("deadline already expired: %#v", proposal.Deadline)
 	}
-	_, err = custodian.scanRow(adapterRow{values: []any{
-		"", "orders", int64(1), int64(100), int64(1), int64(100),
-	}}, 1)
+	_, err = custodian.scanResponseRow(adapterRow{values: []any{
+		"", "orders", int64(1), int64(100), int64(1), int64(100), 0.0,
+	}}, knownRates, nil, false)
 	if err == nil {
 		t.Fatal("invalid freeze identity was accepted")
 	}

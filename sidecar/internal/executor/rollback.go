@@ -7,25 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/value"
 )
-
-// RollbackMonitor provides rollback monitoring for executed actions.
-type RollbackMonitor struct {
-	pool  *pgxpool.Pool
-	cfg   *config.Config
-	logFn func(string, string, ...any)
-}
-
-// NewRollbackMonitor creates a new RollbackMonitor.
-func NewRollbackMonitor(
-	pool *pgxpool.Pool,
-	cfg *config.Config,
-	logFn func(string, string, ...any),
-) *RollbackMonitor {
-	return &RollbackMonitor{pool: pool, cfg: cfg, logFn: logFn}
-}
 
 // RollbackMonitorConfig configures one post-action monitor. Authorize is
 // required: a nil authorizer withholds every automatic rollback.

@@ -153,32 +153,6 @@ func (c *PostgresFreezeCustodian) pgRepackAvailable(ctx context.Context) (bool, 
 	return available, err
 }
 
-func (c *PostgresFreezeCustodian) scanRow(
-	row interface{ Scan(...any) error }, rate float64,
-) (Proposal, error) {
-	var sample freeze.HorizonSample
-	if err := row.Scan(
-		&sample.Schema, &sample.Table, &sample.XIDAge, &sample.XIDMaxAge,
-		&sample.MultiXactAge, &sample.MultiXactMaxAge,
-	); err != nil {
-		return Proposal{}, fmt.Errorf("scan freeze horizon: %w", err)
-	}
-	sample.Database = c.database
-	sample.XIDsPerSecond, sample.MultiXactsPerSecond = rate, rate
-	assessment, err := freeze.EvaluateHorizon(time.Now(), sample, c.threshold)
-	if err != nil {
-		return Proposal{}, fmt.Errorf("evaluate freeze horizon: %w", err)
-	}
-	if assessment.Proposal.SQL == "" {
-		return Proposal{}, nil
-	}
-	return Proposal{
-		Database: c.database, Feature: "freeze", SQL: assessment.Proposal.SQL,
-		TargetObjects: []string{sample.Schema + "." + sample.Table},
-		Deadline:      freezePolicyDeadline(assessment.Proposal),
-	}, nil
-}
-
 func freezePolicyDeadline(proposal freeze.Proposal) *policy.DeadlineContext {
 	if proposal.Urgency != freeze.UrgencyRed {
 		return nil

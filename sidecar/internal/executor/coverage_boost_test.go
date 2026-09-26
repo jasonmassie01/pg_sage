@@ -16,27 +16,6 @@ import (
 // Pure function tests (no DB required)
 // ---------------------------------------------------------------------------
 
-// TestCoverage_NewRollbackMonitor verifies the RollbackMonitor constructor
-// sets all fields correctly.
-func TestCoverage_NewRollbackMonitor(t *testing.T) {
-	logFn := func(string, string, ...any) {}
-	cfg := &config.Config{}
-
-	rm := NewRollbackMonitor(nil, cfg, logFn)
-	if rm == nil {
-		t.Fatal("NewRollbackMonitor returned nil")
-	}
-	if rm.pool != nil {
-		t.Error("expected pool to be nil")
-	}
-	if rm.cfg != cfg {
-		t.Error("expected cfg to match input")
-	}
-	if rm.logFn == nil {
-		t.Error("expected logFn to be set")
-	}
-}
-
 // TestCoverage_CascadeCooldown_DefaultWhenZero verifies the fallback
 // to 5 minutes when both CascadeCooldownCycles and IntervalSeconds
 // are zero.
