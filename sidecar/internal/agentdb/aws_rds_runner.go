@@ -20,6 +20,8 @@ type RDSCreateInput struct {
 	PubliclyAccessible bool
 	StorageEncrypted   bool
 	DeletionProtection bool
+	MultiAZ            bool
+	EngineVersion      string
 	Tags               map[string]string
 }
 
@@ -28,6 +30,7 @@ type RDSInstance struct {
 	Status     string
 	Endpoint   string
 	SecretARN  string
+	Tags       map[string]string
 }
 
 type AWSRDSClient interface {

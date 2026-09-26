@@ -218,3 +218,9 @@ func (f *fakeCloudSQLClient) GetInstance(
 func (f *fakeCloudSQLClient) DeleteInstance(context.Context, string, string) error {
 	return f.err
 }
+
+func (f *fakeCloudSQLClient) SetDeletionProtection(
+	context.Context, string, string, bool,
+) error {
+	return f.err
+}

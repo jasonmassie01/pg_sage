@@ -31,14 +31,17 @@ type CloudSQLInstance struct {
 	Name             string
 	State            string
 	ConnectionName   string
-	PublicIPAddress  string
-	PrivateIPAddress string
+	PublicIPAddress    string
+	PrivateIPAddress   string
+	Labels             map[string]string
+	DeletionProtection bool
 }
 
 type CloudSQLClient interface {
 	CreateInstance(ctx context.Context, input CloudSQLCreateInput) (CloudSQLInstance, error)
 	GetInstance(ctx context.Context, project string, name string) (CloudSQLInstance, error)
 	DeleteInstance(ctx context.Context, project string, name string) error
+	SetDeletionProtection(ctx context.Context, project, name string, enabled bool) error
 }
 
 type CloudSQLRunner struct {
@@ -318,6 +321,40 @@ func (c CloudSQLHTTPClient) DeleteInstance(
 		"/sql/v1beta4/projects/"+url.PathEscape(project)+
 			"/instances/"+url.PathEscape(name), nil, nil)
 	return err
+}
+
+// SetDeletionProtection patches deletionProtectionEnabled on an instance.
+func (c CloudSQLHTTPClient) SetDeletionProtection(
+	ctx context.Context,
+	project string,
+	name string,
+	enabled bool,
+) error {
+	body := map[string]any{"settings": map[string]any{
+		"deletionProtectionEnabled": enabled,
+	}}
+	_, err := c.do(ctx, http.MethodPatch,
+		"/sql/v1beta4/projects/"+url.PathEscape(project)+
+			"/instances/"+url.PathEscape(name), body, nil)
+	return err
+}
+
+// gcpLabelValue converts an identifier into a valid Cloud SQL label value
+// (lowercase letters, digits, '_' and '-', at most 63 characters).
+func gcpLabelValue(value string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(value) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('_')
+	}
+	out := b.String()
+	if len(out) > 63 {
+		out = out[:63]
+	}
+	return out
 }
 
 func (c CloudSQLHTTPClient) do(
