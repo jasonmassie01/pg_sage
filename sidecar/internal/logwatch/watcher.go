@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
-	"io"
 	"sync"
 	"time"
 
@@ -90,14 +89,25 @@ func (fw *FileWatcher) Drain() []*rca.Signal {
 	lines := fw.tailer.ReadLines()
 
 	var signals []*rca.Signal
+	parseErrors := 0
+	var firstErr error
 	for _, line := range lines {
-		entry, sig, ok := fw.processEvent(line)
-		if ok {
-			fw.publishEntry(entry)
+		entry, sig, err := fw.processEvent(line)
+		if err != nil {
+			parseErrors++
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
 		}
+		fw.publishEntry(entry)
 		if sig != nil {
 			signals = append(signals, sig)
 		}
+	}
+	if parseErrors > 0 {
+		fw.log("warn", "%d log record(s) failed to parse this cycle; first error: %v",
+			parseErrors, firstErr)
 	}
 
 	fw.classifier.ResetCycle()
@@ -114,49 +124,43 @@ func (fw *FileWatcher) Stop() {
 	fw.clearEntryBuffers()
 }
 
-func (fw *FileWatcher) processEvent(
-	line []byte,
-) (LogEntry, *rca.Signal, bool) {
+// processEvent parses one log record and classifies it. A parse error is
+// returned to the caller so dropped records are counted and reported.
+func (fw *FileWatcher) processEvent(line []byte) (LogEntry, *rca.Signal, error) {
 	format := fw.cfg.Format
 	if format == "" {
 		format = "jsonlog"
 	}
 
+	var entry LogEntry
+	var err error
 	switch format {
 	case "jsonlog":
-		entry, err := ParseJSONLogLine(line)
-		return fw.classifyEvent(entry, err)
+		entry, err = ParseJSONLogLine(line)
 	case "csvlog":
-		entry, err := fw.parseCSVLine(line)
-		return fw.classifyEvent(entry, err)
+		entry, err = parseCSVRecord(line)
 	default:
-		return LogEntry{}, nil, false
+		return LogEntry{}, nil, fmt.Errorf("logwatch: unsupported format %q", format)
 	}
-}
-
-func (fw *FileWatcher) classifyEvent(
-	entry LogEntry, err error,
-) (LogEntry, *rca.Signal, bool) {
 	if err != nil {
-		return LogEntry{}, nil, false
+		return LogEntry{}, nil, err
 	}
 	if !ShouldParseLine(entry.ErrorLevel, entry.Message) {
-		return entry, nil, true
+		return entry, nil, nil
 	}
-	return entry, fw.classifier.Classify(entry), true
+	return entry, fw.classifier.Classify(entry), nil
 }
 
-func (fw *FileWatcher) parseCSVLine(line []byte) (LogEntry, error) {
-	reader := csv.NewReader(bytes.NewReader(line))
+// parseCSVRecord parses one complete csvlog record (which may span
+// several physical lines inside quoted fields).
+func parseCSVRecord(record []byte) (LogEntry, error) {
+	reader := csv.NewReader(bytes.NewReader(record))
 	reader.FieldsPerRecord = -1 // variable columns across PG versions
-	record, err := reader.Read()
+	fields, err := reader.Read()
 	if err != nil {
-		if err != io.EOF {
-			fw.log("debug", "csv parse error: %v", err)
-		}
-		return LogEntry{}, err
+		return LogEntry{}, fmt.Errorf("logwatch: csv parse: %w", err)
 	}
-	return ParseCSVLogLine(record)
+	return ParseCSVLogLine(fields)
 }
 
 // log emits a diagnostic message via the configured logFn.

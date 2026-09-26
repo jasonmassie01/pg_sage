@@ -73,8 +73,8 @@ func ParseJSONLogLine(line []byte) (LogEntry, error) {
 }
 
 const (
-	csvMinColumns  = 23 // PG <14
-	csvExtColumns  = 26 // PG14+ (adds backend_type, leader_pid, query_id)
+	csvMinColumns = 23 // PG <14
+	csvExtColumns = 26 // PG14+ (adds backend_type, leader_pid, query_id)
 )
 
 // CSV column indices.
