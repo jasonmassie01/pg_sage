@@ -1,6 +1,7 @@
 package autoexplain
 
 import (
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"context"
 	"os"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 func TestCaptureOnDemand_NormalizedParameterizedQuery(t *testing.T) {
 	pool := requireAuditFixturePool(t)
+	testdb.RequireServerVersion(t, pool, 160000, "EXPLAIN (GENERIC_PLAN)")
 	ctx := context.Background()
 	bootstrapCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()

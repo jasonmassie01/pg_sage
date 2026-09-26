@@ -1,6 +1,7 @@
 package autoexplain
 
 import (
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"context"
 	"strings"
 	"testing"
@@ -30,6 +31,8 @@ func newTestCollector(pool *pgxpool.Pool, avail *Availability) *Collector {
 // false" plan). On PG16+ the generic plan is captured and labeled as such.
 func TestCaptureOnDemand_ParameterizedUsesGenericPlan(t *testing.T) {
 	pool := requireAuditFixturePool(t)
+	// Pre-PG16 behavior is TestCaptureOnDemand_ParameterizedPrePG16NotStored.
+	testdb.RequireServerVersion(t, pool, 160000, "EXPLAIN (GENERIC_PLAN)")
 	bootstrapAuditFixture(t, pool)
 	ctx := context.Background()
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS b09_orders

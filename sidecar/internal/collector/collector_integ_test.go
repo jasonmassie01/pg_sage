@@ -332,6 +332,7 @@ func TestCollectReplication(t *testing.T) {
 
 func TestCollectIO(t *testing.T) {
 	pool := testPool(t)
+	testdb.RequireServerVersion(t, pool, 160000, "pg_stat_io")
 	cfg := testConfig()
 
 	c := New(pool, cfg, 170000, noopLog)

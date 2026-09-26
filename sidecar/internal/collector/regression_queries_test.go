@@ -186,9 +186,19 @@ func TestCollectQueries_BlockReadTimeFromStatements(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		mustExec(t, pool, `SELECT count(*) FROM b16_tmp WHERE pad <> ''`)
 	}
+	// PG17 split blk_read_time into shared_/local_blk_read_time.
+	readTime := "blk_read_time"
+	var version int
+	if err := pool.QueryRow(ctx,
+		"SELECT current_setting('server_version_num')::int").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version >= 170000 {
+		readTime = "shared_blk_read_time + local_blk_read_time"
+	}
 	var want float64
-	err := pool.QueryRow(ctx, `SELECT COALESCE(sum(shared_blk_read_time
-		+ local_blk_read_time), 0) FROM pg_stat_statements
+	err := pool.QueryRow(ctx, `SELECT COALESCE(sum(`+readTime+`), 0)
+		FROM pg_stat_statements
 		WHERE query LIKE '%FROM b16_tmp WHERE pad%'`).Scan(&want)
 	if err != nil {
 		t.Fatalf("read expected block time: %v", err)

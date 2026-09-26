@@ -34,7 +34,7 @@ func TestBloatEstimate_LivePG_DeadTuples(t *testing.T) {
 		count++
 	}
 	if count == 0 {
-		t.Skip("no tables with significant dead tuples")
+		t.Fatal("seeded advisor_fixture dead tuples not reported")
 	}
 }
 

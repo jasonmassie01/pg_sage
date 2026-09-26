@@ -162,8 +162,8 @@ func TestRunChecks_LivePG(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunChecks: %v", err)
 	}
-	if result.PGVersionNum < 150000 {
-		t.Errorf("PGVersionNum = %d, want >= 150000", result.PGVersionNum)
+	if result.PGVersionNum < 140000 {
+		t.Errorf("PGVersionNum = %d, want >= 140000 (oldest supported)", result.PGVersionNum)
 	}
 	// HasPlanTimeColumns depends on whether pg_stat_statements columns
 	// appear in information_schema.columns, which varies by PG install.
