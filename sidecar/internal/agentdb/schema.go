@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -16,10 +17,42 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return NewStoreWithOptions(pool, DefaultStoreOptions())
 }
 
+// agentDBSchemaVersion is bumped whenever schemaStatements change.
+const agentDBSchemaVersion = 2026092601
+
+// schemaReady memoizes successful initialization per pool so request paths
+// (including the unauthenticated agent-ping) never re-run DDL (G8-B16).
+var schemaReady sync.Map
+
+// Ensure initializes the AgentDB schema once per pool per process. A
+// database already at agentDBSchemaVersion skips all DDL (ALTER TABLE ... ADD
+// COLUMN IF NOT EXISTS takes ACCESS EXCLUSIVE locks) and re-seeding.
 func (s *Store) Ensure(ctx context.Context) error {
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("agentdb store unavailable")
 	}
+	if _, ok := schemaReady.Load(s.pool); ok {
+		return nil
+	}
+	if s.schemaCurrent(ctx) {
+		schemaReady.Store(s.pool, struct{}{})
+		return nil
+	}
+	if err := s.initializeSchema(ctx); err != nil {
+		return err
+	}
+	schemaReady.Store(s.pool, struct{}{})
+	return nil
+}
+
+func (s *Store) schemaCurrent(ctx context.Context) bool {
+	var version int
+	err := s.pool.QueryRow(ctx, `/* pg_sage */
+		SELECT version FROM sage.agent_db_schema_version WHERE singleton`).Scan(&version)
+	return err == nil && version == agentDBSchemaVersion
+}
+
+func (s *Store) initializeSchema(ctx context.Context) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return fmt.Errorf("begin agentdb schema initialization: %w", err)
@@ -38,6 +71,12 @@ func (s *Store) Ensure(ctx context.Context) error {
 	}
 	if err := seedDefaultSizeProfiles(ctx, tx); err != nil {
 		return fmt.Errorf("seed agentdb default profiles: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO sage.agent_db_schema_version (singleton, version)
+		VALUES (true, $1)
+		ON CONFLICT (singleton) DO UPDATE SET version=EXCLUDED.version, updated_at=now()`,
+		agentDBSchemaVersion); err != nil {
+		return fmt.Errorf("record agentdb schema version: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit agentdb schema initialization: %w", err)
