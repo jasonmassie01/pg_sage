@@ -118,6 +118,10 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 
 	var err error
 
+	// Read the epoch before the counters: a reset in between leaves the
+	// old epoch on reset counters, which the counter-decrease check and
+	// the next cycle's epoch change both expose.
+	snap.StatsEpoch = c.collectStatementsEpoch(ctx)
 	if snap.Queries, err = c.collectQueries(ctx); err != nil {
 		return nil, err
 	}
@@ -173,14 +177,23 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	// Collect pg_stat_statements.max for capacity monitoring.
 	snap.System.StatStatementsMax = c.collectStatStatementsMax(ctx)
 
-	// Detect pg_stat_statements reset by comparing with previous.
+	c.markStatsReset(snap)
+	return snap, nil
+}
+
+// markStatsReset flags snap when pg_stat_statements was reset since the
+// previous snapshot: the statistics epoch changed (reliable even after
+// counters regrew), or most shared counters fell sharply.
+func (c *Collector) markStatsReset(snap *Snapshot) {
 	c.mu.RLock()
 	prev := c.latest
 	c.mu.RUnlock()
-	if prev != nil && detectStatsReset(snap.Queries, prev.Queries) {
+	if prev == nil {
+		return
+	}
+	if epochChanged(prev.StatsEpoch, snap.StatsEpoch) ||
+		detectStatsReset(snap.Queries, prev.Queries) {
 		snap.StatsReset = true
 		c.logFn("WARN", "pg_stat_statements reset detected")
 	}
-
-	return snap, nil
 }

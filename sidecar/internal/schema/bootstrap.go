@@ -371,6 +371,7 @@ func migrationStatements() []string {
 		ddlFindingsAbsorbsSchemaFindings,
 		ddlFindingsBackfillFromSchemaFindings,
 		ddlFleetScaleIndexes,
+		ddlQueryStoreStatsEpoch,
 	}
 	return append(statements, agentNativeMigrationStatements()...)
 }

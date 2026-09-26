@@ -25,6 +25,7 @@ func (c *Collector) recordQueryStore(ctx context.Context, snap *Snapshot) {
 			TotalExecMs: q.TotalExecTime,
 			MeanExecMs:  q.MeanExecTime,
 			Rows:        q.Rows,
+			StatsEpoch:  snap.StatsEpoch,
 		})
 	}
 	if err := querystore.Record(ctx, c.pool, samples); err != nil {
