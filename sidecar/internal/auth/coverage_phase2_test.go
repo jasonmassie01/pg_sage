@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -93,6 +94,13 @@ func setupPhase2Pool(t *testing.T) *pgxpool.Pool {
 			ADD COLUMN IF NOT EXISTS oauth_provider TEXT DEFAULT '';
 		ALTER TABLE sage.users
 			ALTER COLUMN password DROP NOT NULL;
+		ALTER TABLE sage.users
+			ADD COLUMN IF NOT EXISTS oauth_issuer TEXT;
+		ALTER TABLE sage.users
+			ADD COLUMN IF NOT EXISTS oauth_subject TEXT;
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth_identity
+			ON sage.users (oauth_issuer, oauth_subject)
+			WHERE oauth_issuer IS NOT NULL;
 	`)
 	if err != nil {
 		t.Fatalf("bootstrap DDL failed: %v", err)
@@ -324,7 +332,7 @@ func TestPhase2_Authenticate_OAuthUserNoPassword(t *testing.T) {
 
 	// Create an OAuth user (password is NULL).
 	_, err := FindOrCreateOAuthUser(ctx, pool,
-		"oauth-only@example.com", "github", RoleViewer)
+		legacyTestIdentity("oauth-only@example.com"), "github", RoleViewer)
 	if err != nil {
 		t.Fatalf("FindOrCreateOAuthUser: %v", err)
 	}
@@ -1047,7 +1055,7 @@ func TestPhase2_FindOrCreateOAuthUser_CreatesNew(t *testing.T) {
 	ctx := context.Background()
 
 	user, err := FindOrCreateOAuthUser(ctx, pool,
-		"new-oauth@example.com", "github", RoleViewer)
+		legacyTestIdentity("new-oauth@example.com"), "github", RoleViewer)
 	if err != nil {
 		t.Fatalf("FindOrCreateOAuthUser: %v", err)
 	}
@@ -1084,14 +1092,14 @@ func TestPhase2_FindOrCreateOAuthUser_FindsExisting(t *testing.T) {
 
 	// Create via OAuth first.
 	u1, err := FindOrCreateOAuthUser(ctx, pool,
-		"existing-oauth@example.com", "github", RoleViewer)
+		legacyTestIdentity("existing-oauth@example.com"), "github", RoleViewer)
 	if err != nil {
 		t.Fatalf("first FindOrCreateOAuthUser: %v", err)
 	}
 
 	// Find the same user.
 	u2, err := FindOrCreateOAuthUser(ctx, pool,
-		"existing-oauth@example.com", "github", RoleAdmin)
+		legacyTestIdentity("existing-oauth@example.com"), "github", RoleAdmin)
 	if err != nil {
 		t.Fatalf("second FindOrCreateOAuthUser: %v", err)
 	}
@@ -1111,7 +1119,7 @@ func TestPhase2_FindOrCreateOAuthUser_DefaultRoleEmpty(t *testing.T) {
 
 	// Empty defaultRole should default to "viewer".
 	user, err := FindOrCreateOAuthUser(ctx, pool,
-		"default-role@example.com", "google", "")
+		legacyTestIdentity("default-role@example.com"), "google", "")
 	if err != nil {
 		t.Fatalf("FindOrCreateOAuthUser: %v", err)
 	}
@@ -1125,7 +1133,7 @@ func TestPhase2_FindOrCreateOAuthUser_InvalidRole(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := FindOrCreateOAuthUser(ctx, pool,
-		"invalid-role-oauth@example.com", "github", "superadmin")
+		legacyTestIdentity("invalid-role-oauth@example.com"), "github", "superadmin")
 	if err == nil {
 		t.Fatal("expected error for invalid default role")
 	}
@@ -1145,15 +1153,15 @@ func TestPhase2_FindOrCreateOAuthUser_FindsPasswordUser(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	// FindOrCreate with same email should return the existing user.
+	// SURF-02: an OAuth login must not inherit a password account (here
+	// an admin) by email alone; explicit linking is required.
 	user, err := FindOrCreateOAuthUser(ctx, pool,
-		"pw-user@example.com", "google", RoleViewer)
-	if err != nil {
-		t.Fatalf("FindOrCreateOAuthUser: %v", err)
+		legacyTestIdentity("pw-user@example.com"), "google", RoleViewer)
+	if !errors.Is(err, ErrOAuthLinkRequired) {
+		t.Fatalf("err = %v, want %v", err, ErrOAuthLinkRequired)
 	}
-	if user.Role != RoleAdmin {
-		t.Errorf("Role = %q, want %q (original role preserved)",
-			user.Role, RoleAdmin)
+	if user != nil {
+		t.Errorf("user = %+v, want nil", user)
 	}
 }
 
@@ -1353,7 +1361,7 @@ func TestPhase2_FullWorkflow_BootstrapAuthSession(t *testing.T) {
 
 	// 5. Create second user via OAuth.
 	oauthUser, err := FindOrCreateOAuthUser(ctx, pool,
-		"dev@corp.com", "google", RoleOperator)
+		legacyTestIdentity("dev@corp.com"), "google", RoleOperator)
 	if err != nil {
 		t.Fatalf("FindOrCreateOAuthUser: %v", err)
 	}
@@ -1410,5 +1418,15 @@ func TestPhase2_FullWorkflow_BootstrapAuthSession(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected 1 user, got %d", count)
+	}
+}
+
+// legacyTestIdentity wraps an email in a verified identity whose
+// subject is derived from the email, so repeated logins with the same
+// email resolve to the same issuer+subject (G6-B04).
+func legacyTestIdentity(email string) Identity {
+	return Identity{
+		Issuer: "https://idp.test", Subject: "sub:" + email,
+		Email: email, EmailVerified: true,
 	}
 }

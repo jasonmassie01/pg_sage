@@ -659,6 +659,14 @@ ALTER TABLE sage.users
     ADD COLUMN IF NOT EXISTS oauth_provider TEXT DEFAULT '';
 ALTER TABLE sage.users
     ALTER COLUMN password DROP NOT NULL;
+-- OIDC identities are keyed on issuer+subject (G6-B04 / SURF-02).
+ALTER TABLE sage.users
+    ADD COLUMN IF NOT EXISTS oauth_issuer TEXT;
+ALTER TABLE sage.users
+    ADD COLUMN IF NOT EXISTS oauth_subject TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth_identity
+    ON sage.users (oauth_issuer, oauth_subject)
+    WHERE oauth_issuer IS NOT NULL;
 `
 
 const ddlQueryHintsRewrite = `

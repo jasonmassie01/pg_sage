@@ -344,50 +344,6 @@ func countAdminsTx(ctx context.Context, tx pgx.Tx) (int, error) {
 	return count, nil
 }
 
-// FindOrCreateOAuthUser looks up a user by email. If not found,
-// creates one with the given provider and default role.
-func FindOrCreateOAuthUser(
-	ctx context.Context, pool *pgxpool.Pool,
-	email, provider, defaultRole string,
-) (*User, error) {
-	if defaultRole == "" {
-		defaultRole = RoleViewer
-	}
-	if !IsValidRole(defaultRole) {
-		return nil, fmt.Errorf("invalid default role: %q", defaultRole)
-	}
-
-	var u User
-	err := pool.QueryRow(ctx,
-		"SELECT id, email, role, created_at, last_login "+
-			"FROM sage.users WHERE email = $1",
-		email,
-	).Scan(&u.ID, &u.Email, &u.Role,
-		&u.CreatedAt, &u.LastLogin)
-	if err == nil {
-		_, _ = pool.Exec(ctx,
-			"UPDATE sage.users SET last_login = now() WHERE id = $1",
-			u.ID,
-		)
-		return &u, nil
-	}
-	if err != pgx.ErrNoRows {
-		return nil, fmt.Errorf("querying oauth user: %w", err)
-	}
-
-	err = pool.QueryRow(ctx,
-		"INSERT INTO sage.users (email, role, oauth_provider) "+
-			"VALUES ($1, $2, $3) RETURNING id, created_at",
-		email, defaultRole, provider,
-	).Scan(&u.ID, &u.CreatedAt)
-	if err != nil {
-		return nil, fmt.Errorf("creating oauth user: %w", err)
-	}
-	u.Email = email
-	u.Role = defaultRole
-	return &u, nil
-}
-
 // GetUserByID returns a user by ID (no password).
 func GetUserByID(
 	ctx context.Context, pool *pgxpool.Pool, userID int,
