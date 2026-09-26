@@ -235,6 +235,12 @@ func main() {
 	} else if cfg.IsFleet() {
 		initFleetMultiDB()
 	}
+	// Every mode needs a controller: the config watcher and API writes go
+	// through it (extension mode used to leave it nil, G5-B02).
+	if err := ensureConfigController(); err != nil {
+		logError("startup", "config controller: %v", err)
+		os.Exit(1)
+	}
 
 	// Construct the API rate limiter before initFleetAndAPI captures its
 	// dependencies and starts the HTTP server.
@@ -246,45 +252,7 @@ func main() {
 	// Config hot-reload.
 	if cfg.ConfigPath != "" {
 		watcher := config.NewAcknowledgedWatcherWithLoader(
-			cfg.ConfigPath, cfg,
-			loadConfigCandidate,
-			func(updated *config.Config) error {
-				desired := configController.Desired()
-				var result config.ApplyResult
-				var applyErr error
-				controlPool := configControlPool()
-				if controlPool == nil {
-					result, applyErr = configController.Apply(
-						shutdownCtx, desired.Generation, updated,
-					)
-				} else {
-					configStore := store.NewConfigStore(controlPool)
-					result, applyErr = configController.ApplyWithPersistence(
-						shutdownCtx, desired.Generation, updated,
-						func(ctx context.Context, snapshot config.ConfigSnapshot) error {
-							generation, err := configStore.SetOverridesCAS(
-								ctx, nil, 0, 0, desired.Generation,
-							)
-							if err == nil && generation != snapshot.Generation {
-								return fmt.Errorf(
-									"durable generation %d, controller %d",
-									generation, snapshot.Generation,
-								)
-							}
-							return err
-						},
-					)
-				}
-				if applyErr != nil {
-					return applyErr
-				}
-				logInfo("config",
-					"hot-reload desired=%d active=%d pending_restart=%d",
-					result.DesiredGeneration, result.ActiveGeneration,
-					len(result.PendingRestart),
-				)
-				return nil
-			},
+			cfg.ConfigPath, cfg, loadConfigCandidate, applyWatchedConfig,
 		)
 		if err := watcher.Start(); err != nil {
 			logWarn("config", "hot-reload disabled: %v", err)
@@ -374,6 +342,51 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 			return fleetMgr
 		}},
 	)
+	return nil
+}
+
+// ensureConfigController builds the controller for modes whose
+// initialization did not (extension). It never replaces a live controller.
+func ensureConfigController() error {
+	if configController != nil {
+		return nil
+	}
+	return initializeConfigController(configControlPool())
+}
+
+// applyWatchedConfig publishes a reloaded config.yaml candidate through the
+// controller, persisting the generation when a control database exists.
+func applyWatchedConfig(updated *config.Config) error {
+	desired := configController.Desired()
+	var result config.ApplyResult
+	var applyErr error
+	controlPool := configControlPool()
+	if controlPool == nil {
+		result, applyErr = configController.Apply(
+			shutdownCtx, desired.Generation, updated,
+		)
+	} else {
+		configStore := store.NewConfigStore(controlPool)
+		result, applyErr = configController.ApplyWithPersistence(
+			shutdownCtx, desired.Generation, updated,
+			func(ctx context.Context, snapshot config.ConfigSnapshot) error {
+				generation, err := configStore.SetOverridesCAS(
+					ctx, nil, 0, 0, desired.Generation,
+				)
+				if err == nil && generation != snapshot.Generation {
+					return fmt.Errorf("durable generation %d, controller %d",
+						generation, snapshot.Generation)
+				}
+				return err
+			},
+		)
+	}
+	if applyErr != nil {
+		return applyErr
+	}
+	logInfo("config", "hot-reload desired=%d active=%d pending_restart=%d",
+		result.DesiredGeneration, result.ActiveGeneration,
+		len(result.PendingRestart))
 	return nil
 }
 
