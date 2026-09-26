@@ -961,14 +961,14 @@ func TestRollbackActionHandler_StateTransitions(t *testing.T) {
 	}
 
 	alreadyID := insertActionLogForRollback(t, pool, ctx,
-		stringPtr("SET work_mem = '4MB'"), "rolled_back")
+		stringPtr("ANALYZE"), "rolled_back")
 	w = rollbackRequest(t, mux, alreadyID, `{"reason":"x"}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("already rolled back status: got %d, want 400", w.Code)
 	}
 
 	successID := insertActionLogForRollback(t, pool, ctx,
-		stringPtr("SET work_mem = '4MB'"), "success")
+		stringPtr("ANALYZE"), "success")
 	w = rollbackRequest(t, mux, successID, `{"reason":"   "}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("success status: got %d, body %s",
