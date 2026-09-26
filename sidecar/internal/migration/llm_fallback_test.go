@@ -118,49 +118,6 @@ func TestParseDDLLLMResponse_EmptyInput(t *testing.T) {
 	}
 }
 
-func TestStripToJSONObject_Plain(t *testing.T) {
-	input := `{"key": "value"}`
-	got := stripToJSONObject(input)
-	if got != input {
-		t.Errorf("got %q, want %q", got, input)
-	}
-}
-
-func TestStripToJSONObject_MarkdownFences(t *testing.T) {
-	input := "```json\n{\"key\": \"value\"}\n```"
-	want := `{"key": "value"}`
-	got := stripToJSONObject(input)
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestStripToJSONObject_Preamble(t *testing.T) {
-	input := "Here is the result:\n{\"key\": \"value\"}\nDone."
-	want := `{"key": "value"}`
-	got := stripToJSONObject(input)
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestStripToJSONObject_NoJSON(t *testing.T) {
-	input := "no json here"
-	got := stripToJSONObject(input)
-	if got != input {
-		t.Errorf("got %q, want %q (should return input unchanged)",
-			got, input)
-	}
-}
-
-func TestStripToJSONObject_NestedBraces(t *testing.T) {
-	input := `{"outer": {"inner": "val"}}`
-	got := stripToJSONObject(input)
-	if got != input {
-		t.Errorf("got %q, want %q", got, input)
-	}
-}
-
 func TestBuildDDLSystemPrompt_NonEmpty(t *testing.T) {
 	prompt := buildDDLSystemPrompt()
 	if prompt == "" {

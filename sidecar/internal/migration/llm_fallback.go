@@ -141,10 +141,3 @@ func parseDDLLLMResponse(raw string) (*llmDDLResponse, error) {
 	}
 	return &resp, nil
 }
-
-// stripToJSONObject extracts a JSON object from text that may
-// contain markdown fences or thinking tokens. Delegates to the
-// canonical llm.StripJSON implementation.
-func stripToJSONObject(s string) string {
-	return llm.StripJSON(s, llm.JSONObject)
-}

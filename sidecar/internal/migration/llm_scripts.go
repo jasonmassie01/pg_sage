@@ -310,11 +310,7 @@ func extractSQLFromResponse(raw string) string {
 		return extractFromFences(s)
 	}
 
-	// No fences — treat the entire response as SQL if it looks like
-	// it contains SQL statements.
-	if looksLikeSQL(s) {
-		return s
-	}
+	// No fences: the entire response is treated as the script.
 	return s
 }
 
@@ -339,21 +335,4 @@ func extractFromFences(s string) string {
 	}
 
 	return strings.TrimSpace(afterFence)
-}
-
-// looksLikeSQL returns true if the text contains common SQL keywords
-// suggesting it is executable SQL.
-func looksLikeSQL(s string) bool {
-	upper := strings.ToUpper(s)
-	keywords := []string{
-		"BEGIN", "SET ", "ALTER ", "CREATE ", "DROP ",
-		"INSERT ", "UPDATE ", "DELETE ", "SELECT ",
-		"COMMIT", "ROLLBACK",
-	}
-	for _, kw := range keywords {
-		if strings.Contains(upper, kw) {
-			return true
-		}
-	}
-	return false
 }
