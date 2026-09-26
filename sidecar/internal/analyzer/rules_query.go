@@ -71,6 +71,11 @@ func ruleHighPlanTime(
 		if q.MeanPlanTime <= 0 || q.Calls < 100 {
 			continue
 		}
+		// A zero mean execution time gives no ratio to measure: dividing
+		// by it yields +Inf, which cannot be persisted as JSON detail.
+		if q.MeanExecTime <= 0 {
+			continue
+		}
 		if q.MeanPlanTime <= q.MeanExecTime {
 			continue
 		}

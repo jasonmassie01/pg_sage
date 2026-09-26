@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -88,7 +89,8 @@ func upsertOne(
 	}
 	detailJSON, err := json.Marshal(f.Detail)
 	if err != nil {
-		return outcomeSkipped, err
+		return outcomeSkipped, fmt.Errorf("marshal detail of %s finding %s: %w",
+			f.Category, f.ObjectIdentifier, err)
 	}
 	var existingID, existingSeverity string
 	err = pool.QueryRow(ctx,
