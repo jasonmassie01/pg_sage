@@ -44,7 +44,8 @@ describe('Dashboard recent recommendations', () => {
 
   it('requests findings ordered by recency', () => {
     render(<Dashboard database="prod db" onSelectDB={vi.fn()} />)
-    const findingsURL = urls.find(u => u.startsWith('/api/v1/findings'))
+    const findingsURL = urls.filter(u => u.startsWith('/api/v1/findings'))
+      .at(-1)
     expect(findingsURL).toContain('sort=last_seen')
     expect(findingsURL).toContain('order=desc')
     expect(findingsURL).toContain('database=prod%20db')
