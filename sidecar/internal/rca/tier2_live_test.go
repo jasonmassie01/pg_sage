@@ -16,6 +16,11 @@ import (
 //
 // Run: GEMINI_API_KEY=your-key go test -count=1 -v -run TestTier2Live ./internal/rca/
 func TestTier2Live_RealGemini(t *testing.T) {
+	// Live model calls consume provider quota; an exported API key alone
+	// must not make every `go test ./...` hit the provider.
+	if os.Getenv("PG_SAGE_LIVE_LLM") != "1" {
+		t.Skip("set PG_SAGE_LIVE_LLM=1 and GEMINI_API_KEY to run live LLM tests")
+	}
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
 		t.Skip("GEMINI_API_KEY not set; skipping live LLM test")
