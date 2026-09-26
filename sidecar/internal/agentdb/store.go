@@ -96,14 +96,19 @@ func (s *Store) SetRequestDecision(
 			policy_decision=$3,
 			policy_reasons=$4::jsonb,
 			updated_at=now()
-		WHERE request_id=$1`,
+		WHERE request_id=$1
+			AND NOT ($2='approved' AND policy_decision='deny')`,
 		id, status, policy, jsonBytes(map[string]any{"reason": req.Reason}),
 	)
 	if err != nil {
 		return Request{}, err
 	}
 	if tag.RowsAffected() == 0 {
-		return Request{}, ErrNotFound
+		// A policy deny is terminal for operators (G8-B10).
+		if _, getErr := s.GetRequest(ctx, id); getErr != nil {
+			return Request{}, getErr
+		}
+		return Request{}, ErrConflict
 	}
 	return s.GetRequest(ctx, id)
 }
