@@ -568,9 +568,7 @@ func initStandalone() {
 	if cfg.LLM.Optimizer.Enabled {
 		optClient := llmClient
 		if cfg.LLM.OptimizerLLM.Enabled {
-			optClient = llm.NewOptimizerClient(
-				&cfg.LLM, &cfg.LLM.OptimizerLLM, logStructuredWrapper,
-			)
+			optClient = llmClients.newClient(llmRoleOptimizer, "", true)
 			logInfo("startup", "optimizer using dedicated LLM model")
 		}
 		if optClient.IsEnabled() {
@@ -1350,20 +1348,18 @@ func initFleetMultiDB() {
 			fcIface = fc
 		}
 
-		// Every LLM consumer for this database shares the same scoped budget.
-		dbLLMClient := llm.New(&cfg.LLM, logStructuredWrapper)
-		if fleetLLMBudget != nil {
-			dbLLMClient.SetBudget(dbBudget{b: fleetLLMBudget, db: name})
-		}
-		dbOptimizerClient := newFleetOptimizerClient(name, dbLLMClient)
-		dbLLMManager := llm.NewManager(
-			dbLLMClient, dbOptimizerClient,
-			cfg.LLM.OptimizerLLM.FallbackToGeneral,
+		// Every LLM consumer for this database shares the same scoped budget
+		// and honours databases[].llm_enabled (G5-B07).
+		dbLLMOn := llmClient.IsEnabled() && dbCfg.IsLLMEnabled()
+		dbLLMClient, dbLLMManager := newFleetDBLLMClients(
+			name, dbCfg.IsLLMEnabled(),
 		)
+		releaseLLMClientsOnDone(instCtx, dbLLMManager)
+		dbOptimizerClient := dbLLMManager.ForPurpose("index_optimization")
 
 		// Per-database optimizer.
 		var dbOpt *optimizer.Optimizer
-		if cfg.LLM.Optimizer.Enabled && llmClient.IsEnabled() {
+		if cfg.LLM.Optimizer.Enabled && dbLLMOn {
 			optClient := dbOptimizerClient
 			var fallback *llm.Client
 			if cfg.LLM.OptimizerLLM.FallbackToGeneral &&
@@ -1385,7 +1381,7 @@ func initFleetMultiDB() {
 
 		// Per-database advisor.
 		var dbAdvIface analyzer.ConfigAdvisor
-		if cfg.Advisor.Enabled && llmClient.IsEnabled() {
+		if cfg.Advisor.Enabled && dbLLMOn {
 			dbAdv := advisor.New(
 				dbPool, cfg, dbColl, dbLLMManager,
 				logStructuredWrapper,
@@ -1479,7 +1475,7 @@ func initFleetMultiDB() {
 
 		// Per-database briefing worker.
 		var dbBrief *briefing.Worker
-		if llmClient.IsEnabled() {
+		if dbLLMOn {
 			dbBrief = briefing.New(
 				dbPool, cfg, dbLLMClient,
 				logStructuredWrapper,
@@ -1509,7 +1505,7 @@ func initFleetMultiDB() {
 		if cfg.RCA.Enabled {
 			dbRCAEng = rca.NewEngine(
 				&cfg.RCA, logStructuredWrapper)
-			if llmClient.IsEnabled() {
+			if dbLLMOn {
 				dbRCAEng.WithLLM(dbLLMClient)
 			}
 			// v0.9.1: fleet-mode logwatch via per-cluster fanout.
@@ -1520,7 +1516,21 @@ func initFleetMultiDB() {
 			dbAnal.WithRCAEngine(&rcaAdapter{e: dbRCAEng})
 		}
 
+		// Notifications read rules from the control (primary/auth) pool,
+		// and the analyzer is configured before its goroutine starts
+		// (G5-B10, G7-B05, G2-B15).
+		dbDispatcher := sharedNotifyDispatcher(configPool)
+		dbAnal.WithDispatcher(dbDispatcher)
+		dbAnal.WithDatabaseName(name)
+		if dbLLMOn {
+			dbAnal.WithPlanNarrator(analyzer.NewLLMPlanNarrator(
+				dbLLMClient, logStructuredWrapper,
+			))
+		}
 		startInstanceWorker(instWorkers, func() { dbAnal.Run(instCtx) })
+		if alerts := newInstanceAlertManager(dbPool); alerts != nil {
+			startInstanceWorker(instWorkers, func() { alerts.Run(instCtx) })
+		}
 
 		// Per-database executor. Pass the YAML-parsed configRampStart
 		// so the first-time bootstrap of each database's sage.config
@@ -1563,21 +1573,10 @@ func initFleetMultiDB() {
 			dbRCAEng.WithActionStore(dbActionStore)
 		}
 
-		// Notification dispatcher per database.
-		dbDispatcher := notify.NewDispatcher(
-			dbPool, logStructuredWrapper)
-		registerNotifySenders(dbDispatcher)
 		dbExec.WithDispatcher(dbDispatcher)
 		dbExec.WithDatabaseName(name)
-		if llmClient != nil && llmClient.IsEnabled() {
+		if dbLLMOn {
 			dbExec.WithJustifier(dbLLMClient)
-		}
-		dbAnal.WithDispatcher(dbDispatcher)
-		dbAnal.WithDatabaseName(name)
-		if llmClient != nil && llmClient.IsEnabled() {
-			dbAnal.WithPlanNarrator(analyzer.NewLLMPlanNarrator(
-				dbLLMClient, logStructuredWrapper,
-			))
 		}
 
 		startInstanceWorker(instWorkers, func() {
@@ -1589,10 +1588,10 @@ func initFleetMultiDB() {
 		if cfg.SchemaLint.Enabled {
 			dbLint := lint.NewRunner(
 				dbPool, &cfg.SchemaLint,
-				cfg.PGVersionNum, name,
+				dbPGVersion, name,
 				logStructuredWrapper,
 			)
-			if llmClient != nil && llmClient.IsEnabled() {
+			if dbLLMOn {
 				dbLint.SetLLMClient(dbLLMClient)
 			}
 			startInstanceWorker(instWorkers, func() { dbLint.Run(instCtx) })
@@ -1913,15 +1912,8 @@ func buildFleetLLMFeatures(
 	if llmClient == nil || !llmClient.IsEnabled() {
 		return nil, nil, nil, nil, nil, nil
 	}
-	dbClient := llm.New(&cfg.LLM, logStructuredWrapper)
-	if fleetLLMBudget != nil {
-		dbClient.SetBudget(dbBudget{b: fleetLLMBudget, db: databaseName})
-	}
-	managerOptimizer := newFleetOptimizerClient(databaseName, dbClient)
-	dbLLMMgr := llm.NewManager(
-		dbClient, managerOptimizer,
-		cfg.LLM.OptimizerLLM.FallbackToGeneral,
-	)
+	dbClient, dbLLMMgr := newFleetDBLLMClients(databaseName, true)
+	managerOptimizer := dbLLMMgr.ForPurpose("index_optimization")
 
 	dbOpt := newFleetOptimizer(
 		dbPool, dbPGVersion, dbClient, managerOptimizer,
@@ -2135,19 +2127,27 @@ func reconcileAgentDBsOnce(
 	}
 }
 
-// resetFleetBudgetDaily resets the per-database LLM token budget every
-// 24h so allocations refresh (F5).
+// resetFleetBudgetDaily resets the per-database LLM token budget at each
+// UTC midnight (F5). A 24h ticker drifted with process start time.
 func resetFleetBudgetDaily(ctx context.Context, b *fleet.FleetBudget) {
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
 	for {
+		timer := time.NewTimer(durationUntilNextUTCMidnight(time.Now()))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			b.ResetDaily()
 		}
 	}
+}
+
+// durationUntilNextUTCMidnight is strictly positive: at exactly midnight the
+// next reset is 24h away.
+func durationUntilNextUTCMidnight(now time.Time) time.Duration {
+	utc := now.UTC()
+	next := time.Date(utc.Year(), utc.Month(), utc.Day()+1, 0, 0, 0, 0, time.UTC)
+	return next.Sub(utc)
 }
 
 func updateFleetStatus(ctx context.Context) {
@@ -2202,6 +2202,30 @@ func updateInstanceFindings(
 		s.FindingsInfo = info
 		s.AnalyzerLastRun = now
 		s.LastSeen = now
+		s.Connected = true
+		s.Error = ""
+		if fleetLLMBudget != nil {
+			s.LLMTokensUsed = fleetLLMBudget.Used(inst.Name)
+		}
+	})
+}
+
+// markInstanceConnectivity distinguishes a down database from a query
+// error: only a failed ping flips the instance to disconnected, so a
+// missing table does not trigger meta-mode reconnect churn (G5-B12).
+func markInstanceConnectivity(
+	ctx context.Context, inst *fleet.DatabaseInstance, dbPool *pgxpool.Pool,
+) {
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	pingErr := dbPool.Ping(pingCtx)
+	if pingErr == nil {
+		return
+	}
+	logWarn("fleet", "db %q: unreachable: %v", inst.Name, pingErr)
+	inst.UpdateStatus(func(s *fleet.InstanceStatus) {
+		s.Connected = false
+		s.Error = fmt.Sprintf("unreachable: %v", pingErr)
 	})
 }
 
@@ -2286,6 +2310,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	if cfg.Mode == "fleet" && fleetMgr != nil {
 		writeFleetMetrics(&b)
 	}
+	writeFleetBudgetMetrics(&b, fleetLLMBudget)
 
 	// Database metrics (only when global pool exists).
 	if pool != nil {

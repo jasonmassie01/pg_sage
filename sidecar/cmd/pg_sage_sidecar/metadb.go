@@ -426,14 +426,15 @@ func buildStoreDatabaseRuntime(
 	instWorkers := &sync.WaitGroup{}
 
 	dbColl := collector.New(
-		dbPool, cfg, dbPGVersion, logStructuredWrapper,
+		dbPool, dbRuntimeCfg, dbPGVersion, logStructuredWrapper,
 	)
 	startInstanceWorker(instWorkers, func() { dbColl.Run(instCtx) })
 
 	// LLM features for meta-db registered databases.
-	dbOpt, dbAdvIface, dbTuner, dbBrief, dbLLMClient, _ :=
+	dbOpt, dbAdvIface, dbTuner, dbBrief, dbLLMClient, dbLLMMgr :=
 		buildFleetLLMFeatures(dbPool, dbPGVersion, dbColl,
 			rec.Name)
+	releaseLLMClientsOnDone(instCtx, dbLLMMgr)
 
 	// dbTuner is a *tuner.Tuner which may be nil when cfg.Tuner.Enabled
 	// is false. Passing the typed nil directly produces a non-nil
