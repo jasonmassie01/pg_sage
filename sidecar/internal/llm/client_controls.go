@@ -136,11 +136,23 @@ func (c *Client) acquireThrottle(key string, cooldownSeconds int) error {
 		return fmt.Errorf("%w for work item", ErrRequestCooldown)
 	}
 	cooldown := time.Duration(cooldownSeconds) * time.Second
+	c.evictExpiredThrottleLocked(cooldown)
 	if last := c.lastCalls[key]; !last.IsZero() && time.Since(last) < cooldown {
 		return fmt.Errorf("%w for work item", ErrRequestCooldown)
 	}
 	c.activeKeys[key] = struct{}{}
 	return nil
+}
+
+// evictExpiredThrottleLocked drops per-prompt entries whose cooldown has
+// elapsed so the map does not grow with every distinct prompt (G3-B22).
+// Caller holds throttleMu.
+func (c *Client) evictExpiredThrottleLocked(cooldown time.Duration) {
+	for k, last := range c.lastCalls {
+		if time.Since(last) >= cooldown {
+			delete(c.lastCalls, k)
+		}
+	}
 }
 
 func (c *Client) releaseThrottle(key string, success bool) {
@@ -155,13 +167,48 @@ func (c *Client) releaseThrottle(key string, success bool) {
 	}
 }
 
+// budgetDay identifies the UTC calendar day of t as days since the Unix
+// epoch, so budgets reset at UTC midnight and never collide across years
+// (G3-B25).
+func budgetDay(t time.Time) int64 {
+	return t.UTC().Unix() / 86400
+}
+
+// completionReserve bounds the completion tokens reserved against an
+// external (per-database) budget before the call; the reservation is
+// reconciled to actual usage afterwards (G3-B19).
+const completionReserve = 1024
+
+// estimateTokens approximates token usage at ~4 characters per token.
+func estimateTokens(parts ...string) int {
+	n := 0
+	for _, p := range parts {
+		n += len(p)
+	}
+	return n/4 + 1
+}
+
+// externalReservation is the admission estimate for an external budget:
+// the prompt plus a bounded completion reserve, never more than the
+// request's max_tokens. Reserving the full max_tokens (+16384 for
+// reasoning models) made per-database allocations smaller than one
+// reservation reject every call (G3-B19).
+func externalReservation(system, user string, maxTokens int) int {
+	estimate := estimateTokens(system, user) + completionReserve
+	if maxTokens > 0 && estimate > maxTokens {
+		return maxTokens
+	}
+	return estimate
+}
+
 func (c *Client) reserveBudget(
 	cfg config.LLMConfig,
 	tokens int,
+	external int,
 ) (budgetReservation, error) {
 	c.budgetMu.Lock()
 	defer c.budgetMu.Unlock()
-	today := int64(time.Now().YearDay())
+	today := budgetDay(time.Now())
 	if today != c.budgetResetDay.Load() {
 		c.tokensUsedToday.Store(0)
 		c.reservedTokens = 0
@@ -184,7 +231,7 @@ func (c *Client) reserveBudget(
 	reservation := budgetReservation{tokens: tokens}
 	if c.budget != nil {
 		externalBudgetMu.Lock()
-		if !c.budget.CanSpend(tokens) {
+		if !c.budget.CanSpend(external) {
 			externalBudgetMu.Unlock()
 			c.reservedTokens -= int64(tokens)
 			return budgetReservation{}, fmt.Errorf(
@@ -193,9 +240,9 @@ func (c *Client) reserveBudget(
 		}
 		// Charge the estimate as a reservation before provider I/O. A failed
 		// request releases it; a completed request reconciles it to actual use.
-		c.budget.Spend(tokens)
+		c.budget.Spend(external)
 		externalBudgetMu.Unlock()
-		reservation.external = tokens
+		reservation.external = external
 	}
 	return reservation, nil
 }

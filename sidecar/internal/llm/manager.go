@@ -82,10 +82,10 @@ func (m *Manager) ResetBudgets() {
 }
 
 func clientStatus(c *Client) ClientStatus {
-	now := time.Now()
+	// Budgets reset at UTC midnight (see budgetDay).
+	now := time.Now().UTC()
 	tomorrow := time.Date(
-		now.Year(), now.Month(), now.Day()+1,
-		0, 0, 0, 0, now.Location(),
+		now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC,
 	)
 	return ClientStatus{
 		Model:          c.Model(),
