@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -569,8 +571,9 @@ func TestQueryIncidentByID_AndResolve(t *testing.T) {
 	}
 
 	// Resolve it.
-	if err := resolveIncident(ctx, pool, id, "fixed"); err != nil {
-		t.Fatalf("resolveIncident: %v", err)
+	if err := rca.ResolveIncident(
+		ctx, pool, id, "user:test", "fixed"); err != nil {
+		t.Fatalf("ResolveIncident: %v", err)
 	}
 
 	// Verify it's resolved.
@@ -585,8 +588,10 @@ func TestQueryIncidentByID_AndResolve(t *testing.T) {
 	}
 
 	// Second resolve should error (already resolved).
-	if err := resolveIncident(ctx, pool, id, "again"); err == nil {
-		t.Error("second resolve should fail")
+	err = rca.ResolveIncident(ctx, pool, id, "user:test", "again")
+	if !errors.Is(err, rca.ErrIncidentAlreadyResolved) {
+		t.Errorf("second resolve: got %v, want ErrIncidentAlreadyResolved",
+			err)
 	}
 }
 
@@ -604,14 +609,10 @@ func TestQueryIncidentByID_NotFound(t *testing.T) {
 func TestResolveIncident_NotFound(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 
-	err := resolveIncident(ctx, pool,
-		"00000000-0000-0000-0000-000000000000", "reason")
-	if err == nil {
-		t.Error("expected error resolving nonexistent incident")
-	}
-	if !strings.Contains(err.Error(),
-		"not found or already resolved") {
-		t.Errorf("error message: got %v", err)
+	err := rca.ResolveIncident(ctx, pool,
+		"00000000-0000-0000-0000-000000000000", "user:test", "reason")
+	if !errors.Is(err, rca.ErrIncidentNotFound) {
+		t.Errorf("got %v, want ErrIncidentNotFound", err)
 	}
 }
 
