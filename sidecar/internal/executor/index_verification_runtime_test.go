@@ -100,3 +100,22 @@ func TestVerifiedActionForFindingRequiresEvidenceAndRollback(t *testing.T) {
 		})
 	}
 }
+
+// C05: optimizer finding identities are "schema.table|<index def>"; the
+// verification watch must measure the table, not the identity string.
+func TestVerifiedActionForFinding_OptimizerIdentityUsesTable(t *testing.T) {
+	f := analyzer.Finding{
+		ObjectIdentifier: "public.orders|btree(status)",
+		RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_s ON public.orders (status)",
+		RollbackSQL:      `DROP INDEX CONCURRENTLY IF EXISTS "public"."idx_s"`,
+		Detail:           map[string]any{"queryids": []int64{7}},
+	}
+	action, err := verifiedActionForFinding(f)
+	if err != nil {
+		t.Fatalf("verifiedActionForFinding: %v", err)
+	}
+	if action.Table != "public.orders" || action.IndexName != "idx_s" {
+		t.Errorf("table/index = %q/%q, want public.orders/idx_s",
+			action.Table, action.IndexName)
+	}
+}

@@ -1,6 +1,8 @@
 package optimizer
 
 import (
+	"errors"
+	"github.com/pg-sage/sidecar/internal/llm"
 	"strings"
 	"testing"
 )
@@ -12,10 +14,12 @@ func TestParseRecommendations_InvalidJSON(t *testing.T) {
 	}
 }
 
+// json_object mode answers an array prompt with {} for "nothing to
+// recommend" (G3-B09); it is an empty result, not a parse error.
 func TestParseRecommendations_JSONObject(t *testing.T) {
-	_, err := parseRecommendations(`{}`)
-	if err == nil {
-		t.Fatal("expected error for JSON object instead of array")
+	recs, err := parseRecommendations(`{}`)
+	if err != nil || len(recs) != 0 {
+		t.Fatalf("recs=%v err=%v, want empty and nil", recs, err)
 	}
 }
 
@@ -77,10 +81,11 @@ func TestParseRecommendations_NestedJSONFence(t *testing.T) {
 	}
 }
 
+// Blank output is ErrEmptyResponse (G3-B10), not an empty result.
 func TestParseRecommendations_WhitespaceOnly(t *testing.T) {
 	recs, err := parseRecommendations("   ")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if !errors.Is(err, llm.ErrEmptyResponse) {
+		t.Fatalf("err = %v, want llm.ErrEmptyResponse", err)
 	}
 	if recs != nil {
 		t.Fatalf("expected nil for whitespace-only, got %v", recs)
@@ -98,38 +103,6 @@ func TestParseRecommendations_LongResponse(t *testing.T) {
 	}
 	if len(recs) != 1 {
 		t.Fatalf("expected 1 rec, got %d", len(recs))
-	}
-}
-
-func TestStripMarkdownFences_NoFences(t *testing.T) {
-	input := `[{"a":1}]`
-	got := stripMarkdownFences(input)
-	if got != input {
-		t.Errorf("expected %q, got %q", input, got)
-	}
-}
-
-func TestStripMarkdownFences_JSONFence(t *testing.T) {
-	input := "```json\n[]\n```"
-	got := stripMarkdownFences(input)
-	if got != "[]" {
-		t.Errorf("expected %q, got %q", "[]", got)
-	}
-}
-
-func TestStripMarkdownFences_PlainFence(t *testing.T) {
-	input := "```\n[]\n```"
-	got := stripMarkdownFences(input)
-	if got != "[]" {
-		t.Errorf("expected %q, got %q", "[]", got)
-	}
-}
-
-func TestStripMarkdownFences_OpeningOnly(t *testing.T) {
-	input := "```json\n[]"
-	got := stripMarkdownFences(input)
-	if got != "[]" {
-		t.Errorf("expected %q, got %q", "[]", got)
 	}
 }
 
@@ -226,43 +199,6 @@ func TestSystemPrompt_ContainsAllRules(t *testing.T) {
 		if !strings.Contains(prompt, rule) {
 			t.Errorf("SystemPrompt missing rule keyword: %q", rule)
 		}
-	}
-}
-
-func TestStripToJSON_ThinkingPrefix(t *testing.T) {
-	input := "Let me think about this...\n\n" + `[{"table":"t","ddl":"d","rationale":"r","severity":"s"}]`
-	got := stripToJSON(input)
-	want := `[{"table":"t","ddl":"d","rationale":"r","severity":"s"}]`
-	if got != want {
-		t.Errorf("stripToJSON thinking prefix:\ngot:  %s\nwant: %s", got, want)
-	}
-}
-
-func TestStripToJSON_MarkdownFencedJSON(t *testing.T) {
-	input := "```json\n[{\"ddl\":\"d\"}]\n```"
-	got := stripToJSON(input)
-	want := "[{\"ddl\":\"d\"}]"
-	if got != want {
-		t.Errorf("stripToJSON fenced:\ngot:  %s\nwant: %s", got, want)
-	}
-}
-
-func TestStripToJSON_CleanJSON(t *testing.T) {
-	input := `[{"ddl":"d"}]`
-	got := stripToJSON(input)
-	if got != input {
-		t.Errorf("stripToJSON clean:\ngot:  %s\nwant: %s", got, input)
-	}
-}
-
-func TestStripToJSON_TruncatedJSON(t *testing.T) {
-	input := `[{"ddl":"CREATE INDEX`
-	got := stripToJSON(input)
-	// Should still extract from [ to end, even without closing ]
-	// Actually there's no ], so it falls through to stripMarkdownFences
-	// which returns the trimmed input
-	if got != input {
-		t.Errorf("stripToJSON truncated:\ngot:  %s\nwant: %s", got, input)
 	}
 }
 

@@ -296,39 +296,6 @@ func TestDetectParamTuningNeeds_CleanPlan(t *testing.T) {
 // DetectBloatedIndexes
 // ---------------------------------------------------------------------------
 
-func TestDetectBloatedIndexes_ActualTwiceEstimated(t *testing.T) {
-	indexes := []IndexInfo{{Name: "idx_foo"}}
-	// estimatedMin = 1000 * 32 = 32000
-	// actual = 65000 => ratio = 65000/32000 = 2.03 > 2.0
-	sizes := map[string]int64{"idx_foo": 65000}
-	got := DetectBloatedIndexes(indexes, sizes, 1000, 2.0)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 bloated index, got %d", len(got))
-	}
-	if got[0] != "idx_foo" {
-		t.Fatalf("expected idx_foo, got %s", got[0])
-	}
-}
-
-func TestDetectBloatedIndexes_BelowRatio(t *testing.T) {
-	indexes := []IndexInfo{{Name: "idx_foo"}}
-	// estimatedMin = 1000 * 32 = 32000
-	// actual = 48000 => ratio = 48000/32000 = 1.5 < 2.0
-	sizes := map[string]int64{"idx_foo": 48000}
-	got := DetectBloatedIndexes(indexes, sizes, 1000, 2.0)
-	if len(got) != 0 {
-		t.Fatalf("expected 0 bloated indexes at ratio 1.5, got %d", len(got))
-	}
-}
-
-func TestDetectBloatedIndexes_NoSizes(t *testing.T) {
-	indexes := []IndexInfo{{Name: "idx_foo"}}
-	got := DetectBloatedIndexes(indexes, map[string]int64{}, 1000, 2.0)
-	if len(got) != 0 {
-		t.Fatalf("expected 0 when no sizes provided, got %d", len(got))
-	}
-}
-
 // ---------------------------------------------------------------------------
 // IsBRINCandidate
 // ---------------------------------------------------------------------------

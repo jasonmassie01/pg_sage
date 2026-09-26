@@ -133,20 +133,15 @@ func analyzeMemory(
 	)
 
 	// Ground the recommendation in the documented semantics and safe
-	// ranges of the memory parameters (A3, GPTuner-style).
-	prompt = DocContext(0,
+	// ranges of the memory parameters (A3, GPTuner-style). The prior is
+	// code-authored, so it travels in the system prompt, not the data.
+	memoryDocs := DocContext(0,
 		"shared_buffers", "work_mem", "maintenance_work_mem",
-		"effective_cache_size") + "\n" + prompt
+		"effective_cache_size")
 
-	if len(prompt) > maxAdvisorPromptChars {
-		prompt = prompt[:maxAdvisorPromptChars]
-	}
-
-	resp, _, err := mgr.ChatForPurpose(
-		ctx, "advisor", memorySystemPrompt, prompt, 4096,
-	)
+	resp, err := chatAdvisor(ctx, mgr, "memory", memorySystemPrompt, memoryDocs, prompt)
 	if err != nil {
-		return nil, fmt.Errorf("memory LLM: %w", err)
+		return nil, err
 	}
 
 	return parseLLMFindings(resp, "memory_tuning", logFn), nil

@@ -74,7 +74,7 @@ func TestManager_QueryTuning_RoutesToOptimizer(t *testing.T) {
 
 func TestTokenStatus_GeneralOnly(t *testing.T) {
 	gen := testClient("general")
-	gen.budgetResetDay.Store(int64(time.Now().YearDay()))
+	gen.budgetResetDay.Store(budgetDay(time.Now()))
 	gen.tokensUsedToday.Store(500)
 	m := NewManager(gen, nil, false)
 
@@ -103,9 +103,9 @@ func TestTokenStatus_GeneralOnly(t *testing.T) {
 func TestTokenStatus_DualClient(t *testing.T) {
 	gen := testClient("general")
 	opt := testClient("optimizer")
-	gen.budgetResetDay.Store(int64(time.Now().YearDay()))
+	gen.budgetResetDay.Store(budgetDay(time.Now()))
 	gen.tokensUsedToday.Store(200)
-	opt.budgetResetDay.Store(int64(time.Now().YearDay()))
+	opt.budgetResetDay.Store(budgetDay(time.Now()))
 	opt.tokensUsedToday.Store(1500)
 	m := NewManager(gen, opt, false)
 
@@ -153,9 +153,9 @@ func TestTokenStatus_ResetTimestamp(t *testing.T) {
 func TestResetBudgets_DualClient(t *testing.T) {
 	gen := testClient("general")
 	opt := testClient("optimizer")
-	gen.budgetResetDay.Store(int64(time.Now().YearDay()))
+	gen.budgetResetDay.Store(budgetDay(time.Now()))
 	gen.tokensUsedToday.Store(5000)
-	opt.budgetResetDay.Store(int64(time.Now().YearDay()))
+	opt.budgetResetDay.Store(budgetDay(time.Now()))
 	opt.tokensUsedToday.Store(3000)
 	m := NewManager(gen, opt, false)
 
@@ -181,7 +181,7 @@ func TestResetBudgets_DualClient(t *testing.T) {
 
 func TestResetBudgets_NilOptimizer(t *testing.T) {
 	gen := testClient("general")
-	gen.budgetResetDay.Store(int64(time.Now().YearDay()))
+	gen.budgetResetDay.Store(budgetDay(time.Now()))
 	gen.tokensUsedToday.Store(5000)
 	m := NewManager(gen, nil, false)
 

@@ -137,7 +137,9 @@ func (c *Client) IsCircuitOpen() bool {
 	return true
 }
 
-// Chat sends a chat completion request.
+// Chat sends a chat completion request. A blank completion returns
+// ErrEmptyResponse (tokens are still charged); it is not counted as a
+// provider failure by the circuit breaker.
 func (c *Client) Chat(
 	ctx context.Context,
 	system string,
@@ -146,11 +148,8 @@ func (c *Client) Chat(
 ) (string, int, error) {
 	requestCtx, cfg, generation, finish := c.beginRequest(ctx)
 	defer finish()
-	if !configEnabled(cfg) {
-		return "", 0, fmt.Errorf("LLM not enabled")
-	}
-	if c.IsCircuitOpen() {
-		return "", 0, fmt.Errorf("LLM circuit breaker open")
+	if err := c.checkAvailable(cfg); err != nil {
+		return "", 0, err
 	}
 	maxTokens = normalizedMaxTokens(cfg.Model, maxTokens)
 	throttleKey := requestThrottleKey(cfg, system, user)
@@ -159,7 +158,8 @@ func (c *Client) Chat(
 	}
 	throttleSuccess := false
 	defer func() { c.releaseThrottle(throttleKey, throttleSuccess) }()
-	reservation, err := c.reserveBudget(cfg, maxTokens)
+	external := externalReservation(system, user, maxTokens)
+	reservation, err := c.reserveBudget(cfg, maxTokens, external)
 	if err != nil {
 		return "", 0, err
 	}
@@ -170,36 +170,64 @@ func (c *Client) Chat(
 		}
 	}()
 
-	req := ChatRequest{
-		Model: cfg.Model,
-		Messages: []ChatMessage{
-			{Role: "system", Content: system},
-			{Role: "user", Content: user},
-		},
-		MaxTokens: maxTokens,
-	}
-	if cfg.JSONMode {
-		req.ResponseFormat = &ResponseFormat{Type: "json_object"}
-	}
-
-	body, err := json.Marshal(req)
+	chatResp, err := c.sendChat(ctx, requestCtx, cfg, system, user, maxTokens)
 	if err != nil {
-		return "", 0, fmt.Errorf("marshal: %w", err)
+		return "", 0, err
+	}
+	if !c.generationCurrent(generation) {
+		return "", 0, fmt.Errorf("LLM disabled or reconfigured during request")
 	}
 
-	endpoint := cfg.Endpoint
-	// Strip trailing /chat/completions if already present to prevent
-	// double-path (e.g. .../v1/chat/completions/chat/completions).
-	endpoint = strings.TrimRight(endpoint, "/")
-	endpoint = strings.TrimSuffix(endpoint, "/chat/completions")
-	endpoint = strings.TrimSuffix(endpoint, "/chat")
-	endpoint += "/chat/completions"
+	c.recordSuccess()
+	content := chatResp.Choices[0].Message.Content
+	tokens := usageTokens(chatResp, system, user)
+	c.reconcileBudget(reservation, tokens)
+	reconciled = true
+	if strings.TrimSpace(content) == "" {
+		return "", tokens, fmt.Errorf("%w (finish_reason=%s)",
+			ErrEmptyResponse, chatResp.Choices[0].FinishReason)
+	}
+	throttleSuccess = true
+	return c.repairIfTruncated(content, chatResp.Choices[0].FinishReason, tokens),
+		tokens, nil
+}
 
+func (c *Client) checkAvailable(cfg config.LLMConfig) error {
+	if !configEnabled(cfg) {
+		return fmt.Errorf("LLM not enabled")
+	}
+	if c.IsCircuitOpen() {
+		return fmt.Errorf("LLM circuit breaker open")
+	}
+	return nil
+}
+
+// usageTokens returns provider-reported usage, estimating it when the
+// provider omits usage so calls are never free (G3-B25).
+func usageTokens(resp *ChatResponse, system, user string) int {
+	if resp.Usage.TotalTokens > 0 {
+		return resp.Usage.TotalTokens
+	}
+	return estimateTokens(system, user, resp.Choices[0].Message.Content)
+}
+
+// sendChat performs the HTTP exchange and returns a decoded response
+// with at least one choice. Provider-side failures feed the breaker.
+func (c *Client) sendChat(
+	ctx, requestCtx context.Context,
+	cfg config.LLMConfig,
+	system, user string,
+	maxTokens int,
+) (*ChatResponse, error) {
+	body, err := json.Marshal(buildChatRequest(cfg, system, user, maxTokens))
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
 	httpReq, err := http.NewRequestWithContext(
-		requestCtx, "POST", endpoint, bytes.NewReader(body),
+		requestCtx, "POST", chatEndpoint(cfg.Endpoint), bytes.NewReader(body),
 	)
 	if err != nil {
-		return "", 0, fmt.Errorf("request: %w", err)
+		return nil, fmt.Errorf("request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
@@ -209,56 +237,84 @@ func (c *Client) Chat(
 		if shouldRecordProviderFailure(ctx, requestCtx) {
 			c.recordFailure()
 		}
-		return "", 0, providerRequestError("LLM request", err)
+		return nil, providerRequestError("LLM request", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	return c.decodeChatResponse(resp)
+}
 
+func (c *Client) decodeChatResponse(resp *http.Response) (*ChatResponse, error) {
 	// Cap response body at 1MB to prevent memory exhaustion.
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		c.recordFailure()
-		return "", 0, fmt.Errorf("read response: %w", err)
+		return nil, fmt.Errorf("read response: %w", err)
 	}
-
 	if resp.StatusCode != http.StatusOK {
 		c.recordFailure()
-		return "", 0, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"LLM API error %d: %s",
 			resp.StatusCode,
 			redactProviderText(string(respBody)),
 		)
 	}
-
 	var chatResp ChatResponse
 	if err := json.Unmarshal(respBody, &chatResp); err != nil {
 		c.recordFailure()
-		return "", 0, fmt.Errorf("unmarshal: %w", err)
+		return nil, fmt.Errorf("unmarshal: %w", err)
 	}
-
 	if len(chatResp.Choices) == 0 {
 		c.recordFailure()
-		return "", 0, fmt.Errorf("no choices in response")
+		return nil, fmt.Errorf("no choices in response")
 	}
-	if !c.generationCurrent(generation) {
-		return "", 0, fmt.Errorf("LLM disabled or reconfigured during request")
+	return &chatResp, nil
+}
+
+// buildChatRequest assembles the provider request. json_object mode is
+// only requested when the system prompt asks for JSON (G3-B11): prose
+// callers (briefing, narrators) must get prose, and OpenAI rejects
+// json_object when no message mentions JSON.
+func buildChatRequest(
+	cfg config.LLMConfig, system, user string, maxTokens int,
+) ChatRequest {
+	req := ChatRequest{
+		Model: cfg.Model,
+		Messages: []ChatMessage{
+			{Role: "system", Content: system},
+			{Role: "user", Content: user},
+		},
+		MaxTokens: maxTokens,
 	}
-
-	c.recordSuccess()
-	tokens := chatResp.Usage.TotalTokens
-	c.reconcileBudget(reservation, tokens)
-	reconciled = true
-	throttleSuccess = true
-
-	content := chatResp.Choices[0].Message.Content
-	reason := chatResp.Choices[0].FinishReason
-	if reason == "length" || reason == "max_tokens" {
-		c.logFn("llm",
-			"response truncated (finish_reason=%s, tokens=%d), "+
-				"attempting JSON repair", reason, tokens)
-		content = RepairTruncatedJSON(content)
+	if cfg.JSONMode && promptRequestsJSON(system) {
+		req.ResponseFormat = &ResponseFormat{Type: "json_object"}
 	}
+	return req
+}
 
-	return content, tokens, nil
+// promptRequestsJSON reports whether a (code-controlled) system prompt
+// asks for JSON output. Only the system prompt is inspected so that
+// database text in the user prompt cannot switch output modes.
+func promptRequestsJSON(system string) bool {
+	return strings.Contains(strings.ToLower(system), "json")
+}
+
+// chatEndpoint normalizes the configured endpoint to .../chat/completions,
+// stripping a suffix that is already present to prevent double paths.
+func chatEndpoint(endpoint string) string {
+	endpoint = strings.TrimRight(endpoint, "/")
+	endpoint = strings.TrimSuffix(endpoint, "/chat/completions")
+	endpoint = strings.TrimSuffix(endpoint, "/chat")
+	return endpoint + "/chat/completions"
+}
+
+func (c *Client) repairIfTruncated(content, reason string, tokens int) string {
+	if reason != "length" && reason != "max_tokens" {
+		return content
+	}
+	c.logFn("llm",
+		"response truncated (finish_reason=%s, tokens=%d), "+
+			"attempting JSON repair", reason, tokens)
+	return RepairTruncatedJSON(content)
 }
 
 func shouldRecordProviderFailure(
@@ -397,8 +453,7 @@ func (c *Client) IsBudgetExhausted() bool {
 	if cfg.TokenBudgetDaily <= 0 {
 		return false
 	}
-	today := int64(time.Now().YearDay())
-	if today != c.budgetResetDay.Load() {
+	if budgetDay(time.Now()) != c.budgetResetDay.Load() {
 		return false
 	}
 	return int(c.tokensUsedToday.Load()) >= cfg.TokenBudgetDaily
@@ -411,7 +466,7 @@ func (c *Client) ResetBudget() {
 	defer c.budgetMu.Unlock()
 	c.tokensUsedToday.Store(0)
 	c.reservedTokens = 0
-	c.budgetResetDay.Store(int64(time.Now().YearDay()))
+	c.budgetResetDay.Store(budgetDay(time.Now()))
 }
 
 // Model returns the configured model name.

@@ -317,6 +317,7 @@ func TestPhase2_EnrichWithHypoPG_NotAvailable(t *testing.T) {
 	hypopg := NewHypoPG(pool, 10.0, noopLog2)
 	o := &Optimizer{
 		hypopg: hypopg,
+		whatIf: hypopg,
 		logFn:  noopLog2,
 	}
 
@@ -331,7 +332,7 @@ func TestPhase2_EnrichWithHypoPG_NotAvailable(t *testing.T) {
 		Table:  "test_table",
 	}
 
-	result := o.enrichWithHypoPG(context.Background(), rec, tc)
+	result, _ := o.enrichWithHypoPG(context.Background(), rec, tc)
 
 	// HypoPG is almost certainly not installed in test DB.
 	// The rec should be returned unchanged.
@@ -393,8 +394,9 @@ func TestPhase2_ScoreConfidence_HighVolumeNoPlans(t *testing.T) {
 	}
 	rec := Recommendation{}
 	tc := TableContext{
-		Queries:   []QueryInfo{{Calls: 1000}},
-		WriteRate: 5.0,
+		Queries:        []QueryInfo{{Calls: 1000}},
+		WriteRate:      5.0,
+		WriteRateKnown: true, // WriteRate is evidence only when known (G3-B23)
 	}
 	result := o.scoreConfidence(rec, tc)
 	// QueryVolume=1.0 (500+), PlanClarity=0.5 (queries but no plans),

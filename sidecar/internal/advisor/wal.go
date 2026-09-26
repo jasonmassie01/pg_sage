@@ -100,15 +100,9 @@ func analyzeWAL(
 		unloggedNote,
 	)
 
-	if len(prompt) > maxAdvisorPromptChars {
-		prompt = prompt[:maxAdvisorPromptChars]
-	}
-
-	resp, _, err := mgr.ChatForPurpose(
-		ctx, "advisor", walSystemPrompt, prompt, 4096,
-	)
+	resp, err := chatAdvisor(ctx, mgr, "wal", walSystemPrompt, "", prompt)
 	if err != nil {
-		return nil, fmt.Errorf("wal LLM: %w", err)
+		return nil, err
 	}
 
 	return parseLLMFindings(resp, "wal_tuning", logFn), nil

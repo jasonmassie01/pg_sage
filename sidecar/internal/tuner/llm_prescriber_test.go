@@ -2,6 +2,8 @@ package tuner
 
 import (
 	"context"
+	"errors"
+	"github.com/pg-sage/sidecar/internal/llm"
 	"strings"
 	"testing"
 )
@@ -49,8 +51,10 @@ func TestParseLLMPrescriptions_Empty(t *testing.T) {
 
 func TestParseLLMPrescriptions_EmptyString(t *testing.T) {
 	recs, err := parseLLMPrescriptions("")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Blank output is llm.ErrEmptyResponse (G3-B10); this test asserted a
+	// nil error, which let empty completions look like "no hints".
+	if !errors.Is(err, llm.ErrEmptyResponse) {
+		t.Fatalf("err = %v, want llm.ErrEmptyResponse", err)
 	}
 	if recs != nil {
 		t.Errorf("expected nil, got %v", recs)
@@ -190,7 +194,7 @@ func TestConvertPrescriptions_FiltersInvalid(t *testing.T) {
 		{HintDirective: "DROP TABLE foo", Rationale: "bad"},
 		{HintDirective: "", Rationale: "empty"},
 	}
-	out := convertPrescriptions(recs, logFn)
+	out := convertPrescriptions(recs, 0, logFn)
 	if len(out) != 1 {
 		t.Fatalf("expected 1 valid, got %d", len(out))
 	}

@@ -122,6 +122,9 @@ type Worker struct {
 	logFn    func(string, string, ...any)
 	lastRun  time.Time
 	schedule cronSchedule
+	// startedAt anchors the schedule when no briefing was ever stored.
+	startedAt     time.Time
+	lastRunLoaded bool
 }
 
 // New creates a briefing worker.
@@ -136,29 +139,13 @@ func New(
 		logFn("WARN", "briefing: invalid schedule %q: %v", cfg.Briefing.Schedule, err)
 	}
 	return &Worker{
-		pool:     pool,
-		cfg:      cfg,
-		llm:      llmClient,
-		logFn:    logFn,
-		schedule: sched,
+		pool:      pool,
+		cfg:       cfg,
+		llm:       llmClient,
+		logFn:     logFn,
+		schedule:  sched,
+		startedAt: time.Now(),
 	}
-}
-
-// ShouldRun returns true when now matches the cron schedule and at
-// least 30 seconds have elapsed since the last run.
-func (w *Worker) ShouldRun(now time.Time) bool {
-	if !w.schedule.valid {
-		return false
-	}
-	if !w.lastRun.IsZero() && now.Sub(w.lastRun) < 30*time.Second {
-		return false
-	}
-	return w.schedule.matches(now)
-}
-
-// MarkRan records that a briefing was just generated.
-func (w *Worker) MarkRan() {
-	w.lastRun = time.Now()
 }
 
 // maxBriefingFindings caps findings sent to the LLM prompt.
@@ -207,12 +194,10 @@ func (w *Worker) gatherFindings(ctx context.Context) (string, int, error) {
 		SELECT coalesce(
 			(SELECT json_agg(t) FROM (
 				SELECT
-					category,
 					severity,
 					title,
 					object_identifier,
-					occurrence_count,
-					recommended_sql
+					occurrence_count
 				FROM sage.findings
 				WHERE status = 'open'
 				ORDER BY
@@ -345,9 +330,20 @@ func (w *Worker) buildStructured(findings string, totalOpen int, system, actions
 func (w *Worker) enhanceWithLLM(ctx context.Context, structured string) (string, int, error) {
 	system := `You are pg_sage, a PostgreSQL DBA agent. Generate a concise health briefing
 from the structured data provided. Use markdown. Be actionable and specific.
-Prioritize critical findings. Keep it under 2000 words.`
+Prioritize critical findings. Keep it under 2000 words.
 
-	return w.llm.Chat(ctx, system, structured, w.cfg.LLM.ContextBudgetTokens)
+` + llm.UntrustedDataRule
+
+	// Finding titles and object names are DB-influenced, so the
+	// structured report is delimited as untrusted data (G3-B07). A
+	// JSON-wrapped prose answer is unwrapped before storage (G3-B11).
+	resp, tokens, err := w.llm.Chat(ctx, system,
+		llm.UntrustedData("briefing_data", structured),
+		w.cfg.LLM.ContextBudgetTokens)
+	if err != nil {
+		return "", tokens, err
+	}
+	return llm.UnwrapText(resp), tokens, nil
 }
 
 func (w *Worker) storeBriefing(ctx context.Context, content string, llmUsed bool, tokens int) {

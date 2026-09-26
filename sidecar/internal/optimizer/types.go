@@ -2,21 +2,24 @@ package optimizer
 
 // Recommendation is a validated index recommendation from the optimizer.
 type Recommendation struct {
-	Table                   string        `json:"table"`
-	DDL                     string        `json:"ddl"`
-	DropDDL                 string        `json:"drop_ddl,omitempty"`
-	Rationale               string        `json:"rationale"`
-	Severity                string        `json:"severity"`
-	Confidence              float64       `json:"confidence"`
-	IndexType               string        `json:"index_type"`
-	Category                string        `json:"category"`
-	AffectedQueries         []string      `json:"affected_queries,omitempty"`
-	AffectedQueryIDs        []int64       `json:"affected_query_ids,omitempty"`
-	EstimatedImprovementPct float64       `json:"estimated_improvement_pct"`
-	Validated               bool          `json:"validated"`
-	ActionLevel             string        `json:"action_level"`          // autonomous, advisory, informational
-	ActionRisk              string        `json:"action_risk,omitempty"` // safe, moderate, high_risk
-	CostEstimate            *CostEstimate `json:"cost_estimate,omitempty"`
+	Table      string  `json:"table"`
+	DDL        string  `json:"ddl"`
+	DropDDL    string  `json:"drop_ddl,omitempty"`
+	Rationale  string  `json:"rationale"`
+	Severity   string  `json:"severity"`
+	Confidence float64 `json:"confidence"`
+	IndexType  string  `json:"index_type"`
+	Category   string  `json:"category"`
+	// IndexCategory is the LLM label; Category is fixed (missing_index).
+	IndexCategory           string   `json:"index_category,omitempty"`
+	AffectedQueries         []string `json:"affected_queries,omitempty"`
+	AffectedQueryIDs        []int64  `json:"affected_query_ids,omitempty"`
+	EstimatedImprovementPct float64  `json:"estimated_improvement_pct"`
+	Validated               bool     `json:"validated"`
+	// ActionLevel is the confidence tier: safe, moderate, high_risk.
+	ActionLevel  string        `json:"action_level"`
+	ActionRisk   string        `json:"action_risk,omitempty"` // safe, moderate, high_risk
+	CostEstimate *CostEstimate `json:"cost_estimate,omitempty"`
 }
 
 // Result holds the output of one optimizer cycle.
@@ -50,6 +53,7 @@ type TableContext struct {
 	JoinPairs        []JoinPair
 	IsPartitioned    bool // true if table is a partitioned parent (PG11+)
 	IsPartitionChild bool // true if table is a child partition
+	WriteRateKnown   bool // true when the table had recorded scan/write activity
 }
 
 // ColumnInfo describes a table column.

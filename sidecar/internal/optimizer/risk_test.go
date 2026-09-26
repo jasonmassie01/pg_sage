@@ -2,17 +2,17 @@ package optimizer
 
 import "testing"
 
+// Non-index-create DDL is high_risk whatever the action level (G3-B24:
+// the old fallback matched level names ActionLevel never emits).
 func TestRiskTierForRecommendation_ActionLevelsMapToModerate(t *testing.T) {
-	// Non-index-create DDL with no explicit risk falls back to the action
-	// level, which maps to moderate for these levels.
 	tests := []struct {
 		name        string
 		actionLevel string
 		want        string
 	}{
-		{name: "autonomous", actionLevel: "autonomous", want: RiskModerate},
-		{name: "advisory", actionLevel: "advisory", want: RiskModerate},
-		{name: "informational", actionLevel: "informational", want: RiskModerate},
+		{name: "autonomous", actionLevel: "autonomous", want: RiskHigh},
+		{name: "safe", actionLevel: "safe", want: RiskHigh},
+		{name: "moderate", actionLevel: "moderate", want: RiskHigh},
 	}
 
 	for _, tt := range tests {
@@ -53,9 +53,10 @@ func TestRiskTierForRecommendation_IndexCreateAlwaysModerate(t *testing.T) {
 	}
 }
 
+// For non-index-create DDL (e.g. DROP INDEX) the LLM's self-rated risk
+// is ignored and the tier is always high_risk (G3-B24); previously a
+// self-rated "safe" DROP passed through verbatim.
 func TestRiskTierForRecommendation_ExplicitRiskPassesThrough(t *testing.T) {
-	// For non-index-create DDL (e.g. DROP INDEX), the self-rated risk is
-	// honored verbatim.
 	tests := []string{RiskSafe, RiskModerate, RiskHigh}
 
 	for _, want := range tests {
@@ -67,9 +68,9 @@ func TestRiskTierForRecommendation_ExplicitRiskPassesThrough(t *testing.T) {
 
 			got := RiskTierForRecommendation(rec)
 
-			if got != want {
-				t.Fatalf("RiskTierForRecommendation explicit risk = %q, want %q",
-					got, want)
+			if got != RiskHigh {
+				t.Fatalf("RiskTierForRecommendation self-rated %q = %q, want high_risk",
+					want, got)
 			}
 		})
 	}

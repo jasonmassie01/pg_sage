@@ -20,19 +20,22 @@ type LLMPrescription struct {
 	RewriteRationale string  `json:"rewrite_rationale"`
 }
 
-// llmPrescribe calls the LLM for hint reasoning, with fallback.
+// llmPrescribe calls the LLM for hint reasoning, with fallback to a
+// distinct client (a fallback that is the primary is not retried,
+// G3-B15). workMemMaxMB bounds any Set(work_mem) the LLM proposes.
 func llmPrescribe(
 	ctx context.Context,
 	client *llm.Client,
 	fallback *llm.Client,
 	qctx QueryContext,
+	workMemMaxMB int,
 	logFn func(string, string, ...any),
 ) ([]Prescription, error) {
 	system := TunerSystemPrompt()
 	prompt := FormatTunerPrompt(qctx)
 
 	resp, _, err := client.Chat(ctx, system, prompt, llmMaxTokens)
-	if err != nil && fallback != nil {
+	if err != nil && fallback != nil && fallback != client {
 		logFn("tuner",
 			"primary LLM failed, trying fallback: %v", err)
 		resp, _, err = fallback.Chat(
@@ -51,11 +54,15 @@ func llmPrescribe(
 		return nil, fmt.Errorf("parse llm response: %w", err)
 	}
 
-	return convertPrescriptions(recs, logFn), nil
+	return convertPrescriptions(recs, workMemMaxMB, logFn), nil
 }
 
+// convertPrescriptions validates LLM hints: pg_hint_plan syntax, then
+// Set() directives restricted to an allowlist with work_mem normalized to
+// MB and clamped to workMemMaxMB (G3-B16).
 func convertPrescriptions(
 	recs []LLMPrescription,
+	workMemMaxMB int,
 	logFn func(string, string, ...any),
 ) []Prescription {
 	var out []Prescription
@@ -65,9 +72,14 @@ func convertPrescriptions(
 				"rejecting invalid LLM hint: %s", r.HintDirective)
 			continue
 		}
+		hint, err := normalizeSetDirectives(r.HintDirective, workMemMaxMB)
+		if err != nil {
+			logFn("tuner", "rejecting LLM hint %s: %v", r.HintDirective, err)
+			continue
+		}
 		out = append(out, Prescription{
 			Symptom:          "llm_recommended",
-			HintDirective:    r.HintDirective,
+			HintDirective:    hint,
 			Rationale:        r.Rationale,
 			SuggestedRewrite: r.SuggestedRewrite,
 			RewriteRationale: r.RewriteRationale,
@@ -84,13 +96,6 @@ func parseLLMPrescriptions(
 		return nil, err
 	}
 	return recs, nil
-}
-
-// stripToJSON extracts the JSON array from a response that may
-// contain thinking text, markdown fences, or other non-JSON
-// content. Delegates to the canonical llm.StripJSON.
-func stripToJSON(s string) string {
-	return llm.StripJSON(s, llm.JSONArray)
 }
 
 // validHintTokens are the allowed pg_hint_plan directive prefixes.

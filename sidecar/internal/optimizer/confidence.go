@@ -2,21 +2,26 @@ package optimizer
 
 // ConfidenceInput holds normalized 0.0–1.0 signals for confidence scoring.
 type ConfidenceInput struct {
-	QueryVolume      float64 // 0.0–1.0 based on calls/day
-	PlanClarity      float64 // 0.0–1.0 based on plan data availability
-	WriteRateKnown   float64 // 1.0 if write rate computed, 0.0 if cold start
-	HypoPGValidated  float64 // 1.0 if validated with improvement, 0.2 if ran but no gain, 0.0 if unavailable
+	QueryVolume    float64 // 0.0–1.0 based on calls/day
+	PlanClarity    float64 // 0.0–1.0 based on plan data availability
+	WriteRateKnown float64 // 1.0 if write rate computed, 0.0 if cold start
+	// HypoPGValidated is 1.0 for a measured accepted gain, 0.0 when HypoPG
+	// is unavailable; a measured rejection drops the rec before scoring.
+	HypoPGValidated  float64
 	SelectivityKnown float64 // 0.0–1.0 based on pg_stats availability
 	TableCallVolume  float64 // 0.0–1.0 based on total queries hitting this table
 }
 
-// Weights for confidence scoring (must sum to 1.0).
+// Weights for confidence scoring (must sum to 1.0). HypoPG is a hard
+// gate when available (G3-B06), so its weight is modest; without HypoPG
+// the 0.5 advisory threshold is reached only with measured evidence
+// (query volume, write statistics, pg_stats selectivity).
 const (
 	weightQueryVolume     = 0.25
 	weightPlanClarity     = 0.25
 	weightWriteRateKnown  = 0.15
-	weightHypoPGValidated = 0.15
-	weightSelectivity     = 0.10
+	weightHypoPGValidated = 0.10
+	weightSelectivity     = 0.15
 	weightTableCallVolume = 0.10
 )
 
