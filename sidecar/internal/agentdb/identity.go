@@ -246,6 +246,9 @@ func (s *Store) ValidatePingToken(
 			AND scope='ping'
 			AND status='active'
 			AND expires_at > now()
+			AND agent_id=(
+				SELECT agent_id FROM sage.agent_db_deployments WHERE deployment_id=$1
+			)
 		RETURNING token_id, deployment_id, agent_id, token_hash, scope, status,
 			expires_at, created_at, last_used_at, revoked_at, rotated_from_token_id,
 			0 AS failed_attempts`,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -36,6 +37,7 @@ func registerAgentDBRoutesWithAuthority(
 		"POST /api/v1/agent-dbs/{deployment_id}/agent-ping",
 		http.HandlerFunc(agentDBTokenPingHandler(st)),
 	)
+	registerAgentDBAgentAPIRoutes(mux, st, authority)
 	mux.Handle("GET /api/v1/agent-dbs", operatorUp(http.HandlerFunc(agentDBListHandler(st))))
 	mux.Handle("POST /api/v1/agent-dbs", operatorUp(http.HandlerFunc(agentDBRegisterHandler(st))))
 	mux.Handle("POST /api/v1/agent-dbs/cleanup", operatorUp(http.HandlerFunc(agentDBCleanupAllHandler(st))))
@@ -74,7 +76,7 @@ func agentDBSubrouterWithRegistry(
 			}
 			switch {
 			case r.Method == http.MethodPost && len(parts) == 1:
-				agentDBCreateRequestHandler(st)(w, r)
+				agentDBCreateRequestHandler(st, authority)(w, r)
 				return
 			case r.Method == http.MethodGet && len(parts) == 1:
 				agentDBListRequestsHandler(st)(w, r)
@@ -152,6 +154,12 @@ func agentDBSubrouterWithRegistry(
 		}
 		if parts[0] == "identities" {
 			switch {
+			case r.Method == http.MethodPost && len(parts) == 3 && parts[2] == "tokens":
+				r.SetPathValue("agent_id", parts[1])
+				RequireRole("admin")(
+					http.HandlerFunc(agentDBMintAgentTokenHandler(st)),
+				).ServeHTTP(w, r)
+				return
 			case r.Method == http.MethodGet && len(parts) == 1:
 				agentDBIdentitiesHandler(st)(w, r)
 				return
@@ -281,99 +289,6 @@ func agentDBSubrouterWithRegistry(
 	}
 }
 
-func agentDBCreateRequestHandler(st *agentdb.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		m := readMap(r)
-		created, err := st.CreateRequest(r.Context(), agentdb.RequestCreate{
-			RequestID:          str(m, "request_id"),
-			TenantID:           str(m, "tenant_id"),
-			AgentID:            str(m, "agent_id"),
-			OwnerID:            str(m, "owner_id"),
-			RunID:              str(m, "run_id"),
-			Purpose:            str(m, "purpose"),
-			IsolationType:      str(m, "requested_isolation_type"),
-			DatabaseName:       str(m, "database_name"),
-			Provider:           str(m, "provider"),
-			IdempotencyKey:     firstString(r.Header.Get("Idempotency-Key"), str(m, "idempotency_key")),
-			BudgetUSD:          float(m, "budget_usd"),
-			BackupRequired:     boolValue(m, "backup_required"),
-			DataClassification: str(m, "data_classification"),
-			MaskingPolicyID:    str(m, "masking_policy_id"),
-			Region:             str(m, "region"),
-			AllowedRegions:     stringSlice(m, "allowed_regions"),
-			ApprovalSLASeconds: integer(m, "approval_sla_seconds"),
-			Body:               m,
-		})
-		if err != nil {
-			agentDBError(w, err)
-			return
-		}
-		jsonResponse(w, created)
-	}
-}
-func agentDBListRequestsHandler(st *agentdb.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		rows, err := st.ListRequests(r.Context())
-		if err != nil {
-			agentDBError(w, err)
-			return
-		}
-		jsonResponse(w, map[string]any{"requests": rows})
-	}
-}
-func agentDBGetRequestHandler(st *agentdb.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		row, err := st.GetRequest(r.Context(), r.PathValue("request_id"))
-		if err != nil {
-			agentDBError(w, err)
-			return
-		}
-		jsonResponse(w, row)
-	}
-}
-func agentDBApproveRequestHandler(st *agentdb.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		m := readMap(r)
-		row, err := st.SetRequestDecision(r.Context(), r.PathValue("request_id"), agentdb.DecisionRequest{Decision: "approved", Reason: str(m, "reason")})
-		if err != nil {
-			agentDBError(w, err)
-			return
-		}
-		jsonResponse(w, row)
-	}
-}
-func agentDBDenyRequestHandler(st *agentdb.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		m := readMap(r)
-		row, err := st.SetRequestDecision(r.Context(), r.PathValue("request_id"), agentdb.DecisionRequest{Decision: "denied", Reason: str(m, "reason")})
-		if err != nil {
-			agentDBError(w, err)
-			return
-		}
-		jsonResponse(w, row)
-	}
-}
-
-func agentDBProvisionApprovedRequestHandler(st *agentdb.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		m := readMap(r)
-		dep, err := st.ProvisionApprovedRequest(
-			r.Context(),
-			r.PathValue("request_id"),
-			agentdb.RequestProvisionRequest{
-				DeploymentID:   str(m, "deployment_id"),
-				LeaseSeconds:   integer(m, "lease_seconds"),
-				Metadata:       obj(m, "metadata"),
-				ProviderParams: obj(m, "provider_params"),
-			},
-		)
-		if err != nil {
-			agentDBError(w, err)
-			return
-		}
-		jsonResponse(w, dep)
-	}
-}
 func agentDBListHandler(st *agentdb.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		options, err := agentDBListOptions(r)
@@ -443,6 +358,23 @@ func agentDBError(w http.ResponseWriter, err error) {
 	}
 	jsonError(w, "agent db store error", http.StatusInternalServerError)
 }
+// readJSONMap decodes a JSON object body; an empty body is an empty map and
+// a malformed body is ErrInvalid instead of silently becoming {} (G8-B30).
+func readJSONMap(r *http.Request) (map[string]any, error) {
+	m := map[string]any{}
+	if r.Body == nil {
+		return m, nil
+	}
+	err := json.NewDecoder(r.Body).Decode(&m)
+	if errors.Is(err, io.EOF) {
+		return map[string]any{}, nil
+	}
+	if err != nil || m == nil {
+		return nil, agentdb.ErrInvalid
+	}
+	return m, nil
+}
+
 func readMap(r *http.Request) map[string]any {
 	var m map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&m)

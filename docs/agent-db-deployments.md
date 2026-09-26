@@ -68,9 +68,31 @@ References checked on 2026-05-08:
 - Databricks Lakebase Provisioned compatibility:
   https://docs.databricks.com/aws/en/oltp/instances/query/postgres-compatibility
 
+## Principals and tenant isolation
+
+- **Operators and admins** sign in with a session (cookie). They are global
+  operators of this pg_sage install and may act on any tenant. Approvals,
+  live authorizations, destroys, archives and token minting require these
+  roles; every audit actor (`approved_by`, `created_by`, `reviewed_by`) is
+  taken from the signed-in user, not from the request body.
+- **Agents** never use operator cookies. An admin mints a tenant-bound agent
+  token for an `agent_identities` row
+  (`POST /api/v1/agent-dbs/identities/{agent_id}/tokens`). The agent calls
+  `/api/v1/agent-api/...` with `Authorization: Bearer agt_...`; the tenant and
+  agent are taken from the token and body values are ignored. Agents can list
+  and read their own tenant's deployments (`GET /api/v1/agent-api/agent-dbs`,
+  `GET /api/v1/agent-api/agent-dbs/{id}`) and create/list their own requests
+  (`/api/v1/agent-api/agent-db-requests`). They cannot approve, authorize,
+  provision live, destroy, archive or mint tokens.
+- **Ping tokens** are scoped to one deployment and its agent and only record
+  liveness (`last_ping_at`, `agent_status`); they cannot change lifecycle.
+- `allowed_regions` is server policy (`agentdb.providers.*.allowed_regions`);
+  a request body cannot widen it.
+
 ## Agent API Flow
 
-Agents can request and maintain deployments without using the UI.
+The operator-side calls below use an operator session. Agents should use the
+agent token routes described above.
 
 1. Create or update the agent identity:
 
