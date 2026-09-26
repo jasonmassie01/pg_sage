@@ -191,3 +191,23 @@ describe('SettingsPage', () => {
 	  )).toBeInTheDocument())
 	})
 })
+
+// G9-B03: the restart POST must carry Content-Type: application/json or
+// requireJSONMiddleware rejects it with 415.
+describe('SettingsPage restart', () => {
+  it('sends Content-Type application/json', async () => {
+    localStorage.setItem('pg_sage_settings_mode', 'advanced')
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 202, json: async () => ({ status: 'restarting' }),
+    })
+    globalThis.fetch = fetchMock
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<SettingsPage database="all" />)
+    fireEvent.click(screen.getByTestId('settings-restart-btn'))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/restart', expect.anything()))
+    const init = fetchMock.mock.calls.find(c => c[0] === '/api/v1/restart')[1]
+    expect(init.method).toBe('POST')
+    expect(init.headers['Content-Type']).toBe('application/json')
+  })
+})
