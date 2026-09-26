@@ -112,25 +112,25 @@ because most of their tests are integration-tagged.)
 
 | # | Finding | Sources | Area | Enabling condition | Fix |
 |---|---|---|---|---|---|
-| P0-01 | `/explain` parameterized path runs `PREPARE … AS <input>` over the simple protocol, so a multi-statement body leaves the READ ONLY tx (*LV*) | G6-B01, G1-B01 | api/explain | operator session | §4 |
-| P0-02 | Retention enforcer deletes by `ctid` only: a partitioned parent deletes rows in *other* partitions, incl. future rows (Codex reproduced DELETE 2 for LIMIT 1) (*LV*) | Codex R01, G4-B04 | autonomy | declared table contract + retention class allowed | §4 |
-| P0-03 | Retention DELETE bypasses the policy gate: emergency stop, executor disabled, observation, manual mode, window, timeouts; dry-run evidence not bound to column/window/relation | Codex R02/R03, G4-B04, G2-B12 | autonomy | same | §4 |
-| P0-04 | Action contracts spell the guardrail "approval required"; the gate matches `approval_required` → drop index, cancel backend, reindex, hints etc. run without approval (*LV*) | G4-B01 | executor | trust autonomous + auto | §4 |
-| P0-05 | Standing gate ignores `tier3_*` flags, the 8/31-day ramp and `trust.maintenance_window`; default window `always` | G4-B02 | policy | autonomous | §4 |
-| P0-06 | Autonomous `pg_cancel_backend(pid)` from a previous cycle, with no identity recheck; freeze custodian targets the oldest xact *cluster-wide* (pg_dump, walsender) every minute | G4-B03 | executor/custodian | autonomous | §4 |
-| P0-07 | WAL custodian sets `max_slot_wal_keep_size` to the threshold the slot already exceeds → slot invalidated at next checkpoint (breaks CDC/replica) | G4-B05 | autonomy | slot > threshold + autonomous | §4 |
-| P0-08 | DROP INDEX rollback is plain `CREATE INDEX` (blocks writes) with no lock_timeout; approved-path auto-rollback skips authorization | G4-B06, G4-B11 | executor | rollback fires | §4 |
-| P0-09 | SQL whitelist bypass: multi-subcommand `ALTER TABLE … SET(…), DROP COLUMN` passes; double-space `VACUUM  FULL` classified safe | G4-B07 | executor | LLM advisor emits it | §4 |
-| P0-10 | Verified-index revert drops by LLM-authored name: `CREATE INDEX IF NOT EXISTS` on a name collision → "no gain" → drops the user's pre-existing index | G4-B08, G3-B05 | executor/optimizer | LLM name collision | §4 |
-| P0-11 | Advisor validator reads unitless memory GUCs as **bytes**; PG uses kB/8kB/MB → ~1000× oversized `work_mem` passes into autonomous `ALTER SYSTEM` (*LV*) | G3-B01 | advisor | LLM emits unitless value | §4 |
-| P0-12 | Migration advisor sends unclassified DDL verbatim to the LLM, incl. `ALTER ROLE … PASSWORD`, user-mapping and subscription connection strings | G7-B01 | migration | migration + LLM + log_statement=ddl | §4 |
-| P0-13 | Actions UI shows "Roll Back" on *queued* proposals; the server resolves the queue id against `action_log` and runs an unrelated action's rollback SQL (*LV*) | G9-B01, G6-B05 | api/web | operator click | §4 |
-| P0-14 | Fleet emergency stop aborts at the first DB whose flag can't be written; the rest (random order) keep executing; any agent DB triggers it | G5-B01 | fleet | fleet/meta mode | §4 |
-| P0-15 | AgentDB ping token (unauthenticated route) can set any deployment status → hides a live cloud DB from list/TTL/destroy; heartbeats un-archive and clear budget state | G8-B01 | agentdb | agent token | §4 |
-| P0-16 | Archived deployments are never revisited by TTL; restore-required default blocks destroy → running, billing forever; one provider error drops the batch | G8-B02 | agentdb | any expiry | §4 |
-| P0-17 | Re-register with an existing `deployment_id` overwrites the row and wipes provider resource identity → orphaned live instance; can move tenant | G8-B03 | agentdb | retry / re-provision | §4 |
-| P0-18 | Live destroy falls back to a derived name `pgsage-<id>` with no ownership/tag check → can destroy another tenant's or install's instance | G8-B04 | agentdb | missing provider_resource_id | §4 |
-| P0-19 | No tenant isolation (tenant from request body); ambiguous create marked `failed` and never reconciled → orphan/duplicate billed resources | G8-B05, G8-B06 | agentdb | multi-tenant / provider error | §4 |
+| P0-01 | `/explain` parameterized path runs `PREPARE … AS <input>` over the simple protocol, so a multi-statement body leaves the READ ONLY tx (*LV*) | G6-B01, G1-B01 | api/explain | operator session | ✅ §10.1 |
+| P0-02 | Retention enforcer deletes by `ctid` only: a partitioned parent deletes rows in *other* partitions, incl. future rows (Codex reproduced DELETE 2 for LIMIT 1) (*LV*) | Codex R01, G4-B04 | autonomy | declared table contract + retention class allowed | ✅ §10.1 |
+| P0-03 | Retention DELETE bypasses the policy gate: emergency stop, executor disabled, observation, manual mode, window, timeouts; dry-run evidence not bound to column/window/relation | Codex R02/R03, G4-B04, G2-B12 | autonomy | same | ✅ §10.1 |
+| P0-04 | Action contracts spell the guardrail "approval required"; the gate matches `approval_required` → drop index, cancel backend, reindex, hints etc. run without approval (*LV*) | G4-B01 | executor | trust autonomous + auto | ✅ §10.1 |
+| P0-05 | Standing gate ignores `tier3_*` flags, the 8/31-day ramp and `trust.maintenance_window`; default window `always` | G4-B02 | policy | autonomous | ✅ §10.1 |
+| P0-06 | Autonomous `pg_cancel_backend(pid)` from a previous cycle, with no identity recheck; freeze custodian targets the oldest xact *cluster-wide* (pg_dump, walsender) every minute | G4-B03 | executor/custodian | autonomous | ✅ §10.1 |
+| P0-07 | WAL custodian sets `max_slot_wal_keep_size` to the threshold the slot already exceeds → slot invalidated at next checkpoint (breaks CDC/replica) | G4-B05 | autonomy | slot > threshold + autonomous | ✅ §10.1 |
+| P0-08 | DROP INDEX rollback is plain `CREATE INDEX` (blocks writes) with no lock_timeout; approved-path auto-rollback skips authorization | G4-B06, G4-B11 | executor | rollback fires | ✅ §10.1 |
+| P0-09 | SQL whitelist bypass: multi-subcommand `ALTER TABLE … SET(…), DROP COLUMN` passes; double-space `VACUUM  FULL` classified safe | G4-B07 | executor | LLM advisor emits it | ✅ §10.1 |
+| P0-10 | Verified-index revert drops by LLM-authored name: `CREATE INDEX IF NOT EXISTS` on a name collision → "no gain" → drops the user's pre-existing index | G4-B08, G3-B05 | executor/optimizer | LLM name collision | ✅ §10.1 |
+| P0-11 | Advisor validator reads unitless memory GUCs as **bytes**; PG uses kB/8kB/MB → ~1000× oversized `work_mem` passes into autonomous `ALTER SYSTEM` (*LV*) | G3-B01 | advisor | LLM emits unitless value | ✅ §10.1 |
+| P0-12 | Migration advisor sends unclassified DDL verbatim to the LLM, incl. `ALTER ROLE … PASSWORD`, user-mapping and subscription connection strings | G7-B01 | migration | migration + LLM + log_statement=ddl | ✅ §10.1 |
+| P0-13 | Actions UI shows "Roll Back" on *queued* proposals; the server resolves the queue id against `action_log` and runs an unrelated action's rollback SQL (*LV*) | G9-B01, G6-B05 | api/web | operator click | ✅ §10.1 |
+| P0-14 | Fleet emergency stop aborts at the first DB whose flag can't be written; the rest (random order) keep executing; any agent DB triggers it | G5-B01 | fleet | fleet/meta mode | ✅ §10.1 |
+| P0-15 | AgentDB ping token (unauthenticated route) can set any deployment status → hides a live cloud DB from list/TTL/destroy; heartbeats un-archive and clear budget state | G8-B01 | agentdb | agent token | ✅ §10.1 |
+| P0-16 | Archived deployments are never revisited by TTL; restore-required default blocks destroy → running, billing forever; one provider error drops the batch | G8-B02 | agentdb | any expiry | ✅ §10.1 |
+| P0-17 | Re-register with an existing `deployment_id` overwrites the row and wipes provider resource identity → orphaned live instance; can move tenant | G8-B03 | agentdb | retry / re-provision | ✅ §10.1 |
+| P0-18 | Live destroy falls back to a derived name `pgsage-<id>` with no ownership/tag check → can destroy another tenant's or install's instance | G8-B04 | agentdb | missing provider_resource_id | ✅ §10.1 |
+| P0-19 | No tenant isolation (tenant from request body); ambiguous create marked `failed` and never reconciled → orphan/duplicate billed resources | G8-B05, G8-B06 | agentdb | multi-tenant / provider error | ✅ §10.1 |
 
 ### 3.2 P1 — silently broken features / wrong answers (headline set)
 
@@ -417,6 +417,18 @@ accepted**, with the adjustments below. Its AI SRE spec is the R1 core of §6.
 | SURF-19 resolution reason dropped | G6-B08 | Accepted |
 | SURF-20 static GCP token | G8-B09 | Accepted |
 
+**Codex testing pass (15:41–17:41).** Codex turned its findings into staged, failing contract
+tests (`pre-remediation-validation-2026-09-26.md`, `preflight-*.md`) and documented its replay
+and verification (`preflight-replay.md`, `preflight-verification.md`). On the original b396595
+it measured: baseline 7,148 pass / 0 fail / 8 skip; real metadata-fleet + Chromium journey 14/14;
+Linux binary smoke/fleet 38/0. Its combined unit + subprocess coverage lifts
+`cmd/pg_sage_sidecar` from 43.5% to 73.8%, which shows the gap is mostly missing subprocess
+instrumentation. It also added new defects: retention audit atomicity, concurrent verification
+claim, stale-snapshot refresh, reset-after-regrowth, interior resets, cross-process RCA identity,
+and AgentDB orphan schema. **All of them were run against this branch and now pass** (§10.2). Two
+were closed by further product fixes on this branch; the rest were already fixed or needed
+fixture adaptation.
+
 **Found by Claude and not in Codex's reports** (the highest-severity ones): P0-01 `/explain`
 statement escape, P0-04 approval guardrail spelling, P0-05 gate ignores tier/ramp/window, P0-06
 backend cancel by stale PID, P0-07 WAL custodian invalidates slots, P0-08 non-concurrent
@@ -446,4 +458,116 @@ yet"), the master spec agrees and makes it explicit in §0.
 4. **Sage SRE M0–M4** (R1 GA), with PGIncidentBench published alongside.
 5. **AgentDB principals + teardown state machine** before advertising multi-tenant AgentDB.
 6. **Sage SRE R1.1 → R2**, pulling pre-incident runways forward if you agree (§6 Q4).
+
+---
+
+## 10. Fix results (this branch)
+
+**Branch:** `claude/full-review-ai-sre-2026-09-26` (local only, not pushed). 12 fix branches
+merged: executor, analysis, collection, llm, rca, api-web, notify-migration, agentdb, runtime,
+contracts-exec, contracts-evidence, integration. Each followed the two-phase process
+(failing regression tests committed first). Per-area detail with commit hashes and test names
+is in `fixes-<area>.md`.
+
+**Tally across the fix reports:** ≈ 290 items FIXED, ≈ 25 PARTIAL, ≈ 50 DEFERRED (with
+reasons), 2 NOT A BUG. The fix phase itself found **≈ 40 additional bugs** (listed under "Bugs
+Found This Session" in each report). Among them: explain's prepared-statement leak, the
+autoexplain pool deadlock, the optimizer client ignoring `llm.enabled=false`, verify
+comparing only first/last samples, retention delete and audit not being atomic, two workers
+reverting the same watch, stale snapshots re-analyzed, the `+Inf` planning ratio, the
+briefing double-fire, and the standalone DSN registered as `localhost`.
+
+### 10.1 P0 status
+
+| # | Status | Where |
+|---|---|---|
+| P0-01 explain statement escape | ✅ | api-web `5489570` (PREPARE via `PgConn().ExecParams`; single read-statement allowlist) |
+| P0-02 retention cross-partition delete | ✅ | executor + contracts-exec: `(tableoid, ctid)` join, cutoff re-checked in DELETE, strict batch bound, delete and audit in one tx |
+| P0-03 retention gate bypass / unbound dry run | ✅ (column choice partial) | routed through the gate as a moderate action; dry run bound to relation+column+window and aged 24 h–7 d. An explicit owner-chosen retention column needs a schema change (deferred) |
+| P0-04 approval guardrail spelling | ✅ | executor `isApprovalRequiredGuardrail` |
+| P0-05 gate ignores tier3/ramp/window | ✅ | executor/policy; with default config moderate actions never auto-run |
+| P0-06 stale-PID backend cancel | ✅ | pid + backend_start + query identity rechecked; lock-chain findings now record backend identity (analysis) |
+| P0-07 WAL custodian invalidates slots | ✅ | keep-size never below retained WAL + headroom; otherwise refuse + escalate |
+| P0-08 non-concurrent index rollback | ✅ | `CREATE INDEX CONCURRENTLY` with lock_timeout; approved-path rollback authorizes |
+| P0-09 whitelist bypass | ✅ | single ALTER subcommand; whitespace-normalized classification |
+| P0-10 IF NOT EXISTS revert drops user index | ✅ | `revert_created_index` only drops a recorded OID; LLM `drop_ddl` ignored and rollback synthesized from parsed DDL (llm) |
+| P0-11 memory GUC units | ✅ | llm: base units per GUC; table test over every documented GUC |
+| P0-12 DDL secrets to LLM | ✅ | notify-migration: literals redacted; role/user-mapping/subscription DDL never sent; unclassified DDL not sent |
+| P0-13 rollback by queue id | ✅ | api-web: `record_kind` + unique `ledger_key`; rollback only for executed rows |
+| P0-14 fleet e-stop aborts | ✅ | runtime: every DB stopped in memory first, then per-DB persistence with named failures |
+| P0-15 ping mutates status | ✅ | agentdb: ping is liveness-only |
+| P0-16 archived never revisited | ✅ | agentdb: reconciler revisits live archived deployments; per-row isolation; visible block reason |
+| P0-17 re-register orphans resources | ✅ | agentdb: idempotent same-request; 409 for other tenant/agent |
+| P0-18 destroy by derived name | ✅ | agentdb: requires recorded resource id + creation receipt; verifies AWS tags / GCP labels |
+| P0-19 tenant isolation / ambiguous create | ✅ (agent path) | tenant-bound agent tokens on `/api/v1/agent-api/`; `create_uncertain` state with operation id. Human-operator tenant scoping is a product decision |
+
+### 10.2 Codex contract tests on the fixed branch
+
+All of Codex's staged regression tests were run against this branch. Where our fixes had
+made a contract intentionally stricter, fixtures were adapted to the production path with
+every behavioral assertion kept; each adaptation is explained in its commit.
+
+| Suite | Result |
+|---|---|
+| Core probes (C01/C02/C04) | pass |
+| Retention (partition, changed contract, audit atomicity, non-partitioned, runtime controls) | pass (after 1 real fix: atomic audit) |
+| Durable revert (happy path, crash before effect, connection loss, process crash, concurrent claim) | pass (after 1 real fix: durable claim) |
+| RCA persistence (restart identity, restart clear, manual resolution vs stale flush, two OS processes) | pass |
+| Evidence (stale snapshot, +Inf planning, reset-after-regrowth, role/top-level identity, interior reset, HA unknown) | pass (after 3 real fixes + verify interior-reset fix) |
+| Surface (MCP viewer denial, stop controls, OIDC unverified/verified) | pass, adopted permanently in `internal/api` |
+| Surface AgentDB (role/live boundary, invalid registration leaves no schema, spoofed approver) | pass. `SchemaLifecycle` fixture changed because the original encoded two bugs fixed here (self-attested restore, local provisioning without opt-in). **Needs your sign-off.** |
+| Diagnostics SQL artifact test | N/A (external artifact) |
+
+### 10.3 Behaviour changes operators must know
+
+- **Trust gate is stricter.** Safe actions need `tier3_safe` plus 8 ramp days. Moderate actions
+  need `tier3_moderate`, 31 days, and both the policy window and `trust.maintenance_window`
+  open; otherwise they queue. Backend signals always queue. Existing policy documents lack the
+  new change classes (`backend_signal`, `query_hint`, `schema_change`), so those actions stay
+  blocked until the documents are updated.
+- **Retention deletes** need a matching dry run 24 h–7 d old and go through the gate. A
+  withheld delete returns a policy error.
+- **Crash recovery of a pending revert** resumes after the 5-minute claim lease expires.
+- **Mode default:** a DSN with no mode now runs **standalone** (the quick start works); with no
+  DSN the default stays `extension`.
+- **LLM kill switch** now also disables the optimizer client; LLM hot reload reaches every
+  client.
+- **OIDC** requires `email_verified` and matches issuer+subject. Existing password accounts are
+  refused at SSO login until an admin linking flow exists (deferred).
+- **HTTP MCP:** viewers get read tools only; the actor is persisted.
+- **Notifications:** private/metadata targets are refused unless
+  `notification_policy.allow_private_targets: true` (YAML-only). Channel secrets are
+  encrypted at rest. Critical alerts bypass quiet hours; others are deferred, not dropped.
+  Default rule severities are per event.
+- **Migrations never auto-promote** until workload capture exists (rehearsal without affected
+  queries is inconclusive).
+- **Metrics:** `pg_sage_toil_minutes_saved_total` (counter) became the gauge
+  `pg_sage_toil_minutes_saved`, plus `pg_sage_value_metrics_up`. Per-DB LLM budget metrics added.
+- **AgentDB:** agent API tokens are tenant-bound; `secret_ref` must be `env:PG_SAGE_AGENTDB_*`;
+  Supabase passwords are derived per project from a master secret; local provisioning needs
+  `PG_SAGE_AGENTDB_LOCAL_PROVISIONING`; new GCP token-source env vars.
+- **Meta-db trust:** the global `trust.level` is a ceiling. A downgrade applies to every DB; a
+  raise never escalates a DB and returns a warning.
+- **Repo:** `local_monitor_config.yaml` and the fixture logs are untracked. **Back up
+  `local_monitor_config.yaml` in your main checkout before pulling this branch**, or git will
+  delete it. Live LLM tests need `PG_SAGE_LIVE_LLM=1`.
+
+### 10.4 Deferred (with reason)
+
+| Item | Why deferred |
+|---|---|
+| Unified `DatabaseRuntime` constructor; single `Executor.Apply`; AST SQL validation; notify/alerting convergence; durable recommendation state machine (C07 fully) | Structural refactors. Designs in §5.1 and the fix reports; best done with the new regression suite as a net |
+| RCA/lock-chain 60 s fast path (substrate B1, G1-B13) | Design in `fixes-rca.md`; it's Sage SRE M0 |
+| Explicit retention column in table contracts | Schema/API change + product decision |
+| G1-B27 provider disk/WAL IO as capacity | Product decision |
+| G4-B24 unify maintenance-window grammars | Would change the meaning of existing policy documents |
+| G4-B17 `RefusalSet`/`LockDurationCeilingMS`/`SerializeMode` | Enforcing RefusalSet as written would ban common actions; product decision |
+| SURF-03 Value ledger topology across fleets | Needs a decision on where the ledger lives |
+| Human-operator tenant scoping in AgentDB; approved-request-before-cloud-register | Product decisions |
+| SURF-08 adaptive monitoring worker; C09 storage growth wiring; SURF-14 incident credit | Feature work, best folded into Sage SRE (pre-incident runways, verified-recovery credit) |
+| C13 hint readiness per app session | Needs a live pg_hint_plan environment |
+| G9-B13 operator header e-stop control | Needs state plumbing + UX decision |
+| Two concurrent sidecars can duplicate an open incident; partial pg_stat_statements resets; "keep" verdict completion before credit | Residual risks noted by the contract agents; low likelihood |
+| ~11 G5 P2/P3s, `inst.DatabaseID` publish race, G7-D05/D06, lint `bloated_table` | Low value or blocked on the runtime refactor |
+| Frozen C extension removal | Needs your decision (§7) |
 
