@@ -111,28 +111,49 @@ func (e *Executor) withPolicyReadiness(
 ) ApprovalReadiness {
 	readiness.PolicyKnown = true
 	cfg, mode, enabled := e.policySnapshot()
-	readiness.Policy = EvaluateActionPolicy(contract, ActionPolicyContext{
-		Config:          cfg,
-		ExecutionMode:   mode,
-		ExecutorEnabled: &enabled,
-		Now:             now,
-		RampStart:       e.rampStart,
-	})
-	if readiness.Policy.RequiresMaintenanceWindow &&
-		!inMaintenanceWindowForPolicy(cfg, now) {
+	policyCtx := ActionPolicyContext{
+		Config: cfg, ExecutionMode: mode, ExecutorEnabled: &enabled,
+		Now: now, RampStart: e.rampStart,
+	}
+	readiness.Policy = EvaluateActionPolicy(contract, policyCtx)
+	if reason := operatorApprovalBlock(contract, policyCtx); reason != "" {
 		readiness.Eligible = false
-		readiness.DeferReason = "outside maintenance window"
+		readiness.DeferReason = reason
 		return readiness
 	}
-	if readiness.Policy.BlockedReason != "" {
-		readiness.Eligible = false
-		readiness.DeferReason = readiness.Policy.BlockedReason
-		return readiness
-	}
-	if readiness.Policy.Decision == PolicyDecisionBlocked ||
-		readiness.Policy.Decision == PolicyDecisionObserveOnly {
-		readiness.Eligible = false
-		readiness.DeferReason = "policy does not allow execution"
+	// An operator's explicit approval is not gated by automatic-execution
+	// eligibility (trust ramp, tier3 flags, auto mode): present it as a
+	// ready approval rather than the auto-execution verdict.
+	if readiness.Policy.Decision != PolicyDecisionExecute {
+		readiness.Policy = queueForApproval(readiness.Policy)
+		readiness.Policy.BlockedReason = ""
 	}
 	return readiness
+}
+
+// operatorApprovalBlock returns why an operator-approved action may not run
+// now: hard stops, observation/unknown trust, unsupported provider, or a
+// configured maintenance window that is closed for moderate/high actions.
+// An empty trust.maintenance_window does not block operator approvals.
+func operatorApprovalBlock(contract ActionContract, ctx ActionPolicyContext) string {
+	cfg := snapshotPolicyConfig(ctx.Config)
+	if reason := hardBlockReason(contract, ctx, normalizedProvider(cfg)); reason != "" {
+		return reason
+	}
+	if cfg == nil {
+		return "execution policy is unavailable"
+	}
+	switch cfg.Trust.Level {
+	case "observation":
+		return "policy is observe_only"
+	case "advisory", "autonomous":
+	default:
+		return "unknown trust level"
+	}
+	risky := contract.BaseRiskTier == "moderate" || contract.BaseRiskTier == "high"
+	window := strings.TrimSpace(cfg.Trust.MaintenanceWindow)
+	if risky && window != "" && !inMaintenanceWindowForPolicy(cfg, ctx.Now) {
+		return "outside maintenance window"
+	}
+	return ""
 }

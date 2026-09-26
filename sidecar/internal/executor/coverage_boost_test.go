@@ -2766,9 +2766,8 @@ func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_auto_exec",
 			Title:            "auto exec test",
-			RecommendedSQL: "ALTER TABLE public.rc_auto_exec " +
-				"SET (autovacuum_vacuum_scale_factor = 0.15)",
-			ActionRisk: "safe",
+			RecommendedSQL:   alterDatabaseProbeSQL(t, ctx, pool, "SET work_mem = '8MB'"),
+			ActionRisk:       "safe",
 		},
 	})
 
@@ -2859,7 +2858,7 @@ func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_conc_exec",
 			Title:            "conc exec test",
-			RecommendedSQL:   "REINDEX INDEX CONCURRENTLY public.idx_rc_conc",
+			RecommendedSQL:   "VACUUM public.rc_conc_exec",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2943,7 +2942,7 @@ func TestCoverage_RunCycle_ExecFailure(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.idx_rc_fail_nonexist_xyz",
 			Title:            "fail exec test",
-			RecommendedSQL:   "REINDEX INDEX CONCURRENTLY public.idx_rc_fail_nonexist_xyz",
+			RecommendedSQL:   "VACUUM public.rc_fail_nonexist_xyz",
 			ActionRisk:       "safe",
 		},
 	})
@@ -3018,7 +3017,7 @@ func TestCoverage_RunCycle_ExecFailureWithDispatcher(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.idx_rc_fail_disp_xyz",
 			Title:            "fail dispatch test",
-			RecommendedSQL: "REINDEX INDEX CONCURRENTLY " +
+			RecommendedSQL: "VACUUM " +
 				"public.idx_rc_fail_disp_xyz",
 			ActionRisk: "safe",
 		},
@@ -3109,7 +3108,7 @@ func TestCoverage_RunCycle_SuccessWithDispatcher(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_succ_disp",
 			Title:            "success dispatch test",
-			RecommendedSQL:   "REINDEX INDEX CONCURRENTLY public.idx_rc_sd",
+			RecommendedSQL:   "VACUUM public.rc_succ_disp",
 			ActionRisk:       "safe",
 		},
 	})
@@ -3278,11 +3277,9 @@ func TestCoverage_RunCycle_WithRollbackSQL(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_rollback_tbl",
 			Title:            "rollback branch test",
-			RecommendedSQL: "ALTER TABLE public.rc_rollback_tbl " +
-				"SET (autovacuum_vacuum_scale_factor=0.2)",
-			RollbackSQL: "ALTER TABLE public.rc_rollback_tbl " +
-				"RESET (autovacuum_vacuum_scale_factor)",
-			ActionRisk: "safe",
+			RecommendedSQL:   alterDatabaseProbeSQL(t, ctx, pool, "SET work_mem = '8MB'"),
+			RollbackSQL:      alterDatabaseProbeSQL(t, ctx, pool, "RESET work_mem"),
+			ActionRisk:       "safe",
 		},
 	})
 

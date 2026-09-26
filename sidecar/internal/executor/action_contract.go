@@ -126,6 +126,10 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return createStatisticsContract(), true
 	case "prepare_parameterized_query":
 		return prepareParameterizedQueryContract(), true
+	case "retention_delete":
+		return retentionDeleteContract(), true
+	case "revert_created_index":
+		return revertCreatedIndexContract(), true
 	case "create_index_concurrently":
 		return ActionContract{
 			ActionType:      actionType,

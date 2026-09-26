@@ -114,19 +114,19 @@ func TestLegacyPolicyQueuesApprovalGuardedContract(t *testing.T) {
 
 func TestFeatureForFindingDerivesChangeClassFromContract(t *testing.T) {
 	tests := map[string]string{
-		"CREATE INDEX CONCURRENTLY idx ON public.t (a)":     "index",
-		"DROP INDEX CONCURRENTLY public.idx":                "index",
-		"REINDEX INDEX CONCURRENTLY public.idx":             "index",
-		"ANALYZE public.t":                                  "analyze",
-		"VACUUM public.t":                                   "vacuum",
-		"ALTER TABLE public.t SET (autovacuum_enabled = on)": "autovacuum_tuning",
-		"ALTER SYSTEM SET work_mem = '64MB'":                "config_guc",
-		"SELECT pg_cancel_backend(42)":                      "backend_signal",
-		"SELECT pg_terminate_backend(42)":                   "backend_signal",
+		"CREATE INDEX CONCURRENTLY idx ON public.t (a)":                "index",
+		"DROP INDEX CONCURRENTLY public.idx":                           "index",
+		"REINDEX INDEX CONCURRENTLY public.idx":                        "index",
+		"ANALYZE public.t":                                             "analyze",
+		"VACUUM public.t":                                              "vacuum",
+		"ALTER TABLE public.t SET (autovacuum_enabled = on)":           "autovacuum_tuning",
+		"ALTER SYSTEM SET work_mem = '64MB'":                           "config_guc",
+		"SELECT pg_cancel_backend(42)":                                 "backend_signal",
+		"SELECT pg_terminate_backend(42)":                              "backend_signal",
 		"INSERT INTO hint_plan.hints (norm_query_string) VALUES ('x')": "query_hint",
-		"DELETE FROM hint_plan.hints WHERE id = 1":                      "query_hint",
-		"ALTER TABLE public.t VALIDATE CONSTRAINT c":                    "schema_change",
-		"TRUNCATE public.t":                                             "",
+		"DELETE FROM hint_plan.hints WHERE id = 1":                     "query_hint",
+		"ALTER TABLE public.t VALIDATE CONSTRAINT c":                   "schema_change",
+		"TRUNCATE public.t":                                            "",
 	}
 	for sql, want := range tests {
 		got := featureForFinding(analyzer.Finding{RecommendedSQL: sql})

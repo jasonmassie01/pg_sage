@@ -2,15 +2,12 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
+	"regexp"
+	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/querystore"
 	"github.com/pg-sage/sidecar/internal/value"
 )
 
@@ -30,381 +27,179 @@ func NewRollbackMonitor(
 	return &RollbackMonitor{pool: pool, cfg: cfg, logFn: logFn}
 }
 
-// CheckHysteresis returns true if the given finding was rolled back within
-// the cooldown period, preventing re-execution of the same remediation.
-func CheckHysteresis(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	findingID int64,
-	cooldownDays int,
-) bool {
-	var one int
-	err := pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT 1 FROM sage.action_log
-		 WHERE finding_id = $1
-		   AND outcome = 'rolled_back'
-		   AND executed_at > now() - make_interval(days => $2)`,
-		findingID, cooldownDays,
-	).Scan(&one)
+// RollbackMonitorConfig configures one post-action monitor. Authorize is
+// required: a nil authorizer withholds every automatic rollback.
+type RollbackMonitorConfig struct {
+	ThresholdPct     int
+	WindowMinutes    int
+	Delay            time.Duration // extra wait, used when resuming monitors
+	StatementTimeout time.Duration
+	LockTimeoutMs    int
+	CloudEnvironment string
+	Authorize        func(context.Context, string) bool
+	Acquire          func(context.Context) (func(), error)
 
-	return err == nil
+	execRollback func(context.Context, string, time.Duration, ...DDLOption) error
+	applyConfig  func(context.Context, string) configApplyOutcome
+}
+
+func (c RollbackMonitorConfig) window() time.Duration {
+	return c.Delay + time.Duration(c.WindowMinutes)*time.Minute
 }
 
 // MonitorAndRollback runs as a goroutine to monitor the effect of an
-// executed action. After the rollback window elapses, it re-checks
-// metrics. If regression exceeds the threshold, it rolls back the
-// change and marks the action as rolled_back. Otherwise, it marks
-// the action as success and records the after_state.
-//
-// shutdownCh may be nil. When non-nil, closing the channel aborts
-// the wait window without performing the post-window regression
-// check — the action_log entry is updated with an "interrupted"
-// outcome so the operator can tell why it never completed.
+// executed action. After the window it evaluates a tri-state verdict:
+// success is recorded only with evidence, missing evidence is recorded as
+// unverifiable, and a regression is rolled back only when authorized and
+// only if the action is still in a monitorable state (an operator rollback
+// or other terminal outcome is never overwritten).
 func MonitorAndRollback(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	actionID int64,
 	rollbackSQL string,
-	thresholdPct int,
-	windowMinutes int,
+	cfg RollbackMonitorConfig,
 	logFn func(string, string, ...any),
 	shutdownCh <-chan struct{},
-	authorize ...func(context.Context, string) bool,
 ) {
-	timer := time.NewTimer(time.Duration(windowMinutes) * time.Minute)
-	defer timer.Stop()
+	if !waitRollbackWindow(ctx, pool, actionID, cfg.window(), logFn, shutdownCh) {
+		return
+	}
+	switch evaluateRegression(ctx, pool, actionID, cfg.ThresholdPct) {
+	case regressionNone:
+		logFn("rollback", "no regression for action %d, marking success", actionID)
+		updateActionSuccess(ctx, pool, actionID)
+	case regressionUnverifiable:
+		logFn("rollback", "action %d has no usable post-action evidence", actionID)
+		if setMonitoredOutcome(ctx, pool, actionID, "unverifiable",
+			"post-action evidence unavailable; not credited") {
+			_, _ = finalizeActionVerification(ctx, pool, actionID, "unverifiable",
+				"post-action evidence unavailable")
+		}
+	case regressionDetected:
+		rollbackRegressedAction(ctx, pool, actionID, rollbackSQL, cfg, logFn)
+	}
+}
 
+func waitRollbackWindow(
+	ctx context.Context, pool *pgxpool.Pool, actionID int64, window time.Duration,
+	logFn func(string, string, ...any), shutdownCh <-chan struct{},
+) bool {
+	timer := time.NewTimer(window)
+	defer timer.Stop()
 	select {
 	case <-ctx.Done():
 		logFn("rollback", "context cancelled for action %d", actionID)
-		return
+		return false
 	case <-shutdownCh:
 		logFn("rollback",
 			"shutdown before rollback window for action %d — "+
 				"leaving action in pending state", actionID)
-		updateActionOutcome(ctx, pool, actionID, "interrupted",
+		setMonitoredOutcome(ctx, pool, actionID, "interrupted",
 			"sidecar shutdown before rollback window elapsed")
-		return
+		return false
 	case <-timer.C:
-		// Window elapsed — check for regression.
-	}
-
-	regressed := checkRegression(ctx, pool, actionID, thresholdPct)
-
-	if regressed {
-		// Honor an active emergency stop: the rollback fires autonomous
-		// DDL, so if the operator has halted all autonomous activity we
-		// must not run it. Flag the action for manual handling instead.
-		if CheckEmergencyStop(ctx, pool) {
-			logFn("rollback",
-				"emergency stop active — skipping auto-rollback for "+
-					"action %d (manual rollback required)", actionID)
-			updateActionOutcome(ctx, pool, actionID, "rollback_skipped",
-				"emergency stop active; automatic rollback withheld")
-			return
-		}
-		if len(authorize) > 0 && authorize[0] != nil &&
-			!authorize[0](ctx, rollbackSQL) {
-			logFn("rollback",
-				"standing policy withheld rollback for action %d", actionID)
-			updateActionOutcome(ctx, pool, actionID, "rollback_skipped",
-				"standing policy withheld automatic rollback")
-			return
-		}
-		logFn("rollback",
-			"regression detected for action %d, executing rollback",
-			actionID,
-		)
-		var err error
-		if NeedsConcurrently(rollbackSQL) || NeedsTopLevel(rollbackSQL) {
-			err = ExecConcurrently(ctx, pool, rollbackSQL, 60*time.Second)
-		} else {
-			err = ExecInTransaction(ctx, pool, rollbackSQL, 60*time.Second)
-		}
-		if err != nil {
-			logFn("rollback",
-				"rollback failed for action %d: %v", actionID, err,
-			)
-			updateActionOutcome(ctx, pool, actionID, "rollback_failed",
-				"rollback execution failed: "+err.Error())
-			return
-		}
-		updateActionOutcome(ctx, pool, actionID, "rolled_back",
-			"automatic rollback due to regression")
-		_, _ = finalizeActionVerification(
-			ctx, pool, actionID, "revert", "automatic rollback due to regression",
-		)
-		_, _ = value.NewPostgresRepository(pool).ZeroCreditOnRevert(
-			ctx, actionID, "rolled_back",
-		)
-		return
-	}
-
-	// No regression — mark success and populate after_state.
-	logFn("rollback",
-		"no regression for action %d, marking success", actionID,
-	)
-	updateActionSuccess(ctx, pool, actionID)
-}
-
-// checkRegression compares before-state metrics with current metrics.
-// Returns true if the current state is worse by more than thresholdPct.
-func checkRegression(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	actionID int64,
-	thresholdPct int,
-) bool {
-	// Per-query verify-and-revert (F1): if the action recorded the
-	// queries it targeted, compare each query's latency before vs after
-	// the action using the query store. This is precise where the old
-	// global cache-hit / avg-write heuristic was coarse and could mask a
-	// per-query regression.
-	if ids, executedAt := actionTargetQueries(ctx, pool, actionID); len(ids) > 0 &&
-		!executedAt.IsZero() {
-		return perQueryRegression(ctx, pool, ids, executedAt, thresholdPct)
-	}
-
-	// Read the before_state to determine what metric to check.
-	var beforeCacheHit float64
-	err := pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT coalesce(
-			(before_state->>'cache_hit_ratio')::float, -1
-		 ) FROM sage.action_log WHERE id = $1`,
-		actionID,
-	).Scan(&beforeCacheHit)
-	if err != nil || beforeCacheHit < 0 {
-		// Cannot determine before-state — assume no regression.
-		return false
-	}
-
-	// Measure current cache hit ratio as a proxy for overall health.
-	var currentCacheHit float64
-	err = pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT coalesce(
-			sum(blks_hit)::float /
-			nullif(sum(blks_hit) + sum(blks_read), 0),
-			1.0
-		 ) FROM pg_stat_database`,
-	).Scan(&currentCacheHit)
-	if err != nil {
-		return false
-	}
-
-	if beforeCacheHit == 0 {
-		return false
-	}
-
-	dropPct := ((beforeCacheHit - currentCacheHit) / beforeCacheHit) * 100
-	if dropPct > float64(thresholdPct) {
 		return true
 	}
-
-	// Additional signal: check if mean_exec_time for INSERT/UPDATE
-	// on the affected table spiked.
-	var beforeMeanMs, currentMeanMs float64
-	_ = pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT coalesce(
-			(before_state->>'mean_exec_time_ms')::float, -1
-		 ) FROM sage.action_log WHERE id = $1`,
-		actionID,
-	).Scan(&beforeMeanMs)
-
-	if beforeMeanMs > 0 {
-		_ = pool.QueryRow(ctx,
-			`/* pg_sage */ SELECT coalesce(avg(mean_exec_time), 0)
-			 FROM pg_stat_statements
-			 WHERE query LIKE 'INSERT%' OR query LIKE 'UPDATE%'`,
-		).Scan(&currentMeanMs)
-
-		if currentMeanMs > 0 && beforeMeanMs > 0 {
-			writeDelta := ((currentMeanMs - beforeMeanMs) / beforeMeanMs) * 100
-			if writeDelta > 20.0 {
-				return true
-			}
-		}
-	}
-
-	return false
 }
 
-// targetQueryIDs extracts the queryids an action targets from a finding's
-// detail (slow-query/tuning findings carry "queryid"). Used to seed
-// before_state for per-query verify-and-revert (F1).
-func targetQueryIDs(f analyzer.Finding) []int64 {
-	if f.Detail == nil {
-		return nil
-	}
-	var ids []int64
-	if id := detailInt64(f.Detail["queryid"]); id != 0 {
-		ids = append(ids, id)
-	}
-	// queryids may be []int64 (in-memory, from the optimizer) or []any
-	// (round-tripped through JSON).
-	switch list := f.Detail["queryids"].(type) {
-	case []int64:
-		for _, id := range list {
-			if id != 0 {
-				ids = append(ids, id)
-			}
-		}
-	case []any:
-		for _, x := range list {
-			if id := detailInt64(x); id != 0 {
-				ids = append(ids, id)
-			}
-		}
-	}
-	return ids
-}
-
-func detailInt64(v any) int64 {
-	switch x := v.(type) {
-	case int64:
-		return x
-	case int:
-		return int64(x)
-	case float64:
-		return int64(x)
-	}
-	return 0
-}
-
-// actionTargetQueries reads the target queryids and execution time an
-// action recorded in before_state.
-func actionTargetQueries(
-	ctx context.Context, pool *pgxpool.Pool, actionID int64,
-) ([]int64, time.Time) {
-	var idsJSON []byte
-	var executedAt time.Time
-	err := pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT before_state->'target_queryids', executed_at
-		   FROM sage.action_log WHERE id = $1`,
-		actionID,
-	).Scan(&idsJSON, &executedAt)
-	if err != nil || len(idsJSON) == 0 {
-		return nil, time.Time{}
-	}
-	var ids []int64
-	if json.Unmarshal(idsJSON, &ids) != nil {
-		return nil, time.Time{}
-	}
-	return ids, executedAt
-}
-
-// isQueryRegressed reports whether currentMs is worse than baselineMs by
-// more than thresholdPct. Pure decision for F1.
-func isQueryRegressed(baselineMs, currentMs float64, thresholdPct int) bool {
-	if baselineMs <= 0 {
-		return false
-	}
-	deltaPct := ((currentMs - baselineMs) / baselineMs) * 100
-	return deltaPct > float64(thresholdPct)
-}
-
-// perQueryRegression returns true if any targeted query is slower after
-// the action than in the window before it, by more than thresholdPct,
-// using the query store windowed latency (F1).
-func perQueryRegression(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	queryIDs []int64,
-	executedAt time.Time,
-	thresholdPct int,
-) bool {
-	const baselineWindow = 30 * time.Minute
-	for _, qid := range queryIDs {
-		baseline, okB, err := querystore.WindowedLatencyMsBetween(
-			ctx, pool, qid, executedAt.Add(-baselineWindow), executedAt)
-		if err != nil || !okB {
-			continue
-		}
-		current, okC, err := querystore.WindowedLatencyMsBetween(
-			ctx, pool, qid, executedAt, time.Now())
-		if err != nil || !okC {
-			continue
-		}
-		if isQueryRegressed(baseline, current, thresholdPct) {
-			return true
-		}
-	}
-	return false
-}
-
-// updateActionOutcome sets the outcome and rollback_reason for an action.
-func updateActionOutcome(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	actionID int64,
-	outcome string,
-	reason string,
+func rollbackRegressedAction(
+	ctx context.Context, pool *pgxpool.Pool, actionID int64, rollbackSQL string,
+	cfg RollbackMonitorConfig, logFn func(string, string, ...any),
 ) {
-	_, _ = pool.Exec(ctx,
-		`/* pg_sage */ UPDATE sage.action_log
-		 SET outcome = $1, rollback_reason = $2, measured_at = now()
-		 WHERE id = $3`,
-		outcome, reason, actionID,
-	)
+	if CheckEmergencyStop(ctx, pool) {
+		logFn("rollback", "emergency stop active — skipping auto-rollback for "+
+			"action %d (manual rollback required)", actionID)
+		setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped",
+			"emergency stop active; automatic rollback withheld")
+		return
+	}
+	if cfg.Authorize == nil || !cfg.Authorize(ctx, rollbackSQL) {
+		logFn("rollback", "policy withheld rollback for action %d", actionID)
+		setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped",
+			"standing policy withheld automatic rollback")
+		return
+	}
+	if !setMonitoredOutcome(ctx, pool, actionID, "rolling_back", "regression detected") {
+		logFn("rollback", "action %d changed state; rollback not repeated", actionID)
+		return
+	}
+	logFn("rollback", "regression detected for action %d, executing rollback", actionID)
+	reason, err := executeRollbackSQL(ctx, pool, rollbackSQL, cfg)
+	if err != nil {
+		logFn("rollback", "rollback failed for action %d: %v", actionID, err)
+		updateActionOutcome(ctx, pool, actionID, "rollback_failed",
+			"rollback execution failed: "+err.Error())
+		return
+	}
+	updateActionOutcome(ctx, pool, actionID, "rolled_back", reason)
+	_, _ = finalizeActionVerification(ctx, pool, actionID, "revert", reason)
+	_, _ = value.NewPostgresRepository(pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
 }
 
-// updateActionSuccess marks an action as successful and snapshots
-// the current state as after_state.
-func updateActionSuccess(
-	ctx context.Context,
+// executeRollbackSQL runs rollback DDL concurrently where possible, under a
+// lock timeout and the shared DDL slot, and reloads config after a GUC
+// rollback so the reverted value is actually live.
+func executeRollbackSQL(
+	ctx context.Context, pool *pgxpool.Pool, rollbackSQL string, cfg RollbackMonitorConfig,
+) (string, error) {
+	if cfg.Acquire != nil {
+		release, err := cfg.Acquire(ctx)
+		if err != nil {
+			return "", err
+		}
+		defer release()
+	}
+	sql := concurrentIndexRollbackSQL(rollbackSQL)
+	timeout := cfg.StatementTimeout
+	if timeout <= 0 {
+		timeout = time.Minute
+	}
+	if err := cfg.exec(pool)(ctx, sql, timeout, WithLockTimeout(cfg.LockTimeoutMs)); err != nil {
+		return "", err
+	}
+	reason := "automatic rollback due to regression"
+	if isAlterSystem(sql) {
+		reason += "; " + cfg.reload(pool)(ctx, sql).Note
+	}
+	return reason, nil
+}
+
+func (c RollbackMonitorConfig) exec(
 	pool *pgxpool.Pool,
-	actionID int64,
-) {
-	// Capture a lightweight after-state snapshot.
-	var cacheHit float64
-	_ = pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT coalesce(
-			sum(blks_hit)::float /
-			nullif(sum(blks_hit) + sum(blks_read), 0),
-			1.0
-		 ) FROM pg_stat_database`,
-	).Scan(&cacheHit)
-
-	_, _ = pool.Exec(ctx,
-		`/* pg_sage */ UPDATE sage.action_log
-		 SET outcome = 'success',
-		     after_state = jsonb_build_object('cache_hit_ratio', $1::float8),
-		     measured_at = now()
-		 WHERE id = $2`,
-		cacheHit, actionID,
-	)
-	verificationID, err := finalizeActionVerification(
-		ctx, pool, actionID, "success", "post-action checks passed",
-	)
-	if err == nil && verificationID > 0 {
-		_, _ = value.NewService(value.NewPostgresRepository(pool)).
-			CreditVerifiedAction(ctx, actionID)
+) func(context.Context, string, time.Duration, ...DDLOption) error {
+	if c.execRollback != nil {
+		return c.execRollback
+	}
+	return func(ctx context.Context, sql string, timeout time.Duration, opts ...DDLOption) error {
+		if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
+			return ExecConcurrently(ctx, pool, sql, timeout, opts...)
+		}
+		return ExecInTransaction(ctx, pool, sql, timeout, opts...)
 	}
 }
 
-func finalizeActionVerification(
-	ctx context.Context, pool *pgxpool.Pool, actionID int64, verdict, reason string,
-) (int64, error) {
-	if pool == nil || actionID <= 0 {
-		return 0, nil
+func (c RollbackMonitorConfig) reload(
+	pool *pgxpool.Pool,
+) func(context.Context, string) configApplyOutcome {
+	if c.applyConfig != nil {
+		return c.applyConfig
 	}
-	var verificationID int64
-	err := pool.QueryRow(ctx, `WITH candidate AS (
-		SELECT decision_id FROM sage.action_log
-		WHERE id=$1 AND decision_id IS NOT NULL AND verification_id IS NULL
-		FOR UPDATE
-	), inserted AS (
-		INSERT INTO sage.verification
-			(decision_id, action_log_id, criterion, baseline, minimum_samples,
-			 next_evaluation_at, hard_deadline_at, verdict, reason, completed_at)
-		SELECT decision_id, $1, '{"kind":"executor_postcheck"}'::jsonb,
-			'{}'::jsonb, 1, now(), now(), $2, $3, now() FROM candidate
-		RETURNING id
-	)
-	UPDATE sage.action_log al SET verification_id=inserted.id
-	FROM inserted WHERE al.id=$1 RETURNING inserted.id`,
-		actionID, verdict, reason).Scan(&verificationID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, nil
+	return func(ctx context.Context, sql string) configApplyOutcome {
+		return applyConfigChange(ctx, pool, sql, c.CloudEnvironment, nil)
 	}
-	return verificationID, err
+}
+
+var indexDDLPrefix = regexp.MustCompile(
+	`(?is)^(\s*(?:CREATE\s+(?:UNIQUE\s+)?|DROP\s+)INDEX\s+)(.*)$`)
+
+// concurrentIndexRollbackSQL rewrites CREATE/DROP INDEX rollbacks (e.g. a
+// pg_get_indexdef() rebuild) to their CONCURRENTLY form so a rollback never
+// takes a write-blocking lock on the table.
+func concurrentIndexRollbackSQL(sql string) string {
+	match := indexDDLPrefix.FindStringSubmatch(sql)
+	if len(match) != 3 || strings.HasPrefix(strings.ToUpper(match[2]), "CONCURRENTLY") {
+		return sql
+	}
+	return match[1] + "CONCURRENTLY " + match[2]
 }

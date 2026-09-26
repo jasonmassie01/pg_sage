@@ -21,6 +21,9 @@ func (e *Executor) EnableStandingPolicy(
 	policyStore := policy.NewStore(e.pool)
 	ledgerService := ledger.NewService(ledger.NewPostgresRepository(e.pool))
 	scope := policy.Scope{DatabaseID: int64Pointer(databaseID)}
+	e.policyMu.Lock()
+	e.databaseID = databaseID
+	e.policyMu.Unlock()
 	e.WithPolicyGate(e.newStandingPolicyGate(policyStore, ledgerService, scope, databaseID))
 	if _, err := policyStore.Bootstrap(ctx, scope, profile, "system-bootstrap"); err != nil {
 		return fmt.Errorf("bootstrap standing policy: %w", err)
@@ -33,17 +36,10 @@ func (e *Executor) newStandingPolicyGate(
 ) policy.Gate {
 	return policy.NewGate(policy.GateConfig{
 		Runtime: func(ctx context.Context, request policy.ActionRequest) (policy.RuntimeState, error) {
-			cfg, mode, enabled := e.policySnapshot()
-			trust := ""
-			if cfg != nil {
-				trust = cfg.Trust.Level
-			}
-			return policy.RuntimeState{
-				ExecutorEnabled: enabled, EmergencyStop: e.checkEmergencyStop(ctx),
-				IsReplica: request.IsReplica, TrustLevel: trust, ExecutionMode: mode,
-			}, nil
+			return e.standingRuntimeState(ctx, request), nil
 		},
 		ValidateSQL: ValidateExecutorSQL,
+		Usage:       e.standingUsage,
 		Policy: func(ctx context.Context, _ policy.ActionRequest) (policy.Document, error) {
 			current, err := store.Current(ctx, scope)
 			if err != nil {

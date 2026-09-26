@@ -249,8 +249,9 @@ func TestHysteresisFollowsFindingIdentityAcrossIDs(t *testing.T) {
 	insertFinding := func(status string) int64 {
 		var id int64
 		if err := pool.QueryRow(ctx, `INSERT INTO sage.findings
-			(category, severity, object_type, object_identifier, title, status)
-			VALUES ('hysteresis_probe', 'warning', 'index', 'public.hyst_idx', 'probe', $1)
+			(category, severity, object_type, object_identifier, title, detail, status)
+			VALUES ('hysteresis_probe', 'warning', 'index', 'public.hyst_idx', 'probe',
+			        '{}', $1)
 			RETURNING id`, status).Scan(&id); err != nil {
 			t.Fatalf("insert finding: %v", err)
 		}
@@ -299,4 +300,22 @@ func TestResumeOrphanedMonitorsFinishesInterruptedActions(t *testing.T) {
 	if outcome, _ := actionOutcomeFor(t, pool, id); outcome != "success" {
 		t.Fatalf("resumed outcome = %q, want success", outcome)
 	}
+}
+
+// alterDatabaseProbeSQL builds an ALTER DATABASE statement for the package
+// fixture database (an autonomous-eligible transactional statement) and
+// resets the setting after the test.
+func alterDatabaseProbeSQL(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, clause string,
+) string {
+	t.Helper()
+	var database string
+	if err := pool.QueryRow(ctx, "SELECT current_database()").Scan(&database); err != nil {
+		t.Fatalf("current_database: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			"ALTER DATABASE "+database+" RESET work_mem")
+	})
+	return "ALTER DATABASE " + database + " " + clause
 }
