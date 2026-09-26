@@ -72,7 +72,7 @@ func TestPreflightVerifierProcessCrashResumesRollback(t *testing.T) {
 		t.Fatalf("child did not exit at selected crash boundary: err=%v output=%s", err, out)
 	}
 	t.Log("child process exited 77 immediately after committing the revert verdict")
-	fresh := preflightEngine(t, f, verify.NewPostgresStateStore(f.pool, 1))
+	fresh := preflightRecoveryEngine(t, f, verify.NewPostgresStateStore(f.pool, 1))
 	if err := preflightLifecycle(f, fresh).ResumeDue(t.Context()); err != nil {
 		t.Fatal(err)
 	}

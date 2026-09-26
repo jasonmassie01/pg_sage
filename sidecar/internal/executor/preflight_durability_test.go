@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/policy"
@@ -77,10 +79,11 @@ func preflightNewFixture(t *testing.T) *preflightFixture {
 		t.Fatal(err)
 	}
 	err = f.pool.QueryRow(t.Context(), `INSERT INTO sage.action_log
-		(action_type,sql_executed,rollback_sql,decision_id,outcome)
-		VALUES ('create_index',$1,$2,$3,'pending') RETURNING id`,
+		(action_type,sql_executed,rollback_sql,decision_id,outcome,before_state)
+		VALUES ('create_index',$1,$2,$3,'pending',$4) RETURNING id`,
 		"CREATE INDEX preflight_items_idx ON public.preflight_items(id)",
-		"DROP INDEX CONCURRENTLY IF EXISTS public.preflight_items_idx", decisionID).Scan(&f.id)
+		"DROP INDEX CONCURRENTLY IF EXISTS public.preflight_items_idx", decisionID,
+		preflightCreatedIdentity(t, f.pool)).Scan(&f.id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +96,45 @@ func preflightNewFixture(t *testing.T) *preflightFixture {
 	f.store = verify.NewPostgresStateStore(f.pool, 1)
 	f.engine = preflightEngine(t, f, f.store)
 	return f
+}
+
+// preflightCreatedIdentity records the created index's OID identity through
+// the production path (recordCreatedIndexIdentity on the schema-qualified
+// name prepareVerifiedIndex produces), exactly as executeFinding stores it in
+// action_log.before_state. revert_created_index refuses to drop without it.
+func preflightCreatedIdentity(t *testing.T, pool *pgxpool.Pool) []byte {
+	t.Helper()
+	e := New(pool, &config.Config{}, nil, time.Time{}, func(string, string, ...any) {})
+	state := map[string]any{}
+	qualified := pgx.Identifier{"public", "preflight_items_idx"}.Sanitize()
+	e.recordCreatedIndexIdentity(t.Context(), qualified, state)
+	if state["created_index_oid"] == nil {
+		t.Fatalf("created index identity for %s was not recorded", qualified)
+	}
+	raw, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// preflightRecoveryEngine models a restarted process whose clock has passed
+// the durable claim lease (verify.RevertRetryInterval) the crashed or failed
+// owner left on the watch. Before that lease expires the owner may still be
+// alive, so recovery must not act (see TestPreflightDurableRevertCrashBeforeEffect).
+func preflightRecoveryEngine(
+	t *testing.T, f *preflightFixture, store verify.StateStore,
+) *verify.Engine {
+	t.Helper()
+	opts := verify.DefaultOptions()
+	opts.MinSamples = 1
+	recoverAt := f.at.Add(2*time.Minute + verify.RevertRetryInterval + time.Second)
+	opts.Now = func() time.Time { return recoverAt }
+	engine, err := verify.NewEngine(verify.NewPostgresObservationSource(f.pool), store, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return engine
 }
 
 func preflightSeedMeasurements(t *testing.T, f *preflightFixture) {
@@ -175,11 +217,36 @@ func TestPreflightDurableRevertCrashBeforeEffect(t *testing.T) {
 	// Reconstruct every in-memory component and reopen the pool from durable state.
 	f.pool.Close()
 	f.pool = preflightPool(t)
-	fresh := preflightEngine(t, f, verify.NewPostgresStateStore(f.pool, 1))
+	// At the crash instant the owner's claim lease is still live: no second
+	// worker may take the revert yet, and nothing may be lost either.
+	early := preflightEngine(t, f, verify.NewPostgresStateStore(f.pool, 1))
+	if err := preflightLifecycle(f, early).ResumeDue(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	preflightAssertRevertStillOwed(t, f)
+	fresh := preflightRecoveryEngine(t, f, verify.NewPostgresStateStore(f.pool, 1))
 	if err := preflightLifecycle(f, fresh).ResumeDue(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	preflightAssertRecovered(t, f)
+}
+
+func preflightAssertRevertStillOwed(t *testing.T, f *preflightFixture) {
+	t.Helper()
+	var exists, completed bool
+	var verdict string
+	err := f.pool.QueryRow(t.Context(), `SELECT
+		to_regclass('public.preflight_items_idx') IS NOT NULL,
+		v.verdict, v.completed_at IS NOT NULL
+		FROM sage.verification v WHERE v.action_log_id=$1`, f.id).
+		Scan(&exists, &verdict, &completed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists || verdict != "revert" || completed {
+		t.Fatalf("revert intent not durably owed: index_exists=%v verdict=%s completed=%v",
+			exists, verdict, completed)
+	}
 }
 
 func TestPreflightDurableRevertConnectionLossThenRestart(t *testing.T) {
@@ -212,7 +279,7 @@ func TestPreflightDurableRevertConnectionLossThenRestart(t *testing.T) {
 	if err := blocker.Rollback(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	fresh := preflightEngine(t, f, verify.NewPostgresStateStore(f.pool, 1))
+	fresh := preflightRecoveryEngine(t, f, verify.NewPostgresStateStore(f.pool, 1))
 	if err := preflightLifecycle(f, fresh).ResumeDue(t.Context()); err != nil {
 		t.Fatal(err)
 	}

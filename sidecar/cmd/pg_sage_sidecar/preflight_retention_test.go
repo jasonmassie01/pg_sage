@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,38 +18,25 @@ import (
 
 // Sequential by design: these probes change the disposable database's global stop flag.
 // Unknown/nil dependency checks remain in the existing constructor tests.
+//
+// The "none" control proves the fixture satisfies every other retention
+// precondition (reviewed dry run, standing policy, autonomous trust with
+// tier3_moderate, trust ramp and an open window), so each runtime control is
+// the only reason the delete is withheld.
 func TestPreflightRetentionHonorsRuntimeControls(t *testing.T) {
-	for _, control := range []string{"emergency_stop", "observation", "manual", "disabled"} {
-		t.Run(control, func(t *testing.T) {
+	controls := []struct{ name, reason string }{
+		{"none", ""},
+		{"emergency_stop", string(policy.ReasonEmergencyStop)},
+		{"observation", string(policy.ReasonObserveOnly)},
+		{"manual", string(policy.ReasonObserveOnly)},
+		{"disabled", string(policy.ReasonExecutorDisabled)},
+	}
+	for _, control := range controls {
+		t.Run(control.name, func(t *testing.T) {
 			p := preflightRuntimePool(t)
 			ctx := context.Background()
 			table := preflightRetentionTable(t, p)
-			c := config.DefaultConfig()
-			c.Trust.Level = "autonomous"
-			if control == "observation" {
-				c.Trust.Level = "observation"
-			}
-			e := executor.New(p, c, nil, time.Now().Add(-90*24*time.Hour), nil)
-			e.SetExecutionMode("auto")
-			if control == "manual" {
-				e.SetExecutionMode("manual")
-			}
-			if control == "disabled" {
-				e.SetExecutorEnabled(false)
-			}
-			if err := executor.SetEmergencyStop(ctx, p, control == "emergency_stop"); err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = executor.SetEmergencyStop(ctx, p, false) })
-			supervisor, err := newDatabaseAutonomy(p, c, "preflight", e)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for cycle := 1; cycle <= 2; cycle++ {
-				if err := supervisor.TriggerSchemaGuard(ctx, "preflight"); err != nil {
-					t.Fatal(err)
-				}
-			}
+			supervisorErr := preflightRunRetentionCycles(t, p, table, control.name)
 			var remaining, applied int
 			if err := p.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&remaining); err != nil {
 				t.Fatal(err)
@@ -56,11 +45,73 @@ func TestPreflightRetentionHonorsRuntimeControls(t *testing.T) {
 				WHERE table_name=$1 AND disposition='applied'`, table).Scan(&applied); err != nil {
 				t.Fatal(err)
 			}
+			if control.name == "none" {
+				if supervisorErr != nil || remaining != 1 || applied != 1 {
+					t.Fatalf("positive control: err=%v remaining=%d want=1 applied=%d want=1",
+						supervisorErr, remaining, applied)
+				}
+				return
+			}
+			if !errors.Is(supervisorErr, executor.ErrCustodianProposalWithheld) ||
+				!strings.Contains(supervisorErr.Error(), control.reason) {
+				t.Fatalf("%s: want delete withheld by policy (%s), got %v",
+					control.name, control.reason, supervisorErr)
+			}
 			if remaining != 2 || applied != 0 {
-				t.Fatalf("%s violated: remaining=%d want=2, applied=%d want=0", control, remaining, applied)
+				t.Fatalf("%s violated: remaining=%d want=2, applied=%d want=0",
+					control.name, remaining, applied)
 			}
 		})
 	}
+}
+
+// preflightRunRetentionCycles wires the executor exactly as startup does
+// (standing policy enabled), runs a first schema-guard cycle that records the
+// dry run, ages that dry run past its review window, and returns the result
+// of the second (apply) cycle.
+func preflightRunRetentionCycles(
+	t *testing.T, p *pgxpool.Pool, table, control string,
+) error {
+	t.Helper()
+	ctx := context.Background()
+	c := config.DefaultConfig()
+	c.Trust.Level = "autonomous"
+	c.Trust.Tier3Moderate = true
+	c.Trust.MaintenanceWindow = "always"
+	if control == "observation" {
+		c.Trust.Level = "observation"
+	}
+	e := executor.New(p, c, nil, time.Now().Add(-90*24*time.Hour),
+		func(string, string, ...any) {})
+	if err := e.EnableStandingPolicy(ctx, "unattended", nil); err != nil {
+		t.Fatal(err)
+	}
+	e.SetExecutionMode("auto")
+	if control == "manual" {
+		e.SetExecutionMode("manual")
+	}
+	if control == "disabled" {
+		e.SetExecutorEnabled(false)
+	}
+	if err := executor.SetEmergencyStop(ctx, p, control == "emergency_stop"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = executor.SetEmergencyStop(ctx, p, false) })
+	supervisor, err := newDatabaseAutonomy(p, c, "preflight", e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := supervisor.TriggerSchemaGuard(ctx, "preflight"); err != nil {
+		t.Fatalf("dry-run cycle: %v", err)
+	}
+	tag, err := p.Exec(ctx, `UPDATE sage.retention_run
+		SET created_at = created_at - interval '25 hours',
+		    cutoff_at = cutoff_at - interval '25 hours'
+		WHERE table_name=$1 AND disposition='dry_run'`, table)
+	if err != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("age dry run: rows=%d err=%v", tag.RowsAffected(), err)
+	}
+	return supervisor.TriggerSchemaGuard(ctx, "preflight")
 }
 
 func preflightRuntimePool(t *testing.T) *pgxpool.Pool {
