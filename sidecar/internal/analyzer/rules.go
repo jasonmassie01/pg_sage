@@ -11,6 +11,18 @@ import (
 type RuleExtras struct {
 	FirstSeen       map[string]time.Time
 	RecentlyCreated map[string]time.Time
+	// StatsEpoch is the latest of pg_stat_database.stats_reset and
+	// pg_postmaster_start_time(): cumulative index counters only cover
+	// the time since this instant.
+	StatsEpoch time.Time
+	// InvalidFirstSeen records when each invalid index was first observed.
+	InvalidFirstSeen map[string]time.Time
+	// IndexBuildTables holds "schema.table" keys with an index build in
+	// progress (pg_stat_progress_create_index).
+	IndexBuildTables map[string]bool
+	// IndexBuildProbeFailed is true when the in-progress build probe
+	// could not run this cycle.
+	IndexBuildProbeFailed bool
 }
 
 // RuleFunc is the standard signature for snapshot-based rules.

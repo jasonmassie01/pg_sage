@@ -193,4 +193,7 @@ type SourceFinding struct {
 	RecommendedSQL   string
 	RollbackSQL      string
 	Detail           map[string]any
+	// ObservedAt is when the source finding was last observed
+	// (sage.findings.last_seen). Zero means unknown.
+	ObservedAt time.Time
 }
