@@ -45,7 +45,7 @@ func TestLiveExecuteAndDestroyUseProviderRunner(t *testing.T) {
 	if _, err := st.RecordRestoreDrill(ctx, id, RestoreDrillRequest{BackupID: "backup_live_exec", EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"}); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
-	destroy, err := st.DestroyProvisionLive(ctx, id, runner)
+	destroy, err := directDestroyForTest(ctx, st, id, runner)
 	if err != nil {
 		t.Fatalf("DestroyProvisionLive: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestLiveBackupCheckDoesNotUnlockDestroy(t *testing.T) {
 	if _, err := st.CheckBackupAssuranceLive(ctx, id, runner); err != nil {
 		t.Fatalf("CheckBackupAssuranceLive: %v", err)
 	}
-	if _, err := st.DestroyProvisionLive(ctx, id, runner); err == nil {
+	if _, err := directDestroyForTest(ctx, st, id, runner); err == nil {
 		t.Fatal("DestroyProvisionLive succeeded without a restore-verified backup")
 	}
 }

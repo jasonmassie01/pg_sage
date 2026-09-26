@@ -294,7 +294,7 @@ func TestConcurrentDirectDestroyUsesOneDurableOperation(t *testing.T) {
 
 	firstDone := make(chan error, 1)
 	go func() {
-		_, destroyErr := st.DestroyProvisionLive(ctx, id, runner)
+		_, destroyErr := directDestroyForTest(ctx, st, id, runner)
 		firstDone <- destroyErr
 	}()
 	select {
@@ -311,7 +311,7 @@ func TestConcurrentDirectDestroyUsesOneDurableOperation(t *testing.T) {
 	if dep.TeardownOperationID == "" {
 		t.Fatal("direct destroy did not persist its operation ID")
 	}
-	if _, err := st.DestroyProvisionLive(ctx, id, runner); !errors.Is(err, ErrRateLimited) {
+	if _, err := directDestroyForTest(ctx, st, id, runner); !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("concurrent direct destroy error = %v, want ErrRateLimited", err)
 	}
 	if got := runner.destroyCount(); got != 1 {
@@ -321,7 +321,7 @@ func TestConcurrentDirectDestroyUsesOneDurableOperation(t *testing.T) {
 	if err := <-firstDone; err != nil {
 		t.Fatalf("first direct destroy: %v", err)
 	}
-	if _, err := st.DestroyProvisionLive(ctx, id, runner); err != nil {
+	if _, err := directDestroyForTest(ctx, st, id, runner); err != nil {
 		t.Fatalf("direct sequential retry: %v", err)
 	}
 	ids := runner.operationIDs()
@@ -349,7 +349,7 @@ func TestLiveReconcileResumesUncertainDirectDestroy(t *testing.T) {
 	registry := NewRunnerRegistry(DryRunProvisionRunner{})
 	registry.Register(runner)
 
-	if _, err := st.DestroyProvisionLive(ctx, id, runner); err == nil {
+	if _, err := directDestroyForTest(ctx, st, id, runner); err == nil {
 		t.Fatal("direct destroy succeeded despite uncertain provider result")
 	}
 	if _, err := st.ReconcileLiveProvisioning(ctx, registry); err != nil {
@@ -718,4 +718,29 @@ func deploymentByID(t *testing.T, deployments []Deployment, id string) Deploymen
 	}
 	t.Fatalf("deployment %s not found in %#v", id, deployments)
 	return Deployment{}
+}
+
+// directDestroyForTest drives the direct-teardown internals (durable
+// operation id, mutation lease, provider destroy) without the live
+// authorization tuple. It replaces the removed exported
+// Store.DestroyProvisionLive (G8-D02) so the concurrency tests keep
+// exercising the same code path.
+func directDestroyForTest(
+	ctx context.Context, st *Store, id string, runner ProviderRunner,
+) (ProvisionAttempt, error) {
+	dep, err := st.cloudDeploymentForExecution(ctx, id)
+	if err != nil {
+		return ProvisionAttempt{}, err
+	}
+	if runner == nil || runner.Name() == "dry_run" {
+		return ProvisionAttempt{}, ErrInvalid
+	}
+	if err := st.requireRestoreVerifiedBackup(ctx, dep); err != nil {
+		return ProvisionAttempt{}, err
+	}
+	dep, err = st.prepareDirectTeardown(ctx, dep, dep.BackupRequired)
+	if err != nil {
+		return ProvisionAttempt{}, err
+	}
+	return st.runProviderDestroy(ctx, id, runner, dep.TeardownOperationID)
 }

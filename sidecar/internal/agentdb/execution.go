@@ -116,28 +116,6 @@ func (s *Store) ExecuteProvision(
 	return attempt, nil
 }
 
-func (s *Store) DestroyProvisionLive(
-	ctx context.Context,
-	id string,
-	runner ProviderRunner,
-) (ProvisionAttempt, error) {
-	dep, err := s.cloudDeploymentForExecution(ctx, id)
-	if err != nil {
-		return ProvisionAttempt{}, err
-	}
-	if runner == nil || runner.Name() == "dry_run" {
-		return ProvisionAttempt{}, ErrInvalid
-	}
-	if err := s.requireRestoreVerifiedBackup(ctx, dep); err != nil {
-		return ProvisionAttempt{}, err
-	}
-	dep, err = s.prepareDirectTeardown(ctx, dep, dep.BackupRequired)
-	if err != nil {
-		return ProvisionAttempt{}, err
-	}
-	return s.runProviderDestroy(ctx, id, runner, dep.TeardownOperationID)
-}
-
 func (s *Store) destroyAuthorizedLive(
 	ctx context.Context,
 	authorized Deployment,
