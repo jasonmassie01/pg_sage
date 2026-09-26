@@ -241,37 +241,56 @@ type gucEntry struct {
 }
 
 // resolveGUCConflicts removes findings that target the same GUC
-// parameter with conflicting values. Per-table beats global; then
-// higher severity wins.
+// parameter with conflicting values. Per-table settings only conflict
+// with other settings on the same table (G2-B05); global settings of a
+// GUC conflict with each other and lose to any per-table setting of it.
+// Within a conflict group the higher severity wins.
 func resolveGUCConflicts(
 	findings []Finding,
 	logFn func(string, string, ...any),
 ) []Finding {
-	gucMap := make(map[string][]gucEntry)
+	groups := make(map[string][]gucEntry)
+	perTableGUCs := make(map[string]bool)
 	for i, f := range findings {
 		guc, pt := extractGUCTarget(f.RecommendedSQL)
 		if guc == "" {
 			continue
 		}
-		gucMap[guc] = append(gucMap[guc], gucEntry{i, pt})
+		key := guc
+		if pt {
+			key = guc + "|" + f.ObjectIdentifier
+			perTableGUCs[guc] = true
+		}
+		groups[key] = append(groups[key], gucEntry{i, pt})
 	}
 
 	remove := make(map[int]bool)
-	for guc, entries := range gucMap {
+	for key, entries := range groups {
+		global := !entries[0].perTable
+		if global && perTableGUCs[key] {
+			for _, e := range entries {
+				logFn("DEBUG", "dedup: per-table %s beats global %q",
+					key, findings[e.index].Title)
+				remove[e.index] = true
+			}
+			continue
+		}
 		if len(entries) < 2 {
 			continue
 		}
 		winner := pickGUCWinner(findings, entries)
 		for _, e := range entries {
 			if e.index != winner {
-				logFn("DEBUG",
-					"dedup: GUC conflict on %s, dropping %q",
-					guc, findings[e.index].Title)
+				logFn("DEBUG", "dedup: GUC conflict on %s, dropping %q",
+					key, findings[e.index].Title)
 				remove[e.index] = true
 			}
 		}
 	}
+	return dropIndexes(findings, remove)
+}
 
+func dropIndexes(findings []Finding, remove map[int]bool) []Finding {
 	if len(remove) == 0 {
 		return findings
 	}
