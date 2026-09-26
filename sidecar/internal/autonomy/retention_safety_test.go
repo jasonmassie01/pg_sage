@@ -95,7 +95,7 @@ func TestRetentionDeleteNeverTouchesOtherPartitions(t *testing.T) {
 	item := retentionItem(table, 30*24*time.Hour, schemaguard.DispositionApply)
 	cutoff := time.Now().Add(-30 * 24 * time.Hour)
 
-	deleted, err := enforcer.deleteBatch(context.Background(), item.Invariant, cutoff)
+	deleted, err := enforcer.deleteBatch(context.Background(), item.Invariant, cutoff, 1)
 
 	if err != nil {
 		t.Fatalf("deleteBatch: %v", err)
@@ -245,7 +245,7 @@ func TestRetentionDeleteUsesLockTimeout(t *testing.T) {
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	_, err = enforcer.deleteBatch(callCtx, item.Invariant, time.Now().Add(-24*time.Hour))
+	_, err = enforcer.deleteBatch(callCtx, item.Invariant, time.Now().Add(-24*time.Hour), 0)
 
 	if err == nil || time.Since(started) > 15*time.Second {
 		t.Fatalf("deleteBatch under lock: err=%v after %s, want bounded lock failure",
