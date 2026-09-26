@@ -335,10 +335,7 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 		}
 	}
 	configController = config.NewConfigControllerAtGeneration(
-		cfg, generation, nil,
-		&trustPolicyOwner{manager: func() *fleet.DatabaseManager {
-			return fleetMgr
-		}},
+		cfg, generation, nil, newTrustPolicyOwner(),
 	)
 	return nil
 }

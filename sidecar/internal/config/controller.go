@@ -48,6 +48,14 @@ type PreparedReconfiguration interface {
 	Drain(context.Context) error
 }
 
+// WarningReporter is optionally implemented by a PreparedReconfiguration
+// whose commit succeeded but deliberately left part of the request
+// unapplied (e.g. a global trust raise that must not escalate per-database
+// policy). The warnings are returned to the API caller.
+type WarningReporter interface {
+	Warnings() []string
+}
+
 // ConfigController serializes writers and atomically publishes reader snapshots.
 type ConfigController struct {
 	applyMu    sync.Mutex
@@ -266,6 +274,7 @@ func (c *ConfigController) applyLocked(
 	for _, name := range ownerNames {
 		result.ComponentStatus[name] = "applied"
 	}
+	result.Warnings = append(result.Warnings, preparedWarnings(prepared)...)
 	c.applyMu.Unlock()
 	if err := drainPrepared(ctx, prepared); err != nil {
 		result.Warnings = append(result.Warnings, err.Error())
@@ -360,6 +369,16 @@ func (c *ConfigController) persistDesired(
 type preparedOwner struct {
 	name   string
 	change PreparedReconfiguration
+}
+
+func preparedWarnings(prepared []preparedOwner) []string {
+	var warnings []string
+	for _, owner := range prepared {
+		if reporter, ok := owner.change.(WarningReporter); ok {
+			warnings = append(warnings, reporter.Warnings()...)
+		}
+	}
+	return warnings
 }
 
 func commitPrepared(ctx context.Context, prepared []preparedOwner) error {
