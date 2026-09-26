@@ -1578,7 +1578,7 @@ func initFleetMultiDB() {
 		if cfg.SchemaLint.Enabled {
 			dbLint := lint.NewRunner(
 				dbPool, &cfg.SchemaLint,
-				cfg.PGVersionNum, name,
+				dbPGVersion, name,
 				logStructuredWrapper,
 			)
 			if llmClient != nil && llmClient.IsEnabled() {
@@ -1595,7 +1595,7 @@ func initFleetMultiDB() {
 			}
 			dbAdvisor := migration.NewAdvisor(
 				dbPool, &cfg.Migration,
-				cfg.PGVersionNum, name,
+				dbPGVersion, name,
 				logStructuredWrapper, dbMigLLM,
 			)
 			findingStore := store.NewMigrationSafetyFindingStore(dbPool)
