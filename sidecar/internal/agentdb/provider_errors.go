@@ -63,7 +63,9 @@ func mapProviderError(provider string, err error) error {
 	switch {
 	case strings.Contains(msg, "already") || strings.Contains(msg, "exists"):
 		return providerError(provider, ProviderErrConflict, err.Error(), "")
-	case strings.Contains(msg, "throttl") || strings.Contains(msg, "rate"):
+	case strings.Contains(msg, "throttl") || strings.Contains(msg, "rate limit") ||
+		strings.Contains(msg, "rate exceeded") || strings.Contains(msg, "too many requests") ||
+		strings.Contains(msg, "status 429"):
 		return providerError(provider, ProviderErrThrottle, err.Error(), "retry later")
 	case strings.Contains(msg, "quota") || strings.Contains(msg, "limit"):
 		return providerError(provider, ProviderErrQuota, err.Error(), "request quota")

@@ -143,10 +143,12 @@ func (f *fakeRDSClient) GetInstance(
 	if f.err != nil {
 		return RDSInstance{}, f.err
 	}
+	// Like DescribeDBInstances, return the tags recorded at create.
 	return RDSInstance{
 		Identifier: identifier,
 		Status:     "available",
 		Endpoint:   identifier + ".example",
+		Tags:       f.created.Tags,
 	}, nil
 }
 

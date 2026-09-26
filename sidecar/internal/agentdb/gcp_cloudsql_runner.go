@@ -24,6 +24,7 @@ type CloudSQLCreateInput struct {
 	RequireSSL         bool
 	BackupEnabled      bool
 	DeletionProtection bool
+	AvailabilityType   string
 	Labels             map[string]string
 }
 
@@ -75,60 +76,6 @@ func (r CloudSQLRunner) Preflight(_ context.Context, req ProvisionRequest) Provi
 			"backup_enabled":   input.BackupEnabled,
 			"authorized_count": len(input.AuthorizedNetworks),
 		},
-	}
-}
-
-func (r CloudSQLRunner) Create(
-	ctx context.Context,
-	req ProvisionRequest,
-) ProvisionResult {
-	input, err := r.createInput(req)
-	if err != nil {
-		return ProvisionResult{Status: "failed", Error: err}
-	}
-	instance, err := r.client.CreateInstance(ctx, input)
-	if err != nil {
-		return ProvisionResult{Status: "failed", Error: mapProviderError(r.Provider(), err)}
-	}
-	return cloudSQLProvisionResult(instance)
-}
-
-func (r CloudSQLRunner) Status(
-	ctx context.Context,
-	req ProvisionRequest,
-) ProvisionResult {
-	project := cloudSQLProject(r, req.Deployment)
-	name := req.Deployment.ProviderResourceID
-	if name == "" {
-		name, _ = ProviderResourceName(ProviderGCPCloudSQL, req.Deployment.DeploymentID)
-	}
-	instance, err := r.client.GetInstance(ctx, project, name)
-	if err != nil {
-		return ProvisionResult{Status: "status_unknown", Error: mapProviderError(r.Provider(), err)}
-	}
-	return cloudSQLProvisionResult(instance)
-}
-
-func (r CloudSQLRunner) Destroy(
-	ctx context.Context,
-	req ProvisionRequest,
-) ProvisionResult {
-	project := cloudSQLProject(r, req.Deployment)
-	name := req.Deployment.ProviderResourceID
-	if name == "" {
-		name, _ = ProviderResourceName(ProviderGCPCloudSQL, req.Deployment.DeploymentID)
-	}
-	if err := r.client.DeleteInstance(ctx, project, name); err != nil {
-		mapped := mapProviderError(r.Provider(), err)
-		if pe, ok := mapped.(ProviderError); ok && pe.Kind == ProviderErrNotFound {
-			return ProvisionResult{Status: "destroyed"}
-		}
-		return ProvisionResult{Status: "failed", Error: mapped}
-	}
-	return ProvisionResult{
-		Status:             "destroying",
-		ProviderResourceID: name,
-		Detail:             map[string]any{"project": project},
 	}
 }
 
@@ -219,9 +166,10 @@ func (r CloudSQLRunner) createInput(req ProvisionRequest) (CloudSQLCreateInput, 
 		RequireSSL:         true,
 		BackupEnabled:      true,
 		DeletionProtection: !isDisposable(req.Deployment),
+		AvailabilityType:   availabilityType(boolParamAny(params, "multi_az")),
 		Labels: map[string]string{
 			"app":                   "pg-sage",
-			"pg_sage_deployment_id": req.Deployment.DeploymentID,
+			"pg_sage_deployment_id": gcpLabelValue(req.Deployment.DeploymentID),
 		},
 	}, nil
 }
@@ -276,6 +224,7 @@ func (c CloudSQLHTTPClient) CreateInstance(
 			"edition":                   input.Edition,
 			"dataDiskSizeGb":            input.StorageGB,
 			"deletionProtectionEnabled": input.DeletionProtection,
+			"availabilityType":          firstNonEmpty(input.AvailabilityType, "ZONAL"),
 			"userLabels":                input.Labels,
 			"backupConfiguration": map[string]any{
 				"enabled":                    input.BackupEnabled,
@@ -425,7 +374,11 @@ func cloudSQLAuthorizedNetworks(networks []string) []map[string]string {
 
 func cloudSQLInstanceFromAPI(raw map[string]any) CloudSQLInstance {
 	ipAddresses := mapSliceValue(raw, "ipAddresses")
+	settings := mapMapValue(raw, "settings")
+	protected, _ := settings["deletionProtectionEnabled"].(bool)
 	return CloudSQLInstance{
+		Labels:             stringMapFromAny(settings["userLabels"]),
+		DeletionProtection: protected,
 		Name:             stringMapValue(raw, "name"),
 		State:            stringMapValue(raw, "state"),
 		ConnectionName:   stringMapValue(raw, "connectionName"),
