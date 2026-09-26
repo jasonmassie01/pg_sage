@@ -15,6 +15,8 @@ export const EVENT_TYPES = [
   'action_failed',
   'approval_needed',
   'finding_critical',
+  // Mirrors notify.ValidEventTypes (G9-B28).
+  'query_rewrite_suggested',
 ]
 
 export const SEVERITIES = ['info', 'warning', 'critical']
