@@ -1254,19 +1254,12 @@ func initFleetMultiDB() {
 
 		// Per-database prerequisites and capability flags (G5-B13):
 		// standalone runs these at startup; fleet databases did not.
-		checks, err := runInstanceChecks(context.Background(), dbPool)
+		// A failed check degrades this database (capability flags off)
+		// instead of dropping it, so admin bootstrap and monitoring proceed.
+		checks, err := instanceChecksOrDegraded(context.Background(), dbPool)
 		if err != nil {
-			logError("fleet", "db %q: prerequisite checks: %v", name, err)
-			dbPool.Close()
-			fleetMgr.RegisterInstance(&fleet.DatabaseInstance{
-				Name:   name,
-				Config: dbCfg,
-				Status: &fleet.InstanceStatus{
-					Error:    fmt.Sprintf("prerequisites: %v", err),
-					LastSeen: time.Now(),
-				},
-			})
-			continue
+			logWarn("fleet", "db %q: prerequisite checks failed; monitoring "+
+				"degraded: %v", name, err)
 		}
 		dbRuntimeCfg := instanceRuntimeConfig(checks)
 		dbPGVersion := checks.PGVersionNum

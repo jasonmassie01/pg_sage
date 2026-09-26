@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -161,6 +162,27 @@ func initializeFleetBudget(databaseNames []string) {
 // runInstanceChecks validates one monitored database's prerequisites. A
 // variable so tests can stub it.
 var runInstanceChecks = startup.RunChecks
+
+// detectInstanceVersion probes server_version_num; a variable for tests.
+var detectInstanceVersion = detectPGVersion
+
+// instanceChecksOrDegraded runs the per-database prerequisite checks. A
+// failure (for example pg_stat_statements not installed) keeps the
+// database monitored in degraded mode — capability flags off — and is
+// returned as a warning. Dropping the database instead also skipped the
+// first-admin bootstrap and locked the dashboard.
+func instanceChecksOrDegraded(
+	ctx context.Context, pool *pgxpool.Pool,
+) (*startup.CheckResult, error) {
+	checks, err := runInstanceChecks(ctx, pool)
+	if err == nil && checks != nil {
+		return checks, nil
+	}
+	if err == nil {
+		err = errors.New("prerequisite checks returned no result")
+	}
+	return &startup.CheckResult{PGVersionNum: detectInstanceVersion(pool)}, err
+}
 
 // instanceRuntimeConfig clones the global config and carries the database's
 // own capability flags, so fleet and meta collectors select WAL and
