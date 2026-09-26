@@ -248,6 +248,33 @@ func (s *PostgresStateStore) ListDue(
 	return states, rows.Err()
 }
 
+// Claim is a conditional UPDATE: only a row that is still open and due at
+// now is moved to leaseUntil. Row locking serializes concurrent claimers and
+// the loser re-checks the predicate against the winner's committed lease, so
+// exactly one claim succeeds per due period, across processes.
+func (s *PostgresStateStore) Claim(
+	ctx context.Context, listed WatchState, now, leaseUntil time.Time,
+) (WatchState, bool, error) {
+	if s == nil || s.pool == nil {
+		return WatchState{}, false, errors.New("verify state pool is unavailable")
+	}
+	state, err := s.scanState(s.pool.QueryRow(ctx, `UPDATE sage.verification
+		SET next_evaluation_at=$3, updated_at=now()
+		WHERE action_log_id=$1 AND completed_at IS NULL
+		  AND verdict IN ('pending', 'extended', 'revert', 'unverifiable')
+		  AND next_evaluation_at <= $2
+		RETURNING action_log_id, criterion, baseline, verdict, COALESCE(reason, ''),
+			completed_at IS NOT NULL, next_evaluation_at`,
+		listed.ActionID, now, leaseUntil))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return WatchState{}, false, nil
+	}
+	if err != nil {
+		return WatchState{}, false, err
+	}
+	return state, true, nil
+}
+
 type stateScanner interface {
 	Scan(...any) error
 }
