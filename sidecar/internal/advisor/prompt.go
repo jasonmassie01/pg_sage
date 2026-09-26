@@ -33,6 +33,13 @@ func stripMarkdownFences(s string) string {
 	return strings.TrimSpace(s)
 }
 
+// configCategories are sub-advisor categories whose value is the SQL
+// change itself; a recommendation without SQL is dropped.
+var configCategories = map[string]bool{
+	"vacuum_tuning": true, "wal_tuning": true,
+	"memory_tuning": true, "connection_tuning": true,
+}
+
 // parseLLMFindings parses the LLM JSON response into findings.
 func parseLLMFindings(
 	raw string,
@@ -74,8 +81,12 @@ func parseLLMFindings(
 				// (e.g. a bare reload) — nothing actionable to record.
 				continue
 			}
-			// Empty/null recommended_sql — preserve the original
-			// behavior: one advisory finding carrying no SQL.
+			if configCategories[category] {
+				// "No changes needed" rows are not findings; persisted,
+				// they only blocked the sub-advisor (G3-B18).
+				continue
+			}
+			// Advisory categories keep one finding carrying no SQL.
 			stmts = []string{recSQL}
 		} else if !multi && rawStatementCount(recSQL) == 1 {
 			// Single statement to begin with — keep its verbatim shape.

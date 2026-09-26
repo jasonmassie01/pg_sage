@@ -96,15 +96,9 @@ func analyzeConnections(
 		platform,
 	)
 
-	if len(prompt) > maxAdvisorPromptChars {
-		prompt = prompt[:maxAdvisorPromptChars]
-	}
-
-	resp, _, err := mgr.ChatForPurpose(
-		ctx, "advisor", connectionSystemPrompt, prompt, 4096,
-	)
+	resp, err := chatAdvisor(ctx, mgr, "connection", connectionSystemPrompt, "", prompt)
 	if err != nil {
-		return nil, fmt.Errorf("connection LLM: %w", err)
+		return nil, err
 	}
 
 	findings := parseLLMFindings(resp, "connection_tuning", logFn)

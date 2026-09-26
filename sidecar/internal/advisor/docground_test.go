@@ -63,12 +63,15 @@ func TestValidateConfigSQL(t *testing.T) {
 	}
 }
 
-func TestParseMemoryToBytes(t *testing.T) {
+// parseMemoryToBytes became parseMemory(s, baseBytes): a bare number is
+// scaled by the GUC's base unit (G3-B01). With a 1-byte base the old
+// expectations hold unchanged.
+func TestParseMemory(t *testing.T) {
 	cases := map[string]float64{"256MB": 256 << 20, "1GB": 1 << 30, "512kB": 512 << 10, "1024": 1024}
 	for in, want := range cases {
-		got, err := parseMemoryToBytes(in)
+		got, err := parseMemory(in, 1)
 		if err != nil || got != want {
-			t.Errorf("parseMemoryToBytes(%q) = %v,%v want %v", in, got, err, want)
+			t.Errorf("parseMemory(%q, 1) = %v,%v want %v", in, got, err, want)
 		}
 	}
 }

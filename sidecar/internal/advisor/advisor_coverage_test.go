@@ -472,12 +472,13 @@ func TestParseLLMFindings_MarkdownWrappedJSON(t *testing.T) {
 }
 
 func TestParseLLMFindings_TitleFormat(t *testing.T) {
+	// Advisory category: config categories drop SQL-less rows (G3-B18).
 	raw := `[{"object_identifier":"public.bar"}]`
-	findings := parseLLMFindings(raw, "memory_tuning", noopLog)
+	findings := parseLLMFindings(raw, "bloat_remediation", noopLog)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
-	want := "memory_tuning recommendation for public.bar"
+	want := "bloat_remediation recommendation for public.bar"
 	if findings[0].Title != want {
 		t.Fatalf("expected title %q, got %q", want, findings[0].Title)
 	}
@@ -626,15 +627,15 @@ func TestParseLLMFindings_ComplexResponse(t *testing.T) {
 		}
 	]`
 	findings := parseLLMFindings(raw, "vacuum_tuning", noopLog)
-	if len(findings) != 2 {
-		t.Fatalf("expected 2, got %d", len(findings))
+	// The null-SQL "acceptable" row is not a finding (G3-B18).
+	if len(findings) != 1 {
+		t.Fatalf("expected 1, got %d", len(findings))
 	}
 	if findings[0].Severity != "warning" {
 		t.Errorf("finding[0]: Severity = %q", findings[0].Severity)
 	}
-	if findings[1].RecommendedSQL != "" {
-		t.Errorf("finding[1]: expected empty SQL, got %q",
-			findings[1].RecommendedSQL)
+	if findings[0].ObjectIdentifier != "public.orders" {
+		t.Errorf("finding[0]: object = %q", findings[0].ObjectIdentifier)
 	}
 }
 
@@ -1829,10 +1830,12 @@ func TestAnalyzeBloat_NilLastAutovacuum(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestAnalyzeVacuum_FullPath_WithMockLLM(t *testing.T) {
+	// Config categories drop SQL-less rows (G3-B18), so the full path
+	// is exercised with an actionable statement.
 	llmResp := `[{"object_identifier":"public.orders",` +
 		`"severity":"info",` +
 		`"rationale":"Scale factor too high",` +
-		`"recommended_sql":""}]`
+		`"recommended_sql":"ALTER TABLE public.orders SET (autovacuum_vacuum_scale_factor = 0.02)"}]`
 	srv, mgr := mockLLMServer(t, llmResp)
 	defer srv.Close()
 
@@ -1995,7 +1998,7 @@ func TestAnalyzeConnections_FullPath(t *testing.T) {
 	llmResp := `[{"object_identifier":"instance",` +
 		`"severity":"info",` +
 		`"rationale":"Connections healthy",` +
-		`"recommended_sql":""}]`
+		`"recommended_sql":"ALTER SYSTEM SET idle_session_timeout = '10min'"}]`
 	srv, mgr := mockLLMServer(t, llmResp)
 	defer srv.Close()
 
@@ -2200,7 +2203,7 @@ func TestAnalyzeWAL_FullPath(t *testing.T) {
 	llmResp := `[{"object_identifier":"instance",` +
 		`"severity":"info",` +
 		`"rationale":"WAL healthy",` +
-		`"recommended_sql":"",` +
+		`"recommended_sql":"ALTER SYSTEM SET max_wal_size = '4GB'",` +
 		`"requires_restart":false}]`
 	srv, mgr := mockLLMServer(t, llmResp)
 	defer srv.Close()

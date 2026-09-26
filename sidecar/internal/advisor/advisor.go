@@ -26,6 +26,10 @@ type Advisor struct {
 	cloudEnv string
 	dbName   string
 
+	// hostMemoryBytes is operator-supplied host RAM. PostgreSQL exposes
+	// no RAM figure; without it shared_buffers changes stay advisory.
+	hostMemoryBytes int64
+
 	mu        sync.Mutex
 	lastRunAt time.Time
 	findings  []analyzer.Finding
@@ -51,6 +55,12 @@ func New(
 // Use in fleet mode where each database may be on a different platform.
 func (a *Advisor) WithCloudEnv(env string) {
 	a.cloudEnv = env
+}
+
+// WithHostMemoryBytes supplies host RAM so shared_buffers
+// recommendations can be grounded (G3-B08). Zero keeps them advisory.
+func (a *Advisor) WithHostMemoryBytes(n int64) {
+	a.hostMemoryBytes = n
 }
 
 // WithDatabaseName sets the target database name for this advisor.
@@ -199,6 +209,7 @@ func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
 	if dbName == "" {
 		dbName = a.cfg.Postgres.Database
 	}
+	all = applyHostMemoryGuard(all, a.hostMemoryBytes)
 	all = TransformForCloud(all, cloudEnv, dbName, snap.ConfigData.PGSettings)
 
 	a.mu.Lock()

@@ -590,12 +590,13 @@ func TestParseLLMFindings_MarkdownWrappedEmptyArray(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestParseLLMFindings_TitleWithTableFallback(t *testing.T) {
+	// Advisory category: config categories drop SQL-less rows (G3-B18).
 	raw := `[{"table":"public.users"}]`
-	findings := parseLLMFindings(raw, "wal_tuning", noopLog)
+	findings := parseLLMFindings(raw, "query_rewrite", noopLog)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1, got %d", len(findings))
 	}
-	want := "wal_tuning recommendation for public.users"
+	want := "query_rewrite recommendation for public.users"
 	if findings[0].Title != want {
 		t.Fatalf("expected title %q, got %q", want, findings[0].Title)
 	}
@@ -603,11 +604,11 @@ func TestParseLLMFindings_TitleWithTableFallback(t *testing.T) {
 
 func TestParseLLMFindings_TitleWithInstanceDefault(t *testing.T) {
 	raw := `[{"severity":"warning"}]`
-	findings := parseLLMFindings(raw, "connection_tuning", noopLog)
+	findings := parseLLMFindings(raw, "query_rewrite", noopLog)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1, got %d", len(findings))
 	}
-	want := "connection_tuning recommendation for instance"
+	want := "query_rewrite recommendation for instance"
 	if findings[0].Title != want {
 		t.Fatalf("expected title %q, got %q", want, findings[0].Title)
 	}
@@ -617,13 +618,14 @@ func TestParseLLMFindings_TitleWithInstanceDefault(t *testing.T) {
 // parseLLMFindings — completely non-JSON-array input (plain object)
 // ---------------------------------------------------------------------------
 
+// A single object answered for an array prompt (json_object mode) is
+// one recommendation, not a parse failure (G3-B09). This test previously
+// asserted nil, which dropped real recommendations.
 func TestParseLLMFindings_PlainJSONObject_NotArray(t *testing.T) {
 	raw := `{"object_identifier":"x","severity":"info"}`
 	findings := parseLLMFindings(raw, "test", noopLog)
-	// This is not a JSON array, should fail to parse.
-	if findings != nil {
-		t.Fatalf("expected nil for non-array JSON, got %d findings",
-			len(findings))
+	if len(findings) != 1 || findings[0].ObjectIdentifier != "x" {
+		t.Fatalf("expected one finding for x, got %+v", findings)
 	}
 }
 
