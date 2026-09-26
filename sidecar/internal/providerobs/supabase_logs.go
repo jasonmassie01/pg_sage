@@ -14,6 +14,11 @@ import (
 
 const maxLogRecords = 1000
 
+// ErrLogWindowSaturated means the provider returned a full batch, so the
+// window may be truncated; callers narrow the window and retry.
+var ErrLogWindowSaturated = errors.New(
+	"Supabase log window saturated; narrow window before advancing cursor")
+
 const postgresLogsSQL = `SELECT toString(timestamp) AS timestamp, event_message,
 log_attributes['parsed.database_name'] AS database,
 log_attributes['parsed.user_name'] AS username,
@@ -62,7 +67,7 @@ func (c *Supabase) Logs(ctx context.Context, database string, from, to time.Time
 		return nil, errors.New("Supabase logs query failed or result is missing")
 	}
 	if len(*response.Result) >= maxLogRecords {
-		return nil, errors.New("Supabase log window saturated; narrow window before advancing cursor")
+		return nil, ErrLogWindowSaturated
 	}
 	return selectLogs(*response.Result, database, from, to)
 }
