@@ -16,8 +16,15 @@ or bug-free.
 The most important finding is reproduced data loss: retention selected one expired row
 and deleted two rows across partitions, including a future-dated row. Independent review
 confirmed this path bypasses the central executor gate and can continue after application
-emergency stop when retention preconditions are met. Disposable fixture changes were
-rolled back; no customer data was involved.
+emergency stop when retention preconditions are met. The original SQL reproduction was
+rolled back; follow-up production-path probes used disposable databases. No customer data
+was involved.
+
+**Follow-up validation is complete and remediation can begin.** The appended readiness
+report contains executed authorization, failure, restart, concurrency and telemetry
+contracts, a mutation inventory, and validated read-only historical-state diagnostics.
+It also proves a working real-browser approval flow. Failing safety contracts remain
+unfixed; this is readiness to repair, not readiness to release.
 
 **Recommended new feature: Sage Incident Investigator.** Extend existing RCA and Cases
 into a persistent investigation that gathers fresh evidence, tests competing hypotheses,
@@ -81,14 +88,19 @@ The appendix records all runs, including initial fixture failures and corrected 
 Baseline suites are broad and mostly green; focused boundary probes still reproduce bugs.
 Package coverage is not proof of a complete workflow.
 
-**The sidecar entry-point package is at 43.5% statement coverage**, below the 70% business
-threshold. Corrected unit/integration runs meet thresholds for internal business packages.
-This entry-point gap is an unresolved release gate. Audit probes are not a replacement
-coverage run, and production remediation is not claimed complete.
+**Unit-only sidecar entry-point coverage remains 43.5%.** Follow-up instrumentation of
+real standalone, configured-fleet and metadata-fleet processes raises the combined exact
+source-block coverage to **73.78% (1,548/2,098 statements)**. All measured production
+packages meet the combined thresholds, while unit-only main remains below 70%.
+The original verification appendix is retained as a historical run; the appended
+preflight verification explains the union and remaining gaps. Product safety gates
+still fail, and production remediation is not claimed complete.
 
 Build, vet and Go lint pass. Frontend lint/build pass with a bundle-size warning.
-Component tests: 89 passed. Mocked browser tests: 54 passed. These do not prove real
-backend/provider commissioning. Dependency audit reports three moderate package entries
+Component tests: 89 passed. Mocked browser tests: 54 passed. Follow-up real metadata
+fleet/browser validation passed 14 checks, including actual ANALYZE after UI approval,
+restart recovery and target removal. Provider commissioning remains open.
+Dependency audit reports three moderate package entries
 for one Vitest development-tool advisory, with actual scope explained in the runtime audit.
 
 No live cloud provisioning or real LLM-quality validation occurred. Credential-dependent
