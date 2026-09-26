@@ -86,13 +86,6 @@ func parseLLMPrescriptions(
 	return recs, nil
 }
 
-// stripToJSON extracts the JSON array from a response that may
-// contain thinking text, markdown fences, or other non-JSON
-// content. Delegates to the canonical llm.StripJSON.
-func stripToJSON(s string) string {
-	return llm.StripJSON(s, llm.JSONArray)
-}
-
 // validHintTokens are the allowed pg_hint_plan directive prefixes.
 var validHintTokens = []string{
 	"Set(", "HashJoin(", "MergeJoin(", "NestLoop(",

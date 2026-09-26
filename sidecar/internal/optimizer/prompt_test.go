@@ -101,38 +101,6 @@ func TestParseRecommendations_LongResponse(t *testing.T) {
 	}
 }
 
-func TestStripMarkdownFences_NoFences(t *testing.T) {
-	input := `[{"a":1}]`
-	got := stripMarkdownFences(input)
-	if got != input {
-		t.Errorf("expected %q, got %q", input, got)
-	}
-}
-
-func TestStripMarkdownFences_JSONFence(t *testing.T) {
-	input := "```json\n[]\n```"
-	got := stripMarkdownFences(input)
-	if got != "[]" {
-		t.Errorf("expected %q, got %q", "[]", got)
-	}
-}
-
-func TestStripMarkdownFences_PlainFence(t *testing.T) {
-	input := "```\n[]\n```"
-	got := stripMarkdownFences(input)
-	if got != "[]" {
-		t.Errorf("expected %q, got %q", "[]", got)
-	}
-}
-
-func TestStripMarkdownFences_OpeningOnly(t *testing.T) {
-	input := "```json\n[]"
-	got := stripMarkdownFences(input)
-	if got != "[]" {
-		t.Errorf("expected %q, got %q", "[]", got)
-	}
-}
-
 func TestFormatPrompt_Header(t *testing.T) {
 	tc := TableContext{
 		Schema: "public",
@@ -226,43 +194,6 @@ func TestSystemPrompt_ContainsAllRules(t *testing.T) {
 		if !strings.Contains(prompt, rule) {
 			t.Errorf("SystemPrompt missing rule keyword: %q", rule)
 		}
-	}
-}
-
-func TestStripToJSON_ThinkingPrefix(t *testing.T) {
-	input := "Let me think about this...\n\n" + `[{"table":"t","ddl":"d","rationale":"r","severity":"s"}]`
-	got := stripToJSON(input)
-	want := `[{"table":"t","ddl":"d","rationale":"r","severity":"s"}]`
-	if got != want {
-		t.Errorf("stripToJSON thinking prefix:\ngot:  %s\nwant: %s", got, want)
-	}
-}
-
-func TestStripToJSON_MarkdownFencedJSON(t *testing.T) {
-	input := "```json\n[{\"ddl\":\"d\"}]\n```"
-	got := stripToJSON(input)
-	want := "[{\"ddl\":\"d\"}]"
-	if got != want {
-		t.Errorf("stripToJSON fenced:\ngot:  %s\nwant: %s", got, want)
-	}
-}
-
-func TestStripToJSON_CleanJSON(t *testing.T) {
-	input := `[{"ddl":"d"}]`
-	got := stripToJSON(input)
-	if got != input {
-		t.Errorf("stripToJSON clean:\ngot:  %s\nwant: %s", got, input)
-	}
-}
-
-func TestStripToJSON_TruncatedJSON(t *testing.T) {
-	input := `[{"ddl":"CREATE INDEX`
-	got := stripToJSON(input)
-	// Should still extract from [ to end, even without closing ]
-	// Actually there's no ], so it falls through to stripMarkdownFences
-	// which returns the trimmed input
-	if got != input {
-		t.Errorf("stripToJSON truncated:\ngot:  %s\nwant: %s", got, input)
 	}
 }
 

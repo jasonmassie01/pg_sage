@@ -269,24 +269,6 @@ func parseRecommendations(response string) ([]Recommendation, error) {
 	return recs, nil
 }
 
-// stripToJSON extracts the JSON array from an LLM response that
-// may contain thinking text, markdown fences, or other non-JSON
-// content. Delegates to the canonical llm.StripJSON.
-func stripToJSON(s string) string {
-	return llm.StripJSON(s, llm.JSONArray)
-}
-
-func stripMarkdownFences(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "```json") {
-		s = strings.TrimPrefix(s, "```json")
-	} else if strings.HasPrefix(s, "```") {
-		s = strings.TrimPrefix(s, "```")
-	}
-	s = strings.TrimSuffix(s, "```")
-	return strings.TrimSpace(s)
-}
-
 func humanBytes(b int64) string {
 	const (
 		kb = 1024

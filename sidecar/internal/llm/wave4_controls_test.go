@@ -197,7 +197,7 @@ func TestWave4ModelCacheIsKeyedByEndpointAndCredential(t *testing.T) {
 
 func TestWave4ProviderErrorsRedactURLSecrets(t *testing.T) {
 	const secret = "gemini-secret-value"
-	_, err := doModelRequest(t.Context(), "://models?key="+secret, "")
+	_, err := doModelRequestWithClient(t.Context(), "://models?key="+secret, "", http.DefaultClient)
 	if err == nil {
 		t.Fatal("invalid provider URL unexpectedly succeeded")
 	}

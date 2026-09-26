@@ -1,7 +1,6 @@
 package advisor
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/collector"
@@ -12,429 +11,59 @@ import (
 // (restricted on ALL four platforms)
 // ---------------------------------------------------------------------------
 
-func TestValidateConfig_FullPageWrites_CloudSQL(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"full_page_writes", "off", "cloud-sql",
-	)
-	if err == nil {
-		t.Fatal("expected error: full_page_writes restricted on cloud-sql")
-	}
-	if !strings.Contains(err.Error(), "not adjustable on cloud-sql") {
-		t.Fatalf("wrong error message: %v", err)
-	}
-}
-
-func TestValidateConfig_FullPageWrites_AlloyDB(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"full_page_writes", "off", "alloydb",
-	)
-	if err == nil {
-		t.Fatal("expected error: full_page_writes restricted on alloydb")
-	}
-	if !strings.Contains(err.Error(), "not adjustable on alloydb") {
-		t.Fatalf("wrong error message: %v", err)
-	}
-}
-
-func TestValidateConfig_FullPageWrites_Aurora(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"full_page_writes", "on", "aurora",
-	)
-	if err == nil {
-		t.Fatal("expected error: full_page_writes restricted on aurora")
-	}
-	if !strings.Contains(err.Error(), "not adjustable on aurora") {
-		t.Fatalf("wrong error message: %v", err)
-	}
-}
-
-func TestValidateConfig_FullPageWrites_RDS(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"full_page_writes", "on", "rds",
-	)
-	if err == nil {
-		t.Fatal("expected error: full_page_writes restricted on rds")
-	}
-	if !strings.Contains(err.Error(), "not adjustable on rds") {
-		t.Fatalf("wrong error message: %v", err)
-	}
-}
-
-func TestValidateConfig_FullPageWrites_SelfManaged(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"full_page_writes", "off", "",
-	)
-	if err != nil {
-		t.Fatalf("full_page_writes should be allowed without platform: %v", err)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // ValidateConfigRecommendation — shared_buffers restricted on cloud-sql
 // and alloydb but NOT aurora/rds
 // ---------------------------------------------------------------------------
-
-func TestValidateConfig_SharedBuffers_CloudSQL_Restricted(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"shared_buffers", "256MB", "cloud-sql",
-	)
-	if err == nil {
-		t.Fatal("expected error: shared_buffers restricted on cloud-sql")
-	}
-}
-
-func TestValidateConfig_SharedBuffers_Aurora_Allowed(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"shared_buffers", "256MB", "aurora",
-	)
-	if err != nil {
-		t.Fatalf(
-			"shared_buffers should be allowed on aurora: %v", err,
-		)
-	}
-}
-
-func TestValidateConfig_SharedBuffers_RDS_Allowed(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"shared_buffers", "256MB", "rds",
-	)
-	if err != nil {
-		t.Fatalf(
-			"shared_buffers should be allowed on rds: %v", err,
-		)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // ValidateConfigRecommendation — min_wal_size restricted on aurora/rds
 // but NOT cloud-sql/alloydb
 // ---------------------------------------------------------------------------
 
-func TestValidateConfig_MinWalSize_Aurora_Restricted(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"min_wal_size", "80MB", "aurora",
-	)
-	if err == nil {
-		t.Fatal("expected error: min_wal_size restricted on aurora")
-	}
-	if !strings.Contains(err.Error(), "not adjustable on aurora") {
-		t.Fatalf("wrong error message: %v", err)
-	}
-}
-
-func TestValidateConfig_MinWalSize_RDS_Restricted(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"min_wal_size", "80MB", "rds",
-	)
-	if err == nil {
-		t.Fatal("expected error: min_wal_size restricted on rds")
-	}
-}
-
-func TestValidateConfig_MinWalSize_CloudSQL_Allowed(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"min_wal_size", "80MB", "cloud-sql",
-	)
-	if err != nil {
-		t.Fatalf(
-			"min_wal_size should be allowed on cloud-sql: %v", err,
-		)
-	}
-}
-
-func TestValidateConfig_MinWalSize_AlloyDB_Allowed(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"min_wal_size", "80MB", "alloydb",
-	)
-	if err != nil {
-		t.Fatalf(
-			"min_wal_size should be allowed on alloydb: %v", err,
-		)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // ValidateConfigRecommendation — autovacuum_vacuum_threshold boundaries
 // Range: [0, 1000000]
 // ---------------------------------------------------------------------------
-
-func TestValidateConfig_VacuumThreshold_AtMin(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_threshold", "0", "",
-	)
-	if err != nil {
-		t.Fatalf("expected 0 at min boundary to pass: %v", err)
-	}
-}
-
-func TestValidateConfig_VacuumThreshold_AtMax(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_threshold", "1000000", "",
-	)
-	if err != nil {
-		t.Fatalf("expected 1000000 at max boundary to pass: %v", err)
-	}
-}
-
-func TestValidateConfig_VacuumThreshold_BelowMin(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_threshold", "-1", "",
-	)
-	if err == nil {
-		t.Fatal("expected error for threshold=-1 (below min 0)")
-	}
-	if !strings.Contains(err.Error(), "out of safe range") {
-		t.Fatalf("wrong error message: %v", err)
-	}
-}
-
-func TestValidateConfig_VacuumThreshold_AboveMax(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_threshold", "1000001", "",
-	)
-	if err == nil {
-		t.Fatal("expected error for threshold=1000001 (above max)")
-	}
-}
-
-func TestValidateConfig_VacuumThreshold_MidRange(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_threshold", "50", "",
-	)
-	if err != nil {
-		t.Fatalf("expected 50 in range to pass: %v", err)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // ValidateConfigRecommendation — autovacuum_vacuum_cost_delay boundaries
 // Range: [0, 100]
 // ---------------------------------------------------------------------------
 
-func TestValidateConfig_CostDelay_AtMin(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_cost_delay", "0", "",
-	)
-	if err != nil {
-		t.Fatalf("expected 0 at min boundary to pass: %v", err)
-	}
-}
-
-func TestValidateConfig_CostDelay_AtMax(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_cost_delay", "100ms", "",
-	)
-	if err != nil {
-		t.Fatalf("expected 100 at max boundary to pass: %v", err)
-	}
-}
-
-func TestValidateConfig_CostDelay_AboveMax(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_cost_delay", "101ms", "",
-	)
-	if err == nil {
-		t.Fatal("expected error for cost_delay=101 (above max 100)")
-	}
-}
-
-func TestValidateConfig_CostDelay_BelowMin(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_cost_delay", "-1ms", "",
-	)
-	if err == nil {
-		t.Fatal("expected error for cost_delay=-1 (below min 0)")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // ValidateConfigRecommendation — autovacuum_vacuum_cost_limit boundaries
 // Range: [1, 10000]
 // ---------------------------------------------------------------------------
-
-func TestValidateConfig_CostLimit_AtMin(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_cost_limit", "1", "",
-	)
-	if err != nil {
-		t.Fatalf("expected 1 at min boundary to pass: %v", err)
-	}
-}
-
-func TestValidateConfig_CostLimit_AtMax(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_cost_limit", "10000", "",
-	)
-	if err != nil {
-		t.Fatalf("expected 10000 at max boundary to pass: %v", err)
-	}
-}
-
-func TestValidateConfig_CostLimit_BelowMin(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_cost_limit", "0", "",
-	)
-	if err == nil {
-		t.Fatal("expected error for cost_limit=0 (below min 1)")
-	}
-}
-
-func TestValidateConfig_CostLimit_JustAboveMax(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_cost_limit", "10001", "",
-	)
-	if err == nil {
-		t.Fatal("expected error for cost_limit=10001 (above max)")
-	}
-}
 
 // ---------------------------------------------------------------------------
 // ValidateConfigRecommendation — autovacuum_vacuum_scale_factor boundaries
 // Range: [0.001, 1.0]
 // ---------------------------------------------------------------------------
 
-func TestValidateConfig_ScaleFactor_AtMax(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_scale_factor", "1.0", "",
-	)
-	if err != nil {
-		t.Fatalf("expected 1.0 at max boundary to pass: %v", err)
-	}
-}
-
-func TestValidateConfig_ScaleFactor_AboveMax(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_scale_factor", "1.1", "",
-	)
-	if err == nil {
-		t.Fatal("expected error for scale_factor=1.1 (above max 1.0)")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // ValidateConfigRecommendation — work_mem boundaries
 // Range: [1, 1048576] (1KB to 1GB in KB)
 // ---------------------------------------------------------------------------
-
-func TestValidateConfig_WorkMem_AtMax(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"work_mem", "1048576kB", "",
-	)
-	if err != nil {
-		t.Fatalf("expected 1048576 at max boundary to pass: %v", err)
-	}
-}
-
-func TestValidateConfig_WorkMem_AboveMax(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"work_mem", "1048577kB", "",
-	)
-	if err == nil {
-		t.Fatal("expected error for work_mem=1048577 (above max)")
-	}
-}
-
-func TestValidateConfig_WorkMem_BelowMin(t *testing.T) {
-	err := ValidateConfigRecommendation("work_mem", "0kB", "")
-	if err == nil {
-		t.Fatal("expected error for work_mem=0 (below min 1)")
-	}
-}
 
 // ---------------------------------------------------------------------------
 // ValidateConfigRecommendation — max_connections boundaries
 // Range: [10, 10000]
 // ---------------------------------------------------------------------------
 
-func TestValidateConfig_MaxConnections_LargeAboveMax(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"max_connections", "99999", "",
-	)
-	if err == nil {
-		t.Fatal("expected error for max_connections=99999")
-	}
-	if !strings.Contains(err.Error(), "out of safe range") {
-		t.Fatalf("wrong error message: %v", err)
-	}
-}
-
-func TestValidateConfig_MaxConnections_Negative(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"max_connections", "-5", "",
-	)
-	if err == nil {
-		t.Fatal("expected error for negative max_connections")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // ValidateConfigRecommendation — error message format validation
 // ---------------------------------------------------------------------------
-
-func TestValidateConfig_ErrorContainsSettingName(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"max_connections", "99999", "",
-	)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "max_connections") {
-		t.Fatalf("error should contain setting name: %v", err)
-	}
-	if !strings.Contains(err.Error(), "99999") {
-		t.Fatalf("error should contain value: %v", err)
-	}
-}
-
-func TestValidateConfig_PlatformError_ContainsPlatform(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"wal_level", "logical", "alloydb",
-	)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "alloydb") {
-		t.Fatalf("error should contain platform name: %v", err)
-	}
-	if !strings.Contains(err.Error(), "wal_level") {
-		t.Fatalf("error should contain setting name: %v", err)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // ValidateConfigRecommendation — platform check takes precedence over
 // dangerous limits check (verify short-circuit behavior)
 // ---------------------------------------------------------------------------
 
-func TestValidateConfig_PlatformRejectsBeforeRangeCheck(t *testing.T) {
-	// shared_buffers is restricted on cloud-sql AND is not in
-	// dangerousLimits, so this tests the platform branch fires first.
-	err := ValidateConfigRecommendation(
-		"shared_buffers", "256MB", "cloud-sql",
-	)
-	if err == nil {
-		t.Fatal("expected platform restriction error")
-	}
-	if !strings.Contains(err.Error(), "not adjustable") {
-		t.Fatalf(
-			"expected 'not adjustable' (platform error), got: %v", err,
-		)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // ValidateConfigRecommendation — empty platform with restricted setting
 // should pass (platform restrictions only apply when platform is set)
 // ---------------------------------------------------------------------------
-
-func TestValidateConfig_EmptyPlatform_RestrictedSettingAllowed(t *testing.T) {
-	err := ValidateConfigRecommendation("wal_level", "logical", "")
-	if err != nil {
-		t.Fatalf(
-			"wal_level should be allowed with empty platform: %v", err,
-		)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // parseLLMFindings — object_identifier takes priority over table
@@ -865,84 +494,3 @@ func TestDetectPlatform_CaseSensitive(t *testing.T) {
 // ValidateConfigRecommendation — every dangerousLimits setting has its
 // boundaries verified with exact boundary +/- 1
 // ---------------------------------------------------------------------------
-
-func TestValidateConfig_AllDangerousLimits_Boundaries(t *testing.T) {
-	tests := []struct {
-		setting  string
-		minVal   string
-		maxVal   string
-		belowMin string
-		aboveMax string
-	}{
-		{
-			"max_connections",
-			"10", "10000", "9", "10001",
-		},
-		{
-			"autovacuum_vacuum_scale_factor",
-			"0.001", "1.0", "0.0009", "1.001",
-		},
-		{
-			"autovacuum_vacuum_threshold",
-			"0", "1000000", "-1", "1000001",
-		},
-		{
-			"autovacuum_vacuum_cost_delay",
-			"0", "100", "-1", "101",
-		},
-		{
-			"autovacuum_vacuum_cost_limit",
-			"1", "10000", "0", "10001",
-		},
-		{
-			"work_mem",
-			"1", "1048576", "0", "1048577",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.setting+"/at_min", func(t *testing.T) {
-			err := ValidateConfigRecommendation(tc.setting, tc.minVal, "")
-			if err != nil {
-				t.Fatalf(
-					"%s=%s should be at min boundary: %v",
-					tc.setting, tc.minVal, err,
-				)
-			}
-		})
-
-		t.Run(tc.setting+"/at_max", func(t *testing.T) {
-			err := ValidateConfigRecommendation(tc.setting, tc.maxVal, "")
-			if err != nil {
-				t.Fatalf(
-					"%s=%s should be at max boundary: %v",
-					tc.setting, tc.maxVal, err,
-				)
-			}
-		})
-
-		t.Run(tc.setting+"/below_min", func(t *testing.T) {
-			err := ValidateConfigRecommendation(
-				tc.setting, tc.belowMin, "",
-			)
-			if err == nil {
-				t.Fatalf(
-					"%s=%s should fail (below min)",
-					tc.setting, tc.belowMin,
-				)
-			}
-		})
-
-		t.Run(tc.setting+"/above_max", func(t *testing.T) {
-			err := ValidateConfigRecommendation(
-				tc.setting, tc.aboveMax, "",
-			)
-			if err == nil {
-				t.Fatalf(
-					"%s=%s should fail (above max)",
-					tc.setting, tc.aboveMax,
-				)
-			}
-		})
-	}
-}

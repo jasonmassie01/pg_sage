@@ -1404,39 +1404,6 @@ func TestFunctional_SplitHintDirectives_Nested(t *testing.T) {
 // Section 12: stripToJSON (tuner version)
 // =========================================================================
 
-func TestFunctional_StripToJSON_Brackets(t *testing.T) {
-	input := `Some thinking here [{"key": "value"}] and more`
-	got := stripToJSON(input)
-	if got != `[{"key": "value"}]` {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestFunctional_StripToJSON_MarkdownFences(t *testing.T) {
-	input := "```json\n" +
-		`[{"hint_directive": "HashJoin(o)"}]` +
-		"\n```"
-	got := stripToJSON(input)
-	// The function finds [ and ] inside the fences.
-	var parsed []map[string]any
-	if err := json.Unmarshal([]byte(got), &parsed); err != nil {
-		t.Fatalf("result not valid JSON: %v (raw: %q)", err, got)
-	}
-	if len(parsed) != 1 {
-		t.Errorf("expected 1 element, got %d", len(parsed))
-	}
-}
-
-func TestFunctional_StripToJSON_NoJSON(t *testing.T) {
-	input := "Just some plain text with no brackets"
-	got := stripToJSON(input)
-	// No [ or ] found, so stripping fences etc. is attempted.
-	// Final result should be the trimmed input.
-	if got != input {
-		t.Errorf("got %q, want %q", got, input)
-	}
-}
-
 // =========================================================================
 // Section 13: End-to-end prescription pipeline (integration of
 // ScanPlan + Prescribe + CombineHints)
@@ -3573,30 +3540,6 @@ func TestFunctional_Coverage_ParseLLMPrescriptions_Invalid(
 // ---------------------------------------------------------------------------
 // Additional coverage: stripToJSON edge cases
 // ---------------------------------------------------------------------------
-
-func TestFunctional_Coverage_StripToJSON_NoArray(t *testing.T) {
-	// No brackets at all — falls through to markdown strip.
-	input := "```json\nsome text\n```"
-	result := stripToJSON(input)
-	if result != "some text" {
-		t.Errorf("stripToJSON = %q, want 'some text'", result)
-	}
-}
-
-func TestFunctional_Coverage_StripToJSON_PlainText(t *testing.T) {
-	result := stripToJSON("just plain text")
-	if result != "just plain text" {
-		t.Errorf("stripToJSON = %q", result)
-	}
-}
-
-func TestFunctional_Coverage_StripToJSON_ArrayPresent(t *testing.T) {
-	input := "thinking...\n[{\"a\": 1}]\nmore text"
-	result := stripToJSON(input)
-	if result != `[{"a": 1}]` {
-		t.Errorf("stripToJSON = %q, want [{\"a\": 1}]", result)
-	}
-}
 
 // =========================================================================
 // Final coverage squeeze — edge cases for remaining partial functions

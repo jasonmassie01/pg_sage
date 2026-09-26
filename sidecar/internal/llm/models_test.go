@@ -234,9 +234,9 @@ func TestFetchGeminiModels_HTTPServer(t *testing.T) {
 	defer srv.Close()
 
 	// Directly test doModelRequest + parseGeminiModels via the URL.
-	body, err := doModelRequest(
+	body, err := doModelRequestWithClient(
 		context.Background(),
-		srv.URL+"?key=test-key", "")
+		srv.URL+"?key=test-key", "", http.DefaultClient)
 	if err != nil {
 		t.Fatalf("doModelRequest failed: %v", err)
 	}
@@ -274,8 +274,8 @@ func TestFetchOpenAIModels_HTTPServer(t *testing.T) {
 		}))
 	defer srv.Close()
 
-	models, err := fetchOpenAIModels(
-		context.Background(), srv.URL, "test-key")
+	models, err := fetchOpenAIModelsWithClient(
+		context.Background(), srv.URL, "test-key", http.DefaultClient)
 	if err != nil {
 		t.Fatalf("fetchOpenAIModels failed: %v", err)
 	}
@@ -294,8 +294,8 @@ func TestDoModelRequest_ServerError(t *testing.T) {
 		}))
 	defer srv.Close()
 
-	_, err := doModelRequest(
-		context.Background(), srv.URL, "key")
+	_, err := doModelRequestWithClient(
+		context.Background(), srv.URL, "key", http.DefaultClient)
 	if err == nil {
 		t.Fatal("expected error for 500 response")
 	}
@@ -314,7 +314,7 @@ func TestDoModelRequest_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
-	_, err := doModelRequest(ctx, srv.URL, "key")
+	_, err := doModelRequestWithClient(ctx, srv.URL, "key", http.DefaultClient)
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
 	}
@@ -324,15 +324,15 @@ func TestModelCache_HitAndMiss(t *testing.T) {
 	c := &modelCache{ttl: time.Hour}
 
 	// Miss on empty cache.
-	_, ok := c.get()
+	_, ok := c.getFor("")
 	if ok {
 		t.Error("expected cache miss on empty cache")
 	}
 
 	// Set and hit.
 	models := []ModelInfo{{ID: "test-model", Name: "Test"}}
-	c.set(models)
-	got, ok := c.get()
+	c.setFor("", models)
+	got, ok := c.getFor("")
 	if !ok {
 		t.Fatal("expected cache hit after set")
 	}
@@ -343,10 +343,10 @@ func TestModelCache_HitAndMiss(t *testing.T) {
 
 func TestModelCache_Expiry(t *testing.T) {
 	c := &modelCache{ttl: time.Millisecond}
-	c.set([]ModelInfo{{ID: "old"}})
+	c.setFor("", []ModelInfo{{ID: "old"}})
 	time.Sleep(5 * time.Millisecond)
 
-	_, ok := c.get()
+	_, ok := c.getFor("")
 	if ok {
 		t.Error("expected cache miss after TTL expiry")
 	}
@@ -354,14 +354,14 @@ func TestModelCache_Expiry(t *testing.T) {
 
 func TestInvalidateModelCache(t *testing.T) {
 	// Populate the default cache.
-	defaultCache.set([]ModelInfo{{ID: "cached"}})
-	_, ok := defaultCache.get()
+	defaultCache.setFor("", []ModelInfo{{ID: "cached"}})
+	_, ok := defaultCache.getFor("")
 	if !ok {
 		t.Fatal("cache should be populated")
 	}
 
 	InvalidateModelCache()
-	_, ok = defaultCache.get()
+	_, ok = defaultCache.getFor("")
 	if ok {
 		t.Error("cache should be empty after invalidation")
 	}
@@ -384,9 +384,9 @@ func TestFetchOpenAIModels_EndpointStripping(t *testing.T) {
 	defer srv.Close()
 
 	// Pass endpoint with /chat/completions suffix.
-	_, err := fetchOpenAIModels(
+	_, err := fetchOpenAIModelsWithClient(
 		context.Background(),
-		srv.URL+"/chat/completions", "key")
+		srv.URL+"/chat/completions", "key", http.DefaultClient)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
