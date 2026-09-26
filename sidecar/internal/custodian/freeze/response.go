@@ -3,6 +3,7 @@ package freeze
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 type ResponseKind string
@@ -17,11 +18,14 @@ const (
 )
 
 type XminBlocker struct {
-	PID     int
-	XminAge int64
-	User    string
-	State   string
-	Query   string
+	PID          int
+	XminAge      int64
+	User         string
+	State        string
+	Query        string
+	AppName      string
+	BackendStart time.Time
+	QueryStart   time.Time
 }
 
 type ResponseInput struct {
@@ -90,7 +94,10 @@ func blockerResponse(blocker XminBlocker) Response {
 	return Response{Kind: kind,
 		SQL: fmt.Sprintf("SELECT %s(%d)", function, blocker.PID),
 		Evidence: map[string]any{"pid": blocker.PID, "xmin_age": blocker.XminAge,
-			"user": blocker.User, "state": blocker.State, "query": blocker.Query}}
+			"user": blocker.User, "state": blocker.State, "query": blocker.Query,
+			"app_name":      blocker.AppName,
+			"backend_start": blocker.BackendStart.UTC().Format(time.RFC3339Nano),
+			"query_start":   blocker.QueryStart.UTC().Format(time.RFC3339Nano)}}
 }
 
 func bloatResponse(input ResponseInput) Response {

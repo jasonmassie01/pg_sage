@@ -199,7 +199,8 @@ func TestWALAdapterDefaultsEvidenceAndEscaping(t *testing.T) {
 	if got := custodian.dropProposal("owner's").SQL; got != escapedDropSQL {
 		t.Fatalf("escaped drop SQL = %q", got)
 	}
-	if got := custodian.boundProposal("slot"); got.Feature != "wal" || got.SQL == "" {
+	got := custodian.boundProposal("slot", defaultWALBackstopBytes)
+	if got.Feature != "wal" || got.SQL == "" {
 		t.Fatalf("bound proposal = %#v", got)
 	}
 	decision, err := wal.Classify(context.Background(), wal.SlotEvidence{
