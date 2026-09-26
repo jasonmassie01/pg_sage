@@ -92,8 +92,17 @@ func approvePipelineCancel(
 		}
 	})
 	id, err := ex.ExecuteManual(t.Context(), pipelineFindingID(t, pool, f),
-		f.RecommendedSQL, "", &operatorID)
+		f.RecommendedSQL, f.RollbackSQL, &operatorID)
 	if err != nil || id <= 0 {
-		t.Fatalf("approved cancel: action=%d err=%v", id, err)
+		t.Fatalf("approved action: action=%d err=%v", id, err)
 	}
+}
+
+// approvePipelineFinding executes an approval-gated finding through the
+// operator approval path (ExecuteManual), as the Actions UI does.
+func approvePipelineFinding(
+	t *testing.T, pool *pgxpool.Pool, ex *executor.Executor, f analyzer.Finding,
+) {
+	t.Helper()
+	approvePipelineCancel(t, pool, ex, f)
 }

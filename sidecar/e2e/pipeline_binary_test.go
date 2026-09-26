@@ -284,6 +284,16 @@ func waitForBinaryCycles(t *testing.T, pool *pgxpool.Pool) {
 
 // --- expectations -------------------------------------------------------------
 
+// withheldDecisions reports whether the standing-policy gate recorded a
+// withheld (approval/parked/blocked) decision for proposed SQL like pattern.
+func withheldDecisions(p *pgxpool.Pool, pattern string) bool {
+	n := quickScalar(p, fmt.Sprintf(`SELECT count(*)::text FROM sage.decision
+		WHERE evidence->>'proposed_sql' LIKE '%s'
+		  AND verdict IN ('parked','blocked','queue_approval','observe_only')`,
+		strings.ReplaceAll(pattern, "'", "''")))
+	return n != "0" && !strings.HasPrefix(n, "<err")
+}
+
 type binaryExpectation struct {
 	id       string
 	desc     string
@@ -297,17 +307,19 @@ func assertBinaryExpectations(
 	t.Helper()
 	expectations := []binaryExpectation{
 		{
+			// drop_index carries an approval guardrail (G4-B01): autonomous
+			// mode withholds the drop for operator approval.
 			id:   "CHECK-A01",
-			desc: "duplicate_index: one of pipe_dup_a/b auto-dropped, one intact",
+			desc: "duplicate_index: drop withheld for approval, both indexes intact",
 			check: func(p *pgxpool.Pool) (bool, string) {
 				n := quickScalar(p, `SELECT count(*)::text FROM pg_indexes
 					WHERE indexname IN ('pipe_dup_a','pipe_dup_b')`)
 				act := quickScalar(p, `SELECT count(*)::text FROM sage.action_log
 					WHERE action_type = 'drop_index'
-					  AND sql_executed LIKE '%pipe_dup_%'
-					  AND outcome IN ('success','monitoring')`)
-				return n == "1" && act != "0",
-					fmt.Sprintf("indexes_left=%s drop_actions=%s", n, act)
+					  AND sql_executed LIKE '%pipe_dup_%'`)
+				held := withheldDecisions(p, "%pipe_dup_%")
+				return n == "2" && act == "0" && held,
+					fmt.Sprintf("indexes_left=%s drop_actions=%s withheld=%v", n, act, held)
 			},
 		},
 		{
@@ -361,14 +373,16 @@ func assertBinaryExpectations(
 			},
 		},
 		{
+			// autovacuum_tuning carries an approval guardrail (G4-B01).
 			id:   "CHECK-A05",
-			desc: "autovacuum_tuning: per-table scale factor applied to pipe_av",
+			desc: "autovacuum_tuning: per-table change withheld for approval",
 			check: func(p *pgxpool.Pool) (bool, string) {
 				opts := quickScalar(p, `SELECT
 					coalesce(array_to_string(reloptions, ','), '')
 					FROM pg_class WHERE relname = 'pipe_av'`)
-				return strings.Contains(opts, "autovacuum_vacuum_scale_factor"),
-					fmt.Sprintf("reloptions=%q", opts)
+				held := withheldDecisions(p, "%pipe_av%")
+				return !strings.Contains(opts, "autovacuum_vacuum_scale_factor") && held,
+					fmt.Sprintf("reloptions=%q withheld=%v", opts, held)
 			},
 		},
 		{
@@ -397,12 +411,16 @@ func assertBinaryExpectations(
 			},
 		},
 		{
+			// Invalid-index drops use the drop_index contract (approval
+			// guardrail, G4-B01).
 			id:   "CHECK-A08",
-			desc: "invalid_index: pipe_invalid_idx auto-dropped",
+			desc: "invalid_index: drop of pipe_invalid_idx withheld for approval",
 			check: func(p *pgxpool.Pool) (bool, string) {
 				n := quickScalar(p, `SELECT count(*)::text FROM pg_indexes
 					WHERE indexname = 'pipe_invalid_idx'`)
-				return n == "0", fmt.Sprintf("invalid_index_left=%s", n)
+				held := withheldDecisions(p, "%pipe_invalid_idx%")
+				return n == "1" && held,
+					fmt.Sprintf("invalid_index_left=%s withheld=%v", n, held)
 			},
 		},
 		{
