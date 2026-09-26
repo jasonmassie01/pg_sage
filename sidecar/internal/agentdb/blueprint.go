@@ -398,7 +398,7 @@ func renderAWSRDS(spec BlueprintSpec) string {
 }
 
 provider "aws" {
-  region = %q
+  region = %s
 }
 
 variable "master_username" {
@@ -414,24 +414,31 @@ locals {
   pg_sage_extensions = %s
 }
 
+variable "identifier" {
+  type        = string
+  description = "pg_sage provider resource name for the deployment"
+}
+
 resource "aws_db_instance" "agentdb" {
-  identifier              = "pg-sage-agentdb"
+  identifier              = var.identifier
   engine                  = "postgres"
-  engine_version          = %q
-  instance_class          = %q
+  engine_version          = %s
+  instance_class          = %s
   allocated_storage       = %d
   storage_encrypted       = true
   multi_az                = %t
   publicly_accessible     = %t
   backup_retention_period = %d
-  deletion_protection     = true
+  # pg_sage owns TTL teardown; the runner creates RDS without deletion
+  # protection and refuses blueprints that request it.
+  deletion_protection     = false
   skip_final_snapshot     = false
   username                = var.master_username
   password                = var.master_password
 }
-`, spec.Region, terraformStringList(spec.Extensions), spec.DatabaseVersion,
-		spec.InstanceClass, spec.StorageGB, spec.MultiAZ, spec.PublicIP,
-		spec.BackupRetentionDays)
+`, hclString(spec.Region), terraformStringList(spec.Extensions),
+		hclString(spec.DatabaseVersion), hclString(spec.InstanceClass), spec.StorageGB,
+		spec.MultiAZ, spec.PublicIP, spec.BackupRetentionDays)
 }
 
 func renderCloudSQL(spec BlueprintSpec) string {
@@ -445,24 +452,30 @@ func renderCloudSQL(spec BlueprintSpec) string {
 }
 
 provider "google" {
-  region = %q
+  region = %s
 }
 
 locals {
   pg_sage_extensions = %s
 }
 
+variable "name" {
+  type        = string
+  description = "pg_sage provider resource name for the deployment"
+}
+
 resource "google_sql_database_instance" "agentdb" {
-  name             = "pg-sage-agentdb"
-  database_version = %q
-  region           = %q
+  name             = var.name
+  database_version = %s
+  region           = %s
+  # The pg_sage runner lifts deletion protection inside an authorized destroy.
   deletion_protection = true
 
   settings {
-    tier              = %q
+    tier              = %s
     edition           = "ENTERPRISE"
     disk_size         = %d
-    availability_type = %q
+    availability_type = %s
     backup_configuration {
       enabled                        = true
       point_in_time_recovery_enabled = %t
@@ -474,9 +487,10 @@ resource "google_sql_database_instance" "agentdb" {
     }
   }
 }
-`, spec.Region, terraformStringList(spec.Extensions), spec.DatabaseVersion,
-		spec.Region, spec.InstanceClass, spec.StorageGB,
-		availabilityType(spec.MultiAZ), spec.PITR, spec.BackupRetentionDays,
+`, hclString(spec.Region), terraformStringList(spec.Extensions),
+		hclString(spec.DatabaseVersion), hclString(spec.Region),
+		hclString(spec.InstanceClass), spec.StorageGB,
+		hclString(availabilityType(spec.MultiAZ)), spec.PITR, spec.BackupRetentionDays,
 		spec.PublicIP)
 }
 
@@ -510,9 +524,18 @@ func terraformStringList(values []string) string {
 	}
 	quoted := make([]string, 0, len(values))
 	for _, value := range values {
-		quoted = append(quoted, strconv.Quote(value))
+		quoted = append(quoted, hclString(value))
 	}
 	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+// hclString quotes a value for HCL and escapes template sequences so an
+// LLM-derived value cannot inject ${...} interpolation or %{...} directives
+// into a reviewed Terraform artifact (G8-B28).
+func hclString(value string) string {
+	value = strings.ReplaceAll(value, "${", "$${")
+	value = strings.ReplaceAll(value, "%{", "%%{")
+	return strconv.Quote(value)
 }
 
 func availabilityType(multiAZ bool) string {

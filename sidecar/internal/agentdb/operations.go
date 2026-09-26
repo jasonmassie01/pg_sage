@@ -117,6 +117,9 @@ func (s *Store) AddCostSample(
 	if err := s.Ensure(ctx); err != nil {
 		return err
 	}
+	if req.CostUSD < 0 {
+		return fmt.Errorf("%w: cost_usd must not be negative", ErrInvalid)
+	}
 	if req.At.IsZero() {
 		req.At = time.Now().UTC()
 	}

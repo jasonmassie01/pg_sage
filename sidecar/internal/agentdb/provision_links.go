@@ -143,6 +143,13 @@ func (s *Store) ProvisionFromTerraformTemplate(
 	reg.ProvisioningPlan = planMap(plan)
 	reg.ProvisioningPlan["source"] = "terraform_template"
 	reg.ProvisioningPlan["terraform_template_id"] = template.TemplateID
+	// SURF-05: the template is a reviewed reference, not an executed plan.
+	// The runner provisions from provider_params; say so and bind the
+	// approval to the exact template content that was reviewed.
+	reg.ProvisioningPlan["template_semantics"] = "review_only"
+	reg.ProvisioningPlan["template_semantics_note"] = "template content is stored " +
+		"for review only; the live runner provisions from provider_params"
+	reg.Metadata["terraform_template_sha256"] = template.ContentSHA256
 	return s.Register(ctx, reg)
 }
 
