@@ -1,4 +1,4 @@
-# pg_sage Sidecar Configuration — v0.9
+# pg_sage Sidecar Configuration
 # Copy to config.yaml and edit. All values shown are defaults.
 # Precedence: CLI flags > environment variables > this file > built-in defaults.
 # Environment variable expansion: use ${VAR_NAME} syntax in values.
