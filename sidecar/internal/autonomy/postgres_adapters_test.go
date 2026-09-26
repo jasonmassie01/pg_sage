@@ -91,9 +91,12 @@ func TestPostgresFreezeCustodianScansLiveCatalog(t *testing.T) {
 			t.Fatalf("unsafe or unscoped freeze proposal: %#v", proposal)
 		}
 	}
-	rate, err := custodian.transactionRate(ctx)
-	if err != nil || rate <= 0 {
-		t.Fatalf("transactionRate = %v, %v", rate, err)
+	if _, err := custodian.transactionRates(ctx); err != nil {
+		t.Fatalf("first transactionRates: %v", err)
+	}
+	rates, err := custodian.transactionRates(ctx)
+	if err != nil || !rates.known || rates.xid <= 0 || rates.mxid <= 0 {
+		t.Fatalf("transactionRates = %#v, %v", rates, err)
 	}
 }
 
@@ -120,24 +123,26 @@ func TestFreezeAdapterRowsAndThresholdDefaults(t *testing.T) {
 	}
 }
 
+var knownRates = freezeRateSample{xid: 1, mxid: 1, known: true}
+
 func TestFreezeAdapterBuildsBlockerTuneAndBloatResponses(t *testing.T) {
 	custodian := NewPostgresFreezeCustodian(nil, "orders", 25)
 	blocker := &freeze.XminBlocker{PID: 42, XminAge: 900, User: "app"}
 	red, err := custodian.scanResponseRow(adapterRow{values: []any{
 		"public", "orders", int64(90), int64(100), int64(1), int64(100), 0.1,
-	}}, 1, blocker, false)
+	}}, knownRates, blocker, false)
 	if err != nil || red.Feature != "freeze_blocker" || red.Evidence["pid"] != 42 {
 		t.Fatalf("blocker proposal=%#v err=%v", red, err)
 	}
 	amber, err := custodian.scanResponseRow(adapterRow{values: []any{
 		"public", "orders", int64(60), int64(100), int64(1), int64(100), 0.25,
-	}}, 1, nil, false)
+	}}, knownRates, nil, false)
 	if err != nil || amber.Feature != "autovacuum_tuning" || amber.SQL == "" {
 		t.Fatalf("autovacuum proposal=%#v err=%v", amber, err)
 	}
 	bloat, err := custodian.scanResponseRow(adapterRow{values: []any{
 		"public", "orders", int64(1), int64(100), int64(1), int64(100), 0.6,
-	}}, 1, nil, true)
+	}}, knownRates, nil, true)
 	if err != nil || bloat.Plan == "" || bloat.SQL != "" {
 		t.Fatalf("bloat proposal=%#v err=%v", bloat, err)
 	}

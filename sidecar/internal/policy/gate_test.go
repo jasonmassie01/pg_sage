@@ -376,19 +376,25 @@ type gateFixture struct {
 
 func newTestGate(t *testing.T, fixture gateFixture) Gate {
 	t.Helper()
+	if fixture.now.IsZero() {
+		fixture.now = time.Date(2026, 7, 26, 2, 0, 0, 0, time.UTC)
+	}
 	if !fixture.runtimeSet {
+		// The default fixture is a fully enabled autonomous runtime: tier3
+		// flags on, trust ramp long satisfied, configured window open.
 		fixture.runtime = RuntimeState{
-			ExecutorEnabled: true,
-			TrustLevel:      TrustAutonomous,
-			ExecutionMode:   ExecutionAuto,
+			ExecutorEnabled:    true,
+			TrustLevel:         TrustAutonomous,
+			ExecutionMode:      ExecutionAuto,
+			Tier3Safe:          true,
+			Tier3Moderate:      true,
+			RampStart:          fixture.now.Add(-60 * 24 * time.Hour),
+			InConfiguredWindow: true,
 		}
 	}
 	if fixture.policy.Profile == "" {
 		fixture.policy = UnattendedProfile()
 		fixture.policy.MaintenanceWindows = []string{"always"}
-	}
-	if fixture.now.IsZero() {
-		fixture.now = time.Date(2026, 7, 26, 2, 0, 0, 0, time.UTC)
 	}
 	appendCall := func(name string) {
 		if fixture.calls != nil {

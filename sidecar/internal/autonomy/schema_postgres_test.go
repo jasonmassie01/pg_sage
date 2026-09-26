@@ -48,7 +48,7 @@ func TestPostgresSchemaGuardDetectsRoutesAndRecordsFKIndex(t *testing.T) {
 	router := &recordingRouter{}
 	repository := &recordingLedgerRepository{}
 	guard, err := NewPostgresSchemaGuard(
-		pool, "testdb", router, ledger.NewService(repository),
+		pool, "testdb", router, ledger.NewService(repository), allowRetention,
 	)
 	if err != nil {
 		t.Fatalf("NewPostgresSchemaGuard: %v", err)
@@ -159,7 +159,7 @@ func TestSchemaRemediationRouterBuildsTypedFKProposal(t *testing.T) {
 }
 
 func TestPostgresSchemaGuardRejectsIncompleteDependencies(t *testing.T) {
-	if _, err := NewPostgresSchemaGuard(nil, "orders", nil, nil); err == nil {
+	if _, err := NewPostgresSchemaGuard(nil, "orders", nil, nil, nil); err == nil {
 		t.Fatal("incomplete schema guard dependencies were accepted")
 	}
 }

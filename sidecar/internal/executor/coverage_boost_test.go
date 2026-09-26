@@ -379,7 +379,8 @@ func TestCoverage_MonitorAndRollback_ContextCancelled(t *testing.T) {
 	cancel()
 
 	// windowMinutes=999 ensures the timer won't fire first.
-	MonitorAndRollback(ctx, nil, 42, "DROP INDEX idx", 10, 999, logFn, nil)
+	MonitorAndRollback(ctx, nil, 42, "DROP INDEX idx",
+		RollbackMonitorConfig{ThresholdPct: 10, WindowMinutes: 999}, logFn, nil)
 
 	if !loggedCancel {
 		t.Error("expected cancellation log message")
@@ -868,7 +869,11 @@ func TestCoverage_MonitorAndRollbackExecutesConcurrentRollback(
 	MonitorAndRollback(
 		ctx, pool, actionID,
 		"DROP INDEX CONCURRENTLY IF EXISTS public.idx_test_monitor_rb",
-		10, 0, func(string, string, ...any) {}, nil,
+		RollbackMonitorConfig{
+			ThresholdPct: 10, WindowMinutes: 0, StatementTimeout: time.Minute,
+			Authorize: allowRollback,
+		},
+		func(string, string, ...any) {}, nil,
 	)
 
 	var outcome string
@@ -923,10 +928,12 @@ func TestCoverage_CheckRegression_NoBeforeState(t *testing.T) {
 			"DELETE FROM sage.action_log WHERE id = $1", actionID)
 	})
 
-	got := checkRegression(ctx, pool, actionID, 10)
-	if got {
-		t.Error("checkRegression should return false when " +
-			"no before_state exists")
+	// Missing baseline evidence is unverifiable, never "no regression"
+	// (Codex C14: the old assertion encoded the fail-open behaviour).
+	got := evaluateRegression(ctx, pool, actionID, 10)
+	if got != regressionUnverifiable {
+		t.Errorf("evaluateRegression = %v, want unverifiable when "+
+			"no before_state exists", got)
 	}
 }
 
@@ -956,10 +963,10 @@ func TestCoverage_CheckRegression_WithBeforeState(t *testing.T) {
 			"DELETE FROM sage.action_log WHERE id = $1", actionID)
 	})
 
-	got := checkRegression(ctx, pool, actionID, 10)
-	if got {
-		t.Error("checkRegression should return false when cache " +
-			"hit improved (before was very low)")
+	got := evaluateRegression(ctx, pool, actionID, 10)
+	if got != regressionNone {
+		t.Errorf("evaluateRegression = %v, want none when cache "+
+			"hit improved (before was very low)", got)
 	}
 }
 
@@ -988,10 +995,11 @@ func TestCoverage_CheckRegression_ZeroBeforeCacheHit(t *testing.T) {
 			"DELETE FROM sage.action_log WHERE id = $1", actionID)
 	})
 
-	got := checkRegression(ctx, pool, actionID, 10)
-	if got {
-		t.Error("checkRegression should return false when " +
-			"before cache_hit_ratio is 0 (guard against division)")
+	// A zero baseline cannot prove health either way (Codex C14).
+	got := evaluateRegression(ctx, pool, actionID, 10)
+	if got != regressionUnverifiable {
+		t.Errorf("evaluateRegression = %v, want unverifiable when "+
+			"before cache_hit_ratio is 0", got)
 	}
 }
 
@@ -1024,7 +1032,7 @@ func TestCoverage_CheckRegression_WithMeanExecTime(t *testing.T) {
 	// This exercises the mean_exec_time_ms branch.
 	// Whether regression is detected depends on pg_stat_statements
 	// data — but the code path is covered either way.
-	_ = checkRegression(ctx, pool, actionID, 10)
+	_ = evaluateRegression(ctx, pool, actionID, 10)
 }
 
 // TestCoverage_CheckRegression_NonexistentAction verifies
@@ -1032,10 +1040,10 @@ func TestCoverage_CheckRegression_WithMeanExecTime(t *testing.T) {
 func TestCoverage_CheckRegression_NonexistentAction(t *testing.T) {
 	pool, ctx := requireDB(t)
 
-	got := checkRegression(ctx, pool, -99999, 10)
-	if got {
-		t.Error("checkRegression should return false for " +
-			"nonexistent action")
+	got := evaluateRegression(ctx, pool, -99999, 10)
+	if got != regressionUnverifiable {
+		t.Errorf("evaluateRegression = %v, want unverifiable for "+
+			"nonexistent action", got)
 	}
 }
 

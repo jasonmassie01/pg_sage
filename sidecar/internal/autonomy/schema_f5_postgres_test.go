@@ -49,7 +49,7 @@ func TestRetentionDryRunThenBoundedEnforcementIsDurable(t *testing.T) {
 
 	guard, err := NewPostgresSchemaGuard(
 		pool, "testdb", &recordingRouter{},
-		ledger.NewService(ledger.NewPostgresRepository(pool)),
+		ledger.NewService(ledger.NewPostgresRepository(pool)), allowRetention,
 	)
 	if err != nil {
 		t.Fatalf("NewPostgresSchemaGuard: %v", err)
@@ -71,6 +71,9 @@ func TestRetentionDryRunThenBoundedEnforcementIsDurable(t *testing.T) {
 		t.Fatalf("dry run = %s/%d/%d", disposition, candidates, deleted)
 	}
 
+	// A dry run authorizes deletion only after its review window has passed
+	// (G2-B12); simulate the elapsed window instead of sleeping.
+	ageRetentionDryRuns(t, pool, table, 48*time.Hour)
 	if _, err := guard.Scan(ctx); err != nil {
 		t.Fatalf("second Scan: %v", err)
 	}
