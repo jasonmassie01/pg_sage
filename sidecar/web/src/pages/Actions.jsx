@@ -10,6 +10,8 @@ import { SkeletonRow } from '../components/Skeleton'
 import { usePendingActionsRefetch } from '../components/Layout'
 import { useToast } from '../components/Toast'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
+import { canRollBackRow, isQueuedRow, queuedLabels } from './actions/ledger'
+import { PendingErrors } from './actions/PendingErrors'
 
 function actionStatus(row) {
   return row.status || row.action_status || row.outcome || 'unknown'
@@ -23,24 +25,6 @@ function verificationStatus(row) {
   return row.verification_status || 'not_started'
 }
 
-// Ledger rows come from two id spaces. Only rows the server marks as
-// executed (sage.action_log) can be rolled back (G9-B01).
-function isQueuedRow(row) {
-  return row.record_kind === 'queued'
-}
-
-function canRollBackRow(row) {
-  return row.record_kind === 'executed' && Boolean(row.rollback_sql)
-    && ['success', 'monitoring', 'pending'].includes(row.outcome)
-}
-
-const queuedLabels = {
-  pending: 'Pending approval',
-  approved: 'Approved',
-  failed: 'Failed',
-  expired: 'Expired',
-  rejected: 'Rejected',
-}
 
 function lifecycleStatus(row) {
   return row.lifecycle_state || row.status || 'ready'
@@ -786,24 +770,6 @@ function LifecycleDetails({ row }) {
           ))}
         </div>
       )}
-    </div>
-  )
-}
-
-// PendingErrors lists databases whose queue could not be read, so a
-// failure is never shown as "nothing waiting" (G9-B15).
-function PendingErrors({ errors }) {
-  if (!Array.isArray(errors) || errors.length === 0) return null
-  return (
-    <div data-testid="pending-errors" role="alert"
-      className="p-2 rounded text-sm"
-      style={{
-        border: '1px solid var(--yellow)',
-        color: 'var(--yellow)',
-      }}>
-      Could not read pending actions from:{' '}
-      {errors.map(e => `${e.database} (${e.error})`).join(', ')}.
-      Approvals from these databases may be missing.
     </div>
   )
 }
