@@ -210,3 +210,55 @@ func TestRegression_LoadIndexBuilds(t *testing.T) {
 			a.extras.IndexBuildTables)
 	}
 }
+
+// G2-B28: hint counts per role must count distinct queries of this
+// database, not every pg_stat_statements/hint row that joins.
+func TestRegression_WorkMemPromotionCountsDistinctQueries(t *testing.T) {
+	pool := phase2Pool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx,
+		"CREATE EXTENSION IF NOT EXISTS pg_stat_statements"); err != nil {
+		t.Skipf("pg_stat_statements unavailable in fixture: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := pool.Exec(ctx, "SELECT 424242 AS b28_marker"); err != nil {
+			t.Fatalf("marker query: %v", err)
+		}
+	}
+	var qid int64
+	err := pool.QueryRow(ctx, `SELECT queryid FROM pg_stat_statements
+		WHERE query LIKE '%b28_marker%' AND dbid = (SELECT oid FROM pg_database
+		WHERE datname = current_database()) LIMIT 1`).Scan(&qid)
+	if err != nil {
+		t.Skipf("marker not tracked by pg_stat_statements: %v", err)
+	}
+	cleanup := func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM sage.query_hints WHERE symptom = 'b28_test'`)
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+	for i := 0; i < 2; i++ {
+		if _, err := pool.Exec(ctx, `INSERT INTO sage.query_hints
+			(queryid, hint_text, symptom) VALUES ($1, 'Set(work_mem "64MB")', 'b28_test')`,
+			qid); err != nil {
+			t.Fatalf("insert hint: %v", err)
+		}
+	}
+	var role string
+	if err := pool.QueryRow(ctx, "SELECT current_user").Scan(&role); err != nil {
+		t.Fatalf("current_user: %v", err)
+	}
+	cfg := phase2Config()
+	cfg.Analyzer.WorkMemPromotionThreshold = 1
+	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
+	for _, f := range a.checkWorkMemPromotion(ctx) {
+		if f.ObjectIdentifier != role {
+			continue
+		}
+		if got := f.Detail["hint_count"]; got != 1 {
+			t.Fatalf("hint_count = %v, want 1 (one distinct query)", got)
+		}
+		return
+	}
+	t.Fatalf("no work_mem promotion finding for role %s", role)
+}
