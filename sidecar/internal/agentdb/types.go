@@ -182,6 +182,8 @@ type PingRequest struct {
 type LeaseRequest struct {
 	LeaseSeconds int
 	Reason       string
+	// MaxTTLSeconds is the effective provider policy TTL cap (0 = none).
+	MaxTTLSeconds int
 }
 
 type Recommendation struct {
