@@ -5,6 +5,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 // ruleMissingFKIndexes flags foreign key columns without a supporting index.
@@ -64,8 +65,9 @@ func ruleMissingFKIndexes(
 
 		ident := fmt.Sprintf("%s.%s(%s)", schema, fk.TableName, fk.FKColumn)
 		createSQL := fmt.Sprintf(
-			"CREATE INDEX CONCURRENTLY ON %s.%s (%s);",
-			schema, fk.TableName, fk.FKColumn,
+			"CREATE INDEX CONCURRENTLY ON %s (%s);",
+			sanitize.QuoteQualifiedName(schema, fk.TableName),
+			sanitize.QuoteIdentifier(fk.FKColumn),
 		)
 
 		ulKey := schema + "." + fk.TableName

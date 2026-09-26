@@ -7,6 +7,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 type tableKey struct{ schema, table string }
@@ -100,10 +101,7 @@ func ruleUnusedIndexes(
 			continue
 		}
 
-		dropSQL := fmt.Sprintf(
-			"DROP INDEX CONCURRENTLY %s.%s;",
-			idx.SchemaName, idx.IndexRelName,
-		)
+		dropSQL := dropIndexSQL(idx)
 
 		tableKey := idx.SchemaName + "." + idx.RelName
 		severity := "warning"
@@ -175,12 +173,9 @@ func ruleInvalidIndexes(
 			Title:            fmt.Sprintf("Invalid index %s", ident),
 			Detail:           detail,
 			Recommendation:   rec,
-			RecommendedSQL: fmt.Sprintf(
-				"DROP INDEX CONCURRENTLY %s.%s;",
-				idx.SchemaName, idx.IndexRelName,
-			),
-			RollbackSQL: idx.IndexDef + ";",
-			ActionRisk:  "safe",
+			RecommendedSQL:   dropIndexSQL(idx),
+			RollbackSQL:      idx.IndexDef + ";",
+			ActionRisk:       "safe",
 		})
 	}
 	return findings
@@ -251,11 +246,9 @@ func ruleDuplicateIndexes(
 						"keep_def":   keep.info.IndexDef,
 					},
 					Recommendation: "Drop the duplicate index.",
-					RecommendedSQL: fmt.Sprintf(
-						"DROP INDEX CONCURRENTLY %s;", dropIdent,
-					),
-					RollbackSQL: drop.info.IndexDef + ";",
-					ActionRisk:  "safe",
+					RecommendedSQL: dropIndexSQL(drop.info),
+					RollbackSQL:    drop.info.IndexDef + ";",
+					ActionRisk:     "safe",
 				})
 			} else if IsSubset(a.parsed, b.parsed) {
 				if isConstraintBacked(a.info) {
@@ -374,10 +367,8 @@ func subsetFinding(
 		Recommendation: "Subset index — likely covered by the larger index, " +
 			"but a dedicated narrow index can still be faster and may be " +
 			"app-managed. Review before dropping.",
-		RecommendedSQL: fmt.Sprintf(
-			"DROP INDEX CONCURRENTLY %s;", subIdent,
-		),
-		RollbackSQL: sub.IndexDef + ";",
+		RecommendedSQL: dropIndexSQL(sub),
+		RollbackSQL:    sub.IndexDef + ";",
 		// Advisory only: a leading-prefix subset drop is a judgment call
 		// (read-perf trade-off, and apps that re-create their own indexes
 		// turn an auto-drop into an oscillation). high_risk never
@@ -386,3 +377,10 @@ func subsetFinding(
 	}
 }
 
+// dropIndexSQL builds the DROP statement with quoted identifiers so a
+// mixed-case or unusual name targets exactly this index instead of a
+// case-folded different one (G2-B22/G4-B23/C16).
+func dropIndexSQL(idx collector.IndexStats) string {
+	return "DROP INDEX CONCURRENTLY " +
+		sanitize.QuoteQualifiedName(idx.SchemaName, idx.IndexRelName) + ";"
+}
