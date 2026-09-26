@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 type ruleVarchar255 struct{}
@@ -68,11 +70,11 @@ func (r *ruleVarchar255) collect(rows interface {
 				"over text. The limit is arbitrary and often too short " +
 				"for real-world data",
 			Suggestion: fmt.Sprintf(
-				"ALTER TABLE %s.%s ALTER COLUMN %s TYPE text",
-				schema, table, column),
+				"ALTER TABLE %s ALTER COLUMN %s TYPE text",
+				sanitize.QuoteQualifiedName(schema, table), sanitize.QuoteIdentifier(column)),
 			SQL: fmt.Sprintf(
-				"ALTER TABLE %s.%s ALTER COLUMN %s TYPE text;",
-				schema, table, column),
+				"ALTER TABLE %s ALTER COLUMN %s TYPE text;",
+				sanitize.QuoteQualifiedName(schema, table), sanitize.QuoteIdentifier(column)),
 			FirstSeen: now,
 			LastSeen:  now,
 		})

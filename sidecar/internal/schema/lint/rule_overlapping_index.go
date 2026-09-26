@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 type ruleOverlappingIndex struct{}
@@ -90,9 +92,10 @@ func (r *ruleOverlappingIndex) collect(rows interface {
 				"index serves. The shorter index wastes disk and write I/O",
 			Suggestion: fmt.Sprintf(
 				"Verify with pg_stat_user_indexes, then: "+
-					"DROP INDEX CONCURRENTLY %s.%s",
-				schema, shortIdx),
-			SQL:       fmt.Sprintf("DROP INDEX CONCURRENTLY %s.%s;", schema, shortIdx),
+					"DROP INDEX CONCURRENTLY %s",
+				sanitize.QuoteQualifiedName(schema, shortIdx)),
+			SQL: fmt.Sprintf("DROP INDEX CONCURRENTLY %s;",
+				sanitize.QuoteQualifiedName(schema, shortIdx)),
 			FirstSeen: now,
 			LastSeen:  now,
 		})
