@@ -1,0 +1,197 @@
+package collector
+
+import (
+	"context"
+	"math"
+	"net/url"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
+)
+
+// otherDatabaseConn opens a session on the server's maintenance database
+// (not the fixture) so tests can prove the collector ignores foreign-DB
+// sessions. It only takes a transaction-scoped advisory lock there.
+func otherDatabaseConn(t *testing.T) *pgx.Conn {
+	t.Helper()
+	dsn := testdb.SkipUnlessLive(t)
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse DSN: %v", err)
+	}
+	u.Path = "/postgres"
+	conn, err := pgx.Connect(context.Background(), u.String())
+	if err != nil {
+		t.Fatalf("connect maintenance database: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
+	return conn
+}
+
+// G1-B17: locks and idle-in-transaction counts must be scoped to the
+// current database; foreign sessions (another tenant DB on the cluster)
+// must not appear in this database's snapshot.
+func TestCollectLocksAndActivity_ScopedToCurrentDatabase(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	other := otherDatabaseConn(t)
+	var otherPID int
+	if err := other.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&otherPID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Exec(ctx, `BEGIN`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Exec(ctx, `SELECT pg_advisory_xact_lock(917171)`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = other.Exec(context.Background(), `ROLLBACK`) })
+
+	c := New(pool, testConfig(), 170000, noopLog)
+	locks, err := c.collectLocks(ctx)
+	if err != nil {
+		t.Fatalf("collectLocks: %v", err)
+	}
+	for _, lk := range locks {
+		if lk.PID == otherPID {
+			t.Fatalf("lock %s/%s from pid %d in another database leaked into snapshot",
+				lk.LockType, lk.Mode, otherPID)
+		}
+	}
+	s, err := c.collectSystem(ctx)
+	if err != nil {
+		t.Fatalf("collectSystem: %v", err)
+	}
+	var local int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+		WHERE state = 'idle in transaction' AND datname = current_database()`,
+	).Scan(&local); err != nil {
+		t.Fatal(err)
+	}
+	if s.IdleInTransaction != local {
+		t.Fatalf("idle_in_transaction = %d, want %d (current database only)",
+			s.IdleInTransaction, local)
+	}
+}
+
+// G1-B18: a pagination error must not leave the keyset cursor behind;
+// the next collection has to start from the beginning again.
+func TestCollectTables_ErrorMidPaginationDoesNotSkipTables(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	mustExec(t, pool, `CREATE SCHEMA IF NOT EXISTS b18`)
+	mustExec(t, pool, `CREATE TABLE IF NOT EXISTS b18.a_first (id int)`)
+	mustExec(t, pool, `CREATE TABLE IF NOT EXISTS b18.b_locked (id int)`)
+
+	locker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := locker.Exec(ctx, `LOCK TABLE b18.b_locked IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig()
+	cfg.Collector.BatchSize = 1
+	cfg.Safety.QueryTimeoutMs = 2000
+	cfg.Safety.LockTimeoutMs = 100
+	c := New(pool, cfg, 170000, noopLog)
+	if _, err := c.collectTables(ctx); err == nil {
+		_ = locker.Rollback(ctx)
+		t.Fatal("expected lock timeout while paging past the locked table")
+	}
+	if err := locker.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	tables, err := c.collectTables(ctx)
+	if err != nil {
+		t.Fatalf("collectTables after recovery: %v", err)
+	}
+	found := map[string]bool{}
+	for _, tb := range tables {
+		if tb.SchemaName == "b18" {
+			found[tb.RelName] = true
+		}
+	}
+	if !found["a_first"] || !found["b_locked"] {
+		t.Fatalf("collection after an error skipped tables: got %v", found)
+	}
+}
+
+// G1-B20: NULL LSNs (walsender in startup/catchup) must scan into nil
+// instead of failing the whole replication category.
+func TestScanReplicaRows_NullLSNs(t *testing.T) {
+	pool := testPool(t)
+	rows, err := pool.Query(context.Background(), `SELECT
+		'10.0.0.9'::text, 'startup'::text,
+		NULL::text, NULL::text, NULL::text, NULL::text,
+		NULL::text, NULL::text, NULL::text, 'async'::text`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replicas, err := scanReplicaRows(rows)
+	if err != nil {
+		t.Fatalf("NULL LSN row rejected: %v", err)
+	}
+	if len(replicas) != 1 {
+		t.Fatalf("got %d replicas, want 1", len(replicas))
+	}
+	r := replicas[0]
+	if r.SentLSN != nil || r.ReplayLSN != nil || r.State != "startup" {
+		t.Fatalf("replica = %+v, want nil LSNs and state startup", r)
+	}
+}
+
+// C18 / G1-B35: pct_used follows the direction of travel over the
+// configured [min, max] range; sage-owned sequences are excluded.
+func TestCollectSequences_DirectionAndRange(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	stmts := []string{
+		`CREATE SCHEMA IF NOT EXISTS b35`,
+		`CREATE SCHEMA IF NOT EXISTS sage`,
+		`DROP SEQUENCE IF EXISTS b35.asc_seq, b35.desc_seq, b35.shift_seq, sage.b35_owned`,
+		`CREATE SEQUENCE b35.asc_seq MINVALUE 1 MAXVALUE 101`,
+		`SELECT setval('b35.asc_seq', 76)`,
+		`CREATE SEQUENCE b35.desc_seq INCREMENT -1 MINVALUE -101 MAXVALUE -1 START -1`,
+		`SELECT setval('b35.desc_seq', -76)`,
+		`CREATE SEQUENCE b35.shift_seq MINVALUE 1000 MAXVALUE 1100 START 1000 CYCLE`,
+		`SELECT setval('b35.shift_seq', 1090)`,
+		`CREATE SEQUENCE sage.b35_owned`,
+	}
+	for _, s := range stmts {
+		mustExec(t, pool, s)
+	}
+	seqs, err := New(pool, testConfig(), 170000, noopLog).collectSequences(ctx)
+	if err != nil {
+		t.Fatalf("collectSequences: %v", err)
+	}
+	got := map[string]SequenceStats{}
+	for _, s := range seqs {
+		if s.SchemaName == "sage" {
+			t.Fatalf("sage-owned sequence %s collected", s.SequenceName)
+		}
+		if s.SchemaName == "b35" {
+			got[s.SequenceName] = s
+		}
+	}
+	want := map[string]float64{"asc_seq": 75, "desc_seq": 75, "shift_seq": 90}
+	for name, pct := range want {
+		s, ok := got[name]
+		if !ok {
+			t.Fatalf("sequence %s missing", name)
+		}
+		if math.Abs(s.PctUsed-pct) > 0.01 {
+			t.Errorf("%s pct_used = %v, want %v", name, s.PctUsed, pct)
+		}
+	}
+	if got["desc_seq"].MinValue != -101 || got["shift_seq"].MinValue != 1000 {
+		t.Errorf("min_value not collected: desc=%d shift=%d",
+			got["desc_seq"].MinValue, got["shift_seq"].MinValue)
+	}
+	if !got["shift_seq"].Cycle || got["asc_seq"].Cycle {
+		t.Errorf("cycle flags wrong: shift=%v asc=%v",
+			got["shift_seq"].Cycle, got["asc_seq"].Cycle)
+	}
+}
