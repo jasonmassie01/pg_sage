@@ -141,15 +141,7 @@ func (s *Store) ProvisionFromTerraformTemplate(
 	reg.Metadata["provider_params"] = cloneAnyMap(profile.ProviderParams)
 	reg.Metadata["size_profile_id"] = profile.ProfileID
 	reg.ProvisioningPlan = planMap(plan)
-	reg.ProvisioningPlan["source"] = "terraform_template"
-	reg.ProvisioningPlan["terraform_template_id"] = template.TemplateID
-	// SURF-05: the template is a reviewed reference, not an executed plan.
-	// The runner provisions from provider_params; say so and bind the
-	// approval to the exact template content that was reviewed.
-	reg.ProvisioningPlan["template_semantics"] = "review_only"
-	reg.ProvisioningPlan["template_semantics_note"] = "template content is stored " +
-		"for review only; the live runner provisions from provider_params"
-	reg.Metadata["terraform_template_sha256"] = template.ContentSHA256
+	labelTemplateProvision(&reg, template)
 	return s.Register(ctx, reg)
 }
 
@@ -318,4 +310,16 @@ func stringsAny(values []string) []any {
 		out = append(out, value)
 	}
 	return out
+}
+
+// labelTemplateProvision marks a template-backed plan as review-only
+// (SURF-05): the runner provisions from provider_params, not from the
+// template body, and the approval is bound to the reviewed content hash.
+func labelTemplateProvision(reg *RegisterRequest, template TerraformTemplate) {
+	reg.ProvisioningPlan["source"] = "terraform_template"
+	reg.ProvisioningPlan["terraform_template_id"] = template.TemplateID
+	reg.ProvisioningPlan["template_semantics"] = "review_only"
+	reg.ProvisioningPlan["template_semantics_note"] = "template content is stored " +
+		"for review only; the live runner provisions from provider_params"
+	reg.Metadata["terraform_template_sha256"] = template.ContentSHA256
 }

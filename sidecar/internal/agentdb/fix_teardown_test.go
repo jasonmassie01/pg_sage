@@ -330,7 +330,8 @@ func TestEmergencyStopBlocksAgentDBMutations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	if runner.destroyCalls(id) != 0 || !containsBlockedReason(result.Blocked, id, "emergency stop") {
+	if runner.destroyCalls(id) != 0 ||
+		!containsBlockedReason(result.Blocked, id, "emergency stop") {
 		t.Fatalf("emergency stop ignored: calls=%d blocked=%#v",
 			runner.destroyCalls(id), result.Blocked)
 	}

@@ -116,4 +116,3 @@ func inferExtensions(intent string) []string {
 	}
 	return out
 }
-

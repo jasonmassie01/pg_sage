@@ -101,7 +101,8 @@ func TestAmbiguousCreateStaysUncertainAndIsReconciled(t *testing.T) {
 		t.Fatal(err)
 	}
 	if dep.ProvisioningStatus != "available" || dep.ProviderResourceID != "pgsage-adopted" {
-		t.Fatalf("uncertain create not adopted: %s/%s", dep.ProvisioningStatus, dep.ProviderResourceID)
+		t.Fatalf("uncertain create not adopted: %s/%s",
+			dep.ProvisioningStatus, dep.ProviderResourceID)
 	}
 	if err := st.requireOwnedLiveResource(ctx, dep); err != nil {
 		t.Fatalf("adopted resource has no live receipt: %v", err)

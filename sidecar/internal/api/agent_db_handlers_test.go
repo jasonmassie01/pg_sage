@@ -506,7 +506,7 @@ func TestAgentDBProvisionLifecycleEndpoints(t *testing.T) {
 		t.Fatalf("blocked destroy = %d body=%s", blockedRR.Code, blockedRR.Body.String())
 	}
 
-	if _, err := st.RecordRestoreDrill(ctx, "api_lifecycle_plan", agentdb.RestoreDrillRequest{BackupID: "api_lifecycle_backup", EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, "api_lifecycle_plan", testDrill("api_lifecycle_backup")); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 	destroyReq := httptest.NewRequest(
@@ -542,7 +542,7 @@ func TestAgentDBProvisionLifecycleEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expire plan: %v", err)
 	}
-	if _, err := st.RecordRestoreDrill(ctx, "api_lifecycle_expired", agentdb.RestoreDrillRequest{BackupID: "api_lifecycle_expired_backup", EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, "api_lifecycle_expired", testDrill("api_lifecycle_expired_backup")); err != nil {
 		t.Fatalf("RecordBackup expired: %v", err)
 	}
 	reconcileReq := httptest.NewRequest(
@@ -1523,7 +1523,7 @@ func TestAgentDBBlueprintToLiveProvisioningAPI(t *testing.T) {
 	} else if !strings.Contains(rr.Body.String(), `"safe_for_destroy":false`) {
 		t.Fatalf("backup check must not grant restore verification body=%s", rr.Body.String())
 	}
-	if _, err := st.RecordRestoreDrill(ctx, id, agentdb.RestoreDrillRequest{BackupID: "api_blueprint_live_restore_verified", EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, testDrill("api_blueprint_live_restore_verified")); err != nil {
 		t.Fatalf("RecordBackup restore verification: %v", err)
 	}
 	destroyTuple := issueWave34TupleForHandler(
@@ -1899,7 +1899,7 @@ func TestAgentDBLiveDestroyAPIUsesServerProviderConfig(t *testing.T) {
 		WHERE deployment_id=$1`, id); err != nil {
 		t.Fatalf("seed live deployment: %v", err)
 	}
-	if _, err := st.RecordRestoreDrill(ctx, id, agentdb.RestoreDrillRequest{BackupID: "api_live_destroy_restore_verified", EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, testDrill("api_live_destroy_restore_verified")); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 	if _, err := st.UpsertProviderConfig(ctx, agentdb.ProviderConfigRequest{

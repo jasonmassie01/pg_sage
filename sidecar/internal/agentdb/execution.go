@@ -146,20 +146,8 @@ func (s *Store) runProviderDestroy(
 	runner ProviderRunner,
 	operationID string,
 ) (ProvisionAttempt, error) {
-	dep, err := s.cloudDeploymentForExecution(ctx, id)
+	dep, err := s.validateProviderDestroy(ctx, id, runner, operationID)
 	if err != nil {
-		return ProvisionAttempt{}, err
-	}
-	if runner == nil || runner.Name() == "dry_run" {
-		return ProvisionAttempt{}, ErrInvalid
-	}
-	if operationID == "" || dep.TeardownOperationID != operationID {
-		return ProvisionAttempt{}, ErrConflict
-	}
-	if err := s.mutationAllowed(ctx); err != nil {
-		return ProvisionAttempt{}, err
-	}
-	if err := s.requireOwnedLiveResource(ctx, dep); err != nil {
 		return ProvisionAttempt{}, err
 	}
 	mutationID, err := s.beginProviderMutation(ctx, dep.DeploymentID)
@@ -177,29 +165,59 @@ func (s *Store) runProviderDestroy(
 		}
 	}
 	result := runner.Destroy(ctx, ProvisionRequest{
-		Operation:   ProvisionOpDestroy,
-		OperationID: operationID,
-		Deployment:  dep,
-		Plan:        dep.ProvisioningPlan,
-		RequestedAt: time.Now().UTC(),
+		Operation: ProvisionOpDestroy, OperationID: operationID,
+		Deployment: dep, Plan: dep.ProvisioningPlan, RequestedAt: time.Now().UTC(),
 	})
+	return s.recordDestroyOutcome(ctx, id, runner, operationID, result)
+}
+
+// validateProviderDestroy checks the durable operation, the emergency stop
+// and ownership of the recorded live resource before any provider call.
+func (s *Store) validateProviderDestroy(
+	ctx context.Context,
+	id string,
+	runner ProviderRunner,
+	operationID string,
+) (Deployment, error) {
+	dep, err := s.cloudDeploymentForExecution(ctx, id)
+	if err != nil {
+		return Deployment{}, err
+	}
+	if runner == nil || runner.Name() == "dry_run" {
+		return Deployment{}, ErrInvalid
+	}
+	if operationID == "" || dep.TeardownOperationID != operationID {
+		return Deployment{}, ErrConflict
+	}
+	if err := s.mutationAllowed(ctx); err != nil {
+		return Deployment{}, err
+	}
+	if err := s.requireOwnedLiveResource(ctx, dep); err != nil {
+		return Deployment{}, err
+	}
+	return dep, nil
+}
+
+func (s *Store) recordDestroyOutcome(
+	ctx context.Context,
+	id string,
+	runner ProviderRunner,
+	operationID string,
+	result ProvisionResult,
+) (ProvisionAttempt, error) {
 	status := "succeeded"
 	nextStatus := firstNonEmpty(result.Status, "destroying")
 	providerErr := publicProviderError(result.Error)
 	if errors.Is(providerErr, ErrNotFound) {
 		nextStatus = "destroyed"
 	} else if result.Error != nil {
-		status = "failed"
-		nextStatus = "status_unknown"
+		status, nextStatus = "failed", "status_unknown"
 	}
 	detail := RedactProviderDetail(result.Detail)
 	detail["operation_id"] = operationID
 	attempt, err := s.recordProvisionAttempt(ctx, id, provisionAttemptInput{
-		Kind:       "destroy_live",
-		Status:     status,
-		Runner:     runner.Name(),
-		Detail:     detail,
-		FinishedAt: time.Now().UTC(),
+		Kind: "destroy_live", Status: status, Runner: runner.Name(),
+		Detail: detail, FinishedAt: time.Now().UTC(),
 	})
 	if err != nil {
 		return ProvisionAttempt{}, err

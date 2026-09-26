@@ -112,18 +112,7 @@ func (r AWSRDSRunner) createInput(req ProvisionRequest) (RDSCreateInput, error) 
 		return RDSCreateInput{}, err
 	}
 	params := providerParams(req.Deployment)
-	class := stringParam(params, "db_instance_class")
-	if class == "" {
-		class = "db.t4g.micro"
-	}
-	storage := int32(float64Param(params, "allocated_storage"))
-	if storage <= 0 {
-		storage = 20
-	}
-	backup := int32(float64Param(params, "backup_retention_days"))
-	if backup <= 0 {
-		backup = 7
-	}
+	class, storage, backup := rdsSizing(params)
 	region, err := r.approvedRegion(params)
 	if err != nil {
 		return RDSCreateInput{}, err
@@ -342,4 +331,19 @@ func secretProviderIfPresent(secretRef string, provider string) string {
 		return ""
 	}
 	return provider
+}
+
+// rdsSizing returns instance class, storage and backup retention with the
+// pg_sage defaults for unset values.
+func rdsSizing(params map[string]any) (string, int32, int32) {
+	class := firstNonEmpty(stringParam(params, "db_instance_class"), "db.t4g.micro")
+	storage := int32(float64Param(params, "allocated_storage"))
+	if storage <= 0 {
+		storage = 20
+	}
+	backup := int32(float64Param(params, "backup_retention_days"))
+	if backup <= 0 {
+		backup = 7
+	}
+	return class, storage, backup
 }

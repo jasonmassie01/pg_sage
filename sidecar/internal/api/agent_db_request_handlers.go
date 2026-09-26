@@ -96,7 +96,8 @@ func agentDBGetRequestHandler(st *agentdb.Store) http.HandlerFunc {
 func agentDBApproveRequestHandler(st *agentdb.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		m := readMap(r)
-		row, err := st.SetRequestDecision(r.Context(), r.PathValue("request_id"), agentdb.DecisionRequest{Decision: "approved", Reason: str(m, "reason")})
+		row, err := st.SetRequestDecision(r.Context(), r.PathValue("request_id"),
+			agentdb.DecisionRequest{Decision: "approved", Reason: str(m, "reason")})
 		if err != nil {
 			agentDBError(w, err)
 			return
@@ -107,7 +108,8 @@ func agentDBApproveRequestHandler(st *agentdb.Store) http.HandlerFunc {
 func agentDBDenyRequestHandler(st *agentdb.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		m := readMap(r)
-		row, err := st.SetRequestDecision(r.Context(), r.PathValue("request_id"), agentdb.DecisionRequest{Decision: "denied", Reason: str(m, "reason")})
+		row, err := st.SetRequestDecision(r.Context(), r.PathValue("request_id"),
+			agentdb.DecisionRequest{Decision: "denied", Reason: str(m, "reason")})
 		if err != nil {
 			agentDBError(w, err)
 			return

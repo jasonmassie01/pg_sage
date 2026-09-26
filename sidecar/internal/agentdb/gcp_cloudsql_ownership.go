@@ -35,7 +35,8 @@ func (r CloudSQLRunner) Status(
 	if err != nil {
 		return ProvisionResult{Status: "status_unknown", Error: mapProviderError(r.Provider(), err)}
 	}
-	if err := verifyOwnershipTags(ProviderGCPCloudSQL, instance.Labels, req.Deployment); err != nil {
+	err = verifyOwnershipTags(ProviderGCPCloudSQL, instance.Labels, req.Deployment)
+	if err != nil {
 		return ProvisionResult{Status: "status_unknown", Error: err}
 	}
 	return cloudSQLProvisionResult(instance)
@@ -57,7 +58,8 @@ func (r CloudSQLRunner) Destroy(
 	if err != nil {
 		return cloudSQLDestroyError(r.Provider(), name, err)
 	}
-	if err := verifyOwnershipTags(ProviderGCPCloudSQL, instance.Labels, req.Deployment); err != nil {
+	err = verifyOwnershipTags(ProviderGCPCloudSQL, instance.Labels, req.Deployment)
+	if err != nil {
 		return ProvisionResult{Status: "failed", Error: err}
 	}
 	if instance.DeletionProtection {

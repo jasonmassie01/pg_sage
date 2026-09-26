@@ -348,6 +348,7 @@ func agentDBError(w http.ResponseWriter, err error) {
 	}
 	jsonError(w, "agent db store error", http.StatusInternalServerError)
 }
+
 // readJSONMap decodes a JSON object body; an empty body is an empty map and
 // a malformed body is ErrInvalid instead of silently becoming {} (G8-B30).
 func readJSONMap(r *http.Request) (map[string]any, error) {
@@ -430,15 +431,15 @@ func agentDBRegisterHandler(st *agentdb.Store) http.HandlerFunc {
 			ProvisioningLevel: firstString(
 				str(m, "provisioning_level"), str(m, "isolation_type"),
 			),
-			SizeProfileID:  str(m, "size_profile_id"),
-			SchemaName:     str(m, "schema_name"),
+			SizeProfileID: str(m, "size_profile_id"),
+			SchemaName:    str(m, "schema_name"),
 			// G8-B14: validated against the env allow-list by the store.
 			SecretRef:         str(m, "secret_ref"),
 			SecretRefProvider: str(m, "secret_ref_provider"),
-			LeaseSeconds:   integer(m, "lease_seconds"),
-			BudgetUSD:      float(m, "budget_usd"),
-			BackupRequired: boolValue(m, "backup_required"),
-			Metadata:       obj(m, "metadata"),
+			LeaseSeconds:      integer(m, "lease_seconds"),
+			BudgetUSD:         float(m, "budget_usd"),
+			BackupRequired:    boolValue(m, "backup_required"),
+			Metadata:          obj(m, "metadata"),
 		}
 		d, err := st.Provision(r.Context(), req)
 		if err != nil {
@@ -470,6 +471,7 @@ func agentDBPingHandler(st *agentdb.Store) http.HandlerFunc {
 		jsonResponse(w, d)
 	}
 }
+
 // agentDBLeaseHandler caps extensions by the configured provider TTL; the
 // store re-checks cost against the deployment budget (G8-B08).
 func agentDBLeaseHandler(

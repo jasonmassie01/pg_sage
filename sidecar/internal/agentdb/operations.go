@@ -194,22 +194,7 @@ func (s *Store) writeBackup(
 	}
 	verifiedAt, restoreAt := backupTimes(req)
 	var backup Backup
-	err := scanBackup(s.pool.QueryRow(ctx, `/* pg_sage */ 
-		INSERT INTO sage.agent_db_backups (
-			backup_id, deployment_id, provider, status, archive_uri,
-			verified_at, restore_verified_at, detail
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
-		ON CONFLICT (backup_id) DO UPDATE
-		SET provider=EXCLUDED.provider,
-			status=EXCLUDED.status,
-			archive_uri=EXCLUDED.archive_uri,
-			verified_at=EXCLUDED.verified_at,
-			restore_verified_at=EXCLUDED.restore_verified_at,
-			detail=EXCLUDED.detail
-		WHERE agent_db_backups.deployment_id=EXCLUDED.deployment_id
-		RETURNING backup_id, deployment_id, provider, status, archive_uri,
-			verified_at, restore_verified_at, created_at, detail`,
+	err := scanBackup(s.pool.QueryRow(ctx, upsertBackupSQL,
 		req.BackupID,
 		id,
 		req.Provider,
@@ -460,3 +445,22 @@ const upsertRecommendationSQL = `/* pg_sage */
 	RETURNING recommendation_id, kind, title, detail, status,
 		query_fingerprint, action_type, action_risk, confidence,
 		agent_instructions, payload, feedback, created_at`
+
+// upsertBackupSQL is scoped to the owning deployment: a backup_id that
+// belongs to another deployment returns no row (G8-B11).
+const upsertBackupSQL = `/* pg_sage */ 
+		INSERT INTO sage.agent_db_backups (
+			backup_id, deployment_id, provider, status, archive_uri,
+			verified_at, restore_verified_at, detail
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+		ON CONFLICT (backup_id) DO UPDATE
+		SET provider=EXCLUDED.provider,
+			status=EXCLUDED.status,
+			archive_uri=EXCLUDED.archive_uri,
+			verified_at=EXCLUDED.verified_at,
+			restore_verified_at=EXCLUDED.restore_verified_at,
+			detail=EXCLUDED.detail
+		WHERE agent_db_backups.deployment_id=EXCLUDED.deployment_id
+		RETURNING backup_id, deployment_id, provider, status, archive_uri,
+			verified_at, restore_verified_at, created_at, detail`

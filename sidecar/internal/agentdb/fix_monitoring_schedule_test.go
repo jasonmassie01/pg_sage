@@ -32,7 +32,15 @@ func TestMonitoringScheduleRotatesAcrossPasses(t *testing.T) {
 		FROM generate_series(1, 150) AS g`, tenant); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	// The scheduler is global: remove every row this test's passes created
+	// (for any tenant) so later claim tests see only their own work.
+	defer func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.agent_db_monitoring_work
+			WHERE next_due_at=$1 AND status='queued'`, now)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.agent_db_monitoring_state
+			WHERE last_scheduled_at=$1`, now)
+	}()
 	for pass := 0; pass < 2; pass++ {
 		if _, err := st.ScheduleMonitoring(ctx, now, 10_000); err != nil {
 			t.Fatalf("ScheduleMonitoring pass %d: %v", pass, err)
@@ -40,7 +48,8 @@ func TestMonitoringScheduleRotatesAcrossPasses(t *testing.T) {
 	}
 	var scheduled int
 	if err := pool.QueryRow(ctx, `SELECT count(DISTINCT physical_target_key)
-		FROM sage.agent_db_monitoring_state WHERE tenant_id=$1`, tenant).Scan(&scheduled); err != nil {
+		FROM sage.agent_db_monitoring_state WHERE tenant_id=$1`,
+		tenant).Scan(&scheduled); err != nil {
 		t.Fatal(err)
 	}
 	if scheduled != 150 {

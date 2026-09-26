@@ -30,9 +30,9 @@ type CloudSQLCreateInput struct {
 }
 
 type CloudSQLInstance struct {
-	Name             string
-	State            string
-	ConnectionName   string
+	Name               string
+	State              string
+	ConnectionName     string
 	PublicIPAddress    string
 	PrivateIPAddress   string
 	Labels             map[string]string
@@ -399,11 +399,11 @@ func cloudSQLInstanceFromAPI(raw map[string]any) CloudSQLInstance {
 	return CloudSQLInstance{
 		Labels:             stringMapFromAny(settings["userLabels"]),
 		DeletionProtection: protected,
-		Name:             stringMapValue(raw, "name"),
-		State:            stringMapValue(raw, "state"),
-		ConnectionName:   stringMapValue(raw, "connectionName"),
-		PublicIPAddress:  cloudSQLIPAddress(ipAddresses, "PRIMARY"),
-		PrivateIPAddress: cloudSQLIPAddress(ipAddresses, "PRIVATE"),
+		Name:               stringMapValue(raw, "name"),
+		State:              stringMapValue(raw, "state"),
+		ConnectionName:     stringMapValue(raw, "connectionName"),
+		PublicIPAddress:    cloudSQLIPAddress(ipAddresses, "PRIMARY"),
+		PrivateIPAddress:   cloudSQLIPAddress(ipAddresses, "PRIVATE"),
 	}
 }
 

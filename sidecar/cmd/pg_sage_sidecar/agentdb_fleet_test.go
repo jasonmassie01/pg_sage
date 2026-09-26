@@ -92,10 +92,14 @@ func TestAgentFleetPlanRemovesInactiveAndReplacesChanged(t *testing.T) {
 	}
 	archived := live("gone", "h1")
 	archived.Status = "archived"
+	cfg := func(name, host string) config.DatabaseConfig {
+		return config.DatabaseConfig{Name: name, Host: host, Port: 5432, User: "u",
+			Database: "db", SSLMode: "require"}
+	}
 	current := map[string]config.DatabaseConfig{
-		"agentdb:gone":    {Name: "agentdb:gone", Host: "h1", Port: 5432, User: "u", Database: "db", SSLMode: "require"},
-		"agentdb:moved":   {Name: "agentdb:moved", Host: "old", Port: 5432, User: "u", Database: "db", SSLMode: "require"},
-		"agentdb:same":    {Name: "agentdb:same", Host: "h3", Port: 5432, User: "u", Database: "db", SSLMode: "require"},
+		"agentdb:gone":    cfg("agentdb:gone", "h1"),
+		"agentdb:moved":   cfg("agentdb:moved", "old"),
+		"agentdb:same":    cfg("agentdb:same", "h3"),
 		"agentdb:deleted": {Name: "agentdb:deleted", Host: "h4"},
 	}
 	add, remove := agentFleetPlan([]agentdb.Deployment{

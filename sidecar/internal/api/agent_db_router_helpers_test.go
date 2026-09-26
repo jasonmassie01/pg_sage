@@ -42,3 +42,10 @@ func withTestOperator(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// testDrill is restore-drill evidence for fixtures (G8-B11).
+func testDrill(backupID string) agentdb.RestoreDrillRequest {
+	return agentdb.RestoreDrillRequest{BackupID: backupID,
+		EvidenceURI: "test://restore-drill", Target: "fixture-restore",
+		Checks: []string{"select 1"}, ActorID: "test"}
+}

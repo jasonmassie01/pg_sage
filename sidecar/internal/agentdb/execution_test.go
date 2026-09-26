@@ -179,7 +179,7 @@ func TestProvisionLifecycleStatusAndDestroyDryRun(t *testing.T) {
 		t.Fatalf("destroy without restore err = %v, want ErrRestoreRequired", err)
 	}
 
-	if _, err := st.RecordRestoreDrill(ctx, id, RestoreDrillRequest{BackupID: "backup_lifecycle_cloudsql", EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, testDrill("backup_lifecycle_cloudsql")); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 	destroyAttempt, err := st.DestroyProvisionDryRun(
@@ -308,7 +308,7 @@ func TestReconcileAbandonedDeploymentsPlansSafeCloudDestroy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expire deployments: %v", err)
 	}
-	if _, err := st.RecordRestoreDrill(ctx, safeID, RestoreDrillRequest{BackupID: "backup_reconcile_lakebase", EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, safeID, testDrill("backup_reconcile_lakebase")); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 
@@ -356,7 +356,7 @@ func TestReconcileAbandonedDeploymentsBlocksMalformedCloudPlan(t *testing.T) {
 		WHERE deployment_id=$1`, id); err != nil {
 		t.Fatalf("expire malformed deployment: %v", err)
 	}
-	if _, err := st.RecordRestoreDrill(ctx, id, RestoreDrillRequest{BackupID: "backup_reconcile_malformed", EvidenceURI: "test://restore-drill", Target: "fixture-restore", Checks: []string{"select 1"}, ActorID: "test"}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, testDrill("backup_reconcile_malformed")); err != nil {
 		t.Fatalf("RecordBackup malformed plan: %v", err)
 	}
 
