@@ -746,9 +746,7 @@ func initStandalone() {
 
 	// 8b. Configure the analyzer before its goroutine starts: the first
 	// cycle runs immediately and used to race these setters (G2-B15).
-	notifyDispatcher := notify.NewDispatcher(
-		pool, logStructuredWrapper)
-	registerNotifySenders(notifyDispatcher)
+	notifyDispatcher := sharedNotifyDispatcher(pool)
 	dbName := resolveDBName()
 	anal.WithDispatcher(notifyDispatcher)
 	anal.WithDatabaseName(dbName)
@@ -983,8 +981,9 @@ func stopLogWatcherOnShutdown(
 // a sender-less dispatcher and every notification silently no-op'd with
 // "no sender for type" (F1).
 func registerNotifySenders(d *notify.Dispatcher) {
-	d.RegisterSender(notify.NewSlackSender())
-	d.RegisterSender(notify.NewEmailSender())
+	policy := notificationTargetPolicy()
+	d.RegisterSender(notify.NewSlackSenderWithPolicy(policy))
+	d.RegisterSender(notify.NewEmailSenderWithPolicy(policy))
 	d.RegisterSender(notify.NewPagerDutySender())
 }
 

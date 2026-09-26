@@ -3627,7 +3627,7 @@ func TestPhase2_RegisterNotificationRoutes_NoPanic(
 ) {
 	pool, _ := phase2RequireDB(t)
 	mux := http.NewServeMux()
-	registerNotificationRoutes(mux, pool)
+	registerNotificationRoutes(mux, pool, notificationRouteDeps{})
 }
 
 // ================================================================

@@ -77,7 +77,7 @@ func TestMetaNotificationSecretEncryptedAtRestAndDelivered(t *testing.T) {
 	t.Cleanup(func() { globalMetaState = oldMeta })
 	globalMetaState = state
 	cfg.MetaDB = "postgres://fixture"
-	cfg.Notifications.AllowPrivateTargets = true
+	cfg.NotificationPolicy.AllowPrivateTargets = true
 	sink, hits := webhookSink(t)
 
 	router := wireRouter(WireParams{

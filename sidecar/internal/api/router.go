@@ -87,6 +87,12 @@ type RuntimeDeps struct {
 	// LLMBudgets covers every LLM client (general, optimizer, per-database)
 	// and the fleet budget; nil falls back to the shared manager (G3-B14).
 	LLMBudgets LLMBudgetRegistry
+	// NotificationSecretKey seals channel secrets at rest; every runtime
+	// dispatcher must read with the same key (G7-B20). nil = plaintext.
+	NotificationSecretKey []byte
+	// NotificationTargetPolicy validates channel targets on write and at
+	// test-send time (G7-B21).
+	NotificationTargetPolicy notify.TargetPolicy
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -107,6 +113,7 @@ func NewRouterFullRuntime(
 	var disableConfigWrites bool
 	var mcpHandler http.Handler
 	var budgets LLMBudgetRegistry
+	var notifications notificationRouteDeps
 	if runtime != nil {
 		controller = runtime.ConfigController
 		configBase = runtime.ConfigBase
@@ -114,6 +121,10 @@ func NewRouterFullRuntime(
 		disableConfigWrites = runtime.DisableConfigWrites
 		mcpHandler = runtime.MCPHandler
 		budgets = runtime.LLMBudgets
+		notifications = notificationRouteDeps{
+			secretKey: runtime.NotificationSecretKey,
+			policy:    runtime.NotificationTargetPolicy,
+		}
 	}
 	var runtimeConfigStore *store.ConfigStore
 	if pool != nil && !disableConfigWrites {
@@ -150,7 +161,7 @@ func NewRouterFullRuntime(
 			runtimeConfigBase(configBaseLoader, configBase, cfg),
 			disableConfigWrites,
 		)
-		registerNotificationRoutes(apiMux, pool)
+		registerNotificationRoutes(apiMux, pool, notifications)
 		registerPolicyRoutes(apiMux, policy.NewStore(pool))
 		apiMux.Handle("GET /api/v1/value", valueHandler(
 			value.NewService(value.NewPostgresRepository(pool))))
@@ -586,12 +597,20 @@ func registerActionRoutes(
 	}
 }
 
+// notificationRouteDeps carries the channel secret key and target policy
+// the runtime dispatchers use, so API writes and runtime reads agree.
+type notificationRouteDeps struct {
+	secretKey []byte
+	policy    notify.TargetPolicy
+}
+
 func registerNotificationRoutes(
-	mux *http.ServeMux, pool *pgxpool.Pool,
+	mux *http.ServeMux, pool *pgxpool.Pool, deps notificationRouteDeps,
 ) {
 	adminOnly := RequireRole("admin")
-	d := newDefaultDispatcher(pool)
-	ns := store.NewNotificationStore(pool, d)
+	d := newDefaultDispatcher(pool, deps)
+	ns := store.NewNotificationStore(pool, d).
+		WithSecretKey(deps.secretKey).WithTargetPolicy(deps.policy)
 
 	chList := adminOnly(http.HandlerFunc(
 		listChannelsHandler(ns)))
@@ -650,12 +669,14 @@ func registerNotificationRoutes(
 }
 
 func newDefaultDispatcher(
-	pool *pgxpool.Pool,
+	pool *pgxpool.Pool, deps notificationRouteDeps,
 ) *notify.Dispatcher {
 	logFn := func(_, _ string, _ ...any) {}
-	d := notify.NewDispatcher(pool, logFn)
-	d.RegisterSender(notify.NewSlackSender())
-	d.RegisterSender(notify.NewEmailSender())
+	d := notify.NewDispatcherWithStore(
+		notify.NewPoolStore(pool, deps.secretKey), logFn,
+	)
+	d.RegisterSender(notify.NewSlackSenderWithPolicy(deps.policy))
+	d.RegisterSender(notify.NewEmailSenderWithPolicy(deps.policy))
 	d.RegisterSender(notify.NewPagerDutySender())
 	return d
 }
