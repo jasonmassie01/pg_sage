@@ -266,6 +266,12 @@ func int64Value(value any) int64 {
 		return int64(v)
 	case float32:
 		return int64(v)
+	case string:
+		parsed, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return 0
+		}
+		return parsed
 	default:
 		return 0
 	}
@@ -659,7 +665,7 @@ func sourceIncidentFromMap(row map[string]any) cases.SourceIncident {
 
 func sourceQueryHintFromMap(row map[string]any) cases.SourceQueryHint {
 	return cases.SourceQueryHint{
-		QueryID:          int64(floatValue(row["queryid"])),
+		QueryID:          int64Value(row["queryid"]),
 		DatabaseName:     stringValue(row["database_name"]),
 		HintText:         stringValue(row["hint_text"]),
 		Symptom:          stringValue(row["symptom"]),
