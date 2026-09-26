@@ -52,8 +52,12 @@ func preflightRCAChild(t *testing.T, mode string) {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), os.Args[0],
 		"-test.run=^TestRCAChildProcessFixture$", "-test.v", "-test.timeout=20s")
+	// Adapted: GOCOVERDIR is not inherited. `go test -cover` sets it, and
+	// the child's counter files replaced the parent's in the package
+	// coverage figure (96% reported as 30%).
 	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "SAGE_TEST_DATABASE_URL=") {
+		if !strings.HasPrefix(entry, "SAGE_TEST_DATABASE_URL=") &&
+			!strings.HasPrefix(entry, "GOCOVERDIR=") {
 			cmd.Env = append(cmd.Env, entry)
 		}
 	}
