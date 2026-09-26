@@ -15,6 +15,10 @@ type LiveProvisionPolicy struct {
 	MaxTTLSeconds           int      `json:"max_ttl_seconds"`
 	MaxEstimatedCostUSD     float64  `json:"max_estimated_cost_usd"`
 	ExecutionMode           string   `json:"execution_mode"`
+	// AllowUnknownPricing lets an admin explicitly accept live creates whose
+	// instance class has no known price (provider config setting
+	// allow_unknown_instance_pricing). Off by default.
+	AllowUnknownPricing bool `json:"allow_unknown_pricing,omitempty"`
 }
 
 type LiveProvisionRequest struct {
@@ -70,8 +74,12 @@ func EvaluateLiveProvisionPolicy(
 	if req.Workspace != "" && !allowedValue(policy.AllowedWorkspaces, req.Workspace) {
 		return deny(decision, "workspace is not allowlisted")
 	}
-	if policy.MaxEstimatedCostUSD > 0 &&
-		req.EstimatedCostUSD > policy.MaxEstimatedCostUSD {
+	compare := req.EstimatedCostUSD
+	if req.EstimatedCostDoubled {
+		// Low-confidence estimates are compared at double their value.
+		compare *= 2
+	}
+	if policy.MaxEstimatedCostUSD > 0 && compare > policy.MaxEstimatedCostUSD {
 		return deny(decision, "estimated ttl cost exceeds budget")
 	}
 	if req.EstimatedCostDoubled && policy.MaxEstimatedCostUSD > 0 &&

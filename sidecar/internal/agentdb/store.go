@@ -267,8 +267,15 @@ func (s *Store) ExtendLease(
 	if req.LeaseSeconds <= 0 {
 		return Deployment{}, ErrInvalid
 	}
+	current, err := s.Get(ctx, id)
+	if err != nil {
+		return Deployment{}, err
+	}
+	if err := leaseExtensionAllowed(current, req); err != nil {
+		return Deployment{}, err
+	}
 	var dep Deployment
-	err := scanDeployment(s.pool.QueryRow(ctx, `/* pg_sage */
+	err = scanDeployment(s.pool.QueryRow(ctx, `/* pg_sage */
 		UPDATE sage.agent_db_deployments
 		SET lease_expires_at=now()+make_interval(secs => $2),
 			status=CASE

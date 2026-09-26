@@ -195,7 +195,7 @@ func agentDBSubrouterWithRegistry(
 		case r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "ping":
 			agentDBPingHandler(st)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "extend-lease":
-			agentDBLeaseHandler(st)(w, r)
+			agentDBLeaseHandler(st, authority)(w, r)
 		case r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "recommendations":
 			agentDBRecommendationsHandler(st)(w, r)
 		case r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "recommendations":
@@ -477,10 +477,27 @@ func agentDBPingHandler(st *agentdb.Store) http.HandlerFunc {
 		jsonResponse(w, d)
 	}
 }
-func agentDBLeaseHandler(st *agentdb.Store) http.HandlerFunc {
+// agentDBLeaseHandler caps extensions by the configured provider TTL; the
+// store re-checks cost against the deployment budget (G8-B08).
+func agentDBLeaseHandler(
+	st *agentdb.Store,
+	authority *agentDBLiveAuthority,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		m := readMap(r)
-		d, err := st.ExtendLease(r.Context(), agentDBID(r), agentdb.LeaseRequest{LeaseSeconds: integer(m, "lease_seconds"), Reason: str(m, "reason")})
+		m, err := readJSONMap(r)
+		if err != nil {
+			agentDBError(w, err)
+			return
+		}
+		dep, err := st.Get(r.Context(), agentDBID(r))
+		if err != nil {
+			agentDBError(w, err)
+			return
+		}
+		d, err := st.ExtendLease(r.Context(), agentDBID(r), agentdb.LeaseRequest{
+			LeaseSeconds: integer(m, "lease_seconds"), Reason: str(m, "reason"),
+			MaxTTLSeconds: authority.maxTTLSeconds(dep.Provider),
+		})
 		if err != nil {
 			agentDBError(w, err)
 			return

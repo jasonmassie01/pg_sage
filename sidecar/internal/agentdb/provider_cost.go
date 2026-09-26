@@ -28,6 +28,8 @@ func EstimateAgentDBCost(req CostEstimateRequest) CostEstimate {
 		return cloudSQLCost(req)
 	case ProviderDatabricksLakebase:
 		return lakebaseCost(req)
+	case ProviderNeon, ProviderSupabase:
+		return hostedCost(req)
 	default:
 		return unknownCost(req)
 	}
@@ -100,7 +102,7 @@ func lakebaseCost(req CostEstimateRequest) CostEstimate {
 }
 
 func unknownCost(req CostEstimateRequest) CostEstimate {
-	return finishEstimate(req, 100, "low", []string{"instance_class"})
+	return finishEstimate(req, 100, "low", []string{unknownInstanceClass})
 }
 
 func finishEstimate(

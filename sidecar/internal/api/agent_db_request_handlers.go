@@ -37,6 +37,13 @@ func requestCreateFromBody(
 	}
 }
 
+func (a *agentDBLiveAuthority) maxTTLSeconds(provider string) int {
+	if a == nil {
+		return 0
+	}
+	return a.config.Providers[agentdb.NormalizeProviderName(provider)].MaxTTLSeconds
+}
+
 func (a *agentDBLiveAuthority) allowedRegions(provider string) []string {
 	if a == nil {
 		return nil
