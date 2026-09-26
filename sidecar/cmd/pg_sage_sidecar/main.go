@@ -82,7 +82,6 @@ var (
 	// that YAML-configured ramp starts are not silently replaced by
 	// now() at first run. Zero value means YAML had no override.
 	configRampStart  time.Time
-	shutdownFlag     bool
 	fleetMgr         *fleet.DatabaseManager
 	apiServer        *http.Server
 	globalMetaState  *metaDBState
@@ -269,7 +268,6 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigCh
 	logInfo("shutdown", "received %s, shutting down…", sig)
-	shutdownFlag = true
 	shutdownCancel()
 
 	// Hard deadline: if graceful shutdown doesn't complete in 10s,
@@ -1001,7 +999,7 @@ func standaloneOrchestrator() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		if shutdownFlag {
+		if shutdownCtx.Err() != nil {
 			return
 		}
 		ctx := shutdownCtx
