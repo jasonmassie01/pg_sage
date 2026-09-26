@@ -420,31 +420,6 @@ func TestCoverage_ConfigureTransaction_SharedPreload(t *testing.T) {
 	}
 }
 
-func TestCoverage_ConfigureSessionBatch(t *testing.T) {
-	pool := acquireTestPool(t)
-	ctx := context.Background()
-
-	avail, err := Detect(ctx, pool)
-	if err != nil {
-		t.Fatalf("Detect: %v", err)
-	}
-	if !avail.Available {
-		t.Skip("skip: auto_explain not available on this instance")
-	}
-
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire connection: %v", err)
-	}
-	defer conn.Release()
-
-	scfg := DefaultSessionConfig(300)
-	err = ConfigureSessionBatch(ctx, conn, avail, scfg)
-	if err != nil {
-		t.Fatalf("ConfigureSessionBatch: %v", err)
-	}
-}
-
 func TestCoverage_ConfigureTransaction_AllFlagsDisabled(t *testing.T) {
 	pool := acquireTestPool(t)
 	ctx := context.Background()
@@ -484,36 +459,6 @@ func TestCoverage_ConfigureTransaction_AllFlagsDisabled(t *testing.T) {
 	}
 	if analyze != "off" {
 		t.Errorf("log_analyze = %q with LogAnalyze disabled, want off", analyze)
-	}
-}
-
-func TestCoverage_ConfigureSessionBatch_AllFlagsDisabled(t *testing.T) {
-	pool := acquireTestPool(t)
-	ctx := context.Background()
-
-	avail, err := Detect(ctx, pool)
-	if err != nil {
-		t.Fatalf("Detect: %v", err)
-	}
-	if !avail.Available {
-		t.Skip("skip: auto_explain not available on this instance")
-	}
-
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire connection: %v", err)
-	}
-	defer conn.Release()
-
-	scfg := SessionConfig{
-		LogMinDurationMs: 500,
-		LogAnalyze:       false,
-		LogBuffers:       false,
-		LogNested:        false,
-	}
-	err = ConfigureSessionBatch(ctx, conn, avail, scfg)
-	if err != nil {
-		t.Fatalf("ConfigureSessionBatch (flags disabled): %v", err)
 	}
 }
 
@@ -1001,33 +946,6 @@ func TestCoverage_ConfigureTransaction_SessionLoadMethod(t *testing.T) {
 	}
 	if analyze != "on" {
 		t.Errorf("log_analyze inside tx = %q, want on", analyze)
-	}
-}
-
-func TestCoverage_ConfigureSessionBatch_SessionLoadMethod(
-	t *testing.T,
-) {
-	pool := acquireTestPool(t)
-	ctx := context.Background()
-
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	defer conn.Release()
-
-	// Force session_load to exercise the LOAD branch in batch.
-	avail := &Availability{
-		SessionLoad: true,
-		Available:   true,
-		Method:      "session_load",
-	}
-	scfg := DefaultSessionConfig(200)
-
-	err = ConfigureSessionBatch(ctx, conn, avail, scfg)
-	if err != nil {
-		// Batch with LOAD may fail; that's ok.
-		t.Logf("ConfigureSessionBatch session_load: %v", err)
 	}
 }
 

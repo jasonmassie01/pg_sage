@@ -155,10 +155,3 @@ func (m *Monitor) InSafeMode() bool {
 	defer m.mu.Unlock()
 	return m.safeMode
 }
-
-// IsReplica returns true when the last confirmed role is replica.
-func (m *Monitor) IsReplica() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.role == RoleReplica
-}

@@ -39,9 +39,9 @@ func TestNew_StartsUnknownAndBlocked(t *testing.T) {
 	if m.Role() != RoleUnknown {
 		t.Errorf("new monitor role = %q, want unknown", m.Role())
 	}
-	if m.MutationsAllowed() || m.InSafeMode() || m.IsReplica() {
-		t.Errorf("new monitor: mutations=%v safe=%v replica=%v",
-			m.MutationsAllowed(), m.InSafeMode(), m.IsReplica())
+	if m.MutationsAllowed() || m.InSafeMode() {
+		t.Errorf("new monitor: mutations=%v safe=%v",
+			m.MutationsAllowed(), m.InSafeMode())
 	}
 }
 

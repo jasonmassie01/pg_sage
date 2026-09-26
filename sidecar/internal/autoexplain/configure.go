@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // SessionConfig holds auto_explain session parameters.
@@ -69,35 +68,6 @@ func execTolerantSet(ctx context.Context, tx pgx.Tx, stmt string) error {
 			"ROLLBACK TO SAVEPOINT pg_sage_autoexplain_set"); rbErr != nil {
 			return fmt.Errorf("rollback savepoint after %q: %w", stmt, rbErr)
 		}
-	}
-	return nil
-}
-
-// ConfigureSessionBatch sets auto_explain parameters using a pgx
-// Batch so all SETs travel in one network round-trip.
-func ConfigureSessionBatch(
-	ctx context.Context,
-	conn *pgxpool.Conn,
-	avail *Availability,
-	scfg SessionConfig,
-) error {
-	batch := &pgx.Batch{}
-	if avail.Method == "session_load" {
-		batch.Queue("LOAD 'auto_explain'")
-	}
-	for _, stmt := range buildSetStatements(scfg) {
-		batch.Queue(stmt)
-	}
-	br := conn.SendBatch(ctx, batch)
-
-	for range batch.Len() {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close()
-			return fmt.Errorf("configure session batch: %w", err)
-		}
-	}
-	if err := br.Close(); err != nil {
-		return fmt.Errorf("close configure session batch: %w", err)
 	}
 	return nil
 }

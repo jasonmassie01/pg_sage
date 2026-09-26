@@ -121,15 +121,3 @@ func windowedLatencyMs(earliest, latest sampleRow) (float64, bool) {
 	}
 	return dTotal / float64(dCalls), true
 }
-
-// Prune deletes query_store rows older than the cutoff. Returns rows
-// deleted. Keeps the table bounded alongside the retention sweeper.
-func Prune(ctx context.Context, pool *pgxpool.Pool, cutoff time.Time) (int64, error) {
-	tag, err := pool.Exec(ctx,
-		`/* pg_sage */ DELETE FROM sage.query_store WHERE captured_at < $1`,
-		cutoff)
-	if err != nil {
-		return 0, err
-	}
-	return tag.RowsAffected(), nil
-}

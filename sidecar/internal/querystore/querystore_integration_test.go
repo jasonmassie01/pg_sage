@@ -68,12 +68,9 @@ func TestRecordAndWindowedLatency_RoundTrip(t *testing.T) {
 		t.Errorf("windowed latency = %.2f, want ~30ms", ms)
 	}
 
-	// Between-windows variant + prune.
+	// Between-windows variant.
 	if _, _, err := WindowedLatencyMsBetween(ctx, pool, qid, base.Add(-time.Hour), time.Now()); err != nil {
 		t.Errorf("between: %v", err)
-	}
-	if _, err := Prune(ctx, pool, time.Now().Add(time.Hour)); err != nil {
-		t.Errorf("prune: %v", err)
 	}
 }
 
