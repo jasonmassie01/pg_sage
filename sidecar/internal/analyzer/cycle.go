@@ -3,6 +3,7 @@ package analyzer
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
 )
@@ -16,12 +17,16 @@ var queryRuleNames = map[string]bool{
 }
 
 func (a *Analyzer) cycle(ctx context.Context) {
-	current := snapshotForAnalysis(a.collector.LatestSnapshot())
-	previous := snapshotForAnalysis(a.collector.PreviousSnapshot())
-	if current == nil {
+	latest := a.collector.LatestSnapshot()
+	if latest == nil {
 		a.logFn("DEBUG", "analyzer: no snapshot yet, skipping")
 		return
 	}
+	if !a.claimFreshSnapshot(latest) {
+		return
+	}
+	current := snapshotForAnalysis(latest)
+	previous := snapshotForAnalysis(a.collector.PreviousSnapshot())
 	filterSchemaExclusions(current)
 	if previous != nil {
 		filterSchemaExclusions(previous)
@@ -49,6 +54,27 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	// Deduplicate conflicting findings across advisors.
 	all = DeduplicateFindings(all, computeIOUtilPct(current), a.logFn)
 	a.finalizeCycle(ctx, all, a.eval.resolvable(all))
+}
+
+// claimFreshSnapshot reports whether latest is newer than the snapshot the
+// previous cycle analyzed, and records it as analyzed. When collection has
+// failed since then, the collector still returns the old snapshot; running
+// the cycle on it again would refresh finding occurrence counts and
+// last_seen, count RCA cycles and feed LLM producers from stale evidence,
+// so the whole cycle is skipped until fresh evidence arrives.
+func (a *Analyzer) claimFreshSnapshot(latest *collector.Snapshot) bool {
+	stale := latest == a.lastAnalyzed ||
+		(!latest.CollectedAt.IsZero() && !a.lastAnalyzedAt.IsZero() &&
+			!latest.CollectedAt.After(a.lastAnalyzedAt))
+	if stale {
+		a.logFn("WARN", "analyzer: snapshot collected at %s was already "+
+			"analyzed; no fresh evidence from the collector, skipping cycle",
+			latest.CollectedAt.Format(time.RFC3339Nano))
+		return false
+	}
+	a.lastAnalyzed = latest
+	a.lastAnalyzedAt = latest.CollectedAt
+	return true
 }
 
 // runSnapshotRules runs every registered snapshot-based rule.

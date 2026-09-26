@@ -86,6 +86,10 @@ type Analyzer struct {
 	// eval tracks evaluated categories for the running cycle; only
 	// touched by the cycle goroutine.
 	eval *cycleEval
+	// lastAnalyzed and lastAnalyzedAt identify the newest snapshot a
+	// cycle has already consumed; only touched by the cycle goroutine.
+	lastAnalyzed   *collector.Snapshot
+	lastAnalyzedAt time.Time
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated
