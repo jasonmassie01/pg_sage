@@ -15,7 +15,11 @@ import (
 func TestRCAChildProcessFixture(t *testing.T) {
 	dsn := os.Getenv("PREFLIGHT_SHARED_RCA_DSN")
 	if dsn == "" {
-		t.Fatal("helper requires an explicit disposable parent fixture")
+		// Adapted: a whole-package run also selects this helper. It has
+		// no parent fixture then, so it reports a skip instead of failing
+		// the package; its parents (TestPreflightRCAProcessRestart*) assert.
+		t.Skip("helper process: runs only when a TestPreflightRCAProcessRestart* " +
+			"parent passes PREFLIGHT_SHARED_RCA_DSN")
 	}
 	pool, err := pgxpool.New(t.Context(), dsn)
 	if err != nil {
@@ -60,6 +64,9 @@ func preflightRCAChild(t *testing.T, mode string) {
 	t.Logf("fresh RCA process mode=%s: %s", mode, out)
 	if err != nil {
 		t.Fatalf("RCA child process failed: %v", err)
+	}
+	if !strings.Contains(string(out), "--- PASS: TestRCAChildProcessFixture") {
+		t.Fatal("RCA child process did not run its fixture (skipped or filtered)")
 	}
 }
 
