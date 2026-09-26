@@ -2,12 +2,13 @@ package migration
 
 import (
 	"context"
-	"fmt"
+	"regexp"
+	"strings"
 )
 
 const tableStatsSQL = `
-SELECT COALESCE(c.reltuples, 0)::bigint,
-       COALESCE(c.relpages, 0)::bigint * current_setting('block_size')::bigint
+SELECT c.reltuples::bigint,
+       c.relpages::bigint * current_setting('block_size')::bigint
 FROM   pg_class c
 JOIN   pg_namespace n ON n.oid = c.relnamespace
 WHERE  c.relname = $1
@@ -22,20 +23,28 @@ func (ra *RiskAssessor) fetchTableStats(
 		ra.logFn("debug",
 			"migration: table stats unavailable for %s.%s: %v",
 			schema, risk.TableName, err)
+		return
 	}
+	// reltuples = -1 means "never analyzed" (PG14+): size unknown.
+	risk.StatsKnown = risk.EstimatedRows >= 0
 }
 
+// activeQueriesSQL counts other active backends in THIS database whose
+// query mentions the table as a whole word. PostgreSQL ARE uses \y for
+// a word boundary; \b is a backspace (G7-B02).
 const activeQueriesSQL = `
 SELECT COUNT(*)::int,
        COALESCE(MAX(EXTRACT(EPOCH FROM now() - query_start)), 0)
 FROM   pg_stat_activity
 WHERE  state = 'active'
+  AND  pid <> pg_backend_pid()
+  AND  datname = current_database()
   AND  query ~* $1`
 
 func (ra *RiskAssessor) fetchActiveQueries(
 	ctx context.Context, risk *DDLRisk,
 ) {
-	pattern := fmt.Sprintf(`\b%s\b`, risk.TableName)
+	pattern := `\y` + quoteARE(risk.TableName) + `\y`
 	row := ra.pool.QueryRow(ctx, activeQueriesSQL, pattern)
 	if err := row.Scan(&risk.ActiveQueries, &risk.LongestQuerySec); err != nil {
 		ra.logFn("debug",
@@ -44,12 +53,26 @@ func (ra *RiskAssessor) fetchActiveQueries(
 	}
 }
 
+var areSpecial = regexp.MustCompile(`[\\.^$|?*+()\[\]{}]`)
+
+// quoteARE escapes regex metacharacters for a PostgreSQL ARE pattern.
+func quoteARE(s string) string {
+	return areSpecial.ReplaceAllStringFunc(s, func(m string) string {
+		return `\` + m
+	})
+}
+
+// pendingLocksSQL counts ungranted locks on the table in THIS database;
+// pg_locks is cluster-wide and relation OIDs collide across databases
+// (G7-B17).
 const pendingLocksSQL = `
 SELECT COUNT(*)::int
 FROM   pg_locks l
 JOIN   pg_class c ON c.oid = l.relation
 JOIN   pg_namespace n ON n.oid = c.relnamespace
 WHERE  NOT l.granted
+  AND  l.database = (SELECT oid FROM pg_database
+                      WHERE datname = current_database())
   AND  c.relname = $1
   AND  n.nspname = $2`
 
@@ -82,7 +105,7 @@ func (ra *RiskAssessor) fetchReplicationLag(
 }
 
 func schemaOrPublic(s string) string {
-	if s == "" {
+	if strings.TrimSpace(s) == "" {
 		return "public"
 	}
 	return s

@@ -19,6 +19,7 @@ type Detector struct {
 	logFn        func(string, string, ...any)
 	knownQueries map[int]string // pid -> last seen query
 	findingSink  FindingSink
+	stale        *staleResolver
 }
 
 // NewDetector creates a Detector for activity-based DDL detection.
@@ -39,17 +40,25 @@ func NewDetector(
 
 func (d *Detector) WithFindingSink(sink FindingSink) *Detector {
 	d.findingSink = sink
+	if sink != nil {
+		d.stale = newStaleResolver(d.pool, d.logFn)
+	}
 	return d
 }
 
+// ddlActivitySQL finds DDL running in THIS database (pg_stat_activity is
+// cluster-wide, G7-B17), excluding pg_sage's own backends (G7-B27).
+// PostgreSQL ARE uses \y as the word boundary;  is a backspace, which
+// made this query match nothing (G7-B02). Leading comments are allowed.
 const ddlActivitySQL = `
 SELECT pid, query
 FROM   pg_stat_activity
 WHERE  state = 'active'
   AND  pid != pg_backend_pid()
-  AND  (
-    query ~* '^\s*(ALTER|CREATE\s+INDEX|DROP|REINDEX|VACUUM|REFRESH|CLUSTER)\b'
-  )`
+  AND  datname = current_database()
+  AND  COALESCE(application_name, '') NOT ILIKE '%pg_sage%'
+  AND  query ~* '^\s*(/\*.*?\*/\s*|--[^\n]*\n\s*)*` +
+	`(ALTER|CREATE\s+(UNIQUE\s+)?INDEX|DROP|REINDEX|VACUUM|REFRESH|CLUSTER)\y'`
 
 // PollOnce queries pg_stat_activity for DDL and analyzes new ones.
 func (d *Detector) PollOnce(
@@ -148,6 +157,7 @@ func (d *Detector) Run(ctx context.Context) {
 			d.logFn("info", "migration: detector stopped")
 			return
 		case <-ticker.C:
+			d.stale.maybeRun(ctx)
 			incidents, err := d.PollOnce(ctx)
 			if err != nil {
 				d.logFn("warn",

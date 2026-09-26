@@ -16,6 +16,7 @@ type LogDetector struct {
 	advisor     *Advisor
 	logFn       func(string, string, ...any)
 	findingSink FindingSink
+	stale       *staleResolver
 }
 
 // NewLogDetector creates a LogDetector backed by the given Advisor.
@@ -30,6 +31,9 @@ func NewLogDetector(
 // deduplicating store used by activity polling.
 func (ld *LogDetector) WithFindingSink(sink FindingSink) *LogDetector {
 	ld.findingSink = sink
+	if sink != nil && ld.advisor != nil {
+		ld.stale = newStaleResolver(ld.advisor.pool, ld.logFn)
+	}
 	return ld
 }
 
@@ -119,6 +123,7 @@ func (ld *LogDetector) Run(
 }
 
 func (ld *LogDetector) drain(ctx context.Context, source LogEntrySource) {
+	ld.stale.maybeRun(ctx)
 	for _, entry := range source.Drain() {
 		if inc := ld.processLogEntry(ctx, entry); inc != nil {
 			ld.log("warn", "migration: DDL risk detected from log: %s (score=%.2f)",
