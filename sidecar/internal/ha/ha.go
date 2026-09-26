@@ -3,115 +3,162 @@ package ha
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Role is the last confirmed PostgreSQL role of the monitored node.
+type Role string
+
 const (
-	flipThreshold  = 5 // consecutive flips before entering safe mode
-	stableThreshold = 5 // consecutive stable checks before exiting safe mode
+	RoleUnknown Role = "unknown"
+	RolePrimary Role = "primary"
+	RoleReplica Role = "replica"
 )
 
-// Monitor tracks PostgreSQL primary/replica role and detects role flips.
+const (
+	// flipThreshold role changes inside flipWindow mean the node is
+	// flapping (failover/failback). The old rule required 5 CONSECUTIVE
+	// flips, which is unreachable when checks run every ~10 minutes and
+	// a real flap has stable samples between role changes (G1-B21).
+	flipThreshold = 2
+	flipWindow    = time.Hour
+	// Safe mode ends only after stableThreshold consecutive confirmed
+	// checks AND safeModeCooldown since the last flip.
+	stableThreshold  = 3
+	safeModeCooldown = 30 * time.Minute
+)
+
+// Monitor tracks the node's role and detects failover flapping.
+// It fails closed: an unknown role never allows mutations.
 type Monitor struct {
-	pool        *pgxpool.Pool
-	logFn       func(string, string, ...any)
+	probe func(context.Context) (bool, error)
+	now   func() time.Time
+	logFn func(string, string, ...any)
 
 	mu          sync.Mutex
-	wasReplica  bool
-	flipCount   int
+	role        Role // current role; unknown before/after a failed probe
+	lastKnown   Role // last successfully observed role (flip detection)
+	flips       []time.Time
 	stableCount int
 	safeMode    bool
-	initialized bool
 }
 
-// New creates a new HA Monitor.
+// New creates a new HA Monitor probing pg_is_in_recovery() on pool.
 func New(pool *pgxpool.Pool, logFn func(string, string, ...any)) *Monitor {
-	return &Monitor{
-		pool:  pool,
-		logFn: logFn,
+	m := &Monitor{
+		now:       time.Now,
+		logFn:     logFn,
+		role:      RoleUnknown,
+		lastKnown: RoleUnknown,
 	}
+	m.probe = func(ctx context.Context) (bool, error) {
+		var inRecovery bool
+		err := pool.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+		return inRecovery, err
+	}
+	return m
 }
 
-// Check queries pg_is_in_recovery() and detects role flips between calls.
-// After 5 consecutive flips it enters safe mode (no autonomous actions).
-// After 5 consecutive stable checks it exits safe mode.
+// Check probes the node's role and returns true when the node must NOT
+// be treated as a writable primary: it is a replica, or its role could
+// not be determined. Callers pass the result as "isReplica" to suppress
+// mutations, so a failed probe fails closed.
 func (m *Monitor) Check(ctx context.Context) bool {
-	var inRecovery bool
-	err := m.pool.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
+	inRecovery, err := m.probe(ctx)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if err != nil {
-		// Read wasReplica under the lock — concurrent Check calls write
-		// it (C3). On a transient error, hold the last known role.
-		m.logFn("ha", "pg_is_in_recovery() failed: %v", err)
-		return m.wasReplica
-	}
-
-	if !m.initialized {
-		m.wasReplica = inRecovery
-		m.initialized = true
-		role := "primary"
-		if inRecovery {
-			role = "replica"
-		}
-		m.logFn("ha", "initial role detected: %s", role)
-		return inRecovery
-	}
-
-	if inRecovery != m.wasReplica {
-		m.flipCount++
+		m.role = RoleUnknown
 		m.stableCount = 0
-
-		oldRole := "primary"
-		newRole := "replica"
-		if m.wasReplica {
-			oldRole = "replica"
-			newRole = "primary"
-		}
-		m.logFn("ha",
-			"role flip detected: %s -> %s (flip #%d)",
-			oldRole, newRole, m.flipCount,
-		)
-
-		if m.flipCount >= flipThreshold && !m.safeMode {
-			m.safeMode = true
-			m.logFn("ha",
-				"entering safe mode after %d consecutive flips",
-				m.flipCount,
-			)
-		}
-
-		m.wasReplica = inRecovery
-	} else {
-		m.stableCount++
-		m.flipCount = 0
-
-		if m.safeMode && m.stableCount >= stableThreshold {
-			m.safeMode = false
-			m.stableCount = 0
-			m.logFn("ha",
-				"exiting safe mode after %d consecutive stable checks",
-				stableThreshold,
-			)
-		}
+		m.logFn("WARN", "ha: pg_is_in_recovery() failed; role unknown, "+
+			"mutations blocked: %v", err)
+		return true
 	}
-
-	return inRecovery
+	observed := RolePrimary
+	if inRecovery {
+		observed = RoleReplica
+	}
+	m.observeLocked(observed)
+	return observed != RolePrimary
 }
 
-// IsReplica returns the last known replica status.
-func (m *Monitor) IsReplica() bool {
+func (m *Monitor) observeLocked(observed Role) {
+	now := m.now()
+	switch {
+	case m.lastKnown == RoleUnknown:
+		m.logFn("INFO", "ha: initial role detected: %s", observed)
+	case observed != m.lastKnown:
+		m.recordFlipLocked(now, observed)
+	default:
+		m.stableCount++
+		m.maybeExitSafeModeLocked(now)
+	}
+	m.lastKnown = observed
+	m.role = observed
+}
+
+func (m *Monitor) recordFlipLocked(now time.Time, observed Role) {
+	m.stableCount = 0
+	kept := m.flips[:0]
+	for _, at := range m.flips {
+		if now.Sub(at) < flipWindow {
+			kept = append(kept, at)
+		}
+	}
+	m.flips = append(kept, now)
+	m.logFn("WARN", "ha: role flip detected: %s -> %s (%d in last %s)",
+		m.lastKnown, observed, len(m.flips), flipWindow)
+	if len(m.flips) >= flipThreshold && !m.safeMode {
+		m.safeMode = true
+		m.logFn("WARN", "entering safe mode after %d role flips within %s",
+			len(m.flips), flipWindow)
+	}
+}
+
+func (m *Monitor) maybeExitSafeModeLocked(now time.Time) {
+	if !m.safeMode || m.stableCount < stableThreshold {
+		return
+	}
+	if len(m.flips) > 0 && now.Sub(m.flips[len(m.flips)-1]) < safeModeCooldown {
+		return
+	}
+	m.safeMode = false
+	m.stableCount = 0
+	m.logFn("INFO", "ha: exiting safe mode after %d stable checks and %s cooldown",
+		stableThreshold, safeModeCooldown)
+}
+
+// Role returns the current role; RoleUnknown before the first successful
+// probe and after any failed probe.
+func (m *Monitor) Role() Role {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.wasReplica
+	return m.role
 }
 
-// InSafeMode returns true if excessive role flips have been detected.
+// MutationsAllowed reports whether autonomous mutations may run: only on
+// a confirmed primary outside safe mode. Executors should gate on this
+// rather than on !Check(ctx) alone.
+func (m *Monitor) MutationsAllowed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.role == RolePrimary && !m.safeMode
+}
+
+// InSafeMode returns true while failover flapping is suspected.
 func (m *Monitor) InSafeMode() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.safeMode
+}
+
+// IsReplica returns true when the last confirmed role is replica.
+func (m *Monitor) IsReplica() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.role == RoleReplica
 }
