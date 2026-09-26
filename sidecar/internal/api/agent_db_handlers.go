@@ -405,6 +405,14 @@ func agentDBError(w http.ResponseWriter, err error) {
 		jsonError(w, "agent db deployment not found", http.StatusNotFound)
 		return
 	}
+	if errors.Is(err, agentdb.ErrEmergencyStop) {
+		jsonError(w, "agent db mutations blocked by emergency stop", http.StatusConflict)
+		return
+	}
+	if errors.Is(err, agentdb.ErrNotOwned) {
+		jsonError(w, "no recorded live provider resource", http.StatusConflict)
+		return
+	}
 	if errors.Is(err, agentdb.ErrRestoreRequired) {
 		jsonError(w, "verified restore required", http.StatusConflict)
 		return

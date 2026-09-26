@@ -173,6 +173,12 @@ func TestReconcileAbandonedDeploymentsDestroysLiveCloudResources(t *testing.T) {
 		WHERE deployment_id=$1`, id); err != nil {
 		t.Fatalf("expire live deployment: %v", err)
 	}
+	if err := st.RecordCreationReceipt(ctx, CreationReceipt{
+		DeploymentID: id, Provider: ProviderAWSRDS,
+		ProviderResourceID: "live-resource", OperationMode: "live",
+	}); err != nil {
+		t.Fatalf("seed creation receipt: %v", err)
+	}
 	if _, err := st.RecordBackup(ctx, id, BackupRequest{
 		BackupID: "backup_reconcile_live_destroy",
 		Provider: ProviderAWSRDS,

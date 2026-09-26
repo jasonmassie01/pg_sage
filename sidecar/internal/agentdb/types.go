@@ -18,10 +18,13 @@ var (
 	ErrBlueprintLLMRequired = errors.New("blueprint generation requires llm")
 	ErrDeleteBlocked        = fmt.Errorf("%w: delete blocked", ErrInvalid)
 	ErrRestoreRequired      = fmt.Errorf("%w: verified backup required", ErrInvalid)
+	ErrEmergencyStop        = errors.New("agent db mutations blocked by emergency stop")
+	ErrNotOwned             = fmt.Errorf("%w: no recorded live provider resource", ErrInvalid)
 )
 
 type Store struct {
 	pool *pgxpool.Pool
+	opts StoreOptions
 }
 
 type Request struct {

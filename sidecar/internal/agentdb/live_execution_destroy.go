@@ -32,6 +32,14 @@ func (s *Store) ExecuteDestroyProvisionLive(
 	if err != nil {
 		return ProvisionAttempt{}, err
 	}
+	// Every refusal happens before the single-use authorization is
+	// consumed (G8-B27): gate, ownership, state and backup policy.
+	if err := s.mutationAllowed(ctx); err != nil {
+		return ProvisionAttempt{}, err
+	}
+	if err := s.validateDirectTeardownState(ctx, dep); err != nil {
+		return ProvisionAttempt{}, err
+	}
 	if err := s.ValidateLiveDestroyPrerequisites(
 		ctx, dep, trusted.CurrentPolicy,
 	); err != nil {
@@ -40,7 +48,9 @@ func (s *Store) ExecuteDestroyProvisionLive(
 	if err := s.ClaimLiveExecution(ctx, *req.Attempt, req.Now); err != nil {
 		return ProvisionAttempt{}, err
 	}
-	prepared, err := s.prepareDirectTeardown(ctx, dep)
+	prepared, err := s.prepareDirectTeardown(
+		ctx, dep, trusted.CurrentPolicy.RequireBackupBeforeDrop,
+	)
 	if err != nil {
 		return ProvisionAttempt{}, err
 	}

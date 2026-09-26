@@ -213,6 +213,13 @@ func (f *wave34AuthorityFixture) promoteToLive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("promote fixture to live: %v", err)
 	}
+	// A live resource is backed by a live creation receipt (G8-B04).
+	if err := f.store.RecordCreationReceipt(f.ctx, agentdb.CreationReceipt{
+		DeploymentID: f.id, Provider: agentdb.ProviderAWSRDS,
+		ProviderResourceID: "wave34-live-resource", OperationMode: "live",
+	}); err != nil {
+		t.Fatalf("record creation receipt: %v", err)
+	}
 	_, err = f.store.RecordBackup(f.ctx, f.id, agentdb.BackupRequest{
 		BackupID: f.id + "_restore_verified", Provider: agentdb.ProviderAWSRDS,
 		Status: "restore_verified",

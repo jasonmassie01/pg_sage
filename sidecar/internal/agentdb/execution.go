@@ -132,6 +132,9 @@ func (s *Store) ExecuteProvisionLive(
 	if req.Records == nil || req.Attempt == nil {
 		return ProvisionAttempt{}, ErrInvalid
 	}
+	if err := s.mutationAllowed(ctx); err != nil {
+		return ProvisionAttempt{}, err
+	}
 	trustedRecords, err := s.LoadLiveExecutionRecords(
 		ctx, *req.Attempt, *req.Records,
 	)
@@ -260,7 +263,7 @@ func (s *Store) DestroyProvisionLive(
 	if err := s.requireRestoreVerifiedBackup(ctx, dep); err != nil {
 		return ProvisionAttempt{}, err
 	}
-	dep, err = s.prepareDirectTeardown(ctx, dep)
+	dep, err = s.prepareDirectTeardown(ctx, dep, dep.BackupRequired)
 	if err != nil {
 		return ProvisionAttempt{}, err
 	}
@@ -306,6 +309,12 @@ func (s *Store) runProviderDestroy(
 	}
 	if operationID == "" || dep.TeardownOperationID != operationID {
 		return ProvisionAttempt{}, ErrConflict
+	}
+	if err := s.mutationAllowed(ctx); err != nil {
+		return ProvisionAttempt{}, err
+	}
+	if err := s.requireOwnedLiveResource(ctx, dep); err != nil {
+		return ProvisionAttempt{}, err
 	}
 	mutationID, err := s.beginProviderMutation(ctx, dep.DeploymentID)
 	if err != nil {

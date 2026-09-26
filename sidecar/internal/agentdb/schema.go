@@ -13,7 +13,7 @@ import (
 )
 
 func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+	return NewStoreWithOptions(pool, DefaultStoreOptions())
 }
 
 func (s *Store) Ensure(ctx context.Context) error {

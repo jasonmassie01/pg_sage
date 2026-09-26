@@ -197,8 +197,21 @@ func TestRegisterSameOwnerCanReplanBeforeLive(t *testing.T) {
 func cleanupDeployment(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id string) {
 	t.Helper()
 	_, _ = pool.Exec(ctx, "DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(),
-			"DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
-	})
+	t.Cleanup(func() { deleteDeploymentFresh(t, id) })
+}
+
+// deleteDeploymentFresh uses its own pool: callers close theirs via defer,
+// which runs before t.Cleanup, so leftover rows used to leak into later
+// reconcile tests.
+func deleteDeploymentFresh(t *testing.T, id string) {
+	pool, err := pgxpool.New(context.Background(), agentDBTestDSN())
+	if err != nil {
+		t.Errorf("cleanup %s: %v", id, err)
+		return
+	}
+	defer pool.Close()
+	if _, err := pool.Exec(context.Background(),
+		"DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id); err != nil {
+		t.Errorf("cleanup %s: %v", id, err)
+	}
 }

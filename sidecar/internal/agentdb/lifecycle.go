@@ -2,113 +2,10 @@ package agentdb
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-func (s *Store) ReconcileAbandonedDeployments(
-	ctx context.Context,
-	now time.Time,
-	runnerSource any,
-) (LifecycleReconcileResult, error) {
-	archived, err := s.ArchiveExpired(ctx, now)
-	if err != nil {
-		return LifecycleReconcileResult{}, err
-	}
-	result := LifecycleReconcileResult{Archived: archived}
-	for _, dep := range archived {
-		if err := s.reconcileExpiredDeployment(
-			ctx, now, runnerSource, dep, &result,
-		); err != nil {
-			return LifecycleReconcileResult{}, err
-		}
-	}
-	return result, nil
-}
-
-func (s *Store) reconcileExpiredDeployment(
-	ctx context.Context,
-	now time.Time,
-	runnerSource any,
-	dep Deployment,
-	result *LifecycleReconcileResult,
-) error {
-	if dep.Provider == ProviderLocalPostgres || dep.ProvisioningLevel != LevelInstance {
-		return nil
-	}
-	if liveRunner, ok := liveRunnerFromSource(runnerSource, dep.Provider); ok &&
-		dep.LiveMode && destroyableProvisioningStatus(dep.ProvisioningStatus) {
-		authorized, proceed, err := s.authorizeCleanup(ctx, now, dep, result)
-		if err != nil || !proceed {
-			return err
-		}
-		attempt, err := s.destroyAuthorizedLive(ctx, authorized, liveRunner)
-		if err == nil {
-			result.DestroyLive = append(result.DestroyLive, attempt)
-		}
-		return err
-	}
-	runner, err := commandRunnerFromSource(runnerSource, dep.Provider)
-	if errors.Is(err, ErrInvalid) {
-		appendLifecycleBlock(result, dep.DeploymentID, "provision runner unavailable")
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	authorized, proceed, err := s.authorizeCleanup(ctx, now, dep, result)
-	if err != nil || !proceed {
-		return err
-	}
-	attempt, err := s.DestroyProvisionDryRun(ctx, authorized.DeploymentID, runner)
-	if err == nil {
-		result.DestroyDryRun = append(result.DestroyDryRun, attempt)
-		return nil
-	}
-	if appendCleanupError(result, dep.DeploymentID, err) {
-		return nil
-	}
-	return err
-}
-
-func (s *Store) authorizeCleanup(
-	ctx context.Context,
-	now time.Time,
-	dep Deployment,
-	result *LifecycleReconcileResult,
-) (Deployment, bool, error) {
-	authorized, err := s.authorizeTeardownClaim(ctx, dep, now)
-	if err == nil {
-		return authorized, true, nil
-	}
-	if appendCleanupError(result, dep.DeploymentID, err) {
-		return Deployment{}, false, nil
-	}
-	return Deployment{}, false, err
-}
-
-func appendCleanupError(result *LifecycleReconcileResult, id string, err error) bool {
-	switch {
-	case errors.Is(err, ErrRestoreRequired):
-		appendLifecycleBlock(result, id, "verified restore required")
-	case errors.Is(err, ErrInvalid):
-		appendLifecycleBlock(result, id, "invalid provisioning plan or provider state")
-	case errors.Is(err, ErrConflict):
-		appendLifecycleBlock(result, id, "cleanup claim invalidated")
-	default:
-		return false
-	}
-	return true
-}
-
-func appendLifecycleBlock(result *LifecycleReconcileResult, id, reason string) {
-	result.Blocked = append(result.Blocked, LifecycleBlocked{
-		DeploymentID: id,
-		Reason:       reason,
-	})
-}
 
 func liveRunnerFromSource(source any, provider string) (ProviderRunner, bool) {
 	registry, ok := source.(*RunnerRegistry)
@@ -120,12 +17,6 @@ func liveRunnerFromSource(source any, provider string) (ProviderRunner, bool) {
 		return nil, false
 	}
 	return runner, true
-}
-
-func destroyableProvisioningStatus(status string) bool {
-	return status == "available" ||
-		status == "status_checked" ||
-		status == "dry_run_ready"
 }
 
 func (s *Store) ReconcileLiveProvisioning(

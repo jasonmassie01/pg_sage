@@ -365,9 +365,18 @@ func setEmergencyStopForTest(t *testing.T, ctx context.Context, pool *pgxpool.Po
 			t.Fatalf("set emergency stop: %v", err)
 		}
 	}
+	// The caller's pool is closed by defer before t.Cleanup runs.
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(),
-			`DELETE FROM sage.config WHERE key='emergency_stop'`)
+		cleanup, err := pgxpool.New(context.Background(), agentDBTestDSN())
+		if err != nil {
+			t.Errorf("clear emergency stop: %v", err)
+			return
+		}
+		defer cleanup.Close()
+		if _, err := cleanup.Exec(context.Background(),
+			`DELETE FROM sage.config WHERE key='emergency_stop'`); err != nil {
+			t.Errorf("clear emergency stop: %v", err)
+		}
 	})
 }
 

@@ -207,10 +207,14 @@ func TestLiveReconcileRetriesUncertainDestroyWithStableOperationID(t *testing.T)
 	registry := NewRunnerRegistry(DryRunProvisionRunner{})
 	registry.Register(runner)
 
-	if _, err := st.ReconcileAbandonedDeployments(
-		ctx, time.Now().UTC(), registry,
-	); err == nil {
-		t.Fatal("first reconcile succeeded despite uncertain provider destroy")
+	// G8-B02: an uncertain destroy is reported as a blocked row, not a pass
+	// error, so sibling deployments in the batch are still processed.
+	first, err := st.ReconcileAbandonedDeployments(ctx, time.Now().UTC(), registry)
+	if err != nil {
+		t.Fatalf("first reconcile aborted: %v", err)
+	}
+	if !containsBlockedID(first.Blocked, id) {
+		t.Fatalf("uncertain provider destroy not reported blocked: %#v", first.Blocked)
 	}
 	if _, err := st.ReconcileLiveProvisioning(ctx, registry); err != nil {
 		t.Fatalf("ReconcileLiveProvisioning retry: %v", err)
@@ -669,10 +673,7 @@ func seedExpiredLiveDeployment(
 	t.Helper()
 	_, _ = pool.Exec(ctx,
 		"DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(),
-			"DELETE FROM sage.agent_db_deployments WHERE deployment_id=$1", id)
-	})
+	t.Cleanup(func() { deleteDeploymentFresh(t, id) })
 	if _, err := st.Provision(ctx, RegisterRequest{
 		DeploymentID:       id,
 		TenantID:           "tenant_agentdb_test",
