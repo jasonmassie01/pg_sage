@@ -21,6 +21,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/rca"
+	"github.com/pg-sage/sidecar/internal/retention"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -412,7 +413,12 @@ func buildStoreDatabaseRuntime(
 	if err := bootstrapManagedDatabaseSchema(ctx, dbPool); err != nil {
 		return nil, fmt.Errorf("bootstrap schema for %q: %w", rec.Name, err)
 	}
-	dbPGVersion := detectPGVersion(dbPool)
+	checks, err := runInstanceChecks(ctx, dbPool)
+	if err != nil {
+		return nil, fmt.Errorf("prerequisite checks for %q: %w", rec.Name, err)
+	}
+	dbRuntimeCfg := instanceRuntimeConfig(checks)
+	dbPGVersion := checks.PGVersionNum
 	dbCloudEnv := detectCloudEnv(dbPool)
 
 	// Derive a per-instance context from the process shutdownCtx so
@@ -464,7 +470,19 @@ func buildStoreDatabaseRuntime(
 			dbLLMClient, logStructuredWrapper,
 		))
 	}
+	// Meta instances had no dispatcher at all; rules live in the meta DB
+	// (G5-B10, G7-B05). Configure before Run (G2-B15).
+	dispatcher := sharedNotifyDispatcher(
+		notificationControlPool(globalMetaState, nil),
+	)
+	if dispatcher != nil {
+		dbAnal.WithDispatcher(dispatcher)
+	}
+	dbAnal.WithDatabaseName(rec.Name)
 	startInstanceWorker(instWorkers, func() { dbAnal.Run(instCtx) })
+	if alerts := newInstanceAlertManager(dbPool); alerts != nil {
+		startInstanceWorker(instWorkers, func() { alerts.Run(instCtx) })
+	}
 
 	dbExec := buildExecutor(rec, dbPool, dbAnal, dbCloudEnv)
 	startProviderObservability(instCtx, instWorkers, dbPool, cfg, dbExec, dbRCAEng)
@@ -475,6 +493,10 @@ func buildStoreDatabaseRuntime(
 		return nil, fmt.Errorf("start autonomy for %q: %w", rec.Name, err)
 	}
 	dbActionStore := store.NewActionStore(dbPool)
+	if dispatcher != nil {
+		dbExec.WithDispatcher(dispatcher)
+	}
+	dbExec.WithDatabaseName(rec.Name)
 	if dbLLMClient != nil {
 		dbExec.WithJustifier(dbLLMClient)
 	}
@@ -489,10 +511,11 @@ func buildStoreDatabaseRuntime(
 	inst := newHealthyInstance(
 		rec, dbPool, dbColl, dbAnal, dbExec, instCancel,
 		instWorkers, dbCloudEnv)
-	dbCfg := storeRecordToDBConfig(rec)
 	startInstanceWorker(instWorkers, func() {
-		fleetDBOrchestrator(
-			instCtx, rec.Name, dbPool, dbExec, dbBrief, dbCfg)
+		fleetDBOrchestrator(instCtx, fleetCycleDeps{
+			name: rec.Name, pool: dbPool, exec: dbExec, brief: dbBrief,
+			cleaner: retention.New(dbPool, cfg, logStructuredWrapper),
+		})
 	})
 	return inst, nil
 }
