@@ -26,6 +26,9 @@ const (
 	ChangeRetention        ChangeClass = "retention"
 	ChangeFKIndex          ChangeClass = "fk_index"
 	ChangeOnlineMigration  ChangeClass = "online_migration"
+	ChangeBackendSignal    ChangeClass = "backend_signal"
+	ChangeQueryHint        ChangeClass = "query_hint"
+	ChangeSchemaChange     ChangeClass = "schema_change"
 )
 
 type BudgetLimit struct {
@@ -345,7 +348,8 @@ func allChangeClasses() []ChangeClass {
 	return []ChangeClass{
 		ChangeIndex, ChangeAnalyze, ChangeVacuum, ChangeFreeze,
 		ChangeAutovacuumTuning, ChangeConfigGUC, ChangeRetention,
-		ChangeFKIndex, ChangeOnlineMigration,
+		ChangeFKIndex, ChangeOnlineMigration, ChangeBackendSignal, ChangeQueryHint,
+		ChangeSchemaChange,
 	}
 }
 
