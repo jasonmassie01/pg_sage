@@ -434,4 +434,3 @@ postgres:
 		t.Error("HasMetaDB() = false, want true")
 	}
 }
-
