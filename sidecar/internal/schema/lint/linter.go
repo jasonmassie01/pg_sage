@@ -123,13 +123,10 @@ func filterIncludedSchemas(findings []Finding, include []string) []Finding {
 // snapshot. Producing the same finding in two places led to
 // duplicate dashboard rows and split ownership.
 //
-// The following rule types still exist in this package
-// (ruleUnusedIndex, ruleDuplicateIndex, ruleInvalidIndex,
-// ruleMissingFKIndex, ruleBloatedTable) but are intentionally
-// NOT registered here. They are kept around only because their
-// integration tests exercise valuable SQL against a live DB; do
-// not re-add them to defaults without first removing the analyzer
-// equivalents.
+// ruleBloatedTable (physical, page-estimate bloat) exists but is not
+// registered: its VACUUM FULL proposal would be projected as a safe
+// vacuum_table case candidate. Wire it only with a non-executable
+// pg_repack/bloat_remediation proposal.
 func defaultRules() []Rule {
 	return []Rule{
 		// Safety rules — conditions the analyzer does not track.
