@@ -615,6 +615,7 @@ func sourceFindingFromMap(row map[string]any) cases.SourceFinding {
 		RecommendedSQL:   stringValue(row["recommended_sql"]),
 		RollbackSQL:      stringValue(row["rollback_sql"]),
 		Detail:           detailMap(row["detail"]),
+		ObservedAt:       timeFromMap(row, "last_seen"),
 	}
 }
 

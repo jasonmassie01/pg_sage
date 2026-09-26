@@ -18,7 +18,18 @@ func ProjectFinding(f SourceFinding) Case {
 		WhyNow:           whyNowForFinding(f),
 		Evidence:         evidenceForFinding(f),
 		ActionCandidates: actionCandidatesForFinding(f),
+		ObservedAt:       f.ObservedAt,
 	})
+}
+
+// evidenceTime is when the source finding was last observed, falling back
+// to now when unknown. Candidate expiry is anchored to it so a stale
+// proposal expires instead of sliding forward on every read (G2-B24).
+func evidenceTime(f SourceFinding) time.Time {
+	if f.ObservedAt.IsZero() {
+		return time.Now().UTC()
+	}
+	return f.ObservedAt.UTC()
 }
 
 func evidenceForFinding(f SourceFinding) []Evidence {
@@ -72,7 +83,7 @@ func actionCandidatesForFinding(f SourceFinding) []ActionCandidate {
 		return nil
 	}
 
-	expires := time.Now().UTC().Add(24 * time.Hour)
+	expires := evidenceTime(f).Add(24 * time.Hour)
 	candidate := ActionCandidate{
 		ActionType:       actionType,
 		RiskTier:         riskForActionType(actionType),
@@ -99,7 +110,7 @@ func migrationSafetyCandidates(f SourceFinding) []ActionCandidate {
 	if detailFloat(f.Detail, "risk_score", 0) > 0.7 {
 		riskTier = "high"
 	}
-	expires := time.Now().UTC().Add(24 * time.Hour)
+	expires := evidenceTime(f).Add(24 * time.Hour)
 	candidate := ActionCandidate{
 		ActionType:       actionType,
 		RiskTier:         riskTier,
