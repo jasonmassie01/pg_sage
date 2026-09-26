@@ -49,6 +49,10 @@ func (r *PostgresRepository) InsertDecision(
 	return id, nil
 }
 
+// FindAuditViolations reports recent actions that lack a decision or a
+// verification. Rows still being verified are not yet violations, and the
+// audit covers a rolling 24-hour window so historic rows are reported once
+// rather than on every tick forever.
 func (r *PostgresRepository) FindAuditViolations(
 	ctx context.Context,
 ) ([]AuditViolation, error) {
@@ -57,7 +61,9 @@ func (r *PostgresRepository) FindAuditViolations(
 			ELSE 'missing_verification' END
 		FROM sage.action_log al
 		LEFT JOIN sage.verification v ON v.action_log_id=al.id
-		WHERE al.outcome NOT IN ('reverted','rolled_back')
+		WHERE al.outcome NOT IN ('reverted', 'rolled_back', 'monitoring', 'pending',
+		                         'interrupted', 'rolling_back')
+		AND al.executed_at > now() - interval '24 hours'
 		AND (al.decision_id IS NULL OR v.id IS NULL) ORDER BY al.id`)
 	if err != nil {
 		return nil, fmt.Errorf("run ledger self-audit: %w", err)

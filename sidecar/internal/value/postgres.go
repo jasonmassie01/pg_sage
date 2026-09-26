@@ -128,7 +128,7 @@ func (r *PostgresRepository) RecordIncident(
 func (r *PostgresRepository) readRealized(
 	ctx context.Context, filter Filter, result *Snapshot,
 ) error {
-	rows, err := r.pool.Query(ctx, `SELECT d.name, al.action_type,
+	rows, err := r.pool.Query(ctx, `SELECT COALESCE(d.name, ''), al.action_type,
 		date_trunc('day', al.executed_at)::date::text, al.executed_at,
 		al.toil_minutes_saved::float8 FROM sage.action_log al
 		LEFT JOIN sage.databases d ON d.id=al.database_id
