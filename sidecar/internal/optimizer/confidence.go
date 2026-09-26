@@ -2,10 +2,12 @@ package optimizer
 
 // ConfidenceInput holds normalized 0.0–1.0 signals for confidence scoring.
 type ConfidenceInput struct {
-	QueryVolume      float64 // 0.0–1.0 based on calls/day
-	PlanClarity      float64 // 0.0–1.0 based on plan data availability
-	WriteRateKnown   float64 // 1.0 if write rate computed, 0.0 if cold start
-	HypoPGValidated  float64 // 1.0 if HypoPG measured an accepted gain; 0.0 if unavailable (a measured rejection drops the rec)
+	QueryVolume    float64 // 0.0–1.0 based on calls/day
+	PlanClarity    float64 // 0.0–1.0 based on plan data availability
+	WriteRateKnown float64 // 1.0 if write rate computed, 0.0 if cold start
+	// HypoPGValidated is 1.0 for a measured accepted gain, 0.0 when HypoPG
+	// is unavailable; a measured rejection drops the rec before scoring.
+	HypoPGValidated  float64
 	SelectivityKnown float64 // 0.0–1.0 based on pg_stats availability
 	TableCallVolume  float64 // 0.0–1.0 based on total queries hitting this table
 }

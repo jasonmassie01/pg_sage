@@ -148,11 +148,8 @@ func (c *Client) Chat(
 ) (string, int, error) {
 	requestCtx, cfg, generation, finish := c.beginRequest(ctx)
 	defer finish()
-	if !configEnabled(cfg) {
-		return "", 0, fmt.Errorf("LLM not enabled")
-	}
-	if c.IsCircuitOpen() {
-		return "", 0, fmt.Errorf("LLM circuit breaker open")
+	if err := c.checkAvailable(cfg); err != nil {
+		return "", 0, err
 	}
 	maxTokens = normalizedMaxTokens(cfg.Model, maxTokens)
 	throttleKey := requestThrottleKey(cfg, system, user)
@@ -183,11 +180,7 @@ func (c *Client) Chat(
 
 	c.recordSuccess()
 	content := chatResp.Choices[0].Message.Content
-	tokens := chatResp.Usage.TotalTokens
-	if tokens <= 0 {
-		// Providers that omit usage must not make calls free (G3-B25).
-		tokens = estimateTokens(system, user, content)
-	}
+	tokens := usageTokens(chatResp, system, user)
 	c.reconcileBudget(reservation, tokens)
 	reconciled = true
 	if strings.TrimSpace(content) == "" {
@@ -197,6 +190,25 @@ func (c *Client) Chat(
 	throttleSuccess = true
 	return c.repairIfTruncated(content, chatResp.Choices[0].FinishReason, tokens),
 		tokens, nil
+}
+
+func (c *Client) checkAvailable(cfg config.LLMConfig) error {
+	if !configEnabled(cfg) {
+		return fmt.Errorf("LLM not enabled")
+	}
+	if c.IsCircuitOpen() {
+		return fmt.Errorf("LLM circuit breaker open")
+	}
+	return nil
+}
+
+// usageTokens returns provider-reported usage, estimating it when the
+// provider omits usage so calls are never free (G3-B25).
+func usageTokens(resp *ChatResponse, system, user string) int {
+	if resp.Usage.TotalTokens > 0 {
+		return resp.Usage.TotalTokens
+	}
+	return estimateTokens(system, user, resp.Choices[0].Message.Content)
 }
 
 // sendChat performs the HTTP exchange and returns a decoded response

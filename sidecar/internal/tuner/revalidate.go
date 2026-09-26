@@ -356,31 +356,26 @@ func (t *Tuner) StartRevalidationLoop(
 
 	// Run once immediately so operators don't need to wait a
 	// full interval before the first pass.
-	if rpt, err := t.Revalidate(ctx); err != nil {
-		t.logFn("WARN", "revalidate: initial pass: %v", err)
-	} else {
-		t.logFn("INFO",
-			"revalidate: initial pass checked=%d kept=%d "+
-				"retired=%d broken=%d errors=%d in %s",
-			rpt.Checked, rpt.Kept, rpt.Retired,
-			rpt.Broken, rpt.Errors, rpt.Duration)
-	}
-
+	t.revalidateAndLog(ctx, "initial pass")
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			rpt, err := t.Revalidate(ctx)
-			if err != nil {
-				t.logFn("WARN", "revalidate: pass error: %v", err)
-				continue
-			}
-			t.logFn("INFO",
-				"revalidate: pass checked=%d kept=%d "+
-					"retired=%d broken=%d errors=%d in %s",
-				rpt.Checked, rpt.Kept, rpt.Retired,
-				rpt.Broken, rpt.Errors, rpt.Duration)
+			t.revalidateAndLog(ctx, "pass")
 		}
 	}
+}
+
+func (t *Tuner) revalidateAndLog(ctx context.Context, label string) {
+	rpt, err := t.Revalidate(ctx)
+	if err != nil {
+		t.logFn("WARN", "revalidate: %s error: %v", label, err)
+		return
+	}
+	t.logFn("INFO",
+		"revalidate: %s checked=%d kept=%d "+
+			"retired=%d broken=%d errors=%d in %s",
+		label, rpt.Checked, rpt.Kept, rpt.Retired,
+		rpt.Broken, rpt.Errors, rpt.Duration)
 }
