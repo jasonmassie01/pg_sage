@@ -31,15 +31,15 @@ provider-support check. So the UI can show "execute" for an action the gate will
 - [x] C. `Executor.ExplainAction`: gate-backed and fail-closed. Proposal metadata and
       both nil-gate fallbacks are converted. e2e pipeline executors now install the
       standing policy, as production does; they previously ran the legacy engine.
-- [ ] C2. Approval readiness still uses the legacy engine for its display verdict, and
+- [x] C2. Approval readiness still uses the legacy engine for its display verdict, and
       `operatorApprovalBlock` is the operator-approval authority. Next: route operator
       approvals through `Authorize` with an `OperatorApproved` request (hard stops,
       provider, change class, windows; no tier or ramp).
-- [ ] D. The cases API and fleet capability readiness use the per-database executor's
+- [x] D. The cases API and fleet capability readiness use the per-database executor's
       gate. Needs a snapshot evaluator (load runtime, document and usage once, evaluate
       ~25 families in memory); per-family Explain costs 2-3 DB reads each, per request.
       The current legacy readiness fakes a satisfied 365-day ramp.
-- [ ] E. Delete `EvaluateActionPolicy`, `ActionPolicyContext` and legacy helpers; migrate
+- [x] E. Delete `EvaluateActionPolicy`, `ActionPolicyContext` and legacy helpers; migrate
       or delete their tests; add a test that no production code path references them.
 - [ ] Verify: unit + integration + e2e; lint; record results in MASTER-SPEC §10.7.
 
@@ -50,3 +50,15 @@ provider-support check. So the UI can show "execute" for an action the gate will
 3. YES: adopt pg_query_go (cgo) for AST SQL validation; fix the release build for cgo.
 
 Order: C2 -> D -> E (policy core) ; Azure ; pg_query_go.
+
+### Overnight status
+- [x] C2 (16969b4), D+E (ce10dce): the gate is the only policy authority.
+- [x] Azure: `internal/azure` ARM adapter, config `azure.*` / `SAGE_AZURE_*`,
+      docs/azure.md with CHECK-AZ-01..08. Live test is pending an account
+      (`PG_SAGE_LIVE_AZURE=1`).
+- [x] pg_query_go: `internal/sqlast` is the second validation layer inside
+      `ValidateExecutorSQL`. The Dockerfile builds with cgo and fails the build if
+      the layer is missing. goreleaser uses goreleaser-cross (static linux,
+      osxcross darwin). A snapshot build of all 4 targets was proven in Docker.
+      `--version` reports sql-ast; a no-cgo build logs a warning.
+- [ ] Morning decisions: see the morning report in reviews/.
