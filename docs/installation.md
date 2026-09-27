@@ -54,14 +54,14 @@ GRANT pg_monitor TO sage_agent;
 GRANT pg_read_all_stats TO sage_agent;
 GRANT CREATE ON SCHEMA public TO sage_agent;    -- for index creation
 GRANT pg_signal_backend TO sage_agent;           -- for query termination
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
--- pg_sage bootstraps these automatically, but you can pre-create if preferred:
-CREATE SCHEMA sage;
-GRANT ALL ON SCHEMA sage TO sage_agent;
-ALTER DEFAULT PRIVILEGES IN SCHEMA sage GRANT ALL ON TABLES TO sage_agent;
+-- pg_sage keeps its state in the sage schema. sage_agent cannot create
+-- schemas without CREATE on the database, so create it for the agent:
+CREATE SCHEMA IF NOT EXISTS sage AUTHORIZATION sage_agent;
 ```
 
-Ensure `pg_stat_statements` is loaded on your database (`shared_preload_libraries = 'pg_stat_statements'`). Most managed services have this enabled by default.
+`pg_stat_statements` must also be preloaded (`shared_preload_libraries = 'pg_stat_statements'`). Most managed services have this enabled by default. The end-to-end test `TestDocumentedQuickStart` runs the SQL block above verbatim, so keep it runnable.
 
 ---
 
