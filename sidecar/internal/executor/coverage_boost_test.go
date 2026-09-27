@@ -1055,12 +1055,13 @@ func TestCoverage_ExecuteManual_EmergencyStop(t *testing.T) {
 		execMode:      "auto",
 	}
 
+	withTestStandingGate(e)
 	_, err := e.ExecuteManual(ctx, 1,
 		"CREATE INDEX idx_em ON t (c)", "", nil)
 	if err == nil {
 		t.Fatal("expected error for emergency stop, got nil")
 	}
-	if err.Error() != "emergency stop active" {
+	if !strings.Contains(err.Error(), "emergency stop") {
 		t.Errorf("error = %q, want %q",
 			err.Error(), "emergency stop active")
 	}
@@ -1093,7 +1094,7 @@ func TestCoverage_ExecuteManual_SuccessfulExecution(t *testing.T) {
 		         'public.test_manual_exec',
 		         'test manual exec finding',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_manual ON public.test_manual_exec (id)')
+		         'CREATE INDEX CONCURRENTLY idx_manual ON public.test_manual_exec (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -1132,7 +1133,8 @@ func TestCoverage_ExecuteManual_SuccessfulExecution(t *testing.T) {
 		execMode: "auto",
 	}
 
-	sql := "CREATE INDEX idx_manual ON public.test_manual_exec (id)"
+	sql := "CREATE INDEX CONCURRENTLY idx_manual ON public.test_manual_exec (id)"
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(ctx, findingID, sql, "", nil)
 	if err != nil {
 		t.Fatalf("ExecuteManual: %v", err)
@@ -1176,8 +1178,9 @@ func TestCoverage_ExecuteManual_MissingFindingRejectedBeforeSQL(
 		execMode:      "auto",
 	}
 
+	withTestStandingGate(e)
 	_, err := e.ExecuteManual(ctx, 999999999,
-		"CREATE INDEX idx_manual_missing ON public.test_manual_missing (id)",
+		"CREATE INDEX CONCURRENTLY idx_manual_missing ON public.test_manual_missing (id)",
 		"", nil)
 	if !errors.Is(err, ErrFindingNotActionable) {
 		t.Fatalf("error = %v, want ErrFindingNotActionable", err)
@@ -1219,7 +1222,7 @@ func TestCoverage_ExecuteManual_SQLMismatchRejected(t *testing.T) {
 		         'public.test_manual_mismatch',
 		         'test manual mismatch finding',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_manual_match ON public.test_manual_mismatch (id)')
+		         'CREATE INDEX CONCURRENTLY idx_manual_match ON public.test_manual_mismatch (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -1255,8 +1258,9 @@ func TestCoverage_ExecuteManual_SQLMismatchRejected(t *testing.T) {
 		execMode:      "auto",
 	}
 
+	withTestStandingGate(e)
 	_, err = e.ExecuteManual(ctx, findingID,
-		"CREATE INDEX idx_manual_other ON public.test_manual_mismatch (other)",
+		"CREATE INDEX CONCURRENTLY idx_manual_other ON public.test_manual_mismatch (other)",
 		"", nil)
 	if !errors.Is(err, ErrFindingSQLMismatch) {
 		t.Fatalf("error = %v, want ErrFindingSQLMismatch", err)
@@ -1318,6 +1322,7 @@ func TestCoverage_ExecuteManual_CreateIndexIsIdempotentWhenCovered(t *testing.T)
 		logFn:         func(string, string, ...any) {},
 		shutdownCh:    make(chan struct{}),
 	}
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(ctx, int(findingID),
 		"CREATE INDEX CONCURRENTLY ON public.test_manual_idempotent (id)",
 		"", nil)
@@ -1445,6 +1450,7 @@ func TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker(t *testing.T) {
 		logFn:         func(string, string, ...any) {},
 		shutdownCh:    make(chan struct{}),
 	}
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(ctx, int(findingID),
 		"CREATE INDEX CONCURRENTLY ON pgsage_exec_test.test_manual_invalid_blocker (id)",
 		"", nil)
@@ -1498,7 +1504,7 @@ func TestCoverage_ExecuteManual_WithRollbackSQL(t *testing.T) {
 		         'public.test_manual_rb',
 		         'test manual rb finding',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_manual_rb ON public.test_manual_rb (id)')
+		         'CREATE INDEX CONCURRENTLY idx_manual_rb ON public.test_manual_rb (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -1537,8 +1543,9 @@ func TestCoverage_ExecuteManual_WithRollbackSQL(t *testing.T) {
 		execMode:      "auto",
 	}
 
-	sql := "CREATE INDEX idx_manual_rb ON public.test_manual_rb (id)"
+	sql := "CREATE INDEX CONCURRENTLY idx_manual_rb ON public.test_manual_rb (id)"
 	rollbackSQL := "DROP INDEX IF EXISTS public.idx_manual_rb"
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(
 		ctx, findingID, sql, rollbackSQL, nil)
 	if err != nil {
@@ -1604,6 +1611,7 @@ func TestCoverage_ExecuteManual_VacuumTopLevel(t *testing.T) {
 		execMode:      "auto",
 	}
 
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(
 		ctx, findingID, "VACUUM public.test_manual_vacuum", "", nil)
 	if err != nil {
@@ -1947,6 +1955,7 @@ func TestCoverage_ExecuteManual_ConcurrentlyPath(t *testing.T) {
 
 	sql := "CREATE INDEX CONCURRENTLY idx_manual_conc " +
 		"ON public.test_manual_conc (id)"
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(ctx, findingID, sql, "", nil)
 	if err != nil {
 		// Lock timeout / deadlock from concurrent schema tests is not
@@ -2036,7 +2045,7 @@ func TestCoverage_ExecuteManual_WithApprovedBy(t *testing.T) {
 		         'public.test_approved_by',
 		         'test approved by',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_approved ON public.test_approved_by (id)')
+		         'CREATE INDEX CONCURRENTLY idx_approved ON public.test_approved_by (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2072,7 +2081,8 @@ func TestCoverage_ExecuteManual_WithApprovedBy(t *testing.T) {
 	}
 
 	approvedBy := 7
-	sql := "CREATE INDEX idx_approved ON public.test_approved_by (id)"
+	sql := "CREATE INDEX CONCURRENTLY idx_approved ON public.test_approved_by (id)"
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(
 		ctx, findingID, sql, "", &approvedBy)
 	if err != nil {

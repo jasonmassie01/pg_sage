@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/policy"
 )
@@ -12,16 +13,23 @@ import (
 // always open. Tests that drive RunCycle need a gate: without one the
 // executor fails closed (G4-I01).
 func withTestStandingGate(e *Executor) *Executor {
+	return withTestStandingGateAt(e, time.Time{})
+}
+
+// withTestStandingGateAt pins the gate clock (and the configured-window
+// check) to now, for tests that evaluate policy at a fixed time. A zero
+// now uses the wall clock.
+func withTestStandingGateAt(e *Executor, now time.Time) *Executor {
+	if e.pool == nil {
+		// No database to read the emergency-stop flag from.
+		e.emergencyStopFn = func(context.Context) bool { return false }
+	}
 	doc := policy.UnattendedProfile()
 	doc.MaintenanceWindows = []string{"always"}
-	e.WithPolicyGate(policy.NewGate(policy.GateConfig{
-		Runtime: func(ctx context.Context, req policy.ActionRequest) (policy.RuntimeState, error) {
-			return e.standingRuntimeState(ctx, req), nil
-		},
-		ValidateSQL: ValidateExecutorSQL,
-		Policy: func(context.Context, policy.ActionRequest) (policy.Document, error) {
-			return doc, nil
-		},
-	}))
+	var clock func() time.Time
+	if !now.IsZero() {
+		clock = func() time.Time { return now }
+	}
+	e.EnableStandingPolicyDocument(doc, clock)
 	return e
 }

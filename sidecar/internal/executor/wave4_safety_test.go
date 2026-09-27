@@ -126,6 +126,7 @@ func TestWave4ApprovedBackendSignalRejectsStaleEvidence(t *testing.T) {
 		execMode:      "approval",
 	}
 	approver := 7
+	withTestStandingGate(exec)
 	_, err = exec.ExecuteManual(ctx, findingID, sql, "", &approver)
 	if err == nil || (!strings.Contains(err.Error(), "stale") &&
 		!strings.Contains(err.Error(), "evidence")) {

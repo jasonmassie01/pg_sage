@@ -70,6 +70,7 @@ func (e *Executor) standingRuntimeState(
 	state.Tier3Moderate = cfg.Trust.Tier3Moderate
 	state.InConfiguredWindow = inMaintenanceWindowForPolicy(cfg, time.Now())
 	state.Provider = cfg.CloudEnvironment
+	state.WindowConfigured = strings.TrimSpace(cfg.Trust.MaintenanceWindow) != ""
 	return state
 }
 

@@ -298,6 +298,9 @@ func parseHHMM(s string) (int, bool) {
 // hiccup can never silently bypass an active emergency stop. The
 // kill-switch must not depend on the database being healthy (H7).
 func CheckEmergencyStop(ctx context.Context, pool *pgxpool.Pool) bool {
+	if pool == nil {
+		return true // the flag cannot be read: fail closed
+	}
 	var value string
 	err := pool.QueryRow(ctx,
 		"SELECT value FROM sage.config WHERE key = 'emergency_stop'",

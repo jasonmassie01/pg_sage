@@ -34,6 +34,7 @@ type ActionPolicyDecision struct {
 	RequiresApproval          bool     `json:"requires_approval"`
 	RequiresMaintenanceWindow bool     `json:"requires_maintenance_window"`
 	BlockedReason             string   `json:"blocked_reason,omitempty"`
+	Detail                    string   `json:"detail,omitempty"`
 	Guardrails                []string `json:"guardrails,omitempty"`
 	Provider                  string   `json:"provider,omitempty"`
 	EvidenceID                string   `json:"evidence_id,omitempty"`

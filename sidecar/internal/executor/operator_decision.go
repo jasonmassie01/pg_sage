@@ -2,56 +2,86 @@ package executor
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
-	"github.com/pg-sage/sidecar/internal/ledger"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
-// recordOperatorDecision writes the ledger decision for an operator-run
-// action (manual "take action" or an approved queue item) before the action
-// executes, so the action is auditable and can be verified and credited
-// like autonomous work. A ledger failure is logged and leaves the action
-// without a decision; the self-audit then reports it.
-func (e *Executor) recordOperatorDecision(
+// authorizeOperatorAction asks the standing gate to authorize an operator
+// run action (manual "take action" or an approved queue item) and records
+// the decision before the action executes, so it is auditable and can be
+// verified and credited like autonomous work. The approval replaces tier,
+// ramp and execution mode; hard stops, provider support, trust, the
+// standing policy's change classes and its windows still bind.
+func (e *Executor) authorizeOperatorAction(
 	ctx context.Context, sql string, findingID int, approvedBy *int,
-) int64 {
-	if e.pool == nil {
-		return 0
+) (int64, error) {
+	gate := e.StandingPolicyGate()
+	if gate == nil {
+		return 0, fmt.Errorf("%s", reasonNoStandingPolicy)
 	}
+	request, _ := operatorRequest(sql, findingID, approvedBy)
+	decision := gate.Authorize(ctx, request)
+	if decision.Verdict != policy.VerdictExecute {
+		return 0, fmt.Errorf("policy refused operator action: %s", operatorRefusal(decision))
+	}
+	return decision.DecisionID, nil
+}
+
+// explainOperatorAction reports whether an operator approval of sql would
+// be authorized now, without recording a decision.
+func (e *Executor) explainOperatorAction(ctx context.Context, sql string) ActionPolicyDecision {
+	request, contract := operatorRequest(sql, 0, nil)
+	explainer, ok := e.StandingPolicyGate().(policy.Explainer)
+	if !ok {
+		return noStandingPolicyDecision(contract)
+	}
+	decision := standingPolicyDecision(explainer.Explain(ctx, request))
+	decision.Guardrails = append([]string(nil), contract.Guardrails...)
+	return decision
+}
+
+func operatorRequest(sql string, findingID int, approvedBy *int) (
+	policy.ActionRequest, ActionContract,
+) {
 	actionType := actionTypeForProposalSQL(sql)
-	risk := "high"
-	if contract, ok := ContractForActionType(actionType); ok {
-		risk = contract.BaseRiskTier
-	}
-	feature := changeClassForActionType(actionType)
-	if feature == "" {
-		feature = "operator"
+	contract, ok := ContractForActionType(actionType)
+	if !ok {
+		contract = ActionContract{ActionType: actionType, BaseRiskTier: "high"}
 	}
 	evidence := map[string]any{"finding_id": findingID, "source": "operator"}
 	if approvedBy != nil {
 		evidence["approved_by"] = *approvedBy
 	}
-	decision, err := ledger.NewService(ledger.NewPostgresRepository(e.pool)).RecordDecision(
-		ctx, ledger.DecisionInput{
-			DatabaseID: e.databaseID, Feature: feature, Intent: operatorDecisionIntent,
-			Evidence: evidence, ProposedSQL: sql, Verdict: ledger.VerdictExecute,
-			Reason: operatorDecisionIntent, RiskTier: risk,
-			PolicyVersion: e.currentPolicyVersion(ctx),
-		})
-	if err != nil {
-		e.logFn("executor", "record operator decision for finding %d: %v", findingID, err)
-		return 0
-	}
-	return decision.ID
+	return policy.ActionRequest{
+		SQL: sql, Feature: changeClassForActionType(actionType),
+		Contract: policyContract(contract), Evidence: evidence,
+		OperatorApproved: true,
+	}, contract
 }
 
-func (e *Executor) currentPolicyVersion(ctx context.Context) int {
-	current, err := policy.NewStore(e.pool).Current(
-		ctx, policy.Scope{DatabaseID: int64Pointer(e.databaseID)})
-	if err != nil || current.Version <= 0 {
-		return 1
+func operatorRefusal(decision policy.Decision) string {
+	reason := humanReason(string(decision.Reason))
+	if strings.TrimSpace(decision.Detail) == "" {
+		return reason
 	}
-	return int(current.Version)
+	return reason + " (" + decision.Detail + ")"
+}
+
+// humanPolicyReason renders a policy verdict's reason and detail.
+func humanPolicyReason(decision ActionPolicyDecision) string {
+	reason := humanReason(decision.BlockedReason)
+	if strings.TrimSpace(decision.Detail) == "" {
+		return reason
+	}
+	return reason + " (" + decision.Detail + ")"
+}
+
+// humanReason renders a gate reason code for operators
+// ("outside_maintenance_window" -> "outside maintenance window").
+func humanReason(reason string) string {
+	return strings.ReplaceAll(reason, "_", " ")
 }
 
 // databaseIDValue is the canonical database identity stamped on every

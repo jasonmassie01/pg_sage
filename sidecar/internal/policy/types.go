@@ -51,6 +51,8 @@ const (
 	ReasonChangeClassNotAllowed    Reason = "change_class_not_allowed"
 	ReasonTrustRampNotSatisfied    Reason = "trust_ramp_not_satisfied"
 	ReasonProviderUnsupported      Reason = "provider_unsupported"
+	ReasonOperatorApproved         Reason = "operator_approved"
+	ReasonUnknownTrustLevel        Reason = "unknown_trust_level"
 )
 
 type DeadlineKind string
@@ -93,6 +95,9 @@ type ActionRequest struct {
 	// ExplainFamily asks Explain for an action family's readiness, where no
 	// concrete SQL exists. Authorize ignores it and always validates SQL.
 	ExplainFamily bool
+	// OperatorApproved marks a request a human approved: tier, ramp,
+	// execution mode and self-initiated usage limits no longer apply.
+	OperatorApproved bool
 }
 
 type Decision struct {
@@ -124,6 +129,10 @@ type RuntimeState struct {
 	// Provider is the target's platform (cloud-sql, rds, ...); empty or
 	// "self-managed" means plain postgres.
 	Provider string
+	// WindowConfigured reports whether trust.maintenance_window is set. An
+	// unset window restricts autonomous moderate actions but not operator
+	// approvals.
+	WindowConfigured bool
 }
 
 const (

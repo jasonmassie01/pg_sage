@@ -103,3 +103,11 @@ func autonomousTestConfig() *config.Config {
 }
 
 func noopExecLog(string, string, ...any) {}
+
+// Without a pool the emergency-stop flag cannot be read; unknown fails
+// closed (stopped) instead of dereferencing nil.
+func TestCheckEmergencyStopFailsClosedWithoutPool(t *testing.T) {
+	if !CheckEmergencyStop(context.Background(), nil) {
+		t.Fatal("nil pool reported not stopped")
+	}
+}

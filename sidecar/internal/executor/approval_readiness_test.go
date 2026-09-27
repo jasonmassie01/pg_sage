@@ -25,6 +25,7 @@ func TestApprovalReadinessBlocksModerateOutsideMaintenanceWindow(t *testing.T) {
 	}
 	now := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
 
+	withTestStandingGateAt(exec, now)
 	got := exec.ApprovalReadiness(action, now)
 
 	if got.Eligible {
@@ -55,6 +56,7 @@ func TestApprovalReadinessAllowsModerateInsideMaintenanceWindow(t *testing.T) {
 	}
 	now := time.Date(2026, 4, 28, 2, 15, 0, 0, time.UTC)
 
+	withTestStandingGateAt(exec, now)
 	got := exec.ApprovalReadiness(action, now)
 
 	if !got.Eligible {
@@ -135,8 +137,9 @@ func TestApprovalReadinessBlocksWhenExecutorDisabled(t *testing.T) {
 		ExpiresAt:   time.Now().Add(24 * time.Hour),
 	}
 
+	withTestStandingGate(exec)
 	got := exec.ApprovalReadiness(action, time.Now())
-	if got.Eligible || got.DeferReason != "executor is disabled" {
+	if got.Eligible || got.DeferReason != "executor disabled" {
 		t.Fatalf("readiness = %#v, want executor-disabled block", got)
 	}
 }

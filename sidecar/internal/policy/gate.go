@@ -42,6 +42,9 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	if decision, stop := providerDecision(runtime, req); stop {
 		return decision
 	}
+	if req.OperatorApproved {
+		return gate.operatorDecision(ctx, runtime, req)
+	}
 	if observeOnly(runtime) {
 		return blockedAs(VerdictObserveOnly, ReasonObserveOnly)
 	}
@@ -162,8 +165,13 @@ func (gate *authorizationGate) validateRequest(req ActionRequest) (Decision, boo
 	if trustedInternalControl(req) || (req.ExplainFamily && req.SQL == "") {
 		return Decision{}, false
 	}
-	if gate.config.ValidateSQL == nil || gate.config.ValidateSQL(req.SQL) != nil {
+	if gate.config.ValidateSQL == nil {
 		return gate.decision(req, VerdictPark, ReasonNoTypedContract), true
+	}
+	if err := gate.config.ValidateSQL(req.SQL); err != nil {
+		decision := gate.decision(req, VerdictPark, ReasonNoTypedContract)
+		decision.Detail = err.Error()
+		return decision, true
 	}
 	return Decision{}, false
 }

@@ -371,8 +371,11 @@ func featureForFinding(finding analyzer.Finding) string {
 func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
 	result := ActionPolicyDecision{
 		RiskTier: string(decision.RiskTier), BlockedReason: string(decision.Reason),
+		Detail:           decision.Detail,
 		RequiresApproval: decision.Verdict == policy.VerdictQueueApproval,
-		EvidenceID:       decision.EvidenceID, DecisionID: decision.DecisionID,
+		RequiresMaintenanceWindow: decision.RiskTier == policy.RiskModerate ||
+			decision.RiskTier == policy.RiskHigh,
+		EvidenceID: decision.EvidenceID, DecisionID: decision.DecisionID,
 	}
 	switch decision.Verdict {
 	case policy.VerdictExecute:

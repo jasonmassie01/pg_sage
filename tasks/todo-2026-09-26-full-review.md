@@ -42,3 +42,11 @@ provider-support check. So the UI can show "execute" for an action the gate will
 - [ ] E. Delete `EvaluateActionPolicy`, `ActionPolicyContext` and legacy helpers; migrate
       or delete their tests; add a test that no production code path references them.
 - [ ] Verify: unit + integration + e2e; lint; record results in MASTER-SPEC §10.7.
+
+## Overnight 2026-09-26 — decisions from jmass
+1. Build Azure provider support (account + live test tomorrow).
+2. YES: standing-policy change-class allowlists and policy windows restrict operator-approved
+   actions too -> route operator approvals through the gate (C2), then D, then E.
+3. YES: adopt pg_query_go (cgo) for AST SQL validation; fix the release build for cgo.
+
+Order: C2 -> D -> E (policy core) ; Azure ; pg_query_go.

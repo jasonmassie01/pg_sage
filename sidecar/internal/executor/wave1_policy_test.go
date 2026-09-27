@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -324,17 +325,17 @@ func TestWave1ManualMutationsHonorHardGates(t *testing.T) {
 		setup func(*Executor)
 		want  string
 	}{
-		{"executor disabled", func(e *Executor) { e.SetExecutorEnabled(false) }, "executor is disabled"},
+		{"executor disabled", func(e *Executor) { e.SetExecutorEnabled(false) }, "executor disabled"},
 		{
 			"observation",
 			func(e *Executor) { _ = e.SetTrustLevel("observation") },
-			"observation trust is cases only",
+			"observe only",
 		},
 		{"empty trust", func(e *Executor) { e.cfg.Trust.Level = "" }, "unknown trust level"},
 		{"invalid trust", func(e *Executor) { e.cfg.Trust.Level = "invalid" }, "unknown trust level"},
 		{"emergency stop", func(e *Executor) {
 			e.emergencyStopFn = func(context.Context) bool { return true }
-		}, "emergency stop active"},
+		}, "emergency stop"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -342,7 +343,7 @@ func TestWave1ManualMutationsHonorHardGates(t *testing.T) {
 			tc.setup(e)
 			_, err := e.ExecuteManual(context.Background(), 1,
 				"ANALYZE public.orders", "", nil)
-			if err == nil || err.Error() != tc.want {
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %v, want %q", err, tc.want)
 			}
 		})

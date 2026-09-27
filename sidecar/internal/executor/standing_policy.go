@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/ledger"
@@ -88,7 +89,7 @@ func ledgerInput(
 	evidence := cloneCustodianEvidence(request.Evidence)
 	evidence["off_window_ok"] = decision.OffWindowOK
 	input := ledger.DecisionInput{
-		DatabaseID: databaseID, Feature: request.Feature, Intent: request.Feature,
+		DatabaseID: databaseID, Feature: request.Feature, Intent: ledgerIntent(request),
 		Evidence:    evidence,
 		ProposedSQL: request.SQL, Verdict: ledgerVerdict(decision.Verdict),
 		Reason: string(decision.Reason), RiskTier: string(decision.RiskTier),
@@ -100,6 +101,15 @@ func ledgerInput(
 		input.DeadlineHardAt = &request.Deadline.HardAt
 	}
 	return input
+}
+
+// ledgerIntent separates operator-approved decisions, which the gate's
+// self-initiated usage limits exclude, from autonomous ones.
+func ledgerIntent(request policy.ActionRequest) string {
+	if request.OperatorApproved {
+		return operatorDecisionIntent
+	}
+	return request.Feature
 }
 
 func ledgerVerdict(verdict policy.Verdict) ledger.Verdict {
@@ -115,4 +125,39 @@ func int64Pointer(value *int) *int64 {
 	}
 	result := int64(*value)
 	return &result
+}
+
+// EnableStandingPolicyDocument installs the standing gate over the
+// executor's live runtime state with an in-memory policy document instead
+// of the durable policy store. Decisions are recorded in the ledger when
+// the executor has a pool. It serves embedders and tests without a policy
+// table; production executors use EnableStandingPolicyWithStore.
+func (e *Executor) EnableStandingPolicyDocument(doc policy.Document, now func() time.Time) {
+	config := policy.GateConfig{
+		Runtime: func(ctx context.Context, req policy.ActionRequest) (policy.RuntimeState, error) {
+			state := e.standingRuntimeState(ctx, req)
+			if now != nil {
+				cfg, _, _ := e.policySnapshot()
+				state.InConfiguredWindow = inMaintenanceWindowForPolicy(cfg, now())
+			}
+			return state, nil
+		},
+		ValidateSQL: ValidateExecutorSQL,
+		Policy: func(context.Context, policy.ActionRequest) (policy.Document, error) {
+			return doc, nil
+		},
+		Now: now,
+	}
+	if e.pool != nil {
+		decisions := ledger.NewService(ledger.NewPostgresRepository(e.pool))
+		config.Usage = e.standingUsage
+		config.RecordDecisionDetailed = func(
+			ctx context.Context, req policy.ActionRequest, decision policy.Decision,
+		) (string, int64, error) {
+			recorded, err := decisions.RecordDecision(ctx,
+				ledgerInput(e.databaseID, 1, req, decision))
+			return recorded.EvidenceID, recorded.ID, err
+		}
+	}
+	e.WithPolicyGate(policy.NewGate(config))
 }

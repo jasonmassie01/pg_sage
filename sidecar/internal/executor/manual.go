@@ -57,15 +57,20 @@ func (e *Executor) detachedDDLContext(ctx context.Context) (context.Context, con
 func (e *Executor) executeManualDetached(
 	ctx context.Context, findingID int, sql, rollbackSQL string, approvedBy *int,
 ) (int64, error) {
-	if err := e.manualMutationBlock(ctx); err != nil {
-		return 0, err
+	// Refuse early without a ledger row; record once the finding checks out.
+	if preview := e.explainOperatorAction(ctx, sql); preview.Decision != PolicyDecisionExecute {
+		return 0, fmt.Errorf("policy refused operator action: %s",
+			humanPolicyReason(preview))
 	}
 	findingDetail, err := e.verifyManualFinding(ctx, findingID, sql)
 	if err != nil {
 		return 0, err
 	}
+	decisionID, err := e.authorizeOperatorAction(ctx, sql, findingID, approvedBy)
+	if err != nil {
+		return 0, err
+	}
 	beforeState := e.snapshotBeforeState(ctx, nil)
-	decisionID := e.recordOperatorDecision(ctx, sql, findingID, approvedBy)
 	if categorizeAction(sql) == "create_index" {
 		done, actionID, err := e.prepareManualCreateIndex(
 			ctx, findingID, sql, rollbackSQL, beforeState, approvedBy, decisionID)

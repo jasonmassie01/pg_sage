@@ -57,6 +57,7 @@ func TestExecuteManualSurvivesCallerCancellation(t *testing.T) {
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
 
+	withTestStandingGate(exec)
 	actionID, err := exec.ExecuteManual(cancelled, findingID,
 		strings.ReplaceAll(sql, "{table}", table), "", nil)
 
@@ -78,6 +79,7 @@ func TestExecuteManualRecordsDecisionAndDatabase(t *testing.T) {
 	databaseID := 4242
 	exec.databaseID = &databaseID
 
+	withTestStandingGate(exec)
 	actionID, err := exec.ExecuteManual(context.Background(), findingID,
 		strings.ReplaceAll(sql, "{table}", table), "", nil)
 	if err != nil {
@@ -116,6 +118,7 @@ func TestExecuteManualKeepsUnrelatedInvalidIndexes(t *testing.T) {
 	}
 	exec := manualExecutor(pool)
 
+	withTestStandingGate(exec)
 	if _, err := exec.ExecuteManual(ctx, findingID,
 		strings.ReplaceAll(sql, "{table}", table), "", nil); err != nil {
 		t.Fatalf("ExecuteManual: %v", err)

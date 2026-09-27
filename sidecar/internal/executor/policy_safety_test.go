@@ -203,6 +203,7 @@ func TestApprovalReadinessIgnoresAutoExecutionEligibility(t *testing.T) {
 				ExpiresAt:   time.Now().Add(time.Hour),
 			}
 
+			withTestStandingGate(exec)
 			got := exec.ApprovalReadiness(action, time.Now())
 
 			if !got.Eligible {
