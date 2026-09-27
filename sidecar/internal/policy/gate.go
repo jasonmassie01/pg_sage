@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -18,33 +19,65 @@ func (gate *authorizationGate) Authorize(
 	ctx context.Context,
 	req ActionRequest,
 ) Decision {
+	req.ExplainFamily = false // only Explain may skip SQL validation
+	return gate.finish(ctx, req, gate.evaluate(ctx, req))
+}
+
+// Explain runs the same evaluation as Authorize and records nothing.
+func (gate *authorizationGate) Explain(ctx context.Context, req ActionRequest) Decision {
+	return decisionForRequest(req, gate.evaluate(ctx, req))
+}
+
+func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) Decision {
 	runtime, err := gate.runtime(ctx, req)
 	if err != nil {
-		return gate.finish(ctx, req, blocked(ReasonPolicyUnavailable, err.Error()))
+		return blocked(ReasonPolicyUnavailable, err.Error())
 	}
 	if decision, stop := hardStop(runtime, req); stop {
-		return gate.finish(ctx, req, decision)
+		return decision
 	}
 	if decision, stop := gate.validateRequest(req); stop {
-		return gate.finish(ctx, req, decision)
+		return decision
+	}
+	if decision, stop := providerDecision(runtime, req); stop {
+		return decision
 	}
 	if observeOnly(runtime) {
-		return gate.finish(ctx, req, blockedAs(VerdictObserveOnly, ReasonObserveOnly))
+		return blockedAs(VerdictObserveOnly, ReasonObserveOnly)
 	}
 	doc, decision, stop := gate.documentDecision(ctx, req)
 	if stop {
-		return gate.finish(ctx, req, decision)
+		return decision
 	}
 	// Trust, mode, tier flags and ramp decide first; a window (or a deadline
 	// override of it) can only restrict an otherwise-execute verdict.
 	tier := tierDecision(runtime, req, gate.now())
 	if tier.Verdict != VerdictExecute {
-		return gate.finish(ctx, req, tier)
+		return tier
 	}
 	if decision, stop := gate.windowDecision(doc, runtime, req); stop {
-		return gate.finish(ctx, req, decision)
+		return decision
 	}
-	return gate.finish(ctx, req, tier)
+	return tier
+}
+
+// providerDecision blocks actions whose contract excludes the target's
+// provider (formerly checked only by the legacy executor engine).
+func providerDecision(runtime RuntimeState, req ActionRequest) (Decision, bool) {
+	support := req.Contract.ProviderSupport
+	if len(support) == 0 {
+		return Decision{}, false
+	}
+	provider := strings.ToLower(strings.TrimSpace(runtime.Provider))
+	if provider == "" || provider == "self-managed" {
+		provider = "postgres"
+	}
+	for _, item := range support {
+		if strings.EqualFold(provider, item) {
+			return Decision{}, false
+		}
+	}
+	return blocked(ReasonProviderUnsupported, "provider "+provider), true
 }
 
 // documentDecision applies the standing policy document: change class,
@@ -126,7 +159,7 @@ func (gate *authorizationGate) validateRequest(req ActionRequest) (Decision, boo
 		decision.Detail = string(guardrail)
 		return decision, true
 	}
-	if trustedInternalControl(req) {
+	if trustedInternalControl(req) || (req.ExplainFamily && req.SQL == "") {
 		return Decision{}, false
 	}
 	if gate.config.ValidateSQL == nil || gate.config.ValidateSQL(req.SQL) != nil {

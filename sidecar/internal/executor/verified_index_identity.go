@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/analyzer"
@@ -155,8 +154,7 @@ func (e *Executor) authorizeCreatedIndexRevert(ctx context.Context, dropSQL, tar
 	contract := revertCreatedIndexContract()
 	gate := e.StandingPolicyGate()
 	if gate == nil {
-		decision := EvaluateActionPolicy(contract, e.policyContext(time.Now()))
-		return decision.Decision == PolicyDecisionExecute && !e.checkEmergencyStop(ctx)
+		return false // the standing gate is the only authority (G4-I01)
 	}
 	decision := standingPolicyDecision(gate.Authorize(ctx, policy.ActionRequest{
 		SQL: dropSQL, Feature: string(policy.ChangeIndex), TargetObjs: []string{target},

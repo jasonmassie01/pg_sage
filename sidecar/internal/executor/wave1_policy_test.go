@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 func TestWave1ActionPolicyMatrix(t *testing.T) {
@@ -305,7 +306,7 @@ func TestWave1EveryActionUsesLatestSafetyPolicy(t *testing.T) {
 		t.Fatalf("first decision = %q, want execute", first.Decision)
 	}
 	if second.Decision != PolicyDecisionBlocked ||
-		second.BlockedReason != "emergency stop is active" {
+		second.BlockedReason != string(policy.ReasonEmergencyStop) {
 		t.Fatalf("second decision = %#v, want latest emergency stop block", second)
 	}
 
@@ -381,5 +382,5 @@ func newWave1Executor(trust, mode string) *Executor {
 		time.Now().Add(-40*24*time.Hour), func(string, string, ...any) {})
 	e.emergencyStopFn = func(context.Context) bool { return false }
 	e.SetExecutionMode(mode)
-	return e
+	return withTestStandingGate(e)
 }

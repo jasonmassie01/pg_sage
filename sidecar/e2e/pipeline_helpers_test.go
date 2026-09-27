@@ -128,6 +128,11 @@ func newPipelineExecutor(
 	}
 	an := analyzer.New(pool, cfg, nil, nil, nil, nil, nil, logf)
 	ex := executor.New(pool, cfg, an, rampStart30DaysPlus, logf)
+	// As in production, the standing gate over the DB-stored policy is the
+	// only authority; without it the executor fails closed (G4-I01).
+	if err := ex.EnableStandingPolicy(context.Background(), cfg.Policy.Profile, nil); err != nil {
+		t.Fatalf("enable standing policy: %v", err)
+	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

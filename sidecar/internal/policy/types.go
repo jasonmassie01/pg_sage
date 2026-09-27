@@ -50,6 +50,7 @@ const (
 	ReasonUnknownRiskTier          Reason = "unknown_risk_tier"
 	ReasonChangeClassNotAllowed    Reason = "change_class_not_allowed"
 	ReasonTrustRampNotSatisfied    Reason = "trust_ramp_not_satisfied"
+	ReasonProviderUnsupported      Reason = "provider_unsupported"
 )
 
 type DeadlineKind string
@@ -73,6 +74,9 @@ type ActionContract struct {
 	ActionType string
 	RiskTier   RiskTier
 	Guardrails []Guardrail
+	// ProviderSupport lists the providers that can run the action; empty
+	// means every provider.
+	ProviderSupport []string
 }
 
 type ActionRequest struct {
@@ -86,6 +90,9 @@ type ActionRequest struct {
 	Deadline        *DeadlineContext
 	Evidence        map[string]any
 	IsReplica       bool
+	// ExplainFamily asks Explain for an action family's readiness, where no
+	// concrete SQL exists. Authorize ignores it and always validates SQL.
+	ExplainFamily bool
 }
 
 type Decision struct {
@@ -114,6 +121,9 @@ type RuntimeState struct {
 	Tier3Moderate      bool
 	RampStart          time.Time
 	InConfiguredWindow bool
+	// Provider is the target's platform (cloud-sql, rds, ...); empty or
+	// "self-managed" means plain postgres.
+	Provider string
 }
 
 const (
@@ -134,6 +144,12 @@ type LimitUsage struct {
 
 type Gate interface {
 	Authorize(context.Context, ActionRequest) Decision
+}
+
+// Explainer evaluates a request exactly as Authorize would without
+// recording a decision, for operator-facing readiness and previews.
+type Explainer interface {
+	Explain(context.Context, ActionRequest) Decision
 }
 
 type GateConfig struct {

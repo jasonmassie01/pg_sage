@@ -203,7 +203,9 @@ func TestBuildApprovalProposalMetadata_PopulatesDeterministicFields(
 		shutdownCh:         make(chan struct{}),
 		shuttingDown:       false,
 		trustLevelOverride: "",
+		emergencyStopFn:    func(context.Context) bool { return false },
 	}
+	withTestStandingGate(e)
 
 	got := e.buildApprovalProposalMetadata(finding, now)
 
@@ -240,13 +242,15 @@ func TestProposeForApproval_UsesMetadataStore(t *testing.T) {
 	finding := testFindingForProposalMetadata()
 	mp := &mockProposer{}
 	e := &Executor{
-		cfg:           &config.Config{Trust: config.TrustConfig{Level: "advisory"}},
-		execMode:      "approval",
-		rampStart:     now.Add(-30 * 24 * time.Hour),
-		recentActions: make(map[string]time.Time),
-		actionStore:   mp,
-		analyzeSem:    make(chan struct{}, 1),
+		cfg:             &config.Config{Trust: config.TrustConfig{Level: "advisory"}},
+		execMode:        "approval",
+		rampStart:       now.Add(-30 * 24 * time.Hour),
+		recentActions:   make(map[string]time.Time),
+		actionStore:     mp,
+		analyzeSem:      make(chan struct{}, 1),
+		emergencyStopFn: func(context.Context) bool { return false },
 	}
+	withTestStandingGate(e)
 
 	id, err := e.proposeForApproval(context.Background(), 42, finding)
 	if err != nil {

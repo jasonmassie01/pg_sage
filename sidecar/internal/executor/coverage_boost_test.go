@@ -10,6 +10,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 // ---------------------------------------------------------------------------
@@ -327,12 +328,13 @@ func TestCoverage_RunCycle_EmergencyStopActive(t *testing.T) {
 	rampStart := time.Now().Add(-30 * 24 * time.Hour)
 	e := New(pool, cfg, a, rampStart, logFn)
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	_ = loggedEmergency // Legacy log behavior is not part of the safety contract.
 	decision := e.evaluateFindingPolicy(ctx, candidate, false)
 	if decision.Decision != PolicyDecisionBlocked ||
-		decision.BlockedReason != "emergency stop is active" {
+		decision.BlockedReason != string(policy.ReasonEmergencyStop) {
 		t.Fatalf("decision = %#v, want emergency-stop block", decision)
 	}
 }
@@ -2345,6 +2347,7 @@ func TestCoverage_RunCycle_ApprovalMode(t *testing.T) {
 	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
 	e.WithActionStore(mp, "approval")
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if len(mp.calls) != 1 {
@@ -2413,6 +2416,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsExistingPending(t *testing.T) {
 		func(string, string, ...any) {})
 	e.WithActionStore(mp, "approval")
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if mp.checkCalls != 1 {
@@ -2477,6 +2481,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsDuplicateSQL(t *testing.T) {
 		func(string, string, ...any) {})
 	e.WithActionStore(mp, "approval")
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if mp.sqlChecks != 1 {
@@ -2543,6 +2548,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsRecentRejection(
 		func(string, string, ...any) {})
 	e.WithActionStore(mp, "approval")
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if mp.rejectChecks != 1 {
@@ -2613,6 +2619,7 @@ func TestCoverage_RunCycle_ApprovalModeWithDispatcher(t *testing.T) {
 	e.WithActionStore(mp, "approval")
 	e.WithDispatcher(md)
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if len(md.events) != 1 {
@@ -2688,6 +2695,7 @@ func TestCoverage_RunCycle_ApprovalModeProposeError(t *testing.T) {
 	e := New(pool, cfg, a, rampStart, logFn)
 	e.WithActionStore(ep, "approval")
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !loggedError {
@@ -2776,6 +2784,7 @@ func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 	}
 	e := New(pool, cfg, a, rampStart, logFn)
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !executed {
@@ -2871,6 +2880,7 @@ func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 		}
 	}
 	e := New(pool, cfg, a, rampStart, logFn)
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !executed && lockErr {
@@ -2951,6 +2961,7 @@ func TestCoverage_RunCycle_ExecFailure(t *testing.T) {
 		}
 	}
 	e := New(pool, cfg, a, rampStart, logFn)
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !failLogged {
@@ -3022,6 +3033,7 @@ func TestCoverage_RunCycle_ExecFailureWithDispatcher(t *testing.T) {
 	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
 	e.WithDispatcher(md)
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if len(md.events) != 1 {
@@ -3112,6 +3124,7 @@ func TestCoverage_RunCycle_SuccessWithDispatcher(t *testing.T) {
 	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
 	e.WithDispatcher(md)
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if len(md.events) != 1 {
@@ -3200,6 +3213,7 @@ func TestCoverage_RunCycle_VacuumNoRollback(t *testing.T) {
 		}
 	}
 	e := New(pool, cfg, a, rampStart, logFn)
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !executed {
@@ -3289,6 +3303,7 @@ func TestCoverage_RunCycle_WithRollbackSQL(t *testing.T) {
 		}
 	}
 	e := New(pool, cfg, a, rampStart, logFn)
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !executed {
@@ -3381,6 +3396,7 @@ func TestCoverage_RunCycle_HysteresisBlocks(t *testing.T) {
 		}
 	}
 	e := New(pool, cfg, a, rampStart, logFn)
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !hystLogged {

@@ -320,30 +320,13 @@ func (e *Executor) evaluateFindingPolicy(
 	e.policyMu.RLock()
 	gate := e.policyGate
 	e.policyMu.RUnlock()
-	if gate != nil {
-		return e.evaluateStandingPolicy(ctx, gate, f, isReplica)
+	if gate == nil {
+		// The standing gate is the only authority (G4-I01); production
+		// installs it before anything runs, so its absence fails closed.
+		contract, _ := contractForFinding(f)
+		return noStandingPolicyDecision(contract)
 	}
-	contract, ok := contractForFinding(f)
-	if !ok {
-		return ActionPolicyDecision{
-			Decision:      PolicyDecisionBlocked,
-			RiskTier:      "unknown",
-			BlockedReason: "action has no typed contract",
-		}
-	}
-	cfg, mode, enabled := e.policySnapshot()
-	emergencyStop := e.checkEmergencyStop(ctx)
-	return EvaluateActionPolicy(contract, ActionPolicyContext{
-		Config:              cfg,
-		ExecutionMode:       mode,
-		ExecutorEnabled:     &enabled,
-		Now:                 time.Now(),
-		RampStart:           e.rampStart,
-		IsReplica:           isReplica,
-		EmergencyStop:       emergencyStop,
-		SafeActionsInFlight: len(e.analyzeSem),
-		SafeActionLimit:     cap(e.analyzeSem),
-	})
+	return e.evaluateStandingPolicy(ctx, gate, f, isReplica)
 }
 
 func (e *Executor) evaluateStandingPolicy(
@@ -363,6 +346,7 @@ func (e *Executor) evaluateStandingPolicy(
 func policyContract(contract ActionContract) *policy.ActionContract {
 	result := &policy.ActionContract{
 		ActionType: contract.ActionType, RiskTier: policy.RiskTier(contract.BaseRiskTier),
+		ProviderSupport: append([]string(nil), contract.ProviderSupport...),
 	}
 	for _, guardrail := range contract.Guardrails {
 		if isApprovalRequiredGuardrail(guardrail) {
@@ -628,24 +612,12 @@ func (e *Executor) buildApprovalProposalMetadata(
 	expiresAt := now.Add(24 * time.Hour)
 	metadata.ExpiresAt = &expiresAt
 	if contract, ok := ContractForActionType(actionType); ok {
-		decision := EvaluateActionPolicy(contract, e.policyContext(now))
+		decision := e.ExplainAction(context.Background(), contract,
+			f.RecommendedSQL, strings.TrimSpace(f.ObjectIdentifier))
 		metadata.PolicyDecision = decision.Decision
 		metadata.Guardrails = decision.Guardrails
 	}
 	return metadata
-}
-
-func (e *Executor) policyContext(now time.Time) ActionPolicyContext {
-	cfg, mode, enabled := e.policySnapshot()
-	return ActionPolicyContext{
-		Config:              cfg,
-		ExecutionMode:       mode,
-		ExecutorEnabled:     &enabled,
-		Now:                 now,
-		RampStart:           e.rampStart,
-		SafeActionsInFlight: len(e.analyzeSem),
-		SafeActionLimit:     cap(e.analyzeSem),
-	}
 }
 
 func actionIdentityKey(f analyzer.Finding, actionType string) string {
