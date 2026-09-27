@@ -142,6 +142,10 @@ func managedConfigGuidance(provider, parameter string) string {
 		return "Supabase instance parameter " + parameter +
 			" requires a supported Postgres config control through the Supabase API/CLI; " +
 			"verify availability and effective state; ALTER SYSTEM is unavailable"
+	case "azure", "azure-flexible", "azure-single":
+		return "Azure Database for PostgreSQL: set " + parameter + " with `az postgres " +
+			"flexible-server parameter set --name " + parameter + " --value <value>` " +
+			"(or configure the azure: section so pg_sage applies it); ALTER SYSTEM is unavailable"
 	default:
 		return "managed provider (" + provider + "): apply " + parameter +
 			" via the provider parameter group / database flags; ALTER SYSTEM is unavailable"

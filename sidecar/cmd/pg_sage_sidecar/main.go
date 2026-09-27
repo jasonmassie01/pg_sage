@@ -749,6 +749,8 @@ func initStandalone() {
 	exec = executor.New(pool, cfg, anal, rampStart, logStructuredWrapper)
 	startProviderObservability(shutdownCtx, &standaloneProviderWorkers, pool, cfg, exec, rcaEng)
 	exec.WithAnalyzeSemaphore(analyzeSem)
+	installAzureManagedConfig(exec, cfg, cloudEnvironment,
+		pool.Config().ConnConfig.Host, "startup")
 
 	// 9b. Action queue store + execution mode.
 	actionStore = store.NewActionStore(pool)
@@ -1526,6 +1528,8 @@ func initFleetMultiDB() {
 			dbPool, dbExecCfg, dbAnal, rStart,
 			logStructuredWrapper)
 		dbExec.WithAnalyzeSemaphore(analyzeSem)
+		installAzureManagedConfig(dbExec, cfg, dbCloudEnv,
+			dbPool.Config().ConnConfig.Host, "fleet")
 		startProviderObservability(instCtx, instWorkers, dbPool, dbExecCfg, dbExec, dbRCAEng)
 		dbActionStore := store.NewActionStore(dbPool)
 		execMode := resolveStaticFleetExecMode(dbCfg)

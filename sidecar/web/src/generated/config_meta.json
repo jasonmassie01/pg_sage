@@ -297,6 +297,21 @@
     "default": true,
     "doc": ""
   },
+  "azure.resource_group": {
+    "type": "string",
+    "default": "",
+    "doc": "Azure resource group that contains the flexible server."
+  },
+  "azure.server_name": {
+    "type": "string",
+    "default": "",
+    "doc": "Flexible server name for hosts that do not name it (private DNS or IP). A \u003cname\u003e.postgres.database.azure.com host always wins."
+  },
+  "azure.subscription_id": {
+    "type": "string",
+    "default": "",
+    "doc": "Azure subscription ID of the flexible server. With resource_group set, pg_sage applies server parameters through Azure Resource Manager."
+  },
   "briefing.channels": {
     "type": "[]string",
     "default": null,

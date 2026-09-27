@@ -84,6 +84,7 @@ type Config struct {
 	Migration   MigrationConfig     `yaml:"migration"`
 	Retention   RetentionConfig     `yaml:"retention"`
 	Prometheus  PrometheusConfig    `yaml:"prometheus"`
+	Azure       AzureConfig         `yaml:"azure"`
 	OAuth       OAuthConfig         `yaml:"oauth"`
 	AgentDB     AgentDBConfig       `yaml:"agentdb"`
 	Policy      PolicyConfig        `yaml:"policy"`
@@ -1237,6 +1238,7 @@ func overlayAgentNativeEnv(cfg *Config) {
 	if v := os.Getenv("SAGE_MCP_TRANSPORT"); v != "" {
 		cfg.MCP.Transport = v
 	}
+	overlayAzureEnv(cfg)
 }
 
 // HotReloadable returns the fields that can be reloaded without restart.

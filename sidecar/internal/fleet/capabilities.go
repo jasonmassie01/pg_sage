@@ -415,6 +415,8 @@ func normalizeProviderName(provider string) string {
 		return "aurora"
 	case "aws-rds":
 		return "rds"
+	case "azure-flexible", "azure-single", "azure-postgres":
+		return "azure"
 	case "postgresql", "self-managed":
 		return "postgres"
 	default:

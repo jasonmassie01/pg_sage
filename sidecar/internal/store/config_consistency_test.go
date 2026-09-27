@@ -16,6 +16,7 @@ import (
 var excludedPrefixes = []string{
 	"postgres.",
 	"prometheus.",
+	"azure.", // cloud identity for server parameters; YAML/env only, restart-bound
 	"api.",
 	"oauth.",
 	"auto_explain.",

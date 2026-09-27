@@ -856,5 +856,5 @@ func prepareParameterizedQueryContract() ActionContract {
 
 func portableActionProviders() []string {
 	return []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb",
-		"neon", "supabase"}
+		"neon", "supabase", "azure"}
 }

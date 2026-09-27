@@ -65,6 +65,8 @@ func AdapterForProvider(provider string) ProviderAdapter {
 				"log access flows through Cloud Logging",
 			},
 		)
+	case "azure":
+		return azureAdapter()
 	case "postgres":
 		return managedAdapter(normalized, "local",
 			map[string]string{
@@ -81,6 +83,28 @@ func AdapterForProvider(provider string) ProviderAdapter {
 		adapter.SupportedActions = map[string]bool{}
 		return adapter
 	}
+}
+
+// azureAdapter describes Azure Database for PostgreSQL flexible server.
+// The database owner may ALTER DATABASE ... SET; instance parameters go
+// through Azure server parameters (managed config), never ALTER SYSTEM.
+func azureAdapter() ProviderAdapter {
+	adapter := managedAdapter("azure", "azure_monitor",
+		map[string]string{
+			"pg_stat_statements": "available",
+			"hypopg":             "azure_extensions_allowlist_required",
+			"pg_hint_plan":       "azure_extensions_allowlist_required",
+			"auto_explain":       "azure_extensions_allowlist_required",
+		},
+		[]string{
+			"the azure.extensions server parameter allow-lists CREATE EXTENSION",
+			"preload libraries and server parameters change through Azure; " +
+				"some require a restart",
+			"log access flows through Azure Monitor diagnostic settings",
+		},
+	)
+	adapter.SupportedActions["alter_database_guc"] = true
+	return adapter
 }
 
 func hostedPostgresAdapter(provider string) ProviderAdapter {

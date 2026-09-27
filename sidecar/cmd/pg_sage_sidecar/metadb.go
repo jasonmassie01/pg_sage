@@ -687,6 +687,8 @@ func buildExecutor(
 		dbPool, dbExecCfg, dbAnal, rStart, logStructuredWrapper,
 	)
 	dbExec.WithAnalyzeSemaphore(analyzeSem)
+	installAzureManagedConfig(dbExec, cfg, provider,
+		dbPool.Config().ConnConfig.Host, "fleet")
 	dbActionStore := store.NewActionStore(dbPool)
 	dbExec.WithActionStore(dbActionStore, resolveExecMode(rec))
 	databaseID := rec.ID
