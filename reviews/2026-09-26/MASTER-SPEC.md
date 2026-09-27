@@ -634,3 +634,43 @@ every behavioral assertion kept; each adaptation is explained in its commit.
 | Two concurrent sidecars can duplicate an open incident; partial pg_stat_statements resets; "keep" verdict completion before credit | Residual risks noted by the contract agents; low likelihood |
 | ~11 G5 P2/P3s, `inst.DatabaseID` publish race, G7-D05/D06, lint `bloated_table` | Low value or blocked on the runtime refactor |
 
+### 10.6 After the decisions: CI hardening and the version matrix (2026-09-26)
+
+Roadmap §9 step 3 (G10-I01..I03) is done:
+
+- **I02 matrix:** `integration-matrix` runs the race-enabled integration suite on PG 14, 15,
+  16 and 18; the test job covers 17. `scripts/ci/setup-test-postgres.sh` preloads
+  pg_hint_plan everywhere, so the hint verification suite runs in CI.
+- **I03 skip budget:** `cmd/skipbudget` fails CI on any skip not justified in
+  `sidecar/.skip-allowlist`.
+- **I01 documented path:** `TestDocumentedQuickStart` runs `--pg-url` only and
+  `SAGE_DATABASE_URL` only, as a least-privileged role created by the installation docs'
+  SQL block, which the test runs verbatim.
+
+The first matrix run found product bugs that only show on non-17 servers. All are fixed with
+regression tests:
+
+| Bug | Versions | Impact |
+|---|---|---|
+| HypoPG validation EXPLAINs normalized `$n` workload text without GENERIC_PLAN | PG14, PG15 | Index validation failed for almost every real workload |
+| `Actual Rows` parsed as int64; PG18 emits two decimals | PG18 | EXPLAIN node breakdown empty; tuner missed every ANALYZE-plan symptom; optimizer plan summary blank |
+| Hint table treated as ready without `query_id` (pg_hint_plan < 1.7) | PG14-16 | Every persisted hint INSERT failed |
+| Documented setup never created `pg_stat_statements` and relied on a schema bootstrap the role cannot perform | all | The quick start as written exited at startup |
+| `vectorlab` idle-in-transaction timeout = statement timeout | all | Session killed on a client pause (flaky) |
+
+Other changes: the extension mode was removed with the C extension (`meta` label for
+meta-db, `standalone` default); tests assuming PG17 were made version-aware, with
+`testdb.RequireServerVersion`. The PG14 advisor fixture waits for the async stats collector
+instead of skipping.
+
+Verification (Linux container, PG17 + pg_hint_plan, as CI runs it):
+
+| Suite | Passed | Failed | Skipped |
+|---|---:|---:|---:|
+| Unit, race | 7,551 | 0 | 9 |
+| Integration | 7,705 | 0 | 9 |
+| e2e | 73 | 0 | 13 |
+
+There were 0 data races. The skip budget allowed all 31 skips. The per-version integration
+runs reach 0 failures after the fixes, re-verified per package on PG14 and PG18.
+
