@@ -674,3 +674,40 @@ Verification (Linux container, PG17 + pg_hint_plan, as CI runs it):
 There were 0 data races. The skip budget allowed all 31 skips. The per-version integration
 runs reach 0 failures after the fixes, re-verified per package on PG14 and PG18.
 
+### 10.7 Roadmap §5.1 #3: the gate as the only authority (partial, 2026-09-26)
+
+Done:
+
+- The standing gate enforces contract **provider support**. Only the legacy engine checked
+  it before, so the gate authorized actions a provider cannot run.
+- A side-effect-free `policy.Explainer` (`Explain`) exists.
+- Executors **fail closed without a gate**; there is no legacy fallback on the finding path or
+  the created-index revert.
+- Proposal metadata shows the gate's verdict.
+
+Finding: the e2e pipeline suite built executors without a standing policy, so its
+"auto-executes" checks exercised the legacy engine, not production's gate. It now enables the
+DB-stored policy as production does, and all 22 pipeline tests pass through the real gate.
+That includes decision 1's earned-trust auto-execution of index drops and autovacuum tuning.
+
+Behaviour change: a target whose provider is not in an action's `ProviderSupport` is now
+blocked at execution. It was already shown as blocked in the UI. The one detected provider
+this affects is **Azure** (`azure.extensions` detection), which has no provider adapter;
+Azure support is a product decision.
+
+Open (`tasks/todo-2026-09-26-full-review.md`, steps C2/D/E):
+
+- **C2, operator approvals.** Approval readiness and `operatorApprovalBlock` still hold the
+  operator-approval rule: hard stops, provider, trust, and the configured window for
+  moderate/high risk. Routing them through `Authorize` needs a decision. Should
+  standing-policy change-class allowlists and policy windows also restrict
+  *operator-approved* actions? Today they do not.
+- **D, UI readiness.** The cases API and fleet action-family readiness still use the legacy
+  engine, which fakes a satisfied 365-day ramp. The fix is a snapshot evaluator (runtime,
+  document and usage loaded once per request), because per-family `Explain` would cost
+  2-3 DB reads × ~25 families per instance.
+- **E.** Delete `EvaluateActionPolicy` once C2 and D land.
+- **#4, AST validation.** `pg_query_go` needs cgo and libpg_query. That breaks today's pure-Go
+  cross-compiled release (goreleaser) and complicates the Windows build. Adopting it is a
+  build-system decision.
+
