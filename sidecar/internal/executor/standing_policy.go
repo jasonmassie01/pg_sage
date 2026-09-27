@@ -161,3 +161,11 @@ func (e *Executor) EnableStandingPolicyDocument(doc policy.Document, now func() 
 	}
 	e.WithPolicyGate(policy.NewGate(config))
 }
+
+// WithEmergencyStopCheck replaces how the executor reads the emergency-stop
+// flag (default: sage.config in the executor's database).
+func (e *Executor) WithEmergencyStopCheck(check func(context.Context) bool) {
+	e.policyMu.Lock()
+	defer e.policyMu.Unlock()
+	e.emergencyStopFn = check
+}

@@ -733,8 +733,8 @@ func newHealthyInstance(
 			DatabaseName: rec.Name,
 			LastSeen:     time.Now(),
 			Capabilities: fleet.CollectProviderCapabilities(
-				context.Background(), dbPool, cfg, provider,
-				dbCfg.ExecutionMode, false, time.Now().UTC(),
+				context.Background(), dbPool, provider,
+				fleet.ExecutorFamilyExplainer(dbExec),
 			),
 		},
 	}

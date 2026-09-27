@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/cases"
-	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
@@ -479,102 +478,58 @@ func durableVerificationStatus(row map[string]any) string {
 	}
 }
 
+// enrichCaseActionPolicies shows each candidate's standing-policy verdict
+// from the database's own executor gate (one policy snapshot per case). No
+// instance or executor fails closed.
 func enrichCaseActionPolicies(
 	c *cases.Case,
 	mgr *fleet.DatabaseManager,
 	databaseName string,
 ) {
-	policyContext := casePolicyContext(mgr, databaseName)
+	var inst *fleet.DatabaseInstance
+	if mgr != nil {
+		inst = mgr.GetInstance(databaseName)
+	}
+	isReplica := false
+	if inst != nil {
+		isReplica = inst.SnapshotStatus().Capabilities.IsReplica
+	}
+	var contracts []executor.ActionContract
+	var slots []int
 	for i := range c.ActionCandidates {
-		candidate := &c.ActionCandidates[i]
-		contract, ok := executor.ContractForActionType(candidate.ActionType)
+		contract, ok := executor.ContractForActionType(c.ActionCandidates[i].ActionType)
 		if !ok {
-			candidate.BlockedReason = "unknown action type"
+			c.ActionCandidates[i].BlockedReason = "unknown action type"
 			continue
 		}
-		decision := executor.EvaluateActionPolicy(contract, policyContext)
-		candidate.PolicyDecision = &cases.ActionPolicyDecision{
-			Decision:                  decision.Decision,
-			RiskTier:                  decision.RiskTier,
-			RequiresApproval:          decision.RequiresApproval,
-			RequiresMaintenanceWindow: decision.RequiresMaintenanceWindow,
-			BlockedReason:             decision.BlockedReason,
-			Guardrails:                decision.Guardrails,
-			Provider:                  decision.Provider,
-		}
-		candidate.Guardrails = decision.Guardrails
-		candidate.RequiresApproval = decision.RequiresApproval
-		candidate.RequiresMaintenanceWindow = decision.RequiresMaintenanceWindow
-		if decision.BlockedReason != "" {
-			candidate.BlockedReason = decision.BlockedReason
-		}
+		contracts = append(contracts, contract)
+		slots = append(slots, i)
+	}
+	if len(contracts) == 0 {
+		return
+	}
+	decisions := fleet.InstanceFamilyExplainer(inst)(contracts, isReplica)
+	for k, decision := range decisions {
+		applyCandidatePolicy(&c.ActionCandidates[slots[k]], decision)
 	}
 }
 
-func casePolicyContext(
-	mgr *fleet.DatabaseManager,
-	databaseName string,
-) executor.ActionPolicyContext {
-	cfg := &config.Config{}
-	if mgr != nil && mgr.Config() != nil {
-		copied := *mgr.Config()
-		cfg = &copied
+func applyCandidatePolicy(candidate *cases.ActionCandidate, decision executor.ActionPolicyDecision) {
+	candidate.PolicyDecision = &cases.ActionPolicyDecision{
+		Decision:                  decision.Decision,
+		RiskTier:                  decision.RiskTier,
+		RequiresApproval:          decision.RequiresApproval,
+		RequiresMaintenanceWindow: decision.RequiresMaintenanceWindow,
+		BlockedReason:             decision.BlockedReason,
+		Guardrails:                decision.Guardrails,
+		Provider:                  decision.Provider,
 	}
-	mode := "auto"
-	stopped := false
-	isReplica := false
-	executorEnabled := true
-	if mgr != nil {
-		if inst := mgr.GetInstance(databaseName); inst != nil {
-			mode = executionModeForInstance(cfg, inst)
-			stopped = inst.Stopped
-			executorEnabled = inst.Config.IsExecutorEnabled()
-			snap := inst.SnapshotStatus()
-			if snap.Platform != "" {
-				cfg.CloudEnvironment = snap.Platform
-			}
-			if snap.Capabilities.Provider != "" {
-				cfg.CloudEnvironment = snap.Capabilities.Provider
-			}
-			isReplica = snap.Capabilities.IsReplica
-			if inst.Config.TrustLevel != "" {
-				cfg.Trust.Level = inst.Config.TrustLevel
-			}
-		}
+	candidate.Guardrails = decision.Guardrails
+	candidate.RequiresApproval = decision.RequiresApproval
+	candidate.RequiresMaintenanceWindow = decision.RequiresMaintenanceWindow
+	if decision.BlockedReason != "" {
+		candidate.BlockedReason = decision.BlockedReason
 	}
-	return executor.ActionPolicyContext{
-		Config:          cfg,
-		ExecutionMode:   mode,
-		ExecutorEnabled: &executorEnabled,
-		RampStart:       rampStartForPolicy(cfg),
-		IsReplica:       isReplica,
-		EmergencyStop:   stopped,
-		SafeActionLimit: 3,
-	}
-}
-
-func executionModeForInstance(
-	cfg *config.Config,
-	inst *fleet.DatabaseInstance,
-) string {
-	if inst.Config.ExecutionMode != "" {
-		return inst.Config.ExecutionMode
-	}
-	if cfg != nil && cfg.Defaults.ExecutionMode != "" {
-		return cfg.Defaults.ExecutionMode
-	}
-	return "auto"
-}
-
-func rampStartForPolicy(cfg *config.Config) time.Time {
-	if cfg == nil || cfg.Trust.RampStart == "" {
-		return time.Now().Add(-365 * 24 * time.Hour)
-	}
-	parsed, err := time.Parse(time.RFC3339, cfg.Trust.RampStart)
-	if err != nil {
-		return time.Time{}
-	}
-	return parsed
 }
 
 func sourceFindingFromMap(row map[string]any) cases.SourceFinding {

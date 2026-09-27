@@ -93,16 +93,12 @@ func TestStandingGateQueuesApprovalGuardedFindings(t *testing.T) {
 	}
 }
 
-func TestLegacyPolicyQueuesApprovalGuardedContract(t *testing.T) {
+func TestFamilyPolicyQueuesApprovalGuardedContract(t *testing.T) {
 	cfg := wave1PolicyConfig("autonomous")
-	cfg.Trust.Tier3Moderate = true
-	cfg.Trust.MaintenanceWindow = "always"
-	enabled := true
 	contract, _ := ContractForActionType("reindex_concurrently")
 
-	decision := EvaluateActionPolicy(contract, ActionPolicyContext{
-		Config: cfg, ExecutionMode: "auto", ExecutorEnabled: &enabled,
-		Now: time.Now(), RampStart: time.Now().Add(-90 * 24 * time.Hour),
+	decision := policyVerdict(contract, verdictInput{
+		cfg: cfg, rampStart: time.Now().Add(-90 * 24 * time.Hour),
 	})
 
 	if decision.Decision != PolicyDecisionQueueApproval {

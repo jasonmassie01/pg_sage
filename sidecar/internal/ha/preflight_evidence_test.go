@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 // No autonomous mutation is executed: this establishes monitor-to-legacy-policy admission only.
@@ -40,10 +41,13 @@ func TestPreflightEvidenceUnknownHAWithholdsPolicyAdmission(t *testing.T) {
 			cfg := config.DefaultConfig()
 			cfg.Trust.Level = "autonomous"
 			cfg.Trust.Tier3Safe = true
-			decision := executor.EvaluateActionPolicy(executor.ActionContract{
-				ActionType: "analyze", BaseRiskTier: "safe", ProviderSupport: []string{"postgres"},
-			}, executor.ActionPolicyContext{Config: cfg, ExecutionMode: "auto", IsReplica: replica,
-				Now: time.Now(), RampStart: time.Now().Add(-40 * 24 * time.Hour)})
+			exec := executor.New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
+				func(string, string, ...any) {})
+			exec.WithEmergencyStopCheck(func(context.Context) bool { return false })
+			exec.SetExecutionMode("auto")
+			exec.EnableStandingPolicyDocument(policy.UnattendedProfile(), nil)
+			decision := exec.ExplainFamilies(context.Background(),
+				[]executor.ActionContract{executor.AnalyzeTableContract()}, replica)[0]
 			t.Logf("warm=%v role=%v replica=%v safe=%v policy=%s",
 				warm, m.Role(), replica, m.InSafeMode(), decision.Decision)
 			if decision.Decision == executor.PolicyDecisionExecute {

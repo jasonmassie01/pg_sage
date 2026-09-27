@@ -107,3 +107,13 @@ func TestOperatorApprovalRejectsUnknownRisk(t *testing.T) {
 	assertDecision(t, gate.Authorize(context.Background(), operatorRequest("mystery")),
 		VerdictBlocked, ReasonUnknownRiskTier)
 }
+
+func TestAutonomousPathRejectsUnknownTrustLevel(t *testing.T) {
+	for _, trust := range []string{"", "mystery"} {
+		runtime := newTestGateRuntime()
+		runtime.TrustLevel = trust
+		gate := newTestGate(t, gateFixture{runtime: runtime, runtimeSet: true})
+		assertDecision(t, gate.Authorize(context.Background(), validIndexRequest()),
+			VerdictBlocked, ReasonUnknownTrustLevel)
+	}
+}

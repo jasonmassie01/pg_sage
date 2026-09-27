@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
@@ -32,4 +33,43 @@ func withTestStandingGateAt(e *Executor, now time.Time) *Executor {
 	}
 	e.EnableStandingPolicyDocument(doc, clock)
 	return e
+}
+
+// verdictInput describes the runtime a policy verdict is evaluated under.
+type verdictInput struct {
+	cfg       *config.Config
+	mode      string // default "auto"
+	now       time.Time
+	rampStart time.Time
+	isReplica bool
+	stopped   bool
+	disabled  bool
+}
+
+// policyVerdict is the standing gate's verdict for contract under in, via a
+// real gate over an executor's runtime (the only policy authority).
+func policyVerdict(contract ActionContract, in verdictInput) ActionPolicyDecision {
+	e := New(nil, in.cfg, nil, in.rampStart, noopExecLog)
+	withTestStandingGateAt(e, in.now)
+	stopped := in.stopped
+	e.WithEmergencyStopCheck(func(context.Context) bool { return stopped })
+	mode := in.mode
+	if mode == "" {
+		mode = "auto"
+	}
+	e.SetExecutionMode(mode)
+	if in.disabled {
+		e.SetExecutorEnabled(false)
+	}
+	return e.ExplainFamilies(context.Background(), []ActionContract{contract}, in.isReplica)[0]
+}
+
+// riskContract returns a real typed contract representative of a risk tier.
+func riskContract(risk string) ActionContract {
+	actionType := map[string]string{
+		"read_only": "diagnose_lock_blockers", "safe": "analyze_table",
+		"moderate": "create_index_concurrently", "high": "alter_table",
+	}[risk]
+	contract, _ := ContractForActionType(actionType)
+	return contract
 }

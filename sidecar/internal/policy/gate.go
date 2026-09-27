@@ -48,6 +48,9 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	if observeOnly(runtime) {
 		return blockedAs(VerdictObserveOnly, ReasonObserveOnly)
 	}
+	if runtime.TrustLevel != TrustAdvisory && runtime.TrustLevel != TrustAutonomous {
+		return blocked(ReasonUnknownTrustLevel, runtime.TrustLevel)
+	}
 	doc, decision, stop := gate.documentDecision(ctx, req)
 	if stop {
 		return decision
@@ -91,6 +94,9 @@ func (gate *authorizationGate) documentDecision(
 	doc, err := gate.policy(ctx, req)
 	if err != nil || ValidateDocument(doc) != nil {
 		return doc, blocked(ReasonPolicyUnavailable, errorDetail(err)), true
+	}
+	if req.Contract.RiskTier == RiskReadOnly {
+		return doc, Decision{}, false // diagnostics mutate nothing
 	}
 	changeClass := ChangeClass(req.Feature)
 	if !containsChangeClass(doc.AllowedChangeClasses, changeClass) {

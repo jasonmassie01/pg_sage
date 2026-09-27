@@ -1,43 +1,72 @@
 package fleet
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
+// gateExecutor is an executor with a real standing gate over an in-memory
+// unattended policy whose windows are always open.
+func gateExecutor(t *testing.T, trust string) *executor.Executor {
+	t.Helper()
+	e := executor.New(nil, readinessTestConfig(trust), nil,
+		time.Now().Add(-90*24*time.Hour), func(string, string, ...any) {})
+	e.WithEmergencyStopCheck(func(context.Context) bool { return false })
+	e.SetExecutionMode("auto")
+	doc := policy.UnattendedProfile()
+	doc.MaintenanceWindows = []string{"always"}
+	e.EnableStandingPolicyDocument(doc, nil)
+	return e
+}
+
 func TestBuildActionFamilyReadinessAnalyzeSupportedCloudSQL(t *testing.T) {
-	cfg := readinessTestConfig("autonomous")
-	caps := ProviderCapabilities{
-		Provider: "cloud-sql",
-	}
+	caps := ProviderCapabilities{Provider: "cloud-sql"}
+	explain := ExecutorFamilyExplainer(gateExecutor(t, "autonomous"))
 
-	got := buildActionFamilyReadiness(cfg, caps, "auto", false, true, time.Now())
-	analyze := actionReadiness(t, got, "analyze_table")
+	analyze := actionReadiness(t, buildActionFamilyReadiness(caps, explain), "analyze_table")
 
-	if !analyze.Supported {
-		t.Fatalf("analyze supported = false, reason %q",
-			analyze.BlockedReason)
-	}
-	if analyze.Decision != executor.PolicyDecisionExecute {
-		t.Fatalf("decision = %q, want execute", analyze.Decision)
+	if !analyze.Supported || analyze.Decision != executor.PolicyDecisionExecute {
+		t.Fatalf("analyze readiness = %#v, want supported execute", analyze)
 	}
 }
 
-func TestBuildActionFamilyReadinessBlocksUnsupportedProvider(t *testing.T) {
-	cfg := readinessTestConfig("autonomous")
-	caps := ProviderCapabilities{Provider: "azure"}
-
-	got := buildActionFamilyReadiness(cfg, caps, "auto", false, true, time.Now())
-	analyze := actionReadiness(t, got, "analyze_table")
-
-	if analyze.Supported {
-		t.Fatal("azure should not be supported by current action contracts")
+// Adapter-unsupported and unimplemented families never reach the gate.
+func TestBuildActionFamilyReadinessAsksGateOnlyForSupportedFamilies(t *testing.T) {
+	var asked []string
+	explain := func(contracts []executor.ActionContract, _ bool) []executor.ActionPolicyDecision {
+		out := make([]executor.ActionPolicyDecision, len(contracts))
+		for i, c := range contracts {
+			asked = append(asked, c.ActionType)
+			out[i] = executor.ActionPolicyDecision{Decision: executor.PolicyDecisionExecute}
+		}
+		return out
 	}
-	if analyze.BlockedReason == "" {
-		t.Fatal("expected provider blocked reason")
+	got := buildActionFamilyReadiness(ProviderCapabilities{Provider: "postgres"}, explain)
+	for _, actionType := range asked {
+		if actionType == "create_statistics" || actionType == "promote_role_work_mem" {
+			t.Fatalf("unimplemented family %s was sent to the gate", actionType)
+		}
+	}
+	stats := actionReadiness(t, got, "create_statistics")
+	if stats.Supported || stats.BlockedReason != "direct execution is not implemented" {
+		t.Fatalf("create_statistics = %#v", stats)
+	}
+	if len(asked) == 0 || len(asked) >= len(got) {
+		t.Fatalf("gate asked about %d of %d families", len(asked), len(got))
+	}
+}
+
+func TestBuildActionFamilyReadinessFailsClosedWithoutExecutor(t *testing.T) {
+	got := buildActionFamilyReadiness(ProviderCapabilities{Provider: "postgres"},
+		ExecutorFamilyExplainer(nil))
+	analyze := actionReadiness(t, got, "analyze_table")
+	if analyze.Supported || analyze.BlockedReason != "standing policy unavailable" {
+		t.Fatalf("analyze without executor = %#v", analyze)
 	}
 }
 
@@ -59,10 +88,8 @@ func TestProviderAdapterAddsManagedProviderLimitations(t *testing.T) {
 }
 
 func TestBuildProviderCapabilitiesUsesProviderAdapter(t *testing.T) {
-	cfg := readinessTestConfig("autonomous")
-
-	got := BuildProviderCapabilities(
-		cfg, "rds", false, "auto", false, time.Now())
+	got := BuildProviderCapabilities("rds", false,
+		ExecutorFamilyExplainer(gateExecutor(t, "autonomous")))
 
 	if got.Extensions["pg_hint_plan"] != "parameter_group_required" {
 		t.Fatalf("pg_hint_plan = %q", got.Extensions["pg_hint_plan"])
@@ -76,10 +103,8 @@ func TestBuildProviderCapabilitiesUsesProviderAdapter(t *testing.T) {
 }
 
 func TestBuildActionFamilyReadinessIncludesNewAutonomyFamilies(t *testing.T) {
-	cfg := readinessTestConfig("autonomous")
-	caps := ProviderCapabilities{Provider: "postgres"}
-
-	got := buildActionFamilyReadiness(cfg, caps, "auto", false, true, time.Now())
+	got := buildActionFamilyReadiness(ProviderCapabilities{Provider: "postgres"},
+		ExecutorFamilyExplainer(gateExecutor(t, "autonomous")))
 
 	for _, actionType := range []string{
 		"vacuum_table",
@@ -110,44 +135,44 @@ func TestBuildActionFamilyReadinessIncludesNewAutonomyFamilies(t *testing.T) {
 }
 
 func TestBuildActionFamilyReadinessBlocksReplicaWriteAction(t *testing.T) {
-	cfg := readinessTestConfig("autonomous")
 	caps := ProviderCapabilities{Provider: "postgres", IsReplica: true}
-
-	got := buildActionFamilyReadiness(cfg, caps, "auto", false, true, time.Now())
+	got := buildActionFamilyReadiness(caps,
+		ExecutorFamilyExplainer(gateExecutor(t, "autonomous")))
 	analyze := actionReadiness(t, got, "analyze_table")
 
-	if analyze.Supported {
-		t.Fatal("replica should block analyze_table execution")
-	}
-	if analyze.BlockedReason != "target database is a replica" {
-		t.Fatalf("blocked reason = %q", analyze.BlockedReason)
+	if analyze.Supported || analyze.BlockedReason != "replica_mutation" {
+		t.Fatalf("replica analyze readiness = %#v", analyze)
 	}
 }
 
 func TestEnsureCapabilitiesBlocksDisabledExecutor(t *testing.T) {
-	disabled := false
-	cfg := readinessTestConfig("autonomous")
-	inst := &DatabaseInstance{Config: config.DatabaseConfig{
-		ExecutionMode:   "auto",
-		ExecutorEnabled: &disabled,
-	}}
-	snap := EnsureCapabilities(cfg, inst, &InstanceStatus{
-		Platform: "postgres",
-		Capabilities: ProviderCapabilities{
-			Provider: "postgres",
-		},
-	}, time.Now())
+	exec := gateExecutor(t, "autonomous")
+	exec.SetExecutorEnabled(false)
+	snap := EnsureCapabilities(&DatabaseInstance{Executor: exec}, &InstanceStatus{
+		Platform:     "postgres",
+		Capabilities: ProviderCapabilities{Provider: "postgres"},
+	})
 
 	analyze := actionReadiness(t, snap.Capabilities.ActionFamilies, "analyze_table")
-	if analyze.Supported || analyze.BlockedReason != "executor is disabled" {
+	if analyze.Supported || analyze.BlockedReason != "executor_disabled" {
 		t.Fatalf("analyze readiness = %#v", analyze)
 	}
 }
 
+func TestEnsureCapabilitiesBlocksStoppedInstance(t *testing.T) {
+	snap := EnsureCapabilities(
+		&DatabaseInstance{Executor: gateExecutor(t, "autonomous"), Stopped: true},
+		&InstanceStatus{Platform: "postgres",
+			Capabilities: ProviderCapabilities{Provider: "postgres"}})
+	analyze := actionReadiness(t, snap.Capabilities.ActionFamilies, "analyze_table")
+	if analyze.Supported || analyze.BlockedReason != "emergency stop is active" {
+		t.Fatalf("stopped instance readiness = %#v", analyze)
+	}
+}
+
 func TestEnsureCapabilitiesPreservesCollectedRuntimeEvidence(t *testing.T) {
-	cfg := readinessTestConfig("autonomous")
-	inst := &DatabaseInstance{Config: config.DatabaseConfig{ExecutionMode: "auto"}}
-	snap := EnsureCapabilities(cfg, inst, &InstanceStatus{
+	inst := &DatabaseInstance{Executor: gateExecutor(t, "autonomous")}
+	snap := EnsureCapabilities(inst, &InstanceStatus{
 		Platform: "postgres",
 		Capabilities: ProviderCapabilities{
 			Provider: "postgres",
@@ -160,7 +185,7 @@ func TestEnsureCapabilitiesPreservesCollectedRuntimeEvidence(t *testing.T) {
 			},
 			Limitations: []string{"runtime limitation"},
 		},
-	}, time.Now())
+	})
 
 	if snap.Capabilities.Permissions["analyze"].Reason != "runtime probe" ||
 		snap.Capabilities.Extensions["custom_extension"] != "available" ||
@@ -170,10 +195,8 @@ func TestEnsureCapabilitiesPreservesCollectedRuntimeEvidence(t *testing.T) {
 }
 
 func TestBuildProviderCapabilitiesPermissionUnknownBlocksAutoSafe(t *testing.T) {
-	cfg := readinessTestConfig("autonomous")
-
-	got := BuildProviderCapabilities(
-		cfg, "postgres", false, "auto", false, time.Now())
+	got := BuildProviderCapabilities("postgres", false,
+		ExecutorFamilyExplainer(gateExecutor(t, "autonomous")))
 
 	if got.ReadyForAutoSafe {
 		t.Fatal("unknown ANALYZE permission should block auto-safe readiness")

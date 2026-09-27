@@ -1091,8 +1091,8 @@ func initFleetAndAPI() {
 				TrustLevel: cfg.Trust.Level,
 				LastSeen:   time.Now(),
 				Capabilities: fleet.CollectProviderCapabilities(
-					context.Background(), pool, cfg, cloudEnvironment,
-					dbCfg.ExecutionMode, false, time.Now().UTC(),
+					context.Background(), pool, cloudEnvironment,
+					fleet.ExecutorFamilyExplainer(exec),
 				),
 			},
 		}
@@ -1635,8 +1635,8 @@ func initFleetMultiDB() {
 				DatabaseName: name,
 				LastSeen:     time.Now(),
 				Capabilities: fleet.CollectProviderCapabilities(
-					instCtx, dbPool, cfg, dbCloudEnv,
-					dbCfg.ExecutionMode, false, time.Now().UTC(),
+					instCtx, dbPool, dbCloudEnv,
+					fleet.ExecutorFamilyExplainer(dbExec),
 				),
 			},
 		}

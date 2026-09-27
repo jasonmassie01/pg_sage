@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -74,184 +77,129 @@ func TestShadowReportHandlerEmptyWhenNoFleet(t *testing.T) {
 	}
 }
 
-func TestEnrichCaseActionPoliciesAddsDeterministicDecision(t *testing.T) {
-	cfg := &config.Config{
-		Mode:             "fleet",
-		CloudEnvironment: "cloud-sql",
+// caseGateExecutor is an executor with a real standing gate over an
+// in-memory unattended policy (windows always open) and no emergency stop.
+func caseGateExecutor(cfg *config.Config) *executor.Executor {
+	e := executor.New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
+		func(string, string, ...any) {})
+	e.WithEmergencyStopCheck(func(context.Context) bool { return false })
+	e.SetExecutionMode("auto")
+	doc := policy.UnattendedProfile()
+	doc.MaintenanceWindows = []string{"always"}
+	e.EnableStandingPolicyDocument(doc, nil)
+	return e
+}
+
+func caseAutonomousConfig() *config.Config {
+	return &config.Config{
+		Mode: "fleet",
 		Trust: config.TrustConfig{
-			Level:     "autonomous",
-			Tier3Safe: true,
-			RampStart: time.Now().
-				Add(-10 * 24 * time.Hour).
-				Format(time.RFC3339),
+			Level: "autonomous", Tier3Safe: true, Tier3Moderate: true,
 		},
 	}
+}
+
+func registerCaseInstance(
+	cfg *config.Config, exec *executor.Executor, status *fleet.InstanceStatus,
+) *fleet.DatabaseManager {
 	mgr := fleet.NewManager(cfg)
 	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name:   "prod",
-		Config: config.DatabaseConfig{Name: "prod", ExecutionMode: "auto"},
+		Name:     "prod",
+		Config:   config.DatabaseConfig{Name: "prod", ExecutionMode: "auto"},
+		Executor: exec,
+		Status:   status,
 	})
-	c := cases.Case{
-		DatabaseName: "prod",
-		ActionCandidates: []cases.ActionCandidate{{
-			ActionType: "analyze_table",
-			RiskTier:   "safe",
-		}},
-	}
+	return mgr
+}
+
+func analyzeCase() cases.Case {
+	return cases.Case{DatabaseName: "prod", ActionCandidates: []cases.ActionCandidate{{
+		ActionType: "analyze_table", RiskTier: "safe",
+	}}}
+}
+
+func TestEnrichCaseActionPoliciesUsesInstanceGate(t *testing.T) {
+	cfg := caseAutonomousConfig()
+	mgr := registerCaseInstance(cfg, caseGateExecutor(cfg), nil)
+	c := analyzeCase()
 
 	enrichCaseActionPolicies(&c, mgr, "prod")
 
 	decision := c.ActionCandidates[0].PolicyDecision
-	if decision == nil {
-		t.Fatal("missing policy decision")
-	}
-	if decision.Decision != executor.PolicyDecisionExecute {
-		t.Fatalf("Decision = %q, want execute", decision.Decision)
+	if decision == nil || decision.Decision != executor.PolicyDecisionExecute {
+		t.Fatalf("policy decision = %#v, want execute", decision)
 	}
 	if len(c.ActionCandidates[0].Guardrails) == 0 {
 		t.Fatalf("expected candidate guardrails")
 	}
 }
 
+// A configured trust.maintenance_window that is closed blocks autonomous
+// moderate actions without asking for approval.
 func TestEnrichCaseActionPoliciesShowsAutoWindowBlock(t *testing.T) {
-	cfg := &config.Config{
-		Mode:             "fleet",
-		CloudEnvironment: "postgres",
-		Trust: config.TrustConfig{
-			Level:             "autonomous",
-			Tier3Moderate:     true,
-			MaintenanceWindow: "0 2 * * *",
-			RampStart: time.Now().
-				Add(-40 * 24 * time.Hour).
-				Format(time.RFC3339),
-		},
-	}
-	mgr := fleet.NewManager(cfg)
-	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name:   "prod",
-		Config: config.DatabaseConfig{Name: "prod", ExecutionMode: "auto"},
-	})
-	c := cases.Case{
-		DatabaseName: "prod",
-		ActionCandidates: []cases.ActionCandidate{{
-			ActionType: "create_index_concurrently",
-			RiskTier:   "moderate",
-		}},
-	}
+	cfg := caseAutonomousConfig()
+	cfg.Trust.MaintenanceWindow = fmt.Sprintf("0 %d * * *", (time.Now().Hour()+2)%24)
+	mgr := registerCaseInstance(cfg, caseGateExecutor(cfg), nil)
+	c := cases.Case{DatabaseName: "prod", ActionCandidates: []cases.ActionCandidate{{
+		ActionType: "create_index_concurrently", RiskTier: "moderate",
+	}}}
 
 	enrichCaseActionPolicies(&c, mgr, "prod")
 
 	candidate := c.ActionCandidates[0]
-	if candidate.PolicyDecision == nil {
-		t.Fatal("missing policy decision")
-	}
-	if candidate.RequiresApproval || !candidate.RequiresMaintenanceWindow {
-		t.Fatalf("expected auto window block without approval: %#v", candidate)
-	}
-	if candidate.BlockedReason == "" {
-		t.Fatalf("expected blocked reason outside maintenance window")
+	if candidate.PolicyDecision == nil || candidate.RequiresApproval ||
+		!candidate.RequiresMaintenanceWindow ||
+		candidate.BlockedReason != "outside_maintenance_window" {
+		t.Fatalf("candidate = %#v, want auto window block without approval", candidate)
 	}
 }
 
-func TestCasePolicyContextUsesInstancePlatform(t *testing.T) {
-	cfg := &config.Config{
-		Mode:             "fleet",
-		CloudEnvironment: "postgres",
-		Trust: config.TrustConfig{
-			Level:     "autonomous",
-			Tier3Safe: true,
-			RampStart: time.Now().
-				Add(-10 * 24 * time.Hour).
-				Format(time.RFC3339),
-		},
-	}
-	mgr := fleet.NewManager(cfg)
-	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name:   "prod",
-		Config: config.DatabaseConfig{Name: "prod", ExecutionMode: "auto"},
-		Status: &fleet.InstanceStatus{
-			Platform: "cloud-sql",
-		},
-	})
-
-	got := casePolicyContext(mgr, "prod")
-
-	if got.Config.CloudEnvironment != "cloud-sql" {
-		t.Fatalf("CloudEnvironment = %q, want cloud-sql",
-			got.Config.CloudEnvironment)
-	}
-}
-
-func TestCasePolicyContextIncludesExecutorDisabled(t *testing.T) {
-	disabled := false
-	cfg := &config.Config{
-		Mode: "fleet",
-		Trust: config.TrustConfig{
-			Level:     "autonomous",
-			Tier3Safe: true,
-		},
-	}
-	mgr := fleet.NewManager(cfg)
-	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name: "prod",
-		Config: config.DatabaseConfig{
-			Name:            "prod",
-			ExecutionMode:   "auto",
-			ExecutorEnabled: &disabled,
-		},
-		Status: &fleet.InstanceStatus{Platform: "postgres"},
-	})
-
-	got := casePolicyContext(mgr, "prod")
-	if got.ExecutorEnabled == nil || *got.ExecutorEnabled {
-		t.Fatalf("ExecutorEnabled = %v, want false", got.ExecutorEnabled)
-	}
-	decision := executor.EvaluateActionPolicy(
-		executor.AnalyzeTableContract(), got)
-	if decision.Decision != executor.PolicyDecisionBlocked ||
-		decision.BlockedReason != "executor is disabled" {
-		t.Fatalf("decision = %#v, want executor-disabled block", decision)
-	}
-}
-
-func TestCasePolicyContextBlocksReplicaFromCapabilities(t *testing.T) {
-	cfg := &config.Config{
-		Mode:             "fleet",
-		CloudEnvironment: "postgres",
-		Trust: config.TrustConfig{
-			Level:     "autonomous",
-			Tier3Safe: true,
-			RampStart: time.Now().
-				Add(-10 * 24 * time.Hour).
-				Format(time.RFC3339),
-		},
-	}
-	mgr := fleet.NewManager(cfg)
-	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name:   "prod",
-		Config: config.DatabaseConfig{Name: "prod", ExecutionMode: "auto"},
-		Status: &fleet.InstanceStatus{
-			Platform: "postgres",
-			Capabilities: fleet.ProviderCapabilities{
-				Provider:  "postgres",
-				IsReplica: true,
-			},
-		},
-	})
-	c := cases.Case{
-		DatabaseName: "prod",
-		ActionCandidates: []cases.ActionCandidate{{
-			ActionType: "analyze_table",
-			RiskTier:   "safe",
-		}},
-	}
+func TestEnrichCaseActionPoliciesBlocksDisabledExecutor(t *testing.T) {
+	cfg := caseAutonomousConfig()
+	exec := caseGateExecutor(cfg)
+	exec.SetExecutorEnabled(false)
+	mgr := registerCaseInstance(cfg, exec, nil)
+	c := analyzeCase()
 
 	enrichCaseActionPolicies(&c, mgr, "prod")
 
-	got := c.ActionCandidates[0].BlockedReason
-	if got != "target database is a replica" {
-		t.Fatalf("BlockedReason = %q", got)
+	if got := c.ActionCandidates[0].BlockedReason; got != "executor_disabled" {
+		t.Fatalf("BlockedReason = %q, want executor_disabled", got)
 	}
+}
+
+func TestEnrichCaseActionPoliciesBlocksReplicaFromCapabilities(t *testing.T) {
+	cfg := caseAutonomousConfig()
+	mgr := registerCaseInstance(cfg, caseGateExecutor(cfg), &fleet.InstanceStatus{
+		Platform: "postgres",
+		Capabilities: fleet.ProviderCapabilities{
+			Provider: "postgres", IsReplica: true,
+		},
+	})
+	c := analyzeCase()
+
+	enrichCaseActionPolicies(&c, mgr, "prod")
+
+	if got := c.ActionCandidates[0].BlockedReason; got != "replica_mutation" {
+		t.Fatalf("BlockedReason = %q, want replica_mutation", got)
+	}
+}
+
+func TestEnrichCaseActionPoliciesFailsClosedWithoutExecutor(t *testing.T) {
+	cfg := caseAutonomousConfig()
+	mgr := registerCaseInstance(cfg, nil, nil)
+	c := analyzeCase()
+	c.ActionCandidates = append(c.ActionCandidates, cases.ActionCandidate{ActionType: "mystery"})
+
+	enrichCaseActionPolicies(&c, mgr, "prod")
+
+	if got := c.ActionCandidates[0].BlockedReason; got != "standing policy unavailable" {
+		t.Fatalf("BlockedReason = %q, want standing policy unavailable", got)
+	}
+	if got := c.ActionCandidates[1].BlockedReason; got != "unknown action type" {
+		t.Fatalf("unknown candidate BlockedReason = %q", got)
+	}
+	enrichCaseActionPolicies(&c, nil, "prod") // no manager: must not panic
 }
 
 func TestSourceIncidentFromMapProjectsPlaybookCandidate(t *testing.T) {

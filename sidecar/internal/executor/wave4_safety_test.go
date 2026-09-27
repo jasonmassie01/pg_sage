@@ -22,11 +22,8 @@ func TestWave4BackendSignalsAlwaysRequireApproval(t *testing.T) {
 		if !ok {
 			t.Fatalf("missing contract for %s", actionType)
 		}
-		decision := EvaluateActionPolicy(contract, ActionPolicyContext{
-			Config:        cfg,
-			ExecutionMode: "auto",
-			Now:           now,
-			RampStart:     now.Add(-90 * 24 * time.Hour),
+		decision := policyVerdict(contract, verdictInput{
+			cfg: cfg, now: now, rampStart: now.Add(-90 * 24 * time.Hour),
 		})
 		if decision.Decision != PolicyDecisionQueueApproval || !decision.RequiresApproval {
 			t.Fatalf("%s decision=%+v, want approval queue", actionType, decision)

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 )
 
@@ -58,26 +57,22 @@ type DatabaseReadiness struct {
 	Capabilities     ProviderCapabilities `json:"capabilities"`
 }
 
-func BuildProviderCapabilities(
-	cfg *config.Config,
-	provider string,
-	isReplica bool,
-	mode string,
-	stopped bool,
-	now time.Time,
-) ProviderCapabilities {
-	return buildProviderCapabilities(
-		cfg, provider, isReplica, mode, stopped, true, now)
+// FamilyExplainer reports the standing policy's verdict for action
+// families on one database (the executor's gate, one policy snapshot).
+type FamilyExplainer func(
+	contracts []executor.ActionContract, isReplica bool,
+) []executor.ActionPolicyDecision
+
+// ExecutorFamilyExplainer explains families through exec's standing gate;
+// a nil executor fails closed.
+func ExecutorFamilyExplainer(exec *executor.Executor) FamilyExplainer {
+	return func(contracts []executor.ActionContract, isReplica bool) []executor.ActionPolicyDecision {
+		return exec.ExplainFamilies(context.Background(), contracts, isReplica)
+	}
 }
 
-func buildProviderCapabilities(
-	cfg *config.Config,
-	provider string,
-	isReplica bool,
-	mode string,
-	stopped bool,
-	executorEnabled bool,
-	now time.Time,
+func BuildProviderCapabilities(
+	provider string, isReplica bool, explain FamilyExplainer,
 ) ProviderCapabilities {
 	adapter := AdapterForProvider(provider)
 	caps := ProviderCapabilities{
@@ -88,22 +83,15 @@ func buildProviderCapabilities(
 		LogAccess:   adapter.LogAccess,
 		Limitations: adapter.Limitations,
 	}
-	caps.ActionFamilies = buildActionFamilyReadiness(
-		cfg, caps, mode, stopped, executorEnabled, now)
+	caps.ActionFamilies = buildActionFamilyReadiness(caps, explain)
 	caps.Blockers = readinessBlockers(caps)
 	caps.ReadyForAutoSafe = readyForAutoSafe(caps)
 	return caps
 }
 
-func buildActionFamilyReadiness(
-	cfg *config.Config,
-	caps ProviderCapabilities,
-	mode string,
-	stopped bool,
-	executorEnabled bool,
-	now time.Time,
-) []ActionFamilyReadiness {
-	actionTypes := []string{
+// readinessActionTypes are the action families shown in readiness views.
+func readinessActionTypes() []string {
+	return []string{
 		"analyze_table",
 		"vacuum_table",
 		"alter_system_guc",
@@ -132,44 +120,65 @@ func buildActionFamilyReadiness(
 		"ddl_preflight",
 		"alter_table",
 	}
-	out := make([]ActionFamilyReadiness, 0, len(actionTypes))
-	for _, actionType := range actionTypes {
+}
+
+// buildActionFamilyReadiness applies implementation and provider-adapter
+// support, then asks the standing gate about the remaining families in
+// one batch.
+func buildActionFamilyReadiness(
+	caps ProviderCapabilities, explain FamilyExplainer,
+) []ActionFamilyReadiness {
+	out := make([]ActionFamilyReadiness, 0, len(readinessActionTypes()))
+	var contracts []executor.ActionContract
+	var slots []int
+	for _, actionType := range readinessActionTypes() {
 		contract, ok := executor.ContractForActionType(actionType)
 		if !ok {
 			continue
 		}
-		if !directExecutionImplemented(actionType) {
-			out = append(out, ActionFamilyReadiness{
-				ActionType:    actionType,
-				Supported:     false,
-				Decision:      executor.PolicyDecisionBlocked,
-				BlockedReason: "direct execution is not implemented",
-			})
+		if reason := familyUnsupported(caps, actionType); reason != "" {
+			out = append(out, ActionFamilyReadiness{ActionType: actionType,
+				Decision: executor.PolicyDecisionBlocked, BlockedReason: reason})
 			continue
 		}
-		if !AdapterForProvider(caps.Provider).SupportsAction(actionType) {
-			out = append(out, ActionFamilyReadiness{
-				ActionType:    actionType,
-				Supported:     false,
-				Decision:      executor.PolicyDecisionBlocked,
-				BlockedReason: "provider adapter does not support action",
-			})
-			continue
-		}
-		ctx := readinessPolicyContext(
-			cfg, caps, mode, stopped, executorEnabled, now)
-		decision := executor.EvaluateActionPolicy(contract, ctx)
-		out = append(out, ActionFamilyReadiness{
-			ActionType:                actionType,
-			Supported:                 decision.Decision != executor.PolicyDecisionBlocked,
-			Decision:                  decision.Decision,
-			BlockedReason:             permissionBlockedReason(actionType, decision),
-			RequiresApproval:          decision.RequiresApproval,
-			RequiresMaintenanceWindow: decision.RequiresMaintenanceWindow,
-			Guardrails:                decision.Guardrails,
-		})
+		slots = append(slots, len(out))
+		contracts = append(contracts, contract)
+		out = append(out, ActionFamilyReadiness{ActionType: actionType})
+	}
+	if len(contracts) == 0 {
+		return out
+	}
+	if explain == nil {
+		explain = ExecutorFamilyExplainer(nil)
+	}
+	for i, decision := range explain(contracts, caps.IsReplica) {
+		out[slots[i]] = familyReadiness(contracts[i].ActionType, decision)
 	}
 	return out
+}
+
+func familyUnsupported(caps ProviderCapabilities, actionType string) string {
+	if !directExecutionImplemented(actionType) {
+		return "direct execution is not implemented"
+	}
+	if !AdapterForProvider(caps.Provider).SupportsAction(actionType) {
+		return "provider adapter does not support action"
+	}
+	return ""
+}
+
+func familyReadiness(
+	actionType string, decision executor.ActionPolicyDecision,
+) ActionFamilyReadiness {
+	return ActionFamilyReadiness{
+		ActionType:                actionType,
+		Supported:                 decision.Decision != executor.PolicyDecisionBlocked,
+		Decision:                  decision.Decision,
+		BlockedReason:             permissionBlockedReason(actionType, decision),
+		RequiresApproval:          decision.RequiresApproval,
+		RequiresMaintenanceWindow: decision.RequiresMaintenanceWindow,
+		Guardrails:                decision.Guardrails,
+	}
 }
 
 func directExecutionImplemented(actionType string) bool {
@@ -184,14 +193,10 @@ func directExecutionImplemented(actionType string) bool {
 func CollectProviderCapabilities(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	cfg *config.Config,
 	provider string,
-	mode string,
-	stopped bool,
-	now time.Time,
+	explain FamilyExplainer,
 ) ProviderCapabilities {
-	caps := BuildProviderCapabilities(
-		cfg, provider, detectReplica(ctx, pool), mode, stopped, now)
+	caps := BuildProviderCapabilities(provider, detectReplica(ctx, pool), explain)
 	collectRuntimeEvidence(ctx, pool, &caps)
 	caps.Blockers = readinessBlockers(caps)
 	caps.ReadyForAutoSafe = readyForAutoSafe(caps)
@@ -246,12 +251,10 @@ func SummarizeReadiness(databases []DatabaseStatus) FleetReadinessSummary {
 	return summary
 }
 
-func EnsureCapabilities(
-	cfg *config.Config,
-	inst *DatabaseInstance,
-	snap *InstanceStatus,
-	now time.Time,
-) *InstanceStatus {
+// EnsureCapabilities fills capabilities and recomputes action-family
+// readiness from the instance executor's standing gate. A stopped
+// instance, or one without an executor, reports every family blocked.
+func EnsureCapabilities(inst *DatabaseInstance, snap *InstanceStatus) *InstanceStatus {
 	if snap == nil {
 		snap = &InstanceStatus{}
 	}
@@ -261,30 +264,12 @@ func EnsureCapabilities(
 	if snap.Platform == "" {
 		snap.Platform = "unknown"
 	}
-	mode := "auto"
-	stopped := false
-	executorEnabled := true
-	effectiveCfg := cfg
-	if inst != nil {
-		if inst.Config.ExecutionMode != "" {
-			mode = inst.Config.ExecutionMode
-		}
-		stopped = inst.Stopped
-		executorEnabled = inst.Config.IsExecutorEnabled()
-		if cfg != nil && inst.Config.TrustLevel != "" {
-			copied := *cfg
-			copied.Trust.Level = inst.Config.TrustLevel
-			effectiveCfg = &copied
-		}
-	}
+	explain := InstanceFamilyExplainer(inst)
 	caps := snap.Capabilities
 	if caps.Provider == "" {
-		caps = buildProviderCapabilities(
-			effectiveCfg, snap.Platform, caps.IsReplica,
-			mode, stopped, executorEnabled, now)
+		caps = BuildProviderCapabilities(snap.Platform, caps.IsReplica, explain)
 	} else {
-		caps.ActionFamilies = buildActionFamilyReadiness(
-			effectiveCfg, caps, mode, stopped, executorEnabled, now)
+		caps.ActionFamilies = buildActionFamilyReadiness(caps, explain)
 		caps.Blockers = readinessBlockers(caps)
 		caps.ReadyForAutoSafe = readyForAutoSafe(caps)
 	}
@@ -292,30 +277,24 @@ func EnsureCapabilities(
 	return snap
 }
 
-func readinessPolicyContext(
-	cfg *config.Config,
-	caps ProviderCapabilities,
-	mode string,
-	stopped bool,
-	executorEnabled bool,
-	now time.Time,
-) executor.ActionPolicyContext {
-	copied := &config.Config{}
-	if cfg != nil {
-		c := *cfg
-		copied = &c
+// InstanceFamilyExplainer explains families through the instance
+// executor; a stopped instance or a missing executor fails closed.
+func InstanceFamilyExplainer(inst *DatabaseInstance) FamilyExplainer {
+	if inst == nil {
+		return ExecutorFamilyExplainer(nil)
 	}
-	copied.CloudEnvironment = caps.Provider
-	return executor.ActionPolicyContext{
-		Config:          copied,
-		ExecutionMode:   mode,
-		ExecutorEnabled: &executorEnabled,
-		Now:             now,
-		RampStart:       now.Add(-365 * 24 * time.Hour),
-		IsReplica:       caps.IsReplica,
-		EmergencyStop:   stopped,
-		SafeActionLimit: 3,
+	if inst.Stopped {
+		return func(contracts []executor.ActionContract, _ bool) []executor.ActionPolicyDecision {
+			out := make([]executor.ActionPolicyDecision, len(contracts))
+			for i, contract := range contracts {
+				out[i] = executor.ActionPolicyDecision{Decision: executor.PolicyDecisionBlocked,
+					RiskTier: contract.BaseRiskTier, BlockedReason: "emergency stop is active",
+					Guardrails: contract.Guardrails}
+			}
+			return out
+		}
 	}
+	return ExecutorFamilyExplainer(inst.Executor)
 }
 
 func defaultPermissionReadiness() map[string]CapabilityStatus {

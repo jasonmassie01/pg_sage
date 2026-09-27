@@ -392,12 +392,21 @@ func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
 	for _, guardrail := range decision.Guardrails {
 		result.Guardrails = append(result.Guardrails, string(guardrail))
 	}
+	// A plain authorization is not a blocked reason; informative execute
+	// reasons such as deadline_override are kept.
+	if decision.Reason == policy.ReasonAuthorized ||
+		decision.Reason == policy.ReasonOperatorApproved {
+		result.BlockedReason = ""
+	}
 	return result
 }
 
 func (e *Executor) checkEmergencyStop(ctx context.Context) bool {
-	if e.emergencyStopFn != nil {
-		return e.emergencyStopFn(ctx)
+	e.policyMu.RLock()
+	check := e.emergencyStopFn
+	e.policyMu.RUnlock()
+	if check != nil {
+		return check(ctx)
 	}
 	return CheckEmergencyStop(ctx, e.pool)
 }

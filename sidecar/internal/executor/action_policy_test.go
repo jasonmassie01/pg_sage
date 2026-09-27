@@ -7,142 +7,75 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
-func TestEvaluateActionPolicy_AutoSafeAllowsAnalyzeWithGuardrails(t *testing.T) {
+// These scenarios predate the standing gate; they now assert the gate's
+// verdict through policyVerdict, the executor's only policy authority.
+
+func TestActionPolicy_AutoSafeAllowsAnalyzeWithGuardrails(t *testing.T) {
 	cfg := &config.Config{
 		CloudEnvironment: "cloud-sql",
-		Trust: config.TrustConfig{
-			Level:     "autonomous",
-			Tier3Safe: true,
-		},
+		Trust:            config.TrustConfig{Level: "autonomous", Tier3Safe: true},
 	}
-	ctx := ActionPolicyContext{
-		Config:          cfg,
-		ExecutionMode:   "auto",
-		RampStart:       time.Now().Add(-10 * 24 * time.Hour),
-		SafeActionLimit: 3,
-	}
+	decision := policyVerdict(AnalyzeTableContract(), verdictInput{
+		cfg: cfg, rampStart: time.Now().Add(-10 * 24 * time.Hour),
+	})
 
-	decision := EvaluateActionPolicy(AnalyzeTableContract(), ctx)
-
-	if decision.Decision != PolicyDecisionExecute {
-		t.Fatalf("Decision = %q, want %q",
-			decision.Decision, PolicyDecisionExecute)
+	if decision.Decision != PolicyDecisionExecute || decision.RequiresApproval {
+		t.Fatalf("decision = %#v, want execute without approval", decision)
 	}
-	if decision.RequiresApproval {
-		t.Fatalf("RequiresApproval = true, want false")
-	}
-	if len(decision.Guardrails) == 0 {
-		t.Fatalf("expected guardrails")
-	}
-	if decision.RiskTier != "safe" {
-		t.Fatalf("RiskTier = %q, want safe", decision.RiskTier)
+	if len(decision.Guardrails) == 0 || decision.RiskTier != "safe" {
+		t.Fatalf("decision = %#v, want safe tier with guardrails", decision)
 	}
 }
 
-func TestEvaluateActionPolicyApprovalGuardrailAlwaysQueues(t *testing.T) {
-	contract := ActionContract{
-		ActionType: "create_index", BaseRiskTier: "safe",
-		Guardrails: []string{"approval_required"},
-	}
-	cfg := &config.Config{Trust: config.TrustConfig{
-		Level: "autonomous", Tier3Safe: true,
-	}}
-	decision := EvaluateActionPolicy(contract, ActionPolicyContext{
-		Config: cfg, ExecutionMode: "auto", Now: time.Now(),
-		RampStart: time.Now().Add(-40 * 24 * time.Hour),
+func TestActionPolicyApprovalGuardrailAlwaysQueues(t *testing.T) {
+	contract := AnalyzeTableContract()
+	contract.Guardrails = append(contract.Guardrails, "approval_required")
+	cfg := &config.Config{Trust: config.TrustConfig{Level: "autonomous", Tier3Safe: true}}
+	decision := policyVerdict(contract, verdictInput{
+		cfg: cfg, rampStart: time.Now().Add(-40 * 24 * time.Hour),
 	})
 	if decision.Decision != PolicyDecisionQueueApproval || !decision.RequiresApproval {
 		t.Fatalf("approval guardrail decision = %#v", decision)
 	}
 }
 
-func TestEvaluateActionPolicy_BlocksSafeActionAtConcurrencyLimit(t *testing.T) {
-	cfg := &config.Config{
-		Trust: config.TrustConfig{
-			Level:     "autonomous",
-			Tier3Safe: true,
-		},
-	}
-	ctx := ActionPolicyContext{
-		Config:              cfg,
-		ExecutionMode:       "auto",
-		RampStart:           time.Now().Add(-10 * 24 * time.Hour),
-		SafeActionLimit:     2,
-		SafeActionsInFlight: 2,
-	}
-
-	decision := EvaluateActionPolicy(AnalyzeTableContract(), ctx)
+func TestActionPolicy_ModerateActionBlocksOutsideWindow(t *testing.T) {
+	cfg := &config.Config{Trust: config.TrustConfig{
+		Level: "autonomous", Tier3Moderate: true, MaintenanceWindow: "0 2 * * *",
+	}}
+	now := time.Date(2026, 4, 27, 4, 30, 0, 0, time.UTC)
+	decision := policyVerdict(riskContract("moderate"), verdictInput{
+		cfg: cfg, now: now, rampStart: now.Add(-40 * 24 * time.Hour),
+	})
 
 	if decision.Decision != PolicyDecisionBlocked {
 		t.Fatalf("Decision = %q, want blocked", decision.Decision)
-	}
-	if decision.BlockedReason != "safe action concurrency limit reached" {
-		t.Fatalf("BlockedReason = %q", decision.BlockedReason)
-	}
-}
-
-func TestEvaluateActionPolicy_ModerateActionBlocksOutsideWindow(t *testing.T) {
-	cfg := &config.Config{
-		Trust: config.TrustConfig{
-			Level:             "autonomous",
-			Tier3Moderate:     true,
-			MaintenanceWindow: "0 2 * * *",
-		},
-	}
-	contract := ActionContract{
-		ActionType:    "create_index_concurrently",
-		BaseRiskTier:  "moderate",
-		RollbackClass: "reversible",
-		PostChecks:    []string{"verify index is valid"},
-	}
-	ctx := ActionPolicyContext{
-		Config:        cfg,
-		ExecutionMode: "auto",
-		Now:           time.Date(2026, 4, 27, 4, 30, 0, 0, time.UTC),
-	}
-	ctx.RampStart = ctx.Now.Add(-40 * 24 * time.Hour)
-
-	decision := EvaluateActionPolicy(contract, ctx)
-
-	if decision.Decision != PolicyDecisionBlocked {
-		t.Fatalf("Decision = %q, want blocked",
-			decision.Decision)
 	}
 	if decision.RequiresApproval || !decision.RequiresMaintenanceWindow {
-		t.Fatalf("expected maintenance-window requirement without approval: %#v",
-			decision)
+		t.Fatalf("expected maintenance-window requirement without approval: %#v", decision)
 	}
-	if decision.BlockedReason != "outside maintenance window" {
+	if decision.BlockedReason != "outside_maintenance_window" {
 		t.Fatalf("BlockedReason = %q", decision.BlockedReason)
 	}
 }
 
-func TestEvaluateActionPolicy_BlocksUnsupportedProvider(t *testing.T) {
-	// Neon now supports portable actions; use a truly unknown provider for this guard.
+func TestActionPolicy_BlocksUnsupportedProvider(t *testing.T) {
 	cfg := &config.Config{
 		CloudEnvironment: "unknown-provider",
-		Trust: config.TrustConfig{
-			Level:     "autonomous",
-			Tier3Safe: true,
-		},
+		Trust:            config.TrustConfig{Level: "autonomous", Tier3Safe: true},
 	}
-	ctx := ActionPolicyContext{
-		Config:        cfg,
-		ExecutionMode: "auto",
-		RampStart:     time.Now().Add(-10 * 24 * time.Hour),
-	}
+	decision := policyVerdict(AnalyzeTableContract(), verdictInput{
+		cfg: cfg, rampStart: time.Now().Add(-10 * 24 * time.Hour),
+	})
 
-	decision := EvaluateActionPolicy(AnalyzeTableContract(), ctx)
-
-	if decision.Decision != PolicyDecisionBlocked {
-		t.Fatalf("Decision = %q, want blocked", decision.Decision)
-	}
-	if decision.BlockedReason != "provider unknown-provider is not supported" {
-		t.Fatalf("BlockedReason = %q", decision.BlockedReason)
+	if decision.Decision != PolicyDecisionBlocked ||
+		decision.BlockedReason != "provider_unsupported" ||
+		decision.Detail != "provider unknown-provider" {
+		t.Fatalf("decision = %#v, want provider_unsupported", decision)
 	}
 }
 
-func TestEvaluateActionPolicy_ReadOnlyAutoAllowsReplicaDiagnostics(t *testing.T) {
+func TestActionPolicy_ReadOnlyAutoAllowsReplicaDiagnostics(t *testing.T) {
 	cfg := &config.Config{
 		CloudEnvironment: "postgres",
 		Trust:            config.TrustConfig{Level: "autonomous"},
@@ -151,17 +84,9 @@ func TestEvaluateActionPolicy_ReadOnlyAutoAllowsReplicaDiagnostics(t *testing.T)
 	if !ok {
 		t.Fatal("diagnose_standby_conflicts contract missing")
 	}
+	decision := policyVerdict(contract, verdictInput{cfg: cfg, isReplica: true})
 
-	decision := EvaluateActionPolicy(contract, ActionPolicyContext{
-		Config:        cfg,
-		ExecutionMode: "auto",
-		IsReplica:     true,
-	})
-
-	if decision.Decision != PolicyDecisionExecute {
-		t.Fatalf("Decision = %q, want execute", decision.Decision)
-	}
-	if decision.BlockedReason != "" {
-		t.Fatalf("BlockedReason = %q", decision.BlockedReason)
+	if decision.Decision != PolicyDecisionExecute || decision.BlockedReason != "" {
+		t.Fatalf("decision = %#v, want execute", decision)
 	}
 }
