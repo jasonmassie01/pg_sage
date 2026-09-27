@@ -7,6 +7,7 @@
 internal/agentdb Test(AWSRDS|CloudSQL|Lakebase)LiveProvisioning # live cloud, PG_SAGE_LIVE_* opt-in
 internal/agentdb TestAgentDBLiveGauntlet.* # live cloud, PG_SAGE_LIVE_AGENTDB_GAUNTLET opt-in
 internal/azure TestAzureLiveServerParameter # live cloud, PG_SAGE_LIVE_AZURE opt-in
+internal/azure TestAzureLiveRestartBoundParameter # live cloud, PG_SAGE_LIVE_AZURE opt-in
 
 # Live LLM calls: need a provider key and spend quota.
 internal/rca TestTier2Live_.* # live LLM, PG_SAGE_LIVE_LLM=1 opt-in

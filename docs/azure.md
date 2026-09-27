@@ -59,6 +59,22 @@ The identity needs `Microsoft.DBforPostgreSQL/flexibleServers/configurations/rea
 At startup pg_sage logs either `azure server parameters apply through ARM for server NAME`
 or why they stay guidance-only.
 
+## Test server (live checklist)
+
+`scripts/azure/` provisions a throwaway target and runs the checklist below:
+
+```bash
+az login
+scripts/azure/provision-test-server.sh   # Burstable B1ms, ~USD 15-20/month while it exists
+scripts/azure/live-checklist.sh          # CHECK-AZ-01/03/06/07/08; 02 comes from provisioning
+scripts/azure/teardown-test-server.sh    # deletes the resource group
+```
+
+Provisioning creates resource group `pg-sage-test` (override with `AZ_RESOURCE_GROUP`,
+`AZ_LOCATION`, `AZ_PG_VERSION`). It allow-lists HypoPG, pg_hint_plan and pg_stat_statements,
+runs the setup SQL above, and gives the signed-in user Contributor on the server. Generated
+credentials go only to `~/.pg_sage/azure-test.env` (mode 600) and are never printed.
+
 ## Verification checklist (first live run)
 
 ```
@@ -69,5 +85,5 @@ CHECK-AZ-04: fleet readiness shows provider azure, log access azure_monitor
 CHECK-AZ-05: an approved ANALYZE executes and verifies
 CHECK-AZ-06: startup logs "azure server parameters apply through ARM" with azure: set
 CHECK-AZ-07: PG_SAGE_LIVE_AZURE=1 go test ./internal/azure -run Live passes (sets and restores work_mem)
-CHECK-AZ-08: a restart-bound parameter change is reported applied_pending_restart
+CHECK-AZ-08: PG_SAGE_LIVE_AZURE=1 go test ./internal/azure -run RestartBound passes (pending restart reported)
 ```
