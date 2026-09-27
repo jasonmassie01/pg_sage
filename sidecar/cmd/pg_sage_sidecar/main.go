@@ -149,8 +149,8 @@ func main() {
 	logInfo("startup", "Prometheus=%s API=%s",
 		cfg.Prometheus.ListenAddr, cfg.API.ListenAddr)
 	if !executor.ASTValidationAvailable() {
-		logWarn("startup", "built without cgo: executor SQL is checked by the "+
-			"text validator only (parse-tree validation needs a cgo build)")
+		logWarn("startup", "built without cgo: parse-tree SQL validation is "+
+			"unavailable, so unattended changes wait for operator approval")
 	}
 
 	// Initialise the trusted-proxy net list from config. Empty config

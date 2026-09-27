@@ -53,6 +53,7 @@ const (
 	ReasonProviderUnsupported      Reason = "provider_unsupported"
 	ReasonOperatorApproved         Reason = "operator_approved"
 	ReasonUnknownTrustLevel        Reason = "unknown_trust_level"
+	ReasonSQLValidationDegraded    Reason = "sql_validation_degraded"
 )
 
 type DeadlineKind string
@@ -133,6 +134,9 @@ type RuntimeState struct {
 	// unset window restricts autonomous moderate actions but not operator
 	// approvals.
 	WindowConfigured bool
+	// SQLValidationDegraded reports a build without the parse-tree SQL
+	// layer (no cgo). Mutations it would run unattended go to approval.
+	SQLValidationDegraded bool
 }
 
 const (

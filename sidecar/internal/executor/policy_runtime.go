@@ -61,6 +61,7 @@ func (e *Executor) standingRuntimeState(
 	state := policy.RuntimeState{
 		ExecutorEnabled: enabled, EmergencyStop: e.checkEmergencyStop(ctx),
 		IsReplica: request.IsReplica, ExecutionMode: mode, RampStart: e.rampStart,
+		SQLValidationDegraded: !ASTValidationAvailable(),
 	}
 	if cfg == nil {
 		return state

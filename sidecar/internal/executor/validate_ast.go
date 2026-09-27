@@ -14,9 +14,22 @@ var executorASTRules = sqlast.Rules{
 	ProtectedSchema: isProtectedExecutorSchema,
 }
 
+// astValidationAvailable is swapped only by AssumeASTValidationForTests.
+var astValidationAvailable = sqlast.Available
+
 // ASTValidationAvailable reports whether this build carries the
-// libpg_query parse-tree layer (cgo builds only).
-func ASTValidationAvailable() bool { return sqlast.Available() }
+// libpg_query parse-tree layer (cgo builds only). Without it the gate sends
+// unattended mutations to operator approval.
+func ASTValidationAvailable() bool { return astValidationAvailable() }
+
+// AssumeASTValidationForTests makes the gate treat this build as having the
+// parse-tree layer, so tests of unattended execution also run in local
+// builds without a C compiler. Call it from TestMain only; SQL checks are
+// unchanged (Check is still a no-op without cgo). Never call it in
+// production code.
+func AssumeASTValidationForTests() {
+	astValidationAvailable = func() bool { return true }
+}
 
 // checkParseTree is the second validation layer: SQL the text rules
 // accepted must also have an allowed parse-tree structure.

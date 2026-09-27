@@ -61,6 +61,9 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	if tier.Verdict != VerdictExecute {
 		return tier
 	}
+	if runtime.SQLValidationDegraded && req.Contract.RiskTier != RiskReadOnly {
+		return decisionForRequest(req, degradedValidationDecision())
+	}
 	if decision, stop := gate.windowDecision(doc, runtime, req); stop {
 		return decision
 	}
@@ -374,6 +377,16 @@ func decisionForRequest(req ActionRequest, decision Decision) Decision {
 	decision.RiskTier = req.Contract.RiskTier
 	decision.Guardrails = append([]Guardrail(nil), req.Contract.Guardrails...)
 	return decision
+}
+
+// degradedValidationDecision sends an unattended mutation to a human when
+// the build lacks parse-tree SQL validation.
+func degradedValidationDecision() Decision {
+	return Decision{
+		Verdict: VerdictQueueApproval, Reason: ReasonSQLValidationDegraded,
+		Detail: "built without cgo: parse-tree SQL validation is unavailable, " +
+			"so unattended changes need operator approval",
+	}
 }
 
 func blocked(reason Reason, detail string) Decision {
