@@ -29,11 +29,13 @@ check() { # id, pass(0/1), text
 
 cd "$REPO/sidecar" || exit 1
 go build -o "$WORK/pg_sage" ./cmd/pg_sage_sidecar/ || exit 1
+# Per-run ports so matrix lanes can run side by side.
+PORT_OFFSET=$(($$ % 900))
 cat >"$WORK/config.yaml" <<EOF
 prometheus:
-  listen_addr: "127.0.0.1:19187"
+  listen_addr: "127.0.0.1:$((19100 + PORT_OFFSET))"
 api:
-  listen_addr: "127.0.0.1:18080"
+  listen_addr: "127.0.0.1:$((18100 + PORT_OFFSET))"
 trust:
   level: observation
 EOF

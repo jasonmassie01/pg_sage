@@ -19,7 +19,8 @@ var postgresUnitBytes = map[string]uint64{
 
 var (
 	valuePattern     = regexp.MustCompile(`^([0-9]+)([kKmMgGtT][bB])?$`)
-	azureUnitPattern = regexp.MustCompile(`^([0-9]*)\s*(B|KB|MB|GB|TB|bytes)$`)
+	// Case-insensitive: live Azure reports PostgreSQL's spelling ("kB", "8kB").
+	azureUnitPattern = regexp.MustCompile(`(?i)^([0-9]*)\s*(B|KB|MB|GB|TB|bytes)$`)
 )
 
 // convertToUnit expresses a PostgreSQL memory value in the unit Azure
@@ -72,8 +73,8 @@ func azureUnitBytes(unit string) (uint64, error) {
 		}
 		multiplier = parsed
 	}
-	base := map[string]uint64{"B": 1, "bytes": 1, "KB": 1 << 10, "MB": 1 << 20,
-		"GB": 1 << 30, "TB": 1 << 40}[match[2]]
+	base := map[string]uint64{"b": 1, "bytes": 1, "kb": 1 << 10, "mb": 1 << 20,
+		"gb": 1 << 30, "tb": 1 << 40}[strings.ToLower(match[2])]
 	return multiplier * base, nil
 }
 

@@ -294,3 +294,20 @@ func TestServerFromHost(t *testing.T) {
 		}
 	}
 }
+
+// Live Azure (CHECK-AZ-07, 2026-09-27) reports PostgreSQL's own unit
+// spelling: "kB" for work_mem and "8kB" for shared_buffers.
+func TestConvertToUnitAcceptsLiveAzureSpelling(t *testing.T) {
+	for _, tc := range []struct{ value, unit, want string }{
+		{"8MB", "kB", "8192"}, {"1GB", "8kB", "131072"}, {"16MB", "kb", "16384"},
+		{"2GB", "mB", "2048"}, {"64MB", "Bytes", "67108864"},
+	} {
+		got, err := convertToUnit(tc.value, tc.unit)
+		if err != nil || got != tc.want {
+			t.Errorf("convertToUnit(%q, %q) = %q, %v; want %q", tc.value, tc.unit, got, err, tc.want)
+		}
+	}
+	if got, err := convertToUnit("64MB", "ms"); err == nil {
+		t.Errorf("memory value accepted for a time unit: %q", got)
+	}
+}

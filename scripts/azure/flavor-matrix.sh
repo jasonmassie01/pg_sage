@@ -18,7 +18,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LOCATION="${AZ_LOCATION:-centralus}"
 export AZ_LOCATION="$LOCATION" AZ_RESOURCE_GROUP="${AZ_RESOURCE_GROUP:-pg-sage-test}"
 STATE_DIR="$HOME/.pg_sage/azure-matrix"
-REPORT="$REPO/reviews/azure-matrix-$(date +%Y-%m-%d).md"
+REPORT="${MATRIX_REPORT:-$REPO/reviews/azure-matrix-$(date +%Y-%m-%d).md}"
 mkdir -p "$STATE_DIR"
 
 az account show >/dev/null 2>&1 || { echo "run 'az login' first" >&2; exit 1; }
