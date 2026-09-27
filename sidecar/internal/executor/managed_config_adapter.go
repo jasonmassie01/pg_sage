@@ -126,7 +126,7 @@ func managedConfigMechanism(provider string) ManagedConfigMechanism {
 		return ManagedProviderConfig
 	case "cloud-sql", "cloudsql", "gcp", "alloydb":
 		return ManagedDatabaseFlag
-	case "azure", "azure-flexible", "azure-single":
+	case "azure", "azure-flexible", "azure-single", "azure-cosmos":
 		return ManagedServerParameter
 	default:
 		return ManagedParameterGroup
@@ -142,6 +142,10 @@ func managedConfigGuidance(provider, parameter string) string {
 		return "Supabase instance parameter " + parameter +
 			" requires a supported Postgres config control through the Supabase API/CLI; " +
 			"verify availability and effective state; ALTER SYSTEM is unavailable"
+	case "azure-cosmos":
+		return "Azure Cosmos DB for PostgreSQL: set " + parameter + " with `az cosmosdb " +
+			"postgres configuration coordinator update --name " + parameter +
+			" --value <value>`; ALTER SYSTEM is unavailable"
 	case "azure", "azure-flexible", "azure-single":
 		return "Azure Database for PostgreSQL: set " + parameter + " with `az postgres " +
 			"flexible-server parameter set --name " + parameter + " --value <value>` " +

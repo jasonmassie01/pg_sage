@@ -15,6 +15,9 @@ ENV_FILE="${SAGE_AZURE_ENV_FILE:-$HOME/.pg_sage/azure-test.env}"
 LOCATION="${AZ_LOCATION:-centralus}"
 RESOURCE_GROUP="${AZ_RESOURCE_GROUP:-pg-sage-test}"
 PG_VERSION="${AZ_PG_VERSION:-17}"
+TIER="${AZ_TIER:-Burstable}"
+SKU="${AZ_SKU:-Standard_B1ms}"
+NODE_COUNT="${AZ_NODE_COUNT:-}" # set (e.g. 2) for an elastic cluster
 ADMIN_USER="sageadmin"
 
 log() { printf '[azure-setup] %s\n' "$*" >&2; }
@@ -62,18 +65,38 @@ if az postgres flexible-server show -g "$RESOURCE_GROUP" -n "$SERVER_NAME" -o no
 	log "server $SERVER_NAME exists"
 else
 	CLIENT_IP="$(curl -fsS https://api.ipify.org)"
-	log "creating server $SERVER_NAME (PostgreSQL $PG_VERSION, B1ms; ~5-10 min)"
+	cluster_args=()
+	[[ -n "$NODE_COUNT" ]] && cluster_args=(--node-count "$NODE_COUNT")
+	log "creating server $SERVER_NAME (PostgreSQL $PG_VERSION, $TIER $SKU" \
+		"${NODE_COUNT:+, elastic cluster of $NODE_COUNT}; ~5-15 min)"
 	az postgres flexible-server create -g "$RESOURCE_GROUP" -n "$SERVER_NAME" \
-		-l "$LOCATION" --version "$PG_VERSION" --tier Burstable --sku-name Standard_B1ms \
+		-l "$LOCATION" --version "$PG_VERSION" --tier "$TIER" --sku-name "$SKU" \
 		--storage-size 32 --admin-user "$ADMIN_USER" --admin-password "$ADMIN_PASSWORD" \
-		--public-access "$CLIENT_IP" --yes -o none
+		--public-access "$CLIENT_IP" "${cluster_args[@]}" --yes -o none
 fi
 
+# merge_parameter NAME ITEM... adds items to a comma-separated server
+# parameter, keeping what is there (an elastic cluster preloads citus).
+merge_parameter() {
+	local name="$1" current merged item
+	shift
+	current="$(az postgres flexible-server parameter show -g "$RESOURCE_GROUP" \
+		-s "$SERVER_NAME" --name "$name" --query value -o tsv)"
+	merged="$current"
+	for item in "$@"; do
+		if ! [[ ",${merged,,}," == *",${item,,},"* ]]; then
+			merged="${merged:+$merged,}$item"
+		fi
+	done
+	if [[ "$merged" != "$current" ]]; then
+		az postgres flexible-server parameter set -g "$RESOURCE_GROUP" -s "$SERVER_NAME" \
+			--name "$name" --value "$merged" -o none
+	fi
+}
+
 log "allow-listing extensions and preload libraries"
-az postgres flexible-server parameter set -g "$RESOURCE_GROUP" -s "$SERVER_NAME" \
-	--name azure.extensions --value "PG_STAT_STATEMENTS,HYPOPG,PG_HINT_PLAN" -o none
-az postgres flexible-server parameter set -g "$RESOURCE_GROUP" -s "$SERVER_NAME" \
-	--name shared_preload_libraries --value "pg_stat_statements,pg_hint_plan" -o none
+merge_parameter azure.extensions PG_STAT_STATEMENTS HYPOPG PG_HINT_PLAN
+merge_parameter shared_preload_libraries pg_stat_statements pg_hint_plan
 log "restarting to load preload libraries"
 az postgres flexible-server restart -g "$RESOURCE_GROUP" -n "$SERVER_NAME" -o none
 

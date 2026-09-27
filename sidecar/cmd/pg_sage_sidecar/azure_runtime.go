@@ -23,6 +23,9 @@ func azureManagedConfig(
 	case "azure", "azure-flexible":
 	case "azure-single":
 		return nil, "azure single server is retired; server parameters are guidance-only"
+	case "azure-cosmos":
+		return nil, "azure cosmos db for postgresql: server parameters are guidance-only " +
+			"(the ARM adapter targets flexible servers)"
 	default:
 		return nil, ""
 	}

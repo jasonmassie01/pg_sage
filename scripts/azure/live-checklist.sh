@@ -18,6 +18,11 @@ trap 'rm -rf "$WORK"' EXIT
 source "$ENV_FILE"
 
 failures=0
+finish_manual() {
+	echo "CHECK-AZ-02: see the provisioning output (refused statements are listed there)"
+	echo "CHECK-AZ-04: MANUAL fleet readiness shows provider azure, log access azure_monitor"
+	echo "CHECK-AZ-05: MANUAL an approved ANALYZE executes and verifies"
+}
 check() { # id, pass(0/1), text
 	if [[ "$2" == 0 ]]; then echo "$1: PASS $3"; else echo "$1: FAIL $3"; failures=$((failures + 1)); fi
 }
@@ -46,11 +51,20 @@ check CHECK-AZ-01 $? 'sidecar logs "cloud environment: azure"'
 
 snapshots="$(PGPASSWORD="$SAGE_AZURE_AGENT_PASSWORD" docker run --rm -e PGPASSWORD \
 	postgres:17-alpine psql -tA \
-	"host=$SAGE_AZURE_HOST user=sage_agent dbname=postgres sslmode=require" \
+	"host=$SAGE_AZURE_HOST user=sage_agent dbname=${SAGE_AZURE_DB:-postgres} sslmode=require" \
 	-c "SELECT count(*) FROM sage.snapshots" 2>/dev/null || echo 0)"
 rc=1; [[ "${snapshots:-0}" -gt 0 ]] && rc=0
-check CHECK-AZ-03 "$rc""collector snapshots in sage.snapshots: ${snapshots:-0}"
+check CHECK-AZ-03 "$rc" "collector snapshots in sage.snapshots: ${snapshots:-0}"
 
+if [[ "${SAGE_AZURE_KIND:-flexible}" == cosmos ]]; then
+	# Cosmos DB for PostgreSQL has its own ARM resource type; pg_sage's
+	# parameter adapter targets flexible servers only.
+	echo "CHECK-AZ-06: N/A cosmos (parameters stay guidance-only)"
+	echo "CHECK-AZ-07: N/A cosmos"
+	echo "CHECK-AZ-08: N/A cosmos"
+	finish_manual
+	exit "$failures"
+fi
 grep -q "azure server parameters apply through ARM" "$WORK/sidecar.log"
 check CHECK-AZ-06 $? "startup reports ARM parameter application"
 
@@ -65,7 +79,5 @@ echo "$out" | grep -q -- "--- PASS" && ! echo "$out" | grep -q -- "--- SKIP"
 check CHECK-AZ-08 $? "restart-bound parameter reported pending restart"
 echo "$out" | grep -E "azure parameter|FAIL|Error" | sed 's/^/  /' >&2
 
-echo "CHECK-AZ-02: see the provisioning output (refused statements are listed there)"
-echo "CHECK-AZ-04: MANUAL fleet readiness shows provider azure, log access azure_monitor"
-echo "CHECK-AZ-05: MANUAL an approved ANALYZE executes and verifies"
+finish_manual
 exit "$failures"
