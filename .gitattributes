@@ -1,2 +1,5 @@
+# Shell scripts run on Linux CI runners.
+*.sh text eol=lf
+
 # Byte-exact generated reference; tests compare it with Go generator output.
 docs/generated/config-lifecycles.md text eol=lf

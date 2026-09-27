@@ -134,3 +134,19 @@ func TestFormatReportNamesEveryViolation(t *testing.T) {
 		t.Fatal("a clean report must still summarize the allowed skips")
 	}
 }
+
+// go test -v prints the t.Skip text before or after the --- SKIP line
+// depending on version and parallelism; both orders must keep the reason.
+func TestCheckKeepsReasonPrintedAfterSkipLine(t *testing.T) {
+	input := event("output", "internal/x", "TestA", "--- SKIP: TestA (0.00s)\n") +
+		event("skip", "internal/x", "TestA", "") +
+		event("output", "internal/x", "TestA", "    a_test.go:9: needs pg_hint_plan\n")
+	report, err := Check(strings.NewReader(input), nil)
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(report.Violations) != 1 ||
+		report.Violations[0].Reason != "a_test.go:9: needs pg_hint_plan" {
+		t.Fatalf("reason = %+v", report.Violations)
+	}
+}

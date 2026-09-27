@@ -17,7 +17,7 @@ e2e TestOptimizerMultiQueryConsolidation # live LLM, SAGE_LLM_API_KEY opt-in
 internal/rca TestRCAChildProcessFixture # subprocess helper for TestPreflightRCAProcessRestart*
 
 # OS-specific paths.
-internal/logwatch TestResolveLogDir_AbsoluteUnix # unix path semantics, skipped on Windows
+internal/logwatch TestResolveLogDir_Absolute(Unix|Windows) # OS path semantics, each skipped on the other OS
 
 # Version-gated features. The PG 14-18 matrix runs each on the versions
 # that have it, so a skip here on a supporting version shows up as a pass
