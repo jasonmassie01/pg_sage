@@ -120,7 +120,7 @@ func ValidateExecutorSQL(sql string) error {
 		if err := checkProtectedSchemaUsage(normalized, prefix); err != nil {
 			return err
 		}
-		return nil
+		return checkParseTree(trimmed)
 	}
 
 	return fmt.Errorf(

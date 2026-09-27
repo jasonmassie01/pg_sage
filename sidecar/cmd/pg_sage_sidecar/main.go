@@ -132,7 +132,8 @@ func main() {
 		os.Exit(runVectorLab())
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
-		fmt.Printf("pg_sage %s (commit: %s, built: %s)\n", version, commit, date)
+		fmt.Printf("pg_sage %s (commit: %s, built: %s, sql-ast: %s)\n",
+			version, commit, date, sqlASTStatus())
 		os.Exit(0)
 	}
 
@@ -147,6 +148,10 @@ func main() {
 	logInfo("startup", "pg_sage sidecar v%s — mode=%s", version, cfg.Mode)
 	logInfo("startup", "Prometheus=%s API=%s",
 		cfg.Prometheus.ListenAddr, cfg.API.ListenAddr)
+	if !executor.ASTValidationAvailable() {
+		logWarn("startup", "built without cgo: executor SQL is checked by the "+
+			"text validator only (parse-tree validation needs a cgo build)")
+	}
 
 	// Initialise the trusted-proxy net list from config. Empty config
 	// falls back to loopback. Must run before any HTTP listener starts
