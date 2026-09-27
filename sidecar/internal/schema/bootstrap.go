@@ -373,7 +373,9 @@ func migrationStatements() []string {
 		ddlFleetScaleIndexes,
 		ddlQueryStoreStatsEpoch,
 	}
-	return append(statements, agentNativeMigrationStatements()...)
+	statements = append(statements, agentNativeMigrationStatements()...)
+	// After the agent-native DDL: sage.policy must exist.
+	return append(statements, ddlPolicyChangeClassSplit)
 }
 
 // ---------------------------------------------------------------------------
