@@ -758,3 +758,27 @@ Open for decision:
 3. **Local builds without a C compiler** (for example Windows without MinGW) silently lose
    the AST layer, with only a warning. Options: keep the warning, or refuse to start the
    executor in `auto` mode without it.
+
+### 10.9 Morning decisions (2026-09-27)
+
+1. **Migrate (6d4fb0e).** Stored policy documents at schema_version 1 gain
+   `backend_signal`, `query_hint` and `schema_change` exactly where `index` was allowed
+   (and require approval where `index` did). Superseded and rejected history is untouched.
+   New rows default to version 2 and are never widened. Mutation-tested.
+2. **Azure setup (352e760).**
+   - `scripts/azure/provision-test-server.sh` provisions the test server.
+   - `scripts/azure/live-checklist.sh` runs CHECK-AZ-01/03/06/07/08.
+   - `scripts/azure/teardown-test-server.sh` removes it.
+   - CHECK-AZ-08 now has a live test.
+   - The Azure CLI is being installed; the operator runs `az login` (sign-in is theirs).
+3. **Missing AST layer (ed19009).** A build without cgo sends mutations it would run
+   unattended to operator approval (`sql_validation_degraded`). Read-only work and operator
+   approvals are unaffected. Test binaries opt out with `AssumeASTValidationForTests`.
+
+Verification:
+
+- Native unit: 7624 passed; the two `cmd` failures were the degraded gate working, and
+  are fixed in b5fef35.
+- e2e under cgo: 76 passed, 0 failed.
+- Skip budget: clean.
+- Lint: 0 issues.
