@@ -48,6 +48,10 @@ func preflightCollector(t *testing.T, p *pgxpool.Pool) (
 	cfg := config.DefaultConfig()
 	cfg.Collector.IntervalSeconds = 1
 	cfg.Analyzer.SlowQueryThresholdMs = 1
+	// The collector keeps the top max_queries statements by total time; in
+	// a full parallel suite the fixture's short workload fell out of the
+	// default window and the test flaked.
+	cfg.Collector.MaxQueries = 50000
 	cfg.Advisor.Enabled = false
 	cfg.Safety.QueryTimeoutMs = 5000
 	logs := make(chan string, 100)
