@@ -99,6 +99,12 @@ See the [docs/](docs/) directory for guides and reference:
 
 Requires Go 1.24+ and Node.js 20+. See [docs/installation.md](docs/installation.md) for details.
 
+A C compiler (gcc or clang) is also needed: with cgo the binary links
+libpg_query, which checks every executor statement against its PostgreSQL
+parse tree. Without a C compiler the build still succeeds, but that layer is
+left out; `pg_sage --version` then reports `sql-ast: unavailable` and startup
+logs a warning. Release binaries and Docker images always include it.
+
 ```bash
 cd sidecar
 cd web && npm ci && npm run build && cd ..

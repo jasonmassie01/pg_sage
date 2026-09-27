@@ -142,10 +142,8 @@ func buildBinary(t *testing.T) string {
 		"-o", binPath,
 		"./cmd/pg_sage_sidecar/",
 	)
+	// Inherit CGO_ENABLED: CI builds with cgo, like the shipped binaries.
 	cmd.Dir = sidecarDir
-	cmd.Env = append(os.Environ(),
-		"CGO_ENABLED=0",
-	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("cannot build binary: %v\n%s", err, out)

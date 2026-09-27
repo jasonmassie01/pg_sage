@@ -35,6 +35,9 @@ psql -h localhost -U postgres -d postgres -c "CREATE USER sage_agent WITH PASSWO
 
 ## 2. Build and Run pg_sage
 
+Without a C compiler (for example MSYS2 MinGW gcc) this build leaves out
+parse-tree SQL validation; see [Installation](installation.md#build-from-source).
+
 ```powershell
 git clone https://github.com/jasonmassie01/pg_sage.git
 cd pg_sage\sidecar

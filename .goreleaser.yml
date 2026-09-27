@@ -11,19 +11,46 @@ builds:
     main: ./cmd/pg_sage_sidecar/
     dir: sidecar
     binary: pg_sage
+    # cgo links libpg_query for parse-tree SQL validation (internal/sqlast).
+    # The release job runs in goreleaser-cross, which carries a C
+    # cross-compiler per target (osxcross for darwin). Linux binaries are
+    # static so they run on any distribution.
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     goos:
       - linux
       - darwin
     goarch:
       - amd64
       - arm64
+    flags:
+      - -trimpath
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
       - -X main.date={{.Date}}
+    overrides:
+      - goos: linux
+        goarch: amd64
+        env: [CC=x86_64-linux-gnu-gcc]
+        tags: &static_tags [netgo, osusergo]
+        ldflags: &static_ldflags
+          - -s -w -linkmode external -extldflags "-static"
+          - -X main.version={{.Version}}
+          - -X main.commit={{.Commit}}
+          - -X main.date={{.Date}}
+      - goos: linux
+        goarch: arm64
+        env: [CC=aarch64-linux-gnu-gcc]
+        tags: *static_tags
+        ldflags: *static_ldflags
+      - goos: darwin
+        goarch: amd64
+        env: [CC=o64-clang]
+      - goos: darwin
+        goarch: arm64
+        env: [CC=oa64-clang]
 
 archives:
   - id: default

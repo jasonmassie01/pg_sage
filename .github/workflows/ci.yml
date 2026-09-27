@@ -210,13 +210,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-node@v4
         with:
-          go-version-file: sidecar/go.mod
+          node-version: "20"
 
-      - uses: goreleaser/goreleaser-action@v6
-        with:
-          version: v2.17.0
-          args: release --clean
+      - name: Build web UI
+        run: cd sidecar/web && npm ci && npm run build
+
+      # cgo release: goreleaser-cross carries a C cross-compiler per target
+      # (osxcross for darwin) so libpg_query links into every binary.
+      - name: GoReleaser (cgo cross-compile)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm -e GITHUB_TOKEN -v "$PWD:/repo" -w /repo \
+            --entrypoint bash ghcr.io/goreleaser/goreleaser-cross:v1.25.0 -c \
+            'git config --global --add safe.directory /repo &&
+             goreleaser release --clean --skip=before'
