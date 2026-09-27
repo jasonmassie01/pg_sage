@@ -711,3 +711,50 @@ Open (`tasks/todo-2026-09-26-full-review.md`, steps C2/D/E):
   cross-compiled release (goreleaser) and complicates the Windows build. Adopting it is a
   build-system decision.
 
+Update (overnight 2026-09-26): C2, D, E and #4 are done; see §10.8.
+
+### 10.8 Overnight 2026-09-26: gate authority, Azure, AST validation
+
+Decisions applied: (1) build Azure; (2) change-class allowlists and policy windows
+also restrict operator-approved actions; (3) adopt pg_query_go with a cgo release.
+
+- **C2 (16969b4).** Operator approvals go through `gate.Authorize` with
+  `OperatorApproved`. That covers hard stops, provider, trust (observation and unknown
+  trust are blocked), change class, and doc/trust windows for moderate/high risk; there is
+  no tier or ramp check. Untyped operator SQL is treated as high risk. Approval readiness
+  shows the gate's verdict.
+- **D + E (ce10dce).** Case and fleet readiness use `ExplainBatch` over a memoized
+  snapshot. The legacy `EvaluateActionPolicy` engine and its fake 365-day ramp are
+  deleted. `CheckEmergencyStop` fails closed on a nil pool.
+- **Azure.** `internal/azure` changes server parameters through ARM (unit conversion,
+  async polling, pending-restart detection). Credentials come only from azidentity.
+  Config lives under `azure.*` / `SAGE_AZURE_*`. The provider adapter, capability
+  aliases and docs/azure.md (CHECK-AZ-01..08) are added. The live test is opt-in
+  (`PG_SAGE_LIVE_AZURE=1`) and has not run: no account yet.
+- **AST validation (090f765, 4624d02).** `internal/sqlast` parses with libpg_query and
+  enforces statement kind and shape as a second layer inside `ValidateExecutorSQL`. The
+  build changes:
+  - The Docker build uses cgo and fails if the layer is missing.
+  - Releases run in goreleaser-cross. A snapshot build of all four targets was proven in
+    Docker: static linux amd64/arm64 and darwin amd64/arm64.
+  - `--version` prints `sql-ast:`.
+  - A build without cgo logs a startup warning.
+
+Verification (cgo, Docker `golang:1.25`, PG17/18 matrix):
+
+- Unit: 7608 passed, 0 failed, 10 skipped (all allowlisted).
+- e2e: 76 passed, 0 failed, 13 skipped (all allowlisted).
+- golangci-lint: 0 issues, both natively and under cgo.
+- Coverage: sqlast 95.2%, executor 79.5%. `cmd/*` sits at 50-52%, at the utility floor
+  and unchanged by this work.
+
+Open for decision:
+
+1. **Stored policy documents vs. new change classes.** Operator approvals now obey the
+   change-class allowlist. Policy documents saved before a change class existed will
+   refuse operator approvals of that class until the document is re-saved. Options:
+   migrate stored documents to add the classes, or keep refusing (fail closed).
+2. **Azure live test.** Run CHECK-AZ-01..08 once the account exists; see docs/azure.md.
+3. **Local builds without a C compiler** (for example Windows without MinGW) silently lose
+   the AST layer, with only a warning. Options: keep the warning, or refuse to start the
+   executor in `auto` mode without it.
