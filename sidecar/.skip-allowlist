@@ -23,6 +23,7 @@ internal/logwatch TestResolveLogDir_Absolute(Unix|Windows) # OS path semantics, 
 # that have it, so a skip here on a supporting version shows up as a pass
 # missing from that matrix leg, not as a silent gap.
 internal/collector TestCollectIO|TestPhase2_CollectIO_FieldsPopulated # pg_stat_io is PG16+
+internal/collector TestCollectQueries_BlockReadTimeFromStatements # PG16 does not time local-buffer reads in pg_stat_statements
 internal/autoexplain TestCaptureOnDemand_(ParameterizedUsesGenericPlan|NormalizedParameterizedQuery) # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/optimizer TestGenericPlanCapturesUnboundParameters # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/tuner TestFunctional_Coverage_DB_HintPlanSQLUsesQueryIDSchema|TestHintRemovalFindings_RetiredAndBrokenOnly # query_id hint table is pg_hint_plan 1.7+ (PG17+)
