@@ -468,8 +468,10 @@ func shapeHighRiskBlocked(
 	})
 	act, acted := latestActionFor(t, pool, "duplicate_index", "public.shp_b14_subset")
 	_, _, exists := indexAccessMethod(t, pool, "shp_b14_subset")
+	gate := quickScalar(pool, `SELECT verdict || '/' || reason FROM sage.decision
+		WHERE target_objects ? 'public.shp_b14_subset' ORDER BY id DESC LIMIT 1`)
 	r.add(t, "CHECK-B14", acted && isExecutedOutcome(act.Outcome) && !exists,
-		"typed DROP contract, not finding ActionRisk, governs execution")
+		"typed DROP contract, not finding ActionRisk, governs execution (gate="+gate+")")
 }
 
 func shapeObservationBlocked(

@@ -133,6 +133,15 @@ func newPipelineExecutor(
 	if err := ex.EnableStandingPolicy(context.Background(), cfg.Policy.Profile, nil); err != nil {
 		t.Fatalf("enable standing policy: %v", err)
 	}
+	// Each scenario starts with an empty 24h usage window. The suite shares
+	// one database, and its earlier actions would otherwise exhaust the
+	// profile's blast radius (20 tables/24h) and park later scenarios.
+	// Rows are kept as evidence, just moved outside the window.
+	if _, err := pool.Exec(context.Background(), `UPDATE sage.action_log
+		SET executed_at = executed_at - interval '25 hours'
+		WHERE executed_at > now() - interval '24 hours'`); err != nil {
+		t.Fatalf("age prior scenario actions: %v", err)
+	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
