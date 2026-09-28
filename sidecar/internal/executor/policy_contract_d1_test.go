@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,16 +55,22 @@ func TestSetTableAutovacuumIsReversible(t *testing.T) {
 	}
 }
 
+// Owner authority for an unrollbackable retention delete is D5's explicit
+// sage.table_contract.retention_column: the delete must run on the column
+// the owner declared. A pre-D5 contract (no declared column) has none.
 func TestAuthorizeRetentionDeclaresOwnerAuthority(t *testing.T) {
 	tests := []struct {
-		name   string
-		column string
-		window time.Duration
-		want   bool
+		name             string
+		column, declared string
+		window           time.Duration
+		want             bool
 	}{
-		{"declared contract", "created_at", 30 * 24 * time.Hour, true},
-		{"missing column", "", 30 * 24 * time.Hour, false},
-		{"zero window", "created_at", 0, false},
+		{"declared column", "created_at", "created_at", 30 * 24 * time.Hour, true},
+		{"no declared column", "created_at", "", 30 * 24 * time.Hour, false},
+		{"declared a different column", "created_at", "ingested_at",
+			30 * 24 * time.Hour, false},
+		{"missing column", "", "", 30 * 24 * time.Hour, false},
+		{"zero window", "created_at", "created_at", 0, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -74,8 +81,8 @@ func TestAuthorizeRetentionDeclaresOwnerAuthority(t *testing.T) {
 			exec.WithPolicyGate(gate)
 
 			err := exec.AuthorizeRetention(context.Background(), RetentionRequest{
-				Target: "public.events", Column: tt.column, Window: tt.window,
-				Cutoff: time.Now(), BatchLimit: 100,
+				Target: "public.events", Column: tt.column, DeclaredColumn: tt.declared,
+				Window: tt.window, Cutoff: time.Now(), BatchLimit: 100,
 			})
 
 			if err != nil {
@@ -89,6 +96,33 @@ func TestAuthorizeRetentionDeclaresOwnerAuthority(t *testing.T) {
 					gate.request.Contract.RollbackClass)
 			}
 		})
+	}
+}
+
+// Through the real standing gate with the built-in unattended profile and
+// a satisfied moderate ramp: a declared column is authorized as before; a
+// contract without one is sent to a human (refused_by_policy).
+func TestAuthorizeRetentionThroughStandingGate(t *testing.T) {
+	now := time.Date(2026, 9, 28, 2, 0, 0, 0, time.UTC)
+	exec := New(nil, wave1PolicyConfig("autonomous"), nil,
+		now.Add(-40*24*time.Hour), noopExecLog)
+	exec.emergencyStopFn = func(context.Context) bool { return false }
+	exec.SetExecutionMode("auto")
+	exec.EnableStandingPolicyDocument(policy.UnattendedProfile(), func() time.Time { return now })
+	request := RetentionRequest{
+		Target: "public.events", Column: "created_at", Window: 30 * 24 * time.Hour,
+		Cutoff: now.Add(-30 * 24 * time.Hour), BatchLimit: 100, Candidates: 10,
+	}
+
+	undeclared := exec.AuthorizeRetention(context.Background(), request)
+	request.DeclaredColumn = "created_at"
+	declared := exec.AuthorizeRetention(context.Background(), request)
+
+	if undeclared == nil || !strings.Contains(undeclared.Error(), "refused_by_policy") {
+		t.Fatalf("undeclared column = %v, want withheld refused_by_policy", undeclared)
+	}
+	if declared != nil {
+		t.Fatalf("declared column = %v, want authorized", declared)
 	}
 }
 

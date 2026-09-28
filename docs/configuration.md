@@ -245,8 +245,9 @@ The standing policy document also carries three safety fields, all enforced:
   `non_dup_object_drop` (dropping a table, column, constraint, sequence,
   schema or replication slot; index drops are rebuildable and are not
   refused) and `unrollbackable` (rollback class `not_reversible` or
-  `forward_fix_only`, unless the action runs under an owner-declared
-  retention contract). Unknown tokens are rejected.
+  `forward_fix_only`, unless the action is a retention delete on the column
+  the owner declared as the contract's `retention.column`; see [Retention
+  contracts](#retention-contracts)). Unknown tokens are rejected.
 - `lock_duration_ceiling_ms`: caps `lock_timeout` for DDL that runs inside a
   transaction at the smaller of the ceiling and `safety.lock_timeout_ms`.
   `CONCURRENTLY` builds keep `safety.lock_timeout_ms`, because they wait on

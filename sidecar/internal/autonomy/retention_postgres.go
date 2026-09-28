@@ -30,13 +30,16 @@ const (
 // RetentionIntent is the typed destructive action submitted to the policy
 // gate immediately before each delete batch.
 type RetentionIntent struct {
-	Schema     string
-	Table      string
-	Column     string
-	Cutoff     time.Time
-	Window     time.Duration
-	BatchLimit int
-	Candidates int64
+	Schema string
+	Table  string
+	Column string
+	// DeclaredColumn is the contract's owner-declared retention column
+	// (sage.table_contract.retention_column); empty for a pre-D5 contract.
+	DeclaredColumn string
+	Cutoff         time.Time
+	Window         time.Duration
+	BatchLimit     int
+	Candidates     int64
 }
 
 // RetentionAuthorizer returns nil only when the standing policy gate grants
@@ -95,7 +98,8 @@ func (enforcer *postgresRetentionEnforcer) authorizedDelete(
 	intent := RetentionIntent{
 		Schema: item.Invariant.Schema, Table: item.Invariant.Table,
 		Column: item.Invariant.RetentionColumn, Cutoff: cutoff,
-		Window: item.Contract.RetentionWindow, BatchLimit: enforcer.limit(),
+		DeclaredColumn: item.Contract.RetentionColumn,
+		Window:         item.Contract.RetentionWindow, BatchLimit: enforcer.limit(),
 		Candidates: candidates,
 	}
 	if err := enforcer.authorize(ctx, intent); err != nil {

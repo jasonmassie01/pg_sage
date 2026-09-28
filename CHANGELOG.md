@@ -131,8 +131,10 @@
   token is in the detail. An operator-approved action is not refused.
   - No action pg_sage takes today changes verdict under the built-in
     profiles. Unused, duplicate and invalid index drops are rebuildable and
-    keep their earned autonomy. Retention deletes run under the owner's
-    retention contract and are not "unrollbackable".
+    keep their earned autonomy. A retention delete on the column the owner
+    declared as the contract's `retention.column` (D5) runs under that
+    declaration and is not "unrollbackable"; one without a declared column
+    is queued for approval.
   - `set_table_autovacuum` is now reversible: it ships `ALTER TABLE ... RESET`.
   - Unknown refusal tokens are rejected when a policy is proposed. A stored
     policy that contains one fails closed (`policy_unavailable`), and startup

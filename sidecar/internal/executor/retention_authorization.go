@@ -10,13 +10,16 @@ import (
 
 // RetentionRequest describes one bounded retention delete batch.
 type RetentionRequest struct {
-	Target     string
-	Column     string
-	Cutoff     time.Time
-	Window     time.Duration
-	BatchLimit int
-	Candidates int64
-	IsReplica  bool
+	Target string
+	Column string
+	// DeclaredColumn is the owner-declared retention column of the table
+	// contract (D5); empty when the contract declares none.
+	DeclaredColumn string
+	Cutoff         time.Time
+	Window         time.Duration
+	BatchLimit     int
+	Candidates     int64
+	IsReplica      bool
 }
 
 // AuthorizeRetention routes a retention delete through the standing policy
@@ -31,11 +34,10 @@ func (e *Executor) AuthorizeRetention(ctx context.Context, request RetentionRequ
 	decision := standingPolicyDecision(gate.Authorize(ctx, policy.ActionRequest{
 		Contract:        policyContract(retentionDeleteContract()),
 		InternalControl: true, Feature: string(policy.ChangeRetention),
-		// The owner's declared retention contract (column and window) is the
-		// authority for this unrollbackable delete. D5 will add an explicit
-		// owner-declared retention column; until then the declared contract
-		// is what the retention enforcer requires before it gets here.
-		OwnerDeclared: request.Column != "" && request.Window > 0,
+		// The owner's retention contract is the authority for this
+		// unrollbackable delete only when it explicitly declares the column
+		// being deleted by (D5, sage.table_contract.retention_column).
+		OwnerDeclared: ownerDeclaredRetention(request),
 		TargetObjs:    []string{request.Target}, IsReplica: request.IsReplica,
 		Evidence: map[string]any{
 			"retention_column": request.Column, "cutoff": request.Cutoff.UTC(),
@@ -71,4 +73,13 @@ func retentionDeleteContract() ActionContract {
 		Cooldown:        "one batch per autonomy tick",
 		AuditFields:     []string{"table", "retention_column", "cutoff", "deleted_rows"},
 	}
+}
+
+// ownerDeclaredRetention reports a delete that runs on the retention column
+// the owner declared in the table contract, with a positive window. A
+// pre-D5 contract declares no column and has no owner authority, so the
+// refusal set's "unrollbackable" token sends such a delete to a human.
+func ownerDeclaredRetention(request RetentionRequest) bool {
+	return request.DeclaredColumn != "" && request.DeclaredColumn == request.Column &&
+		request.Window > 0
 }
