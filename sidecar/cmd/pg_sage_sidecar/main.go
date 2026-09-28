@@ -301,6 +301,9 @@ func main() {
 	if !waitProviderWorkers(shutCtx, &standaloneProviderWorkers) {
 		logWarn("shutdown", "provider observability workers exceeded shutdown deadline")
 	}
+	if !waitProviderWorkers(shutCtx, &standaloneRCAWorkers) {
+		logWarn("shutdown", "rca fast path exceeded shutdown deadline")
+	}
 	shutdownExecutors(shutCtx)
 
 	logInfo("shutdown", "stopped")
@@ -730,8 +733,9 @@ func initStandalone() {
 				stopLogWatcherOnShutdown(shutdownCtx, fw)
 			}
 		}
-		anal.WithRCAEngine(newRCAAdapter(shutdownCtx, rcaEng, pool,
-			resolveDBName(), logStructuredWrapper))
+		anal.WithRCAEngine(newRCAAdapter(rcaAdapterDeps{ctx: shutdownCtx,
+			eng: rcaEng, pool: pool, name: resolveDBName(), cfg: cfg,
+			logFn: logStructuredWrapper, workers: &standaloneRCAWorkers}))
 		logInfo("startup", "rca engine enabled — "+
 			"resolution_cycles=%d, escalation_cycles=%d",
 			cfg.RCA.ResolutionCycles,
@@ -1501,8 +1505,9 @@ func initFleetMultiDB() {
 				sub := dbLogFanout.Subscribe(name)
 				dbRCAEng.SetLogSource(sub)
 			}
-			dbAnal.WithRCAEngine(newRCAAdapter(instCtx, dbRCAEng, dbPool,
-				name, logStructuredWrapper))
+			dbAnal.WithRCAEngine(newRCAAdapter(rcaAdapterDeps{ctx: instCtx,
+				eng: dbRCAEng, pool: dbPool, name: name, cfg: cfg,
+				logFn: logStructuredWrapper, workers: instWorkers}))
 		}
 
 		// Notifications read rules from the control (primary/auth) pool,

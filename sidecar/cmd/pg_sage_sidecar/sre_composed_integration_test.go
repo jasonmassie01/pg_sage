@@ -212,6 +212,7 @@ type composedRuntime struct {
 	coll    *collector.Collector
 	adapter *rcaAdapter
 	eng     *rca.Engine
+	workers sync.WaitGroup
 }
 
 func startComposedRuntime(
@@ -229,8 +230,9 @@ func startComposedRuntime(
 	if llmClient != nil {
 		rt.eng.WithLLM(llmClient)
 	}
-	rt.adapter = newRCAAdapter(ctx, rt.eng, pool, name,
-		func(string, string, ...any) {})
+	rt.adapter = newRCAAdapter(rcaAdapterDeps{ctx: ctx, eng: rt.eng, pool: pool,
+		name: name, cfg: cfg, logFn: func(string, string, ...any) {},
+		workers: &rt.workers})
 	rt.eng.WithDispatcher(sharedNotifyDispatcher(control))
 	for deadline := time.Now().Add(15 * time.Second); rt.coll.LatestSnapshot() == nil; {
 		if time.Now().After(deadline) {
@@ -326,7 +328,7 @@ func TestComposedSRE_StandaloneCollectorIncidentNotify(t *testing.T) {
 	routeIncidentEvents(t, ctx, pool, sink)
 	rt := startComposedRuntime(t, ctx, "standalone_db", pool, pool, narratorLLM(t))
 
-	rt.slowCycle(t, ctx) // first analyzer cycle also starts the fast path
+	rt.slowCycle(t, ctx) // registration already started the fast path
 	if rt.adapter.fastPath.Interval() != 60*time.Second {
 		t.Fatalf("fast path interval = %s, want 60s", rt.adapter.fastPath.Interval())
 	}
@@ -422,7 +424,8 @@ func TestComposedSRE_FleetCollectorIncidentNotifyIsolated(t *testing.T) {
 		t.Fatalf("fleet_a notified %d lock incidents", n)
 	}
 	detB := sink.matching("Incident detected", "Database: fleet_b",
-		"lock_contention", "Summary (deterministic)")
+		"lock_contention", "Summary (deterministic)",
+		"Likely (H1, confidence", "idle-in-transaction holder")
 	if len(detB) != 1 {
 		t.Fatalf("fleet_b detected deliveries = %d, want 1 deterministic; all: %v",
 			len(detB), sink.matching())
