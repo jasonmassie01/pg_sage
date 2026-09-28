@@ -24,10 +24,10 @@ var (
 // Returns the action_log ID.
 //
 // The caller's context only bounds the wait for a shared DDL slot. Once a
-// slot is held, execution and logging run on a context detached from the
-// caller (an HTTP request) with an explicit DDL deadline, so a client
-// disconnect cannot cancel CREATE INDEX CONCURRENTLY half way and leave an
-// INVALID index with no action_log row.
+// slot is held, the action runs through Apply on a context detached from the
+// caller (an HTTP request) with an explicit deadline, so a client disconnect
+// cannot cancel CREATE INDEX CONCURRENTLY half way and leave an INVALID
+// index with no action_log row.
 func (e *Executor) ExecuteManual(
 	ctx context.Context,
 	findingID int, sql, rollbackSQL string,
@@ -43,53 +43,77 @@ func (e *Executor) ExecuteManual(
 	defer release()
 	runCtx, cancel := e.detachedDDLContext(ctx)
 	defer cancel()
-	return e.executeManualDetached(runCtx, findingID, sql, rollbackSQL, approvedBy)
-}
-
-func (e *Executor) detachedDDLContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	timeout := 5 * time.Minute
-	if cfg, _, _ := e.policySnapshot(); cfg != nil {
-		timeout = cfg.Safety.DDLTimeout() + time.Minute
-	}
-	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
-}
-
-func (e *Executor) executeManualDetached(
-	ctx context.Context, findingID int, sql, rollbackSQL string, approvedBy *int,
-) (int64, error) {
 	// Refuse early without a ledger row; record once the finding checks out.
-	if preview := e.explainOperatorAction(ctx, sql); preview.Decision != PolicyDecisionExecute {
+	if preview := e.explainOperatorAction(runCtx, sql); preview.Decision != PolicyDecisionExecute {
 		return 0, fmt.Errorf("policy refused operator action: %s",
 			humanPolicyReason(preview))
 	}
-	findingDetail, err := e.verifyManualFinding(ctx, findingID, sql)
+	findingDetail, err := e.verifyManualFinding(runCtx, findingID, sql)
 	if err != nil {
 		return 0, err
 	}
-	decisionID, err := e.authorizeOperatorAction(ctx, sql, findingID, approvedBy)
-	if err != nil {
-		return 0, err
-	}
+	run := &manualRun{executor: e, findingID: findingID, sql: sql,
+		rollbackSQL: rollbackSQL, detail: findingDetail, approvedBy: approvedBy}
+	return e.Apply(runCtx, ActionIntent{
+		Authorize: func(ctx context.Context) (int64, error) {
+			return e.authorizeOperatorAction(ctx, sql, findingID, approvedBy)
+		},
+		SlotHeld: true, Execute: run.execute, Verify: run.verify,
+	})
+}
+
+// detachedDDLContext outlives the caller (an HTTP request) but never the
+// execution deadline.
+func (e *Executor) detachedDDLContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), e.applyTimeout())
+}
+
+// manualRun carries one operator-approved action from execution to its
+// rollback monitor.
+type manualRun struct {
+	executor    *Executor
+	findingID   int
+	sql         string
+	rollbackSQL string
+	detail      json.RawMessage
+	approvedBy  *int
+	// covered marks a CREATE INDEX an existing valid index already covers:
+	// recorded as done, with nothing to monitor.
+	covered bool
+}
+
+// execute re-checks the hard stops, runs the operator's SQL and records it.
+func (r *manualRun) execute(ctx context.Context, decisionID int64) (int64, error) {
+	e := r.executor
 	beforeState := e.snapshotBeforeState(ctx, nil)
-	if categorizeAction(sql) == "create_index" {
+	if categorizeAction(r.sql) == "create_index" {
 		done, actionID, err := e.prepareManualCreateIndex(
-			ctx, findingID, sql, rollbackSQL, beforeState, approvedBy, decisionID)
+			ctx, r.findingID, r.sql, r.rollbackSQL, beforeState, r.approvedBy, decisionID)
 		if err != nil || done {
+			r.covered = done
 			return actionID, err
 		}
 	}
 	if err := e.manualMutationBlock(ctx); err != nil {
 		return 0, err
 	}
-	execErr := e.runManualSQL(ctx, findingID, sql, findingDetail, approvedBy)
-	actionID := e.logManualActionWithDecision(ctx, findingID, sql, rollbackSQL,
-		beforeState, execErr, approvedBy, decisionID)
+	execErr := e.runManualSQL(ctx, r.findingID, r.sql, r.detail, r.approvedBy)
+	actionID := e.logManualActionWithDecision(ctx, r.findingID, r.sql, r.rollbackSQL,
+		beforeState, execErr, r.approvedBy, decisionID)
 	if execErr != nil {
 		return 0, fmt.Errorf("executing SQL: %w", execErr)
 	}
-	e.notifyPostDDL(ctx, sql)
-	e.finishManualAction(ctx, actionID, rollbackSQL)
 	return actionID, nil
+}
+
+// verify starts the rollback monitor or records immediate success.
+func (r *manualRun) verify(ctx context.Context, actionID int64) error {
+	if r.covered {
+		return nil
+	}
+	r.executor.notifyPostDDL(ctx, r.sql)
+	r.executor.finishManualAction(ctx, actionID, r.rollbackSQL)
+	return nil
 }
 
 // prepareManualCreateIndex removes a failed remnant of this exact index and
@@ -121,7 +145,7 @@ func (e *Executor) prepareManualCreateIndex(
 }
 
 func (e *Executor) manualDDLOptions() (time.Duration, DDLOption) {
-	return e.cfg.Safety.DDLTimeout(), WithLockTimeout(e.cfg.Safety.LockTimeout())
+	return e.ddlTimeout(), WithLockTimeout(e.cfg.Safety.LockTimeout())
 }
 
 func (e *Executor) runManualSQL(

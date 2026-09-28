@@ -22,6 +22,15 @@
     running without its schema.
   - Shutdown waits, within its deadline, for every database's workers.
   - `--meta-db` with `mode: standalone` no longer registers a phantom database.
+- **One execution pipeline.** Every change the executor makes (the background cycle,
+  operator-approved actions, custodians, verified indexes and retention authorization)
+  goes through the same steps: authorize, take the change lease and a DDL slot,
+  re-authorize, then run under a deadline and verify.
+  - **Operator-approved actions are re-authorized by the standing gate** right before
+    they run, so an emergency stop or policy change made after the approval stops them.
+  - **Executor DDL always has a timeout.** `safety.ddl_timeout_seconds: 0` used to mean
+    no statement timeout; it now means the 300-second default. A client-side deadline one
+    minute longer backs it up.
 
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 

@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/policy"
@@ -19,16 +18,13 @@ type RetentionRequest struct {
 	IsReplica  bool
 }
 
-// AuthorizeRetention routes a retention delete through the standing policy
-// gate (emergency stop, executor enabled, trust, execution mode, replica,
-// change class, ramp and windows). It returns nil only for an execute
-// verdict; every other verdict withholds the delete.
+// AuthorizeRetention routes a retention delete's authorization through
+// Apply and the standing policy gate (emergency stop, executor enabled,
+// trust, execution mode, replica, change class, ramp and windows). It
+// returns nil only for an execute verdict; every other verdict withholds
+// the delete, which the schema guard then runs itself.
 func (e *Executor) AuthorizeRetention(ctx context.Context, request RetentionRequest) error {
-	gate := e.StandingPolicyGate()
-	if gate == nil {
-		return fmt.Errorf("%w: standing policy gate is unavailable", ErrCustodianProposalWithheld)
-	}
-	decision := standingPolicyDecision(gate.Authorize(ctx, policy.ActionRequest{
+	_, err := e.Apply(ctx, ActionIntent{AuthorizeOnly: true, Request: policy.ActionRequest{
 		Contract:        policyContract(retentionDeleteContract()),
 		InternalControl: true, Feature: string(policy.ChangeRetention),
 		TargetObjs: []string{request.Target}, IsReplica: request.IsReplica,
@@ -37,11 +33,8 @@ func (e *Executor) AuthorizeRetention(ctx context.Context, request RetentionRequ
 			"window_seconds": request.Window.Seconds(), "batch_limit": request.BatchLimit,
 			"candidate_rows": request.Candidates,
 		},
-	}))
-	if decision.Decision != PolicyDecisionExecute {
-		return fmt.Errorf("%w: %s", ErrCustodianProposalWithheld, decision.BlockedReason)
-	}
-	return nil
+	}})
+	return custodianWithheld(err, "")
 }
 
 // retentionDeleteContract types the bounded retention delete. It deletes
