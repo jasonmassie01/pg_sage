@@ -180,6 +180,11 @@ func driveFinding(
 	}
 	database, _ := pipelineDatabases.Load(ex)
 	name, _ := database.(string)
+	// Like the analyzer, only a finding with SQL proposes a recommendation.
+	if strings.TrimSpace(f.RecommendedSQL) == "" {
+		ex.RunCycle(ctx, false)
+		return
+	}
 	if _, err := recommendation.NewStore(pool).Propose(ctx,
 		analyzer.RecommendationProposal(name, f)); err != nil {
 		t.Fatalf("propose recommendation %s/%s: %v", f.Category, f.ObjectIdentifier, err)
