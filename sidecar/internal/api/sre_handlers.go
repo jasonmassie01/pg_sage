@@ -25,9 +25,22 @@ const fleetInvestigationLimit = 100
 
 func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	viewerUp := RequireRole("admin", "operator", "viewer")
+	mux.Handle("GET /api/v1/investigations", viewerUp(fleetInvestigationsHandler(mgr)))
+	perDB := perDatabaseSREMux(mgr)
+	// The per-database routes go through their own mux behind one
+	// catch-all per method: "{db}/investigations" and the fleet-mode
+	// "managed/{id}" routes overlap with neither more specific, which
+	// ServeMux refuses at registration. The managed routes stay more
+	// specific than the catch-all and keep their paths.
+	mux.Handle("GET /api/v1/databases/{db}/{rest...}", perDB)
+	mux.Handle("POST /api/v1/databases/{db}/{rest...}", perDB)
+}
+
+func perDatabaseSREMux(mgr *fleet.DatabaseManager) *http.ServeMux {
+	viewerUp := RequireRole("admin", "operator", "viewer")
 	operatorUp := RequireRole("admin", "operator")
 	base := sreInvestigationsPath
-	mux.Handle("GET /api/v1/investigations", viewerUp(fleetInvestigationsHandler(mgr)))
+	mux := http.NewServeMux()
 	mux.Handle("GET "+base, viewerUp(investigationListHandler(mgr)))
 	mux.Handle("GET "+base+"/{id}", viewerUp(investigationDetailHandler(mgr)))
 	mux.Handle("GET "+base+"/{id}/events", viewerUp(investigationEventsHandler(mgr)))
@@ -36,6 +49,7 @@ func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	mux.Handle("GET "+base+"/{id}/export", operatorUp(investigationExportHandler(mgr)))
 	mux.Handle("POST "+base+"/{id}/pin", operatorUp(investigationPinHandler(mgr, true)))
 	mux.Handle("POST "+base+"/{id}/unpin", operatorUp(investigationPinHandler(mgr, false)))
+	return mux
 }
 
 // sreErrorResponse writes a canonical error code with its status.
