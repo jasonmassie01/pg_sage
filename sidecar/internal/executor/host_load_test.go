@@ -6,56 +6,62 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
-type testHostLoad struct {
-	verify.ObservationSource
-	load verify.LoadSample
-	err  error
+type testHostCPU struct {
+	cpu float64
+	err error
 }
 
-func (s testHostLoad) CurrentLoad(ctx context.Context) (verify.LoadSample, error) {
+func (s testHostCPU) CurrentCPU(ctx context.Context) (float64, error) {
 	if ctx.Err() != nil {
-		return verify.LoadSample{}, ctx.Err()
+		return 0, ctx.Err()
 	}
-	return s.load, s.err
+	return s.cpu, s.err
 }
 
-func TestHostedLoadSourceTransitions(t *testing.T) {
-	e := &Executor{}
-	fallback := testHostLoad{load: verify.LoadSample{CPUPct: 22, DataIOPct: 33, LogIOPct: 44}}
-	source := executorObservationSource{ObservationSource: fallback, executor: e}
-	got, err := source.CurrentLoad(context.Background())
-	if err != nil || got != fallback.load {
-		t.Fatalf("fallback: %+v %v", got, err)
+func evidenceSource(e *Executor) executorObservationSource {
+	return executorObservationSource{
+		ObservationSource: verify.NewPostgresObservationSource(nil), executor: e,
 	}
-	host := testHostLoad{load: verify.LoadSample{CPUPct: 50, DataIOPct: 60, LogIOPct: 70}}
-	e.WithHostLoadReader(host)
-	got, err = source.CurrentLoad(context.Background())
-	if err != nil || got != host.load {
-		t.Fatalf("provider: %+v %v", got, err)
+}
+
+func TestHostCPUReaderTransitions(t *testing.T) {
+	e := &Executor{cfg: config.DefaultConfig()}
+	e.WithIOEvidence(fakeIOEvidence{evidence: quietIOEvidence()})
+	source := evidenceSource(e)
+	got, err := source.LoadEvidence(context.Background())
+	if err != nil || got.CPUPct != nil {
+		t.Fatalf("no reader: CPU %v err %v, want unavailable CPU", got.CPUPct, err)
 	}
-	unavailable := errors.New("provider I/O is unknown")
-	e.WithHostLoadReader(testHostLoad{err: unavailable})
-	got, err = source.CurrentLoad(context.Background())
-	if !errors.Is(err, unavailable) || got != (verify.LoadSample{}) {
-		t.Fatalf("provider error must not use fallback: %+v %v", got, err)
+	e.WithHostCPUReader(testHostCPU{cpu: 50})
+	got, err = source.LoadEvidence(context.Background())
+	if err != nil || got.CPUPct == nil || *got.CPUPct != 50 {
+		t.Fatalf("provider CPU: %+v %v", got.CPUPct, err)
 	}
-	e.WithHostLoadReader(nil)
-	got, err = source.CurrentLoad(context.Background())
-	if err != nil || got != fallback.load {
+	// A provider error is missing CPU evidence, never a quiet 0% host.
+	e.WithHostCPUReader(testHostCPU{err: errors.New("metrics endpoint down")})
+	got, err = source.LoadEvidence(context.Background())
+	if err != nil || got.CPUPct != nil {
+		t.Fatalf("provider error: CPU %v err %v", got.CPUPct, err)
+	}
+	e.WithHostCPUReader(nil)
+	got, err = source.LoadEvidence(context.Background())
+	if err != nil || got.CPUPct != nil || got.Rate == nil {
 		t.Fatalf("removed provider: %+v %v", got, err)
 	}
 }
 
-func TestHostedLoadSourceCanceledAndConcurrent(t *testing.T) {
-	e := &Executor{}
-	reader := testHostLoad{load: verify.LoadSample{CPUPct: 10}}
-	source := executorObservationSource{ObservationSource: reader, executor: e}
+func TestHostCPUReaderCanceledAndConcurrent(t *testing.T) {
+	e := &Executor{cfg: config.DefaultConfig()}
+	e.WithIOEvidence(fakeIOEvidence{evidence: quietIOEvidence()})
+	reader := testHostCPU{cpu: 10}
+	source := evidenceSource(e)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := source.CurrentLoad(ctx); !errors.Is(err, context.Canceled) {
+	if _, err := source.LoadEvidence(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation: %v", err)
 	}
 	var workers sync.WaitGroup
@@ -64,17 +70,17 @@ func TestHostedLoadSourceCanceledAndConcurrent(t *testing.T) {
 		go func() {
 			defer workers.Done()
 			for j := 0; j < 100; j++ {
-				e.WithHostLoadReader(reader)
-				got, err := source.CurrentLoad(context.Background())
-				if err != nil || got != reader.load {
+				e.WithHostCPUReader(reader)
+				got, err := source.LoadEvidence(context.Background())
+				if err != nil || got.Rate == nil {
 					t.Errorf("concurrent load: %+v %v", got, err)
 				}
-				e.WithHostLoadReader(nil)
+				e.WithHostCPUReader(nil)
 			}
 		}()
 	}
 	workers.Wait()
 }
 
-// No malformed payload tests: the reader accepts only a typed LoadSample.
-// Freshness, numeric bounds, and real provider errors are covered by providerobs and verify.
+// No malformed payload tests: the reader accepts only a typed float.
+// Freshness and numeric bounds are covered by providerobs and verify.

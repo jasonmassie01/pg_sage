@@ -53,11 +53,11 @@ func TestHashPassword_LongPassword_BcryptTruncation(t *testing.T) {
 
 func TestHashPassword_UnicodeCharacters(t *testing.T) {
 	passwords := []string{
-		"\u00e9\u00e8\u00ea\u00eb",                 // French accented chars
-		"\u4f60\u597d\u4e16\u754c",                 // Chinese characters
-		"\U0001f512\U0001f511\U0001f513",           // Emoji: lock, key, unlock
-		"p\u00e4\u00df\u0175\u00f6rd",              // Mixed Latin + diacritics
-		"\u0000null\u0000embedded",                  // Embedded null bytes
+		"\u00e9\u00e8\u00ea\u00eb",       // French accented chars
+		"\u4f60\u597d\u4e16\u754c",       // Chinese characters
+		"\U0001f512\U0001f511\U0001f513", // Emoji: lock, key, unlock
+		"p\u00e4\u00df\u0175\u00f6rd",    // Mixed Latin + diacritics
+		"\u0000null\u0000embedded",       // Embedded null bytes
 	}
 	for _, pw := range passwords {
 		t.Run(pw, func(t *testing.T) {
@@ -154,9 +154,9 @@ func TestCheckPassword_GarbageHash(t *testing.T) {
 	// Completely invalid bcrypt strings.
 	garbage := []string{
 		"notahash",
-		"$2a$12$",                   // valid prefix but no payload
-		"$2a$12$short",              // too short
-		"$$$$$$",                    // nonsense
+		"$2a$12$",                           // valid prefix but no payload
+		"$2a$12$short",                      // too short
+		"$$$$$$",                            // nonsense
 		"$2a$99$" + strings.Repeat("a", 53), // invalid cost
 	}
 	for _, h := range garbage {
@@ -320,24 +320,17 @@ func TestStartSessionCleaner_RespectsContextCancellation(t *testing.T) {
 }
 
 func TestStartSessionCleaner_ExitsMidRun(t *testing.T) {
-	// Verify that even after one or more ticks, the cleaner still exits
-	// promptly when the context is cancelled. We use a very short interval
-	// so at least one tick fires (with nil pool it will log a warning but
-	// not panic -- CleanExpiredSessions calls pool.Exec which will panic
-	// on nil pool). To avoid that, we cancel before the first tick.
-	//
-	// Strategy: set interval to 50ms, wait 10ms, then cancel. The first
-	// tick hasn't fired yet, so no nil-pool dereference occurs.
+	// The cleaner must survive ticks that fail (here: no pool) and still exit
+	// promptly on cancellation. Several ticks fire before the cancel.
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan struct{})
 	go func() {
-		StartSessionCleaner(ctx, nil, 50*time.Millisecond)
+		StartSessionCleaner(ctx, nil, 2*time.Millisecond)
 		close(done)
 	}()
 
-	// Cancel before the first tick at 50ms.
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
 	cancel()
 
 	select {
@@ -345,6 +338,13 @@ func TestStartSessionCleaner_ExitsMidRun(t *testing.T) {
 		// Success.
 	case <-time.After(2 * time.Second):
 		t.Fatal("StartSessionCleaner did not exit within 2s after mid-run cancellation")
+	}
+}
+
+func TestCleanExpiredSessions_NilPoolReturnsError(t *testing.T) {
+	err := CleanExpiredSessions(context.Background(), nil)
+	if err == nil || !strings.Contains(err.Error(), "no database pool") {
+		t.Fatalf("CleanExpiredSessions(nil pool) = %v, want a no-database-pool error", err)
 	}
 }
 

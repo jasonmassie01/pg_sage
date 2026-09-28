@@ -93,10 +93,10 @@ func preflightRunRetentionCycles(
 	if control == "disabled" {
 		e.SetExecutorEnabled(false)
 	}
-	if err := executor.SetEmergencyStop(ctx, p, control == "emergency_stop"); err != nil {
+	if err := executor.SetEmergencyStop(ctx, p, control == "emergency_stop", "test"); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = executor.SetEmergencyStop(ctx, p, false) })
+	t.Cleanup(func() { _ = executor.SetEmergencyStop(ctx, p, false, "test") })
 	supervisor, err := newDatabaseAutonomy(p, c, "preflight", e)
 	if err != nil {
 		t.Fatal(err)
@@ -142,8 +142,9 @@ func preflightRetentionTable(t *testing.T, p *pgxpool.Pool) string {
 		_, _ = p.Exec(ctx, "DROP TABLE "+table)
 	})
 	_, err = p.Exec(ctx, `INSERT INTO sage.table_contract
-		(schema_name,table_name,append_only,retention_interval,declared_by,evidence_id)
-		VALUES ('public',$1,true,interval '30 days','preflight',$1)`, table)
+		(schema_name,table_name,append_only,retention_interval,retention_column,
+		 declared_by,evidence_id)
+		VALUES ('public',$1,true,interval '30 days','created_at','preflight',$1)`, table)
 	if err != nil {
 		t.Fatal(err)
 	}

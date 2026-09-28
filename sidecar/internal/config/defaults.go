@@ -128,14 +128,13 @@ const (
 	DefaultTunerRevalidationExplainTimeoutMs = 10000
 
 	// Tuner v0.8.5 — Stale-stats detection + ANALYZE (Feature 2).
-	DefaultTunerStaleStatsEstimateSkew        = 10.0
-	DefaultTunerStaleStatsModRatio            = 0.1
-	DefaultTunerStaleStatsAgeMinutes          = 60
-	DefaultTunerAnalyzeMaxTableMB             = 10240 // 10 GB
-	DefaultTunerAnalyzeCooldownMinutes        = 60
-	DefaultTunerAnalyzeMaintenanceThresholdMB = 1024   // 1 GB
-	DefaultTunerAnalyzeTimeoutMs              = 600000 // 10 minutes
-	DefaultTunerMaxConcurrentAnalyze          = 1
+	DefaultTunerStaleStatsEstimateSkew = 10.0
+	DefaultTunerStaleStatsModRatio     = 0.1
+	DefaultTunerStaleStatsAgeMinutes   = 60
+	DefaultTunerAnalyzeMaxTableMB      = 10240 // 10 GB
+	DefaultTunerAnalyzeCooldownMinutes = 60
+	DefaultTunerAnalyzeTimeoutMs       = 600000 // 10 minutes
+	DefaultTunerMaxConcurrentAnalyze   = 1
 
 	// Analyzer v0.8.5 — work_mem role promotion advisor (Feature 3).
 	DefaultAnalyzerWorkMemPromotionThreshold = 5
@@ -156,6 +155,7 @@ const (
 	DefaultRCAConnectionSaturationPct  = 80
 	DefaultRCAReplicationLagThresholdS = 30
 	DefaultRCAWALSpikeMultiplier       = 2.0
+	DefaultRCALockChainIntervalSeconds = 60
 
 	// v0.9 — Lock chain defaults.
 	DefaultLockChainMinBlocked        = 3
@@ -192,6 +192,10 @@ const (
 	DefaultVerifyRegressPct          = 15.0
 	DefaultVerifyWriteImpactPct      = 20.0
 	DefaultVerifyMinSamples          = 30
+	DefaultIOBaselineDays            = 7
+	DefaultIOSampleRetentionDays     = 14
+	DefaultDataIOCeilingPct          = 70
+	DefaultWALIOCeilingPct           = 70
 	DefaultCloneProvider             = "none"
 	DefaultCloneMaxAgeMinutes        = 1440
 	DefaultFreezeRedBufferPct        = 25.0

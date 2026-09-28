@@ -73,8 +73,8 @@ func (e *Executor) findingIntent(
 	lease := f
 	return ActionIntent{
 		Request: findingRequest(f, isReplica), Lease: &lease,
-		Execute: func(ctx context.Context, decisionID int64) (int64, error) {
-			return e.executeFinding(ctx, f, findingID, decisionID), nil
+		Execute: func(ctx context.Context, decision ActionPolicyDecision) (int64, error) {
+			return e.runAuthorizedFinding(ctx, f, findingID, decision), nil
 		},
 		Refused: func(ctx context.Context, decisionID int64, err error) {
 			before := e.snapshotBeforeState(ctx, targetQueryIDs(f))
@@ -163,12 +163,14 @@ func (e *Executor) recentlyRejected(
 	return rejected
 }
 
-// executeFinding runs one authorized finding while Apply holds its change
-// lease and DDL slot, records it, and starts its verification. It returns
-// the action_log id.
-func (e *Executor) executeFinding(
-	ctx context.Context, f analyzer.Finding, findingID int64, decisionID int64,
+// runAuthorizedFinding runs one authorized finding while Apply holds its
+// change lease and DDL slot, records it, and starts its verification. It
+// returns the action_log id (0 when load admission withheld the build).
+func (e *Executor) runAuthorizedFinding(
+	ctx context.Context, f analyzer.Finding, findingID int64,
+	decision ActionPolicyDecision,
 ) int64 {
+	decisionID := decision.DecisionID
 	beforeState := e.snapshotBeforeState(ctx, targetQueryIDs(f))
 	if refusal := e.findingRefusal(f); refusal != nil {
 		return e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID, refusal)
@@ -177,12 +179,16 @@ func (e *Executor) executeFinding(
 	verifiedCreate := categorizeAction(f.RecommendedSQL) == "create_index"
 	if verifiedCreate {
 		var err error
-		if verified, err = e.admitVerifiedCreate(ctx, &f, beforeState); err != nil {
+		verified, err = e.admitVerifiedCreate(ctx, &f, beforeState, findingID, decisionID)
+		if isAdmissionWithheld(err) {
+			return 0 // recorded once per finding and reason; stays retryable
+		}
+		if err != nil {
 			e.logFn("executor", "withheld unverifiable CREATE INDEX %q: %v", f.Title, err)
 			return e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID, err)
 		}
 	}
-	execErr := e.runFindingSQL(ctx, f)
+	execErr := e.runFindingSQL(ctx, f, decision)
 	if verifiedCreate && execErr == nil {
 		e.recordCreatedIndexIdentity(ctx, verified.IndexName, beforeState)
 	}
@@ -217,16 +223,18 @@ func (e *Executor) findingRefusal(f analyzer.Finding) error {
 	return nil
 }
 
-// runFindingSQL executes the finding's statement with its statement and
-// lock timeouts.
-func (e *Executor) runFindingSQL(ctx context.Context, f analyzer.Finding) error {
+// runFindingSQL executes the finding's statement with its statement
+// timeout and the decision's lock timeout.
+func (e *Executor) runFindingSQL(
+	ctx context.Context, f analyzer.Finding, decision ActionPolicyDecision,
+) error {
 	if err := e.checkGUCValueSafety(ctx, f.RecommendedSQL); err != nil {
 		return err
 	}
-	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
+	lockOpt := e.lockOption(f.RecommendedSQL, decision)
 	switch {
 	case categorizeAction(f.RecommendedSQL) == "analyze":
-		return e.executeAnalyze(ctx, f)
+		return e.executeAnalyze(ctx, f, e.lockTimeoutMS(f.RecommendedSQL, decision))
 	case NeedsConcurrently(f.RecommendedSQL) || NeedsTopLevel(f.RecommendedSQL):
 		return ExecConcurrently(ctx, e.pool, f.RecommendedSQL, e.ddlTimeout(), lockOpt)
 	default:

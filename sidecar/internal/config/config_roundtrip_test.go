@@ -559,7 +559,7 @@ llm:
 	// ignored by yaml.v3. The top-level Advisor fields should remain at
 	// their zero values.
 	if cfg.Advisor.Enabled {
-		t.Errorf("Advisor.Enabled = true, want false "+
+		t.Errorf("Advisor.Enabled = true, want false " +
 			"(advisor nested under llm should be silently ignored)")
 	}
 	if cfg.Advisor.IntervalSeconds != 0 {
@@ -568,7 +568,7 @@ llm:
 			cfg.Advisor.IntervalSeconds)
 	}
 	if cfg.Advisor.VacuumEnabled {
-		t.Errorf("Advisor.VacuumEnabled = true, want false "+
+		t.Errorf("Advisor.VacuumEnabled = true, want false " +
 			"(advisor nested under llm should be silently ignored)")
 	}
 
@@ -870,7 +870,6 @@ tuner:
   stale_stats_age_minutes: 60
   analyze_max_table_mb: 10240
   analyze_cooldown_minutes: 60
-  analyze_maintenance_threshold_mb: 1024
   analyze_timeout_ms: 600000
   max_concurrent_analyze: 1
 retention:
@@ -1055,21 +1054,20 @@ func TestYAMLRoundTrip_FleetFields(t *testing.T) {
 func TestYAMLRoundTrip_TunerV085Fields(t *testing.T) {
 	original := Config{
 		Tuner: TunerConfig{
-			Enabled:                       true,
-			VerifyAfterApply:              true,
-			HintRetirementDays:            14,
-			RevalidationIntervalHours:     24,
-			RevalidationKeepRatio:         1.2,
-			RevalidationRollbackRatio:     0.8,
-			RevalidationExplainTimeoutMs:  10000,
-			StaleStatsEstimateSkew:        10.0,
-			StaleStatsModRatio:            0.1,
-			StaleStatsAgeMinutes:          60,
-			AnalyzeMaxTableMB:             10240,
-			AnalyzeCooldownMinutes:        60,
-			AnalyzeMaintenanceThresholdMB: 1024,
-			AnalyzeTimeoutMs:              600000,
-			MaxConcurrentAnalyze:          1,
+			Enabled:                      true,
+			VerifyAfterApply:             true,
+			HintRetirementDays:           14,
+			RevalidationIntervalHours:    24,
+			RevalidationKeepRatio:        1.2,
+			RevalidationRollbackRatio:    0.8,
+			RevalidationExplainTimeoutMs: 10000,
+			StaleStatsEstimateSkew:       10.0,
+			StaleStatsModRatio:           0.1,
+			StaleStatsAgeMinutes:         60,
+			AnalyzeMaxTableMB:            10240,
+			AnalyzeCooldownMinutes:       60,
+			AnalyzeTimeoutMs:             600000,
+			MaxConcurrentAnalyze:         1,
 		},
 	}
 
@@ -1103,8 +1101,6 @@ func TestYAMLRoundTrip_TunerV085Fields(t *testing.T) {
 		rt.Tuner.AnalyzeMaxTableMB, 10240)
 	assertEqualInt(t, "Tuner.AnalyzeCooldownMinutes",
 		rt.Tuner.AnalyzeCooldownMinutes, 60)
-	assertEqualInt64(t, "Tuner.AnalyzeMaintenanceThresholdMB",
-		rt.Tuner.AnalyzeMaintenanceThresholdMB, 1024)
 	assertEqualInt(t, "Tuner.AnalyzeTimeoutMs",
 		rt.Tuner.AnalyzeTimeoutMs, 600000)
 	assertEqualInt(t, "Tuner.MaxConcurrentAnalyze",

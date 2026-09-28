@@ -227,8 +227,8 @@ func rollbackClassForAction(actionType string) string {
 		return "not_applicable"
 	case "create_index_concurrently", "drop_unused_index":
 		return "reversible"
-	case "set_table_autovacuum":
-		return "forward_fix_only"
+	case "set_table_autovacuum": // rollback is ALTER TABLE ... RESET (...)
+		return "reversible"
 	case "prepare_query_rewrite":
 		return "application_rollback"
 	case "promote_role_work_mem", "retire_query_hint", "apply_query_hint":

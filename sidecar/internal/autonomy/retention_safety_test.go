@@ -51,7 +51,22 @@ func retentionFixture(t *testing.T, pool *pgxpool.Pool, partitioned bool) string
 		_, _ = pool.Exec(cleanup, "DELETE FROM sage.table_contract WHERE table_name=$1", table)
 		_, _ = pool.Exec(cleanup, "DROP TABLE IF EXISTS "+table+" CASCADE")
 	})
+	declareRetentionContract(t, pool, table, "created_at")
 	return table
+}
+
+// declareRetentionContract records an owner-declared 30-day retention
+// contract; an empty column stores NULL, as a pre-D5 contract does.
+func declareRetentionContract(t *testing.T, pool *pgxpool.Pool, table, column string) {
+	t.Helper()
+	_, err := pool.Exec(context.Background(), `INSERT INTO sage.table_contract
+		(schema_name, table_name, append_only, retention_interval, retention_column,
+		 declared_by, evidence_id)
+		VALUES ('public',$1,true,interval '30 days',NULLIF($2,''),'test',$3)`,
+		table, column, "contract_"+table)
+	if err != nil {
+		t.Fatalf("declare retention contract for %s: %v", table, err)
+	}
 }
 
 func retentionItem(table string, window time.Duration, disposition schemaguard.Disposition,
@@ -61,11 +76,22 @@ func retentionItem(table string, window time.Duration, disposition schemaguard.D
 			Kind:   schemaguard.InvariantUnboundedAppend,
 			Schema: "public", Table: table, RetentionColumn: "created_at",
 		},
-		Contract: schemaguard.TableContract{AppendOnly: true, RetentionWindow: window},
+		Contract: schemaguard.TableContract{AppendOnly: true, RetentionWindow: window,
+			RetentionColumn: "created_at"},
 		Decision: schemaguard.Decision{
 			Route: schemaguard.RouteRetention, Disposition: disposition,
 		},
 	}
+}
+
+func mustRetentionTarget(t *testing.T, pool *pgxpool.Pool, invariant schemaguard.Invariant,
+) retentionTarget {
+	t.Helper()
+	target, err := resolveRetentionTarget(context.Background(), pool, invariant)
+	if err != nil {
+		t.Fatalf("resolve retention target: %v", err)
+	}
+	return target
 }
 
 func ageRetentionDryRuns(t *testing.T, pool *pgxpool.Pool, table string, age time.Duration) {
@@ -95,7 +121,9 @@ func TestRetentionDeleteNeverTouchesOtherPartitions(t *testing.T) {
 	item := retentionItem(table, 30*24*time.Hour, schemaguard.DispositionApply)
 	cutoff := time.Now().Add(-30 * 24 * time.Hour)
 
-	deleted, err := enforcer.deleteBatch(context.Background(), item.Invariant, cutoff, 1)
+	target := mustRetentionTarget(t, pool, item.Invariant)
+	deleted, err := enforcer.deleteBatch(context.Background(), item.Invariant, target,
+		cutoff, 1)
 
 	if err != nil {
 		t.Fatalf("deleteBatch: %v", err)
@@ -241,11 +269,13 @@ func TestRetentionDeleteUsesLockTimeout(t *testing.T) {
 	}
 	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10, authorize: allowRetention}
 	item := retentionItem(table, 30*24*time.Hour, schemaguard.DispositionApply)
+	target := mustRetentionTarget(t, pool, item.Invariant)
 	started := time.Now()
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	_, err = enforcer.deleteBatch(callCtx, item.Invariant, time.Now().Add(-24*time.Hour), 0)
+	_, err = enforcer.deleteBatch(callCtx, item.Invariant, target,
+		time.Now().Add(-24*time.Hour), 0)
 
 	if err == nil || time.Since(started) > 15*time.Second {
 		t.Fatalf("deleteBatch under lock: err=%v after %s, want bounded lock failure",

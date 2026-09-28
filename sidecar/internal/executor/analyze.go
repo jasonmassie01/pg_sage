@@ -43,11 +43,46 @@ func markAnalyzed(canonical string) {
 // executeAnalyze runs an ANALYZE finding through the safety
 // gates (size cap, cooldown, shared semaphore) and dispatches
 // it via a dedicated connection with statement_timeout set.
-// Returns a non-nil error on failure so executeFinding can
-// log it like any other DDL failure.
+// Returns a non-nil error on failure so the caller can log it like any
+// other DDL failure. lockTimeoutMs is the authorized decision's lock
+// timeout (lockTimeoutMS), which caps the ANALYZE lock wait.
 func (e *Executor) executeAnalyze(
-	ctx context.Context, f analyzer.Finding,
+	ctx context.Context, f analyzer.Finding, lockTimeoutMs int,
 ) error {
+	canonical := f.ObjectIdentifier
+	if err := e.analyzeGates(f); err != nil {
+		return err
+	}
+	tc := e.cfg.Tuner
+
+	// Acquire semaphore slot so only N analyzes run at once
+	// across the entire sidecar process.
+	if e.analyzeSem != nil {
+		select {
+		case e.analyzeSem <- struct{}{}:
+			defer func() { <-e.analyzeSem }()
+		case <-ctx.Done():
+			return fmt.Errorf("analyze: ctx cancelled: %w", ctx.Err())
+		}
+	}
+
+	timeoutMs := tc.AnalyzeTimeoutMs
+	if timeoutMs <= 0 {
+		timeoutMs = 600000 // 10 min safety default
+	}
+
+	if err := runAnalyzeOnConn(
+		ctx, e.pool, f.RecommendedSQL, timeoutMs, lockTimeoutMs,
+	); err != nil {
+		return err
+	}
+	markAnalyzed(canonical)
+	return nil
+}
+
+// analyzeGates refuses an ANALYZE without a target, on a table above
+// AnalyzeMaxTableMB, or within the per-table cooldown.
+func (e *Executor) analyzeGates(f analyzer.Finding) error {
 	canonical := f.ObjectIdentifier
 	if canonical == "" {
 		return fmt.Errorf("analyze: empty object identifier")
@@ -74,30 +109,6 @@ func (e *Executor) executeAnalyze(
 			canonical, tc.AnalyzeCooldownMinutes,
 		)
 	}
-
-	// Acquire semaphore slot so only N analyzes run at once
-	// across the entire sidecar process.
-	if e.analyzeSem != nil {
-		select {
-		case e.analyzeSem <- struct{}{}:
-			defer func() { <-e.analyzeSem }()
-		case <-ctx.Done():
-			return fmt.Errorf("analyze: ctx cancelled: %w", ctx.Err())
-		}
-	}
-
-	timeoutMs := tc.AnalyzeTimeoutMs
-	if timeoutMs <= 0 {
-		timeoutMs = 600000 // 10 min safety default
-	}
-
-	if err := runAnalyzeOnConn(
-		ctx, e.pool, f.RecommendedSQL, timeoutMs,
-		e.cfg.Safety.LockTimeout(),
-	); err != nil {
-		return err
-	}
-	markAnalyzed(canonical)
 	return nil
 }
 

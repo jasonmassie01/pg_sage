@@ -159,6 +159,9 @@ func DeleteSession(
 func CleanExpiredSessions(
 	ctx context.Context, pool *pgxpool.Pool,
 ) error {
+	if pool == nil {
+		return fmt.Errorf("cleaning expired sessions: no database pool")
+	}
 	_, err := pool.Exec(ctx,
 		"DELETE FROM sage.sessions WHERE expires_at <= now()",
 	)

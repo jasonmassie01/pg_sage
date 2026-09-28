@@ -19,7 +19,9 @@ func (DeterministicIntentPlanner) Plan(
 		return policy.ActionRequest{}, err
 	}
 	return policy.ActionRequest{
-		Contract:        &policy.ActionContract{ActionType: tool, RiskTier: risk},
+		Contract: &policy.ActionContract{
+			ActionType: tool, RiskTier: risk, RollbackClass: intentRollbackClass(feature),
+		},
 		Feature:         feature,
 		Arguments:       append(json.RawMessage(nil), arguments...),
 		TargetObjs:      intentTargets(arguments),
@@ -61,6 +63,16 @@ func intentContract(
 	default:
 		return "", "", errors.New("unsupported mutation intent")
 	}
+}
+
+// intentRollbackClass types how an intent is undone. Index builds drop the
+// index; contract and consumer registrations are rewritten by a later
+// declaration; an online migration can only be fixed forward.
+func intentRollbackClass(feature string) policy.RollbackClass {
+	if feature == string(policy.ChangeOnlineMigration) {
+		return policy.RollbackForwardFixOnly
+	}
+	return policy.RollbackReversible
 }
 
 func intentTargets(arguments json.RawMessage) []string {

@@ -81,7 +81,7 @@ func startProviderObservability(
 		return
 	}
 	if exec != nil {
-		exec.WithHostLoadReader(runtime)
+		exec.WithHostCPUReader(runtime)
 	}
 	if rcaEngine != nil && cfg.LogWatch.Enabled {
 		rcaEngine.SetLogSource(sink)

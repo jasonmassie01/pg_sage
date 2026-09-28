@@ -88,7 +88,8 @@ type Executor struct {
 	policyGate         policy.Gate
 	managedConfig      ManagedConfigAdapter
 	indexVerification  *verifiedIndexLifecycle
-	hostLoad           HostLoadReader
+	hostCPU            HostCPUReader
+	ioEvidence         IOEvidenceReader
 	retainedCleanupMu  sync.Mutex
 	resumeOnce         sync.Once
 	postDDLMu          sync.RWMutex
@@ -350,6 +351,8 @@ func policyContract(contract ActionContract) *policy.ActionContract {
 	result := &policy.ActionContract{
 		ActionType: contract.ActionType, RiskTier: policy.RiskTier(contract.BaseRiskTier),
 		ProviderSupport: append([]string(nil), contract.ProviderSupport...),
+		RollbackClass:   policy.RollbackClass(contract.RollbackClass),
+		DropKind:        dropKindForActionType(contract.ActionType),
 	}
 	for _, guardrail := range contract.Guardrails {
 		if isApprovalRequiredGuardrail(guardrail) {
@@ -379,6 +382,7 @@ func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
 		RequiresMaintenanceWindow: decision.RiskTier == policy.RiskModerate ||
 			decision.RiskTier == policy.RiskHigh,
 		EvidenceID: decision.EvidenceID, DecisionID: decision.DecisionID,
+		LockCeilingMS: decision.LockCeilingMS,
 	}
 	switch decision.Verdict {
 	case policy.VerdictExecute:

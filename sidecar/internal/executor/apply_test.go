@@ -24,11 +24,11 @@ type applyProbe struct {
 func (p *applyProbe) intent() ActionIntent {
 	return ActionIntent{
 		Request: policy.ActionRequest{SQL: "ANALYZE public.orders"},
-		Admit: func(context.Context) error {
+		Admit: func(context.Context, int64) error {
 			p.admitted.Add(1)
 			return nil
 		},
-		Execute: func(ctx context.Context, _ int64) (int64, error) {
+		Execute: func(ctx context.Context, _ ActionPolicyDecision) (int64, error) {
 			p.executed.Add(1)
 			if deadline, ok := ctx.Deadline(); ok {
 				p.deadline = time.Until(deadline)
@@ -186,7 +186,7 @@ func TestApplyAdmissionFailureStops(t *testing.T) {
 	probe := &applyProbe{}
 	intent := probe.intent()
 	wantErr := ErrVerificationUnavailable
-	intent.Admit = func(context.Context) error { return wantErr }
+	intent.Admit = func(context.Context, int64) error { return wantErr }
 	if _, err := e.Apply(context.Background(), intent); !errors.Is(err, wantErr) {
 		t.Fatalf("admission error = %v", err)
 	}
@@ -200,7 +200,7 @@ func TestApplyNeverExceedsDDLConcurrency(t *testing.T) {
 	var running, peak atomic.Int32
 	intent := ActionIntent{
 		WaitForSlot: true,
-		Execute: func(context.Context, int64) (int64, error) {
+		Execute: func(context.Context, ActionPolicyDecision) (int64, error) {
 			now := running.Add(1)
 			for {
 				seen := peak.Load()
@@ -229,7 +229,10 @@ func TestApplyNeverExceedsDDLConcurrency(t *testing.T) {
 	}
 }
 
-func TestApplyRecordsDeniedLease(t *testing.T) {
+// A lease held by another writer parks the action (D1): the ledger records
+// the park and no failure is reported. Any other lease error is refused and
+// recorded as a failure.
+func TestApplyParksLeaseConflictAndRecordsOtherLeaseErrors(t *testing.T) {
 	pool, ctx := requireDB(t)
 	table := probeTable(t, pool, "apply_lease")
 	decisionID := recordCustodianDecision(t, ctx, pool, "apply_probe", table)
@@ -246,22 +249,36 @@ func TestApplyRecordsDeniedLease(t *testing.T) {
 	e, _ := applyExecutor(30, 0)
 	e.pool = pool
 	e.WithPolicyGate(&reauthGate{decisionID: decisionID})
-	lease := analyzer.Finding{ObjectIdentifier: "public." + table,
-		RecommendedSQL: "ALTER TABLE public." + table + " SET (fillfactor = 90)"}
-	var refusedWith error
-	probe := &applyProbe{}
-	intent := probe.intent()
-	intent.Lease = &lease
-	intent.Refused = func(_ context.Context, id int64, err error) {
-		if id == decisionID {
-			refusedWith = err
+	var refused []error
+	run := func(target string) (*applyProbe, error) {
+		lease := analyzer.Finding{ObjectIdentifier: target,
+			RecommendedSQL: "ALTER TABLE public." + table + " SET (fillfactor = 90)"}
+		probe := &applyProbe{}
+		intent := probe.intent()
+		intent.Lease = &lease
+		intent.Refused = func(_ context.Context, _ int64, err error) {
+			refused = append(refused, err)
 		}
+		_, err := e.Apply(ctx, intent)
+		return probe, err
 	}
-	if _, err := e.Apply(ctx, intent); !errors.Is(err, policy.ErrLeaseConflict) {
-		t.Fatalf("conflicting lease = %v", err)
+
+	probe, err := run("public." + table)
+	if !errors.Is(err, policy.ErrLeaseConflict) || probe.executed.Load() != 0 {
+		t.Fatalf("conflicting lease = %v, executed=%d", err, probe.executed.Load())
 	}
-	if !errors.Is(refusedWith, policy.ErrLeaseConflict) || probe.executed.Load() != 0 ||
-		len(e.ddlSem) != 0 {
-		t.Fatalf("denied lease recorded=%v executed=%d", refusedWith, probe.executed.Load())
+	var parks int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.decision
+		WHERE verdict='parked' AND (evidence->>'parked_decision_id')::bigint=$1`,
+		decisionID).Scan(&parks); err != nil {
+		t.Fatal(err)
+	}
+	if parks != 1 || len(refused) != 0 || len(e.ddlSem) != 0 {
+		t.Fatalf("parks=%d refused=%v, want one park and no failure", parks, refused)
+	}
+
+	probe, err = run("unqualified_target")
+	if err == nil || probe.executed.Load() != 0 || len(refused) != 1 {
+		t.Fatalf("invalid lease target err=%v refused=%v", err, refused)
 	}
 }

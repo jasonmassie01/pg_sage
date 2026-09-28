@@ -11,6 +11,7 @@ type RuntimeSettings struct {
 	ExecutorEnabled  bool
 	PolicyGate       bool
 	ManagedConfig    bool
+	IOEvidence       bool
 	AnalyzeSemaphore bool
 	ActionStore      bool
 	Dispatcher       bool
@@ -37,6 +38,7 @@ func (e *Executor) RuntimeSettings() RuntimeSettings {
 	e.policyMu.RLock()
 	settings.PolicyGate = e.policyGate != nil
 	settings.ManagedConfig = e.managedConfig != nil
+	settings.IOEvidence = e.ioEvidence != nil
 	e.policyMu.RUnlock()
 	e.postDDLMu.RLock()
 	settings.PostDDLHook = e.postDDLHook != nil

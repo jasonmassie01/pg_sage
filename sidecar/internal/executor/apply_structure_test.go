@@ -80,26 +80,28 @@ func TestEveryExecutionEntryPointCallsApply(t *testing.T) {
 }
 
 // The finding body runs only as an intent's Execute step, never directly.
+// (The test-only executeFinding helper also goes through Apply.)
 func TestFindingBodyRunsOnlyInsideAnIntent(t *testing.T) {
 	calls := 0
 	for name, fn := range executorDecls(t) {
 		ast.Inspect(fn.Body, func(node ast.Node) bool {
 			pair, ok := node.(*ast.KeyValueExpr)
 			if key, isKey := keyIdent(pair); ok && isKey && key == "Execute" {
-				calls += countMethodCalls(pair.Value, "executeFinding")
+				calls += countMethodCalls(pair.Value, "runAuthorizedFinding")
 				return false
 			}
 			if call, isCall := node.(*ast.CallExpr); isCall {
 				if selector, isSel := call.Fun.(*ast.SelectorExpr); isSel &&
-					selector.Sel.Name == "executeFinding" {
-					t.Errorf("%s calls executeFinding outside an intent's Execute", name)
+					selector.Sel.Name == "runAuthorizedFinding" {
+					t.Errorf("%s calls runAuthorizedFinding outside an intent's Execute", name)
 				}
 			}
 			return true
 		})
 	}
 	if calls != 2 {
-		t.Fatalf("executeFinding intents = %d, want the cycle and verified-index intents", calls)
+		t.Fatalf("runAuthorizedFinding intents = %d, want the cycle and "+
+			"verified-index intents", calls)
 	}
 }
 

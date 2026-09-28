@@ -74,7 +74,7 @@ func TestWave4RunawayDisabledMeansNoTrackingOrFindings(t *testing.T) {
 
 func TestWave4ApprovedBackendSignalRejectsStaleEvidence(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	victim, err := pool.Acquire(ctx)
 	if err != nil {

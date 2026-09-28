@@ -16,17 +16,18 @@ import (
 // standing policy's change classes and its windows still bind.
 func (e *Executor) authorizeOperatorAction(
 	ctx context.Context, sql string, findingID int, approvedBy *int,
-) (int64, error) {
+) (policy.Decision, error) {
 	gate := e.StandingPolicyGate()
 	if gate == nil {
-		return 0, fmt.Errorf("%s", reasonNoStandingPolicy)
+		return policy.Decision{}, fmt.Errorf("%s", reasonNoStandingPolicy)
 	}
 	request, _ := operatorRequest(sql, findingID, approvedBy)
 	decision := gate.Authorize(ctx, request)
 	if decision.Verdict != policy.VerdictExecute {
-		return 0, fmt.Errorf("policy refused operator action: %s", operatorRefusal(decision))
+		return policy.Decision{}, fmt.Errorf("policy refused operator action: %s",
+			operatorRefusal(decision))
 	}
-	return decision.DecisionID, nil
+	return decision, nil
 }
 
 // explainOperatorAction reports whether an operator approval of sql would

@@ -9,7 +9,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/store"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
@@ -27,6 +29,17 @@ func TestRuntimeParityEquivalentDatabase(t *testing.T) {
 	markFixtureAsAzure(t, dsn)
 	stubAzureToken(t, nil)
 	base := parityBaseConfig(t, dsn)
+	// D8: a stop persisted in the database must be restored when each
+	// mode registers the runtime, not only when an operator acts again.
+	for _, stopped := range []bool{false, true} {
+		t.Run(fmt.Sprintf("persisted_stop=%t", stopped), func(t *testing.T) {
+			persistParityStop(t, dsn, stopped)
+			runParityModes(t, base, dsn, stopped)
+		})
+	}
+}
+
+func runParityModes(t *testing.T, base *config.Config, dsn string, stopped bool) {
 	modes := map[string]parityModeBuilder{
 		"standalone": buildStandaloneParity, "yaml-fleet": buildFleetParity,
 		"meta-db": buildMetaParity, "agentdb": buildAgentDBParity,
@@ -42,22 +55,50 @@ func TestRuntimeParityEquivalentDatabase(t *testing.T) {
 			if inst == nil {
 				t.Fatalf("%s registered no runtime", mode)
 			}
-			assertParityProbe(t, mode, inst)
+			assertParityProbe(t, mode, inst, stopped)
 		})
 	}
 }
 
-func assertParityProbe(t *testing.T, mode string, inst *fleet.DatabaseInstance) {
+// persistParityStop writes the durable emergency-stop flag in the fixture
+// database (bootstrapping the schema first) and clears it afterwards.
+func persistParityStop(t *testing.T, dsn string, stopped bool) {
+	t.Helper()
+	ctx := context.Background()
+	p, err := connectMetaDB(dsn)
+	if err != nil {
+		t.Fatalf("connect fixture: %v", err)
+	}
+	t.Cleanup(p.Close)
+	if err := schema.Bootstrap(ctx, p); err != nil {
+		t.Fatalf("bootstrap fixture: %v", err)
+	}
+	if err := executor.SetEmergencyStop(ctx, p, stopped, "parity-test"); err != nil {
+		t.Fatalf("persist stop: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := executor.SetEmergencyStop(context.Background(), p, false,
+			"parity-test"); err != nil {
+			t.Errorf("clear stop: %v", err)
+		}
+	})
+}
+
+func assertParityProbe(
+	t *testing.T, mode string, inst *fleet.DatabaseInstance, stopped bool,
+) {
 	t.Helper()
 	if inst.Name == "" || inst.Name == "all" {
 		t.Fatalf("%s runtime name %q is not a database name", mode, inst.Name)
 	}
 	want := map[string]string{
+		"io_admission": "true", "value_source": "own pool",
+		"stopped": fmt.Sprint(stopped), "stop_attributed": fmt.Sprint(stopped),
 		"collector": "true", "analyzer": "true", "executor": "true",
 		"cancel": "true", "workers": "true",
 		"gate": "true", "provider": "azure", "managed_config": "true",
 		"trust": "advisory", "exec.database_name": inst.Name,
-		"execution_mode": "auto", "executor_enabled": "true",
+		"execution_mode": "auto", "executor_enabled": fmt.Sprint(!stopped),
 		"dispatcher": "true", "action_store": "true",
 		"analyze_semaphore": "true", "post_ddl_hook": "true",
 		"status.database_name": inst.Name, "status.platform": "azure",
@@ -85,6 +126,11 @@ func parityProbe(inst *fleet.DatabaseInstance) map[string]string {
 		version = "known"
 	}
 	return map[string]string{
+		"io_admission": fmt.Sprint(settings.IOEvidence),
+		"value_source": parityValueSource(inst),
+		"stopped":      fmt.Sprint(fleetMgr.InstanceStopped(inst)),
+		"stop_attributed": fmt.Sprint(inst.StoppedBy == "parity-test" &&
+			!inst.StoppedAt.IsZero()),
 		"collector": fmt.Sprint(inst.Collector != nil),
 		"analyzer":  fmt.Sprint(inst.Analyzer != nil),
 		"executor":  fmt.Sprint(inst.Executor != nil),
@@ -104,6 +150,21 @@ func parityProbe(inst *fleet.DatabaseInstance) map[string]string {
 		"status.platform":      status.Platform, "status.trust": status.TrustLevel,
 		"status.pg_version": version, "status.connected": fmt.Sprint(status.Connected),
 	}
+}
+
+// parityValueSource reports whether the value ledger (D3) reads this
+// runtime's own database.
+func parityValueSource(inst *fleet.DatabaseInstance) string {
+	for _, source := range fleet.ValueSources(fleetMgr) {
+		if source.Name != inst.Name {
+			continue
+		}
+		if source.Pool != nil && source.Pool == inst.Pool {
+			return "own pool"
+		}
+		return "other pool"
+	}
+	return "missing"
 }
 
 // markFixtureAsAzure makes cloud detection report azure for new connections:

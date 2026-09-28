@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/logwatch"
-	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 type API interface {
@@ -104,8 +103,6 @@ func (r *Runtime) Telemetry() Telemetry {
 	defer r.mu.RUnlock()
 	t := r.telemetry
 	t.CPUPct = cloneValue(t.CPUPct)
-	t.DataIOPct = cloneValue(t.DataIOPct)
-	t.LogIOPct = cloneValue(t.LogIOPct)
 	t.MemoryTotalBytes = cloneValue(t.MemoryTotalBytes)
 	t.MemoryAvailableBytes = cloneValue(t.MemoryAvailableBytes)
 	return t
@@ -119,9 +116,10 @@ func cloneValue(value *float64) *float64 {
 	return &result
 }
 
-func (r *Runtime) CurrentLoad(ctx context.Context) (verify.LoadSample, error) {
+// CurrentCPU reports fresh host CPU utilization for load admission.
+func (r *Runtime) CurrentCPU(ctx context.Context) (float64, error) {
 	if err := ctx.Err(); err != nil {
-		return verify.LoadSample{}, err
+		return 0, err
 	}
-	return r.Telemetry().Load(time.Now())
+	return r.Telemetry().CPU(time.Now())
 }

@@ -13,18 +13,23 @@ import (
 	"github.com/pg-sage/sidecar/internal/schema"
 )
 
-func TestPostgresRepositoryReadSnapshotFiltersHonestValue(t *testing.T) {
-	pool, ctx := requireValuePostgres(t)
+// A source snapshot counts only verified credit, keeps potential and
+// incidents separate, honors the time window, and never mixes in another
+// database's ledger (D3: attribution is by fleet source, not database_id).
+func TestFleetSourceSnapshotIsHonest(t *testing.T) {
+	ctx := context.Background()
+	honest := newLedgerSource(t, "honest")
+	other := newLedgerSource(t, "other")
+	pool := honest.Pool
 	repo := NewPostgresRepository(pool)
-	databaseID, databaseName := insertValueDatabase(t, ctx, pool)
-	otherID, _ := insertValueDatabase(t, ctx, pool)
-	graph := insertValueEvidenceGraph(t, ctx, pool, databaseID, "snapshot")
-	insertCreditedAction(t, ctx, pool, databaseID, "create_index_concurrently", 45)
-	insertRevertedAction(t, ctx, pool, databaseID, "create_index_concurrently", 45)
-	insertPendingAction(t, ctx, pool, databaseID, "create_index_concurrently")
-	insertCreditedAction(t, ctx, pool, otherID, "analyze_table", 99)
+	const metaID = int64(7)
+	graph := insertValueEvidenceGraph(t, ctx, pool, metaID, "snapshot")
+	insertCreditedAction(t, ctx, pool, metaID, "create_index_concurrently", 45)
+	insertRevertedAction(t, ctx, pool, metaID, "create_index_concurrently", 45)
+	insertPendingAction(t, ctx, pool, metaID, "create_index_concurrently")
+	insertCreditedAction(t, ctx, other.Pool, metaID, "analyze_table", 99)
 	incident, err := repo.RecordIncident(ctx, IncidentCredit{
-		DatabaseID: &databaseID, Kind: "lock_storm", Severity: "prevented",
+		DatabaseID: nil, Kind: "lock_storm", Severity: "prevented",
 		CreditedMinutes: 60, EvidenceID: graph.evidenceID + "-incident",
 		ModelVersion: 1, DecisionID: graph.decisionID,
 		ActionLogID: graph.actionID, VerificationID: graph.verificationID,
@@ -36,21 +41,22 @@ func TestPostgresRepositoryReadSnapshotFiltersHonestValue(t *testing.T) {
 	if incident.ID <= 0 || incident.CreditedMinutes != 60 {
 		t.Fatalf("incident = %#v", incident)
 	}
+	service := fleetOf(honest, other)
 
-	snapshot, err := repo.ReadSnapshot(ctx, Filter{Database: databaseName})
-	if err != nil {
-		t.Fatalf("ReadSnapshot: %v", err)
+	results, err := service.Read(ctx, Filter{Database: "honest"})
+	if err != nil || len(results) != 1 || results[0].Err != nil {
+		t.Fatalf("Read: %+v err=%v", results, err)
 	}
-	assertHonestSnapshot(t, snapshot, databaseName)
+	assertHonestSnapshot(t, results[0].Snapshot, "honest")
 
 	future := time.Now().UTC().Add(time.Hour)
-	empty, err := repo.ReadSnapshot(ctx, Filter{
-		Database: databaseName, Since: future, Until: future.Add(time.Hour),
+	empty, err := service.Read(ctx, Filter{
+		Database: "honest", Since: future, Until: future.Add(time.Hour),
 	})
-	if err != nil {
-		t.Fatalf("ReadSnapshot time filter: %v", err)
+	if err != nil || len(empty) != 1 || empty[0].Err != nil {
+		t.Fatalf("Read time filter: %+v err=%v", empty, err)
 	}
-	assertEmptySnapshot(t, empty)
+	assertEmptySnapshot(t, empty[0].Snapshot)
 }
 
 func assertHonestSnapshot(t *testing.T, snapshot Snapshot, databaseName string) {
@@ -171,9 +177,14 @@ func TestPostgresRepositoryCancellationAndMissingRowsPropagate(t *testing.T) {
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
 
-	_, err := repo.ReadSnapshot(cancelled, Filter{})
-	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "snapshot") {
-		t.Fatalf("cancelled ReadSnapshot error = %v", err)
+	results, err := fleetOf(Source{Name: "cancelled", Pool: pool}).
+		Read(cancelled, Filter{})
+	if err != nil || len(results) != 1 {
+		t.Fatalf("cancelled Read = %+v err=%v", results, err)
+	}
+	readErr := results[0].Err
+	if !errors.Is(readErr, context.Canceled) || !strings.Contains(readErr.Error(), "snapshot") {
+		t.Fatalf("cancelled source read error = %v", readErr)
 	}
 	_, err = repo.CreditCandidate(ctx, -1)
 	if err == nil || !strings.Contains(err.Error(), "action") {

@@ -93,13 +93,14 @@ func (d postgresSchemaDetector) detectUnboundedAppend(
 	defer rows.Close()
 	result := make([]schemaguard.Invariant, 0)
 	for rows.Next() {
-		var schemaName, tableName, retentionColumn string
-		if err := rows.Scan(&schemaName, &tableName, &retentionColumn); err != nil {
+		var schemaName, tableName, declared, suggested string
+		if err := rows.Scan(&schemaName, &tableName, &declared, &suggested); err != nil {
 			return nil, fmt.Errorf("scan unbounded append table: %w", err)
 		}
 		result = append(result, schemaguard.Invariant{
 			Kind:   schemaguard.InvariantUnboundedAppend,
-			Schema: schemaName, Table: tableName, RetentionColumn: retentionColumn,
+			Schema: schemaName, Table: tableName, RetentionColumn: declared,
+			RetentionSuggestion: suggested,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -189,8 +190,8 @@ func (s postgresSchemaContractSource) Contract(
 	var retentionSeconds *float64
 	var exemptions []byte
 	err := s.pool.QueryRow(ctx, tableContractSQL, invariant.Schema, invariant.Table).
-		Scan(&contract.AppendOnly, &retentionSeconds, &contract.ExpectedPrimaryKey,
-			&exemptions)
+		Scan(&contract.AppendOnly, &retentionSeconds, &contract.RetentionColumn,
+			&contract.ExpectedPrimaryKey, &exemptions)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return contract, nil
 	}
@@ -336,9 +337,10 @@ func boundedIdentifier(value string) string {
 }
 
 const tableContractSQL = `SELECT append_only,
-EXTRACT(epoch FROM retention_interval), COALESCE(expected_pk,''), exemptions
+EXTRACT(epoch FROM retention_interval), COALESCE(retention_column,''),
+COALESCE(expected_pk,''), exemptions
 FROM sage.table_contract WHERE schema_name=$1 AND table_name=$2
-ORDER BY updated_at DESC LIMIT 1`
+ORDER BY updated_at DESC, id DESC LIMIT 1`
 
 const schemaHistorySQL = `SELECT
 count(*) FILTER (WHERE evidence->>'disposition'='dry_run'),
@@ -346,11 +348,31 @@ count(*) FILTER (WHERE evidence->>'external_reversion'='true')
 FROM sage.decision WHERE feature='schema_guard' AND intent=$1
 AND target_objects @> $2::jsonb`
 
+// unboundedAppendSQL emits one row per contracted table: the newest
+// contract wins, so repeated declarations (NULL database_id rows are not
+// deduplicated by the UNIQUE constraint) cannot yield duplicate invariants.
+// The declared column is returned only when it is live and temporal; the
+// created_at/occurred_at heuristic is returned separately as a suggestion
+// for the owner and is never used to delete.
 const unboundedAppendSQL = `/* pg_sage */
-SELECT tc.schema_name, tc.table_name, COALESCE(retention_column.attname,'')
-FROM sage.table_contract tc
+SELECT tc.schema_name, tc.table_name,
+       COALESCE(declared.attname::text,''), COALESCE(suggested.attname::text,'')
+FROM (
+    SELECT DISTINCT ON (schema_name, table_name)
+           schema_name, table_name, append_only, retention_interval, retention_column
+    FROM sage.table_contract
+    ORDER BY schema_name, table_name, updated_at DESC, id DESC
+) tc
 JOIN pg_namespace ns ON ns.nspname=tc.schema_name
 JOIN pg_class tbl ON tbl.relnamespace=ns.oid AND tbl.relname=tc.table_name
+LEFT JOIN LATERAL (
+    SELECT att.attname
+    FROM pg_attribute att
+    JOIN pg_type typ ON typ.oid=att.atttypid
+    WHERE att.attrelid=tbl.oid AND att.attnum>0 AND NOT att.attisdropped
+      AND typ.typname IN ('timestamp','timestamptz','date')
+      AND att.attname=tc.retention_column
+) declared ON true
 LEFT JOIN LATERAL (
     SELECT att.attname
     FROM pg_attribute att
@@ -360,7 +382,7 @@ LEFT JOIN LATERAL (
       AND att.attname IN ('created_at', 'occurred_at')
     ORDER BY CASE att.attname WHEN 'created_at' THEN 0 ELSE 1 END
     LIMIT 1
-) retention_column ON true
+) suggested ON true
 WHERE tc.append_only AND tc.retention_interval IS NOT NULL
   AND tbl.relkind IN ('r','p')
 ORDER BY tc.schema_name, tc.table_name`

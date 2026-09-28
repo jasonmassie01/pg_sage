@@ -304,6 +304,7 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 		if err := applyPersistedGlobalOverrides(cfg, controlPool); err != nil {
 			return err
 		}
+		warnInvalidStoredWindows(context.Background(), configStore, logWarn)
 	}
 	configController = config.NewConfigControllerAtGeneration(
 		cfg, generation, nil, newTrustPolicyOwner(),
@@ -489,6 +490,7 @@ func initStandalone() {
 	logInfo("startup", "standalone mode initialized — collector=%ds, analyzer=%ds, trust=%s",
 		cfg.Collector.IntervalSeconds, cfg.Analyzer.IntervalSeconds, cfg.Trust.Level)
 }
+
 // registerNotifySenders wires the built-in notification senders onto a
 // dispatcher. Without it, the executor/analyzer event path dispatched to
 // a sender-less dispatcher and every notification silently no-op'd with
@@ -613,6 +615,7 @@ func initFleetMultiDB() {
 	logInfo("fleet", "%d of %d configured databases initialized",
 		boot.initialized, len(cfg.Databases))
 }
+
 // registerFleetDatabases upserts all YAML-defined fleet databases
 // into sage.databases on the config pool so the per-database config
 // API can reference them by ID.
@@ -1037,8 +1040,10 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	// Database metrics (only when global pool exists).
 	if pool != nil {
 		writeDatabaseMetrics(&b, ctx)
-		writeValueMetrics(&b, ctx)
 	}
+	// Value lives in each monitored database (D3), so it is read from
+	// every fleet instance in all modes, never from the meta pool.
+	writeValueMetrics(&b, ctx, fleet.ValueSources(fleetMgr))
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	fmt.Fprint(w, b.String())

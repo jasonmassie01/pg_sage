@@ -53,11 +53,11 @@ func TestOperatorAuthorizationIsRecordedAsOperatorIntent(t *testing.T) {
 	exec.WithPolicyGate(spy.gate())
 	approver := 7
 
-	decisionID, err := exec.authorizeOperatorAction(
+	decision, err := exec.authorizeOperatorAction(
 		context.Background(), "ANALYZE public.orders", 42, &approver)
 
-	if err != nil || decisionID != 1 {
-		t.Fatalf("authorize: id=%d err=%v", decisionID, err)
+	if err != nil || decision.DecisionID != 1 {
+		t.Fatalf("authorize: id=%d err=%v", decision.DecisionID, err)
 	}
 	req := spy.requests[0]
 	if !req.OperatorApproved || req.Feature != string(policy.ChangeAnalyze) {

@@ -217,6 +217,20 @@ function IncidentsAvoided({ incidents }) {
   )
 }
 
+function PartialWarning({ unavailable }) {
+  const names = (unavailable || []).join(', ')
+  return (
+    <div role="alert" className="rounded border p-4"
+      style={{ borderColor: 'var(--yellow)', color: 'var(--text-primary)' }}>
+      <p className="font-semibold">Totals are partial</p>
+      <p className="mt-1 text-sm">
+        Value could not be read from: {names || 'unknown databases'}.
+        Their verified savings are missing from these totals.
+      </p>
+    </div>
+  )
+}
+
 function isEmptyValue(data) {
   return !data || (
     Number(data.dba_hours_saved?.all_time || 0) === 0 &&
@@ -244,6 +258,7 @@ export function ValuePage({ database }) {
           Verified work completed and incidents prevented by pg_sage.
         </p>
       </div>
+      {data?.partial && <PartialWarning unavailable={data.unavailable} />}
       {isEmptyValue(data) ? <EmptyState /> : (
         <>
           <RealizedValue savings={data.dba_hours_saved || {}} />

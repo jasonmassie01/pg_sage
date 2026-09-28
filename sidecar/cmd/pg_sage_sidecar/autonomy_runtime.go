@@ -66,7 +66,8 @@ func (r executorProposalRouter) authorizeRetention(
 ) error {
 	return r.executor.AuthorizeRetention(ctx, executor.RetentionRequest{
 		Target: intent.Schema + "." + intent.Table, Column: intent.Column,
-		Cutoff: intent.Cutoff, Window: intent.Window, BatchLimit: intent.BatchLimit,
+		DeclaredColumn: intent.DeclaredColumn,
+		Cutoff:         intent.Cutoff, Window: intent.Window, BatchLimit: intent.BatchLimit,
 		Candidates: intent.Candidates, IsReplica: r.replica(ctx),
 	})
 }

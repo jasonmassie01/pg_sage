@@ -39,6 +39,10 @@ type Incident struct {
 	// PreviousIncidentID links a recurrence to the resolved incident with
 	// the same identity that preceded it.
 	PreviousIncidentID string `json:"previous_incident_id,omitempty"`
+	// liveEvidence marks detections whose root cause and chain describe
+	// the current state (lock chains): merging one into an open incident
+	// refreshes that incident's evidence instead of keeping the first.
+	liveEvidence bool
 }
 
 // ChainLink is one step in the causal chain leading to an incident.
@@ -47,6 +51,9 @@ type ChainLink struct {
 	Signal      string `json:"signal"`
 	Description string `json:"description"`
 	Evidence    string `json:"evidence"`
+	// Blocker is the structured backend identity behind a lock-chain
+	// link (pid + backend_start + query identity).
+	Blocker *BlockerIdentity `json:"blocker,omitempty"`
 }
 
 // Signal is a single fired detector result.
@@ -55,6 +62,9 @@ type Signal struct {
 	FiredAt  time.Time      `json:"fired_at"`
 	Severity string         `json:"severity"`
 	Metrics  map[string]any `json:"metrics"`
+	// blockers carries lock-chain backend identities to the incident
+	// builder without adding them to Metrics (Tier 2 prompts).
+	blockers []BlockerIdentity
 }
 
 // LogSource produces log-based RCA signals from the logwatch package.
@@ -107,6 +117,9 @@ type Engine struct {
 	logReplayCutoff time.Time
 	store           *pgxpool.Pool
 	hydrated        bool
+	// fastFired records signals the lock-chain fast path observed since
+	// the last analyzer cycle; that cycle treats them as still firing.
+	fastFired map[string]bool
 	// cycleMu serializes analysis, hydration and persistence cycles.
 	// mu guards the fields above and is never held across I/O.
 	cycleMu sync.Mutex
@@ -195,6 +208,7 @@ func NewEngine(
 		incidents:       make([]Incident, 0),
 		clearCounts:     make(map[string]int),
 		track:           make(map[string]*trackState),
+		fastFired:       make(map[string]bool),
 		gracePeriodLeft: cfg.ResolutionCycles + 1,
 		logFn:           logFn,
 		logReplayCutoff: time.Now().Add(-defaultLogReplayGrace),

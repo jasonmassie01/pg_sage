@@ -12,6 +12,7 @@ import { useToast } from '../components/Toast'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { canRollBackRow, isQueuedRow, queuedLabels } from './actions/ledger'
 import { PendingErrors } from './actions/PendingErrors'
+import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 
 function actionStatus(row) {
   return row.status || row.action_status || row.outcome || 'unknown'
@@ -73,6 +74,7 @@ export function Actions({ database, user }) {
     return (
       <div className="space-y-4">
         <ActionsDescription />
+        <IndexAdmissionPanel database={database} />
         <TabBar tab={activeTab} setTab={setTab}
           pendingCount={pendingData?.total || 0}
           canReview={canReview} />
@@ -85,6 +87,7 @@ export function Actions({ database, user }) {
   return (
     <div className="space-y-4">
       <ActionsDescription />
+      <IndexAdmissionPanel database={database} />
       <TabBar tab={activeTab} setTab={setTab}
         pendingCount={pendingData?.total || 0}
         canReview={canReview} />

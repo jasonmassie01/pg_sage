@@ -2,7 +2,57 @@
 
 ## Unreleased
 
-### Changed
+### Added
+
+- **Lock chains open incidents within a minute.** A lock-chain fast path runs every
+  `rca.lock_chain_interval_seconds` (default `60`, `0` disables it) instead of waiting for the
+  600 s analyzer cycle. It opens or updates the `lock_contention` incident and sends
+  `incident_detected`. The incident records each root blocker's identity (pid,
+  `backend_start`, query id and a hash of the query text) as structured `causal_chain`
+  evidence. Escalation and auto-resolution still count analyzer cycles, so
+  `escalation_cycles` and `resolution_cycles` keep their meaning.
+- **Plan fingerprints.** Captured plans get a stable `plan_hash` that ignores costs, row
+  counts, timings and literals. It is stored in `sage.explain_cache` and copied to every
+  `sage.query_store` sample, so a plan flip shows up in the per-query history.
+  `plan_regression` findings now say whether the plan shape changed (`plan_changed`).
+- **Incident narration (opt-in).** With `rca.narration_enabled: true`, detected and escalated
+  incident notifications carry an LLM summary. The model can only read the incident's own
+  evidence, must cite it, and may only use numbers that appear in it. Every other case
+  (narration off, LLM off, budget, rate limit, timeout, malformed or uncited output) sends
+  the deterministic summary. Both are labeled in the notification. `llm.enabled: false`
+  cancels narrations in flight.
+- **Emergency stop in the header (D8).** Operators and admins get a Stop control next to
+  the database picker. It stops the selected database, or all databases when "All" is
+  selected, and needs arm then confirm. Resume appears only when the selection is stopped,
+  also needs confirmation, and shows who stopped it and when. A badge visible to every role
+  names the stopped database, the person who stopped it and the time. The Settings page
+  buttons are replaced by a pointer to the header control.
+- **The stop survives restarts.** At startup and on reconnect, every mode (standalone,
+  fleet, meta-db) restores the in-memory stop from `sage.config`, so the header badge and
+  action readiness show "stopped" on first paint. An unreadable flag restores as stopped,
+  attributed to `system`.
+- **Attribution and audit.** Stop and resume record the signed-in user (or `system`) in
+  `sage.config.updated_by` and append a `sage.config_audit` row in the same statement. The
+  fleet API (`GET /api/v1/databases`) exposes `emergency_stopped`, `emergency_stopped_by`
+  and `emergency_stopped_at` per database, and `summary.emergency_stopped_count`.
+- **Declared IO capacity.** Operators can attest provisioned throughput with
+  `verify.io_capacity` (standalone) or `databases[].verify.io_capacity` (fleet):
+  `read_write_mbps` and `wal_mbps` in MiB/s. Utilization is the measured rate
+  divided by the declared capacity, compared with the IO ceilings. A declaration
+  overrides the learned baseline. A fleet-wide `verify.io_capacity` is rejected.
+- **Admission evidence in the ledger.** Every decision records which evidence
+  mode admitted or withheld the build (`declared_capacity`, `learned_baseline`
+  or `unavailable`), with the rates, capacity or baseline, in
+  `sage.decision.evidence.load_admission`.
+- **Visible withheld reason.** A withheld build is recorded once per finding and
+  reason in `sage.admission_withheld` instead of a new failed action every
+  cycle. `GET /api/v1/admission` and `GET /api/v1/admission/{name}` report each
+  database's mode, reason and baseline progress, and the dashboard shows them on
+  the Actions page and in the Overview provider-readiness tab.
+- Supabase provider observability now supplies host CPU only; it never reported
+  disk utilization.
+
+### Changed (read before upgrading)
 
 - **Every mode builds a database's runtime the same way.** Standalone, YAML fleet,
   meta-db and AgentDB now share one constructor, so the safety wiring (standing policy
@@ -22,6 +72,8 @@
     running without its schema.
   - Shutdown waits, within its deadline, for every database's workers.
   - `--meta-db` with `mode: standalone` no longer registers a phantom database.
+  - AgentDB databases also get index-build load admission (D6), the lock-chain fast
+    path, value-ledger reporting (D3) and the restored emergency stop (D8).
 - **One execution pipeline.** Every change the executor makes (the background cycle,
   operator-approved actions, custodians, verified indexes and retention authorization)
   goes through the same steps: authorize, take the change lease and a DDL slot,
@@ -31,6 +83,163 @@
   - **Executor DDL always has a timeout.** `safety.ddl_timeout_seconds: 0` used to mean
     no statement timeout; it now means the 300-second default. A client-side deadline one
     minute longer backs it up.
+- **Retention deletes need an owner-declared column (D5).** `declare_table_contract`
+  now takes `retention: {"interval": "...", "column": "..."}`; an interval without a
+  column (including the old bare-string form) is rejected, and the column must exist
+  and be `timestamptz`, `timestamp` or `date`. pg_sage no longer guesses `created_at` or
+  `occurred_at`. **Existing retention contracts pause** (no deletes) until they are
+  re-declared with a column; the ledger park reason shows the suggested column, e.g.
+  `retention column not declared; suggested: created_at — re-declare the contract with
+  retention.column to enable deletes`. Count affected contracts with
+  `SELECT count(*) FROM sage.table_contract WHERE append_only AND retention_interval IS
+  NOT NULL AND retention_column IS NULL`. The upgrade adds
+  `sage.table_contract.retention_column` without backfilling it.
+- **Dry runs are bound to identity, not names.** A reviewed dry run now authorizes
+  deletion only for the same table OID, column attnum and type, and contract version.
+  Renaming or swapping the column, rebuilding the table, re-declaring the contract, or
+  eligible rows growing past 2x + 100 of the dry run's count starts a new 24-hour
+  review. Dry runs recorded before this release no longer qualify. Each delete batch
+  locks the table `ROW EXCLUSIVE` and re-checks the column before deleting.
+- **Value is counted across the whole fleet (D3).** Each monitored database keeps its own
+  value ledger, next to the actions it credits. The Value page (`GET /api/v1/value`), the
+  Prometheus value metrics and the MCP `get_value` tool now add up every database in
+  standalone, YAML fleet and meta-db mode. Before, YAML fleet showed only the first database
+  and meta-db mode showed zero, because the meta database holds no ledger. Nothing is
+  migrated.
+- **Value metrics carry the database name.** `pg_sage_toil_minutes_saved` and
+  `pg_sage_incidents_avoided_total` are labelled `database="<instance name>"` (never empty).
+  `pg_sage_value_metrics_up` is now reported per database, so update alerts that expect the
+  unlabelled series. The value metrics are also exported in YAML fleet mode, where they were
+  missing.
+- **Partial value is reported, not hidden.** If a database cannot be read, the value response
+  sets `"partial": true` and names it in `"unavailable"`, and the other databases still count.
+  The Value page shows a warning. `?database=<name>` works in every mode, including
+  standalone, and an unknown name returns 404. Two fleet entries for the same physical
+  database are counted once.
+- **Credited value is kept.** Retention no longer purges credited actions (verified success
+  with toil credit) or the verification that earned the credit, so all-time value no longer
+  shrinks after `retention.actions_days`. Uncredited, failed and rolled-back rows still age
+  out.
+- Schema: `sage.explain_cache` gains a nullable `plan_hash` column (added automatically at
+  startup).
+- Notifications for `incident_detected` and `incident_escalated` now end with a labeled
+  `Summary` line, and their payload data adds `narrative` and `narrative_source`.
+- **Defined stop/resume races.** Stops latch memory immediately; persisted transitions are
+  serialized. A stop that overlaps a resume wins, and memory always ends equal to the
+  persisted flag. A stop that lands while a meta-db reconnect swaps in a new runtime
+  carries over to the new runtime and is saved. `sage.config_audit` gains a nullable `changed_by_actor` column, added
+  automatically at startup.
+- **Behaviour change: autonomous index builds can now be admitted.** Until now no
+  source produced IO evidence, so load admission withheld every autonomous
+  `CREATE INDEX CONCURRENTLY` and every custodian index proposal (such as FK
+  supporting indexes) on every deployment. pg_sage now samples IO from Postgres
+  every minute (`pg_stat_io` on PG16+, `pg_stat_database` and `pg_stat_bgwriter`
+  on PG14/15, `pg_stat_wal` for WAL) and learns each database's baseline in
+  `sage.io_rate_sample`. **After 7 days of observation (`verify.io_baseline_days`),
+  autonomous index builds are admitted during quiet periods**: when current data
+  and WAL rates are at or below the learned median. While the baseline is still
+  being learned, builds stay withheld with a reason such as
+  `learning IO baseline: 3.0/7 days`. Set `verify.io_baseline_days: 0` to keep
+  today's fail-closed behaviour. The trust level, tier flags, standing policy and
+  maintenance windows still apply as before.
+- **Unknown host CPU narrows admission to maintenance windows.** Without a CPU
+  reader (anything except Supabase with an observability token), a build is
+  admitted only while `trust.maintenance_window` and the policy windows are open.
+- **Separate IO ceilings.** `safety.data_io_ceiling_pct` and
+  `safety.wal_io_ceiling_pct` (default 70) no longer inherit
+  `safety.cpu_ceiling_pct`.
+
+- **The policy refusal set is enforced.** `refusal_set` was stored but never
+  checked. Each token now matches precisely: `rls_change` (row-level security
+  or its policies), `grant_expansion` (GRANT, ALTER ROLE, OWNER TO, ALTER
+  DEFAULT PRIVILEGES), `major_upgrade` (major or extension upgrades),
+  `non_dup_object_drop` (dropping a table, column, constraint, sequence,
+  schema or replication slot) and `unrollbackable` (rollback class
+  `not_reversible` or `forward_fix_only`). A self-initiated action that
+  matches is queued for approval with reason `refused_by_policy`, and the
+  token is in the detail. An operator-approved action is not refused.
+  - No action pg_sage takes today changes verdict under the built-in
+    profiles. Unused, duplicate and invalid index drops are rebuildable and
+    keep their earned autonomy. A retention delete on the column the owner
+    declared as the contract's `retention.column` (D5) runs under that
+    declaration and is not "unrollbackable"; one without a declared column
+    is queued for approval.
+  - `set_table_autovacuum` is now reversible: it ships `ALTER TABLE ... RESET`.
+  - Unknown refusal tokens are rejected when a policy is proposed. A stored
+    policy that contains one fails closed (`policy_unavailable`), and startup
+    logs which token to fix.
+- **The policy lock ceiling is enforced.** For DDL that runs inside a
+  transaction, autonomous or operator-approved, `lock_timeout` is the smaller
+  of `lock_duration_ceiling_ms` (3000 in both profiles) and
+  `safety.lock_timeout_ms` (default 30000). An `ALTER TABLE` queued behind a
+  long lock now gives up after 3 s instead of 30 s. `CONCURRENTLY` builds keep
+  `safety.lock_timeout_ms`, because they wait on older transactions by design.
+  The ceiling also caps `ANALYZE` (autonomous and operator-approved) and
+  in-transaction custodian changes.
+- **DDL lease conflicts park instead of failing.** When another writer holds the
+  change lease for the same object, the action is parked (`ddl_conflict` in the
+  decision ledger) and retried next cycle. It used to log a failed action, which
+  counted toward the three-failure abandonment and the self-initiated rate
+  limit.
+- **One maintenance-window grammar.** `trust.maintenance_window` and the
+  standing policy's `maintenance_windows` are now parsed by the same engine, so
+  a string means the same thing in both. See "Maintenance windows" in
+  `docs/configuration.md`.
+  - Config windows gain cron lists, ranges and steps (`0 2 * * 1-5`,
+    `*/15 2 * * *`). These used to be accepted and silently mean "never".
+  - Policy windows gain the config presets (`nights`, `weeknights`,
+    `weekdays`, `business-hours`, ...) and day lists (`Mon-Fri`, `sat,sun`,
+    `daily`).
+  - A cron window is one hour wide from each matching minute, or as long as
+    an optional `@<duration>` says (`0 2 * * * @30m`, `@1m` to `@24h`).
+    `30 * * * *` therefore covers every hour; it used to cover only :30-:59.
+  - A range that crosses midnight belongs to the day it starts on.
+    `weeknights` now covers Friday 22:00 to Saturday 06:00 and no longer
+    covers Sunday 22:00 to Monday 06:00. Lists behave the same way:
+    `Mon,Wed,Fri 22:00-04:00` covers Saturday 02:00 (Friday night), not
+    Wednesday 02:00 (Tuesday night).
+  - An optional trailing IANA time zone evaluates a window on that zone's
+    clock, including DST: `weekdays 01:00-05:00 America/Chicago`. Without one
+    the process clock is used, as before (UTC in the container).
+- **Invalid `trust.maintenance_window` values are rejected** at config load,
+  file reload and API save (HTTP 400 naming the grammar). A typo such as
+  `weeknigths` used to be stored and silently close the window. `never`,
+  `off`, `none` and `disabled` still close it.
+  An override saved before this release that no longer validates is logged at
+  startup with its value and how to fix or delete it. It still keeps the
+  window closed until it is fixed.
+- **Stored policies are migrated to schema version 3.** Each policy cron window
+  is rewritten from `<cron>` to `<cron> @1m`, so it keeps its exact
+  one-minute meaning. The built-in profiles have no cron windows and are
+  unchanged. Superseded history is not rewritten.
+- **Downgrade risk.** A release older than this one cannot parse `@<duration>`
+  or a time-zone suffix in a policy window. If the active policy contains one
+  (including a migrated `@1m`), an older binary fails closed with
+  `policy_unavailable` and blocks every action until a policy it can parse is
+  active. Before downgrading, ratify a policy version without those suffixes.
+
+### Deprecated
+
+- **`tuner.analyze_maintenance_threshold_mb` is ignored.** It never had an
+  effect. A config file that still sets it loads normally and logs
+  "tuner.analyze_maintenance_threshold_mb is no longer used and is ignored;
+  remove it". The key is gone from the example configs.
+
+### Fixed
+
+- A retention contract that cannot act no longer stops the schema scan: later
+  invariants (such as missing foreign-key indexes) are still planned in the same cycle.
+- Re-declaring a table contract updates the one contract row instead of adding another.
+  The upgrade removes existing duplicates (keeping the newest per table) and adds a
+  unique index on `(COALESCE(database_id, 0), schema_name, table_name)`.
+- A dry run still in its 24-hour review parks with `retention dry run in review until
+  <time>` instead of being logged as a failure; the rest of the scan continues.
+- In fleet mode, and with several databases on one server, a database reported and paged on
+  lock chains that belonged to another database. Lock-chain detection now only starts from
+  sessions in the monitored database.
+- Incident causal chains that contained control characters or invalid UTF-8 failed to
+  save.
+
 
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 

@@ -218,4 +218,35 @@ describe('ValuePage', () => {
       name: /incidents avoided/i,
     })).toBeInTheDocument()
   })
+  it('warns that totals are partial and names unreadable databases', () => {
+    api.useAPI.mockReturnValue(response({
+      data: { ...valueFixture, partial: true, unavailable: ['billing', 'ledger'] },
+    }))
+    render(<ValuePage database="all" />)
+
+    const warning = screen.getByRole('alert')
+    expect(warning).toHaveTextContent(/totals are partial/i)
+    expect(warning).toHaveTextContent('billing, ledger')
+    expect(screen.getByText('412.5 h')).toBeInTheDocument()
+  })
+
+  it('warns even when every database failed and nothing else is known', () => {
+    api.useAPI.mockReturnValue(response({
+      data: {
+        dba_hours_saved: { all_time: 0 }, partial: true, unavailable: ['orders'],
+      },
+    }))
+    render(<ValuePage database="all" />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('orders')
+  })
+
+  it('shows no partial warning for a complete report', () => {
+    api.useAPI.mockReturnValue(response({
+      data: { ...valueFixture, partial: false, unavailable: [] },
+    }))
+    render(<ValuePage database="all" />)
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
 })

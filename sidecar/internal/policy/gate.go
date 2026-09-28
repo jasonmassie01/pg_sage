@@ -55,11 +55,21 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	if stop {
 		return decision
 	}
-	// Trust, mode, tier flags and ramp decide first; a window (or a deadline
-	// override of it) can only restrict an otherwise-execute verdict.
+	return withLockCeiling(doc, gate.selfInitiatedDecision(doc, runtime, req))
+}
+
+// selfInitiatedDecision lets trust, mode, tier flags and ramp decide first.
+// The refusal set, degraded SQL validation and the windows (or a deadline
+// override of them) can only restrict an otherwise-execute verdict.
+func (gate *authorizationGate) selfInitiatedDecision(
+	doc Document, runtime RuntimeState, req ActionRequest,
+) Decision {
 	tier := tierDecision(runtime, req, gate.now())
 	if tier.Verdict != VerdictExecute {
 		return tier
+	}
+	if decision, refused := refusalDecision(doc, req); refused {
+		return decision
 	}
 	if runtime.SQLValidationDegraded && req.Contract.RiskTier != RiskReadOnly {
 		return decisionForRequest(req, degradedValidationDecision())

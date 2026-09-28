@@ -26,10 +26,12 @@ func (gate *authorizationGate) operatorDecision(
 	if !containsChangeClass(doc.AllowedChangeClasses, ChangeClass(req.Feature)) {
 		return gate.decision(req, VerdictBlocked, ReasonChangeClassNotAllowed)
 	}
+	// A human decided: the refusal set does not apply. The lock ceiling is a
+	// safety bound and does.
 	if decision, stop := gate.operatorWindowDecision(doc, runtime, req); stop {
-		return decision
+		return withLockCeiling(doc, decision)
 	}
-	return gate.decision(req, VerdictExecute, ReasonOperatorApproved)
+	return withLockCeiling(doc, gate.decision(req, VerdictExecute, ReasonOperatorApproved))
 }
 
 // operatorWindowDecision bounds moderate and high operator actions by the

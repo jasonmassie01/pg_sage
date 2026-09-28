@@ -34,24 +34,29 @@ func (e *Executor) SubmitVerifiedIndexProposal(
 	finding.Detail = map[string]any{"queryids": append([]int64(nil), queryIDs...)}
 	_, err := e.Apply(ctx, ActionIntent{
 		Request: custodianRequest(proposal), Lease: &finding, WaitForSlot: true,
-		Admit: func(ctx context.Context) error {
-			return e.admitVerifiedIndex(ctx, finding)
+		Admit: func(ctx context.Context, decisionID int64) error {
+			return e.admitVerifiedIndex(ctx, finding, decisionID)
 		},
-		Execute: func(ctx context.Context, decisionID int64) (int64, error) {
-			return e.executeFinding(ctx, finding, 0, decisionID), nil
+		Execute: func(ctx context.Context, decision ActionPolicyDecision) (int64, error) {
+			return e.runAuthorizedFinding(ctx, finding, 0, decision), nil
 		},
 	})
 	return custodianWithheld(err, "after admission")
 }
 
-func (e *Executor) admitVerifiedIndex(ctx context.Context, finding analyzer.Finding) error {
+// admitVerifiedIndex requires rollback and workload evidence, then runs
+// load admission, recorded in the authorizing decision (D6).
+func (e *Executor) admitVerifiedIndex(
+	ctx context.Context, finding analyzer.Finding, decisionID int64,
+) error {
 	if _, err := verifiedActionForFinding(finding); err != nil {
 		return fmt.Errorf("route custodian index through verification: %w", err)
 	}
 	if e.indexVerification == nil {
 		return ErrVerificationUnavailable
 	}
-	return e.indexVerification.Admit(ctx)
+	key := admissionFindingKey(0, finding.RecommendedSQL)
+	return e.admitIndexBuild(ctx, key, decisionID)
 }
 
 // custodianWithheld reports a policy refusal as ErrCustodianProposalWithheld,
@@ -118,7 +123,7 @@ func (e *Executor) SubmitCustodianProposal(
 		finding: custodianFinding(proposal)}
 	_, err := e.Apply(ctx, ActionIntent{
 		Request: custodianRequest(proposal), Lease: &run.finding, WaitForSlot: true,
-		Admit: func(context.Context) error {
+		Admit: func(context.Context, int64) error {
 			if e.pool == nil {
 				return fmt.Errorf("execute custodian proposal: database pool unavailable")
 			}
@@ -141,8 +146,10 @@ type custodianRun struct {
 
 // execute captures the verification baseline, applies the change (through
 // the provider's adapter for managed configuration) and records it.
-func (r *custodianRun) execute(ctx context.Context, decisionID int64) (int64, error) {
-	e := r.executor
+func (r *custodianRun) execute(
+	ctx context.Context, decision ActionPolicyDecision,
+) (int64, error) {
+	e, decisionID := r.executor, decision.DecisionID
 	baseline, err := e.captureCustodianBaseline(ctx, r.proposal)
 	if err != nil {
 		return 0, fmt.Errorf("capture custodian verification baseline: %w", err)
@@ -151,7 +158,7 @@ func (r *custodianRun) execute(ctx context.Context, decisionID int64) (int64, er
 	managedResult, managed, execErr := e.applyManagedCustodianConfig(ctx, r.proposal)
 	r.managed = managed
 	if !managed {
-		execErr = e.executeCustodianSQL(ctx, r.proposal.SQL)
+		execErr = e.executeCustodianSQL(ctx, r.proposal.SQL, decision)
 	}
 	actionID := e.logActionWithDecision(
 		ctx, r.finding, 0, e.snapshotBeforeState(ctx, nil), decisionID, execErr,
@@ -302,7 +309,11 @@ func setCustodianVerificationCriterion(
 		verificationID, criterion)
 }
 
-func (e *Executor) executeCustodianSQL(ctx context.Context, sql string) error {
+// executeCustodianSQL runs a custodian statement under the decision's lock
+// timeout (the policy lock ceiling caps in-transaction statements).
+func (e *Executor) executeCustodianSQL(
+	ctx context.Context, sql string, decision ActionPolicyDecision,
+) error {
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return err
 	}
@@ -313,7 +324,7 @@ func (e *Executor) executeCustodianSQL(ctx context.Context, sql string) error {
 		return err
 	}
 	timeout := e.ddlTimeout()
-	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
+	lockOpt := e.lockOption(sql, decision)
 	var err error
 	if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
 		err = ExecConcurrently(ctx, e.pool, sql, timeout, lockOpt)

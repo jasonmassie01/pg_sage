@@ -20,6 +20,11 @@ func (rt *databaseRuntime) startExecution() {
 	startProviderObservability(
 		rt.ctx, rt.workers, rt.spec.Pool, rt.cfg, rt.executor, rt.rca,
 	)
+	// Autonomous index builds earn load admission from pg-side IO (D6).
+	if startIOAdmission(rt.ctx, rt.workers, rt.spec.Pool, rt.cfg,
+		rt.spec.Name, rt.executor) != nil {
+		rt.note("io_admission")
+	}
 	if err := startInstanceAutonomy(
 		rt.ctx, rt.workers, rt.spec.Pool, rt.cfg, rt.spec.Name, rt.executor,
 	); err != nil {
@@ -41,6 +46,7 @@ func (rt *databaseRuntime) startExecution() {
 	deps := fleetCycleDeps{
 		name: rt.spec.Name, pool: rt.spec.Pool, exec: rt.executor,
 		brief: rt.brief, cleaner: retention.New(rt.spec.Pool, cfg, logStructuredWrapper),
+		interval: cfg.Analyzer.Interval() + 5*time.Second,
 	}
 	rt.start(func() { fleetDBOrchestrator(rt.ctx, deps) })
 	rt.note("briefing+retention")
@@ -86,8 +92,16 @@ func (rt *databaseRuntime) buildExecutor() {
 		ex.WithJustifier(rt.generalLLM)
 	}
 	rt.executor = ex
-	logInfo(rt.spec.Scope, "db %q: execution_mode=%s trust=%s", rt.spec.Name,
-		ex.ExecutionMode(), ex.TrustLevel())
+}
+
+// logExecutorSettings records the executor's safety wiring once the
+// runtime is complete, so an operator can compare modes from the logs.
+func (rt *databaseRuntime) logExecutorSettings() {
+	s := rt.executor.RuntimeSettings()
+	logInfo(rt.spec.Scope, "db %q: executor provider=%s trust=%s mode=%s enabled=%t "+
+		"gate=%t managed_config=%t io_admission=%t", rt.spec.Name, s.Provider,
+		s.TrustLevel, s.ExecutionMode, s.ExecutorEnabled, s.PolicyGate,
+		s.ManagedConfig, s.IOEvidence)
 }
 
 var analyzeSemMu sync.Mutex

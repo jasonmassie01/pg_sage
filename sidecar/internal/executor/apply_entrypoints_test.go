@@ -20,10 +20,11 @@ import (
 // refuses) and refuses that call and every later one. It records how long each call had left
 // before its context deadline (zero: no deadline).
 type reauthGate struct {
-	mu         sync.Mutex
-	refuseAt   int
-	decisionID int64
-	remaining  []time.Duration
+	mu          sync.Mutex
+	refuseAt    int
+	decisionID  int64
+	lockCeiling int64
+	remaining   []time.Duration
 }
 
 func (g *reauthGate) Authorize(ctx context.Context, _ policy.ActionRequest) policy.Decision {
@@ -39,7 +40,7 @@ func (g *reauthGate) Authorize(ctx context.Context, _ policy.ActionRequest) poli
 			Reason: policy.ReasonEmergencyStop}
 	}
 	return policy.Decision{Verdict: policy.VerdictExecute, RiskTier: policy.RiskSafe,
-		DecisionID: g.decisionID}
+		DecisionID: g.decisionID, LockCeilingMS: g.lockCeiling}
 }
 
 // Explain previews an operator action as executable, so the operator path

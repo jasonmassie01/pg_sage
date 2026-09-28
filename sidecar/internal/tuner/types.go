@@ -69,12 +69,11 @@ type TunerConfig struct {
 	RevalidationExplainTimeoutMs int     `yaml:"revalidation_explain_timeout_ms"`
 
 	// Feature 2 — Stale-stats detection + ANALYZE (v0.8.5).
-	StaleStatsEstimateSkew        float64 `yaml:"stale_stats_estimate_skew"`
-	StaleStatsModRatio            float64 `yaml:"stale_stats_mod_ratio"`
-	StaleStatsAgeMinutes          int     `yaml:"stale_stats_age_minutes"`
-	AnalyzeMaxTableMB             int64   `yaml:"analyze_max_table_mb"`
-	AnalyzeCooldownMinutes        int     `yaml:"analyze_cooldown_minutes"`
-	AnalyzeMaintenanceThresholdMB int64   `yaml:"analyze_maintenance_threshold_mb"`
-	AnalyzeTimeoutMs              int     `yaml:"analyze_timeout_ms"`
-	MaxConcurrentAnalyze          int     `yaml:"max_concurrent_analyze"`
+	StaleStatsEstimateSkew float64 `yaml:"stale_stats_estimate_skew"`
+	StaleStatsModRatio     float64 `yaml:"stale_stats_mod_ratio"`
+	StaleStatsAgeMinutes   int     `yaml:"stale_stats_age_minutes"`
+	AnalyzeMaxTableMB      int64   `yaml:"analyze_max_table_mb"`
+	AnalyzeCooldownMinutes int     `yaml:"analyze_cooldown_minutes"`
+	AnalyzeTimeoutMs       int     `yaml:"analyze_timeout_ms"`
+	MaxConcurrentAnalyze   int     `yaml:"max_concurrent_analyze"`
 }

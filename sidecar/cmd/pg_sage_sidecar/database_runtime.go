@@ -98,6 +98,7 @@ func buildDatabaseRuntime(
 	rt := newDatabaseRuntime(spec, checks)
 	rt.startMonitoring()
 	rt.startExecution()
+	rt.logExecutorSettings()
 	rt.inst = rt.instance()
 	logInfo(spec.Scope, "db %q: initialized (%s)", spec.Name,
 		strings.Join(rt.features, "+"))
@@ -168,13 +169,14 @@ func newDatabaseRuntime(
 	return rt
 }
 
-// runtimeConfig carries this database's capability flags and provider.
-// Standalone writes them onto the live process config, which its runtime
-// shares so hot reload keeps reaching it; other modes get a clone because
-// each database has its own flags and provider.
+// runtimeConfig carries this database's capability flags, provider and
+// load-admission attestation. Standalone writes them onto the live process
+// config, which its runtime shares so hot reload keeps reaching it; other
+// modes get a clone because each database has its own flags, provider and
+// declared IO capacity (D6: databases[].verify.io_capacity).
 func (rt *databaseRuntime) runtimeConfig() *config.Config {
 	if !rt.spec.Shared {
-		runtimeCfg := instanceRuntimeConfig(rt.checks)
+		runtimeCfg := withCapabilityFlags(databaseExecConfig(cfg, rt.spec.Config), rt.checks)
 		runtimeCfg.CloudEnvironment = rt.provider
 		return runtimeCfg
 	}

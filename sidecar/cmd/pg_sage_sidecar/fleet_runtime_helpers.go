@@ -103,7 +103,10 @@ func instanceChecksOrDegraded(
 // own capability flags, so fleet and meta collectors select WAL and
 // plan-time columns per instance (G5-B13, G1-B07).
 func instanceRuntimeConfig(checks *startup.CheckResult) *config.Config {
-	runtimeCfg := config.Clone(cfg)
+	return withCapabilityFlags(config.Clone(cfg), checks)
+}
+
+func withCapabilityFlags(runtimeCfg *config.Config, checks *startup.CheckResult) *config.Config {
 	runtimeCfg.PGVersionNum = checks.PGVersionNum
 	runtimeCfg.HasWALColumns = checks.HasWALColumns
 	runtimeCfg.HasPlanTimeColumns = checks.HasPlanTimeColumns

@@ -8,11 +8,18 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 type settingsDispatcher struct{}
 
 func (settingsDispatcher) Dispatch(context.Context, notify.Event) error { return nil }
+
+type settingsIOEvidence struct{}
+
+func (settingsIOEvidence) IOEvidence(context.Context) (verify.IOEvidence, error) {
+	return verify.IOEvidence{}, nil
+}
 
 type settingsAdapter struct{}
 
@@ -54,6 +61,7 @@ func TestRuntimeSettingsReflectsEveryWiredComponent(t *testing.T) {
 	e.WithManagedConfigAdapter(settingsAdapter{})
 	e.WithPolicyGate(policy.NewGate(policy.GateConfig{}))
 	e.WithPostDDLHook(func(context.Context) error { return nil })
+	e.WithIOEvidence(settingsIOEvidence{})
 	if err := e.SetTrustLevel("autonomous"); err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +69,7 @@ func TestRuntimeSettingsReflectsEveryWiredComponent(t *testing.T) {
 	got := e.RuntimeSettings()
 	want := RuntimeSettings{
 		DatabaseName: "orders", TrustLevel: "autonomous", ExecutionMode: "approval",
-		PolicyGate: true, ManagedConfig: true, AnalyzeSemaphore: true,
+		PolicyGate: true, ManagedConfig: true, IOEvidence: true, AnalyzeSemaphore: true,
 		Dispatcher: true, PostDDLHook: true,
 	}
 	if got != want {

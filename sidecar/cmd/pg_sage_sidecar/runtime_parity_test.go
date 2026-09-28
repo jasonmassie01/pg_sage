@@ -60,6 +60,10 @@ var perDatabaseCapabilities = []runtimeCapability{
 	{"migration advisor", []string{"migration.NewAdvisor"}},
 	{"migration log detection", []string{"migration.NewLogDetector"}},
 	{"HA-gated orchestrator", []string{"ha.New"}},
+	// Overnight features (D6, Sage SRE M0) that every mode must carry.
+	{"D6 pg-side IO load admission", []string{"startIOAdmission"}},
+	{"D6 per-database IO capacity", []string{"databaseExecConfig"}},
+	{"Sage SRE lock-chain fast path", []string{"newRCAAdapter"}},
 	{"lifecycle-owned workers", []string{"startInstanceWorker"}},
 }
 

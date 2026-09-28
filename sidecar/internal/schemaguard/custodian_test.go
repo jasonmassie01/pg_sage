@@ -28,8 +28,10 @@ func TestCustodianRoutesMissingFKIndexThroughVerifiedIndex(t *testing.T) {
 func TestCustodianRetentionFirstCycleIsDryRun(t *testing.T) {
 	fixture := newCustodianFixture(Invariant{
 		Kind: InvariantUnboundedAppend, Schema: "public", Table: "events",
+		RetentionColumn: "created_at",
 	})
-	fixture.contract = TableContract{AppendOnly: true, RetentionWindow: 30 * 24 * time.Hour}
+	fixture.contract = TableContract{AppendOnly: true, RetentionWindow: 30 * 24 * time.Hour,
+		RetentionColumn: "created_at"}
 	fixture.policy.AllowRetentionApply = true
 	_, err := fixture.custodian().Scan(context.Background())
 	if err != nil {

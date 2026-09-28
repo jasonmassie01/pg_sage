@@ -56,7 +56,10 @@ func isSafeProcess(appName string, pid int, ownPID int, patterns []string) bool 
 }
 
 // lockChainQuery is the recursive CTE that walks pg_blocking_pids() to
-// find every root blocker and the tree of sessions it blocks.
+// find every root blocker and the tree of sessions it blocks. Only
+// sessions waiting in the monitored database start a chain:
+// pg_stat_activity is cluster-wide, and without the filter one fleet
+// database reported (and paged on) another database's blocking.
 const lockChainQuery = `/* pg_sage */
 WITH RECURSIVE lock_chain AS (
     SELECT
@@ -71,6 +74,7 @@ WITH RECURSIVE lock_chain AS (
     FROM pg_stat_activity sa,
          LATERAL unnest(pg_blocking_pids(sa.pid)) AS blocker_pid
     WHERE sa.wait_event_type = 'Lock'
+      AND sa.datname = current_database()
     UNION ALL
     SELECT
         lc.blocked_pid,

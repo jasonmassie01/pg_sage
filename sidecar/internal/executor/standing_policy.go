@@ -41,10 +41,23 @@ func (e *Executor) EnableStandingPolicyWithStore(
 	e.databaseID = databaseID
 	e.policyMu.Unlock()
 	e.WithPolicyGate(e.newStandingPolicyGate(policyStore, ledgerService, scope, databaseID))
-	if _, err := policyStore.Bootstrap(ctx, scope, profile, "system-bootstrap"); err != nil {
+	current, err := policyStore.Bootstrap(ctx, scope, profile, "system-bootstrap")
+	if err != nil {
 		return fmt.Errorf("bootstrap standing policy: %w", err)
 	}
+	e.warnInvalidStoredPolicy(current)
 	return nil
+}
+
+// warnInvalidStoredPolicy logs a stored policy that no longer validates
+// (for example an unknown refusal_set token written before tokens were
+// checked). The gate fails closed on it, so the operator must learn why
+// every action is blocked and ratify a valid version.
+func (e *Executor) warnInvalidStoredPolicy(current policy.Policy) {
+	if _, err := policy.ParseDocument(current.Document); err != nil {
+		e.logFn("executor", "standing policy v%d is invalid, so every action is blocked "+
+			"(policy_unavailable) until a valid version is ratified: %v", current.Version, err)
+	}
 }
 
 func (e *Executor) newStandingPolicyGate(

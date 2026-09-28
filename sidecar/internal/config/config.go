@@ -195,12 +195,17 @@ type SafetyConfig struct {
 	BackoffConsecutiveSkips  int `yaml:"backoff_consecutive_skips" doc:"After this many consecutive skipped cycles (e.g. CPU ceiling hit repeatedly), enter dormant mode and slow the cadence until load subsides."`
 	DormantIntervalSeconds   int `yaml:"dormant_interval_seconds" doc:"Cycle interval (seconds) used while in dormant mode — typically much larger than the normal interval so the sidecar wakes rarely while the target is stressed."`
 	LockTimeoutMs            int `yaml:"lock_timeout_ms" doc:"lock_timeout applied to connections running DDL or ANALYZE. Must be > 0 for ANALYZE actions in v0.8.5 — autovacuum can hold a ShareUpdateExclusiveLock indefinitely." warning:"Zero disables the timeout entirely and is refused by the executor for ANALYZE actions."`
+
+	// IO ceilings for declared-capacity load admission (D6), independent
+	// of cpu_ceiling_pct.
+	DataIOCeilingPct int `yaml:"data_io_ceiling_pct" doc:"Data IO ceiling, % of capacity."`
+	WALIOCeilingPct  int `yaml:"wal_io_ceiling_pct" doc:"WAL IO ceiling, % of capacity."`
 }
 
 type TrustConfig struct {
 	Level                 string `yaml:"level" doc:"Autonomy ceiling: observation is cases only; advisory auto executes eligible safe actions; autonomous auto executes eligible safe and moderate actions. Manual disables background actions." warning:"Changing trust can expand what execution_mode=auto may execute without human review."`
 	RampStart             string `yaml:"ramp_start" doc:"RFC3339 timestamp when the trust ramp began. Auto-persisted on first startup if empty. Used to gate newly-supported actions behind a soak period."`
-	MaintenanceWindow     string `yaml:"maintenance_window" doc:"Window for MODERATE auto-actions and heavy maintenance. No cron needed: presets (always, never, nights, weeknights, weekends, off-hours), day ranges (weekdays 01:00-05:00), HH:MM-HH:MM, or cron." example:"weeknights"`
+	MaintenanceWindow     string `yaml:"maintenance_window" doc:"Window for MODERATE auto-actions: always, never, presets (nights, weeknights, weekends), Mon-Fri 01:00-05:00, or cron (1h wide, or @30m). Optional IANA zone: weeknights America/Chicago." example:"weeknights"`
 	Tier3Safe             bool   `yaml:"tier3_safe" doc:"Enable typed safe actions such as ANALYZE and non-FULL VACUUM after the trust ramp when execution_mode=auto and trust.level is advisory or autonomous."`
 	Tier3Moderate         bool   `yaml:"tier3_moderate" doc:"Enable typed moderate actions such as CREATE INDEX CONCURRENTLY after the longer trust ramp. Requires execution_mode=auto and trust.level=autonomous." warning:"Moderate actions can consume IO or briefly contend for locks."`
 	Tier3HighRisk         bool   `yaml:"tier3_high_risk" doc:"Enable tier-3 actions classified as high risk. Ignored outside fleet mode — standalone always forces this to false." mode:"fleet-only" warning:"High-risk actions can destabilize production — enable only with a reviewed rollback plan."`
@@ -339,6 +344,8 @@ type RCAConfig struct {
 	ConnectionSaturationPct  int     `yaml:"connection_saturation_pct" doc:"Percentage of max_connections that triggers the connections_high signal. Default: 80."`
 	ReplicationLagThresholdS int     `yaml:"replication_lag_threshold_seconds" doc:"Seconds of replay lag before the replication_lag_increasing signal fires. Default: 30."`
 	WALSpikeMultiplier       float64 `yaml:"wal_spike_multiplier" doc:"WAL bytes delta must exceed previous delta by this multiplier to trigger wal_growth_spike. Default: 2.0."`
+	LockChainIntervalSeconds int     `yaml:"lock_chain_interval_seconds" doc:"Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60."`
+	NarrationEnabled         bool    `yaml:"narration_enabled" doc:"Add an LLM narrative, citing the incident's own evidence, to incident_detected and incident_escalated notifications. Off, or any LLM failure, uses the deterministic summary. Default: false."`
 }
 
 // LockChainConfig controls lock chain detection (v0.9).
@@ -428,14 +435,13 @@ type TunerConfig struct {
 	RevalidationExplainTimeoutMs int     `yaml:"revalidation_explain_timeout_ms" doc:"Reserved; currently has no effect. The revalidation loop issues no EXPLAIN queries. Kept so existing config files still load."`
 
 	// v0.8.5 Feature 2 — Stale-stats detection + ANALYZE action.
-	StaleStatsEstimateSkew        float64 `yaml:"stale_stats_estimate_skew" doc:"Ratio ActualRows / PlanRows above which a plan node is considered row-estimate skewed. Default 10 — same threshold as the bad-nested-loop check."`
-	StaleStatsModRatio            float64 `yaml:"stale_stats_mod_ratio" doc:"Fraction of rows modified since last ANALYZE (n_mod_since_analyze / reltuples) required to treat a table as stale. Default 0.1 = 10%."`
-	StaleStatsAgeMinutes          int     `yaml:"stale_stats_age_minutes" doc:"Both manual and autovacuum last_analyze must be older than this many minutes before the table is considered stale. Default 60."`
-	AnalyzeMaxTableMB             int64   `yaml:"analyze_max_table_mb" doc:"Tables larger than this many MB are never auto-ANALYZEd — an advisory finding is emitted instead for operator review." warning:"Default 10240 (10GB). Raise with care — ANALYZE on TB-scale tables can saturate I/O."`
-	AnalyzeCooldownMinutes        int     `yaml:"analyze_cooldown_minutes" doc:"Minimum minutes between tuner-initiated ANALYZE runs on the same table. Also respects autovacuum last_analyze as a recent-run signal."`
-	AnalyzeMaintenanceThresholdMB int64   `yaml:"analyze_maintenance_threshold_mb" doc:"Tables larger than this many MB can only be ANALYZEd during the configured maintenance_window. Default 1024 (1GB)."`
-	AnalyzeTimeoutMs              int     `yaml:"analyze_timeout_ms" doc:"statement_timeout for ANALYZE actions. Default 600000 (10 minutes). Exceeding this marks the action failed_timeout and extends the cooldown."`
-	MaxConcurrentAnalyze          int     `yaml:"max_concurrent_analyze" doc:"Hard cap on concurrent ANALYZE actions across the entire sidecar process (shared semaphore — fleet-wide, not per-database). Default 1."`
+	StaleStatsEstimateSkew float64 `yaml:"stale_stats_estimate_skew" doc:"Ratio ActualRows / PlanRows above which a plan node is considered row-estimate skewed. Default 10 — same threshold as the bad-nested-loop check."`
+	StaleStatsModRatio     float64 `yaml:"stale_stats_mod_ratio" doc:"Fraction of rows modified since last ANALYZE (n_mod_since_analyze / reltuples) required to treat a table as stale. Default 0.1 = 10%."`
+	StaleStatsAgeMinutes   int     `yaml:"stale_stats_age_minutes" doc:"Both manual and autovacuum last_analyze must be older than this many minutes before the table is considered stale. Default 60."`
+	AnalyzeMaxTableMB      int64   `yaml:"analyze_max_table_mb" doc:"Tables larger than this many MB are never auto-ANALYZEd — an advisory finding is emitted instead for operator review." warning:"Default 10240 (10GB). Raise with care — ANALYZE on TB-scale tables can saturate I/O."`
+	AnalyzeCooldownMinutes int     `yaml:"analyze_cooldown_minutes" doc:"Minimum minutes between tuner-initiated ANALYZE runs on the same table. Also respects autovacuum last_analyze as a recent-run signal."`
+	AnalyzeTimeoutMs       int     `yaml:"analyze_timeout_ms" doc:"statement_timeout for ANALYZE actions. Default 600000 (10 minutes). Exceeding this marks the action failed_timeout and extends the cooldown."`
+	MaxConcurrentAnalyze   int     `yaml:"max_concurrent_analyze" doc:"Hard cap on concurrent ANALYZE actions across the entire sidecar process (shared semaphore — fleet-wide, not per-database). Default 1."`
 }
 
 type RetentionConfig struct {
@@ -677,20 +683,20 @@ func (c *Config) validate() error {
 	if c.Analyzer.SlowQueryThresholdMs < 0 {
 		return fmt.Errorf("analyzer.slow_query_threshold_ms must be non-negative")
 	}
-	validTrust := map[string]bool{
-		"observation": true, "advisory": true, "autonomous": true,
+	if err := c.RCA.validate(); err != nil {
+		return err
 	}
-	if !validTrust[c.Trust.Level] {
-		return fmt.Errorf(
-			"trust.level must be observation, advisory, or autonomous (got %q)",
-			c.Trust.Level,
-		)
+	if err := c.validateTrust(); err != nil {
+		return err
 	}
 	if c.Safety.CPUCeilingPct <= 0 || c.Safety.CPUCeilingPct > 100 {
 		return fmt.Errorf("safety.cpu_ceiling_pct must be 1-100")
 	}
 	if c.Safety.QueryTimeoutMs <= 0 {
 		return fmt.Errorf("safety.query_timeout_ms must be positive")
+	}
+	if err := c.validateIOAdmission(); err != nil {
+		return err
 	}
 
 	// Fleet-specific validation.
@@ -714,6 +720,21 @@ func (c *Config) validate() error {
 	}
 
 	return nil
+}
+
+// validateTrust checks the trust level and the maintenance window grammar
+// so a typo fails at load instead of silently meaning "never".
+func (c *Config) validateTrust() error {
+	validTrust := map[string]bool{
+		"observation": true, "advisory": true, "autonomous": true,
+	}
+	if !validTrust[c.Trust.Level] {
+		return fmt.Errorf(
+			"trust.level must be observation, advisory, or autonomous (got %q)",
+			c.Trust.Level,
+		)
+	}
+	return ValidateMaintenanceWindow(c.Trust.MaintenanceWindow)
 }
 
 func newDefaults() *Config {
@@ -763,6 +784,8 @@ func newDefaults() *Config {
 		},
 		Safety: SafetyConfig{
 			CPUCeilingPct:            DefaultCPUCeilingPct,
+			DataIOCeilingPct:         DefaultDataIOCeilingPct,
+			WALIOCeilingPct:          DefaultWALIOCeilingPct,
 			QueryTimeoutMs:           DefaultQueryTimeoutMs,
 			DDLTimeoutSeconds:        DefaultDDLTimeoutSeconds,
 			DiskPressureThresholdPct: DefaultDiskPressureThresholdPct,
@@ -885,14 +908,13 @@ func newDefaults() *Config {
 			RevalidationExplainTimeoutMs: DefaultTunerRevalidationExplainTimeoutMs,
 
 			// Feature 2 — Stale-stats detection + ANALYZE.
-			StaleStatsEstimateSkew:        DefaultTunerStaleStatsEstimateSkew,
-			StaleStatsModRatio:            DefaultTunerStaleStatsModRatio,
-			StaleStatsAgeMinutes:          DefaultTunerStaleStatsAgeMinutes,
-			AnalyzeMaxTableMB:             DefaultTunerAnalyzeMaxTableMB,
-			AnalyzeCooldownMinutes:        DefaultTunerAnalyzeCooldownMinutes,
-			AnalyzeMaintenanceThresholdMB: DefaultTunerAnalyzeMaintenanceThresholdMB,
-			AnalyzeTimeoutMs:              DefaultTunerAnalyzeTimeoutMs,
-			MaxConcurrentAnalyze:          DefaultTunerMaxConcurrentAnalyze,
+			StaleStatsEstimateSkew: DefaultTunerStaleStatsEstimateSkew,
+			StaleStatsModRatio:     DefaultTunerStaleStatsModRatio,
+			StaleStatsAgeMinutes:   DefaultTunerStaleStatsAgeMinutes,
+			AnalyzeMaxTableMB:      DefaultTunerAnalyzeMaxTableMB,
+			AnalyzeCooldownMinutes: DefaultTunerAnalyzeCooldownMinutes,
+			AnalyzeTimeoutMs:       DefaultTunerAnalyzeTimeoutMs,
+			MaxConcurrentAnalyze:   DefaultTunerMaxConcurrentAnalyze,
 		},
 		RCA: RCAConfig{
 			Enabled:                  true,
@@ -903,6 +925,7 @@ func newDefaults() *Config {
 			ConnectionSaturationPct:  DefaultRCAConnectionSaturationPct,
 			ReplicationLagThresholdS: DefaultRCAReplicationLagThresholdS,
 			WALSpikeMultiplier:       DefaultRCAWALSpikeMultiplier,
+			LockChainIntervalSeconds: DefaultRCALockChainIntervalSeconds,
 		},
 		Runaway: RunawayConfig{
 			Enabled: false,
@@ -949,6 +972,8 @@ func newDefaults() *Config {
 			RegressPct:       DefaultVerifyRegressPct,
 			WriteImpactPct:   DefaultVerifyWriteImpactPct,
 			MinSamples:       DefaultVerifyMinSamples,
+			IOBaselineDays:   DefaultIOBaselineDays,
+			IOSampleDays:     DefaultIOSampleRetentionDays,
 		},
 		Clone: CloneProviderConfig{
 			Provider:           DefaultCloneProvider,
@@ -986,6 +1011,13 @@ func loadYAML(path string, cfg *Config) error {
 	}
 	if err := rejectRetiredTopLevelConfig(expanded); err != nil {
 		return err
+	}
+	expanded, retiredWarnings, err := stripRetiredKeys(expanded)
+	if err != nil {
+		return err
+	}
+	for _, warning := range retiredWarnings {
+		_, _ = fmt.Fprintln(configWarningOutput, warning)
 	}
 
 	candidate := Clone(cfg)

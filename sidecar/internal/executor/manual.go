@@ -55,8 +55,9 @@ func (e *Executor) ExecuteManual(
 	run := &manualRun{executor: e, findingID: findingID, sql: sql,
 		rollbackSQL: rollbackSQL, detail: findingDetail, approvedBy: approvedBy}
 	return e.Apply(runCtx, ActionIntent{
-		Authorize: func(ctx context.Context) (int64, error) {
-			return e.authorizeOperatorAction(ctx, sql, findingID, approvedBy)
+		Authorize: func(ctx context.Context) (ActionPolicyDecision, error) {
+			decision, err := e.authorizeOperatorAction(ctx, sql, findingID, approvedBy)
+			return standingPolicyDecision(decision), err
 		},
 		SlotHeld: true, Execute: run.execute, Verify: run.verify,
 	})
@@ -83,8 +84,10 @@ type manualRun struct {
 }
 
 // execute re-checks the hard stops, runs the operator's SQL and records it.
-func (r *manualRun) execute(ctx context.Context, decisionID int64) (int64, error) {
-	e := r.executor
+func (r *manualRun) execute(
+	ctx context.Context, decision ActionPolicyDecision,
+) (int64, error) {
+	e, decisionID := r.executor, decision.DecisionID
 	beforeState := e.snapshotBeforeState(ctx, nil)
 	if categorizeAction(r.sql) == "create_index" {
 		done, actionID, err := e.prepareManualCreateIndex(
@@ -97,7 +100,7 @@ func (r *manualRun) execute(ctx context.Context, decisionID int64) (int64, error
 	if err := e.manualMutationBlock(ctx); err != nil {
 		return 0, err
 	}
-	execErr := e.runManualSQL(ctx, r.findingID, r.sql, r.detail, r.approvedBy)
+	execErr := e.runManualSQL(ctx, r.findingID, r.sql, r.detail, r.approvedBy, decision)
 	actionID := e.logManualActionWithDecision(ctx, r.findingID, r.sql, r.rollbackSQL,
 		beforeState, execErr, r.approvedBy, decisionID)
 	if execErr != nil {
@@ -148,21 +151,22 @@ func (e *Executor) manualDDLOptions() (time.Duration, DDLOption) {
 	return e.ddlTimeout(), WithLockTimeout(e.cfg.Safety.LockTimeout())
 }
 
+// runManualSQL runs an operator-approved statement under the decision's
+// lock timeout (the policy lock ceiling caps in-transaction statements).
 func (e *Executor) runManualSQL(
 	ctx context.Context, findingID int, sql string,
-	findingDetail json.RawMessage, approvedBy *int,
+	findingDetail json.RawMessage, approvedBy *int, decision ActionPolicyDecision,
 ) error {
 	if _, _, isSignal := parseBackendSignal(sql); isSignal {
 		return e.executeApprovedBackendSignal(ctx, sql, findingDetail, approvedBy)
 	}
 	if categorizeAction(sql) == "analyze" {
-		return e.executeManualAnalyze(ctx, findingID, sql)
+		return e.executeManualAnalyze(ctx, findingID, sql, e.lockTimeoutMS(sql, decision))
 	}
 	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
 		return err
 	}
-	ddlTimeout, lockOpt := e.manualDDLOptions()
-	return e.execManualSQLWithRetry(ctx, sql, ddlTimeout, lockOpt)
+	return e.execManualSQLWithRetry(ctx, sql, e.ddlTimeout(), e.lockOption(sql, decision))
 }
 
 // finishManualAction starts the rollback monitor (which re-authorizes the
@@ -327,15 +331,13 @@ func compactSQL(sql string) string {
 }
 
 func (e *Executor) executeManualAnalyze(
-	ctx context.Context,
-	findingID int,
-	sql string,
+	ctx context.Context, findingID int, sql string, lockTimeoutMs int,
 ) error {
 	finding, err := e.manualAnalyzeFinding(ctx, findingID, sql)
 	if err != nil {
 		return err
 	}
-	return e.executeAnalyze(ctx, finding)
+	return e.executeAnalyze(ctx, finding, lockTimeoutMs)
 }
 
 func (e *Executor) manualAnalyzeFinding(

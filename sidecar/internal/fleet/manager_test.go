@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/executor"
 )
 
 func newTestManager(databases ...string) *DatabaseManager {
@@ -184,7 +185,7 @@ func TestManager_EmergencyStop_AlreadyStopped(t *testing.T) {
 
 func TestManager_EmergencyStopStrict_UnknownDatabase(t *testing.T) {
 	mgr := newTestManager("a")
-	stopped, err := mgr.EmergencyStopStrict("missing")
+	stopped, err := mgr.EmergencyStopStrict("missing", "test")
 	if !errors.Is(err, ErrDatabaseNotFound) {
 		t.Fatalf("error = %v, want ErrDatabaseNotFound", err)
 	}
@@ -205,6 +206,12 @@ func TestManager_EmergencyStopStrict_PersistenceError(t *testing.T) {
 	pool.Close()
 
 	mgr := NewManager(&config.Config{Mode: "fleet"})
+	// D8 restores the latch from sage.config at registration and fails
+	// closed on a read error, which this closed pool would trigger. Report
+	// a readable "not stopped" flag so the stop below is still a change.
+	mgr.readStop = func(context.Context, *DatabaseInstance) (executor.EmergencyStopState, error) {
+		return executor.EmergencyStopState{}, nil
+	}
 	mgr.RegisterInstance(&DatabaseInstance{
 		Name:     "a",
 		Pool:     pool,
@@ -216,7 +223,7 @@ func TestManager_EmergencyStopStrict_PersistenceError(t *testing.T) {
 	// The kill switch fails CLOSED: an unwritable sage.config still stops
 	// the instance in memory and gates its executor, and the error names
 	// the database whose persisted flag could not be written.
-	stopped, err := mgr.EmergencyStopStrict("a")
+	stopped, err := mgr.EmergencyStopStrict("a", "test")
 	var stopErr *EmergencyStopError
 	if !errors.As(err, &stopErr) || stopErr.Failed["a"] == nil {
 		t.Fatalf("error = %v, want EmergencyStopError naming a", err)
@@ -269,7 +276,7 @@ func TestManager_Resume_NotStopped(t *testing.T) {
 
 func TestManager_ResumeStrict_UnknownDatabase(t *testing.T) {
 	mgr := newTestManager("a")
-	_, err := mgr.ResumeStrict("missing")
+	_, err := mgr.ResumeStrict("missing", "test")
 	if !errors.Is(err, ErrDatabaseNotFound) {
 		t.Fatalf("error = %v, want ErrDatabaseNotFound", err)
 	}
