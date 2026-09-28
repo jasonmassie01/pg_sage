@@ -149,3 +149,30 @@ func TestDeclareTableContractWarnsWhenColumnIsNotPartitionKey(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, outcome.Warnings)
 }
+
+// Re-declaring a contract (NULL database_id, a fresh evidence id each time)
+// updates the one row for the table instead of adding another.
+func TestDeclareTableContractTwiceKeepsOneRow(t *testing.T) {
+	access, pool := newPostgresIntentAccess(t)
+	ctx := context.Background()
+	table := retentionContractTable(t, pool,
+		"CREATE TABLE {t} (id bigint, created_at timestamptz, ingested_at timestamptz)")
+	first := retentionDeclaration(table, "created_at")
+	_, err := access.DeclareTableContract(ctx, first)
+	require.NoError(t, err)
+	second := retentionDeclaration(table, "ingested_at")
+	second.Retention = "90 days"
+	_, err = access.DeclareTableContract(ctx, second)
+	require.NoError(t, err)
+
+	var rows int
+	var column, interval, evidence string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*), max(retention_column),
+		max(retention_interval::text), max(evidence_id)
+		FROM sage.table_contract WHERE schema_name='public' AND table_name=$1`, table).
+		Scan(&rows, &column, &interval, &evidence))
+	require.Equal(t, 1, rows, "re-declaration must not add a second contract row")
+	require.Equal(t, "ingested_at", column)
+	require.Equal(t, "90 days", interval)
+	require.Equal(t, second.EvidenceID, evidence)
+}

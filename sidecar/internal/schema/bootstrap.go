@@ -375,7 +375,8 @@ func migrationStatements() []string {
 	}
 	statements = append(statements, agentNativeMigrationStatements()...)
 	// After the agent-native DDL: sage.policy and sage.table_contract must exist.
-	return append(statements, ddlPolicyChangeClassSplit, ddlRetentionColumnDeclaration)
+	return append(statements, ddlPolicyChangeClassSplit, ddlRetentionColumnDeclaration,
+		ddlTableContractIdentity)
 }
 
 // ---------------------------------------------------------------------------

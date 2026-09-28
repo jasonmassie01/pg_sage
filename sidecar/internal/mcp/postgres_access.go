@@ -31,7 +31,7 @@ func (access *PostgresAccess) DeclareTableContract(
 		(database_id, schema_name, table_name, append_only, retention_interval,
 		 retention_column, expected_pk, exemptions, declared_by, evidence_id)
 		VALUES ($1,$2,$3,$4,NULLIF($5,'')::interval,NULLIF($6,''),NULLIF($7,''),$8,$9,$10)
-		ON CONFLICT (database_id, schema_name, table_name) DO UPDATE SET
+		ON CONFLICT ((COALESCE(database_id, 0)), schema_name, table_name) DO UPDATE SET
 		append_only=EXCLUDED.append_only, retention_interval=EXCLUDED.retention_interval,
 		retention_column=EXCLUDED.retention_column,
 		expected_pk=EXCLUDED.expected_pk, exemptions=EXCLUDED.exemptions,

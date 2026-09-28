@@ -205,15 +205,19 @@ func TestDeclaredNonTemporalRetentionColumnParks(t *testing.T) {
 	requireNothingDeleted(t, pool, table, 1)
 }
 
-func TestUnboundedAppendDedupesNullDatabaseContracts(t *testing.T) {
+// The detector must emit one invariant per table however many contract rows
+// name it. Duplicate NULL database_id rows are now rejected on write
+// (idx_table_contract_identity), so the second row uses another database_id,
+// which the detector's per-table lookup also ignores.
+func TestUnboundedAppendDedupesContractsPerTable(t *testing.T) {
 	pool := requireAutonomyDB(t)
 	table := createdAtFixture(t, pool)
 	if _, err := pool.Exec(context.Background(), `INSERT INTO sage.table_contract
-		(schema_name, table_name, append_only, retention_interval, retention_column,
-		 declared_by, evidence_id)
-		VALUES ('public',$1,true,interval '30 days','created_at','test',$2)`,
+		(database_id, schema_name, table_name, append_only, retention_interval,
+		 retention_column, declared_by, evidence_id)
+		VALUES (990301,'public',$1,true,interval '30 days','created_at','test',$2)`,
 		table, "duplicate_"+table); err != nil {
-		t.Fatalf("duplicate NULL database_id contract: %v", err)
+		t.Fatalf("second contract for the table: %v", err)
 	}
 	items, err := (postgresSchemaDetector{pool}).detectUnboundedAppend(context.Background())
 	if err != nil {
