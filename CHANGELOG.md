@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Changed (read before upgrading)
+
+- **Value is counted across the whole fleet (D3).** Each monitored database keeps its own
+  value ledger, next to the actions it credits. The Value page (`GET /api/v1/value`), the
+  Prometheus value metrics and the MCP `get_value` tool now add up every database in
+  standalone, YAML fleet and meta-db mode. Before, YAML fleet showed only the first database
+  and meta-db mode showed zero, because the meta database holds no ledger. Nothing is
+  migrated.
+- **Value metrics carry the database name.** `pg_sage_toil_minutes_saved` and
+  `pg_sage_incidents_avoided_total` are labelled `database="<instance name>"` (never empty).
+  `pg_sage_value_metrics_up` is now reported per database, so update alerts that expect the
+  unlabelled series. The value metrics are also exported in YAML fleet mode, where they were
+  missing.
+- **Partial value is reported, not hidden.** If a database cannot be read, the value response
+  sets `"partial": true` and names it in `"unavailable"`, and the other databases still count.
+  The Value page shows a warning. `?database=<name>` works in every mode, including
+  standalone, and an unknown name returns 404. Two fleet entries for the same physical
+  database are counted once.
+- **Credited value is kept.** Retention no longer purges credited actions (verified success
+  with toil credit) or the verification that earned the credit, so all-time value no longer
+  shrinks after `retention.actions_days`. Uncredited, failed and rolled-back rows still age
+  out.
+
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 
 ### What's new
