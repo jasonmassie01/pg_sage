@@ -4,6 +4,7 @@ import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { SQLBlock } from '../components/SQLBlock'
 import { CaseControls, SuppressedFindings } from './cases/CaseControls'
+import { InvestigationPanel } from './cases/InvestigationPanel'
 
 const SOURCE_FILTERS = [
   { value: 'all', label: 'All' },
@@ -22,6 +23,19 @@ function dbParam(database) {
 
 function caseID(caseRow) {
   return caseRow.case_id || caseRow.id || caseRow.identity_key
+}
+
+// investigationsByCase keeps each case's newest investigation (the API
+// lists newest first), keyed by database and case id ("|" never appears
+// in a database name), so a same-named case of another database never
+// borrows it.
+function investigationsByCase(items) {
+  const out = new Map()
+  for (const inv of items || []) {
+    const key = `${inv.database}|${inv.case_id}`
+    if (!out.has(key)) out.set(key, inv)
+  }
+  return out
 }
 
 function nextStep(caseRow) {
@@ -60,6 +74,11 @@ export function CasesPage({ database, initialSource = 'all', user }) {
     `/api/v1/cases${dbParam(database)}`,
     30000,
   )
+  const investigations = useAPI(
+    `/api/v1/investigations?database=${encodeURIComponent(database || 'all')}`,
+    30000,
+  )
+  const byCase = investigationsByCase(investigations.data?.items)
 
   if (loading) return <LoadingSpinner />
   if (error) return <ErrorBanner message={error} onRetry={refetch} />
@@ -128,6 +147,7 @@ export function CasesPage({ database, initialSource = 'all', user }) {
       <div className="space-y-2">
         {filteredCases.map(c => (
           <CaseCard key={caseID(c)} caseRow={c} user={user}
+            investigation={byCase.get(`${c.database_name}|${caseID(c)}`)}
             onDone={refetch} />
         ))}
       </div>
@@ -135,7 +155,7 @@ export function CasesPage({ database, initialSource = 'all', user }) {
   )
 }
 
-function CaseCard({ caseRow, user, onDone }) {
+function CaseCard({ caseRow, user, investigation, onDone }) {
   const candidate = caseRow.action_candidates?.[0]
   const candidateGuardrails = guardrails(candidate)
 
@@ -205,6 +225,10 @@ function CaseCard({ caseRow, user, onDone }) {
               action={action} />
           ))}
         </div>
+      )}
+      {investigation && (
+        <InvestigationPanel database={investigation.database}
+          investigation={investigation} user={user} />
       )}
       <CaseControls caseRow={caseRow} user={user} onDone={onDone} />
     </article>
