@@ -142,8 +142,9 @@ func preflightRetentionTable(t *testing.T, p *pgxpool.Pool) string {
 		_, _ = p.Exec(ctx, "DROP TABLE "+table)
 	})
 	_, err = p.Exec(ctx, `INSERT INTO sage.table_contract
-		(schema_name,table_name,append_only,retention_interval,declared_by,evidence_id)
-		VALUES ('public',$1,true,interval '30 days','preflight',$1)`, table)
+		(schema_name,table_name,append_only,retention_interval,retention_column,
+		 declared_by,evidence_id)
+		VALUES ('public',$1,true,interval '30 days','created_at','preflight',$1)`, table)
 	if err != nil {
 		t.Fatal(err)
 	}

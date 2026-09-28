@@ -28,8 +28,9 @@ func TestRetentionDryRunThenBoundedEnforcementIsDurable(t *testing.T) {
 		t.Fatalf("seed retention fixture: %v", err)
 	}
 	_, err = pool.Exec(ctx, `INSERT INTO sage.table_contract
-		(schema_name, table_name, append_only, retention_interval,
-		 declared_by, evidence_id) VALUES ('public',$1,true,interval '30 days','test',$2)`,
+		(schema_name, table_name, append_only, retention_interval, retention_column,
+		 declared_by, evidence_id)
+		VALUES ('public',$1,true,interval '30 days','created_at','test',$2)`,
 		table, "contract_"+table)
 	if err != nil {
 		t.Fatalf("declare retention contract: %v", err)

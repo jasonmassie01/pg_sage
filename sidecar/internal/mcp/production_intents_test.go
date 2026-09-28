@@ -20,7 +20,8 @@ func TestProductionIntentExecutorPersistsContractAndConsumerMetadata(t *testing.
 		Contract:   &policy.ActionContract{ActionType: "declare_table_contract"},
 		Arguments: json.RawMessage(`{
 			"table":"public.events","append_only":true,
-			"retention":"30 days","expected_pk":"event_id"
+			"retention":{"interval":"30 days","column":"created_at"},
+			"expected_pk":"event_id"
 		}`),
 	}, decision)
 	require.NoError(t, err)
@@ -29,8 +30,8 @@ func TestProductionIntentExecutorPersistsContractAndConsumerMetadata(t *testing.
 	}, contractResult)
 	require.Equal(t, TableContractDeclaration{
 		DatabaseID: int64ProductionPointer(42), Schema: "public", Table: "events",
-		AppendOnly: true, Retention: "30 days", ExpectedPK: "event_id",
-		DeclaredBy: "mcp-agent", EvidenceID: "ev-write",
+		AppendOnly: true, Retention: "30 days", RetentionColumn: "created_at",
+		ExpectedPK: "event_id", DeclaredBy: "mcp-agent", EvidenceID: "ev-write",
 	}, store.contract)
 
 	consumerResult, err := executor.Execute(context.Background(), policy.ActionRequest{

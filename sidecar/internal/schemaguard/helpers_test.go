@@ -24,9 +24,11 @@ func testRequest(kind InvariantKind) Request {
 
 func retentionRequest() Request {
 	request := testRequest(InvariantUnboundedAppend)
+	request.Invariant.RetentionColumn = "created_at"
 	request.Contract = TableContract{
 		AppendOnly:      true,
 		RetentionWindow: 30 * 24 * time.Hour,
+		RetentionColumn: "created_at",
 	}
 	return request
 }

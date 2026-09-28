@@ -154,9 +154,13 @@ func intentTools() []Tool {
 				`"constraints":{"type":"object"}}`, `[]`)},
 		{Name: "ensure_fk_indexes", Description: "Ensure foreign keys have supporting indexes",
 			InputSchema: object(`{"schema":{"type":"string"}}`, `["schema"]`)},
-		{Name: "declare_table_contract", Description: "Declare table intent constraints",
+		{Name: "declare_table_contract", Description: "Declare table intent constraints. " +
+			"retention needs both interval and column (the timestamptz, timestamp or date " +
+			"column whose age defines retention); pg_sage never infers the column",
 			InputSchema: object(`{"table":{"type":"string"},"append_only":{"type":"boolean"},`+
-				`"retention":{"type":"object"},"expected_pk":{"type":"string"},`+
+				`"retention":{"type":"object","properties":{"interval":{"type":"string"},`+
+				`"column":{"type":"string"}},"required":["interval","column"]},`+
+				`"expected_pk":{"type":"string"},`+
 				`"exemptions":{"type":"array","items":{"type":"string"}}}`, `["table"]`)},
 		{Name: "register_consumer", Description: "Protect a replication slot consumer",
 			InputSchema: object(`{"slot_name":{"type":"string"},"owner":{"type":"string"}}`,

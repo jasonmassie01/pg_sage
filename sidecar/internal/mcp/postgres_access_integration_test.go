@@ -29,10 +29,13 @@ func TestMain(m *testing.M) {
 func TestPostgresAccessPersistsAgentDeclaredMetadata(t *testing.T) {
 	access, pool := newPostgresIntentAccess(t)
 	ctx := context.Background()
+	table := retentionContractTable(t, pool,
+		"CREATE TABLE {t} (event_id bigint, created_at timestamptz)")
 
 	contract, err := access.DeclareTableContract(ctx, TableContractDeclaration{
-		DatabaseID: int64ProductionPointer(42), Schema: "public", Table: "events",
-		AppendOnly: true, Retention: "14 days", ExpectedPK: "event_id",
+		DatabaseID: int64ProductionPointer(42), Schema: "public", Table: table,
+		AppendOnly: true, Retention: "14 days", RetentionColumn: "created_at",
+		ExpectedPK: "event_id",
 		Exemptions: json.RawMessage(`["backfill"]`), DeclaredBy: "mcp-agent",
 		EvidenceID: "ev-contract-db",
 	})
@@ -40,14 +43,15 @@ func TestPostgresAccessPersistsAgentDeclaredMetadata(t *testing.T) {
 	require.True(t, contract.Applied)
 	var appendOnly bool
 	var retention string
-	var expectedPK string
+	var expectedPK, column string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT append_only,
-		retention_interval::text, expected_pk FROM sage.table_contract
+		retention_interval::text, expected_pk, retention_column FROM sage.table_contract
 		WHERE evidence_id=$1`, "ev-contract-db").Scan(
-		&appendOnly, &retention, &expectedPK,
+		&appendOnly, &retention, &expectedPK, &column,
 	))
 	require.True(t, appendOnly)
 	require.Equal(t, "14 days", retention)
+	require.Equal(t, "created_at", column)
 	require.Equal(t, "event_id", expectedPK)
 
 	consumer, err := access.RegisterConsumer(ctx, ConsumerRegistration{

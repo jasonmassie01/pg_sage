@@ -49,15 +49,24 @@ const (
 	RouteRecommendation Route = "recommendation"
 )
 
+// Invariant is one detected schema condition. For unbounded-append tables,
+// RetentionColumn is the owner-declared column, set only when it exists, is
+// not dropped and is timestamptz, timestamp or date; RetentionSuggestion is
+// pg_sage's advisory guess, shown to the owner and never acted on.
 type Invariant struct {
 	Kind                         InvariantKind
 	Schema, Table, ProposedSQL   string
 	RollbackSQL, RetentionColumn string
+	RetentionSuggestion          string
 	QueryIDs                     []int64
 }
+
+// TableContract is the owner's declaration. RetentionColumn is the declared
+// retention clock; empty means undeclared (a pre-D5 contract).
 type TableContract struct {
 	AppendOnly         bool
 	RetentionWindow    time.Duration
+	RetentionColumn    string
 	ExpectedPrimaryKey string
 	Exemptions         []InvariantKind
 }

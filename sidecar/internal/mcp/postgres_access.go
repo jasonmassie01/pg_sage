@@ -19,27 +19,32 @@ func (access *PostgresAccess) DeclareTableContract(
 	if access == nil || access.pool == nil {
 		return WriteOutcome{}, ErrProductionDependencyUnavailable
 	}
+	warnings, err := access.validateRetentionColumn(ctx, declaration)
+	if err != nil {
+		return WriteOutcome{}, err
+	}
 	exemptions := declaration.Exemptions
 	if len(exemptions) == 0 || string(exemptions) == "null" {
 		exemptions = json.RawMessage(`[]`)
 	}
-	_, err := access.pool.Exec(ctx, `INSERT INTO sage.table_contract
+	_, err = access.pool.Exec(ctx, `INSERT INTO sage.table_contract
 		(database_id, schema_name, table_name, append_only, retention_interval,
-		 expected_pk, exemptions, declared_by, evidence_id)
-		VALUES ($1,$2,$3,$4,NULLIF($5,'')::interval,NULLIF($6,''),$7,$8,$9)
+		 retention_column, expected_pk, exemptions, declared_by, evidence_id)
+		VALUES ($1,$2,$3,$4,NULLIF($5,'')::interval,NULLIF($6,''),NULLIF($7,''),$8,$9,$10)
 		ON CONFLICT (database_id, schema_name, table_name) DO UPDATE SET
 		append_only=EXCLUDED.append_only, retention_interval=EXCLUDED.retention_interval,
+		retention_column=EXCLUDED.retention_column,
 		expected_pk=EXCLUDED.expected_pk, exemptions=EXCLUDED.exemptions,
 		declared_by=EXCLUDED.declared_by, evidence_id=EXCLUDED.evidence_id,
 		updated_at=now()`, declaration.DatabaseID, declaration.Schema,
 		declaration.Table, declaration.AppendOnly, declaration.Retention,
-		declaration.ExpectedPK, exemptions, declaration.DeclaredBy,
-		declaration.EvidenceID)
+		declaration.RetentionColumn, declaration.ExpectedPK, exemptions,
+		declaration.DeclaredBy, declaration.EvidenceID)
 	if err != nil {
 		return WriteOutcome{}, fmt.Errorf("declare table contract: %w", err)
 	}
 	return WriteOutcome{Applied: true, EvidenceID: declaration.EvidenceID,
-		Object: declaration.Schema + "." + declaration.Table}, nil
+		Object: declaration.Schema + "." + declaration.Table, Warnings: warnings}, nil
 }
 
 func (access *PostgresAccess) RegisterConsumer(
