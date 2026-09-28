@@ -67,3 +67,14 @@ alone would let an identity-provider account take over a local one.
 **D8.** Autonomy is only acceptable with an obvious, reliable off switch. A stop that is
 forgotten on restart, unattributed and missing from the UI fails that test. Make the stop
 state durable and visible first, then put the control where operators look.
+
+## Review (jmass, 2026-09-28)
+
+- **Move forward:** PR #52 is merged (46dcebc).
+- **D6 confirmed default-on:** "The index should ship with the product if they are
+  needed." pg_sage builds the indexes it needs on its own once it has earned load
+  evidence (a 7-day learned baseline, or declared capacity).
+- **Other behaviour changes:** "Decide what is best." All kept (D5 contracts pause until
+  re-declared; the D2 window grammar; D4 approved-request registration; operator
+  re-authorization before execution). One refinement: startup now logs a notice when a
+  configured window's meaning changed under the D2 grammar (PR #53).
