@@ -286,6 +286,13 @@ func TestCatalog_ReplicationProbesOnAPrimaryWithoutReplicas(t *testing.T) {
 	if res := r.Run(ctx, ReplicationLag, Args{}); res.Status != StatusEmpty {
 		t.Fatalf("replication_lag without replicas = %+v, want empty", res)
 	}
+	// Slots are cluster-wide: serialize with PGIncidentBench's WAL
+	// scenarios, which would otherwise see this inactive slot.
+	release, err := testdb.LockCluster(ctx, os.Getenv(testdb.EnvName), "wal")
+	if err != nil {
+		t.Fatalf("cluster lock: %v", err)
+	}
+	t.Cleanup(release)
 	slot := fmt.Sprintf("sre_probe_slot_%d", os.Getpid())
 	if _, err := pool.Exec(ctx,
 		"SELECT pg_create_physical_replication_slot($1, true)", slot); err != nil {

@@ -119,6 +119,9 @@ type CoordinatorDeps struct {
 	Triggers TriggerSource
 	Config   CoordinatorConfig
 	LogFn    func(level, msg string, args ...any)
+	// Wait waits between compared samples; nil sleeps. PGIncidentBench
+	// runs a scenario's mid-sample fault program here.
+	Wait func(ctx context.Context, d time.Duration) error
 }
 
 // Coordinator runs one database's investigations.
@@ -151,10 +154,14 @@ func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
 	if logFn == nil {
 		logFn = func(string, string, ...any) {}
 	}
+	wait := d.Wait
+	if wait == nil {
+		wait = sleepCtx
+	}
 	return &Coordinator{store: d.Store, runner: d.Runner, triggers: d.Triggers,
 		cfg: d.Config, logFn: logFn, worker: NewUUID(),
 		queue: make(chan UUID, d.Config.QueueSize), durability: NewDurability(),
-		sleep: sleepCtx}, nil
+		sleep: wait}, nil
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
