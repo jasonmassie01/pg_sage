@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+### Changed (read before upgrading)
+
+- **The policy refusal set is enforced.** `refusal_set` was stored but never
+  checked. Each token now matches precisely: `rls_change` (row-level security
+  or its policies), `grant_expansion` (GRANT, ALTER ROLE, OWNER TO, ALTER
+  DEFAULT PRIVILEGES), `major_upgrade` (major or extension upgrades),
+  `non_dup_object_drop` (dropping a table, column, constraint, sequence,
+  schema or replication slot) and `unrollbackable` (rollback class
+  `not_reversible` or `forward_fix_only`). A self-initiated action that
+  matches is queued for approval with reason `refused_by_policy`, and the
+  token is in the detail. An operator-approved action is not refused.
+  - No action pg_sage takes today changes verdict under the built-in
+    profiles. Unused, duplicate and invalid index drops are rebuildable and
+    keep their earned autonomy. Retention deletes run under the owner's
+    retention contract and are not "unrollbackable".
+  - `set_table_autovacuum` is now reversible: it ships `ALTER TABLE ... RESET`.
+  - Unknown refusal tokens are rejected when a policy is proposed. A stored
+    policy that contains one fails closed (`policy_unavailable`), and startup
+    logs which token to fix.
+- **The policy lock ceiling is enforced.** For DDL that runs inside a
+  transaction, autonomous or operator-approved, `lock_timeout` is the smaller
+  of `lock_duration_ceiling_ms` (3000 in both profiles) and
+  `safety.lock_timeout_ms` (default 30000). An `ALTER TABLE` queued behind a
+  long lock now gives up after 3 s instead of 30 s. `CONCURRENTLY` builds keep
+  `safety.lock_timeout_ms`, because they wait on older transactions by design.
+- **DDL lease conflicts park instead of failing.** When another writer holds the
+  change lease for the same object, the action is parked (`ddl_conflict` in the
+  decision ledger) and retried next cycle. It used to log a failed action, which
+  counted toward the three-failure abandonment and the self-initiated rate
+  limit.
+
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 
 ### What's new

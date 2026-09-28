@@ -607,7 +607,8 @@ func setTableAutovacuumContract() ActionContract {
 			"verify pg_class.reloptions",
 			"rerun vacuum tuning analyzer after one churn window",
 		},
-		RollbackClass: "forward_fix_only",
+		// The finding ships ALTER TABLE ... RESET (...) as its rollback.
+		RollbackClass: "reversible",
 		Cooldown:      "configured cascade cooldown",
 		AuditFields:   []string{"case_id", "database", "table", "reloptions"},
 	}

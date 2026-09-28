@@ -347,6 +347,8 @@ func policyContract(contract ActionContract) *policy.ActionContract {
 	result := &policy.ActionContract{
 		ActionType: contract.ActionType, RiskTier: policy.RiskTier(contract.BaseRiskTier),
 		ProviderSupport: append([]string(nil), contract.ProviderSupport...),
+		RollbackClass:   policy.RollbackClass(contract.RollbackClass),
+		DropKind:        dropKindForActionType(contract.ActionType),
 	}
 	for _, guardrail := range contract.Guardrails {
 		if isApprovalRequiredGuardrail(guardrail) {
@@ -376,6 +378,7 @@ func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
 		RequiresMaintenanceWindow: decision.RiskTier == policy.RiskModerate ||
 			decision.RiskTier == policy.RiskHigh,
 		EvidenceID: decision.EvidenceID, DecisionID: decision.DecisionID,
+		LockCeilingMS: decision.LockCeilingMS,
 	}
 	switch decision.Verdict {
 	case policy.VerdictExecute:
@@ -583,7 +586,7 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			if latest.Decision != PolicyDecisionExecute {
 				return
 			}
-			e.executeFinding(ctx, f, findingID, latest.DecisionID)
+			e.executeFinding(ctx, f, findingID, latest)
 		}()
 	}
 }
@@ -732,8 +735,10 @@ func estimatedToilForActionType(actionType string) int {
 // executeFinding runs the DDL for a single finding and handles
 // post-execution checks, rollback monitoring, and invalid index cleanup.
 func (e *Executor) executeFinding(
-	ctx context.Context, f analyzer.Finding, findingID int64, decisionID int64,
+	ctx context.Context, f analyzer.Finding, findingID int64,
+	decision ActionPolicyDecision,
 ) {
+	decisionID := decision.DecisionID
 	beforeState := e.snapshotBeforeState(ctx, targetQueryIDs(f))
 	if _, _, isSignal := parseBackendSignal(f.RecommendedSQL); isSignal {
 		// Backend signals never run as raw SQL; they need an operator
@@ -744,6 +749,9 @@ func (e *Executor) executeFinding(
 		return
 	}
 	releaseLease, leaseErr := e.acquireDDLLease(ctx, f, decisionID)
+	if e.parkLeaseConflict(ctx, f, decisionID, leaseErr) {
+		return
+	}
 	if leaseErr != nil {
 		e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID, leaseErr)
 		e.logFn("executor", "DDL lease denied for %q: %v", f.Title, leaseErr)
@@ -767,7 +775,8 @@ func (e *Executor) executeFinding(
 	}
 
 	ddlTimeout := e.cfg.Safety.DDLTimeout()
-	lockOpt := WithLockTimeout(e.cfg.Safety.LockTimeout())
+	lockOpt := WithLockTimeout(ddlLockTimeoutMS(
+		f.RecommendedSQL, e.cfg.Safety.LockTimeout(), decision.LockCeilingMS))
 	var verifiedAction verifiedIndexAction
 	verifiedCreate := categorizeAction(f.RecommendedSQL) == "create_index"
 	if verifiedCreate {

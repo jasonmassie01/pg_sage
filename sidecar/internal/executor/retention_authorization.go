@@ -31,7 +31,12 @@ func (e *Executor) AuthorizeRetention(ctx context.Context, request RetentionRequ
 	decision := standingPolicyDecision(gate.Authorize(ctx, policy.ActionRequest{
 		Contract:        policyContract(retentionDeleteContract()),
 		InternalControl: true, Feature: string(policy.ChangeRetention),
-		TargetObjs: []string{request.Target}, IsReplica: request.IsReplica,
+		// The owner's declared retention contract (column and window) is the
+		// authority for this unrollbackable delete. D5 will add an explicit
+		// owner-declared retention column; until then the declared contract
+		// is what the retention enforcer requires before it gets here.
+		OwnerDeclared: request.Column != "" && request.Window > 0,
+		TargetObjs:    []string{request.Target}, IsReplica: request.IsReplica,
 		Evidence: map[string]any{
 			"retention_column": request.Column, "cutoff": request.Cutoff.UTC(),
 			"window_seconds": request.Window.Seconds(), "batch_limit": request.BatchLimit,

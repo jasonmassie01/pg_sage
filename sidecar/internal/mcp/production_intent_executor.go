@@ -203,9 +203,7 @@ func (executor *ProductionIntentExecutor) authorizeCandidates(
 		candidate := &outcome.Candidates[index]
 		decision := executor.gate.Authorize(ctx, policy.ActionRequest{
 			DatabaseID: request.DatabaseID, Feature: feature, SQL: candidate.SQL,
-			TargetObjs: []string{candidate.Object}, Contract: &policy.ActionContract{
-				ActionType: "create_index", RiskTier: policy.RiskSafe,
-			},
+			TargetObjs: []string{candidate.Object}, Contract: candidateIndexContract(),
 		})
 		candidate.Decision = decisionResult(decision.Verdict)
 		candidate.EvidenceID = decision.EvidenceID
@@ -238,9 +236,7 @@ func (executor *ProductionIntentExecutor) authorizeMigration(
 	for _, step := range planned.ExpandSteps {
 		decision := executor.gate.Authorize(ctx, policy.ActionRequest{
 			DatabaseID: request.DatabaseID, Feature: "online_migration", SQL: step.SQL,
-			TargetObjs: []string{input.table}, Contract: &policy.ActionContract{
-				ActionType: "online_migration", RiskTier: policy.RiskModerate,
-			},
+			TargetObjs: []string{input.table}, Contract: onlineMigrationContract(),
 		})
 		actions = append(actions, ChangeCandidate{
 			Object: input.table, SQL: step.SQL, Decision: decisionResult(decision.Verdict),
@@ -325,4 +321,22 @@ func retentionText(raw json.RawMessage) (string, error) {
 		return "", errors.New("retention must be an interval string")
 	}
 	return strings.TrimSpace(value.Interval), nil
+}
+
+// candidateIndexContract types a proposed index build; it is undone by
+// dropping the index.
+func candidateIndexContract() *policy.ActionContract {
+	return &policy.ActionContract{
+		ActionType: "create_index", RiskTier: policy.RiskSafe,
+		RollbackClass: policy.RollbackReversible,
+	}
+}
+
+// onlineMigrationContract types one expand step of an online migration,
+// which can only be fixed forward.
+func onlineMigrationContract() *policy.ActionContract {
+	return &policy.ActionContract{
+		ActionType: "online_migration", RiskTier: policy.RiskModerate,
+		RollbackClass: policy.RollbackForwardFixOnly,
+	}
 }

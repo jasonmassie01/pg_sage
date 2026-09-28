@@ -26,6 +26,9 @@ type ActionPolicyDecision struct {
 	Provider                  string   `json:"provider,omitempty"`
 	EvidenceID                string   `json:"evidence_id,omitempty"`
 	DecisionID                int64    `json:"decision_id,omitempty"`
+	// LockCeilingMS is the policy lock ceiling carried from an execute
+	// verdict; in-transaction DDL caps lock_timeout by it (0 = none).
+	LockCeilingMS int64 `json:"lock_ceiling_ms,omitempty"`
 }
 
 func inMaintenanceWindowForPolicy(

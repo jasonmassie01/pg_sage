@@ -231,6 +231,9 @@ func ValidateDocument(doc Document) error {
 	if doc.LockDurationCeilingMS < 0 {
 		return fmt.Errorf("lock_duration_ceiling_ms cannot be negative")
 	}
+	if err := validateRefusalSet(doc.RefusalSet); err != nil {
+		return err
+	}
 	if err := validateBlastRadius(doc.BlastRadius); err != nil {
 		return err
 	}
@@ -306,6 +309,12 @@ func ValidateContract(contract ActionContract) error {
 		if guardrail != GuardrailApprovalRequired {
 			return fmt.Errorf("unknown guardrail %q", guardrail)
 		}
+	}
+	if !knownRollbackClass(contract.RollbackClass) {
+		return fmt.Errorf("unknown rollback class %q", contract.RollbackClass)
+	}
+	if !knownDropKind(contract.DropKind) {
+		return fmt.Errorf("unknown drop kind %q", contract.DropKind)
 	}
 	return nil
 }

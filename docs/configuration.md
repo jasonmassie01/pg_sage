@@ -215,6 +215,29 @@ overrides for XID and disk emergencies. Use `staffed` for narrow maintenance
 windows without deadline overrides. Clone-backed migration rehearsal defaults
 to disabled (`clone.provider: none`) and stale clones are recommendation-only.
 
+The standing policy document also carries three safety fields, all enforced:
+
+- `refusal_set`: actions pg_sage never runs on its own. A refused action is
+  queued for approval with reason `refused_by_policy` (the token is in the
+  detail); an operator approval runs it. Tokens: `rls_change` (row-level
+  security or its policies), `grant_expansion` (GRANT, ALTER ROLE, OWNER TO,
+  ALTER DEFAULT PRIVILEGES), `major_upgrade` (major or extension upgrades),
+  `non_dup_object_drop` (dropping a table, column, constraint, sequence,
+  schema or replication slot; index drops are rebuildable and are not
+  refused) and `unrollbackable` (rollback class `not_reversible` or
+  `forward_fix_only`, unless the action runs under an owner-declared
+  retention contract). Unknown tokens are rejected.
+- `lock_duration_ceiling_ms`: caps `lock_timeout` for DDL that runs inside a
+  transaction at the smaller of the ceiling and `safety.lock_timeout_ms`.
+  `CONCURRENTLY` builds keep `safety.lock_timeout_ms`, because they wait on
+  older transactions by design. `0` means no ceiling.
+- `serialize_mode`: `park` (both profiles). When another writer holds the
+  DDL lease for the same object, the action is parked with reason
+  `ddl_conflict` and retried next cycle. A park is not a failure: it does not
+  count toward the retry limit or the self-initiated rate limit. `queue` is
+  accepted and currently behaves like `park` (the action waits for the next
+  cycle, not for the lease holder).
+
 ### Retention
 
 | Parameter | Default | Description |

@@ -54,6 +54,36 @@ const (
 	ReasonOperatorApproved         Reason = "operator_approved"
 	ReasonUnknownTrustLevel        Reason = "unknown_trust_level"
 	ReasonSQLValidationDegraded    Reason = "sql_validation_degraded"
+	// ReasonRefusedByPolicy sends a self-initiated action that matches a
+	// refusal_set token to a human; Decision.Detail names the token.
+	ReasonRefusedByPolicy Reason = "refused_by_policy"
+	// ReasonDDLConflict parks an action whose DDL lease overlaps another
+	// writer; it is retried next cycle and is not a failure.
+	ReasonDDLConflict Reason = "ddl_conflict"
+)
+
+// RollbackClass states how an action is undone. It mirrors the executor
+// contract's rollback class.
+type RollbackClass string
+
+const (
+	RollbackReversible       RollbackClass = "reversible"
+	RollbackNoRollbackNeeded RollbackClass = "no_rollback_needed"
+	RollbackNotApplicable    RollbackClass = "not_applicable"
+	RollbackApplication      RollbackClass = "application_rollback"
+	RollbackForwardFixOnly   RollbackClass = "forward_fix_only"
+	RollbackNotReversible    RollbackClass = "not_reversible"
+)
+
+// DropKind classifies the object an action drops. Derivable objects
+// (indexes) can be rebuilt from a recorded definition; non-derivable ones
+// (tables, columns, constraints, sequences, schemas, replication slots)
+// carry data or state that a definition cannot restore.
+type DropKind string
+
+const (
+	DropDerivable    DropKind = "derivable"
+	DropNonDerivable DropKind = "non_derivable"
 )
 
 type DeadlineKind string
@@ -80,6 +110,11 @@ type ActionContract struct {
 	// ProviderSupport lists the providers that can run the action; empty
 	// means every provider.
 	ProviderSupport []string
+	// RollbackClass is how the action is undone; empty declares nothing.
+	RollbackClass RollbackClass
+	// DropKind classifies a dropped object. Empty means the gate derives
+	// it from the request SQL.
+	DropKind DropKind
 }
 
 type ActionRequest struct {
@@ -99,6 +134,9 @@ type ActionRequest struct {
 	// OperatorApproved marks a request a human approved: tier, ramp,
 	// execution mode and self-initiated usage limits no longer apply.
 	OperatorApproved bool
+	// OwnerDeclared marks a request that runs under an owner's explicit
+	// declaration (a retention contract), which is its authority.
+	OwnerDeclared bool
 }
 
 type Decision struct {
@@ -110,6 +148,9 @@ type Decision struct {
 	OffWindowOK bool
 	EvidenceID  string
 	DecisionID  int64
+	// LockCeilingMS is the policy's lock_duration_ceiling_ms on an execute
+	// verdict (0 = no ceiling). In-transaction DDL caps lock_timeout by it.
+	LockCeilingMS int64
 }
 
 // RuntimeState is the live authority snapshot for one authorization.
