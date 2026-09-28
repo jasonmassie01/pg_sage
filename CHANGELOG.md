@@ -21,6 +21,34 @@
   (narration off, LLM off, budget, rate limit, timeout, malformed or uncited output) sends
   the deterministic summary. Both are labeled in the notification. `llm.enabled: false`
   cancels narrations in flight.
+- **Diagnostic probe catalog (Sage SRE).** Twelve fixed, read-only probes: lock chains and
+  the lock wait graph, long and idle-in-transaction transactions, prepared transactions,
+  backend identity, connection saturation, replication lag, replication slots,
+  WAL/checkpoint, autovacuum/wraparound, vacuum progress and plan regressions. Each runs in
+  a read-only transaction with a fixed `search_path`, `statement_timeout` 500 ms and
+  `lock_timeout` 100 ms, returns at most 500 rows and 256 KiB, and at most one probe runs
+  per database and four per sidecar at a time. Results are typed (`ok`, `empty`, `error`,
+  `no_privilege`, `unsupported`), so a missing privilege, extension or table is never
+  reported as healthy. Probes return identities, states, counts and ages, never query text.
+- **Causal graph for lock blocking and plan regressions.** A deterministic matcher (no LLM)
+  tells an idle-in-transaction holder, DDL queued behind a long transaction, hot-row
+  contention and a prepared-transaction holder apart, and for a slow query a `plan_hash`
+  flip from a slowdown on the same plan. Each hypothesis carries its evidence, a confidence,
+  a refutation probe, and the alternatives it ruled out with the evidence that ruled them
+  out. A cleared chain, a wait cycle or missing evidence gives "inconclusive", not a guess.
+- **Lock incident notifications name the likely cause.** The deterministic summary of a
+  `lock_contention` notification adds, for example, `Likely (H1, confidence 0.85):
+  idle-in-transaction holder, pid 4242; contributing (H2): DDL queued behind a long
+  transaction`, and names probes that could not run (`Missing: lock_graph
+  (no_privilege)`). With `rca.narration_enabled`, the model can also read the probe results
+  (`get_probe_result`) and hypotheses. It answers with claims, each citing evidence ids, and
+  every number in a claim must appear in the evidence that claim cites.
+- **Investigation store foundation (not used at runtime yet).** Durable investigations with
+  leases and fence tokens (a stale worker cannot commit), idempotent steps, immutable hashed
+  probe evidence, and durable per-investigation model budget reservations (2 turns, 16k input
+  and 4k output tokens, plus database and deployment daily allocations) that a crash cannot
+  reset. A metadata outage puts coordination in an explicit degraded state that blocks
+  action handoff.
 
 ### Changed (read before upgrading)
 
@@ -65,6 +93,11 @@
   startup).
 - Notifications for `incident_detected` and `incident_escalated` now end with a labeled
   `Summary` line, and their payload data adds `narrative` and `narrative_source`.
+- Schema: new tables `sage.sre_deployments`, `sage.sre_database_bindings`,
+  `sage.sre_investigations`, `sage.sre_steps`, `sage.sre_evidence` and
+  `sage.sre_budget_reservations` (added automatically at startup, in the meta database when
+  one is configured). Nothing writes them yet; retention for them lands with the
+  investigator.
 
 ### Fixed
 
@@ -80,6 +113,11 @@
   sessions in the monitored database.
 - Incident causal chains that contained control characters or invalid UTF-8 failed to
   save.
+- The lock-chain fast path started on the first analyzer cycle that had a snapshot. The
+  first cycle usually runs before the collector's first snapshot, so after startup a lock
+  chain could take a whole analyzer interval (default 600 s) to page. The fast path now starts
+  when the database is registered, and instance shutdown waits for it instead of closing its
+  pool under it.
 
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 
