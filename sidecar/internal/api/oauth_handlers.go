@@ -40,20 +40,36 @@ func oauthAuthorizeHandler(
 			internalError(w, r, "oauth authorization url", err)
 			return
 		}
-		// Bind state to this browser: only a request that echoes this
-		// cookie on the callback can complete the flow. SameSite=Lax
-		// still allows the top-level redirect back from the provider.
-		http.SetCookie(w, &http.Cookie{
-			Name:     oauthStateCookieName,
-			Value:    state,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   600, // 10 min — matches state TTL
-		})
+		setOAuthStateCookie(w, state)
 		jsonResponse(w, map[string]string{"url": authURL})
 	}
+}
+
+// setOAuthStateCookie binds state to this browser: only a request that
+// echoes this cookie on the callback can complete the flow. SameSite=Lax
+// still allows the top-level redirect back from the provider.
+func setOAuthStateCookie(w http.ResponseWriter, state string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthStateCookieName,
+		Value:    state,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   600, // 10 min — matches state TTL
+	})
+}
+
+func clearOAuthStateCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthStateCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
 }
 
 func oauthCallbackHandler(
@@ -68,73 +84,79 @@ func oauthCallbackHandler(
 				http.StatusNotFound)
 			return
 		}
-		code := r.URL.Query().Get("code")
-		state := r.URL.Query().Get("state")
-		if code == "" || state == "" {
-			jsonError(w, "missing code or state parameter",
-				http.StatusBadRequest)
+		code, state, cookieState, ok := oauthCallbackParams(w, r)
+		if !ok {
 			return
 		}
-
-		// Cookie-bound state check: defeats login CSRF where an
-		// attacker tricks a victim's browser into completing the
-		// attacker's half-finished OAuth flow.
-		var cookieState string
-		if c, cerr := r.Cookie(oauthStateCookieName); cerr == nil {
-			cookieState = c.Value
-		}
-		// Always clear the cookie before returning (success or fail).
-		http.SetCookie(w, &http.Cookie{
-			Name:     oauthStateCookieName,
-			Value:    "",
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   -1,
-		})
-
+		// Read before Exchange consumes the single-use state.
+		link := provider.LinkIntentForState(state)
 		identity, err := provider.Exchange(
 			r.Context(), code, state, cookieState,
 		)
 		if err != nil {
-			slog.Error("oauth exchange failed",
-				"error", err)
+			slog.Error("oauth exchange failed", "error", err)
 			jsonError(w, "authentication failed",
 				http.StatusUnauthorized)
 			return
 		}
-
+		if link.UserID > 0 {
+			completeOAuthLink(w, r, pool, providerName, identity, link)
+			return
+		}
 		user, err := auth.FindOrCreateOAuthUser(
-			r.Context(), pool, identity, providerName,
-			defaultRole,
+			r.Context(), pool, identity, providerName, defaultRole,
 		)
 		if err != nil {
 			writeOAuthUserError(w, r, err)
 			return
 		}
-
-		sessionID, err := auth.CreateSession(
-			r.Context(), pool, user.ID,
-		)
-		if err != nil {
-			jsonError(w, "failed to create session",
-				http.StatusInternalServerError)
-			return
+		if startSession(w, r, pool, user.ID) {
+			http.Redirect(w, r, "/", http.StatusFound)
 		}
-
-		http.SetCookie(w, &http.Cookie{
-			Name:     "sage_session",
-			Value:    sessionID,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteLaxMode,
-			MaxAge:   int(auth.SessionDuration.Seconds()),
-		})
-
-		http.Redirect(w, r, "/", http.StatusFound)
 	}
+}
+
+// oauthCallbackParams reads code, state and the browser-bound state cookie,
+// and clears the cookie. The cookie check defeats login CSRF where another
+// party's half-finished OAuth flow completes in this browser.
+func oauthCallbackParams(
+	w http.ResponseWriter, r *http.Request,
+) (code, state, cookieState string, ok bool) {
+	code = r.URL.Query().Get("code")
+	state = r.URL.Query().Get("state")
+	if code == "" || state == "" {
+		jsonError(w, "missing code or state parameter",
+			http.StatusBadRequest)
+		return "", "", "", false
+	}
+	if c, err := r.Cookie(oauthStateCookieName); err == nil {
+		cookieState = c.Value
+	}
+	clearOAuthStateCookie(w)
+	return code, state, cookieState, true
+}
+
+// startSession creates a session for userID and sets the session cookie.
+// It reports false after writing an error response.
+func startSession(
+	w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, userID int,
+) bool {
+	sessionID, err := auth.CreateSession(r.Context(), pool, userID)
+	if err != nil {
+		jsonError(w, "failed to create session",
+			http.StatusInternalServerError)
+		return false
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sage_session",
+		Value:    sessionID,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(auth.SessionDuration.Seconds()),
+	})
+	return true
 }
 
 // writeOAuthUserError maps identity resolution failures without
@@ -146,7 +168,8 @@ func writeOAuthUserError(
 	case errors.Is(err, auth.ErrOAuthLinkRequired):
 		slog.Warn("oauth login refused: account linking required")
 		jsonError(w, "an account with this email already exists; "+
-			"ask an administrator to link it", http.StatusForbidden)
+			"sign in with your password and link SSO from your profile, "+
+			"or ask an administrator for an SSO link", http.StatusForbidden)
 	case errors.Is(err, auth.ErrOAuthEmailUnverified):
 		jsonError(w, "email not verified by identity provider",
 			http.StatusUnauthorized)

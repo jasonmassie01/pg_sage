@@ -103,6 +103,10 @@ func shouldSkipAuth(path string) bool {
 	case path == "/api/v1/auth/oauth/config":
 		return true
 	case path == "/api/v1/auth/oauth/authorize":
+		// intent=link resolves the session inside the handler (D7).
+		return true
+	case path == oauthLinkGrantPath:
+		// Authenticated by the single-use link grant in the body (D7).
 		return true
 	case path == "/health":
 		return true

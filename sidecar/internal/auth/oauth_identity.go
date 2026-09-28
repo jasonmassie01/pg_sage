@@ -27,7 +27,7 @@ var (
 	// issuer+subject. Such accounts are never auto-linked.
 	ErrOAuthLinkRequired = errors.New(
 		"oauth: email belongs to an existing account; " +
-			"an administrator must link it explicitly")
+			"it must be linked explicitly")
 )
 
 const githubIssuer = "https://github.com"

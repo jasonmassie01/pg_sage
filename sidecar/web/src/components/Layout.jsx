@@ -246,15 +246,17 @@ export function Layout({
         className="mt-auto pt-4"
         style={{ borderTop: '1px solid var(--border)' }}>
         {user && (
-          <div
-            className="px-3 py-1 text-xs mb-2"
+          <a
+            href="#/profile"
+            title="Account and SSO"
+            className="block px-3 py-1 text-xs mb-2"
             data-testid="user-email"
             style={{ color: 'var(--text-secondary)' }}>
             {user.email}
             <span className="ml-1 opacity-60">
               ({user.role})
             </span>
-          </div>
+          </a>
         )}
         {onLogout && (
           <button

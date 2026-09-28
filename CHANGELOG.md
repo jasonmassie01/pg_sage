@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### What's new
+
+- **SSO account linking.** A user signed in with a password can link SSO from their account
+  page (`#/profile`). Admins can unlink SSO, issue a one-time link grant (single use,
+  15 minutes, stored hashed) for a user who cannot sign in with a password, and create
+  SSO-only users with no password. Linking requires a verified provider email that matches
+  the account; accounts are never linked on email alone. `GET /api/v1/users` now reports
+  `sso_linked`, `sso_issuer` and `password_login`. Link, unlink and grant events are
+  written to the new `sage.auth_audit` table. See `docs/security.md`.
+
 ### Changed (read before upgrading)
 
 - **Cloud AgentDB registration needs an approved request.** `POST /api/v1/agent-dbs`

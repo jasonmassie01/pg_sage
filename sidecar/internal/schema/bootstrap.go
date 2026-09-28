@@ -363,6 +363,7 @@ func migrationStatements() []string {
 	statements := []string{
 		ddlActionLogApprovalCols,
 		ddlUsersOAuth,
+		ddlAuthAccountLinking,
 		ddlQueryHintsRewrite,
 		ddlQueryHintsRevalidate,
 		ddlIncidentsLastDetected,
