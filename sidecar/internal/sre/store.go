@@ -26,6 +26,14 @@ type Investigation struct {
 	UpdatedAt       time.Time
 	ExpiresAt       time.Time
 	FailureCode     string
+	// M2: the trigger's incident and subject, operator pinning, the
+	// persisted diagnosis summary and retention markers.
+	IncidentID       string
+	Subject          string
+	Pinned           bool
+	Summary          Summary
+	ConcludedAt      time.Time
+	EvidencePurgedAt time.Time
 }
 
 // Lease is a worker's fenced claim on an investigation. Every write
@@ -76,6 +84,7 @@ type Evidence struct {
 	CapabilityState string
 	ReasonCode      string
 	ObservedAt      time.Time
+	CollectedAt     time.Time
 	Payload         []byte
 	SHA256          []byte
 }

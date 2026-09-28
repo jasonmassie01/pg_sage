@@ -82,11 +82,10 @@ func (s *PostgresStore) checkClaimable(ctx context.Context, tx pgx.Tx, scope Sco
 	}
 	limit := s.limits.MaxActive.Milliseconds()
 	if r.activeMS+r.orphanMS >= limit {
-		if _, err := tx.Exec(ctx, `UPDATE sage.sre_investigations
-			SET active_ms = $4, lease_owner = NULL, lease_started_at = NULL,
-			    lease_until = NULL, version = version + 1, updated_at = clock_timestamp()
-			WHERE deployment_id = $1 AND database_id = $2 AND id = $3`,
-			string(scope.DeploymentID), string(scope.DatabaseID), string(id), limit); err != nil {
+		// A dead worker used the whole active-time budget: charge it and
+		// end the investigation, so it does not stay "collecting".
+		if _, err := s.setState(ctx, tx, scope, id, StateFailed,
+			"budget_exhausted"); err != nil {
 			return err
 		}
 		return commitThen{ErrBudgetExhausted}
@@ -116,7 +115,11 @@ func (s *PostgresStore) grantLease(ctx context.Context, tx pgx.Tx, scope Scope, 
 		string(scope.DeploymentID), string(scope.DatabaseID), string(id), string(worker),
 		ttl.Seconds(), remaining.Seconds(), active).
 		Scan(&l.Version, &l.Fence, &l.Until, &l.SegmentDeadline)
-	return l, err
+	if err != nil {
+		return l, err
+	}
+	return l, appendEvent(ctx, tx, scope, id, EventClaimed, workerActor(l),
+		map[string]any{"fence": l.Fence, "orphan_ms": r.orphanMS})
 }
 
 // leaseGuard is the SQL predicate every lease-bound write repeats.

@@ -51,6 +51,11 @@ func (s *PostgresStore) CommitStep(ctx context.Context, lease Lease,
 		if err := insertStep(ctx, tx, lease, step); err != nil {
 			return err
 		}
+		if err := appendEvent(ctx, tx, lease.Scope, lease.InvestigationID, EventStep,
+			workerActor(lease), map[string]any{"key": step.IdempotencyKey,
+				"probes": len(step.Results), "next": step.NextState}); err != nil {
+			return err
+		}
 		inv, err = scanInvestigation(tx.QueryRow(ctx, `UPDATE sage.sre_investigations
 			SET state = $6, probe_count = probe_count + $7, version = version + 1,
 			    updated_at = clock_timestamp()
@@ -160,36 +165,56 @@ func (s *PostgresStore) Evidence(ctx context.Context, scope Scope, id UUID) ([]E
 	if err := validateIDs(scope, id); err != nil {
 		return nil, err
 	}
+	return s.evidence(ctx, scope, id, nil)
+}
+
+// evidence reads an investigation's evidence, or one row of it.
+func (s *PostgresStore) evidence(ctx context.Context, scope Scope, id UUID,
+	only *UUID) ([]Evidence, error) {
+	var filter *string
+	if only != nil {
+		v := string(*only)
+		filter = &v
+	}
 	rows, err := s.pool.Query(ctx, `SELECT e.id::text, e.step_id::text,
 		    st.idempotency_key, e.probe_id, e.probe_version, e.capability_state,
-		    COALESCE(e.reason_code, ''), e.observed_at, e.payload::text, e.sha256
+		    COALESCE(e.reason_code, ''), e.observed_at, e.collected_at, e.payload::text,
+		    e.sha256
 		FROM sage.sre_evidence e
 		JOIN sage.sre_steps st ON st.deployment_id = e.deployment_id
 		 AND st.database_id = e.database_id AND st.investigation_id = e.investigation_id
 		 AND st.id = e.step_id
 		WHERE e.deployment_id = $1 AND e.database_id = $2 AND e.investigation_id = $3
+		  AND ($4::uuid IS NULL OR e.id = $4::uuid)
 		ORDER BY st.sequence, e.observed_at, e.id`,
-		string(scope.DeploymentID), string(scope.DatabaseID), string(id))
+		string(scope.DeploymentID), string(scope.DatabaseID), string(id), filter)
 	if err != nil {
 		return nil, storeErr(ctx, "evidence", err)
 	}
 	defer rows.Close()
 	var out []Evidence
 	for rows.Next() {
-		var e Evidence
-		var eid, sid, payload string
-		var observed *time.Time
-		if err := rows.Scan(&eid, &sid, &e.StepKey, &e.ProbeID, &e.ProbeVersion,
-			&e.CapabilityState, &e.ReasonCode, &observed, &payload, &e.SHA256); err != nil {
+		e, err := scanEvidence(rows)
+		if err != nil {
 			return nil, storeErr(ctx, "evidence", err)
-		}
-		e.ID, e.StepID, e.Payload = UUID(eid), UUID(sid), []byte(payload)
-		if observed != nil {
-			e.ObservedAt = *observed
 		}
 		out = append(out, e)
 	}
 	return out, storeErr(ctx, "evidence", rows.Err())
+}
+
+func scanEvidence(rows pgx.Rows) (Evidence, error) {
+	var e Evidence
+	var eid, sid, payload string
+	var observed *time.Time
+	if err := rows.Scan(&eid, &sid, &e.StepKey, &e.ProbeID, &e.ProbeVersion,
+		&e.CapabilityState, &e.ReasonCode, &observed, &e.CollectedAt, &payload,
+		&e.SHA256); err != nil {
+		return e, err
+	}
+	e.ID, e.StepID, e.Payload = UUID(eid), UUID(sid), []byte(payload)
+	e.ObservedAt = timeOrZero(observed)
+	return e, nil
 }
 
 // VerifyHash recomputes the canonical payload hash.

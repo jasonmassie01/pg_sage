@@ -380,7 +380,8 @@ func migrationStatements() []string {
 	// exist. The window migration (policy schema version 3) follows the
 	// class split (version 2).
 	return append(statements, ddlPolicyChangeClassSplit, ddlPolicyWindowCronDuration,
-		ddlRetentionColumnDeclaration, ddlTableContractIdentity, ddlSRECoordination)
+		ddlRetentionColumnDeclaration, ddlTableContractIdentity, ddlSRECoordination,
+		ddlSREInvestigator)
 }
 
 // ---------------------------------------------------------------------------

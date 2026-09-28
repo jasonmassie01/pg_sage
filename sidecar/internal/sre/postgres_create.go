@@ -36,7 +36,10 @@ func (s *PostgresStore) Create(
 		inv, err = s.insertInvestigation(ctx, tx, req)
 		if err == nil {
 			created = true
-			return nil
+			return appendEvent(ctx, tx, inv.Scope, inv.ID, EventCreated,
+				req.actor(), map[string]any{"trigger_kind": req.TriggerKind,
+					"case_id": req.CaseID, "incident_id": req.IncidentID,
+					"subject": req.Subject})
 		}
 		if !errors.Is(err, ErrNotFound) {
 			return err
@@ -76,20 +79,24 @@ func (s *PostgresStore) byIdempotencyKey(ctx context.Context, tx pgx.Tx,
 // the same trigger (or the same idempotency key) already exists.
 func (s *PostgresStore) insertInvestigation(ctx context.Context, tx pgx.Tx,
 	req StartRequest) (Investigation, error) {
-	var key *string
+	var key, incident *string
 	if req.IdempotencyKey != "" {
 		key = &req.IdempotencyKey
 	}
+	if req.IncidentID != "" {
+		incident = &req.IncidentID
+	}
 	return scanInvestigation(tx.QueryRow(ctx, `INSERT INTO sage.sre_investigations
 		(deployment_id, database_id, id, source_case_id, trigger_kind,
-		 trigger_fingerprint, idempotency_key, state, expires_at)
+		 trigger_fingerprint, idempotency_key, state, expires_at,
+		 source_incident_id, subject)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued',
-		        clock_timestamp() + make_interval(secs => $8))
+		        clock_timestamp() + make_interval(secs => $8), $9, $10)
 		ON CONFLICT DO NOTHING
 		RETURNING `+invColumns,
 		string(req.Scope.DeploymentID), string(req.Scope.DatabaseID), string(NewUUID()),
 		req.CaseID, string(req.TriggerKind), req.Fingerprint(), key,
-		s.limits.QueueExpiry.Seconds()))
+		s.limits.QueueExpiry.Seconds(), incident, req.Subject))
 }
 
 func (s *PostgresStore) liveByFingerprint(ctx context.Context, tx pgx.Tx,
