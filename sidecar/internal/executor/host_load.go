@@ -2,21 +2,35 @@ package executor
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
-// HostLoadReader supplies fresh, complete provider load evidence to index admission.
-type HostLoadReader interface {
-	CurrentLoad(context.Context) (verify.LoadSample, error)
+// HostCPUReader supplies fresh host CPU utilization, such as a provider's
+// node metrics. An error means CPU evidence is unavailable, never 0%.
+type HostCPUReader interface {
+	CurrentCPU(context.Context) (float64, error)
 }
 
-// WithHostLoadReader replaces only load collection, preserving in-flight verification watches.
-// Provider failures propagate; unavailable evidence never falls back to a fabricated quiet host.
-func (e *Executor) WithHostLoadReader(reader HostLoadReader) {
+// IOEvidenceReader supplies pg-side IO rates and the learned baseline.
+type IOEvidenceReader interface {
+	IOEvidence(context.Context) (verify.IOEvidence, error)
+}
+
+// WithHostCPUReader installs the host CPU source for load admission.
+func (e *Executor) WithHostCPUReader(reader HostCPUReader) {
 	e.policyMu.Lock()
 	defer e.policyMu.Unlock()
-	e.hostLoad = reader
+	e.hostCPU = reader
+}
+
+// WithIOEvidence installs the pg-side IO sampler for load admission.
+func (e *Executor) WithIOEvidence(reader IOEvidenceReader) {
+	e.policyMu.Lock()
+	defer e.policyMu.Unlock()
+	e.ioEvidence = reader
 }
 
 type executorObservationSource struct {
@@ -24,15 +38,46 @@ type executorObservationSource struct {
 	executor *Executor
 }
 
-func (s executorObservationSource) CurrentLoad(ctx context.Context) (verify.LoadSample, error) {
+// LoadEvidence composes host CPU, pg-side IO, declared capacity and the
+// maintenance window into admission evidence. A CPU read failure is
+// missing CPU evidence; an IO sampler failure fails admission closed.
+func (s executorObservationSource) LoadEvidence(
+	ctx context.Context,
+) (verify.LoadEvidence, error) {
 	if err := ctx.Err(); err != nil {
-		return verify.LoadSample{}, err
+		return verify.LoadEvidence{}, err
 	}
-	s.executor.policyMu.RLock()
-	reader := s.executor.hostLoad
-	s.executor.policyMu.RUnlock()
-	if reader != nil {
-		return reader.CurrentLoad(ctx)
+	e := s.executor
+	e.policyMu.RLock()
+	cpuReader, ioReader := e.hostCPU, e.ioEvidence
+	e.policyMu.RUnlock()
+	cfg, _, _ := e.policySnapshot()
+	evidence := verify.LoadEvidence{
+		Capacity: declaredCapacity(cfg), WindowOpen: e.admissionWindowOpen(ctx),
 	}
-	return s.ObservationSource.CurrentLoad(ctx)
+	if cpuReader != nil {
+		if cpu, err := cpuReader.CurrentCPU(ctx); err == nil {
+			evidence.CPUPct = &cpu
+		}
+	}
+	if ioReader == nil {
+		evidence.RateError = "pg-side IO sampler is not running"
+		return evidence, ctx.Err()
+	}
+	io, err := ioReader.IOEvidence(ctx)
+	if err != nil {
+		return verify.LoadEvidence{}, fmt.Errorf("read pg-side IO evidence: %w", err)
+	}
+	evidence.Rate, evidence.RateError, evidence.Baseline = io.Rate, io.RateError, io.Baseline
+	return evidence, ctx.Err()
+}
+
+func declaredCapacity(cfg *config.Config) *verify.IOCapacity {
+	if cfg == nil || cfg.Verify.IOCapacity == nil {
+		return nil
+	}
+	return &verify.IOCapacity{
+		ReadWriteMBps: cfg.Verify.IOCapacity.ReadWriteMBps,
+		WALMBps:       cfg.Verify.IOCapacity.WALMBps,
+	}
 }

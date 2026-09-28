@@ -30,7 +30,10 @@ type OAuthProvider struct {
 	discovery *OIDCDiscovery
 	mu        sync.RWMutex
 	states    map[string]time.Time
-	client    *http.Client
+	// links binds a pending state to the account it will link (D7). An
+	// entry lives exactly as long as its state.
+	links  map[string]LinkIntent
+	client *http.Client
 }
 
 // NewOAuthProvider creates an OAuthProvider from configuration.
@@ -40,6 +43,7 @@ func NewOAuthProvider(
 	return &OAuthProvider{
 		cfg:    cfg,
 		states: make(map[string]time.Time),
+		links:  make(map[string]LinkIntent),
 		client: &http.Client{Timeout: 15 * time.Second},
 	}
 }
@@ -112,6 +116,30 @@ func (p *OAuthProvider) discoverOIDC(
 // MUST equal the state query parameter — this prevents login CSRF
 // where an attacker forces a victim to sign in as the attacker.
 func (p *OAuthProvider) AuthorizationURL() (string, string, error) {
+	return p.authorizationURL(LinkIntent{})
+}
+
+// AuthorizationURLForLink starts a round trip whose callback links the
+// returned identity to userID instead of signing in. The caller must have
+// established userID from a password session or a redeemed link grant.
+func (p *OAuthProvider) AuthorizationURLForLink(
+	userID int, via string,
+) (string, string, error) {
+	if userID <= 0 {
+		return "", "", fmt.Errorf("oauth: link requires a user")
+	}
+	return p.authorizationURL(LinkIntent{UserID: userID, Via: via})
+}
+
+// LinkIntentForState returns the link intent bound to a pending state, or
+// the zero intent for a plain login state or an unknown state.
+func (p *OAuthProvider) LinkIntentForState(state string) LinkIntent {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.links[state]
+}
+
+func (p *OAuthProvider) authorizationURL(link LinkIntent) (string, string, error) {
 	if p.discovery == nil {
 		return "", "", fmt.Errorf("oauth: discovery not performed")
 	}
@@ -123,6 +151,12 @@ func (p *OAuthProvider) AuthorizationURL() (string, string, error) {
 	p.mu.Lock()
 	p.evictExpiredAndCapLocked()
 	p.states[state] = time.Now().Add(10 * time.Minute)
+	if link.UserID > 0 {
+		if p.links == nil {
+			p.links = make(map[string]LinkIntent)
+		}
+		p.links[state] = link
+	}
 	p.mu.Unlock()
 
 	params := url.Values{
@@ -177,7 +211,7 @@ func (p *OAuthProvider) ValidateState(state string) bool {
 	if !ok {
 		return false
 	}
-	delete(p.states, state)
+	p.dropStateLocked(state)
 	return time.Now().Before(exp)
 }
 
@@ -188,9 +222,15 @@ func (p *OAuthProvider) CleanStates() {
 	now := time.Now()
 	for k, exp := range p.states {
 		if now.After(exp) {
-			delete(p.states, k)
+			p.dropStateLocked(k)
 		}
 	}
+}
+
+// dropStateLocked removes a state and any link intent bound to it.
+func (p *OAuthProvider) dropStateLocked(state string) {
+	delete(p.states, state)
+	delete(p.links, state)
 }
 
 // maxOAuthStates caps the pending-state map so that an attacker
@@ -209,7 +249,7 @@ func (p *OAuthProvider) evictExpiredAndCapLocked() {
 	now := time.Now()
 	for k, exp := range p.states {
 		if now.After(exp) {
-			delete(p.states, k)
+			p.dropStateLocked(k)
 		}
 	}
 	if len(p.states) < maxOAuthStates {
@@ -225,7 +265,7 @@ func (p *OAuthProvider) evictExpiredAndCapLocked() {
 			first = false
 		}
 	}
-	delete(p.states, oldestKey)
+	p.dropStateLocked(oldestKey)
 }
 
 // StartStateCleaner periodically cleans expired CSRF tokens.

@@ -15,7 +15,7 @@ import (
 func TestEnableStandingPolicyWithStoreUsesPolicyPool(t *testing.T) {
 	pool, ctx := requireDB(t)
 	cfg := config.DefaultConfig()
-	exec := New(pool, cfg, nil, time.Time{}, nopLog)
+	exec := New(pool, cfg, time.Time{}, nopLog)
 
 	closedCfg, err := pgxpool.ParseConfig(pool.Config().ConnString())
 	if err != nil {

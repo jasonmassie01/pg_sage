@@ -181,6 +181,8 @@
 | `rca.enabled` | `restart` | `-` |
 | `rca.escalation_cycles` | `restart` | `-` |
 | `rca.llm_correlation_threshold` | `restart` | `-` |
+| `rca.lock_chain_interval_seconds` | `restart` | `-` |
+| `rca.narration_enabled` | `restart` | `-` |
 | `rca.replication_lag_threshold_seconds` | `restart` | `-` |
 | `rca.resolution_cycles` | `restart` | `-` |
 | `rca.wal_spike_multiplier` | `restart` | `-` |
@@ -193,11 +195,13 @@
 | `runaway.safe_patterns` | `restart` | `-` |
 | `safety.backoff_consecutive_skips` | `restart` | `-` |
 | `safety.cpu_ceiling_pct` | `restart` | `-` |
+| `safety.data_io_ceiling_pct` | `restart` | `-` |
 | `safety.ddl_timeout_seconds` | `restart` | `-` |
 | `safety.disk_pressure_threshold_pct` | `restart` | `-` |
 | `safety.dormant_interval_seconds` | `restart` | `-` |
 | `safety.lock_timeout_ms` | `restart` | `-` |
 | `safety.query_timeout_ms` | `restart` | `-` |
+| `safety.wal_io_ceiling_pct` | `restart` | `-` |
 | `schema_lint.disabled_rules` | `restart` | `-` |
 | `schema_lint.enabled` | `restart` | `-` |
 | `schema_lint.exclude_schemas` | `restart` | `-` |
@@ -215,7 +219,6 @@
 | `trust.tier3_moderate` | `restart` | `-` |
 | `trust.tier3_safe` | `restart` | `-` |
 | `tuner.analyze_cooldown_minutes` | `restart` | `-` |
-| `tuner.analyze_maintenance_threshold_mb` | `restart` | `-` |
 | `tuner.analyze_max_table_mb` | `restart` | `-` |
 | `tuner.analyze_timeout_ms` | `restart` | `-` |
 | `tuner.enabled` | `restart` | `-` |
@@ -236,6 +239,9 @@
 | `tuner.verify_after_apply` | `restart` | `-` |
 | `tuner.work_mem_max_mb` | `restart` | `-` |
 | `value.toil_model_version` | `restart` | `-` |
+| `verify.io_baseline_days` | `restart` | `-` |
+| `verify.io_capacity` | `restart` | `-` |
+| `verify.io_sample_retention_days` | `restart` | `-` |
 | `verify.min_gain_pct` | `restart` | `-` |
 | `verify.min_samples` | `restart` | `-` |
 | `verify.regress_pct` | `restart` | `-` |

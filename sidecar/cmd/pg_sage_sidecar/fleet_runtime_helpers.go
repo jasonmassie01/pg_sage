@@ -6,25 +6,28 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/pg-sage/sidecar/internal/advisor"
-	"github.com/pg-sage/sidecar/internal/analyzer"
-	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
-	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/startup"
-	"github.com/pg-sage/sidecar/internal/tuner"
 )
 
+// initializeAnalyzeSemaphore sizes the process-wide ANALYZE semaphore from
+// the tuner config at mode startup.
 func initializeAnalyzeSemaphore() {
+	analyzeSemMu.Lock()
+	defer analyzeSemMu.Unlock()
+	analyzeSem = newAnalyzeSemaphore()
+}
+
+func newAnalyzeSemaphore() chan struct{} {
 	maxAnalyze := cfg.Tuner.MaxConcurrentAnalyze
 	if maxAnalyze <= 0 {
 		maxAnalyze = 1
 	}
-	analyzeSem = make(chan struct{}, maxAnalyze)
 	logInfo("startup", "ANALYZE semaphore sized to %d concurrent slots",
 		maxAnalyze)
+	return make(chan struct{}, maxAnalyze)
 }
 
 // newFleetDBLLMClients builds the registry-tracked general and optimizer
@@ -55,94 +58,6 @@ func attachFleetBudget(client *llm.Client, databaseName string) {
 	}
 	fleetLLMBudget.Register(databaseName)
 	client.SetBudget(dbBudget{b: fleetLLMBudget, db: databaseName})
-}
-
-func newFleetOptimizer(
-	pool *pgxpool.Pool,
-	pgVersion int,
-	general, optimizerClient *llm.Client,
-) *optimizer.Optimizer {
-	if !cfg.LLM.Optimizer.Enabled {
-		return nil
-	}
-	var fallback *llm.Client
-	if cfg.LLM.OptimizerLLM.FallbackToGeneral &&
-		optimizerClient != general {
-		fallback = general
-	}
-	return optimizer.New(
-		optimizerClient, fallback, pool, &cfg.LLM.Optimizer,
-		pgVersion, cfg.LLM.OptimizerLLM.MaxOutputTokens,
-		logStructuredWrapper,
-	)
-}
-
-func newFleetAdvisor(
-	pool *pgxpool.Pool,
-	coll *collector.Collector,
-	databaseName string,
-	manager *llm.Manager,
-) analyzer.ConfigAdvisor {
-	if !cfg.Advisor.Enabled {
-		return nil
-	}
-	result := advisor.New(pool, cfg, coll, manager, logStructuredWrapper)
-	result.WithCloudEnv(detectCloudEnv(pool))
-	result.WithDatabaseName(databaseName)
-	return result
-}
-
-func newFleetTuner(
-	pool *pgxpool.Pool, manager *llm.Manager,
-) *tuner.Tuner {
-	if !cfg.Tuner.Enabled {
-		return nil
-	}
-	hintPlan, _ := tuner.DetectHintPlan(context.Background(), pool)
-	options := fleetTunerOptions(manager)
-	return tuner.New(
-		pool, fleetTunerConfig(), hintPlan,
-		logStructuredWrapper, options...,
-	)
-}
-
-func fleetTunerOptions(manager *llm.Manager) []tuner.Option {
-	if !cfg.Tuner.LLMEnabled || manager == nil {
-		return nil
-	}
-	primary := manager.ForPurpose("query_tuning")
-	var fallback *llm.Client
-	if cfg.LLM.OptimizerLLM.FallbackToGeneral {
-		fallback = manager.General
-	}
-	return []tuner.Option{tuner.WithLLM(primary, fallback)}
-}
-
-func fleetTunerConfig() tuner.TunerConfig {
-	return tuner.TunerConfig{
-		Enabled:                       cfg.Tuner.Enabled,
-		LLMEnabled:                    cfg.Tuner.LLMEnabled,
-		WorkMemMaxMB:                  cfg.Tuner.WorkMemMaxMB,
-		PlanTimeRatio:                 cfg.Tuner.PlanTimeRatio,
-		NestedLoopRowThreshold:        cfg.Tuner.NestedLoopRowThreshold,
-		ParallelMinTableRows:          cfg.Tuner.ParallelMinTableRows,
-		MinQueryCalls:                 cfg.Tuner.MinQueryCalls,
-		VerifyAfterApply:              cfg.Tuner.VerifyAfterApply,
-		CascadeCooldownCycles:         cfg.Trust.CascadeCooldownCycles,
-		HintRetirementDays:            cfg.Tuner.HintRetirementDays,
-		RevalidationIntervalHours:     cfg.Tuner.RevalidationIntervalHours,
-		RevalidationKeepRatio:         cfg.Tuner.RevalidationKeepRatio,
-		RevalidationRollbackRatio:     cfg.Tuner.RevalidationRollbackRatio,
-		RevalidationExplainTimeoutMs:  cfg.Tuner.RevalidationExplainTimeoutMs,
-		StaleStatsEstimateSkew:        cfg.Tuner.StaleStatsEstimateSkew,
-		StaleStatsModRatio:            cfg.Tuner.StaleStatsModRatio,
-		StaleStatsAgeMinutes:          cfg.Tuner.StaleStatsAgeMinutes,
-		AnalyzeMaxTableMB:             cfg.Tuner.AnalyzeMaxTableMB,
-		AnalyzeCooldownMinutes:        cfg.Tuner.AnalyzeCooldownMinutes,
-		AnalyzeMaintenanceThresholdMB: cfg.Tuner.AnalyzeMaintenanceThresholdMB,
-		AnalyzeTimeoutMs:              cfg.Tuner.AnalyzeTimeoutMs,
-		MaxConcurrentAnalyze:          cfg.Tuner.MaxConcurrentAnalyze,
-	}
 }
 
 func initializeFleetBudget(databaseNames []string) {
@@ -188,7 +103,10 @@ func instanceChecksOrDegraded(
 // own capability flags, so fleet and meta collectors select WAL and
 // plan-time columns per instance (G5-B13, G1-B07).
 func instanceRuntimeConfig(checks *startup.CheckResult) *config.Config {
-	runtimeCfg := config.Clone(cfg)
+	return withCapabilityFlags(config.Clone(cfg), checks)
+}
+
+func withCapabilityFlags(runtimeCfg *config.Config, checks *startup.CheckResult) *config.Config {
 	runtimeCfg.PGVersionNum = checks.PGVersionNum
 	runtimeCfg.HasWALColumns = checks.HasWALColumns
 	runtimeCfg.HasPlanTimeColumns = checks.HasPlanTimeColumns

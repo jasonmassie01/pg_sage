@@ -38,7 +38,8 @@ func (f *fakeAPI) Logs(context.Context, string, time.Time, time.Time) ([]logwatc
 }
 
 func TestRuntimePollDerivesTelemetryAndDeduplicatesLogs(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
+	// The second poll lands on the wall clock so CurrentCPU sees fresh data.
+	now := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
 	api := &fakeAPI{now: now, idle: 100, entries: []logwatch.LogEntry{
 		{Database: "postgres", Timestamp: now.Add(-2 * time.Minute), Message: "deadlock detected"}}}
 	delivered := 0
@@ -61,9 +62,14 @@ func TestRuntimePollDerivesTelemetryAndDeduplicatesLogs(t *testing.T) {
 	if got.CPUPct == nil || *got.CPUPct != 25 || delivered != 1 {
 		t.Fatalf("CPU %#v deliveries %d", got, delivered)
 	}
-	_, err = r.CurrentLoad(context.Background())
-	if !errors.Is(err, verify.ErrLoadTelemetryUnavailable) {
-		t.Fatalf("missing I/O admitted: %v", err)
+	cpu, err := r.CurrentCPU(context.Background())
+	if err != nil || cpu != 25 {
+		t.Fatalf("CurrentCPU = %v, %v; want 25", cpu, err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := r.CurrentCPU(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled CPU read = %v", err)
 	}
 	*got.CPUPct = 90
 	if *r.Telemetry().CPUPct != 25 {
@@ -101,6 +107,10 @@ func TestRuntimeFailureInvalidatesCacheAndRetriesDelivery(t *testing.T) {
 	if r.Telemetry().CPUPct != nil {
 		t.Fatal("outage left old CPU evidence available")
 	}
+	if _, err := r.CurrentCPU(context.Background()); !errors.Is(
+		err, verify.ErrLoadTelemetryUnavailable) {
+		t.Fatalf("outage CPU read = %v, want unavailable", err)
+	}
 }
 
 func TestRuntimeLifecycleAndConcurrentReaders(t *testing.T) {
@@ -112,7 +122,7 @@ func TestRuntimeLifecycleAndConcurrentReaders(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Add(1)
-		go func() { defer wg.Done(); _ = r.Telemetry(); _, _ = r.CurrentLoad(context.Background()) }()
+		go func() { defer wg.Done(); _ = r.Telemetry(); _, _ = r.CurrentCPU(context.Background()) }()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

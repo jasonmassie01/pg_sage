@@ -75,6 +75,7 @@ func (a *Analyzer) finalizeCycle(
 	a.mu.Lock()
 	a.findings = findings
 	a.mu.Unlock()
+	a.recordRecommendations(ctx, findings, evaluated)
 	// Notify only on new information: newly opened or severity-escalated
 	// findings, subject to a per-identity cooldown (G2-B06/G7-B07).
 	a.dispatchCriticalFindings(ctx, a.notifiableCritical(res, time.Now()))

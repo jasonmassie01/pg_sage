@@ -137,7 +137,15 @@ func createAWSBlueprintDeployment(
 	if _, err := st.ApproveBlueprint(ctx, blueprint.BlueprintID, "operator"); err != nil {
 		return Deployment{}, err
 	}
+	// D4: a cloud plan consumes an approved request.
+	requestID, err := approvedCloudRequest(ctx, st, "req_"+deploymentID,
+		"tenant_live_gauntlet", "agent_blueprint", ProviderAWSRDS, 5)
+	if err != nil {
+		return Deployment{}, err
+	}
 	return st.ProvisionFromBlueprint(ctx, blueprint.BlueprintID, BlueprintProvisionRequest{
+		RequestID:    requestID,
+		ActorID:      "live-gauntlet",
 		DeploymentID: deploymentID,
 		TenantID:     "tenant_live_gauntlet",
 		AgentID:      "agent_blueprint",
@@ -178,7 +186,15 @@ resource "google_sql_database_instance" "agentdb" {}`,
 	if _, err := st.ApproveTerraformTemplate(ctx, templateID, "operator"); err != nil {
 		return Deployment{}, err
 	}
+	// D4: a cloud plan consumes an approved request.
+	requestID, err := approvedCloudRequest(ctx, st, "req_"+deploymentID,
+		"tenant_live_gauntlet", "agent_template", ProviderGCPCloudSQL, 5)
+	if err != nil {
+		return Deployment{}, err
+	}
 	return st.ProvisionFromTerraformTemplate(ctx, templateID, TemplateProvisionRequest{
+		RequestID:         requestID,
+		ActorID:           "live-gauntlet",
 		DeploymentID:      deploymentID,
 		TenantID:          "tenant_live_gauntlet",
 		AgentID:           "agent_template",
@@ -234,12 +250,14 @@ func createLakebaseRequestDeployment(
 		if _, err := st.SetRequestDecision(ctx, requestID, DecisionRequest{
 			Decision: "approved",
 			Reason:   "live gauntlet",
+			ActorID:  "test",
 		}); err != nil {
 			return Deployment{}, err
 		}
 	}
 	return st.ProvisionApprovedRequest(ctx, requestID, RequestProvisionRequest{
 		DeploymentID: deploymentID,
+		ActorID:      "test",
 		LeaseSeconds: 3600,
 		Metadata: map[string]any{
 			"disposable":    true,

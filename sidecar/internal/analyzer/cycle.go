@@ -221,15 +221,13 @@ func (a *Analyzer) runLateChecks(ctx context.Context) []Finding {
 	out = append(out, a.checkExtensionDrift(ctx)...)
 	a.eval.evaluated("extension_drift")
 	if a.cfg.Analyzer.LockChain.Enabled {
-		chains, err := DetectLockChains(ctx, a.pool, a.cfg)
+		chains, err := ProbeLockChains(ctx, a.pool, a.cfg)
 		a.eval.evaluated("lock_chain")
 		if err != nil {
 			a.eval.fail("lock_chain")
 			a.logFn("WARN", "analyzer: lock chains: %v", err)
-		} else if len(chains) > 0 {
-			ownPID := a.getOwnPID(ctx)
-			out = append(out, lockChainFindings(
-				chains, a.cfg.Analyzer.LockChain, ownPID)...)
+		} else {
+			out = append(out, chains...)
 		}
 	}
 	for _, detector := range a.detectors {

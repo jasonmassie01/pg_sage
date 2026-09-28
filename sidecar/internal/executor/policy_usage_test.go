@@ -17,7 +17,7 @@ import (
 
 func TestStandingUsageCountsSelfInitiatedChangesInWindow(t *testing.T) {
 	pool, ctx := requireDB(t)
-	exec := New(pool, config.DefaultConfig(), nil, time.Time{},
+	exec := New(pool, config.DefaultConfig(), time.Time{},
 		func(string, string, ...any) {})
 	before, err := exec.standingUsage(ctx, policy.ActionRequest{})
 	if err != nil {
@@ -61,7 +61,7 @@ func TestStandingUsageCountsSelfInitiatedChangesInWindow(t *testing.T) {
 
 func TestRecentActionsSafeForConcurrentUse(t *testing.T) {
 	cfg := config.DefaultConfig()
-	exec := New(nil, cfg, nil, time.Time{}, func(string, string, ...any) {})
+	exec := New(nil, cfg, time.Time{}, func(string, string, ...any) {})
 	var wg sync.WaitGroup
 	for worker := 0; worker < 4; worker++ {
 		wg.Add(1)

@@ -144,63 +144,79 @@ func listUsersHandler(
 			return
 		}
 		type userResp struct {
-			ID        int        `json:"id"`
-			Email     string     `json:"email"`
-			Role      string     `json:"role"`
-			CreatedAt time.Time  `json:"created_at"`
-			LastLogin *time.Time `json:"last_login"`
+			ID            int        `json:"id"`
+			Email         string     `json:"email"`
+			Role          string     `json:"role"`
+			CreatedAt     time.Time  `json:"created_at"`
+			LastLogin     *time.Time `json:"last_login"`
+			SSOLinked     bool       `json:"sso_linked"`
+			SSOIssuer     string     `json:"sso_issuer"`
+			PasswordLogin bool       `json:"password_login"`
 		}
 		resp := make([]userResp, len(users))
 		for i, u := range users {
 			resp[i] = userResp{
-				ID:        u.ID,
-				Email:     u.Email,
-				Role:      u.Role,
-				CreatedAt: u.CreatedAt,
-				LastLogin: u.LastLogin,
+				ID: u.ID, Email: u.Email, Role: u.Role,
+				CreatedAt: u.CreatedAt, LastLogin: u.LastLogin,
+				SSOLinked: u.SSOIssuer != "", SSOIssuer: u.SSOIssuer,
+				PasswordLogin: u.PasswordLogin,
 			}
 		}
 		jsonResponse(w, map[string]any{"users": resp})
 	}
 }
 
+type createUserRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Role     string `json:"role"`
+	// SSOOnly creates a user with no password who signs in only after an
+	// admin-issued link grant binds an SSO identity (D7).
+	SSOOnly bool `json:"sso_only"`
+}
+
+// validate returns a client-facing error message, or "" when valid.
+func (req *createUserRequest) validate() string {
+	if req.Role == "" {
+		req.Role = auth.RoleViewer
+	}
+	switch {
+	case req.SSOOnly && req.Email == "":
+		return "email required"
+	case req.SSOOnly && req.Password != "":
+		return "an SSO-only user cannot have a password"
+	case !req.SSOOnly && (req.Email == "" || req.Password == ""):
+		return "email and password required"
+	case !req.SSOOnly && len(req.Password) < 8:
+		return "password must be at least 8 characters"
+	case !auth.IsValidRole(req.Role):
+		return "invalid role"
+	}
+	return ""
+}
+
 func createUserHandler(
 	pool *pgxpool.Pool,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Email    string `json:"email"`
-			Password string `json:"password"`
-			Role     string `json:"role"`
-		}
+		var req createUserRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, "invalid request body",
 				http.StatusBadRequest)
 			return
 		}
-		if req.Email == "" || req.Password == "" {
-			jsonError(w, "email and password required",
-				http.StatusBadRequest)
+		if msg := req.validate(); msg != "" {
+			jsonError(w, msg, http.StatusBadRequest)
 			return
 		}
-		if len(req.Password) < 8 {
-			jsonError(w,
-				"password must be at least 8 characters",
-				http.StatusBadRequest)
-			return
+		var id int
+		var err error
+		if req.SSOOnly {
+			id, err = auth.CreateSSOOnlyUser(r.Context(), pool, req.Email, req.Role)
+		} else {
+			id, err = auth.CreateUser(r.Context(), pool,
+				req.Email, req.Password, req.Role)
 		}
-		if req.Role == "" {
-			req.Role = auth.RoleViewer
-		}
-		if !auth.IsValidRole(req.Role) {
-			jsonError(w, "invalid role", http.StatusBadRequest)
-			return
-		}
-
-		id, err := auth.CreateUser(
-			r.Context(), pool,
-			req.Email, req.Password, req.Role,
-		)
 		if err != nil {
 			slog.Error("failed to create user",
 				"email", req.Email, "error", err)
@@ -210,9 +226,10 @@ func createUserHandler(
 		}
 		w.WriteHeader(http.StatusCreated)
 		jsonResponse(w, map[string]any{
-			"id":    id,
-			"email": req.Email,
-			"role":  req.Role,
+			"id":       id,
+			"email":    req.Email,
+			"role":     req.Role,
+			"sso_only": req.SSOOnly,
 		})
 	}
 }

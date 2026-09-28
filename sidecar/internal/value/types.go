@@ -44,6 +44,8 @@ type Report struct {
 	IncidentsAvoided      IncidentSummary    `json:"incidents_avoided"`
 	PotentialHoursPending float64            `json:"potential_hours_pending"`
 	TrendDaily            []DayHours         `json:"trend_daily"`
+	Partial               bool               `json:"partial"`
+	Unavailable           []string           `json:"unavailable"`
 }
 
 type DatabaseMinutes struct {

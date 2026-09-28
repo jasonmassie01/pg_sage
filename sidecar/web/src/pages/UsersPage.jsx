@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
+import { SSOGrantNotice, UserSSOCell } from './users/UserSSOControls'
+import { grantLinkURL, issueSSOLinkGrant, unlinkUserSSO } from './users/ssoApi'
 
 export function UsersPage({ currentUser }) {
   const [users, setUsers] = useState([])
@@ -7,6 +9,8 @@ export function UsersPage({ currentUser }) {
   const [password, setPassword] = useState('')
   const [role, setRole] = useState('viewer')
   const [creating, setCreating] = useState(false)
+  const [ssoOnly, setSSOOnly] = useState(false)
+  const [grant, setGrant] = useState(null)
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -32,7 +36,9 @@ export function UsersPage({ currentUser }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ email, password, role }),
+        body: JSON.stringify(ssoOnly
+          ? { email, role, sso_only: true }
+          : { email, password, role }),
       })
       if (!res.ok) {
         const data = await res.json()
@@ -41,6 +47,7 @@ export function UsersPage({ currentUser }) {
       setEmail('')
       setPassword('')
       setRole('viewer')
+      setSSOOnly(false)
       fetchUsers()
     } catch (err) {
       setError(err.message)
@@ -81,6 +88,29 @@ export function UsersPage({ currentUser }) {
     }
   }
 
+  async function handleUnlink(user) {
+    if (!confirm(`Unlink SSO from ${user.email}? Their sessions end.`)) return
+    setError(null)
+    try {
+      await unlinkUserSSO(user.id)
+      fetchUsers()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleGrant(user) {
+    setError(null)
+    setGrant(null)
+    try {
+      const data = await issueSSOLinkGrant(user.id)
+      setGrant({ email: user.email, url: grantLinkURL(data.token),
+        expiresAt: data.expires_at })
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   const inputStyle = {
     background: 'var(--bg-main)',
     border: '1px solid var(--border)',
@@ -100,6 +130,8 @@ export function UsersPage({ currentUser }) {
           {error}
         </div>
       )}
+
+      <SSOGrantNotice grant={grant} onDismiss={() => setGrant(null)} />
 
       <div className="rounded-lg p-4 mb-6"
         style={{
@@ -128,12 +160,23 @@ export function UsersPage({ currentUser }) {
               style={{ color: 'var(--text-secondary)' }}>
               Password
             </label>
-            <input type="password" value={password} required
+            <input type="password" value={password} required={!ssoOnly}
+              disabled={ssoOnly}
               data-testid="add-user-password"
               onChange={e => setPassword(e.target.value)}
               className="px-3 py-1.5 rounded text-sm"
-              style={inputStyle} />
+              style={{ ...inputStyle, opacity: ssoOnly ? 0.5 : 1 }} />
           </div>
+          <label className="flex items-center gap-1 text-xs pb-2"
+            style={{ color: 'var(--text-secondary)' }}>
+            <input type="checkbox" checked={ssoOnly}
+              data-testid="add-user-sso-only"
+              onChange={e => {
+                setSSOOnly(e.target.checked)
+                setPassword('')
+              }} />
+            SSO only (no password)
+          </label>
           <div>
             <label className="block text-xs mb-1"
               style={{ color: 'var(--text-secondary)' }}>
@@ -169,7 +212,7 @@ export function UsersPage({ currentUser }) {
         <table className="w-full text-sm" data-testid="users-table">
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
-              {['Email', 'Role', 'Created', 'Last Login', ''].map(
+              {['Email', 'Role', 'SSO', 'Created', 'Last Login', ''].map(
                 h => (
                   <th key={h} className="text-left px-4 py-2 text-xs"
                     style={{ color: 'var(--text-secondary)' }}>
@@ -216,6 +259,10 @@ export function UsersPage({ currentUser }) {
                     <option value="operator">operator</option>
                     <option value="admin">admin</option>
                   </select>
+                </td>
+                <td className="px-4 py-2">
+                  <UserSSOCell user={u} onUnlink={handleUnlink}
+                    onGrant={handleGrant} />
                 </td>
                 <td className="px-4 py-2"
                   style={{ color: 'var(--text-secondary)' }}>

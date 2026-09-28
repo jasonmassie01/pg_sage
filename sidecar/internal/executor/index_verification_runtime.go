@@ -208,10 +208,22 @@ func verificationOptions(cfg *config.Config) verify.Options {
 	if cfg.Verify.WriteImpactPct > 0 {
 		options.WriteImpactPct = cfg.Verify.WriteImpactPct
 	}
+	return withAdmissionOptions(options, cfg)
+}
+
+// withAdmissionOptions maps load-admission config. The IO ceilings are
+// separate keys and never inherit the CPU ceiling. io_baseline_days is
+// taken as configured: an explicit 0 disables the learned baseline.
+func withAdmissionOptions(options verify.Options, cfg *config.Config) verify.Options {
 	if cfg.Safety.CPUCeilingPct > 0 {
 		options.CPUCeilingPct = float64(cfg.Safety.CPUCeilingPct)
-		options.DataIOCeilingPct = float64(cfg.Safety.CPUCeilingPct)
-		options.LogIOCeilingPct = float64(cfg.Safety.CPUCeilingPct)
 	}
+	if cfg.Safety.DataIOCeilingPct > 0 {
+		options.DataIOCeilingPct = float64(cfg.Safety.DataIOCeilingPct)
+	}
+	if cfg.Safety.WALIOCeilingPct > 0 {
+		options.LogIOCeilingPct = float64(cfg.Safety.WALIOCeilingPct)
+	}
+	options.BaselineDays = float64(cfg.Verify.IOBaselineDays)
 	return options
 }

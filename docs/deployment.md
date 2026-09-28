@@ -90,7 +90,7 @@ postgres:
 
 trust:
   level: advisory
-  maintenance_window: "0 2 * * *"
+  maintenance_window: "0 2 * * *"   # 02:00-03:00; see docs/configuration.md
 
 llm:
   enabled: true

@@ -977,6 +977,16 @@
     "default": 3,
     "doc": "Minimum concurrent signals to trigger LLM-based correlation (Tier 2). Default: 3."
   },
+  "rca.lock_chain_interval_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60."
+  },
+  "rca.narration_enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Add an LLM narrative, citing the incident's evidence and catalog probe results, to incident notifications. Off, or any LLM failure, uses the deterministic summary. Default: false."
+  },
   "rca.replication_lag_threshold_seconds": {
     "type": "int",
     "default": 30,
@@ -1057,6 +1067,11 @@
     "default": 90,
     "doc": "Skip cycles when database-host CPU exceeds this percent (1-100). Prevents pg_sage from adding load during incidents."
   },
+  "safety.data_io_ceiling_pct": {
+    "type": "int",
+    "default": 70,
+    "doc": "Data IO ceiling, % of capacity."
+  },
   "safety.ddl_timeout_seconds": {
     "type": "int",
     "default": 300,
@@ -1082,6 +1097,11 @@
     "type": "int",
     "default": 500,
     "doc": "statement_timeout applied to every collector and analyzer query issued by the sidecar. Protects the target from runaway introspection."
+  },
+  "safety.wal_io_ceiling_pct": {
+    "type": "int",
+    "default": 70,
+    "doc": "WAL IO ceiling, % of capacity."
   },
   "schema_lint.disabled_rules": {
     "type": "[]string",
@@ -1127,7 +1147,7 @@
   "trust.maintenance_window": {
     "type": "string",
     "default": "",
-    "doc": "Window for MODERATE auto-actions and heavy maintenance. No cron needed: presets (always, never, nights, weeknights, weekends, off-hours), day ranges (weekdays 01:00-05:00), HH:MM-HH:MM, or cron."
+    "doc": "Window for MODERATE auto-actions: always, never, presets (nights, weeknights, weekends), Mon-Fri 01:00-05:00, or cron (1h wide, or @30m). Optional IANA zone: weeknights America/Chicago."
   },
   "trust.ramp_start": {
     "type": "string",
@@ -1171,11 +1191,6 @@
     "type": "int",
     "default": 60,
     "doc": "Minimum minutes between tuner-initiated ANALYZE runs on the same table. Also respects autovacuum last_analyze as a recent-run signal."
-  },
-  "tuner.analyze_maintenance_threshold_mb": {
-    "type": "int64",
-    "default": 1024,
-    "doc": "Tables larger than this many MB can only be ANALYZEd during the configured maintenance_window. Default 1024 (1GB)."
   },
   "tuner.analyze_max_table_mb": {
     "type": "int64",
@@ -1278,6 +1293,16 @@
     "type": "int",
     "default": 1,
     "doc": "Active calibrated toil-model version."
+  },
+  "verify.io_baseline_days": {
+    "type": "int",
+    "default": 7,
+    "doc": "IO baseline days; 0 disables."
+  },
+  "verify.io_sample_retention_days": {
+    "type": "int",
+    "default": 14,
+    "doc": "IO sample retention days."
   },
   "verify.min_gain_pct": {
     "type": "float64",

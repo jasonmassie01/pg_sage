@@ -14,10 +14,13 @@ type TableContractDeclaration struct {
 	Table      string
 	AppendOnly bool
 	Retention  string
-	ExpectedPK string
-	Exemptions json.RawMessage
-	DeclaredBy string
-	EvidenceID string
+	// RetentionColumn is the owner-declared retention clock; required
+	// whenever Retention is set.
+	RetentionColumn string
+	ExpectedPK      string
+	Exemptions      json.RawMessage
+	DeclaredBy      string
+	EvidenceID      string
 }
 
 type ConsumerRegistration struct {
@@ -27,9 +30,10 @@ type ConsumerRegistration struct {
 }
 
 type WriteOutcome struct {
-	Applied    bool   `json:"applied"`
-	EvidenceID string `json:"evidence_id,omitempty"`
-	Object     string `json:"object"`
+	Applied    bool     `json:"applied"`
+	EvidenceID string   `json:"evidence_id,omitempty"`
+	Object     string   `json:"object"`
+	Warnings   []string `json:"warnings,omitempty"`
 }
 
 type CandidateKind string

@@ -90,6 +90,10 @@ resource "aws_db_instance" "agentdb" { engine = "postgres" }`,
 	}
 
 	dep, err := st.ProvisionFromTerraformTemplate(ctx, templateID, TemplateProvisionRequest{
+		// D4: a cloud plan consumes an approved request.
+		RequestID: mustApprovedCloudRequest(t, ctx, st, "req_tf_provision_link",
+			"tenant_agentdb_test", "agent_template", ProviderAWSRDS),
+		ActorID:           "unit",
 		DeploymentID:      deploymentID,
 		TenantID:          "tenant_agentdb_test",
 		AgentID:           "agent_template",
@@ -137,6 +141,10 @@ resource "google_sql_database_instance" "agentdb" {}`,
 		t.Fatalf("ApproveTerraformTemplate: %v", err)
 	}
 	dep, err := st.ProvisionFromTerraformTemplate(ctx, templateID, TemplateProvisionRequest{
+		// D4: a cloud plan consumes an approved request.
+		RequestID: mustApprovedCloudRequest(t, ctx, st, "req_tf_provider_params",
+			"tenant_agentdb_test", "agent_template", ProviderGCPCloudSQL),
+		ActorID:           "unit",
 		DeploymentID:      deploymentID,
 		TenantID:          "tenant_agentdb_test",
 		AgentID:           "agent_template",

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/planhash"
 )
 
 // planPair holds current and previous EXPLAIN plans for comparison.
@@ -64,7 +66,7 @@ func buildPlanRegressionFinding(
 	if sev == "info" {
 		return nil
 	}
-	return &Finding{
+	f := &Finding{
 		Category:         "plan_regression",
 		Severity:         sev,
 		ObjectType:       "query",
@@ -89,6 +91,25 @@ func buildPlanRegressionFinding(
 			p.QueryID, r.CostRatio,
 			"Investigate parameter changes or stale statistics.",
 		),
+	}
+	addPlanHashes(f.Detail, p)
+	return f
+}
+
+// addPlanHashes records both plan fingerprints (internal/planhash).
+// plan_changed is set only when both plans could be fingerprinted, so an
+// unreadable plan is never reported as "unchanged".
+func addPlanHashes(detail map[string]any, p planPair) {
+	cur, curErr := planhash.Compute(p.CurrentPlan)
+	prev, prevErr := planhash.Compute(p.PreviousPlan)
+	if curErr == nil {
+		detail["current_plan_hash"] = cur
+	}
+	if prevErr == nil {
+		detail["previous_plan_hash"] = prev
+	}
+	if curErr == nil && prevErr == nil {
+		detail["plan_changed"] = cur != prev
 	}
 }
 

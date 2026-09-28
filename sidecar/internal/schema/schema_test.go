@@ -89,6 +89,9 @@ func TestExpectedTables_AllPresent(t *testing.T) {
 		"crypto_meta",
 		"health_history",
 		"query_store",
+		"recommendation",
+		"recommendation_revision",
+		"recommendation_transition",
 	}
 
 	if len(expectedTables) != len(want) {
@@ -408,17 +411,29 @@ func TestPersistTrustRampStart_ZeroConfigUsesNow(t *testing.T) {
 	_, _ = pool.Exec(ctx,
 		"DELETE FROM sage.config WHERE key = 'trust_ramp_start'")
 
-	// Zero config ramp start should default to ~now().
-	before := time.Now().Add(-2 * time.Second)
+	// Zero config ramp start defaults to the database's now(). Bound it by
+	// the database clock read before and after, not the host clock: the
+	// test server's clock may differ from the host's.
+	before := databaseNow(t, ctx, pool)
 	got, err := PersistTrustRampStart(ctx, pool, time.Time{})
 	if err != nil {
 		t.Fatalf("PersistTrustRampStart with zero config: %v", err)
 	}
-	after := time.Now().Add(2 * time.Second)
+	after := databaseNow(t, ctx, pool)
 	if got.Before(before) || got.After(after) {
 		t.Errorf(
-			"expected time near now, got %v (window %v – %v)",
+			"expected the database's now(), got %v (database window %v – %v)",
 			got, before, after,
 		)
 	}
+}
+
+// databaseNow reads the test server's own clock.
+func databaseNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool) time.Time {
+	t.Helper()
+	var now time.Time
+	if err := pool.QueryRow(ctx, "SELECT now()").Scan(&now); err != nil {
+		t.Fatalf("read database clock: %v", err)
+	}
+	return now
 }

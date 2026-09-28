@@ -10,13 +10,13 @@ func TestInMaintenanceWindow_FriendlyForms(t *testing.T) {
 	mk := func(y, m, d, hh, mm int) time.Time {
 		return time.Date(y, time.Month(m), d, hh, mm, 0, 0, time.UTC)
 	}
-	monNight := mk(2024, 1, 1, 2, 0)   // Mon 02:00
-	monNoon := mk(2024, 1, 1, 12, 0)   // Mon 12:00
-	wedNight := mk(2024, 1, 3, 2, 0)   // Wed 02:00
-	wedAM := mk(2024, 1, 3, 10, 0)     // Wed 10:00
-	wedEve := mk(2024, 1, 3, 20, 0)    // Wed 20:00
-	satNight := mk(2024, 1, 6, 3, 0)   // Sat 03:00
-	satNoon := mk(2024, 1, 6, 14, 0)   // Sat 14:00
+	monNight := mk(2024, 1, 1, 2, 0) // Mon 02:00
+	monNoon := mk(2024, 1, 1, 12, 0) // Mon 12:00
+	wedNight := mk(2024, 1, 3, 2, 0) // Wed 02:00
+	wedAM := mk(2024, 1, 3, 10, 0)   // Wed 10:00
+	wedEve := mk(2024, 1, 3, 20, 0)  // Wed 20:00
+	satNight := mk(2024, 1, 6, 3, 0) // Sat 03:00
+	satNoon := mk(2024, 1, 6, 14, 0) // Sat 14:00
 
 	cases := []struct {
 		expr string
@@ -27,10 +27,13 @@ func TestInMaintenanceWindow_FriendlyForms(t *testing.T) {
 		{"always", monNoon, true},
 		{"never", monNight, false},
 		{"off", monNight, false},
-		{"nights", monNight, true},      // 22:00-06:00
+		{"nights", monNight, true}, // 22:00-06:00
 		{"nights", monNoon, false},
-		{"weeknights", wedNight, true},  // weekdays 22:00-06:00
-		{"weeknights", satNight, false}, // Sat is not a weeknight
+		{"weeknights", wedNight, true}, // weekdays 22:00-06:00 (Tuesday night)
+		// D2: post-midnight time belongs to the night it started on, so
+		// Saturday 03:00 is Friday night, a weeknight.
+		{"weeknights", satNight, true},
+		{"weeknights", monNight, false}, // Monday 02:00 is Sunday night
 		{"weekends", satNoon, true},     // all day Sat
 		{"weekends", monNoon, false},
 		{"weekdays", wedAM, true},
@@ -43,9 +46,14 @@ func TestInMaintenanceWindow_FriendlyForms(t *testing.T) {
 		{"weekdays 01:00-05:00", satNight, false}, // not a weekday
 		{"Sat-Sun 02:00-06:00", satNight, true},
 		{"Sat-Sun 02:00-06:00", wedNight, false},
-		{"Mon,Wed,Fri 22:00-04:00", wedNight, true}, // Wed 02:00 in 22-04 wrap
-		{"Mon,Wed,Fri 22:00-04:00", satNight, false},
-		{"02:00-06:00", satNight, true},  // plain daily range still works
+		// D2: Wednesday 02:00 is Tuesday night, which is not listed.
+		{"Mon,Wed,Fri 22:00-04:00", wedNight, false},
+		{"Mon,Wed,Fri 22:00-04:00", mk(2024, 1, 4, 2, 0), true}, // Thu 02:00 = Wed night
+		// D2: Saturday 03:00 is Friday night (listed); Sunday 03:00 is
+		// Saturday night (not listed).
+		{"Mon,Wed,Fri 22:00-04:00", satNight, true},
+		{"Mon,Wed,Fri 22:00-04:00", mk(2024, 1, 7, 3, 0), false},
+		{"02:00-06:00", satNight, true},            // plain daily range still works
 		{"0 2 * * *", mk(2024, 1, 1, 2, 30), true}, // cron still works
 	}
 	for _, c := range cases {

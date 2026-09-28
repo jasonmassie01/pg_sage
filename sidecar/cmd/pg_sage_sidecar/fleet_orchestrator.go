@@ -24,6 +24,9 @@ type fleetCycleDeps struct {
 	exec    *executor.Executor
 	brief   *briefing.Worker
 	cleaner retentionRunner
+	// interval is the cycle period, fixed when the runtime is built so the
+	// worker never reads the process config concurrently with its writers.
+	interval time.Duration
 }
 
 // fleetDBOrchestrator runs executor, briefing, and retention cycles for a
@@ -31,7 +34,7 @@ type fleetCycleDeps struct {
 // RemoveInstance can terminate this orchestrator without shutting down the
 // fleet. EmergencyStop only blocks action execution; monitoring continues.
 func fleetDBOrchestrator(ctx context.Context, deps fleetCycleDeps) {
-	ticker := time.NewTicker(cfg.Analyzer.Interval() + 5*time.Second)
+	ticker := time.NewTicker(deps.interval)
 	defer ticker.Stop()
 
 	// Per-database HA monitor so fleet executors gate autonomous actions

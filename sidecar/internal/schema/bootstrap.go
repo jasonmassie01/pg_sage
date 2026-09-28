@@ -59,6 +59,9 @@ var expectedTables = []struct {
 	{"crypto_meta", ddlCryptoMeta},
 	{"health_history", ddlHealthHistory},
 	{"query_store", ddlQueryStore},
+	{"recommendation", ddlRecommendation},
+	{"recommendation_revision", ddlRecommendationRevision},
+	{"recommendation_transition", ddlRecommendationTransition},
 }
 
 // Bootstrap acquires an advisory lock, then ensures the sage schema and
@@ -363,6 +366,7 @@ func migrationStatements() []string {
 	statements := []string{
 		ddlActionLogApprovalCols,
 		ddlUsersOAuth,
+		ddlAuthAccountLinking,
 		ddlQueryHintsRewrite,
 		ddlQueryHintsRevalidate,
 		ddlIncidentsLastDetected,
@@ -372,10 +376,15 @@ func migrationStatements() []string {
 		ddlFindingsBackfillFromSchemaFindings,
 		ddlFleetScaleIndexes,
 		ddlQueryStoreStatsEpoch,
+		ddlExplainCachePlanHash,
 	}
 	statements = append(statements, agentNativeMigrationStatements()...)
-	// After the agent-native DDL: sage.policy must exist.
-	return append(statements, ddlPolicyChangeClassSplit)
+	// After the agent-native DDL: sage.policy and sage.table_contract must
+	// exist. The window migration (policy schema version 3) follows the
+	// class split (version 2).
+	return append(statements, ddlPolicyChangeClassSplit, ddlPolicyWindowCronDuration,
+		ddlRetentionColumnDeclaration, ddlTableContractIdentity, ddlSRECoordination,
+		ddlRecommendationAll)
 }
 
 // ---------------------------------------------------------------------------
@@ -394,7 +403,8 @@ CREATE SCHEMA IF NOT EXISTS sage;
 	ddlQueryHintsRewrite + ddlQueryHintsRevalidate +
 	ddlIncidents + ddlSizeHistory + ddlExplainResults +
 	ddlSchemaFindings + ddlCryptoMeta + ddlHealthHistory +
-	ddlFleetScaleIndexes + ddlQueryStore
+	ddlFleetScaleIndexes + ddlQueryStore + ddlRecommendation +
+	ddlRecommendationRevision + ddlRecommendationTransition
 
 const ddlActionLog = `
 CREATE TABLE IF NOT EXISTS sage.action_log (

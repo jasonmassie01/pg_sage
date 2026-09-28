@@ -80,7 +80,7 @@ func TestShadowReportHandlerEmptyWhenNoFleet(t *testing.T) {
 // caseGateExecutor is an executor with a real standing gate over an
 // in-memory unattended policy (windows always open) and no emergency stop.
 func caseGateExecutor(cfg *config.Config) *executor.Executor {
-	e := executor.New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
+	e := executor.New(nil, cfg, time.Now().Add(-40*24*time.Hour),
 		func(string, string, ...any) {})
 	e.WithEmergencyStopCheck(func(context.Context) bool { return false })
 	e.SetExecutionMode("auto")

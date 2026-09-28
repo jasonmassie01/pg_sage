@@ -3,15 +3,28 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/value"
 )
 
 type valueReader interface {
 	Get(context.Context, value.Filter) (value.Report, error)
+}
+
+// fleetValueReader aggregates the value ledger of every fleet instance
+// (D3). A nil manager yields no reader, so the route fails closed.
+func fleetValueReader(mgr *fleet.DatabaseManager) valueReader {
+	if mgr == nil {
+		return nil
+	}
+	return value.NewFleetService(func() []value.Source {
+		return fleet.ValueSources(mgr)
+	})
 }
 
 func valueHandler(reader valueReader) http.Handler {
@@ -26,6 +39,10 @@ func valueHandler(reader valueReader) http.Handler {
 			return
 		}
 		report, err := reader.Get(r.Context(), filter)
+		if errors.Is(err, value.ErrUnknownDatabase) {
+			jsonError(w, "database not found", http.StatusNotFound)
+			return
+		}
 		if err != nil {
 			slog.Error("read value report", "error", err)
 			jsonError(w, "unable to load value", http.StatusInternalServerError)
@@ -40,6 +57,9 @@ func valueHandler(reader valueReader) http.Handler {
 
 func valueFilterFromRequest(r *http.Request) (value.Filter, error) {
 	filter := value.Filter{Database: r.URL.Query().Get("database")}
+	if err := validateDatabaseParam(filter.Database); err != nil {
+		return value.Filter{}, err
+	}
 	var err error
 	if raw := r.URL.Query().Get("since"); raw != "" {
 		filter.Since, err = parseValueDate(raw)

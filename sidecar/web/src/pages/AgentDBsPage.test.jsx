@@ -407,7 +407,9 @@ describe('AgentDBsPage', () => {
     globalThis.fetch
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ status: 'approved', policy_decision: 'allow' }),
+        json: async () => ({
+          request_id: 'req_new', status: 'approved', policy_decision: 'allow',
+        }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -422,7 +424,8 @@ describe('AgentDBsPage', () => {
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
     expect(globalThis.fetch.mock.calls[0][0])
       .toBe('/api/v1/agent-dbs/requests')
-    expect(globalThis.fetch.mock.calls[1][0]).toBe('/api/v1/agent-dbs')
+    expect(globalThis.fetch.mock.calls[1][0])
+      .toBe('/api/v1/agent-dbs/requests/req_new/provision')
     expect(JSON.parse(globalThis.fetch.mock.calls[1][1].body).provider)
       .toBe('local_postgres')
     expect(await screen.findByText('Provisioned new_dep')).toBeInTheDocument()
@@ -435,7 +438,9 @@ describe('AgentDBsPage', () => {
     globalThis.fetch
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ status: 'approved', policy_decision: 'allow' }),
+        json: async () => ({
+          request_id: 'req_lakebase', status: 'approved', policy_decision: 'allow',
+        }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -942,6 +947,12 @@ describe('AgentDBsPage', () => {
       })
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({
+          request_id: 'req_tf_ui', status: 'approved', policy_decision: 'allow',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => ({ deployment_id: 'tf_aws_approved_deployment' }),
       })
 
@@ -955,12 +966,20 @@ describe('AgentDBsPage', () => {
     expect(await screen.findByText('Terraform template approved'))
       .toBeInTheDocument()
 
+    // D4: a reviewed template is not permission to spend; the UI first
+    // obtains an approved request and the provision consumes it.
     fireEvent.click(screen.getByTestId('agent-db-terraform-provision'))
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
-    expect(globalThis.fetch.mock.calls[1][0])
-      .toBe('/api/v1/agent-dbs/terraform-templates/tf_aws_approved/provision')
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3))
+    expect(globalThis.fetch.mock.calls[1][0]).toBe('/api/v1/agent-dbs/requests')
     expect(JSON.parse(globalThis.fetch.mock.calls[1][1].body))
       .toEqual(expect.objectContaining({
+        provider: 'aws_rds', requested_isolation_type: 'instance',
+      }))
+    expect(globalThis.fetch.mock.calls[2][0])
+      .toBe('/api/v1/agent-dbs/terraform-templates/tf_aws_approved/provision')
+    expect(JSON.parse(globalThis.fetch.mock.calls[2][1].body))
+      .toEqual(expect.objectContaining({
+        request_id: 'req_tf_ui',
         deployment_id: expect.stringMatching(/^tf_aws_approved_[a-z0-9_]+_deployment$/),
         provider: 'aws_rds',
         provisioning_level: 'instance',
@@ -1038,11 +1057,34 @@ describe('AgentDBsPage', () => {
     expect(await screen.findByText('Blueprint generated')).toBeInTheDocument()
   })
 
+  it('stops template provisioning while its request awaits review', async () => {
+    globalThis.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        request_id: 'req_tf_review', status: 'requested', policy_decision: 'review',
+      }),
+    })
+
+    render(<AgentDBsPage />)
+    openTab('Terraform')
+    fireEvent.click(screen.getByTestId('agent-db-terraform-provision'))
+
+    expect(await screen.findByText('Request requested: review')).toBeInTheDocument()
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    expect(globalThis.fetch.mock.calls[0][0]).toBe('/api/v1/agent-dbs/requests')
+  })
+
   it('approves and provisions generated blueprints from the review panel', async () => {
     globalThis.fetch
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ blueprint_id: 'bp_existing', status: 'approved' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          request_id: 'req_bp_ui', status: 'approved', policy_decision: 'allow',
+        }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -1059,11 +1101,15 @@ describe('AgentDBsPage', () => {
     expect(await screen.findByText('Blueprint approved')).toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId('agent-db-blueprint-provision'))
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
-    expect(globalThis.fetch.mock.calls[1][0])
-      .toBe('/api/v1/agent-dbs/blueprints/bp_approved/provision')
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3))
+    expect(globalThis.fetch.mock.calls[1][0]).toBe('/api/v1/agent-dbs/requests')
     expect(JSON.parse(globalThis.fetch.mock.calls[1][1].body))
+      .toEqual(expect.objectContaining({ requested_isolation_type: 'instance' }))
+    expect(globalThis.fetch.mock.calls[2][0])
+      .toBe('/api/v1/agent-dbs/blueprints/bp_approved/provision')
+    expect(JSON.parse(globalThis.fetch.mock.calls[2][1].body))
       .toEqual(expect.objectContaining({
+        request_id: 'req_bp_ui',
         deployment_id: expect.stringMatching(/^bp_approved_[a-z0-9_]+_deployment$/),
         tenant_id: 'tenant_agent',
         agent_id: 'agent_runner',

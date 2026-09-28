@@ -69,8 +69,7 @@ func mcpTestInstance(
 	name string, databaseID int, gate policy.Gate,
 ) *fleet.DatabaseInstance {
 	instanceExecutor := executor.New(
-		nil, config.DefaultConfig(), nil, time.Now(), nil,
-	)
+		nil, config.DefaultConfig(), time.Now(), nil)
 	instanceExecutor.WithPolicyGate(gate)
 	return &fleet.DatabaseInstance{
 		Name: name, DatabaseID: databaseID, Executor: instanceExecutor,

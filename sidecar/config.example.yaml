@@ -176,7 +176,6 @@ tuner:
   stale_stats_age_minutes: 60              # last_analyze must be older than this
   analyze_max_table_mb: 10240              # >10GB — never auto-ANALYZE (advisory only)
   analyze_cooldown_minutes: 60             # min minutes between ANALYZEs on a table
-  analyze_maintenance_threshold_mb: 1024   # >1GB — maintenance_window only
   analyze_timeout_ms: 600000               # 10 min statement_timeout for ANALYZE
   max_concurrent_analyze: 1                # Global semaphore cap (fleet-wide)
 

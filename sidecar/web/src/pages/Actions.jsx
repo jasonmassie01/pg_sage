@@ -12,6 +12,9 @@ import { useToast } from '../components/Toast'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { canRollBackRow, isQueuedRow, queuedLabels } from './actions/ledger'
 import { PendingErrors } from './actions/PendingErrors'
+import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
+import { RecommendationsTab } from './actions/RecommendationsTab'
+import { revisionPin } from './actions/recommendation'
 
 function actionStatus(row) {
   return row.status || row.action_status || row.outcome || 'unknown'
@@ -54,7 +57,7 @@ export function Actions({ database, user }) {
   const [tab, setTab] = useState('executed')
   const range = useTimeRange()
   const canReview = user?.role === 'admin' || user?.role === 'operator'
-  const activeTab = canReview ? tab : 'executed'
+  const activeTab = canReview || tab !== 'pending' ? tab : 'executed'
   const dbParam = database && database !== 'all'
     ? `?database=${database}` : ''
 
@@ -69,10 +72,23 @@ export function Actions({ database, user }) {
   useLiveRefetch(['actions'], refetch)
   useLiveRefetch(['actions'], canReview ? pendingRefetch : null)
 
+  if (activeTab === 'recommendations') {
+    return (
+      <div className="space-y-4">
+        <ActionsDescription />
+        <TabBar tab={activeTab} setTab={setTab}
+          pendingCount={pendingData?.total || 0}
+          canReview={canReview} />
+        <RecommendationsTab database={database} />
+      </div>
+    )
+  }
+
   if (activeTab === 'executed') {
     return (
       <div className="space-y-4">
         <ActionsDescription />
+        <IndexAdmissionPanel database={database} />
         <TabBar tab={activeTab} setTab={setTab}
           pendingCount={pendingData?.total || 0}
           canReview={canReview} />
@@ -85,6 +101,7 @@ export function Actions({ database, user }) {
   return (
     <div className="space-y-4">
       <ActionsDescription />
+      <IndexAdmissionPanel database={database} />
       <TabBar tab={activeTab} setTab={setTab}
         pendingCount={pendingData?.total || 0}
         canReview={canReview} />
@@ -114,6 +131,7 @@ function TabBar({ tab, setTab, pendingCount, canReview }) {
   if (canReview) {
     tabs.push({ key: 'pending', label: 'Pending Approval' })
   }
+  tabs.push({ key: 'recommendations', label: 'Recommendations' })
 
   return (
     <div className="flex gap-2">
@@ -550,6 +568,11 @@ function PendingTab({
     },
     { key: 'database_name', label: 'Database' },
     { key: 'finding_id', label: 'Finding' },
+    ...(actions.some(r => r.recommendation_id)
+      ? [{
+        key: 'recommendation_id', label: 'Recommendation',
+        render: r => revisionPin(r),
+      }] : []),
     ...(actions.some(r => r.policy_decision)
       ? [{ key: 'policy_decision', label: 'Policy' }] : []),
     ...(actions.some(r => r.lifecycle_state || r.cooldown_until)

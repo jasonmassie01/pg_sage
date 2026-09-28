@@ -75,11 +75,17 @@ func agentDBApproveTerraformTemplateHandler(st *agentdb.Store) http.HandlerFunc 
 
 func agentDBProvisionTerraformTemplateHandler(st *agentdb.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := requireActor(w, r)
+		if !ok {
+			return
+		}
 		m := readMap(r)
 		dep, err := st.ProvisionFromTerraformTemplate(
 			r.Context(),
 			r.PathValue("template_id"),
 			agentdb.TemplateProvisionRequest{
+				RequestID:         str(m, "request_id"),
+				ActorID:           actor,
 				DeploymentID:      str(m, "deployment_id"),
 				TenantID:          str(m, "tenant_id"),
 				AgentID:           str(m, "agent_id"),
@@ -94,7 +100,7 @@ func agentDBProvisionTerraformTemplateHandler(st *agentdb.Store) http.HandlerFun
 			},
 		)
 		if err != nil {
-			agentDBError(w, err)
+			writeProvisionError(w, err)
 			return
 		}
 		jsonResponse(w, dep)

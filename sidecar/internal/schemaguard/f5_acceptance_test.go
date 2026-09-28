@@ -10,9 +10,11 @@ func TestRetentionRequiresDryRunBeforeConsentBackedEnforcement(t *testing.T) {
 	request := Request{
 		Invariant: Invariant{
 			Kind: InvariantUnboundedAppend, Schema: "public", Table: "events",
+			RetentionColumn: "created_at",
 		},
 		Contract: TableContract{
 			AppendOnly: true, RetentionWindow: 30 * 24 * time.Hour,
+			RetentionColumn: "created_at",
 		},
 		Policy: Policy{AllowRetentionApply: true},
 	}

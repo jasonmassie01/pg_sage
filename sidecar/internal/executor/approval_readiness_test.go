@@ -13,7 +13,7 @@ func TestApprovalReadinessBlocksModerateOutsideMaintenanceWindow(t *testing.T) {
 	cfg.Trust.Level = "autonomous"
 	cfg.Trust.Tier3Moderate = true
 	cfg.Trust.MaintenanceWindow = "0 2 * * *"
-	exec := New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
+	exec := New(nil, cfg, time.Now().Add(-40*24*time.Hour),
 		func(string, string, ...any) {})
 	exec.SetExecutionMode("approval")
 	action := store.QueuedAction{
@@ -44,7 +44,7 @@ func TestApprovalReadinessAllowsModerateInsideMaintenanceWindow(t *testing.T) {
 	cfg.Trust.Level = "autonomous"
 	cfg.Trust.Tier3Moderate = true
 	cfg.Trust.MaintenanceWindow = "0 2 * * *"
-	exec := New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
+	exec := New(nil, cfg, time.Now().Add(-40*24*time.Hour),
 		func(string, string, ...any) {})
 	exec.SetExecutionMode("approval")
 	action := store.QueuedAction{
@@ -70,7 +70,7 @@ func TestApprovalReadinessAllowsModerateInsideMaintenanceWindow(t *testing.T) {
 func TestApprovalReadinessBlocksLifecycleCooldown(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trust.Level = "advisory"
-	exec := New(nil, cfg, nil, time.Now().Add(-10*24*time.Hour),
+	exec := New(nil, cfg, time.Now().Add(-10*24*time.Hour),
 		func(string, string, ...any) {})
 	cooldownUntil := time.Date(2026, 4, 28, 13, 0, 0, 0, time.UTC)
 	action := store.QueuedAction{
@@ -99,7 +99,7 @@ func TestApprovalReadinessBlocksLifecycleCooldown(t *testing.T) {
 func TestApprovalReadinessBlocksWhenEvidenceDisappears(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trust.Level = "advisory"
-	exec := New(nil, cfg, nil, time.Now().Add(-10*24*time.Hour),
+	exec := New(nil, cfg, time.Now().Add(-10*24*time.Hour),
 		func(string, string, ...any) {})
 	action := store.QueuedAction{
 		ActionType:  "analyze_table",
@@ -126,7 +126,7 @@ func TestApprovalReadinessBlocksWhenEvidenceDisappears(t *testing.T) {
 
 func TestApprovalReadinessBlocksWhenExecutorDisabled(t *testing.T) {
 	cfg := wave1PolicyConfig("autonomous")
-	exec := New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
+	exec := New(nil, cfg, time.Now().Add(-40*24*time.Hour),
 		func(string, string, ...any) {})
 	exec.SetExecutorEnabled(false)
 	action := store.QueuedAction{

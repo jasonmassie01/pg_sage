@@ -71,7 +71,6 @@ tuner:
   stale_stats_age_minutes: 0
   analyze_max_table_mb: 1024
   analyze_cooldown_minutes: 0
-  analyze_maintenance_threshold_mb: 1024
   analyze_timeout_ms: 60000
   max_concurrent_analyze: 1
   verify_after_apply: false

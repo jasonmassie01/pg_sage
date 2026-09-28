@@ -159,6 +159,9 @@ func DeleteSession(
 func CleanExpiredSessions(
 	ctx context.Context, pool *pgxpool.Pool,
 ) error {
+	if pool == nil {
+		return fmt.Errorf("cleaning expired sessions: no database pool")
+	}
 	_, err := pool.Exec(ctx,
 		"DELETE FROM sage.sessions WHERE expires_at <= now()",
 	)
@@ -168,12 +171,21 @@ func CleanExpiredSessions(
 	return nil
 }
 
-// ListUsers returns all users without password hashes.
+// ListedUser is a user row for the admin list, with its sign-in methods.
+type ListedUser struct {
+	User
+	SSOIssuer     string
+	PasswordLogin bool
+}
+
+// ListUsers returns all users without password hashes, reporting whether
+// each has a linked SSO identity and a password.
 func ListUsers(
 	ctx context.Context, pool *pgxpool.Pool,
-) ([]User, error) {
+) ([]ListedUser, error) {
 	rows, err := pool.Query(ctx,
-		"SELECT id, email, role, created_at, last_login "+
+		"SELECT id, email, role, created_at, last_login, "+
+			"COALESCE(oauth_issuer, ''), password IS NOT NULL "+
 			"FROM sage.users ORDER BY id",
 	)
 	if err != nil {
@@ -181,12 +193,13 @@ func ListUsers(
 	}
 	defer rows.Close()
 
-	var users []User
+	var users []ListedUser
 	for rows.Next() {
-		var u User
+		var u ListedUser
 		if err := rows.Scan(
 			&u.ID, &u.Email, &u.Role,
 			&u.CreatedAt, &u.LastLogin,
+			&u.SSOIssuer, &u.PasswordLogin,
 		); err != nil {
 			return nil, fmt.Errorf("scanning user: %w", err)
 		}

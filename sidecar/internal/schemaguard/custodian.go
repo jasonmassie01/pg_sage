@@ -105,15 +105,30 @@ func (c *Custodian) process(
 	item := Remediation{Invariant: invariant, Contract: contract, Decision: decision}
 	if shouldRoute(decision) {
 		if err := c.router.Route(ctx, item); err != nil {
-			return c.recordRouteFailure(ctx, item, result, err)
+			var parked *ParkedRoute
+			if !errors.As(err, &parked) {
+				return c.recordRouteFailure(ctx, item, result, err)
+			}
+			item.Decision = parkedDecision(item.Decision, parked.Reason)
+		} else {
+			result.Routed++
 		}
-		result.Routed++
 	}
 	if err := c.recorder.Record(ctx, item); err != nil {
 		return fmt.Errorf("record schema remediation: %w", err)
 	}
 	result.Recorded++
 	return nil
+}
+
+// parkedDecision records a route that declined to act yet (not a failure):
+// nothing was changed, so nothing may be auto-applied or deleted.
+func parkedDecision(decision Decision, reason string) Decision {
+	decision.Disposition = DispositionPark
+	decision.AutoApply = false
+	decision.MayDeleteData = false
+	decision.Reason = reason
+	return decision
 }
 
 func (c *Custodian) recordRouteFailure(

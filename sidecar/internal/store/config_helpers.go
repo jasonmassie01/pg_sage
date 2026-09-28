@@ -32,7 +32,7 @@ var allowedConfigKeys = map[string]string{
 	"trust.tier3_safe":                      "bool",
 	"trust.tier3_moderate":                  "bool",
 	"trust.tier3_high_risk":                 "bool",
-	"trust.maintenance_window":              "string",
+	"trust.maintenance_window":              "maintenance_window",
 	"trust.rollback_threshold_pct":          "pct",
 	"trust.rollback_window_minutes":         "int_pos",
 	"trust.rollback_cooldown_days":          "int_pos",
@@ -80,6 +80,7 @@ var allowedConfigKeys = map[string]string{
 	"rca.connection_saturation_pct":         "pct",
 	"rca.replication_lag_threshold_seconds": "int_pos",
 	"rca.wal_spike_multiplier":              "float_pos",
+	"rca.narration_enabled":                 "bool",
 
 	// v0.9.2: Slow active replication slot threshold.
 	"analyzer.slow_slot_retained_bytes": "int_pos",
@@ -208,11 +209,22 @@ func validateByType(vtype, key, value string) error {
 		return validateEnum(key, value, map[string]bool{
 			"stdio": true, "http": true,
 		})
+	case "maintenance_window":
+		return validateMaintenanceWindow(value)
 	case "string":
 		return nil
 	default:
 		return nil
 	}
+}
+
+// validateMaintenanceWindow applies the policy window grammar so a typo is
+// refused on save instead of being stored and silently meaning "never".
+func validateMaintenanceWindow(value string) error {
+	if err := config.ValidateMaintenanceWindow(value); err != nil {
+		return fmt.Errorf("validate: invalid value: %w", err)
+	}
+	return nil
 }
 
 func validateIntRange(
@@ -597,6 +609,7 @@ func addRCAFields(m map[string]any, r *config.RCAConfig) {
 		r.ReplicationLagThresholdS, "yaml")
 	addField(m, "rca.wal_spike_multiplier",
 		r.WALSpikeMultiplier, "yaml")
+	addField(m, "rca.narration_enabled", r.NarrationEnabled, "yaml")
 }
 
 func addRunawayFields(m map[string]any, r *config.RunawayConfig) {

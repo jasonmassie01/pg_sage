@@ -8,6 +8,7 @@ import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
 import { FleetHealthChart } from '../components/FleetHealthChart'
 import { DatabaseTile } from '../components/DatabaseTile'
 import { ProviderReadinessMatrix } from '../components/ProviderReadinessMatrix'
+import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import {
   CheckCircle, Clock, ListChecks, Server,
 } from 'lucide-react'
@@ -430,7 +431,12 @@ export function Dashboard({ database, onSelectDB, user }) {
         <DatabaseOverviewPanel databases={databases}
           database={database} loading={loading} onSelectDB={onSelectDB} />
       )}
-      {overviewTab === 'provider-readiness' && <ProviderReadinessMatrix />}
+      {overviewTab === 'provider-readiness' && (
+        <div className="space-y-4">
+          <ProviderReadinessMatrix />
+          <IndexAdmissionPanel database={database} />
+        </div>
+      )}
       {overviewTab === 'recent-recos' && (
         <RecentRecommendationsPanel findings={recentFindings}
           error={findings.error} onRetry={findings.refetch} />

@@ -37,10 +37,10 @@ func TestParseWALKeepSizeBytes(t *testing.T) {
 
 func TestCustodianRefusesUnparsableWALKeepSize(t *testing.T) {
 	pool, ctx := requireDB(t)
-	exec := New(pool, config.DefaultConfig(), nil, time.Time{}, nopLog)
+	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 
 	err := exec.executeCustodianSQL(ctx,
-		"ALTER SYSTEM SET max_slot_wal_keep_size = '1 zillion'")
+		"ALTER SYSTEM SET max_slot_wal_keep_size = '1 zillion'", ActionPolicyDecision{})
 
 	if !errors.Is(err, ErrUnsafeGUCValue) {
 		t.Fatalf("executeCustodianSQL = %v, want ErrUnsafeGUCValue", err)
@@ -49,7 +49,7 @@ func TestCustodianRefusesUnparsableWALKeepSize(t *testing.T) {
 
 func TestWALKeepSizeCheckAllowsHeadroom(t *testing.T) {
 	pool, ctx := requireDB(t)
-	exec := New(pool, config.DefaultConfig(), nil, time.Time{}, nopLog)
+	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	var retained int64
 	if err := pool.QueryRow(context.Background(), `SELECT COALESCE(max(
 		pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)), 0)::bigint

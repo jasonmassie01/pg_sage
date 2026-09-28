@@ -10,6 +10,14 @@ import (
 
 var errObservation = errors.New("observation unavailable")
 
+// LoadSample is a utilization-percentage fixture. The fake source presents
+// it as declared-capacity evidence (see LoadEvidence below).
+type LoadSample struct {
+	CPUPct    float64
+	DataIOPct float64
+	LogIOPct  float64
+}
+
 type fakeObservationSource struct {
 	mu           sync.Mutex
 	executedAt   time.Time
@@ -92,10 +100,26 @@ func (s *fakeObservationSource) IndexValid(
 	return s.indexValid, s.indexErr
 }
 
-func (s *fakeObservationSource) CurrentLoad(context.Context) (LoadSample, error) {
+// LoadEvidence presents the fake's utilization percentages as a declared
+// capacity of 100 MiB/s with rates of pct MiB/s, so percentage-based tests
+// exercise the production declared-capacity path unchanged.
+func (s *fakeObservationSource) LoadEvidence(context.Context) (LoadEvidence, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.load, s.loadErr
+	if s.loadErr != nil {
+		return LoadEvidence{}, s.loadErr
+	}
+	cpu := s.load.CPUPct
+	const mebibyte = 1024 * 1024
+	return LoadEvidence{
+		CPUPct: &cpu,
+		Rate: &IORate{
+			At: testVerificationNow(), Interval: time.Minute, Source: IOSourcePGStatIO,
+			DataBytesPerSec: s.load.DataIOPct * mebibyte,
+			WALBytesPerSec:  s.load.LogIOPct * mebibyte,
+		},
+		Capacity: &IOCapacity{ReadWriteMBps: 100, WALMBps: 100},
+	}, nil
 }
 
 func copyMeasurements(

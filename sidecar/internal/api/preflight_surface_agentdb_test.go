@@ -34,9 +34,17 @@ func TestPreflightSurfaceAgentDBRoleAndLiveBoundary(t *testing.T) {
 		if status != 403 {
 			t.Errorf("operator authorize-live=%d %s", status, body)
 		}
+		// D4: a cloud plan is registered by consuming an approved request.
+		status, body = f.request(t, "POST", "/api/v1/agent-dbs/requests",
+			`{"request_id":"surface_live_plan_req","tenant_id":"fixture","agent_id":"fixture",`+
+				`"provider":"aws_rds","requested_isolation_type":"instance","budget_usd":100}`)
+		if status != 200 || !strings.Contains(body, `"status":"approved"`) {
+			t.Fatalf("cloud request=%d %s", status, body)
+		}
 		status, body = f.request(t, "POST", "/api/v1/agent-dbs",
-			`{"deployment_id":"surface_live_plan","tenant_id":"fixture","agent_id":"fixture",`+
-				`"provider":"aws_rds","provisioning_level":"instance","budget_usd":100}`)
+			`{"request_id":"surface_live_plan_req","deployment_id":"surface_live_plan",`+
+				`"tenant_id":"fixture","agent_id":"fixture",`+
+				`"provider":"aws_rds","provisioning_level":"instance"}`)
 		if status != 200 {
 			t.Fatalf("persist cloud plan only=%d %s", status, body)
 		}

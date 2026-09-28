@@ -94,22 +94,25 @@ func agentDBGetRequestHandler(st *agentdb.Store) http.HandlerFunc {
 	}
 }
 func agentDBApproveRequestHandler(st *agentdb.Store) http.HandlerFunc {
+	return agentDBDecisionHandler(st, "approved")
+}
+
+func agentDBDenyRequestHandler(st *agentdb.Store) http.HandlerFunc {
+	return agentDBDecisionHandler(st, "denied")
+}
+
+// agentDBDecisionHandler records an approve or deny attributed to the
+// signed-in user (D4). Actor fields in the body are ignored.
+func agentDBDecisionHandler(st *agentdb.Store, decision string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		m := readMap(r)
-		row, err := st.SetRequestDecision(r.Context(), r.PathValue("request_id"),
-			agentdb.DecisionRequest{Decision: "approved", Reason: str(m, "reason")})
-		if err != nil {
-			agentDBError(w, err)
+		actor, ok := requireActor(w, r)
+		if !ok {
 			return
 		}
-		jsonResponse(w, row)
-	}
-}
-func agentDBDenyRequestHandler(st *agentdb.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
 		m := readMap(r)
 		row, err := st.SetRequestDecision(r.Context(), r.PathValue("request_id"),
-			agentdb.DecisionRequest{Decision: "denied", Reason: str(m, "reason")})
+			agentdb.DecisionRequest{Decision: decision, Reason: str(m, "reason"),
+				ActorID: actor})
 		if err != nil {
 			agentDBError(w, err)
 			return
@@ -118,25 +121,54 @@ func agentDBDenyRequestHandler(st *agentdb.Store) http.HandlerFunc {
 	}
 }
 
+// agentDBProvisionApprovedRequestHandler consumes an approved request. The
+// consumer is the signed-in user; optional tenant/agent/provider fields in
+// the body must match the request (D4).
 func agentDBProvisionApprovedRequestHandler(st *agentdb.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		m := readMap(r)
-		dep, err := st.ProvisionApprovedRequest(
-			r.Context(),
-			r.PathValue("request_id"),
-			agentdb.RequestProvisionRequest{
-				DeploymentID:   str(m, "deployment_id"),
-				LeaseSeconds:   integer(m, "lease_seconds"),
-				Metadata:       obj(m, "metadata"),
-				ProviderParams: obj(m, "provider_params"),
-			},
-		)
-		if err != nil {
-			agentDBError(w, err)
+		actor, ok := requireActor(w, r)
+		if !ok {
 			return
 		}
-		jsonResponse(w, dep)
+		m := readMap(r)
+		provisionFromRequest(w, r, st, r.PathValue("request_id"),
+			requestProvisionFromBody(m, actor))
 	}
+}
+
+func requestProvisionFromBody(m map[string]any, actor string) agentdb.RequestProvisionRequest {
+	return agentdb.RequestProvisionRequest{
+		DeploymentID:      str(m, "deployment_id"),
+		LeaseSeconds:      integer(m, "lease_seconds"),
+		Metadata:          obj(m, "metadata"),
+		ProviderParams:    obj(m, "provider_params"),
+		SizeProfileID:     str(m, "size_profile_id"),
+		SchemaName:        str(m, "schema_name"),
+		SecretRef:         str(m, "secret_ref"),
+		SecretRefProvider: str(m, "secret_ref_provider"),
+		TenantID:          str(m, "tenant_id"),
+		AgentID:           str(m, "agent_id"),
+		Provider:          str(m, "provider"),
+		ProvisioningLevel: firstString(
+			str(m, "provisioning_level"), str(m, "isolation_type"),
+		),
+		ActorID: actor,
+	}
+}
+
+func provisionFromRequest(
+	w http.ResponseWriter,
+	r *http.Request,
+	st *agentdb.Store,
+	requestID string,
+	req agentdb.RequestProvisionRequest,
+) {
+	dep, err := st.ProvisionApprovedRequest(r.Context(), requestID, req)
+	if err != nil {
+		writeProvisionError(w, err)
+		return
+	}
+	jsonResponse(w, dep)
 }
 
 // agentDBRestoreDrillHandler records an admin attestation of a completed
