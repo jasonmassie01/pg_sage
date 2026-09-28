@@ -663,9 +663,14 @@ func TestValidateConfigValue_Comprehensive(t *testing.T) {
 		// sage.databases. Validate it's rejected as unknown.
 		{"execution_mode", "auto", true},
 
-		// string (always valid)
+		// maintenance_window: the policy window grammar (D2). Unset is
+		// valid; an unparseable value used to be stored and silently
+		// meant "never", so it is now refused.
 		{"trust.maintenance_window", "", false},
-		{"trust.maintenance_window", "anything", false},
+		{"trust.maintenance_window", "weeknights", false},
+		{"trust.maintenance_window", "anything", true},
+
+		// string (always valid)
 		{"llm.endpoint", "https://example.com", false},
 
 		// unknown key

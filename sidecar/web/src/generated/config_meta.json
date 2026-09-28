@@ -1127,7 +1127,7 @@
   "trust.maintenance_window": {
     "type": "string",
     "default": "",
-    "doc": "Window for MODERATE auto-actions and heavy maintenance. No cron needed: presets (always, never, nights, weeknights, weekends, off-hours), day ranges (weekdays 01:00-05:00), HH:MM-HH:MM, or cron."
+    "doc": "Window for MODERATE auto-actions: always, never, presets (nights, weeknights, weekends), Mon-Fri 01:00-05:00, or cron (1h wide, or @30m). Optional IANA zone: weeknights America/Chicago."
   },
   "trust.ramp_start": {
     "type": "string",
@@ -1171,11 +1171,6 @@
     "type": "int",
     "default": 60,
     "doc": "Minimum minutes between tuner-initiated ANALYZE runs on the same table. Also respects autovacuum last_analyze as a recent-run signal."
-  },
-  "tuner.analyze_maintenance_threshold_mb": {
-    "type": "int64",
-    "default": 1024,
-    "doc": "Tables larger than this many MB can only be ANALYZEd during the configured maintenance_window. Default 1024 (1GB)."
   },
   "tuner.analyze_max_table_mb": {
     "type": "int64",

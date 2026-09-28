@@ -200,7 +200,7 @@ type SafetyConfig struct {
 type TrustConfig struct {
 	Level                 string `yaml:"level" doc:"Autonomy ceiling: observation is cases only; advisory auto executes eligible safe actions; autonomous auto executes eligible safe and moderate actions. Manual disables background actions." warning:"Changing trust can expand what execution_mode=auto may execute without human review."`
 	RampStart             string `yaml:"ramp_start" doc:"RFC3339 timestamp when the trust ramp began. Auto-persisted on first startup if empty. Used to gate newly-supported actions behind a soak period."`
-	MaintenanceWindow     string `yaml:"maintenance_window" doc:"Window for MODERATE auto-actions and heavy maintenance. No cron needed: presets (always, never, nights, weeknights, weekends, off-hours), day ranges (weekdays 01:00-05:00), HH:MM-HH:MM, or cron." example:"weeknights"`
+	MaintenanceWindow     string `yaml:"maintenance_window" doc:"Window for MODERATE auto-actions: always, never, presets (nights, weeknights, weekends), Mon-Fri 01:00-05:00, or cron (1h wide, or @30m). Optional IANA zone: weeknights America/Chicago." example:"weeknights"`
 	Tier3Safe             bool   `yaml:"tier3_safe" doc:"Enable typed safe actions such as ANALYZE and non-FULL VACUUM after the trust ramp when execution_mode=auto and trust.level is advisory or autonomous."`
 	Tier3Moderate         bool   `yaml:"tier3_moderate" doc:"Enable typed moderate actions such as CREATE INDEX CONCURRENTLY after the longer trust ramp. Requires execution_mode=auto and trust.level=autonomous." warning:"Moderate actions can consume IO or briefly contend for locks."`
 	Tier3HighRisk         bool   `yaml:"tier3_high_risk" doc:"Enable tier-3 actions classified as high risk. Ignored outside fleet mode — standalone always forces this to false." mode:"fleet-only" warning:"High-risk actions can destabilize production — enable only with a reviewed rollback plan."`
@@ -428,14 +428,13 @@ type TunerConfig struct {
 	RevalidationExplainTimeoutMs int     `yaml:"revalidation_explain_timeout_ms" doc:"Reserved; currently has no effect. The revalidation loop issues no EXPLAIN queries. Kept so existing config files still load."`
 
 	// v0.8.5 Feature 2 — Stale-stats detection + ANALYZE action.
-	StaleStatsEstimateSkew        float64 `yaml:"stale_stats_estimate_skew" doc:"Ratio ActualRows / PlanRows above which a plan node is considered row-estimate skewed. Default 10 — same threshold as the bad-nested-loop check."`
-	StaleStatsModRatio            float64 `yaml:"stale_stats_mod_ratio" doc:"Fraction of rows modified since last ANALYZE (n_mod_since_analyze / reltuples) required to treat a table as stale. Default 0.1 = 10%."`
-	StaleStatsAgeMinutes          int     `yaml:"stale_stats_age_minutes" doc:"Both manual and autovacuum last_analyze must be older than this many minutes before the table is considered stale. Default 60."`
-	AnalyzeMaxTableMB             int64   `yaml:"analyze_max_table_mb" doc:"Tables larger than this many MB are never auto-ANALYZEd — an advisory finding is emitted instead for operator review." warning:"Default 10240 (10GB). Raise with care — ANALYZE on TB-scale tables can saturate I/O."`
-	AnalyzeCooldownMinutes        int     `yaml:"analyze_cooldown_minutes" doc:"Minimum minutes between tuner-initiated ANALYZE runs on the same table. Also respects autovacuum last_analyze as a recent-run signal."`
-	AnalyzeMaintenanceThresholdMB int64   `yaml:"analyze_maintenance_threshold_mb" doc:"Tables larger than this many MB can only be ANALYZEd during the configured maintenance_window. Default 1024 (1GB)."`
-	AnalyzeTimeoutMs              int     `yaml:"analyze_timeout_ms" doc:"statement_timeout for ANALYZE actions. Default 600000 (10 minutes). Exceeding this marks the action failed_timeout and extends the cooldown."`
-	MaxConcurrentAnalyze          int     `yaml:"max_concurrent_analyze" doc:"Hard cap on concurrent ANALYZE actions across the entire sidecar process (shared semaphore — fleet-wide, not per-database). Default 1."`
+	StaleStatsEstimateSkew float64 `yaml:"stale_stats_estimate_skew" doc:"Ratio ActualRows / PlanRows above which a plan node is considered row-estimate skewed. Default 10 — same threshold as the bad-nested-loop check."`
+	StaleStatsModRatio     float64 `yaml:"stale_stats_mod_ratio" doc:"Fraction of rows modified since last ANALYZE (n_mod_since_analyze / reltuples) required to treat a table as stale. Default 0.1 = 10%."`
+	StaleStatsAgeMinutes   int     `yaml:"stale_stats_age_minutes" doc:"Both manual and autovacuum last_analyze must be older than this many minutes before the table is considered stale. Default 60."`
+	AnalyzeMaxTableMB      int64   `yaml:"analyze_max_table_mb" doc:"Tables larger than this many MB are never auto-ANALYZEd — an advisory finding is emitted instead for operator review." warning:"Default 10240 (10GB). Raise with care — ANALYZE on TB-scale tables can saturate I/O."`
+	AnalyzeCooldownMinutes int     `yaml:"analyze_cooldown_minutes" doc:"Minimum minutes between tuner-initiated ANALYZE runs on the same table. Also respects autovacuum last_analyze as a recent-run signal."`
+	AnalyzeTimeoutMs       int     `yaml:"analyze_timeout_ms" doc:"statement_timeout for ANALYZE actions. Default 600000 (10 minutes). Exceeding this marks the action failed_timeout and extends the cooldown."`
+	MaxConcurrentAnalyze   int     `yaml:"max_concurrent_analyze" doc:"Hard cap on concurrent ANALYZE actions across the entire sidecar process (shared semaphore — fleet-wide, not per-database). Default 1."`
 }
 
 type RetentionConfig struct {
@@ -677,14 +676,8 @@ func (c *Config) validate() error {
 	if c.Analyzer.SlowQueryThresholdMs < 0 {
 		return fmt.Errorf("analyzer.slow_query_threshold_ms must be non-negative")
 	}
-	validTrust := map[string]bool{
-		"observation": true, "advisory": true, "autonomous": true,
-	}
-	if !validTrust[c.Trust.Level] {
-		return fmt.Errorf(
-			"trust.level must be observation, advisory, or autonomous (got %q)",
-			c.Trust.Level,
-		)
+	if err := c.validateTrust(); err != nil {
+		return err
 	}
 	if c.Safety.CPUCeilingPct <= 0 || c.Safety.CPUCeilingPct > 100 {
 		return fmt.Errorf("safety.cpu_ceiling_pct must be 1-100")
@@ -714,6 +707,21 @@ func (c *Config) validate() error {
 	}
 
 	return nil
+}
+
+// validateTrust checks the trust level and the maintenance window grammar
+// so a typo fails at load instead of silently meaning "never".
+func (c *Config) validateTrust() error {
+	validTrust := map[string]bool{
+		"observation": true, "advisory": true, "autonomous": true,
+	}
+	if !validTrust[c.Trust.Level] {
+		return fmt.Errorf(
+			"trust.level must be observation, advisory, or autonomous (got %q)",
+			c.Trust.Level,
+		)
+	}
+	return ValidateMaintenanceWindow(c.Trust.MaintenanceWindow)
 }
 
 func newDefaults() *Config {
@@ -885,14 +893,13 @@ func newDefaults() *Config {
 			RevalidationExplainTimeoutMs: DefaultTunerRevalidationExplainTimeoutMs,
 
 			// Feature 2 — Stale-stats detection + ANALYZE.
-			StaleStatsEstimateSkew:        DefaultTunerStaleStatsEstimateSkew,
-			StaleStatsModRatio:            DefaultTunerStaleStatsModRatio,
-			StaleStatsAgeMinutes:          DefaultTunerStaleStatsAgeMinutes,
-			AnalyzeMaxTableMB:             DefaultTunerAnalyzeMaxTableMB,
-			AnalyzeCooldownMinutes:        DefaultTunerAnalyzeCooldownMinutes,
-			AnalyzeMaintenanceThresholdMB: DefaultTunerAnalyzeMaintenanceThresholdMB,
-			AnalyzeTimeoutMs:              DefaultTunerAnalyzeTimeoutMs,
-			MaxConcurrentAnalyze:          DefaultTunerMaxConcurrentAnalyze,
+			StaleStatsEstimateSkew: DefaultTunerStaleStatsEstimateSkew,
+			StaleStatsModRatio:     DefaultTunerStaleStatsModRatio,
+			StaleStatsAgeMinutes:   DefaultTunerStaleStatsAgeMinutes,
+			AnalyzeMaxTableMB:      DefaultTunerAnalyzeMaxTableMB,
+			AnalyzeCooldownMinutes: DefaultTunerAnalyzeCooldownMinutes,
+			AnalyzeTimeoutMs:       DefaultTunerAnalyzeTimeoutMs,
+			MaxConcurrentAnalyze:   DefaultTunerMaxConcurrentAnalyze,
 		},
 		RCA: RCAConfig{
 			Enabled:                  true,
@@ -1026,6 +1033,10 @@ func rejectRetiredTopLevelConfig(raw string) error {
 				"configuration key %q is retired; use %q instead",
 				"notifications", "alerting",
 			)
+		case "tuner":
+			if err := rejectRetiredTunerKeys(root.Content[i+1]); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

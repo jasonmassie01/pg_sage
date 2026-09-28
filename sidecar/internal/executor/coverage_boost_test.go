@@ -136,17 +136,21 @@ func TestCoverage_InMaintenanceWindow_HourWildSpecificMinute(t *testing.T) {
 	}
 }
 
-// TestCoverage_InMaintenanceWindow_HourWildOutsideMinute verifies
-// the hour-wild, specific-minute branch when we are NOT in window.
+// TestCoverage_InMaintenanceWindow_HourWildOutsideMinute: D2 gives every
+// matching cron minute a one-hour window, so "41 * * * *" covers 08:10
+// (opened at 07:41). The legacy parser only covered :41-:59. A specific
+// hour still bounds it: "41 6 * * *" does not cover 08:10.
 func TestCoverage_InMaintenanceWindow_HourWildOutsideMinute(t *testing.T) {
 	now := time.Date(2026, time.July, 19, 8, 10, 0, 0, time.UTC)
 	otherMinute := 41
 	cronExpr := fmt.Sprintf("%d * * * *", otherMinute)
 
-	got := inMaintenanceWindowAt(cronExpr, now)
-	if got {
-		t.Errorf("inMaintenanceWindow(%q) should return false "+
-			"when outside the window", cronExpr)
+	if !inMaintenanceWindowAt(cronExpr, now) {
+		t.Errorf("inMaintenanceWindow(%q) at 08:10 should be inside the "+
+			"window opened at 07:41", cronExpr)
+	}
+	if inMaintenanceWindowAt(fmt.Sprintf("%d 6 * * *", otherMinute), now) {
+		t.Errorf("a 06:41 window must not cover 08:10")
 	}
 }
 

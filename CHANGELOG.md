@@ -32,6 +32,42 @@
   decision ledger) and retried next cycle. It used to log a failed action, which
   counted toward the three-failure abandonment and the self-initiated rate
   limit.
+- **One maintenance-window grammar.** `trust.maintenance_window` and the
+  standing policy's `maintenance_windows` are now parsed by the same engine, so
+  a string means the same thing in both. See "Maintenance windows" in
+  `docs/configuration.md`.
+  - Config windows gain cron lists, ranges and steps (`0 2 * * 1-5`,
+    `*/15 2 * * *`). These used to be accepted and silently mean "never".
+  - Policy windows gain the config presets (`nights`, `weeknights`,
+    `weekdays`, `business-hours`, ...) and day lists (`Mon-Fri`, `sat,sun`,
+    `daily`).
+  - A cron window is one hour wide from each matching minute, or as long as
+    an optional `@<duration>` says (`0 2 * * * @30m`, `@1m` to `@24h`).
+    `30 * * * *` therefore covers every hour; it used to cover only :30-:59.
+  - A range that crosses midnight belongs to the day it starts on.
+    `weeknights` now covers Friday 22:00 to Saturday 06:00 and no longer
+    covers Sunday 22:00 to Monday 06:00. Lists behave the same way:
+    `Mon,Wed,Fri 22:00-04:00` covers Saturday 02:00 (Friday night), not
+    Wednesday 02:00 (Tuesday night).
+  - An optional trailing IANA time zone evaluates a window on that zone's
+    clock, including DST: `weekdays 01:00-05:00 America/Chicago`. Without one
+    the process clock is used, as before (UTC in the container).
+- **Invalid `trust.maintenance_window` values are rejected** at config load,
+  file reload and API save (HTTP 400 naming the grammar). A typo such as
+  `weeknigths` used to be stored and silently close the window. `never`,
+  `off`, `none` and `disabled` still close it.
+- **Stored policies are migrated to schema version 3.** Each policy cron window
+  is rewritten from `<cron>` to `<cron> @1m`, so it keeps its exact
+  one-minute meaning. The built-in profiles have no cron windows and are
+  unchanged. Superseded history is not rewritten.
+- **Downgrade risk.** A release older than this one cannot parse `@<duration>`
+  or a time-zone suffix in a policy window. If the active policy contains one
+  (including a migrated `@1m`), an older binary fails closed with
+  `policy_unavailable` and blocks every action until a policy it can parse is
+  active. Before downgrading, ratify a policy version without those suffixes.
+- **Removed `tuner.analyze_maintenance_threshold_mb`.** It never had an effect.
+  A config file that still sets it fails to load with an instruction to
+  remove the key.
 
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 

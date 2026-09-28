@@ -128,14 +128,13 @@ const (
 	DefaultTunerRevalidationExplainTimeoutMs = 10000
 
 	// Tuner v0.8.5 — Stale-stats detection + ANALYZE (Feature 2).
-	DefaultTunerStaleStatsEstimateSkew        = 10.0
-	DefaultTunerStaleStatsModRatio            = 0.1
-	DefaultTunerStaleStatsAgeMinutes          = 60
-	DefaultTunerAnalyzeMaxTableMB             = 10240 // 10 GB
-	DefaultTunerAnalyzeCooldownMinutes        = 60
-	DefaultTunerAnalyzeMaintenanceThresholdMB = 1024   // 1 GB
-	DefaultTunerAnalyzeTimeoutMs              = 600000 // 10 minutes
-	DefaultTunerMaxConcurrentAnalyze          = 1
+	DefaultTunerStaleStatsEstimateSkew = 10.0
+	DefaultTunerStaleStatsModRatio     = 0.1
+	DefaultTunerStaleStatsAgeMinutes   = 60
+	DefaultTunerAnalyzeMaxTableMB      = 10240 // 10 GB
+	DefaultTunerAnalyzeCooldownMinutes = 60
+	DefaultTunerAnalyzeTimeoutMs       = 600000 // 10 minutes
+	DefaultTunerMaxConcurrentAnalyze   = 1
 
 	// Analyzer v0.8.5 — work_mem role promotion advisor (Feature 3).
 	DefaultAnalyzerWorkMemPromotionThreshold = 5
