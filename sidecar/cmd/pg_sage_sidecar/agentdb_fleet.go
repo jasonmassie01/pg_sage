@@ -7,11 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/pg-sage/sidecar/internal/agentdb"
-	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
@@ -172,10 +169,10 @@ func agentDBMutationGate(mgr *fleet.DatabaseManager) agentdb.MutationGate {
 	}
 }
 
-// connectAgentDBToFleet connects a pool for an agent database and
-// registers it with a collector. The analyzer/executor pipeline is not
-// yet attached for agent DBs (follow-up); this gives snapshot-level
-// monitoring and fleet visibility.
+// connectAgentDBToFleet connects an agent database and builds the same
+// runtime every other mode builds. Its lifetime is the process, not the
+// reconcile pass; its policy and notification rules live in the control
+// database (the meta DB, else the fleet's primary).
 func connectAgentDBToFleet(
 	ctx context.Context,
 	mgr *fleet.DatabaseManager,
@@ -194,28 +191,19 @@ func connectAgentDBToFleet(
 		pool.Close()
 		return
 	}
-	instCtx, cancel := context.WithCancel(parent)
-	workers := &sync.WaitGroup{}
-	dbColl := collector.New(pool, cfg, detectPGVersion(pool),
-		logStructuredWrapper)
-	inst := &fleet.DatabaseInstance{
-		Name:      dbCfg.Name,
-		Config:    dbCfg,
-		Pool:      pool,
-		Collector: dbColl,
-		Cancel:    cancel,
-		Workers:   workers,
-		Status: &fleet.InstanceStatus{
-			Connected:    true,
-			DatabaseName: dbCfg.Database,
-			LastSeen:     time.Now(),
-		},
+	rt, err := buildDatabaseRuntime(parent, databaseRuntimeSpec{
+		Scope: "agentdb", Name: dbCfg.Name, Config: dbCfg, Pool: pool,
+		ControlPool: notificationControlPool(globalMetaState, mgr.PoolForDatabase("all")),
+		ExecMode:    resolveStaticFleetExecMode(dbCfg), Parent: parent,
+	})
+	if err != nil {
+		pool.Close()
+		logWarn("agentdb", "fleet sync: runtime %q: %v", dbCfg.Name, err)
+		return
 	}
-	mgr.RegisterInstance(inst)
-	startInstanceWorker(workers, func() { dbColl.Run(instCtx) })
+	rt.publish(mgr)
 	logInfo("agentdb", "registered agent database %q in fleet", dbCfg.Name)
 }
-
 func agentDBRuntimeParent(_ context.Context) context.Context {
 	if shutdownCtx != nil {
 		return shutdownCtx

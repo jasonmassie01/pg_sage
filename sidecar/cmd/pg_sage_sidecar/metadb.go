@@ -7,21 +7,15 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/auth"
-	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/crypto"
-	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
-	"github.com/pg-sage/sidecar/internal/rca"
-	"github.com/pg-sage/sidecar/internal/retention"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -407,123 +401,23 @@ func prepareStoreDatabaseConnection(
 	return inst, nil
 }
 
+// buildStoreDatabaseRuntime builds a store-managed database's runtime. Its
+// standing policy is scoped to the record and, with notifications, lives
+// in the meta DB the API writes to (G5-B10, G5-B11).
 func buildStoreDatabaseRuntime(
 	ctx context.Context, rec store.DatabaseRecord, dbPool *pgxpool.Pool,
 ) (*fleet.DatabaseInstance, error) {
-	if err := bootstrapManagedDatabaseSchema(ctx, dbPool); err != nil {
-		return nil, fmt.Errorf("bootstrap schema for %q: %w", rec.Name, err)
-	}
-	checks, err := runInstanceChecks(ctx, dbPool)
+	rt, err := buildDatabaseRuntime(ctx, databaseRuntimeSpec{
+		Scope: "meta-db", Name: rec.Name, DatabaseID: rec.ID,
+		Config: storeRecordToDBConfig(rec), Pool: dbPool,
+		ControlPool: notificationControlPool(globalMetaState, nil),
+		ExecMode:    resolveExecMode(rec), Parent: shutdownCtx, RequireChecks: true,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("prerequisite checks for %q: %w", rec.Name, err)
+		return nil, err
 	}
-	dbRuntimeCfg := instanceRuntimeConfig(checks)
-	dbPGVersion := checks.PGVersionNum
-	dbCloudEnv := detectCloudEnv(dbPool)
-
-	// Derive a per-instance context from the process shutdownCtx so
-	// that RemoveInstance can cancel the collector, analyzer, and
-	// orchestrator goroutines without also taking down the whole
-	// process. Without this, deleting a fleet DB closes its pool but
-	// leaves its goroutines spinning on shutdownCtx (they spam "pool
-	// closed" errors until process exit). EmergencyStop intentionally
-	// does not cancel this context; it only blocks action execution.
-	instCtx, instCancel := context.WithCancel(shutdownCtx)
-	instWorkers := &sync.WaitGroup{}
-
-	dbColl := collector.New(
-		dbPool, dbRuntimeCfg, dbPGVersion, logStructuredWrapper,
-	)
-	startInstanceWorker(instWorkers, func() { dbColl.Run(instCtx) })
-
-	// LLM features for meta-db registered databases.
-	dbOpt, dbAdvIface, dbTuner, dbBrief, dbLLMClient, dbLLMMgr :=
-		buildFleetLLMFeatures(dbPool, dbPGVersion, dbColl,
-			rec.Name)
-	releaseLLMClientsOnDone(instCtx, dbLLMMgr)
-
-	// dbTuner is a *tuner.Tuner which may be nil when cfg.Tuner.Enabled
-	// is false. Passing the typed nil directly produces a non-nil
-	// analyzer.QueryTuner interface that panics on Tune(). Normalize
-	// to a true-nil interface before handing to analyzer.New.
-	var qt analyzer.QueryTuner
-	if dbTuner != nil {
-		qt = dbTuner
-	}
-	dbAnal := analyzer.New(
-		dbPool, cfg, dbColl, dbOpt, dbAdvIface, nil, qt,
-		logStructuredWrapper,
-	)
-	dbAnal.WithSupplementalDetector(executor.NewRunawayDetector(
-		dbPool, &cfg.Runaway, logStructuredWrapper,
-	))
-	var dbRCAEng *rca.Engine
-	if cfg.RCA.Enabled {
-		dbRCAEng = rca.NewEngine(&cfg.RCA, logStructuredWrapper)
-		if dbLLMClient != nil {
-			dbRCAEng.WithLLM(dbLLMClient)
-		}
-		dbAnal.WithRCAEngine(newRCAAdapter(instCtx, dbRCAEng, dbPool,
-			rec.Name, logStructuredWrapper))
-	}
-	if dbLLMClient != nil {
-		dbAnal.WithPlanNarrator(analyzer.NewLLMPlanNarrator(
-			dbLLMClient, logStructuredWrapper,
-		))
-	}
-	// Meta instances had no dispatcher at all; rules live in the meta DB
-	// (G5-B10, G7-B05). Configure before Run (G2-B15).
-	dispatcher := sharedNotifyDispatcher(
-		notificationControlPool(globalMetaState, nil),
-	)
-	if dispatcher != nil {
-		dbAnal.WithDispatcher(dispatcher)
-	}
-	dbAnal.WithDatabaseName(rec.Name)
-	startInstanceWorker(instWorkers, func() { dbAnal.Run(instCtx) })
-	if alerts := newInstanceAlertManager(dbPool); alerts != nil {
-		startInstanceWorker(instWorkers, func() { alerts.Run(instCtx) })
-	}
-
-	dbExec := buildExecutor(rec, dbPool, dbAnal, dbCloudEnv)
-	startProviderObservability(instCtx, instWorkers, dbPool, cfg, dbExec, dbRCAEng)
-	if err := startInstanceAutonomy(
-		instCtx, instWorkers, dbPool, cfg, rec.Name, dbExec,
-	); err != nil {
-		instCancel()
-		return nil, fmt.Errorf("start autonomy for %q: %w", rec.Name, err)
-	}
-	dbActionStore := store.NewActionStore(dbPool)
-	if dispatcher != nil {
-		dbExec.WithDispatcher(dispatcher)
-		if dbRCAEng != nil {
-			dbRCAEng.WithDispatcher(dispatcher)
-		}
-	}
-	dbExec.WithDatabaseName(rec.Name)
-	if dbLLMClient != nil {
-		dbExec.WithJustifier(dbLLMClient)
-	}
-	if dbRCAEng != nil {
-		dbRCAEng.WithActionStore(dbActionStore)
-	}
-	startInstanceWorker(instWorkers, func() {
-		store.StartActionExpiry(
-			instCtx, dbActionStore, logStructuredWrapper)
-	})
-
-	inst := newHealthyInstance(
-		rec, dbPool, dbColl, dbAnal, dbExec, instCancel,
-		instWorkers, dbCloudEnv)
-	startInstanceWorker(instWorkers, func() {
-		fleetDBOrchestrator(instCtx, fleetCycleDeps{
-			name: rec.Name, pool: dbPool, exec: dbExec, brief: dbBrief,
-			cleaner: retention.New(dbPool, cfg, logStructuredWrapper),
-		})
-	})
-	return inst, nil
+	return rt.inst, nil
 }
-
 func activateStoreDatabase(inst *fleet.DatabaseInstance) {
 	activateStoreDatabaseWithManager(fleetMgr, inst)
 }
@@ -665,82 +559,6 @@ func detectPGVersion(p *pgxpool.Pool) int {
 		return fallback
 	}
 	return ver
-}
-
-// buildExecutor creates an executor with action store for a
-// store-managed database.
-func buildExecutor(
-	rec store.DatabaseRecord,
-	dbPool *pgxpool.Pool, dbAnal *analyzer.Analyzer,
-	provider string,
-) *executor.Executor {
-	ctx := context.Background()
-	// Honour the YAML-configured trust.ramp_start on first bootstrap
-	// of a store-managed database. Once sage.config has a row, the
-	// stored value wins and configRampStart is ignored.
-	rStart, _ := schema.PersistTrustRampStart(
-		ctx, dbPool, configRampStart,
-	)
-	dbExecCfg := config.Clone(cfg)
-	dbExecCfg.CloudEnvironment = provider
-	dbExec := executor.New(
-		dbPool, dbExecCfg, dbAnal, rStart, logStructuredWrapper,
-	)
-	dbExec.WithAnalyzeSemaphore(analyzeSem)
-	installAzureManagedConfig(dbExec, cfg, provider,
-		dbPool.Config().ConnConfig.Host, "fleet")
-	dbActionStore := store.NewActionStore(dbPool)
-	dbExec.WithActionStore(dbActionStore, resolveExecMode(rec))
-	databaseID := rec.ID
-	// Policy lives in the meta DB the API writes to (G5-B11).
-	if err := dbExec.EnableStandingPolicyWithStore(
-		ctx, notificationControlPool(globalMetaState, nil),
-		cfg.Policy.Profile, &databaseID,
-	); err != nil {
-		logError("fleet", "db %q standing policy unavailable; fail-closed: %v", rec.Name, err)
-	}
-	if err := dbExec.SetTrustLevel(rec.TrustLevel); err != nil {
-		logWarn("fleet", "db %q: invalid trust level %q: %v",
-			rec.Name, rec.TrustLevel, err)
-	}
-	return dbExec
-}
-
-// newHealthyInstance assembles the runtime generation. Publication is
-// deliberately separate so replacements can be checked before a manager swap.
-func newHealthyInstance(
-	rec store.DatabaseRecord, dbPool *pgxpool.Pool,
-	dbColl *collector.Collector, dbAnal *analyzer.Analyzer,
-	dbExec *executor.Executor,
-	cancel context.CancelFunc,
-	workers *sync.WaitGroup,
-	provider string,
-) *fleet.DatabaseInstance {
-	dbCfg := storeRecordToDBConfig(rec)
-	inst := &fleet.DatabaseInstance{
-		Name:             rec.Name,
-		DatabaseID:       rec.ID,
-		Config:           dbCfg,
-		Pool:             dbPool,
-		Collector:        dbColl,
-		Analyzer:         dbAnal,
-		Executor:         dbExec,
-		Cancel:           cancel,
-		Workers:          workers,
-		ExecutorShutdown: dbExec.Shutdown,
-		Status: &fleet.InstanceStatus{
-			Connected:    true,
-			Platform:     provider,
-			TrustLevel:   rec.TrustLevel,
-			DatabaseName: rec.Name,
-			LastSeen:     time.Now(),
-			Capabilities: fleet.CollectProviderCapabilities(
-				context.Background(), dbPool, provider,
-				fleet.ExecutorFamilyExplainer(dbExec),
-			),
-		},
-	}
-	return inst
 }
 
 // storeRecordToDBConfig converts a store.DatabaseRecord to a

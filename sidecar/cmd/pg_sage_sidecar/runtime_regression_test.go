@@ -58,7 +58,7 @@ func applyLLMChange(t *testing.T, mutate func(*config.LLMConfig)) {
 // G5-B04 / G3-B02: disabling the LLM must reach every client that can egress.
 func TestLLMDisableReachesFleetAndOptimizerClients(t *testing.T) {
 	llmTestGlobals(t)
-	_, _, _, _, dbClient, manager := buildFleetLLMFeatures(nil, 170000, nil, "orders")
+	dbClient, manager := newFleetDBLLMClients("orders", true)
 	if dbClient == nil || manager == nil || manager.Optimizer == nil {
 		t.Fatal("fleet LLM runtime was not constructed")
 	}
@@ -82,7 +82,7 @@ func TestLLMDisableReachesFleetAndOptimizerClients(t *testing.T) {
 // G5-B04 scenario B: a rotated model/key must reach existing and new clients.
 func TestLLMRotationReachesExistingAndLaterClients(t *testing.T) {
 	llmTestGlobals(t)
-	_, _, _, _, before, beforeMgr := buildFleetLLMFeatures(nil, 170000, nil, "a")
+	before, beforeMgr := newFleetDBLLMClients("a", true)
 
 	applyLLMChange(t, func(l *config.LLMConfig) { l.Model = "model-two" })
 
@@ -92,7 +92,7 @@ func TestLLMRotationReachesExistingAndLaterClients(t *testing.T) {
 	if got := beforeMgr.Optimizer.Model(); got != "model-two" {
 		t.Fatalf("existing optimizer client model = %q, want model-two", got)
 	}
-	_, _, _, _, after, _ := buildFleetLLMFeatures(nil, 170000, nil, "b")
+	after, _ := newFleetDBLLMClients("b", true)
 	if got := after.Model(); got != "model-two" {
 		t.Fatalf("client built after rotation model = %q, want model-two", got)
 	}
@@ -104,7 +104,7 @@ func TestFleetBudgetAdmitsDatabaseAddedAfterStartup(t *testing.T) {
 	cfg.LLM.FleetTokenBudgetDaily = 1000
 	initializeFleetBudget(nil)
 
-	buildFleetLLMFeatures(nil, 170000, nil, "added-later")
+	newFleetDBLLMClients("added-later", true)
 
 	if !fleetLLMBudget.CanSpend("added-later", 10) {
 		t.Fatal("database added after startup has no LLM budget allocation")

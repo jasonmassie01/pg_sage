@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Every mode builds a database's runtime the same way.** Standalone, YAML fleet,
+  meta-db and AgentDB now share one constructor, so the safety wiring (standing policy
+  gate, emergency stop, managed-config adapter, trust and executor gates, notifications)
+  is identical. What operators will notice:
+  - **AgentDB databases** get the full runtime instead of a collector only: the sage
+    schema is bootstrapped into the agent database, and findings, notifications,
+    retention and actions follow the standing policy gate and a fresh trust ramp.
+  - **Meta-db databases** gain the forecaster, auto_explain plan collection, schema lint,
+    the migration advisor, log-based RCA, hint revalidation and the rule-based tuner
+    without an LLM. The config advisor targets the PostgreSQL database name rather than
+    the instance name.
+  - **YAML fleet and meta-db:** the index optimizer uses auto_explain plans when the
+    extension is available, and databases without an LLM get the scheduled briefing.
+  - **Standalone:** the config advisor applies provider-specific rewrites.
+  - A YAML fleet database whose schema bootstrap fails is shown as failed instead of
+    running without its schema.
+  - Shutdown waits, within its deadline, for every database's workers.
+  - `--meta-db` with `mode: standalone` no longer registers a phantom database.
+
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 
 ### What's new

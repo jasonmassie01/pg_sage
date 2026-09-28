@@ -15,11 +15,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/ledger"
 )
 
-var (
-	standaloneAutonomyMu sync.Mutex
-	standaloneAutonomy   *autonomy.Supervisor
-)
-
 // executorProposalRouter hands custodian proposals to the executor. Every
 // proposal carries the HA state: a replica, or a primary in failover safe
 // mode, is marked IsReplica so the gate refuses mutations. Without an HA
@@ -140,34 +135,6 @@ func autonomyInterval(cfg *config.Config) time.Duration {
 		return time.Minute
 	}
 	return interval
-}
-
-func startStandaloneAutonomy(
-	ctx context.Context, pool *pgxpool.Pool, cfg *config.Config,
-	database string, exec *executor.Executor,
-) error {
-	supervisor, err := newDatabaseAutonomy(pool, cfg, database, exec)
-	if err != nil {
-		return err
-	}
-	supervisor.Start(ctx)
-	standaloneAutonomyMu.Lock()
-	standaloneAutonomy = supervisor
-	standaloneAutonomyMu.Unlock()
-	return nil
-}
-
-func shutdownStandaloneAutonomy(ctx context.Context) {
-	standaloneAutonomyMu.Lock()
-	supervisor := standaloneAutonomy
-	standaloneAutonomy = nil
-	standaloneAutonomyMu.Unlock()
-	if supervisor == nil {
-		return
-	}
-	if err := supervisor.Shutdown(ctx); err != nil {
-		logWarn("shutdown", "autonomy workers: %v", err)
-	}
 }
 
 func startInstanceAutonomy(

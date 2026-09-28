@@ -15,7 +15,6 @@ import (
 )
 
 var supabaseReference = regexp.MustCompile(`^[a-z0-9]{20}$`)
-var standaloneProviderWorkers sync.WaitGroup
 
 // Resolve only the project explicitly selected by a supported database endpoint.
 // Custom DNS must not cause project discovery with an account-wide token.
