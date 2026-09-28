@@ -120,6 +120,14 @@ var excludedExactKeys = map[string]bool{
 	// Sage SRE M0: the fast-path period is read once at startup and must
 	// be 0 or 10-3600 (validated at load), so it is YAML-only.
 	"rca.lock_chain_interval_seconds": true,
+
+	// Sage SRE M2: read once when a database runtime is built (restart
+	// lifecycle) and validated at load, so they are YAML-only.
+	"sre.automatic_start":          true,
+	"sre.trigger_interval_seconds": true,
+	"sre.sample_interval_seconds":  true,
+	"sre.evidence_retention_days":  true,
+	"sre.timeline_retention_days":  true,
 }
 
 // structFieldPaths walks a struct type using reflection and returns

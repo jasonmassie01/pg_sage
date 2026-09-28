@@ -1133,6 +1133,31 @@
     "default": 0,
     "doc": "How often to run the full schema lint scan. Default: 60."
   },
+  "sre.automatic_start": {
+    "type": "bool",
+    "default": false,
+    "doc": "Start a read-only investigation for each open lock, connection or WAL incident and plan_regression finding. Investigations never execute actions. Default: false."
+  },
+  "sre.evidence_retention_days": {
+    "type": "int",
+    "default": 30,
+    "doc": "Days a finished, unpinned investigation keeps its probe evidence (a tombstone records the delete). 1 to timeline_retention_days. Default: 30."
+  },
+  "sre.sample_interval_seconds": {
+    "type": "int",
+    "default": 5,
+    "doc": "Seconds between the two samples connection and WAL investigations compare, 1-30. Default: 5."
+  },
+  "sre.timeline_retention_days": {
+    "type": "int",
+    "default": 90,
+    "doc": "Days a finished, unpinned investigation is kept at all, leaving a tombstone. evidence_retention_days to 3650. Pinned and running ones are kept. Default: 90."
+  },
+  "sre.trigger_interval_seconds": {
+    "type": "int",
+    "default": 15,
+    "doc": "Seconds between checks for new triggers and pending investigations, 5-600. Default: 15."
+  },
   "trust.cascade_cooldown_cycles": {
     "type": "int",
     "default": 3,

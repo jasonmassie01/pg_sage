@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/sre"
 )
 
 // DatabaseInstance holds the runtime state for a single managed database.
@@ -28,8 +29,12 @@ type DatabaseInstance struct {
 	Collector  *collector.Collector
 	Analyzer   *analyzer.Analyzer
 	Executor   *executor.Executor
-	Status     *InstanceStatus
-	Stopped    bool
+	// Investigations is the Sage SRE investigator of this database: the
+	// API and MCP tools read investigations through it. Nil when the
+	// investigator could not be built.
+	Investigations *sre.Service
+	Status         *InstanceStatus
+	Stopped        bool
 	// StoppedBy and StoppedAt attribute the active emergency stop. Like
 	// Stopped, they are guarded by the manager lock.
 	StoppedBy string

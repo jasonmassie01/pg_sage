@@ -48,15 +48,19 @@ type rcaAdapterDeps struct {
 	cfg     *config.Config
 	logFn   func(string, string, ...any)
 	workers *sync.WaitGroup // the instance worker group
+	// probes is the database's catalog probe runner, shared with the
+	// Sage SRE investigator (one probe at a time per database). Nil
+	// leaves narration without probe evidence.
+	probes *probes.Runner
 }
 
 // newRCAAdapter binds the engine to its database identity, store and
-// lifecycle context, attaches the probe catalog and starts the fast path.
+// lifecycle context, attaches the probe runner and starts the fast path.
 func newRCAAdapter(d rcaAdapterDeps) *rcaAdapter {
 	d.eng.WithDatabaseName(d.name)
-	a := &rcaAdapter{e: d.eng, ctx: d.ctx, pool: d.pool, logFn: d.logFn}
-	if d.pool != nil {
-		a.probes = probes.NewRunner(d.pool, probes.Catalog(), sreProbeLimiter)
+	a := &rcaAdapter{e: d.eng, ctx: d.ctx, pool: d.pool, logFn: d.logFn,
+		probes: d.probes}
+	if a.probes != nil {
 		d.eng.WithProbes(a.probes)
 	}
 	a.startFastPath(d.cfg, d.workers)
