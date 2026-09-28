@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS sage.table_contract (
     table_name          text NOT NULL,
     append_only         boolean NOT NULL DEFAULT false,
     retention_interval interval,
+    retention_column    text,
     expected_pk         text,
     exemptions          jsonb NOT NULL DEFAULT '[]'::jsonb,
     declared_by         text NOT NULL,
@@ -54,6 +55,11 @@ CREATE TABLE IF NOT EXISTS sage.retention_run (
     candidate_rows      bigint NOT NULL DEFAULT 0,
     deleted_rows        bigint NOT NULL DEFAULT 0,
     disposition         text NOT NULL,
+    relation_oid        oid,
+    column_attnum       smallint,
+    column_type         text,
+    contract_id         bigint,
+    contract_updated_at timestamptz,
     created_at          timestamptz NOT NULL DEFAULT now(),
     CHECK (disposition IN ('dry_run', 'applied', 'failed'))
 );

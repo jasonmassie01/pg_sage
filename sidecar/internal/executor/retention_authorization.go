@@ -54,8 +54,9 @@ func retentionDeleteContract() ActionContract {
 		ProviderSupport:     portableActionProviders(),
 		RequiredPermissions: []string{"DELETE on the contracted table"},
 		Prechecks: []string{
-			"explicit append-only retention contract",
-			"reviewed dry run for the same column and window",
+			"explicit append-only retention contract with an owner-declared column",
+			"reviewed dry run for the same relation, column identity, contract " +
+				"version and window",
 		},
 		Guardrails:      []string{"statement_timeout", "lock_timeout", "bounded batch"},
 		ExecutionPlan:   []string{"DELETE one bounded batch by (tableoid, ctid)"},

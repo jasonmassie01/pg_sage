@@ -53,8 +53,10 @@ func preflightEnforcer(t *testing.T, partitioned bool) (
 	}
 	t.Cleanup(func() {
 		_, _ = p.Exec(ctx, "DELETE FROM sage.retention_run WHERE table_name=$1", table)
+		_, _ = p.Exec(ctx, "DELETE FROM sage.table_contract WHERE table_name=$1", table)
 		_, _ = p.Exec(ctx, "DROP TABLE IF EXISTS "+table+" CASCADE")
 	})
+	declareRetentionContract(t, p, table, "created_at")
 	_, err := policy.NewStore(p).Bootstrap(ctx, policy.Scope{}, "unattended", "preflight")
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +64,8 @@ func preflightEnforcer(t *testing.T, partitioned bool) (
 	item := schemaguard.Remediation{
 		Invariant: schemaguard.Invariant{
 			Schema: "public", Table: table, RetentionColumn: "created_at"},
-		Contract: schemaguard.TableContract{RetentionWindow: 30 * 24 * time.Hour},
+		Contract: schemaguard.TableContract{RetentionWindow: 30 * 24 * time.Hour,
+			RetentionColumn: "created_at"},
 		Decision: schemaguard.Decision{Disposition: schemaguard.DispositionDryRun},
 	}
 	e := &postgresRetentionEnforcer{

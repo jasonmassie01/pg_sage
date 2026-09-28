@@ -81,6 +81,10 @@ func planRetention(request Request, decision Decision) Decision {
 		decision.Disposition, decision.Reason = DispositionPark, "retention contract is incomplete"
 		return decision
 	}
+	if reason := retentionColumnParkReason(request); reason != "" {
+		decision.Disposition, decision.Reason = DispositionPark, reason
+		return decision
+	}
 	if !request.Policy.AllowRetentionApply {
 		decision.Disposition, decision.Reason = DispositionPark, "policy does not authorize retention"
 		return decision
@@ -92,6 +96,28 @@ func planRetention(request Request, decision Decision) Decision {
 	decision.Disposition, decision.AutoApply, decision.MayDeleteData =
 		DispositionApply, true, true
 	return decision
+}
+
+// retentionColumnParkReason returns why retention cannot act on the
+// owner-declared column, or "" when it can. pg_sage never deletes by an
+// inferred column: its suggestion is surfaced for the owner to confirm.
+func retentionColumnParkReason(request Request) string {
+	declared := request.Contract.RetentionColumn
+	suggestion := "none (no created_at or occurred_at timestamptz, timestamp or date column)"
+	if request.Invariant.RetentionSuggestion != "" {
+		suggestion = request.Invariant.RetentionSuggestion
+	}
+	remedy := "; suggested: " + suggestion +
+		" — re-declare the contract with retention.column to enable deletes"
+	switch {
+	case declared == "":
+		return "retention column not declared" + remedy
+	case request.Invariant.RetentionColumn != declared:
+		return fmt.Sprintf("declared retention column %q is missing, dropped or not "+
+			"timestamptz, timestamp or date", declared) + remedy
+	default:
+		return ""
+	}
 }
 
 func exempted(exemptions []InvariantKind, kind InvariantKind) bool {

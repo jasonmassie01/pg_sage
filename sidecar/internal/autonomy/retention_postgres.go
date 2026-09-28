@@ -58,7 +58,11 @@ func (enforcer *postgresRetentionEnforcer) Apply(
 		return errors.New("retention enforcement database is unavailable")
 	}
 	if item.Contract.RetentionWindow <= 0 || item.Invariant.RetentionColumn == "" {
-		return errors.New("retention enforcement requires a time column and window")
+		return errors.New("retention enforcement requires a declared time column and window")
+	}
+	target, err := resolveRetentionTarget(ctx, enforcer.pool, item.Invariant)
+	if err != nil {
+		return err
 	}
 	cutoff := enforcer.currentTime().Add(-item.Contract.RetentionWindow)
 	candidates, err := enforcer.candidateCount(ctx, item.Invariant, cutoff)
@@ -66,22 +70,24 @@ func (enforcer *postgresRetentionEnforcer) Apply(
 		return err
 	}
 	if item.Decision.Disposition == schemaguard.DispositionDryRun {
-		return enforcer.record(ctx, item.Invariant, cutoff, candidates, 0, "dry_run")
+		return enforcer.record(ctx, item.Invariant, target, cutoff, candidates, 0, "dry_run")
 	}
 	if item.Decision.Disposition != schemaguard.DispositionApply {
 		return errors.New("retention enforcement disposition is not actionable")
 	}
-	if err := enforcer.requireReviewedDryRun(ctx, item, cutoff, candidates); err != nil {
+	if err := enforcer.requireReviewedDryRun(ctx, item, target, cutoff,
+		candidates); err != nil {
 		return err
 	}
 	if err := enforcer.requirePolicyConsent(ctx); err != nil {
 		return err
 	}
-	return enforcer.authorizedDelete(ctx, item, cutoff, candidates)
+	return enforcer.authorizedDelete(ctx, item, target, cutoff, candidates)
 }
 
 func (enforcer *postgresRetentionEnforcer) authorizedDelete(
-	ctx context.Context, item schemaguard.Remediation, cutoff time.Time, candidates int64,
+	ctx context.Context, item schemaguard.Remediation, target retentionTarget,
+	cutoff time.Time, candidates int64,
 ) error {
 	if enforcer.authorize == nil {
 		return errors.New("retention authorization is unavailable; nothing deleted")
@@ -95,7 +101,7 @@ func (enforcer *postgresRetentionEnforcer) authorizedDelete(
 	if err := enforcer.authorize(ctx, intent); err != nil {
 		return fmt.Errorf("retention delete withheld: %w", err)
 	}
-	_, err := enforcer.deleteBatch(ctx, item.Invariant, cutoff, candidates)
+	_, err := enforcer.deleteBatch(ctx, item.Invariant, target, cutoff, candidates)
 	return err
 }
 
@@ -130,36 +136,50 @@ func (enforcer *postgresRetentionEnforcer) candidateCount(
 	return count, nil
 }
 
-// requireReviewedDryRun demands a dry run for the same relation, retention
-// column and window that is at least retentionDryRunMinAge old. When no dry
-// run matches the current semantics at all, a fresh one is recorded so the
-// review clock starts; deletion never proceeds on stale or foreign evidence.
+// requireReviewedDryRun demands a dry run for the same relation, declared
+// column identity, contract version and window that is at least
+// retentionDryRunMinAge old and whose candidate count still describes the
+// eligible population. When none qualifies and no dry run is already under
+// review, a fresh one is recorded so the review clock starts; deletion never
+// proceeds on stale, drifted or foreign evidence. Waiting for review is not
+// a failure: it returns a schemaguard.ParkedRoute naming when review ends.
 func (enforcer *postgresRetentionEnforcer) requireReviewedDryRun(
-	ctx context.Context, item schemaguard.Remediation, cutoff time.Time, candidates int64,
+	ctx context.Context, item schemaguard.Remediation, target retentionTarget,
+	cutoff time.Time, candidates int64,
 ) error {
-	var matching, reviewed int64
-	err := enforcer.pool.QueryRow(ctx, `SELECT count(*),
-		count(*) FILTER (WHERE created_at <= now() - make_interval(secs => $5))
-		FROM sage.retention_run
-		WHERE schema_name=$1 AND table_name=$2 AND retention_column=$3
-		  AND disposition='dry_run'
-		  AND abs(extract(epoch FROM (created_at - cutoff_at)) - $4) < $6
-		  AND created_at > now() - make_interval(secs => $7)`,
-		item.Invariant.Schema, item.Invariant.Table, item.Invariant.RetentionColumn,
-		item.Contract.RetentionWindow.Seconds(), retentionDryRunMinAge.Seconds(),
-		retentionWindowTolerance.Seconds(), retentionDryRunMaxAge.Seconds(),
-	).Scan(&matching, &reviewed)
+	state, err := enforcer.dryRunState(ctx, item, target)
 	if err != nil {
-		return fmt.Errorf("read retention dry-run state: %w", err)
+		return err
 	}
-	if reviewed > 0 {
+	drifted := state.reviewed > 0 &&
+		retentionCandidatesDrifted(state.reviewedCandidates, candidates)
+	if state.reviewed > 0 && !drifted {
 		return nil
 	}
-	if matching == 0 {
-		if err := enforcer.record(ctx, item.Invariant, cutoff, candidates, 0,
+	if state.pending == 0 {
+		if err := enforcer.record(ctx, item.Invariant, target, cutoff, candidates, 0,
 			"dry_run"); err != nil {
 			return err
 		}
+		if state, err = enforcer.dryRunState(ctx, item, target); err != nil {
+			return err
+		}
+	}
+	return &schemaguard.ParkedRoute{
+		Reason: "retention dry run in review until " +
+			state.reviewUntil.UTC().Format(time.RFC3339),
+		Err: retentionPendingCause(item, candidates, state, drifted),
+	}
+}
+
+func retentionPendingCause(item schemaguard.Remediation, candidates int64,
+	state retentionDryRunState, drifted bool,
+) error {
+	if drifted {
+		return fmt.Errorf("%w: %s.%s has %d retention candidates but its reviewed dry "+
+			"run described %d; a new dry run must pass review", ErrRetentionDryRunPending,
+			item.Invariant.Schema, item.Invariant.Table, candidates,
+			state.reviewedCandidates)
 	}
 	return fmt.Errorf("%w: %s.%s needs a dry run for column %s and window %s "+
 		"at least %s old", ErrRetentionDryRunPending, item.Invariant.Schema,
@@ -170,12 +190,13 @@ func (enforcer *postgresRetentionEnforcer) requireReviewedDryRun(
 // deleteBatch deletes at most one bounded batch. Victims are bound to
 // (tableoid, ctid) — a ctid alone repeats across partitions — and the cutoff
 // is re-checked on the row actually deleted. Timeouts bound lock waits.
+// The declared column's identity is re-verified under a table lock first.
 // The 'applied' audit row is written in the same transaction as the delete:
 // either both commit or neither does, so a deletion can never exist without
 // its durable outcome record (and an ambiguous commit leaves no half state).
 func (enforcer *postgresRetentionEnforcer) deleteBatch(
-	ctx context.Context, invariant schemaguard.Invariant, cutoff time.Time,
-	candidates int64,
+	ctx context.Context, invariant schemaguard.Invariant, target retentionTarget,
+	cutoff time.Time, candidates int64,
 ) (int64, error) {
 	tx, err := enforcer.pool.Begin(ctx)
 	if err != nil {
@@ -190,13 +211,16 @@ func (enforcer *postgresRetentionEnforcer) deleteBatch(
 			return 0, fmt.Errorf("configure retention batch: %w", err)
 		}
 	}
+	if err := verifyRetentionTargetInTx(ctx, tx, invariant, target); err != nil {
+		return 0, err
+	}
 	query := retentionDeleteSQL(qualifiedIdentifier(invariant),
 		quoteIdentifier(invariant.RetentionColumn))
 	tag, err := tx.Exec(ctx, query, cutoff, enforcer.limit())
 	if err != nil {
 		return 0, fmt.Errorf("apply bounded retention batch: %w", err)
 	}
-	if err := recordRetentionRun(ctx, tx, invariant, cutoff, candidates,
+	if err := recordRetentionRun(ctx, tx, invariant, target, cutoff, candidates,
 		tag.RowsAffected(), "applied"); err != nil {
 		return 0, fmt.Errorf("retention batch rolled back: %w", err)
 	}
@@ -223,10 +247,10 @@ func (enforcer *postgresRetentionEnforcer) limit() int {
 }
 
 func (enforcer *postgresRetentionEnforcer) record(
-	ctx context.Context, invariant schemaguard.Invariant, cutoff time.Time,
-	candidates, deleted int64, disposition string,
+	ctx context.Context, invariant schemaguard.Invariant, target retentionTarget,
+	cutoff time.Time, candidates, deleted int64, disposition string,
 ) error {
-	return recordRetentionRun(ctx, enforcer.pool, invariant, cutoff,
+	return recordRetentionRun(ctx, enforcer.pool, invariant, target, cutoff,
 		candidates, deleted, disposition)
 }
 
@@ -236,13 +260,17 @@ type retentionExecer interface {
 
 func recordRetentionRun(
 	ctx context.Context, db retentionExecer, invariant schemaguard.Invariant,
-	cutoff time.Time, candidates, deleted int64, disposition string,
+	target retentionTarget, cutoff time.Time, candidates, deleted int64,
+	disposition string,
 ) error {
 	_, err := db.Exec(ctx, `INSERT INTO sage.retention_run
 		(schema_name, table_name, retention_column, cutoff_at,
-		 candidate_rows, deleted_rows, disposition)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)`, invariant.Schema, invariant.Table,
-		invariant.RetentionColumn, cutoff, candidates, deleted, disposition)
+		 candidate_rows, deleted_rows, disposition, relation_oid, column_attnum,
+		 column_type, contract_id, contract_updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, invariant.Schema,
+		invariant.Table, invariant.RetentionColumn, cutoff, candidates, deleted,
+		disposition, target.relationOID, target.columnAttnum, target.columnType,
+		target.contractID, target.contractUpdatedAt)
 	if err != nil {
 		return fmt.Errorf("record retention enforcement: %w", err)
 	}

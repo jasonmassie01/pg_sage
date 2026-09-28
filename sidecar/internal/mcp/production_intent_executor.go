@@ -97,14 +97,15 @@ func (executor *ProductionIntentExecutor) declareTableContract(
 	if err != nil {
 		return WriteOutcome{}, err
 	}
-	retention, err := retentionText(input.Retention)
+	retention, err := parseRetention(input.Retention)
 	if err != nil {
 		return WriteOutcome{}, err
 	}
 	return executor.store.DeclareTableContract(ctx, TableContractDeclaration{
 		DatabaseID: request.DatabaseID, Schema: schemaName, Table: tableName,
-		AppendOnly: input.AppendOnly, Retention: retention,
-		ExpectedPK: strings.TrimSpace(input.ExpectedPK), Exemptions: input.Exemptions,
+		AppendOnly: input.AppendOnly, Retention: retention.Interval,
+		RetentionColumn: retention.Column,
+		ExpectedPK:      strings.TrimSpace(input.ExpectedPK), Exemptions: input.Exemptions,
 		DeclaredBy: ActorFromContext(ctx), EvidenceID: decision.EvidenceID,
 	})
 }
@@ -308,21 +309,4 @@ func qualifiedName(value string) (string, string, error) {
 		return "", "", errors.New("table must be a schema-qualified name")
 	}
 	return parts[0], parts[1], nil
-}
-
-func retentionText(raw json.RawMessage) (string, error) {
-	if len(raw) == 0 || string(raw) == "null" {
-		return "", nil
-	}
-	var text string
-	if json.Unmarshal(raw, &text) == nil {
-		return strings.TrimSpace(text), nil
-	}
-	var value struct {
-		Interval string `json:"interval"`
-	}
-	if json.Unmarshal(raw, &value) != nil || strings.TrimSpace(value.Interval) == "" {
-		return "", errors.New("retention must be an interval string")
-	}
-	return strings.TrimSpace(value.Interval), nil
 }

@@ -215,6 +215,34 @@ overrides for XID and disk emergencies. Use `staffed` for narrow maintenance
 windows without deadline overrides. Clone-backed migration rehearsal defaults
 to disabled (`clone.provider: none`) and stale clones are recommendation-only.
 
+#### Retention contracts
+
+The only way pg_sage deletes user rows is a retention contract declared with the
+MCP tool `declare_table_contract`. The owner names both the window and the column
+whose age defines it; pg_sage never infers the column:
+
+```json
+{"table": "public.events", "append_only": true,
+ "retention": {"interval": "90 days", "column": "ingested_at"}}
+```
+
+- `retention.column` is required whenever `retention.interval` is set. It must
+  exist, not be dropped, and be `timestamptz`, `timestamp` or `date`. On a
+  partitioned table a column that is not the partition key is accepted with a
+  warning: each retention batch then scans every partition.
+- A contract without a usable column parks (deletes nothing). The ledger reason
+  shows pg_sage's suggested column, for example `retention column not declared;
+  suggested: created_at — re-declare the contract with retention.column to
+  enable deletes`.
+- The first cycle is always a dry run. Deletion starts only after a dry run at
+  least 24 hours old (and at most 7 days) for the same table (by OID), column
+  (by attnum and type), contract version and window. Renaming or swapping the
+  column, rebuilding the table, re-declaring the contract, or the eligible row
+  count growing past 2x + 100 of the reviewed dry run starts a new dry run.
+- Each batch deletes at most 1,000 rows under a `ROW EXCLUSIVE` table lock, after
+  re-checking the column identity in the same transaction, and requires standing
+  policy consent to the `retention` change class.
+
 ### Retention
 
 | Parameter | Default | Description |

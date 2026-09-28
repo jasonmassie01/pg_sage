@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+### Behaviour changes
+
+- **Retention deletes need an owner-declared column (D5).** `declare_table_contract`
+  now takes `retention: {"interval": "...", "column": "..."}`; an interval without a
+  column (including the old bare-string form) is rejected, and the column must exist
+  and be `timestamptz`, `timestamp` or `date`. pg_sage no longer guesses `created_at` or
+  `occurred_at`. **Existing retention contracts pause** (no deletes) until they are
+  re-declared with a column; the ledger park reason shows the suggested column, e.g.
+  `retention column not declared; suggested: created_at — re-declare the contract with
+  retention.column to enable deletes`. Count affected contracts with
+  `SELECT count(*) FROM sage.table_contract WHERE append_only AND retention_interval IS
+  NOT NULL AND retention_column IS NULL`. The upgrade adds
+  `sage.table_contract.retention_column` without backfilling it.
+- **Dry runs are bound to identity, not names.** A reviewed dry run now authorizes
+  deletion only for the same table OID, column attnum and type, and contract version.
+  Renaming or swapping the column, rebuilding the table, re-declaring the contract, or
+  eligible rows growing past 2x + 100 of the dry run's count starts a new 24-hour
+  review. Dry runs recorded before this release no longer qualify. Each delete batch
+  locks the table `ROW EXCLUSIVE` and re-checks the column before deleting.
+
+### Fixes
+
+- A retention contract that cannot act no longer stops the schema scan: later
+  invariants (such as missing foreign-key indexes) are still planned in the same cycle.
+- Repeated contract declarations with a NULL `database_id` no longer produce duplicate
+  retention invariants; the newest declaration wins.
+
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 
 ### What's new
