@@ -226,7 +226,16 @@ func buildFleetParity(
 	name := base.Postgres.Database
 	cfg.Databases = []config.DatabaseConfig{parityDatabaseConfig(base, name)}
 	initFleetMultiDB()
-	return fleetMgr.GetInstance(name)
+	inst := fleetMgr.GetInstance(name)
+	if inst != nil && inst.Pool != nil {
+		// initFleetMultiDB registers the database in sage.databases.
+		control := inst.Pool
+		t.Cleanup(func() {
+			_, _ = control.Exec(context.Background(),
+				"DELETE FROM sage.databases WHERE name = $1", name)
+		})
+	}
+	return inst
 }
 
 func buildMetaParity(
