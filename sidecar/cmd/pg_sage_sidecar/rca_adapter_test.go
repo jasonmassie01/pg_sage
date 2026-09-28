@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -52,8 +53,9 @@ func TestRCAAdapterStampsIdentityAndPersists(t *testing.T) {
 
 	cfg := rcaAdapterTestConfig()
 	eng := rca.NewEngine(&cfg.RCA, func(string, string, ...any) {})
-	a := newRCAAdapter(ctx, eng, pool, alias,
-		func(string, string, ...any) {})
+	a := newRCAAdapter(rcaAdapterDeps{ctx: ctx, eng: eng, pool: pool,
+		name: alias, cfg: cfg, logFn: func(string, string, ...any) {},
+		workers: &sync.WaitGroup{}})
 	a.Analyze(saturatedSnapshot(), nil, cfg, nil)
 	if err := a.PersistIncidents(ctx, pool); err != nil {
 		t.Fatalf("PersistIncidents: %v", err)
@@ -85,12 +87,13 @@ func TestRCAAdapterSkipsCycleWhenStateCannotLoad(t *testing.T) {
 	cfg := rcaAdapterTestConfig()
 	eng := rca.NewEngine(&cfg.RCA, func(string, string, ...any) {})
 	var warned bool
-	a := newRCAAdapter(ctx, eng, pool, "unreachable",
-		func(level, _ string, _ ...any) {
+	a := newRCAAdapter(rcaAdapterDeps{ctx: ctx, eng: eng, pool: pool,
+		name: "unreachable", cfg: cfg, workers: &sync.WaitGroup{},
+		logFn: func(level, _ string, _ ...any) {
 			if level == "WARN" {
 				warned = true
 			}
-		})
+		}})
 	a.Analyze(saturatedSnapshot(), nil, cfg, nil)
 	if n := len(eng.ActiveIncidents()); n != 0 {
 		t.Fatalf("active incidents = %d, want 0 when hydrate failed", n)
@@ -100,8 +103,11 @@ func TestRCAAdapterSkipsCycleWhenStateCannotLoad(t *testing.T) {
 	}
 }
 
-// TestRCAAdapterFastPathLifecycle: the first analyzer cycle starts the
-// lock-chain fast path once; interval 0 leaves it off.
+// TestRCAAdapterFastPathLifecycle: registration starts the lock-chain
+// fast path once, without waiting for an analyzer cycle (whose first run
+// usually finds no snapshot yet, which delayed the fast path by a whole
+// analyzer interval), on the instance worker group; interval 0 leaves it
+// off.
 func TestRCAAdapterFastPathLifecycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -115,21 +121,71 @@ func TestRCAAdapterFastPathLifecycle(t *testing.T) {
 
 	on := rcaAdapterTestConfig()
 	on.RCA.LockChainIntervalSeconds = 60
-	a := newRCAAdapter(ctx, rca.NewEngine(&on.RCA, noLog), pool, "db", noLog)
-	a.Analyze(saturatedSnapshot(), nil, on, nil)
+	var workers sync.WaitGroup
+	a := newRCAAdapter(rcaAdapterDeps{ctx: ctx, eng: rca.NewEngine(&on.RCA, noLog),
+		pool: pool, name: "db", cfg: on, logFn: noLog, workers: &workers})
 	first := a.fastPath
 	if first == nil || first.Interval() != 60*time.Second {
-		t.Fatalf("fast path = %v, want started at 60s", first)
+		t.Fatalf("fast path = %v, want started at registration at 60s", first)
 	}
 	a.Analyze(saturatedSnapshot(), nil, on, nil)
+	a.Analyze(saturatedSnapshot(), nil, on, nil)
 	if a.fastPath != first {
-		t.Fatal("second analyzer cycle started another fast path")
+		t.Fatal("an analyzer cycle started another fast path")
 	}
 
 	off := rcaAdapterTestConfig() // lock_chain_interval_seconds: 0
-	b := newRCAAdapter(ctx, rca.NewEngine(&off.RCA, noLog), pool, "db", noLog)
-	b.Analyze(saturatedSnapshot(), nil, off, nil)
+	b := newRCAAdapter(rcaAdapterDeps{ctx: ctx, eng: rca.NewEngine(&off.RCA, noLog),
+		pool: pool, name: "db", cfg: off, logFn: noLog, workers: &workers})
 	if b.fastPath != nil {
 		t.Fatal("interval 0 must leave the fast path disabled")
+	}
+}
+
+// The fast-path goroutine belongs to the instance worker group, so an
+// instance shutdown waits for it instead of closing the pool under it.
+func TestRCAAdapterFastPathIsTrackedByWorkers(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	pool, err := pgxpool.New(context.Background(),
+		"postgres://nobody@127.0.0.1:1/none?sslmode=disable&connect_timeout=1")
+	if err != nil {
+		t.Fatalf("pool config: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	noLog := func(string, string, ...any) {}
+	c := rcaAdapterTestConfig()
+	c.RCA.LockChainIntervalSeconds = 60
+	var workers sync.WaitGroup
+	newRCAAdapter(rcaAdapterDeps{ctx: ctx, eng: rca.NewEngine(&c.RCA, noLog),
+		pool: pool, name: "db", cfg: c, logFn: noLog, workers: &workers})
+	done := make(chan struct{})
+	go func() { workers.Wait(); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("the worker group did not track the running fast path")
+	case <-time.After(100 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the fast path did not stop with the instance context")
+	}
+}
+
+func TestRCAAdapterWithoutWorkerGroupDoesNotStartUntracked(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	var warned bool
+	c := rcaAdapterTestConfig()
+	c.RCA.LockChainIntervalSeconds = 60
+	a := newRCAAdapter(rcaAdapterDeps{ctx: ctx,
+		eng:  rca.NewEngine(&c.RCA, func(string, string, ...any) {}),
+		name: "db", cfg: c, logFn: func(level, _ string, _ ...any) {
+			warned = warned || level == "WARN"
+		}})
+	if a.fastPath != nil || !warned {
+		t.Fatalf("fast path without pool/workers: started=%v warned=%v",
+			a.fastPath != nil, warned)
 	}
 }

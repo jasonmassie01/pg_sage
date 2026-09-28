@@ -450,3 +450,9 @@ func resourceName(value string) string {
 	}
 	return out
 }
+
+// IsCloudProvider reports whether provider (after normalization) is a
+// cloud provider rather than the local Postgres connection.
+func IsCloudProvider(provider string) bool {
+	return cloudProvider(provider)
+}

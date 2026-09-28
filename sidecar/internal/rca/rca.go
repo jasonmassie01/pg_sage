@@ -117,6 +117,8 @@ type Engine struct {
 	logReplayCutoff time.Time
 	store           *pgxpool.Pool
 	hydrated        bool
+	// probes runs catalog probes for narration evidence (Sage SRE M1).
+	probes ProbeRunner
 	// fastFired records signals the lock-chain fast path observed since
 	// the last analyzer cycle; that cycle treats them as still firing.
 	fastFired map[string]bool

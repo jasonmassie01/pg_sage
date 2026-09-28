@@ -29,6 +29,7 @@ func TestRuntimeParityEquivalentDatabase(t *testing.T) {
 	markFixtureAsAzure(t, dsn)
 	stubAzureToken(t, nil)
 	base := parityBaseConfig(t, dsn)
+	captureParityRuntimes(t)
 	// D8: a stop persisted in the database must be restored when each
 	// mode registers the runtime, not only when an operator acts again.
 	for _, stopped := range []bool{false, true} {
@@ -93,6 +94,7 @@ func assertParityProbe(
 	}
 	want := map[string]string{
 		"io_admission": "true", "value_source": "own pool",
+		"sre_fast_path": "instance workers", "sre_probes": "true",
 		"stopped": fmt.Sprint(stopped), "stop_attributed": fmt.Sprint(stopped),
 		"collector": "true", "analyzer": "true", "executor": "true",
 		"cancel": "true", "workers": "true",
@@ -125,10 +127,13 @@ func parityProbe(inst *fleet.DatabaseInstance) map[string]string {
 	if status.PGVersion != "" && status.PGVersion != "unknown" {
 		version = "known"
 	}
+	rt := parityRuntimes[inst.Name]
 	return map[string]string{
-		"io_admission": fmt.Sprint(settings.IOEvidence),
-		"value_source": parityValueSource(inst),
-		"stopped":      fmt.Sprint(fleetMgr.InstanceStopped(inst)),
+		"sre_fast_path": paritySREFastPath(rt, inst),
+		"sre_probes":    fmt.Sprint(parityProbesAttached(rt)),
+		"io_admission":  fmt.Sprint(settings.IOEvidence),
+		"value_source":  parityValueSource(inst),
+		"stopped":       fmt.Sprint(fleetMgr.InstanceStopped(inst)),
 		"stop_attributed": fmt.Sprint(inst.StoppedBy == "parity-test" &&
 			!inst.StoppedAt.IsZero()),
 		"collector": fmt.Sprint(inst.Collector != nil),
@@ -150,6 +155,37 @@ func parityProbe(inst *fleet.DatabaseInstance) map[string]string {
 		"status.platform":      status.Platform, "status.trust": status.TrustLevel,
 		"status.pg_version": version, "status.connected": fmt.Sprint(status.Connected),
 	}
+}
+
+// parityRuntimes records every runtime a parity build completes, by name.
+var parityRuntimes = map[string]*databaseRuntime{}
+
+func captureParityRuntimes(t *testing.T) {
+	t.Helper()
+	old := runtimeBuilt
+	runtimeBuilt = func(rt *databaseRuntime) { parityRuntimes[rt.spec.Name] = rt }
+	t.Cleanup(func() {
+		runtimeBuilt = old
+		parityRuntimes = map[string]*databaseRuntime{}
+	})
+}
+
+// paritySREFastPath reports whether the SRE lock-chain fast path runs on the
+// runtime's own worker group (the instance drains it on removal).
+func paritySREFastPath(rt *databaseRuntime, inst *fleet.DatabaseInstance) string {
+	switch {
+	case rt == nil || rt.rcaAdapter == nil:
+		return "no rca adapter"
+	case rt.rcaAdapter.fastPath == nil:
+		return "not started"
+	case rt.workers != inst.Workers:
+		return "foreign workers"
+	}
+	return "instance workers"
+}
+
+func parityProbesAttached(rt *databaseRuntime) bool {
+	return rt != nil && rt.rcaAdapter != nil && rt.rcaAdapter.probes != nil
 }
 
 // parityValueSource reports whether the value ledger (D3) reads this
@@ -206,6 +242,7 @@ func parityBaseConfig(t *testing.T, dsn string) *config.Config {
 	base.Trust.Level = "advisory"
 	base.Collector.IntervalSeconds, base.Analyzer.IntervalSeconds = 3600, 3600
 	base.LLM.Enabled = false
+	base.RCA.Enabled, base.RCA.LockChainIntervalSeconds = true, 3600
 	base.Azure.SubscriptionID, base.Azure.ResourceGroup = "sub-parity", "rg-parity"
 	base.Azure.ServerName = "parity-server"
 	base.Postgres = config.PostgresConfig{

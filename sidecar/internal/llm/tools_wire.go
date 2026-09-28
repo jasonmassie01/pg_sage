@@ -105,7 +105,7 @@ func buildToolRequest(
 // exchangeTools performs one budgeted, throttled provider exchange.
 func (c *Client) exchangeTools(
 	ctx, requestCtx context.Context, cfg config.LLMConfig,
-	generation uint64, req toolChatRequest, tools []ToolSpec,
+	generation uint64, req toolChatRequest, tools []ToolSpec, call Budgeter,
 ) (ToolResult, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -117,15 +117,21 @@ func (c *Client) exchangeTools(
 	}
 	success := false
 	defer func() { c.releaseThrottle(key, success) }()
+	callHeld, err := reserveCall(call, estimateTokens(string(body))+req.MaxTokens)
+	if err != nil {
+		return ToolResult{}, err
+	}
 	reservation, err := c.reserveBudget(cfg, req.MaxTokens,
 		externalReservation(string(body), "", req.MaxTokens))
 	if err != nil {
+		settleCall(call, callHeld, 0)
 		return ToolResult{}, err
 	}
 	reconciled := false
 	defer func() {
 		if !reconciled {
 			c.releaseBudget(reservation)
+			settleCall(call, callHeld, 0)
 		}
 	}()
 	resp, err := c.postTools(ctx, requestCtx, cfg, body)
@@ -139,6 +145,7 @@ func (c *Client) exchangeTools(
 	c.recordSuccess()
 	res := toolResult(resp, string(body))
 	c.reconcileBudget(reservation, res.Tokens)
+	settleCall(call, callHeld, res.Tokens)
 	reconciled = true
 	if err := finishToolResult(&res, resp, tools); err != nil {
 		return res, err

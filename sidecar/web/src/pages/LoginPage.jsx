@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { hashParam } from './users/ssoApi'
+import { hashPath, replaceHash, ssoErrorMessage } from './users/ssoErrors'
 
 const providerLabels = {
   google: 'Google',
@@ -13,6 +15,12 @@ export function LoginPage({ onLogin }) {
   const [loading, setLoading] = useState(false)
   const [oauthConfig, setOauthConfig] = useState(null)
   const [oauthLoading, setOauthLoading] = useState(false)
+  // A failed SSO callback redirects here with an sso_error code (D7).
+  const [ssoError] = useState(() => ssoErrorMessage(hashParam('sso_error')))
+
+  useEffect(() => {
+    if (hashParam('sso_error')) replaceHash(hashPath())
+  }, [])
 
   useEffect(() => {
     fetch('/api/v1/auth/oauth/config')
@@ -91,6 +99,18 @@ export function LoginPage({ onLogin }) {
           pg_sage
         </h1>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {ssoError && !error && (
+            <div className="text-sm p-3 rounded"
+              data-testid="sso-error"
+              role="alert"
+              style={{
+                background: 'rgba(239,68,68,0.1)',
+                color: '#ef4444',
+                border: '1px solid rgba(239,68,68,0.3)',
+              }}>
+              {ssoError}
+            </div>
+          )}
           {error && (
             <div className="text-sm p-3 rounded"
               data-testid="login-error"

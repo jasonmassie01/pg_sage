@@ -19,6 +19,38 @@ import (
 // database and purpose.
 var externalBudgetMu sync.Mutex
 
+// ErrBudgetExhausted identifies a refusal by a token budget (daily,
+// per-database or per-call) before any provider I/O.
+var ErrBudgetExhausted = errors.New("LLM token budget exhausted")
+
+// budgetError keeps the historical budget messages while matching
+// ErrBudgetExhausted with errors.Is.
+type budgetError string
+
+func (e budgetError) Error() string        { return string(e) }
+func (e budgetError) Is(target error) bool { return target == ErrBudgetExhausted }
+
+// reserveCall charges a per-call budget (ToolOptions.Budget) before
+// provider I/O. A nil budget reserves nothing.
+func reserveCall(b Budgeter, tokens int) (int, error) {
+	if b == nil {
+		return 0, nil
+	}
+	if !b.CanSpend(tokens) {
+		return 0, budgetError(fmt.Sprintf(
+			"per-call token budget exhausted (%d needed)", tokens))
+	}
+	b.Spend(tokens)
+	return tokens, nil
+}
+
+// settleCall reconciles a per-call hold to actual usage (0 on failure).
+func settleCall(b Budgeter, held, actual int) {
+	if b != nil && held > 0 {
+		b.Spend(actual - held)
+	}
+}
+
 // ErrRequestCooldown identifies local duplicate suppression. Callers can use
 // errors.Is to avoid treating admission control as a provider failure.
 var ErrRequestCooldown = errors.New("LLM request cooldown active")
@@ -216,16 +248,16 @@ func (c *Client) reserveBudget(
 	}
 	used := c.tokensUsedToday.Load()
 	if cfg.TokenBudgetDaily > 0 && used >= int64(cfg.TokenBudgetDaily) {
-		return budgetReservation{}, fmt.Errorf(
+		return budgetReservation{}, budgetError(fmt.Sprintf(
 			"daily token budget exhausted (%d/%d)", used, cfg.TokenBudgetDaily,
-		)
+		))
 	}
 	if cfg.TokenBudgetDaily > 0 &&
 		used+c.reservedTokens+int64(tokens) > int64(cfg.TokenBudgetDaily) {
-		return budgetReservation{}, fmt.Errorf(
+		return budgetReservation{}, budgetError(fmt.Sprintf(
 			"daily token budget exhausted (%d reserved or used/%d)",
 			used+c.reservedTokens, cfg.TokenBudgetDaily,
-		)
+		))
 	}
 	c.reservedTokens += int64(tokens)
 	reservation := budgetReservation{tokens: tokens}
@@ -234,7 +266,7 @@ func (c *Client) reserveBudget(
 		if !c.budget.CanSpend(external) {
 			externalBudgetMu.Unlock()
 			c.reservedTokens -= int64(tokens)
-			return budgetReservation{}, fmt.Errorf(
+			return budgetReservation{}, budgetError(
 				"per-database token budget exhausted",
 			)
 		}

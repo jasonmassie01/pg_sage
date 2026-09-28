@@ -142,9 +142,15 @@ func (rt *databaseRuntime) wireRCA() {
 	if rt.logFanout != nil {
 		rt.rca.SetLogSource(rt.logFanout.Subscribe(rt.spec.Name))
 	}
-	rt.analyzer.WithRCAEngine(newRCAAdapter(rt.ctx, rt.rca, rt.spec.Pool,
-		rt.spec.Name, logStructuredWrapper))
+	rt.rcaAdapter = newRCAAdapter(rcaAdapterDeps{
+		ctx: rt.ctx, eng: rt.rca, pool: rt.spec.Pool, name: rt.spec.Name,
+		cfg: rt.cfg, logFn: logStructuredWrapper, workers: rt.workers,
+	})
+	rt.analyzer.WithRCAEngine(rt.rcaAdapter)
 	rt.note("rca")
+	if rt.rcaAdapter.fastPath != nil {
+		rt.note("sre_fast_path")
+	}
 }
 
 func (rt *databaseRuntime) startSchemaLint() {

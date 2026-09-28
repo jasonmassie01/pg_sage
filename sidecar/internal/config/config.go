@@ -345,7 +345,7 @@ type RCAConfig struct {
 	ReplicationLagThresholdS int     `yaml:"replication_lag_threshold_seconds" doc:"Seconds of replay lag before the replication_lag_increasing signal fires. Default: 30."`
 	WALSpikeMultiplier       float64 `yaml:"wal_spike_multiplier" doc:"WAL bytes delta must exceed previous delta by this multiplier to trigger wal_growth_spike. Default: 2.0."`
 	LockChainIntervalSeconds int     `yaml:"lock_chain_interval_seconds" doc:"Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60."`
-	NarrationEnabled         bool    `yaml:"narration_enabled" doc:"Add an LLM narrative, citing the incident's own evidence, to incident_detected and incident_escalated notifications. Off, or any LLM failure, uses the deterministic summary. Default: false."`
+	NarrationEnabled         bool    `yaml:"narration_enabled" doc:"Add an LLM narrative, citing the incident's evidence and catalog probe results, to incident notifications. Off, or any LLM failure, uses the deterministic summary. Default: false."`
 }
 
 // LockChainConfig controls lock chain detection (v0.9).

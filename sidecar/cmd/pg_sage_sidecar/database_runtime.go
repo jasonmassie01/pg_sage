@@ -75,6 +75,7 @@ type databaseRuntime struct {
 	actions    *store.ActionStore
 	dispatcher *notify.Dispatcher
 	rca        *rca.Engine
+	rcaAdapter *rcaAdapter
 	logFanout  *logwatch.LogFanout
 	brief      *briefing.Worker
 	features   []string
@@ -102,8 +103,13 @@ func buildDatabaseRuntime(
 	rt.inst = rt.instance()
 	logInfo(spec.Scope, "db %q: initialized (%s)", spec.Name,
 		strings.Join(rt.features, "+"))
+	runtimeBuilt(rt)
 	return rt, nil
 }
+
+// runtimeBuilt observes every completed runtime; parity tests replace it to
+// inspect components the fleet registration does not expose.
+var runtimeBuilt = func(*databaseRuntime) {}
 
 // publish registers the runtime and fills its status at once, so the API
 // never shows an empty status until the first orchestrator tick.

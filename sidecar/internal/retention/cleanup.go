@@ -98,6 +98,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{"admission_withheld", "last_seen_at", r.ActionsDays, ""},
 		{"explain_cache", "captured_at", r.ExplainsDays, ""},
 		{"explain_results", "created_at", r.ExplainsDays, ""},
+		// Used or expired SSO link grants are dead weight once old (D7).
+		{"user_oidc_link_grants", "expires_at", r.ActionsDays, ""},
 	}
 }
 
@@ -106,6 +108,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 // to purgeRules or here (enforced by a test).
 var retentionExemptions = map[string]string{
 	"action_queue":           "approval queue; lifecycle/expiry owned by the executor",
+	"auth_audit":             "security audit trail of SSO link, unlink and grant use",
 	"config":                 "current configuration, not a time-series",
 	"config_audit":           "security audit trail of configuration changes",
 	"crypto_meta":            "key metadata, not a time-series",
@@ -123,9 +126,18 @@ var retentionExemptions = map[string]string{
 	"schema_findings":        "legacy table superseded by findings (v0.11); no writer",
 	"sessions":               "expired sessions are deleted by auth's session cleaner",
 	"slot_consumer_registry": "current state, one row per slot",
-	"table_contract":         "declared contracts, current state",
-	"toil_model":             "model configuration",
-	"users":                  "accounts, not a time-series",
+	"sre_budget_reservations": "SRE model budget ledger; nothing writes it until the " +
+		"investigator (M2), which adds pinned, tombstoned retention",
+	"sre_database_bindings": "stable SRE database identity, one row per database",
+	"sre_deployments":       "the deployment identity, one row",
+	"sre_evidence": "SRE evidence; retention (30 d, pinned while referenced) lands " +
+		"with the investigator (M2), which is the first writer",
+	"sre_investigations": "SRE investigations; retention (90 d timelines) lands with " +
+		"the investigator (M2), which is the first writer",
+	"sre_steps":      "SRE investigation steps; retained with their investigation (M2)",
+	"table_contract": "declared contracts, current state",
+	"toil_model":     "model configuration",
+	"users":          "accounts, not a time-series",
 }
 
 // Run performs batched deletes of expired data from all sage tables.

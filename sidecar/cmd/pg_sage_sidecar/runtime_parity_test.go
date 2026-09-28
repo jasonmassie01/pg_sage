@@ -63,7 +63,9 @@ var perDatabaseCapabilities = []runtimeCapability{
 	// Overnight features (D6, Sage SRE M0) that every mode must carry.
 	{"D6 pg-side IO load admission", []string{"startIOAdmission"}},
 	{"D6 per-database IO capacity", []string{"databaseExecConfig"}},
-	{"Sage SRE lock-chain fast path", []string{"newRCAAdapter"}},
+	{"Sage SRE registration (rcaAdapter)", []string{"newRCAAdapter"}},
+	{"Sage SRE lock-chain fast path", []string{"rca.NewLockChainTicker"}},
+	{"Sage SRE catalog probes", []string{"probes.NewRunner"}},
 	{"lifecycle-owned workers", []string{"startInstanceWorker"}},
 }
 

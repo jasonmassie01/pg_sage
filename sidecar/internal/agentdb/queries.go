@@ -4,6 +4,7 @@ const selectRequestsSQL = `/* pg_sage */
 	SELECT request_id, tenant_id, agent_id, owner_id, run_id, purpose,
 		requested_isolation_type, database_name, provider, policy_decision, status,
 		idempotency_key, body_hash, budget_usd, backup_required, policy_reasons,
+		decided_by, decided_at, consumed_deployment_id, consumed_by, consumed_at,
 		created_at, updated_at
 	FROM sage.agent_db_requests`
 
@@ -11,13 +12,15 @@ const insertRequestSQL = `/* pg_sage */
 	INSERT INTO sage.agent_db_requests (
 		request_id, tenant_id, agent_id, owner_id, run_id, purpose,
 		requested_isolation_type, database_name, provider, policy_decision, status,
-		idempotency_key, body_hash, budget_usd, backup_required, policy_reasons
+		idempotency_key, body_hash, budget_usd, backup_required, policy_reasons,
+		decided_by, decided_at
 	)
 	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-		$15, $16::jsonb)
+		$15, $16::jsonb, $17, CASE WHEN $17 = '' THEN NULL ELSE now() END)
 	RETURNING request_id, tenant_id, agent_id, owner_id, run_id, purpose,
 		requested_isolation_type, database_name, provider, policy_decision, status,
 		idempotency_key, body_hash, budget_usd, backup_required, policy_reasons,
+		decided_by, decided_at, consumed_deployment_id, consumed_by, consumed_at,
 		created_at, updated_at`
 
 const deploymentColumnsSQL = `deployment_id, tenant_id, agent_id, run_id, database_name, status,

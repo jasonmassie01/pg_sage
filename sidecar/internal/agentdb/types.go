@@ -20,32 +20,12 @@ var (
 	ErrRestoreRequired      = fmt.Errorf("%w: verified backup required", ErrInvalid)
 	ErrEmergencyStop        = errors.New("agent db mutations blocked by emergency stop")
 	ErrNotOwned             = fmt.Errorf("%w: no recorded live provider resource", ErrInvalid)
+	ErrApprovalRequired     = fmt.Errorf("%w: approved request required", ErrConflict)
 )
 
 type Store struct {
 	pool *pgxpool.Pool
 	opts StoreOptions
-}
-
-type Request struct {
-	RequestID      string         `json:"request_id"`
-	TenantID       string         `json:"tenant_id"`
-	AgentID        string         `json:"agent_id"`
-	OwnerID        string         `json:"owner_id"`
-	RunID          string         `json:"run_id"`
-	Purpose        string         `json:"purpose"`
-	IsolationType  string         `json:"requested_isolation_type"`
-	DatabaseName   string         `json:"database_name"`
-	Provider       string         `json:"provider"`
-	PolicyDecision string         `json:"policy_decision"`
-	Status         string         `json:"status"`
-	IdempotencyKey string         `json:"idempotency_key"`
-	BodyHash       string         `json:"body_hash"`
-	BudgetUSD      float64        `json:"budget_usd"`
-	BackupRequired bool           `json:"backup_required"`
-	PolicyReasons  map[string]any `json:"policy_reasons"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
 }
 
 const (
@@ -60,38 +40,6 @@ const (
 	LevelDatabase = "database"
 	LevelInstance = "instance"
 )
-
-type RequestCreate struct {
-	RequestID          string
-	TenantID           string
-	AgentID            string
-	OwnerID            string
-	RunID              string
-	Purpose            string
-	IsolationType      string
-	DatabaseName       string
-	Provider           string
-	IdempotencyKey     string
-	BudgetUSD          float64
-	BackupRequired     bool
-	DataClassification string
-	MaskingPolicyID    string
-	Region             string
-	AllowedRegions     []string
-	ApprovalSLASeconds int
-	Body               map[string]any
-}
-
-type PolicyDecision struct {
-	Decision string   `json:"decision"`
-	Status   string   `json:"status"`
-	Reasons  []string `json:"reasons"`
-}
-
-type DecisionRequest struct {
-	Decision string
-	Reason   string
-}
 
 type SizeProfile struct {
 	ProfileID         string         `json:"profile_id"`
@@ -361,39 +309,6 @@ type LiveExecutionRequest struct {
 	Records        *LiveExecutionRecords
 	Attempt        *LiveExecutionAttempt
 	Now            time.Time
-}
-
-type BlueprintProvisionRequest struct {
-	DeploymentID   string
-	TenantID       string
-	AgentID        string
-	RunID          string
-	DatabaseName   string
-	LeaseSeconds   int
-	BudgetUSD      float64
-	Metadata       map[string]any
-	ProviderParams map[string]any
-}
-
-type TemplateProvisionRequest struct {
-	DeploymentID      string
-	TenantID          string
-	AgentID           string
-	RunID             string
-	DatabaseName      string
-	Provider          string
-	ProvisioningLevel string
-	LeaseSeconds      int
-	BudgetUSD         float64
-	Metadata          map[string]any
-	ProviderParams    map[string]any
-}
-
-type RequestProvisionRequest struct {
-	DeploymentID   string
-	LeaseSeconds   int
-	Metadata       map[string]any
-	ProviderParams map[string]any
 }
 
 type CreationReceipt struct {
