@@ -206,6 +206,10 @@ func TestProvisionFromBlueprintLinksDeploymentToBlueprintAndTemplate(t *testing.
 	}
 
 	dep, err := st.ProvisionFromBlueprint(ctx, blueprintID, BlueprintProvisionRequest{
+		// D4: a cloud plan consumes an approved request.
+		RequestID: mustApprovedCloudRequest(t, ctx, st, "req_bp_provision_link",
+			"tenant_agentdb_test", "agent_blueprint", ProviderAWSRDS),
+		ActorID:      "unit",
 		DeploymentID: deploymentID,
 		TenantID:     "tenant_agentdb_test",
 		AgentID:      "agent_blueprint",
@@ -261,6 +265,10 @@ func TestProvisionFromBlueprintPersistsProviderParamsForLiveRunner(t *testing.T)
 		t.Fatalf("ApproveBlueprint: %v", err)
 	}
 	dep, err := st.ProvisionFromBlueprint(ctx, blueprint.BlueprintID, BlueprintProvisionRequest{
+		// D4: a cloud plan consumes an approved request.
+		RequestID: mustApprovedCloudRequest(t, ctx, st, "req_bp_provider_params",
+			"tenant_agentdb_test", "agent_blueprint", ProviderAWSRDS),
+		ActorID:      "unit",
 		DeploymentID: deploymentID,
 		TenantID:     "tenant_agentdb_test",
 		AgentID:      "agent_blueprint",

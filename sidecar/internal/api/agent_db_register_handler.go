@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -28,9 +29,7 @@ func agentDBRegisterHandler(st *agentdb.Store) http.HandlerFunc {
 			return
 		}
 		if agentdb.IsCloudProvider(str(m, "provider")) {
-			jsonError(w, "approved request required: create a request and provision "+
-				"it with POST /api/v1/agent-dbs/requests/{id}/provision "+
-				"or pass request_id", http.StatusConflict)
+			writeProvisionError(w, agentdb.ErrApprovalRequired)
 			return
 		}
 		d, err := st.Provision(r.Context(), registerFromBody(m))
@@ -64,5 +63,21 @@ func registerFromBody(m map[string]any) agentdb.RegisterRequest {
 		BudgetUSD:         float(m, "budget_usd"),
 		BackupRequired:    boolValue(m, "backup_required"),
 		Metadata:          obj(m, "metadata"),
+	}
+}
+
+// writeProvisionError maps the approved-request errors shared by every
+// path that plans a deployment (D4), then falls back to agentDBError.
+func writeProvisionError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, agentdb.ErrApprovalRequired):
+		jsonError(w, "approved request required: create a request and pass its "+
+			"request_id, or use POST /api/v1/agent-dbs/requests/{id}/provision",
+			http.StatusConflict)
+	case errors.Is(err, agentdb.ErrConflict):
+		jsonError(w, "approved request already consumed or does not match "+
+			"this tenant, agent or provider", http.StatusConflict)
+	default:
+		agentDBError(w, err)
 	}
 }

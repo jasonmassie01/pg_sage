@@ -148,6 +148,9 @@ func TestApprovedBlueprintSpecWinsOverOverrides(t *testing.T) {
 		t.Fatalf("Approve: %v", err)
 	}
 	dep, err := st.ProvisionFromBlueprint(ctx, bpID, BlueprintProvisionRequest{
+		// D4: a cloud plan consumes an approved request.
+		RequestID: mustApprovedCloudRequest(t, ctx, st, "req_fix_spec_wins",
+			"tenant_agentdb_test", "agent_bp", ProviderAWSRDS), ActorID: "unit",
 		DeploymentID: depID, TenantID: "tenant_agentdb_test", AgentID: "agent_bp",
 		LeaseSeconds: 3600, ProviderParams: map[string]any{
 			"region": "eu-west-1", "db_instance_class": "db.r6i.32xlarge"},
@@ -226,6 +229,9 @@ func TestTerraformTemplateProvisionIsReviewOnlyAndHashBound(t *testing.T) {
 		t.Fatalf("Approve: %v", err)
 	}
 	dep, err := st.ProvisionFromTerraformTemplate(ctx, tplID, TemplateProvisionRequest{
+		// D4: a cloud plan consumes an approved request.
+		RequestID: mustApprovedCloudRequest(t, ctx, st, "req_fix_tpl_review_only",
+			"tenant_agentdb_test", "agent_tf", ProviderAWSRDS), ActorID: "unit",
 		DeploymentID: depID, TenantID: "tenant_agentdb_test", AgentID: "agent_tf",
 		Provider: ProviderAWSRDS, LeaseSeconds: 3600,
 		ProviderParams: map[string]any{"region": "us-east-1"},

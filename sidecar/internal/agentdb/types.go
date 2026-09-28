@@ -20,6 +20,7 @@ var (
 	ErrRestoreRequired      = fmt.Errorf("%w: verified backup required", ErrInvalid)
 	ErrEmergencyStop        = errors.New("agent db mutations blocked by emergency stop")
 	ErrNotOwned             = fmt.Errorf("%w: no recorded live provider resource", ErrInvalid)
+	ErrApprovalRequired     = fmt.Errorf("%w: approved request required", ErrConflict)
 )
 
 type Store struct {
@@ -308,32 +309,6 @@ type LiveExecutionRequest struct {
 	Records        *LiveExecutionRecords
 	Attempt        *LiveExecutionAttempt
 	Now            time.Time
-}
-
-type BlueprintProvisionRequest struct {
-	DeploymentID   string
-	TenantID       string
-	AgentID        string
-	RunID          string
-	DatabaseName   string
-	LeaseSeconds   int
-	BudgetUSD      float64
-	Metadata       map[string]any
-	ProviderParams map[string]any
-}
-
-type TemplateProvisionRequest struct {
-	DeploymentID      string
-	TenantID          string
-	AgentID           string
-	RunID             string
-	DatabaseName      string
-	Provider          string
-	ProvisioningLevel string
-	LeaseSeconds      int
-	BudgetUSD         float64
-	Metadata          map[string]any
-	ProviderParams    map[string]any
 }
 
 type CreationReceipt struct {

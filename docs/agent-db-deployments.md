@@ -160,7 +160,20 @@ curl -b cookies.txt -H "Content-Type: application/json" \
 `databricks_lakebase`, `neon`, `supabase`) requires `request_id` and consumes
 that request the same way; without it the call returns HTTP `409`
 `approved request required`. Deployments registered before this change are
-left as they are. `local_postgres` schema and database registers keep the
+left as they are.
+
+Blueprints and Terraform templates follow the same rule. Approving a
+blueprint or template records a reviewed design (`approved_by`); it is not
+permission to spend. `POST /api/v1/agent-dbs/blueprints/{id}/provision` and
+`POST /api/v1/agent-dbs/terraform-templates/{id}/provision` for a cloud
+provider require a signed-in user and a `request_id` for an approved, unused
+request whose tenant, agent, provider and level match. The request is
+consumed exactly once, its owner and budget are used, and the
+`request_consumed` audit event records the request's `decided_by`, the
+consumer and the design's approver. Without `request_id` these routes return
+HTTP `409` `approved request required`.
+
+`local_postgres` schema and database registers keep the
 direct path below; their DDL is still gated by
 `PG_SAGE_AGENTDB_LOCAL_PROVISIONING`:
 

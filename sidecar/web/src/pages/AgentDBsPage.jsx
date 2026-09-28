@@ -63,6 +63,20 @@ const initialProfile = {
   provider_params_text: '{}',
 }
 
+function designRequestBody(form, provider, budget) {
+  return {
+    tenant_id: form.tenant_id || 'tenant_agent',
+    agent_id: form.agent_id || 'agent_runner',
+    run_id: form.run_id,
+    purpose: form.purpose,
+    provider,
+    requested_isolation_type: 'instance',
+    database_name: form.database_name,
+    budget_usd: Number(form.budget_usd || budget || 0),
+    backup_required: true,
+  }
+}
+
 async function postJSON(url, body, headers = {}) {
   const res = await fetch(url, {
     method: 'POST',
@@ -211,6 +225,29 @@ export function AgentDBsPage() {
     ])
   }
 
+  // obtainApprovedRequest asks request policy for an approval. It returns
+  // the approved request, or null after reporting that a human must decide.
+  async function obtainApprovedRequest(requestBody, idempotencyKey) {
+    const request = await postJSON('/api/v1/agent-dbs/requests',
+      requestBody, { 'Idempotency-Key': idempotencyKey })
+    if (request.status !== 'approved') {
+      showMessage(`Request ${request.status}: ${request.policy_decision}`)
+      await refreshAll()
+      return null
+    }
+    if (!request.request_id) throw new Error('Request response has no request_id')
+    return request
+  }
+
+  // D4: an approved blueprint or template is a reviewed design, not
+  // permission to spend; each cloud plan consumes its own approved request.
+  async function designRequest(designID, provider, budget) {
+    const tenant = form.tenant_id || 'tenant_agent'
+    const agent = form.agent_id || 'agent_runner'
+    return obtainApprovedRequest(designRequestBody(form, provider, budget),
+      `ui-${tenant}-${agent}-${designID}-${Date.now().toString(36)}`)
+  }
+
   async function submitProvision(event) {
     event.preventDefault()
     setBusy(true)
@@ -229,17 +266,11 @@ export function AgentDBsPage() {
         backup_required: true,
       }
       const requestRun = form.run_id || Date.now().toString(36)
-      const idem = `ui-${form.tenant_id}-${form.agent_id}-${requestRun}`
-      const request = await postJSON('/api/v1/agent-dbs/requests',
-        requestBody, { 'Idempotency-Key': idem })
-      if (request.status !== 'approved') {
-        showMessage(`Request ${request.status}: ${request.policy_decision}`)
-        await refreshAll()
-        return
-      }
+      const request = await obtainApprovedRequest(requestBody,
+        `ui-${form.tenant_id}-${form.agent_id}-${requestRun}`)
+      if (!request) return
       // D4: provisioning consumes the approved request exactly once; the
       // server checks that tenant, agent and provider match the approval.
-      if (!request.request_id) throw new Error('Request response has no request_id')
       const generatedID = deploymentID(form)
       const provisionURL = '/api/v1/agent-dbs/requests/' +
         `${encodeURIComponent(request.request_id)}/provision`
@@ -356,10 +387,14 @@ export function AgentDBsPage() {
     setBusy(true)
     clearStatus()
     try {
+      const request = await designRequest(blueprint.blueprint_id,
+        blueprint.provider || form.provider, blueprint.blueprint?.budget_usd)
+      if (!request) return
       const generatedID = uniqueDerivedID(blueprint.blueprint_id)
       const created = await postJSON(
         `/api/v1/agent-dbs/blueprints/${blueprint.blueprint_id}/provision`,
         {
+          request_id: request.request_id,
           deployment_id: generatedID,
           tenant_id: form.tenant_id || 'tenant_agent',
           agent_id: form.agent_id || 'agent_runner',
@@ -404,10 +439,13 @@ export function AgentDBsPage() {
       if (provider === 'local_postgres') {
         throw new Error('Select a cloud provider before provisioning Terraform')
       }
+      const request = await designRequest(template.template_id, provider)
+      if (!request) return
       const generatedID = uniqueDerivedID(template.template_id)
       const created = await postJSON(
         `/api/v1/agent-dbs/terraform-templates/${template.template_id}/provision`,
         {
+          request_id: request.request_id,
           deployment_id: generatedID,
           tenant_id: form.tenant_id || 'tenant_agent',
           agent_id: form.agent_id || 'agent_runner',

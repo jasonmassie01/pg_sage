@@ -74,7 +74,9 @@ func (s *Store) ProvisionFromBlueprint(
 		"provider_params":       cloneAnyMap(profile.ProviderParams),
 		"size_profile_id":       profile.ProfileID,
 	})
-	return s.Register(ctx, reg)
+	return s.registerWithApprovedRequest(ctx, req.RequestID, req.ActorID, reg,
+		map[string]any{"blueprint_id": blueprint.BlueprintID,
+			"design_approved_by": blueprint.ApprovedBy})
 }
 
 func (s *Store) GetTerraformTemplate(
@@ -122,7 +124,7 @@ func (s *Store) ProvisionFromTerraformTemplate(
 			"terraform_template_id": template.TemplateID,
 		}),
 	}
-	if reg.TenantID == "" || reg.AgentID == "" {
+	if (reg.TenantID == "" || reg.AgentID == "") && req.RequestID == "" {
 		return Deployment{}, ErrInvalid
 	}
 	profile := SizeProfile{
@@ -142,7 +144,9 @@ func (s *Store) ProvisionFromTerraformTemplate(
 	reg.Metadata["size_profile_id"] = profile.ProfileID
 	reg.ProvisioningPlan = planMap(plan)
 	labelTemplateProvision(&reg, template)
-	return s.Register(ctx, reg)
+	return s.registerWithApprovedRequest(ctx, req.RequestID, req.ActorID, reg,
+		map[string]any{"terraform_template_id": template.TemplateID,
+			"design_approved_by": template.ApprovedBy})
 }
 
 func registerFromBlueprint(

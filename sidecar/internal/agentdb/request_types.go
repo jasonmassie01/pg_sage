@@ -86,3 +86,38 @@ type RequestProvisionRequest struct {
 	ProvisioningLevel string
 	ActorID           string
 }
+
+// BlueprintProvisionRequest plans a deployment from an approved blueprint.
+// A cloud plan also consumes RequestID, an approved agent request; ActorID
+// is the signed-in consumer.
+type BlueprintProvisionRequest struct {
+	RequestID      string
+	ActorID        string
+	DeploymentID   string
+	TenantID       string
+	AgentID        string
+	RunID          string
+	DatabaseName   string
+	LeaseSeconds   int
+	BudgetUSD      float64
+	Metadata       map[string]any
+	ProviderParams map[string]any
+}
+
+// TemplateProvisionRequest plans a deployment from an approved Terraform
+// template, consuming RequestID the same way.
+type TemplateProvisionRequest struct {
+	RequestID         string
+	ActorID           string
+	DeploymentID      string
+	TenantID          string
+	AgentID           string
+	RunID             string
+	DatabaseName      string
+	Provider          string
+	ProvisioningLevel string
+	LeaseSeconds      int
+	BudgetUSD         float64
+	Metadata          map[string]any
+	ProviderParams    map[string]any
+}

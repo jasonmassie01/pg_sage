@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/pg-sage/sidecar/internal/agentdb"
@@ -165,13 +164,8 @@ func provisionFromRequest(
 	req agentdb.RequestProvisionRequest,
 ) {
 	dep, err := st.ProvisionApprovedRequest(r.Context(), requestID, req)
-	if errors.Is(err, agentdb.ErrConflict) {
-		jsonError(w, "approved request already consumed or does not match "+
-			"this tenant, agent or provider", http.StatusConflict)
-		return
-	}
 	if err != nil {
-		agentDBError(w, err)
+		writeProvisionError(w, err)
 		return
 	}
 	jsonResponse(w, dep)

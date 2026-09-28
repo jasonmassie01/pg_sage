@@ -22,6 +22,11 @@
   deployment; reusing it, or provisioning it for another tenant, agent or provider, returns
   `409`. `local_postgres` schema and database registers are unchanged. Existing deployments
   are left as they are. The dashboard's Provision form uses the request route.
+- **Blueprint and Terraform-template provisioning also consume a request.** An approved
+  blueprint or template is a reviewed design, not permission to spend: provisioning a cloud
+  plan from one now needs a signed-in user and an approved, unused `request_id` matching its
+  tenant, agent and provider, and returns `409` without one or on reuse. The dashboard
+  requests approval before provisioning from the Blueprints and Terraform panels.
 - **AgentDB approvals are attributed.** Approve and deny record the signed-in user in
   `decided_by`/`decided_at` and require a session. A consumed request records
   `consumed_deployment_id`, `consumed_by` and `consumed_at`, and its decision can no longer

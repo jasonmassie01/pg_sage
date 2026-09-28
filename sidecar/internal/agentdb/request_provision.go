@@ -16,33 +16,95 @@ func (s *Store) ProvisionApprovedRequest(
 	id string,
 	req RequestProvisionRequest,
 ) (Deployment, error) {
-	agentReq, err := s.GetRequest(ctx, id)
+	claim, err := s.claimForProvision(ctx, id, req)
 	if err != nil {
 		return Deployment{}, err
 	}
+	dep, err := s.Provision(ctx, registerFromRequest(claim.request, claim.deploymentID, req))
+	return s.finishClaim(ctx, claim, dep, err, nil)
+}
+
+// requestClaim is a request this caller has claimed for one deployment.
+type requestClaim struct {
+	request      Request
+	deploymentID string
+	actor        string
+}
+
+// claimForProvision validates req against the approved request and claims
+// it. Nothing is provisioned unless this returns without error.
+func (s *Store) claimForProvision(
+	ctx context.Context, id string, req RequestProvisionRequest,
+) (requestClaim, error) {
+	agentReq, err := s.GetRequest(ctx, id)
+	if err != nil {
+		return requestClaim{}, err
+	}
 	if agentReq.Status != "approved" || agentReq.PolicyDecision != "allow" {
-		return Deployment{}, ErrInvalid
+		return requestClaim{}, ErrInvalid
 	}
 	if agentReq.ConsumedDeploymentID != "" || !requestMatches(agentReq, req) {
-		return Deployment{}, ErrConflict
+		return requestClaim{}, ErrConflict
 	}
 	actor := strings.TrimSpace(req.ActorID)
 	if actor == "" {
-		return Deployment{}, ErrInvalid
+		return requestClaim{}, ErrInvalid
 	}
 	deploymentID := firstNonEmpty(req.DeploymentID, "dep_"+idFrom(id))
 	if err := s.claimApprovedRequest(ctx, id, deploymentID, actor); err != nil {
-		return Deployment{}, err
+		return requestClaim{}, err
 	}
-	dep, err := s.Provision(ctx, registerFromRequest(agentReq, deploymentID, req))
+	return requestClaim{request: agentReq, deploymentID: deploymentID, actor: actor}, nil
+}
+
+// finishClaim releases the claim when provisioning failed, and otherwise
+// audits who approved and who consumed the request (plus extra detail).
+func (s *Store) finishClaim(
+	ctx context.Context, claim requestClaim, dep Deployment, err error,
+	extra map[string]any,
+) (Deployment, error) {
 	if err != nil {
-		s.releaseApprovedRequest(ctx, id, deploymentID)
+		s.releaseApprovedRequest(ctx, claim.request.RequestID, claim.deploymentID)
 		return Deployment{}, err
 	}
-	s.auditOrWarn(ctx, dep.DeploymentID, "request_consumed", map[string]any{
-		"request_id": id, "decided_by": agentReq.DecidedBy, "consumed_by": actor,
-	})
+	s.auditOrWarn(ctx, dep.DeploymentID, "request_consumed", mergeMap(extra, map[string]any{
+		"request_id":  claim.request.RequestID,
+		"decided_by":  claim.request.DecidedBy,
+		"consumed_by": claim.actor,
+	}))
 	return dep, nil
+}
+
+// registerWithApprovedRequest registers reg, a planned deployment built
+// from a reviewed blueprint or template. A reviewed design is not
+// permission to spend: a cloud plan consumes an approved, single-use
+// request that must match its tenant, agent, provider and level, and the
+// request's owner and budget are authoritative.
+func (s *Store) registerWithApprovedRequest(
+	ctx context.Context, requestID, actor string, reg RegisterRequest,
+	extra map[string]any,
+) (Deployment, error) {
+	if !cloudProvider(reg.Provider) {
+		return s.Register(ctx, reg)
+	}
+	if strings.TrimSpace(requestID) == "" {
+		return Deployment{}, ErrApprovalRequired
+	}
+	claim, err := s.claimForProvision(ctx, requestID, RequestProvisionRequest{
+		DeploymentID: reg.DeploymentID, TenantID: reg.TenantID, AgentID: reg.AgentID,
+		Provider: reg.Provider, ProvisioningLevel: reg.ProvisioningLevel, ActorID: actor,
+	})
+	if err != nil {
+		return Deployment{}, err
+	}
+	reg.DeploymentID = claim.deploymentID
+	reg.TenantID, reg.AgentID = claim.request.TenantID, claim.request.AgentID
+	if claim.request.BudgetUSD > 0 {
+		reg.BudgetUSD = claim.request.BudgetUSD
+	}
+	reg.Metadata = mergeMap(reg.Metadata, map[string]any{"request_id": requestID})
+	dep, err := s.Register(ctx, reg)
+	return s.finishClaim(ctx, claim, dep, err, extra)
 }
 
 // requestMatches checks the caller's optional expectations against the
