@@ -17,7 +17,7 @@ func (e *Executor) executeFinding(
 	decision ActionPolicyDecision,
 ) {
 	decision.Decision = PolicyDecisionExecute
-	intent := e.findingIntent(f, findingID, false)
+	intent := e.findingIntent(f, findingID, false, nil)
 	intent.Authorize = func(context.Context) (ActionPolicyDecision, error) {
 		return decision, nil
 	}

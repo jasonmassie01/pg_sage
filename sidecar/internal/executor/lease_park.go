@@ -18,7 +18,7 @@ import (
 func (e *Executor) parkLeaseConflict(
 	ctx context.Context, f analyzer.Finding, decisionID int64, err error,
 ) bool {
-	if !errors.Is(err, policy.ErrLeaseConflict) {
+	if !errors.Is(err, policy.ErrLeaseConflict) && !errors.Is(err, policy.ErrLeaseBusy) {
 		return false
 	}
 	e.logFn("executor", "parked %q: DDL lease held by another writer (%s); "+
@@ -26,7 +26,11 @@ func (e *Executor) parkLeaseConflict(
 	if e.pool == nil || decisionID <= 0 {
 		return true
 	}
-	if _, recordErr := e.pool.Exec(ctx, recordParkSQL, decisionID,
+	// Best effort, with the lease wait bound: when the pool is exhausted the
+	// action still parks and retries next cycle; it must not stall here.
+	recordCtx, cancel := context.WithTimeout(ctx, policy.LeaseConnectionWait)
+	defer cancel()
+	if _, recordErr := e.pool.Exec(recordCtx, recordParkSQL, decisionID,
 		string(policy.ReasonDDLConflict), ledger.NewEvidenceID()); recordErr != nil {
 		e.logFn("executor", "record park decision for %d: %v", decisionID, recordErr)
 	}

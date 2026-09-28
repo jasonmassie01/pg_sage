@@ -58,7 +58,14 @@ const (
 	keepActionLog = `AND NOT (action_log.outcome = 'success'
 	                   AND action_log.toil_minutes_saved IS NOT NULL)
 	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
-	                   WHERE ia.action_log_id = action_log.id)`
+	                   WHERE ia.action_log_id = action_log.id)
+	    AND NOT EXISTS (SELECT 1 FROM sage.recommendation r
+	                   WHERE r.action_log_id = action_log.id
+	                   AND r.state IN ('applied', 'verifying', 'failed'))`
+	// Only terminal recommendations age out; their revisions and history
+	// go with them (ON DELETE CASCADE). Live ones are kept however old.
+	keepRecommendation = `AND state IN ('verified', 'reverted', 'inconclusive',
+	                   'superseded', 'abandoned')`
 	keepVerification = `AND verdict NOT IN ('pending', 'extended')
 	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
 	                   WHERE ia.verification_id = verification.id)
@@ -94,6 +101,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{"verification", "created_at", r.ActionsDays, keepVerification},
 		{"change_lease", "acquired_at", r.ActionsDays, "AND state <> 'active'"},
 		{"decision", "created_at", r.ActionsDays, keepDecision},
+		{"recommendation", "updated_at", r.ActionsDays, keepRecommendation},
 		{"retention_run", "created_at", r.ActionsDays, ""},
 		{"admission_withheld", "last_seen_at", r.ActionsDays, ""},
 		{"explain_cache", "captured_at", r.ExplainsDays, ""},
@@ -107,20 +115,24 @@ func purgeRules(cfg *config.Config) []purgeRule {
 // intentionally NOT purged by age. A new time-series table must be added
 // to purgeRules or here (enforced by a test).
 var retentionExemptions = map[string]string{
-	"action_queue":           "approval queue; lifecycle/expiry owned by the executor",
-	"auth_audit":             "security audit trail of SSO link, unlink and grant use",
-	"config":                 "current configuration, not a time-series",
-	"config_audit":           "security audit trail of configuration changes",
-	"crypto_meta":            "key metadata, not a time-series",
-	"databases":              "fleet registry, not a time-series",
-	"incident_avoided":       "value ledger; low volume, kept as evidence",
-	"io_rate_sample":         "pruned by the IO sampler (verify.io_sample_retention_days)",
-	"incidents":              "pruned by rca.PruneResolvedIncidents (resolved_at, findings_days)",
-	"migration_run":          "low-volume migration evidence ledger",
-	"notification_channels":  "configuration",
-	"notification_rules":     "configuration",
-	"policy":                 "standing policy, versioned configuration",
-	"query_hints":            "active hints, current state",
+	"action_queue":          "approval queue; lifecycle/expiry owned by the executor",
+	"auth_audit":            "security audit trail of SSO link, unlink and grant use",
+	"config":                "current configuration, not a time-series",
+	"config_audit":          "security audit trail of configuration changes",
+	"crypto_meta":           "key metadata, not a time-series",
+	"databases":             "fleet registry, not a time-series",
+	"incident_avoided":      "value ledger; low volume, kept as evidence",
+	"io_rate_sample":        "pruned by the IO sampler (verify.io_sample_retention_days)",
+	"incidents":             "pruned by rca.PruneResolvedIncidents (resolved_at, findings_days)",
+	"migration_run":         "low-volume migration evidence ledger",
+	"notification_channels": "configuration",
+	"notification_rules":    "configuration",
+	"policy":                "standing policy, versioned configuration",
+	"query_hints":           "active hints, current state",
+	"recommendation_revision": "immutable revisions; deleted with their terminal " +
+		"recommendation (ON DELETE CASCADE, actions_days)",
+	"recommendation_transition": "immutable history; deleted with its terminal " +
+		"recommendation (ON DELETE CASCADE, actions_days)",
 	"rollout_run":            "low-volume rollout evidence ledger",
 	"schema_baseline":        "current state, one row per object",
 	"schema_findings":        "legacy table superseded by findings (v0.11); no writer",

@@ -38,6 +38,7 @@ func (rt *databaseRuntime) startMonitoring() {
 		rt.analyzer.WithDispatcher(rt.dispatcher)
 	}
 	rt.analyzer.WithDatabaseName(rt.spec.Name)
+	rt.analyzer.WithPolicyVersion(rt.policyVersionReader())
 	if rt.llmOn {
 		rt.analyzer.WithPlanNarrator(
 			analyzer.NewLLMPlanNarrator(rt.generalLLM, logStructuredWrapper))

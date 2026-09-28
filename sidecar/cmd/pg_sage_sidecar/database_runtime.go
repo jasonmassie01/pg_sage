@@ -106,6 +106,7 @@ func buildDatabaseRuntime(
 	if err != nil {
 		return nil, err
 	}
+	migrateRecommendations(ctx, spec)
 	rt := newDatabaseRuntime(spec, checks)
 	rt.startMonitoring()
 	rt.startExecution()

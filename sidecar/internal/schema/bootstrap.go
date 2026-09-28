@@ -59,6 +59,9 @@ var expectedTables = []struct {
 	{"crypto_meta", ddlCryptoMeta},
 	{"health_history", ddlHealthHistory},
 	{"query_store", ddlQueryStore},
+	{"recommendation", ddlRecommendation},
+	{"recommendation_revision", ddlRecommendationRevision},
+	{"recommendation_transition", ddlRecommendationTransition},
 }
 
 // Bootstrap acquires an advisory lock, then ensures the sage schema and
@@ -381,7 +384,7 @@ func migrationStatements() []string {
 	// class split (version 2).
 	return append(statements, ddlPolicyChangeClassSplit, ddlPolicyWindowCronDuration,
 		ddlRetentionColumnDeclaration, ddlTableContractIdentity, ddlSRECoordination,
-		ddlSREInvestigator)
+		ddlSREInvestigator, ddlRecommendationAll)
 }
 
 // ---------------------------------------------------------------------------
@@ -400,7 +403,8 @@ CREATE SCHEMA IF NOT EXISTS sage;
 	ddlQueryHintsRewrite + ddlQueryHintsRevalidate +
 	ddlIncidents + ddlSizeHistory + ddlExplainResults +
 	ddlSchemaFindings + ddlCryptoMeta + ddlHealthHistory +
-	ddlFleetScaleIndexes + ddlQueryStore
+	ddlFleetScaleIndexes + ddlQueryStore + ddlRecommendation +
+	ddlRecommendationRevision + ddlRecommendationTransition
 
 const ddlActionLog = `
 CREATE TABLE IF NOT EXISTS sage.action_log (

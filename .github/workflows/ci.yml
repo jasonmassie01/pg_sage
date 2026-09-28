@@ -214,6 +214,11 @@ jobs:
         with:
           node-version: "20"
 
+      # Rebuild the embedded dashboard from the tagged sources so the shipped UI
+      # always matches them. The rebuild changes asset hashes versus the
+      # committed build (it is made on another OS), which leaves the tree
+      # "dirty", so goreleaser's git-state validation is skipped
+      # (--skip=validate); the checkout is the exact tag.
       - name: Build web UI
         run: cd sidecar/web && npm ci && npm run build
 
@@ -226,4 +231,4 @@ jobs:
           docker run --rm -e GITHUB_TOKEN -v "$PWD:/repo" -w /repo \
             --entrypoint bash ghcr.io/goreleaser/goreleaser-cross:v1.25.0 -c \
             'git config --global --add safe.directory /repo &&
-             goreleaser release --clean --skip=before'
+             goreleaser release --clean --skip=before,validate'

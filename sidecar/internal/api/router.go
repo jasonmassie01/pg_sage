@@ -261,6 +261,7 @@ func registerAPIRoutes(
 	mux.HandleFunc(
 		"GET /api/v1/actions/{id}",
 		actionDetailHandler(mgr))
+	registerRecommendationRoutes(mux, mgr)
 	mux.HandleFunc(
 		"GET /api/v1/forecasts", forecastsHandler(mgr))
 	mux.HandleFunc(

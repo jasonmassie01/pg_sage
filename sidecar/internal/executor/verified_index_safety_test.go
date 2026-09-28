@@ -68,7 +68,7 @@ func verifiedTable(t *testing.T, schema string) (string, *Executor, context.Cont
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+schema+"."+table)
 	})
-	exec := New(pool, config.DefaultConfig(), nil, time.Time{}, nopLog)
+	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 	return table, exec, ctx
 }

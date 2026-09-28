@@ -45,7 +45,7 @@ func manualExecutor(pool *pgxpool.Pool) *Executor {
 	cfg := config.DefaultConfig()
 	cfg.Trust.Level = "advisory"
 	cfg.Trust.RollbackWindowMinutes = 1
-	exec := New(pool, cfg, nil, time.Time{}, nopLog)
+	exec := New(pool, cfg, time.Time{}, nopLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 	return exec
 }

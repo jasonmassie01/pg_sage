@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -68,7 +68,7 @@ const maxConcurrentDDL = 3
 type Executor struct {
 	pool               *pgxpool.Pool
 	cfg                *config.Config
-	analyzer           *analyzer.Analyzer
+	recs               *recommendation.Store // durable recommendations (C07)
 	rampStart          time.Time
 	recentMu           sync.Mutex
 	recentActions      map[string]time.Time
@@ -146,18 +146,18 @@ func (e *Executor) StandingPolicyGate() policy.Gate {
 	return e.policyGate
 }
 
-// New creates a new Executor.
+// New creates a new Executor. Its candidates are the durable
+// recommendations in pool's sage schema.
 func New(
 	pool *pgxpool.Pool,
 	cfg *config.Config,
-	a *analyzer.Analyzer,
 	rampStart time.Time,
 	logFn func(string, string, ...any),
 ) *Executor {
 	executor := &Executor{
 		pool:          pool,
 		cfg:           cfg,
-		analyzer:      a,
+		recs:          newRecommendationStore(pool),
 		rampStart:     rampStart,
 		recentActions: make(map[string]time.Time),
 		logFn:         logFn,
@@ -426,16 +426,23 @@ func contractForFinding(f analyzer.Finding) (ActionContract, bool) {
 	return ContractForActionType(actionType)
 }
 
+// proposeForApproval queues f for an operator, pinned to the exact
+// recommendation revision when there is one (C04).
 func (e *Executor) proposeForApproval(
 	ctx context.Context,
 	findingID int,
 	f analyzer.Finding,
+	cand *recommendation.Candidate,
 ) (int, error) {
 	if proposer, ok := e.actionStore.(ActionMetadataProposer); ok {
+		meta := e.buildApprovalProposalMetadata(f, time.Now().UTC())
+		if cand != nil {
+			meta.RecommendationID, meta.RecommendationRevision = cand.ID, cand.Revision
+			meta.ContentHash = cand.ContentHash
+		}
 		return proposer.ProposeWithMetadata(
 			ctx, nil, findingID,
-			f.RecommendedSQL, f.RollbackSQL, f.ActionRisk,
-			e.buildApprovalProposalMetadata(f, time.Now().UTC()),
+			f.RecommendedSQL, f.RollbackSQL, f.ActionRisk, meta,
 		)
 	}
 	return e.actionStore.Propose(
@@ -844,45 +851,7 @@ func (e *Executor) logActionWithDecision(
 	decisionID int64,
 	execErr error,
 ) int64 {
-	beforeJSON, _ := json.Marshal(beforeState)
-
-	outcome := actionOutcome(execErr)
-
-	actionType := categorizeAction(f.RecommendedSQL)
-
-	var errReason *string
-	if execErr != nil {
-		s := execErr.Error()
-		errReason = &s
-	}
-
-	var actionID int64
-	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ INSERT INTO sage.action_log
-		 (action_type, finding_id, sql_executed, rollback_sql,
-		  before_state, outcome, rollback_reason, decision_id, database_id)
-		 VALUES ($1, NULLIF($2, 0), $3, $4, $5, $6, $7, NULLIF($8, 0), $9::bigint)
-		 RETURNING id`,
-		actionType, findingID, f.RecommendedSQL,
-		nilIfEmpty(f.RollbackSQL), beforeJSON, outcome,
-		errReason, decisionID, e.databaseIDValue(),
-	).Scan(&actionID)
-	if err != nil {
-		e.logFn("executor",
-			"failed to log action for %q: %v", f.Title, err,
-		)
-		return 0
-	}
-
-	// Link the finding to this action.
-	// Only mark acted_on_at when the action succeeded so that failed
-	// findings remain eligible for retry (lookupFindingID filters on
-	// acted_on_at IS NULL).
-	if outcome != "failed" && findingID > 0 {
-		e.markFindingActioned(ctx, findingID, actionID)
-	}
-
-	return actionID
+	return e.logClaimedAction(ctx, f, findingID, beforeState, decisionID, execErr, nil)
 }
 
 // categorizeAction derives an action_type label from the SQL statement.

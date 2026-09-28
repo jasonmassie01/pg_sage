@@ -43,7 +43,7 @@ func TestEnableStandingPolicyLogsInvalidStoredDocument(t *testing.T) {
 		defer mu.Unlock()
 		logs = append(logs, fmt.Sprintf(format, args...))
 	}
-	exec := New(pool, config.DefaultConfig(), nil, time.Time{}, logFn)
+	exec := New(pool, config.DefaultConfig(), time.Time{}, logFn)
 	id := databaseID
 
 	if err := exec.EnableStandingPolicy(ctx, "staffed", &id); err != nil {

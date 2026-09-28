@@ -3,11 +3,14 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/recommendation"
 )
 
 // QueuedAction represents a row from sage.action_queue.
@@ -36,6 +39,11 @@ type QueuedAction struct {
 	VerificationStatus     string
 	ShadowToilMinutes      int
 	ActionLogID            *int64
+	// RecommendationID, RecommendationRevision and ContentHash are the
+	// recommendation revision this proposal was queued for (nil: legacy).
+	RecommendationID       *int64
+	RecommendationRevision *int
+	ContentHash            string
 }
 
 type ActionProposalMetadata struct {
@@ -46,6 +54,11 @@ type ActionProposalMetadata struct {
 	VerificationStatus string
 	ShadowToilMinutes  int
 	ExpiresAt          *time.Time
+	// RecommendationID, RecommendationRevision and ContentHash pin the
+	// queued proposal to one immutable recommendation revision (C04).
+	RecommendationID       int64
+	RecommendationRevision int
+	ContentHash            string
 }
 
 // ActionStore handles CRUD for sage.action_queue.
@@ -89,17 +102,20 @@ func (s *ActionStore) ProposeWithMetadata(
 		    (database_id, finding_id, proposed_sql,
 		     rollback_sql, action_risk, action_type,
 		     identity_key, policy_decision, guardrails,
-		     verification_status, shadow_toil_minutes, expires_at)
+		     verification_status, shadow_toil_minutes, expires_at,
+		     recommendation_id, recommendation_revision, content_hash)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
 		         $9::jsonb, COALESCE($10, 'not_started'),
-		         $11, COALESCE($12, now() + INTERVAL '7 days'))
+		         $11, COALESCE($12, now() + INTERVAL '7 days'),
+		         NULLIF($13::bigint, 0), NULLIF($14::int, 0), $15)
 		 RETURNING id`,
 		databaseID, findingID, sql,
 		NilIfEmpty(rollbackSQL), risk,
 		NilIfEmpty(meta.ActionType), NilIfEmpty(meta.IdentityKey),
 		NilIfEmpty(meta.PolicyDecision), guardrails,
 		NilIfEmpty(meta.VerificationStatus), meta.ShadowToilMinutes,
-		meta.ExpiresAt,
+		meta.ExpiresAt, meta.RecommendationID, meta.RecommendationRevision,
+		NilIfEmpty(meta.ContentHash),
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("proposing action: %w", err)
@@ -192,7 +208,8 @@ SELECT id, database_id, finding_id, proposed_sql, rollback_sql,
        expires_at, reason, action_type, identity_key, policy_decision,
        guardrails, attempt_count, last_attempt_at, cooldown_until,
        failure_fingerprint, last_failure_fingerprint, verification_status,
-       shadow_toil_minutes, action_log_id
+       shadow_toil_minutes, action_log_id, recommendation_id,
+       recommendation_revision, content_hash
 FROM (
     SELECT q.id, q.database_id, q.finding_id, q.proposed_sql,
            q.rollback_sql, q.action_risk, q.status, q.proposed_at,
@@ -208,7 +225,8 @@ FROM (
            COALESCE(q.last_failure_fingerprint, '') AS last_failure_fingerprint,
            COALESCE(q.verification_status, '') AS verification_status,
            COALESCE(q.shadow_toil_minutes, 0) AS shadow_toil_minutes,
-           q.action_log_id,
+           q.action_log_id, q.recommendation_id, q.recommendation_revision,
+           COALESCE(q.content_hash, '') AS content_hash,
            row_number() OVER (
                PARTITION BY q.finding_id
                ORDER BY q.proposed_at DESC, q.id DESC
@@ -233,7 +251,9 @@ ORDER BY finding_id, proposed_at DESC, id DESC`, findingIDs)
 	return out, nil
 }
 
-const listPendingBaseSQL = `/* pg_sage */SELECT q.id, q.database_id, q.finding_id,
+// queuedActionColumns are the action_queue columns scanQueuedAction reads,
+// in order, from the queue aliased q.
+const queuedActionColumns = `q.id, q.database_id, q.finding_id,
  q.proposed_sql, q.rollback_sql, q.action_risk, q.status,
  q.proposed_at, q.decided_by, q.decided_at, q.expires_at,
  COALESCE(q.reason, ''), COALESCE(q.action_type, ''),
@@ -243,7 +263,10 @@ const listPendingBaseSQL = `/* pg_sage */SELECT q.id, q.database_id, q.finding_i
  COALESCE(q.failure_fingerprint, ''),
  COALESCE(q.last_failure_fingerprint, ''),
  COALESCE(q.verification_status, ''),
- COALESCE(q.shadow_toil_minutes, 0), q.action_log_id
+ COALESCE(q.shadow_toil_minutes, 0), q.action_log_id,
+ q.recommendation_id, q.recommendation_revision, COALESCE(q.content_hash, '')`
+
+const listPendingBaseSQL = `/* pg_sage */SELECT ` + queuedActionColumns + `
  FROM sage.action_queue q
  JOIN sage.findings f ON f.id = q.finding_id
 WHERE q.status = 'pending'
@@ -253,20 +276,13 @@ WHERE q.status = 'pending'
    AND f.acted_on_at IS NULL
    AND f.resolved_at IS NULL`
 
-const queuedActionSelectSQL = `/* pg_sage */SELECT q.id, q.database_id, q.finding_id,
- q.proposed_sql, q.rollback_sql, q.action_risk, q.status,
- q.proposed_at, q.decided_by, q.decided_at, q.expires_at,
- COALESCE(q.reason, ''), COALESCE(q.action_type, ''),
- COALESCE(q.identity_key, ''), COALESCE(q.policy_decision, ''),
- COALESCE(q.guardrails, '[]'::jsonb), COALESCE(q.attempt_count, 0),
- q.last_attempt_at, q.cooldown_until,
- COALESCE(q.failure_fingerprint, ''),
- COALESCE(q.last_failure_fingerprint, ''),
- COALESCE(q.verification_status, ''),
- COALESCE(q.shadow_toil_minutes, 0), q.action_log_id
+const queuedActionSelectSQL = `/* pg_sage */SELECT ` + queuedActionColumns + `
  FROM sage.action_queue q`
 
-// Approve marks an action as approved. Returns the action.
+// Approve marks an action as approved and returns it. A proposal queued
+// for a recommendation revision approves exactly that revision in the same
+// transaction; if the recommendation was revised since, nothing changes
+// and the error wraps recommendation.ErrRevised (C04).
 func (s *ActionStore) Approve(
 	ctx context.Context, queueID, userID int,
 ) (*QueuedAction, error) {
@@ -274,57 +290,56 @@ func (s *ActionStore) Approve(
 	defer cancel()
 
 	var a QueuedAction
-	var rollback *string
-	var guardrails []byte
-	err := s.pool.QueryRow(qctx,
-		`/* pg_sage */ UPDATE sage.action_queue q
-		 SET status = 'approved',
-		     decided_by = $1,
-		     decided_at = now()
+	err := pgx.BeginFunc(qctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		a, err = scanQueuedAction(tx.QueryRow(qctx, approveQueuedSQL, userID, queueID))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return refusedApproval(qctx, tx, queueID, err)
+		}
+		if err != nil || a.RecommendationID == nil {
+			return err
+		}
+		_, err = recommendation.ApproveTx(qctx, tx, *a.RecommendationID, a.ContentHash,
+			"user:"+strconv.Itoa(userID))
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("approving action %d: %w", queueID, err)
+	}
+	return &a, nil
+}
+
+// refusedApproval explains a queue row Approve could not approve: a row
+// superseded by a new recommendation revision needs re-approval of that
+// revision (recommendation.ErrRevised).
+func refusedApproval(ctx context.Context, tx pgx.Tx, queueID int, cause error) error {
+	var status string
+	if err := tx.QueryRow(ctx, `/* pg_sage */ SELECT status FROM sage.action_queue
+		WHERE id = $1`, queueID).Scan(&status); err == nil && status == "superseded" {
+		return fmt.Errorf("%w: queued proposal %d was superseded", recommendation.ErrRevised,
+			queueID)
+	}
+	return cause
+}
+
+// approveQueuedSQL approves one pending, unexpired queue row whose
+// finding is still open.
+const approveQueuedSQL = `/* pg_sage */ UPDATE sage.action_queue q
+	 SET status = 'approved',
+	     decided_by = $1,
+	     decided_at = now()
 	 WHERE q.id = $2
 	   AND q.status = 'pending'
 	   AND q.expires_at > now()
 	   AND (q.cooldown_until IS NULL OR q.cooldown_until <= now())
 	   AND EXISTS (
-		       SELECT 1 FROM sage.findings f
-		        WHERE f.id = q.finding_id
-		          AND f.status = 'open'
-		          AND f.acted_on_at IS NULL
-		          AND f.resolved_at IS NULL
-		   )
-	 RETURNING q.id, q.database_id, q.finding_id,
-	     q.proposed_sql, q.rollback_sql, q.action_risk,
-	     q.status, q.proposed_at, q.decided_by, q.decided_at,
-	     q.expires_at, COALESCE(q.reason, ''),
-	     COALESCE(q.action_type, ''), COALESCE(q.identity_key, ''),
-	     COALESCE(q.policy_decision, ''),
-	     COALESCE(q.guardrails, '[]'::jsonb),
-	     COALESCE(q.attempt_count, 0), q.last_attempt_at,
-	     q.cooldown_until, COALESCE(q.failure_fingerprint, ''),
-	     COALESCE(q.last_failure_fingerprint, ''),
-	     COALESCE(q.verification_status, ''),
-	     COALESCE(q.shadow_toil_minutes, 0), q.action_log_id`,
-		userID, queueID,
-	).Scan(
-		&a.ID, &a.DatabaseID, &a.FindingID,
-		&a.ProposedSQL, &rollback, &a.ActionRisk,
-		&a.Status, &a.ProposedAt, &a.DecidedBy,
-		&a.DecidedAt, &a.ExpiresAt, &a.Reason,
-		&a.ActionType, &a.IdentityKey, &a.PolicyDecision,
-		&guardrails, &a.AttemptCount, &a.LastAttemptAt,
-		&a.CooldownUntil, &a.FailureFingerprint,
-		&a.LastFailureFingerprint, &a.VerificationStatus,
-		&a.ShadowToilMinutes, &a.ActionLogID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("approving action %d: %w", queueID, err)
-	}
-	if rollback != nil {
-		a.RollbackSQL = *rollback
-	}
-	a.Guardrails = decodeGuardrails(guardrails)
-	return &a, nil
-}
+	       SELECT 1 FROM sage.findings f
+	        WHERE f.id = q.finding_id
+	          AND f.status = 'open'
+	          AND f.acted_on_at IS NULL
+	          AND f.resolved_at IS NULL
+	   )
+	 RETURNING ` + queuedActionColumns
 
 // Reject marks an action as rejected with a reason.
 func (s *ActionStore) Reject(
@@ -521,41 +536,11 @@ func (s *ActionStore) GetByID(
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	var a QueuedAction
-	var rollback *string
-	var guardrails []byte
-	err := s.pool.QueryRow(qctx,
-		`/* pg_sage */ SELECT id, database_id, finding_id,
-		     proposed_sql, rollback_sql, action_risk,
-		     status, proposed_at, decided_by, decided_at,
-		     expires_at, COALESCE(reason, ''),
-		     COALESCE(action_type, ''), COALESCE(identity_key, ''),
-		     COALESCE(policy_decision, ''),
-		     COALESCE(guardrails, '[]'::jsonb),
-		     COALESCE(attempt_count, 0), last_attempt_at,
-		     cooldown_until, COALESCE(failure_fingerprint, ''),
-	     COALESCE(last_failure_fingerprint, ''),
-	     COALESCE(verification_status, ''),
-	     COALESCE(shadow_toil_minutes, 0), action_log_id
-	 FROM sage.action_queue WHERE id = $1`, id,
-	).Scan(
-		&a.ID, &a.DatabaseID, &a.FindingID,
-		&a.ProposedSQL, &rollback, &a.ActionRisk,
-		&a.Status, &a.ProposedAt, &a.DecidedBy,
-		&a.DecidedAt, &a.ExpiresAt, &a.Reason,
-		&a.ActionType, &a.IdentityKey, &a.PolicyDecision,
-		&guardrails, &a.AttemptCount, &a.LastAttemptAt,
-		&a.CooldownUntil, &a.FailureFingerprint,
-		&a.LastFailureFingerprint, &a.VerificationStatus,
-		&a.ShadowToilMinutes, &a.ActionLogID,
-	)
+	a, err := scanQueuedAction(s.pool.QueryRow(qctx,
+		queuedActionSelectSQL+` WHERE q.id = $1`, id))
 	if err != nil {
 		return nil, fmt.Errorf("getting action %d: %w", id, err)
 	}
-	if rollback != nil {
-		a.RollbackSQL = *rollback
-	}
-	a.Guardrails = decodeGuardrails(guardrails)
 	return &a, nil
 }
 

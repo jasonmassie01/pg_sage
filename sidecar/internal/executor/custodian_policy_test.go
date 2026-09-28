@@ -27,7 +27,7 @@ func TestCustodianProposalUsesExecutorStandingPolicyGate(t *testing.T) {
 	gate := &custodianGateCapture{verdict: policy.Decision{
 		Verdict: policy.VerdictExecute, RiskTier: policy.RiskSafe,
 	}}
-	exec := New(nil, &config.Config{}, nil, zeroTime(), func(string, string, ...any) {})
+	exec := New(nil, &config.Config{}, zeroTime(), func(string, string, ...any) {})
 	exec.WithPolicyGate(gate)
 	proposal := CustodianProposal{
 		Feature: "freeze", SQL: `VACUUM (FREEZE) "public"."orders"`,
@@ -65,7 +65,7 @@ func TestMaxSlotWALKeepSizeBackstopIsTypedAndAuthorized(t *testing.T) {
 	gate := &custodianGateCapture{verdict: policy.Decision{
 		Verdict: policy.VerdictExecute, RiskTier: policy.RiskSafe,
 	}}
-	exec := New(nil, &config.Config{}, nil, zeroTime(), func(string, string, ...any) {})
+	exec := New(nil, &config.Config{}, zeroTime(), func(string, string, ...any) {})
 	exec.WithPolicyGate(gate)
 	decision := exec.EvaluateCustodianProposal(context.Background(), CustodianProposal{
 		Feature: "wal", SQL: sql, TargetObjects: []string{"slot:orders_cdc"},

@@ -19,7 +19,14 @@ import (
 var (
 	ErrLeaseConflict = errors.New("DDL change lease conflicts with an active writer")
 	ErrLeaseNotFound = errors.New("DDL change lease not found")
+	// ErrLeaseBusy reports that no connection was free to hold a lease within
+	// LeaseConnectionWait. Like a conflict, the action parks and retries.
+	ErrLeaseBusy = errors.New("DDL change lease unavailable: database connections busy")
 )
+
+// LeaseConnectionWait bounds how long acquiring a lease waits for a pool
+// connection. A lease holds its connection for the whole change.
+const LeaseConnectionWait = 5 * time.Second
 
 type heldLease struct {
 	conn *pgxpool.Conn
@@ -50,9 +57,9 @@ func (m *PostgresLeaseManager) AcquireLease(
 	if err := m.validateAcquire(actor, objects, intent); err != nil {
 		return "", err
 	}
-	conn, err := m.pool.Acquire(ctx)
+	conn, err := m.acquireConn(ctx)
 	if err != nil {
-		return "", fmt.Errorf("acquire lease connection: %w", err)
+		return "", err
 	}
 	keys, err := acquireAdvisoryLocks(ctx, conn, objects)
 	if err != nil {
@@ -72,6 +79,25 @@ func (m *PostgresLeaseManager) AcquireLease(
 	m.held[leaseID] = heldLease{conn: conn, keys: keys}
 	m.mu.Unlock()
 	return leaseID, nil
+}
+
+// acquireConn waits at most LeaseConnectionWait for a pool connection. An
+// exhausted pool is a busy lease (the action parks), unless the caller's
+// own context ended first.
+func (m *PostgresLeaseManager) acquireConn(ctx context.Context) (*pgxpool.Conn, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, LeaseConnectionWait)
+	defer cancel()
+	conn, err := m.pool.Acquire(waitCtx)
+	if err == nil {
+		return conn, nil
+	}
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("acquire lease connection: %w", ctx.Err())
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return nil, fmt.Errorf("%w (waited %s)", ErrLeaseBusy, LeaseConnectionWait)
+	}
+	return nil, fmt.Errorf("acquire lease connection: %w", err)
 }
 
 func (m *PostgresLeaseManager) validateAcquire(

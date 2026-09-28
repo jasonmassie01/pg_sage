@@ -263,7 +263,6 @@ func TestCoverage_RunCycle_EmptyFindings(t *testing.T) {
 	_, _ = pool.Exec(ctx,
 		"DELETE FROM sage.config WHERE key = 'emergency_stop'")
 
-	a := &analyzer.Analyzer{}
 	cfg := &config.Config{
 		Trust: config.TrustConfig{
 			Level:                 "advisory",
@@ -276,7 +275,7 @@ func TestCoverage_RunCycle_EmptyFindings(t *testing.T) {
 	}
 
 	rampStart := time.Now().Add(-30 * 24 * time.Hour)
-	e := New(pool, cfg, a, rampStart,
+	e := New(pool, cfg, rampStart,
 		func(string, string, ...any) {})
 
 	// RunCycle processes analyzer.Findings(). The analyzer is empty so
@@ -310,14 +309,13 @@ func TestCoverage_RunCycle_EmergencyStopActive(t *testing.T) {
 		}
 	}
 
-	a := &analyzer.Analyzer{}
 	candidate := analyzer.Finding{
 		Category:         "stale_statistics",
 		ObjectIdentifier: "public.emergency_stop_candidate",
 		Title:            "emergency stop candidate",
 		RecommendedSQL:   "ANALYZE public.emergency_stop_candidate",
 	}
-	a.SetFindings([]analyzer.Finding{candidate})
+	proposeDurable(t, pool, []analyzer.Finding{candidate})
 	cfg := &config.Config{
 		Trust: config.TrustConfig{
 			Level:                 "autonomous",
@@ -330,7 +328,7 @@ func TestCoverage_RunCycle_EmergencyStopActive(t *testing.T) {
 	}
 
 	rampStart := time.Now().Add(-30 * 24 * time.Hour)
-	e := New(pool, cfg, a, rampStart, logFn)
+	e := New(pool, cfg, rampStart, logFn)
 
 	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
@@ -1873,11 +1871,10 @@ func TestCoverage_WithActionStore_EmptyMode(t *testing.T) {
 // all fields correctly.
 func TestCoverage_New_Defaults(t *testing.T) {
 	cfg := &config.Config{}
-	a := &analyzer.Analyzer{}
 	rampStart := time.Now()
 	logFn := func(string, string, ...any) {}
 
-	e := New(nil, cfg, a, rampStart, logFn)
+	e := New(nil, cfg, rampStart, logFn)
 	if e == nil {
 		t.Fatal("New returned nil")
 	}
@@ -1887,8 +1884,8 @@ func TestCoverage_New_Defaults(t *testing.T) {
 	if e.cfg != cfg {
 		t.Error("cfg mismatch")
 	}
-	if e.analyzer != a {
-		t.Error("analyzer mismatch")
+	if e.recs != nil {
+		t.Error("a nil pool must leave the recommendation store nil")
 	}
 	if e.execMode != "auto" {
 		t.Errorf("execMode = %q, want %q", e.execMode, "auto")
@@ -2135,8 +2132,7 @@ func TestCoverage_RunCycle_EmptySQL(t *testing.T) {
 	pool, ctx := requireDB(t)
 	_ = SetEmergencyStop(ctx, pool, false, "test")
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "index_health",
 			Severity:         "warning",
@@ -2156,7 +2152,7 @@ func TestCoverage_RunCycle_EmptySQL(t *testing.T) {
 		Collector: config.CollectorConfig{IntervalSeconds: 60},
 	}
 	rampStart := time.Now().Add(-30 * 24 * time.Hour)
-	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
+	e := New(pool, cfg, rampStart, func(string, string, ...any) {})
 	e.RunCycle(ctx, false) // should not panic
 }
 
@@ -2166,8 +2162,7 @@ func TestCoverage_RunCycle_InfoSeverityProcessed(t *testing.T) {
 	pool, ctx := requireDB(t)
 	_ = SetEmergencyStop(ctx, pool, false, "test")
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "index_health",
 			Severity:         "info",
@@ -2187,7 +2182,7 @@ func TestCoverage_RunCycle_InfoSeverityProcessed(t *testing.T) {
 		Collector: config.CollectorConfig{IntervalSeconds: 60},
 	}
 	rampStart := time.Now().Add(-30 * 24 * time.Hour)
-	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
+	e := New(pool, cfg, rampStart, func(string, string, ...any) {})
 	e.RunCycle(ctx, false)
 }
 
@@ -2197,8 +2192,7 @@ func TestCoverage_RunCycle_ShouldExecuteFalse(t *testing.T) {
 	pool, ctx := requireDB(t)
 	_ = SetEmergencyStop(ctx, pool, false, "test")
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "index_health",
 			Severity:         "warning",
@@ -2218,7 +2212,7 @@ func TestCoverage_RunCycle_ShouldExecuteFalse(t *testing.T) {
 		Collector: config.CollectorConfig{IntervalSeconds: 60},
 	}
 	rampStart := time.Now().Add(-30 * 24 * time.Hour)
-	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
+	e := New(pool, cfg, rampStart, func(string, string, ...any) {})
 	e.RunCycle(ctx, false)
 }
 
@@ -2228,8 +2222,7 @@ func TestCoverage_RunCycle_CascadeCooldownSkips(t *testing.T) {
 	pool, ctx := requireDB(t)
 	_ = SetEmergencyStop(ctx, pool, false, "test")
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "index_health",
 			Severity:         "warning",
@@ -2249,7 +2242,7 @@ func TestCoverage_RunCycle_CascadeCooldownSkips(t *testing.T) {
 		Collector: config.CollectorConfig{IntervalSeconds: 60},
 	}
 	rampStart := time.Now().Add(-30 * 24 * time.Hour)
-	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
+	e := New(pool, cfg, rampStart, func(string, string, ...any) {})
 
 	// Pre-seed cascade cooldown for this object.
 	e.recentActions["public.rc_cascade_obj"] = time.Now()
@@ -2277,8 +2270,7 @@ func TestCoverage_RunCycle_NoDBFinding(t *testing.T) {
 	pool, ctx := requireDB(t)
 	_ = SetEmergencyStop(ctx, pool, false, "test")
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "totally_bogus_category_xyz",
 			Severity:         "warning",
@@ -2298,7 +2290,7 @@ func TestCoverage_RunCycle_NoDBFinding(t *testing.T) {
 		Collector: config.CollectorConfig{IntervalSeconds: 60},
 	}
 	rampStart := time.Now().Add(-30 * 24 * time.Hour)
-	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
+	e := New(pool, cfg, rampStart, func(string, string, ...any) {})
 	e.RunCycle(ctx, false)
 }
 
@@ -2334,8 +2326,7 @@ func TestCoverage_RunCycle_ApprovalMode(t *testing.T) {
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_approval_cat",
 			Severity:         "warning",
@@ -2358,7 +2349,7 @@ func TestCoverage_RunCycle_ApprovalMode(t *testing.T) {
 	rampStart := time.Now().Add(-30 * 24 * time.Hour)
 
 	mp := &mockProposer{}
-	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
+	e := New(pool, cfg, rampStart, func(string, string, ...any) {})
 	e.WithActionStore(mp, "approval")
 
 	withTestStandingGate(e)
@@ -2405,8 +2396,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsExistingPending(t *testing.T) {
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_appr_pending_cat",
 			Severity:         "warning",
@@ -2426,7 +2416,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsExistingPending(t *testing.T) {
 		Collector: config.CollectorConfig{IntervalSeconds: 60},
 	}
 	mp := &mockProposer{hasPending: true}
-	e := New(pool, cfg, a, time.Now().Add(-30*24*time.Hour),
+	e := New(pool, cfg, time.Now().Add(-30*24*time.Hour),
 		func(string, string, ...any) {})
 	e.WithActionStore(mp, "approval")
 
@@ -2470,8 +2460,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsDuplicateSQL(t *testing.T) {
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_appr_sql_cat",
 			Severity:         "warning",
@@ -2491,7 +2480,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsDuplicateSQL(t *testing.T) {
 		Collector: config.CollectorConfig{IntervalSeconds: 60},
 	}
 	mp := &mockProposer{hasSQL: true}
-	e := New(pool, cfg, a, time.Now().Add(-30*24*time.Hour),
+	e := New(pool, cfg, time.Now().Add(-30*24*time.Hour),
 		func(string, string, ...any) {})
 	e.WithActionStore(mp, "approval")
 
@@ -2537,8 +2526,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsRecentRejection(
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_appr_reject_cat",
 			Severity:         "warning",
@@ -2558,7 +2546,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsRecentRejection(
 		Collector: config.CollectorConfig{IntervalSeconds: 60},
 	}
 	mp := &mockProposer{hasRejected: true}
-	e := New(pool, cfg, a, time.Now().Add(-30*24*time.Hour),
+	e := New(pool, cfg, time.Now().Add(-30*24*time.Hour),
 		func(string, string, ...any) {})
 	e.WithActionStore(mp, "approval")
 
@@ -2605,8 +2593,7 @@ func TestCoverage_RunCycle_ApprovalModeWithDispatcher(t *testing.T) {
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_appr_disp_cat",
 			Severity:         "warning",
@@ -2629,7 +2616,7 @@ func TestCoverage_RunCycle_ApprovalModeWithDispatcher(t *testing.T) {
 
 	mp := &mockProposer{}
 	md := &mockDispatcher{}
-	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
+	e := New(pool, cfg, rampStart, func(string, string, ...any) {})
 	e.WithActionStore(mp, "approval")
 	e.WithDispatcher(md)
 
@@ -2676,8 +2663,7 @@ func TestCoverage_RunCycle_ApprovalModeProposeError(t *testing.T) {
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_appr_err_cat",
 			Severity:         "warning",
@@ -2706,7 +2692,7 @@ func TestCoverage_RunCycle_ApprovalModeProposeError(t *testing.T) {
 			loggedError = true
 		}
 	}
-	e := New(pool, cfg, a, rampStart, logFn)
+	e := New(pool, cfg, rampStart, logFn)
 	e.WithActionStore(ep, "approval")
 
 	withTestStandingGate(e)
@@ -2760,8 +2746,7 @@ func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 			"DROP TABLE IF EXISTS public.rc_auto_exec")
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_auto_exec_cat",
 			Severity:         "warning",
@@ -2796,7 +2781,7 @@ func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 			executed = true
 		}
 	}
-	e := New(pool, cfg, a, rampStart, logFn)
+	e := New(pool, cfg, rampStart, logFn)
 
 	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
@@ -2853,8 +2838,7 @@ func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 			"DROP TABLE IF EXISTS public.rc_conc_exec")
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_conc_exec_cat",
 			Severity:         "warning",
@@ -2893,7 +2877,7 @@ func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 			lockErr = true
 		}
 	}
-	e := New(pool, cfg, a, rampStart, logFn)
+	e := New(pool, cfg, rampStart, logFn)
 	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
@@ -2938,8 +2922,7 @@ func TestCoverage_RunCycle_ExecFailure(t *testing.T) {
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_fail_cat",
 			Severity:         "warning",
@@ -2974,7 +2957,7 @@ func TestCoverage_RunCycle_ExecFailure(t *testing.T) {
 			failLogged = true
 		}
 	}
-	e := New(pool, cfg, a, rampStart, logFn)
+	e := New(pool, cfg, rampStart, logFn)
 	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
@@ -3014,8 +2997,7 @@ func TestCoverage_RunCycle_ExecFailureWithDispatcher(t *testing.T) {
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_fail_disp_cat",
 			Severity:         "warning",
@@ -3044,7 +3026,7 @@ func TestCoverage_RunCycle_ExecFailureWithDispatcher(t *testing.T) {
 	rampStart := time.Now().Add(-40 * 24 * time.Hour)
 
 	md := &mockDispatcher{}
-	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
+	e := New(pool, cfg, rampStart, func(string, string, ...any) {})
 	e.WithDispatcher(md)
 
 	withTestStandingGate(e)
@@ -3106,8 +3088,7 @@ func TestCoverage_RunCycle_SuccessWithDispatcher(t *testing.T) {
 			"DROP TABLE IF EXISTS public.rc_succ_disp")
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_succ_disp_cat",
 			Severity:         "warning",
@@ -3135,7 +3116,7 @@ func TestCoverage_RunCycle_SuccessWithDispatcher(t *testing.T) {
 	rampStart := time.Now().Add(-40 * 24 * time.Hour)
 
 	md := &mockDispatcher{}
-	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
+	e := New(pool, cfg, rampStart, func(string, string, ...any) {})
 	e.WithDispatcher(md)
 
 	withTestStandingGate(e)
@@ -3191,8 +3172,7 @@ func TestCoverage_RunCycle_VacuumNoRollback(t *testing.T) {
 			"DROP TABLE IF EXISTS public.rc_vacuum_tbl")
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_vacuum_cat",
 			Severity:         "warning",
@@ -3226,7 +3206,7 @@ func TestCoverage_RunCycle_VacuumNoRollback(t *testing.T) {
 			executed = true
 		}
 	}
-	e := New(pool, cfg, a, rampStart, logFn)
+	e := New(pool, cfg, rampStart, logFn)
 	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
@@ -3277,8 +3257,7 @@ func TestCoverage_RunCycle_WithRollbackSQL(t *testing.T) {
 			"DROP TABLE IF EXISTS public.rc_rollback_tbl")
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_rollback_cat",
 			Severity:         "warning",
@@ -3316,7 +3295,7 @@ func TestCoverage_RunCycle_WithRollbackSQL(t *testing.T) {
 			executed = true
 		}
 	}
-	e := New(pool, cfg, a, rampStart, logFn)
+	e := New(pool, cfg, rampStart, logFn)
 	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
@@ -3371,8 +3350,7 @@ func TestCoverage_RunCycle_HysteresisBlocks(t *testing.T) {
 			"DELETE FROM sage.findings WHERE id = $1", findingID)
 	})
 
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{
+	proposeDurable(t, pool, []analyzer.Finding{
 		{
 			Category:         "rc_hyst_cat",
 			Severity:         "warning",
@@ -3409,7 +3387,7 @@ func TestCoverage_RunCycle_HysteresisBlocks(t *testing.T) {
 			hystLogged = true
 		}
 	}
-	e := New(pool, cfg, a, rampStart, logFn)
+	e := New(pool, cfg, rampStart, logFn)
 	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 

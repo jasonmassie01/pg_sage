@@ -49,7 +49,7 @@ type verdictInput struct {
 // policyVerdict is the standing gate's verdict for contract under in, via a
 // real gate over an executor's runtime (the only policy authority).
 func policyVerdict(contract ActionContract, in verdictInput) ActionPolicyDecision {
-	e := New(nil, in.cfg, nil, in.rampStart, noopExecLog)
+	e := New(nil, in.cfg, in.rampStart, noopExecLog)
 	withTestStandingGateAt(e, in.now)
 	stopped := in.stopped
 	e.WithEmergencyStopCheck(func(context.Context) bool { return stopped })

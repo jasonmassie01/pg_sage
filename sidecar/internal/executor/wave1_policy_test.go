@@ -351,7 +351,7 @@ func wave1Contract(risk string) ActionContract {
 }
 
 func newWave1Executor(trust, mode string) *Executor {
-	e := New(nil, wave1PolicyConfig(trust), nil,
+	e := New(nil, wave1PolicyConfig(trust),
 		time.Now().Add(-40*24*time.Hour), func(string, string, ...any) {})
 	e.emergencyStopFn = func(context.Context) bool { return false }
 	e.SetExecutionMode(mode)

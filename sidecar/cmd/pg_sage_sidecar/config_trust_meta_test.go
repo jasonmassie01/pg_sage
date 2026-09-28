@@ -31,7 +31,7 @@ func metaTrustManager(t *testing.T, levels map[string]string) (
 	id := 100
 	for name, level := range levels {
 		id++
-		exec := executor.New(nil, config.Clone(cfg), nil, time.Time{}, nil)
+		exec := executor.New(nil, config.Clone(cfg), time.Time{}, nil)
 		if err := exec.SetTrustLevel(level); err != nil {
 			t.Fatalf("seed %s trust: %v", name, err)
 		}

@@ -104,7 +104,7 @@ func preflightNewFixture(t *testing.T) *preflightFixture {
 // action_log.before_state. revert_created_index refuses to drop without it.
 func preflightCreatedIdentity(t *testing.T, pool *pgxpool.Pool) []byte {
 	t.Helper()
-	e := New(pool, &config.Config{}, nil, time.Time{}, func(string, string, ...any) {})
+	e := New(pool, &config.Config{}, time.Time{}, func(string, string, ...any) {})
 	state := map[string]any{}
 	qualified := pgx.Identifier{"public", "preflight_items_idx"}.Sanitize()
 	e.recordCreatedIndexIdentity(t.Context(), qualified, state)
@@ -167,7 +167,7 @@ func preflightEngine(t *testing.T, f *preflightFixture, store verify.StateStore)
 }
 
 func preflightActions(f *preflightFixture) *executorIndexActions {
-	e := New(f.pool, &config.Config{}, nil, time.Time{}, func(string, string, ...any) {})
+	e := New(f.pool, &config.Config{}, time.Time{}, func(string, string, ...any) {})
 	e.WithPolicyGate(preflightAllowGate{})
 	return &executorIndexActions{exec: e}
 }

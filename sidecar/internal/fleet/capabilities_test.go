@@ -14,7 +14,7 @@ import (
 // unattended policy whose windows are always open.
 func gateExecutor(t *testing.T, trust string) *executor.Executor {
 	t.Helper()
-	e := executor.New(nil, readinessTestConfig(trust), nil,
+	e := executor.New(nil, readinessTestConfig(trust),
 		time.Now().Add(-90*24*time.Hour), func(string, string, ...any) {})
 	e.WithEmergencyStopCheck(func(context.Context) bool { return false })
 	e.SetExecutionMode("auto")
