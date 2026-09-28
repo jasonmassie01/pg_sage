@@ -1,6 +1,7 @@
 package srebench
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -90,5 +91,59 @@ func TestQuietWindow_Boundaries(t *testing.T) {
 		if (err != nil) != c.fails || errors.As(err, &ct) != c.contaminated {
 			t.Errorf("%s: err = %v", c.name, err)
 		}
+	}
+}
+
+// awaitQuiet measures windows until one is quiet, so a steady scenario
+// starts on a quiet cluster instead of burning its attempts on a busy one.
+func TestAwaitQuiet_WaitsForAQuietWindow(t *testing.T) {
+	rates := []float64{64 << 20, 8 << 20, 1 << 10}
+	calls := 0
+	err := awaitQuiet(context.Background(), 5, func(context.Context) (float64, time.Duration,
+		error) {
+		r := rates[calls]
+		calls++
+		return r * 2, 2 * time.Second, nil
+	})
+	if err != nil || calls != 3 {
+		t.Fatalf("calls=%d err=%v", calls, err)
+	}
+}
+
+func TestAwaitQuiet_BusyThroughoutIsContaminated(t *testing.T) {
+	calls := 0
+	err := awaitQuiet(context.Background(), 4, func(context.Context) (float64, time.Duration,
+		error) {
+		calls++
+		return 64 << 20, time.Second, nil
+	})
+	var c *Contaminated
+	if calls != 4 || !errors.As(err, &c) {
+		t.Fatalf("calls=%d err=%v", calls, err)
+	}
+}
+
+func TestAwaitQuiet_MeasurementErrorPropagates(t *testing.T) {
+	boom := errors.New("lsn: connection refused")
+	err := awaitQuiet(context.Background(), 3, func(context.Context) (float64, time.Duration,
+		error) {
+		return 0, 0, boom
+	})
+	var c *Contaminated
+	if !errors.Is(err, boom) || errors.As(err, &c) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAwaitQuiet_CancelledContextStops(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	calls := 0
+	err := awaitQuiet(ctx, 3, func(context.Context) (float64, time.Duration, error) {
+		calls++
+		return 64 << 20, time.Second, nil
+	})
+	if !errors.Is(err, context.Canceled) || calls > 1 {
+		t.Fatalf("calls=%d err=%v", calls, err)
 	}
 }

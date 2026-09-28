@@ -83,25 +83,78 @@ func cleanCluster(ctx context.Context, e *Env) error {
 const quietWALRate = 2 << 20
 
 // steadyWAL writes nothing. WAL is cluster-wide, and other sessions (test
-// packages running beside the benchmark) do not take the cluster lock,
-// so the window is measured: if the cluster wrote WAL at a surge-like
-// rate during the investigation, the run is contaminated and repeated.
+// packages running beside the benchmark) do not take the cluster lock:
+// the program waits for a quiet window before the investigation, and
+// measures the window it ran in; a run in which the cluster wrote WAL at
+// a surge-like rate is contaminated and repeated.
 func steadyWAL() program {
 	var start string
 	var at time.Time
-	p := walProgram(nil, func(ctx context.Context, e *Env) error {
+	p := walProgram(func(ctx context.Context, e *Env) error {
+		return awaitQuiet(ctx, quietTries, func(ctx context.Context) (float64,
+			time.Duration, error) {
+			return measureWAL(ctx, e, quietProbe)
+		})
+	}, func(ctx context.Context, e *Env) error {
 		at = time.Now()
 		return e.Pool.QueryRow(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&start)
 	})
 	p.valid = func(ctx context.Context, e *Env) error {
-		var bytes float64
-		if err := e.Pool.QueryRow(ctx, `SELECT pg_wal_lsn_diff(pg_current_wal_lsn(),
-			$1::pg_lsn)::float8`, start).Scan(&bytes); err != nil {
+		bytes, err := walSince(ctx, e, start)
+		if err != nil {
 			return err
 		}
 		return quietWindow(bytes, time.Since(at))
 	}
 	return p
+}
+
+// quietTries windows of quietProbe bound the wait for a quiet cluster.
+const (
+	quietTries = 45
+	quietProbe = 2 * time.Second
+)
+
+// awaitQuiet measures up to tries windows and returns at the first quiet
+// one; a cluster busy throughout is contaminated.
+func awaitQuiet(ctx context.Context, tries int,
+	measure func(context.Context) (float64, time.Duration, error)) error {
+	var last error
+	for i := 0; i < tries; i++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		bytes, elapsed, err := measure(ctx)
+		if err != nil {
+			return err
+		}
+		if last = quietWindow(bytes, elapsed); last == nil {
+			return nil
+		}
+	}
+	return last
+}
+
+// measureWAL returns the cluster's WAL bytes over a window of d.
+func measureWAL(ctx context.Context, e *Env, d time.Duration) (float64, time.Duration,
+	error) {
+	var lsn string
+	if err := e.Pool.QueryRow(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn); err != nil {
+		return 0, 0, err
+	}
+	at := time.Now()
+	if err := sleepRest(ctx, d); err != nil {
+		return 0, 0, err
+	}
+	bytes, err := walSince(ctx, e, lsn)
+	return bytes, time.Since(at), err
+}
+
+func walSince(ctx context.Context, e *Env, lsn string) (float64, error) {
+	var bytes float64
+	err := e.Pool.QueryRow(ctx, `SELECT pg_wal_lsn_diff(pg_current_wal_lsn(),
+		$1::pg_lsn)::float8`, lsn).Scan(&bytes)
+	return bytes, err
 }
 
 // quietWindow reports a window whose WAL rate reached quietWALRate.
