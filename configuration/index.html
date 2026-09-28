@@ -697,6 +697,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../azure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Azure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -1066,8 +1093,8 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <tbody>
 <tr>
 <td><code>mode</code></td>
-<td><code>extension</code></td>
-<td>Operating mode; set <code>standalone</code> explicitly for sidecar-only deployments</td>
+<td><code>standalone</code></td>
+<td><code>standalone</code> (one database), <code>fleet</code> (YAML <code>databases</code>), or <code>meta</code> (inferred from <code>--meta-db</code>). The former <code>extension</code> mode was removed with the C extension and is rejected at startup</td>
 </tr>
 <tr>
 <td><code>postgres.max_connections</code></td>

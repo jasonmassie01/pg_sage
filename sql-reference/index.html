@@ -537,17 +537,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#c-extension-sql-functions-frozen" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        C Extension SQL Functions (Frozen)
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -652,6 +641,33 @@
     
   
     Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../azure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Azure
   
 
     
@@ -770,17 +786,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#c-extension-sql-functions-frozen" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        C Extension SQL Functions (Frozen)
-      
-    </span>
-  </a>
   
 </li>
       
@@ -1142,72 +1147,6 @@
 </tr>
 </tbody>
 </table>
-<hr />
-<h2 id="c-extension-sql-functions-frozen">C Extension SQL Functions (Frozen)<a class="headerlink" href="#c-extension-sql-functions-frozen" title="Permanent link">&para;</a></h2>
-<p>The following functions are part of the C extension (frozen at v0.6.0-rc3). They are available only when the extension is installed on self-managed PostgreSQL. The sidecar does not require them.</p>
-<table>
-<thead>
-<tr>
-<th>Function</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>sage.status()</code></td>
-<td>Extension status and worker health</td>
-</tr>
-<tr>
-<td><code>sage.briefing()</code></td>
-<td>Generate a health briefing</td>
-</tr>
-<tr>
-<td><code>sage.diagnose(question TEXT)</code></td>
-<td>Interactive LLM diagnostic</td>
-</tr>
-<tr>
-<td><code>sage.explain(queryid BIGINT)</code></td>
-<td>EXPLAIN plan capture with narrative</td>
-</tr>
-<tr>
-<td><code>sage.suppress(finding_id INT, reason TEXT, days INT)</code></td>
-<td>Suppress a finding</td>
-</tr>
-<tr>
-<td><code>sage.emergency_stop()</code></td>
-<td>Halt all autonomous activity</td>
-</tr>
-<tr>
-<td><code>sage.resume()</code></td>
-<td>Resume after emergency stop</td>
-</tr>
-<tr>
-<td><code>sage.health_json()</code></td>
-<td>Health overview as JSONB</td>
-</tr>
-<tr>
-<td><code>sage.findings_json(status TEXT)</code></td>
-<td>Findings as JSONB array</td>
-</tr>
-<tr>
-<td><code>sage.schema_json(table TEXT)</code></td>
-<td>Table DDL as JSONB</td>
-</tr>
-<tr>
-<td><code>sage.stats_json(table TEXT)</code></td>
-<td>Table stats as JSONB</td>
-</tr>
-<tr>
-<td><code>sage.slow_queries_json()</code></td>
-<td>Top slow queries as JSONB</td>
-</tr>
-<tr>
-<td><code>sage.explain_json(queryid BIGINT)</code></td>
-<td>Cached plan as JSONB</td>
-</tr>
-</tbody>
-</table>
-<p>These functions are not needed when using the sidecar. The REST API, web UI, and Prometheus exporter provide equivalent functionality.</p>
 
 
 

@@ -519,6 +519,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../azure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Azure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -561,6 +588,17 @@
     <span class="md-ellipsis">
       
         Databricks Lakebase Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#principals-and-tenant-isolation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Principals and tenant isolation
       
     </span>
   </a>
@@ -757,8 +795,30 @@ provider policy, and an explicit source instance or source branch.</p>
 <li>Databricks Lakebase Provisioned compatibility:
   https://docs.databricks.com/aws/en/oltp/instances/query/postgres-compatibility</li>
 </ul>
+<h2 id="principals-and-tenant-isolation">Principals and tenant isolation<a class="headerlink" href="#principals-and-tenant-isolation" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Operators and admins</strong> sign in with a session (cookie). They are global
+  operators of this pg_sage install and may act on any tenant. Approvals,
+  live authorizations, destroys, archives and token minting require these
+  roles; every audit actor (<code>approved_by</code>, <code>created_by</code>, <code>reviewed_by</code>) is
+  taken from the signed-in user, not from the request body.</li>
+<li><strong>Agents</strong> never use operator cookies. An admin mints a tenant-bound agent
+  token for an <code>agent_identities</code> row
+  (<code>POST /api/v1/agent-dbs/identities/{agent_id}/tokens</code>). The agent calls
+  <code>/api/v1/agent-api/...</code> with <code>Authorization: Bearer agt_...</code>; the tenant and
+  agent are taken from the token and body values are ignored. Agents can list
+  and read their own tenant's deployments (<code>GET /api/v1/agent-api/agent-dbs</code>,
+  <code>GET /api/v1/agent-api/agent-dbs/{id}</code>) and create/list their own requests
+  (<code>/api/v1/agent-api/agent-db-requests</code>). They cannot approve, authorize,
+  provision live, destroy, archive or mint tokens.</li>
+<li><strong>Ping tokens</strong> are scoped to one deployment and its agent and only record
+  liveness (<code>last_ping_at</code>, <code>agent_status</code>); they cannot change lifecycle.</li>
+<li><code>allowed_regions</code> is server policy (<code>agentdb.providers.*.allowed_regions</code>);
+  a request body cannot widen it.</li>
+</ul>
 <h2 id="agent-api-flow">Agent API Flow<a class="headerlink" href="#agent-api-flow" title="Permanent link">&para;</a></h2>
-<p>Agents can request and maintain deployments without using the UI.</p>
+<p>The operator-side calls below use an operator session. Agents should use the
+agent token routes described above.</p>
 <ol>
 <li>Create or update the agent identity:</li>
 </ol>

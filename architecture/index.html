@@ -610,10 +610,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#c-extension-frozen" class="md-nav__link">
+  <a href="#c-extension-removed" class="md-nav__link">
     <span class="md-ellipsis">
       
-        C Extension (Frozen)
+        C Extension (Removed)
       
     </span>
   </a>
@@ -751,6 +751,33 @@
     
   
     Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../azure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Azure
   
 
     
@@ -972,10 +999,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#c-extension-frozen" class="md-nav__link">
+  <a href="#c-extension-removed" class="md-nav__link">
     <span class="md-ellipsis">
       
-        C Extension (Frozen)
+        C Extension (Removed)
       
     </span>
   </a>
@@ -1003,7 +1030,7 @@
 
 
 <h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
-<p>pg_sage is a Go sidecar that connects to any PostgreSQL 14-17 over the network. The C extension is frozen at v0.6.0-rc3 and is not the product.</p>
+<p>pg_sage is a Go sidecar that connects to any PostgreSQL 14-17 over the network. The former C extension was removed (see the <code>c-extension-final</code> tag).</p>
 <h2 id="why-a-sidecar">Why a Sidecar<a class="headerlink" href="#why-a-sidecar" title="Permanent link">&para;</a></h2>
 <ol>
 <li>
@@ -1203,8 +1230,10 @@ decides whether a specific database can execute, queue, or only observe.</p>
 <h2 id="schema-bootstrap">Schema Bootstrap<a class="headerlink" href="#schema-bootstrap" title="Permanent link">&para;</a></h2>
 <p>On startup, pg_sage acquires advisory lock <code>710190109</code> (<code>hashtext('pg_sage')</code>), then creates the <code>sage</code> schema and tables if they do not exist. See <a href="../sql-reference/">SQL Reference</a> for the full schema.</p>
 <hr />
-<h2 id="c-extension-frozen">C Extension (Frozen)<a class="headerlink" href="#c-extension-frozen" title="Permanent link">&para;</a></h2>
-<p>The C extension at <code>src/</code> is frozen at v0.6.0-rc3. When co-deployed on self-managed PostgreSQL, it adds <code>sage.explain_cache</code> via executor hooks and in-process SQL functions (<code>sage.explain()</code>, <code>sage.diagnose()</code>, <code>sage.briefing()</code>). The sidecar detects the extension at startup and uses it opportunistically. All core functionality works without it.</p>
+<h2 id="c-extension-removed">C Extension (Removed)<a class="headerlink" href="#c-extension-removed" title="Permanent link">&para;</a></h2>
+<p>The C extension, frozen at v0.6.0-rc3, was removed from the repository. Its last source is
+preserved at the <code>c-extension-final</code> tag. The sidecar needs only the catalog views,
+<code>pg_stat_statements</code>, and optional extensions such as HypoPG and pg_hint_plan.</p>
 
 
 

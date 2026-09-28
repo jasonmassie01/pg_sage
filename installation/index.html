@@ -697,6 +697,33 @@
   
 
     
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../azure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Azure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
   </ul>
 </nav>
                   </div>
@@ -903,13 +930,13 @@
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="k">GRANT</span><span class="w"> </span><span class="n">pg_read_all_stats</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span>
 <a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="k">GRANT</span><span class="w"> </span><span class="k">CREATE</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span><span class="w">    </span><span class="c1">-- for index creation</span>
 <a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="k">GRANT</span><span class="w"> </span><span class="n">pg_signal_backend</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span><span class="w">           </span><span class="c1">-- for query termination</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="c1">-- pg_sage bootstraps these automatically, but you can pre-create if preferred:</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="k">CREATE</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="n">sage</span><span class="p">;</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="k">GRANT</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="n">sage</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span>
-<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="k">ALTER</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">PRIVILEGES</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="n">sage</span><span class="w"> </span><span class="k">GRANT</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">TABLES</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="k">CREATE</span><span class="w"> </span><span class="n">EXTENSION</span><span class="w"> </span><span class="k">IF</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">EXISTS</span><span class="w"> </span><span class="n">pg_stat_statements</span><span class="p">;</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="c1">-- pg_sage keeps its state in the sage schema. sage_agent cannot create</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="c1">-- schemas without CREATE on the database, so create it for the agent:</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="k">CREATE</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="k">IF</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">EXISTS</span><span class="w"> </span><span class="n">sage</span><span class="w"> </span><span class="k">AUTHORIZATION</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span>
 </code></pre></div>
-<p>Ensure <code>pg_stat_statements</code> is loaded on your database (<code>shared_preload_libraries = 'pg_stat_statements'</code>). Most managed services have this enabled by default.</p>
+<p><code>pg_stat_statements</code> must also be preloaded (<code>shared_preload_libraries = 'pg_stat_statements'</code>). Most managed services have this enabled by default. The end-to-end test <code>TestDocumentedQuickStart</code> runs the SQL block above verbatim, so keep it runnable.</p>
 <hr />
 <h2 id="running-with-connection-url">Running with Connection URL<a class="headerlink" href="#running-with-connection-url" title="Permanent link">&para;</a></h2>
 <p>The simplest way to start -- observation mode, no LLM:</p>
@@ -963,7 +990,13 @@ require the <code>sage_session</code> cookie returned by <code>/api/v1/auth/logi
 </code></pre></div>
 <hr />
 <h2 id="build-from-source">Build from Source<a class="headerlink" href="#build-from-source" title="Permanent link">&para;</a></h2>
-<p>Requires Go 1.24+ and Node.js 20+:</p>
+<p>Requires Go 1.24+ and Node.js 20+.
+A C compiler (gcc or clang) is also needed: with cgo the binary links
+libpg_query, which checks every executor statement against its PostgreSQL
+parse tree. Without a C compiler the build still succeeds, but that layer is
+left out; <code>pg_sage --version</code> then reports <code>sql-ast: unavailable</code>, startup
+logs a warning, and changes pg_sage would make on its own wait for operator
+approval instead. Release binaries and Docker images always include it.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/jasonmassie01/pg_sage.git
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nb">cd</span><span class="w"> </span>pg_sage/sidecar
 <a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nb">cd</span><span class="w"> </span>web<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>ci<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>run<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">cd</span><span class="w"> </span>..
