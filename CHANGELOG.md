@@ -5,10 +5,11 @@
 ### What's new
 
 - **Sage SRE investigations (opt-in: `sre.automatic_start: true`).** Incidents and plan
-  regressions get a deterministic, evidence-first investigation. It uses 12 bounded
-  read-only probes, a causal graph for lock blocking, plan regression, connection pressure and WAL/slot problems, and ruled-out
-  alternatives. You can read investigations in the Cases panel, the API, MCP and a redacted
-  export. Lock chains page within a minute. LLM narration is opt-in and must cite evidence.
+  regressions get a deterministic, evidence-first investigation. It uses 12 bounded read-
+  only probes, a causal graph for lock blocking, plan regression, connection pressure and
+  WAL/slot problems, and ruled-out alternatives. You can read investigations in the Cases
+  panel, the API, MCP and a redacted export. Lock chains page within a minute. LLM
+  narration is opt-in and must cite evidence.
 - **pg_sage earns index autonomy.** It learns each database's IO baseline from Postgres
   itself (`pg_stat_io`/`pg_stat_wal`). After 7 days it builds the indexes it needs during
   quiet periods. Capacity declared by an operator overrides the learned baseline.
