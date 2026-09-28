@@ -278,6 +278,11 @@ func registerAPIRoutes(
 		"GET /api/v1/fleet/readiness",
 		fleetReadinessHandler(mgr))
 	mux.HandleFunc(
+		"GET /api/v1/admission", admissionListHandler(mgr))
+	mux.HandleFunc(
+		"GET /api/v1/admission/{name}",
+		admissionStatusHandler(mgr))
+	mux.HandleFunc(
 		"GET /api/v1/config", configGetHandler(mgr, cfg, controller))
 
 	configPutHandler := configUpdateHandlerWithStore(

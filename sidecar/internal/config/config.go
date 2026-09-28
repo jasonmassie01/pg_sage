@@ -195,6 +195,11 @@ type SafetyConfig struct {
 	BackoffConsecutiveSkips  int `yaml:"backoff_consecutive_skips" doc:"After this many consecutive skipped cycles (e.g. CPU ceiling hit repeatedly), enter dormant mode and slow the cadence until load subsides."`
 	DormantIntervalSeconds   int `yaml:"dormant_interval_seconds" doc:"Cycle interval (seconds) used while in dormant mode — typically much larger than the normal interval so the sidecar wakes rarely while the target is stressed."`
 	LockTimeoutMs            int `yaml:"lock_timeout_ms" doc:"lock_timeout applied to connections running DDL or ANALYZE. Must be > 0 for ANALYZE actions in v0.8.5 — autovacuum can hold a ShareUpdateExclusiveLock indefinitely." warning:"Zero disables the timeout entirely and is refused by the executor for ANALYZE actions."`
+
+	// IO ceilings for declared-capacity load admission (D6), independent
+	// of cpu_ceiling_pct.
+	DataIOCeilingPct int `yaml:"data_io_ceiling_pct" doc:"Data IO ceiling, % of capacity."`
+	WALIOCeilingPct  int `yaml:"wal_io_ceiling_pct" doc:"WAL IO ceiling, % of capacity."`
 }
 
 type TrustConfig struct {
@@ -697,6 +702,9 @@ func (c *Config) validate() error {
 	if c.Safety.QueryTimeoutMs <= 0 {
 		return fmt.Errorf("safety.query_timeout_ms must be positive")
 	}
+	if err := c.validateIOAdmission(); err != nil {
+		return err
+	}
 
 	// Fleet-specific validation.
 	if c.Mode == "fleet" {
@@ -768,6 +776,8 @@ func newDefaults() *Config {
 		},
 		Safety: SafetyConfig{
 			CPUCeilingPct:            DefaultCPUCeilingPct,
+			DataIOCeilingPct:         DefaultDataIOCeilingPct,
+			WALIOCeilingPct:          DefaultWALIOCeilingPct,
 			QueryTimeoutMs:           DefaultQueryTimeoutMs,
 			DDLTimeoutSeconds:        DefaultDDLTimeoutSeconds,
 			DiskPressureThresholdPct: DefaultDiskPressureThresholdPct,
@@ -955,6 +965,8 @@ func newDefaults() *Config {
 			RegressPct:       DefaultVerifyRegressPct,
 			WriteImpactPct:   DefaultVerifyWriteImpactPct,
 			MinSamples:       DefaultVerifyMinSamples,
+			IOBaselineDays:   DefaultIOBaselineDays,
+			IOSampleDays:     DefaultIOSampleRetentionDays,
 		},
 		Clone: CloneProviderConfig{
 			Provider:           DefaultCloneProvider,

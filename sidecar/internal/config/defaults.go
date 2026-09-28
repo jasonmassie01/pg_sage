@@ -193,6 +193,10 @@ const (
 	DefaultVerifyRegressPct          = 15.0
 	DefaultVerifyWriteImpactPct      = 20.0
 	DefaultVerifyMinSamples          = 30
+	DefaultIOBaselineDays            = 7
+	DefaultIOSampleRetentionDays     = 14
+	DefaultDataIOCeilingPct          = 70
+	DefaultWALIOCeilingPct           = 70
 	DefaultCloneProvider             = "none"
 	DefaultCloneMaxAgeMinutes        = 1440
 	DefaultFreezeRedBufferPct        = 25.0

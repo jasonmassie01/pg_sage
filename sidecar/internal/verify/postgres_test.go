@@ -27,7 +27,7 @@ func TestPostgresAdaptersFailClosedWithoutPool(t *testing.T) {
 			return err
 		}},
 		{"index", func() error { _, err := source.IndexValid(ctx, "idx"); return err }},
-		{"load", func() error { _, err := source.CurrentLoad(ctx); return err }},
+		{"load", func() error { _, err := source.LoadEvidence(ctx); return err }},
 		{"create", func() error { return store.Create(ctx, WatchState{}) }},
 		{"update", func() error { return store.Update(ctx, WatchState{}) }},
 		{"get", func() error { _, err := store.Get(ctx, "watch"); return err }},
@@ -118,9 +118,9 @@ func TestPostgresObservationSourceReadsCollectorEvidence(t *testing.T) {
 	if err != nil || !valid {
 		t.Fatalf("IndexValid() = %v, %v", valid, err)
 	}
-	load, err := source.CurrentLoad(context.Background())
-	if !errors.Is(err, ErrLoadTelemetryUnavailable) || load != (LoadSample{}) {
-		t.Fatalf("CurrentLoad() = %#v, %v", load, err)
+	load, err := source.LoadEvidence(context.Background())
+	if !errors.Is(err, ErrLoadTelemetryUnavailable) || load != (LoadEvidence{}) {
+		t.Fatalf("LoadEvidence() = %#v, %v", load, err)
 	}
 }
 

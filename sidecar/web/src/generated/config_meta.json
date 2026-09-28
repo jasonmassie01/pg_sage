@@ -1067,6 +1067,11 @@
     "default": 90,
     "doc": "Skip cycles when database-host CPU exceeds this percent (1-100). Prevents pg_sage from adding load during incidents."
   },
+  "safety.data_io_ceiling_pct": {
+    "type": "int",
+    "default": 70,
+    "doc": "Data IO ceiling, % of capacity."
+  },
   "safety.ddl_timeout_seconds": {
     "type": "int",
     "default": 300,
@@ -1092,6 +1097,11 @@
     "type": "int",
     "default": 500,
     "doc": "statement_timeout applied to every collector and analyzer query issued by the sidecar. Protects the target from runaway introspection."
+  },
+  "safety.wal_io_ceiling_pct": {
+    "type": "int",
+    "default": 70,
+    "doc": "WAL IO ceiling, % of capacity."
   },
   "schema_lint.disabled_rules": {
     "type": "[]string",
@@ -1288,6 +1298,16 @@
     "type": "int",
     "default": 1,
     "doc": "Active calibrated toil-model version."
+  },
+  "verify.io_baseline_days": {
+    "type": "int",
+    "default": 7,
+    "doc": "IO baseline days; 0 disables."
+  },
+  "verify.io_sample_retention_days": {
+    "type": "int",
+    "default": 14,
+    "doc": "IO sample retention days."
   },
   "verify.min_gain_pct": {
     "type": "float64",
