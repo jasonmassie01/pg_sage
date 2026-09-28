@@ -20,9 +20,10 @@ import (
 // and skips analysis when that state cannot be loaded (R04).
 //
 // The adapter is also the single registration point of Sage SRE for a
-// database in every runtime mode (standalone, fleet, meta-db): it starts
-// the lock-chain fast path on the instance worker group and attaches the
-// catalog probe runner used for narration evidence.
+// database: buildDatabaseRuntime creates it for every mode (standalone,
+// YAML fleet, meta-db, AgentDB). It starts the lock-chain fast path on the
+// instance worker group and attaches the catalog probe runner used for
+// narration evidence.
 type rcaAdapter struct {
 	e     *rca.Engine
 	ctx   context.Context
@@ -30,16 +31,13 @@ type rcaAdapter struct {
 	logFn func(string, string, ...any)
 
 	fastPath *rca.LockChainTicker
+	probes   *probes.Runner
 }
 
 var _ analyzer.RCAEngine = (*rcaAdapter)(nil)
 
 // sreProbeLimiter bounds catalog probes across the whole sidecar.
 var sreProbeLimiter = probes.NewLimiter(probes.MaxSidecarConcurrency)
-
-// standaloneRCAWorkers tracks the standalone runtime's fast path so
-// shutdown waits for it.
-var standaloneRCAWorkers sync.WaitGroup
 
 // rcaAdapterDeps is one database's RCA wiring.
 type rcaAdapterDeps struct {
@@ -58,7 +56,8 @@ func newRCAAdapter(d rcaAdapterDeps) *rcaAdapter {
 	d.eng.WithDatabaseName(d.name)
 	a := &rcaAdapter{e: d.eng, ctx: d.ctx, pool: d.pool, logFn: d.logFn}
 	if d.pool != nil {
-		d.eng.WithProbes(probes.NewRunner(d.pool, probes.Catalog(), sreProbeLimiter))
+		a.probes = probes.NewRunner(d.pool, probes.Catalog(), sreProbeLimiter)
+		d.eng.WithProbes(a.probes)
 	}
 	a.startFastPath(d.cfg, d.workers)
 	return a

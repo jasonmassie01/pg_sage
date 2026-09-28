@@ -59,11 +59,16 @@ func TestTunerLLMClientsNilManager(t *testing.T) {
 }
 
 // Meta-db runtimes wired the analyzer and executor dispatcher but not the
-// RCA engine, so incident notifications never left meta mode.
+// RCA engine, so incident notifications never left meta mode. Every mode now
+// builds its RCA engine in the shared runtime.
 func TestMetaRuntimeWiresRCANotifications(t *testing.T) {
-	fn := productionFunction(t, "metadb.go", "buildStoreDatabaseRuntime")
-	if !callsPackageSelector(fn, "dbRCAEng", "WithDispatcher") {
-		t.Fatal("meta-db RCA engine never receives the notification dispatcher")
+	fn := productionFunction(t, "database_runtime_exec.go", "startExecution")
+	if !callsSelector(fn, "WithDispatcher") {
+		t.Fatal("the database runtime's RCA engine never receives the dispatcher")
+	}
+	meta := loadPackageCallGraph(t).reachableCalls("prepareStoreDatabaseConnection")
+	if !meta["buildDatabaseRuntime"] {
+		t.Fatal("meta-db does not build its runtime with the shared constructor")
 	}
 }
 
@@ -71,10 +76,11 @@ func TestMetaRuntimeWiresRCANotifications(t *testing.T) {
 // policy; every mode must share the configured one.
 func TestStandaloneUsesSharedNotifyDispatcher(t *testing.T) {
 	fn := productionFunction(t, "main.go", "initStandalone")
-	if callsPackageSelector(fn, "notify", "NewDispatcher") {
+	reached := loadPackageCallGraph(t).reachableCalls("initStandalone")
+	if reached["notify.NewDispatcher"] {
 		t.Fatal("standalone builds an unkeyed notify dispatcher")
 	}
-	if !callsIdentifier(fn, "sharedNotifyDispatcher") {
+	if !reached["sharedNotifyDispatcher"] {
 		t.Fatal("standalone does not use the shared keyed dispatcher")
 	}
 	if !callsIdentifier(fn, "newStandaloneLLMManager") {

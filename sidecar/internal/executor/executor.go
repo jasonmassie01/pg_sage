@@ -3,7 +3,6 @@ package executor
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -333,6 +332,11 @@ func (e *Executor) evaluateFindingPolicy(
 func (e *Executor) evaluateStandingPolicy(
 	ctx context.Context, gate policy.Gate, finding analyzer.Finding, isReplica bool,
 ) ActionPolicyDecision {
+	return standingPolicyDecision(gate.Authorize(ctx, findingRequest(finding, isReplica)))
+}
+
+// findingRequest is the standing-gate request for a background finding.
+func findingRequest(finding analyzer.Finding, isReplica bool) policy.ActionRequest {
 	request := policy.ActionRequest{
 		SQL: finding.RecommendedSQL, Feature: featureForFinding(finding),
 		TargetObjs: targetObjectsForFinding(finding),
@@ -341,9 +345,8 @@ func (e *Executor) evaluateStandingPolicy(
 	if contract, ok := contractForFinding(finding); ok {
 		request.Contract = policyContract(contract)
 	}
-	return standingPolicyDecision(gate.Authorize(ctx, request))
+	return request
 }
-
 func policyContract(contract ActionContract) *policy.ActionContract {
 	result := &policy.ActionContract{
 		ActionType: contract.ActionType, RiskTier: policy.RiskTier(contract.BaseRiskTier),
@@ -421,175 +424,6 @@ func contractForFinding(f analyzer.Finding) (ActionContract, bool) {
 	}
 	actionType := actionTypeForProposalSQL(f.RecommendedSQL)
 	return ContractForActionType(actionType)
-}
-
-// RunCycle is called after each analyzer cycle to evaluate and execute
-// any actionable findings.
-func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
-	e.resumeOnce.Do(func() {
-		if err := e.resumeOrphanedMonitors(ctx); err != nil {
-			e.logFn("executor", "resume rollback monitors: %v", err)
-		}
-	})
-	if e.indexVerification != nil {
-		if err := e.indexVerification.ResumeDue(ctx); err != nil {
-			e.logFn("executor", "resume index verification: %v", err)
-		}
-	}
-	// Manual mode and executor-disabled are hard background-action stops.
-	if e.effectiveExecMode() == "manual" || !e.ExecutorEnabled() {
-		return
-	}
-
-	e.pruneRecentActions()
-	findings := e.analyzer.Findings()
-
-	for _, f := range findings {
-		if f.RecommendedSQL == "" {
-			continue
-		}
-
-		decision := e.evaluateFindingPolicy(ctx, f, isReplica)
-		if decision.Decision == PolicyDecisionBlocked ||
-			decision.Decision == PolicyDecisionObserveOnly {
-			continue
-		}
-
-		if e.isCascadeCooldown(f.ObjectIdentifier) {
-			continue
-		}
-
-		findingID := e.lookupFindingID(ctx, f)
-		if findingID <= 0 {
-			continue
-		}
-
-		if e.exceedsMaxRetries(ctx, findingID) {
-			continue
-		}
-
-		// Anti-oscillation: if pg_sage has already applied this exact
-		// action repeatedly (the object keeps reverting externally), stop.
-		if e.exceedsOscillationLimit(ctx, f, findingID) {
-			continue
-		}
-
-		// Approval mode: queue for approval instead of executing.
-		if decision.Decision == PolicyDecisionQueueApproval {
-			if e.actionStore == nil {
-				e.logFn("executor",
-					"cannot queue %q: action store unavailable", f.Title)
-				continue
-			}
-			if checker, ok := e.actionStore.(PendingActionChecker); ok {
-				hasPending, err := checker.HasPendingForFinding(
-					ctx, int(findingID))
-				if err != nil {
-					e.logFn("executor",
-						"failed to check pending approval for %q: %v",
-						f.Title, err)
-					continue
-				}
-				if hasPending {
-					continue
-				}
-			}
-			if checker, ok := e.actionStore.(PendingActionSQLChecker); ok {
-				hasPending, err := checker.HasPendingForSQL(
-					ctx, f.RecommendedSQL)
-				if err != nil {
-					e.logFn("executor",
-						"failed to check duplicate approval SQL for %q: %v",
-						f.Title, err)
-					continue
-				}
-				if hasPending {
-					continue
-				}
-			}
-			if checker, ok := e.actionStore.(RejectedActionChecker); ok {
-				cooldown := e.cascadeCooldown()
-				rejected, err := checker.HasRecentlyRejectedForFinding(
-					ctx, int(findingID), cooldown)
-				if err != nil {
-					e.logFn("executor",
-						"failed to check rejected approval for %q: %v",
-						f.Title, err)
-					continue
-				}
-				if rejected {
-					continue
-				}
-				rejected, err = checker.HasRecentlyRejectedForSQL(
-					ctx, f.RecommendedSQL, cooldown)
-				if err != nil {
-					e.logFn("executor",
-						"failed to check rejected approval SQL for %q: %v",
-						f.Title, err)
-					continue
-				}
-				if rejected {
-					continue
-				}
-			}
-
-			proposal := f
-			proposal.ActionRisk = decision.RiskTier
-			_, propErr := e.proposeForApproval(ctx, int(findingID), proposal)
-			if propErr != nil {
-				e.logFn("executor",
-					"failed to queue %q for approval: %v",
-					f.Title, propErr)
-			} else {
-				e.logFn("executor",
-					"queued %q for approval", f.Title)
-				e.dispatchEvent(ctx,
-					notify.ApprovalNeededEvent(
-						f.Title, f.RecommendedSQL,
-						e.databaseName, decision.RiskTier))
-			}
-			continue
-		}
-
-		if CheckHysteresis(ctx, e.pool, findingID,
-			e.cfg.Trust.RollbackCooldownDays) {
-			e.logFn("executor",
-				"skipping %q — rolled back recently (cooldown)",
-				f.Title,
-			)
-			continue
-		}
-
-		// Reauthorize immediately before taking an execution slot. Runtime
-		// safety changes made while evidence/retry checks ran must stop this
-		// action rather than waiting for the next cycle.
-		latest := e.evaluateFindingPolicy(ctx, f, isReplica)
-		if latest.Decision != PolicyDecisionExecute {
-			continue
-		}
-
-		// Limit concurrent DDL to avoid overwhelming the database.
-		select {
-		case e.ddlSem <- struct{}{}:
-			// acquired — will release after execution
-		default:
-			e.logFn("executor",
-				"DDL concurrency limit reached, skipping %s",
-				f.RecommendedSQL)
-			continue
-		}
-
-		// Release the DDL slot via defer so a panic in executeFinding
-		// can't leak it and permanently shrink concurrency (C4).
-		func() {
-			defer func() { <-e.ddlSem }()
-			latest = e.evaluateFindingPolicy(ctx, f, isReplica)
-			if latest.Decision != PolicyDecisionExecute {
-				return
-			}
-			e.executeFinding(ctx, f, findingID, latest)
-		}()
-	}
 }
 
 func (e *Executor) proposeForApproval(
@@ -733,170 +567,6 @@ func estimatedToilForActionType(actionType string) int {
 	return 30
 }
 
-// executeFinding runs the DDL for a single finding and handles
-// post-execution checks, rollback monitoring, and invalid index cleanup.
-func (e *Executor) executeFinding(
-	ctx context.Context, f analyzer.Finding, findingID int64,
-	decision ActionPolicyDecision,
-) {
-	decisionID := decision.DecisionID
-	beforeState := e.snapshotBeforeState(ctx, targetQueryIDs(f))
-	if _, _, isSignal := parseBackendSignal(f.RecommendedSQL); isSignal {
-		// Backend signals never run as raw SQL; they need an operator
-		// approval and the evidence-matched signalMatchingBackend path.
-		e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID,
-			ErrBackendApprovalRequired)
-		e.logFn("executor", "refused autonomous backend signal %q", f.Title)
-		return
-	}
-	releaseLease, leaseErr := e.acquireDDLLease(ctx, f, decisionID)
-	if e.parkLeaseConflict(ctx, f, decisionID, leaseErr) {
-		return
-	}
-	if leaseErr != nil {
-		e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID, leaseErr)
-		e.logFn("executor", "DDL lease denied for %q: %v", f.Title, leaseErr)
-		return
-	}
-	defer releaseLease()
-
-	// Config changes on managed providers must go through the provider's
-	// parameter group / database flags, not ALTER SYSTEM (which is blocked
-	// there). Don't attempt it — record why so the operator applies it via
-	// the cloud console instead of seeing a generic failure.
-	if isAlterSystem(f.RecommendedSQL) &&
-		isManagedProvider(e.cfg.CloudEnvironment) {
-		param := configParamFromSQL(f.RecommendedSQL)
-		guidance := managedConfigGuidance(e.cfg.CloudEnvironment, param)
-		e.logFn("executor", "%s", guidance)
-		e.logActionWithDecision(ctx, f, findingID, beforeState,
-			decisionID,
-			fmt.Errorf("%s", guidance))
-		return
-	}
-
-	ddlTimeout := e.cfg.Safety.DDLTimeout()
-	lockOpt := WithLockTimeout(ddlLockTimeoutMS(
-		f.RecommendedSQL, e.cfg.Safety.LockTimeout(), decision.LockCeilingMS))
-	var verifiedAction verifiedIndexAction
-	verifiedCreate := categorizeAction(f.RecommendedSQL) == "create_index"
-	if verifiedCreate {
-		var verificationErr error
-		verifiedAction, verificationErr = e.admitVerifiedCreate(
-			ctx, &f, beforeState, findingID, decisionID)
-		if isAdmissionWithheld(verificationErr) {
-			return // recorded once per finding and reason; stays retryable
-		}
-		if verificationErr != nil {
-			e.logActionWithDecision(
-				ctx, f, findingID, beforeState, decisionID, verificationErr,
-			)
-			e.logFn("executor", "withheld unverifiable CREATE INDEX %q: %v",
-				f.Title, verificationErr)
-			return
-		}
-	}
-	execErr := e.checkGUCValueSafety(ctx, f.RecommendedSQL)
-	switch {
-	case execErr != nil:
-	case categorizeAction(f.RecommendedSQL) == "analyze":
-		execErr = e.executeAnalyze(ctx, f)
-	case NeedsConcurrently(f.RecommendedSQL) ||
-		NeedsTopLevel(f.RecommendedSQL):
-		execErr = ExecConcurrently(
-			ctx, e.pool, f.RecommendedSQL,
-			ddlTimeout, lockOpt,
-		)
-	default:
-		execErr = ExecInTransaction(
-			ctx, e.pool, f.RecommendedSQL,
-			ddlTimeout, lockOpt,
-		)
-	}
-
-	if verifiedCreate && execErr == nil {
-		e.recordCreatedIndexIdentity(ctx, verifiedAction.IndexName, beforeState)
-	}
-	actionID := e.logActionWithDecision(
-		ctx, f, findingID, beforeState, decisionID, execErr,
-	)
-	if execErr != nil {
-		_, _ = finalizeActionVerification(
-			ctx, e.pool, actionID, "failed", execErr.Error(),
-		)
-		if errors.Is(execErr, ErrLockNotAvailable) {
-			e.logFn("executor",
-				"lock timeout for %q on %s — circuit-breaking table",
-				f.Title, f.ObjectIdentifier,
-			)
-			e.noteRecentAction(f.ObjectIdentifier)
-		}
-		e.logFn("executor",
-			"execution failed for %q: %v", f.Title, execErr,
-		)
-		e.dispatchEvent(ctx,
-			notify.ActionFailedEvent(
-				f.Title, f.RecommendedSQL,
-				e.databaseName, execErr.Error()))
-		return
-	}
-	e.notifyPostDDL(ctx, f.RecommendedSQL)
-
-	e.logFn("executor",
-		"executed %q (action %d)", f.Title, actionID,
-	)
-	e.dispatchEvent(ctx,
-		notify.ActionExecutedEvent(
-			f.Title, f.RecommendedSQL, e.databaseName))
-	e.noteRecentAction(f.ObjectIdentifier)
-
-	// Config changes: reload so a reload-only GUC takes effect now, or
-	// record that a restart is still required. Without this, ALTER SYSTEM
-	// only writes postgresql.auto.conf and the change never applies.
-	if isAlterSystem(f.RecommendedSQL) {
-		outcome := applyConfigChange(
-			ctx, e.pool, f.RecommendedSQL, e.cfg.CloudEnvironment, e.logFn)
-		e.logFn("executor", "config: %s", outcome.Note)
-		updateActionOutcome(ctx, e.pool, actionID,
-			outcomeStatus(outcome.InEffect), outcome.Note)
-	}
-
-	// Write a plain-English audit justification (C4). Async so the LLM
-	// latency never blocks the cycle; WithoutCancel so it survives the
-	// per-cycle context being cancelled.
-	if e.justifier != nil {
-		go e.justifyAndStore(context.WithoutCancel(ctx), actionID, f)
-	}
-	if verifiedCreate {
-		verifiedAction.WatchID = fmt.Sprintf("index-action-%d", actionID)
-		if err := e.indexVerification.WatchApplied(
-			context.WithoutCancel(ctx), verifiedAction, actionID,
-		); err != nil {
-			e.logFn("executor", "index verification failed for action %d: %v",
-				actionID, err)
-		}
-		return
-	}
-
-	if f.RollbackSQL != "" && actionID > 0 {
-		// Detach the monitor from the cycle's context so the
-		// rollback window can elapse even if RunCycle returns
-		// (or is called from an HTTP handler). Shutdown signals
-		// the monitor to abort early via e.shutdownCh.
-		monitorCfg := e.rollbackMonitorConfig(e.standingRollbackAuthorizer(f))
-		e.startRollbackMonitor(func() {
-			MonitorAndRollback(
-				context.WithoutCancel(ctx), e.pool, actionID, f.RollbackSQL,
-				monitorCfg, e.logFn, e.shutdownCh,
-			)
-		})
-	} else if actionID > 0 {
-		// No rollback possible (VACUUM, ANALYZE, pg_terminate_backend)
-		// — mark success immediately.
-		updateActionSuccess(ctx, e.pool, actionID)
-	}
-}
-
 func (e *Executor) acquireDDLLease(
 	ctx context.Context, finding analyzer.Finding, decisionID int64,
 ) (func(), error) {
@@ -909,7 +579,7 @@ func (e *Executor) acquireDDLLease(
 	if err != nil {
 		return func() {}, fmt.Errorf("normalize DDL lease targets: %w", err)
 	}
-	ttl := e.cfg.Safety.DDLTimeout() + time.Minute
+	ttl := e.ddlTimeout() + time.Minute
 	manager := policy.NewPostgresLeaseManager(e.pool, nil, decisionID, ttl)
 	leaseID, err := manager.AcquireLease(
 		ctx, "executor", objects, finding.RecommendedSQL,

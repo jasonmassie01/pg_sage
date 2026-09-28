@@ -14,34 +14,37 @@ func TestLogwatchRuntimeUsesExplicitPathAndReusesOwner(t *testing.T) {
 	prepareMetaGlobals(t)
 	cfg.LogWatch = config.LogWatchConfig{Enabled: true, LogDirectory: t.TempDir(),
 		Format: "jsonlog", PollIntervalMs: 5, MaxLineLenBytes: 65536}
+	cfg.RCA.Enabled = true
 	logPath := filepath.Join(cfg.LogWatch.LogDirectory, "postgresql.json")
 	if err := os.WriteFile(logPath, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := resolvedLogWatchConfig(nil)
+	resolved, err := resolvedLogWatchConfig(context.Background(), nil)
 	if err != nil || resolved.LogDirectory != cfg.LogWatch.LogDirectory ||
 		resolved.Format != "jsonlog" || logwatchPollInterval() != 5*time.Millisecond {
 		t.Fatalf("explicit config ignored: %+v err=%v", resolved, err)
 	}
-	watcher := ensureStandaloneLogWatcher(nil, nil)
-	if watcher == nil {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	set := newLogFanoutSet()
+	fanout := set.forCluster(ctx, "local:5432", nil)
+	if fanout == nil {
 		t.Fatal("explicit accessible log directory did not start watcher")
 	}
-	t.Cleanup(watcher.Stop)
-	if ensureStandaloneLogWatcher(watcher, nil) != watcher {
-		t.Fatal("existing watcher was replaced")
+	if set.forCluster(ctx, "local:5432", nil) != fanout {
+		t.Fatal("existing cluster watcher was replaced")
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	stopped, stop := context.WithCancel(context.Background())
+	stop()
 	done := make(chan struct{})
-	go func() { runStandaloneLogDrain(ctx, watcher, time.Millisecond); close(done) }()
+	go func() { runFanoutDrain(stopped, "local:5432", fanout, time.Millisecond); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("canceled log drain did not terminate")
 	}
 	cfg.LogWatch.Enabled = false
-	if ensureStandaloneLogWatcher(nil, nil) != nil {
+	if (&databaseRuntime{}).clusterLogFanout() != nil {
 		t.Fatal("disabled watcher started")
 	}
 	cfg.LogWatch.PollIntervalMs = 0
@@ -57,8 +60,12 @@ func TestLogwatchRuntimeRejectsUnreadableConfiguredPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.LogWatch = config.LogWatchConfig{Enabled: true, LogDirectory: path, Format: "jsonlog"}
-	if ensureStandaloneLogWatcher(nil, nil) != nil {
+	set := newLogFanoutSet()
+	if set.forCluster(context.Background(), "local:5432", nil) != nil {
 		t.Fatal("file path was accepted as a log directory")
+	}
+	if len(set.fanouts) != 0 {
+		t.Fatal("a failed watcher was cached for the cluster")
 	}
 }
 

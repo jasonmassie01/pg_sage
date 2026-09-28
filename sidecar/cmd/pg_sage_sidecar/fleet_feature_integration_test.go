@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/startup"
 )
 
 func TestFleetLLMFeatureOwnersHonorIndependentEnableFlags(t *testing.T) {
@@ -18,27 +22,52 @@ func TestFleetLLMFeatureOwnersHonorIndependentEnableFlags(t *testing.T) {
 	initializeFleetBudget([]string{"managed-a"})
 	llmClient = llm.New(&cfg.LLM, nil)
 	version := detectPGVersion(state.Pool)
-	coll := collector.New(state.Pool, cfg, version, nil)
 	for _, enabled := range []bool{false, true} {
 		cfg.LLM.Optimizer.Enabled, cfg.Advisor.Enabled, cfg.Tuner.Enabled = enabled, enabled, enabled
 		cfg.Tuner.LLMEnabled = enabled
 		cfg.LLM.OptimizerLLM.Enabled = enabled
 		cfg.LLM.OptimizerLLM.FallbackToGeneral = enabled
-		opt, adv, tuner, brief, client, manager :=
-			buildFleetLLMFeatures(state.Pool, version, coll, "managed-a")
+		rt := featureTestRuntime(t, state.Pool, version, true)
+		opt, adv, tuner := rt.newOptimizer(false), rt.newAdvisor(), rt.newTuner()
 		if (opt != nil) != enabled || (adv != nil) != enabled || (tuner != nil) != enabled {
 			t.Fatalf("enabled=%v feature owners do not match flags", enabled)
 		}
-		if brief == nil || client == nil || manager == nil || client == llmClient {
+		if rt.generalLLM == nil || rt.llmManager == nil || rt.generalLLM == llmClient {
 			t.Fatal("fleet reused global client or omitted per-database feature owners")
 		}
 	}
-	llmClient = nil
-	opt, adv, tuner, brief, client, manager :=
-		buildFleetLLMFeatures(state.Pool, version, coll, "managed-a")
-	if opt != nil || adv != nil || tuner != nil || brief != nil || client != nil || manager != nil {
-		t.Fatal("unavailable global LLM left a live or typed-nil feature interface")
+	// With LLM unavailable for the database, the LLM features are true nil
+	// interfaces; the rule-based tuner still runs, as it always has in
+	// standalone and YAML fleet (meta-db dropped it: G5-I07).
+	rt := featureTestRuntime(t, state.Pool, version, false)
+	opt, adv, tuner := rt.newOptimizer(false), rt.newAdvisor(), rt.newTuner()
+	if opt != nil || adv != nil || rt.llmOn {
+		t.Fatal("unavailable LLM left a live or typed-nil feature interface")
 	}
+	if tuner == nil {
+		t.Fatal("the rule-based tuner was dropped with the LLM")
+	}
+}
+
+// featureTestRuntime is a runtime shell for exercising feature builders;
+// its workers stop when the test ends.
+func featureTestRuntime(
+	t *testing.T, pool *pgxpool.Pool, version int, llmAllowed bool,
+) *databaseRuntime {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	rt := &databaseRuntime{
+		spec: databaseRuntimeSpec{
+			Scope: "fleet", Name: "managed-a", Pool: pool,
+			Config: config.DatabaseConfig{LLMEnabled: &llmAllowed},
+		},
+		ctx: ctx, cancel: cancel, workers: &sync.WaitGroup{},
+		checks: &startup.CheckResult{PGVersionNum: version},
+	}
+	rt.collector = collector.New(pool, cfg, version, nil)
+	rt.resolveLLM()
+	t.Cleanup(func() { cancel(); rt.workers.Wait() })
+	return rt
 }
 
 func TestFleetBudgetIsolatedAndDisableClearsPriorOwner(t *testing.T) {

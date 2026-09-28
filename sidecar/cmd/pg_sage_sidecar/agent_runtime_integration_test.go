@@ -19,8 +19,14 @@ func TestAgentCollectorSurvivesReconcileContextAndDrainsWithOwner(t *testing.T) 
 	})
 	inst := fleetMgr.GetInstance("agentdb:fixture")
 	if inst == nil || inst.Collector == nil || inst.Cancel == nil || inst.Workers == nil ||
-		inst.Executor != nil || inst.Config.Database != state.Pool.Config().ConnConfig.Database {
-		t.Fatal("agent collector ownership or observation-only authority incorrect")
+		inst.Config.Database != state.Pool.Config().ConnConfig.Database {
+		t.Fatal("agent collector ownership incorrect")
+	}
+	// Agent databases get the same runtime as every other mode: any
+	// authority they have comes only from the standing policy gate.
+	if settings := inst.Executor.RuntimeSettings(); !settings.PolicyGate ||
+		settings.DatabaseName != "agentdb:fixture" {
+		t.Fatalf("agent executor is not governed by the standing gate: %+v", settings)
 	}
 	cancel()
 	if agentDBRuntimeParent(ctx).Err() != nil || inst.Pool.Ping(context.Background()) != nil {

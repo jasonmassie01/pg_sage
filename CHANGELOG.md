@@ -94,6 +94,35 @@
 
 ### Changed (read before upgrading)
 
+- **Every mode builds a database's runtime the same way.** Standalone, YAML fleet,
+  meta-db and AgentDB now share one constructor, so the safety wiring (standing policy
+  gate, emergency stop, managed-config adapter, trust and executor gates, notifications)
+  is identical. What operators will notice:
+  - **AgentDB databases** get the full runtime instead of a collector only: the sage
+    schema is bootstrapped into the agent database, and findings, notifications,
+    retention and actions follow the standing policy gate and a fresh trust ramp.
+  - **Meta-db databases** gain the forecaster, auto_explain plan collection, schema lint,
+    the migration advisor, log-based RCA, hint revalidation and the rule-based tuner
+    without an LLM. The config advisor targets the PostgreSQL database name rather than
+    the instance name.
+  - **YAML fleet and meta-db:** the index optimizer uses auto_explain plans when the
+    extension is available, and databases without an LLM get the scheduled briefing.
+  - **Standalone:** the config advisor applies provider-specific rewrites.
+  - A YAML fleet database whose schema bootstrap fails is shown as failed instead of
+    running without its schema.
+  - Shutdown waits, within its deadline, for every database's workers.
+  - `--meta-db` with `mode: standalone` no longer registers a phantom database.
+  - AgentDB databases also get index-build load admission (D6), the Sage SRE fast path
+    and catalog probes, value-ledger reporting (D3) and the restored emergency stop (D8).
+- **One execution pipeline.** Every change the executor makes (the background cycle,
+  operator-approved actions, custodians, verified indexes and retention authorization)
+  goes through the same steps: authorize, take the change lease and a DDL slot,
+  re-authorize, then run under a deadline and verify.
+  - **Operator-approved actions are re-authorized by the standing gate** right before
+    they run, so an emergency stop or policy change made after the approval stops them.
+  - **Executor DDL always has a timeout.** `safety.ddl_timeout_seconds: 0` used to mean
+    no statement timeout; it now means the 300-second default. A client-side deadline one
+    minute longer backs it up.
 - **Cloud AgentDB registration needs an approved request.** `POST /api/v1/agent-dbs`
   with a cloud provider now returns `409 approved request required` unless it names an
   approved, unused `request_id`. Provision approved requests with
@@ -205,6 +234,8 @@
   `safety.lock_timeout_ms` (default 30000). An `ALTER TABLE` queued behind a
   long lock now gives up after 3 s instead of 30 s. `CONCURRENTLY` builds keep
   `safety.lock_timeout_ms`, because they wait on older transactions by design.
+  The ceiling also caps `ANALYZE` (autonomous and operator-approved) and
+  in-transaction custodian changes.
 - **DDL lease conflicts park instead of failing.** When another writer holds the
   change lease for the same object, the action is parked (`ddl_conflict` in the
   decision ledger) and retried next cycle. It used to log a failed action, which

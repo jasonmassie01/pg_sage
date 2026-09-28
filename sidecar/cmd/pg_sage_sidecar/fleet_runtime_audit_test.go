@@ -61,31 +61,57 @@ func TestFleetOrchestratorRecordsHealthHistory(t *testing.T) {
 
 func TestAgentDBCollectorHasProcessLifetimeAndLifecycleOwnership(t *testing.T) {
 	fn := productionFunction(t, "agentdb_fleet.go", "connectAgentDBToFleet")
-	withCancelArg := firstArgumentToSelectorCall(fn, "context", "WithCancel")
-	if withCancelArg == "" {
-		t.Fatal("AgentDB runtime does not create a cancellable instance context")
+	parent := compositeFieldIdentifier(fn, "databaseRuntimeSpec", "Parent")
+	if parent == "" {
+		t.Fatal("AgentDB runtime has no process-lifetime parent context")
 	}
-	if withCancelArg == "ctx" {
-		t.Fatal("AgentDB collector inherits the 60-second reconcile context")
+	if parent == "ctx" {
+		t.Fatal("AgentDB runtime inherits the 60-second reconcile context")
 	}
-	if !callsIdentifier(fn, "startInstanceWorker") {
-		t.Fatal("AgentDB collector is not tracked as an instance-owned worker")
+	lifecycle := productionFunction(t, "database_runtime.go", "newDatabaseRuntime")
+	if firstArgumentToSelectorCall(lifecycle, "context", "WithCancel") != "parent" {
+		t.Fatal("database runtime does not derive a cancellable context from its parent")
 	}
-
-	fields := databaseInstanceFields(fn)
+	start := productionFunction(t, "database_runtime.go", "start")
+	if !callsIdentifier(start, "startInstanceWorker") {
+		t.Fatal("runtime workers are not tracked as instance-owned workers")
+	}
+	fields := databaseInstanceFields(productionFunction(t, "database_runtime.go", "instance"))
 	for _, required := range []string{"Collector", "Cancel", "Workers"} {
 		if !fields[required] {
-			t.Errorf("AgentDB instance does not publish lifecycle field %s", required)
+			t.Errorf("database runtime does not publish lifecycle field %s", required)
 		}
 	}
-	if positionOfSelectorCall(fn, "RegisterInstance") <
-		positionOfIdentifier(fn, "dbColl") {
-		t.Error("AgentDB instance is registered before its collector is built")
+	if positionOfSelectorCall(fn, "publish") <
+		positionOfIdentifier(fn, "buildDatabaseRuntime") {
+		t.Error("AgentDB instance is registered before its runtime is built")
 	}
 
 	// Invalid deployment shapes are covered by TestEligibleForFleet_Rejections.
 	// No state-transition test is needed here: removal/drain behavior belongs to
 	// fleet manager lifecycle tests; this test verifies the missing ownership link.
+}
+
+// compositeFieldIdentifier returns the identifier assigned to field in the
+// first composite literal of typeName, "" when absent.
+func compositeFieldIdentifier(fn *ast.FuncDecl, typeName, field string) string {
+	value := ""
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		literal, ok := node.(*ast.CompositeLit)
+		ident, isIdent := literalType(literal).(*ast.Ident)
+		if !ok || !isIdent || ident.Name != typeName {
+			return true
+		}
+		for _, element := range literal.Elts {
+			item, isItem := element.(*ast.KeyValueExpr)
+			key, isKey := itemKey(item).(*ast.Ident)
+			if isItem && isKey && key.Name == field {
+				value = expressionIdentifier(item.Value)
+			}
+		}
+		return false
+	})
+	return value
 }
 
 func TestAgentDBCollectorRejectsCanceledRegistration(t *testing.T) {
@@ -117,9 +143,9 @@ func TestMetaDBBootstrapBuildsGeneralLLMRuntime(t *testing.T) {
 }
 
 func TestFleetLLMBudgetScopesEveryConsumer(t *testing.T) {
-	fn := productionFunction(t, "main.go", "buildFleetLLMFeatures")
-	if !callsIdentifier(fn, "newFleetDBLLMClients") {
-		t.Fatal("fleet LLM feature builder bypasses the per-database client factory")
+	resolve := productionFunction(t, "database_runtime.go", "resolveLLM")
+	if !callsIdentifier(resolve, "newFleetDBLLMClients") {
+		t.Fatal("database runtime bypasses the per-database client factory")
 	}
 	clients := productionFunction(t, "fleet_runtime_helpers.go", "newFleetDBLLMClients")
 	if !callsIdentifier(clients, "attachFleetBudget") {
@@ -132,18 +158,21 @@ func TestFleetLLMBudgetScopesEveryConsumer(t *testing.T) {
 	if !callsSelector(attach, "SetBudget") {
 		t.Fatal("attachFleetBudget does not scope the client to its budget")
 	}
-	assertCallOmitsGlobal(t, fn, "advisor", "New", "llmMgr")
-	assertCallOmitsGlobal(t, fn, "briefing", "New", "llmClient")
-	assertMethodReceiverOmitsGlobal(t, fn, "ForPurpose", "llmMgr")
-
-	fleetInit := productionFunction(t, "main.go", "initFleetMultiDB")
-	assertMethodArgumentOmitsGlobal(t, fleetInit, "WithLLM", "llmClient")
-
-	metaRuntime := productionFunction(t, "metadb.go", "buildStoreDatabaseRuntime")
-	if !callsSelector(metaRuntime, "WithLLM") {
-		t.Error("meta-db RCA engine is not wired to a database-scoped LLM client")
+	// Only resolveLLM may read the process clients (standalone shares them);
+	// every consumer takes the runtime's resolved client and manager.
+	advisorFn := productionFunction(t, "database_runtime_monitor.go", "newAdvisor")
+	assertCallOmitsGlobal(t, advisorFn, "advisor", "New", "llmMgr")
+	execution := productionFunction(t, "database_runtime_exec.go", "startExecution")
+	assertCallOmitsGlobal(t, execution, "briefing", "New", "llmClient")
+	optimizerFn := productionFunction(t, "database_runtime_monitor.go", "newOptimizer")
+	assertMethodReceiverOmitsGlobal(t, optimizerFn, "ForPurpose", "llmMgr")
+	tunerFn := productionFunction(t, "database_runtime_monitor.go", "newTuner")
+	assertMethodArgumentOmitsGlobal(t, tunerFn, "WithLLM", "llmMgr")
+	rcaFn := productionFunction(t, "database_runtime_logs.go", "wireRCA")
+	if !callsSelector(rcaFn, "WithLLM") {
+		t.Error("RCA engine is not wired to a database-scoped LLM client")
 	} else {
-		assertMethodArgumentOmitsGlobal(t, metaRuntime, "WithLLM", "llmClient")
+		assertMethodArgumentOmitsGlobal(t, rcaFn, "WithLLM", "llmClient")
 	}
 }
 
