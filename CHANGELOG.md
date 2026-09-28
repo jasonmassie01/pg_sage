@@ -41,6 +41,43 @@
   now two recommendations (C05). New read-only API: `GET /api/v1/recommendations?database=`
   and `GET /api/v1/recommendations/{id}` (revisions and history). The Actions page has a
   Recommendations tab, and pending approvals show the revision they approve.
+- **Sage SRE investigations (opt-in, read-only).** With `sre.automatic_start: true`, each
+  open RCA incident of the lock, connection or WAL family and each open `plan_regression`
+  finding gets one investigation. It runs its family's fixed catalog probes (connection and
+  WAL investigations sample twice, `sre.sample_interval_seconds` apart), matches the causal
+  graph and stores the diagnosis: likely explanation, contributing factors, alternatives and
+  ruled-out explanations, each citing its evidence, plus missing evidence and an operator
+  step. No LLM is used and nothing is executed; "inconclusive" is a normal outcome. Every
+  mode (standalone, YAML fleet, meta-db, AgentDB) runs it. A second worker can never commit
+  over the first, and a crash resumes at the next step. Every change to an investigation is
+  recorded in an append-only hash chain (`sage.sre_events`).
+- **New causal families.** Connection pressure: pool fan-out, blocked-query backlog and
+  connection leak, with the share of usable connections stated separately. WAL retention:
+  inactive slot, slow slot consumer, archiver failure and write surge; a surge is reported
+  as contributing to slot retention, never instead of it, and remaining disk space is always
+  reported as unknown. Every diagnosis also answers "did pg_sage cause this?" from pg_sage's
+  own actions in the last hour. New probes: `archiver` and `sage_actions`.
+- **Cases panel investigations.** A case shows its investigation: state (inconclusive is
+  never shown as resolved), likely explanation with a score and evidence-strength label,
+  other and ruled-out explanations with their reasons, missing evidence, next check, and
+  evidence items that open from each claim. Operators and admins can pin an investigation
+  (retention keeps it) and export it as JSON or Markdown.
+- **Investigation API and MCP tools.** `GET /api/v1/investigations?database=` and per
+  database `GET /api/v1/databases/{db}/investigations[/{id}[/events|/evidence/{id}]]` for
+  every signed-in role; `GET .../{id}/export` and `POST .../{id}/pin|unpin` for operators and
+  admins. MCP adds read-only `sre_list_incidents`, `sre_get_investigation` and
+  `sre_get_evidence`. Everything leaving the store is redacted (connection URIs,
+  credentials, bearer tokens, SQL literals, raw vectors). See "Sage SRE investigations" in
+  `docs/configuration.md`.
+- **Investigation retention.** Finished, unpinned investigations lose their evidence after
+  `sre.evidence_retention_days` (30) and are deleted after `sre.timeline_retention_days`
+  (90). Each delete leaves a tombstone in `sage.sre_tombstones`; a conclusion whose evidence
+  is gone is shown as such.
+- **PGIncidentBench seed** (`sidecar/sre-bench`): 20 fault programs that create real lock,
+  connection, WAL and plan incidents on PostgreSQL, run them through the investigator and
+  report precision, recall, top-1 and abstention per family. On PostgreSQL 17 the seed set
+  scores 100% on every metric (20 scenarios; an in-distribution seed, not a held-out
+  measurement).
 ### Changed (read before upgrading)
 
 - **The executor acts on durable recommendations, not the last analyzer cycle (C07).**
@@ -120,7 +157,7 @@
   (no_privilege)`). With `rca.narration_enabled`, the model can also read the probe results
   (`get_probe_result`) and hypotheses. It answers with claims, each citing evidence ids, and
   every number in a claim must appear in the evidence that claim cites.
-- **Investigation store foundation (not used at runtime yet).** Durable investigations with
+- **Investigation store foundation.** Durable investigations with
   leases and fence tokens (a stale worker cannot commit), idempotent steps, immutable hashed
   probe evidence, and durable per-investigation model budget reservations (2 turns, 16k input
   and 4k output tokens, plus database and deployment daily allocations) that a crash cannot
@@ -128,6 +165,17 @@
   action handoff.
 
 ### Changed (read before upgrading)
+
+- **Schema (Sage SRE M2).** Added automatically at startup: `sage.sre_hypotheses`,
+  `sage.sre_events` (UPDATE is refused by a trigger, as it now is on `sage.sre_evidence`),
+  `sage.sre_tombstones`, and new columns on `sage.sre_investigations` (`source_incident_id`,
+  `subject`, `pinned`, `summary`, `concluded_at`, `evidence_purged_at`).
+- The `connection_saturation` probe is now `v2` and also returns the server start time.
+- RCA narration and the investigator now share one probe runner per database, so at most
+  one catalog probe runs on a database at a time across both.
+- An investigation whose active-time budget a dead worker used up now ends as `failed`
+  (`budget_exhausted`) instead of staying `collecting`.
+- Stored probe evidence keeps 64-bit integers exact; a `queryid` above 2^53 was rounded.
 
 - **Every mode builds a database's runtime the same way.** Standalone, YAML fleet,
   meta-db and AgentDB now share one constructor, so the safety wiring (standing policy
