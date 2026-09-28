@@ -7,10 +7,13 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/notify"
+	"github.com/pg-sage/sidecar/internal/recommendation"
 )
 
-// RunCycle is called after each analyzer cycle to evaluate and execute
-// any actionable findings.
+// RunCycle is called after each analyzer cycle. It acts on the durable
+// recommendations (C07): the analyzer's in-memory findings of the latest
+// cycle are never the source, so a recommendation proposed earlier stays
+// eligible when policy, trust or the window later permits it.
 func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 	e.resumeOnce.Do(func() {
 		if err := e.resumeOrphanedMonitors(ctx); err != nil {
@@ -22,19 +25,24 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 			e.logFn("executor", "resume index verification: %v", err)
 		}
 	}
+	e.reconcileRecommendations(ctx)
 	// Manual mode and executor-disabled are hard background-action stops.
 	if e.effectiveExecMode() == "manual" || !e.ExecutorEnabled() {
 		return
 	}
 	e.pruneRecentActions()
-	for _, f := range e.analyzer.Findings() {
-		e.processFinding(ctx, f, isReplica)
+	for _, c := range e.actionableRecommendations(ctx) {
+		e.processCandidate(ctx, c, isReplica)
 	}
 }
 
-// processFinding authorizes one finding, then queues it for approval or
-// runs it through Apply, which re-authorizes after its waits.
-func (e *Executor) processFinding(ctx context.Context, f analyzer.Finding, isReplica bool) {
+// processFinding authorizes one recommendation's finding, then queues it
+// for approval or runs it through Apply, which re-authorizes after its
+// waits.
+func (e *Executor) processFinding(
+	ctx context.Context, f analyzer.Finding, isReplica bool,
+	cand *recommendation.Candidate,
+) {
 	if f.RecommendedSQL == "" {
 		return
 	}
@@ -52,14 +60,14 @@ func (e *Executor) processFinding(ctx context.Context, f analyzer.Finding, isRep
 		return
 	}
 	if decision.Decision == PolicyDecisionQueueApproval {
-		e.queueFinding(ctx, f, findingID, decision)
+		e.queueFinding(ctx, f, findingID, decision, cand)
 		return
 	}
 	if CheckHysteresis(ctx, e.pool, findingID, e.cfg.Trust.RollbackCooldownDays) {
 		e.logFn("executor", "skipping %q — rolled back recently (cooldown)", f.Title)
 		return
 	}
-	_, err := e.Apply(ctx, e.findingIntent(f, findingID, isReplica))
+	_, err := e.Apply(ctx, e.findingIntent(f, findingID, isReplica, cand))
 	if errors.Is(err, ErrDDLSlotUnavailable) {
 		e.logFn("executor", "DDL concurrency limit reached, skipping %s", f.RecommendedSQL)
 	}
@@ -69,12 +77,13 @@ func (e *Executor) processFinding(ctx context.Context, f analyzer.Finding, isRep
 // lease is recorded as a failed action, as before.
 func (e *Executor) findingIntent(
 	f analyzer.Finding, findingID int64, isReplica bool,
+	cand *recommendation.Candidate,
 ) ActionIntent {
 	lease := f
 	return ActionIntent{
 		Request: findingRequest(f, isReplica), Lease: &lease,
 		Execute: func(ctx context.Context, decision ActionPolicyDecision) (int64, error) {
-			return e.runAuthorizedFinding(ctx, f, findingID, decision), nil
+			return e.runAuthorizedFinding(ctx, f, findingID, decision, cand), nil
 		},
 		Refused: func(ctx context.Context, decisionID int64, err error) {
 			before := e.snapshotBeforeState(ctx, targetQueryIDs(f))
@@ -88,7 +97,7 @@ func (e *Executor) findingIntent(
 // proposal is pending or was recently rejected.
 func (e *Executor) queueFinding(
 	ctx context.Context, f analyzer.Finding, findingID int64,
-	decision ActionPolicyDecision,
+	decision ActionPolicyDecision, cand *recommendation.Candidate,
 ) {
 	if e.actionStore == nil {
 		e.logFn("executor", "cannot queue %q: action store unavailable", f.Title)
@@ -99,7 +108,7 @@ func (e *Executor) queueFinding(
 	}
 	proposal := f
 	proposal.ActionRisk = decision.RiskTier
-	if _, err := e.proposeForApproval(ctx, int(findingID), proposal); err != nil {
+	if _, err := e.proposeForApproval(ctx, int(findingID), proposal, cand); err != nil {
 		e.logFn("executor", "failed to queue %q for approval: %v", f.Title, err)
 		return
 	}
@@ -164,11 +173,13 @@ func (e *Executor) recentlyRejected(
 }
 
 // runAuthorizedFinding runs one authorized finding while Apply holds its
-// change lease and DDL slot, records it, and starts its verification. It
-// returns the action_log id (0 when load admission withheld the build).
+// change lease and DDL slot, records it, and starts its verification. The
+// recommendation is claimed right before its SQL runs and its outcome is
+// recorded with the action. It returns the action_log id (0 when load
+// admission withheld the build or another worker holds the claim).
 func (e *Executor) runAuthorizedFinding(
 	ctx context.Context, f analyzer.Finding, findingID int64,
-	decision ActionPolicyDecision,
+	decision ActionPolicyDecision, cand *recommendation.Candidate,
 ) int64 {
 	decisionID := decision.DecisionID
 	beforeState := e.snapshotBeforeState(ctx, targetQueryIDs(f))
@@ -188,11 +199,17 @@ func (e *Executor) runAuthorizedFinding(
 			return e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID, err)
 		}
 	}
+	claim, err := e.claimCandidate(ctx, cand, decisionID)
+	if err != nil {
+		e.logFn("executor", "skipping %q: %v", f.Title, err)
+		return 0
+	}
 	execErr := e.runFindingSQL(ctx, f, decision)
 	if verifiedCreate && execErr == nil {
 		e.recordCreatedIndexIdentity(ctx, verified.IndexName, beforeState)
 	}
-	actionID := e.logActionWithDecision(ctx, f, findingID, beforeState, decisionID, execErr)
+	actionID := e.logClaimedAction(ctx, f, findingID, beforeState, decisionID, execErr, claim)
+	e.settleClaim(ctx, claim, actionID, execErr)
 	if execErr != nil {
 		e.recordFindingFailure(ctx, f, actionID, execErr)
 		return actionID

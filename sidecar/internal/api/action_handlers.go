@@ -237,8 +237,7 @@ func fleetApproveActionHandler(
 		}
 		action, err = as.Approve(r.Context(), id, user.ID)
 		if err != nil {
-			jsonError(w, "failed to approve action",
-				http.StatusNotFound)
+			approveFailure(w, id, err)
 			return
 		}
 		approvedBy := user.ID
@@ -353,10 +352,7 @@ func approveActionHandler(
 		}
 		action, err = as.Approve(r.Context(), id, user.ID)
 		if err != nil {
-			slog.Error("approve action failed",
-				"action_id", id, "error", err)
-			jsonError(w, "failed to approve action",
-				http.StatusNotFound)
+			approveFailure(w, id, err)
 			return
 		}
 
@@ -753,6 +749,7 @@ func queuedActionMap(a store.QueuedAction) map[string]any {
 		"reason":       a.Reason,
 	}
 	addLifecycleFields(m, a)
+	addRecommendationFields(m, a)
 	return m
 }
 

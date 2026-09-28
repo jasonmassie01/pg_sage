@@ -16,7 +16,7 @@ func TestActionPolicyConcurrentHotReload(t *testing.T) {
 	cfg := &config.Config{Trust: config.TrustConfig{
 		Level: "autonomous", Tier3Safe: true, Tier3Moderate: true,
 	}}
-	exec := New(nil, cfg, nil, time.Now().Add(-32*24*time.Hour), noopExecLog)
+	exec := New(nil, cfg, time.Now().Add(-32*24*time.Hour), noopExecLog)
 	withTestStandingGate(exec)
 	exec.SetExecutionMode("auto")
 	contracts := []ActionContract{AnalyzeTableContract()}

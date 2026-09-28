@@ -79,7 +79,7 @@ func stopRouter(
 	}
 	if pool != nil {
 		inst.Pool = pool
-		inst.Executor = executor.New(pool, cfg, nil, time.Now(),
+		inst.Executor = executor.New(pool, cfg, time.Now(),
 			func(string, string, ...any) {})
 	}
 	mgr.RegisterInstance(inst)

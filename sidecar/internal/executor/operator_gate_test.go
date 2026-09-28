@@ -40,7 +40,7 @@ func (s *operatorGateSpy) gate() policy.Gate {
 }
 
 func TestExecuteManualFailsClosedWithoutGate(t *testing.T) {
-	exec := New(nil, autonomousTestConfig(), nil, time.Time{}, noopExecLog)
+	exec := New(nil, autonomousTestConfig(), time.Time{}, noopExecLog)
 	_, err := exec.ExecuteManual(context.Background(), 1, "ANALYZE public.orders", "", nil)
 	if err == nil || !strings.Contains(err.Error(), reasonNoStandingPolicy) {
 		t.Fatalf("ExecuteManual without gate: err = %v, want %q", err, reasonNoStandingPolicy)
@@ -49,7 +49,7 @@ func TestExecuteManualFailsClosedWithoutGate(t *testing.T) {
 
 func TestOperatorAuthorizationIsRecordedAsOperatorIntent(t *testing.T) {
 	spy := &operatorGateSpy{doc: policy.UnattendedProfile(), now: time.Now()}
-	exec := New(nil, autonomousTestConfig(), nil, time.Time{}, noopExecLog)
+	exec := New(nil, autonomousTestConfig(), time.Time{}, noopExecLog)
 	exec.WithPolicyGate(spy.gate())
 	approver := 7
 
@@ -77,7 +77,7 @@ func TestOperatorAuthorizationRefusedByPolicyWindow(t *testing.T) {
 	// Sunday 02:00 UTC is outside the staffed profile's weekday window.
 	sunday := time.Date(2026, 7, 26, 2, 0, 0, 0, time.UTC)
 	spy := &operatorGateSpy{doc: policy.StaffedProfile(), now: sunday}
-	exec := New(nil, autonomousTestConfig(), nil, time.Time{}, noopExecLog)
+	exec := New(nil, autonomousTestConfig(), time.Time{}, noopExecLog)
 	exec.WithPolicyGate(spy.gate())
 
 	_, err := exec.authorizeOperatorAction(context.Background(),
@@ -94,14 +94,14 @@ func TestApprovalReadinessUsesGateOperatorPath(t *testing.T) {
 		ProposedSQL: "DROP INDEX CONCURRENTLY public.idx_orders_old"}
 	cfg := &config.Config{Trust: config.TrustConfig{Level: "advisory"}}
 
-	closed := New(nil, cfg, nil, time.Time{}, noopExecLog)
+	closed := New(nil, cfg, time.Time{}, noopExecLog)
 	closed.WithPolicyGate((&operatorGateSpy{doc: policy.StaffedProfile(), now: sunday}).gate())
 	got := closed.ApprovalReadiness(action, sunday)
 	if got.Eligible || got.DeferReason != "outside maintenance window" {
 		t.Fatalf("closed window readiness = %+v, want deferred", got)
 	}
 
-	open := New(nil, cfg, nil, time.Time{}, noopExecLog)
+	open := New(nil, cfg, time.Time{}, noopExecLog)
 	spy := &operatorGateSpy{doc: policy.UnattendedProfile(), now: sunday}
 	open.WithPolicyGate(spy.gate())
 	got = open.ApprovalReadiness(action, sunday)
@@ -117,7 +117,7 @@ func TestApprovalReadinessUsesGateOperatorPath(t *testing.T) {
 // the product emits maps to one.
 func TestOperatorActionWithoutTypedContractIsRefused(t *testing.T) {
 	spy := &operatorGateSpy{doc: policy.UnattendedProfile(), now: time.Now()}
-	exec := New(nil, autonomousTestConfig(), nil, time.Time{}, noopExecLog)
+	exec := New(nil, autonomousTestConfig(), time.Time{}, noopExecLog)
 	exec.WithPolicyGate(spy.gate())
 	_, err := exec.authorizeOperatorAction(context.Background(),
 		"CREATE INDEX idx_blocking ON public.orders (id)", 1, nil)

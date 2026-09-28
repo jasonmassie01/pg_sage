@@ -89,6 +89,9 @@ func TestExpectedTables_AllPresent(t *testing.T) {
 		"crypto_meta",
 		"health_history",
 		"query_store",
+		"recommendation",
+		"recommendation_revision",
+		"recommendation_transition",
 	}
 
 	if len(expectedTables) != len(want) {

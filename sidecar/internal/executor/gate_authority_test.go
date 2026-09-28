@@ -22,7 +22,7 @@ func TestStandingGateReceivesProviderSupport(t *testing.T) {
 		t.Fatalf("gate contract provider support = %v, want %v",
 			got, contract.ProviderSupport)
 	}
-	exec := New(nil, &config.Config{CloudEnvironment: "azure"}, nil, time.Time{}, noopExecLog)
+	exec := New(nil, &config.Config{CloudEnvironment: "azure"}, time.Time{}, noopExecLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 	state := exec.standingRuntimeState(context.Background(), policy.ActionRequest{})
 	if state.Provider != "azure" {
@@ -33,7 +33,7 @@ func TestStandingGateReceivesProviderSupport(t *testing.T) {
 // Without a standing gate nothing may execute: the legacy engine is not a
 // fallback authority.
 func TestFindingPolicyFailsClosedWithoutGate(t *testing.T) {
-	exec := New(nil, autonomousTestConfig(), nil, time.Now().Add(-90*24*time.Hour), noopExecLog)
+	exec := New(nil, autonomousTestConfig(), time.Now().Add(-90*24*time.Hour), noopExecLog)
 	finding := analyzer.Finding{ObjectIdentifier: "public.t",
 		RecommendedSQL: "ANALYZE public.t"}
 	got := exec.evaluateFindingPolicy(context.Background(), finding, false)
@@ -51,7 +51,7 @@ func TestFindingPolicyFailsClosedWithoutGate(t *testing.T) {
 func TestProposalMetadataUsesGateExplain(t *testing.T) {
 	now := time.Now()
 	recorded := 0
-	exec := New(nil, autonomousTestConfig(), nil, now.Add(-90*24*time.Hour), noopExecLog)
+	exec := New(nil, autonomousTestConfig(), now.Add(-90*24*time.Hour), noopExecLog)
 	exec.WithPolicyGate(explainTestGate(now, &recorded))
 	finding := analyzer.Finding{Category: "stale_stats", ObjectType: "table",
 		ObjectIdentifier: "public.orders", RecommendedSQL: "ANALYZE public.orders"}

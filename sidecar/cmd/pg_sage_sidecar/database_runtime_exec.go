@@ -62,7 +62,7 @@ func (rt *databaseRuntime) buildExecutor() {
 		logWarn(rt.spec.Scope, "db %q: trust ramp start: %v", rt.spec.Name, err)
 		rampStart = time.Now()
 	}
-	ex := executor.New(rt.spec.Pool, rt.cfg, rt.analyzer, rampStart, logStructuredWrapper)
+	ex := executor.New(rt.spec.Pool, rt.cfg, rampStart, logStructuredWrapper)
 	ex.WithAnalyzeSemaphore(ensureAnalyzeSemaphore())
 	installAzureManagedConfig(ex, cfg, rt.provider,
 		rt.spec.Pool.Config().ConnConfig.Host, rt.spec.Scope)

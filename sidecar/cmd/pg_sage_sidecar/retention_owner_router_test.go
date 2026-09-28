@@ -14,7 +14,7 @@ import (
 // executor, which marks the gate request as owner-authorized only then.
 func TestAuthorizeRetentionForwardsDeclaredColumn(t *testing.T) {
 	gate := &runtimePolicyRecorder{}
-	exec := executor.New(nil, config.DefaultConfig(), nil, time.Now(), nil)
+	exec := executor.New(nil, config.DefaultConfig(), time.Now(), nil)
 	exec.WithPolicyGate(gate)
 	router := executorProposalRouter{
 		executor: exec, isReplica: func(context.Context) bool { return false },

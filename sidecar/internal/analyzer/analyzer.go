@@ -12,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/recommendation"
 )
 
 // EventDispatcher sends notification events. Nil means no
@@ -90,6 +91,11 @@ type Analyzer struct {
 	// cycle has already consumed; only touched by the cycle goroutine.
 	lastAnalyzed   *collector.Snapshot
 	lastAnalyzedAt time.Time
+	// recs holds the durable recommendations each cycle proposes; nil
+	// without a database. policyVersion reads the standing-policy
+	// version recorded on new revisions (nil records none).
+	recs          *recommendation.Store
+	policyVersion func(context.Context) (int64, error)
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated
@@ -126,6 +132,7 @@ func New(
 			InvalidFirstSeen: make(map[string]time.Time),
 		},
 		logFn: logFn,
+		recs:  newRecommendationStore(pool),
 	}
 }
 

@@ -81,7 +81,7 @@ func preflightRunRetentionCycles(
 	if control == "observation" {
 		c.Trust.Level = "observation"
 	}
-	e := executor.New(p, c, nil, time.Now().Add(-90*24*time.Hour),
+	e := executor.New(p, c, time.Now().Add(-90*24*time.Hour),
 		func(string, string, ...any) {})
 	if err := e.EnableStandingPolicy(ctx, "unattended", nil); err != nil {
 		t.Fatal(err)

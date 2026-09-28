@@ -78,7 +78,7 @@ func TestGateNightsTrustWindowWithAlwaysPolicy(t *testing.T) {
 		Level: "autonomous", Tier3Safe: true, Tier3Moderate: true,
 		MaintenanceWindow: "nights",
 	}}
-	e := New(nil, cfg, nil, now.Add(-40*24*time.Hour), noopExecLog)
+	e := New(nil, cfg, now.Add(-40*24*time.Hour), noopExecLog)
 	e.emergencyStopFn = func(context.Context) bool { return false }
 	e.SetExecutionMode("auto")
 	doc := policy.UnattendedProfile()

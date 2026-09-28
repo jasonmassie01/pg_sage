@@ -38,7 +38,7 @@ func (e *Executor) SubmitVerifiedIndexProposal(
 			return e.admitVerifiedIndex(ctx, finding, decisionID)
 		},
 		Execute: func(ctx context.Context, decision ActionPolicyDecision) (int64, error) {
-			return e.runAuthorizedFinding(ctx, finding, 0, decision), nil
+			return e.runAuthorizedFinding(ctx, finding, 0, decision, nil), nil
 		},
 	})
 	return custodianWithheld(err, "after admission")

@@ -123,7 +123,7 @@ func retainedFixture(
 		WHERE id=$1 OR before_state->>'retained_action_id'=$2`, id, strconv.FormatInt(id, 10))
 	})
 	seedRetainedVerification(t, pool, id)
-	e := New(pool, &config.Config{}, nil, time.Time{}, func(string, string, ...any) {})
+	e := New(pool, &config.Config{}, time.Time{}, func(string, string, ...any) {})
 	gate := &custodianGateCapture{verdict: policy.Decision{Verdict: policy.VerdictPark}}
 	if allowed {
 		gate.verdict.Verdict = policy.VerdictExecute

@@ -34,7 +34,7 @@ func TestDatabaseExecConfigAppliesOnlyItsOwnAttestation(t *testing.T) {
 
 func TestStartIOAdmissionWithoutPoolInstallsNothing(t *testing.T) {
 	var workers sync.WaitGroup
-	exec := executor.New(nil, config.DefaultConfig(), nil, time.Time{},
+	exec := executor.New(nil, config.DefaultConfig(), time.Time{},
 		func(string, string, ...any) {})
 	if monitor := startIOAdmission(context.Background(), &workers, nil,
 		config.DefaultConfig(), "db", exec); monitor != nil {
@@ -49,7 +49,7 @@ func TestStartIOAdmissionWithoutPoolInstallsNothing(t *testing.T) {
 func TestStartIOAdmissionSamplesAndStops(t *testing.T) {
 	pool := preflightRuntimePool(t)
 	cfg := config.DefaultConfig()
-	exec := executor.New(pool, cfg, nil, time.Time{}, func(string, string, ...any) {})
+	exec := executor.New(pool, cfg, time.Time{}, func(string, string, ...any) {})
 	name := "io_admission_wiring_" + time.Now().Format("150405.000000")
 	exec.WithDatabaseName(name)
 	t.Cleanup(func() {

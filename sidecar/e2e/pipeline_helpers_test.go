@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/schema"
 )
 
@@ -116,9 +118,15 @@ func autonomousConfig() *config.Config {
 // rampStart30DaysPlus is comfortably past the 31-day MODERATE ramp.
 var rampStart30DaysPlus = time.Now().AddDate(0, -3, 0)
 
+// pipelineDatabases names each pipeline executor's database identity. The
+// suite shares one PostgreSQL database, so every scenario gets its own
+// recommendation identity: a later executor never acts on an earlier
+// scenario's durable recommendations.
+var pipelineDatabases sync.Map // *executor.Executor -> string
+
 // newPipelineExecutor builds a real Analyzer+Executor pair around the pool.
-// The analyzer is only a findings carrier here (SetFindings/Findings); its
-// rule cycle is exercised by the full-binary layer instead.
+// The analyzer's rule cycle is exercised by the full-binary layer; here a
+// scenario proposes its finding as a durable recommendation directly.
 func newPipelineExecutor(
 	t *testing.T, pool *pgxpool.Pool, cfg *config.Config,
 ) (*analyzer.Analyzer, *executor.Executor) {
@@ -127,7 +135,11 @@ func newPipelineExecutor(
 		t.Logf("[%s] "+format, append([]any{level}, args...)...)
 	}
 	an := analyzer.New(pool, cfg, nil, nil, nil, nil, nil, logf)
-	ex := executor.New(pool, cfg, an, rampStart30DaysPlus, logf)
+	ex := executor.New(pool, cfg, rampStart30DaysPlus, logf)
+	database := fmt.Sprintf("e2e_%s_%d", t.Name(), time.Now().UnixNano())
+	an.WithDatabaseName(database)
+	ex.WithDatabaseName(database)
+	pipelineDatabases.Store(ex, database)
 	// As in production, the standing gate over the DB-stored policy is the
 	// only authority; without it the executor fails closed (G4-I01).
 	if err := ex.EnableStandingPolicy(context.Background(), cfg.Policy.Profile, nil); err != nil {
@@ -150,12 +162,13 @@ func newPipelineExecutor(
 	return an, ex
 }
 
-// driveFinding persists the finding, loads it into the analyzer, and runs
-// one synchronous executor cycle.
+// driveFinding persists the finding and its durable recommendation, as
+// the analyzer's cycle does, and runs one synchronous executor cycle,
+// which acts on the durable recommendation (C07).
 func driveFinding(
 	t *testing.T,
 	pool *pgxpool.Pool,
-	an *analyzer.Analyzer,
+	_ *analyzer.Analyzer,
 	ex *executor.Executor,
 	f analyzer.Finding,
 ) {
@@ -165,7 +178,17 @@ func driveFinding(
 	if err := analyzer.UpsertFindings(ctx, pool, []analyzer.Finding{f}); err != nil {
 		t.Fatalf("upsert finding %s/%s: %v", f.Category, f.ObjectIdentifier, err)
 	}
-	an.SetFindings([]analyzer.Finding{f})
+	database, _ := pipelineDatabases.Load(ex)
+	name, _ := database.(string)
+	// Like the analyzer, only a finding with SQL proposes a recommendation.
+	if strings.TrimSpace(f.RecommendedSQL) == "" {
+		ex.RunCycle(ctx, false)
+		return
+	}
+	if _, err := recommendation.NewStore(pool).Propose(ctx,
+		analyzer.RecommendationProposal(name, f)); err != nil {
+		t.Fatalf("propose recommendation %s/%s: %v", f.Category, f.ObjectIdentifier, err)
+	}
 	ex.RunCycle(ctx, false)
 }
 

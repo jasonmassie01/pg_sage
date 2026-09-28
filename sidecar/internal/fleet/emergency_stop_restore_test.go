@@ -68,7 +68,7 @@ func persistStopRow(t *testing.T, pool *pgxpool.Pool, by string, at time.Time) {
 
 func restartedInstance(name string, pool *pgxpool.Pool) *DatabaseInstance {
 	cfg := &config.Config{Trust: config.TrustConfig{Level: "autonomous"}}
-	exec := executor.New(pool, cfg, nil, time.Now(), func(string, string, ...any) {})
+	exec := executor.New(pool, cfg, time.Now(), func(string, string, ...any) {})
 	return &DatabaseInstance{
 		Name:     name,
 		Config:   config.DatabaseConfig{Name: name},

@@ -74,8 +74,18 @@ func TestEveryExecutionEntryPointCallsApply(t *testing.T) {
 			t.Errorf("%s does not route through Apply", entry)
 		}
 	}
-	if !callsMethod(decls["RunCycle"], "processFinding") {
-		t.Error("RunCycle does not process findings through processFinding")
+	// RunCycle acts on durable recommendations (C07): each candidate goes
+	// through processFinding (the gate) or, for an operator approval,
+	// ExecuteManual; both are Apply entry points above.
+	for _, edge := range [][2]string{
+		{"RunCycle", "processCandidate"},
+		{"processCandidate", "processFinding"},
+		{"processCandidate", "runOperatorApproval"},
+		{"runOperatorApproval", "ExecuteManual"},
+	} {
+		if !callsMethod(decls[edge[0]], edge[1]) {
+			t.Errorf("%s does not call %s", edge[0], edge[1])
+		}
 	}
 }
 

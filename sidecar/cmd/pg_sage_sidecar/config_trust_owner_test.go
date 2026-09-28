@@ -13,7 +13,7 @@ import (
 
 func TestTrustPolicyOwnerUpdatesInheritedExecutor(t *testing.T) {
 	cfg := config.DefaultConfig()
-	exec := executor.New(nil, cfg, nil, time.Time{}, nil)
+	exec := executor.New(nil, cfg, time.Time{}, nil)
 	mgr := fleet.NewManager(cfg)
 	inst := &fleet.DatabaseInstance{
 		Name: "inherited", Executor: exec,

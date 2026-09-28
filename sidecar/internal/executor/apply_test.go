@@ -47,14 +47,14 @@ func (p *applyProbe) intent() ActionIntent {
 func applyExecutor(timeoutSeconds int, refuseAt int) (*Executor, *reauthGate) {
 	cfg := config.DefaultConfig()
 	cfg.Safety.DDLTimeoutSeconds = timeoutSeconds
-	e := New(nil, cfg, nil, time.Time{}, nopLog)
+	e := New(nil, cfg, time.Time{}, nopLog)
 	gate := &reauthGate{refuseAt: refuseAt}
 	e.WithPolicyGate(gate)
 	return e, gate
 }
 
 func TestApplyWithoutGateWithholdsEverything(t *testing.T) {
-	e := New(nil, config.DefaultConfig(), nil, time.Time{}, nopLog)
+	e := New(nil, config.DefaultConfig(), time.Time{}, nopLog)
 	probe := &applyProbe{}
 	_, err := e.Apply(context.Background(), probe.intent())
 	var withheld *WithheldError

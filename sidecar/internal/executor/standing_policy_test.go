@@ -27,7 +27,7 @@ func TestExecutorUsesStandingPolicyAsAuthorizationPath(t *testing.T) {
 		Verdict: policy.VerdictExecute, RiskTier: policy.RiskSafe,
 		Reason: policy.ReasonAuthorized, EvidenceID: "ev-1", DecisionID: 41,
 	}}
-	exec := New(nil, &config.Config{}, nil, time.Time{}, func(string, string, ...any) {})
+	exec := New(nil, &config.Config{}, time.Time{}, func(string, string, ...any) {})
 	exec.WithPolicyGate(gate)
 	finding := analyzer.Finding{
 		Category: "stale_statistics", ObjectIdentifier: "public.orders",
@@ -51,7 +51,7 @@ func TestExecutorStandingPolicyParksUnknownContract(t *testing.T) {
 	gate := &recordingStandingGate{result: policy.Decision{
 		Verdict: policy.VerdictPark, Reason: policy.ReasonNoTypedContract,
 	}}
-	exec := New(nil, &config.Config{}, nil, time.Time{}, func(string, string, ...any) {})
+	exec := New(nil, &config.Config{}, time.Time{}, func(string, string, ...any) {})
 	exec.WithPolicyGate(gate)
 
 	decision := exec.evaluateFindingPolicy(context.Background(), analyzer.Finding{

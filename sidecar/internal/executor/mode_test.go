@@ -252,7 +252,7 @@ func TestProposeForApproval_UsesMetadataStore(t *testing.T) {
 	}
 	withTestStandingGate(e)
 
-	id, err := e.proposeForApproval(context.Background(), 42, finding)
+	id, err := e.proposeForApproval(context.Background(), 42, finding, nil)
 	if err != nil {
 		t.Fatalf("proposeForApproval returned error: %v", err)
 	}

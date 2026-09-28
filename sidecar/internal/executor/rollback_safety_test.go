@@ -136,7 +136,7 @@ func TestMonitorWithoutAuthorizerWithholdsRollback(t *testing.T) {
 
 func TestManualRollbackAuthorizerHonorsExecutorAndTrust(t *testing.T) {
 	cfg := wave1PolicyConfig("advisory")
-	exec := New(nil, cfg, nil, time.Time{}, nopLog)
+	exec := New(nil, cfg, time.Time{}, nopLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 	authorize := exec.manualRollbackAuthorizer()
 	if !authorize(context.Background(), "DROP INDEX CONCURRENTLY public.x") {
@@ -283,7 +283,7 @@ func TestResumeOrphanedMonitorsFinishesInterruptedActions(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Trust.Level = "advisory"
 	cfg.Trust.RollbackWindowMinutes = 1
-	exec := New(pool, cfg, nil, time.Time{}, nopLog)
+	exec := New(pool, cfg, time.Time{}, nopLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 	id := insertMonitoredAction(t, pool, "interrupted", "DROP INDEX CONCURRENTLY public.x",
 		`{"cache_hit_ratio": 0.01}`)

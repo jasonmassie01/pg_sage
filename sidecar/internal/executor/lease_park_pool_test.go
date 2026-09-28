@@ -32,7 +32,7 @@ func TestLeaseConflictParksWithSmallPool(t *testing.T) {
 	t.Cleanup(pool.Close)
 	var logMu sync.Mutex
 	var logs []string
-	exec := New(pool, config.DefaultConfig(), nil, time.Time{},
+	exec := New(pool, config.DefaultConfig(), time.Time{},
 		func(_, format string, args ...any) {
 			logMu.Lock()
 			defer logMu.Unlock()

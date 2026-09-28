@@ -79,7 +79,7 @@ func fullyEnabledGate(now time.Time) policy.Gate {
 }
 
 func TestStandingGateQueuesApprovalGuardedFindings(t *testing.T) {
-	exec := New(nil, &config.Config{}, nil, time.Time{}, func(string, string, ...any) {})
+	exec := New(nil, &config.Config{}, time.Time{}, func(string, string, ...any) {})
 	exec.WithPolicyGate(fullyEnabledGate(time.Now()))
 	for _, sql := range []string{
 		"REINDEX INDEX CONCURRENTLY public.idx_x",
@@ -136,7 +136,7 @@ func TestStandingRuntimeStateCarriesTrustCeilings(t *testing.T) {
 	cfg.Trust.Tier3Moderate = false
 	cfg.Trust.MaintenanceWindow = "always"
 	ramp := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	exec := New(nil, cfg, nil, ramp, func(string, string, ...any) {})
+	exec := New(nil, cfg, ramp, func(string, string, ...any) {})
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 
 	state := exec.standingRuntimeState(context.Background(), policy.ActionRequest{})
@@ -154,7 +154,7 @@ func TestStandingRuntimeStateCarriesTrustCeilings(t *testing.T) {
 
 func TestPolicySnapshotWaitsForHotReloadWriter(t *testing.T) {
 	cfg := wave1PolicyConfig("autonomous")
-	exec := New(nil, cfg, nil, time.Time{}, func(string, string, ...any) {})
+	exec := New(nil, cfg, time.Time{}, func(string, string, ...any) {})
 	config.LockForHotReload()
 	done := make(chan struct{})
 	go func() {
@@ -189,7 +189,7 @@ func TestApprovalReadinessIgnoresAutoExecutionEligibility(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := wave1PolicyConfig(tt.trust)
 			cfg.Trust.MaintenanceWindow = ""
-			exec := New(nil, cfg, nil, time.Now().Add(-tt.ramp*24*time.Hour),
+			exec := New(nil, cfg, time.Now().Add(-tt.ramp*24*time.Hour),
 				func(string, string, ...any) {})
 			exec.SetExecutionMode(tt.mode)
 			action := store.QueuedAction{
@@ -210,7 +210,7 @@ func TestApprovalReadinessIgnoresAutoExecutionEligibility(t *testing.T) {
 }
 
 func TestApprovalReadinessStillRefusesObservationTrust(t *testing.T) {
-	exec := New(nil, wave1PolicyConfig("observation"), nil, time.Time{},
+	exec := New(nil, wave1PolicyConfig("observation"), time.Time{},
 		func(string, string, ...any) {})
 	exec.SetExecutionMode("approval")
 	action := store.QueuedAction{
@@ -248,9 +248,9 @@ func TestEarnedAutonomyExecutesOnlyAfterTrustIsEarned(t *testing.T) {
 		"DROP INDEX CONCURRENTLY public.idx_x;",
 		"ALTER TABLE public.t SET (autovacuum_vacuum_scale_factor = 0.01)",
 	}
-	earned := New(nil, &config.Config{}, nil, time.Time{}, func(string, string, ...any) {})
+	earned := New(nil, &config.Config{}, time.Time{}, func(string, string, ...any) {})
 	earned.WithPolicyGate(fullyEnabledGate(time.Now()))
-	young := New(nil, &config.Config{}, nil, time.Time{}, func(string, string, ...any) {})
+	young := New(nil, &config.Config{}, time.Time{}, func(string, string, ...any) {})
 	young.WithPolicyGate(rampAgeGate(time.Now(), 10*24*time.Hour))
 	for _, sql := range cases {
 		finding := analyzer.Finding{ObjectIdentifier: "public.t", RecommendedSQL: sql}

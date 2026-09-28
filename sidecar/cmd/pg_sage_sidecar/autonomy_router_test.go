@@ -14,7 +14,7 @@ import (
 
 func TestAutonomyRuntimeRouterPreservesStandingAuthority(t *testing.T) {
 	gate := &runtimePolicyRecorder{}
-	exec := executor.New(nil, config.DefaultConfig(), nil, time.Now(), nil)
+	exec := executor.New(nil, config.DefaultConfig(), time.Now(), nil)
 	exec.WithPolicyGate(gate)
 	router := executorProposalRouter{executor: exec}
 	proposal := autonomy.Proposal{Database: "fixture", Feature: "fk_index",

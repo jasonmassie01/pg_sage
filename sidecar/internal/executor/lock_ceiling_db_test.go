@@ -54,7 +54,7 @@ func TestInTransactionDDLHonorsPolicyLockCeiling(t *testing.T) {
 func TestExecuteFindingAppliesDecisionLockCeiling(t *testing.T) {
 	pool, ctx := requireDB(t)
 	setupParkTable(t, ctx, pool)
-	exec := New(pool, config.DefaultConfig(), nil, time.Time{}, nopLog)
+	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 	blocker, err := pool.Begin(ctx)
 	if err != nil {

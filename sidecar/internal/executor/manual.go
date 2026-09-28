@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/store"
 	"github.com/pg-sage/sidecar/internal/value"
 )
@@ -81,10 +82,28 @@ type manualRun struct {
 	// covered marks a CREATE INDEX an existing valid index already covers:
 	// recorded as done, with nothing to monitor.
 	covered bool
+	// claim is the recommendation this action applies, when there is one.
+	claim *recommendation.Claim
 }
 
-// execute re-checks the hard stops, runs the operator's SQL and records it.
+// execute claims the recommendation the operator's SQL applies (the
+// action is its approval; a lost race or a revised recommendation stops
+// here), runs it and settles the claim.
 func (r *manualRun) execute(
+	ctx context.Context, decision ActionPolicyDecision,
+) (int64, error) {
+	claim, err := r.executor.claimForOperator(ctx, r.findingID, r.sql, r.approvedBy)
+	if err != nil {
+		return 0, err
+	}
+	r.claim = claim
+	actionID, err := r.run(ctx, decision)
+	r.executor.settleClaim(ctx, claim, actionID, err)
+	return actionID, err
+}
+
+// run re-checks the hard stops, runs the operator's SQL and records it.
+func (r *manualRun) run(
 	ctx context.Context, decision ActionPolicyDecision,
 ) (int64, error) {
 	e, decisionID := r.executor, decision.DecisionID
@@ -102,7 +121,7 @@ func (r *manualRun) execute(
 	}
 	execErr := e.runManualSQL(ctx, r.findingID, r.sql, r.detail, r.approvedBy, decision)
 	actionID := e.logManualActionWithDecision(ctx, r.findingID, r.sql, r.rollbackSQL,
-		beforeState, execErr, r.approvedBy, decisionID)
+		beforeState, execErr, r.approvedBy, decisionID, r.claim)
 	if execErr != nil {
 		return 0, fmt.Errorf("executing SQL: %w", execErr)
 	}
@@ -140,7 +159,7 @@ func (e *Executor) prepareManualCreateIndex(
 		return true, 0, err
 	}
 	actionID := e.logManualActionWithDecision(ctx, findingID, sql, rollbackSQL,
-		beforeState, nil, approvedBy, decisionID)
+		beforeState, nil, approvedBy, decisionID, nil)
 	if actionID > 0 {
 		updateActionSuccess(ctx, e.pool, actionID)
 	}
@@ -409,40 +428,42 @@ func (e *Executor) logManualAction(
 	execErr error, approvedBy *int,
 ) int64 {
 	return e.logManualActionWithDecision(ctx, findingID, sql, rollbackSQL,
-		beforeState, execErr, approvedBy, 0)
+		beforeState, execErr, approvedBy, 0, nil)
 }
 
 // logManualActionWithDecision records a manual action linked to its
-// operator decision and stamped with the executor's database identity.
+// operator decision and stamped with the executor's database identity,
+// together with the claimed recommendation's outcome when claim is set.
 func (e *Executor) logManualActionWithDecision(
 	ctx context.Context,
 	findingID int, sql, rollbackSQL string,
 	beforeState map[string]any,
 	execErr error, approvedBy *int, decisionID int64,
+	claim *recommendation.Claim,
 ) int64 {
 	beforeJSON, _ := json.Marshal(beforeState)
 	outcome := actionOutcome(execErr)
-	actionType := categorizeAction(sql)
-
-	var actionID int64
-	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ INSERT INTO sage.action_log
-		 (action_type, finding_id, sql_executed, rollback_sql,
-		  before_state, outcome, approved_by, approved_at, decision_id, database_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7::int,
-		  CASE WHEN $7::int IS NOT NULL THEN now() ELSE NULL END,
-		  NULLIF($8::bigint, 0), $9::bigint)
-		 RETURNING id`,
-		actionType, findingID, sql,
-		store.NilIfEmpty(rollbackSQL), beforeJSON, outcome,
-		approvedBy, decisionID, e.databaseIDValue(),
-	).Scan(&actionID)
+	actionID, err := e.recordAction(ctx, claim, execErr,
+		func(q actionLogWriter) (int64, error) {
+			var id int64
+			err := q.QueryRow(ctx,
+				`/* pg_sage */ INSERT INTO sage.action_log
+				 (action_type, finding_id, sql_executed, rollback_sql,
+				  before_state, outcome, approved_by, approved_at, decision_id, database_id)
+				 VALUES ($1, $2, $3, $4, $5, $6, $7::int,
+				  CASE WHEN $7::int IS NOT NULL THEN now() ELSE NULL END,
+				  NULLIF($8::bigint, 0), $9::bigint)
+				 RETURNING id`,
+				categorizeAction(sql), findingID, sql,
+				store.NilIfEmpty(rollbackSQL), beforeJSON, outcome,
+				approvedBy, decisionID, e.databaseIDValue(),
+			).Scan(&id)
+			return id, err
+		})
 	if err != nil {
-		e.logFn("executor",
-			"failed to log manual action: %v", err)
+		e.logFn("executor", "failed to log manual action: %v", err)
 		return 0
 	}
-
 	if outcome != "failed" {
 		e.markFindingActioned(ctx, int64(findingID), actionID)
 	}

@@ -211,7 +211,7 @@ func TestSelfManagedWALConfigDoesNotUseManagedAdapter(t *testing.T) {
 func newManagedConfigTestExecutor(provider string) *Executor {
 	cfg := config.DefaultConfig()
 	cfg.CloudEnvironment = provider
-	return New(nil, cfg, nil, zeroTime(), nil)
+	return New(nil, cfg, zeroTime(), nil)
 }
 
 func managedWALProposal(value string) CustodianProposal {

@@ -116,7 +116,7 @@ func TestQueuedActionMapWithReadinessIncludesDeferReason(t *testing.T) {
 	cfg.Trust.Level = "autonomous"
 	outsideHour := (time.Now().UTC().Hour() + 2) % 24
 	cfg.Trust.MaintenanceWindow = fmt.Sprintf("0 %d * * *", outsideHour)
-	exec := executor.New(pool, cfg, nil, time.Now().Add(-40*24*time.Hour),
+	exec := executor.New(pool, cfg, time.Now().Add(-40*24*time.Hour),
 		func(string, string, ...any) {})
 	exec.EnableStandingPolicyDocument(policy.UnattendedProfile(), nil)
 	action := store.QueuedAction{
@@ -151,7 +151,7 @@ func TestQueuedActionMapWithReadinessIncludesRollbackClass(t *testing.T) {
 	cfg.Trust.MaintenanceWindow = "always"
 	pool, ctx := phase2RequireDB(t)
 	phase2CleanTables(t, pool, ctx)
-	exec := executor.New(pool, cfg, nil, time.Now().Add(-40*24*time.Hour),
+	exec := executor.New(pool, cfg, time.Now().Add(-40*24*time.Hour),
 		func(string, string, ...any) {})
 	exec.EnableStandingPolicyDocument(policy.UnattendedProfile(), nil)
 	action := store.QueuedAction{
@@ -199,7 +199,7 @@ func TestApproveActionHandler_BlocksDeferredActionBeforeExecution(t *testing.T) 
 	cfg := &config.Config{}
 	cfg.Trust.Level = "autonomous"
 	cfg.Trust.MaintenanceWindow = "not-a-window"
-	exec := executor.New(pool, cfg, nil, time.Now().Add(-40*24*time.Hour),
+	exec := executor.New(pool, cfg, time.Now().Add(-40*24*time.Hour),
 		func(string, string, ...any) {})
 	if err := exec.EnableStandingPolicy(ctx, "unattended", nil); err != nil {
 		t.Fatalf("enable standing policy: %v", err)
@@ -271,7 +271,7 @@ func TestApproveActionHandler_PersistsResolvedEphemeralOutcome(t *testing.T) {
 	}
 	cfg := &config.Config{}
 	cfg.Trust.Level = "advisory"
-	exec := executor.New(pool, cfg, nil, time.Now().Add(-10*24*time.Hour),
+	exec := executor.New(pool, cfg, time.Now().Add(-10*24*time.Hour),
 		func(string, string, ...any) {})
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/actions/{id}/approve",
@@ -320,7 +320,7 @@ func TestApproveActionHandler_PersistsExpiredReadinessOutcome(t *testing.T) {
 	}
 	cfg := &config.Config{}
 	cfg.Trust.Level = "advisory"
-	exec := executor.New(pool, cfg, nil, time.Now().Add(-10*24*time.Hour),
+	exec := executor.New(pool, cfg, time.Now().Add(-10*24*time.Hour),
 		func(string, string, ...any) {})
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/actions/{id}/approve",
@@ -936,7 +936,7 @@ func TestRollbackActionHandler_StateTransitions(t *testing.T) {
 
 	exec := executor.New(pool, &config.Config{
 		Trust: config.TrustConfig{Level: "advisory"},
-	}, nil, time.Now(),
+	}, time.Now(),
 		func(string, string, ...any) {})
 	handler := rollbackActionHandler(exec)
 	mux := http.NewServeMux()

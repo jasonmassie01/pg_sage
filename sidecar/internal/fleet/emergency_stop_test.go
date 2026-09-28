@@ -56,7 +56,7 @@ func newStopHarness(t *testing.T, names []string, failing ...string) *stopHarnes
 
 func newGateExecutor() *executor.Executor {
 	cfg := &config.Config{Trust: config.TrustConfig{Level: "autonomous"}}
-	return executor.New(nil, cfg, nil, time.Now(), func(string, string, ...any) {})
+	return executor.New(nil, cfg, time.Now(), func(string, string, ...any) {})
 }
 
 func (h *stopHarness) persistedState(name string) (bool, bool) {
