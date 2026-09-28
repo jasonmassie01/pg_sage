@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { hashParam, redeemSSOLinkGrant, redirectTo } from './users/ssoApi'
+import { hashPath, replaceHash } from './users/ssoErrors'
 
 // D7: landing page for an admin-issued one-time SSO link. Continuing uses
 // the link once, then signs in at the identity provider; the provider's
@@ -9,6 +10,12 @@ export function LinkSSOPage({ navigate = redirectTo }) {
   const [grant] = useState(() => hashParam('grant'))
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+
+  // The grant is a one-time credential: keep it in memory only and replace
+  // this history entry so it does not stay in the address bar or history.
+  useEffect(() => {
+    if (hashParam('grant')) replaceHash(hashPath())
+  }, [])
 
   async function handleContinue() {
     setError(null)

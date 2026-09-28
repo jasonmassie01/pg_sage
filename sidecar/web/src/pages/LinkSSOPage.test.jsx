@@ -44,6 +44,31 @@ describe('LinkSSOPage', () => {
     expect(navigate).not.toHaveBeenCalled()
   })
 
+  it('removes the grant from the address and history before any request', () => {
+    window.location.hash = '#/link-sso?grant=secret-grant-value'
+    const replace = vi.spyOn(window.history, 'replaceState')
+    globalThis.fetch = vi.fn()
+    render(<LinkSSOPage navigate={vi.fn()} />)
+    expect(window.location.hash).toBe('#/link-sso')
+    expect(window.location.href).not.toContain('secret-grant-value')
+    expect(replace).toHaveBeenCalled()
+    const [, , url] = replace.mock.calls[replace.mock.calls.length - 1]
+    expect(String(url)).not.toContain('secret-grant-value')
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    expect(screen.getByTestId('link-sso-grant-continue')).toBeEnabled()
+  })
+
+  it('still redeems the grant it read after scrubbing the address', async () => {
+    window.location.hash = '#/link-sso?grant=kept-in-memory'
+    globalThis.fetch = vi.fn(() => Promise.resolve(ok({ url: 'https://idp.x.test/a' })))
+    render(<LinkSSOPage navigate={vi.fn()} />)
+    expect(window.location.hash).toBe('#/link-sso')
+    fireEvent.click(screen.getByTestId('link-sso-grant-continue'))
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(globalThis.fetch.mock.calls[0][1].body))
+      .toEqual({ grant: 'kept-in-memory' })
+  })
+
   it('disables the button when the link has no grant', () => {
     window.location.hash = '#/link-sso'
     globalThis.fetch = vi.fn()
