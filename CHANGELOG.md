@@ -327,6 +327,14 @@
 
 ### Fixed
 
+- An operator execution of an approved recommendation could run twice: a second
+  call that looked up the recommendation after the first had claimed it found
+  nothing claimable and ran the SQL unclaimed. An in-flight or applied
+  recommendation for the same finding and SQL now refuses with a conflict.
+- Schema lint `lint_mxid_age` computed MultiXact age with the transaction-ID
+  `age()` function, reporting a bogus ~2.1B "approaching wraparound" critical
+  finding once MultiXact IDs outpaced XIDs. It now uses `mxid_age()`.
+
 ### Changed (read before upgrading)
 
 - An executor that could not get a database connection to take its DDL lease

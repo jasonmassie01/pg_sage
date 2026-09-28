@@ -54,12 +54,34 @@ func (s *Store) FindForOperator(
 		  AND r.state IN `+revisableStatesSQL+`
 		ORDER BY r.id DESC LIMIT 1`, findingID, strings.TrimSpace(forwardSQL)))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+		return nil, s.refuseInFlight(ctx, findingID, forwardSQL)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("find recommendation for finding %d: %w", findingID, err)
 	}
 	return &c, nil
+}
+
+// refuseInFlight returns ErrConflict when the finding's recommendation for
+// this SQL is being applied, was applied, or is being verified: another
+// execution already owns it, so this one must not run unclaimed.
+func (s *Store) refuseInFlight(ctx context.Context, findingID int64, forwardSQL string) error {
+	var id int64
+	var state string
+	err := s.pool.QueryRow(ctx, `/* pg_sage */ SELECT r.id, r.state
+		FROM sage.recommendation r
+		JOIN sage.recommendation_revision v
+		  ON v.recommendation_id = r.id AND v.revision = r.revision
+		WHERE r.finding_id = $1 AND v.forward_sql = $2
+		  AND r.state IN ('applying', 'applied', 'verifying')
+		ORDER BY r.id DESC LIMIT 1`, findingID, strings.TrimSpace(forwardSQL)).Scan(&id, &state)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("check in-flight recommendation for finding %d: %w", findingID, err)
+	}
+	return fmt.Errorf("%w: recommendation %d is %s", ErrConflict, id, state)
 }
 
 // CheckFresh re-checks a candidate before acting (C07): the head must be
