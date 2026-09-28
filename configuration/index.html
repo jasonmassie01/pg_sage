@@ -551,6 +551,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sage-sre-investigations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sage SRE investigations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#retention" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -933,6 +944,17 @@
     <span class="md-ellipsis">
       
         Load admission for autonomous index builds
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sage-sre-investigations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sage SRE investigations
       
     </span>
   </a>
@@ -1550,6 +1572,65 @@ every cycle. <code>GET /api/v1/admission</code> (optionally <code>?database=</co
 <code>GET /api/v1/admission/{name}</code> report each database's mode, reason and
 baseline progress; the dashboard shows them on the Actions page and in the
 Overview provider-readiness tab.</p>
+<h3 id="sage-sre-investigations">Sage SRE investigations<a class="headerlink" href="#sage-sre-investigations" title="Permanent link">&para;</a></h3>
+<p>With <code>sre.automatic_start: true</code>, pg_sage investigates each open RCA incident of the lock,
+connection or WAL family and each open <code>plan_regression</code> finding, once. An investigation runs
+the fixed read-only catalog probes of its family (connection and WAL investigations sample
+twice, <code>sre.sample_interval_seconds</code> apart), matches them against the deterministic causal
+graph and stores the result: the likely explanation, contributing factors, alternatives and
+ruled-out explanations, each citing its evidence, the evidence that could not be collected,
+and an operator step. No LLM is involved and nothing is executed. "Inconclusive" is a normal
+outcome.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sre.automatic_start</code></td>
+<td><code>false</code></td>
+<td>Start investigations from incidents and plan regressions. Off: investigations already stored are still resumed and retained. Restart to change</td>
+</tr>
+<tr>
+<td><code>sre.trigger_interval_seconds</code></td>
+<td><code>15</code></td>
+<td>Seconds between checks for new triggers and pending investigations, <code>5</code>-<code>600</code></td>
+</tr>
+<tr>
+<td><code>sre.sample_interval_seconds</code></td>
+<td><code>5</code></td>
+<td>Seconds between the two samples connection and WAL investigations compare, <code>1</code>-<code>30</code></td>
+</tr>
+<tr>
+<td><code>sre.evidence_retention_days</code></td>
+<td><code>30</code></td>
+<td>Days a finished, unpinned investigation keeps its probe evidence. The delete leaves a tombstone, and the investigation is shown as "evidence deleted by retention"</td>
+</tr>
+<tr>
+<td><code>sre.timeline_retention_days</code></td>
+<td><code>90</code></td>
+<td>Days a finished, unpinned investigation is kept at all (hypotheses, steps, event chain), leaving a tombstone. At least <code>sre.evidence_retention_days</code>, at most <code>3650</code></td>
+</tr>
+</tbody>
+</table>
+<p>Pinned investigations (Pin in the Cases panel, or <code>POST .../pin</code>) and running ones are never
+deleted. Where the data lives: the <code>sage.sre_*</code> tables are in the meta database when one is
+configured and in the monitored database otherwise; triggers are read from the monitored
+database's <code>sage.incidents</code> and <code>sage.findings</code>. Probes run with a 500 ms statement timeout, at
+most one probe per database and four per sidecar, and return identities, counts and ages, never
+query text. Evidence, hypotheses, events and exports are redacted before they leave the store
+(connection URIs, credentials, bearer tokens, SQL literals and raw vectors are removed).</p>
+<p>Reading investigations (any signed-in role):
+<code>GET /api/v1/investigations?database=&lt;name|all&gt;</code>, and per database
+<code>GET /api/v1/databases/{db}/investigations</code>, <code>.../{id}</code>, <code>.../{id}/events</code>,
+<code>.../{id}/evidence/{evidence_id}</code>. Operators and admins can also
+<code>GET .../{id}/export</code> (JSON, or <code>?format=markdown</code>) and <code>POST .../{id}/pin</code> or <code>/unpin</code>.
+With MCP enabled, agents get the read-only tools <code>sre_list_incidents</code>,
+<code>sre_get_investigation</code> and <code>sre_get_evidence</code>.</p>
 <h3 id="retention">Retention<a class="headerlink" href="#retention" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
