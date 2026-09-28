@@ -12,7 +12,7 @@ type Server struct {
 }
 
 func NewServer(backend Backend) *Server {
-	return &Server{backend: backend, tools: intentTools()}
+	return &Server{backend: backend, tools: append(intentTools(), sreTools()...)}
 }
 
 func (s *Server) Tools() []Tool { return append([]Tool(nil), s.tools...) }
@@ -69,6 +69,9 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (any, *rpcEr
 	}
 	if mutatingTools[call.Name] && !canMutate(ctx) {
 		return nil, failure(-32001, "operator or admin role required")
+	}
+	if sreToolNames[call.Name] {
+		return s.callSRETool(ctx, call.Name, call.Arguments)
 	}
 	var result any
 	var err error

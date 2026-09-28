@@ -56,7 +56,7 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 		d.logFn("WARN", "sre: db %q: binding the database identity failed "+
 			"(retried by the investigator loop): %v", d.name, err)
 	}
-	return sre.NewService(coord, store), nil
+	return sre.NewService(d.name, coord, store), nil
 }
 
 // startInvestigator runs the database's Sage SRE investigator on the

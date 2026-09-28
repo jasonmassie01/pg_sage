@@ -112,6 +112,8 @@ var ErrChainBroken = errors.New("event hash chain broken")
 type ListFilter struct {
 	Limit  int
 	Cursor string
+	// CaseID, when set, lists only the investigations of that case.
+	CaseID string
 }
 
 // Page is one page of investigations.

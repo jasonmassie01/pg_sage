@@ -75,3 +75,28 @@ func TestStore_ClaimPastTheBudgetFailsTheInvestigation(t *testing.T) {
 		t.Fatalf("chain: %v", err)
 	}
 }
+
+// The Cases panel looks investigations up by their source case id.
+func TestStore_ListFiltersByCaseID(t *testing.T) {
+	st, _, ctx := liveStore(t, DefaultLimits())
+	scope := testScope(t, ctx, st)
+	a, _, _ := st.Create(ctx, lockStart(scope, "pid 70"))
+	if _, _, err := st.Create(ctx, lockStart(scope, "pid 71")); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	page, err := st.List(ctx, scope, ListFilter{CaseID: "case:lock:pid 70"})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != a.ID {
+		t.Fatalf("case filter = %+v (%v), want only %s", page.Items, err, a.ID)
+	}
+	if page, _ := st.List(ctx, scope, ListFilter{CaseID: "case:none"}); len(page.Items) != 0 {
+		t.Fatalf("unknown case lists %+v", page.Items)
+	}
+	long := make([]byte, 257)
+	for i := range long {
+		long[i] = 'x'
+	}
+	if _, err := st.List(ctx, scope, ListFilter{CaseID: string(long)}); !errors.Is(err,
+		ErrInvalidRequest) {
+		t.Fatalf("over-long case id = %v, want ErrInvalidRequest", err)
+	}
+}

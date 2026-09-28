@@ -32,12 +32,17 @@ func (s *PostgresStore) List(ctx context.Context, scope Scope, f ListFilter) (Pa
 	if err != nil {
 		return Page{}, err
 	}
+	if err := checkText("case id", f.CaseID, false, 256); err != nil {
+		return Page{}, err
+	}
 	rows, err := s.pool.Query(ctx, `SELECT `+invColumns+`
 		FROM sage.sre_investigations
 		WHERE deployment_id = $1 AND database_id = $2
 		  AND ($3::timestamptz IS NULL OR (created_at, id) < ($3, $4::uuid))
+		  AND ($6 = '' OR source_case_id = $6)
 		ORDER BY created_at DESC, id DESC LIMIT $5`,
-		string(scope.DeploymentID), string(scope.DatabaseID), after, afterID, limit+1)
+		string(scope.DeploymentID), string(scope.DatabaseID), after, afterID, limit+1,
+		f.CaseID)
 	if err != nil {
 		return Page{}, storeErr(ctx, "list", err)
 	}

@@ -67,3 +67,20 @@ type Tool struct {
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"inputSchema"`
 }
+
+// InvestigationRequest are the typed arguments of the Sage SRE read
+// tools. Database is the fleet database name (optional with a single
+// database).
+type InvestigationRequest struct {
+	Database        string `json:"database,omitempty"`
+	InvestigationID string `json:"investigation_id,omitempty"`
+	EvidenceID      string `json:"evidence_id,omitempty"`
+	CaseID          string `json:"case_id,omitempty"`
+}
+
+// InvestigationBackend serves the read-only Sage SRE tools.
+type InvestigationBackend interface {
+	ListInvestigations(context.Context, InvestigationRequest) (any, error)
+	GetInvestigation(context.Context, InvestigationRequest) (any, error)
+	GetEvidence(context.Context, InvestigationRequest) (any, error)
+}
