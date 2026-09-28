@@ -373,10 +373,14 @@ func migrationStatements() []string {
 		ddlFindingsBackfillFromSchemaFindings,
 		ddlFleetScaleIndexes,
 		ddlQueryStoreStatsEpoch,
+		ddlExplainCachePlanHash,
 	}
 	statements = append(statements, agentNativeMigrationStatements()...)
-	// After the agent-native DDL: sage.policy must exist.
-	return append(statements, ddlPolicyChangeClassSplit)
+	// After the agent-native DDL: sage.policy and sage.table_contract must
+	// exist. The window migration (policy schema version 3) follows the
+	// class split (version 2).
+	return append(statements, ddlPolicyChangeClassSplit, ddlPolicyWindowCronDuration,
+		ddlRetentionColumnDeclaration, ddlTableContractIdentity)
 }
 
 // ---------------------------------------------------------------------------

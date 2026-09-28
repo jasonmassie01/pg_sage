@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/migration/plan"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/value"
 )
 
 var mcpRuntime *mcp.Runtime
@@ -126,12 +127,18 @@ func (access *fleetMCPAccess) GetLedger(
 	return adapter.GetLedger(ctx, request)
 }
 
+// GetValue aggregates the value ledger of every monitored database (D3).
+// It never reads the meta database: in meta-db mode the ledger lives in
+// the targets.
 func (access *fleetMCPAccess) GetValue(ctx context.Context) (map[string]any, error) {
-	adapter, err := access.adapter(nil)
-	if err != nil {
-		return nil, err
+	if access == nil || access.manager == nil {
+		return nil, fmt.Errorf("MCP value fleet is unavailable")
 	}
-	return adapter.GetValue(ctx)
+	manager := access.manager
+	reader := value.NewFleetService(func() []value.Source {
+		return fleet.ValueSources(manager)
+	})
+	return mcp.NewValueAccess(reader).GetValue(ctx)
 }
 
 func (access *fleetMCPAccess) GetGuaranteeStatus(

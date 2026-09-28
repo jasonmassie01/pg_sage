@@ -51,12 +51,21 @@ type purgeRule struct {
 // Keep predicates for parents referenced by NOT NULL foreign keys. The
 // value ledger (incident_avoided) is evidence of prevented incidents and
 // keeps its action/decision/verification; active leases keep decisions.
+// Credited actions (verified success with toil credit) are pg_sage's
+// evidence of worth, so they and the verification that earned the credit
+// are never purged (D3); uncredited and rolled-back rows still age out.
 const (
-	keepActionLog = `AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
+	keepActionLog = `AND NOT (action_log.outcome = 'success'
+	                   AND action_log.toil_minutes_saved IS NOT NULL)
+	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
 	                   WHERE ia.action_log_id = action_log.id)`
 	keepVerification = `AND verdict NOT IN ('pending', 'extended')
 	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
-	                   WHERE ia.verification_id = verification.id)`
+	                   WHERE ia.verification_id = verification.id)
+	    AND NOT EXISTS (SELECT 1 FROM sage.action_log al
+	                   WHERE al.id = verification.action_log_id
+	                   AND al.outcome = 'success'
+	                   AND al.toil_minutes_saved IS NOT NULL)`
 	keepDecision = `AND (deadline_hard_at IS NULL OR deadline_hard_at < now()
 	                   OR resolved_at IS NOT NULL)
 	    AND NOT EXISTS (SELECT 1 FROM sage.verification v WHERE v.decision_id = decision.id)
@@ -86,6 +95,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{"change_lease", "acquired_at", r.ActionsDays, "AND state <> 'active'"},
 		{"decision", "created_at", r.ActionsDays, keepDecision},
 		{"retention_run", "created_at", r.ActionsDays, ""},
+		{"admission_withheld", "last_seen_at", r.ActionsDays, ""},
 		{"explain_cache", "captured_at", r.ExplainsDays, ""},
 		{"explain_results", "created_at", r.ExplainsDays, ""},
 		// Used or expired SSO link grants are dead weight once old (D7).
@@ -104,6 +114,7 @@ var retentionExemptions = map[string]string{
 	"crypto_meta":            "key metadata, not a time-series",
 	"databases":              "fleet registry, not a time-series",
 	"incident_avoided":       "value ledger; low volume, kept as evidence",
+	"io_rate_sample":         "pruned by the IO sampler (verify.io_sample_retention_days)",
 	"incidents":              "pruned by rca.PruneResolvedIncidents (resolved_at, findings_days)",
 	"migration_run":          "low-volume migration evidence ledger",
 	"notification_channels":  "configuration",

@@ -11,12 +11,6 @@ type Measurement struct {
 	AverageLatency time.Duration
 }
 
-type LoadSample struct {
-	CPUPct    float64
-	DataIOPct float64
-	LogIOPct  float64
-}
-
 type Criterion struct {
 	Kind           string
 	TargetIDs      []int64
@@ -68,9 +62,14 @@ type ResumeResult struct {
 	Verdict  Verdict
 }
 
+// Admission is a load-admission verdict. Mode names the evidence that
+// admitted or withheld the action; Evidence is recorded in the decision.
 type Admission struct {
-	OK     bool
-	Reason string
+	OK       bool
+	Reason   string
+	Mode     string
+	Detail   string
+	Evidence map[string]any
 }
 
 type ObservationSource interface {
@@ -79,7 +78,7 @@ type ObservationSource interface {
 	)
 	WriteMeasurements(context.Context, string, time.Time, time.Time) (Measurement, error)
 	IndexValid(context.Context, string) (bool, error)
-	CurrentLoad(context.Context) (LoadSample, error)
+	LoadEvidence(context.Context) (LoadEvidence, error)
 }
 
 type StateStore interface {
@@ -107,7 +106,10 @@ type Options struct {
 	CPUCeilingPct    float64
 	DataIOCeilingPct float64
 	LogIOCeilingPct  float64
-	Now              func() time.Time
+	// BaselineDays is the learned-baseline observation required before
+	// admission; 0 disables the learned-baseline path.
+	BaselineDays float64
+	Now          func() time.Time
 }
 
 func DefaultOptions() Options {
@@ -115,7 +117,7 @@ func DefaultOptions() Options {
 		InitialWindow: 2 * time.Hour, HardMax: 72 * time.Hour, MinSamples: 30,
 		MinGainPct: 20, RegressPct: 15, WriteImpactPct: 20,
 		CPUCeilingPct: 70, DataIOCeilingPct: 70, LogIOCeilingPct: 70,
-		Now: time.Now,
+		BaselineDays: 7, Now: time.Now,
 	}
 }
 

@@ -66,10 +66,11 @@ func (e *Executor) executeManualDetached(
 	if err != nil {
 		return 0, err
 	}
-	decisionID, err := e.authorizeOperatorAction(ctx, sql, findingID, approvedBy)
+	decision, err := e.authorizeOperatorAction(ctx, sql, findingID, approvedBy)
 	if err != nil {
 		return 0, err
 	}
+	decisionID := decision.DecisionID
 	beforeState := e.snapshotBeforeState(ctx, nil)
 	if categorizeAction(sql) == "create_index" {
 		done, actionID, err := e.prepareManualCreateIndex(
@@ -81,7 +82,8 @@ func (e *Executor) executeManualDetached(
 	if err := e.manualMutationBlock(ctx); err != nil {
 		return 0, err
 	}
-	execErr := e.runManualSQL(ctx, findingID, sql, findingDetail, approvedBy)
+	execErr := e.runManualSQL(ctx, findingID, sql, findingDetail, approvedBy,
+		decision.LockCeilingMS)
 	actionID := e.logManualActionWithDecision(ctx, findingID, sql, rollbackSQL,
 		beforeState, execErr, approvedBy, decisionID)
 	if execErr != nil {
@@ -126,7 +128,7 @@ func (e *Executor) manualDDLOptions() (time.Duration, DDLOption) {
 
 func (e *Executor) runManualSQL(
 	ctx context.Context, findingID int, sql string,
-	findingDetail json.RawMessage, approvedBy *int,
+	findingDetail json.RawMessage, approvedBy *int, lockCeilingMS int64,
 ) error {
 	if _, _, isSignal := parseBackendSignal(sql); isSignal {
 		return e.executeApprovedBackendSignal(ctx, sql, findingDetail, approvedBy)
@@ -137,8 +139,8 @@ func (e *Executor) runManualSQL(
 	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
 		return err
 	}
-	ddlTimeout, lockOpt := e.manualDDLOptions()
-	return e.execManualSQLWithRetry(ctx, sql, ddlTimeout, lockOpt)
+	lockOpt := WithLockTimeout(ddlLockTimeoutMS(sql, e.cfg.Safety.LockTimeout(), lockCeilingMS))
+	return e.execManualSQLWithRetry(ctx, sql, e.cfg.Safety.DDLTimeout(), lockOpt)
 }
 
 // finishManualAction starts the rollback monitor (which re-authorizes the

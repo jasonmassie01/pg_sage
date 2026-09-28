@@ -97,11 +97,13 @@ func StoreObservedPlan(ctx context.Context, pool *pgxpool.Pool, plan ObservedPla
 		return fmt.Errorf("lock observed plan delivery: %w", err)
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO sage.explain_cache
-		(queryid, query_text, plan_json, source, total_cost, execution_time, captured_at)
-		SELECT $1, $2, $3::jsonb, 'auto_explain_log', $4, $5, $6
+		(queryid, query_text, plan_json, source, total_cost, execution_time, captured_at,
+		 plan_hash)
+		SELECT $1, $2, $3::jsonb, 'auto_explain_log', $4, $5, $6, $7
 		WHERE NOT EXISTS (SELECT 1 FROM sage.explain_cache
 			WHERE queryid=$1 AND captured_at=$6 AND source='auto_explain_log' AND plan_json=$3::jsonb)`,
-		plan.QueryID, plan.Query, plan.JSON, plan.TotalCost, plan.ExecutionMS, plan.CapturedAt)
+		plan.QueryID, plan.Query, plan.JSON, plan.TotalCost, plan.ExecutionMS, plan.CapturedAt,
+		planHashParam(plan.JSON))
 	if err != nil {
 		return fmt.Errorf("store observed auto_explain plan: %w", err)
 	}

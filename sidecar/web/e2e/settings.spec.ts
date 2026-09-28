@@ -1,8 +1,8 @@
 // settings.spec.ts — Smoke tests for the Settings page.
 //
 // Verifies simple/advanced mode toggle, tab navigation,
-// config field rendering, save button gating, and emergency
-// stop controls.
+// config field rendering, save button gating, and the pointer to
+// the header emergency stop.
 
 import { test, expect } from '@playwright/test'
 import { mockAllAPIs } from './fixtures'
@@ -82,16 +82,16 @@ test.describe('Settings page', () => {
     await expect(page.getByText('Mode', { exact: true })).toBeVisible()
     await expect(page.getByText('fleet', { exact: true })).toBeVisible()
 
-    // Emergency controls
-    const stopBtn = page.locator(
-      '[data-testid="emergency-stop-button"]',
-    )
+    // Emergency controls moved to the header (D8); Settings points there.
+    await expect(page.locator('[data-testid="emergency-scope"]'))
+      .toContainText('header')
+    const stopBtn = page.locator('[data-testid="header-emergency-stop"]')
     await expect(stopBtn).toBeVisible()
-    await expect(stopBtn).toContainText('Emergency Stop')
-
-    const resumeBtn = page.locator('[data-testid="resume-button"]')
-    await expect(resumeBtn).toBeVisible()
-    await expect(resumeBtn).toContainText('Resume')
+    await expect(stopBtn).toContainText('Stop all 2 databases')
+    // Nothing is stopped, so Resume is not offered.
+    await expect(
+      page.locator('[data-testid="header-emergency-resume"]'),
+    ).toHaveCount(0)
   })
 
   test('tab navigation shows different content', async ({ page }) => {

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/value"
 )
 
 // TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries proves the
@@ -27,18 +28,15 @@ func TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries(t *testing.T) {
 		t.Fatalf("bootstrap schema: %v", err)
 	}
 
-	previousPool := pool
-	pool = testPool
-	t.Cleanup(func() { pool = previousPool })
-
 	seedValueMetricsFixture(t, ctx, testPool)
 
 	var b strings.Builder
-	writeValueMetrics(&b, ctx)
+	writeValueMetrics(&b, ctx, []value.Source{{Name: "primary", Pool: testPool}})
 	output := b.String()
 
+	// D3: the series carries the instance name, never an empty label.
 	wantSeries := `pg_sage_toil_minutes_saved` +
-		`{database="",feature="create_index_concurrently"} 45`
+		`{database="primary",feature="create_index_concurrently"} 45`
 	if !strings.Contains(output, wantSeries) {
 		t.Errorf("missing verified toil series %q in:\n%s",
 			wantSeries, output)
@@ -47,7 +45,7 @@ func TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries(t *testing.T) {
 		t.Errorf("reverted action must not be credited:\n%s", output)
 	}
 	wantIncident := `pg_sage_incidents_avoided_total` +
-		`{kind="xid_wraparound"} 1`
+		`{database="primary",kind="xid_wraparound"} 1`
 	if !strings.Contains(output, wantIncident) {
 		t.Errorf("missing incident series %q in:\n%s",
 			wantIncident, output)
@@ -55,7 +53,7 @@ func TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries(t *testing.T) {
 	for _, header := range []string{
 		"# TYPE pg_sage_toil_minutes_saved gauge",
 		"# TYPE pg_sage_incidents_avoided_total counter",
-		"pg_sage_value_metrics_up 1",
+		`pg_sage_value_metrics_up{database="primary"} 1`,
 	} {
 		if !strings.Contains(output, header) {
 			t.Errorf("missing header %q in:\n%s", header, output)
@@ -144,14 +142,11 @@ func TestWriteValueMetricsReportsQueryFailure(t *testing.T) {
 		t.Fatalf("connect test database: %v", err)
 	}
 	closed.Close()
-	previousPool := pool
-	pool = closed
-	t.Cleanup(func() { pool = previousPool })
 
 	var b strings.Builder
-	writeValueMetrics(&b, ctx)
+	writeValueMetrics(&b, ctx, []value.Source{{Name: "primary", Pool: closed}})
 	output := b.String()
-	if !strings.Contains(output, "pg_sage_value_metrics_up 0") {
+	if !strings.Contains(output, `pg_sage_value_metrics_up{database="primary"} 0`) {
 		t.Fatalf("missing failure indicator in:\n%s", output)
 	}
 	if strings.Contains(output, "_total counter\npg_sage_toil") ||

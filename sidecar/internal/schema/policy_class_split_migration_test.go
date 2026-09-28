@@ -90,9 +90,11 @@ VALUES ($1, 1, $2, 'active', 'test')`, splitIndexAllowed, doc); err != nil {
 	if _, err := pool.Exec(ctx, ddlPolicyChangeClassSplit); err != nil {
 		t.Fatalf("migration: %v", err)
 	}
+	// D2 bumped the current policy schema to version 3 (cron window width),
+	// so a new row is current at 3 and the split never widens it.
 	allowed, _, version := readSplitPolicy(t, ctx, pool, splitIndexAllowed)
-	if version != 2 || !slices.Equal(allowed, []string{"index"}) {
-		t.Errorf("new row = %v v%d, want [index] at v2", allowed, version)
+	if version != 3 || !slices.Equal(allowed, []string{"index"}) {
+		t.Errorf("new row = %v v%d, want [index] at v3", allowed, version)
 	}
 }
 

@@ -97,14 +97,15 @@ func (executor *ProductionIntentExecutor) declareTableContract(
 	if err != nil {
 		return WriteOutcome{}, err
 	}
-	retention, err := retentionText(input.Retention)
+	retention, err := parseRetention(input.Retention)
 	if err != nil {
 		return WriteOutcome{}, err
 	}
 	return executor.store.DeclareTableContract(ctx, TableContractDeclaration{
 		DatabaseID: request.DatabaseID, Schema: schemaName, Table: tableName,
-		AppendOnly: input.AppendOnly, Retention: retention,
-		ExpectedPK: strings.TrimSpace(input.ExpectedPK), Exemptions: input.Exemptions,
+		AppendOnly: input.AppendOnly, Retention: retention.Interval,
+		RetentionColumn: retention.Column,
+		ExpectedPK:      strings.TrimSpace(input.ExpectedPK), Exemptions: input.Exemptions,
 		DeclaredBy: ActorFromContext(ctx), EvidenceID: decision.EvidenceID,
 	})
 }
@@ -203,9 +204,7 @@ func (executor *ProductionIntentExecutor) authorizeCandidates(
 		candidate := &outcome.Candidates[index]
 		decision := executor.gate.Authorize(ctx, policy.ActionRequest{
 			DatabaseID: request.DatabaseID, Feature: feature, SQL: candidate.SQL,
-			TargetObjs: []string{candidate.Object}, Contract: &policy.ActionContract{
-				ActionType: "create_index", RiskTier: policy.RiskSafe,
-			},
+			TargetObjs: []string{candidate.Object}, Contract: candidateIndexContract(),
 		})
 		candidate.Decision = decisionResult(decision.Verdict)
 		candidate.EvidenceID = decision.EvidenceID
@@ -238,9 +237,7 @@ func (executor *ProductionIntentExecutor) authorizeMigration(
 	for _, step := range planned.ExpandSteps {
 		decision := executor.gate.Authorize(ctx, policy.ActionRequest{
 			DatabaseID: request.DatabaseID, Feature: "online_migration", SQL: step.SQL,
-			TargetObjs: []string{input.table}, Contract: &policy.ActionContract{
-				ActionType: "online_migration", RiskTier: policy.RiskModerate,
-			},
+			TargetObjs: []string{input.table}, Contract: onlineMigrationContract(),
 		})
 		actions = append(actions, ChangeCandidate{
 			Object: input.table, SQL: step.SQL, Decision: decisionResult(decision.Verdict),
@@ -310,19 +307,20 @@ func qualifiedName(value string) (string, string, error) {
 	return parts[0], parts[1], nil
 }
 
-func retentionText(raw json.RawMessage) (string, error) {
-	if len(raw) == 0 || string(raw) == "null" {
-		return "", nil
+// candidateIndexContract types a proposed index build; it is undone by
+// dropping the index.
+func candidateIndexContract() *policy.ActionContract {
+	return &policy.ActionContract{
+		ActionType: "create_index", RiskTier: policy.RiskSafe,
+		RollbackClass: policy.RollbackReversible,
 	}
-	var text string
-	if json.Unmarshal(raw, &text) == nil {
-		return strings.TrimSpace(text), nil
+}
+
+// onlineMigrationContract types one expand step of an online migration,
+// which can only be fixed forward.
+func onlineMigrationContract() *policy.ActionContract {
+	return &policy.ActionContract{
+		ActionType: "online_migration", RiskTier: policy.RiskModerate,
+		RollbackClass: policy.RollbackForwardFixOnly,
 	}
-	var value struct {
-		Interval string `json:"interval"`
-	}
-	if json.Unmarshal(raw, &value) != nil || strings.TrimSpace(value.Interval) == "" {
-		return "", errors.New("retention must be an interval string")
-	}
-	return strings.TrimSpace(value.Interval), nil
 }

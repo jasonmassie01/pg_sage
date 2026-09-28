@@ -2,9 +2,10 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import {
   AlertTriangle, Activity, Settings,
-  Bot, Home, LogOut, Server, ShieldAlert, Menu, X, ChevronDown,
+  Bot, Home, LogOut, Server, Menu, X, ChevronDown,
 } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
+import { EmergencyStopControl } from './EmergencyStopControl'
 import { useAPI } from '../hooks/useAPI'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { TimeRangePicker } from './TimeRangePicker'
@@ -95,25 +96,10 @@ function NavLink({ item, active, pendingCount }) {
   )
 }
 
-function EmergencyBadge() {
-  return (
-    <span
-      data-testid="emergency-stop-badge"
-      className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold"
-      style={{
-        background: 'var(--red, #e53e3e)',
-        color: '#fff',
-        animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-      }}>
-      <ShieldAlert size={14} />
-      EMERGENCY STOP ACTIVE
-    </span>
-  )
-}
-
 export function Layout({
   children, databases, selectedDB, onSelectDB,
-  user, fleetData: fleetDataProp, onLogout, pageTitle, ...rest
+  user, fleetData: fleetDataProp, onFleetChanged, onLogout, pageTitle,
+  ...rest
 }) {
   const hash = window.location.hash || '#/'
   const canReviewActions =
@@ -127,7 +113,7 @@ export function Layout({
   // Reuse the fleet data App.jsx already fetches to avoid a
   // duplicate 30s poll. Fall back to our own useAPI when the
   // prop is absent (kept for older callers/tests).
-  const { data: fleetDataOwn } = useAPI(
+  const { data: fleetDataOwn, refetch: refetchFleetOwn } = useAPI(
     user && !fleetDataProp ? '/api/v1/databases' : null, 30000,
   )
   const fleetData = fleetDataProp || fleetDataOwn
@@ -335,7 +321,13 @@ export function Layout({
           </div>
           <div className="flex items-center gap-1.5 md:gap-3
             flex-wrap justify-end min-w-0">
-            {emergencyStopped && <EmergencyBadge />}
+            <EmergencyStopControl
+              databases={fleetData?.databases || []}
+              selectedDB={selectedDB}
+              canControl={canReviewActions}
+              summaryStopped={emergencyStopped}
+              onChanged={onFleetChanged || refetchFleetOwn}
+            />
             {trustLevel && <TrustBadge level={trustLevel} />}
             <TimeRangePicker />
             {databases && databases.length > 1 && (

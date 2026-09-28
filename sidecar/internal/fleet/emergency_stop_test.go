@@ -33,7 +33,7 @@ func newStopHarness(t *testing.T, names []string, failing ...string) *stopHarnes
 		h.failing[name] = true
 	}
 	h.mgr.persistStop = func(
-		_ context.Context, inst *DatabaseInstance, stopped bool,
+		_ context.Context, inst *DatabaseInstance, stopped bool, _ string,
 	) error {
 		h.mu.Lock()
 		defer h.mu.Unlock()
@@ -72,7 +72,7 @@ func TestEmergencyStopAll_FailingDatabaseDoesNotAbortLoop(t *testing.T) {
 		rand.Shuffle(len(names), func(a, b int) { names[a], names[b] = names[b], names[a] })
 		h := newStopHarness(t, names, "bravo")
 
-		changed, err := h.mgr.EmergencyStopStrict("")
+		changed, err := h.mgr.EmergencyStopStrict("", "test")
 
 		if changed != 3 {
 			t.Fatalf("iteration %d: changed = %d, want 3", i, changed)
@@ -112,7 +112,7 @@ func TestEmergencyStopAll_AgentDatabaseWithoutExecutorIsSkipped(t *testing.T) {
 		Status: &InstanceStatus{Connected: true},
 	})
 
-	changed, err := h.mgr.EmergencyStopStrict("")
+	changed, err := h.mgr.EmergencyStopStrict("", "test")
 
 	if err != nil {
 		t.Fatalf("agent DB without executor must not fail the stop: %v", err)
@@ -133,14 +133,14 @@ func TestEmergencyStopAll_AgentDatabaseWithoutExecutorIsSkipped(t *testing.T) {
 
 func TestResume_FailedPersistenceKeepsDatabaseStopped(t *testing.T) {
 	h := newStopHarness(t, []string{"alpha", "bravo"})
-	if _, err := h.mgr.EmergencyStopStrict(""); err != nil {
+	if _, err := h.mgr.EmergencyStopStrict("", "test"); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
 	h.mu.Lock()
 	h.failing["bravo"] = true
 	h.mu.Unlock()
 
-	resumed, err := h.mgr.ResumeStrict("")
+	resumed, err := h.mgr.ResumeStrict("", "test")
 
 	if resumed != 1 {
 		t.Fatalf("resumed = %d, want 1", resumed)
@@ -170,10 +170,10 @@ func TestResume_RestoresConfiguredExecutorGate(t *testing.T) {
 	})
 	h.mgr.GetInstance("readonly").Executor.SetExecutorEnabled(false)
 
-	if _, err := h.mgr.EmergencyStopStrict("readonly"); err != nil {
+	if _, err := h.mgr.EmergencyStopStrict("readonly", "test"); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
-	if _, err := h.mgr.ResumeStrict("readonly"); err != nil {
+	if _, err := h.mgr.ResumeStrict("readonly", "test"); err != nil {
 		t.Fatalf("resume: %v", err)
 	}
 	if h.mgr.GetInstance("readonly").Executor.ExecutorEnabled() {
@@ -183,7 +183,7 @@ func TestResume_RestoresConfiguredExecutorGate(t *testing.T) {
 
 func TestReplacementInheritsEmergencyStop(t *testing.T) {
 	h := newStopHarness(t, []string{"orders"}, "orders")
-	if _, err := h.mgr.EmergencyStopStrict("orders"); err == nil {
+	if _, err := h.mgr.EmergencyStopStrict("orders", "test"); err == nil {
 		t.Fatal("expected persistence failure for orders")
 	}
 	old := h.mgr.GetInstance("orders")

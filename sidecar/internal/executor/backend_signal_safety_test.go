@@ -44,13 +44,22 @@ func startSleepingBackend(t *testing.T, pool *pgxpool.Pool, seconds int) sleepin
 		conn.Release()
 		backend.done <- execErr
 	}()
+	// A backend reports state 'active' before parse analysis sets query_id,
+	// so an early read captures NULL (0) while the signal SQL later sees the
+	// real id and correctly refuses. Wait for query_id, unless the server
+	// never computes one (then it stays NULL; accept it after a grace period).
 	deadline := time.Now().Add(5 * time.Second)
+	var activeSince time.Time
 	for time.Now().Before(deadline) {
+		var hasQueryID bool
 		err := pool.QueryRow(ctx, `SELECT backend_start, query_start,
-			COALESCE(query_id, 0) FROM pg_stat_activity
+			COALESCE(query_id, 0), query_id IS NOT NULL FROM pg_stat_activity
 			WHERE pid=$1 AND state='active' AND query=$2`, backend.pid, backend.query).
-			Scan(&backend.backendStart, &backend.queryStart, &backend.queryID)
-		if err == nil {
+			Scan(&backend.backendStart, &backend.queryStart, &backend.queryID, &hasQueryID)
+		if err == nil && activeSince.IsZero() {
+			activeSince = time.Now()
+		}
+		if err == nil && (hasQueryID || time.Since(activeSince) > time.Second) {
 			return backend
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -94,7 +103,7 @@ func TestExecuteFindingNeverSignalsBackendAsRawSQL(t *testing.T) {
 			"SELECT pg_cancel_backend(%d);", backend.pid),
 	}
 
-	exec.executeFinding(ctx, finding, 0, 0)
+	exec.executeFinding(ctx, finding, 0, ActionPolicyDecision{})
 
 	backend.waitUncancelled(t)
 }
