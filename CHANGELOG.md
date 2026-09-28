@@ -23,7 +23,8 @@
 
 - **Defined stop/resume races.** Stops latch memory immediately; persisted transitions are
   serialized. A stop that overlaps a resume wins, and memory always ends equal to the
-  persisted flag. `sage.config_audit` gains a nullable `changed_by_actor` column, added
+  persisted flag. A stop that lands while a meta-db reconnect swaps in a new runtime
+  carries over to the new runtime and is saved. `sage.config_audit` gains a nullable `changed_by_actor` column, added
   automatically at startup.
 
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
