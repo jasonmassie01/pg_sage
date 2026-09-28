@@ -2247,8 +2247,10 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	// Database metrics (only when global pool exists).
 	if pool != nil {
 		writeDatabaseMetrics(&b, ctx)
-		writeValueMetrics(&b, ctx)
 	}
+	// Value lives in each monitored database (D3), so it is read from
+	// every fleet instance in all modes, never from the meta pool.
+	writeValueMetrics(&b, ctx, fleet.ValueSources(fleetMgr))
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	fmt.Fprint(w, b.String())

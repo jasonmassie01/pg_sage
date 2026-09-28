@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/policy"
-	"github.com/pg-sage/sidecar/internal/value"
 )
 
 func (access *PostgresAccess) DeclareTableContract(
@@ -153,14 +152,12 @@ func (access *PostgresAccess) GetGuaranteeStatus(
 type PostgresAccess struct {
 	pool     *pgxpool.Pool
 	policies *policy.Store
-	value    *value.Service
 }
 
 func NewPostgresAccess(pool *pgxpool.Pool) *PostgresAccess {
 	return &PostgresAccess{
 		pool:     pool,
 		policies: policy.NewStore(pool),
-		value:    value.NewService(value.NewPostgresRepository(pool)),
 	}
 }
 
@@ -247,25 +244,6 @@ func (access *PostgresAccess) GetLedger(
 		return LedgerResult{}, fmt.Errorf("iterate MCP ledger: %w", err)
 	}
 	return LedgerResult{Entries: entries}, nil
-}
-
-func (access *PostgresAccess) GetValue(ctx context.Context) (map[string]any, error) {
-	if access == nil || access.pool == nil {
-		return nil, ErrProductionDependencyUnavailable
-	}
-	report, err := access.value.Get(ctx, value.Filter{})
-	if err != nil {
-		return nil, fmt.Errorf("read MCP value: %w", err)
-	}
-	raw, err := json.Marshal(report)
-	if err != nil {
-		return nil, fmt.Errorf("encode MCP value: %w", err)
-	}
-	result := make(map[string]any)
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return nil, fmt.Errorf("decode MCP value: %w", err)
-	}
-	return result, nil
 }
 
 type ledgerFilter struct {

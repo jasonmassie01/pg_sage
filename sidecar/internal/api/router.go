@@ -19,7 +19,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/store"
-	"github.com/pg-sage/sidecar/internal/value"
 )
 
 // routerShutdownCtx is the context used by long-running router-owned
@@ -127,6 +126,9 @@ func NewRouterFullRuntime(
 		mcpHandler != nil {
 		apiMux.Handle("POST /api/v1/mcp", bindMCPPrincipal(mcpHandler))
 	}
+	// Value is read from every monitored database in all modes (D3), so
+	// it depends on the fleet, not on the control pool.
+	apiMux.Handle("GET /api/v1/value", valueHandler(fleetValueReader(mgr)))
 	if pool != nil {
 		var oauthProvider *auth.OAuthProvider
 		if cfg.OAuth.Enabled {
@@ -154,8 +156,6 @@ func NewRouterFullRuntime(
 			policy:    rt.NotificationTargetPolicy,
 		})
 		registerPolicyRoutes(apiMux, policy.NewStore(pool))
-		apiMux.Handle("GET /api/v1/value", valueHandler(
-			value.NewService(value.NewPostgresRepository(pool))))
 		registerAgentDBRoutesWithAuthority(
 			apiMux,
 			agentdb.NewStore(pool),

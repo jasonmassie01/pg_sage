@@ -6,7 +6,7 @@ import (
 
 // Regression test for SURF-03 / G2-B11: an action credited without a
 // database attribution must not make the whole value report fail.
-func TestReadSnapshotToleratesUnattributedCredit(t *testing.T) {
+func TestFleetReadCountsUnattributedCreditUnderInstanceName(t *testing.T) {
 	pool, ctx := requireValuePostgres(t)
 	var id int64
 	if err := pool.QueryRow(ctx, `INSERT INTO sage.action_log
@@ -19,12 +19,18 @@ func TestReadSnapshotToleratesUnattributedCredit(t *testing.T) {
 		_, _ = pool.Exec(ctx, "DELETE FROM sage.action_log WHERE id=$1", id)
 	})
 
-	snapshot, err := NewPostgresRepository(pool).ReadSnapshot(ctx, Filter{})
+	report, err := fleetOf(Source{Name: "primary", Pool: pool}).
+		Get(ctx, Filter{Database: "primary"})
 
-	if err != nil {
-		t.Fatalf("ReadSnapshot with NULL database_id: %v", err)
+	if err != nil || report.Partial {
+		t.Fatalf("read with NULL database_id: partial=%v err=%v", report.Partial, err)
 	}
-	if snapshot.AllTimeMinutes < 15 {
-		t.Fatalf("unattributed credit missing from report: %#v", snapshot)
+	if report.DBAHoursSaved.AllTime < 0.25 {
+		t.Fatalf("unattributed credit missing from report: %#v", report)
+	}
+	// T4: standalone rows carry no database_id, yet filtering by the
+	// configured instance name must count them under that name.
+	if len(report.ByDatabase) != 1 || report.ByDatabase[0].Name != "primary" {
+		t.Fatalf("unattributed credit not labelled by instance: %#v", report.ByDatabase)
 	}
 }

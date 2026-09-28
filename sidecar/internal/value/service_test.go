@@ -3,12 +3,13 @@ package value
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
 
-func TestServiceGetSeparatesRealizedPotentialAndIncidents(t *testing.T) {
-	repo := &fakeRepository{snapshot: Snapshot{
+func TestMergeResultsSeparatesRealizedPotentialAndIncidents(t *testing.T) {
+	snapshot := Snapshot{
 		AllTimeMinutes: 600,
 		MonthMinutes:   180,
 		WeekMinutes:    60,
@@ -26,12 +27,10 @@ func TestServiceGetSeparatesRealizedPotentialAndIncidents(t *testing.T) {
 			OccurredAt: time.Date(2026, 7, 20, 2, 0, 0, 0, time.UTC),
 		}},
 		TrendMinutes: []DayMinutes{{Day: "2026-07-20", Minutes: 120}},
-	}}
-
-	report, err := NewService(repo).Get(context.Background(), Filter{})
-	if err != nil {
-		t.Fatalf("Get: %v", err)
 	}
+
+	report := mergeResults([]SourceResult{{Name: "orders", Snapshot: snapshot}})
+
 	if report.DBAHoursSaved.AllTime != 10 ||
 		report.DBAHoursSaved.ThisMonth != 3 ||
 		report.DBAHoursSaved.ThisWeek != 1 {
@@ -47,37 +46,89 @@ func TestServiceGetSeparatesRealizedPotentialAndIncidents(t *testing.T) {
 	if report.ByFeature["index"] != 4.5 || report.ByFeature["wal"] != 1.5 {
 		t.Fatalf("ByFeature = %#v", report.ByFeature)
 	}
-	if len(report.ByDatabase) != 1 || report.ByDatabase[0].Hours != 6 {
+	if len(report.ByDatabase) != 1 || report.ByDatabase[0].Hours != 6 ||
+		report.ByDatabase[0].Name != "orders" {
 		t.Fatalf("ByDatabase = %#v", report.ByDatabase)
 	}
 	if len(report.TrendDaily) != 1 || report.TrendDaily[0].Hours != 2 {
 		t.Fatalf("TrendDaily = %#v", report.TrendDaily)
 	}
-}
-
-func TestServiceGetForwardsDatabaseAndTimeFilter(t *testing.T) {
-	repo := &fakeRepository{}
-	filter := Filter{
-		Database: "orders",
-		Since:    time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
-		Until:    time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
-	}
-
-	_, err := NewService(repo).Get(context.Background(), filter)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if repo.lastFilter != filter {
-		t.Fatalf("filter = %#v, want %#v", repo.lastFilter, filter)
+	if report.Partial || len(report.Unavailable) != 0 {
+		t.Fatalf("complete read reported partial: %#v", report)
 	}
 }
 
-func TestServiceGetPropagatesRepositoryError(t *testing.T) {
-	repo := &fakeRepository{snapshotErr: errors.New("database unavailable")}
+// Merging sums every period, feature, day and incident across databases
+// and keeps each database's own row.
+func TestMergeResultsCombinesSources(t *testing.T) {
+	early := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	late := early.Add(48 * time.Hour)
+	report := mergeResults([]SourceResult{
+		{Name: "b", Snapshot: Snapshot{
+			AllTimeMinutes: 30, MonthMinutes: 30, WeekMinutes: 0,
+			ByFeatureMinutes:  map[string]float64{"index": 30},
+			ByDatabaseMinutes: []DatabaseMinutes{{Name: "b", Minutes: 30}},
+			PotentialMinutes:  60, IncidentMinutes: 60,
+			Incidents:    []Incident{{Kind: "late", EvidenceID: "l", OccurredAt: late}},
+			TrendMinutes: []DayMinutes{{Day: "2026-07-01", Minutes: 30}},
+		}},
+		{Name: "a", Snapshot: Snapshot{
+			AllTimeMinutes: 15, MonthMinutes: 15, WeekMinutes: 15,
+			ByFeatureMinutes:  map[string]float64{"index": 15, "vacuum": 6},
+			ByDatabaseMinutes: []DatabaseMinutes{{Name: "a", Minutes: 15}},
+			Incidents:         []Incident{{Kind: "early", EvidenceID: "e", OccurredAt: early}},
+			TrendMinutes: []DayMinutes{
+				{Day: "2026-07-02", Minutes: 6}, {Day: "2026-07-01", Minutes: 9},
+			},
+		}},
+	})
+	if report.DBAHoursSaved != (PeriodHours{AllTime: 0.75, ThisMonth: 0.75, ThisWeek: 0.25}) {
+		t.Fatalf("periods = %#v", report.DBAHoursSaved)
+	}
+	if report.ByFeature["index"] != 0.75 || report.ByFeature["vacuum"] != 0.1 {
+		t.Fatalf("features = %#v", report.ByFeature)
+	}
+	wantDB := []DatabaseHours{{Name: "b", Hours: 0.5}, {Name: "a", Hours: 0.25}}
+	if !reflect.DeepEqual(report.ByDatabase, wantDB) {
+		t.Fatalf("databases = %#v", report.ByDatabase)
+	}
+	wantTrend := []DayHours{{Day: "2026-07-01", Hours: 0.65}, {Day: "2026-07-02", Hours: 0.1}}
+	if !reflect.DeepEqual(report.TrendDaily, wantTrend) {
+		t.Fatalf("trend = %#v", report.TrendDaily)
+	}
+	if report.PotentialHoursPending != 1 || report.IncidentsAvoided.Count != 2 ||
+		report.IncidentsAvoided.Detail[0].Kind != "early" {
+		t.Fatalf("potential/incidents = %v %#v",
+			report.PotentialHoursPending, report.IncidentsAvoided)
+	}
+}
 
-	_, err := NewService(repo).Get(context.Background(), Filter{})
-	if err == nil || !errors.Is(err, repo.snapshotErr) {
-		t.Fatalf("Get error = %v, want wrapped repository error", err)
+// A failed database is named, flagged partial and contributes nothing;
+// the other databases still count (T8 at the merge boundary).
+func TestMergeResultsMarksFailedSourcePartial(t *testing.T) {
+	failure := errors.New("connection refused")
+	report := mergeResults([]SourceResult{
+		{Name: "a", Snapshot: Snapshot{
+			AllTimeMinutes:    15,
+			ByDatabaseMinutes: []DatabaseMinutes{{Name: "a", Minutes: 15}},
+		}},
+		{Name: "c", Err: failure},
+		{Name: "b", Err: failure, Snapshot: Snapshot{AllTimeMinutes: 99}},
+	})
+	if !report.Partial || !reflect.DeepEqual(report.Unavailable, []string{"b", "c"}) {
+		t.Fatalf("partial=%v unavailable=%v", report.Partial, report.Unavailable)
+	}
+	if report.DBAHoursSaved.AllTime != 0.25 || len(report.ByDatabase) != 1 {
+		t.Fatalf("failed source leaked value: %#v", report)
+	}
+}
+
+func TestNewServiceNilRepositoryFailsClosed(t *testing.T) {
+	service := NewService(nil)
+
+	_, creditErr := service.CreditVerifiedAction(context.Background(), 1)
+	if !errors.Is(creditErr, ErrRepositoryUnavailable) {
+		t.Fatalf("Credit error = %v", creditErr)
 	}
 }
 
@@ -170,37 +221,14 @@ func TestCreditVerifiedActionPropagatesStampFailure(t *testing.T) {
 	}
 }
 
-func TestNewServiceNilRepositoryFailsClosed(t *testing.T) {
-	service := NewService(nil)
-
-	_, getErr := service.Get(context.Background(), Filter{})
-	if !errors.Is(getErr, ErrRepositoryUnavailable) {
-		t.Fatalf("Get error = %v", getErr)
-	}
-	_, creditErr := service.CreditVerifiedAction(context.Background(), 1)
-	if !errors.Is(creditErr, ErrRepositoryUnavailable) {
-		t.Fatalf("Credit error = %v", creditErr)
-	}
-}
-
 type fakeRepository struct {
-	snapshot        Snapshot
-	snapshotErr     error
 	candidate       CreditCandidate
 	candidateErr    error
 	stampErr        error
-	lastFilter      Filter
 	stampedActionID int64
 	stampedMinutes  float64
 	stampedVersion  int
 	stampCalls      int
-}
-
-func (f *fakeRepository) ReadSnapshot(
-	_ context.Context, filter Filter,
-) (Snapshot, error) {
-	f.lastFilter = filter
-	return f.snapshot, f.snapshotErr
 }
 
 func (f *fakeRepository) CreditCandidate(
