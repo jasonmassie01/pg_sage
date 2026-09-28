@@ -207,7 +207,7 @@ func TestNarrate_DirectAnswerWithoutTools(t *testing.T) {
 }
 
 func TestNarrate_MarkdownWrappedJSONAccepted(t *testing.T) {
-	s := newNarrServer(t, twoTurn("```json\n" + groundedFinal + "\n```"))
+	s := newNarrServer(t, twoTurn("```json\n"+groundedFinal+"\n```"))
 	n := narrEngine(s.srv.URL, true).narrate(context.Background(), lockIncident(t))
 	if n.Source != NarrationLLM || n.Citations[0] != "E2" {
 		t.Fatalf("fenced JSON not recovered: %+v", n)
@@ -216,11 +216,11 @@ func TestNarrate_MarkdownWrappedJSONAccepted(t *testing.T) {
 
 func TestNarrate_DegradesOnBadModelOutput(t *testing.T) {
 	cases := map[string]struct{ final, reason string }{
-		"malformed json":  {`{"summary": "x", "evidence_ids": [`, "malformed"},
-		"prose":           {`The session is blocking others.`, "malformed"},
-		"empty summary":   {`{"summary": " ", "evidence_ids": ["E2"]}`, "summary"},
-		"no citations":    {`{"summary": "Blocking.", "evidence_ids": []}`, "cite"},
-		"unknown id":      {`{"summary": "Blocking.", "evidence_ids": ["E9"]}`, "unknown evidence"},
+		"malformed json": {`{"summary": "x", "evidence_ids": [`, "malformed"},
+		"prose":          {`The session is blocking others.`, "malformed"},
+		"empty summary":  {`{"summary": " ", "evidence_ids": ["E2"]}`, "summary"},
+		"no citations":   {`{"summary": "Blocking.", "evidence_ids": []}`, "cite"},
+		"unknown id":     {`{"summary": "Blocking.", "evidence_ids": ["E9"]}`, "unknown evidence"},
 		"invented number": {`{"summary": "Session 777 blocks.", ` +
 			`"evidence_ids": ["E2"]}`, "ungrounded number"},
 		"markdown garbage": {"```json\n{summary: nope}\n```", "malformed"},
