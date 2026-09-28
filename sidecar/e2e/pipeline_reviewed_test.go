@@ -26,12 +26,17 @@ func driveReviewedIndexFinding(
 	}
 	f.Detail["queryids"] = []int64{pipelineQueryID(t, pool, f.ObjectIdentifier)}
 	driveFinding(t, pool, an, ex, f)
-	act, ok := latestActionFor(t, pool, f.Category, f.ObjectIdentifier)
-	if !ok || act.Outcome != "failed" || !strings.Contains(act.RollbackReason, "telemetry") {
-		t.Fatalf("CREATE admitted without host-load evidence: %#v exists=%v", act, ok)
+	// Without load evidence the autonomous build is withheld (D6): recorded
+	// once in sage.admission_withheld, never as a failed action row.
+	var withheld int
+	err := pool.QueryRow(t.Context(), `SELECT count(*) FROM sage.admission_withheld
+		WHERE finding_key = $1 AND mode = 'unavailable'`,
+		fmt.Sprintf("finding:%d", pipelineFindingID(t, pool, f))).Scan(&withheld)
+	if err != nil || withheld != 1 {
+		t.Fatalf("CREATE not withheld without load evidence: withheld=%d err=%v", withheld, err)
 	}
 	var built int
-	err := pool.QueryRow(t.Context(), `SELECT count(*) FROM sage.action_log
+	err = pool.QueryRow(t.Context(), `SELECT count(*) FROM sage.action_log
 		WHERE finding_id=$1 AND outcome IN ('success','monitoring')`,
 		pipelineFindingID(t, pool, f)).Scan(&built)
 	if err != nil || built != 0 {
