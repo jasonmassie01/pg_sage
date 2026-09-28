@@ -141,7 +141,8 @@ func (enforcer *postgresRetentionEnforcer) candidateCount(
 // retentionDryRunMinAge old and whose candidate count still describes the
 // eligible population. When none qualifies and no dry run is already under
 // review, a fresh one is recorded so the review clock starts; deletion never
-// proceeds on stale, drifted or foreign evidence.
+// proceeds on stale, drifted or foreign evidence. Waiting for review is not
+// a failure: it returns a schemaguard.ParkedRoute naming when review ends.
 func (enforcer *postgresRetentionEnforcer) requireReviewedDryRun(
 	ctx context.Context, item schemaguard.Remediation, target retentionTarget,
 	cutoff time.Time, candidates int64,
@@ -160,7 +161,20 @@ func (enforcer *postgresRetentionEnforcer) requireReviewedDryRun(
 			"dry_run"); err != nil {
 			return err
 		}
+		if state, err = enforcer.dryRunState(ctx, item, target); err != nil {
+			return err
+		}
 	}
+	return &schemaguard.ParkedRoute{
+		Reason: "retention dry run in review until " +
+			state.reviewUntil.UTC().Format(time.RFC3339),
+		Err: retentionPendingCause(item, candidates, state, drifted),
+	}
+}
+
+func retentionPendingCause(item schemaguard.Remediation, candidates int64,
+	state retentionDryRunState, drifted bool,
+) error {
 	if drifted {
 		return fmt.Errorf("%w: %s.%s has %d retention candidates but its reviewed dry "+
 			"run described %d; a new dry run must pass review", ErrRetentionDryRunPending,

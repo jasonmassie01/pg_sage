@@ -87,6 +87,9 @@ func retentionCandidatesDrifted(reviewed, current int64) bool {
 type retentionDryRunState struct {
 	pending, reviewed  int64
 	reviewedCandidates int64
+	// reviewUntil is when the oldest pending dry run leaves review, by the
+	// database clock; zero when no dry run is pending.
+	reviewUntil time.Time
 }
 
 // dryRunState counts dry runs recorded against exactly this target and
@@ -100,7 +103,10 @@ func (enforcer *postgresRetentionEnforcer) dryRunState(
 		count(*) FILTER (WHERE created_at > now() - make_interval(secs => $5)),
 		count(*) FILTER (WHERE created_at <= now() - make_interval(secs => $5)),
 		COALESCE((array_agg(candidate_rows ORDER BY created_at DESC)
-			FILTER (WHERE created_at <= now() - make_interval(secs => $5)))[1], 0)
+			FILTER (WHERE created_at <= now() - make_interval(secs => $5)))[1], 0),
+		COALESCE(min(created_at) FILTER (
+			WHERE created_at > now() - make_interval(secs => $5)
+		) + make_interval(secs => $5), 'epoch'::timestamptz)
 		FROM sage.retention_run
 		WHERE schema_name=$1 AND table_name=$2 AND retention_column=$3
 		  AND disposition='dry_run'
@@ -113,7 +119,7 @@ func (enforcer *postgresRetentionEnforcer) dryRunState(
 		retentionWindowTolerance.Seconds(), retentionDryRunMaxAge.Seconds(),
 		target.relationOID, target.columnAttnum, target.columnType,
 		target.contractID, target.contractUpdatedAt,
-	).Scan(&state.pending, &state.reviewed, &state.reviewedCandidates)
+	).Scan(&state.pending, &state.reviewed, &state.reviewedCandidates, &state.reviewUntil)
 	if err != nil {
 		return state, fmt.Errorf("read retention dry-run state: %w", err)
 	}
