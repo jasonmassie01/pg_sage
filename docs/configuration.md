@@ -148,6 +148,7 @@ briefing:
 |---|---|---|
 | `collector.interval_seconds` | `60` | Seconds between snapshot collections |
 | `analyzer.interval_seconds` | `600` | Seconds between analysis cycles |
+| `rca.lock_chain_interval_seconds` | `60` | Seconds between lock-chain fast-path checks. Each check opens or updates the `lock_contention` incident (with the root blocker's pid, `backend_start` and query identity) and sends `incident_detected` without waiting for the analyzer cycle. `0` disables the fast path; otherwise `10`-`3600`. Escalation and auto-resolution still count analyzer cycles. Restart to change |
 
 ### Trust & Actions
 
@@ -186,6 +187,7 @@ contracts; concurrent or non-FULL forms are required.
 | `llm.optimizer.enabled` | `false` | Enable index optimizer |
 | `llm.optimizer.min_query_calls` | `100` | Minimum query calls before optimizing a table |
 | `llm.optimizer.max_new_per_table` | `3` | Max new indexes per table per cycle |
+| `rca.narration_enabled` | `false` | Let the LLM rewrite the summary on `incident_detected` and `incident_escalated` notifications. The model can only read the incident's own evidence (no SQL, no database access), must cite evidence ids, and every number it writes must appear in the cited evidence. Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. `llm.enabled=false` is the hot kill switch and cancels narrations in flight |
 
 ### Web UI and API Authentication
 

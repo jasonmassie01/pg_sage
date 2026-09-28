@@ -181,6 +181,8 @@
 | `rca.enabled` | `restart` | `-` |
 | `rca.escalation_cycles` | `restart` | `-` |
 | `rca.llm_correlation_threshold` | `restart` | `-` |
+| `rca.lock_chain_interval_seconds` | `restart` | `-` |
+| `rca.narration_enabled` | `restart` | `-` |
 | `rca.replication_lag_threshold_seconds` | `restart` | `-` |
 | `rca.resolution_cycles` | `restart` | `-` |
 | `rca.wal_spike_multiplier` | `restart` | `-` |

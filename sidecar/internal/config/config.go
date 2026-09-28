@@ -339,6 +339,8 @@ type RCAConfig struct {
 	ConnectionSaturationPct  int     `yaml:"connection_saturation_pct" doc:"Percentage of max_connections that triggers the connections_high signal. Default: 80."`
 	ReplicationLagThresholdS int     `yaml:"replication_lag_threshold_seconds" doc:"Seconds of replay lag before the replication_lag_increasing signal fires. Default: 30."`
 	WALSpikeMultiplier       float64 `yaml:"wal_spike_multiplier" doc:"WAL bytes delta must exceed previous delta by this multiplier to trigger wal_growth_spike. Default: 2.0."`
+	LockChainIntervalSeconds int     `yaml:"lock_chain_interval_seconds" doc:"Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60."`
+	NarrationEnabled         bool    `yaml:"narration_enabled" doc:"Add an LLM narrative, citing the incident's own evidence, to incident_detected and incident_escalated notifications. Off, or any LLM failure, uses the deterministic summary. Default: false."`
 }
 
 // LockChainConfig controls lock chain detection (v0.9).
@@ -677,6 +679,9 @@ func (c *Config) validate() error {
 	if c.Analyzer.SlowQueryThresholdMs < 0 {
 		return fmt.Errorf("analyzer.slow_query_threshold_ms must be non-negative")
 	}
+	if err := c.RCA.validate(); err != nil {
+		return err
+	}
 	validTrust := map[string]bool{
 		"observation": true, "advisory": true, "autonomous": true,
 	}
@@ -903,6 +908,7 @@ func newDefaults() *Config {
 			ConnectionSaturationPct:  DefaultRCAConnectionSaturationPct,
 			ReplicationLagThresholdS: DefaultRCAReplicationLagThresholdS,
 			WALSpikeMultiplier:       DefaultRCAWALSpikeMultiplier,
+			LockChainIntervalSeconds: DefaultRCALockChainIntervalSeconds,
 		},
 		Runaway: RunawayConfig{
 			Enabled: false,

@@ -977,6 +977,16 @@
     "default": 3,
     "doc": "Minimum concurrent signals to trigger LLM-based correlation (Tier 2). Default: 3."
   },
+  "rca.lock_chain_interval_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60."
+  },
+  "rca.narration_enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Add an LLM narrative, citing the incident's own evidence, to incident_detected and incident_escalated notifications. Off, or any LLM failure, uses the deterministic summary. Default: false."
+  },
   "rca.replication_lag_threshold_seconds": {
     "type": "int",
     "default": 30,
