@@ -103,7 +103,7 @@ func TestExecuteFindingNeverSignalsBackendAsRawSQL(t *testing.T) {
 			"SELECT pg_cancel_backend(%d);", backend.pid),
 	}
 
-	exec.executeFinding(ctx, finding, 0, 0)
+	exec.executeFinding(ctx, finding, 0, ActionPolicyDecision{})
 
 	backend.waitUncancelled(t)
 }

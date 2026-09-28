@@ -149,6 +149,7 @@ func migrationAction(request Request, step planpkg.Step) policy.ActionRequest {
 		TargetObjs: []string{request.Table.Schema + "." + request.Table.Name},
 		Contract: &policy.ActionContract{
 			ActionType: "online_migration", RiskTier: policy.RiskModerate,
+			RollbackClass: policy.RollbackForwardFixOnly,
 		},
 	}
 }

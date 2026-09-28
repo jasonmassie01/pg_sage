@@ -375,9 +375,11 @@ func migrationStatements() []string {
 		ddlExplainCachePlanHash,
 	}
 	statements = append(statements, agentNativeMigrationStatements()...)
-	// After the agent-native DDL: sage.policy and sage.table_contract must exist.
-	return append(statements, ddlPolicyChangeClassSplit, ddlRetentionColumnDeclaration,
-		ddlTableContractIdentity)
+	// After the agent-native DDL: sage.policy and sage.table_contract must
+	// exist. The window migration (policy schema version 3) follows the
+	// class split (version 2).
+	return append(statements, ddlPolicyChangeClassSplit, ddlPolicyWindowCronDuration,
+		ddlRetentionColumnDeclaration, ddlTableContractIdentity)
 }
 
 // ---------------------------------------------------------------------------

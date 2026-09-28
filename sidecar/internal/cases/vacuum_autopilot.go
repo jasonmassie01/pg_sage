@@ -146,7 +146,7 @@ func autovacuumTuningCandidate(f SourceFinding) ActionCandidate {
 		ProposedSQL:      sql,
 		ExpiresAt:        &expires,
 		OutputModes:      []string{"queue_for_approval", "generate_pr_or_script"},
-		RollbackClass:    "forward_fix_only",
+		RollbackClass:    "reversible",
 		VerificationPlan: verificationPlanForAction("set_table_autovacuum"),
 	}
 	candidate.ScriptOutput = scriptOutputFromFinding(f, candidate)

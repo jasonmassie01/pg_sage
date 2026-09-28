@@ -328,6 +328,7 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 		if err := applyPersistedGlobalOverrides(cfg, controlPool); err != nil {
 			return err
 		}
+		warnInvalidStoredWindows(context.Background(), configStore, logWarn)
 	}
 	configController = config.NewConfigControllerAtGeneration(
 		cfg, generation, nil, newTrustPolicyOwner(),
@@ -649,14 +650,13 @@ func initStandalone() {
 			RevalidationExplainTimeoutMs: cfg.Tuner.RevalidationExplainTimeoutMs,
 
 			// v0.8.5 Feature 2 — Stale-stats detection + ANALYZE.
-			StaleStatsEstimateSkew:        cfg.Tuner.StaleStatsEstimateSkew,
-			StaleStatsModRatio:            cfg.Tuner.StaleStatsModRatio,
-			StaleStatsAgeMinutes:          cfg.Tuner.StaleStatsAgeMinutes,
-			AnalyzeMaxTableMB:             cfg.Tuner.AnalyzeMaxTableMB,
-			AnalyzeCooldownMinutes:        cfg.Tuner.AnalyzeCooldownMinutes,
-			AnalyzeMaintenanceThresholdMB: cfg.Tuner.AnalyzeMaintenanceThresholdMB,
-			AnalyzeTimeoutMs:              cfg.Tuner.AnalyzeTimeoutMs,
-			MaxConcurrentAnalyze:          cfg.Tuner.MaxConcurrentAnalyze,
+			StaleStatsEstimateSkew: cfg.Tuner.StaleStatsEstimateSkew,
+			StaleStatsModRatio:     cfg.Tuner.StaleStatsModRatio,
+			StaleStatsAgeMinutes:   cfg.Tuner.StaleStatsAgeMinutes,
+			AnalyzeMaxTableMB:      cfg.Tuner.AnalyzeMaxTableMB,
+			AnalyzeCooldownMinutes: cfg.Tuner.AnalyzeCooldownMinutes,
+			AnalyzeTimeoutMs:       cfg.Tuner.AnalyzeTimeoutMs,
+			MaxConcurrentAnalyze:   cfg.Tuner.MaxConcurrentAnalyze,
 		}
 		var tunerOpts []tuner.Option
 		if cfg.Tuner.LLMEnabled && llmMgr != nil {
@@ -1404,14 +1404,13 @@ func initFleetMultiDB() {
 				RevalidationExplainTimeoutMs: cfg.Tuner.RevalidationExplainTimeoutMs,
 
 				// v0.8.5 Feature 2 — Stale-stats detection + ANALYZE.
-				StaleStatsEstimateSkew:        cfg.Tuner.StaleStatsEstimateSkew,
-				StaleStatsModRatio:            cfg.Tuner.StaleStatsModRatio,
-				StaleStatsAgeMinutes:          cfg.Tuner.StaleStatsAgeMinutes,
-				AnalyzeMaxTableMB:             cfg.Tuner.AnalyzeMaxTableMB,
-				AnalyzeCooldownMinutes:        cfg.Tuner.AnalyzeCooldownMinutes,
-				AnalyzeMaintenanceThresholdMB: cfg.Tuner.AnalyzeMaintenanceThresholdMB,
-				AnalyzeTimeoutMs:              cfg.Tuner.AnalyzeTimeoutMs,
-				MaxConcurrentAnalyze:          cfg.Tuner.MaxConcurrentAnalyze,
+				StaleStatsEstimateSkew: cfg.Tuner.StaleStatsEstimateSkew,
+				StaleStatsModRatio:     cfg.Tuner.StaleStatsModRatio,
+				StaleStatsAgeMinutes:   cfg.Tuner.StaleStatsAgeMinutes,
+				AnalyzeMaxTableMB:      cfg.Tuner.AnalyzeMaxTableMB,
+				AnalyzeCooldownMinutes: cfg.Tuner.AnalyzeCooldownMinutes,
+				AnalyzeTimeoutMs:       cfg.Tuner.AnalyzeTimeoutMs,
+				MaxConcurrentAnalyze:   cfg.Tuner.MaxConcurrentAnalyze,
 			}
 			var tunerOpts []tuner.Option
 			if cfg.Tuner.LLMEnabled && dbLLMManager != nil {

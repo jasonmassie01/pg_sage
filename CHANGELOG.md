@@ -120,6 +120,80 @@
   `safety.wal_io_ceiling_pct` (default 70) no longer inherit
   `safety.cpu_ceiling_pct`.
 
+- **The policy refusal set is enforced.** `refusal_set` was stored but never
+  checked. Each token now matches precisely: `rls_change` (row-level security
+  or its policies), `grant_expansion` (GRANT, ALTER ROLE, OWNER TO, ALTER
+  DEFAULT PRIVILEGES), `major_upgrade` (major or extension upgrades),
+  `non_dup_object_drop` (dropping a table, column, constraint, sequence,
+  schema or replication slot) and `unrollbackable` (rollback class
+  `not_reversible` or `forward_fix_only`). A self-initiated action that
+  matches is queued for approval with reason `refused_by_policy`, and the
+  token is in the detail. An operator-approved action is not refused.
+  - No action pg_sage takes today changes verdict under the built-in
+    profiles. Unused, duplicate and invalid index drops are rebuildable and
+    keep their earned autonomy. A retention delete on the column the owner
+    declared as the contract's `retention.column` (D5) runs under that
+    declaration and is not "unrollbackable"; one without a declared column
+    is queued for approval.
+  - `set_table_autovacuum` is now reversible: it ships `ALTER TABLE ... RESET`.
+  - Unknown refusal tokens are rejected when a policy is proposed. A stored
+    policy that contains one fails closed (`policy_unavailable`), and startup
+    logs which token to fix.
+- **The policy lock ceiling is enforced.** For DDL that runs inside a
+  transaction, autonomous or operator-approved, `lock_timeout` is the smaller
+  of `lock_duration_ceiling_ms` (3000 in both profiles) and
+  `safety.lock_timeout_ms` (default 30000). An `ALTER TABLE` queued behind a
+  long lock now gives up after 3 s instead of 30 s. `CONCURRENTLY` builds keep
+  `safety.lock_timeout_ms`, because they wait on older transactions by design.
+- **DDL lease conflicts park instead of failing.** When another writer holds the
+  change lease for the same object, the action is parked (`ddl_conflict` in the
+  decision ledger) and retried next cycle. It used to log a failed action, which
+  counted toward the three-failure abandonment and the self-initiated rate
+  limit.
+- **One maintenance-window grammar.** `trust.maintenance_window` and the
+  standing policy's `maintenance_windows` are now parsed by the same engine, so
+  a string means the same thing in both. See "Maintenance windows" in
+  `docs/configuration.md`.
+  - Config windows gain cron lists, ranges and steps (`0 2 * * 1-5`,
+    `*/15 2 * * *`). These used to be accepted and silently mean "never".
+  - Policy windows gain the config presets (`nights`, `weeknights`,
+    `weekdays`, `business-hours`, ...) and day lists (`Mon-Fri`, `sat,sun`,
+    `daily`).
+  - A cron window is one hour wide from each matching minute, or as long as
+    an optional `@<duration>` says (`0 2 * * * @30m`, `@1m` to `@24h`).
+    `30 * * * *` therefore covers every hour; it used to cover only :30-:59.
+  - A range that crosses midnight belongs to the day it starts on.
+    `weeknights` now covers Friday 22:00 to Saturday 06:00 and no longer
+    covers Sunday 22:00 to Monday 06:00. Lists behave the same way:
+    `Mon,Wed,Fri 22:00-04:00` covers Saturday 02:00 (Friday night), not
+    Wednesday 02:00 (Tuesday night).
+  - An optional trailing IANA time zone evaluates a window on that zone's
+    clock, including DST: `weekdays 01:00-05:00 America/Chicago`. Without one
+    the process clock is used, as before (UTC in the container).
+- **Invalid `trust.maintenance_window` values are rejected** at config load,
+  file reload and API save (HTTP 400 naming the grammar). A typo such as
+  `weeknigths` used to be stored and silently close the window. `never`,
+  `off`, `none` and `disabled` still close it.
+  An override saved before this release that no longer validates is logged at
+  startup with its value and how to fix or delete it. It still keeps the
+  window closed until it is fixed.
+- **Stored policies are migrated to schema version 3.** Each policy cron window
+  is rewritten from `<cron>` to `<cron> @1m`, so it keeps its exact
+  one-minute meaning. The built-in profiles have no cron windows and are
+  unchanged. Superseded history is not rewritten.
+- **Downgrade risk.** A release older than this one cannot parse `@<duration>`
+  or a time-zone suffix in a policy window. If the active policy contains one
+  (including a migrated `@1m`), an older binary fails closed with
+  `policy_unavailable` and blocks every action until a policy it can parse is
+  active. Before downgrading, ratify a policy version without those suffixes.
+
+### Deprecated
+
+- **`tuner.analyze_maintenance_threshold_mb` is ignored.** It never had an
+  effect. A config file that still sets it loads normally and logs
+  "tuner.analyze_maintenance_threshold_mb is no longer used and is ignored;
+  remove it". The key is gone from the example configs.
+
 ### Fixed
 
 - A retention contract that cannot act no longer stops the schema scan: later
@@ -134,6 +208,7 @@
   sessions in the monitored database.
 - Incident causal chains that contained control characters or invalid UTF-8 failed to
   save.
+
 
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 

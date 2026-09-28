@@ -219,7 +219,6 @@
 | `trust.tier3_moderate` | `restart` | `-` |
 | `trust.tier3_safe` | `restart` | `-` |
 | `tuner.analyze_cooldown_minutes` | `restart` | `-` |
-| `tuner.analyze_maintenance_threshold_mb` | `restart` | `-` |
 | `tuner.analyze_max_table_mb` | `restart` | `-` |
 | `tuner.analyze_timeout_ms` | `restart` | `-` |
 | `tuner.enabled` | `restart` | `-` |

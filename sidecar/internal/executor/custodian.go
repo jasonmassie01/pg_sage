@@ -55,7 +55,7 @@ func (e *Executor) SubmitVerifiedIndexProposal(
 		return fmt.Errorf("%w after admission: %s",
 			ErrCustodianProposalWithheld, decision.BlockedReason)
 	}
-	e.executeFinding(ctx, finding, 0, decision.DecisionID)
+	e.executeFinding(ctx, finding, 0, decision)
 	return nil
 }
 
@@ -107,6 +107,7 @@ func (e *Executor) SubmitCustodianProposal(
 	}
 	finding := custodianFinding(proposal)
 	releaseLease, err := e.acquireDDLLease(ctx, finding, decision.DecisionID)
+	e.parkLeaseConflict(ctx, finding, decision.DecisionID, err)
 	if err != nil {
 		return fmt.Errorf("acquire custodian change lease: %w", err)
 	}

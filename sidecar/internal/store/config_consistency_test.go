@@ -329,22 +329,24 @@ func TestConfigConsistency_HotReloadCoversAllAllowedKeys(
 
 	// Build a map of test values per validation type.
 	testValues := map[string]string{
-		"int_pos":        "42",
-		"int_nonneg":     "7",
-		"int_min5":       "15",
-		"pct":            "50",
-		"pct1_100":       "75",
-		"float01":        "0.5",
-		"bool":           "true",
-		"trust_level":    "advisory",
-		"exec_mode":      "auto",
-		"string":         "test-value",
-		"float_pos":      "2.0",
-		"float_nonneg":   "0.5",
-		"float_pct_pos":  "25.0",
-		"policy_profile": "staffed",
-		"clone_provider": "none",
-		"mcp_transport":  "stdio",
+		"int_pos":     "42",
+		"int_nonneg":  "7",
+		"int_min5":    "15",
+		"pct":         "50",
+		"pct1_100":    "75",
+		"float01":     "0.5",
+		"bool":        "true",
+		"trust_level": "advisory",
+		"exec_mode":   "auto",
+		"string":      "test-value",
+		// maintenance_window is validated against the policy window grammar.
+		"maintenance_window": "weeknights",
+		"float_pos":          "2.0",
+		"float_nonneg":       "0.5",
+		"float_pct_pos":      "25.0",
+		"policy_profile":     "staffed",
+		"clone_provider":     "none",
+		"mcp_transport":      "stdio",
 	}
 
 	for key, vtype := range allowedConfigKeys {
@@ -566,22 +568,24 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 	// and "trust_level"/"exec_mode" which legitimately return
 	// strings).
 	testInputs := map[string]string{
-		"int_pos":        "10",
-		"int_nonneg":     "0",
-		"int_min5":       "10",
-		"pct":            "50",
-		"pct1_100":       "50",
-		"float01":        "0.5",
-		"bool":           "true",
-		"trust_level":    "advisory",
-		"exec_mode":      "auto",
-		"string":         "hello",
-		"float_pos":      "2.0",
-		"float_nonneg":   "0.5",
-		"float_pct_pos":  "25.0",
-		"policy_profile": "staffed",
-		"clone_provider": "none",
-		"mcp_transport":  "stdio",
+		"int_pos":     "10",
+		"int_nonneg":  "0",
+		"int_min5":    "10",
+		"pct":         "50",
+		"pct1_100":    "50",
+		"float01":     "0.5",
+		"bool":        "true",
+		"trust_level": "advisory",
+		"exec_mode":   "auto",
+		"string":      "hello",
+		// maintenance_window is validated against the policy window grammar.
+		"maintenance_window": "weeknights",
+		"float_pos":          "2.0",
+		"float_nonneg":       "0.5",
+		"float_pct_pos":      "25.0",
+		"policy_profile":     "staffed",
+		"clone_provider":     "none",
+		"mcp_transport":      "stdio",
 	}
 
 	for vtype := range vtypes {
@@ -635,7 +639,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 					sampleKey, input, vtype, result)
 			}
 		case "trust_level", "exec_mode", "policy_profile",
-			"clone_provider", "mcp_transport", "string":
+			"clone_provider", "mcp_transport", "string", "maintenance_window":
 			if _, ok := result.(string); !ok {
 				t.Errorf(
 					"coerceValue(%q, %q) [type %s] = %T, "+

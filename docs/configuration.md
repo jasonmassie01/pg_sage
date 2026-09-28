@@ -80,7 +80,7 @@ analyzer:
 
 trust:
   level: observation             # observation | advisory | autonomous
-  maintenance_window: "0 2 * * *"  # cron expression for autonomous actions
+  maintenance_window: "weeknights"  # see "Maintenance windows" below
   ramp_start: ""                 # Auto-persisted on first start; set to override
 
 llm:
@@ -155,7 +155,7 @@ briefing:
 | Parameter | Default | Description |
 |---|---|---|
 | `trust.level` | `observation` | Trust tier: `observation`, `advisory`, `autonomous` |
-| `trust.maintenance_window` | (none) | Cron expression restricting when autonomous actions run |
+| `trust.maintenance_window` | (none) | When autonomous MODERATE actions may run; see [Maintenance windows](#maintenance-windows). Unset or `never` closes the window |
 | `trust.ramp_start` | (auto) | Auto-persisted on first start; set to override |
 
 The trust model controls what pg_sage is allowed to do:
@@ -173,6 +173,24 @@ applies the table above. Trust never promotes `manual` to `auto`.
 HIGH-risk actions always require manual confirmation regardless of trust level.
 Plain CREATE/DROP/REINDEX and `VACUUM FULL` do not satisfy the typed background
 contracts; concurrent or non-FULL forms are required.
+
+### Maintenance windows
+
+`trust.maintenance_window` and the standing policy's `maintenance_windows`
+use one grammar. An invalid value is rejected when the config is loaded,
+reloaded or saved.
+
+| Form | Example | Meaning |
+|---|---|---|
+| Always | `always`, `24x7` | Every minute |
+| Preset | `nights`, `weeknights`, `weekends`, `weekdays`, `business-hours`, `off-hours` | `daily 22:00-06:00`, `weekdays 22:00-06:00`, all day Sat-Sun, all day Mon-Fri, `weekdays 09:00-17:00`, `daily 20:00-08:00` |
+| Days | `sat,sun`, `Mon-Fri`, `daily` | All day on those days (names are case-insensitive; `fri-mon` wraps) |
+| Time range | `22:00-02:00`, `weekdays 01:00-05:00` | A range that ends before it starts wraps midnight and belongs to the day it starts on: `weeknights` includes Friday night into Saturday morning, not Sunday night |
+| Cron | `0 2 * * *`, `0 2 * * 1-5 @30m` | Five fields with lists, ranges and steps. Each matching minute opens a one-hour window unless `@<duration>` (whole minutes, `@1m` to `@24h`) says otherwise |
+| Time zone | `weekdays 01:00-05:00 America/Chicago` | A trailing IANA zone evaluates the window on that zone's clock, including DST. Without one, the process clock (UTC in the container) is used. `Local` is refused as ambiguous |
+
+`never`, `off`, `none` and `disabled` are accepted only for
+`trust.maintenance_window`; a policy always names at least one window.
 
 ### LLM
 
@@ -216,6 +234,30 @@ The default `unattended` policy profile permits explicitly bounded deadline
 overrides for XID and disk emergencies. Use `staffed` for narrow maintenance
 windows without deadline overrides. Clone-backed migration rehearsal defaults
 to disabled (`clone.provider: none`) and stale clones are recommendation-only.
+
+The standing policy document also carries three safety fields, all enforced:
+
+- `refusal_set`: actions pg_sage never runs on its own. A refused action is
+  queued for approval with reason `refused_by_policy` (the token is in the
+  detail); an operator approval runs it. Tokens: `rls_change` (row-level
+  security or its policies), `grant_expansion` (GRANT, ALTER ROLE, OWNER TO,
+  ALTER DEFAULT PRIVILEGES), `major_upgrade` (major or extension upgrades),
+  `non_dup_object_drop` (dropping a table, column, constraint, sequence,
+  schema or replication slot; index drops are rebuildable and are not
+  refused) and `unrollbackable` (rollback class `not_reversible` or
+  `forward_fix_only`, unless the action is a retention delete on the column
+  the owner declared as the contract's `retention.column`; see [Retention
+  contracts](#retention-contracts)). Unknown tokens are rejected.
+- `lock_duration_ceiling_ms`: caps `lock_timeout` for DDL that runs inside a
+  transaction at the smaller of the ceiling and `safety.lock_timeout_ms`.
+  `CONCURRENTLY` builds keep `safety.lock_timeout_ms`, because they wait on
+  older transactions by design. `0` means no ceiling.
+- `serialize_mode`: `park` (both profiles). When another writer holds the
+  DDL lease for the same object, the action is parked with reason
+  `ddl_conflict` and retried next cycle. A park is not a failure: it does not
+  count toward the retry limit or the self-initiated rate limit. `queue` is
+  accepted and currently behaves like `park` (the action waits for the next
+  cycle, not for the lease holder).
 
 #### Retention contracts
 

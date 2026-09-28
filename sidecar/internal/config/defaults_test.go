@@ -199,13 +199,6 @@ func TestDefaultConfig_TunerV085Defaults(t *testing.T) {
 			DefaultTunerAnalyzeCooldownMinutes)
 	}
 
-	if tu.AnalyzeMaintenanceThresholdMB !=
-		DefaultTunerAnalyzeMaintenanceThresholdMB {
-		t.Errorf("AnalyzeMaintenanceThresholdMB = %d, want %d",
-			tu.AnalyzeMaintenanceThresholdMB,
-			DefaultTunerAnalyzeMaintenanceThresholdMB)
-	}
-
 	if tu.AnalyzeTimeoutMs != DefaultTunerAnalyzeTimeoutMs {
 		t.Errorf("AnalyzeTimeoutMs = %d, want %d",
 			tu.AnalyzeTimeoutMs, DefaultTunerAnalyzeTimeoutMs)

@@ -108,7 +108,7 @@ func TestWithheldCreateIndexLogsOnce(t *testing.T) {
 	finding := f.finding()
 	decisionID := recordCustodianDecision(t, f.ctx, f.pool, "index", f.table)
 	for range 3 {
-		f.exec.executeFinding(f.ctx, finding, 0, decisionID)
+		f.exec.executeFinding(f.ctx, finding, 0, ActionPolicyDecision{DecisionID: decisionID})
 	}
 	var actions int
 	if err := f.pool.QueryRow(f.ctx, `SELECT count(*) FROM sage.action_log
@@ -139,12 +139,12 @@ func TestWithheldCreateIndexLogsOnce(t *testing.T) {
 func TestWithheldAdmissionNewReasonRecordsSeparately(t *testing.T) {
 	f := newAdmissionFixture(t, learningAdmission())
 	finding := f.finding()
-	f.exec.executeFinding(f.ctx, finding, 0, 0)
+	f.exec.executeFinding(f.ctx, finding, 0, ActionPolicyDecision{})
 	f.exec.indexVerification = newVerifiedIndexLifecycle(&fakeIndexVerifier{
 		admission: verify.Admission{Reason: verify.ReasonDataIOAboveBaseline,
 			Mode: verify.EvidenceLearnedBaseline},
 	}, &fakeVerifiedIndexActions{})
-	f.exec.executeFinding(f.ctx, finding, 0, 0)
+	f.exec.executeFinding(f.ctx, finding, 0, ActionPolicyDecision{})
 	rows, occurrences, _ := withheldRows(t, f)
 	if rows != 2 || occurrences != 2 {
 		t.Fatalf("rows=%d occurrences=%d, want one row per reason", rows, occurrences)
