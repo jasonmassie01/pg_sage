@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased
+
+### Changed (read before upgrading)
+
+- **Behaviour change: autonomous index builds can now be admitted.** Until now no
+  source produced IO evidence, so load admission withheld every autonomous
+  `CREATE INDEX CONCURRENTLY` and every custodian index proposal (such as FK
+  supporting indexes) on every deployment. pg_sage now samples IO from Postgres
+  every minute (`pg_stat_io` on PG16+, `pg_stat_database` and `pg_stat_bgwriter`
+  on PG14/15, `pg_stat_wal` for WAL) and learns each database's baseline in
+  `sage.io_rate_sample`. **After 7 days of observation (`verify.io_baseline_days`),
+  autonomous index builds are admitted during quiet periods**: when current data
+  and WAL rates are at or below the learned median. While the baseline is still
+  being learned, builds stay withheld with a reason such as
+  `learning IO baseline: 3.0/7 days`. Set `verify.io_baseline_days: 0` to keep
+  today's fail-closed behaviour. The trust level, tier flags, standing policy and
+  maintenance windows still apply as before.
+- **Unknown host CPU narrows admission to maintenance windows.** Without a CPU
+  reader (anything except Supabase with an observability token), a build is
+  admitted only while `trust.maintenance_window` and the policy windows are open.
+- **Separate IO ceilings.** `safety.data_io_ceiling_pct` and
+  `safety.wal_io_ceiling_pct` (default 70) no longer inherit
+  `safety.cpu_ceiling_pct`.
+
+### What's new
+
+- **Declared IO capacity.** Operators can attest provisioned throughput with
+  `verify.io_capacity` (standalone) or `databases[].verify.io_capacity` (fleet):
+  `read_write_mbps` and `wal_mbps` in MiB/s. Utilization is the measured rate
+  divided by the declared capacity, compared with the IO ceilings. A declaration
+  overrides the learned baseline. A fleet-wide `verify.io_capacity` is rejected.
+- **Admission evidence in the ledger.** Every decision records which evidence
+  mode admitted or withheld the build (`declared_capacity`, `learned_baseline`
+  or `unavailable`), with the rates, capacity or baseline, in
+  `sage.decision.evidence.load_admission`.
+- **Visible withheld reason.** A withheld build is recorded once per finding and
+  reason in `sage.admission_withheld` instead of a new failed action every
+  cycle. `GET /api/v1/admission` and `GET /api/v1/admission/{name}` report each
+  database's mode, reason and baseline progress, and the dashboard shows them on
+  the Actions page and in the Overview provider-readiness tab.
+- Supabase provider observability now supplies host CPU only; it never reported
+  disk utilization.
+
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 
 ### What's new

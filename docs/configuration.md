@@ -215,6 +215,62 @@ overrides for XID and disk emergencies. Use `staffed` for narrow maintenance
 windows without deadline overrides. Clone-backed migration rehearsal defaults
 to disabled (`clone.provider: none`) and stale clones are recommendation-only.
 
+### Load admission for autonomous index builds
+
+Autonomous `CREATE INDEX CONCURRENTLY` and custodian index proposals (for
+example FK supporting indexes) start only when load evidence says the host is
+quiet. pg_sage measures IO itself from Postgres, every minute, with no cloud
+credentials:
+
+- Data IO: `pg_stat_io` reads, writes and extends of relation data (PG16+;
+  PG18 byte columns). On PG14/15, `pg_stat_database.blks_read` plus the
+  buffers written by the checkpointer, bgwriter and backends
+  (`pg_stat_bgwriter`), times `block_size`. `blks_read` also counts reads served
+  by the OS page cache, so on PG14/15 the rate over-states device reads; the
+  learned baseline compares the database with itself, which keeps the bias
+  consistent.
+- WAL: `pg_stat_wal.wal_bytes` (PG14+). PostgreSQL 13 and older have no IO
+  evidence, so admission stays withheld.
+
+A statistics reset, or any counter that goes backwards, discards that interval.
+It is never read as a quiet period.
+
+Admission uses one of two evidence modes:
+
+| Mode | When | Admits when |
+|---|---|---|
+| `declared_capacity` | `verify.io_capacity` (standalone) or `databases[].verify.io_capacity` (fleet) is set | data and WAL throughput are at or below `safety.data_io_ceiling_pct` / `safety.wal_io_ceiling_pct` of the declared MiB/s |
+| `learned_baseline` | no declared capacity and `verify.io_baseline_days` > 0 | after that many days of observation, current data and WAL rates are at or below the learned median (p50) |
+
+Host CPU is used when a provider reader supplies it (Supabase with
+`SAGE_SUPABASE_OBSERVABILITY_TOKEN`) and must be at or below
+`safety.cpu_ceiling_pct`. When CPU is unavailable, admission is granted only
+while the maintenance window is open (`trust.maintenance_window` and the
+standing policy's windows, evaluated as the policy gate does).
+
+| Parameter | Default | Description |
+|---|---|---|
+| `verify.io_baseline_days` | `7` | Days of observation before the learned baseline can admit. `0` disables the learned baseline |
+| `verify.io_sample_retention_days` | `14` | Days of rate samples kept in `sage.io_rate_sample`; the rolling baseline covers this window. Must be at least `io_baseline_days` |
+| `verify.io_capacity.read_write_mbps` | (none) | Standalone only. Declared data read+write throughput in MiB/s |
+| `verify.io_capacity.wal_mbps` | (none) | Standalone only. Declared WAL throughput in MiB/s |
+| `databases[].verify.io_capacity` | (none) | Fleet: the same attestation per database. A fleet-wide `verify.io_capacity` is rejected |
+| `safety.data_io_ceiling_pct` | `70` | Data IO ceiling, percent of declared capacity. Independent of `cpu_ceiling_pct` |
+| `safety.wal_io_ceiling_pct` | `70` | WAL IO ceiling, percent of declared capacity. Independent of `cpu_ceiling_pct` |
+
+Declared capacity is an operator attestation and overrides the learned
+baseline. Declare only what the volume really provides (for example the
+provisioned throughput of the EBS/PD/Azure disk). Meta-mode databases use the
+learned baseline only.
+
+Each decision records the evidence mode, rates, capacity or baseline in
+`sage.decision.evidence.load_admission`. A withheld build is recorded once per
+finding and reason in `sage.admission_withheld` instead of a failed action on
+every cycle. `GET /api/v1/admission` (optionally `?database=`) and
+`GET /api/v1/admission/{name}` report each database's mode, reason and
+baseline progress; the dashboard shows them on the Actions page and in the
+Overview provider-readiness tab.
+
 ### Retention
 
 | Parameter | Default | Description |
