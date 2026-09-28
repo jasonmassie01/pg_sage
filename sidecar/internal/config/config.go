@@ -994,6 +994,13 @@ func loadYAML(path string, cfg *Config) error {
 	if err := rejectRetiredTopLevelConfig(expanded); err != nil {
 		return err
 	}
+	expanded, retiredWarnings, err := stripRetiredKeys(expanded)
+	if err != nil {
+		return err
+	}
+	for _, warning := range retiredWarnings {
+		_, _ = fmt.Fprintln(configWarningOutput, warning)
+	}
 
 	candidate := Clone(cfg)
 	decoder := yaml.NewDecoder(strings.NewReader(expanded))
@@ -1033,10 +1040,6 @@ func rejectRetiredTopLevelConfig(raw string) error {
 				"configuration key %q is retired; use %q instead",
 				"notifications", "alerting",
 			)
-		case "tuner":
-			if err := rejectRetiredTunerKeys(root.Content[i+1]); err != nil {
-				return err
-			}
 		}
 	}
 	return nil

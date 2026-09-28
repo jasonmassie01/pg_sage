@@ -65,9 +65,13 @@
   (including a migrated `@1m`), an older binary fails closed with
   `policy_unavailable` and blocks every action until a policy it can parse is
   active. Before downgrading, ratify a policy version without those suffixes.
-- **Removed `tuner.analyze_maintenance_threshold_mb`.** It never had an effect.
-  A config file that still sets it fails to load with an instruction to
-  remove the key.
+
+### Deprecated
+
+- **`tuner.analyze_maintenance_threshold_mb` is ignored.** It never had an
+  effect. A config file that still sets it loads normally and logs
+  "tuner.analyze_maintenance_threshold_mb is no longer used and is ignored;
+  remove it". The key is gone from the example configs.
 
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 

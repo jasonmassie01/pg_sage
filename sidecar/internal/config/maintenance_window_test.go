@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,17 +109,103 @@ func TestDefaultsWithoutConfigFile(t *testing.T) {
 }
 
 // tuner.analyze_maintenance_threshold_mb never had a consumer. It is
-// removed; a config that still sets it gets an actionable error.
-func TestRetiredAnalyzeMaintenanceThresholdIsRejected(t *testing.T) {
+// removed from the struct; a config that still sets it loads, the value is
+// ignored, and exactly one actionable warning is written.
+func TestRetiredAnalyzeMaintenanceThresholdIsIgnoredWithWarning(t *testing.T) {
 	chdirTemp(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	yaml := "tuner:\n  analyze_maintenance_threshold_mb: 1024\n"
+	yaml := "tuner:\n  analyze_maintenance_threshold_mb: 1024\n" +
+		"  analyze_cooldown_minutes: 45\ntrust:\n  maintenance_window: nights\n"
 	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Load([]string{"--config", path})
-	if err == nil || !strings.Contains(err.Error(), "tuner.analyze_maintenance_threshold_mb") ||
-		!strings.Contains(err.Error(), "remove") {
-		t.Fatalf("Load = %v, want an error naming the retired key and telling to remove it", err)
+	var out bytes.Buffer
+	previous := configWarningOutput
+	configWarningOutput = &out
+	t.Cleanup(func() { configWarningOutput = previous })
+
+	cfg, err := Load([]string{"--config", path})
+
+	if err != nil {
+		t.Fatalf("Load with retired key: %v", err)
 	}
+	if cfg.Tuner.AnalyzeCooldownMinutes != 45 || cfg.Trust.MaintenanceWindow != "nights" {
+		t.Fatalf("sibling keys lost: cooldown=%d window=%q",
+			cfg.Tuner.AnalyzeCooldownMinutes, cfg.Trust.MaintenanceWindow)
+	}
+	const warning = "tuner.analyze_maintenance_threshold_mb is no longer used and is " +
+		"ignored; remove it"
+	if got := strings.Count(out.String(), warning); got != 1 {
+		t.Fatalf("warning count = %d in %q, want exactly 1", got, out.String())
+	}
+}
+
+// A config without the retired key loads silently.
+func TestConfigWithoutRetiredKeyDoesNotWarn(t *testing.T) {
+	chdirTemp(t)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("tuner:\n  analyze_cooldown_minutes: 45\n"),
+		0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	previous := configWarningOutput
+	configWarningOutput = &out
+	t.Cleanup(func() { configWarningOutput = previous })
+
+	if _, err := Load([]string{"--config", path}); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if strings.Contains(out.String(), "analyze_maintenance_threshold_mb") {
+		t.Fatalf("unexpected warning %q", out.String())
+	}
+}
+
+// Shipped example configs, fixtures and user docs must not carry the key.
+func TestShippedExamplesOmitRetiredTunerKey(t *testing.T) {
+	root := filepath.Join("..", "..", "..")
+	var offenders []string
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", "node_modules", "reviews", "dist", "research", "specs":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !shippedConfigOrDoc(path) {
+			return nil
+		}
+		body, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		if strings.Contains(string(body), "analyze_maintenance_threshold_mb") {
+			offenders = append(offenders, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+	if len(offenders) > 0 {
+		t.Fatalf("shipped files still set the retired key: %v", offenders)
+	}
+}
+
+// shippedConfigOrDoc selects YAML configs and user-facing docs. Historical
+// plans (docs/plan_*) and the CHANGELOG describe the past and may name it.
+func shippedConfigOrDoc(path string) bool {
+	name := filepath.Base(path)
+	switch filepath.Ext(name) {
+	case ".yaml", ".yml":
+		return true
+	case ".md":
+		return filepath.Base(filepath.Dir(path)) == "docs" &&
+			!strings.HasPrefix(name, "plan_")
+	}
+	return false
 }
