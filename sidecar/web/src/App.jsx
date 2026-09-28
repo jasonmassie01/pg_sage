@@ -210,6 +210,9 @@ export default function App() {
       case '/notifications':
         return isAdmin ? { title: 'Notifications',
           node: <NotificationsPage /> } : denied
+      // A signed-in user can land on /login from an SSO callback error; the
+      // account page explains the sso_error (D7).
+      case '/login':
       case '/profile':
         return { title: 'Account', node: <ProfilePage user={user} /> }
       case '/users':
