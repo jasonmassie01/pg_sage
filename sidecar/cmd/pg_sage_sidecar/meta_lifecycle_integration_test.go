@@ -41,6 +41,11 @@ func metaLifecycleFixture(t *testing.T) (*metaDBState, store.DatabaseInput, int)
 			t.Fatal(err)
 		}
 	}
+	// These tests own the package database: start from no registered
+	// databases so a row left by an earlier test cannot skew counts.
+	if _, err := p.Exec(ctx, "DELETE FROM sage.databases"); err != nil {
+		t.Fatalf("clear registered databases: %v", err)
+	}
 	state, err := initMetaDB(p, "fixture-encryption-passphrase")
 	if err != nil || state == nil || len(state.EncryptKey) != 32 {
 		t.Fatalf("meta bootstrap err=%v state present=%v", err, state != nil)
@@ -153,7 +158,7 @@ func TestMetaLifecycleFailedReplacementPreservesOld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = state.Store.Delete(ctx, rec.ID) })
+	deleteDatabaseOnCleanup(t, state, rec.ID)
 	old := fleetMgr.GetInstance(rec.Name)
 	input.Name, input.Host, input.Port = "broken-replacement", "127.0.0.1", 1
 	deadline, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
@@ -175,7 +180,7 @@ func TestMetaBootstrapKeepsEncryptionKeyAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = state.Store.Delete(context.Background(), id) })
+	deleteDatabaseOnCleanup(t, state, id)
 	restarted, err := initMetaDB(state.Pool, "fixture-encryption-passphrase")
 	if err != nil || !bytes.Equal(state.EncryptKey, restarted.EncryptKey) {
 		t.Fatalf("restart changed credential key: %v", err)
@@ -187,7 +192,8 @@ func TestMetaBootstrapKeepsEncryptionKeyAcrossRestart(t *testing.T) {
 	}
 	rows, err := loadDatabasesFromStore(context.Background(), restarted.Store)
 	if err != nil || len(rows) != 1 || rows[0].ID != id {
-		t.Fatalf("restart lost enabled database: count=%d err=%v", len(rows), err)
+		t.Fatalf("restart lost enabled database: count=%d err=%v registered=%v",
+			len(rows), err, registeredDatabases(t, state))
 	}
 }
 
@@ -208,4 +214,35 @@ func TestMetaHealthCheckRejectsWrongDatabaseAndCanceledContext(t *testing.T) {
 	if err := healthCheckStoreDatabase(nil, nil); !errors.Is(err, fleet.ErrInvalidInstance) {
 		t.Fatalf("nil instance: %v", err)
 	}
+}
+
+// registeredDatabases names every row in sage.databases, for failure
+// messages that must say which database was unexpected.
+func registeredDatabases(t *testing.T, state *metaDBState) []string {
+	t.Helper()
+	rows, err := state.Pool.Query(context.Background(),
+		"SELECT id::text || ':' || name FROM sage.databases ORDER BY id")
+	if err != nil {
+		return []string{"query failed: " + err.Error()}
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var name string
+		if rows.Scan(&name) == nil {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// deleteDatabaseOnCleanup removes a registered database at test end and
+// reports a failed delete instead of silently leaking the row.
+func deleteDatabaseOnCleanup(t *testing.T, state *metaDBState, id int) {
+	t.Helper()
+	t.Cleanup(func() {
+		if err := state.Store.Delete(context.Background(), id); err != nil {
+			t.Errorf("cleanup: delete database %d: %v", id, err)
+		}
+	})
 }
