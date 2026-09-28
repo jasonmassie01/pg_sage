@@ -92,8 +92,10 @@ func (e *Engine) PersistIncidents(
 		}
 		results = append(results, r)
 	}
-	events, d := e.applyPersistResults(results)
-	e.dispatchEvents(ctx, d, events)
+	pending, d := e.applyPersistResults(results)
+	if d != nil && len(pending) > 0 {
+		e.dispatchEvents(ctx, d, e.decorateEvents(ctx, pending))
+	}
 	return errors.Join(errs...)
 }
 
