@@ -292,6 +292,12 @@
 
 ### Fixed
 
+- An executor that could not get a database connection to take its DDL lease
+  (pool exhausted by the change it conflicts with) waited until the other
+  change's lock timeout, which then failed it. Taking a lease now waits at most
+  5 s; a busy pool parks the action like a lease conflict (retried next cycle,
+  never a failed action), and recording the park is bounded the same way.
+
 - A retention contract that cannot act no longer stops the schema scan: later
   invariants (such as missing foreign-key indexes) are still planned in the same cycle.
 - Re-declaring a table contract updates the one contract row instead of adding another.

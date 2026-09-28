@@ -51,6 +51,11 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			return
 		}
 
+		// Fixed headroom: the default (max(4, NumCPU)) differs between dev
+		// machines and 4-CPU CI runners, and lease tests hold several
+		// connections at once. Pool exhaustion is covered explicitly by
+		// TestLeaseConflictParksWithSmallPool.
+		poolCfg.MaxConns = 10
 		testPool, testPoolErr = pgxpool.NewWithConfig(ctx, poolCfg)
 		if testPoolErr != nil {
 			return
