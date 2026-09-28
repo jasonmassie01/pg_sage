@@ -10,12 +10,12 @@ import (
 
 const MaxMetricAge = 2 * time.Minute
 
-// Telemetry retains unknown fields as nil. Percentages are utilization, never byte counters.
+// Telemetry retains unknown fields as nil. CPUPct is utilization, never a counter.
+// Provider disk and WAL counters are not utilization; IO admission evidence
+// comes from pg-side rates instead (verify.IOMonitor).
 type Telemetry struct {
 	ObservedAt           time.Time
 	CPUPct               *float64
-	DataIOPct            *float64
-	LogIOPct             *float64
 	MemoryTotalBytes     *float64
 	MemoryAvailableBytes *float64
 }
@@ -28,19 +28,17 @@ func validNumber(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0
 }
 
-// Load is the admission boundary: every resource must have fresh, valid utilization evidence.
-func (t Telemetry) Load(now time.Time) (verify.LoadSample, error) {
+// CPU is the admission boundary: host CPU must be fresh and a valid percentage.
+func (t Telemetry) CPU(now time.Time) (float64, error) {
 	if !validAge(t.ObservedAt, now) {
-		return verify.LoadSample{}, fmt.Errorf("%w: stale or future measurement",
+		return 0, fmt.Errorf("%w: stale or future measurement",
 			verify.ErrLoadTelemetryUnavailable)
 	}
-	for _, field := range []*float64{t.CPUPct, t.DataIOPct, t.LogIOPct} {
-		if field == nil || !validNumber(*field) || *field > 100 {
-			return verify.LoadSample{}, fmt.Errorf("%w: missing or invalid utilization",
-				verify.ErrLoadTelemetryUnavailable)
-		}
+	if t.CPUPct == nil || !validNumber(*t.CPUPct) || *t.CPUPct > 100 {
+		return 0, fmt.Errorf("%w: missing or invalid CPU utilization",
+			verify.ErrLoadTelemetryUnavailable)
 	}
-	return verify.LoadSample{CPUPct: *t.CPUPct, DataIOPct: *t.DataIOPct, LogIOPct: *t.LogIOPct}, nil
+	return *t.CPUPct, nil
 }
 
 // DeriveTelemetry converts idle CPU-seconds per core to host utilization over a real interval.

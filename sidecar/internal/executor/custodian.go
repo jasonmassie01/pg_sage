@@ -39,7 +39,8 @@ func (e *Executor) SubmitVerifiedIndexProposal(
 	if e.indexVerification == nil {
 		return ErrVerificationUnavailable
 	}
-	if err := e.indexVerification.Admit(ctx); err != nil {
+	key := admissionFindingKey(0, proposal.SQL)
+	if err := e.admitIndexBuild(ctx, key, decision.DecisionID); err != nil {
 		return err
 	}
 	release, err := e.acquireDDLSlot(ctx)

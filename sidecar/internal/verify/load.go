@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 )
 
 var ErrLoadTelemetryUnavailable = errors.New(
@@ -12,29 +11,21 @@ var ErrLoadTelemetryUnavailable = errors.New(
 		"autonomous index admission is withheld; use reviewed manual execution",
 )
 
+// OKToApplyNow decides whether an autonomous index build may start now.
+// Any failure to gather evidence fails closed as load_unavailable.
 func (e *Engine) OKToApplyNow(ctx context.Context) (Admission, error) {
 	if err := ctx.Err(); err != nil {
-		return Admission{Reason: "load_unavailable"}, err
+		return unavailableAdmission(err.Error()), err
 	}
-	load, err := e.source.CurrentLoad(ctx)
+	evidence, err := e.source.LoadEvidence(ctx)
 	if err != nil {
-		return Admission{Reason: "load_unavailable"}, fmt.Errorf("read current load: %w", err)
+		return unavailableAdmission(err.Error()), fmt.Errorf("read current load: %w", err)
 	}
-	for _, value := range []float64{load.CPUPct, load.DataIOPct, load.LogIOPct} {
-		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 100 {
-			return Admission{Reason: "load_invalid"}, errors.New(
-				"load telemetry must contain finite utilization percentages in [0,100]",
-			)
-		}
+	admission := DecideAdmission(evidence, e.options)
+	if admission.Reason == ReasonLoadInvalid {
+		return admission, errors.New(
+			"load telemetry must contain finite utilization percentages in [0,100]",
+		)
 	}
-	if load.CPUPct > e.options.CPUCeilingPct {
-		return Admission{Reason: "cpu_ceiling"}, nil
-	}
-	if load.DataIOPct > e.options.DataIOCeilingPct {
-		return Admission{Reason: "data_io_ceiling"}, nil
-	}
-	if load.LogIOPct > e.options.LogIOCeilingPct {
-		return Admission{Reason: "log_io_ceiling"}, nil
-	}
-	return Admission{OK: true, Reason: "load_within_ceiling"}, nil
+	return admission, nil
 }

@@ -26,6 +26,14 @@ type DatabaseConfig struct {
 	LLMEnabled               *bool    `yaml:"llm_enabled" doc:"Per-database LLM override. Nil defaults to enabled; set false to skip LLM calls for this database." mode:"fleet-only"`
 	CollectorIntervalSeconds int      `yaml:"collector_interval_seconds" doc:"Per-database collector interval override. Zero falls back to defaults.collector_interval_seconds." mode:"fleet-only"`
 	AnalyzerIntervalSeconds  int      `yaml:"analyzer_interval_seconds" doc:"Per-database analyzer interval override. Zero falls back to defaults.analyzer_interval_seconds." mode:"fleet-only"`
+
+	// Verify carries this database's own load-admission attestation (D6).
+	Verify DatabaseVerifyConfig `yaml:"verify"`
+}
+
+// DatabaseVerifyConfig holds per-database load-admission attestations.
+type DatabaseVerifyConfig struct {
+	IOCapacity *IOCapacityConfig `yaml:"io_capacity" doc:"Declared IO capacity." mode:"fleet-only"`
 }
 
 // ConnString builds a postgres:// URL from the config fields.

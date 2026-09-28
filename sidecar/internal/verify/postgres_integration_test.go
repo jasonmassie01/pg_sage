@@ -71,7 +71,7 @@ func TestPostgresObservationSourceReadsRealCollectorTables(t *testing.T) {
 	if err != nil || !valid {
 		t.Fatalf("IndexValid() = %v, %v", valid, err)
 	}
-	if _, err := source.CurrentLoad(ctx); !errors.Is(err, ErrLoadTelemetryUnavailable) {
+	if _, err := source.LoadEvidence(ctx); !errors.Is(err, ErrLoadTelemetryUnavailable) {
 		t.Fatalf("PostgreSQL catalogs cannot prove host utilization: %v", err)
 	}
 }

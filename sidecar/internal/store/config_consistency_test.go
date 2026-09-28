@@ -55,6 +55,16 @@ var excludedExactKeys = map[string]bool{
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,
 
+	// D6 load admission: declared capacity is an operator attestation that
+	// loosens a safety gate, and the ceilings/baseline are read at executor
+	// start. YAML only, restart-bound, never a runtime override.
+	"safety.data_io_ceiling_pct":         true,
+	"safety.wal_io_ceiling_pct":          true,
+	"verify.io_baseline_days":            true,
+	"verify.io_sample_retention_days":    true,
+	"verify.io_capacity.read_write_mbps": true,
+	"verify.io_capacity.wal_mbps":        true,
+
 	// Notification target policy is a security boundary (G7-B21): an
 	// API admin must not be able to open SSRF to private networks, so it
 	// is YAML-only and restart-bound.

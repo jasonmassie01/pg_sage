@@ -487,6 +487,7 @@ func buildStoreDatabaseRuntime(
 
 	dbExec := buildExecutor(rec, dbPool, dbAnal, dbCloudEnv)
 	startProviderObservability(instCtx, instWorkers, dbPool, cfg, dbExec, dbRCAEng)
+	startIOAdmission(instCtx, instWorkers, dbPool, cfg, rec.Name, dbExec)
 	if err := startInstanceAutonomy(
 		instCtx, instWorkers, dbPool, cfg, rec.Name, dbExec,
 	); err != nil {

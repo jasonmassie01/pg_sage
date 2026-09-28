@@ -140,16 +140,17 @@ func (s *PostgresObservationSource) IndexValid(
 	return valid, err
 }
 
-func (s *PostgresObservationSource) CurrentLoad(
+// LoadEvidence reports no evidence: catalogs expose connection counts, not
+// host CPU or disk utilization, and a single active query can saturate
+// either resource. The executor composes real evidence from the pg-side IO
+// sampler, host CPU readers and the maintenance window.
+func (s *PostgresObservationSource) LoadEvidence(
 	ctx context.Context,
-) (LoadSample, error) {
+) (LoadEvidence, error) {
 	if err := ctx.Err(); err != nil {
-		return LoadSample{}, err
+		return LoadEvidence{}, err
 	}
-	// Catalogs expose connection counts, not host CPU or disk utilization. A
-	// single active query can saturate either resource; reporting that ratio as
-	// three utilization metrics silently defeats every load ceiling.
-	return LoadSample{}, ErrLoadTelemetryUnavailable
+	return LoadEvidence{}, ErrLoadTelemetryUnavailable
 }
 
 // PostgresStateStore persists watch state in sage.verification.

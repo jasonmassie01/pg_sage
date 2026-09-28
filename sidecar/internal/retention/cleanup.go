@@ -86,6 +86,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{"change_lease", "acquired_at", r.ActionsDays, "AND state <> 'active'"},
 		{"decision", "created_at", r.ActionsDays, keepDecision},
 		{"retention_run", "created_at", r.ActionsDays, ""},
+		{"admission_withheld", "last_seen_at", r.ActionsDays, ""},
 		{"explain_cache", "captured_at", r.ExplainsDays, ""},
 		{"explain_results", "created_at", r.ExplainsDays, ""},
 	}
@@ -101,6 +102,7 @@ var retentionExemptions = map[string]string{
 	"crypto_meta":            "key metadata, not a time-series",
 	"databases":              "fleet registry, not a time-series",
 	"incident_avoided":       "value ledger; low volume, kept as evidence",
+	"io_rate_sample":         "pruned by the IO sampler (verify.io_sample_retention_days)",
 	"incidents":              "pruned by rca.PruneResolvedIncidents (resolved_at, findings_days)",
 	"migration_run":          "low-volume migration evidence ledger",
 	"notification_channels":  "configuration",

@@ -54,7 +54,7 @@ func newVerifiedIndexLifecycle(
 func (l *verifiedIndexLifecycle) Apply(
 	ctx context.Context, action verifiedIndexAction,
 ) error {
-	if err := l.Admit(ctx); err != nil {
+	if _, err := l.Admit(ctx); err != nil {
 		return err
 	}
 	actionID, err := l.actions.Apply(ctx, action)
@@ -64,18 +64,26 @@ func (l *verifiedIndexLifecycle) Apply(
 	return l.WatchApplied(ctx, action, actionID)
 }
 
-func (l *verifiedIndexLifecycle) Admit(ctx context.Context) error {
+// Admit runs load admission. A withheld or unevaluable admission returns an
+// *AdmissionWithheldError that carries the admission for the ledger.
+func (l *verifiedIndexLifecycle) Admit(ctx context.Context) (verify.Admission, error) {
 	if l == nil || l.verifier == nil || l.actions == nil {
-		return ErrVerificationUnavailable
+		return verify.Admission{}, ErrVerificationUnavailable
 	}
 	admission, err := l.verifier.OKToApplyNow(ctx)
 	if err != nil {
-		return fmt.Errorf("%w: load admission: %v", ErrVerificationUnavailable, err)
+		if admission.Reason == "" {
+			admission.Reason, admission.Mode = verify.ReasonLoadUnavailable, verify.EvidenceUnavailable
+		}
+		if admission.Detail == "" {
+			admission.Detail = err.Error()
+		}
+		return admission, &AdmissionWithheldError{Admission: admission, Cause: err}
 	}
 	if !admission.OK {
-		return fmt.Errorf("%w: %s", ErrVerificationUnavailable, admission.Reason)
+		return admission, &AdmissionWithheldError{Admission: admission}
 	}
-	return nil
+	return admission, nil
 }
 
 func (l *verifiedIndexLifecycle) WatchApplied(

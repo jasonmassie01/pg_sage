@@ -10,8 +10,8 @@ import (
 func TestCatalogConnectionCountIsNotHostLoadTelemetry(t *testing.T) {
 	queryer := &fakeRowQuerier{}
 	source := &PostgresObservationSource{queryer: queryer}
-	load, err := source.CurrentLoad(t.Context())
-	if !errors.Is(err, ErrLoadTelemetryUnavailable) || load != (LoadSample{}) {
+	load, err := source.LoadEvidence(t.Context())
+	if !errors.Is(err, ErrLoadTelemetryUnavailable) || load != (LoadEvidence{}) {
 		t.Fatalf("catalog source fabricated host telemetry: %#v, %v", load, err)
 	}
 	if queryer.next != 0 {
@@ -42,7 +42,7 @@ func TestLoadGateRejectsNonfiniteAndOutOfRangeTelemetry(t *testing.T) {
 func TestCatalogLoadCancellationIsPreserved(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err := NewPostgresObservationSource(nil).CurrentLoad(ctx)
+	_, err := NewPostgresObservationSource(nil).LoadEvidence(ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("lost cancellation: %v", err)
 	}

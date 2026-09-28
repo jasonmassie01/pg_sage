@@ -36,6 +36,11 @@ func agentNativeMigrations() []numberedMigration {
 			Name:    "agent_native_feature_state",
 			SQL:     ddlAgentNativeFeatureState,
 		},
+		{
+			Version: 2026092701,
+			Name:    "io_load_admission",
+			SQL:     ddlAgentNativeIOAdmission,
+		},
 	}
 }
 
