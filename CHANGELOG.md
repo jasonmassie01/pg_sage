@@ -26,8 +26,11 @@
 
 - A retention contract that cannot act no longer stops the schema scan: later
   invariants (such as missing foreign-key indexes) are still planned in the same cycle.
-- Repeated contract declarations with a NULL `database_id` no longer produce duplicate
-  retention invariants; the newest declaration wins.
+- Re-declaring a table contract updates the one contract row instead of adding another.
+  The upgrade removes existing duplicates (keeping the newest per table) and adds a
+  unique index on `(COALESCE(database_id, 0), schema_name, table_name)`.
+- A dry run still in its 24-hour review parks with `retention dry run in review until
+  <time>` instead of being logged as a failure; the rest of the scan continues.
 
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 
