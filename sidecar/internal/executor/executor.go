@@ -89,7 +89,8 @@ type Executor struct {
 	policyGate         policy.Gate
 	managedConfig      ManagedConfigAdapter
 	indexVerification  *verifiedIndexLifecycle
-	hostLoad           HostLoadReader
+	hostCPU            HostCPUReader
+	ioEvidence         IOEvidenceReader
 	retainedCleanupMu  sync.Mutex
 	resumeOnce         sync.Once
 	postDDLMu          sync.RWMutex
@@ -781,7 +782,11 @@ func (e *Executor) executeFinding(
 	verifiedCreate := categorizeAction(f.RecommendedSQL) == "create_index"
 	if verifiedCreate {
 		var verificationErr error
-		verifiedAction, verificationErr = e.admitVerifiedCreate(ctx, &f, beforeState)
+		verifiedAction, verificationErr = e.admitVerifiedCreate(
+			ctx, &f, beforeState, findingID, decisionID)
+		if isAdmissionWithheld(verificationErr) {
+			return // recorded once per finding and reason; stays retryable
+		}
 		if verificationErr != nil {
 			e.logActionWithDecision(
 				ctx, f, findingID, beforeState, decisionID, verificationErr,

@@ -195,6 +195,11 @@ type SafetyConfig struct {
 	BackoffConsecutiveSkips  int `yaml:"backoff_consecutive_skips" doc:"After this many consecutive skipped cycles (e.g. CPU ceiling hit repeatedly), enter dormant mode and slow the cadence until load subsides."`
 	DormantIntervalSeconds   int `yaml:"dormant_interval_seconds" doc:"Cycle interval (seconds) used while in dormant mode — typically much larger than the normal interval so the sidecar wakes rarely while the target is stressed."`
 	LockTimeoutMs            int `yaml:"lock_timeout_ms" doc:"lock_timeout applied to connections running DDL or ANALYZE. Must be > 0 for ANALYZE actions in v0.8.5 — autovacuum can hold a ShareUpdateExclusiveLock indefinitely." warning:"Zero disables the timeout entirely and is refused by the executor for ANALYZE actions."`
+
+	// IO ceilings for declared-capacity load admission (D6), independent
+	// of cpu_ceiling_pct.
+	DataIOCeilingPct int `yaml:"data_io_ceiling_pct" doc:"Data IO ceiling, % of capacity."`
+	WALIOCeilingPct  int `yaml:"wal_io_ceiling_pct" doc:"WAL IO ceiling, % of capacity."`
 }
 
 type TrustConfig struct {
@@ -339,6 +344,8 @@ type RCAConfig struct {
 	ConnectionSaturationPct  int     `yaml:"connection_saturation_pct" doc:"Percentage of max_connections that triggers the connections_high signal. Default: 80."`
 	ReplicationLagThresholdS int     `yaml:"replication_lag_threshold_seconds" doc:"Seconds of replay lag before the replication_lag_increasing signal fires. Default: 30."`
 	WALSpikeMultiplier       float64 `yaml:"wal_spike_multiplier" doc:"WAL bytes delta must exceed previous delta by this multiplier to trigger wal_growth_spike. Default: 2.0."`
+	LockChainIntervalSeconds int     `yaml:"lock_chain_interval_seconds" doc:"Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60."`
+	NarrationEnabled         bool    `yaml:"narration_enabled" doc:"Add an LLM narrative, citing the incident's own evidence, to incident_detected and incident_escalated notifications. Off, or any LLM failure, uses the deterministic summary. Default: false."`
 }
 
 // LockChainConfig controls lock chain detection (v0.9).
@@ -676,6 +683,9 @@ func (c *Config) validate() error {
 	if c.Analyzer.SlowQueryThresholdMs < 0 {
 		return fmt.Errorf("analyzer.slow_query_threshold_ms must be non-negative")
 	}
+	if err := c.RCA.validate(); err != nil {
+		return err
+	}
 	if err := c.validateTrust(); err != nil {
 		return err
 	}
@@ -684,6 +694,9 @@ func (c *Config) validate() error {
 	}
 	if c.Safety.QueryTimeoutMs <= 0 {
 		return fmt.Errorf("safety.query_timeout_ms must be positive")
+	}
+	if err := c.validateIOAdmission(); err != nil {
+		return err
 	}
 
 	// Fleet-specific validation.
@@ -771,6 +784,8 @@ func newDefaults() *Config {
 		},
 		Safety: SafetyConfig{
 			CPUCeilingPct:            DefaultCPUCeilingPct,
+			DataIOCeilingPct:         DefaultDataIOCeilingPct,
+			WALIOCeilingPct:          DefaultWALIOCeilingPct,
 			QueryTimeoutMs:           DefaultQueryTimeoutMs,
 			DDLTimeoutSeconds:        DefaultDDLTimeoutSeconds,
 			DiskPressureThresholdPct: DefaultDiskPressureThresholdPct,
@@ -910,6 +925,7 @@ func newDefaults() *Config {
 			ConnectionSaturationPct:  DefaultRCAConnectionSaturationPct,
 			ReplicationLagThresholdS: DefaultRCAReplicationLagThresholdS,
 			WALSpikeMultiplier:       DefaultRCAWALSpikeMultiplier,
+			LockChainIntervalSeconds: DefaultRCALockChainIntervalSeconds,
 		},
 		Runaway: RunawayConfig{
 			Enabled: false,
@@ -956,6 +972,8 @@ func newDefaults() *Config {
 			RegressPct:       DefaultVerifyRegressPct,
 			WriteImpactPct:   DefaultVerifyWriteImpactPct,
 			MinSamples:       DefaultVerifyMinSamples,
+			IOBaselineDays:   DefaultIOBaselineDays,
+			IOSampleDays:     DefaultIOSampleRetentionDays,
 		},
 		Clone: CloneProviderConfig{
 			Provider:           DefaultCloneProvider,

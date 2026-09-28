@@ -14,7 +14,10 @@ func Clone(cfg *Config) *Config {
 			[]string(nil), cfg.Databases[i].Tags...)
 		cp.Databases[i].ExecutorEnabled = cloneBool(cfg.Databases[i].ExecutorEnabled)
 		cp.Databases[i].LLMEnabled = cloneBool(cfg.Databases[i].LLMEnabled)
+		cp.Databases[i].Verify.IOCapacity = cloneIOCapacity(
+			cfg.Databases[i].Verify.IOCapacity)
 	}
+	cp.Verify.IOCapacity = cloneIOCapacity(cfg.Verify.IOCapacity)
 	cp.API.TrustedProxies = append([]string(nil), cfg.API.TrustedProxies...)
 	if cfg.AgentDB.Providers != nil {
 		cp.AgentDB.Providers = make(

@@ -55,6 +55,16 @@ var excludedExactKeys = map[string]bool{
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,
 
+	// D6 load admission: declared capacity is an operator attestation that
+	// loosens a safety gate, and the ceilings/baseline are read at executor
+	// start. YAML only, restart-bound, never a runtime override.
+	"safety.data_io_ceiling_pct":         true,
+	"safety.wal_io_ceiling_pct":          true,
+	"verify.io_baseline_days":            true,
+	"verify.io_sample_retention_days":    true,
+	"verify.io_capacity.read_write_mbps": true,
+	"verify.io_capacity.wal_mbps":        true,
+
 	// Notification target policy is a security boundary (G7-B21): an
 	// API admin must not be able to open SSRF to private networks, so it
 	// is YAML-only and restart-bound.
@@ -106,6 +116,10 @@ var excludedExactKeys = map[string]bool{
 	"schema_lint.include_schemas": true,
 	"schema_lint.exclude_schemas": true,
 	"schema_lint.disabled_rules":  true,
+
+	// Sage SRE M0: the fast-path period is read once at startup and must
+	// be 0 or 10-3600 (validated at load), so it is YAML-only.
+	"rca.lock_chain_interval_seconds": true,
 }
 
 // structFieldPaths walks a struct type using reflection and returns
@@ -640,7 +654,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 // fails when someone adds or removes a key without updating the
 // test. Update the expected count when intentionally changing keys.
 func TestConfigConsistency_AllowedKeyCount(t *testing.T) {
-	const expectedCount = 113 // Update when adding/removing keys.
+	const expectedCount = 114 // Update when adding/removing keys.
 
 	actual := len(allowedConfigKeys)
 	if actual != expectedCount {
@@ -669,7 +683,7 @@ func TestConfigConsistency_ConfigToMapKeyCount(t *testing.T) {
 	}
 	m := configToMap(cfg)
 
-	const expectedCount = 113 // Should match allowedConfigKeys.
+	const expectedCount = 114 // Should match allowedConfigKeys.
 
 	actual := len(m)
 	if actual != expectedCount {

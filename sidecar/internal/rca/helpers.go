@@ -2,6 +2,7 @@ package rca
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -218,18 +219,16 @@ func parseIntervalSeconds(s *string) float64 {
 }
 
 // marshalChain produces a JSON array string for the causal chain,
-// suitable for passing to pgx as a jsonb parameter.
-func marshalChain(chain []ChainLink) string {
-	var b strings.Builder
-	b.WriteByte('[')
-	for i, link := range chain {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		fmt.Fprintf(&b,
-			`{"order":%d,"signal":%q,"description":%q,"evidence":%q}`,
-			link.Order, link.Signal, link.Description, link.Evidence)
+// suitable for passing to pgx as a jsonb parameter. encoding/json keeps
+// the structured blocker identity and always emits valid JSON (fmt's %q
+// wrote \x escapes that jsonb rejects).
+func marshalChain(chain []ChainLink) (string, error) {
+	if len(chain) == 0 {
+		return "[]", nil
 	}
-	b.WriteByte(']')
-	return b.String()
+	raw, err := json.Marshal(chain)
+	if err != nil {
+		return "", fmt.Errorf("marshal causal chain: %w", err)
+	}
+	return string(raw), nil
 }

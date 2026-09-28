@@ -753,6 +753,7 @@ func initStandalone() {
 	// 9. Executor runs after analyzer (called from analyzer loop).
 	exec = executor.New(pool, cfg, anal, rampStart, logStructuredWrapper)
 	startProviderObservability(shutdownCtx, &standaloneProviderWorkers, pool, cfg, exec, rcaEng)
+	startIOAdmission(shutdownCtx, &standaloneProviderWorkers, pool, cfg, dbName, exec)
 	exec.WithAnalyzeSemaphore(analyzeSem)
 	installAzureManagedConfig(exec, cfg, cloudEnvironment,
 		pool.Config().ConnConfig.Host, "startup")
@@ -1526,7 +1527,7 @@ func initFleetMultiDB() {
 		// silently defaulting to now().
 		rStart, _ := schema.PersistTrustRampStart(
 			context.Background(), dbPool, configRampStart)
-		dbExecCfg := config.Clone(cfg)
+		dbExecCfg := databaseExecConfig(cfg, dbCfg)
 		dbExecCfg.CloudEnvironment = dbCloudEnv
 		dbExec := executor.New(
 			dbPool, dbExecCfg, dbAnal, rStart,
@@ -1535,6 +1536,7 @@ func initFleetMultiDB() {
 		installAzureManagedConfig(dbExec, cfg, dbCloudEnv,
 			dbPool.Config().ConnConfig.Host, "fleet")
 		startProviderObservability(instCtx, instWorkers, dbPool, dbExecCfg, dbExec, dbRCAEng)
+		startIOAdmission(instCtx, instWorkers, dbPool, dbExecCfg, name, dbExec)
 		dbActionStore := store.NewActionStore(dbPool)
 		execMode := resolveStaticFleetExecMode(dbCfg)
 		logInfo("fleet",
@@ -2246,8 +2248,10 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	// Database metrics (only when global pool exists).
 	if pool != nil {
 		writeDatabaseMetrics(&b, ctx)
-		writeValueMetrics(&b, ctx)
 	}
+	// Value lives in each monitored database (D3), so it is read from
+	// every fleet instance in all modes, never from the meta pool.
+	writeValueMetrics(&b, ctx, fleet.ValueSources(fleetMgr))
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	fmt.Fprint(w, b.String())

@@ -178,6 +178,7 @@ func (e *Executor) completeVerificationRevert(ctx context.Context, actionID int6
 // drop of the qualified index it will create.
 func (e *Executor) admitVerifiedCreate(
 	ctx context.Context, f *analyzer.Finding, beforeState map[string]any,
+	findingID, decisionID int64,
 ) (verifiedIndexAction, error) {
 	action, err := verifiedActionForFinding(*f)
 	if err != nil {
@@ -186,7 +187,8 @@ func (e *Executor) admitVerifiedCreate(
 	if e.indexVerification == nil {
 		return action, ErrVerificationUnavailable
 	}
-	if err := e.indexVerification.Admit(ctx); err != nil {
+	key := admissionFindingKey(findingID, f.RecommendedSQL)
+	if err := e.admitIndexBuild(ctx, key, decisionID); err != nil {
 		return action, err
 	}
 	if err := e.prepareVerifiedIndex(ctx, &action); err != nil {

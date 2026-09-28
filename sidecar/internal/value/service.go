@@ -12,8 +12,9 @@ var (
 	ErrToilModelUnavailable  = errors.New("toil model unavailable")
 )
 
+// Repository stamps credit in one monitored database's ledger. Reads go
+// through FleetService, which aggregates every database (D3).
 type Repository interface {
-	ReadSnapshot(context.Context, Filter) (Snapshot, error)
 	CreditCandidate(context.Context, int64) (CreditCandidate, error)
 	StampCredit(context.Context, int64, float64, int) error
 }
@@ -24,17 +25,6 @@ type Service struct {
 
 func NewService(repository Repository) *Service {
 	return &Service{repository: repository}
-}
-
-func (s *Service) Get(ctx context.Context, filter Filter) (Report, error) {
-	if s == nil || s.repository == nil {
-		return Report{}, ErrRepositoryUnavailable
-	}
-	snapshot, err := s.repository.ReadSnapshot(ctx, filter)
-	if err != nil {
-		return Report{}, fmt.Errorf("read value snapshot: %w", err)
-	}
-	return reportFromSnapshot(snapshot), nil
 }
 
 func (s *Service) CreditVerifiedAction(

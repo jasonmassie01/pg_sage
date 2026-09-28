@@ -155,6 +155,7 @@ const (
 	DefaultRCAConnectionSaturationPct  = 80
 	DefaultRCAReplicationLagThresholdS = 30
 	DefaultRCAWALSpikeMultiplier       = 2.0
+	DefaultRCALockChainIntervalSeconds = 60
 
 	// v0.9 — Lock chain defaults.
 	DefaultLockChainMinBlocked        = 3
@@ -191,6 +192,10 @@ const (
 	DefaultVerifyRegressPct          = 15.0
 	DefaultVerifyWriteImpactPct      = 20.0
 	DefaultVerifyMinSamples          = 30
+	DefaultIOBaselineDays            = 7
+	DefaultIOSampleRetentionDays     = 14
+	DefaultDataIOCeilingPct          = 70
+	DefaultWALIOCeilingPct           = 70
 	DefaultCloneProvider             = "none"
 	DefaultCloneMaxAgeMinutes        = 1440
 	DefaultFreezeRedBufferPct        = 25.0

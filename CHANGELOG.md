@@ -2,7 +2,123 @@
 
 ## Unreleased
 
+### Added
+
+- **Lock chains open incidents within a minute.** A lock-chain fast path runs every
+  `rca.lock_chain_interval_seconds` (default `60`, `0` disables it) instead of waiting for the
+  600 s analyzer cycle. It opens or updates the `lock_contention` incident and sends
+  `incident_detected`. The incident records each root blocker's identity (pid,
+  `backend_start`, query id and a hash of the query text) as structured `causal_chain`
+  evidence. Escalation and auto-resolution still count analyzer cycles, so
+  `escalation_cycles` and `resolution_cycles` keep their meaning.
+- **Plan fingerprints.** Captured plans get a stable `plan_hash` that ignores costs, row
+  counts, timings and literals. It is stored in `sage.explain_cache` and copied to every
+  `sage.query_store` sample, so a plan flip shows up in the per-query history.
+  `plan_regression` findings now say whether the plan shape changed (`plan_changed`).
+- **Incident narration (opt-in).** With `rca.narration_enabled: true`, detected and escalated
+  incident notifications carry an LLM summary. The model can only read the incident's own
+  evidence, must cite it, and may only use numbers that appear in it. Every other case
+  (narration off, LLM off, budget, rate limit, timeout, malformed or uncited output) sends
+  the deterministic summary. Both are labeled in the notification. `llm.enabled: false`
+  cancels narrations in flight.
+- **Emergency stop in the header (D8).** Operators and admins get a Stop control next to
+  the database picker. It stops the selected database, or all databases when "All" is
+  selected, and needs arm then confirm. Resume appears only when the selection is stopped,
+  also needs confirmation, and shows who stopped it and when. A badge visible to every role
+  names the stopped database, the person who stopped it and the time. The Settings page
+  buttons are replaced by a pointer to the header control.
+- **The stop survives restarts.** At startup and on reconnect, every mode (standalone,
+  fleet, meta-db) restores the in-memory stop from `sage.config`, so the header badge and
+  action readiness show "stopped" on first paint. An unreadable flag restores as stopped,
+  attributed to `system`.
+- **Attribution and audit.** Stop and resume record the signed-in user (or `system`) in
+  `sage.config.updated_by` and append a `sage.config_audit` row in the same statement. The
+  fleet API (`GET /api/v1/databases`) exposes `emergency_stopped`, `emergency_stopped_by`
+  and `emergency_stopped_at` per database, and `summary.emergency_stopped_count`.
+- **Declared IO capacity.** Operators can attest provisioned throughput with
+  `verify.io_capacity` (standalone) or `databases[].verify.io_capacity` (fleet):
+  `read_write_mbps` and `wal_mbps` in MiB/s. Utilization is the measured rate
+  divided by the declared capacity, compared with the IO ceilings. A declaration
+  overrides the learned baseline. A fleet-wide `verify.io_capacity` is rejected.
+- **Admission evidence in the ledger.** Every decision records which evidence
+  mode admitted or withheld the build (`declared_capacity`, `learned_baseline`
+  or `unavailable`), with the rates, capacity or baseline, in
+  `sage.decision.evidence.load_admission`.
+- **Visible withheld reason.** A withheld build is recorded once per finding and
+  reason in `sage.admission_withheld` instead of a new failed action every
+  cycle. `GET /api/v1/admission` and `GET /api/v1/admission/{name}` report each
+  database's mode, reason and baseline progress, and the dashboard shows them on
+  the Actions page and in the Overview provider-readiness tab.
+- Supabase provider observability now supplies host CPU only; it never reported
+  disk utilization.
+
 ### Changed (read before upgrading)
+
+- **Retention deletes need an owner-declared column (D5).** `declare_table_contract`
+  now takes `retention: {"interval": "...", "column": "..."}`; an interval without a
+  column (including the old bare-string form) is rejected, and the column must exist
+  and be `timestamptz`, `timestamp` or `date`. pg_sage no longer guesses `created_at` or
+  `occurred_at`. **Existing retention contracts pause** (no deletes) until they are
+  re-declared with a column; the ledger park reason shows the suggested column, e.g.
+  `retention column not declared; suggested: created_at — re-declare the contract with
+  retention.column to enable deletes`. Count affected contracts with
+  `SELECT count(*) FROM sage.table_contract WHERE append_only AND retention_interval IS
+  NOT NULL AND retention_column IS NULL`. The upgrade adds
+  `sage.table_contract.retention_column` without backfilling it.
+- **Dry runs are bound to identity, not names.** A reviewed dry run now authorizes
+  deletion only for the same table OID, column attnum and type, and contract version.
+  Renaming or swapping the column, rebuilding the table, re-declaring the contract, or
+  eligible rows growing past 2x + 100 of the dry run's count starts a new 24-hour
+  review. Dry runs recorded before this release no longer qualify. Each delete batch
+  locks the table `ROW EXCLUSIVE` and re-checks the column before deleting.
+- **Value is counted across the whole fleet (D3).** Each monitored database keeps its own
+  value ledger, next to the actions it credits. The Value page (`GET /api/v1/value`), the
+  Prometheus value metrics and the MCP `get_value` tool now add up every database in
+  standalone, YAML fleet and meta-db mode. Before, YAML fleet showed only the first database
+  and meta-db mode showed zero, because the meta database holds no ledger. Nothing is
+  migrated.
+- **Value metrics carry the database name.** `pg_sage_toil_minutes_saved` and
+  `pg_sage_incidents_avoided_total` are labelled `database="<instance name>"` (never empty).
+  `pg_sage_value_metrics_up` is now reported per database, so update alerts that expect the
+  unlabelled series. The value metrics are also exported in YAML fleet mode, where they were
+  missing.
+- **Partial value is reported, not hidden.** If a database cannot be read, the value response
+  sets `"partial": true` and names it in `"unavailable"`, and the other databases still count.
+  The Value page shows a warning. `?database=<name>` works in every mode, including
+  standalone, and an unknown name returns 404. Two fleet entries for the same physical
+  database are counted once.
+- **Credited value is kept.** Retention no longer purges credited actions (verified success
+  with toil credit) or the verification that earned the credit, so all-time value no longer
+  shrinks after `retention.actions_days`. Uncredited, failed and rolled-back rows still age
+  out.
+- Schema: `sage.explain_cache` gains a nullable `plan_hash` column (added automatically at
+  startup).
+- Notifications for `incident_detected` and `incident_escalated` now end with a labeled
+  `Summary` line, and their payload data adds `narrative` and `narrative_source`.
+- **Defined stop/resume races.** Stops latch memory immediately; persisted transitions are
+  serialized. A stop that overlaps a resume wins, and memory always ends equal to the
+  persisted flag. A stop that lands while a meta-db reconnect swaps in a new runtime
+  carries over to the new runtime and is saved. `sage.config_audit` gains a nullable `changed_by_actor` column, added
+  automatically at startup.
+- **Behaviour change: autonomous index builds can now be admitted.** Until now no
+  source produced IO evidence, so load admission withheld every autonomous
+  `CREATE INDEX CONCURRENTLY` and every custodian index proposal (such as FK
+  supporting indexes) on every deployment. pg_sage now samples IO from Postgres
+  every minute (`pg_stat_io` on PG16+, `pg_stat_database` and `pg_stat_bgwriter`
+  on PG14/15, `pg_stat_wal` for WAL) and learns each database's baseline in
+  `sage.io_rate_sample`. **After 7 days of observation (`verify.io_baseline_days`),
+  autonomous index builds are admitted during quiet periods**: when current data
+  and WAL rates are at or below the learned median. While the baseline is still
+  being learned, builds stay withheld with a reason such as
+  `learning IO baseline: 3.0/7 days`. Set `verify.io_baseline_days: 0` to keep
+  today's fail-closed behaviour. The trust level, tier flags, standing policy and
+  maintenance windows still apply as before.
+- **Unknown host CPU narrows admission to maintenance windows.** Without a CPU
+  reader (anything except Supabase with an observability token), a build is
+  admitted only while `trust.maintenance_window` and the policy windows are open.
+- **Separate IO ceilings.** `safety.data_io_ceiling_pct` and
+  `safety.wal_io_ceiling_pct` (default 70) no longer inherit
+  `safety.cpu_ceiling_pct`.
 
 - **The policy refusal set is enforced.** `refusal_set` was stored but never
   checked. Each token now matches precisely: `rls_change` (row-level security
@@ -75,6 +191,22 @@
   effect. A config file that still sets it loads normally and logs
   "tuner.analyze_maintenance_threshold_mb is no longer used and is ignored;
   remove it". The key is gone from the example configs.
+
+### Fixed
+
+- A retention contract that cannot act no longer stops the schema scan: later
+  invariants (such as missing foreign-key indexes) are still planned in the same cycle.
+- Re-declaring a table contract updates the one contract row instead of adding another.
+  The upgrade removes existing duplicates (keeping the newest per table) and adds a
+  unique index on `(COALESCE(database_id, 0), schema_name, table_name)`.
+- A dry run still in its 24-hour review parks with `retention dry run in review until
+  <time>` instead of being logged as a failure; the rest of the scan continues.
+- In fleet mode, and with several databases on one server, a database reported and paged on
+  lock chains that belonged to another database. Lock-chain detection now only starts from
+  sessions in the monitored database.
+- Incident causal chains that contained control characters or invalid UTF-8 failed to
+  save.
+
 
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 

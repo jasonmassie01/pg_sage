@@ -17,6 +17,19 @@ type VerifyConfig struct {
 	RegressPct       float64 `yaml:"regress_pct" doc:"Regression percentage that triggers revert."`
 	WriteImpactPct   float64 `yaml:"write_impact_pct" doc:"Maximum write-latency increase."`
 	MinSamples       int     `yaml:"min_samples" doc:"Minimum verification samples."`
+
+	// IO load admission (D6). io_capacity is standalone-only; fleet
+	// databases declare it in databases[].verify.io_capacity.
+	IOBaselineDays int               `yaml:"io_baseline_days" doc:"IO baseline days; 0 disables."`
+	IOSampleDays   int               `yaml:"io_sample_retention_days" doc:"IO sample retention days."`
+	IOCapacity     *IOCapacityConfig `yaml:"io_capacity" doc:"Declared IO capacity (standalone)."`
+}
+
+// IOCapacityConfig is an operator attestation of provisioned throughput,
+// in mebibytes per second.
+type IOCapacityConfig struct {
+	ReadWriteMBps float64 `yaml:"read_write_mbps" doc:"Provisioned data read+write MiB/s."`
+	WALMBps       float64 `yaml:"wal_mbps" doc:"Provisioned WAL write MiB/s."`
 }
 
 type CloneProviderConfig struct {

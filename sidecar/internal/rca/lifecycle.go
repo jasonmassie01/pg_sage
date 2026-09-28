@@ -65,10 +65,19 @@ func (e *Engine) dedupWindow() time.Duration {
 	return defaultDedupWindow
 }
 
-// dedup merges inc into a matching open incident, or records it as new.
+// dedup merges an analyzer-cycle detection into a matching open incident
+// (counting one occurrence), or records it as new.
+func (e *Engine) dedup(inc *Incident) { e.merge(inc, true) }
+
+// observe merges a fast-path detection. It refreshes the open incident
+// but does not count an occurrence: escalation stays tied to analyzer
+// cycles (Sage SRE M0).
+func (e *Engine) observe(inc *Incident) { e.merge(inc, false) }
+
+// merge folds inc into a matching open incident, or records it as new.
 // An open match last seen longer ago than the dedup window is resolved as
 // superseded and the new incident is linked to it.
-func (e *Engine) dedup(inc *Incident) {
+func (e *Engine) merge(inc *Incident, countOccurrence bool) {
 	key := identityString(inc)
 	for i := range e.incidents {
 		existing := &e.incidents[i]
@@ -84,15 +93,30 @@ func (e *Engine) dedup(inc *Incident) {
 			inc.PreviousIncidentID = existing.ID
 			break
 		}
-		existing.OccurrenceCount++
-		existing.LastDetectedAt = inc.DetectedAt
-		if severityRank(inc.Severity) > severityRank(existing.Severity) {
-			existing.Severity = inc.Severity
+		if countOccurrence {
+			existing.OccurrenceCount++
 		}
+		refreshOpen(existing, inc)
 		delete(e.clearCounts, existing.ID)
 		return
 	}
 	e.insertIncident(inc)
+}
+
+// refreshOpen applies a new detection to an open incident: last seen
+// only moves forward, severity only rises, and live evidence replaces the
+// chain and root cause.
+func refreshOpen(existing, inc *Incident) {
+	if inc.DetectedAt.After(existing.LastDetectedAt) {
+		existing.LastDetectedAt = inc.DetectedAt
+	}
+	if severityRank(inc.Severity) > severityRank(existing.Severity) {
+		existing.Severity = inc.Severity
+	}
+	if inc.liveEvidence && len(inc.CausalChain) > 0 {
+		existing.CausalChain = inc.CausalChain
+		existing.RootCause = inc.RootCause
+	}
 }
 
 func (e *Engine) insertIncident(inc *Incident) {

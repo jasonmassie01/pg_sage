@@ -10,7 +10,7 @@ import (
 
 func TestExecuteManualAnalyzeUsesDedicatedAnalyzePath(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	const tableName = "public.test_manual_analyze_path"
 	_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS public.test_manual_analyze_path`)

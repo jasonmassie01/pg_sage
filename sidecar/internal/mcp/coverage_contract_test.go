@@ -30,12 +30,17 @@ func TestIntentValidationRejectsMalformedOrIncompleteRequests(t *testing.T) {
 }
 
 func TestIntentHelpersHandleAlternateAndInvalidInputs(t *testing.T) {
-	retention, err := retentionText(json.RawMessage(`{"interval":"7 days"}`))
+	retention, err := parseRetention(json.RawMessage(
+		`{"interval":"7 days","column":"created_at"}`))
 	require.NoError(t, err)
-	require.Equal(t, "7 days", retention)
-	retention, err = retentionText(nil)
+	require.Equal(t, retentionSpec{Interval: "7 days", Column: "created_at"}, retention)
+	_, err = parseRetention(json.RawMessage(`{"interval":"7 days"}`))
+	require.ErrorContains(t, err, "retention.column")
+	_, err = parseRetention(json.RawMessage(`{"interval":`))
+	require.Error(t, err)
+	retention, err = parseRetention(nil)
 	require.NoError(t, err)
-	require.Empty(t, retention)
+	require.Equal(t, retentionSpec{}, retention)
 	_, _, err = qualifiedName("events")
 	require.Error(t, err)
 

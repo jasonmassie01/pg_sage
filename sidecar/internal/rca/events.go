@@ -11,7 +11,7 @@ import (
 // memory here, which bounds the in-memory incident list (substrate-B7).
 func (e *Engine) applyPersistResults(
 	results []persistResult,
-) ([]notify.Event, EventDispatcher) {
+) ([]pendingEvent, EventDispatcher) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -19,7 +19,7 @@ func (e *Engine) applyPersistResults(
 	for i := range e.incidents {
 		index[e.incidents[i].ID] = i
 	}
-	var events []notify.Event
+	var events []pendingEvent
 	remove := make(map[string]bool)
 	for _, r := range results {
 		i, ok := index[r.id]
@@ -42,7 +42,7 @@ func (e *Engine) applyPersistResults(
 	return events, e.dispatcher
 }
 
-func (e *Engine) applyOne(inc *Incident, r persistResult) []notify.Event {
+func (e *Engine) applyOne(inc *Incident, r persistResult) []pendingEvent {
 	ts := e.trackFor(inc.ID)
 	ts.persisted = true
 	if r.inserted && r.previousID != "" {
@@ -66,7 +66,11 @@ func (e *Engine) applyOne(inc *Incident, r persistResult) []notify.Event {
 	if r.resolved {
 		events = append(events, notify.IncidentResolvedEvent(incidentInfo(inc)))
 	}
-	return events
+	pending := make([]pendingEvent, 0, len(events))
+	for _, ev := range events {
+		pending = append(pending, pendingEvent{event: ev, incident: *inc})
+	}
+	return pending
 }
 
 func incidentInfo(inc *Incident) notify.IncidentInfo {

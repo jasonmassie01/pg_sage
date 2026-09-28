@@ -112,8 +112,15 @@ describe('agent-native Value routing and navigation', () => {
     render(<App />)
     await screen.findByTestId('app-loaded')
 
-    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
-    const palette = screen.getByRole('dialog', { name: /command palette/i })
+    // The palette attaches its key listener in an effect that can land after
+    // the shell renders on a slow runner; press again only while it is closed
+    // (a second press on an open palette would toggle it shut).
+    const findPalette = () => screen.queryByRole('dialog', { name: /command palette/i })
+    await waitFor(() => {
+      if (!findPalette()) fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+      expect(findPalette()).toBeInTheDocument()
+    })
+    const palette = findPalette()
     expect(within(palette).getByRole('button', { name: /go to value/i }))
       .toBeInTheDocument()
     expect(within(palette).queryByRole('button', { name: /go to overview/i }))

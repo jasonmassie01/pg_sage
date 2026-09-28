@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,23 +13,6 @@ type PostgresRepository struct{ pool *pgxpool.Pool }
 
 func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{pool: pool}
-}
-
-func (r *PostgresRepository) ReadSnapshot(ctx context.Context, filter Filter) (Snapshot, error) {
-	if r == nil || r.pool == nil {
-		return Snapshot{}, ErrRepositoryUnavailable
-	}
-	result := Snapshot{ByFeatureMinutes: map[string]float64{}}
-	if err := r.readRealized(ctx, filter, &result); err != nil {
-		return Snapshot{}, fmt.Errorf("read snapshot realized value: %w", err)
-	}
-	if err := r.readPotential(ctx, filter, &result); err != nil {
-		return Snapshot{}, fmt.Errorf("read snapshot potential value: %w", err)
-	}
-	if err := r.readIncidents(ctx, filter, &result); err != nil {
-		return Snapshot{}, fmt.Errorf("read snapshot incidents: %w", err)
-	}
-	return result, nil
 }
 
 func (r *PostgresRepository) CreditCandidate(
@@ -124,132 +105,4 @@ func (r *PostgresRepository) RecordIncident(
 		return IncidentRecord{}, fmt.Errorf("record incident credit: %w", err)
 	}
 	return result, nil
-}
-
-func (r *PostgresRepository) readRealized(
-	ctx context.Context, filter Filter, result *Snapshot,
-) error {
-	rows, err := r.pool.Query(ctx, `SELECT COALESCE(d.name, ''), al.action_type,
-		date_trunc('day', al.executed_at)::date::text, al.executed_at,
-		al.toil_minutes_saved::float8 FROM sage.action_log al
-		LEFT JOIN sage.databases d ON d.id=al.database_id
-		WHERE al.outcome='success' AND al.toil_minutes_saved IS NOT NULL
-		AND ($1='' OR d.name=$1) AND ($2::timestamptz IS NULL OR al.executed_at >= $2)
-		AND ($3::timestamptz IS NULL OR al.executed_at <= $3)
-		ORDER BY al.executed_at`, filter.Database, nullableTime(filter.Since),
-		nullableTime(filter.Until))
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	byDB := map[string]float64{}
-	byDay := map[string]float64{}
-	now := time.Now().UTC()
-	for rows.Next() {
-		var db, feature, day string
-		var at time.Time
-		var minutes float64
-		if err := rows.Scan(&db, &feature, &day, &at, &minutes); err != nil {
-			return err
-		}
-		result.AllTimeMinutes += minutes
-		if sameMonth(at, now) {
-			result.MonthMinutes += minutes
-		}
-		if !at.Before(startOfWeek(now)) {
-			result.WeekMinutes += minutes
-		}
-		result.ByFeatureMinutes[feature] += minutes
-		byDB[db] += minutes
-		byDay[day] += minutes
-	}
-	result.ByDatabaseMinutes = databaseRows(byDB)
-	result.TrendMinutes = dayRows(byDay)
-	return rows.Err()
-}
-
-func (r *PostgresRepository) readPotential(
-	ctx context.Context, filter Filter, result *Snapshot,
-) error {
-	return r.pool.QueryRow(ctx, `SELECT COALESCE(sum(tm.base_minutes),0)::float8
-		FROM sage.action_queue aq LEFT JOIN sage.databases d ON d.id=aq.database_id
-		JOIN sage.toil_model tm ON tm.action_type=aq.action_type AND tm.effective_to IS NULL
-		WHERE aq.status='pending' AND ($1='' OR d.name=$1)
-		AND ($2::timestamptz IS NULL OR aq.proposed_at >= $2)
-		AND ($3::timestamptz IS NULL OR aq.proposed_at <= $3)`, filter.Database,
-		nullableTime(filter.Since), nullableTime(filter.Until)).Scan(&result.PotentialMinutes)
-}
-
-func (r *PostgresRepository) readIncidents(
-	ctx context.Context, filter Filter, result *Snapshot,
-) error {
-	rows, err := r.pool.Query(ctx, `SELECT ia.kind, ia.severity, ia.evidence_id,
-		ia.occurred_at, ia.credited_minutes::float8 FROM sage.incident_avoided ia
-		LEFT JOIN sage.databases d ON d.id=ia.database_id WHERE ($1='' OR d.name=$1)
-		AND ($2::timestamptz IS NULL OR ia.occurred_at >= $2)
-		AND ($3::timestamptz IS NULL OR ia.occurred_at <= $3)
-		ORDER BY ia.occurred_at`, filter.Database, nullableTime(filter.Since),
-		nullableTime(filter.Until))
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var item Incident
-		var minutes float64
-		if err := rows.Scan(&item.Kind, &item.Severity, &item.EvidenceID,
-			&item.OccurredAt, &minutes); err != nil {
-			return err
-		}
-		result.IncidentMinutes += minutes
-		result.Incidents = append(result.Incidents, item)
-	}
-	return rows.Err()
-}
-
-func nullableTime(value time.Time) *time.Time {
-	if value.IsZero() {
-		return nil
-	}
-	return &value
-}
-
-func sameMonth(left, right time.Time) bool {
-	ly, lm, _ := left.Date()
-	ry, rm, _ := right.Date()
-	return ly == ry && lm == rm
-}
-
-func startOfWeek(value time.Time) time.Time {
-	day := time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
-	offset := (int(day.Weekday()) + 6) % 7
-	return day.AddDate(0, 0, -offset)
-}
-
-// databaseRows orders databases by minutes descending, then name, so the
-// report is stable across requests (G2-B25).
-func databaseRows(values map[string]float64) []DatabaseMinutes {
-	result := make([]DatabaseMinutes, 0, len(values))
-	for name, minutes := range values {
-		result = append(result, DatabaseMinutes{name, minutes})
-	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].Minutes != result[j].Minutes {
-			return result[i].Minutes > result[j].Minutes
-		}
-		return result[i].Name < result[j].Name
-	})
-	return result
-}
-
-// dayRows orders the daily trend by day ascending (G2-B25).
-func dayRows(values map[string]float64) []DayMinutes {
-	result := make([]DayMinutes, 0, len(values))
-	for day, minutes := range values {
-		result = append(result, DayMinutes{day, minutes})
-	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Day < result[j].Day
-	})
-	return result
 }

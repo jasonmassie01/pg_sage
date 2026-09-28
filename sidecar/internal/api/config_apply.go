@@ -444,6 +444,8 @@ func hotReloadRCA(cfg *config.Config, key, v string) {
 		cfg.RCA.ReplicationLagThresholdS = atoi(v)
 	case "rca.wal_spike_multiplier":
 		cfg.RCA.WALSpikeMultiplier = atof(v)
+	case "rca.narration_enabled":
+		cfg.RCA.NarrationEnabled = v == "true"
 	}
 }
 

@@ -148,6 +148,7 @@ briefing:
 |---|---|---|
 | `collector.interval_seconds` | `60` | Seconds between snapshot collections |
 | `analyzer.interval_seconds` | `600` | Seconds between analysis cycles |
+| `rca.lock_chain_interval_seconds` | `60` | Seconds between lock-chain fast-path checks. Each check opens or updates the `lock_contention` incident (with the root blocker's pid, `backend_start` and query identity) and sends `incident_detected` without waiting for the analyzer cycle. `0` disables the fast path; otherwise `10`-`3600`. Escalation and auto-resolution still count analyzer cycles. Restart to change |
 
 ### Trust & Actions
 
@@ -204,6 +205,7 @@ reloaded or saved.
 | `llm.optimizer.enabled` | `false` | Enable index optimizer |
 | `llm.optimizer.min_query_calls` | `100` | Minimum query calls before optimizing a table |
 | `llm.optimizer.max_new_per_table` | `3` | Max new indexes per table per cycle |
+| `rca.narration_enabled` | `false` | Let the LLM rewrite the summary on `incident_detected` and `incident_escalated` notifications. The model can only read the incident's own evidence (no SQL, no database access), must cite evidence ids, and every number it writes must appear in the cited evidence. Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. `llm.enabled=false` is the hot kill switch and cancels narrations in flight |
 
 ### Web UI and API Authentication
 
@@ -255,6 +257,90 @@ The standing policy document also carries three safety fields, all enforced:
   count toward the retry limit or the self-initiated rate limit. `queue` is
   accepted and currently behaves like `park` (the action waits for the next
   cycle, not for the lease holder).
+
+#### Retention contracts
+
+The only way pg_sage deletes user rows is a retention contract declared with the
+MCP tool `declare_table_contract`. The owner names both the window and the column
+whose age defines it; pg_sage never infers the column:
+
+```json
+{"table": "public.events", "append_only": true,
+ "retention": {"interval": "90 days", "column": "ingested_at"}}
+```
+
+- `retention.column` is required whenever `retention.interval` is set. It must
+  exist, not be dropped, and be `timestamptz`, `timestamp` or `date`. On a
+  partitioned table a column that is not the partition key is accepted with a
+  warning: each retention batch then scans every partition.
+- A contract without a usable column parks (deletes nothing). The ledger reason
+  shows pg_sage's suggested column, for example `retention column not declared;
+  suggested: created_at — re-declare the contract with retention.column to
+  enable deletes`.
+- The first cycle is always a dry run. Deletion starts only after a dry run at
+  least 24 hours old (and at most 7 days) for the same table (by OID), column
+  (by attnum and type), contract version and window. Renaming or swapping the
+  column, rebuilding the table, re-declaring the contract, or the eligible row
+  count growing past 2x + 100 of the reviewed dry run starts a new dry run.
+- Each batch deletes at most 1,000 rows under a `ROW EXCLUSIVE` table lock, after
+  re-checking the column identity in the same transaction, and requires standing
+  policy consent to the `retention` change class.
+
+### Load admission for autonomous index builds
+
+Autonomous `CREATE INDEX CONCURRENTLY` and custodian index proposals (for
+example FK supporting indexes) start only when load evidence says the host is
+quiet. pg_sage measures IO itself from Postgres, every minute, with no cloud
+credentials:
+
+- Data IO: `pg_stat_io` reads, writes and extends of relation data (PG16+;
+  PG18 byte columns). On PG14/15, `pg_stat_database.blks_read` plus the
+  buffers written by the checkpointer, bgwriter and backends
+  (`pg_stat_bgwriter`), times `block_size`. `blks_read` also counts reads served
+  by the OS page cache, so on PG14/15 the rate over-states device reads; the
+  learned baseline compares the database with itself, which keeps the bias
+  consistent.
+- WAL: `pg_stat_wal.wal_bytes` (PG14+). PostgreSQL 13 and older have no IO
+  evidence, so admission stays withheld.
+
+A statistics reset, or any counter that goes backwards, discards that interval.
+It is never read as a quiet period.
+
+Admission uses one of two evidence modes:
+
+| Mode | When | Admits when |
+|---|---|---|
+| `declared_capacity` | `verify.io_capacity` (standalone) or `databases[].verify.io_capacity` (fleet) is set | data and WAL throughput are at or below `safety.data_io_ceiling_pct` / `safety.wal_io_ceiling_pct` of the declared MiB/s |
+| `learned_baseline` | no declared capacity and `verify.io_baseline_days` > 0 | after that many days of observation, current data and WAL rates are at or below the learned median (p50) |
+
+Host CPU is used when a provider reader supplies it (Supabase with
+`SAGE_SUPABASE_OBSERVABILITY_TOKEN`) and must be at or below
+`safety.cpu_ceiling_pct`. When CPU is unavailable, admission is granted only
+while the maintenance window is open (`trust.maintenance_window` and the
+standing policy's windows, evaluated as the policy gate does).
+
+| Parameter | Default | Description |
+|---|---|---|
+| `verify.io_baseline_days` | `7` | Days of observation before the learned baseline can admit. `0` disables the learned baseline |
+| `verify.io_sample_retention_days` | `14` | Days of rate samples kept in `sage.io_rate_sample`; the rolling baseline covers this window. Must be at least `io_baseline_days` |
+| `verify.io_capacity.read_write_mbps` | (none) | Standalone only. Declared data read+write throughput in MiB/s |
+| `verify.io_capacity.wal_mbps` | (none) | Standalone only. Declared WAL throughput in MiB/s |
+| `databases[].verify.io_capacity` | (none) | Fleet: the same attestation per database. A fleet-wide `verify.io_capacity` is rejected |
+| `safety.data_io_ceiling_pct` | `70` | Data IO ceiling, percent of declared capacity. Independent of `cpu_ceiling_pct` |
+| `safety.wal_io_ceiling_pct` | `70` | WAL IO ceiling, percent of declared capacity. Independent of `cpu_ceiling_pct` |
+
+Declared capacity is an operator attestation and overrides the learned
+baseline. Declare only what the volume really provides (for example the
+provisioned throughput of the EBS/PD/Azure disk). Meta-mode databases use the
+learned baseline only.
+
+Each decision records the evidence mode, rates, capacity or baseline in
+`sage.decision.evidence.load_admission`. A withheld build is recorded once per
+finding and reason in `sage.admission_withheld` instead of a failed action on
+every cycle. `GET /api/v1/admission` (optionally `?database=`) and
+`GET /api/v1/admission/{name}` report each database's mode, reason and
+baseline progress; the dashboard shows them on the Actions page and in the
+Overview provider-readiness tab.
 
 ### Retention
 

@@ -291,12 +291,12 @@ func TestCoverage_RunCycle_EmergencyStopActive(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	// Set emergency stop.
-	if err := SetEmergencyStop(ctx, pool, true); err != nil {
+	if err := SetEmergencyStop(ctx, pool, true, "test"); err != nil {
 		t.Fatalf("SetEmergencyStop(true): %v", err)
 	}
 	t.Cleanup(func() {
 		cctx := context.Background()
-		_ = SetEmergencyStop(cctx, pool, false)
+		_ = SetEmergencyStop(cctx, pool, false, "test")
 	})
 
 	var loggedEmergency bool
@@ -1041,12 +1041,12 @@ func TestCoverage_CheckRegression_NonexistentAction(t *testing.T) {
 func TestCoverage_ExecuteManual_EmergencyStop(t *testing.T) {
 	pool, ctx := requireDB(t)
 
-	if err := SetEmergencyStop(ctx, pool, true); err != nil {
+	if err := SetEmergencyStop(ctx, pool, true, "test"); err != nil {
 		t.Fatalf("SetEmergencyStop(true): %v", err)
 	}
 	t.Cleanup(func() {
 		cctx := context.Background()
-		_ = SetEmergencyStop(cctx, pool, false)
+		_ = SetEmergencyStop(cctx, pool, false, "test")
 	})
 
 	cfg := &config.Config{}
@@ -1077,7 +1077,7 @@ func TestCoverage_ExecuteManual_SuccessfulExecution(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	// Clear emergency stop.
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	// Create a test table.
 	_, err := pool.Exec(ctx,
@@ -1156,7 +1156,7 @@ func TestCoverage_ExecuteManual_MissingFindingRejectedBeforeSQL(
 	t *testing.T,
 ) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	_, _ = pool.Exec(ctx,
 		`CREATE TABLE IF NOT EXISTS public.test_manual_missing (
@@ -1207,7 +1207,7 @@ func TestCoverage_ExecuteManual_MissingFindingRejectedBeforeSQL(
 
 func TestCoverage_ExecuteManual_SQLMismatchRejected(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	_, err := pool.Exec(ctx,
 		`CREATE TABLE IF NOT EXISTS public.test_manual_mismatch (
@@ -1489,7 +1489,7 @@ func TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker(t *testing.T) {
 func TestCoverage_ExecuteManual_WithRollbackSQL(t *testing.T) {
 	pool, ctx := requireDB(t)
 
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	_, err := pool.Exec(ctx,
 		`CREATE TABLE IF NOT EXISTS public.test_manual_rb (
@@ -1564,7 +1564,7 @@ func TestCoverage_ExecuteManual_WithRollbackSQL(t *testing.T) {
 func TestCoverage_ExecuteManual_VacuumTopLevel(t *testing.T) {
 	pool, ctx := requireDB(t)
 
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	_, err := pool.Exec(ctx,
 		`CREATE TABLE IF NOT EXISTS public.test_manual_vacuum (
@@ -1903,7 +1903,7 @@ func TestCoverage_New_Defaults(t *testing.T) {
 func TestCoverage_ExecuteManual_ConcurrentlyPath(t *testing.T) {
 	pool, ctx := requireDB(t)
 
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	_, err := pool.Exec(ctx,
 		`CREATE TABLE IF NOT EXISTS public.test_manual_conc (
@@ -1975,7 +1975,7 @@ func TestCoverage_ExecuteManual_ConcurrentlyPath(t *testing.T) {
 func TestCoverage_ExecuteManual_FailedSQL(t *testing.T) {
 	pool, ctx := requireDB(t)
 
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	var findingID int
 	err := pool.QueryRow(ctx,
@@ -2030,7 +2030,7 @@ func TestCoverage_ExecuteManual_FailedSQL(t *testing.T) {
 func TestCoverage_ExecuteManual_WithApprovedBy(t *testing.T) {
 	pool, ctx := requireDB(t)
 
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	_, err := pool.Exec(ctx,
 		`CREATE TABLE IF NOT EXISTS public.test_approved_by (
@@ -2133,7 +2133,7 @@ func (e *errProposer) Propose(
 // RecommendedSQL are skipped and the loop continues.
 func TestCoverage_RunCycle_EmptySQL(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	a := &analyzer.Analyzer{}
 	a.SetFindings([]analyzer.Finding{
@@ -2164,7 +2164,7 @@ func TestCoverage_RunCycle_EmptySQL(t *testing.T) {
 // findings proceed through trust gating (not blanket-skipped).
 func TestCoverage_RunCycle_InfoSeverityProcessed(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	a := &analyzer.Analyzer{}
 	a.SetFindings([]analyzer.Finding{
@@ -2195,7 +2195,7 @@ func TestCoverage_RunCycle_InfoSeverityProcessed(t *testing.T) {
 // mode blocks all execution.
 func TestCoverage_RunCycle_ShouldExecuteFalse(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	a := &analyzer.Analyzer{}
 	a.SetFindings([]analyzer.Finding{
@@ -2226,7 +2226,7 @@ func TestCoverage_RunCycle_ShouldExecuteFalse(t *testing.T) {
 // cooldown prevents re-execution on the same object.
 func TestCoverage_RunCycle_CascadeCooldownSkips(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	a := &analyzer.Analyzer{}
 	a.SetFindings([]analyzer.Finding{
@@ -2275,7 +2275,7 @@ func TestCoverage_RunCycle_CascadeCooldownSkips(t *testing.T) {
 // when a finding has no matching row in the DB.
 func TestCoverage_RunCycle_NoDBFinding(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	a := &analyzer.Analyzer{}
 	a.SetFindings([]analyzer.Finding{
@@ -2306,7 +2306,7 @@ func TestCoverage_RunCycle_NoDBFinding(t *testing.T) {
 // path where findings are proposed instead of executed.
 func TestCoverage_RunCycle_ApprovalMode(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	// Insert a finding in the DB so lookupFindingID succeeds.
 	var findingID int64
@@ -2378,7 +2378,7 @@ func TestCoverage_RunCycle_ApprovalMode(t *testing.T) {
 
 func TestCoverage_RunCycle_ApprovalModeSkipsExistingPending(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	var findingID int64
 	err := pool.QueryRow(ctx,
@@ -2443,7 +2443,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsExistingPending(t *testing.T) {
 
 func TestCoverage_RunCycle_ApprovalModeSkipsDuplicateSQL(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	var findingID int64
 	err := pool.QueryRow(ctx,
@@ -2510,7 +2510,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsRecentRejection(
 	t *testing.T,
 ) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	var findingID int64
 	err := pool.QueryRow(ctx,
@@ -2578,7 +2578,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsRecentRejection(
 // approval path dispatches an ApprovalNeeded event.
 func TestCoverage_RunCycle_ApprovalModeWithDispatcher(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	var findingID int64
 	err := pool.QueryRow(ctx,
@@ -2649,7 +2649,7 @@ func TestCoverage_RunCycle_ApprovalModeWithDispatcher(t *testing.T) {
 // path when Propose fails in approval mode.
 func TestCoverage_RunCycle_ApprovalModeProposeError(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	var findingID int64
 	err := pool.QueryRow(ctx,
@@ -2721,7 +2721,7 @@ func TestCoverage_RunCycle_ApprovalModeProposeError(t *testing.T) {
 // execution path using ExecInTransaction (non-CONCURRENTLY SQL).
 func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	// Create a test table for the index.
 	_, err := pool.Exec(ctx,
@@ -2810,7 +2810,7 @@ func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 // CONCURRENTLY execution path in RunCycle.
 func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	_, err := pool.Exec(ctx,
 		`CREATE TABLE IF NOT EXISTS public.rc_conc_exec (
@@ -2911,7 +2911,7 @@ func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 // path in RunCycle (table doesn't exist).
 func TestCoverage_RunCycle_ExecFailure(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	var findingID int64
 	err := pool.QueryRow(ctx,
@@ -2987,7 +2987,7 @@ func TestCoverage_RunCycle_ExecFailure(t *testing.T) {
 // execution failure dispatches an ActionFailed event.
 func TestCoverage_RunCycle_ExecFailureWithDispatcher(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	var findingID int64
 	err := pool.QueryRow(ctx,
@@ -3063,7 +3063,7 @@ func TestCoverage_RunCycle_ExecFailureWithDispatcher(t *testing.T) {
 // successful execution dispatches an ActionExecuted event.
 func TestCoverage_RunCycle_SuccessWithDispatcher(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	_, err := pool.Exec(ctx,
 		`CREATE TABLE IF NOT EXISTS public.rc_succ_disp (
@@ -3155,7 +3155,7 @@ func TestCoverage_RunCycle_SuccessWithDispatcher(t *testing.T) {
 // updateActionSuccess branch.
 func TestCoverage_RunCycle_VacuumNoRollback(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	_, err := pool.Exec(ctx,
 		`CREATE TABLE IF NOT EXISTS public.rc_vacuum_tbl (
@@ -3239,7 +3239,7 @@ func TestCoverage_RunCycle_VacuumNoRollback(t *testing.T) {
 // MonitorAndRollback goroutine branch in RunCycle.
 func TestCoverage_RunCycle_WithRollbackSQL(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	_, err := pool.Exec(ctx,
 		`CREATE TABLE IF NOT EXISTS public.rc_rollback_tbl (
@@ -3329,7 +3329,7 @@ func TestCoverage_RunCycle_WithRollbackSQL(t *testing.T) {
 // rolled-back finding is blocked by hysteresis check.
 func TestCoverage_RunCycle_HysteresisBlocks(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	// Insert a finding.
 	var findingID int64
@@ -3422,7 +3422,7 @@ func TestCoverage_RunCycle_HysteresisBlocks(t *testing.T) {
 // ExecuteManual rejects invalid SQL via ValidateExecutorSQL.
 func TestCoverage_ExecuteManual_InvalidSQL(t *testing.T) {
 	pool, ctx := requireDB(t)
-	_ = SetEmergencyStop(ctx, pool, false)
+	_ = SetEmergencyStop(ctx, pool, false, "test")
 
 	cfg := &config.Config{}
 	e := &Executor{
