@@ -797,11 +797,19 @@ provider policy, and an explicit source instance or source branch.</p>
 </ul>
 <h2 id="principals-and-tenant-isolation">Principals and tenant isolation<a class="headerlink" href="#principals-and-tenant-isolation" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Operators and admins</strong> sign in with a session (cookie). They are global
-  operators of this pg_sage install and may act on any tenant. Approvals,
-  live authorizations, destroys, archives and token minting require these
-  roles; every audit actor (<code>approved_by</code>, <code>created_by</code>, <code>reviewed_by</code>) is
-  taken from the signed-in user, not from the request body.</li>
+<li><strong>Operators and admins</strong> sign in with a session (cookie). Humans are
+  global: one pg_sage install serves <strong>one operator team</strong>, and its operators
+  and admins may act on any tenant. Per-user tenant grants are not built; do
+  not share one install between customer teams that must not see or approve
+  each other's databases (see
+  <a href="../reviews/decisions/D4-agentdb-tenancy-and-registration.md">D4</a>).
+  Approvals, live authorizations, destroys, archives and token minting
+  require these roles. Every audit actor is taken from the signed-in user,
+  never from the request body: <code>decided_by</code> on request approve/deny,
+  <code>consumed_by</code> when a request is provisioned, and <code>approved_by</code>,
+  <code>created_by</code> and <code>reviewed_by</code> on blueprints, templates and deploy
+  requests. A request that request policy approved or denied at creation
+  has <code>decided_by: "policy"</code>.</li>
 <li><strong>Agents</strong> never use operator cookies. An admin mints a tenant-bound agent
   token for an <code>agent_identities</code> row
   (<code>POST /api/v1/agent-dbs/identities/{agent_id}/tokens</code>). The agent calls
@@ -852,40 +860,74 @@ agent token routes described above.</p>
 <a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="s1">  }'</span>
 </code></pre></div>
 <ol>
-<li>Register or provision the deployment after approval:</li>
+<li>Provision the approved request. This consumes the approval: a request
+produces exactly one deployment, and the request records
+<code>consumed_deployment_id</code>, <code>consumed_by</code> and <code>consumed_at</code>. Reusing it returns
+HTTP <code>409</code>, as does a body <code>tenant_id</code>, <code>agent_id</code>, <code>provider</code> or
+<code>provisioning_level</code> that does not match the request. <code>size_profile_id</code>,
+<code>schema_name</code>, <code>secret_ref</code> and <code>secret_ref_provider</code> are taken from the body;
+tenant, agent, provider, isolation level and budget come from the request.</li>
 </ol>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/agent-dbs<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/agent-dbs/requests/<span class="nv">$REQUEST_ID</span>/provision<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">'{</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="s1">    "deployment_id": "adb_orders_run_001",</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="s1">    "tenant_id": "tenant_acme",</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="s1">    "agent_id": "agent_orders_builder",</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="s1">    "provider": "local_postgres",</span>
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="s1">    "provisioning_level": "schema",</span>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="s1">    "schema_name": "agent_orders_001",</span>
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="s1">    "lease_seconds": 7200,</span>
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="s1">    "budget_usd": 25,</span>
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="s1">    "metadata": {</span>
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="s1">      "workload_types": ["jsonb", "vector"],</span>
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="s1">      "extensions": ["pgvector"]</span>
-<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="s1">    }</span>
-<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="s1">  }'</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="s1">    "deployment_id": "adb_orders_cloud_001",</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="s1">    "size_profile_id": "cloudsql_instance_s",</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="s1">    "secret_ref": "env:PG_SAGE_AGENTDB_ORDERS_DSN",</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="s1">    "secret_ref_provider": "env",</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="s1">    "lease_seconds": 7200</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="s1">  }'</span>
+</code></pre></div>
+<p><code>POST /api/v1/agent-dbs</code> with a cloud provider (<code>aws_rds</code>, <code>gcp_cloudsql</code>,
+<code>databricks_lakebase</code>, <code>neon</code>, <code>supabase</code>) requires <code>request_id</code> and consumes
+that request the same way; without it the call returns HTTP <code>409</code>
+<code>approved request required</code>. Deployments registered before this change are
+left as they are.</p>
+<p>Blueprints and Terraform templates follow the same rule. Approving a
+blueprint or template records a reviewed design (<code>approved_by</code>); it is not
+permission to spend. <code>POST /api/v1/agent-dbs/blueprints/{id}/provision</code> and
+<code>POST /api/v1/agent-dbs/terraform-templates/{id}/provision</code> for a cloud
+provider require a signed-in user and a <code>request_id</code> for an approved, unused
+request whose tenant, agent, provider and level match. The request is
+consumed exactly once, its owner and budget are used, and the
+<code>request_consumed</code> audit event records the request's <code>decided_by</code>, the
+consumer and the design's approver. Without <code>request_id</code> these routes return
+HTTP <code>409</code> <code>approved request required</code>.</p>
+<p><code>local_postgres</code> schema and database registers keep the
+direct path below; their DDL is still gated by
+<code>PG_SAGE_AGENTDB_LOCAL_PROVISIONING</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/agent-dbs<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">'{</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="s1">    "deployment_id": "adb_orders_run_001",</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="s1">    "tenant_id": "tenant_acme",</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="s1">    "agent_id": "agent_orders_builder",</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="s1">    "provider": "local_postgres",</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="s1">    "provisioning_level": "schema",</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="s1">    "schema_name": "agent_orders_001",</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="s1">    "lease_seconds": 7200,</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="s1">    "budget_usd": 25,</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="s1">    "metadata": {</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="s1">      "workload_types": ["jsonb", "vector"],</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="s1">      "extensions": ["pgvector"]</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="s1">    }</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="s1">  }'</span>
 </code></pre></div>
 <ol>
 <li>Mint a ping token. The bearer token is returned once.</li>
 </ol>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/agent-dbs/adb_orders_run_001/ping-tokens<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">'{"agent_id":"agent_orders_builder","expires_seconds":86400}'</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>curl<span class="w"> </span>-b<span class="w"> </span>cookies.txt<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/agent-dbs/adb_orders_run_001/ping-tokens<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">'{"agent_id":"agent_orders_builder","expires_seconds":86400}'</span>
 </code></pre></div>
 <ol>
 <li>Ping from the agent runtime. This route intentionally bypasses session auth
 and relies on the bearer ping token.</li>
 </ol>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>curl<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$PING_TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/agent-dbs/adb_orders_run_001/agent-ping<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">'{"status":"active","metrics":{"tokens":12000,"queries":48}}'</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>curl<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$PING_TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:8080/api/v1/agent-dbs/adb_orders_run_001/agent-ping<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--data<span class="w"> </span><span class="s1">'{"status":"active","metrics":{"tokens":12000,"queries":48}}'</span>
 </code></pre></div>
 <h2 id="token-lifecycle">Token Lifecycle<a class="headerlink" href="#token-lifecycle" title="Permanent link">&para;</a></h2>
 <p>Ping tokens are scoped to one deployment and one agent. pg_sage stores only a
@@ -963,12 +1005,12 @@ claims such as <code>approved</code>, estimated cost, actor, policy, or override
 grant authority.</p>
 <h2 id="tuning-hints-and-query-recommendations">Tuning, Hints, and Query Recommendations<a class="headerlink" href="#tuning-hints-and-query-recommendations" title="Permanent link">&para;</a></h2>
 <p>Use deployment metadata to publish tuning context:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">"metadata"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">"workload_types"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"vector"</span><span class="p">,</span><span class="w"> </span><span class="s2">"postgis"</span><span class="p">,</span><span class="w"> </span><span class="s2">"jsonb"</span><span class="p">],</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">"extensions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"pgvector"</span><span class="p">,</span><span class="w"> </span><span class="s2">"postgis"</span><span class="p">]</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="p">}</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="p">}</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">"metadata"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nt">"workload_types"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"vector"</span><span class="p">,</span><span class="w"> </span><span class="s2">"postgis"</span><span class="p">,</span><span class="w"> </span><span class="s2">"jsonb"</span><span class="p">],</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nt">"extensions"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"pgvector"</span><span class="p">,</span><span class="w"> </span><span class="s2">"postgis"</span><span class="p">]</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="p">}</span>
 </code></pre></div>
 <p><code>GET /api/v1/agent-dbs/{id}/tuning-hints</code> returns extension, vector, PostGIS,
 and JSONB tuning hints. <code>POST /api/v1/agent-dbs/{id}/recommendations</code> publishes
@@ -1011,41 +1053,41 @@ commands are documented in
 <a href="../runbooks/agentdb-cloud-provider-setup/">AgentDB Cloud Provider Setup</a>.</p>
 <h2 id="local-ui-verification">Local UI Verification<a class="headerlink" href="#local-ui-verification" title="Permanent link">&para;</a></h2>
 <p>The deterministic walkthrough fixture is the safest local smoke target:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nb">Set-Location</span> <span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">docker</span> <span class="n">compose</span> <span class="o">-f</span> <span class="p">.\</span><span class="n">docker-compose</span><span class="p">.</span><span class="n">test</span><span class="p">.</span><span class="n">yml</span> <span class="n">up</span> <span class="n">-d</span> <span class="n">pg-target</span> <span class="n">pg-target</span><span class="p">-</span><span class="n">2</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">powershell</span> <span class="n">-ExecutionPolicy</span> <span class="n">Bypass</span> <span class="p">`</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>  <span class="o">-File</span> <span class="p">.\</span><span class="nb">test-fixtures</span><span class="p">\</span><span class="n">full_surface</span><span class="p">\</span><span class="n">run_walkthrough_fixture</span><span class="p">.</span><span class="n">ps1</span> <span class="p">`</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>  <span class="n">-SkipTests</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nb">Set-Location</span> <span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">docker</span> <span class="n">compose</span> <span class="o">-f</span> <span class="p">.\</span><span class="n">docker-compose</span><span class="p">.</span><span class="n">test</span><span class="p">.</span><span class="n">yml</span> <span class="n">up</span> <span class="n">-d</span> <span class="n">pg-target</span> <span class="n">pg-target</span><span class="p">-</span><span class="n">2</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">powershell</span> <span class="n">-ExecutionPolicy</span> <span class="n">Bypass</span> <span class="p">`</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>  <span class="o">-File</span> <span class="p">.\</span><span class="nb">test-fixtures</span><span class="p">\</span><span class="n">full_surface</span><span class="p">\</span><span class="n">run_walkthrough_fixture</span><span class="p">.</span><span class="n">ps1</span> <span class="p">`</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>  <span class="n">-SkipTests</span>
 </code></pre></div>
 <p>It leaves the app running here:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>URL:      http://127.0.0.1:18085
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>Email:    admin@pg-sage.local
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>Password: CodexVerify123!
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>URL:      http://127.0.0.1:18085
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>Email:    admin@pg-sage.local
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>Password: CodexVerify123!
 </code></pre></div>
 <p>Manual API smoke:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nv">$body</span> <span class="p">=</span> <span class="p">@{</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>  <span class="n">email</span> <span class="p">=</span> <span class="s2">"admin@pg-sage.local"</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>  <span class="n">password</span> <span class="p">=</span> <span class="s2">"CodexVerify123!"</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="p">}</span> <span class="p">|</span> <span class="nb">ConvertTo-Json</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="nb">Invoke-WebRequest</span> <span class="n">-UseBasicParsing</span> <span class="p">`</span>
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>  <span class="n">-Uri</span> <span class="s2">"http://127.0.0.1:18085/api/v1/auth/login"</span> <span class="p">`</span>
-<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>  <span class="n">-Method</span> <span class="n">Post</span> <span class="p">`</span>
-<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>  <span class="n">-ContentType</span> <span class="s2">"application/json"</span> <span class="p">`</span>
-<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>  <span class="n">-Body</span> <span class="nv">$body</span> <span class="p">`</span>
-<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>  <span class="n">-SessionVariable</span> <span class="n">session</span>
-<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>
-<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="nb">Invoke-WebRequest</span> <span class="n">-UseBasicParsing</span> <span class="p">`</span>
-<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>  <span class="n">-Uri</span> <span class="s2">"http://127.0.0.1:18085/api/v1/agent-dbs"</span> <span class="p">`</span>
-<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>  <span class="n">-WebSession</span> <span class="nv">$session</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nv">$body</span> <span class="p">=</span> <span class="p">@{</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>  <span class="n">email</span> <span class="p">=</span> <span class="s2">"admin@pg-sage.local"</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>  <span class="n">password</span> <span class="p">=</span> <span class="s2">"CodexVerify123!"</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="p">}</span> <span class="p">|</span> <span class="nb">ConvertTo-Json</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="nb">Invoke-WebRequest</span> <span class="n">-UseBasicParsing</span> <span class="p">`</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>  <span class="n">-Uri</span> <span class="s2">"http://127.0.0.1:18085/api/v1/auth/login"</span> <span class="p">`</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>  <span class="n">-Method</span> <span class="n">Post</span> <span class="p">`</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>  <span class="n">-ContentType</span> <span class="s2">"application/json"</span> <span class="p">`</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>  <span class="n">-Body</span> <span class="nv">$body</span> <span class="p">`</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>  <span class="n">-SessionVariable</span> <span class="n">session</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>
+<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="nb">Invoke-WebRequest</span> <span class="n">-UseBasicParsing</span> <span class="p">`</span>
+<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>  <span class="n">-Uri</span> <span class="s2">"http://127.0.0.1:18085/api/v1/agent-dbs"</span> <span class="p">`</span>
+<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a>  <span class="n">-WebSession</span> <span class="nv">$session</span>
 </code></pre></div>
 <p>For Playwright against the fixture:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nb">Set-Location</span> <span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span><span class="p">\</span><span class="n">sidecar</span><span class="p">\</span><span class="n">web</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nv">$env:PG_SAGE_ADMIN_EMAIL</span> <span class="p">=</span> <span class="s2">"admin@pg-sage.local"</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nv">$env:PG_SAGE_ADMIN_PASS</span> <span class="p">=</span> <span class="s2">"CodexVerify123!"</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="nv">$env:PG_SAGE_E2E_BASE_URL</span> <span class="p">=</span> <span class="s2">"http://127.0.0.1:18085"</span>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="nv">$env:PG_SAGE_E2E_FIXTURES</span> <span class="p">=</span> <span class="s2">"1"</span>
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="n">npm</span> <span class="n">run</span> <span class="n">test</span><span class="p">:</span><span class="n">e2e</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nb">Set-Location</span> <span class="n">C</span><span class="p">:\</span><span class="n">Users</span><span class="p">\</span><span class="n">jmass</span><span class="p">\</span><span class="n">pg_sage</span><span class="p">\</span><span class="n">sidecar</span><span class="p">\</span><span class="n">web</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="nv">$env:PG_SAGE_ADMIN_EMAIL</span> <span class="p">=</span> <span class="s2">"admin@pg-sage.local"</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="nv">$env:PG_SAGE_ADMIN_PASS</span> <span class="p">=</span> <span class="s2">"CodexVerify123!"</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="nv">$env:PG_SAGE_E2E_BASE_URL</span> <span class="p">=</span> <span class="s2">"http://127.0.0.1:18085"</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="nv">$env:PG_SAGE_E2E_FIXTURES</span> <span class="p">=</span> <span class="s2">"1"</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="n">npm</span> <span class="n">run</span> <span class="n">test</span><span class="p">:</span><span class="n">e2e</span>
 </code></pre></div>
 
 

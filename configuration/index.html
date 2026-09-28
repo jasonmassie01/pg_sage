@@ -479,6 +479,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#maintenance-windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintenance windows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#llm" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -505,6 +516,34 @@
     <span class="md-ellipsis">
       
         Agent-native autonomy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agent-native autonomy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#retention-contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retention contracts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#load-admission-for-autonomous-index-builds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Load admission for autonomous index builds
       
     </span>
   </a>
@@ -829,6 +868,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#maintenance-windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintenance windows
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#llm" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -855,6 +905,34 @@
     <span class="md-ellipsis">
       
         Agent-native autonomy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agent-native autonomy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#retention-contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retention contracts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#load-admission-for-autonomous-index-builds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Load admission for autonomous index builds
       
     </span>
   </a>
@@ -1030,7 +1108,7 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>
 <a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="nt">trust</span><span class="p">:</span>
 <a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">  </span><span class="nt">level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">observation</span><span class="w">             </span><span class="c1"># observation | advisory | autonomous</span>
-<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">  </span><span class="nt">maintenance_window</span><span class="p">:</span><span class="w"> </span><span class="s">"0</span><span class="nv"> </span><span class="s">2</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*"</span><span class="w">  </span><span class="c1"># cron expression for autonomous actions</span>
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">  </span><span class="nt">maintenance_window</span><span class="p">:</span><span class="w"> </span><span class="s">"weeknights"</span><span class="w">  </span><span class="c1"># see "Maintenance windows" below</span>
 <a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">  </span><span class="nt">ramp_start</span><span class="p">:</span><span class="w"> </span><span class="s">""</span><span class="w">                 </span><span class="c1"># Auto-persisted on first start; set to override</span>
 <a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>
 <a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="nt">llm</span><span class="p">:</span>
@@ -1128,6 +1206,11 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <td><code>600</code></td>
 <td>Seconds between analysis cycles</td>
 </tr>
+<tr>
+<td><code>rca.lock_chain_interval_seconds</code></td>
+<td><code>60</code></td>
+<td>Seconds between lock-chain fast-path checks. Each check opens or updates the <code>lock_contention</code> incident (with the root blocker's pid, <code>backend_start</code> and query identity) and sends <code>incident_detected</code> without waiting for the analyzer cycle. <code>0</code> disables the fast path; otherwise <code>10</code>-<code>3600</code>. Escalation and auto-resolution still count analyzer cycles. Restart to change</td>
+</tr>
 </tbody>
 </table>
 <h3 id="trust-actions">Trust &amp; Actions<a class="headerlink" href="#trust-actions" title="Permanent link">&para;</a></h3>
@@ -1148,7 +1231,7 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <tr>
 <td><code>trust.maintenance_window</code></td>
 <td>(none)</td>
-<td>Cron expression restricting when autonomous actions run</td>
+<td>When autonomous MODERATE actions may run; see <a href="#maintenance-windows">Maintenance windows</a>. Unset or <code>never</code> closes the window</td>
 </tr>
 <tr>
 <td><code>trust.ramp_start</code></td>
@@ -1186,6 +1269,53 @@ applies the table above. Trust never promotes <code>manual</code> to <code>auto<
 <p>HIGH-risk actions always require manual confirmation regardless of trust level.
 Plain CREATE/DROP/REINDEX and <code>VACUUM FULL</code> do not satisfy the typed background
 contracts; concurrent or non-FULL forms are required.</p>
+<h3 id="maintenance-windows">Maintenance windows<a class="headerlink" href="#maintenance-windows" title="Permanent link">&para;</a></h3>
+<p><code>trust.maintenance_window</code> and the standing policy's <code>maintenance_windows</code>
+use one grammar. An invalid value is rejected when the config is loaded,
+reloaded or saved.</p>
+<table>
+<thead>
+<tr>
+<th>Form</th>
+<th>Example</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Always</td>
+<td><code>always</code>, <code>24x7</code></td>
+<td>Every minute</td>
+</tr>
+<tr>
+<td>Preset</td>
+<td><code>nights</code>, <code>weeknights</code>, <code>weekends</code>, <code>weekdays</code>, <code>business-hours</code>, <code>off-hours</code></td>
+<td><code>daily 22:00-06:00</code>, <code>weekdays 22:00-06:00</code>, all day Sat-Sun, all day Mon-Fri, <code>weekdays 09:00-17:00</code>, <code>daily 20:00-08:00</code></td>
+</tr>
+<tr>
+<td>Days</td>
+<td><code>sat,sun</code>, <code>Mon-Fri</code>, <code>daily</code></td>
+<td>All day on those days (names are case-insensitive; <code>fri-mon</code> wraps)</td>
+</tr>
+<tr>
+<td>Time range</td>
+<td><code>22:00-02:00</code>, <code>weekdays 01:00-05:00</code></td>
+<td>A range that ends before it starts wraps midnight and belongs to the day it starts on: <code>weeknights</code> includes Friday night into Saturday morning, not Sunday night</td>
+</tr>
+<tr>
+<td>Cron</td>
+<td><code>0 2 * * *</code>, <code>0 2 * * 1-5 @30m</code></td>
+<td>Five fields with lists, ranges and steps. Each matching minute opens a one-hour window unless <code>@&lt;duration&gt;</code> (whole minutes, <code>@1m</code> to <code>@24h</code>) says otherwise</td>
+</tr>
+<tr>
+<td>Time zone</td>
+<td><code>weekdays 01:00-05:00 America/Chicago</code></td>
+<td>A trailing IANA zone evaluates the window on that zone's clock, including DST. Without one, the process clock (UTC in the container) is used. <code>Local</code> is refused as ambiguous</td>
+</tr>
+</tbody>
+</table>
+<p><code>never</code>, <code>off</code>, <code>none</code> and <code>disabled</code> are accepted only for
+<code>trust.maintenance_window</code>; a policy always names at least one window.</p>
 <h3 id="llm">LLM<a class="headerlink" href="#llm" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -1241,6 +1371,11 @@ contracts; concurrent or non-FULL forms are required.</p>
 <td><code>3</code></td>
 <td>Max new indexes per table per cycle</td>
 </tr>
+<tr>
+<td><code>rca.narration_enabled</code></td>
+<td><code>false</code></td>
+<td>Let the LLM rewrite the summary on <code>incident_detected</code> and <code>incident_escalated</code> notifications. The model can only read the incident's own evidence: its causal chain (<code>E#</code>), the results of the fixed read-only catalog probes run for it (<code>P#</code>, also readable with <code>get_probe_result</code>) and the deterministic causal-graph hypotheses (<code>H#</code>). It writes no SQL and has no database access. It answers with claims; each must cite evidence ids, and every number in a claim must appear in the evidence that claim cites. Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. <code>llm.enabled=false</code> is the hot kill switch and cancels narrations in flight</td>
+</tr>
 </tbody>
 </table>
 <h3 id="web-ui-and-api-authentication">Web UI and API Authentication<a class="headerlink" href="#web-ui-and-api-authentication" title="Permanent link">&para;</a></h3>
@@ -1264,6 +1399,157 @@ grant authority.</p>
 overrides for XID and disk emergencies. Use <code>staffed</code> for narrow maintenance
 windows without deadline overrides. Clone-backed migration rehearsal defaults
 to disabled (<code>clone.provider: none</code>) and stale clones are recommendation-only.</p>
+<p>The standing policy document also carries three safety fields, all enforced:</p>
+<ul>
+<li><code>refusal_set</code>: actions pg_sage never runs on its own. A refused action is
+  queued for approval with reason <code>refused_by_policy</code> (the token is in the
+  detail); an operator approval runs it. Tokens: <code>rls_change</code> (row-level
+  security or its policies), <code>grant_expansion</code> (GRANT, ALTER ROLE, OWNER TO,
+  ALTER DEFAULT PRIVILEGES), <code>major_upgrade</code> (major or extension upgrades),
+  <code>non_dup_object_drop</code> (dropping a table, column, constraint, sequence,
+  schema or replication slot; index drops are rebuildable and are not
+  refused) and <code>unrollbackable</code> (rollback class <code>not_reversible</code> or
+  <code>forward_fix_only</code>, unless the action is a retention delete on the column
+  the owner declared as the contract's <code>retention.column</code>; see <a href="#retention-contracts">Retention
+  contracts</a>). Unknown tokens are rejected.</li>
+<li><code>lock_duration_ceiling_ms</code>: caps <code>lock_timeout</code> for DDL that runs inside a
+  transaction at the smaller of the ceiling and <code>safety.lock_timeout_ms</code>.
+  <code>CONCURRENTLY</code> builds keep <code>safety.lock_timeout_ms</code>, because they wait on
+  older transactions by design. <code>0</code> means no ceiling.</li>
+<li><code>serialize_mode</code>: <code>park</code> (both profiles). When another writer holds the
+  DDL lease for the same object, the action is parked with reason
+  <code>ddl_conflict</code> and retried next cycle. A park is not a failure: it does not
+  count toward the retry limit or the self-initiated rate limit. <code>queue</code> is
+  accepted and currently behaves like <code>park</code> (the action waits for the next
+  cycle, not for the lease holder).</li>
+</ul>
+<h4 id="retention-contracts">Retention contracts<a class="headerlink" href="#retention-contracts" title="Permanent link">&para;</a></h4>
+<p>The only way pg_sage deletes user rows is a retention contract declared with the
+MCP tool <code>declare_table_contract</code>. The owner names both the window and the column
+whose age defines it; pg_sage never infers the column:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span><span class="nt">"table"</span><span class="p">:</span><span class="w"> </span><span class="s2">"public.events"</span><span class="p">,</span><span class="w"> </span><span class="nt">"append_only"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w"> </span><span class="nt">"retention"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"interval"</span><span class="p">:</span><span class="w"> </span><span class="s2">"90 days"</span><span class="p">,</span><span class="w"> </span><span class="nt">"column"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ingested_at"</span><span class="p">}}</span>
+</code></pre></div>
+<ul>
+<li><code>retention.column</code> is required whenever <code>retention.interval</code> is set. It must
+  exist, not be dropped, and be <code>timestamptz</code>, <code>timestamp</code> or <code>date</code>. On a
+  partitioned table a column that is not the partition key is accepted with a
+  warning: each retention batch then scans every partition.</li>
+<li>A contract without a usable column parks (deletes nothing). The ledger reason
+  shows pg_sage's suggested column, for example <code>retention column not declared;
+  suggested: created_at — re-declare the contract with retention.column to
+  enable deletes</code>.</li>
+<li>The first cycle is always a dry run. Deletion starts only after a dry run at
+  least 24 hours old (and at most 7 days) for the same table (by OID), column
+  (by attnum and type), contract version and window. Renaming or swapping the
+  column, rebuilding the table, re-declaring the contract, or the eligible row
+  count growing past 2x + 100 of the reviewed dry run starts a new dry run.</li>
+<li>Each batch deletes at most 1,000 rows under a <code>ROW EXCLUSIVE</code> table lock, after
+  re-checking the column identity in the same transaction, and requires standing
+  policy consent to the <code>retention</code> change class.</li>
+</ul>
+<h3 id="load-admission-for-autonomous-index-builds">Load admission for autonomous index builds<a class="headerlink" href="#load-admission-for-autonomous-index-builds" title="Permanent link">&para;</a></h3>
+<p>Autonomous <code>CREATE INDEX CONCURRENTLY</code> and custodian index proposals (for
+example FK supporting indexes) start only when load evidence says the host is
+quiet. pg_sage measures IO itself from Postgres, every minute, with no cloud
+credentials:</p>
+<ul>
+<li>Data IO: <code>pg_stat_io</code> reads, writes and extends of relation data (PG16+;
+  PG18 byte columns). On PG14/15, <code>pg_stat_database.blks_read</code> plus the
+  buffers written by the checkpointer, bgwriter and backends
+  (<code>pg_stat_bgwriter</code>), times <code>block_size</code>. <code>blks_read</code> also counts reads served
+  by the OS page cache, so on PG14/15 the rate over-states device reads; the
+  learned baseline compares the database with itself, which keeps the bias
+  consistent.</li>
+<li>WAL: <code>pg_stat_wal.wal_bytes</code> (PG14+). PostgreSQL 13 and older have no IO
+  evidence, so admission stays withheld.</li>
+</ul>
+<p>A statistics reset, or any counter that goes backwards, discards that interval.
+It is never read as a quiet period.</p>
+<p>Admission uses one of two evidence modes:</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>When</th>
+<th>Admits when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>declared_capacity</code></td>
+<td><code>verify.io_capacity</code> (standalone) or <code>databases[].verify.io_capacity</code> (fleet) is set</td>
+<td>data and WAL throughput are at or below <code>safety.data_io_ceiling_pct</code> / <code>safety.wal_io_ceiling_pct</code> of the declared MiB/s</td>
+</tr>
+<tr>
+<td><code>learned_baseline</code></td>
+<td>no declared capacity and <code>verify.io_baseline_days</code> &gt; 0</td>
+<td>after that many days of observation, current data and WAL rates are at or below the learned median (p50)</td>
+</tr>
+</tbody>
+</table>
+<p>Host CPU is used when a provider reader supplies it (Supabase with
+<code>SAGE_SUPABASE_OBSERVABILITY_TOKEN</code>) and must be at or below
+<code>safety.cpu_ceiling_pct</code>. When CPU is unavailable, admission is granted only
+while the maintenance window is open (<code>trust.maintenance_window</code> and the
+standing policy's windows, evaluated as the policy gate does).</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>verify.io_baseline_days</code></td>
+<td><code>7</code></td>
+<td>Days of observation before the learned baseline can admit. <code>0</code> disables the learned baseline</td>
+</tr>
+<tr>
+<td><code>verify.io_sample_retention_days</code></td>
+<td><code>14</code></td>
+<td>Days of rate samples kept in <code>sage.io_rate_sample</code>; the rolling baseline covers this window. Must be at least <code>io_baseline_days</code></td>
+</tr>
+<tr>
+<td><code>verify.io_capacity.read_write_mbps</code></td>
+<td>(none)</td>
+<td>Standalone only. Declared data read+write throughput in MiB/s</td>
+</tr>
+<tr>
+<td><code>verify.io_capacity.wal_mbps</code></td>
+<td>(none)</td>
+<td>Standalone only. Declared WAL throughput in MiB/s</td>
+</tr>
+<tr>
+<td><code>databases[].verify.io_capacity</code></td>
+<td>(none)</td>
+<td>Fleet: the same attestation per database. A fleet-wide <code>verify.io_capacity</code> is rejected</td>
+</tr>
+<tr>
+<td><code>safety.data_io_ceiling_pct</code></td>
+<td><code>70</code></td>
+<td>Data IO ceiling, percent of declared capacity. Independent of <code>cpu_ceiling_pct</code></td>
+</tr>
+<tr>
+<td><code>safety.wal_io_ceiling_pct</code></td>
+<td><code>70</code></td>
+<td>WAL IO ceiling, percent of declared capacity. Independent of <code>cpu_ceiling_pct</code></td>
+</tr>
+</tbody>
+</table>
+<p>Declared capacity is an operator attestation and overrides the learned
+baseline. Declare only what the volume really provides (for example the
+provisioned throughput of the EBS/PD/Azure disk). Meta-mode databases use the
+learned baseline only.</p>
+<p>Each decision records the evidence mode, rates, capacity or baseline in
+<code>sage.decision.evidence.load_admission</code>. A withheld build is recorded once per
+finding and reason in <code>sage.admission_withheld</code> instead of a failed action on
+every cycle. <code>GET /api/v1/admission</code> (optionally <code>?database=</code>) and
+<code>GET /api/v1/admission/{name}</code> report each database's mode, reason and
+baseline progress; the dashboard shows them on the Actions page and in the
+Overview provider-readiness tab.</p>
 <h3 id="retention">Retention<a class="headerlink" href="#retention" title="Permanent link">&para;</a></h3>
 <table>
 <thead>

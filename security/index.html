@@ -653,6 +653,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sso-account-linking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SSO Account Linking
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#tls" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1011,6 +1022,17 @@
     <span class="md-ellipsis">
       
         Session Authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sso-account-linking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SSO Account Linking
       
     </span>
   </a>
@@ -1388,6 +1410,47 @@ first startup against a metadata database with no users, pg_sage creates
 </code></pre></div>
 <p><code>SAGE_API_KEY</code> is a legacy config field and does not secure the current v1
 web/API path.</p>
+<h3 id="sso-account-linking">SSO Account Linking<a class="headerlink" href="#sso-account-linking" title="Permanent link">&para;</a></h3>
+<p>SSO users are matched on the identity provider's issuer and subject, never on
+email. A first SSO sign-in whose verified email belongs to an existing account
+is refused (HTTP <code>403</code>) until the account is linked by one of these explicit
+acts:</p>
+<ul>
+<li><strong>Link SSO (self-service).</strong> A user signed in with a password opens their
+  account page (click their email in the sidebar, <code>#/profile</code>) and chooses
+  <strong>Link SSO</strong>. <code>GET /api/v1/auth/oauth/authorize?intent=link</code> requires that
+  session. After the provider sign-in, the identity is bound to the signed-in
+  user if the provider asserts <code>email_verified</code>, the verified email equals the
+  account email (case-insensitive), the account has no identity yet, and the
+  identity is not bound to another account. Otherwise the callback returns
+  <code>409</code> (or <code>401</code> for an unverified email). The account keeps its id, role and
+  password.</li>
+<li><strong>One-time link grant (admin).</strong> For a user who cannot sign in with a
+  password, an admin issues a grant with
+  <code>POST /api/v1/users/{id}/oidc-link-grant</code> or <strong>Issue SSO link</strong> on the Users
+  page. The response carries a token once; the dashboard shows it as a
+  <code>#/link-sso?grant=...</code> link. The grant works once, expires after 15 minutes,
+  is replaced by a newer grant for the same user, and is stored only as a
+  SHA-256 hash. The holder opens the link, which calls
+  <code>POST /api/v1/auth/oauth/link-grant</code>, then signs in at the provider; the
+  same email and uniqueness checks apply.</li>
+<li><strong>SSO-only users.</strong> <code>POST /api/v1/users</code> with <code>"sso_only": true</code> and no
+  password creates an account without a password. It cannot sign in until an
+  admin issues it a link grant.</li>
+</ul>
+<p>An admin removes a link with <code>DELETE /api/v1/users/{id}/oidc</code> (<strong>Unlink SSO</strong>
+on the Users page); this also ends the user's sessions. <code>GET /api/v1/users</code>
+reports <code>sso_linked</code>, <code>sso_issuer</code> and <code>password_login</code> for each user, and
+<code>GET /api/v1/auth/sso</code> reports the signed-in user's own status. Link, unlink,
+grant issue and grant use are recorded in <code>sage.auth_audit</code> with the acting and
+target user ids; audit rows never contain emails or grant tokens.</p>
+<p>The callback is a browser navigation, so when the request accepts HTML a
+failure redirects to the dashboard with an <code>sso_error</code> code
+(<code>link_required</code>, <code>link_conflict</code>, <code>unverified</code> or <code>failed</code>) that the login
+page, or the account page for a signed-in link, shows as a message. Other
+clients receive the JSON status (<code>403</code>, <code>409</code> or <code>401</code>). The grant landing
+page removes the grant from the address and browser history as soon as it
+reads it.</p>
 <h3 id="tls">TLS<a class="headerlink" href="#tls" title="Permanent link">&para;</a></h3>
 <p>pg_sage currently serves HTTP. Terminate TLS at a reverse proxy, Kubernetes
 Ingress, Cloud Run, load balancer, or other trusted edge. Restrict direct access
