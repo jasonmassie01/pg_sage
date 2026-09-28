@@ -30,6 +30,9 @@ const (
 	AutovacuumWraparound ID = "autovacuum_wraparound"
 	VacuumProgress       ID = "vacuum_progress"
 	PlanRegressions      ID = "plan_regressions"
+	// M2: archiver health and pg_sage's own recent actions.
+	Archiver    ID = "archiver"
+	SageActions ID = "sage_actions"
 )
 
 // Probe families.
@@ -40,6 +43,7 @@ const (
 	FamilyWAL         = "wal_checkpoint"
 	FamilyVacuum      = "vacuum_wraparound"
 	FamilyPlans       = "plan_regression"
+	FamilyChange      = "change"
 )
 
 // Hard ceilings (Codex §8). A spec may be stricter, never looser.

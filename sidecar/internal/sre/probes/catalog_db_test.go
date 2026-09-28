@@ -242,7 +242,9 @@ func TestCatalog_IdleInTransactionSession(t *testing.T) {
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
-	time.Sleep(1100 * time.Millisecond)
+	// The server's clock can advance slower than the host's under Docker
+	// Desktop; 1.1 s of host sleep measured 1.0 s server-side.
+	time.Sleep(1500 * time.Millisecond)
 	xacts, err := LongXacts(NewRunner(pool, Catalog(), NewLimiter(1)).Run(ctx,
 		LongTransactions, Args{}))
 	if err != nil {

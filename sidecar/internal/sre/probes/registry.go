@@ -16,7 +16,8 @@ type Registry struct {
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
 var knownFamilies = map[string]bool{FamilyLocks: true, FamilyConnections: true,
-	FamilyReplication: true, FamilyWAL: true, FamilyVacuum: true, FamilyPlans: true}
+	FamilyReplication: true, FamilyWAL: true, FamilyVacuum: true, FamilyPlans: true,
+	FamilyChange: true}
 
 // NewRegistry validates specs against the hard ceilings and returns an
 // immutable registry. Duplicate ids are rejected.
@@ -111,6 +112,7 @@ func catalogSpecs() []Spec {
 		preparedXactsSpec(), backendIdentitySpec(), connectionSaturationSpec(),
 		replicationLagSpec(), replicationSlotsSpec(), walCheckpointSpec(),
 		autovacuumWraparoundSpec(), vacuumProgressSpec(), planRegressionsSpec(),
+		archiverSpec(), sageActionsSpec(),
 	}
 }
 

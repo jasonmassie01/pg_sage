@@ -6,7 +6,7 @@ import "fmt"
 // cluster-wide where the limit is (max_connections, WAL, slots) and are
 // labeled with whether they belong to the current database.
 
-const connectionSaturationSQL = `/* pg_sage sre:connection_saturation v1 */
+const connectionSaturationSQL = `/* pg_sage sre:connection_saturation v2 */
 WITH c AS (
     SELECT a.datname = pg_catalog.current_database() AS in_current_database,
            pg_catalog.left(COALESCE(a.application_name, ''), 64) AS application_name,
@@ -22,7 +22,8 @@ SELECT c.in_current_database, c.application_name, c.client_addr, c.state,
        pg_catalog.current_setting('max_connections')::int8 AS max_connections,
        pg_catalog.current_setting('superuser_reserved_connections')::int8
            AS reserved_connections,
-       t.total AS total_client_backends
+       t.total AS total_client_backends,
+       pg_catalog.pg_postmaster_start_time() AS server_started_at
 FROM c CROSS JOIN t
 GROUP BY c.in_current_database, c.application_name, c.client_addr, c.state, t.total
 ORDER BY backends DESC, c.application_name, c.client_addr, c.state
@@ -92,9 +93,13 @@ SELECT c.num_timed::int8 AS timed_checkpoints,
 FROM pg_catalog.pg_stat_checkpointer c CROSS JOIN pg_catalog.pg_stat_wal w
 LIMIT $1`
 
+// connectionSaturationSpec is v2: M2 added the server start time, so a
+// restart between two samples invalidates their comparison.
 func connectionSaturationSpec() Spec {
-	return spec(ConnectionSaturation, FamilyConnections, ArgsNone,
+	s := spec(ConnectionSaturation, FamilyConnections, ArgsNone,
 		Variant{MinVersion: 140000, SQL: connectionSaturationSQL})
+	s.Version = "v2"
+	return s
 }
 
 func replicationLagSpec() Spec {
