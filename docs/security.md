@@ -182,6 +182,14 @@ reports `sso_linked`, `sso_issuer` and `password_login` for each user, and
 grant issue and grant use are recorded in `sage.auth_audit` with the acting and
 target user ids; audit rows never contain emails or grant tokens.
 
+The callback is a browser navigation, so when the request accepts HTML a
+failure redirects to the dashboard with an `sso_error` code
+(`link_required`, `link_conflict`, `unverified` or `failed`) that the login
+page, or the account page for a signed-in link, shows as a message. Other
+clients receive the JSON status (`403`, `409` or `401`). The grant landing
+page removes the grant from the address and browser history as soon as it
+reads it.
+
 ### TLS
 
 pg_sage currently serves HTTP. Terminate TLS at a reverse proxy, Kubernetes

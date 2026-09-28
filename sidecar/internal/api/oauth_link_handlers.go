@@ -124,18 +124,8 @@ func completeOAuthLink(
 	providerName string, identity auth.Identity, link auth.LinkIntent,
 ) {
 	err := auth.LinkOAuthIdentity(r.Context(), pool, link.UserID, identity, providerName)
-	switch {
-	case errors.Is(err, auth.ErrOAuthLinkConflict):
-		slog.Warn("oauth link refused", "user_id", link.UserID, "via", link.Via)
-		jsonError(w, "this SSO identity cannot be linked to this account: "+
-			"it is linked to another account, the account is already linked, "+
-			"or the verified email does not match", http.StatusConflict)
-		return
-	case errors.Is(err, auth.ErrOAuthEmailUnverified):
-		jsonError(w, "email not verified by identity provider", http.StatusUnauthorized)
-		return
-	case err != nil:
-		internalError(w, r, "link oauth identity", err)
+	if err != nil {
+		writeOAuthUserError(w, r, err, link)
 		return
 	}
 	recordAuthAudit(r.Context(), pool, auth.AuthAuditEvent{

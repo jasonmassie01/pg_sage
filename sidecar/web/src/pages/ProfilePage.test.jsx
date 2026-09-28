@@ -49,6 +49,17 @@ describe('ProfilePage SSO linking', () => {
     expect(screen.queryByTestId('link-sso-button')).toBeNull()
   })
 
+  it('explains a failed link returned from the provider', async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve(ok({
+      linked: false, oauth_enabled: true,
+    })))
+    window.location.hash = '#/profile?sso_error=link_conflict'
+    render(<ProfilePage user={user} navigate={vi.fn()} />)
+    expect(await screen.findByTestId('sso-error'))
+      .toHaveTextContent(/cannot be linked/)
+    expect(window.location.hash).toBe('#/profile')
+  })
+
   it('explains when SSO is not configured', async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(ok({
       linked: false, oauth_enabled: false,

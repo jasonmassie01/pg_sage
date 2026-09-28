@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
@@ -94,9 +95,7 @@ func oauthCallbackHandler(
 			r.Context(), code, state, cookieState,
 		)
 		if err != nil {
-			slog.Error("oauth exchange failed", "error", err)
-			jsonError(w, "authentication failed",
-				http.StatusUnauthorized)
+			writeExchangeError(w, r, err, link)
 			return
 		}
 		if link.UserID > 0 {
@@ -107,7 +106,7 @@ func oauthCallbackHandler(
 			r.Context(), pool, identity, providerName, defaultRole,
 		)
 		if err != nil {
-			writeOAuthUserError(w, r, err)
+			writeOAuthUserError(w, r, err, auth.LinkIntent{})
 			return
 		}
 		if startSession(w, r, pool, user.ID) {
@@ -159,21 +158,72 @@ func startSession(
 	return true
 }
 
-// writeOAuthUserError maps identity resolution failures without
+// writeOAuthUserError maps identity resolution and link failures without
 // logging the caller's email (G6-B11).
 func writeOAuthUserError(
-	w http.ResponseWriter, r *http.Request, err error,
+	w http.ResponseWriter, r *http.Request, err error, link auth.LinkIntent,
 ) {
 	switch {
 	case errors.Is(err, auth.ErrOAuthLinkRequired):
 		slog.Warn("oauth login refused: account linking required")
-		jsonError(w, "an account with this email already exists; "+
-			"sign in with your password and link SSO from your profile, "+
-			"or ask an administrator for an SSO link", http.StatusForbidden)
+		callbackFailure(w, r, link, ssoErrLinkRequired, http.StatusForbidden,
+			"an account with this email already exists; sign in with your "+
+				"password and link SSO from your profile, or ask an "+
+				"administrator for an SSO link")
+	case errors.Is(err, auth.ErrOAuthLinkConflict):
+		slog.Warn("oauth link refused", "user_id", link.UserID, "via", link.Via)
+		callbackFailure(w, r, link, ssoErrLinkConflict, http.StatusConflict,
+			"this SSO identity cannot be linked to this account: it is linked "+
+				"to another account, the account is already linked, or the "+
+				"verified email does not match")
 	case errors.Is(err, auth.ErrOAuthEmailUnverified):
-		jsonError(w, "email not verified by identity provider",
-			http.StatusUnauthorized)
+		callbackFailure(w, r, link, ssoErrUnverified, http.StatusUnauthorized,
+			"email not verified by identity provider")
 	default:
 		internalError(w, r, "resolve oauth user", err)
 	}
+}
+
+// writeExchangeError reports a failed code exchange or identity fetch.
+func writeExchangeError(
+	w http.ResponseWriter, r *http.Request, err error, link auth.LinkIntent,
+) {
+	if errors.Is(err, auth.ErrOAuthEmailUnverified) {
+		writeOAuthUserError(w, r, err, link)
+		return
+	}
+	slog.Error("oauth exchange failed", "error", err)
+	callbackFailure(w, r, link, ssoErrFailed, http.StatusUnauthorized,
+		"authentication failed")
+}
+
+// SSO callback error codes the dashboard turns into readable messages.
+const (
+	ssoErrLinkRequired = "link_required"
+	ssoErrLinkConflict = "link_conflict"
+	ssoErrUnverified   = "unverified"
+	ssoErrFailed       = "failed"
+)
+
+// callbackFailure ends a failed OAuth callback. The callback is a top-level
+// browser navigation, so a browser is redirected to the dashboard page that
+// explains the code (the account page for a signed-in link, the login page
+// otherwise); API clients keep the JSON status.
+func callbackFailure(
+	w http.ResponseWriter, r *http.Request, link auth.LinkIntent,
+	code string, status int, message string,
+) {
+	if !wantsHTML(r) {
+		jsonError(w, message, status)
+		return
+	}
+	page := "/#/login"
+	if link.Via == auth.LinkViaSession {
+		page = "/#/profile"
+	}
+	http.Redirect(w, r, page+"?sso_error="+code, http.StatusFound)
+}
+
+func wantsHTML(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "text/html")
 }

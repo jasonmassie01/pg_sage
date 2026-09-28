@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchSSOStatus, hashParam, redirectTo, startSSOLink } from './users/ssoApi'
+import { hashPath, replaceHash, ssoErrorMessage } from './users/ssoErrors'
 
 // D7: the signed-in user's account page. "Link SSO" binds an identity from
 // the configured provider to this account after a provider sign-in; the
@@ -48,10 +49,16 @@ export function ProfilePage({ user, navigate = redirectTo }) {
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
-  const justLinked = hashParam('linked') === '1'
+  const [justLinked] = useState(() => hashParam('linked') === '1')
+  const [ssoError] = useState(() => ssoErrorMessage(hashParam('sso_error')))
 
   useEffect(() => {
     fetchSSOStatus().then(setStatus).catch(err => setError(err.message))
+  }, [])
+
+  // Drop the one-time callback result from the address after reading it.
+  useEffect(() => {
+    if (hashParam('sso_error') || hashParam('linked')) replaceHash(hashPath())
   }, [])
 
   async function handleLink() {
@@ -78,6 +85,12 @@ export function ProfilePage({ user, navigate = redirectTo }) {
         <div data-testid="sso-link-success" className="text-sm p-2 rounded mb-3"
           style={{ color: '#16a34a', border: '1px solid rgba(22,163,74,0.3)' }}>
           SSO linked.
+        </div>
+      )}
+      {ssoError && (
+        <div data-testid="sso-error" role="alert" className="text-sm p-2 rounded mb-3"
+          style={{ color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' }}>
+          {ssoError}
         </div>
       )}
       {error && (

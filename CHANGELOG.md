@@ -11,6 +11,9 @@
   the account; accounts are never linked on email alone. `GET /api/v1/users` now reports
   `sso_linked`, `sso_issuer` and `password_login`. Link, unlink and grant events are
   written to the new `sage.auth_audit` table. See `docs/security.md`.
+- **Readable SSO sign-in errors.** A refused or failed SSO callback now returns the browser
+  to the login page (or the account page for a link) with an explanation, instead of
+  showing raw JSON. API clients still receive the JSON status.
 
 ### Changed (read before upgrading)
 
