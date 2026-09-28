@@ -49,12 +49,12 @@ func (e *EmergencyStopError) Unwrap() []error {
 // persistEmergencyStop writes the durable per-database flag that every
 // executor re-reads before acting.
 func persistEmergencyStop(
-	ctx context.Context, inst *DatabaseInstance, stopped bool,
+	ctx context.Context, inst *DatabaseInstance, stopped bool, actor string,
 ) error {
 	if inst.Pool == nil {
 		return fmt.Errorf("no connection pool")
 	}
-	return executor.SetEmergencyStop(ctx, inst.Pool, stopped)
+	return executor.SetEmergencyStop(ctx, inst.Pool, stopped, actor)
 }
 
 // InstanceStopped reads the in-memory emergency-stop latch under the
@@ -69,16 +69,19 @@ func (m *DatabaseManager) InstanceStopped(inst *DatabaseInstance) bool {
 }
 
 func (m *DatabaseManager) setEmergencyStopped(
-	name string, stopped bool,
+	name string, stopped bool, actor string,
 ) (int, error) {
+	if actor == "" {
+		actor = executor.EmergencyStopActorSystem
+	}
 	targets, err := m.emergencyTargets(name)
 	if err != nil {
 		return 0, err
 	}
 	if stopped {
-		return m.stopTargets(targets)
+		return m.stopTargets(targets, actor)
 	}
-	return m.resumeTargets(targets)
+	return m.resumeTargets(targets, actor)
 }
 
 // emergencyTargets snapshots the instances addressed by name ("" = all).
@@ -101,52 +104,82 @@ func (m *DatabaseManager) emergencyTargets(
 	return targets, nil
 }
 
-// stopTargets latches every target in memory first (gating its executor),
-// then persists the durable flag outside the manager lock. A persistence
-// failure never un-stops a database.
-func (m *DatabaseManager) stopTargets(targets []*DatabaseInstance) (int, error) {
+// stopTargets latches every target in memory first (gating its executor)
+// without waiting for any other transition, then persists the durable flag
+// under the transition lock. A persistence failure never un-stops a
+// database. The pending mark tells an overlapping resume that this stop
+// has not been written yet and must win.
+func (m *DatabaseManager) stopTargets(
+	targets []*DatabaseInstance, actor string,
+) (int, error) {
 	changed := 0
+	now := time.Now()
 	m.mu.Lock()
 	for _, inst := range targets {
 		if !inst.Stopped {
-			inst.Stopped = true
 			changed++
-			log.Printf("fleet: %s: emergency stop", inst.Name)
 		}
+		inst.Stopped = true
+		inst.StoppedBy = actor
+		inst.StoppedAt = now
+		inst.stopsPending++
 		applyExecutorStopGate(inst, true)
+		log.Printf("fleet: %s: emergency stop by %s", inst.Name, actor)
 	}
 	m.mu.Unlock()
-	failed := m.persistTargets(targets, true)
+
+	m.transitionMu.Lock()
+	defer m.transitionMu.Unlock()
+	failed := m.persistTargets(targets, true, actor)
+	m.mu.Lock()
+	for _, inst := range targets {
+		inst.stopsPending--
+	}
+	m.mu.Unlock()
 	return changed, emergencyStopResult(true, failed)
 }
 
 // resumeTargets clears the durable flag first and releases the in-memory
-// latch only for databases whose flag was written.
-func (m *DatabaseManager) resumeTargets(targets []*DatabaseInstance) (int, error) {
-	failed := m.persistTargets(targets, false)
+// latch only for databases whose flag was written and that no overlapping
+// stop has latched since: such a stop persists after this resume, so
+// releasing would leave memory running over a durable stop.
+func (m *DatabaseManager) resumeTargets(
+	targets []*DatabaseInstance, actor string,
+) (int, error) {
+	m.transitionMu.Lock()
+	defer m.transitionMu.Unlock()
+	failed := m.persistTargets(targets, false, actor)
 	changed := 0
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, inst := range targets {
 		if failed[inst.Name] != nil {
 			continue
 		}
-		if inst.Stopped {
-			inst.Stopped = false
-			changed++
-			log.Printf("fleet: %s: resumed", inst.Name)
+		if inst.stopsPending > 0 {
+			log.Printf("fleet: %s: resume by %s superseded by a concurrent stop",
+				inst.Name, actor)
+			continue
 		}
+		if inst.Stopped {
+			changed++
+			log.Printf("fleet: %s: resumed by %s", inst.Name, actor)
+		}
+		inst.Stopped = false
+		inst.StoppedBy = ""
+		inst.StoppedAt = time.Time{}
 		applyExecutorStopGate(inst, false)
 	}
-	m.mu.Unlock()
 	return changed, emergencyStopResult(false, failed)
 }
 
 // persistTargets reconciles the persisted flag even when the in-memory state
-// already matches: after a restart the latch resets while sage.config may
-// still say "stopped". Instances without an executor (agent databases,
-// failed registrations) have nothing that reads the flag and are skipped.
+// already matches, so a repeated stop or resume re-asserts the durable flag
+// and is audited. Instances without an executor (agent databases, failed
+// registrations) have nothing that reads the flag and are skipped. The
+// caller holds m.transitionMu.
 func (m *DatabaseManager) persistTargets(
-	targets []*DatabaseInstance, stopped bool,
+	targets []*DatabaseInstance, stopped bool, actor string,
 ) map[string]error {
 	persist := m.persistStop
 	if persist == nil {
@@ -160,7 +193,7 @@ func (m *DatabaseManager) persistTargets(
 		ctx, cancel := context.WithTimeout(
 			context.Background(), emergencyStopPersistTimeout,
 		)
-		err := persist(ctx, inst, stopped)
+		err := persist(ctx, inst, stopped, actor)
 		cancel()
 		if err != nil {
 			failed[inst.Name] = fmt.Errorf("persisting emergency stop: %w", err)
@@ -196,5 +229,7 @@ func inheritEmergencyStop(old, candidate *DatabaseInstance) {
 		return
 	}
 	candidate.Stopped = true
+	candidate.StoppedBy = old.StoppedBy
+	candidate.StoppedAt = old.StoppedAt
 	applyExecutorStopGate(candidate, true)
 }

@@ -977,7 +977,7 @@ func emergencyStopHandler(
 		if !ok {
 			return
 		}
-		stopped, err := mgr.EmergencyStopStrict(database)
+		stopped, err := mgr.EmergencyStopStrict(database, authenticatedActor(r))
 		if err != nil {
 			if errors.Is(err, fleet.ErrDatabaseNotFound) {
 				jsonError(w, "database not found",
@@ -1002,7 +1002,7 @@ func resumeHandler(
 		if !ok {
 			return
 		}
-		resumed, err := mgr.ResumeStrict(database)
+		resumed, err := mgr.ResumeStrict(database, authenticatedActor(r))
 		if err != nil {
 			if errors.Is(err, fleet.ErrDatabaseNotFound) {
 				jsonError(w, "database not found",

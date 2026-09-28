@@ -453,7 +453,7 @@ func TestEmergencyStop(t *testing.T) {
 	})
 
 	// Set emergency stop to true.
-	if err := SetEmergencyStop(ctx, pool, true); err != nil {
+	if err := SetEmergencyStop(ctx, pool, true, "test"); err != nil {
 		t.Fatalf("SetEmergencyStop(true): %v", err)
 	}
 	if !CheckEmergencyStop(ctx, pool) {
@@ -461,7 +461,7 @@ func TestEmergencyStop(t *testing.T) {
 	}
 
 	// Set emergency stop to false.
-	if err := SetEmergencyStop(ctx, pool, false); err != nil {
+	if err := SetEmergencyStop(ctx, pool, false, "test"); err != nil {
 		t.Fatalf("SetEmergencyStop(false): %v", err)
 	}
 	if CheckEmergencyStop(ctx, pool) {

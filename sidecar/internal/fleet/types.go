@@ -30,6 +30,13 @@ type DatabaseInstance struct {
 	Executor   *executor.Executor
 	Status     *InstanceStatus
 	Stopped    bool
+	// StoppedBy and StoppedAt attribute the active emergency stop. Like
+	// Stopped, they are guarded by the manager lock.
+	StoppedBy string
+	StoppedAt time.Time
+	// stopsPending counts stops latched in memory whose durable flag is
+	// not yet written; an overlapping resume must not release them.
+	stopsPending int
 	// Cancel stops the per-instance goroutines (collector, analyzer,
 	// orchestrator). Set by bootstrap code; called by RemoveInstance.
 	// EmergencyStop does not call Cancel because monitoring should

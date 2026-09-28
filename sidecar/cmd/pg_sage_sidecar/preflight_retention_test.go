@@ -93,10 +93,10 @@ func preflightRunRetentionCycles(
 	if control == "disabled" {
 		e.SetExecutorEnabled(false)
 	}
-	if err := executor.SetEmergencyStop(ctx, p, control == "emergency_stop"); err != nil {
+	if err := executor.SetEmergencyStop(ctx, p, control == "emergency_stop", "test"); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = executor.SetEmergencyStop(ctx, p, false) })
+	t.Cleanup(func() { _ = executor.SetEmergencyStop(ctx, p, false, "test") })
 	supervisor, err := newDatabaseAutonomy(p, c, "preflight", e)
 	if err != nil {
 		t.Fatal(err)

@@ -54,6 +54,7 @@ func (op *LifecycleMutation) PublishReplacement(
 	oldName string,
 	old, candidate *DatabaseInstance,
 ) error {
+	op.manager.restorePersistedStop(candidate)
 	return op.manager.commitReplacement(oldName, old, candidate)
 }
 
@@ -78,6 +79,7 @@ func (op *LifecycleMutation) PublishRegistration(
 		return ErrInvalidInstance
 	}
 	m := op.manager
+	m.restorePersistedStop(inst)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.instances[inst.Name] != nil {
