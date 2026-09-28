@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -9,7 +9,7 @@ import { ConfigDiff } from '../components/ConfigDiff'
 import { useToast } from '../components/Toast'
 import { ShadowModePage } from './ShadowModePage'
 import {
-  ShieldAlert, Play, Save, RotateCcw, Check, X,
+  ShieldAlert, Save, RotateCcw, Check, X,
 } from 'lucide-react'
 
 const TRUST_LEVEL_EXPLAIN = {
@@ -65,7 +65,6 @@ export function SettingsPage({ database, databaseId }) {
   const [edits, setEdits] = useState({})
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState(null)
-  const [stopping, setStopping] = useState(false)
   const [restarting, setRestarting] = useState(false)
   const [pendingTrust, setPendingTrust] = useState(null)
   const [showDiff, setShowDiff] = useState(false)
@@ -388,9 +387,6 @@ export function SettingsPage({ database, databaseId }) {
             tab={tab}
             data={data}
             database={database}
-            stopping={stopping}
-            setStopping={setStopping}
-            refetch={refetch}
             {...fieldProps}
           />
         ) : (
@@ -398,9 +394,6 @@ export function SettingsPage({ database, databaseId }) {
             tab={tab}
             data={data}
             database={database}
-            stopping={stopping}
-            setStopping={setStopping}
-            refetch={refetch}
             {...fieldProps}
           />
         )}
@@ -432,7 +425,7 @@ export function SettingsPage({ database, databaseId }) {
 /* ---------- Simple mode content ---------- */
 
 function SimpleContent({
-  tab, data, database, stopping, setStopping, refetch,
+  tab, data, database,
   getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
   readOnly,
 }) {
@@ -444,8 +437,7 @@ function SimpleContent({
     return (
       <GeneralTab
         mode={data?.mode} databases={data?.databases}
-        database={database} stopping={stopping}
-        setStopping={setStopping} refetch={refetch}
+        database={database}
       />
     )
   }
@@ -461,7 +453,7 @@ function SimpleContent({
 /* ---------- Advanced mode content ---------- */
 
 function AdvancedContent({
-  tab, data, database, stopping, setStopping, refetch,
+  tab, data, database,
   getVal, setVal, getSource, resetField, isDatabaseScope, configUrl,
   readOnly,
 }) {
@@ -473,8 +465,7 @@ function AdvancedContent({
     return (
       <GeneralTab
         mode={data?.mode} databases={data?.databases}
-        database={database} stopping={stopping}
-        setStopping={setStopping} refetch={refetch}
+        database={database}
       />
     )
   }
@@ -886,105 +877,9 @@ function PasswordField({ value, onChange, testId, disabled = false }) {
 
 /* ---------- Advanced mode tab components (unchanged) ---------- */
 
-function GeneralTab({
-  mode, databases, database, stopping, setStopping, refetch,
-}) {
-  const toast = useToast()
-  const [armSeconds, setArmSeconds] = useState(0)
-  const timerRef = useRef(null)
-
-  useEffect(() => () => {
-    if (timerRef.current) clearInterval(timerRef.current)
-  }, [])
-
-  const doEmergencyStop = async () => {
-    setStopping(true)
-    const dbParam = database && database !== 'all'
-      ? `?database=${database}` : ''
-    try {
-      const res = await fetch(
-        `/api/v1/emergency-stop${dbParam}`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-        },
-      )
-      // A failed kill-switch must NOT look like success: an HTTP error
-      // status does not reject fetch, so without this check the operator
-      // believes autonomous actions stopped when they did not (H6).
-      if (!res.ok) {
-        let msg = `Emergency stop failed (${res.status})`
-        try { const d = await res.json(); if (d && d.error) msg = d.error } catch { /* non-JSON */ }
-        toast.error(msg)
-      } else {
-        toast.success('Emergency stop engaged — autonomous actions halted')
-      }
-    } catch (err) {
-      toast.error(err.message || 'Emergency stop request failed')
-    } finally {
-      setStopping(false)
-      refetch()
-    }
-  }
-
-  const armEmergencyStop = () => {
-    setArmSeconds(5)
-    if (timerRef.current) clearInterval(timerRef.current)
-    timerRef.current = setInterval(() => {
-      setArmSeconds(s => {
-        if (s <= 1) {
-          clearInterval(timerRef.current)
-          timerRef.current = null
-          return 0
-        }
-        return s - 1
-      })
-    }, 1000)
-  }
-
-  const onEmergencyClick = () => {
-    if (armSeconds > 0) {
-      if (timerRef.current) clearInterval(timerRef.current)
-      timerRef.current = null
-      setArmSeconds(0)
-      doEmergencyStop()
-    } else {
-      armEmergencyStop()
-    }
-  }
-
-  const cancelArm = () => {
-    if (timerRef.current) clearInterval(timerRef.current)
-    timerRef.current = null
-    setArmSeconds(0)
-  }
-
-  const resume = async () => {
-    const dbParam = database && database !== 'all'
-      ? `?database=${database}` : ''
-    try {
-      const res = await fetch(
-        `/api/v1/resume${dbParam}`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-        },
-      )
-      if (!res.ok) {
-        let msg = `Resume failed (${res.status})`
-        try { const d = await res.json(); if (d && d.error) msg = d.error } catch { /* non-JSON */ }
-        toast.error(msg)
-      } else {
-        toast.success('Resumed — autonomous actions re-enabled')
-      }
-    } catch (err) {
-      toast.error(err.message || 'Resume request failed')
-    } finally {
-      refetch()
-    }
-  }
+// Emergency stop/resume moved to the header control (D8), which operators
+// can reach and which follows the database picker.
+function GeneralTab({ mode, databases, database }) {
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-medium"
@@ -1022,47 +917,12 @@ function GeneralTab({
       </h3>
       <p className="text-xs" data-testid="emergency-scope"
         style={{ color: 'var(--text-secondary)' }}>
-        Scope: {database && database !== 'all'
+        Stop and Resume are in the page header next to the database
+        picker, for operators and admins. Current scope: {database &&
+          database !== 'all'
           ? `database ${database} only`
-          : 'all databases in the fleet'}
+          : 'all databases in the fleet'}.
       </p>
-      <div className="flex gap-3">
-        <button onClick={onEmergencyClick} disabled={stopping}
-          data-testid="emergency-stop-button"
-          className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium"
-          style={{
-            background: armSeconds > 0 ? 'var(--red)' : '#3b1111',
-            color: armSeconds > 0 ? '#fff' : 'var(--red)',
-            border: '1px solid var(--red)',
-          }}>
-          <ShieldAlert size={16} />
-          {stopping ? 'Stopping...'
-            : armSeconds > 0
-              ? `Confirm Emergency Stop (${armSeconds})`
-              : 'Emergency Stop'}
-        </button>
-        {armSeconds > 0 && (
-          <button onClick={cancelArm}
-            data-testid="emergency-stop-cancel"
-            className="flex items-center gap-2 px-4 py-2 rounded text-sm"
-            style={{
-              color: 'var(--text-secondary)',
-              border: '1px solid var(--border)',
-            }}>
-            Cancel
-          </button>
-        )}
-        <button onClick={resume}
-          data-testid="resume-button"
-          className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium"
-          style={{
-            background: '#0f2640',
-            color: 'var(--green)',
-            border: '1px solid var(--green)',
-          }}>
-          <Play size={16} /> Resume
-        </button>
-      </div>
     </div>
   )
 }
