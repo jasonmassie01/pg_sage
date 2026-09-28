@@ -359,7 +359,7 @@ Each feature below gives: trigger, the catalog/query it uses, the algorithm spli
 - **Trigger:** slow schema scan (hourly/daily) + on-DDL via F6 change ledger.
 - **Invariant catalog (deterministic detectors, each with remediation-class + auto-remediable flag):** FK-without-supporting-index (auto: `CREATE INDEX CONCURRENTLY`, verified via F1); unbounded append table (auto-with-consent: retention policy — partition + scheduled drop, **first run dry-run always**); missing NOT NULL/CHECK (recommend/park — prove intent via `NOT VALID`→`VALIDATE`); everything-text (recommend + rehearse F2); random-UUID PK on write-hot table (recommend + rehearse, never auto — rewrites table); no PK (recommend); index-on-everything (hand to F1 for verified redundant-drop).
 - **LLM split:** deterministic owns invariant detection; LLM judges likely intent (`status text` with 4 distinct values → propose CHECK/enum), synthesizes rationale, prioritizes parked items. Never decides an auto-applied structural change.
-- **Table contracts:** agents declare intent via MCP → `sage.table_contract` (append_only?, retention?, expected_pk?, exemptions) so the custodian enforces the *right* invariants. A declaration constrains; it never authorizes destructive action.
+- **Table contracts:** agents declare intent via MCP → `sage.table_contract` (append_only?, retention? {interval, column}, expected_pk?, exemptions); the owner declares the retention column (D5), pg_sage only suggests it so the custodian enforces the *right* invariants. A declaration constrains; it never authorizes destructive action.
 - **Autonomy:** FK-index/redundant-drop rung 3-4; retention rung 3 with mandatory dry-run + declared window; structural rung 1-2 recommend/rehearse.
 - **Acceptance:** new FK gets verified supporting index within a cycle; declared append-only table gets retention after dry-run; type tightening never auto-applied; first retention run dry-runs (no deletes); small-lookup FK index showing write-cost-no-gain reverted/exempted; externally-re-introduced pathology parked after N reversions (existing oscillation guard), not fought forever.
 
@@ -421,7 +421,7 @@ optimize_query      { query_id|query_text, goal:"latency", constraints?:{max_wri
 apply_migration     { ddl|intent, constraints?:{max_lock_ms, window_minutes} }
                  -> { decision, rewritten_plan, rehearsal_result, rollback_handle, evidence_id }
 ensure_fk_indexes   { schema }                          -> { actions:[...], evidence_id }
-declare_table_contract { table, append_only?, retention?, expected_pk?, exemptions? } -> { ok }
+declare_table_contract { table, append_only?, retention?: { interval, column }, expected_pk?, exemptions? } -> { ok, warnings? }
 register_consumer   { slot_name, owner }                -> { ok }   // protects a slot; never authorizes a drop
 set_maintenance_policy { scope, patch }                 -> { dry_run_impact }   // ratify = operator-gated
 get_guarantee_status {}   -> { xid:{...}, wal:{...}, schema:{...} }  // machine-readable invariant state
