@@ -44,7 +44,7 @@ func newAdmissionFixture(t *testing.T, admission verify.Admission) admissionFixt
 		defer fixture.mu.Unlock()
 		*fixture.logs = append(*fixture.logs, fmt.Sprintf(format, args...))
 	}
-	fixture.exec = New(pool, config.DefaultConfig(), nil, zeroTime(), logFn)
+	fixture.exec = New(pool, config.DefaultConfig(), zeroTime(), logFn)
 	fixture.exec.WithDatabaseName(fixture.database)
 	fixture.exec.indexVerification = newVerifiedIndexLifecycle(
 		&fakeIndexVerifier{admission: admission}, &fakeVerifiedIndexActions{},

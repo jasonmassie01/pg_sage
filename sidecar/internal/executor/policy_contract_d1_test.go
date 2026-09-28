@@ -77,7 +77,7 @@ func TestAuthorizeRetentionDeclaresOwnerAuthority(t *testing.T) {
 			gate := &custodianGateCapture{verdict: policy.Decision{
 				Verdict: policy.VerdictExecute, RiskTier: policy.RiskModerate,
 			}}
-			exec := New(nil, &config.Config{}, nil, zeroTime(), nopLog)
+			exec := New(nil, &config.Config{}, zeroTime(), nopLog)
 			exec.WithPolicyGate(gate)
 
 			err := exec.AuthorizeRetention(context.Background(), RetentionRequest{
@@ -104,7 +104,7 @@ func TestAuthorizeRetentionDeclaresOwnerAuthority(t *testing.T) {
 // contract without one is sent to a human (refused_by_policy).
 func TestAuthorizeRetentionThroughStandingGate(t *testing.T) {
 	now := time.Date(2026, 9, 28, 2, 0, 0, 0, time.UTC)
-	exec := New(nil, wave1PolicyConfig("autonomous"), nil,
+	exec := New(nil, wave1PolicyConfig("autonomous"),
 		now.Add(-40*24*time.Hour), noopExecLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 	exec.SetExecutionMode("auto")

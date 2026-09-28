@@ -31,7 +31,7 @@ func ceilingExecutor(pool *pgxpool.Pool, ceiling int64) *Executor {
 	cfg := config.DefaultConfig()
 	cfg.Trust.Level = "advisory"
 	cfg.Safety.LockTimeoutMs = ceilingSafetyMS
-	e := New(pool, cfg, nil, time.Time{}, nopLog)
+	e := New(pool, cfg, time.Time{}, nopLog)
 	e.emergencyStopFn = func(context.Context) bool { return false }
 	e.WithPolicyGate(&reauthGate{lockCeiling: ceiling})
 	return e
@@ -81,7 +81,7 @@ func timeAnalyzeFinding(t *testing.T, pool *pgxpool.Pool, ceiling int64) time.Du
 	f := analyzer.Finding{Category: "stale_statistics",
 		ObjectIdentifier: "public." + table, Title: "analyze probe",
 		RecommendedSQL: "ANALYZE public." + table}
-	intent := e.findingIntent(f, 0, false)
+	intent := e.findingIntent(f, 0, false, nil)
 	started := time.Now()
 	if _, err := e.Apply(context.Background(), intent); err != nil {
 		t.Fatalf("Apply: %v", err)

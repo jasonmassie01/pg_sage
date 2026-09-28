@@ -10,7 +10,7 @@ import (
 // action family, evaluated in one batch, with nothing recorded.
 func TestExplainFamiliesUsesGateBatch(t *testing.T) {
 	recorded := 0
-	exec := New(nil, autonomousTestConfig(), nil, time.Time{}, noopExecLog)
+	exec := New(nil, autonomousTestConfig(), time.Time{}, noopExecLog)
 	exec.WithPolicyGate(explainTestGate(time.Now(), &recorded))
 	contracts := []ActionContract{}
 	for _, actionType := range []string{"analyze_table", "cancel_backend"} {
@@ -36,7 +36,7 @@ func TestExplainFamiliesUsesGateBatch(t *testing.T) {
 }
 
 func TestExplainFamiliesFailsClosedWithoutGate(t *testing.T) {
-	exec := New(nil, autonomousTestConfig(), nil, time.Time{}, noopExecLog)
+	exec := New(nil, autonomousTestConfig(), time.Time{}, noopExecLog)
 	contract, _ := ContractForActionType("analyze_table")
 	got := exec.ExplainFamilies(context.Background(), []ActionContract{contract}, false)
 	if len(got) != 1 || got[0].Decision != PolicyDecisionBlocked ||

@@ -9,35 +9,42 @@ import (
 
 // scanQueuedActions scans rows into QueuedAction slices.
 func scanQueuedActions(rows pgx.Rows) ([]QueuedAction, error) {
-	var results []QueuedAction
+	results := []QueuedAction{}
 	for rows.Next() {
-		var a QueuedAction
-		var rollback *string
-		var guardrails []byte
-		err := rows.Scan(
-			&a.ID, &a.DatabaseID, &a.FindingID,
-			&a.ProposedSQL, &rollback, &a.ActionRisk,
-			&a.Status, &a.ProposedAt, &a.DecidedBy,
-			&a.DecidedAt, &a.ExpiresAt, &a.Reason,
-			&a.ActionType, &a.IdentityKey, &a.PolicyDecision,
-			&guardrails, &a.AttemptCount, &a.LastAttemptAt,
-			&a.CooldownUntil, &a.FailureFingerprint,
-			&a.LastFailureFingerprint, &a.VerificationStatus,
-			&a.ShadowToilMinutes, &a.ActionLogID,
-		)
+		a, err := scanQueuedAction(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scanning queued action: %w", err)
 		}
-		if rollback != nil {
-			a.RollbackSQL = *rollback
-		}
-		a.Guardrails = decodeGuardrails(guardrails)
 		results = append(results, a)
 	}
-	if results == nil {
-		results = []QueuedAction{}
-	}
 	return results, rows.Err()
+}
+
+// scanQueuedAction scans one row of queuedActionColumns.
+func scanQueuedAction(row pgx.Row) (QueuedAction, error) {
+	var a QueuedAction
+	var rollback *string
+	var guardrails []byte
+	err := row.Scan(
+		&a.ID, &a.DatabaseID, &a.FindingID,
+		&a.ProposedSQL, &rollback, &a.ActionRisk,
+		&a.Status, &a.ProposedAt, &a.DecidedBy,
+		&a.DecidedAt, &a.ExpiresAt, &a.Reason,
+		&a.ActionType, &a.IdentityKey, &a.PolicyDecision,
+		&guardrails, &a.AttemptCount, &a.LastAttemptAt,
+		&a.CooldownUntil, &a.FailureFingerprint,
+		&a.LastFailureFingerprint, &a.VerificationStatus,
+		&a.ShadowToilMinutes, &a.ActionLogID,
+		&a.RecommendationID, &a.RecommendationRevision, &a.ContentHash,
+	)
+	if err != nil {
+		return a, err
+	}
+	if rollback != nil {
+		a.RollbackSQL = *rollback
+	}
+	a.Guardrails = decodeGuardrails(guardrails)
+	return a, nil
 }
 
 func decodeGuardrails(data []byte) []string {

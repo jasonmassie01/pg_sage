@@ -41,7 +41,7 @@ func TestPreflightEvidenceUnknownHAWithholdsPolicyAdmission(t *testing.T) {
 			cfg := config.DefaultConfig()
 			cfg.Trust.Level = "autonomous"
 			cfg.Trust.Tier3Safe = true
-			exec := executor.New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
+			exec := executor.New(nil, cfg, time.Now().Add(-40*24*time.Hour),
 				func(string, string, ...any) {})
 			exec.WithEmergencyStopCheck(func(context.Context) bool { return false })
 			exec.SetExecutionMode("auto")

@@ -95,7 +95,7 @@ func (b sleepingBackend) waitCancelled(t *testing.T) {
 func TestExecuteFindingNeverSignalsBackendAsRawSQL(t *testing.T) {
 	pool, ctx := requireDB(t)
 	backend := startSleepingBackend(t, pool, 2)
-	exec := New(pool, config.DefaultConfig(), nil, time.Time{}, nopLog)
+	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 	finding := analyzer.Finding{
 		Category: "lock_chain", ObjectIdentifier: fmt.Sprintf("pid:%d", backend.pid),
@@ -111,7 +111,7 @@ func TestExecuteFindingNeverSignalsBackendAsRawSQL(t *testing.T) {
 func TestCustodianBlockerProposalNeverSignals(t *testing.T) {
 	pool, ctx := requireDB(t)
 	backend := startSleepingBackend(t, pool, 2)
-	exec := New(pool, config.DefaultConfig(), nil, time.Time{}, nopLog)
+	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 	exec.WithPolicyGate(&custodianGateCapture{verdict: policy.Decision{
 		Verdict: policy.VerdictExecute, RiskTier: policy.RiskModerate,
@@ -143,7 +143,7 @@ func TestBackendEvidenceRequiresBackendStart(t *testing.T) {
 func TestSignalMatchingBackendRejectsDifferentBackendStart(t *testing.T) {
 	pool, ctx := requireDB(t)
 	backend := startSleepingBackend(t, pool, 2)
-	exec := New(pool, config.DefaultConfig(), nil, time.Time{}, nopLog)
+	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	evidence := backendSignalEvidence{
 		PID: backend.pid, QueryStart: backend.queryStart, Query: backend.query,
 		QueryID: backend.queryID, BackendStart: backend.backendStart.Add(-time.Hour),
@@ -160,7 +160,7 @@ func TestSignalMatchingBackendRejectsDifferentBackendStart(t *testing.T) {
 func TestSignalMatchingBackendSignalsExactIdentity(t *testing.T) {
 	pool, ctx := requireDB(t)
 	backend := startSleepingBackend(t, pool, 10)
-	exec := New(pool, config.DefaultConfig(), nil, time.Time{}, nopLog)
+	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	evidence := backendSignalEvidence{
 		PID: backend.pid, QueryStart: backend.queryStart, Query: backend.query,
 		QueryID: backend.queryID, BackendStart: backend.backendStart,

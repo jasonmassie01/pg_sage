@@ -21,7 +21,7 @@ func TestCustodianSyntheticActionExecutesAndTriggersSchemaGuard(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+table) })
 	decisionID := recordCustodianDecision(t, ctx, pool, "autovacuum_tuning", table)
 	cfg := config.DefaultConfig()
-	exec := New(pool, cfg, nil, zeroTime(), func(string, string, ...any) {})
+	exec := New(pool, cfg, zeroTime(), func(string, string, ...any) {})
 	gate := &custodianGateCapture{verdict: policy.Decision{
 		Verdict: policy.VerdictExecute, RiskTier: policy.RiskSafe,
 		DecisionID: decisionID,
@@ -79,7 +79,7 @@ func TestCustodianDDLHonorsConflictingChangeLease(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = manager.ReleaseLease(context.Background(), leaseID) })
 	cfg := config.DefaultConfig()
-	exec := New(pool, cfg, nil, zeroTime(), func(string, string, ...any) {})
+	exec := New(pool, cfg, zeroTime(), func(string, string, ...any) {})
 	exec.WithPolicyGate(&custodianGateCapture{verdict: policy.Decision{
 		Verdict: policy.VerdictExecute, RiskTier: policy.RiskSafe,
 		DecisionID: decisionID,

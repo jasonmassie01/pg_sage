@@ -116,11 +116,10 @@ func TestApplyEntryRunCycleReauthorizesUnderDeadline(t *testing.T) {
 		finding.Category, finding.ObjectIdentifier, sql); err != nil {
 		t.Fatalf("insert finding: %v", err)
 	}
-	a := &analyzer.Analyzer{}
-	a.SetFindings([]analyzer.Finding{finding})
+	proposeDurable(t, pool, []analyzer.Finding{finding})
 	cfg := config.DefaultConfig()
 	cfg.Trust.Level = "autonomous"
-	e := New(pool, cfg, a, time.Now().Add(-90*24*time.Hour), nopLog)
+	e := New(pool, cfg, time.Now().Add(-90*24*time.Hour), nopLog)
 	e.emergencyStopFn = func(context.Context) bool { return false }
 	gate := &reauthGate{refuseAt: 3,
 		decisionID: recordCustodianDecision(t, ctx, pool, "apply_probe", table)}
@@ -138,7 +137,7 @@ func TestApplyEntryCustodianReauthorizesUnderMandatoryDeadline(t *testing.T) {
 	cfg := config.DefaultConfig()
 	// No configured DDL timeout: the execution deadline is still mandatory.
 	cfg.Safety.DDLTimeoutSeconds = 0
-	e := New(pool, cfg, nil, zeroTime(), nopLog)
+	e := New(pool, cfg, zeroTime(), nopLog)
 	e.emergencyStopFn = func(context.Context) bool { return false }
 	gate := &reauthGate{refuseAt: 2,
 		decisionID: recordCustodianDecision(t, ctx, pool, "autovacuum_tuning", table)}

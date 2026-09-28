@@ -31,7 +31,42 @@
   (narration off, LLM off, budget, rate limit, timeout, malformed or uncited output) sends
   the deterministic summary. Both are labeled in the notification. `llm.enabled: false`
   cancels narrations in flight.
+- **Durable recommendations.** Every actionable finding is now a recommendation in
+  `sage.recommendation`, with immutable revisions in `sage.recommendation_revision` (forward
+  SQL, inverse SQL, evidence, preconditions, standing-policy version and a content hash) and
+  its full history in `sage.recommendation_transition`. States: proposed, approved,
+  applying, applied, verifying, then verified, reverted or inconclusive, plus superseded,
+  failed and abandoned. Every change is a compare-and-set on (id, state, revision), so two
+  workers can never both act on one recommendation. Two candidate indexes on one table are
+  now two recommendations (C05). New read-only API: `GET /api/v1/recommendations?database=`
+  and `GET /api/v1/recommendations/{id}` (revisions and history). The Actions page has a
+  Recommendations tab, and pending approvals show the revision they approve.
 ### Changed (read before upgrading)
+
+- **The executor acts on durable recommendations, not the last analyzer cycle (C07).**
+  A recommendation proposed while pg_sage was observing, or outside the maintenance window,
+  now runs once policy allows it, without waiting for a new analyzer finding. Before acting
+  the executor checks that the recommendation has not changed and that its finding is still
+  open; a closed finding supersedes it.
+- **An approval approves one exact revision (C04).** New content (for example new inverse
+  SQL) is a new revision: it clears the approval and supersedes queued proposals for the old
+  content. Approving such a proposal returns `409 Conflict` and nothing runs; approve the
+  current revision instead.
+- **Failed applies back off and are abandoned when the retry budget is spent.** A failed
+  apply is recorded as `failed` with a backoff (5 minutes, doubling, at most 6 hours). It
+  never silently returns to proposed. After the retry budget (two retries) it is `abandoned`
+  with the reason. An apply interrupted by a crash is recovered as a failed attempt once its
+  claim expires. The action log row and the applied transition are written in one
+  transaction.
+- **Verification verdicts are recorded apart from their effect (C15).** A recommendation
+  whose change regressed shows the verdict `regressed` but stays `verifying` until the
+  revert has run; only then is it `reverted`.
+- **Upgrade migrates existing work.** On start, each database's open findings with SQL and
+  its pending or approved (not yet executed) queued actions are mapped to recommendations.
+  An approval keeps its approver and is pinned to a revision holding the exact queued SQL
+  (marked `migrated`). The migration is idempotent. Retention purges terminal
+  recommendations after `retention.actions_days` and keeps live ones.
+- `executor.New` no longer takes an analyzer argument.
 
 - **Emergency stop in the header (D8).** Operators and admins get a Stop control next to
   the database picker. It stops the selected database, or all databases when "All" is
@@ -292,6 +327,9 @@
 
 ### Fixed
 
+- A refreshed recommendation could pair new forward SQL with the previous rollback SQL and
+  still be approved and run as the old approval (C04). Revisions are now atomic and an
+  approval covers exactly one of them.
 - A retention contract that cannot act no longer stops the schema scan: later
   invariants (such as missing foreign-key indexes) are still planned in the same cycle.
 - Re-declaring a table contract updates the one contract row instead of adding another.

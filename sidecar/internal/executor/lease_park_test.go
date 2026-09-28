@@ -108,7 +108,7 @@ func parkDecisions(t *testing.T, ctx context.Context, pool *pgxpool.Pool, parked
 func TestLeaseConflictParksWithoutFailureRow(t *testing.T) {
 	pool, ctx := requireDB(t)
 	setupParkTable(t, ctx, pool)
-	exec := New(pool, config.DefaultConfig(), nil, time.Time{}, nopLog)
+	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 	first, second := insertParkDecision(t, ctx, pool), insertParkDecision(t, ctx, pool)
 
@@ -155,7 +155,7 @@ func TestLeaseConflictParksWithoutFailureRow(t *testing.T) {
 func TestLeaseConflictDoesNotCountTowardRetries(t *testing.T) {
 	pool, ctx := requireDB(t)
 	setupParkTable(t, ctx, pool)
-	exec := New(pool, config.DefaultConfig(), nil, time.Time{}, nopLog)
+	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 	var findingID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO sage.findings
@@ -191,7 +191,7 @@ func TestLeaseConflictDoesNotCountTowardRetries(t *testing.T) {
 }
 
 func TestParkLeaseConflictIgnoresOtherErrors(t *testing.T) {
-	exec := New(nil, config.DefaultConfig(), nil, time.Time{}, nopLog)
+	exec := New(nil, config.DefaultConfig(), time.Time{}, nopLog)
 	if exec.parkLeaseConflict(context.Background(), parkFinding(), 1,
 		errors.New("normalize DDL lease targets: bad")) {
 		t.Fatal("a non-conflict lease error was treated as a park")

@@ -20,7 +20,7 @@ func newTestCfg(level string) *config.Config {
 }
 
 func newTestExecutor(cfg *config.Config, rampStart time.Time) *Executor {
-	return New(nil, cfg, nil, rampStart, func(string, string, ...any) {})
+	return New(nil, cfg, rampStart, func(string, string, ...any) {})
 }
 
 // safeFinding returns a Finding with ActionRisk "safe" and the minimum

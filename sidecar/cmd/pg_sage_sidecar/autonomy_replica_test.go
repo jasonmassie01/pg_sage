@@ -14,7 +14,7 @@ import (
 // replica / safe-mode state so the gate refuses mutations on a standby.
 func TestAutonomyRouterMarksReplicaProposals(t *testing.T) {
 	gate := &runtimePolicyRecorder{}
-	exec := executor.New(nil, config.DefaultConfig(), nil, time.Now(), nil)
+	exec := executor.New(nil, config.DefaultConfig(), time.Now(), nil)
 	exec.WithPolicyGate(gate)
 	router := executorProposalRouter{
 		executor: exec, isReplica: func(context.Context) bool { return true },
@@ -38,7 +38,7 @@ func TestAutonomyRouterMarksReplicaProposals(t *testing.T) {
 
 func TestAutonomyRouterWithoutReplicaCheckFailsClosed(t *testing.T) {
 	gate := &runtimePolicyRecorder{}
-	exec := executor.New(nil, config.DefaultConfig(), nil, time.Now(), nil)
+	exec := executor.New(nil, config.DefaultConfig(), time.Now(), nil)
 	exec.WithPolicyGate(gate)
 	router := executorProposalRouter{executor: exec}
 

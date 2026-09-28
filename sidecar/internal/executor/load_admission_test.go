@@ -194,7 +194,7 @@ func TestAdmissionWithheldErrorIdentifiesReason(t *testing.T) {
 func fmtWrap(err error) error { return errors.Join(errors.New("context"), err) }
 
 func TestIndexAdmissionStatusWithoutVerification(t *testing.T) {
-	e := New(nil, config.DefaultConfig(), nil, zeroTime(), func(string, string, ...any) {})
+	e := New(nil, config.DefaultConfig(), zeroTime(), func(string, string, ...any) {})
 	e.WithDatabaseName("orders_db")
 	status := e.IndexAdmissionStatus(context.Background())
 	if status.OK || status.Reason != verify.ReasonLoadUnavailable ||
