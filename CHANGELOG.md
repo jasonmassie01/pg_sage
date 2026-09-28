@@ -4,6 +4,9 @@
 
 ### Added
 
+- Startup logs a notice when `trust.maintenance_window` uses a form whose meaning
+  changed with the unified window grammar (for example `weeknights`, a day window
+  that crosses midnight, or cron ranges/steps), explaining the new meaning.
 - **SSO account linking.** A user signed in with a password can link SSO from their account
   page (`#/profile`). Admins can unlink SSO, issue a one-time link grant (single use,
   15 minutes, stored hashed) for a user who cannot sign in with a password, and create
