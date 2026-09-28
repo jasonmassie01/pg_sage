@@ -284,6 +284,10 @@ func incidentWhyNow(i SourceIncident) string {
 	return "active incident needs triage"
 }
 
+// IncidentIdentityKey is the case id ProjectIncident gives an incident,
+// so other surfaces (Sage SRE investigations) can link to the case.
+func IncidentIdentityKey(i SourceIncident) string { return incidentIdentityKey(i) }
+
 func incidentIdentityKey(i SourceIncident) string {
 	signal := i.Source
 	if len(i.SignalIDs) > 0 {

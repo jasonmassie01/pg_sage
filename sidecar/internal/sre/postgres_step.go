@@ -61,6 +61,9 @@ func (s *PostgresStore) CommitStep(ctx context.Context, lease Lease,
 			    updated_at = clock_timestamp()
 			WHERE `+leaseGuard+` RETURNING `+invColumns,
 			append(leaseArgs(lease), string(next), len(step.Results))...))
+		if errors.Is(err, ErrNotFound) {
+			return ErrLeaseLost // the lease expired inside the transaction
+		}
 		return err
 	})
 	return inv, err
@@ -236,8 +239,8 @@ func canonicalPayload(res probes.Result) ([]byte, error) {
 }
 
 // canonicalJSON normalizes JSON so a payload hashes the same before and
-// after a jsonb round trip: sorted keys, no whitespace, numbers in Go's
-// shortest float form.
+// after a jsonb round trip: sorted keys, no whitespace, integers exact and
+// other numbers in Go's shortest float form.
 func canonicalJSON(raw []byte) ([]byte, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
@@ -261,6 +264,11 @@ func canonicalValue(v any) any {
 		}
 		return x
 	case json.Number:
+		// Integers stay exact (a queryid above 2^53 must not round); jsonb
+		// keeps their digits. Other numbers take Go's shortest float form.
+		if _, err := strconv.ParseInt(x.String(), 10, 64); err == nil {
+			return x
+		}
 		if f, err := strconv.ParseFloat(x.String(), 64); err == nil {
 			return json.Number(strconv.FormatFloat(f, 'g', -1, 64))
 		}

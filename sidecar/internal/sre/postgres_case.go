@@ -40,6 +40,9 @@ func (s *PostgresStore) Conclude(ctx context.Context, lease Lease,
 			return err
 		}
 		inv, err = s.finishRun(ctx, tx, lease, c)
+		if errors.Is(err, ErrNotFound) {
+			return ErrLeaseLost // the lease expired inside the transaction
+		}
 		if err != nil {
 			return err
 		}

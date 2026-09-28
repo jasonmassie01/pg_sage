@@ -178,7 +178,7 @@ func TestStore_ConcludeValidatesTheConclusion(t *testing.T) {
 // and a zero lease is rejected before any I/O.
 func TestStore_ConcludeNeedsTheCurrentLease(t *testing.T) {
 	limits := DefaultLimits()
-	limits.LeaseTTL = 300 * time.Millisecond
+	limits.LeaseTTL = time.Second
 	st, _, ctx := liveStore(t, limits)
 	scope := testScope(t, ctx, st)
 	stale, ev := evaluating(t, ctx, st, scope, "pid 10")
