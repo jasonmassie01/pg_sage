@@ -9,12 +9,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 )
 
-func (a *Analyzer) getOwnPID(ctx context.Context) int {
-	var pid int
-	_ = a.pool.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid)
-	return pid
-}
-
 func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {
 	windowDays := a.cfg.Analyzer.UnusedIndexWindowDays
 	if windowDays <= 0 {

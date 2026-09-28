@@ -108,7 +108,7 @@ func (e *Engine) commitCycle(plan cyclePlan, actions sageActions) []Incident {
 	if actions.ok && len(actions.recent) > 0 {
 		e.applySelfActionCorrelation(plan, actions)
 	}
-	e.autoResolve(plan.firedIDs)
+	e.autoResolve(e.consumeFastFired(plan.firedIDs))
 	e.escalate()
 	e.trimResolvedOverflow()
 	return e.activeIncidents()
@@ -146,4 +146,22 @@ func stampActionDatabase(actions []SageAction, db string) []SageAction {
 		}
 	}
 	return out
+}
+
+// consumeFastFired adds the signals the fast path saw since the last
+// analyzer cycle to this cycle's fired set, then clears them. Caller
+// holds e.mu.
+func (e *Engine) consumeFastFired(fired map[string]bool) map[string]bool {
+	if len(e.fastFired) == 0 {
+		return fired
+	}
+	merged := make(map[string]bool, len(fired)+len(e.fastFired))
+	for id := range fired {
+		merged[id] = true
+	}
+	for id := range e.fastFired {
+		merged[id] = true
+	}
+	e.fastFired = make(map[string]bool)
+	return merged
 }

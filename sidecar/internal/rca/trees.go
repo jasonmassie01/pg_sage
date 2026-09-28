@@ -42,12 +42,7 @@ func (e *Engine) runDecisionTrees(
 				floatMetric(s, "worst_lag_seconds"))))
 	}
 	if s, ok := sigMap["lock_contention"]; ok {
-		incidents = append(incidents, e.simpleIncident(s,
-			"lock_contention",
-			"Lock chain contention detected",
-			fmt.Sprintf("%d lock chains, %d total blocked",
-				intMetric(s, "lock_chain_count"),
-				intMetric(s, "total_blocked"))))
+		incidents = append(incidents, lockContentionIncident(s))
 	}
 	if s, ok := sigMap["wal_growth_spike"]; ok {
 		incidents = append(incidents, e.simpleIncident(s,

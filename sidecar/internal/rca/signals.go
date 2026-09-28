@@ -249,6 +249,7 @@ func (e *Engine) detectLockContention(
 			"lock_chain_count": len(lockChainFindings),
 			"total_blocked":    totalBlocked,
 		},
+		blockers: blockersFromFindings(lockChainFindings),
 	}
 }
 
