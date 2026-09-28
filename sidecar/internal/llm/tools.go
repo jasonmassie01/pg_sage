@@ -69,6 +69,11 @@ type ToolOptions struct {
 	MaxTokens  int           // completion cap; 0 uses the client default
 	Timeout    time.Duration // 0 uses llm.timeout_seconds only
 	ToolChoice ToolChoice    // "" means auto
+	// Budget is an optional per-call budget (e.g. an investigation's
+	// durable reservation), charged the full serialized prompt plus the
+	// completion cap before provider I/O, in addition to the client's
+	// daily and per-database budgets.
+	Budget Budgeter
 }
 
 // ToolResult is the model's reply: final content, tool calls, or both.
@@ -107,7 +112,7 @@ func (c *Client) ChatWithTools(
 		defer cancel()
 	}
 	req := buildToolRequest(cfg.Model, msgs, tools, opts)
-	return c.exchangeTools(ctx, requestCtx, cfg, generation, req, tools)
+	return c.exchangeTools(ctx, requestCtx, cfg, generation, req, tools, opts.Budget)
 }
 
 func validateToolRequest(

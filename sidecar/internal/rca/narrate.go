@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/notify"
+	"github.com/pg-sage/sidecar/internal/sre"
 )
 
 // Incident narration (Sage SRE M0). Detection never depends on the LLM:
@@ -48,8 +48,6 @@ type Narration struct {
 	FallbackReason string
 	llmAttempted   bool
 }
-
-var numberToken = regexp.MustCompile(`\d+`)
 
 // DeterministicNarration summarizes an incident from its root cause and
 // first evidence links. It never calls the LLM.
@@ -94,7 +92,8 @@ func truncateRunes(s string, n int) string {
 // narrate returns the LLM narration of inc, or the deterministic one with
 // the reason the LLM was not used. It never holds e.mu during I/O.
 func (e *Engine) narrate(ctx context.Context, inc Incident) Narration {
-	det := DeterministicNarration(inc)
+	ev := e.gatherEvidence(ctx, inc)
+	det := deterministicNarration(inc, ev)
 	e.mu.Lock()
 	client, enabled := e.llmClient, e.cfg.NarrationEnabled
 	e.mu.Unlock()
@@ -105,7 +104,7 @@ func (e *Engine) narrate(ctx context.Context, inc Incident) Narration {
 		return det.fallback("llm unavailable")
 	}
 	det.llmAttempted = true
-	n, err := runNarration(ctx, client, inc)
+	n, err := runNarration(ctx, client, inc, ev)
 	if err != nil {
 		if !client.IsEnabled() {
 			return det.fallback("llm unavailable (disabled during narration)")
@@ -140,9 +139,9 @@ func narrationFailure(err error) string {
 // runNarration drives at most narrationMaxTurns tool-calling turns. The
 // last turn forbids tools; tool calls there end the narration.
 func runNarration(
-	ctx context.Context, client *llm.Client, inc Incident,
+	ctx context.Context, client *llm.Client, inc Incident, probeEv incidentEvidence,
 ) (Narration, error) {
-	ev := newEvidenceSet(inc)
+	ev := newEvidenceSet(inc, probeEv)
 	msgs := narrationPrompt(inc, ev)
 	for turn := 1; turn <= narrationMaxTurns; turn++ {
 		if estimateMessageTokens(msgs) > narrationInputBudgetTokens {
@@ -159,7 +158,7 @@ func runNarration(
 			return Narration{}, err
 		}
 		if len(res.ToolCalls) == 0 {
-			return parseNarration(res.Content, ev, inc)
+			return parseNarration(res.Content, ev)
 		}
 		msgs = append(msgs, llm.Message{Role: "assistant",
 			Content: res.Content, ToolCalls: res.ToolCalls})
@@ -183,49 +182,46 @@ func estimateMessageTokens(msgs []llm.Message) int {
 }
 
 // parseNarration accepts only a complete JSON object (fences allowed, no
-// truncation repair) whose summary cites known evidence and whose numbers
-// all appear in the cited evidence or the root cause.
-func parseNarration(
-	content string, ev evidenceSet, inc Incident,
-) (Narration, error) {
+// truncation repair): {"claims": [{"text", "evidence_ids"}]}, or the M0
+// form {"summary", "evidence_ids"} as a single claim. Every claim must
+// cite known evidence (E#, P#, H#), and every number in a claim must
+// appear in the evidence that claim cites (sre.ValidateClaims).
+func parseNarration(content string, ev evidenceSet) (Narration, error) {
 	var out struct {
-		Summary     string   `json:"summary"`
-		EvidenceIDs []string `json:"evidence_ids"`
+		Claims      []sre.Claim `json:"claims"`
+		Summary     string      `json:"summary"`
+		EvidenceIDs []string    `json:"evidence_ids"`
 	}
 	cleaned := llm.StripJSON(content, llm.JSONObject)
 	if err := json.Unmarshal([]byte(cleaned), &out); err != nil {
 		return Narration{}, errors.New("malformed narration JSON")
 	}
-	summary := strings.TrimSpace(out.Summary)
-	if summary == "" {
-		return Narration{}, errors.New("invalid summary: empty")
+	claims := out.Claims
+	if claims == nil {
+		summary := strings.TrimSpace(out.Summary)
+		if summary == "" {
+			return Narration{}, errors.New("invalid summary: empty")
+		}
+		if utf8.RuneCountInString(summary) > maxNarrativeRunes {
+			return Narration{}, fmt.Errorf("invalid summary: longer than %d "+
+				"characters", maxNarrativeRunes)
+		}
+		claims = []sre.Claim{{Text: summary, EvidenceIDs: out.EvidenceIDs}}
 	}
-	if utf8.RuneCountInString(summary) > maxNarrativeRunes {
+	if err := sre.ValidateClaims(claims, ev.catalog()); err != nil {
+		return Narration{}, err
+	}
+	texts := make([]string, len(claims))
+	for i, c := range claims {
+		texts[i] = strings.TrimSpace(c.Text)
+	}
+	text := strings.Join(texts, " ")
+	if utf8.RuneCountInString(text) > maxNarrativeRunes {
 		return Narration{}, fmt.Errorf("invalid summary: longer than %d "+
 			"characters", maxNarrativeRunes)
 	}
-	corpus, err := ev.citedCorpus(out.EvidenceIDs)
-	if err != nil {
-		return Narration{}, err
-	}
-	if err := groundedNumbers(summary, corpus+" "+inc.RootCause); err != nil {
-		return Narration{}, err
-	}
-	return Narration{Text: summary, Source: NarrationLLM,
-		Citations: out.EvidenceIDs}, nil
-}
-
-func groundedNumbers(summary, corpus string) error {
-	known := make(map[string]bool)
-	for _, tok := range numberToken.FindAllString(corpus, -1) {
-		known[tok] = true
-	}
-	for _, tok := range numberToken.FindAllString(summary, -1) {
-		if !known[tok] {
-			return fmt.Errorf("ungrounded number %s in summary", tok)
-		}
-	}
-	return nil
+	return Narration{Text: text, Source: NarrationLLM,
+		Citations: sre.Citations(claims)}, nil
 }
 
 // pendingEvent is a notification that became due, with the incident it

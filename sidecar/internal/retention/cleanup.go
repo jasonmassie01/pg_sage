@@ -126,9 +126,18 @@ var retentionExemptions = map[string]string{
 	"schema_findings":        "legacy table superseded by findings (v0.11); no writer",
 	"sessions":               "expired sessions are deleted by auth's session cleaner",
 	"slot_consumer_registry": "current state, one row per slot",
-	"table_contract":         "declared contracts, current state",
-	"toil_model":             "model configuration",
-	"users":                  "accounts, not a time-series",
+	"sre_budget_reservations": "SRE model budget ledger; nothing writes it until the " +
+		"investigator (M2), which adds pinned, tombstoned retention",
+	"sre_database_bindings": "stable SRE database identity, one row per database",
+	"sre_deployments":       "the deployment identity, one row",
+	"sre_evidence": "SRE evidence; retention (30 d, pinned while referenced) lands " +
+		"with the investigator (M2), which is the first writer",
+	"sre_investigations": "SRE investigations; retention (90 d timelines) lands with " +
+		"the investigator (M2), which is the first writer",
+	"sre_steps":      "SRE investigation steps; retained with their investigation (M2)",
+	"table_contract": "declared contracts, current state",
+	"toil_model":     "model configuration",
+	"users":          "accounts, not a time-series",
 }
 
 // Run performs batched deletes of expired data from all sage tables.
