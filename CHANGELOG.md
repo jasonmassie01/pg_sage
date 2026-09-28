@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Added
+
+- **Lock chains open incidents within a minute.** A lock-chain fast path runs every
+  `rca.lock_chain_interval_seconds` (default `60`, `0` disables it) instead of waiting for the
+  600 s analyzer cycle. It opens or updates the `lock_contention` incident and sends
+  `incident_detected`. The incident records each root blocker's identity (pid,
+  `backend_start`, query id and a hash of the query text) as structured `causal_chain`
+  evidence. Escalation and auto-resolution still count analyzer cycles, so
+  `escalation_cycles` and `resolution_cycles` keep their meaning.
+- **Plan fingerprints.** Captured plans get a stable `plan_hash` that ignores costs, row
+  counts, timings and literals. It is stored in `sage.explain_cache` and copied to every
+  `sage.query_store` sample, so a plan flip shows up in the per-query history.
+  `plan_regression` findings now say whether the plan shape changed (`plan_changed`).
+- **Incident narration (opt-in).** With `rca.narration_enabled: true`, detected and escalated
+  incident notifications carry an LLM summary. The model can only read the incident's own
+  evidence, must cite it, and may only use numbers that appear in it. Every other case
+  (narration off, LLM off, budget, rate limit, timeout, malformed or uncited output) sends
+  the deterministic summary. Both are labeled in the notification. `llm.enabled: false`
+  cancels narrations in flight.
+
 ### Changed (read before upgrading)
 
 - **Retention deletes need an owner-declared column (D5).** `declare_table_contract`
@@ -41,6 +61,10 @@
   with toil credit) or the verification that earned the credit, so all-time value no longer
   shrinks after `retention.actions_days`. Uncredited, failed and rolled-back rows still age
   out.
+- Schema: `sage.explain_cache` gains a nullable `plan_hash` column (added automatically at
+  startup).
+- Notifications for `incident_detected` and `incident_escalated` now end with a labeled
+  `Summary` line, and their payload data adds `narrative` and `narrative_source`.
 
 ### Fixed
 
@@ -51,6 +75,11 @@
   unique index on `(COALESCE(database_id, 0), schema_name, table_name)`.
 - A dry run still in its 24-hour review parks with `retention dry run in review until
   <time>` instead of being logged as a failure; the rest of the scan continues.
+- In fleet mode, and with several databases on one server, a database reported and paged on
+  lock chains that belonged to another database. Lock-chain detection now only starts from
+  sessions in the monitored database.
+- Incident causal chains that contained control characters or invalid UTF-8 failed to
+  save.
 
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 

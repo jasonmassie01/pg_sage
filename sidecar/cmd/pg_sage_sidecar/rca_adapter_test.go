@@ -99,3 +99,37 @@ func TestRCAAdapterSkipsCycleWhenStateCannotLoad(t *testing.T) {
 		t.Error("skipped cycle was not logged at WARN")
 	}
 }
+
+// TestRCAAdapterFastPathLifecycle: the first analyzer cycle starts the
+// lock-chain fast path once; interval 0 leaves it off.
+func TestRCAAdapterFastPathLifecycle(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	pool, err := pgxpool.New(ctx,
+		"postgres://nobody@127.0.0.1:1/none?sslmode=disable&connect_timeout=1")
+	if err != nil {
+		t.Fatalf("pool config: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	noLog := func(string, string, ...any) {}
+
+	on := rcaAdapterTestConfig()
+	on.RCA.LockChainIntervalSeconds = 60
+	a := newRCAAdapter(ctx, rca.NewEngine(&on.RCA, noLog), pool, "db", noLog)
+	a.Analyze(saturatedSnapshot(), nil, on, nil)
+	first := a.fastPath
+	if first == nil || first.Interval() != 60*time.Second {
+		t.Fatalf("fast path = %v, want started at 60s", first)
+	}
+	a.Analyze(saturatedSnapshot(), nil, on, nil)
+	if a.fastPath != first {
+		t.Fatal("second analyzer cycle started another fast path")
+	}
+
+	off := rcaAdapterTestConfig() // lock_chain_interval_seconds: 0
+	b := newRCAAdapter(ctx, rca.NewEngine(&off.RCA, noLog), pool, "db", noLog)
+	b.Analyze(saturatedSnapshot(), nil, off, nil)
+	if b.fastPath != nil {
+		t.Fatal("interval 0 must leave the fast path disabled")
+	}
+}

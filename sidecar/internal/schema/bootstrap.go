@@ -372,6 +372,7 @@ func migrationStatements() []string {
 		ddlFindingsBackfillFromSchemaFindings,
 		ddlFleetScaleIndexes,
 		ddlQueryStoreStatsEpoch,
+		ddlExplainCachePlanHash,
 	}
 	statements = append(statements, agentNativeMigrationStatements()...)
 	// After the agent-native DDL: sage.policy and sage.table_contract must exist.

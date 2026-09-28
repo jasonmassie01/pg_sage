@@ -330,6 +330,11 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "2.5",
 		reader: func(c *config.Config) string { return ftoa(c.RCA.WALSpikeMultiplier) },
 	},
+	// Sage SRE M0: the narration kill switch applies without a restart.
+	"rca.narration_enabled": {
+		input:  "true",
+		reader: func(c *config.Config) string { return btoa(c.RCA.NarrationEnabled) },
+	},
 
 	// --- v0.9: runaway query termination ---
 	"runaway.enabled": {

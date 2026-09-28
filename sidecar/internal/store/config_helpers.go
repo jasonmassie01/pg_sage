@@ -80,6 +80,7 @@ var allowedConfigKeys = map[string]string{
 	"rca.connection_saturation_pct":         "pct",
 	"rca.replication_lag_threshold_seconds": "int_pos",
 	"rca.wal_spike_multiplier":              "float_pos",
+	"rca.narration_enabled":                 "bool",
 
 	// v0.9.2: Slow active replication slot threshold.
 	"analyzer.slow_slot_retained_bytes": "int_pos",
@@ -597,6 +598,7 @@ func addRCAFields(m map[string]any, r *config.RCAConfig) {
 		r.ReplicationLagThresholdS, "yaml")
 	addField(m, "rca.wal_spike_multiplier",
 		r.WALSpikeMultiplier, "yaml")
+	addField(m, "rca.narration_enabled", r.NarrationEnabled, "yaml")
 }
 
 func addRunawayFields(m map[string]any, r *config.RunawayConfig) {

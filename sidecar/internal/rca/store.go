@@ -92,8 +92,10 @@ func (e *Engine) PersistIncidents(
 		}
 		results = append(results, r)
 	}
-	events, d := e.applyPersistResults(results)
-	e.dispatchEvents(ctx, d, events)
+	pending, d := e.applyPersistResults(results)
+	if d != nil && len(pending) > 0 {
+		e.dispatchEvents(ctx, d, e.decorateEvents(ctx, pending))
+	}
 	return errors.Join(errs...)
 }
 
@@ -138,11 +140,15 @@ func persistOne(
 func insertIncident(
 	ctx context.Context, pool *pgxpool.Pool, inc *Incident,
 ) (string, bool, error) {
+	chain, err := marshalChain(inc.CausalChain)
+	if err != nil {
+		return "", false, err
+	}
 	var prev string
-	err := pool.QueryRow(ctx, insertIncidentSQL,
+	err = pool.QueryRow(ctx, insertIncidentSQL,
 		inc.ID, inc.DetectedAt, inc.LastDetectedAt,
 		inc.Severity, inc.RootCause,
-		marshalChain(inc.CausalChain), nonNil(inc.AffectedObjects),
+		chain, nonNil(inc.AffectedObjects),
 		nonNil(inc.SignalIDs), inc.RecommendedSQL, inc.RollbackSQL,
 		nilIfEmpty(inc.ActionRisk), inc.Source, inc.Confidence,
 		inc.ResolvedAt, inc.DatabaseName, inc.OccurrenceCount,
@@ -162,9 +168,13 @@ func updateIncident(
 	ctx context.Context, pool *pgxpool.Pool, inc *Incident,
 	res persistResult,
 ) (persistResult, error) {
+	chain, err := marshalChain(inc.CausalChain)
+	if err != nil {
+		return res, err
+	}
 	tag, err := pool.Exec(ctx, updateIncidentSQL,
 		inc.ID, inc.LastDetectedAt, inc.Severity, inc.RootCause,
-		marshalChain(inc.CausalChain), inc.OccurrenceCount,
+		chain, inc.OccurrenceCount,
 		inc.EscalatedAt, identityKey(inc), inc.DatabaseName,
 		inc.ResolvedAt, inc.ResolvedBy, inc.ResolutionReason,
 	)

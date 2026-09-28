@@ -267,9 +267,18 @@ func TestParseIntervalSeconds(t *testing.T) {
 // marshalChain
 // ---------------------------------------------------------------------------
 
+func mustMarshalChain(t *testing.T, chain []ChainLink) string {
+	t.Helper()
+	got, err := marshalChain(chain)
+	if err != nil {
+		t.Fatalf("marshalChain: %v", err)
+	}
+	return got
+}
+
 func TestMarshalChain(t *testing.T) {
 	t.Run("empty chain", func(t *testing.T) {
-		got := marshalChain(nil)
+		got := mustMarshalChain(t, nil)
 		if got != "[]" {
 			t.Errorf("marshalChain(nil) = %q, want %q", got, "[]")
 		}
@@ -279,7 +288,7 @@ func TestMarshalChain(t *testing.T) {
 		chain := []ChainLink{
 			{Order: 1, Signal: "sig1", Description: "desc", Evidence: "ev"},
 		}
-		got := marshalChain(chain)
+		got := mustMarshalChain(t, chain)
 		if !strings.Contains(got, `"order":1`) {
 			t.Errorf("missing order: %s", got)
 		}
@@ -296,7 +305,7 @@ func TestMarshalChain(t *testing.T) {
 			{Order: 1, Signal: "a", Description: "d1", Evidence: "e1"},
 			{Order: 2, Signal: "b", Description: "d2", Evidence: "e2"},
 		}
-		got := marshalChain(chain)
+		got := mustMarshalChain(t, chain)
 		// Should contain a comma separating two objects.
 		if strings.Count(got, "},{") != 1 {
 			t.Errorf("expected 2 objects separated by comma: %s", got)
@@ -312,8 +321,8 @@ func TestMarshalChain(t *testing.T) {
 				Evidence:    `back\slash`,
 			},
 		}
-		got := marshalChain(chain)
-		// %q verb in fmt.Fprintf should escape quotes and newlines.
+		got := mustMarshalChain(t, chain)
+		// Quotes and newlines must be JSON-escaped.
 		if !strings.Contains(got, `\"`) || !strings.Contains(got, `\n`) {
 			t.Errorf("special chars not escaped: %s", got)
 		}

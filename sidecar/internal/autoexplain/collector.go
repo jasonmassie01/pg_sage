@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/planhash"
 	"github.com/pg-sage/sidecar/internal/sanitize"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
@@ -264,6 +265,16 @@ func parameterCount(query string) int {
 	return maxParam
 }
 
+// planHashParam fingerprints a plan for sage.explain_cache.plan_hash.
+// A plan that cannot be fingerprinted is still stored, with NULL.
+func planHashParam(planJSON []byte) *string {
+	h, err := planhash.Compute(planJSON)
+	if err != nil {
+		return nil
+	}
+	return &h
+}
+
 // storePlan inserts a captured plan into sage.explain_cache.
 func (c *Collector) storePlan(
 	ctx context.Context,
@@ -277,9 +288,10 @@ func (c *Collector) storePlan(
 	_, err := c.pool.Exec(ctx, `
 		INSERT INTO sage.explain_cache
 			(queryid, query_text, plan_json, source,
-			 total_cost, execution_time)
-		VALUES ($1, $2, $3, $4, $5, $6)`,
+			 total_cost, execution_time, plan_hash)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		queryID, queryText, planJSON, source, totalCost, execTime,
+		planHashParam(planJSON),
 	)
 	if err != nil {
 		return fmt.Errorf("insert explain_cache: %w", err)

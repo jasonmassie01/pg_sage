@@ -106,6 +106,10 @@ var excludedExactKeys = map[string]bool{
 	"schema_lint.include_schemas": true,
 	"schema_lint.exclude_schemas": true,
 	"schema_lint.disabled_rules":  true,
+
+	// Sage SRE M0: the fast-path period is read once at startup and must
+	// be 0 or 10-3600 (validated at load), so it is YAML-only.
+	"rca.lock_chain_interval_seconds": true,
 }
 
 // structFieldPaths walks a struct type using reflection and returns
@@ -636,7 +640,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 // fails when someone adds or removes a key without updating the
 // test. Update the expected count when intentionally changing keys.
 func TestConfigConsistency_AllowedKeyCount(t *testing.T) {
-	const expectedCount = 113 // Update when adding/removing keys.
+	const expectedCount = 114 // Update when adding/removing keys.
 
 	actual := len(allowedConfigKeys)
 	if actual != expectedCount {
@@ -665,7 +669,7 @@ func TestConfigConsistency_ConfigToMapKeyCount(t *testing.T) {
 	}
 	m := configToMap(cfg)
 
-	const expectedCount = 113 // Should match allowedConfigKeys.
+	const expectedCount = 114 // Should match allowedConfigKeys.
 
 	actual := len(m)
 	if actual != expectedCount {

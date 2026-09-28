@@ -156,6 +156,7 @@ const (
 	DefaultRCAConnectionSaturationPct  = 80
 	DefaultRCAReplicationLagThresholdS = 30
 	DefaultRCAWALSpikeMultiplier       = 2.0
+	DefaultRCALockChainIntervalSeconds = 60
 
 	// v0.9 — Lock chain defaults.
 	DefaultLockChainMinBlocked        = 3
