@@ -306,11 +306,22 @@ func TestAgentDBRegisterStoresProviderPlan(t *testing.T) {
 	st, ctx, pool := requireAgentDBAPIStore(t)
 	defer pool.Close()
 	cleanupAgentDBTestRows(t, ctx, pool, "api_lakebase_plan")
+	cleanupAgentDBTestRows(t, ctx, pool, "req_api_lakebase_plan")
+	// D4: cloud registers consume an approved request.
+	if _, err := st.CreateRequest(ctx, agentdb.RequestCreate{
+		RequestID: "req_api_lakebase_plan", TenantID: "tenant_agentdb_api",
+		AgentID: "agent_api", IsolationType: agentdb.LevelInstance,
+		Provider: agentdb.ProviderDatabricksLakebase, DatabaseName: "agent_app",
+		BudgetUSD: 5,
+	}); err != nil {
+		t.Fatalf("CreateRequest: %v", err)
+	}
 
 	req := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/agent-dbs",
 		bytes.NewReader([]byte(`{
+			"request_id":"req_api_lakebase_plan",
 			"deployment_id":"api_lakebase_plan",
 			"tenant_id":"tenant_agentdb_api",
 			"agent_id":"agent_api",
@@ -322,7 +333,7 @@ func TestAgentDBRegisterStoresProviderPlan(t *testing.T) {
 		}`)),
 	)
 	rr := httptest.NewRecorder()
-	agentDBRegisterHandler(st).ServeHTTP(rr, req)
+	withTestOperator(agentDBRegisterHandler(st)).ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("register status = %d body=%s", rr.Code, rr.Body.String())
 	}
@@ -1174,10 +1185,19 @@ func TestAgentDBTerraformTemplateAPI(t *testing.T) {
 	if approveRR.Code != http.StatusOK {
 		t.Fatalf("approve status = %d body=%s", approveRR.Code, approveRR.Body.String())
 	}
+	// D4: a cloud plan consumes an approved request.
+	cleanupAgentDBTestRows(t, ctx, pool, "req_tf_api_unit")
+	if _, err := st.CreateRequest(ctx, agentdb.RequestCreate{RequestID: "req_tf_api_unit",
+		TenantID: "tenant_agentdb_api", AgentID: "agent_tf_api",
+		IsolationType: agentdb.LevelInstance, Provider: agentdb.ProviderAWSRDS,
+		BudgetUSD: 20}); err != nil {
+		t.Fatalf("CreateRequest: %v", err)
+	}
 	provisionReq := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/agent-dbs/terraform-templates/tf_api_unit/provision",
 		bytes.NewReader([]byte(`{
+			"request_id":"req_tf_api_unit",
 			"deployment_id":"tf_api_unit_dep",
 			"tenant_id":"tenant_agentdb_api",
 			"agent_id":"agent_tf_api",
@@ -1495,9 +1515,18 @@ func TestAgentDBBlueprintToLiveProvisioningAPI(t *testing.T) {
 	); rr.Code != http.StatusOK {
 		t.Fatalf("approve blueprint status = %d body=%s", rr.Code, rr.Body.String())
 	}
+	// D4: a cloud plan consumes an approved request.
+	cleanupAgentDBTestRows(t, ctx, pool, "req_api_blueprint_live")
+	if _, err := st.CreateRequest(ctx, agentdb.RequestCreate{
+		RequestID: "req_api_blueprint_live", TenantID: "tenant_agentdb_api",
+		AgentID: "agent_api", IsolationType: agentdb.LevelInstance,
+		Provider: agentdb.ProviderAWSRDS, BudgetUSD: 20}); err != nil {
+		t.Fatalf("CreateRequest: %v", err)
+	}
 	provisionRR := post(
 		"/api/v1/agent-dbs/blueprints/api_blueprint_live/provision",
-		`{"deployment_id":"api_blueprint_live","tenant_id":"tenant_agentdb_api","agent_id":"agent_api","lease_seconds":3600}`,
+		`{"request_id":"req_api_blueprint_live","deployment_id":"api_blueprint_live",`+
+			`"tenant_id":"tenant_agentdb_api","agent_id":"agent_api","lease_seconds":3600}`,
 	)
 	if provisionRR.Code != http.StatusOK {
 		t.Fatalf("provision blueprint status = %d body=%s", provisionRR.Code, provisionRR.Body.String())

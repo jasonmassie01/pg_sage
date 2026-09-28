@@ -87,7 +87,7 @@ func TestOperatorApproveCannotOverridePolicyDeny(t *testing.T) {
 	defer pool.Close()
 	seedDeniedRequest(t, st, ctx, "req_fix_policy_deny")
 	if _, err := st.SetRequestDecision(ctx, "req_fix_policy_deny",
-		DecisionRequest{Decision: "approved"}); !errors.Is(err, ErrConflict) {
+		DecisionRequest{Decision: "approved", ActorID: "test"}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("approve of policy deny err = %v, want ErrConflict", err)
 	}
 	got, err := st.GetRequest(ctx, "req_fix_policy_deny")
@@ -115,11 +115,12 @@ func TestApprovedRequestIsSingleUse(t *testing.T) {
 	}
 	st.opts.LocalProvisioning = true
 	if _, err := st.ProvisionApprovedRequest(ctx, id,
-		RequestProvisionRequest{DeploymentID: "dep_fix_single_1"}); err != nil {
+		RequestProvisionRequest{DeploymentID: "dep_fix_single_1", ActorID: "test"}); err != nil {
 		t.Fatalf("first provision: %v", err)
 	}
 	if _, err := st.ProvisionApprovedRequest(ctx, id,
-		RequestProvisionRequest{DeploymentID: "dep_fix_single_2"}); !errors.Is(err, ErrConflict) {
+		RequestProvisionRequest{DeploymentID: "dep_fix_single_2",
+			ActorID: "test"}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("second provision err = %v, want ErrConflict", err)
 	}
 	if _, err := st.Get(ctx, "dep_fix_single_2"); !errors.Is(err, ErrNotFound) {
@@ -147,6 +148,9 @@ func TestApprovedBlueprintSpecWinsOverOverrides(t *testing.T) {
 		t.Fatalf("Approve: %v", err)
 	}
 	dep, err := st.ProvisionFromBlueprint(ctx, bpID, BlueprintProvisionRequest{
+		// D4: a cloud plan consumes an approved request.
+		RequestID: mustApprovedCloudRequest(t, ctx, st, "req_fix_spec_wins",
+			"tenant_agentdb_test", "agent_bp", ProviderAWSRDS), ActorID: "unit",
 		DeploymentID: depID, TenantID: "tenant_agentdb_test", AgentID: "agent_bp",
 		LeaseSeconds: 3600, ProviderParams: map[string]any{
 			"region": "eu-west-1", "db_instance_class": "db.r6i.32xlarge"},
@@ -225,6 +229,9 @@ func TestTerraformTemplateProvisionIsReviewOnlyAndHashBound(t *testing.T) {
 		t.Fatalf("Approve: %v", err)
 	}
 	dep, err := st.ProvisionFromTerraformTemplate(ctx, tplID, TemplateProvisionRequest{
+		// D4: a cloud plan consumes an approved request.
+		RequestID: mustApprovedCloudRequest(t, ctx, st, "req_fix_tpl_review_only",
+			"tenant_agentdb_test", "agent_tf", ProviderAWSRDS), ActorID: "unit",
 		DeploymentID: depID, TenantID: "tenant_agentdb_test", AgentID: "agent_tf",
 		Provider: ProviderAWSRDS, LeaseSeconds: 3600,
 		ProviderParams: map[string]any{"region": "us-east-1"},

@@ -146,6 +146,50 @@ curl -b cookies.txt http://localhost:8080/api/v1/cases
 `SAGE_API_KEY` is a legacy config field and does not secure the current v1
 web/API path.
 
+### SSO Account Linking
+
+SSO users are matched on the identity provider's issuer and subject, never on
+email. A first SSO sign-in whose verified email belongs to an existing account
+is refused (HTTP `403`) until the account is linked by one of these explicit
+acts:
+
+- **Link SSO (self-service).** A user signed in with a password opens their
+  account page (click their email in the sidebar, `#/profile`) and chooses
+  **Link SSO**. `GET /api/v1/auth/oauth/authorize?intent=link` requires that
+  session. After the provider sign-in, the identity is bound to the signed-in
+  user if the provider asserts `email_verified`, the verified email equals the
+  account email (case-insensitive), the account has no identity yet, and the
+  identity is not bound to another account. Otherwise the callback returns
+  `409` (or `401` for an unverified email). The account keeps its id, role and
+  password.
+- **One-time link grant (admin).** For a user who cannot sign in with a
+  password, an admin issues a grant with
+  `POST /api/v1/users/{id}/oidc-link-grant` or **Issue SSO link** on the Users
+  page. The response carries a token once; the dashboard shows it as a
+  `#/link-sso?grant=...` link. The grant works once, expires after 15 minutes,
+  is replaced by a newer grant for the same user, and is stored only as a
+  SHA-256 hash. The holder opens the link, which calls
+  `POST /api/v1/auth/oauth/link-grant`, then signs in at the provider; the
+  same email and uniqueness checks apply.
+- **SSO-only users.** `POST /api/v1/users` with `"sso_only": true` and no
+  password creates an account without a password. It cannot sign in until an
+  admin issues it a link grant.
+
+An admin removes a link with `DELETE /api/v1/users/{id}/oidc` (**Unlink SSO**
+on the Users page); this also ends the user's sessions. `GET /api/v1/users`
+reports `sso_linked`, `sso_issuer` and `password_login` for each user, and
+`GET /api/v1/auth/sso` reports the signed-in user's own status. Link, unlink,
+grant issue and grant use are recorded in `sage.auth_audit` with the acting and
+target user ids; audit rows never contain emails or grant tokens.
+
+The callback is a browser navigation, so when the request accepts HTML a
+failure redirects to the dashboard with an `sso_error` code
+(`link_required`, `link_conflict`, `unverified` or `failed`) that the login
+page, or the account page for a signed-in link, shows as a message. Other
+clients receive the JSON status (`403`, `409` or `401`). The grant landing
+page removes the grant from the address and browser history as soon as it
+reads it.
+
 ### TLS
 
 pg_sage currently serves HTTP. Terminate TLS at a reverse proxy, Kubernetes

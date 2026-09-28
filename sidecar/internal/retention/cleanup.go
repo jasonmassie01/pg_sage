@@ -98,6 +98,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{"admission_withheld", "last_seen_at", r.ActionsDays, ""},
 		{"explain_cache", "captured_at", r.ExplainsDays, ""},
 		{"explain_results", "created_at", r.ExplainsDays, ""},
+		// Used or expired SSO link grants are dead weight once old (D7).
+		{"user_oidc_link_grants", "expires_at", r.ActionsDays, ""},
 	}
 }
 
@@ -106,6 +108,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 // to purgeRules or here (enforced by a test).
 var retentionExemptions = map[string]string{
 	"action_queue":           "approval queue; lifecycle/expiry owned by the executor",
+	"auth_audit":             "security audit trail of SSO link, unlink and grant use",
 	"config":                 "current configuration, not a time-series",
 	"config_audit":           "security audit trail of configuration changes",
 	"crypto_meta":            "key metadata, not a time-series",

@@ -4,6 +4,16 @@
 
 ### Added
 
+- **SSO account linking.** A user signed in with a password can link SSO from their account
+  page (`#/profile`). Admins can unlink SSO, issue a one-time link grant (single use,
+  15 minutes, stored hashed) for a user who cannot sign in with a password, and create
+  SSO-only users with no password. Linking requires a verified provider email that matches
+  the account; accounts are never linked on email alone. `GET /api/v1/users` now reports
+  `sso_linked`, `sso_issuer` and `password_login`. Link, unlink and grant events are
+  written to the new `sage.auth_audit` table. See `docs/security.md`.
+- **Readable SSO sign-in errors.** A refused or failed SSO callback now returns the browser
+  to the login page (or the account page for a link) with an explanation, instead of
+  showing raw JSON. API clients still receive the JSON status.
 - **Lock chains open incidents within a minute.** A lock-chain fast path runs every
   `rca.lock_chain_interval_seconds` (default `60`, `0` disables it) instead of waiting for the
   600 s analyzer cycle. It opens or updates the `lock_contention` incident and sends
@@ -54,6 +64,25 @@
 
 ### Changed (read before upgrading)
 
+- **Cloud AgentDB registration needs an approved request.** `POST /api/v1/agent-dbs`
+  with a cloud provider now returns `409 approved request required` unless it names an
+  approved, unused `request_id`. Provision approved requests with
+  `POST /api/v1/agent-dbs/requests/{id}/provision`, which now accepts `size_profile_id`,
+  `schema_name`, `secret_ref` and `secret_ref_provider`. Each approval produces exactly one
+  deployment; reusing it, or provisioning it for another tenant, agent or provider, returns
+  `409`. `local_postgres` schema and database registers are unchanged. Existing deployments
+  are left as they are. The dashboard's Provision form uses the request route.
+- **Blueprint and Terraform-template provisioning also consume a request.** An approved
+  blueprint or template is a reviewed design, not permission to spend: provisioning a cloud
+  plan from one now needs a signed-in user and an approved, unused `request_id` matching its
+  tenant, agent and provider, and returns `409` without one or on reuse. The dashboard
+  requests approval before provisioning from the Blueprints and Terraform panels.
+- **AgentDB approvals are attributed.** Approve and deny record the signed-in user in
+  `decided_by`/`decided_at` and require a session. A consumed request records
+  `consumed_deployment_id`, `consumed_by` and `consumed_at`, and its decision can no longer
+  change. Decisions that request policy made at creation show `decided_by: "policy"`.
+- **One operator team per install.** AgentDB operators and admins act on every tenant; the
+  docs now say so. Do not share an install between teams that must be isolated.
 - **Retention deletes need an owner-declared column (D5).** `declare_table_contract`
   now takes `retention: {"interval": "...", "column": "..."}`; an interval without a
   column (including the old bare-string form) is rejected, and the column must exist
@@ -208,7 +237,6 @@
   sessions in the monitored database.
 - Incident causal chains that contained control characters or invalid UTF-8 failed to
   save.
-
 
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 

@@ -416,40 +416,6 @@ func stringSlice(m map[string]any, k string) []string {
 	}
 }
 
-func agentDBRegisterHandler(st *agentdb.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		m := readMap(r)
-		req := agentdb.RegisterRequest{
-			DeploymentID:  str(m, "deployment_id"),
-			TenantID:      str(m, "tenant_id"),
-			AgentID:       str(m, "agent_id"),
-			RunID:         str(m, "run_id"),
-			DatabaseName:  str(m, "database_name"),
-			SafetyMode:    str(m, "safety_mode"),
-			IsolationType: str(m, "isolation_type"),
-			Provider:      str(m, "provider"),
-			ProvisioningLevel: firstString(
-				str(m, "provisioning_level"), str(m, "isolation_type"),
-			),
-			SizeProfileID: str(m, "size_profile_id"),
-			SchemaName:    str(m, "schema_name"),
-			// G8-B14: validated against the env allow-list by the store.
-			SecretRef:         str(m, "secret_ref"),
-			SecretRefProvider: str(m, "secret_ref_provider"),
-			LeaseSeconds:      integer(m, "lease_seconds"),
-			BudgetUSD:         float(m, "budget_usd"),
-			BackupRequired:    boolValue(m, "backup_required"),
-			Metadata:          obj(m, "metadata"),
-		}
-		d, err := st.Provision(r.Context(), req)
-		if err != nil {
-			agentDBError(w, err)
-			return
-		}
-		jsonResponse(w, d)
-	}
-}
-
 func agentDBGetHandler(st *agentdb.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		d, err := st.Get(r.Context(), agentDBID(r))

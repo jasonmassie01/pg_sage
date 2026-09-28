@@ -51,7 +51,15 @@ func TestAgentDBRegisterPersistsSecretRef(t *testing.T) {
 	st, ctx, pool := requireAgentDBAPIStore(t)
 	defer pool.Close()
 	cleanupAgentDBTestRows(t, ctx, pool, "api_fix_secret_ref")
+	cleanupAgentDBTestRows(t, ctx, pool, "req_fix_secret_ref")
+	// D4: cloud registers consume an approved request.
+	if _, err := st.CreateRequest(ctx, agentdb.RequestCreate{RequestID: "req_fix_secret_ref",
+		TenantID: "t", AgentID: "a", IsolationType: agentdb.LevelInstance,
+		Provider: agentdb.ProviderNeon, BudgetUSD: 5}); err != nil {
+		t.Fatalf("CreateRequest: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent-dbs", bytes.NewReader([]byte(`{
+		"request_id":"req_fix_secret_ref",
 		"deployment_id":"api_fix_secret_ref","tenant_id":"t","agent_id":"a",
 		"provider":"neon","provisioning_level":"instance",
 		"secret_ref":"env:PG_SAGE_AGENTDB_NEON_DSN","secret_ref_provider":"env"}`)))

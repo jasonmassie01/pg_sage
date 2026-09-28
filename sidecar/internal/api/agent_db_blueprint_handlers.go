@@ -72,11 +72,17 @@ func agentDBApproveBlueprintHandler(st *agentdb.Store) http.HandlerFunc {
 
 func agentDBProvisionBlueprintHandler(st *agentdb.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := requireActor(w, r)
+		if !ok {
+			return
+		}
 		m := readMap(r)
 		dep, err := st.ProvisionFromBlueprint(
 			r.Context(),
 			r.PathValue("blueprint_id"),
 			agentdb.BlueprintProvisionRequest{
+				RequestID:      str(m, "request_id"),
+				ActorID:        actor,
 				DeploymentID:   str(m, "deployment_id"),
 				TenantID:       str(m, "tenant_id"),
 				AgentID:        str(m, "agent_id"),
@@ -89,7 +95,7 @@ func agentDBProvisionBlueprintHandler(st *agentdb.Store) http.HandlerFunc {
 			},
 		)
 		if err != nil {
-			agentDBError(w, err)
+			writeProvisionError(w, err)
 			return
 		}
 		jsonResponse(w, dep)

@@ -387,12 +387,13 @@ func registerAuthRoutes(
 		oauthConfigHandler(oauthProvider, cfg.OAuth.Provider))
 	mux.HandleFunc(
 		"GET /api/v1/auth/oauth/authorize",
-		oauthAuthorizeHandler(oauthProvider))
+		oauthAuthorizeRouter(oauthProvider, pool))
 	mux.HandleFunc(
 		"GET /api/v1/auth/oauth/callback",
 		oauthCallbackHandler(
 			oauthProvider, pool,
 			cfg.OAuth.DefaultRole, cfg.OAuth.Provider))
+	registerAccountLinkRoutes(mux, pool, oauthProvider, cfg.OAuth.Provider)
 }
 
 func registerUserRoutes(

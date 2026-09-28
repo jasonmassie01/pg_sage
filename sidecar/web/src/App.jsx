@@ -8,6 +8,8 @@ import { SettingsPage } from './pages/SettingsPage'
 import { AlertLogPage } from './pages/AlertLogPage'
 import { LoginPage } from './pages/LoginPage'
 import { UsersPage } from './pages/UsersPage'
+import { ProfilePage } from './pages/ProfilePage'
+import { LinkSSOPage } from './pages/LinkSSOPage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { AgentDBsPage } from './pages/AgentDBsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
@@ -107,7 +109,12 @@ export default function App() {
 
   if (!authChecked) return null
 
+  // Hash routes may carry a query (e.g. #/profile?linked=1); match on path.
+  const routePath = route.split('?')[0]
+
   if (!user) {
+    // An admin-issued SSO link is used before the holder can sign in (D7).
+    if (routePath === '/link-sso') return <LinkSSOPage />
     return <LoginPage onLogin={setUser} />
   }
 
@@ -147,7 +154,7 @@ export default function App() {
   const isAdmin = user.role === 'admin'
   const denied = { title: 'Access denied', node: <AccessDenied /> }
   const pageState = (() => {
-    switch (route) {
+    switch (routePath) {
       case '/':
         return { title: 'Value', node: <ValuePage database={effectiveDB} /> }
       case '/advanced':
@@ -203,6 +210,8 @@ export default function App() {
       case '/notifications':
         return isAdmin ? { title: 'Notifications',
           node: <NotificationsPage /> } : denied
+      case '/profile':
+        return { title: 'Account', node: <ProfilePage user={user} /> }
       case '/users':
         return isAdmin ? { title: 'Users',
           node: <UsersPage currentUser={user} /> } : denied
