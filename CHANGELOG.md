@@ -1,5 +1,112 @@
 # Changelog
 
+## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
+
+### What's new
+
+- **Azure Database for PostgreSQL.** Flexible server runs every portable maintenance
+  action. Server parameters are applied through Azure Resource Manager and reported as
+  `applied_pending_restart` when a restart is needed. Credentials come only from the Azure
+  identity chain (service principal, workload or managed identity, or `az login`). Existing
+  Cosmos DB for PostgreSQL clusters are detected, with parameters guidance-only.
+  Verified live on flexible server PostgreSQL 14–18, the General Purpose tier and elastic
+  clusters.
+- **SQL parse-tree validation.** Every statement pg_sage executes is parsed by PostgreSQL's
+  own parser (libpg_query) and checked by structure, as a second layer after the text
+  validator. It catches quoted and Unicode-escaped schema names, set operations and multiple
+  `ALTER TABLE` subcommands. Release binaries and Docker images always include it;
+  `pg_sage --version` reports `sql-ast:`.
+- **One policy authority.** The standing policy gate now decides every action: unattended,
+  operator-approved, and what the dashboard shows as ready. Operator approvals obey the
+  policy's change-class allowlist and maintenance windows. Readiness shows the real verdict
+  instead of assuming a satisfied trust ramp.
+- **Azure test scripts** in `scripts/azure/` provision a throwaway server, run the live
+  checklist, run a flavor matrix and tear everything down.
+- **CI** runs the race detector, a PostgreSQL 14–18 matrix with pg_hint_plan, a skip
+  budget, and the documented quick start as a least-privileged role.
+
+### Changed (read before upgrading)
+
+- **Stricter trust gate.**
+  - Safe actions need `tier3_safe` plus 8 ramp days.
+  - Moderate actions need `tier3_moderate`, 31 days, and an open policy window and
+    `trust.maintenance_window`; otherwise they queue.
+  - `alter_table`, `reindex_concurrently`, backend cancel/terminate and `apply_query_hint`
+    always need approval.
+- **Policy documents are migrated automatically.** The new change classes `backend_signal`,
+  `query_hint` and `schema_change` are granted where `index` was, so effective permissions
+  are unchanged. Policy history is not rewritten.
+- **Builds without a C compiler** leave out parse-tree validation. They log a warning and
+  send unattended changes to operator approval (`sql_validation_degraded`).
+- **The C extension is removed.** `mode: extension` fails at startup. The default mode is
+  standalone, and `--meta-db` implies meta. The last extension source is at tag
+  `c-extension-final`.
+- **Meta-db trust:** the global `trust.level` is a ceiling for every database.
+- **OIDC** requires `email_verified` and matches issuer + subject. Password accounts are
+  refused at SSO login until account linking exists.
+- **Notifications:**
+  - Private and metadata targets are refused unless
+    `notification_policy.allow_private_targets: true` (YAML only).
+  - Channel secrets are encrypted at rest.
+  - Critical alerts bypass quiet hours; others are deferred, not dropped.
+- **HTTP MCP:** viewers get read-only tools, and the acting user is recorded.
+- **Retention deletes** need a matching dry run 24 hours to 7 days old and go through the
+  policy gate.
+- **Migrations** never auto-promote until workload capture exists.
+- **Metrics:** `pg_sage_toil_minutes_saved_total` is replaced by the gauge
+  `pg_sage_toil_minutes_saved`. Added `pg_sage_value_metrics_up` and per-database LLM
+  budget metrics.
+- **AgentDB:**
+  - Agent API tokens are tenant-bound.
+  - `secret_ref` must be `env:PG_SAGE_AGENTDB_*`.
+  - Local provisioning needs `PG_SAGE_AGENTDB_LOCAL_PROVISIONING`.
+- **Building from source** needs a C compiler for parse-tree validation. Release builds use
+  cgo: static Linux amd64/arm64 and macOS amd64/arm64.
+
+### Fixed
+
+- **SQL safety**
+  - EXPLAIN statement escape.
+  - Executor whitelist bypass through multiple `ALTER` subcommands and unusual whitespace.
+  - DDL literals and role/subscription DDL are no longer sent to the LLM.
+- **Retention:** deletes are bound to one partition and re-check the cutoff; the delete and
+  its audit record commit together.
+- **Undo and rollback**
+  - Reverting an index created with `IF NOT EXISTS` could drop a pre-existing index; revert
+    now drops only an index pg_sage recorded creating.
+  - Index rollbacks are concurrent.
+  - Pending reverts resume after a crash.
+  - Rollback by queue id is fixed.
+- **Backends and WAL**
+  - Backend cancel re-checks the backend's identity, so a reused PID is never cancelled.
+  - The WAL custodian no longer shrinks retention below what replication slots hold.
+- **LLM configuration advice** uses the correct base unit for memory settings.
+- **Emergency stop** halts every database in a fleet even when persisting the stop fails.
+- **PostgreSQL versions**
+  - HypoPG validation works on PG14/15.
+  - PG18 plans parse fractional `Actual Rows`.
+  - pg_hint_plan versions before 1.7 are handled.
+  - The documented quick start works as written.
+- **Azure:** memory-valued server parameters reported in `kB`/`8kB` convert correctly
+  (found by the live matrix).
+- **AgentDB:** ping is liveness-only; archived deployments are revisited; re-registration is
+  idempotent; teardown requires the recorded resource id and verified cloud tags.
+
+### Verification and limitations
+
+- Tested under cgo:
+  - Unit: 7,608 passed, 0 failed.
+  - e2e: 76 passed.
+  - Integration: race-enabled on PostgreSQL 14–18.
+  - Every skip justified in the skip budget.
+  - golangci-lint: clean.
+- Azure live matrix: flexible server PG14–18 (Burstable and General Purpose) and elastic
+  clusters pass every automated check. PG11–13 are refused at startup by design (minimum is
+  14). New Cosmos DB for PostgreSQL clusters can no longer be created, so Cosmos support is
+  covered by unit tests only.
+- Dashboard readiness and approved-action checks on Azure (CHECK-AZ-04/05) are still
+  manual.
+
 ## v1.5.0 (2026-09-07) -- Neon and Supabase
 
 ### Added
