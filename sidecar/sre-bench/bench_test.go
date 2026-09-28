@@ -28,6 +28,10 @@ func TestPGIncidentBench(t *testing.T) {
 	results := Run(ctx, env, Scenarios())
 	t.Log("\n" + Report(results))
 	for _, r := range results {
+		if r.Attempts > 1 {
+			t.Logf("scenario %s ran %d times: the environment broke its premise",
+				r.Scenario.ID, r.Attempts)
+		}
 		if r.Err != nil {
 			t.Errorf("scenario %s: %v", r.Scenario.ID, r.Err)
 		}

@@ -36,7 +36,7 @@ func walScenarios() []Scenario {
 			walProgram(nil, writeWAL(64))),
 		walScenario("wal-archiver-failure", ClassPositive,
 			Gold{Root: "archiver_failure"}, archiverFailure()),
-		walScenario("wal-steady", ClassBenign, Gold{}, walProgram(nil, nil)),
+		walScenario("wal-steady", ClassBenign, Gold{}, steadyWAL()),
 	}
 }
 
@@ -73,6 +73,45 @@ func cleanCluster(ctx context.Context, e *Env) error {
 	if slots+failing > 0 {
 		return fmt.Errorf("cluster not clean: %d slots, archiver failing=%v", slots,
 			failing > 0)
+	}
+	return nil
+}
+
+// quietWALRate is the cluster WAL rate a steady window must stay under:
+// half the investigator's 4 MiB/s surge floor, so a burst inside the
+// probes' shorter sample window is not diluted below the floor here.
+const quietWALRate = 2 << 20
+
+// steadyWAL writes nothing. WAL is cluster-wide, and other sessions (test
+// packages running beside the benchmark) do not take the cluster lock,
+// so the window is measured: if the cluster wrote WAL at a surge-like
+// rate during the investigation, the run is contaminated and repeated.
+func steadyWAL() program {
+	var start string
+	var at time.Time
+	p := walProgram(nil, func(ctx context.Context, e *Env) error {
+		at = time.Now()
+		return e.Pool.QueryRow(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&start)
+	})
+	p.valid = func(ctx context.Context, e *Env) error {
+		var bytes float64
+		if err := e.Pool.QueryRow(ctx, `SELECT pg_wal_lsn_diff(pg_current_wal_lsn(),
+			$1::pg_lsn)::float8`, start).Scan(&bytes); err != nil {
+			return err
+		}
+		return quietWindow(bytes, time.Since(at))
+	}
+	return p
+}
+
+// quietWindow reports a window whose WAL rate reached quietWALRate.
+func quietWindow(bytes float64, elapsed time.Duration) error {
+	if elapsed <= 0 {
+		return fmt.Errorf("steady window was not measured")
+	}
+	if rate := bytes / elapsed.Seconds(); rate >= quietWALRate {
+		return &Contaminated{Reason: fmt.Sprintf(
+			"the cluster wrote %.0f bytes/s of WAL during a steady window", rate)}
 	}
 	return nil
 }

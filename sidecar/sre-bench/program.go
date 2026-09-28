@@ -10,7 +10,7 @@ import (
 
 // program is a fault program built from optional steps.
 type program struct {
-	inject, manifest, between, recover func(ctx context.Context, e *Env) error
+	inject, manifest, between, valid, recover func(ctx context.Context, e *Env) error
 }
 
 func step(f func(context.Context, *Env) error, ctx context.Context, e *Env) error {
@@ -28,6 +28,9 @@ func (p program) Manifest(ctx context.Context, e *Env) error { return step(p.man
 
 // Between runs at the start of the sample interval.
 func (p program) Between(ctx context.Context, e *Env) error { return step(p.between, ctx, e) }
+
+// Valid checks the scenario's premise held through the investigation.
+func (p program) Valid(ctx context.Context, e *Env) error { return step(p.valid, ctx, e) }
 
 // Recover removes the fault and checks it is gone.
 func (p program) Recover(ctx context.Context, e *Env) error { return step(p.recover, ctx, e) }

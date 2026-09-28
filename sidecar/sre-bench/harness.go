@@ -13,6 +13,10 @@ import (
 // the fault program's Between runs at its start.
 const sampleInterval = 3 * time.Second
 
+// maxAttempts bounds the runs of a scenario whose premise the
+// environment broke.
+const maxAttempts = 3
+
 // Run runs every scenario in order: inject the fault, check that it
 // manifests, investigate it through the real coordinator, then end its
 // sessions, recover and check that the fault is gone (the post-fix
@@ -25,7 +29,26 @@ func Run(ctx context.Context, e *Env, ss []Scenario) []Result {
 	return out
 }
 
-func (e *Env) runOne(ctx context.Context, sc Scenario) (r Result) {
+func (e *Env) runOne(ctx context.Context, sc Scenario) Result {
+	return retryContaminated(maxAttempts, func() Result { return e.attempt(ctx, sc) })
+}
+
+// retryContaminated runs one attempt, and again while the environment
+// broke the scenario's premise, up to n attempts. The last result is
+// returned; a still-contaminated one stays an error and is not scored.
+func retryContaminated(n int, attempt func() Result) Result {
+	var r Result
+	for i := 1; ; i++ {
+		r = attempt()
+		r.Attempts = i
+		var c *Contaminated
+		if i >= n || !errors.As(r.Err, &c) {
+			return r
+		}
+	}
+}
+
+func (e *Env) attempt(ctx context.Context, sc Scenario) (r Result) {
 	r.Scenario = sc
 	defer func() {
 		e.closeSessions()
@@ -48,7 +71,9 @@ func (e *Env) runOne(ctx context.Context, sc Scenario) (r Result) {
 		r.Err = fmt.Errorf("fault did not manifest: %w", err)
 		return r
 	}
-	r.Outcome, r.Err = e.investigate(ctx, sc)
+	if r.Outcome, r.Err = e.investigate(ctx, sc); r.Err == nil {
+		r.Err = sc.Program.Valid(ctx, e)
+	}
 	return r
 }
 

@@ -28,6 +28,9 @@ type Program interface {
 	Inject(ctx context.Context, e *Env) error
 	Manifest(ctx context.Context, e *Env) error
 	Between(ctx context.Context, e *Env) error
+	// Valid checks, after the investigation, that the scenario's premise
+	// held through it; a *Contaminated error has the scenario run again.
+	Valid(ctx context.Context, e *Env) error
 	Recover(ctx context.Context, e *Env) error
 }
 
@@ -50,12 +53,14 @@ type Outcome struct {
 
 // Result is one scenario run. Skipped names a fixture this server
 // cannot provide; Err is a broken fault program or harness failure.
-// Neither is scored.
+// Neither is scored. Attempts counts runs, above 1 when the environment
+// broke the scenario's premise.
 type Result struct {
 	Scenario Scenario
 	Outcome  Outcome
 	Skipped  string
 	Err      error
+	Attempts int
 }
 
 // Unsupported reports a fault this server cannot create (a setting or
@@ -63,3 +68,11 @@ type Result struct {
 type Unsupported struct{ Reason string }
 
 func (u *Unsupported) Error() string { return "unsupported: " + u.Reason }
+
+// Contaminated reports that something outside the fault program broke
+// the scenario's premise during the investigation (another session wrote
+// cluster-wide WAL in a steady window), so its diagnosis is not a
+// measurement of the scenario.
+type Contaminated struct{ Reason string }
+
+func (c *Contaminated) Error() string { return "environment contaminated: " + c.Reason }
