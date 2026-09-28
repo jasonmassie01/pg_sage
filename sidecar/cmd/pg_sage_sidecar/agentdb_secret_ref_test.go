@@ -8,10 +8,10 @@ import (
 )
 
 func TestAgentFleetEnvironmentSecretReference(t *testing.T) {
-	t.Setenv("SAGE_TEST_AGENT_DSN",
+	t.Setenv("PG_SAGE_AGENTDB_TEST_DSN",
 		"postgres://worker:synthetic@ep-test.neon.tech:5432/app?sslmode=require")
 	dep := agentdb.Deployment{DeploymentID: "hosted", Provider: agentdb.ProviderNeon,
-		Status: "active", SecretRef: "env://SAGE_TEST_AGENT_DSN",
+		Status: "active", SecretRef: "env://PG_SAGE_AGENTDB_TEST_DSN",
 		ConnectionInfo: map[string]any{"endpoint": "ep-test.neon.tech"}}
 	got, ok := agentDeploymentToFleetConfig(dep)
 	if !ok || got.Host != "ep-test.neon.tech" || got.Database != "app" ||
@@ -23,7 +23,7 @@ func TestAgentFleetEnvironmentSecretReference(t *testing.T) {
 	}
 	for _, value := range []string{"", "not a DSN", "postgres://a:b@different.neon.tech/app",
 		"postgres://a:b@ep-test.neon.tech/app?sslmode=disable"} {
-		t.Setenv("SAGE_TEST_AGENT_DSN", value)
+		t.Setenv("PG_SAGE_AGENTDB_TEST_DSN", value)
 		if _, ok := agentDeploymentToFleetConfig(dep); ok {
 			t.Fatal("unsafe or missing DSN accepted")
 		}
@@ -33,9 +33,9 @@ func TestAgentFleetEnvironmentSecretReference(t *testing.T) {
 func TestAgentFleetSecretDatabaseAndConnectionOptions(t *testing.T) {
 	dsn := "postgres://worker:synthetic@ep-test.neon.tech/app?sslmode=require&" +
 		"application_name=hosted-test&connect_timeout=19"
-	t.Setenv("SAGE_TEST_AGENT_DSN", dsn)
+	t.Setenv("PG_SAGE_AGENTDB_TEST_DSN", dsn)
 	dep := agentdb.Deployment{DeploymentID: "hosted", Provider: agentdb.ProviderNeon,
-		Status: "active", SecretRef: "env:SAGE_TEST_AGENT_DSN", DatabaseName: "other",
+		Status: "active", SecretRef: "env:PG_SAGE_AGENTDB_TEST_DSN", DatabaseName: "other",
 		ConnectionInfo: map[string]any{"endpoint": "ep-test.neon.tech"}}
 	if _, ok := agentDeploymentToFleetConfig(dep); ok {
 		t.Fatal("same-host reference selected another deployment database")

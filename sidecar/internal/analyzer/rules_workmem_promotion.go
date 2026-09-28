@@ -38,20 +38,9 @@ func (a *Analyzer) checkWorkMemPromotion(ctx context.Context) []Finding {
 	if threshold <= 0 {
 		return nil
 	}
-	rows, err := a.pool.Query(ctx, `/* pg_sage */ 
-SELECT
-    r.rolname AS role_name,
-    count(*)  AS hint_count,
-    max((regexp_match(h.hint_text, 'Set\(work_mem "(\d+)MB"\)'))[1]::int) AS max_mb
-FROM sage.query_hints h
-JOIN pg_stat_statements s USING (queryid)
-JOIN pg_roles r ON r.oid = s.userid
-WHERE h.status = 'active'
-  AND h.hint_text ~ 'Set\(work_mem "\d+MB"\)'
-GROUP BY r.rolname
-HAVING count(*) >= $1
-ORDER BY r.rolname`, threshold)
+	rows, err := a.pool.Query(ctx, workMemPromotionSQL, threshold)
 	if err != nil {
+		a.evalFail("work_mem_promotion")
 		a.logFn("WARN", "analyzer: work_mem promotion query: %v", err)
 		return nil
 	}
@@ -69,6 +58,7 @@ ORDER BY r.rolname`, threshold)
 			buildWorkMemPromotionFinding(role, hintCount, maxMB, threshold))
 	}
 	if err := rows.Err(); err != nil {
+		a.evalFail("work_mem_promotion")
 		a.logFn("WARN", "analyzer: work_mem promotion rows: %v", err)
 	}
 	return findings
@@ -131,3 +121,23 @@ func buildWorkMemPromotionFinding(
 func quoteRoleIdentifier(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
+
+// workMemPromotionSQL counts active work_mem hints per role. The join to
+// pg_stat_statements is restricted to this database and counts distinct
+// query IDs, because pg_stat_statements keys on (userid, dbid, queryid,
+// toplevel): without that, hints were inflated by other databases' and
+// nested-statement rows (G2-B28).
+const workMemPromotionSQL = `/* pg_sage */
+SELECT
+    r.rolname AS role_name,
+    count(DISTINCT h.queryid) AS hint_count,
+    max((regexp_match(h.hint_text, 'Set\(work_mem "(\d+)MB"\)'))[1]::int) AS max_mb
+FROM sage.query_hints h
+JOIN pg_stat_statements s USING (queryid)
+JOIN pg_roles r ON r.oid = s.userid
+WHERE h.status = 'active'
+  AND s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+  AND h.hint_text ~ 'Set\(work_mem "\d+MB"\)'
+GROUP BY r.rolname
+HAVING count(DISTINCT h.queryid) >= $1
+ORDER BY r.rolname`

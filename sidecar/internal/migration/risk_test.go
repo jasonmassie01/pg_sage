@@ -9,10 +9,10 @@ import (
 
 func TestComputeRiskScore_TableDriven(t *testing.T) {
 	tests := []struct {
-		name     string
-		risk     DDLRisk
-		wantMin  float64
-		wantMax  float64
+		name    string
+		risk    DDLRisk
+		wantMin float64
+		wantMax float64
 	}{
 		{
 			name: "ACCESS EXCLUSIVE rewrite on large table",
@@ -25,12 +25,9 @@ func TestComputeRiskScore_TableDriven(t *testing.T) {
 				PendingLocks:    5,          // 5/10 = 0.5
 				ReplicationLag:  15.0,       // 15/30 = 0.5
 			},
-			// base = 1.0 * 1.0 = 1.0
-			// combined = 0.4*0.7 + 0.3*0.5 + 0.2*0.5 + 0.1*0.5
-			//          = 0.28 + 0.15 + 0.10 + 0.05 = 0.58
-			// risk = 1.0 * max(0.1, 0.58) = 0.58
-			wantMin: 0.57,
-			wantMax: 0.59,
+			// G7-B03: base = 1.0 * 1.0 = 1.0 is the floor -> 1.0
+			wantMin: 0.999,
+			wantMax: 1.0,
 		},
 		{
 			name: "SHARE lock index build on small table",
@@ -43,11 +40,11 @@ func TestComputeRiskScore_TableDriven(t *testing.T) {
 				PendingLocks:    0,
 				ReplicationLag:  0,
 			},
-			// base = 0.5 * 0.6 = 0.3
-			// combined = 0.4*0.2 + 0 + 0 + 0 = 0.08 => max(0.1, 0.08) = 0.1
-			// risk = 0.3 * 0.1 = 0.03
-			wantMin: 0.02,
-			wantMax: 0.04,
+			// base = 0.5 * 0.6 = 0.3; escalation = 0.4*0.2 = 0.08
+			// risk = 0.3 + 0.7*0.08 = 0.356 (capSmallIdleTable, not
+			// computeRiskScore, keeps small idle tables quiet)
+			wantMin: 0.355,
+			wantMax: 0.357,
 		},
 		{
 			name: "metadata-only drop column on empty table",
@@ -60,11 +57,9 @@ func TestComputeRiskScore_TableDriven(t *testing.T) {
 				PendingLocks:    0,
 				ReplicationLag:  0,
 			},
-			// base = 1.0 * 0.2 = 0.2
-			// combined = 0 => max(0.1, 0) = 0.1
-			// risk = 0.2 * 0.1 = 0.02
-			wantMin: 0.01,
-			wantMax: 0.03,
+			// base = 1.0 * 0.2 = 0.2; no escalation -> 0.2 (< 0.3)
+			wantMin: 0.199,
+			wantMax: 0.201,
 		},
 		{
 			name: "high activity no table size",
@@ -77,11 +72,10 @@ func TestComputeRiskScore_TableDriven(t *testing.T) {
 				PendingLocks:    20,  // capped at 1.0
 				ReplicationLag:  60,  // capped at 1.0
 			},
-			// base = 1.0 * 0.6 = 0.6
-			// combined = 0.4*0 + 0.3*1.0 + 0.2*1.0 + 0.1*1.0 = 0.6
-			// risk = 0.6 * 0.6 = 0.36
-			wantMin: 0.35,
-			wantMax: 0.37,
+			// base = 1.0 * 0.6 = 0.6; escalation = 0.3 + 0.2 + 0.1 = 0.6
+			// risk = 0.6 + 0.4*0.6 = 0.84
+			wantMin: 0.839,
+			wantMax: 0.841,
 		},
 		{
 			name: "zero lock level (lock_timeout rule)",
@@ -102,16 +96,13 @@ func TestComputeRiskScore_TableDriven(t *testing.T) {
 				LockLevel:       "ACCESS EXCLUSIVE",
 				RequiresRewrite: true,
 				EstimatedRows:   1_000_000_000, // log10=9 => 0.9
-				ActiveQueries:   100,            // 1.0
-				PendingLocks:    10,             // 1.0
-				ReplicationLag:  30,             // 1.0
+				ActiveQueries:   100,           // 1.0
+				PendingLocks:    10,            // 1.0
+				ReplicationLag:  30,            // 1.0
 			},
-			// base = 1.0 * 1.0 = 1.0
-			// combined = 0.4*0.9 + 0.3*1.0 + 0.2*1.0 + 0.1*1.0
-			//          = 0.36 + 0.3 + 0.2 + 0.1 = 0.96
-			// risk = 1.0 * 0.96 = 0.96
-			wantMin: 0.95,
-			wantMax: 0.97,
+			// base = 1.0 -> 1.0 regardless of escalation
+			wantMin: 0.999,
+			wantMax: 1.0,
 		},
 	}
 
@@ -176,15 +167,16 @@ func TestComputeRiskScore_BoundaryOneRow(t *testing.T) {
 		EstimatedRows:   1, // log10(1) = 0
 	}
 	score := computeRiskScore(risk)
-	// base=1.0, tableFactor=0, all others 0 => combined=0 => max(0.1,0)=0.1
-	// score = 1.0 * 0.1 = 0.1
-	assert.InDelta(t, 0.1, score, 0.01)
+	// G7-B03: base=1.0 is the floor; the old formula returned 0.1 here,
+	// which is why a rewrite on an idle table never surfaced.
+	assert.InDelta(t, 1.0, score, 0.01)
 }
 
 func TestIsVolatileDefault(t *testing.T) {
 	assert.True(t, isVolatileDefault("my_func()"))
 	assert.True(t, isVolatileDefault("random()"))
-	assert.False(t, isVolatileDefault("gen_random_uuid()"))
+	// G7-B04: gen_random_uuid() is VOLATILE (was asserted false).
+	assert.True(t, isVolatileDefault("gen_random_uuid()"))
 	assert.False(t, isVolatileDefault("now()"))
 	assert.False(t, isVolatileDefault("'literal_string'"))
 	assert.False(t, isVolatileDefault("42"))

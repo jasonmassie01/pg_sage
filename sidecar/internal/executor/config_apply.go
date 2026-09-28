@@ -33,6 +33,7 @@ var managedProviders = map[string]bool{
 	"cloud-sql": true, "cloudsql": true, "gcp": true,
 	"alloydb": true, "neon": true, "supabase": true,
 	"azure": true, "azure-flexible": true, "azure-single": true,
+	"azure-cosmos": true,
 }
 
 // outcomeStatus maps whether a config change is live to an action_log

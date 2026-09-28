@@ -1,6 +1,8 @@
 package optimizer
 
 import (
+	"errors"
+	"github.com/pg-sage/sidecar/internal/llm"
 	"strings"
 	"testing"
 )
@@ -66,10 +68,12 @@ func TestParseRecommendations_EmptyArray(t *testing.T) {
 	}
 }
 
+// An empty model response is an error, not "no recommendations"
+// (G3-B10); this test previously asserted a nil error.
 func TestParseRecommendations_EmptyString(t *testing.T) {
 	recs, err := parseRecommendations("")
-	if err != nil {
-		t.Fatalf("unexpected error for empty string: %v", err)
+	if !errors.Is(err, llm.ErrEmptyResponse) {
+		t.Fatalf("err = %v, want llm.ErrEmptyResponse", err)
 	}
 	if recs != nil {
 		t.Errorf("expected nil for empty string, got %v", recs)

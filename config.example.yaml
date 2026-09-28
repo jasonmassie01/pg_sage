@@ -27,12 +27,13 @@ trust:
   # observation: findings only, no actions (day 0-7)
   # advisory:    safe actions like dropping unused indexes (day 8-30)
   # autonomous:  moderate actions like creating indexes (day 31+)
+  maintenance_window: always      # when moderate actions may run: always,
+                                  # never, nights, weeknights, weekends,
+                                  # "weekdays 01:00-05:00", or a cron
+                                  # expression such as "0 3 * * 0"
 
-executor:
-  ddl_timeout_seconds: 300
-  maintenance_window: "* * * * *" # cron expression for when executor can act
-                                  # "* * * * *" = anytime
-                                  # "0 3 * * 0" = Sundays at 3am
+safety:
+  ddl_timeout_seconds: 300        # per-statement ceiling for executor DDL
 
 # LLM configuration (optional — Tier 1 rules work without LLM)
 llm:
@@ -42,7 +43,6 @@ llm:
   api_key: ${SAGE_GEMINI_API_KEY} # set via environment variable
   timeout_seconds: 60
   token_budget_daily: 100000
-  max_output_tokens: 2048
 
   # Index optimizer (requires llm.enabled: true)
   optimizer:
@@ -50,12 +50,13 @@ llm:
     min_query_calls: 100          # minimum query calls before analyzing a table
     max_new_per_table: 3          # max new indexes recommended per table per cycle
 
-  # Configuration advisor (requires llm.enabled: true)
-  advisor:
-    enabled: false                # set to true for vacuum/WAL/connection/memory tuning
-    interval_hours: 24            # how often to run configuration analysis
+# Configuration advisor (requires llm.enabled: true)
+advisor:
+  enabled: false                  # set to true for vacuum/WAL/connection/memory tuning
+  interval_seconds: 86400         # how often to run configuration analysis
 
-# Optional: dedicated model for index optimization (higher quality, higher cost)
+# Optional: dedicated model for index optimization (higher quality, higher
+# cost). This block nests under llm: as llm.optimizer_llm.
 # optimizer_llm:
 #   enabled: false
 #   endpoint: "https://api.anthropic.com/v1"
@@ -63,7 +64,15 @@ llm:
 #   api_key: ${SAGE_OPTIMIZER_LLM_API_KEY}
 #   timeout_seconds: 120
 #   token_budget_daily: 50000
+#   max_output_tokens: 2048
 #   fallback_to_general: true
+
+# Notification channel targets (Slack/webhook URLs, SMTP hosts). Private
+# addresses (loopback, RFC 1918, ULA, CGNAT) and plain http are refused
+# unless allowed here, e.g. for an internal SMTP relay. Link-local and
+# cloud metadata addresses are always refused. YAML only; requires restart.
+# notification_policy:
+#   allow_private_targets: false
 
 # Prometheus metrics endpoint
 prometheus:

@@ -19,7 +19,7 @@ import (
 
 func NewPostgresSchemaGuard(
 	pool *pgxpool.Pool, database string, router ProposalRouter,
-	recorder *ledger.Service,
+	recorder *ledger.Service, authorizeRetention RetentionAuthorizer,
 ) (*schemaguard.Custodian, error) {
 	if pool == nil || strings.TrimSpace(database) == "" || router == nil || recorder == nil {
 		return nil, fmt.Errorf("PostgreSQL schema guard dependencies are incomplete")
@@ -33,7 +33,9 @@ func NewPostgresSchemaGuard(
 			database: database, router: router,
 			verifiedIndexes: verifiedRouter(router),
 			rehearsal:       structuralRouter(router),
-			retention:       &postgresRetentionEnforcer{pool: pool, batchLimit: 1000},
+			retention: &postgresRetentionEnforcer{
+				pool: pool, batchLimit: 1000, authorize: authorizeRetention,
+			},
 		},
 		schemaDecisionRecorder{recorder}, policyConfig,
 	), nil
@@ -355,8 +357,8 @@ LEFT JOIN LATERAL (
     JOIN pg_type typ ON typ.oid=att.atttypid
     WHERE att.attrelid=tbl.oid AND att.attnum>0 AND NOT att.attisdropped
       AND typ.typname IN ('timestamp','timestamptz','date')
-    ORDER BY CASE att.attname WHEN 'created_at' THEN 0 WHEN 'occurred_at' THEN 1
-             WHEN 'updated_at' THEN 2 ELSE 3 END, att.attnum
+      AND att.attname IN ('created_at', 'occurred_at')
+    ORDER BY CASE att.attname WHEN 'created_at' THEN 0 ELSE 1 END
     LIMIT 1
 ) retention_column ON true
 WHERE tc.append_only AND tc.retention_interval IS NOT NULL

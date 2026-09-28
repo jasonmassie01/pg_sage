@@ -1,11 +1,9 @@
 package alerting
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -43,69 +41,15 @@ func (p *PagerDutyChannel) Send(
 	if err != nil {
 		return fmt.Errorf("build pagerduty payload: %w", err)
 	}
-	return p.sendWithRetry(ctx, payload)
-}
-
-func (p *PagerDutyChannel) sendWithRetry(
-	ctx context.Context, payload []byte,
-) error {
-	const maxAttempts = 3
-	backoff := 1 * time.Second
-
-	var lastErr error
-	for i := range maxAttempts {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("pagerduty send cancelled: %w",
-				err)
-		}
-
-		lastErr = p.doPost(ctx, payload)
-		if lastErr == nil {
-			return nil
-		}
-
-		if i < maxAttempts-1 {
-			p.logFn("WARN", "pagerduty retry %d/%d: %v",
-				i+1, maxAttempts, lastErr)
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-				return fmt.Errorf(
-					"pagerduty send cancelled: %w",
-					ctx.Err())
-			}
-			backoff *= 2
-		}
-	}
-	return fmt.Errorf(
-		"pagerduty send failed after %d attempts: %w",
-		maxAttempts, lastErr)
+	return sendWithRetry(ctx, "pagerduty", p.logFn, func() error {
+		return p.doPost(ctx, payload)
+	})
 }
 
 func (p *PagerDutyChannel) doPost(
 	ctx context.Context, payload []byte,
 ) error {
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodPost, pdEventsURL,
-		bytes.NewReader(payload),
-	)
-	if err != nil {
-		return fmt.Errorf("create pagerduty request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("pagerduty http post: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	io.Copy(io.Discard, resp.Body) //nolint:errcheck
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("pagerduty returned status %d",
-			resp.StatusCode)
-	}
-	return nil
+	return postJSON(ctx, p.client, "pagerduty", pdEventsURL, payload, nil)
 }
 
 func (p *PagerDutyChannel) buildPayload(
@@ -130,13 +74,22 @@ func (p *PagerDutyChannel) buildPayload(
 		summary = summary[:1021] + "..."
 	}
 
+	action := "trigger"
+	if alert.Resolved {
+		action = "resolve"
+	}
+	source := "pg_sage"
+	if alert.Database != "" {
+		source = "pg_sage:" + alert.Database
+	}
 	ev := map[string]any{
 		"routing_key":  p.routingKey,
-		"event_action": "trigger",
+		"event_action": action,
 		"dedup_key":    dedupKey,
 		"payload": map[string]any{
 			"summary":   summary,
-			"source":    "pg_sage",
+			"source":    source,
+			"component": alert.Database,
 			"severity":  alert.Severity,
 			"timestamp": alert.Timestamp.Format(time.RFC3339),
 		},

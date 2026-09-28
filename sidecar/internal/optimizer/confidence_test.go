@@ -41,9 +41,10 @@ func TestComputeConfidence_HighConfidence_NoHypoPG(t *testing.T) {
 		TableCallVolume:  1.0,
 	}
 	got := ComputeConfidence(input)
-	// 0.25 + 0.25 + 0.15 + 0.0 + 0.10 + 0.10 = 0.85
-	if !approxEqual(got, 0.85, 0.001) {
-		t.Errorf("high no-hypopg: got %.4f, want 0.85", got)
+	// Weights rebalanced for G3-B06 (HypoPG .10, selectivity .15):
+	// 0.25 + 0.25 + 0.15 + 0.0 + 0.15 + 0.10 = 0.90
+	if !approxEqual(got, 0.90, 0.001) {
+		t.Errorf("high no-hypopg: got %.4f, want 0.90", got)
 	}
 }
 
@@ -57,9 +58,9 @@ func TestComputeConfidence_MediumConfidence_NoHypoPG(t *testing.T) {
 		TableCallVolume:  0.6,
 	}
 	got := ComputeConfidence(input)
-	// 0.175 + 0.125 + 0.15 + 0.0 + 0.05 + 0.06 = 0.56
-	if !approxEqual(got, 0.56, 0.001) {
-		t.Errorf("medium no-hypopg: got %.4f, want 0.56", got)
+	// 0.175 + 0.125 + 0.15 + 0.0 + 0.075 + 0.06 = 0.585
+	if !approxEqual(got, 0.585, 0.001) {
+		t.Errorf("medium no-hypopg: got %.4f, want 0.585", got)
 	}
 }
 
@@ -89,9 +90,9 @@ func TestComputeConfidence_WithHypoPG_Boost(t *testing.T) {
 		TableCallVolume:  0.6,
 	}
 	got := ComputeConfidence(input)
-	// 0.175 + 0.125 + 0.15 + 0.15 + 0.05 + 0.06 = 0.71
-	if !approxEqual(got, 0.71, 0.001) {
-		t.Errorf("with hypopg: got %.4f, want 0.71", got)
+	// 0.175 + 0.125 + 0.15 + 0.10 + 0.075 + 0.06 = 0.685
+	if !approxEqual(got, 0.685, 0.001) {
+		t.Errorf("with hypopg: got %.4f, want 0.685", got)
 	}
 }
 
@@ -105,9 +106,11 @@ func TestComputeConfidence_HypoPGNoImprovement(t *testing.T) {
 		TableCallVolume:  0.6,
 	}
 	got := ComputeConfidence(input)
-	// 0.175 + 0.125 + 0.15 + 0.03 + 0.05 + 0.06 = 0.59
-	if !approxEqual(got, 0.59, 0.001) {
-		t.Errorf("hypopg no improvement: got %.4f, want 0.59", got)
+	// ComputeConfidence is linear in the input; scoreConfidence no longer
+	// produces 0.2 (a measured rejection drops the rec, G3-B06).
+	// 0.175 + 0.125 + 0.15 + 0.02 + 0.075 + 0.06 = 0.605
+	if !approxEqual(got, 0.605, 0.001) {
+		t.Errorf("hypopg no improvement: got %.4f, want 0.605", got)
 	}
 }
 
@@ -185,12 +188,12 @@ func TestComputeConfidence_CloudSQLTypical(t *testing.T) {
 	// Simulates Cloud SQL PG16: high-traffic table, GENERIC_PLAN available,
 	// write rate known, no HypoPG, pg_stats available.
 	input := ConfidenceInput{
-		QueryVolume:      1.0,  // 500+ calls
-		PlanClarity:      1.0,  // GENERIC_PLAN available
-		WriteRateKnown:   1.0,  // multiple snapshots
-		HypoPGValidated:  0.0,  // unavailable on Cloud SQL
-		SelectivityKnown: 1.0,  // pg_stats with n_distinct + MCV
-		TableCallVolume:  1.0,  // 1000+ total calls
+		QueryVolume:      1.0, // 500+ calls
+		PlanClarity:      1.0, // GENERIC_PLAN available
+		WriteRateKnown:   1.0, // multiple snapshots
+		HypoPGValidated:  0.0, // unavailable on Cloud SQL
+		SelectivityKnown: 1.0, // pg_stats with n_distinct + MCV
+		TableCallVolume:  1.0, // 1000+ total calls
 	}
 	got := ComputeConfidence(input)
 	if got < 0.8 {
@@ -205,12 +208,12 @@ func TestComputeConfidence_CloudSQLTypical(t *testing.T) {
 func TestComputeConfidence_CloudSQLMedium(t *testing.T) {
 	// Medium-traffic table on Cloud SQL, query text only (no plans).
 	input := ConfidenceInput{
-		QueryVolume:      0.7,  // 100-499 calls
-		PlanClarity:      0.5,  // query text only
+		QueryVolume:      0.7, // 100-499 calls
+		PlanClarity:      0.5, // query text only
 		WriteRateKnown:   1.0,
 		HypoPGValidated:  0.0,
-		SelectivityKnown: 0.5,  // n_distinct only
-		TableCallVolume:  0.6,  // 100-999 calls
+		SelectivityKnown: 0.5, // n_distinct only
+		TableCallVolume:  0.6, // 100-999 calls
 	}
 	got := ComputeConfidence(input)
 	if got < 0.4 || got > 0.7 {

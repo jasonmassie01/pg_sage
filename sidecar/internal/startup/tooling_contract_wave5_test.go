@@ -28,7 +28,8 @@ func TestWave5GolangCILintUsesPinnedV2Contract(t *testing.T) {
 		t.Fatal("golangci config still contains v1 linters-settings")
 	}
 
-	workflowPath := filepath.Join(sidecarRoot, "..", ".github", "workflows", "test.yml")
+	// The lint job lives in ci.yml since test.yml was merged into it (G10-B22).
+	workflowPath := filepath.Join(sidecarRoot, "..", ".github", "workflows", "ci.yml")
 	workflowBytes, err := os.ReadFile(workflowPath)
 	if err != nil {
 		t.Fatalf("read lint workflow: %v", err)
@@ -47,7 +48,7 @@ func TestWave5GolangCILintUsesPinnedV2Contract(t *testing.T) {
 
 func TestWave5CIUsesDesignatedParallelDatabaseFixtures(t *testing.T) {
 	sidecarRoot := wave5SidecarRoot(t)
-	for _, name := range []string{"test.yml", "ci.yml"} {
+	for _, name := range []string{"ci.yml"} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(sidecarRoot, "..", ".github", "workflows", name)
 			body, err := os.ReadFile(path)

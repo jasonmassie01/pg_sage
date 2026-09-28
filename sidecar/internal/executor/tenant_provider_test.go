@@ -19,7 +19,7 @@ func TestTenantProvidersPortableContracts(t *testing.T) {
 		for _, action := range actions {
 			t.Run(provider+"/"+action, func(t *testing.T) {
 				contract, ok := ContractForActionType(action)
-				if !ok || !providerSupported(provider, contract.ProviderSupport) {
+				if !ok || !contractSupportsProvider(contract, provider) {
 					t.Fatalf("portable action %s excludes %s", action, provider)
 				}
 				if err := contract.Validate(); err != nil {
@@ -28,7 +28,7 @@ func TestTenantProvidersPortableContracts(t *testing.T) {
 			})
 		}
 		contract, _ := ContractForActionType("alter_system_guc")
-		if providerSupported(provider, contract.ProviderSupport) {
+		if contractSupportsProvider(contract, provider) {
 			t.Fatalf("%s must not execute ALTER SYSTEM", provider)
 		}
 	}
@@ -39,20 +39,19 @@ func TestTenantProvidersPreservePolicyGates(t *testing.T) {
 		t.Run(provider, func(t *testing.T) {
 			cfg := &config.Config{CloudEnvironment: provider,
 				Trust: config.TrustConfig{Level: "autonomous", Tier3Safe: true}}
-			ctx := ActionPolicyContext{Config: cfg, ExecutionMode: "auto",
-				Now: time.Now(), RampStart: time.Now().Add(-10 * 24 * time.Hour)}
-			got := EvaluateActionPolicy(AnalyzeTableContract(), ctx)
+			in := verdictInput{cfg: cfg, rampStart: time.Now().Add(-10 * 24 * time.Hour)}
+			got := policyVerdict(AnalyzeTableContract(), in)
 			if got.Decision != PolicyDecisionExecute || got.Provider != provider {
 				t.Fatalf("portable analyze decision: %#v", got)
 			}
-			ctx.EmergencyStop = true
-			got = EvaluateActionPolicy(AnalyzeTableContract(), ctx)
-			if got.BlockedReason != "emergency stop is active" {
+			in.stopped = true
+			got = policyVerdict(AnalyzeTableContract(), in)
+			if got.BlockedReason != "emergency_stop" {
 				t.Fatalf("emergency stop lost: %#v", got)
 			}
-			ctx.EmergencyStop, ctx.IsReplica = false, true
-			got = EvaluateActionPolicy(AnalyzeTableContract(), ctx)
-			if got.BlockedReason != "target database is a replica" {
+			in.stopped, in.isReplica = false, true
+			got = policyVerdict(AnalyzeTableContract(), in)
+			if got.BlockedReason != "replica_mutation" {
 				t.Fatalf("replica gate lost: %#v", got)
 			}
 		})
@@ -108,3 +107,12 @@ func TestSupabaseManagedConfigUsesProviderConfig(t *testing.T) {
 
 // Database effects are covered by the opt-in provider integration harness.
 // No concurrent tests: these policy/parser functions have no mutable shared state.
+
+func contractSupportsProvider(contract ActionContract, provider string) bool {
+	for _, supported := range contract.ProviderSupport {
+		if strings.EqualFold(supported, provider) {
+			return true
+		}
+	}
+	return len(contract.ProviderSupport) == 0
+}

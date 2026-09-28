@@ -2,12 +2,14 @@ package executor
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 func TestWave1ActionPolicyMatrix(t *testing.T) {
@@ -35,12 +37,9 @@ func TestWave1ActionPolicyMatrix(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := wave1PolicyConfig(tc.trust)
-			got := EvaluateActionPolicy(wave1Contract(tc.risk), ActionPolicyContext{
-				Config:        cfg,
-				ExecutionMode: tc.mode,
-				Now:           now,
-				RampStart:     now.Add(-40 * 24 * time.Hour),
+			got := policyVerdict(wave1Contract(tc.risk), verdictInput{
+				cfg: wave1PolicyConfig(tc.trust), mode: tc.mode,
+				now: now, rampStart: now.Add(-40 * 24 * time.Hour),
 			})
 			if got.Decision != tc.want {
 				t.Fatalf("Decision = %q, want %q: %#v", got.Decision, tc.want, got)
@@ -51,7 +50,6 @@ func TestWave1ActionPolicyMatrix(t *testing.T) {
 
 func TestCHECK18DesignatedFleetPolicyCanary(t *testing.T) {
 	now := time.Date(2026, 7, 19, 3, 0, 0, 0, time.UTC)
-	executorEnabled := true
 	stages := []struct {
 		name  string
 		trust string
@@ -68,12 +66,9 @@ func TestCHECK18DesignatedFleetPolicyCanary(t *testing.T) {
 
 	for _, stage := range stages {
 		t.Run(stage.name, func(t *testing.T) {
-			got := EvaluateActionPolicy(wave1Contract(stage.risk), ActionPolicyContext{
-				Config:          wave1PolicyConfig(stage.trust),
-				ExecutionMode:   stage.mode,
-				ExecutorEnabled: &executorEnabled,
-				Now:             now,
-				RampStart:       now.Add(-40 * 24 * time.Hour),
+			got := policyVerdict(wave1Contract(stage.risk), verdictInput{
+				cfg: wave1PolicyConfig(stage.trust), mode: stage.mode,
+				now: now, rampStart: now.Add(-40 * 24 * time.Hour),
 			})
 			if got.Decision != stage.want {
 				t.Fatalf("decision = %q, want %q: %#v", got.Decision, stage.want, got)
@@ -83,34 +78,23 @@ func TestCHECK18DesignatedFleetPolicyCanary(t *testing.T) {
 }
 
 func TestWave1ActionPolicyHardBlocks(t *testing.T) {
-	disabled := false
-	base := ActionPolicyContext{
-		Config:        wave1PolicyConfig("autonomous"),
-		ExecutionMode: "auto",
-		RampStart:     time.Now().Add(-40 * 24 * time.Hour),
+	base := verdictInput{
+		cfg: wave1PolicyConfig("autonomous"), rampStart: time.Now().Add(-40 * 24 * time.Hour),
 	}
 	tests := []struct {
 		name string
-		edit func(*ActionPolicyContext)
+		edit func(*verdictInput)
 		want string
 	}{
-		{
-			"executor disabled",
-			func(c *ActionPolicyContext) { c.ExecutorEnabled = &disabled },
-			"executor is disabled",
-		},
-		{
-			"emergency stop",
-			func(c *ActionPolicyContext) { c.EmergencyStop = true },
-			"emergency stop is active",
-		},
-		{"replica", func(c *ActionPolicyContext) { c.IsReplica = true }, "target database is a replica"},
+		{"executor disabled", func(in *verdictInput) { in.disabled = true }, "executor_disabled"},
+		{"emergency stop", func(in *verdictInput) { in.stopped = true }, "emergency_stop"},
+		{"replica", func(in *verdictInput) { in.isReplica = true }, "replica_mutation"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := base
-			tc.edit(&ctx)
-			got := EvaluateActionPolicy(wave1Contract("safe"), ctx)
+			in := base
+			tc.edit(&in)
+			got := policyVerdict(wave1Contract("safe"), in)
 			if got.Decision != PolicyDecisionBlocked || got.BlockedReason != tc.want {
 				t.Fatalf("decision = %#v, want blocked reason %q", got, tc.want)
 			}
@@ -121,13 +105,11 @@ func TestWave1ActionPolicyHardBlocks(t *testing.T) {
 func TestWave1ActionPolicyRejectsUnknownTrustLevels(t *testing.T) {
 	for _, trust := range []string{"", "invalid"} {
 		t.Run(trust, func(t *testing.T) {
-			got := EvaluateActionPolicy(wave1Contract("safe"), ActionPolicyContext{
-				Config:        wave1PolicyConfig(trust),
-				ExecutionMode: "auto",
-				RampStart:     time.Now().Add(-40 * 24 * time.Hour),
+			got := policyVerdict(wave1Contract("safe"), verdictInput{
+				cfg: wave1PolicyConfig(trust), rampStart: time.Now().Add(-40 * 24 * time.Hour),
 			})
 			if got.Decision != PolicyDecisionBlocked ||
-				got.BlockedReason != "unknown trust level" {
+				got.BlockedReason != "unknown_trust_level" {
 				t.Fatalf("decision = %#v, want fail-closed trust rejection", got)
 			}
 		})
@@ -135,13 +117,10 @@ func TestWave1ActionPolicyRejectsUnknownTrustLevels(t *testing.T) {
 }
 
 func TestWave1ApprovalDoesNotUseAutoEligibilityGate(t *testing.T) {
-	ctx := ActionPolicyContext{
-		Config:        wave1PolicyConfig("advisory"),
-		ExecutionMode: "approval",
-		RampStart:     time.Now(),
-	}
+	in := verdictInput{cfg: wave1PolicyConfig("advisory"), mode: "approval",
+		rampStart: time.Now()}
 	for _, risk := range []string{"safe", "moderate", "high"} {
-		got := EvaluateActionPolicy(wave1Contract(risk), ctx)
+		got := policyVerdict(wave1Contract(risk), in)
 		if got.Decision != PolicyDecisionQueueApproval {
 			t.Errorf("risk %q decision = %q, want queue_for_approval", risk, got.Decision)
 		}
@@ -189,8 +168,8 @@ func TestWave1ContractMappingRejectsMismatchedOrUnsupportedSQL(t *testing.T) {
 
 func TestWave1QuotedIdentifiersCannotSpoofActionClassification(t *testing.T) {
 	tests := map[string]string{
-		`REINDEX INDEX "idx CONCURRENTLY orders"`:                     "",
-		`ALTER TABLE "tenant AUTOVACUUM_enabled" SET TABLESPACE fast`: "alter_table",
+		`REINDEX INDEX "idx CONCURRENTLY orders"`:                       "",
+		`ALTER TABLE "tenant AUTOVACUUM_enabled" VALIDATE CONSTRAINT c`: "alter_table",
 	}
 	for sql, want := range tests {
 		t.Run(sql, func(t *testing.T) {
@@ -305,7 +284,7 @@ func TestWave1EveryActionUsesLatestSafetyPolicy(t *testing.T) {
 		t.Fatalf("first decision = %q, want execute", first.Decision)
 	}
 	if second.Decision != PolicyDecisionBlocked ||
-		second.BlockedReason != "emergency stop is active" {
+		second.BlockedReason != string(policy.ReasonEmergencyStop) {
 		t.Fatalf("second decision = %#v, want latest emergency stop block", second)
 	}
 
@@ -323,17 +302,17 @@ func TestWave1ManualMutationsHonorHardGates(t *testing.T) {
 		setup func(*Executor)
 		want  string
 	}{
-		{"executor disabled", func(e *Executor) { e.SetExecutorEnabled(false) }, "executor is disabled"},
+		{"executor disabled", func(e *Executor) { e.SetExecutorEnabled(false) }, "executor disabled"},
 		{
 			"observation",
 			func(e *Executor) { _ = e.SetTrustLevel("observation") },
-			"observation trust is cases only",
+			"observe only",
 		},
 		{"empty trust", func(e *Executor) { e.cfg.Trust.Level = "" }, "unknown trust level"},
 		{"invalid trust", func(e *Executor) { e.cfg.Trust.Level = "invalid" }, "unknown trust level"},
 		{"emergency stop", func(e *Executor) {
 			e.emergencyStopFn = func(context.Context) bool { return true }
-		}, "emergency stop active"},
+		}, "emergency stop"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -341,7 +320,7 @@ func TestWave1ManualMutationsHonorHardGates(t *testing.T) {
 			tc.setup(e)
 			_, err := e.ExecuteManual(context.Background(), 1,
 				"ANALYZE public.orders", "", nil)
-			if err == nil || err.Error() != tc.want {
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %v, want %q", err, tc.want)
 			}
 		})
@@ -366,14 +345,9 @@ func wave1PolicyConfig(level string) *config.Config {
 	}}
 }
 
+// wave1Contract is a real typed contract of the given risk tier.
 func wave1Contract(risk string) ActionContract {
-	return ActionContract{
-		ActionType:      "test_" + risk,
-		BaseRiskTier:    risk,
-		ProviderSupport: []string{"postgres"},
-		PostChecks:      []string{"verify"},
-		RollbackClass:   "reversible",
-	}
+	return riskContract(risk)
 }
 
 func newWave1Executor(trust, mode string) *Executor {
@@ -381,5 +355,5 @@ func newWave1Executor(trust, mode string) *Executor {
 		time.Now().Add(-40*24*time.Hour), func(string, string, ...any) {})
 	e.emergencyStopFn = func(context.Context) bool { return false }
 	e.SetExecutionMode(mode)
-	return e
+	return withTestStandingGate(e)
 }

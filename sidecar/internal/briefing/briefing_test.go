@@ -394,10 +394,18 @@ func TestShouldRun_DailyBackwardCompat(t *testing.T) {
 	if !w.ShouldRun(now) {
 		t.Error("should run: new day at scheduled time")
 	}
-	// Same day at 07:00 should not (minute 0, hour 7 not in schedule)
+	// Same day at 07:00 without a run since 06:00: the 06:00 schedule
+	// was crossed, so it still fires. The old assertion (false) encoded
+	// exact-minute matching, which missed most days (G3-B04).
 	now = time.Date(2026, 3, 27, 7, 0, 0, 0, time.UTC)
+	if !w.ShouldRun(now) {
+		t.Error("should catch up at 07:00 after a missed 06:00 run")
+	}
+	// After running for today's slot, 07:00 must not fire again.
+	w.MarkRan()
+	w.lastRun = time.Date(2026, 3, 27, 6, 0, 30, 0, time.UTC)
 	if w.ShouldRun(now) {
-		t.Error("should not run at hour 7 with '0 6 * * *'")
+		t.Error("should not run twice for the same 06:00 slot")
 	}
 }
 

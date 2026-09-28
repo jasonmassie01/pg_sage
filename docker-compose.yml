@@ -36,9 +36,9 @@ services:
       timeout: 5s
       retries: 5
 
-  # --- Legacy: single instance with pg_sage C extension ---
+  # --- Single monitored instance for the sidecar below ---
   pg_sage:
-    build: .
+    image: postgres:17
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
@@ -48,13 +48,8 @@ services:
       - pgdata:/var/lib/postgresql/data
     command: >
       postgres
-        -c shared_preload_libraries='pg_stat_statements,pg_sage'
-        -c sage.database='postgres'
-        -c sage.collector_interval=30
-        -c sage.analyzer_interval=60
-        -c sage.trust_level='advisory'
+        -c shared_preload_libraries=pg_stat_statements
         -c pg_stat_statements.track=all
-        -c log_min_messages=log
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -63,11 +58,17 @@ services:
 
   sidecar:
     build: ./sidecar
+    # The dashboard's "Restart now" exits with code 42 so startup-only
+    # settings take effect; the restart policy relaunches it, and
+    # SAGE_SUPERVISED=1 tells the sidecar a supervisor exists (G5-B09).
+    restart: unless-stopped
     depends_on:
       pg_sage:
         condition: service_healthy
     environment:
       SAGE_DATABASE_URL: postgres://postgres:postgres@pg_sage:5432/postgres?sslmode=disable
+      SAGE_MODE: standalone
+      SAGE_SUPERVISED: "1"
       SAGE_PROMETHEUS_PORT: "9187"
       SAGE_RATE_LIMIT: "60"
     ports:

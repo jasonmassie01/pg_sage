@@ -59,37 +59,83 @@ func (c *PostgresWALCustodian) Scan(ctx context.Context) ([]Proposal, error) {
 		return nil, err
 	}
 	diskBytes, diskKnown := c.diskCapacity(ctx)
+	slots, err := c.readSlots(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// max_slot_wal_keep_size is cluster-wide: size it for the slot that
+	// retains the most WAL, and propose it at most once per scan.
+	var maxRetained int64
+	for _, slot := range slots {
+		maxRetained = max(maxRetained, slot.retained)
+	}
+	result := make([]Proposal, 0)
+	bounded := false
+	for _, slot := range slots {
+		proposal, err := c.proposalForSlot(ctx, slot, maxRetained, diskBytes, diskKnown)
+		if err != nil {
+			return nil, err
+		}
+		if proposal.SQL != "" && bounded {
+			continue
+		}
+		bounded = bounded || proposal.SQL != ""
+		if proposal.SQL != "" || proposal.Plan != "" {
+			result = append(result, proposal)
+		}
+	}
+	return result, nil
+}
+
+type walSlot struct {
+	name, slotType string
+	active         bool
+	retained       int64
+}
+
+func (c *PostgresWALCustodian) readSlots(ctx context.Context) ([]walSlot, error) {
 	rows, err := c.pool.Query(ctx, walSlotsSQL)
 	if err != nil {
 		return nil, fmt.Errorf("read replication slots: %w", err)
 	}
 	defer rows.Close()
-	result := make([]Proposal, 0)
+	var slots []walSlot
 	for rows.Next() {
-		proposal, scanErr := c.scanSlot(ctx, rows, diskBytes, diskKnown)
-		if scanErr != nil {
-			return nil, scanErr
+		slot, err := scanWALSlot(rows)
+		if err != nil {
+			return nil, err
 		}
-		if proposal.SQL != "" {
-			result = append(result, proposal)
-		}
+		slots = append(slots, slot)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate replication slots: %w", err)
 	}
-	return result, nil
+	return slots, nil
+}
+
+func scanWALSlot(row interface{ Scan(...any) error }) (walSlot, error) {
+	var slot walSlot
+	if err := row.Scan(&slot.name, &slot.slotType, &slot.active, &slot.retained); err != nil {
+		return slot, fmt.Errorf("scan replication slot: %w", err)
+	}
+	return slot, nil
 }
 
 func (c *PostgresWALCustodian) scanSlot(
 	ctx context.Context, row interface{ Scan(...any) error }, diskBytes int64, diskKnown bool,
 ) (Proposal, error) {
-	var name, slotType string
-	var active bool
-	var retained int64
-	if err := row.Scan(&name, &slotType, &active, &retained); err != nil {
-		return Proposal{}, fmt.Errorf("scan replication slot: %w", err)
+	slot, err := scanWALSlot(row)
+	if err != nil {
+		return Proposal{}, err
 	}
-	evidence := c.slotEvidence(ctx, name, wal.SlotType(slotType), active, retained)
+	return c.proposalForSlot(ctx, slot, slot.retained, diskBytes, diskKnown)
+}
+
+func (c *PostgresWALCustodian) proposalForSlot(
+	ctx context.Context, slot walSlot, maxRetained, diskBytes int64, diskKnown bool,
+) (Proposal, error) {
+	evidence := c.slotEvidence(ctx, slot.name, wal.SlotType(slot.slotType),
+		slot.active, slot.retained)
 	evidence.DiskCapacityKnown, evidence.DiskCapacityBytes = diskKnown, diskBytes
 	decision, err := wal.Classify(ctx, evidence, c.policy())
 	if err != nil {
@@ -97,16 +143,54 @@ func (c *PostgresWALCustodian) scanSlot(
 	}
 	switch decision.Action {
 	case wal.ActionBound:
-		return c.boundProposalIfNeeded(ctx, name)
+		return c.boundOrEscalate(ctx, slot, evidence, maxRetained)
 	case wal.ActionDrop:
-		return c.dropProposal(name), nil
+		return c.dropProposal(slot.name), nil
 	default:
 		return Proposal{}, nil
 	}
 }
 
+// boundOrEscalate never proposes a bound that would invalidate a slot: the
+// target keeps 50% headroom above the most WAL any slot retains. A
+// registered consumer, or a target the disk cannot hold, is escalated as a
+// plan-only proposal for a human instead.
+func (c *PostgresWALCustodian) boundOrEscalate(
+	ctx context.Context, slot walSlot, evidence wal.SlotEvidence, maxRetained int64,
+) (Proposal, error) {
+	target := walBoundTarget(maxRetained, c.options.RetainedBytesLimit)
+	if evidence.ConsumerRegistered {
+		return c.walEscalation(slot, target,
+			"slot has a registered consumer; bounding WAL could invalidate it"), nil
+	}
+	if evidence.DiskCapacityKnown && target > evidence.DiskCapacityBytes*9/10 {
+		return c.walEscalation(slot, target,
+			"a safe max_slot_wal_keep_size exceeds disk capacity"), nil
+	}
+	return c.boundProposalIfNeeded(ctx, slot.name, target)
+}
+
+// walBoundTarget is max(limit, 1.5 x retained), rounded up to a megabyte.
+func walBoundTarget(retained, limit int64) int64 {
+	target := max(limit, retained+retained/2)
+	const megabyte = int64(1 << 20)
+	return (target + megabyte - 1) / megabyte * megabyte
+}
+
+func (c *PostgresWALCustodian) walEscalation(slot walSlot, target int64, reason string) Proposal {
+	plan := "Escalate WAL retention on slot " + slot.name + ": " + reason
+	return Proposal{
+		Database: c.database, Feature: "wal", Plan: plan,
+		TargetObjects: []string{"slot:" + slot.name},
+		Evidence: map[string]any{
+			"retained_wal_bytes": slot.retained, "safe_bound_bytes": target,
+			"reason": reason, "plan": plan,
+		},
+	}
+}
+
 func (c *PostgresWALCustodian) boundProposalIfNeeded(
-	ctx context.Context, slot string,
+	ctx context.Context, slot string, target int64,
 ) (Proposal, error) {
 	var setting int64
 	var unit string
@@ -118,10 +202,10 @@ func (c *PostgresWALCustodian) boundProposalIfNeeded(
 	if err != nil {
 		return Proposal{}, err
 	}
-	if !needsWALBackstop(currentBytes, c.options.RetainedBytesLimit) {
+	if !needsWALBackstop(currentBytes, target) {
 		return Proposal{}, nil
 	}
-	return c.boundProposal(slot), nil
+	return c.boundProposal(slot, target), nil
 }
 
 func postgresSettingBytes(setting int64, unit string) (int64, error) {
@@ -207,11 +291,11 @@ func (c *PostgresWALCustodian) policy() wal.Policy {
 	}
 }
 
-func (c *PostgresWALCustodian) boundProposal(slot string) Proposal {
+func (c *PostgresWALCustodian) boundProposal(slot string, targetBytes int64) Proposal {
 	return Proposal{
 		Database: c.database, Feature: "wal",
 		SQL: fmt.Sprintf("ALTER SYSTEM SET max_slot_wal_keep_size = '%dMB'",
-			c.options.RetainedBytesLimit/(1<<20)),
+			targetBytes/(1<<20)),
 		TargetObjects: []string{"slot:" + slot},
 	}
 }

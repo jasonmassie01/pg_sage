@@ -1,13 +1,5 @@
-# PGXN distribution exclusions (used by git archive)
-sidecar/            export-ignore
-test/               export-ignore
-docs/               export-ignore
-docker-compose.yml  export-ignore
-Dockerfile          export-ignore
-docker-entrypoint-initdb.d/ export-ignore
-.github/            export-ignore
-.gitattributes      export-ignore
-.gitignore          export-ignore
+# Shell scripts run on Linux CI runners.
+*.sh text eol=lf
 
 # Byte-exact generated reference; tests compare it with Go generator output.
 docs/generated/config-lifecycles.md text eol=lf

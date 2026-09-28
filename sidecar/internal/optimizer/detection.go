@@ -276,34 +276,6 @@ func DetectParamTuningNeeds(plans []PlanSummary) map[string]string {
 	return results
 }
 
-// DetectBloatedIndexes identifies indexes where actual size exceeds
-// the estimated minimum by more than bloatRatio, suggesting
-// REINDEX CONCURRENTLY.
-func DetectBloatedIndexes(
-	indexes []IndexInfo,
-	indexSizes map[string]int64,
-	tableLiveTuples int64,
-	bloatRatio float64,
-) []string {
-	if tableLiveTuples <= 0 || bloatRatio <= 0 {
-		return nil
-	}
-	const btreeLeafBytes = 32
-	estimatedMin := tableLiveTuples * btreeLeafBytes
-	var bloated []string
-	for _, idx := range indexes {
-		actual, ok := indexSizes[idx.Name]
-		if !ok || actual <= 0 {
-			continue
-		}
-		ratio := float64(actual) / float64(estimatedMin)
-		if ratio > bloatRatio {
-			bloated = append(bloated, idx.Name)
-		}
-	}
-	return bloated
-}
-
 // IsBRINCandidate returns true if a column has high enough physical
 // correlation (>0.8) to benefit from a BRIN index.
 func IsBRINCandidate(colStats []ColStat, column string) bool {

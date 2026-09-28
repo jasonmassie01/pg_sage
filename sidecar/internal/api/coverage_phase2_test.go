@@ -2766,7 +2766,7 @@ func TestPhase2_UpdateUserRolePreservingAdmin_ConcurrentDemotions(
 		t.Fatalf("successes=%d lastAdminBlocks=%d, want 1/1",
 			successes, lastAdminBlocks)
 	}
-	count, err := auth.CountAdmins(ctx, pool)
+	count, err := countAdminsViaSQL(ctx, pool)
 	if err != nil {
 		t.Fatalf("count admins: %v", err)
 	}
@@ -2820,7 +2820,7 @@ func TestPhase2_DeleteUserPreservingAdmin_ConcurrentDeletes(
 		t.Fatalf("successes=%d lastAdminBlocks=%d, want 1/1",
 			successes, lastAdminBlocks)
 	}
-	count, err := auth.CountAdmins(ctx, pool)
+	count, err := countAdminsViaSQL(ctx, pool)
 	if err != nil {
 		t.Fatalf("count admins: %v", err)
 	}
@@ -3622,19 +3622,12 @@ func TestPhase2_RegisterUserRoutes_NoPanic(t *testing.T) {
 	registerUserRoutes(mux, pool)
 }
 
-func TestPhase2_RegisterConfigRoutes_NoPanic(t *testing.T) {
-	pool, _ := phase2RequireDB(t)
-	mux := http.NewServeMux()
-	cfg := &config.Config{}
-	registerConfigRoutes(mux, pool, cfg)
-}
-
 func TestPhase2_RegisterNotificationRoutes_NoPanic(
 	t *testing.T,
 ) {
 	pool, _ := phase2RequireDB(t)
 	mux := http.NewServeMux()
-	registerNotificationRoutes(mux, pool)
+	registerNotificationRoutes(mux, pool, notificationRouteDeps{})
 }
 
 // ================================================================
@@ -4576,66 +4569,6 @@ func TestPhase2_FindingsEmptyResponse(t *testing.T) {
 // ================================================================
 // buildFindingMap with nil fields
 // ================================================================
-
-func TestPhase2_BuildFindingMap_NilOptionalFields(
-	t *testing.T,
-) {
-	now := time.Now()
-	m := buildFindingMap(
-		1, now, now, 5,
-		"cat", "warning",
-		nil, nil, "title",
-		nil, nil, nil,
-		"open", "db", nil, nil, nil,
-	)
-	if m["object_type"] != "" {
-		t.Errorf("object_type: got %v, want empty",
-			m["object_type"])
-	}
-	if m["object_identifier"] != "" {
-		t.Errorf("object_identifier: got %v, want empty",
-			m["object_identifier"])
-	}
-	if m["recommendation"] != "" {
-		t.Errorf("recommendation: got %v, want empty",
-			m["recommendation"])
-	}
-	if m["recommended_sql"] != "" {
-		t.Errorf("recommended_sql: got %v, want empty",
-			m["recommended_sql"])
-	}
-}
-
-func TestPhase2_BuildFindingMap_WithAllFields(t *testing.T) {
-	now := time.Now()
-	objType := "index"
-	objIdent := "idx_t"
-	rec := "Drop it"
-	recSQL := "DROP INDEX idx_t"
-	detail := []byte(`{"key":"value"}`)
-
-	ruleID := "unused_index"
-	m := buildFindingMap(
-		42, now, now, 3,
-		"idx", "critical",
-		&objType, &objIdent, "Bad index",
-		detail, &rec, &recSQL,
-		"open", "proddb", &ruleID, nil, nil,
-	)
-	if m["id"] != "42" {
-		t.Errorf("id: got %v", m["id"])
-	}
-	if m["category"] != "idx" {
-		t.Errorf("category: got %v", m["category"])
-	}
-	if m["database_name"] != "proddb" {
-		t.Errorf("database_name: got %v",
-			m["database_name"])
-	}
-	if m["detail"] == nil {
-		t.Error("detail should be parsed JSON, not nil")
-	}
-}
 
 // ================================================================
 // buildActionMap

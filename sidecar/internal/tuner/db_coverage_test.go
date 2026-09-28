@@ -89,6 +89,7 @@ func TestFunctional_Coverage_DB_FetchPlanJSON(t *testing.T) {
 
 func TestFunctional_Coverage_DB_HintPlanSQLUsesQueryIDSchema(t *testing.T) {
 	pool, ctx := requireTunerDB(t)
+	requireQueryIDHintTable(t, pool)
 	queryID := int64(8809001)
 
 	_, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS hint_plan")

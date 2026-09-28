@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -143,6 +144,8 @@ func (t *Tuner) Tune(
 		}
 		findings = append(findings, f...)
 	}
+	// C11: remove installed hints whose metadata was retired/broken.
+	findings = append(findings, t.hintRemovalFindings(ctx)...)
 	return findings, nil
 }
 
@@ -475,14 +478,18 @@ func (t *Tuner) tryLLMPrescribe(
 		ctx, t.pool, c, symptoms, planJSON, fallbackHint,
 	)
 	rx, err := llmPrescribe(
-		ctx, t.llmClient, t.fallbackClient, qctx, t.logFn,
+		ctx, t.llmClient, t.fallbackClient, qctx, t.cfg.WorkMemMaxMB, t.logFn,
 	)
 	if err != nil {
 		t.logFn("tuner",
 			"LLM prescribe failed for queryid %d, "+
 				"using deterministic: %v", c.QueryID, err)
-		t.recordLLMSuppression(ctx, c, contextKey, "",
-			"llm_error", err.Error())
+		// An empty completion is a provider hiccup, not a verdict on
+		// this query; suppressing would mute LLM tuning for it (G3-B10).
+		if !errors.Is(err, llm.ErrEmptyResponse) {
+			t.recordLLMSuppression(ctx, c, contextKey, "",
+				"llm_error", err.Error())
+		}
 		return nil
 	}
 	if len(rx) > 0 {

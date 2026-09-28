@@ -22,6 +22,11 @@ func (s *NotificationStore) CreateRule(
 	if err := validateSeverity(minSeverity); err != nil {
 		return 0, err
 	}
+	if !notify.RuleCanFire(event, minSeverity) {
+		return 0, fmt.Errorf("%w: %s events are always %q, so a rule with "+
+			"min_severity %q would never fire", ErrValidation, event,
+			notify.EventSeverity[event], minSeverity)
+	}
 	if _, err := s.GetChannel(ctx, channelID); err != nil {
 		return 0, err
 	}

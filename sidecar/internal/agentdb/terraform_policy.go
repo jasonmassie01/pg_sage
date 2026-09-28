@@ -95,6 +95,13 @@ func TerraformManifest(files []TerraformFile) map[string]any {
 	}
 }
 
+// Zip imports are bounded in file count and total decompressed size, not
+// only per file (G8-B28).
+const (
+	maxTerraformZipFiles      = 64
+	maxTerraformZipTotalBytes = 4 * maxTerraformTemplateBytes
+)
+
 func TerraformFilesFromZip(name string, data []byte) ([]TerraformFile, error) {
 	if len(data) > maxTerraformTemplateBytes {
 		return nil, ErrInvalid
@@ -103,7 +110,11 @@ func TerraformFilesFromZip(name string, data []byte) ([]TerraformFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(reader.File) > maxTerraformZipFiles {
+		return nil, ErrInvalid
+	}
 	files := []TerraformFile{}
+	total := 0
 	for _, f := range reader.File {
 		if f.FileInfo().IsDir() {
 			continue
@@ -114,7 +125,9 @@ func TerraformFilesFromZip(name string, data []byte) ([]TerraformFile, error) {
 		}
 		body, err := io.ReadAll(io.LimitReader(rc, maxTerraformTemplateBytes+1))
 		_ = rc.Close()
-		if err != nil || len(body) > maxTerraformTemplateBytes {
+		total += len(body)
+		if err != nil || len(body) > maxTerraformTemplateBytes ||
+			total > maxTerraformZipTotalBytes {
 			return nil, ErrInvalid
 		}
 		files = append(files, TerraformFile{Path: f.Name, Body: string(body)})

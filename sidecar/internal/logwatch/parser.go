@@ -5,39 +5,26 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 )
 
-// jsonLogRaw maps the PostgreSQL jsonlog format (PG15+) for unmarshalling.
+// jsonLogRaw maps PostgreSQL's jsonlog format (PG15+). Keys follow
+// src/backend/utils/error/jsonlog.c: "user", "dbname" and "statement"
+// (not user_name/database_name/query), and "timestamp" uses the same
+// "%Y-%m-%d %H:%M:%S.mmm %Z" layout as csvlog. Empty fields are omitted.
 type jsonLogRaw struct {
 	Timestamp   string `json:"timestamp"`
 	PID         int    `json:"pid"`
 	SessionID   string `json:"session_id"`
-	Database    string `json:"database_name"`
-	User        string `json:"user_name"`
+	Database    string `json:"dbname"`
+	User        string `json:"user"`
 	Severity    string `json:"error_severity"`
 	StateCode   string `json:"state_code"`
 	Message     string `json:"message"`
 	Detail      string `json:"detail"`
 	Hint        string `json:"hint"`
-	Query       string `json:"query"`
+	Statement   string `json:"statement"`
 	Application string `json:"application_name"`
 }
-
-// Timestamp formats used by PostgreSQL log output.
-var (
-	// csvlog: "2023-10-15 14:30:00.123 UTC" or "2023-10-15 14:30:00.123+00"
-	csvTimestampFormats = []string{
-		"2006-01-02 15:04:05.999 MST",
-		"2006-01-02 15:04:05.999-07",
-		"2006-01-02 15:04:05.999+07",
-		"2006-01-02 15:04:05.999-07:00",
-		"2006-01-02 15:04:05.999+07:00",
-	}
-
-	// jsonlog: ISO 8601 "2023-10-15T14:30:00.123+00:00"
-	jsonTimestampFormat = time.RFC3339Nano
-)
 
 // Keywords that make a LOG-severity line worth parsing.
 var logKeywords = []string{
@@ -61,8 +48,10 @@ func ParseJSONLogLine(line []byte) (LogEntry, error) {
 	if err := json.Unmarshal([]byte(sanitized), &raw); err != nil {
 		return LogEntry{}, fmt.Errorf("logwatch: json unmarshal: %w", err)
 	}
-
-	ts, err := parseJSONTimestamp(raw.Timestamp)
+	if raw.Timestamp == "" {
+		return LogEntry{}, fmt.Errorf("logwatch: parse timestamp: jsonlog line has no timestamp")
+	}
+	ts, err := parsePGTimestamp(raw.Timestamp)
 	if err != nil {
 		return LogEntry{}, fmt.Errorf("logwatch: parse timestamp %q: %w", raw.Timestamp, err)
 	}
@@ -78,27 +67,14 @@ func ParseJSONLogLine(line []byte) (LogEntry, error) {
 		Message:     raw.Message,
 		Detail:      raw.Detail,
 		Hint:        raw.Hint,
-		Query:       raw.Query,
+		Query:       raw.Statement,
 		Application: raw.Application,
 	}, nil
 }
 
-// parseJSONTimestamp parses an ISO 8601 timestamp and converts to UTC.
-func parseJSONTimestamp(s string) (time.Time, error) {
-	t, err := time.Parse(jsonTimestampFormat, s)
-	if err != nil {
-		// Fall back: some PG builds emit slightly different formats.
-		t, err = time.Parse("2006-01-02T15:04:05.999-07:00", s)
-		if err != nil {
-			return time.Time{}, err
-		}
-	}
-	return t.UTC(), nil
-}
-
 const (
-	csvMinColumns  = 23 // PG <14
-	csvExtColumns  = 26 // PG14+ (adds backend_type, leader_pid, query_id)
+	csvMinColumns = 23 // PG <14
+	csvExtColumns = 26 // PG14+ (adds backend_type, leader_pid, query_id)
 )
 
 // CSV column indices.
@@ -132,7 +108,7 @@ func ParseCSVLogLine(record []string) (LogEntry, error) {
 		return LogEntry{}, fmt.Errorf("logwatch: parse pid %q: %w", record[csvColPID], err)
 	}
 
-	ts, err := parseCSVTimestamp(record[csvColTime])
+	ts, err := parsePGTimestamp(record[csvColTime])
 	if err != nil {
 		return LogEntry{}, fmt.Errorf(
 			"logwatch: parse timestamp %q: %w", record[csvColTime], err,
@@ -153,16 +129,6 @@ func ParseCSVLogLine(record []string) (LogEntry, error) {
 		Query:       record[csvColQuery],
 		Application: record[csvColApplication],
 	}, nil
-}
-
-// parseCSVTimestamp tries each known csvlog timestamp format and returns UTC.
-func parseCSVTimestamp(s string) (time.Time, error) {
-	for _, layout := range csvTimestampFormats {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t.UTC(), nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("no matching format for %q", s)
 }
 
 // ShouldParseLine is a pre-filter that decides whether a log line is

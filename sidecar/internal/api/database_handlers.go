@@ -532,50 +532,6 @@ const (
 	hostDNSFailed                 // DNS resolution failed
 )
 
-// checkHost resolves the host and returns whether it
-// should be blocked for SSRF protection.
-func checkHost(host string) hostCheckResult {
-	// Block known metadata hostnames.
-	if host == "169.254.169.254" ||
-		host == "metadata.google.internal" {
-		return hostBlocked
-	}
-
-	ip := net.ParseIP(host)
-	if ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() ||
-			ip.IsLinkLocalUnicast() ||
-			ip.IsLinkLocalMulticast() {
-			return hostBlocked
-		}
-		return hostAllowed
-	}
-
-	// Resolve hostname and check all IPs. Fail closed on
-	// DNS errors to prevent DNS rebinding attacks.
-	addrs, err := net.LookupHost(host)
-	if err != nil {
-		return hostDNSFailed
-	}
-	for _, addr := range addrs {
-		resolved := net.ParseIP(addr)
-		if resolved == nil {
-			continue
-		}
-		if resolved.IsLoopback() || resolved.IsPrivate() ||
-			resolved.IsLinkLocalUnicast() ||
-			resolved.IsLinkLocalMulticast() {
-			return hostBlocked
-		}
-	}
-	return hostAllowed
-}
-
-// isBlockedHost is a convenience wrapper for existing callers.
-func isBlockedHost(host string) bool {
-	return checkHost(host) != hostAllowed
-}
-
 // resolveSafeHost validates a hostname for SSRF and returns the
 // specific IP that the caller should actually connect to. For a
 // literal IP input it returns the input unchanged. For a hostname

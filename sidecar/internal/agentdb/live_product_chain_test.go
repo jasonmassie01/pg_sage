@@ -317,7 +317,7 @@ func runLiveProductChain(
 	}
 	assertCreationReceipt(t, st, dep.DeploymentID)
 	destroyStart := time.Now()
-	destroy, err := st.DestroyProvisionLive(ctx, dep.DeploymentID, runner)
+	destroy, err := directDestroyForTest(ctx, st, dep.DeploymentID, runner)
 	if err != nil || destroy.Status != "succeeded" {
 		t.Fatalf("destroy live attempt=%#v err=%v", destroy, err)
 	}

@@ -44,27 +44,43 @@ func (s *PostgresObservationSource) QueryMeasurements(
 	return result, nil
 }
 
+// queryMeasurementSQL differences the first and last query_store samples
+// in the window. A window that spans more than one statistics epoch -- a
+// counter decrease, a changed stats_epoch (reset or restart, even after
+// counters regrew), or an unknown epoch next to a known one -- yields no
+// calls, so verification treats it as insufficient evidence (R10).
+const queryMeasurementSQL = `WITH samples AS (
+		SELECT calls, total_exec_time,
+			row_number() OVER (ORDER BY captured_at, id) AS first_row,
+			row_number() OVER (ORDER BY captured_at DESC, id DESC) AS last_row,
+			calls < lag(calls) OVER w
+				OR total_exec_time < lag(total_exec_time) OVER w
+				OR (row_number() OVER w > 1
+					AND stats_epoch IS DISTINCT FROM lag(stats_epoch) OVER w)
+				AS epoch_break
+		FROM sage.query_store
+		WHERE queryid=$1 AND captured_at BETWEEN $2 AND $3
+		WINDOW w AS (ORDER BY captured_at, id)
+	), bounds AS (
+		SELECT max(calls) FILTER (WHERE last_row=1) -
+			max(calls) FILTER (WHERE first_row=1) AS calls,
+			max(total_exec_time) FILTER (WHERE last_row=1) -
+			max(total_exec_time) FILTER (WHERE first_row=1) AS elapsed,
+			COALESCE(bool_or(epoch_break), false) AS broken
+		FROM samples
+	)
+	SELECT CASE WHEN broken THEN 0 ELSE COALESCE(calls, 0) END,
+		CASE WHEN NOT broken AND calls > 0 AND elapsed >= 0
+			THEN elapsed/calls ELSE 0 END
+	FROM bounds`
+
 func (s *PostgresObservationSource) queryMeasurement(
 	ctx context.Context, id int64, from, to time.Time,
 ) (Measurement, error) {
 	var calls int64
 	var latencyMS float64
-	err := s.queryer.QueryRow(ctx, `WITH samples AS (
-		SELECT calls, total_exec_time,
-			row_number() OVER (ORDER BY captured_at) AS first_row,
-			row_number() OVER (ORDER BY captured_at DESC) AS last_row
-		FROM sage.query_store
-		WHERE queryid=$1 AND captured_at BETWEEN $2 AND $3
-	), bounds AS (
-		SELECT max(calls) FILTER (WHERE last_row=1) -
-			max(calls) FILTER (WHERE first_row=1) AS calls,
-			max(total_exec_time) FILTER (WHERE last_row=1) -
-			max(total_exec_time) FILTER (WHERE first_row=1) AS elapsed
-		FROM samples
-	)
-	SELECT COALESCE(calls, 0),
-		CASE WHEN calls > 0 AND elapsed >= 0 THEN elapsed/calls ELSE 0 END
-	FROM bounds`, id, from, to).Scan(&calls, &latencyMS)
+	err := s.queryer.QueryRow(ctx, queryMeasurementSQL, id, from, to).
+		Scan(&calls, &latencyMS)
 	if err != nil {
 		return Measurement{}, err
 	}
@@ -229,7 +245,9 @@ func (s *PostgresStateStore) ListDue(
 	rows, err := s.pool.Query(ctx, `SELECT action_log_id, criterion,
 		baseline, verdict, COALESCE(reason, ''), completed_at IS NOT NULL,
 		next_evaluation_at FROM sage.verification
-		WHERE verdict IN ('pending', 'extended') AND next_evaluation_at <= $1
+		WHERE completed_at IS NULL
+		  AND verdict IN ('pending', 'extended', 'revert', 'unverifiable')
+		  AND next_evaluation_at <= $1
 		ORDER BY next_evaluation_at, id`, now)
 	if err != nil {
 		return nil, err
@@ -244,6 +262,33 @@ func (s *PostgresStateStore) ListDue(
 		states = append(states, state)
 	}
 	return states, rows.Err()
+}
+
+// Claim is a conditional UPDATE: only a row that is still open and due at
+// now is moved to leaseUntil. Row locking serializes concurrent claimers and
+// the loser re-checks the predicate against the winner's committed lease, so
+// exactly one claim succeeds per due period, across processes.
+func (s *PostgresStateStore) Claim(
+	ctx context.Context, listed WatchState, now, leaseUntil time.Time,
+) (WatchState, bool, error) {
+	if s == nil || s.pool == nil {
+		return WatchState{}, false, errors.New("verify state pool is unavailable")
+	}
+	state, err := s.scanState(s.pool.QueryRow(ctx, `UPDATE sage.verification
+		SET next_evaluation_at=$3, updated_at=now()
+		WHERE action_log_id=$1 AND completed_at IS NULL
+		  AND verdict IN ('pending', 'extended', 'revert', 'unverifiable')
+		  AND next_evaluation_at <= $2
+		RETURNING action_log_id, criterion, baseline, verdict, COALESCE(reason, ''),
+			completed_at IS NOT NULL, next_evaluation_at`,
+		listed.ActionID, now, leaseUntil))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return WatchState{}, false, nil
+	}
+	if err != nil {
+		return WatchState{}, false, err
+	}
+	return state, true, nil
 }
 
 type stateScanner interface {

@@ -4,7 +4,9 @@ import "time"
 
 // Default values matching the spec.
 const (
-	DefaultMode = "extension"
+	DefaultMode = "standalone"
+	// ModeMeta labels a meta-db fleet (--meta-db with no explicit mode).
+	ModeMeta = "meta"
 
 	DefaultPGPort           = 5432
 	DefaultPGUser           = "sage_agent"
@@ -91,6 +93,10 @@ const (
 	DefaultRetentionFindingsDays  = 180
 	DefaultRetentionActionsDays   = 365
 	DefaultRetentionExplainsDays  = 90
+
+	// Notification targets on private networks are refused unless an
+	// operator opts in (G7-B21).
+	DefaultNotificationPolicyAllowPrivateTargets = false
 
 	DefaultPrometheusListenAddr = "127.0.0.1:9187"
 

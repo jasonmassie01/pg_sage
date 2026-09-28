@@ -126,6 +126,10 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 		return createStatisticsContract(), true
 	case "prepare_parameterized_query":
 		return prepareParameterizedQueryContract(), true
+	case "retention_delete":
+		return retentionDeleteContract(), true
+	case "revert_created_index":
+		return revertCreatedIndexContract(), true
 	case "create_index_concurrently":
 		return ActionContract{
 			ActionType:      actionType,
@@ -171,7 +175,7 @@ func ContractForActionType(actionType string) (ActionContract, bool) {
 			},
 			Guardrails: []string{
 				"DROP INDEX CONCURRENTLY",
-				"approval required",
+				"earned autonomy: autonomous trust, tier3_moderate, 31-day ramp",
 				"maintenance-window enforcement",
 			},
 			ExecutionPlan: []string{"DROP INDEX CONCURRENTLY ..."},
@@ -590,7 +594,7 @@ func setTableAutovacuumContract() ActionContract {
 			"current reloptions captured for review",
 		},
 		Guardrails: []string{
-			"approval required",
+			"earned autonomy: autonomous trust, tier3_moderate, 31-day ramp",
 			"generate PR or migration script",
 			"monitor post-change vacuum cadence",
 		},
@@ -852,5 +856,5 @@ func prepareParameterizedQueryContract() ActionContract {
 
 func portableActionProviders() []string {
 	return []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb",
-		"neon", "supabase"}
+		"neon", "supabase", "azure", "azure-cosmos"}
 }

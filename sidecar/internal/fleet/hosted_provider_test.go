@@ -1,8 +1,8 @@
 package fleet
 
 import (
+	"context"
 	"testing"
-	"time"
 )
 
 // No shared state: each adapter owns its maps. Connection error propagation and
@@ -46,12 +46,15 @@ func TestHostedReadinessPreservesSafetyGates(t *testing.T) {
 	for _, provider := range []string{"neon", "supabase"} {
 		for _, gate := range []string{"replica", "stop", "observation"} {
 			t.Run(provider+"/"+gate, func(t *testing.T) {
-				cfg := readinessTestConfig("autonomous")
-				if gate == "observation" {
-					cfg.Trust.Level = "observation"
+				exec := gateExecutor(t, "autonomous")
+				switch gate {
+				case "observation":
+					_ = exec.SetTrustLevel("observation")
+				case "stop":
+					exec.WithEmergencyStopCheck(func(context.Context) bool { return true })
 				}
 				caps := BuildProviderCapabilities(
-					cfg, provider, gate == "replica", "auto", gate == "stop", time.Now())
+					provider, gate == "replica", ExecutorFamilyExplainer(exec))
 				got := actionReadiness(t, caps.ActionFamilies, "analyze_table")
 				if got.Decision == "execute" || caps.ReadyForAutoSafe {
 					t.Fatalf("gate %s allowed execution: %#v", gate, got)

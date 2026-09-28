@@ -37,6 +37,7 @@ nav:
   - Hint Verification: hint-verification.md
   - Security: security.md
   - Deployment: deployment.md
+  - Azure: azure.md
 
 markdown_extensions:
   - admonition

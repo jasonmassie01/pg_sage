@@ -7,13 +7,21 @@ COPY internal/api/dist/ ./internal/api/dist/
 RUN cd web && npm run build
 
 FROM golang:1.25-alpine AS builder
-RUN apk add --no-cache git
+# build-base: cgo compiles libpg_query for parse-tree SQL validation.
+RUN apk add --no-cache git build-base
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /app/internal/api/dist/ ./internal/api/dist/
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o sage-sidecar ./cmd/pg_sage_sidecar/
+# Build metadata surfaces in --version and pg_sage_info (G10-B03).
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
+RUN CGO_ENABLED=1 go build \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
+    -o sage-sidecar ./cmd/pg_sage_sidecar/ \
+    && ./sage-sidecar --version | grep -q "sql-ast: libpg_query"
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata curl \

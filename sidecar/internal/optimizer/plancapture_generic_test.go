@@ -21,7 +21,7 @@ func TestGenericPlanCapturesUnboundParameters(t *testing.T) {
 		"CREATE TABLE generic_plan_parameter_test (id int PRIMARY KEY)"); err != nil {
 		t.Fatal(err)
 	}
-	planner := NewPlanCapture(pool, version, false, false, "generic_plan", noopLog2)
+	planner := NewPlanCapture(pool, version, false, "generic_plan", noopLog2)
 	plans, source := planner.CapturePlans(t.Context(), []collector.QueryStats{{QueryID: 4242,
 		Query: "SELECT id FROM public.generic_plan_parameter_test WHERE id=$1"}})
 	if source != "generic_plan" || len(plans) != 1 || plans[0].QueryID != 4242 ||

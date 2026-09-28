@@ -67,6 +67,9 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (any, *rpcEr
 	if err := json.Unmarshal(raw, &call); err != nil || call.Name == "" {
 		return nil, failure(-32602, "invalid tool arguments")
 	}
+	if mutatingTools[call.Name] && !canMutate(ctx) {
+		return nil, failure(-32001, "operator or admin role required")
+	}
 	var result any
 	var err error
 	switch call.Name {

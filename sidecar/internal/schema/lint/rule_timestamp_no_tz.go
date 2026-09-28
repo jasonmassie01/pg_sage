@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 type ruleTimestampNoTZ struct{}
@@ -68,13 +70,15 @@ func (r *ruleTimestampNoTZ) collect(rows interface {
 				"Applications in different timezones will interpret " +
 				"values differently, causing silent data corruption",
 			Suggestion: fmt.Sprintf(
-				"ALTER TABLE %s.%s ALTER COLUMN %s TYPE timestamptz "+
+				"ALTER TABLE %s ALTER COLUMN %s TYPE timestamptz "+
 					"USING %s AT TIME ZONE 'UTC'",
-				schema, table, column, column),
+				sanitize.QuoteQualifiedName(schema, table),
+				sanitize.QuoteIdentifier(column), sanitize.QuoteIdentifier(column)),
 			SQL: fmt.Sprintf(
-				"ALTER TABLE %s.%s ALTER COLUMN %s TYPE timestamptz "+
+				"ALTER TABLE %s ALTER COLUMN %s TYPE timestamptz "+
 					"USING %s AT TIME ZONE 'UTC';",
-				schema, table, column, column),
+				sanitize.QuoteQualifiedName(schema, table),
+				sanitize.QuoteIdentifier(column), sanitize.QuoteIdentifier(column)),
 			FirstSeen: now,
 			LastSeen:  now,
 		})

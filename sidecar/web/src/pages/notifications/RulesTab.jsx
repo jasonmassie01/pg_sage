@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  inputStyle, cardStyle, EVENT_TYPES, SEVERITIES,
+  inputStyle, cardStyle, EVENT_TYPES, SEVERITIES, defaultMinSeverity,
   FormField, ErrorBanner,
 } from './shared'
 
@@ -10,7 +10,8 @@ export function RulesTab() {
   const [error, setError] = useState(null)
   const [channelId, setChannelId] = useState('')
   const [event, setEvent] = useState(EVENT_TYPES[0])
-  const [minSeverity, setMinSeverity] = useState('warning')
+  const [minSeverity, setMinSeverity] = useState(
+    defaultMinSeverity(EVENT_TYPES[0]))
   const [creating, setCreating] = useState(false)
 
   const fetchRules = useCallback(async () => {
@@ -135,7 +136,10 @@ export function RulesTab() {
           <FormField label="Event">
             <select value={event}
               data-testid="add-rule-event"
-              onChange={e => setEvent(e.target.value)}
+              onChange={e => {
+                setEvent(e.target.value)
+                setMinSeverity(defaultMinSeverity(e.target.value))
+              }}
               className="px-3 py-1.5 rounded text-sm"
               style={inputStyle}>
               {EVENT_TYPES.map(ev => (

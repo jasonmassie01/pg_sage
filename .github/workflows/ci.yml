@@ -42,18 +42,8 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Enable pg_stat_statements
-        run: |
-          docker exec -e DEBIAN_FRONTEND=noninteractive ${{ job.services.postgres.id }} \
-            sh -c 'apt-get update -qq &&
-              apt-get install -y --no-install-recommends postgresql-17-hypopg'
-          docker exec ${{ job.services.postgres.id }} \
-            bash -c "echo \"shared_preload_libraries = 'pg_stat_statements'\" >> /var/lib/postgresql/data/postgresql.conf"
-          docker exec ${{ job.services.postgres.id }} \
-            bash -c "echo 'wal_level = logical' >> /var/lib/postgresql/data/postgresql.conf"
-          docker restart ${{ job.services.postgres.id }}
-          until pg_isready -h localhost -U postgres; do sleep 1; done
-          psql -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+      - name: Prepare PostgreSQL (HypoPG, pg_hint_plan, pg_stat_statements)
+        run: scripts/ci/setup-test-postgres.sh ${{ job.services.postgres.id }} 17
 
       - name: Verify and build frontend
         working-directory: sidecar/web
@@ -67,22 +57,113 @@ jobs:
         working-directory: sidecar
         run: go vet ./...
 
-      - name: Unit tests
+      # Each suite writes go test -json for the skip budget and prints the
+      # verbose log; the step fails with the suite's own exit status.
+      - name: Unit tests (race detector)
         working-directory: sidecar
-        run: go test ./... -v -cover -count=1 -timeout 300s
+        run: |
+          status=0
+          go test ./... -race -cover -count=1 -timeout 900s -json > ../unit.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../unit.json
+          exit $status
 
       - name: Integration tests
         working-directory: sidecar
-        run: go test ./... -v -cover -tags=integration -count=1 -timeout 300s
+        run: |
+          status=0
+          go test ./... -cover -tags=integration -count=1 -timeout 600s -json \
+            > ../integration.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../integration.json
+          exit $status
 
       - name: Sidecar end-to-end tests
         working-directory: sidecar
-        run: go test ./e2e -v -cover -tags=e2e -count=1 -timeout 900s
+        run: |
+          status=0
+          go test ./e2e -cover -tags=e2e -count=1 -timeout 900s -json > ../e2e.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../e2e.json
+          exit $status
+
+      # Fails on any skipped test not justified in sidecar/.skip-allowlist.
+      - name: Skip budget
+        if: ${{ !cancelled() }}
+        working-directory: sidecar
+        run: cat ../unit.json ../integration.json ../e2e.json | go run ./cmd/skipbudget
+
+  # PostgreSQL 17 runs in the test job above; this covers the rest of the
+  # supported range with the race detector and integration tags.
+  integration-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["14", "15", "16", "18"]
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.2-pg${{ matrix.pg }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
+
+      - name: Prepare PostgreSQL ${{ matrix.pg }}
+        run: scripts/ci/setup-test-postgres.sh ${{ job.services.postgres.id }} ${{ matrix.pg }}
+
+      - name: Integration tests (race detector)
+        working-directory: sidecar
+        run: |
+          status=0
+          go test ./... -race -tags=integration -count=1 -timeout 1200s -json \
+            > ../integration.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../integration.json
+          exit $status
+
+      - name: Skip budget
+        if: ${{ !cancelled() }}
+        working-directory: sidecar
+        run: go run ./cmd/skipbudget < ../integration.json
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          working-directory: sidecar
+          version: v2.11.4
+          args: --timeout 5m
 
   docker:
     runs-on: ubuntu-latest
-    needs: test
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    needs: [test, lint]
+    # master pushes publish :edge and :sha-*; release tags publish the
+    # semver tags and move :latest, so :latest is always a release.
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     permissions:
       packages: write
     steps:
@@ -94,14 +175,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/jasonmassie01/pg_sage
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=edge,branch=master
+            type=sha
+
       - uses: docker/build-push-action@v6
         with:
           context: sidecar/
           file: sidecar/Dockerfile
           push: true
-          tags: |
-            ghcr.io/jasonmassie01/pg_sage:latest
-            ghcr.io/jasonmassie01/pg_sage:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ github.event.head_commit.timestamp }}
 
   release:
     runs-on: ubuntu-latest
@@ -114,13 +210,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-node@v4
         with:
-          go-version-file: sidecar/go.mod
+          node-version: "20"
 
-      - uses: goreleaser/goreleaser-action@v6
-        with:
-          version: v2.17.0
-          args: release --clean
+      - name: Build web UI
+        run: cd sidecar/web && npm ci && npm run build
+
+      # cgo release: goreleaser-cross carries a C cross-compiler per target
+      # (osxcross for darwin) so libpg_query links into every binary.
+      - name: GoReleaser (cgo cross-compile)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm -e GITHUB_TOKEN -v "$PWD:/repo" -w /repo \
+            --entrypoint bash ghcr.io/goreleaser/goreleaser-cross:v1.25.0 -c \
+            'git config --global --add safe.directory /repo &&
+             goreleaser release --clean --skip=before'

@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/cases"
-	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
@@ -133,6 +132,7 @@ func queryProjectedCases(
 		}
 		out = append(out, queryHintCases...)
 	}
+	sortCasesGlobally(out)
 	return out, nil
 }
 
@@ -266,6 +266,12 @@ func int64Value(value any) int64 {
 		return int64(v)
 	case float32:
 		return int64(v)
+	case string:
+		parsed, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return 0
+		}
+		return parsed
 	default:
 		return 0
 	}
@@ -282,38 +288,6 @@ func filterSelfMonitoringHintRows(
 		out = append(out, row)
 	}
 	return out
-}
-
-func enrichCaseActionTimeline(
-	ctx context.Context,
-	c *cases.Case,
-	pool *pgxpool.Pool,
-	actionStore *store.ActionStore,
-) {
-	if len(c.SourceIDs) == 0 {
-		return
-	}
-	findingID, err := strconv.Atoi(c.SourceIDs[0])
-	if err != nil || findingID <= 0 {
-		return
-	}
-	if actionStore != nil {
-		queued, err := actionStore.ListLedgerByFinding(ctx, findingID)
-		if err == nil {
-			now := time.Now().UTC()
-			for _, action := range queued {
-				c.Actions = append(c.Actions,
-					caseActionFromQueuedAction(action, now))
-			}
-		}
-	}
-	logged, err := queryActionLogsByFinding(ctx, pool, findingID)
-	if err != nil {
-		return
-	}
-	for _, action := range logged {
-		c.Actions = append(c.Actions, caseActionFromActionLog(action))
-	}
 }
 
 func enrichCaseActionTimelines(
@@ -406,24 +380,6 @@ func queuedActionType(action store.QueuedAction) string {
 	return action.ActionRisk
 }
 
-func queryActionLogsByFinding(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	findingID int,
-) ([]map[string]any, error) {
-	if pool == nil {
-		return []map[string]any{}, nil
-	}
-	rows, err := pool.Query(ctx, actionsSelectSQLPrefix+
-		` WHERE finding_id = $1 ORDER BY executed_at DESC LIMIT 20`,
-		findingID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanActionRows(rows)
-}
-
 func queryActionLogsByFindingIDs(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -483,122 +439,97 @@ func caseActionFromActionLog(row map[string]any) cases.CaseAction {
 	return action
 }
 
+// actionLogVerificationStatus reports what is actually known about an
+// executed action. A successful SQL return is only "applied"; the
+// action is "verified" only when the durable sage.verification record
+// completed with verdict=success (SURF-12 / G6-B10, matching the value
+// service's credit rule).
 func actionLogVerificationStatus(row map[string]any) string {
-	outcome := stringValue(row["outcome"])
-	if outcome == "success" && row["measured_at"] != nil {
-		return "verified"
-	}
-	if outcome == "pending" || outcome == "monitoring" {
-		return "monitoring"
-	}
-	if outcome == "failed" || outcome == "rollback_failed" {
+	switch stringValue(row["outcome"]) {
+	case "rolled_back", "reverted":
+		return "reverted"
+	case "failed", "rollback_failed":
 		return "failed"
+	case "pending", "monitoring":
+		return "pending"
+	case "success":
+		return durableVerificationStatus(row)
+	default:
+		return "not_started"
 	}
-	if outcome == "rolled_back" {
-		return "rolled_back"
-	}
-	if outcome == "success" {
-		return "verified"
-	}
-	return "not_started"
 }
 
+func durableVerificationStatus(row map[string]any) string {
+	verdict := stringValue(row["verification_verdict"])
+	completed := row["verification_completed_at"] != nil
+	switch {
+	case verdict == "":
+		return "applied"
+	case verdict == "success" && completed:
+		return "verified"
+	case verdict == "revert":
+		return "reverted"
+	case verdict == "failed":
+		return "failed"
+	case verdict == "unverifiable":
+		return "inconclusive"
+	default:
+		return "pending"
+	}
+}
+
+// enrichCaseActionPolicies shows each candidate's standing-policy verdict
+// from the database's own executor gate (one policy snapshot per case). No
+// instance or executor fails closed.
 func enrichCaseActionPolicies(
 	c *cases.Case,
 	mgr *fleet.DatabaseManager,
 	databaseName string,
 ) {
-	policyContext := casePolicyContext(mgr, databaseName)
+	var inst *fleet.DatabaseInstance
+	if mgr != nil {
+		inst = mgr.GetInstance(databaseName)
+	}
+	isReplica := false
+	if inst != nil {
+		isReplica = inst.SnapshotStatus().Capabilities.IsReplica
+	}
+	var contracts []executor.ActionContract
+	var slots []int
 	for i := range c.ActionCandidates {
-		candidate := &c.ActionCandidates[i]
-		contract, ok := executor.ContractForActionType(candidate.ActionType)
+		contract, ok := executor.ContractForActionType(c.ActionCandidates[i].ActionType)
 		if !ok {
-			candidate.BlockedReason = "unknown action type"
+			c.ActionCandidates[i].BlockedReason = "unknown action type"
 			continue
 		}
-		decision := executor.EvaluateActionPolicy(contract, policyContext)
-		candidate.PolicyDecision = &cases.ActionPolicyDecision{
-			Decision:                  decision.Decision,
-			RiskTier:                  decision.RiskTier,
-			RequiresApproval:          decision.RequiresApproval,
-			RequiresMaintenanceWindow: decision.RequiresMaintenanceWindow,
-			BlockedReason:             decision.BlockedReason,
-			Guardrails:                decision.Guardrails,
-			Provider:                  decision.Provider,
-		}
-		candidate.Guardrails = decision.Guardrails
-		candidate.RequiresApproval = decision.RequiresApproval
-		candidate.RequiresMaintenanceWindow = decision.RequiresMaintenanceWindow
-		if decision.BlockedReason != "" {
-			candidate.BlockedReason = decision.BlockedReason
-		}
+		contracts = append(contracts, contract)
+		slots = append(slots, i)
+	}
+	if len(contracts) == 0 {
+		return
+	}
+	decisions := fleet.InstanceFamilyExplainer(inst)(contracts, isReplica)
+	for k, decision := range decisions {
+		applyCandidatePolicy(&c.ActionCandidates[slots[k]], decision)
 	}
 }
 
-func casePolicyContext(
-	mgr *fleet.DatabaseManager,
-	databaseName string,
-) executor.ActionPolicyContext {
-	cfg := &config.Config{}
-	if mgr != nil && mgr.Config() != nil {
-		copied := *mgr.Config()
-		cfg = &copied
+func applyCandidatePolicy(candidate *cases.ActionCandidate, decision executor.ActionPolicyDecision) {
+	candidate.PolicyDecision = &cases.ActionPolicyDecision{
+		Decision:                  decision.Decision,
+		RiskTier:                  decision.RiskTier,
+		RequiresApproval:          decision.RequiresApproval,
+		RequiresMaintenanceWindow: decision.RequiresMaintenanceWindow,
+		BlockedReason:             decision.BlockedReason,
+		Guardrails:                decision.Guardrails,
+		Provider:                  decision.Provider,
 	}
-	mode := "auto"
-	stopped := false
-	isReplica := false
-	executorEnabled := true
-	if mgr != nil {
-		if inst := mgr.GetInstance(databaseName); inst != nil {
-			mode = executionModeForInstance(cfg, inst)
-			stopped = inst.Stopped
-			executorEnabled = inst.Config.IsExecutorEnabled()
-			snap := inst.SnapshotStatus()
-			if snap.Platform != "" {
-				cfg.CloudEnvironment = snap.Platform
-			}
-			if snap.Capabilities.Provider != "" {
-				cfg.CloudEnvironment = snap.Capabilities.Provider
-			}
-			isReplica = snap.Capabilities.IsReplica
-			if inst.Config.TrustLevel != "" {
-				cfg.Trust.Level = inst.Config.TrustLevel
-			}
-		}
+	candidate.Guardrails = decision.Guardrails
+	candidate.RequiresApproval = decision.RequiresApproval
+	candidate.RequiresMaintenanceWindow = decision.RequiresMaintenanceWindow
+	if decision.BlockedReason != "" {
+		candidate.BlockedReason = decision.BlockedReason
 	}
-	return executor.ActionPolicyContext{
-		Config:          cfg,
-		ExecutionMode:   mode,
-		ExecutorEnabled: &executorEnabled,
-		RampStart:       rampStartForPolicy(cfg),
-		IsReplica:       isReplica,
-		EmergencyStop:   stopped,
-		SafeActionLimit: 3,
-	}
-}
-
-func executionModeForInstance(
-	cfg *config.Config,
-	inst *fleet.DatabaseInstance,
-) string {
-	if inst.Config.ExecutionMode != "" {
-		return inst.Config.ExecutionMode
-	}
-	if cfg != nil && cfg.Defaults.ExecutionMode != "" {
-		return cfg.Defaults.ExecutionMode
-	}
-	return "auto"
-}
-
-func rampStartForPolicy(cfg *config.Config) time.Time {
-	if cfg == nil || cfg.Trust.RampStart == "" {
-		return time.Now().Add(-365 * 24 * time.Hour)
-	}
-	parsed, err := time.Parse(time.RFC3339, cfg.Trust.RampStart)
-	if err != nil {
-		return time.Time{}
-	}
-	return parsed
 }
 
 func sourceFindingFromMap(row map[string]any) cases.SourceFinding {
@@ -615,6 +546,7 @@ func sourceFindingFromMap(row map[string]any) cases.SourceFinding {
 		RecommendedSQL:   stringValue(row["recommended_sql"]),
 		RollbackSQL:      stringValue(row["rollback_sql"]),
 		Detail:           detailMap(row["detail"]),
+		ObservedAt:       timeFromMap(row, "last_seen"),
 	}
 }
 
@@ -640,7 +572,7 @@ func sourceIncidentFromMap(row map[string]any) cases.SourceIncident {
 
 func sourceQueryHintFromMap(row map[string]any) cases.SourceQueryHint {
 	return cases.SourceQueryHint{
-		QueryID:          int64(floatValue(row["queryid"])),
+		QueryID:          int64Value(row["queryid"]),
 		DatabaseName:     stringValue(row["database_name"]),
 		HintText:         stringValue(row["hint_text"]),
 		Symptom:          stringValue(row["symptom"]),

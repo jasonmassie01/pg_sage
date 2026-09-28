@@ -153,15 +153,9 @@ func analyzeQueryRewrites(
 		strings.Join(queryLines, "\n\n"),
 	)
 
-	if len(prompt) > maxAdvisorPromptChars {
-		prompt = prompt[:maxAdvisorPromptChars]
-	}
-
-	resp, _, err := mgr.ChatForPurpose(
-		ctx, "advisor", rewriteSystemPrompt, prompt, 4096,
-	)
+	resp, err := chatAdvisor(ctx, mgr, "rewrite", rewriteSystemPrompt, "", prompt)
 	if err != nil {
-		return nil, fmt.Errorf("rewrite LLM: %w", err)
+		return nil, err
 	}
 
 	parsed := parseLLMFindings(resp, "query_rewrite", logFn)

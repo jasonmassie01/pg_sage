@@ -3,6 +3,7 @@ package optimizer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -74,7 +75,7 @@ func newTestOptimizer(
 ) *Optimizer {
 	t.Helper()
 	client := llm.New(fnTestLLMConfig(srvURL), fnNoopLog)
-	o := New(client, nil, nil, cfg, 160000, false, 8192, fnNoopLog)
+	o := New(client, nil, nil, cfg, 160000, 8192, fnNoopLog)
 	// Pre-set HypoPG as unavailable to avoid nil pool panic.
 	unavailable := false
 	o.hypopg.available = &unavailable
@@ -91,8 +92,8 @@ func newTestOptimizerWithFallback(
 	primary := llm.New(fnTestLLMConfig(primaryURL), fnNoopLog)
 	fallback := llm.New(fnTestLLMConfig(fallbackURL), fnNoopLog)
 	o := New(
-		primary, fallback, nil, cfg, 160000, false, 8192, fnNoopLog,
-	)
+		primary, fallback, nil, cfg, 160000, 8192, fnNoopLog)
+
 	unavailable := false
 	o.hypopg.available = &unavailable
 	return o
@@ -559,7 +560,8 @@ func TestFunctional_Confidence_BoundaryValues(t *testing.T) {
 	t.Run("Exact500Calls", func(t *testing.T) {
 		// 500 calls should give qv=1.0 (the >= 500 threshold).
 		tc := TableContext{
-			Queries: []QueryInfo{{Calls: 500}},
+			Queries:        []QueryInfo{{Calls: 500}},
+			WriteRateKnown: true, // no longer implied (G3-B23)
 		}
 		o := &Optimizer{
 			cfg:    fnTestOptimizerConfig(),
@@ -1075,8 +1077,8 @@ func TestFunctional_Validate_MaxNewPerTable(t *testing.T) {
 
 	client := llm.New(fnTestLLMConfig(srv.URL), fnNoopLog)
 	o := New(
-		client, nil, nil, cfg, 160000, false, 8192, fnNoopLog,
-	)
+		client, nil, nil, cfg, 160000, 8192, fnNoopLog)
+
 	// Pre-set HypoPG as unavailable to avoid nil pool panic.
 	unavailable := false
 	o.hypopg.available = &unavailable
@@ -1249,53 +1251,6 @@ func TestFunctional_DetectParamTuningNeeds(t *testing.T) {
 	if _, ok := results["work_mem_hash"]; !ok {
 		t.Error("expected work_mem_hash signal")
 	}
-}
-
-func TestFunctional_DetectBloatedIndexes(t *testing.T) {
-	indexes := []IndexInfo{
-		{Name: "idx_a", SizeBytes: 100000},
-		{Name: "idx_b", SizeBytes: 5000},
-	}
-	sizes := map[string]int64{
-		"idx_a": 100000,
-		"idx_b": 5000,
-	}
-	// estimatedMin = 1000 * 32 = 32000
-	// idx_a: 100000 / 32000 = 3.125 > 2.0 (bloated)
-	// idx_b: 5000 / 32000 = 0.15 (not bloated)
-	bloated := DetectBloatedIndexes(indexes, sizes, 1000, 2.0)
-	if len(bloated) != 1 {
-		t.Fatalf("bloated = %d, want 1", len(bloated))
-	}
-	if bloated[0] != "idx_a" {
-		t.Errorf("bloated[0] = %q, want 'idx_a'", bloated[0])
-	}
-}
-
-func TestFunctional_DetectBloatedIndexes_ZeroInputs(t *testing.T) {
-	t.Run("ZeroLiveTuples", func(t *testing.T) {
-		result := DetectBloatedIndexes(
-			[]IndexInfo{{Name: "idx", SizeBytes: 100}},
-			map[string]int64{"idx": 100},
-			0, 2.0,
-		)
-		if len(result) != 0 {
-			t.Errorf("result = %d, want 0 for zero live tuples", len(result))
-		}
-	})
-
-	t.Run("ZeroBloatRatio", func(t *testing.T) {
-		result := DetectBloatedIndexes(
-			[]IndexInfo{{Name: "idx", SizeBytes: 100}},
-			map[string]int64{"idx": 100},
-			1000, 0.0,
-		)
-		if len(result) != 0 {
-			t.Errorf(
-				"result = %d, want 0 for zero bloat ratio", len(result),
-			)
-		}
-	})
 }
 
 func TestFunctional_IsBRINCandidate(t *testing.T) {
@@ -1594,8 +1549,10 @@ func TestFunctional_LLMResponse_EmptyString(t *testing.T) {
 	accepted, _, _, err := opt.analyzeTable(
 		context.Background(), tc,
 	)
-	if err != nil {
-		t.Fatalf("analyzeTable error: %v", err)
+	// An empty completion is surfaced as an error (G3-B10), not as a
+	// successful "no recommendations" cycle.
+	if !errors.Is(err, llm.ErrEmptyResponse) {
+		t.Fatalf("analyzeTable err = %v, want llm.ErrEmptyResponse", err)
 	}
 	if len(accepted) != 0 {
 		t.Errorf(
@@ -1660,39 +1617,6 @@ func TestFunctional_LLMResponse_BothClientsFail(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "llm chat") {
 		t.Errorf("error = %q, want 'llm chat'", err.Error())
-	}
-}
-
-func TestFunctional_StripToJSON_CleanArray(t *testing.T) {
-	input := `[{"ddl":"CREATE INDEX CONCURRENTLY idx ON t (a)"}]`
-	got := stripToJSON(input)
-	if got != input {
-		t.Errorf("stripToJSON altered clean input:\ngot:  %s\nwant: %s",
-			got, input)
-	}
-}
-
-func TestFunctional_StripToJSON_MarkdownFences(t *testing.T) {
-	input := "```json\n[{\"ddl\":\"test\"}]\n```"
-	got := stripToJSON(input)
-	if !strings.HasPrefix(got, "[") {
-		t.Errorf("result should start with [, got: %s", got)
-	}
-	if !strings.HasSuffix(got, "]") {
-		t.Errorf("result should end with ], got: %s", got)
-	}
-}
-
-func TestFunctional_StripToJSON_ThinkingPrefix(t *testing.T) {
-	input := "I'll analyze this carefully.\n\n" +
-		`[{"ddl":"CREATE INDEX CONCURRENTLY idx ON t (a)"}]`
-	got := stripToJSON(input)
-	if !strings.HasPrefix(got, "[") {
-		t.Errorf("result should start with [, got: %s", got)
-	}
-	var recs []Recommendation
-	if err := json.Unmarshal([]byte(got), &recs); err != nil {
-		t.Errorf("result is not valid JSON: %v", err)
 	}
 }
 
@@ -2112,81 +2036,6 @@ func TestFunctional_Context_ParseFloatArray(t *testing.T) {
 // Section 11: Decay Analysis (15.X)
 // ----------------------------------------------------------------
 
-func TestFunctional_Decay_ZeroBaseline(t *testing.T) {
-	pct := ComputeDecayPct(0, 100)
-	if pct != 0 {
-		t.Errorf("decay = %.2f, want 0 for zero baseline", pct)
-	}
-}
-
-func TestFunctional_Decay_PositiveDecay(t *testing.T) {
-	// prior=1000, current=500 => (1000-500)/1000 * 100 = 50%
-	pct := ComputeDecayPct(1000, 500)
-	if math.Abs(pct-50.0) > 0.01 {
-		t.Errorf("decay = %.2f, want 50.0", pct)
-	}
-}
-
-func TestFunctional_Decay_NegativeDecay(t *testing.T) {
-	// prior=500, current=1000 => (500-1000)/500 * 100 = -100%
-	pct := ComputeDecayPct(500, 1000)
-	if math.Abs(pct-(-100.0)) > 0.01 {
-		t.Errorf("decay = %.2f, want -100.0 (usage increased)", pct)
-	}
-}
-
-func TestFunctional_Decay_AnalyzeDecay_ThresholdFiltering(t *testing.T) {
-	current := []IndexInfo{
-		{Name: "idx_decaying", Scans: 200},
-		{Name: "idx_stable", Scans: 900},
-		{Name: "idx_growing", Scans: 1500},
-		{Name: "idx_no_history", Scans: 100},
-	}
-	historical := map[string]int64{
-		"idx_decaying": 1000, // 80% decline
-		"idx_stable":   1000, // 10% decline
-		"idx_growing":  1000, // -50% (growing)
-		// idx_no_history not in map
-	}
-
-	results := AnalyzeDecay(current, historical, 50.0)
-
-	if len(results) != 3 {
-		t.Fatalf("results = %d, want 3 (excludes no_history)", len(results))
-	}
-
-	decayingFound := false
-	for _, r := range results {
-		if r.IndexName == "idx_decaying" {
-			decayingFound = true
-			if !r.IsDecaying {
-				t.Error("idx_decaying should be flagged as decaying")
-			}
-			if math.Abs(r.DecayPct-80.0) > 0.01 {
-				t.Errorf(
-					"idx_decaying decay = %.2f, want 80.0", r.DecayPct,
-				)
-			}
-		}
-		if r.IndexName == "idx_stable" {
-			if r.IsDecaying {
-				t.Error(
-					"idx_stable (10% decline) should not be decaying " +
-						"at 50% threshold",
-				)
-			}
-		}
-		if r.IndexName == "idx_growing" {
-			if r.IsDecaying {
-				t.Error("idx_growing should not be decaying (negative pct)")
-			}
-		}
-	}
-	if !decayingFound {
-		t.Error("idx_decaying not found in results")
-	}
-}
-
 // ----------------------------------------------------------------
 // Section 13: Coverage Gap Tests (16.X)
 // ----------------------------------------------------------------
@@ -2281,7 +2130,7 @@ func TestFunctional_Coverage_WithAutoExplain(t *testing.T) {
 		MaxNewPerTable:     3,
 	}
 	client := llm.New(fnTestLLMConfig("http://localhost:0"), fnNoopLog)
-	o := New(client, nil, nil, cfg, 160000, false, 8192, fnNoopLog)
+	o := New(client, nil, nil, cfg, 160000, 8192, fnNoopLog)
 
 	if o.planner.autoExplainAvailable {
 		t.Fatal("autoExplainAvailable should be false before option")
@@ -2305,9 +2154,8 @@ func TestFunctional_Coverage_WithAutoExplain_ViaConstructor(t *testing.T) {
 	}
 	client := llm.New(fnTestLLMConfig("http://localhost:0"), fnNoopLog)
 	o := New(
-		client, nil, nil, cfg, 160000, false, 8192, fnNoopLog,
-		WithAutoExplain(),
-	)
+		client, nil, nil, cfg, 160000, 8192, fnNoopLog,
+		WithAutoExplain())
 
 	if !o.planner.autoExplainAvailable {
 		t.Fatal("autoExplainAvailable should be true when passed to New")

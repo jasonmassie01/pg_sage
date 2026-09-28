@@ -124,6 +124,8 @@ export function TerraformTemplatePanel({
                     borderColor: 'var(--border)',
                     color: 'var(--accent)',
                   }}
+                  title={'Review-only template: the plan is built from provider '
+                    + 'settings, not from the template content (SURF-05)'}
                   onClick={() => onProvision?.(template)}>
                   Provision
                 </button>

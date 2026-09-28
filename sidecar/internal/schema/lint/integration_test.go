@@ -195,40 +195,6 @@ func TestIntegration_NoPrimaryKey(t *testing.T) {
 	assert.Equal(t, "lint_no_primary_key", found.RuleID)
 }
 
-func TestIntegration_InvalidIndex(t *testing.T) {
-	pool, ctx := requireDB(t)
-	schema := createSchema(t, pool, ctx)
-
-	ddl := fmt.Sprintf(
-		"CREATE TABLE %s.inv_test (id serial PRIMARY KEY, val int)",
-		schema)
-	_, err := pool.Exec(ctx, ddl)
-	require.NoError(t, err)
-
-	idxDDL := fmt.Sprintf(
-		"CREATE INDEX idx_inv_val ON %s.inv_test (val)", schema)
-	_, err = pool.Exec(ctx, idxDDL)
-	require.NoError(t, err)
-
-	// Mark index as invalid via pg_index — requires superuser.
-	_, err = pool.Exec(ctx, fmt.Sprintf(`
-		UPDATE pg_index SET indisvalid = false
-		WHERE indexrelid = '%s.idx_inv_val'::regclass`,
-		schema))
-	if err != nil {
-		t.Skipf("cannot mark index invalid (need superuser): %v", err)
-	}
-
-	rule := &ruleInvalidIndex{}
-	findings, err := rule.Check(ctx, pool, defaultOpts(schema))
-	require.NoError(t, err)
-
-	found := findingForIndex(findings, schema, "idx_inv_val")
-	require.NotNil(t, found, "expected finding for idx_inv_val")
-	assert.Equal(t, "lint_invalid_index", found.RuleID)
-	assert.Equal(t, "critical", found.Severity)
-}
-
 func TestIntegration_NoPrimaryKey_NotTriggered(t *testing.T) {
 	pool, ctx := requireDB(t)
 	schema := createSchema(t, pool, ctx)
@@ -285,35 +251,6 @@ func findingForIndex(
 		}
 	}
 	return nil
-}
-
-// ---------------------------------------------------------------------------
-// Integration tests for remaining lint rules
-// ---------------------------------------------------------------------------
-
-func TestIntegration_DuplicateIndex(t *testing.T) {
-	pool, ctx := requireDB(t)
-	schema := createSchema(t, pool, ctx)
-
-	ddl := fmt.Sprintf(`
-		CREATE TABLE %s.dup_test (id serial, val int);
-		CREATE INDEX idx_dup_val_1 ON %s.dup_test (val);
-		CREATE INDEX idx_dup_val_2 ON %s.dup_test (val)`,
-		schema, schema, schema)
-	_, err := pool.Exec(ctx, ddl)
-	require.NoError(t, err)
-
-	rule := &ruleDuplicateIndex{}
-	findings, err := rule.Check(ctx, pool, defaultOpts(schema))
-	require.NoError(t, err)
-
-	// The newer index (higher OID) is the duplicate reported.
-	found := findingForTable(findings, schema, "dup_test")
-	require.NotNil(t, found, "expected finding for dup_test")
-	assert.Equal(t, "lint_duplicate_index", found.RuleID)
-	assert.Equal(t, "warning", found.Severity)
-	// The reported index should be the second (duplicate) one.
-	assert.Equal(t, "idx_dup_val_2", found.Index)
 }
 
 func TestIntegration_OverlappingIndex(t *testing.T) {
@@ -555,34 +492,6 @@ func TestIntegration_LowCardinalityIndex(t *testing.T) {
 	assert.Equal(t, "lint_low_cardinality_index", found.RuleID)
 	assert.Equal(t, "status", found.Column)
 	assert.Equal(t, "idx_lowcard_status", found.Index)
-}
-
-func TestIntegration_UnusedIndex(t *testing.T) {
-	pool, ctx := requireDB(t)
-	schema := createSchema(t, pool, ctx)
-
-	// The unused-index rule requires stats_reset > 7 days ago.
-	// On a fresh database this condition is unlikely to be true,
-	// so we only verify the rule executes without error.
-	ddl := fmt.Sprintf(`
-		CREATE TABLE %s.unused_test (id serial PRIMARY KEY, val int);
-		CREATE INDEX idx_unused_val ON %s.unused_test (val)`,
-		schema, schema)
-	_, err := pool.Exec(ctx, ddl)
-	require.NoError(t, err)
-
-	rule := &ruleUnusedIndex{}
-	findings, err := rule.Check(ctx, pool, defaultOpts(schema))
-	require.NoError(t, err)
-
-	found := findingForIndex(findings, schema, "idx_unused_val")
-	if found != nil {
-		assert.Equal(t, "lint_unused_index", found.RuleID)
-		assert.Equal(t, "unused_test", found.Table)
-	} else {
-		t.Log("lint_unused_index: no finding produced — " +
-			"stats_reset is likely < 7 days old (expected in CI/dev)")
-	}
 }
 
 func TestIntegration_BloatedTable(t *testing.T) {

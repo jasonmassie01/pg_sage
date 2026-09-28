@@ -40,10 +40,6 @@ var defaultCache = &modelCache{
 	ttl:     time.Hour,
 }
 
-func (c *modelCache) get() ([]ModelInfo, bool) {
-	return c.getFor("")
-}
-
 func (c *modelCache) getFor(key string) ([]ModelInfo, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -52,10 +48,6 @@ func (c *modelCache) getFor(key string) ([]ModelInfo, bool) {
 		return append([]ModelInfo(nil), entry.models...), true
 	}
 	return nil, false
-}
-
-func (c *modelCache) set(models []ModelInfo) {
-	c.setFor("", models)
 }
 
 func (c *modelCache) setFor(key string, models []ModelInfo) {
@@ -198,15 +190,6 @@ func stripModelsPrefix(name string) string {
 	return strings.TrimPrefix(name, "models/")
 }
 
-// fetchOpenAIModels calls the OpenAI-compatible /models endpoint.
-func fetchOpenAIModels(
-	ctx context.Context, endpoint, apiKey string,
-) ([]ModelInfo, error) {
-	return fetchOpenAIModelsWithClient(
-		ctx, endpoint, apiKey, http.DefaultClient,
-	)
-}
-
 func fetchOpenAIModelsWithClient(
 	ctx context.Context,
 	endpoint string,
@@ -248,15 +231,6 @@ func parseOpenAIModels(data []byte) ([]ModelInfo, error) {
 		})
 	}
 	return models, nil
-}
-
-// doModelRequest performs a GET with a 10s timeout.
-func doModelRequest(
-	ctx context.Context, url, apiKey string,
-) ([]byte, error) {
-	return doModelRequestWithClient(
-		ctx, url, apiKey, http.DefaultClient,
-	)
 }
 
 func doModelRequestWithClient(

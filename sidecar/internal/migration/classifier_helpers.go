@@ -1,6 +1,9 @@
 package migration
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // ruleByID returns the rule definition for a given rule ID.
 // Panics if the rule does not exist (programming error).
@@ -26,41 +29,40 @@ func newClassification(r ruleDefinition, sql string) DDLClassification {
 	}
 }
 
+// fillTarget copies the (schema, name) groups of re's first match into
+// c. Bare keywords (e.g. VACUUM FULL with no table) are ignored.
+func fillTarget(re *regexp.Regexp, sql string, c *DDLClassification) {
+	m := re.FindStringSubmatch(sql)
+	if len(m) < 3 || !isColumnIdent(m[len(m)-1]) {
+		return
+	}
+	if schema := m[len(m)-2]; schema != "" {
+		c.SchemaName = unquoteIdent(schema)
+	}
+	c.TableName = unquoteIdent(m[len(m)-1])
+}
+
 // fillTableFromOnClause extracts schema.table from an "ON table" clause
 // (e.g., CREATE INDEX ... ON myschema.mytable).
 func fillTableFromOnClause(sql string, c *DDLClassification) {
-	m := reIndexOnTable.FindStringSubmatch(sql)
-	if m == nil {
-		return
-	}
-	if m[2] != "" {
-		c.SchemaName = m[2]
-	}
-	c.TableName = m[3]
+	fillTarget(reIndexOnTable, sql, c)
 }
 
 // fillTableFromAlter extracts schema.table from ALTER TABLE statements.
 func fillTableFromAlter(sql string, c *DDLClassification) {
-	m := reAlterTable.FindStringSubmatch(sql)
-	if m == nil {
-		return
-	}
-	if m[2] != "" {
-		c.SchemaName = m[2]
-	}
-	c.TableName = m[3]
+	fillTarget(reAlterTable, sql, c)
 }
 
-// isDDLKeyword returns true if the trimmed, uppercased SQL starts with
-// a DDL keyword that the migration advisor cares about.
+// isDDLKeyword returns true if any statement in the (possibly
+// multi-statement, commented) SQL starts with a DDL keyword that the
+// migration advisor cares about.
 func isDDLKeyword(sql string) bool {
-	upper := strings.ToUpper(strings.TrimSpace(sql))
 	prefixes := []string{
-		"ALTER ", "CREATE INDEX", "DROP ",
+		"ALTER ", "CREATE INDEX", "CREATE UNIQUE INDEX", "DROP ",
 		"REINDEX", "VACUUM", "REFRESH ", "CLUSTER",
 	}
-	for _, p := range prefixes {
-		if strings.HasPrefix(upper, p) {
+	for _, stmt := range splitStatements(sanitizeDDL(sql)) {
+		if hasAnyPrefix(strings.ToUpper(stmt), prefixes) {
 			return true
 		}
 	}

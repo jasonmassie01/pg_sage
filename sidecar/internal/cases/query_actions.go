@@ -7,7 +7,7 @@ import (
 )
 
 func prepareQueryRewriteCandidate(h SourceQueryHint) ActionCandidate {
-	expires := time.Now().UTC().Add(7 * 24 * time.Hour)
+	expires := queryHintEvidenceTime(h).Add(7 * 24 * time.Hour)
 	candidate := ActionCandidate{
 		ActionType:       "prepare_query_rewrite",
 		RiskTier:         "moderate",
@@ -22,7 +22,7 @@ func prepareQueryRewriteCandidate(h SourceQueryHint) ActionCandidate {
 }
 
 func retireQueryHintCandidate(h SourceQueryHint) ActionCandidate {
-	expires := time.Now().UTC().Add(24 * time.Hour)
+	expires := queryHintEvidenceTime(h).Add(24 * time.Hour)
 	return ActionCandidate{
 		ActionType:    "retire_query_hint",
 		RiskTier:      "safe",
@@ -54,7 +54,7 @@ func retireQueryHintCandidate(h SourceQueryHint) ActionCandidate {
 }
 
 func roleWorkMemCandidate(f SourceFinding) ActionCandidate {
-	expires := time.Now().UTC().Add(7 * 24 * time.Hour)
+	expires := evidenceTime(f).Add(7 * 24 * time.Hour)
 	candidate := ActionCandidate{
 		ActionType:       "promote_role_work_mem",
 		RiskTier:         "moderate",
@@ -70,7 +70,7 @@ func roleWorkMemCandidate(f SourceFinding) ActionCandidate {
 }
 
 func createStatisticsCandidate(f SourceFinding) ActionCandidate {
-	expires := time.Now().UTC().Add(7 * 24 * time.Hour)
+	expires := evidenceTime(f).Add(7 * 24 * time.Hour)
 	candidate := ActionCandidate{
 		ActionType:       "create_statistics",
 		RiskTier:         "moderate",
@@ -86,7 +86,7 @@ func createStatisticsCandidate(f SourceFinding) ActionCandidate {
 }
 
 func parameterizedQueryCandidate(f SourceFinding) ActionCandidate {
-	expires := time.Now().UTC().Add(7 * 24 * time.Hour)
+	expires := evidenceTime(f).Add(7 * 24 * time.Hour)
 	candidate := ActionCandidate{
 		ActionType:       "prepare_parameterized_query",
 		RiskTier:         "moderate",
@@ -101,7 +101,7 @@ func parameterizedQueryCandidate(f SourceFinding) ActionCandidate {
 }
 
 func applyQueryHintCandidate(f SourceFinding) ActionCandidate {
-	expires := time.Now().UTC().Add(24 * time.Hour)
+	expires := evidenceTime(f).Add(24 * time.Hour)
 	queryID := detailQueryID(f)
 	candidate := ActionCandidate{
 		ActionType:    "apply_query_hint",
@@ -137,7 +137,7 @@ func applyQueryHintCandidate(f SourceFinding) ActionCandidate {
 }
 
 func investigateQueryCandidate(f SourceFinding) ActionCandidate {
-	expires := time.Now().UTC().Add(24 * time.Hour)
+	expires := evidenceTime(f).Add(24 * time.Hour)
 	query := detailString(f.Detail, "query", "")
 	queryID := detailQueryID(f)
 	candidate := ActionCandidate{

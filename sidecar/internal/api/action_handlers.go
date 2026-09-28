@@ -21,11 +21,9 @@ func pendingActionsHandler(
 	exec *executor.Executor,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var dbID *int
-		if dbStr := r.URL.Query().Get("database"); dbStr != "" {
-			if v, err := strconv.Atoi(dbStr); err == nil {
-				dbID = &v
-			}
+		dbID, ok := singleModeDatabaseFilter(w, r)
+		if !ok {
+			return
 		}
 
 		actions, err := as.ListPending(r.Context(), dbID)
@@ -69,6 +67,7 @@ func fleetPendingActionsHandler(
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		allResult := make([]map[string]any, 0)
+		failures := make([]map[string]string, 0)
 		dbFilter := r.URL.Query().Get("database")
 		if err := validateDatabaseParam(dbFilter); err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
@@ -89,6 +88,8 @@ func fleetPendingActionsHandler(
 			actions, err := as.ListPending(
 				r.Context(), nil)
 			if err != nil {
+				failures = append(failures,
+					fleetReadFailure(inst.Name, "list pending actions", err))
 				continue
 			}
 			for _, a := range actions {
@@ -100,6 +101,7 @@ func fleetPendingActionsHandler(
 		jsonResponse(w, map[string]any{
 			"pending": allResult,
 			"total":   len(allResult),
+			"errors":  failures,
 		})
 	}
 }
@@ -111,6 +113,7 @@ func fleetPendingCountHandler(
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		total := 0
+		failures := make([]map[string]string, 0)
 		dbFilter := r.URL.Query().Get("database")
 		if err := validateDatabaseParam(dbFilter); err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
@@ -130,11 +133,13 @@ func fleetPendingCountHandler(
 			as := store.NewActionStore(inst.Pool)
 			count, err := as.PendingCount(r.Context())
 			if err != nil {
+				failures = append(failures,
+					fleetReadFailure(inst.Name, "count pending actions", err))
 				continue
 			}
 			total += count
 		}
-		jsonResponse(w, map[string]any{"count": total})
+		jsonResponse(w, map[string]any{"count": total, "errors": failures})
 	}
 }
 
@@ -530,11 +535,8 @@ func rollbackActionHandler(
 		if !ok {
 			return
 		}
-		var body struct {
-			Reason string `json:"reason"`
-		}
-		if decErr := json.NewDecoder(r.Body).Decode(&body); decErr != nil {
-			jsonError(w, "invalid JSON", http.StatusBadRequest)
+		body, ok := decodeRollbackBody(w, r)
+		if !ok {
 			return
 		}
 		if err := exec.RollbackAction(
@@ -675,15 +677,12 @@ func fleetRollbackActionHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		inst, id, ok := actionInstanceAndID(w, r, mgr)
+		body, ok := decodeRollbackBody(w, r)
 		if !ok {
 			return
 		}
-		var body struct {
-			Reason string `json:"reason"`
-		}
-		if decErr := json.NewDecoder(r.Body).Decode(&body); decErr != nil {
-			jsonError(w, "invalid JSON", http.StatusBadRequest)
+		inst, id, ok := actionInstanceAndID(w, r, mgr)
+		if !ok {
 			return
 		}
 		if err := inst.Executor.RollbackAction(
@@ -882,37 +881,4 @@ func isDDLScriptAction(a store.QueuedAction) bool {
 		strings.HasPrefix(sql, "ALTER ") ||
 		strings.HasPrefix(sql, "DROP ") ||
 		strings.HasPrefix(sql, "REINDEX ")
-}
-
-func actionTimelineMap(row map[string]any) map[string]any {
-	out := map[string]any{}
-	for _, key := range []string{
-		"id",
-		"case_id",
-		"finding_id",
-		"status",
-		"action_type",
-		"risk_tier",
-		"proposed_sql",
-		"actor",
-		"verification_status",
-		"rollback_status",
-		"created_at",
-		"approved_at",
-		"executed_at",
-		"verified_at",
-		"expires_at",
-		"lifecycle_state",
-		"blocked_reason",
-		"attempt_count",
-		"cooldown_until",
-		"policy_decision",
-		"guardrails",
-		"shadow_toil_minutes",
-	} {
-		if v, ok := row[key]; ok {
-			out[key] = v
-		}
-	}
-	return out
 }

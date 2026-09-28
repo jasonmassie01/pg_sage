@@ -3,6 +3,7 @@ package tuner
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -14,7 +15,7 @@ type planNode struct {
 	JoinType            string     `json:"Join Type,omitempty"`
 	IndexName           string     `json:"Index Name,omitempty"`
 	PlanRows            int64      `json:"Plan Rows"`
-	ActualRows          *int64     `json:"Actual Rows,omitempty"`
+	ActualRows          *float64   `json:"Actual Rows,omitempty"` // PG18: 2 decimals
 	ActualLoops         *int64     `json:"Actual Loops,omitempty"`
 	SortMethod          *string    `json:"Sort Method,omitempty"`
 	SortSpaceUsed       *int64     `json:"Sort Space Used,omitempty"`
@@ -149,7 +150,7 @@ func checkBadNestedLoop(
 	if n.ActualRows == nil || n.PlanRows <= 0 {
 		return nil
 	}
-	if *n.ActualRows <= n.PlanRows*10 {
+	if *n.ActualRows <= float64(n.PlanRows*10) {
 		return nil
 	}
 	return &PlanSymptom{
@@ -159,7 +160,7 @@ func checkBadNestedLoop(
 		Alias:     n.Alias,
 		Detail: map[string]any{
 			"plan_rows":   n.PlanRows,
-			"actual_rows": *n.ActualRows,
+			"actual_rows": int64(math.Round(*n.ActualRows)),
 		},
 	}
 }

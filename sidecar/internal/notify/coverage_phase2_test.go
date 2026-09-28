@@ -369,12 +369,13 @@ func TestPhase2_SendEmail_ConnectionRefused(t *testing.T) {
 		Type: "action_executed", Severity: "info",
 		Subject: "Test", Body: "Body",
 	}
-	err := sendEmail(t.Context(), cfg, evt)
+	err := privateEmailSender().sendEmail(t.Context(), cfg, evt)
 	if err == nil {
 		t.Fatal("expected error for connection refused")
 	}
-	if !strings.Contains(err.Error(), "tls dial") {
-		t.Errorf("error should mention tls dial: %v", err)
+	// G7-B08: the dial is no longer an implicit-TLS dial.
+	if !strings.Contains(err.Error(), "smtp dial") {
+		t.Errorf("error should mention smtp dial: %v", err)
 	}
 }
 
@@ -389,7 +390,7 @@ func TestPhase2_SendEmail_InvalidPort(t *testing.T) {
 		Type: "action_executed", Severity: "info",
 		Subject: "Test", Body: "Body",
 	}
-	err := sendEmail(t.Context(), cfg, evt)
+	err := privateEmailSender().sendEmail(t.Context(), cfg, evt)
 	if err == nil {
 		t.Fatal("expected error for invalid port")
 	}
@@ -413,21 +414,26 @@ func TestPhase2_SendEmail_TLSHandshakeFails(t *testing.T) {
 	}()
 
 	host, port, _ := net.SplitHostPort(ln.Addr().String())
+	// G7-B08: implicit TLS is now opt-in (port 465 / smtp_tls=implicit).
 	cfg := &emailConfig{
-		Host: host, Port: port,
+		Host: host, Port: port, ImplicitTLS: true,
 		From: "a@b.com", To: []string{"c@d.com"},
 	}
 	evt := Event{
 		Type: "action_executed", Severity: "info",
 		Subject: "Test", Body: "Body",
 	}
-	err = sendEmail(t.Context(), cfg, evt)
+	err = privateEmailSender().sendEmail(t.Context(), cfg, evt)
 	if err == nil {
 		t.Fatal("expected error when TLS handshake fails")
 	}
-	if !strings.Contains(err.Error(), "tls dial") {
-		t.Errorf("error should mention tls dial: %v", err)
+	if !strings.Contains(err.Error(), "smtp client") {
+		t.Errorf("error should mention smtp client: %v", err)
 	}
+}
+
+func privateEmailSender() *EmailSender {
+	return NewEmailSenderWithPolicy(TargetPolicy{AllowPrivate: true})
 }
 
 // ---------------------------------------------------------------------------
@@ -1369,8 +1375,9 @@ func TestPhase2_NewDispatcher_InitialState(t *testing.T) {
 	lc := &logCollector{}
 	d := NewDispatcher(nil, lc.logFn)
 
-	if d.pool != nil {
-		t.Error("expected nil pool")
+	// G7-B05: the dispatcher now reads through a RuleStore.
+	if ps, ok := d.store.(*PoolStore); !ok || ps.pool != nil {
+		t.Errorf("expected PoolStore over nil pool, got %#v", d.store)
 	}
 	if d.senders == nil {
 		t.Fatal("senders map should be initialized")

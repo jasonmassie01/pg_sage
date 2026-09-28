@@ -20,11 +20,17 @@ type Rule struct {
 
 // Event is the payload dispatched through the notification system.
 type Event struct {
-	Type     string         // event type
-	Severity string         // info, warning, critical
+	Type     string // event type
+	Severity string // info, warning, critical
 	Subject  string
 	Body     string
 	Data     map[string]any // structured payload
+	// DedupKey identifies the incident an event belongs to (e.g. one
+	// finding). Empty = derived from type, database and subject.
+	DedupKey string
+	// Resolve marks a recovery notification for an earlier trigger with
+	// the same DedupKey (PagerDuty "resolve", G7-B14).
+	Resolve bool
 }
 
 // ValidEventTypes lists all supported event types.
@@ -34,6 +40,9 @@ var ValidEventTypes = map[string]bool{
 	"approval_needed":         true,
 	"finding_critical":        true,
 	"query_rewrite_suggested": true,
+	"incident_detected":       true,
+	"incident_escalated":      true,
+	"incident_resolved":       true,
 }
 
 // ValidSeverities lists all supported severity levels with numeric rank.
@@ -41,6 +50,59 @@ var ValidSeverities = map[string]int{
 	"info":     0,
 	"warning":  1,
 	"critical": 2,
+}
+
+// EventSeverity is the fixed severity each event constructor emits.
+// Rules whose min_severity exceeds it can never fire (G7-B06).
+var EventSeverity = map[string]string{
+	"action_executed":         "info",
+	"action_failed":           "warning",
+	"approval_needed":         "warning",
+	"finding_critical":        "critical",
+	"query_rewrite_suggested": "warning",
+}
+
+// DefaultMinSeverity is the min_severity a new rule for event gets when
+// none is given: the event's own severity, so the rule always fires.
+func DefaultMinSeverity(event string) string {
+	if sev, ok := EventSeverity[event]; ok {
+		return sev
+	}
+	if _, ok := variableSeverityEvents[event]; ok {
+		return "warning"
+	}
+	return "info"
+}
+
+// variableSeverityEvents carry the severity of their subject (incident
+// events follow the incident) and map to the highest severity they can
+// be emitted with.
+var variableSeverityEvents = map[string]string{
+	"incident_detected":  "critical",
+	"incident_escalated": "critical",
+	"incident_resolved":  "critical",
+}
+
+// maxEventSeverity returns the highest severity an event type can carry.
+func maxEventSeverity(event string) (string, bool) {
+	if sev, ok := EventSeverity[event]; ok {
+		return sev, true
+	}
+	sev, ok := variableSeverityEvents[event]
+	return sev, ok
+}
+
+// RuleCanFire reports whether a rule (event, minSeverity) can ever
+// match an event of that type.
+func RuleCanFire(event, minSeverity string) bool {
+	sev, ok := maxEventSeverity(event)
+	if !ok {
+		return false
+	}
+	if _, known := ValidSeverities[minSeverity]; !known {
+		return false
+	}
+	return SeverityMeetsMin(sev, minSeverity)
 }
 
 // SeverityMeetsMin returns true if sev >= minSev.

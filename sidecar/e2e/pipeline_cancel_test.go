@@ -37,15 +37,16 @@ func startPipelineSleeper(t *testing.T) (int, <-chan error) {
 
 func pipelineCancelFinding(t *testing.T, pool *pgxpool.Pool, pid int) analyzer.Finding {
 	t.Helper()
-	var start time.Time
+	var start, backendStart time.Time
 	var query, app string
 	var queryID int64
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		err := pool.QueryRow(t.Context(), `SELECT query_start, COALESCE(query_id,0),
-			LEFT(query,200), application_name FROM pg_stat_activity
+		err := pool.QueryRow(t.Context(), `SELECT query_start, backend_start,
+			COALESCE(query_id,0), LEFT(query,200), application_name
+			FROM pg_stat_activity
 			WHERE pid=$1 AND state='active' AND query LIKE '%pg_sleep%'`, pid).
-			Scan(&start, &queryID, &query, &app)
+			Scan(&start, &backendStart, &queryID, &query, &app)
 		if err == nil {
 			break
 		}
@@ -61,7 +62,9 @@ func pipelineCancelFinding(t *testing.T, pool *pgxpool.Pool, pid int) analyzer.F
 		Category: "runaway_query", Severity: "warning", ObjectType: "backend",
 		ObjectIdentifier: fmt.Sprintf("pid:%d", pid), Title: "runaway query",
 		RecommendedSQL: fmt.Sprintf("SELECT pg_cancel_backend(%d);", pid), ActionRisk: "moderate",
+		// Same evidence the production runaway detector emits; the executor
+		// re-verifies pid + backend_start + query identity before signaling.
 		Detail: map[string]any{"pid": pid, "query_id": queryID, "query_start": start,
-			"query": query, "app_name": app},
+			"backend_start": backendStart, "query": query, "app_name": app},
 	}
 }

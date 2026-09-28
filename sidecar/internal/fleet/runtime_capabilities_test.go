@@ -4,14 +4,12 @@ import (
 	"context"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestRuntimeCapabilitiesNilPoolDoesNotInventEvidence(t *testing.T) {
-	caps := CollectProviderCapabilities(context.Background(), nil, nil,
-		"neon", "manual", false, time.Now())
+	caps := CollectProviderCapabilities(context.Background(), nil, "neon", nil)
 	if caps.Extensions["vector"] != "unknown" || caps.ReadyForAutoSafe {
 		t.Fatalf("nil pool invented capabilities: %#v", caps)
 	}
@@ -28,8 +26,7 @@ func TestRuntimeCapabilitiesInstalledExtensions(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	caps := CollectProviderCapabilities(t.Context(), pool, nil,
-		"supabase", "manual", false, time.Now())
+	caps := CollectProviderCapabilities(t.Context(), pool, "supabase", nil)
 	if caps.Extensions["plpgsql"] != "available" {
 		t.Fatal("installed plpgsql extension was not detected")
 	}
@@ -53,7 +50,7 @@ func TestRuntimeCapabilitiesInstalledExtensions(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	stale := CollectProviderCapabilities(ctx, pool, nil, "supabase", "manual", false, time.Now())
+	stale := CollectProviderCapabilities(ctx, pool, "supabase", nil)
 	if stale.Extensions["vector"] != "unknown" || stale.ReadyForAutoSafe {
 		t.Fatal("failed probe advertised known extension/readiness")
 	}

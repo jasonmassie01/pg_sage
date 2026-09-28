@@ -1,6 +1,8 @@
 package tuner
 
 import (
+	"errors"
+	"github.com/pg-sage/sidecar/internal/llm"
 	"strings"
 	"testing"
 )
@@ -163,8 +165,10 @@ func TestParseLLMPrescriptions_ExtraFields_Ignored(t *testing.T) {
 
 func TestParseLLMPrescriptions_WhitespaceOnly(t *testing.T) {
 	recs, err := parseLLMPrescriptions("   \n\t  ")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Blank output is llm.ErrEmptyResponse (G3-B10); this test asserted a
+	// nil error, which let empty completions look like "no hints".
+	if !errors.Is(err, llm.ErrEmptyResponse) {
+		t.Fatalf("err = %v, want llm.ErrEmptyResponse", err)
 	}
 	if recs != nil {
 		t.Errorf("expected nil for whitespace, got %v", recs)
@@ -176,7 +180,7 @@ func TestConvertPrescriptions_EmptyHint_Filtered(t *testing.T) {
 	recs := []LLMPrescription{
 		{HintDirective: "", Rationale: "should be filtered"},
 	}
-	out := convertPrescriptions(recs, logFn)
+	out := convertPrescriptions(recs, 0, logFn)
 	if len(out) != 0 {
 		t.Errorf("expected 0 valid prescriptions, got %d",
 			len(out))
@@ -192,17 +196,19 @@ func TestConvertPrescriptions_ZeroConfidence_StillValid(t *testing.T) {
 			Confidence:    0,
 		},
 	}
-	out := convertPrescriptions(recs, logFn)
+	out := convertPrescriptions(recs, 0, logFn)
 	if len(out) != 1 {
 		t.Errorf("expected 1 prescription (zero confidence is "+
 			"valid), got %d", len(out))
 	}
 }
 
+// A single object answered for the array prompt (json_object mode) is
+// one prescription, not a parse error (G3-B09); previously it was lost.
 func TestParseLLMPrescriptions_ObjectInsteadOfArray(t *testing.T) {
 	input := `{"hint_directive":"HashJoin(o c)"}`
-	_, err := parseLLMPrescriptions(input)
-	if err == nil {
-		t.Error("expected error for JSON object instead of array")
+	recs, err := parseLLMPrescriptions(input)
+	if err != nil || len(recs) != 1 || recs[0].HintDirective != "HashJoin(o c)" {
+		t.Errorf("recs=%+v err=%v, want one HashJoin(o c)", recs, err)
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 type ruleTxidAge struct{}
@@ -58,7 +60,7 @@ func (r *ruleTxidAge) collect(rows interface {
 		if xidAge >= 1_000_000_000 {
 			sev = "critical"
 		}
-		suggestion := fmt.Sprintf("VACUUM FREEZE %s.%s;", schema, table)
+		suggestion := "VACUUM FREEZE " + sanitize.QuoteQualifiedName(schema, table) + ";"
 		findings = append(findings, Finding{
 			RuleID:   r.ID(),
 			Schema:   schema,

@@ -1,11 +1,9 @@
 package alerting
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 )
@@ -46,29 +44,5 @@ func (w *WebhookChannel) Send(
 		return fmt.Errorf("marshal webhook payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodPost, w.url,
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return fmt.Errorf("create webhook request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	for k, v := range w.headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := w.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("webhook http post: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	io.Copy(io.Discard, resp.Body) //nolint:errcheck
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("webhook returned status %d",
-			resp.StatusCode)
-	}
-	return nil
+	return postJSON(ctx, w.client, "webhook", w.url, body, w.headers)
 }

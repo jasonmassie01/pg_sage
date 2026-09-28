@@ -74,13 +74,13 @@ func ruleTableBloat(
 
 		ident := t.SchemaName + "." + t.RelName
 		detail := map[string]any{
-			"n_live_tup":      t.NLiveTup,
-			"n_dead_tup":      t.NDeadTup,
-			"dead_ratio":      deadRatio,
-			"last_vacuum":     t.LastVacuum,
-			"io_saturated":    saturated,
-			"io_wait_ratio":   ioWaitRatio(current),
-			"relpersistence":  t.Relpersistence,
+			"n_live_tup":     t.NLiveTup,
+			"n_dead_tup":     t.NDeadTup,
+			"dead_ratio":     deadRatio,
+			"last_vacuum":    t.LastVacuum,
+			"io_saturated":   saturated,
+			"io_wait_ratio":  ioWaitRatio(current),
+			"relpersistence": t.Relpersistence,
 		}
 		if t.IsUnlogged() {
 			detail["unlogged"] = true
@@ -101,7 +101,7 @@ func ruleTableBloat(
 			RecommendedSQL: fmt.Sprintf("VACUUM %s;",
 				sanitize.QuoteQualifiedName(
 					t.SchemaName, t.RelName)),
-			ActionRisk:     "safe",
+			ActionRisk: "safe",
 		})
 	}
 	return findings
@@ -135,19 +135,25 @@ func ruleXIDWraparound(xidAge int64, cfg *config.Config) []Finding {
 			"xid_age":            xidAge,
 			"warning_threshold":  cfg.Analyzer.XIDWraparoundWarning,
 			"critical_threshold": cfg.Analyzer.XIDWraparoundCritical,
+			// Read-only diagnostic, kept out of RecommendedSQL: it is not an
+			// action, and its pg_stat_activity read made the self-monitor
+			// filter classify the finding as pg_sage's own and drop it (G2-B03).
+			"diagnostic_sql": xidDiagnosticSQL,
 		},
 		Recommendation: "Identify what holds the xmin horizon: " +
 			"long-running transactions (pg_stat_activity backend_xmin), " +
 			"replication slots (catalog_xmin), or orphaned prepared " +
 			"transactions (pg_prepared_xacts). Autovacuum is already " +
 			"trying to freeze -- unblock it by resolving the holder.",
-		RecommendedSQL: "SELECT pid, usename, state, " +
-			"age(backend_xmin) AS xmin_age, " +
-			"left(query,80) AS query " +
-			"FROM pg_stat_activity " +
-			"WHERE backend_xmin IS NOT NULL " +
-			"ORDER BY age(backend_xmin) DESC LIMIT 5;",
 		ActionRisk: "moderate",
 	})
 	return findings
 }
+
+// xidDiagnosticSQL lists the sessions holding back the xmin horizon.
+const xidDiagnosticSQL = "SELECT pid, usename, state, " +
+	"age(backend_xmin) AS xmin_age, " +
+	"left(query,80) AS query " +
+	"FROM pg_stat_activity " +
+	"WHERE backend_xmin IS NOT NULL " +
+	"ORDER BY age(backend_xmin) DESC LIMIT 5;"

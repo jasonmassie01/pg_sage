@@ -62,7 +62,7 @@ func RUnlockForHotReload() { hotReloadMu.RUnlock() }
 // most architectures but will still trip the race detector — new code
 // should prefer the explicit lock.
 type Config struct {
-	Mode string `yaml:"mode" doc:"Operating mode: extension, standalone, or fleet. Standalone connects to one PostgreSQL target; fleet manages many databases from one sidecar."`
+	Mode string `yaml:"mode" doc:"Operating mode: standalone, fleet, or meta. Standalone connects to one PostgreSQL target; fleet manages many databases from one sidecar."`
 
 	Postgres    PostgresConfig      `yaml:"postgres"`
 	Collector   CollectorConfig     `yaml:"collector"`
@@ -84,6 +84,7 @@ type Config struct {
 	Migration   MigrationConfig     `yaml:"migration"`
 	Retention   RetentionConfig     `yaml:"retention"`
 	Prometheus  PrometheusConfig    `yaml:"prometheus"`
+	Azure       AzureConfig         `yaml:"azure"`
 	OAuth       OAuthConfig         `yaml:"oauth"`
 	AgentDB     AgentDBConfig       `yaml:"agentdb"`
 	Policy      PolicyConfig        `yaml:"policy"`
@@ -92,6 +93,10 @@ type Config struct {
 	Clone       CloneProviderConfig `yaml:"clone"`
 	Custodian   CustodianConfig     `yaml:"custodian"`
 	MCP         MCPConfig           `yaml:"mcp"`
+
+	// NotificationPolicy governs notification channel targets (G7-B21). The
+	// top-level "notifications" key is retired (see rejectRetiredTopLevelConfig).
+	NotificationPolicy NotificationPolicyConfig `yaml:"notification_policy"`
 
 	// Fleet mode fields.
 	Databases []DatabaseConfig `yaml:"databases"`
@@ -102,7 +107,7 @@ type Config struct {
 	MetaDB        string `yaml:"meta_db" doc:"DSN of the metadata database used in fleet mode to persist cross-target state. Blank in standalone mode."`
 	EncryptionKey string `yaml:"encryption_key" doc:"Passphrase used to encrypt sensitive fleet-mode fields (per-database passwords). Rotate via the key-rotation runbook." secret:"true"`
 
-	// Legacy env-var fields (extension mode compat)
+	// Legacy env-var fields
 	APIKey  string `yaml:"-"`
 	TLSCert string `yaml:"-"`
 	TLSKey  string `yaml:"-"`
@@ -214,7 +219,7 @@ type LLMConfig struct {
 	TokenBudgetDaily      int                  `yaml:"token_budget_daily" doc:"Soft daily cap on total tokens (input + output) the sidecar will spend on LLM requests. Once exceeded the LLM is skipped until the next UTC day."`
 	FleetTokenBudgetDaily int                  `yaml:"fleet_token_budget_daily" doc:"Fleet-wide daily token cap split per database so one noisy database can't drain the whole budget. 0 disables per-database budgeting (fleet mode only)."`
 	ContextBudgetTokens   int                  `yaml:"context_budget_tokens" doc:"Maximum tokens attached as context (schema, stats, plans) to a single LLM request. Prevents oversized prompts from busting the model context window."`
-	CooldownSeconds       int                  `yaml:"cooldown_seconds" doc:"Minimum seconds between two LLM requests. Rate-limits the sidecar so it cannot burst the provider during a busy cycle."`
+	CooldownSeconds       int                  `yaml:"cooldown_seconds" doc:"Per-prompt dedup window and breaker cooldown: an identical request is not re-sent within this many seconds; after 3 provider failures calls pause this long. Not a global rate limit."`
 	JSONMode              bool                 `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."`
 	IndexOptimizer        IndexOptimizerConfig `yaml:"index_optimizer"` // Deprecated: use Optimizer.
 	Optimizer             OptimizerConfig      `yaml:"optimizer"`
@@ -418,9 +423,9 @@ type TunerConfig struct {
 	// v0.8.5 Feature 1 — Hint revalidation loop.
 	HintRetirementDays           int     `yaml:"hint_retirement_days" doc:"Hints older than this many days are retired unconditionally, regardless of current query behavior. Safety net against stale hint accumulation."`
 	RevalidationIntervalHours    int     `yaml:"revalidation_interval_hours" doc:"How often the hint revalidation loop runs. Set to 0 to disable the loop entirely. Default 24 hours."`
-	RevalidationKeepRatio        float64 `yaml:"revalidation_keep_ratio" doc:"During cost comparison, hinted plan cost must be at most this ratio of the unhinted plan to keep the hint. Default 1.2 (hinted <= 120% of unhinted)."`
-	RevalidationRollbackRatio    float64 `yaml:"revalidation_rollback_ratio" doc:"When hinted-plan cost exceeds unhinted by this ratio, the hint is marked broken and rolled back. Default 0.8 (hinted >= 125% of unhinted)."`
-	RevalidationExplainTimeoutMs int     `yaml:"revalidation_explain_timeout_ms" doc:"statement_timeout applied to EXPLAIN queries issued by the revalidation loop. Queries that cannot be explained in time are deferred."`
+	RevalidationKeepRatio        float64 `yaml:"revalidation_keep_ratio" doc:"Reserved; no effect. Revalidation does no hinted-vs-unhinted cost comparison (it uses age, missing objects, stale queryids, latency). Kept so existing configs load."`
+	RevalidationRollbackRatio    float64 `yaml:"revalidation_rollback_ratio" doc:"Reserved; currently has no effect. No hinted-vs-unhinted cost comparison is performed. Kept so existing config files still load."`
+	RevalidationExplainTimeoutMs int     `yaml:"revalidation_explain_timeout_ms" doc:"Reserved; currently has no effect. The revalidation loop issues no EXPLAIN queries. Kept so existing config files still load."`
 
 	// v0.8.5 Feature 2 — Stale-stats detection + ANALYZE action.
 	StaleStatsEstimateSkew        float64 `yaml:"stale_stats_estimate_skew" doc:"Ratio ActualRows / PlanRows above which a plan node is considered row-estimate skewed. Default 10 — same threshold as the bad-nested-loop check."`
@@ -438,6 +443,13 @@ type RetentionConfig struct {
 	FindingsDays  int `yaml:"findings_days"`
 	ActionsDays   int `yaml:"actions_days"`
 	ExplainsDays  int `yaml:"explains_days"`
+}
+
+// NotificationPolicyConfig holds notification delivery policy. It is YAML-only
+// and restart-bound: the target policy is a security boundary baked into
+// senders at startup, so it is deliberately not an API override.
+type NotificationPolicyConfig struct {
+	AllowPrivateTargets bool `yaml:"allow_private_targets" doc:"Allow webhook and SMTP channels to target loopback, RFC 1918, ULA or CGNAT hosts and plain http (e.g. an internal SMTP relay). Metadata and link-local stay blocked. Requires restart."`
 }
 
 type PrometheusConfig struct {
@@ -502,19 +514,32 @@ func (p *PostgresConfig) DSN() string {
 	}
 	return fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		p.Host, p.Port, p.User, p.Password, p.Database, p.SSLMode,
+		conninfoValue(p.Host), p.Port, conninfoValue(p.User),
+		conninfoValue(p.Password), conninfoValue(p.Database),
+		conninfoValue(p.SSLMode),
 	)
+}
+
+// conninfoValue quotes a libpq key/value conninfo value so spaces, quotes
+// and embedded "key=value" text cannot break or inject parameters
+// (G5-B22). libpq escapes backslash and single quote with a backslash.
+func conninfoValue(value string) string {
+	escaped := strings.NewReplacer(`\`, `\\`, "'", `\'`).Replace(value)
+	return "'" + escaped + "'"
 }
 
 // Load reads config from YAML file, then overlays env vars, then CLI flags.
 // Precedence: CLI > env > YAML > defaults.
 func Load(args []string) (*Config, error) {
 	cfg := newDefaults()
+	// Mode starts unset so inferMode can tell an explicit choice (YAML,
+	// SAGE_MODE, --mode) from the built-in default.
+	cfg.Mode = ""
 
 	// Parse CLI flags to get config path and mode early.
 	fs := flag.NewFlagSet("pg_sage_sidecar", flag.ContinueOnError)
 	configPath := fs.String("config", "", "Path to config.yaml")
-	mode := fs.String("mode", "", "Operating mode: extension or standalone")
+	mode := fs.String("mode", "", "Operating mode: standalone, fleet, or meta")
 	pgHost := fs.String("pg-host", "", "PostgreSQL host")
 	pgPort := fs.Int("pg-port", 0, "PostgreSQL port")
 	pgUser := fs.String("pg-user", "", "PostgreSQL user")
@@ -525,7 +550,9 @@ func Load(args []string) (*Config, error) {
 	promAddr := fs.String("prom-addr", "", "Prometheus listen address")
 	metaDB := fs.String("meta-db", "", "Metadata database connection string")
 	encryptionKey := fs.String("encryption-key", "", "Passphrase for credential encryption")
-	_ = fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return nil, fmt.Errorf("parse flags: %w", err)
+	}
 
 	// Step 1: Load YAML (if provided or auto-detected).
 	yamlPath := *configPath
@@ -588,13 +615,15 @@ func Load(args []string) (*Config, error) {
 	cfg.TLSCert = os.Getenv("SAGE_TLS_CERT")
 	cfg.TLSKey = os.Getenv("SAGE_TLS_KEY")
 
+	if cfg.Mode == "" {
+		cfg.Mode = inferMode(cfg)
+	}
+
 	// Normalize fleet/standalone config before validation.
 	cfg.normalize()
 
-	// Validate mode.
-	if cfg.Mode != "extension" && cfg.Mode != "standalone" && cfg.Mode != "fleet" {
-		return nil, fmt.Errorf(
-			"invalid mode %q: must be 'extension', 'standalone', or 'fleet'", cfg.Mode)
+	if err := validateMode(cfg); err != nil {
+		return nil, err
 	}
 	if cfg.Mode == "standalone" && cfg.Postgres.DSN() == "" && cfg.MetaDB == "" {
 		return nil, fmt.Errorf(
@@ -895,6 +924,9 @@ func newDefaults() *Config {
 			ActionsDays:   DefaultRetentionActionsDays,
 			ExplainsDays:  DefaultRetentionExplainsDays,
 		},
+		NotificationPolicy: NotificationPolicyConfig{
+			AllowPrivateTargets: DefaultNotificationPolicyAllowPrivateTargets,
+		},
 		Prometheus: PrometheusConfig{
 			ListenAddr: DefaultPrometheusListenAddr,
 		},
@@ -949,7 +981,9 @@ func loadYAML(path string, cfg *Config) error {
 	// Warn about env vars that expanded to empty strings. This catches the
 	// common case where ${SAGE_LLM_API_KEY} is in the YAML but the env var
 	// is not set, leaving an empty value that silently breaks the feature.
-	warnUnexpandedEnvVars(raw, expanded)
+	for _, warning := range unexpandedEnvWarnings(path, raw) {
+		_, _ = fmt.Fprintln(configWarningOutput, warning)
+	}
 	if err := rejectRetiredTopLevelConfig(expanded); err != nil {
 		return err
 	}
@@ -997,24 +1031,82 @@ func rejectRetiredTopLevelConfig(raw string) error {
 	return nil
 }
 
-// warnUnexpandedEnvVars detects ${VAR} patterns in the raw YAML that expanded
-// to empty strings (meaning the env var was not set) and logs a warning.
-func warnUnexpandedEnvVars(raw, expanded string) {
-	// Find all ${...} references in the raw YAML.
-	for i := 0; i < len(raw); i++ {
-		if i+1 < len(raw) && raw[i] == '$' && raw[i+1] == '{' {
-			end := strings.Index(raw[i:], "}")
-			if end < 0 {
+// configWarningOutput receives configuration warnings (stderr in
+// production; tests capture it).
+var configWarningOutput io.Writer = os.Stderr
+
+// unexpandedEnvWarnings lists ${VAR} references in YAML scalar values whose
+// variable is unset. Comments are not configuration and are ignored.
+func unexpandedEnvWarnings(path, raw string) []string {
+	var document yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &document); err != nil {
+		return nil // the strict decoder reports the syntax error
+	}
+	var warnings []string
+	seen := map[string]bool{}
+	walkScalars(&document, func(value string) {
+		for _, name := range bracedEnvNames(value) {
+			if seen[name] || os.Getenv(name) != "" {
 				continue
 			}
-			varName := raw[i+2 : i+end]
-			if os.Getenv(varName) == "" {
-				fmt.Fprintf(os.Stderr,
-					"WARNING: config %q references ${%s} but it is not set in the environment\n",
-					"config.yaml", varName)
-			}
-			i += end
+			seen[name] = true
+			warnings = append(warnings, fmt.Sprintf(
+				"WARNING: config %q references ${%s} but it is not set "+
+					"in the environment", path, name))
 		}
+	})
+	return warnings
+}
+
+func walkScalars(node *yaml.Node, visit func(string)) {
+	if node == nil {
+		return
+	}
+	if node.Kind == yaml.ScalarNode {
+		visit(node.Value)
+	}
+	for _, child := range node.Content {
+		walkScalars(child, visit)
+	}
+}
+
+func bracedEnvNames(value string) []string {
+	var names []string
+	for _, match := range braceEnvRe.FindAllStringSubmatch(value, -1) {
+		names = append(names, match[1])
+	}
+	return names
+}
+
+// inferMode picks the mode when none was configured. A meta database means
+// a meta-db fleet (never standalone: standalone+meta registers a phantom
+// instance); anything else monitors one database standalone (G10-B01).
+func inferMode(cfg *Config) string {
+	if cfg.MetaDB != "" {
+		return ModeMeta
+	}
+	return DefaultMode
+}
+
+// validateMode rejects unknown modes, meta mode without a meta database,
+// and the removed extension mode, which served the API over the deleted C
+// extension's schema.
+func validateMode(cfg *Config) error {
+	switch cfg.Mode {
+	case "standalone", "fleet":
+		return nil
+	case ModeMeta:
+		if cfg.MetaDB == "" {
+			return fmt.Errorf("mode %q requires --meta-db (meta_db)", ModeMeta)
+		}
+		return nil
+	case "extension":
+		return fmt.Errorf("mode %q was removed with the C extension: use "+
+			"standalone for one database, fleet for several, or --meta-db "+
+			"for a meta-db fleet", cfg.Mode)
+	default:
+		return fmt.Errorf("invalid mode %q: must be 'standalone', 'fleet', "+
+			"or 'meta'", cfg.Mode)
 	}
 }
 
@@ -1048,9 +1140,6 @@ func overlayEnv(cfg *Config) {
 	}
 	if v := os.Getenv("SAGE_PROMETHEUS_PORT"); v != "" {
 		cfg.Prometheus.ListenAddr = "0.0.0.0:" + v
-	}
-	if v := envInt("SAGE_RATE_LIMIT"); v != 0 {
-		// Store in a field we can access later; use default.
 	}
 	if v := os.Getenv("SAGE_LLM_API_KEY"); v != "" {
 		cfg.LLM.APIKey = v
@@ -1149,6 +1238,7 @@ func overlayAgentNativeEnv(cfg *Config) {
 	if v := os.Getenv("SAGE_MCP_TRANSPORT"); v != "" {
 		cfg.MCP.Transport = v
 	}
+	overlayAzureEnv(cfg)
 }
 
 // HotReloadable returns the fields that can be reloaded without restart.

@@ -131,27 +131,3 @@ Cached EXPLAIN plans for query analysis.
 | `total_cost` | double precision | Estimated total cost |
 | `execution_time` | double precision | Actual execution time if available |
 | `captured_at` | timestamptz | When the plan was captured |
-
----
-
-## C Extension SQL Functions (Frozen)
-
-The following functions are part of the C extension (frozen at v0.6.0-rc3). They are available only when the extension is installed on self-managed PostgreSQL. The sidecar does not require them.
-
-| Function | Description |
-|---|---|
-| `sage.status()` | Extension status and worker health |
-| `sage.briefing()` | Generate a health briefing |
-| `sage.diagnose(question TEXT)` | Interactive LLM diagnostic |
-| `sage.explain(queryid BIGINT)` | EXPLAIN plan capture with narrative |
-| `sage.suppress(finding_id INT, reason TEXT, days INT)` | Suppress a finding |
-| `sage.emergency_stop()` | Halt all autonomous activity |
-| `sage.resume()` | Resume after emergency stop |
-| `sage.health_json()` | Health overview as JSONB |
-| `sage.findings_json(status TEXT)` | Findings as JSONB array |
-| `sage.schema_json(table TEXT)` | Table DDL as JSONB |
-| `sage.stats_json(table TEXT)` | Table stats as JSONB |
-| `sage.slow_queries_json()` | Top slow queries as JSONB |
-| `sage.explain_json(queryid BIGINT)` | Cached plan as JSONB |
-
-These functions are not needed when using the sidecar. The REST API, web UI, and Prometheus exporter provide equivalent functionality.

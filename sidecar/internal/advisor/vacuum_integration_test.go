@@ -30,7 +30,7 @@ func TestVacuumContext_LivePG_DeadTuples(t *testing.T) {
 	err := pool.QueryRow(context.Background(),
 		"SELECT relname, n_dead_tup FROM pg_stat_user_tables WHERE n_dead_tup > 0 ORDER BY n_dead_tup DESC LIMIT 1").Scan(&tableName, &deadTup)
 	if err != nil {
-		t.Skip("no tables with dead tuples found")
+		t.Fatalf("seeded advisor_fixture dead tuples not reported: %v", err)
 	}
 	t.Logf("table with most dead tuples: %s (%d)", tableName, deadTup)
 	if deadTup <= 0 {

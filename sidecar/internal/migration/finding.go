@@ -40,6 +40,9 @@ func FindingFromIncident(
 	if incident == nil {
 		return MigrationSafetyFinding{}, false
 	}
+	// Never persist observed literals (G7-B01): they carry passwords,
+	// connection strings and business data.
+	originalSQL = sanitizeDDL(originalSQL)
 	ruleID := ruleIDFromIncident(incident)
 	object := objectFromIncident(incident)
 	detail := detailFromIncident(pid, originalSQL, incident)
@@ -94,9 +97,18 @@ func detailFromIncident(
 		detail["affected_objects"] = incident.AffectedObjects
 	}
 	if len(incident.CausalChain) > 0 {
-		detail["causal_chain"] = incident.CausalChain
+		detail["causal_chain"] = sanitizedChain(incident.CausalChain)
 	}
 	return detail
+}
+
+func sanitizedChain(chain []rca.ChainLink) []rca.ChainLink {
+	out := make([]rca.ChainLink, len(chain))
+	for i, link := range chain {
+		link.Evidence = sanitizeDDL(link.Evidence)
+		out[i] = link
+	}
+	return out
 }
 
 func recommendationForIncident(incident *rca.Incident) string {

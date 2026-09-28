@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -10,102 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
 // ================================================================
 // isBlockedHost / checkHost — SSRF protection (pure functions).
 // ================================================================
-
-func TestIsBlockedHost_MetadataHostnames(t *testing.T) {
-	blocked := []string{
-		"169.254.169.254",
-		"metadata.google.internal",
-	}
-	for _, h := range blocked {
-		if !isBlockedHost(h) {
-			t.Errorf("metadata host %q should be blocked", h)
-		}
-	}
-}
-
-func TestIsBlockedHost_LoopbackIPs(t *testing.T) {
-	cases := []string{"127.0.0.1", "127.1.2.3", "::1"}
-	for _, h := range cases {
-		if !isBlockedHost(h) {
-			t.Errorf("loopback %q should be blocked", h)
-		}
-	}
-}
-
-func TestIsBlockedHost_PrivateIPs(t *testing.T) {
-	cases := []string{
-		"10.0.0.1",
-		"10.255.255.254",
-		"172.16.0.1",
-		"172.31.255.254",
-		"192.168.1.1",
-		"192.168.255.254",
-		"fc00::1",
-		"fd00::1",
-	}
-	for _, h := range cases {
-		if !isBlockedHost(h) {
-			t.Errorf("private IP %q should be blocked", h)
-		}
-	}
-}
-
-func TestIsBlockedHost_LinkLocalIPs(t *testing.T) {
-	cases := []string{
-		"169.254.0.1",
-		"169.254.1.2",
-		"fe80::1",
-	}
-	for _, h := range cases {
-		if !isBlockedHost(h) {
-			t.Errorf("link-local %q should be blocked", h)
-		}
-	}
-}
-
-func TestIsBlockedHost_PublicIPs(t *testing.T) {
-	cases := []string{
-		"8.8.8.8",
-		"1.1.1.1",
-		"140.82.112.4",
-		"2606:4700:4700::1111",
-	}
-	for _, h := range cases {
-		if isBlockedHost(h) {
-			t.Errorf("public IP %q should NOT be blocked", h)
-		}
-	}
-}
-
-func TestIsBlockedHost_UnresolvableHost(t *testing.T) {
-	// An intentionally invalid TLD — should fail DNS and be blocked.
-	h := "this-host-should-never-resolve.invalid"
-	if !isBlockedHost(h) {
-		t.Errorf("unresolvable %q should be blocked (fail closed)", h)
-	}
-}
-
-func TestCheckHost_ReturnValues(t *testing.T) {
-	// Metadata hostname returns hostBlocked.
-	if got := checkHost("169.254.169.254"); got != hostBlocked {
-		t.Errorf("metadata IP: got %v, want hostBlocked", got)
-	}
-	// Public IP returns hostAllowed.
-	if got := checkHost("8.8.8.8"); got != hostAllowed {
-		t.Errorf("public IP: got %v, want hostAllowed", got)
-	}
-	// Unresolvable returns hostDNSFailed.
-	got := checkHost("this-host-should-never-resolve.invalid")
-	if got != hostDNSFailed {
-		t.Errorf("unresolvable: got %v, want hostDNSFailed", got)
-	}
-}
 
 // ================================================================
 // loginRateLimiter.purgeExpired — pure function over a mutex.
@@ -164,31 +76,30 @@ func TestPurgeExpired_ConcurrentSafety(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			l.purgeExpired()
-			l.allow("concurrent@test.com")
-			l.record("concurrent@test.com")
+			l.reserve("concurrent@test.com")
 		}()
 	}
 	wg.Wait()
 }
 
-func TestLoginRateLimiter_AllowRecordReset(t *testing.T) {
-	// Covers allow/record/reset behavior in one pass.
+func TestLoginRateLimiter_ReserveReset(t *testing.T) {
+	// Covers reserve/reset behavior in one pass (reserve replaced
+	// allow+record for SURF-16).
 	l := &loginRateLimiter{
 		attempts: make(map[string][]time.Time),
 	}
 	email := "ratelimit@test.com"
 
-	if !l.allow(email) {
-		t.Fatal("first attempt should be allowed")
-	}
 	for i := 0; i < loginMaxAttempts; i++ {
-		l.record(email)
+		if !l.reserve(email) {
+			t.Fatalf("attempt %d should be allowed", i+1)
+		}
 	}
-	if l.allow(email) {
+	if l.reserve(email) {
 		t.Error("should be rate-limited after max attempts")
 	}
 	l.reset(email)
-	if !l.allow(email) {
+	if !l.reserve(email) {
 		t.Error("should be allowed after reset")
 	}
 }
@@ -569,8 +480,9 @@ func TestQueryIncidentByID_AndResolve(t *testing.T) {
 	}
 
 	// Resolve it.
-	if err := resolveIncident(ctx, pool, id, "fixed"); err != nil {
-		t.Fatalf("resolveIncident: %v", err)
+	if err := rca.ResolveIncident(
+		ctx, pool, id, "user:test", "fixed"); err != nil {
+		t.Fatalf("ResolveIncident: %v", err)
 	}
 
 	// Verify it's resolved.
@@ -585,8 +497,10 @@ func TestQueryIncidentByID_AndResolve(t *testing.T) {
 	}
 
 	// Second resolve should error (already resolved).
-	if err := resolveIncident(ctx, pool, id, "again"); err == nil {
-		t.Error("second resolve should fail")
+	err = rca.ResolveIncident(ctx, pool, id, "user:test", "again")
+	if !errors.Is(err, rca.ErrIncidentAlreadyResolved) {
+		t.Errorf("second resolve: got %v, want ErrIncidentAlreadyResolved",
+			err)
 	}
 }
 
@@ -604,14 +518,10 @@ func TestQueryIncidentByID_NotFound(t *testing.T) {
 func TestResolveIncident_NotFound(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 
-	err := resolveIncident(ctx, pool,
-		"00000000-0000-0000-0000-000000000000", "reason")
-	if err == nil {
-		t.Error("expected error resolving nonexistent incident")
-	}
-	if !strings.Contains(err.Error(),
-		"not found or already resolved") {
-		t.Errorf("error message: got %v", err)
+	err := rca.ResolveIncident(ctx, pool,
+		"00000000-0000-0000-0000-000000000000", "user:test", "reason")
+	if !errors.Is(err, rca.ErrIncidentNotFound) {
+		t.Errorf("got %v, want ErrIncidentNotFound", err)
 	}
 }
 

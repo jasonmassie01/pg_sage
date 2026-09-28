@@ -108,6 +108,9 @@ func shouldSkipAuth(path string) bool {
 		return true
 	case isAgentPingPath(path):
 		return true
+	case isAgentDBAgentAPIPath(path):
+		// Authenticated by requireAgentPrincipal (tenant-bound agent token).
+		return true
 	case !strings.HasPrefix(path, "/api/"):
 		return true
 	}

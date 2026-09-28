@@ -3,7 +3,6 @@ package notify
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -16,18 +15,28 @@ type Sender interface {
 
 // Dispatcher routes events to matching channels via registered senders.
 type Dispatcher struct {
-	pool    *pgxpool.Pool
+	store   RuleStore
 	senders map[string]Sender
 	logFn   func(string, string, ...any)
 }
 
-// NewDispatcher creates a Dispatcher.
+// NewDispatcher creates a Dispatcher that reads rules and channels from
+// pool. In fleet / meta-DB mode pass the control-plane pool (or use
+// NewDispatcherWithStore) — rules live where the UI writes them.
 func NewDispatcher(
 	pool *pgxpool.Pool,
 	logFn func(string, string, ...any),
 ) *Dispatcher {
+	return NewDispatcherWithStore(NewPoolStore(pool, nil), logFn)
+}
+
+// NewDispatcherWithStore creates a Dispatcher over an explicit store
+// (G7-B05).
+func NewDispatcherWithStore(
+	store RuleStore, logFn func(string, string, ...any),
+) *Dispatcher {
 	return &Dispatcher{
-		pool:    pool,
+		store:   store,
 		senders: make(map[string]Sender),
 		logFn:   logFn,
 	}
@@ -77,13 +86,17 @@ func (d *Dispatcher) processRule(
 		return d.logDelivery(ctx, ch.ID, event, "error",
 			fmt.Sprintf("no sender for type %q", ch.Type))
 	}
+	return d.deliver(ctx, sender, *ch, event)
+}
 
-	sendErr := sender.Send(ctx, *ch, event)
-	status := "sent"
-	errMsg := ""
+// deliver sends and records the attempt with a redacted error string.
+func (d *Dispatcher) deliver(
+	ctx context.Context, sender Sender, ch Channel, event Event,
+) error {
+	sendErr := RedactError(sender.Send(ctx, ch, event))
+	status, errMsg := "sent", ""
 	if sendErr != nil {
-		status = "error"
-		errMsg = sendErr.Error()
+		status, errMsg = "error", sendErr.Error()
 	}
 	return d.logDelivery(ctx, ch.ID, event, status, errMsg)
 }
@@ -91,54 +104,13 @@ func (d *Dispatcher) processRule(
 func (d *Dispatcher) loadMatchingRules(
 	ctx context.Context, eventType string,
 ) ([]Rule, error) {
-	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	rows, err := d.pool.Query(qctx,
-		`/* pg_sage */ SELECT id, channel_id, event, min_severity
-		 FROM sage.notification_rules
-		 WHERE event = $1 AND enabled = true`, eventType)
-	if err != nil {
-		return nil, fmt.Errorf("query rules: %w", err)
-	}
-	defer rows.Close()
-
-	var rules []Rule
-	for rows.Next() {
-		var r Rule
-		if err := rows.Scan(
-			&r.ID, &r.ChannelID, &r.Event, &r.MinSeverity,
-		); err != nil {
-			return nil, fmt.Errorf("scan rule: %w", err)
-		}
-		r.Enabled = true
-		rules = append(rules, r)
-	}
-	return rules, rows.Err()
+	return d.store.MatchingRules(ctx, eventType)
 }
 
 func (d *Dispatcher) loadChannel(
 	ctx context.Context, id int,
 ) (*Channel, error) {
-	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	var ch Channel
-	var cfgJSON []byte
-	err := d.pool.QueryRow(qctx,
-		`/* pg_sage */ SELECT id, name, type, config, enabled
-		 FROM sage.notification_channels
-		 WHERE id = $1`, id,
-	).Scan(&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled)
-	if err != nil {
-		return nil, fmt.Errorf("get channel %d: %w", id, err)
-	}
-	cfg, err := parseConfig(cfgJSON)
-	if err != nil {
-		return nil, fmt.Errorf("channel %d: %w", id, err)
-	}
-	ch.Config = cfg
-	return &ch, nil
+	return d.store.Channel(ctx, id)
 }
 
 func (d *Dispatcher) logDelivery(
@@ -146,24 +118,8 @@ func (d *Dispatcher) logDelivery(
 	channelID int, event Event,
 	status, errMsg string,
 ) error {
-	if d.pool == nil {
-		if errMsg != "" {
-			return fmt.Errorf("send failed: %s", errMsg)
-		}
-		return nil
-	}
-
-	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	_, err := d.pool.Exec(qctx,
-		`/* pg_sage */ INSERT INTO sage.notification_log
-		    (channel_id, event, subject, body, status, error)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		channelID, event.Type, event.Subject,
-		event.Body, status, errMsg)
-	if err != nil {
-		d.logFn("ERROR", "insert notification_log: %v", err)
+	if err := d.store.LogDelivery(ctx, channelID, event, status, errMsg); err != nil {
+		d.logFn("ERROR", "%v", err)
 	}
 	if errMsg != "" {
 		return fmt.Errorf("send failed: %s", errMsg)
@@ -180,13 +136,5 @@ func (d *Dispatcher) SendDirect(
 	if !ok {
 		return fmt.Errorf("no sender for type %q", ch.Type)
 	}
-
-	sendErr := sender.Send(ctx, ch, event)
-	status := "sent"
-	errMsg := ""
-	if sendErr != nil {
-		status = "error"
-		errMsg = sendErr.Error()
-	}
-	return d.logDelivery(ctx, ch.ID, event, status, errMsg)
+	return d.deliver(ctx, sender, ch, event)
 }

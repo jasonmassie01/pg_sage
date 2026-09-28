@@ -185,7 +185,7 @@ func (e *Engine) treeCacheHitDrop(
 			{Order: 1, Signal: "cache_hit_ratio_drop",
 				Description: "No single query spike; aggregate working set too large",
 				Evidence: fmt.Sprintf("Cache hit ratio: %.4f",
-					curr.System.CacheHitRatio)},
+					floatMetric(sig, "cache_hit_ratio"))},
 		},
 		[]string{"shared_buffers"}, "", "safe",
 	)

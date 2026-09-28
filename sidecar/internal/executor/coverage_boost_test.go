@@ -10,32 +10,12 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 // ---------------------------------------------------------------------------
 // Pure function tests (no DB required)
 // ---------------------------------------------------------------------------
-
-// TestCoverage_NewRollbackMonitor verifies the RollbackMonitor constructor
-// sets all fields correctly.
-func TestCoverage_NewRollbackMonitor(t *testing.T) {
-	logFn := func(string, string, ...any) {}
-	cfg := &config.Config{}
-
-	rm := NewRollbackMonitor(nil, cfg, logFn)
-	if rm == nil {
-		t.Fatal("NewRollbackMonitor returned nil")
-	}
-	if rm.pool != nil {
-		t.Error("expected pool to be nil")
-	}
-	if rm.cfg != cfg {
-		t.Error("expected cfg to match input")
-	}
-	if rm.logFn == nil {
-		t.Error("expected logFn to be set")
-	}
-}
 
 // TestCoverage_CascadeCooldown_DefaultWhenZero verifies the fallback
 // to 5 minutes when both CascadeCooldownCycles and IntervalSeconds
@@ -348,12 +328,13 @@ func TestCoverage_RunCycle_EmergencyStopActive(t *testing.T) {
 	rampStart := time.Now().Add(-30 * 24 * time.Hour)
 	e := New(pool, cfg, a, rampStart, logFn)
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	_ = loggedEmergency // Legacy log behavior is not part of the safety contract.
 	decision := e.evaluateFindingPolicy(ctx, candidate, false)
 	if decision.Decision != PolicyDecisionBlocked ||
-		decision.BlockedReason != "emergency stop is active" {
+		decision.BlockedReason != string(policy.ReasonEmergencyStop) {
 		t.Fatalf("decision = %#v, want emergency-stop block", decision)
 	}
 }
@@ -379,7 +360,8 @@ func TestCoverage_MonitorAndRollback_ContextCancelled(t *testing.T) {
 	cancel()
 
 	// windowMinutes=999 ensures the timer won't fire first.
-	MonitorAndRollback(ctx, nil, 42, "DROP INDEX idx", 10, 999, logFn, nil)
+	MonitorAndRollback(ctx, nil, 42, "DROP INDEX idx",
+		RollbackMonitorConfig{ThresholdPct: 10, WindowMinutes: 999}, logFn, nil)
 
 	if !loggedCancel {
 		t.Error("expected cancellation log message")
@@ -868,7 +850,11 @@ func TestCoverage_MonitorAndRollbackExecutesConcurrentRollback(
 	MonitorAndRollback(
 		ctx, pool, actionID,
 		"DROP INDEX CONCURRENTLY IF EXISTS public.idx_test_monitor_rb",
-		10, 0, func(string, string, ...any) {}, nil,
+		RollbackMonitorConfig{
+			ThresholdPct: 10, WindowMinutes: 0, StatementTimeout: time.Minute,
+			Authorize: allowRollback,
+		},
+		func(string, string, ...any) {}, nil,
 	)
 
 	var outcome string
@@ -923,10 +909,12 @@ func TestCoverage_CheckRegression_NoBeforeState(t *testing.T) {
 			"DELETE FROM sage.action_log WHERE id = $1", actionID)
 	})
 
-	got := checkRegression(ctx, pool, actionID, 10)
-	if got {
-		t.Error("checkRegression should return false when " +
-			"no before_state exists")
+	// Missing baseline evidence is unverifiable, never "no regression"
+	// (Codex C14: the old assertion encoded the fail-open behaviour).
+	got := evaluateRegression(ctx, pool, actionID, 10)
+	if got != regressionUnverifiable {
+		t.Errorf("evaluateRegression = %v, want unverifiable when "+
+			"no before_state exists", got)
 	}
 }
 
@@ -956,10 +944,10 @@ func TestCoverage_CheckRegression_WithBeforeState(t *testing.T) {
 			"DELETE FROM sage.action_log WHERE id = $1", actionID)
 	})
 
-	got := checkRegression(ctx, pool, actionID, 10)
-	if got {
-		t.Error("checkRegression should return false when cache " +
-			"hit improved (before was very low)")
+	got := evaluateRegression(ctx, pool, actionID, 10)
+	if got != regressionNone {
+		t.Errorf("evaluateRegression = %v, want none when cache "+
+			"hit improved (before was very low)", got)
 	}
 }
 
@@ -988,10 +976,11 @@ func TestCoverage_CheckRegression_ZeroBeforeCacheHit(t *testing.T) {
 			"DELETE FROM sage.action_log WHERE id = $1", actionID)
 	})
 
-	got := checkRegression(ctx, pool, actionID, 10)
-	if got {
-		t.Error("checkRegression should return false when " +
-			"before cache_hit_ratio is 0 (guard against division)")
+	// A zero baseline cannot prove health either way (Codex C14).
+	got := evaluateRegression(ctx, pool, actionID, 10)
+	if got != regressionUnverifiable {
+		t.Errorf("evaluateRegression = %v, want unverifiable when "+
+			"before cache_hit_ratio is 0", got)
 	}
 }
 
@@ -1024,7 +1013,7 @@ func TestCoverage_CheckRegression_WithMeanExecTime(t *testing.T) {
 	// This exercises the mean_exec_time_ms branch.
 	// Whether regression is detected depends on pg_stat_statements
 	// data — but the code path is covered either way.
-	_ = checkRegression(ctx, pool, actionID, 10)
+	_ = evaluateRegression(ctx, pool, actionID, 10)
 }
 
 // TestCoverage_CheckRegression_NonexistentAction verifies
@@ -1032,10 +1021,10 @@ func TestCoverage_CheckRegression_WithMeanExecTime(t *testing.T) {
 func TestCoverage_CheckRegression_NonexistentAction(t *testing.T) {
 	pool, ctx := requireDB(t)
 
-	got := checkRegression(ctx, pool, -99999, 10)
-	if got {
-		t.Error("checkRegression should return false for " +
-			"nonexistent action")
+	got := evaluateRegression(ctx, pool, -99999, 10)
+	if got != regressionUnverifiable {
+		t.Errorf("evaluateRegression = %v, want unverifiable for "+
+			"nonexistent action", got)
 	}
 }
 
@@ -1066,12 +1055,13 @@ func TestCoverage_ExecuteManual_EmergencyStop(t *testing.T) {
 		execMode:      "auto",
 	}
 
+	withTestStandingGate(e)
 	_, err := e.ExecuteManual(ctx, 1,
 		"CREATE INDEX idx_em ON t (c)", "", nil)
 	if err == nil {
 		t.Fatal("expected error for emergency stop, got nil")
 	}
-	if err.Error() != "emergency stop active" {
+	if !strings.Contains(err.Error(), "emergency stop") {
 		t.Errorf("error = %q, want %q",
 			err.Error(), "emergency stop active")
 	}
@@ -1104,7 +1094,7 @@ func TestCoverage_ExecuteManual_SuccessfulExecution(t *testing.T) {
 		         'public.test_manual_exec',
 		         'test manual exec finding',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_manual ON public.test_manual_exec (id)')
+		         'CREATE INDEX CONCURRENTLY idx_manual ON public.test_manual_exec (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -1143,7 +1133,8 @@ func TestCoverage_ExecuteManual_SuccessfulExecution(t *testing.T) {
 		execMode: "auto",
 	}
 
-	sql := "CREATE INDEX idx_manual ON public.test_manual_exec (id)"
+	sql := "CREATE INDEX CONCURRENTLY idx_manual ON public.test_manual_exec (id)"
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(ctx, findingID, sql, "", nil)
 	if err != nil {
 		t.Fatalf("ExecuteManual: %v", err)
@@ -1187,8 +1178,9 @@ func TestCoverage_ExecuteManual_MissingFindingRejectedBeforeSQL(
 		execMode:      "auto",
 	}
 
+	withTestStandingGate(e)
 	_, err := e.ExecuteManual(ctx, 999999999,
-		"CREATE INDEX idx_manual_missing ON public.test_manual_missing (id)",
+		"CREATE INDEX CONCURRENTLY idx_manual_missing ON public.test_manual_missing (id)",
 		"", nil)
 	if !errors.Is(err, ErrFindingNotActionable) {
 		t.Fatalf("error = %v, want ErrFindingNotActionable", err)
@@ -1230,7 +1222,7 @@ func TestCoverage_ExecuteManual_SQLMismatchRejected(t *testing.T) {
 		         'public.test_manual_mismatch',
 		         'test manual mismatch finding',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_manual_match ON public.test_manual_mismatch (id)')
+		         'CREATE INDEX CONCURRENTLY idx_manual_match ON public.test_manual_mismatch (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -1266,8 +1258,9 @@ func TestCoverage_ExecuteManual_SQLMismatchRejected(t *testing.T) {
 		execMode:      "auto",
 	}
 
+	withTestStandingGate(e)
 	_, err = e.ExecuteManual(ctx, findingID,
-		"CREATE INDEX idx_manual_other ON public.test_manual_mismatch (other)",
+		"CREATE INDEX CONCURRENTLY idx_manual_other ON public.test_manual_mismatch (other)",
 		"", nil)
 	if !errors.Is(err, ErrFindingSQLMismatch) {
 		t.Fatalf("error = %v, want ErrFindingSQLMismatch", err)
@@ -1329,6 +1322,7 @@ func TestCoverage_ExecuteManual_CreateIndexIsIdempotentWhenCovered(t *testing.T)
 		logFn:         func(string, string, ...any) {},
 		shutdownCh:    make(chan struct{}),
 	}
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(ctx, int(findingID),
 		"CREATE INDEX CONCURRENTLY ON public.test_manual_idempotent (id)",
 		"", nil)
@@ -1456,6 +1450,7 @@ func TestCoverage_ExecuteManual_DropsInvalidCreateIndexBlocker(t *testing.T) {
 		logFn:         func(string, string, ...any) {},
 		shutdownCh:    make(chan struct{}),
 	}
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(ctx, int(findingID),
 		"CREATE INDEX CONCURRENTLY ON pgsage_exec_test.test_manual_invalid_blocker (id)",
 		"", nil)
@@ -1509,7 +1504,7 @@ func TestCoverage_ExecuteManual_WithRollbackSQL(t *testing.T) {
 		         'public.test_manual_rb',
 		         'test manual rb finding',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_manual_rb ON public.test_manual_rb (id)')
+		         'CREATE INDEX CONCURRENTLY idx_manual_rb ON public.test_manual_rb (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -1548,8 +1543,9 @@ func TestCoverage_ExecuteManual_WithRollbackSQL(t *testing.T) {
 		execMode:      "auto",
 	}
 
-	sql := "CREATE INDEX idx_manual_rb ON public.test_manual_rb (id)"
+	sql := "CREATE INDEX CONCURRENTLY idx_manual_rb ON public.test_manual_rb (id)"
 	rollbackSQL := "DROP INDEX IF EXISTS public.idx_manual_rb"
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(
 		ctx, findingID, sql, rollbackSQL, nil)
 	if err != nil {
@@ -1615,6 +1611,7 @@ func TestCoverage_ExecuteManual_VacuumTopLevel(t *testing.T) {
 		execMode:      "auto",
 	}
 
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(
 		ctx, findingID, "VACUUM public.test_manual_vacuum", "", nil)
 	if err != nil {
@@ -1958,6 +1955,7 @@ func TestCoverage_ExecuteManual_ConcurrentlyPath(t *testing.T) {
 
 	sql := "CREATE INDEX CONCURRENTLY idx_manual_conc " +
 		"ON public.test_manual_conc (id)"
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(ctx, findingID, sql, "", nil)
 	if err != nil {
 		// Lock timeout / deadlock from concurrent schema tests is not
@@ -2047,7 +2045,7 @@ func TestCoverage_ExecuteManual_WithApprovedBy(t *testing.T) {
 		         'public.test_approved_by',
 		         'test approved by',
 		         '{}', 'rec',
-		         'CREATE INDEX idx_approved ON public.test_approved_by (id)')
+		         'CREATE INDEX CONCURRENTLY idx_approved ON public.test_approved_by (id)')
 		 RETURNING id`,
 	).Scan(&findingID)
 	if err != nil {
@@ -2083,7 +2081,8 @@ func TestCoverage_ExecuteManual_WithApprovedBy(t *testing.T) {
 	}
 
 	approvedBy := 7
-	sql := "CREATE INDEX idx_approved ON public.test_approved_by (id)"
+	sql := "CREATE INDEX CONCURRENTLY idx_approved ON public.test_approved_by (id)"
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(
 		ctx, findingID, sql, "", &approvedBy)
 	if err != nil {
@@ -2358,6 +2357,7 @@ func TestCoverage_RunCycle_ApprovalMode(t *testing.T) {
 	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
 	e.WithActionStore(mp, "approval")
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if len(mp.calls) != 1 {
@@ -2426,6 +2426,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsExistingPending(t *testing.T) {
 		func(string, string, ...any) {})
 	e.WithActionStore(mp, "approval")
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if mp.checkCalls != 1 {
@@ -2490,6 +2491,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsDuplicateSQL(t *testing.T) {
 		func(string, string, ...any) {})
 	e.WithActionStore(mp, "approval")
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if mp.sqlChecks != 1 {
@@ -2556,6 +2558,7 @@ func TestCoverage_RunCycle_ApprovalModeSkipsRecentRejection(
 		func(string, string, ...any) {})
 	e.WithActionStore(mp, "approval")
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if mp.rejectChecks != 1 {
@@ -2626,6 +2629,7 @@ func TestCoverage_RunCycle_ApprovalModeWithDispatcher(t *testing.T) {
 	e.WithActionStore(mp, "approval")
 	e.WithDispatcher(md)
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if len(md.events) != 1 {
@@ -2701,6 +2705,7 @@ func TestCoverage_RunCycle_ApprovalModeProposeError(t *testing.T) {
 	e := New(pool, cfg, a, rampStart, logFn)
 	e.WithActionStore(ep, "approval")
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !loggedError {
@@ -2758,9 +2763,8 @@ func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_auto_exec",
 			Title:            "auto exec test",
-			RecommendedSQL: "ALTER TABLE public.rc_auto_exec " +
-				"SET (autovacuum_vacuum_scale_factor = 0.15)",
-			ActionRisk: "safe",
+			RecommendedSQL:   alterDatabaseProbeSQL(t, ctx, pool, "SET work_mem = '8MB'"),
+			ActionRisk:       "safe",
 		},
 	})
 
@@ -2790,6 +2794,7 @@ func TestCoverage_RunCycle_AutoExecTransaction(t *testing.T) {
 	}
 	e := New(pool, cfg, a, rampStart, logFn)
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !executed {
@@ -2851,7 +2856,7 @@ func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_conc_exec",
 			Title:            "conc exec test",
-			RecommendedSQL:   "REINDEX INDEX CONCURRENTLY public.idx_rc_conc",
+			RecommendedSQL:   "VACUUM public.rc_conc_exec",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2885,6 +2890,7 @@ func TestCoverage_RunCycle_AutoExecConcurrently(t *testing.T) {
 		}
 	}
 	e := New(pool, cfg, a, rampStart, logFn)
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !executed && lockErr {
@@ -2935,7 +2941,7 @@ func TestCoverage_RunCycle_ExecFailure(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.idx_rc_fail_nonexist_xyz",
 			Title:            "fail exec test",
-			RecommendedSQL:   "REINDEX INDEX CONCURRENTLY public.idx_rc_fail_nonexist_xyz",
+			RecommendedSQL:   "VACUUM public.rc_fail_nonexist_xyz",
 			ActionRisk:       "safe",
 		},
 	})
@@ -2965,6 +2971,7 @@ func TestCoverage_RunCycle_ExecFailure(t *testing.T) {
 		}
 	}
 	e := New(pool, cfg, a, rampStart, logFn)
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !failLogged {
@@ -3010,7 +3017,7 @@ func TestCoverage_RunCycle_ExecFailureWithDispatcher(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.idx_rc_fail_disp_xyz",
 			Title:            "fail dispatch test",
-			RecommendedSQL: "REINDEX INDEX CONCURRENTLY " +
+			RecommendedSQL: "VACUUM " +
 				"public.idx_rc_fail_disp_xyz",
 			ActionRisk: "safe",
 		},
@@ -3036,6 +3043,7 @@ func TestCoverage_RunCycle_ExecFailureWithDispatcher(t *testing.T) {
 	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
 	e.WithDispatcher(md)
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if len(md.events) != 1 {
@@ -3101,7 +3109,7 @@ func TestCoverage_RunCycle_SuccessWithDispatcher(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_succ_disp",
 			Title:            "success dispatch test",
-			RecommendedSQL:   "REINDEX INDEX CONCURRENTLY public.idx_rc_sd",
+			RecommendedSQL:   "VACUUM public.rc_succ_disp",
 			ActionRisk:       "safe",
 		},
 	})
@@ -3126,6 +3134,7 @@ func TestCoverage_RunCycle_SuccessWithDispatcher(t *testing.T) {
 	e := New(pool, cfg, a, rampStart, func(string, string, ...any) {})
 	e.WithDispatcher(md)
 
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if len(md.events) != 1 {
@@ -3214,6 +3223,7 @@ func TestCoverage_RunCycle_VacuumNoRollback(t *testing.T) {
 		}
 	}
 	e := New(pool, cfg, a, rampStart, logFn)
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !executed {
@@ -3270,11 +3280,9 @@ func TestCoverage_RunCycle_WithRollbackSQL(t *testing.T) {
 			Severity:         "warning",
 			ObjectIdentifier: "public.rc_rollback_tbl",
 			Title:            "rollback branch test",
-			RecommendedSQL: "ALTER TABLE public.rc_rollback_tbl " +
-				"SET (autovacuum_vacuum_scale_factor=0.2)",
-			RollbackSQL: "ALTER TABLE public.rc_rollback_tbl " +
-				"RESET (autovacuum_vacuum_scale_factor)",
-			ActionRisk: "safe",
+			RecommendedSQL:   alterDatabaseProbeSQL(t, ctx, pool, "SET work_mem = '8MB'"),
+			RollbackSQL:      alterDatabaseProbeSQL(t, ctx, pool, "RESET work_mem"),
+			ActionRisk:       "safe",
 		},
 	})
 
@@ -3305,6 +3313,7 @@ func TestCoverage_RunCycle_WithRollbackSQL(t *testing.T) {
 		}
 	}
 	e := New(pool, cfg, a, rampStart, logFn)
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !executed {
@@ -3397,6 +3406,7 @@ func TestCoverage_RunCycle_HysteresisBlocks(t *testing.T) {
 		}
 	}
 	e := New(pool, cfg, a, rampStart, logFn)
+	withTestStandingGate(e)
 	e.RunCycle(ctx, false)
 
 	if !hystLogged {

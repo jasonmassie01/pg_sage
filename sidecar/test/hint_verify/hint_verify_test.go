@@ -118,10 +118,27 @@ func requireHintPlan(ctx context.Context, pool *pgxpool.Pool, t *testing.T) {
 		`SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_hint_plan')`,
 	).Scan(&installed)
 	if err != nil {
-		t.Skipf("pg_hint_plan check failed: %v", err)
+		t.Fatalf("pg_hint_plan check failed: %v", err)
 	}
 	if !installed {
 		t.Skip("pg_hint_plan extension not installed on target PG")
+	}
+}
+
+// requireQueryIDHintTable skips hint-table tests on pg_hint_plan < 1.7
+// (PG14-16 packages), whose hint_plan.hints keys hints by
+// norm_query_string; the tuner reports that table as not ready.
+func requireQueryIDHintTable(ctx context.Context, pool *pgxpool.Pool, t *testing.T) {
+	t.Helper()
+	var hasQueryID bool
+	err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
+		WHERE attrelid = to_regclass('hint_plan.hints')
+		  AND attname = 'query_id' AND NOT attisdropped)`).Scan(&hasQueryID)
+	if err != nil {
+		t.Fatalf("inspect hint_plan.hints: %v", err)
+	}
+	if !hasQueryID {
+		t.Skip("pg_hint_plan < 1.7: hint_plan.hints has no query_id column")
 	}
 }
 
@@ -669,6 +686,7 @@ func TestHint_MissingFKIndex(t *testing.T) {
 func TestHint_HintTableIntegration(t *testing.T) {
 	pool, ctx := setupPool(t)
 	requireHintPlan(ctx, pool, t)
+	requireQueryIDHintTable(ctx, pool, t)
 	bootstrap(ctx, pool, t)
 
 	// We need a single connection for session-level settings

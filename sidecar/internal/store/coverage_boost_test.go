@@ -1591,7 +1591,9 @@ func TestCoverage_NotificationStore_CreateRule(t *testing.T) {
 	})
 
 	ruleID, err := ns.CreateRule(
-		ctx, chID, "action_executed", "warning")
+		// G7-B06: action_executed is always info; "warning" can
+		// never fire and is now rejected.
+		ctx, chID, "action_executed", "info")
 	if err != nil {
 		t.Fatalf("CreateRule: %v", err)
 	}
@@ -1673,7 +1675,7 @@ func TestCoverage_NotificationStore_DeleteRule(t *testing.T) {
 	})
 
 	ruleID, err := ns.CreateRule(
-		ctx, chID, "approval_needed", "critical")
+		ctx, chID, "approval_needed", "warning") // G7-B06: reachable
 	if err != nil {
 		t.Fatalf("CreateRule: %v", err)
 	}

@@ -79,6 +79,7 @@ func BuildTableContexts(
 			IsPartitioned:  isParent,
 		}
 		tc.WriteRate = computeWriteRate(ts)
+		tc.WriteRateKnown = writeRateKnown(ts)
 		tc.Workload = classifyWorkload(tc.WriteRate, tc.LiveTuples)
 		tc.Columns = fetchColumns(ctx, pool, ts.SchemaName, ts.RelName)
 		tc.Indexes = buildIndexInfo(snap.Indexes, ts.SchemaName, ts.RelName)
@@ -161,6 +162,13 @@ func skipSchema(schema string) bool {
 		"pg_temp":            true,
 	}
 	return skip[schema]
+}
+
+// writeRateKnown reports whether the table recorded any scan or write
+// activity, i.e. whether WriteRate is evidence rather than a default
+// zero (G3-B23).
+func writeRateKnown(ts collector.TableStats) bool {
+	return ts.SeqScan+ts.IdxScan+ts.NTupIns+ts.NTupUpd+ts.NTupDel > 0
 }
 
 func computeWriteRate(ts collector.TableStats) float64 {

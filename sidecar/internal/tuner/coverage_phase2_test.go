@@ -3,6 +3,7 @@ package tuner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -729,8 +730,10 @@ func TestPhase2_ParseLLMPrescriptions_WithThinkingText(
 
 func TestPhase2_ParseLLMPrescriptions_EmptyString(t *testing.T) {
 	recs, err := parseLLMPrescriptions("")
-	if err != nil {
-		t.Fatalf("empty string should not error: %v", err)
+	// Blank output is llm.ErrEmptyResponse (G3-B10); this test asserted a
+	// nil error, which let empty completions look like "no hints".
+	if !errors.Is(err, llm.ErrEmptyResponse) {
+		t.Fatalf("err = %v, want llm.ErrEmptyResponse", err)
 	}
 	if len(recs) != 0 {
 		t.Errorf("expected 0 recs, got %d", len(recs))
@@ -796,7 +799,7 @@ func TestPhase2_ConvertPrescriptions_FiltersInvalid(t *testing.T) {
 		},
 	}
 
-	out := convertPrescriptions(recs, noopLog2)
+	out := convertPrescriptions(recs, 0, noopLog2)
 	if len(out) != 1 {
 		t.Fatalf("expected 1 valid prescription, got %d", len(out))
 	}

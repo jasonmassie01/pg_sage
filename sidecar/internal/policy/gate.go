@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -18,47 +19,111 @@ func (gate *authorizationGate) Authorize(
 	ctx context.Context,
 	req ActionRequest,
 ) Decision {
+	req.ExplainFamily = false // only Explain may skip SQL validation
+	return gate.finish(ctx, req, gate.evaluate(ctx, req))
+}
+
+// Explain runs the same evaluation as Authorize and records nothing.
+func (gate *authorizationGate) Explain(ctx context.Context, req ActionRequest) Decision {
+	return decisionForRequest(req, gate.evaluate(ctx, req))
+}
+
+func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) Decision {
 	runtime, err := gate.runtime(ctx, req)
 	if err != nil {
-		return gate.finish(ctx, req, blocked(ReasonPolicyUnavailable, err.Error()))
+		return blocked(ReasonPolicyUnavailable, err.Error())
 	}
 	if decision, stop := hardStop(runtime, req); stop {
-		return gate.finish(ctx, req, decision)
+		return decision
 	}
 	if decision, stop := gate.validateRequest(req); stop {
-		return gate.finish(ctx, req, decision)
+		return decision
+	}
+	if decision, stop := providerDecision(runtime, req); stop {
+		return decision
+	}
+	if req.OperatorApproved {
+		return gate.operatorDecision(ctx, runtime, req)
 	}
 	if observeOnly(runtime) {
-		return gate.finish(ctx, req, blockedAs(VerdictObserveOnly, ReasonObserveOnly))
+		return blockedAs(VerdictObserveOnly, ReasonObserveOnly)
 	}
+	if runtime.TrustLevel != TrustAdvisory && runtime.TrustLevel != TrustAutonomous {
+		return blocked(ReasonUnknownTrustLevel, runtime.TrustLevel)
+	}
+	doc, decision, stop := gate.documentDecision(ctx, req)
+	if stop {
+		return decision
+	}
+	// Trust, mode, tier flags and ramp decide first; a window (or a deadline
+	// override of it) can only restrict an otherwise-execute verdict.
+	tier := tierDecision(runtime, req, gate.now())
+	if tier.Verdict != VerdictExecute {
+		return tier
+	}
+	if runtime.SQLValidationDegraded && req.Contract.RiskTier != RiskReadOnly {
+		return decisionForRequest(req, degradedValidationDecision())
+	}
+	if decision, stop := gate.windowDecision(doc, runtime, req); stop {
+		return decision
+	}
+	return tier
+}
+
+// providerDecision blocks actions whose contract excludes the target's
+// provider (formerly checked only by the legacy executor engine).
+func providerDecision(runtime RuntimeState, req ActionRequest) (Decision, bool) {
+	support := req.Contract.ProviderSupport
+	if len(support) == 0 {
+		return Decision{}, false
+	}
+	provider := strings.ToLower(strings.TrimSpace(runtime.Provider))
+	if provider == "" || provider == "self-managed" {
+		provider = "postgres"
+	}
+	for _, item := range support {
+		if strings.EqualFold(provider, item) {
+			return Decision{}, false
+		}
+	}
+	return blocked(ReasonProviderUnsupported, "provider "+provider), true
+}
+
+// documentDecision applies the standing policy document: change class,
+// approval requirements and usage limits.
+func (gate *authorizationGate) documentDecision(
+	ctx context.Context, req ActionRequest,
+) (Document, Decision, bool) {
 	doc, err := gate.policy(ctx, req)
 	if err != nil || ValidateDocument(doc) != nil {
-		return gate.finish(ctx, req, blocked(ReasonPolicyUnavailable, errorDetail(err)))
+		return doc, blocked(ReasonPolicyUnavailable, errorDetail(err)), true
+	}
+	if req.Contract.RiskTier == RiskReadOnly {
+		return doc, Decision{}, false // diagnostics mutate nothing
 	}
 	changeClass := ChangeClass(req.Feature)
 	if !containsChangeClass(doc.AllowedChangeClasses, changeClass) {
-		return gate.finish(ctx, req, gate.decision(
-			req, VerdictBlocked, ReasonChangeClassNotAllowed))
+		return doc, gate.decision(req, VerdictBlocked, ReasonChangeClassNotAllowed), true
 	}
-	if hasGuardrail(*req.Contract, GuardrailApprovalRequired) {
-		return gate.finish(ctx, req, gate.decision(
-			req, VerdictQueueApproval, ReasonApprovalRequired))
-	}
-	if containsChangeClass(doc.ApprovalRequiredClasses, changeClass) {
-		return gate.finish(ctx, req, gate.decision(
-			req, VerdictQueueApproval, ReasonApprovalRequired))
+	if hasGuardrail(*req.Contract, GuardrailApprovalRequired) ||
+		isBackendSignal(req.Contract.ActionType) ||
+		containsChangeClass(doc.ApprovalRequiredClasses, changeClass) {
+		return doc, gate.decision(req, VerdictQueueApproval, ReasonApprovalRequired), true
 	}
 	usage, err := gate.usage(ctx, req)
 	if err != nil {
-		return gate.finish(ctx, req, blocked(ReasonPolicyUnavailable, err.Error()))
+		return doc, blocked(ReasonPolicyUnavailable, err.Error()), true
 	}
 	if decision, stop := limitDecision(doc, usage); stop {
-		return gate.finish(ctx, req, decisionForRequest(req, decision))
+		return doc, decisionForRequest(req, decision), true
 	}
-	if decision, stop := gate.windowDecision(doc, req); stop {
-		return gate.finish(ctx, req, decision)
-	}
-	return gate.finish(ctx, req, tierDecision(runtime, req))
+	return doc, Decision{}, false
+}
+
+// isBackendSignal reports action types that cancel or terminate a session.
+// They always require a human, whatever the trust level or tier.
+func isBackendSignal(actionType string) bool {
+	return actionType == "cancel_backend" || actionType == "terminate_backend"
 }
 
 func containsChangeClass(classes []ChangeClass, target ChangeClass) bool {
@@ -106,11 +171,16 @@ func (gate *authorizationGate) validateRequest(req ActionRequest) (Decision, boo
 		decision.Detail = string(guardrail)
 		return decision, true
 	}
-	if trustedInternalControl(req) {
+	if trustedInternalControl(req) || (req.ExplainFamily && req.SQL == "") {
 		return Decision{}, false
 	}
-	if gate.config.ValidateSQL == nil || gate.config.ValidateSQL(req.SQL) != nil {
+	if gate.config.ValidateSQL == nil {
 		return gate.decision(req, VerdictPark, ReasonNoTypedContract), true
+	}
+	if err := gate.config.ValidateSQL(req.SQL); err != nil {
+		decision := gate.decision(req, VerdictPark, ReasonNoTypedContract)
+		decision.Detail = err.Error()
+		return decision, true
 	}
 	return Decision{}, false
 }
@@ -120,7 +190,7 @@ func trustedInternalControl(req ActionRequest) bool {
 		return false
 	}
 	switch req.Contract.ActionType {
-	case "declare_table_contract", "register_consumer":
+	case "declare_table_contract", "register_consumer", "retention_delete":
 		return true
 	default:
 		return false
@@ -199,6 +269,7 @@ func positiveExceeded(limit, usage int64, includeEqual bool) bool {
 
 func (gate *authorizationGate) windowDecision(
 	doc Document,
+	runtime RuntimeState,
 	req ActionRequest,
 ) (Decision, bool) {
 	if req.Contract.RiskTier != RiskModerate && req.Contract.RiskTier != RiskHigh {
@@ -208,7 +279,8 @@ func (gate *authorizationGate) windowDecision(
 		gate.config.WindowObserved()
 	}
 	now := gate.now()
-	if inAnyWindow(doc.MaintenanceWindows, now) {
+	configured := req.Contract.RiskTier != RiskModerate || runtime.InConfiguredWindow
+	if configured && inAnyWindow(doc.MaintenanceWindows, now) {
 		return Decision{}, false
 	}
 	if validDeadlineOverride(doc, req.Deadline, now) {
@@ -244,18 +316,38 @@ func validDeadlineOverride(
 	return doc.DeadlineOverrides[deadline.Kind]
 }
 
-func tierDecision(runtime RuntimeState, req ActionRequest) Decision {
+const (
+	safeRampAge     = 8 * 24 * time.Hour
+	moderateRampAge = 31 * 24 * time.Hour
+)
+
+func rampSatisfied(runtime RuntimeState, minimum time.Duration, now time.Time) bool {
+	return !runtime.RampStart.IsZero() && now.Sub(runtime.RampStart) >= minimum
+}
+
+func tierDecision(runtime RuntimeState, req ActionRequest, now time.Time) Decision {
 	if runtime.ExecutionMode == ExecutionApproval {
 		return decisionForRequest(
 			req, blockedAs(VerdictQueueApproval, ReasonApprovalRequired))
 	}
+	trusted := runtime.TrustLevel == TrustAdvisory || runtime.TrustLevel == TrustAutonomous
 	switch req.Contract.RiskTier {
-	case RiskReadOnly, RiskSafe:
-		if runtime.TrustLevel == TrustAdvisory ||
-			runtime.TrustLevel == TrustAutonomous {
+	case RiskReadOnly:
+		if trusted {
+			return decisionForRequest(req, blockedAs(VerdictExecute, ReasonAuthorized))
+		}
+	case RiskSafe:
+		if trusted && (!runtime.Tier3Safe || !rampSatisfied(runtime, safeRampAge, now)) {
+			return decisionForRequest(req, blocked(ReasonTrustRampNotSatisfied, ""))
+		}
+		if trusted {
 			return decisionForRequest(req, blockedAs(VerdictExecute, ReasonAuthorized))
 		}
 	case RiskModerate:
+		if runtime.TrustLevel == TrustAutonomous &&
+			(!runtime.Tier3Moderate || !rampSatisfied(runtime, moderateRampAge, now)) {
+			return decisionForRequest(req, blocked(ReasonTrustRampNotSatisfied, ""))
+		}
 		if runtime.TrustLevel == TrustAutonomous {
 			return decisionForRequest(req, blockedAs(VerdictExecute, ReasonAuthorized))
 		}
@@ -285,6 +377,16 @@ func decisionForRequest(req ActionRequest, decision Decision) Decision {
 	decision.RiskTier = req.Contract.RiskTier
 	decision.Guardrails = append([]Guardrail(nil), req.Contract.Guardrails...)
 	return decision
+}
+
+// degradedValidationDecision sends an unattended mutation to a human when
+// the build lacks parse-tree SQL validation.
+func degradedValidationDecision() Decision {
+	return Decision{
+		Verdict: VerdictQueueApproval, Reason: ReasonSQLValidationDegraded,
+		Detail: "built without cgo: parse-tree SQL validation is unavailable, " +
+			"so unattended changes need operator approval",
+	}
 }
 
 func blocked(reason Reason, detail string) Decision {

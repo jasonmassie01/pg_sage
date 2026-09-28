@@ -241,6 +241,7 @@ func (m *DatabaseManager) commitReplacement(
 		}
 		delete(m.instances, oldName)
 	}
+	inheritEmergencyStop(old, candidate)
 	m.instances[candidate.Name] = candidate
 	if m.primaryName == oldName {
 		m.primaryName = candidate.Name

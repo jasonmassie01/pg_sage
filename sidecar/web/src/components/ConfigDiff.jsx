@@ -2,13 +2,23 @@
 import { useEffect } from 'react'
 import { FileDiff, ArrowRight } from 'lucide-react'
 
+// Secret fields (API keys, passwords, routing keys, tokens) are never
+// rendered in the review modal (G9-B25).
+const SECRET_KEY = /(api_key|password|routing_key|secret|token|encryption_key)$/
+const SECRET_MASK = '•••• (changed)'
+
+export function isSecretConfigKey(key) {
+  return SECRET_KEY.test(key)
+}
+
 // Compare edits against current config and return an array of
 // { key, before, after, source } rows — one per changed field.
 export function buildDiffRows(edits, cfg) {
   const rows = []
   for (const key of Object.keys(edits)) {
-    const before = cfg[key]?.value
-    const after = edits[key]
+    const secret = isSecretConfigKey(key)
+    const before = secret ? SECRET_MASK : cfg[key]?.value
+    const after = secret ? SECRET_MASK : edits[key]
     const source = cfg[key]?.source ?? 'default'
     rows.push({ key, before, after, source })
   }

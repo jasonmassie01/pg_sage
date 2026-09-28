@@ -511,12 +511,10 @@ func TestScenario_RiskScore_ZeroRowTable(t *testing.T) {
 		ReplicationLag:  0,
 	}
 	score := computeRiskScore(risk)
-	// baseRisk = 1.0 * 1.0 = 1.0
-	// tableFactor = 0, activityFactor = 0, all factors = 0
-	// combined = max(0.1, 0) = 0.1
-	// score = 1.0 * 0.1 = 0.1
-	assert.InDelta(t, 0.1, score, 0.001,
-		"zero-row table should produce score 0.1 (min combined)")
+	// G7-B03: the rule's intrinsic hazard (1.0 * 1.0) is the floor; the
+	// old formula multiplied it down to 0.1 and hid every rewrite.
+	assert.InDelta(t, 1.0, score, 0.001,
+		"zero-row rewrite keeps its intrinsic score")
 }
 
 func TestScenario_RiskScore_FactorCapping(t *testing.T) {
@@ -725,13 +723,12 @@ func TestScenario_FullPipeline_ClassifyAssess(t *testing.T) {
 	assert.Greater(t, risk.EstimatedLockMs, int64(0),
 		"rewrite should have positive lock duration estimate")
 
-	// Verify the score formula: with 500 rows and no activity,
-	// score ≈ 1.0 * 1.0 * max(0.1, 0.4 * log10(500)/10) ≈ 0.108.
-	// The exact value depends on ANALYZE, so just check bounds.
+	// G7-B03: a known-small (< ddl_row_threshold) idle table is capped
+	// at the incident threshold, so it never produces an incident.
 	assert.Greater(t, risk.RiskScore, 0.05,
 		"500-row table should produce score above minimum")
-	assert.Less(t, risk.RiskScore, 0.3,
-		"500 rows with no activity stays under incident threshold")
+	assert.LessOrEqual(t, risk.RiskScore, 0.3,
+		"500 rows with no activity stays at/under incident threshold")
 }
 
 // TestScenario_FullPipeline_IncidentProduced verifies that when the

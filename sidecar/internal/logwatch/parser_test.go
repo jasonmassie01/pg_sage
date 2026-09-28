@@ -12,17 +12,17 @@ import (
 
 func TestParseJSONLogLine_Valid(t *testing.T) {
 	line := []byte(`{
-		"timestamp":"2024-03-10T14:30:00.123+00:00",
+		"timestamp":"2024-03-10 14:30:00.123 UTC",
 		"pid":1234,
 		"session_id":"abc123",
-		"database_name":"mydb",
-		"user_name":"postgres",
+		"dbname":"mydb",
+		"user":"postgres",
 		"error_severity":"ERROR",
 		"state_code":"40P01",
 		"message":"deadlock detected",
 		"detail":"Process 1234 waits for ...",
 		"hint":"See server log",
-		"query":"SELECT 1",
+		"statement":"SELECT 1",
 		"application_name":"myapp"
 	}`)
 	entry, err := ParseJSONLogLine(line)
@@ -96,7 +96,7 @@ func TestParseJSONLogLine_MissingTimestamp(t *testing.T) {
 
 func TestParseJSONLogLine_NonUTF8(t *testing.T) {
 	// Embed invalid byte sequence inside an otherwise valid JSON line.
-	raw := []byte(`{"timestamp":"2024-03-10T14:30:00.000+00:00","pid":1,` +
+	raw := []byte(`{"timestamp":"2024-03-10 14:30:00.000 UTC","pid":1,` +
 		`"error_severity":"LOG","message":"bad ` + "\x80\xfe" + ` byte"}`)
 	entry, err := ParseJSONLogLine(raw)
 	if err != nil {
@@ -117,17 +117,17 @@ func TestParseJSONLogLine_EmptyInput(t *testing.T) {
 
 func TestParseJSONLogLine_AllFieldsPopulated(t *testing.T) {
 	line := []byte(`{
-		"timestamp":"2024-01-01T00:00:00.000+00:00",
+		"timestamp":"2024-01-01 00:00:00.000 UTC",
 		"pid":99,
 		"session_id":"sess1",
-		"database_name":"db1",
-		"user_name":"user1",
+		"dbname":"db1",
+		"user":"user1",
 		"error_severity":"FATAL",
 		"state_code":"53300",
 		"message":"msg1",
 		"detail":"det1",
 		"hint":"hint1",
-		"query":"q1",
+		"statement":"q1",
 		"application_name":"app1"
 	}`)
 	entry, err := ParseJSONLogLine(line)

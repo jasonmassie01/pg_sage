@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -22,10 +21,9 @@ import (
 // Global runtime owners intentionally run sequentially; each database is an isolated test fixture.
 func metaLifecycleFixture(t *testing.T) (*metaDBState, store.DatabaseInput, int) {
 	t.Helper()
-	if os.Getenv(testdb.EnvName) == "" {
-		t.Skip("requires explicit disposable SAGE_TEST_DATABASE_URL")
-	}
-	p, err := connectMetaDB(os.Getenv(testdb.EnvName))
+	// SkipUnlessLive treats the disabled sentinel DSN installed by
+	// testdb.Run as "not configured" (G10-B06 / G5-B29).
+	p, err := connectMetaDB(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("connect fixture: %v", err)
 	}

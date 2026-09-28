@@ -285,10 +285,9 @@ func waitForBinaryCycles(t *testing.T, pool *pgxpool.Pool) {
 // --- expectations -------------------------------------------------------------
 
 type binaryExpectation struct {
-	id       string
-	desc     string
-	check    func(pool *pgxpool.Pool) (bool, string)
-	terminal bool // once true it cannot regress; stop polling it
+	id    string
+	desc  string
+	check func(pool *pgxpool.Pool) (bool, string)
 }
 
 func assertBinaryExpectations(

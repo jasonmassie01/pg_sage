@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 type ruleCharUsage struct{}
@@ -69,11 +71,11 @@ func (r *ruleCharUsage) collect(rows interface {
 				"length. This wastes storage, causes subtle comparison " +
 				"bugs, and is never faster than text or varchar",
 			Suggestion: fmt.Sprintf(
-				"ALTER TABLE %s.%s ALTER COLUMN %s TYPE text",
-				schema, table, column),
+				"ALTER TABLE %s ALTER COLUMN %s TYPE text",
+				sanitize.QuoteQualifiedName(schema, table), sanitize.QuoteIdentifier(column)),
 			SQL: fmt.Sprintf(
-				"ALTER TABLE %s.%s ALTER COLUMN %s TYPE text;",
-				schema, table, column),
+				"ALTER TABLE %s ALTER COLUMN %s TYPE text;",
+				sanitize.QuoteQualifiedName(schema, table), sanitize.QuoteIdentifier(column)),
 			FirstSeen: now,
 			LastSeen:  now,
 		})

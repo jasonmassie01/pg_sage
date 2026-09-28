@@ -135,8 +135,16 @@ func TestClassifier_AddColumnVolatileDefault(t *testing.T) {
 		requireRulePresent(t, results, "ddl_add_column_volatile_default")
 	})
 
-	t.Run("negative: allowlisted func gen_random_uuid on PG14", func(t *testing.T) {
+	// G7-B04: gen_random_uuid() is VOLATILE and forces a rewrite; the
+	// old assertion (absent) locked the bug in.
+	t.Run("positive: volatile gen_random_uuid on PG14", func(t *testing.T) {
 		sql := "ALTER TABLE t ADD COLUMN id uuid DEFAULT gen_random_uuid()"
+		results := c.Classify(sql, 14)
+		requireRulePresent(t, results, "ddl_add_column_volatile_default")
+	})
+
+	t.Run("negative: stable now() on PG14", func(t *testing.T) {
+		sql := "ALTER TABLE t ADD COLUMN created timestamptz DEFAULT now()"
 		results := c.Classify(sql, 14)
 		requireRuleAbsent(t, results, "ddl_add_column_volatile_default")
 	})

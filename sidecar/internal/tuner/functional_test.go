@@ -3,6 +3,7 @@ package tuner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -1038,8 +1039,10 @@ func TestFunctional_ParseLLMPrescriptions_EmptyString(
 	t *testing.T,
 ) {
 	recs, err := parseLLMPrescriptions("")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Blank output is llm.ErrEmptyResponse (G3-B10); this test asserted a
+	// nil error, which let empty completions look like "no hints".
+	if !errors.Is(err, llm.ErrEmptyResponse) {
+		t.Fatalf("err = %v, want llm.ErrEmptyResponse", err)
 	}
 	if recs != nil {
 		t.Errorf("expected nil for empty string, got %v", recs)
@@ -1087,7 +1090,7 @@ func TestFunctional_ConvertPrescriptions_ValidHint(
 			Confidence:    0.9,
 		},
 	}
-	out := convertPrescriptions(recs, noopLogFn)
+	out := convertPrescriptions(recs, 0, noopLogFn)
 	if len(out) != 1 {
 		t.Fatalf("expected 1 valid, got %d", len(out))
 	}
@@ -1110,7 +1113,7 @@ func TestFunctional_ConvertPrescriptions_InvalidRejected(
 		{HintDirective: "DROP TABLE users", Rationale: "bad"},
 		{HintDirective: "", Rationale: "empty"},
 	}
-	out := convertPrescriptions(recs, logFn)
+	out := convertPrescriptions(recs, 0, logFn)
 	if len(out) != 0 {
 		t.Errorf("expected 0 valid, got %d", len(out))
 	}
@@ -1129,7 +1132,7 @@ func TestFunctional_ConvertPrescriptions_SetsLLMRecommended(
 			Confidence:    0.8,
 		},
 	}
-	out := convertPrescriptions(recs, noopLogFn)
+	out := convertPrescriptions(recs, 0, noopLogFn)
 	if len(out) != 1 {
 		t.Fatalf("expected 1, got %d", len(out))
 	}
@@ -1403,39 +1406,6 @@ func TestFunctional_SplitHintDirectives_Nested(t *testing.T) {
 // =========================================================================
 // Section 12: stripToJSON (tuner version)
 // =========================================================================
-
-func TestFunctional_StripToJSON_Brackets(t *testing.T) {
-	input := `Some thinking here [{"key": "value"}] and more`
-	got := stripToJSON(input)
-	if got != `[{"key": "value"}]` {
-		t.Errorf("got %q", got)
-	}
-}
-
-func TestFunctional_StripToJSON_MarkdownFences(t *testing.T) {
-	input := "```json\n" +
-		`[{"hint_directive": "HashJoin(o)"}]` +
-		"\n```"
-	got := stripToJSON(input)
-	// The function finds [ and ] inside the fences.
-	var parsed []map[string]any
-	if err := json.Unmarshal([]byte(got), &parsed); err != nil {
-		t.Fatalf("result not valid JSON: %v (raw: %q)", err, got)
-	}
-	if len(parsed) != 1 {
-		t.Errorf("expected 1 element, got %d", len(parsed))
-	}
-}
-
-func TestFunctional_StripToJSON_NoJSON(t *testing.T) {
-	input := "Just some plain text with no brackets"
-	got := stripToJSON(input)
-	// No [ or ] found, so stripping fences etc. is attempted.
-	// Final result should be the trimmed input.
-	if got != input {
-		t.Errorf("got %q, want %q", got, input)
-	}
-}
 
 // =========================================================================
 // Section 13: End-to-end prescription pipeline (integration of
@@ -2219,7 +2189,7 @@ func TestFunctional_Coverage_BuildFinding_MultipleSymptoms(
 
 func TestFunctional_Coverage_BadNestedLoop_NotNestedLoop(t *testing.T) {
 	n := planNode{NodeType: "Hash Join", PlanRows: 10,
-		ActualRows: ptr(int64(200))}
+		ActualRows: ptr(float64(200))}
 	s := checkBadNestedLoop(n, 0)
 	if s != nil {
 		t.Error("expected nil for non-Nested Loop node")
@@ -2237,7 +2207,7 @@ func TestFunctional_Coverage_BadNestedLoop_NilActualRows(t *testing.T) {
 
 func TestFunctional_Coverage_BadNestedLoop_ZeroPlanRows(t *testing.T) {
 	n := planNode{NodeType: "Nested Loop", PlanRows: 0,
-		ActualRows: ptr(int64(1000))}
+		ActualRows: ptr(float64(1000))}
 	s := checkBadNestedLoop(n, 0)
 	if s != nil {
 		t.Error("expected nil when PlanRows <= 0")
@@ -2248,7 +2218,7 @@ func TestFunctional_Coverage_BadNestedLoop_NegativePlanRows(
 	t *testing.T,
 ) {
 	n := planNode{NodeType: "Nested Loop", PlanRows: -1,
-		ActualRows: ptr(int64(100))}
+		ActualRows: ptr(float64(100))}
 	s := checkBadNestedLoop(n, 0)
 	if s != nil {
 		t.Error("expected nil when PlanRows is negative")
@@ -2260,7 +2230,7 @@ func TestFunctional_Coverage_BadNestedLoop_WithinThreshold(
 ) {
 	// actual(100) <= plan(10)*10=100 → no symptom
 	n := planNode{NodeType: "Nested Loop", PlanRows: 10,
-		ActualRows: ptr(int64(100))}
+		ActualRows: ptr(float64(100))}
 	s := checkBadNestedLoop(n, 0)
 	if s != nil {
 		t.Error("expected nil when actual rows exactly at 10x")
@@ -2272,7 +2242,7 @@ func TestFunctional_Coverage_BadNestedLoop_JustOverThreshold(
 ) {
 	// actual(101) > plan(10)*10=100 → symptom
 	n := planNode{NodeType: "Nested Loop", PlanRows: 10,
-		ActualRows: ptr(int64(101))}
+		ActualRows: ptr(float64(101))}
 	s := checkBadNestedLoop(n, 2)
 	if s == nil {
 		t.Fatal("expected symptom when actual > 10x plan rows")
@@ -2291,7 +2261,7 @@ func TestFunctional_Coverage_BadNestedLoop_AliasPreserved(
 	n := planNode{
 		NodeType:   "Nested Loop",
 		PlanRows:   1,
-		ActualRows: ptr(int64(100)),
+		ActualRows: ptr(float64(100)),
 		Alias:      "nl_alias",
 	}
 	s := checkBadNestedLoop(n, 0)
@@ -2643,7 +2613,7 @@ func TestFunctional_Coverage_LLMPrescribe_ValidResponse(
 	}
 
 	rx, err := llmPrescribe(
-		t_ctx(), client, nil, qctx, noopLogFn,
+		t_ctx(), client, nil, qctx, 0, noopLogFn,
 	)
 	if err != nil {
 		t.Fatalf("llmPrescribe error: %v", err)
@@ -2671,7 +2641,7 @@ func TestFunctional_Coverage_LLMPrescribe_MalformedJSON(
 	}
 
 	_, err := llmPrescribe(
-		t_ctx(), client, nil, qctx, noopLogFn,
+		t_ctx(), client, nil, qctx, 0, noopLogFn,
 	)
 	if err == nil {
 		t.Error("expected error for malformed JSON response")
@@ -2695,7 +2665,7 @@ func TestFunctional_Coverage_LLMPrescribe_EmptyResponse(
 	}
 
 	rx, err := llmPrescribe(
-		t_ctx(), client, nil, qctx, noopLogFn,
+		t_ctx(), client, nil, qctx, 0, noopLogFn,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2729,7 +2699,7 @@ func TestFunctional_Coverage_LLMPrescribe_FallbackOnPrimaryFail(
 	}
 
 	rx, err := llmPrescribe(
-		t_ctx(), primary, fallback, qctx, noopLogFn,
+		t_ctx(), primary, fallback, qctx, 0, noopLogFn,
 	)
 	if err != nil {
 		t.Fatalf("expected fallback to succeed, got error: %v", err)
@@ -2760,7 +2730,7 @@ func TestFunctional_Coverage_LLMPrescribe_BothFail(t *testing.T) {
 	}
 
 	_, err := llmPrescribe(
-		t_ctx(), primary, fallback, qctx, noopLogFn,
+		t_ctx(), primary, fallback, qctx, 0, noopLogFn,
 	)
 	if err == nil {
 		t.Error("expected error when both primary and fallback fail")
@@ -2786,7 +2756,7 @@ func TestFunctional_Coverage_LLMPrescribe_InvalidHintRejected(
 	}
 
 	rx, err := llmPrescribe(
-		t_ctx(), client, nil, qctx, noopLogFn,
+		t_ctx(), client, nil, qctx, 0, noopLogFn,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2819,7 +2789,7 @@ func TestFunctional_Coverage_LLMPrescribe_MarkdownWrapped(
 	}
 
 	rx, err := llmPrescribe(
-		t_ctx(), client, nil, qctx, noopLogFn,
+		t_ctx(), client, nil, qctx, 0, noopLogFn,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2846,7 +2816,7 @@ func TestFunctional_Coverage_LLMPrescribe_NilFallbackPrimaryFail(
 	}
 
 	_, err := llmPrescribe(
-		t_ctx(), primary, nil, qctx, noopLogFn,
+		t_ctx(), primary, nil, qctx, 0, noopLogFn,
 	)
 	if err == nil {
 		t.Error("expected error when primary fails and no fallback")
@@ -3505,7 +3475,7 @@ func TestFunctional_Coverage_ConvertPrescriptions_Mixed(
 		{HintDirective: "",
 			Rationale: "empty", Confidence: 0.1},
 	}
-	out := convertPrescriptions(recs, noopLogFn)
+	out := convertPrescriptions(recs, 0, noopLogFn)
 	if len(out) != 2 {
 		t.Errorf("expected 2 valid prescriptions, got %d", len(out))
 	}
@@ -3520,7 +3490,7 @@ func TestFunctional_Coverage_ConvertPrescriptions_AllValid(
 		{HintDirective: "NestLoop(a b)",
 			Rationale: "join"},
 	}
-	out := convertPrescriptions(recs, noopLogFn)
+	out := convertPrescriptions(recs, 0, noopLogFn)
 	if len(out) != 2 {
 		t.Errorf("expected 2, got %d", len(out))
 	}
@@ -3553,8 +3523,10 @@ func TestFunctional_Coverage_ParseLLMPrescriptions_Whitespace(
 	t *testing.T,
 ) {
 	recs, err := parseLLMPrescriptions("   ")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// Blank output is llm.ErrEmptyResponse (G3-B10); this test asserted a
+	// nil error, which let empty completions look like "no hints".
+	if !errors.Is(err, llm.ErrEmptyResponse) {
+		t.Fatalf("err = %v, want llm.ErrEmptyResponse", err)
 	}
 	if recs != nil {
 		t.Errorf("expected nil for whitespace, got %v", recs)
@@ -3573,30 +3545,6 @@ func TestFunctional_Coverage_ParseLLMPrescriptions_Invalid(
 // ---------------------------------------------------------------------------
 // Additional coverage: stripToJSON edge cases
 // ---------------------------------------------------------------------------
-
-func TestFunctional_Coverage_StripToJSON_NoArray(t *testing.T) {
-	// No brackets at all — falls through to markdown strip.
-	input := "```json\nsome text\n```"
-	result := stripToJSON(input)
-	if result != "some text" {
-		t.Errorf("stripToJSON = %q, want 'some text'", result)
-	}
-}
-
-func TestFunctional_Coverage_StripToJSON_PlainText(t *testing.T) {
-	result := stripToJSON("just plain text")
-	if result != "just plain text" {
-		t.Errorf("stripToJSON = %q", result)
-	}
-}
-
-func TestFunctional_Coverage_StripToJSON_ArrayPresent(t *testing.T) {
-	input := "thinking...\n[{\"a\": 1}]\nmore text"
-	result := stripToJSON(input)
-	if result != `[{"a": 1}]` {
-		t.Errorf("stripToJSON = %q, want [{\"a\": 1}]", result)
-	}
-}
 
 // =========================================================================
 // Final coverage squeeze — edge cases for remaining partial functions

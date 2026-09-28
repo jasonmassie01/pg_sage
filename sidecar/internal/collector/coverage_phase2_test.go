@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"context"
 	"strings"
 	"sync"
@@ -1141,6 +1142,7 @@ func TestPhase2_CollectSequences_WithData(t *testing.T) {
 
 func TestPhase2_CollectIO_FieldsPopulated(t *testing.T) {
 	pool := testPool(t)
+	testdb.RequireServerVersion(t, pool, 160000, "pg_stat_io")
 	ctx := context.Background()
 
 	c := phase2Collector(t, pool)

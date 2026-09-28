@@ -177,13 +177,7 @@ func TestWave3TerminalDeploymentRevokesMonitoringWork(t *testing.T) {
 	now := time.Now().UTC()
 	insertWave3Work(t, ctx, pool, "terminal_work", "wave3_terminal", tenant,
 		ProviderLocalPostgres, "physical-terminal", "deep_analysis", now)
-	if _, err := st.RecordBackup(ctx, "wave3_terminal", BackupRequest{
-		BackupID:          "wave3_terminal_backup",
-		Provider:          ProviderLocalPostgres,
-		Status:            "restore_verified",
-		VerifiedAt:        now,
-		RestoreVerifiedAt: now,
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, "wave3_terminal", testDrill("wave3_terminal_backup")); err != nil {
 		t.Fatalf("record restore-verified backup: %v", err)
 	}
 	if _, err := st.Archive(ctx, "wave3_terminal"); err != nil {

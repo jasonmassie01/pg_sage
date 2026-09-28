@@ -56,15 +56,22 @@ func rollback(tx pgx.Tx) {
 	_ = tx.Rollback(ctx)
 }
 
-func (s *postgresSource) prepare(ctx context.Context) (Report, error) {
-	timeout := strconv.Itoa(s.manifest.StatementTimeoutMS) + "ms"
-	settings := [][2]string{
+// sessionControls are the transaction-local settings for one experiment.
+// Statements and lock waits get the per-statement timeout; idle time
+// between statements is client latency, so it is bounded by the whole-run
+// budget instead (a 25 ms idle limit killed sessions on a GC pause).
+func sessionControls(m Manifest) [][2]string {
+	timeout := strconv.Itoa(m.StatementTimeoutMS) + "ms"
+	return [][2]string{
 		{"statement_timeout", timeout}, {"lock_timeout", timeout},
-		{"idle_in_transaction_session_timeout", timeout},
+		{"idle_in_transaction_session_timeout", strconv.Itoa(m.TotalTimeoutMS) + "ms"},
 		{"plan_cache_mode", "force_custom_plan"}, {"search_path", "pg_catalog"},
 		{"work_mem", "16MB"},
 	}
-	for _, setting := range settings {
+}
+
+func (s *postgresSource) prepare(ctx context.Context) (Report, error) {
+	for _, setting := range sessionControls(s.manifest) {
 		if err := s.setLocal(ctx, setting[0], setting[1]); err != nil {
 			return Report{}, err
 		}

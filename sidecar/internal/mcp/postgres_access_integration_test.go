@@ -6,6 +6,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/executor"
@@ -150,7 +151,9 @@ func TestRealPolicyGatePersistsDeclarationsAndAuthorizesCandidateSQL(t *testing.
 	gate := policy.NewGate(policy.GateConfig{
 		Runtime: func(context.Context, policy.ActionRequest) (policy.RuntimeState, error) {
 			return policy.RuntimeState{ExecutorEnabled: true,
-				TrustLevel: policy.TrustAutonomous, ExecutionMode: policy.ExecutionAuto}, nil
+				TrustLevel: policy.TrustAutonomous, ExecutionMode: policy.ExecutionAuto,
+				Tier3Safe: true, Tier3Moderate: true, InConfiguredWindow: true,
+				RampStart: time.Now().Add(-90 * 24 * time.Hour)}, nil
 		},
 		ValidateSQL: func(sql string) error {
 			validatedSQL = append(validatedSQL, sql)

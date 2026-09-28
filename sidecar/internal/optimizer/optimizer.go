@@ -33,6 +33,7 @@ type Optimizer struct {
 	validator      *Validator
 	planner        *PlanCapture
 	hypopg         *HypoPG
+	whatIf         whatIfValidator // defaults to hypopg; tests inject fakes
 	breaker        *CircuitBreaker
 	maxOutput      int
 	logFn          func(string, string, ...any)
@@ -45,7 +46,6 @@ func New(
 	pool *pgxpool.Pool,
 	cfg *config.OptimizerConfig,
 	pgVersionNum int,
-	extensionPresent bool,
 	maxOutputTokens int,
 	logFn func(string, string, ...any),
 	options ...func(*Optimizer),
@@ -60,7 +60,7 @@ func New(
 		cfg:            cfg,
 		validator:      NewValidator(pool, cfg, logFn),
 		planner: NewPlanCapture(
-			pool, pgVersionNum, extensionPresent, false,
+			pool, pgVersionNum, false,
 			cfg.PlanSource, logFn,
 		),
 		hypopg:    NewHypoPG(pool, cfg.HypoPGMinImprovePct, logFn),
@@ -68,10 +68,18 @@ func New(
 		maxOutput: maxOutputTokens,
 		logFn:     logFn,
 	}
+	o.whatIf = o.hypopg
 	for _, opt := range options {
 		opt(o)
 	}
 	return o
+}
+
+// whatIfValidator is the hypothetical-index check (HypoPG).
+type whatIfValidator interface {
+	IsAvailable(ctx context.Context) bool
+	Validate(ctx context.Context, rec Recommendation, queries []QueryInfo,
+	) (accepted bool, improvement float64, size int64, err error)
 }
 
 // WithAutoExplain enables auto_explain as a plan source.
@@ -143,11 +151,14 @@ func (o *Optimizer) Analyze(
 			)
 			continue
 		}
-		if o.hasOpenIndexFindings(ctx, tc.Schema, tc.Table) {
+		if open, hasOpen := o.openRecommendations(ctx, tc); hasOpen {
+			// Re-emit the pending candidates so the analyzer keeps them
+			// open instead of resolving them for not reappearing (C06).
 			o.logFn("optimizer",
-				"skipping %s.%s: open index findings exist",
-				tc.Schema, tc.Table,
+				"skipping %s.%s: %d open index recommendation(s) re-emitted",
+				tc.Schema, tc.Table, len(open),
 			)
+			result.Recommendations = append(result.Recommendations, open...)
 			continue
 		}
 		recs, tokens, rejections, err := o.analyzeTable(ctx, tc)
@@ -187,20 +198,7 @@ func (o *Optimizer) analyzeTable(
 	ctx context.Context,
 	tc TableContext,
 ) ([]Recommendation, int, int, error) {
-	prompt := FormatPrompt(tc)
-	system := SystemPrompt()
-
-	response, tokens, err := o.client.Chat(
-		ctx, system, prompt, o.maxOutput,
-	)
-	if err != nil && o.fallbackClient != nil {
-		o.logFn("optimizer",
-			"primary LLM failed, trying fallback: %v", err,
-		)
-		response, tokens, err = o.fallbackClient.Chat(
-			ctx, system, prompt, o.maxOutput,
-		)
-	}
+	response, tokens, err := o.chat(ctx, SystemPrompt(), FormatPrompt(tc))
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("llm chat: %w", err)
 	}
@@ -213,29 +211,8 @@ func (o *Optimizer) analyzeTable(
 	var accepted []Recommendation
 	rejections := 0
 	for _, rec := range recs {
-		ok, reason := o.validator.Validate(ctx, rec, tc)
+		rec, ok := o.admit(ctx, rec, tc)
 		if !ok {
-			o.logFn("optimizer",
-				"rejected %s on %s: %s", rec.DDL, rec.Table, reason,
-			)
-			rejections++
-			continue
-		}
-		rec = o.enrichWithHypoPG(ctx, rec, tc)
-		rec = o.scoreConfidence(rec, tc)
-		// Record the queryids this index is expected to help so F1
-		// verify-and-revert can drop it if those queries regress (A2).
-		rec.AffectedQueryIDs = contextQueryIDs(tc)
-		// Enforce the configured confidence threshold (default 0.5).
-		// It had zero consumers, so low-confidence recommendations were
-		// emitted as findings unfiltered (reverse-spec / audit). A zero
-		// threshold (unset) disables the gate.
-		if o.cfg.ConfidenceThreshold > 0 &&
-			rec.Confidence < o.cfg.ConfidenceThreshold {
-			o.logFn("optimizer",
-				"below confidence threshold (%.2f < %.2f): %s on %s",
-				rec.Confidence, o.cfg.ConfidenceThreshold,
-				rec.DDL, rec.Table)
 			rejections++
 			continue
 		}
@@ -250,30 +227,90 @@ func (o *Optimizer) analyzeTable(
 	return accepted, tokens, rejections, nil
 }
 
+// chat calls the primary client and, on failure, a distinct fallback
+// client. A fallback that is the primary is not retried (G3-B15).
+func (o *Optimizer) chat(ctx context.Context, system, prompt string) (string, int, error) {
+	response, tokens, err := o.client.Chat(ctx, system, prompt, o.maxOutput)
+	if err != nil && o.fallbackClient != nil && o.fallbackClient != o.client {
+		o.logFn("optimizer",
+			"primary LLM failed, trying fallback: %v", err,
+		)
+		response, tokens, err = o.fallbackClient.Chat(
+			ctx, system, prompt, o.maxOutput,
+		)
+	}
+	return response, tokens, err
+}
+
+// admit canonicalizes, validates, HypoPG-checks and scores one LLM
+// recommendation. It returns false when the recommendation is rejected.
+func (o *Optimizer) admit(
+	ctx context.Context, rec Recommendation, tc TableContext,
+) (Recommendation, bool) {
+	rec, err := canonicalizeRecommendation(rec, tc)
+	if err != nil {
+		o.logFn("optimizer", "rejected %s on %s.%s: %v",
+			rec.DDL, tc.Schema, tc.Table, err)
+		return rec, false
+	}
+	if ok, reason := o.validator.Validate(ctx, rec, tc); !ok {
+		o.logFn("optimizer",
+			"rejected %s on %s: %s", rec.DDL, rec.Table, reason,
+		)
+		return rec, false
+	}
+	rec, rejected := o.enrichWithHypoPG(ctx, rec, tc)
+	if rejected {
+		o.logFn("optimizer",
+			"rejected %s on %s: HypoPG shows %.1f%% improvement (min %.1f%%)",
+			rec.DDL, rec.Table, rec.EstimatedImprovementPct,
+			o.cfg.HypoPGMinImprovePct)
+		return rec, false
+	}
+	rec = o.scoreConfidence(rec, tc)
+	// Record the queryids this index is expected to help so F1
+	// verify-and-revert can drop it if those queries regress (A2).
+	rec.AffectedQueryIDs = contextQueryIDs(tc)
+	// Enforce the configured confidence threshold (default 0.5). A zero
+	// threshold (unset) disables the gate.
+	if o.cfg.ConfidenceThreshold > 0 &&
+		rec.Confidence < o.cfg.ConfidenceThreshold {
+		o.logFn("optimizer",
+			"below confidence threshold (%.2f < %.2f): %s on %s",
+			rec.Confidence, o.cfg.ConfidenceThreshold,
+			rec.DDL, rec.Table)
+		return rec, false
+	}
+	return rec, true
+}
+
+// enrichWithHypoPG measures the recommendation with hypothetical
+// indexes. The verdict is tri-state (G3-B06): unavailable or
+// inconclusive (no measurable query, error) is neutral; a measured
+// improvement below HypoPGMinImprovePct — including zero or negative —
+// rejects the recommendation instead of scoring like "no HypoPG".
 func (o *Optimizer) enrichWithHypoPG(
 	ctx context.Context,
 	rec Recommendation,
 	tc TableContext,
-) Recommendation {
-	if !o.hypopg.IsAvailable(ctx) {
-		return rec
+) (Recommendation, bool) {
+	if o.whatIf == nil || !o.whatIf.IsAvailable(ctx) {
+		return rec, false
 	}
-	accepted, improvement, estSize, err := o.hypopg.Validate(ctx, rec, tc.Queries)
+	accepted, improvement, estSize, err := o.whatIf.Validate(ctx, rec, tc.Queries)
 	if err != nil {
 		o.logFn("optimizer",
 			"hypopg validation failed for %s: %v", rec.Table, err,
 		)
-		return rec
+		return rec, false
 	}
-	rec.Validated = accepted
+	if estSize <= 0 {
+		return rec, false // nothing measurable: inconclusive
+	}
 	rec.EstimatedImprovementPct = improvement
-	if estSize > 0 {
-		rec.CostEstimate = &CostEstimate{EstimatedSizeBytes: estSize}
-	}
-	if !accepted {
-		rec.Severity = "info"
-	}
-	return rec
+	rec.CostEstimate = &CostEstimate{EstimatedSizeBytes: estSize}
+	rec.Validated = accepted
+	return rec, !accepted
 }
 
 func (o *Optimizer) scoreConfidence(
@@ -309,18 +346,18 @@ func (o *Optimizer) scoreConfidence(
 		pc = 0.5
 	}
 
-	// WriteRateKnown: 1.0 if we have write rate data (non-zero snapshots).
+	// WriteRateKnown: 1.0 only when the table recorded activity
+	// (G3-B23: WriteRate >= 0 was always true).
 	var wr float64
-	if tc.WriteRate >= 0 {
+	if tc.WriteRateKnown {
 		wr = 1.0
 	}
 
-	// HypoPGValidated: from rec.Validated and rec.EstimatedImprovementPct.
+	// HypoPGValidated: rejected verdicts never reach scoring (G3-B06),
+	// so this is 1.0 for a measured accept and 0 when unavailable.
 	var hv float64
-	if rec.Validated && rec.EstimatedImprovementPct > 0 {
+	if rec.Validated {
 		hv = 1.0
-	} else if rec.Validated {
-		hv = 0.2
 	}
 
 	// SelectivityKnown: based on pg_stats data availability.
@@ -410,30 +447,4 @@ func totalQueryTime(queries []QueryInfo) float64 {
 func isBudgetExhausted(err error) bool {
 	return err != nil &&
 		strings.Contains(err.Error(), "budget exhausted")
-}
-
-// hasOpenIndexFindings checks whether the given table already has open
-// index-related findings, so the optimizer can skip redundant analysis.
-func (o *Optimizer) hasOpenIndexFindings(
-	ctx context.Context, schema, table string,
-) bool {
-	if o.pool == nil {
-		return false
-	}
-	query := `SELECT EXISTS(
-		SELECT 1 FROM sage.findings
-		WHERE category ILIKE '%index%'
-		  AND object_identifier LIKE $1 || '.%'
-		  AND status NOT IN ('resolved','suppressed')
-	)`
-	prefix := schema + "." + table
-	var exists bool
-	if err := o.pool.QueryRow(ctx, query, prefix).Scan(&exists); err != nil {
-		o.logFn("optimizer",
-			"hasOpenIndexFindings query failed for %s.%s: %v",
-			schema, table, err,
-		)
-		return false
-	}
-	return exists
 }

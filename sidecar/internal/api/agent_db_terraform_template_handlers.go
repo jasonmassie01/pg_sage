@@ -20,6 +20,10 @@ func agentDBTerraformTemplatesHandler(st *agentdb.Store) http.HandlerFunc {
 
 func agentDBCreateTerraformTemplateHandler(st *agentdb.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := requireActor(w, r)
+		if !ok {
+			return
+		}
 		m := readMap(r)
 		files := terraformFilesFromBody(m)
 		if zip64 := str(m, "zip_base64"); zip64 != "" {
@@ -41,7 +45,7 @@ func agentDBCreateTerraformTemplateHandler(st *agentdb.Store) http.HandlerFunc {
 				Name:       str(m, "name"),
 				SourceKind: firstString(str(m, "source_kind"), "inline"),
 				Files:      files,
-				CreatedBy:  str(m, "created_by"),
+				CreatedBy:  actor,
 			},
 		)
 		if err != nil {
@@ -54,9 +58,12 @@ func agentDBCreateTerraformTemplateHandler(st *agentdb.Store) http.HandlerFunc {
 
 func agentDBApproveTerraformTemplateHandler(st *agentdb.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		m := readMap(r)
+		actor, ok := requireActor(w, r)
+		if !ok {
+			return
+		}
 		template, err := st.ApproveTerraformTemplate(
-			r.Context(), r.PathValue("template_id"), str(m, "approved_by"),
+			r.Context(), r.PathValue("template_id"), actor,
 		)
 		if err != nil {
 			agentDBError(w, err)

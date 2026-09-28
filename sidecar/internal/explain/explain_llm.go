@@ -3,7 +3,6 @@ package explain
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/pg-sage/sidecar/internal/llm"
 )
@@ -20,7 +19,8 @@ Given an EXPLAIN (ANALYZE) plan in JSON format and the original ` +
 	`(indexes, query rewrites, config changes). Omit if none apply.
 
 Respond ONLY with valid JSON -- no markdown fences, no commentary:
-{"summary":"...","slow_because":["..."],"recommendations":["..."]}`
+{"summary":"...","slow_because":["..."],"recommendations":["..."]}
+` + llm.UntrustedDataRule
 
 // enhanceWithLLM sends the plan to the LLM for natural language
 // analysis and updates the result in place. On any error it logs
@@ -37,13 +37,8 @@ func (ex *Explainer) enhanceWithLLM(
 		maxTokens = 4096
 	}
 
-	userMsg := fmt.Sprintf(
-		"Query:\n%s\n\nEXPLAIN plan:\n%s",
-		result.Query, string(result.PlanJSON),
-	)
-
 	raw, _, err := ex.llmClient.Chat(
-		ctx, explainSystemPrompt, userMsg, maxTokens,
+		ctx, explainSystemPrompt, explainUserPrompt(result), maxTokens,
 	)
 	if err != nil {
 		ex.logFn(
@@ -53,6 +48,14 @@ func (ex *Explainer) enhanceWithLLM(
 	}
 
 	ex.applyLLMResponse(raw, result)
+}
+
+// explainUserPrompt delimits the query and plan as untrusted data with
+// literals and comments redacted: plan filters carry row values (G3-B07).
+func explainUserPrompt(result *ExplainResult) string {
+	return fmt.Sprintf("Query:\n%s\n\nEXPLAIN plan:\n%s",
+		llm.SanitizePromptSQL("query", result.Query),
+		llm.SanitizePromptSQL("plan", string(result.PlanJSON)))
 }
 
 // llmExplainResponse is the expected JSON shape from the LLM.
@@ -85,24 +88,4 @@ func (ex *Explainer) applyLLMResponse(
 	if len(resp.Recommendations) > 0 {
 		result.Recommendations = resp.Recommendations
 	}
-}
-
-// stripToJSON extracts JSON from LLM output that may contain
-// thinking tokens or markdown fences. Delegates to the canonical
-// llm.StripJSON with JSONAuto since this caller accepts either
-// object- or array-shaped responses.
-func stripToJSON(s string) string {
-	return llm.StripJSON(s, llm.JSONAuto)
-}
-
-// stripMarkdownFences removes ```json ... ``` wrappers.
-func stripMarkdownFences(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "```json") {
-		s = strings.TrimPrefix(s, "```json")
-	} else if strings.HasPrefix(s, "```") {
-		s = strings.TrimPrefix(s, "```")
-	}
-	s = strings.TrimSuffix(s, "```")
-	return strings.TrimSpace(s)
 }

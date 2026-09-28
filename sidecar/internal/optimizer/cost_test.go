@@ -106,10 +106,10 @@ func TestEstimateWriteAmplification(t *testing.T) {
 
 func TestComputeQuerySavings(t *testing.T) {
 	tests := []struct {
-		name        string
-		beforeMs    float64
-		afterMs     float64
-		callsPerDay int64
+		name         string
+		beforeMs     float64
+		afterMs      float64
+		callsPerDay  int64
 		wantPositive bool
 		wantZero     bool
 	}{
@@ -121,11 +121,11 @@ func TestComputeQuerySavings(t *testing.T) {
 			wantPositive: true,
 		},
 		{
-			name:     "same cost yields zero",
-			beforeMs: 50.0,
-			afterMs:  50.0,
+			name:        "same cost yields zero",
+			beforeMs:    50.0,
+			afterMs:     50.0,
 			callsPerDay: 1000,
-			wantZero: true,
+			wantZero:    true,
 		},
 		{
 			name:        "zero calls yields zero",

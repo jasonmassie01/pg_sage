@@ -33,77 +33,83 @@ func UnwrapText(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
-// isThinkingModel returns true for models whose internal reasoning
-// tokens consume the max_tokens output budget (Gemini 2.5+ series, which
-// emit a thought_signature, and OpenAI o-series).
-func isThinkingModel(model string) bool {
-	m := strings.ToLower(model)
-	return strings.Contains(m, "gemini-2.5") ||
-		strings.Contains(m, "gemini-3") ||
-		strings.Contains(m, "gemini-2.0-flash-thinking") ||
-		strings.Contains(m, "o1") ||
-		strings.Contains(m, "o3")
+// thinkingModelMarkers identify models whose internal reasoning tokens
+// consume the max_tokens output budget: Gemini 2.5+/3, OpenAI o-series,
+// DeepSeek R1/reasoner and Qwen QwQ.
+var thinkingModelMarkers = []string{
+	"gemini-2.5", "gemini-3", "gemini-2.0-flash-thinking",
+	"deepseek-r1", "deepseek-reasoner", "qwq", "reasoning", "thinking",
 }
 
-// RepairTruncatedJSON attempts to salvage a truncated JSON array
-// by finding the last complete object and closing the array.
+// isThinkingModel returns true for models whose internal reasoning
+// tokens consume the max_tokens output budget.
+func isThinkingModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	for _, marker := range thinkingModelMarkers {
+		if strings.Contains(m, marker) {
+			return true
+		}
+	}
+	// OpenAI o-series: o1, o3, o4 (optionally -mini/-pro, provider prefix).
+	if i := strings.LastIndex(m, "/"); i >= 0 {
+		m = m[i+1:]
+	}
+	return len(m) >= 2 && m[0] == 'o' && m[1] >= '1' && m[1] <= '9'
+}
+
+// RepairTruncatedJSON attempts to salvage a truncated JSON array by
+// cutting after the last complete top-level element and closing the
+// array. Nesting depth is tracked, so elements that themselves contain
+// arrays or objects (e.g. "affected_queries":[...]) are handled.
 //
 // When thinking models exhaust the output token budget, the JSON
-// response is cut mid-object:
+// response is cut mid-element:
 //
-//	[{"hint":"HashJoin(t1 t2)","rationale":"reason"},{"hint":"Set(work_mem
+//	[{"hint":"HashJoin(t1 t2)","q":["a"]},{"hint":"Set(work_mem
 //
-// This function finds the last complete `}` and appends `]`.
+// becomes [{"hint":"HashJoin(t1 t2)","q":["a"]}]. Input that is not a
+// truncated array is returned trimmed and unchanged.
 func RepairTruncatedJSON(s string) string {
 	s = strings.TrimSpace(s)
-
-	// Already looks complete — nothing to repair.
 	start := strings.Index(s, "[")
 	if start < 0 {
 		return s
 	}
-	end := strings.LastIndex(s, "]")
-	if end > start {
-		return s // Has both [ and ] — let the caller parse as-is
+	lastComplete, closed := lastCompleteElement(s, start)
+	if closed || lastComplete < 0 {
+		return s // complete array, or nothing salvageable
 	}
+	return s[start:lastComplete+1] + "]"
+}
 
-	// Find the last complete object (closing brace at depth 0 relative
-	// to the object).
+// lastCompleteElement scans the array opened at s[start] and returns
+// the index of the final byte of the last complete top-level element,
+// and whether the array itself was closed.
+func lastCompleteElement(s string, start int) (int, bool) {
 	lastComplete := -1
-	depth := 0
-	inString := false
-	escaped := false
+	depth := 1
+	inString, escaped := false, false
 	for i := start + 1; i < len(s); i++ {
 		c := s[i]
-		if escaped {
+		switch {
+		case escaped:
 			escaped = false
-			continue
-		}
-		if c == '\\' && inString {
+		case inString && c == '\\':
 			escaped = true
-			continue
-		}
-		if c == '"' {
+		case c == '"':
 			inString = !inString
-			continue
-		}
-		if inString {
-			continue
-		}
-		switch c {
-		case '{':
+		case inString:
+		case c == '{' || c == '[':
 			depth++
-		case '}':
+		case c == '}' || c == ']':
 			depth--
 			if depth == 0 {
+				return lastComplete, true
+			}
+			if depth == 1 {
 				lastComplete = i
 			}
 		}
 	}
-
-	if lastComplete < 0 {
-		return s // No complete object found
-	}
-
-	return s[start:lastComplete+1] + "]"
+	return lastComplete, false
 }

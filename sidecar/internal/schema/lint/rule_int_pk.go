@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 type ruleIntPK struct{}
@@ -72,12 +74,12 @@ func (r *ruleIntPK) collect(rows interface {
 				"int4 PKs risk overflow as the table grows. Migration " +
 				"to bigint is costly at scale",
 			Suggestion: fmt.Sprintf(
-				"Migrate to bigint early: ALTER TABLE %s.%s "+
+				"Migrate to bigint early: ALTER TABLE %s "+
 					"ALTER COLUMN %s TYPE bigint",
-				schema, table, column),
+				sanitize.QuoteQualifiedName(schema, table), sanitize.QuoteIdentifier(column)),
 			SQL: fmt.Sprintf(
-				"ALTER TABLE %s.%s ALTER COLUMN %s TYPE bigint;",
-				schema, table, column),
+				"ALTER TABLE %s ALTER COLUMN %s TYPE bigint;",
+				sanitize.QuoteQualifiedName(schema, table), sanitize.QuoteIdentifier(column)),
 			TableSize: estRows,
 			FirstSeen: now,
 			LastSeen:  now,

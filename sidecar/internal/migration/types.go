@@ -12,6 +12,8 @@ type DDLClassification struct {
 	SchemaName      string // extracted from statement
 	MinPGVersion    int    // 0 = all versions
 	Description     string // human-readable explanation
+	ColumnName      string // ALTER COLUMN target, when extracted
+	TargetType      string // ALTER COLUMN ... TYPE target, when extracted
 }
 
 // SQLParser abstracts DDL classification so a future pg_query_go
@@ -39,4 +41,7 @@ type DDLRisk struct {
 	SafeAlternative string
 	EstimatedLockMs int64
 	Description     string
+	// StatsKnown is true when pg_class returned analyzed statistics
+	// (reltuples >= 0) for the target table.
+	StatsKnown bool
 }

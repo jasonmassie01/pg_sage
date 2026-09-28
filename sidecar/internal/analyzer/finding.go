@@ -2,7 +2,6 @@ package analyzer
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,99 +29,6 @@ type Finding struct {
 	// written as SQL NULL.
 	RuleID      string
 	ImpactScore float64
-}
-
-// UpsertFindings persists a batch of findings, incrementing occurrence_count
-// for existing open findings and inserting new ones.
-func UpsertFindings(ctx context.Context, pool *pgxpool.Pool, findings []Finding) error {
-	for _, f := range findings {
-		if isSelfMonitoringFinding(f) {
-			continue
-		}
-		detailJSON, err := json.Marshal(f.Detail)
-		if err != nil {
-			return err
-		}
-
-		var existingID string
-		var count int
-		err = pool.QueryRow(ctx,
-			`/* pg_sage */ SELECT id, occurrence_count FROM sage.findings
-			 WHERE category = $1 AND object_identifier = $2 AND status = 'open'`,
-			f.Category, f.ObjectIdentifier,
-		).Scan(&existingID, &count)
-
-		if err == nil {
-			// Existing open finding — bump count and refresh every
-			// user-visible field. Titles, recommendations, and SQL
-			// snippets can legitimately change between scans (the lint
-			// subsystem re-computes impact estimates; tier-1 rules
-			// re-compute recommendation text), so overwriting is
-			// correct. rule_id / impact_score are only refreshed when
-			// the caller supplied a non-empty / non-zero value.
-			_, err = pool.Exec(ctx,
-				`/* pg_sage */ UPDATE sage.findings
-				 SET last_seen = now(),
-				     occurrence_count = occurrence_count + 1,
-				     detail = $1,
-				     severity = $2,
-				     title = $3,
-				     recommendation = $4,
-				     recommended_sql = $5,
-				     rule_id = COALESCE(NULLIF($6, ''), rule_id),
-				     impact_score = CASE
-				         WHEN $7 <> 0 THEN $7::real
-				         ELSE impact_score END
-				 WHERE id = $8`,
-				detailJSON, f.Severity, f.Title,
-				f.Recommendation, f.RecommendedSQL,
-				f.RuleID, f.ImpactScore, existingID,
-			)
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if err != pgx.ErrNoRows {
-			return err
-		}
-		recentlyResolved, err := recentlyResolvedByAction(
-			ctx, pool, f.Category, f.ObjectIdentifier)
-		if err != nil {
-			return err
-		}
-		if recentlyResolved {
-			continue
-		}
-
-		// Insert new finding. Pass rule_id/impact_score as NULL when
-		// unset so non-lint findings (the common case) don't populate
-		// these columns.
-		var ruleID any
-		if f.RuleID != "" {
-			ruleID = f.RuleID
-		}
-		var impactScore any
-		if f.ImpactScore != 0 {
-			impactScore = f.ImpactScore
-		}
-		_, err = pool.Exec(ctx,
-			`/* pg_sage */ INSERT INTO sage.findings
-			 (category, severity, object_type, object_identifier,
-			  title, detail, recommendation, recommended_sql,
-			  rollback_sql, status, last_seen, occurrence_count,
-			  rule_id, impact_score)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',now(),1,
-			         $10,$11)`,
-			f.Category, f.Severity, f.ObjectType, f.ObjectIdentifier,
-			f.Title, detailJSON, f.Recommendation, f.RecommendedSQL,
-			f.RollbackSQL, ruleID, impactScore,
-		)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func isSelfMonitoringFinding(f Finding) bool {

@@ -372,7 +372,7 @@ func TestCoverage_CheckSessionLoad(t *testing.T) {
 	_ = canLoad
 }
 
-func TestCoverage_ConfigureSession_SharedPreload(t *testing.T) {
+func TestCoverage_ConfigureTransaction_SharedPreload(t *testing.T) {
 	pool := acquireTestPool(t)
 	ctx := context.Background()
 
@@ -391,69 +391,36 @@ func TestCoverage_ConfigureSession_SharedPreload(t *testing.T) {
 	}
 	defer conn.Release()
 
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
 	scfg := DefaultSessionConfig(200)
-	err = ConfigureSession(ctx, conn, avail, scfg)
-	if err != nil {
-		t.Fatalf("ConfigureSession: %v", err)
+	if err := ConfigureTransaction(ctx, tx, avail, scfg); err != nil {
+		t.Fatalf("ConfigureTransaction: %v", err)
+	}
+	var inTx string
+	if err := tx.QueryRow(ctx,
+		"SELECT current_setting('auto_explain.log_min_duration')").Scan(&inTx); err != nil {
+		t.Fatalf("read setting in tx: %v", err)
+	}
+	if inTx != "200ms" {
+		t.Errorf("log_min_duration inside tx = %q, want 200ms", inTx)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	var after string
+	if err := conn.QueryRow(ctx,
+		"SELECT current_setting('auto_explain.log_min_duration')").Scan(&after); err != nil {
+		t.Fatalf("read setting after tx: %v", err)
+	}
+	if after != "-1" {
+		t.Errorf("log_min_duration leaked after tx: %q, want -1", after)
 	}
 }
 
-func TestCoverage_ConfigureSessionBatch(t *testing.T) {
-	pool := acquireTestPool(t)
-	ctx := context.Background()
-
-	avail, err := Detect(ctx, pool)
-	if err != nil {
-		t.Fatalf("Detect: %v", err)
-	}
-	if !avail.Available {
-		t.Skip("skip: auto_explain not available on this instance")
-	}
-
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire connection: %v", err)
-	}
-	defer conn.Release()
-
-	scfg := DefaultSessionConfig(300)
-	err = ConfigureSessionBatch(ctx, conn, avail, scfg)
-	if err != nil {
-		t.Fatalf("ConfigureSessionBatch: %v", err)
-	}
-}
-
-func TestCoverage_ConfigureSession_AllFlagsDisabled(t *testing.T) {
-	pool := acquireTestPool(t)
-	ctx := context.Background()
-
-	avail, err := Detect(ctx, pool)
-	if err != nil {
-		t.Fatalf("Detect: %v", err)
-	}
-	if !avail.Available {
-		t.Skip("skip: auto_explain not available on this instance")
-	}
-
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire connection: %v", err)
-	}
-	defer conn.Release()
-
-	scfg := SessionConfig{
-		LogMinDurationMs: 500,
-		LogAnalyze:       false,
-		LogBuffers:       false,
-		LogNested:        false,
-	}
-	err = ConfigureSession(ctx, conn, avail, scfg)
-	if err != nil {
-		t.Fatalf("ConfigureSession (flags disabled): %v", err)
-	}
-}
-
-func TestCoverage_ConfigureSessionBatch_AllFlagsDisabled(t *testing.T) {
+func TestCoverage_ConfigureTransaction_AllFlagsDisabled(t *testing.T) {
 	pool := acquireTestPool(t)
 	ctx := context.Background()
 
@@ -477,9 +444,21 @@ func TestCoverage_ConfigureSessionBatch_AllFlagsDisabled(t *testing.T) {
 		LogBuffers:       false,
 		LogNested:        false,
 	}
-	err = ConfigureSessionBatch(ctx, conn, avail, scfg)
+	tx, err := conn.Begin(ctx)
 	if err != nil {
-		t.Fatalf("ConfigureSessionBatch (flags disabled): %v", err)
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := ConfigureTransaction(ctx, tx, avail, scfg); err != nil {
+		t.Fatalf("ConfigureTransaction (flags disabled): %v", err)
+	}
+	var analyze string
+	if err := tx.QueryRow(ctx,
+		"SELECT current_setting('auto_explain.log_analyze')").Scan(&analyze); err != nil {
+		t.Fatalf("read log_analyze: %v", err)
+	}
+	if analyze != "off" {
+		t.Errorf("log_analyze = %q with LogAnalyze disabled, want off", analyze)
 	}
 }
 
@@ -579,7 +558,7 @@ func TestCoverage_StorePlan_Success(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	err := c.storePlan(
-		ctx, queryID, "SELECT 1", planJSON, 55.0, 2.5,
+		ctx, queryID, "SELECT 1", planJSON, "auto_explain", 55.0, 2.5,
 	)
 	if err != nil {
 		t.Fatalf("storePlan returned error: %v", err)
@@ -636,7 +615,7 @@ func TestCoverage_StorePlan_CancelledContext(t *testing.T) {
 
 	err := c.storePlan(
 		ctx, 999999902, "SELECT 1",
-		[]byte(`[{"Plan": {"Total Cost": 1.0}}]`), 1.0, 0.0,
+		[]byte(`[{"Plan": {"Total Cost": 1.0}}]`), "auto_explain", 1.0, 0.0,
 	)
 	if err == nil {
 		t.Error("expected error from cancelled context")
@@ -934,7 +913,7 @@ func TestCoverage_CaptureOnDemand_WithSharedPreload(t *testing.T) {
 	}
 }
 
-func TestCoverage_ConfigureSession_SessionLoadMethod(t *testing.T) {
+func TestCoverage_ConfigureTransaction_SessionLoadMethod(t *testing.T) {
 	pool := acquireTestPool(t)
 	ctx := context.Background()
 
@@ -952,43 +931,21 @@ func TestCoverage_ConfigureSession_SessionLoadMethod(t *testing.T) {
 	}
 	scfg := DefaultSessionConfig(200)
 
-	err = ConfigureSession(ctx, conn, avail, scfg)
-	// If LOAD succeeds, great. If it fails (permission denied),
-	// the error should mention "load auto_explain".
+	tx, err := conn.Begin(ctx)
 	if err != nil {
-		if !strings.Contains(err.Error(), "load auto_explain") {
-			t.Errorf(
-				"unexpected error: %v (expected 'load auto_explain')",
-				err,
-			)
-		}
+		t.Fatalf("begin: %v", err)
 	}
-}
-
-func TestCoverage_ConfigureSessionBatch_SessionLoadMethod(
-	t *testing.T,
-) {
-	pool := acquireTestPool(t)
-	ctx := context.Background()
-
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := ConfigureTransaction(ctx, tx, avail, scfg); err != nil {
+		t.Fatalf("ConfigureTransaction with session_load: %v", err)
 	}
-	defer conn.Release()
-
-	// Force session_load to exercise the LOAD branch in batch.
-	avail := &Availability{
-		SessionLoad: true,
-		Available:   true,
-		Method:      "session_load",
+	var analyze string
+	if err := tx.QueryRow(ctx,
+		"SELECT current_setting('auto_explain.log_analyze')").Scan(&analyze); err != nil {
+		t.Fatalf("read log_analyze after LOAD: %v", err)
 	}
-	scfg := DefaultSessionConfig(200)
-
-	err = ConfigureSessionBatch(ctx, conn, avail, scfg)
-	if err != nil {
-		// Batch with LOAD may fail; that's ok.
-		t.Logf("ConfigureSessionBatch session_load: %v", err)
+	if analyze != "on" {
+		t.Errorf("log_analyze inside tx = %q, want on", analyze)
 	}
 }
 

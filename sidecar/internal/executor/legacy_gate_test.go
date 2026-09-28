@@ -7,8 +7,9 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
-// ShouldExecute keeps historical assertions focused on the canonical policy
-// evaluator after the duplicate production gate was removed.
+// ShouldExecute keeps historical trust-ramp assertions meaningful: it asks
+// the standing gate (the only policy authority) about a representative
+// typed contract for the finding's risk tier.
 func ShouldExecute(
 	f analyzer.Finding, cfg *config.Config, rampStart time.Time,
 	isReplica, emergencyStop bool,
@@ -17,11 +18,13 @@ func ShouldExecute(
 	if risk == "high_risk" {
 		risk = "high"
 	}
-	decision := EvaluateActionPolicy(ActionContract{
-		ActionType: "legacy_test_action", BaseRiskTier: risk,
-	}, ActionPolicyContext{
-		Config: cfg, ExecutionMode: "auto", RampStart: rampStart,
-		Now: time.Now(), IsReplica: isReplica, EmergencyStop: emergencyStop,
+	contract := riskContract(risk)
+	if contract.ActionType == "" {
+		return false
+	}
+	decision := policyVerdict(contract, verdictInput{
+		cfg: cfg, now: time.Now(), rampStart: rampStart,
+		isReplica: isReplica, stopped: emergencyStop,
 	})
 	return decision.Decision == PolicyDecisionExecute
 }

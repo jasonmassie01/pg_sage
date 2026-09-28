@@ -179,11 +179,7 @@ func TestProvisionLifecycleStatusAndDestroyDryRun(t *testing.T) {
 		t.Fatalf("destroy without restore err = %v, want ErrRestoreRequired", err)
 	}
 
-	if _, err := st.RecordBackup(ctx, id, BackupRequest{
-		BackupID: "backup_lifecycle_cloudsql",
-		Provider: ProviderGCPCloudSQL,
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, testDrill("backup_lifecycle_cloudsql")); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 	destroyAttempt, err := st.DestroyProvisionDryRun(
@@ -312,11 +308,7 @@ func TestReconcileAbandonedDeploymentsPlansSafeCloudDestroy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expire deployments: %v", err)
 	}
-	if _, err := st.RecordBackup(ctx, safeID, BackupRequest{
-		BackupID: "backup_reconcile_lakebase",
-		Provider: ProviderDatabricksLakebase,
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, safeID, testDrill("backup_reconcile_lakebase")); err != nil {
 		t.Fatalf("RecordBackup: %v", err)
 	}
 
@@ -364,11 +356,7 @@ func TestReconcileAbandonedDeploymentsBlocksMalformedCloudPlan(t *testing.T) {
 		WHERE deployment_id=$1`, id); err != nil {
 		t.Fatalf("expire malformed deployment: %v", err)
 	}
-	if _, err := st.RecordBackup(ctx, id, BackupRequest{
-		BackupID: "backup_reconcile_malformed",
-		Provider: ProviderAWSRDS,
-		Status:   "restore_verified",
-	}); err != nil {
+	if _, err := st.RecordRestoreDrill(ctx, id, testDrill("backup_reconcile_malformed")); err != nil {
 		t.Fatalf("RecordBackup malformed plan: %v", err)
 	}
 
@@ -390,7 +378,7 @@ func TestReconcileAbandonedDeploymentsBlocksMalformedCloudPlan(t *testing.T) {
 	}
 }
 
-func TestBackupAssuranceManagedProviderRecordsVerifiedCheck(t *testing.T) {
+func TestBackupAssuranceManagedProviderRecordsPlannedCheck(t *testing.T) {
 	st, ctx, pool := requireAgentDB(t)
 	defer pool.Close()
 	id := "adb_backup_assurance_rds"
@@ -419,7 +407,8 @@ func TestBackupAssuranceManagedProviderRecordsVerifiedCheck(t *testing.T) {
 	if assurance.SafeForDestroy {
 		t.Fatalf("safe for destroy should require restore verification: %#v", assurance)
 	}
-	if assurance.BackupStatus != "verified" {
+	// SURF-06: the command path is a dry run and never records "verified".
+	if assurance.BackupStatus != "planned" {
 		t.Fatalf("backup status = %s", assurance.BackupStatus)
 	}
 	if assurance.Attempt.Kind != "backup_check" ||
@@ -434,8 +423,8 @@ func TestBackupAssuranceManagedProviderRecordsVerifiedCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Backups: %v", err)
 	}
-	if !containsBackupStatus(backups, "verified") {
-		t.Fatalf("backups missing verified record: %#v", backups)
+	if !containsBackupStatus(backups, "planned") || containsBackupStatus(backups, "verified") {
+		t.Fatalf("dry-run check must record a plan, not verified: %#v", backups)
 	}
 }
 

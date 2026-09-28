@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -108,6 +109,10 @@ func queryHintsHandler(
 			}
 			for _, hint := range dbHints {
 				hint["database_name"] = selected.name
+				// queryid is a 64-bit hash; JSON numbers lose
+				// precision above 2^53 in browsers (SURF-09).
+				hint["queryid"] = strconv.FormatInt(
+					int64Value(hint["queryid"]), 10)
 				hints = append(hints, hint)
 			}
 		}

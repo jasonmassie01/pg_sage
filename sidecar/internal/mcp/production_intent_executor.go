@@ -105,7 +105,7 @@ func (executor *ProductionIntentExecutor) declareTableContract(
 		DatabaseID: request.DatabaseID, Schema: schemaName, Table: tableName,
 		AppendOnly: input.AppendOnly, Retention: retention,
 		ExpectedPK: strings.TrimSpace(input.ExpectedPK), Exemptions: input.Exemptions,
-		DeclaredBy: "mcp-agent", EvidenceID: decision.EvidenceID,
+		DeclaredBy: ActorFromContext(ctx), EvidenceID: decision.EvidenceID,
 	})
 }
 

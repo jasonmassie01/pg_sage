@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
@@ -33,11 +34,43 @@ Rules:
 Output format:
 [{"hint_directive": "Set(work_mem \"256MB\") HashJoin(t1 t2)", "rationale": "Why these hints help", "confidence": 0.85, "suggested_rewrite": "", "rewrite_rationale": ""}]
 
-If no hints are warranted, return: []`
+If no hints are warranted, return: []
+
+` + llm.UntrustedDataRule
+}
+
+// sanitizeQueryContext redacts literals and strips comments from every
+// SQL-bearing field before it reaches the LLM (G3-B07): the query text
+// (pg_stat_statements keeps comments, a prompt-injection vector), the
+// auto_explain plan JSON (Filter/Index Cond literals are row values) and
+// partial-index predicates.
+func sanitizeQueryContext(qctx QueryContext) QueryContext {
+	qctx.Candidate.Query = llm.SanitizeForLLM(qctx.Candidate.Query)
+	qctx.PlanJSON = llm.SanitizeForLLM(qctx.PlanJSON)
+	tables := make([]TableDetail, len(qctx.Tables))
+	for i, t := range qctx.Tables {
+		idx := make([]IndexDetail, len(t.Indexes))
+		for j, d := range t.Indexes {
+			d.Definition = llm.SanitizeForLLM(d.Definition)
+			idx[j] = d
+		}
+		t.Indexes = idx
+		tables[i] = t
+	}
+	qctx.Tables = tables
+	return qctx
+}
+
+// wrapTunerPrompt delimits the DB-derived context as untrusted data and
+// appends the output instruction outside the block.
+func wrapTunerPrompt(body string) string {
+	return llm.UntrustedData("query_context", body) +
+		"\n\nRESPOND NOW with ONLY the JSON array. Start with [ immediately."
 }
 
 // FormatTunerPrompt builds the user prompt from a QueryContext.
 func FormatTunerPrompt(qctx QueryContext) string {
+	qctx = sanitizeQueryContext(qctx)
 	var b strings.Builder
 	c := qctx.Candidate
 
@@ -61,11 +94,7 @@ func FormatTunerPrompt(qctx QueryContext) string {
 	if len(prompt) > maxTunerPromptChars {
 		return truncatePrompt(qctx)
 	}
-	b.WriteString(
-		"\nRESPOND NOW with ONLY the JSON array. " +
-			"Start with [ immediately.",
-	)
-	return b.String()
+	return wrapTunerPrompt(prompt)
 }
 
 func formatSpecializedWorkloadHints(b *strings.Builder, query string) {
@@ -258,11 +287,7 @@ func truncatePrompt(qctx QueryContext) string {
 	formatSystem(&b, qctx.System)
 	formatFallback(&b, qctx.FallbackHints)
 
-	b.WriteString(
-		"\nRESPOND NOW with ONLY the JSON array. " +
-			"Start with [ immediately.",
-	)
-	return b.String()
+	return wrapTunerPrompt(b.String())
 }
 
 func humanBytes(b int64) string {

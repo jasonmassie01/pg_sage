@@ -115,8 +115,12 @@ func uncoveredSignals(n int) []*Signal {
 // E2E: Tier 2 through full Analyze() pipeline
 // ---------------------------------------------------------------------------
 
-// TestTier2E2E_HappyPath fires 3 uncovered signals through Analyze()
-// with an LLM wired up, expects a Tier 2 incident.
+// TestTier2E2E_HappyPath drives Analyze() with snapshots whose real
+// detectors fire three co-occurring production signals
+// (idle_in_tx_elevated, wal_growth_spike, lock_contention); Tier 1
+// explains two of them, so Tier 2 must correlate the unexplained one.
+// It previously injected made-up signal IDs, which hid that Tier 2 could
+// never fire in production (substrate-B2).
 func TestTier2E2E_HappyPath(t *testing.T) {
 	srv := tier2FakeServer(validTier2Response())
 	defer srv.Close()
@@ -125,11 +129,8 @@ func TestTier2E2E_HappyPath(t *testing.T) {
 	eng.WithLLM(tier2LLMClient(srv.URL))
 	eng.cfg.LLMCorrelationThreshold = 3
 
-	// Feed 3 uncovered signals via LogSource (custom IDs that no
-	// decision tree consumes).
-	eng.SetLogSource(&mockLogSource{signals: uncoveredSignals(3)})
-	incidents := eng.Analyze(
-		quietSnapshot(), quietSnapshot(), testConfig(), nil)
+	curr, prev, lcf := realTier2Inputs()
+	incidents := eng.Analyze(curr, prev, testConfig(), lcf)
 
 	// Should have exactly 1 Tier 2 incident.
 	var llmInc *Incident
@@ -160,8 +161,9 @@ func TestTier2E2E_HappyPath(t *testing.T) {
 		t.Errorf("RecommendedSQL = %q, want pg_terminate_backend",
 			llmInc.RecommendedSQL)
 	}
-	if len(llmInc.SignalIDs) != 3 {
-		t.Errorf("SignalIDs len = %d, want 3", len(llmInc.SignalIDs))
+	if !stringsEqual(llmInc.SignalIDs, []string{"idle_in_tx_elevated"}) {
+		t.Errorf("SignalIDs = %v, want [idle_in_tx_elevated]",
+			llmInc.SignalIDs)
 	}
 }
 

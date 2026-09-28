@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -8,27 +9,17 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
-// TestEvaluateActionPolicyConcurrentHotReload is primarily a race-detector
+// TestActionPolicyConcurrentHotReload is primarily a race-detector
 // regression test. A live config writer uses the documented hot-reload lock;
-// policy evaluation must use the matching read lock before copying fields.
-func TestEvaluateActionPolicyConcurrentHotReload(t *testing.T) {
-	cfg := &config.Config{
-		Trust: config.TrustConfig{
-			Level:         "autonomous",
-			Tier3Safe:     true,
-			Tier3Moderate: true,
-		},
-	}
-	contract := ActionContract{
-		ActionType:   "create_index",
-		BaseRiskTier: "safe",
-	}
-	ctx := ActionPolicyContext{
-		Config:        cfg,
-		ExecutionMode: "auto",
-		Now:           time.Now(),
-		RampStart:     time.Now().Add(-32 * 24 * time.Hour),
-	}
+// the gate's runtime snapshot must read under the matching read lock.
+func TestActionPolicyConcurrentHotReload(t *testing.T) {
+	cfg := &config.Config{Trust: config.TrustConfig{
+		Level: "autonomous", Tier3Safe: true, Tier3Moderate: true,
+	}}
+	exec := New(nil, cfg, nil, time.Now().Add(-32*24*time.Hour), noopExecLog)
+	withTestStandingGate(exec)
+	exec.SetExecutionMode("auto")
+	contracts := []ActionContract{AnalyzeTableContract()}
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -47,11 +38,11 @@ func TestEvaluateActionPolicyConcurrentHotReload(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 1_000; i++ {
-			decision := EvaluateActionPolicy(contract, ctx)
+			decision := exec.ExplainFamilies(context.Background(), contracts, false)[0]
 			switch decision.Decision {
 			case PolicyDecisionExecute, PolicyDecisionObserveOnly:
 			default:
-				t.Errorf("unexpected decision during reload: %q", decision.Decision)
+				t.Errorf("unexpected decision during reload: %#v", decision)
 				return
 			}
 		}
@@ -59,5 +50,5 @@ func TestEvaluateActionPolicyConcurrentHotReload(t *testing.T) {
 	wg.Wait()
 }
 
-// No integration test: policy evaluation is a pure in-memory boundary and the
-// production race is exercised directly with the same package-level lock.
+// No integration test: evaluation is in-memory and the production race is
+// exercised directly with the same package-level lock.

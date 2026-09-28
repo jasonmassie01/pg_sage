@@ -2,6 +2,7 @@ package lint
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -158,24 +159,33 @@ func TestSchemaExcludeSQL_ExtraSchemas(t *testing.T) {
 	assert.Contains(t, result, "'test_data'")
 }
 
-func TestSchemaExcludeSQL_RejectsUnsafe(t *testing.T) {
+// Since G2-B27 unusual schema names are honoured as quoted literals
+// rather than dropped; injection attempts stay inert inside the literal.
+func TestSchemaExcludeSQL_QuotesUnusualNames(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
+		want  string
 	}{
-		{"sql_injection", "'; DROP TABLE users;--"},
-		{"uppercase", "MySchema"},
-		{"spaces", "my schema"},
-		{"dash", "my-schema"},
-		{"dot", "my.schema"},
+		{"sql_injection", "'; DROP TABLE users;--", `'''; DROP TABLE users;--'`},
+		{"uppercase", "MySchema", `'MySchema'`},
+		{"spaces", "my schema", `'my schema'`},
+		{"dash", "my-schema", `'my-schema'`},
+		{"dot", "my.schema", `'my.schema'`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			result := schemaExcludeSQL([]string{tc.input})
-			assert.NotContains(t, result, "'"+tc.input+"'",
-				"unsafe input %q should be rejected", tc.input)
+			assert.True(t, strings.HasSuffix(result, ","+tc.want),
+				"exclude list %s should end with %s", result, tc.want)
 		})
 	}
+}
+
+func TestSchemaExcludeSQL_RejectsBackslash(t *testing.T) {
+	baseline := schemaExcludeSQL(nil)
+	assert.Equal(t, baseline, schemaExcludeSQL([]string{`a\'b`}),
+		"entries with a backslash must be skipped")
 }
 
 func TestSchemaExcludeSQL_RejectsEmptyString(t *testing.T) {

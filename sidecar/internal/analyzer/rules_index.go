@@ -7,6 +7,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 type tableKey struct{ schema, table string }
@@ -61,7 +62,8 @@ func extractIndexNameFromSQL(sql string) string {
 }
 
 // ruleUnusedIndexes flags indexes with zero scans that are not primary keys,
-// not unique, and have been observed longer than the configured window.
+// not unique, and have been observed unused longer than the configured
+// window -- and longer than the statistics have existed (G2-B07).
 func ruleUnusedIndexes(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
@@ -75,13 +77,17 @@ func ruleUnusedIndexes(
 	var findings []Finding
 
 	for _, idx := range current.Indexes {
-		if isSystemSchema(idx.SchemaName) {
+		ident := idx.SchemaName + "." + idx.IndexRelName
+		if idx.IdxScan > 0 {
+			// Used since the stats epoch: restart the observation window so
+			// a later pg_stat_reset/crash does not look like weeks of disuse.
+			delete(extras.FirstSeen, ident)
 			continue
 		}
-		if idx.IdxScan > 0 || idx.IsPrimary || idx.IsUnique || !idx.IsValid {
+		if isSystemSchema(idx.SchemaName) ||
+			idx.IsPrimary || idx.IsUnique || !idx.IsValid {
 			continue
 		}
-
 		// Skip indexes recently created by the executor.
 		if _, ok := extras.RecentlyCreated[idx.IndexRelName]; ok {
 			continue
@@ -89,101 +95,131 @@ func ruleUnusedIndexes(
 		if indexIsOnlyFKSupport(idx, current.Indexes, fkRequirements) {
 			continue
 		}
-
-		ident := idx.SchemaName + "." + idx.IndexRelName
-		first, ok := extras.FirstSeen[ident]
-		if !ok {
-			extras.FirstSeen[ident] = now
+		if !unusedForWindow(extras, ident, window, now) {
 			continue
 		}
-		if now.Sub(first) < window {
-			continue
-		}
-
-		dropSQL := fmt.Sprintf(
-			"DROP INDEX CONCURRENTLY %s.%s;",
-			idx.SchemaName, idx.IndexRelName,
-		)
-
-		tableKey := idx.SchemaName + "." + idx.RelName
-		severity := "warning"
-		rec := "Drop unused index to save disk and write overhead."
-		detail := map[string]any{
-			"table":     idx.RelName,
-			"index_def": idx.IndexDef,
-			"size":      idx.IndexBytes,
-		}
-		if unlogged[tableKey] {
-			severity = "info"
-			detail["unlogged"] = true
-			rec += " (unlogged table — indexes lost on crash)"
-		}
-
-		findings = append(findings, Finding{
-			Category:         "unused_index",
-			Severity:         severity,
-			ObjectType:       "index",
-			ObjectIdentifier: ident,
-			Title: fmt.Sprintf(
-				"Unused index %s (0 scans for %d+ days)",
-				ident, cfg.Analyzer.UnusedIndexWindowDays,
-			),
-			Detail:         detail,
-			Recommendation: rec,
-			RecommendedSQL: dropSQL,
-			RollbackSQL:    idx.IndexDef + ";",
-			ActionRisk:     "safe",
-		})
+		findings = append(findings, unusedIndexFinding(
+			idx, ident, unlogged, cfg.Analyzer.UnusedIndexWindowDays))
 	}
 	return findings
 }
 
-// ruleInvalidIndexes flags indexes where IsValid is false.
+// unusedForWindow records the first zero-scan observation and reports
+// whether both that observation and the stats epoch (latest of
+// stats_reset and postmaster start) are at least window old.
+func unusedForWindow(
+	extras *RuleExtras, ident string, window time.Duration, now time.Time,
+) bool {
+	first, ok := extras.FirstSeen[ident]
+	if !ok {
+		extras.FirstSeen[ident] = now
+		return false
+	}
+	if now.Sub(first) < window {
+		return false
+	}
+	return extras.StatsEpoch.IsZero() || now.Sub(extras.StatsEpoch) >= window
+}
+
+func unusedIndexFinding(
+	idx collector.IndexStats, ident string,
+	unlogged map[string]bool, windowDays int,
+) Finding {
+	severity := "warning"
+	rec := "Drop unused index to save disk and write overhead."
+	detail := map[string]any{
+		"table":     idx.RelName,
+		"index_def": idx.IndexDef,
+		"size":      idx.IndexBytes,
+	}
+	if unlogged[idx.SchemaName+"."+idx.RelName] {
+		severity = "info"
+		detail["unlogged"] = true
+		rec += " (unlogged table — indexes lost on crash)"
+	}
+	return Finding{
+		Category:         "unused_index",
+		Severity:         severity,
+		ObjectType:       "index",
+		ObjectIdentifier: ident,
+		Title: fmt.Sprintf(
+			"Unused index %s (0 scans for %d+ days)", ident, windowDays,
+		),
+		Detail:         detail,
+		Recommendation: rec,
+		RecommendedSQL: dropIndexSQL(idx),
+		RollbackSQL:    idx.IndexDef + ";",
+		ActionRisk:     "safe",
+	}
+}
+
+// ruleInvalidIndexes flags indexes where IsValid is false. An index is
+// invalid for the whole duration of CREATE INDEX CONCURRENTLY / REINDEX
+// CONCURRENTLY, so (G2-B09) nothing is reported for a table with a build
+// in progress, when the build probe failed, or before the index has been
+// seen invalid in two cycles (closing the snapshot-vs-probe race).
 func ruleInvalidIndexes(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
 	_ *config.Config,
-	_ *RuleExtras,
+	extras *RuleExtras,
 ) []Finding {
+	if extras == nil || extras.IndexBuildProbeFailed {
+		return nil
+	}
+	if extras.InvalidFirstSeen == nil {
+		extras.InvalidFirstSeen = make(map[string]time.Time)
+	}
 	unlogged := buildUnloggedSet(current)
+	stillInvalid := make(map[string]bool)
 	var findings []Finding
 	for _, idx := range current.Indexes {
-		if isSystemSchema(idx.SchemaName) {
-			continue
-		}
-		if idx.IsValid {
-			continue
-		}
 		ident := idx.SchemaName + "." + idx.IndexRelName
-		tableKey := idx.SchemaName + "." + idx.RelName
-		severity := "warning"
-		rec := "Drop the invalid index and recreate if needed."
-		detail := map[string]any{
-			"table":     idx.RelName,
-			"index_def": idx.IndexDef,
+		if idx.IsValid || isSystemSchema(idx.SchemaName) ||
+			extras.IndexBuildTables[idx.SchemaName+"."+idx.RelName] {
+			continue
 		}
-		if unlogged[tableKey] {
-			severity = "info"
-			detail["unlogged"] = true
-			rec += " (unlogged table — indexes lost on crash)"
+		stillInvalid[ident] = true
+		if _, seen := extras.InvalidFirstSeen[ident]; !seen {
+			extras.InvalidFirstSeen[ident] = time.Now()
+			continue
 		}
-		findings = append(findings, Finding{
-			Category:         "invalid_index",
-			Severity:         severity,
-			ObjectType:       "index",
-			ObjectIdentifier: ident,
-			Title:            fmt.Sprintf("Invalid index %s", ident),
-			Detail:           detail,
-			Recommendation:   rec,
-			RecommendedSQL: fmt.Sprintf(
-				"DROP INDEX CONCURRENTLY %s.%s;",
-				idx.SchemaName, idx.IndexRelName,
-			),
-			RollbackSQL: idx.IndexDef + ";",
-			ActionRisk:  "safe",
-		})
+		findings = append(findings, invalidIndexFinding(idx, ident, unlogged))
+	}
+	for ident := range extras.InvalidFirstSeen {
+		if !stillInvalid[ident] {
+			delete(extras.InvalidFirstSeen, ident)
+		}
 	}
 	return findings
+}
+
+func invalidIndexFinding(
+	idx collector.IndexStats, ident string, unlogged map[string]bool,
+) Finding {
+	severity := "warning"
+	rec := "Drop the invalid index and recreate if needed."
+	detail := map[string]any{
+		"table":     idx.RelName,
+		"index_def": idx.IndexDef,
+	}
+	if unlogged[idx.SchemaName+"."+idx.RelName] {
+		severity = "info"
+		detail["unlogged"] = true
+		rec += " (unlogged table — indexes lost on crash)"
+	}
+	return Finding{
+		Category:         "invalid_index",
+		Severity:         severity,
+		ObjectType:       "index",
+		ObjectIdentifier: ident,
+		Title:            fmt.Sprintf("Invalid index %s", ident),
+		Detail:           detail,
+		Recommendation:   rec,
+		RecommendedSQL:   dropIndexSQL(idx),
+		RollbackSQL:      idx.IndexDef + ";",
+		ActionRisk:       "safe",
+	}
 }
 
 // ruleDuplicateIndexes detects exact-duplicate and subset btree indexes.
@@ -251,11 +287,9 @@ func ruleDuplicateIndexes(
 						"keep_def":   keep.info.IndexDef,
 					},
 					Recommendation: "Drop the duplicate index.",
-					RecommendedSQL: fmt.Sprintf(
-						"DROP INDEX CONCURRENTLY %s;", dropIdent,
-					),
-					RollbackSQL: drop.info.IndexDef + ";",
-					ActionRisk:  "safe",
+					RecommendedSQL: dropIndexSQL(drop.info),
+					RollbackSQL:    drop.info.IndexDef + ";",
+					ActionRisk:     "safe",
 				})
 			} else if IsSubset(a.parsed, b.parsed) {
 				if isConstraintBacked(a.info) {
@@ -374,10 +408,8 @@ func subsetFinding(
 		Recommendation: "Subset index — likely covered by the larger index, " +
 			"but a dedicated narrow index can still be faster and may be " +
 			"app-managed. Review before dropping.",
-		RecommendedSQL: fmt.Sprintf(
-			"DROP INDEX CONCURRENTLY %s;", subIdent,
-		),
-		RollbackSQL: sub.IndexDef + ";",
+		RecommendedSQL: dropIndexSQL(sub),
+		RollbackSQL:    sub.IndexDef + ";",
 		// Advisory only: a leading-prefix subset drop is a judgment call
 		// (read-perf trade-off, and apps that re-create their own indexes
 		// turn an auto-drop into an oscillation). high_risk never
@@ -386,198 +418,10 @@ func subsetFinding(
 	}
 }
 
-// ruleMissingFKIndexes flags foreign key columns without a supporting index.
-func ruleMissingFKIndexes(
-	current *collector.Snapshot,
-	_ *collector.Snapshot,
-	_ *config.Config,
-	_ *RuleExtras,
-) []Finding {
-	// Build set of indexed leading columns per table.
-	unlogged := buildUnloggedSet(current)
-	indexed := make(map[tableKey][][]string)
-
-	for _, idx := range current.Indexes {
-		if isSystemSchema(idx.SchemaName) {
-			continue
-		}
-		if !idx.IsValid {
-			continue
-		}
-		p := ParseIndexDef(idx.IndexDef)
-		if p.Table == "" {
-			continue
-		}
-		key := tableKey{p.Schema, p.Table}
-		indexed[key] = append(indexed[key], p.Columns)
-	}
-
-	var findings []Finding
-	for _, fk := range current.ForeignKeys {
-		// ForeignKey has a single FKColumn.
-		// Derive schema from table stats or use public as default.
-		schema := "public"
-		for _, t := range current.Tables {
-			if t.RelName == fk.TableName {
-				schema = t.SchemaName
-				break
-			}
-		}
-		if isSystemSchema(schema) {
-			continue
-		}
-
-		key := tableKey{schema, fk.TableName}
-		cols := []string{fk.FKColumn}
-
-		covered := false
-		for _, idxCols := range indexed[key] {
-			if isLeadingPrefix(cols, idxCols) {
-				covered = true
-				break
-			}
-		}
-		if covered {
-			continue
-		}
-
-		ident := fmt.Sprintf("%s.%s(%s)", schema, fk.TableName, fk.FKColumn)
-		createSQL := fmt.Sprintf(
-			"CREATE INDEX CONCURRENTLY ON %s.%s (%s);",
-			schema, fk.TableName, fk.FKColumn,
-		)
-
-		ulKey := schema + "." + fk.TableName
-		severity := "warning"
-		rec := "Create index to speed up FK lookups and deletes."
-		detail := map[string]any{
-			"constraint":       fk.ConstraintName,
-			"fk_column":        fk.FKColumn,
-			"referenced_table": fk.ReferencedTable,
-		}
-		if unlogged[ulKey] {
-			severity = "info"
-			detail["unlogged"] = true
-			rec += " (unlogged table — indexes lost on crash)"
-		}
-
-		findings = append(findings, Finding{
-			Category:         "missing_fk_index",
-			Severity:         severity,
-			ObjectType:       "table",
-			ObjectIdentifier: ident,
-			Title: fmt.Sprintf(
-				"Missing index on FK column %s.%s(%s)",
-				schema, fk.TableName, fk.FKColumn,
-			),
-			Detail:         detail,
-			Recommendation: rec,
-			RecommendedSQL: createSQL,
-			ActionRisk:     "safe",
-		})
-	}
-	return findings
-}
-
-func buildFKRequirements(
-	snap *collector.Snapshot,
-) map[tableKey][][]string {
-	out := make(map[tableKey][][]string)
-	for _, fk := range snap.ForeignKeys {
-		schema := "public"
-		for _, t := range snap.Tables {
-			if t.RelName == fk.TableName {
-				schema = t.SchemaName
-				break
-			}
-		}
-		key := tableKey{schema, fk.TableName}
-		out[key] = append(out[key], []string{fk.FKColumn})
-	}
-	return out
-}
-
-func indexSupportsFKRequirement(
-	idx collector.IndexStats,
-	requirements map[tableKey][][]string,
-) bool {
-	if !idx.IsValid {
-		return false
-	}
-	p := ParseIndexDef(idx.IndexDef)
-	if p.Table == "" || len(p.Columns) == 0 {
-		return false
-	}
-	schema := p.Schema
-	if schema == "" {
-		schema = idx.SchemaName
-	}
-	reqs := requirements[tableKey{schema, p.Table}]
-	for _, req := range reqs {
-		if isLeadingPrefix(req, p.Columns) {
-			return true
-		}
-	}
-	return false
-}
-
-func indexIsOnlyFKSupport(
-	idx collector.IndexStats,
-	all []collector.IndexStats,
-	requirements map[tableKey][][]string,
-) bool {
-	if !indexSupportsFKRequirement(idx, requirements) {
-		return false
-	}
-	p := ParseIndexDef(idx.IndexDef)
-	schema := p.Schema
-	if schema == "" {
-		schema = idx.SchemaName
-	}
-	reqs := requirements[tableKey{schema, p.Table}]
-	for _, req := range reqs {
-		if !isLeadingPrefix(req, p.Columns) {
-			continue
-		}
-		for _, other := range all {
-			if other.IndexRelName == idx.IndexRelName &&
-				other.SchemaName == idx.SchemaName {
-				continue
-			}
-			if indexCoversRequirement(other, req, schema, p.Table) {
-				return false
-			}
-		}
-		return true
-	}
-	return false
-}
-
-func indexCoversRequirement(
-	idx collector.IndexStats, req []string, schema, table string,
-) bool {
-	if !idx.IsValid {
-		return false
-	}
-	p := ParseIndexDef(idx.IndexDef)
-	if p.Table != table {
-		return false
-	}
-	pSchema := p.Schema
-	if pSchema == "" {
-		pSchema = idx.SchemaName
-	}
-	return pSchema == schema && isLeadingPrefix(req, p.Columns)
-}
-
-func isLeadingPrefix(need, have []string) bool {
-	if len(need) > len(have) {
-		return false
-	}
-	for i, c := range need {
-		if c != have[i] {
-			return false
-		}
-	}
-	return true
+// dropIndexSQL builds the DROP statement with quoted identifiers so a
+// mixed-case or unusual name targets exactly this index instead of a
+// case-folded different one (G2-B22/G4-B23/C16).
+func dropIndexSQL(idx collector.IndexStats) string {
+	return "DROP INDEX CONCURRENTLY " +
+		sanitize.QuoteQualifiedName(idx.SchemaName, idx.IndexRelName) + ";"
 }

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,6 +18,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/explain"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/rca"
 )
 
 // ---------- Incidents ----------
@@ -157,6 +159,9 @@ func incidentDetailHandler(
 	}
 }
 
+// maxResolutionReasonLen bounds the operator-supplied resolution reason.
+const maxResolutionReasonLen = 2000
+
 func incidentResolveHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
@@ -167,15 +172,10 @@ func incidentResolveHandler(
 				http.StatusBadRequest)
 			return
 		}
-		var body struct {
-			Reason string `json:"reason"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			jsonError(w, "invalid request body",
-				http.StatusBadRequest)
+		reason, ok := readResolutionReason(w, r)
+		if !ok {
 			return
 		}
-
 		dbName, ok := readDatabaseParam(w, r)
 		if !ok {
 			return
@@ -190,12 +190,9 @@ func incidentResolveHandler(
 			jsonError(w, "incident not found", http.StatusNotFound)
 			return
 		}
-
-		err := resolveIncident(
-			r.Context(), selected.pool, id, body.Reason,
-		)
-		if err != nil {
-			jsonError(w, "incident not found", http.StatusNotFound)
+		err := rca.ResolveIncident(r.Context(), selected.pool, id,
+			incidentResolver(r), reason)
+		if !writeResolveError(w, err, selected.name, id) {
 			return
 		}
 		jsonResponse(w, map[string]any{
@@ -205,6 +202,58 @@ func incidentResolveHandler(
 			"status":   "resolved",
 		})
 	}
+}
+
+// readResolutionReason decodes and bounds the resolve request body.
+func readResolutionReason(
+	w http.ResponseWriter, r *http.Request,
+) (string, bool) {
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return "", false
+	}
+	reason := strings.TrimSpace(body.Reason)
+	if len(reason) > maxResolutionReasonLen {
+		jsonError(w, fmt.Sprintf("reason exceeds %d characters",
+			maxResolutionReasonLen), http.StatusBadRequest)
+		return "", false
+	}
+	return reason, true
+}
+
+// incidentResolver identifies who resolved an incident through the API.
+func incidentResolver(r *http.Request) string {
+	if u := UserFromContext(r.Context()); u != nil {
+		if u.Email != "" {
+			return "user:" + u.Email
+		}
+		return fmt.Sprintf("user:id=%d", u.ID)
+	}
+	return "api"
+}
+
+// writeResolveError maps rca.ResolveIncident errors to HTTP. It returns
+// true when err is nil and the caller should write the success body.
+func writeResolveError(
+	w http.ResponseWriter, err error, database, id string,
+) bool {
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, rca.ErrIncidentNotFound):
+		jsonError(w, "incident not found", http.StatusNotFound)
+	case errors.Is(err, rca.ErrIncidentAlreadyResolved):
+		jsonError(w, "incident already resolved", http.StatusConflict)
+	default:
+		slog.Error("resolve incident failed",
+			"database", database, "incident", id, "error", err)
+		jsonError(w, "failed to resolve incident",
+			http.StatusInternalServerError)
+	}
+	return false
 }
 
 // ---------- Explain ----------
@@ -231,10 +280,12 @@ func explainHandler(
 		if !ok {
 			return
 		}
-		pool := mgr.PoolForDatabase(dbName)
-		if pool == nil {
-			pool = mgr.PoolForDatabase("all")
+		// An unknown database must 404; never fall back to the
+		// primary pool (G1-B22).
+		if rejectUnknownDatabase(w, mgr, dbName) {
+			return
 		}
+		pool := mgr.PoolForDatabase(dbName)
 		if pool == nil {
 			jsonError(w, "no database pool available",
 				http.StatusServiceUnavailable)
@@ -349,7 +400,9 @@ const incidentsBaseSQL = `/* pg_sage */SELECT id, detected_at,
  COALESCE(last_detected_at, detected_at) AS last_detected_at,
  severity, root_cause, causal_chain, affected_objects, signal_ids,
  recommended_sql, action_risk, source, confidence,
- resolved_at, database_name, occurrence_count, escalated_at
+ resolved_at, database_name, occurrence_count, escalated_at,
+ rollback_sql, resolved_by, resolution_reason,
+ previous_incident_id::text
  FROM sage.incidents`
 
 func queryIncidents(
@@ -417,26 +470,6 @@ func queryIncidentByID(
 	return scanIncidentRow(row)
 }
 
-func resolveIncident(
-	ctx context.Context, pool *pgxpool.Pool,
-	id, reason string,
-) error {
-	tag, err := pool.Exec(ctx,
-		`/* pg_sage */ UPDATE sage.incidents
-		 SET resolved_at = now()
-		 WHERE id = $1 AND resolved_at IS NULL`,
-		id,
-	)
-	if err != nil {
-		return fmt.Errorf("resolve incident: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("incident not found or already resolved")
-	}
-	_ = reason // logged for audit; future: store in resolution_log
-	return nil
-}
-
 type incidentRow struct {
 	ID              string
 	DetectedAt      time.Time
@@ -454,6 +487,10 @@ type incidentRow struct {
 	DatabaseName    *string
 	OccurrenceCount int
 	EscalatedAt     *time.Time
+	RollbackSQL     *string
+	ResolvedBy      *string
+	Reason          *string
+	PreviousID      *string
 }
 
 func (ir *incidentRow) scanDest() []any {
@@ -464,7 +501,8 @@ func (ir *incidentRow) scanDest() []any {
 		&ir.RecommendedSQL, &ir.ActionRisk,
 		&ir.Source, &ir.Confidence, &ir.ResolvedAt,
 		&ir.DatabaseName, &ir.OccurrenceCount,
-		&ir.EscalatedAt,
+		&ir.EscalatedAt, &ir.RollbackSQL, &ir.ResolvedBy,
+		&ir.Reason, &ir.PreviousID,
 	}
 }
 
@@ -474,22 +512,26 @@ func (ir *incidentRow) toMap() map[string]any {
 		_ = json.Unmarshal(ir.CausalChain, &chain)
 	}
 	return map[string]any{
-		"id":               ir.ID,
-		"detected_at":      ir.DetectedAt,
-		"last_detected_at": ir.LastDetectedAt,
-		"severity":         ir.Severity,
-		"root_cause":       ir.RootCause,
-		"causal_chain":     chain,
-		"affected_objects": ir.AffectedObjects,
-		"signal_ids":       ir.SignalIDs,
-		"recommended_sql":  derefStr(ir.RecommendedSQL),
-		"action_risk":      derefStr(ir.ActionRisk),
-		"source":           ir.Source,
-		"confidence":       ir.Confidence,
-		"resolved_at":      ir.ResolvedAt,
-		"database_name":    derefStr(ir.DatabaseName),
-		"occurrence_count": ir.OccurrenceCount,
-		"escalated_at":     ir.EscalatedAt,
+		"id":                   ir.ID,
+		"detected_at":          ir.DetectedAt,
+		"last_detected_at":     ir.LastDetectedAt,
+		"severity":             ir.Severity,
+		"root_cause":           ir.RootCause,
+		"causal_chain":         chain,
+		"affected_objects":     ir.AffectedObjects,
+		"signal_ids":           ir.SignalIDs,
+		"recommended_sql":      derefStr(ir.RecommendedSQL),
+		"action_risk":          derefStr(ir.ActionRisk),
+		"source":               ir.Source,
+		"confidence":           ir.Confidence,
+		"resolved_at":          ir.ResolvedAt,
+		"database_name":        derefStr(ir.DatabaseName),
+		"occurrence_count":     ir.OccurrenceCount,
+		"escalated_at":         ir.EscalatedAt,
+		"rollback_sql":         derefStr(ir.RollbackSQL),
+		"resolved_by":          derefStr(ir.ResolvedBy),
+		"resolution_reason":    derefStr(ir.Reason),
+		"previous_incident_id": derefStr(ir.PreviousID),
 	}
 }
 

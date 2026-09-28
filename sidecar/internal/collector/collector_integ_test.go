@@ -164,12 +164,13 @@ func TestCollectTables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collectTables: %v", err)
 	}
-	// Verify cursor reset after full collection.
-	if c.tablePageSchema != "" || c.tablePageRel != "" {
-		t.Errorf("table page cursor should be empty after full collection, "+
-			"got schema=%q rel=%q", c.tablePageSchema, c.tablePageRel)
+	// The keyset cursor is call-local now (G1-B18); assert the schema
+	// exclusion instead of the removed struct fields.
+	for _, tb := range tables {
+		if tb.SchemaName == "sage" {
+			t.Errorf("sage table %s collected", tb.RelName)
+		}
 	}
-	_ = tables
 }
 
 func TestCollectTables_SmallBatchSize(t *testing.T) {
@@ -331,6 +332,7 @@ func TestCollectReplication(t *testing.T) {
 
 func TestCollectIO(t *testing.T) {
 	pool := testPool(t)
+	testdb.RequireServerVersion(t, pool, 160000, "pg_stat_io")
 	cfg := testConfig()
 
 	c := New(pool, cfg, 170000, noopLog)

@@ -8,7 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // SessionConfig holds auto_explain session parameters.
@@ -30,59 +29,45 @@ func DefaultSessionConfig(slowQueryThresholdMs int) SessionConfig {
 	}
 }
 
-// ConfigureSession sets auto_explain parameters on a single pooled
-// connection. If the availability method is session_load, it LOADs
-// the extension first. Each SET is executed sequentially.
-// Permission errors on individual SET statements are tolerated when
-// the parameter is already at the desired value (e.g. via ALTER ROLE
-// SET on managed databases like AlloyDB where session SET is blocked).
-func ConfigureSession(
+// ConfigureTransaction applies auto_explain parameters with SET LOCAL
+// inside tx, so they end with the transaction and never leak into the
+// pooled session used by other sidecar work (G1-B15). With the
+// session_load method it LOADs the module first (loading alone changes no
+// behavior: every auto_explain GUC keeps its default). A permission error
+// on one SET is tolerated (e.g. managed services that pin the value via
+// ALTER ROLE); a savepoint keeps the transaction usable afterwards.
+func ConfigureTransaction(
 	ctx context.Context,
-	conn *pgxpool.Conn,
+	tx pgx.Tx,
 	avail *Availability,
 	scfg SessionConfig,
 ) error {
 	if avail.Method == "session_load" {
-		if _, err := conn.Exec(ctx, "LOAD 'auto_explain'"); err != nil {
+		if _, err := tx.Exec(ctx, "LOAD 'auto_explain'"); err != nil {
 			return fmt.Errorf("load auto_explain: %w", err)
 		}
 	}
 	for _, stmt := range buildSetStatements(scfg) {
-		if _, err := conn.Exec(ctx, stmt); err != nil {
-			if isPermissionDenied(err) {
-				continue
-			}
-			return fmt.Errorf("configure session %q: %w", stmt, err)
+		local := "SET LOCAL " + strings.TrimPrefix(stmt, "SET ")
+		if err := execTolerantSet(ctx, tx, local); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// ConfigureSessionBatch sets auto_explain parameters using a pgx
-// Batch so all SETs travel in one network round-trip.
-func ConfigureSessionBatch(
-	ctx context.Context,
-	conn *pgxpool.Conn,
-	avail *Availability,
-	scfg SessionConfig,
-) error {
-	batch := &pgx.Batch{}
-	if avail.Method == "session_load" {
-		batch.Queue("LOAD 'auto_explain'")
+func execTolerantSet(ctx context.Context, tx pgx.Tx, stmt string) error {
+	if _, err := tx.Exec(ctx, "SAVEPOINT pg_sage_autoexplain_set"); err != nil {
+		return fmt.Errorf("savepoint before %q: %w", stmt, err)
 	}
-	for _, stmt := range buildSetStatements(scfg) {
-		batch.Queue(stmt)
-	}
-	br := conn.SendBatch(ctx, batch)
-
-	for range batch.Len() {
-		if _, err := br.Exec(); err != nil {
-			_ = br.Close()
-			return fmt.Errorf("configure session batch: %w", err)
+	if _, err := tx.Exec(ctx, stmt); err != nil {
+		if !isPermissionDenied(err) {
+			return fmt.Errorf("configure %q: %w", stmt, err)
 		}
-	}
-	if err := br.Close(); err != nil {
-		return fmt.Errorf("close configure session batch: %w", err)
+		if _, rbErr := tx.Exec(ctx,
+			"ROLLBACK TO SAVEPOINT pg_sage_autoexplain_set"); rbErr != nil {
+			return fmt.Errorf("rollback savepoint after %q: %w", stmt, rbErr)
+		}
 	}
 	return nil
 }

@@ -716,10 +716,13 @@ func TestCoverage_ShouldRun_ExactlyAt30s(t *testing.T) {
 		schedule: s,
 		lastRun:  time.Date(2026, 3, 27, 14, 0, 0, 0, time.UTC),
 	}
-	// Exactly 30 seconds later — debounce is `< 30s`, so 30s is NOT < 30s,
-	// meaning the debounce no longer blocks. Should be allowed to run.
+	// 30 seconds later is still the 14:00 slot that already ran; the old
+	// 30s debounce let one slot fire twice (G3-B04). The next slot does.
 	now := time.Date(2026, 3, 27, 14, 0, 30, 0, time.UTC)
-	if !w.ShouldRun(now) {
-		t.Error("should run at exactly 30s (debounce is < 30s, 30s is not blocked)")
+	if w.ShouldRun(now) {
+		t.Error("same schedule slot fired twice")
+	}
+	if !w.ShouldRun(time.Date(2026, 3, 27, 14, 1, 0, 0, time.UTC)) {
+		t.Error("next schedule slot did not fire")
 	}
 }

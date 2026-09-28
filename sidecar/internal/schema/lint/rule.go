@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
 // Rule is the interface every schema lint check must implement.
@@ -23,26 +25,19 @@ type RuleOpts struct {
 	ExcludeSchemas []string
 }
 
-// schemaExcludeSQL returns a SQL IN-list for schema exclusion.
-// Schemas are quoted to prevent injection.
+// schemaExcludeSQL returns a SQL IN-list for schema exclusion. Entries
+// are emitted as string literals with quotes doubled, so any schema name
+// (uppercase, hyphens, spaces) is honoured instead of silently dropped
+// (G2-B27). Empty entries and entries containing a backslash or NUL are
+// skipped: a backslash could escape the literal on a server running with
+// standard_conforming_strings=off, and no real schema needs one.
 func schemaExcludeSQL(extra []string) string {
-	schemas := []string{"pg_catalog", "information_schema", "pg_toast"}
+	parts := []string{"'pg_catalog'", "'information_schema'", "'pg_toast'"}
 	for _, s := range extra {
-		// Only allow simple identifiers.
-		safe := true
-		for _, c := range s {
-			if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
-				safe = false
-				break
-			}
+		if s == "" || strings.ContainsAny(s, "\\\x00") {
+			continue
 		}
-		if safe && s != "" {
-			schemas = append(schemas, s)
-		}
-	}
-	parts := make([]string, len(schemas))
-	for i, s := range schemas {
-		parts[i] = "'" + s + "'"
+		parts = append(parts, sanitize.QuoteLiteral(s))
 	}
 	return strings.Join(parts, ",")
 }

@@ -45,7 +45,17 @@ function ClientLine({ label, client }) {
   )
 }
 
-export function TokenBudgetBanner() {
+// clientLabel names a status key: "general", "optimizer", or
+// "<database>/<general|optimizer|fleet_budget>" (G3-B14).
+function clientLabel(key) {
+  if (key === 'general') return 'General'
+  if (key === 'optimizer') return 'Optimizer'
+  return key.split('/').join(' / ')
+}
+
+// canReset: the reset endpoint is admin-only, so callers pass whether the
+// current user is an admin (G9-B22).
+export function TokenBudgetBanner({ canReset = false }) {
   const { data, refetch } = useAPI('/api/v1/llm/status', 30000)
   const [resetting, setResetting] = useState(false)
   const [resetError, setResetError] = useState(null)
@@ -73,10 +83,16 @@ export function TokenBudgetBanner() {
 
   if (!data) return null
 
-  const generalExhausted = data.general?.budget_exhausted === true
-  const optimizerExhausted = data.optimizer?.budget_exhausted === true
+  // /api/v1/llm/status returns {clients: {<key>: status}, any_exhausted}
+  // covering shared, optimizer, per-database and fleet-budget clients
+  // (G9-B02, G3-B14).
+  const clients = data.clients && !Array.isArray(data.clients)
+    ? data.clients : {}
+  const exhausted = Object.keys(clients)
+    .filter((key) => clients[key]?.budget_exhausted === true)
+    .sort()
 
-  if (!generalExhausted && !optimizerExhausted) return null
+  if (exhausted.length === 0) return null
 
   return (
     <div
@@ -99,12 +115,9 @@ export function TokenBudgetBanner() {
         >
           LLM token budget exhausted
         </div>
-        {generalExhausted && (
-          <ClientLine label="General" client={data.general} />
-        )}
-        {optimizerExhausted && (
-          <ClientLine label="Optimizer" client={data.optimizer} />
-        )}
+        {exhausted.map((key) => (
+          <ClientLine key={key} label={clientLabel(key)} client={clients[key]} />
+        ))}
         {resetError && (
           <div
             className="text-xs mt-1"
@@ -114,6 +127,7 @@ export function TokenBudgetBanner() {
           </div>
         )}
       </div>
+      {canReset && (
       <button
         data-testid="token-budget-reset"
         onClick={handleReset}
@@ -130,6 +144,7 @@ export function TokenBudgetBanner() {
         <RotateCcw size={14} />
         {resetting ? 'Resetting...' : 'Reset Budget'}
       </button>
+      )}
     </div>
   )
 }

@@ -175,53 +175,6 @@ func TestPhase2_SafetyLockTimeout_Positive(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// warnUnexpandedEnvVars (22.2% coverage)
-// ---------------------------------------------------------------------------
-
-func TestPhase2_WarnUnexpandedEnvVars_NoVars(t *testing.T) {
-	// No ${} references — should not panic or error.
-	warnUnexpandedEnvVars("key: value", "key: value")
-}
-
-func TestPhase2_WarnUnexpandedEnvVars_SetVar(t *testing.T) {
-	t.Setenv("SAGE_TEST_WARN_VAR", "hello")
-	raw := "api_key: ${SAGE_TEST_WARN_VAR}"
-	expanded := os.ExpandEnv(raw)
-	// Should not warn because the env var IS set.
-	warnUnexpandedEnvVars(raw, expanded)
-}
-
-func TestPhase2_WarnUnexpandedEnvVars_UnsetVar(t *testing.T) {
-	// Ensure this var is NOT set.
-	os.Unsetenv("SAGE_TEST_UNSET_VAR_12345")
-	raw := "api_key: ${SAGE_TEST_UNSET_VAR_12345}"
-	expanded := os.ExpandEnv(raw)
-	// Should warn (writes to stderr). We just verify no panic.
-	warnUnexpandedEnvVars(raw, expanded)
-}
-
-func TestPhase2_WarnUnexpandedEnvVars_MultipleVars(t *testing.T) {
-	t.Setenv("SAGE_TEST_SET_A", "aaa")
-	os.Unsetenv("SAGE_TEST_UNSET_B")
-	raw := "a: ${SAGE_TEST_SET_A}\nb: ${SAGE_TEST_UNSET_B}"
-	expanded := os.ExpandEnv(raw)
-	warnUnexpandedEnvVars(raw, expanded)
-}
-
-func TestPhase2_WarnUnexpandedEnvVars_UnclosedBrace(t *testing.T) {
-	// Unclosed ${... should not panic.
-	raw := "api_key: ${SAGE_UNCLOSED"
-	expanded := os.ExpandEnv(raw)
-	warnUnexpandedEnvVars(raw, expanded)
-}
-
-func TestPhase2_WarnUnexpandedEnvVars_EmptyVarName(t *testing.T) {
-	raw := "api_key: ${}"
-	expanded := os.ExpandEnv(raw)
-	warnUnexpandedEnvVars(raw, expanded)
-}
-
 // TestExpandBracedEnv_PreservesBareDollar is the H5 regression: a literal
 // '$' in a secret written directly into YAML must survive expansion.
 // os.ExpandEnv treated p@ss$word as p@ss + $word (unset → ""), silently
@@ -425,7 +378,7 @@ func TestPhase2_IsStandalone_True(t *testing.T) {
 }
 
 func TestPhase2_IsStandalone_False(t *testing.T) {
-	for _, mode := range []string{"extension", "fleet", ""} {
+	for _, mode := range []string{ModeMeta, "fleet", ""} {
 		cfg := &Config{Mode: mode}
 		if cfg.IsStandalone() {
 			t.Errorf("IsStandalone() = true for mode %q", mode)
@@ -670,354 +623,6 @@ func TestPhase2_OverlayEnv_PGHost(t *testing.T) {
 // applyHotReload (44.6% coverage — exercise more field branches)
 // ---------------------------------------------------------------------------
 
-func TestPhase2_ApplyHotReload_AnalyzerFields(t *testing.T) {
-	target := newDefaults()
-	target.Analyzer.IntervalSeconds = 600
-	target.Analyzer.SlowQueryThresholdMs = 1000
-
-	fresh := newDefaults()
-	fresh.Analyzer.IntervalSeconds = 300
-	fresh.Analyzer.SlowQueryThresholdMs = 500
-
-	changed := applyHotReload(target, fresh)
-
-	if target.Analyzer.IntervalSeconds != 300 {
-		t.Errorf("Analyzer.IntervalSeconds = %d, want 300",
-			target.Analyzer.IntervalSeconds)
-	}
-	if target.Analyzer.SlowQueryThresholdMs != 500 {
-		t.Errorf("Analyzer.SlowQueryThresholdMs = %d, want 500",
-			target.Analyzer.SlowQueryThresholdMs)
-	}
-
-	expectChanged := map[string]bool{
-		"analyzer.interval_seconds":        true,
-		"analyzer.slow_query_threshold_ms": true,
-	}
-	for _, c := range changed {
-		delete(expectChanged, c)
-	}
-	for missing := range expectChanged {
-		t.Errorf("missing from changed list: %s", missing)
-	}
-}
-
-func TestPhase2_ApplyHotReload_SafetyCPU(t *testing.T) {
-	target := newDefaults()
-	target.Safety.CPUCeilingPct = 90
-
-	fresh := newDefaults()
-	fresh.Safety.CPUCeilingPct = 75
-
-	changed := applyHotReload(target, fresh)
-
-	if target.Safety.CPUCeilingPct != 75 {
-		t.Errorf("Safety.CPUCeilingPct = %d, want 75",
-			target.Safety.CPUCeilingPct)
-	}
-	found := false
-	for _, c := range changed {
-		if c == "safety.cpu_ceiling_pct" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("safety.cpu_ceiling_pct not in changed list")
-	}
-}
-
-func TestPhase2_ApplyHotReload_TrustMaintenanceWindow(t *testing.T) {
-	target := newDefaults()
-	target.Trust.MaintenanceWindow = ""
-
-	fresh := newDefaults()
-	fresh.Trust.MaintenanceWindow = "02:00-05:00"
-
-	changed := applyHotReload(target, fresh)
-
-	if target.Trust.MaintenanceWindow != "02:00-05:00" {
-		t.Errorf("MaintenanceWindow = %q, want 02:00-05:00",
-			target.Trust.MaintenanceWindow)
-	}
-	found := false
-	for _, c := range changed {
-		if c == "trust.maintenance_window" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("trust.maintenance_window not in changed list")
-	}
-}
-
-func TestPhase2_ApplyHotReload_TrustTier3Bools(t *testing.T) {
-	target := newDefaults()
-	target.Trust.Tier3Safe = true
-	target.Trust.Tier3Moderate = false
-
-	fresh := newDefaults()
-	fresh.Trust.Tier3Safe = false
-	fresh.Trust.Tier3Moderate = true
-
-	applyHotReload(target, fresh)
-
-	if target.Trust.Tier3Safe != false {
-		t.Error("Tier3Safe should be false after reload")
-	}
-	if target.Trust.Tier3Moderate != true {
-		t.Error("Tier3Moderate should be true after reload")
-	}
-}
-
-func TestPhase2_ApplyHotReload_LLMFields(t *testing.T) {
-	target := newDefaults()
-	target.LLM.Enabled = false
-	target.LLM.Endpoint = "https://old.example.com"
-	target.LLM.Model = "old-model"
-
-	fresh := newDefaults()
-	fresh.LLM.Enabled = true
-	fresh.LLM.Endpoint = "https://new.example.com"
-	fresh.LLM.Model = "new-model"
-
-	changed := applyHotReload(target, fresh)
-
-	if !target.LLM.Enabled {
-		t.Error("LLM.Enabled should be true")
-	}
-	if target.LLM.Endpoint != "https://new.example.com" {
-		t.Errorf("LLM.Endpoint = %q", target.LLM.Endpoint)
-	}
-	if target.LLM.Model != "new-model" {
-		t.Errorf("LLM.Model = %q", target.LLM.Model)
-	}
-
-	expectChanged := map[string]bool{
-		"llm.enabled":  true,
-		"llm.endpoint": true,
-		"llm.model":    true,
-	}
-	for _, c := range changed {
-		delete(expectChanged, c)
-	}
-	for missing := range expectChanged {
-		t.Errorf("missing from changed: %s", missing)
-	}
-}
-
-func TestPhase2_ApplyHotReload_RetentionSnapshots(t *testing.T) {
-	target := newDefaults()
-	target.Retention.SnapshotsDays = 90
-
-	fresh := newDefaults()
-	fresh.Retention.SnapshotsDays = 30
-
-	changed := applyHotReload(target, fresh)
-
-	if target.Retention.SnapshotsDays != 30 {
-		t.Errorf("SnapshotsDays = %d, want 30",
-			target.Retention.SnapshotsDays)
-	}
-	found := false
-	for _, c := range changed {
-		if c == "retention.snapshots_days" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("retention.snapshots_days not in changed list")
-	}
-}
-
-func TestPhase2_ApplyHotReload_AlertingFields(t *testing.T) {
-	target := newDefaults()
-	target.Alerting.CooldownMinutes = 15
-	target.Alerting.QuietHoursStart = ""
-	target.Alerting.QuietHoursEnd = ""
-	target.Alerting.CheckIntervalSeconds = 60
-	target.Alerting.Enabled = false
-
-	fresh := newDefaults()
-	fresh.Alerting.CooldownMinutes = 30
-	fresh.Alerting.QuietHoursStart = "22:00"
-	fresh.Alerting.QuietHoursEnd = "06:00"
-	fresh.Alerting.CheckIntervalSeconds = 120
-	fresh.Alerting.Enabled = true
-	fresh.Alerting.Routes = []AlertRoute{{Severity: "critical", Channels: []string{"slack"}}}
-	fresh.Alerting.Webhooks = []WebhookConfig{{Name: "test", URL: "https://hook.example.com"}}
-
-	changed := applyHotReload(target, fresh)
-
-	if target.Alerting.CooldownMinutes != 30 {
-		t.Errorf("CooldownMinutes = %d, want 30",
-			target.Alerting.CooldownMinutes)
-	}
-	if target.Alerting.QuietHoursStart != "22:00" {
-		t.Errorf("QuietHoursStart = %q", target.Alerting.QuietHoursStart)
-	}
-	if target.Alerting.QuietHoursEnd != "06:00" {
-		t.Errorf("QuietHoursEnd = %q", target.Alerting.QuietHoursEnd)
-	}
-	if target.Alerting.CheckIntervalSeconds != 120 {
-		t.Errorf("CheckIntervalSeconds = %d",
-			target.Alerting.CheckIntervalSeconds)
-	}
-	if !target.Alerting.Enabled {
-		t.Error("Alerting.Enabled should be true")
-	}
-	if len(target.Alerting.Routes) != 1 {
-		t.Errorf("Routes len = %d, want 1", len(target.Alerting.Routes))
-	}
-	if len(target.Alerting.Webhooks) != 1 {
-		t.Errorf("Webhooks len = %d, want 1",
-			len(target.Alerting.Webhooks))
-	}
-
-	expectChanged := map[string]bool{
-		"alerting.cooldown_minutes":       true,
-		"alerting.quiet_hours_start":      true,
-		"alerting.quiet_hours_end":        true,
-		"alerting.check_interval_seconds": true,
-		"alerting.enabled":                true,
-	}
-	for _, c := range changed {
-		delete(expectChanged, c)
-	}
-	for missing := range expectChanged {
-		t.Errorf("missing from changed: %s", missing)
-	}
-}
-
-func TestPhase2_ApplyHotReload_TunerFields(t *testing.T) {
-	target := newDefaults()
-	target.Tuner.Enabled = true
-	target.Tuner.WorkMemMaxMB = 512
-	target.Tuner.PlanTimeRatio = 3.0
-	target.Tuner.NestedLoopRowThreshold = 10000
-	target.Tuner.ParallelMinTableRows = 1000000
-	target.Tuner.MinQueryCalls = 100
-	target.Tuner.VerifyAfterApply = true
-
-	fresh := newDefaults()
-	fresh.Tuner.Enabled = false
-	fresh.Tuner.WorkMemMaxMB = 256
-	fresh.Tuner.PlanTimeRatio = 5.0
-	fresh.Tuner.NestedLoopRowThreshold = 5000
-	fresh.Tuner.ParallelMinTableRows = 500000
-	fresh.Tuner.MinQueryCalls = 50
-	fresh.Tuner.VerifyAfterApply = false
-
-	changed := applyHotReload(target, fresh)
-
-	if target.Tuner.Enabled != false {
-		t.Error("Tuner.Enabled should be false")
-	}
-	if target.Tuner.WorkMemMaxMB != 256 {
-		t.Errorf("WorkMemMaxMB = %d", target.Tuner.WorkMemMaxMB)
-	}
-	if target.Tuner.PlanTimeRatio != 5.0 {
-		t.Errorf("PlanTimeRatio = %f", target.Tuner.PlanTimeRatio)
-	}
-	if target.Tuner.NestedLoopRowThreshold != 5000 {
-		t.Errorf("NestedLoopRowThreshold = %d",
-			target.Tuner.NestedLoopRowThreshold)
-	}
-	if target.Tuner.ParallelMinTableRows != 500000 {
-		t.Errorf("ParallelMinTableRows = %d",
-			target.Tuner.ParallelMinTableRows)
-	}
-	if target.Tuner.MinQueryCalls != 50 {
-		t.Errorf("MinQueryCalls = %d", target.Tuner.MinQueryCalls)
-	}
-	if target.Tuner.VerifyAfterApply != false {
-		t.Error("VerifyAfterApply should be false")
-	}
-
-	expectChanged := map[string]bool{
-		"tuner.enabled":                   true,
-		"tuner.work_mem_max_mb":           true,
-		"tuner.plan_time_ratio":           true,
-		"tuner.nested_loop_row_threshold": true,
-		"tuner.parallel_min_table_rows":   true,
-		"tuner.min_query_calls":           true,
-		"tuner.verify_after_apply":        true,
-	}
-	for _, c := range changed {
-		delete(expectChanged, c)
-	}
-	for missing := range expectChanged {
-		t.Errorf("missing from changed: %s", missing)
-	}
-}
-
-func TestPhase2_ApplyHotReload_AutoExplainFields(t *testing.T) {
-	target := newDefaults()
-	target.AutoExplain.LogMinDurationMs = 1000
-	target.AutoExplain.MaxPlansPerCycle = 100
-
-	fresh := newDefaults()
-	fresh.AutoExplain.LogMinDurationMs = 500
-	fresh.AutoExplain.MaxPlansPerCycle = 50
-
-	changed := applyHotReload(target, fresh)
-
-	if target.AutoExplain.LogMinDurationMs != 500 {
-		t.Errorf("LogMinDurationMs = %d", target.AutoExplain.LogMinDurationMs)
-	}
-	if target.AutoExplain.MaxPlansPerCycle != 50 {
-		t.Errorf("MaxPlansPerCycle = %d",
-			target.AutoExplain.MaxPlansPerCycle)
-	}
-
-	expectChanged := map[string]bool{
-		"auto_explain.log_min_duration_ms": true,
-		"auto_explain.max_plans_per_cycle": true,
-	}
-	for _, c := range changed {
-		delete(expectChanged, c)
-	}
-	for missing := range expectChanged {
-		t.Errorf("missing from changed: %s", missing)
-	}
-}
-
-func TestPhase2_ApplyHotReload_BatchSize(t *testing.T) {
-	target := newDefaults()
-	target.Collector.BatchSize = 1000
-
-	fresh := newDefaults()
-	fresh.Collector.BatchSize = 2000
-
-	changed := applyHotReload(target, fresh)
-
-	if target.Collector.BatchSize != 2000 {
-		t.Errorf("BatchSize = %d, want 2000", target.Collector.BatchSize)
-	}
-	found := false
-	for _, c := range changed {
-		if c == "collector.batch_size" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("collector.batch_size not in changed list")
-	}
-}
-
-func TestPhase2_ApplyHotReload_NoChanges(t *testing.T) {
-	target := newDefaults()
-	fresh := newDefaults()
-
-	changed := applyHotReload(target, fresh)
-	if len(changed) != 0 {
-		t.Errorf("expected no changes, got %v", changed)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Load YAML with env var expansion
-// ---------------------------------------------------------------------------
-
 func TestPhase2_LoadYAML_EnvExpansion(t *testing.T) {
 	// Clear the live-env override so the YAML-expanded value survives.
 	// Load() reads SAGE_LLM_API_KEY at config.go:917 and clobbers whatever
@@ -1025,7 +630,7 @@ func TestPhase2_LoadYAML_EnvExpansion(t *testing.T) {
 	t.Setenv("SAGE_LLM_API_KEY", "")
 	t.Setenv("SAGE_TEST_LLM_KEY", "test-api-key")
 	tmp := t.TempDir()
-	yamlContent := `mode: extension
+	yamlContent := `mode: standalone
 llm:
   api_key: "${SAGE_TEST_LLM_KEY}"
 `
@@ -1072,7 +677,7 @@ func TestPhase2_Validate_NegativeSlowQueryThreshold(t *testing.T) {
 	cfgPath := filepath.Join(tmp, "config.yaml")
 	os.WriteFile(cfgPath, []byte(yamlContent), 0644)
 
-	_, err := Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err := Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for negative slow_query_threshold_ms")
 	}
@@ -1090,7 +695,7 @@ func TestPhase2_Validate_CPUCeilingOver100(t *testing.T) {
 	cfgPath := filepath.Join(tmp, "config.yaml")
 	os.WriteFile(cfgPath, []byte(yamlContent), 0644)
 
-	_, err := Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err := Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for cpu_ceiling_pct > 100")
 	}
@@ -1108,7 +713,7 @@ func TestPhase2_Validate_ZeroBatchSize(t *testing.T) {
 	cfgPath := filepath.Join(tmp, "config.yaml")
 	os.WriteFile(cfgPath, []byte(yamlContent), 0644)
 
-	_, err := Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err := Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for zero batch_size")
 	}
@@ -1126,7 +731,7 @@ func TestPhase2_Validate_ZeroQueryTimeout(t *testing.T) {
 	cfgPath := filepath.Join(tmp, "config.yaml")
 	os.WriteFile(cfgPath, []byte(yamlContent), 0644)
 
-	_, err := Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err := Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for zero query_timeout_ms")
 	}
@@ -1144,7 +749,7 @@ func TestPhase2_Validate_ZeroAnalyzerInterval(t *testing.T) {
 	cfgPath := filepath.Join(tmp, "config.yaml")
 	os.WriteFile(cfgPath, []byte(yamlContent), 0644)
 
-	_, err := Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err := Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for zero analyzer interval")
 	}

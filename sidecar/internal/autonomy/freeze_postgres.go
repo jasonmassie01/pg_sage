@@ -15,12 +15,12 @@ import (
 )
 
 type PostgresFreezeCustodian struct {
-	pool      *pgxpool.Pool
-	database  string
-	threshold freeze.Thresholds
-	mu        sync.Mutex
-	lastAt    time.Time
-	lastXacts int64
+	pool         *pgxpool.Pool
+	database     string
+	threshold    freeze.Thresholds
+	mu           sync.Mutex
+	last         freezeCounters
+	lastMxidRate float64
 }
 
 func NewPostgresFreezeCustodian(
@@ -37,7 +37,7 @@ func (c *PostgresFreezeCustodian) Scan(ctx context.Context) ([]Proposal, error) 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	rate, err := c.transactionRate(ctx)
+	rates, err := c.transactionRates(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (c *PostgresFreezeCustodian) Scan(ctx context.Context) ([]Proposal, error) 
 	defer rows.Close()
 	result := make([]Proposal, 0)
 	for rows.Next() {
-		proposal, scanErr := c.scanResponseRow(rows, rate, blocker, repack)
+		proposal, scanErr := c.scanResponseRow(rows, rates, blocker, repack)
 		if scanErr != nil {
 			return nil, scanErr
 		}
@@ -71,7 +71,7 @@ func (c *PostgresFreezeCustodian) Scan(ctx context.Context) ([]Proposal, error) 
 }
 
 func (c *PostgresFreezeCustodian) scanResponseRow(
-	row interface{ Scan(...any) error }, rate float64,
+	row interface{ Scan(...any) error }, rates freezeRateSample,
 	blocker *freeze.XminBlocker, repack bool,
 ) (Proposal, error) {
 	var sample freeze.HorizonSample
@@ -81,11 +81,12 @@ func (c *PostgresFreezeCustodian) scanResponseRow(
 		return Proposal{}, fmt.Errorf("scan freeze response: %w", err)
 	}
 	sample.Database = c.database
-	sample.XIDsPerSecond, sample.MultiXactsPerSecond = rate, rate
+	sample.XIDsPerSecond, sample.MultiXactsPerSecond = rates.xid, rates.mxid
 	assessment, err := freeze.EvaluateHorizon(time.Now(), sample, c.threshold)
 	if err != nil {
 		return Proposal{}, fmt.Errorf("evaluate freeze response: %w", err)
 	}
+
 	input := freeze.ResponseInput{Schema: sample.Schema, Table: sample.Table,
 		Urgency: assessment.Urgency, DeadTupleRatio: deadRatio,
 		BloatRatio: deadRatio, PGRepackAvailable: repack}
@@ -96,7 +97,13 @@ func (c *PostgresFreezeCustodian) scanResponseRow(
 	if err != nil {
 		return Proposal{}, err
 	}
-	return freezeResponseProposal(c.database, sample, assessment.Proposal, response), nil
+	proposal := freezeResponseProposal(c.database, sample, assessment.Proposal, response)
+	if !rates.known {
+		// Without two samples the consumption rate (and so the hard deadline)
+		// is unknown: act on urgency, but claim no deadline override.
+		proposal.Deadline = nil
+	}
+	return proposal, nil
 }
 
 func freezeResponseProposal(
@@ -128,7 +135,8 @@ func (c *PostgresFreezeCustodian) oldestXminBlocker(
 ) (*freeze.XminBlocker, error) {
 	var blocker freeze.XminBlocker
 	err := c.pool.QueryRow(ctx, oldestXminBlockerSQL).Scan(
-		&blocker.PID, &blocker.XminAge, &blocker.User, &blocker.State, &blocker.Query)
+		&blocker.PID, &blocker.XminAge, &blocker.User, &blocker.State, &blocker.Query,
+		&blocker.AppName, &blocker.BackendStart, &blocker.QueryStart)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -145,32 +153,6 @@ func (c *PostgresFreezeCustodian) pgRepackAvailable(ctx context.Context) (bool, 
 	return available, err
 }
 
-func (c *PostgresFreezeCustodian) scanRow(
-	row interface{ Scan(...any) error }, rate float64,
-) (Proposal, error) {
-	var sample freeze.HorizonSample
-	if err := row.Scan(
-		&sample.Schema, &sample.Table, &sample.XIDAge, &sample.XIDMaxAge,
-		&sample.MultiXactAge, &sample.MultiXactMaxAge,
-	); err != nil {
-		return Proposal{}, fmt.Errorf("scan freeze horizon: %w", err)
-	}
-	sample.Database = c.database
-	sample.XIDsPerSecond, sample.MultiXactsPerSecond = rate, rate
-	assessment, err := freeze.EvaluateHorizon(time.Now(), sample, c.threshold)
-	if err != nil {
-		return Proposal{}, fmt.Errorf("evaluate freeze horizon: %w", err)
-	}
-	if assessment.Proposal.SQL == "" {
-		return Proposal{}, nil
-	}
-	return Proposal{
-		Database: c.database, Feature: "freeze", SQL: assessment.Proposal.SQL,
-		TargetObjects: []string{sample.Schema + "." + sample.Table},
-		Deadline:      freezePolicyDeadline(assessment.Proposal),
-	}, nil
-}
-
 func freezePolicyDeadline(proposal freeze.Proposal) *policy.DeadlineContext {
 	if proposal.Urgency != freeze.UrgencyRed {
 		return nil
@@ -181,22 +163,61 @@ func freezePolicyDeadline(proposal freeze.Proposal) *policy.DeadlineContext {
 	}
 }
 
-func (c *PostgresFreezeCustodian) transactionRate(ctx context.Context) (float64, error) {
-	var total int64
-	if err := c.pool.QueryRow(ctx, `/* pg_sage */ SELECT
-		COALESCE(xact_commit+xact_rollback,0) FROM pg_stat_database
-		WHERE datname=current_database()`).Scan(&total); err != nil {
-		return 0, fmt.Errorf("read transaction rate: %w", err)
+// freezeCounters is one sample of the XID and multixact consumption
+// counters. nextXID is the snapshot xmax (it advances only for transactions
+// that were assigned an XID, i.e. the ones that consume wraparound runway).
+type freezeCounters struct {
+	at      time.Time
+	nextXID int64
+	mxidAge int64
+}
+
+type freezeRateSample struct {
+	xid, mxid float64
+	known     bool
+}
+
+const minimumFreezeRate = 0.001
+
+// freezeRates derives per-second rates from two samples. The first sample
+// yields no rate; a negative multixact delta (datminmxid advanced) yields an
+// unknown multixact rate (-1).
+func freezeRates(prev, cur freezeCounters) (float64, float64, bool) {
+	if prev.at.IsZero() || !cur.at.After(prev.at) {
+		return 0, 0, false
 	}
-	now := time.Now()
+	seconds := cur.at.Sub(prev.at).Seconds()
+	xid := math.Max(float64(cur.nextXID-prev.nextXID)/seconds, minimumFreezeRate)
+	mxid := -1.0
+	if delta := cur.mxidAge - prev.mxidAge; delta >= 0 {
+		mxid = math.Max(float64(delta)/seconds, minimumFreezeRate)
+	}
+	return xid, mxid, true
+}
+
+func (c *PostgresFreezeCustodian) transactionRates(ctx context.Context) (freezeRateSample, error) {
+	var cur freezeCounters
+	if err := c.pool.QueryRow(ctx, `/* pg_sage */ SELECT
+		pg_snapshot_xmax(pg_current_snapshot())::text::bigint,
+		mxid_age(datminmxid)::bigint
+		FROM pg_database WHERE datname=current_database()`).
+		Scan(&cur.nextXID, &cur.mxidAge); err != nil {
+		return freezeRateSample{}, fmt.Errorf("read transaction counters: %w", err)
+	}
+	cur.at = time.Now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	rate := 1.0
-	if !c.lastAt.IsZero() && total > c.lastXacts {
-		rate = float64(total-c.lastXacts) / now.Sub(c.lastAt).Seconds()
+	xid, mxid, known := freezeRates(c.last, cur)
+	c.last = cur
+	if mxid > 0 {
+		c.lastMxidRate = mxid
+	} else if c.lastMxidRate > 0 {
+		mxid = c.lastMxidRate
 	}
-	c.lastAt, c.lastXacts = now, total
-	return math.Max(rate, 0.001), nil
+	if !known {
+		return freezeRateSample{xid: minimumFreezeRate, mxid: minimumFreezeRate}, nil
+	}
+	return freezeRateSample{xid: xid, mxid: math.Max(mxid, minimumFreezeRate), known: true}, nil
 }
 
 func freezeThresholds(red float64) (float64, float64) {
@@ -222,7 +243,17 @@ LEFT JOIN pg_stat_user_tables s ON s.relid=c.oid
 WHERE c.relkind IN ('r','m')
 AND n.nspname NOT IN ('pg_catalog','information_schema','pg_toast','sage')`
 
+// oldestXminBlockerSQL only considers client sessions of the connected
+// database; walsenders, autovacuum, other databases, backup/dump tools and
+// pg_sage itself are never candidates for cancellation.
 const oldestXminBlockerSQL = `/* pg_sage */ SELECT pid, age(backend_xmin)::bigint,
-COALESCE(usename,''), COALESCE(state,''), LEFT(COALESCE(query,''),500)
-FROM pg_stat_activity WHERE backend_xmin IS NOT NULL AND pid<>pg_backend_pid()
+COALESCE(usename,''), COALESCE(state,''), LEFT(COALESCE(query,''),500),
+COALESCE(application_name,''), backend_start, COALESCE(query_start, backend_start)
+FROM pg_stat_activity
+WHERE backend_xmin IS NOT NULL AND pid<>pg_backend_pid()
+  AND datname = current_database() AND backend_type = 'client backend'
+  AND application_name NOT ILIKE '%pg_sage%'
+  AND application_name NOT ILIKE '%pg_dump%'
+  AND application_name NOT ILIKE '%pg_basebackup%'
+  AND application_name NOT ILIKE '%pg_restore%'
 ORDER BY age(backend_xmin) DESC LIMIT 1`

@@ -1,0 +1,6 @@
+internal\api\router.go:46:6: unreachable func: DefaultEventBroker
+internal\rollout\postgres.go:78:32: unreachable func: PostgresRunStore.Latest
+internal\schema\lint\rule_bloated_table.go:14:28: unreachable func: ruleBloatedTable.Name
+internal\schema\lint\rule_duplicate_index.go:14:30: unreachable func: ruleDuplicateIndex.Name
+internal\schema\lint\rule_invalid_index.go:14:28: unreachable func: ruleInvalidIndex.Name
+internal\schema\lint\rule_unused_index.go:14:27: unreachable func: ruleUnusedIndex.Name

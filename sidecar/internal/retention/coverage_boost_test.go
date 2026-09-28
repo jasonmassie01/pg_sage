@@ -202,120 +202,6 @@ func TestCoverage_PurgeTable_NegativeRetention(t *testing.T) {
 	// If we get here without panic, the early return worked.
 }
 
-// TestCoverage_CleanStaleFirstSeen_NoKeys exercises cleanStaleFirstSeen
-// when there are no first_seen:* keys in sage.config.
-func TestCoverage_CleanStaleFirstSeen_NoKeys(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	// Remove any existing first_seen keys to ensure a clean state.
-	execRetry(t, ctx,
-		`DELETE FROM sage.config WHERE key LIKE 'first_seen:cov_%'`)
-
-	var logged []string
-	var mu sync.Mutex
-	logFn := func(component string, msg string, args ...any) {
-		mu.Lock()
-		defer mu.Unlock()
-		logged = append(logged, fmt.Sprintf(msg, args...))
-	}
-
-	cfg := &config.Config{}
-	c := New(pool, cfg, logFn)
-	c.cleanStaleFirstSeen(ctx)
-
-	// No "cleaned" log message expected.
-	mu.Lock()
-	defer mu.Unlock()
-	for _, m := range logged {
-		if strings.Contains(m, "cleaned") && strings.Contains(m, "stale") {
-			t.Error("unexpected clean log when no first_seen keys exist")
-		}
-	}
-}
-
-// TestCoverage_CleanStaleFirstSeen_StaleKeyRemoved exercises the path
-// where a first_seen key exists but the corresponding index does not.
-func TestCoverage_CleanStaleFirstSeen_StaleKeyRemoved(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	staleKey := "first_seen:cov_test_nonexistent_idx"
-	execRetry(t, ctx,
-		`INSERT INTO sage.config (key, value)
-		 VALUES ($1, '2024-01-01')
-		 ON CONFLICT (key, COALESCE(database_id, 0))
-		 DO UPDATE SET value = '2024-01-01'`, staleKey)
-
-	var logged []string
-	var mu sync.Mutex
-	logFn := func(component string, msg string, args ...any) {
-		mu.Lock()
-		defer mu.Unlock()
-		logged = append(logged, fmt.Sprintf(msg, args...))
-	}
-
-	cfg := &config.Config{}
-	c := New(pool, cfg, logFn)
-	c.cleanStaleFirstSeen(ctx)
-
-	// Verify the key was removed.
-	var cnt int
-	queryRetry(t, ctx,
-		`SELECT count(*) FROM sage.config
-		 WHERE key = 'first_seen:cov_test_nonexistent_idx'`, &cnt)
-	if cnt != 0 {
-		t.Errorf("expected stale key to be removed, got count=%d", cnt)
-	}
-
-	// Verify log message was emitted.
-	mu.Lock()
-	defer mu.Unlock()
-	foundClean := false
-	for _, m := range logged {
-		if strings.Contains(m, "cleaned") && strings.Contains(m, "stale") {
-			foundClean = true
-		}
-	}
-	if !foundClean {
-		t.Error("expected log message about cleaning stale first_seen entries")
-	}
-}
-
-// TestCoverage_CleanStaleFirstSeen_MultipleStaleKeys exercises cleanup of
-// multiple stale keys at once.
-func TestCoverage_CleanStaleFirstSeen_MultipleStaleKeys(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	keys := []string{
-		"first_seen:cov_multi_a",
-		"first_seen:cov_multi_b",
-		"first_seen:cov_multi_c",
-	}
-
-	for _, k := range keys {
-		execRetry(t, ctx,
-			`INSERT INTO sage.config (key, value)
-			 VALUES ($1, '2024-01-01')
-			 ON CONFLICT (key, COALESCE(database_id, 0))
-			 DO UPDATE SET value = '2024-01-01'`, k)
-	}
-
-	cfg := &config.Config{}
-	c := New(pool, cfg, noopLog)
-	c.cleanStaleFirstSeen(ctx)
-
-	// All should be removed (none of these indexes exist).
-	for _, k := range keys {
-		var cnt int
-		queryRetry(t, ctx,
-			fmt.Sprintf(
-				`SELECT count(*) FROM sage.config WHERE key = '%s'`, k),
-			&cnt)
-		if cnt != 0 {
-			t.Errorf("expected key %s to be removed, got count=%d", k, cnt)
-		}
-	}
-}
-
 // TestCoverage_PurgeTable_LogsError exercises the error logging path in
 // purgeTable by using a cancelled context.
 func TestCoverage_PurgeTable_LogsError(t *testing.T) {
@@ -342,48 +228,14 @@ func TestCoverage_PurgeTable_LogsError(t *testing.T) {
 	defer mu.Unlock()
 	foundError := false
 	for _, m := range logged {
-		if strings.Contains(m, "error purging") {
+		if strings.HasPrefix(m, "[ERROR]") &&
+			strings.Contains(m, "purging sage.snapshots failed") {
 			foundError = true
 			break
 		}
 	}
 	if !foundError {
-		t.Error("expected error log from purgeTable with cancelled context")
-	}
-}
-
-// TestCoverage_CleanStaleFirstSeen_LogsError exercises error logging in
-// cleanStaleFirstSeen by using a cancelled context.
-func TestCoverage_CleanStaleFirstSeen_LogsError(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	var logged []string
-	var mu sync.Mutex
-	logFn := func(component string, msg string, args ...any) {
-		mu.Lock()
-		defer mu.Unlock()
-		logged = append(logged, fmt.Sprintf("[%s] %s", component, fmt.Sprintf(msg, args...)))
-	}
-
-	cfg := &config.Config{}
-	c := New(pool, cfg, logFn)
-
-	cancelCtx, cancel := context.WithCancel(ctx)
-	cancel()
-
-	c.cleanStaleFirstSeen(cancelCtx)
-
-	mu.Lock()
-	defer mu.Unlock()
-	foundError := false
-	for _, m := range logged {
-		if strings.Contains(m, "error") {
-			foundError = true
-			break
-		}
-	}
-	if !foundError {
-		t.Error("expected error log from cleanStaleFirstSeen with cancelled context")
+		t.Errorf("expected ERROR-level purge failure log, got %q", logged)
 	}
 }
 
@@ -411,7 +263,7 @@ func TestCoverage_Run_ZeroRetention_NoDBCalls(t *testing.T) {
 	}
 
 	c := New(pool, cfg, logFn)
-	c.Run(ctx) // Should not panic; purgeTable returns early, cleanStaleFirstSeen runs.
+	c.Run(ctx) // Should not panic; every purgeTable returns early.
 
 	// No purge logs expected (all retention=0 so purgeTable skips).
 	mu.Lock()
@@ -495,17 +347,3 @@ func TestCoverage_PurgeTable_NilPoolPositiveRetention(t *testing.T) {
 	c.purgeTable(context.Background(), "snapshots", "collected_at", 1, "")
 }
 
-// TestCoverage_CleanStaleFirstSeen_NilPoolPanics verifies that
-// cleanStaleFirstSeen panics with a nil pool (no early-return guard).
-func TestCoverage_CleanStaleFirstSeen_NilPoolPanics(t *testing.T) {
-	cfg := &config.Config{}
-
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic when cleanStaleFirstSeen uses nil pool")
-		}
-	}()
-
-	c := New(nil, cfg, noopLog)
-	c.cleanStaleFirstSeen(context.Background())
-}

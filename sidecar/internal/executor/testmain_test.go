@@ -8,5 +8,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	// cgo-less local builds would queue every unattended mutation.
+	AssumeASTValidationForTests()
 	os.Exit(testdb.Run(m.Run, "internal/executor"))
 }

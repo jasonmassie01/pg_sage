@@ -1,6 +1,7 @@
 package rca
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -216,7 +217,7 @@ func TestBuildTier2UserPrompt_Format(t *testing.T) {
 			Metrics:  map[string]any{"count": 42},
 		},
 	}
-	got := buildTier2UserPrompt(sigs)
+	got := buildTier2UserPrompt(sigs, sigs)
 	if !strings.Contains(got, "2 uncovered signals") {
 		t.Errorf("missing signal count header: %s", got)
 	}
@@ -235,7 +236,7 @@ func TestBuildTier2UserPrompt_Format(t *testing.T) {
 }
 
 func TestBuildTier2UserPrompt_Empty(t *testing.T) {
-	got := buildTier2UserPrompt(nil)
+	got := buildTier2UserPrompt(nil, nil)
 	if !strings.Contains(got, "0 uncovered signals") {
 		t.Errorf("expected 0 count header, got: %s", got)
 	}
@@ -382,12 +383,14 @@ func TestBuildTier2Incident(t *testing.T) {
 			}
 		}
 	})
-	t.Run("recommended SQL joined", func(t *testing.T) {
+	// G3-B27: statements are never joined into one multi-statement
+	// string; only the first single statement is kept.
+	t.Run("recommended SQL not joined", func(t *testing.T) {
 		inc := buildTier2Incident(tier2Response{
 			RootCause:      "t",
 			RecommendedSQL: []string{"SELECT 1", "VACUUM"},
 		}, testSignals(1))
-		if inc.RecommendedSQL != "SELECT 1; VACUUM" {
+		if inc.RecommendedSQL != "SELECT 1" {
 			t.Errorf("RecommendedSQL = %q", inc.RecommendedSQL)
 		}
 	})
@@ -448,8 +451,22 @@ func TestParseCausalChainString_SingleItem(t *testing.T) {
 	if chain[0].Description != "only node" {
 		t.Errorf("Description = %q", chain[0].Description)
 	}
-	if chain[0].Signal != "sig_a" {
-		t.Errorf("Signal = %q, want sig_a", chain[0].Signal)
+	// G3-B27: a step is attributed to a signal only when it names one.
+	if chain[0].Signal != "" {
+		t.Errorf("Signal = %q, want empty (step names no signal)",
+			chain[0].Signal)
+	}
+}
+
+func TestParseCausalChainString_AttributesByName(t *testing.T) {
+	sigs := testSignals(2)
+	chain := parseCausalChainString("sig_b spikes -> sig_a follows", sigs)
+	if len(chain) != 2 {
+		t.Fatalf("chain len = %d, want 2", len(chain))
+	}
+	if chain[0].Signal != "sig_b" || chain[1].Signal != "sig_a" {
+		t.Errorf("signals = [%q, %q], want [sig_b, sig_a]",
+			chain[0].Signal, chain[1].Signal)
 	}
 }
 
@@ -459,9 +476,9 @@ func TestParseCausalChainString_MorePartsThanSignals(t *testing.T) {
 	if len(chain) != 3 {
 		t.Fatalf("chain len = %d, want 3", len(chain))
 	}
-	// First link gets signal ID, rest get empty string
-	if chain[0].Signal != "sig_a" {
-		t.Errorf("chain[0].Signal = %q, want sig_a", chain[0].Signal)
+	// G3-B27: no positional attribution; no step names a signal.
+	if chain[0].Signal != "" {
+		t.Errorf("chain[0].Signal = %q, want empty", chain[0].Signal)
 	}
 	if chain[1].Signal != "" {
 		t.Errorf("chain[1].Signal = %q, want empty", chain[1].Signal)
@@ -497,4 +514,18 @@ func TestStripToJSONObject(t *testing.T) {
 			t.Errorf("content lost: %q", got)
 		}
 	})
+}
+
+// runTier2Correlation plans and runs one Tier 2 call synchronously, the
+// way AnalyzeContext does (test helper).
+func (e *Engine) runTier2Correlation(
+	signals []*Signal, tier1 []Incident,
+) []Incident {
+	e.mu.Lock()
+	req, reobserved := e.planTier2(signals, tier1)
+	e.mu.Unlock()
+	if req == nil {
+		return reobserved
+	}
+	return e.runTier2(context.Background(), req)
 }

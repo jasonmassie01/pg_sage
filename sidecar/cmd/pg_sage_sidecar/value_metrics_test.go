@@ -37,7 +37,7 @@ func TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries(t *testing.T) {
 	writeValueMetrics(&b, ctx)
 	output := b.String()
 
-	wantSeries := `pg_sage_toil_minutes_saved_total` +
+	wantSeries := `pg_sage_toil_minutes_saved` +
 		`{database="",feature="create_index_concurrently"} 45`
 	if !strings.Contains(output, wantSeries) {
 		t.Errorf("missing verified toil series %q in:\n%s",
@@ -53,8 +53,9 @@ func TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries(t *testing.T) {
 			wantIncident, output)
 	}
 	for _, header := range []string{
-		"# TYPE pg_sage_toil_minutes_saved_total counter",
+		"# TYPE pg_sage_toil_minutes_saved gauge",
 		"# TYPE pg_sage_incidents_avoided_total counter",
+		"pg_sage_value_metrics_up 1",
 	} {
 		if !strings.Contains(output, header) {
 			t.Errorf("missing header %q in:\n%s", header, output)
@@ -130,4 +131,31 @@ func seedValueMetricsFixture(
 			`DELETE FROM sage.action_log WHERE id IN ($1, $2)`,
 			creditedID, revertedID)
 	})
+}
+
+// SURF-18: net verified toil can decrease when an action is rolled
+// back, so it is exposed as a gauge; a failing query is reported via
+// pg_sage_value_metrics_up=0 instead of silently emitting nothing.
+func TestWriteValueMetricsReportsQueryFailure(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	t.Cleanup(cancel)
+	closed, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
+	if err != nil {
+		t.Fatalf("connect test database: %v", err)
+	}
+	closed.Close()
+	previousPool := pool
+	pool = closed
+	t.Cleanup(func() { pool = previousPool })
+
+	var b strings.Builder
+	writeValueMetrics(&b, ctx)
+	output := b.String()
+	if !strings.Contains(output, "pg_sage_value_metrics_up 0") {
+		t.Fatalf("missing failure indicator in:\n%s", output)
+	}
+	if strings.Contains(output, "_total counter\npg_sage_toil") ||
+		strings.Contains(output, "pg_sage_toil_minutes_saved_total") {
+		t.Fatalf("toil must not be a _total counter:\n%s", output)
+	}
 }

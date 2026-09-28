@@ -69,7 +69,7 @@ docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 | **Rules Engine** | 20+ deterministic checks: duplicate/unused/missing indexes, slow queries, regressions, seq scans, vacuum & bloat, dead tuples, sequence exhaustion, replication lag, security audit, config drift |
 | **Index Optimizer** | LLM-powered recommendations validated through 8 checks + HypoPG cost estimation, confidence scored 0.0--1.0 |
 | **Config Advisors** | 6 LLM advisors: vacuum tuning, WAL/checkpoint, connections, memory, query rewrite, bloat remediation |
-| **Health Briefings** | Periodic LLM summaries. ReAct is C-extension-only via `sage.diagnose()`; it is not exposed by the Go sidecar. |
+| **Health Briefings** | Periodic LLM summaries of fleet health, findings, and actions. |
 | **Trust-Ramped Executor** | Observation -> Advisory -> Autonomous. Typed actions carry risk tier, guardrails, expiration, rollback/mitigation, and verification state. HIGH-risk actions always require approval. |
 | **Shadow Mode** | Shows avoided toil and proof rows for actions pg_sage would have handled under auto-safe policy before teams turn on autonomous execution |
 | **Fleet Mode** | Monitor N databases from one binary with per-database trust levels, token budgets, and health scores |
@@ -98,6 +98,13 @@ See the [docs/](docs/) directory for guides and reference:
 ## Building from Source
 
 Requires Go 1.24+ and Node.js 20+. See [docs/installation.md](docs/installation.md) for details.
+
+A C compiler (gcc or clang) is also needed: with cgo the binary links
+libpg_query, which checks every executor statement against its PostgreSQL
+parse tree. Without a C compiler the build still succeeds, but that layer is
+left out; `pg_sage --version` then reports `sql-ast: unavailable`, startup
+logs a warning, and changes pg_sage would make on its own wait for operator
+approval instead. Release binaries and Docker images always include it.
 
 ```bash
 cd sidecar

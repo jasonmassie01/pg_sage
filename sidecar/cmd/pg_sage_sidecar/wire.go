@@ -32,7 +32,12 @@ type WireParams struct {
 	RateLimiter *RateLimiter
 	Config      *config.ConfigController
 	ConfigBase  *config.Config
-	MCPHandler  http.Handler
+	// ConfigBaseLoader reloads the current file config for override
+	// deletes (G5-B03); nil falls back to ConfigBase.
+	ConfigBaseLoader func() (*config.Config, error)
+	// LLMBudgets covers every LLM client and the fleet budget (G3-B14).
+	LLMBudgets api.LLMBudgetRegistry
+	MCPHandler http.Handler
 }
 
 // WireResult holds the assembled router and resolved deps for
@@ -141,6 +146,11 @@ func wireRouter(p WireParams) WireResult {
 		p.LLMMgr, &api.RuntimeDeps{
 			ConfigController: p.Config,
 			ConfigBase:       p.ConfigBase,
+			ConfigBaseLoader: p.ConfigBaseLoader,
+			LLMBudgets:       p.LLMBudgets,
+			// Same key and policy as the runtime dispatchers (G7-B20/B21).
+			NotificationSecretKey:    notificationSecretKey(authPool),
+			NotificationTargetPolicy: notificationTargetPolicy(),
 			DisableConfigWrites: p.Cfg != nil && p.Cfg.IsFleet() &&
 				!p.Cfg.HasMetaDB(),
 			MCPHandler: p.MCPHandler,
@@ -230,6 +240,9 @@ func applyMetaDatabaseUpdate(
 	if err != nil {
 		return nil, err
 	}
+	if oldRec.Name != candidate.Name {
+		unregisterFleetBudget(oldRec.Name)
+	}
 	if err := fleet.ShutdownInstance(ctx, retired); err != nil {
 		logWarn("meta-db",
 			"db %q: replacement published; old runtime still draining: %v",
@@ -257,6 +270,7 @@ func applyMetaDatabaseDelete(
 	if err != nil {
 		return err
 	}
+	unregisterFleetBudget(rec.Name)
 	if err := fleet.ShutdownInstance(context.WithoutCancel(ctx), retired); err != nil {
 		logWarn("meta-db",
 			"db %q: delete committed; runtime drain incomplete: %v",
@@ -318,6 +332,14 @@ func replaceManagedDatabase(
 		err = errors.Join(err, cleanupManagedCandidate(candidate))
 	}
 	return candidate, retired, err
+}
+
+// unregisterFleetBudget returns a deleted or renamed database's LLM budget
+// share to the remaining databases (G5-B06).
+func unregisterFleetBudget(name string) {
+	if fleetLLMBudget != nil {
+		fleetLLMBudget.Unregister(name)
+	}
 }
 
 func cleanupManagedCandidate(candidate *fleet.DatabaseInstance) error {

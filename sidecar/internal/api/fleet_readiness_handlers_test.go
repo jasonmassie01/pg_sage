@@ -11,16 +11,12 @@ import (
 )
 
 func TestFleetReadinessHandlerReturnsSummaryAndDatabases(t *testing.T) {
-	mgr := fleet.NewManager(&config.Config{
-		Mode: "fleet",
-		Trust: config.TrustConfig{
-			Level:     "autonomous",
-			Tier3Safe: true,
-		},
-	})
+	cfg := caseAutonomousConfig()
+	mgr := fleet.NewManager(cfg)
 	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name:   "primary",
-		Config: config.DatabaseConfig{ExecutionMode: "auto"},
+		Name:     "primary",
+		Config:   config.DatabaseConfig{ExecutionMode: "auto"},
+		Executor: caseGateExecutor(cfg),
 		Status: &fleet.InstanceStatus{
 			Connected: true,
 			Platform:  "postgres",

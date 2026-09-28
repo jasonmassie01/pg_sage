@@ -62,6 +62,9 @@
 | `auto_explain.log_min_duration_ms` | `restart` | `-` |
 | `auto_explain.max_plans_per_cycle` | `restart` | `-` |
 | `auto_explain.prefer_session_load` | `restart` | `-` |
+| `azure.resource_group` | `restart` | `-` |
+| `azure.server_name` | `restart` | `-` |
+| `azure.subscription_id` | `restart` | `-` |
 | `briefing.channels` | `reconfigure` | `briefing` |
 | `briefing.schedule` | `reconfigure` | `briefing` |
 | `briefing.slack_webhook_url` | `reconfigure` | `briefing` |
@@ -155,6 +158,7 @@
 | `migration.mode` | `restart` | `-` |
 | `migration.poll_interval_seconds` | `restart` | `-` |
 | `mode` | `restart` | `-` |
+| `notification_policy.allow_private_targets` | `restart` | `-` |
 | `oauth.client_id` | `restart` | `-` |
 | `oauth.client_secret` | `restart` | `-` |
 | `oauth.default_role` | `restart` | `-` |

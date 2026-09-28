@@ -250,7 +250,7 @@ func writeConfigApplyError(
 func configGlobalDeleteHandler(
 	cs *store.ConfigStore,
 	cfg *config.Config,
-	baseCfg *config.Config,
+	base configBaseSource,
 	mgr *fleet.DatabaseManager,
 	controllers ...*config.ConfigController,
 ) http.HandlerFunc {
@@ -268,8 +268,13 @@ func configGlobalDeleteHandler(
 		}
 		if controller := firstConfigController(controllers); controller != nil {
 			applyControlledGlobalDelete(
-				w, r, cs, baseCfg, mgr, controller, key,
+				w, r, cs, base, mgr, controller, key,
 			)
+			return
+		}
+		baseCfg, err := base()
+		if err != nil {
+			internalError(w, r, "load config base", err)
 			return
 		}
 		if err := cs.DeleteOverride(r.Context(), key, 0); err != nil {
@@ -291,7 +296,7 @@ func configGlobalDeleteHandler(
 
 func applyControlledGlobalDelete(
 	w http.ResponseWriter, r *http.Request,
-	cs *store.ConfigStore, baseCfg *config.Config,
+	cs *store.ConfigStore, base configBaseSource,
 	mgr *fleet.DatabaseManager, controller *config.ConfigController,
 	key string,
 ) {
@@ -304,7 +309,7 @@ func applyControlledGlobalDelete(
 		return
 	}
 	candidate, err := globalCandidateWithoutOverride(
-		r.Context(), cs, baseCfg, key,
+		r.Context(), cs, base, key,
 	)
 	if err != nil {
 		internalError(w, r, "load desired config revision", err)
@@ -340,15 +345,20 @@ func applyControlledGlobalDelete(
 	})
 }
 
+// globalCandidateWithoutOverride rebuilds the desired config from the
+// current file base plus every override except omittedKey (G5-B03).
 func globalCandidateWithoutOverride(
 	ctx context.Context, cs *store.ConfigStore,
-	baseCfg *config.Config, omittedKey string,
+	base configBaseSource, omittedKey string,
 ) (*config.Config, error) {
+	candidate, err := base()
+	if err != nil {
+		return nil, err
+	}
 	overrides, err := cs.GetOverrides(ctx, 0)
 	if err != nil {
 		return nil, err
 	}
-	candidate := config.Clone(baseCfg)
 	for _, override := range overrides {
 		if override.Key != omittedKey {
 			hotReload(candidate, override.Key, override.Value)

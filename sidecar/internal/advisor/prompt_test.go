@@ -6,56 +6,6 @@ import (
 
 func noopLog(string, string, ...any) {}
 
-func TestStripToJSON_ValidArray(t *testing.T) {
-	input := `[{"foo":"bar"}]`
-	got := stripToJSON(input)
-	if got != input {
-		t.Fatalf("expected %q, got %q", input, got)
-	}
-}
-
-func TestStripToJSON_WithThinkingPrefix(t *testing.T) {
-	input := "Let me analyze...\n\n[{\"foo\":\"bar\"}]"
-	want := `[{"foo":"bar"}]`
-	got := stripToJSON(input)
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
-func TestStripToJSON_WithMarkdownFences(t *testing.T) {
-	input := "```json\n[{\"foo\":\"bar\"}]\n```"
-	want := `[{"foo":"bar"}]`
-	got := stripToJSON(input)
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
-func TestStripToJSON_NoJSON(t *testing.T) {
-	input := "No JSON here"
-	got := stripToJSON(input)
-	if got != input {
-		t.Fatalf("expected original string %q, got %q", input, got)
-	}
-}
-
-func TestStripToJSON_EmptyString(t *testing.T) {
-	got := stripToJSON("")
-	if got != "" {
-		t.Fatalf("expected empty string, got %q", got)
-	}
-}
-
-func TestStripToJSON_NestedBrackets(t *testing.T) {
-	input := `text [{"a":[1,2]}] more`
-	want := `[{"a":[1,2]}]`
-	got := stripToJSON(input)
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
 func TestParseLLMFindings_ValidJSON(t *testing.T) {
 	raw := `[{` +
 		`"object_identifier":"public.orders",` +

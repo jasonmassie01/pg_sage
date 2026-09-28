@@ -53,7 +53,7 @@ export function BackupAssurancePanel({
             onClick={onPlanRestoreDrill}
           />
           <AssuranceButton
-            label="Mark restore verified"
+            label="Attest restore drill (admin)"
             icon={ShieldCheck}
             disabled={busy}
             onClick={onMarkRestoreVerified}

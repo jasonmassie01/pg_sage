@@ -413,12 +413,14 @@ func TestPhase2_QueryDailyQueryAggs_WithData(t *testing.T) {
 		t.Fatal("expected at least one daily query aggregate, got 0")
 	}
 
+	// Calls are cumulative: each day after the first contributes the
+	// per-query delta (10 + 5); the first sample has no baseline (C10).
 	for i, a := range aggs {
 		if a.Day.IsZero() {
 			t.Errorf("agg[%d].Day is zero", i)
 		}
-		if a.TotalCalls <= 0 {
-			t.Errorf("agg[%d].TotalCalls = %f, want > 0",
+		if i > 0 && a.TotalCalls != 15 {
+			t.Errorf("agg[%d].TotalCalls = %f, want 15",
 				i, a.TotalCalls)
 		}
 	}
@@ -457,8 +459,10 @@ func TestPhase2_QueryDailyQueryAggs_SingleDay(t *testing.T) {
 	if len(aggs) != 1 {
 		t.Fatalf("expected 1 agg for single day, got %d", len(aggs))
 	}
-	if aggs[0].TotalCalls != 500 {
-		t.Errorf("TotalCalls = %f, want 500", aggs[0].TotalCalls)
+	// A single cumulative sample has no baseline, so no calls are
+	// attributed to the day (C10).
+	if aggs[0].TotalCalls != 0 {
+		t.Errorf("TotalCalls = %f, want 0", aggs[0].TotalCalls)
 	}
 
 	cleanupSnapshots(t, pool, ctx, "queries")
@@ -484,9 +488,9 @@ func TestPhase2_QueryDailyQueryAggs_MultipleQueryIDs(t *testing.T) {
 	if len(aggs) != 1 {
 		t.Fatalf("expected 1 daily aggregate, got %d", len(aggs))
 	}
-	// TotalCalls should be sum of max(calls) per queryid = 100+200+300 = 600.
-	if aggs[0].TotalCalls != 600 {
-		t.Errorf("TotalCalls = %f, want 600", aggs[0].TotalCalls)
+	// One cumulative sample per queryid: no baseline, no delta (C10).
+	if aggs[0].TotalCalls != 0 {
+		t.Errorf("TotalCalls = %f, want 0", aggs[0].TotalCalls)
 	}
 
 	cleanupSnapshots(t, pool, ctx, "queries")
@@ -962,7 +966,7 @@ func TestPhase2_QueryDailyQueryAggs_DedupsPerQueryID(t *testing.T) {
 	cleanupSnapshots(t, pool, ctx, "queries")
 
 	// Insert 2 snapshots on same day with same queryid but
-	// different call counts. The SQL takes max(calls) per queryid.
+	// different cumulative call counts.
 	today := time.Now()
 	for _, calls := range []int64{100, 300} {
 		elems := []queryElem{{QueryID: 7001, Calls: calls}}
@@ -987,9 +991,9 @@ func TestPhase2_QueryDailyQueryAggs_DedupsPerQueryID(t *testing.T) {
 	if len(aggs) != 1 {
 		t.Fatalf("expected 1 day aggregate, got %d", len(aggs))
 	}
-	// max(calls) for queryid 7001 = 300.
-	if aggs[0].TotalCalls != 300 {
-		t.Errorf("TotalCalls = %f, want 300 (max of 100, 300)",
+	// Cumulative 100 then 300: the day saw 200 calls (C10).
+	if aggs[0].TotalCalls != 200 {
+		t.Errorf("TotalCalls = %f, want 200 (delta 300-100)",
 			aggs[0].TotalCalls)
 	}
 

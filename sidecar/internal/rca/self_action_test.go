@@ -502,7 +502,7 @@ func TestCorrelate_DatabaseMismatch(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Empty incident database matches any action
+// Empty incident database is an unknown identity: it matches nothing (R05)
 // ---------------------------------------------------------------------------
 
 func TestCorrelate_EmptyIncidentDatabase(t *testing.T) {
@@ -515,7 +515,7 @@ func TestCorrelate_EmptyIncidentDatabase(t *testing.T) {
 			DetectedAt:   now,
 			Severity:     "critical",
 			SignalIDs:    []string{"log_out_of_memory"},
-			DatabaseName: "", // Empty: should match any action.
+			DatabaseName: "", // Empty: unknown identity, never matches.
 		},
 	}
 	actions := []SageAction{
@@ -533,12 +533,12 @@ func TestCorrelate_EmptyIncidentDatabase(t *testing.T) {
 	if len(annotations) != 1 {
 		t.Fatalf("expected 1 annotation, got %d", len(annotations))
 	}
-	if len(annotations[0].SageActions) != 1 {
-		t.Errorf("SageActions = %d, want 1 (empty DB matches any)",
+	if len(annotations[0].SageActions) != 0 {
+		t.Errorf("SageActions = %d, want 0 (empty DB never matches)",
 			len(annotations[0].SageActions))
 	}
-	if len(selfCaused) != 1 {
-		t.Errorf("selfCaused = %d, want 1", len(selfCaused))
+	if len(selfCaused) != 0 {
+		t.Errorf("selfCaused = %d, want 0", len(selfCaused))
 	}
 }
 
@@ -779,8 +779,9 @@ func TestDatabaseMatches(t *testing.T) {
 	}{
 		{"same database", "mydb", "mydb", true},
 		{"different database", "mydb", "otherdb", false},
-		{"empty incident matches any", "", "anydb", true},
-		{"empty incident matches empty action", "", "", true},
+		// R05: an empty identity is unknown, never a wildcard.
+		{"empty incident never matches", "", "anydb", false},
+		{"empty incident and empty action never match", "", "", false},
 		{"non-empty incident vs empty action", "mydb", "", false},
 	}
 	for _, tt := range tests {

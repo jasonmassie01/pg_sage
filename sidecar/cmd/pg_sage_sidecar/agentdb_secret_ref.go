@@ -21,7 +21,8 @@ func agentDeploymentSecretRef(dep agentdb.Deployment) string {
 // Credentials are resolved only in memory; persistent deployment metadata retains the reference.
 func resolveAgentEnvironmentSecret(dep agentdb.Deployment) (config.DatabaseConfig, bool) {
 	ref := agentDeploymentSecretRef(dep)
-	if dep.Status != "active" || !strings.HasPrefix(ref, "env:") ||
+	// Defense in depth for G8-B14: only allow-listed AgentDB env refs.
+	if dep.Status != "active" || agentdb.ValidateSecretRef(ref) != nil ||
 		(dep.SecretRefExpiresAt != nil && time.Now().After(*dep.SecretRefExpiresAt)) {
 		return config.DatabaseConfig{}, false
 	}

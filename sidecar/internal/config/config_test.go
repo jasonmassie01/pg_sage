@@ -16,14 +16,18 @@ func TestConfigDefaults(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chdir(orig) })
 	os.Chdir(tmp)
+	// A DSN with no explicit mode now selects standalone (G10-B01), so the
+	// no-input default is only defined when no DSN is present in the shell.
+	t.Setenv("SAGE_DATABASE_URL", "")
+	t.Setenv("SAGE_MODE", "")
 
 	cfg, err := Load([]string{})
 	if err != nil {
 		t.Fatalf("Load with defaults failed: %v", err)
 	}
 
-	if cfg.Mode != "extension" {
-		t.Errorf("Mode = %q, want %q", cfg.Mode, "extension")
+	if cfg.Mode != "standalone" {
+		t.Errorf("Mode = %q, want %q", cfg.Mode, "standalone")
 	}
 	if cfg.Postgres.Host != "localhost" {
 		t.Errorf("Postgres.Host = %q, want %q", cfg.Postgres.Host, "localhost")
@@ -70,7 +74,7 @@ func TestConfigPrecedence_CLIOverEnv(t *testing.T) {
 
 	t.Setenv("SAGE_PG_HOST", "env-host")
 
-	cfg, err := Load([]string{"--pg-host=cli-host", "--mode=extension"})
+	cfg, err := Load([]string{"--pg-host=cli-host", "--mode=standalone"})
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -118,7 +122,7 @@ func TestConfigValidation_InvalidTrustLevel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err = Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for invalid trust level, got nil")
 	}
@@ -144,7 +148,7 @@ func TestConfigValidation_ZeroCollectorInterval(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err = Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for zero collector interval, got nil")
 	}
@@ -171,7 +175,7 @@ func TestConfigValidation_ZeroMaxQueries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = Load([]string{"--config=" + cfgPath, "--mode=extension"})
+	_, err = Load([]string{"--config=" + cfgPath, "--mode=standalone"})
 	if err == nil {
 		t.Fatal("expected error for zero max_queries, got nil")
 	}
@@ -209,7 +213,10 @@ func TestDSN_BuildsLibpq(t *testing.T) {
 		Database: "mydb",
 		SSLMode:  "require",
 	}
-	want := "host=myhost port=5433 user=myuser password=mypass dbname=mydb sslmode=require"
+	// Values are quoted per libpq rules (G5-B22); the unquoted form let a
+	// password such as "x sslmode=disable" inject parameters.
+	want := "host='myhost' port=5433 user='myuser' password='mypass' " +
+		"dbname='mydb' sslmode='require'"
 	if got := p.DSN(); got != want {
 		t.Errorf("DSN() = %q, want %q", got, want)
 	}
@@ -257,7 +264,7 @@ func TestEncryptionKeyFromEnv(t *testing.T) {
 
 	t.Setenv("SAGE_ENCRYPTION_KEY", "my-secret-key")
 
-	cfg, err := Load([]string{"--mode=extension"})
+	cfg, err := Load([]string{"--mode=standalone"})
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
@@ -425,47 +432,5 @@ postgres:
 	}
 	if !cfg.HasMetaDB() {
 		t.Error("HasMetaDB() = false, want true")
-	}
-}
-
-func TestApplyHotReload(t *testing.T) {
-	target := newDefaults()
-	target.Collector.IntervalSeconds = 60
-
-	fresh := newDefaults()
-	fresh.Collector.IntervalSeconds = 30
-
-	changed := applyHotReload(target, fresh)
-
-	if target.Collector.IntervalSeconds != 30 {
-		t.Errorf("Collector.IntervalSeconds = %d, want 30",
-			target.Collector.IntervalSeconds)
-	}
-
-	found := false
-	for _, c := range changed {
-		if c == "collector.interval_seconds" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("changed = %v, want it to contain %q",
-			changed, "collector.interval_seconds")
-	}
-}
-
-func TestApplyHotReload_PostgresNotChanged(t *testing.T) {
-	target := newDefaults()
-	target.Postgres.Host = "original"
-
-	fresh := newDefaults()
-	fresh.Postgres.Host = "new-host"
-
-	applyHotReload(target, fresh)
-
-	if target.Postgres.Host != "original" {
-		t.Errorf("Postgres.Host = %q, want %q (postgres should not be hot-reloadable)",
-			target.Postgres.Host, "original")
 	}
 }

@@ -1,6 +1,9 @@
 package schema
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // migrateIncidentConstraints widens the CHECK constraints on
 // sage.incidents for v0.9.1 log-based RCA sources, info severity,
@@ -60,6 +63,48 @@ DO $$ BEGIN
     END IF;
 END $$;`
 
-	_, err := db.Exec(ctx, ddl)
-	return err
+	if _, err := db.Exec(ctx, ddl); err != nil {
+		return err
+	}
+	return migrateIncidentLifecycle(ctx, db)
+}
+
+// ddlIncidentLifecycle adds the durable incident lifecycle columns
+// (R04, SURF-19): who resolved an incident and why, the engine's identity
+// key, and the link from a recurrence to the incident it follows.
+// Additive and idempotent.
+const ddlIncidentLifecycle = `
+ALTER TABLE sage.incidents
+    ADD COLUMN IF NOT EXISTS resolved_by          TEXT,
+    ADD COLUMN IF NOT EXISTS resolution_reason    TEXT,
+    ADD COLUMN IF NOT EXISTS identity_key         TEXT,
+    ADD COLUMN IF NOT EXISTS previous_incident_id UUID;
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'incidents_previous_incident_fk'
+          AND conrelid = 'sage.incidents'::regclass
+    ) THEN
+        ALTER TABLE sage.incidents
+            ADD CONSTRAINT incidents_previous_incident_fk
+            FOREIGN KEY (previous_incident_id)
+            REFERENCES sage.incidents (id) ON DELETE SET NULL;
+    END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_incidents_identity_resolved
+    ON sage.incidents (identity_key, resolved_at DESC)
+    WHERE resolved_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_incidents_resolved_at
+    ON sage.incidents (resolved_at)
+    WHERE resolved_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_incidents_previous
+    ON sage.incidents (previous_incident_id)
+    WHERE previous_incident_id IS NOT NULL;
+`
+
+func migrateIncidentLifecycle(ctx context.Context, db bootstrapDB) error {
+	if _, err := db.Exec(ctx, ddlIncidentLifecycle); err != nil {
+		return fmt.Errorf("incident lifecycle columns: %w", err)
+	}
+	return nil
 }

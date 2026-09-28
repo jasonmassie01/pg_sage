@@ -152,7 +152,7 @@ func (r DryRunProvisionRunner) BackupCheck(
 	req ProvisionRequest,
 ) ProvisionResult {
 	result := r.Run(ctx, req.DryRunCommand)
-	return commandResult("verified", result)
+	return commandResult("planned", result)
 }
 
 func commandResult(status string, result ProvisionRunResult) ProvisionResult {
@@ -179,7 +179,10 @@ func validProvisionTransition(from, to string) bool {
 		"preflight_passed": {"provisioning": true},
 		"preflight_failed": {"preflight_passed": true},
 		"failed":           {"preflight_passed": true, "provisioning": true},
-		"provisioning":     {"available": true, "dry_run_ready": true, "failed": true, "status_unknown": true},
+		"provisioning": {"available": true, "dry_run_ready": true, "failed": true,
+			"status_unknown": true, "create_uncertain": true},
+		"create_uncertain": {"available": true, "provisioning": true, "failed": true,
+			"status_checked": true, "status_unknown": true, "destroying": true},
 		"dry_run_ready": {"preflight_passed": true, "status_checked": true,
 			"provisioning": true, "destroy_pending": true},
 		"available": {"status_checked": true, "destroy_pending": true, "status_unknown": true},

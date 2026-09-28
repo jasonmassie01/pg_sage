@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
@@ -117,12 +119,18 @@ func (s *hypopgSession) measureCosts(ctx context.Context,
 }
 
 func (s *hypopgSession) explain(ctx context.Context, query string) ([]byte, error) {
+	if s.version < 160000 && strings.Contains(query, "$1") {
+		return s.explainPrepared(ctx, query)
+	}
 	prefix := "EXPLAIN (FORMAT JSON) "
 	if s.version >= 160000 {
 		prefix = "EXPLAIN (GENERIC_PLAN, FORMAT JSON) "
 	}
 	// Keep normalized $n parameters unbound and all HypoPG planner hooks on the owning session.
-	results, err := s.tx.Conn().PgConn().Exec(ctx, prefix+query).ReadAll()
+	return singleJSONPlan(s.tx.Conn().PgConn().Exec(ctx, prefix+query).ReadAll())
+}
+
+func singleJSONPlan(results []*pgconn.Result, err error) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}

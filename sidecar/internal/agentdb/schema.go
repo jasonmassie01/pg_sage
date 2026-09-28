@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -13,13 +14,45 @@ import (
 )
 
 func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+	return NewStoreWithOptions(pool, DefaultStoreOptions())
 }
 
+// agentDBSchemaVersion is bumped whenever schemaStatements change.
+const agentDBSchemaVersion = 2026092601
+
+// schemaReady memoizes successful initialization per pool so request paths
+// (including the unauthenticated agent-ping) never re-run DDL (G8-B16).
+var schemaReady sync.Map
+
+// Ensure initializes the AgentDB schema once per pool per process. A
+// database already at agentDBSchemaVersion skips all DDL (ALTER TABLE ... ADD
+// COLUMN IF NOT EXISTS takes ACCESS EXCLUSIVE locks) and re-seeding.
 func (s *Store) Ensure(ctx context.Context) error {
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("agentdb store unavailable")
 	}
+	if _, ok := schemaReady.Load(s.pool); ok {
+		return nil
+	}
+	if s.schemaCurrent(ctx) {
+		schemaReady.Store(s.pool, struct{}{})
+		return nil
+	}
+	if err := s.initializeSchema(ctx); err != nil {
+		return err
+	}
+	schemaReady.Store(s.pool, struct{}{})
+	return nil
+}
+
+func (s *Store) schemaCurrent(ctx context.Context) bool {
+	var version int
+	err := s.pool.QueryRow(ctx, `/* pg_sage */
+		SELECT version FROM sage.agent_db_schema_version WHERE singleton`).Scan(&version)
+	return err == nil && version == agentDBSchemaVersion
+}
+
+func (s *Store) initializeSchema(ctx context.Context) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return fmt.Errorf("begin agentdb schema initialization: %w", err)
@@ -39,6 +72,12 @@ func (s *Store) Ensure(ctx context.Context) error {
 	if err := seedDefaultSizeProfiles(ctx, tx); err != nil {
 		return fmt.Errorf("seed agentdb default profiles: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `INSERT INTO sage.agent_db_schema_version (singleton, version)
+		VALUES (true, $1)
+		ON CONFLICT (singleton) DO UPDATE SET version=EXCLUDED.version, updated_at=now()`,
+		agentDBSchemaVersion); err != nil {
+		return fmt.Errorf("record agentdb schema version: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit agentdb schema initialization: %w", err)
 	}
@@ -50,37 +89,6 @@ func rollbackSchemaInit(tx pgx.Tx) {
 	defer cancel()
 	// A rollback failure makes pgx destroy the connection, releasing transaction locks.
 	_ = tx.Rollback(ctx)
-}
-
-func (s *Store) ProvisionSchema(
-	ctx context.Context,
-	req RegisterRequest,
-) (Deployment, error) {
-	normalizeProviderFields(&req)
-	if req.Provider != ProviderLocalPostgres || req.ProvisioningLevel != LevelSchema {
-		return Deployment{}, ErrInvalid
-	}
-	req.SchemaName = sanitizeSchemaName(req.SchemaName)
-	if req.SchemaName == "" {
-		req.SchemaName = "agentdb_" + idFrom(req.TenantID, req.AgentID)
-	}
-	if err := s.Ensure(ctx); err != nil {
-		return Deployment{}, err
-	}
-	sql := fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", quoteIdent(req.SchemaName))
-	if _, err := s.pool.Exec(ctx, sql); err != nil {
-		return Deployment{}, err
-	}
-	if req.Metadata == nil {
-		req.Metadata = map[string]any{}
-	}
-	req.Metadata["credential_scope"] = req.SchemaName
-	req.ProvisioningStatus = "provisioned"
-	req.ConnectionInfo = map[string]any{
-		"provider":    req.Provider,
-		"schema_name": req.SchemaName,
-	}
-	return s.Register(ctx, req)
 }
 
 func (s *Store) Provision(ctx context.Context, req RegisterRequest) (Deployment, error) {
@@ -113,35 +121,6 @@ func (s *Store) Provision(ctx context.Context, req RegisterRequest) (Deployment,
 	req.Metadata = cloneAnyMap(req.Metadata)
 	req.Metadata["provider_params"] = cloneAnyMap(profile.ProviderParams)
 	req.Metadata["size_profile_id"] = profile.ProfileID
-	return s.Register(ctx, req)
-}
-
-func (s *Store) provisionLocalDatabase(
-	ctx context.Context,
-	req RegisterRequest,
-) (Deployment, error) {
-	req.DatabaseName = sanitizeDatabaseName(req.DatabaseName)
-	if req.DatabaseName == "" {
-		req.DatabaseName = "agentdb_" + idFrom(req.TenantID, req.AgentID)
-	}
-	if err := s.Ensure(ctx); err != nil {
-		return Deployment{}, err
-	}
-	sql := fmt.Sprintf("CREATE DATABASE %s", quoteIdent(req.DatabaseName))
-	if _, err := s.pool.Exec(ctx, sql); err != nil {
-		if !strings.Contains(err.Error(), "already exists") {
-			return Deployment{}, err
-		}
-	}
-	if req.Metadata == nil {
-		req.Metadata = map[string]any{}
-	}
-	req.Metadata["credential_scope"] = req.DatabaseName
-	req.ProvisioningStatus = "provisioned"
-	req.ConnectionInfo = map[string]any{
-		"provider":      req.Provider,
-		"database_name": req.DatabaseName,
-	}
 	return s.Register(ctx, req)
 }
 

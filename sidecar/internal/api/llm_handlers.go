@@ -138,10 +138,39 @@ func discoverModelsHandler(
 	}
 }
 
+// LLMBudgetRegistry reports and resets the token budget of every LLM
+// client the process can spend through. *llm.Manager satisfies it for the
+// shared general/optimizer pair; the sidecar passes its client registry so
+// optimizer, per-database and fleet-budget spend are visible (G3-B14).
+type LLMBudgetRegistry interface {
+	TokenStatus() map[string]llm.ClientStatus
+	ResetBudgets()
+}
+
+// llmBudgetSource prefers the process registry and falls back to the
+// shared manager; nil means no LLM is configured.
+func llmBudgetSource(
+	registry LLMBudgetRegistry, mgr *llm.Manager,
+) LLMBudgetRegistry {
+	if registry != nil {
+		return registry
+	}
+	if mgr != nil {
+		return mgr
+	}
+	return nil
+}
+
+func registerLLMBudgetRoutes(mux *http.ServeMux, budgets LLMBudgetRegistry) {
+	mux.HandleFunc("GET /api/v1/llm/status", llmStatusHandler(budgets))
+	mux.Handle("POST /api/v1/llm/budget/reset", RequireRole("admin")(
+		http.HandlerFunc(llmBudgetResetHandler(budgets))))
+}
+
 // llmBudgetResetHandler zeroes the daily token counter on all
 // LLM clients so calls resume immediately. Admin-only.
 func llmBudgetResetHandler(
-	mgr *llm.Manager,
+	mgr LLMBudgetRegistry,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		if mgr == nil {
@@ -160,9 +189,9 @@ func llmBudgetResetHandler(
 }
 
 // llmStatusHandler returns the current LLM token budget status
-// for all configured clients (general and optimizer).
+// for every registered client.
 func llmStatusHandler(
-	mgr *llm.Manager,
+	mgr LLMBudgetRegistry,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		if mgr == nil {

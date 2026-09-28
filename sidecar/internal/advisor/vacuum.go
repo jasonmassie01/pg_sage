@@ -24,7 +24,7 @@ RULES:
 3. If the problem is global (cost_delay too high, max_workers too low), ` +
 	`recommend ALTER SYSTEM.
 4. Explain WHY the current settings are wrong (show the math).
-5. If a table has no dead tuple problem, say "no changes needed".
+5. If a table has no dead tuple problem, omit it (return [] if none need changes).
 6. For high-write tables (>10K writes/day), recommend scale_factor 0.01-0.05.
 7. For append-only tables (inserts only, no updates/deletes), vacuum is less ` +
 	`critical.
@@ -135,15 +135,9 @@ func analyzeVacuum(
 		strings.Join(tableContexts, "\n\n"),
 	)
 
-	if len(prompt) > maxAdvisorPromptChars {
-		prompt = prompt[:maxAdvisorPromptChars]
-	}
-
-	resp, _, err := mgr.ChatForPurpose(
-		ctx, "advisor", vacuumSystemPrompt, prompt, 4096,
-	)
+	resp, err := chatAdvisor(ctx, mgr, "vacuum", vacuumSystemPrompt, "", prompt)
 	if err != nil {
-		return nil, fmt.Errorf("vacuum LLM: %w", err)
+		return nil, err
 	}
 
 	findings := parseLLMFindings(resp, "vacuum_tuning", logFn)

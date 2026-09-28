@@ -73,6 +73,7 @@ func TestExecuteManualAnalyzeUsesDedicatedAnalyzePath(t *testing.T) {
 		shutdownCh:    make(chan struct{}),
 	}
 
+	withTestStandingGate(e)
 	actionID, err := e.ExecuteManual(
 		ctx, findingID, "ANALYZE public.test_manual_analyze_path", "", nil)
 	if err != nil {

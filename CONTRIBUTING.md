@@ -5,14 +5,21 @@ research, and real-world workload reports are welcome.
 
 ## Current Project Shape
 
-The active v0.9 product is the Go sidecar and embedded React UI:
+The product is the Go sidecar and embedded React UI:
 
 - Backend: `sidecar/`
 - Web UI: `sidecar/web/`
-- Legacy PostgreSQL extension code: `src/` (kept for compatibility/history, not
-  the primary product surface)
+- The former C extension was removed; its last source is at the
+  `c-extension-final` tag
 
 ## Development Setup
+
+A C compiler (gcc or clang) is also needed: with cgo the binary links
+libpg_query, which checks every executor statement against its PostgreSQL
+parse tree. Without a C compiler the build still succeeds, but that layer is
+left out; `pg_sage --version` then reports `sql-ast: unavailable`, startup
+logs a warning, and changes pg_sage would make on its own wait for operator
+approval instead. Release binaries and Docker images always include it.
 
 ```bash
 git clone https://github.com/jasonmassie01/pg_sage.git

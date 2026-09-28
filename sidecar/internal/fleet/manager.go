@@ -3,7 +3,6 @@ package fleet
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"sort"
 	"sync"
@@ -12,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/executor"
 )
 
 var (
@@ -30,6 +28,9 @@ type DatabaseManager struct {
 	primaryName string // first registered instance name
 	mu          sync.RWMutex
 	lifecycle   chan struct{}
+	// persistStop writes the durable emergency_stop flag. nil uses
+	// persistEmergencyStop; tests inject failures here.
+	persistStop func(context.Context, *DatabaseInstance, bool) error
 }
 
 // NewManager creates a fleet manager from config.
@@ -107,7 +108,7 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 		// writers (updateInstanceFindings, config_handlers) don't race
 		// with the health-score compute or the JSON marshaller.
 		snap := inst.SnapshotStatus()
-		snap = EnsureCapabilities(m.cfg, inst, snap, time.Now().UTC())
+		snap = EnsureCapabilities(inst, snap)
 		snap.HealthScore = computeHealthScore(snap)
 		snap.DatabaseName = inst.Name
 		ds := DatabaseStatus{
@@ -239,7 +240,8 @@ func recordHealthSample(
 // EmergencyStop blocks action execution for a specific database, or all
 // databases if name is empty. Monitoring goroutines intentionally keep
 // running so Resume can clear the guard without needing to reconstruct
-// per-instance collectors/analyzers/orchestrators.
+// per-instance collectors/analyzers/orchestrators. Every target is stopped
+// in memory even when its persisted flag cannot be written.
 func (m *DatabaseManager) EmergencyStop(name string) int {
 	stopped, _ := m.EmergencyStopStrict(name)
 	return stopped
@@ -247,52 +249,6 @@ func (m *DatabaseManager) EmergencyStop(name string) int {
 
 func (m *DatabaseManager) EmergencyStopStrict(name string) (int, error) {
 	return m.setEmergencyStopped(name, true)
-}
-
-func (m *DatabaseManager) setEmergencyStopped(
-	name string,
-	stopped bool,
-) (int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if name != "" {
-		if _, ok := m.instances[name]; !ok {
-			return 0, fmt.Errorf("%w: %s", ErrDatabaseNotFound, name)
-		}
-	}
-	changed := 0
-	for n, inst := range m.instances {
-		if name != "" && name != n {
-			continue
-		}
-		// Always reconcile the persistent flag (sage.config) with the
-		// target, even when the in-memory state already matches. After a
-		// restart the in-memory state resets to "running" while the
-		// persisted flag may still be "stopped"; gating the write on the
-		// in-memory state left resume unable to clear it.
-		if inst.Pool != nil {
-			ctx, cancel := context.WithTimeout(
-				context.Background(), 5*time.Second,
-			)
-			err := executor.SetEmergencyStop(ctx, inst.Pool, stopped)
-			cancel()
-			if err != nil {
-				return changed, fmt.Errorf(
-					"persisting emergency stop for %s: %w", n, err)
-			}
-		}
-		if inst.Stopped != stopped {
-			if stopped {
-				log.Printf("fleet: %s: emergency stop", n)
-			} else {
-				log.Printf("fleet: %s: resumed", n)
-			}
-			inst.Stopped = stopped
-			changed++
-		}
-	}
-	return changed, nil
 }
 
 // Resume resumes a specific database or all if name is empty.

@@ -6,7 +6,10 @@ import "testing"
 func TestAuditQueryAggsNullableSnapshots(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	cleanupSnapshots(t, pool, ctx, "queries")
-	for _, raw := range []string{"null", "[]", `[{"queryid":7,"calls":11}]`} {
+	// Two samples: calls are cumulative, so the day total is the delta
+	// 22 - 11 = 11 (C10).
+	for _, raw := range []string{"null", `[{"queryid":7,"calls":11}]`, "[]",
+		`[{"queryid":7,"calls":22}]`} {
 		_, err := pool.Exec(ctx, `INSERT INTO sage.snapshots
    (collected_at, category, data) VALUES (now(), 'queries', $1::jsonb)`, raw)
 		if err != nil {

@@ -47,14 +47,17 @@ test.describe('Token budget banner', () => {
     await page.route('**/api/v1/llm/status', route =>
       route.fulfill({
         json: {
-          general: {
-            ...mockLLMStatusExhausted.general,
-            budget_exhausted: true,
+          clients: {
+            general: {
+              ...mockLLMStatusExhausted.clients.general,
+              budget_exhausted: true,
+            },
+            optimizer: {
+              ...mockLLMStatusExhausted.clients.optimizer,
+              budget_exhausted: false,
+            },
           },
-          optimizer: {
-            ...mockLLMStatusExhausted.optimizer,
-            budget_exhausted: false,
-          },
+          any_exhausted: true,
         },
       }),
     )

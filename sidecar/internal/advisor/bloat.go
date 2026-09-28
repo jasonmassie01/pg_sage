@@ -16,16 +16,19 @@ const bloatSystemPrompt = `You are a PostgreSQL bloat remediation expert.
 CRITICAL: Respond with ONLY a JSON array. No thinking, no reasoning outside JSON.
 
 RULES:
-1. Present multiple options (VACUUM FULL, pg_repack, do nothing) with tradeoffs.
-2. If pg_repack is available, prefer it over VACUUM FULL for production.
-3. Estimate duration: ~1MB/s VACUUM FULL, ~0.5MB/s pg_repack.
-4. Calculate temp disk space for pg_repack.
-5. If bloat < 20% and stable, recommend "do nothing -- monitor."
-6. For managed services without pg_repack: VACUUM FULL needs maintenance window.
-7. Suggest maintenance window from lowest-traffic period.
-8. For tables > 10GB, warn about VACUUM FULL duration.
-9. For index bloat, recommend REINDEX CONCURRENTLY.
-10. These are ALWAYS advisory -- severity: info. Never auto-execute.
+1. The context reports DEAD TUPLES, not measured bloat. Dead tuples are
+   reclaimed for reuse by plain VACUUM (or autovacuum); recommend plain VACUUM
+   or autovacuum tuning first.
+2. Never recommend VACUUM FULL or pg_repack based on the dead-tuple ratio
+   alone. Only mention them as a follow-up to verify with pgstattuple when
+   the table was vacuumed recently and still occupies far more space than
+   its live rows need.
+3. If dead tuples are shrinking or autovacuum ran recently, recommend
+   "do nothing -- monitor."
+4. If autovacuum has never run or dead tuples keep growing, explain the likely
+   blocker (long transactions, cost limits) instead of rewriting the table.
+5. For index bloat, recommend REINDEX CONCURRENTLY only with measured evidence.
+6. These are ALWAYS advisory -- severity: info. Never auto-execute.
 
 Each element: {"object_identifier":"schema.table","severity":"info",` +
 	`"rationale":"...","recommended_sql":null,"bloat_pct":N,` +
@@ -89,8 +92,8 @@ func analyzeBloat(
 				"  Size: %.1fMB (data) + %.1fMB (indexes)\n"+
 				"  Dead tuples: %d (%.1f%%)\n"+
 				"  Live tuples: %d\n"+
-				"  Estimated bloat: %.1fMB\n"+
-				"  Bloat trend: %s\n"+
+				"  Dead tuples as share of data size (not measured bloat): %.1fMB\n"+
+				"  Dead-tuple trend: %s\n"+
 				"  Last autovacuum: %s",
 			t.SchemaName, t.RelName,
 			sizeMB, indexSizeMB,
@@ -128,15 +131,9 @@ func analyzeBloat(
 		strings.Join(bloatContexts, "\n\n"),
 	)
 
-	if len(prompt) > maxAdvisorPromptChars {
-		prompt = prompt[:maxAdvisorPromptChars]
-	}
-
-	resp, _, err := mgr.ChatForPurpose(
-		ctx, "advisor", bloatSystemPrompt, prompt, 4096,
-	)
+	resp, err := chatAdvisor(ctx, mgr, "bloat", bloatSystemPrompt, "", prompt)
 	if err != nil {
-		return nil, fmt.Errorf("bloat LLM: %w", err)
+		return nil, err
 	}
 
 	findings := parseLLMFindings(resp, "bloat_remediation", logFn)

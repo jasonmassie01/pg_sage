@@ -32,3 +32,19 @@ func TestHostedProviderNilPoolRemainsUnknown(t *testing.T) {
 		t.Fatalf("provider = %q, want unknown", got)
 	}
 }
+
+// Azure Database for PostgreSQL flexible servers are recognised from the
+// host before any SQL probe; lookalike hosts are not.
+func TestHostedProviderFromHostAzure(t *testing.T) {
+	for host, want := range map[string]string{
+		"sage-prod.postgres.database.azure.com":        "azure",
+		"SAGE-PROD.postgres.database.azure.com.":       "azure",
+		"postgres.database.azure.com.attacker.example": "",
+		"sage-prod.postgres.database.azure.com:5432":   "",
+		"sage.privatelink.postgres.database.azure.com": "azure",
+	} {
+		if got := hostedProviderFromHost(host); got != want {
+			t.Errorf("hostedProviderFromHost(%q) = %q, want %q", host, got, want)
+		}
+	}
+}

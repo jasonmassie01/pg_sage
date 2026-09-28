@@ -349,11 +349,15 @@ func TestValidEventTypes_Completeness(t *testing.T) {
 		"approval_needed":         true,
 		"finding_critical":        true,
 		"query_rewrite_suggested": true,
+		"incident_detected":       true,
+		"incident_escalated":      true,
+		"incident_resolved":       true,
 	}
 
 	// Verify exact count.
-	if len(ValidEventTypes) != 5 {
-		t.Errorf("ValidEventTypes has %d entries, want 5", len(ValidEventTypes))
+	if len(ValidEventTypes) != len(expectedTypes) {
+		t.Errorf("ValidEventTypes has %d entries, want %d",
+			len(ValidEventTypes), len(expectedTypes))
 	}
 
 	// Verify all expected types are present and true.

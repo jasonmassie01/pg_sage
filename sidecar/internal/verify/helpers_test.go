@@ -174,6 +174,23 @@ func (s *memoryStateStore) ListDue(
 	return due, nil
 }
 
+func (s *memoryStateStore) Claim(
+	_ context.Context, listed WatchState, now, leaseUntil time.Time,
+) (WatchState, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return WatchState{}, false, s.err
+	}
+	state, ok := s.states[listed.ID]
+	if !ok || state.Completed || state.NextEvaluationAt.After(now) {
+		return WatchState{}, false, nil
+	}
+	state.NextEvaluationAt = leaseUntil
+	s.states[listed.ID] = state
+	return state, true, nil
+}
+
 func testVerificationNow() time.Time {
 	return time.Date(2026, 7, 22, 14, 0, 0, 0, time.UTC)
 }

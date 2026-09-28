@@ -372,12 +372,14 @@ func TestCoverage_ParseIndexDef_MultiColumn(t *testing.T) {
 }
 
 func TestCoverage_ParseIndexDef_WithInclude(t *testing.T) {
-	// The regex is greedy: (.+) in the columns group consumes
-	// the INCLUDE clause. This test documents actual behavior.
 	def := "CREATE INDEX idx_inc ON public.orders USING btree (id) INCLUDE (name, email)"
 	p := ParseIndexDef(def)
-	// Due to greedy matching, INCLUDE is captured as part of
-	// columns. Verify the parse at least succeeds.
+	if len(p.Columns) != 1 || p.Columns[0] != "id" {
+		t.Errorf("Columns = %q, want [id]", p.Columns)
+	}
+	if len(p.IncludeCols) != 2 || p.IncludeCols[1] != "email" {
+		t.Errorf("IncludeCols = %q, want [name email]", p.IncludeCols)
+	}
 	if p.Name != "idx_inc" {
 		t.Errorf("Name = %q, want idx_inc", p.Name)
 	}
@@ -387,10 +389,14 @@ func TestCoverage_ParseIndexDef_WithInclude(t *testing.T) {
 }
 
 func TestCoverage_ParseIndexDef_WithWhere(t *testing.T) {
-	// The regex is greedy: (.+) in the columns group consumes
-	// the WHERE clause. This test documents actual behavior.
 	def := "CREATE INDEX idx_partial ON public.orders USING btree (status) WHERE (status = 'active')"
 	p := ParseIndexDef(def)
+	if len(p.Columns) != 1 || p.Columns[0] != "status" {
+		t.Errorf("Columns = %q, want [status]", p.Columns)
+	}
+	if p.WhereClause != "(status = 'active')" {
+		t.Errorf("WhereClause = %q", p.WhereClause)
+	}
 	if p.Name != "idx_partial" {
 		t.Errorf("Name = %q, want idx_partial", p.Name)
 	}
@@ -590,7 +596,7 @@ func TestCoverage_RuleInvalidIndexes(t *testing.T) {
 		},
 	}
 
-	findings := ruleInvalidIndexes(snap, nil, nil, nil)
+	findings := invalidIndexesTwice(snap)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -626,7 +632,7 @@ func TestCoverage_RuleInvalidIndexes_UnloggedTable(t *testing.T) {
 		},
 	}
 
-	findings := ruleInvalidIndexes(snap, nil, nil, nil)
+	findings := invalidIndexesTwice(snap)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -1427,8 +1433,8 @@ func TestCoverage_RuleXIDWraparound_Warning(t *testing.T) {
 	if findings[0].Category != "xid_wraparound" {
 		t.Errorf("Category = %q, want xid_wraparound", findings[0].Category)
 	}
-	if findings[0].RecommendedSQL == "" {
-		t.Error("expected VACUUM FREEZE SQL")
+	if sql, _ := findings[0].Detail["diagnostic_sql"].(string); sql == "" {
+		t.Error("expected xmin-holder diagnostic SQL in detail")
 	}
 }
 
@@ -1708,24 +1714,30 @@ func TestCoverage_PickBetter_HigherSeverityWins(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// rules_index.go: isLeadingPrefix, extractIndexNameFromSQL
+// rules_index.go: isLeadingSet, extractIndexNameFromSQL
 // ---------------------------------------------------------------------------
 
-func TestCoverage_IsLeadingPrefix_Match(t *testing.T) {
-	if !isLeadingPrefix([]string{"a"}, []string{"a", "b"}) {
+func TestCoverage_IsLeadingSet_Match(t *testing.T) {
+	if !isLeadingSet([]string{"a"}, []string{"a", "b"}) {
 		t.Error("expected true for leading prefix")
 	}
 }
 
-func TestCoverage_IsLeadingPrefix_NeedLongerThanHave(t *testing.T) {
-	if isLeadingPrefix([]string{"a", "b"}, []string{"a"}) {
+func TestCoverage_IsLeadingSet_NeedLongerThanHave(t *testing.T) {
+	if isLeadingSet([]string{"a", "b"}, []string{"a"}) {
 		t.Error("expected false when need > have")
 	}
 }
 
-func TestCoverage_IsLeadingPrefix_Mismatch(t *testing.T) {
-	if isLeadingPrefix([]string{"b"}, []string{"a", "b"}) {
+func TestCoverage_IsLeadingSet_Mismatch(t *testing.T) {
+	if isLeadingSet([]string{"b"}, []string{"a", "b"}) {
 		t.Error("expected false for non-prefix match")
+	}
+}
+
+func TestCoverage_IsLeadingSet_Permutation(t *testing.T) {
+	if !isLeadingSet([]string{"b", "a"}, []string{"a", "b", "c"}) {
+		t.Error("expected true: leading columns are a permutation of the FK")
 	}
 }
 
@@ -2181,4 +2193,16 @@ func TestFilterSchemaExclusions_PgSnap(t *testing.T) {
 	if len(snap.Indexes) != 1 {
 		t.Errorf("indexes = %d, want 1 (public only)", len(snap.Indexes))
 	}
+}
+
+// invalidIndexesTwice runs the invalid-index rule for two cycles: since
+// G2-B09 an index must be seen invalid twice (and not be building)
+// before a drop is recommended.
+func invalidIndexesTwice(snap *collector.Snapshot) []Finding {
+	extras := &RuleExtras{
+		InvalidFirstSeen: map[string]time.Time{},
+		IndexBuildTables: map[string]bool{},
+	}
+	ruleInvalidIndexes(snap, nil, nil, extras)
+	return ruleInvalidIndexes(snap, nil, nil, extras)
 }

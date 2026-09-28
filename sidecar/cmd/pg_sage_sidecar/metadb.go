@@ -21,6 +21,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/rca"
+	"github.com/pg-sage/sidecar/internal/retention"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -118,9 +119,10 @@ func initMetaDB(
 	// match keys used to encrypt prior records. The salt must be
 	// stable across restarts — if it is lost, all encrypted
 	// credentials become unrecoverable.
-	var encKey []byte
+	var encKey, salt []byte
 	if encKeyPassphrase != "" {
-		salt, err := schema.ReadOrCreateKDFSalt(ctx, metaPool)
+		var err error
+		salt, err = schema.ReadOrCreateKDFSalt(ctx, metaPool)
 		if err != nil {
 			return nil, fmt.Errorf("kdf salt: %w", err)
 		}
@@ -138,6 +140,11 @@ func initMetaDB(
 	}
 
 	dbStore := store.NewDatabaseStore(metaPool, encKey)
+	if encKeyPassphrase != "" {
+		// Credentials written by v0.8.4/v0.8.5 used legacy key
+		// derivations; decrypt and re-encrypt them on first read (G5-B05).
+		dbStore.WithKeyMigration(encKeyPassphrase, salt)
+	}
 
 	return &metaDBState{
 		Pool:       metaPool,
@@ -406,7 +413,12 @@ func buildStoreDatabaseRuntime(
 	if err := bootstrapManagedDatabaseSchema(ctx, dbPool); err != nil {
 		return nil, fmt.Errorf("bootstrap schema for %q: %w", rec.Name, err)
 	}
-	dbPGVersion := detectPGVersion(dbPool)
+	checks, err := runInstanceChecks(ctx, dbPool)
+	if err != nil {
+		return nil, fmt.Errorf("prerequisite checks for %q: %w", rec.Name, err)
+	}
+	dbRuntimeCfg := instanceRuntimeConfig(checks)
+	dbPGVersion := checks.PGVersionNum
 	dbCloudEnv := detectCloudEnv(dbPool)
 
 	// Derive a per-instance context from the process shutdownCtx so
@@ -420,14 +432,15 @@ func buildStoreDatabaseRuntime(
 	instWorkers := &sync.WaitGroup{}
 
 	dbColl := collector.New(
-		dbPool, cfg, dbPGVersion, logStructuredWrapper,
+		dbPool, dbRuntimeCfg, dbPGVersion, logStructuredWrapper,
 	)
 	startInstanceWorker(instWorkers, func() { dbColl.Run(instCtx) })
 
 	// LLM features for meta-db registered databases.
-	dbOpt, dbAdvIface, dbTuner, dbBrief, dbLLMClient, _ :=
+	dbOpt, dbAdvIface, dbTuner, dbBrief, dbLLMClient, dbLLMMgr :=
 		buildFleetLLMFeatures(dbPool, dbPGVersion, dbColl,
 			rec.Name)
+	releaseLLMClientsOnDone(instCtx, dbLLMMgr)
 
 	// dbTuner is a *tuner.Tuner which may be nil when cfg.Tuner.Enabled
 	// is false. Passing the typed nil directly produces a non-nil
@@ -450,14 +463,27 @@ func buildStoreDatabaseRuntime(
 		if dbLLMClient != nil {
 			dbRCAEng.WithLLM(dbLLMClient)
 		}
-		dbAnal.WithRCAEngine(&rcaAdapter{e: dbRCAEng})
+		dbAnal.WithRCAEngine(newRCAAdapter(instCtx, dbRCAEng, dbPool,
+			rec.Name, logStructuredWrapper))
 	}
 	if dbLLMClient != nil {
 		dbAnal.WithPlanNarrator(analyzer.NewLLMPlanNarrator(
 			dbLLMClient, logStructuredWrapper,
 		))
 	}
+	// Meta instances had no dispatcher at all; rules live in the meta DB
+	// (G5-B10, G7-B05). Configure before Run (G2-B15).
+	dispatcher := sharedNotifyDispatcher(
+		notificationControlPool(globalMetaState, nil),
+	)
+	if dispatcher != nil {
+		dbAnal.WithDispatcher(dispatcher)
+	}
+	dbAnal.WithDatabaseName(rec.Name)
 	startInstanceWorker(instWorkers, func() { dbAnal.Run(instCtx) })
+	if alerts := newInstanceAlertManager(dbPool); alerts != nil {
+		startInstanceWorker(instWorkers, func() { alerts.Run(instCtx) })
+	}
 
 	dbExec := buildExecutor(rec, dbPool, dbAnal, dbCloudEnv)
 	startProviderObservability(instCtx, instWorkers, dbPool, cfg, dbExec, dbRCAEng)
@@ -468,6 +494,13 @@ func buildStoreDatabaseRuntime(
 		return nil, fmt.Errorf("start autonomy for %q: %w", rec.Name, err)
 	}
 	dbActionStore := store.NewActionStore(dbPool)
+	if dispatcher != nil {
+		dbExec.WithDispatcher(dispatcher)
+		if dbRCAEng != nil {
+			dbRCAEng.WithDispatcher(dispatcher)
+		}
+	}
+	dbExec.WithDatabaseName(rec.Name)
 	if dbLLMClient != nil {
 		dbExec.WithJustifier(dbLLMClient)
 	}
@@ -482,10 +515,11 @@ func buildStoreDatabaseRuntime(
 	inst := newHealthyInstance(
 		rec, dbPool, dbColl, dbAnal, dbExec, instCancel,
 		instWorkers, dbCloudEnv)
-	dbCfg := storeRecordToDBConfig(rec)
 	startInstanceWorker(instWorkers, func() {
-		fleetDBOrchestrator(
-			instCtx, rec.Name, dbPool, dbExec, dbBrief, dbCfg)
+		fleetDBOrchestrator(instCtx, fleetCycleDeps{
+			name: rec.Name, pool: dbPool, exec: dbExec, brief: dbBrief,
+			cleaner: retention.New(dbPool, cfg, logStructuredWrapper),
+		})
 	})
 	return inst, nil
 }
@@ -554,7 +588,7 @@ func retryFailedInstances(state *metaDBState) {
 		if inst.Pool != nil && snap.Error == "" {
 			continue // healthy
 		}
-		if inst.Stopped {
+		if fleetMgr.InstanceStopped(inst) {
 			continue // manually stopped
 		}
 
@@ -653,11 +687,15 @@ func buildExecutor(
 		dbPool, dbExecCfg, dbAnal, rStart, logStructuredWrapper,
 	)
 	dbExec.WithAnalyzeSemaphore(analyzeSem)
+	installAzureManagedConfig(dbExec, cfg, provider,
+		dbPool.Config().ConnConfig.Host, "fleet")
 	dbActionStore := store.NewActionStore(dbPool)
 	dbExec.WithActionStore(dbActionStore, resolveExecMode(rec))
 	databaseID := rec.ID
-	if err := dbExec.EnableStandingPolicy(
-		ctx, cfg.Policy.Profile, &databaseID,
+	// Policy lives in the meta DB the API writes to (G5-B11).
+	if err := dbExec.EnableStandingPolicyWithStore(
+		ctx, notificationControlPool(globalMetaState, nil),
+		cfg.Policy.Profile, &databaseID,
 	); err != nil {
 		logError("fleet", "db %q standing policy unavailable; fail-closed: %v", rec.Name, err)
 	}
@@ -697,8 +735,8 @@ func newHealthyInstance(
 			DatabaseName: rec.Name,
 			LastSeen:     time.Now(),
 			Capabilities: fleet.CollectProviderCapabilities(
-				context.Background(), dbPool, cfg, provider,
-				dbCfg.ExecutionMode, false, time.Now().UTC(),
+				context.Background(), dbPool, provider,
+				fleet.ExecutorFamilyExplainer(dbExec),
 			),
 		},
 	}

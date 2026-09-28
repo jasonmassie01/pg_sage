@@ -41,7 +41,13 @@ SELECT date_trunc('day', collected_at) AS day,
        max((data->>'active_backends')::int)      AS max_active,
        max((data->>'total_backends')::int)       AS max_total,
        max((data->>'max_connections')::int)      AS max_conns,
-       avg((data->>'cache_hit_ratio')::float)    AS avg_cache_hit,
+       -- cache_hit_ratio is a fraction; legacy rows stored a percent and
+       -- negative values mean "no data" (C01).
+       COALESCE(avg(CASE WHEN (data->>'cache_hit_ratio')::float > 1
+                         THEN (data->>'cache_hit_ratio')::float / 100
+                         ELSE (data->>'cache_hit_ratio')::float END)
+                FILTER (WHERE (data->>'cache_hit_ratio')::float > 0),
+                -1)                              AS avg_cache_hit,
        max((data->>'total_checkpoints')::bigint) AS total_chkpts
 FROM sage.snapshots
 WHERE category = 'system'
@@ -82,18 +88,31 @@ func QueryDailySystemAggs(
 	return aggs, nil
 }
 
+// queryAggsSQL sums per-day call deltas. pg_stat_statements counters are
+// cumulative since the last reset, so each sample contributes
+// calls - previous calls for the same queryid; a drop (reset or eviction)
+// contributes the new count, and a queryid's first sample in the window
+// contributes 0 because its baseline is unknown (C10).
 const queryAggsSQL = `/* pg_sage */
-SELECT day, sum(max_calls) AS total_calls
+SELECT day, COALESCE(sum(delta), 0)::float8 AS total_calls
 FROM (
-    SELECT date_trunc('day', s.collected_at) AS day,
-           (elem->>'queryid')::bigint        AS qid,
-           max((elem->>'calls')::bigint)     AS max_calls
-    FROM sage.snapshots s,
-         jsonb_array_elements(COALESCE(NULLIF(s.data, 'null'::jsonb), '[]'::jsonb)) AS elem
-    WHERE s.category = 'queries'
-      AND s.collected_at > now() - make_interval(days => $1)
-    GROUP BY 1, 2
-) sub
+    SELECT date_trunc('day', collected_at) AS day,
+           CASE WHEN prev_calls IS NULL THEN 0
+                WHEN calls >= prev_calls THEN calls - prev_calls
+                ELSE calls
+           END AS delta
+    FROM (
+        SELECT s.collected_at,
+               (elem->>'calls')::bigint AS calls,
+               lag((elem->>'calls')::bigint) OVER (
+                   PARTITION BY (elem->>'queryid')::bigint
+                   ORDER BY s.collected_at) AS prev_calls
+        FROM sage.snapshots s,
+             jsonb_array_elements(COALESCE(NULLIF(s.data, 'null'::jsonb), '[]'::jsonb)) AS elem
+        WHERE s.category = 'queries'
+          AND s.collected_at > now() - make_interval(days => $1)
+    ) samples
+) deltas
 GROUP BY day ORDER BY day`
 
 // QueryDailyQueryAggs returns daily query call volume aggregates.

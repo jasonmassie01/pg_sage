@@ -28,7 +28,7 @@ func vacuumAutopilotCandidate(f SourceFinding) (ActionCandidate, bool) {
 }
 
 func bloatRemediationCandidate(f SourceFinding) ActionCandidate {
-	expires := time.Now().UTC().Add(7 * 24 * time.Hour)
+	expires := evidenceTime(f).Add(7 * 24 * time.Hour)
 	candidate := ActionCandidate{
 		ActionType:       "plan_bloat_remediation",
 		RiskTier:         "high",
@@ -49,7 +49,7 @@ func reindexCandidate(f SourceFinding) ActionCandidate {
 		sql = "REINDEX INDEX CONCURRENTLY " +
 			sanitize.QuoteQualifiedString(f.ObjectIdentifier) + ";"
 	}
-	expires := time.Now().UTC().Add(72 * time.Hour)
+	expires := evidenceTime(f).Add(72 * time.Hour)
 	return ActionCandidate{
 		ActionType:       "reindex_concurrently",
 		RiskTier:         "moderate",
@@ -63,7 +63,7 @@ func reindexCandidate(f SourceFinding) ActionCandidate {
 }
 
 func blockedVacuumCandidate(f SourceFinding) ActionCandidate {
-	expires := time.Now().UTC().Add(30 * time.Minute)
+	expires := evidenceTime(f).Add(30 * time.Minute)
 	return ActionCandidate{
 		ActionType:       "diagnose_vacuum_pressure",
 		RiskTier:         "safe",
@@ -102,9 +102,9 @@ func bloatRemediationScriptOutput(
 func tableBloatCandidate(f SourceFinding) ActionCandidate {
 	sql := strings.TrimSpace(f.RecommendedSQL)
 	if sql == "" {
-		sql = "VACUUM " + f.ObjectIdentifier + ";"
+		sql = "VACUUM " + sanitize.QuoteQualifiedString(f.ObjectIdentifier) + ";"
 	}
-	expires := time.Now().UTC().Add(24 * time.Hour)
+	expires := evidenceTime(f).Add(24 * time.Hour)
 	candidate := ActionCandidate{
 		ActionType:       "vacuum_table",
 		RiskTier:         "safe",
@@ -123,7 +123,7 @@ func tableBloatCandidate(f SourceFinding) ActionCandidate {
 }
 
 func freezeDiagnosticCandidate(f SourceFinding) ActionCandidate {
-	expires := time.Now().UTC().Add(30 * time.Minute)
+	expires := evidenceTime(f).Add(30 * time.Minute)
 	return ActionCandidate{
 		ActionType:       "diagnose_freeze_blockers",
 		RiskTier:         "safe",
@@ -138,7 +138,7 @@ func freezeDiagnosticCandidate(f SourceFinding) ActionCandidate {
 
 func autovacuumTuningCandidate(f SourceFinding) ActionCandidate {
 	sql := strings.TrimSpace(f.RecommendedSQL)
-	expires := time.Now().UTC().Add(72 * time.Hour)
+	expires := evidenceTime(f).Add(72 * time.Hour)
 	candidate := ActionCandidate{
 		ActionType:       "set_table_autovacuum",
 		RiskTier:         "moderate",

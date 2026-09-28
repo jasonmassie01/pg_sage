@@ -92,8 +92,8 @@ func approvePipelineCancel(
 		}
 	})
 	id, err := ex.ExecuteManual(t.Context(), pipelineFindingID(t, pool, f),
-		f.RecommendedSQL, "", &operatorID)
+		f.RecommendedSQL, f.RollbackSQL, &operatorID)
 	if err != nil || id <= 0 {
-		t.Fatalf("approved cancel: action=%d err=%v", id, err)
+		t.Fatalf("approved action: action=%d err=%v", id, err)
 	}
 }

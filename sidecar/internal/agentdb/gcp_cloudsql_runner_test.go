@@ -212,9 +212,16 @@ func (f *fakeCloudSQLClient) GetInstance(
 	if f.err != nil {
 		return CloudSQLInstance{}, f.err
 	}
-	return CloudSQLInstance{Name: name, State: "RUNNABLE"}, nil
+	// Like instances.get, return the userLabels recorded at create.
+	return CloudSQLInstance{Name: name, State: "RUNNABLE", Labels: f.created.Labels}, nil
 }
 
 func (f *fakeCloudSQLClient) DeleteInstance(context.Context, string, string) error {
+	return f.err
+}
+
+func (f *fakeCloudSQLClient) SetDeletionProtection(
+	context.Context, string, string, bool,
+) error {
 	return f.err
 }

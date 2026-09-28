@@ -20,6 +20,8 @@ type RDSCreateInput struct {
 	PubliclyAccessible bool
 	StorageEncrypted   bool
 	DeletionProtection bool
+	MultiAZ            bool
+	EngineVersion      string
 	Tags               map[string]string
 }
 
@@ -28,6 +30,7 @@ type RDSInstance struct {
 	Status     string
 	Endpoint   string
 	SecretARN  string
+	Tags       map[string]string
 }
 
 type AWSRDSClient interface {
@@ -90,68 +93,6 @@ func (r AWSRDSRunner) Preflight(
 	}
 }
 
-func (r AWSRDSRunner) Create(
-	ctx context.Context,
-	req ProvisionRequest,
-) ProvisionResult {
-	input, err := r.createInput(req)
-	if err != nil {
-		return ProvisionResult{Status: "failed", Error: err}
-	}
-	instance, err := r.client.CreateInstance(ctx, input)
-	if err != nil {
-		return ProvisionResult{Status: "failed", Error: mapAWSError(err)}
-	}
-	result := rdsProvisionResult(instance)
-	result.SecretRefProvider = "aws_secrets_manager"
-	result.SecretRef = instance.SecretARN
-	result.ConnectionInfo["secret_ref_provider"] = "aws_secrets_manager"
-	if instance.SecretARN != "" {
-		result.ConnectionInfo["secret_ref"] = instance.SecretARN
-	}
-	result.Detail["tags"] = input.Tags
-	return result
-}
-
-func (r AWSRDSRunner) Status(
-	ctx context.Context,
-	req ProvisionRequest,
-) ProvisionResult {
-	identifier := req.Deployment.ProviderResourceID
-	if identifier == "" {
-		identifier, _ = ProviderResourceName(ProviderAWSRDS, req.Deployment.DeploymentID)
-	}
-	instance, err := r.client.GetInstance(ctx, identifier)
-	if err != nil {
-		return ProvisionResult{Status: "status_unknown", Error: mapAWSError(err)}
-	}
-	return rdsProvisionResult(instance)
-}
-
-func (r AWSRDSRunner) Destroy(
-	ctx context.Context,
-	req ProvisionRequest,
-) ProvisionResult {
-	identifier := req.Deployment.ProviderResourceID
-	if identifier == "" {
-		identifier, _ = ProviderResourceName(ProviderAWSRDS, req.Deployment.DeploymentID)
-	}
-	skipSnapshot := isDisposable(req.Deployment)
-	err := r.client.DeleteInstance(ctx, identifier, skipSnapshot)
-	if err != nil {
-		mapped := mapAWSError(err)
-		if pe, ok := mapped.(ProviderError); ok && pe.Kind == ProviderErrNotFound {
-			return ProvisionResult{Status: "destroyed"}
-		}
-		return ProvisionResult{Status: "failed", Error: mapped}
-	}
-	return ProvisionResult{
-		Status:             "destroying",
-		ProviderResourceID: identifier,
-		Detail:             map[string]any{"skip_final_snapshot": skipSnapshot},
-	}
-}
-
 func (r AWSRDSRunner) BackupCheck(
 	ctx context.Context,
 	req ProvisionRequest,
@@ -171,27 +112,10 @@ func (r AWSRDSRunner) createInput(req ProvisionRequest) (RDSCreateInput, error) 
 		return RDSCreateInput{}, err
 	}
 	params := providerParams(req.Deployment)
-	class := stringParam(params, "db_instance_class")
-	if class == "" {
-		class = "db.t4g.micro"
-	}
-	storage := int32(float64Param(params, "allocated_storage"))
-	if storage <= 0 {
-		storage = 20
-	}
-	backup := int32(float64Param(params, "backup_retention_days"))
-	if backup <= 0 {
-		backup = 7
-	}
-	region := stringParam(params, "region")
-	if region == "" {
-		region = r.region
-	}
-	if region == "" {
-		return RDSCreateInput{}, providerError(
-			ProviderAWSRDS, ProviderErrInvalid, "region is required",
-			"set provider_params.region or runner region",
-		)
+	class, storage, backup := rdsSizing(params)
+	region, err := r.approvedRegion(params)
+	if err != nil {
+		return RDSCreateInput{}, err
 	}
 	public := boolParamAny(params, "publicly_accessible")
 	if public && !req.Policy.AllowPublicIP {
@@ -200,7 +124,14 @@ func (r AWSRDSRunner) createInput(req ProvisionRequest) (RDSCreateInput, error) 
 			"enable allow_public_ip only for approved test networks",
 		)
 	}
+	if err := rejectUnsupportedRDSSettings(params, public); err != nil {
+		return RDSCreateInput{}, err
+	}
 	return RDSCreateInput{
+		MultiAZ: boolParamAny(params, "multi_az"),
+		EngineVersion: firstNonEmpty(
+			stringParam(params, "engine_version"), stringParam(params, "database_version"),
+		),
 		Identifier:         identifier,
 		Class:              class,
 		StorageGB:          storage,
@@ -266,8 +197,11 @@ func mapAWSError(err error) error {
 		return providerError(ProviderAWSRDS, ProviderErrQuota, err.Error(), "request quota")
 	case strings.Contains(msg, "notfound"):
 		return providerError(ProviderAWSRDS, ProviderErrNotFound, err.Error(), "")
-	case strings.Contains(msg, "invalidparametervalue"):
+	case strings.Contains(msg, "invalidparametervalue") ||
+		strings.Contains(msg, "invalidparametercombination"):
 		return providerError(ProviderAWSRDS, ProviderErrInvalid, err.Error(), "")
+	case strings.Contains(msg, "accessdenied") || strings.Contains(msg, "unauthorized"):
+		return providerError(ProviderAWSRDS, ProviderErrPermission, err.Error(), "check IAM")
 	default:
 		return providerError(ProviderAWSRDS, ProviderErrUnavailable, err.Error(), "")
 	}
@@ -293,6 +227,8 @@ func (c awsRDSSDKClient) CreateInstance(
 		MasterUsername:           aws.String("postgres"),
 		PubliclyAccessible:       aws.Bool(input.PubliclyAccessible),
 		StorageEncrypted:         aws.Bool(input.StorageEncrypted),
+		MultiAZ:                  aws.Bool(input.MultiAZ),
+		EngineVersion:            optionalString(input.EngineVersion),
 		Tags:                     awsRDSTags(input.Tags),
 	})
 	if err != nil {
@@ -329,7 +265,8 @@ func (c awsRDSSDKClient) DeleteInstance(
 		SkipFinalSnapshot:    aws.Bool(skipFinalSnapshot),
 	}
 	if !skipFinalSnapshot {
-		input.FinalDBSnapshotIdentifier = aws.String(identifier + "-final")
+		input.FinalDBSnapshotIdentifier = aws.String(rdsFinalSnapshotIdentifier(
+			identifier, time.Now().UTC()))
 	}
 	_, err := c.client.DeleteDBInstance(ctx, input)
 	return err
@@ -356,6 +293,10 @@ func sdkRDSInstance(instance *types.DBInstance) RDSInstance {
 	}
 	if instance.MasterUserSecret != nil {
 		out.SecretARN = aws.ToString(instance.MasterUserSecret.SecretArn)
+	}
+	out.Tags = map[string]string{}
+	for _, tag := range instance.TagList {
+		out.Tags[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
 	}
 	return out
 }
@@ -390,4 +331,19 @@ func secretProviderIfPresent(secretRef string, provider string) string {
 		return ""
 	}
 	return provider
+}
+
+// rdsSizing returns instance class, storage and backup retention with the
+// pg_sage defaults for unset values.
+func rdsSizing(params map[string]any) (string, int32, int32) {
+	class := firstNonEmpty(stringParam(params, "db_instance_class"), "db.t4g.micro")
+	storage := int32(float64Param(params, "allocated_storage"))
+	if storage <= 0 {
+		storage = 20
+	}
+	backup := int32(float64Param(params, "backup_retention_days"))
+	if backup <= 0 {
+		backup = 7
+	}
+	return class, storage, backup
 }

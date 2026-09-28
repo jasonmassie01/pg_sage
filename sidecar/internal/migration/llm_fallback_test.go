@@ -118,49 +118,6 @@ func TestParseDDLLLMResponse_EmptyInput(t *testing.T) {
 	}
 }
 
-func TestStripToJSONObject_Plain(t *testing.T) {
-	input := `{"key": "value"}`
-	got := stripToJSONObject(input)
-	if got != input {
-		t.Errorf("got %q, want %q", got, input)
-	}
-}
-
-func TestStripToJSONObject_MarkdownFences(t *testing.T) {
-	input := "```json\n{\"key\": \"value\"}\n```"
-	want := `{"key": "value"}`
-	got := stripToJSONObject(input)
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestStripToJSONObject_Preamble(t *testing.T) {
-	input := "Here is the result:\n{\"key\": \"value\"}\nDone."
-	want := `{"key": "value"}`
-	got := stripToJSONObject(input)
-	if got != want {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestStripToJSONObject_NoJSON(t *testing.T) {
-	input := "no json here"
-	got := stripToJSONObject(input)
-	if got != input {
-		t.Errorf("got %q, want %q (should return input unchanged)",
-			got, input)
-	}
-}
-
-func TestStripToJSONObject_NestedBraces(t *testing.T) {
-	input := `{"outer": {"inner": "val"}}`
-	got := stripToJSONObject(input)
-	if got != input {
-		t.Errorf("got %q, want %q", got, input)
-	}
-}
-
 func TestBuildDDLSystemPrompt_NonEmpty(t *testing.T) {
 	prompt := buildDDLSystemPrompt()
 	if prompt == "" {
@@ -175,7 +132,8 @@ func TestBuildDDLUserPrompt_ContainsAllFields(t *testing.T) {
 	sql := "ALTER TABLE foo ADD COLUMN bar int"
 	prompt := buildDDLUserPrompt(sql, 160000, "mydb")
 
-	if !contains(prompt, "160000") {
+	// G7-B27: the prompt renders server_version_num as major.minor.
+	if !contains(prompt, "16.0") {
 		t.Error("user prompt missing PG version")
 	}
 	if !contains(prompt, "mydb") {
@@ -188,7 +146,7 @@ func TestBuildDDLUserPrompt_ContainsAllFields(t *testing.T) {
 
 func TestBuildDDLUserPrompt_EmptyDBName(t *testing.T) {
 	prompt := buildDDLUserPrompt("SELECT 1", 150000, "")
-	if !contains(prompt, "150000") {
+	if !contains(prompt, "15.0") {
 		t.Error("user prompt missing PG version")
 	}
 }

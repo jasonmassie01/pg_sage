@@ -15,6 +15,10 @@ func hostedProviderFromHost(host string) string {
 	case strings.HasSuffix(host, ".supabase.co"),
 		strings.HasSuffix(host, ".pooler.supabase.com"):
 		return "supabase"
+	case strings.HasSuffix(host, ".postgres.database.azure.com"):
+		return "azure"
+	case strings.HasSuffix(host, ".postgres.cosmos.azure.com"):
+		return "azure-cosmos" // Cosmos DB for PostgreSQL (Citus) cluster
 	default:
 		return ""
 	}

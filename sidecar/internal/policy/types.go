@@ -49,6 +49,11 @@ const (
 	ReasonDeadlineOverride         Reason = "deadline_override"
 	ReasonUnknownRiskTier          Reason = "unknown_risk_tier"
 	ReasonChangeClassNotAllowed    Reason = "change_class_not_allowed"
+	ReasonTrustRampNotSatisfied    Reason = "trust_ramp_not_satisfied"
+	ReasonProviderUnsupported      Reason = "provider_unsupported"
+	ReasonOperatorApproved         Reason = "operator_approved"
+	ReasonUnknownTrustLevel        Reason = "unknown_trust_level"
+	ReasonSQLValidationDegraded    Reason = "sql_validation_degraded"
 )
 
 type DeadlineKind string
@@ -72,6 +77,9 @@ type ActionContract struct {
 	ActionType string
 	RiskTier   RiskTier
 	Guardrails []Guardrail
+	// ProviderSupport lists the providers that can run the action; empty
+	// means every provider.
+	ProviderSupport []string
 }
 
 type ActionRequest struct {
@@ -85,6 +93,12 @@ type ActionRequest struct {
 	Deadline        *DeadlineContext
 	Evidence        map[string]any
 	IsReplica       bool
+	// ExplainFamily asks Explain for an action family's readiness, where no
+	// concrete SQL exists. Authorize ignores it and always validates SQL.
+	ExplainFamily bool
+	// OperatorApproved marks a request a human approved: tier, ramp,
+	// execution mode and self-initiated usage limits no longer apply.
+	OperatorApproved bool
 }
 
 type Decision struct {
@@ -98,12 +112,31 @@ type Decision struct {
 	DecisionID  int64
 }
 
+// RuntimeState is the live authority snapshot for one authorization.
+// Tier3Safe, Tier3Moderate, RampStart and InConfiguredWindow carry the
+// sidecar config ceilings (trust.tier3_*, the trust ramp and
+// trust.maintenance_window). Their zero values fail closed: a caller that
+// does not supply them never gets autonomous safe/moderate execution.
 type RuntimeState struct {
-	ExecutorEnabled bool
-	EmergencyStop   bool
-	IsReplica       bool
-	TrustLevel      string
-	ExecutionMode   string
+	ExecutorEnabled    bool
+	EmergencyStop      bool
+	IsReplica          bool
+	TrustLevel         string
+	ExecutionMode      string
+	Tier3Safe          bool
+	Tier3Moderate      bool
+	RampStart          time.Time
+	InConfiguredWindow bool
+	// Provider is the target's platform (cloud-sql, rds, ...); empty or
+	// "self-managed" means plain postgres.
+	Provider string
+	// WindowConfigured reports whether trust.maintenance_window is set. An
+	// unset window restricts autonomous moderate actions but not operator
+	// approvals.
+	WindowConfigured bool
+	// SQLValidationDegraded reports a build without the parse-tree SQL
+	// layer (no cgo). Mutations it would run unattended go to approval.
+	SQLValidationDegraded bool
 }
 
 const (
@@ -124,6 +157,12 @@ type LimitUsage struct {
 
 type Gate interface {
 	Authorize(context.Context, ActionRequest) Decision
+}
+
+// Explainer evaluates a request exactly as Authorize would without
+// recording a decision, for operator-facing readiness and previews.
+type Explainer interface {
+	Explain(context.Context, ActionRequest) Decision
 }
 
 type GateConfig struct {

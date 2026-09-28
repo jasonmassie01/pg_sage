@@ -27,6 +27,10 @@ func agentDBCreateBlueprintHandler(
 	gen agentdb.BlueprintGenerator,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		actor, ok := requireActor(w, r)
+		if !ok {
+			return
+		}
 		m := readMap(r)
 		blueprint, err := st.CreateBlueprint(
 			r.Context(),
@@ -35,7 +39,7 @@ func agentDBCreateBlueprintHandler(
 				Name:        str(m, "name"),
 				Intent:      str(m, "intent"),
 				Provider:    str(m, "provider"),
-				CreatedBy:   str(m, "created_by"),
+				CreatedBy:   actor,
 			},
 			gen,
 		)
@@ -49,11 +53,14 @@ func agentDBCreateBlueprintHandler(
 
 func agentDBApproveBlueprintHandler(st *agentdb.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		m := readMap(r)
+		actor, ok := requireActor(w, r)
+		if !ok {
+			return
+		}
 		blueprint, err := st.ApproveBlueprint(
 			r.Context(),
 			r.PathValue("blueprint_id"),
-			str(m, "approved_by"),
+			actor,
 		)
 		if err != nil {
 			agentDBError(w, err)

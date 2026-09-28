@@ -6,12 +6,13 @@ import (
 )
 
 func TestBloatSystemPrompt_ContainsRules(t *testing.T) {
+	// Dead tuples are not bloat (G3-B21): VACUUM FULL / pg_repack are
+	// only a verified follow-up, plain VACUUM is the first remedy.
 	checks := []string{
-		"VACUUM FULL",
-		"pg_repack",
+		"plain VACUUM",
+		"Never recommend VACUUM FULL or pg_repack",
 		"do nothing",
 		"REINDEX CONCURRENTLY",
-		"maintenance window",
 		"severity: info",
 	}
 	for _, want := range checks {

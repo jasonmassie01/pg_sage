@@ -78,7 +78,7 @@ func (r *Runner) Run(ctx context.Context) {
 
 func (r *Runner) scan(ctx context.Context) {
 	start := time.Now()
-	findings, err := r.linter.Scan(ctx)
+	findings, failed, err := r.linter.ScanReport(ctx)
 	if err != nil {
 		r.logFn("ERROR", "schema lint scan failed: %v", err)
 		return
@@ -89,7 +89,7 @@ func (r *Runner) scan(ctx context.Context) {
 		r.logFn("ERROR", "schema lint persist: %v", err)
 		return
 	}
-	if err := r.resolveCleared(ctx, findings); err != nil {
+	if err := r.resolveClearedExcept(ctx, findings, failed); err != nil {
 		r.logFn("WARN", "schema lint resolve cleared: %v", err)
 	}
 
@@ -177,13 +177,14 @@ func (r *Runner) upsertFindings(
 	return nil
 }
 
-// resolveCleared marks previously-open lint findings as resolved when
-// they no longer appear in the current scan. Because sage.findings
+// resolveClearedExcept marks previously-open lint findings as resolved
+// when they no longer appear in the current scan, skipping rules listed
+// in failed. Because sage.findings
 // dedups by (category, object_identifier), one pass per distinct
 // rule_id is required: if we scanned across the whole 'schema_lint:%'
 // bucket we'd have to rebuild the per-rule active set anyway.
-func (r *Runner) resolveCleared(
-	ctx context.Context, findings []Finding,
+func (r *Runner) resolveClearedExcept(
+	ctx context.Context, findings []Finding, failed map[string]bool,
 ) error {
 	// Collect every rule_id that appeared in this scan so we can
 	// resolve its unseen members. Also gather rule_ids that have
@@ -228,6 +229,11 @@ func (r *Runner) resolveCleared(
 	}
 
 	for ruleID, active := range activeByRule {
+		if failed[ruleID] {
+			// A rule that errored this scan proves nothing: keep its
+			// findings open instead of resolving and re-inserting them.
+			continue
+		}
 		category := schemaLintCategoryPrefix + ruleID
 		if err := analyzer.ResolveCleared(
 			ctx, r.pool, active, category,

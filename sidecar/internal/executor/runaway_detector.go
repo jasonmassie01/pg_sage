@@ -61,7 +61,7 @@ func (d *RunawayDetector) loadActiveQueries(
 		var durationSeconds float64
 		if err := rows.Scan(
 			&query.PID, &query.QueryStart, &query.QueryID, &query.Query,
-			&query.AppName, &durationSeconds, &query.State,
+			&query.AppName, &durationSeconds, &query.State, &query.BackendStart,
 		); err != nil {
 			return nil, fmt.Errorf("scanning active query: %w", err)
 		}
@@ -103,11 +103,15 @@ SELECT pid,
        LEFT(query, 200),
        application_name,
        EXTRACT(EPOCH FROM (clock_timestamp() - query_start)),
-       state
+       state,
+       backend_start
   FROM pg_stat_activity
  WHERE state = 'active'
    AND pid <> pg_backend_pid()
-   AND query_start IS NOT NULL`
+   AND query_start IS NOT NULL
+   AND backend_start IS NOT NULL
+   AND datname = current_database()
+   AND backend_type = 'client backend'`
 
 const runawayBlockersSQL = `/* pg_sage */
 SELECT blocker_pid, count(*)::integer

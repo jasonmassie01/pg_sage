@@ -101,7 +101,7 @@ func Bootstrap(ctx context.Context, pool *pgxpool.Pool) error {
 			if err := migrateIncidentConstraints(ctx, conn); err != nil {
 				return fmt.Errorf("incident constraint migration: %w", err)
 			}
-			return nil
+			return migrateRetentionForeignKeys(ctx, conn)
 		},
 	)
 }
@@ -371,8 +371,11 @@ func migrationStatements() []string {
 		ddlFindingsAbsorbsSchemaFindings,
 		ddlFindingsBackfillFromSchemaFindings,
 		ddlFleetScaleIndexes,
+		ddlQueryStoreStatsEpoch,
 	}
-	return append(statements, agentNativeMigrationStatements()...)
+	statements = append(statements, agentNativeMigrationStatements()...)
+	// After the agent-native DDL: sage.policy must exist.
+	return append(statements, ddlPolicyChangeClassSplit)
 }
 
 // ---------------------------------------------------------------------------
@@ -659,6 +662,14 @@ ALTER TABLE sage.users
     ADD COLUMN IF NOT EXISTS oauth_provider TEXT DEFAULT '';
 ALTER TABLE sage.users
     ALTER COLUMN password DROP NOT NULL;
+-- OIDC identities are keyed on issuer+subject (G6-B04 / SURF-02).
+ALTER TABLE sage.users
+    ADD COLUMN IF NOT EXISTS oauth_issuer TEXT;
+ALTER TABLE sage.users
+    ADD COLUMN IF NOT EXISTS oauth_subject TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth_identity
+    ON sage.users (oauth_issuer, oauth_subject)
+    WHERE oauth_issuer IS NOT NULL;
 `
 
 const ddlQueryHintsRewrite = `

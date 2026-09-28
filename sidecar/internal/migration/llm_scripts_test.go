@@ -83,30 +83,6 @@ func TestExtractFromFences_MultipleFences(t *testing.T) {
 	}
 }
 
-func TestLooksLikeSQL(t *testing.T) {
-	tests := []struct {
-		input string
-		want  bool
-	}{
-		{"BEGIN; ALTER TABLE foo ADD COLUMN bar int; COMMIT;", true},
-		{"SELECT 1;", true},
-		{"CREATE INDEX CONCURRENTLY idx ON t(c);", true},
-		{"This is just a plain text explanation.", false},
-		{"SET lock_timeout = '5s';", true},
-		{"DROP INDEX foo;", true},
-		{"Hello world", false},
-		{"ROLLBACK;", true},
-	}
-
-	for _, tc := range tests {
-		got := looksLikeSQL(tc.input)
-		if got != tc.want {
-			t.Errorf("looksLikeSQL(%q) = %v, want %v",
-				tc.input, got, tc.want)
-		}
-	}
-}
-
 func TestGenerate_NilLLMClient(t *testing.T) {
 	gen := NewScriptGenerator(nil, nil, 16, noopLog)
 

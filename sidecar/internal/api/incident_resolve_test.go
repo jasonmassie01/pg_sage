@@ -336,7 +336,12 @@ func createIncidentOnlySchema(
 			resolved_at timestamptz,
 			database_name text,
 			occurrence_count integer NOT NULL DEFAULT 1,
-			escalated_at timestamptz
+			escalated_at timestamptz,
+			rollback_sql text,
+			resolved_by text,
+			resolution_reason text,
+			identity_key text,
+			previous_incident_id uuid
 		)`)
 	return err
 }

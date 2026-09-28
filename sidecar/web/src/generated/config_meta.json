@@ -297,6 +297,21 @@
     "default": true,
     "doc": ""
   },
+  "azure.resource_group": {
+    "type": "string",
+    "default": "",
+    "doc": "Azure resource group that contains the flexible server."
+  },
+  "azure.server_name": {
+    "type": "string",
+    "default": "",
+    "doc": "Flexible server name for hosts that do not name it (private DNS or IP). A \u003cname\u003e.postgres.database.azure.com host always wins."
+  },
+  "azure.subscription_id": {
+    "type": "string",
+    "default": "",
+    "doc": "Azure subscription ID of the flexible server. With resource_group set, pg_sage applies server parameters through Azure Resource Manager."
+  },
   "briefing.channels": {
     "type": "[]string",
     "default": null,
@@ -567,7 +582,7 @@
   "llm.cooldown_seconds": {
     "type": "int",
     "default": 300,
-    "doc": "Minimum seconds between two LLM requests. Rate-limits the sidecar so it cannot burst the provider during a busy cycle."
+    "doc": "Per-prompt dedup window and breaker cooldown: an identical request is not re-sent within this many seconds; after 3 provider failures calls pause this long. Not a global rate limit."
   },
   "llm.enabled": {
     "type": "bool",
@@ -842,8 +857,13 @@
   },
   "mode": {
     "type": "string",
-    "default": "extension",
-    "doc": "Operating mode: extension, standalone, or fleet. Standalone connects to one PostgreSQL target; fleet manages many databases from one sidecar."
+    "default": "standalone",
+    "doc": "Operating mode: standalone, fleet, or meta. Standalone connects to one PostgreSQL target; fleet manages many databases from one sidecar."
+  },
+  "notification_policy.allow_private_targets": {
+    "type": "bool",
+    "default": false,
+    "doc": "Allow webhook and SMTP channels to target loopback, RFC 1918, ULA or CGNAT hosts and plain http (e.g. an internal SMTP relay). Metadata and link-local stay blocked. Requires restart."
   },
   "oauth.client_id": {
     "type": "string",
@@ -1211,7 +1231,7 @@
   "tuner.revalidation_explain_timeout_ms": {
     "type": "int",
     "default": 10000,
-    "doc": "statement_timeout applied to EXPLAIN queries issued by the revalidation loop. Queries that cannot be explained in time are deferred."
+    "doc": "Reserved; currently has no effect. The revalidation loop issues no EXPLAIN queries. Kept so existing config files still load."
   },
   "tuner.revalidation_interval_hours": {
     "type": "int",
@@ -1221,12 +1241,12 @@
   "tuner.revalidation_keep_ratio": {
     "type": "float64",
     "default": 1.2,
-    "doc": "During cost comparison, hinted plan cost must be at most this ratio of the unhinted plan to keep the hint. Default 1.2 (hinted \u003c= 120% of unhinted)."
+    "doc": "Reserved; no effect. Revalidation does no hinted-vs-unhinted cost comparison (it uses age, missing objects, stale queryids, latency). Kept so existing configs load."
   },
   "tuner.revalidation_rollback_ratio": {
     "type": "float64",
     "default": 0.8,
-    "doc": "When hinted-plan cost exceeds unhinted by this ratio, the hint is marked broken and rolled back. Default 0.8 (hinted \u003e= 125% of unhinted)."
+    "doc": "Reserved; currently has no effect. No hinted-vs-unhinted cost comparison is performed. Kept so existing config files still load."
   },
   "tuner.stale_stats_age_minutes": {
     "type": "int",

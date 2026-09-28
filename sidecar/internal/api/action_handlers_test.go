@@ -14,32 +14,9 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/store"
 )
-
-func TestActionsTimelineResponseIncludesStatusRiskAndVerification(t *testing.T) {
-	row := map[string]any{
-		"id":                  1,
-		"status":              "pending",
-		"action_type":         "analyze_table",
-		"risk_tier":           "safe",
-		"verification_status": "not_started",
-		"lifecycle_state":     "blocked",
-		"blocked_reason":      "action is in cooldown",
-		"attempt_count":       2,
-	}
-
-	got := actionTimelineMap(row)
-
-	for _, key := range []string{
-		"id", "status", "action_type", "risk_tier", "verification_status",
-		"lifecycle_state", "blocked_reason", "attempt_count",
-	} {
-		if _, ok := got[key]; !ok {
-			t.Fatalf("missing %s in timeline map", key)
-		}
-	}
-}
 
 func TestQueuedActionMapIncludesLifecycleMetadata(t *testing.T) {
 	cooldownUntil := time.Date(2026, 4, 27, 12, 30, 0, 0, time.UTC)
@@ -133,12 +110,15 @@ func TestQueuedActionMapIncludesScriptOutputForDDL(t *testing.T) {
 }
 
 func TestQueuedActionMapWithReadinessIncludesDeferReason(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
 	cfg := &config.Config{}
 	cfg.Trust.Level = "autonomous"
 	outsideHour := (time.Now().UTC().Hour() + 2) % 24
 	cfg.Trust.MaintenanceWindow = fmt.Sprintf("0 %d * * *", outsideHour)
-	exec := executor.New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
+	exec := executor.New(pool, cfg, nil, time.Now().Add(-40*24*time.Hour),
 		func(string, string, ...any) {})
+	exec.EnableStandingPolicyDocument(policy.UnattendedProfile(), nil)
 	action := store.QueuedAction{
 		ID:          12,
 		FindingID:   99,
@@ -169,8 +149,11 @@ func TestQueuedActionMapWithReadinessIncludesRollbackClass(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trust.Level = "autonomous"
 	cfg.Trust.MaintenanceWindow = "always"
-	exec := executor.New(nil, cfg, nil, time.Now().Add(-40*24*time.Hour),
+	pool, ctx := phase2RequireDB(t)
+	phase2CleanTables(t, pool, ctx)
+	exec := executor.New(pool, cfg, nil, time.Now().Add(-40*24*time.Hour),
 		func(string, string, ...any) {})
+	exec.EnableStandingPolicyDocument(policy.UnattendedProfile(), nil)
 	action := store.QueuedAction{
 		ID:          13,
 		FindingID:   101,
@@ -186,8 +169,11 @@ func TestQueuedActionMapWithReadinessIncludesRollbackClass(t *testing.T) {
 		t.Fatalf("rollback_class = %v, want forward_fix_only",
 			got["rollback_class"])
 	}
-	if got["eligible"] != true {
-		t.Fatalf("eligible = %v, want true", got["eligible"])
+	// The executor validator refuses column type changes, so an operator
+	// approval could never execute it; readiness now says so up front.
+	reason, _ := got["defer_reason"].(string)
+	if got["eligible"] != false || !strings.Contains(reason, "ALTER TABLE sub-command") {
+		t.Fatalf("eligible = %v reason = %q, want validator refusal", got["eligible"], reason)
 	}
 }
 
@@ -215,6 +201,9 @@ func TestApproveActionHandler_BlocksDeferredActionBeforeExecution(t *testing.T) 
 	cfg.Trust.MaintenanceWindow = "not-a-window"
 	exec := executor.New(pool, cfg, nil, time.Now().Add(-40*24*time.Hour),
 		func(string, string, ...any) {})
+	if err := exec.EnableStandingPolicy(ctx, "unattended", nil); err != nil {
+		t.Fatalf("enable standing policy: %v", err)
+	}
 	handler := approveActionHandler(actionStore, exec)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/actions/{id}/approve", handler)
@@ -961,14 +950,14 @@ func TestRollbackActionHandler_StateTransitions(t *testing.T) {
 	}
 
 	alreadyID := insertActionLogForRollback(t, pool, ctx,
-		stringPtr("SET work_mem = '4MB'"), "rolled_back")
+		stringPtr("ANALYZE"), "rolled_back")
 	w = rollbackRequest(t, mux, alreadyID, `{"reason":"x"}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("already rolled back status: got %d, want 400", w.Code)
 	}
 
 	successID := insertActionLogForRollback(t, pool, ctx,
-		stringPtr("SET work_mem = '4MB'"), "success")
+		stringPtr("ANALYZE"), "success")
 	w = rollbackRequest(t, mux, successID, `{"reason":"   "}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("success status: got %d, body %s",

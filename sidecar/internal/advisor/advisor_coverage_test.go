@@ -87,334 +87,17 @@ func mockLLMServerError(
 // stripMarkdownFences (prompt.go)
 // ---------------------------------------------------------------------------
 
-func TestStripMarkdownFences_JSONBlock(t *testing.T) {
-	input := "```json\n{\"key\":\"value\"}\n```"
-	got := stripMarkdownFences(input)
-	want := "{\"key\":\"value\"}"
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
-func TestStripMarkdownFences_GenericBlock(t *testing.T) {
-	input := "```\nsome content\n```"
-	got := stripMarkdownFences(input)
-	want := "some content"
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
-func TestStripMarkdownFences_NoFences(t *testing.T) {
-	input := "plain text"
-	got := stripMarkdownFences(input)
-	if got != input {
-		t.Fatalf("expected %q unchanged, got %q", input, got)
-	}
-}
-
-func TestStripMarkdownFences_EmptyString(t *testing.T) {
-	got := stripMarkdownFences("")
-	if got != "" {
-		t.Fatalf("expected empty, got %q", got)
-	}
-}
-
-func TestStripMarkdownFences_OnlyOpeningFence(t *testing.T) {
-	input := "```json\n{\"key\":\"value\"}"
-	got := stripMarkdownFences(input)
-	want := "{\"key\":\"value\"}"
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
-func TestStripMarkdownFences_OnlyClosingFence(t *testing.T) {
-	input := "{\"key\":\"value\"}\n```"
-	got := stripMarkdownFences(input)
-	want := "{\"key\":\"value\"}"
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
-func TestStripMarkdownFences_WhitespaceAround(t *testing.T) {
-	input := "  ```json\n[]\n```  "
-	got := stripMarkdownFences(input)
-	want := "[]"
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // stripToJSON edge cases (prompt.go)
 // ---------------------------------------------------------------------------
-
-func TestStripToJSON_OnlyBrackets(t *testing.T) {
-	got := stripToJSON("[]")
-	if got != "[]" {
-		t.Fatalf("expected %q, got %q", "[]", got)
-	}
-}
-
-func TestStripToJSON_MarkdownWithoutBrackets(t *testing.T) {
-	input := "```json\n{\"key\":\"value\"}\n```"
-	got := stripToJSON(input)
-	want := "{\"key\":\"value\"}"
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
-func TestStripToJSON_BracketsInsideMarkdown(t *testing.T) {
-	input := "```json\n[{\"a\":1}]\n```"
-	got := stripToJSON(input)
-	want := "[{\"a\":1}]"
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
-func TestStripToJSON_MultipleArrays_GetsOutermost(t *testing.T) {
-	input := "prefix [1] middle [2] suffix"
-	got := stripToJSON(input)
-	want := "[1] middle [2]"
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
-func TestStripToJSON_TrailingText(t *testing.T) {
-	input := "[{\"foo\":\"bar\"}] some trailing text"
-	got := stripToJSON(input)
-	want := "[{\"foo\":\"bar\"}]"
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
-func TestStripToJSON_SingleOpenBracket(t *testing.T) {
-	input := "[incomplete data"
-	got := stripToJSON(input)
-	if got != input {
-		t.Fatalf("expected %q unchanged, got %q", input, got)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // parseNumericValue (validate.go)
 // ---------------------------------------------------------------------------
 
-func TestParseNumericValue_PlainInteger(t *testing.T) {
-	v, err := parseNumericValue("100")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if v != 100.0 {
-		t.Fatalf("expected 100.0, got %f", v)
-	}
-}
-
-func TestParseNumericValue_PlainFloat(t *testing.T) {
-	v, err := parseNumericValue("3.14")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if v < 3.13 || v > 3.15 {
-		t.Fatalf("expected ~3.14, got %f", v)
-	}
-}
-
-func TestParseNumericValue_WithMBSuffix(t *testing.T) {
-	v, err := parseNumericValue("256MB")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if v != 256.0 {
-		t.Fatalf("expected 256.0, got %f", v)
-	}
-}
-
-func TestParseNumericValue_WithGBSuffix(t *testing.T) {
-	v, err := parseNumericValue("4GB")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if v != 4.0 {
-		t.Fatalf("expected 4.0, got %f", v)
-	}
-}
-
-func TestParseNumericValue_WithkBSuffix(t *testing.T) {
-	v, err := parseNumericValue("8192kB")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if v != 8192.0 {
-		t.Fatalf("expected 8192.0, got %f", v)
-	}
-}
-
-func TestParseNumericValue_WithMsSuffix(t *testing.T) {
-	v, err := parseNumericValue("200ms")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if v != 200.0 {
-		t.Fatalf("expected 200.0, got %f", v)
-	}
-}
-
-func TestParseNumericValue_WithSSuffix(t *testing.T) {
-	v, err := parseNumericValue("30s")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if v != 30.0 {
-		t.Fatalf("expected 30.0, got %f", v)
-	}
-}
-
-func TestParseNumericValue_WithMinSuffix(t *testing.T) {
-	v, err := parseNumericValue("5min")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if v != 5.0 {
-		t.Fatalf("expected 5.0, got %f", v)
-	}
-}
-
-func TestParseNumericValue_WithWhitespace(t *testing.T) {
-	v, err := parseNumericValue("  42  ")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if v != 42.0 {
-		t.Fatalf("expected 42.0, got %f", v)
-	}
-}
-
-func TestParseNumericValue_NotANumber(t *testing.T) {
-	_, err := parseNumericValue("abc")
-	if err == nil {
-		t.Fatal("expected error for non-numeric value")
-	}
-}
-
-func TestParseNumericValue_EmptyString(t *testing.T) {
-	_, err := parseNumericValue("")
-	if err == nil {
-		t.Fatal("expected error for empty string")
-	}
-}
-
-func TestParseNumericValue_NegativeValue(t *testing.T) {
-	v, err := parseNumericValue("-10")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if v != -10.0 {
-		t.Fatalf("expected -10.0, got %f", v)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // ValidateConfigRecommendation edge cases (validate.go)
 // ---------------------------------------------------------------------------
-
-func TestValidateConfig_UnknownPlatform(t *testing.T) {
-	err := ValidateConfigRecommendation("wal_level", "logical", "azure-flex")
-	if err != nil {
-		t.Fatalf("unexpected error for unknown platform: %v", err)
-	}
-}
-
-func TestValidateConfig_UnknownSetting_NoLimits(t *testing.T) {
-	err := ValidateConfigRecommendation("my_custom_guc", "on", "")
-	if err != nil {
-		t.Fatalf("unexpected error for unknown setting: %v", err)
-	}
-}
-
-func TestValidateConfig_NonNumericValueForLimitedGUC(t *testing.T) {
-	err := ValidateConfigRecommendation("max_connections", "on", "")
-	if err != nil {
-		t.Fatalf("expected nil error for non-numeric, got: %v", err)
-	}
-}
-
-func TestValidateConfig_BoundaryMin_MaxConnections(t *testing.T) {
-	err := ValidateConfigRecommendation("max_connections", "10", "")
-	if err != nil {
-		t.Fatalf("expected 10 at min boundary, got: %v", err)
-	}
-}
-
-func TestValidateConfig_BoundaryMax_MaxConnections(t *testing.T) {
-	err := ValidateConfigRecommendation("max_connections", "10000", "")
-	if err != nil {
-		t.Fatalf("expected 10000 at max boundary, got: %v", err)
-	}
-}
-
-func TestValidateConfig_JustBelowMin_MaxConnections(t *testing.T) {
-	err := ValidateConfigRecommendation("max_connections", "9", "")
-	if err == nil {
-		t.Fatal("expected error for max_connections=9")
-	}
-}
-
-func TestValidateConfig_JustAboveMax_MaxConnections(t *testing.T) {
-	err := ValidateConfigRecommendation("max_connections", "10001", "")
-	if err == nil {
-		t.Fatal("expected error for max_connections=10001")
-	}
-}
-
-func TestValidateConfig_WorkMem_AtMinBoundary(t *testing.T) {
-	err := ValidateConfigRecommendation("work_mem", "1kB", "")
-	if err != nil {
-		t.Fatalf("expected 1 at work_mem min, got: %v", err)
-	}
-}
-
-func TestValidateConfig_AutovacuumScaleFactor_AtMin(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_scale_factor", "0.001", "",
-	)
-	if err != nil {
-		t.Fatalf("expected 0.001 at min, got: %v", err)
-	}
-}
-
-func TestValidateConfig_AutovacuumScaleFactor_BelowMin(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_scale_factor", "0.0001", "",
-	)
-	if err == nil {
-		t.Fatal("expected error for scale_factor below 0.001")
-	}
-}
-
-func TestValidateConfig_CostDelay_InRange(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_cost_delay", "20ms", "",
-	)
-	if err != nil {
-		t.Fatalf("expected nil for cost_delay=20, got: %v", err)
-	}
-}
-
-func TestValidateConfig_CostLimit_AboveMax(t *testing.T) {
-	err := ValidateConfigRecommendation(
-		"autovacuum_vacuum_cost_limit", "20000", "",
-	)
-	if err == nil {
-		t.Fatal("expected error for cost_limit=20000")
-	}
-}
 
 // ---------------------------------------------------------------------------
 // RequiresRestart coverage (validate.go)
@@ -472,12 +155,13 @@ func TestParseLLMFindings_MarkdownWrappedJSON(t *testing.T) {
 }
 
 func TestParseLLMFindings_TitleFormat(t *testing.T) {
+	// Advisory category: config categories drop SQL-less rows (G3-B18).
 	raw := `[{"object_identifier":"public.bar"}]`
-	findings := parseLLMFindings(raw, "memory_tuning", noopLog)
+	findings := parseLLMFindings(raw, "bloat_remediation", noopLog)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
-	want := "memory_tuning recommendation for public.bar"
+	want := "bloat_remediation recommendation for public.bar"
 	if findings[0].Title != want {
 		t.Fatalf("expected title %q, got %q", want, findings[0].Title)
 	}
@@ -626,15 +310,15 @@ func TestParseLLMFindings_ComplexResponse(t *testing.T) {
 		}
 	]`
 	findings := parseLLMFindings(raw, "vacuum_tuning", noopLog)
-	if len(findings) != 2 {
-		t.Fatalf("expected 2, got %d", len(findings))
+	// The null-SQL "acceptable" row is not a finding (G3-B18).
+	if len(findings) != 1 {
+		t.Fatalf("expected 1, got %d", len(findings))
 	}
 	if findings[0].Severity != "warning" {
 		t.Errorf("finding[0]: Severity = %q", findings[0].Severity)
 	}
-	if findings[1].RecommendedSQL != "" {
-		t.Errorf("finding[1]: expected empty SQL, got %q",
-			findings[1].RecommendedSQL)
+	if findings[0].ObjectIdentifier != "public.orders" {
+		t.Errorf("finding[0]: object = %q", findings[0].ObjectIdentifier)
 	}
 }
 
@@ -1143,31 +827,6 @@ func TestRestrictedSettings_AllPlatformsExist(t *testing.T) {
 	}
 }
 
-func TestDangerousLimits_AllExpectedSettings(t *testing.T) {
-	expected := []string{
-		"max_connections",
-		"autovacuum_vacuum_scale_factor",
-		"autovacuum_vacuum_threshold",
-		"autovacuum_vacuum_cost_delay",
-		"autovacuum_vacuum_cost_limit",
-		"work_mem",
-	}
-	for _, s := range expected {
-		if _, ok := dangerousLimits[s]; !ok {
-			t.Errorf("missing %q in dangerousLimits", s)
-		}
-	}
-}
-
-func TestDangerousLimits_MinLessThanMax(t *testing.T) {
-	for name, limits := range dangerousLimits {
-		if limits[0] >= limits[1] {
-			t.Errorf("%s: min (%.0f) >= max (%.0f)",
-				name, limits[0], limits[1])
-		}
-	}
-}
-
 func TestRestartRequired_MapContents(t *testing.T) {
 	if len(restartRequired) != 6 {
 		t.Fatalf("expected 6, got %d", len(restartRequired))
@@ -1450,30 +1109,6 @@ func TestVacuumGlobalSettingsFilter(t *testing.T) {
 // ---------------------------------------------------------------------------
 // ValidateConfigRecommendation used in vacuum validation (vacuum.go)
 // ---------------------------------------------------------------------------
-
-func TestVacuumValidation_ValidFinding(t *testing.T) {
-	// The validation in analyzeVacuum calls
-	// ValidateConfigRecommendation("", "", "")
-	// which always returns an error for empty setting name.
-	err := ValidateConfigRecommendation("", "", "")
-	if err == nil {
-		t.Fatal("expected error for empty setting name")
-	}
-	if !strings.Contains(err.Error(), "empty setting name") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestVacuumValidation_WithSQL(t *testing.T) {
-	// A finding with RecommendedSQL goes through validation.
-	// The current code calls ValidateConfigRecommendation("", "", "")
-	// which always returns error, so findings with SQL are rejected.
-	// This tests that behavior.
-	err := ValidateConfigRecommendation("", "", "")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
 
 // ---------------------------------------------------------------------------
 // Bloat EstimateMB calculations (bloat.go)
@@ -1829,10 +1464,12 @@ func TestAnalyzeBloat_NilLastAutovacuum(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestAnalyzeVacuum_FullPath_WithMockLLM(t *testing.T) {
+	// Config categories drop SQL-less rows (G3-B18), so the full path
+	// is exercised with an actionable statement.
 	llmResp := `[{"object_identifier":"public.orders",` +
 		`"severity":"info",` +
 		`"rationale":"Scale factor too high",` +
-		`"recommended_sql":""}]`
+		`"recommended_sql":"ALTER TABLE public.orders SET (autovacuum_vacuum_scale_factor = 0.02)"}]`
 	srv, mgr := mockLLMServer(t, llmResp)
 	defer srv.Close()
 
@@ -1995,7 +1632,7 @@ func TestAnalyzeConnections_FullPath(t *testing.T) {
 	llmResp := `[{"object_identifier":"instance",` +
 		`"severity":"info",` +
 		`"rationale":"Connections healthy",` +
-		`"recommended_sql":""}]`
+		`"recommended_sql":"ALTER SYSTEM SET idle_session_timeout = '10min'"}]`
 	srv, mgr := mockLLMServer(t, llmResp)
 	defer srv.Close()
 
@@ -2200,7 +1837,7 @@ func TestAnalyzeWAL_FullPath(t *testing.T) {
 	llmResp := `[{"object_identifier":"instance",` +
 		`"severity":"info",` +
 		`"rationale":"WAL healthy",` +
-		`"recommended_sql":"",` +
+		`"recommended_sql":"ALTER SYSTEM SET max_wal_size = '4GB'",` +
 		`"requires_restart":false}]`
 	srv, mgr := mockLLMServer(t, llmResp)
 	defer srv.Close()

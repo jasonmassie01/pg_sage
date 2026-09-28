@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/sanitize"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
@@ -31,6 +32,8 @@ type Collector struct {
 	cfg   CollectorConfig
 	avail *Availability
 	logFn func(string, string, ...any)
+	// serverVersionNum caches server_version_num (0 = not read yet).
+	serverVersionNum int
 }
 
 // NewCollector creates a Collector wired to the given pool.
@@ -50,9 +53,14 @@ func NewCollector(
 
 // Run starts the collection loop, blocking until ctx is cancelled.
 func (c *Collector) Run(ctx context.Context) {
-	interval := time.Duration(
-		c.cfg.CollectIntervalSeconds,
-	) * time.Second
+	seconds := c.cfg.CollectIntervalSeconds
+	if seconds <= 0 {
+		// time.NewTicker panics on a non-positive interval (G1-B30).
+		c.logFn("WARN", "autoexplain: invalid collect interval %ds; using default %ds",
+			seconds, config.DefaultAutoExplainCollectInterval)
+		seconds = config.DefaultAutoExplainCollectInterval
+	}
+	interval := time.Duration(seconds) * time.Second
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -134,77 +142,116 @@ const candidateSQL = `
 		ORDER BY s.mean_exec_time DESC
 		LIMIT $2`
 
-// captureOnDemand runs EXPLAIN on a single query inside a
+// captureOnDemand runs EXPLAIN on a single query inside a read-only,
 // rolled-back transaction so there are no side effects.
+//
+// Normalized pg_stat_statements text carries $n placeholders. Binding
+// every parameter to NULL (the previous approach) constant-folds most
+// predicates to "One-Time Filter: false", a degenerate plan that was then
+// stored as auto_explain evidence and preferred over better sources
+// (G1-B09). PG16+ captures the GENERIC_PLAN and labels it generic_plan;
+// older servers skip parameterized statements entirely.
 func (c *Collector) captureOnDemand(
 	ctx context.Context,
 	queryID int64,
 	query string,
 ) error {
-	conn, err := c.pool.Acquire(ctx)
-	if err != nil {
-		return fmt.Errorf("acquire connection: %w", err)
-	}
-	defer conn.Release()
-
-	if c.avail.SessionLoad || c.avail.SharedPreload || c.avail.AlreadyLoaded {
-		scfg := DefaultSessionConfig(c.cfg.LogMinDurationMs)
-		if err := ConfigureSession(
-			ctx, conn, c.avail, scfg,
-		); err != nil {
-			return fmt.Errorf("configure session: %w", err)
-		}
-	}
-
 	if err := sanitize.RejectMultiStatement(query); err != nil {
 		return fmt.Errorf("unsafe query text: %w", err)
 	}
-
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
+	source := "auto_explain"
+	generic := parameterCount(query) > 0
+	if generic {
+		version, err := c.serverVersion(ctx)
+		if err != nil {
+			return err
+		}
+		if version < 160000 {
+			c.logFn("DEBUG", "autoexplain: skip parameterized queryid=%d: "+
+				"GENERIC_PLAN requires PostgreSQL 16+", queryID)
+			return nil
+		}
+		source = "generic_plan"
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	_, _ = tx.Exec(ctx, "SET LOCAL statement_timeout = '5s'")
-	_, _ = tx.Exec(ctx, "SET TRANSACTION READ ONLY")
-
-	planJSON, err := capturePlanJSON(ctx, tx, query)
+	planJSON, err := c.explainReadOnly(ctx, query, generic)
 	if err != nil {
 		return err
 	}
-
 	totalCost, execTime := extractPlanMetrics(planJSON)
-	return c.storePlan(
-		ctx, queryID, query, planJSON, totalCost, execTime,
-	)
+	return c.storePlan(ctx, queryID, query, planJSON, source, totalCost, execTime)
+}
+
+// explainReadOnly returns the EXPLAIN JSON for query. auto_explain
+// settings are applied with SET LOCAL so they end with the transaction
+// instead of leaking into the pooled session (G1-B15). The connection is
+// released before the plan is stored.
+func (c *Collector) explainReadOnly(
+	ctx context.Context, query string, generic bool,
+) ([]byte, error) {
+	conn, err := c.pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Release()
+
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // read-only tx, always rolled back
+
+	if _, err := tx.Exec(ctx, "SET TRANSACTION READ ONLY"); err != nil {
+		return nil, fmt.Errorf("set read only: %w", err)
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL statement_timeout = '5s'"); err != nil {
+		return nil, fmt.Errorf("set statement_timeout: %w", err)
+	}
+	if c.avail != nil && (c.avail.SessionLoad || c.avail.SharedPreload ||
+		c.avail.AlreadyLoaded) {
+		scfg := DefaultSessionConfig(c.cfg.LogMinDurationMs)
+		if err := ConfigureTransaction(ctx, tx, c.avail, scfg); err != nil {
+			return nil, fmt.Errorf("configure auto_explain: %w", err)
+		}
+	}
+	explain := "EXPLAIN (FORMAT JSON) "
+	if generic {
+		explain = "EXPLAIN (GENERIC_PLAN, FORMAT JSON) "
+	}
+	return scanPlanJSON(ctx, tx, explain+query)
+}
+
+// scanPlanJSON runs one already-validated EXPLAIN over the simple query
+// protocol: pgx's extended protocol rejects intentionally unbound $n
+// placeholders, which GENERIC_PLAN needs.
+func scanPlanJSON(ctx context.Context, tx pgx.Tx, sql string) ([]byte, error) {
+	results, err := tx.Conn().PgConn().Exec(ctx, sql).ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("explain: %w", err)
+	}
+	if len(results) != 1 || len(results[0].Rows) != 1 || len(results[0].Rows[0]) != 1 {
+		return nil, fmt.Errorf("explain: expected one JSON plan row")
+	}
+	return results[0].Rows[0][0], nil
+}
+
+// serverVersion returns server_version_num, cached after the first read.
+func (c *Collector) serverVersion(ctx context.Context) (int, error) {
+	if c.serverVersionNum > 0 {
+		return c.serverVersionNum, nil
+	}
+	var raw string
+	if err := c.pool.QueryRow(ctx, "SHOW server_version_num").Scan(&raw); err != nil {
+		return 0, fmt.Errorf("read server_version_num: %w", err)
+	}
+	version, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("parse server_version_num %q: %w", raw, err)
+	}
+	c.serverVersionNum = version
+	return version, nil
 }
 
 var parameterPlaceholder = regexp.MustCompile(`\$([1-9][0-9]*)`)
-
-func capturePlanJSON(ctx context.Context, tx pgx.Tx, query string) ([]byte, error) {
-	count := parameterCount(query)
-	if count == 0 {
-		return scanPlanJSON(ctx, tx, "EXPLAIN (FORMAT JSON) "+query)
-	}
-	const statement = "pg_sage_autoexplain"
-	if _, err := tx.Exec(ctx, "PREPARE "+statement+" AS "+query); err != nil {
-		return nil, fmt.Errorf("prepare parameterized query: %w", err)
-	}
-	defer func() { _, _ = tx.Exec(ctx, "DEALLOCATE "+statement) }()
-	params := strings.TrimSuffix(strings.Repeat("NULL,", count), ",")
-	return scanPlanJSON(ctx, tx, fmt.Sprintf(
-		"EXPLAIN (FORMAT JSON) EXECUTE %s(%s)", statement, params,
-	))
-}
-
-func scanPlanJSON(ctx context.Context, tx pgx.Tx, sql string) ([]byte, error) {
-	var planJSON []byte
-	if err := tx.QueryRow(ctx, sql).Scan(&planJSON); err != nil {
-		return nil, fmt.Errorf("explain: %w", err)
-	}
-	return planJSON, nil
-}
 
 func parameterCount(query string) int {
 	maxParam := 0
@@ -223,6 +270,7 @@ func (c *Collector) storePlan(
 	queryID int64,
 	queryText string,
 	planJSON []byte,
+	source string,
 	totalCost float64,
 	execTime float64,
 ) error {
@@ -230,8 +278,8 @@ func (c *Collector) storePlan(
 		INSERT INTO sage.explain_cache
 			(queryid, query_text, plan_json, source,
 			 total_cost, execution_time)
-		VALUES ($1, $2, $3, 'auto_explain', $4, $5)`,
-		queryID, queryText, planJSON, totalCost, execTime,
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		queryID, queryText, planJSON, source, totalCost, execTime,
 	)
 	if err != nil {
 		return fmt.Errorf("insert explain_cache: %w", err)

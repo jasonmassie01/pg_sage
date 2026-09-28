@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 
@@ -14,10 +13,7 @@ var validChannelTypes = map[string]bool{
 	"pagerduty": true,
 }
 
-var notificationSecretKeys = []string{
-	"webhook_url", "routing_key", "smtp_pass", "smtp_password",
-	"api_key", "token", "secret",
-}
+var notificationSecretKeys = notify.SecretConfigKeys
 
 func validateChannelType(typ string) error {
 	if !validChannelTypes[typ] {
@@ -89,16 +85,21 @@ func parseJSONConfig(data []byte) map[string]string {
 	return m
 }
 
-// sendTestDirect sends a test event through a specific channel
-// using the dispatcher's registered senders.
-func sendTestDirect(
-	ctx context.Context,
-	d *notify.Dispatcher,
-	ch notify.Channel,
-	evt notify.Event,
+// validateChannelTargets rejects webhook URLs and SMTP hosts that point
+// at internal or metadata addresses, or use a non-https scheme (G7-B21).
+// The senders re-check resolved addresses at dial time.
+func validateChannelTargets(
+	policy notify.TargetPolicy, typ string, config map[string]string,
 ) error {
-	// Use Dispatch which routes through all matching rules,
-	// but for test we want direct send. Use the dispatcher's
-	// public Dispatch with a synthetic approach.
-	return d.SendDirect(ctx, ch, evt)
+	var err error
+	switch typ {
+	case "slack":
+		err = policy.ValidateURL(config["webhook_url"])
+	case "email":
+		err = policy.ValidateHost(config["smtp_host"])
+	}
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrValidation, err)
+	}
+	return nil
 }

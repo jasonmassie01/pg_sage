@@ -32,8 +32,9 @@ func TestPlanCaptureObservedAutoExplainWithoutNativeExtension(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	planner := optimizer.NewPlanCapture(pool, 170000, false, true, "auto_explain",
+	planner := optimizer.NewPlanCapture(pool, 170000, true, "auto_explain",
 		func(string, string, ...any) {})
+
 	queries := []collector.QueryStats{{QueryID: observed.QueryID, Query: observed.Query}}
 	plans, source := planner.CapturePlans(t.Context(), queries)
 	if source != "auto_explain" || len(plans) != 1 || plans[0].ScanType != "Index Scan" {

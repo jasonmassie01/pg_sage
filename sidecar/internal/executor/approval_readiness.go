@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -37,11 +38,10 @@ func (e *Executor) ApprovalReadinessWithEvidence(
 	if !readiness.Eligible {
 		return readiness
 	}
-	contract, ok := ContractForQueuedAction(action)
-	if !ok {
+	if _, ok := ContractForQueuedAction(action); !ok {
 		return readinessForUnknownContract(readiness, action)
 	}
-	return e.withPolicyReadiness(readiness, contract, now)
+	return e.withPolicyReadiness(readiness, action)
 }
 
 func ContractForQueuedAction(action store.QueuedAction) (ActionContract, bool) {
@@ -106,33 +106,18 @@ func readinessForUnknownContract(
 
 func (e *Executor) withPolicyReadiness(
 	readiness ApprovalReadiness,
-	contract ActionContract,
-	now time.Time,
+	action store.QueuedAction,
 ) ApprovalReadiness {
 	readiness.PolicyKnown = true
-	cfg, mode, enabled := e.policySnapshot()
-	readiness.Policy = EvaluateActionPolicy(contract, ActionPolicyContext{
-		Config:          cfg,
-		ExecutionMode:   mode,
-		ExecutorEnabled: &enabled,
-		Now:             now,
-		RampStart:       e.rampStart,
-	})
-	if readiness.Policy.RequiresMaintenanceWindow &&
-		!inMaintenanceWindowForPolicy(cfg, now) {
+	readiness.Policy = e.explainOperatorAction(context.Background(), action.ProposedSQL)
+	if readiness.Policy.Decision != PolicyDecisionExecute {
 		readiness.Eligible = false
-		readiness.DeferReason = "outside maintenance window"
+		readiness.DeferReason = humanPolicyReason(readiness.Policy)
 		return readiness
 	}
-	if readiness.Policy.BlockedReason != "" {
-		readiness.Eligible = false
-		readiness.DeferReason = readiness.Policy.BlockedReason
-		return readiness
-	}
-	if readiness.Policy.Decision == PolicyDecisionBlocked ||
-		readiness.Policy.Decision == PolicyDecisionObserveOnly {
-		readiness.Eligible = false
-		readiness.DeferReason = "policy does not allow execution"
-	}
+	// Present an authorizable operator approval as a ready approval.
+	readiness.Policy.Decision = PolicyDecisionQueueApproval
+	readiness.Policy.RequiresApproval = true
+	readiness.Policy.BlockedReason = ""
 	return readiness
 }
