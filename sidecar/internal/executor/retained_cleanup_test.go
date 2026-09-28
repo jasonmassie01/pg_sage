@@ -29,7 +29,7 @@ func TestRetainedIndexCleanupRequiresVerdictAndSeparatePolicy(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, id, gate := retainedFixture(t, tc.allowed, "")
-			if err := SetEmergencyStop(t.Context(), e.pool, tc.emergency); err != nil {
+			if err := SetEmergencyStop(t.Context(), e.pool, tc.emergency, "test"); err != nil {
 				t.Fatal(err)
 			}
 			err := (&executorIndexActions{exec: e}).Retain(t.Context(), id,
@@ -96,7 +96,7 @@ func retainedFixture(
 	}
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DROP TABLE public.cleanup_orders`)
-		_ = SetEmergencyStop(context.Background(), pool, false)
+		_ = SetEmergencyStop(context.Background(), pool, false, "test")
 	})
 	var oid int64
 	err = pool.QueryRow(ctx, `SELECT 'public.cleanup_old'::regclass::bigint`).Scan(&oid)

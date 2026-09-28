@@ -83,7 +83,7 @@ export default function App() {
       .finally(() => setAuthChecked(true))
   }, [])
 
-  const { data: fleetData } = useAPI(
+  const { data: fleetData, refetch: refetchFleet } = useAPI(
     user ? '/api/v1/databases' : null, 30000
   )
 
@@ -219,6 +219,7 @@ export default function App() {
             selectedDB={effectiveDB}
             onSelectDB={setSelectedDB} user={user}
             fleetData={fleetData}
+            onFleetChanged={refetchFleet}
             onLogout={handleLogout}
             pageTitle={pageState.title}>
             {pageState.node}

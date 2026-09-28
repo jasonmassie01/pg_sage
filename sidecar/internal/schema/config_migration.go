@@ -18,6 +18,10 @@ CREATE TABLE IF NOT EXISTS sage.config_audit (
     changed_by  INT REFERENCES sage.users(id),
     changed_at  TIMESTAMPTZ DEFAULT now()
 );
+-- changed_by_actor names non-user actors and fleet-wide operators whose
+-- user row lives in another database (emergency stop attribution, D8).
+ALTER TABLE sage.config_audit
+    ADD COLUMN IF NOT EXISTS changed_by_actor TEXT;
 CREATE INDEX IF NOT EXISTS idx_config_audit_time
     ON sage.config_audit (changed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_config_audit_db

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/executor"
 )
 
 var (
@@ -28,9 +29,15 @@ type DatabaseManager struct {
 	primaryName string // first registered instance name
 	mu          sync.RWMutex
 	lifecycle   chan struct{}
-	// persistStop writes the durable emergency_stop flag. nil uses
-	// persistEmergencyStop; tests inject failures here.
-	persistStop func(context.Context, *DatabaseInstance, bool) error
+	// persistStop writes the durable emergency_stop flag as an actor. nil
+	// uses persistEmergencyStop; tests inject failures here.
+	persistStop func(context.Context, *DatabaseInstance, bool, string) error
+	// readStop reads the durable flag when a runtime is published. nil uses
+	// readPersistedStop; tests inject states and errors here.
+	readStop func(context.Context, *DatabaseInstance) (executor.EmergencyStopState, error)
+	// transitionMu orders persisted emergency-stop transitions so that
+	// concurrent stops and resumes end with memory matching sage.config.
+	transitionMu sync.Mutex
 }
 
 // NewManager creates a fleet manager from config.
@@ -53,16 +60,22 @@ func NewManager(cfg *config.Config) *DatabaseManager {
 // "all"-scoped query (see PoolForDatabase).
 func (m *DatabaseManager) RegisterInstance(inst *DatabaseInstance) {
 	var retired *DatabaseInstance
+	inherited := false
+	m.restorePersistedStop(inst)
 	_ = m.WithLifecycle(context.Background(), func(*LifecycleMutation) error {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		retired = m.instances[inst.Name]
+		inherited = inheritEmergencyStop(retired, inst)
 		if m.primaryName == "" && inst.Pool != nil {
 			m.primaryName = inst.Name
 		}
 		m.instances[inst.Name] = inst
 		return nil
 	})
+	if inherited {
+		m.persistInheritedStop(inst)
+	}
 	if retired != nil && retired != inst {
 		go func() { _ = cleanupRejectedCandidate(retired) }()
 	}
@@ -102,7 +115,6 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 		Databases: make([]DatabaseStatus, 0, len(m.instances)),
 	}
 
-	anyStopped := false
 	for _, inst := range m.instances {
 		// Snapshot fields under the instance lock so that background
 		// writers (updateInstanceFindings, config_handlers) don't race
@@ -118,9 +130,10 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 			Tags:       inst.Config.Tags,
 			Status:     snap,
 		}
+		applyStopStatus(&ds, inst)
 		overview.Databases = append(overview.Databases, ds)
 		if inst.Stopped {
-			anyStopped = true
+			overview.Summary.EmergencyStoppedCount++
 		}
 	}
 
@@ -142,7 +155,7 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 		overview.Summary.TotalCritical += db.Status.FindingsCritical
 		overview.Summary.TotalActions += db.Status.ActionsTotal
 	}
-	overview.Summary.EmergencyStopped = anyStopped
+	overview.Summary.EmergencyStopped = overview.Summary.EmergencyStoppedCount > 0
 
 	return overview
 }
@@ -243,22 +256,22 @@ func recordHealthSample(
 // per-instance collectors/analyzers/orchestrators. Every target is stopped
 // in memory even when its persisted flag cannot be written.
 func (m *DatabaseManager) EmergencyStop(name string) int {
-	stopped, _ := m.EmergencyStopStrict(name)
+	stopped, _ := m.EmergencyStopStrict(name, executor.EmergencyStopActorSystem)
 	return stopped
 }
 
-func (m *DatabaseManager) EmergencyStopStrict(name string) (int, error) {
-	return m.setEmergencyStopped(name, true)
+func (m *DatabaseManager) EmergencyStopStrict(name, actor string) (int, error) {
+	return m.setEmergencyStopped(name, true, actor)
 }
 
 // Resume resumes a specific database or all if name is empty.
 func (m *DatabaseManager) Resume(name string) int {
-	resumed, _ := m.ResumeStrict(name)
+	resumed, _ := m.ResumeStrict(name, executor.EmergencyStopActorSystem)
 	return resumed
 }
 
-func (m *DatabaseManager) ResumeStrict(name string) (int, error) {
-	return m.setEmergencyStopped(name, false)
+func (m *DatabaseManager) ResumeStrict(name, actor string) (int, error) {
+	return m.setEmergencyStopped(name, false, actor)
 }
 
 // PoolForDatabase returns the connection pool for a named

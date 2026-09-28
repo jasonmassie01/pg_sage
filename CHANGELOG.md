@@ -21,6 +21,20 @@
   (narration off, LLM off, budget, rate limit, timeout, malformed or uncited output) sends
   the deterministic summary. Both are labeled in the notification. `llm.enabled: false`
   cancels narrations in flight.
+- **Emergency stop in the header (D8).** Operators and admins get a Stop control next to
+  the database picker. It stops the selected database, or all databases when "All" is
+  selected, and needs arm then confirm. Resume appears only when the selection is stopped,
+  also needs confirmation, and shows who stopped it and when. A badge visible to every role
+  names the stopped database, the person who stopped it and the time. The Settings page
+  buttons are replaced by a pointer to the header control.
+- **The stop survives restarts.** At startup and on reconnect, every mode (standalone,
+  fleet, meta-db) restores the in-memory stop from `sage.config`, so the header badge and
+  action readiness show "stopped" on first paint. An unreadable flag restores as stopped,
+  attributed to `system`.
+- **Attribution and audit.** Stop and resume record the signed-in user (or `system`) in
+  `sage.config.updated_by` and append a `sage.config_audit` row in the same statement. The
+  fleet API (`GET /api/v1/databases`) exposes `emergency_stopped`, `emergency_stopped_by`
+  and `emergency_stopped_at` per database, and `summary.emergency_stopped_count`.
 
 ### Changed (read before upgrading)
 
@@ -65,6 +79,11 @@
   startup).
 - Notifications for `incident_detected` and `incident_escalated` now end with a labeled
   `Summary` line, and their payload data adds `narrative` and `narrative_source`.
+- **Defined stop/resume races.** Stops latch memory immediately; persisted transitions are
+  serialized. A stop that overlaps a resume wins, and memory always ends equal to the
+  persisted flag. A stop that lands while a meta-db reconnect swaps in a new runtime
+  carries over to the new runtime and is saved. `sage.config_audit` gains a nullable `changed_by_actor` column, added
+  automatically at startup.
 
 ### Fixed
 
