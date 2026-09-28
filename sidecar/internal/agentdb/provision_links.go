@@ -145,44 +145,6 @@ func (s *Store) ProvisionFromTerraformTemplate(
 	return s.Register(ctx, reg)
 }
 
-func (s *Store) ProvisionApprovedRequest(
-	ctx context.Context,
-	id string,
-	req RequestProvisionRequest,
-) (Deployment, error) {
-	agentReq, err := s.GetRequest(ctx, id)
-	if err != nil {
-		return Deployment{}, err
-	}
-	if agentReq.Status != "approved" || agentReq.PolicyDecision != "allow" {
-		return Deployment{}, ErrInvalid
-	}
-	deploymentID := firstNonEmpty(req.DeploymentID, "dep_"+idFrom(id))
-	if err := s.consumeApprovedRequest(ctx, id, deploymentID); err != nil {
-		return Deployment{}, err
-	}
-	reg := RegisterRequest{
-		DeploymentID: deploymentID,
-		TenantID:     agentReq.TenantID,
-		AgentID:      agentReq.AgentID,
-		RunID:        agentReq.RunID,
-		DatabaseName: agentReq.DatabaseName,
-		Provider:     agentReq.Provider,
-		ProvisioningLevel: firstNonEmpty(
-			agentReq.IsolationType, LevelSchema,
-		),
-		LeaseSeconds:   req.LeaseSeconds,
-		BudgetUSD:      agentReq.BudgetUSD,
-		BackupRequired: agentReq.BackupRequired,
-		Metadata: mergeMap(req.Metadata, map[string]any{
-			"provider_params": req.ProviderParams,
-			"request_id":      agentReq.RequestID,
-			"purpose":         agentReq.Purpose,
-		}),
-	}
-	return s.Provision(ctx, reg)
-}
-
 func registerFromBlueprint(
 	blueprint Blueprint,
 	req BlueprintProvisionRequest,
@@ -262,22 +224,6 @@ func setApproved(values map[string]any, key string, value any) {
 		return
 	}
 	values[key] = value
-}
-
-// consumeApprovedRequest makes an approval single-use: it binds the
-// request to one deployment id; replays with the same id stay idempotent.
-func (s *Store) consumeApprovedRequest(ctx context.Context, id, deploymentID string) error {
-	tag, err := s.pool.Exec(ctx, `/* pg_sage */
-		UPDATE sage.agent_db_requests
-		SET consumed_deployment_id=$2, updated_at=now()
-		WHERE request_id=$1 AND consumed_deployment_id IN ('', $2)`, id, deploymentID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrConflict
-	}
-	return nil
 }
 
 func emptyAny(value any) bool {

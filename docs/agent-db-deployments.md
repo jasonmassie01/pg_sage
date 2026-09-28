@@ -70,11 +70,19 @@ References checked on 2026-05-08:
 
 ## Principals and tenant isolation
 
-- **Operators and admins** sign in with a session (cookie). They are global
-  operators of this pg_sage install and may act on any tenant. Approvals,
-  live authorizations, destroys, archives and token minting require these
-  roles; every audit actor (`approved_by`, `created_by`, `reviewed_by`) is
-  taken from the signed-in user, not from the request body.
+- **Operators and admins** sign in with a session (cookie). Humans are
+  global: one pg_sage install serves **one operator team**, and its operators
+  and admins may act on any tenant. Per-user tenant grants are not built; do
+  not share one install between customer teams that must not see or approve
+  each other's databases (see
+  [D4](../reviews/decisions/D4-agentdb-tenancy-and-registration.md)).
+  Approvals, live authorizations, destroys, archives and token minting
+  require these roles. Every audit actor is taken from the signed-in user,
+  never from the request body: `decided_by` on request approve/deny,
+  `consumed_by` when a request is provisioned, and `approved_by`,
+  `created_by` and `reviewed_by` on blueprints, templates and deploy
+  requests. A request that request policy approved or denied at creation
+  has `decided_by: "policy"`.
 - **Agents** never use operator cookies. An admin mints a tenant-bound agent
   token for an `agent_identities` row
   (`POST /api/v1/agent-dbs/identities/{agent_id}/tokens`). The agent calls
@@ -128,7 +136,33 @@ curl -b cookies.txt -H "Content-Type: application/json" \
   }'
 ```
 
-3. Register or provision the deployment after approval:
+3. Provision the approved request. This consumes the approval: a request
+produces exactly one deployment, and the request records
+`consumed_deployment_id`, `consumed_by` and `consumed_at`. Reusing it returns
+HTTP `409`, as does a body `tenant_id`, `agent_id`, `provider` or
+`provisioning_level` that does not match the request. `size_profile_id`,
+`schema_name`, `secret_ref` and `secret_ref_provider` are taken from the body;
+tenant, agent, provider, isolation level and budget come from the request.
+
+```bash
+curl -b cookies.txt -H "Content-Type: application/json" \
+  -X POST http://localhost:8080/api/v1/agent-dbs/requests/$REQUEST_ID/provision \
+  --data '{
+    "deployment_id": "adb_orders_cloud_001",
+    "size_profile_id": "cloudsql_instance_s",
+    "secret_ref": "env:PG_SAGE_AGENTDB_ORDERS_DSN",
+    "secret_ref_provider": "env",
+    "lease_seconds": 7200
+  }'
+```
+
+`POST /api/v1/agent-dbs` with a cloud provider (`aws_rds`, `gcp_cloudsql`,
+`databricks_lakebase`, `neon`, `supabase`) requires `request_id` and consumes
+that request the same way; without it the call returns HTTP `409`
+`approved request required`. Deployments registered before this change are
+left as they are. `local_postgres` schema and database registers keep the
+direct path below; their DDL is still gated by
+`PG_SAGE_AGENTDB_LOCAL_PROVISIONING`:
 
 ```bash
 curl -b cookies.txt -H "Content-Type: application/json" \

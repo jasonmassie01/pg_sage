@@ -407,7 +407,9 @@ describe('AgentDBsPage', () => {
     globalThis.fetch
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ status: 'approved', policy_decision: 'allow' }),
+        json: async () => ({
+          request_id: 'req_new', status: 'approved', policy_decision: 'allow',
+        }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -422,7 +424,8 @@ describe('AgentDBsPage', () => {
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
     expect(globalThis.fetch.mock.calls[0][0])
       .toBe('/api/v1/agent-dbs/requests')
-    expect(globalThis.fetch.mock.calls[1][0]).toBe('/api/v1/agent-dbs')
+    expect(globalThis.fetch.mock.calls[1][0])
+      .toBe('/api/v1/agent-dbs/requests/req_new/provision')
     expect(JSON.parse(globalThis.fetch.mock.calls[1][1].body).provider)
       .toBe('local_postgres')
     expect(await screen.findByText('Provisioned new_dep')).toBeInTheDocument()
@@ -435,7 +438,9 @@ describe('AgentDBsPage', () => {
     globalThis.fetch
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ status: 'approved', policy_decision: 'allow' }),
+        json: async () => ({
+          request_id: 'req_lakebase', status: 'approved', policy_decision: 'allow',
+        }),
       })
       .mockResolvedValueOnce({
         ok: true,

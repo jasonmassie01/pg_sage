@@ -91,7 +91,8 @@ func TestStoreRequestIdempotencyAndDecisions(t *testing.T) {
 	if len(listed) == 0 {
 		t.Fatal("expected at least one request")
 	}
-	denied, err := st.SetRequestDecision(ctx, created.RequestID, DecisionRequest{Decision: "denied", Reason: "test"})
+	denied, err := st.SetRequestDecision(ctx, created.RequestID, DecisionRequest{Decision: "denied", Reason: "test",
+		ActorID: "test"})
 	if err != nil {
 		t.Fatalf("SetRequestDecision: %v", err)
 	}
@@ -159,12 +160,14 @@ func TestProvisionApprovedRequestCreatesLinkedDeployment(t *testing.T) {
 	if _, err := st.SetRequestDecision(ctx, requestID, DecisionRequest{
 		Decision: "approved",
 		Reason:   "unit approved",
+		ActorID:  "test",
 	}); err != nil {
 		t.Fatalf("SetRequestDecision: %v", err)
 	}
 
 	dep, err := st.ProvisionApprovedRequest(ctx, requestID, RequestProvisionRequest{
 		DeploymentID: deploymentID,
+		ActorID:      "test",
 		LeaseSeconds: 3600,
 		ProviderParams: map[string]any{
 			"project":             "demo-project",

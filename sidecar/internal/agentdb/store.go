@@ -78,41 +78,6 @@ func (s *Store) GetRequest(ctx context.Context, id string) (Request, error) {
 	return req, err
 }
 
-func (s *Store) SetRequestDecision(
-	ctx context.Context,
-	id string,
-	req DecisionRequest,
-) (Request, error) {
-	if err := s.Ensure(ctx); err != nil {
-		return Request{}, err
-	}
-	policy, status, err := requestDecision(req.Decision)
-	if err != nil {
-		return Request{}, err
-	}
-	tag, err := s.pool.Exec(ctx, `/* pg_sage */ 
-		UPDATE sage.agent_db_requests
-		SET status=$2,
-			policy_decision=$3,
-			policy_reasons=$4::jsonb,
-			updated_at=now()
-		WHERE request_id=$1
-			AND NOT ($2='approved' AND policy_decision='deny')`,
-		id, status, policy, jsonBytes(map[string]any{"reason": req.Reason}),
-	)
-	if err != nil {
-		return Request{}, err
-	}
-	if tag.RowsAffected() == 0 {
-		// A policy deny is terminal for operators (G8-B10).
-		if _, getErr := s.GetRequest(ctx, id); getErr != nil {
-			return Request{}, getErr
-		}
-		return Request{}, ErrConflict
-	}
-	return s.GetRequest(ctx, id)
-}
-
 func (s *Store) List(ctx context.Context) ([]Deployment, error) {
 	if err := s.Ensure(ctx); err != nil {
 		return nil, err
@@ -367,17 +332,6 @@ func requestBody(req RequestCreate) map[string]any {
 	}
 }
 
-func requestDecision(decision string) (string, string, error) {
-	switch decision {
-	case "approved":
-		return "allow", "approved", nil
-	case "denied":
-		return "deny", "denied", nil
-	default:
-		return "", "", ErrInvalid
-	}
-}
-
 func (s *Store) insertRequest(
 	ctx context.Context,
 	req RequestCreate,
@@ -402,6 +356,7 @@ func (s *Store) insertRequest(
 		req.BudgetUSD,
 		req.BackupRequired,
 		jsonBytes(policyReasons(dec)),
+		policyDecider(dec),
 	), &out)
 	return out, err
 }
@@ -440,6 +395,11 @@ func scanRequest(row scanner, req *Request) error {
 		&req.BudgetUSD,
 		&req.BackupRequired,
 		&req.PolicyReasons,
+		&req.DecidedBy,
+		&req.DecidedAt,
+		&req.ConsumedDeploymentID,
+		&req.ConsumedBy,
+		&req.ConsumedAt,
 		&req.CreatedAt,
 		&req.UpdatedAt,
 	)

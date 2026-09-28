@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Changed (read before upgrading)
+
+- **Cloud AgentDB registration needs an approved request.** `POST /api/v1/agent-dbs`
+  with a cloud provider now returns `409 approved request required` unless it names an
+  approved, unused `request_id`. Provision approved requests with
+  `POST /api/v1/agent-dbs/requests/{id}/provision`, which now accepts `size_profile_id`,
+  `schema_name`, `secret_ref` and `secret_ref_provider`. Each approval produces exactly one
+  deployment; reusing it, or provisioning it for another tenant, agent or provider, returns
+  `409`. `local_postgres` schema and database registers are unchanged. Existing deployments
+  are left as they are. The dashboard's Provision form uses the request route.
+- **AgentDB approvals are attributed.** Approve and deny record the signed-in user in
+  `decided_by`/`decided_at` and require a session. A consumed request records
+  `consumed_deployment_id`, `consumed_by` and `consumed_at`, and its decision can no longer
+  change. Decisions that request policy made at creation show `decided_by: "policy"`.
+- **One operator team per install.** AgentDB operators and admins act on every tenant; the
+  docs now say so. Do not share an install between teams that must be isolated.
+
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 
 ### What's new

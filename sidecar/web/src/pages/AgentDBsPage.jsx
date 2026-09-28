@@ -224,6 +224,7 @@ export function AgentDBsPage() {
         purpose: form.purpose,
         provider: form.provider,
         requested_isolation_type: form.provisioning_level,
+        database_name: form.database_name,
         budget_usd: Number(form.budget_usd || 0),
         backup_required: true,
       }
@@ -236,21 +237,21 @@ export function AgentDBsPage() {
         await refreshAll()
         return
       }
+      // D4: provisioning consumes the approved request exactly once; the
+      // server checks that tenant, agent and provider match the approval.
+      if (!request.request_id) throw new Error('Request response has no request_id')
       const generatedID = deploymentID(form)
-      const created = await postJSON('/api/v1/agent-dbs', {
+      const provisionURL = '/api/v1/agent-dbs/requests/' +
+        `${encodeURIComponent(request.request_id)}/provision`
+      const created = await postJSON(provisionURL, {
         ...secretReference,
         deployment_id: generatedID,
         tenant_id: form.tenant_id,
         agent_id: form.agent_id,
-        run_id: form.run_id,
         provider: form.provider,
         provisioning_level: form.provisioning_level,
-        isolation_type: form.provisioning_level,
-        database_name: form.database_name,
         schema_name: form.schema_name,
         size_profile_id: form.size_profile_id,
-        budget_usd: Number(form.budget_usd || 0),
-        backup_required: true,
         lease_seconds: Number(form.lease_seconds || 3600),
         metadata: provisionMetadata(form),
       })

@@ -18,7 +18,7 @@ func NewStore(pool *pgxpool.Pool) *Store {
 }
 
 // agentDBSchemaVersion is bumped whenever schemaStatements change.
-const agentDBSchemaVersion = 2026092601
+const agentDBSchemaVersion = 2026092701
 
 // schemaReady memoizes successful initialization per pool so request paths
 // (including the unauthenticated agent-ping) never re-run DDL (G8-B16).

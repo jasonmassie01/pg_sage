@@ -87,7 +87,7 @@ func TestOperatorApproveCannotOverridePolicyDeny(t *testing.T) {
 	defer pool.Close()
 	seedDeniedRequest(t, st, ctx, "req_fix_policy_deny")
 	if _, err := st.SetRequestDecision(ctx, "req_fix_policy_deny",
-		DecisionRequest{Decision: "approved"}); !errors.Is(err, ErrConflict) {
+		DecisionRequest{Decision: "approved", ActorID: "test"}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("approve of policy deny err = %v, want ErrConflict", err)
 	}
 	got, err := st.GetRequest(ctx, "req_fix_policy_deny")
@@ -115,11 +115,12 @@ func TestApprovedRequestIsSingleUse(t *testing.T) {
 	}
 	st.opts.LocalProvisioning = true
 	if _, err := st.ProvisionApprovedRequest(ctx, id,
-		RequestProvisionRequest{DeploymentID: "dep_fix_single_1"}); err != nil {
+		RequestProvisionRequest{DeploymentID: "dep_fix_single_1", ActorID: "test"}); err != nil {
 		t.Fatalf("first provision: %v", err)
 	}
 	if _, err := st.ProvisionApprovedRequest(ctx, id,
-		RequestProvisionRequest{DeploymentID: "dep_fix_single_2"}); !errors.Is(err, ErrConflict) {
+		RequestProvisionRequest{DeploymentID: "dep_fix_single_2",
+			ActorID: "test"}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("second provision err = %v, want ErrConflict", err)
 	}
 	if _, err := st.Get(ctx, "dep_fix_single_2"); !errors.Is(err, ErrNotFound) {

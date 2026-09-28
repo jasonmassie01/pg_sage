@@ -306,11 +306,22 @@ func TestAgentDBRegisterStoresProviderPlan(t *testing.T) {
 	st, ctx, pool := requireAgentDBAPIStore(t)
 	defer pool.Close()
 	cleanupAgentDBTestRows(t, ctx, pool, "api_lakebase_plan")
+	cleanupAgentDBTestRows(t, ctx, pool, "req_api_lakebase_plan")
+	// D4: cloud registers consume an approved request.
+	if _, err := st.CreateRequest(ctx, agentdb.RequestCreate{
+		RequestID: "req_api_lakebase_plan", TenantID: "tenant_agentdb_api",
+		AgentID: "agent_api", IsolationType: agentdb.LevelInstance,
+		Provider: agentdb.ProviderDatabricksLakebase, DatabaseName: "agent_app",
+		BudgetUSD: 5,
+	}); err != nil {
+		t.Fatalf("CreateRequest: %v", err)
+	}
 
 	req := httptest.NewRequest(
 		http.MethodPost,
 		"/api/v1/agent-dbs",
 		bytes.NewReader([]byte(`{
+			"request_id":"req_api_lakebase_plan",
 			"deployment_id":"api_lakebase_plan",
 			"tenant_id":"tenant_agentdb_api",
 			"agent_id":"agent_api",
@@ -322,7 +333,7 @@ func TestAgentDBRegisterStoresProviderPlan(t *testing.T) {
 		}`)),
 	)
 	rr := httptest.NewRecorder()
-	agentDBRegisterHandler(st).ServeHTTP(rr, req)
+	withTestOperator(agentDBRegisterHandler(st)).ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("register status = %d body=%s", rr.Code, rr.Body.String())
 	}

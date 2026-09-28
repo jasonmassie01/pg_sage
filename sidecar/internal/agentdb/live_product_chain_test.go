@@ -234,12 +234,14 @@ func createLakebaseRequestDeployment(
 		if _, err := st.SetRequestDecision(ctx, requestID, DecisionRequest{
 			Decision: "approved",
 			Reason:   "live gauntlet",
+			ActorID:  "test",
 		}); err != nil {
 			return Deployment{}, err
 		}
 	}
 	return st.ProvisionApprovedRequest(ctx, requestID, RequestProvisionRequest{
 		DeploymentID: deploymentID,
+		ActorID:      "test",
 		LeaseSeconds: 3600,
 		Metadata: map[string]any{
 			"disposable":    true,
