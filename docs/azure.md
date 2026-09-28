@@ -3,6 +3,13 @@
 pg_sage monitors and maintains Azure Database for PostgreSQL **flexible server**. Single
 server is retired by Microsoft; pg_sage treats it as guidance-only.
 
+Verified live (2026-09-27): flexible server PostgreSQL 14–18 on Burstable and General
+Purpose tiers, and elastic clusters. PostgreSQL 11–13 can still be created on Azure but are
+below pg_sage's minimum (14). Existing **Cosmos DB for PostgreSQL** clusters
+(`*.postgres.cosmos.azure.com`) are detected as `azure-cosmos`: portable SQL actions run,
+and server parameters are guidance-only. Azure no longer lets new Cosmos clusters be
+created, so this path is covered by unit tests only.
+
 ## What pg_sage does on Azure
 
 | Area | Behaviour |

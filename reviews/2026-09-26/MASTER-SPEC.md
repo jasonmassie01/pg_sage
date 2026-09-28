@@ -782,3 +782,14 @@ Verification:
 - e2e under cgo: 76 passed, 0 failed.
 - Skip budget: clean.
 - Lint: 0 issues.
+
+### 10.10 Azure live matrix (2026-09-27)
+
+See `azure-matrix-2026-09-27.md`.
+
+- Flexible server PG14–18, the General Purpose tier and elastic clusters pass every
+  automated check.
+- PG11–13 are refused by design (below the PG14 minimum).
+- Azure no longer lets new Cosmos DB for PostgreSQL clusters be created.
+- The matrix found the `kB` unit bug (7c425db) and the Cosmos detection gap (4efca0a).
+- CHECK-AZ-04 and -05 are still manual.
