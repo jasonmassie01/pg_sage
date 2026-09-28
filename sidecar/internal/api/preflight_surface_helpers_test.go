@@ -19,6 +19,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/migration/plan"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/value"
 )
 
 type surfaceFixture struct {
@@ -131,7 +132,10 @@ func surfaceMCP(t *testing.T, pool *pgxpool.Pool, stopped bool) *RuntimeDeps {
 	backend, err := mcp.NewProductionBackend(mcp.ProductionDependencies{
 		Gate: gate, Planner: mcp.DeterministicIntentPlanner{},
 		Executor: mcp.NewProductionIntentExecutor(access, plan.NewPlanner(), gate),
-		Policy:   access, Ledger: access, Value: access, Guarantees: access,
+		Policy: access, Ledger: access, Guarantees: access,
+		Value: mcp.NewValueAccess(value.NewFleetService(func() []value.Source {
+			return []value.Source{{Name: "primary", Pool: pool}}
+		})),
 	})
 	if err != nil {
 		t.Fatal(err)

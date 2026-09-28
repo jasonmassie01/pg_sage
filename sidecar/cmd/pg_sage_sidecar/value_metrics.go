@@ -3,81 +3,88 @@ package main
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/value"
 )
 
-// writeValueMetrics emits the DBA-hours-saved value series. It reads
-// the same tables as /api/v1/value, so only verified-successful
-// actions are counted and reverted actions contribute nothing.
+// writeValueMetrics emits the DBA-hours-saved value series for every
+// monitored database (D3). It reads the same ledgers as /api/v1/value, so
+// only verified-successful actions are counted and reverted actions
+// contribute nothing. Every series carries the fleet instance name as its
+// database label.
 //
 // Net verified toil can decrease when a rollback zeroes an action's
 // credit, so it is a gauge (SURF-18); a counter would make rate()
-// report a reset spike. pg_sage_value_metrics_up reports whether the
-// value queries succeeded on this scrape.
-func writeValueMetrics(b *strings.Builder, ctx context.Context) {
-	var toil, incidents strings.Builder
-	errToil := writeToilSeries(&toil, ctx)
-	errIncidents := writeIncidentSeries(&incidents, ctx)
+// report a reset spike. pg_sage_value_metrics_up{database} reports
+// whether that database's ledger was read on this scrape, so a partial
+// scrape is visible instead of silently missing a database.
+func writeValueMetrics(
+	b *strings.Builder, ctx context.Context, sources []value.Source,
+) {
+	reader := value.NewFleetService(func() []value.Source { return sources })
+	results, err := reader.Read(ctx, value.Filter{})
+	if err != nil {
+		logWarn("metrics", "value metrics read failed: %v", err)
+	}
 	b.WriteString("# HELP pg_sage_toil_minutes_saved " +
 		"Net verified DBA toil minutes saved (decreases on rollback)\n" +
 		"# TYPE pg_sage_toil_minutes_saved gauge\n")
-	b.WriteString(toil.String())
-	b.WriteString("\n")
-	b.WriteString("# HELP pg_sage_incidents_avoided_total " +
+	for _, result := range results {
+		writeToilSeries(b, result)
+	}
+	b.WriteString("\n# HELP pg_sage_incidents_avoided_total " +
 		"Incidents avoided by kind\n" +
 		"# TYPE pg_sage_incidents_avoided_total counter\n")
-	b.WriteString(incidents.String())
-	b.WriteString("\n")
-	up := 1
-	if errToil != nil || errIncidents != nil {
-		up = 0
-		logWarn("metrics", "value metrics query failed: toil=%v incidents=%v",
-			errToil, errIncidents)
+	for _, result := range results {
+		writeIncidentSeries(b, result)
 	}
-	b.WriteString("# HELP pg_sage_value_metrics_up " +
-		"1 if the value metric queries succeeded on this scrape\n" +
+	b.WriteString("\n# HELP pg_sage_value_metrics_up " +
+		"1 if the database's value ledger was read on this scrape\n" +
 		"# TYPE pg_sage_value_metrics_up gauge\n")
-	fmt.Fprintf(b, "pg_sage_value_metrics_up %d\n\n", up)
+	for _, result := range results {
+		up := 1
+		if result.Err != nil {
+			up = 0
+			logWarn("metrics", "value metrics for database %q: %v",
+				result.Name, result.Err)
+		}
+		fmt.Fprintf(b, "pg_sage_value_metrics_up{database=%q} %d\n", result.Name, up)
+	}
+	b.WriteString("\n")
 }
 
-func writeToilSeries(b *strings.Builder, ctx context.Context) error {
-	rows, err := pool.Query(ctx, `SELECT COALESCE(d.name, ''),
-		al.action_type, sum(al.toil_minutes_saved)::float8
-		FROM sage.action_log al
-		LEFT JOIN sage.databases d ON d.id = al.database_id
-		WHERE al.outcome = 'success' AND al.toil_minutes_saved IS NOT NULL
-		GROUP BY 1, 2`)
-	if err != nil {
-		return err
+func writeToilSeries(b *strings.Builder, result value.SourceResult) {
+	if result.Err != nil {
+		return
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var database, feature string
-		var minutes float64
-		if err := rows.Scan(&database, &feature, &minutes); err != nil {
-			return err
-		}
-		fmt.Fprintf(b, "pg_sage_toil_minutes_saved"+
-			"{database=%q,feature=%q} %g\n", database, feature, minutes)
+	features := make([]string, 0, len(result.Snapshot.ByFeatureMinutes))
+	for feature := range result.Snapshot.ByFeatureMinutes {
+		features = append(features, feature)
 	}
-	return rows.Err()
+	sort.Strings(features)
+	for _, feature := range features {
+		fmt.Fprintf(b, "pg_sage_toil_minutes_saved{database=%q,feature=%q} %g\n",
+			result.Name, feature, result.Snapshot.ByFeatureMinutes[feature])
+	}
 }
 
-func writeIncidentSeries(b *strings.Builder, ctx context.Context) error {
-	rows, err := pool.Query(ctx, `SELECT kind, count(*)::bigint
-		FROM sage.incident_avoided GROUP BY kind`)
-	if err != nil {
-		return err
+func writeIncidentSeries(b *strings.Builder, result value.SourceResult) {
+	if result.Err != nil {
+		return
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var kind string
-		var count int64
-		if err := rows.Scan(&kind, &count); err != nil {
-			return err
-		}
-		fmt.Fprintf(b, "pg_sage_incidents_avoided_total"+
-			"{kind=%q} %d\n", kind, count)
+	counts := map[string]int{}
+	for _, incident := range result.Snapshot.Incidents {
+		counts[incident.Kind]++
 	}
-	return rows.Err()
+	kinds := make([]string, 0, len(counts))
+	for kind := range counts {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	for _, kind := range kinds {
+		fmt.Fprintf(b, "pg_sage_incidents_avoided_total{database=%q,kind=%q} %d\n",
+			result.Name, kind, counts[kind])
+	}
 }

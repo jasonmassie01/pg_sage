@@ -15,6 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
+	"github.com/pg-sage/sidecar/internal/value"
 )
 
 var (
@@ -134,9 +135,13 @@ func TestPostgresAccessServesPolicyLedgerValueAndMigrationReads(t *testing.T) {
 	require.Len(t, ledger.Entries, 1)
 	require.Equal(t, "ev-ledger-db", ledger.Entries[0].EvidenceID)
 
-	valueResult, err := access.GetValue(ctx)
+	valueResult, err := NewValueAccess(value.NewFleetService(func() []value.Source {
+		return []value.Source{{Name: "primary", Pool: pool}}
+	})).GetValue(ctx)
 	require.NoError(t, err)
 	require.Contains(t, valueResult, "potential_hours_pending")
+	require.Equal(t, false, valueResult["partial"])
+	require.Equal(t, []any{}, valueResult["unavailable"])
 	require.NoError(t, access.RecordMigration(ctx, MigrationRecord{
 		DatabaseID: int64ProductionPointer(42), EvidenceID: "ev-migration-db",
 		SourceSQL: "ALTER TABLE public.users ALTER COLUMN email SET NOT NULL",
@@ -178,7 +183,10 @@ func TestRealPolicyGatePersistsDeclarationsAndAuthorizesCandidateSQL(t *testing.
 	intentExecutor := NewProductionIntentExecutor(access, plan.NewPlanner(), gate)
 	backend, err := NewProductionBackend(ProductionDependencies{
 		Gate: gate, Planner: DeterministicIntentPlanner{}, Executor: intentExecutor,
-		Policy: access, Ledger: access, Value: access, Guarantees: access,
+		Policy: access, Ledger: access, Guarantees: access,
+		Value: NewValueAccess(value.NewFleetService(func() []value.Source {
+			return []value.Source{{Name: "primary", Pool: pool}}
+		})),
 	})
 	require.NoError(t, err)
 

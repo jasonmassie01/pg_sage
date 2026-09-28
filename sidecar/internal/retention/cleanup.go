@@ -51,12 +51,21 @@ type purgeRule struct {
 // Keep predicates for parents referenced by NOT NULL foreign keys. The
 // value ledger (incident_avoided) is evidence of prevented incidents and
 // keeps its action/decision/verification; active leases keep decisions.
+// Credited actions (verified success with toil credit) are pg_sage's
+// evidence of worth, so they and the verification that earned the credit
+// are never purged (D3); uncredited and rolled-back rows still age out.
 const (
-	keepActionLog = `AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
+	keepActionLog = `AND NOT (action_log.outcome = 'success'
+	                   AND action_log.toil_minutes_saved IS NOT NULL)
+	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
 	                   WHERE ia.action_log_id = action_log.id)`
 	keepVerification = `AND verdict NOT IN ('pending', 'extended')
 	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
-	                   WHERE ia.verification_id = verification.id)`
+	                   WHERE ia.verification_id = verification.id)
+	    AND NOT EXISTS (SELECT 1 FROM sage.action_log al
+	                   WHERE al.id = verification.action_log_id
+	                   AND al.outcome = 'success'
+	                   AND al.toil_minutes_saved IS NOT NULL)`
 	keepDecision = `AND (deadline_hard_at IS NULL OR deadline_hard_at < now()
 	                   OR resolved_at IS NOT NULL)
 	    AND NOT EXISTS (SELECT 1 FROM sage.verification v WHERE v.decision_id = decision.id)
