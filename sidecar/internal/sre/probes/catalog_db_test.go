@@ -242,7 +242,7 @@ func TestCatalog_IdleInTransactionSession(t *testing.T) {
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
-	time.Sleep(1100 * time.Millisecond)
+	waitServerIdleAge(t, ctx, pool, pid, 1.2)
 	xacts, err := LongXacts(NewRunner(pool, Catalog(), NewLimiter(1)).Run(ctx,
 		LongTransactions, Args{}))
 	if err != nil {
@@ -259,12 +259,40 @@ func TestCatalog_IdleInTransactionSession(t *testing.T) {
 	t.Fatalf("long_transactions %+v lack idle session %d", xacts, pid)
 }
 
+// waitServerIdleAge waits until the server itself reports pid idle in
+// its transaction for at least seconds. Host timers and the server clock
+// can disagree (under Docker Desktop 1.1 s of host sleep measured 1.0 s
+// on the server), so the wait is measured on the server's clock, the
+// clock the probe reports ages with.
+func waitServerIdleAge(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	pid int, seconds float64) {
+	t.Helper()
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
+		var age float64
+		if err := pool.QueryRow(ctx, `SELECT COALESCE(EXTRACT(EPOCH FROM
+			clock_timestamp() - state_change), 0)::float8
+			FROM pg_stat_activity WHERE pid = $1`, pid).Scan(&age); err == nil &&
+			age >= seconds {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("server never reported pid %d idle for %v s", pid, seconds)
+}
+
 func TestCatalog_ReplicationProbesOnAPrimaryWithoutReplicas(t *testing.T) {
 	pool, ctx := livePool(t)
 	r := NewRunner(pool, Catalog(), NewLimiter(1))
 	if res := r.Run(ctx, ReplicationLag, Args{}); res.Status != StatusEmpty {
 		t.Fatalf("replication_lag without replicas = %+v, want empty", res)
 	}
+	// Slots are cluster-wide: serialize with PGIncidentBench's WAL
+	// scenarios, which would otherwise see this inactive slot.
+	release, err := testdb.LockCluster(ctx, os.Getenv(testdb.EnvName), "wal")
+	if err != nil {
+		t.Fatalf("cluster lock: %v", err)
+	}
+	t.Cleanup(release)
 	slot := fmt.Sprintf("sre_probe_slot_%d", os.Getpid())
 	if _, err := pool.Exec(ctx,
 		"SELECT pg_create_physical_replication_slot($1, true)", slot); err != nil {

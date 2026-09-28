@@ -16,16 +16,20 @@ func TestGraph_NodesAreWellFormed(t *testing.T) {
 		t.Fatal("graph version is empty")
 	}
 	nodes := Graph()
-	if len(nodes) != 6 {
-		t.Fatalf("graph has %d nodes, want 6 (4 lock, 2 plan)", len(nodes))
+	// v2 (M2) adds connection pressure (3), WAL retention (4) and
+	// pg_sage's own change (1) to v1's 4 lock and 2 plan nodes.
+	if len(nodes) != 14 {
+		t.Fatalf("graph has %d nodes, want 14", len(nodes))
 	}
+	families := map[Family]bool{FamilyLockBlocking: true, FamilyPlanRegression: true,
+		FamilyConnections: true, FamilyWAL: true, FamilyChange: true}
 	seen := map[NodeID]bool{}
 	for _, n := range nodes {
 		if seen[n.ID] {
 			t.Fatalf("duplicate node %s", n.ID)
 		}
 		seen[n.ID] = true
-		if n.Family != FamilyLockBlocking && n.Family != FamilyPlanRegression {
+		if !families[n.Family] {
 			t.Errorf("%s has family %q", n.ID, n.Family)
 		}
 		if n.Mechanism == "" || n.Predicted == "" {

@@ -343,6 +343,41 @@ every cycle. `GET /api/v1/admission` (optionally `?database=`) and
 baseline progress; the dashboard shows them on the Actions page and in the
 Overview provider-readiness tab.
 
+### Sage SRE investigations
+
+With `sre.automatic_start: true`, pg_sage investigates each open RCA incident of the lock,
+connection or WAL family and each open `plan_regression` finding, once. An investigation runs
+the fixed read-only catalog probes of its family (connection and WAL investigations sample
+twice, `sre.sample_interval_seconds` apart), matches them against the deterministic causal
+graph and stores the result: the likely explanation, contributing factors, alternatives and
+ruled-out explanations, each citing its evidence, the evidence that could not be collected,
+and an operator step. No LLM is involved and nothing is executed. "Inconclusive" is a normal
+outcome.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `sre.automatic_start` | `false` | Start investigations from incidents and plan regressions. Off: investigations already stored are still resumed and retained. Restart to change |
+| `sre.trigger_interval_seconds` | `15` | Seconds between checks for new triggers and pending investigations, `5`-`600` |
+| `sre.sample_interval_seconds` | `5` | Seconds between the two samples connection and WAL investigations compare, `1`-`30` |
+| `sre.evidence_retention_days` | `30` | Days a finished, unpinned investigation keeps its probe evidence. The delete leaves a tombstone, and the investigation is shown as "evidence deleted by retention" |
+| `sre.timeline_retention_days` | `90` | Days a finished, unpinned investigation is kept at all (hypotheses, steps, event chain), leaving a tombstone. At least `sre.evidence_retention_days`, at most `3650` |
+
+Pinned investigations (Pin in the Cases panel, or `POST .../pin`) and running ones are never
+deleted. Where the data lives: the `sage.sre_*` tables are in the meta database when one is
+configured and in the monitored database otherwise; triggers are read from the monitored
+database's `sage.incidents` and `sage.findings`. Probes run with a 500 ms statement timeout, at
+most one probe per database and four per sidecar, and return identities, counts and ages, never
+query text. Evidence, hypotheses, events and exports are redacted before they leave the store
+(connection URIs, credentials, bearer tokens, SQL literals and raw vectors are removed).
+
+Reading investigations (any signed-in role):
+`GET /api/v1/investigations?database=<name|all>`, and per database
+`GET /api/v1/databases/{db}/investigations`, `.../{id}`, `.../{id}/events`,
+`.../{id}/evidence/{evidence_id}`. Operators and admins can also
+`GET .../{id}/export` (JSON, or `?format=markdown`) and `POST .../{id}/pin` or `/unpin`.
+With MCP enabled, agents get the read-only tools `sre_list_incidents`,
+`sre_get_investigation` and `sre_get_evidence`.
+
 ### Retention
 
 | Parameter | Default | Description |

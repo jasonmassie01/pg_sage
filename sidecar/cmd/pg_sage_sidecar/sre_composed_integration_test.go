@@ -21,6 +21,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
@@ -232,7 +233,8 @@ func startComposedRuntime(
 	}
 	rt.adapter = newRCAAdapter(rcaAdapterDeps{ctx: ctx, eng: rt.eng, pool: pool,
 		name: name, cfg: cfg, logFn: func(string, string, ...any) {},
-		workers: &rt.workers})
+		workers: &rt.workers,
+		probes:  probes.NewRunner(pool, probes.Catalog(), sreProbeLimiter)})
 	rt.eng.WithDispatcher(sharedNotifyDispatcher(control))
 	for deadline := time.Now().Add(15 * time.Second); rt.coll.LatestSnapshot() == nil; {
 		if time.Now().After(deadline) {

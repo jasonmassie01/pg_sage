@@ -138,15 +138,20 @@ var retentionExemptions = map[string]string{
 	"schema_findings":        "legacy table superseded by findings (v0.11); no writer",
 	"sessions":               "expired sessions are deleted by auth's session cleaner",
 	"slot_consumer_registry": "current state, one row per slot",
-	"sre_budget_reservations": "SRE model budget ledger; nothing writes it until the " +
-		"investigator (M2), which adds pinned, tombstoned retention",
+	"sre_budget_reservations": "SRE model budget ledger; deleted with its investigation " +
+		"by sre retention (sre.timeline_retention_days) unless the hold is unsettled",
 	"sre_database_bindings": "stable SRE database identity, one row per database",
 	"sre_deployments":       "the deployment identity, one row",
-	"sre_evidence": "SRE evidence; retention (30 d, pinned while referenced) lands " +
-		"with the investigator (M2), which is the first writer",
-	"sre_investigations": "SRE investigations; retention (90 d timelines) lands with " +
-		"the investigator (M2), which is the first writer",
-	"sre_steps":      "SRE investigation steps; retained with their investigation (M2)",
+	"sre_events": "SRE event hash chain; deleted with its investigation by sre " +
+		"retention (sre.timeline_retention_days)",
+	"sre_evidence": "SRE evidence; aged out by sre retention (sre.evidence_retention_days, " +
+		"pinned and live investigations kept, tombstoned)",
+	"sre_hypotheses": "SRE hypotheses; deleted with their investigation by sre retention",
+	"sre_investigations": "SRE investigations; aged out by sre retention " +
+		"(sre.timeline_retention_days, pinned and live kept, tombstoned)",
+	"sre_steps": "SRE investigation steps; deleted with their investigation by sre " +
+		"retention",
+	"sre_tombstones": "what sre retention deleted; one row per investigation and kind",
 	"table_contract": "declared contracts, current state",
 	"toil_model":     "model configuration",
 	"users":          "accounts, not a time-series",

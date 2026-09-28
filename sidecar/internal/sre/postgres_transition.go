@@ -33,12 +33,18 @@ func (s *PostgresStore) Release(ctx context.Context, lease Lease,
 		inv, err = scanInvestigation(tx.QueryRow(ctx, `UPDATE sage.sre_investigations
 			SET state = $6, active_ms = `+fmt.Sprintf(chargeSQL, 7)+`,
 			    expires_at = `+fmt.Sprintf(expiresSQL, 6, 8)+`,
+			    concluded_at = CASE WHEN $6 IN `+terminalStates+`
+			                        THEN clock_timestamp() ELSE concluded_at END,
 			    lease_owner = NULL, lease_started_at = NULL, lease_until = NULL,
 			    version = version + 1, updated_at = clock_timestamp()
 			WHERE `+leaseGuard+` RETURNING `+invColumns,
 			append(leaseArgs(lease), string(next), s.limits.MaxActive.Milliseconds(),
 				s.limits.QueueExpiry.Seconds())...))
-		return err
+		if err != nil {
+			return err
+		}
+		return appendEvent(ctx, tx, lease.Scope, lease.InvestigationID, EventTransition,
+			workerActor(lease), map[string]any{"from": state, "to": next})
 	})
 	return inv, err
 }
@@ -96,13 +102,16 @@ func (s *PostgresStore) operatorTransition(ctx context.Context, scope Scope, id 
 }
 
 // setState moves an investigation to state, charging and clearing any
-// lease and advancing the fence so a stale worker cannot commit.
+// lease and advancing the fence so a stale worker cannot commit. It
+// records the transition in the event chain.
 func (s *PostgresStore) setState(ctx context.Context, tx pgx.Tx, scope Scope, id UUID,
 	to State, failure string) (Investigation, error) {
-	return scanInvestigation(tx.QueryRow(ctx, `UPDATE sage.sre_investigations
+	inv, err := scanInvestigation(tx.QueryRow(ctx, `UPDATE sage.sre_investigations
 		SET state = $4, active_ms = `+fmt.Sprintf(chargeSQL, 5)+`,
 		    expires_at = `+fmt.Sprintf(expiresSQL, 4, 6)+`,
 		    failure_code = COALESCE(NULLIF($7, ''), failure_code),
+		    concluded_at = CASE WHEN $4 IN `+terminalStates+`
+		                        THEN clock_timestamp() ELSE concluded_at END,
 		    lease_owner = NULL, lease_started_at = NULL, lease_until = NULL,
 		    fence_token = fence_token + 1, version = version + 1,
 		    updated_at = clock_timestamp()
@@ -110,4 +119,15 @@ func (s *PostgresStore) setState(ctx context.Context, tx pgx.Tx, scope Scope, id
 		RETURNING `+invColumns,
 		string(scope.DeploymentID), string(scope.DatabaseID), string(id), string(to),
 		s.limits.MaxActive.Milliseconds(), s.limits.QueueExpiry.Seconds(), failure))
+	if err != nil {
+		return inv, err
+	}
+	payload := map[string]any{"to": to}
+	if failure != "" {
+		payload["reason"] = failure
+	}
+	return inv, appendEvent(ctx, tx, scope, id, EventTransition, "system", payload)
 }
+
+// terminalStates is the SQL list of final states.
+const terminalStates = `('concluded', 'inconclusive', 'cancelled', 'expired', 'failed')`

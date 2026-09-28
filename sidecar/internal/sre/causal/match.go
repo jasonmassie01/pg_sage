@@ -37,6 +37,7 @@ type Hypothesis struct {
 	Support         []Fact
 	Contradict      []Fact
 	RefutationProbe string
+	OperatorStep    string
 }
 
 // Missing names evidence the diagnosis could not use.
@@ -68,12 +69,14 @@ type Diagnosis struct {
 	Reason       string
 	// Ratio is the latency ratio of a plan-family diagnosis (0 otherwise).
 	Ratio float64
+	// Observed are hypothesis-independent facts (e.g. saturation).
+	Observed []Fact
 }
 
 func newHypothesis(id NodeID, subject string) Hypothesis {
 	n, _ := NodeByID(id)
 	return Hypothesis{Node: id, Label: n.Label, Mechanism: n.Mechanism,
-		Subject: subject, RefutationProbe: n.Refutation}
+		Subject: subject, RefutationProbe: n.Refutation, OperatorStep: n.OperatorStep}
 }
 
 // add records supporting evidence worth w confidence.

@@ -77,6 +77,7 @@ type Config struct {
 	Forecaster  ForecasterConfig    `yaml:"forecaster"`
 	Tuner       TunerConfig         `yaml:"tuner"`
 	RCA         RCAConfig           `yaml:"rca"`
+	SRE         SREConfig           `yaml:"sre"`
 	Runaway     RunawayConfig       `yaml:"runaway"`
 	Explain     ExplainConfig       `yaml:"explain"`
 	LogWatch    LogWatchConfig      `yaml:"logwatch"`
@@ -686,6 +687,9 @@ func (c *Config) validate() error {
 	if err := c.RCA.validate(); err != nil {
 		return err
 	}
+	if err := c.SRE.validate(); err != nil {
+		return err
+	}
 	if err := c.validateTrust(); err != nil {
 		return err
 	}
@@ -927,6 +931,7 @@ func newDefaults() *Config {
 			WALSpikeMultiplier:       DefaultRCAWALSpikeMultiplier,
 			LockChainIntervalSeconds: DefaultRCALockChainIntervalSeconds,
 		},
+		SRE: defaultSREConfig(),
 		Runaway: RunawayConfig{
 			Enabled: false,
 			Policies: []RunawayPolicy{

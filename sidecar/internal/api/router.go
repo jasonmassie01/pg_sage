@@ -122,6 +122,9 @@ func NewRouterFullRuntime(
 		disableConfigWrites,
 	)
 	registerLLMBudgetRoutes(apiMux, llmBudgetSource(rt.LLMBudgets, llmMgr))
+	// Sage SRE investigations live with each database's runtime (D3-style
+	// fleet resolution), not in the control pool.
+	registerSRERoutes(apiMux, mgr)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		mcpHandler != nil {
 		apiMux.Handle("POST /api/v1/mcp", bindMCPPrincipal(mcpHandler))

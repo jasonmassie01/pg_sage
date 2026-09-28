@@ -145,6 +145,7 @@ func (rt *databaseRuntime) wireRCA() {
 	rt.rcaAdapter = newRCAAdapter(rcaAdapterDeps{
 		ctx: rt.ctx, eng: rt.rca, pool: rt.spec.Pool, name: rt.spec.Name,
 		cfg: rt.cfg, logFn: logStructuredWrapper, workers: rt.workers,
+		probes: rt.probes,
 	})
 	rt.analyzer.WithRCAEngine(rt.rcaAdapter)
 	rt.note("rca")

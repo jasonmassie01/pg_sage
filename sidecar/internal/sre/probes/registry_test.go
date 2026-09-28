@@ -11,11 +11,23 @@ import (
 // of read-only probes with hard caps. The model and callers can only name
 // a catalog id; they never supply SQL.
 
+// M2 adds the archiver (WAL family: archiver failure) and sage_actions
+// ("did pg_sage cause this?", CHECK-38) to the R1 set.
 func r1IDs() []ID {
 	return []ID{LockChains, LockGraph, LongTransactions, PreparedXacts,
 		BackendIdentity, ConnectionSaturation, ReplicationLag,
 		ReplicationSlots, WALCheckpoint, AutovacuumWraparound,
-		VacuumProgress, PlanRegressions}
+		VacuumProgress, PlanRegressions, Archiver, SageActions}
+}
+
+// specVersion is each probe's expected version: connection_saturation
+// is v2 since M2 added the server start time (a restart between two
+// samples invalidates the comparison, CHECK-07).
+func specVersion(id ID) string {
+	if id == ConnectionSaturation {
+		return "v2"
+	}
+	return "v1"
 }
 
 func TestCatalog_HasEveryR1FamilyWithinCeilings(t *testing.T) {
@@ -31,8 +43,8 @@ func TestCatalog_HasEveryR1FamilyWithinCeilings(t *testing.T) {
 			t.Fatalf("catalog lacks %s", id)
 		}
 		families[spec.Family] = true
-		if spec.Version != "v1" {
-			t.Errorf("%s version = %q, want v1", id, spec.Version)
+		if spec.Version != specVersion(id) {
+			t.Errorf("%s version = %q, want %s", id, spec.Version, specVersion(id))
 		}
 		if spec.StatementTimeout <= 0 || spec.StatementTimeout > MaxStatementTimeout {
 			t.Errorf("%s statement timeout %s outside (0, %s]", id,
@@ -58,7 +70,7 @@ func TestCatalog_HasEveryR1FamilyWithinCeilings(t *testing.T) {
 		}
 	}
 	for _, fam := range []string{FamilyLocks, FamilyConnections,
-		FamilyReplication, FamilyWAL, FamilyVacuum, FamilyPlans} {
+		FamilyReplication, FamilyWAL, FamilyVacuum, FamilyPlans, FamilyChange} {
 		if !families[fam] {
 			t.Errorf("no probe covers family %s", fam)
 		}

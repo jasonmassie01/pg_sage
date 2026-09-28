@@ -33,6 +33,7 @@ func (rt *databaseRuntime) startMonitoring() {
 	))
 	rt.note("analyzer")
 	rt.wireRCA()
+	rt.startInvestigator()
 	if rt.dispatcher != nil {
 		rt.analyzer.WithDispatcher(rt.dispatcher)
 	}

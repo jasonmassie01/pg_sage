@@ -95,6 +95,11 @@ func assertParityProbe(
 	want := map[string]string{
 		"io_admission": "true", "value_source": "own pool",
 		"sre_fast_path": "instance workers", "sre_probes": "true",
+		// Sage SRE M2: every mode runs the investigator on its own worker
+		// group, bound to a database UUID, sharing the RCA probe runner,
+		// and exposes it to the API through the fleet registration.
+		"sre_investigator": "instance workers", "sre_scope": "bound",
+		"sre_probe_runner": "shared", "sre_service": "registered",
 		"stopped": fmt.Sprint(stopped), "stop_attributed": fmt.Sprint(stopped),
 		"collector": "true", "analyzer": "true", "executor": "true",
 		"cancel": "true", "workers": "true",
@@ -129,11 +134,15 @@ func parityProbe(inst *fleet.DatabaseInstance) map[string]string {
 	}
 	rt := parityRuntimes[inst.Name]
 	return map[string]string{
-		"sre_fast_path": paritySREFastPath(rt, inst),
-		"sre_probes":    fmt.Sprint(parityProbesAttached(rt)),
-		"io_admission":  fmt.Sprint(settings.IOEvidence),
-		"value_source":  parityValueSource(inst),
-		"stopped":       fmt.Sprint(fleetMgr.InstanceStopped(inst)),
+		"sre_fast_path":    paritySREFastPath(rt, inst),
+		"sre_probes":       fmt.Sprint(parityProbesAttached(rt)),
+		"sre_investigator": paritySREInvestigator(rt, inst),
+		"sre_scope":        paritySREScope(rt),
+		"sre_probe_runner": paritySREProbeRunner(rt),
+		"sre_service":      paritySREService(rt, inst),
+		"io_admission":     fmt.Sprint(settings.IOEvidence),
+		"value_source":     parityValueSource(inst),
+		"stopped":          fmt.Sprint(fleetMgr.InstanceStopped(inst)),
 		"stop_attributed": fmt.Sprint(inst.StoppedBy == "parity-test" &&
 			!inst.StoppedAt.IsZero()),
 		"collector": fmt.Sprint(inst.Collector != nil),
@@ -182,6 +191,49 @@ func paritySREFastPath(rt *databaseRuntime, inst *fleet.DatabaseInstance) string
 		return "foreign workers"
 	}
 	return "instance workers"
+}
+
+// paritySREInvestigator reports whether the investigator loop runs on the
+// runtime's own worker group.
+func paritySREInvestigator(rt *databaseRuntime, inst *fleet.DatabaseInstance) string {
+	switch {
+	case rt == nil || rt.sre == nil:
+		return "missing"
+	case rt.workers != inst.Workers || !rt.sreStarted:
+		return "not on instance workers"
+	}
+	return "instance workers"
+}
+
+func paritySREScope(rt *databaseRuntime) string {
+	if rt == nil || rt.sre == nil {
+		return "missing"
+	}
+	scope, ok := rt.sre.Scope()
+	if !ok || scope.Validate() != nil {
+		return "unbound"
+	}
+	return "bound"
+}
+
+func paritySREProbeRunner(rt *databaseRuntime) string {
+	if rt == nil || rt.probes == nil || rt.rcaAdapter == nil {
+		return "missing"
+	}
+	if rt.rcaAdapter.probes != rt.probes {
+		return "separate runners"
+	}
+	return "shared"
+}
+
+func paritySREService(rt *databaseRuntime, inst *fleet.DatabaseInstance) string {
+	if rt == nil || inst.Investigations == nil || rt.sre == nil {
+		return "missing"
+	}
+	if inst.Investigations.Coordinator() != rt.sre {
+		return "other coordinator"
+	}
+	return "registered"
 }
 
 func parityProbesAttached(rt *databaseRuntime) bool {

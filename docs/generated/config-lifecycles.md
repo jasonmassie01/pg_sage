@@ -208,6 +208,11 @@
 | `schema_lint.include_schemas` | `restart` | `-` |
 | `schema_lint.min_table_rows` | `restart` | `-` |
 | `schema_lint.scan_interval_minutes` | `reconfigure` | `schema_lint` |
+| `sre.automatic_start` | `restart` | `-` |
+| `sre.evidence_retention_days` | `restart` | `-` |
+| `sre.sample_interval_seconds` | `restart` | `-` |
+| `sre.timeline_retention_days` | `restart` | `-` |
+| `sre.trigger_interval_seconds` | `restart` | `-` |
 | `trust.cascade_cooldown_cycles` | `restart` | `-` |
 | `trust.level` | `live_policy` | `trust_policy` |
 | `trust.maintenance_window` | `restart` | `-` |

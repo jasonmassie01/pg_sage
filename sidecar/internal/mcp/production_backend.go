@@ -50,6 +50,8 @@ type ProductionDependencies struct {
 	Ledger     LedgerAccess
 	Value      ValueAccess
 	Guarantees GuaranteeAccess
+	// Investigations serves the read-only Sage SRE tools; optional.
+	Investigations InvestigationBackend
 }
 
 type ProductionBackend struct {

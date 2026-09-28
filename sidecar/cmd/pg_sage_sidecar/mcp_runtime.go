@@ -36,6 +36,9 @@ func startMCPRuntime() {
 		Ledger:     access,
 		Value:      access,
 		Guarantees: access,
+		// Sage SRE read tools (sre_list_incidents, sre_get_investigation,
+		// sre_get_evidence) resolve through the same fleet.
+		Investigations: access,
 	})
 	if err != nil {
 		logError("mcp", "production backend: %v", err)

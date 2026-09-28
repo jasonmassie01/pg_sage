@@ -31,6 +31,7 @@ type StartRequest struct {
 	TriggerKind    TriggerKind
 	Subject        string // what the trigger is about, e.g. "pid 4242"
 	IdempotencyKey string // optional; repeats return the same investigation
+	Actor          string // who started it; empty means "system"
 }
 
 // Fingerprint identifies the trigger within its scope: duplicates and
@@ -41,6 +42,14 @@ func (r StartRequest) Fingerprint() []byte {
 		string(r.Scope.DeploymentID), string(r.Scope.DatabaseID),
 		string(r.TriggerKind), r.Subject}, "\x00")))
 	return sum[:]
+}
+
+// actor is who started the investigation; "system" when unset.
+func (r StartRequest) actor() string {
+	if r.Actor == "" {
+		return "system"
+	}
+	return r.Actor
 }
 
 // Validate checks the request before any store I/O.
@@ -61,6 +70,7 @@ func (r StartRequest) Validate() error {
 		{"incident id", r.IncidentID, false, 256},
 		{"subject", r.Subject, false, 256},
 		{"idempotency key", r.IdempotencyKey, false, 160},
+		{"actor", r.Actor, false, 128},
 	}
 	for _, f := range fields {
 		if err := checkText(f.name, f.value, f.required, f.max); err != nil {

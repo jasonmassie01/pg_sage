@@ -2,6 +2,7 @@ package sre
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/sre/probes"
@@ -9,23 +10,52 @@ import (
 
 // Investigation is the durable state of one investigation.
 type Investigation struct {
-	Scope           Scope
-	ID              UUID
-	CaseID          string
-	TriggerKind     TriggerKind
-	State           State
-	Version         int64
-	Fence           int64
-	LeaseOwner      UUID
-	LeaseUntil      time.Time
-	SegmentDeadline time.Time
-	ActiveMS        int64
-	ProbeCount      int
-	ModelTurns      int
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	ExpiresAt       time.Time
-	FailureCode     string
+	Scope           Scope       `json:"-"`
+	ID              UUID        `json:"id"`
+	CaseID          string      `json:"case_id"`
+	TriggerKind     TriggerKind `json:"trigger_kind"`
+	State           State       `json:"state"`
+	Version         int64       `json:"version"`
+	Fence           int64       `json:"-"`
+	LeaseOwner      UUID        `json:"-"`
+	LeaseUntil      time.Time   `json:"-"`
+	SegmentDeadline time.Time   `json:"-"`
+	ActiveMS        int64       `json:"active_ms"`
+	ProbeCount      int         `json:"probe_count"`
+	ModelTurns      int         `json:"model_turns"`
+	CreatedAt       time.Time   `json:"created_at"`
+	UpdatedAt       time.Time   `json:"updated_at"`
+	ExpiresAt       time.Time   `json:"-"`
+	FailureCode     string      `json:"failure_code,omitempty"`
+	// M2: the trigger's incident and subject, operator pinning, the
+	// persisted diagnosis summary and retention markers.
+	IncidentID       string    `json:"incident_id,omitempty"`
+	Subject          string    `json:"subject"`
+	Pinned           bool      `json:"pinned"`
+	Summary          Summary   `json:"summary"`
+	ConcludedAt      time.Time `json:"concluded_at"`
+	EvidencePurgedAt time.Time `json:"evidence_purged_at"`
+}
+
+// MarshalJSON adds the scope ids and renders unset times as null.
+func (inv Investigation) MarshalJSON() ([]byte, error) {
+	type plain Investigation
+	return json.Marshal(struct {
+		plain
+		DeploymentID     UUID       `json:"deployment_id"`
+		DatabaseID       UUID       `json:"database_id"`
+		ConcludedAt      *time.Time `json:"concluded_at"`
+		EvidencePurgedAt *time.Time `json:"evidence_purged_at"`
+	}{plain: plain(inv), DeploymentID: inv.Scope.DeploymentID,
+		DatabaseID: inv.Scope.DatabaseID, ConcludedAt: timePtr(inv.ConcludedAt),
+		EvidencePurgedAt: timePtr(inv.EvidencePurgedAt)})
+}
+
+func timePtr(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 // Lease is a worker's fenced claim on an investigation. Every write
@@ -76,6 +106,7 @@ type Evidence struct {
 	CapabilityState string
 	ReasonCode      string
 	ObservedAt      time.Time
+	CollectedAt     time.Time
 	Payload         []byte
 	SHA256          []byte
 }

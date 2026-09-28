@@ -2,6 +2,7 @@ package sre
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -135,32 +136,41 @@ func (s *PostgresStore) BindDatabase(ctx context.Context, b Binding) (Scope, err
 const invColumns = `deployment_id::text, database_id::text, id::text, source_case_id,
 	trigger_kind, state, version, fence_token, COALESCE(lease_owner::text, ''),
 	lease_until, segment_deadline, active_ms, probe_count, model_turns,
-	created_at, updated_at, expires_at, COALESCE(failure_code, '')`
+	created_at, updated_at, expires_at, COALESCE(failure_code, ''),
+	COALESCE(source_incident_id, ''), subject, pinned, summary::text, concluded_at,
+	evidence_purged_at`
 
 func scanInvestigation(row pgx.Row) (Investigation, error) {
 	var inv Investigation
-	var dep, db, id, owner, kind, state string
-	var until, deadline *time.Time
+	var dep, db, id, owner, kind, state, summary string
+	var until, deadline, concluded, purged *time.Time
 	err := row.Scan(&dep, &db, &id, &inv.CaseID, &kind, &state, &inv.Version,
 		&inv.Fence, &owner, &until, &deadline, &inv.ActiveMS, &inv.ProbeCount,
 		&inv.ModelTurns, &inv.CreatedAt, &inv.UpdatedAt, &inv.ExpiresAt,
-		&inv.FailureCode)
+		&inv.FailureCode, &inv.IncidentID, &inv.Subject, &inv.Pinned, &summary,
+		&concluded, &purged)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return inv, ErrNotFound
 	}
 	if err != nil {
 		return inv, err
 	}
+	if err := json.Unmarshal([]byte(summary), &inv.Summary); err != nil {
+		return inv, fmt.Errorf("investigation %s summary: %w", id, err)
+	}
 	inv.Scope = Scope{DeploymentID: UUID(dep), DatabaseID: UUID(db)}
 	inv.ID, inv.LeaseOwner = UUID(id), UUID(owner)
 	inv.TriggerKind, inv.State = TriggerKind(kind), State(state)
-	if until != nil {
-		inv.LeaseUntil = *until
-	}
-	if deadline != nil {
-		inv.SegmentDeadline = *deadline
-	}
+	inv.LeaseUntil, inv.SegmentDeadline = timeOrZero(until), timeOrZero(deadline)
+	inv.ConcludedAt, inv.EvidencePurgedAt = timeOrZero(concluded), timeOrZero(purged)
 	return inv, nil
+}
+
+func timeOrZero(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
 }
 
 func validateIDs(scope Scope, ids ...UUID) error {

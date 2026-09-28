@@ -16,7 +16,7 @@ func TestMetaReconnectReplacesFailedGenerationAndHonorsStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = state.Store.Delete(ctx, id) })
+	deleteDatabaseOnCleanup(t, state, id)
 	rec, err := state.Store.Get(ctx, id)
 	if err != nil {
 		t.Fatal(err)
@@ -49,13 +49,13 @@ func TestMetaStartupRegistersOnlyEnabledDatabases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = state.Store.Delete(ctx, id) })
+	deleteDatabaseOnCleanup(t, state, id)
 	input.Name = "disabled-db"
 	disabledID, err := state.Store.Create(ctx, input, userID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = state.Store.Delete(ctx, disabledID) })
+	deleteDatabaseOnCleanup(t, state, disabledID)
 	if _, err := state.Pool.Exec(ctx, "UPDATE sage.databases SET enabled=false WHERE id=$1",
 		disabledID); err != nil {
 		t.Fatal(err)
@@ -64,7 +64,8 @@ func TestMetaStartupRegistersOnlyEnabledDatabases(t *testing.T) {
 	initMetaDBFleet(state)
 	if fleetMgr.InstanceCount() != 1 || fleetMgr.GetInstance("disabled-db") != nil ||
 		fleetLLMBudget == nil || cap(analyzeSem) < 1 {
-		t.Fatal("metadata startup did not honor enabled filter/runtime owners")
+		t.Fatalf("metadata startup did not honor enabled filter/runtime owners: "+
+			"instances=%d registered=%v", fleetMgr.InstanceCount(), registeredDatabases(t, state))
 	}
 	assertManagedRuntime(t, fleetMgr.GetInstance("managed-a"), id, "managed-a")
 }

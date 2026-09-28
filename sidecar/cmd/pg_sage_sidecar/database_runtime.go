@@ -19,6 +19,8 @@ import (
 	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/rca"
+	"github.com/pg-sage/sidecar/internal/sre"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/startup"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -76,6 +78,14 @@ type databaseRuntime struct {
 	dispatcher *notify.Dispatcher
 	rca        *rca.Engine
 	rcaAdapter *rcaAdapter
+	// probes is the database's one catalog probe runner (at most one
+	// probe at a time on it), shared by RCA narration and Sage SRE.
+	probes *probes.Runner
+	// sre is the Sage SRE investigator; sreStarted records that its loop
+	// runs on the instance worker group.
+	sre        *sre.Coordinator
+	sreService *sre.Service
+	sreStarted bool
 	logFanout  *logwatch.LogFanout
 	brief      *briefing.Worker
 	features   []string
@@ -168,6 +178,7 @@ func newDatabaseRuntime(
 	}
 	rt := &databaseRuntime{spec: spec, checks: checks, workers: &sync.WaitGroup{}}
 	rt.ctx, rt.cancel = context.WithCancel(parent)
+	rt.probes = probes.NewRunner(spec.Pool, probes.Catalog(), sreProbeLimiter)
 	rt.provider = detectCloudEnv(spec.Pool)
 	logInfo(spec.Scope, "db %q: cloud environment: %s", spec.Name, rt.provider)
 	rt.cfg = rt.runtimeConfig()
@@ -229,7 +240,8 @@ func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 		Name: rt.spec.Name, DatabaseID: rt.spec.DatabaseID,
 		Config: rt.spec.Config, Pool: rt.spec.Pool,
 		Collector: rt.collector, Analyzer: rt.analyzer, Executor: rt.executor,
-		Cancel: rt.cancel, Workers: rt.workers,
+		Investigations: rt.sreService,
+		Cancel:         rt.cancel, Workers: rt.workers,
 		ExecutorShutdown: rt.executor.Shutdown,
 		Status: &fleet.InstanceStatus{
 			Connected:    true,
