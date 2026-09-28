@@ -21,19 +21,7 @@ func (r *ruleMxidAge) Category() string { return "maintenance" }
 func (r *ruleMxidAge) Check(
 	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
 ) ([]Finding, error) {
-	excludeList := schemaExcludeSQL(opts.ExcludeSchemas)
-	query := fmt.Sprintf(`
-SELECT n.nspname, c.relname, age(c.relminmxid) AS mxid_age,
-       c.reltuples::bigint AS est_rows
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE c.relkind IN ('r', 't')
-  AND n.nspname NOT IN (%s)
-  AND c.relminmxid::text::bigint > 1
-  AND age(c.relminmxid) > 500000000
-ORDER BY age(c.relminmxid) DESC
-LIMIT 100`, excludeList)
-
+	query := mxidAgeQuery(schemaExcludeSQL(opts.ExcludeSchemas))
 	rows, err := pool.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("ruleMxidAge query: %w", err)
@@ -41,6 +29,23 @@ LIMIT 100`, excludeList)
 	defer rows.Close()
 
 	return r.collect(rows)
+}
+
+// mxidAgeQuery lists tables whose MultiXact ID age approaches wraparound.
+// relminmxid is a MultiXact ID: its age comes from mxid_age(), never the
+// transaction-ID age().
+func mxidAgeQuery(excludeList string) string {
+	return fmt.Sprintf(`
+SELECT n.nspname, c.relname, mxid_age(c.relminmxid) AS mxid_age,
+       c.reltuples::bigint AS est_rows
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind IN ('r', 't')
+  AND n.nspname NOT IN (%s)
+  AND c.relminmxid::text::bigint > 1
+  AND mxid_age(c.relminmxid) > 500000000
+ORDER BY mxid_age(c.relminmxid) DESC
+LIMIT 100`, excludeList)
 }
 
 func (r *ruleMxidAge) collect(rows interface {

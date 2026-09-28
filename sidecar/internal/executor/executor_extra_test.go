@@ -677,31 +677,24 @@ func TestMaintenanceWindowEdgeCases(t *testing.T) {
 		}
 	})
 
-	t.Run("window 59 23 at midnight is outside window", func(t *testing.T) {
-		// "59 23 * * *" means window is 23:59 - 00:59.
-		// We test indirectly: if current time is NOT between 23:59 and 00:59,
-		// ShouldExecute must return false. If it IS in that range, skip.
-		now := time.Now()
-		windowStart := time.Date(
-			now.Year(), now.Month(), now.Day(),
-			23, 59, 0, 0, now.Location(),
-		)
-		windowEnd := windowStart.Add(1 * time.Hour)
-
-		if !now.Before(windowStart) && now.Before(windowEnd) {
-			t.Skip("test is meaningless when run between 23:59 and 00:59")
-		}
-
-		cfg := &config.Config{
-			Trust: config.TrustConfig{
-				Level:             "autonomous",
-				Tier3Moderate:     true,
-				MaintenanceWindow: "59 23 * * *",
-			},
-		}
-		got := ShouldExecute(finding, cfg, rampStart, false, false)
-		if got {
-			t.Error("expected false outside 23:59 window, got true")
+	t.Run("window 59 23 spans midnight for one hour", func(t *testing.T) {
+		// "59 23 * * *" opens at 23:59 for one hour. Evaluated at fixed times so
+		// the result never depends on when the suite runs (it failed at 00:08
+		// when it read the wall clock).
+		day := time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)
+		for _, tc := range []struct {
+			at   time.Time
+			open bool
+		}{
+			{day.Add(12 * time.Hour), false},
+			{day.Add(23*time.Hour + 58*time.Minute), false},
+			{day.Add(23*time.Hour + 59*time.Minute), true},
+			{day.Add(24*time.Hour + 8*time.Minute), true},
+			{day.Add(24*time.Hour + 59*time.Minute), false},
+		} {
+			if got := inMaintenanceWindowAt("59 23 * * *", tc.at); got != tc.open {
+				t.Errorf("window at %s = %v, want %v", tc.at.Format("15:04"), got, tc.open)
+			}
 		}
 	})
 
