@@ -114,13 +114,18 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (any, *rpcEr
 	default:
 		return nil, failure(-32601, "tool not found")
 	}
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, failure(-32800, "request cancelled")
-		}
-		return nil, failure(-32603, "internal error")
+	return toolResult(result, err)
+}
+
+// toolResult wraps a tool's result, or maps its error to a JSON-RPC error.
+func toolResult(result any, err error) (any, *rpcError) {
+	if err == nil {
+		return map[string]any{"structuredContent": result}, nil
 	}
-	return map[string]any{"structuredContent": result}, nil
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return nil, failure(-32800, "request cancelled")
+	}
+	return nil, failure(-32603, "internal error")
 }
 
 func decodeArguments(raw json.RawMessage, target any) bool {
