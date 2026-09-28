@@ -74,12 +74,12 @@ func (m *DatabaseManager) setEmergencyStopped(
 	if actor == "" {
 		actor = executor.EmergencyStopActorSystem
 	}
+	if stopped {
+		return m.stopTargets(name, actor)
+	}
 	targets, err := m.emergencyTargets(name)
 	if err != nil {
 		return 0, err
-	}
-	if stopped {
-		return m.stopTargets(targets, actor)
 	}
 	return m.resumeTargets(targets, actor)
 }
@@ -90,6 +90,14 @@ func (m *DatabaseManager) emergencyTargets(
 ) ([]*DatabaseInstance, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	return m.emergencyTargetsLocked(name)
+}
+
+// emergencyTargetsLocked resolves name against the current generations.
+// Caller holds m.mu.
+func (m *DatabaseManager) emergencyTargetsLocked(
+	name string,
+) ([]*DatabaseInstance, error) {
 	if name != "" {
 		inst, ok := m.instances[name]
 		if !ok {
@@ -104,17 +112,22 @@ func (m *DatabaseManager) emergencyTargets(
 	return targets, nil
 }
 
-// stopTargets latches every target in memory first (gating its executor)
-// without waiting for any other transition, then persists the durable flag
-// under the transition lock. A persistence failure never un-stops a
-// database. The pending mark tells an overlapping resume that this stop
-// has not been written yet and must win.
-func (m *DatabaseManager) stopTargets(
-	targets []*DatabaseInstance, actor string,
-) (int, error) {
+// stopTargets resolves and latches the targets under one manager lock, so a
+// runtime swap either publishes before the stop (and the stop latches the
+// new copy) or after it (and the new copy inherits the latch). It does not
+// wait for any other transition, then persists the durable flag under the
+// transition lock. A persistence failure never un-stops a database. The
+// pending mark tells an overlapping resume that this stop has not been
+// written yet and must win.
+func (m *DatabaseManager) stopTargets(name, actor string) (int, error) {
 	changed := 0
 	now := time.Now()
 	m.mu.Lock()
+	targets, err := m.emergencyTargetsLocked(name)
+	if err != nil {
+		m.mu.Unlock()
+		return 0, err
+	}
 	for _, inst := range targets {
 		if !inst.Stopped {
 			changed++
@@ -223,13 +236,43 @@ func applyExecutorStopGate(inst *DatabaseInstance, stopped bool) {
 }
 
 // inheritEmergencyStop carries the in-memory latch onto a replacement
-// runtime. Caller holds m.mu.
-func inheritEmergencyStop(old, candidate *DatabaseInstance) {
+// runtime. It reports whether the candidate's durable flag still has to be
+// written (the stop may have landed on a runtime that could not persist,
+// such as a failed meta-db registration); the pending mark keeps an
+// overlapping resume from releasing it first. Caller holds m.mu.
+func inheritEmergencyStop(old, candidate *DatabaseInstance) bool {
 	if old == nil || candidate == nil || !old.Stopped {
-		return
+		return false
 	}
 	candidate.Stopped = true
 	candidate.StoppedBy = old.StoppedBy
 	candidate.StoppedAt = old.StoppedAt
 	applyExecutorStopGate(candidate, true)
+	if candidate.Executor == nil {
+		return false
+	}
+	candidate.stopsPending++
+	return true
+}
+
+// persistInheritedStop writes the durable flag for a runtime that inherited
+// the in-memory stop, attributed to whoever stopped it. A failure keeps the
+// runtime stopped in memory (fail closed). Caller must not hold m.mu.
+func (m *DatabaseManager) persistInheritedStop(inst *DatabaseInstance) {
+	m.transitionMu.Lock()
+	defer m.transitionMu.Unlock()
+	m.mu.RLock()
+	actor := inst.StoppedBy
+	m.mu.RUnlock()
+	if actor == "" {
+		actor = executor.EmergencyStopActorSystem
+	}
+	failed := m.persistTargets([]*DatabaseInstance{inst}, true, actor)
+	m.mu.Lock()
+	inst.stopsPending--
+	m.mu.Unlock()
+	if err := failed[inst.Name]; err != nil {
+		log.Printf("fleet: %s: inherited emergency stop not saved, "+
+			"still stopped in memory: %v", inst.Name, err)
+	}
 }

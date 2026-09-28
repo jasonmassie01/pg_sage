@@ -217,3 +217,43 @@ func assertAuditTrail(t *testing.T, pool *pgxpool.Pool, want []string) {
 		t.Fatalf("audit trail = %v, want %v", got, want)
 	}
 }
+
+// TestStopDuringReconnectSwap_SavedFlagInPostgres is the meta-db reconnect
+// case against real PostgreSQL: the stop lands on the failed runtime (which
+// has no executor to persist through) while the reconnected copy is being
+// health-checked. The new copy must be stopped and sage.config must say so.
+func TestStopDuringReconnectSwap_SavedFlagInPostgres(t *testing.T) {
+	pool := isolatedStopDB(t)
+	mgr := NewManager(&config.Config{Mode: "fleet"})
+	old := &DatabaseInstance{Name: "orders", Status: &InstanceStatus{Error: "down"}}
+	mgr.RegisterInstance(old)
+	candidate := restartedInstance("orders", pool)
+	checking, release := make(chan struct{}), make(chan struct{})
+	swapped := make(chan error, 1)
+	go func() {
+		swapped <- mgr.ReplaceInstanceIfCurrent(context.Background(), "orders",
+			old, candidate, func(context.Context, *DatabaseInstance) error {
+				close(checking)
+				<-release
+				return nil
+			})
+	}()
+	<-checking
+	_, stopErr := mgr.EmergencyStopStrict("orders", "op@example.com")
+	close(release)
+	if err := <-swapped; err != nil {
+		t.Fatalf("swap: %v", err)
+	}
+
+	if stopErr != nil {
+		t.Fatalf("stop: %v", stopErr)
+	}
+	if !mgr.InstanceStopped(candidate) || candidate.Executor.ExecutorEnabled() {
+		t.Fatal("reconnected copy is running after a stop during the swap")
+	}
+	state, err := executor.ReadEmergencyStop(context.Background(), pool)
+	if err != nil || !state.Stopped || state.UpdatedBy != "op@example.com" {
+		t.Fatalf("saved flag = %+v (%v), want stopped by op@example.com", state, err)
+	}
+	assertAuditTrail(t, pool, []string{"<nil>->true by op@example.com"})
+}

@@ -54,8 +54,16 @@ func (op *LifecycleMutation) PublishReplacement(
 	oldName string,
 	old, candidate *DatabaseInstance,
 ) error {
-	op.manager.restorePersistedStop(candidate)
-	return op.manager.commitReplacement(oldName, old, candidate)
+	m := op.manager
+	m.restorePersistedStop(candidate)
+	inherited, err := m.commitReplacement(oldName, old, candidate)
+	if err != nil {
+		return err
+	}
+	if inherited {
+		m.persistInheritedStop(candidate)
+	}
+	return nil
 }
 
 // ValidateRegistration ensures a create can publish the requested name.

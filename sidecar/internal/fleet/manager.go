@@ -60,18 +60,22 @@ func NewManager(cfg *config.Config) *DatabaseManager {
 // "all"-scoped query (see PoolForDatabase).
 func (m *DatabaseManager) RegisterInstance(inst *DatabaseInstance) {
 	var retired *DatabaseInstance
+	inherited := false
 	m.restorePersistedStop(inst)
 	_ = m.WithLifecycle(context.Background(), func(*LifecycleMutation) error {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		retired = m.instances[inst.Name]
-		inheritEmergencyStop(retired, inst)
+		inherited = inheritEmergencyStop(retired, inst)
 		if m.primaryName == "" && inst.Pool != nil {
 			m.primaryName = inst.Name
 		}
 		m.instances[inst.Name] = inst
 		return nil
 	})
+	if inherited {
+		m.persistInheritedStop(inst)
+	}
 	if retired != nil && retired != inst {
 		go func() { _ = cleanupRejectedCandidate(retired) }()
 	}

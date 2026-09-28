@@ -236,19 +236,19 @@ func (m *DatabaseManager) ReplaceInstanceIfCurrent(
 func (m *DatabaseManager) commitReplacement(
 	oldName string,
 	old, candidate *DatabaseInstance,
-) error {
+) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if current := m.instances[oldName]; current != old {
-		return ErrInstanceConflict
+		return false, ErrInstanceConflict
 	}
 	if candidate.Name != oldName {
 		if m.instances[candidate.Name] != nil {
-			return replacementConflict(candidate.Name)
+			return false, replacementConflict(candidate.Name)
 		}
 		delete(m.instances, oldName)
 	}
-	inheritEmergencyStop(old, candidate)
+	inherited := inheritEmergencyStop(old, candidate)
 	m.instances[candidate.Name] = candidate
 	if m.primaryName == oldName {
 		m.primaryName = candidate.Name
@@ -256,7 +256,7 @@ func (m *DatabaseManager) commitReplacement(
 			m.primaryName = m.firstConnectedNameLocked()
 		}
 	}
-	return nil
+	return inherited, nil
 }
 
 func replacementConflict(name string) error {
