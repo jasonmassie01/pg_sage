@@ -328,6 +328,7 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 		if err := applyPersistedGlobalOverrides(cfg, controlPool); err != nil {
 			return err
 		}
+		warnInvalidStoredWindows(context.Background(), configStore, logWarn)
 	}
 	configController = config.NewConfigControllerAtGeneration(
 		cfg, generation, nil, newTrustPolicyOwner(),

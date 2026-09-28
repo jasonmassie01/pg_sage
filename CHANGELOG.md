@@ -56,6 +56,9 @@
   file reload and API save (HTTP 400 naming the grammar). A typo such as
   `weeknigths` used to be stored and silently close the window. `never`,
   `off`, `none` and `disabled` still close it.
+  An override saved before this release that no longer validates is logged at
+  startup with its value and how to fix or delete it. It still keeps the
+  window closed until it is fixed.
 - **Stored policies are migrated to schema version 3.** Each policy cron window
   is rewritten from `<cron>` to `<cron> @1m`, so it keeps its exact
   one-minute meaning. The built-in profiles have no cron windows and are
