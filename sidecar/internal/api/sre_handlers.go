@@ -31,9 +31,13 @@ func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	// catch-all per method: "{db}/investigations" and the fleet-mode
 	// "managed/{id}" routes overlap with neither more specific, which
 	// ServeMux refuses at registration. The managed routes stay more
-	// specific than the catch-all and keep their paths.
-	mux.Handle("GET /api/v1/databases/{db}/{rest...}", perDB)
-	mux.Handle("POST /api/v1/databases/{db}/{rest...}", perDB)
+	// specific than the catch-all and keep their paths. The bare
+	// "{db}" patterns stop ServeMux redirecting "/databases/x" to the
+	// catch-all's "/databases/x/"; the inner mux answers them 404.
+	for _, method := range []string{"GET", "POST"} {
+		mux.Handle(method+" /api/v1/databases/{db}", perDB)
+		mux.Handle(method+" /api/v1/databases/{db}/{rest...}", perDB)
+	}
 }
 
 func perDatabaseSREMux(mgr *fleet.DatabaseManager) *http.ServeMux {

@@ -56,3 +56,22 @@ func managedAndSRERouter(mgr *fleet.DatabaseManager) http.Handler {
 	return NewRouterFullRuntime(mgr, config.DefaultConfig(), nil, nil, deps, nil, nil,
 		inject)
 }
+
+// Without a database store the managed routes are absent; the
+// investigation catch-all must not turn their paths (or any bare
+// database path) into trailing-slash redirects.
+func TestSREAPI_CatchAllDoesNotRedirectBareDatabasePaths(t *testing.T) {
+	mgr := fleet.NewManager(config.DefaultConfig())
+	h := sreRouter(t, mgr, testViewerUser())
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/api/v1/databases/managed"},
+		{"POST", "/api/v1/databases/managed"},
+		{"GET", "/api/v1/databases/orders"},
+		{"GET", "/api/v1/databases/managed/7"},
+	} {
+		code, body, _ := sreCall(t, h, c.method, c.path)
+		if code != http.StatusNotFound {
+			t.Errorf("%s %s = %d %s, want 404", c.method, c.path, code, body)
+		}
+	}
+}
