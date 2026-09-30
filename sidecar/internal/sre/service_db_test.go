@@ -43,7 +43,10 @@ func secretInvestigation(t *testing.T, ctx context.Context, st *PostgresStore) (
 
 func assertNoSecrets(t *testing.T, what string, raw []byte) {
 	t.Helper()
-	for _, leak := range []string{"hunter2", "postgres://", "secret-literal", "0.12"} {
+	// The vector marker spans two elements so it cannot match a timestamp
+	// such as "13:13:00.124Z".
+	for _, leak := range []string{"hunter2", "postgres://", "secret-literal",
+		"0.12, -0.5"} {
 		if strings.Contains(string(raw), leak) {
 			t.Fatalf("%s leaks %q: %s", what, leak, raw)
 		}

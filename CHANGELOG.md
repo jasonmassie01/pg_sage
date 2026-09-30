@@ -1,6 +1,29 @@
 # Changelog
 
-## Unreleased
+## v1.7.0 (2026-09-28) -- Sage SRE investigations, earned index autonomy
+
+### What's new
+
+- **Sage SRE investigations (opt-in: `sre.automatic_start: true`).** Incidents and plan
+  regressions get a deterministic, evidence-first investigation. It uses 12 bounded
+  read-only probes, a causal graph for lock blocking, plan regression, connection pressure
+  and WAL/slot problems, and ruled-out alternatives. You can read investigations in the
+  Cases panel, the API, MCP and a redacted export. Lock chains page within a minute. LLM
+  narration is opt-in and must cite evidence.
+- **pg_sage earns index autonomy.** It learns each database's IO baseline from Postgres
+  itself (`pg_stat_io`/`pg_stat_wal`). After 7 days it builds the indexes it needs during
+  quiet periods. Capacity declared by an operator overrides the learned baseline.
+- **Durable recommendations.** Every actionable finding is a recommendation with immutable
+  revisions. An approval pins one exact revision and executes once, even when
+  operators race.
+  Failed applies back off and are then abandoned, and verification verdicts are recorded.
+- **The policy means what it says.** The refusal set, lock ceiling and serialization are
+  enforced. There is one maintenance-window grammar, with timezones. Approvals are
+  attributed and single-use. The emergency stop survives restarts and has a header
+  control.
+- **One runtime, one pipeline.** Standalone, fleet, meta-db and AgentDB build every database
+  the same way, and every change goes through one `Executor.Apply` pipeline. AgentDB
+  databases previously had no executor or policy gate at all.
 
 ### Added
 
@@ -81,6 +104,7 @@
   report precision, recall, top-1 and abstention per family. On PostgreSQL 17 the seed set
   scores 100% on every metric (20 scenarios; an in-distribution seed, not a held-out
   measurement).
+
 ### Changed (read before upgrading)
 
 - **The executor acts on durable recommendations, not the last analyzer cycle (C07).**
@@ -166,8 +190,6 @@
   and 4k output tokens, plus database and deployment daily allocations) that a crash cannot
   reset. A metadata outage puts coordination in an explicit degraded state that blocks
   action handoff.
-
-### Changed (read before upgrading)
 
 - **Schema (Sage SRE M2).** Added automatically at startup: `sage.sre_hypotheses`,
   `sage.sre_events` (UPDATE is refused by a trigger, as it now is on `sage.sre_evidence`),
@@ -269,7 +291,6 @@
   startup).
 - Notifications for `incident_detected` and `incident_escalated` now end with a labeled
   `Summary` line, and their payload data adds `narrative` and `narrative_source`.
-### Changed (read before upgrading)
 
 - **Defined stop/resume races.** Stops latch memory immediately; persisted transitions are
   serialized. A stop that overlaps a resume wins, and memory always ends equal to the
@@ -369,25 +390,6 @@
   one is configured). Nothing writes them yet; retention for them lands with the
   investigator.
 
-### Deprecated
-
-- **`tuner.analyze_maintenance_threshold_mb` is ignored.** It never had an
-  effect. A config file that still sets it loads normally and logs
-  "tuner.analyze_maintenance_threshold_mb is no longer used and is ignored;
-  remove it". The key is gone from the example configs.
-
-### Fixed
-
-- An operator execution of an approved recommendation could run twice: a second
-  call that looked up the recommendation after the first had claimed it found
-  nothing claimable and ran the SQL unclaimed. An in-flight or applied
-  recommendation for the same finding and SQL now refuses with a conflict.
-- Schema lint `lint_mxid_age` computed MultiXact age with the transaction-ID
-  `age()` function, reporting a bogus ~2.1B "approaching wraparound" critical
-  finding once MultiXact IDs outpaced XIDs. It now uses `mxid_age()`.
-
-### Changed (read before upgrading)
-
 - An executor that could not get a database connection to take its DDL lease
   (pool exhausted by the change it conflicts with) waited until the other
   change's lock timeout, which then failed it. Taking a lease now waits at most
@@ -414,6 +416,23 @@
   chain could take a whole analyzer interval (default 600 s) to page. The fast path now starts
   when the database is registered, and instance shutdown waits for it instead of closing its
   pool under it.
+
+### Deprecated
+
+- **`tuner.analyze_maintenance_threshold_mb` is ignored.** It never had an
+  effect. A config file that still sets it loads normally and logs
+  "tuner.analyze_maintenance_threshold_mb is no longer used and is ignored;
+  remove it". The key is gone from the example configs.
+
+### Fixed
+
+- An operator execution of an approved recommendation could run twice: a second
+  call that looked up the recommendation after the first had claimed it found
+  nothing claimable and ran the SQL unclaimed. An in-flight or applied
+  recommendation for the same finding and SQL now refuses with a conflict.
+- Schema lint `lint_mxid_age` computed MultiXact age with the transaction-ID
+  `age()` function, reporting a bogus ~2.1B "approaching wraparound" critical
+  finding once MultiXact IDs outpaced XIDs. It now uses `mxid_age()`.
 
 ## v1.6.0 (2026-09-27) -- Safety gate, SQL parse-tree validation, Azure
 
