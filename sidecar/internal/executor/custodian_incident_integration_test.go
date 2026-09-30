@@ -132,15 +132,19 @@ func TestCustodianFreezeCreditsNearMissWhenRedTableReturnsToGreen(t *testing.T) 
 	}
 	var age int64
 	if err := pool.QueryRow(ctx, `SELECT age(relfrozenxid)::bigint FROM pg_class
-		WHERE oid = to_regclass($1)`, "public."+table).Scan(&age); err != nil || age > 1000 {
-		t.Fatalf("age after freeze = %d (%v), want a fresh horizon", age, err)
+		WHERE oid = to_regclass($1)`, "public."+table).Scan(&age); err != nil ||
+		age > 1_000_000 {
+		t.Fatalf("age after freeze = %d (%v), want far below the 160M baseline", age, err)
 	}
 }
 
+// The green table is old but outside the amber buffer (50M of 200M). A
+// brand-new table is not a valid case: its horizon cannot improve, and
+// concurrent transactions make its age grow during the freeze.
 func TestCustodianFreezeFromAmberOrGreenEarnsNoIncidentCredit(t *testing.T) {
 	pool, ctx := requireDB(t)
 	for name, age := range map[string]int64{
-		"incident_amber_probe": 120_000_000, "incident_green_probe": 0,
+		"incident_amber_probe": 120_000_000, "incident_green_probe": 50_000_000,
 	} {
 		agedTable(t, ctx, pool, name, age)
 		run := runFreeze(t, ctx, pool, config.DefaultConfig(), name)
@@ -166,8 +170,8 @@ func TestCustodianFreezeIncidentHonorsConfiguredRedBuffer(t *testing.T) {
 }
 
 // State transition: each crossing into red is credited once. A second
-// freeze of the now-green table earns nothing; a new crossing earns a new
-// credit on its own action.
+// freeze while the table is green (50M of 200M) earns nothing; a new
+// crossing earns a new credit on its own action.
 func TestCustodianFreezeCreditsEachRedCrossingOnce(t *testing.T) {
 	pool, ctx := requireDB(t)
 	const table = "incident_repeat_probe"
@@ -175,6 +179,7 @@ func TestCustodianFreezeCreditsEachRedCrossingOnce(t *testing.T) {
 	cfg := config.DefaultConfig()
 
 	first := runFreeze(t, ctx, pool, cfg, table)
+	setFrozenXIDAge(t, ctx, pool, table, 50_000_000)
 	second := runFreeze(t, ctx, pool, cfg, table)
 	setFrozenXIDAge(t, ctx, pool, table, 170_000_000)
 	third := runFreeze(t, ctx, pool, cfg, table)
@@ -203,7 +208,7 @@ func TestReadFreezeHorizonMeasuresTheTable(t *testing.T) {
 		Scan(&xidMax, &mxidMax); err != nil {
 		t.Fatalf("read settings: %v", err)
 	}
-	if horizon.xidAge < 120_000_000 || horizon.xidAge > 120_001_000 ||
+	if horizon.xidAge < 120_000_000 || horizon.xidAge > 120_100_000 ||
 		horizon.xidMax != xidMax || horizon.mxidMax != mxidMax || horizon.mxidAge < 0 {
 		t.Fatalf("horizon = %+v, want xid age ~120M and max %d/%d", horizon, xidMax, mxidMax)
 	}
