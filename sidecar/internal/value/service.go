@@ -17,6 +17,8 @@ var (
 type Repository interface {
 	CreditCandidate(context.Context, int64) (CreditCandidate, error)
 	StampCredit(context.Context, int64, float64, int) error
+	IncidentCandidate(context.Context, int64) (IncidentCandidate, error)
+	RecordIncident(context.Context, IncidentCredit) (IncidentRecord, error)
 }
 
 type Service struct {

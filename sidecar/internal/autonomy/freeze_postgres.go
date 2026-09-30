@@ -26,10 +26,9 @@ type PostgresFreezeCustodian struct {
 func NewPostgresFreezeCustodian(
 	pool *pgxpool.Pool, database string, redBufferPct float64,
 ) *PostgresFreezeCustodian {
-	red, amber := freezeThresholds(redBufferPct)
 	return &PostgresFreezeCustodian{
 		pool: pool, database: database,
-		threshold: freeze.Thresholds{RedBufferPct: red, AmberBufferPct: amber},
+		threshold: freeze.BufferThresholds(redBufferPct),
 	}
 }
 
@@ -218,17 +217,6 @@ func (c *PostgresFreezeCustodian) transactionRates(ctx context.Context) (freezeR
 		return freezeRateSample{xid: minimumFreezeRate, mxid: minimumFreezeRate}, nil
 	}
 	return freezeRateSample{xid: xid, mxid: math.Max(mxid, minimumFreezeRate), known: true}, nil
-}
-
-func freezeThresholds(red float64) (float64, float64) {
-	if red <= 0 || red >= 100 {
-		red = 25
-	}
-	amber := red * 2
-	if amber > 100 {
-		amber = 100
-	}
-	return red, amber
 }
 
 const freezeHorizonSQL = `/* pg_sage */

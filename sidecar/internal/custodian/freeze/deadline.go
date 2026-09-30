@@ -77,6 +77,26 @@ func urgency(distance, maximum int64, thresholds Thresholds) Urgency {
 	return UrgencyGreen
 }
 
+// BufferThresholds derives the urgency buffers from the configured red
+// percentage: amber is twice red, capped at 100. An out-of-range value
+// falls back to the 25% default.
+func BufferThresholds(redPct float64) Thresholds {
+	if redPct <= 0 || redPct >= 100 {
+		redPct = 25
+	}
+	return Thresholds{RedBufferPct: redPct, AmberBufferPct: math.Min(redPct*2, 100)}
+}
+
+// TableUrgency is the worse of a table's XID and multixact urgency. A
+// non-positive maximum reads as red, so an unmeasured horizon never looks
+// safe.
+func TableUrgency(
+	xidAge, xidMax, mxidAge, mxidMax int64, thresholds Thresholds,
+) Urgency {
+	return maxUrgency(urgency(xidMax-xidAge, xidMax, thresholds),
+		urgency(mxidMax-mxidAge, mxidMax, thresholds))
+}
+
 func maxUrgency(left, right Urgency) Urgency {
 	if left == UrgencyRed || right == UrgencyRed {
 		return UrgencyRed

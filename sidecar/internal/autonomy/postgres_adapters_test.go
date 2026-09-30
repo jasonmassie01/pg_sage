@@ -102,7 +102,8 @@ func TestPostgresFreezeCustodianScansLiveCatalog(t *testing.T) {
 
 func TestFreezeAdapterRowsAndThresholdDefaults(t *testing.T) {
 	custodian := NewPostgresFreezeCustodian(nil, "orders", -1)
-	red, amber := freezeThresholds(-1)
+	defaults := freeze.BufferThresholds(-1)
+	red, amber := defaults.RedBufferPct, defaults.AmberBufferPct
 	if red != 25 || amber != 50 || custodian.threshold.RedBufferPct != red {
 		t.Fatalf("thresholds = %v/%v custodian=%#v", red, amber, custodian.threshold)
 	}

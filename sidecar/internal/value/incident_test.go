@@ -78,7 +78,7 @@ func TestCreditAvoidedIncidentRejectsInvalidInput(t *testing.T) {
 		"negative action":    func(i *AvoidedIncident) { i.ActionID = -5 },
 		"empty kind":         func(i *AvoidedIncident) { i.Kind = "" },
 		"unknown kind":       func(i *AvoidedIncident) { i.Kind = "disk_melt" },
-		"kind with sql":      func(i *AvoidedIncident) { i.Kind = "x'; DROP TABLE sage.decision;--" },
+		"kind with sql":      func(i *AvoidedIncident) { i.Kind = "x'; DROP TABLE t;--" },
 		"empty severity":     func(i *AvoidedIncident) { i.Severity = "" },
 		"unknown severity":   func(i *AvoidedIncident) { i.Severity = "catastrophic" },
 		"zero occurred time": func(i *AvoidedIncident) { i.OccurredAt = time.Time{} },

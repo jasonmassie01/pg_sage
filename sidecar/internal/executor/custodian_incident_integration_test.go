@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -210,5 +211,75 @@ func TestReadFreezeHorizonMeasuresTheTable(t *testing.T) {
 	_, err = exec.readFreezeHorizon(ctx, "public.incident_no_such_table")
 	if err == nil || !strings.Contains(err.Error(), "freeze horizon") {
 		t.Fatalf("missing table error = %v, want a freeze horizon error", err)
+	}
+}
+
+// Error propagation: credit is bookkeeping after a successful action. When
+// the after-measurement cannot be taken the credit is withheld, the reason
+// is logged with the action id, and nothing is written.
+func TestCustodianFreezeIncidentWithheldWhenHorizonUnreadable(t *testing.T) {
+	pool, ctx := requireDB(t)
+	const table = "incident_unreadable_probe"
+	agedTable(t, ctx, pool, table, 160_000_000)
+	var logged []string
+	exec := New(pool, config.DefaultConfig(), zeroTime(),
+		func(component, format string, args ...any) {
+			logged = append(logged, component+": "+fmt.Sprintf(format, args...))
+		})
+	before, err := exec.readFreezeHorizon(ctx, "public."+table)
+	if err != nil {
+		t.Fatalf("readFreezeHorizon: %v", err)
+	}
+	run := &custodianRun{executor: exec, baseline: custodianBaseline{horizon: &before},
+		proposal: CustodianProposal{Feature: "freeze",
+			TargetObjects: []string{"public." + table}}}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+
+	const actionID = int64(1 << 40)
+	run.creditFreezeIncident(cancelled, actionID)
+
+	if len(logged) != 1 || !strings.Contains(logged[0], "incident credit for action") ||
+		!strings.Contains(logged[0], "withheld") ||
+		!strings.Contains(logged[0], "freeze horizon") {
+		t.Fatalf("log = %q, want one withheld-credit line naming the horizon read", logged)
+	}
+	if count := incidentsForAction(t, ctx, pool, actionID); count != 0 {
+		t.Fatalf("incidents = %d, want 0", count)
+	}
+}
+
+// A red table whose action is not a verified success earns nothing: the
+// ledger refuses the credit and the refusal is logged.
+func TestCustodianFreezeIncidentRefusedForUnverifiedAction(t *testing.T) {
+	pool, ctx := requireDB(t)
+	const table = "incident_unverified_probe"
+	agedTable(t, ctx, pool, table, 0)
+	var actionID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO sage.action_log
+		(action_type, sql_executed, outcome) VALUES ('vacuum', 'VACUUM t', 'monitoring')
+		RETURNING id`).Scan(&actionID); err != nil {
+		t.Fatalf("insert unverified action: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DELETE FROM sage.action_log WHERE id=$1", actionID)
+	})
+	var logged []string
+	exec := New(pool, config.DefaultConfig(), zeroTime(),
+		func(component, format string, args ...any) {
+			logged = append(logged, fmt.Sprintf(format, args...))
+		})
+	red := freezeHorizon{xidAge: 160_000_000, xidMax: 200_000_000, mxidMax: 400_000_000}
+	run := &custodianRun{executor: exec, baseline: custodianBaseline{horizon: &red},
+		proposal: CustodianProposal{Feature: "freeze",
+			TargetObjects: []string{"public." + table}}}
+
+	run.creditFreezeIncident(ctx, actionID)
+
+	if count := incidentsForAction(t, ctx, pool, actionID); count != 0 {
+		t.Fatalf("incidents = %d, want 0 for an unverified action", count)
+	}
+	if len(logged) != 1 || !strings.Contains(logged[0], "not eligible") {
+		t.Fatalf("log = %q, want one not-eligible line", logged)
 	}
 }

@@ -64,7 +64,8 @@ func TestIncidentCandidateReportsUnverifiedAndMissingActions(t *testing.T) {
 		t.Fatalf("pending candidate = %#v, %v", candidate, err)
 	}
 	_, err = NewService(repo).CreditAvoidedIncident(ctx, nearMiss(graph.actionID))
-	if !errors.Is(err, ErrCreditNotEligible) || incidentRows(t, ctx, source.Pool, graph.actionID) != 0 {
+	if !errors.Is(err, ErrCreditNotEligible) ||
+		incidentRows(t, ctx, source.Pool, graph.actionID) != 0 {
 		t.Fatalf("pending credit error = %v", err)
 	}
 

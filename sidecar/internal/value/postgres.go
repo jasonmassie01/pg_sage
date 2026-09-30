@@ -89,6 +89,32 @@ func (r *PostgresRepository) zeroCreditAtomic(
 	return ZeroCreditResult{Applied: applied, PreviousMinutes: previous}, nil
 }
 
+// IncidentCandidate loads the decision and verification behind an action.
+// The latest verification decides whether the action counts as verified.
+func (r *PostgresRepository) IncidentCandidate(
+	ctx context.Context, actionID int64,
+) (IncidentCandidate, error) {
+	item := IncidentCandidate{}
+	err := r.pool.QueryRow(ctx, `SELECT al.id, al.database_id, al.outcome,
+		COALESCE(v.decision_id, 0), COALESCE(v.id, 0),
+		CASE WHEN v.verdict='success' AND v.completed_at IS NOT NULL
+			THEN 'verified' ELSE COALESCE(v.verdict, 'missing') END
+		FROM sage.action_log al
+		LEFT JOIN sage.verification v ON v.action_log_id=al.id
+		WHERE al.id=$1 ORDER BY v.id DESC NULLS LAST LIMIT 1`, actionID).Scan(
+		&item.ActionID, &item.DatabaseID, &item.Outcome, &item.DecisionID,
+		&item.VerificationID, &item.VerificationState)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return IncidentCandidate{}, fmt.Errorf("action %d not found", actionID)
+	}
+	if err != nil {
+		return IncidentCandidate{}, fmt.Errorf("load action incident candidate: %w", err)
+	}
+	return item, nil
+}
+
+// RecordIncident inserts one incident credit. The evidence id is unique:
+// a second credit for the same evidence returns ErrIncidentAlreadyCredited.
 func (r *PostgresRepository) RecordIncident(
 	ctx context.Context, input IncidentCredit,
 ) (IncidentRecord, error) {
@@ -97,10 +123,14 @@ func (r *PostgresRepository) RecordIncident(
 		(database_id, kind, severity, credited_minutes, evidence_id, model_version,
 		 decision_id, action_log_id, verification_id, occurred_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-		RETURNING id, credited_minutes`, input.DatabaseID, input.Kind, input.Severity,
-		input.CreditedMinutes, input.EvidenceID, input.ModelVersion, input.DecisionID,
-		input.ActionLogID, input.VerificationID, input.OccurredAt).Scan(
+		ON CONFLICT (evidence_id) DO NOTHING
+		RETURNING id, credited_minutes::float8`, input.DatabaseID, input.Kind,
+		input.Severity, input.CreditedMinutes, input.EvidenceID, input.ModelVersion,
+		input.DecisionID, input.ActionLogID, input.VerificationID, input.OccurredAt).Scan(
 		&result.ID, &result.CreditedMinutes)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return IncidentRecord{}, ErrIncidentAlreadyCredited
+	}
 	if err != nil {
 		return IncidentRecord{}, fmt.Errorf("record incident credit: %w", err)
 	}

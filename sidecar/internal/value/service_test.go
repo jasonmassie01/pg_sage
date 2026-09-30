@@ -249,3 +249,15 @@ func (f *fakeRepository) StampCredit(
 	f.stampedVersion = version
 	return f.stampErr
 }
+
+func (f *fakeRepository) IncidentCandidate(
+	context.Context, int64,
+) (IncidentCandidate, error) {
+	return IncidentCandidate{}, errors.New("fakeRepository has no incident graph")
+}
+
+func (f *fakeRepository) RecordIncident(
+	context.Context, IncidentCredit,
+) (IncidentRecord, error) {
+	return IncidentRecord{}, errors.New("fakeRepository records no incidents")
+}
