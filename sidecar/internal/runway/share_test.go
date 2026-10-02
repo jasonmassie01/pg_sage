@@ -67,6 +67,7 @@ func TestSizeShare_OneMeasurementPerClusterPerPass(t *testing.T) {
 	s, clock := newTestShare()
 	c := &sizeCounter{value: 4e9}
 	ctx := context.Background()
+	measuredAt := clock.Now()
 	for i := 0; i < 10; i++ {
 		got, shared, err := s.Measure(ctx, "sys-1/start/sage", time.Minute, c.measure)
 		if err != nil || got.DatabaseBytes != 4e9 {
@@ -75,8 +76,9 @@ func TestSizeShare_OneMeasurementPerClusterPerPass(t *testing.T) {
 		if shared != (i > 0) {
 			t.Fatalf("measure %d shared = %v", i, shared)
 		}
-		if !got.MeasuredAt.Equal(clock.now) {
-			t.Fatalf("measured at %v, want %v", got.MeasuredAt, clock.now)
+		// A shared reading keeps the time it was measured at.
+		if !got.MeasuredAt.Equal(measuredAt) {
+			t.Fatalf("measured at %v, want %v", got.MeasuredAt, measuredAt)
 		}
 		clock.advance(time.Second)
 	}
