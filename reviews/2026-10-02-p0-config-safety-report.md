@@ -219,3 +219,18 @@ None below threshold.
 - No outcome metric yet for WAL/checkpoint GUCs (`max_wal_size`, `checkpoint_*`), planner
   costs or `maintenance_work_mem`; they end `unverifiable`.
 - `executor/executor.go` was already 938 lines (one line added here).
+
+## Merge with master (#76 executor split, #78 snapshot dedupe)
+- One unused-index decision path: `analyzer/rules_unused_index.go` (#78's reset-aware
+  clock) now also treats a recent `last_idx_scan` as use, starts the clock at an old
+  `last_idx_scan` (never before the relation stats epoch), and applies the standby gate to
+  every drop finding.
+- The live pre-drop check (`executor/unused_evidence.go`, autonomous and
+  `ExecuteManual`) reads `last_idx_scan` version-agnostically and accepts an index last
+  scanned a full window ago; any scan inside the window, or any scan without
+  `last_idx_scan`, still refuses. Tests first (`unused_evidence_lastscan_test.go`).
+- The approval guardrail call moved to `finding_policy.go`; `manualRun.prepareConfig`
+  moved to `config_change.go` to keep `manual.go` under 500 lines.
+- After the merge: touched packages pass on PG17 with `-race`, and on PG14 and PG18;
+  executor coverage 85.0%; lint 0 issues. `internal/web` is unchanged, so `dist` was not
+  rebuilt.
