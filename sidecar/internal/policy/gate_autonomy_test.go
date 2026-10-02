@@ -197,6 +197,27 @@ func TestAutonomyL3IgnoresDeadlineOverride(t *testing.T) {
 	assertDecision(t, f.authorize(t, req), VerdictQueueApproval, ReasonAutonomyHandoff)
 }
 
+// Post-test audit (mutation P6 survived): an L3 execution is an
+// in-window execution, so it never carries the deadline override's
+// off-window flag into the decision evidence.
+func TestAutonomyL3ClearsTheOffWindowFlag(t *testing.T) {
+	f := newAutonomyFixture(3)
+	f.runtime.InConfiguredWindow = false // moderate tier: the override path decides
+	req := familyRequest(RiskModerate, RollbackReversible)
+	req.Deadline = &DeadlineContext{Kind: DeadlineXID, Urgency: UrgencyCritical,
+		HardAt: f.now.Add(time.Hour)}
+	base := f.gate(false).Authorize(context.Background(), req)
+	assertDecision(t, base, VerdictExecute, ReasonDeadlineOverride)
+	if !base.OffWindowOK {
+		t.Fatal("fixture: the base decision is not an off-window override")
+	}
+	d := f.authorize(t, req)
+	assertDecision(t, d, VerdictExecute, ReasonAutonomyL3)
+	if d.OffWindowOK {
+		t.Fatal("an L3 execution kept the off-window flag")
+	}
+}
+
 func TestAutonomyL3RequiresExactlyOneTarget(t *testing.T) {
 	for _, targets := range [][]string{nil, {"public.a", "public.b"}} {
 		f := newAutonomyFixture(3)
