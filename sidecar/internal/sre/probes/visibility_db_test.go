@@ -22,9 +22,14 @@ import (
 // missing privilege. They must instead be no_privilege, naming the role.
 // Probes whose views every role can read keep working.
 
-// activityProbes are the probes that need pg_read_all_stats.
+// activityProbes are the probes that need pg_read_all_stats. The M6
+// probes read other sessions too: LWLock waits and the standby's longest
+// query (pg_stat_activity), the xmin holders and the busy autovacuum
+// workers of the XID runway (pg_stat_activity), and other roles' spilling
+// statements (pg_stat_statements hides their query ids).
 var activityProbes = []ID{LockChains, LockGraph, LongTransactions, BackendIdentity,
-	ConnectionSaturation, ReplicationLag, VacuumProgress}
+	ConnectionSaturation, ReplicationLag, VacuumProgress, LWLockWaits, StandbyReplayState,
+	TempSpillStatements, XIDRunwayProbe, XminHorizon}
 
 func TestCatalog_ActivityProbesDeclareTheirRole(t *testing.T) {
 	need := map[ID]bool{}
@@ -121,7 +126,12 @@ func TestRunner_PgMonitorGrantsTheActivityProbes(t *testing.T) {
 	pool, grant := restrictedPool(t, ctx, admin)
 	grant("pg_monitor")
 	for _, id := range activityProbes {
-		if res := runAs(ctx, pool, id); !res.Status.Usable() {
+		res := runAs(ctx, pool, id)
+		if spec, _ := Catalog().Spec(id); spec.Extension != "" &&
+			res.Status == StatusUnsupported && res.Reason == "extension_not_installed" {
+			continue // the role check passed; the fixture lacks the extension
+		}
+		if !res.Status.Usable() {
 			t.Errorf("%s with pg_monitor = %s %q (%s), want an observation", id,
 				res.Status, res.Reason, res.Error)
 		}
