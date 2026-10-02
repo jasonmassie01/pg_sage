@@ -51,22 +51,63 @@ func sanitizeDataLabel(label string) string {
 	return b.String()
 }
 
-// neutralizeDataTags breaks any "<data" or "</data" sequence (any case)
-// by inserting a space after '<', which keeps the text readable.
+// neutralizeDataTags breaks any "<data" or "</data" sequence (any ASCII
+// case) by inserting a space after '<', which keeps the text readable.
+// It scans the original bytes and folds case one ASCII byte at a time:
+// lower-casing the whole string first changes byte lengths for some runes
+// (U+212A, U+0130), so its offsets do not index the original.
 func neutralizeDataTags(text string) string {
-	lower := strings.ToLower(text)
-	if !strings.Contains(lower, "<data") && !strings.Contains(lower, "</data") {
+	if !containsDataTag(text) {
 		return text
 	}
 	var b strings.Builder
 	b.Grow(len(text) + 8)
 	for i := 0; i < len(text); i++ {
-		if text[i] == '<' && (strings.HasPrefix(lower[i:], "<data") ||
-			strings.HasPrefix(lower[i:], "</data")) {
-			b.WriteString("< ")
-			continue
-		}
 		b.WriteByte(text[i])
+		if dataTagAt(text, i) {
+			b.WriteByte(' ')
+		}
 	}
 	return b.String()
+}
+
+func containsDataTag(text string) bool {
+	for i := strings.IndexByte(text, '<'); i >= 0 && i < len(text); {
+		if dataTagAt(text, i) {
+			return true
+		}
+		next := strings.IndexByte(text[i+1:], '<')
+		if next < 0 {
+			return false
+		}
+		i += next + 1
+	}
+	return false
+}
+
+// dataTagAt reports whether text[i:] starts with "<data" or "</data",
+// ignoring ASCII case.
+func dataTagAt(text string, i int) bool {
+	if text[i] != '<' {
+		return false
+	}
+	return hasPrefixFoldASCII(strings.TrimPrefix(text[i+1:], "/"), "data")
+}
+
+// hasPrefixFoldASCII compares byte for byte, folding only ASCII letters;
+// prefix must be lower-case ASCII.
+func hasPrefixFoldASCII(s, prefix string) bool {
+	if len(s) < len(prefix) {
+		return false
+	}
+	for i := 0; i < len(prefix); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if c != prefix[i] {
+			return false
+		}
+	}
+	return true
 }

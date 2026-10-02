@@ -298,27 +298,26 @@ func redactProviderText(value string) string {
 	return value
 }
 
+// redactQueryValue replaces the value after every "key=" (ASCII case
+// variants only) up to the next delimiter. It scans the original string;
+// offsets from strings.ToLower would drift on length-changing runes.
 func redactQueryValue(value, key string) string {
-	lower := strings.ToLower(value)
 	needle := strings.ToLower(key) + "="
-	for start := 0; ; {
-		index := strings.Index(lower[start:], needle)
-		if index < 0 {
-			return value
+	var b strings.Builder
+	for i := 0; i < len(value); {
+		if !hasPrefixFoldASCII(value[i:], needle) {
+			b.WriteByte(value[i])
+			i++
+			continue
 		}
-		index += start
-		valueStart := index + len(needle)
-		valueEnd := len(value)
-		for i := valueStart; i < len(value); i++ {
-			if strings.ContainsRune("& #\"'", rune(value[i])) {
-				valueEnd = i
-				break
-			}
+		b.WriteString(value[i : i+len(needle)])
+		b.WriteString("[REDACTED]")
+		i += len(needle)
+		for i < len(value) && !strings.ContainsRune("& #\"'", rune(value[i])) {
+			i++
 		}
-		value = value[:valueStart] + "[REDACTED]" + value[valueEnd:]
-		lower = strings.ToLower(value)
-		start = valueStart + len("[REDACTED]")
 	}
+	return b.String()
 }
 
 func truncate(s string, maxLen int) string {
