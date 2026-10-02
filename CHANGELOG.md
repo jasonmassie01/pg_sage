@@ -26,8 +26,9 @@
   no planted password reaches an export or a model prompt, and every model claim cites real
   evidence. The replay runs with every test run (about 25 seconds). Its case format is
   documented in `sidecar/sre-bench/README.md` so new incident families can add cases. With
-  the LLM off, the investigator names the right cause in 29 of 30 positive cases and
-  abstains on all 23 cases whose evidence is insufficient.
+  the LLM off, the investigator names the right cause in all 30 positive cases (29 before
+  the connection-leak fix below, which that one missed case motivated) and abstains on all
+  23 cases whose evidence is insufficient.
 
 - **New page: Sage SRE permissions and data flow** (`docs/sage-sre-permissions-and-data-flow.md`):
   what investigations read, which role each provider needs (`pg_monitor`), what leaves the
@@ -199,6 +200,14 @@
   writes under `pgincidentbench/`.
 
 ### Fixed
+
+- **A connection leak beside another application's steady pool is now the root cause.** The
+  steady pool tied with the leak and was named the cause. A pool that does not grow cannot
+  explain pressure that does, so it is now listed as contributing (the baseline the leak
+  grows on) and the leaking application is the root. A pool of the leaking application
+  itself is still that leak. The graph version stays `causal-v3`. The replay case that
+  exposed this is no longer held-out evidence for this shape; a fresh case with different
+  numbers, outside the corpus, checks it.
 
 - **Sage SRE no longer reports "no lock waits" when it cannot see them.** A database role
   without `pg_read_all_stats` (included in `pg_monitor`) sees other users' sessions without

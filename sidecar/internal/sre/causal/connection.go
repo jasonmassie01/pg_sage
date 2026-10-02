@@ -71,12 +71,24 @@ func DiagnoseConnections(obs []Observation) Diagnosis {
 	}
 	last := cmp.last
 	fanApp := busiestIdle(last)
+	leakApp := growthApp(cmp, fanApp)
 	hs := []Hypothesis{scoreFanOut(cmp, fanApp), scoreBacklog(last, obs),
-		scoreLeak(cmp, growthApp(cmp, fanApp))}
-	d := rank(FamilyConnections, hs)
+		scoreLeak(cmp, leakApp)}
+	d := rankWith(FamilyConnections, hs, leakBaseline(fanApp, leakApp))
 	d.Missing = missing
 	d.Observed = saturation(last)
 	return d
+}
+
+// leakBaseline makes another application's pool contribute to a leak:
+// a pool cannot explain pressure that grows, so beside a supported leak
+// it is the baseline the leak grows on, not a competing root. A pool of
+// the leaking application itself is that leak, not a separate baseline.
+func leakBaseline(fanApp, leakApp string) map[NodeID][]NodeID {
+	if fanApp == leakApp {
+		return nil
+	}
+	return map[NodeID][]NodeID{PoolFanOut: {ConnectionLeak}}
 }
 
 // connSamples returns the usable samples in time order and the missing
