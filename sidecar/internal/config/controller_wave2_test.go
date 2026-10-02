@@ -379,7 +379,7 @@ func TestFieldLifecycleRegistryAndEffectiveFallback(t *testing.T) {
 		{"alerting.routes", LifecycleReconfigure, "alerting"},
 		{"mode", LifecycleRestart, ""},
 		{"postgres.database_url", LifecycleRestart, ""},
-		{"databases", LifecycleAPI, ""},
+		{"databases", LifecycleReconfigure, FleetDatabasesOwner},
 	}
 	for _, tt := range tests {
 		meta, ok := LookupFieldLifecycle(tt.path)

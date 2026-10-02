@@ -23,6 +23,16 @@
   `sre.autonomy.report_retention_days` (90 days), except the reports that current autonomy
   levels or pending promotions rest on and the newest report of each family.
 
+- **Databases can be added, removed and changed without restarting pg_sage.** In fleet
+  mode, saving the config file with a new, removed or changed database applies it at once:
+  trust level, execution mode, the executor switch and tags change on the running database;
+  connection, credential and other changes restart only that database's monitoring. A
+  removed database first lets running actions finish (up to a minute), then stops cleanly
+  and drops out of the metrics. A bad edit is rejected and everything keeps running as
+  before. In meta-db mode, changes made to the database list by another pg_sage or by SQL
+  are picked up within 30 seconds. Removing or moving the first (control) database still
+  needs a restart.
+
 ### Fixed
 
 - **pg_sage works with current OpenAI models (gpt-5, gpt-6 and later).** These models

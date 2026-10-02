@@ -293,7 +293,7 @@ func (c *ConfigController) planApply(
 	ownerSet := make(map[string]struct{})
 	for _, path := range changed {
 		lifecycle, _ := c.EffectiveLifecycle(path)
-		if lifecycle == LifecycleRestart || lifecycle == LifecycleAPI {
+		if lifecycle == LifecycleRestart {
 			result.PendingRestart = append(result.PendingRestart, path)
 			continue
 		}

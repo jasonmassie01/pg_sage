@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -81,6 +82,7 @@ type Executor struct {
 	settingWait        time.Duration // bounds reloaded-setting post-checks (0 = default)
 	trustLevelOverride string
 	ddlSem             chan struct{}   // limits concurrent DDL ops
+	quiesced           atomic.Int32    // DDL slots a drain holds (Quiesce)
 	analyzeSem         chan struct{}   // shared fleet-wide for ANALYZE
 	justifier          ActionJustifier // optional LLM action justification (C4)
 	policyMu           sync.RWMutex
