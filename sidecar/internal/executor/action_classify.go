@@ -21,8 +21,6 @@ func actionTypeForProposalSQL(sql string) string {
 		return "vacuum_table"
 	case strings.Contains(upper, "PG_CANCEL_BACKEND"):
 		return "cancel_backend"
-	case strings.Contains(upper, "PG_CANCEL_BACKEND"):
-		return "cancel_backend"
 	case strings.Contains(upper, "PG_TERMINATE_BACKEND"):
 		return "terminate_backend"
 	case strings.HasPrefix(upper, "ALTER SYSTEM SET ") ||
