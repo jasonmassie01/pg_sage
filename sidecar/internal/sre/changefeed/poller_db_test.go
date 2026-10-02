@@ -289,17 +289,25 @@ func TestPoller_RunStopsWithContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(f.ctx)
 	done := make(chan struct{})
 	go func() { p.Run(ctx); close(done) }()
-	time.Sleep(100 * time.Millisecond)
+	// Wait (bounded) for the first poll to save its state; a slow machine
+	// may need more than one interval.
+	n := 0
+	deadline := time.Now().Add(15 * time.Second)
+	for n == 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		if err := f.pool.QueryRow(f.ctx, `SELECT count(*) FROM sage.sre_change_feed_state
+			WHERE database_id = $1`, string(f.scope.DatabaseID)).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+	}
 	cancel()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not stop after cancel")
 	}
-	var n int
-	if err := f.pool.QueryRow(f.ctx, `SELECT count(*) FROM sage.sre_change_feed_state
-		WHERE database_id = $1`, string(f.scope.DatabaseID)).Scan(&n); err != nil || n == 0 {
-		t.Fatalf("Run never polled: %d states, err %v", n, err)
+	if n == 0 {
+		t.Fatal("Run never polled")
 	}
 }
 
