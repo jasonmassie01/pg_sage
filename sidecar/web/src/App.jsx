@@ -14,6 +14,7 @@ import { NotificationsPage } from './pages/NotificationsPage'
 import { AgentDBsPage } from './pages/AgentDBsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
 import { ValuePage } from './pages/ValuePage'
+import { AutonomyPage } from './pages/AutonomyPage'
 import { useAPI } from './hooks/useAPI'
 import { resolveSelectedDB } from './lib/selectedDatabase'
 import { TimeRangeProvider } from './context/TimeRangeContext'
@@ -167,6 +168,9 @@ export default function App() {
       case '/advanced/actions':
         return { title: 'Action history',
           node: <Actions database={effectiveDB} user={user} /> }
+      case '/advanced/autonomy':
+        return { title: 'Earned autonomy',
+          node: <AutonomyPage database={effectiveDB} user={user} /> }
       case '/manage-databases':
         return isAdmin ? { title: 'Databases', node: <DatabasesPage /> }
           : denied
