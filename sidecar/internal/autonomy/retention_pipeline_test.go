@@ -340,3 +340,24 @@ func TestRetentionBatchRefusesWithoutBound(t *testing.T) {
 	}
 	requireNothingDeleted(t, pool, table, 3)
 }
+
+// The batch enforces the reviewed bound itself, even when the pipeline
+// passes no row cap.
+func TestRetentionBatchStopsAtReviewedBound(t *testing.T) {
+	pool := requireAutonomyDB(t)
+	table := createdAtFixture(t, pool)
+	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10}
+	item := retentionItem(table, retentionTestWindow, schemaguard.DispositionApply)
+	plan := retentionPlan{item: item, target: mustRetentionTarget(t, pool, item.Invariant),
+		cutoff: time.Now().Add(-retentionTestWindow), candidates: 2, bound: 1}
+
+	result, err := enforcer.deleteBatch(context.Background(), plan, RetentionRun{})
+
+	if err != nil || result.Deleted != 1 {
+		t.Fatalf("deleteBatch = %+v, %v; want exactly the one row the bound allows",
+			result, err)
+	}
+	if n := countRows(t, pool, "SELECT count(*) FROM "+table); n != 2 {
+		t.Fatalf("rows = %d, want 2 left (one eligible row kept by the bound)", n)
+	}
+}

@@ -40,6 +40,14 @@ func newQueueHarness(t *testing.T) *queueHarness {
 	return h
 }
 
+// boundedCtx bounds a wait so a broken queue fails the test instead of
+// hanging it.
+func boundedCtx(t *testing.T) context.Context {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}
+
 func testQueueConfig() LeaseQueueConfig {
 	cfg := DefaultLeaseQueueConfig()
 	cfg.PollInterval = 10 * time.Millisecond
@@ -98,7 +106,7 @@ func TestLeaseQueueGrantsImmediatelyWhenFree(t *testing.T) {
 	queue := NewLeaseQueue(h.pool, nil, testQueueConfig(), "instance-a")
 	manager := h.manager()
 
-	id, err := queue.Acquire(context.Background(), h.request("free", manager))
+	id, err := queue.Acquire(boundedCtx(t), h.request("free", manager))
 
 	if err != nil || id == "" {
 		t.Fatalf("acquire on a free target = %q, %v; want a lease", id, err)
@@ -121,7 +129,7 @@ func TestLeaseQueueGrantsInFIFOOrder(t *testing.T) {
 		go func(name string) {
 			defer wg.Done()
 			manager := h.manager()
-			id, err := queue.Acquire(context.Background(), h.request(name, manager))
+			id, err := queue.Acquire(boundedCtx(t), h.request(name, manager))
 			if err != nil {
 				t.Errorf("%s: %v", name, err)
 				return
@@ -154,7 +162,7 @@ func TestLeaseQueueTimeoutReleasesPosition(t *testing.T) {
 	release := h.hold()
 	started := time.Now()
 
-	_, err := queue.Acquire(context.Background(), h.request("late", h.manager()))
+	_, err := queue.Acquire(boundedCtx(t), h.request("late", h.manager()))
 
 	elapsed := time.Since(started)
 	if !errors.Is(err, ErrLeaseQueueTimeout) || !errors.Is(err, ErrLeaseConflict) {
@@ -169,7 +177,7 @@ func TestLeaseQueueTimeoutReleasesPosition(t *testing.T) {
 	}
 	release()
 	manager := h.manager()
-	id, err := queue.Acquire(context.Background(), h.request("next", manager))
+	id, err := queue.Acquire(boundedCtx(t), h.request("next", manager))
 	if err != nil {
 		t.Fatalf("acquire after a timed-out entry = %v, want granted", err)
 	}
@@ -190,7 +198,7 @@ func TestLeaseQueueBoundedPerTarget(t *testing.T) {
 	}
 	started := time.Now()
 
-	_, err := queue.Acquire(context.Background(), h.request("three", h.manager()))
+	_, err := queue.Acquire(boundedCtx(t), h.request("three", h.manager()))
 
 	if !errors.Is(err, ErrLeaseQueueFull) || !errors.Is(err, ErrLeaseConflict) {
 		t.Fatalf("third waiter = %v, want ErrLeaseQueueFull", err)
@@ -226,7 +234,7 @@ func TestLeaseQueueBoundedTotalDepth(t *testing.T) {
 
 	request := h.request("elsewhere", h.manager())
 	request.Targets = otherTargets
-	_, err = queue.Acquire(context.Background(), request)
+	_, err = queue.Acquire(boundedCtx(t), request)
 
 	if !errors.Is(err, ErrLeaseQueueFull) {
 		t.Fatalf("waiter on another target past MaxDepth = %v, want ErrLeaseQueueFull", err)
@@ -259,7 +267,7 @@ func TestLeaseQueueResumesAfterRestart(t *testing.T) {
 		defer wg.Done()
 		manager := h.manager()
 		request.Manager = manager
-		id, err := queue.Acquire(context.Background(), request)
+		id, err := queue.Acquire(boundedCtx(t), request)
 		if err != nil {
 			t.Errorf("%s: %v", name, err)
 			return
@@ -331,7 +339,7 @@ func TestLeaseQueueAbandonedEntryExpiresAtDeadline(t *testing.T) {
 	manager := h.manager()
 	started := time.Now()
 
-	id, err := queue.Acquire(context.Background(), h.request("behind", manager))
+	id, err := queue.Acquire(boundedCtx(t), h.request("behind", manager))
 
 	if err != nil {
 		t.Fatalf("acquire behind an abandoned entry = %v, want granted after it expires", err)
@@ -354,7 +362,7 @@ func TestLeaseQueueLiveDuplicateRefused(t *testing.T) {
 	go func() { _, _ = queue.Acquire(ctx, h.request("same", h.manager())) }()
 	h.waitForEntries(1)
 
-	_, err := queue.Acquire(context.Background(), h.request("same", h.manager()))
+	_, err := queue.Acquire(boundedCtx(t), h.request("same", h.manager()))
 
 	if !errors.Is(err, ErrLeaseQueueDuplicate) || !errors.Is(err, ErrLeaseConflict) {
 		t.Fatalf("identical live request = %v, want ErrLeaseQueueDuplicate", err)
@@ -377,7 +385,7 @@ func TestLeaseQueueDisjointTargetsDoNotWait(t *testing.T) {
 	request.Targets = mustResolve(t, h.pool, "public."+other.table)
 	started := time.Now()
 
-	id, err := queue.Acquire(context.Background(), request)
+	id, err := queue.Acquire(boundedCtx(t), request)
 
 	if err != nil || time.Since(started) > 2*time.Second {
 		t.Fatalf("disjoint target = %v after %s, want an immediate grant", err,
@@ -427,7 +435,7 @@ func TestLeaseQueueConcurrentWaitersAreExclusiveAndOrdered(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			manager := h.manager()
-			id, err := queue.Acquire(context.Background(),
+			id, err := queue.Acquire(boundedCtx(t),
 				h.request(fmt.Sprintf("w%d", i), manager))
 			if err != nil {
 				t.Errorf("waiter %d: %v", i, err)
@@ -471,7 +479,7 @@ func TestLeaseQueueRejectsInvalidRequests(t *testing.T) {
 	} {
 		request := valid
 		mutate(&request)
-		if _, err := queue.Acquire(context.Background(), request); err == nil {
+		if _, err := queue.Acquire(boundedCtx(t), request); err == nil {
 			t.Errorf("%s: acquire succeeded, want a validation error", name)
 		}
 	}

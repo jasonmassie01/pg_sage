@@ -172,6 +172,9 @@ func startBlockedOperator(t *testing.T, exec *Executor, pool *pgxpool.Pool, tabl
 	if err != nil {
 		t.Fatalf("begin blocker: %v", err)
 	}
+	// A failing assertion must end the test, not leave the table locked
+	// under the cleanup that drops it.
+	t.Cleanup(func() { _ = blocker.Rollback(context.Background()) })
 	if _, err := blocker.Exec(ctx, "LOCK TABLE public."+table+
 		" IN ACCESS EXCLUSIVE MODE"); err != nil {
 		t.Fatalf("lock: %v", err)
