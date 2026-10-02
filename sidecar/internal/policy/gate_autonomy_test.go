@@ -190,7 +190,9 @@ func TestAutonomyL3IgnoresDeadlineOverride(t *testing.T) {
 	f.doc = UnattendedProfile()
 	f.doc.MaintenanceWindows = []string{"weekdays 01:00-05:00"}
 	req := familyRequest(RiskModerate, RollbackReversible)
-	req.Deadline = &DeadlineContext{Kind: DeadlineXID, Urgency: UrgencyCritical,
+	// Not critical: a critical deadline is mandatory and bypasses the ledger
+	// (gate_deadline_autonomy_test.go); any other override is restricted.
+	req.Deadline = &DeadlineContext{Kind: DeadlineXID, Urgency: Urgency("high"),
 		HardAt: f.now.Add(time.Hour)}
 	base := f.gate(false).Authorize(context.Background(), req)
 	assertDecision(t, base, VerdictExecute, ReasonDeadlineOverride)
@@ -204,7 +206,9 @@ func TestAutonomyL3ClearsTheOffWindowFlag(t *testing.T) {
 	f := newAutonomyFixture(3)
 	f.runtime.InConfiguredWindow = false // moderate tier: the override path decides
 	req := familyRequest(RiskModerate, RollbackReversible)
-	req.Deadline = &DeadlineContext{Kind: DeadlineXID, Urgency: UrgencyCritical,
+	// Not critical: a critical deadline is mandatory and bypasses the ledger
+	// (gate_deadline_autonomy_test.go); any other override is restricted.
+	req.Deadline = &DeadlineContext{Kind: DeadlineXID, Urgency: Urgency("high"),
 		HardAt: f.now.Add(time.Hour)}
 	base := f.gate(false).Authorize(context.Background(), req)
 	assertDecision(t, base, VerdictExecute, ReasonDeadlineOverride)
