@@ -62,13 +62,15 @@ trust:
   rollback_cooldown_days: 7     # Days to skip re-executing a rolled-back action
   cascade_cooldown_cycles: 3   # Cycles to wait before cascading related actions
 
+# LLM features are on by default and call a provider only once endpoint
+# and api_key are set; until then pg_sage uses its deterministic rules.
 llm:
-  enabled: false
+  enabled: true                 # false turns every LLM feature off
   endpoint: ""                  # OpenAI-compatible endpoint (e.g., https://api.openai.com/v1)
   api_key: ${SAGE_LLM_API_KEY}
   model: ""                     # e.g., gpt-4o, gemini-2.5-flash-preview
   timeout_seconds: 30
-  token_budget_daily: 500000
+  token_budget_daily: 500000    # Daily cap across LLM features (0 = no cap)
   context_budget_tokens: 4096
   cooldown_seconds: 300         # Circuit breaker cooldown after 3 failures
   # Cost reduction tips:
@@ -78,7 +80,7 @@ llm:
   #   - Tuner min_query_calls 100+ avoids analyzing one-off queries
   #   - Use Flash/Haiku for advisor+briefing, Pro only for optimizer_llm
   optimizer:
-    enabled: false              # Enable LLM-powered index recommendations
+    enabled: true               # LLM-powered index recommendations (default on)
     min_query_calls: 100        # Min calls before a query is considered
     max_indexes_per_table: 10   # Skip table if already has this many indexes
     max_new_per_table: 3        # Max new index recommendations per table/cycle
@@ -86,7 +88,7 @@ llm:
     over_indexed_ratio_pct: 150 # Index bytes > 150% of table bytes = over-indexed
     write_heavy_ratio_pct: 70   # Skip table if >70% of ops are writes
   # optimizer_llm:              # Dedicated LLM for optimizer (inherits from llm.* if empty)
-  #   enabled: false
+  #   enabled: true               # Off by default; adds its own token_budget_daily
   #   endpoint: ""
   #   api_key: ""
   #   model: ""
@@ -94,7 +96,7 @@ llm:
   #   fallback_to_general: true
 
 advisor:
-  enabled: false
+  enabled: true                 # LLM config advisor (default on; needs a configured LLM)
   interval_seconds: 3600        # How often to run advisor checks (prod: 3600-7200)
   vacuum_enabled: true
   wal_enabled: true
@@ -150,7 +152,7 @@ forecaster:
 # applies per-query GUC overrides without modifying application queries.
 tuner:
   enabled: true
-  llm_enabled: false             # Use LLM for advanced query tuning
+  llm_enabled: true              # Use LLM for advanced query tuning (default on)
   work_mem_max_mb: 512           # max per-query work_mem hint
   plan_time_ratio: 3.0           # plan/exec ratio threshold for generic plan
   nested_loop_row_threshold: 10000

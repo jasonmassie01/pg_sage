@@ -84,14 +84,14 @@ trust:
   ramp_start: ""                 # Auto-persisted on first start; set to override
 
 llm:
-  enabled: false
+  enabled: true                  # default; false turns every LLM feature off
   endpoint: "https://generativelanguage.googleapis.com/v1beta/openai"
   model: "gemini-2.5-flash"
   api_key: ${SAGE_LLM_API_KEY}
   timeout_seconds: 30
   token_budget_daily: 500000
   optimizer:
-    enabled: false
+    enabled: true                # default
     min_query_calls: 100         # ignore ad-hoc queries below this threshold
     max_indexes_per_table: 10    # skip tables already at this index count
     max_include_columns: 3
@@ -194,18 +194,29 @@ reloaded or saved.
 
 ### LLM
 
+LLM features are on by default, but they call a provider only once `llm.endpoint` and
+`llm.api_key` (or `SAGE_LLM_ENDPOINT` and `SAGE_LLM_API_KEY`) are set. Until then every
+feature runs its deterministic path, no LLM request is made, and startup logs one line
+saying the LLM is not configured. `llm.token_budget_daily` caps spend across the general
+LLM features. Turning a feature on grants no autonomy: what an LLM proposes executes only
+through the policy gate, trust level and execution mode, like any other recommendation.
+
 | Parameter | Default | Description |
 |---|---|---|
-| `llm.enabled` | `false` | Enable LLM-powered features |
+| `llm.enabled` | `true` | Master switch for every LLM feature; `false` is a hot kill switch |
 | `llm.endpoint` | (none) | OpenAI-compatible chat completions endpoint |
 | `llm.model` | (none) | Model name |
 | `llm.api_key` | (none) | API key (supports `${ENV_VAR}` expansion) |
 | `llm.timeout_seconds` | `30` | Timeout for LLM API calls |
-| `llm.token_budget_daily` | `500000` | Maximum tokens per day |
-| `llm.optimizer.enabled` | `false` | Enable index optimizer |
+| `llm.token_budget_daily` | `500000` | Maximum tokens per day across general LLM features; `0` means no cap |
+| `llm.optimizer.enabled` | `true` | LLM index optimizer (HypoPG-validated, confidence-scored) |
 | `llm.optimizer.min_query_calls` | `100` | Minimum query calls before optimizing a table |
 | `llm.optimizer.max_new_per_table` | `3` | Max new indexes per table per cycle |
-| `rca.narration_enabled` | `false` | Let the LLM rewrite the summary on `incident_detected` and `incident_escalated` notifications. The model can only read the incident's own evidence: its causal chain (`E#`), the results of the fixed read-only catalog probes run for it (`P#`, also readable with `get_probe_result`) and the deterministic causal-graph hypotheses (`H#`). It writes no SQL and has no database access. It answers with claims; each must cite evidence ids, and every number in a claim must appear in the evidence that claim cites. Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. `llm.enabled=false` is the hot kill switch and cancels narrations in flight |
+| `llm.optimizer_llm.enabled` | `false` | Dedicated optimizer model; adds a second client with its own `token_budget_daily` |
+| `advisor.enabled` | `true` | LLM configuration advisor (vacuum, WAL, connections, memory, rewrites, bloat) |
+| `tuner.llm_enabled` | `true` | Let the query tuner ask the LLM for pg_hint_plan hints (YAML only) |
+| `explain.enabled` | `true` | `POST /api/v1/explain`; adds an LLM narrative when an LLM is configured |
+| `rca.narration_enabled` | `true` | Let the LLM rewrite the summary on `incident_detected` and `incident_escalated` notifications. The model can only read the incident's own evidence: its causal chain (`E#`), the results of the fixed read-only catalog probes run for it (`P#`, also readable with `get_probe_result`) and the deterministic causal-graph hypotheses (`H#`). It writes no SQL and has no database access. It answers with claims; each must cite evidence ids, and every number in a claim must appear in the evidence that claim cites. Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. `llm.enabled=false` is the hot kill switch and cancels narrations in flight |
 
 ### Web UI and API Authentication
 

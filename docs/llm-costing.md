@@ -4,6 +4,18 @@ pg_sage uses LLM calls for five features. Each has independent controls to
 manage daily token spend. This guide covers token estimates, pricing, and
 recommended budgets.
 
+## Defaults
+
+LLM features are on by default (`llm.enabled`, `llm.optimizer.enabled`,
+`advisor.enabled`, `tuner.llm_enabled`, `rca.narration_enabled`, `explain.enabled`)
+but spend nothing until `llm.endpoint` and `llm.api_key` are set. Once they are,
+`llm.token_budget_daily` (default 500,000 tokens) caps the general client's daily
+spend; when it is exhausted every feature falls back to its deterministic path until
+the next UTC day. `llm.optimizer_llm.enabled` defaults to `false`: turning it on adds a
+second client with its own `token_budget_daily`, so the combined ceiling doubles unless
+you lower one. To turn a feature off, set its switch to `false`; `llm.enabled: false`
+turns all of them off.
+
 ## Token-Consuming Features
 
 | Feature | Default Interval | Avg Tokens/Call | Calls/Day (default) | Daily Estimate |
