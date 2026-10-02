@@ -117,3 +117,21 @@ func TestRunwayConfig_KeysHaveDocTags(t *testing.T) {
 		}
 	}
 }
+
+// Nothing auto-detects disk capacity (runways report, finding 5): the
+// doc must say 0 is undeclared, not "auto-detect".
+func TestForecasterDiskCapacityDoc_SaysZeroIsUndeclared(t *testing.T) {
+	doc := collectDocTags(t, DefaultConfig())["forecaster.disk_capacity_bytes"]
+	if strings.Contains(strings.ToLower(doc), "auto-detect =") ||
+		strings.Contains(doc, "0 = auto-detect") {
+		t.Errorf("forecaster.disk_capacity_bytes doc promises auto-detection: %q", doc)
+	}
+	if !strings.Contains(doc, "0 = undeclared") || !strings.Contains(doc, "disk runway") {
+		t.Errorf("forecaster.disk_capacity_bytes doc = %q, want 0 = undeclared and the "+
+			"disk runway named", doc)
+	}
+	if DefaultConfig().Forecaster.DiskCapacityBytes != 0 {
+		t.Errorf("default disk capacity = %d, want 0 (undeclared)",
+			DefaultConfig().Forecaster.DiskCapacityBytes)
+	}
+}
