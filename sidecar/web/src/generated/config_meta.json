@@ -1133,6 +1133,56 @@
     "default": 0,
     "doc": "How often to run the full schema lint scan. Default: 60."
   },
+  "sre.actions.approval_ttl_minutes": {
+    "type": "int",
+    "default": 15,
+    "doc": "Minutes an action approval request stays open before it expires, 1-60. Default: 15."
+  },
+  "sre.actions.chatops_tolerance_seconds": {
+    "type": "int",
+    "default": 300,
+    "doc": "Maximum age (and clock skew) of a signed Slack approval callback, 30-900 seconds. Default: 300."
+  },
+  "sre.actions.max_evidence_age_seconds": {
+    "type": "int",
+    "default": 5,
+    "doc": "Oldest target identity evidence an approved cancel may act on, 1-5 seconds (5 is the ceiling). Default: 5."
+  },
+  "sre.actions.proposals": {
+    "type": "bool",
+    "default": true,
+    "doc": "Propose an evidence-matched cancel when an investigation's root is one active blocking backend. Proposals never execute by themselves. Default: true."
+  },
+  "sre.actions.protected_applications": {
+    "type": "[]string",
+    "default": null,
+    "doc": "application_name values whose sessions are never proposed for or signalled by an action (exact names)."
+  },
+  "sre.actions.protected_roles": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Database roles whose sessions are never proposed for or signalled by an action (exact names)."
+  },
+  "sre.actions.recovery_deadline_minutes": {
+    "type": "int",
+    "default": 30,
+    "doc": "Minutes after an action before an unproven recovery is reported inconclusive, 1-240. Default: 30."
+  },
+  "sre.actions.recovery_sample_seconds": {
+    "type": "int",
+    "default": 40,
+    "doc": "Seconds between recovery samples after an action, 1-300. Default: 40."
+  },
+  "sre.actions.recovery_samples": {
+    "type": "int",
+    "default": 3,
+    "doc": "Fresh samples a recovery verdict needs, 3-20. Default: 3."
+  },
+  "sre.actions.request_approval": {
+    "type": "bool",
+    "default": true,
+    "doc": "Queue an approved-to-run proposal in the approval queue and send it to ChatOps channels at once. Default: true."
+  },
   "sre.automatic_start": {
     "type": "bool",
     "default": false,

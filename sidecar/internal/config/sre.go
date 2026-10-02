@@ -18,6 +18,8 @@ type SREConfig struct {
 	TimelineRetentionDays  int  `yaml:"timeline_retention_days" doc:"Days a finished, unpinned investigation is kept at all, leaving a tombstone. evidence_retention_days to 3650. Pinned and running ones are kept. Default: 90."`
 	// LLM is the model turn (M3).
 	LLM SRELLMConfig `yaml:"llm"`
+	// Actions are approved, evidence-matched actions (M5).
+	Actions SREActionsConfig `yaml:"actions"`
 }
 
 // SRELLMConfig configures the investigator's model turn: with an LLM
@@ -43,7 +45,8 @@ func defaultSREConfig() SREConfig {
 		SampleIntervalSeconds: DefaultSRESampleIntervalSeconds,
 		EvidenceRetentionDays: DefaultSREEvidenceRetentionDays,
 		TimelineRetentionDays: DefaultSRETimelineRetentionDays,
-		LLM:                   SRELLMConfig{Enabled: true}}
+		LLM:                   SRELLMConfig{Enabled: true},
+		Actions:               defaultSREActionsConfig()}
 }
 
 // TriggerInterval is the coordinator poll period.
@@ -87,6 +90,9 @@ func (s SREConfig) validate() error {
 			"sre.timeline_retention_days (%d) must be at least "+
 				"sre.evidence_retention_days (%d)", s.TimelineRetentionDays,
 			s.EvidenceRetentionDays)},
+	}
+	if err := s.Actions.validate(); err != nil {
+		return err
 	}
 	for _, c := range checks {
 		if !c.ok {
