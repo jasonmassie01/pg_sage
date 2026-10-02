@@ -48,6 +48,7 @@ type ModelTap struct {
 	upstream string
 	srv      *httptest.Server
 	client   *http.Client
+	pace     *pacer // nil: unpaced
 
 	mu      sync.Mutex
 	usage   TapUsage
@@ -89,6 +90,10 @@ func (t *ModelTap) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	t.record(body)
 	if err != nil {
 		t.fail(w, http.StatusBadRequest)
+		return
+	}
+	if err := t.pace.wait(r.Context()); err != nil {
+		t.fail(w, http.StatusServiceUnavailable)
 		return
 	}
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, t.upstream+r.URL.Path,

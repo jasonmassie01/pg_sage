@@ -25,6 +25,10 @@ type LLMConfig struct {
 	URL    string `json:"-"`
 	Model  string `json:"model,omitempty"`
 	APIKey string `json:"-"`
+	// RPM caps the live model's calls per minute (0: unpaced); pace is
+	// the pacer every run of the arm shares.
+	RPM  int    `json:"rpm,omitempty"`
+	pace *pacer `json:"-"`
 }
 
 // LLMConfigFromEnv reads the LLM-on arm's model: the fake model when no
@@ -34,10 +38,14 @@ func LLMConfigFromEnv(getenv func(string) string) (LLMConfig, error) {
 	raw := strings.TrimSpace(getenv(EnvLLMURL))
 	model := strings.TrimSpace(getenv(EnvLLMModel))
 	key := strings.TrimSpace(getenv(EnvLLMKey))
+	rpm, err := parseRPM(getenv(EnvLLMRPM))
+	if err != nil {
+		return LLMConfig{}, err
+	}
 	if raw == "" {
-		if model != "" || key != "" {
-			return LLMConfig{}, fmt.Errorf("%s and %s need %s (an OpenAI-compatible "+
-				"endpoint)", EnvLLMModel, EnvLLMKey, EnvLLMURL)
+		if model != "" || key != "" || rpm != 0 {
+			return LLMConfig{}, fmt.Errorf("%s, %s and %s need %s (an OpenAI-compatible "+
+				"endpoint)", EnvLLMModel, EnvLLMKey, EnvLLMRPM, EnvLLMURL)
 		}
 		return LLMConfig{Mode: LLMFake}, nil
 	}
@@ -53,7 +61,11 @@ func LLMConfigFromEnv(getenv func(string) string) (LLMConfig, error) {
 		return LLMConfig{}, fmt.Errorf("%s must not carry credentials; put the key in %s",
 			EnvLLMURL, EnvLLMKey)
 	}
-	return LLMConfig{Mode: LLMLive, URL: raw, Model: model, APIKey: key}, nil
+	c := LLMConfig{Mode: LLMLive, URL: raw, Model: model, APIKey: key, RPM: rpm}
+	if rpm > 0 {
+		c.pace = newPacer(rpm)
+	}
+	return c, nil
 }
 
 // String names the model without the key.

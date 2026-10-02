@@ -29,6 +29,7 @@ func (a LLMArm) tappedClient(sc Scenario) (*llm.Client, *ModelTap, func(), error
 		upstream, model, key, stop = fake.URL(), FakeModelName, "fake", fake.Close
 	}
 	tap := NewModelTap(upstream)
+	tap.pace = a.Config.pace
 	cfg := config.LLMConfig{Enabled: true, TimeoutSeconds: benchLLMTimeoutSeconds,
 		TokenBudgetDaily: benchLLMDailyTokens, Endpoint: tap.URL(), Model: model,
 		APIKey: key}

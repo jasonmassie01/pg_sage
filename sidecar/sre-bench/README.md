@@ -25,6 +25,7 @@ SAGE_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?ssl
 | `PG_SAGE_BENCH_LLM_URL` | unset | OpenAI-compatible endpoint for the LLM-on arm (opt-in). If unset, the LLM-on arm uses the deterministic fake model. |
 | `PG_SAGE_BENCH_LLM_MODEL` | unset | Model name. Required when the URL is set. |
 | `PG_SAGE_BENCH_LLM_KEY` | unset | API key. Optional, because local models need none. The key is never written to the report. |
+| `PG_SAGE_BENCH_LLM_RPM` | unset | At most this many live model calls per minute (1 to 6000), across every run of the LLM-on arm. Set it to the provider's rate limit: unpaced, the replay corpus sends its calls back to back. |
 
 The LLM-on arm (fault programs and replay) talks to its model through an
 in-process model tap. The tap forwards each request unchanged and records the
