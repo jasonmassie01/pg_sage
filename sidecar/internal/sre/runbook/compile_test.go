@@ -208,8 +208,11 @@ func TestCompile_AcceptsJSONContent(t *testing.T) {
 }
 
 func TestCompile_OneRepairTurnNamesTheProblem(t *testing.T) {
-	bad := strings.Replace(compact(t, lockRunbookJSON), `"long_transactions","next"`,
-		`"pg_terminate_everything","next"`, 1)
+	bad := strings.Replace(compact(t, lockRunbookJSON), `"probe":"long_transactions"`,
+		`"probe":"pg_terminate_everything"`, 1)
+	if !strings.Contains(bad, "pg_terminate_everything") {
+		t.Fatal("the invalid fixture did not apply")
+	}
 	cases := map[string]struct {
 		first  func(http.ResponseWriter)
 		reason string
@@ -245,8 +248,11 @@ func TestCompile_OneRepairTurnNamesTheProblem(t *testing.T) {
 }
 
 func TestCompile_RejectsAfterTheRepairTurn(t *testing.T) {
-	bad := strings.Replace(compact(t, lockRunbookJSON), `"long_transactions","next"`,
-		`"pg_terminate_everything","next"`, 1)
+	bad := strings.Replace(compact(t, lockRunbookJSON), `"probe":"long_transactions"`,
+		`"probe":"pg_terminate_everything"`, 1)
+	if !strings.Contains(bad, "pg_terminate_everything") {
+		t.Fatal("the invalid fixture did not apply")
+	}
 	unknownField := strings.Replace(compact(t, lockRunbookJSON), `"start"`,
 		`"sql":"DROP TABLE x","start"`, 1)
 	cases := map[string]struct {
