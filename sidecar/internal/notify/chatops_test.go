@@ -40,6 +40,7 @@ func (c *capture) server(t *testing.T) *httptest.Server {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		c.path = r.URL.Path
+		c.body = nil
 		_ = json.Unmarshal(raw, &c.body)
 		code := c.code
 		if code == 0 {
