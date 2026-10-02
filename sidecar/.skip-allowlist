@@ -11,7 +11,7 @@ internal/azure TestAzureLiveRestartBoundParameter # live cloud, PG_SAGE_LIVE_AZU
 
 # Live LLM calls: need a provider key and spend quota.
 internal/rca TestTier2Live_.* # live LLM, PG_SAGE_LIVE_LLM=1 opt-in
-internal/llm TestChatWithToolsLive_.* # live LLM, PG_SAGE_LIVE_LLM=1 opt-in
+internal/llm TestChat(WithTools)?Live_.* # live LLM, PG_SAGE_LIVE_LLM=1 opt-in
 e2e TestLLM.* # live LLM, SAGE_LLM_API_KEY opt-in
 e2e TestTunerLLM_.* # live LLM, SAGE_LLM_API_KEY opt-in
 e2e TestOptimizerMultiQueryConsolidation # live LLM, SAGE_LLM_API_KEY opt-in
