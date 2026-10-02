@@ -1,6 +1,24 @@
 # Changelog
 
-## Unreleased
+## v1.8.1 (2026-10-02) -- Fast trust, big-catalog fixes from dogfooding, current OpenAI models
+
+### What's new
+
+- **Works with current OpenAI models.** gpt-5/gpt-6 models (including the low-cost
+  gpt-6-luna) now work for every LLM feature; pg_sage adapts the request shape automatically.
+- **Trust in hours, not weeks, when you ask for it.** Every trust timer and promotion
+  threshold is a setting with the spec value as default, for dogfood and test databases.
+  Irreversible actions, L4 and admin approval stay hard limits.
+- **Safe on big, messy databases.** Found by running pg_sage on a real 18 GB database:
+  catalog collection, forecasting and sequence runways stay bounded on tens of thousands of
+  objects; stale and duplicate incidents clean themselves up; indexes the application keeps
+  recreating are left alone; long-stale rollback monitors expire instead of acting.
+- **Sage SRE follow-ups.** Detector episodes become incidents, PgBouncer pool exhaustion is
+  diagnosed, failovers between or before samples are caught (`causal-v4`), and fleet
+  databases can be added, removed or changed without a restart.
+- **One locked path for every change.** Retention deletes run through the executor with
+  leases and verification; operator actions lock the exact object; `serialize_mode: queue`
+  really queues.
 
 ### Added
 
