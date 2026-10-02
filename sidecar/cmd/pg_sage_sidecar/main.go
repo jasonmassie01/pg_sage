@@ -308,6 +308,7 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 	}
 	// After persisted overrides: the notice describes the effective window.
 	noticeWindowMeaningChange(cfg.Trust.MaintenanceWindow, logWarn)
+	noticeLLMSetup(cfg, logInfo)
 	configController = config.NewConfigControllerAtGeneration(
 		cfg, generation, nil, newTrustPolicyOwner(),
 	)
