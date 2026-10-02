@@ -119,6 +119,9 @@ func (e *Engine) setObjectives(objs []Objective) error {
 // Database is the display name of the engine's database.
 func (e *Engine) Database() string { return e.database }
 
+// Store is the engine's store.
+func (e *Engine) Store() *Store { return e.store }
+
 // Rules are the burn-rate rules in use.
 func (e *Engine) Rules() []Rule { return append([]Rule(nil), e.rules...) }
 
