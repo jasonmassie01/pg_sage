@@ -116,7 +116,7 @@ const viewer = { role: 'viewer', email: 'viewer@example.com' }
 describe('AutonomyPage', () => {
   beforeEach(() => {
     apiData = { view, history }
-    global.fetch = vi.fn(() => Promise.resolve({
+    globalThis.fetch = vi.fn(() => Promise.resolve({
       ok: true, status: 200, json: () => Promise.resolve({ ok: true }),
     }))
   })
@@ -163,8 +163,8 @@ describe('AutonomyPage', () => {
     fireEvent.change(screen.getByLabelText(/approval note/i),
       { target: { value: 'replay reviewed' } })
     fireEvent.click(screen.getByRole('button', { name: /approve/i }))
-    await waitFor(() => expect(global.fetch).toHaveBeenCalled())
-    const [url, opts] = global.fetch.mock.calls[0]
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled())
+    const [url, opts] = globalThis.fetch.mock.calls[0]
     expect(url).toBe('/api/v1/sre/autonomy/proposals/'
       + '11111111-1111-4111-8111-111111111111/approve?database=orders')
     expect(opts.method).toBe('POST')
@@ -180,8 +180,8 @@ describe('AutonomyPage', () => {
     fireEvent.change(within(row).getByLabelText(/reason/i),
       { target: { value: 'replica lag drill' } })
     fireEvent.click(within(row).getByRole('button', { name: /downgrade/i }))
-    await waitFor(() => expect(global.fetch).toHaveBeenCalled())
-    const [url, opts] = global.fetch.mock.calls[0]
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled())
+    const [url, opts] = globalThis.fetch.mock.calls[0]
     expect(url).toBe('/api/v1/sre/autonomy/downgrade?database=orders')
     expect(JSON.parse(opts.body)).toEqual({
       family: 'wal_retention', class: 'wal_bound', level: 'L0', reason: 'replica lag drill',
@@ -192,11 +192,11 @@ describe('AutonomyPage', () => {
     render(<AutonomyPage database="orders" user={operator} />)
     const row = screen.getByTestId('autonomy-row-wal_retention-wal_bound')
     fireEvent.click(within(row).getByRole('button', { name: /downgrade/i }))
-    expect(global.fetch).not.toHaveBeenCalled()
+    expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 
   it('surfaces a failed action', async () => {
-    global.fetch = vi.fn(() => Promise.resolve({
+    globalThis.fetch = vi.fn(() => Promise.resolve({
       ok: false, status: 409,
       json: () => Promise.resolve({
         error: 'promotion evidence is not met', code: 'evidence_not_met',
