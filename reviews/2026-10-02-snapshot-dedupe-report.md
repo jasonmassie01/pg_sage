@@ -414,6 +414,52 @@ It passes on PG17, PG14 and PG18.
 - `FirstSeen` and the oid map live in memory, as before. A sidecar restart restarts every
   clock, which is conservative.
 - A PG14 stats-collector message loss (UDP) is undetectable, as before.
-- The operator-approved drop path (`ExecuteManual`) is not gated. A human approved it
-  from the finding's evidence, which now states `unused_since` and `stats_epoch`. Gating
-  it too is a one-line change if wanted.
+- The operator-approved drop path (`ExecuteManual`) is gated too since section 10.
+
+## 10. Follow-up (coordinator decision): operator-approved drops re-check the evidence too
+
+A human approves an unused-index drop on the finding's evidence. A scan or a statistics
+reset after approval invalidates that evidence.
+
+`ExecuteManual` covers "Take action", approved queue items and durable approvals. It now
+runs the same live check as the autonomous path: the index exists exactly once, has zero
+scans, and no reset happened inside the unused window. The check runs before any ledger
+row is written.
+
+On refusal it returns `ErrUnusedEvidenceBroken`, mapped to HTTP 409 by
+`ManualExecuteStatus`. The message names the index and the failed check, and the API
+returns that message to the UI. For example:
+
+> unused-index evidence no longer holds for public.ev_a: statistics reset at
+> 2026-10-02T16:40:00Z, inside the 7-day unused window (the zero-scan count restarts at
+> the reset); not dropping it
+
+The other checks read "index was scanned (N scans)" and "index not found". A failed read
+also refuses. Duplicate-index drops are not gated.
+
+- **Commits.**
+  - `8e22ba9` (tests first).
+  - `2a7fdb8`: a test helper renamed. It clashed with an existing `indexExists` and the
+    package did not build; no assertion changed.
+  - `77a85b9` (implementation).
+- **Tests.** Real PG covers three refusals: scanned since approval, reset since approval,
+  and index gone. Each asserts the error, the 409 status and the message, and that no
+  `action_log` row is written and the index stays. A duplicate-index drop is not gated.
+  A unit test checks the 409 mapping.
+- **Mutation testing.** Two mutants (the gate unwired, the status not 409), both killed.
+- **Merge of origin/master (v1.8.1)** (`6c87fc9`). The `CHANGELOG.md` sections from
+  `## v1.8.1` down are byte-identical to master (checked programmatically). This branch's
+  two bullets sit under a fresh `## Unreleased`.
+- **Dashboard.** `internal/api/dist` was rebuilt (`41e2fb8`) because the bundled
+  `config_meta.json` gained `retention.sage_size_warning_pct`. Web tests: 249 of 249
+  passed.
+- **Test Results** (after the merge, `-race -p 2`):
+  - PG17, the 13 touched and merged packages (executor, analyzer, collector, snapstore,
+    api, schema, forecaster, retention, config, store, runway, rca, cmd/pg_sage_sidecar):
+    4,924 passed, 0 failed.
+  - PG14 and PG18, executor and api: 2,027 passed each, 0 failed, 0 skipped.
+  - The 2 PG17 skips are existing and outside this branch: rca's
+    `TestRCAChildProcessFixture`, which runs only as a child-process fixture, and
+    `TestTier2Live_RealGemini`, which needs `PG_SAGE_LIVE_LLM=1`.
+  - No data race. Coverage: executor 83.9%, analyzer 86.4%, api 76.2%.
+  - Lint: 0 issues.
