@@ -24,20 +24,27 @@ func (e *Executor) WithJustifier(j ActionJustifier) { e.justifier = j }
 const justifySystemPrompt = `You are a PostgreSQL DBA writing a concise audit ` +
 	`note. In 2-3 plain-English sentences, explain to an operator: why this ` +
 	`maintenance action was taken, its expected effect, and how it is reversed ` +
-	`if needed. Be specific and factual. Do not use markdown. Output only the note.`
+	`if needed. Be specific and factual. Do not use markdown. Output only the note. ` +
+	llm.UntrustedDataRule
 
 // buildJustificationPrompt builds the user prompt for a finding's action.
-// Pure and testable.
+// Object names, titles and reasons carry database or model-written text,
+// so every field but the internal category is delimited as untrusted data;
+// SQL is also comment-stripped and literal-redacted. Pure and testable.
 func buildJustificationPrompt(f analyzer.Finding) string {
 	rollback := f.RollbackSQL
 	if rollback == "" {
 		rollback = "(no rollback needed; action is idempotent/safe maintenance)"
 	}
 	return fmt.Sprintf(
-		"Action category: %s\nObject: %s\nFinding: %s\nReason: %s\n"+
-			"Executed SQL: %s\nRollback SQL: %s",
-		f.Category, f.ObjectIdentifier, f.Title, f.Recommendation,
-		f.RecommendedSQL, rollback)
+		"Action category: %s\nObject:\n%s\nFinding:\n%s\nReason:\n%s\n"+
+			"Executed SQL:\n%s\nRollback SQL:\n%s",
+		f.Category,
+		llm.UntrustedData("object", f.ObjectIdentifier),
+		llm.UntrustedData("finding", f.Title),
+		llm.UntrustedData("reason", f.Recommendation),
+		llm.SanitizePromptSQL("executed_sql", f.RecommendedSQL),
+		llm.SanitizePromptSQL("rollback_sql", rollback))
 }
 
 // justifyAndStore generates a justification for an executed action and
