@@ -9,8 +9,10 @@ package causal
 
 import "github.com/pg-sage/sidecar/internal/sre/probes"
 
-// GraphVersion pins the graph a diagnosis was produced with.
-const GraphVersion = "causal-v3"
+// GraphVersion pins the graph a diagnosis was produced with. v4 (after
+// v1.8.0 shipped v3) adds pool exhaustion at an external pooler and
+// refuses two-sample comparisons across a server identity change.
+const GraphVersion = "causal-v4"
 
 // NoRefutation marks a hypothesis without a discriminating probe.
 const NoRefutation = "none_available"
@@ -24,7 +26,8 @@ type Family string
 
 // Families modeled by the graph (v1: lock, plan; v2 adds connection
 // pressure, WAL retention and pg_sage's own changes; v3 adds the change
-// feed's recent changes (signals.go) and the M6 families (graph_m6.go)).
+// feed's recent changes (signals.go) and the M6 families (graph_m6.go);
+// v4 adds the pooler's node to connection pressure (pooler.go)).
 const (
 	FamilyLockBlocking   Family = "lock_blocking"
 	FamilyPlanRegression Family = "plan_regression"
