@@ -126,3 +126,26 @@ func maxScanRows(t *testing.T, raw string) float64 {
 	}
 	return walk(plans[0]["Plan"].(map[string]any))
 }
+
+// Post-test audit: with expression indexes admitted, every function in
+// the keys and the predicate is checked against pg_proc; a function with
+// no IMMUTABLE overload is rejected, immutable ones and keywords pass.
+func TestCheckExpressionVolatility_DB(t *testing.T) {
+	pool := connectTestDB(t)
+	defer pool.Close()
+	v := NewValidator(pool, fnTestOptimizerConfig(), noopLog)
+	for ddl, want := range map[string]bool{
+		"CREATE INDEX CONCURRENTLY i ON t ((lower(email)))":                              true,
+		"CREATE INDEX CONCURRENTLY i ON t (date_trunc('day', created_at))":               true,
+		"CREATE INDEX CONCURRENTLY i ON t (status) WHERE status IN ('a', 'b')":           true,
+		"CREATE INDEX CONCURRENTLY i ON t ((created_at > now()))":                        false,
+		"CREATE INDEX CONCURRENTLY i ON t (status) WHERE created_at > clock_timestamp()": false,
+		"CREATE INDEX CONCURRENTLY i ON t ((lower(email)), (random() > 0.5))":            false,
+		"CREATE INDEX CONCURRENTLY i ON t ((no_such_function_xyz(a)))":                   true,
+	} {
+		ok, reason := v.checkExpressionVolatility(context.Background(), Recommendation{DDL: ddl})
+		if ok != want {
+			t.Errorf("%s: ok=%t (%s), want %t", ddl, ok, reason, want)
+		}
+	}
+}
