@@ -12,7 +12,7 @@ import (
 
 var m6t0 = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 
-const mib = 1 << 20
+// mib (1 << 20) is declared in wal_test.go.
 
 func obsAt(ev string, id probes.ID, at time.Duration, rows ...probes.Row) Observation {
 	st := probes.StatusOK
