@@ -1181,11 +1181,17 @@ bare <code>$</code> preserved — <code>expandBracedEnv</code>, <code>config.go:
   tuner <code>MaxConcurrentAnalyze</code>.</li>
 <li><strong>Typed reload lifecycles</strong> (<code>lifecycle.go</code>, <code>controller.go</code>, <code>watcher.go</code>):
   <code>fsnotify</code> loads and validates a complete immutable candidate. The typed
-  registry classifies every YAML field as <code>live_policy</code>, <code>reconfigure</code>,
-  <code>restart</code>, or <code>lifecycle_api</code>. The controller atomically publishes adopted
-  fields, rebuilds registered runtime owners, and reports restart-bound fields
-  as pending. Unknown or unowned fields fail closed to restart. The generated
-  per-field reference is <code>docs/generated/config-lifecycles.md</code>.</li>
+  registry classifies every YAML field as <code>live_policy</code>, <code>reconfigure</code> or
+  <code>restart</code>. The controller atomically publishes adopted fields, rebuilds
+  registered runtime owners, and reports restart-bound fields as pending.
+  Unknown or unowned fields fail closed to restart. <code>databases</code> and
+  <code>defaults.*</code> belong to the <code>fleet_databases</code> owner (YAML fleet only,
+  <code>fleet_reload*.go</code>), which classifies each <code>databases[]</code> field
+  (<code>database_lifecycle.go</code>) and adds, removes, rebuilds or updates
+  per-database runtimes in one lifecycle reservation. Meta-db mode
+  reconciles <code>sage.databases</code> every 30 s (<code>meta_reconcile*.go</code>). Retired
+  runtimes drain through <code>Executor.Quiesce</code> before cancellation. The
+  generated per-field reference is <code>docs/generated/config-lifecycles.md</code>.</li>
 <li><strong>Env-expansion caveat</strong>: <code>overlayEnv</code> has a dead branch for
   <code>SAGE_RATE_LIMIT</code> that does nothing (<code>config.go:955-957</code>); the rate
   limit is actually resolved later in <code>RateLimit()</code> (<code>config.go:1042-1047</code>).</li>

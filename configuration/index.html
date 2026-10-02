@@ -601,6 +601,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#fast-elevation-dogfood-databases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fast elevation (dogfood databases)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#retention" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1067,6 +1078,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#fast-elevation-dogfood-databases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fast elevation (dogfood databases)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#retention" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1113,8 +1135,29 @@
 <p>The sidecar validates a complete candidate before publishing a YAML reload.
 Every field has a typed lifecycle: <code>live_policy</code> swaps an immutable policy
 snapshot, <code>reconfigure</code> tears down and rebuilds its named runtime owner, and
-<code>restart</code> remains pending until process restart. Fleet database records use
-their dedicated lifecycle API. In-flight work keeps its original snapshot.</p>
+<code>restart</code> remains pending until process restart. A <code>reconfigure</code> or
+<code>live_policy</code> field whose owner does not run in the current mode is treated
+as <code>restart</code>. In-flight work keeps its original snapshot.</p>
+<p><strong>Adding, removing and changing databases without a restart.</strong> In YAML fleet
+mode, editing <code>databases</code> (or <code>defaults</code>) in the watched config file is
+applied at once: a new entry starts a runtime, a removed entry is retired, a
+renamed entry is a removal plus an addition. Per-database <code>trust_level</code>,
+<code>execution_mode</code>, <code>executor_enabled</code> and <code>tags</code> apply in place to the running
+database; any other per-database change (connection, credentials, pool size,
+intervals, <code>llm_enabled</code>, <code>verify.io_capacity</code>) rebuilds only that database's
+runtime. A retired runtime first lets in-flight actions finish (up to 60
+seconds; new actions on it park and are retried by the next runtime), then
+stops its workers, Sage SRE investigator, executor and pool, and its metrics
+and LLM budget share disappear. A reload is all-or-nothing: an invalid file,
+an invalid per-database trust level or execution mode, or a changed database
+whose new connection fails is rejected and the running runtimes keep going
+(fix the file and save again). A newly added database that cannot connect is
+shown as failed, as at startup. Removing or reconnecting the control database
+(the first database that started, which holds logins and standing policy)
+still needs a restart. In meta-db mode <code>sage.databases</code> is the source of
+truth: the managed-database API applies changes immediately, and rows added,
+removed, disabled or changed by another replica or by SQL are picked up within
+30 seconds with the same rules.</p>
 <p>The generated <a href="../generated/config-lifecycles/">per-field lifecycle reference</a>
 is the authoritative list. Regenerate it from the typed registry with:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd</span><span class="w"> </span>sidecar
@@ -1364,6 +1407,16 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <td><code>trust.ramp_start</code></td>
 <td>(auto)</td>
 <td>Auto-persisted on first start; set to override</td>
+</tr>
+<tr>
+<td><code>trust.ramp_safe_hours</code></td>
+<td><code>192</code></td>
+<td>Hours after <code>ramp_start</code> before SAFE actions may run unattended (8 days), <code>1</code>-<code>8760</code>. Actions that cannot be rolled back always wait at least <code>192</code></td>
+</tr>
+<tr>
+<td><code>trust.ramp_moderate_hours</code></td>
+<td><code>744</code></td>
+<td>Hours after <code>ramp_start</code> before MODERATE actions may run unattended (31 days), <code>1</code>-<code>8760</code>, at least <code>ramp_safe_hours</code>. Actions that cannot be rolled back always wait at least <code>744</code></td>
 </tr>
 </tbody>
 </table>
@@ -1661,6 +1714,11 @@ standing policy's windows, evaluated as the policy gate does).</p>
 <td>Days of observation before the learned baseline can admit. <code>0</code> disables the learned baseline</td>
 </tr>
 <tr>
+<td><code>verify.io_baseline_hours</code></td>
+<td><code>0</code></td>
+<td>Hours of observation instead, <code>1</code>-<code>8760</code>. When set it takes precedence over <code>io_baseline_days</code> (even <code>0</code>). <code>0</code> uses <code>io_baseline_days</code>. See <a href="#fast-elevation-dogfood-databases">Fast elevation</a></td>
+</tr>
+<tr>
 <td><code>verify.io_sample_retention_days</code></td>
 <td><code>14</code></td>
 <td>Days of rate samples kept in <code>sage.io_rate_sample</code>; the rolling baseline covers this window. Must be at least <code>io_baseline_days</code></td>
@@ -1719,10 +1777,23 @@ explosions</strong>, <strong>replication lag</strong> and <strong>LWLock content
 incidents for "checkpoints are occurring too frequently", temp files, replication conflicts and
 replication lag (<code>replication_lag_increasing</code>), plus a deterministic detector that samples the
 database once per trigger poll (only while <code>sre.automatic_start</code> is on). The detector opens one
-investigation per episode, with conservative thresholds: 3 or more requested checkpoints
-within 5 minutes that outnumber timed ones; 1 GiB of temp files in this database within 5
-minutes; or 8 or more backends waiting on one modeled LWLock in 3 consecutive polls. After an
-episode ends, the same family waits 30 minutes before a new one. A checkpoint investigation
+episode at a time per family, with conservative default thresholds (<code>sre.detectors.*</code>, below):
+3 or more requested checkpoints within 5 minutes that outnumber timed ones; 1 GiB of temp
+files in this database within 5 minutes; or 8 or more backends waiting on one modeled LWLock
+in 3 consecutive polls. A new episode of a family waits 30 minutes after the previous one
+started.</p>
+<p>Each episode is an incident, like an RCA incident: a <code>warning</code> row in <code>sage.incidents</code>
+(signal <code>sre_checkpoint_storm</code>, <code>sre_temp_file_explosion</code> or <code>sre_lwlock_contention</code>) with the
+measurement and its threshold as evidence. It appears in the Cases panel, sends the usual
+incident notifications (detected, escalated, resolved) and links its investigation, which an
+operator can review for earned autonomy. One investigation per incident: a new episode while
+its incident is still open counts as another occurrence (the RCA engine escalates an incident
+after <code>rca.escalation_cycles</code> occurrences), and the incident resolves itself
+<code>rca.resolution_cycles</code> analyzer cycles after the episodes stop. An open RCA incident of the
+same family that already has at least warning severity (for example "checkpoints are occurring
+too frequently" from the logs) is used instead of a second incident. An incident an operator
+resolves is not reopened by the same episode. With <code>rca.enabled: false</code> there is no incident:
+the investigation keeps its own case (<code>sre:detector:&lt;family&gt;:&lt;database&gt;</code>). A checkpoint investigation
 compares samples 6 sample intervals apart (30 s by default). The live-temp-file probe needs
 <code>pg_monitor</code> (or superuser), and per-statement spills need <code>pg_stat_statements</code>. Without them,
 the investigation reports the evidence as unavailable instead of guessing. Standby-side
@@ -1794,6 +1865,36 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 <td><code>sre.llm.enabled</code></td>
 <td><code>true</code></td>
 <td>Model turn in investigations, used whenever an LLM is configured. <code>false</code> keeps investigations deterministic. Restart to change</td>
+</tr>
+<tr>
+<td><code>sre.detectors.window_seconds</code></td>
+<td><code>300</code></td>
+<td>Seconds over which checkpoint and temp-file growth is measured, <code>60</code>-<code>3600</code>. Keep it at least twice <code>sre.trigger_interval_seconds</code>; a shorter window cannot see growth between two polls, and the sidecar warns at startup</td>
+</tr>
+<tr>
+<td><code>sre.detectors.checkpoint_requested</code></td>
+<td><code>3</code></td>
+<td>Requested checkpoints within the window that are a checkpoint storm (they must also outnumber timed ones), <code>1</code>-<code>1000</code></td>
+</tr>
+<tr>
+<td><code>sre.detectors.temp_file_mb</code></td>
+<td><code>1024</code></td>
+<td>MiB of temp files this database writes within the window that are a temp-file explosion, <code>1</code>-<code>1048576</code></td>
+</tr>
+<tr>
+<td><code>sre.detectors.lwlock_waiters</code></td>
+<td><code>8</code></td>
+<td>Backends waiting on one modeled LWLock class that count as contention, <code>1</code>-<code>10000</code></td>
+</tr>
+<tr>
+<td><code>sre.detectors.lwlock_polls</code></td>
+<td><code>3</code></td>
+<td>Consecutive trigger polls the waiters must hold before an episode opens, <code>1</code>-<code>100</code></td>
+</tr>
+<tr>
+<td><code>sre.detectors.cooldown_minutes</code></td>
+<td><code>30</code></td>
+<td>Minutes after an episode starts before a new episode of the same family can open, <code>1</code>-<code>1440</code></td>
 </tr>
 </tbody>
 </table>
@@ -2149,7 +2250,10 @@ expires after <code>proposal_ttl_hours</code>. Promotion to L2 requires all of t
 </ul>
 <p>Promotion to L3 also needs a Safe Pass rate of at least 95%, and at least 95% on game days if
 any have run. It also needs at least 50 verified recoveries at L2, and the pair must never
-have had a harmful outcome. These thresholds are fixed.</p>
+have had a harmful outcome. These are the spec's thresholds and the defaults; the timing,
+volume and accuracy values can be lowered under <code>sre.autonomy.promotion</code> (see
+<a href="#fast-elevation-dogfood-databases">Fast elevation</a>). The report age (30 days) and the
+minimum bench run counts (10) are fixed.</p>
 <p><strong>Downgrade.</strong> At authorization time, any of the following caps an L2 or L3 pair at L1. The
 change is logged once per transition.</p>
 <ul>
@@ -2222,6 +2326,46 @@ any time.</p>
 <td>Hours a promotion proposal waits for an admin, <code>1</code>-<code>720</code></td>
 </tr>
 <tr>
+<td><code>sre.autonomy.report_retention_days</code></td>
+<td><code>90</code></td>
+<td>Days a stored bench or game-day report is kept after it was ingested, <code>30</code>-<code>3650</code>. Never deleted: a report that is the evidence of a current autonomy level or a pending promotion, and the newest report of each family (per source, and per database for game days). Pruned with the other retention rules, in the database that holds the ledger (the meta database when one is configured)</td>
+</tr>
+<tr>
+<td><code>sre.autonomy.promotion.shadow_window_hours</code></td>
+<td><code>720</code></td>
+<td>Hours of shadow reviews (from the first) a family needs for L2; reviewed and accepted packets are counted in this window. <code>1</code>-<code>8760</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.promotion.shadow_min_reviewed</code></td>
+<td><code>20</code></td>
+<td>Reviewed packets needed inside the shadow window for L2, <code>3</code>-<code>1000</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.promotion.shadow_min_accepted_pct</code></td>
+<td><code>95</code></td>
+<td>Operator-accepted share of reviewed packets for L2, <code>50</code>-<code>100</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.promotion.bench_min_top1_pct</code></td>
+<td><code>80</code></td>
+<td>PGIncidentBench top-1 on every gated arm for L2, <code>50</code>-<code>100</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.promotion.bench_min_precision_pct</code></td>
+<td><code>90</code></td>
+<td>PGIncidentBench factual (mechanism) precision on every gated arm for L2, <code>50</code>-<code>100</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.promotion.min_safe_pass_pct</code></td>
+<td><code>95</code></td>
+<td>Safe Pass on bench fault programs and game days for L3, <code>50</code>-<code>100</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.promotion.min_live_recoveries</code></td>
+<td><code>50</code></td>
+<td>Verified live L2 recoveries a pair needs for L3, <code>1</code>-<code>10000</code></td>
+</tr>
+<tr>
 <td><code>sre.autonomy.game_days.enabled</code></td>
 <td><code>false</code></td>
 <td>Run PGIncidentBench fault programs on a disposable clone</td>
@@ -2276,6 +2420,51 @@ failed verification or a regression above the limit.</p>
 </ul>
 <p>The UI page is <strong>Advanced &gt; Earned autonomy</strong>. With MCP enabled, agents get
 <code>sre_get_autonomy</code> and <code>sre_downgrade_autonomy</code>. There is no approval tool.</p>
+<h3 id="fast-elevation-dogfood-databases">Fast elevation (dogfood databases)<a class="headerlink" href="#fast-elevation-dogfood-databases" title="Permanent link">&para;</a></h3>
+<p>pg_sage earns trust before it acts, and by default that takes weeks: an 8-day ramp for SAFE
+actions, 31 days for MODERATE ones, a 7-day IO baseline before autonomous index builds, and a
+30-day shadow record and 50 verified recoveries before earned autonomy reaches L3. On a
+database you are dogfooding you can shorten all of it to hours. Every elevation setting is
+configurable, the spec value is the default, and each has a minimum: no setting accepts <code>0</code>
+to skip its check.</p>
+<p>Use this only where you accept the risk:</p>
+<!-- fast-elevation-profile:start -->
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">trust</span><span class="p">:</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">ramp_safe_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span><span class="w">              </span><span class="c1"># SAFE actions after 1 hour (spec: 192)</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">ramp_moderate_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">          </span><span class="c1"># MODERATE actions after 4 hours (spec: 744)</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nt">verify</span><span class="p">:</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="nt">io_baseline_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">            </span><span class="c1"># learned IO baseline after 2 hours (spec: 7 days)</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="nt">sre</span><span class="p">:</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span><span class="nt">autonomy</span><span class="p">:</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="nt">evaluate_interval_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">  </span><span class="c1"># propose promotions every 5 minutes (default: 60)</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="nt">promotion</span><span class="p">:</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">      </span><span class="nt">shadow_window_hours</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">      </span><span class="c1"># 4 hours of shadow reviews (spec: 720)</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">      </span><span class="nt">shadow_min_reviewed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 reviewed packets in that window (spec: 20)</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">      </span><span class="nt">min_live_recoveries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">      </span><span class="c1"># 3 verified L2 recoveries for L3 (spec: 50)</span>
+</code></pre></div>
+<!-- fast-elevation-profile:end -->
+
+<p>The profile lowers time and volume only. The accuracy bar stays at the spec: 80% top-1,
+90% precision, 95% accepted packets and 95% Safe Pass. Your own <code>trust.level</code>,
+<code>tier3_*</code>, execution mode and maintenance window still decide what may run at all.</p>
+<p>Some limits stay fixed and cannot be configured:
+- Actions that cannot be rolled back (<code>not_reversible</code>, <code>forward_fix_only</code>,
+  <code>application_rollback</code>, <code>mitigation_only</code>, <code>not_applicable</code> or undeclared) always wait
+  the full 8- or 31-day ramp, however short the configured ramp is.
+- Irreversible classes never go above L1, and L4 is never reached.
+- The emergency stop always wins, and the policy gate and your trust settings stay the
+  outer bound.
+- An admin still approves every promotion.
+- The downgrade signals still apply. A harmful outcome still demotes the family for
+  <code>safety_window_days</code>.</p>
+<p>Fast elevation is never silent. At startup the sidecar logs a <code>FAST ELEVATION</code> WARN line for
+each setting below the spec, including a shorter <code>io_baseline_days</code>, <code>safety_window_days</code>
+or <code>evaluate_interval_minutes</code>. The autonomy API returns them as <code>fast_elevation</code>, and
+<strong>Advanced &gt; Earned autonomy</strong> shows a "Fast elevation" badge that lists them. These keys
+are YAML-only and need a restart; the config API refuses them.</p>
+<p>To approve a promotion quickly, run <code>POST /api/v1/sre/autonomy/evaluate</code> as an operator,
+then <code>GET /api/v1/sre/autonomy/proposals</code> and <code>POST
+/api/v1/sre/autonomy/proposals/{id}/approve</code> as an admin.</p>
 <h3 id="retention">Retention<a class="headerlink" href="#retention" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
