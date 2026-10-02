@@ -227,6 +227,8 @@ type LLMConfig struct {
 	ContextBudgetTokens   int                  `yaml:"context_budget_tokens" doc:"Maximum tokens attached as context (schema, stats, plans) to a single LLM request. Prevents oversized prompts from busting the model context window."`
 	CooldownSeconds       int                  `yaml:"cooldown_seconds" doc:"Per-prompt dedup window and breaker cooldown: an identical request is not re-sent within this many seconds; after 3 provider failures calls pause this long. Not a global rate limit."`
 	JSONMode              bool                 `yaml:"json_mode" doc:"When true, requests structured JSON via response_format: json_object. Supported by OpenAI, Gemini (OpenAI-compat), Groq, Ollama. Off for providers that reject unknown fields."`
+	TokenParameter        string               `yaml:"token_parameter" doc:"Completion cap parameter: auto (max_tokens, switching per model to max_completion_tokens when the provider asks), max_tokens or max_completion_tokens. Default: auto."`
+	ToolReasoningEffort   string               `yaml:"tool_reasoning_effort" doc:"reasoning_effort sent with tool calls: auto (unset; none once a model rejects tools without it), none, low, medium, high, or omit (never sent). Default: auto."`
 	IndexOptimizer        IndexOptimizerConfig `yaml:"index_optimizer"` // Deprecated: use Optimizer.
 	Optimizer             OptimizerConfig      `yaml:"optimizer"`
 	OptimizerLLM          OptimizerLLMConfig   `yaml:"optimizer_llm"`
@@ -670,6 +672,9 @@ func (c *Config) validate() error {
 	if err := c.SRE.validate(); err != nil {
 		return err
 	}
+	if err := c.LLM.validateWire(); err != nil {
+		return err
+	}
 	if err := c.validateTrust(); err != nil {
 		return err
 	}
@@ -793,6 +798,8 @@ func newDefaults() *Config {
 			TokenBudgetDaily:    DefaultLLMTokenBudget,
 			ContextBudgetTokens: DefaultLLMContextBudget,
 			CooldownSeconds:     DefaultLLMCooldownSeconds,
+			TokenParameter:      DefaultLLMTokenParameter,
+			ToolReasoningEffort: DefaultLLMToolReasoningEffort,
 			IndexOptimizer: IndexOptimizerConfig{
 				Enabled:            DefaultIdxOptEnabled,
 				MinQueryCalls:      DefaultIdxOptMinQueryCalls,

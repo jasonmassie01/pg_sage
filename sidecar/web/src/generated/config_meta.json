@@ -755,6 +755,16 @@
     "default": 500000,
     "doc": "Soft daily cap on total tokens (input + output) the sidecar will spend on LLM requests. Once exceeded the LLM is skipped until the next UTC day."
   },
+  "llm.token_parameter": {
+    "type": "string",
+    "default": "auto",
+    "doc": "Completion cap parameter: auto (max_tokens, switching per model to max_completion_tokens when the provider asks), max_tokens or max_completion_tokens. Default: auto."
+  },
+  "llm.tool_reasoning_effort": {
+    "type": "string",
+    "default": "auto",
+    "doc": "reasoning_effort sent with tool calls: auto (unset; none once a model rejects tools without it), none, low, medium, high, or omit (never sent). Default: auto."
+  },
   "logwatch.dedup_window_seconds": {
     "type": "int",
     "default": 60,

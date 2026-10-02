@@ -2,6 +2,7 @@ package llm
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 )
 
@@ -34,16 +35,16 @@ func UnwrapText(raw string) string {
 }
 
 // thinkingModelMarkers identify models whose internal reasoning tokens
-// consume the max_tokens output budget: Gemini 2.5+/3, OpenAI o-series,
-// DeepSeek R1/reasoner and Qwen QwQ.
+// consume the max_tokens output budget: Gemini 2.5+/3, DeepSeek
+// R1/reasoner and Qwen QwQ. OpenAI's are matched in isThinkingModel.
 var thinkingModelMarkers = []string{
 	"gemini-2.5", "gemini-3", "gemini-2.0-flash-thinking",
 	"deepseek-r1", "deepseek-reasoner", "qwq", "reasoning", "thinking",
 }
 
 // IsThinkingModel reports a model whose internal reasoning tokens
-// consume the max_tokens output budget (Gemini 2.5+/3, OpenAI o-series,
-// DeepSeek R1, QwQ). Callers budget its reasoning separately.
+// consume the max_tokens output budget (Gemini 2.5+/3, OpenAI o-series
+// and gpt-5+, DeepSeek R1, QwQ). Callers budget its reasoning separately.
 func IsThinkingModel(model string) bool { return isThinkingModel(model) }
 
 // ThinkingModel reports whether the client's configured model is a
@@ -69,8 +70,16 @@ func isThinkingModel(model string) bool {
 	if i := strings.LastIndex(m, "/"); i >= 0 {
 		m = m[i+1:]
 	}
-	return len(m) >= 2 && m[0] == 'o' && m[1] >= '1' && m[1] <= '9'
+	if len(m) >= 2 && m[0] == 'o' && m[1] >= '1' && m[1] <= '9' {
+		return true
+	}
+	// OpenAI gpt-5 and later reason in plain chat too; their "-chat"
+	// aliases are the non-reasoning models.
+	return openAIReasoningFamily.MatchString(m) && !strings.Contains(m, "-chat")
 }
+
+// openAIReasoningFamily matches gpt-5, gpt-5.1, gpt-6-luna, gpt-12, ...
+var openAIReasoningFamily = regexp.MustCompile(`^gpt-([5-9]|[1-9][0-9])([.-]|$)`)
 
 // RepairTruncatedJSON attempts to salvage a truncated JSON array by
 // cutting after the last complete top-level element and closing the

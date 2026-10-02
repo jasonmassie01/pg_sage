@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+### Added
+
 - **pg_sage keeps working on databases with huge catalogs and cleans up after itself (dogfood
   on a real database with 12,000 sequences and 35,000 indexes).** Sequence runways are measured
   again (the probe now takes about 200 ms instead of timing out), the collector and forecaster
@@ -11,6 +13,15 @@
   application keeps recreating are left alone and reported instead of dropped again, copies of
   one schema are reported once, a monitor resumed months later no longer rolls anything back,
   and expected policy refusals are no longer logged as errors.
+
+### Fixed
+
+- **pg_sage works with current OpenAI models (gpt-5, gpt-6 and later).** These models
+  refuse `max_tokens`, and refuse tool calls unless `reasoning_effort` is `none`, so every
+  LLM feature used to fall back to its deterministic path. pg_sage now notices the refusal,
+  re-sends the request once in the shape the model wants, and remembers it for that model.
+  Other providers, Gemini included, see no change. Two new settings pin the shape if you
+  need to: `llm.token_parameter` and `llm.tool_reasoning_effort` (both default `auto`).
 
 ## v1.8.0 (2026-10-02) -- Sage SRE: eleven incident families, approved actions, earned autonomy
 
