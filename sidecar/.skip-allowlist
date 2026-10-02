@@ -31,3 +31,6 @@ internal/autoexplain TestCaptureOnDemand_(ParameterizedUsesGenericPlan|Normalize
 internal/optimizer TestGenericPlanCapturesUnboundParameters # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/tuner TestFunctional_Coverage_DB_HintPlanSQLUsesQueryIDSchema|TestHintRemovalFindings_RetiredAndBrokenOnly # query_id hint table is pg_hint_plan 1.7+ (PG17+)
 test/hint_verify TestHint_HintTableIntegration # query_id hint table is pg_hint_plan 1.7+ (PG17+)
+
+# PGIncidentBench runs in its own CI step (SAGE_BENCH_RUN=1), not inside ./... suites.
+sre-bench TestPGIncidentBench # dedicated "PGIncidentBench" CI step sets SAGE_BENCH_RUN=1

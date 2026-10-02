@@ -704,8 +704,10 @@ func TestHint_HintTableIntegration(t *testing.T) {
 		t.Fatalf("SET enable_hint_table: %v", err)
 	}
 
-	// Reset stats and run query to capture queryid
-	conn.Exec(ctx, "SELECT pg_stat_statements_reset()")
+	// Reset this database's stats (not the cluster's: other test packages
+	// share the server) and run the query to capture its queryid.
+	conn.Exec(ctx, `SELECT pg_stat_statements_reset(0,
+		(SELECT oid FROM pg_database WHERE datname = current_database()), 0)`)
 
 	query := `SELECT * FROM orders WHERE status = 'shipped'`
 	conn.Exec(ctx, query)

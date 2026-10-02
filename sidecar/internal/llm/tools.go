@@ -74,6 +74,11 @@ type ToolOptions struct {
 	// completion cap before provider I/O, in addition to the client's
 	// daily and per-database budgets.
 	Budget Budgeter
+	// ReasoningTokens is an explicit reasoning allowance for thinking
+	// models: max_tokens is the completion cap plus this allowance instead
+	// of the default 16384 reserve. 0 keeps the default; non-thinking
+	// models never get a reasoning reserve.
+	ReasoningTokens int
 }
 
 // ToolResult is the model's reply: final content, tool calls, or both.
@@ -82,6 +87,11 @@ type ToolResult struct {
 	ToolCalls    []ToolCall
 	Tokens       int
 	FinishReason string
+	// The provider's usage breakdown, as reported (0 when not reported):
+	// prompt, completion and reasoning (completion_tokens_details) tokens.
+	PromptTokens     int
+	CompletionTokens int
+	ReasoningTokens  int
 }
 
 var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -140,8 +150,8 @@ func validateToolRequest(
 		return fmt.Errorf("%w: unknown tool_choice %q",
 			ErrInvalidToolRequest, opts.ToolChoice)
 	}
-	if opts.MaxTokens < 0 || opts.Timeout < 0 {
-		return fmt.Errorf("%w: negative max_tokens or timeout",
+	if opts.MaxTokens < 0 || opts.Timeout < 0 || opts.ReasoningTokens < 0 {
+		return fmt.Errorf("%w: negative max_tokens, timeout or reasoning tokens",
 			ErrInvalidToolRequest)
 	}
 	return nil

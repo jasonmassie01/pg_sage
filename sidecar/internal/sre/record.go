@@ -70,6 +70,12 @@ type Summary struct {
 	Root         string            `json:"root,omitempty"`
 	Observed     []Fact            `json:"observed,omitempty"`
 	Missing      []MissingEvidence `json:"missing,omitempty"`
+	// Model output (M3), stored beside the deterministic diagnosis and
+	// never merged into it: the model's ranking of the graph's open
+	// hypotheses, its cited narrative and the one probe it asked for.
+	ModelRanking *ModelRanking `json:"model_ranking,omitempty"`
+	Narrative    *Narrative    `json:"narrative,omitempty"`
+	ModelProbe   *ModelProbe   `json:"model_probe,omitempty"`
 }
 
 // Conclusion ends an investigation run: concluded (a supported root
@@ -91,6 +97,11 @@ const (
 	EventPinned         = "pinned"
 	EventUnpinned       = "unpinned"
 	EventEvidencePurged = "evidence_purged"
+	// M3 model turn: an accepted review, a fallback to the deterministic
+	// result (with its reason) and a disagreement with a conclusive graph.
+	EventModelReviewed  = "model_reviewed"
+	EventModelRejected  = "model_rejected"
+	EventModelDisagreed = "model_disagreed"
 )
 
 // Event is one link of an investigation's hash chain.

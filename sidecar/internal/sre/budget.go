@@ -21,9 +21,10 @@ type CallBudget struct {
 
 var _ llm.Budgeter = (*CallBudget)(nil)
 
-// NewCallBudget bounds one call by a reservation's input+output tokens.
+// NewCallBudget bounds one call by a reservation's input, answer and
+// reasoning tokens.
 func NewCallBudget(res Reservation) *CallBudget {
-	return &CallBudget{limit: res.Input + res.Output}
+	return &CallBudget{limit: res.Input + res.Output + res.Reasoning}
 }
 
 // CanSpend reports whether tokens fit in what remains.
@@ -58,6 +59,7 @@ type ModelTurn struct {
 	Options    llm.ToolOptions
 	Input      int64 // tokens reserved for the prompt
 	Output     int64 // tokens reserved for the completion (caps MaxTokens)
+	Reasoning  int64 // reasoning allowance of a thinking model (0 otherwise)
 	RequestKey string
 }
 
@@ -78,7 +80,7 @@ func RunModelTurn(ctx context.Context, st ModelStore, lease Lease, client *llm.C
 		return TurnOutcome{}, llm.ErrLLMDisabled
 	}
 	res, err := st.ReserveModel(ctx, lease, TokenRequest{Input: turn.Input,
-		Output: turn.Output, RequestKey: turn.RequestKey})
+		Output: turn.Output, Reasoning: turn.Reasoning, RequestKey: turn.RequestKey})
 	if err != nil {
 		return TurnOutcome{}, err
 	}
@@ -91,6 +93,7 @@ func RunModelTurn(ctx context.Context, st ModelStore, lease Lease, client *llm.C
 	if opts.MaxTokens <= 0 || int64(opts.MaxTokens) > res.Output {
 		opts.MaxTokens = int(res.Output)
 	}
+	opts.ReasoningTokens = int(res.Reasoning)
 	result, callErr := client.ChatWithTools(ctx, turn.Messages, turn.Tools, opts)
 	settled, settleErr := st.SettleModel(context.WithoutCancel(ctx), lease.Scope, res,
 		usageOf(budget, result, callErr, res))
@@ -105,9 +108,32 @@ func usageOf(b *CallBudget, r llm.ToolResult, err error, res Reservation) Usage 
 	case !b.Dispatched(), errors.Is(err, llm.ErrRateLimited):
 		return Usage{Known: true}
 	case r.Tokens > 0:
-		in := min(int64(r.Tokens), res.Input)
-		return Usage{Input: in, Output: int64(r.Tokens) - in, Known: true}
+		return splitUsage(r, res)
 	default:
 		return Usage{}
 	}
+}
+
+// splitUsage records the reported total as input, answer and reasoning:
+// the provider's breakdown when it gave one (prompt tokens, reasoning
+// tokens, or a total above prompt + completion, as Gemini reports
+// thoughts), otherwise the reservation's shape. Reasoning over the
+// allowance is recorded as reported.
+func splitUsage(r llm.ToolResult, res Reservation) Usage {
+	total := int64(r.Tokens)
+	in := min(total, res.Input)
+	if r.PromptTokens > 0 {
+		in = min(total, int64(r.PromptTokens))
+	}
+	rest := total - in
+	var reasoning int64
+	switch {
+	case r.ReasoningTokens > 0:
+		reasoning = min(rest, int64(r.ReasoningTokens))
+	case r.PromptTokens > 0 && r.CompletionTokens > 0:
+		reasoning = max(0, rest-int64(r.CompletionTokens))
+	default:
+		reasoning = max(0, rest-res.Output)
+	}
+	return Usage{Input: in, Output: rest - reasoning, Reasoning: reasoning, Known: true}
 }

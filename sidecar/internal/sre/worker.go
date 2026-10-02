@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/sre/causal"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
@@ -61,7 +62,31 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 	if err != nil {
 		return c.fail(ctx, lease, "unreadable_evidence", err.Error())
 	}
-	_, err = c.store.Conclude(ctx, lease, conclusionOf(diagnose(inv, obs)))
+	lease, d, model, err := c.consultModel(ctx, lease, inv, diagnose(inv, obs), evidence)
+	if err != nil {
+		return err
+	}
+	return c.conclude(ctx, lease, d, model)
+}
+
+// conclude persists the diagnosis with the model output beside it. If
+// the store refuses the model output, the deterministic conclusion is
+// persisted instead: the model never fails an investigation.
+func (c *Coordinator) conclude(ctx context.Context, lease Lease, d causal.Diagnosis,
+	model modelOutcome) error {
+	conclusion := conclusionOf(d)
+	model.apply(&conclusion.Summary)
+	_, err := c.store.Conclude(ctx, lease, conclusion)
+	if errors.Is(err, ErrInvalidRequest) && !model.empty() {
+		c.logFn("WARN", "sre: investigation %s: model output refused at conclusion: %v",
+			lease.InvestigationID, err)
+		if rerr := c.store.RecordEvent(ctx, lease, EventModelRejected, map[string]any{
+			"reason": RejectConclusion, "stage": stageVerify,
+			"detail": truncateRunes(err.Error(), 300)}); rerr != nil {
+			return rerr
+		}
+		_, err = c.store.Conclude(ctx, lease, conclusionOf(d))
+	}
 	if errors.Is(err, ErrInvalidRequest) {
 		return c.fail(ctx, lease, "invalid_conclusion", err.Error())
 	}
@@ -105,8 +130,10 @@ func (c *Coordinator) collect(ctx context.Context, lease Lease, inv Investigatio
 		state = committed.State
 	}
 	if state != StateEvaluating {
-		_, err = c.store.CommitStep(ctx, lease, StepResult{IdempotencyKey: "evaluate",
-			NextState: StateEvaluating})
+		// Keyed per claim: a resumed run (one that may already have moved
+		// to evaluating and then needed more evidence) moves again.
+		_, err = c.store.CommitStep(ctx, lease, StepResult{NextState: StateEvaluating,
+			IdempotencyKey: fmt.Sprintf("evaluate-f%d", lease.Fence)})
 	}
 	return lease, err
 }

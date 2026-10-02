@@ -91,3 +91,50 @@ func TestSREConfig_KeysHaveDocTags(t *testing.T) {
 		}
 	}
 }
+
+// Sage SRE M3: the model turn (sre.llm.enabled) is on by default; it is
+// used only when an LLM is configured, and false turns it off.
+func TestSRELLM_DefaultsOn(t *testing.T) {
+	chdirTemp(t)
+	cfg, err := Load(nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.SRE.LLM.Enabled || !DefaultConfig().SRE.LLM.Enabled {
+		t.Fatalf("sre.llm.enabled default = %v, want true", cfg.SRE.LLM.Enabled)
+	}
+	partial, err := loadRCAYAML(t, "sre:\n  automatic_start: true\n")
+	if err != nil || !partial.SRE.LLM.Enabled {
+		t.Fatalf("a partial sre section turned the model off: %+v (%v)", partial, err)
+	}
+	empty, err := loadRCAYAML(t, "sre:\n  llm: {}\n")
+	if err != nil || !empty.SRE.LLM.Enabled {
+		t.Fatalf("an empty sre.llm section turned the model off: %+v (%v)", empty, err)
+	}
+}
+
+func TestSRELLM_ExplicitValues(t *testing.T) {
+	off, err := loadRCAYAML(t, "sre:\n  llm:\n    enabled: false\n")
+	if err != nil || off.SRE.LLM.Enabled {
+		t.Fatalf("enabled: false = %+v (%v)", off.SRE.LLM, err)
+	}
+	on, err := loadRCAYAML(t, "sre:\n  llm:\n    enabled: true\n")
+	if err != nil || !on.SRE.LLM.Enabled {
+		t.Fatalf("enabled: true = %+v (%v)", on.SRE.LLM, err)
+	}
+	for _, bad := range []string{"sre:\n  llm:\n    enabld: false\n",
+		"sre:\n  llm:\n    enabled: maybe\n", "sre:\n  llm: false\n"} {
+		if _, err := loadRCAYAML(t, bad); err == nil {
+			t.Errorf("accepted invalid sre.llm config %q", bad)
+		}
+	}
+}
+
+func TestSRELLM_DocTagSaysOnByDefault(t *testing.T) {
+	doc := collectDocTags(t, DefaultConfig())["sre.llm.enabled"]
+	for _, want := range []string{"Default: true", "false"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("sre.llm.enabled doc %q lacks %q", doc, want)
+		}
+	}
+}

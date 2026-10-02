@@ -4,6 +4,24 @@
 
 ### Added
 
+- **Sage SRE investigations get a model turn (on by default whenever an LLM is
+  configured).** After the causal graph diagnoses an incident, your configured LLM reviews
+  the result. It can reorder the graph's own hypotheses (shown separately as "model
+  ranking", never mixed into the graph's scores). While the graph is inconclusive, it can
+  ask for one more catalog probe, after which the graph diagnoses again. It can also write up
+  to 5 claims, each citing the evidence it rests on (shown as "model-generated narrative").
+  Every reply is checked: known hypotheses only, catalog probes with valid arguments,
+  evidence of this investigation, and every number found in that evidence. A bad reply gets
+  one retry; after that, or on a timeout, a rate limit or an exhausted budget, the
+  investigation keeps its deterministic result and records why (`model_rejected`). When the
+  graph has a conclusive root cause it always wins, and a disagreement is recorded
+  (`model_disagreed`). Each investigation is limited to 2 model turns, 16k input and 4k
+  output tokens, and 120 s. The daily allocation is `llm.token_budget_daily`. Without an LLM,
+  investigations stay deterministic and the sidecar logs once why. To turn it off, set
+  `sre.llm.enabled: false`. Reasoning models (Gemini 2.5+/3, OpenAI o-series, DeepSeek R1)
+  work. Their thinking gets its own 16k-token allowance per investigation, separate from
+  the 4k answer limit and counted in the daily budget.
+
 - **Wraparound near misses are credited.** When a table is inside the red wraparound
   buffer and pg_sage's verified `VACUUM (FREEZE)` returns it to green, the value ledger
   records one "incident avoided" (`xid_wraparound`, near miss, 120 minutes). Both sides are
@@ -11,6 +29,33 @@
   from DBA-hours saved and links to the decision and its verification. Until now
   `sage.incident_avoided` was never written, so the Value page always showed zero
   incidents.
+- **PGIncidentBench v1** (`sidecar/sre-bench`). It scores the Sage SRE investigator
+  side by side with an "always escalate" baseline and a rules-only baseline. The
+  scenarios cover lock blocking, connection pressure, WAL/replication retention and plan
+  regression. Each fault program has a clean variant, a variant under unrelated background
+  load, and benign decoys. A decoy looks like a fault, and the right answer is
+  "inconclusive". Results are reported per family, never only pooled: Safe Pass (correct
+  or abstain, with no forbidden action), top-1, top-3, abstention, selective accuracy,
+  false diagnoses on decoys, run-to-run consistency, probe count and time to first
+  evidence. Each result shows its denominator and a 95% Wilson interval. A safety grader
+  checks the database itself for forbidden actions. The release gates are pre-registered
+  as code constants: top-1 >= 80%, abstention >= 95% where evidence is insufficient, zero
+  forbidden actions, and decoy or noise variants no more than 10 points below clean
+  (CHECK-42). The bench fails when the investigator misses a gate. Gates that need the
+  LLM-on arm or replay data are reported as "not evaluated", never as passed. The LLM-on
+  arm runs the investigator with its model turn. By default it uses a built-in
+  adversarial fake model. The fake ranks the graph's last hypothesis first, always asks
+  for a probe, and sometimes sends bad replies (fenced JSON, unknown nodes, invented
+  numbers, rate limits). The bench fails if, against the fake, the LLM-on arm scores lower
+  than the deterministic arm on Safe Pass or top-1 in any family, or changes a root the
+  deterministic arm concluded. It can be pointed at a real OpenAI-compatible endpoint
+  (`PG_SAGE_BENCH_LLM_URL`, `_MODEL`, `_KEY`) to evaluate the §12 quality gates. The bench writes a JSON result and a Markdown summary to
+  `SAGE_BENCH_REPORT_DIR`, and CI uploads them. On PostgreSQL 16 the deterministic
+  investigator passes every gate it can be evaluated on, with no false root on any decoy.
+  The rules-only baseline names a false root on every decoy that imitates a connection,
+  WAL or plan fault. This is an in-distribution seed set, not a held-out measurement. The
+  slow-consumer scenario now uses a logical slot, so it runs where `pg_hba.conf` refuses
+  physical replication connections (it used to be skipped).
 
 ### Changed (read before upgrading)
 
@@ -41,6 +86,11 @@
     database. The Settings LLM tab toggles `llm.enabled`, the advisor and the optimizer,
     and `PUT /api/v1/config/global` accepts every key above except `tuner.llm_enabled`,
     which is YAML-only.
+- If you already run Sage SRE investigations with an LLM configured, they start using the
+  model turn after the upgrade. To keep them deterministic, set `sre.llm.enabled: false`.
+  At startup, the schema upgrade replaces the event-type check on `sage.sre_events` with
+  `sre_events_event_type_m3`, which allows the three new event types. Existing rows are
+  validated without a long table lock.
 - `disk_full_slot` and `lock_storm` incidents are still not credited. pg_sage does not yet
   measure disk-fill trend or lock-storm recovery, so it makes no claim for them.
 

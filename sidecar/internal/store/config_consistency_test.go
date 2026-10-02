@@ -128,6 +128,10 @@ var excludedExactKeys = map[string]bool{
 	"sre.sample_interval_seconds":  true,
 	"sre.evidence_retention_days":  true,
 	"sre.timeline_retention_days":  true,
+
+	// Sage SRE M3: the model turn switch is read when a database runtime
+	// is built (restart lifecycle), so it is YAML-only.
+	"sre.llm.enabled": true,
 }
 
 // structFieldPaths walks a struct type using reflection and returns

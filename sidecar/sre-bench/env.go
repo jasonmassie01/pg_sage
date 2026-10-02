@@ -39,7 +39,7 @@ func NewEnv(ctx context.Context, t *testing.T, dsn string) *Env {
 	if err := schema.Bootstrap(ctx, pool); err != nil {
 		t.Fatalf("bootstrap bench database: %v", err)
 	}
-	st, err := sre.NewPostgresStore(pool, sre.DefaultLimits())
+	st, err := sre.NewPostgresStore(pool, benchLimits())
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
@@ -47,11 +47,13 @@ func NewEnv(ctx context.Context, t *testing.T, dsn string) *Env {
 		Runner: probes.NewRunner(pool, probes.Catalog(), probes.NewLimiter(1))}
 }
 
-// session is a background connection a fault program holds open.
+// session is a background connection a fault program holds open. err
+// is its statement's outcome, readable once done is closed.
 type session struct {
 	conn *pgx.Conn
 	pid  int
 	done chan struct{}
+	err  error
 }
 
 // connect opens a tracked connection with an application name.
@@ -99,7 +101,7 @@ func (e *Env) background(ctx context.Context, app, sql string) (int, error) {
 	}
 	go func() {
 		defer close(s.done)
-		_, _ = s.conn.PgConn().Exec(context.Background(), sql).ReadAll()
+		_, s.err = s.conn.PgConn().Exec(context.Background(), sql).ReadAll()
 	}()
 	return s.pid, nil
 }
@@ -161,4 +163,13 @@ func (e *Env) simple(ctx context.Context, sql string) error {
 	defer conn.Release()
 	_, err = conn.Conn().PgConn().Exec(ctx, sql).ReadAll()
 	return err
+}
+
+// benchLimits are the R1 ceilings with a daily model allocation large
+// enough for every run of the LLM-on arm; the causal-graph arm has no
+// model and never uses it.
+func benchLimits() sre.Limits {
+	l := sre.DefaultLimits()
+	l.DatabaseDailyTokens, l.DeploymentDailyTokens = benchLLMDailyTokens, benchLLMDailyTokens
+	return l
 }

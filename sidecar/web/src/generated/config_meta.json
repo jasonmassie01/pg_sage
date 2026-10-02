@@ -1143,6 +1143,11 @@
     "default": 30,
     "doc": "Days a finished, unpinned investigation keeps its probe evidence (a tombstone records the delete). 1 to timeline_retention_days. Default: 30."
   },
+  "sre.llm.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Model turn in investigations: rank the graph's hypotheses, propose one catalog probe, narrate cited claims. Used whenever an LLM is configured; false = deterministic only. Default: true."
+  },
   "sre.sample_interval_seconds": {
     "type": "int",
     "default": 5,
