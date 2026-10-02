@@ -1381,6 +1381,11 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <td><code>60</code></td>
 <td>Seconds between lock-chain fast-path checks. Each check opens or updates the <code>lock_contention</code> incident (with the root blocker's pid, <code>backend_start</code> and query identity) and sends <code>incident_detected</code> without waiting for the analyzer cycle. <code>0</code> disables the fast path; otherwise <code>10</code>-<code>3600</code>. Escalation and auto-resolution still count analyzer cycles. Restart to change</td>
 </tr>
+<tr>
+<td><code>rca.stale_after_hours</code></td>
+<td><code>24</code></td>
+<td>Hours an open incident may go without being re-detected before pg_sage resolves it (<code>resolved_by</code> <code>pg_sage:stale</code>). Incidents about an idle-in-transaction session also resolve once that session is gone (<code>pg_sage:subject_gone</code>). Resolutions of incidents last seen longer ago than this send no notification. <code>1</code>-<code>8760</code>, and at least <code>rca.dedup_window_minutes</code></td>
+</tr>
 </tbody>
 </table>
 <h3 id="trust-actions">Trust &amp; Actions<a class="headerlink" href="#trust-actions" title="Permanent link">&para;</a></h3>
@@ -2123,6 +2128,11 @@ investigation says so and gives the manual step.</p>
 <td><code>sre.runways.interval_seconds</code></td>
 <td><code>60</code></td>
 <td>Seconds between samples, <code>15</code>-<code>3600</code></td>
+</tr>
+<tr>
+<td><code>sre.runways.sequence_interval_seconds</code></td>
+<td><code>600</code></td>
+<td>Seconds between sequence samples, <code>15</code>-<code>86400</code>. Sequences are consumed slowly and are the costliest series to read (one lock per sequence read), so they are read less often, through a separate 2 s background budget. The effective period is never shorter than <code>interval_seconds</code> and never so long that <code>min_samples</code> no longer fit in <code>lookback_hours</code></td>
 </tr>
 <tr>
 <td><code>sre.runways.lookback_hours</code></td>
