@@ -63,8 +63,10 @@ func vacuumSnapshots() (*collector.Snapshot, *collector.Snapshot) {
 	return snap, prev
 }
 
+// vacuumAdvice claims its own action_risk; the advisor must ignore it.
 const vacuumAdvice = `[{"object_identifier":"public.orders",` +
 	`"severity":"info","rationale":"Scale factor too high",` +
+	`"action_risk":"none",` +
 	`"recommended_sql":"ALTER TABLE public.orders SET ` +
 	`(autovacuum_vacuum_scale_factor = 0.02)"}]`
 
@@ -88,9 +90,10 @@ func TestAdvisorDefaultsCallConfiguredLLM(t *testing.T) {
 	if len(findings) != 1 || findings[0].Category != "vacuum_tuning" {
 		t.Fatalf("findings = %+v, want one vacuum_tuning finding", findings)
 	}
-	if findings[0].ActionRisk != "" {
-		t.Errorf("LLM finding carries action risk %q; risk must come from "+
-			"the typed contract", findings[0].ActionRisk)
+	// Risk is derived from the SQL, never taken from the model's answer.
+	if findings[0].ActionRisk != deriveActionRisk(findings[0].RecommendedSQL) {
+		t.Errorf("action risk %q, want %q derived from the SQL",
+			findings[0].ActionRisk, deriveActionRisk(findings[0].RecommendedSQL))
 	}
 	if client.TokensUsedToday() != 80 {
 		t.Errorf("tokens charged = %d, want 80", client.TokensUsedToday())

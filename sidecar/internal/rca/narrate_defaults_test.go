@@ -67,7 +67,7 @@ func TestNarrationDefaultOnCallsConfiguredLLM(t *testing.T) {
 // Explicit narration_enabled=false wins even with a configured LLM.
 func TestNarrationExplicitFalseNeverCallsConfiguredLLM(t *testing.T) {
 	inc := lockIncident(t)
-	srv := newNarrServer(t, func(int, w http.ResponseWriter) {
+	srv := newNarrServer(t, func(_ int, w http.ResponseWriter) {
 		writeCompletion(w, groundedFinal, nil)
 	})
 	eng := narrEngine(srv.srv.URL, false)
