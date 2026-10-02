@@ -99,7 +99,7 @@ func runComposedInvestigator(t *testing.T, ctx context.Context, rt *composedRunt
 		monitored: rt.pool, runner: rt.adapter.probes, name: rt.name,
 		runtimeKey: fmt.Sprintf("composed:%s:%d", key, time.Now().UnixNano()),
 		settings:   settings, notices: &sre.OnceLog{},
-		logFn:      func(string, string, ...any) {}})
+		logFn: func(string, string, ...any) {}})
 	if err != nil {
 		t.Fatalf("investigator: %v", err)
 	}
