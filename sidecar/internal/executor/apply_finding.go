@@ -43,7 +43,7 @@ func (e *Executor) processFinding(
 	ctx context.Context, f analyzer.Finding, isReplica bool,
 	cand *recommendation.Candidate,
 ) {
-	if f.RecommendedSQL == "" {
+	if f.RecommendedSQL == "" || e.unusedDropRefused(ctx, f) {
 		return
 	}
 	decision := e.evaluateFindingPolicy(ctx, f, isReplica)

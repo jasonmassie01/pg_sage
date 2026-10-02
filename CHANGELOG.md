@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+### Changed (read before upgrading)
+
+- **pg_sage's snapshot history takes about a tenth of the space, and pg_sage warns when it
+  grows too big.** The collector used to store the full list of every table, index,
+  sequence and query each minute, so `sage.snapshots` reached 9.3 GB on a personal
+  database. It now stores a full copy at most every 6 hours and, in between, only what
+  changed. On an hour of collection with 5,000 indexes this writes 11x fewer bytes overall
+  (indexes alone 21x to 26x fewer). Every screen, forecast and API reads exactly the same
+  data as before. Existing history is not rewritten: old rows stay readable and age out
+  with `retention.snapshots_days`. To read snapshots in SQL yourself, use
+  `sage.snapshot_data(data, base_id)` instead of the `data` column. A new
+  `sage_footprint` finding warns when pg_sage's own tables pass
+  `retention.sage_size_warning_pct` percent of the database (default 10, `0` turns it off).
+
+### Fixed
+
+- **Internal cleanup of the sidecar's largest files, with no change in behavior.** The
+  sidecar's entry point, the core of the action executor and the API router were split
+  into smaller files, one per job, so each file and function stays within the project's
+  size limits. New tests pin what each mode starts, every API route and who may call it,
+  and they pass unchanged before and after the split. One small visible difference: if
+  writing a Prometheus `/metrics` response fails (for example, the scraper hung up), the
+  sidecar now logs a warning instead of ignoring the error.
+
+- **A statistics reset can no longer make a used index look unused.** Unused-index
+  findings can lead to an automatic `DROP INDEX`. If the statistics were reset (by
+  `pg_stat_reset()`, a single-table reset or a restart) between two snapshots, scans that
+  happened before the reset were invisible. pg_sage now records when the statistics last
+  reset with every snapshot, and restarts an index's unused clock at that reset. It also
+  restarts the clock when a counter goes down or when the index is dropped and recreated
+  under the same name. An index is reported only after a full clean window. Before any
+  drop, automatic or approved by an operator, pg_sage checks the evidence again live. If
+  it no longer holds, pg_sage refuses and says which check failed: the index was scanned,
+  the statistics were reset inside the window, or the index is gone.
+
 - **Index, schema-family and hint advice you can trust more (Phase 0 tuning correctness).**
   New indexes run on their own only when HypoPG measured the whole workload and showed a
   gain, weighted by how much time each query really takes; anything it could not measure

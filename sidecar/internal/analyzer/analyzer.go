@@ -133,6 +133,7 @@ func New(
 			FirstSeen:        make(map[string]time.Time),
 			RecentlyCreated:  make(map[string]time.Time),
 			InvalidFirstSeen: make(map[string]time.Time),
+			IndexOID:         make(map[string]uint32),
 		},
 		logFn: logFn,
 		recs:  newRecommendationStore(pool),

@@ -49,12 +49,15 @@ func (e *Executor) ExecuteManual(
 		return 0, fmt.Errorf("policy refused operator action: %s",
 			humanPolicyReason(preview))
 	}
-	findingDetail, err := e.verifyManualFinding(runCtx, findingID, sql)
+	finding, err := e.verifyManualFinding(runCtx, findingID, sql)
 	if err != nil {
 		return 0, err
 	}
+	if err := e.checkManualUnusedEvidence(runCtx, finding); err != nil {
+		return 0, err
+	}
 	run := &manualRun{executor: e, findingID: findingID, sql: sql,
-		rollbackSQL: rollbackSQL, detail: findingDetail, approvedBy: approvedBy}
+		rollbackSQL: rollbackSQL, detail: finding.detail, approvedBy: approvedBy}
 	return e.Apply(runCtx, ActionIntent{
 		Authorize: func(ctx context.Context) (ActionPolicyDecision, error) {
 			decision, err := e.authorizeOperatorAction(ctx, sql, findingID, approvedBy)
@@ -314,34 +317,41 @@ func (e *Executor) manualMutationBlock(ctx context.Context) error {
 	return nil
 }
 
+// manualFinding is the open finding an operator action applies.
+type manualFinding struct {
+	detail   json.RawMessage
+	category string
+	ident    string
+}
+
 func (e *Executor) verifyManualFinding(
 	ctx context.Context,
 	findingID int,
 	sql string,
-) (json.RawMessage, error) {
+) (manualFinding, error) {
 	var recommendedSQL *string
-	var detail json.RawMessage
+	var f manualFinding
 	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT recommended_sql, detail
+		`/* pg_sage */ SELECT recommended_sql, detail, category, object_identifier
 		   FROM sage.findings
 		  WHERE id = $1
 		    AND status = 'open'
 		    AND acted_on_at IS NULL
 		    AND resolved_at IS NULL`,
 		findingID,
-	).Scan(&recommendedSQL, &detail)
+	).Scan(&recommendedSQL, &f.detail, &f.category, &f.ident)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrFindingNotActionable
+			return manualFinding{}, ErrFindingNotActionable
 		}
-		return nil, fmt.Errorf("checking finding %d: %w", findingID, err)
+		return manualFinding{}, fmt.Errorf("checking finding %d: %w", findingID, err)
 	}
 	if recommendedSQL == nil ||
 		compactSQL(*recommendedSQL) == "" ||
 		!strings.EqualFold(compactSQL(*recommendedSQL), compactSQL(sql)) {
-		return nil, ErrFindingSQLMismatch
+		return manualFinding{}, ErrFindingSQLMismatch
 	}
-	return detail, nil
+	return f, nil
 }
 
 func compactSQL(sql string) string {

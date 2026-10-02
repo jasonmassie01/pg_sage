@@ -53,6 +53,15 @@ written and committed first (`826e7ee`..`3975d15`), then the implementation. Not
 
 ### Item 8: analyzer and optimizer self-load
 
+**After the merge with master (#76, #78):** the bounded history read now lives in
+`analyzer/query_history.go`. It reads through #78's snapshot accessor:
+`snapstore.NonEmptySQL` picks out non-empty rows without reading full documents, and only
+the sampled rows are decoded with `sage.snapshot_data(data, base_id)`. A delta row whose
+keyframe is gone decodes to NULL and is skipped. This replaces #78's version, which loaded
+every id of the lookback into Go and downsampled there; the Go `downsample` helper is
+removed again. The executor gate call moved with #76's split into
+`executor/finding_policy.go`.
+
 - **`buildHistoricalAverages`** (`analyzer/analyzer_checks.go`) now picks its sample in SQL:
   - It numbers the lookback's non-empty snapshots by reading only ids and timestamps.
     `pg_column_size` skips empty and null snapshots without detoasting them.
@@ -169,6 +178,24 @@ packages.
 | internal/analyzer | 86.5% | 86.5% | 86.5% | 86.5% |
 | internal/tuner | 85.0% | 85.0% | 83.3% | 85.0% |
 | internal/executor | (failed run, see below) | 83.8% | 83.8% | 83.8% |
+
+**After merging master (#76, #78)**, the touched packages were run again with `-p 2` and
+`--cpus=2`. On PG17 with `-race`, optimizer, tuner and executor passed on the first run;
+analyzer had one failure, described below, and then passed in full on a rerun. All four
+packages passed on PG14 and PG18. Coverage after the merge:
+
+| Package | PG17 -race | PG14 | PG18 |
+|---|---|---|---|
+| internal/optimizer | 83.8% | 82.4% | 83.8% |
+| internal/analyzer | 87.0% | 87.0% | 87.0% |
+| internal/tuner | 85.0% | 83.3% | 85.0% |
+| internal/executor | 84.1% | 84.1% | 84.1% |
+
+In the first post-merge `-race` run, master's
+`TestRegression_WorkMemPromotionCountsDistinctQueries` failed once. It reads the
+server-wide `pg_stat_statements`, which another package was using at the same time (`-p 2`).
+It passed 3 times in a row on its own and in a full rerun of the analyzer package, and this
+branch does not touch it.
 
 ### Skipped Tests (must be zero or justified)
 - In the touched packages on PG17 and PG18 only `TestGeneratePlanFixtures` is skipped. It
