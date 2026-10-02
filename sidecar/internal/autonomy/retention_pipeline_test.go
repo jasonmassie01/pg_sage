@@ -52,6 +52,10 @@ func pipelineExecutor(pool *pgxpool.Pool) *executor.Executor {
 	exec.SetExecutionMode("auto")
 	doc := policy.UnattendedProfile()
 	doc.MaintenanceWindows = []string{"always"}
+	// The shared test database accumulates actions across runs; usage
+	// limits are not what these tests are about.
+	doc.BlastRadius.MaxTablesPerWindow = 1 << 30
+	doc.RateLimits.MaxSelfInitiatedChangesPerWindow = 1 << 30
 	exec.EnableStandingPolicyDocument(doc, nil)
 	return exec
 }
