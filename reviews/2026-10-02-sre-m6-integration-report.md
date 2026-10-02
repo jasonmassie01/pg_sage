@@ -323,3 +323,113 @@ None. Lowest business packages: `cmd/pg_sage_sidecar` 71.7%, `internal/store` 74
    `TestComposedSRE_M6_DetectorOpensAnLWLockInvestigation` (90 s budget).
 3. Reactive decision 4 (detector episodes do not create `sage.incidents`) and runbooks
    decision 4 (no MCP sign tool) stand as the branches decided.
+
+## Follow-up fixes (runways owner, 2026-10-02)
+
+### 1. Disk/WAL runway: a write surge outranked steady database growth (Unresolved 1)
+
+**Cause, confirmed.** `disk-database-growth-under-load` named `write_surge` because of two
+things. First, the noise load's WAL rate passed 10x its long-run average, which scores the
+surge 0.7. Second, the load swelled `pg_wal` and so the disk-usage growth. That put the
+databases under half of the disk growth and cost `database_growth` its share bonus, leaving
+it at 0.5. There was also a latent tie: with the bonus, both score 0.7, and graph order picks
+the surge.
+
+**Fix** (edcbaf0, tests first in f61db60). In the disk/WAL runway, a write surge now
+*contributes to* supported database growth and no longer competes with it. The edge is
+family-local: `rankWith` in `causal/match.go`, `diskAmplifies` in `causal/diskwal.go`.
+- **Why the surge contributes.** A surge is the WAL written between the two close samples.
+  Checkpoints recycle it unless a slot or the archiver keeps it, and those are their own
+  hypotheses. So while the database files themselves grow steadily and materially, the
+  surge is not what keeps filling the disk.
+- **Why not exclude `pg_wal` from the share.** The `disk_used` series is the databases
+  plus `pg_wal` (`runway/series.go`). Without `pg_wal`, the share would always be 100%. The
+  share stays a confidence signal.
+- **Why not a graph edge.** It would break the graph's own rules: CHECK-05 says a write
+  surge only amplifies slot retention, and amplification edges stay within one family. So
+  the graph and `causal-v3` are unchanged.
+
+**Unit cases** (`causal/diskwal_surge_test.go`):
+- growth under heavy WAL, where the surge outscores growth: `database_growth` is the root
+  and `write_surge` contributes;
+- growth with the share bonus plus a surge, the former tie: growth is the root;
+- a pure surge with flat files: `write_surge` is the root and growth is ruled out;
+- a surge over immaterial or churning growth: the surge stays the root and growth is an
+  alternative;
+- the churn and keeping-up decoys: inconclusive;
+- a slot root with growth and a surge: the slot is the root, the surge contributes, and
+  growth is an alternative.
+
+Before the fix, the growth-under-heavy-WAL and tie cases failed. After it, all pass.
+
+**Runway shard, PG17 (`pgsage-ag6`, `SAGE_BENCH_RUN=1`,
+`SAGE_BENCH_FAMILIES=wraparound_runway,disk_wal_runway,sequence_runway`):**
+
+| Run | Conditions | causal-graph Safe Pass | top-1 | decoy false dx | Result |
+|---|---|---|---|---|---|
+| A | quiet, 2 repeats | 44/44 | 28/28 | 0/10 | PASS (470 s) |
+| B | 1 repeat, with `go test ./internal/sre/... ./internal/runway/ ./internal/schema/ ./internal/executor/` running against the same server | 22/22 | 14/14 | 0/5 | see below |
+
+- `disk-database-growth-under-load` named `database_growth` in all 3 passes, in both live
+  arms.
+- **Why run B failed.** The bench test failed on one unscored run. The LLM arm's
+  `wrap-xid-surge` hit its contamination guard 3 times, because the concurrent tests burned
+  XIDs and a table reached age 183k before the investigation. That is the guard working,
+  not a misdiagnosis.
+- **Gates.** Every live-arm gate passed in run A. In run B, every scored run was correct.
+
+**Other checks:**
+- `internal/sre/causal` passes, including with `-race`, at 94.4% coverage.
+- `internal/runway`, `internal/sre` and `sre-bench` unit tests pass.
+- `TestIntegration_PlanFlipViaDroppedIndex` failed once in the loaded run with `queryid: no
+  rows`: another package reset `pg_stat_statements`. It passes alone.
+- `golangci-lint` reports 0 issues.
+
+### 2. Custodian WAL bound: false "WAL backstop is not effective" (CI on #63)
+
+**Cause, confirmed.** `pg_reload_conf()` only signals the postmaster. The postmaster
+re-reads the file and signals every backend, and each backend applies the new configuration
+when its own SIGHUP arrives. `verifyCustodianAction` read `max_slot_wal_keep_size` once,
+immediately, on a pooled connection, so it could see the old value. A bound that did take
+effect was then recorded as failed/unverifiable, and the custodian backed off for real.
+
+This is a production bug for every reload-only custodian change. The second test's
+"custodian proposal in failure backoff" was the cascade: both tests used the same SQL
+text, and backoff is keyed by that text.
+
+**Fix** (1bfd9ba, tests first in 5f3f04e). `executor/setting_wait.go` changes the
+post-check as follows:
+- It polls `pg_size_bytes(current_setting('max_slot_wal_keep_size'))` every 100 ms, for up
+  to 5 s, honouring its context, until the value equals the bytes the proposal requested.
+- It is stricter than before. The old check accepted any bounded value. Now an unlimited
+  value, or a value that never appears, fails, naming the value seen and the value wanted.
+- **Why polling instead of `pg_conf_load_time()`.** That function is per backend and only
+  shows that some reload happened, not that this value is live.
+
+Other `applyConfigChange` callers (config tuning, rollback) do not read the setting back
+immediately, so they cannot hit this false failure. Their outcome note "applied and
+reloaded" can, however, precede the value reaching every backend by milliseconds.
+
+**Tests:**
+- `awaitSetting` unit tests (`setting_wait_test.go`) cover:
+  - the value arriving after reads;
+  - an immediate match;
+  - a value that never arrives, which fails with the last value after the bound;
+  - a zero bound, which makes one read;
+  - read errors wrapped;
+  - context deadline.
+- Integration tests (`custodian_reload_integration_test.go`) on real PostgreSQL:
+  - the reload is delayed 300 ms behind the post-check, which now waits and verifies.
+    With the wait disabled (mutant), this test failed 3/3 with "is -1 bytes after the
+    reload", so it reproduces the CI race deterministically;
+  - a requested value that is never written fails within the bound, naming 939524096 and
+    1048576000;
+  - an unlimited value is refused.
+- The two WAL credit tests now use distinct sizes: 512 MB, and 576, 608 and 640 MB for the
+  three cases. One failure can no longer cascade into another's backoff. No assertion
+  changed.
+- Runs:
+  - `internal/executor`, `internal/autonomy`, `internal/runway` and `internal/sre/causal`
+    pass on PG17, PG14 and PG18, with `internal/executor` at 83.0% coverage on all three;
+  - `-race` on PG17 for `executor`, `causal` and `runway` passes with no data race;
+  - lint reports 0 issues.
