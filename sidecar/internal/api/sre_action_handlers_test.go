@@ -311,3 +311,39 @@ func TestSREActionAPI_CanonicalErrors(t *testing.T) {
 		t.Fatalf("database without actions = %d %v", code, body)
 	}
 }
+
+// CHECK-18: a policy change between the request and the approval blocks
+// the approval itself; the item stays pending and nothing is signalled.
+func TestSREActionAPI_ChangedPolicyBlocksTheApproval(t *testing.T) {
+	mgr := fleet.NewManager(config.DefaultConfig())
+	f := actionInstance(t, mgr, "orders", "advisory")
+	h := actionRouter(t, mgr, testOperatorUser())
+	code, body := actionCall(t, h, "POST", proposalsPath("orders", f.inv.ID))
+	if code != 200 {
+		t.Fatalf("propose = %d %v", code, body)
+	}
+	pid, _ := body["id"].(string)
+	code, body = actionCall(t, h, "POST", proposalsPath("orders", f.inv.ID)+"/"+pid+"/request")
+	approval, _ := body["approval"].(map[string]any)
+	if code != 200 || approval["queue_id"] == nil {
+		t.Fatalf("request = %d %v", code, body)
+	}
+	queueID := int(approval["queue_id"].(float64))
+	if err := f.exec.SetTrustLevel("observation"); err != nil {
+		t.Fatal(err)
+	}
+	code, body = actionCall(t, h, "POST",
+		fmt.Sprintf("/api/v1/actions/%d/approve?database=orders", queueID))
+	if code != http.StatusConflict || !strings.Contains(fmt.Sprint(body["error"]),
+		"not eligible") {
+		t.Fatalf("approve after the trust drop = %d %v, want 409 not eligible", code, body)
+	}
+	var status string
+	if err := f.pool.QueryRow(context.Background(), `SELECT status FROM sage.action_queue
+		WHERE id = $1`, queueID).Scan(&status); err != nil || status != "pending" {
+		t.Fatalf("queue item = %q (%v), want still pending", status, err)
+	}
+	if f.canceler.count() != 0 {
+		t.Fatal("a cancel was signalled after the policy withdrew it")
+	}
+}
