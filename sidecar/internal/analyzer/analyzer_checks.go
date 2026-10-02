@@ -2,7 +2,6 @@ package analyzer
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"time"
 
@@ -91,69 +90,6 @@ func (a *Analyzer) checkConnectionLeaks(ctx context.Context) []Finding {
 		a.logFn("ERROR", "analyzer: iterate leaks: %v", err)
 	}
 	return ruleConnectionLeaks(leaked)
-}
-
-// buildHistoricalAverages loads recent query snapshots and computes
-// per-queryid average mean_exec_time for regression detection.
-func (a *Analyzer) buildHistoricalAverages(
-	ctx context.Context,
-) map[int64]float64 {
-	rows, err := a.pool.Query(ctx,
-		`/* pg_sage */ SELECT data FROM sage.snapshots
-		 WHERE category = 'queries'
-		   AND collected_at > now() - make_interval(days => $1)
-		 ORDER BY collected_at DESC`,
-		a.cfg.Analyzer.RegressionLookbackDays,
-	)
-	if err != nil {
-		a.evalFail("query_regression")
-		a.logFn("ERROR", "analyzer: history query: %v", err)
-		return nil
-	}
-	defer rows.Close()
-
-	type queryEntry struct {
-		QueryID        int64   `json:"queryid"`
-		MeanExecTimeMs float64 `json:"mean_exec_time"` // collector.QueryStats field (G1-B06)
-	}
-
-	var allSnapshots [][]byte
-	for rows.Next() {
-		var data []byte
-		if err := rows.Scan(&data); err != nil {
-			continue
-		}
-		allSnapshots = append(allSnapshots, data)
-	}
-	if err := rows.Err(); err != nil {
-		a.evalFail("query_regression")
-		a.logFn("ERROR", "analyzer: iterate history: %v", err)
-	}
-
-	// Downsample to ~100 snapshots.
-	sampled := downsample(allSnapshots, 100)
-
-	sums := make(map[int64]float64)
-	counts := make(map[int64]int)
-
-	for _, data := range sampled {
-		var entries []queryEntry
-		if err := json.Unmarshal(data, &entries); err != nil {
-			continue
-		}
-		for _, e := range entries {
-			sums[e.QueryID] += e.MeanExecTimeMs
-			counts[e.QueryID]++
-		}
-	}
-
-	avgs := make(map[int64]float64, len(sums))
-	for qid, sum := range sums {
-		if c := counts[qid]; c > 0 {
-			avgs[qid] = sum / float64(c)
-		}
-	}
-	return avgs
 }
 
 // downsample returns up to maxN evenly-spaced items from the input.
