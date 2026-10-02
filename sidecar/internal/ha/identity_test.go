@@ -151,11 +151,14 @@ func TestIdentity_ChangeWhileDownOpensTheCooldown(t *testing.T) {
 		"replica promoted": {with(primary, func(i *Identity) { i.Role = RoleReplica }),
 			with(primary, func(i *Identity) { i.TimelineID = 2 }), true},
 		"primary demoted": {primary, with(primary, func(i *Identity) {
-			i.Role = RoleReplica }), true},
+			i.Role = RoleReplica
+		}), true},
 		"timeline changed": {primary, with(primary, func(i *Identity) {
-			i.TimelineID, i.StartedAt = 2, bootB }), false},
+			i.TimelineID, i.StartedAt = 2, bootB
+		}), false},
 		"another cluster": {primary, with(primary, func(i *Identity) {
-			i.SystemID, i.StartedAt = "9999", bootB }), false},
+			i.SystemID, i.StartedAt = "9999", bootB
+		}), false},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -315,7 +318,8 @@ func TestIdentity_ChangeWhileRunning(t *testing.T) {
 func TestIdentity_HistoryWaitsForAKnownRole(t *testing.T) {
 	store := newMemStore()
 	store.rows["db:1"] = Persisted{Identity: with(primary, func(i *Identity) {
-		i.Role = RoleReplica }), ObservedAt: bootA}
+		i.Role = RoleReplica
+	}), ObservedAt: bootA}
 	m, clock, _ := newScripted(probeResult{err: errors.New("timeout")}, probeResult{})
 	m.identity = (&scriptedIdentity{ids: []Identity{primary}}).probe
 	m.WithIdentityStore(store, "db:1")
@@ -332,7 +336,8 @@ func TestIdentity_HistoryWaitsForAKnownRole(t *testing.T) {
 func TestIdentity_KeysAreIsolated(t *testing.T) {
 	store := newMemStore()
 	store.rows["db:1"] = Persisted{Identity: with(primary, func(i *Identity) {
-		i.Role = RoleReplica }), ObservedAt: bootA}
+		i.Role = RoleReplica
+	}), ObservedAt: bootA}
 	store.rows["db:2"] = Persisted{Identity: primary, ObservedAt: bootA}
 	a, _, _ := newIdentityMonitor(store, "db:1", primary)
 	b, _, _ := newIdentityMonitor(store, "db:2", primary)
@@ -360,7 +365,8 @@ func TestIdentity_EmptyKeyDisablesPersistence(t *testing.T) {
 func TestIdentity_ConcurrentChecksLoadOnce(t *testing.T) {
 	store := newMemStore()
 	store.rows["db:1"] = Persisted{Identity: with(primary, func(i *Identity) {
-		i.Role = RoleReplica }), ObservedAt: bootA}
+		i.Role = RoleReplica
+	}), ObservedAt: bootA}
 	var results []probeResult
 	for i := 0; i < 16; i++ {
 		results = append(results, probeResult{})
