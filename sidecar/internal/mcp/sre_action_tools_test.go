@@ -145,11 +145,11 @@ func TestSREActionTools_TypedArgumentsOnly(t *testing.T) {
 func TestSREActionTools_ErrorsAreDistinguishable(t *testing.T) {
 	for err, code := range map[error]float64{
 		sreaction.ErrProposalNotFound: -32004,
-		sreaction.ErrProposalState: -32009,
-		sreaction.ErrPolicyBlocked: -32010,
-		sreaction.ErrHandoffBlocked: -32603,
-		sre.ErrInvalidRequest:   -32602,
-		errors.New("boom"):      -32603,
+		sreaction.ErrProposalState:    -32009,
+		sreaction.ErrPolicyBlocked:    -32010,
+		sreaction.ErrHandoffBlocked:   -32603,
+		sre.ErrInvalidRequest:         -32602,
+		errors.New("boom"):            -32603,
 	} {
 		b := &sreActionBackend{err: err}
 		_, rpcErr := callSRETool(t, NewServer(b), operatorCtx, "sre_request_execution",
