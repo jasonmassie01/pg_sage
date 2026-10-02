@@ -40,6 +40,22 @@ func runFor(c *Coordinator, d time.Duration) {
 	c.Run(ctx)
 }
 
+// runUntil runs the loop until done reports true or the deadline passes,
+// so a test waits for an effect instead of guessing how long it takes.
+func runUntil(c *Coordinator, deadline time.Duration, done func() bool) {
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		c.Run(ctx)
+	}()
+	for end := time.Now().Add(deadline); time.Now().Before(end) && !done(); {
+		time.Sleep(50 * time.Millisecond)
+	}
+	cancel()
+	<-stopped
+}
+
 func waitState(t *testing.T, ctx context.Context, st *PostgresStore, scope Scope,
 	want State) []Investigation {
 	t.Helper()
@@ -108,7 +124,12 @@ func TestCoordinatorRun_AppliesRetention(t *testing.T) {
 	c, _ := testCoordinator(t, ctx, st, idleChainRunner(), nil)
 	inv := startAndRun(t, ctx, c, lockTrigger("inc-old"))
 	backdate(t, ctx, pool, inv.ID, 120)
-	runFor(c, 700*time.Millisecond)
+	// The loop's first tick purges; on a loaded host with a large shared
+	// test database that can take longer than any fixed run time.
+	runUntil(c, 15*time.Second, func() bool {
+		_, err := st.Get(ctx, inv.Scope, inv.ID)
+		return errors.Is(err, ErrNotFound)
+	})
 	if _, err := st.Get(ctx, inv.Scope, inv.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("a 120-day-old investigation survived the loop: %v", err)
 	}
