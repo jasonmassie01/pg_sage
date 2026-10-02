@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -14,10 +15,21 @@ import (
 // trust step, so pg_sage and agents acting through MCP cannot take it.
 var nonHumanPrefixes = []string{ActorPgSage, "system", "mcp:", "mcp-agent", "stdio"}
 
-// reviewerAllowed: a shadow review is trust evidence, so pg_sage, system
-// actors and an unbound MCP agent cannot record one. A person (API
-// session) and an authenticated MCP principal (operator or admin, kept
-// as "mcp:<actor>") can; the approval of a promotion stays human-only.
+// humanSession is the audit actor of a signed-in person (UI or REST):
+// "user:<id>", optionally followed by ":<email>".
+var humanSession = regexp.MustCompile(`^user:[0-9]+(:.*)?$`)
+
+// ReviewCountsAsEvidence reports whether a review by actor is promotion
+// evidence: only a person's (coordinator decision 2026-10-02; an agent
+// must not generate its own trust evidence).
+func ReviewCountsAsEvidence(actor string) bool {
+	return humanSession.MatchString(actor)
+}
+
+// reviewerAllowed: pg_sage, system actors and an unbound MCP agent cannot
+// record a review. A person (API session) and an authenticated MCP
+// principal (operator or admin, kept as "mcp:<actor>") can, but only the
+// person's review counts (ReviewCountsAsEvidence).
 func reviewerAllowed(actor string) bool {
 	trimmed := strings.TrimSpace(actor)
 	return humanActor(actor) || (strings.HasPrefix(trimmed, "mcp:") &&

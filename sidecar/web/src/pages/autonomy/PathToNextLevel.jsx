@@ -21,6 +21,11 @@ export function PathToNextLevel({ families }) {
     <div className="rounded border p-3 space-y-2" style={card}
       data-testid="path-to-next-level">
       <h3 className="text-sm font-semibold" style={strong}>Path to next level</h3>
+      <div data-testid="path-reviews-by-a-person" className="text-xs" style={muted}>
+        Only reviews by a person count: accept or reject finished investigations in Cases
+        (or the REST API). Reviews an agent records through MCP are kept but never count
+        toward promotion.
+      </div>
       {pairs.length === 0 && (
         <div className="text-xs" style={muted}>
           Nothing left to earn here: every pair is at its cap or already has a

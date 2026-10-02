@@ -66,8 +66,9 @@ func autonomyTools() []Tool {
 		{Name: "sre_review_investigation", Description: "Review a concluded or " +
 			"inconclusive Sage SRE investigation: accept or reject its diagnosis, " +
 			"optionally with a note and the actual root cause (a causal-graph node id " +
-			"or free text). Records the shadow review that earned autonomy counts and " +
-			"the investigation outcome. It never approves a promotion",
+			"or free text). Records the review and the investigation outcome. A review " +
+			"made here is kept but never counts toward promotion: only a person's " +
+			"review in the UI or REST API does. It never approves a promotion",
 			InputSchema: schema(`{`+db+`,"investigation_id":{"type":"string"},`+
 				`"verdict":{"type":"string","enum":["accepted","rejected"]},`+
 				`"note":{"type":"string","maxLength":1500},`+
@@ -128,7 +129,7 @@ func (r AutonomyRequest) valid(tool string) bool {
 func autonomyFailure(err error) *rpcError {
 	switch {
 	case errors.Is(err, earned.ErrInvalidRequest), errors.Is(err, earned.ErrNotADowngrade),
-		errors.Is(err, packetreview.ErrNotFinished):
+		errors.Is(err, packetreview.ErrNotFinished), errors.Is(err, earned.ErrConflict):
 		return failure(-32602, "invalid arguments: "+err.Error())
 	case errors.Is(err, earned.ErrNotFound), errors.Is(err, sre.ErrNotFound):
 		return failure(-32004, "not found")

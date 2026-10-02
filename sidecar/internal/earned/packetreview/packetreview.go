@@ -74,7 +74,15 @@ type Result struct {
 	Outcome    *sre.Outcome `json:"investigation_outcome,omitempty"`
 	// OutcomeSkipped says why no investigation outcome was recorded.
 	OutcomeSkipped string `json:"investigation_outcome_skipped,omitempty"`
+	// CountsTowardPromotion is true only for a person's review; Notice
+	// says why a review that was recorded does not count.
+	CountsTowardPromotion bool   `json:"counts_toward_promotion"`
+	Notice                string `json:"notice,omitempty"`
 }
+
+// agentNotice explains an MCP review (coordinator decision 2026-10-02).
+const agentNotice = "Review recorded; it does not count toward promotion. Only a " +
+	"person's review in the UI or REST API is promotion evidence."
 
 // Record writes the review to the ledger, then the investigation outcome.
 // A failure of the outcome after the review is returned; repeating the
@@ -97,7 +105,11 @@ func Record(ctx context.Context, ledger Ledger, inv Investigations,
 		return Result{}, fmt.Errorf("%w (state %s)", ErrNotFinished, i.State)
 	}
 	res := Result{Database: ledger.Database(), Family: family(i), Verdict: req.Verdict,
-		ActualNode: actualNode(req.ActualRootCause)}
+		ActualNode:            actualNode(req.ActualRootCause),
+		CountsTowardPromotion: earned.ReviewCountsAsEvidence(req.Actor)}
+	if !res.CountsTowardPromotion {
+		res.Notice = agentNotice
+	}
 	outcome, skipped := outcomeRequest(i, req, res.ActualNode)
 	if skipped != "" && req.RequireOutcome {
 		return Result{}, fmt.Errorf("%w: %s", earned.ErrInvalidRequest, skipped)

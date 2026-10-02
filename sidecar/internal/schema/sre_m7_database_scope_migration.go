@@ -20,6 +20,10 @@ ALTER TABLE sage.sre_family_autonomy
     ADD COLUMN IF NOT EXISTS database_name text NOT NULL DEFAULT '';
 ALTER TABLE sage.sre_autonomy_proposals
     ADD COLUMN IF NOT EXISTS database_name text NOT NULL DEFAULT '';
+-- Only a person's review is promotion evidence (coordinator decision
+-- 2026-10-02); reviews stored before it were all a person's.
+ALTER TABLE sage.sre_packet_reviews
+    ADD COLUMN IF NOT EXISTS counts_as_evidence boolean NOT NULL DEFAULT true;
 
 DO $$
 BEGIN

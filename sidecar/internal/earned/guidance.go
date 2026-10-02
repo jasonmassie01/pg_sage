@@ -11,6 +11,9 @@ import (
 // rule implies one, the time it will be met by itself. The instruction
 // explains the bar; it never lowers it.
 
+// agentReviews says which reviews count (coordinator decision 2026-10-02).
+const agentReviews = "reviews an agent records through MCP do not count."
+
 // maxAcceptedSearch bounds the search for the accepted reviews a shadow
 // record still needs.
 const maxAcceptedSearch = 10000
@@ -32,8 +35,9 @@ func guideShadow(th Thresholds, ev Evidence, c *Check) {
 	switch c.Name {
 	case "shadow_duration":
 		if sh.FirstReviewAt.IsZero() {
-			c.How = fmt.Sprintf("Accept or reject a concluded or inconclusive %s "+
-				"investigation in Cases to start the %s shadow window.", ev.Family, window)
+			c.How = fmt.Sprintf("A person accepts or rejects a concluded or inconclusive "+
+				"%s investigation in Cases (or the REST API) to start the %s shadow "+
+				"window; %s", ev.Family, window, agentReviews)
 			return
 		}
 		eta := sh.FirstReviewAt.Add(th.ShadowDuration)
@@ -42,9 +46,10 @@ func guideShadow(th Thresholds, ev Evidence, c *Check) {
 			window, humanDuration(eta.Sub(ev.At)))
 		c.ETA = &eta
 	case "shadow_volume":
-		c.How = fmt.Sprintf("Review %d more concluded or inconclusive %s investigations "+
-			"in Cases (%d of %d in the last %s).", th.ShadowMinReviewed-sh.Reviewed,
-			ev.Family, sh.Reviewed, th.ShadowMinReviewed, window)
+		c.How = fmt.Sprintf("Have a person review %d more concluded or inconclusive %s "+
+			"investigations in Cases (%d of %d in the last %s); %s",
+			th.ShadowMinReviewed-sh.Reviewed, ev.Family, sh.Reviewed, th.ShadowMinReviewed,
+			window, agentReviews)
 	case "shadow_acceptance":
 		need := acceptedNeeded(sh.Accepted, sh.Reviewed, th.ShadowMinAccepted)
 		bar := fmt.Sprintf("%d of %d reviews in the last %s were accepted (needs %.0f%%)",
@@ -53,8 +58,8 @@ func guideShadow(th Thresholds, ev Evidence, c *Check) {
 			c.How = bar + "; the rejected reviews must leave the window first."
 			return
 		}
-		c.How = fmt.Sprintf("%s: %d more accepted reviews, or wait for rejected ones to "+
-			"leave the window.", bar, need)
+		c.How = fmt.Sprintf("%s: %d more accepted reviews by a person, or wait for "+
+			"rejected ones to leave the window.", bar, need)
 	}
 }
 

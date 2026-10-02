@@ -762,7 +762,9 @@ The UI page is **Advanced > Earned autonomy**: **Evaluate now** and a **Path to 
 level** checklist per family and class. Reviews are recorded with **Accept diagnosis** /
 **Reject diagnosis** on a finished investigation in **Cases**. With MCP enabled, agents get
 `sre_get_autonomy`, and operators also `sre_downgrade_autonomy`, `sre_review_investigation`
-and `sre_evaluate_autonomy`. There is no approval tool.
+and `sre_evaluate_autonomy`. There is no approval tool. Only a review by a person (UI or
+REST) counts as shadow evidence: a review an agent records through MCP is kept, says that
+it does not count, and never replaces a person's review of the same investigation.
 
 ### Fast elevation (dogfood databases)
 

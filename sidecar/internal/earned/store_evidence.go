@@ -58,26 +58,38 @@ type Review struct {
 	At              time.Time `json:"at"`
 }
 
-// upsertReview records (or replaces) the verdict on a packet.
+// upsertReview records (or replaces) the verdict on a packet. Only a
+// person's review counts as evidence, and a review that does not count
+// never replaces one that does (ErrConflict).
 func (s *PostgresStore) upsertReview(ctx context.Context, r Review) error {
 	if err := s.checkDatabase(r.Database); err != nil {
 		return err
 	}
-	_, err := s.pool.Exec(ctx, `INSERT INTO sage.sre_packet_reviews
+	tag, err := s.pool.Exec(ctx, `INSERT INTO sage.sre_packet_reviews
 		(deployment_id, database_name, investigation_id, family, verdict, reviewer, note,
-		 reviewed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8)
+		 reviewed_at, counts_as_evidence)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9)
 		ON CONFLICT (deployment_id, database_name, investigation_id) DO UPDATE
 		SET family = EXCLUDED.family, verdict = EXCLUDED.verdict,
 		    reviewer = EXCLUDED.reviewer, note = EXCLUDED.note,
-		    reviewed_at = EXCLUDED.reviewed_at`,
+		    reviewed_at = EXCLUDED.reviewed_at,
+		    counts_as_evidence = EXCLUDED.counts_as_evidence
+		WHERE EXCLUDED.counts_as_evidence OR NOT sre_packet_reviews.counts_as_evidence`,
 		s.deployment, r.Database, r.InvestigationID, string(r.Family), r.Verdict,
-		r.Reviewer, r.Note, r.At)
-	return storeErr("record packet review", err)
+		r.Reviewer, r.Note, r.At, ReviewCountsAsEvidence(r.Reviewer))
+	if err != nil {
+		return storeErr("record packet review", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: a person already reviewed investigation %s; a review "+
+			"through MCP cannot replace it", ErrConflict, r.InvestigationID)
+	}
+	return nil
 }
 
-// ShadowStats counts the database's packet reviews of a family since
-// since, and its first review ever.
+// ShadowStats counts the database's packet reviews of a family by a
+// person since since, and the first such review ever. Reviews recorded
+// through MCP are kept but are not evidence.
 func (s *PostgresStore) ShadowStats(ctx context.Context, f Family, since time.Time) (Shadow,
 	error) {
 	var sh Shadow
@@ -87,7 +99,8 @@ func (s *PostgresStore) ShadowStats(ctx context.Context, f Family, since time.Ti
 		count(*) FILTER (WHERE reviewed_at >= $3 AND verdict = 'accepted'),
 		min(reviewed_at)
 		FROM sage.sre_packet_reviews
-		WHERE deployment_id = $1 AND database_name = $4 AND family = $2`,
+		WHERE deployment_id = $1 AND database_name = $4 AND family = $2
+		  AND counts_as_evidence`,
 		s.deployment, string(f), since, s.database).Scan(&sh.Reviewed, &sh.Accepted,
 		&first)
 	if first != nil {
