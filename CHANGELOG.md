@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Fast trust elevation for dogfood databases.** Every timer and threshold that gates
+  trust is now configurable, with the spec value as the default. These are the trust ramp
+  (`trust.ramp_safe_hours` / `ramp_moderate_hours`), an hour-scale IO baseline
+  (`verify.io_baseline_hours`) and the earned-autonomy promotion bar
+  (`sre.autonomy.promotion.*`). A documented profile lets a database earn autonomy in hours
+  instead of weeks. Irreversible actions keep the full ramp and never go above L1, L4 is
+  never reached, and an admin still approves every promotion. The sidecar logs a WARN for
+  each lowered value, and the Earned autonomy page shows a "Fast elevation" badge.
+
 ## v1.8.0 (2026-10-02) -- Sage SRE: eleven incident families, approved actions, earned autonomy
 
 ### What's new
@@ -31,15 +44,6 @@
   pre-registered gates, in CI on PostgreSQL 14–18.
 
 ### Added
-
-- **Fast trust elevation for dogfood databases.** Every timer and threshold that gates
-  trust is now configurable, with the spec value as the default. These are the trust ramp
-  (`trust.ramp_safe_hours` / `ramp_moderate_hours`), an hour-scale IO baseline
-  (`verify.io_baseline_hours`) and the earned-autonomy promotion bar
-  (`sre.autonomy.promotion.*`). A documented profile lets a database earn autonomy in hours
-  instead of weeks. Irreversible actions keep the full ramp and never go above L1, L4 is
-  never reached, and an admin still approves every promotion. The sidecar logs a WARN for
-  each lowered value, and the Earned autonomy page shows a "Fast elevation" badge.
 
 - **Operators can start, stop and resume Sage SRE investigations.** `POST
   /api/v1/databases/{db}/investigations` starts one for a case (a repeat joins the running
