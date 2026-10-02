@@ -319,3 +319,30 @@ func TestMonitorTick_RestartContinuesTheSeries(t *testing.T) {
 			epochs)
 	}
 }
+
+// Sample writes one sample of every series and nothing else: no findings
+// and no investigations (PGIncidentBench drives it on a compressed
+// timescale).
+func TestMonitorSample_WritesSamplesOnly(t *testing.T) {
+	pool, ctx := livePool(t)
+	name := fmt.Sprintf("public.sample_%d_seq", time.Now().UnixNano())
+	seedSequenceTrend(t, ctx, pool, name)
+	st := &fakeStarter{}
+	m := newTestMonitor(t, pool, probes.NewRunner(pool, probes.Catalog(),
+		probes.NewLimiter(1)), st)
+	var before int
+	_ = pool.QueryRow(ctx, "SELECT count(*) FROM sage.runway_samples").Scan(&before)
+	n, err := m.Sample(ctx)
+	if err != nil || n == 0 {
+		t.Fatalf("sample = %d (%v)", n, err)
+	}
+	var after int
+	_ = pool.QueryRow(ctx, "SELECT count(*) FROM sage.runway_samples").Scan(&after)
+	if after-before != n {
+		t.Fatalf("rows %d -> %d, want %d more", before, after, n)
+	}
+	if _, _, ok := openFinding(t, ctx, pool, CategorySequence, name); ok ||
+		len(st.started()) != 0 {
+		t.Fatal("Sample opened a finding or an investigation")
+	}
+}

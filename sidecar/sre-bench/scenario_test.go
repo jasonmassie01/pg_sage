@@ -14,7 +14,16 @@ import (
 // fault program has a manifestation predicate and a post-fix verifier.
 
 var benchFamilies = []sre.TriggerKind{sre.TriggerLock, sre.TriggerConnections,
-	sre.TriggerWAL, sre.TriggerPlan}
+	sre.TriggerWAL, sre.TriggerPlan, sre.TriggerWraparound, sre.TriggerDiskWAL,
+	sre.TriggerSequence}
+
+// ofFamily reports a node of the scenario family. The disk/WAL runway
+// shares the WAL retention mechanisms (slots, archiver, write surge) by
+// design (graph v3), so their nodes are its mechanisms too.
+func ofFamily(n causal.Node, kind sre.TriggerKind) bool {
+	return string(n.Family) == string(kind) ||
+		(kind == sre.TriggerDiskWAL && n.Family == causal.FamilyWAL)
+}
 
 func checkGold(t *testing.T, sc Scenario) {
 	t.Helper()
@@ -25,7 +34,7 @@ func checkGold(t *testing.T, sc Scenario) {
 		}
 	case ClassDecoy:
 		n, ok := causal.NodeByID(causal.NodeID(sc.Gold.Lookalike))
-		if sc.Gold.Root != "" || !ok || string(n.Family) != string(sc.Family) {
+		if sc.Gold.Root != "" || !ok || !ofFamily(n, sc.Family) {
 			t.Errorf("%s: a decoy needs no root and a lookalike of its family (%q)", sc.ID,
 				sc.Gold.Lookalike)
 		}
@@ -40,8 +49,7 @@ func checkGold(t *testing.T, sc Scenario) {
 		if node == "" {
 			continue
 		}
-		if n, ok := causal.NodeByID(causal.NodeID(node)); !ok ||
-			string(n.Family) != string(sc.Family) {
+		if n, ok := causal.NodeByID(causal.NodeID(node)); !ok || !ofFamily(n, sc.Family) {
 			t.Errorf("%s: gold node %q is not a %s mechanism", sc.ID, node, sc.Family)
 		}
 	}
