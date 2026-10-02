@@ -52,7 +52,8 @@ func ColumnsOf(sql string) []string {
 }
 
 // stripCommentsAndLiterals drops comments and replaces each quoted string
-// literal with '' so neither can hide keywords, commas or parentheses.
+// literal with an empty literal so neither can hide keywords, commas or
+// parentheses.
 func stripCommentsAndLiterals(sql string) string {
 	var b strings.Builder
 	for i := 0; i < len(sql); i++ {
@@ -82,7 +83,7 @@ func stripCommentsAndLiterals(sql string) string {
 }
 
 // skipLiteral returns the index of the quote closing the literal at i
-// ('' inside a literal is an escaped quote).
+// (a doubled quote inside a literal is an escaped quote).
 func skipLiteral(sql string, i int) int {
 	for j := i + 1; j < len(sql); j++ {
 		if sql[j] != '\'' {
