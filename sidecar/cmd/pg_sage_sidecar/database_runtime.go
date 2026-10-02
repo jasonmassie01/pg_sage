@@ -86,6 +86,8 @@ type databaseRuntime struct {
 	sre        *sre.Coordinator
 	sreService *sre.Service
 	sreStarted bool
+	// runwayAdvisor attaches custodian proposals to runway investigations.
+	runwayAdvisor *runwayAdvisor
 	logFanout  *logwatch.LogFanout
 	brief      *briefing.Worker
 	features   []string
@@ -110,6 +112,7 @@ func buildDatabaseRuntime(
 	rt := newDatabaseRuntime(spec, checks)
 	rt.startMonitoring()
 	rt.startExecution()
+	rt.startRunways()
 	rt.logExecutorSettings()
 	rt.inst = rt.instance()
 	logInfo(spec.Scope, "db %q: initialized (%s)", spec.Name,

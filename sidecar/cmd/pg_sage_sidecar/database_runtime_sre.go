@@ -35,6 +35,8 @@ type sreInvestigatorDeps struct {
 	llm         *llm.Client
 	dailyTokens int
 	notices     *sre.OnceLog
+	// advisor attaches custodian proposals to runway investigations.
+	advisor sre.ActionAdvisor
 }
 
 // newSREInvestigator builds one database's investigator (coordinator,
@@ -57,9 +59,10 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 	cc.SampleInterval = d.settings.SampleInterval()
 	cc.Retention.EvidenceAge = d.settings.EvidenceRetention()
 	cc.Retention.TimelineAge = d.settings.TimelineRetention()
+	cc.RunwayWindow = d.settings.Runways.Lookback()
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: d.runner,
 		Triggers: sre.NewPGTriggerSource(d.monitored, d.name), Config: cc,
-		LogFn: d.logFn, Model: model, Notices: notices})
+		LogFn: d.logFn, Model: model, Notices: notices, Advisor: d.advisor})
 	if err != nil {
 		return nil, fmt.Errorf("sre coordinator: %w", err)
 	}
@@ -76,11 +79,12 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 // instance worker group, in every mode (CHECK-31).
 func (rt *databaseRuntime) startInvestigator() {
 	key, legacy := rt.sreRuntimeKey()
+	rt.runwayAdvisor = newRunwayAdvisorFor(rt.spec.Pool, rt.cfg, rt.spec.Name)
 	svc, err := newSREInvestigator(sreInvestigatorDeps{control: rt.spec.ControlPool,
 		monitored: rt.spec.Pool, runner: rt.probes, name: rt.spec.Name,
 		runtimeKey: key, legacyID: legacy, settings: rt.cfg.SRE,
 		logFn: logStructuredWrapper, llm: rt.generalLLM,
-		dailyTokens: rt.cfg.LLM.TokenBudgetDaily})
+		dailyTokens: rt.cfg.LLM.TokenBudgetDaily, advisor: rt.runwayAdvisor})
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: sre investigator not started: %v", rt.spec.Name, err)
 		return

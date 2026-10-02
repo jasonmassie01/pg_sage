@@ -73,7 +73,7 @@ func advisedCoordinator(t *testing.T, ctx context.Context, st *PostgresStore,
 func TestCoordinator_RunwayConclusionCarriesCustodianProposals(t *testing.T) {
 	st, _, ctx := liveStore(t, DefaultLimits())
 	adv := &fakeAdvisor{out: []ActionProposal{{Feature: "sequence",
-		Action: "widen public.orders.id to bigint (manual migration)",
+		Action:  "widen public.orders.id to bigint (manual migration)",
 		Targets: []string{"public.orders.id"}, Verdict: "manual_only"}}}
 	c := advisedCoordinator(t, ctx, st, narrowColumnRunner(), adv)
 	inv := startAndRun(t, ctx, c, seqTrigger())
