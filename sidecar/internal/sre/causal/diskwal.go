@@ -24,6 +24,8 @@ const (
 	// slotMinR2 and growthMinR2 are the fits a growth trend needs.
 	slotMinR2   = 0.5
 	growthMinR2 = 0.6
+	// slotGrowthMin is the least growth of a slot trend that counts.
+	slotGrowthMin = 1 << 20
 	// Database growth must add at least growthMinBytes and growthMinShare
 	// of the databases' size over the sampled span.
 	growthMinBytes = 1 << 20
@@ -87,10 +89,12 @@ func readWALDirectory(obs []Observation) (probes.WALDirectory, string, []Missing
 	return d, o.EvidenceID, nil
 }
 
-// steadyGrowth reports a trend read from enough samples that rises with
-// at least the given fit.
-func steadyGrowth(tr probes.RunwayTrend, minR2 float64) bool {
-	return tr.Samples >= minTrendSamples && tr.RatePerS > 0 && tr.R2 >= minR2
+// steadySlotGrowth reports a slot trend read from enough samples that
+// rises steadily and materially (at least slotGrowthMin bytes over its
+// span): a consumer that keeps up still drifts by kilobytes.
+func steadySlotGrowth(tr probes.RunwayTrend) bool {
+	return tr.Samples >= minTrendSamples && tr.RatePerS > 0 && tr.R2 >= slotMinR2 &&
+		tr.RatePerS*tr.SpanS() >= slotGrowthMin
 }
 
 func trendText(tr probes.RunwayTrend) string {
@@ -109,7 +113,7 @@ func scoreInactiveSlotRunway(w walEvidence, ts []probes.RunwayTrend,
 		return h
 	}
 	if tr, ok := probes.FindTrend(ts, probes.RunwayWALSlot, s.Name); ok &&
-		steadyGrowth(tr, slotMinR2) {
+		steadySlotGrowth(tr) {
 		h.add(slotTrendWeight, ev, "its retained WAL grew at "+trendText(tr))
 	}
 	return h
@@ -134,7 +138,7 @@ func scoreSlowConsumerRunway(w walEvidence, r walRate, ts []probes.RunwayTrend,
 	}
 	h.Subject = fmt.Sprintf("slot %q", s.Name)
 	switch {
-	case steadyGrowth(tr, slotMinR2):
+	case steadySlotGrowth(tr):
 		h.add(slowTrendWeight, ev, fmt.Sprintf("slot %q is active but its retained WAL "+
 			"grew at %s", s.Name, trendText(tr)))
 		if s.RetainedBytes >= slotRetainedMin {
