@@ -4,6 +4,22 @@
 
 ### Added
 
+- **Sage SRE runbooks and incident memory.** You can now write typed runbooks for a
+  database: a small flowchart of read-only catalog probes, yes/no decisions on their
+  results or on the causal graph's hypotheses, and a final proposal (a manual step, a typed
+  action to request through the normal approval flow, or "escalate"). Write one as JSON, or
+  paste an English playbook (for example an imported Xata playbook) and your configured LLM
+  turns it into a draft, which is checked against the probe catalog and graph. A runbook
+  only ever runs after an admin signs the exact version they reviewed; any edit needs a new
+  signature, and a retired runbook never runs. When a signed runbook matches an
+  investigation, it adds its probes (within the usual 12-probe and 120 s limits), records
+  which version ran and what it proposes, and never executes anything. Investigations also
+  look up similar past incidents of the same database, with any outcome an operator
+  confirmed or refuted, and show them to the model and in the Cases panel as context only
+  (never as evidence, and never anything newer than the investigation itself). Manage
+  runbooks under Advanced > Runbooks, the `/api/v1/databases/{db}/runbooks` routes, or the
+  new MCP tools (which can draft but never sign).
+
 - **Sage SRE investigations get a model turn (on by default whenever an LLM is
   configured).** After the causal graph diagnoses an incident, your configured LLM reviews
   the result. It can reorder the graph's own hypotheses (shown separately as "model
