@@ -64,6 +64,10 @@ func livePool(t *testing.T) (*pgxpool.Pool, context.Context) {
 func seedSequenceTrend(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	name string) {
 	t.Helper()
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			"DELETE FROM sage.runway_samples WHERE subject = $1", name)
+	})
 	if _, err := pool.Exec(ctx, `INSERT INTO sage.runway_samples
 		(kind, subject, epoch, sampled_at, value, counter, limit_value)
 		SELECT 'sequence', $1, 'seed', now() - make_interval(mins => 60 - i * 5),
