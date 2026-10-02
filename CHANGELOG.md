@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+### Changed (read before upgrading)
+
+- **pg_sage's snapshot history takes about a tenth of the space, and pg_sage warns when it
+  grows too big.** The collector used to store the full list of every table, index,
+  sequence and query each minute, so `sage.snapshots` reached 9.3 GB on a personal
+  database. It now stores a full copy at most every 6 hours and, in between, only what
+  changed. On an hour of collection with 5,000 indexes this writes 11x fewer bytes overall
+  (indexes alone 21x to 26x fewer). Every screen, forecast and API reads exactly the same
+  data as before. Existing history is not rewritten: old rows stay readable and age out
+  with `retention.snapshots_days`. To read snapshots in SQL yourself, use
+  `sage.snapshot_data(data, base_id)` instead of the `data` column. A new
+  `sage_footprint` finding warns when pg_sage's own tables pass
+  `retention.sage_size_warning_pct` percent of the database (default 10, `0` turns it off).
+
+### Fixed
+
+- **A statistics reset can no longer make a used index look unused.** Unused-index
+  findings can lead to an automatic `DROP INDEX`. If the statistics were reset (by
+  `pg_stat_reset()`, a single-table reset or a restart) between two snapshots, scans that
+  happened before the reset were invisible. pg_sage now records when the statistics last
+  reset with every snapshot, and restarts an index's unused clock at that reset. It also
+  restarts the clock when a counter goes down or when the index is dropped and recreated
+  under the same name. An index is reported only after a full clean window. Before any
+  drop, automatic or approved by an operator, pg_sage checks the evidence again live. If
+  it no longer holds, pg_sage refuses and says which check failed: the index was scanned,
+  the statistics were reset inside the window, or the index is gone.
+
+## v1.8.1 (2026-10-02) -- Fast trust, big-catalog fixes from dogfooding, current OpenAI models
+
+### What's new
+
+- **Works with current OpenAI models.** gpt-5/gpt-6 models (including the low-cost
+  gpt-6-luna) now work for every LLM feature; pg_sage adapts the request shape automatically.
+- **Trust in hours, not weeks, when you ask for it.** Every trust timer and promotion
+  threshold is a setting with the spec value as default, for dogfood and test databases.
+  Irreversible actions, L4 and admin approval stay hard limits.
+- **Safe on big, messy databases.** Found by running pg_sage on a real 18 GB database:
+  catalog collection, forecasting and sequence runways stay bounded on tens of thousands of
+  objects; stale and duplicate incidents clean themselves up; indexes the application keeps
+  recreating are left alone; long-stale rollback monitors expire instead of acting.
+- **Sage SRE follow-ups.** Detector episodes become incidents, PgBouncer pool exhaustion is
+  diagnosed, failovers between or before samples are caught (`causal-v4`), and fleet
+  databases can be added, removed or changed without a restart.
+- **One locked path for every change.** Retention deletes run through the executor with
+  leases and verification; operator actions lock the exact object; `serialize_mode: queue`
+  really queues.
+
 ### Added
 
 - **Fast trust elevation for dogfood databases.** Every timer and threshold that gates
@@ -59,18 +106,6 @@
 
 ### Changed (read before upgrading)
 
-- **pg_sage's snapshot history takes about a tenth of the space, and pg_sage warns when it
-  grows too big.** The collector used to store the full list of every table, index,
-  sequence and query each minute, so `sage.snapshots` reached 9.3 GB on a personal
-  database. It now stores a full copy at most every 6 hours and, in between, only what
-  changed. On an hour of collection with 5,000 indexes this writes 11x fewer bytes overall
-  (indexes alone 21x to 26x fewer). Every screen, forecast and API reads exactly the same
-  data as before. Existing history is not rewritten: old rows stay readable and age out
-  with `retention.snapshots_days`. To read snapshots in SQL yourself, use
-  `sage.snapshot_data(data, base_id)` instead of the `data` column. A new
-  `sage_footprint` finding warns when pg_sage's own tables pass
-  `retention.sage_size_warning_pct` percent of the database (default 10, `0` turns it off).
-
 - **Retention deletes, operator actions and queued changes now share one locked path.**
   A retention delete (an owner-declared `retention_column` contract, D5) now runs as a
   recorded action through the same pipeline as every other change: it is authorized,
@@ -90,15 +125,6 @@
   `park`, the default, is unchanged.
 
 ### Fixed
-
-- **A statistics reset can no longer make a used index look unused.** Unused-index
-  findings can lead to an automatic `DROP INDEX`. If the statistics were reset (by
-  `pg_stat_reset()`, a single-table reset or a restart) between two snapshots, scans that
-  happened before the reset were invisible. pg_sage now records when the statistics last
-  reset with every snapshot, and restarts an index's unused clock at that reset. It also
-  restarts the clock when a counter goes down or when the index is dropped and recreated
-  under the same name. An index is reported only after a full clean window. Before an
-  automatic drop, pg_sage checks the evidence again live and refuses if it no longer holds.
 
 - **pg_sage works with current OpenAI models (gpt-5, gpt-6 and later).** These models
   refuse `max_tokens`, and refuse tool calls unless `reasoning_effort` is `none`, so every

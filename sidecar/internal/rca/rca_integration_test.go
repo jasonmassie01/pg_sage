@@ -60,8 +60,16 @@ func requireDB(t *testing.T) *pgxpool.Pool {
 	return integPool
 }
 
-// cleanIncidents removes all rows from sage.incidents before each test.
+// cleanIncidents removes all rows from sage.incidents before and after each
+// test, so no incident without a database name outlives it (Hydrate adopts
+// such legacy rows in later tests).
 func cleanIncidents(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	deleteIncidents(t, pool)
+	t.Cleanup(func() { deleteIncidents(t, pool) })
+}
+
+func deleteIncidents(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
