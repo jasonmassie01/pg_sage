@@ -91,12 +91,17 @@ var _ ErrorBudgetSource = (*Engine)(nil)
 // BudgetSummary is one database's error-budget state. FastBurning is
 // true while any SLO (app or proxy) fires a page-level rule;
 // AppFastBurning only counts registered app SLIs. Unknown names the
-// SLOs whose state is unknown: unknown is never "not burning".
+// SLOs whose state is unknown (unknown is never "not burning");
+// UnknownApp only the registered app SLIs among them, since a proxy can
+// be unknown for a structural reason (no standbys, no log access).
+// AppSLOs counts the registered app SLIs.
 type BudgetSummary struct {
 	Database       string    `json:"database"`
 	FastBurning    bool      `json:"fast_burning"`
 	AppFastBurning bool      `json:"app_fast_burning"`
+	AppSLOs        int       `json:"app_slos"`
 	Unknown        []string  `json:"unknown"`
+	UnknownApp     []string  `json:"unknown_app"`
 	SLOs           []Status  `json:"slos"`
 	ReadAt         time.Time `json:"read_at"`
 }
@@ -107,15 +112,24 @@ func (e *Engine) BudgetSummary(ctx context.Context) (BudgetSummary, error) {
 	if err != nil {
 		return BudgetSummary{}, err
 	}
-	sum := BudgetSummary{Database: e.database, Unknown: []string{}, SLOs: sts,
-		ReadAt: e.now()}
+	sum := BudgetSummary{Database: e.database, Unknown: []string{}, UnknownApp: []string{},
+		SLOs: sts, ReadAt: e.now()}
+	for _, o := range e.objectives {
+		if o.Kind == KindApp {
+			sum.AppSLOs++
+		}
+	}
 	for _, st := range sts {
+		app := st.Kind == KindApp
 		switch {
 		case st.FastBurning:
 			sum.FastBurning = true
-			sum.AppFastBurning = sum.AppFastBurning || st.Kind == KindApp
+			sum.AppFastBurning = sum.AppFastBurning || app
 		case st.State == StateUnknown:
 			sum.Unknown = append(sum.Unknown, st.Name)
+			if app {
+				sum.UnknownApp = append(sum.UnknownApp, st.Name)
+			}
 		}
 	}
 	return sum, nil

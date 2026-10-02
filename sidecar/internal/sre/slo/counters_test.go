@@ -41,8 +41,8 @@ func TestCombine_Unknowns(t *testing.T) {
 		aggs []SeriesAgg
 		want string
 	}{
-		"no series":    {nil, ReasonNoData},
-		"no samples":   {[]SeriesAgg{{Series: "s"}}, ReasonNoData},
+		"no series":  {nil, ReasonNoData},
+		"no samples": {[]SeriesAgg{{Series: "s"}}, ReasonNoData},
 		"stale": {[]SeriesAgg{agg("s", from, now.Add(-6*time.Minute), 1, 500, 0)},
 			ReasonStale},
 		"partial": {[]SeriesAgg{agg("s", now.Add(-20*time.Minute), now, 1, 500, 0)},

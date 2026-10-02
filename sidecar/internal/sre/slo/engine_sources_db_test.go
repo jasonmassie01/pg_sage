@@ -147,7 +147,6 @@ func TestEngine_PrometheusObjective(t *testing.T) {
 	}
 }
 
-
 // historyProxy reads the baseline history the engine hands it.
 type historyProxy struct {
 	fakeProxy
