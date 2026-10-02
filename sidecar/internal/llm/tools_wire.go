@@ -54,7 +54,26 @@ type toolChatRequest struct {
 	ReasoningEffort     string `json:"reasoning_effort,omitempty"`
 }
 
-// shaped returns the request in the given wire shape.
+// startShaped is a request's starting wire shape and its JSON body.
+func startShaped(
+	cfg config.LLMConfig, req toolChatRequest, tools bool,
+) (wireShape, []byte, error) {
+	shape := requestShape(cfg, tools)
+	body, err := marshalShaped(req, shape)
+	return shape, body, err
+}
+
+// marshalShaped is the JSON body of the request in the given wire shape.
+func marshalShaped(req toolChatRequest, shape wireShape) ([]byte, error) {
+	body, err := json.Marshal(req.shaped(shape))
+	if err != nil {
+		return nil, fmt.Errorf("marshal tool request: %w", err)
+	}
+	return body, nil
+}
+
+// shaped returns the request in the given wire shape; the receiver keeps
+// MaxTokens as the cap for budgeting.
 func (r toolChatRequest) shaped(shape wireShape) toolChatRequest {
 	if shape.completionTokens {
 		r.MaxTokens, r.MaxCompletionTokens = 0, r.MaxTokens
@@ -124,11 +143,9 @@ func (c *Client) exchangeTools(
 	ctx, requestCtx context.Context, cfg config.LLMConfig,
 	generation uint64, req toolChatRequest, tools []ToolSpec, call Budgeter,
 ) (ToolResult, error) {
-	limit := req.MaxTokens
-	shape := requestShape(cfg, len(tools) > 0)
-	body, err := json.Marshal(req.shaped(shape))
+	shape, body, err := startShaped(cfg, req, len(tools) > 0)
 	if err != nil {
-		return ToolResult{}, fmt.Errorf("marshal tool request: %w", err)
+		return ToolResult{}, err
 	}
 	key := requestThrottleKey(cfg, "tools", string(body))
 	if err := c.acquireThrottle(key, cfg.CooldownSeconds); err != nil {
@@ -136,12 +153,12 @@ func (c *Client) exchangeTools(
 	}
 	success := false
 	defer func() { c.releaseThrottle(key, success) }()
-	callHeld, err := reserveCall(call, estimateTokens(string(body))+limit)
+	callHeld, err := reserveCall(call, estimateTokens(string(body))+req.MaxTokens)
 	if err != nil {
 		return ToolResult{}, err
 	}
-	reservation, err := c.reserveBudget(cfg, limit,
-		externalReservation(string(body), "", limit))
+	reservation, err := c.reserveBudget(cfg, req.MaxTokens,
+		externalReservation(string(body), "", req.MaxTokens))
 	if err != nil {
 		settleCall(call, callHeld, 0)
 		return ToolResult{}, err
@@ -218,9 +235,9 @@ func (c *Client) postToolsAdapting(
 ) (*toolChatResponse, error) {
 	var out *toolChatResponse
 	err := c.withAdaptation(cfg, shape, func(s wireShape) error {
-		body, err := json.Marshal(req.shaped(s))
+		body, err := marshalShaped(req, s)
 		if err != nil {
-			return fmt.Errorf("marshal tool request: %w", err)
+			return err
 		}
 		resp, err := c.postTools(ctx, requestCtx, cfg, body, s, tools)
 		out = resp
