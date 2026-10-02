@@ -319,12 +319,8 @@ Lint: `golangci-lint run ./...` gives 0 issues.
 2. **`system` stays full.** It is the largest remaining fixed cost (about 22 kB/h) and
    is read raw by the forecaster and verify. Encoding it would save about 2% and make
    those reads decode. My recommendation is to leave it.
-3. **Unused-index proof across stats epochs.** The rule uses the live
-   `pg_stat_database` epoch and in-memory first-seen times; neither was ever persisted.
-   History now keeps every `idx_scan` sample exactly, so resets are visible as
-   decreases. A reset that happens between two samples with no scans before it remains
-   invisible, as before. Persisting the stats epoch in `system` would close that gap. It
-   is a small collector change and a product call.
+3. **Unused-index proof across stats epochs.** Decided by the coordinator and done on
+   this branch (section 9).
 4. **Merge note.** The migration is registered last in `bootstrap.go` (one line).
    `CHANGELOG.md`, `config.go` (one field plus a default line), the store, the API config
    registries and the generated `config_meta.json` / `config-lifecycles.md` each got
@@ -335,3 +331,89 @@ Lint: `golangci-lint run ./...` gives 0 issues.
    `sage_footprint` finding will fire on lifeos right away if sage is over 10% of the
    database. Decide whether to shorten retention there once, or accept the finding until
    the legacy rows age out.
+
+## 9. Follow-up (coordinator decision): a statistics reset breaks unused-index evidence
+
+Unused-index evidence drives an autonomous `DROP INDEX`, so a window that contains a
+statistics reset must read as broken evidence, never as zero scans. Tests came first
+(`90599d9`), then the implementation (`d3049d7`).
+
+**Facts checked on real servers before building.**
+- `pg_stat_reset()` and `pg_stat_reset_single_table_counters()` on an index both move
+  `pg_stat_database.stats_reset`, on PG14, PG17 and PG18. So the database's stats epoch
+  sees every reset kind; a crash or restart shows through `pg_postmaster_start_time()`.
+- PG14 to PG18 expose no per-relation reset timestamp. `pg_stat_all_indexes` has
+  `last_idx_scan` from PG16, but a reset clears it together with `idx_scan`, so it adds
+  nothing for a zero-scan index. The per-object evidence used is the oid plus a counter
+  decrease.
+
+**What was built.**
+- **Collector.**
+  - Every `system` snapshot records `relation_stats_epoch`: the later of `stats_reset` and
+    the postmaster start, read from `pg_catalog` in a separate query. A failure to read
+    it is logged and recorded as unknown, never guessed.
+  - Every index records its oid (`indexrelid`).
+- **Analyzer** (`rules_unused_index.go`). The clean window starts at the latest of these:
+  - the first zero-scan sample of this object;
+  - a new oid under the same name (drop and recreate);
+  - a counter that went down since the previous sample;
+  - the later of the snapshot's recorded epoch and the live epoch.
+
+  A finding needs a full clean window after that start; the boundary is inclusive. Its
+  detail carries `unused_since` and `stats_epoch`. When a reset happens, the rule stops
+  emitting the finding. The category is still evaluated, so the open finding resolves and
+  its drop recommendation is superseded. It comes back only after a full clean window.
+- **Executor** (`unused_evidence.go`). Before an autonomous `unused_index` drop is queued or
+  applied, it re-reads the evidence live: the index exists exactly once, has zero scans,
+  and the epoch is at least one window old (`analyzer.unused_index_window_days`, 7 when
+  unset). Otherwise it refuses and logs why. A failed read also refuses (fail closed).
+  This closes the gap between a reset and the analyzer's next cycle. Duplicate-index drops
+  do not rest on usage counters and are not gated.
+
+**Integration test (real statistics,
+`analyzer/unused_reset_integration_test.go`).** A real collector samples every second,
+and the analyzer runs real cycles on a fake clock.
+- `ix_seen` is scanned and a snapshot shows `idx_scan > 0`.
+- `ix_unseen` has been unused for six days of analyzer time. With the collector stopped,
+  it is scanned and `pg_stat_reset()` runs, so no sample ever sees those scans.
+- At reset + 1 min, + 2 days and + 7 days - 1 min, there is no open `unused_index`
+  finding and no live drop recommendation for either index.
+- At reset + 7 days + 2 min, both findings are open.
+
+It passes on PG17, PG14 and PG18.
+
+**Test Results (follow-up).**
+- Full suite: `go test -p 2 -count=1 -cover ./...` on PG17 at the follow-up head. All 82
+  packages with tests pass, with no failure and no flake.
+- Touched packages (analyzer, collector, executor, snapstore, api, schema, forecaster,
+  retention, config, store), `-race -p 2`:
+
+  | Server | Passed | Skipped | Failed |
+  |---|---|---|---|
+  | PG17 | 4,021 | 0 | 0 |
+  | PG14 | 4,019 | 2 (`pg_stat_io` before PG16, existing) | 0 |
+  | PG18 | 4,021 | 0 | 0 |
+
+  No data race.
+- Coverage: analyzer 86.0-86.1%, collector 86.3-87.8%, executor 83.9%.
+- Lint: 0 issues.
+- Mutation testing: 8 of 8 mutants were killed:
+  - the epoch clamp removed;
+  - a counter decrease ignored;
+  - a new oid ignored;
+  - the snapshot's epoch ignored;
+  - the executor guard unwired;
+  - the executor's window check off;
+  - the collector not recording the epoch;
+  - the collector not recording the oid.
+- One test was wrong for PG14 and was fixed (`9667a84`). PG14 has no
+  `pg_stat_force_next_flush()`, and an idle pooled backend never sent its counters, so the
+  wait now keeps the backend cycling. The assertions did not change.
+
+**Post-test audit.**
+- `FirstSeen` and the oid map live in memory, as before. A sidecar restart restarts every
+  clock, which is conservative.
+- A PG14 stats-collector message loss (UDP) is undetectable, as before.
+- The operator-approved drop path (`ExecuteManual`) is not gated. A human approved it
+  from the finding's evidence, which now states `unused_since` and `stats_epoch`. Gating
+  it too is a one-line change if wanted.
