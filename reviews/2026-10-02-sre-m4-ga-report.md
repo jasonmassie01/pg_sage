@@ -122,7 +122,8 @@ used the same key at the same time.
 
 At Gemini 2.5 Flash list prices of $0.30 per million input tokens and $2.50 per million output
 tokens (thinking billed as output; prices as I know them, check the current price list) the
-run cost about $0.007 + $0.079 = **about $0.09**. A successful single-turn investigation used
+run cost about $0.007 + $0.079 = **about $0.09**. The paced re-run was refused before any
+tokens were spent (429 on every call). A successful single-turn investigation used
 about 850 prompt, 170 answer and 300-1,400 thinking tokens (about $0.001-0.004); a two-turn
 inconclusive one about 1,950 prompt, 330 answer and 2,400-4,300 thinking tokens (about
 $0.008-0.012). Thinking dominates the cost.
@@ -133,8 +134,15 @@ changed) on the fault programs; R1-CLAIM-REFS 89/89 on the fault programs (the r
 accepted claims); R1-ADVERSARIAL not meaningfully measured for the live model (every replay
 call failed); R1-FACTUAL-PRECISION not evaluated (needs two human reviewers).
 
-**To finish the live evaluation:** re-run once with `PG_SAGE_BENCH_LLM_RPM=8` (or the key's
-limit). The fault programs alone are slow enough; the replay needs the pacing.
+**Paced re-run (coordinator decision, once):** `TestReplayCorpus` with
+`PG_SAGE_BENCH_LLM_RPM=8`, gemini-2.5-flash, PG17. Every model call was refused: the first 7
+model events were all `model_rejected` / `rate_limited` ("LLM provider rate limited the
+request (status 429)"), at 8 calls per minute. Since pacing did not help, the limit is a quota
+(daily, or shared with other users of the key), not a burst limit. Per the instruction I
+stopped the run there (no retries), dropped its fixture database, and spent no further
+tokens. The key did not appear in the run log. **CHECK-10 against a live model therefore
+remains unmeasured**: no live call ever saw an adversarial replay case. It needs a key with
+quota (or a local OpenAI-compatible model) and one paced run of `TestReplayCorpus`.
 
 ## Gates summary (§12 R1 GA)
 
@@ -335,8 +343,8 @@ every changed Go file); every changed function <= 50 lines, file <= 500 lines, l
 
 ## Left for later
 
-- Re-run the live evaluation once with `PG_SAGE_BENCH_LLM_RPM` so the replay measures the
-  model (and CHECK-10 against a live model).
+- A live replay with quota (the paced re-run was refused with 429s from the first call): it
+  is still needed to measure the model on the replay corpus and CHECK-10 against a live model.
 - R1 items not built: recovery verification after an external intervention
   (`POST .../external-changes`, CHECK-22/23 per §13 in M5), notes, the MCP `sre.investigate`
   tool, the change feed beyond pg_sage's own actions (config changes, DDL, statement resets,
@@ -349,36 +357,3 @@ every changed Go file); every changed function <= 50 lines, file <= 500 lines, l
 - The graph tie-break (bug 5).
 - Live verification of the `pg_monitor` grant on RDS/Aurora and Neon/Supabase.
 
-## Commits
-
-```
-2d96b81 test(sre-bench): give the replay corpus test the replay budget
-12016dd fix(sre-bench): recover a skipped archiver scenario at once
-c90fd9a test(sre-bench): specify an immediate archiver recovery without the fixture
-80c81d8 docs(changelog): describe Sage SRE M4 (operator controls, model output UI, replay corpus, fixes)
-8ed6048 feat(web): stop and resume investigations from the Cases panel
-ff8a637 test(web): specify stop and resume controls in the Cases panel
-339bee1 feat(sre-bench): pace the live model with PG_SAGE_BENCH_LLM_RPM
-ba2bc7f test(sre-bench): specify pacing the live model's calls
-72d55d4 docs(sre): document Sage SRE permissions and data flow
-71a956e fix(sre): report activity probes as no_privilege without pg_read_all_stats
-0bd3957 test(sre): specify activity probes as no_privilege without pg_read_all_stats
-f28a5da feat(sre): let operators start, stop and resume investigations
-004444e test(sre): specify operator start, stop and resume of investigations
-3c20ca7 feat(web): show the model turn's output and timeline in the Cases panel
-db772d4 test(web): specify the Cases panel's model output and timeline
-7c7345d test(sre-bench): give the bench room for the replay and a live model
-d3eb396 docs(sre-bench): document the replay corpus format, grading and gates
-4818ac1 feat(sre-bench): replay arm with a model tap, replay gates and report
-4a39c0d feat(sre-bench): add the R1 replay corpus, its loader and runner
-5273d55 feat(sre): treat stale and same-instant evidence as missing
-0a96d07 test(sre): correct two fixtures that contradicted the evidence model
-bdb35b6 style(sre): gofmt the auto-start integration test
-2d1c6fe test(sre-bench): specify the replay corpus, runner, tap and gates
-ff13a8a test(sre): specify stale and out-of-order evidence as missing
-15042c9 style(config): gofmt the SRE defaults
-d1cfe65 feat(sre): start read-only investigations automatically by default
-c425bbc test(sre): specify automatic investigations on by default
-```
-
-Not pushed; no PR opened.
