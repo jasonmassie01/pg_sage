@@ -17,7 +17,16 @@ Detects indexes with zero scans over the observation window.
 
 **Severity:** warning
 
-**What it detects:** Indexes that consume disk space and slow down writes but are never used for reads. Evaluated against `pg_stat_user_indexes.idx_scan`.
+**What it detects:** Indexes that consume disk space and slow down writes but are never used for reads. Evaluated against `pg_stat_user_indexes.idx_scan` over `analyzer.unused_index_window_days` (default 7) of clean evidence.
+
+A statistics reset makes zero scans meaningless, so it restarts the clock. Resets come from
+`pg_stat_reset()`, a single-relation reset or a server restart. Each snapshot records the
+database's statistics epoch (`pg_stat_database.stats_reset` or the postmaster start). The
+window never starts before the last reset. A counter that went down, or an index dropped
+and recreated under the same name (new oid), also restarts it. The finding shows
+`unused_since` and `stats_epoch`. Before an autonomous `DROP INDEX`, the executor re-checks
+live that the index still has zero scans and that no reset happened inside the window.
+If either check fails, it does not drop the index.
 
 **Example output:**
 

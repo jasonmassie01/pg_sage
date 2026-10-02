@@ -91,6 +91,15 @@
 
 ### Fixed
 
+- **A statistics reset can no longer make a used index look unused.** Unused-index
+  findings can lead to an automatic `DROP INDEX`. If the statistics were reset (by
+  `pg_stat_reset()`, a single-table reset or a restart) between two snapshots, scans that
+  happened before the reset were invisible. pg_sage now records when the statistics last
+  reset with every snapshot, and restarts an index's unused clock at that reset. It also
+  restarts the clock when a counter goes down or when the index is dropped and recreated
+  under the same name. An index is reported only after a full clean window. Before an
+  automatic drop, pg_sage checks the evidence again live and refuses if it no longer holds.
+
 - **pg_sage works with current OpenAI models (gpt-5, gpt-6 and later).** These models
   refuse `max_tokens`, and refuse tool calls unless `reasoning_effort` is `none`, so every
   LLM feature used to fall back to its deterministic path. pg_sage now notices the refusal,
