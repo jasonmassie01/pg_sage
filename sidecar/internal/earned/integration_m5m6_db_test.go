@@ -172,3 +172,21 @@ func TestViewListsTheM6Families(t *testing.T) {
 		t.Fatalf("view lists %d families, want 11", len(v.Families))
 	}
 }
+
+// Post-test audit (mutation I12 survived): an operator-approved execution
+// of a family action is the approval path's (an L2 handoff), never a
+// self-initiated outcome.
+func TestReconcileLeavesOperatorApprovalsToTheHandoffPath(t *testing.T) {
+	f := newFixture(t)
+	f.cleanMonitored()
+	db := "approved-" + newUUID(t)[:8]
+	approved := f.familyDecision("operator_approved", "wraparound_runway", "freeze",
+		"success")
+	res, err := NewReconciler(f.svc, f.pool, db, nil).RunOnce(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.outcomes(db); got[approved] != "" || res.Recorded != 0 {
+		t.Fatalf("an operator approval was recorded as self-initiated: %v", got)
+	}
+}
