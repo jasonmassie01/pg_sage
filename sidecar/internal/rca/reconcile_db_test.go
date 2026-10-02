@@ -99,7 +99,7 @@ func expectedGroups(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	t.Helper()
 	rows, err := pool.Query(ctx, `SELECT affected_objects[1], min(detected_at),
 		max(last_detected_at), sum(occurrence_count)::int,
-		max(CASE severity WHEN 'critical' THEN 'critical' ELSE 'warning' END)
+		CASE WHEN bool_or(severity = 'critical') THEN 'critical' ELSE 'warning' END
 		FROM sage.incidents WHERE rollback_sql = $1 AND resolved_at IS NULL
 		GROUP BY 1`, mark)
 	if err != nil {
@@ -307,12 +307,18 @@ func TestHydrate_ReconcilesLegacyRowsAndLinksRecurrence(t *testing.T) {
 	if len(open) != 1 || open[0].previousID == nil || *open[0].previousID != survivor {
 		t.Fatalf("open = %+v, want one recurrence linked to %s", open, survivor)
 	}
-	var stale int
-	_ = pool.QueryRow(ctx, `SELECT count(*) FROM sage.incidents WHERE rollback_sql = $1
-		AND resolved_by = $2 AND resolution_reason LIKE 'stale:%'`, mark,
-		ResolvedByStale).Scan(&stale)
-	if stale != len(lifeosGroups)-1 {
-		t.Fatalf("%d incidents resolved as stale, want %d", stale, len(lifeosGroups)-1)
+	// The survivors whose earliest row named an idle-in-transaction PID (6
+	// identities, agent_jobs included: its backend check runs before the
+	// recurrence merges) resolve because that backend is gone; the other 8
+	// as stale.
+	var stale, gone int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE resolved_by = $2
+		  AND resolution_reason LIKE 'stale:%'),
+		count(*) FILTER (WHERE resolved_by = $3)
+		FROM sage.incidents WHERE rollback_sql = $1`, mark, ResolvedByStale,
+		ResolvedBySubjectGone).Scan(&stale, &gone)
+	if stale != 8 || gone != 6 {
+		t.Fatalf("%d stale and %d subject-gone resolutions, want 8 and 6", stale, gone)
 	}
 	if evs := rec.byType("incident_resolved"); len(evs) != 0 {
 		t.Fatalf("%d resolution notifications for months-old incidents, want none",

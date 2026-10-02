@@ -58,22 +58,14 @@ func TestRCAStaleAfter_ZeroValueMeansDefault(t *testing.T) {
 
 func TestSequenceInterval_Boundaries(t *testing.T) {
 	cases := []struct {
-		yaml   string
+		value  int
 		wantOK bool
-	}{
-		{"sequence_interval_seconds: 0", false},
-		{"sequence_interval_seconds: -1", false},
-		{"sequence_interval_seconds: 59", false}, // under interval_seconds
-		{"sequence_interval_seconds: 60", true},
-		{"sequence_interval_seconds: 2400", true},  // 9 x 2400 s = the 6 h lookback
-		{"sequence_interval_seconds: 2401", false}, // min_samples no longer fit
-		{"sequence_interval_seconds: 86400\n    min_samples: 3\n    lookback_hours: 48", true},
-		{"sequence_interval_seconds: 86401\n    min_samples: 3\n    lookback_hours: 168\n" +
-			"    sample_retention_hours: 720", false},
-	}
+	}{{-1, false}, {0, false}, {14, false}, {15, true}, {600, true}, {86400, true},
+		{86401, false}}
 	for _, c := range cases {
-		t.Run(strings.ReplaceAll(c.yaml, "\n", " "), func(t *testing.T) {
-			_, err := loadRCAYAML(t, "sre:\n  runways:\n    "+c.yaml+"\n")
+		t.Run(strconv.Itoa(c.value), func(t *testing.T) {
+			_, err := loadRCAYAML(t, "sre:\n  runways:\n    sequence_interval_seconds: "+
+				strconv.Itoa(c.value)+"\n")
 			if c.wantOK && err != nil {
 				t.Fatalf("rejected: %v", err)
 			}
@@ -82,6 +74,38 @@ func TestSequenceInterval_Boundaries(t *testing.T) {
 				t.Fatalf("err = %v, want the key named", err)
 			}
 		})
+	}
+}
+
+// The effective period is clamped, not rejected: existing valid settings
+// (interval_seconds 3600, lookback_hours 1, min_samples 1000) keep
+// working with the default, and a projection always gets min_samples
+// inside the lookback.
+func TestSequenceInterval_EffectivePeriodIsClamped(t *testing.T) {
+	r := defaultRunwayConfig()
+	cases := []struct {
+		mutate func(*RunwayConfig)
+		want   time.Duration
+	}{
+		{func(*RunwayConfig) {}, 10 * time.Minute},
+		{func(c *RunwayConfig) { c.IntervalSeconds = 3600 }, time.Hour},
+		{func(c *RunwayConfig) { c.SequenceIntervalSeconds = 15 }, time.Minute},
+		{func(c *RunwayConfig) { c.LookbackHours = 1 }, 400 * time.Second},
+		{func(c *RunwayConfig) { c.SequenceIntervalSeconds = 86400 }, 2400 * time.Second},
+		{func(c *RunwayConfig) { c.MinSamples = 1000 }, time.Minute},
+	}
+	for i, c := range cases {
+		cfg := r
+		c.mutate(&cfg)
+		if got := cfg.SequenceInterval(); got != c.want {
+			t.Errorf("case %d: effective sequence interval = %s, want %s", i, got, c.want)
+		}
+	}
+	for _, body := range []string{"interval_seconds: 3600", "lookback_hours: 1",
+		"min_samples: 1000"} {
+		if _, err := loadRCAYAML(t, "sre:\n  runways:\n    "+body+"\n"); err != nil {
+			t.Errorf("%s with the default sequence interval rejected: %v", body, err)
+		}
 	}
 }
 

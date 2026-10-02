@@ -117,14 +117,14 @@ func TestMonitorRead_SequencesOnTheirOwnCadence(t *testing.T) {
 	m := cadenceMonitor(r, 10*time.Minute, c, &logSink{})
 	ctx := context.Background()
 	snap, errs := m.read(ctx)
-	if len(errs) != 0 || !snap.SequencesOK || !snap.SequencesFresh ||
+	if len(seqErrs(errs)) != 0 || !snap.SequencesOK || !snap.SequencesFresh ||
 		len(snap.Sequences) != 1 {
 		t.Fatalf("first read = %+v (%v), want a fresh reading", snap, errs)
 	}
 	for _, step := range []time.Duration{time.Minute, 8 * time.Minute} {
 		c.add(step)
 		snap, errs = m.read(ctx)
-		if len(errs) != 0 || !snap.SequencesOK || snap.SequencesFresh ||
+		if len(seqErrs(errs)) != 0 || !snap.SequencesOK || snap.SequencesFresh ||
 			len(snap.Sequences) != 1 {
 			t.Fatalf("read before due = %+v (%v), want the cached reading", snap, errs)
 		}
@@ -172,13 +172,14 @@ func TestMonitorRead_FailedSequenceReadWaitsForTheNextDueTime(t *testing.T) {
 	}
 	c.add(10 * time.Minute)
 	snap, errs := m.read(ctx)
+	errs = seqErrs(errs)
 	if snap.SequencesOK || snap.SequencesFresh || len(snap.Sequences) != 0 ||
 		len(errs) != 1 || !strings.Contains(errs[0].Error(), "statement_timeout") {
 		t.Fatalf("failed read = %+v (%v), want not ok and the timeout named", snap, errs)
 	}
 	c.add(time.Minute)
 	snap, errs = m.read(ctx)
-	if snap.SequencesOK || len(errs) != 0 {
+	if snap.SequencesOK || len(seqErrs(errs)) != 0 {
 		t.Fatalf("read after a failure = %+v (%v), want not ok and no retry", snap, errs)
 	}
 	if _, bg := r.counts(probes.SequenceRunwayProbe); bg != 2 {
@@ -274,4 +275,16 @@ func TestNewMonitor_ValidatesTheSequenceInterval(t *testing.T) {
 			t.Errorf("sequence interval %s rejected: %v", d, err)
 		}
 	}
+}
+
+// seqErrs keeps the sequence_runway errors: the fake answers every other
+// probe with no rows, which the monitor rightly reports as unreadable.
+func seqErrs(errs []error) []error {
+	var out []error
+	for _, e := range errs {
+		if e != nil && strings.Contains(e.Error(), string(probes.SequenceRunwayProbe)) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
