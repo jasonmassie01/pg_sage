@@ -191,6 +191,7 @@ retention:
   findings_days: 180
   actions_days: 365
   explains_days: 90
+  sage_size_warning_pct: 10                # finding when sage tables exceed this % of the DB; 0 = off
 
 # Agent-native autonomy. Every mutation still traverses the standing policy,
 # evidence ledger, typed executor contract, and verification engine.

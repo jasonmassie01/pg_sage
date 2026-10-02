@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/snapstore"
 )
 
 // Collector runs periodic stats collection against the target database.
@@ -22,6 +23,7 @@ type Collector struct {
 	pgVersionNum int // e.g. 170009 for PG 17.9
 	blkTime      *blockTimeExprs
 	logFn        func(string, string, ...any)
+	snapWriter   *snapstore.Writer
 
 	// skipConfigSnapshots is set before Run when no advisor will consume
 	// the configuration snapshot.
@@ -46,7 +48,8 @@ func New(
 			cfg.Safety.CPUCeilingPct,
 			cfg.Safety.BackoffConsecutiveSkips,
 		),
-		logFn: logFn,
+		logFn:      logFn,
+		snapWriter: snapstore.NewWriter(),
 	}
 }
 

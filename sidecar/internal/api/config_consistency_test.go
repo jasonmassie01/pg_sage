@@ -254,6 +254,10 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "30",
 		reader: func(c *config.Config) string { return itoa(c.Retention.ExplainsDays) },
 	},
+	"retention.sage_size_warning_pct": {
+		input:  "25",
+		reader: func(c *config.Config) string { return itoa(c.Retention.SageSizeWarningPct) },
+	},
 
 	// --- agentdb ---
 	"agentdb.live_provisioning_enabled": {

@@ -390,7 +390,8 @@ func migrationStatements() []string {
 		ddlRunwaySamples, ddlSRERunbooks, ddlSREAutonomy, ddlSREAutonomyCarryOver,
 		ddlHAIdentity,
 		ddlDebtExec,
-		ddlIncidentOpenIdentity)
+		ddlIncidentOpenIdentity,
+		ddlSnapshotDelta)
 }
 
 // ---------------------------------------------------------------------------

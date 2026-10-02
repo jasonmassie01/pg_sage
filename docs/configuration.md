@@ -147,6 +147,7 @@ retention:
   findings_days: 180
   actions_days: 365
   explains_days: 90
+  sage_size_warning_pct: 10
 
 briefing:
   schedule: "0 6 * * *"         # cron expression
@@ -810,6 +811,15 @@ then `GET /api/v1/sre/autonomy/proposals` and `POST
 | `retention.findings_days` | `180` | Days to retain resolved findings |
 | `retention.actions_days` | `365` | Days to retain action log entries |
 | `retention.explains_days` | `90` | Days to retain EXPLAIN plan captures |
+| `retention.sage_size_warning_pct` | `10` | Raise a `sage_footprint` finding when pg_sage's own tables (the `sage` schema, with TOAST and indexes) exceed this percent of the database size. `0` disables the check. |
+
+Catalog snapshots (tables, indexes, sequences, foreign keys, partitions,
+queries, `pg_stat_io`, configuration) are stored compactly: a full row (keyframe) at
+most every 6 hours, and in between only what changed. Reads return every snapshot
+exactly as collected, through `sage.snapshot_data(data, base_id)`. Retention keeps a
+keyframe as long as a retained row is built on it, so the oldest kept rows can be up
+to 6 hours older than `snapshots_days`. Rows written by earlier versions stay readable
+and age out with `snapshots_days`; nothing is rewritten.
 
 > **Complete reference:** See `sidecar/config.example.yaml` for all
 > configuration fields including `safety`, `alerting`, `auto_explain`,

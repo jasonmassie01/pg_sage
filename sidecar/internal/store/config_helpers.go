@@ -65,6 +65,7 @@ var allowedConfigKeys = map[string]string{
 	"retention.snapshots_days":              "int_pos",
 	"retention.findings_days":               "int_pos",
 	"retention.actions_days":                "int_pos",
+	"retention.sage_size_warning_pct":       "pct",
 	"retention.explains_days":               "int_pos",
 	"agentdb.live_provisioning_enabled":     "bool",
 	"agentdb.allow_public_ip":               "bool",
@@ -591,6 +592,8 @@ func addRetentionFields(
 		r.ActionsDays, "yaml")
 	addField(m, "retention.explains_days",
 		r.ExplainsDays, "yaml")
+	addField(m, "retention.sage_size_warning_pct",
+		r.SageSizeWarningPct, "yaml")
 }
 
 func addRCAFields(m map[string]any, r *config.RCAConfig) {

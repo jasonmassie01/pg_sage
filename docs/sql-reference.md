@@ -8,14 +8,27 @@ pg_sage bootstraps the `sage` schema automatically on first startup. All tables 
 
 ### `sage.snapshots`
 
-Raw performance data collected every 60 seconds.
+Raw performance data collected every 60 seconds, one row per category and cycle.
 
 | Column | Type | Description |
 |---|---|---|
-| `id` | serial | Primary key |
-| `captured_at` | timestamptz | When the snapshot was taken |
-| `category` | text | Snapshot category (e.g., `pg_stat_statements`, `tables`, `indexes`) |
-| `data` | jsonb | Raw snapshot data |
+| `id` | bigserial | Primary key |
+| `collected_at` | timestamptz | When the snapshot was taken |
+| `category` | text | Snapshot category (`tables`, `indexes`, `queries`, `system`, ...) |
+| `data` | jsonb | The document, or for a delta row only what changed |
+| `base_id` | bigint | NULL for a full row; for a delta row, the row it is built on |
+
+Catalog categories are stored as a full row (keyframe) plus delta rows. Always read
+the document through the accessor, which returns it exactly as collected for full,
+delta and legacy rows alike (NULL if the row's base was deleted by hand):
+
+```sql
+SELECT collected_at, sage.snapshot_data(data, base_id) AS data
+  FROM sage.snapshots
+ WHERE category = 'indexes'
+ ORDER BY collected_at DESC
+ LIMIT 1;
+```
 
 ---
 

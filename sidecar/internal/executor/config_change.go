@@ -110,3 +110,18 @@ func mergeAfterState(
 		raw, actionID)
 	return err
 }
+
+// prepareConfig captures a config change's prior state; its rollback
+// replaces the one proposed with the approval (G-P0-1).
+func (r *manualRun) prepareConfig(ctx context.Context, beforeState map[string]any) error {
+	config, err := r.executor.prepareConfigChange(ctx, r.sql)
+	if err != nil {
+		return fmt.Errorf("config change refused: %w", err)
+	}
+	if config != nil {
+		r.rollbackSQL = config.rollbackSQL
+		config.record(beforeState)
+	}
+	r.config = config
+	return nil
+}
