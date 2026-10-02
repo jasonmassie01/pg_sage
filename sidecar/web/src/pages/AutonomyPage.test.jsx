@@ -53,8 +53,14 @@ const view = {
             next: {
               target: 'L2', met: false,
               checks: [
-                { name: 'shadow_volume', met: false, observed: '3', required: '>= 20 reviewed packets in the window' },
-                { name: 'bench_present', met: true, observed: '1 gated cells', required: 'a gated arm' },
+                {
+                  name: 'shadow_volume', met: false, observed: '3',
+                  required: '>= 20 reviewed packets in the window',
+                },
+                {
+                  name: 'bench_present', met: true, observed: '1 gated cells',
+                  required: 'a gated arm',
+                },
               ],
             },
             live: { verified_l2_recoveries: 0, harmful: 0 },
@@ -179,7 +185,9 @@ describe('AutonomyPage', () => {
   it('surfaces a failed action', async () => {
     global.fetch = vi.fn(() => Promise.resolve({
       ok: false, status: 409,
-      json: () => Promise.resolve({ error: 'promotion evidence is not met', code: 'evidence_not_met' }),
+      json: () => Promise.resolve({
+        error: 'promotion evidence is not met', code: 'evidence_not_met',
+      }),
     }))
     render(<AutonomyPage database="orders" user={admin} />)
     fireEvent.click(screen.getByRole('button', { name: /approve/i }))

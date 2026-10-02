@@ -262,10 +262,14 @@ func TestCanaryRequiresAVerifiedSourceWithARollback(t *testing.T) {
 func TestCanaryValidatesTheRequest(t *testing.T) {
 	f := newCanaryFixture(t, "a", "b")
 	for name, req := range map[string]StartRequest{
-		"no targets":   canaryRequest(),
-		"duplicate":    canaryRequest("a", "a"),
-		"source too":   canaryRequest("a", "source"),
-		"not a human":  func() StartRequest { r := canaryRequest("a"); r.StartedBy = "pg_sage"; return r }(),
+		"no targets": canaryRequest(),
+		"duplicate":  canaryRequest("a", "a"),
+		"source too": canaryRequest("a", "source"),
+		"not a human": func() StartRequest {
+			r := canaryRequest("a")
+			r.StartedBy = "pg_sage"
+			return r
+		}(),
 		"no action id": func() StartRequest { r := canaryRequest("a"); r.ActionLogID = 0; return r }(),
 		"unknown family": func() StartRequest {
 			r := canaryRequest("a")
