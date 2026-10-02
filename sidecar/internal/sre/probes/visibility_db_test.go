@@ -60,7 +60,8 @@ func restrictedPool(t *testing.T, ctx context.Context, admin *pgxpool.Pool) (*pg
 	t.Helper()
 	role := fmt.Sprintf("sre_probe_vis_%d_%d", os.Getpid(), time.Now().UnixNano()%100000)
 	ident := pgx.Identifier{role}.Sanitize()
-	if _, err := admin.Exec(ctx, "CREATE ROLE "+ident+" LOGIN PASSWORD 'sre-vis-test'"); err != nil {
+	if _, err := admin.Exec(ctx, "CREATE ROLE "+ident+
+		" LOGIN PASSWORD 'sre-vis-test'"); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
 	t.Cleanup(func() { _, _ = admin.Exec(context.Background(), "DROP ROLE IF EXISTS "+ident) })

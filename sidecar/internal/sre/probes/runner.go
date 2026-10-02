@@ -3,6 +3,7 @@ package probes
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"strconv"
@@ -172,12 +173,45 @@ func (r *Runner) execute(
 		millis(spec.LockTimeout)); err != nil {
 		return res, err
 	}
+	if err := checkRoles(qctx, tx, spec.Requires); err != nil {
+		return res, err
+	}
 	rows, err := tx.Query(qctx, v.SQL, args.params(spec.Args, spec.MaxRows+1)...)
 	if err != nil {
 		return res, err
 	}
 	defer rows.Close()
 	return collect(rows, spec, res)
+}
+
+// missingRoleSQL returns the first required role the session cannot use.
+const missingRoleSQL = `SELECT r FROM pg_catalog.unnest($1::text[]) AS r
+WHERE NOT pg_catalog.pg_has_role(current_user, r, 'USAGE') LIMIT 1`
+
+// MissingRoleError is a probe that cannot see what it reads without a
+// predefined role.
+type MissingRoleError struct{ Role string }
+
+func (e *MissingRoleError) Error() string {
+	return fmt.Sprintf("role %s (granted by pg_monitor) is required to see other "+
+		"roles' sessions", e.Role)
+}
+
+// checkRoles fails with a *MissingRoleError when the session lacks a
+// required role.
+func checkRoles(ctx context.Context, tx pgx.Tx, roles []string) error {
+	if len(roles) == 0 {
+		return nil
+	}
+	var missing string
+	err := tx.QueryRow(ctx, missingRoleSQL, roles).Scan(&missing)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil
+	case err != nil:
+		return err
+	}
+	return &MissingRoleError{Role: missing}
 }
 
 func millis(d time.Duration) string { return fmt.Sprintf("%dms", d.Milliseconds()) }

@@ -57,6 +57,11 @@ func validateSpec(s Spec) error {
 	case s.MaxBytes <= 0 || s.MaxBytes > MaxBytes:
 		return fmt.Errorf("max bytes %d outside (0, %d]", s.MaxBytes, MaxBytes)
 	}
+	for _, r := range s.Requires {
+		if !readRoles[r] {
+			return fmt.Errorf("required role %q is not a read-only predefined role", r)
+		}
+	}
 	return validateVariants(s.Variants)
 }
 
@@ -132,6 +137,22 @@ var signalProbes = map[string][]ID{
 // signals without a catalog family).
 func ForSignal(signal string) []ID {
 	return append([]ID(nil), signalProbes[signal]...)
+}
+
+// RoleReadAllStats lets a role see every session's state, wait event,
+// transaction start and backend type in pg_stat_activity (and the lag
+// columns of pg_stat_replication); pg_monitor includes it.
+const RoleReadAllStats = "pg_read_all_stats"
+
+// readRoles are the predefined roles a spec may require: read-only ones.
+var readRoles = map[string]bool{RoleReadAllStats: true, "pg_read_all_settings": true,
+	"pg_monitor": true}
+
+// needsStats marks a probe whose views hide other roles' sessions
+// without pg_read_all_stats.
+func needsStats(s Spec) Spec {
+	s.Requires = []string{RoleReadAllStats}
+	return s
 }
 
 // spec builds a catalog spec with the R1 default caps.
