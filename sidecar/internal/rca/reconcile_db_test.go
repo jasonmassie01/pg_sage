@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/collector"
@@ -294,8 +295,11 @@ func TestHydrate_ReconcilesLegacyRowsAndLinksRecurrence(t *testing.T) {
 	if err := eng.Hydrate(ctx, pool); err != nil {
 		t.Fatalf("Hydrate: %v", err)
 	}
-	if n := len(eng.ActiveIncidents()); n != len(lifeosGroups) {
-		t.Fatalf("hydrated %d open incidents, want %d", n, len(lifeosGroups))
+	// Hydrate also adopts legacy rows with no database name, which tests in
+	// other packages sharing the server may leave meanwhile; count only this
+	// fixture's incidents.
+	if n := fixtureActive(t, ctx, pool, eng, mark); n != len(lifeosGroups) {
+		t.Fatalf("hydrated %d open fixture incidents, want %d", n, len(lifeosGroups))
 	}
 	var survivor string
 	if err := pool.QueryRow(ctx, `SELECT id::text FROM sage.incidents
@@ -425,4 +429,32 @@ func deadTupleSnapshot(table string) *collector.Snapshot {
 	snap.Tables = []collector.TableStats{{SchemaName: "public", RelName: table,
 		NLiveTup: 100, NDeadTup: 900}}
 	return snap
+}
+
+// fixtureActive counts the engine's open incidents that are rows of the
+// fixture marked by mark.
+func fixtureActive(
+	t *testing.T, ctx context.Context, pool *pgxpool.Pool, eng *Engine, mark string,
+) int {
+	t.Helper()
+	rows, err := pool.Query(ctx,
+		"SELECT id::text FROM sage.incidents WHERE rollback_sql = $1", mark)
+	if err != nil {
+		t.Fatalf("fixture ids: %v", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatalf("collect fixture ids: %v", err)
+	}
+	own := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		own[id] = true
+	}
+	n := 0
+	for _, inc := range eng.ActiveIncidents() {
+		if own[inc.ID] {
+			n++
+		}
+	}
+	return n
 }
