@@ -44,7 +44,7 @@ func tenantSnapshot(n int) *collector.Snapshot {
 func tenantIssue(schema, severity string) Finding {
 	return Finding{Category: "missing_fk_index", Severity: severity, ObjectType: "table",
 		ObjectIdentifier: schema + ".orders", Title: "Missing FK index on " + schema + ".orders",
-		Detail:         map[string]any{"table": schema + ".orders"},
+		Detail: map[string]any{"table": schema + ".orders"},
 		RecommendedSQL: "CREATE INDEX CONCURRENTLY orders_customer_idx ON " + schema +
 			".orders (customer_id)",
 		RollbackSQL: "DROP INDEX CONCURRENTLY " + schema + ".orders_customer_idx"}
