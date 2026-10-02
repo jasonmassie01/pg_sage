@@ -31,16 +31,24 @@ func detectCloudEnv(p *pgxpool.Pool) string {
 		return "aurora"
 	}
 	var ps *string
-	if p.QueryRow(ctx, "SELECT current_setting('rds.extensions', true)").Scan(&ps) == nil && ps != nil {
+	if p.QueryRow(ctx,
+		"SELECT current_setting('rds.extensions', true)",
+	).Scan(&ps) == nil && ps != nil {
 		return "rds"
 	}
-	if p.QueryRow(ctx, "SELECT current_setting('alloydb.iam_authentication', true)").Scan(&ps) == nil && ps != nil {
+	if p.QueryRow(ctx,
+		"SELECT current_setting('alloydb.iam_authentication', true)",
+	).Scan(&ps) == nil && ps != nil {
 		return "alloydb"
 	}
-	if p.QueryRow(ctx, "SELECT current_setting('cloudsql.iam_authentication', true)").Scan(&ps) == nil && ps != nil {
+	if p.QueryRow(ctx,
+		"SELECT current_setting('cloudsql.iam_authentication', true)",
+	).Scan(&ps) == nil && ps != nil {
 		return "cloud-sql"
 	}
-	if p.QueryRow(ctx, "SELECT current_setting('azure.extensions', true)").Scan(&ps) == nil && ps != nil {
+	if p.QueryRow(ctx,
+		"SELECT current_setting('azure.extensions', true)",
+	).Scan(&ps) == nil && ps != nil {
 		return "azure"
 	}
 	return "self-managed"
@@ -95,7 +103,8 @@ func bootstrapAdminIfEmpty(
 	logInfo("startup",
 		"first admin created — email: %s  password: [redacted, see stderr]",
 		adminEmail)
-	fmt.Fprintf(os.Stderr, "\n*** INITIAL ADMIN PASSWORD: %s ***\n*** Change this password immediately. ***\n\n", password)
+	fmt.Fprintf(os.Stderr, "\n*** INITIAL ADMIN PASSWORD: %s ***\n"+
+		"*** Change this password immediately. ***\n\n", password)
 	return nil
 }
 

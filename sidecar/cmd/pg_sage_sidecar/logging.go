@@ -7,9 +7,11 @@ import (
 	"time"
 )
 
-func logInfo(component, msg string, args ...any)  { logStructured("INFO", component, msg, args...) }
-func logWarn(component, msg string, args ...any)  { logStructured("WARN", component, msg, args...) }
-func logError(component, msg string, args ...any) { logStructured("ERROR", component, msg, args...) }
+func logInfo(component, msg string, args ...any) { logStructured("INFO", component, msg, args...) }
+func logWarn(component, msg string, args ...any) { logStructured("WARN", component, msg, args...) }
+func logError(component, msg string, args ...any) {
+	logStructured("ERROR", component, msg, args...)
+}
 
 func logStructured(level, component, msg string, args ...any) {
 	ts := time.Now().UTC().Format(time.RFC3339)
