@@ -62,19 +62,27 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 	if err != nil {
 		return c.fail(ctx, lease, "unreadable_evidence", err.Error())
 	}
-	lease, d, model, err := c.consultModel(ctx, lease, inv, diagnose(inv, obs), evidence)
+	lease, d, evidence, run, err := c.applyRunbook(ctx, lease, inv, diagnose(inv, obs),
+		evidence)
 	if err != nil {
 		return err
 	}
-	return c.conclude(ctx, lease, d, model)
+	lease, d, model, err := c.consultModel(ctx, lease, inv, d, evidence)
+	if err != nil {
+		return err
+	}
+	return c.conclude(ctx, lease, d, model, run)
 }
 
-// conclude persists the diagnosis with the model output beside it. If
-// the store refuses the model output, the deterministic conclusion is
-// persisted instead: the model never fails an investigation.
+// conclude persists the diagnosis with the runbook run and the model
+// output beside it. If the store refuses the model output, the
+// deterministic conclusion (with the runbook run and the memory the model
+// was offered) is persisted instead: the model never fails an
+// investigation.
 func (c *Coordinator) conclude(ctx context.Context, lease Lease, d causal.Diagnosis,
-	model modelOutcome) error {
+	model modelOutcome, run *RunbookRun) error {
 	conclusion := conclusionOf(d)
+	conclusion.Summary.Runbook = run
 	model.apply(&conclusion.Summary)
 	_, err := c.store.Conclude(ctx, lease, conclusion)
 	if errors.Is(err, ErrInvalidRequest) && !model.empty() {
@@ -85,7 +93,9 @@ func (c *Coordinator) conclude(ctx context.Context, lease Lease, d causal.Diagno
 			"detail": truncateRunes(err.Error(), 300)}); rerr != nil {
 			return rerr
 		}
-		_, err = c.store.Conclude(ctx, lease, conclusionOf(d))
+		fallback := conclusionOf(d)
+		fallback.Summary.Runbook, fallback.Summary.Memory = run, model.memory
+		_, err = c.store.Conclude(ctx, lease, fallback)
 	}
 	if errors.Is(err, ErrInvalidRequest) {
 		return c.fail(ctx, lease, "invalid_conclusion", err.Error())
