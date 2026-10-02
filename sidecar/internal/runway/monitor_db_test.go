@@ -292,3 +292,26 @@ func TestMonitorTick_SequenceRestartStartsANewEpoch(t *testing.T) {
 		t.Fatalf("epochs = %d (%v), want 2 across the restart", epochs, err)
 	}
 }
+
+// State transition: a restarted monitor continues each series in its
+// epoch (it reads the last samples) instead of starting new ones.
+func TestMonitorTick_RestartContinuesTheSeries(t *testing.T) {
+	pool, ctx := livePool(t)
+	runner := probes.NewRunner(pool, probes.Catalog(), probes.NewLimiter(1))
+	if _, err := newTestMonitor(t, pool, runner, nil).Tick(ctx); err != nil {
+		t.Fatalf("first monitor: %v", err)
+	}
+	if _, err := newTestMonitor(t, pool, runner, nil).Tick(ctx); err != nil {
+		t.Fatalf("restarted monitor: %v", err)
+	}
+	var epochs, samples int
+	if err := pool.QueryRow(ctx, `SELECT count(DISTINCT epoch), count(*)
+		FROM sage.runway_samples WHERE kind = 'wal_position' AND subject = 'cluster'
+		  AND sampled_at > now() - interval '1 minute'`).Scan(&epochs, &samples); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if samples < 2 || epochs != 1 {
+		t.Fatalf("%d samples in %d epochs, want one epoch across the restart", samples,
+			epochs)
+	}
+}

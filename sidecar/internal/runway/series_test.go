@@ -108,8 +108,8 @@ func TestBuildSamples_UnknownInputsAreSkipped(t *testing.T) {
 func TestAssignEpochs(t *testing.T) {
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	last := map[seriesKey]lastPoint{
-		{"sequence", "public.a_seq"}: {epoch: "e-old", counter: 1000},
-		{"xid", "cluster"}:           {epoch: "x-1", counter: 10},
+		{"sequence", "public.a_seq"}:  {epoch: "e-old", counter: 1000},
+		{"xid", "cluster"}:            {epoch: "x-1", counter: 10},
 		{"database_bytes", "cluster"}: {epoch: "d-1", counter: math.NaN()},
 	}
 	ss := []Sample{

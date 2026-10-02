@@ -23,12 +23,12 @@ import (
 
 func seedDiskTrends(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
-	if _, err := pool.Exec(ctx, `INSERT INTO sage.runway_samples
+	_, err := pool.Exec(ctx, `INSERT INTO sage.runway_samples
 		(kind, subject, epoch, sampled_at, value, limit_value)
 		SELECT k, 'cluster', 'seed', now() - make_interval(mins => 55 - i * 5),
 		       1e9 + i * 1e6, CASE WHEN k = 'disk_used' THEN 1e11 END
-		FROM generate_series(0, 11) i, unnest(ARRAY['disk_used', 'database_bytes']) k`);
-		err != nil {
+		FROM generate_series(0, 11) i, unnest(ARRAY['disk_used', 'database_bytes']) k`)
+	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 }
@@ -53,7 +53,7 @@ func TestMeasureDisk_ReadsUsageRetentionAndTrends(t *testing.T) {
 		m.Disk.Limit != 1e11 {
 		t.Fatalf("trends = %+v", m)
 	}
-	if m.Disk.RatePerS < 333 || m.Disk.RatePerS > 334 {
+	if m.Disk.RatePerS < 3333.3 || m.Disk.RatePerS > 3333.4 {
 		t.Fatalf("disk rate = %v, want 1e6 bytes per 5 min", m.Disk.RatePerS)
 	}
 }
