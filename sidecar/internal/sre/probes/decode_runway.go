@@ -109,8 +109,10 @@ type XminHolder struct {
 	Active       bool
 }
 
-// WALRunway is the WAL position, the WAL size settings in bytes and the
-// databases' size.
+// WALRunway is the WAL position, the WAL size settings in bytes, the
+// cluster and role that answered, and the databases' size. The size is
+// not part of wal_runway: it is the cluster_database_size measurement
+// (ClusterSizeOf), NaN until a caller fills it in.
 type WALRunway struct {
 	PositionBytes       float64
 	MaxWALSize          float64
@@ -120,6 +122,9 @@ type WALRunway struct {
 	DatabaseBytes       float64
 	UnreadableDatabases float64
 	InRecovery          bool
+	SystemID            string
+	StartedAt           time.Time
+	RoleName            string
 }
 
 // SlotKeepBounded reports a max_slot_wal_keep_size that bounds slots.
@@ -302,13 +307,24 @@ func WALRunwayOf(res Result) (WALRunway, error) {
 		return WALRunway{}, err
 	}
 	return WALRunway{PositionBytes: floatField(r, "wal_position_bytes"),
-		MaxWALSize:          floatField(r, "max_wal_size_bytes"),
-		WALKeepSize:         floatField(r, "wal_keep_size_bytes"),
-		MaxSlotWALKeepSize:  floatField(r, "max_slot_wal_keep_size_bytes"),
-		SegmentSize:         floatField(r, "wal_segment_size_bytes"),
-		DatabaseBytes:       floatField(r, "database_bytes"),
-		UnreadableDatabases: floatField(r, "databases_unreadable"),
-		InRecovery:          boolField(r, "in_recovery")}, nil
+		MaxWALSize:         floatField(r, "max_wal_size_bytes"),
+		WALKeepSize:        floatField(r, "wal_keep_size_bytes"),
+		MaxSlotWALKeepSize: floatField(r, "max_slot_wal_keep_size_bytes"),
+		SegmentSize:        floatField(r, "wal_segment_size_bytes"),
+		DatabaseBytes:      math.NaN(), UnreadableDatabases: math.NaN(),
+		InRecovery: boolField(r, "in_recovery"), SystemID: strField(r, "system_identifier"),
+		StartedAt: timeField(r, "server_started_at"), RoleName: strField(r, "role_name")}, nil
+}
+
+// ClusterSizeOf decodes a cluster_database_size result: the bytes of
+// every database this role may connect to and how many it may not
+// (unknown numbers NaN).
+func ClusterSizeOf(res Result) (bytes, unreadable float64, err error) {
+	r, err := singleRow(res, ClusterDatabaseSizeProbe)
+	if err != nil {
+		return math.NaN(), math.NaN(), err
+	}
+	return floatField(r, "database_bytes"), floatField(r, "databases_unreadable"), nil
 }
 
 // WALDirectoryOf decodes a wal_directory result.
