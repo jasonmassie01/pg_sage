@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/pgconf"
 )
 
 // mockLLMServer returns an httptest server that responds with the given
@@ -827,9 +828,15 @@ func TestRestrictedSettings_AllPlatformsExist(t *testing.T) {
 	}
 }
 
-func TestRestartRequired_MapContents(t *testing.T) {
-	if len(restartRequired) != 6 {
-		t.Fatalf("expected 6, got %d", len(restartRequired))
+// The advisor's restart list used to hold 6 entries and missed
+// autovacuum_max_workers (G-P0-1); it is now the single list in pgconf,
+// so the advisor and the executor can no longer disagree.
+func TestRestartRequired_SingleSourced(t *testing.T) {
+	for _, name := range []string{"autovacuum_max_workers", "max_worker_processes",
+		"shared_preload_libraries", "max_connections"} {
+		if RequiresRestart(name) != pgconf.RequiresRestart(name) || !RequiresRestart(name) {
+			t.Errorf("RequiresRestart(%q) disagrees with pgconf or is false", name)
+		}
 	}
 }
 

@@ -643,9 +643,11 @@ func TestLockTimeoutTriggersErrLockNotAvailable(t *testing.T) {
 	// the executor whitelist and acquires SHARE UPDATE EXCLUSIVE,
 	// which conflicts with the ACCESS EXCLUSIVE held by tx above,
 	// so the lock_timeout will fire before the lock is granted.
+	// (autovacuum_enabled = false, used here before, is now refused by
+	// the reloption allowlist, so any allowlisted reloption serves.)
 	ddlErr := ExecInTransaction(
 		ctx, pool,
-		"ALTER TABLE public.test_lock_timeout SET (autovacuum_enabled = false)",
+		"ALTER TABLE public.test_lock_timeout SET (autovacuum_vacuum_scale_factor = 0.05)",
 		10*time.Second,
 		WithLockTimeout(1),
 	)
