@@ -269,14 +269,11 @@ func TestRunbookRun_ResumesFromNeedsEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan, _ := planFor(TriggerLock, c.cfg.ActionWindow)
-	steps := []StepResult{{IdempotencyKey: stepKey(0), Results: c.runStep(ctx, plan[0]),
-		NextState: StateEvaluating}, {IdempotencyKey: "crash-needs",
-		NextState: StateNeedsEvidence}}
-	for _, s := range steps {
-		if _, err := st.CommitStep(ctx, lease, s); err != nil {
-			t.Fatalf("commit %s: %v", s.IdempotencyKey, err)
-		}
+	if _, err := st.CommitStep(ctx, lease, StepResult{IdempotencyKey: stepKey(0),
+		Results: c.runStep(ctx, plan[0]), NextState: StateEvaluating}); err != nil {
+		t.Fatalf("commit the plan step: %v", err)
 	}
+	// The worker stops while waiting for more evidence.
 	if _, err := st.Release(ctx, lease, StateNeedsEvidence); err != nil {
 		t.Fatalf("release: %v", err)
 	}

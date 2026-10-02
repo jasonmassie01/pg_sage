@@ -38,8 +38,8 @@ func hashOf(t *testing.T, d runbook.Definition) string {
 	return h
 }
 
-func draftOf(d runbook.Definition) RunbookDraft {
-	return RunbookDraft{Definition: d, Actor: "user:2"}
+func draftOf(d runbook.Definition) RunbookInput {
+	return RunbookInput{Definition: d, Actor: "user:2"}
 }
 
 // signedRunbook stores d and has an admin sign version 1.
