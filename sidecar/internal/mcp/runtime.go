@@ -58,6 +58,9 @@ func (r *Runtime) Serve(ctx context.Context) error {
 			return err
 		}
 		response := r.server.Handle(ctx, append([]byte(nil), scanner.Bytes()...))
+		if response == nil {
+			continue // notification: no reply on the stream
+		}
 		if _, err := writer.Write(append(response, '\n')); err != nil {
 			return err
 		}
@@ -78,7 +81,12 @@ func (r *Runtime) newHTTPHandler() http.Handler {
 		if err := json.NewDecoder(request.Body).Decode(&raw); err != nil {
 			raw = json.RawMessage(`{`)
 		}
+		response := r.server.Handle(request.Context(), raw)
+		if response == nil {
+			w.WriteHeader(http.StatusAccepted) // notification: no body
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(r.server.Handle(request.Context(), raw))
+		_, _ = w.Write(response)
 	})
 }

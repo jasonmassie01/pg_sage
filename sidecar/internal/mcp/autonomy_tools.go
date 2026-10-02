@@ -72,7 +72,7 @@ func (s *Server) callAutonomyTool(ctx context.Context, name string,
 	if err != nil {
 		return nil, autonomyFailure(err)
 	}
-	return map[string]any{"structuredContent": result}, nil
+	return toolSuccess(result), nil
 }
 
 func (r AutonomyRequest) valid(tool string) bool {
