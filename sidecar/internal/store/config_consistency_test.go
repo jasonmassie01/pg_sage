@@ -209,6 +209,18 @@ var excludedExactKeys = map[string]bool{
 	"sre.autonomy.canary.canary_instances":     true,
 	"sre.autonomy.canary.regression_limit_pct": true,
 	"sre.autonomy.canary.settle_seconds":       true,
+	// Stored bench and game-day reports age out with retention; the
+	// floor protects the promotion evidence window, so YAML-only.
+	"sre.autonomy.report_retention_days": true,
+	// Sage SRE M6 reactive detector thresholds: read when a database
+	// runtime builds its investigator (restart lifecycle) and validated at
+	// load, so they are YAML-only.
+	"sre.detectors.window_seconds":       true,
+	"sre.detectors.checkpoint_requested": true,
+	"sre.detectors.temp_file_mb":         true,
+	"sre.detectors.lwlock_waiters":       true,
+	"sre.detectors.lwlock_polls":         true,
+	"sre.detectors.cooldown_minutes":     true,
 }
 
 // structFieldPaths walks a struct type using reflection and returns
