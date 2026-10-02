@@ -202,3 +202,16 @@ func TestDiskWAL_GrowthUnderOneMiBIsNotMaterial(t *testing.T) {
 		}
 	}
 }
+
+// Decoy: a consumer that keeps up still leaves a few kilobytes more each
+// sample; growth under 1 MiB over the span is not a slow consumer.
+func TestDiskWAL_ImmaterialSlotGrowthIsNotSlow(t *testing.T) {
+	sub := []slot{{"sub", true, 64 << 10}}
+	tiny := trendRow(probes.RunwayWALSlot, "sub", 4, 64<<10, 10<<30, 100, 0.99)
+	tiny["first_at"] = t0.Add(-1200 * time.Millisecond)
+	d := DiagnoseDiskWAL(diskCase(sub, sub, 0, tiny, flatDatabases()))
+	if d.Root != nil {
+		t.Fatalf("immaterial slot growth produced root %+v", d.Root)
+	}
+	requireStatus(t, d, SlowConsumer, StatusAlternative)
+}
