@@ -2,6 +2,7 @@ package causal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -203,7 +204,9 @@ func planFlipAttempt(t *testing.T, ctx context.Context, pool *pgxpool.Pool) bool
 		"CREATE INDEX ON %[1]s (id); ANALYZE %[1]s")
 	query := "SELECT v FROM " + tbl + " WHERE id = $1"
 	pf := newPlanFixture(t, ctx, pool, query)
-
+	if pf.reset {
+		return false
+	}
 	pf.capture(t, ctx) // index scan
 	pf.sample(t, ctx)
 	pf.run(t, ctx, 40)
@@ -259,7 +262,10 @@ func newPlanFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	if err := pool.QueryRow(ctx, `SELECT queryid FROM pg_stat_statements
 		WHERE query LIKE $1 AND dbid = (SELECT oid FROM pg_database
 		WHERE datname = current_database()) LIMIT 1`,
-		"%"+marker+"%").Scan(&pf.queryID); err != nil {
+		"%"+marker+"%").Scan(&pf.queryID); errors.Is(err, pgx.ErrNoRows) {
+		pf.reset = true // reset or evicted before it could be found
+		return pf
+	} else if err != nil {
 		t.Fatalf("queryid: %v", err)
 	}
 	t.Cleanup(func() {
