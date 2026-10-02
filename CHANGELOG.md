@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Internal cleanup of the sidecar's largest files, with no change in behavior.** The
+  sidecar's entry point, the core of the action executor and the API router were split
+  into smaller files, one per job, so each file and function stays within the project's
+  size limits. New tests pin what each mode starts, every API route and who may call it,
+  and they pass unchanged before and after the split. One small visible difference: if
+  writing a Prometheus `/metrics` response fails (for example, the scraper hung up), the
+  sidecar now logs a warning instead of ignoring the error.
+
+## v1.8.1 (2026-10-02) -- Fast trust, big-catalog fixes from dogfooding, current OpenAI models
+
+### What's new
+
+- **Works with current OpenAI models.** gpt-5/gpt-6 models (including the low-cost
+  gpt-6-luna) now work for every LLM feature; pg_sage adapts the request shape automatically.
+- **Trust in hours, not weeks, when you ask for it.** Every trust timer and promotion
+  threshold is a setting with the spec value as default, for dogfood and test databases.
+  Irreversible actions, L4 and admin approval stay hard limits.
+- **Safe on big, messy databases.** Found by running pg_sage on a real 18 GB database:
+  catalog collection, forecasting and sequence runways stay bounded on tens of thousands of
+  objects; stale and duplicate incidents clean themselves up; indexes the application keeps
+  recreating are left alone; long-stale rollback monitors expire instead of acting.
+- **Sage SRE follow-ups.** Detector episodes become incidents, PgBouncer pool exhaustion is
+  diagnosed, failovers between or before samples are caught (`causal-v4`), and fleet
+  databases can be added, removed or changed without a restart.
+- **One locked path for every change.** Retention deletes run through the executor with
+  leases and verification; operator actions lock the exact object; `serialize_mode: queue`
+  really queues.
+
 ### Added
 
 - **Fast trust elevation for dogfood databases.** Every timer and threshold that gates
@@ -85,14 +115,6 @@
   re-sends the request once in the shape the model wants, and remembers it for that model.
   Other providers, Gemini included, see no change. Two new settings pin the shape if you
   need to: `llm.token_parameter` and `llm.tool_reasoning_effort` (both default `auto`).
-
-- **Internal cleanup of the sidecar's largest files, with no change in behavior.** The
-  sidecar's entry point, the core of the action executor and the API router were split
-  into smaller files, one per job, so each file and function stays within the project's
-  size limits. New tests pin what each mode starts, every API route and who may call it,
-  and they pass unchanged before and after the split. One small visible difference: if
-  writing a Prometheus `/metrics` response fails (for example, the scraper hung up), the
-  sidecar now logs a warning instead of ignoring the error.
 
 ## v1.8.0 (2026-10-02) -- Sage SRE: eleven incident families, approved actions, earned autonomy
 
