@@ -28,12 +28,15 @@ func (store *PostgresRunStore) Create(ctx context.Context, record RunRecord) err
 	}
 	_, err = store.pool.Exec(ctx, `INSERT INTO sage.rollout_run
 		(evidence_id, source_instance, prior_evidence_id, policy, state,
-		 aggregate_regression_pct, applied_instances, created_at, updated_at)
+		 aggregate_regression_pct, applied_instances, created_at, updated_at,
+		 halt_reason, family, action_class, started_by)
 		VALUES ($1, $2, $3, $4, $5,
-		 NULLIF($6::double precision, 0)::numeric, $7, $8, $9)`,
+		 NULLIF($6::double precision, 0)::numeric, $7, $8, $9,
+		 NULLIF($10, ''), NULLIF($11, ''), NULLIF($12, ''), NULLIF($13, ''))`,
 		record.EvidenceID, record.SourceInstance, record.PriorEvidenceID, policy,
 		record.State, record.AggregateRegressionPct, record.AppliedInstances,
-		record.CreatedAt, record.UpdatedAt)
+		record.CreatedAt, record.UpdatedAt, record.HaltReason, record.Family,
+		record.Class, record.StartedBy)
 	if err != nil {
 		return fmt.Errorf("insert rollout run: %w", err)
 	}
@@ -52,10 +55,12 @@ func (store *PostgresRunStore) Update(ctx context.Context, record RunRecord) err
 		source_instance=$2, prior_evidence_id=$3, policy=$4, state=$5,
 		aggregate_regression_pct=NULLIF($6::double precision, 0)::numeric,
 		applied_instances=$7,
-		updated_at=$8 WHERE evidence_id=$1`,
+		updated_at=$8, halt_reason=NULLIF($9, ''), family=NULLIF($10, ''),
+		action_class=NULLIF($11, ''), started_by=NULLIF($12, '')
+		WHERE evidence_id=$1`,
 		record.EvidenceID, record.SourceInstance, record.PriorEvidenceID, policy,
 		record.State, record.AggregateRegressionPct, record.AppliedInstances,
-		record.UpdatedAt)
+		record.UpdatedAt, record.HaltReason, record.Family, record.Class, record.StartedBy)
 	if err != nil {
 		return fmt.Errorf("update rollout run: %w", err)
 	}
@@ -92,7 +97,9 @@ func (store *PostgresRunStore) Latest(
 const rolloutRunSelect = `SELECT evidence_id, source_instance,
 	prior_evidence_id, policy, state,
 	COALESCE(aggregate_regression_pct, 0)::float8,
-	applied_instances, created_at, updated_at FROM sage.rollout_run`
+	applied_instances, created_at, updated_at, COALESCE(halt_reason, ''),
+	COALESCE(family, ''), COALESCE(action_class, ''), COALESCE(started_by, '')
+	FROM sage.rollout_run`
 
 type runRecordScanner interface {
 	Scan(...any) error
@@ -105,6 +112,7 @@ func scanRunRecord(row runRecordScanner) (RunRecord, error) {
 		&record.EvidenceID, &record.SourceInstance, &record.PriorEvidenceID,
 		&policy, &record.State, &record.AggregateRegressionPct,
 		&record.AppliedInstances, &record.CreatedAt, &record.UpdatedAt,
+		&record.HaltReason, &record.Family, &record.Class, &record.StartedBy,
 	)
 	if err != nil {
 		return RunRecord{}, err

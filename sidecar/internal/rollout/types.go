@@ -52,10 +52,15 @@ type AppliedChange struct{ Handle string }
 type Outcome struct {
 	RegressionPct float64
 	EvidenceID    string
+	// Failed reports a failed verification of the change on the instance.
+	Failed bool
+	Detail string
 }
 type InstanceResult struct {
-	Status     string
-	EvidenceID string
+	Status        string
+	EvidenceID    string
+	RegressionPct float64
+	Detail        string
 }
 type Result struct {
 	Halted                 bool
@@ -64,6 +69,25 @@ type Result struct {
 	CanaryInstanceIDs      []string
 	AggregateRegressionPct float64
 	Instances              map[string]InstanceResult
+	// RolledBack counts instances rolled back after a halt;
+	// RollbackErrors names the ones that could not be.
+	RolledBack     int
+	RollbackErrors []string
+}
+
+// Instance statuses.
+const (
+	StatusApplied             = "applied"
+	StatusNotLocallyVerified  = "not_locally_verified"
+	StatusRolledBack          = "rolled_back"
+	StatusRollbackFailed      = "rollback_failed"
+	StatusRollbackUnavailable = "rollback_unavailable"
+)
+
+// Rollbacker undoes an applied change; an Applier that implements it lets
+// a halted rollout roll back every instance it changed.
+type Rollbacker interface {
+	Rollback(context.Context, Instance, AppliedChange) error
 }
 type ReVerifier interface {
 	Reverify(context.Context, Instance, Prior) (Reverification, error)
