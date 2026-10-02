@@ -162,13 +162,28 @@ func TestActionRequestExecutionCreatesExactlyOneApprovalItem(t *testing.T) {
 	if n := h.queueRows(t, p.ID); n != 1 {
 		t.Fatalf("approval items = %d, want exactly 1", n)
 	}
+	assertPendingCancelItem(t, h, first)
+	if h.notes.count() != 1 || h.cancel.callCount() != 0 {
+		t.Fatalf("notifications %d, cancels %d; want 1 and 0", h.notes.count(),
+			h.cancel.callCount())
+	}
+	if got := countOf(h.eventTypes(t), "action_requested"); got != 1 {
+		t.Fatalf("action_requested events = %d, want 1", got)
+	}
+}
+
+// assertPendingCancelItem checks the approval item is a pending,
+// moderate-risk cancel of the target expiring after the approval TTL,
+// anchored on a finding without runnable SQL.
+func assertPendingCancelItem(t *testing.T, h *actionHarness, queueID int) {
+	t.Helper()
 	var status, actionType, risk, sql string
 	var recommended *string
 	var expires time.Time
-	err = h.pool.QueryRow(h.ctx, `SELECT q.status, q.action_type, q.action_risk,
+	err := h.pool.QueryRow(h.ctx, `SELECT q.status, q.action_type, q.action_risk,
 		q.proposed_sql, q.expires_at, f.recommended_sql
 		FROM sage.action_queue q JOIN sage.findings f ON f.id = q.finding_id
-		WHERE q.id = $1`, first).Scan(&status, &actionType, &risk, &sql, &expires,
+		WHERE q.id = $1`, queueID).Scan(&status, &actionType, &risk, &sql, &expires,
 		&recommended)
 	if err != nil {
 		t.Fatalf("queue row: %v", err)
@@ -179,13 +194,6 @@ func TestActionRequestExecutionCreatesExactlyOneApprovalItem(t *testing.T) {
 		time.Until(expires) < h.cfg.ApprovalTTL-time.Minute {
 		t.Fatalf("queue row = %s %s %s %q expires %s recommended %v", status, actionType,
 			risk, sql, expires, recommended)
-	}
-	if h.notes.count() != 1 || h.cancel.callCount() != 0 {
-		t.Fatalf("notifications %d, cancels %d; want 1 and 0", h.notes.count(),
-			h.cancel.callCount())
-	}
-	if got := countOf(h.eventTypes(t), "action_requested"); got != 1 {
-		t.Fatalf("action_requested events = %d, want 1", got)
 	}
 }
 
