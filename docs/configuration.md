@@ -10,8 +10,30 @@ pg_sage uses three configuration sources with the following precedence (highest 
 The sidecar validates a complete candidate before publishing a YAML reload.
 Every field has a typed lifecycle: `live_policy` swaps an immutable policy
 snapshot, `reconfigure` tears down and rebuilds its named runtime owner, and
-`restart` remains pending until process restart. Fleet database records use
-their dedicated lifecycle API. In-flight work keeps its original snapshot.
+`restart` remains pending until process restart. A `reconfigure` or
+`live_policy` field whose owner does not run in the current mode is treated
+as `restart`. In-flight work keeps its original snapshot.
+
+**Adding, removing and changing databases without a restart.** In YAML fleet
+mode, editing `databases` (or `defaults`) in the watched config file is
+applied at once: a new entry starts a runtime, a removed entry is retired, a
+renamed entry is a removal plus an addition. Per-database `trust_level`,
+`execution_mode`, `executor_enabled` and `tags` apply in place to the running
+database; any other per-database change (connection, credentials, pool size,
+intervals, `llm_enabled`, `verify.io_capacity`) rebuilds only that database's
+runtime. A retired runtime first lets in-flight actions finish (up to 60
+seconds; new actions on it park and are retried by the next runtime), then
+stops its workers, Sage SRE investigator, executor and pool, and its metrics
+and LLM budget share disappear. A reload is all-or-nothing: an invalid file,
+an invalid per-database trust level or execution mode, or a changed database
+whose new connection fails is rejected and the running runtimes keep going
+(fix the file and save again). A newly added database that cannot connect is
+shown as failed, as at startup. Removing or reconnecting the control database
+(the first database that started, which holds logins and standing policy)
+still needs a restart. In meta-db mode `sage.databases` is the source of
+truth: the managed-database API applies changes immediately, and rows added,
+removed, disabled or changed by another replica or by SQL are picked up within
+30 seconds with the same rules.
 
 The generated [per-field lifecycle reference](generated/config-lifecycles.md)
 is the authoritative list. Regenerate it from the typed registry with:
