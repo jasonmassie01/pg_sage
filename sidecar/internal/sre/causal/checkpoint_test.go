@@ -185,3 +185,32 @@ func TestCheckpoint_BackendFsyncsAreObserved(t *testing.T) {
 	}))
 	wantFact(t, d.Observed, "C3", "37")
 }
+
+// Mutation audit: the WAL-rate prediction supports max_wal_size only
+// when the checkpoint distance fills sooner than checkpoint_timeout.
+func TestCheckpoint_PredictionAgainstTimeout(t *testing.T) {
+	// 1 GiB max_wal_size, completion target 0.9: a 565 MB distance.
+	slow := DiagnoseCheckpoint(window(baseCkpt(), func(c *ckpt) { c.wal += 17 * mib }))
+	h, _ := hypothesisOf(slow, MaxWALSizeUndersized)
+	if h.Status != StatusRuledOut {
+		t.Fatalf("a distance filling in about 600 s (timeout 300 s): %+v", h)
+	}
+	wantFact(t, h.Contradict, "C3", "outlasts checkpoint_timeout")
+	fast := DiagnoseCheckpoint(window(baseCkpt(), func(c *ckpt) { c.wal += 70 * mib }))
+	h, _ = hypothesisOf(fast, MaxWALSizeUndersized)
+	if h.Status != StatusAlternative || h.Confidence != 0.25 {
+		t.Fatalf("a distance filling in about 150 s: %+v", h)
+	}
+	wantFact(t, h.Support, "C3", "sooner than checkpoint_timeout")
+}
+
+// Mutation audit: forced checkpoints get the frequency support only from
+// three requests in the window.
+func TestCheckpoint_ForcedFrequencyBoundary(t *testing.T) {
+	two := DiagnoseCheckpoint(window(baseCkpt(), func(c *ckpt) { c.req += 2; c.wal += 1024 }))
+	three := DiagnoseCheckpoint(window(baseCkpt(), func(c *ckpt) { c.req += 3; c.wal += 1024 }))
+	if two.Root == nil || two.Root.Confidence != 0.5 || three.Root == nil ||
+		three.Root.Confidence != 0.7 {
+		t.Fatalf("forced confidence: 2 requests %+v, 3 requests %+v", two.Root, three.Root)
+	}
+}

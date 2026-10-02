@@ -168,3 +168,29 @@ func TestLWLockClass_NamesAcrossVersions(t *testing.T) {
 		}
 	}
 }
+
+// Mutation audit: only the class with most of the waits gets the
+// dominance support; the minority class keeps its sustained-wait score.
+func TestLWLock_MinorityClassGetsNoDominanceSupport(t *testing.T) {
+	both := []wait{walWrite(10, 0), lockMgr(6), cpu(14)}
+	d := DiagnoseLWLock(samples(both, both, both, both))
+	h, _ := hypothesisOf(d, LockManagerContention)
+	if h.Confidence != 0.4 {
+		t.Fatalf("lock manager confidence %v, want 0.4 (sustained only): %+v",
+			h.Confidence, h)
+	}
+	if r, _ := hypothesisOf(d, WALWriteContention); r.Confidence != 0.7 {
+		t.Fatalf("WAL write confidence %v, want 0.7", r.Confidence)
+	}
+}
+
+// Mutation audit: a query is the subject only when it has at least half
+// of the class's waits.
+func TestLWLock_MinorityQueryIsNotTheSubject(t *testing.T) {
+	mixed := []wait{walWrite(15, 0), walWrite(5, 9), cpu(10)}
+	d := DiagnoseLWLock(samples(mixed, mixed, mixed))
+	wantRoot(t, d, WALWriteContention)
+	if d.Root.Subject != "LWLock WALWrite" {
+		t.Fatalf("subject = %q: queryid 9 has a quarter of the waits", d.Root.Subject)
+	}
+}

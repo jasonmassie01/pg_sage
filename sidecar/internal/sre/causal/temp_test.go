@@ -234,3 +234,37 @@ func TestTemp_NothingCollected(t *testing.T) {
 	wantMissing(t, d, probes.TempFileActivity, "not_collected")
 	wantMissing(t, d, probes.TempFileHolders, "not_collected")
 }
+
+// Mutation audit: with no temp file written, pg_stat_database alone rules
+// out both finished-spill hypotheses, even without pg_stat_statements.
+func TestTemp_NoTempWrittenRulesOutFinishedSpillsWithoutPgss(t *testing.T) {
+	noExt := func(ev string) Observation {
+		return failedObs(ev, probes.TempSpillStatements, probes.StatusUnsupported,
+			"extension_not_installed")
+	}
+	d := DiagnoseTempFiles([]Observation{tempActivity("A1", 0, 7, 1<<30), holders("H1", 0),
+		noExt("S1"), tempActivity("A2", second, 7, 1<<30), holders("H2", second),
+		noExt("S2")})
+	for _, id := range []NodeID{RepeatedSpillStatement, WorkMemUndersized} {
+		h, _ := hypothesisOf(d, id)
+		if h.Status != StatusRuledOut {
+			t.Fatalf("%s = %+v, want ruled out by no temp file written", id, h)
+		}
+		wantFact(t, h.Contradict, "A2", "no temp file was written")
+	}
+}
+
+// Mutation audit: statements that each spill a lot but none most of it
+// are a workload, not one repeated statement.
+func TestTemp_LargeEvenSpillsAreNotOneStatement(t *testing.T) {
+	d := DiagnoseTempFiles([]Observation{
+		tempActivity("A1", 0, 100, 1<<30), holders("H1", 0),
+		spills("S1", 0, spill{1, 10, 100}, spill{2, 10, 100}, spill{3, 10, 100}),
+		tempActivity("A2", second, 160, 1<<30+150*mib), holders("H2", second),
+		spills("S2", second, spill{1, 30, 6500}, spill{2, 30, 6500}, spill{3, 30, 6500})})
+	h, _ := hypothesisOf(d, RepeatedSpillStatement)
+	if h.Status != StatusAlternative || h.Confidence != 0.4 {
+		t.Fatalf("repeated = %+v, want unproven at 0.4 (no statement dominates)", h)
+	}
+	wantRoot(t, d, WorkMemUndersized)
+}
