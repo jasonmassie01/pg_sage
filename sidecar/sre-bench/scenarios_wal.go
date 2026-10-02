@@ -3,6 +3,7 @@ package srebench
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -88,11 +89,62 @@ func cleanCluster(ctx context.Context, e *Env) error {
 // probes' shorter sample window is not diluted below the floor here.
 const quietWALRate = 2 << 20
 
-// surgeProgram writes about mb MiB of WAL between the samples on a clean
-// cluster, and checks afterwards that at least half of it was written.
-func surgeProgram(mb int) program {
+// Surge sizing. The investigator calls WAL volume a surge when its rate is
+// at least 4 MiB/s and 3 times the cluster's average since the statistics
+// reset. On a cluster that already wrote a lot (CI runs the bench after
+// the full suites on the same server) a fixed surge can fall under that
+// ratio, so the surge is sized from the measured average with a margin.
+const (
+	surgeFloorRate = 4 << 20 // the investigator's surge floor, bytes/s
+	surgeMargin    = 4       // times the long-run average (the investigator needs 3)
+	maxSurgeMiB    = 512     // larger surges are not attempted
+	// surgeWindow is the sample window a surge's rate is computed over,
+	// allowing the write itself to stretch the 3 s sample interval.
+	surgeWindow = 2 * sampleInterval
+)
+
+// surgeMiB is the surge size, in MiB, that clears the floor and is
+// surgeMargin times avg (bytes/s; negative or zero when unknown or idle)
+// over surgeWindow, and at least minMiB.
+func surgeMiB(minMiB int, avg float64) (int, error) {
+	rate := math.Max(surgeFloorRate, surgeMargin*math.Max(avg, 0))
+	need := int(math.Ceil(rate*surgeWindow.Seconds()/(1<<20) - 1e-9))
+	mb := max(minMiB, need)
+	if mb > maxSurgeMiB {
+		return 0, &Unsupported{Reason: fmt.Sprintf("the cluster's long-run WAL rate "+
+			"(%.0f bytes/s) needs a %d MiB surge, over the %d MiB limit", avg, mb,
+			maxSurgeMiB)}
+	}
+	return mb, nil
+}
+
+// walAverage is the cluster's WAL rate since the statistics reset, the
+// average the investigator compares a surge with.
+func walAverage(ctx context.Context, e *Env) (float64, error) {
+	var avg float64
+	err := e.Pool.QueryRow(ctx, `SELECT wal_bytes::float8 /
+		GREATEST(EXTRACT(EPOCH FROM clock_timestamp() - stats_reset), 1)
+		FROM pg_catalog.pg_stat_wal`).Scan(&avg)
+	if err != nil {
+		return 0, fmt.Errorf("read the cluster WAL average: %w", err)
+	}
+	return avg, nil
+}
+
+// surgeProgram writes a surge (at least minMiB, sized by surgeMiB) between
+// the samples on a clean cluster, and checks afterwards that at least half
+// of it was written.
+func surgeProgram(minMiB int) program {
 	var start string
-	p := walProgram(nil, func(ctx context.Context, e *Env) error {
+	mb := minMiB
+	p := walProgram(func(ctx context.Context, e *Env) error {
+		avg, err := walAverage(ctx, e)
+		if err != nil {
+			return err
+		}
+		mb, err = surgeMiB(minMiB, avg)
+		return err
+	}, func(ctx context.Context, e *Env) error {
 		if err := e.Pool.QueryRow(ctx, "SELECT pg_current_wal_lsn()::text").
 			Scan(&start); err != nil {
 			return err
