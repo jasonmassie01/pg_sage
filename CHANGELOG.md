@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Earned autonomy is per database, and you can earn it from the UI.** In a fleet, one
+  database's reviews and outcomes no longer promote or demote another (bench reports stay
+  shared); levels set before this release apply to each database until it decides
+  otherwise. A success that was never verified now earns nothing. Cases gains Accept /
+  Reject (with a note and the actual root cause) on every finished investigation, and the
+  Earned autonomy page gains "Evaluate now" and a "Path to next level" checklist that says
+  what is still missing, with counts and ETAs. MCP adds `sre_review_investigation` and
+  `sre_evaluate_autonomy`; approving a promotion stays a human step.
+
 ## v1.8.1 (2026-10-02) -- Fast trust, big-catalog fixes from dogfooding, current OpenAI models
 
 ### What's new
