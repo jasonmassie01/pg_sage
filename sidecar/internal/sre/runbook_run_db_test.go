@@ -74,8 +74,9 @@ func TestRunbookRun_SignedRunbookExtendsThePlan(t *testing.T) {
 	}
 }
 
-func TestRunbookRun_NeverRunsWithoutAValidSignature(t *testing.T) {
-	cases := map[string]func(t *testing.T, ctx context.Context, st *PostgresStore, s Scope){
+// unrunnable are runbook setups that must never run.
+var unrunnable = map[string]func(t *testing.T, ctx context.Context, st *PostgresStore,
+	s Scope){
 		"unsigned draft": func(t *testing.T, ctx context.Context, st *PostgresStore, s Scope) {
 			if _, err := st.CreateRunbook(ctx, s, draftOf(idleRunbook())); err != nil {
 				t.Fatal(err)
@@ -107,8 +108,10 @@ func TestRunbookRun_NeverRunsWithoutAValidSignature(t *testing.T) {
 			d.Trigger.Nodes = []string{string(causal.InactiveSlot)}
 			signedRunbook(t, ctx, st, s, d)
 		},
-	}
-	for name, setup := range cases {
+}
+
+func TestRunbookRun_NeverRunsWithoutAValidSignature(t *testing.T) {
+	for name, setup := range unrunnable {
 		t.Run(name, func(t *testing.T) {
 			st, _, ctx := liveStore(t, DefaultLimits())
 			inv, _ := runIdle(t, ctx, st, idleChainRunner(), func(s Scope) {

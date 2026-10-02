@@ -39,6 +39,25 @@ func TestSREMigrationM6_RunbookTablesAndGuards(t *testing.T) {
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	seedM6(t, ctx, tx)
+	checkM6Guards(t, ctx, tx)
+	if _, err := tx.Exec(ctx, `DELETE FROM sage.sre_investigations WHERE id = $1`,
+		m6Inv); err != nil {
+		t.Fatalf("delete investigation: %v", err)
+	}
+	var runs, outcomes int
+	if err := tx.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM sage.sre_runbook_runs WHERE investigation_id = $1),
+		(SELECT count(*) FROM sage.sre_investigation_outcomes WHERE investigation_id = $1)`,
+		m6Inv).Scan(&runs, &outcomes); err != nil || runs != 0 || outcomes != 0 {
+		t.Fatalf("after delete: %d runs, %d outcomes (%v); want them cascaded", runs,
+			outcomes, err)
+	}
+}
+
+// checkM6Guards: content updates and deletes are refused, a signature must
+// bind the content hash, and a signed version cannot change.
+func checkM6Guards(t *testing.T, ctx context.Context, tx pgx.Tx) {
+	t.Helper()
 	guarded := []string{
 		`UPDATE sage.sre_runbook_versions SET name = 'x' WHERE runbook_id = '` + m6RB + `'`,
 		`DELETE FROM sage.sre_runbook_versions WHERE runbook_id = '` + m6RB + `'`,
@@ -63,18 +82,6 @@ func TestSREMigrationM6_RunbookTablesAndGuards(t *testing.T) {
 	}
 	if err := m6Savepoint(ctx, tx, sign); err == nil {
 		t.Error("a signed version was changed")
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM sage.sre_investigations WHERE id = $1`,
-		m6Inv); err != nil {
-		t.Fatalf("delete investigation: %v", err)
-	}
-	var runs, outcomes int
-	if err := tx.QueryRow(ctx, `SELECT
-		(SELECT count(*) FROM sage.sre_runbook_runs WHERE investigation_id = $1),
-		(SELECT count(*) FROM sage.sre_investigation_outcomes WHERE investigation_id = $1)`,
-		m6Inv).Scan(&runs, &outcomes); err != nil || runs != 0 || outcomes != 0 {
-		t.Fatalf("after delete: %d runs, %d outcomes (%v); want them cascaded", runs,
-			outcomes, err)
 	}
 }
 

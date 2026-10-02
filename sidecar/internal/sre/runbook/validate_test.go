@@ -30,102 +30,103 @@ func node(d *Definition, id string) *Node {
 	panic("no node " + id)
 }
 
+var problemCases = []struct {
+	name   string
+	mutate func(*Definition)
+	code   string
+}{
+	{"empty name", func(d *Definition) { d.Name = " " }, CodeInvalid},
+	{"long name", func(d *Definition) { d.Name = strings.Repeat("n", MaxNameRunes+1) },
+		CodeTooLarge},
+	{"control chars", func(d *Definition) { d.Name = "a\x00b" }, CodeInvalid},
+	{"long description", func(d *Definition) {
+		d.Description = strings.Repeat("d", MaxDescriptionRunes+1)
+	}, CodeTooLarge},
+	{"no trigger kinds", func(d *Definition) { d.Trigger.Kinds = nil }, CodeInvalid},
+	{"unknown trigger kind", func(d *Definition) {
+		d.Trigger.Kinds = []string{"disk_full"}
+	}, CodeUnknownTrigger},
+	{"duplicate trigger kind", func(d *Definition) {
+		d.Trigger.Kinds = []string{"lock_blocking", "lock_blocking"}
+	}, CodeInvalid},
+	{"unknown trigger node", func(d *Definition) {
+		d.Trigger.Nodes = []string{"cosmic_ray"}
+	}, CodeUnknownNode},
+	{"no start", func(d *Definition) { d.Start = "" }, CodeEdge},
+	{"dangling start", func(d *Definition) { d.Start = "nowhere" }, CodeEdge},
+	{"duplicate id", func(d *Definition) { node(d, "escalate").ID = "end_tx" },
+		CodeDuplicate},
+	{"bad id", func(d *Definition) {
+		node(d, "read_long_tx").ID = "Read Long"
+		d.Start = "Read Long"
+	}, CodeInvalid},
+	{"unknown type", func(d *Definition) { node(d, "escalate").Type = "sql" },
+		CodeInvalid},
+	{"unknown probe", func(d *Definition) { node(d, "read_long_tx").Probe = "pg_sleep" },
+		CodeUnknownProbe},
+	{"backend probe", func(d *Definition) {
+		node(d, "read_long_tx").Probe = "backend_identity"
+	}, CodeProbeArgs},
+	{"window on argless probe", func(d *Definition) {
+		node(d, "read_long_tx").Args = &ProbeArgs{WindowSeconds: 600}
+	}, CodeProbeArgs},
+	{"window too short", func(d *Definition) {
+		n := node(d, "read_long_tx")
+		n.Probe, n.Args = "sage_actions", &ProbeArgs{WindowSeconds: 59}
+	}, CodeProbeArgs},
+	{"window too long", func(d *Definition) {
+		n := node(d, "read_long_tx")
+		n.Probe, n.Args = "sage_actions", &ProbeArgs{WindowSeconds: 7*24*3600 + 1}
+	}, CodeProbeArgs},
+	{"probe without next", func(d *Definition) { node(d, "read_long_tx").Next = "" },
+		CodeEdge},
+	{"probe with a predicate", func(d *Definition) {
+		node(d, "read_long_tx").When = &Predicate{Op: OpProbeStatus,
+			Probe: "lock_graph", In: []string{"ok"}}
+	}, CodeInvalid},
+	{"decision without predicate", func(d *Definition) { node(d, "old_tx").When = nil },
+		CodePredicate},
+	{"decision without else", func(d *Definition) { node(d, "old_tx").Else = "" },
+		CodeEdge},
+	{"dangling then", func(d *Definition) { node(d, "old_tx").Then = "gone" }, CodeEdge},
+	{"proposal with next", func(d *Definition) { node(d, "escalate").Next = "end_tx" },
+		CodeInvalid},
+	{"proposal missing", func(d *Definition) { node(d, "escalate").Proposal = nil },
+		CodeProposal},
+	{"unknown proposal kind", func(d *Definition) {
+		node(d, "escalate").Proposal.Kind = "execute_sql"
+	}, CodeProposal},
+	{"operator step without node", func(d *Definition) {
+		node(d, "end_tx").Proposal.Node = ""
+	}, CodeProposal},
+	{"operator step unknown node", func(d *Definition) {
+		node(d, "end_tx").Proposal.Node = "made_up"
+	}, CodeUnknownNode},
+	{"unknown action", func(d *Definition) {
+		node(d, "end_tx").Proposal = &Proposal{Kind: ProposalAction,
+			ActionType: "drop_database", Node: "idle_in_tx_holder"}
+	}, CodeUnknownAction},
+	{"action without node", func(d *Definition) {
+		node(d, "end_tx").Proposal = &Proposal{Kind: ProposalAction,
+			ActionType: "cancel_backend"}
+	}, CodeProposal},
+	{"escalate with node", func(d *Definition) {
+		node(d, "escalate").Proposal.Node = "idle_in_tx_holder"
+	}, CodeProposal},
+	{"long note", func(d *Definition) {
+		node(d, "escalate").Note = strings.Repeat("x", MaxNoteRunes+1)
+	}, CodeTooLarge},
+	{"cycle", func(d *Definition) {
+		node(d, "old_tx").Else = "read_long_tx"
+	}, CodeCycle},
+	{"unreachable", func(d *Definition) {
+		d.Nodes = append(d.Nodes, Node{ID: "orphan", Type: NodeProposal,
+			Proposal: &Proposal{Kind: ProposalEscalate}})
+	}, CodeUnreachable},
+}
+
 func TestValidate_ReportsEachProblemWithItsCode(t *testing.T) {
-	cases := []struct {
-		name   string
-		mutate func(*Definition)
-		code   string
-	}{
-		{"empty name", func(d *Definition) { d.Name = " " }, CodeInvalid},
-		{"long name", func(d *Definition) { d.Name = strings.Repeat("n", MaxNameRunes+1) },
-			CodeTooLarge},
-		{"control chars", func(d *Definition) { d.Name = "a\x00b" }, CodeInvalid},
-		{"long description", func(d *Definition) {
-			d.Description = strings.Repeat("d", MaxDescriptionRunes+1)
-		}, CodeTooLarge},
-		{"no trigger kinds", func(d *Definition) { d.Trigger.Kinds = nil }, CodeInvalid},
-		{"unknown trigger kind", func(d *Definition) {
-			d.Trigger.Kinds = []string{"disk_full"}
-		}, CodeUnknownTrigger},
-		{"duplicate trigger kind", func(d *Definition) {
-			d.Trigger.Kinds = []string{"lock_blocking", "lock_blocking"}
-		}, CodeInvalid},
-		{"unknown trigger node", func(d *Definition) {
-			d.Trigger.Nodes = []string{"cosmic_ray"}
-		}, CodeUnknownNode},
-		{"no start", func(d *Definition) { d.Start = "" }, CodeEdge},
-		{"dangling start", func(d *Definition) { d.Start = "nowhere" }, CodeEdge},
-		{"duplicate id", func(d *Definition) { node(d, "escalate").ID = "end_tx" },
-			CodeDuplicate},
-		{"bad id", func(d *Definition) {
-			node(d, "read_long_tx").ID = "Read Long"
-			d.Start = "Read Long"
-		}, CodeInvalid},
-		{"unknown type", func(d *Definition) { node(d, "escalate").Type = "sql" },
-			CodeInvalid},
-		{"unknown probe", func(d *Definition) { node(d, "read_long_tx").Probe = "pg_sleep" },
-			CodeUnknownProbe},
-		{"backend probe", func(d *Definition) {
-			node(d, "read_long_tx").Probe = "backend_identity"
-		}, CodeProbeArgs},
-		{"window on argless probe", func(d *Definition) {
-			node(d, "read_long_tx").Args = &ProbeArgs{WindowSeconds: 600}
-		}, CodeProbeArgs},
-		{"window too short", func(d *Definition) {
-			n := node(d, "read_long_tx")
-			n.Probe, n.Args = "sage_actions", &ProbeArgs{WindowSeconds: 59}
-		}, CodeProbeArgs},
-		{"window too long", func(d *Definition) {
-			n := node(d, "read_long_tx")
-			n.Probe, n.Args = "sage_actions", &ProbeArgs{WindowSeconds: 7*24*3600 + 1}
-		}, CodeProbeArgs},
-		{"probe without next", func(d *Definition) { node(d, "read_long_tx").Next = "" },
-			CodeEdge},
-		{"probe with a predicate", func(d *Definition) {
-			node(d, "read_long_tx").When = &Predicate{Op: OpProbeStatus,
-				Probe: "lock_graph", In: []string{"ok"}}
-		}, CodeInvalid},
-		{"decision without predicate", func(d *Definition) { node(d, "old_tx").When = nil },
-			CodePredicate},
-		{"decision without else", func(d *Definition) { node(d, "old_tx").Else = "" },
-			CodeEdge},
-		{"dangling then", func(d *Definition) { node(d, "old_tx").Then = "gone" }, CodeEdge},
-		{"proposal with next", func(d *Definition) { node(d, "escalate").Next = "end_tx" },
-			CodeInvalid},
-		{"proposal missing", func(d *Definition) { node(d, "escalate").Proposal = nil },
-			CodeProposal},
-		{"unknown proposal kind", func(d *Definition) {
-			node(d, "escalate").Proposal.Kind = "execute_sql"
-		}, CodeProposal},
-		{"operator step without node", func(d *Definition) {
-			node(d, "end_tx").Proposal.Node = ""
-		}, CodeProposal},
-		{"operator step unknown node", func(d *Definition) {
-			node(d, "end_tx").Proposal.Node = "made_up"
-		}, CodeUnknownNode},
-		{"unknown action", func(d *Definition) {
-			node(d, "end_tx").Proposal = &Proposal{Kind: ProposalAction,
-				ActionType: "drop_database", Node: "idle_in_tx_holder"}
-		}, CodeUnknownAction},
-		{"action without node", func(d *Definition) {
-			node(d, "end_tx").Proposal = &Proposal{Kind: ProposalAction,
-				ActionType: "cancel_backend"}
-		}, CodeProposal},
-		{"escalate with node", func(d *Definition) {
-			node(d, "escalate").Proposal.Node = "idle_in_tx_holder"
-		}, CodeProposal},
-		{"long note", func(d *Definition) {
-			node(d, "escalate").Note = strings.Repeat("x", MaxNoteRunes+1)
-		}, CodeTooLarge},
-		{"cycle", func(d *Definition) {
-			node(d, "old_tx").Else = "read_long_tx"
-		}, CodeCycle},
-		{"unreachable", func(d *Definition) {
-			d.Nodes = append(d.Nodes, Node{ID: "orphan", Type: NodeProposal,
-				Proposal: &Proposal{Kind: ProposalEscalate}})
-		}, CodeUnreachable},
-	}
-	for _, c := range cases {
+	for _, c := range problemCases {
 		t.Run(c.name, func(t *testing.T) {
 			d := lockRunbook()
 			c.mutate(&d)
@@ -140,56 +141,57 @@ func TestValidate_ReportsEachProblemWithItsCode(t *testing.T) {
 	}
 }
 
+var predicateCases = []struct {
+	name string
+	p    Predicate
+	code string
+}{
+	{"unknown op", Predicate{Op: "sql", Probe: "lock_graph"}, CodePredicate},
+	{"status of unknown probe", Predicate{Op: OpProbeStatus, Probe: "nope",
+		In: []string{"ok"}}, CodeUnknownProbe},
+	{"unknown status", Predicate{Op: OpProbeStatus, Probe: "lock_graph",
+		In: []string{"healthy"}}, CodePredicate},
+	{"no statuses", Predicate{Op: OpProbeStatus, Probe: "lock_graph"}, CodePredicate},
+	{"row count without value", Predicate{Op: OpRowCount, Probe: "lock_graph",
+		Cmp: ">="}, CodePredicate},
+	{"row count negative", Predicate{Op: OpRowCount, Probe: "lock_graph", Cmp: ">=",
+		Value: num(-1)}, CodePredicate},
+	{"bad cmp", Predicate{Op: OpRowCount, Probe: "lock_graph", Cmp: "=~",
+		Value: num(1)}, CodePredicate},
+	{"unknown column", Predicate{Op: OpColumn, Probe: "lock_graph",
+		Column: "blocker_password", Agg: AggMax, Cmp: ">", Value: num(1)},
+		CodeUnknownColumn},
+	{"bad agg", Predicate{Op: OpColumn, Probe: "lock_graph",
+		Column: "blocker_xact_age_s", Agg: "avg", Cmp: ">", Value: num(1)},
+		CodePredicate},
+	{"NaN value", Predicate{Op: OpColumn, Probe: "lock_graph",
+		Column: "blocker_xact_age_s", Agg: AggMax, Cmp: ">", Value: &nan},
+		CodePredicate},
+	{"text without text", Predicate{Op: OpColumnText, Probe: "lock_graph",
+		Column: "blocker_state"}, CodePredicate},
+	{"text too long", Predicate{Op: OpColumnText, Probe: "lock_graph",
+		Column: "blocker_state", Text: strings.Repeat("t", MaxTextRunes+1)},
+		CodePredicate},
+	{"text unknown column", Predicate{Op: OpColumnText, Probe: "lock_graph",
+		Column: "query", Text: "idle"}, CodeUnknownColumn},
+	{"hypothesis unknown node", Predicate{Op: OpHypothesis, Node: "gremlins",
+		In: []string{"root_cause"}}, CodeUnknownNode},
+	{"hypothesis bad status", Predicate{Op: OpHypothesis, Node: "idle_in_tx_holder",
+		In: []string{"likely"}}, CodePredicate},
+	{"all of nothing", Predicate{Op: OpAll}, CodePredicate},
+	{"not of two", Predicate{Op: OpNot, Of: []Predicate{
+		{Op: OpProbeStatus, Probe: "lock_graph", In: []string{"ok"}},
+		{Op: OpProbeStatus, Probe: "lock_graph", In: []string{"ok"}}}}, CodePredicate},
+	{"leaf with children", Predicate{Op: OpProbeStatus, Probe: "lock_graph",
+		In: []string{"ok"}, Of: []Predicate{{Op: OpAll}}}, CodePredicate},
+	{"stray field", Predicate{Op: OpHypothesis, Node: "idle_in_tx_holder",
+		In: []string{"root_cause"}, Column: "x"}, CodePredicate},
+	{"too deep", deepPredicate(MaxPredicateDepth + 1), CodePredicate},
+	{"too wide", widePredicate(MaxPredicateChildren + 1), CodePredicate},
+}
+
 func TestValidate_PredicateProblems(t *testing.T) {
-	cases := []struct {
-		name string
-		p    Predicate
-		code string
-	}{
-		{"unknown op", Predicate{Op: "sql", Probe: "lock_graph"}, CodePredicate},
-		{"status of unknown probe", Predicate{Op: OpProbeStatus, Probe: "nope",
-			In: []string{"ok"}}, CodeUnknownProbe},
-		{"unknown status", Predicate{Op: OpProbeStatus, Probe: "lock_graph",
-			In: []string{"healthy"}}, CodePredicate},
-		{"no statuses", Predicate{Op: OpProbeStatus, Probe: "lock_graph"}, CodePredicate},
-		{"row count without value", Predicate{Op: OpRowCount, Probe: "lock_graph",
-			Cmp: ">="}, CodePredicate},
-		{"row count negative", Predicate{Op: OpRowCount, Probe: "lock_graph", Cmp: ">=",
-			Value: num(-1)}, CodePredicate},
-		{"bad cmp", Predicate{Op: OpRowCount, Probe: "lock_graph", Cmp: "=~",
-			Value: num(1)}, CodePredicate},
-		{"unknown column", Predicate{Op: OpColumn, Probe: "lock_graph",
-			Column: "blocker_password", Agg: AggMax, Cmp: ">", Value: num(1)},
-			CodeUnknownColumn},
-		{"bad agg", Predicate{Op: OpColumn, Probe: "lock_graph",
-			Column: "blocker_xact_age_s", Agg: "avg", Cmp: ">", Value: num(1)},
-			CodePredicate},
-		{"NaN value", Predicate{Op: OpColumn, Probe: "lock_graph",
-			Column: "blocker_xact_age_s", Agg: AggMax, Cmp: ">", Value: &nan},
-			CodePredicate},
-		{"text without text", Predicate{Op: OpColumnText, Probe: "lock_graph",
-			Column: "blocker_state"}, CodePredicate},
-		{"text too long", Predicate{Op: OpColumnText, Probe: "lock_graph",
-			Column: "blocker_state", Text: strings.Repeat("t", MaxTextRunes+1)},
-			CodePredicate},
-		{"text unknown column", Predicate{Op: OpColumnText, Probe: "lock_graph",
-			Column: "query", Text: "idle"}, CodeUnknownColumn},
-		{"hypothesis unknown node", Predicate{Op: OpHypothesis, Node: "gremlins",
-			In: []string{"root_cause"}}, CodeUnknownNode},
-		{"hypothesis bad status", Predicate{Op: OpHypothesis, Node: "idle_in_tx_holder",
-			In: []string{"likely"}}, CodePredicate},
-		{"all of nothing", Predicate{Op: OpAll}, CodePredicate},
-		{"not of two", Predicate{Op: OpNot, Of: []Predicate{
-			{Op: OpProbeStatus, Probe: "lock_graph", In: []string{"ok"}},
-			{Op: OpProbeStatus, Probe: "lock_graph", In: []string{"ok"}}}}, CodePredicate},
-		{"leaf with children", Predicate{Op: OpProbeStatus, Probe: "lock_graph",
-			In: []string{"ok"}, Of: []Predicate{{Op: OpAll}}}, CodePredicate},
-		{"stray field", Predicate{Op: OpHypothesis, Node: "idle_in_tx_holder",
-			In: []string{"root_cause"}, Column: "x"}, CodePredicate},
-		{"too deep", deepPredicate(MaxPredicateDepth + 1), CodePredicate},
-		{"too wide", widePredicate(MaxPredicateChildren + 1), CodePredicate},
-	}
-	for _, c := range cases {
+	for _, c := range predicateCases {
 		t.Run(c.name, func(t *testing.T) {
 			d := lockRunbook()
 			p := c.p
