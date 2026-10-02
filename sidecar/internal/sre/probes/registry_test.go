@@ -32,12 +32,14 @@ func r1IDs() []ID {
 // comparison, CHECK-07), replication_slots and wal_checkpoint are v2
 // (the same identity); replication_lag is v2 since M6 split the lag into
 // send, flush and replay backlogs; wal_runway is v2 since the fleet dedupe
-// moved the databases' size to cluster_database_size.
+// moved the databases' size to cluster_database_size; sequence_runway is v2
+// since dogfood lifeos-1 bounded it and added its coverage counts.
 func specVersion(id ID) string {
 	switch id {
 	case ConnectionSaturation:
 		return "v3"
-	case ReplicationLag, ReplicationSlots, WALCheckpoint, WALRunwayProbe:
+	case ReplicationLag, ReplicationSlots, WALCheckpoint, WALRunwayProbe,
+		SequenceRunwayProbe:
 		return "v2"
 	}
 	return "v1"

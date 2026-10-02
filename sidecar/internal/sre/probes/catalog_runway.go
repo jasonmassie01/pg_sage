@@ -202,56 +202,6 @@ SELECT (SELECT COALESCE(sum(w.size), 0)::int8 FROM pg_catalog.pg_ls_waldir() w)
         WHERE a.name LIKE '%.ready') AS archive_ready_files
 LIMIT $1`
 
-// sequenceRunwaySQL ranks ascending sequences by the share of their
-// effective limit used: the lower of the sequence's maximum and the
-// maximum of the integer column that owns it. Descending sequences are
-// not covered.
-var sequenceRunwaySQL = `/* pg_sage sre:sequence_runway v1 */
-WITH s AS (
-    SELECT q.seqrelid, pg_catalog.quote_ident(n.nspname) || '.' ||
-               pg_catalog.quote_ident(c.relname) AS seq,
-           pg_catalog.format_type(q.seqtypid, NULL) AS data_type,
-           q.seqincrement AS increment_by, q.seqcycle AS cycle,
-           q.seqmin AS min_value, q.seqmax AS max_value, v.last_value
-    FROM pg_catalog.pg_sequence q
-    JOIN pg_catalog.pg_class c ON c.oid = q.seqrelid
-    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-    LEFT JOIN pg_catalog.pg_sequences v
-        ON v.schemaname = n.nspname AND v.sequencename = c.relname
-    WHERE q.seqincrement > 0
-), o AS (
-    SELECT DISTINCT ON (d.objid) d.objid AS seqrelid,
-           ` + fmt.Sprintf(relationName, "d.refobjid") + ` || '.' ||
-               pg_catalog.quote_ident(a.attname) AS owner_column,
-           pg_catalog.format_type(a.atttypid, NULL) AS owner_type
-    FROM pg_catalog.pg_depend d
-    JOIN pg_catalog.pg_attribute a
-        ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid
-    WHERE d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass
-      AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
-      AND d.refobjsubid > 0 AND d.deptype IN ('a', 'i')
-    ORDER BY d.objid, d.refobjid, d.refobjsubid
-), x AS (
-    SELECT s.*, o.owner_column, o.owner_type,
-           CASE s.data_type WHEN 'smallint' THEN 32767 WHEN 'integer' THEN 2147483647
-                ELSE 9223372036854775807 END::int8 AS type_max,
-           CASE o.owner_type WHEN 'smallint' THEN 32767 WHEN 'integer' THEN 2147483647
-                WHEN 'bigint' THEN 9223372036854775807 END::int8 AS owner_type_max
-    FROM s LEFT JOIN o ON o.seqrelid = s.seqrelid
-), y AS (
-    SELECT x.*, LEAST(x.max_value, COALESCE(x.owner_type_max, x.max_value))
-               AS effective_limit
-    FROM x
-)
-SELECT y.seq AS sequence, y.data_type, y.increment_by, y.cycle, y.last_value,
-       y.min_value, y.max_value, y.type_max, y.owner_column, y.owner_type,
-       y.owner_type_max, y.effective_limit,
-       (y.last_value::numeric - y.min_value)
-           / NULLIF(y.effective_limit::numeric - y.min_value, 0) AS fraction_used
-FROM y
-ORDER BY fraction_used DESC NULLS LAST, y.seq
-LIMIT $1`
-
 // runwayTrendsSQL regresses each sampled series over the window: only
 // its current epoch (a counter reset or a recreated object starts a new
 // one), by its monotonic counter when it has one, else by its value.
@@ -294,8 +244,7 @@ func runwaySpecs() []Spec {
 			Variant{MinVersion: 140000, SQL: clusterDatabaseSizeSQL}),
 		spec(WALDirectoryProbe, FamilyWAL, ArgsNone,
 			Variant{MinVersion: 140000, SQL: walDirectorySQL}),
-		capped(spec(SequenceRunwayProbe, FamilySequences, ArgsNone,
-			Variant{MinVersion: 140000, SQL: sequenceRunwaySQL}), 50),
+		sequenceRunwaySpec(),
 		capped(spec(RunwayTrendsProbe, FamilyRunway, ArgsWindow,
 			Variant{MinVersion: 140000, SQL: runwayTrendsSQL}), 200),
 	}

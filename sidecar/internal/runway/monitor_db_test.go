@@ -197,6 +197,14 @@ func (f failingRunner) Run(ctx context.Context, id probes.ID, a probes.Args) pro
 	return f.inner.Run(ctx, id, a)
 }
 
+func (f failingRunner) RunBackground(ctx context.Context, id probes.ID,
+	a probes.Args) probes.Result {
+	if id == f.fail {
+		return f.Run(ctx, id, a)
+	}
+	return f.inner.RunBackground(ctx, id, a)
+}
+
 // Error propagation: without trends nothing is evaluated, so open
 // findings stay open; a starter failure is logged, not fatal.
 func TestMonitorTick_UnreadableTrendsResolveNothing(t *testing.T) {
@@ -255,6 +263,11 @@ func (s standbyRunner) Run(ctx context.Context, id probes.ID, a probes.Args) pro
 		res.Rows[0]["in_recovery"] = true
 	}
 	return res
+}
+
+func (s standbyRunner) RunBackground(ctx context.Context, id probes.ID,
+	a probes.Args) probes.Result {
+	return s.inner.RunBackground(ctx, id, a)
 }
 
 // A standby is read-only: the monitor samples nothing there.

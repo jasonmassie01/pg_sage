@@ -86,14 +86,13 @@ SELECT s.schemaname, s.relname,
        COALESCE(pg_table_size(c.oid), 0) AS table_bytes,
        COALESCE(pg_indexes_size(c.oid), 0) AS index_bytes,
        c.relpersistence::text,
-       age(c.relfrozenxid) AS xid_age
+       age(c.relfrozenxid) AS xid_age, s.relid
   FROM pg_stat_user_tables s
-  JOIN pg_class c ON c.relname = s.relname
-  JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = s.schemaname
+  JOIN pg_class c ON c.oid = s.relid
  WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
-   AND (s.schemaname, s.relname) > ($1, $2)
- ORDER BY s.schemaname, s.relname
- LIMIT $3`
+   AND s.relid > $1
+ ORDER BY s.relid
+ LIMIT $2`
 
 const indexStatsSQL = sageTag + `
 SELECT s.schemaname, s.relname, s.indexrelname,
@@ -102,15 +101,15 @@ SELECT s.schemaname, s.relname, s.indexrelname,
        COALESCE(pg_relation_size(s.indexrelid), 0) AS index_bytes,
        ix.indisunique, ix.indisprimary, ix.indisvalid,
        COALESCE(pg_get_indexdef(s.indexrelid), '') AS indexdef,
-       COALESCE(am.amname, 'unknown') AS index_type
+       COALESCE(am.amname, 'unknown') AS index_type, s.indexrelid
   FROM pg_stat_user_indexes s
   JOIN pg_index ix ON ix.indexrelid = s.indexrelid
   JOIN pg_class ic ON ic.oid = s.indexrelid
   JOIN pg_am am ON am.oid = ic.relam
  WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
-   AND (s.schemaname, s.relname, s.indexrelname) > ($1, $2, $3)
- ORDER BY s.schemaname, s.relname, s.indexrelname
- LIMIT $4`
+   AND s.indexrelid > $1
+ ORDER BY s.indexrelid
+ LIMIT $2`
 
 const foreignKeysSQL = sageTag + `
 SELECT cl.relname AS table_name,
@@ -192,20 +191,34 @@ SELECT l.locktype, l.mode, l.granted,
 // configured [min_value, max_value] range (C18/G1-B35): ascending
 // sequences consume from min toward max, descending ones from max toward
 // min. Arithmetic is numeric to avoid bigint overflow. sage-owned
-// sequences are excluded.
+// sequences are excluded. Only sequences that matter are kept (dogfood
+// lifeos-1: 12,000 per snapshot, 498 MB): never-used ones are skipped,
+// and of the rest those at or above $1 percent plus the $2 most used,
+// at most $3 in all.
 const sequencesSQL = sageTag + `
-SELECT schemaname, sequencename, data_type,
-       COALESCE(last_value, 0), min_value, max_value, increment_by, cycle,
-       CASE WHEN last_value IS NULL OR max_value = min_value THEN 0
-            WHEN increment_by > 0
-            THEN round((last_value::numeric - min_value::numeric) /
-                       (max_value::numeric - min_value::numeric) * 100, 2)
-            ELSE round((max_value::numeric - last_value::numeric) /
-                       (max_value::numeric - min_value::numeric) * 100, 2)
-       END AS pct_used
-  FROM pg_sequences
- WHERE schemaname NOT IN ('pg_catalog', 'information_schema', 'sage')
- ORDER BY pct_used DESC`
+SELECT schemaname, sequencename, data_type, last_value, min_value, max_value,
+       increment_by, cycle, pct_used
+  FROM (
+    SELECT s.*, row_number() OVER (ORDER BY pct_used DESC, schemaname, sequencename) AS rn
+      FROM (
+    SELECT schemaname, sequencename, data_type,
+           COALESCE(last_value, 0) AS last_value, min_value, max_value,
+           increment_by, cycle,
+           CASE WHEN max_value = min_value THEN 0
+                WHEN increment_by > 0
+                THEN round((last_value::numeric - min_value::numeric) /
+                           (max_value::numeric - min_value::numeric) * 100, 2)
+                ELSE round((max_value::numeric - last_value::numeric) /
+                           (max_value::numeric - min_value::numeric) * 100, 2)
+           END AS pct_used
+      FROM pg_sequences
+     WHERE schemaname NOT IN ('pg_catalog', 'information_schema', 'sage')
+       AND last_value IS NOT NULL
+      ) s
+  ) r
+ WHERE pct_used >= $1 OR rn <= $2
+ ORDER BY pct_used DESC, schemaname, sequencename
+ LIMIT $3`
 
 const replicationReplicasSQL = sageTag + `
 SELECT client_addr::text, state,

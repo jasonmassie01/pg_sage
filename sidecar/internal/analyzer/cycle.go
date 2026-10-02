@@ -49,6 +49,11 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	all = append(all, a.runSeqScanWatchdog(current, previous, all)...)
 	all = append(all, a.runProducers(ctx, current)...)
 	all = append(all, a.runLateChecks(ctx)...)
+	all = a.applyAppManaged(ctx, all)
+	if current.Available("tables") && len(current.Tables) > 0 {
+		all = collapseCloneSchemas(current, all)
+		a.eval.evaluated(CategoryCloneSchemas)
+	}
 	a.runRCA(ctx, current, previous, all)
 
 	// Deduplicate conflicting findings across advisors.
@@ -158,7 +163,12 @@ func (a *Analyzer) runProducers(
 ) []Finding {
 	deferredTables := make(map[string]bool)
 	var out []Finding
-	if a.optimizer != nil {
+	// Without the index list the optimizer would see tables as unindexed
+	// and propose indexes that exist (dogfood lifeos-1).
+	if a.optimizer != nil && !current.Available("indexes") {
+		a.logFn("WARN", "analyzer: index optimizer skipped: indexes unavailable "+
+			"this cycle")
+	} else if a.optimizer != nil {
 		optResult, err := a.optimizer.Analyze(ctx, current)
 		if err != nil {
 			a.logFn("WARN", "analyzer: index optimizer: %v", err)

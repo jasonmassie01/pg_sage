@@ -52,6 +52,10 @@ func validateSpec(s Spec) error {
 	case s.StatementTimeout <= 0 || s.StatementTimeout > MaxStatementTimeout:
 		return fmt.Errorf("statement timeout %s outside (0, %s]",
 			s.StatementTimeout, MaxStatementTimeout)
+	case s.BackgroundTimeout != 0 && (s.BackgroundTimeout < s.StatementTimeout ||
+		s.BackgroundTimeout > MaxBackgroundStatementTimeout):
+		return fmt.Errorf("background timeout %s outside [%s, %s]",
+			s.BackgroundTimeout, s.StatementTimeout, MaxBackgroundStatementTimeout)
 	case s.LockTimeout <= 0 || s.LockTimeout >= s.StatementTimeout:
 		return fmt.Errorf("lock timeout %s must be in (0, statement timeout)",
 			s.LockTimeout)

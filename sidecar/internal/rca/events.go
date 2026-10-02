@@ -63,7 +63,7 @@ func (e *Engine) applyOne(inc *Incident, r persistResult) []pendingEvent {
 			notify.IncidentEscalatedEvent(incidentInfo(inc)))
 		ts.notifyEscalated = false
 	}
-	if r.resolved {
+	if r.resolved && !ts.quiet {
 		events = append(events, notify.IncidentResolvedEvent(incidentInfo(inc)))
 	}
 	pending := make([]pendingEvent, 0, len(events))

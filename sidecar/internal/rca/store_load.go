@@ -65,6 +65,7 @@ func (e *Engine) Hydrate(ctx context.Context, pool *pgxpool.Pool) error {
 			return fmt.Errorf("rca: hydrate current_database: %w", err)
 		}
 	}
+	e.reconcileLegacy(ctx, pool, name)
 	loaded, err := loadOpenIncidents(ctx, pool, name)
 	if err != nil {
 		return err

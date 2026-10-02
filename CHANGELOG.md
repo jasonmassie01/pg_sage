@@ -47,6 +47,16 @@
   fleet, the runway monitor measures each cluster's total database size once per pass
   instead of once per database.
 
+- **pg_sage keeps working on databases with huge catalogs and cleans up after itself (dogfood
+  on a real database with 12,000 sequences and 35,000 indexes).** Sequence runways are measured
+  again (the probe now takes about 200 ms instead of timing out), the collector and forecaster
+  no longer overload the database they watch, and one slow catalog query no longer drops the
+  whole snapshot. Incidents that have not been seen for 24 hours, or whose idle session is
+  gone, now resolve on their own, and old duplicate incidents are merged. Indexes that the
+  application keeps recreating are left alone and reported instead of dropped again, copies of
+  one schema are reported once, a monitor resumed months later no longer rolls anything back,
+  and expected policy refusals are no longer logged as errors.
+
 ### Changed (read before upgrading)
 
 - **Retention deletes, operator actions and queued changes now share one locked path.**

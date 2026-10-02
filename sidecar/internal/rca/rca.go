@@ -122,6 +122,9 @@ type Engine struct {
 	// fastFired records signals the lock-chain fast path observed since
 	// the last analyzer cycle; that cycle treats them as still firing.
 	fastFired map[string]bool
+	// backendLookup lists live backends for backend-subject incidents;
+	// nil uses the incident store (tests inject one).
+	backendLookup BackendLookup
 	// cycleMu serializes analysis, hydration and persistence cycles.
 	// mu guards the fields above and is never held across I/O.
 	cycleMu sync.Mutex
@@ -244,6 +247,7 @@ func (e *Engine) AnalyzeContext(
 	defer e.cycleMu.Unlock()
 
 	e.syncResolved(ctx)
+	e.resolveGoneSubjects(ctx)
 	plan := e.prepareCycle(current, previous, cfg, lockChainFindings)
 	if plan.tier2 != nil {
 		plan.incidents = append(plan.incidents,

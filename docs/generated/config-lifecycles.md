@@ -187,6 +187,7 @@
 | `rca.narration_enabled` | `restart` | `-` |
 | `rca.replication_lag_threshold_seconds` | `restart` | `-` |
 | `rca.resolution_cycles` | `restart` | `-` |
+| `rca.stale_after_hours` | `restart` | `-` |
 | `rca.wal_spike_multiplier` | `restart` | `-` |
 | `retention.actions_days` | `restart` | `-` |
 | `retention.explains_days` | `restart` | `-` |
@@ -271,6 +272,7 @@
 | `sre.runways.sample_retention_hours` | `restart` | `-` |
 | `sre.runways.sequence_critical_days` | `restart` | `-` |
 | `sre.runways.sequence_horizon_days` | `restart` | `-` |
+| `sre.runways.sequence_interval_seconds` | `restart` | `-` |
 | `sre.runways.wraparound_critical_hours` | `restart` | `-` |
 | `sre.runways.wraparound_horizon_hours` | `restart` | `-` |
 | `sre.sample_interval_seconds` | `restart` | `-` |

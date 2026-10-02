@@ -22,6 +22,7 @@ import (
 type executorProposalRouter struct {
 	executor  *executor.Executor
 	isReplica func(context.Context) bool
+	parkLog   *parkedLog
 }
 
 func (r executorProposalRouter) replica(ctx context.Context) bool {
@@ -47,20 +48,21 @@ func (r executorProposalRouter) Route(
 		r.executor.EvaluateCustodianProposal(ctx, candidate)
 		return nil
 	}
-	return r.executor.SubmitCustodianProposal(ctx, candidate)
+	return r.parked(proposal.TargetObjects, r.executor.SubmitCustodianProposal(ctx, candidate))
 }
 
 func (r executorProposalRouter) RouteVerifiedIndex(
 	ctx context.Context, proposal autonomy.Proposal,
 	rollbackSQL string, queryIDs []int64,
 ) error {
-	return r.executor.SubmitVerifiedIndexProposal(ctx, executor.CustodianProposal{
-		Feature: proposal.Feature, SQL: proposal.SQL,
-		TargetObjects: append([]string(nil), proposal.TargetObjects...),
-		Deadline:      proposal.Deadline,
-		IsReplica:     r.replica(ctx),
-		ObservedAt:    time.Now(),
-	}, rollbackSQL, queryIDs)
+	return r.parked(proposal.TargetObjects, r.executor.SubmitVerifiedIndexProposal(ctx,
+		executor.CustodianProposal{
+			Feature: proposal.Feature, SQL: proposal.SQL,
+			TargetObjects: append([]string(nil), proposal.TargetObjects...),
+			Deadline:      proposal.Deadline,
+			IsReplica:     r.replica(ctx),
+			ObservedAt:    time.Now(),
+		}, rollbackSQL, queryIDs))
 }
 
 // executeRetention runs a retention batch through the executor's single
@@ -122,7 +124,10 @@ func newDatabaseAutonomy(
 	freezeWorker := newFreezeCustodian(pool, cfg, database)
 	walWorker := newWALCustodian(pool, cfg, database)
 	auditor := ledger.NewService(ledger.NewPostgresRepository(pool))
-	router := executorProposalRouter{executor: exec, isReplica: haReplicaProbe(pool)}
+	router := executorProposalRouter{executor: exec, isReplica: haReplicaProbe(pool),
+		parkLog: newParkedLog(func(format string, args ...any) {
+			logInfo("autonomy", "db %q: "+format, append([]any{database}, args...)...)
+		})}
 	schemaGuard, err := autonomy.NewPostgresSchemaGuard(
 		pool, database, router, auditor, router.executeRetention)
 	if err != nil {

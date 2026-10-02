@@ -11,6 +11,7 @@ package runway
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/sre/probes"
@@ -52,10 +53,14 @@ type Options struct {
 	Database    string
 	Investigate bool
 	Interval    time.Duration
-	Lookback    time.Duration
-	MinSamples  int
-	MinSpan     time.Duration
-	Retention   time.Duration
+	// SequenceInterval is the sequences' own, slower sampling period (their
+	// consumption is slow and reading them is the costliest probe); 0
+	// reads them every tick.
+	SequenceInterval time.Duration
+	Lookback         time.Duration
+	MinSamples       int
+	MinSpan          time.Duration
+	Retention        time.Duration
 	// Horizons: a runway inside the horizon opens a finding, inside the
 	// critical horizon a critical one.
 	WraparoundHorizon  time.Duration
@@ -78,4 +83,19 @@ type Options struct {
 // ProbeRunner runs one catalog probe (probes.Runner).
 type ProbeRunner interface {
 	Run(ctx context.Context, id probes.ID, args probes.Args) probes.Result
+	// RunBackground runs a probe with its background budget (slow-cadence
+	// sampling).
+	RunBackground(ctx context.Context, id probes.ID, args probes.Args) probes.Result
+}
+
+// validate checks the options a monitor needs.
+func (o Options) validate() error {
+	if o.Interval <= 0 || o.Lookback <= 0 || o.Retention < o.Lookback || o.MinSamples < 3 {
+		return fmt.Errorf("runway monitor options are invalid: %+v", o)
+	}
+	if o.SequenceInterval < 0 || (o.SequenceInterval > 0 && o.SequenceInterval < o.Interval) {
+		return fmt.Errorf("runway monitor sequence interval %s must be 0 (every tick) or "+
+			"at least the interval %s", o.SequenceInterval, o.Interval)
+	}
+	return nil
 }

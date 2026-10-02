@@ -45,7 +45,8 @@ func newRunwayAdvisorFor(pool *pgxpool.Pool, cfg *config.Config,
 func runwayOptions(cfg *config.Config, database string) runway.Options {
 	r := cfg.SRE.Runways
 	return runway.Options{Database: database, Investigate: r.Investigate,
-		Interval: r.Interval(), Lookback: r.Lookback(), MinSamples: r.MinSamples,
+		Interval: r.Interval(), SequenceInterval: r.SequenceInterval(),
+		Lookback: r.Lookback(), MinSamples: r.MinSamples,
 		MinSpan: r.MinSpan(), Retention: r.SampleRetention(),
 		WraparoundHorizon: r.WraparoundHorizon(), WraparoundCritical: r.WraparoundCritical(),
 		DiskHorizon: r.DiskHorizon(), DiskCritical: r.DiskCritical(),

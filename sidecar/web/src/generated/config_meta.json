@@ -1007,6 +1007,11 @@
     "default": 2,
     "doc": "Consecutive clear cycles before an incident auto-resolves. Default: 2."
   },
+  "rca.stale_after_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours an open incident may go unseen before pg_sage resolves it as stale (no notification when it was last seen that long ago). 1-8760, at least the dedup window. Default: 24."
+  },
   "rca.wal_spike_multiplier": {
     "type": "float64",
     "default": 2,
@@ -1478,6 +1483,11 @@
     "type": "int",
     "default": 30,
     "doc": "Open a sequence runway finding when a sequence reaches its binding limit this soon (days), up to 3650. Default: 30."
+  },
+  "sre.runways.sequence_interval_seconds": {
+    "type": "int",
+    "default": 600,
+    "doc": "Seconds between sequence samples (sequences are slow to consume and costly to read), 15-86400; kept within interval_seconds and lookback_hours/min_samples. Default: 600."
   },
   "sre.runways.wraparound_critical_hours": {
     "type": "int",

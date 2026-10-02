@@ -142,8 +142,18 @@ func (s *SizeShare) measureNow(ctx context.Context,
 	return size, nil
 }
 
-// measureSize runs cluster_database_size.
+// measureSize runs cluster_database_size. A database dropped while it is
+// being sized fails the whole query, so a failed measurement is repeated
+// once (not after cancellation).
 func measureSize(ctx context.Context, r ProbeRunner) (ClusterSize, error) {
+	size, err := measureSizeOnce(ctx, r)
+	if err != nil && ctx.Err() == nil {
+		size, err = measureSizeOnce(ctx, r)
+	}
+	return size, err
+}
+
+func measureSizeOnce(ctx context.Context, r ProbeRunner) (ClusterSize, error) {
 	bytes, unreadable, err := probes.ClusterSizeOf(r.Run(ctx, probes.ClusterDatabaseSizeProbe,
 		probes.Args{}))
 	return ClusterSize{DatabaseBytes: bytes, UnreadableDatabases: unreadable}, err

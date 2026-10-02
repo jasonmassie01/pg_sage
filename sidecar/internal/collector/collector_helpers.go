@@ -96,6 +96,9 @@ INSERT INTO sage.snapshots (collected_at, category, data)
 VALUES ($1, $2, $3)`
 
 	for cat, data := range categories {
+		if !snap.Available(cat) {
+			continue // unknown, not empty: store nothing for it
+		}
 		j, err := json.Marshal(data)
 		if err != nil {
 			return err

@@ -21,6 +21,16 @@ type Snapshot struct {
 	// StatsEpoch is the pg_stat_statements statistics epoch the query
 	// counters belong to; zero when it could not be read.
 	StatsEpoch time.Time `json:"stats_epoch,omitzero"`
+	// Unavailable names the catalog categories that could not be read this
+	// cycle, with why (dogfood lifeos-1). Such a category is unknown, not
+	// empty: rules that would read its absence as a fact do not run.
+	Unavailable map[string]string `json:"unavailable,omitempty"`
+}
+
+// Available reports whether category was read this cycle.
+func (s *Snapshot) Available(category string) bool {
+	_, missing := s.Unavailable[category]
+	return !missing
 }
 
 // QueryStats mirrors pg_stat_statements columns.

@@ -10,47 +10,46 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
-// collectTables pages through pg_stat_user_tables with a keyset cursor
-// that lives only for this call. The cursor used to persist on the
-// Collector, so an error mid-pagination made the NEXT snapshot resume
-// part-way and silently omit every table before it (G1-B18).
+// collectTables pages through pg_stat_user_tables by relid with a keyset
+// cursor that lives only for this call (an error mid-pagination must not
+// make the next snapshot resume part-way, G1-B18). Paging by oid keeps
+// each page bounded by the batch: the old (schema, name) keyset sorted
+// the whole catalog for every page (dogfood lifeos-1: 15,301 tables).
 func (c *Collector) collectTables(ctx context.Context) ([]TableStats, error) {
-	batchSize := c.cfg.Collector.BatchSize
+	batchSize := collectorBatchSize(c.cfg)
 	var allTables []TableStats
-
-	// Tuple cursor: (schema, rel). Must be two separate bind params so
-	// that PostgreSQL compares tuple-wise. Concatenating into a single
-	// string silently skips tables: e.g. ('public','users') produces
-	// cursor 'public.users', and 'public' < 'public.users' causes every
-	// subsequent row in the public schema to be filtered out.
-	var pageSchema, pageRel string
+	var cursor uint32
 	for {
-		batch, err := c.collectTableBatch(ctx, pageSchema, pageRel, batchSize)
+		batch, last, err := c.collectTableBatch(ctx, cursor, batchSize)
 		if err != nil {
 			return nil, err
 		}
 		allTables = append(allTables, batch...)
-
-		// Empty batch → nothing more to page through. This also
-		// guards against an endless loop when batchSize is 0.
-		if len(batch) == 0 || len(batch) < batchSize {
+		if len(batch) < batchSize {
 			return allTables, nil
 		}
-		last := batch[len(batch)-1]
-		pageSchema, pageRel = last.SchemaName, last.RelName
+		cursor = last
 	}
 }
 
+func collectorBatchSize(cfg *config.Config) int {
+	if cfg.Collector.BatchSize <= 0 {
+		return config.DefaultCollectorBatchSize
+	}
+	return cfg.Collector.BatchSize
+}
+
 func (c *Collector) collectTableBatch(
-	ctx context.Context, pageSchema, pageRel string, batchSize int,
-) ([]TableStats, error) {
-	rows, err := c.catalogQuery(ctx, tableStatsSQL, pageSchema, pageRel, batchSize)
+	ctx context.Context, cursor uint32, batchSize int,
+) ([]TableStats, uint32, error) {
+	rows, err := c.catalogQuery(ctx, tableStatsSQL, cursor, batchSize)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
 	var batch []TableStats
+	var last uint32
 	for rows.Next() {
 		var t TableStats
 		if err := rows.Scan(
@@ -63,24 +62,23 @@ func (c *Collector) collectTableBatch(
 			&t.VacuumCount, &t.AutovacuumCount,
 			&t.AnalyzeCount, &t.AutoanalyzeCount,
 			&t.TotalBytes, &t.TableBytes, &t.IndexBytes,
-			&t.Relpersistence, &t.XIDAge,
+			&t.Relpersistence, &t.XIDAge, &last,
 		); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		batch = append(batch, t)
 	}
-	return batch, rows.Err()
+	return batch, last, rows.Err()
 }
 
+// collectIndexes pages through pg_stat_user_indexes by indexrelid (see
+// collectTables; lifeos: 35,439 indexes).
 func (c *Collector) collectIndexes(ctx context.Context) ([]IndexStats, error) {
-	batchSize := c.cfg.Collector.BatchSize
-	if batchSize <= 0 {
-		batchSize = config.DefaultCollectorBatchSize
-	}
+	batchSize := collectorBatchSize(c.cfg)
 	var result []IndexStats
-	var schemaName, tableName, indexName string
+	var cursor uint32
 	for {
-		batch, err := c.collectIndexBatch(ctx, schemaName, tableName, indexName, batchSize)
+		batch, last, err := c.collectIndexBatch(ctx, cursor, batchSize)
 		if err != nil {
 			return nil, fmt.Errorf("collect indexes: %w", err)
 		}
@@ -88,21 +86,21 @@ func (c *Collector) collectIndexes(ctx context.Context) ([]IndexStats, error) {
 		if len(batch) < batchSize {
 			return result, nil
 		}
-		last := batch[len(batch)-1]
-		schemaName, tableName, indexName = last.SchemaName, last.RelName, last.IndexRelName
+		cursor = last
 	}
 }
 
 func (c *Collector) collectIndexBatch(
-	ctx context.Context, schemaName, tableName, indexName string, batchSize int,
-) ([]IndexStats, error) {
-	rows, err := c.catalogQuery(ctx, indexStatsSQL, schemaName, tableName, indexName, batchSize)
+	ctx context.Context, cursor uint32, batchSize int,
+) ([]IndexStats, uint32, error) {
+	rows, err := c.catalogQuery(ctx, indexStatsSQL, cursor, batchSize)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
 	var result []IndexStats
+	var last uint32
 	for rows.Next() {
 		var idx IndexStats
 		if err := rows.Scan(
@@ -110,13 +108,13 @@ func (c *Collector) collectIndexBatch(
 			&idx.IdxScan, &idx.IdxTupRead, &idx.IdxTupFetch,
 			&idx.IndexBytes,
 			&idx.IsUnique, &idx.IsPrimary, &idx.IsValid,
-			&idx.IndexDef, &idx.IndexType,
+			&idx.IndexDef, &idx.IndexType, &last,
 		); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		result = append(result, idx)
 	}
-	return result, rows.Err()
+	return result, last, rows.Err()
 }
 
 func (c *Collector) collectForeignKeys(ctx context.Context) ([]ForeignKey, error) {
@@ -198,8 +196,19 @@ func (c *Collector) collectLocks(ctx context.Context) ([]LockInfo, error) {
 	return result, rows.Err()
 }
 
+// Sequences kept per snapshot: every used sequence at or above
+// SequenceFloorPct of its range, plus the SequenceTopN most used, at most
+// SequenceMaxRows. The 75% exhaustion rule and the forecaster (which
+// ignores sequences under 1%) see every sequence that can matter to them.
+const (
+	SequenceFloorPct = 1.0
+	SequenceTopN     = 100
+	SequenceMaxRows  = 1000
+)
+
 func (c *Collector) collectSequences(ctx context.Context) ([]SequenceStats, error) {
-	rows, err := c.catalogQuery(ctx, sequencesSQL)
+	rows, err := c.catalogQuery(ctx, sequencesSQL, SequenceFloorPct, SequenceTopN,
+		SequenceMaxRows)
 	if err != nil {
 		return nil, err
 	}

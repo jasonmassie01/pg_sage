@@ -108,7 +108,13 @@ func rollbackRegressedAction(
 		return
 	}
 	logFn("rollback", "regression detected for action %d, executing rollback", actionID)
+	if restoredOutside(ctx, pool, actionID, rollbackSQL, logFn) {
+		return
+	}
 	reason, err := executeRollbackSQL(ctx, pool, rollbackSQL, cfg)
+	if err != nil && restoredOutside(ctx, pool, actionID, rollbackSQL, logFn) {
+		return // recreated between the check and the DDL
+	}
 	if err != nil {
 		logFn("rollback", "rollback failed for action %d: %v", actionID, err)
 		updateActionOutcome(ctx, pool, actionID, "rollback_failed",

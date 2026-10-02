@@ -213,7 +213,8 @@ func (e *Engine) treeVacuumBlocked(
 							"prevents dead-tuple cleanup",
 						Evidence: fmt.Sprintf(
 							"PID %d in state: idle in transaction",
-							l.PID)},
+							l.PID),
+						Blocker: xminHolder(l)},
 				},
 				blockedTables(sig),
 				fmt.Sprintf(

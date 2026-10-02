@@ -1342,8 +1342,8 @@ func TestTableStatsSQL_UsesParameterizedPagination(t *testing.T) {
 }
 
 func TestTableStatsSQL_OrdersCorrectly(t *testing.T) {
-	if !strings.Contains(tableStatsSQL, "ORDER BY s.schemaname, s.relname") {
-		t.Error("tableStatsSQL must ORDER BY schemaname, relname")
+	if !strings.Contains(tableStatsSQL, "ORDER BY s.relid") {
+		t.Error("tableStatsSQL must ORDER BY relid (oid keyset, dogfood lifeos-1)")
 	}
 }
 
@@ -1692,7 +1692,7 @@ func TestQueryStats_NonZeroWALFields(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestIndexStatsSQL_OrdersCorrectly(t *testing.T) {
-	expected := "ORDER BY s.schemaname, s.relname, s.indexrelname"
+	expected := "ORDER BY s.indexrelid" // oid keyset (dogfood lifeos-1)
 	if !strings.Contains(indexStatsSQL, expected) {
 		t.Errorf("indexStatsSQL must ORDER BY %s", expected)
 	}

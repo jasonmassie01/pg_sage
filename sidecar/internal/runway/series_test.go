@@ -26,7 +26,7 @@ func fullSnapshot() Snapshot {
 			{Sequence: "public.a_seq", LastValue: 900, Limit: 1000},
 			{Sequence: "public.cyc_seq", LastValue: 900, Limit: 1000, Cycle: true},
 			{Sequence: "public.new_seq", LastValue: math.NaN(), Limit: 1000}},
-		SequencesOK: true,
+		SequencesOK: true, SequencesFresh: true,
 	}
 }
 
