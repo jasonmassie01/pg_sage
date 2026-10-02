@@ -70,6 +70,17 @@ type purgeRule struct {
 // evidence of worth, so they and the verification that earned the credit
 // are never purged (D3); uncredited and rolled-back rows still age out.
 const (
+	// A snapshot row stays while a retained row is built on it (a delta is
+	// only readable with its base, and a base may itself be a checkpoint on
+	// a keyframe: chains are at most two deep); a base used only by expired
+	// rows goes with them. $1 is the retention in days.
+	keepSnapshotKeyframe = `AND NOT EXISTS (SELECT 1 FROM sage.snapshots d
+	                   WHERE d.base_id = snapshots.id
+	                   AND (d.collected_at >= now() - make_interval(days => $1)
+	                        OR EXISTS (SELECT 1 FROM sage.snapshots d2
+	                                   WHERE d2.base_id = d.id
+	                                   AND d2.collected_at >=
+	                                       now() - make_interval(days => $1))))`
 	keepActionLog = `AND NOT (action_log.outcome = 'success'
 	                   AND action_log.toil_minutes_saved IS NOT NULL)
 	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
@@ -128,7 +139,7 @@ const (
 func purgeRules(cfg *config.Config) []purgeRule {
 	r := cfg.Retention
 	return []purgeRule{
-		{"snapshots", "collected_at", r.SnapshotsDays, ""},
+		{"snapshots", "collected_at", r.SnapshotsDays, keepSnapshotKeyframe},
 		{"query_store", "captured_at", r.SnapshotsDays, ""},
 		{"health_history", "recorded_at", r.SnapshotsDays, ""},
 		{"size_history", "collected_at", r.SnapshotsDays, ""},

@@ -367,6 +367,8 @@ func hotReloadRetention(cfg *config.Config, key, v string) {
 		cfg.Retention.ActionsDays = atoi(v)
 	case "retention.explains_days":
 		cfg.Retention.ExplainsDays = atoi(v)
+	case "retention.sage_size_warning_pct":
+		cfg.Retention.SageSizeWarningPct = atoi(v)
 	}
 }
 

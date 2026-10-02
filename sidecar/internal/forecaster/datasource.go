@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/snapstore"
 )
 
 // DaySystemAgg holds daily aggregated system-level metrics.
@@ -91,10 +93,11 @@ func QueryDailySystemAggs(
 // daySamplesSQL picks, for one snapshot category in the lookback, the
 // first and last non-empty snapshot of each day (dogfood lifeos-1: every
 // snapshot used to be expanded; lifeos had 1,999 'sequences' snapshots of
-// 12,000 elements, > 70 s). An empty or null snapshot is at most 12 bytes
-// of jsonb, so pg_column_size tells them apart without detoasting.
-const daySamplesSQL = `
-    SELECT s.id, s.collected_at, s.data,
+// 12,000 elements, > 70 s). Emptiness is read without detoasting a full
+// row (snapstore.NonEmptySQL); only the picked samples are decoded, through
+// the snapshot accessor (delta rows hold changes against a keyframe).
+var daySamplesSQL = `
+    SELECT s.id, s.collected_at, s.data, s.base_id,
            row_number() OVER (PARTITION BY date_trunc('day', s.collected_at)
                               ORDER BY s.collected_at, s.id) AS first_rank,
            row_number() OVER (PARTITION BY date_trunc('day', s.collected_at)
@@ -102,7 +105,7 @@ const daySamplesSQL = `
     FROM sage.snapshots s
     WHERE s.category = %s
       AND s.collected_at > now() - make_interval(days => $1)
-      AND pg_column_size(s.data) > 12`
+      AND ` + snapstore.NonEmptySQL("s")
 
 // queryAggsSQL sums per-day call deltas. pg_stat_statements counters are
 // cumulative since the last reset, so each sample contributes
@@ -113,6 +116,9 @@ const daySamplesSQL = `
 // totals telescope to the same sums.
 var queryAggsSQL = `/* pg_sage */
 WITH d AS (` + fmt.Sprintf(daySamplesSQL, "'queries'") + `
+), p AS (
+    SELECT d.id, d.collected_at, ` + snapstore.DataSQL("d") + ` AS data
+    FROM d WHERE d.first_rank = 1 OR d.last_rank = 1
 )
 SELECT day, COALESCE(sum(delta), 0)::float8 AS total_calls
 FROM (
@@ -122,13 +128,12 @@ FROM (
                 ELSE calls
            END AS delta
     FROM (
-        SELECT d.collected_at,
+        SELECT p.collected_at,
                (elem->>'calls')::bigint AS calls,
                lag((elem->>'calls')::bigint) OVER (
                    PARTITION BY (elem->>'queryid')::bigint
-                   ORDER BY d.collected_at, d.id) AS prev_calls
-        FROM d, jsonb_array_elements(d.data) AS elem
-        WHERE d.first_rank = 1 OR d.last_rank = 1
+                   ORDER BY p.collected_at, p.id) AS prev_calls
+        FROM p, jsonb_array_elements(p.data) AS elem
     ) samples
 ) deltas
 GROUP BY day ORDER BY day`
@@ -166,14 +171,16 @@ func QueryDailyQueryAggs(
 // those only as its top N).
 var seqAggsSQL = `/* pg_sage */
 WITH d AS (` + fmt.Sprintf(daySamplesSQL, "'sequences'") + `
+), p AS (
+    SELECT d.collected_at, ` + snapstore.DataSQL("d") + ` AS data
+    FROM d WHERE d.last_rank = 1
 )
-SELECT date_trunc('day', d.collected_at) AS day,
+SELECT date_trunc('day', p.collected_at) AS day,
        (elem->>'schemaname') || '.' ||
            (elem->>'sequencename')       AS seq_name,
        max((elem->>'pct_used')::float)   AS pct_used,
        max((elem->>'max_value')::bigint) AS max_value
-FROM d, jsonb_path_query(d.data, '$[*] ? (@.pct_used >= 1)') AS elem
-WHERE d.last_rank = 1
+FROM p, jsonb_path_query(p.data, '$[*] ? (@.pct_used >= 1)') AS elem
 GROUP BY 1, 2 ORDER BY 1`
 
 // QueryDailySeqAggs returns daily sequence usage aggregates.
