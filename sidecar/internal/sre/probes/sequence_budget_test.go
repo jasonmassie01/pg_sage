@@ -76,8 +76,8 @@ func TestCatalog_SequenceRunwayV2IsBounded(t *testing.T) {
 		t.Fatalf("sequence_runway spec = %+v", spec)
 	}
 	sql := spec.Variants[0].SQL
-	for _, want := range []string{"pg_sequence_last_value", "LIMIT " +
-		strconv.Itoa(SequenceScanCap), "sequences_total", "sequences_scanned",
+	for _, want := range []string{"pg_sequence_last_value", "LIMIT LEAST(" +
+		strconv.Itoa(SequenceScanCap), "max_locks_per_transaction", "sequences_total", "sequences_scanned",
 		"sequences_used", "sequences_unreadable", "pg_is_other_temp_schema",
 		"sre:sequence_runway v2"} {
 		if !strings.Contains(sql, want) {

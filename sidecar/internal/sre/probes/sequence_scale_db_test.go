@@ -118,10 +118,12 @@ func TestCatalog_SequenceRunwayAtScale(t *testing.T) {
 				s.Fraction, i-1, ss[i-1].Fraction)
 		}
 	}
-	checkScaleCoverage(t, res, ss, sch)
+	checkScaleCoverage(t, pool, res, ss, sch)
+	checkLockFootprint(t, ctx, pool)
 }
 
-func checkScaleCoverage(t *testing.T, res Result, ss []SequenceRunway, sch string) {
+func checkScaleCoverage(t *testing.T, pool *pgxpool.Pool, res Result, ss []SequenceRunway,
+	sch string) {
 	t.Helper()
 	listed := map[string]bool{}
 	for _, s := range ss {
@@ -140,10 +142,11 @@ func checkScaleCoverage(t *testing.T, res Result, ss []SequenceRunway, sch strin
 	if err != nil {
 		t.Fatalf("coverage: %v", err)
 	}
-	if c.Total < scaleIntSeqs+scaleBigSeqs+1 || c.Scanned != SequenceScanCap ||
+	wantScanned := min(int64(SequenceScanCap), lockBudget(t, pool))
+	if c.Total < scaleIntSeqs+scaleBigSeqs+1 || c.Scanned != wantScanned ||
 		!c.ScanCapped() || !c.Truncated || c.Reported != 50 {
 		t.Fatalf("coverage = %+v, want the scan capped at %d of at least %d", c,
-			SequenceScanCap, scaleIntSeqs+scaleBigSeqs+1)
+			wantScanned, scaleIntSeqs+scaleBigSeqs+1)
 	}
 	if c.Used < scaleIntSeqs/10 || c.Used >= c.Scanned {
 		t.Fatalf("used = %d of %d scanned, want the used sequences only", c.Used,
@@ -283,5 +286,48 @@ func TestCatalog_SequenceRunwayCountsUnreadableSequences(t *testing.T) {
 	admin, err := SequenceCoverageOf(catalogRun(t, ctx, pool, SequenceRunwayProbe, Args{}))
 	if err != nil || admin.Unreadable != 0 || admin.Used < 2 {
 		t.Fatalf("superuser coverage = %+v (%v), want nothing unreadable", admin, err)
+	}
+}
+
+// lockBudget is the share of the shared lock table one sequence_runway
+// run may take: the nominal table (max_locks_per_transaction x
+// (max_connections + max_prepared_transactions)) divided by 4.
+func lockBudget(t *testing.T, pool *pgxpool.Pool) int64 {
+	t.Helper()
+	var n int64
+	if err := pool.QueryRow(context.Background(), `SELECT
+		current_setting('max_locks_per_transaction')::int8 *
+		(current_setting('max_connections')::int8 +
+		 current_setting('max_prepared_transactions')::int8) / 4`).Scan(&n); err != nil {
+		t.Fatalf("lock budget: %v", err)
+	}
+	return n
+}
+
+// Dogfood lifeos-1, found on the PG14/PG18 matrix (max_connections 100):
+// reading 20,000 last values took 20,000 locks and other sessions got
+// "out of shared memory". The probe's locks stay within its lock budget.
+func checkLockFootprint(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	rows, err := tx.Query(ctx, sequenceRunwaySQL, 51)
+	if err != nil {
+		t.Fatalf("probe sql: %v", err)
+	}
+	rows.Close()
+	if rows.Err() != nil {
+		t.Fatalf("probe rows: %v", rows.Err())
+	}
+	var held int64
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM pg_locks
+		WHERE pid = pg_backend_pid()`).Scan(&held); err != nil {
+		t.Fatalf("locks: %v", err)
+	}
+	if budget := lockBudget(t, pool); held > budget+100 {
+		t.Fatalf("probe transaction holds %d locks, budget %d", held, budget)
 	}
 }
