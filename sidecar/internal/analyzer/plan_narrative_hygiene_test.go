@@ -168,7 +168,7 @@ func TestNarrateFailuresLeaveFindingIntact(t *testing.T) {
 		delay  time.Duration
 		warn   bool
 	}{
-		{"empty reply", http.StatusOK, chatBody("   "), 0, false},
+		{"empty reply", http.StatusOK, chatBody("   "), 0, true},
 		{"malformed body", http.StatusOK, `{"choices": [`, 0, true},
 		{"server error", http.StatusInternalServerError, `oops`, 0, true},
 		{"rate limited", http.StatusTooManyRequests, `slow down`, 0, true},
