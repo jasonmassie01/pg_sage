@@ -39,6 +39,8 @@ func startMCPRuntime() {
 		// Sage SRE read tools (sre_list_incidents, sre_get_investigation,
 		// sre_get_evidence) resolve through the same fleet.
 		Investigations: access,
+		// Earned autonomy: read, and operator downgrade (never approval).
+		Autonomy: autonomyMCPBackend{registry: processAutonomy().registry},
 	})
 	if err != nil {
 		logError("mcp", "production backend: %v", err)

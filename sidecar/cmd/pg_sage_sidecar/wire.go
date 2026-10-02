@@ -154,6 +154,7 @@ func wireRouter(p WireParams) WireResult {
 			DisableConfigWrites: p.Cfg != nil && p.Cfg.IsFleet() &&
 				!p.Cfg.HasMetaDB(),
 			MCPHandler: p.MCPHandler,
+			Autonomy:   autonomyAPIDeps(p.FleetMgr, authPool),
 		},
 		middlewares...,
 	)

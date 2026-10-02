@@ -17,6 +17,7 @@ import (
 // retention cycles).
 func (rt *databaseRuntime) startExecution() {
 	rt.buildExecutor()
+	rt.startAutonomyLoops()
 	startProviderObservability(
 		rt.ctx, rt.workers, rt.spec.Pool, rt.cfg, rt.executor, rt.rca,
 	)
@@ -73,6 +74,8 @@ func (rt *databaseRuntime) buildExecutor() {
 		id := rt.spec.DatabaseID
 		policyDatabaseID = &id
 	}
+	// Earned autonomy (M7) restricts the gate built just below.
+	rt.installAutonomy(ex)
 	if err := ex.EnableStandingPolicyWithStore(
 		rt.ctx, rt.spec.ControlPool, cfg.Policy.Profile, policyDatabaseID,
 	); err != nil {
