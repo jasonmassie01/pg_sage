@@ -377,10 +377,11 @@ turns, 16k input and 4k output tokens, and its 120 s active time. The daily allo
 
 With no LLM configured, investigations run deterministically, and the sidecar logs once that
 the model turn is unavailable and why. To turn the model turn off while an LLM stays
-configured for other features, set `sre.llm.enabled: false`. Models that reserve extra
-reasoning tokens (Gemini 2.5+/3, OpenAI o-series, DeepSeek R1) need more output tokens than the
-4k ceiling allows, so their turns are refused before any request is sent and recorded as
-`budget_exhausted`. Use a non-reasoning model for investigations.
+configured for other features, set `sre.llm.enabled: false`. Reasoning models (Gemini
+2.5+/3, OpenAI o-series, DeepSeek R1) work. Their thinking gets its own allowance of 16k tokens
+per investigation (8k per turn), separate from the 4k answer limit. A turn requests 2k answer
+plus 8k reasoning tokens, and the daily allocation counts both. If a provider reports more
+reasoning than allowed, the usage is recorded as reported and no further turn is started.
 
 | Parameter | Default | Description |
 |---|---|---|

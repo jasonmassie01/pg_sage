@@ -19,8 +19,8 @@
   output tokens, and 120 s. The daily allocation is `llm.token_budget_daily`. Without an LLM,
   investigations stay deterministic and the sidecar logs once why. To turn it off, set
   `sre.llm.enabled: false`. Reasoning models (Gemini 2.5+/3, OpenAI o-series, DeepSeek R1)
-  are refused before any request is sent, because their reasoning reserve exceeds the 4k
-  output limit. Use a non-reasoning model for investigations.
+  work. Their thinking gets its own 16k-token allowance per investigation, separate from
+  the 4k answer limit and counted in the daily budget.
 
 - **Wraparound near misses are credited.** When a table is inside the red wraparound
   buffer and pg_sage's verified `VACUUM (FREEZE)` returns it to green, the value ledger
