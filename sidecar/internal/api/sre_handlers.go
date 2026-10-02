@@ -13,10 +13,10 @@ import (
 )
 
 // Sage SRE investigation routes (AI-SRE-SPEC §9, Codex §6). Reads are
-// open to every signed-in role; export and pinning need an operator
-// (CHECK-25). {db} is the fleet database name; every lookup is scoped to
-// that database's bound identity, so an id of another database is not
-// found (CHECK-09/26). Nothing here starts, stops or executes anything.
+// open to every signed-in role; export, pinning, start, stop and resume
+// need an operator (CHECK-25). {db} is the fleet database name; every
+// lookup is scoped to that database's bound identity, so an id of another
+// database is not found (CHECK-09/26). Nothing here executes anything.
 
 const sreInvestigationsPath = "/api/v1/databases/{db}/investigations"
 
@@ -53,6 +53,11 @@ func perDatabaseSREMux(mgr *fleet.DatabaseManager) *http.ServeMux {
 	mux.Handle("GET "+base+"/{id}/export", operatorUp(investigationExportHandler(mgr)))
 	mux.Handle("POST "+base+"/{id}/pin", operatorUp(investigationPinHandler(mgr, true)))
 	mux.Handle("POST "+base+"/{id}/unpin", operatorUp(investigationPinHandler(mgr, false)))
+	mux.Handle("POST "+base, operatorUp(investigationStartHandler(mgr)))
+	mux.Handle("POST "+base+"/{id}/stop", operatorUp(investigationTransitionHandler(mgr,
+		false)))
+	mux.Handle("POST "+base+"/{id}/resume", operatorUp(investigationTransitionHandler(mgr,
+		true)))
 	return mux
 }
 

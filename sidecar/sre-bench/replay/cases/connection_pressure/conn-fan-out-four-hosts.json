@@ -1,0 +1,208 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "conn-fan-out-four-hosts",
+  "family": "connection_pressure",
+  "class": "positive",
+  "description": "The orders service scaled to four hosts with 12-connection pools each: 48 idle backends across four client addresses.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-08-06T08:31:45Z",
+  "subject": "connections: 52 of 197 usable in use",
+  "gold": {
+    "root": "pool_fan_out",
+    "rationale": "Idle connections grow with instances; the pool is stable between samples."
+  },
+  "observations": [
+    {
+      "probe": "connection_saturation",
+      "status": "ok",
+      "offset_ms": 70,
+      "rows": [
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.4.1.1",
+          "state": "idle",
+          "backends": 12,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.4.1.2",
+          "state": "idle",
+          "backends": 12,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.4.1.3",
+          "state": "idle",
+          "backends": 12,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.4.1.4",
+          "state": "idle",
+          "backends": 12,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.4.0.12",
+          "state": "active",
+          "backends": 2,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "pgbouncer-admin",
+          "client_addr": "10.4.0.2",
+          "state": "idle",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "",
+          "client_addr": "local",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        }
+      ]
+    },
+    {
+      "probe": "lock_graph",
+      "status": "empty",
+      "offset_ms": 140
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 175
+    },
+    {
+      "probe": "connection_saturation",
+      "status": "ok",
+      "offset_ms": 5210,
+      "rows": [
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.4.1.2",
+          "state": "idle",
+          "backends": 13,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.4.1.1",
+          "state": "idle",
+          "backends": 12,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.4.1.3",
+          "state": "idle",
+          "backends": 12,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.4.1.4",
+          "state": "idle",
+          "backends": 12,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.4.0.12",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "pgbouncer-admin",
+          "client_addr": "10.4.0.2",
+          "state": "idle",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "",
+          "client_addr": "local",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 52,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        }
+      ]
+    }
+  ]
+}

@@ -1135,8 +1135,8 @@
   },
   "sre.automatic_start": {
     "type": "bool",
-    "default": false,
-    "doc": "Start a read-only investigation for each open lock, connection or WAL incident and plan_regression finding. Investigations never execute actions. Default: false."
+    "default": true,
+    "doc": "Start a read-only, bounded investigation for each open lock, connection or WAL incident and plan_regression finding. Never executes actions. false = start only on request. Default: true."
   },
   "sre.evidence_retention_days": {
     "type": "int",

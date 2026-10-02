@@ -140,9 +140,6 @@ func (e *Env) graded(ctx context.Context, sc Scenario, arm LiveArm) (Outcome,
 // turn runs as with sre.llm.enabled.
 func (e *Env) investigate(ctx context.Context, sc Scenario, model *llm.Client) (Trace,
 	error) {
-	cfg := sre.DefaultCoordinatorConfig(fmt.Sprintf("bench:%s:%d", sc.ID,
-		time.Now().UnixNano()))
-	cfg.SampleInterval = sampleInterval
 	wait := func(ctx context.Context, d time.Duration) error {
 		start := time.Now()
 		if err := sc.Program.Between(ctx, e); err != nil {
@@ -150,14 +147,38 @@ func (e *Env) investigate(ctx context.Context, sc Scenario, model *llm.Client) (
 		}
 		return sleepRest(ctx, d-time.Since(start))
 	}
-	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: e.Store, Runner: e.Runner,
-		Config: cfg, Wait: wait, Model: model, Notices: &sre.OnceLog{}})
+	run, err := e.startInvestigation(ctx, sc, e.Runner, wait, model)
 	if err != nil {
 		return Trace{}, err
 	}
+	return e.trace(ctx, run.scope, run.id, model != nil)
+}
+
+// investigation is one finished investigation and the coordinator that
+// ran it.
+type investigation struct {
+	coord *sre.Coordinator
+	scope sre.Scope
+	id    sre.UUID
+}
+
+// startInvestigation runs one investigation of sc's family to its end
+// through a fresh coordinator (its own database identity) with runner's
+// probes, wait between samples and model (nil: deterministic).
+func (e *Env) startInvestigation(ctx context.Context, sc Scenario, runner sre.ProbeRunner,
+	wait func(context.Context, time.Duration) error, model *llm.Client) (investigation,
+	error) {
+	cfg := sre.DefaultCoordinatorConfig(fmt.Sprintf("bench:%s:%d", sc.ID,
+		time.Now().UnixNano()))
+	cfg.SampleInterval = sampleInterval
+	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: e.Store, Runner: runner,
+		Config: cfg, Wait: wait, Model: model, Notices: &sre.OnceLog{}})
+	if err != nil {
+		return investigation{}, err
+	}
 	scope, err := coord.Bind(ctx)
 	if err != nil {
-		return Trace{}, err
+		return investigation{}, err
 	}
 	subject := sc.Subject
 	if subject == "" {
@@ -166,12 +187,12 @@ func (e *Env) investigate(ctx context.Context, sc Scenario, model *llm.Client) (
 	inv, _, err := coord.Start(ctx, sre.Trigger{CaseID: "bench:" + sc.ID,
 		Kind: sc.Family, Subject: subject})
 	if err != nil {
-		return Trace{}, err
+		return investigation{}, err
 	}
 	if err := coord.Investigate(ctx, inv.ID); err != nil {
-		return Trace{}, err
+		return investigation{}, err
 	}
-	return e.trace(ctx, scope, inv.ID, model != nil)
+	return investigation{coord: coord, scope: scope, id: inv.ID}, nil
 }
 
 func sleepRest(ctx context.Context, d time.Duration) error {
@@ -215,8 +236,10 @@ func (e *Env) trace(ctx context.Context, scope sre.Scope, id sre.UUID,
 		if o.Model, err = e.modelStats(ctx, scope, id, inv.ModelTurns); err != nil {
 			return Trace{}, err
 		}
+		o.Model.Claims, o.Model.ClaimsResolved = claimRefs(inv.Summary, stored)
+		o.Model.RankedFirst = rankedFirst(inv.Summary)
 	}
-	tr := Trace{Outcome: o}
+	tr := Trace{Outcome: o, scope: scopeFindings(inv.Summary, hs, stored)}
 	for i, ev := range stored {
 		if d := ev.CollectedAt.Sub(inv.CreatedAt); i == 0 || d < tr.Outcome.FirstEvidence {
 			tr.Outcome.FirstEvidence = d

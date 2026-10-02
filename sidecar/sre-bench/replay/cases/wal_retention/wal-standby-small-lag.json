@@ -1,0 +1,125 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "wal-standby-small-lag",
+  "family": "wal_retention",
+  "class": "confounded",
+  "description": "A physical standby's slot lags by a few hundred kilobytes while 4 MiB are written: normal replication jitter.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-08-26T17:45:00Z",
+  "subject": "wal_retention: replica lag alert",
+  "gold": {
+    "lookalike": "slow_consumer",
+    "rationale": "Growth under the 1 MiB floor and under half the WAL written is ordinary lag (CHECK-06)."
+  },
+  "observations": [
+    {
+      "probe": "replication_slots",
+      "status": "ok",
+      "offset_ms": 120,
+      "rows": [
+        {
+          "slot_name": "standby_1",
+          "slot_type": "physical",
+          "active": true,
+          "wal_status": "reserved",
+          "retained_bytes": 1048576,
+          "safe_wal_size": null,
+          "database": null,
+          "inactive_since": null
+        }
+      ]
+    },
+    {
+      "probe": "wal_checkpoint",
+      "status": "ok",
+      "offset_ms": 140,
+      "rows": [
+        {
+          "timed_checkpoints": 2870,
+          "requested_checkpoints": 41,
+          "checkpoint_write_ms": 812345.0,
+          "checkpoint_sync_ms": 2310.0,
+          "buffers_written": 9912345,
+          "wal_bytes": 634178313911,
+          "wal_buffers_full": 1201,
+          "checkpoint_timeout_s": 300,
+          "max_wal_size_mb": 4096,
+          "checkpointer_stats_reset": "2026-08-16T17:45:00Z",
+          "wal_stats_reset": "2026-08-16T17:45:00Z"
+        }
+      ]
+    },
+    {
+      "probe": "archiver",
+      "status": "ok",
+      "offset_ms": 160,
+      "rows": [
+        {
+          "archive_mode": "off",
+          "archived_count": 0,
+          "failed_count": 0,
+          "last_archived_time": null,
+          "last_failed_time": null,
+          "stats_reset": "2026-08-16T17:45:00Z"
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 180
+    },
+    {
+      "probe": "replication_slots",
+      "status": "ok",
+      "offset_ms": 5260,
+      "rows": [
+        {
+          "slot_name": "standby_1",
+          "slot_type": "physical",
+          "active": true,
+          "wal_status": "reserved",
+          "retained_bytes": 1363148,
+          "safe_wal_size": null,
+          "database": null,
+          "inactive_since": null
+        }
+      ]
+    },
+    {
+      "probe": "wal_checkpoint",
+      "status": "ok",
+      "offset_ms": 5280,
+      "rows": [
+        {
+          "timed_checkpoints": 2870,
+          "requested_checkpoints": 41,
+          "checkpoint_write_ms": 812345.0,
+          "checkpoint_sync_ms": 2310.0,
+          "buffers_written": 9912345,
+          "wal_bytes": 634182625656,
+          "wal_buffers_full": 1201,
+          "checkpoint_timeout_s": 300,
+          "max_wal_size_mb": 4096,
+          "checkpointer_stats_reset": "2026-08-16T17:45:00Z",
+          "wal_stats_reset": "2026-08-16T17:45:00Z"
+        }
+      ]
+    },
+    {
+      "probe": "archiver",
+      "status": "ok",
+      "offset_ms": 5300,
+      "rows": [
+        {
+          "archive_mode": "off",
+          "archived_count": 0,
+          "failed_count": 0,
+          "last_archived_time": null,
+          "last_failed_time": null,
+          "stats_reset": "2026-08-16T17:45:00Z"
+        }
+      ]
+    }
+  ]
+}

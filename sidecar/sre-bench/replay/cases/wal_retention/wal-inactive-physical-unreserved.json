@@ -1,0 +1,125 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "wal-inactive-physical-unreserved",
+  "family": "wal_retention",
+  "class": "positive",
+  "description": "A decommissioned standby's physical slot was never dropped: 48 GiB retained, wal_status unreserved.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-08-04T05:45:10Z",
+  "subject": "wal_retention: pg_wal 49 GiB",
+  "gold": {
+    "root": "inactive_slot",
+    "rationale": "Inactive slot past max_slot_wal_keep_size."
+  },
+  "observations": [
+    {
+      "probe": "replication_slots",
+      "status": "ok",
+      "offset_ms": 120,
+      "rows": [
+        {
+          "slot_name": "standby_2",
+          "slot_type": "physical",
+          "active": false,
+          "wal_status": "unreserved",
+          "retained_bytes": 51539607552,
+          "safe_wal_size": -2147483648,
+          "database": null,
+          "inactive_since": "2026-08-02T23:45:10Z"
+        }
+      ]
+    },
+    {
+      "probe": "wal_checkpoint",
+      "status": "ok",
+      "offset_ms": 140,
+      "rows": [
+        {
+          "timed_checkpoints": 2870,
+          "requested_checkpoints": 41,
+          "checkpoint_write_ms": 812345.0,
+          "checkpoint_sync_ms": 2310.0,
+          "buffers_written": 9912345,
+          "wal_bytes": 724775292894,
+          "wal_buffers_full": 1201,
+          "checkpoint_timeout_s": 300,
+          "max_wal_size_mb": 4096,
+          "checkpointer_stats_reset": "2026-07-25T05:45:10Z",
+          "wal_stats_reset": "2026-07-25T05:45:10Z"
+        }
+      ]
+    },
+    {
+      "probe": "archiver",
+      "status": "ok",
+      "offset_ms": 160,
+      "rows": [
+        {
+          "archive_mode": "off",
+          "archived_count": 0,
+          "failed_count": 0,
+          "last_archived_time": null,
+          "last_failed_time": null,
+          "stats_reset": "2026-07-25T05:45:10Z"
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 180
+    },
+    {
+      "probe": "replication_slots",
+      "status": "ok",
+      "offset_ms": 5260,
+      "rows": [
+        {
+          "slot_name": "standby_2",
+          "slot_type": "physical",
+          "active": false,
+          "wal_status": "unreserved",
+          "retained_bytes": 51544458264,
+          "safe_wal_size": -2147483648,
+          "database": null,
+          "inactive_since": "2026-08-02T23:45:10Z"
+        }
+      ]
+    },
+    {
+      "probe": "wal_checkpoint",
+      "status": "ok",
+      "offset_ms": 5280,
+      "rows": [
+        {
+          "timed_checkpoints": 2870,
+          "requested_checkpoints": 41,
+          "checkpoint_write_ms": 812345.0,
+          "checkpoint_sync_ms": 2310.0,
+          "buffers_written": 9912345,
+          "wal_bytes": 724780143607,
+          "wal_buffers_full": 1201,
+          "checkpoint_timeout_s": 300,
+          "max_wal_size_mb": 4096,
+          "checkpointer_stats_reset": "2026-07-25T05:45:10Z",
+          "wal_stats_reset": "2026-07-25T05:45:10Z"
+        }
+      ]
+    },
+    {
+      "probe": "archiver",
+      "status": "ok",
+      "offset_ms": 5300,
+      "rows": [
+        {
+          "archive_mode": "off",
+          "archived_count": 0,
+          "failed_count": 0,
+          "last_archived_time": null,
+          "last_failed_time": null,
+          "stats_reset": "2026-07-25T05:45:10Z"
+        }
+      ]
+    }
+  ]
+}

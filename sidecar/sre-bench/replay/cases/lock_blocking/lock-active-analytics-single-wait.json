@@ -1,0 +1,67 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "lock-active-analytics-single-wait",
+  "family": "lock_blocking",
+  "class": "confounded",
+  "description": "A 15-minute analytics query (active, not idle) holds a row lock one update waits on.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-08-26T13:44:21Z",
+  "subject": "lock_contention: 1 session blocked on reports",
+  "gold": {
+    "lookalike": "idle_in_tx_holder",
+    "rationale": "The head is active, not idle, and a single wait behind a long query matches no modeled mechanism."
+  },
+  "observations": [
+    {
+      "probe": "lock_graph",
+      "status": "ok",
+      "offset_ms": 60,
+      "rows": [
+        {
+          "waiter_pid": 14090,
+          "waiter_backend_start": "2026-08-26T12:34:31Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": null,
+          "blocker_pid": 14002,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-08-26T11:44:21Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 903.0,
+          "blocker_state_age_s": 901.5,
+          "blocker_query_id": null
+        }
+      ]
+    },
+    {
+      "probe": "prepared_xacts",
+      "status": "empty",
+      "offset_ms": 95
+    },
+    {
+      "probe": "long_transactions",
+      "status": "ok",
+      "offset_ms": 130,
+      "rows": [
+        {
+          "pid": 14002,
+          "backend_start": "2026-08-26T11:40:59Z",
+          "state": "active",
+          "xact_age_s": 903.1,
+          "state_age_s": 902.1,
+          "waiting": false,
+          "query_id": null,
+          "backend_xmin_age": 16
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 160
+    }
+  ]
+}

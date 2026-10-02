@@ -96,15 +96,15 @@ LIMIT $1`
 // connectionSaturationSpec is v2: M2 added the server start time, so a
 // restart between two samples invalidates their comparison.
 func connectionSaturationSpec() Spec {
-	s := spec(ConnectionSaturation, FamilyConnections, ArgsNone,
-		Variant{MinVersion: 140000, SQL: connectionSaturationSQL})
+	s := needsStats(spec(ConnectionSaturation, FamilyConnections, ArgsNone,
+		Variant{MinVersion: 140000, SQL: connectionSaturationSQL}))
 	s.Version = "v2"
 	return s
 }
 
 func replicationLagSpec() Spec {
-	return spec(ReplicationLag, FamilyReplication, ArgsNone,
-		Variant{MinVersion: 140000, SQL: replicationLagSQL})
+	return needsStats(spec(ReplicationLag, FamilyReplication, ArgsNone,
+		Variant{MinVersion: 140000, SQL: replicationLagSQL}))
 }
 
 func replicationSlotsSpec() Spec {

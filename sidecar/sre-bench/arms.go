@@ -22,10 +22,12 @@ const (
 )
 
 // Trace is what a live arm's investigation left behind: its outcome and
-// the probe results it stored, which derived arms read.
+// the probe results it stored, which derived arms read. scope lists
+// evidence references outside the investigation (graded on replay).
 type Trace struct {
 	Outcome  Outcome
 	Evidence []probes.Result
+	scope    []string
 }
 
 // LiveArm investigates a fault present on the database. Each ready live
@@ -133,14 +135,19 @@ func (a LLMArm) Ready() (bool, string) {
 }
 
 // Investigate implements LiveArm: the run's model is a fresh fake seeded
-// by the scenario id, or the live endpoint.
+// by the scenario id, or the live endpoint, behind a model tap that
+// records the run's token usage.
 func (a LLMArm) Investigate(ctx context.Context, e *Env, sc Scenario) (Trace, error) {
-	client, done, err := a.client(sc)
+	client, tap, done, err := a.tappedClient(sc)
 	if err != nil {
 		return Trace{}, err
 	}
 	defer done()
-	return e.investigate(ctx, sc, client)
+	tr, err := e.investigate(ctx, sc, client)
+	if err == nil && tr.Outcome.Model != nil {
+		tr.Outcome.Model.Usage = tap.Usage()
+	}
+	return tr, err
 }
 
 // AlwaysEscalate abstains on every run: it is never wrong and never
