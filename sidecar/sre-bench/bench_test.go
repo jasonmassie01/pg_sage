@@ -18,12 +18,13 @@ const repeatBudget = 8 * time.Minute
 
 // TestPGIncidentBench runs every scenario's fault program on real
 // PostgreSQL through each ready live arm (the causal graph with the LLM
-// off; the LLM-on arm once its model turn is wired), derives the
-// always-escalate and rules-only baselines from the same evidence, and
-// writes the JSON and Markdown report to SAGE_BENCH_REPORT_DIR (default:
-// the test's temp dir). It fails when a fault program breaks or a live
-// arm misses a pre-registered gate it is evaluated on; gates without the
-// data to evaluate them are reported as not evaluated.
+// off; the LLM-on arm with the fake adversarial model or a live one),
+// derives the always-escalate and rules-only baselines from the same
+// evidence, and writes the JSON and Markdown report to
+// SAGE_BENCH_REPORT_DIR (default: the test's temp dir). It fails when a
+// fault program breaks or a live arm misses a pre-registered gate it is
+// evaluated on; gates without the data to evaluate them are reported as
+// not evaluated.
 func TestPGIncidentBench(t *testing.T) {
 	dsn := testdb.SkipUnlessLive(t)
 	repeats, err := ParseRepeats(os.Getenv(EnvRepeats))

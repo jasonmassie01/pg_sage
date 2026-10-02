@@ -20,7 +20,7 @@ SAGE_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?ssl
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SAGE_BENCH_REPEATS` | `1` | How many times each scenario runs (1 to 10). Run-to-run consistency needs at least 2. One repeat takes about 2.5 minutes. Raise `go test -timeout` past 10 minutes for 3 or more. |
+| `SAGE_BENCH_REPEATS` | `1` | How many times each scenario runs (1 to 10). Run-to-run consistency needs at least 2. With both live arms, one repeat takes about 5.5 minutes (PostgreSQL 16, Docker). Raise `go test -timeout` past 10 minutes for 2 or more. |
 | `SAGE_BENCH_REPORT_DIR` | the test's temp dir | Where `pgincidentbench.json` and `pgincidentbench.md` are written. CI sets this and uploads the directory. |
 | `PG_SAGE_BENCH_LLM_URL` | unset | OpenAI-compatible endpoint for the LLM-on arm (opt-in). If unset, the LLM-on arm uses the deterministic fake model. |
 | `PG_SAGE_BENCH_LLM_MODEL` | unset | Model name. Required when the URL is set. |
@@ -63,7 +63,7 @@ replication retention) and plan regression.
 | Arm | Kind | What it is |
 |---|---|---|
 | `causal-graph` | live | The deterministic investigator: probe plan and causal graph, LLM off, run through the real coordinator and store. |
-| `causal-graph+llm` | live | The investigator with its model turn on. This is the product path. It is listed in every report. It stays "not evaluated" until the model turn is wired into the coordinator the bench builds. |
+| `causal-graph+llm` | live | The investigator with its model turn on (`sre.llm.enabled`). This is the product path. By default it runs against the fake adversarial model (below); with `PG_SAGE_BENCH_LLM_URL` it runs against a live model. |
 | `always-escalate` | derived | Abstains every time. It never fails Safe Pass and it is never useful. It shows why Safe Pass alone is not enough. |
 | `rules-only` | derived | One first-match rule list per family over the same evidence. It uses naive pooled counts, with no contradictions and no per-subject attribution. It shows what the graph's structure adds. |
 
@@ -74,6 +74,26 @@ database time.
 To add an arm, implement `LiveArm` or `DerivedArm` and add it to
 `DefaultConfig`. A live arm that returns `Ready() == false` is listed with its
 reason, and all its gates are "not evaluated".
+
+### The fake adversarial model
+
+In fake mode (the default and CI), each run of the LLM-on arm gets a fresh in-process
+OpenAI-compatible model, seeded by the scenario id. It answers the investigator's model
+contract in a valid shape but against the graph:
+
+- it ranks the graph's last open hypothesis first;
+- it asks for a next probe whenever one is offered;
+- it writes claims that cite the prompt's real evidence ids.
+
+On a deterministic 4 in 10 of its calls, it returns a failure mode the investigator must
+handle instead: fenced JSON, an unknown node id, an ungrounded number, or HTTP 429. The fake
+says nothing about a real model's quality. It shows that the model plumbing can never lower
+Safe Pass or top-1, and never change a conclusive root. Each LLM-arm run reports its model
+turns, accepted reviews, `model_rejected` and `model_disagreed` events. The report has them
+per run and per family.
+
+In live mode, the key is used only by the model client. It is never logged or written to
+the report.
 
 ## Metrics
 
@@ -118,6 +138,11 @@ gates do not use the intervals.
 | `CHECK-42-NOISE` | noise top-1 at most 10 points under clean top-1 |
 | `CHECK-42-DECOY` | decoy accuracy at most 10 points under clean top-1 |
 | `R1-PACKET-P95` | p95 time to conclusion < 2 minutes |
+| `M3-LLM-PARITY` | LLM-on arm, fake model only: Safe Pass and top-1 at most 0 points under `causal-graph`, per family |
+| `M3-LLM-ROOT` | LLM-on arm, every mode: 0 roots that `causal-graph` concluded (same scenario and repeat) changed or dropped |
+
+For the fake model, the LLM-on arm's §12 gates are reported as `not_evaluated`. Live mode
+evaluates them.
 
 The bench test fails when a live arm fails a gate. A gate without data is
 reported as `not_evaluated` and never as passed. That covers a gate with no
@@ -131,8 +156,9 @@ gates below that need data the bench does not have yet.
   `CHECK-36-REPLAY` and `R1-ADVERSARIAL` are not evaluated. The Docker decoys
   and benign scenarios stand in for "insufficient evidence". They are not
   missing-data or adversarial cases.
-- **The LLM-on arm.** It is listed but not run until its model turn is wired.
-  `R1-FACTUAL-PRECISION` and `R1-CLAIM-REFS` need its narrated claims.
+- **A live model in CI.** CI runs the LLM-on arm against the fake model. The fake
+  measures safety, not quality, so the arm's §12 gates (including
+  `R1-FACTUAL-PRECISION` and `R1-CLAIM-REFS`) are evaluated only in live mode.
 - **Human DBA panel baseline and human graders** for disputed narratives.
 - **Composite faults** (DBA-Bench style), time to mitigation, and tokens or
   cost per investigation.
