@@ -392,12 +392,18 @@ func TestLeaseQueueCancelledWaitLeavesQueue(t *testing.T) {
 	h := newQueueHarness(t)
 	queue := NewLeaseQueue(h.pool, nil, testQueueConfig(), "instance-a")
 	h.hold()
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// Cancel only once the entry is queued: a slow server must not turn
+	// this into a cancellation before the request ever queued.
+	go func() {
+		h.waitForEntries(1)
+		cancel()
+	}()
 
 	_, err := queue.Acquire(ctx, h.request("cancelled", h.manager()))
 
-	if !errors.Is(err, context.DeadlineExceeded) {
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled wait = %v, want the caller's context error", err)
 	}
 	if h.entries("cancelled") != 1 || h.entries("waiting") != 0 {

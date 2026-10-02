@@ -170,10 +170,10 @@ func TestResolveTypedTargetsMissingObjects(t *testing.T) {
 	store := newTestStore(t)
 	missing := fmt.Sprintf("no_such_rel_%d", time.Now().UnixNano())
 
-	targets := mustResolve(t, store.pool, "public."+missing, missing)
+	targets := mustResolve(t, store.pool, "public."+missing)
 
 	if len(targets) != 1 {
-		t.Fatalf("targets = %+v, want only the qualified missing name", targets)
+		t.Fatalf("targets = %+v, want the qualified missing name", targets)
 	}
 	got := targets[0]
 	if got.Kind != TargetUnresolved || got.OID != 0 || got.Canonical() != "public."+missing {
@@ -181,6 +181,12 @@ func TestResolveTypedTargetsMissingObjects(t *testing.T) {
 	}
 	if keys := got.LeaseKeys(); len(keys) != 1 || keys[0] != "public."+missing {
 		t.Fatalf("missing target keys = %v, want only its name key", keys)
+	}
+	// An unqualified missing name has no name key: leasing nothing would
+	// let the change run unleased, so it is an error.
+	if _, err := ResolveTypedTargets(context.Background(), store.pool,
+		[]string{missing}); err == nil {
+		t.Fatalf("unqualified missing %q resolved, want an error", missing)
 	}
 }
 
