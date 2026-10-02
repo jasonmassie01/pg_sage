@@ -6,8 +6,9 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
-// retention.sage_size_warning_pct is hot-reloadable: the analyzer reads it
-// every cycle, so an API write takes effect without a restart.
+// retention.sage_size_warning_pct can be written through the API: the
+// override reaches the configuration the analyzer reads (applied per the
+// config lifecycle registry).
 func TestHotReloadRetention_SageSizeWarningPct(t *testing.T) {
 	cfg := config.DefaultConfig()
 	for _, tc := range []struct {

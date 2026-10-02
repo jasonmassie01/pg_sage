@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -49,35 +50,44 @@ func TestSnapshotApply_Semantics(t *testing.T) {
 	cases := []struct {
 		name, base, delta, want string
 	}{
-		{"patch", base, `{"k":["k"],"n":2,"u":{"b":{"x":3,"y":null}}}`,
+		{"values", base, `{"n":2,"u":{"1":{"x":3,"y":null}}}`,
 			`[{"k": "a", "x": 1}, {"k": "b", "x": 3, "y": null}]`},
-		{"no change", base, `{"k":["k"],"n":2}`, `[{"k": "a", "x": 1}, {"k": "b", "x": 2}]`},
-		{"remove and append", base, `{"k":["k"],"n":2,"d":["a"],"a":[{"k":"c"}]}`,
+		{"no change", base, `{"n":2}`, `[{"k": "a", "x": 1}, {"k": "b", "x": 2}]`},
+		{"increments and values", base, `{"n":2,"i":{"1":{"x":-2}},"u":{"0":{"y":"z"}}}`,
+			`[{"k": "a", "x": 1, "y": "z"}, {"k": "b", "x": 0}]`},
+		{"increment beyond int64", `[{"k":"a","x":99999999999999999999}]`,
+			`{"n":1,"i":{"0":{"x":2}}}`, `[{"k": "a", "x": 100000000000000000001}]`},
+		{"global increment on integers only",
+			`[{"x":1},{"x":"7"},{"x":1.5},{"x":null},{"y":0},{"x":-3}]`,
+			`{"n":6,"g":{"x":10},"i":{"5":{"x":1}}}`,
+			`[{"x": 11}, {"x": "7"}, {"x": 1.5}, {"x": null}, {"y": 0}, {"x": 8}]`},
+		{"global, increment, then value", `[{"x":1},{"x":2}]`,
+			`{"n":2,"g":{"x":10},"i":{"0":{"x":-10}},"u":{"1":{"x":"done"}}}`,
+			`[{"x": 1}, {"x": "done"}]`},
+		{"remove and append", base, `{"n":2,"d":[0],"a":[{"k":"c"}]}`,
 			`[{"k": "b", "x": 2}, {"k": "c"}]`},
-		{"explicit order", base, `{"k":["k"],"n":2,"a":[{"k":"c"}],"o":[2,0]}`,
+		{"explicit order", base, `{"n":2,"a":[{"k":"c"}],"o":[2,0]}`,
 			`[{"k": "c"}, {"k": "a", "x": 1}]`},
-		{"order with patch", base, `{"k":["k"],"n":2,"u":{"a":{"x":9}},"o":[1,0]}`,
+		{"order with values", base, `{"n":2,"u":{"0":{"x":9}},"o":[1,0]}`,
 			`[{"k": "b", "x": 2}, {"k": "a", "x": 9}]`},
-		{"composite key",
-			`[{"t":"x","c":"f","col":"a","v":0},{"t":"x","c":"f","col":"b","v":0}]`,
-			`{"k":["t","c","col"],"n":2,"u":{"x\u001ff\u001fb":{"v":1}}}`,
-			`[{"c": "f", "t": "x", "v": 0, "col": "a"}, {"c": "f", "t": "x", "v": 1, "col": "b"}]`},
-		{"integer key", `[{"queryid":9007199254740993,"calls":1}]`,
-			`{"k":["queryid"],"n":1,"u":{"9007199254740993":{"calls":2}}}`,
-			`[{"calls": 2, "queryid": 9007199254740993}]`},
-		{"empty result", base, `{"k":["k"],"n":0,"d":["a","b"]}`, `[]`},
-		{"empty base", `[]`, `{"k":["k"],"n":1,"a":[{"k":"z"}]}`, `[{"k": "z"}]`},
+		{"empty result", base, `{"n":0,"d":[0,1]}`, `[]`},
+		{"empty base", `[]`, `{"n":1,"a":[{"k":"z"}]}`, `[{"k": "z"}]`},
+		{"non-list base", `{"k":"a"}`, `{"n":0}`, "<NULL>"},
+		{"object document", `{"a":1,"b":[1,2],"c":5}`,
+			`{"w":true,"n":1,"g":{"c":2},"u":{"0":{"a":"x"}}}`,
+			`{"a": "x", "b": [1, 2], "c": 7}`},
+		{"object delta on a list", `[{"a":1}]`, `{"w":true,"n":1}`, "<NULL>"},
 	}
 	for _, tc := range cases {
-		var got string
+		var got *string // NULL is spelled "<NULL>"
 		err := pool.QueryRow(ctx, `SELECT sage.snapshot_apply($1::jsonb, $2::jsonb)::text`,
 			tc.base, tc.delta).Scan(&got)
-		if err != nil || got != tc.want {
-			t.Errorf("%s: got %s (%v)\n want %s", tc.name, got, err, tc.want)
+		if err != nil || deref(got) != tc.want {
+			t.Errorf("%s: got %s (%v)\n want %s", tc.name, deref(got), err, tc.want)
 		}
 	}
 	var isNull bool
-	if err := pool.QueryRow(ctx, `SELECT sage.snapshot_apply(NULL, '{"k":["k"]}') IS NULL`).
+	if err := pool.QueryRow(ctx, `SELECT sage.snapshot_apply(NULL, '{"n":0}') IS NULL`).
 		Scan(&isNull); err != nil || !isNull {
 		t.Fatalf("NULL base: null=%v (%v), want NULL", isNull, err)
 	}
@@ -100,8 +110,8 @@ func TestSnapshotData_FullDeltaAndMissingBase(t *testing.T) {
 	var full, delta, orphan *string
 	err := pool.QueryRow(ctx, `SELECT
 		sage.snapshot_data('[1]', NULL)::text,
-		sage.snapshot_data('{"k":["k"],"n":1,"u":{"a":{"x":2}}}', $1)::text,
-		sage.snapshot_data('{"k":["k"],"n":1}', -1)::text`, baseID).
+		sage.snapshot_data('{"n":1,"u":{"0":{"x":2}}}', $1)::text,
+		sage.snapshot_data('{"n":1}', -1)::text`, baseID).
 		Scan(&full, &delta, &orphan)
 	if err != nil {
 		t.Fatalf("snapshot_data: %v", err)
@@ -109,6 +119,41 @@ func TestSnapshotData_FullDeltaAndMissingBase(t *testing.T) {
 	if full == nil || *full != "[1]" || delta == nil || *delta != `[{"k": "a", "x": 2}]` ||
 		orphan != nil {
 		t.Fatalf("full=%v delta=%v orphan=%v", deref(full), deref(delta), deref(orphan))
+	}
+}
+
+// A delta on a checkpoint (itself a delta on the keyframe) applies both,
+// oldest first; a chain deeper than any the writer makes reads as NULL.
+func TestSnapshotData_ChainedBases(t *testing.T) {
+	pool, ctx := requireDB(t)
+	bootstrapWithRetry(t, ctx, pool)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM sage.snapshots WHERE category = 'chain_test'`)
+	})
+	var id int64
+	if err := pool.QueryRow(ctx, `INSERT INTO sage.snapshots (collected_at, category, data)
+		VALUES (now(), 'chain_test', '[{"k":"a","x":1}]') RETURNING id`).Scan(&id); err != nil {
+		t.Fatalf("insert keyframe: %v", err)
+	}
+	for depth := 1; depth <= 9; depth++ {
+		if err := pool.QueryRow(ctx, `INSERT INTO sage.snapshots
+			(collected_at, category, data, base_id)
+			VALUES (now(), 'chain_test', '{"n":1,"i":{"0":{"x":1}}}', $1)
+			RETURNING id`, id).Scan(&id); err != nil {
+			t.Fatalf("insert depth %d: %v", depth, err)
+		}
+		var got *string
+		if err := pool.QueryRow(ctx, `SELECT sage.snapshot_data(data, base_id)::text
+			FROM sage.snapshots WHERE id = $1`, id).Scan(&got); err != nil {
+			t.Fatalf("read depth %d: %v", depth, err)
+		}
+		want := `[{"k": "a", "x": ` + strconv.Itoa(1+depth) + `}]`
+		if depth > 8 && got != nil {
+			t.Fatalf("depth %d = %s, want NULL beyond the chain limit", depth, *got)
+		}
+		if depth <= 8 && (got == nil || *got != want) {
+			t.Fatalf("depth %d = %s, want %s", depth, deref(got), want)
+		}
 	}
 }
 

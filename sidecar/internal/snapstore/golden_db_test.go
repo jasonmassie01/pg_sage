@@ -271,8 +271,15 @@ func TestGolden_UnusedIndexEvidenceIdentical(t *testing.T) {
 func TestGolden_EmptyArraySampleIsEmptyForForecaster(t *testing.T) {
 	deltaPool, legacyPool, ctx := goldenStores(t)
 	day := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -1)
+	// Enough sequences that removing all of them is a small delta (a delta
+	// over half its keyframe is written in full instead).
 	seqs := []byte(`[{"schemaname":"app","sequencename":"s1","pct_used":40,"max_value":100},` +
-		`{"schemaname":"app","sequencename":"s2","pct_used":2,"max_value":100}]`)
+		`{"schemaname":"app","sequencename":"s2","pct_used":2,"max_value":100}`)
+	for i := 3; i <= 12; i++ {
+		seqs = fmt.Appendf(seqs, `,{"schemaname":"app","sequencename":"s%d","pct_used":0.5,`+
+			`"max_value":2147483647,"data_type":"integer","last_value":%d}`, i, i)
+	}
+	seqs = append(seqs, ']')
 	cycles := []snapfixture.Cycle{
 		{At: day.Add(10 * time.Hour), Docs: []snapfixture.Doc{{Category: "sequences", Data: seqs}}},
 		{At: day.Add(15 * time.Hour), Docs: []snapfixture.Doc{{Category: "sequences",

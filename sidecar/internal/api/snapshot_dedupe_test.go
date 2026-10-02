@@ -77,7 +77,7 @@ func seedDedupeStores(t *testing.T) (*pgxpool.Pool, *pgxpool.Pool, context.Conte
 }
 
 var dedupeMetrics = []string{"indexes", "tables", "sequences", "queries",
-	"foreign_keys", "partitions", "system", "locks"}
+	"foreign_keys", "partitions", "system", "locks", "config_data"}
 
 // Latest and history (sliding window and explicit range) are identical
 // for every category, and the delta store really holds deltas.

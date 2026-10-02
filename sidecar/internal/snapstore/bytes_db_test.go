@@ -70,7 +70,7 @@ func TestBytesPerHour_5000Indexes(t *testing.T) {
 	relL := relationBytes(t, ctx, legacyPool) - beforeL
 	catD, catL := categoryBytes(t, ctx, deltaPool), categoryBytes(t, ctx, legacyPool)
 	for _, cat := range []string{"indexes", "tables", "sequences", "queries",
-		"foreign_keys", "partitions", "system", "locks"} {
+		"foreign_keys", "partitions", "system", "locks", "config_data"} {
 		t.Logf("%-12s legacy %10d B/h  delta %9d B/h  reduction %6.1fx", cat, catL[cat],
 			catD[cat], ratio(catL[cat], catD[cat]))
 	}

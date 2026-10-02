@@ -12,7 +12,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/snapstore"
 	"github.com/pg-sage/sidecar/internal/testdb"
-	"github.com/pg-sage/sidecar/internal/testsupport/snapfixture"
 )
 
 // bootstrappedPool opens dsn and bootstraps the sage schema there.
@@ -158,6 +157,52 @@ func workload(t *testing.T, ctx context.Context, pool *pgxpool.Pool, cycle int) 
 	}
 }
 
+// insertLegacy writes s the way persist did before the delta format: one
+// full row per category. (The shared snapfixture helper imports this
+// package, so it cannot be used from its own tests.)
+func insertLegacy(t *testing.T, ctx context.Context, pool *pgxpool.Pool, s *Snapshot) {
+	t.Helper()
+	rows, err := snapshotRows(s)
+	if err != nil {
+		t.Fatalf("snapshotRows: %v", err)
+	}
+	for _, r := range rows {
+		if _, err := pool.Exec(ctx, `INSERT INTO sage.snapshots
+			(collected_at, category, data) VALUES ($1, $2, $3)`,
+			s.CollectedAt, r.Category, r.Data); err != nil {
+			t.Fatalf("legacy insert %s: %v", r.Category, err)
+		}
+	}
+}
+
+// logCategoryBytes logs the stored jsonb bytes per category of both stores.
+func logCategoryBytes(t *testing.T, ctx context.Context, legacy, pool *pgxpool.Pool) {
+	t.Helper()
+	const q = `SELECT category, sum(pg_column_size(data))::bigint FROM sage.snapshots
+		GROUP BY category ORDER BY category`
+	sizes := func(p *pgxpool.Pool) map[string]int64 {
+		rows, err := p.Query(ctx, q)
+		if err != nil {
+			t.Fatalf("category bytes: %v", err)
+		}
+		defer rows.Close()
+		out := map[string]int64{}
+		for rows.Next() {
+			var cat string
+			var n int64
+			if err := rows.Scan(&cat, &n); err != nil {
+				t.Fatalf("scan: %v", err)
+			}
+			out[cat] = n
+		}
+		return out
+	}
+	old, cur := sizes(legacy), sizes(pool)
+	for cat, n := range old {
+		t.Logf("  %-13s legacy %9d B  delta %9d B", cat, n, cur[cat])
+	}
+}
+
 func relationSize(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int64 {
 	t.Helper()
 	var n int64
@@ -201,22 +246,13 @@ func TestPersist_BytesPerHourReal5000Indexes(t *testing.T) {
 		if err := c.persist(ctx, s); err != nil {
 			t.Fatalf("persist: %v", err)
 		}
-		rows, err := snapshotRows(s)
-		if err != nil {
-			t.Fatalf("snapshotRows: %v", err)
-		}
-		cycle := snapfixture.Cycle{At: s.CollectedAt}
-		for _, r := range rows {
-			cycle.Docs = append(cycle.Docs, snapfixture.Doc{Category: r.Category, Data: r.Data})
-		}
-		if err := snapfixture.InsertLegacy(ctx, legacy, cycle); err != nil {
-			t.Fatalf("legacy: %v", err)
-		}
+		insertLegacy(t, ctx, legacy, s)
 	}
 	newBytes := relationSize(t, ctx, pool) - beforeNew
 	oldBytes := relationSize(t, ctx, legacy) - beforeOld
 	t.Logf("sage.snapshots for one hour, 5,000 real indexes: legacy %d B, delta %d B (%.1fx)",
 		oldBytes, newBytes, float64(oldBytes)/float64(max(newBytes, 1)))
+	logCategoryBytes(t, ctx, legacy, pool)
 	if newBytes*10 > oldBytes {
 		t.Errorf("delta store wrote %d B against legacy %d B, want >= 10x less", newBytes,
 			oldBytes)

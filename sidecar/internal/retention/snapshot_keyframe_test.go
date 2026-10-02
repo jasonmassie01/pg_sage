@@ -9,9 +9,26 @@ import (
 	"github.com/pg-sage/sidecar/internal/snapstore"
 )
 
-func indexDoc(scans int) []byte {
-	return []byte(fmt.Sprintf(`[{"schemaname":"app","relname":"t","indexrelname":"ix",`+
-		`"idx_scan":%d,"indexdef":"CREATE INDEX ix ON app.t (c)"}]`, scans))
+// indexDoc is a catalog of 20 indexes: hot scans of index 0, warm scans
+// of indexes 1-10. Large enough that a few moved counters are a small
+// delta (a delta over half its keyframe is written in full instead).
+func indexDoc(hot, warm int) []byte {
+	doc := []byte("[")
+	for i := 0; i < 20; i++ {
+		scans := 0
+		switch {
+		case i == 0:
+			scans = hot
+		case i <= 10:
+			scans = warm
+		}
+		if i > 0 {
+			doc = append(doc, ',')
+		}
+		doc = fmt.Appendf(doc, `{"schemaname":"app","relname":"t","indexrelname":"ix%02d",`+
+			`"idx_scan":%d,"indexdef":"CREATE INDEX ix%02d ON app.t (c%02d)"}`, i, scans, i, i)
+	}
+	return append(doc, ']')
 }
 
 type keptRow struct {
@@ -20,49 +37,49 @@ type keptRow struct {
 	data   string
 }
 
-// Snapshot dedupe: a delta row is only readable with its keyframe. Retention
-// deletes rows older than snapshots_days but keeps a keyframe while a
-// retained delta references it; a keyframe referenced only by expired rows
-// goes with them in the same run.
-// No retained row is ever left without its keyframe.
-func TestPurgeSnapshots_KeepsKeyframesOfRetainedDeltas(t *testing.T) {
+// Snapshot dedupe: a delta row is only readable with its base, and a base
+// may be a checkpoint on a keyframe. Retention deletes rows older than
+// snapshots_days but keeps every row a retained row is built on; a base
+// used only by expired rows goes with them in the same run. No retained
+// row is ever left without its base.
+func TestPurgeSnapshots_KeepsBasesOfRetainedDeltas(t *testing.T) {
 	pool, ctx := requireDB(t)
 	execRetry(t, ctx, `DELETE FROM sage.snapshots`)
 	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM sage.snapshots`) })
 	now := time.Now().UTC()
 	w := snapstore.NewWriter()
-	k2 := now.Add(-30*24*time.Hour - 2*time.Hour)
+	k1, k2 := now.Add(-40*24*time.Hour), now.Add(-30*24*time.Hour-2*time.Hour)
 	steps := []struct {
-		at   time.Time
-		scan int
+		at        time.Time
+		hot, warm int
 	}{
-		{now.Add(-40 * 24 * time.Hour), 1},           // K1, old
-		{now.Add(-40*24*time.Hour + time.Minute), 2}, // delta on K1, old
-		{k2, 3},                    // K2 (K1 is > 6 h old), old
-		{k2.Add(time.Hour), 4},     // delta on K2, old
-		{k2.Add(3 * time.Hour), 5}, // delta on K2, retained
+		{k1, 0, 0},                    // K1, old
+		{k1.Add(time.Minute), 1, 0},   // checkpoint on K1, old
+		{k2, 0, 0},                    // K2 (K1 is > 6 h old), old
+		{k2.Add(time.Hour), 0, 7},     // checkpoint on K2 (ten indexes moved), old
+		{k2.Add(3 * time.Hour), 1, 7}, // delta on that checkpoint, retained
 	}
 	for _, s := range steps {
 		if err := w.Persist(ctx, pool, s.at, []snapstore.Row{
-			{Category: "indexes", Data: indexDoc(s.scan)}}); err != nil {
+			{Category: "indexes", Data: indexDoc(s.hot, s.warm)}}); err != nil {
 			t.Fatalf("persist %s: %v", s.at, err)
 		}
 	}
 	cfg := &config.Config{Retention: config.RetentionConfig{SnapshotsDays: 30}}
 	New(pool, cfg, noopLog).Run(ctx)
 	kept := keptSnapshots(t)
-	if len(kept) != 2 || !kept[0].at.Equal(k2.Truncate(time.Microsecond)) ||
-		kept[0].baseID != nil || kept[1].baseID == nil {
-		t.Fatalf("kept = %+v, want K2 and its retained delta", kept)
+	if len(kept) != 3 || !kept[0].at.Equal(k2.Truncate(time.Microsecond)) ||
+		kept[0].baseID != nil || kept[1].baseID == nil || kept[2].baseID == nil {
+		t.Fatalf("kept = %+v, want K2, its checkpoint and the retained delta", kept)
 	}
-	if kept[1].data != canonicalDoc(t, 5) {
-		t.Fatalf("retained delta reads %s, want the scan-5 document", kept[1].data)
+	if kept[2].data != canonicalDoc(t, 1, 7) || kept[1].data != canonicalDoc(t, 0, 7) {
+		t.Fatalf("kept rows read %s / %s", kept[1].data, kept[2].data)
 	}
 	assertNoOrphans(t)
 
-	// Once the last delta ages out, the keyframe goes in the same run.
+	// Once the last delta ages out, its bases go in the same run.
 	execRetry(t, ctx, `UPDATE sage.snapshots SET collected_at = now() - interval '31 days'
-		WHERE base_id IS NOT NULL`)
+		WHERE collected_at > now() - interval '30 days'`)
 	New(pool, cfg, noopLog).Run(ctx)
 	if kept := keptSnapshots(t); len(kept) != 0 {
 		t.Fatalf("kept = %+v after every reference aged out, want none", kept)
@@ -96,10 +113,11 @@ func keptSnapshots(t *testing.T) []keptRow {
 	return out
 }
 
-func canonicalDoc(t *testing.T, scans int) string {
+func canonicalDoc(t *testing.T, hot, warm int) string {
 	t.Helper()
 	var s string
-	queryRetry(t, t.Context(), fmt.Sprintf(`SELECT '%s'::jsonb::text`, indexDoc(scans)), &s)
+	queryRetry(t, t.Context(), fmt.Sprintf(`SELECT '%s'::jsonb::text`, indexDoc(hot, warm)),
+		&s)
 	return s
 }
 

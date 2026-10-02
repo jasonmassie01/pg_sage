@@ -114,6 +114,8 @@ type state struct {
 	fks     []collector.ForeignKey
 	parts   []collector.PartitionInfo
 	system  collector.SystemStats
+	config  collector.ConfigSnapshot
+	wal     int64
 }
 
 func newState(s Scenario) *state {
@@ -142,7 +144,29 @@ func newState(s Scenario) *state {
 	}
 	st.system = collector.SystemStats{TotalBackends: 12, MaxConnections: 100,
 		CacheHitRatio: 0.99, DBSizeBytes: 5 << 30, StatStatementsMax: 5000}
+	st.config = newConfig()
 	return st
+}
+
+// newConfig is the advisor's configuration snapshot: static settings and
+// reloptions, moving connection states and WAL position.
+func newConfig() collector.ConfigSnapshot {
+	c := collector.ConfigSnapshot{ExtensionsAvailable: []string{"pg_stat_statements",
+		"pgcrypto", "vector"}}
+	for i := 0; i < 300; i++ {
+		c.PGSettings = append(c.PGSettings, collector.PGSetting{
+			Name: fmt.Sprintf("setting_%03d", i), Context: "user", Setting: fmt.Sprint(i * 7),
+			Unit: "kB", Source: "default"})
+	}
+	for i := 0; i < 5; i++ {
+		c.TableReloptions = append(c.TableReloptions, collector.TableReloption{
+			SchemaName: "app", RelName: fmt.Sprintf("t%03d", i),
+			Reloptions: "{autovacuum_vacuum_scale_factor=0.01}"})
+	}
+	for _, state := range []string{"active", "idle", "idle in transaction"} {
+		c.ConnectionStates = append(c.ConnectionStates, collector.ConnectionState{State: state})
+	}
+	return c
 }
 
 func newTable(t int) collector.TableStats {
@@ -211,6 +235,14 @@ func (st *state) advance(i int) {
 	st.system.TotalCheckpoints += int64(st.rng.Intn(2))
 	st.system.BlkWriteTime += st.rng.Float64() * 10
 	st.system.Deadlocks += int64(st.rng.Intn(2))
+	st.wal += int64(st.rng.Intn(1 << 20))
+	st.config.WALPosition = fmt.Sprintf("0/%X", st.wal)
+	st.config.ConnectionChurn += st.rng.Intn(3)
+	for k := range st.config.ConnectionStates {
+		cs := &st.config.ConnectionStates[k]
+		cs.Count = st.rng.Intn(10)
+		cs.AvgDurationSeconds = float64(st.rng.Intn(1000)) / 10
+	}
 }
 
 func (st *state) moveCounters() {
@@ -320,6 +352,7 @@ func (st *state) cycle(at time.Time, i int) (Cycle, error) {
 		"tables": st.tables, "indexes": indexes, "sequences": st.seqs,
 		"queries": st.queries, "foreign_keys": st.fks, "partitions": st.parts,
 		"system": st.system, "locks": []collector.LockInfo(nil),
+		"config_data": &st.config,
 	}
 	if i == ev.Unavailable {
 		delete(docs, "indexes")

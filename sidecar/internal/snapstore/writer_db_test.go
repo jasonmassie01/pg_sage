@@ -88,8 +88,10 @@ func canonical(t *testing.T, ctx context.Context, pool *pgxpool.Pool, doc []byte
 func TestPersist_SecondCycleIsDeltaOnFirstKeyframe(t *testing.T) {
 	pool, ctx := requireDB(t)
 	w := NewWriter()
-	first := list(idx("a", 1), idx("b", 2))
-	second := list(idx("a", 1), idx("b", 3), idx("c", 0))
+	// Large enough that one added index and one moved counter are a small
+	// change (a delta over half its keyframe is written in full instead).
+	first := indexList(20, map[int]int{1: 2})
+	second := list(append(listItems(20, map[int]int{1: 3}), idx("new", 0))...)
 	for i, doc := range [][]byte{first, second} {
 		rows := []Row{{Category: "indexes", Data: doc},
 			{Category: "system", Data: []byte(fmt.Sprintf(`{"db_size_bytes":%d}`, i))}}
@@ -162,7 +164,7 @@ func TestPersist_ConcurrentCallsStayConsistent(t *testing.T) {
 	pool, ctx := requireDB(t)
 	w := NewWriter()
 	const workers, perWorker = 6, 5
-	want := map[time.Time]string{}
+	want := map[int64]string{} // by collection instant, UnixNano
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	errs := make(chan error, workers*perWorker)
@@ -172,9 +174,10 @@ func TestPersist_ConcurrentCallsStayConsistent(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < perWorker; i++ {
 				at := t0.Add(time.Duration(g*perWorker+i) * time.Second)
-				doc := list(idx("a", g), idx("b", i), idx(fmt.Sprintf("w%d", g), i))
+				doc := list(append(listItems(20, map[int]int{0: g, 1: i}),
+					idx(fmt.Sprintf("w%d", g), i))...)
 				mu.Lock()
-				want[at] = string(doc)
+				want[at.UnixNano()] = string(doc)
 				mu.Unlock()
 				errs <- w.Persist(ctx, pool, at, []Row{{Category: "indexes", Data: doc}})
 			}
@@ -193,8 +196,8 @@ func TestPersist_ConcurrentCallsStayConsistent(t *testing.T) {
 	}
 	deltas := 0
 	for _, r := range got {
-		if r.data != canonical(t, ctx, pool, []byte(want[r.at])) {
-			t.Fatalf("row at %s = %s, want %s", r.at, r.data, want[r.at])
+		if r.data != canonical(t, ctx, pool, []byte(want[r.at.UnixNano()])) {
+			t.Fatalf("row at %s = %s, want %s", r.at, r.data, want[r.at.UnixNano()])
 		}
 		if r.baseID != nil {
 			deltas++

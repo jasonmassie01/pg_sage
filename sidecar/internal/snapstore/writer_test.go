@@ -18,7 +18,7 @@ func withBase(t *testing.T, w *Writer, category string, id int64, at time.Time, 
 	if err != nil {
 		t.Fatalf("parseCatalog: %v", err)
 	}
-	w.bases[category] = &keyframe{id: id, at: at, size: len(doc), list: c}
+	w.bases[category] = &bases{full: &keyframe{id: id, at: at, size: len(doc), list: c}}
 }
 
 // State transition: the first document of a delta category is a full row
@@ -38,7 +38,7 @@ func TestPlan_FirstDocumentIsKeyframeThenDelta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("plan: %v", err)
 	}
-	if p.baseID != 42 || p.next != nil || !strings.Contains(string(p.payload), `"u"`) {
+	if p.baseID != 42 || p.next != nil || !strings.Contains(string(p.payload), `"i"`) {
 		t.Fatalf("second plan = %+v (%s), want a delta on base 42", p, p.payload)
 	}
 }
@@ -176,5 +176,107 @@ func TestSQLHelpers(t *testing.T) {
 		if !strings.Contains(got, part) {
 			t.Fatalf("NonEmptySQL = %q, missing %q", got, part)
 		}
+	}
+}
+
+// indexList returns n indexes; scans[i] overrides index i's idx_scan.
+func indexList(n int, scans map[int]int) []byte { return list(listItems(n, scans)...) }
+
+func listItems(n int, scans map[int]int) []string {
+	items := make([]string, n)
+	for i := range items {
+		items[i] = idx(fmt.Sprintf("ix%03d", i), scans[i])
+	}
+	return items
+}
+
+// commit records p as committed with id, as Persist does after COMMIT.
+func commit(w *Writer, category string, p rowPlan, id int64) {
+	for _, kf := range []*keyframe{p.next, p.checkpoint} {
+		if kf != nil {
+			kf.id = id
+		}
+	}
+	w.advance(category, p)
+}
+
+// State transitions of the two-level chain: the first delta after a
+// keyframe is a checkpoint on it; a small change after that is a delta on
+// the checkpoint; when the change since the checkpoint is no longer much
+// smaller than the change since the keyframe, the cycle becomes the new
+// checkpoint; a new keyframe drops the checkpoint.
+func TestPlan_TwoLevelChain(t *testing.T) {
+	w := NewWriter()
+	withBase(t, w, "indexes", 1, t0, indexList(60, nil))
+	many := map[int]int{}
+	for i := 0; i < 20; i++ {
+		many[i] = 5
+	}
+	p, err := w.plan("indexes", indexList(60, many), t0.Add(time.Minute))
+	if err != nil || p.baseID != 1 || p.checkpoint == nil || p.next != nil {
+		t.Fatalf("first delta = %+v (%v), want a checkpoint on keyframe 1", p, err)
+	}
+	commit(w, "indexes", p, 2)
+	one := map[int]int{40: 1}
+	for k, v := range many {
+		one[k] = v
+	}
+	p, err = w.plan("indexes", indexList(60, one), t0.Add(2*time.Minute))
+	if err != nil || p.baseID != 2 || p.checkpoint != nil || p.next != nil {
+		t.Fatalf("small change = %+v (%v), want a delta on checkpoint 2", p, err)
+	}
+	commit(w, "indexes", p, 3)
+	if w.bases["indexes"].checkpoint.id != 2 {
+		t.Fatal("a delta on the checkpoint must not replace it")
+	}
+	drift := map[int]int{}
+	for i := 0; i < 20; i++ {
+		drift[i] = 9 // every checkpointed index moved again
+	}
+	p, err = w.plan("indexes", indexList(60, drift), t0.Add(3*time.Minute))
+	if err != nil || p.baseID != 1 || p.checkpoint == nil {
+		t.Fatalf("drift = %+v (%v), want a new checkpoint on keyframe 1", p, err)
+	}
+	commit(w, "indexes", p, 4)
+	if w.bases["indexes"].checkpoint.id != 4 || w.bases["indexes"].full.id != 1 {
+		t.Fatalf("bases = %+v, want keyframe 1 with checkpoint 4", w.bases["indexes"])
+	}
+	p, err = w.plan("indexes", indexList(60, nil), t0.Add(keyframeMaxAge))
+	if err != nil || p.baseID != 0 || p.next == nil {
+		t.Fatalf("aged keyframe = %+v (%v), want a new keyframe", p, err)
+	}
+	commit(w, "indexes", p, 5)
+	if b := w.bases["indexes"]; b.full.id != 5 || b.checkpoint != nil {
+		t.Fatalf("bases = %+v, want keyframe 5 without a checkpoint", b)
+	}
+}
+
+// A checkpoint newer than the document is not used as its base.
+func TestPlan_CheckpointNewerThanDocumentIsSkipped(t *testing.T) {
+	w := NewWriter()
+	withBase(t, w, "indexes", 1, t0, indexList(60, nil))
+	cp, err := w.plan("indexes", indexList(60, map[int]int{1: 1}), t0.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	commit(w, "indexes", cp, 2)
+	p, err := w.plan("indexes", indexList(60, map[int]int{1: 1}), t0.Add(time.Minute))
+	if err != nil || p.baseID != 1 || p.checkpoint == nil {
+		t.Fatalf("plan = %+v (%v), want a checkpoint on the keyframe", p, err)
+	}
+}
+
+// A document that is not encodable clears the category's bases once
+// committed: the next document is a keyframe.
+func TestAdvance_NotEncodableClearsBases(t *testing.T) {
+	w := NewWriter()
+	withBase(t, w, "indexes", 1, t0, indexList(5, nil))
+	p, err := w.plan("indexes", []byte(`null`), t0.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	commit(w, "indexes", p, 2)
+	if _, ok := w.bases["indexes"]; ok {
+		t.Fatalf("bases = %+v, want none after a null document", w.bases["indexes"])
 	}
 }
