@@ -95,9 +95,8 @@ func TestActionProposeChecksTheLiveTarget(t *testing.T) {
 		"idle now":   {res: targetWith("state", "idle"), want: ReasonTargetNotActive},
 		"no waiters": {res: targetWith("blocking", int64(0)), want: ReasonNotBlocking},
 		"replica":    {res: targetWith("in_recovery", true), want: ReasonReplica},
-		"replication role": {res: targetProbeRow(func(r probes.Row) {
-			r["privileged_role"] = true
-		}), want: ReasonProtected},
+		"walsender": {res: targetWith("backend_type", "walsender"),
+			want: ReasonProtected},
 		"pg_dump": {res: targetProbeRow(func(r probes.Row) {
 			r["protected_application"] = true
 		}), want: ReasonProtected},

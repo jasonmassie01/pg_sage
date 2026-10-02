@@ -315,7 +315,7 @@ func TestCancelBackendSQLRechecksTheWholeIdentity(t *testing.T) {
 		"a.usename = $5", "sha256(convert_to(a.query, 'UTF8'))", "COALESCE(a.query_id, 0) = $7",
 		"a.state = 'active'", "a.backend_type = 'client backend'",
 		"a.pid <> pg_catalog.pg_backend_pid()", "pg_sage", "pg_dump",
-		"NOT r.rolreplication", "a.usename <> ALL ($8::text[])",
+		"a.usename <> ALL ($8::text[])",
 		"a.application_name <> ALL ($9::text[])", "pg_catalog.pg_cancel_backend(a.pid)",
 	} {
 		if !strings.Contains(cancelBackendIdentitySQL, predicate) {

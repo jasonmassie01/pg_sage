@@ -49,7 +49,7 @@ func TestActionProbesReturnNoQueryTextOrApplicationNames(t *testing.T) {
 	s, _ := ActionRegistry().Spec(SignalTarget)
 	sql := s.Variants[0].SQL
 	for _, want := range []string{"sha256(", "a.backend_start = $3", "a.pid = $2",
-		"pg_blocking_pids", "pg_is_in_recovery()", "rolreplication"} {
+		"pg_blocking_pids", "pg_is_in_recovery()", "a.backend_type"} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("signal_target SQL lacks %q", want)
 		}
