@@ -17,9 +17,9 @@ import (
 
 var openLine = regexp.MustCompile(`- ([a-z_]+) \[`)
 
-// openNodes lists the hypotheses the prompt asks the model to rank, in
+// promptOpenNodes lists the hypotheses the prompt asks the model to rank, in
 // prompt order.
-func openNodes(t *testing.T, body string) []string {
+func promptOpenNodes(t *testing.T, body string) []string {
 	t.Helper()
 	start := strings.Index(body, "Open hypotheses (rank all of these):")
 	end := strings.Index(body, "Ruled out (do not rank):")
@@ -44,7 +44,7 @@ func modelSeqTrigger(key string) Trigger {
 // claim citing the first sequence runway sample.
 func seqReview(t *testing.T) fakeReply {
 	return toolReply(func(body string) string {
-		return wireReview{Ranking: openNodes(t, body), Claims: []wireClaim{{
+		return wireReview{Ranking: promptOpenNodes(t, body), Claims: []wireClaim{{
 			Text: "The sequence is owned by a column narrower than the sequence.",
 			EvidenceIDs: []string{aliasOf(t, body, probes.SequenceRunwayProbe,
 				"ok")}}}}.json()
@@ -69,7 +69,7 @@ func TestModelTurn_RunwayReviewStoredBesideTheGraph(t *testing.T) {
 	}
 	r := inv.Summary.ModelRanking
 	if r == nil || len(r.Nodes) == 0 || r.Nodes[0] != "column_narrower_than_sequence" ||
-		strings.Join(r.Nodes, ",") != strings.Join(openNodes(t, body), ",") {
+		strings.Join(r.Nodes, ",") != strings.Join(promptOpenNodes(t, body), ",") {
 		t.Fatalf("model ranking = %+v", r)
 	}
 	n := inv.Summary.Narrative
@@ -114,7 +114,7 @@ func TestModelTurn_RunwayRankingOfAnotherFamilyIsRepaired(t *testing.T) {
 	st, _, ctx := liveStore(t, budgetLimits())
 	bad := toolReply(func(body string) string {
 		return wireReview{Ranking: append([]string{"xmin_held_by_session"},
-			openNodes(t, body)...)}.json()
+			promptOpenNodes(t, body)...)}.json()
 	})
 	m := newFakeModel(t, bad, seqReview(t))
 	c, _ := modelCoordinator(t, ctx, st, narrowColumnRunner(), m.client())
@@ -131,12 +131,20 @@ func TestModelTurn_RunwayRankingOfAnotherFamilyIsRepaired(t *testing.T) {
 	}
 }
 
+// ownActionRunner is the narrow-column sequence with a pg_sage action in
+// the window, so pg_sage's own change is an open alternative.
+func ownActionRunner() *scriptedRunner {
+	return narrowColumnRunner().script(probes.SageActions, rows(probes.SageActions,
+		probes.Row{"id": int64(7), "action_type": "freeze", "outcome": "success",
+			"age_s": 30.0}))
+}
+
 // A conclusive runway graph wins over a model that ranks another open
 // hypothesis first: nothing the model said is kept.
 func TestModelTurn_RunwayGraphRootWins(t *testing.T) {
 	st, _, ctx := liveStore(t, budgetLimits())
 	m := newFakeModel(t, toolReply(func(body string) string {
-		open := openNodes(t, body)
+		open := promptOpenNodes(t, body)
 		if len(open) < 2 {
 			t.Errorf("want at least two open hypotheses, got %v", open)
 			return wireReview{Ranking: open}.json()
@@ -144,7 +152,7 @@ func TestModelTurn_RunwayGraphRootWins(t *testing.T) {
 		open[0], open[1] = open[1], open[0]
 		return wireReview{Ranking: open}.json()
 	}))
-	c, _ := modelCoordinator(t, ctx, st, narrowColumnRunner(), m.client())
+	c, _ := modelCoordinator(t, ctx, st, ownActionRunner(), m.client())
 	inv := startAndRun(t, ctx, c, modelSeqTrigger("m6-model-disagree"))
 	if inv.Summary.Root != "column_narrower_than_sequence" {
 		t.Fatalf("root = %q, want the graph's", inv.Summary.Root)
@@ -165,12 +173,12 @@ const trendWhy = "a longer trend window shows whether the sequence is consuming"
 func TestModelProbe_RunwayTrendWithTypedWindow(t *testing.T) {
 	st, _, ctx := liveStore(t, budgetLimits())
 	first := toolReply(func(body string) string {
-		return wireReview{Ranking: openNodes(t, body),
+		return wireReview{Ranking: promptOpenNodes(t, body),
 			NextProbe: nextProbe(string(probes.RunwayTrendsProbe),
 				map[string]any{"window_seconds": 86400}, trendWhy)}.json()
 	})
 	final := toolReply(func(body string) string {
-		return wireReview{Ranking: openNodes(t, body)}.json()
+		return wireReview{Ranking: promptOpenNodes(t, body)}.json()
 	})
 	m := newFakeModel(t, first, final)
 	runner := failedSequenceRunner()
