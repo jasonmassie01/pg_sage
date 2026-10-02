@@ -129,3 +129,26 @@ func assertRegclass(t *testing.T, pool *pgxpool.Pool, name string, exists bool) 
 		t.Errorf("%s exists = %v, want %v", name, found, exists)
 	}
 }
+
+// The text layer alone (what builds without the parse-tree layer rely on)
+// must refuse unqualified destructive targets; in cgo builds sqlast also
+// refuses them, which would hide a text-layer regression.
+func TestCheckProtectedSchemaUsageRequiresQualification(t *testing.T) {
+	cases := []struct {
+		sql, prefix string
+		refused     bool
+	}{
+		{"DROP INDEX CONCURRENTLY idx_orders_old", "DROP INDEX", true},
+		{"ALTER TABLE orders SET (fillfactor = 90)", "ALTER TABLE", true},
+		{"DROP INDEX CONCURRENTLY public.idx_orders_old", "DROP INDEX", false},
+		{"ALTER TABLE public.orders SET (fillfactor = 90)", "ALTER TABLE", false},
+		{"VACUUM orders", "VACUUM", false},
+		{"DROP INDEX CONCURRENTLY sage.idx", "DROP INDEX", true},
+	}
+	for _, c := range cases {
+		err := checkProtectedSchemaUsage(c.sql, c.prefix)
+		if refused := errors.Is(err, ErrDisallowedSQL); refused != c.refused {
+			t.Errorf("checkProtectedSchemaUsage(%q) = %v, want refused=%v", c.sql, err, c.refused)
+		}
+	}
+}
