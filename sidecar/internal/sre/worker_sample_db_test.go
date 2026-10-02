@@ -11,10 +11,12 @@ import (
 // 30 s and the TTL is 30 s. The worker must keep its lease through the
 // wait, or the investigation is orphaned at every attempt and never
 // concludes. The ratio here is the configured maximum (wait == TTL); a
-// wait that long expires an unrenewed lease regardless of load.
+// wait that long expires an unrenewed lease regardless of load. The 6 s
+// TTL keeps the heartbeats (every TTL/3) safe from a multi-second
+// scheduling stall on a loaded host.
 func TestCollect_SampleWaitAsLongAsTheLeaseKeepsTheLease(t *testing.T) {
 	limits := DefaultLimits()
-	limits.LeaseTTL = 3 * time.Second
+	limits.LeaseTTL = 6 * time.Second
 	st, _, ctx := liveStore(t, limits)
 	c, _ := testCoordinator(t, ctx, st, leakRunner(), nil)
 	c.cfg.SampleInterval = limits.LeaseTTL
