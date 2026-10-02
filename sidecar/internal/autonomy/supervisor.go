@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/schemaguard"
 )
 
 const defaultInterval = time.Minute
@@ -112,15 +114,16 @@ func (s *Supervisor) Shutdown(ctx context.Context) error {
 func runDatabaseWorker(ctx context.Context, config DatabaseWorkersConfig) {
 	ticks, stop := workerTicks(config)
 	defer stop()
+	parked := map[string]bool{} // parked routes already reported (this worker only)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticks:
-			runDatabaseCycle(ctx, config)
+			runDatabaseCycle(ctx, config, parked)
 		case <-config.schemaTrigger:
 			if err := runSchemaGuard(ctx, config); err != nil {
-				reportWorkerError(config, "DDL-triggered schema guard failed", err)
+				reportWorkerError(config, parked, "DDL-triggered schema guard failed", err)
 			}
 		}
 	}
@@ -138,23 +141,23 @@ func workerTicks(config DatabaseWorkersConfig) (<-chan time.Time, func()) {
 	return ticker.C, ticker.Stop
 }
 
-func runDatabaseCycle(ctx context.Context, config DatabaseWorkersConfig) {
+func runDatabaseCycle(ctx context.Context, config DatabaseWorkersConfig, parked map[string]bool) {
 	for _, custodian := range []Custodian{config.Freeze, config.WAL} {
 		proposals, err := custodian.Scan(ctx)
 		if err != nil {
-			reportWorkerError(config, "custodian scan failed", err)
+			reportWorkerError(config, parked, "custodian scan failed", err)
 			continue
 		}
 		for _, proposal := range proposals {
 			proposal.Database = config.Database
 			if err := config.Router.Route(ctx, proposal); err != nil {
-				reportWorkerError(config, "custodian proposal failed", err)
+				reportWorkerError(config, parked, "custodian proposal failed", err)
 			}
 		}
 	}
 	if config.Schema != nil {
 		if err := runSchemaGuard(ctx, config); err != nil {
-			reportWorkerError(config, "schema guard scan failed", err)
+			reportWorkerError(config, parked, "schema guard scan failed", err)
 		}
 	}
 	runSelfAudit(ctx, config)
@@ -174,7 +177,7 @@ func runSchemaGuard(ctx context.Context, config DatabaseWorkersConfig) error {
 func runSelfAudit(ctx context.Context, config DatabaseWorkersConfig) {
 	result, err := config.Auditor.SelfAudit(ctx)
 	if err != nil {
-		reportWorkerError(config, "ledger self-audit failed: "+err.Error(), err)
+		reportWorkerError(config, nil, "ledger self-audit failed: "+err.Error(), err)
 		return
 	}
 	if result.OK {
@@ -191,8 +194,24 @@ func runSelfAudit(ctx context.Context, config DatabaseWorkersConfig) {
 	)
 }
 
-func reportWorkerError(config DatabaseWorkersConfig, message string, err error) {
+// reportWorkerError reports a worker failure as an error. A parked route
+// (policy withheld the proposal, it cannot be verified yet) is an expected
+// outcome: reported once at info per message and reason (dogfood lifeos-1:
+// blast_radius_exceeded was an ERROR every cycle).
+func reportWorkerError(config DatabaseWorkersConfig, parked map[string]bool, message string,
+	err error) {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return
+	}
+	var p *schemaguard.ParkedRoute
+	if errors.As(err, &p) {
+		key := message + "|" + p.Error()
+		if parked == nil || parked[key] {
+			return
+		}
+		parked[key] = true
+		config.Reporter.Report("info", message+" (parked, not an error)",
+			map[string]any{"database": config.Database, "reason": p.Error()})
 		return
 	}
 	config.Reporter.Report("error", message,
