@@ -1045,6 +1045,31 @@ automatically for each open incident (<code>sre.automatic_start: true</code>).</
 <td><code>sage.action_log</code></td>
 <td><code>SELECT</code> on pg_sage's own schema</td>
 </tr>
+<tr>
+<td><code>lwlock_waits</code>, <code>standby_replay_state</code> (M6)</td>
+<td><code>pg_stat_activity</code> (wait events; the standby's longest query), <code>pg_stat_wal_receiver</code>, <code>pg_stat_database_conflicts</code></td>
+<td><code>pg_read_all_stats</code></td>
+</tr>
+<tr>
+<td><code>temp_spill_statements</code> (M6)</td>
+<td><code>pg_stat_statements(false)</code> (no query text), in the schema the extension is installed in</td>
+<td><code>pg_read_all_stats</code> (other roles' query ids); <code>unsupported</code> without the extension</td>
+</tr>
+<tr>
+<td><code>temp_file_holders</code> (M6)</td>
+<td><code>pg_ls_tmpdir()</code>, <code>pg_stat_activity</code></td>
+<td><code>pg_monitor</code> (<code>no_privilege</code> without it)</td>
+</tr>
+<tr>
+<td><code>xid_runway</code>, <code>xmin_horizon</code> (M6)</td>
+<td><code>pg_database</code>, <code>pg_stat_activity</code> (busy autovacuum workers, xmin holders), <code>pg_prepared_xacts</code>, <code>pg_replication_slots</code></td>
+<td><code>pg_read_all_stats</code></td>
+</tr>
+<tr>
+<td><code>wal_directory</code> (M6)</td>
+<td><code>pg_ls_waldir()</code>, <code>pg_ls_archive_statusdir()</code></td>
+<td><code>pg_monitor</code> (<code>no_privilege</code> without it)</td>
+</tr>
 </tbody>
 </table>
 <p><strong>Grant <code>pg_monitor</code>.</strong> It includes <code>pg_read_all_stats</code> and <code>pg_read_all_settings</code>. This is
@@ -1066,7 +1091,8 @@ set to NULL. A lock-graph query would then find "no lock waits" while sessions a
 and connection counts would leave other roles out: a healthy-looking zero caused by a missing
 privilege. So the probes that read those columns (<code>lock_graph</code>, <code>lock_chains</code>,
 <code>long_transactions</code>, <code>backend_identity</code>, <code>connection_saturation</code>, <code>replication_lag</code>,
-<code>vacuum_progress</code>) first check <code>pg_has_role(current_user, 'pg_read_all_stats', 'USAGE')</code> in
+<code>vacuum_progress</code>, and in M6 <code>lwlock_waits</code>, <code>standby_replay_state</code>, <code>temp_spill_statements</code>,
+<code>xid_runway</code> and <code>xmin_horizon</code>) first check <code>pg_has_role(current_user, 'pg_read_all_stats', 'USAGE')</code> in
 their read-only transaction. Without the role they return <code>no_privilege</code> with reason
 <code>missing_role</code> and the message "role pg_read_all_stats (granted by pg_monitor) is required",
 and run nothing. The investigation lists them under <strong>Missing evidence</strong> and concludes

@@ -570,6 +570,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Sage SRE approved actions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#runways-and-pre-incident-investigations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runways and pre-incident investigations
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
         
           <li class="md-nav__item">
@@ -1007,6 +1024,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Sage SRE approved actions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#runways-and-pre-incident-investigations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Runways and pre-incident investigations
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
         
@@ -1658,6 +1692,20 @@ twice, <code>sre.sample_interval_seconds</code> apart), matches them against the
 graph and stores the result: the likely explanation, contributing factors, alternatives and
 ruled-out explanations, each citing its evidence, the evidence that could not be collected,
 and an operator step. Nothing is executed. "Inconclusive" is a normal outcome.</p>
+<p>Four more families are investigated the same way: <strong>checkpoint storms</strong>, <strong>temp-file
+explosions</strong>, <strong>replication lag</strong> and <strong>LWLock contention</strong>. Their triggers are the RCA
+incidents for "checkpoints are occurring too frequently", temp files, replication conflicts and
+replication lag (<code>replication_lag_increasing</code>), plus a deterministic detector that samples the
+database once per trigger poll (only while <code>sre.automatic_start</code> is on). The detector opens one
+investigation per episode, with conservative thresholds: 3 or more requested checkpoints
+within 5 minutes that outnumber timed ones; 1 GiB of temp files in this database within 5
+minutes; or 8 or more backends waiting on one modeled LWLock in 3 consecutive polls. After an
+episode ends, the same family waits 30 minutes before a new one. A checkpoint investigation
+compares samples 6 sample intervals apart (30 s by default). The live-temp-file probe needs
+<code>pg_monitor</code> (or superuser), and per-statement spills need <code>pg_stat_statements</code>. Without them,
+the investigation reports the evidence as unavailable instead of guessing. Standby-side
+evidence (paused replay, standby queries holding replay back) is only visible when pg_sage
+monitors the standby itself.</p>
 <p><strong>Model turn (on by default whenever an LLM is configured).</strong> After the causal graph has
 scored the hypotheses, the configured LLM (<code>llm.*</code>) reviews the result. It may only:</p>
 <ul>
@@ -1698,7 +1746,7 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 <tr>
 <td><code>sre.automatic_start</code></td>
 <td><code>true</code></td>
-<td>Start a read-only investigation for each incident and plan regression. <code>false</code>: start them only on request; investigations already stored are still resumed and retained. Restart to change</td>
+<td>Start a read-only investigation for each incident, plan regression and reactive detector episode (checkpoint storm, temp-file explosion, LWLock contention). <code>false</code>: start them only on request; investigations already stored are still resumed and retained. Restart to change</td>
 </tr>
 <tr>
 <td><code>sre.trigger_interval_seconds</code></td>
@@ -1861,6 +1909,151 @@ The pg_sage user's current role must be operator or admin. Each callback is proc
 and the decision goes through the same approval as the browser, attributed to the mapped
 user. Bot tokens, signing secrets and webhook secrets are sealed at rest like other channel
 secrets.</p>
+<h4 id="runways-and-pre-incident-investigations">Runways and pre-incident investigations<a class="headerlink" href="#runways-and-pre-incident-investigations" title="Permanent link">&para;</a></h4>
+<p>A runway is the time left before a hard limit. Every <code>sre.runways.interval_seconds</code>, pg_sage
+samples the series a limit is approached along into <code>sage.runway_samples</code>: the XID and
+multixact counters, the WAL position, the WAL each replication slot retains, the size of the
+databases, disk usage (databases plus <code>pg_wal</code>, which needs <code>pg_monitor</code>) and the sequences
+nearest their limit. It fits a straight line through the last <code>sre.runways.lookback_hours</code> of
+each series and projects when the series reaches its limit:</p>
+<table>
+<thead>
+<tr>
+<th>Runway</th>
+<th>Limit</th>
+<th>Finding (category)</th>
+<th>Investigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>XID or multixact age</td>
+<td>the wraparound warning limit (2^31 - 1 - 40,000,000)</td>
+<td><code>forecast_wraparound_runway</code> (<code>xid</code>, <code>mxid</code>)</td>
+<td>wraparound runway</td>
+</tr>
+<tr>
+<td>A table 1.25 times past its freeze maximum</td>
+<td>its effective <code>autovacuum_freeze_max_age</code> (the table's own setting when lower)</td>
+<td><code>forecast_wraparound_runway</code> (the table)</td>
+<td>wraparound runway</td>
+</tr>
+<tr>
+<td>Disk usage</td>
+<td><code>forecaster.disk_capacity_bytes</code> (only when you declare it; <code>0</code>, the default, means undeclared: nothing auto-detects capacity, so there is no disk runway and no disk-full credit)</td>
+<td><code>forecast_wal_runway</code> (<code>disk</code>)</td>
+<td>disk/WAL runway</td>
+</tr>
+<tr>
+<td>WAL a slot retains</td>
+<td><code>max_slot_wal_keep_size</code> when it is set, else the WAL custodian's 10 GiB ceiling</td>
+<td><code>forecast_wal_runway</code> (<code>slot:&lt;name&gt;</code>)</td>
+<td>disk/WAL runway</td>
+</tr>
+<tr>
+<td>A sequence's last value</td>
+<td>the lower of its maximum and its owning integer column's maximum</td>
+<td><code>forecast_sequence_runway</code> (the sequence)</td>
+<td>sequence runway</td>
+</tr>
+</tbody>
+</table>
+<p>A projection needs <code>sre.runways.min_samples</code> samples over at least
+<code>sre.runways.min_span_minutes</code>. Disk and slot projections also need a steady trend (a line
+that fits, r² at least 0.5), so a sawtooth never alarms. A runway inside its horizon opens a
+forecast finding (critical inside the critical horizon) and, with <code>sre.runways.investigate</code>,
+one read-only pre-incident investigation per finding and severity, whatever
+<code>sre.automatic_start</code> says. A finding resolves when its runway clears. A standby samples
+nothing (it is read-only).</p>
+<p>A pre-incident investigation explains what drives the runway. Wraparound: a session,
+prepared transaction or replication slot holding the xmin horizon, busy, disabled or
+cancelled autovacuum (cancellations are read from logged incidents, so with no log source
+their absence proves nothing), or a surge in XID use. Disk/WAL: an inactive slot, a slow
+consumer, a failing archiver, a write surge or database growth. Sequences: which limit binds
+(the sequence's type, a narrower owning column, or an explicit <code>MAXVALUE</code>). A concluded
+investigation lists the existing custodian action that addresses it (the freeze custodian's
+<code>VACUUM (FREEZE)</code> or blocker response, the WAL custodian's bound or its escalation plan) with
+the standing policy gate's verdict. The investigation never executes it: the custodian
+workers submit their proposals on their own schedule under your autonomy settings.
+Sequences have no custodian action, because widening a column rewrites the table; the
+investigation says so and gives the manual step.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sre.runways.enabled</code></td>
+<td><code>true</code></td>
+<td>Sample runways and open forecast findings</td>
+</tr>
+<tr>
+<td><code>sre.runways.investigate</code></td>
+<td><code>true</code></td>
+<td>Open a read-only pre-incident investigation per runway finding and severity</td>
+</tr>
+<tr>
+<td><code>sre.runways.interval_seconds</code></td>
+<td><code>60</code></td>
+<td>Seconds between samples, <code>15</code>-<code>3600</code></td>
+</tr>
+<tr>
+<td><code>sre.runways.lookback_hours</code></td>
+<td><code>6</code></td>
+<td>Hours a trend is fitted over, <code>1</code> to <code>sample_retention_hours</code> (at most <code>168</code>). Pre-incident investigations read the same window</td>
+</tr>
+<tr>
+<td><code>sre.runways.min_samples</code></td>
+<td><code>10</code></td>
+<td>Fewest samples a projection needs, <code>3</code>-<code>1000</code></td>
+</tr>
+<tr>
+<td><code>sre.runways.min_span_minutes</code></td>
+<td><code>30</code></td>
+<td>Shortest span of samples a projection needs</td>
+</tr>
+<tr>
+<td><code>sre.runways.wraparound_horizon_hours</code></td>
+<td><code>336</code></td>
+<td>Wraparound runway horizon (14 days)</td>
+</tr>
+<tr>
+<td><code>sre.runways.wraparound_critical_hours</code></td>
+<td><code>72</code></td>
+<td>Critical wraparound runway</td>
+</tr>
+<tr>
+<td><code>sre.runways.disk_horizon_hours</code></td>
+<td><code>72</code></td>
+<td>Disk and slot runway horizon</td>
+</tr>
+<tr>
+<td><code>sre.runways.disk_critical_hours</code></td>
+<td><code>24</code></td>
+<td>Critical disk and slot runway</td>
+</tr>
+<tr>
+<td><code>sre.runways.sequence_horizon_days</code></td>
+<td><code>30</code></td>
+<td>Sequence runway horizon</td>
+</tr>
+<tr>
+<td><code>sre.runways.sequence_critical_days</code></td>
+<td><code>7</code></td>
+<td>Critical sequence runway</td>
+</tr>
+<tr>
+<td><code>sre.runways.sample_retention_hours</code></td>
+<td><code>48</code></td>
+<td>Hours samples are kept, <code>lookback_hours</code> to <code>720</code></td>
+</tr>
+</tbody>
+</table>
+<p>Changing these needs a restart.</p>
 <h3 id="retention">Retention<a class="headerlink" href="#retention" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
