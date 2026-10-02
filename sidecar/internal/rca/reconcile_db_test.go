@@ -220,16 +220,42 @@ func TestReconcile_ScopeAndKeyedDuplicates(t *testing.T) {
 	_, db := lifecycleEngine(t, pool)
 	mark := "fixture:" + db
 	seedLegacy(t, ctx, pool, mark)
+	keyedID, otherID, opID := seedScopeRows(t, ctx, pool, db, mark)
+	stats, err := ReconcileOpenIncidents(ctx, pool, db)
+	if err != nil || stats.Merged != legacyRows+1-int64(len(lifeosGroups)) {
+		t.Fatalf("stats = %+v (%v)", stats, err)
+	}
+	var keyedBy, otherKey, opBy, opKey, otherDB string
+	_ = pool.QueryRow(ctx, `SELECT COALESCE(resolved_by, '') FROM sage.incidents
+		WHERE id = $1`, keyedID).Scan(&keyedBy)
+	_ = pool.QueryRow(ctx, `SELECT COALESCE(identity_key, ''), database_name
+		FROM sage.incidents WHERE id = $1`, otherID).Scan(&otherKey, &otherDB)
+	_ = pool.QueryRow(ctx, `SELECT resolved_by, COALESCE(identity_key, '')
+		FROM sage.incidents WHERE id = $1`, opID).Scan(&opBy, &opKey)
+	if keyedBy != ResolvedByMerged {
+		t.Errorf("later keyed duplicate resolved_by = %q, want merged", keyedBy)
+	}
+	if otherKey != "" || otherDB != "other_"+db {
+		t.Errorf("another database's row was touched: key %q db %q", otherKey, otherDB)
+	}
+	if opBy != "user:ops@example.com" || opKey != "" {
+		t.Errorf("operator-resolved row touched: by %q key %q", opBy, opKey)
+	}
+}
+
+// seedScopeRows adds a keyed later duplicate, another database's legacy
+// row and an operator-resolved legacy row.
+func seedScopeRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, db,
+	mark string) (keyedID, otherID, opID string) {
+	t.Helper()
 	keyed := goKey(db, mergedRow{first: "public.agent_jobs",
 		signals: []string{"vacuum_blocked"}})
-	var keyedID, otherID, opID string
-	err := pool.QueryRow(ctx, `INSERT INTO sage.incidents (detected_at, severity,
+	if err := pool.QueryRow(ctx, `INSERT INTO sage.incidents (detected_at, severity,
 		root_cause, source, signal_ids, affected_objects, database_name, identity_key,
 		rollback_sql, occurrence_count)
 		VALUES (now(), 'warning', 'new', 'deterministic', '{vacuum_blocked}',
 		        '{public.agent_jobs}', $1, $2, $3, 4) RETURNING id::text`,
-		db, keyed, mark).Scan(&keyedID)
-	if err != nil {
+		db, keyed, mark).Scan(&keyedID); err != nil {
 		t.Fatalf("keyed row: %v", err)
 	}
 	other := "other_" + db
@@ -251,26 +277,7 @@ func TestReconcile_ScopeAndKeyedDuplicates(t *testing.T) {
 		Scan(&opID); err != nil {
 		t.Fatalf("operator row: %v", err)
 	}
-	stats, err := ReconcileOpenIncidents(ctx, pool, db)
-	if err != nil || stats.Merged != legacyRows+1-int64(len(lifeosGroups)) {
-		t.Fatalf("stats = %+v (%v)", stats, err)
-	}
-	var keyedBy, otherKey, opBy, opKey, otherDB string
-	_ = pool.QueryRow(ctx, `SELECT COALESCE(resolved_by, '') FROM sage.incidents
-		WHERE id = $1`, keyedID).Scan(&keyedBy)
-	_ = pool.QueryRow(ctx, `SELECT COALESCE(identity_key, ''), database_name
-		FROM sage.incidents WHERE id = $1`, otherID).Scan(&otherKey, &otherDB)
-	_ = pool.QueryRow(ctx, `SELECT resolved_by, COALESCE(identity_key, '')
-		FROM sage.incidents WHERE id = $1`, opID).Scan(&opBy, &opKey)
-	if keyedBy != ResolvedByMerged {
-		t.Errorf("later keyed duplicate resolved_by = %q, want merged", keyedBy)
-	}
-	if otherKey != "" || otherDB != other {
-		t.Errorf("another database's row was touched: key %q db %q", otherKey, otherDB)
-	}
-	if opBy != "user:ops@example.com" || opKey != "" {
-		t.Errorf("operator-resolved row touched: by %q key %q", opBy, opKey)
-	}
+	return keyedID, otherID, opID
 }
 
 // Hydration reconciles before loading, and the backfilled key is the
@@ -296,10 +303,7 @@ func TestHydrate_ReconcilesLegacyRowsAndLinksRecurrence(t *testing.T) {
 		  AND affected_objects[1] = 'public.agent_jobs'`, mark).Scan(&survivor); err != nil {
 		t.Fatalf("survivor: %v", err)
 	}
-	snap := quietSnapshot()
-	snap.Tables = []collector.TableStats{{SchemaName: "public", RelName: "agent_jobs",
-		NLiveTup: 100, NDeadTup: 900}}
-	eng.AnalyzeContext(ctx, snap, nil, testConfig(), nil)
+	eng.AnalyzeContext(ctx, deadTupleSnapshot("agent_jobs"), nil, testConfig(), nil)
 	if err := eng.PersistIncidents(ctx, pool); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
@@ -413,4 +417,12 @@ func TestReconcile_InvalidInputAndErrors(t *testing.T) {
 		t.Fatalf("canceled err = %v, want a reconcile error", err)
 	}
 	_ = fmt.Sprint(err)
+}
+
+// deadTupleSnapshot fires vacuum_blocked for public.<table> only.
+func deadTupleSnapshot(table string) *collector.Snapshot {
+	snap := quietSnapshot()
+	snap.Tables = []collector.TableStats{{SchemaName: "public", RelName: table,
+		NLiveTup: 100, NDeadTup: 900}}
+	return snap
 }

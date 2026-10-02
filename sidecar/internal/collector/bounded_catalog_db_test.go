@@ -40,7 +40,8 @@ func createManySchemas(t *testing.T, ctx context.Context, prefix string) {
 		_, err := pool.Exec(ctx, fmt.Sprintf(`DO $$ BEGIN
 			EXECUTE 'CREATE SCHEMA %[1]s_%[2]d';
 			FOR i IN 1..%[3]d LOOP
-				EXECUTE format('CREATE TABLE %[1]s_%[2]d.t%%s (id int PRIMARY KEY, a int, b int)', i);
+				EXECUTE format('CREATE TABLE %[1]s_%[2]d.t%%s '
+					'(id int PRIMARY KEY, a int, b int)', i);
 				EXECUTE format('CREATE INDEX ON %[1]s_%[2]d.t%%s (a)', i);
 				EXECUTE format('CREATE INDEX ON %[1]s_%[2]d.t%%s (b)', i);
 			END LOOP; END $$`, prefix, s, tablesEach))
@@ -150,7 +151,8 @@ func TestCollect_OneFailedCategoryDoesNotFailTheSnapshot(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, `CREATE SCHEMA IF NOT EXISTS sage;
 		CREATE TABLE IF NOT EXISTS sage.snapshots (id bigserial PRIMARY KEY,
-		collected_at timestamptz NOT NULL, category text NOT NULL, data jsonb NOT NULL)`); err != nil {
+		collected_at timestamptz NOT NULL, category text NOT NULL,
+		data jsonb NOT NULL)`); err != nil {
 		t.Fatalf("snapshots table: %v", err)
 	}
 	if err := c.persist(ctx, snap); err != nil {
