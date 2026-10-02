@@ -18,6 +18,14 @@
 
 ### Fixed
 
+- **Internal cleanup of the sidecar's largest files, with no change in behavior.** The
+  sidecar's entry point, the core of the action executor and the API router were split
+  into smaller files, one per job, so each file and function stays within the project's
+  size limits. New tests pin what each mode starts, every API route and who may call it,
+  and they pass unchanged before and after the split. One small visible difference: if
+  writing a Prometheus `/metrics` response fails (for example, the scraper hung up), the
+  sidecar now logs a warning instead of ignoring the error.
+
 - **A statistics reset can no longer make a used index look unused.** Unused-index
   findings can lead to an automatic `DROP INDEX`. If the statistics were reset (by
   `pg_stat_reset()`, a single-table reset or a restart) between two snapshots, scans that
