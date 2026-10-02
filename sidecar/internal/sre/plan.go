@@ -85,6 +85,8 @@ func diagnose(inv Investigation, obs []causal.Observation) causal.Diagnosis {
 		d = causal.DiagnoseWAL(obs)
 	case TriggerPlan:
 		d = planDiagnosis(obs, inv.Subject)
+	case TriggerWraparound, TriggerDiskWAL, TriggerSequence:
+		d = diagnoseRunway(inv, obs)
 	}
 	return causal.WithSelfActions(d, obs)
 }
@@ -93,7 +95,8 @@ func diagnose(inv Investigation, obs []causal.Observation) causal.Diagnosis {
 // one-shot observation: when it ran again (a model-proposed probe), its
 // newest result supersedes the older ones.
 var seriesProbes = map[probes.ID]bool{probes.ConnectionSaturation: true,
-	probes.ReplicationSlots: true, probes.WALCheckpoint: true, probes.Archiver: true}
+	probes.ReplicationSlots: true, probes.WALCheckpoint: true, probes.Archiver: true,
+	probes.XIDRunwayProbe: true, probes.SequenceRunwayProbe: true}
 
 // currentObservations keeps every sample of a series probe and only the
 // newest (last stored) observation of each one-shot probe, in order.

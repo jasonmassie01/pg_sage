@@ -76,6 +76,9 @@ type Summary struct {
 	ModelRanking *ModelRanking `json:"model_ranking,omitempty"`
 	Narrative    *Narrative    `json:"narrative,omitempty"`
 	ModelProbe   *ModelProbe   `json:"model_probe,omitempty"`
+	// Proposals are the custodian actions that address a conclusive runway
+	// diagnosis (M6), with the gate's explained verdict; never executed here.
+	Proposals []ActionProposal `json:"proposals,omitempty"`
 }
 
 // Conclusion ends an investigation run: concluded (a supported root

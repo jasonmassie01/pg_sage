@@ -46,7 +46,7 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 	if err != nil {
 		return err
 	}
-	plan, ok := planFor(inv.TriggerKind, c.cfg.ActionWindow)
+	plan, ok := c.plan(inv.TriggerKind)
 	if !ok {
 		return c.fail(ctx, lease, "no_probe_plan",
 			fmt.Sprintf("no probe plan for trigger %q", inv.TriggerKind))
@@ -66,15 +66,17 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 	if err != nil {
 		return err
 	}
-	return c.conclude(ctx, lease, d, model)
+	return c.conclude(ctx, lease, d, model, c.advise(ctx, inv, d))
 }
 
-// conclude persists the diagnosis with the model output beside it. If
-// the store refuses the model output, the deterministic conclusion is
-// persisted instead: the model never fails an investigation.
+// conclude persists the diagnosis with the model output and the custodian
+// proposals beside it. If the store refuses the model output, the
+// deterministic conclusion is persisted instead: the model never fails an
+// investigation.
 func (c *Coordinator) conclude(ctx context.Context, lease Lease, d causal.Diagnosis,
-	model modelOutcome) error {
+	model modelOutcome, proposals []ActionProposal) error {
 	conclusion := conclusionOf(d)
+	conclusion.Summary.Proposals = proposals
 	model.apply(&conclusion.Summary)
 	_, err := c.store.Conclude(ctx, lease, conclusion)
 	if errors.Is(err, ErrInvalidRequest) && !model.empty() {
@@ -85,7 +87,9 @@ func (c *Coordinator) conclude(ctx context.Context, lease Lease, d causal.Diagno
 			"detail": truncateRunes(err.Error(), 300)}); rerr != nil {
 			return rerr
 		}
-		_, err = c.store.Conclude(ctx, lease, conclusionOf(d))
+		fallback := conclusionOf(d)
+		fallback.Summary.Proposals = proposals
+		_, err = c.store.Conclude(ctx, lease, fallback)
 	}
 	if errors.Is(err, ErrInvalidRequest) {
 		return c.fail(ctx, lease, "invalid_conclusion", err.Error())

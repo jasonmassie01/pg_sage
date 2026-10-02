@@ -50,6 +50,9 @@ func (c Conclusion) validate() error {
 	if err := c.Summary.validateModel(c.Hypotheses, c.State == StateConcluded); err != nil {
 		return err
 	}
+	if err := validateProposals(c.Summary.Proposals); err != nil {
+		return err
+	}
 	raw, err := json.Marshal(c.Summary)
 	if err != nil || len(raw) > maxSummaryJSON {
 		return fmt.Errorf("%w: summary too large or unencodable", ErrInvalidRequest)

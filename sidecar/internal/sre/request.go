@@ -21,7 +21,8 @@ const (
 )
 
 var triggerKinds = map[TriggerKind]bool{TriggerLock: true, TriggerConnections: true,
-	TriggerWAL: true, TriggerPlan: true, TriggerOperator: true}
+	TriggerWAL: true, TriggerPlan: true, TriggerOperator: true,
+	TriggerWraparound: true, TriggerDiskWAL: true, TriggerSequence: true}
 
 // StartRequest asks for an investigation of one scoped trigger.
 type StartRequest struct {
