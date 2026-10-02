@@ -27,6 +27,9 @@ type trackState struct {
 	persisted       bool // row exists in sage.incidents
 	notifyDetected  bool // incident_detected pending
 	notifyEscalated bool // incident_escalated pending
+	// quiet marks a resolution of an incident last seen longer ago than
+	// the stale window: recorded, not notified.
+	quiet bool
 }
 
 // identityString is the stable identity of an incident: two detections
@@ -149,6 +152,9 @@ func (e *Engine) activeCount() int {
 
 func (e *Engine) resolveInMemory(inc *Incident, by, reason string) {
 	now := time.Now()
+	if now.Sub(lastSeen(inc)) > e.cfg.StaleAfter() {
+		e.trackFor(inc.ID).quiet = true
+	}
 	inc.ResolvedAt = &now
 	inc.ResolvedBy = by
 	inc.ResolutionReason = reason

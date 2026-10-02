@@ -161,6 +161,7 @@ const (
 	DefaultRCADedupWindowMinutes       = 30
 	DefaultRCAEscalationCycles         = 5
 	DefaultRCAResolutionCycles         = 2
+	DefaultRCAStaleAfterHours          = 24
 	DefaultRCAConnectionSaturationPct  = 80
 	DefaultRCAReplicationLagThresholdS = 30
 	DefaultRCAWALSpikeMultiplier       = 2.0
