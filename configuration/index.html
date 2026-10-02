@@ -1323,9 +1323,10 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <a id="__codelineno-2-62" name="__codelineno-2-62" href="#__codelineno-2-62"></a><span class="w">  </span><span class="nt">findings_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">180</span>
 <a id="__codelineno-2-63" name="__codelineno-2-63" href="#__codelineno-2-63"></a><span class="w">  </span><span class="nt">actions_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">365</span>
 <a id="__codelineno-2-64" name="__codelineno-2-64" href="#__codelineno-2-64"></a><span class="w">  </span><span class="nt">explains_days</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90</span>
-<a id="__codelineno-2-65" name="__codelineno-2-65" href="#__codelineno-2-65"></a>
-<a id="__codelineno-2-66" name="__codelineno-2-66" href="#__codelineno-2-66"></a><span class="nt">briefing</span><span class="p">:</span>
-<a id="__codelineno-2-67" name="__codelineno-2-67" href="#__codelineno-2-67"></a><span class="w">  </span><span class="nt">schedule</span><span class="p">:</span><span class="w"> </span><span class="s">"0</span><span class="nv"> </span><span class="s">6</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*"</span><span class="w">         </span><span class="c1"># cron expression</span>
+<a id="__codelineno-2-65" name="__codelineno-2-65" href="#__codelineno-2-65"></a><span class="w">  </span><span class="nt">sage_size_warning_pct</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<a id="__codelineno-2-66" name="__codelineno-2-66" href="#__codelineno-2-66"></a>
+<a id="__codelineno-2-67" name="__codelineno-2-67" href="#__codelineno-2-67"></a><span class="nt">briefing</span><span class="p">:</span>
+<a id="__codelineno-2-68" name="__codelineno-2-68" href="#__codelineno-2-68"></a><span class="w">  </span><span class="nt">schedule</span><span class="p">:</span><span class="w"> </span><span class="s">"0</span><span class="nv"> </span><span class="s">6</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*</span><span class="nv"> </span><span class="s">*"</span><span class="w">         </span><span class="c1"># cron expression</span>
 </code></pre></div>
 <hr />
 <h2 id="key-settings-reference">Key Settings Reference<a class="headerlink" href="#key-settings-reference" title="Permanent link">&para;</a></h2>
@@ -2505,8 +2506,20 @@ then <code>GET /api/v1/sre/autonomy/proposals</code> and <code>POST
 <td><code>90</code></td>
 <td>Days to retain EXPLAIN plan captures</td>
 </tr>
+<tr>
+<td><code>retention.sage_size_warning_pct</code></td>
+<td><code>10</code></td>
+<td>Raise a <code>sage_footprint</code> finding when pg_sage's own tables (the <code>sage</code> schema, with TOAST and indexes) exceed this percent of the database size. <code>0</code> disables the check.</td>
+</tr>
 </tbody>
 </table>
+<p>Catalog snapshots (tables, indexes, sequences, foreign keys, partitions,
+queries, <code>pg_stat_io</code>, configuration) are stored compactly: a full row (keyframe) at
+most every 6 hours, and in between only what changed. Reads return every snapshot
+exactly as collected, through <code>sage.snapshot_data(data, base_id)</code>. Retention keeps a
+keyframe as long as a retained row is built on it, so the oldest kept rows can be up
+to 6 hours older than <code>snapshots_days</code>. Rows written by earlier versions stay readable
+and age out with <code>snapshots_days</code>; nothing is rewritten.</p>
 <blockquote>
 <p><strong>Complete reference:</strong> See <code>sidecar/config.example.yaml</code> for all
 configuration fields including <code>safety</code>, <code>alerting</code>, <code>auto_explain</code>,
