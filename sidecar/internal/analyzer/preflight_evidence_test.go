@@ -129,15 +129,25 @@ func TestPreflightEvidenceStaleSnapshotDoesNotRefreshFinding(t *testing.T) {
 	preflightSQL(t, p, "SELECT pg_sleep(0.02)")
 	c, cfg, logs := preflightCollector(t, p)
 	a := New(p, cfg, c, nil, nil, nil, nil, func(string, string, ...any) {})
-	qid := preflightCapture(t, p, c, "SELECT pg_sleep(0.02)", "pg_sleep")
-	a.cycle(ctx)
-	ident := fmt.Sprintf("queryid:%d", qid)
 	var beforeCount, afterCount int
 	var beforeSeen, afterSeen time.Time
 	sql := `SELECT occurrence_count,last_seen FROM sage.findings
 		WHERE category='slow_query' AND object_identifier=$1 AND status='open'`
-	if err := p.QueryRow(ctx, sql, ident).Scan(&beforeCount, &beforeSeen); err != nil {
-		t.Fatal(err)
+	// pg_stat_statements is cluster-wide: another package may reset it
+	// between capture and cycle, so capture and analyze until the
+	// finding exists.
+	var ident string
+	for attempt := 0; ; attempt++ {
+		qid := preflightCapture(t, p, c, "SELECT pg_sleep(0.02)", "pg_sleep")
+		a.cycle(ctx)
+		ident = fmt.Sprintf("queryid:%d", qid)
+		err := p.QueryRow(ctx, sql, ident).Scan(&beforeCount, &beforeSeen)
+		if err == nil {
+			break
+		}
+		if attempt == 4 {
+			t.Fatalf("no slow_query finding after 5 captures: %v", err)
+		}
 	}
 	preflightSQL(t, p, "DROP EXTENSION pg_stat_statements")
 	t.Cleanup(func() { preflightSQL(t, p, "CREATE EXTENSION pg_stat_statements") })
