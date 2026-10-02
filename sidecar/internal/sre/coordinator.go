@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
@@ -13,8 +14,10 @@ import (
 // investigation loop: committed triggers (RCA incidents, plan regression
 // findings) become durable investigations; a worker claims one under a
 // fenced lease, runs its fixed probe plan step by step, builds the causal
-// diagnosis from the stored evidence and persists it. It never calls the
-// LLM to decide anything and never executes an action; a failure here
+// diagnosis from the stored evidence and persists it. An optional model
+// turn (M3) may rank the graph's hypotheses, ask for one catalog probe
+// and narrate cited claims; it never decides the root cause, never
+// executes an action and never fails an investigation. A failure here
 // cannot block RCA, policy or the emergency stop.
 
 // ProbeRunner runs one catalog probe (probes.Runner).
@@ -36,8 +39,12 @@ type TriggerSource interface {
 	Triggers(ctx context.Context) ([]Trigger, error)
 }
 
-// CoordinatorStore is the store surface the coordinator needs.
+// CoordinatorStore is the store surface the coordinator needs: the
+// durable model budget and model events serve the optional model turn.
 type CoordinatorStore interface {
+	ModelStore
+	RecordEvent(ctx context.Context, lease Lease, typ string, payload map[string]any) error
+	Limits() Limits
 	EnsureDeployment(ctx context.Context) (UUID, error)
 	BindDatabase(ctx context.Context, b Binding) (Scope, error)
 	Create(ctx context.Context, req StartRequest) (Investigation, bool, error)
@@ -71,6 +78,9 @@ type CoordinatorConfig struct {
 	RetentionInterval time.Duration
 	// ActionWindow is how far back pg_sage's own actions count.
 	ActionWindow time.Duration
+	// ModelTimeout caps one model turn; the investigation's remaining
+	// active time caps it further.
+	ModelTimeout time.Duration
 }
 
 // Coordinator limits.
@@ -86,8 +96,13 @@ func DefaultCoordinatorConfig(runtimeKey string) CoordinatorConfig {
 		SampleInterval: 5 * time.Second, QueueSize: MaxQueueSize,
 		Retention: RetentionPolicy{EvidenceAge: 30 * 24 * time.Hour,
 			TimelineAge: 90 * 24 * time.Hour, BatchSize: 100},
-		RetentionInterval: time.Hour, ActionWindow: time.Hour}
+		RetentionInterval: time.Hour, ActionWindow: time.Hour,
+		ModelTimeout: DefaultModelTimeout}
 }
+
+// DefaultModelTimeout caps one model turn: two turns fit the 120 s
+// active-time ceiling.
+const DefaultModelTimeout = 50 * time.Second
 
 func (c CoordinatorConfig) validate(hasTriggers bool) error {
 	checks := []struct {
@@ -103,6 +118,8 @@ func (c CoordinatorConfig) validate(hasTriggers bool) error {
 		{c.ActionWindow >= time.Minute && c.ActionWindow <= probes.MaxWindow,
 			"action window must be in [1m, 7d]"},
 		{!c.AutomaticStart || hasTriggers, "automatic start needs a trigger source"},
+		{c.ModelTimeout > 0 && c.ModelTimeout <= CeilingActive,
+			"model timeout must be in (0, 120s]"},
 	}
 	for _, ch := range checks {
 		if !ch.ok {
@@ -122,6 +139,12 @@ type CoordinatorDeps struct {
 	// Wait waits between compared samples; nil sleeps. PGIncidentBench
 	// runs a scenario's mid-sample fault program here.
 	Wait func(ctx context.Context, d time.Duration) error
+	// Model is the optional LLM the model turn consults; nil keeps every
+	// investigation deterministic.
+	Model *llm.Client
+	// Notices says once that the model turn is unavailable; nil uses the
+	// process-wide ModelNotices.
+	Notices *OnceLog
 }
 
 // Coordinator runs one database's investigations.
@@ -135,6 +158,8 @@ type Coordinator struct {
 	queue      chan UUID
 	durability *Durability
 	sleep      func(ctx context.Context, d time.Duration) error
+	model      *llm.Client
+	notices    *OnceLog
 
 	mu    sync.Mutex
 	scope Scope
@@ -158,10 +183,14 @@ func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
 	if wait == nil {
 		wait = sleepCtx
 	}
+	notices := d.Notices
+	if notices == nil {
+		notices = ModelNotices
+	}
 	return &Coordinator{store: d.Store, runner: d.Runner, triggers: d.Triggers,
 		cfg: d.Config, logFn: logFn, worker: NewUUID(),
 		queue: make(chan UUID, d.Config.QueueSize), durability: NewDurability(),
-		sleep: wait}, nil
+		sleep: wait, model: d.Model, notices: notices}, nil
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

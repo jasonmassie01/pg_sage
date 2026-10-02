@@ -47,6 +47,9 @@ func (c Conclusion) validate() error {
 	if err := validateFacts(c.Summary.Observed); err != nil {
 		return err
 	}
+	if err := c.Summary.validateModel(c.Hypotheses, c.State == StateConcluded); err != nil {
+		return err
+	}
 	raw, err := json.Marshal(c.Summary)
 	if err != nil || len(raw) > maxSummaryJSON {
 		return fmt.Errorf("%w: summary too large or unencodable", ErrInvalidRequest)
@@ -104,7 +107,7 @@ func (c Conclusion) evidenceRefs() []UUID {
 	for _, f := range c.Summary.Observed {
 		out = append(out, f.EvidenceID)
 	}
-	return out
+	return append(out, c.Summary.modelRefs()...)
 }
 
 func factIDs(facts []Fact) []string {
