@@ -418,7 +418,7 @@ actions and read-only diagnostics are not restricted.
 | Level | Meaning |
 |---|---|
 | L0 | Observe only |
-| L1 | Diagnose and write the script; never executes (default for every known pair) |
+| L1 | Diagnose and write the script; never executes (default for every known pair that was not autonomous before) |
 | L2 | Hand off for one-click approval (a finding plus an approval-queue item) |
 | L3 | Execute a reversible, single-object action inside the standing-policy window, then notify |
 
@@ -426,6 +426,26 @@ L4 is never reached. Irreversible classes (slot drop, backend terminate, schema 
 sequence migration, anything unclassified) never go above L1, and mitigation-only classes
 (`backend_cancel`, `wal_bound`) and `config_guc` never go above L2. Operator trust settings
 and the standing policy stay the outer bound: the ledger can only restrict them.
+
+**Carried-over autonomy.** The ledger gates new autonomy and keeps what pg_sage already
+had. When a database's ledger is first set up, four pairs are seeded at the level that
+database's trust and execution settings already let run unattended:
+- the custodian freeze and autovacuum tuning (`wraparound_runway`);
+- the WAL bound (`wal_retention`);
+- load-admitted index creation (`plan_regression`).
+
+Settings with execution mode `auto` and the matching tier enabled give L3. Anything else
+gives the default L1. The view shows these as "carried over", with the decision that
+granted them. Irreversible classes are never carried above L1. A carried level does not
+depend on promotion evidence. The downgrade signals below still cap it, and it resumes by
+itself when they clear. An operator downgrade ends the carry-over, and the pair then has to
+earn its level back with evidence.
+
+**Mandatory deadlines.** A critical XID or disk deadline that the standing policy lets
+override (a red wraparound freeze, for example) is not held back by the ledger level or by
+a downgrade, because waiting risks an outage. The emergency stop and the rest of the gate
+still apply. The ledger records each such action once per object and deadline while the
+sidecar runs.
 
 **Promotion.** pg_sage proposes one level at a time, and only an admin approves; pg_sage, the
 system and MCP clients cannot. The evidence is checked again at approval time, and a proposal
@@ -454,8 +474,9 @@ change is logged once per transition.
 - Another pg_sage action holds or recently touched the same object.
 - The family had a harmful or unsafe outcome in the last `safety_window_days`.
 
-A harmful or unsafe outcome also demotes every class of its family to L1 durably, and
-re-promotion needs the evidence again. Operators can downgrade a pair or a whole family at
+A harmful or unsafe outcome also demotes every earned class of its family to L1 durably,
+and re-promotion needs the evidence again. A carried-over pair is instead capped for
+`safety_window_days`. Operators can downgrade a pair or a whole family at
 any time.
 
 | Parameter | Default | Description |

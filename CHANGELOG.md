@@ -56,7 +56,8 @@
   WAL or plan fault. This is an in-distribution seed set, not a held-out measurement. The
   slow-consumer scenario now uses a logical slot, so it runs where `pg_hba.conf` refuses
   physical replication connections (it used to be skipped).
-- **Sage SRE earned autonomy (on by default, at L1).** pg_sage keeps a level per incident
+- **Sage SRE earned autonomy (on by default; existing autonomy is kept).** pg_sage keeps a
+  level per incident
   family and action class: L0 observe, L1 script only, L2 one-click approval handoff, L3
   auto-execute a reversible single-object action inside the standing-policy window and
   notify. L4 is never reached, and irreversible classes never go above L1. pg_sage proposes
@@ -66,7 +67,9 @@
   app SLO, a non-primary or recently failed-over node, stale evidence, a concurrent action
   on the same object, or a family safety regression caps actions at L1, and each cap is
   logged. A harmful outcome demotes the whole family until the evidence is earned again.
-  Also added: game days on disposable clones (off by default), a fleet canary that halts
+  A critical XID or disk deadline that the standing policy lets override (a red
+  wraparound freeze, for example) is never held back by the ledger. It is still stopped by
+  the emergency stop and the rest of the gate, and the ledger records it. Also added: game days on disposable clones (off by default), a fleet canary that halts
   and rolls back on regression, the **Advanced > Earned autonomy** page, and the
   `/api/v1/sre/autonomy` routes. The MCP tools `sre_get_autonomy` and
   `sre_downgrade_autonomy` are also new. See `sre.autonomy.*` in the configuration
@@ -74,14 +77,19 @@
 
 ### Changed (read before upgrading)
 
-- Custodian remediations (wraparound freeze and autovacuum tuning, WAL bounds) now go
-  through the earned-autonomy ledger. Every pair starts at L1, so a custodian that used to
-  auto-execute under the trust ramp now writes its script and waits until the pair is
-  promoted. Set `sre.autonomy.enforce: false` to restore the previous behavior; the
-  sidecar warns at startup when you do. At startup, the schema upgrade adds the
-  `sage.sre_family_autonomy`, `sre_autonomy_*`, `sre_packet_reviews`, `sre_eval_runs`,
-  `sre_game_days` and `rollout_instance` tables, plus four nullable columns on
-  `sage.rollout_run`.
+- Upgrading keeps the autonomy your configuration already grants. On first start, the
+  ledger carries over the custodian freeze and autovacuum tuning, the WAL bound, and
+  load-admitted index creation at the level your trust and execution settings let them
+  run unattended today (shown as "carried over" with the decision that granted it).
+  Everything else starts at L1. Carried-over actions now also pause while an SLO burns,
+  the node is not primary or was just failed over, the evidence is stale, another action
+  touches the same object, or the family had a harmful outcome. They resume by themselves
+  when that clears, and each change is recorded. An operator downgrade ends the carry-over:
+  the level then has to be earned with evidence. `sre.autonomy.enforce: false` turns the
+  ledger off entirely, and the sidecar warns at startup when you do. At startup, the
+  schema upgrade adds the `sage.sre_family_autonomy`, `sre_autonomy_*`,
+  `sre_packet_reviews`, `sre_eval_runs`, `sre_game_days` and `rollout_instance` tables,
+  plus four nullable columns on `sage.rollout_run`.
 
 - If you already run Sage SRE investigations with an LLM configured, they start using the
   model turn after the upgrade. To keep them deterministic, set `sre.llm.enabled: false`.
