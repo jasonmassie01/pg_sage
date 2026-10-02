@@ -185,6 +185,13 @@
   5 minutes older than the investigation's newest one (for example after an investigation
   was paused and resumed), or two connection samples taken at the same instant, are listed
   as missing evidence instead of supporting a root cause.
+- **The new incident families follow the same rule.** LWLock waits, a standby's longest
+  query, the statements spilling temp files, the sessions holding back the xmin horizon and
+  the busy autovacuum workers also need `pg_read_all_stats`; without it those probes report
+  "no privilege" instead of "no contention" or "no holder".
+- **`forecaster.disk_capacity_bytes` no longer claims to auto-detect.** Nothing detects disk
+  capacity (PostgreSQL cannot report free space over SQL), so `0`, the default, means
+  undeclared: no disk runway and no disk-full credit. Set it for self-managed servers.
 
 ### Changed (read before upgrading)
 
