@@ -2,10 +2,14 @@ import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { EvaluateNow } from './autonomy/EvaluateNow'
+import { PathToNextLevel } from './autonomy/PathToNextLevel'
 
 // Sage SRE M7 earned autonomy: the level pg_sage has earned per incident
 // family x action class, the evidence behind it, pending promotions
-// (pg_sage proposes, an admin approves), downgrades and history.
+// (pg_sage proposes, an admin approves), downgrades and history. The
+// ledger is per database (P0-5); "Evaluate now" and "Path to next level"
+// make promotion reachable and self-explaining (Phase 1.1).
 
 const LEVELS = ['L0', 'L1', 'L2', 'L3']
 
@@ -49,6 +53,9 @@ export function AutonomyPage({ database, user }) {
   const [actionError, setActionError] = useState(null)
 
   if (view.loading) return <LoadingSpinner />
+  if (view.error && (!database || database === 'all') && /^400/.test(view.error)) {
+    return <PickDatabase />
+  }
   if (view.error) return <ErrorBanner message={view.error} onRetry={view.refetch} />
 
   const role = user?.role
@@ -72,9 +79,14 @@ export function AutonomyPage({ database, user }) {
           {actionError}
         </div>
       )}
+      {canAct && <EvaluateNow query={q} onDone={() => {
+        view.refetch?.()
+        history.refetch?.()
+      }} />}
       <PendingProposals families={families} isAdmin={role === 'admin'} canAct={canAct}
         onDecide={(id, verb, note) => run(
           `/api/v1/sre/autonomy/proposals/${id}/${verb}${q}`, { note })} />
+      <PathToNextLevel families={families} />
       {families.map(f => (
         <FamilyTable key={f.family} family={f} canAct={canAct}
           onDowngrade={body => run(`/api/v1/sre/autonomy/downgrade${q}`, body)} />
@@ -83,6 +95,17 @@ export function AutonomyPage({ database, user }) {
       <GameDays data={gameDays.data} />
       <Rollouts data={rollouts.data} />
     </section>
+  )
+}
+
+// PickDatabase: earned autonomy is kept per database, so a fleet view of
+// "All databases" has no single ledger to show.
+function PickDatabase() {
+  return (
+    <div data-testid="autonomy-pick-database" className="text-sm" style={muted}>
+      Earned autonomy is kept per database: each database earns its own levels from
+      its own reviews and outcomes. Pick a database in the selector above.
+    </div>
   )
 }
 
