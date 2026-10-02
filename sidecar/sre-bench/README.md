@@ -20,7 +20,8 @@ SAGE_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?ssl
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SAGE_BENCH_REPEATS` | `1` | How many times each scenario runs (1 to 10). Run-to-run consistency needs at least 2. One repeat takes about 2.5 minutes. Raise `go test -timeout` past 10 minutes for 3 or more. |
+| `SAGE_BENCH_REPEATS` | `1` | How many times each scenario runs (1 to 10). Run-to-run consistency needs at least 2. One repeat of every family takes about 15 minutes; run `go test -timeout 40m` per repeat. |
+| `SAGE_BENCH_FAMILIES` | all | Comma-separated families to run, for example `checkpoint_storm,lwlock_contention`. An unknown family fails the test. |
 | `SAGE_BENCH_REPORT_DIR` | the test's temp dir | Where `pgincidentbench.json` and `pgincidentbench.md` are written. CI sets this and uploads the directory. |
 | `PG_SAGE_BENCH_LLM_URL` | unset | OpenAI-compatible endpoint for the LLM-on arm (opt-in). If unset, the LLM-on arm uses the deterministic fake model. |
 | `PG_SAGE_BENCH_LLM_MODEL` | unset | Model name. Required when the URL is set. |
@@ -29,9 +30,15 @@ SAGE_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?ssl
 Some fixtures depend on the server. The prepared-transaction scenario needs
 `max_prepared_transactions > 0`. The archiver scenario needs
 `archive_mode = on` and `archive_command = 'test ! -s /tmp/pg_sage_archive_fail'`.
-The logical-slot scenarios need `wal_level = logical`. If the server lacks a
-fixture, that scenario is reported as skipped. A skipped scenario is never
-scored.
+The logical-slot and replication lag scenarios need `wal_level = logical`. The
+checkpoint scenarios need permission for `CHECKPOINT` and `ALTER SYSTEM`; the
+undersized program sets `max_wal_size = '32MB'` and always resets it, and it
+refuses to run where `max_wal_size` is already set by `ALTER SYSTEM`. The
+burst decoy needs `max_wal_size` of at least 512 MiB. The temp-file
+scenarios read live temp files with `pg_ls_tmpdir` (superuser or
+`pg_monitor`), and the repeated-spill and workload scenarios need
+`pg_stat_statements` preloaded. If the server lacks a fixture, that scenario
+is reported as skipped. A skipped scenario is never scored.
 
 ## What runs
 
@@ -52,11 +59,28 @@ repeated, up to 3 attempts.
 |---|---|---|
 | `positive` | A clean fault. | Its root cause. |
 | `noise` | The same fault under unrelated load: another application's idle pool, long reporting statements and a slow writer. For plan, other queries' regressions. | Its root cause. |
-| `decoy` | A benign lookalike of a fault. Examples: a lock wait that resolves, an idle transaction that blocks nobody, small pools that add up, a pool warming up, a logical slot whose consumer keeps up, a plan flip with no slowdown. | Inconclusive. Any root is a false diagnosis. |
+| `decoy` | A benign lookalike of a fault. Examples: a lock wait that resolves, an idle transaction that blocks nobody, small pools that add up, a pool warming up, a logical slot whose consumer keeps up, a plan flip with no slowdown, a WAL burst that fits within `max_wal_size`, a temp spill that already finished, a small live spill, a replica that keeps up with a burst, a few light commits. | Inconclusive. Any root is a false diagnosis. |
 | `benign` | No fault. | Inconclusive. |
 
 The bench covers the R1 families (lock blocking, connection pressure, WAL and
-replication retention) and plan regression.
+replication retention), plan regression and the M6 reactive families:
+
+| Family | Clean faults | Noise | Decoys / benign |
+|---|---|---|---|
+| `checkpoint_storm` | `max_wal_size` at 32MB under 64 MiB bursts; a script issuing `CHECKPOINT` twice a second | the undersized fault under load | a 96 MiB burst inside `max_wal_size`; a quiet cluster |
+| `temp_file_explosion` | a query holding a 100+ MiB live spill; one statement spilling about 25 MB per call; four statements each spilling a few MB | the runaway query under load | a large spill that finished before the run; a 16 MB live spill; no temp files |
+| `replication_lag` | a logical replica confirming writes but not replay; one confirming writes but not flushes | the replay backlog under load | a replica that keeps up with a 48 MiB burst; no replicas |
+| `lwlock_contention` | 24 sessions committing one-row inserts (WAL write); 32 sessions querying a 100-partition table without pruning (lock manager) | the commit storm under load | two light writers; an idle cluster |
+
+The replicas are logical replication consumers on the bench's own server,
+so standby-side mechanisms (paused replay, standby queries holding replay
+back) and "WAL not yet sent" are covered by the matchers' unit tests, not by
+fault programs. A consumer that stops reading does not back-pressure the
+walsender behind Docker's port proxy, which buffers what it sends. LWLock
+load runs in server-side loops: with a client round trip per statement most
+sessions sit idle and contention comes and goes. LWLock decoy and benign
+runs watch other databases' LWLock waits and are repeated when that load was
+there.
 
 ## Arms
 

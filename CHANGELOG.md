@@ -4,6 +4,22 @@
 
 ### Added
 
+- **Sage SRE investigates four more incident types: checkpoint storms, temp-file
+  explosions, replication lag and LWLock contention.** Each one runs its own read-only
+  probes and tells apart the usual causes. For checkpoint storms, that is `max_wal_size`
+  too small for the write rate, something issuing `CHECKPOINT`, or a short
+  `checkpoint_timeout`. For temp files, one runaway query, one statement that spills on
+  every call, or `work_mem` small for many statements. For replication lag, where the lag
+  sits: not sent, not flushed, or not replayed. On a standby, it also checks paused replay
+  and standby queries holding replay back. For LWLock contention, the lock manager, WAL
+  writes, buffers, or the subtransaction or multixact caches, attributed to a query. The
+  packet also lists the explanations it ruled out and why. Investigations start from the
+  matching RCA incidents. Replication lag incidents now start a replication lag
+  investigation instead of a WAL retention one. A built-in detector also starts them for
+  checkpoint storms, temp-file growth and LWLock contention, with conservative thresholds
+  (documented in `docs/configuration.md`). Nothing is executed. PGIncidentBench gains
+  fault programs, decoys and background-noise runs for all four types.
+
 - **Sage SRE investigations get a model turn (on by default whenever an LLM is
   configured).** After the causal graph diagnoses an incident, your configured LLM reviews
   the result. It can reorder the graph's own hypotheses (shown separately as "model
