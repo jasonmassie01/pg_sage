@@ -35,10 +35,16 @@ func loadCorpus(t *testing.T) []Case {
 	return cs
 }
 
+// TestCorpus_SizeAndClassMix counts the frozen R1 corpus only: cases
+// added after R1 (tagged TagPostR1, e.g. the failover and pooler cases of
+// the Sage SRE follow-ups) extend the corpus without changing R1's mix.
 func TestCorpus_SizeAndClassMix(t *testing.T) {
 	cs := loadCorpus(t)
 	count := map[string]map[string]int{}
 	for _, c := range cs {
+		if hasTag(c, TagPostR1) {
+			continue
+		}
 		if count[c.Family] == nil {
 			count[c.Family] = map[string]int{}
 		}
@@ -147,4 +153,45 @@ func hasTag(c Case, tag string) bool {
 		}
 	}
 	return false
+}
+
+// Sage SRE follow-ups B: the post-R1 cases cover a failover between the
+// samples of both two-sample families (CHECK-07) and pool exhaustion at
+// an external pooler (CHECK-04). A pooler case records the pooler
+// telemetry at both samples, as the connection plan collects it when a
+// pooler is configured.
+func TestCorpus_FollowUpCases(t *testing.T) {
+	want := map[string]string{"conn-failover-between-samples": ClassMissingData,
+		"wal-failover-between-samples": ClassMissingData, "conn-pooler-queueing": ClassPositive,
+		"conn-pooler-behind-lock-backlog": ClassPositive,
+		"conn-pooler-busy-no-queue":       ClassConfounded}
+	found := map[string]bool{}
+	for _, c := range loadCorpus(t) {
+		class, ok := want[c.ID]
+		if !ok {
+			continue
+		}
+		found[c.ID] = true
+		if c.Class != class || !hasTag(c, TagPostR1) {
+			t.Errorf("%s: class %s tags %v, want %s tagged %s", c.ID, c.Class, c.Tags,
+				class, TagPostR1)
+		}
+		if !hasTag(c, "pooler") {
+			continue
+		}
+		n := 0
+		for _, o := range c.Observations {
+			if o.Probe == probes.PoolerPools {
+				n++
+			}
+		}
+		if n != 2 {
+			t.Errorf("%s records pooler_pools %d time(s), want 2 (both samples)", c.ID, n)
+		}
+	}
+	for id := range want {
+		if !found[id] {
+			t.Errorf("follow-up case %s is missing", id)
+		}
+	}
 }
