@@ -65,9 +65,11 @@ func TestCollect_LeaseLostDuringSampleWaitEndsTheWait(t *testing.T) {
 		t.Fatalf("the wait lasted %v, want it cut short of %v by the lost lease",
 			waited, c.cfg.SampleInterval)
 	}
+	plan, _ := planFor(TriggerConnections, c.cfg.ActionWindow)
+	first := len(plan[0].calls)
 	got, _ := st.Get(ctx, scope, inv.ID)
-	if got.State != StateCancelled || got.ProbeCount != 2 || runner.total() != 2 {
+	if got.State != StateCancelled || got.ProbeCount != first || runner.total() != first {
 		t.Fatalf("after a stop during the wait: %+v with %d probe calls, want "+
-			"cancelled with the first step's 2 probes only", got, runner.total())
+			"cancelled with the first step's %d probes only", got, runner.total(), first)
 	}
 }
