@@ -28,7 +28,9 @@ func TestGuidanceShadowChecks(t *testing.T) {
 		Shadow: Shadow{Reviewed: 1, Accepted: 1, FirstReviewAt: first}}
 	a := Assess(fastThresholds(), L2, ev)
 	vol := checkNamed(t, a, "shadow_volume")
-	if vol.Met || !strings.Contains(vol.How, "Review 2 more") ||
+	// Coordinator decision 2026-10-02: only a person's review counts.
+	if vol.Met || !strings.Contains(vol.How, "2 more") ||
+		!strings.Contains(vol.How, "a person") || !strings.Contains(vol.How, "MCP") ||
 		!strings.Contains(vol.How, "last 4 h") || vol.ETA != nil {
 		t.Fatalf("shadow_volume = %+v", vol)
 	}
@@ -47,11 +49,12 @@ func TestGuidanceWithoutAnyReview(t *testing.T) {
 	ev := Evidence{Family: FamilyLockBlocking, Class: ClassBackendCancel, At: guideAt}
 	a := Assess(DefaultThresholds(), L2, ev)
 	dur := checkNamed(t, a, "shadow_duration")
-	if dur.ETA != nil || !strings.Contains(dur.How, "Accept or reject") ||
+	if dur.ETA != nil || !strings.Contains(dur.How, "A person") ||
+		!strings.Contains(dur.How, "accepts or rejects") ||
 		!strings.Contains(dur.How, "30 days") {
 		t.Fatalf("shadow_duration without reviews = %+v", dur)
 	}
-	if vol := checkNamed(t, a, "shadow_volume"); !strings.Contains(vol.How, "Review 20 more") {
+	if vol := checkNamed(t, a, "shadow_volume"); !strings.Contains(vol.How, "20 more") {
 		t.Fatalf("shadow_volume = %+v", vol)
 	}
 }
@@ -61,7 +64,7 @@ func TestGuidanceAcceptanceCountsTheReviewsNeeded(t *testing.T) {
 		Shadow: Shadow{Reviewed: 3, Accepted: 2, FirstReviewAt: guideAt.Add(-5 * time.Hour)}}
 	acc := checkNamed(t, Assess(fastThresholds(), L2, ev), "shadow_acceptance")
 	// (2+a)/(3+a) >= 0.95 needs a = 17 more accepted reviews.
-	if acc.Met || !strings.Contains(acc.How, "17 more accepted") ||
+	if acc.Met || !strings.Contains(acc.How, "17 more accepted reviews by a person") ||
 		!strings.Contains(acc.How, "2 of 3") {
 		t.Fatalf("shadow_acceptance = %+v", acc)
 	}

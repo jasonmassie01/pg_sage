@@ -90,6 +90,16 @@ describe('AutonomyPage promotion coach', () => {
     expect(within(panel).queryByTestId('path-wal_retention-slot_drop')).toBeNull()
   })
 
+  // Coordinator decision 2026-10-02: only a person's review counts.
+  it('says that reviews must come from a person', () => {
+    render(<AutonomyPage database="orders" user={viewer} />)
+    const panel = screen.getByTestId('path-to-next-level')
+    expect(within(panel).getByTestId('path-reviews-by-a-person'))
+      .toHaveTextContent(/only reviews by a person count/i)
+    expect(within(panel).getByTestId('path-reviews-by-a-person'))
+      .toHaveTextContent(/MCP/)
+  })
+
   it('says when every pair is at its cap or proposed', () => {
     viewState = { data: { ...view, view: { ...view.view, families: [view.view.families[1]] } },
       error: null }

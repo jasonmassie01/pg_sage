@@ -168,3 +168,23 @@ func TestSREMigrationScope_AssignsLegacyRowsWhenDeterminable(t *testing.T) {
 		t.Fatalf("legacy pending proposal = %s by %s (%v)", status, by, err)
 	}
 }
+
+// Coordinator decision 2026-10-02: a review says whether it is promotion
+// evidence; reviews stored before the decision were all a person's (no
+// agent could record one), so they default to counting.
+func TestSREMigrationScope_ReviewsSayWhetherTheyCount(t *testing.T) {
+	pool, ctx := requireDB(t)
+	bootstrapWithRetry(t, ctx, pool)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.sre_packet_reviews
+			WHERE deployment_id = $1`, scopeDeployment)
+	})
+	var counts bool
+	if err := pool.QueryRow(ctx, `INSERT INTO sage.sre_packet_reviews
+		(deployment_id, database_name, investigation_id, family, verdict, reviewer)
+		VALUES ($1, 'orders', 'd1111111-1111-4111-8111-111111111111', 'lock_blocking',
+		        'accepted', 'user:1') RETURNING counts_as_evidence`, scopeDeployment).
+		Scan(&counts); err != nil || !counts {
+		t.Fatalf("default counts_as_evidence = %v (%v), want true", counts, err)
+	}
+}

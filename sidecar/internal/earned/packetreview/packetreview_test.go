@@ -261,3 +261,28 @@ func TestLongActorIsShortenedForTheOutcomeOnly(t *testing.T) {
 			len(inv.outcomes[0].Actor))
 	}
 }
+
+// Coordinator decision 2026-10-02: a review through MCP is recorded but
+// never counts toward promotion, and the result says so; a person's
+// review counts.
+func TestResultSaysWhetherTheReviewCounts(t *testing.T) {
+	for actor, counts := range map[string]bool{"user:2:o@e": true, "user:2": true,
+		"mcp:user:2": false, "mcp:stdio": false} {
+		ledger, inv := &fakeLedger{db: "orders"}, concluded()
+		res, err := Record(context.Background(), ledger, inv, Request{InvestigationID: invID,
+			Verdict: earned.VerdictAccepted, Actor: actor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.CountsTowardPromotion != counts || len(ledger.reviews) != 1 {
+			t.Errorf("%s: counts = %v, want %v", actor, res.CountsTowardPromotion, counts)
+		}
+		if !counts && (!strings.Contains(res.Notice, "does not count") ||
+			!strings.Contains(res.Notice, "person")) {
+			t.Errorf("%s: notice = %q", actor, res.Notice)
+		}
+		if counts && res.Notice != "" {
+			t.Errorf("%s: a counting review carries a notice %q", actor, res.Notice)
+		}
+	}
+}

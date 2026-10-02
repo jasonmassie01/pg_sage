@@ -280,7 +280,7 @@ func TestFleetFailoverCooldownIsPerDatabase(t *testing.T) {
 
 // Reviews are trust evidence: pg_sage itself, internal actors and an
 // unbound MCP agent cannot record them; an authenticated MCP principal
-// can, and stays named.
+// can record one, named, but it does not count toward promotion.
 func TestReviewerMustBeAnAuthenticatedPrincipal(t *testing.T) {
 	f := newFixture(t)
 	for _, reviewer := range []string{ActorPgSage, "system", "mcp-agent", "  "} {
@@ -297,8 +297,10 @@ func TestReviewerMustBeAnAuthenticatedPrincipal(t *testing.T) {
 			t.Errorf("reviewer %q refused: %v", reviewer, err)
 		}
 	}
+	// Coordinator decision 2026-10-02: both are recorded, but only the
+	// person's review is promotion evidence (review_evidence_db_test.go).
 	sh, err := f.store.ShadowStats(f.ctx, FamilyLockBlocking, time.Time{})
-	if err != nil || sh.Reviewed != 2 {
-		t.Fatalf("shadow = %+v (%v), want the two accepted reviewers", sh, err)
+	if err != nil || sh.Reviewed != 1 || sh.Accepted != 1 {
+		t.Fatalf("shadow = %+v (%v), want only the person's review", sh, err)
 	}
 }

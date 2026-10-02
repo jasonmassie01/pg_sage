@@ -121,6 +121,7 @@ func TestReviewToolRejectsBadArguments(t *testing.T) {
 func TestReviewToolMapsErrors(t *testing.T) {
 	for err, code := range map[error]float64{
 		earned.ErrInvalidRequest:      -32602,
+		earned.ErrConflict:            -32602,
 		packetreview.ErrNotFinished:   -32602,
 		sre.ErrNotFound:               -32004,
 		packetreview.ErrUnavailable:   -32603,
