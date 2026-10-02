@@ -99,7 +99,7 @@ const (
 	MaxWindow         = 90 * 24 * time.Hour
 	DefaultStaleAfter = 5 * time.Minute
 	// MinCoverage is the share of a window stored samples must cover.
-	MinCoverage = 0.9
+	MinCoverage  = 0.9
 	maxTextRunes = 300
 )
 

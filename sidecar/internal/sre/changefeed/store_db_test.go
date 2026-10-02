@@ -50,7 +50,7 @@ func bindScope(t *testing.T, ctx context.Context, pool *pgxpool.Pool) sre.Scope 
 	}
 	scope, err := st.BindDatabase(ctx, sre.Binding{DeploymentID: dep,
 		RuntimeKey: "changefeed-test:" + string(sre.NewUUID()),
-		Strength: sre.StrengthConfigured, ClusterEpoch: "unknown"})
+		Strength:   sre.StrengthConfigured, ClusterEpoch: "unknown"})
 	if err != nil {
 		t.Fatal(err)
 	}

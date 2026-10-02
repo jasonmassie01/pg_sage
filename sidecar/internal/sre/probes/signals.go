@@ -78,12 +78,12 @@ func SLORows(res Result) ([]SLORow, error) {
 	for i, r := range rows {
 		s := SLORow{Name: strField(r, "name"), Kind: strField(r, "kind"),
 			State: strField(r, "state"), Unknown: strField(r, "unknown"),
-			FastBurning: boolField(r, "fast_burning"),
+			FastBurning:    boolField(r, "fast_burning"),
 			CustomerImpact: boolField(r, "customer_impact"),
-			BurnLong: floatField(r, "burn_long"), BurnShort: floatField(r, "burn_short"),
+			BurnLong:       floatField(r, "burn_long"), BurnShort: floatField(r, "burn_short"),
 			LongWindow: strField(r, "long_window"), ShortWindow: strField(r, "short_window"),
 			BudgetRemaining: floatField(r, "budget_remaining"),
-			EvaluatedAt: timeField(r, "evaluated_at"), AgeS: floatField(r, "age_s")}
+			EvaluatedAt:     timeField(r, "evaluated_at"), AgeS: floatField(r, "age_s")}
 		if s.Name == "" {
 			return nil, fmt.Errorf("slo_status row %d: %w", i+1, errNoKey("name"))
 		}

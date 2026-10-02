@@ -140,8 +140,10 @@ func (p *latencyProxy) deltas(ctx context.Context, cur, prev time.Time) ([]query
 // weightedP95 is the calls-weighted 95th percentile of the queries'
 // interval mean latencies.
 func weightedP95(ds []queryDelta) float64 {
-	sort.Slice(ds, func(i, j int) bool { return ds[i].totalMs/ds[i].calls <
-		ds[j].totalMs/ds[j].calls })
+	sort.Slice(ds, func(i, j int) bool {
+		return ds[i].totalMs/ds[i].calls <
+			ds[j].totalMs/ds[j].calls
+	})
 	total := 0.0
 	for _, d := range ds {
 		total += d.calls

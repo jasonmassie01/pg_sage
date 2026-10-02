@@ -202,7 +202,8 @@ func TestPoller_SnapshotChanges(t *testing.T) {
 // there; without it the source is reported unavailable.
 func TestPoller_StatsReset(t *testing.T) {
 	f := newPollFixture(t)
-	if _, err := f.pool.Exec(f.ctx, `CREATE EXTENSION IF NOT EXISTS pg_stat_statements`); err != nil {
+	_, err := f.pool.Exec(f.ctx, `CREATE EXTENSION IF NOT EXISTS pg_stat_statements`)
+	if err != nil {
 		res := f.poll(t)
 		if res.Unavailable["pg_stat_statements"] == "" {
 			t.Fatalf("no extension: unavailable = %v", res.Unavailable)

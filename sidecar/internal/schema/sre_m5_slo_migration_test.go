@@ -49,6 +49,13 @@ func TestSREMigrationM5_TablesAndConstraints(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
+}
+
+// One row per source event id: a second insert is a unique violation.
+func TestSREMigrationM5_UniqueSourceEvent(t *testing.T) {
+	pool, ctx := requireDB(t)
+	bootstrapWithRetry(t, ctx, pool)
+	dep := "22222222-2222-4222-8222-222222222222"
 	insert := `INSERT INTO sage.sre_change_events (deployment_id, id, source, event_id,
 		kind, summary, occurred_at, signature_status, change_hash)
 		VALUES ($1, gen_random_uuid(), 'ci', 'dup-1', 'deploy', 's', now(), 'verified',

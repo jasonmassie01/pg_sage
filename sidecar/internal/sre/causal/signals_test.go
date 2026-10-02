@@ -75,7 +75,7 @@ func TestWithChanges_Bounded(t *testing.T) {
 // the hypothesis out with that evidence.
 func TestWithChanges_NoChangeIsRuledOut(t *testing.T) {
 	for name, o := range map[string]Observation{
-		"empty":       changeObs("C2"),
+		"empty":        changeObs("C2"),
 		"only pg_sage": changeObs("C2", change("sage_action", "pg_sage vacuum (success)", 30)),
 	} {
 		d := WithChanges(Diagnosis{Family: FamilyWAL}, []Observation{o})

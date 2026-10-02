@@ -39,8 +39,8 @@ type DatabaseInstance struct {
 	// triggers, pushed SLIs); Changes is its change feed. Nil when off.
 	SLO     *slo.Engine
 	Changes *changefeed.Feed
-	Status         *InstanceStatus
-	Stopped        bool
+	Status  *InstanceStatus
+	Stopped bool
 	// StoppedBy and StoppedAt attribute the active emergency stop. Like
 	// Stopped, they are guarded by the manager lock.
 	StoppedBy string

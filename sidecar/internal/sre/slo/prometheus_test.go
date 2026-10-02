@@ -132,7 +132,8 @@ func TestPromClient_TypedErrors(t *testing.T) {
 		"server error": {503, `<html>down</html>`, ErrUnavailable},
 		"garbage 200":  {200, `{not json`, ErrUnavailable},
 		"error status": {200, `{"status":"error","error":"x"}`, ErrRejected},
-		"matrix":       {200, `{"status":"success","data":{"resultType":"matrix","result":[]}}`, ErrUnavailable},
+		"matrix": {200, `{"status":"success","data":{"resultType":"matrix",` +
+			`"result":[]}}`, ErrUnavailable},
 	}
 	for name, c := range cases {
 		stub := &promStub{answer: func(string, string) (int, string) { return c.code, c.body }}

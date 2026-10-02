@@ -57,10 +57,8 @@ func TestSRESLOConfig_PartialSectionKeepsDefaults(t *testing.T) {
 	}
 }
 
-func TestSRESLOConfig_FullObjectives(t *testing.T) {
-	t.Setenv("PROM_TOKEN", "tok-xyz")
-	t.Setenv("SLI_SECRET", secret32)
-	body := `sre:
+// fullSLOYAML configures every M5 setting; secrets come from ${ENV}.
+const fullSLOYAML = `sre:
   slo:
     burn_rules:
       - {severity: page, long_window: 2h, short_window: 10m, factor: 10}
@@ -84,9 +82,14 @@ func TestSRESLOConfig_FullObjectives(t *testing.T) {
         source: push
         target: 0.995
   change_events:
-    hmac_secret: ` + secret32 + `
+    hmac_secret: ${SLI_SECRET}
     allowed_sources: [github-actions, argo]
 `
+
+func TestSRESLOConfig_FullObjectives(t *testing.T) {
+	t.Setenv("PROM_TOKEN", "tok-xyz")
+	t.Setenv("SLI_SECRET", secret32)
+	body := fullSLOYAML
 	cfg, err := loadRCAYAML(t, body)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -115,63 +118,13 @@ func TestSRESLOConfig_FullObjectives(t *testing.T) {
 	}
 }
 
-func TestSRESLOConfig_Invalid(t *testing.T) {
-	prom := "    prometheus:\n      url: http://prom:9090\n"
-	push := "    push:\n      hmac_secret: " + secret32 + "\n"
-	obj := func(fields string) string {
-		return "    objectives:\n      - " + strings.ReplaceAll(fields, "\n",
-			"\n        ") + "\n"
-	}
-	cases := map[string]string{
-		"interval low":       "    evaluation_interval_seconds: 14\n",
-		"interval zero":      "    evaluation_interval_seconds: 0\n",
-		"rule severity":      "    burn_rules: [{severity: warn, long_window: 1h, short_window: 5m, factor: 2}]\n",
-		"rule windows":       "    burn_rules: [{severity: page, long_window: 5m, short_window: 1h, factor: 2}]\n",
-		"rule bad duration":  "    burn_rules: [{severity: page, long_window: soon, short_window: 5m, factor: 2}]\n",
-		"rule factor":        "    burn_rules: [{severity: page, long_window: 1h, short_window: 5m, factor: 0}]\n",
-		"prom scheme":        "    prometheus:\n      url: prom:9090\n",
-		"prom credentials":   "    prometheus:\n      url: http://u:p@prom:9090\n",
-		"prom timeout":       prom + "      timeout_seconds: 61\n",
-		"prom two tokens":    prom + "      bearer_token: a\n      bearer_token_file: /x\n",
-		"short push secret":  "    push:\n      hmac_secret: short-secret\n",
-		"push tolerance":     "    push:\n      timestamp_tolerance_seconds: 29\n",
-		"proxy target":       "    proxies:\n      target: 1\n",
-		"proxy window":       "    proxies:\n      window_days: 91\n",
-		"proxy factor":       "    proxies:\n      latency_factor: 0.5\n",
-		"proxy top":          "    proxies:\n      top_queries: 0\n",
-		"proxy lag":          "    proxies:\n      replication_lag_budget_seconds: 0\n",
-		"no name":            push + obj("source: push\ntarget: 0.99"),
-		"bad name":           push + obj("name: Check Out\nsource: push\ntarget: 0.99"),
-		"reserved name":      push + obj("name: db_latency\nsource: push\ntarget: 0.99"),
-		"duplicate names":    push + obj("name: a\nsource: push\ntarget: 0.99") + "      - {name: a, source: push, target: 0.99}\n",
-		"bad source":         obj("name: a\nsource: statsd\ntarget: 0.99"),
-		"target 1":           push + obj("name: a\nsource: push\ntarget: 1"),
-		"window 91":          push + obj("name: a\nsource: push\ntarget: 0.99\nwindow_days: 91"),
-		"push no secret":     obj("name: a\nsource: push\ntarget: 0.99"),
-		"prom no url":        obj("name: a\nsource: prometheus\ntarget: 0.99\nbad_query: 'x[$window]'\neligible_query: 'y[$window]'"),
-		"prom no $window":    prom + obj("name: a\nsource: prometheus\ntarget: 0.99\nbad_query: x\neligible_query: 'y[$window]'"),
-		"push with query":    push + obj("name: a\nsource: push\ntarget: 0.99\nbad_query: 'x[$window]'"),
-		"negative min":       push + obj("name: a\nsource: push\ntarget: 0.99\nmin_eligible_events: -1"),
-		"ce short secret":    "",
-		"ce tolerance":       "",
-		"ce bad source":      "",
-		"ce feed interval":   "",
-		"ce retention":       "",
-	}
-	ce := map[string]string{
-		"ce short secret":  "  change_events:\n    hmac_secret: tooshort\n",
-		"ce tolerance":     "  change_events:\n    timestamp_tolerance_seconds: 3601\n",
-		"ce bad source":    "  change_events:\n    allowed_sources: [GitHub Actions]\n",
-		"ce feed interval": "  change_events:\n    feed_interval_seconds: 5\n",
-		"ce retention":     "  change_events:\n    retention_days: 0\n",
-	}
+// requireInvalid loads each section under prefix and requires an error
+// naming key that does not leak a secret.
+func requireInvalid(t *testing.T, prefix, key string, cases map[string]string) {
+	t.Helper()
 	for name, section := range cases {
 		t.Run(name, func(t *testing.T) {
-			yaml := "sre:\n  slo:\n" + section
-			key := "sre.slo."
-			if c, ok := ce[name]; ok {
-				yaml, key = "sre:\n"+c, "sre.change_events."
-			}
+			yaml := prefix + section
 			_, err := loadRCAYAML(t, yaml)
 			if err == nil {
 				t.Fatalf("accepted:\n%s", yaml)
@@ -186,6 +139,74 @@ func TestSRESLOConfig_Invalid(t *testing.T) {
 			}
 		})
 	}
+}
+
+func rule(sev, long, short, factor string) string {
+	return "    burn_rules: [{severity: " + sev + ", long_window: " + long +
+		", short_window: " + short + ", factor: " + factor + "}]\n"
+}
+
+const (
+	promSection = "    prometheus:\n      url: http://prom:9090\n"
+	pushSection = "    push:\n      hmac_secret: " + secret32 + "\n"
+	pushA       = "name: a\nsource: push\ntarget: 0.99"
+	promQueries = "\nbad_query: 'x[$window]'\neligible_query: 'y[$window]'"
+)
+
+// objective renders one objectives entry from "key: value" lines.
+func objective(fields string) string {
+	return "    objectives:\n      - " + strings.ReplaceAll(fields, "\n", "\n        ") + "\n"
+}
+
+func TestSRESLOConfig_InvalidSettings(t *testing.T) {
+	requireInvalid(t, "sre:\n  slo:\n", "sre.slo.", map[string]string{
+		"interval low":      "    evaluation_interval_seconds: 14\n",
+		"interval zero":     "    evaluation_interval_seconds: 0\n",
+		"rule severity":     rule("warn", "1h", "5m", "2"),
+		"rule windows":      rule("page", "5m", "1h", "2"),
+		"rule bad duration": rule("page", "soon", "5m", "2"),
+		"rule factor":       rule("page", "1h", "5m", "0"),
+		"prom scheme":       "    prometheus:\n      url: prom:9090\n",
+		"prom credentials":  "    prometheus:\n      url: http://u:p@prom:9090\n",
+		"prom timeout":      promSection + "      timeout_seconds: 61\n",
+		"prom two tokens":   promSection + "      bearer_token: a\n      bearer_token_file: /x\n",
+		"short push secret": "    push:\n      hmac_secret: short-secret\n",
+		"push tolerance":    "    push:\n      timestamp_tolerance_seconds: 29\n",
+		"proxy target":      "    proxies:\n      target: 1\n",
+		"proxy window":      "    proxies:\n      window_days: 91\n",
+		"proxy factor":      "    proxies:\n      latency_factor: 0.5\n",
+		"proxy top":         "    proxies:\n      top_queries: 0\n",
+		"proxy lag":         "    proxies:\n      replication_lag_budget_seconds: 0\n",
+	})
+}
+
+func TestSRESLOConfig_InvalidObjectives(t *testing.T) {
+	requireInvalid(t, "sre:\n  slo:\n", "sre.slo.", map[string]string{
+		"no name":       pushSection + objective("source: push\ntarget: 0.99"),
+		"bad name":      pushSection + objective("name: Check Out\nsource: push\ntarget: 0.99"),
+		"reserved name": pushSection + objective("name: db_latency\nsource: push\ntarget: 0.99"),
+		"duplicate names": pushSection + objective(pushA) +
+			"      - {name: a, source: push, target: 0.99}\n",
+		"bad source":      objective("name: a\nsource: statsd\ntarget: 0.99"),
+		"target 1":        pushSection + objective("name: a\nsource: push\ntarget: 1"),
+		"window 91":       pushSection + objective(pushA+"\nwindow_days: 91"),
+		"push no secret":  objective(pushA),
+		"prom no url":     objective("name: a\nsource: prometheus\ntarget: 0.99" + promQueries),
+		"prom no $window": promSection + objective("name: a\nsource: prometheus\ntarget: 0.99\n"+
+			"bad_query: x\neligible_query: 'y[$window]'"),
+		"push with query": pushSection + objective(pushA+"\nbad_query: 'x[$window]'"),
+		"negative min":    pushSection + objective(pushA+"\nmin_eligible_events: -1"),
+	})
+}
+
+func TestSREChangeEventsConfig_Invalid(t *testing.T) {
+	requireInvalid(t, "sre:\n  change_events:\n", "sre.change_events.", map[string]string{
+		"short secret":  "    hmac_secret: tooshort\n",
+		"tolerance":     "    timestamp_tolerance_seconds: 3601\n",
+		"bad source":    "    allowed_sources: [GitHub Actions]\n",
+		"feed interval": "    feed_interval_seconds: 5\n",
+		"retention":     "    retention_days: 0\n",
+	})
 }
 
 // The bearer token file is read at use time; a missing file is an error

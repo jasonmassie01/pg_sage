@@ -87,7 +87,8 @@ func insertCapture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, age ti
 
 func clearCaptures(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
-	if _, err := pool.Exec(ctx, `DELETE FROM sage.query_store WHERE queryid IN (9001, 9002, 9003)`); err != nil {
+	if _, err := pool.Exec(ctx, `DELETE FROM sage.query_store
+		WHERE queryid IN (9001, 9002, 9003)`); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -43,8 +43,10 @@ func TestCombine_Unknowns(t *testing.T) {
 	}{
 		"no series":    {nil, ReasonNoData},
 		"no samples":   {[]SeriesAgg{{Series: "s"}}, ReasonNoData},
-		"stale":        {[]SeriesAgg{agg("s", from, now.Add(-6*time.Minute), 1, 500, 0)}, ReasonStale},
-		"partial":      {[]SeriesAgg{agg("s", now.Add(-20*time.Minute), now, 1, 500, 0)}, ReasonPartialWindow},
+		"stale": {[]SeriesAgg{agg("s", from, now.Add(-6*time.Minute), 1, 500, 0)},
+			ReasonStale},
+		"partial": {[]SeriesAgg{agg("s", now.Add(-20*time.Minute), now, 1, 500, 0)},
+			ReasonPartialWindow},
 		"zero":         {[]SeriesAgg{full(0, 0)}, ReasonZeroEligible},
 		"low traffic":  {[]SeriesAgg{full(0, 99)}, ReasonLowTraffic},
 		"bad>eligible": {[]SeriesAgg{full(101, 100)}, ReasonInvalidValue},

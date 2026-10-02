@@ -48,7 +48,7 @@ func bindScope(t *testing.T, ctx context.Context, pool *pgxpool.Pool) sre.Scope 
 	}
 	scope, err := st.BindDatabase(ctx, sre.Binding{DeploymentID: dep,
 		RuntimeKey: "slo-test:" + string(sre.NewUUID()),
-		Strength: sre.StrengthConfigured, ClusterEpoch: "unknown"})
+		Strength:   sre.StrengthConfigured, ClusterEpoch: "unknown"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +299,8 @@ func TestStore_Purge(t *testing.T) {
 	}
 	aggs, _ := st.Aggregate(ctx, scope.DeploymentID, name, "", old.Add(-time.Hour),
 		time.Now(), 0)
-	if len(aggs) != 1 || aggs[0].Samples != 1 || !aggs[0].First.Equal(fresh.Truncate(time.Microsecond)) {
+	if len(aggs) != 1 || aggs[0].Samples != 1 ||
+		!aggs[0].First.Equal(fresh.Truncate(time.Microsecond)) {
 		t.Fatalf("after purge = %+v", aggs)
 	}
 	// Another SLO's samples (its window may be longer) are not touched.

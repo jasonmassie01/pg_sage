@@ -208,7 +208,9 @@ func TestChangeEventIngestion_Refusals(t *testing.T) {
 		wantErr  string
 	}{
 		"tampered": {signedCall{secret: ceSecret, path: path, body: fresh(),
-			tamper: func(r *http.Request) { r.Header.Set(signed.HeaderSignature, "v1="+strings.Repeat("a", 64)) }},
+			tamper: func(r *http.Request) {
+				r.Header.Set(signed.HeaderSignature, "v1="+strings.Repeat("a", 64))
+			}},
 			401, "invalid_signature"},
 		"wrong secret": {signedCall{secret: sliSecret, path: path, body: fresh()}, 401,
 			"invalid_signature"},
@@ -350,14 +352,16 @@ func TestSLOAndChangeReads(t *testing.T) {
 	if code, _ := getJSON(t, h, "/api/v1/sre/slos/nope?database=orders"); code != 404 {
 		t.Fatalf("unknown slo = %d", code)
 	}
-	if code, _ := getJSON(t, h, "/api/v1/sre/slos/checkout-orders?database=orders&since=bad"); code != 400 {
+	badSince := "/api/v1/sre/slos/checkout-orders?database=orders&since=bad"
+	if code, _ := getJSON(t, h, badSince); code != 400 {
 		t.Fatalf("bad since = %d", code)
 	}
 	code, out = getJSON(t, h, "/api/v1/sre/changes?database=orders&window_minutes=60")
 	if code != 200 || out["changes"] == nil {
 		t.Fatalf("changes = %d %v", code, out)
 	}
-	if code, _ := getJSON(t, h, "/api/v1/sre/changes?database=orders&window_minutes=0"); code != 400 {
+	zeroWindow := "/api/v1/sre/changes?database=orders&window_minutes=0"
+	if code, _ := getJSON(t, h, zeroWindow); code != 400 {
 		t.Fatalf("zero window = %d", code)
 	}
 	anon := signalRouter(t, mgr, signalConfig(), nil)

@@ -218,7 +218,7 @@ func (c *PromClient) do(ctx context.Context, path string, form url.Values) (prom
 		return out, fmt.Errorf("%w: %s: %s", ErrUnavailable, c.base.Redacted(),
 			transportReason(ctx, err))
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxPromBody))
 	if err != nil {
 		return out, fmt.Errorf("%w: reading the response", ErrUnavailable)

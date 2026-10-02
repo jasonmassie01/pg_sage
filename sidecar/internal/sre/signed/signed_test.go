@@ -115,10 +115,13 @@ func TestVerify_MissingAndMalformedHeaders(t *testing.T) {
 		"text timestamp":     {func(r *Request) { r.Timestamp = "yesterday" }, ErrMalformed},
 		"float timestamp":    {func(r *Request) { r.Timestamp = "1759320000.5" }, ErrMalformed},
 		"no version":         {func(r *Request) { r.Signature = r.Signature[3:] }, ErrMalformed},
-		"wrong version":      {func(r *Request) { r.Signature = "v2=" + r.Signature[3:] }, ErrMalformed},
+		"wrong version": {func(r *Request) { r.Signature = "v2=" + r.Signature[3:] },
+			ErrMalformed},
 		"short hex":          {func(r *Request) { r.Signature = "v1=abcd" }, ErrMalformed},
-		"not hex":            {func(r *Request) { r.Signature = "v1=" + strings.Repeat("z", 64) }, ErrMalformed},
-		"upper-case version": {func(r *Request) { r.Signature = "V1=" + r.Signature[3:] }, ErrMalformed},
+		"not hex": {func(r *Request) { r.Signature = "v1=" + strings.Repeat("z", 64) },
+			ErrMalformed},
+		"upper-case version": {func(r *Request) { r.Signature = "V1=" + r.Signature[3:] },
+			ErrMalformed},
 	}
 	for name, c := range cases {
 		req := good
