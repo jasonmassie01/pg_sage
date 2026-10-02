@@ -100,7 +100,9 @@ func (a *ActionService) syncRequested(ctx context.Context, scope sre.Scope) erro
 }
 
 // SyncProposal applies a requested proposal's queue decision now (ChatOps
-// calls it right after a denial).
+// calls it right after a denial): a rejection denies it, an expiry expires
+// it, and an item the approval flow blocked (the policy withdrew it before
+// the approval) refuses it with the reason. Nothing is signalled.
 func (a *ActionService) SyncProposal(ctx context.Context, p Proposal) error {
 	if p.State != ProposalRequested || p.QueueID <= 0 {
 		return nil
@@ -109,24 +111,13 @@ func (a *ActionService) SyncProposal(ctx context.Context, p Proposal) error {
 	if err != nil {
 		return err
 	}
-	state := map[string]ProposalState{"rejected": ProposalDenied,
-		"expired": ProposalExpired}[st.Status]
-	if state == "" {
+	if _, ok := queueOutcomes[st.Status]; !ok {
 		return nil
 	}
 	_, err = a.ps.mutate(ctx, p.Scope, p.ID,
 		[]ProposalState{ProposalRequested}, systemActor,
 		func(q *Proposal) ([]actionEvent, error) {
-			q.State, q.Detail = state, st.Reason
-			payload := map[string]any{"proposal_id": string(q.ID),
-				"decision": map[ProposalState]string{ProposalDenied: "denied",
-					ProposalExpired: "expired"}[state], "queue_id": q.QueueID}
-			if st.DecidedBy > 0 {
-				now := time.Now()
-				q.DecidedBy, q.DecidedAt = st.DecidedBy, &now
-				payload["decided_by"] = st.DecidedBy
-			}
-			return []actionEvent{{typ: "action_decided", payload: payload}}, nil
+			return []actionEvent{applyQueueOutcome(q, st)}, nil
 		})
 	if errors.Is(err, ErrProposalState) {
 		return nil
@@ -136,6 +127,31 @@ func (a *ActionService) SyncProposal(ctx context.Context, p Proposal) error {
 	}
 	a.resolveItem(ctx, p)
 	return nil
+}
+
+// queueOutcomes maps a closed approval item to the proposal's end state.
+var queueOutcomes = map[string]ProposalState{"rejected": ProposalDenied,
+	"expired": ProposalExpired, "blocked": ProposalRefused,
+	"resolved_ephemeral": ProposalRefused}
+
+func applyQueueOutcome(q *Proposal, st QueueStatus) actionEvent {
+	state := queueOutcomes[st.Status]
+	q.State, q.Detail = state, st.Reason
+	if state == ProposalRefused {
+		q.Reason = ReasonPolicyWithheld
+		return actionEvent{typ: "action_refused", payload: map[string]any{
+			"proposal_id": string(q.ID), "reason": string(q.Reason), "detail": st.Reason,
+			"queue_id": q.QueueID, "signalled": false}}
+	}
+	payload := map[string]any{"proposal_id": string(q.ID), "queue_id": q.QueueID,
+		"decision": map[ProposalState]string{ProposalDenied: "denied",
+			ProposalExpired: "expired"}[state]}
+	if st.DecidedBy > 0 {
+		now := time.Now()
+		q.DecidedBy, q.DecidedAt = st.DecidedBy, &now
+		payload["decided_by"] = st.DecidedBy
+	}
+	return actionEvent{typ: "action_decided", payload: payload}
 }
 
 // verifyDue takes due recovery samples.
