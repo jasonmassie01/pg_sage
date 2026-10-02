@@ -15,6 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/sre"
+	"github.com/pg-sage/sidecar/internal/sre/action"
 	"github.com/pg-sage/sidecar/internal/sre/changefeed"
 	"github.com/pg-sage/sidecar/internal/sre/slo"
 )
@@ -39,6 +40,9 @@ type DatabaseInstance struct {
 	// triggers, pushed SLIs); Changes is its change feed. Nil when off.
 	SLO     *slo.Engine
 	Changes *changefeed.Feed
+	// Actions proposes, hands off and verifies this database's Sage SRE
+	// actions (M5). Nil when the action service could not be built.
+	Actions *action.ActionService
 	Status  *InstanceStatus
 	Stopped bool
 	// StoppedBy and StoppedAt attribute the active emergency stop. Like

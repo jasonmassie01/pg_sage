@@ -58,6 +58,7 @@ func perDatabaseSREMux(mgr *fleet.DatabaseManager) *http.ServeMux {
 		false)))
 	mux.Handle("POST "+base+"/{id}/resume", operatorUp(investigationTransitionHandler(mgr,
 		true)))
+	registerSREActionRoutes(mux, mgr)
 	return mux
 }
 

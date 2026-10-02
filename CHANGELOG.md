@@ -57,6 +57,22 @@
   `GET /api/v1/sre/changes`, the `sre_list_slos`, `sre_get_slo` and `sre_list_changes` MCP
   tools, and `pg_sage_slo_*` metrics. Turn parts off with `sre.slo.enabled`,
   `sre.slo.proxies.enabled` or `sre.change_events.feed_enabled`.
+- **Sage SRE proposes one approved action: cancelling the backend that blocks everyone.**
+  When an investigation concludes that one active statement is the root of a lock or
+  connection-pressure incident, it proposes `pg_cancel_backend` for that exact backend (pid,
+  backend start, query start, database, user and query hash), derived only from the
+  investigation's evidence. Termination and idle-in-transaction holders are never proposed;
+  the investigation says why. Proposals are on by default (`sre.actions.proposals`) and never
+  execute by themselves. Each gets one item in the existing approval queue, and only a human
+  approval runs it through the policy gate. pg_sage then rechecks the backend's identity
+  (evidence at most 5 s old) and refuses, with the reason on the timeline, if anything
+  changed. After the cancel it verifies recovery over fresh samples and records the result on
+  the investigation. Approve or deny on the Actions page, in the Cases panel, or with Slack
+  and Telegram buttons. Callbacks are signed, processed once, and attributed to the pg_sage
+  user an admin mapped the chat user to. MCP agents get `sre_propose_action` and
+  `sre_request_execution`, which create at most one approval item and never execute.
+  Telegram is a new notification channel type. Requires `trust.level` `advisory` or
+  `autonomous`.
 
 - **Sage SRE investigations get a model turn (on by default whenever an LLM is
   configured).** After the causal graph diagnoses an incident, your configured LLM reviews

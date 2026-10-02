@@ -54,6 +54,8 @@ type ProductionDependencies struct {
 	Investigations InvestigationBackend
 	// Signals serves the SLO and change-feed tools; optional.
 	Signals SignalBackend
+	// Actions serves the Sage SRE action tools; optional.
+	Actions SREActionBackend
 }
 
 type ProductionBackend struct {

@@ -21,6 +21,8 @@ type SREConfig struct {
 	// SLO is SLO burn-rate alerting (M5); ChangeEvents the change feed.
 	SLO          SRESLOConfig          `yaml:"slo"`
 	ChangeEvents SREChangeEventsConfig `yaml:"change_events"`
+	// Actions are approved, evidence-matched actions (M5).
+	Actions SREActionsConfig `yaml:"actions"`
 }
 
 // SRELLMConfig configures the investigator's model turn: with an LLM
@@ -49,7 +51,8 @@ func defaultSREConfig() SREConfig {
 		TimelineRetentionDays:  DefaultSRETimelineRetentionDays,
 		LLM:                    SRELLMConfig{Enabled: true},
 		SLO:                    defaultSRESLOConfig(),
-		ChangeEvents:           defaultSREChangeEventsConfig()}
+		ChangeEvents:           defaultSREChangeEventsConfig(),
+		Actions:                defaultSREActionsConfig()}
 }
 
 // TriggerInterval is the coordinator poll period.
@@ -93,6 +96,9 @@ func (s SREConfig) validate() error {
 			"sre.timeline_retention_days (%d) must be at least "+
 				"sre.evidence_retention_days (%d)", s.TimelineRetentionDays,
 			s.EvidenceRetentionDays)},
+	}
+	if err := s.Actions.validate(); err != nil {
+		return err
 	}
 	for _, c := range checks {
 		if !c.ok {

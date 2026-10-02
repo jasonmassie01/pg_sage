@@ -194,6 +194,11 @@ func NewRouterFullRuntime(
 	// Top-level mux: API routes get auth, static does not.
 	root := http.NewServeMux()
 	root.Handle("/api/v1/", apiHandler)
+	if pool != nil {
+		// Signed ChatOps callbacks bypass session auth (their provider
+		// signature authenticates them); identity mapping stays admin-only.
+		registerChatOpsRoutes(root, apiMux, pool, mgr, cfg, rt)
+	}
 
 	// Unauthenticated liveness endpoint. It was in the auth-skip
 	// allowlist but never registered, so /health fell through to the
@@ -680,5 +685,6 @@ func newDefaultDispatcher(
 	d.RegisterSender(notify.NewSlackSenderWithPolicy(deps.policy))
 	d.RegisterSender(notify.NewEmailSenderWithPolicy(deps.policy))
 	d.RegisterSender(notify.NewPagerDutySender())
+	d.RegisterSender(notify.NewTelegramSenderWithPolicy(deps.policy))
 	return d
 }

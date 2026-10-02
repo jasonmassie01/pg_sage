@@ -159,6 +159,19 @@ var excludedExactKeys = map[string]bool{
 	"sre.change_events.feed_enabled":                 true,
 	"sre.change_events.feed_interval_seconds":        true,
 	"sre.change_events.retention_days":               true,
+	// Sage SRE M5: approved-action settings are read when a database
+	// runtime is built (restart lifecycle) and validated at load, so they
+	// are YAML-only.
+	"sre.actions.proposals":                 true,
+	"sre.actions.request_approval":          true,
+	"sre.actions.approval_ttl_minutes":      true,
+	"sre.actions.max_evidence_age_seconds":  true,
+	"sre.actions.recovery_sample_seconds":   true,
+	"sre.actions.recovery_samples":          true,
+	"sre.actions.recovery_deadline_minutes": true,
+	"sre.actions.chatops_tolerance_seconds": true,
+	"sre.actions.protected_roles":           true,
+	"sre.actions.protected_applications":    true,
 }
 
 // structFieldPaths walks a struct type using reflection and returns

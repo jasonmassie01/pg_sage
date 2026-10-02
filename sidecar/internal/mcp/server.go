@@ -12,7 +12,7 @@ type Server struct {
 }
 
 func NewServer(backend Backend) *Server {
-	tools := append(intentTools(), sreTools()...)
+	tools := append(append(intentTools(), sreTools()...), sreActionTools()...)
 	return &Server{backend: backend, tools: append(tools, signalTools()...)}
 }
 
@@ -76,6 +76,9 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (any, *rpcEr
 	}
 	if signalToolNames[call.Name] {
 		return s.callSignalTool(ctx, call.Name, call.Arguments)
+	}
+	if sreActionToolNames[call.Name] {
+		return s.callSREActionTool(ctx, call.Name, call.Arguments)
 	}
 	var result any
 	var err error

@@ -42,6 +42,9 @@ func startMCPRuntime() {
 		// SLO and change-feed read tools (sre_list_slos, sre_get_slo,
 		// sre_list_changes).
 		Signals: access,
+		// Sage SRE action tools (sre_propose_action, sre_request_execution)
+		// propose and queue; they never execute.
+		Actions: access,
 	})
 	if err != nil {
 		logError("mcp", "production backend: %v", err)

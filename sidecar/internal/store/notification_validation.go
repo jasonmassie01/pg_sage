@@ -11,6 +11,7 @@ var validChannelTypes = map[string]bool{
 	"slack":     true,
 	"email":     true,
 	"pagerduty": true,
+	"telegram":  true,
 }
 
 var notificationSecretKeys = notify.SecretConfigKeys
@@ -18,8 +19,8 @@ var notificationSecretKeys = notify.SecretConfigKeys
 func validateChannelType(typ string) error {
 	if !validChannelTypes[typ] {
 		return fmt.Errorf(
-			"%w: type must be slack, email, or "+
-				"pagerduty, got %q", ErrValidation, typ)
+			"%w: type must be slack, email, "+
+				"pagerduty or telegram, got %q", ErrValidation, typ)
 	}
 	return nil
 }
@@ -34,6 +35,9 @@ func validateChannelConfig(
 				"%w: slack channel requires webhook_url",
 				ErrValidation)
 		}
+		return validateSlackInteractive(config)
+	case "telegram":
+		return validateTelegramConfig(config)
 	case "email":
 		if config["smtp_host"] == "" {
 			return fmt.Errorf(

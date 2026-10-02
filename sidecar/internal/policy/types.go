@@ -73,6 +73,9 @@ const (
 	RollbackApplication      RollbackClass = "application_rollback"
 	RollbackForwardFixOnly   RollbackClass = "forward_fix_only"
 	RollbackNotReversible    RollbackClass = "not_reversible"
+	// RollbackMitigationOnly: the action mitigates an incident and cannot be
+	// undone, but it changes no data or schema (a backend cancel).
+	RollbackMitigationOnly RollbackClass = "mitigation_only"
 )
 
 // DropKind classifies the object an action drops. Derivable objects

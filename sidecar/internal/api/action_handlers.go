@@ -225,56 +225,14 @@ func fleetApproveActionHandler(
 				http.StatusUnauthorized)
 			return
 		}
-		as := store.NewActionStore(inst.Pool)
-		action, err := as.GetByID(r.Context(), id)
-		if err != nil {
-			jsonError(w, "failed to approve action",
-				http.StatusNotFound)
+		body, refused := approveAndRun(r.Context(),
+			store.NewActionStore(inst.Pool), inst.Executor, id, user.ID)
+		if refused != nil {
+			refused.write(w, id)
 			return
 		}
-		if !approvalReady(r.Context(), w, as, inst.Executor, *action) {
-			return
-		}
-		action, err = as.Approve(r.Context(), id, user.ID)
-		if err != nil {
-			approveFailure(w, id, err)
-			return
-		}
-		approvedBy := user.ID
-		actionLogID, execErr := inst.Executor.ExecuteManual(
-			r.Context(), action.FindingID, action.ProposedSQL,
-			action.RollbackSQL, &approvedBy,
-		)
-		if execErr != nil {
-			recordApproveExecutionFailure(
-				r.Context(), as, id, execErr.Error(),
-			)
-			jsonResponse(w, map[string]any{
-				"ok":       false,
-				"queue_id": id,
-				"database": inst.Name,
-				"error":    execErr.Error(),
-				"status":   "failed",
-				"executed": false,
-			})
-			return
-		}
-		verificationStatus := "verified"
-		if action.RollbackSQL != "" {
-			verificationStatus = "monitoring"
-		}
-		recordApproveExecutionSuccess(
-			r.Context(), as, id, actionLogID, verificationStatus,
-		)
-		jsonResponse(w, map[string]any{
-			"ok":                  true,
-			"queue_id":            id,
-			"database":            inst.Name,
-			"action_log_id":       actionLogID,
-			"status":              "approved",
-			"executed":            true,
-			"verification_status": verificationStatus,
-		})
+		body["database"] = inst.Name
+		jsonResponse(w, body)
 	}
 }
 
@@ -325,73 +283,23 @@ func approveActionHandler(
 	as *store.ActionStore, exec *executor.Executor,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := r.PathValue("id")
-		id, err := strconv.Atoi(idStr)
+		id, err := strconv.Atoi(r.PathValue("id"))
 		if err != nil {
 			jsonError(w, "invalid action id", http.StatusBadRequest)
 			return
 		}
-
 		user := UserFromContext(r.Context())
 		if user == nil {
 			jsonError(w, "authentication required",
 				http.StatusUnauthorized)
 			return
 		}
-
-		action, err := as.GetByID(r.Context(), id)
-		if err != nil {
-			slog.Error("approve action failed",
-				"action_id", id, "error", err)
-			jsonError(w, "failed to approve action",
-				http.StatusNotFound)
+		body, refused := approveAndRun(r.Context(), as, exec, id, user.ID)
+		if refused != nil {
+			refused.write(w, id)
 			return
 		}
-		if !approvalReady(r.Context(), w, as, exec, *action) {
-			return
-		}
-		action, err = as.Approve(r.Context(), id, user.ID)
-		if err != nil {
-			approveFailure(w, id, err)
-			return
-		}
-
-		approvedBy := user.ID
-		actionLogID, execErr := exec.ExecuteManual(
-			r.Context(),
-			action.FindingID, action.ProposedSQL,
-			action.RollbackSQL, &approvedBy,
-		)
-
-		if execErr != nil {
-			recordApproveExecutionFailure(
-				r.Context(), as, id, execErr.Error(),
-			)
-			jsonResponse(w, map[string]any{
-				"ok":       false,
-				"queue_id": id,
-				"error":    execErr.Error(),
-				"status":   "failed",
-				"executed": false,
-			})
-			return
-		}
-
-		verificationStatus := "verified"
-		if action.RollbackSQL != "" {
-			verificationStatus = "monitoring"
-		}
-		recordApproveExecutionSuccess(
-			r.Context(), as, id, actionLogID, verificationStatus,
-		)
-		jsonResponse(w, map[string]any{
-			"ok":                  true,
-			"queue_id":            id,
-			"action_log_id":       actionLogID,
-			"status":              "approved",
-			"executed":            true,
-			"verification_status": verificationStatus,
-		})
+		jsonResponse(w, body)
 	}
 }
 
@@ -467,41 +375,6 @@ func recordApproveExecutionSuccess(
 		return
 	}
 	_ = as.MarkExecuted(ctx, queueID, actionLogID, verificationStatus)
-}
-
-func approvalReady(
-	ctx context.Context,
-	w http.ResponseWriter,
-	as *store.ActionStore,
-	exec *executor.Executor,
-	action store.QueuedAction,
-) bool {
-	if exec == nil {
-		return true
-	}
-	evidencePresent := true
-	if as != nil {
-		present, err := as.FindingEvidencePresent(ctx, action.FindingID)
-		if err == nil {
-			evidencePresent = present
-		}
-	}
-	readiness := exec.ApprovalReadinessWithEvidence(
-		action, time.Now().UTC(), evidencePresent)
-	if readiness.Eligible {
-		return true
-	}
-	reason := strings.TrimSpace(readiness.DeferReason)
-	if reason == "" {
-		reason = "action is not eligible for approval"
-	}
-	if as != nil {
-		_ = as.MarkReadinessOutcome(
-			ctx, action.ID, readinessOutcomeStatus(readiness), reason)
-	}
-	jsonError(w, "action is not eligible: "+reason,
-		http.StatusConflict)
-	return false
 }
 
 func readinessOutcomeStatus(

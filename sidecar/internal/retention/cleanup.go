@@ -117,6 +117,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 var retentionExemptions = map[string]string{
 	"action_queue":          "approval queue; lifecycle/expiry owned by the executor",
 	"auth_audit":            "security audit trail of SSO link, unlink and grant use",
+	"chatops_identities":    "admin-managed mapping of chat users to accounts, current state",
+	"chatops_replay":        "pruned by chatops on every callback (24 h replay window)",
 	"config":                "current configuration, not a time-series",
 	"config_audit":          "security audit trail of configuration changes",
 	"crypto_meta":           "key metadata, not a time-series",
@@ -146,6 +148,8 @@ var retentionExemptions = map[string]string{
 		"SLO or burn window plus a day)",
 	"sre_slo_transitions": "SLO state history; aged out by the SLO engine " +
 		"(sre.timeline_retention_days)",
+	"sre_action_proposals": "SRE action proposals; deleted with their investigation " +
+		"(ON DELETE CASCADE) by sre retention",
 	"sre_budget_reservations": "SRE model budget ledger; deleted with its investigation " +
 		"by sre retention (sre.timeline_retention_days) unless the hold is unsettled",
 	"sre_database_bindings": "stable SRE database identity, one row per database",

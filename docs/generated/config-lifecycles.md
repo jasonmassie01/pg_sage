@@ -208,6 +208,16 @@
 | `schema_lint.include_schemas` | `restart` | `-` |
 | `schema_lint.min_table_rows` | `restart` | `-` |
 | `schema_lint.scan_interval_minutes` | `reconfigure` | `schema_lint` |
+| `sre.actions.approval_ttl_minutes` | `restart` | `-` |
+| `sre.actions.chatops_tolerance_seconds` | `restart` | `-` |
+| `sre.actions.max_evidence_age_seconds` | `restart` | `-` |
+| `sre.actions.proposals` | `restart` | `-` |
+| `sre.actions.protected_applications` | `restart` | `-` |
+| `sre.actions.protected_roles` | `restart` | `-` |
+| `sre.actions.recovery_deadline_minutes` | `restart` | `-` |
+| `sre.actions.recovery_sample_seconds` | `restart` | `-` |
+| `sre.actions.recovery_samples` | `restart` | `-` |
+| `sre.actions.request_approval` | `restart` | `-` |
 | `sre.automatic_start` | `restart` | `-` |
 | `sre.change_events.allowed_sources` | `restart` | `-` |
 | `sre.change_events.feed_enabled` | `restart` | `-` |
