@@ -156,3 +156,52 @@ func TestFleetReloadRebuildDrainsTheRetiredGeneration(t *testing.T) {
 		t.Fatal("rebuild did not retire the old generation after its action")
 	}
 }
+
+// failingCommitOwner fails its commit after the fleet owner committed, so
+// the controller rolls the fleet owner back.
+type failingCommitOwner struct{ name string }
+
+func (o failingCommitOwner) Name() string { return o.name }
+
+func (o failingCommitOwner) Prepare(
+	context.Context, config.ConfigSnapshot, config.ConfigSnapshot,
+) (config.PreparedReconfiguration, error) {
+	return failingCommit{}, nil
+}
+
+type failingCommit struct{}
+
+func (failingCommit) Commit(context.Context) error   { return errors.New("collector refused") }
+func (failingCommit) Rollback(context.Context) error { return nil }
+func (failingCommit) Drain(context.Context) error    { return nil }
+
+func TestFleetReloadRollsBackWhenALaterOwnerFails(t *testing.T) {
+	env := newFleetReloadEnv(t, "ctl", "b")
+	if err := configController.RegisterOwner(failingCommitOwner{name: "collector"}); err != nil {
+		t.Fatal(err)
+	}
+	extra := testdbExtra(t, env, "c")
+	oldB := fleetMgr.GetInstance("b")
+	err := env.reload(func(c *config.Config) {
+		c.Databases = append(withoutDatabase(c.Databases, "b"), extra)
+		c.Collector.IntervalSeconds = 1800
+	})
+	if err != nil {
+		t.Fatalf("reload with a failing owner: %v", err)
+	}
+	if fleetMgr.GetInstance("b") != oldB || poolClosed(oldB.Pool) {
+		t.Fatal("rollback did not restore the removed database's running runtime")
+	}
+	if fleetMgr.GetInstance("c") != nil || fleetMgr.InstanceCount() != 2 {
+		t.Fatal("rollback left the added database published")
+	}
+	if _, ok := fleetLLMBudget.Snapshot()["c"]; ok {
+		t.Fatal("rolled-back addition kept a budget share")
+	}
+	if databaseIndex(cfg.Databases, "b") < 0 || databaseIndex(cfg.Databases, "c") >= 0 {
+		t.Fatal("process config does not show the restored database list")
+	}
+	eventually(t, 5*time.Second, "rolled-back candidate backends to close", func() bool {
+		return pgSageConnections(t, env.admin, extra.Database) == 0
+	})
+}

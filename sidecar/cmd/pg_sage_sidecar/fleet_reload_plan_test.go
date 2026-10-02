@@ -107,7 +107,8 @@ func TestValidateFleetReloadPlanProtectsControlDatabase(t *testing.T) {
 	moved.Host = "elsewhere"
 	rebuildControl := planFleetReload([]config.DatabaseConfig{planDB("ctl")},
 		[]config.DatabaseConfig{moved})
-	if err := validateFleetReloadPlan(rebuildControl, "ctl"); !errors.Is(err, errFleetControlDatabase) {
+	err := validateFleetReloadPlan(rebuildControl, "ctl")
+	if !errors.Is(err, errFleetControlDatabase) {
 		t.Fatalf("reconnecting the control database = %v", err)
 	}
 	retagged := planDB("ctl")

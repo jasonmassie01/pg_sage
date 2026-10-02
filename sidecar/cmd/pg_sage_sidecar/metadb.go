@@ -364,16 +364,7 @@ func registerStoreDatabase(
 // registerFailedInstance adds a non-connected instance to the
 // fleet for visibility in the dashboard.
 func registerFailedInstance(rec store.DatabaseRecord, errMsg string) {
-	dbCfg := storeRecordToDBConfig(rec)
-	fleetMgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name:       rec.Name,
-		DatabaseID: rec.ID,
-		Config:     dbCfg,
-		Status: &fleet.InstanceStatus{
-			Error:    errMsg,
-			LastSeen: time.Now(),
-		},
-	})
+	fleetMgr.RegisterInstance(failedStoreInstance(rec, errMsg))
 }
 
 func prepareStoreDatabase(
@@ -466,6 +457,9 @@ func fleetReconnectLoop(ctx context.Context, state *metaDBState) {
 	for {
 		select {
 		case <-ticker.C:
+			// Rows changed outside this process's API (another replica,
+			// SQL) converge first; failed databases then retry.
+			runMetaReconcilePass(ctx, state)
 			retryFailedInstances(state)
 		case <-ctx.Done():
 			return

@@ -612,6 +612,7 @@ func initFleetMultiDB() {
 	for _, dbCfg := range cfg.Databases {
 		boot.start(dbCfg)
 	}
+	registerFleetDatabasesOwner(boot)
 	// Register fleet databases in sage.databases for config API.
 	if boot.controlPool != nil {
 		registerFleetDatabases(boot.controlPool)

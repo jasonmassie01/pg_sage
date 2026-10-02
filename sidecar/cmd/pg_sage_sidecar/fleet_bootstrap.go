@@ -15,6 +15,10 @@ import (
 // first one whose runtime starts, and the admin user is created there.
 type fleetBootstrap struct {
 	controlPool *pgxpool.Pool
+	// controlName is the control database's fleet name. Auth, sessions,
+	// standing policy and notification rules live there, so a reload may
+	// not remove or reconnect it.
+	controlName string
 	initialized int
 }
 
@@ -22,15 +26,36 @@ type fleetBootstrap struct {
 // cannot connect or be prepared is registered as failed so the dashboard
 // shows why.
 func (b *fleetBootstrap) start(dbCfg config.DatabaseConfig) {
+	rt, err := prepareFleetRuntime(dbCfg, b.controlPool)
+	if err != nil {
+		registerFailedFleetDatabase(dbCfg, err)
+		return
+	}
+	if b.controlPool == nil {
+		// The admin lands where logins are validated. Gating on config
+		// index 0 locked the dashboard when that database was down (LIVE-03).
+		if err := bootstrapAdminIfEmpty(context.Background(), rt.spec.Pool); err != nil {
+			logWarn("fleet", "admin bootstrap: %v", err)
+		}
+		b.controlPool, b.controlName = rt.spec.Pool, dbCfg.Name
+	}
+	rt.publish(fleetMgr)
+	b.initialized++
+}
+
+// prepareFleetRuntime connects one YAML database and builds its runtime
+// without publishing it, for startup and for reloads alike. control is the
+// fleet's control pool; nil makes the database its own control.
+func prepareFleetRuntime(
+	dbCfg config.DatabaseConfig, control *pgxpool.Pool,
+) (*databaseRuntime, error) {
 	logInfo("fleet", "connecting to database %q", dbCfg.Name)
 	dbPool, err := openFleetPool(dbCfg)
 	if err != nil {
 		logError("fleet", "db %q: %v", dbCfg.Name, err)
-		registerFailedFleetDatabase(dbCfg, err)
-		return
+		return nil, err
 	}
 	logInfo("fleet", "db %q: connected", dbCfg.Name)
-	control := b.controlPool
 	if control == nil {
 		control = dbPool
 	}
@@ -42,19 +67,9 @@ func (b *fleetBootstrap) start(dbCfg config.DatabaseConfig) {
 	if err != nil {
 		dbPool.Close()
 		logError("fleet", "db %q: %v", dbCfg.Name, err)
-		registerFailedFleetDatabase(dbCfg, err)
-		return
+		return nil, err
 	}
-	if b.controlPool == nil {
-		// The admin lands where logins are validated. Gating on config
-		// index 0 locked the dashboard when that database was down (LIVE-03).
-		if err := bootstrapAdminIfEmpty(context.Background(), dbPool); err != nil {
-			logWarn("fleet", "admin bootstrap: %v", err)
-		}
-		b.controlPool = dbPool
-	}
-	rt.publish(fleetMgr)
-	b.initialized++
+	return rt, nil
 }
 
 // openFleetPool connects a YAML database with the sidecar's pool settings.
@@ -90,9 +105,15 @@ func openFleetPool(dbCfg config.DatabaseConfig) (*pgxpool.Pool, error) {
 }
 
 func registerFailedFleetDatabase(dbCfg config.DatabaseConfig, err error) {
-	fleetMgr.RegisterInstance(&fleet.DatabaseInstance{
+	fleetMgr.RegisterInstance(failedFleetInstance(dbCfg, err))
+}
+
+// failedFleetInstance is the dashboard placeholder of a database that
+// could not be connected or prepared.
+func failedFleetInstance(dbCfg config.DatabaseConfig, err error) *fleet.DatabaseInstance {
+	return &fleet.DatabaseInstance{
 		Name:   dbCfg.Name,
 		Config: dbCfg,
 		Status: &fleet.InstanceStatus{Error: err.Error(), LastSeen: time.Now()},
-	})
+	}
 }

@@ -233,16 +233,27 @@ func TestMetaReconcileConcurrentPassesPublishOneRuntime(t *testing.T) {
 	env := newMetaReconcileEnv(t)
 	rec := env.record(t, "race")
 	var wg sync.WaitGroup
+	reports := make(chan metaReconcileReport, 5)
 	for range 5 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			reconcileMetaDatabases(context.Background(), fleetMgr, env.state)
+			reports <- reconcileMetaDatabases(context.Background(), fleetMgr, env.state)
 		}()
 	}
 	wg.Wait()
-	if fleetMgr.InstanceCount() != 1 {
-		t.Fatalf("instances = %d, want exactly one", fleetMgr.InstanceCount())
+	close(reports)
+	added := 0
+	for report := range reports {
+		// A pass that lost the race finds the work done; it is not an error.
+		if len(report.Errors) != 0 {
+			t.Errorf("concurrent pass reported %v", report.Errors)
+		}
+		added += len(report.Added)
+	}
+	if fleetMgr.InstanceCount() != 1 || added != 1 {
+		t.Fatalf("instances = %d, additions = %d, want exactly one",
+			fleetMgr.InstanceCount(), added)
 	}
 	assertManagedRuntime(t, fleetMgr.GetInstance("race"), rec.ID, "race")
 	eventually(t, 10*time.Second, "losing candidates to close", func() bool {

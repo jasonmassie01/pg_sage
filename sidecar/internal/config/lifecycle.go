@@ -14,7 +14,6 @@ const (
 	LifecycleLivePolicy  ConfigLifecycle = "live_policy"
 	LifecycleReconfigure ConfigLifecycle = "reconfigure"
 	LifecycleRestart     ConfigLifecycle = "restart"
-	LifecycleAPI         ConfigLifecycle = "lifecycle_api"
 )
 
 // FieldLifecycle is the canonical lifecycle metadata for one YAML field.
@@ -89,8 +88,10 @@ func walkConfigFields(configType reflect.Type, parentIndex []int, prefix string)
 }
 
 func classifyField(path string) (ConfigLifecycle, string) {
-	if path == "databases" {
-		return LifecycleAPI, ""
+	// The YAML fleet's databases (with the defaults folded into them) are
+	// reconciled per database; see DatabaseFieldLifecycles.
+	if path == "databases" || strings.HasPrefix(path, "defaults.") {
+		return LifecycleReconfigure, FleetDatabasesOwner
 	}
 	if isRestartField(path) {
 		return LifecycleRestart, ""
