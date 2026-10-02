@@ -197,11 +197,12 @@ func (r *custodianRun) verify(ctx context.Context, actionID int64) error {
 	if actionID > 0 {
 		updateActionSuccess(ctx, e.pool, actionID)
 		setActionCustodianCriterion(ctx, e.pool, actionID, criterion)
+		r.creditFreezeIncident(ctx, actionID)
 	}
 	return nil
 }
 
-type custodianBaseline struct{ freezeAge *int64 }
+type custodianBaseline struct{ horizon *freezeHorizon }
 
 func (e *Executor) captureCustodianBaseline(
 	ctx context.Context, proposal CustodianProposal,
@@ -209,11 +210,11 @@ func (e *Executor) captureCustodianBaseline(
 	if proposal.Feature != "freeze" || len(proposal.TargetObjects) != 1 {
 		return custodianBaseline{}, nil
 	}
-	age, err := e.freezeAge(ctx, proposal.TargetObjects[0])
+	horizon, err := e.readFreezeHorizon(ctx, proposal.TargetObjects[0])
 	if err != nil {
 		return custodianBaseline{}, err
 	}
-	return custodianBaseline{freezeAge: &age}, nil
+	return custodianBaseline{horizon: &horizon}, nil
 }
 
 func (e *Executor) verifyCustodianAction(
@@ -222,9 +223,9 @@ func (e *Executor) verifyCustodianAction(
 	if proposal.Feature == "freeze_blocker" {
 		return e.verifyXminBlocker(ctx, proposal.Evidence)
 	}
-	if proposal.Feature == "freeze" && baseline.freezeAge != nil {
+	if proposal.Feature == "freeze" && baseline.horizon != nil {
 		after, err := e.freezeAge(ctx, proposal.TargetObjects[0])
-		if err != nil || after > *baseline.freezeAge {
+		if err != nil || after > baseline.horizon.xidAge {
 			return "custodian_freeze", fmt.Errorf("freeze horizon did not improve")
 		}
 		return "custodian_freeze", nil

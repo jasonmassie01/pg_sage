@@ -1,6 +1,23 @@
 # Changelog
 
-## v1.7.0 (2026-09-28) -- Sage SRE investigations, earned index autonomy
+## Unreleased
+
+### Added
+
+- **Wraparound near misses are credited.** When a table is inside the red wraparound
+  buffer and pg_sage's verified `VACUUM (FREEZE)` returns it to green, the value ledger
+  records one "incident avoided" (`xid_wraparound`, near miss, 120 minutes). Both sides are
+  measured on the table, immediately before and after the action. The credit is separate
+  from DBA-hours saved and links to the decision and its verification. Until now
+  `sage.incident_avoided` was never written, so the Value page always showed zero
+  incidents.
+
+### Changed (read before upgrading)
+
+- `disk_full_slot` and `lock_storm` incidents are still not credited. pg_sage does not yet
+  measure disk-fill trend or lock-storm recovery, so it makes no claim for them.
+
+## v1.7.0 (2026-09-30) -- Sage SRE investigations, earned index autonomy
 
 ### What's new
 

@@ -78,3 +78,23 @@ state durable and visible first, then put the control where operators look.
   re-declared; the D2 window grammar; D4 approved-request registration; operator
   re-authorization before execution). One refinement: startup now logs a notice when a
   configured window's meaning changed under the D2 grammar (PR #53).
+
+## Avoided-incident credit (2026-09-30)
+
+Decided by the product principle: pg_sage earns trust by claiming only what it measured.
+
+- **Credited now:** `xid_wraparound` near miss. The executor measures the table's XID and
+  multixact horizon immediately before and after a custodian freeze. Credit is written only
+  when the table was measured inside the red buffer before and is outside the amber buffer
+  after, and the action is verified. One credit per action (unique evidence id); a table
+  must cross into red again to earn another. The freeze still earns its ordinary toil
+  credit: the two ledgers are reported separately and never summed.
+- **Not credited yet:** `disk_full_slot`. A WAL bound caps future growth at 1.5x what is
+  retained; it does not show the disk was on track to fill. Crediting it needs a measured
+  fill trend (retained-WAL growth rate against free space), which the WAL custodian does
+  not sample.
+- **Not credited yet:** `lock_storm`. No path measures both the storm and the recovery that
+  pg_sage caused. Sage SRE M3 (remediation with recovery verification) is the natural
+  place for it.
+- **Severity:** only `near_miss` (120 minutes) is written. `prevented` (480 minutes) needs
+  proof that an outage would have followed, which nothing measures today.
