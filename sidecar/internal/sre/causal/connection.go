@@ -113,11 +113,16 @@ func unavailableReason(o Observation, err error) string {
 }
 
 // compareConn decides whether growth between the samples is meaningful:
-// it needs two samples of the same server incarnation (CHECK-07).
+// it needs two samples of the same server incarnation (CHECK-07), taken
+// at different instants (two samples of one instant that differ
+// contradict each other).
 func compareConn(samples []connSample) (connComparison, string) {
 	c := connComparison{first: samples[0], last: samples[len(samples)-1]}
 	if len(samples) < 2 {
 		return c, "second_sample_unavailable"
+	}
+	if !c.last.obs.Result.ObservedAt.After(c.first.obs.Result.ObservedAt) {
+		return c, "samples_out_of_order"
 	}
 	a, b := sampleServerStart(c.first), sampleServerStart(c.last)
 	if a.IsZero() || b.IsZero() || !a.Equal(b) {

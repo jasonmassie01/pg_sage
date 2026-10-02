@@ -74,7 +74,7 @@ func observations(evidence []Evidence) ([]causal.Observation, error) {
 // diagnose runs the investigation family's matcher and adds pg_sage's
 // own change as a hypothesis.
 func diagnose(inv Investigation, obs []causal.Observation) causal.Diagnosis {
-	obs = currentObservations(obs)
+	obs = freshObservations(currentObservations(obs))
 	var d causal.Diagnosis
 	switch inv.TriggerKind {
 	case TriggerLock:
@@ -107,6 +107,40 @@ func currentObservations(obs []causal.Observation) []causal.Observation {
 		if seriesProbes[o.Result.ProbeID] || latest[o.Result.ProbeID] == i {
 			out = append(out, o)
 		}
+	}
+	return out
+}
+
+// MaxEvidenceSpread is how much older than the investigation's newest
+// observation an observation may be and still describe the incident. The
+// plan's samples are seconds apart and a run has 120 s of active time;
+// an older observation (a run resumed long after its first step, or a
+// replayed snapshot) describes a past state.
+const MaxEvidenceSpread = 5 * time.Minute
+
+// ReasonStaleEvidence marks an observation older than MaxEvidenceSpread.
+const ReasonStaleEvidence = "stale_evidence"
+
+// freshObservations returns obs with every observation older than the
+// newest one by more than MaxEvidenceSpread replaced by an unavailable
+// result (error, stale_evidence) of the same probe and time, so the
+// matchers state it as missing instead of reading it. Observations
+// without a time are never judged stale. obs is not modified.
+func freshObservations(obs []causal.Observation) []causal.Observation {
+	var newest time.Time
+	for _, o := range obs {
+		if o.Result.ObservedAt.After(newest) {
+			newest = o.Result.ObservedAt
+		}
+	}
+	out := make([]causal.Observation, len(obs))
+	for i, o := range obs {
+		at := o.Result.ObservedAt
+		if !at.IsZero() && newest.Sub(at) > MaxEvidenceSpread {
+			o.Result = probes.Result{ProbeID: o.Result.ProbeID, Version: o.Result.Version,
+				Status: probes.StatusError, Reason: ReasonStaleEvidence, ObservedAt: at}
+		}
+		out[i] = o
 	}
 	return out
 }
