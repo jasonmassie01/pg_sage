@@ -59,6 +59,11 @@
 
 ### Changed (read before upgrading)
 
+- **Sage SRE investigations now start by themselves.** `sre.automatic_start` defaults to
+  `true`: after the upgrade, each open lock, connection or WAL incident and each plan
+  regression gets one read-only investigation (catalog probes only, at most 12 probes and
+  120 s, never an action). It works with or without an LLM. To keep starting them only by
+  hand, set `sre.automatic_start: false`.
 - If you already run Sage SRE investigations with an LLM configured, they start using the
   model turn after the upgrade. To keep them deterministic, set `sre.llm.enabled: false`.
   At startup, the schema upgrade replaces the event-type check on `sage.sre_events` with

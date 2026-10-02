@@ -345,8 +345,11 @@ Overview provider-readiness tab.
 
 ### Sage SRE investigations
 
-With `sre.automatic_start: true`, pg_sage investigates each open RCA incident of the lock,
-connection or WAL family and each open `plan_regression` finding, once. An investigation runs
+By default (`sre.automatic_start: true`), pg_sage investigates each open RCA incident of the
+lock, connection or WAL family and each open `plan_regression` finding, once. Investigations
+are read-only and bounded (at most 12 catalog probes and 120 s of active time each), so they
+start by themselves; set `sre.automatic_start: false` to start them only from a case or the
+API. With the LLM off, investigations still run and conclude deterministically. An investigation runs
 the fixed read-only catalog probes of its family (connection and WAL investigations sample
 twice, `sre.sample_interval_seconds` apart), matches them against the deterministic causal
 graph and stores the result: the likely explanation, contributing factors, alternatives and
@@ -385,7 +388,7 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 
 | Parameter | Default | Description |
 |---|---|---|
-| `sre.automatic_start` | `false` | Start investigations from incidents and plan regressions. Off: investigations already stored are still resumed and retained. Restart to change |
+| `sre.automatic_start` | `true` | Start a read-only investigation for each incident and plan regression. `false`: start them only on request; investigations already stored are still resumed and retained. Restart to change |
 | `sre.trigger_interval_seconds` | `15` | Seconds between checks for new triggers and pending investigations, `5`-`600` |
 | `sre.sample_interval_seconds` | `5` | Seconds between the two samples connection and WAL investigations compare, `1`-`30` |
 | `sre.evidence_retention_days` | `30` | Days a finished, unpinned investigation keeps its probe evidence. The delete leaves a tombstone, and the investigation is shown as "evidence deleted by retention" |
