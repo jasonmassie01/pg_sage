@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/store"
@@ -24,11 +28,16 @@ func TestPersistedFalseOverridesBeatLLMDefaultsAtStartup(t *testing.T) {
 		"rca.narration_enabled": func(c *config.Config) bool { return c.RCA.NarrationEnabled },
 		"explain.enabled":       func(c *config.Config) bool { return c.Explain.Enabled },
 	}
+	userID := overrideAuthor(t, pool)
 	for key := range keys {
-		if err := configs.SetOverride(ctx, key, "false", 0, 1); err != nil {
+		if err := configs.SetOverride(ctx, key, "false", 0, userID); err != nil {
 			t.Fatalf("persist %s=false: %v", key, err)
 		}
-		t.Cleanup(func() { _ = configs.DeleteOverride(ctx, key, 0) })
+		t.Cleanup(func() {
+			if err := configs.DeleteOverride(ctx, key, 0); err != nil {
+				t.Errorf("delete override %s: %v", key, err)
+			}
+		})
 	}
 	cfg = config.DefaultConfig()
 	configController = nil
@@ -47,12 +56,27 @@ func TestPersistedFalseOverridesBeatLLMDefaultsAtStartup(t *testing.T) {
 	}
 }
 
+// overrideAuthor creates the user an override is attributed to
+// (sage.config.updated_by_user_id references sage.users). The package's
+// test database is created and dropped per run.
+func overrideAuthor(t *testing.T, pool *pgxpool.Pool) int {
+	t.Helper()
+	var id int
+	if err := pool.QueryRow(context.Background(), `INSERT INTO sage.users
+		(email, password, role) VALUES ($1, 'test-only-unusable-hash', 'admin')
+		RETURNING id`, fmt.Sprintf("llm-defaults-%d@pg-sage.test",
+		time.Now().UnixNano())).Scan(&id); err != nil {
+		t.Fatalf("create override author: %v", err)
+	}
+	return id
+}
+
 // tuner.llm_enabled is YAML-only: the override store refuses it, so the
 // CHANGELOG points operators at the config file for that switch.
 func TestTunerLLMSwitchIsNotAPersistedOverride(t *testing.T) {
 	pool := preflightRuntimePool(t)
 	err := store.NewConfigStore(pool).SetOverride(
-		context.Background(), "tuner.llm_enabled", "false", 0, 1)
+		context.Background(), "tuner.llm_enabled", "false", 0, overrideAuthor(t, pool))
 	if err == nil || !strings.Contains(err.Error(), "unknown config key") {
 		t.Fatalf("SetOverride(tuner.llm_enabled) err = %v, want unknown key", err)
 	}
