@@ -14,7 +14,7 @@ import (
 // pre-M1 simulation must drop them first.
 var sreTables = []string{"sre_deployments", "sre_database_bindings",
 	"sre_investigations", "sre_steps", "sre_evidence", "sre_budget_reservations",
-	"sre_hypotheses", "sre_events", "sre_tombstones"}
+	"sre_hypotheses", "sre_events", "sre_tombstones", "sre_action_proposals"}
 
 func TestSREMigration_IdempotentAndPreservesIncidentsAndActions(t *testing.T) {
 	pool, ctx := requireDB(t)
