@@ -4,6 +4,20 @@
 
 ### Added
 
+- **Runways and pre-incident investigations (Sage SRE).** pg_sage now watches how fast your
+  database approaches four hard limits: transaction-ID wraparound, a full disk (when you
+  declare `forecaster.disk_capacity_bytes`), the WAL a replication slot may retain, and a
+  sequence running out (including a bigint sequence feeding an integer column). Every minute
+  it samples these series and projects when each limit is reached. When one comes within its
+  horizon (14 days for wraparound, 72 hours for disk and slots, 30 days for sequences), it
+  opens a forecast finding and a read-only investigation that explains why: for example a
+  forgotten transaction holding back vacuum, a slot nobody consumes, or a column narrower than
+  its sequence. The investigation lists the existing freeze or WAL-bound action that fixes it
+  with the policy gate's verdict, but never runs it; your custodians still act under your
+  autonomy settings. A verified WAL bound now earns an "incident avoided" (disk full, near
+  miss) when the measured fill trend shows the disk would have filled within the horizon and
+  no longer does; managed providers are never credited. Settings are under `sre.runways`.
+
 - **Sage SRE investigations get a model turn (on by default whenever an LLM is
   configured).** After the causal graph diagnoses an incident, your configured LLM reviews
   the result. It can reorder the graph's own hypotheses (shown separately as "model
