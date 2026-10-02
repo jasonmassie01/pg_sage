@@ -15,6 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/sre"
+	"github.com/pg-sage/sidecar/internal/sre/action"
 )
 
 // DatabaseInstance holds the runtime state for a single managed database.
@@ -33,6 +34,9 @@ type DatabaseInstance struct {
 	// API and MCP tools read investigations through it. Nil when the
 	// investigator could not be built.
 	Investigations *sre.Service
+	// Actions proposes, hands off and verifies this database's Sage SRE
+	// actions (M5). Nil when the action service could not be built.
+	Actions *action.ActionService
 	Status         *InstanceStatus
 	Stopped        bool
 	// StoppedBy and StoppedAt attribute the active emergency stop. Like
