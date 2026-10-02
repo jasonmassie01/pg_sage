@@ -22,8 +22,8 @@ func verifiedActionForFinding(f analyzer.Finding) (verifiedIndexAction, error) {
 	indexName := createIndexIdentifier(f.RecommendedSQL)
 	// Optimizer identities are "schema.table|<index definition>" (C05).
 	table := strings.TrimSpace(analyzer.OptimizerFindingTable(f))
-	if indexName == "" || table == "" || len(queryIDs) == 0 || f.RollbackSQL == "" {
-		return verifiedIndexAction{}, ErrVerificationUnavailable
+	if err := verifiablePreconditions(indexName, table, f.RollbackSQL, queryIDs); err != nil {
+		return verifiedIndexAction{}, err
 	}
 	upper := strings.ToUpper(normalizeSQLText(f.RecommendedSQL))
 	if strings.Contains(upper, " IF NOT EXISTS ") ||
@@ -196,4 +196,23 @@ func (e *Executor) admitVerifiedCreate(
 	}
 	f.RollbackSQL = action.RollbackSQL
 	return action, e.snapshotSupersededIndex(ctx, *f, beforeState)
+}
+
+// verifiablePreconditions names the first missing piece a verified index
+// build needs (dogfood lifeos-1: a bare "index verification unavailable"
+// read as if verification were not wired).
+func verifiablePreconditions(indexName, table, rollbackSQL string, queryIDs []int64) error {
+	switch {
+	case indexName == "":
+		return fmt.Errorf("%w: the proposed CREATE INDEX has no index name",
+			ErrVerificationUnavailable)
+	case table == "":
+		return fmt.Errorf("%w: the proposal names no target table", ErrVerificationUnavailable)
+	case rollbackSQL == "":
+		return fmt.Errorf("%w: the proposal has no rollback", ErrVerificationUnavailable)
+	case len(queryIDs) == 0:
+		return fmt.Errorf("%w: no target queries to verify against (no workload on "+
+			"the table yet)", ErrVerificationUnavailable)
+	}
+	return nil
 }

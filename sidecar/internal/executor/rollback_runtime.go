@@ -118,6 +118,10 @@ func (e *Executor) resumeMonitor(
 		authorize = e.standingRollbackAuthorizer(analyzer.Finding{RecommendedSQL: rollbackSQL})
 	}
 	cfg := e.rollbackMonitorConfig(authorize)
+	if verificationExpired(executedAt, cfg.window(), time.Now()) {
+		expireMonitor(ctx, e.pool, actionID, executedAt, cfg.window(), e.logFn)
+		return
+	}
 	remaining := time.Until(executedAt.Add(cfg.window()))
 	if remaining < 0 {
 		remaining = 0
