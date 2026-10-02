@@ -293,3 +293,22 @@ func TestReplayReport_UsagePerArm(t *testing.T) {
 		t.Fatalf("markdown lacks the usage:\n%s", md)
 	}
 }
+
+// Post-test audit (a mutant scoring CHECK-36 on every sufficient case
+// survived): CHECK-36 counts positive cases only, so correct adversarial
+// or missing-data cases cannot lift a weak positive top-1 over the bar.
+func TestReplayGates_Check36CountsPositiveCasesOnly(t *testing.T) {
+	rs := replayFamily(ArmCausalGraph, sre.TriggerLock, "idle_in_tx_holder", 7, 8)
+	for i := 0; i < 10; i++ {
+		rs = append(rs, replayRun(ArmCausalGraph, sre.TriggerLock, ClassAdversarial,
+			Gold{Root: "idle_in_tx_holder"}, "idle_in_tx_holder", 300+i))
+	}
+	gs := replayGates(t, rs, ArmCausalGraph, "")
+	if g := gateOf(t, gs, GateTop1, lockFam); g.Status != GatePass {
+		t.Fatalf("R1-TOP1 over all sufficient cases (19/22) = %+v, want pass", g)
+	}
+	g := gateOf(t, gs, GateReplayTop1, lockFam)
+	if g.Status != GateFail || !strings.Contains(g.Observed, "7/10") {
+		t.Fatalf("CHECK-36 with 7/10 positive = %+v, want fail", g)
+	}
+}

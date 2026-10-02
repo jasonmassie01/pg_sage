@@ -280,11 +280,14 @@ func quantile(ds []time.Duration, q float64) (time.Duration, bool) {
 
 // ModelTally sums the model turn counts of scored runs with a model.
 type ModelTally struct {
-	Runs      int `json:"runs"`
-	Turns     int `json:"model_turns"`
-	Reviewed  int `json:"model_reviewed"`
-	Rejected  int `json:"model_rejected"`
-	Disagreed int `json:"model_disagreed"`
+	Runs           int      `json:"runs"`
+	Turns          int      `json:"model_turns"`
+	Reviewed       int      `json:"model_reviewed"`
+	Rejected       int      `json:"model_rejected"`
+	Disagreed      int      `json:"model_disagreed"`
+	Claims         int      `json:"claims"`
+	ClaimsResolved int      `json:"claims_resolved"`
+	Usage          TapUsage `json:"usage"`
 }
 
 func (m *ModelTally) add(s *ModelStats) {
@@ -296,4 +299,7 @@ func (m *ModelTally) add(s *ModelStats) {
 	m.Reviewed += s.Reviewed
 	m.Rejected += s.Rejected
 	m.Disagreed += s.Disagreed
+	m.Claims += s.Claims
+	m.ClaimsResolved += s.ClaimsResolved
+	m.Usage.Add(s.Usage)
 }

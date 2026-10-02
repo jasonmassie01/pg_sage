@@ -84,12 +84,18 @@ type Outcome struct {
 
 // ModelStats counts one investigation's model turn: turns used, accepted
 // reviews, fallbacks to the deterministic result and disagreements with
-// a conclusive graph.
+// a conclusive graph; the narrated claims and how many cite evidence of
+// the investigation that still verifies; the first node of the stored
+// model ranking; and the model traffic the tap saw.
 type ModelStats struct {
-	Turns     int `json:"model_turns"`
-	Reviewed  int `json:"model_reviewed"`
-	Rejected  int `json:"model_rejected"`
-	Disagreed int `json:"model_disagreed"`
+	Turns          int      `json:"model_turns"`
+	Reviewed       int      `json:"model_reviewed"`
+	Rejected       int      `json:"model_rejected"`
+	Disagreed      int      `json:"model_disagreed"`
+	Claims         int      `json:"claims"`
+	ClaimsResolved int      `json:"claims_resolved"`
+	RankedFirst    string   `json:"model_ranked_first,omitempty"`
+	Usage          TapUsage `json:"usage"`
 }
 
 // Result is one arm's run of one scenario in one repeat. Skipped names a

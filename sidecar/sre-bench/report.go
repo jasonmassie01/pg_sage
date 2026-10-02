@@ -89,6 +89,8 @@ type Report struct {
 	Cells         []CellRecord      `json:"cells"`
 	Gates         []GateResult      `json:"gates"`
 	Runs          []RunRecord       `json:"runs"`
+	// Replay is the replay corpus section, when the replay ran.
+	Replay *ReplayReport `json:"replay,omitempty"`
 }
 
 // Metric is a proportion with its denominator; the rate and Wilson

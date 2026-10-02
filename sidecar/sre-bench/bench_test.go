@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/sre-bench/replay"
 )
 
 func TestMain(m *testing.M) {
@@ -51,6 +52,7 @@ func TestPGIncidentBench(t *testing.T) {
 	report := BuildReport(results, ReportMeta{Arms: cfg.ArmNames(), Gated: cfg.Gated(),
 		Pending: cfg.Pending(), Repeats: repeats, ServerVersion: version,
 		GeneratedAt: time.Now().UTC(), LLM: llm})
+	report.Replay = benchReplay(t, ctx, env, cfg, version)
 	t.Log("\n" + report.Markdown())
 	jsonPath, mdPath, err := WriteReport(ReportDir(os.Getenv(EnvReportDir), t.TempDir()),
 		report)
@@ -59,7 +61,34 @@ func TestPGIncidentBench(t *testing.T) {
 	}
 	t.Logf("report: %s, %s", jsonPath, mdPath)
 	checkRuns(t, cfg, results)
-	checkGates(t, cfg, report.Gates)
+	checkGates(t, cfg, append(append([]GateResult(nil), report.Gates...),
+		report.Replay.Gates...))
+}
+
+// benchReplay replays the embedded corpus through the bench's live arms
+// that can replay it, with the same model as the LLM-on arm.
+func benchReplay(t *testing.T, ctx context.Context, env *Env, cfg RunConfig,
+	version string) *ReplayReport {
+	t.Helper()
+	cases, err := replay.Corpus()
+	if err != nil {
+		t.Fatalf("replay corpus: %v", err)
+	}
+	var arms []LiveArm
+	var names []string
+	llm := LLMConfig{Mode: LLMFake}
+	for _, a := range cfg.Live {
+		if _, ok := a.(replayModeler); ok {
+			arms, names = append(arms, a), append(names, a.Name())
+		}
+		if l, ok := a.(LLMArm); ok {
+			llm = l.Config
+		}
+	}
+	rep := BuildReplayReport(RunReplay(ctx, env, cases, arms), cases, ReplayMeta{
+		Arms: names, Gated: names, LLM: llm, GeneratedAt: time.Now().UTC(),
+		ServerVersion: version})
+	return &rep
 }
 
 func checkRuns(t *testing.T, cfg RunConfig, results []Result) {

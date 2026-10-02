@@ -82,6 +82,7 @@ func (r Report) Markdown() string {
 		"denominator.\n\n## Per family and arm\n\n")
 	r.writeCells(&b)
 	r.writeModel(&b)
+	writeUsage(&b, r.usage(), r.LLM)
 	b.WriteString("\n## Gates\n\n")
 	b.WriteString(row("gate", "family", "arm", "status", "observed", "threshold", "note"))
 	b.WriteString(separator(7))
@@ -91,7 +92,21 @@ func (r Report) Markdown() string {
 	}
 	b.WriteString("\n## Runs\n\n")
 	r.writeRuns(&b)
+	if r.Replay != nil {
+		b.WriteString("\n" + r.Replay.Markdown())
+	}
 	return b.String()
+}
+
+// usage is each arm's pooled model traffic.
+func (r Report) usage() []ArmUsage {
+	var out []ArmUsage
+	for _, c := range r.Cells {
+		if c.Family == PooledFamily && c.Model != nil {
+			out = append(out, ArmUsage{Arm: c.Arm, Runs: c.Model.Runs, Usage: c.Model.Usage})
+		}
+	}
+	return out
 }
 
 func (r Report) writeCells(b *strings.Builder) {
