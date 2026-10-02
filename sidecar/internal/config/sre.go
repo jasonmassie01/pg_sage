@@ -41,10 +41,10 @@ const (
 func defaultSREConfig() SREConfig {
 	return SREConfig{AutomaticStart: true,
 		TriggerIntervalSeconds: DefaultSRETriggerIntervalSeconds,
-		SampleIntervalSeconds: DefaultSRESampleIntervalSeconds,
-		EvidenceRetentionDays: DefaultSREEvidenceRetentionDays,
-		TimelineRetentionDays: DefaultSRETimelineRetentionDays,
-		LLM:                   SRELLMConfig{Enabled: true}}
+		SampleIntervalSeconds:  DefaultSRESampleIntervalSeconds,
+		EvidenceRetentionDays:  DefaultSREEvidenceRetentionDays,
+		TimelineRetentionDays:  DefaultSRETimelineRetentionDays,
+		LLM:                    SRELLMConfig{Enabled: true}}
 }
 
 // TriggerInterval is the coordinator poll period.
