@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/policy"
@@ -112,7 +113,10 @@ func TestDecisionEvidenceNamesFamilyAndClass(t *testing.T) {
 	}
 }
 
-func handoffExecutor(t *testing.T, level int) (*Executor, *countingLimiter) {
+// handoffExecutor takes the package database once per test: requireDB holds
+// the cross-package test lock until the test ends, so a second call in
+// the same test would wait for itself.
+func handoffExecutor(t *testing.T, level int) (*Executor, *pgxpool.Pool) {
 	t.Helper()
 	pool, _ := requireDB(t)
 	limiter := &countingLimiter{limit: policy.AutonomyLimit{Level: level, Granted: level}}
@@ -123,12 +127,12 @@ func handoffExecutor(t *testing.T, level int) (*Executor, *countingLimiter) {
 	doc.MaintenanceWindows = []string{"always"}
 	exec.EnableStandingPolicyDocument(doc, nil)
 	exec.WithEmergencyStopCheck(func(context.Context) bool { return false })
-	return exec, limiter
+	return exec, pool
 }
 
-func pendingHandoffs(t *testing.T, key string) int {
+func pendingHandoffs(t *testing.T, pool *pgxpool.Pool, key string) int {
 	t.Helper()
-	pool, ctx := requireDB(t)
+	ctx := context.Background()
 	var n int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.action_queue
 		WHERE identity_key = $1 AND status = 'pending'`, key).Scan(&n); err != nil {
@@ -137,9 +141,9 @@ func pendingHandoffs(t *testing.T, key string) int {
 	return n
 }
 
-func clearHandoffs(t *testing.T, key string) {
+func clearHandoffs(t *testing.T, pool *pgxpool.Pool, key string) {
 	t.Helper()
-	pool, ctx := requireDB(t)
+	ctx := context.Background()
 	clean := func() {
 		_, _ = pool.Exec(ctx, "DELETE FROM sage.action_queue WHERE identity_key = $1", key)
 	}
@@ -150,17 +154,17 @@ func clearHandoffs(t *testing.T, key string) {
 const freezeHandoffKey = "autonomy:wraparound_runway:freeze:public.orders"
 
 func TestL2VerdictQueuesOneApprovalHandoff(t *testing.T) {
-	exec, _ := handoffExecutor(t, 2)
-	clearHandoffs(t, freezeHandoffKey)
+	exec, pool := handoffExecutor(t, 2)
+	clearHandoffs(t, pool, freezeHandoffKey)
 	for i := 0; i < 2; i++ {
 		if err := exec.SubmitCustodianProposal(context.Background(), freezeProposal()); err != nil {
 			t.Fatalf("submit %d: %v", i, err)
 		}
 	}
-	if n := pendingHandoffs(t, freezeHandoffKey); n != 1 {
+	if n := pendingHandoffs(t, pool, freezeHandoffKey); n != 1 {
 		t.Fatalf("pending handoffs = %d, want exactly 1", n)
 	}
-	pool, ctx := requireDB(t)
+	ctx := context.Background()
 	var actionType, decision, sql string
 	if err := pool.QueryRow(ctx, `SELECT action_type, policy_decision, proposed_sql
 		FROM sage.action_queue WHERE identity_key = $1`, freezeHandoffKey).
@@ -174,21 +178,21 @@ func TestL2VerdictQueuesOneApprovalHandoff(t *testing.T) {
 }
 
 func TestL1VerdictIsAManualScriptNotAHandoff(t *testing.T) {
-	exec, _ := handoffExecutor(t, 1)
-	clearHandoffs(t, freezeHandoffKey)
+	exec, pool := handoffExecutor(t, 1)
+	clearHandoffs(t, pool, freezeHandoffKey)
 	err := exec.SubmitCustodianProposal(context.Background(), freezeProposal())
 	if !errors.Is(err, ErrCustodianProposalWithheld) {
 		t.Fatalf("submit at L1: %v", err)
 	}
-	if n := pendingHandoffs(t, freezeHandoffKey); n != 0 {
+	if n := pendingHandoffs(t, pool, freezeHandoffKey); n != 0 {
 		t.Fatalf("pending handoffs at L1 = %d", n)
 	}
 }
 
 func TestRejectedHandoffIsNotReproposedAtOnce(t *testing.T) {
-	exec, _ := handoffExecutor(t, 2)
-	clearHandoffs(t, freezeHandoffKey)
-	pool, ctx := requireDB(t)
+	exec, pool := handoffExecutor(t, 2)
+	clearHandoffs(t, pool, freezeHandoffKey)
+	ctx := context.Background()
 	if _, err := pool.Exec(ctx, `INSERT INTO sage.action_queue (proposed_sql, action_risk,
 		status, identity_key, decided_at) VALUES ($1, 'safe', 'rejected', $2, now())`,
 		freezeProposal().SQL, freezeHandoffKey); err != nil {
@@ -197,7 +201,7 @@ func TestRejectedHandoffIsNotReproposedAtOnce(t *testing.T) {
 	if err := exec.SubmitCustodianProposal(context.Background(), freezeProposal()); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	if n := pendingHandoffs(t, freezeHandoffKey); n != 0 {
+	if n := pendingHandoffs(t, pool, freezeHandoffKey); n != 0 {
 		t.Fatalf("re-proposed a handoff the operator just rejected: %d", n)
 	}
 }
