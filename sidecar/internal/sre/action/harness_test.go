@@ -1,4 +1,4 @@
-package sre
+package action
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -148,12 +149,12 @@ func (c *testClock) advance(d time.Duration) {
 }
 
 type actionHarness struct {
-	st       *PostgresStore
+	st       *sre.PostgresStore
 	pool     *pgxpool.Pool
 	ctx      context.Context
-	coord    *Coordinator
-	svc      *Service
-	inv      Investigation
+	coord    *sre.Coordinator
+	svc      *sre.Service
+	inv      sre.Investigation
 	targets  *scriptedRunner
 	cancel   *fakeCanceller
 	notes    *fakeNotifier
@@ -170,18 +171,18 @@ type actionHarness struct {
 func newActionHarness(t *testing.T, diagnose *scriptedRunner,
 	mutate ...func(*ActionConfig)) *actionHarness {
 	t.Helper()
-	st, pool, ctx := liveStore(t, DefaultLimits())
+	st, pool, ctx := liveStore(t, sre.DefaultLimits())
 	if diagnose == nil {
 		diagnose = activeChainRunner()
 	}
-	c, _ := testCoordinator(t, ctx, st, diagnose, nil)
+	c := testCoordinator(t, ctx, st, diagnose, nil)
 	h := &actionHarness{st: st, pool: pool, ctx: ctx, coord: c, diagnose: diagnose,
-		svc: NewService("orders", c, st), cancel: newFakeCanceller(),
+		svc: sre.NewService("orders", c, st), cancel: newFakeCanceller(),
 		notes: &fakeNotifier{}, queue: NewPGApprovalQueue(pool, nil),
 		as: store.NewActionStore(pool), clock: &testClock{now: time.Now()},
 		targets: newScriptedRunner().script(probes.SignalTarget, targetProbeRow()).
 			script(probes.RecoverySample, recoveryRows(false))}
-	h.inv = startAndRun(t, ctx, c, lockTrigger(string(NewUUID())))
+	h.inv = startAndRun(t, ctx, st, c, lockTrigger(string(sre.NewUUID())))
 	h.cfg = DefaultActionConfig()
 	h.cfg.RequestApproval = false
 	h.cfg.RecoveryInterval, h.cfg.RecoverySamples = time.Second, 3
@@ -192,7 +193,7 @@ func newActionHarness(t *testing.T, diagnose *scriptedRunner,
 	return h
 }
 
-func (h *actionHarness) newService(t *testing.T, svc *Service) *ActionService {
+func (h *actionHarness) newService(t *testing.T, svc *sre.Service) *ActionService {
 	t.Helper()
 	a, err := NewActionService(ActionDeps{Service: svc, Targets: h.targets,
 		Queue: h.queue, Executor: h.cancel, Notifier: h.notes, Config: h.cfg,
@@ -227,7 +228,7 @@ func (h *actionHarness) approved(t *testing.T, p Proposal, user int) store.Queue
 	return *a
 }
 
-func (h *actionHarness) proposal(t *testing.T, id UUID) Proposal {
+func (h *actionHarness) proposal(t *testing.T, id sre.UUID) Proposal {
 	t.Helper()
 	p, err := h.actions.Get(h.ctx, id)
 	if err != nil {
@@ -265,7 +266,7 @@ func countOf(types []string, want string) int {
 }
 
 // queueRows counts approval items of a proposal, in any state.
-func (h *actionHarness) queueRows(t *testing.T, id UUID) int {
+func (h *actionHarness) queueRows(t *testing.T, id sre.UUID) int {
 	t.Helper()
 	var n int
 	if err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM sage.action_queue

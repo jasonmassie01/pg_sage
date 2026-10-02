@@ -1,4 +1,4 @@
-package sre
+package action
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/store"
 	"github.com/pg-sage/sidecar/internal/testdb"
@@ -130,13 +131,13 @@ type liveActions struct {
 
 // newLiveActions investigates the live chain with real probes and wires
 // the action service to the real executor behind the staffed policy.
-func newLiveActions(t *testing.T, st *PostgresStore, pool *pgxpool.Pool,
+func newLiveActions(t *testing.T, st *sre.PostgresStore, pool *pgxpool.Pool,
 	ctx context.Context) *liveActions {
 	t.Helper()
-	coord, _ := testCoordinator(t, ctx, st, probes.NewRunner(pool, probes.Catalog(), nil),
+	coord := testCoordinator(t, ctx, st, probes.NewRunner(pool, probes.Catalog(), nil),
 		nil)
-	inv := startAndRun(t, ctx, coord, lockTrigger(string(NewUUID())))
-	if inv.State != StateConcluded || inv.Summary.Root != "ddl_lock_queue" {
+	inv := startAndRun(t, ctx, st, coord, lockTrigger(string(sre.NewUUID())))
+	if inv.State != sre.StateConcluded || inv.Summary.Root != "ddl_lock_queue" {
 		t.Fatalf("live investigation = %s root %q (%s)", inv.State, inv.Summary.Root,
 			inv.Summary.Reason)
 	}
@@ -148,7 +149,7 @@ func newLiveActions(t *testing.T, st *PostgresStore, pool *pgxpool.Pool,
 	ac := DefaultActionConfig()
 	ac.RequestApproval = false
 	ac.RecoveryInterval, ac.RecoverySamples = 300*time.Millisecond, 3
-	svc := NewService("orders", coord, st)
+	svc := sre.NewService("orders", coord, st)
 	actions, err := NewActionService(ActionDeps{Service: svc,
 		Targets: probes.NewRunner(pool, probes.ActionRegistry(), nil),
 		Queue:   NewPGApprovalQueue(pool, nil), Executor: exec, Config: ac,
@@ -163,7 +164,7 @@ func newLiveActions(t *testing.T, st *PostgresStore, pool *pgxpool.Pool,
 }
 
 func TestLiveApprovedCancelRecoversTheChain(t *testing.T) {
-	st, pool, ctx := liveStore(t, DefaultLimits())
+	st, pool, ctx := liveStore(t, sre.DefaultLimits())
 	lc := startLiveChain(t, ctx, pool, "SELECT pg_sleep(30) FROM $TABLE")
 	la := newLiveActions(t, st, pool, ctx)
 	p := la.h.requested(t)
@@ -209,7 +210,7 @@ func TestLiveApprovedCancelRecoversTheChain(t *testing.T) {
 // CHECK-19 live: the approved target finished and the same session runs a
 // new statement; the recheck refuses, and the new statement keeps running.
 func TestLiveApprovedCancelRefusesTheSessionsNextQuery(t *testing.T) {
-	st, pool, ctx := liveStore(t, DefaultLimits())
+	st, pool, ctx := liveStore(t, sre.DefaultLimits())
 	lc := startLiveChain(t, ctx, pool, "SELECT pg_sleep(4) FROM $TABLE",
 		"SELECT pg_sleep(20) FROM $TABLE")
 	la := newLiveActions(t, st, pool, ctx)

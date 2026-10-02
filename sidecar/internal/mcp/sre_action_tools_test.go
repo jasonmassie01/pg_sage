@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/sre"
+	sreaction "github.com/pg-sage/sidecar/internal/sre/action"
 )
 
 // Sage SRE action tools (AI-SRE-SPEC §9, CHECK-39): sre_propose_action
@@ -143,10 +144,10 @@ func TestSREActionTools_TypedArgumentsOnly(t *testing.T) {
 
 func TestSREActionTools_ErrorsAreDistinguishable(t *testing.T) {
 	for err, code := range map[error]float64{
-		sre.ErrProposalNotFound: -32004,
-		sre.ErrProposalState:    -32009,
-		sre.ErrPolicyBlocked:    -32010,
-		sre.ErrHandoffBlocked:   -32603,
+		sreaction.ErrProposalNotFound: -32004,
+		sreaction.ErrProposalState: -32009,
+		sreaction.ErrPolicyBlocked: -32010,
+		sreaction.ErrHandoffBlocked: -32603,
 		sre.ErrInvalidRequest:   -32602,
 		errors.New("boom"):      -32603,
 	} {

@@ -25,6 +25,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/sre"
+	sreaction "github.com/pg-sage/sidecar/internal/sre/action"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -63,7 +64,7 @@ type chatFixture struct {
 	h        http.Handler
 	pool     *pgxpool.Pool
 	f        *actionFixture
-	proposal sre.Proposal
+	proposal sreaction.Proposal
 	slackCh  int
 	tgCh     int
 	operator int
@@ -210,7 +211,7 @@ func TestChatOpsSlackApprovalRunsTheExistingApproval(t *testing.T) {
 		t.Fatalf("queue = %s decided by %v", status, decided)
 	}
 	p, _ := cf.f.actions.Get(context.Background(), cf.proposal.ID)
-	if p.State != sre.ProposalExecuted || p.DecidedBy != cf.operator {
+	if p.State != sreaction.ProposalExecuted || p.DecidedBy != cf.operator {
 		t.Fatalf("proposal = %s by %d", p.State, p.DecidedBy)
 	}
 	if !strings.Contains(cf.replies.last(), "executed") {
@@ -284,7 +285,7 @@ func TestChatOpsSlackDenyRejectsAndAttributes(t *testing.T) {
 		t.Fatalf("queue = %s decided by %v", status, decided)
 	}
 	p, _ := cf.f.actions.Get(context.Background(), cf.proposal.ID)
-	if p.State != sre.ProposalDenied || p.DecidedBy != cf.operator ||
+	if p.State != sreaction.ProposalDenied || p.DecidedBy != cf.operator ||
 		cf.f.canceler.count() != 0 {
 		t.Fatalf("proposal = %s by %d, cancels %d", p.State, p.DecidedBy,
 			cf.f.canceler.count())

@@ -19,6 +19,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/sre"
+	sreaction "github.com/pg-sage/sidecar/internal/sre/action"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
@@ -104,7 +105,7 @@ func (c *recordingCanceller) count() int {
 type actionFixture struct {
 	pool     *pgxpool.Pool
 	inv      sre.Investigation
-	actions  *sre.ActionService
+	actions  *sreaction.ActionService
 	exec     *executor.Executor
 	canceler *recordingCanceller
 }
@@ -142,10 +143,10 @@ func actionInstance(t *testing.T, mgr *fleet.DatabaseManager, name, trust string
 	exec.WithEmergencyStopCheck(func(context.Context) bool { return false })
 	svc := sre.NewService(name, coord, st)
 	f := &actionFixture{pool: pool, exec: exec, canceler: &recordingCanceller{exec: exec}}
-	ac := sre.DefaultActionConfig()
+	ac := sreaction.DefaultActionConfig()
 	ac.RequestApproval = false
-	f.actions, err = sre.NewActionService(sre.ActionDeps{Service: svc,
-		Targets: targetRunner{}, Queue: sre.NewPGApprovalQueue(pool, nil),
+	f.actions, err = sreaction.NewActionService(sreaction.ActionDeps{Service: svc,
+		Targets: targetRunner{}, Queue: sreaction.NewPGApprovalQueue(pool, nil),
 		Executor: f.canceler, Config: ac, LogFn: func(string, string, ...any) {}})
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +154,7 @@ func actionInstance(t *testing.T, mgr *fleet.DatabaseManager, name, trust string
 	exec.SetApprovedActionRunner(f.actions)
 	f.inv = inv
 	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: name, Pool: pool, Executor: exec,
-		Status: &fleet.InstanceStatus{}, Investigations: svc})
+		Status: &fleet.InstanceStatus{}, Investigations: svc, Actions: f.actions})
 	return f
 }
 
@@ -254,7 +255,7 @@ func TestSREActionAPI_ViewerReadsOnly(t *testing.T) {
 		}
 	}
 	got, _ := f.actions.Get(context.Background(), p.ID)
-	if got.State != sre.ProposalProposed {
+	if got.State != sreaction.ProposalProposed {
 		t.Fatalf("viewer changed the proposal to %s", got.State)
 	}
 }

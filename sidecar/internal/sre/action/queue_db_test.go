@@ -1,10 +1,12 @@
-package sre
+package action
 
 import (
 	"errors"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/sre"
 )
 
 // The approval queue adapter writes into the existing approval flow: one
@@ -12,16 +14,16 @@ import (
 // manual "take action" path can never run it) and one sage.action_queue
 // row per proposal, in any state.
 
-func approvalItem(id UUID) ApprovalItem {
-	return ApprovalItem{ProposalID: id, InvestigationID: NewUUID(), PID: 5151,
+func approvalItem(id sre.UUID) ApprovalItem {
+	return ApprovalItem{ProposalID: id, InvestigationID: sre.NewUUID(), PID: 5151,
 		SQL: "SELECT pg_cancel_backend(5151)", Title: "Cancel blocking backend pid 5151",
 		Detail: "pid 5151 blocks 2 sessions", ExpiresAt: time.Now().Add(15 * time.Minute)}
 }
 
 func TestPGApprovalQueueEnqueueIsIdempotent(t *testing.T) {
-	_, pool, ctx := liveStore(t, DefaultLimits())
+	_, pool, ctx := liveStore(t, sre.DefaultLimits())
 	q := NewPGApprovalQueue(pool, nil)
-	id := NewUUID()
+	id := sre.NewUUID()
 	first, err := q.Enqueue(ctx, approvalItem(id))
 	if err != nil || !first.Created || first.QueueID <= 0 || first.FindingID <= 0 {
 		t.Fatalf("first enqueue = %+v, %v", first, err)
@@ -58,9 +60,9 @@ func TestPGApprovalQueueEnqueueIsIdempotent(t *testing.T) {
 }
 
 func TestPGApprovalQueueConcurrentEnqueueCreatesOneItem(t *testing.T) {
-	_, pool, ctx := liveStore(t, DefaultLimits())
+	_, pool, ctx := liveStore(t, sre.DefaultLimits())
 	q := NewPGApprovalQueue(pool, nil)
-	id := NewUUID()
+	id := sre.NewUUID()
 	var wg sync.WaitGroup
 	created := make(chan bool, 10)
 	for i := 0; i < 10; i++ {
@@ -92,7 +94,7 @@ func TestPGApprovalQueueConcurrentEnqueueCreatesOneItem(t *testing.T) {
 }
 
 func TestPGApprovalQueueValidatesItems(t *testing.T) {
-	_, pool, ctx := liveStore(t, DefaultLimits())
+	_, pool, ctx := liveStore(t, sre.DefaultLimits())
 	q := NewPGApprovalQueue(pool, nil)
 	for name, mutate := range map[string]func(*ApprovalItem){
 		"no proposal": func(i *ApprovalItem) { i.ProposalID = "" },
@@ -103,10 +105,10 @@ func TestPGApprovalQueueValidatesItems(t *testing.T) {
 		},
 		"expired": func(i *ApprovalItem) { i.ExpiresAt = time.Now().Add(-time.Second) },
 	} {
-		item := approvalItem(NewUUID())
+		item := approvalItem(sre.NewUUID())
 		mutate(&item)
-		if _, err := q.Enqueue(ctx, item); !errors.Is(err, ErrInvalidRequest) {
-			t.Errorf("%s: Enqueue = %v, want ErrInvalidRequest", name, err)
+		if _, err := q.Enqueue(ctx, item); !errors.Is(err, sre.ErrInvalidRequest) {
+			t.Errorf("%s: Enqueue = %v, want sre.ErrInvalidRequest", name, err)
 		}
 	}
 	if _, err := q.Status(ctx, 0); !errors.Is(err, ErrProposalNotFound) {
@@ -115,9 +117,9 @@ func TestPGApprovalQueueValidatesItems(t *testing.T) {
 }
 
 func TestPGApprovalQueueVerificationStatus(t *testing.T) {
-	_, pool, ctx := liveStore(t, DefaultLimits())
+	_, pool, ctx := liveStore(t, sre.DefaultLimits())
 	q := NewPGApprovalQueue(pool, nil)
-	item, err := q.Enqueue(ctx, approvalItem(NewUUID()))
+	item, err := q.Enqueue(ctx, approvalItem(sre.NewUUID()))
 	if err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -128,15 +130,15 @@ func TestPGApprovalQueueVerificationStatus(t *testing.T) {
 		t.Fatalf("verification = %+v", s)
 	}
 	if err := q.SetVerification(ctx, item.QueueID, "rm -rf"); !errors.Is(err,
-		ErrInvalidRequest) {
-		t.Fatalf("unknown verification status = %v, want ErrInvalidRequest", err)
+		sre.ErrInvalidRequest) {
+		t.Fatalf("unknown verification status = %v, want sre.ErrInvalidRequest", err)
 	}
 }
 
 func TestPGApprovalQueueResolveClosesTheAnchorFinding(t *testing.T) {
-	_, pool, ctx := liveStore(t, DefaultLimits())
+	_, pool, ctx := liveStore(t, sre.DefaultLimits())
 	q := NewPGApprovalQueue(pool, nil)
-	item, err := q.Enqueue(ctx, approvalItem(NewUUID()))
+	item, err := q.Enqueue(ctx, approvalItem(sre.NewUUID()))
 	if err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
@@ -158,7 +160,7 @@ func TestPGApprovalQueueResolveClosesTheAnchorFinding(t *testing.T) {
 }
 
 func TestApprovalIdentityKeyRoundTrip(t *testing.T) {
-	id := NewUUID()
+	id := sre.NewUUID()
 	got, ok := ProposalIDFromIdentityKey(ApprovalIdentityPrefix + string(id))
 	if !ok || got != id {
 		t.Fatalf("round trip = %s %v", got, ok)

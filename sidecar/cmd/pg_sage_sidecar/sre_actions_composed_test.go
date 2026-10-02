@@ -22,6 +22,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/sre"
+	sreaction "github.com/pg-sage/sidecar/internal/sre/action"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
@@ -97,7 +98,7 @@ func startM5ActiveChain(t *testing.T, ctx context.Context, dsn string,
 type m5Fixture struct {
 	pool     *pgxpool.Pool
 	inv      sre.Investigation
-	actions  *sre.ActionService
+	actions  *sreaction.ActionService
 	router   http.Handler
 	operator string
 	viewer   string
@@ -140,7 +141,8 @@ func newM5Fixture(t *testing.T) *m5Fixture {
 	}
 	mgr := fleet.NewManager(c)
 	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "m5_db", Pool: pool,
-		Executor: exec, Status: &fleet.InstanceStatus{}, Investigations: svc})
+		Executor: exec, Status: &fleet.InstanceStatus{}, Investigations: svc,
+		Actions: f.actions})
 	f.router = m5Router(t, c, mgr, pool)
 	f.operator = m5Session(t, pool, auth.RoleOperator)
 	f.viewer = m5Session(t, pool, auth.RoleViewer)

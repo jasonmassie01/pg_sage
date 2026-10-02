@@ -1,4 +1,4 @@
-package sre
+package action
 
 import (
 	"encoding/json"
@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
@@ -18,13 +19,13 @@ import (
 
 var deriveStart = time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 
-func evidenceOf(t *testing.T, res probes.Result) Evidence {
+func evidenceOf(t *testing.T, res probes.Result) sre.Evidence {
 	t.Helper()
 	raw, err := json.Marshal(res)
 	if err != nil {
 		t.Fatalf("marshal evidence: %v", err)
 	}
-	return Evidence{ID: NewUUID(), ProbeID: string(res.ProbeID), ProbeVersion: "v1",
+	return sre.Evidence{ID: sre.NewUUID(), ProbeID: string(res.ProbeID), ProbeVersion: "v1",
 		CapabilityState: "available", ObservedAt: deriveStart, Payload: raw}
 }
 
@@ -47,21 +48,21 @@ func activeDDLGraph() probes.Result {
 }
 
 type deriveCase struct {
-	inv  Investigation
-	hyps []HypothesisRecord
-	ev   []Evidence
+	inv  sre.Investigation
+	hyps []sre.HypothesisRecord
+	ev   []sre.Evidence
 }
 
 func lockCase(t *testing.T, node, subject string, graph probes.Result) deriveCase {
 	t.Helper()
 	g := evidenceOf(t, graph)
 	return deriveCase{
-		inv: Investigation{ID: NewUUID(), State: StateConcluded, TriggerKind: TriggerLock,
-			Summary: Summary{Family: "lock_blocking", Conclusive: true, Root: node}},
-		hyps: []HypothesisRecord{{Revision: 1, Ordinal: 1, Family: "lock_blocking",
-			Node: node, Subject: subject, Status: HypothesisRoot, Confidence: 0.7,
-			Support: []Fact{{EvidenceID: g.ID, Text: "root blocker"}}}},
-		ev: []Evidence{g},
+		inv: sre.Investigation{ID: sre.NewUUID(), State: sre.StateConcluded, TriggerKind: sre.TriggerLock,
+			Summary: sre.Summary{Family: "lock_blocking", Conclusive: true, Root: node}},
+		hyps: []sre.HypothesisRecord{{Revision: 1, Ordinal: 1, Family: "lock_blocking",
+			Node: node, Subject: subject, Status: sre.HypothesisRoot, Confidence: 0.7,
+			Support: []sre.Fact{{EvidenceID: g.ID, Text: "root blocker"}}}},
+		ev: []sre.Evidence{g},
 	}
 }
 
@@ -138,17 +139,17 @@ func TestDeriveCancelLongHotRowHolderIsEligible(t *testing.T) {
 
 func TestDeriveCancelNeedsAConcludedSupportedFamily(t *testing.T) {
 	c := lockCase(t, "ddl_lock_queue", "pid 5151", activeDDLGraph())
-	c.inv.State = StateInconclusive
+	c.inv.State = sre.StateInconclusive
 	if _, why := c.derive(); why == nil || why.Reason != ReasonNotConcluded {
 		t.Fatalf("inconclusive = %+v, want not_concluded", why)
 	}
 	c = lockCase(t, "ddl_lock_queue", "pid 5151", activeDDLGraph())
-	c.inv.TriggerKind = TriggerWAL
+	c.inv.TriggerKind = sre.TriggerWAL
 	if _, why := c.derive(); why == nil || why.Reason != ReasonUnsupportedFamily {
 		t.Fatalf("WAL family = %+v, want unsupported_family", why)
 	}
 	c = lockCase(t, "ddl_lock_queue", "pid 5151", activeDDLGraph())
-	c.hyps[0].Status = HypothesisUnproven
+	c.hyps[0].Status = sre.HypothesisUnproven
 	if _, why := c.derive(); why == nil || why.Reason != ReasonNotConcluded {
 		t.Fatalf("no root hypothesis = %+v, want not_concluded", why)
 	}
@@ -159,19 +160,19 @@ func connectionCase(t *testing.T, node string, citeGraph bool) deriveCase {
 	g := evidenceOf(t, activeDDLGraph())
 	conn := evidenceOf(t, rows(probes.ConnectionSaturation,
 		connRow("api", "active", 12, 40)))
-	support := []Fact{{EvidenceID: conn.ID, Text: "12 backends wait on locks"}}
+	support := []sre.Fact{{EvidenceID: conn.ID, Text: "12 backends wait on locks"}}
 	if citeGraph {
-		support = append(support, Fact{EvidenceID: g.ID,
+		support = append(support, sre.Fact{EvidenceID: g.ID,
 			Text: "the lock graph shows root blocker pid 5151"})
 	}
 	return deriveCase{
-		inv: Investigation{ID: NewUUID(), State: StateConcluded,
-			TriggerKind: TriggerConnections,
-			Summary:     Summary{Family: "connection_pressure", Conclusive: true, Root: node}},
-		hyps: []HypothesisRecord{{Revision: 1, Ordinal: 1, Family: "connection_pressure",
-			Node: node, Subject: "lock waits", Status: HypothesisRoot, Confidence: 0.8,
+		inv: sre.Investigation{ID: sre.NewUUID(), State: sre.StateConcluded,
+			TriggerKind: sre.TriggerConnections,
+			Summary:     sre.Summary{Family: "connection_pressure", Conclusive: true, Root: node}},
+		hyps: []sre.HypothesisRecord{{Revision: 1, Ordinal: 1, Family: "connection_pressure",
+			Node: node, Subject: "lock waits", Status: sre.HypothesisRoot, Confidence: 0.8,
 			Support: support}},
-		ev: []Evidence{conn, g},
+		ev: []sre.Evidence{conn, g},
 	}
 }
 
@@ -198,7 +199,7 @@ func TestDeriveCancelEvidenceProblems(t *testing.T) {
 	}{
 		"graph not cited": {func() deriveCase {
 			c := lockCase(t, "ddl_lock_queue", "pid 5151", activeDDLGraph())
-			c.hyps[0].Support = []Fact{{EvidenceID: NewUUID(), Text: "x"}}
+			c.hyps[0].Support = []sre.Fact{{EvidenceID: sre.NewUUID(), Text: "x"}}
 			return c
 		}, ReasonLockEvidenceMissing},
 		"graph unusable": {func() deriveCase {
