@@ -105,7 +105,7 @@ func TestReasoningModel_NonThinkingRequestUnchanged(t *testing.T) {
 // and the investigator's daily allocation both count the reasoning.
 func TestReasoningModel_DailyBudgetsStillRefuse(t *testing.T) {
 	small := budgetLimits()
-	small.DatabaseDailyTokens, small.DeploymentDailyTokens = 12000, 12000
+	small.DatabaseDailyTokens, small.DeploymentDailyTokens = 12000, 1_000_000_000
 	cases := map[string]struct {
 		limits Limits
 		daily  int

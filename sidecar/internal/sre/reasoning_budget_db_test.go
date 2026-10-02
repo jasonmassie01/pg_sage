@@ -74,7 +74,9 @@ func TestReserveModel_ReasoningRequestBounds(t *testing.T) {
 // The daily allocation counts answer and reasoning together.
 func TestReserveModel_DailyAllocationCountsReasoning(t *testing.T) {
 	limits := budgetLimits()
-	limits.DatabaseDailyTokens, limits.DeploymentDailyTokens = 30000, 30000
+	// The deployment's day is shared by every test of the package; the
+	// database's (a fresh scope) is the tight one.
+	limits.DatabaseDailyTokens, limits.DeploymentDailyTokens = 30000, 1_000_000_000
 	st, _, ctx := liveStore(t, limits)
 	first := claimed(t, st, "pid 72")
 	if _, err := st.ReserveModel(ctx, first, reasoningReq("d1", 8192)); err != nil {
