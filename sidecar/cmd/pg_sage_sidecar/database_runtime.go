@@ -20,6 +20,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/sre"
+	sreaction "github.com/pg-sage/sidecar/internal/sre/action"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/startup"
 	"github.com/pg-sage/sidecar/internal/store"
@@ -85,6 +86,8 @@ type databaseRuntime struct {
 	// runs on the instance worker group.
 	sre        *sre.Coordinator
 	sreService *sre.Service
+	// sreActions proposes, hands off and verifies Sage SRE actions (M5).
+	sreActions *sreaction.ActionService
 	sreStarted bool
 	logFanout  *logwatch.LogFanout
 	brief      *briefing.Worker
@@ -110,6 +113,7 @@ func buildDatabaseRuntime(
 	rt := newDatabaseRuntime(spec, checks)
 	rt.startMonitoring()
 	rt.startExecution()
+	rt.startSREActions()
 	rt.logExecutorSettings()
 	rt.inst = rt.instance()
 	logInfo(spec.Scope, "db %q: initialized (%s)", spec.Name,
@@ -241,6 +245,7 @@ func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 		Config: rt.spec.Config, Pool: rt.spec.Pool,
 		Collector: rt.collector, Analyzer: rt.analyzer, Executor: rt.executor,
 		Investigations: rt.sreService,
+		Actions:        rt.sreActions,
 		Cancel:         rt.cancel, Workers: rt.workers,
 		ExecutorShutdown: rt.executor.Shutdown,
 		Status: &fleet.InstanceStatus{

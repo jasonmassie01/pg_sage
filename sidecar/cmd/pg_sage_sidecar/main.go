@@ -502,6 +502,7 @@ func registerNotifySenders(d *notify.Dispatcher) {
 	d.RegisterSender(notify.NewSlackSenderWithPolicy(policy))
 	d.RegisterSender(notify.NewEmailSenderWithPolicy(policy))
 	d.RegisterSender(notify.NewPagerDutySender())
+	d.RegisterSender(notify.NewTelegramSenderWithPolicy(policy))
 }
 
 // buildAlertRoutes constructs channel instances and severity routing
