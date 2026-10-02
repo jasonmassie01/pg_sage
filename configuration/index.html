@@ -562,6 +562,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sage-sre-approved-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sage SRE approved actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#retention" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -982,6 +993,17 @@
     <span class="md-ellipsis">
       
         Sage SRE investigations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sage-sre-approved-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sage SRE approved actions
       
     </span>
   </a>
@@ -1719,6 +1741,126 @@ query text. Evidence, hypotheses, events and exports are redacted before they le
 <code>GET .../{id}/export</code> (JSON, or <code>?format=markdown</code>) and <code>POST .../{id}/pin</code> or <code>/unpin</code>.
 With MCP enabled, agents get the read-only tools <code>sre_list_incidents</code>,
 <code>sre_get_investigation</code> and <code>sre_get_evidence</code>.</p>
+<h3 id="sage-sre-approved-actions">Sage SRE approved actions<a class="headerlink" href="#sage-sre-approved-actions" title="Permanent link">&para;</a></h3>
+<p>When an investigation concludes that one active backend is the root of a lock or
+connection-pressure incident (a statement holding a lock that a DDL or other sessions queue
+behind), pg_sage proposes one action: <code>pg_cancel_backend</code> of that backend. Nothing else is
+ever proposed. Termination is never proposed, an idle-in-transaction holder is not proposed
+(a cancel does not end an idle transaction; the investigation says so), and a prepared
+transaction or contention spread across many sessions is "not proposed" with the reason.</p>
+<p>The proposal is derived only from the investigation's cited evidence and a fresh sample of
+the target. It names the exact backend: pid, backend start, query start, database, user,
+query hash and query id. It also carries its repair contract (mitigation only, one backend,
+the conditions recovery is checked against, what is never done) and the policy verdict. A
+proposal never executes by itself:</p>
+<ol>
+<li>With <code>sre.actions.request_approval: true</code>, a proposal the policy would allow gets exactly
+   one item in the database's existing approval queue, and is sent to ChatOps channels.
+   Operators can also request approval in the Cases panel or with the MCP tool
+   <code>sre_request_execution</code>.</li>
+<li>A human approves it, on the Actions page, in the Cases panel or with a chat button. The
+   approval is single use and records who approved.</li>
+<li>pg_sage samples the backend again and compares the whole identity. The evidence may be at
+   most <code>sre.actions.max_evidence_age_seconds</code> old, and the signalling statement checks the
+   identity once more. If the backend finished, changed, stopped blocking or is protected,
+   nothing is signalled, and the investigation timeline records why.</li>
+<li>After the cancel, pg_sage samples the blocking every <code>sre.actions.recovery_sample_seconds</code>
+   until <code>sre.actions.recovery_samples</code> fresh samples decide: recovered (the target's wait
+   edges cleared and lock waits fell), not recovered, or inconclusive. The result is recorded
+   on the timeline and closes the action's verification. Value is credited only on recovery.</li>
+</ol>
+<p>The policy gate decides as for any action. <code>trust.level</code> must be <code>advisory</code> or <code>autonomous</code>
+(under <code>observation</code> the proposal shows why it is withheld), and the emergency stop and the
+execution mode apply. An approved cancel is incident mitigation, so maintenance windows do
+not delay it. Replication connections, pg_sage's own sessions and <code>pg_dump</code>,
+<code>pg_basebackup</code> and <code>pg_restore</code> sessions are never targeted. Superuser sessions are not
+protected by default, so list roles or applications that must never be cancelled.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sre.actions.proposals</code></td>
+<td><code>true</code></td>
+<td>Propose automatically for concluded lock and connection investigations. Operators can always propose explicitly. Restart to change</td>
+</tr>
+<tr>
+<td><code>sre.actions.request_approval</code></td>
+<td><code>true</code></td>
+<td>Queue a proposal the policy allows for approval and notify ChatOps channels at once</td>
+</tr>
+<tr>
+<td><code>sre.actions.approval_ttl_minutes</code></td>
+<td><code>15</code></td>
+<td>Minutes an approval request stays open, <code>1</code>-<code>60</code></td>
+</tr>
+<tr>
+<td><code>sre.actions.max_evidence_age_seconds</code></td>
+<td><code>5</code></td>
+<td>Oldest identity evidence a cancel may act on, <code>1</code>-<code>5</code></td>
+</tr>
+<tr>
+<td><code>sre.actions.recovery_sample_seconds</code></td>
+<td><code>40</code></td>
+<td>Seconds between recovery samples, <code>1</code>-<code>300</code></td>
+</tr>
+<tr>
+<td><code>sre.actions.recovery_samples</code></td>
+<td><code>3</code></td>
+<td>Fresh samples a recovery verdict needs, <code>3</code>-<code>20</code></td>
+</tr>
+<tr>
+<td><code>sre.actions.recovery_deadline_minutes</code></td>
+<td><code>30</code></td>
+<td>Minutes before an unproven recovery is reported inconclusive, <code>1</code>-<code>240</code>, at least the sampling span</td>
+</tr>
+<tr>
+<td><code>sre.actions.chatops_tolerance_seconds</code></td>
+<td><code>300</code></td>
+<td>Maximum age and clock skew of a signed Slack callback, <code>30</code>-<code>900</code></td>
+</tr>
+<tr>
+<td><code>sre.actions.protected_roles</code></td>
+<td><code>[]</code></td>
+<td>Roles whose sessions are never targeted</td>
+</tr>
+<tr>
+<td><code>sre.actions.protected_applications</code></td>
+<td><code>[]</code></td>
+<td><code>application_name</code> values whose sessions are never targeted</td>
+</tr>
+</tbody>
+</table>
+<p>Routes: <code>GET .../investigations/{id}/proposals</code> (any role), and for operators and admins
+<code>POST .../investigations/{id}/proposals</code> (propose) and
+<code>POST .../investigations/{id}/proposals/{proposal_id}/request</code>. Approval and denial use the
+existing <code>POST /api/v1/actions/{queue_id}/approve</code> and <code>/reject</code>. With MCP enabled, operators
+and admins get <code>sre_propose_action</code> and <code>sre_request_execution</code>. Neither tool executes.</p>
+<p><strong>Approving in Slack or Telegram.</strong> Approval requests are <code>approval_needed</code> notifications,
+so add a notification rule for that event to the channel.</p>
+<ul>
+<li><em>Slack</em>: in the channel's config, set <code>interactive: "true"</code> and the Slack app's
+  <code>signing_secret</code>, plus <code>team_id</code> to accept only your workspace. Set the app's
+  Interactivity Request URL to <code>https://&lt;sidecar&gt;/api/v1/chatops/slack/&lt;channel id&gt;</code>.
+  Requests are verified with Slack's v0 signature within
+  <code>sre.actions.chatops_tolerance_seconds</code>.</li>
+<li><em>Telegram</em>: create a channel of type <code>telegram</code> with <code>bot_token</code>, a numeric <code>chat_id</code> and a
+  <code>webhook_secret</code> (letters, digits, <code>_</code> and <code>-</code>). Register the webhook with
+  <code>setWebhook?url=https://&lt;sidecar&gt;/api/v1/chatops/telegram/&lt;channel id&gt;&amp;secret_token=&lt;webhook_secret&gt;</code>.
+  Only button presses from that chat are accepted.</li>
+</ul>
+<p>A chat user can decide only after an admin maps them to a pg_sage user:
+<code>POST /api/v1/chatops/identities</code> with <code>{"provider": "slack", "team_id": "T...",
+"external_user_id": "U...", "user_id": 7}</code> (Telegram: the numeric user id, no <code>team_id</code>).
+The pg_sage user's current role must be operator or admin. Each callback is processed once,
+and the decision goes through the same approval as the browser, attributed to the mapped
+user. Bot tokens, signing secrets and webhook secrets are sealed at rest like other channel
+secrets.</p>
 <h3 id="retention">Retention<a class="headerlink" href="#retention" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
