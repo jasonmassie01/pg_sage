@@ -156,6 +156,27 @@ func (c *mainChild) terminate(t *testing.T) int {
 	return c.wait(t, 30*time.Second)
 }
 
+// waitForListeners dials each addr until it accepts: the sidecar logs
+// "listening on" from the server goroutine just before it binds, so the log
+// line alone does not mean the port is open.
+func waitForListeners(t *testing.T, timeout time.Duration, addrs ...string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for _, addr := range addrs {
+		for {
+			conn, err := net.DialTimeout("tcp", addr, time.Second)
+			if err == nil {
+				_ = conn.Close()
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s never accepted connections: %v", addr, err)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
 func containsAll(s string, want []string) bool {
 	for _, w := range want {
 		if !strings.Contains(s, w) {

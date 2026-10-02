@@ -80,6 +80,7 @@ llm:
 	child := startMainChild(t, []string{"SAGE_SUPERVISED=1"}, "--config", path)
 	child.waitForOutput(t, childStartTimeout, "[api] listening on "+api,
 		"[prometheus] listening on "+prom)
+	waitForListeners(t, 10*time.Second, api, prom)
 	out := child.out.String()
 	for _, want := range []string{
 		"[startup] connected to PostgreSQL", "[startup] cloud environment: ",
@@ -131,6 +132,7 @@ llm:
 	child := startMainChild(t, nil, "--config", path)
 	child.waitForOutput(t, childStartTimeout, "[api] listening on "+api,
 		"[prometheus] listening on "+prom)
+	waitForListeners(t, 10*time.Second, api, prom)
 	out := child.out.String()
 	for _, want := range []string{
 		"[fleet] 1 of 1 configured databases initialized", "restart endpoint disabled",
@@ -168,6 +170,7 @@ llm:
 `, dsn, api, prom))
 	child := startMainChild(t, nil, "--config", path)
 	child.waitForOutput(t, childStartTimeout, "[api] listening on "+api)
+	waitForListeners(t, 10*time.Second, api)
 	out := child.out.String()
 	if !strings.Contains(out, "[startup] meta database initialized") ||
 		strings.Contains(out, "connected to PostgreSQL") {
