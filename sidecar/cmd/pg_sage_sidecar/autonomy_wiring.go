@@ -116,6 +116,11 @@ func (l failClosedLimiter) Limit(context.Context, policy.ActionRequest) (
 func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 	b autonomyBinding) error {
 	svc, err := a.ledgerFor(ctx, b.control, b.settings)
+	if err == nil {
+		// Keep the autonomy this database's configuration already grants
+		// (coordinator decision 2026-10-02): M7 gates new autonomy only.
+		_, err = svc.SeedCarriedOver(ctx, b.database, ex.OperatorBound())
+	}
 	if err != nil {
 		if b.settings.Enforce {
 			ex.WithAutonomy(failClosedLimiter{fmt.Errorf("autonomy ledger: %w", err)})

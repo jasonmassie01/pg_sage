@@ -74,7 +74,13 @@ func (rt *databaseRuntime) buildExecutor() {
 		id := rt.spec.DatabaseID
 		policyDatabaseID = &id
 	}
-	// Earned autonomy (M7) restricts the gate built just below.
+	if err := ex.SetTrustLevel(rt.spec.Config.TrustLevel); err != nil {
+		logWarn(rt.spec.Scope, "db %q: invalid trust level %q: %v",
+			rt.spec.Name, rt.spec.Config.TrustLevel, err)
+	}
+	ex.SetExecutorEnabled(rt.spec.Config.IsExecutorEnabled())
+	// Earned autonomy (M7) restricts the gate built just below. It carries
+	// over the autonomy this database's settings (applied above) grant.
 	rt.installAutonomy(ex)
 	if err := ex.EnableStandingPolicyWithStore(
 		rt.ctx, rt.spec.ControlPool, cfg.Policy.Profile, policyDatabaseID,
@@ -82,11 +88,6 @@ func (rt *databaseRuntime) buildExecutor() {
 		logError(rt.spec.Scope, "db %q: standing policy unavailable; executor is "+
 			"fail-closed: %v", rt.spec.Name, err)
 	}
-	if err := ex.SetTrustLevel(rt.spec.Config.TrustLevel); err != nil {
-		logWarn(rt.spec.Scope, "db %q: invalid trust level %q: %v",
-			rt.spec.Name, rt.spec.Config.TrustLevel, err)
-	}
-	ex.SetExecutorEnabled(rt.spec.Config.IsExecutorEnabled())
 	if rt.dispatcher != nil {
 		ex.WithDispatcher(rt.dispatcher)
 	}
