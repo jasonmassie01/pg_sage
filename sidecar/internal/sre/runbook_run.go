@@ -40,6 +40,12 @@ func (c *Coordinator) applyRunbook(ctx context.Context, lease Lease, inv Investi
 	if !ok {
 		return lease, d, ev, nil, nil
 	}
+	// Renew the lease first: the plan's last commit and the evidence read
+	// ran since the last heartbeat.
+	lease, err := c.store.Heartbeat(ctx, lease)
+	if err != nil {
+		return lease, d, ev, nil, err
+	}
 	rbs, err := src.RunnableRunbooks(ctx, lease.Scope)
 	if err != nil {
 		if ctx.Err() != nil {
