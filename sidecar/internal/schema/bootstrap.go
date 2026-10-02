@@ -384,7 +384,8 @@ func migrationStatements() []string {
 	// class split (version 2).
 	return append(statements, ddlPolicyChangeClassSplit, ddlPolicyWindowCronDuration,
 		ddlRetentionColumnDeclaration, ddlTableContractIdentity, ddlSRECoordination,
-		ddlSREInvestigator, ddlSREModelEvents, ddlRecommendationAll)
+		ddlSREInvestigator, ddlSREModelEvents, ddlSREReasoningBudget,
+		ddlRecommendationAll)
 }
 
 // ---------------------------------------------------------------------------

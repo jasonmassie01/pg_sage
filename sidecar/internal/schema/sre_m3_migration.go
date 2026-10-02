@@ -22,3 +22,14 @@ BEGIN
     END IF;
 END $$;
 `
+
+// ddlSREReasoningBudget adds a thinking model's reasoning allowance to
+// the model budget ledger, separate from the answer tokens: what a turn
+// reserved and what the provider reported. Rows written before it hold
+// no reasoning. Idempotent.
+const ddlSREReasoningBudget = `
+ALTER TABLE sage.sre_budget_reservations
+    ADD COLUMN IF NOT EXISTS reasoning_reserved bigint NOT NULL DEFAULT 0
+        CHECK (reasoning_reserved >= 0),
+    ADD COLUMN IF NOT EXISTS reasoning_used bigint CHECK (reasoning_used >= 0);
+`
