@@ -18,10 +18,13 @@ const (
 	TriggerWAL         TriggerKind = "wal_retention"
 	TriggerPlan        TriggerKind = "plan_regression"
 	TriggerOperator    TriggerKind = "operator"
+	// TriggerSLOBurn is a page-level SLO burn (M5): it triages the lock,
+	// connection and plan mechanisms with the SLO as evidence.
+	TriggerSLOBurn TriggerKind = "slo_burn"
 )
 
 var triggerKinds = map[TriggerKind]bool{TriggerLock: true, TriggerConnections: true,
-	TriggerWAL: true, TriggerPlan: true, TriggerOperator: true}
+	TriggerWAL: true, TriggerPlan: true, TriggerOperator: true, TriggerSLOBurn: true}
 
 // StartRequest asks for an investigation of one scoped trigger.
 type StartRequest struct {

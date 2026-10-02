@@ -76,6 +76,9 @@ type Summary struct {
 	ModelRanking *ModelRanking `json:"model_ranking,omitempty"`
 	Narrative    *Narrative    `json:"narrative,omitempty"`
 	ModelProbe   *ModelProbe   `json:"model_probe,omitempty"`
+	// CustomerImpact (M5) is the customer-impact claim bound to the SLO
+	// status evidence; only a registered app SLI can claim it.
+	CustomerImpact *CustomerImpact `json:"customer_impact,omitempty"`
 }
 
 // Conclusion ends an investigation run: concluded (a supported root
