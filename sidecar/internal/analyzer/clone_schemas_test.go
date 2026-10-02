@@ -46,7 +46,7 @@ func TestCollapseCloneSchemas_OneFindingPerFamily(t *testing.T) {
 		}
 	}
 	in = append(in, dupFindingIn("public"))
-	out := collapseCloneSchemas(snap, in)
+	out := collapseCloneSchemas(snap, in, idleSignals())
 	var family []Finding
 	others := 0
 	for _, f := range out {
@@ -85,7 +85,7 @@ func TestCollapseCloneSchemas_Boundaries(t *testing.T) {
 	for i := 0; i < cloneFamilyMin-1; i++ {
 		in = append(in, dupFindingIn(fmt.Sprintf("tmp_%032x", i+1)))
 	}
-	if out := collapseCloneSchemas(small, in); len(out) != len(in) {
+	if out := collapseCloneSchemas(small, in, idleSignals()); len(out) != len(in) {
 		t.Fatalf("%d copies collapsed into %d findings", cloneFamilyMin-1, len(out))
 	}
 	named := cloneSnapshot("x_", 0, "sales", "billing", "audit", "crm", "ops", "hr")
@@ -93,17 +93,17 @@ func TestCollapseCloneSchemas_Boundaries(t *testing.T) {
 	for _, s := range []string{"sales", "billing", "audit", "crm", "ops", "hr"} {
 		named2 = append(named2, dupFindingIn(s))
 	}
-	if out := collapseCloneSchemas(named, named2); len(out) != len(named2) {
+	if out := collapseCloneSchemas(named, named2, idleSignals()); len(out) != len(named2) {
 		t.Fatalf("hand-named schemas collapsed: %+v", out)
 	}
 }
 
 func TestCollapseCloneSchemas_EmptyInputs(t *testing.T) {
-	if out := collapseCloneSchemas(nil, nil); len(out) != 0 {
+	if out := collapseCloneSchemas(nil, nil, idleSignals()); len(out) != 0 {
 		t.Fatalf("nil = %+v", out)
 	}
 	in := []Finding{dupFindingIn("public")}
-	if out := collapseCloneSchemas(&collector.Snapshot{}, in); len(out) != 1 {
+	if out := collapseCloneSchemas(&collector.Snapshot{}, in, idleSignals()); len(out) != 1 {
 		t.Fatalf("empty snapshot changed findings: %+v", out)
 	}
 }
