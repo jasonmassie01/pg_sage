@@ -1,6 +1,34 @@
 # Changelog
 
-## Unreleased
+## v1.8.0 (2026-10-02) -- Sage SRE: eleven incident families, approved actions, earned autonomy
+
+### What's new
+
+- **pg_sage is an AI DBA: LLM features are on by default.** As soon as an LLM endpoint and
+  key are configured, the optimizer, advisor, tuner hints, incident narration and the Sage
+  SRE model turn use it. Without one, everything runs deterministically and pg_sage logs
+  one line saying how to configure it. Spend is capped by `llm.token_budget_daily`.
+- **Sage SRE investigates eleven incident families and starts by itself.** Lock blocking,
+  connection pressure, WAL retention, plan regression, checkpoint storms, temp-file
+  explosions, replication lag, LWLock contention, and three runways: wraparound, disk/WAL
+  and sequence exhaustion. Runway investigations open *before* the incident. Every
+  investigation answers "what changed?" with cited evidence, and your LLM reviews the
+  causal graph's result: it may rank, ask for one more probe and write cited claims, but
+  never overrides a conclusive root cause.
+- **Approved actions.** When one backend is blocking everyone, pg_sage proposes cancelling
+  exactly that backend. A human approves it in the UI, Slack or Telegram; pg_sage re-checks
+  the identity, cancels, then verifies the incident cleared.
+- **SLOs and burn-rate alerts.** App SLOs from Prometheus or signed pushes, plus four
+  labeled database proxies; page-level burns open an investigation.
+- **Earned autonomy.** Each incident family and action has a level from L0 to L4.
+  Promotion needs benchmark evidence, a track record and your approval. Autonomy drops
+  automatically while an error budget burns or during failover, and existing custodian
+  autonomy is carried over unchanged.
+- **Signed runbooks and incident memory.** The LLM drafts a runbook from an English
+  playbook; it runs only after an admin signs it. Similar past incidents inform the model.
+- **PGIncidentBench.** An open benchmark that scores the investigator against baselines on
+  real fault programs and a 60-case replay corpus, with decoys, background load and
+  pre-registered gates, in CI on PostgreSQL 14–18.
 
 ### Added
 
@@ -213,34 +241,6 @@
   the ledger. `sre.autonomy.bench_results_path` now also reads the per-shard reports CI
   writes under `pgincidentbench/`.
 
-### Fixed
-
-- **A connection leak beside another application's steady pool is now the root cause.** The
-  steady pool tied with the leak and was named the cause. A pool that does not grow cannot
-  explain pressure that does, so it is now listed as contributing (the baseline the leak
-  grows on) and the leaking application is the root. A pool of the leaking application
-  itself is still that leak. The graph version stays `causal-v3`. The replay case that
-  exposed this is no longer held-out evidence for this shape; a fresh case with different
-  numbers, outside the corpus, checks it.
-
-- **Sage SRE no longer reports "no lock waits" when it cannot see them.** A database role
-  without `pg_read_all_stats` (included in `pg_monitor`) sees other users' sessions without
-  their state or wait events, so investigations reported no blocking, no long transactions
-  and too few connections. Those probes now report "no privilege" and the investigation
-  says the evidence is missing instead of guessing. Grant `pg_monitor` to the role pg_sage
-  uses (the documented setup already does).
-- **Sage SRE ignores evidence that is too old or contradictory.** An observation more than
-  5 minutes older than the investigation's newest one (for example after an investigation
-  was paused and resumed), or two connection samples taken at the same instant, are listed
-  as missing evidence instead of supporting a root cause.
-- **The new incident families follow the same rule.** LWLock waits, a standby's longest
-  query, the statements spilling temp files, the sessions holding back the xmin horizon and
-  the busy autovacuum workers also need `pg_read_all_stats`; without it those probes report
-  "no privilege" instead of "no contention" or "no holder".
-- **`forecaster.disk_capacity_bytes` no longer claims to auto-detect.** Nothing detects disk
-  capacity (PostgreSQL cannot report free space over SQL), so `0`, the default, means
-  undeclared: no disk runway and no disk-full credit. Set it for self-managed servers.
-
 ### Changed (read before upgrading)
 
 - **Sage SRE investigations now start by themselves.** `sre.automatic_start` defaults to
@@ -298,6 +298,32 @@
   measure disk-fill trend or lock-storm recovery, so it makes no claim for them.
 
 ### Fixed
+
+- **A connection leak beside another application's steady pool is now the root cause.** The
+  steady pool tied with the leak and was named the cause. A pool that does not grow cannot
+  explain pressure that does, so it is now listed as contributing (the baseline the leak
+  grows on) and the leaking application is the root. A pool of the leaking application
+  itself is still that leak. The graph version stays `causal-v3`. The replay case that
+  exposed this is no longer held-out evidence for this shape; a fresh case with different
+  numbers, outside the corpus, checks it.
+
+- **Sage SRE no longer reports "no lock waits" when it cannot see them.** A database role
+  without `pg_read_all_stats` (included in `pg_monitor`) sees other users' sessions without
+  their state or wait events, so investigations reported no blocking, no long transactions
+  and too few connections. Those probes now report "no privilege" and the investigation
+  says the evidence is missing instead of guessing. Grant `pg_monitor` to the role pg_sage
+  uses (the documented setup already does).
+- **Sage SRE ignores evidence that is too old or contradictory.** An observation more than
+  5 minutes older than the investigation's newest one (for example after an investigation
+  was paused and resumed), or two connection samples taken at the same instant, are listed
+  as missing evidence instead of supporting a root cause.
+- **The new incident families follow the same rule.** LWLock waits, a standby's longest
+  query, the statements spilling temp files, the sessions holding back the xmin horizon and
+  the busy autovacuum workers also need `pg_read_all_stats`; without it those probes report
+  "no privilege" instead of "no contention" or "no holder".
+- **`forecaster.disk_capacity_bytes` no longer claims to auto-detect.** Nothing detects disk
+  capacity (PostgreSQL cannot report free space over SQL), so `0`, the default, means
+  undeclared: no disk runway and no disk-full credit. Set it for self-managed servers.
 
 - Sage SRE connection and WAL investigations no longer fail when
   `sre.sample_interval_seconds` is set close to its maximum of 30. The worker did not
