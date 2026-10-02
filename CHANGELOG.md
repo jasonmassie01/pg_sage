@@ -4,6 +4,20 @@
 
 ### Added
 
+- **Sage SRE sees pool exhaustion at PgBouncer, and failovers between or before its
+  samples.** List your PgBouncer admin consoles under `sre.poolers` (the DSN from an
+  environment variable or a mounted file, never logged) and connection investigations read
+  `SHOW POOLS` and `SHOW STATS` at both samples, read-only and time-bounded. Clients queueing
+  at the pooler while PostgreSQL has headroom are now diagnosed as pool exhaustion at the
+  pooler instead of "no connection pressure"; without a pooler the diagnosis says pooler
+  telemetry is unavailable. Connection and WAL investigations now refuse to compare two
+  samples taken across a restart, a failover, a different server or a major-version upgrade
+  and say so as missing evidence. After pg_sage restarts it remembers the database's role,
+  timeline and cluster identity, so a failover that happened while it was down still pauses
+  earned autonomy for the failover cooldown. The causal graph is now `causal-v4`. In a
+  fleet, the runway monitor measures each cluster's total database size once per pass
+  instead of once per database.
+
 - **Operators can start, stop and resume Sage SRE investigations.** `POST
   /api/v1/databases/{db}/investigations` starts one for a case (a repeat joins the running
   one), and `.../{id}/stop` and `.../{id}/resume` pause and resume it without losing its
