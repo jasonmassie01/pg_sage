@@ -106,27 +106,19 @@ func generateIO(t *testing.T, pool *pgxpool.Pool, table string) {
 func TestIOMonitorMeasuresRealDataAndWALRates(t *testing.T) {
 	pool := verifyIntegrationPool(t)
 	monitor, clock := newTestIOMonitor(t, pool)
-	table := fmt.Sprintf("io_monitor_load_%d", time.Now().UnixNano())
-	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+table) })
+	base := fmt.Sprintf("io_monitor_load_%d", time.Now().UnixNano())
+	loads := 0
+	load := func() {
+		table := fmt.Sprintf("%s_%d", base, loads)
+		loads++
+		t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+table) })
+		generateIO(t, pool, table)
+	}
 	if err := monitor.Sample(t.Context()); err != nil {
 		t.Fatalf("prime sample: %v", err)
 	}
-	generateIO(t, pool, table)
-	var sawData, sawWAL bool
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) && !(sawData && sawWAL) {
-		time.Sleep(500 * time.Millisecond)
-		clock.Advance(10 * time.Second)
-		if err := monitor.Sample(t.Context()); err != nil {
-			t.Fatalf("sample: %v", err)
-		}
-		evidence, err := monitor.IOEvidence(t.Context())
-		if err != nil || evidence.Rate == nil {
-			t.Fatalf("evidence = %+v, %v", evidence, err)
-		}
-		sawData = sawData || evidence.Rate.DataBytesPerSec > 0
-		sawWAL = sawWAL || evidence.Rate.WALBytesPerSec > 0
-	}
+	load()
+	sawData, sawWAL := sampleUntilMeasured(t, monitor, clock, load)
 	if !sawData || !sawWAL {
 		t.Fatalf("real load never measured: data=%v wal=%v", sawData, sawWAL)
 	}
@@ -320,4 +312,38 @@ func TestIOMonitorWithoutPoolFailsClosed(t *testing.T) {
 	if _, err := nilMonitor.IOEvidence(t.Context()); err == nil {
 		t.Fatal("nil monitor produced evidence")
 	}
+}
+
+// sampleUntilMeasured samples until both data and WAL rates were seen.
+// IO statistics are server-wide: another test package may reset them
+// mid-interval, which the monitor correctly reports as ErrCounterReset.
+// That interval proves nothing, so the load is generated again (at most
+// 3 times) instead of failing the test.
+func sampleUntilMeasured(t *testing.T, monitor *IOMonitor, clock *testClock,
+	load func()) (bool, bool) {
+	t.Helper()
+	var sawData, sawWAL bool
+	resets := 0
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) && !(sawData && sawWAL) {
+		time.Sleep(500 * time.Millisecond)
+		clock.Advance(10 * time.Second)
+		err := monitor.Sample(t.Context())
+		if errors.Is(err, ErrCounterReset) && resets < 3 {
+			resets++
+			t.Logf("IO statistics were reset by another session (%d); loading again", resets)
+			load()
+			continue
+		}
+		if err != nil {
+			t.Fatalf("sample: %v", err)
+		}
+		evidence, err := monitor.IOEvidence(t.Context())
+		if err != nil || evidence.Rate == nil {
+			t.Fatalf("evidence = %+v, %v", evidence, err)
+		}
+		sawData = sawData || evidence.Rate.DataBytesPerSec > 0
+		sawWAL = sawWAL || evidence.Rate.WALBytesPerSec > 0
+	}
+	return sawData, sawWAL
 }
