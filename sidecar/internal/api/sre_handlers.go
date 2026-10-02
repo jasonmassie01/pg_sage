@@ -53,6 +53,7 @@ func perDatabaseSREMux(mgr *fleet.DatabaseManager) *http.ServeMux {
 	mux.Handle("GET "+base+"/{id}/export", operatorUp(investigationExportHandler(mgr)))
 	mux.Handle("POST "+base+"/{id}/pin", operatorUp(investigationPinHandler(mgr, true)))
 	mux.Handle("POST "+base+"/{id}/unpin", operatorUp(investigationPinHandler(mgr, false)))
+	registerRunbookRoutes(mux, mgr)
 	return mux
 }
 
