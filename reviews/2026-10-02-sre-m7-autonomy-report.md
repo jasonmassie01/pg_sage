@@ -9,7 +9,8 @@ in `~/.claude/tasks/todo-2026-10-02-m7-autonomy.md` and are repeated below.
 1. **Autonomy ledger** (`internal/earned`). Levels L0 to L4 are kept per incident family and
    action class, in the control pool (the meta database when one is configured), keyed by
    deployment. The current level, proposals, append-only history and append-only live outcomes
-   are all durable. Every pair starts at L1. Caps are enforced twice:
+   are all durable. Pairs that were autonomous before M7 are carried over (item 8);
+   every other pair starts at L1. Caps are enforced twice:
    - in the ledger, by class: irreversible classes stay at L1; mitigation-only classes and
      `config_guc` stay at L2;
    - in the gate, by the contract's own rollback class.
@@ -39,8 +40,9 @@ in `~/.claude/tasks/todo-2026-10-02-m7-autonomy.md` and are repeated below.
    - **Safety:** a harmful or safety-violation outcome in the family within 30 days.
 
    Each cap and each clear is logged once per transition and database (`capped` /
-   `cap_cleared`). A harmful outcome also durably demotes every class of the family to L1, so
-   re-promotion needs the evidence again.
+   `cap_cleared`). A harmful outcome also durably demotes every earned class of the family to
+   L1, so re-promotion needs the evidence again. A carried-over pair is capped for the safety
+   window instead (item 8).
 4. **Gate enforcement** (`policy.restrictAutonomy`). The ledger can only restrict:
    - L0/L1 → `observe_only` (reason `autonomy_level`, or `autonomy_downgraded`).
    - L2 → `queue_approval` (`autonomy_handoff`). Executor custodians turn this into an
@@ -71,6 +73,39 @@ in `~/.claude/tasks/todo-2026-10-02-m7-autonomy.md` and are repeated below.
    - MCP: `sre_get_autonomy` and `sre_downgrade_autonomy` (operator). There is no approval
      tool.
    - UI: **Advanced > Earned autonomy**.
+8. **Carry-over and mandatory deadlines** (coordinator decision 2026-10-02: M7 gates *new*
+   autonomy and must not take away what pg_sage already had).
+   - **Carried pairs.** At install, `SeedCarriedOver` seeds every pair that ran
+     autonomously before M7, at the level the database's own settings grant it:
+     - wraparound_runway / freeze (spec F3);
+     - wraparound_runway / autovacuum_tuning (F3, D1);
+     - wal_retention / wal_bound (F4);
+     - plan_regression / index_create (D6).
+
+     That level is L3 when execution is `auto` and the tier is enabled (safe: advisory or
+     autonomous trust plus `tier3_safe`; moderate: autonomous trust plus `tier3_moderate`).
+     Otherwise the pair gets the default L1.
+   - **Provenance.** Seeded rows have provenance `carried_over`, a `carried_ref` naming the
+     decision, and a `carried_over` history event.
+   - **Seeding rules.** Seeding only inserts missing rows, so it is idempotent. It never
+     raises a row that already exists, such as one an operator downgraded, and a stricter
+     database never lowers another database's carry-over. Each database's gate remains its
+     own outer bound.
+   - **Caps.** Irreversible classes are never carried above L1 (`carryCap`), and L4 is never
+     reached.
+   - **How a carried level behaves.** It was granted by policy, not earned:
+     - it does not decay with evidence, and it keeps `wal_bound` at L3 above the earned cap
+       of L2;
+     - every downgrade signal caps it to L1, and it returns by itself when the signal clears
+       (`capped` / `cap_cleared` events);
+     - a safety regression caps it for the safety window instead of demoting it durably;
+     - an operator downgrade ends the carry-over.
+   - **Mandatory deadlines.** A critical XID or disk deadline that the standing policy lets
+     override bypasses the ledger level and its downgrades (`policy.mandatoryDeadline`).
+     The e-stop and the rest of the gate still decide. The ledger records the execution as a
+     `deadline_override` event, once per pair, target set and deadline.
+   - **Wiring.** The per-database trust level and executor switch are now applied before
+     the ledger is installed, so the carry-over reads the settings the gate enforces.
 
 ## Product decisions (recorded)
 
@@ -78,7 +113,7 @@ in `~/.claude/tasks/todo-2026-10-02-m7-autonomy.md` and are repeated below.
 |---|---|---|
 | D1 | The ledger is deployment-wide per family×class, stored in the control pool. | One trust record per fleet. Operator per-database settings stay the outer bound. |
 | D2 | It governs only self-initiated requests that carry `IncidentFamily`. Operator-approved requests and read-only diagnostics are not restricted, and family-less optimizer actions stay on the trust ramp. | Approval is already the human step, and the trust ramp is the existing contract for index work. |
-| D3 | Custodians are tagged: freeze, freeze_blocker and autovacuum_tuning → `wraparound_runway`; wal → `wal_retention`. **Default L1.** | Conservative default. **Behavior change**: a custodian that auto-executed on the trust ramp now writes a script until promoted. |
+| D3 | Custodians are tagged: freeze, freeze_blocker and autovacuum_tuning → `wraparound_runway`; wal → `wal_retention`. **Superseded by D14**: pairs that were autonomous keep their level, and the rest default to L1. | Coordinator decision 2026-10-02. Upgrading must not raise outage risk. |
 | D4 | `sre.autonomy.enforce` defaults to true. Setting it to false is an explicit opt-out with a startup warning. It is YAML-only and cannot be changed over the API. | The safe default must be hard to switch off silently. |
 | D5 | Caps: reversible / no-rollback-needed → L3; mitigation_only → L2; everything else → L1. `wal_bound` is mitigation_only. `config_guc` is capped at L2. | An invalidated slot cannot be undone, and global GUCs were excluded through R2. |
 | D6 | L3 needs exactly one target and an open window, and a deadline override does not substitute for the window. | The spec says "reversible, bounded actions in the window". |
@@ -89,6 +124,9 @@ in `~/.claude/tasks/todo-2026-10-02-m7-autonomy.md` and are repeated below.
 | D11 | The canary is admin-started. Each target must have its own matching open finding and executes through `ExecuteManual`. | Never apply a fix a database did not itself recommend. |
 | D12 | MCP gets read access and operator downgrade, and no approval tool. | Promotion stays with a human in the UI or API. |
 | D13 | The M7 tables are exempt from age-based retention. | They hold promotion evidence, and the "no harmful ever" check needs it. |
+| D14 | **Carry-over** (coordinator). The four pre-M7 autonomous pairs are seeded at the level each database's settings grant, never above them, never above L1 for irreversible classes, and never at L4. Seeding only inserts. A carried level ignores the earned cap and evidence decay, but not the downgrade signals. | Upgrading keeps the autonomy that decided policy already granted (spec F3/F4, D6). |
+| D15 | A carried pair returns automatically when a downgrade clears. A safety regression caps it for `safety_window_days` and does not demote it durably. An operator downgrade ends the carry-over, so the pair must then earn its level with evidence. | It was granted by policy, not earned by evidence. The operator's explicit decision wins. |
+| D16 | **Mandatory deadline** = urgency `critical` and a deadline the standing policy lets override (`validDeadlineOverride`). It bypasses the ledger, while the e-stop and the gate still apply. Only an execute verdict is recorded, deduplicated in memory per process. | Coordinator decision. A red wraparound must not wait on a burning error budget. |
 
 ## CHECKs covered
 
@@ -111,6 +149,9 @@ in `~/.claude/tasks/todo-2026-10-02-m7-autonomy.md` and are repeated below.
 | `policy.TestAutonomyReservedAndBogusLevels` | L4 and L99 act as L3 (reason `autonomy_l3`), negative levels as observe-only. |
 | `policy.TestAutonomyNeverWidensTheOperatorBound` | At L3: approval mode only queues, manual mode and observation trust observe, and the trust ramp, emergency stop, replica and disallowed change class all still block. |
 | `policy.TestAutonomyL3RequiresTheWindow` / `TestAutonomyL3IgnoresDeadlineOverride` / `TestAutonomyL3RequiresExactlyOneTarget` / `TestAutonomyL3ClearsTheOffWindowFlag` | L3 needs the window (an override does not count), exactly one object, and keeps no off-window flag. |
+| `policy.TestMandatoryDeadline*` (5) / `TestNonMandatoryDeadlinesAreRestricted` | A critical, policy-permitted deadline runs at L0 or L1 and while downgraded (budget burn, failover), keeping the outside-window override, and is recorded. It is blocked by the e-stop and still queues under approval mode. A non-critical, disabled, passed or missing deadline is restricted as usual. |
+| `executor.TestRedWraparoundFreezeRunsAtL1AndWhileDowngraded` / `TestRedWraparoundFreezeIsStoppedByTheEmergencyStop` | End to end through the custodian gate. A non-red freeze at the same level is still withheld. |
+| `earned.TestCarry*` / `TestSeed*` / `TestCarriedCapNeverLiftsAnIrreversibleClass` | Carry-over follows the operator bound (9 configurations). It never exceeds L1 for irreversible classes and never reaches L4. Seeding is idempotent and never overrides an operator. Carried pairs are capped by every signal and restored, and are capped, not demoted, on a safety regression. |
 | `policy.TestAutonomyLedgerFailureFailsClosed` | A ledger error → blocked (`autonomy_unavailable`). |
 | `policy.TestAutonomyExplainMatchesAuthorize` | Explain and Authorize agree. |
 | `earned.TestIrreversibleClassesNeverExceedL1` / `TestProductCallCaps` | Class caps by reversibility (every class), product-call caps; the schema CHECK refuses a level above 3 (`TestSREMigrationM7_LevelBoundsAreEnforced`). |
@@ -152,6 +193,36 @@ All touched packages meet the coverage thresholds.
 - `-race` on the touched packages (PG17): all 15 packages ok, with no data race reported.
 - Web: `npm test` gives 204 passed in 40 files, and `npm run build` succeeds. The rebuilt dist is committed.
 - `golangci-lint run ./...` reports 0 issues.
+
+**Carry-over follow-up (coordinator decision 2026-10-02), touched packages:**
+
+**Command:** `go test -cover -count=1 -v` over earned/..., policy, executor, schema, api, mcp,
+retention, store and cmd/pg_sage_sidecar
+**Total:** 2979 passed, 0 failed, 0 skipped on each of PG17 (:55477), PG14 (:55414) and
+PG18 (:55418). `-race` on the same packages (PG17): all ok, with no data race. Web `npm test`
+passes 205 tests, and `npm run build` succeeds with the dist committed. `golangci-lint` reports
+0 issues.
+
+| Package | Coverage |
+|---|---|
+| internal/earned | 87.4% |
+| internal/earned/hasource | 100.0% |
+| internal/policy | 89.6% |
+| internal/executor | 82.7% |
+| internal/schema | 81.6% |
+| internal/api | 74.4% |
+| internal/mcp | 80.7% |
+| internal/retention | 97.6% |
+| internal/store | 74.2% |
+| cmd/pg_sage_sidecar | 72.4% |
+
+All packages meet the coverage thresholds.
+
+Two existing tests contradicted the coordinator's decision and were changed in their own
+commits, each with the reason stated:
+- `TestInstallAutonomyRestrictsCustodiansByDefault` was replaced by
+  `TestInstallAutonomyCarriesOverAndGovernsCustodians` (`974399a`).
+- The two L3 override tests now use a non-mandatory deadline (`fb5368b`).
 
 ### Skipped Tests (must be zero or justified)
 All 13 are pre-existing and gated by environment variables. None is in an M7 package.
@@ -204,6 +275,23 @@ None. All touched packages are at least 70%.
 | E6 | `rolled_back` not harmful | killed |
 | E7 | Proxy-unknown counted as unknown | killed |
 
+Carry-over and deadline mutants (C1–C12), run after implementation:
+
+| Mutant | What it changed | Result |
+|---|---|---|
+| C1 | Moderate carry under advisory trust | killed |
+| C2 | Irreversible carry cap lifted to L3 | killed (by the audit test added in `c5e4e0a`; the seeding tests alone missed it) |
+| C3 | Carried pair durably demoted on a regression | killed |
+| C4 | Carried level decays with evidence | killed |
+| C5 | Seeding overwrites existing rows | killed |
+| C6 | Operator downgrade keeps the provenance | killed |
+| C7 | View effective level ignores the carry | killed |
+| C8 | Deadline override recorded on every authorization | killed |
+| C9 | Non-critical deadline treated as mandatory | killed |
+| C10 | Non-executed deadline recorded | killed |
+| C11 | Operator bound drops `tier3_moderate` | killed |
+| C12 | Mandatory deadline restricted by the ledger | killed |
+
 ### Manual Checks Remaining
 - CHECK-M7-UI: MANUAL. The Earned autonomy page in dark mode, and the approve/downgrade flows against a live sidecar. Component tests cover the behavior, but the look needs a browser.
 
@@ -249,12 +337,15 @@ None. All touched packages are at least 70%.
 - **`sre_eval_runs`** can hold reports up to 8 MiB each. Reports are deduplicated, but a
   retention policy for superseded reports is a follow-up.
 
-## Coordinator decisions needed
+## Coordinator decisions
 
-1. **Custodian behavior change (D3).** Autonomous custodians stop auto-executing until a pair
-   is promoted. The alternative is to seed the custodian pairs at L3 on upgrade. That would
-   grant autonomy without evidence, so I did not do it.
-2. **Enforce opt-out (D4).** Default true. Setting it to false restores the trust ramp, with a
-   startup warning.
-3. **Budget unknown (D8).** Implemented as instructed: only an unknown app SLO downgrades, and
-   a proxy fast burn does downgrade.
+1. **Custodian behavior (decided 2026-10-02): keep existing autonomy.** Implemented as D14 to
+   D16. The CHANGELOG warning that custodians stop auto-executing has been replaced with an
+   accurate upgrade note.
+2. **Enforce opt-out (D4).** Kept: default true, with a startup warning when it is off.
+3. **Budget unknown (D8).** Implemented as instructed.
+4. **Still open, for your call:**
+   - Carried pairs now also pause on the CHECK-40 signals (item 3 of the decision). That is
+     new behavior for the custodians, and the CHANGELOG says so.
+   - `freeze_blocker` (backend cancel) is not carried. Under the default refusal set
+     (`unrollbackable`) it already went to approval, and its contract is not_reversible.
