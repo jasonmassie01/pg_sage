@@ -222,7 +222,9 @@ func TestLLMSwitchRejectsNonBoolean(t *testing.T) {
 	chdirTemp(t)
 	path := writeYAMLFile(t, "llm:\n  enabled: sometimes\n")
 	_, err := Load([]string{"--config", path, "--pg-url", "postgres://u@h/db"})
-	if err == nil || !strings.Contains(err.Error(), "enabled") {
-		t.Fatalf("Load err = %v, want a parse error naming enabled", err)
+	// yaml.v3 names the line and the offending value, not the key.
+	if err == nil || !strings.Contains(err.Error(), "line 2") ||
+		!strings.Contains(err.Error(), "sometimes") {
+		t.Fatalf("Load err = %v, want a parse error naming line 2 and the value", err)
 	}
 }
