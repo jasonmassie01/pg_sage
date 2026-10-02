@@ -97,7 +97,7 @@ func truncate(s string, n int) string {
 // ErrInvalid (no model call); a parent context that ends returns its
 // error; everything else that goes wrong is a *Rejection.
 func Compile(ctx context.Context, m Model, req CompileRequest) (Compiled, error) {
-	if err := checkSource(req.Text); err != nil {
+	if err := CheckSource(req.Text); err != nil {
 		return Compiled{}, err
 	}
 	if m == nil {
@@ -123,7 +123,9 @@ func Compile(ctx context.Context, m Model, req CompileRequest) (Compiled, error)
 	return Compiled{Definition: d, Turns: 2, Repaired: rej.Reason}, nil
 }
 
-func checkSource(text string) error {
+// CheckSource checks a playbook text before any model call: 1 to
+// MaxSourceRunes characters, no control characters but layout.
+func CheckSource(text string) error {
 	switch {
 	case strings.TrimSpace(text) == "":
 		return fmt.Errorf("%w: the playbook text is empty", ErrInvalid)
