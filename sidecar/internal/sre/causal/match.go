@@ -71,6 +71,9 @@ type Diagnosis struct {
 	Ratio float64
 	// Observed are hypothesis-independent facts (e.g. saturation).
 	Observed []Fact
+	// Impact is the customer-impact claim from the SLO status (nil when
+	// the SLO status was not collected).
+	Impact *Impact
 }
 
 func newHypothesis(id NodeID, subject string) Hypothesis {
