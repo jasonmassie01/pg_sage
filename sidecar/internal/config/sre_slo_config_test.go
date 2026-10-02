@@ -225,3 +225,22 @@ func TestParseWindow(t *testing.T) {
 		}
 	}
 }
+
+// Clone deep-copies the SLO and change-event lists: a reload candidate
+// can never alias the running configuration.
+func TestSRESLOConfig_CloneIsDeep(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SRE.SLO.BurnRules = []SREBurnRuleConfig{{Severity: "page", LongWindow: "1h",
+		ShortWindow: "5m", Factor: 14.4}}
+	cfg.SRE.SLO.Objectives = []SREObjectiveConfig{{Name: "checkout", Source: "push",
+		Target: 0.999}}
+	cfg.SRE.ChangeEvents.AllowedSources = []string{"ci"}
+	cp := Clone(cfg)
+	cp.SRE.SLO.BurnRules[0].Factor = 1
+	cp.SRE.SLO.Objectives[0].Name = "changed"
+	cp.SRE.ChangeEvents.AllowedSources[0] = "other"
+	if cfg.SRE.SLO.BurnRules[0].Factor != 14.4 || cfg.SRE.SLO.Objectives[0].Name != "checkout" ||
+		cfg.SRE.ChangeEvents.AllowedSources[0] != "ci" {
+		t.Fatalf("clone aliases the original: %+v", cfg.SRE)
+	}
+}
