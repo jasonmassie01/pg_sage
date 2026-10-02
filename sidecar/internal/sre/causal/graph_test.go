@@ -17,12 +17,16 @@ func TestGraph_NodesAreWellFormed(t *testing.T) {
 	}
 	nodes := Graph()
 	// v2 (M2) adds connection pressure (3), WAL retention (4) and
-	// pg_sage's own change (1) to v1's 4 lock and 2 plan nodes.
-	if len(nodes) != 14 {
-		t.Fatalf("graph has %d nodes, want 14", len(nodes))
+	// pg_sage's own change (1) to v1's 4 lock and 2 plan nodes. v3 (M6)
+	// adds the runways: wraparound (7), disk/WAL database growth (1; the
+	// slot, archiver and surge nodes are shared with WAL retention) and
+	// sequence exhaustion (3).
+	if len(nodes) != 25 {
+		t.Fatalf("graph has %d nodes, want 25", len(nodes))
 	}
 	families := map[Family]bool{FamilyLockBlocking: true, FamilyPlanRegression: true,
-		FamilyConnections: true, FamilyWAL: true, FamilyChange: true}
+		FamilyConnections: true, FamilyWAL: true, FamilyChange: true,
+		FamilyWraparound: true, FamilyDiskWAL: true, FamilySequence: true}
 	seen := map[NodeID]bool{}
 	for _, n := range nodes {
 		if seen[n.ID] {
