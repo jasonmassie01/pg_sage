@@ -59,6 +59,18 @@
 
 ### Changed (read before upgrading)
 
+- **pg_sage's snapshot history takes about a tenth of the space, and pg_sage warns when it
+  grows too big.** The collector used to store the full list of every table, index,
+  sequence and query each minute, so `sage.snapshots` reached 9.3 GB on a personal
+  database. It now stores a full copy at most every 6 hours and, in between, only what
+  changed. On an hour of collection with 5,000 indexes this writes 11x fewer bytes overall
+  (indexes alone 21x to 26x fewer). Every screen, forecast and API reads exactly the same
+  data as before. Existing history is not rewritten: old rows stay readable and age out
+  with `retention.snapshots_days`. To read snapshots in SQL yourself, use
+  `sage.snapshot_data(data, base_id)` instead of the `data` column. A new
+  `sage_footprint` finding warns when pg_sage's own tables pass
+  `retention.sage_size_warning_pct` percent of the database (default 10, `0` turns it off).
+
 - **Retention deletes, operator actions and queued changes now share one locked path.**
   A retention delete (an owner-declared `retention_column` contract, D5) now runs as a
   recorded action through the same pipeline as every other change: it is authorized,
