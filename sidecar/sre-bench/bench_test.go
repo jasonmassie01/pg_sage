@@ -13,8 +13,9 @@ func TestMain(m *testing.M) {
 	os.Exit(testdb.Run(m.Run, "sre-bench"))
 }
 
-// repeatBudget bounds one pass over the scenarios.
-const repeatBudget = 8 * time.Minute
+// repeatBudget bounds one pass over the scenarios (about 15 minutes for
+// both live arms with the M6 families; run go test with -timeout 40m).
+const repeatBudget = 30 * time.Minute
 
 // TestPGIncidentBench runs every scenario's fault program on real
 // PostgreSQL through each ready live arm (the causal graph with the LLM
@@ -34,6 +35,10 @@ func TestPGIncidentBench(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	families, err := ParseFamilies(os.Getenv(EnvFamilies))
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := DefaultConfig(repeats, llm)
 	ctx, cancel := context.WithTimeout(context.Background(),
 		time.Duration(repeats)*repeatBudget)
@@ -43,7 +48,7 @@ func TestPGIncidentBench(t *testing.T) {
 	if err := env.Pool.QueryRow(ctx, "SELECT version()").Scan(&version); err != nil {
 		t.Fatalf("server version: %v", err)
 	}
-	results := Run(ctx, env, Scenarios(), cfg)
+	results := Run(ctx, env, FilterScenarios(Scenarios(), families), cfg)
 	report := BuildReport(results, ReportMeta{Arms: cfg.ArmNames(), Gated: cfg.Gated(),
 		Pending: cfg.Pending(), Repeats: repeats, ServerVersion: version,
 		GeneratedAt: time.Now().UTC(), LLM: llm})

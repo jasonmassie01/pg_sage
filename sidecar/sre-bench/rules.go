@@ -43,6 +43,8 @@ func (RulesOnly) Derive(sc Scenario, t Trace) Outcome {
 		root = walRule(t.Evidence)
 	case sre.TriggerPlan:
 		root = planRule(t.Evidence, sc.Subject)
+	default:
+		root = m6Rule(sc.Family, t.Evidence)
 	}
 	if root != "" {
 		o.State, o.Root, o.Ranked = sre.StateConcluded, root, []string{root}
