@@ -7,6 +7,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/clone"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/earned"
+	"github.com/pg-sage/sidecar/internal/earned/slobudget"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/gameday"
 	srebench "github.com/pg-sage/sidecar/sre-bench"
@@ -36,9 +37,10 @@ func (rt *databaseRuntime) installAutonomy(ex *executor.Executor) {
 			"actions (custodian freeze, WAL bounds) run under the trust ramp without "+
 			"earned evidence", rt.spec.Name)
 	}
+	// The M5 SLO engine is built with the investigator, before execution.
 	err := processAutonomy().install(rt.ctx, ex, autonomyBinding{database: rt.spec.Name,
 		control: control, monitored: rt.spec.Pool, databaseID: databaseID,
-		settings: settings})
+		settings: settings, budget: slobudget.New(rt.sloEngine)})
 	if err != nil {
 		logError(rt.spec.Scope, "db %q: earned-autonomy ledger unavailable; "+
 			"incident-family actions are blocked until it is: %v", rt.spec.Name, err)

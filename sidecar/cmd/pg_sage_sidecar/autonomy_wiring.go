@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -99,6 +100,9 @@ type autonomyBinding struct {
 	monitored  *pgxpool.Pool
 	databaseID *int
 	settings   config.SREAutonomyConfig
+	// budget is the database's M5 error budget; nil without SLOs (no
+	// budget that could burn).
+	budget earned.BudgetSource
 }
 
 // failClosedLimiter answers every family action with the ledger's error,
@@ -127,7 +131,7 @@ func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 		}
 		return err
 	}
-	lim := svc.Limiter(earned.Binding{Database: b.database,
+	lim := svc.Limiter(earned.Binding{Database: b.database, Budget: b.budget,
 		HA:          hasource.New(ha.New(b.monitored, logStructuredWrapper)),
 		Concurrency: earned.NewPostgresConcurrency(b.monitored, b.databaseID)})
 	if b.settings.Enforce {
@@ -167,10 +171,9 @@ func ingestBenchPath(ctx context.Context, svc *earned.Service, path string) (int
 	}
 	files := []string{path}
 	if info.IsDir() {
-		if files, err = filepath.Glob(filepath.Join(path, "*.json")); err != nil {
+		if files, err = benchReportFiles(path); err != nil {
 			return 0, fmt.Errorf("bench results path: %w", err)
 		}
-		sort.Strings(files)
 	}
 	added := 0
 	var errs []error
@@ -230,4 +233,36 @@ func trimmedFamilies(in []string) []string {
 		}
 	}
 	return out
+}
+
+// benchReportMaxDepth bounds the walk of bench_results_path: CI writes one
+// report per shard one level down (pgincidentbench/{core,reactive,runway}).
+const benchReportMaxDepth = 3
+
+// benchReportFiles lists the *.json files under root, at most
+// benchReportMaxDepth levels down, sorted.
+func benchReportFiles(root string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, relErr := filepath.Rel(root, p)
+		if relErr != nil {
+			return relErr
+		}
+		depth := len(strings.Split(filepath.ToSlash(rel), "/"))
+		if d.IsDir() {
+			if rel != "." && depth > benchReportMaxDepth {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(d.Name(), ".json") {
+			files = append(files, p)
+		}
+		return nil
+	})
+	sort.Strings(files)
+	return files, err
 }
