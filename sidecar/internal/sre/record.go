@@ -82,6 +82,10 @@ type Summary struct {
 	// Proposals are the custodian actions that address a conclusive runway
 	// diagnosis (M6), with the gate's explained verdict; never executed here.
 	Proposals []ActionProposal `json:"proposals,omitempty"`
+	// M6: the signed runbook that ran (version, path, proposal) and the
+	// similar past incidents the model turn was offered as context.
+	Runbook *RunbookRun `json:"runbook,omitempty"`
+	Memory  *MemoryRef  `json:"memory,omitempty"`
 }
 
 // Conclusion ends an investigation run: concluded (a supported root

@@ -44,6 +44,7 @@ const NAV_GROUPS = [
 const ADVANCED_ITEMS = [
   { path: '#/advanced/findings', label: 'Findings explorer' },
   { path: '#/advanced/actions', label: 'Action history' },
+  { path: '#/advanced/runbooks', label: 'Runbooks' },
   { path: '#/advanced', label: 'Snapshot & metrics' },
 ]
 

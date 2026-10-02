@@ -62,21 +62,41 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 	if err != nil {
 		return c.fail(ctx, lease, "unreadable_evidence", err.Error())
 	}
-	lease, d, model, err := c.consultModel(ctx, lease, inv, diagnose(inv, obs), evidence)
+	lease, d, evidence, run, err := c.applyRunbook(ctx, lease, inv, diagnose(inv, obs),
+		evidence)
 	if err != nil {
 		return err
 	}
-	return c.conclude(ctx, lease, d, model, c.advise(ctx, inv, d))
+	lease, d, model, err := c.consultModel(ctx, lease, inv, d, evidence)
+	if err != nil {
+		return err
+	}
+	return c.conclude(ctx, lease, d, model, attachments{runbook: run,
+		proposals: c.advise(ctx, inv, d)})
 }
 
-// conclude persists the diagnosis with the model output and the custodian
-// proposals beside it. If the store refuses the model output, the
-// deterministic conclusion is persisted instead: the model never fails an
-// investigation.
+// attachments are what a conclusion carries beside the diagnosis and
+// the model output: the signed runbook that ran (M6 runbooks) and the
+// custodian proposals of a runway diagnosis (M6 runways).
+type attachments struct {
+	runbook   *RunbookRun
+	proposals []ActionProposal
+}
+
+// apply sets the attachments on a summary.
+func (a attachments) apply(s *Summary) {
+	s.Runbook, s.Proposals = a.runbook, a.proposals
+}
+
+// conclude persists the diagnosis with the runbook run, the custodian
+// proposals and the model output beside it. If the store refuses the
+// model output, the deterministic conclusion (with the runbook run, the
+// proposals and the memory the model was offered) is persisted instead:
+// the model never fails an investigation.
 func (c *Coordinator) conclude(ctx context.Context, lease Lease, d causal.Diagnosis,
-	model modelOutcome, proposals []ActionProposal) error {
+	model modelOutcome, extra attachments) error {
 	conclusion := conclusionOf(d)
-	conclusion.Summary.Proposals = proposals
+	extra.apply(&conclusion.Summary)
 	model.apply(&conclusion.Summary)
 	_, err := c.store.Conclude(ctx, lease, conclusion)
 	if errors.Is(err, ErrInvalidRequest) && !model.empty() {
@@ -88,7 +108,8 @@ func (c *Coordinator) conclude(ctx context.Context, lease Lease, d causal.Diagno
 			return rerr
 		}
 		fallback := conclusionOf(d)
-		fallback.Summary.Proposals = proposals
+		extra.apply(&fallback.Summary)
+		fallback.Summary.Memory = model.memory
 		_, err = c.store.Conclude(ctx, lease, fallback)
 	}
 	if errors.Is(err, ErrInvalidRequest) {

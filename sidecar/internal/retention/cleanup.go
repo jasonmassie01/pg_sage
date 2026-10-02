@@ -166,6 +166,13 @@ var retentionExemptions = map[string]string{
 	"sre_steps": "SRE investigation steps; deleted with their investigation by sre " +
 		"retention",
 	"sre_tombstones": "what sre retention deleted; one row per investigation and kind",
+	"sre_runbooks":   "SRE runbooks, versioned configuration (retired, never deleted)",
+	"sre_runbook_versions": "immutable SRE runbook versions and their signatures; the " +
+		"audit trail of what was allowed to run",
+	"sre_runbook_runs": "SRE runbook run history; deleted with its investigation " +
+		"(ON DELETE CASCADE, sre.timeline_retention_days)",
+	"sre_investigation_outcomes": "operator verdicts on SRE investigations; deleted with " +
+		"their investigation (ON DELETE CASCADE, sre.timeline_retention_days)",
 	"table_contract": "declared contracts, current state",
 	"toil_model":     "model configuration",
 	"users":          "accounts, not a time-series",

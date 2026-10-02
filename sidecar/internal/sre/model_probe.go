@@ -109,7 +109,8 @@ func (s *modelSession) finish(ctx context.Context, d causal.Diagnosis, review mo
 	if v.disagreed {
 		s.c.logFn("INFO", "sre: investigation %s: the model ranks %s first; the "+
 			"graph's root cause %s stands", s.inv.ID, v.modelRoot, v.graphRoot)
-		return modelOutcome{probe: out.probe}, s.c.store.RecordEvent(ctx, s.lease,
+		return modelOutcome{probe: out.probe, memory: out.memory}, s.c.store.RecordEvent(
+			ctx, s.lease,
 			EventModelDisagreed, map[string]any{"graph_root": v.graphRoot,
 				"model_root": v.modelRoot, "turns": s.inv.ModelTurns + s.turns})
 	}
