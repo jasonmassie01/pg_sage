@@ -102,11 +102,16 @@ func (s *modelSession) turnsLeft() int {
 	return max(0, s.c.store.Limits().MaxModelTurns-s.inv.ModelTurns-s.turns)
 }
 
-// perTurn splits the investigation's token caps evenly over its turns.
-func (s *modelSession) perTurn() (int64, int64) {
+// perTurn splits the investigation's token caps evenly over its turns:
+// input, answer and, for a thinking model only, reasoning.
+func (s *modelSession) perTurn() (int64, int64, int64) {
 	l := s.c.store.Limits()
 	turns := int64(max(1, l.MaxModelTurns))
-	return l.MaxInputTokens / turns, l.MaxOutputTokens / turns
+	var reasoning int64
+	if s.c.model.ThinkingModel() {
+		reasoning = l.MaxReasoningTokens / turns
+	}
+	return l.MaxInputTokens / turns, l.MaxOutputTokens / turns, reasoning
 }
 
 // timeout is the turn's time: the configured cap within the active time
@@ -132,7 +137,7 @@ func (s *modelSession) attempt(ctx context.Context, scope reviewScope,
 	if s.tools {
 		tools = reviewToolsFor(scope.allowProbe)
 	}
-	in, out := s.perTurn()
+	in, out, reasoning := s.perTurn()
 	// About 4 bytes a token, with a quarter left for JSON escaping.
 	if n := promptBytes(msgs, tools); int64(n) > in*3 {
 		return modelReview{}, reject(RejectOversizedPrompt, "prompt of %d bytes over "+
@@ -141,6 +146,7 @@ func (s *modelSession) attempt(ctx context.Context, scope reviewScope,
 	s.turns++
 	res, err := s.call(ctx, ModelTurn{Messages: msgs, Tools: tools,
 		Options: llm.ToolOptions{Timeout: timeout}, Input: in, Output: out,
+		Reasoning:  reasoning,
 		RequestKey: fmt.Sprintf("model-f%d-%d", s.lease.Fence, s.inv.ModelTurns+s.turns)})
 	if err != nil {
 		return modelReview{}, nil, err

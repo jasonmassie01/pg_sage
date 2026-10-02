@@ -126,7 +126,10 @@ const (
 // TokenRequest asks to reserve model tokens for one turn.
 type TokenRequest struct {
 	Input, Output int64
-	RequestKey    string
+	// Reasoning is a thinking model's reasoning allowance, held on top
+	// of the answer (Output); 0 for other models.
+	Reasoning  int64
+	RequestKey string
 }
 
 // Reservation is a durable model-budget hold.
@@ -137,16 +140,18 @@ type Reservation struct {
 	RequestKey      string
 	State           ReservationState
 	Input, Output   int64
+	Reasoning       int64
 	InputUsed       int64
 	OutputUsed      int64
+	ReasoningUsed   int64
 	Version         int64
 }
 
 // Usage is a provider's reported usage; Known false means the call's
 // outcome is uncertain and its full reservation stays held.
 type Usage struct {
-	Input, Output int64
-	Known         bool
+	Input, Output, Reasoning int64
+	Known                    bool
 }
 
 // ModelStore is the durable model-budget half of the store.
