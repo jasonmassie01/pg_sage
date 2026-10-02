@@ -54,13 +54,16 @@ const (
 	DefaultCascadeCooldownCycles = 3
 	DefaultLockTimeoutMs         = 30000
 
-	DefaultLLMEnabled         = false
+	// LLM features are on by default (pg_sage is an AI DBA). They reach a
+	// provider only once llm.endpoint and llm.api_key are set; until then
+	// every feature runs its deterministic path.
+	DefaultLLMEnabled         = true
 	DefaultLLMTimeoutSeconds  = 30
 	DefaultLLMTokenBudget     = 500000
 	DefaultLLMContextBudget   = 8192
 	DefaultLLMCooldownSeconds = 300
 
-	DefaultIdxOptEnabled            = false
+	DefaultIdxOptEnabled            = true
 	DefaultIdxOptMinQueryCalls      = 100
 	DefaultIdxOptMaxIndexesPerTable = 10
 	DefaultIdxOptMaxIncludeColumns  = 3
@@ -68,7 +71,7 @@ const (
 	DefaultIdxOptWriteHeavyRatio    = 70
 
 	// Optimizer v2 defaults.
-	DefaultOptEnabled              = false
+	DefaultOptEnabled              = true
 	DefaultOptMinQueryCalls        = 100
 	DefaultOptMaxIndexesPerTable   = 10
 	DefaultOptMaxNewPerTable       = 3
@@ -81,11 +84,16 @@ const (
 	DefaultOptConfidenceThreshold  = 0.5
 	DefaultOptWriteImpactThreshPct = 15.0
 
-	// Optimizer LLM defaults.
+	// Optimizer LLM defaults. The dedicated tier stays opt-in: enabled
+	// without its own endpoint it only adds a second, separately budgeted
+	// client for the same provider.
+	DefaultOptLLMEnabled         = false
 	DefaultOptLLMTimeoutSeconds  = 120
 	DefaultOptLLMTokenBudget     = 500000
 	DefaultOptLLMCooldownSeconds = 300
 	DefaultOptLLMMaxOutputTokens = 8192
+
+	DefaultAdvisorEnabled = true
 
 	DefaultBriefingSchedule = "0 6 * * *"
 
@@ -119,6 +127,7 @@ const (
 	DefaultTunerNestedLoopRowThresh = 10000
 	DefaultTunerParallelMinRows     = 1000000
 	DefaultTunerMinQueryCalls       = 100
+	DefaultTunerLLMEnabled          = true
 
 	// Tuner v0.8.5 — Hint revalidation loop (Feature 1).
 	DefaultTunerHintRetirementDays           = 14
@@ -156,6 +165,7 @@ const (
 	DefaultRCAReplicationLagThresholdS = 30
 	DefaultRCAWALSpikeMultiplier       = 2.0
 	DefaultRCALockChainIntervalSeconds = 60
+	DefaultRCANarrationEnabled         = true
 
 	// v0.9 — Lock chain defaults.
 	DefaultLockChainMinBlocked        = 3

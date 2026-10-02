@@ -694,8 +694,8 @@ func TestDefaultConfig_NonZeroFields(t *testing.T) {
 	assertEqual(t, "LLM.Optimizer.PlanSource",
 		cfg.LLM.Optimizer.PlanSource, DefaultOptPlanSource)
 
-	// Advisor defaults: enabled=false but sub-features default to true
-	assertEqualBool(t, "Advisor.Enabled", cfg.Advisor.Enabled, false)
+	// Advisor defaults: enabled and every sub-feature on
+	assertEqualBool(t, "Advisor.Enabled", cfg.Advisor.Enabled, true)
 	assertEqualBool(t, "Advisor.VacuumEnabled", cfg.Advisor.VacuumEnabled, true)
 	assertEqualBool(t, "Advisor.WALEnabled", cfg.Advisor.WALEnabled, true)
 

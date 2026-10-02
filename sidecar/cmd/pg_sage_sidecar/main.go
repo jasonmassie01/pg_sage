@@ -308,6 +308,7 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 	}
 	// After persisted overrides: the notice describes the effective window.
 	noticeWindowMeaningChange(cfg.Trust.MaintenanceWindow, logWarn)
+	noticeLLMSetup(cfg, logInfo)
 	configController = config.NewConfigControllerAtGeneration(
 		cfg, generation, nil, newTrustPolicyOwner(),
 	)
@@ -1120,13 +1121,10 @@ func writeOptimizerMetrics(b *strings.Builder, ctx context.Context) {
 	}
 	b.WriteString("\n")
 
-	b.WriteString("# HELP pg_sage_optimizer_enabled Optimizer v2 enabled\n")
+	b.WriteString("# HELP pg_sage_optimizer_enabled Optimizer v2 enabled " +
+		"with a configured LLM\n")
 	b.WriteString("# TYPE pg_sage_optimizer_enabled gauge\n")
-	optEnabled := 0
-	if cfg.LLM.Optimizer.Enabled {
-		optEnabled = 1
-	}
-	fmt.Fprintf(b, "pg_sage_optimizer_enabled %d\n\n", optEnabled)
+	fmt.Fprintf(b, "pg_sage_optimizer_enabled %d\n\n", optimizerGaugeValue())
 }
 
 func writeFleetMetrics(b *strings.Builder) {

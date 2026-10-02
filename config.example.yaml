@@ -35,30 +35,33 @@ trust:
 safety:
   ddl_timeout_seconds: 300        # per-statement ceiling for executor DDL
 
-# LLM configuration (optional — Tier 1 rules work without LLM)
+# LLM configuration. LLM features are on by default and call a provider
+# only once endpoint and api_key are set; until then pg_sage uses its
+# deterministic rules. token_budget_daily caps the daily spend.
 llm:
-  enabled: false                  # set to true to enable LLM features
+  enabled: true                   # false turns every LLM feature off
   endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
   model: "gemini-2.5-flash"
   api_key: ${SAGE_GEMINI_API_KEY} # set via environment variable
   timeout_seconds: 60
   token_budget_daily: 100000
 
-  # Index optimizer (requires llm.enabled: true)
+  # Index optimizer (on by default; needs a configured LLM)
   optimizer:
-    enabled: false                # set to true for LLM-powered index recommendations
+    enabled: true                 # false turns off LLM index recommendations
     min_query_calls: 100          # minimum query calls before analyzing a table
     max_new_per_table: 3          # max new indexes recommended per table per cycle
 
-# Configuration advisor (requires llm.enabled: true)
+# Configuration advisor (on by default; needs a configured LLM)
 advisor:
-  enabled: false                  # set to true for vacuum/WAL/connection/memory tuning
+  enabled: true                   # false turns off vacuum/WAL/connection/memory advice
   interval_seconds: 86400         # how often to run configuration analysis
 
 # Optional: dedicated model for index optimization (higher quality, higher
-# cost). This block nests under llm: as llm.optimizer_llm.
+# cost, and its own token_budget_daily). Off by default. This block nests
+# under llm: as llm.optimizer_llm.
 # optimizer_llm:
-#   enabled: false
+#   enabled: true
 #   endpoint: "https://api.anthropic.com/v1"
 #   model: "claude-opus-4-6"
 #   api_key: ${SAGE_OPTIMIZER_LLM_API_KEY}

@@ -59,6 +59,33 @@
 
 ### Changed (read before upgrading)
 
+- **LLM features are on by default.** pg_sage is an AI DBA, so `llm.enabled`,
+  `llm.optimizer.enabled`, `advisor.enabled`, `tuner.llm_enabled` and
+  `rca.narration_enabled` now default to `true` (`explain.enabled` already did). They call
+  a provider only once an LLM is configured: `llm.endpoint` and `llm.api_key` (or
+  `SAGE_LLM_ENDPOINT` and `SAGE_LLM_API_KEY`). Without one, every feature keeps its
+  deterministic path, no LLM request is made, and startup logs one line saying the LLM is
+  not configured and how to set it.
+  - **Upgrading:** if your config or saved Settings already has an endpoint and key but
+    never set these switches, LLM calls start after the upgrade. An explicit `false` in
+    YAML or a saved Settings/API value still wins.
+  - **Cost:** spend is capped by `llm.token_budget_daily`, 500,000 tokens a day by default
+    across all general-LLM features (`0` means no cap).
+    [docs/llm-costing.md](docs/llm-costing.md) estimates about 150,000 tokens a day for a
+    small-to-medium database and lists per-feature estimates and prices.
+    `llm.optimizer_llm.enabled` stays `false`: turning it on adds a second client with its
+    own daily budget.
+  - **No new autonomy:** trust level, tier flags and execution mode keep their defaults.
+    LLM output becomes a finding, a hint or a narrative; any change it proposes runs only
+    through the policy gate, trust level and execution mode, like every other
+    recommendation. With the default `trust.level: observation` nothing runs unattended.
+  - **Turning features off:** `llm.enabled: false` turns every LLM feature off and is a
+    hot kill switch. Per feature: `llm.optimizer.enabled`, `advisor.enabled`,
+    `tuner.llm_enabled`, `rca.narration_enabled` and `explain.enabled` (the whole EXPLAIN
+    endpoint) set to `false`; in fleet mode, `databases[].llm_enabled: false` per
+    database. The Settings LLM tab toggles `llm.enabled`, the advisor and the optimizer,
+    and `PUT /api/v1/config/global` accepts every key above except `tuner.llm_enabled`,
+    which is YAML-only.
 - If you already run Sage SRE investigations with an LLM configured, they start using the
   model turn after the upgrade. To keep them deterministic, set `sre.llm.enabled: false`.
   At startup, the schema upgrade replaces the event-type check on `sage.sre_events` with
@@ -66,6 +93,22 @@
   validated without a long table lock.
 - `disk_full_slot` and `lock_storm` incidents are still not credited. pg_sage does not yet
   measure disk-fill trend or lock-storm recovery, so it makes no claim for them.
+
+### Fixed
+
+- **The tuner no longer fails per query without an LLM.** With `tuner.llm_enabled` set and
+  no LLM configured (or the circuit open, or the daily budget spent), every tuning
+  candidate fetched its plan context, logged "LLM prescribe failed" and wrote an
+  `llm_suppression` finding, every cycle. It now uses its deterministic hints silently,
+  and a budget refusal no longer suppresses LLM tuning for the query.
+- **The deprecated `llm.index_optimizer` block honours explicit values.** It used to turn
+  the optimizer on even when `llm.optimizer.enabled: false` was set. Now
+  `llm.optimizer.enabled` wins whenever it is present, and an explicit
+  `llm.index_optimizer.enabled` (true or false) applies only when it is not.
+- The collector no longer reads `pg_settings` and every table's reloptions each cycle for
+  a configuration advisor that cannot run (no usable LLM at startup).
+- `pg_sage_optimizer_enabled` reports whether the index optimizer can run (enabled and its
+  LLM configured), not just the config value, which is now `true` by default.
 
 ## v1.7.0 (2026-09-30) -- Sage SRE investigations, earned index autonomy
 

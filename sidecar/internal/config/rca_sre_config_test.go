@@ -38,8 +38,8 @@ func TestRCASREDefaults_NoConfigFile(t *testing.T) {
 		t.Errorf("DefaultRCALockChainIntervalSeconds = %d, want 60",
 			DefaultRCALockChainIntervalSeconds)
 	}
-	if cfg.RCA.NarrationEnabled {
-		t.Error("narration_enabled must default to false")
+	if !cfg.RCA.NarrationEnabled {
+		t.Error("narration_enabled must default to true")
 	}
 	if got := cfg.RCA.LockChainInterval(); got.Seconds() != 60 {
 		t.Errorf("LockChainInterval() = %s, want 60s", got)

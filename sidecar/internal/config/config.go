@@ -217,7 +217,7 @@ type TrustConfig struct {
 }
 
 type LLMConfig struct {
-	Enabled               bool                 `yaml:"enabled" doc:"Global enable for LLM-assisted analysis (planner explanations, recommendation narratives). When disabled, pg_sage falls back to deterministic heuristics only."`
+	Enabled               bool                 `yaml:"enabled" doc:"Global enable for LLM-assisted analysis. On by default; calls a provider only once llm.endpoint and llm.api_key are set. When off, pg_sage uses deterministic heuristics only."`
 	Endpoint              string               `yaml:"endpoint" doc:"LLM provider base URL. Supports OpenAI-compatible chat-completions endpoints. Can be left blank to use the vendor default."`
 	APIKey                string               `yaml:"api_key" doc:"Authentication token for the LLM provider. Prefer sourcing from environment via ${LLM_API_KEY} rather than committing literal values." secret:"true"`
 	Model                 string               `yaml:"model" doc:"Model identifier sent to the provider (e.g. gpt-4o-mini). Must support JSON-mode responses for structured outputs."`
@@ -243,7 +243,7 @@ type IndexOptimizerConfig struct {
 
 // OptimizerConfig controls the index optimizer v2 behavior.
 type OptimizerConfig struct {
-	Enabled              bool    `yaml:"enabled"`
+	Enabled              bool    `yaml:"enabled" doc:"Run the LLM index optimizer. On by default; needs a usable LLM. Its index changes execute only through the policy gate and trust level. Default: true."`
 	MinQueryCalls        int     `yaml:"min_query_calls"`
 	MaxIndexesPerTable   int     `yaml:"max_indexes_per_table"`
 	MaxNewPerTable       int     `yaml:"max_new_per_table"`
@@ -259,7 +259,7 @@ type OptimizerConfig struct {
 
 // OptimizerLLMConfig configures the dedicated optimizer LLM (reasoning-tier).
 type OptimizerLLMConfig struct {
-	Enabled           bool   `yaml:"enabled" doc:"Enable the dedicated reasoning-tier LLM used by the index optimizer. When false the optimizer falls back to the general llm.* client."`
+	Enabled           bool   `yaml:"enabled" doc:"Enable the dedicated reasoning-tier LLM used by the index optimizer. When false the optimizer falls back to the general llm.* client. Default: false."`
 	Endpoint          string `yaml:"endpoint" doc:"Base URL for the optimizer LLM provider. Can differ from the general llm.endpoint when the reasoning tier lives on another provider."`
 	APIKey            string `yaml:"api_key" doc:"API key for the optimizer LLM. Prefer env-var substitution over literal values." secret:"true"`
 	Model             string `yaml:"model" doc:"Reasoning-tier model identifier (e.g. o1-mini). Must return JSON when requested."`
@@ -271,7 +271,7 @@ type OptimizerLLMConfig struct {
 }
 
 type AdvisorConfig struct {
-	Enabled           bool `yaml:"enabled"`
+	Enabled           bool `yaml:"enabled" doc:"Run the LLM configuration advisor. On by default; needs a usable LLM at startup. Its changes execute only through the policy gate and trust level. Default: true."`
 	IntervalSeconds   int  `yaml:"interval_seconds"`
 	VacuumEnabled     bool `yaml:"vacuum_enabled"`
 	WALEnabled        bool `yaml:"wal_enabled"`
@@ -346,7 +346,7 @@ type RCAConfig struct {
 	ReplicationLagThresholdS int     `yaml:"replication_lag_threshold_seconds" doc:"Seconds of replay lag before the replication_lag_increasing signal fires. Default: 30."`
 	WALSpikeMultiplier       float64 `yaml:"wal_spike_multiplier" doc:"WAL bytes delta must exceed previous delta by this multiplier to trigger wal_growth_spike. Default: 2.0."`
 	LockChainIntervalSeconds int     `yaml:"lock_chain_interval_seconds" doc:"Seconds between lock-chain fast-path checks, which open or update the lock_contention incident between analyzer cycles. 0 disables the fast path; otherwise 10-3600. Default: 60."`
-	NarrationEnabled         bool    `yaml:"narration_enabled" doc:"Add an LLM narrative, citing the incident's evidence and catalog probe results, to incident notifications. Off, or any LLM failure, uses the deterministic summary. Default: false."`
+	NarrationEnabled         bool    `yaml:"narration_enabled" doc:"Add an LLM narrative, citing the incident's evidence and catalog probe results, to incident notifications. Off, no LLM, or any LLM failure uses the deterministic summary. Default: true."`
 }
 
 // LockChainConfig controls lock chain detection (v0.9).
@@ -420,7 +420,7 @@ type MigrationConfig struct {
 
 type TunerConfig struct {
 	Enabled                bool    `yaml:"enabled" doc:"Master switch for the per-query tuner. When false, no hints are written and Tune() is a no-op — the analyzer still runs."`
-	LLMEnabled             bool    `yaml:"llm_enabled" doc:"Allow the tuner to call the LLM for hint prescription when deterministic rules do not produce a recommendation. Budget-gated by llm.token_budget_daily."`
+	LLMEnabled             bool    `yaml:"llm_enabled" doc:"Allow the tuner to call the LLM for hint prescription when deterministic rules do not produce a recommendation. Budget-gated by llm.token_budget_daily. Default: true."`
 	WorkMemMaxMB           int     `yaml:"work_mem_max_mb" doc:"Maximum per-query work_mem (MB) the tuner is allowed to prescribe via Set(work_mem) hints. Ceiling prevents runaway memory suggestions."`
 	PlanTimeRatio          float64 `yaml:"plan_time_ratio" doc:"When plan_time / exec_time exceeds this ratio, the tuner flags the query as plan-time-dominated and considers prepared-statement hints."`
 	NestedLoopRowThreshold int64   `yaml:"nested_loop_row_threshold" doc:"Minimum actual-row count on a nested-loop inner that triggers the bad-nested-loop symptom. Smaller values increase sensitivity."`
@@ -637,27 +637,6 @@ func Load(args []string) (*Config, error) {
 			"standalone mode requires postgres connection config or --meta-db")
 	}
 
-	// Migrate deprecated index_optimizer → optimizer if optimizer wasn't
-	// explicitly set but the legacy key was.
-	if !cfg.LLM.Optimizer.Enabled && cfg.LLM.IndexOptimizer.Enabled {
-		cfg.LLM.Optimizer.Enabled = true
-		if cfg.LLM.IndexOptimizer.MinQueryCalls > 0 {
-			cfg.LLM.Optimizer.MinQueryCalls = cfg.LLM.IndexOptimizer.MinQueryCalls
-		}
-		if cfg.LLM.IndexOptimizer.MaxIndexesPerTable > 0 {
-			cfg.LLM.Optimizer.MaxIndexesPerTable = cfg.LLM.IndexOptimizer.MaxIndexesPerTable
-		}
-		if cfg.LLM.IndexOptimizer.MaxIncludeColumns > 0 {
-			cfg.LLM.Optimizer.MaxIncludeColumns = cfg.LLM.IndexOptimizer.MaxIncludeColumns
-		}
-		if cfg.LLM.IndexOptimizer.OverIndexedRatio > 0 {
-			cfg.LLM.Optimizer.OverIndexedRatioPct = cfg.LLM.IndexOptimizer.OverIndexedRatio
-		}
-		if cfg.LLM.IndexOptimizer.WriteHeavyRatio > 0 {
-			cfg.LLM.Optimizer.WriteHeavyRatioPct = cfg.LLM.IndexOptimizer.WriteHeavyRatio
-		}
-	}
-
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("config validation: %w", err)
 	}
@@ -836,7 +815,7 @@ func newDefaults() *Config {
 				WriteImpactThreshPct: DefaultOptWriteImpactThreshPct,
 			},
 			OptimizerLLM: OptimizerLLMConfig{
-				Enabled:           false,
+				Enabled:           DefaultOptLLMEnabled,
 				TimeoutSeconds:    DefaultOptLLMTimeoutSeconds,
 				TokenBudgetDaily:  DefaultOptLLMTokenBudget,
 				CooldownSeconds:   DefaultOptLLMCooldownSeconds,
@@ -845,7 +824,7 @@ func newDefaults() *Config {
 			},
 		},
 		Advisor: AdvisorConfig{
-			Enabled:           false,
+			Enabled:           DefaultAdvisorEnabled,
 			IntervalSeconds:   86400,
 			VacuumEnabled:     true,
 			WALEnabled:        true,
@@ -902,6 +881,7 @@ func newDefaults() *Config {
 			NestedLoopRowThreshold: DefaultTunerNestedLoopRowThresh,
 			ParallelMinTableRows:   DefaultTunerParallelMinRows,
 			MinQueryCalls:          DefaultTunerMinQueryCalls,
+			LLMEnabled:             DefaultTunerLLMEnabled,
 			VerifyAfterApply:       true,
 
 			// Feature 1 — Hint revalidation loop.
@@ -930,6 +910,7 @@ func newDefaults() *Config {
 			ReplicationLagThresholdS: DefaultRCAReplicationLagThresholdS,
 			WALSpikeMultiplier:       DefaultRCAWALSpikeMultiplier,
 			LockChainIntervalSeconds: DefaultRCALockChainIntervalSeconds,
+			NarrationEnabled:         DefaultRCANarrationEnabled,
 		},
 		SRE: defaultSREConfig(),
 		Runaway: RunawayConfig{
@@ -1038,6 +1019,9 @@ func loadYAML(path string, cfg *Config) error {
 			return err
 		}
 		return fmt.Errorf("config must contain exactly one YAML document")
+	}
+	if err := migrateLegacyIndexOptimizer(expanded, candidate); err != nil {
+		return err
 	}
 	*cfg = *candidate
 	return nil
