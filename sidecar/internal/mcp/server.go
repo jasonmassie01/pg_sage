@@ -71,11 +71,8 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (any, *rpcEr
 	if mutatingTools[call.Name] && !canMutate(ctx) {
 		return nil, failure(-32001, "operator or admin role required")
 	}
-	if sreToolNames[call.Name] {
+	if _, runbookTool := runbookToolNames[call.Name]; sreToolNames[call.Name] || runbookTool {
 		return s.callSRETool(ctx, call.Name, call.Arguments)
-	}
-	if _, ok := runbookToolNames[call.Name]; ok {
-		return s.callRunbookTool(ctx, call.Name, call.Arguments)
 	}
 	var result any
 	var err error
