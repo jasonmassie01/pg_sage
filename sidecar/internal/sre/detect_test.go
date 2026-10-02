@@ -341,7 +341,7 @@ func TestDetector_ConcurrentPolls(t *testing.T) {
 	r := newSeqRunner()
 	for i := 0; i < 40; i++ {
 		at := time.Duration(i) * time.Second
-		r.add(ckptPoll(at, 0, int64(i)), tempPoll(at, float64(i)<<28),
+		r.add(ckptPoll(at, 0, int64(i)), tempPoll(at, float64(i<<28)),
 			lwPoll(at, "WALWrite", 9))
 	}
 	d, _ := newDetector(t, r)

@@ -2,6 +2,7 @@ package sre
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -143,8 +144,8 @@ func TestModelTurn_RanksAnM6Family(t *testing.T) {
 	st, _, ctx := liveStore(t, budgetLimits())
 	m := newFakeModel(t, toolReply(func(body string) string {
 		return wireReview{Ranking: []string{"wal_write_contention"},
-			Claims: []wireClaim{{Text: "20 backends waited on WALWrite.",
-				EvidenceIDs: []string{aliasOf(t, body, probes.LWLockWaits, "ok")}}}}.json()
+			Claims: []wireClaim{{Text: "The WALWrite waits peaked at 20 backends.",
+				EvidenceIDs: []string{lastAlias(t, body, probes.LWLockWaits)}}}}.json()
 	}))
 	c, _ := modelCoordinator(t, ctx, st, lwScripts(), m.client())
 	inv := startAndRun(t, ctx, c, m6Trigger(TriggerLWLock, "model"))
@@ -153,7 +154,8 @@ func TestModelTurn_RanksAnM6Family(t *testing.T) {
 	}
 	r := inv.Summary.ModelRanking
 	if r == nil || strings.Join(r.Nodes, ",") != "wal_write_contention" {
-		t.Fatalf("model ranking = %+v", r)
+		t.Fatalf("model ranking = %+v; rejected %v", r,
+			payloads(t, st, inv, EventModelRejected))
 	}
 	if n := inv.Summary.Narrative; n == nil || len(n.Claims) != 1 {
 		t.Fatalf("narrative = %+v", inv.Summary.Narrative)
@@ -161,4 +163,17 @@ func TestModelTurn_RanksAnM6Family(t *testing.T) {
 	if !strings.Contains(m.body(t, 0), "lwlock_contention incident") {
 		t.Fatalf("prompt does not name the family: %s", m.body(t, 0))
 	}
+}
+
+// lastAlias is the alias of the last stored result of a probe: the
+// graph's facts are rendered on the evidence they cite, the last sample.
+func lastAlias(t *testing.T, body string, probe probes.ID) string {
+	t.Helper()
+	re := regexp.MustCompile(`(E\d+) \[` + regexp.QuoteMeta(string(probe)) + ` ok\]`)
+	m := re.FindAllStringSubmatch(body, -1)
+	if len(m) == 0 {
+		t.Errorf("prompt has no %s evidence: %s", probe, body)
+		return "E0"
+	}
+	return m[len(m)-1][1]
 }
