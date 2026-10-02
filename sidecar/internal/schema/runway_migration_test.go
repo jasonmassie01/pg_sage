@@ -1,11 +1,13 @@
 package schema
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Sage SRE M6 runways: sage.runway_samples holds the series the runway
@@ -17,22 +19,7 @@ func TestRunwayMigration_SamplesTable(t *testing.T) {
 	for run := 0; run < 2; run++ {
 		bootstrapWithRetry(t, ctx, pool)
 	}
-	var cols []string
-	rows, err := pool.Query(ctx, `SELECT column_name || ':' || data_type
-		FROM information_schema.columns
-		WHERE table_schema = 'sage' AND table_name = 'runway_samples'
-		ORDER BY ordinal_position`)
-	if err != nil {
-		t.Fatalf("columns: %v", err)
-	}
-	for rows.Next() {
-		var c string
-		if err := rows.Scan(&c); err != nil {
-			t.Fatalf("scan: %v", err)
-		}
-		cols = append(cols, c)
-	}
-	rows.Close()
+	cols := runwaySampleColumns(t, ctx, pool)
 	want := "id:bigint,kind:text,subject:text,epoch:text," +
 		"sampled_at:timestamp with time zone,value:double precision," +
 		"counter:double precision,limit_value:double precision"
@@ -73,4 +60,29 @@ func TestRunwayMigration_SamplesTable(t *testing.T) {
 			t.Errorf("%s: err = %v, want a check violation", name, err)
 		}
 	}
+}
+
+// runwaySampleColumns lists sage.runway_samples' columns as name:type.
+func runwaySampleColumns(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []string {
+	t.Helper()
+	rows, err := pool.Query(ctx, `SELECT column_name || ':' || data_type
+		FROM information_schema.columns
+		WHERE table_schema = 'sage' AND table_name = 'runway_samples'
+		ORDER BY ordinal_position`)
+	if err != nil {
+		t.Fatalf("columns: %v", err)
+	}
+	defer rows.Close()
+	var cols []string
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		cols = append(cols, c)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("columns: %v", err)
+	}
+	return cols
 }

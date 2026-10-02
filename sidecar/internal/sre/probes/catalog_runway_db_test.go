@@ -117,31 +117,8 @@ func TestCatalog_WraparoundTablesUseTheTableMaximum(t *testing.T) {
 func TestCatalog_XminHorizonListsHolders(t *testing.T) {
 	pool, ctx := livePool(t)
 	dsn := os.Getenv(testdb.EnvName)
-	slot := ""
-	var walLevel string
-	_ = pool.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel)
-	if walLevel == "logical" {
-		slot = fmt.Sprintf("sre_xmin_%d", time.Now().UnixNano())
-		if _, err := pool.Exec(ctx, "SELECT pg_create_logical_replication_slot($1, "+
-			"'pgoutput')", slot); err != nil {
-			t.Fatalf("slot: %v", err)
-		}
-		t.Cleanup(func() {
-			_, _ = pool.Exec(context.Background(), "SELECT pg_drop_replication_slot($1)", slot)
-		})
-	}
-	holder, err := pgx.Connect(ctx, dsn)
-	if err != nil {
-		t.Fatalf("connect holder: %v", err)
-	}
-	t.Cleanup(func() { _ = holder.Close(context.Background()) })
-	var pid int64
-	if _, err := holder.Exec(ctx, "BEGIN ISOLATION LEVEL REPEATABLE READ"); err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	if err := holder.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid); err != nil {
-		t.Fatalf("pid: %v", err)
-	}
+	slot := catalogSlotHolder(t, ctx, pool)
+	pid := sessionHolder(t, ctx, dsn)
 	gid := preparedHolder(t, ctx, pool, dsn)
 	burnXIDs(t, ctx, pool, 500)
 	hs, err := XminHolders(catalogRun(t, ctx, pool, XminHorizon, Args{}))
@@ -168,6 +145,47 @@ func TestCatalog_XminHorizonListsHolders(t *testing.T) {
 			t.Fatalf("holders not ordered by age: %+v", hs)
 		}
 	}
+}
+
+// catalogSlotHolder creates a logical slot (a catalog xmin holder) when
+// wal_level is logical; it returns the slot name ("" when it cannot).
+func catalogSlotHolder(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
+	t.Helper()
+	var walLevel string
+	if err := pool.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
+		t.Fatalf("wal_level: %v", err)
+	}
+	if walLevel != "logical" {
+		return ""
+	}
+	slot := fmt.Sprintf("sre_xmin_%d", time.Now().UnixNano())
+	if _, err := pool.Exec(ctx, "SELECT pg_create_logical_replication_slot($1, "+
+		"'pgoutput')", slot); err != nil {
+		t.Fatalf("slot: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "SELECT pg_drop_replication_slot($1)", slot)
+	})
+	return slot
+}
+
+// sessionHolder opens a REPEATABLE READ transaction that holds the xmin
+// horizon until the test ends; it returns the session's pid.
+func sessionHolder(t *testing.T, ctx context.Context, dsn string) int64 {
+	t.Helper()
+	holder, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect holder: %v", err)
+	}
+	t.Cleanup(func() { _ = holder.Close(context.Background()) })
+	if _, err := holder.Exec(ctx, "BEGIN ISOLATION LEVEL REPEATABLE READ"); err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	var pid int64
+	if err := holder.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid); err != nil {
+		t.Fatalf("pid: %v", err)
+	}
+	return pid
 }
 
 // preparedHolder prepares a transaction holding an XID, when the server
@@ -321,30 +339,7 @@ func restrictedPool(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 func TestCatalog_SequenceRunwayFindsTheBindingLimit(t *testing.T) {
 	pool, ctx := livePool(t)
 	sch := fmt.Sprintf("sre_seq_%d", time.Now().UnixNano())
-	q := pgx.Identifier{sch}.Sanitize()
-	ddl := strings.ReplaceAll(`CREATE SCHEMA S;
-		CREATE SEQUENCE S.int_seq AS integer;
-		CREATE TABLE S.a (id int DEFAULT nextval('S.int_seq'));
-		ALTER SEQUENCE S.int_seq OWNED BY S.a.id;
-		SELECT setval('S.int_seq', 2147483647 - 1000);
-		CREATE SEQUENCE S.big_seq;
-		CREATE TABLE S.b (id int DEFAULT nextval('S.big_seq'));
-		ALTER SEQUENCE S.big_seq OWNED BY S.b.id;
-		SELECT setval('S.big_seq', 2147483647 - 2000);
-		CREATE SEQUENCE S.capped_seq MAXVALUE 1000000;
-		SELECT setval('S.capped_seq', 900000);
-		CREATE SEQUENCE S.cycle_seq AS smallint CYCLE;
-		SELECT setval('S.cycle_seq', 32000);
-		CREATE SEQUENCE S.down_seq INCREMENT -1;
-		SELECT nextval('S.down_seq');
-		CREATE SEQUENCE S.fresh_seq;`, "S.", q+".")
-	ddl = strings.ReplaceAll(ddl, "SCHEMA S;", "SCHEMA "+q+";")
-	if _, err := pool.Exec(ctx, ddl); err != nil {
-		t.Fatalf("sequences: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), "DROP SCHEMA "+q+" CASCADE")
-	})
+	createSequenceFixtures(t, ctx, pool, sch)
 	ss, err := Sequences(catalogRun(t, ctx, pool, SequenceRunwayProbe, Args{}))
 	if err != nil {
 		t.Fatalf("sequences: %v", err)
@@ -370,6 +365,37 @@ func TestCatalog_SequenceRunwayFindsTheBindingLimit(t *testing.T) {
 	if got["int_seq"].OwnerColumn != sch+".a.id" {
 		t.Fatalf("owner column = %q", got["int_seq"].OwnerColumn)
 	}
+}
+
+// createSequenceFixtures creates schema sch with one sequence per binding
+// limit, a cycling, a descending and a never-called sequence.
+func createSequenceFixtures(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	sch string) {
+	t.Helper()
+	q := pgx.Identifier{sch}.Sanitize()
+	ddl := strings.ReplaceAll(`CREATE SCHEMA S;
+		CREATE SEQUENCE S.int_seq AS integer;
+		CREATE TABLE S.a (id int DEFAULT nextval('S.int_seq'));
+		ALTER SEQUENCE S.int_seq OWNED BY S.a.id;
+		SELECT setval('S.int_seq', 2147483647 - 1000);
+		CREATE SEQUENCE S.big_seq;
+		CREATE TABLE S.b (id int DEFAULT nextval('S.big_seq'));
+		ALTER SEQUENCE S.big_seq OWNED BY S.b.id;
+		SELECT setval('S.big_seq', 2147483647 - 2000);
+		CREATE SEQUENCE S.capped_seq MAXVALUE 1000000;
+		SELECT setval('S.capped_seq', 900000);
+		CREATE SEQUENCE S.cycle_seq AS smallint CYCLE;
+		SELECT setval('S.cycle_seq', 32000);
+		CREATE SEQUENCE S.down_seq INCREMENT -1;
+		SELECT nextval('S.down_seq');
+		CREATE SEQUENCE S.fresh_seq;`, "S.", q+".")
+	ddl = strings.ReplaceAll(ddl, "SCHEMA S;", "SCHEMA "+q+";")
+	if _, err := pool.Exec(ctx, ddl); err != nil {
+		t.Fatalf("sequences: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP SCHEMA "+q+" CASCADE")
+	})
 }
 
 func checkSequence(t *testing.T, got map[string]SequenceRunway, name, binding string,

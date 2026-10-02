@@ -137,8 +137,15 @@ func TestMonitorTick_OpensAFindingAndAnInvestigation(t *testing.T) {
 		WHERE kind = 'xid' AND subject = 'cluster'`).Scan(&xid); err != nil || xid == 0 {
 		t.Fatalf("xid samples = %d (%v)", xid, err)
 	}
-	// The runway clears: its samples age out of the lookback; the finding
-	// resolves on the next tick and no investigation starts.
+	assertRunwayClears(t, ctx, pool, m, st, name)
+}
+
+// assertRunwayClears: the runway clears (its samples age out of the
+// lookback); the finding resolves on the next tick and no investigation
+// starts.
+func assertRunwayClears(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	m *Monitor, st *fakeStarter, name string) {
+	t.Helper()
 	if _, err := pool.Exec(ctx, `DELETE FROM sage.runway_samples WHERE subject = $1`,
 		name); err != nil {
 		t.Fatalf("clear: %v", err)
