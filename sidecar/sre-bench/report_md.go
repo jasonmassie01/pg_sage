@@ -81,6 +81,7 @@ func (r Report) Markdown() string {
 	b.WriteString("\nRates show (hits/denominator) [95% Wilson interval]; n/a has no " +
 		"denominator.\n\n## Per family and arm\n\n")
 	r.writeCells(&b)
+	r.writeModel(&b)
 	b.WriteString("\n## Gates\n\n")
 	b.WriteString(row("gate", "family", "arm", "status", "observed", "threshold", "note"))
 	b.WriteString(separator(7))

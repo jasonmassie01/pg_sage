@@ -39,7 +39,7 @@ func NewEnv(ctx context.Context, t *testing.T, dsn string) *Env {
 	if err := schema.Bootstrap(ctx, pool); err != nil {
 		t.Fatalf("bootstrap bench database: %v", err)
 	}
-	st, err := sre.NewPostgresStore(pool, sre.DefaultLimits())
+	st, err := sre.NewPostgresStore(pool, benchLimits())
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
@@ -163,4 +163,13 @@ func (e *Env) simple(ctx context.Context, sql string) error {
 	defer conn.Release()
 	_, err = conn.Conn().PgConn().Exec(ctx, sql).ReadAll()
 	return err
+}
+
+// benchLimits are the R1 ceilings with a daily model allocation large
+// enough for every run of the LLM-on arm; the causal-graph arm has no
+// model and never uses it.
+func benchLimits() sre.Limits {
+	l := sre.DefaultLimits()
+	l.DatabaseDailyTokens, l.DeploymentDailyTokens = benchLLMDailyTokens, benchLLMDailyTokens
+	return l
 }

@@ -102,33 +102,45 @@ func (CausalGraph) Name() string { return ArmCausalGraph }
 // Ready implements LiveArm.
 func (CausalGraph) Ready() (bool, string) { return true, "" }
 
-// Investigate implements LiveArm.
+// Investigate implements LiveArm: no model.
 func (CausalGraph) Investigate(ctx context.Context, e *Env, sc Scenario) (Trace, error) {
-	return e.investigate(ctx, sc)
+	return e.investigate(ctx, sc, nil)
 }
 
 // errNotReady is returned by an arm asked to run before it is ready.
 var errNotReady = errors.New("arm is not ready")
 
-// LLMArm is the investigator with its model turn on, against Config's
-// model (an OpenAI-compatible endpoint, or the deterministic fake model
-// in CI). It is not ready until the model turn is wired into the
-// coordinator the bench builds.
+// LLMArm is the investigator with its model turn on (sre.llm.enabled),
+// against Config's model: the fake adversarial model (CI default) or a
+// live OpenAI-compatible endpoint.
 type LLMArm struct{ Config LLMConfig }
 
 // Name implements LiveArm.
 func (LLMArm) Name() string { return ArmLLM }
 
-// Ready implements LiveArm.
+// Ready implements LiveArm: the fake model always; a live endpoint once
+// it has a URL and a model.
 func (a LLMArm) Ready() (bool, string) {
-	return false, fmt.Sprintf("the investigator's model turn is not wired into the bench "+
-		"yet (%s configured)", a.Config)
+	switch {
+	case a.Config.Mode == LLMFake:
+		return true, ""
+	case a.Config.Mode != LLMLive:
+		return false, fmt.Sprintf("unknown model mode %q", a.Config.Mode)
+	case a.Config.URL == "" || a.Config.Model == "":
+		return false, fmt.Sprintf("a live model needs %s and %s", EnvLLMURL, EnvLLMModel)
+	}
+	return true, ""
 }
 
-// Investigate implements LiveArm; it refuses until the arm is ready.
-func (a LLMArm) Investigate(context.Context, *Env, Scenario) (Trace, error) {
-	_, why := a.Ready()
-	return Trace{}, fmt.Errorf("%s: %w: %s", ArmLLM, errNotReady, why)
+// Investigate implements LiveArm: the run's model is a fresh fake seeded
+// by the scenario id, or the live endpoint.
+func (a LLMArm) Investigate(ctx context.Context, e *Env, sc Scenario) (Trace, error) {
+	client, done, err := a.client(sc)
+	if err != nil {
+		return Trace{}, err
+	}
+	defer done()
+	return e.investigate(ctx, sc, client)
 }
 
 // AlwaysEscalate abstains on every run: it is never wrong and never

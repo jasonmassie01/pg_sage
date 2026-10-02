@@ -115,34 +115,35 @@ func millis(d time.Duration, ok bool) *float64 {
 
 // CellRecord is one arm's metrics for one family (or PooledFamily).
 type CellRecord struct {
-	Arm                    string   `json:"arm"`
-	Family                 string   `json:"family"`
-	Pending                string   `json:"pending,omitempty"`
-	Runs                   int      `json:"runs"`
-	Errored                int      `json:"errored"`
-	Skipped                int      `json:"skipped"`
-	SafePass               Metric   `json:"safe_pass"`
-	Top1                   Metric   `json:"top1"`
-	Top3                   Metric   `json:"top3"`
-	CleanTop1              Metric   `json:"clean_top1"`
-	NoiseTop1              Metric   `json:"noise_top1"`
-	DecoyFalse             Metric   `json:"decoy_false_diagnosis"`
-	Abstention             Metric   `json:"abstention"`
-	InsufficientAbstention Metric   `json:"insufficient_abstention"`
-	Selective              Metric   `json:"selective_accuracy"`
-	Consistency            Metric   `json:"consistency"`
-	Forbidden              int      `json:"forbidden_actions"`
-	ProbesPerRun           *float64 `json:"probes_per_run"`
-	FirstEvidenceP50MS     *float64 `json:"first_evidence_p50_ms"`
-	PacketP95MS            *float64 `json:"packet_p95_ms"`
-	MechanismPrecision     *float64 `json:"mechanism_precision"`
-	MechanismRecall        *float64 `json:"mechanism_recall"`
+	Arm                    string      `json:"arm"`
+	Family                 string      `json:"family"`
+	Pending                string      `json:"pending,omitempty"`
+	Runs                   int         `json:"runs"`
+	Errored                int         `json:"errored"`
+	Skipped                int         `json:"skipped"`
+	SafePass               Metric      `json:"safe_pass"`
+	Top1                   Metric      `json:"top1"`
+	Top3                   Metric      `json:"top3"`
+	CleanTop1              Metric      `json:"clean_top1"`
+	NoiseTop1              Metric      `json:"noise_top1"`
+	DecoyFalse             Metric      `json:"decoy_false_diagnosis"`
+	Abstention             Metric      `json:"abstention"`
+	InsufficientAbstention Metric      `json:"insufficient_abstention"`
+	Selective              Metric      `json:"selective_accuracy"`
+	Consistency            Metric      `json:"consistency"`
+	Forbidden              int         `json:"forbidden_actions"`
+	ProbesPerRun           *float64    `json:"probes_per_run"`
+	FirstEvidenceP50MS     *float64    `json:"first_evidence_p50_ms"`
+	PacketP95MS            *float64    `json:"packet_p95_ms"`
+	MechanismPrecision     *float64    `json:"mechanism_precision"`
+	MechanismRecall        *float64    `json:"mechanism_recall"`
+	Model                  *ModelTally `json:"model,omitempty"`
 }
 
 func cellOf(arm, family string, t Tally) CellRecord {
 	ttfe, ttfeOK := quantile(t.FirstEvidence, 0.5)
 	p95, p95OK := quantile(t.Packets, 0.95)
-	return CellRecord{
+	c := CellRecord{
 		Arm:                    arm,
 		Family:                 family,
 		Runs:                   t.Runs,
@@ -165,30 +166,36 @@ func cellOf(arm, family string, t Tally) CellRecord {
 		MechanismPrecision:     num(t.Precision()),
 		MechanismRecall:        num(t.Recall()),
 	}
+	if t.Model.Runs > 0 {
+		m := t.Model
+		c.Model = &m
+	}
+	return c
 }
 
 // RunRecord is one arm's run of one scenario.
 type RunRecord struct {
-	Scenario         string   `json:"scenario"`
-	Family           string   `json:"family"`
-	Class            string   `json:"class"`
-	Arm              string   `json:"arm"`
-	Repeat           int      `json:"repeat"`
-	Attempts         int      `json:"attempts"`
-	GoldRoot         string   `json:"gold_root,omitempty"`
-	GoldContributing []string `json:"gold_contributing,omitempty"`
-	Lookalike        string   `json:"lookalike,omitempty"`
-	State            string   `json:"state,omitempty"`
-	Root             string   `json:"root,omitempty"`
-	Contributing     []string `json:"contributing,omitempty"`
-	Ranked           []string `json:"ranked,omitempty"`
-	ProbeCount       int      `json:"probe_count"`
-	FirstEvidenceMS  *float64 `json:"first_evidence_ms,omitempty"`
-	PacketMS         *float64 `json:"packet_ms,omitempty"`
-	Forbidden        []string `json:"forbidden,omitempty"`
-	Skipped          string   `json:"skipped,omitempty"`
-	Error            string   `json:"error,omitempty"`
-	Grade            *Grade   `json:"grade,omitempty"`
+	Scenario         string      `json:"scenario"`
+	Family           string      `json:"family"`
+	Class            string      `json:"class"`
+	Arm              string      `json:"arm"`
+	Repeat           int         `json:"repeat"`
+	Attempts         int         `json:"attempts"`
+	GoldRoot         string      `json:"gold_root,omitempty"`
+	GoldContributing []string    `json:"gold_contributing,omitempty"`
+	Lookalike        string      `json:"lookalike,omitempty"`
+	State            string      `json:"state,omitempty"`
+	Root             string      `json:"root,omitempty"`
+	Contributing     []string    `json:"contributing,omitempty"`
+	Ranked           []string    `json:"ranked,omitempty"`
+	ProbeCount       int         `json:"probe_count"`
+	FirstEvidenceMS  *float64    `json:"first_evidence_ms,omitempty"`
+	PacketMS         *float64    `json:"packet_ms,omitempty"`
+	Forbidden        []string    `json:"forbidden,omitempty"`
+	Skipped          string      `json:"skipped,omitempty"`
+	Error            string      `json:"error,omitempty"`
+	Grade            *Grade      `json:"grade,omitempty"`
+	Model            *ModelStats `json:"model,omitempty"`
 }
 
 func runOf(r Result) RunRecord {
@@ -199,6 +206,7 @@ func runOf(r Result) RunRecord {
 		State: string(o.State), Root: o.Root, Contributing: o.Contributing,
 		Ranked: o.Ranked, ProbeCount: o.ProbeCount, Forbidden: o.Forbidden,
 		Skipped: r.Skipped}
+	rec.Model = o.Model
 	if r.Err != nil {
 		rec.Error = r.Err.Error()
 	}
@@ -230,9 +238,12 @@ func BuildReport(rs []Result, meta ReportMeta) Report {
 			c.Pending = why
 			r.Cells = append(r.Cells, c)
 		}
-		if pending {
+		switch {
+		case pending:
 			r.Gates = append(r.Gates, PendingGates(arm, why, s.Families)...)
-		} else {
+		case arm == ArmLLM:
+			r.Gates = append(r.Gates, llmArmGates(s, rs, meta.LLM.Mode)...)
+		default:
 			r.Gates = append(r.Gates, EvaluateGates(s, arm)...)
 		}
 	}

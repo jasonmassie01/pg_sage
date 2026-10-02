@@ -112,6 +112,8 @@ type Tally struct {
 	// TP, FP and FN score the supported mechanisms (root plus
 	// contributing) against the gold ones.
 	TP, FP, FN int
+	// Model sums the model turn of the runs that had a model.
+	Model ModelTally
 }
 
 // ProbesPerRun is the mean probe count; NaN without runs.
@@ -163,6 +165,7 @@ func (t *Tally) add(r Result) {
 		}
 	}
 	t.addMechanisms(r)
+	t.Model.add(o.Model)
 }
 
 func (t *Tally) addMechanisms(r Result) {
@@ -273,4 +276,24 @@ func quantile(ds []time.Duration, q float64) (time.Duration, bool) {
 	i := int(math.Ceil(q*float64(len(sorted))-1e-9)) - 1
 	i = max(0, min(i, len(sorted)-1))
 	return sorted[i], true
+}
+
+// ModelTally sums the model turn counts of scored runs with a model.
+type ModelTally struct {
+	Runs      int `json:"runs"`
+	Turns     int `json:"model_turns"`
+	Reviewed  int `json:"model_reviewed"`
+	Rejected  int `json:"model_rejected"`
+	Disagreed int `json:"model_disagreed"`
+}
+
+func (m *ModelTally) add(s *ModelStats) {
+	if s == nil {
+		return
+	}
+	m.Runs++
+	m.Turns += s.Turns
+	m.Reviewed += s.Reviewed
+	m.Rejected += s.Rejected
+	m.Disagreed += s.Disagreed
 }

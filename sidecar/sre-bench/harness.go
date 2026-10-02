@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -134,8 +135,11 @@ func (e *Env) graded(ctx context.Context, sc Scenario, arm LiveArm) (Outcome,
 
 // investigate runs one investigation of the scenario's family through a
 // fresh coordinator (its own database identity), with the fault
-// program's Between action at the start of the sample interval.
-func (e *Env) investigate(ctx context.Context, sc Scenario) (Trace, error) {
+// program's Between action at the start of the sample interval. model
+// is the arm's LLM (nil: the causal graph alone); with one, the model
+// turn runs as with sre.llm.enabled.
+func (e *Env) investigate(ctx context.Context, sc Scenario, model *llm.Client) (Trace,
+	error) {
 	cfg := sre.DefaultCoordinatorConfig(fmt.Sprintf("bench:%s:%d", sc.ID,
 		time.Now().UnixNano()))
 	cfg.SampleInterval = sampleInterval
@@ -147,7 +151,7 @@ func (e *Env) investigate(ctx context.Context, sc Scenario) (Trace, error) {
 		return sleepRest(ctx, d-time.Since(start))
 	}
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: e.Store, Runner: e.Runner,
-		Config: cfg, Wait: wait})
+		Config: cfg, Wait: wait, Model: model, Notices: &sre.OnceLog{}})
 	if err != nil {
 		return Trace{}, err
 	}
@@ -167,7 +171,7 @@ func (e *Env) investigate(ctx context.Context, sc Scenario) (Trace, error) {
 	if err := coord.Investigate(ctx, inv.ID); err != nil {
 		return Trace{}, err
 	}
-	return e.trace(ctx, scope, inv.ID)
+	return e.trace(ctx, scope, inv.ID, model != nil)
 }
 
 func sleepRest(ctx context.Context, d time.Duration) error {
@@ -184,8 +188,10 @@ func sleepRest(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// trace reads the persisted diagnosis, its timings and its evidence.
-func (e *Env) trace(ctx context.Context, scope sre.Scope, id sre.UUID) (Trace, error) {
+// trace reads the persisted diagnosis, its timings, its evidence and,
+// for an arm with a model, the model turn's counts.
+func (e *Env) trace(ctx context.Context, scope sre.Scope, id sre.UUID,
+	withModel bool) (Trace, error) {
 	inv, err := e.Store.Get(ctx, scope, id)
 	if err != nil {
 		return Trace{}, err
@@ -205,6 +211,11 @@ func (e *Env) trace(ctx context.Context, scope sre.Scope, id sre.UUID) (Trace, e
 	o := Outcome{State: inv.State, Root: inv.Summary.Root, ProbeCount: inv.ProbeCount,
 		Measured: true, Packet: inv.ConcludedAt.Sub(inv.CreatedAt)}
 	rankHypotheses(&o, hs)
+	if withModel {
+		if o.Model, err = e.modelStats(ctx, scope, id, inv.ModelTurns); err != nil {
+			return Trace{}, err
+		}
+	}
 	tr := Trace{Outcome: o}
 	for i, ev := range stored {
 		if d := ev.CollectedAt.Sub(inv.CreatedAt); i == 0 || d < tr.Outcome.FirstEvidence {
@@ -269,4 +280,25 @@ func (e *Env) unlockCluster() {
 	if release != nil {
 		release()
 	}
+}
+
+// modelStats counts the model turn's events of one investigation.
+func (e *Env) modelStats(ctx context.Context, scope sre.Scope, id sre.UUID,
+	turns int) (*ModelStats, error) {
+	events, err := e.Store.Events(ctx, scope, id)
+	if err != nil {
+		return nil, err
+	}
+	m := &ModelStats{Turns: turns}
+	for _, ev := range events {
+		switch ev.Type {
+		case sre.EventModelReviewed:
+			m.Reviewed++
+		case sre.EventModelRejected:
+			m.Rejected++
+		case sre.EventModelDisagreed:
+			m.Disagreed++
+		}
+	}
+	return m, nil
 }

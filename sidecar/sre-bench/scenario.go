@@ -78,6 +78,18 @@ type Outcome struct {
 	FirstEvidence time.Duration
 	Packet        time.Duration
 	Forbidden     []string
+	// Model is the model turn's counts (nil for an arm without a model).
+	Model *ModelStats
+}
+
+// ModelStats counts one investigation's model turn: turns used, accepted
+// reviews, fallbacks to the deterministic result and disagreements with
+// a conclusive graph.
+type ModelStats struct {
+	Turns     int `json:"model_turns"`
+	Reviewed  int `json:"model_reviewed"`
+	Rejected  int `json:"model_rejected"`
+	Disagreed int `json:"model_disagreed"`
 }
 
 // Result is one arm's run of one scenario in one repeat. Skipped names a
