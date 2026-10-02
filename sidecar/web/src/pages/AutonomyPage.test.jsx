@@ -44,6 +44,19 @@ const view = {
         ],
       },
       {
+        family: 'wraparound_runway',
+        shadow: { reviewed: 0, accepted: 0 },
+        classes: [
+          {
+            class: 'freeze', reversibility: 'reversible', cap: 'L3',
+            granted: 'L3', supported: 'L1', effective: 'L3', version: 1,
+            provenance: 'carried_over',
+            carried_ref: 'spec F3: the wraparound freeze custodian ran autonomously',
+            live: { verified_l2_recoveries: 0, harmful: 0 },
+          },
+        ],
+      },
+      {
         family: 'lock_blocking',
         shadow: { reviewed: 3, accepted: 2 },
         classes: [
@@ -192,6 +205,18 @@ describe('AutonomyPage', () => {
     render(<AutonomyPage database="orders" user={admin} />)
     fireEvent.click(screen.getByRole('button', { name: /approve/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/evidence is not met/)
+  })
+
+  // Coordinator decision 2026-10-02: autonomy pg_sage had before M7 is
+  // carried over, and the page says so with the decision that granted it.
+  it('marks a carried-over level with its decision', () => {
+    render(<AutonomyPage database="orders" user={viewer} />)
+    const row = screen.getByTestId('autonomy-row-wraparound_runway-freeze')
+    expect(within(row).getByTestId('granted')).toHaveTextContent('L3')
+    expect(within(row).getByText(/carried over/i)).toBeInTheDocument()
+    expect(within(row).getByText(/spec F3/)).toBeInTheDocument()
+    const earned = screen.getByTestId('autonomy-row-lock_blocking-backend_cancel')
+    expect(within(earned).queryByText(/carried over/i)).toBeNull()
   })
 
   it('warns when enforcement is off', () => {

@@ -88,7 +88,11 @@ func autonomousExecutor(pool *pgxpool.Pool) *executor.Executor {
 	return ex
 }
 
-func TestInstallAutonomyRestrictsCustodiansByDefault(t *testing.T) {
+// Coordinator decision 2026-10-02: installing the ledger carries over
+// the autonomy today's configuration grants (here: an autonomous safe
+// tier, so the custodian freeze), and the ledger then governs it: the
+// freeze runs as an L3 ledger decision, not as a bare trust-ramp one.
+func TestInstallAutonomyCarriesOverAndGovernsCustodians(t *testing.T) {
 	pool := autonomyPool(t)
 	doc := policy.UnattendedProfile()
 	doc.MaintenanceWindows = []string{"always"}
@@ -101,12 +105,18 @@ func TestInstallAutonomyRestrictsCustodiansByDefault(t *testing.T) {
 	}
 	ex.EnableStandingPolicyDocument(doc, nil)
 	got := ex.EvaluateCustodianProposal(context.Background(), freezeCustodianProposal())
-	if got.Decision != executor.PolicyDecisionObserveOnly ||
-		got.BlockedReason != string(policy.ReasonAutonomyLevel) {
-		t.Fatalf("freeze at the default L1 = %+v", got)
+	if got.Decision != executor.PolicyDecisionExecute ||
+		got.BlockedReason != string(policy.ReasonAutonomyL3) {
+		t.Fatalf("carried-over freeze = %+v", got)
 	}
-	if _, ok := ledgers.registry.Lookup("orders"); !ok {
+	entry, ok := ledgers.registry.Lookup("orders")
+	if !ok {
 		t.Fatal("the database was not registered for the API")
+	}
+	st, err := entry.Service.Granted(context.Background(), earned.FamilyWraparound,
+		earned.ClassFreeze)
+	if err != nil || st.Level != earned.L3 || st.Provenance != earned.ProvenanceCarriedOver {
+		t.Fatalf("freeze ledger state = %+v (%v)", st, err)
 	}
 
 	off := newAutonomyLedgers(false)
@@ -119,7 +129,8 @@ func TestInstallAutonomyRestrictsCustodiansByDefault(t *testing.T) {
 	}
 	legacy.EnableStandingPolicyDocument(doc, nil)
 	if got := legacy.EvaluateCustodianProposal(context.Background(),
-		freezeCustodianProposal()); got.Decision != executor.PolicyDecisionExecute {
+		freezeCustodianProposal()); got.Decision != executor.PolicyDecisionExecute ||
+		got.BlockedReason == string(policy.ReasonAutonomyL3) {
 		t.Fatalf("with enforcement off the trust ramp decides: %+v", got)
 	}
 }
