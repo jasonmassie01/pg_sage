@@ -1136,7 +1136,7 @@
   "sre.automatic_start": {
     "type": "bool",
     "default": false,
-    "doc": "Start a read-only investigation for each open lock, connection or WAL incident and plan_regression finding. Investigations never execute actions. Default: false."
+    "doc": "Start read-only investigations from RCA incidents, plan_regression findings and the reactive detector (checkpoint, temp-file, LWLock). Never executes actions. Default: false."
   },
   "sre.evidence_retention_days": {
     "type": "int",
