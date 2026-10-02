@@ -28,7 +28,7 @@ func TestIdentityChange_EachFieldInvalidatesTheComparison(t *testing.T) {
 		want string
 	}{
 		"same incarnation": {baseIdent, ""},
-		"restart":          {ident(later, "7001", 1, probes.ServerRolePrimary, 170010),
+		"restart": {ident(later, "7001", 1, probes.ServerRolePrimary, 170010),
 			ReasonServerRestarted},
 		"minor upgrade restart": {ident(later, "7001", 1, probes.ServerRolePrimary, 170011),
 			ReasonServerRestarted},

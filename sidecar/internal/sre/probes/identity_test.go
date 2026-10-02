@@ -78,8 +78,9 @@ func TestIdentityOf_MissingFieldsAreUnknown(t *testing.T) {
 
 func TestDecoders_CarryTheServerIdentity(t *testing.T) {
 	conn := identityRow()
-	for k, v := range Row{"in_current_database": true, "application_name": "api",
-		"client_addr": "10.0.0.1", "state": "idle", "backends": int64(4)} {
+	extra := Row{"in_current_database": true, "application_name": "api",
+		"client_addr": "10.0.0.1", "state": "idle", "backends": int64(4)}
+	for k, v := range extra {
 		conn[k] = v
 	}
 	gs, err := ConnectionGroups(okResult(ConnectionSaturation, nil, conn))

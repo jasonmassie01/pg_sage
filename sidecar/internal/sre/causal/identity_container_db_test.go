@@ -45,7 +45,7 @@ func sampleIdentityProbes(ctx context.Context, r *probes.Runner, step int) []Obs
 	var out []Observation
 	for i, id := range []probes.ID{probes.ConnectionSaturation, probes.WALCheckpoint,
 		probes.ReplicationSlots, probes.Archiver} {
-		out = append(out, Observation{EvidenceID: string(rune('A'+step*4+i)),
+		out = append(out, Observation{EvidenceID: string(rune('A' + step*4 + i)),
 			Result: r.Run(ctx, id, probes.Args{})})
 	}
 	return out
