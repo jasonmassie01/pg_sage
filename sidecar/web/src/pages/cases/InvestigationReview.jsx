@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
 // Phase 1.1 (2026-10-02): an operator accepts or rejects a finished
 // investigation's diagnosis, optionally with a note and the actual root
@@ -40,12 +40,11 @@ export function InvestigationReview({ database, investigation, user }) {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
-  const inFlight = useRef(false)
   if (!canOperate(user) || !FINISHED.has(investigation?.state)) return null
 
+  // The buttons are disabled while a review is in flight (React applies
+  // the disabled state before the next click event is dispatched).
   async function review(verdict) {
-    if (inFlight.current) return
-    inFlight.current = true
     setBusy(true)
     setError(null)
     try {
@@ -56,7 +55,6 @@ export function InvestigationReview({ database, investigation, user }) {
     } catch (err) {
       setError(err.message)
     } finally {
-      inFlight.current = false
       setBusy(false)
     }
   }
