@@ -267,6 +267,149 @@ pre-checks and fails before the advisory lock and transaction.
    - No test runs against a live model. A `PG_SAGE_LIVE_LLM`-gated investigation test is left
      for part B of the integration.
 
+## PGIncidentBench: the LLM-on arm (third pass)
+
+After `claude/sage-sre-m3-bench` was merged, the bench's `causal-graph+llm` arm was wired to
+the model turn:
+- **Model per arm.** `Env.investigate` takes the arm's model, which becomes
+  `CoordinatorDeps.Model` (the `sre.llm.enabled` path). The causal-graph arm passes nil.
+- **Fake mode (default, CI).** Each run gets a fresh in-process OpenAI-compatible fake,
+  seeded by the scenario id. Its reviews are valid but against the graph: it ranks the
+  last open hypothesis first, asks for a probe whenever one is offered, and narrates claims
+  citing real evidence ids, one quoting a grounded number. On a deterministic 4 in 10 of
+  its calls it sends fenced JSON, an unknown node, an ungrounded number or HTTP 429.
+- **Live mode.** `PG_SAGE_BENCH_LLM_URL/MODEL/KEY` build a real `llm.Client`. Its log is
+  silent, and the key never reaches the log or the report.
+- **Per-run counts.** Each run records model turns, accepted reviews, `model_rejected` and
+  `model_disagreed` (from the event chain). The JSON has them per run and per cell, and
+  the Markdown has a "Model turn" table.
+- **Gates.**
+  - `M3-LLM-PARITY` (fake mode, per family): Safe Pass and top-1 at most 0 points under
+    `causal-graph`.
+  - `M3-LLM-ROOT` (every mode): no root that `causal-graph` concluded on the same scenario
+    and repeat is changed or dropped.
+
+  Both fail the bench. For the fake model, the LLM arm's §12 gates are `not_evaluated`
+  with the reason; in live mode they are evaluated.
+
+Files: `sidecar/sre-bench/{fakemodel,fakeprompt,llmclient,llmgates,report_model}.go`, and
+changes to `arms.go`, `harness.go`, `env.go`, `scenario.go`, `metrics.go`, `report.go`,
+`report_md.go` and `README.md`.
+
+### Results: PostgreSQL 16, 1 repeat, fake adversarial model
+
+Per family (k/n). Two scenarios were skipped because the server has no fixture for them:
+`lock-prepared-holder` (max_prepared_transactions = 0) and `wal-archiver-failure`
+(archive_mode off). They are excluded for every arm.
+
+| family | arm | Safe Pass | top-1 | abstain (insufficient) | decoy false dx | probes/run | packet p95 |
+|---|---|---|---|---|---|---|---|
+| connection_pressure | causal-graph | 8/8 | 5/5 | 3/3 | 0/2 | 4.0 | 5426 ms |
+| connection_pressure | causal-graph+llm (fake) | 8/8 | 5/5 | 3/3 | 0/2 | 4.4 | 6182 ms |
+| connection_pressure | always-escalate | 8/8 | 0/5 | 3/3 | 0/2 | 0 | n/a |
+| connection_pressure | rules-only | 6/8 | 5/5 | 1/3 | 2/2 | 4.0 | 5426 ms |
+| lock_blocking | causal-graph | 9/9 | 6/6 | 3/3 | 0/2 | 4.0 | 690 ms |
+| lock_blocking | causal-graph+llm (fake) | 9/9 | 6/6 | 3/3 | 0/2 | 4.2 | 828 ms |
+| lock_blocking | always-escalate | 9/9 | 0/6 | 3/3 | 0/2 | 0 | n/a |
+| lock_blocking | rules-only | 8/9 | 5/6 | 3/3 | 0/2 | 4.0 | 690 ms |
+| plan_regression | causal-graph | 5/5 | 3/3 | 2/2 | 0/1 | 2.0 | 29 ms |
+| plan_regression | causal-graph+llm (fake) | 5/5 | 3/3 | 2/2 | 0/1 | 2.4 | 67 ms |
+| plan_regression | always-escalate | 5/5 | 0/3 | 2/2 | 0/1 | 0 | n/a |
+| plan_regression | rules-only | 4/5 | 3/3 | 1/2 | 1/1 | 2.0 | 29 ms |
+| wal_retention | causal-graph | 7/7 | 5/5 | 2/2 | 0/1 | 7.0 | 5297 ms |
+| wal_retention | causal-graph+llm (fake) | 7/7 | 5/5 | 2/2 | 0/1 | 7.3 | 5386 ms |
+| wal_retention | always-escalate | 7/7 | 0/5 | 2/2 | 0/1 | 0 | n/a |
+| wal_retention | rules-only | 6/7 | 5/5 | 1/2 | 1/1 | 7.0 | 5297 ms |
+| **all** | causal-graph | **29/29** | **19/19** | 10/10 | 0/6 | 4.4 | 5297 ms |
+| **all** | causal-graph+llm (fake) | **29/29** | **19/19** | 10/10 | 0/6 | 4.7 | 5386 ms |
+| **all** | always-escalate | 29/29 | 0/19 | 10/10 | 0/6 | 0 | n/a |
+| **all** | rules-only | 24/29 | 18/19 | 6/10 | 4/6 | 4.4 | 5297 ms |
+
+Model turn of the LLM arm:
+
+| family | runs | model turns | accepted reviews | model_rejected | model_disagreed |
+|---|---|---|---|---|---|
+| connection_pressure | 8 | 14 | 5 | 1 | 2 |
+| lock_blocking | 9 | 13 | 4 | 3 | 2 |
+| plan_regression | 5 | 8 | 5 | 0 | 0 |
+| wal_retention | 7 | 11 | 3 | 1 | 3 |
+| all | 29 | 46 | 17 | 5 | 7 |
+
+What this shows:
+- **Parity and roots hold.** `M3-LLM-PARITY` and `M3-LLM-ROOT` pass in every family, with 0
+  of 19 conclusive roots changed. The adversarial model never moved Safe Pass or top-1, and
+  it never named a root on a decoy or benign run, even though it asked for a probe on every
+  inconclusive one. Probes/run rose by 0.2 to 0.4, and the packet p95 stayed well under the
+  2-minute gate.
+- **Disagreements.** 7 disagreements were recorded where the graph was conclusive with
+  more than one open hypothesis. The graph won each time.
+- **Fallbacks.** 5 replies fell back to the deterministic result: 429s, and repairs that
+  failed after a rejected first reply.
+- **Accepted reviews.** 17 reviews were accepted: inconclusive graphs, which accept any
+  order, and conclusive graphs with a single open hypothesis, where the reversed order is
+  the same.
+- **Run-to-run consistency** is n/a because there was 1 repeat.
+
+### Runtime and the CI budget
+
+With both live arms, the bench took **327 s** alone on PG16 and **322 s** inside the full
+PG17 suite (with -cover). Before this change, with one live arm, it took 122 s in the PG17 suite. CI runs the
+bench inside `go test ./...` in three steps:
+- unit, `-race`, 900 s;
+- integration, 600 s per test binary;
+- the PG14/15/16/18 matrix, `-race`, 1200 s.
+
+At `SAGE_BENCH_REPEATS=1` (CI's default), the 600 s integration step has about 45% headroom,
+with no live model in CI. It would not fit two repeats (about 650 s), or a live model with
+slow replies (up to 2 turns × 50 s per investigation). **Proposed fix, if the budget
+tightens:** run the bench in its own CI step, for example
+`go test -run TestPGIncidentBench -timeout 1200s ./sre-bench/`, and skip it in the other
+steps with `-skip TestPGIncidentBench`. That keeps every scenario; no scenario is cut.
+
+### Analyzer flake (`TestPreflightEvidenceStaleSnapshotDoesNotRefreshFinding`)
+
+The root cause is test isolation through the cluster-wide `pg_stat_statements` hash table.
+The sibling test's `DROP EXTENSION` only affects the analyzer's own database, so it is not
+the cause. The test ran `SELECT pg_sleep(0.02)` once and expected the first snapshot to
+show it, but two things can remove that entry:
+- **Eviction.** Other packages fill the 5000-entry table. During a full PG17 run,
+  `pg_stat_statements_info.dealloc` reached 29: about 5% of the entries evicted 29 times. A
+  once-run statement is among the lowest-usage entries.
+- **Unscoped resets.** `pg_stat_statements_reset()` in `internal/collector` and in
+  `test/hint_verify` clears every database's entries.
+
+Fix (commit `898d2bb`):
+- The analyzer test re-runs the workload until a snapshot captures it.
+- The avoidable cluster-wide resets are scoped to their own database. The collector's
+  epoch-checking reset must stay cluster-wide.
+
+Synthetic reset loops did not reproduce the failure on demand. The fix is validated by a
+clean full PG17 run in which both mechanisms were active (stats_reset moved, dealloc 29).
+
+### Test results (third pass)
+
+- **Full suite (PG17, repo root mounted):** 8862 passed, **0 failed**, 12 skipped (the same
+  env-gated or Windows-only tests). sre-bench 89.5% coverage (64.6% without the full bench
+  run), analyzer 85.6%, collector 85.5%, sre 88.1%, llm 90.5%.
+- **Bench (PG16, both live arms, 1 repeat):** pass, 327 s.
+- **Bench unit and DB tests with `-race` (PG16, full bench excluded):** 77 passed, 0
+  skipped.
+- **Lint:** 0 issues.
+- **Two-phase:** tests in `3a37587` before the implementation (`05cf44e`, `e44bd6b`). Two
+  existing arm tests that asserted the LLM arm was "not wired" were rewritten, because that
+  behavior is what the change replaces; the commit says so.
+- **Post-test audit (bench):**
+  - The fake's prompt parser depends on the investigator's prompt format (section headers,
+    `E<n> [probe status]`, `- id: {}` menu lines). A format change would make the fake
+    rank nothing, so every review would be rejected and the arm would fall back to
+    deterministic. Parity would still pass while the model path went unexercised.
+    `TestFakeModel_ConclusiveGraphWinsAgainstTheRealInvestigator` and
+    `TestFakeModel_ProbeRunsOnAnInconclusiveGraph` use the real prompt, so they would
+    catch that.
+  - `M3-LLM-ROOT` pairs runs by scenario and repeat across separate injections. A fault
+    that manifests differently between the two injections could fail it without any model
+    effect. It did not happen in this run.
+
 ## Product-owner follow-up: LLM-backed features that default to off (`internal/config`, not changed)
 
 - `llm.enabled`: `DefaultLLMEnabled = false` (`defaults.go:57`). This is the master switch, so
