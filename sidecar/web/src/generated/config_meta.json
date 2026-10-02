@@ -11,8 +11,8 @@
   },
   "advisor.enabled": {
     "type": "bool",
-    "default": false,
-    "doc": ""
+    "default": true,
+    "doc": "Run the LLM configuration advisor. On by default; needs a usable LLM at startup. Its changes execute only through the policy gate and trust level. Default: true."
   },
   "advisor.interval_seconds": {
     "type": "int",
@@ -586,8 +586,8 @@
   },
   "llm.enabled": {
     "type": "bool",
-    "default": false,
-    "doc": "Global enable for LLM-assisted analysis (planner explanations, recommendation narratives). When disabled, pg_sage falls back to deterministic heuristics only."
+    "default": true,
+    "doc": "Global enable for LLM-assisted analysis. On by default; calls a provider only once llm.endpoint and llm.api_key are set. When off, pg_sage uses deterministic heuristics only."
   },
   "llm.endpoint": {
     "type": "string",
@@ -601,7 +601,7 @@
   },
   "llm.index_optimizer.enabled": {
     "type": "bool",
-    "default": false,
+    "default": true,
     "doc": ""
   },
   "llm.index_optimizer.max_include_columns": {
@@ -646,8 +646,8 @@
   },
   "llm.optimizer.enabled": {
     "type": "bool",
-    "default": false,
-    "doc": ""
+    "default": true,
+    "doc": "Run the LLM index optimizer. On by default; needs a usable LLM. Its index changes execute only through the policy gate and trust level. Default: true."
   },
   "llm.optimizer.hypopg_min_improvement_pct": {
     "type": "float64",
@@ -713,7 +713,7 @@
   "llm.optimizer_llm.enabled": {
     "type": "bool",
     "default": false,
-    "doc": "Enable the dedicated reasoning-tier LLM used by the index optimizer. When false the optimizer falls back to the general llm.* client."
+    "doc": "Enable the dedicated reasoning-tier LLM used by the index optimizer. When false the optimizer falls back to the general llm.* client. Default: false."
   },
   "llm.optimizer_llm.endpoint": {
     "type": "string",
@@ -984,8 +984,8 @@
   },
   "rca.narration_enabled": {
     "type": "bool",
-    "default": false,
-    "doc": "Add an LLM narrative, citing the incident's evidence and catalog probe results, to incident notifications. Off, or any LLM failure, uses the deterministic summary. Default: false."
+    "default": true,
+    "doc": "Add an LLM narrative, citing the incident's evidence and catalog probe results, to incident notifications. Off, no LLM, or any LLM failure uses the deterministic summary. Default: true."
   },
   "rca.replication_lag_threshold_seconds": {
     "type": "int",
@@ -1240,8 +1240,8 @@
   },
   "tuner.llm_enabled": {
     "type": "bool",
-    "default": false,
-    "doc": "Allow the tuner to call the LLM for hint prescription when deterministic rules do not produce a recommendation. Budget-gated by llm.token_budget_daily."
+    "default": true,
+    "doc": "Allow the tuner to call the LLM for hint prescription when deterministic rules do not produce a recommendation. Budget-gated by llm.token_budget_daily. Default: true."
   },
   "tuner.max_concurrent_analyze": {
     "type": "int",
