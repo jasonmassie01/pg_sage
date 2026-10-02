@@ -43,6 +43,7 @@ type Monitor struct {
 	flips       []time.Time
 	stableCount int
 	safeMode    bool
+	lastChange  time.Time // when a confirmed role last changed
 }
 
 // New creates a new HA Monitor probing pg_is_in_recovery() on pool.
@@ -102,6 +103,7 @@ func (m *Monitor) observeLocked(observed Role) {
 }
 
 func (m *Monitor) recordFlipLocked(now time.Time, observed Role) {
+	m.lastChange = now
 	m.stableCount = 0
 	kept := m.flips[:0]
 	for _, at := range m.flips {
@@ -154,4 +156,13 @@ func (m *Monitor) InSafeMode() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.safeMode
+}
+
+// LastRoleChange is when a confirmed role last changed (a failover or
+// failback); zero before any change. The initial detection and failed
+// probes are not changes.
+func (m *Monitor) LastRoleChange() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastChange
 }
