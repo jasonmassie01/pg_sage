@@ -250,3 +250,27 @@ func TestEngine_RecoveryPrometheus(t *testing.T) {
 		t.Fatalf("traffic drop: %+v", r)
 	}
 }
+
+// The error-budget source separates app SLIs from proxies: a proxy that
+// cannot measure (no replicas) is unknown but is not an app SLO whose
+// burn cannot be computed, so the autonomy layer can tell them apart.
+func TestEngine_BudgetSummarySeparatesAppAndProxies(t *testing.T) {
+	f := newEngineFixture(t)
+	app := uniqueName("checkout")
+	lag := &fakeProxy{o: proxyObjective(uniqueName("db_replication_lag")),
+		slice: ProxySlice{Reason: ReasonNoReplicas}}
+	e := f.engine(t, []Objective{pushObjective(app)}, []Proxy{lag}, nil)
+	if _, err := e.EvaluateOnce(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	sum, err := e.BudgetSummary(f.ctx)
+	if err != nil || sum.AppSLOs != 1 || len(sum.Unknown) != 2 ||
+		len(sum.UnknownApp) != 1 || sum.UnknownApp[0] != app || sum.FastBurning {
+		t.Fatalf("summary = %+v err=%v", sum, err)
+	}
+	proxyOnly := f.engine(t, nil, []Proxy{lag}, nil)
+	sum, _ = proxyOnly.BudgetSummary(f.ctx)
+	if sum.AppSLOs != 0 || len(sum.UnknownApp) != 0 {
+		t.Fatalf("proxy-only summary = %+v", sum)
+	}
+}
