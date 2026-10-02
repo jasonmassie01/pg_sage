@@ -1,0 +1,160 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "conn-leak-beside-steady-api-pool",
+  "family": "connection_pressure",
+  "class": "positive",
+  "description": "report-worker leaks connections (6 to 11 idle) next to orders-api's steady 24-connection pool.",
+  "provenance": "synthetic: authored after the pool/leak tie-break fix as a fresh check of the same shape with different numbers (not part of the R1 corpus); not a customer incident",
+  "detected_at": "2026-09-14T22:41:19Z",
+  "subject": "connections: 40 of 295 usable in use",
+  "gold": {
+    "root": "connection_leak",
+    "rationale": "The pressure grows with report-worker's idle backends; orders-api's steady pool is the baseline it grows on."
+  },
+  "observations": [
+    {
+      "probe": "connection_saturation",
+      "status": "ok",
+      "offset_ms": 85,
+      "rows": [
+        {
+          "in_current_database": true,
+          "application_name": "orders-api",
+          "client_addr": "10.7.3.21",
+          "state": "idle",
+          "backends": 24,
+          "waiting_on_lock": 0,
+          "max_connections": 300,
+          "reserved_connections": 5,
+          "total_client_backends": 35,
+          "server_started_at": "2026-09-02T07:00:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "report-worker",
+          "client_addr": "10.7.3.40",
+          "state": "idle",
+          "backends": 6,
+          "waiting_on_lock": 0,
+          "max_connections": 300,
+          "reserved_connections": 5,
+          "total_client_backends": 35,
+          "server_started_at": "2026-09-02T07:00:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "orders-api",
+          "client_addr": "10.7.3.21",
+          "state": "active",
+          "backends": 3,
+          "waiting_on_lock": 0,
+          "max_connections": 300,
+          "reserved_connections": 5,
+          "total_client_backends": 35,
+          "server_started_at": "2026-09-02T07:00:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "pgbouncer-admin",
+          "client_addr": "10.7.3.2",
+          "state": "idle",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 300,
+          "reserved_connections": 5,
+          "total_client_backends": 35,
+          "server_started_at": "2026-09-02T07:00:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "",
+          "client_addr": "local",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 300,
+          "reserved_connections": 5,
+          "total_client_backends": 35,
+          "server_started_at": "2026-09-02T07:00:00Z"
+        }
+      ]
+    },
+    {
+      "probe": "lock_graph",
+      "status": "empty",
+      "offset_ms": 150
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 190
+    },
+    {
+      "probe": "connection_saturation",
+      "status": "ok",
+      "offset_ms": 5240,
+      "rows": [
+        {
+          "in_current_database": true,
+          "application_name": "orders-api",
+          "client_addr": "10.7.3.21",
+          "state": "idle",
+          "backends": 24,
+          "waiting_on_lock": 0,
+          "max_connections": 300,
+          "reserved_connections": 5,
+          "total_client_backends": 40,
+          "server_started_at": "2026-09-02T07:00:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "report-worker",
+          "client_addr": "10.7.3.40",
+          "state": "idle",
+          "backends": 11,
+          "waiting_on_lock": 0,
+          "max_connections": 300,
+          "reserved_connections": 5,
+          "total_client_backends": 40,
+          "server_started_at": "2026-09-02T07:00:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "orders-api",
+          "client_addr": "10.7.3.21",
+          "state": "active",
+          "backends": 3,
+          "waiting_on_lock": 0,
+          "max_connections": 300,
+          "reserved_connections": 5,
+          "total_client_backends": 40,
+          "server_started_at": "2026-09-02T07:00:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "pgbouncer-admin",
+          "client_addr": "10.7.3.2",
+          "state": "idle",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 300,
+          "reserved_connections": 5,
+          "total_client_backends": 40,
+          "server_started_at": "2026-09-02T07:00:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "",
+          "client_addr": "local",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 300,
+          "reserved_connections": 5,
+          "total_client_backends": 40,
+          "server_started_at": "2026-09-02T07:00:00Z"
+        }
+      ]
+    }
+  ]
+}
