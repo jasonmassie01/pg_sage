@@ -204,7 +204,7 @@ func (e *Executor) runAuthorizedFinding(
 		e.logFn("executor", "skipping %q: %v", f.Title, err)
 		return 0
 	}
-	execErr := e.runFindingSQL(ctx, f, decision)
+	config, execErr := e.prepareAndRunFinding(ctx, &f, beforeState, decision)
 	if verifiedCreate && execErr == nil {
 		e.recordCreatedIndexIdentity(ctx, verified.IndexName, beforeState)
 	}
@@ -215,12 +215,33 @@ func (e *Executor) runAuthorizedFinding(
 		return actionID
 	}
 	e.finishFinding(ctx, f, actionID)
-	if verifiedCreate {
+	switch {
+	case verifiedCreate:
 		e.watchVerifiedCreate(ctx, verified, actionID)
-	} else {
+	case e.settleConfigChange(ctx, actionID, config):
 		e.monitorFinding(ctx, f, actionID)
 	}
 	return actionID
+}
+
+// prepareAndRunFinding runs the finding's SQL. For a config change it
+// first captures the prior state and replaces the proposed rollback with
+// the one that restores it (G-P0-1); without a faithful rollback the
+// change does not run, and the attempt fails like any other.
+func (e *Executor) prepareAndRunFinding(
+	ctx context.Context, f *analyzer.Finding, beforeState map[string]any,
+	decision ActionPolicyDecision,
+) (*configChange, error) {
+	config, err := e.prepareConfigChange(ctx, f.RecommendedSQL)
+	if err != nil {
+		e.logFn("executor", "refused config change %q: %v", f.Title, err)
+		return nil, err
+	}
+	if config != nil {
+		f.RollbackSQL = config.rollbackSQL
+		config.record(beforeState)
+	}
+	return config, e.runFindingSQL(ctx, *f, decision)
 }
 
 // findingRefusal is a reason never to run the finding unattended: backend
@@ -273,21 +294,14 @@ func (e *Executor) recordFindingFailure(
 		f.Title, f.RecommendedSQL, e.databaseName, execErr.Error()))
 }
 
-// finishFinding notifies, applies a configuration change (ALTER SYSTEM only
-// writes postgresql.auto.conf) and writes the audit justification.
+// finishFinding notifies and writes the audit justification. A config
+// change is reloaded and read back by settleConfigChange.
 func (e *Executor) finishFinding(ctx context.Context, f analyzer.Finding, actionID int64) {
 	e.notifyPostDDL(ctx, f.RecommendedSQL)
 	e.logFn("executor", "executed %q (action %d)", f.Title, actionID)
 	e.dispatchEvent(ctx, notify.ActionExecutedEvent(
 		f.Title, f.RecommendedSQL, e.databaseName))
 	e.noteRecentAction(f.ObjectIdentifier)
-	if isAlterSystem(f.RecommendedSQL) {
-		outcome := applyConfigChange(
-			ctx, e.pool, f.RecommendedSQL, e.cfg.CloudEnvironment, e.logFn)
-		e.logFn("executor", "config: %s", outcome.Note)
-		updateActionOutcome(ctx, e.pool, actionID,
-			outcomeStatus(outcome.InEffect), outcome.Note)
-	}
 	// Async so LLM latency never blocks the cycle; WithoutCancel so it
 	// survives the execution deadline.
 	if e.justifier != nil {

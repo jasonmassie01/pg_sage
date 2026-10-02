@@ -33,9 +33,22 @@ func lockAlterSystem(t *testing.T, ctx context.Context, gucs ...string) *pgxpool
 		}
 		_, _ = pool.Exec(context.Background(), "SELECT pg_reload_conf()")
 	}
-	reset()
-	t.Cleanup(func() {
+	settle := func() {
 		reset()
+		deadline := time.Now().Add(5 * time.Second)
+		for _, name := range gucs {
+			for time.Now().Before(deadline) {
+				row, err := readSettingRow(context.Background(), pool, name)
+				if err != nil || !row.PendingRestart {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}
+	settle()
+	t.Cleanup(func() {
+		settle()
 		release()
 	})
 	return pool
@@ -188,16 +201,26 @@ func TestConfigRoundTrip_AutoConfPriorRestoredExactly(t *testing.T) {
 	}
 }
 
+// shared_buffers, not wal_buffers: a RESET of a postmaster GUC whose prior
+// was a computed default (wal_buffers = -1) leaves pending_restart set
+// until the next restart (PostgreSQL never re-reads a setting that is in
+// no file), which would pollute the shared test servers. shared_buffers
+// comes from postgresql.conf, so the rollback clears pending_restart.
 func TestConfigRoundTrip_RestartGUCPendingThenRolledBack(t *testing.T) {
 	ctx := context.Background()
-	pool := lockAlterSystem(t, ctx, "wal_buffers")
+	pool := lockAlterSystem(t, ctx, "shared_buffers")
 	e := configTestExecutor(pool)
-	const sql = "ALTER SYSTEM SET wal_buffers = '1MB'"
+	prior := mustSetting(t, ctx, pool, "shared_buffers")
+	if prior.Source != "configuration file" || prior.SourceFile == "" {
+		t.Skipf("shared_buffers source %q/%q: test needs a postgresql.conf value "+
+			"visible to a superuser", prior.Source, prior.SourceFile)
+	}
+	const sql = "ALTER SYSTEM SET shared_buffers = '256MB'"
 	cc, err := e.prepareConfigChange(ctx, sql)
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	if cc.rollbackSQL != "ALTER SYSTEM RESET wal_buffers" {
+	if cc.rollbackSQL != "ALTER SYSTEM RESET shared_buffers" {
 		t.Fatalf("rollback = %q, want RESET (prior source %s)", cc.rollbackSQL,
 			cc.priorGUC.Source)
 	}
@@ -222,9 +245,9 @@ func TestConfigRoundTrip_RestartGUCPendingThenRolledBack(t *testing.T) {
 		t.Fatalf("rollback: %v", err)
 	}
 	deadline := time.Now().Add(5 * time.Second)
-	for mustSetting(t, ctx, pool, "wal_buffers").PendingRestart {
+	for mustSetting(t, ctx, pool, "shared_buffers").PendingRestart {
 		if time.Now().After(deadline) {
-			t.Fatal("wal_buffers still pending restart after rollback")
+			t.Fatal("shared_buffers still pending restart after rollback")
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -337,5 +360,19 @@ func TestConfigApplyPath_GUCRecordedAndNeverBlindSuccess(t *testing.T) {
 	}
 	if got := mustSetting(t, ctx, pool, "work_mem"); got.Setting != "20480" {
 		t.Errorf("work_mem = %s, want the applied 20480kB in effect", got.Setting)
+	}
+}
+
+// closeTestMonitors ends the rollback monitors a fixture's config action
+// left behind. Config changes now carry a captured rollback and are
+// monitored (G-P0-1); an interrupted monitor would otherwise be resumed by
+// any later test that calls resumeOrphanedMonitors on the shared database
+// and hold it for a whole rollback window.
+func closeTestMonitors(t *testing.T, pool *pgxpool.Pool, sql string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(), `UPDATE sage.action_log
+		SET outcome = 'test_closed' WHERE sql_executed = $1
+		  AND outcome IN ('monitoring', 'interrupted')`, sql); err != nil {
+		t.Errorf("close test monitors: %v", err)
 	}
 }

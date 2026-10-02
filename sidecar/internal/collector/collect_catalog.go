@@ -108,7 +108,7 @@ func (c *Collector) collectIndexBatch(
 			&idx.IdxScan, &idx.IdxTupRead, &idx.IdxTupFetch,
 			&idx.IndexBytes,
 			&idx.IsUnique, &idx.IsPrimary, &idx.IsValid,
-			&idx.IndexDef, &idx.IndexType, &last,
+			&idx.IndexDef, &idx.IndexType, &last, &idx.LastIdxScan,
 		); err != nil {
 			return nil, 0, err
 		}

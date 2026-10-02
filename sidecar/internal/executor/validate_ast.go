@@ -2,16 +2,20 @@ package executor
 
 import (
 	"fmt"
-	"strings"
 
+	"github.com/pg-sage/sidecar/internal/pgconf"
 	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 // executorASTRules hands the executor allowlists to the parse-tree layer.
 var executorASTRules = sqlast.Rules{
-	SystemParam:     func(name string) bool { return safeAlterSystemParams[strings.ToLower(name)] },
-	DatabaseParam:   func(name string) bool { return safeAlterSystemParams[strings.ToLower(name)] },
+	SystemParam:     pgconf.ExecutableGUC,
+	DatabaseParam:   pgconf.ExecutableGUC,
 	ProtectedSchema: isProtectedExecutorSchema,
+	Reloption: func(key, value string, reset bool) bool {
+		opt := pgconf.Reloption{Key: key, Value: value}
+		return pgconf.CheckExecutableReloption(opt, reset) == nil
+	},
 }
 
 // astValidationAvailable is swapped only by AssumeASTValidationForTests.

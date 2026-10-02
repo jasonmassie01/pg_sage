@@ -108,6 +108,9 @@ type IndexStats struct {
 	IsValid      bool   `json:"indisvalid"`
 	IndexDef     string `json:"indexdef"`
 	IndexType    string `json:"index_type"`
+	// LastIdxScan is pg_stat_user_indexes.last_idx_scan (PG16+): when the
+	// index was last scanned. Nil before PG16 or when never scanned.
+	LastIdxScan *time.Time `json:"last_idx_scan,omitempty"`
 }
 
 // ForeignKey describes a foreign key constraint.

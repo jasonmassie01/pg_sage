@@ -186,11 +186,9 @@ func TestConfigManualPath_ReloadsAndCapturesRollback(t *testing.T) {
 // moved: here the real temp_files counter against a recorded baseline.
 func TestConfigOutcome_TempSpillsMeasuredAgainstBaseline(t *testing.T) {
 	pool, ctx := requireDB(t)
-	var tempFiles float64
-	if err := pool.QueryRow(ctx, `SELECT temp_files FROM pg_stat_database
-		WHERE datname = current_database()`).Scan(&tempFiles); err != nil {
-		t.Fatalf("temp_files: %v", err)
-	}
+	// A real spill first, so the baseline counter is consistent with a
+	// non-zero pre-change spill rate (a fresh test database has none).
+	tempFiles := forceTempSpill(t, ctx, pool)
 	cases := []struct {
 		rate float64
 		want string
@@ -262,5 +260,41 @@ func TestCaptureOutcomeBaseline_Live(t *testing.T) {
 	if _, err := captureOutcomeBaseline(ctx, pool, metricHotUpdates,
 		"public.p0_missing_table"); err == nil {
 		t.Error("baseline of a missing table succeeded")
+	}
+}
+
+// forceTempSpill sorts past a tiny work_mem so the database records a temp
+// file, and returns pg_stat_database.temp_files once it shows it.
+func forceTempSpill(t *testing.T, ctx context.Context, pool *pgxpool.Pool) float64 {
+	t.Helper()
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SET work_mem = '64kB'`); err != nil {
+		t.Fatalf("work_mem: %v", err)
+	}
+	var n int64
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM (SELECT g FROM
+		generate_series(1, 300000) g ORDER BY g DESC) s`).Scan(&n); err != nil {
+		t.Fatalf("spilling sort: %v", err)
+	}
+	_, _ = conn.Exec(ctx, `SELECT pg_stat_force_next_flush()`) // PG15+; PG14 flushes itself
+	_, _ = conn.Exec(ctx, `RESET work_mem`)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var files float64
+		if err := pool.QueryRow(ctx, `SELECT temp_files FROM pg_stat_database
+			WHERE datname = current_database()`).Scan(&files); err != nil {
+			t.Fatalf("temp_files: %v", err)
+		}
+		if files > 0 {
+			return files
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the spilling sort never showed up in temp_files")
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 }

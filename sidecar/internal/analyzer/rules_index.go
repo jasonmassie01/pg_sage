@@ -61,9 +61,11 @@ func extractIndexNameFromSQL(sql string) string {
 	return ""
 }
 
-// ruleUnusedIndexes flags indexes with zero scans that are not primary keys,
-// not unique, and have been observed unused longer than the configured
-// window -- and longer than the statistics have existed (G2-B07).
+// ruleUnusedIndexes flags indexes that are not primary keys, not unique,
+// and have gone unused longer than the configured window: either zero
+// scans for longer than the window and the statistics epoch (G2-B07), or
+// (PG16+) a last_idx_scan older than the window. A drop is never
+// automatic while standby index usage is unknown (G-P0-12).
 func ruleUnusedIndexes(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
@@ -74,13 +76,14 @@ func ruleUnusedIndexes(
 	now := time.Now()
 	unlogged := buildUnloggedSet(current)
 	fkRequirements := buildFKRequirements(current)
+	standbyRisk := standbyUsageUnknown(current)
 	var findings []Finding
 
 	for _, idx := range current.Indexes {
 		ident := idx.SchemaName + "." + idx.IndexRelName
-		if idx.IdxScan > 0 {
-			// Used since the stats epoch: restart the observation window so
-			// a later pg_stat_reset/crash does not look like weeks of disuse.
+		if scannedWithin(idx, window, now) {
+			// Used recently: restart the observation window so a later
+			// pg_stat_reset/crash does not look like weeks of disuse.
 			delete(extras.FirstSeen, ident)
 			continue
 		}
@@ -95,13 +98,24 @@ func ruleUnusedIndexes(
 		if indexIsOnlyFKSupport(idx, current.Indexes, fkRequirements) {
 			continue
 		}
-		if !unusedForWindow(extras, ident, window, now) {
+		// A last_idx_scan older than the window is durable evidence; zero
+		// scans need the in-memory observation window.
+		if idx.IdxScan == 0 && !unusedForWindow(extras, ident, window, now) {
 			continue
 		}
-		findings = append(findings, unusedIndexFinding(
-			idx, ident, unlogged, cfg.Analyzer.UnusedIndexWindowDays))
+		f := unusedIndexFinding(idx, ident, unlogged, cfg.Analyzer.UnusedIndexWindowDays)
+		findings = append(findings, withStandbyGate(f, standbyRisk))
 	}
 	return findings
+}
+
+// scannedWithin reports whether the index counts as used within window:
+// without last_idx_scan (before PG16) any scan since the stats epoch does.
+func scannedWithin(idx collector.IndexStats, window time.Duration, now time.Time) bool {
+	if idx.IdxScan == 0 {
+		return false
+	}
+	return idx.LastIdxScan == nil || now.Sub(*idx.LastIdxScan) < window
 }
 
 // unusedForWindow records the first zero-scan observation and reports
@@ -127,10 +141,18 @@ func unusedIndexFinding(
 ) Finding {
 	severity := "warning"
 	rec := "Drop unused index to save disk and write overhead."
+	title := fmt.Sprintf("Unused index %s (0 scans for %d+ days)", ident, windowDays)
 	detail := map[string]any{
-		"table":     idx.RelName,
-		"index_def": idx.IndexDef,
-		"size":      idx.IndexBytes,
+		"table":          idx.RelName,
+		"index_def":      idx.IndexDef,
+		"size":           idx.IndexBytes,
+		"usage_evidence": "zero_scans",
+	}
+	if idx.IdxScan > 0 && idx.LastIdxScan != nil {
+		detail["usage_evidence"] = "last_idx_scan"
+		detail["last_idx_scan"] = idx.LastIdxScan.UTC().Format(time.RFC3339)
+		detail["idx_scan"] = idx.IdxScan
+		title = fmt.Sprintf("Unused index %s (not scanned for %d+ days)", ident, windowDays)
 	}
 	if unlogged[idx.SchemaName+"."+idx.RelName] {
 		severity = "info"
@@ -142,14 +164,12 @@ func unusedIndexFinding(
 		Severity:         severity,
 		ObjectType:       "index",
 		ObjectIdentifier: ident,
-		Title: fmt.Sprintf(
-			"Unused index %s (0 scans for %d+ days)", ident, windowDays,
-		),
-		Detail:         detail,
-		Recommendation: rec,
-		RecommendedSQL: dropIndexSQL(idx),
-		RollbackSQL:    idx.IndexDef + ";",
-		ActionRisk:     "safe",
+		Title:            title,
+		Detail:           detail,
+		Recommendation:   rec,
+		RecommendedSQL:   dropIndexSQL(idx),
+		RollbackSQL:      idx.IndexDef + ";",
+		ActionRisk:       "safe",
 	}
 }
 

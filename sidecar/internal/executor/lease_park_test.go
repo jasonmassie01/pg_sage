@@ -44,6 +44,7 @@ func setupParkTable(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	}
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DROP TABLE IF EXISTS public.`+parkTable)
+		closeTestMonitors(t, pool, parkFinding().RecommendedSQL)
 	})
 }
 

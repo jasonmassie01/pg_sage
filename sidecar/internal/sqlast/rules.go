@@ -23,4 +23,8 @@ type Rules struct {
 	DatabaseParam func(name string) bool
 	// ProtectedSchema reports whether a schema is off limits.
 	ProtectedSchema func(schema string) bool
+	// Reloption reports whether ALTER TABLE ... SET/RESET may name the
+	// storage parameter (key carries a "toast." namespace; value is "" for
+	// RESET and "true" for a bare option). Nil allows every parameter.
+	Reloption func(key, value string, reset bool) bool
 }

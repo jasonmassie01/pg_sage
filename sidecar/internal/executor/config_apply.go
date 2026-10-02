@@ -2,28 +2,13 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/pgconf"
 )
-
-// restartRequiredParams are GUCs whose change only takes effect after a
-// PostgreSQL restart — pg_sage cannot restart the server, so an
-// ALTER SYSTEM for these is written to postgresql.auto.conf but does not
-// apply until the operator restarts.
-var restartRequiredParams = map[string]bool{
-	"shared_buffers":                 true,
-	"max_connections":                true,
-	"wal_buffers":                    true,
-	"max_worker_processes":           true,
-	"max_prepared_transactions":      true,
-	"max_wal_senders":                true,
-	"max_replication_slots":          true,
-	"huge_pages":                     true,
-	"shared_preload_libraries":       true,
-	"max_locks_per_transaction":      true,
-	"superuser_reserved_connections": true,
-}
 
 // managedProviders are platforms where ALTER SYSTEM is disallowed; config
 // changes must go through the provider's parameter group / database flags
@@ -58,76 +43,81 @@ func isAlterSystem(sql string) bool {
 		strings.ToUpper(strings.TrimSpace(sql)), "ALTER SYSTEM")
 }
 
-// configParamFromSQL extracts the first GUC name from an
-// "ALTER SYSTEM SET/RESET <param> ..." statement. Returns "" if not found.
+// configParamFromSQL extracts the GUC name from an ALTER SYSTEM SET/RESET
+// statement ("" if it is not one).
 func configParamFromSQL(sql string) string {
-	upper := strings.ToUpper(sql)
-	var rest string
-	switch {
-	case strings.Contains(upper, "ALTER SYSTEM SET "):
-		i := strings.Index(upper, "ALTER SYSTEM SET ")
-		rest = sql[i+len("ALTER SYSTEM SET "):]
-	case strings.Contains(upper, "ALTER SYSTEM RESET "):
-		i := strings.Index(upper, "ALTER SYSTEM RESET ")
-		rest = sql[i+len("ALTER SYSTEM RESET "):]
-	default:
-		return ""
-	}
-	rest = strings.TrimSpace(rest)
-	// param ends at the first space, '=', or ';'
-	end := strings.IndexAny(rest, " =;")
-	if end >= 0 {
-		rest = rest[:end]
-	}
-	return strings.Trim(strings.TrimSpace(rest), `"'`)
+	stmt, _ := pgconf.ParseAlterSystem(sql)
+	return stmt.Name
 }
 
-// configApplyOutcome describes how a config change should be applied and
-// whether it is actually in effect after the ALTER SYSTEM ran.
+// configApplyOutcome describes whether a config change is actually in
+// effect after the ALTER SYSTEM ran, as read back from pg_settings.
 type configApplyOutcome struct {
-	InEffect bool   // true once the change is live
-	Note     string // human-readable status for the action log
+	InEffect       bool   // the read-back shows the requested value live
+	PendingRestart bool   // written, but only a restart applies it
+	State          readbackState
+	Effective      string // pg_settings.setting after the reload
+	Source         string // pg_settings.source after the reload
+	Note           string // human-readable status for the action log
 }
 
 // applyConfigChange finalizes an ALTER SYSTEM config change so its effect
-// (or lack of it) is accurate. On a self-managed server it reloads the
-// configuration for reload-only GUCs; restart-only GUCs are written but
-// flagged as needing a restart. Managed providers are flagged because the
-// change should have gone through their parameter group instead.
+// (or lack of it) is accurate: it reloads the configuration and reads the
+// setting back. Managed providers are flagged because the change should
+// have gone through their parameter group instead.
 func applyConfigChange(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	sql, cloudEnv string,
 	logFn func(string, string, ...any),
 ) configApplyOutcome {
-	param := configParamFromSQL(sql)
+	return applyConfigChangeWithin(ctx, pool, sql, cloudEnv, logFn, reloadSettleTimeout)
+}
 
+func applyConfigChangeWithin(
+	ctx context.Context, pool *pgxpool.Pool, sql, cloudEnv string,
+	logFn func(string, string, ...any), wait time.Duration,
+) configApplyOutcome {
+	stmt, ok := pgconf.ParseAlterSystem(sql)
+	param := stmt.Name
 	if isManagedProvider(cloudEnv) {
-		return configApplyOutcome{
-			InEffect: false,
-			Note:     managedConfigGuidance(cloudEnv, param),
-		}
+		return configApplyOutcome{State: readbackUnconfirmed,
+			Note: managedConfigGuidance(cloudEnv, param)}
 	}
-	if restartRequiredParams[strings.ToLower(param)] {
-		return configApplyOutcome{
-			InEffect: false,
-			Note: param + " written to postgresql.auto.conf; " +
-				"requires a PostgreSQL restart to take effect",
-		}
+	if !ok {
+		return configApplyOutcome{State: readbackUnconfirmed,
+			Note: "cannot parse the ALTER SYSTEM statement to read it back"}
 	}
-	// Self-managed, reload-only parameter: reload so it takes effect now.
-	if _, err := pool.Exec(ctx,
-		"/* pg_sage */ SELECT pg_reload_conf()"); err != nil {
+	if _, err := pool.Exec(ctx, "/* pg_sage */ SELECT pg_reload_conf()"); err != nil {
 		if logFn != nil {
 			logFn("executor", "pg_reload_conf after %s failed: %v", param, err)
 		}
-		return configApplyOutcome{
-			InEffect: false,
-			Note:     param + " set; pg_reload_conf failed: " + err.Error(),
-		}
+		return configApplyOutcome{State: readbackUnconfirmed,
+			Note: param + " set; pg_reload_conf failed: " + err.Error()}
 	}
-	return configApplyOutcome{
-		InEffect: true,
-		Note:     param + " applied and reloaded (in effect)",
+	row, state, err := awaitReadback(ctx, pool, stmt, wait)
+	if err != nil {
+		return configApplyOutcome{State: readbackUnconfirmed,
+			Note: param + " set and reloaded; read-back failed: " + err.Error()}
 	}
+	return describeReadback(param, row, state)
+}
+
+func describeReadback(param string, row settingRow, state readbackState) configApplyOutcome {
+	out := configApplyOutcome{State: state, Effective: row.Setting, Source: row.Source,
+		InEffect: state == readbackInEffect, PendingRestart: state == readbackPendingRestart}
+	effective := fmt.Sprintf("%s%s (source: %s)", row.Setting, row.Unit, row.Source)
+	switch state {
+	case readbackInEffect:
+		out.Note = param + " applied and reloaded; in effect at " + effective
+	case readbackPendingRestart:
+		out.Note = param + " written to postgresql.auto.conf; requires a PostgreSQL " +
+			"restart to take effect (running value " + effective + ")"
+	case readbackUnconfirmed:
+		out.Note = param + " reloaded; effective value " + effective +
+			" could not be attributed (sourcefile not visible to this role)"
+	default:
+		out.Note = param + " did not take effect after reload; effective value " + effective
+	}
+	return out
 }

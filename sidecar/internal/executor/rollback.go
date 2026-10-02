@@ -50,8 +50,11 @@ func MonitorAndRollback(
 	}
 	switch evaluateRegression(ctx, pool, actionID, cfg.ThresholdPct) {
 	case regressionNone:
-		logFn("rollback", "no regression for action %d, marking success", actionID)
-		updateActionSuccess(ctx, pool, actionID)
+		// A config change is credited only by its targeted metric (G-P0-1).
+		if !settleConfigOutcome(ctx, pool, actionID, logFn) {
+			logFn("rollback", "no regression for action %d, marking success", actionID)
+			updateActionSuccess(ctx, pool, actionID)
+		}
 	case regressionUnverifiable:
 		logFn("rollback", "action %d has no usable post-action evidence", actionID)
 		if setMonitoredOutcome(ctx, pool, actionID, "unverifiable",

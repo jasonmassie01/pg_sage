@@ -85,6 +85,8 @@ type manualRun struct {
 	covered bool
 	// claim is the recommendation this action applies, when there is one.
 	claim *recommendation.Claim
+	// config is the captured prior state of a config change (G-P0-1).
+	config *configChange
 }
 
 // execute claims the recommendation the operator's SQL applies (the
@@ -120,6 +122,9 @@ func (r *manualRun) run(
 	if err := e.manualMutationBlock(ctx); err != nil {
 		return 0, err
 	}
+	if err := r.prepareConfig(ctx, beforeState); err != nil {
+		return 0, err
+	}
 	execErr := e.runManualSQL(ctx, r.findingID, r.sql, r.detail, r.approvedBy, decision)
 	actionID := e.logManualActionWithDecision(ctx, r.findingID, r.sql, r.rollbackSQL,
 		beforeState, execErr, r.approvedBy, decisionID, r.claim)
@@ -135,7 +140,24 @@ func (r *manualRun) verify(ctx context.Context, actionID int64) error {
 		return nil
 	}
 	r.executor.notifyPostDDL(ctx, r.sql)
-	r.executor.finishManualAction(ctx, actionID, r.rollbackSQL)
+	if r.executor.settleConfigChange(ctx, actionID, r.config) {
+		r.executor.finishManualAction(ctx, actionID, r.rollbackSQL)
+	}
+	return nil
+}
+
+// prepareConfig captures a config change's prior state; its rollback
+// replaces the one proposed with the approval (G-P0-1).
+func (r *manualRun) prepareConfig(ctx context.Context, beforeState map[string]any) error {
+	config, err := r.executor.prepareConfigChange(ctx, r.sql)
+	if err != nil {
+		return fmt.Errorf("config change refused: %w", err)
+	}
+	if config != nil {
+		r.rollbackSQL = config.rollbackSQL
+		config.record(beforeState)
+	}
+	r.config = config
 	return nil
 }
 

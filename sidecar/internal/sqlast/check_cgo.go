@@ -48,7 +48,7 @@ func checkStatement(stmt *pg_query.Node, rules Rules) error {
 	case stmt.GetVacuumStmt() != nil:
 		return checkVacuum(stmt.GetVacuumStmt())
 	case stmt.GetAlterTableStmt() != nil:
-		return checkAlterTable(stmt.GetAlterTableStmt())
+		return checkAlterTable(stmt.GetAlterTableStmt(), rules)
 	case stmt.GetAlterSystemStmt() != nil:
 		return checkSetting("ALTER SYSTEM",
 			stmt.GetAlterSystemStmt().GetSetstmt(), rules.SystemParam)
