@@ -56,12 +56,16 @@ type connComparison struct {
 	valid       bool
 }
 
-// DiagnoseConnections scores the connection pressure hypotheses.
+// DiagnoseConnections scores the connection pressure hypotheses, with
+// pool exhaustion at an external pooler when its telemetry was collected
+// (and the telemetry stated missing when it was not).
 func DiagnoseConnections(obs []Observation) Diagnosis {
 	samples, missing := connSamples(obs)
+	pooler := poolerSamples(obs)
 	if len(samples) == 0 {
 		return Diagnosis{Family: FamilyConnections, GraphVersion: GraphVersion,
-			Missing: missing, Reason: "connection evidence unavailable"}
+			Missing: append(missing, pooler.missing...),
+			Reason:  "connection evidence unavailable"}
 	}
 	cmp, reason := compareConn(samples)
 	if reason != "" {
@@ -73,9 +77,12 @@ func DiagnoseConnections(obs []Observation) Diagnosis {
 	leakApp := growthApp(cmp, fanApp)
 	hs := []Hypothesis{scoreFanOut(cmp, fanApp), scoreBacklog(last, obs),
 		scoreLeak(cmp, leakApp)}
+	if h, ok := scorePooler(pooler); ok {
+		hs = append(hs, h)
+	}
 	d := rankWith(FamilyConnections, hs, leakBaseline(fanApp, leakApp))
-	d.Missing = missing
-	d.Observed = saturation(last)
+	d.Missing = append(missing, pooler.missing...)
+	d.Observed = append(saturation(last), poolerFacts(pooler)...)
 	return d
 }
 

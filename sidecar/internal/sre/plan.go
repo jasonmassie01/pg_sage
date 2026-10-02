@@ -110,7 +110,8 @@ var seriesProbes = map[probes.ID]bool{probes.ConnectionSaturation: true,
 	probes.CheckpointActivity: true, probes.TempFileActivity: true,
 	probes.TempFileHolders: true, probes.TempSpillStatements: true,
 	probes.ReplicationLag: true, probes.StandbyReplayState: true, probes.LWLockWaits: true,
-	probes.XIDRunwayProbe: true, probes.SequenceRunwayProbe: true}
+	probes.XIDRunwayProbe: true, probes.SequenceRunwayProbe: true,
+	probes.PoolerPools: true}
 
 // currentObservations keeps every sample of a series probe and only the
 // newest (last stored) observation of each one-shot probe, in order.

@@ -61,8 +61,8 @@ type Node struct {
 	OperatorStep string
 }
 
-var graph = append(append(append(append(append([]Node(nil), v1Nodes...), v2Nodes...),
-	v3Nodes...), m6Nodes...), runwayNodes...)
+var graph = append(append(append(append(append(append([]Node(nil), v1Nodes...),
+	v2Nodes...), v3Nodes...), m6Nodes...), runwayNodes...), poolerNodes...)
 
 var v1Nodes = []Node{
 	{ID: IdleInTxHolder, Family: FamilyLockBlocking,

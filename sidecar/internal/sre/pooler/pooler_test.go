@@ -274,13 +274,13 @@ func TestNew_Validates(t *testing.T) {
 	d := dialerOf(nil, nil)
 	good := Config{Name: "pgb-1", DSN: "d", Timeout: time.Second}
 	cases := map[string][]Config{
-		"none":          nil,
-		"no name":       {{DSN: "d", Timeout: time.Second}},
-		"bad name":      {{Name: "PGB 1;", DSN: "d", Timeout: time.Second}},
-		"no dsn":        {{Name: "pgb-1", Timeout: time.Second}},
-		"duplicate":     {good, good},
-		"zero timeout":  {{Name: "pgb-1", DSN: "d"}},
-		"long timeout":  {{Name: "pgb-1", DSN: "d", Timeout: time.Minute}},
+		"none":         nil,
+		"no name":      {{DSN: "d", Timeout: time.Second}},
+		"bad name":     {{Name: "PGB 1;", DSN: "d", Timeout: time.Second}},
+		"no dsn":       {{Name: "pgb-1", Timeout: time.Second}},
+		"duplicate":    {good, good},
+		"zero timeout": {{Name: "pgb-1", DSN: "d"}},
+		"long timeout": {{Name: "pgb-1", DSN: "d", Timeout: time.Minute}},
 		"too many pools": {{Name: "pgb-1", DSN: "d", Timeout: time.Second,
 			Pools: make([]string, 101)}},
 	}
