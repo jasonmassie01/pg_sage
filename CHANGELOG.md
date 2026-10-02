@@ -79,6 +79,14 @@
 
 ### Fixed
 
+- **Internal cleanup of the sidecar's largest files, with no change in behavior.** The
+  sidecar's entry point, the core of the action executor and the API router were split
+  into smaller files, one per job, so each file and function stays within the project's
+  size limits. New tests pin what each mode starts, every API route and who may call it,
+  and they pass unchanged before and after the split. One small visible difference: if
+  writing a Prometheus `/metrics` response fails (for example, the scraper hung up), the
+  sidecar now logs a warning instead of ignoring the error.
+
 - **pg_sage works with current OpenAI models (gpt-5, gpt-6 and later).** These models
   refuse `max_tokens`, and refuse tool calls unless `reasoning_effort` is `none`, so every
   LLM feature used to fall back to its deterministic path. pg_sage now notices the refusal,
