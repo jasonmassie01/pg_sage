@@ -49,6 +49,11 @@ func (a *Analyzer) cycle(ctx context.Context) {
 	all = append(all, a.runSeqScanWatchdog(current, previous, all)...)
 	all = append(all, a.runProducers(ctx, current)...)
 	all = append(all, a.runLateChecks(ctx)...)
+	all = a.applyAppManaged(ctx, all)
+	if current.Available("tables") && len(current.Tables) > 0 {
+		all = collapseCloneSchemas(current, all)
+		a.eval.evaluated(CategoryCloneSchemas)
+	}
 	a.runRCA(ctx, current, previous, all)
 
 	// Deduplicate conflicting findings across advisors.

@@ -158,19 +158,25 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 		c.logFn("WARN", "collector: %s unavailable this cycle (snapshot kept "+
 			"without it): %v", step.name, err)
 	}
+	c.collectExtras(ctx, snap)
+	// Collect pg_stat_statements.max for capacity monitoring.
+	snap.System.StatStatementsMax = c.collectStatStatementsMax(ctx)
+
+	c.markStatsReset(snap)
+	return snap, nil
+}
+
+// collectExtras reads the non-fatal categories: a single replication-slot
+// quirk (an unreserved slot, a hot standby) must not abort the snapshot,
+// which would silently halt all stats collection (H1/H2).
+func (c *Collector) collectExtras(ctx context.Context, snap *Snapshot) {
 	var err error
-	// Non-fatal: a single replication-slot quirk (e.g. an unreserved
-	// slot, or a hot standby) must not abort the entire snapshot cycle,
-	// which would silently halt all stats collection (H1/H2). Match the
-	// WARN-and-continue behavior of the sibling collectors below.
 	if snap.Replication, err = c.collectReplication(ctx); err != nil {
 		c.logFn("WARN", "replication collection failed: %v", err)
 	}
-	// pg_stat_io (PG16+)
-	if c.pgVersionNum >= 160000 {
+	if c.pgVersionNum >= 160000 { // pg_stat_io
 		if snap.IO, err = c.collectIO(ctx); err != nil {
 			c.logFn("WARN", "pg_stat_io collection failed: %v", err)
-			// Non-fatal — continue without IO stats.
 		}
 	}
 	// Prepared transactions (2PC) — invisible to pg_stat_activity,
@@ -178,23 +184,15 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	if snap.PreparedXacts, err = c.collectPreparedXacts(ctx); err != nil {
 		c.logFn("WARN", "prepared xacts collection failed: %v", err)
 	}
-	// Partition inheritance
 	if snap.Partitions, err = c.collectPartitions(ctx); err != nil {
 		c.logFn("WARN", "partition collection failed: %v", err)
 	}
-	// Config data for advisor features
-	if c.CollectsConfigSnapshots() {
+	if c.CollectsConfigSnapshots() { // config data for advisor features
 		querier := timedCatalogQuerier{collector: c}
 		if snap.ConfigData, err = collectConfigSnapshot(ctx, querier); err != nil {
 			c.logFn("WARN", "config snapshot collection failed: %v", err)
 		}
 	}
-
-	// Collect pg_stat_statements.max for capacity monitoring.
-	snap.System.StatStatementsMax = c.collectStatStatementsMax(ctx)
-
-	c.markStatsReset(snap)
-	return snap, nil
 }
 
 // markStatsReset flags snap when pg_stat_statements was reset since the
