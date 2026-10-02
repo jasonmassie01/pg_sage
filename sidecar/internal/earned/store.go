@@ -227,3 +227,6 @@ func (s *PostgresStore) writeLevel(ctx context.Context, q querier, ch levelChang
 	}
 	return st, storeErr("write autonomy level", err)
 }
+
+// Pool is the control database the ledger lives in.
+func (s *PostgresStore) Pool() *pgxpool.Pool { return s.pool }
