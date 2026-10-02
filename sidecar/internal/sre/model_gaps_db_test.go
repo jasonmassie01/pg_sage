@@ -38,9 +38,7 @@ func TestVerifyReview_ClaimsGroundedInSupersededFactsDropped(t *testing.T) {
 // and then needed more evidence (here under the v1.7 "evaluate" step
 // key) reaches evaluating again and concludes.
 func TestCollect_ResumeAfterNeedsEvidenceConcludes(t *testing.T) {
-	limits := budgetLimits()
-	limits.LeaseTTL = time.Second
-	st, _, ctx := liveStore(t, limits)
+	st, pool, ctx := liveStore(t, budgetLimits())
 	runner := idleChainRunner()
 	c, _ := modelCoordinator(t, ctx, st, runner, nil)
 	inv, _, err := c.Start(ctx, lockTrigger("m3-reeval"))
@@ -62,7 +60,7 @@ func TestCollect_ResumeAfterNeedsEvidenceConcludes(t *testing.T) {
 			t.Fatalf("commit %s: %v", step.IdempotencyKey, err)
 		}
 	}
-	time.Sleep(1200 * time.Millisecond) // the dead worker's lease expires
+	expireLease(t, ctx, pool, dead) // the dead worker's lease expires
 	if err := c.Investigate(ctx, inv.ID); err != nil {
 		t.Fatalf("resume: %v", err)
 	}

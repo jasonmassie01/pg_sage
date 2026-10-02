@@ -6,7 +6,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -177,12 +176,10 @@ func TestStore_ConcludeValidatesTheConclusion(t *testing.T) {
 // A stale worker (its lease expired and was re-claimed) cannot conclude,
 // and a zero lease is rejected before any I/O.
 func TestStore_ConcludeNeedsTheCurrentLease(t *testing.T) {
-	limits := DefaultLimits()
-	limits.LeaseTTL = time.Second
-	st, _, ctx := liveStore(t, limits)
+	st, pool, ctx := liveStore(t, DefaultLimits())
 	scope := testScope(t, ctx, st)
 	stale, ev := evaluating(t, ctx, st, scope, "pid 10")
-	time.Sleep(time.Until(stale.Until) + 300*time.Millisecond)
+	expireLease(t, ctx, pool, stale)
 	fresh, err := st.Claim(ctx, scope, stale.InvestigationID, NewUUID())
 	if err != nil {
 		t.Fatalf("re-claim: %v", err)

@@ -66,9 +66,7 @@ func TestStore_ClaimRaceHasExactlyOneWinner(t *testing.T) {
 // CHECK-14: two workers and an expired lease cannot commit conflicting
 // step results.
 func TestStore_StaleWorkerCannotCommit(t *testing.T) {
-	limits := DefaultLimits()
-	limits.LeaseTTL = 300 * time.Millisecond
-	st, _, ctx := liveStore(t, limits)
+	st, pool, ctx := liveStore(t, DefaultLimits())
 	inv, _, _ := st.Create(ctx, lockStart(testScope(t, ctx, st), "pid 21"))
 	a, err := st.Claim(ctx, inv.Scope, inv.ID, NewUUID())
 	if err != nil {
@@ -78,7 +76,7 @@ func TestStore_StaleWorkerCannotCommit(t *testing.T) {
 		ErrLeaseUnavailable) {
 		t.Fatalf("claim while A holds the lease = %v", err)
 	}
-	time.Sleep(800 * time.Millisecond)
+	expireLease(t, ctx, pool, a)
 	b, err := st.Claim(ctx, inv.Scope, inv.ID, NewUUID())
 	if err != nil || b.Fence != a.Fence+1 {
 		t.Fatalf("claim B after expiry = %+v (%v), want fence %d", b, err, a.Fence+1)
@@ -100,12 +98,13 @@ func TestStore_StaleWorkerCannotCommit(t *testing.T) {
 }
 
 func TestStore_ExpiredLeaseCannotCommitEvenWithoutRival(t *testing.T) {
-	limits := DefaultLimits()
-	limits.LeaseTTL = 200 * time.Millisecond
-	st, _, ctx := liveStore(t, limits)
+	st, pool, ctx := liveStore(t, DefaultLimits())
 	inv, _, _ := st.Create(ctx, lockStart(testScope(t, ctx, st), "pid 22"))
-	a, _ := st.Claim(ctx, inv.Scope, inv.ID, NewUUID())
-	time.Sleep(800 * time.Millisecond)
+	a, err := st.Claim(ctx, inv.Scope, inv.ID, NewUUID())
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	expireLease(t, ctx, pool, a)
 	if _, err := st.CommitStep(ctx, a, step("late", StateCollecting)); !errors.Is(err,
 		ErrLeaseLost) {
 		t.Fatalf("commit after lease expiry = %v, want ErrLeaseLost", err)
@@ -324,24 +323,26 @@ func TestStore_PauseResumeRestartPreservesState(t *testing.T) {
 // Active time is charged on release and, for an orphaned lease, the
 // whole reserved segment is charged before another worker resumes. Two
 // stores share the database: one with short leases (workers that die)
-// and one with long leases (a worker that finishes its step). Sleeps
-// only ever wait for a lease to expire, which tolerates the database
-// clock running ahead of the host's.
+// and one with leases as long as the budget (a worker that finishes its
+// step). Dead workers' leases are expired with expireLease, which keeps
+// each segment's length, so every charge below is exact and no step
+// races a lease TTL or the active-time budget on a loaded host.
 func TestStore_ActiveTimeIsChargedAndCapped(t *testing.T) {
 	short := DefaultLimits()
-	short.MaxActive, short.LeaseTTL = 3*time.Second, 300*time.Millisecond
+	short.MaxActive, short.LeaseTTL = 60*time.Second, 300*time.Millisecond
 	dying, pool, ctx := liveStore(t, short)
 	long := short
-	long.LeaseTTL = 3 * time.Second
+	long.LeaseTTL = short.MaxActive
 	st, err := NewPostgresStore(pool, long)
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
 	inv, _, _ := st.Create(ctx, lockStart(testScope(t, ctx, st), "pid 30"))
-	if _, err := dying.Claim(ctx, inv.Scope, inv.ID, NewUUID()); err != nil {
+	a, err := dying.Claim(ctx, inv.Scope, inv.ID, NewUUID())
+	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}
-	time.Sleep(800 * time.Millisecond) // the worker dies holding its lease
+	expireLease(t, ctx, pool, a) // the worker dies holding its lease
 	b, err := st.Claim(ctx, inv.Scope, inv.ID, NewUUID())
 	if err != nil {
 		t.Fatalf("claim after orphan: %v", err)
@@ -355,15 +356,15 @@ func TestStore_ActiveTimeIsChargedAndCapped(t *testing.T) {
 		t.Fatalf("collecting -> evaluating: %v", err)
 	}
 	rel, err := st.Release(ctx, b, StateNeedsEvidence)
-	if err != nil || rel.ActiveMS < 500 || rel.ActiveMS >= 3000 {
-		t.Fatalf("release charged %d ms (%v), want 500..2999", rel.ActiveMS, err)
+	if err != nil || rel.ActiveMS < 500 || rel.ActiveMS >= short.MaxActive.Milliseconds() {
+		t.Fatalf("release charged %d ms (%v), want 500 ms up to the cap", rel.ActiveMS, err)
 	}
 	c, err := st.Claim(ctx, inv.Scope, inv.ID, NewUUID())
 	if err != nil || c.Until.After(c.SegmentDeadline) {
 		t.Fatalf("claim with time left = %+v (%v)", c, err)
 	}
 	// This worker dies too; its lease is at most the remaining budget.
-	time.Sleep(time.Duration(3000-rel.ActiveMS)*time.Millisecond + 800*time.Millisecond)
+	expireLease(t, ctx, pool, c)
 	if _, err := st.Claim(ctx, inv.Scope, inv.ID, NewUUID()); !errors.Is(err,
 		ErrBudgetExhausted) {
 		t.Fatalf("claim past the active-time budget = %v, want ErrBudgetExhausted", err)

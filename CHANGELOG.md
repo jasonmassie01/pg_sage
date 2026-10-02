@@ -184,6 +184,13 @@
 
 ### Fixed
 
+- Sage SRE connection and WAL investigations no longer fail when
+  `sre.sample_interval_seconds` is set close to its maximum of 30. The worker did not
+  renew its 30-second claim on an investigation while it waited between the two samples,
+  so the claim ran out during the wait. The investigation was then retried and lost again
+  until its time budget was used up, and it ended as `failed` (`budget_exhausted`). The
+  worker now renews the claim during the wait. If an operator stops the investigation
+  during the wait, the worker stops within seconds instead of waiting out the interval.
 - **The tuner no longer fails per query without an LLM.** With `tuner.llm_enabled` set and
   no LLM configured (or the circuit open, or the daily budget spent), every tuning
   candidate fetched its plan context, logged "LLM prescribe failed" and wrote an
