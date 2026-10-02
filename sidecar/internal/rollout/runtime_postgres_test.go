@@ -2,22 +2,16 @@ package rollout
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 func TestPostgresRunStoreRoundTripsSageRolloutRun(t *testing.T) {
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("SKIPPED: SAGE_TEST_DATABASE_URL is not configured")
-	}
-	pool, err := pgxpool.New(t.Context(), dsn)
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
+	// The package fixture database is created per test process (TestMain)
+	// and needs the sage schema.
+	pool := bootstrappedPool(t)
 	store := NewPostgresRunStore(pool)
 	record := RunRecord{
 		EvidenceID:      "rollout-runtime-contract",

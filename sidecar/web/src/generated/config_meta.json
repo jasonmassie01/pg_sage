@@ -1188,6 +1188,88 @@
     "default": true,
     "doc": "Start read-only, bounded investigations from RCA incidents, plan_regression findings and the reactive detector (checkpoint, temp-file, LWLock). Never executes. false = on request only. Default: true."
   },
+  "sre.autonomy.bench_results_path": {
+    "type": "string",
+    "default": "",
+    "doc": "PGIncidentBench JSON report, or a directory searched 3 levels deep (the CI shard reports), ingested hourly as promotion evidence, each once. Empty: upload through the API."
+  },
+  "sre.autonomy.canary.canary_instances": {
+    "type": "int",
+    "default": 1,
+    "doc": "Databases changed and measured before the rollout widens, 1-10. Default: 1."
+  },
+  "sre.autonomy.canary.regression_limit_pct": {
+    "type": "float64",
+    "default": 10,
+    "doc": "Regression that halts and rolls back the rollout, 0-100. Default: 10."
+  },
+  "sre.autonomy.canary.settle_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds to wait after each change before measuring it, 0-3600. Default: 60."
+  },
+  "sre.autonomy.concurrency_window_minutes": {
+    "type": "int",
+    "default": 15,
+    "doc": "Another pg_sage action on the same object this recent caps an action at L1, 1-1440. Default: 15."
+  },
+  "sre.autonomy.enforce": {
+    "type": "bool",
+    "default": true,
+    "doc": "Earned-autonomy ledger restricts self-initiated incident-family actions, custodians included (L1 script, L2 approval, L3 auto). false: the trust ramp decides. Default: true.",
+    "warning": "false lets incident-family actions run under the elapsed-time trust ramp without earned evidence."
+  },
+  "sre.autonomy.evaluate_interval_minutes": {
+    "type": "int",
+    "default": 60,
+    "doc": "Minutes between promotion evaluations (pg_sage proposes, an admin approves), 5-1440. Default: 60."
+  },
+  "sre.autonomy.failover_cooldown_minutes": {
+    "type": "int",
+    "default": 30,
+    "doc": "Minutes after a role change autonomy stays at L1, 1-1440. Default: 30."
+  },
+  "sre.autonomy.game_days.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Run game days. Needs clone.provider (dle or snapshot) or local_dsn. Default: false."
+  },
+  "sre.autonomy.game_days.families": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Incident families to exercise. Empty: every family the bench covers."
+  },
+  "sre.autonomy.game_days.interval_hours": {
+    "type": "int",
+    "default": 168,
+    "doc": "Hours between scheduled game days, 24-2160. Default: 168."
+  },
+  "sre.autonomy.game_days.local_dsn": {
+    "type": "string",
+    "default": null,
+    "doc": "Development fallback when clone.provider is none: a disposable PostgreSQL database for game days. Never a monitored database (refused).",
+    "secret": true
+  },
+  "sre.autonomy.max_evidence_age_seconds": {
+    "type": "int",
+    "default": 300,
+    "doc": "Evidence older than this caps an action at L1, 5-3600. Default: 300."
+  },
+  "sre.autonomy.proposal_ttl_hours": {
+    "type": "int",
+    "default": 168,
+    "doc": "Hours a promotion proposal waits for an admin, 1-720. Default: 168."
+  },
+  "sre.autonomy.reconcile_interval_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds between recording live outcomes of handed-off and autonomous actions, 10-3600. Default: 60."
+  },
+  "sre.autonomy.safety_window_days": {
+    "type": "int",
+    "default": 30,
+    "doc": "Days a harmful or unsafe outcome caps its family at L1 and blocks re-promotion, 1-365. Default: 30."
+  },
   "sre.change_events.allowed_sources": {
     "type": "[]string",
     "default": null,

@@ -44,7 +44,10 @@ type ActionOutcome struct {
 	Recovery        RecoveryState `json:"recovery"`
 	Attribution     string        `json:"attribution,omitempty"`
 	DecidedBy       int           `json:"decided_by,omitempty"`
-	UpdatedAt       time.Time     `json:"updated_at"`
+	// ActionLogID is the executed cancel's action_log row (0 if it never
+	// ran); the M7 ledger records each run once by it.
+	ActionLogID int64     `json:"action_log_id,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Outcomes lists the runs (executed, refused, failed or uncertain) changed
@@ -70,7 +73,7 @@ func (a *ActionService) Outcomes(ctx context.Context, since time.Time,
 			Family: p.Family, Node: p.Node, Class: p.Class,
 			Reversibility: p.Contract.Reversibility, State: p.State, Reason: p.Reason,
 			Recovery: p.Recovery.State, Attribution: p.Recovery.Attribution,
-			DecidedBy: p.DecidedBy, UpdatedAt: p.UpdatedAt})
+			DecidedBy: p.DecidedBy, ActionLogID: p.ActionLogID, UpdatedAt: p.UpdatedAt})
 	}
 	return out, nil
 }

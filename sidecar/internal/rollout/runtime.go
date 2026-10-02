@@ -16,17 +16,21 @@ type PriorEvidence struct {
 }
 
 type RunRecord struct {
-	EvidenceID             string
-	SourceInstance         string
-	PriorEvidenceID        string
-	Policy                 Policy
-	State                  string
-	HaltReason             string
-	AppliedInstances       int
-	CanaryInstanceIDs      []string
-	AggregateRegressionPct float64
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	EvidenceID             string    `json:"id"`
+	SourceInstance         string    `json:"source_database"`
+	PriorEvidenceID        string    `json:"prior_evidence_id"`
+	Policy                 Policy    `json:"policy"`
+	State                  string    `json:"state"`
+	HaltReason             string    `json:"halt_reason,omitempty"`
+	AppliedInstances       int       `json:"applied_instances"`
+	CanaryInstanceIDs      []string  `json:"canary_databases,omitempty"`
+	AggregateRegressionPct float64   `json:"aggregate_regression_pct"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
+	// Family, Class and StartedBy describe a fleet canary of a remediation.
+	Family    string `json:"family,omitempty"`
+	Class     string `json:"class,omitempty"`
+	StartedBy string `json:"started_by,omitempty"`
 }
 
 type RuntimeOptions struct {

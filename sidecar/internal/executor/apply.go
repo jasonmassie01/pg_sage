@@ -97,6 +97,9 @@ func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (int64, error
 	defer release()
 	runCtx, cancelRun := context.WithTimeout(ctx, e.applyTimeout())
 	defer cancelRun()
+	// The re-authorization runs under this action's own change lease, which
+	// the earned-autonomy ledger must not count as a concurrent writer.
+	intent.Request.LeaseHeld = leaseTaken(intent, first.DecisionID)
 	final, err := e.authorizeIntent(runCtx, intent, true)
 	if err != nil {
 		return 0, err

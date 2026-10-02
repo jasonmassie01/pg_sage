@@ -16,6 +16,7 @@ import { DatabasesPage } from './pages/DatabasesPage'
 import { ValuePage } from './pages/ValuePage'
 import { SLOsPage } from './pages/SLOsPage'
 import { RunbooksPage } from './pages/RunbooksPage'
+import { AutonomyPage } from './pages/AutonomyPage'
 import { useAPI } from './hooks/useAPI'
 import { resolveSelectedDB } from './lib/selectedDatabase'
 import { TimeRangeProvider } from './context/TimeRangeContext'
@@ -172,6 +173,9 @@ export default function App() {
       case '/advanced/runbooks':
         return { title: 'Runbooks',
           node: <RunbooksPage database={effectiveDB} user={user} /> }
+      case '/advanced/autonomy':
+        return { title: 'Earned autonomy',
+          node: <AutonomyPage database={effectiveDB} user={user} /> }
       case '/manage-databases':
         return isAdmin ? { title: 'Databases', node: <DatabasesPage /> }
           : denied

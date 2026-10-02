@@ -92,6 +92,8 @@ type RuntimeDeps struct {
 	// NotificationTargetPolicy validates channel targets on write and at
 	// test-send time (G7-B21).
 	NotificationTargetPolicy notify.TargetPolicy
+	// Autonomy serves the Sage SRE earned-autonomy routes (M7); nil omits.
+	Autonomy *AutonomyDeps
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -126,6 +128,7 @@ func NewRouterFullRuntime(
 	// fleet resolution), not in the control pool.
 	registerSRERoutes(apiMux, mgr)
 	registerSRESignalRoutes(apiMux, mgr, cfg)
+	registerAutonomyRoutes(apiMux, mgr, rt.Autonomy)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		mcpHandler != nil {
 		apiMux.Handle("POST /api/v1/mcp", bindMCPPrincipal(mcpHandler))

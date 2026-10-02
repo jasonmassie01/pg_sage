@@ -45,6 +45,7 @@ const ADVANCED_ITEMS = [
   { path: '#/advanced/findings', label: 'Findings explorer' },
   { path: '#/advanced/actions', label: 'Action history' },
   { path: '#/advanced/runbooks', label: 'Runbooks' },
+  { path: '#/advanced/autonomy', label: 'Earned autonomy' },
   { path: '#/advanced', label: 'Snapshot & metrics' },
 ]
 

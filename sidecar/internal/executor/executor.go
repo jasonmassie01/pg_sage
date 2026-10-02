@@ -87,6 +87,7 @@ type Executor struct {
 	executorDisabled   bool
 	emergencyStopFn    func(context.Context) bool
 	policyGate         policy.Gate
+	autonomy           policy.AutonomyLimiter // earned-autonomy ledger (M7)
 	managedConfig      ManagedConfigAdapter
 	indexVerification  *verifiedIndexLifecycle
 	hostCPU            HostCPUReader
