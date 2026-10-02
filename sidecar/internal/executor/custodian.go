@@ -253,13 +253,7 @@ func (e *Executor) verifyCustodianAction(
 		return e.verifyAutovacuumTuning(ctx, proposal.TargetObjects[0])
 	}
 	if isAlterSystem(proposal.SQL) {
-		var setting int64
-		err := e.pool.QueryRow(ctx, `SELECT setting::bigint FROM pg_settings
-			WHERE name='max_slot_wal_keep_size'`).Scan(&setting)
-		if err != nil || setting < 0 {
-			return "custodian_wal", fmt.Errorf("WAL backstop is not effective")
-		}
-		return "custodian_wal", nil
+		return "custodian_wal", e.verifyWALBound(ctx, proposal.SQL)
 	}
 	if isDDLMutation(proposal.SQL) && len(proposal.TargetObjects) == 1 {
 		var exists bool

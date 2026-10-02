@@ -3,7 +3,6 @@ package sre
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -127,9 +126,7 @@ func TestModelProbe_ProbeCeilingHonored(t *testing.T) {
 // A resumed investigation whose turns a crashed worker already used does
 // not call the provider again; it concludes deterministically.
 func TestModelProbe_ResumedRunWithTurnsUsedFallsBack(t *testing.T) {
-	limits := budgetLimits()
-	limits.LeaseTTL = time.Second
-	st, _, ctx := liveStore(t, limits)
+	st, pool, ctx := liveStore(t, budgetLimits())
 	m := newFakeModel(t, toolReply(validIdleReview(t)))
 	c, _ := modelCoordinator(t, ctx, st, idleChainRunner(), m.client())
 	inv, _, err := c.Start(ctx, lockTrigger("m3-resume"))
@@ -145,7 +142,7 @@ func TestModelProbe_ResumedRunWithTurnsUsedFallsBack(t *testing.T) {
 			t.Fatalf("reserve %s: %v", key, err)
 		}
 	}
-	time.Sleep(1200 * time.Millisecond) // the dead worker's lease expires
+	expireLease(t, ctx, pool, dead) // the dead worker's lease expires
 	if err := c.Investigate(ctx, inv.ID); err != nil {
 		t.Fatalf("investigate: %v", err)
 	}

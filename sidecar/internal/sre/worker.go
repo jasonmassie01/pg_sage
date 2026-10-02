@@ -137,7 +137,7 @@ func (c *Coordinator) collect(ctx context.Context, lease Lease, inv Investigatio
 			if time.Until(lease.SegmentDeadline) < wait+stepMargin {
 				break
 			}
-			if err := c.sleep(ctx, wait); err != nil {
+			if lease, err = c.waitHeld(ctx, lease, wait); err != nil {
 				return lease, err
 			}
 		}
@@ -162,6 +162,24 @@ func (c *Coordinator) collect(ctx context.Context, lease Lease, inv Investigatio
 			IdempotencyKey: fmt.Sprintf("evaluate-f%d", lease.Fence)})
 	}
 	return lease, err
+}
+
+// waitHeld waits between compared samples while heartbeating the lease:
+// the wait may be as long as the lease TTL, so an unrenewed lease would
+// expire under it. A lease lost meanwhile (an operator stop) ends the
+// wait at the next heartbeat and is returned as the error.
+func (c *Coordinator) waitHeld(ctx context.Context, lease Lease,
+	d time.Duration) (Lease, error) {
+	waitCtx, stop := c.keepAlive(ctx, lease)
+	err := c.sleep(waitCtx, d)
+	cur, hbErr := stop()
+	switch {
+	case hbErr != nil:
+		return cur, hbErr
+	case ctx.Err() != nil:
+		return cur, ctx.Err()
+	}
+	return cur, err
 }
 
 func (c *Coordinator) committedSteps(ctx context.Context, scope Scope,

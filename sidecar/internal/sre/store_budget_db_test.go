@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 // Durable model budget (Codex §6, CHECK-15): reservations are atomic,
@@ -95,20 +94,17 @@ func TestReserveModel_TurnAndTokenCaps(t *testing.T) {
 // turn it consumed.
 func TestReserveModel_CrashAfterReservationKeepsTheHold(t *testing.T) {
 	limits := budgetLimits()
-	limits.LeaseTTL = 200 * time.Millisecond
 	st, pool, ctx := liveStore(t, limits)
 	lease := claimed(t, st, "pid 42")
 	if _, err := st.ReserveModel(ctx, lease, tokens(12000, 3000, "before-crash")); err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
 	// Crash: the process and its store are gone; the lease expires.
-	longLeases := limits
-	longLeases.LeaseTTL = 30 * time.Second
-	restarted, err := NewPostgresStore(pool, longLeases)
+	restarted, err := NewPostgresStore(pool, limits)
 	if err != nil {
 		t.Fatalf("restart: %v", err)
 	}
-	time.Sleep(limits.LeaseTTL + 600*time.Millisecond)
+	expireLease(t, ctx, pool, lease)
 	lease2, err := restarted.Claim(ctx, lease.Scope, lease.InvestigationID, NewUUID())
 	if err != nil {
 		t.Fatalf("claim after crash: %v", err)

@@ -62,10 +62,12 @@ func usedNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool) float64 {
 	return m.UsedBytes
 }
 
-// runWALBound submits one custodian WAL bound through the real Apply
-// pipeline and returns its action.
+// runWALBound submits one custodian WAL bound of size through the real
+// Apply pipeline and returns its action. Each call site uses its own
+// size: a failed proposal backs off by its SQL text, so a shared text
+// would let one failure cascade into the next test.
 func runWALBound(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
-	cfg *config.Config) int64 {
+	cfg *config.Config, size string) int64 {
 	t.Helper()
 	decisionID := recordCustodianDecision(t, ctx, pool, "wal", "slot_bound")
 	exec := New(pool, cfg, zeroTime(), func(string, string, ...any) {})
@@ -73,7 +75,7 @@ func runWALBound(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		Verdict: policy.VerdictExecute, RiskTier: policy.RiskSafe, DecisionID: decisionID,
 	}})
 	if err := exec.SubmitCustodianProposal(ctx, CustodianProposal{Feature: "wal",
-		SQL:           "ALTER SYSTEM SET max_slot_wal_keep_size = '512MB'",
+		SQL:           "ALTER SYSTEM SET max_slot_wal_keep_size = '" + size + "'",
 		TargetObjects: []string{"slot:bench_none"}}); err != nil {
 		t.Fatalf("SubmitCustodianProposal: %v", err)
 	}
@@ -97,7 +99,7 @@ func TestCustodianWALBoundCreditsAMeasuredDiskNearMiss(t *testing.T) {
 	seedFillTrend(t, ctx, pool, 1e9/36000)
 	cfg := config.DefaultConfig()
 	cfg.Forecaster.DiskCapacityBytes = int64(usedNow(t, ctx, pool) + 2e9)
-	actionID := runWALBound(t, ctx, pool, cfg)
+	actionID := runWALBound(t, ctx, pool, cfg, "512MB")
 
 	var kind, severity, evidence string
 	var minutes float64
@@ -117,26 +119,29 @@ func TestCustodianWALBoundCreditsAMeasuredDiskNearMiss(t *testing.T) {
 func TestCustodianWALBoundWithoutAMeasuredNearMissEarnsNothing(t *testing.T) {
 	pool, ctx := requireDB(t)
 	resetSlotKeep(t, pool)
-	cases := map[string]func() *config.Config{
-		"undeclared capacity": func() *config.Config {
+	cases := map[string]struct {
+		size  string
+		setup func() *config.Config
+	}{
+		"undeclared capacity": {"576MB", func() *config.Config {
 			seedFillTrend(t, ctx, pool, 1e9/36000)
 			return config.DefaultConfig()
-		},
-		"bound still fills the disk": func() *config.Config {
+		}},
+		"bound still fills the disk": {"608MB", func() *config.Config {
 			seedFillTrend(t, ctx, pool, 1e9/36000)
 			cfg := config.DefaultConfig()
 			cfg.Forecaster.DiskCapacityBytes = int64(usedNow(t, ctx, pool) + 2e8)
 			return cfg
-		},
-		"no sampled trend": func() *config.Config {
+		}},
+		"no sampled trend": {"640MB", func() *config.Config {
 			_, _ = pool.Exec(ctx, `DELETE FROM sage.runway_samples WHERE epoch = 'seed'`)
 			cfg := config.DefaultConfig()
 			cfg.Forecaster.DiskCapacityBytes = int64(usedNow(t, ctx, pool) + 2e9)
 			return cfg
-		},
+		}},
 	}
-	for name, setup := range cases {
-		actionID := runWALBound(t, ctx, pool, setup())
+	for name, c := range cases {
+		actionID := runWALBound(t, ctx, pool, c.setup(), c.size)
 		if n := incidentsForAction(t, ctx, pool, actionID); n != 0 {
 			t.Fatalf("%s: incidents = %d, want 0", name, n)
 		}
