@@ -24,7 +24,7 @@ type Family string
 
 // Families modeled by the graph (v1: lock, plan; v2 adds connection
 // pressure, WAL retention and pg_sage's own changes; v3 adds the change
-// feed's recent changes).
+// feed's recent changes (signals.go) and the M6 families (graph_m6.go)).
 const (
 	FamilyLockBlocking   Family = "lock_blocking"
 	FamilyPlanRegression Family = "plan_regression"
@@ -61,7 +61,8 @@ type Node struct {
 	OperatorStep string
 }
 
-var graph = append(append(v1Nodes, v2Nodes...), v3Nodes...)
+var graph = append(append(append(append([]Node(nil), v1Nodes...), v2Nodes...),
+	v3Nodes...), m6Nodes...)
 
 var v1Nodes = []Node{
 	{ID: IdleInTxHolder, Family: FamilyLockBlocking,

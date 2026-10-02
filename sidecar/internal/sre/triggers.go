@@ -28,10 +28,16 @@ type PGTriggerSource struct {
 const triggerBatch = 50
 
 // signalKinds maps RCA signals to investigation families.
+// replication_lag_increasing (pg_stat_replication replay lag) starts the
+// M6 replication lag family: the WAL family reads slots, the archiver
+// and WAL volume, never the replicas' lag.
 var signalKinds = map[string]TriggerKind{
 	"lock_contention": TriggerLock, "idle_in_tx_elevated": TriggerLock,
 	"orphaned_prepared_tx": TriggerLock, "connections_high": TriggerConnections,
-	"wal_growth_spike": TriggerWAL, "replication_lag_increasing": TriggerWAL,
+	"wal_growth_spike": TriggerWAL, "replication_lag_increasing": TriggerReplicationLag,
+	"log_replication_conflict":    TriggerReplicationLag,
+	"log_checkpoint_too_frequent": TriggerCheckpoint,
+	"log_temp_file_created":       TriggerTempFiles,
 }
 
 // NewPGTriggerSource reads the sage schema of pool; database is the

@@ -17,13 +17,17 @@ func TestGraph_NodesAreWellFormed(t *testing.T) {
 	}
 	nodes := Graph()
 	// v2 (M2) adds connection pressure (3), WAL retention (4) and
-	// pg_sage's own change (1) to v1's 4 lock and 2 plan nodes; v3 (M5)
-	// adds the recent change from the change feed (1).
-	if len(nodes) != 15 {
-		t.Fatalf("graph has %d nodes, want 15", len(nodes))
+	// pg_sage's own change (1) to v1's 4 lock and 2 plan nodes; v3 adds the
+	// recent change from the change feed (1, M5), checkpoint storms (4),
+	// temp-file explosions (3), replication lag (6) and LWLock contention (5)
+	// (M6 reactive).
+	if len(nodes) != 33 {
+		t.Fatalf("graph has %d nodes, want 33", len(nodes))
 	}
 	families := map[Family]bool{FamilyLockBlocking: true, FamilyPlanRegression: true,
-		FamilyConnections: true, FamilyWAL: true, FamilyChange: true}
+		FamilyConnections: true, FamilyWAL: true, FamilyChange: true,
+		FamilyCheckpoint: true, FamilyTempFiles: true, FamilyReplicationLag: true,
+		FamilyLWLock: true}
 	seen := map[NodeID]bool{}
 	for _, n := range nodes {
 		if seen[n.ID] {

@@ -17,7 +17,9 @@ var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
 var knownFamilies = map[string]bool{FamilyLocks: true, FamilyConnections: true,
 	FamilyReplication: true, FamilyWAL: true, FamilyVacuum: true, FamilyPlans: true,
-	FamilyChange: true}
+	FamilyChange: true, FamilyTempFiles: true, FamilyWaits: true}
+
+var extensionPattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 // NewRegistry validates specs against the hard ceilings and returns an
 // immutable registry. Duplicate ids are rejected.
@@ -62,7 +64,25 @@ func validateSpec(s Spec) error {
 			return fmt.Errorf("required role %q is not a read-only predefined role", r)
 		}
 	}
-	return validateVariants(s.Variants)
+	if err := validateVariants(s.Variants); err != nil {
+		return err
+	}
+	return validateExtension(s)
+}
+
+// validateExtension requires ExtSchemaToken in every variant of a spec
+// that names an extension, and in none of a spec that does not.
+func validateExtension(s Spec) error {
+	if s.Extension != "" && !extensionPattern.MatchString(s.Extension) {
+		return fmt.Errorf("invalid extension name %q", s.Extension)
+	}
+	for i, v := range s.Variants {
+		if has := strings.Contains(v.SQL, ExtSchemaToken); has != (s.Extension != "") {
+			return fmt.Errorf("variant %d: %s must appear exactly when an extension is named",
+				i, ExtSchemaToken)
+		}
+	}
+	return nil
 }
 
 func validateVariants(vs []Variant) error {
@@ -117,7 +137,9 @@ func catalogSpecs() []Spec {
 		preparedXactsSpec(), backendIdentitySpec(), connectionSaturationSpec(),
 		replicationLagSpec(), replicationSlotsSpec(), walCheckpointSpec(),
 		autovacuumWraparoundSpec(), vacuumProgressSpec(), planRegressionsSpec(),
-		archiverSpec(), sageActionsSpec(),
+		archiverSpec(), sageActionsSpec(), checkpointActivitySpec(),
+		tempFileActivitySpec(), tempFileHoldersSpec(), tempSpillStatementsSpec(),
+		standbyReplayStateSpec(), lwlockWaitsSpec(),
 	}
 }
 
@@ -131,6 +153,10 @@ var signalProbes = map[string][]ID{
 	"replication_lag_increasing": {ReplicationLag, ReplicationSlots},
 	"wal_growth_spike":           {WALCheckpoint, ReplicationSlots},
 	"vacuum_blocked":             {AutovacuumWraparound, VacuumProgress, LongTransactions},
+	// M6 log signals.
+	"log_checkpoint_too_frequent": {CheckpointActivity},
+	"log_temp_file_created":       {TempFileActivity, TempFileHolders, TempSpillStatements},
+	"log_replication_conflict":    {StandbyReplayState, ReplicationLag},
 }
 
 // ForSignal returns the probes that investigate an RCA signal (nil for

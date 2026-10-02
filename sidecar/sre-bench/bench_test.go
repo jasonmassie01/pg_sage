@@ -14,11 +14,12 @@ func TestMain(m *testing.M) {
 	os.Exit(testdb.Run(m.Run, "sre-bench"))
 }
 
-// Bench budgets: one pass over the fault programs, the replay corpus,
-// and the extra time a live model may take (up to 2 turns of 50 s per
-// investigation, though real replies take seconds).
+// Bench budgets: one pass over the fault programs (about 15 minutes for
+// both live arms with the M6 families; run go test with -timeout 40m), the
+// replay corpus, and the extra time a live model may take (up to 2 turns
+// of 50 s per investigation, though real replies take seconds).
 const (
-	repeatBudget    = 8 * time.Minute
+	repeatBudget    = 30 * time.Minute
 	replayBudget    = 3 * time.Minute
 	liveModelBudget = 60 * time.Minute
 )
@@ -54,6 +55,10 @@ func TestPGIncidentBench(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	families, err := ParseFamilies(os.Getenv(EnvFamilies))
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := DefaultConfig(repeats, llm)
 	ctx, cancel := context.WithTimeout(context.Background(), benchBudget(repeats, llm))
 	t.Cleanup(cancel)
@@ -62,7 +67,7 @@ func TestPGIncidentBench(t *testing.T) {
 	if err := env.Pool.QueryRow(ctx, "SELECT version()").Scan(&version); err != nil {
 		t.Fatalf("server version: %v", err)
 	}
-	results := Run(ctx, env, Scenarios(), cfg)
+	results := Run(ctx, env, FilterScenarios(Scenarios(), families), cfg)
 	report := BuildReport(results, ReportMeta{Arms: cfg.ArmNames(), Gated: cfg.Gated(),
 		Pending: cfg.Pending(), Repeats: repeats, ServerVersion: version,
 		GeneratedAt: time.Now().UTC(), LLM: llm})

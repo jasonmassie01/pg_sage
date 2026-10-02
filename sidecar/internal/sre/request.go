@@ -21,10 +21,17 @@ const (
 	// TriggerSLOBurn is a page-level SLO burn (M5): it triages the lock,
 	// connection and plan mechanisms with the SLO as evidence.
 	TriggerSLOBurn TriggerKind = "slo_burn"
+	// M6 reactive families (named like their causal-graph families).
+	TriggerCheckpoint     TriggerKind = "checkpoint_storm"
+	TriggerTempFiles      TriggerKind = "temp_file_explosion"
+	TriggerReplicationLag TriggerKind = "replication_lag"
+	TriggerLWLock         TriggerKind = "lwlock_contention"
 )
 
 var triggerKinds = map[TriggerKind]bool{TriggerLock: true, TriggerConnections: true,
-	TriggerWAL: true, TriggerPlan: true, TriggerOperator: true, TriggerSLOBurn: true}
+	TriggerWAL: true, TriggerPlan: true, TriggerOperator: true, TriggerSLOBurn: true,
+	TriggerCheckpoint: true, TriggerTempFiles: true, TriggerReplicationLag: true,
+	TriggerLWLock: true}
 
 // StartRequest asks for an investigation of one scoped trigger.
 type StartRequest struct {

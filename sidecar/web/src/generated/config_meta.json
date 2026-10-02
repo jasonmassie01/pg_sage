@@ -1186,7 +1186,7 @@
   "sre.automatic_start": {
     "type": "bool",
     "default": true,
-    "doc": "Start a read-only, bounded investigation for each open lock, connection or WAL incident and plan_regression finding. Never executes actions. false = start only on request. Default: true."
+    "doc": "Start read-only, bounded investigations from RCA incidents, plan_regression findings and the reactive detector (checkpoint, temp-file, LWLock). Never executes. false = on request only. Default: true."
   },
   "sre.change_events.allowed_sources": {
     "type": "[]string",

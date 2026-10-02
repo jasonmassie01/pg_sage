@@ -108,10 +108,11 @@ func (c *Coordinator) collect(ctx context.Context, lease Lease, inv Investigatio
 			continue
 		}
 		if st.sample {
-			if time.Until(lease.SegmentDeadline) < c.cfg.SampleInterval+stepMargin {
+			wait := c.cfg.SampleInterval * time.Duration(st.waits())
+			if time.Until(lease.SegmentDeadline) < wait+stepMargin {
 				break
 			}
-			if err := c.sleep(ctx, c.cfg.SampleInterval); err != nil {
+			if err := c.sleep(ctx, wait); err != nil {
 				return lease, err
 			}
 		}
