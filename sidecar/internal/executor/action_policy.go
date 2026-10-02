@@ -29,6 +29,10 @@ type ActionPolicyDecision struct {
 	// LockCeilingMS is the policy lock ceiling carried from an execute
 	// verdict; in-transaction DDL caps lock_timeout by it (0 = none).
 	LockCeilingMS int64 `json:"lock_ceiling_ms,omitempty"`
+	// SerializeMode is the policy's serialize_mode carried from an execute
+	// verdict: a change lease conflict parks (or refuses an operator) or
+	// waits in the lease queue.
+	SerializeMode string `json:"serialize_mode,omitempty"`
 }
 
 func inMaintenanceWindowForPolicy(

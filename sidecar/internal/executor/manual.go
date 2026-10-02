@@ -60,7 +60,8 @@ func (e *Executor) ExecuteManual(
 			decision, err := e.authorizeOperatorAction(ctx, sql, findingID, approvedBy)
 			return standingPolicyDecision(decision), err
 		},
-		SlotHeld: true, Execute: run.execute, Verify: run.verify,
+		TargetLease: operatorLease(sql, approvedBy),
+		SlotHeld:    true, Execute: run.execute, Verify: run.verify,
 	})
 }
 

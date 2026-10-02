@@ -151,12 +151,14 @@ func TestRetentionContractChangedBeforeExecutionRefused(t *testing.T) {
 
 func setEmergencyStop(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
-	execAll(t, pool, `INSERT INTO sage.config (key, value, updated_by)
-		VALUES ('emergency_stop', 'true', 'test')
-		ON CONFLICT (key) DO UPDATE SET value='true', updated_by='test'`)
+	if err := executor.SetEmergencyStop(context.Background(), pool, true, "test"); err != nil {
+		t.Fatalf("engage emergency stop: %v", err)
+	}
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(),
-			"DELETE FROM sage.config WHERE key='emergency_stop'")
+		if err := executor.SetEmergencyStop(context.Background(), pool, false,
+			"test"); err != nil {
+			t.Errorf("release emergency stop: %v", err)
+		}
 	})
 }
 

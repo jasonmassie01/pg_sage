@@ -207,8 +207,10 @@ func TestExecuteRetentionStopDuringWaitDeletesNothing(t *testing.T) {
 
 	_, err := exec.ExecuteRetention(ctx, retentionRequest(table, stub))
 
-	var withheld *WithheldError
-	if !errors.As(err, &withheld) || !withheld.Reauthorized {
+	// ExecuteRetention reports withheld deletes like custodians do; a
+	// refusal by the re-authorization names its stage ("after lease").
+	if !errors.Is(err, ErrCustodianProposalWithheld) ||
+		!strings.Contains(err.Error(), "after lease: emergency_stop") {
 		t.Fatalf("stop during the wait = %v, want a re-authorization refusal", err)
 	}
 	if gate.calls != 2 || stub.calls != 0 || len(retentionActions(t, pool, table)) != 0 {
@@ -272,26 +274,30 @@ func TestExecuteRetentionQueueWaitsForLease(t *testing.T) {
 }
 
 func TestExecuteRetentionRejectsUnverifiedBatches(t *testing.T) {
+	type batchReport struct {
+		reported, recorded, outside int64
+		foreignAction               bool
+	}
 	tests := []struct {
-		name string
-		stub retentionStub
+		name   string
+		report batchReport
 	}{
-		{"more rows than the reviewed bound", retentionStub{reported: 60, recorded: 60}},
+		{"more rows than the reviewed bound", batchReport{reported: 60, recorded: 60}},
 		{"rows outside the declared predicate",
-			retentionStub{reported: 3, recorded: 3, outside: 1}},
+			batchReport{reported: 3, recorded: 3, outside: 1}},
 		{"reported count differs from the durable record",
-			retentionStub{reported: 7, recorded: 6}},
+			batchReport{reported: 7, recorded: 6}},
 		{"durable record belongs to another action",
-			retentionStub{reported: 2, recorded: 2, foreignAction: true}},
+			batchReport{reported: 2, recorded: 2, foreignAction: true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pool, ctx := requireDB(t)
 			table := retentionTable(t, pool)
 			exec := retentionExecutor(pool, policy.SerializePark)
-			stub := &retentionStub{pool: pool, table: table, reported: tt.stub.reported,
-				recorded: tt.stub.recorded, outside: tt.stub.outside,
-				foreignAction: tt.stub.foreignAction}
+			stub := &retentionStub{pool: pool, table: table, reported: tt.report.reported,
+				recorded: tt.report.recorded, outside: tt.report.outside,
+				foreignAction: tt.report.foreignAction}
 
 			actionID, err := exec.ExecuteRetention(ctx, retentionRequest(table, stub))
 

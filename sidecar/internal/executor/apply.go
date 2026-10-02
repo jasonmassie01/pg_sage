@@ -26,7 +26,7 @@ const applyGrace = time.Minute
 
 // ActionIntent is one change routed through Apply, the single execution
 // pipeline shared by the executor cycle, operator actions, custodians,
-// verified indexes and retention (G4-I07).
+// verified indexes and retention deletes (G4-I07).
 type ActionIntent struct {
 	// Request is what the standing gate authorizes, before and after the
 	// lease and slot waits.
@@ -35,17 +35,18 @@ type ActionIntent struct {
 	// authorization (operator approvals). It runs at both authorization
 	// points.
 	Authorize func(context.Context) (ActionPolicyDecision, error)
-	// Lease is the finding whose DDL takes a change lease; nil takes none.
+	// Lease is the finding whose change takes a typed-target lease on its
+	// targets when it is a leased mutation; nil takes none.
 	Lease *analyzer.Finding
+	// TargetLease is an explicit typed-target lease (operator actions and
+	// retention); it takes precedence over Lease.
+	TargetLease *TargetLease
 	// WaitForSlot blocks for a DDL slot; otherwise a busy executor skips.
 	WaitForSlot bool
 	// SlotHeld means the caller already holds a DDL slot for the whole
 	// request: an operator action waits for it, bounded by the HTTP
 	// request, before anything else.
 	SlotHeld bool
-	// AuthorizeOnly stops after the first authorization: the caller runs the
-	// change itself (retention's bounded delete).
-	AuthorizeOnly bool
 	// Admit is an optional precondition checked after the authorization
 	// (load admission records its verdict in that decision).
 	Admit func(ctx context.Context, decisionID int64) error
@@ -56,7 +57,8 @@ type ActionIntent struct {
 	// Verify post-checks a recorded change; nil when Execute starts its own
 	// durable verification.
 	Verify func(ctx context.Context, actionID int64) error
-	// Refused records a failure after the authorization (a denied lease).
+	// Refused records a failure after the authorization (a lease that could
+	// not be taken for a reason other than a conflict).
 	Refused func(ctx context.Context, decisionID int64, err error)
 }
 
@@ -87,10 +89,10 @@ func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (int64, error
 	waitCtx, cancelWait := context.WithTimeout(ctx, e.applyTimeout())
 	defer cancelWait()
 	first, err := e.authorizeIntent(waitCtx, intent, false)
-	if err != nil || intent.AuthorizeOnly {
+	if err != nil {
 		return 0, err
 	}
-	release, err := e.prepareIntent(waitCtx, intent, first.DecisionID)
+	release, leased, err := e.prepareIntent(waitCtx, intent, first)
 	if err != nil {
 		return 0, err
 	}
@@ -99,7 +101,7 @@ func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (int64, error
 	defer cancelRun()
 	// The re-authorization runs under this action's own change lease, which
 	// the earned-autonomy ledger must not count as a concurrent writer.
-	intent.Request.LeaseHeld = leaseTaken(intent, first.DecisionID)
+	intent.Request.LeaseHeld = leased
 	final, err := e.authorizeIntent(runCtx, intent, true)
 	if err != nil {
 		return 0, err
@@ -133,36 +135,27 @@ func (e *Executor) authorizeIntent(
 	return decision, nil
 }
 
-// prepareIntent runs the admission check, takes the change lease and a DDL
-// slot, and returns their release.
+// prepareIntent runs the admission check, takes the typed-target lease
+// (parking, refusing or queueing on a conflict per serialize_mode) and a
+// DDL slot, and returns their release and whether a lease is held.
 func (e *Executor) prepareIntent(
-	ctx context.Context, intent ActionIntent, decisionID int64,
-) (func(), error) {
+	ctx context.Context, intent ActionIntent, first ActionPolicyDecision,
+) (func(), bool, error) {
 	if intent.Admit != nil {
-		if err := intent.Admit(ctx, decisionID); err != nil {
-			return nil, err
+		if err := intent.Admit(ctx, first.DecisionID); err != nil {
+			return nil, false, err
 		}
 	}
-	releaseLease := func() {}
-	if intent.Lease != nil {
-		var err error
-		releaseLease, err = e.acquireDDLLease(ctx, *intent.Lease, decisionID)
-		// A lease held by another writer parks the action (D1): recorded in
-		// the ledger, never as a failed action.
-		parked := e.parkLeaseConflict(ctx, *intent.Lease, decisionID, err)
-		if err != nil {
-			if intent.Refused != nil && !parked {
-				intent.Refused(ctx, decisionID, err)
-			}
-			return nil, fmt.Errorf("acquire change lease: %w", err)
-		}
+	releaseLease, leased, err := e.intentLease(ctx, intent, first)
+	if err != nil {
+		return nil, false, err
 	}
 	releaseSlot, err := e.intentSlot(ctx, intent)
 	if err != nil {
 		releaseLease()
-		return nil, err
+		return nil, false, err
 	}
-	return func() { releaseSlot(); releaseLease() }, nil
+	return func() { releaseSlot(); releaseLease() }, leased, nil
 }
 
 func (e *Executor) intentSlot(ctx context.Context, intent ActionIntent) (func(), error) {

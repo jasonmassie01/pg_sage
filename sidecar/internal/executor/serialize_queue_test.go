@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
@@ -24,9 +25,9 @@ func TestStandingDecisionCarriesSerializeMode(t *testing.T) {
 	}
 }
 
-func queueExecutor(t *testing.T, maxWait time.Duration) *Executor {
-	t.Helper()
-	pool, _ := requireDB(t)
+// queueExecutor takes the test's pool: requireDB holds a cross-package
+// lock per call, so a second call in one test would wait on itself.
+func queueExecutor(pool *pgxpool.Pool, maxWait time.Duration) *Executor {
 	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	exec.emergencyStopFn = func(context.Context) bool { return false }
 	cfg := policy.DefaultLeaseQueueConfig()
@@ -44,7 +45,7 @@ func queueDecision(id int64) ActionPolicyDecision {
 func TestQueueModeSecondWriterRunsAfterFirst(t *testing.T) {
 	pool, ctx := requireDB(t)
 	setupParkTable(t, ctx, pool)
-	exec := queueExecutor(t, 20*time.Second)
+	exec := queueExecutor(pool, 20*time.Second)
 	first, second := insertParkDecision(t, ctx, pool), insertParkDecision(t, ctx, pool)
 	blocker, err := pool.Begin(ctx)
 	if err != nil {
@@ -89,7 +90,7 @@ func TestQueueModeSecondWriterRunsAfterFirst(t *testing.T) {
 func TestQueueModeTimeoutParksSelfInitiated(t *testing.T) {
 	pool, ctx := requireDB(t)
 	setupParkTable(t, ctx, pool)
-	exec := queueExecutor(t, 300*time.Millisecond)
+	exec := queueExecutor(pool, 300*time.Millisecond)
 	holdTypedLease(t, pool, "custodian", "public."+parkTable)
 	decision := insertParkDecision(t, ctx, pool)
 	started := time.Now()
@@ -122,7 +123,7 @@ func TestQueueModeTimeoutParksSelfInitiated(t *testing.T) {
 func TestParkModeDoesNotQueue(t *testing.T) {
 	pool, ctx := requireDB(t)
 	setupParkTable(t, ctx, pool)
-	exec := queueExecutor(t, 20*time.Second)
+	exec := queueExecutor(pool, 20*time.Second)
 	holdTypedLease(t, pool, "custodian", "public."+parkTable)
 	decision := insertParkDecision(t, ctx, pool)
 	started := time.Now()

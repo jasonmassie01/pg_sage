@@ -358,25 +358,7 @@ func rejectMultiStatement(sql string) error {
 }
 
 func checkProtectedSchemaUsage(trimmed, prefix string) error {
-	var ident string
-	switch prefix {
-	case "CREATE INDEX", "CREATE UNIQUE INDEX":
-		ident = tokenAfterKeyword(trimmed, "ON")
-	case "DROP INDEX":
-		ident = firstObjectAfter(
-			trimmed, "DROP INDEX",
-			"CONCURRENTLY", "IF", "EXISTS")
-	case "REINDEX":
-		ident = reindexObject(trimmed)
-	case "VACUUM":
-		ident = vacuumObject(trimmed)
-	case "ANALYZE":
-		ident = firstObjectAfter(trimmed, "ANALYZE", "VERBOSE")
-	case "ALTER TABLE":
-		ident = firstObjectAfter(trimmed, "ALTER TABLE", "IF", "EXISTS")
-	default:
-		return nil
-	}
+	ident := statementTarget(trimmed, prefix)
 	if ident == "" {
 		return nil
 	}
@@ -389,66 +371,6 @@ func checkProtectedSchemaUsage(trimmed, prefix string) error {
 	return nil
 }
 
-func tokenAfterKeyword(sql, keyword string) string {
-	fields := strings.Fields(sql)
-	for i := 0; i < len(fields)-1; i++ {
-		if strings.EqualFold(fields[i], keyword) {
-			return cleanupIdentifierToken(fields[i+1])
-		}
-	}
-	return ""
-}
-
-func firstObjectAfter(sql, prefix string, skip ...string) string {
-	fields := strings.Fields(sql)
-	prefixFields := strings.Fields(prefix)
-	if len(fields) < len(prefixFields)+1 {
-		return ""
-	}
-	i := len(prefixFields)
-	for i < len(fields) && containsFold(skip, fields[i]) {
-		i++
-	}
-	if i >= len(fields) {
-		return ""
-	}
-	return cleanupIdentifierToken(fields[i])
-}
-
-func reindexObject(sql string) string {
-	fields := strings.Fields(sql)
-	if len(fields) < 3 {
-		return ""
-	}
-	i := 1
-	if strings.EqualFold(fields[i], "(VERBOSE)") {
-		i++
-	}
-	if i >= len(fields)-1 {
-		return ""
-	}
-	scope := strings.ToUpper(fields[i])
-	if scope == "DATABASE" || scope == "SYSTEM" || scope == "SCHEMA" {
-		return ""
-	}
-	return cleanupIdentifierToken(fields[i+1])
-}
-
-func vacuumObject(sql string) string {
-	fields := strings.Fields(sql)
-	for i := 1; i < len(fields); i++ {
-		token := strings.Trim(fields[i], ",;")
-		upper := strings.ToUpper(token)
-		if upper == "FULL" || upper == "FREEZE" ||
-			upper == "VERBOSE" || upper == "ANALYZE" ||
-			strings.HasPrefix(upper, "(") {
-			continue
-		}
-		return cleanupIdentifierToken(token)
-	}
-	return ""
-}
-
 func containsFold(values []string, v string) bool {
 	for _, value := range values {
 		if strings.EqualFold(value, v) {
@@ -456,15 +378,6 @@ func containsFold(values []string, v string) bool {
 		}
 	}
 	return false
-}
-
-func cleanupIdentifierToken(token string) string {
-	token = strings.TrimSpace(token)
-	token = strings.TrimRight(token, ";,")
-	if idx := strings.Index(token, "("); idx > 0 {
-		token = token[:idx]
-	}
-	return token
 }
 
 func schemaFromIdentifier(ident string) string {

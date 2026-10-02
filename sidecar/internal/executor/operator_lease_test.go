@@ -209,7 +209,7 @@ func secondOperatorFinding(t *testing.T, pool *pgxpool.Pool, table, sql string) 
 	if err := pool.QueryRow(context.Background(), `INSERT INTO sage.findings
 		(category, severity, object_type, object_identifier, title, detail,
 		 recommendation, recommended_sql)
-		VALUES ('manual_safety', 'warning', 'table', $1, 'second operator', '{}',
+		VALUES ('manual_safety_second', 'warning', 'table', $1, 'second operator', '{}',
 		        'rec', $2) RETURNING id`, "public."+table, sql).Scan(&id); err != nil {
 		t.Fatalf("insert second finding: %v", err)
 	}
