@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -67,41 +68,58 @@ func (v *Validator) checkConcurrently(rec Recommendation) (bool, string) {
 	return true, ""
 }
 
+// checkColumnExistence requires every plain key and INCLUDE column to
+// exist, and every expression key to reference at least one existing
+// column (PostgreSQL validates the rest of the expression itself).
 func (v *Validator) checkColumnExistence(
 	rec Recommendation,
 	tc TableContext,
 ) (bool, string) {
-	indexCols := extractColumnsFromDDL(rec.DDL)
-	if len(indexCols) == 0 {
-		return true, ""
+	keys, include, ok := indexColumns(rec.DDL)
+	if !ok {
+		return true, "" // unparseable DDL is rejected by canonicalization
 	}
-
-	existing := make(map[string]bool)
+	existing := make(map[string]bool, len(tc.Columns))
 	for _, c := range tc.Columns {
 		existing[strings.ToLower(c.Name)] = true
 	}
-
-	for _, col := range indexCols {
-		if !existing[strings.ToLower(col)] {
-			return false, "column " + col + " does not exist"
+	for _, key := range append(keys, include...) {
+		if key.column != "" && !existing[strings.ToLower(key.column)] {
+			return false, "column " + key.column + " does not exist"
+		}
+		if key.expr != "" && !anyExists(key.refs, existing) {
+			return false, "expression " + key.expr + " references no existing column"
 		}
 	}
 	return true, ""
 }
 
+func anyExists(refs []string, existing map[string]bool) bool {
+	for _, r := range refs {
+		if existing[strings.ToLower(r)] {
+			return true
+		}
+	}
+	return false
+}
+
+// checkDuplicate rejects a recommendation whose shape — method, key
+// columns/expressions, INCLUDE set and predicate — equals a valid
+// existing index. Invalid indexes (a failed CONCURRENTLY build) are not
+// duplicates of anything.
 func (v *Validator) checkDuplicate(
 	rec Recommendation,
 	tc TableContext,
 ) (bool, string) {
-	newCols := extractColumnsFromDDL(rec.DDL)
-	if len(newCols) == 0 {
+	want, ok := shapeOf(rec.DDL)
+	if !ok {
 		return true, ""
 	}
-
-	newKey := normalizeColumnSet(newCols)
 	for _, idx := range tc.Indexes {
-		existingCols := extractColumnsFromDDL(idx.Definition)
-		if normalizeColumnSet(existingCols) == newKey {
+		if !idx.IsValid {
+			continue
+		}
+		if have, ok := shapeOf(idx.Definition); ok && have == want {
 			return false, "duplicate of existing index " + idx.Name
 		}
 	}
@@ -201,109 +219,118 @@ func (v *Validator) checkBRINCorrelation(
 
 var funcNameRe = regexp.MustCompile(`\b([a-z_][a-z0-9_]*)\s*\(`)
 
-// checkExpressionVolatility rejects expression index recommendations
-// that use non-IMMUTABLE functions (STABLE or VOLATILE break expression indexes).
+// checkExpressionVolatility rejects an index whose key expressions or
+// predicate call a function with no IMMUTABLE overload (PostgreSQL
+// refuses STABLE/VOLATILE functions in index expressions). Unknown names
+// (keywords such as IN, or a lookup error) are left to PostgreSQL.
 func (v *Validator) checkExpressionVolatility(
 	ctx context.Context,
 	rec Recommendation,
 ) (bool, string) {
-	paren := strings.Index(rec.DDL, "(")
-	if paren < 0 {
+	spec, err := ParseIndexDDL(rec.DDL)
+	if err != nil || v.pool == nil {
 		return true, ""
 	}
-	inner := rec.DDL[paren+1:]
-	nestedParen := strings.Index(inner, "(")
-	if nestedParen < 0 {
-		return true, "" // no expression, just columns
-	}
-	matches := funcNameRe.FindStringSubmatch(strings.ToLower(inner))
-	if len(matches) < 2 {
-		return true, ""
-	}
-	fnName := matches[1]
-	if v.pool == nil {
-		return true, ""
-	}
-	var volatility string
-	err := v.pool.QueryRow(ctx,
-		"SELECT provolatile::text FROM pg_proc WHERE proname = $1 LIMIT 1",
-		fnName,
-	).Scan(&volatility)
-	if err != nil {
-		return true, "" // can't check, allow
-	}
-	if volatility != "i" {
-		return false, "function " + fnName + " is not IMMUTABLE"
+	seen := map[string]bool{}
+	for _, m := range funcNameRe.FindAllStringSubmatch(spec.Keys+" "+spec.Where, -1) {
+		fn := m[1]
+		if seen[fn] {
+			continue
+		}
+		seen[fn] = true
+		var immutable *bool
+		err := v.pool.QueryRow(ctx,
+			"SELECT bool_or(provolatile = 'i') FROM pg_proc WHERE proname = $1",
+			fn).Scan(&immutable)
+		if err != nil {
+			v.logFn("optimizer", "volatility lookup for %s failed: %v", fn, err)
+			continue
+		}
+		if immutable != nil && !*immutable {
+			return false, "function " + fn + " is not IMMUTABLE"
+		}
 	}
 	return true, ""
 }
 
-// extractColumnsFromDDL parses column names from CREATE INDEX or index def.
+// extractColumnsFromDDL returns the plain key columns of a CREATE INDEX
+// statement or index definition, in order; expression keys are skipped.
+// It returns nil when the DDL cannot be parsed.
 func extractColumnsFromDDL(ddl string) []string {
-	start := strings.Index(ddl, "(")
-	if start < 0 {
+	keys, err := parseIndexKeys(ddl)
+	if err != nil {
 		return nil
 	}
-	end := strings.Index(ddl[start+1:], ")")
-	if end < 0 {
-		return nil
-	}
-	colsPart := ddl[start+1 : start+1+end]
-
-	upperDDL := strings.ToUpper(ddl)
-	includeIdx := strings.Index(upperDDL, "INCLUDE")
-	if includeIdx > start+1 && includeIdx < start+1+end {
-		colsPart = ddl[start+1 : includeIdx]
-	}
-
 	var cols []string
-	for _, part := range strings.Split(colsPart, ",") {
-		col := strings.TrimSpace(part)
-		col = strings.Trim(col, "\"")
-		col = stripSortDirection(col)
-		col = stripOperatorClass(col)
-		if col != "" {
-			cols = append(cols, col)
+	for _, k := range keys {
+		if k.column != "" {
+			cols = append(cols, k.column)
 		}
 	}
 	return cols
 }
 
-// stripOperatorClass removes a trailing operator-class specifier from an
-// index column entry — e.g. "payload jsonb_path_ops" -> "payload",
-// "embedding vector_l2_ops" -> "embedding". Every Postgres operator class
-// name ends in "_ops", so the strip is precise: it only fires on a bare
-// "<column> <something>_ops" pair, leaving plain columns and expression
-// entries (which contain parentheses) untouched.
-func stripOperatorClass(col string) string {
-	if strings.ContainsAny(col, "()") {
-		return col
+// indexColumns parses the key and INCLUDE lists of an index DDL.
+func indexColumns(ddl string) (keys, include []indexKey, ok bool) {
+	spec, err := ParseIndexDDL(ddl)
+	if err != nil {
+		return nil, nil, false
 	}
-	fields := strings.Fields(col)
-	if len(fields) == 2 &&
-		strings.HasSuffix(strings.ToLower(fields[1]), "_ops") {
-		return fields[0]
+	keys, err = splitKeyList(spec.Keys)
+	if err != nil {
+		return nil, nil, false
 	}
-	return col
-}
-
-func stripSortDirection(col string) string {
-	upper := strings.ToUpper(col)
-	for _, suffix := range []string{
-		" NULLS LAST", " NULLS FIRST", " DESC", " ASC",
-	} {
-		if strings.HasSuffix(upper, suffix) {
-			col = col[:len(col)-len(suffix)]
-			upper = strings.ToUpper(col)
+	if spec.Include != "" {
+		if include, err = splitKeyList(spec.Include); err != nil {
+			return nil, nil, false
 		}
 	}
-	return strings.TrimSpace(col)
+	return keys, include, true
 }
 
-func normalizeColumnSet(cols []string) string {
-	lower := make([]string, len(cols))
-	for i, c := range cols {
-		lower[i] = strings.ToLower(strings.TrimSpace(c))
+// indexShape is the comparable form of an index definition.
+type indexShape struct {
+	method, keys, include, where string
+}
+
+// shapeOf parses an index DDL or pg_get_indexdef definition into its
+// comparable shape: casts and grouping parentheses are dropped so the
+// catalog form "lower((email)::text)" equals "lower(email)" and
+// "WHERE (status = 'open'::text)" equals "WHERE status = 'open'".
+func shapeOf(ddl string) (indexShape, bool) {
+	spec, err := ParseIndexDDL(ddl)
+	if err != nil {
+		return indexShape{}, false
 	}
-	return strings.Join(lower, ",")
+	keys, include, ok := indexColumns(ddl)
+	if !ok {
+		return indexShape{}, false
+	}
+	inc := keyShapes(include)
+	sort.Strings(inc)
+	return indexShape{method: spec.Method, keys: strings.Join(keyShapes(keys), ","),
+		include: strings.Join(inc, ","), where: canonicalShape(spec.Where)}, true
+}
+
+func keyShapes(keys []indexKey) []string {
+	out := make([]string, len(keys))
+	for i, k := range keys {
+		out[i] = k.column
+		if k.expr != "" {
+			out[i] = canonicalShape(k.expr)
+		}
+	}
+	return out
+}
+
+var castPattern = regexp.MustCompile(
+	`::\s*(?:"[^"]*"|[a-z_][a-z0-9_]*)(?:\s+varying)?(?:\(\s*\d+(?:\s*,\s*\d+)?\s*\))?(?:\[\])*`)
+
+// canonicalShape drops casts and parentheses from a normalized fragment
+// and collapses whitespace.
+func canonicalShape(frag string) string {
+	s := castPattern.ReplaceAllString(frag, "")
+	s = strings.NewReplacer("(", " ", ")", " ").Replace(s)
+	s = strings.Join(strings.Fields(s), " ")
+	return strings.NewReplacer(" ,", ",", ", ", ",").Replace(s)
 }

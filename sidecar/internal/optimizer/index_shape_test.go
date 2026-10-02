@@ -80,13 +80,13 @@ func TestCheckColumnExistence_ExpressionIndexes(t *testing.T) {
 	v := newTestValidator(nil)
 	tc := exprTableContext()
 	for ddl, want := range map[string]bool{
-		"CREATE INDEX CONCURRENTLY i ON public.orders ((lower(email)))":           true,
-		"CREATE INDEX CONCURRENTLY i ON public.orders ((payload->>'k'))":          true,
+		"CREATE INDEX CONCURRENTLY i ON public.orders ((lower(email)))":                true,
+		"CREATE INDEX CONCURRENTLY i ON public.orders ((payload->>'k'))":               true,
 		"CREATE INDEX CONCURRENTLY i ON public.orders (date_trunc('day', created_at))": true,
-		"CREATE INDEX CONCURRENTLY i ON public.orders ((lower(missing)))":          false,
-		"CREATE INDEX CONCURRENTLY i ON public.orders (missing)":                  false,
-		"CREATE INDEX CONCURRENTLY i ON public.orders (status) INCLUDE (nope)":    false,
-		"CREATE INDEX CONCURRENTLY i ON public.orders (status) INCLUDE (email)":   true,
+		"CREATE INDEX CONCURRENTLY i ON public.orders ((lower(missing)))":              false,
+		"CREATE INDEX CONCURRENTLY i ON public.orders (missing)":                       false,
+		"CREATE INDEX CONCURRENTLY i ON public.orders (status) INCLUDE (nope)":         false,
+		"CREATE INDEX CONCURRENTLY i ON public.orders (status) INCLUDE (email)":        true,
 	} {
 		ok, reason := v.checkColumnExistence(Recommendation{DDL: ddl}, tc)
 		if ok != want {
@@ -112,50 +112,52 @@ func dupContext(defs ...IndexInfo) TableContext {
 	return tc
 }
 
+func validIndex(def string) IndexInfo {
+	return IndexInfo{Name: "existing", Definition: def, IsValid: true}
+}
+
+var duplicateCases = []struct {
+	name     string
+	ddl      string
+	existing IndexInfo
+	dup      bool
+}{
+	{"same btree", "CREATE INDEX CONCURRENTLY i ON public.orders (status)",
+		validIndex("CREATE INDEX existing ON public.orders USING btree (status)"), true},
+	{"different method", "CREATE INDEX CONCURRENTLY i ON public.orders USING hash (status)",
+		validIndex("CREATE INDEX existing ON public.orders USING btree (status)"), false},
+	{"partial vs full", "CREATE INDEX CONCURRENTLY i ON public.orders (status) " +
+		"WHERE status = 'open'",
+		validIndex("CREATE INDEX existing ON public.orders USING btree (status)"), false},
+	{"same predicate, catalog form", "CREATE INDEX CONCURRENTLY i ON public.orders " +
+		"(status) WHERE status = 'open'",
+		validIndex("CREATE INDEX existing ON public.orders USING btree (status) " +
+			"WHERE (status = 'open'::text)"), true},
+	{"different predicate", "CREATE INDEX CONCURRENTLY i ON public.orders (status) " +
+		"WHERE status = 'closed'",
+		validIndex("CREATE INDEX existing ON public.orders USING btree (status) " +
+			"WHERE (status = 'open'::text)"), false},
+	{"different include", "CREATE INDEX CONCURRENTLY i ON public.orders (status) " +
+		"INCLUDE (id)", validIndex("CREATE INDEX existing ON public.orders USING btree " +
+		"(status) INCLUDE (created_at)"), false},
+	{"same include", "CREATE INDEX CONCURRENTLY i ON public.orders (status) INCLUDE (id)",
+		validIndex("CREATE INDEX existing ON public.orders USING btree (status) INCLUDE (id)"),
+		true},
+	{"expression, catalog form", "CREATE INDEX CONCURRENTLY i ON public.orders " +
+		"((lower(email)))", validIndex("CREATE INDEX existing ON public.orders USING btree " +
+		"(lower((email)::text))"), true},
+	{"expression vs column", "CREATE INDEX CONCURRENTLY i ON public.orders ((lower(email)))",
+		validIndex("CREATE INDEX existing ON public.orders USING btree (email)"), false},
+	{"invalid existing index ignored", "CREATE INDEX CONCURRENTLY i ON public.orders " +
+		"(status)", IndexInfo{Name: "existing", IsValid: false,
+		Definition: "CREATE INDEX existing ON public.orders USING btree (status)"}, false},
+	{"unparseable existing definition", "CREATE INDEX CONCURRENTLY i ON public.orders " +
+		"(status)", validIndex("garbage"), false},
+}
+
 func TestCheckDuplicate_ComparesWholeShape(t *testing.T) {
 	v := newTestValidator(nil)
-	valid := func(def string) IndexInfo {
-		return IndexInfo{Name: "existing", Definition: def, IsValid: true}
-	}
-	cases := []struct {
-		name     string
-		ddl      string
-		existing IndexInfo
-		dup      bool
-	}{
-		{"same btree", "CREATE INDEX CONCURRENTLY i ON public.orders (status)",
-			valid("CREATE INDEX existing ON public.orders USING btree (status)"), true},
-		{"different method", "CREATE INDEX CONCURRENTLY i ON public.orders USING hash (status)",
-			valid("CREATE INDEX existing ON public.orders USING btree (status)"), false},
-		{"partial vs full", "CREATE INDEX CONCURRENTLY i ON public.orders (status) " +
-			"WHERE status = 'open'",
-			valid("CREATE INDEX existing ON public.orders USING btree (status)"), false},
-		{"same predicate, catalog form", "CREATE INDEX CONCURRENTLY i ON public.orders " +
-			"(status) WHERE status = 'open'",
-			valid("CREATE INDEX existing ON public.orders USING btree (status) " +
-				"WHERE (status = 'open'::text)"), true},
-		{"different predicate", "CREATE INDEX CONCURRENTLY i ON public.orders (status) " +
-			"WHERE status = 'closed'",
-			valid("CREATE INDEX existing ON public.orders USING btree (status) " +
-				"WHERE (status = 'open'::text)"), false},
-		{"different include", "CREATE INDEX CONCURRENTLY i ON public.orders (status) " +
-			"INCLUDE (id)", valid("CREATE INDEX existing ON public.orders USING btree " +
-			"(status) INCLUDE (created_at)"), false},
-		{"same include", "CREATE INDEX CONCURRENTLY i ON public.orders (status) INCLUDE (id)",
-			valid("CREATE INDEX existing ON public.orders USING btree (status) INCLUDE (id)"),
-			true},
-		{"expression, catalog form", "CREATE INDEX CONCURRENTLY i ON public.orders " +
-			"((lower(email)))", valid("CREATE INDEX existing ON public.orders USING btree " +
-			"(lower((email)::text))"), true},
-		{"expression vs column", "CREATE INDEX CONCURRENTLY i ON public.orders ((lower(email)))",
-			valid("CREATE INDEX existing ON public.orders USING btree (email)"), false},
-		{"invalid existing index ignored", "CREATE INDEX CONCURRENTLY i ON public.orders " +
-			"(status)", IndexInfo{Name: "existing", IsValid: false,
-			Definition: "CREATE INDEX existing ON public.orders USING btree (status)"}, false},
-		{"unparseable existing definition", "CREATE INDEX CONCURRENTLY i ON public.orders " +
-			"(status)", valid("garbage"), false},
-	}
-	for _, c := range cases {
+	for _, c := range duplicateCases {
 		ok, reason := v.checkDuplicate(Recommendation{DDL: c.ddl}, dupContext(c.existing))
 		if ok == c.dup {
 			t.Errorf("%s: ok=%t (%s), want duplicate=%t", c.name, ok, reason, c.dup)
@@ -203,7 +205,8 @@ func TestCanonicalize_PartitionedParentIsAdvisory(t *testing.T) {
 			!strings.Contains(create, "ON "+child) {
 			t.Fatalf("child create = %q", create)
 		}
-		if !strings.HasPrefix(attach, `ALTER INDEX "public"."idx_events_status" ATTACH PARTITION `) {
+		wantAttach := `ALTER INDEX "public"."idx_events_status" ATTACH PARTITION `
+		if !strings.HasPrefix(attach, wantAttach) {
 			t.Fatalf("attach = %q", attach)
 		}
 		name := strings.Fields(create)[6]
