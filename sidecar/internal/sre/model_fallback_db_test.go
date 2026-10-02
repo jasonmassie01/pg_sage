@@ -136,9 +136,12 @@ func TestModelTurn_DisabledClientIsLoggedOnce(t *testing.T) {
 
 // §11 wall budget: with too little active time left the model is not
 // called and the investigation concludes deterministically.
+// The whole run must fit in this budget, so it is as large as "too
+// little" allows: under stepMargin + minModelTime, with 1 s for clock skew.
 func TestModelTurn_NoTimeLeftSkipsTheModel(t *testing.T) {
 	limits := budgetLimits()
-	limits.MaxActive, limits.LeaseTTL = 4*time.Second, 4*time.Second
+	limits.MaxActive = stepMargin + minModelTime - time.Second
+	limits.LeaseTTL = limits.MaxActive
 	st, _, ctx := liveStore(t, limits)
 	m := newFakeModel(t, toolReply(validIdleReview(t)))
 	c, _ := modelCoordinator(t, ctx, st, idleChainRunner(), m.client())

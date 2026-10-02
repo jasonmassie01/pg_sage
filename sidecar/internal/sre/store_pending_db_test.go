@@ -9,9 +9,7 @@ import (
 // Pending lists the work a coordinator resumes after a restart: queued,
 // waiting for evidence, or active with an expired lease (a dead worker).
 func TestStore_PendingFindsQueuedAndOrphanedWork(t *testing.T) {
-	limits := DefaultLimits()
-	limits.LeaseTTL = 300 * time.Millisecond
-	st, _, ctx := liveStore(t, limits)
+	st, pool, ctx := liveStore(t, DefaultLimits())
 	scope := testScope(t, ctx, st)
 	queued, _, _ := st.Create(ctx, lockStart(scope, "pid 60"))
 	orphan, _, _ := st.Create(ctx, lockStart(scope, "pid 61"))
@@ -21,10 +19,11 @@ func TestStore_PendingFindsQueuedAndOrphanedWork(t *testing.T) {
 		Summary: Summary{Reason: "no lock waits"}}); err != nil {
 		t.Fatalf("conclude: %v", err)
 	}
-	if _, err := st.Claim(ctx, scope, orphan.ID, NewUUID()); err != nil {
+	dead, err := st.Claim(ctx, scope, orphan.ID, NewUUID())
+	if err != nil {
 		t.Fatalf("claim orphan: %v", err)
 	}
-	time.Sleep(600 * time.Millisecond)
+	expireLease(t, ctx, pool, dead)
 	if _, err := st.Claim(ctx, scope, held.ID, NewUUID()); err != nil {
 		t.Fatalf("claim held: %v", err)
 	}
@@ -52,13 +51,14 @@ func TestStore_PendingFindsQueuedAndOrphanedWork(t *testing.T) {
 func TestStore_ClaimPastTheBudgetFailsTheInvestigation(t *testing.T) {
 	limits := DefaultLimits()
 	limits.MaxActive, limits.LeaseTTL = time.Second, time.Second
-	st, _, ctx := liveStore(t, limits)
+	st, pool, ctx := liveStore(t, limits)
 	scope := testScope(t, ctx, st)
 	inv, _, _ := st.Create(ctx, lockStart(scope, "pid 64"))
-	if _, err := st.Claim(ctx, scope, inv.ID, NewUUID()); err != nil {
+	dead, err := st.Claim(ctx, scope, inv.ID, NewUUID())
+	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}
-	time.Sleep(1300 * time.Millisecond)
+	expireLease(t, ctx, pool, dead) // the worker dies with the whole budget leased
 	if _, err := st.Claim(ctx, scope, inv.ID, NewUUID()); !errors.Is(err,
 		ErrBudgetExhausted) {
 		t.Fatalf("claim past the budget = %v, want ErrBudgetExhausted", err)
