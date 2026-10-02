@@ -590,6 +590,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#sage-sre-earned-autonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sage SRE earned autonomy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#retention" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1041,6 +1052,17 @@
         
       </ul>
     </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sage-sre-earned-autonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sage SRE earned autonomy
+      
+    </span>
+  </a>
   
 </li>
         
@@ -2054,6 +2076,206 @@ investigation says so and gives the manual step.</p>
 </tbody>
 </table>
 <p>Changing these needs a restart.</p>
+<h3 id="sage-sre-earned-autonomy">Sage SRE earned autonomy<a class="headerlink" href="#sage-sre-earned-autonomy" title="Permanent link">&para;</a></h3>
+<p>pg_sage keeps an autonomy level per incident family and action class (for example
+<code>wal_retention</code> / <code>wal_bound</code>, <code>wraparound_runway</code> / <code>freeze</code>). The level applies to actions
+pg_sage starts on its own for an incident family, custodians included. Operator-approved
+actions and read-only diagnostics are not restricted.</p>
+<table>
+<thead>
+<tr>
+<th>Level</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L0</td>
+<td>Observe only</td>
+</tr>
+<tr>
+<td>L1</td>
+<td>Diagnose and write the script; never executes (default for every known pair that was not autonomous before)</td>
+</tr>
+<tr>
+<td>L2</td>
+<td>Hand off for one-click approval (a finding plus an approval-queue item)</td>
+</tr>
+<tr>
+<td>L3</td>
+<td>Execute a reversible, single-object action inside the standing-policy window, then notify</td>
+</tr>
+</tbody>
+</table>
+<p>L4 is never reached. Irreversible classes (slot drop, backend terminate, schema change,
+sequence migration, anything unclassified) never go above L1, and mitigation-only classes
+(<code>backend_cancel</code>, <code>wal_bound</code>) and <code>config_guc</code> never go above L2. Operator trust settings
+and the standing policy stay the outer bound: the ledger can only restrict them.</p>
+<p><strong>Carried-over autonomy.</strong> The ledger gates new autonomy and keeps what pg_sage already
+had. When a database's ledger is first set up, four pairs are seeded at the level that
+database's trust and execution settings already let run unattended:
+- the custodian freeze and autovacuum tuning (<code>wraparound_runway</code>);
+- the WAL bound (<code>wal_retention</code>);
+- load-admitted index creation (<code>plan_regression</code>).</p>
+<p>Settings with execution mode <code>auto</code> and the matching tier enabled give L3. Anything else
+gives the default L1. The view shows these as "carried over", with the decision that
+granted them. Irreversible classes are never carried above L1. A carried level does not
+depend on promotion evidence. The downgrade signals below still cap it, and it resumes by
+itself when they clear. An operator downgrade ends the carry-over, and the pair then has to
+earn its level back with evidence.</p>
+<p><strong>Approved actions and outcomes.</strong> M5's <code>cancel_backend</code> is approval-only in the ledger: it
+is mitigation-only, never above L2 and never carried over. Each approved cancel whose
+recovery pg_sage verified is recorded as an L2 outcome of its family (<code>lock_blocking</code> or
+<code>connection_pressure</code>), and a cancel that failed or did not recover is recorded as not
+recovered. Executed custodian actions are recorded as well: an L3 execution as an L3 outcome
+and a mandatory deadline override at L1, which is never promotion evidence. A harmful outcome
+of any of them is a family safety regression. Runbook action proposals name their family and
+autonomy class.</p>
+<p><strong>Mandatory deadlines.</strong> A critical XID or disk deadline that the standing policy lets
+override (a red wraparound freeze, for example) is not held back by the ledger level or by
+a downgrade, because waiting risks an outage. The emergency stop and the rest of the gate
+still apply. The ledger records each such action once per object and deadline while the
+sidecar runs.</p>
+<p><strong>Promotion.</strong> pg_sage proposes one level at a time, and only an admin approves; pg_sage, the
+system and MCP clients cannot. The evidence is checked again at approval time, and a proposal
+expires after <code>proposal_ttl_hours</code>. Promotion to L2 requires all of the following:</p>
+<ul>
+<li>PGIncidentBench top-1 accuracy of at least 80% over at least 10 runs, mechanism precision
+  of at least 90%, and no forbidden actions, on every gated arm for the family. The report
+  must be at most 30 days old.</li>
+<li>At least 30 days of shadow reviews, with at least 20 reviewed packets and at least 95% of
+  them accepted.</li>
+<li>No safety violations in the family in the last 30 days.</li>
+</ul>
+<p>Promotion to L3 also needs a Safe Pass rate of at least 95%, and at least 95% on game days if
+any have run. It also needs at least 50 verified recoveries at L2, and the pair must never
+have had a harmful outcome. These thresholds are fixed.</p>
+<p><strong>Downgrade.</strong> At authorization time, any of the following caps an L2 or L3 pair at L1. The
+change is logged once per transition.</p>
+<ul>
+<li>The database's SLO engine (<code>sre.slo</code>) reports an SLO burning its error budget at the page
+  rate (database proxy SLOs included), or a
+  registered app SLO's state is unknown. An unknown proxy SLO does not count, since it is
+  often unknown for structural reasons (no standbys, no log access).</li>
+<li>The HA role is not primary, safe mode is on, or the role changed in the last
+  <code>failover_cooldown_minutes</code>.</li>
+<li>The action's evidence is older than <code>max_evidence_age_seconds</code>.</li>
+<li>Another pg_sage action holds or recently touched the same object.</li>
+<li>The family had a harmful or unsafe outcome in the last <code>safety_window_days</code>.</li>
+</ul>
+<p>A harmful or unsafe outcome also demotes every earned class of its family to L1 durably,
+and re-promotion needs the evidence again. A carried-over pair is instead capped for
+<code>safety_window_days</code>. Operators can downgrade a pair or a whole family at
+any time.</p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sre.autonomy.enforce</code></td>
+<td><code>true</code></td>
+<td>The ledger restricts self-initiated incident-family actions. <code>false</code> returns them to the trust ramp; the sidecar warns at startup</td>
+</tr>
+<tr>
+<td><code>sre.autonomy.bench_results_path</code></td>
+<td><code>""</code></td>
+<td>PGIncidentBench JSON report, or a directory searched three levels deep, ingested hourly. Point it at the CI <code>pgincidentbench/</code> artifact to read the core, M6 reactive and M6 runway shard reports; each family reads the newest report that scored it. Empty: upload through the API</td>
+</tr>
+<tr>
+<td><code>sre.autonomy.evaluate_interval_minutes</code></td>
+<td><code>60</code></td>
+<td>Minutes between promotion evaluations, <code>5</code>-<code>1440</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.reconcile_interval_seconds</code></td>
+<td><code>60</code></td>
+<td>Seconds between recording live outcomes, <code>10</code>-<code>3600</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.max_evidence_age_seconds</code></td>
+<td><code>300</code></td>
+<td>Older evidence caps an action at L1, <code>5</code>-<code>3600</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.concurrency_window_minutes</code></td>
+<td><code>15</code></td>
+<td>A same-object action this recent caps at L1, <code>1</code>-<code>1440</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.safety_window_days</code></td>
+<td><code>30</code></td>
+<td>Days a harmful outcome caps its family, <code>1</code>-<code>365</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.failover_cooldown_minutes</code></td>
+<td><code>30</code></td>
+<td>Minutes after a role change autonomy stays at L1, <code>1</code>-<code>1440</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.proposal_ttl_hours</code></td>
+<td><code>168</code></td>
+<td>Hours a promotion proposal waits for an admin, <code>1</code>-<code>720</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.game_days.enabled</code></td>
+<td><code>false</code></td>
+<td>Run PGIncidentBench fault programs on a disposable clone</td>
+</tr>
+<tr>
+<td><code>sre.autonomy.game_days.interval_hours</code></td>
+<td><code>168</code></td>
+<td>Hours between scheduled game days, <code>24</code>-<code>2160</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.game_days.local_dsn</code></td>
+<td><code>""</code></td>
+<td>Development fallback when <code>clone.provider</code> is <code>none</code>. A monitored database is refused</td>
+</tr>
+<tr>
+<td><code>sre.autonomy.game_days.families</code></td>
+<td><code>[]</code></td>
+<td>Families to exercise. Empty: every family the bench covers</td>
+</tr>
+<tr>
+<td><code>sre.autonomy.canary.canary_instances</code></td>
+<td><code>1</code></td>
+<td>Databases changed and verified before a fleet rollout widens, <code>1</code>-<code>10</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.canary.regression_limit_pct</code></td>
+<td><code>10</code></td>
+<td>Regression that halts and rolls back a rollout, <code>0</code>-<code>100</code></td>
+</tr>
+<tr>
+<td><code>sre.autonomy.canary.settle_seconds</code></td>
+<td><code>60</code></td>
+<td>Seconds to wait after each change before measuring it, <code>0</code>-<code>3600</code></td>
+</tr>
+</tbody>
+</table>
+<p>Game days run only the deterministic causal-graph arm, so they spend no LLM tokens. A
+forbidden action on a game day is recorded as a safety violation. The clone DSN is never
+stored.</p>
+<p>The fleet canary is started by an admin from a verified action on one database. On every
+other database, it applies the same statement only where that database has its own open
+finding with the same SQL, and only through the approval path. It verifies the canary
+databases first, then widens. It halts and rolls back everything in reverse order on a
+failed verification or a regression above the limit.</p>
+<p>API, under <code>/api/v1/sre/autonomy</code>. Every route takes <code>?database=&lt;name&gt;</code>.</p>
+<ul>
+<li>Viewers: <code>GET</code> the root, <code>/history</code>, <code>/proposals</code>, <code>/game-days</code>, <code>/rollouts</code> and
+  <code>/rollouts/{id}</code>.</li>
+<li>Operators: <code>POST /evaluate</code>, <code>/proposals/{id}/reject</code>, <code>/downgrade</code>, <code>/reviews</code> (a shadow
+  review of a concluded investigation) and <code>/outcomes</code> (harmful or safety_violation).</li>
+<li>Admins: <code>POST /proposals/{id}/approve</code>, <code>/bench-results</code>, <code>/game-days</code> and <code>/rollouts</code>.</li>
+</ul>
+<p>The UI page is <strong>Advanced &gt; Earned autonomy</strong>. With MCP enabled, agents get
+<code>sre_get_autonomy</code> and <code>sre_downgrade_autonomy</code>. There is no approval tool.</p>
 <h3 id="retention">Retention<a class="headerlink" href="#retention" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
