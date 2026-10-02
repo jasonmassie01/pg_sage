@@ -3,6 +3,7 @@ package slo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -146,3 +147,106 @@ func TestEngine_PrometheusObjective(t *testing.T) {
 	}
 }
 
+
+// historyProxy reads the baseline history the engine hands it.
+type historyProxy struct {
+	fakeProxy
+	median float64
+	n      int
+	err    error
+}
+
+func (p *historyProxy) Slice(ctx context.Context, now time.Time, h History) ProxySlice {
+	p.median, p.n, p.err = h.Baseline(ctx, now.Add(-time.Hour))
+	v := 40.0
+	return ProxySlice{Eligible: 1, Value: &v}
+}
+
+// A proxy's history is its own stored gauge values in this database.
+func TestEngine_ProxyHistoryReadsOwnValues(t *testing.T) {
+	f := newEngineFixture(t)
+	p := &historyProxy{fakeProxy: fakeProxy{o: proxyObjective(uniqueName("db_latency"))}}
+	e := f.engine(t, nil, []Proxy{p}, nil)
+	for i := 0; i < 3; i++ {
+		if _, err := e.EvaluateOnce(f.ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if p.err != nil || p.n != 2 || p.median != 40 {
+		t.Fatalf("baseline seen on the third tick = %v over %d (err %v), want 40 over 2",
+			p.median, p.n, p.err)
+	}
+}
+
+func TestEngine_StatusAndTransitions(t *testing.T) {
+	f := newEngineFixture(t)
+	name := uniqueName("checkout")
+	e := f.engine(t, []Objective{pushObjective(name)}, nil, nil)
+	st, err := e.Status(f.ctx, name)
+	if err != nil || st.State != StateUnknown || len(st.Unknown) != 1 ||
+		st.Unknown[0] != ReasonNotEvaluated {
+		t.Fatalf("before evaluation: %+v err=%v", st, err)
+	}
+	if _, err := e.EvaluateOnce(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	trs, err := e.Transitions(f.ctx, name, 10)
+	if err != nil || len(trs) != 1 || trs[0].To != StateUnknown || trs[0].From != "" {
+		t.Fatalf("transitions = %+v err=%v", trs, err)
+	}
+	for _, call := range []func() error{
+		func() error { _, err := e.Status(f.ctx, "nope"); return err },
+		func() error { _, err := e.Transitions(f.ctx, "nope", 1); return err },
+	} {
+		if err := call(); !errors.Is(err, ErrUnknownSLO) {
+			t.Fatalf("unknown SLO: err = %v", err)
+		}
+	}
+}
+
+// Recovery of a Prometheus SLI comes from query_range slices; the
+// pre-incident baseline from an instant query at the intervention time.
+func TestEngine_RecoveryPrometheus(t *testing.T) {
+	f := newEngineFixture(t)
+	o := pushObjective(uniqueName("checkout"))
+	o.Source = SourcePrometheus
+	o.BadQuery, o.EligibleQuery = "bad[$window]", "eligible[$window]"
+	end := time.Now().UTC().Truncate(time.Second)
+	matrix := func(v string) string {
+		var pts []string
+		for i := 3; i >= 1; i-- {
+			pts = append(pts, fmt.Sprintf(`[%d,%q]`,
+				end.Add(-time.Duration(i)*RecoveryStep).Unix(), v))
+		}
+		return `{"status":"success","data":{"resultType":"matrix","result":[` +
+			`{"metric":{},"values":[` + strings.Join(pts, ",") + `]}]}}`
+	}
+	stub := &promStub{answer: func(path, q string) (int, string) {
+		switch {
+		case path == "/api/v1/query":
+			return 200, vector("30000")
+		case strings.HasPrefix(q, "bad"):
+			return 200, matrix("0")
+		}
+		return 200, matrix("1000")
+	}}
+	client := newClient(t, stub.server(t).URL, time.Second)
+	e := f.engine(t, []Objective{o}, nil, func(d *EngineDeps) { d.Prometheus = client })
+	r, err := e.Recovery(f.ctx, o.Name, end.Add(-10*time.Minute))
+	if err != nil || r.State != RecoveryRecovered || r.Evaluated != 3 {
+		t.Fatalf("recovery = %+v err=%v", r, err)
+	}
+	stub.answer = func(path, q string) (int, string) {
+		if path == "/api/v1/query" {
+			return 200, vector("300000") // 10000 per slice before: traffic dropped
+		}
+		if strings.HasPrefix(q, "bad") {
+			return 200, matrix("0")
+		}
+		return 200, matrix("1000")
+	}
+	r, _ = e.Recovery(f.ctx, o.Name, end.Add(-10*time.Minute))
+	if r.State != RecoveryUnknown || r.Reason != ReasonTrafficDropped {
+		t.Fatalf("traffic drop: %+v", r)
+	}
+}

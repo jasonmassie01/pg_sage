@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/sre"
@@ -299,5 +300,31 @@ func TestPoller_RunStopsWithContext(t *testing.T) {
 	if err := f.pool.QueryRow(f.ctx, `SELECT count(*) FROM sage.sre_change_feed_state
 		WHERE database_id = $1`, string(f.scope.DatabaseID)).Scan(&n); err != nil || n == 0 {
 		t.Fatalf("Run never polled: %d states, err %v", n, err)
+	}
+}
+
+// A newly installed extension is an event; unreadable sources are
+// classified by SQLSTATE.
+func TestPoller_ExtensionInstalledAndClassify(t *testing.T) {
+	f := newPollFixture(t)
+	f.poll(t)
+	f.setState(t, "extensions", `{"versions":{}}`)
+	f.poll(t)
+	var installed bool
+	for _, e := range f.events(t, KindExtension) {
+		installed = installed || strings.Contains(e.Summary, "plpgsql") &&
+			strings.Contains(e.Summary, "installed")
+	}
+	if !installed {
+		t.Fatalf("extension events = %+v", f.events(t, KindExtension))
+	}
+	for code, want := range map[string]string{"42501": "no_privilege",
+		"42P01": "unsupported", "55000": "unsupported", "XX000": "error"} {
+		if got := classify(&pgconn.PgError{Code: code}); got != want {
+			t.Errorf("classify(%s) = %s, want %s", code, got, want)
+		}
+	}
+	if got := classify(errors.New("io")); got != "error" {
+		t.Errorf("classify(io) = %s", got)
 	}
 }

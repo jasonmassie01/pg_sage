@@ -326,3 +326,19 @@ func TestFeed_ProbeEmptyAndUnavailable(t *testing.T) {
 		t.Fatalf("nil feed: %+v", res)
 	}
 }
+
+// A submission naming another database is refused by this feed.
+func TestFeed_IngestRejectsAnotherDatabase(t *testing.T) {
+	st, scope, ctx := liveStore(t)
+	feed := NewFeed(st, "orders", func(context.Context) (sre.Scope, error) {
+		return scope, nil
+	})
+	sub := uniqueSubmission(time.Now().UTC().Add(-time.Minute))
+	sub.Database = "billing"
+	if _, _, err := feed.Ingest(ctx, sub, time.Now()); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("other database: err = %v", err)
+	}
+	if feed.Name() != "orders" || feed.Store() != st || st.Key() == nil {
+		t.Fatal("feed accessors are wrong")
+	}
+}

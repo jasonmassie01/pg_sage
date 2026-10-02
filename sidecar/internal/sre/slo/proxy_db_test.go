@@ -235,3 +235,18 @@ func TestProxies_ClosedPool(t *testing.T) {
 		}
 	}
 }
+
+// Server-class SQLSTATEs are the database's health; the application's own
+// data, constraint and syntax errors are not.
+func TestServerErrorClass(t *testing.T) {
+	for state, want := range map[string]bool{
+		"53300": true, "53100": true, "57014": true, "57P01": true, "58030": true,
+		"XX000": true, "40P01": true, "40001": true, "55P03": true, "08006": true,
+		"23505": false, "22P02": false, "42601": false, "42P01": false, "55000": false,
+		"": false, "5330": false, "533000": false,
+	} {
+		if got := ServerErrorClass(state); got != want {
+			t.Errorf("ServerErrorClass(%q) = %v, want %v", state, got, want)
+		}
+	}
+}
