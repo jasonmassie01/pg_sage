@@ -218,3 +218,21 @@ func TestSameIndexDefinition(t *testing.T) {
 		}
 	}
 }
+
+// Post-test audit (mutation survived): the already-restored check runs
+// before any DDL, so no failing CREATE INDEX is even attempted.
+func TestRollback_AlreadyRestoredRunsNoDDL(t *testing.T) {
+	pool, ctx := requireDB(t)
+	_, _, rollback := rbFixture(t, ctx, pool)
+	if _, err := pool.Exec(ctx, rollback); err != nil {
+		t.Fatalf("app recreates the index: %v", err)
+	}
+	id := insertMonitoredAction(t, pool, "monitoring", rollback, regressedBeforeState)
+	rec := &recordedRollback{}
+	MonitorAndRollback(ctx, pool, id, rollback, monitorConfig(rec), nopLog, nil)
+	if outcome, _ := actionOutcomeFor(t, pool, id); outcome != "already_restored" ||
+		rec.calls != 0 {
+		t.Fatalf("outcome = %q with %d DDL calls, want already_restored and none",
+			outcome, rec.calls)
+	}
+}
