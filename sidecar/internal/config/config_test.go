@@ -54,8 +54,9 @@ func TestConfigDefaults(t *testing.T) {
 	if cfg.Trust.Level != "observation" {
 		t.Errorf("Trust.Level = %q, want %q", cfg.Trust.Level, "observation")
 	}
-	if cfg.LLM.Enabled != false {
-		t.Errorf("LLM.Enabled = %v, want false", cfg.LLM.Enabled)
+	if cfg.LLM.Enabled != true {
+		t.Errorf("LLM.Enabled = %v, want true (LLM features default on)",
+			cfg.LLM.Enabled)
 	}
 	if cfg.Safety.CPUCeilingPct != 90 {
 		t.Errorf("Safety.CPUCeilingPct = %d, want 90",
