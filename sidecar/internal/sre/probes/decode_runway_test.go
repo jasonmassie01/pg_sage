@@ -151,8 +151,9 @@ func TestWALRunwayAndDirectory_Decode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("wal runway: %v", err)
 	}
+	// The sizes are cluster_database_size's now: a stray column is ignored.
 	if w.PositionBytes != 9.5e9 || w.MaxWALSize != 1<<30 || w.MaxSlotWALKeepSize != -1 ||
-		w.SegmentSize != 16<<20 || w.DatabaseBytes != 5<<30 || w.UnreadableDatabases != 0 ||
+		w.SegmentSize != 16<<20 || Known(w.DatabaseBytes) || Known(w.UnreadableDatabases) ||
 		w.InRecovery {
 		t.Fatalf("wal runway = %+v", w)
 	}

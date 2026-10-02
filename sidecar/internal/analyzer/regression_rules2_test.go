@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/collector"
 )
 
@@ -213,6 +215,9 @@ func TestRegression_LoadIndexBuilds(t *testing.T) {
 
 // G2-B28: hint counts per role must count distinct queries of this
 // database, not every pg_stat_statements/hint row that joins.
+// pg_stat_statements is cluster-wide: another package's test may reset it
+// between the queryid lookup and the check. A run whose marker vanished is
+// contaminated and is repeated, never scored.
 func TestRegression_WorkMemPromotionCountsDistinctQueries(t *testing.T) {
 	pool := phase2Pool(t)
 	ctx := context.Background()
@@ -220,6 +225,37 @@ func TestRegression_WorkMemPromotionCountsDistinctQueries(t *testing.T) {
 		"CREATE EXTENSION IF NOT EXISTS pg_stat_statements"); err != nil {
 		t.Skipf("pg_stat_statements unavailable in fixture: %v", err)
 	}
+	cleanup := func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM sage.query_hints WHERE symptom = 'b28_test'`)
+	}
+	t.Cleanup(cleanup)
+	var role string
+	if err := pool.QueryRow(ctx, "SELECT current_user").Scan(&role); err != nil {
+		t.Fatalf("current_user: %v", err)
+	}
+	for attempt := 1; attempt <= 3; attempt++ {
+		cleanup()
+		qid := seedB28Marker(t, pool)
+		count, found := b28HintCount(ctx, t, pool, role)
+		if found {
+			if count != 1 {
+				t.Fatalf("hint_count = %v, want 1 (one distinct query)", count)
+			}
+			return
+		}
+		if b28MarkerTracked(ctx, t, pool, qid) {
+			t.Fatalf("no work_mem promotion finding for role %s", role)
+		}
+		t.Logf("attempt %d: pg_stat_statements reset removed the marker; repeating",
+			attempt)
+	}
+	t.Fatalf("pg_stat_statements was reset during every attempt")
+}
+
+// seedB28Marker runs the marker query twice and inserts two hints for it.
+func seedB28Marker(t *testing.T, pool *pgxpool.Pool) int64 {
+	t.Helper()
+	ctx := context.Background()
 	for i := 0; i < 2; i++ {
 		if _, err := pool.Exec(ctx, "SELECT 424242 AS b28_marker"); err != nil {
 			t.Fatalf("marker query: %v", err)
@@ -232,11 +268,6 @@ func TestRegression_WorkMemPromotionCountsDistinctQueries(t *testing.T) {
 	if err != nil {
 		t.Skipf("marker not tracked by pg_stat_statements: %v", err)
 	}
-	cleanup := func() {
-		_, _ = pool.Exec(ctx, `DELETE FROM sage.query_hints WHERE symptom = 'b28_test'`)
-	}
-	cleanup()
-	t.Cleanup(cleanup)
 	for i := 0; i < 2; i++ {
 		if _, err := pool.Exec(ctx, `INSERT INTO sage.query_hints
 			(queryid, hint_text, symptom) VALUES ($1, 'Set(work_mem "64MB")', 'b28_test')`,
@@ -244,21 +275,35 @@ func TestRegression_WorkMemPromotionCountsDistinctQueries(t *testing.T) {
 			t.Fatalf("insert hint: %v", err)
 		}
 	}
-	var role string
-	if err := pool.QueryRow(ctx, "SELECT current_user").Scan(&role); err != nil {
-		t.Fatalf("current_user: %v", err)
-	}
+	return qid
+}
+
+// b28HintCount runs the promotion check and returns the role's hint_count.
+func b28HintCount(
+	ctx context.Context, t *testing.T, pool *pgxpool.Pool, role string,
+) (any, bool) {
+	t.Helper()
 	cfg := phase2Config()
 	cfg.Analyzer.WorkMemPromotionThreshold = 1
 	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
 	for _, f := range a.checkWorkMemPromotion(ctx) {
-		if f.ObjectIdentifier != role {
-			continue
+		if f.ObjectIdentifier == role {
+			return f.Detail["hint_count"], true
 		}
-		if got := f.Detail["hint_count"]; got != 1 {
-			t.Fatalf("hint_count = %v, want 1 (one distinct query)", got)
-		}
-		return
 	}
-	t.Fatalf("no work_mem promotion finding for role %s", role)
+	return nil, false
+}
+
+// b28MarkerTracked reports whether pg_stat_statements still has the marker.
+func b28MarkerTracked(
+	ctx context.Context, t *testing.T, pool *pgxpool.Pool, qid int64,
+) bool {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(ctx,
+		"SELECT count(*) FROM pg_stat_statements WHERE queryid = $1",
+		qid).Scan(&n); err != nil {
+		t.Fatalf("recheck marker: %v", err)
+	}
+	return n > 0
 }

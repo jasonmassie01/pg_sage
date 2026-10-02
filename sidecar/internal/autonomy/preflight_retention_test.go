@@ -12,10 +12,15 @@ import (
 	"github.com/pg-sage/sidecar/internal/schemaguard"
 )
 
-// preflightAllowRetention stands in for the production policy gate adapter
-// (executor.AuthorizeRetention). Production never runs the enforcer without
-// an authorizer; runtime-control refusals are covered in cmd/pg_sage_sidecar.
-func preflightAllowRetention(context.Context, RetentionIntent) error { return nil }
+// preflightAllowRetention stands in for the production pipeline adapter
+// (executor.ExecuteRetention). Production never runs the enforcer without
+// a pipeline; runtime-control refusals are covered in cmd/pg_sage_sidecar.
+func preflightAllowRetention(ctx context.Context, _ RetentionIntent,
+	batch RetentionBatch,
+) error {
+	_, err := batch(ctx, RetentionRun{})
+	return err
+}
 
 // preflightAgeDryRun moves the recorded dry run 25 hours into the past, as if
 // it had been recorded by an earlier cycle and waited out the review window.
@@ -69,7 +74,7 @@ func preflightEnforcer(t *testing.T, partitioned bool) (
 		Decision: schemaguard.Decision{Disposition: schemaguard.DispositionDryRun},
 	}
 	e := &postgresRetentionEnforcer{
-		pool: p, batchLimit: 1, authorize: preflightAllowRetention}
+		pool: p, batchLimit: 1, pipeline: preflightAllowRetention}
 	if err := e.Apply(ctx, item); err != nil {
 		t.Fatal(err)
 	}

@@ -87,6 +87,8 @@ func retentionCandidatesDrifted(reviewed, current int64) bool {
 type retentionDryRunState struct {
 	pending, reviewed  int64
 	reviewedCandidates int64
+	// reviewedID is the newest reviewed dry run, the one deletion runs under.
+	reviewedID int64
 	// reviewUntil is when the oldest pending dry run leaves review, by the
 	// database clock; zero when no dry run is pending.
 	reviewUntil time.Time
@@ -94,7 +96,7 @@ type retentionDryRunState struct {
 
 // dryRunState counts dry runs recorded against exactly this target and
 // window: those still inside the review window, those past it, and the
-// candidate count of the newest reviewed one.
+// identity and candidate count of the newest reviewed one.
 func (enforcer *postgresRetentionEnforcer) dryRunState(
 	ctx context.Context, item schemaguard.Remediation, target retentionTarget,
 ) (retentionDryRunState, error) {
@@ -102,7 +104,9 @@ func (enforcer *postgresRetentionEnforcer) dryRunState(
 	err := enforcer.pool.QueryRow(ctx, `SELECT
 		count(*) FILTER (WHERE created_at > now() - make_interval(secs => $5)),
 		count(*) FILTER (WHERE created_at <= now() - make_interval(secs => $5)),
-		COALESCE((array_agg(candidate_rows ORDER BY created_at DESC)
+		COALESCE((array_agg(candidate_rows ORDER BY created_at DESC, id DESC)
+			FILTER (WHERE created_at <= now() - make_interval(secs => $5)))[1], 0),
+		COALESCE((array_agg(id ORDER BY created_at DESC, id DESC)
 			FILTER (WHERE created_at <= now() - make_interval(secs => $5)))[1], 0),
 		COALESCE(min(created_at) FILTER (
 			WHERE created_at > now() - make_interval(secs => $5)
@@ -119,7 +123,8 @@ func (enforcer *postgresRetentionEnforcer) dryRunState(
 		retentionWindowTolerance.Seconds(), retentionDryRunMaxAge.Seconds(),
 		target.relationOID, target.columnAttnum, target.columnType,
 		target.contractID, target.contractUpdatedAt,
-	).Scan(&state.pending, &state.reviewed, &state.reviewedCandidates, &state.reviewUntil)
+	).Scan(&state.pending, &state.reviewed, &state.reviewedCandidates, &state.reviewedID,
+		&state.reviewUntil)
 	if err != nil {
 		return state, fmt.Errorf("read retention dry-run state: %w", err)
 	}

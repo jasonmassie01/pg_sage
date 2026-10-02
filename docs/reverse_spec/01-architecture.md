@@ -268,11 +268,17 @@ bare `$` preserved — `expandBracedEnv`, `config.go:25-30`) → `overlayEnv`
   tuner `MaxConcurrentAnalyze`.
 - **Typed reload lifecycles** (`lifecycle.go`, `controller.go`, `watcher.go`):
   `fsnotify` loads and validates a complete immutable candidate. The typed
-  registry classifies every YAML field as `live_policy`, `reconfigure`,
-  `restart`, or `lifecycle_api`. The controller atomically publishes adopted
-  fields, rebuilds registered runtime owners, and reports restart-bound fields
-  as pending. Unknown or unowned fields fail closed to restart. The generated
-  per-field reference is `docs/generated/config-lifecycles.md`.
+  registry classifies every YAML field as `live_policy`, `reconfigure` or
+  `restart`. The controller atomically publishes adopted fields, rebuilds
+  registered runtime owners, and reports restart-bound fields as pending.
+  Unknown or unowned fields fail closed to restart. `databases` and
+  `defaults.*` belong to the `fleet_databases` owner (YAML fleet only,
+  `fleet_reload*.go`), which classifies each `databases[]` field
+  (`database_lifecycle.go`) and adds, removes, rebuilds or updates
+  per-database runtimes in one lifecycle reservation. Meta-db mode
+  reconciles `sage.databases` every 30 s (`meta_reconcile*.go`). Retired
+  runtimes drain through `Executor.Quiesce` before cancellation. The
+  generated per-field reference is `docs/generated/config-lifecycles.md`.
 - **Env-expansion caveat**: `overlayEnv` has a dead branch for
   `SAGE_RATE_LIMIT` that does nothing (`config.go:955-957`); the rate
   limit is actually resolved later in `RateLimit()` (`config.go:1042-1047`).

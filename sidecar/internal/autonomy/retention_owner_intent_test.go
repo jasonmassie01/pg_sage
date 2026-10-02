@@ -15,8 +15,8 @@ import (
 func TestRetentionIntentCarriesDeclaredColumn(t *testing.T) {
 	for _, declared := range []string{"created_at", ""} {
 		var got RetentionIntent
-		enforcer := &postgresRetentionEnforcer{authorize: func(
-			_ context.Context, intent RetentionIntent,
+		enforcer := &postgresRetentionEnforcer{pipeline: func(
+			_ context.Context, intent RetentionIntent, _ RetentionBatch,
 		) error {
 			got = intent
 			return errors.New("withheld by test")
@@ -28,11 +28,11 @@ func TestRetentionIntentCarriesDeclaredColumn(t *testing.T) {
 				RetentionWindow: 24 * time.Hour, RetentionColumn: declared},
 		}
 
-		err := enforcer.authorizedDelete(context.Background(), item, retentionTarget{},
-			time.Now(), 3)
+		err := enforcer.authorizedDelete(context.Background(), retentionPlan{item: item,
+			cutoff: time.Now(), candidates: 3, bound: 3})
 
 		if err == nil {
-			t.Fatal("authorizedDelete ignored the authorizer's refusal")
+			t.Fatal("authorizedDelete ignored the pipeline's refusal")
 		}
 		if got.DeclaredColumn != declared || got.Column != "created_at" {
 			t.Fatalf("intent = %+v, want Column created_at DeclaredColumn %q", got, declared)

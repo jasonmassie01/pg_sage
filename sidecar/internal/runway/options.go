@@ -69,6 +69,10 @@ type Options struct {
 	// WALRetainedLimitBytes is a slot's limit while max_slot_wal_keep_size
 	// is unbounded: the WAL custodian's retained-WAL ceiling.
 	WALRetainedLimitBytes float64
+	// Sizes shares the databases' total size between the runtimes of one
+	// process, one measurement per cluster per pass (nil: this runtime
+	// measures it every pass).
+	Sizes *SizeShare
 }
 
 // ProbeRunner runs one catalog probe (probes.Runner).

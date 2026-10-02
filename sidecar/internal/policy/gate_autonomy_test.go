@@ -360,64 +360,106 @@ func TestAutonomyExplainMatchesAuthorize(t *testing.T) {
 // is targeted, the operator allows autonomous execution and the
 // maintenance window is open.
 func TestAutonomyGateNeverExecutesPrematurely(t *testing.T) {
-	levels := []int{-1, 0, 1, 2, 3, 4, 9}
-	rollbacks := []RollbackClass{RollbackReversible, RollbackNoRollbackNeeded,
-		RollbackClass("mitigation_only"), RollbackNotReversible, RollbackForwardFixOnly,
-		RollbackApplication, RollbackNotApplicable, ""}
-	trusts := []string{TrustObservation, TrustAdvisory, TrustAutonomous}
-	modes := []string{ExecutionAuto, ExecutionApproval, ExecutionManual}
-	tiers := []RiskTier{RiskSafe, RiskModerate, RiskHigh}
-	targetSets := [][]string{nil, {"public.orders"}, {"public.orders", "public.items"}}
-	executed, total := 0, 0
-	for _, level := range levels {
-		for _, downgraded := range []bool{false, true} {
-			for _, rollback := range rollbacks {
-				for _, trust := range trusts {
-					for _, mode := range modes {
-						for _, tier := range tiers {
-							for _, inWindow := range []bool{false, true} {
-								for _, targets := range targetSets {
-									total++
-									f := newAutonomyFixture(level)
-									f.limiter.limit.Downgraded = downgraded
-									f.runtime.TrustLevel, f.runtime.ExecutionMode = trust, mode
-									if !inWindow {
-										f.doc.MaintenanceWindows = []string{"weekdays 01:00-05:00"}
-									}
-									req := familyRequest(tier, rollback)
-									req.TargetObjs = targets
-									d := f.authorize(t, req)
-									// The operator's own bound: safe actions run
-									// under advisory or autonomous trust, moderate
-									// ones only under autonomous, high never.
-									operatorAllows := mode == ExecutionAuto &&
-										((tier == RiskSafe && trust != TrustObservation) ||
-											(tier == RiskModerate && trust == TrustAutonomous))
-									want := level >= 3 && !downgraded &&
-										(rollback == RollbackReversible ||
-											rollback == RollbackNoRollbackNeeded) &&
-										operatorAllows && inWindow && len(targets) == 1
-									if (d.Verdict == VerdictExecute) != want {
-										t.Fatalf("level=%d down=%v rollback=%q trust=%s mode=%s "+
-											"tier=%s window=%v targets=%d: %s/%s (%s)", level,
-											downgraded, rollback, trust, mode, tier, inWindow,
-											len(targets), d.Verdict, d.Reason, d.Detail)
-									}
-									if d.Verdict == VerdictExecute {
-										executed++
-										if d.Reason != ReasonAutonomyL3 {
-											t.Fatalf("executed with reason %s", d.Reason)
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
+	executed, total := runPrematureMatrix(t, nil, []bool{false})
 	if executed == 0 || total != 18144 {
 		t.Fatalf("matrix: %d combinations, %d executed", total, executed)
 	}
+}
+
+// matrixCase is one combination of the no-premature-autonomy matrix.
+type matrixCase struct {
+	level      int
+	downgraded bool
+	rollback   RollbackClass
+	trust      string
+	mode       string
+	tier       RiskTier
+	inWindow   bool
+	targets    []string
+	estop      bool
+}
+
+func (c matrixCase) String() string {
+	return fmt.Sprintf("level=%d down=%v rollback=%q trust=%s mode=%s tier=%s window=%v "+
+		"targets=%d estop=%v", c.level, c.downgraded, c.rollback, c.trust, c.mode, c.tier,
+		c.inWindow, len(c.targets), c.estop)
+}
+
+// wantExecute is the property: the operator's own bound (safe actions run
+// under advisory or autonomous trust, moderate ones only under
+// autonomous, high never) and the ledger's L3 conditions all hold, and
+// the emergency stop is off.
+func (c matrixCase) wantExecute() bool {
+	operatorAllows := c.mode == ExecutionAuto &&
+		((c.tier == RiskSafe && c.trust != TrustObservation) ||
+			(c.tier == RiskModerate && c.trust == TrustAutonomous))
+	reversible := c.rollback == RollbackReversible || c.rollback == RollbackNoRollbackNeeded
+	return c.level >= 3 && !c.downgraded && reversible && operatorAllows && c.inWindow &&
+		len(c.targets) == 1 && !c.estop
+}
+
+func prematureMatrix(estops []bool) []matrixCase {
+	rollbacks := []RollbackClass{RollbackReversible, RollbackNoRollbackNeeded,
+		RollbackClass("mitigation_only"), RollbackNotReversible, RollbackForwardFixOnly,
+		RollbackApplication, RollbackNotApplicable, ""}
+	targetSets := [][]string{nil, {"public.orders"}, {"public.orders", "public.items"}}
+	cases := []matrixCase{{}}
+	expand := func(n int, set func(*matrixCase, int)) {
+		next := make([]matrixCase, 0, len(cases)*n)
+		for _, c := range cases {
+			for i := 0; i < n; i++ {
+				d := c
+				set(&d, i)
+				next = append(next, d)
+			}
+		}
+		cases = next
+	}
+	levels := []int{-1, 0, 1, 2, 3, 4, 9}
+	expand(len(levels), func(c *matrixCase, i int) { c.level = levels[i] })
+	expand(2, func(c *matrixCase, i int) { c.downgraded = i == 1 })
+	expand(len(rollbacks), func(c *matrixCase, i int) { c.rollback = rollbacks[i] })
+	trusts := []string{TrustObservation, TrustAdvisory, TrustAutonomous}
+	expand(len(trusts), func(c *matrixCase, i int) { c.trust = trusts[i] })
+	modes := []string{ExecutionAuto, ExecutionApproval, ExecutionManual}
+	expand(len(modes), func(c *matrixCase, i int) { c.mode = modes[i] })
+	tiers := []RiskTier{RiskSafe, RiskModerate, RiskHigh}
+	expand(len(tiers), func(c *matrixCase, i int) { c.tier = tiers[i] })
+	expand(2, func(c *matrixCase, i int) { c.inWindow = i == 1 })
+	expand(len(targetSets), func(c *matrixCase, i int) { c.targets = targetSets[i] })
+	expand(len(estops), func(c *matrixCase, i int) { c.estop = estops[i] })
+	return cases
+}
+
+// runPrematureMatrix authorizes every combination, after profile adjusts
+// the fixture, and fails on any execution the property does not allow.
+func runPrematureMatrix(t *testing.T, profile func(*autonomyFixture),
+	estops []bool) (executed, total int) {
+	t.Helper()
+	for _, c := range prematureMatrix(estops) {
+		total++
+		f := newAutonomyFixture(c.level)
+		if profile != nil {
+			profile(f)
+		}
+		f.limiter.limit.Downgraded = c.downgraded
+		f.runtime.TrustLevel, f.runtime.ExecutionMode = c.trust, c.mode
+		f.runtime.EmergencyStop = c.estop
+		if !c.inWindow {
+			f.doc.MaintenanceWindows = []string{"weekdays 01:00-05:00"}
+		}
+		req := familyRequest(c.tier, c.rollback)
+		req.TargetObjs = c.targets
+		d := f.authorize(t, req)
+		if (d.Verdict == VerdictExecute) != c.wantExecute() {
+			t.Fatalf("%s: %s/%s (%s)", c, d.Verdict, d.Reason, d.Detail)
+		}
+		if d.Verdict == VerdictExecute {
+			executed++
+			if d.Reason != ReasonAutonomyL3 {
+				t.Fatalf("%s: executed with reason %s", c, d.Reason)
+			}
+		}
+	}
+	return executed, total
 }

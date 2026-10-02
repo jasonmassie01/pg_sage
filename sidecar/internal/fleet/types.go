@@ -65,6 +65,12 @@ type DatabaseInstance struct {
 	// Bootstrap code should set it to Executor.Shutdown. When it is nil,
 	// lifecycle teardown falls back to Executor.Shutdown directly.
 	ExecutorShutdown func(context.Context) error
+	// Quiesce drains in-flight actions before Cancel, bounded by
+	// DrainTimeout, and returns the release to call once cancelled. Nil
+	// skips the drain.
+	Quiesce func(context.Context) (func(), error)
+	// DrainTimeout bounds Quiesce; zero uses defaultInstanceDrainTimeout.
+	DrainTimeout time.Duration
 	// PoolClose is an internal lifecycle seam used to close the pool.
 	// Production instances normally leave it nil, which falls back to
 	// Pool.Close. Tests use it to make close ordering observable.
@@ -325,9 +331,11 @@ func startInstanceTeardown(inst *DatabaseInstance) <-chan struct{} {
 }
 
 func runInstanceTeardown(inst *DatabaseInstance, done chan struct{}) {
+	release, drainErr := drainInstanceActions(inst)
 	if inst.Cancel != nil {
 		inst.Cancel()
 	}
+	release()
 	timeout := inst.teardownTimeout
 	if timeout <= 0 {
 		timeout = defaultInstanceTeardownTimeout
@@ -338,7 +346,7 @@ func runInstanceTeardown(inst *DatabaseInstance, done chan struct{}) {
 	workerErr := waitForInstanceWorkers(cleanupCtx, inst.Workers)
 	shutdownErr := shutdownInstanceExecutor(cleanupCtx, inst)
 	closeErr := closeInstancePool(cleanupCtx, inst)
-	lifecycleErr := errors.Join(workerErr, shutdownErr, closeErr)
+	lifecycleErr := errors.Join(drainErr, workerErr, shutdownErr, closeErr)
 	inst.lifecycleMu.Lock()
 	inst.lifecycleErr = lifecycleErr
 	close(done)

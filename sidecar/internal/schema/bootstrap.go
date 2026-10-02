@@ -387,7 +387,9 @@ func migrationStatements() []string {
 		ddlSREInvestigator, ddlSREModelEvents, ddlSREReasoningBudget,
 		ddlSRESLOChangeEvents, ddlSREActions,
 		ddlRecommendationAll,
-		ddlRunwaySamples, ddlSRERunbooks, ddlSREAutonomy, ddlSREAutonomyCarryOver)
+		ddlRunwaySamples, ddlSRERunbooks, ddlSREAutonomy, ddlSREAutonomyCarryOver,
+		ddlHAIdentity,
+		ddlDebtExec)
 }
 
 // ---------------------------------------------------------------------------

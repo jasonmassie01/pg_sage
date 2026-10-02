@@ -78,9 +78,10 @@ func replEvidence(obs []Observation) (replWindow, []Missing) {
 	}
 	if !w.inRecovery {
 		wal, m3 := walSeries(obs, probes.WALCheckpoint)
+		changed, mID := walComparable(&walEvidence{}, &wal, &walEvidence{})
 		var m4 []Missing
-		w.rate, m4 = measureRate(wal)
-		missing = append(append(missing, m3...), m4...)
+		w.rate, m4 = measureRate(wal, changed)
+		missing = append(append(append(missing, m3...), mID...), m4...)
 	}
 	return w, missing
 }

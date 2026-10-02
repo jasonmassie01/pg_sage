@@ -6,7 +6,7 @@ import "fmt"
 // cluster-wide where the limit is (max_connections, WAL, slots) and are
 // labeled with whether they belong to the current database.
 
-const connectionSaturationSQL = `/* pg_sage sre:connection_saturation v2 */
+const connectionSaturationSQL = `/* pg_sage sre:connection_saturation v3 */
 WITH c AS (
     SELECT a.datname = pg_catalog.current_database() AS in_current_database,
            pg_catalog.left(COALESCE(a.application_name, ''), 64) AS application_name,
@@ -23,7 +23,7 @@ SELECT c.in_current_database, c.application_name, c.client_addr, c.state,
        pg_catalog.current_setting('superuser_reserved_connections')::int8
            AS reserved_connections,
        t.total AS total_client_backends,
-       pg_catalog.pg_postmaster_start_time() AS server_started_at
+       ` + serverIdentityColumns + `
 FROM c CROSS JOIN t
 GROUP BY c.in_current_database, c.application_name, c.client_addr, c.state, t.total
 ORDER BY backends DESC, c.application_name, c.client_addr, c.state
@@ -57,13 +57,14 @@ LEFT JOIN pg_catalog.pg_replication_slots sl ON sl.active_pid = r.pid
 ORDER BY replay_lag_bytes DESC NULLS LAST, application_name
 LIMIT $1`
 
-const replicationSlotsSQL = `/* pg_sage sre:replication_slots v1 */
+const replicationSlotsSQL = `/* pg_sage sre:replication_slots v2 */
 SELECT s.slot_name::text AS slot_name, s.slot_type, s.active, s.wal_status,
        pg_catalog.pg_wal_lsn_diff(` + currentLSN + `, s.restart_lsn)::int8
            AS retained_bytes,
        s.safe_wal_size::int8 AS safe_wal_size,
        s.database::text AS database,
-       %s AS inactive_since
+       %s AS inactive_since,
+       ` + serverIdentityColumns + `
 FROM pg_catalog.pg_replication_slots s
 ORDER BY retained_bytes DESC NULLS LAST, slot_name
 LIMIT $1`
@@ -75,7 +76,7 @@ const walCheckpointSettings = `
         WHERE name = 'max_wal_size') AS max_wal_size_mb,`
 
 // Before PostgreSQL 17 checkpoint counters live in pg_stat_bgwriter.
-const walCheckpointSQL14 = `/* pg_sage sre:wal_checkpoint v1 */
+const walCheckpointSQL14 = `/* pg_sage sre:wal_checkpoint v2 */
 SELECT b.checkpoints_timed::int8 AS timed_checkpoints,
        b.checkpoints_req::int8 AS requested_checkpoints,
        b.checkpoint_write_time::float8 AS checkpoint_write_ms,
@@ -84,12 +85,13 @@ SELECT b.checkpoints_timed::int8 AS timed_checkpoints,
        w.wal_bytes::int8 AS wal_bytes,
        w.wal_buffers_full::int8 AS wal_buffers_full,` + walCheckpointSettings + `
        b.stats_reset AS checkpointer_stats_reset,
-       w.stats_reset AS wal_stats_reset
+       w.stats_reset AS wal_stats_reset,
+       ` + serverIdentityColumns + `
 FROM pg_catalog.pg_stat_bgwriter b CROSS JOIN pg_catalog.pg_stat_wal w
 LIMIT $1`
 
 // PostgreSQL 17 moved checkpoint counters to pg_stat_checkpointer.
-const walCheckpointSQL17 = `/* pg_sage sre:wal_checkpoint v1 */
+const walCheckpointSQL17 = `/* pg_sage sre:wal_checkpoint v2 */
 SELECT c.num_timed::int8 AS timed_checkpoints,
        c.num_requested::int8 AS requested_checkpoints,
        c.write_time::float8 AS checkpoint_write_ms,
@@ -98,16 +100,18 @@ SELECT c.num_timed::int8 AS timed_checkpoints,
        w.wal_bytes::int8 AS wal_bytes,
        w.wal_buffers_full::int8 AS wal_buffers_full,` + walCheckpointSettings + `
        c.stats_reset AS checkpointer_stats_reset,
-       w.stats_reset AS wal_stats_reset
+       w.stats_reset AS wal_stats_reset,
+       ` + serverIdentityColumns + `
 FROM pg_catalog.pg_stat_checkpointer c CROSS JOIN pg_catalog.pg_stat_wal w
 LIMIT $1`
 
-// connectionSaturationSpec is v2: M2 added the server start time, so a
-// restart between two samples invalidates their comparison.
+// connectionSaturationSpec is v3: M2 added the server start time and the
+// follow-ups the full server identity, so a restart or a failover between
+// two samples invalidates their comparison (CHECK-07).
 func connectionSaturationSpec() Spec {
 	s := needsStats(spec(ConnectionSaturation, FamilyConnections, ArgsNone,
 		Variant{MinVersion: 140000, SQL: connectionSaturationSQL}))
-	s.Version = "v2"
+	s.Version = "v3"
 	return s
 }
 
@@ -118,16 +122,22 @@ func replicationLagSpec() Spec {
 	return s
 }
 
+// replicationSlotsSpec and walCheckpointSpec are v2: they carry the
+// server identity (CHECK-07).
 func replicationSlotsSpec() Spec {
-	return spec(ReplicationSlots, FamilyReplication, ArgsNone,
+	s := spec(ReplicationSlots, FamilyReplication, ArgsNone,
 		Variant{MinVersion: 140000,
 			SQL: fmt.Sprintf(replicationSlotsSQL, "NULL::timestamptz")},
 		Variant{MinVersion: 170000,
 			SQL: fmt.Sprintf(replicationSlotsSQL, "s.inactive_since")})
+	s.Version = "v2"
+	return s
 }
 
 func walCheckpointSpec() Spec {
-	return spec(WALCheckpoint, FamilyWAL, ArgsNone,
+	s := spec(WALCheckpoint, FamilyWAL, ArgsNone,
 		Variant{MinVersion: 140000, SQL: walCheckpointSQL14},
 		Variant{MinVersion: 170000, SQL: walCheckpointSQL17})
+	s.Version = "v2"
+	return s
 }

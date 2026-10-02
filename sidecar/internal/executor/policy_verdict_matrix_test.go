@@ -185,7 +185,7 @@ func matrixDecision(
 		TargetObjs:       []string{"public.orders"},
 	}
 	if row.actionType == "retention_delete" {
-		// AuthorizeRetention's shape: an internal control running under the
+		// ExecuteRetention's shape: an internal control running under the
 		// owner's retention contract.
 		req.InternalControl, req.OwnerDeclared = true, true
 	}
@@ -227,7 +227,7 @@ func TestPolicyVerdictMatrixWithoutRefusalSetMatchesBaseline(t *testing.T) {
 }
 
 // retention_delete without an owner declaration is not reachable today
-// (AuthorizeRetention only runs for a declared retention contract), but the
+// (ExecuteRetention only runs for a declared retention contract), but the
 // refusal set must send it to a human if it ever is.
 func TestPolicyVerdictRetentionWithoutOwnerIsRefused(t *testing.T) {
 	contract, feature := matrixContract(t, "retention_delete")

@@ -51,7 +51,9 @@ func DiagnoseDiskWAL(obs []Observation) Diagnosis {
 	slots, m1 := walSeries(obs, probes.ReplicationSlots)
 	wal, m2 := walSeries(obs, probes.WALCheckpoint)
 	arch, m3 := walSeries(obs, probes.Archiver)
-	rate, m4 := measureRate(wal)
+	changed, mID := walComparable(&slots, &wal, &arch)
+	rate, m4 := measureRate(wal, changed)
+	m4 = append(mID, m4...)
 	trends, trendEv, m5 := readTrends(obs)
 	dir, dirEv, m6 := readWALDirectory(obs)
 	hs := []Hypothesis{scoreInactiveSlotRunway(slots, trends, trendEv),

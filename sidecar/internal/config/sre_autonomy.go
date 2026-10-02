@@ -13,19 +13,21 @@ import (
 // incident family x action class, promoted only from benchmark, shadow
 // and live evidence with an admin's approval, and downgraded on error
 // budget burn, failover, stale evidence, concurrent actions or a safety
-// regression. Promotion thresholds are the spec's and not configurable.
+// regression. The promotion bar (Promotion) defaults to the spec's.
 type SREAutonomyConfig struct {
-	Enforce                  bool              `yaml:"enforce" doc:"Earned-autonomy ledger restricts self-initiated incident-family actions, custodians included (L1 script, L2 approval, L3 auto). false: the trust ramp decides. Default: true." warning:"false lets incident-family actions run under the elapsed-time trust ramp without earned evidence."`
-	BenchResultsPath         string            `yaml:"bench_results_path" doc:"PGIncidentBench JSON report, or a directory searched 3 levels deep (the CI shard reports), ingested hourly as promotion evidence, each once. Empty: upload through the API."`
-	EvaluateIntervalMinutes  int               `yaml:"evaluate_interval_minutes" doc:"Minutes between promotion evaluations (pg_sage proposes, an admin approves), 5-1440. Default: 60."`
-	ReconcileIntervalSeconds int               `yaml:"reconcile_interval_seconds" doc:"Seconds between recording live outcomes of handed-off and autonomous actions, 10-3600. Default: 60."`
-	MaxEvidenceAgeSeconds    int               `yaml:"max_evidence_age_seconds" doc:"Evidence older than this caps an action at L1, 5-3600. Default: 300."`
-	ConcurrencyWindowMinutes int               `yaml:"concurrency_window_minutes" doc:"Another pg_sage action on the same object this recent caps an action at L1, 1-1440. Default: 15."`
-	SafetyWindowDays         int               `yaml:"safety_window_days" doc:"Days a harmful or unsafe outcome caps its family at L1 and blocks re-promotion, 1-365. Default: 30."`
-	FailoverCooldownMinutes  int               `yaml:"failover_cooldown_minutes" doc:"Minutes after a role change autonomy stays at L1, 1-1440. Default: 30."`
-	ProposalTTLHours         int               `yaml:"proposal_ttl_hours" doc:"Hours a promotion proposal waits for an admin, 1-720. Default: 168."`
-	GameDays                 SREGameDaysConfig `yaml:"game_days"`
-	Canary                   SRECanaryConfig   `yaml:"canary"`
+	Enforce                  bool               `yaml:"enforce" doc:"Earned-autonomy ledger restricts self-initiated incident-family actions, custodians included (L1 script, L2 approval, L3 auto). false: the trust ramp decides. Default: true." warning:"false lets incident-family actions run under the elapsed-time trust ramp without earned evidence."`
+	BenchResultsPath         string             `yaml:"bench_results_path" doc:"PGIncidentBench JSON report, or a directory searched 3 levels deep (the CI shard reports), ingested hourly as promotion evidence, each once. Empty: upload through the API."`
+	EvaluateIntervalMinutes  int                `yaml:"evaluate_interval_minutes" doc:"Minutes between promotion evaluations (pg_sage proposes, an admin approves), 5-1440. Default: 60."`
+	ReconcileIntervalSeconds int                `yaml:"reconcile_interval_seconds" doc:"Seconds between recording live outcomes of handed-off and autonomous actions, 10-3600. Default: 60."`
+	MaxEvidenceAgeSeconds    int                `yaml:"max_evidence_age_seconds" doc:"Evidence older than this caps an action at L1, 5-3600. Default: 300."`
+	ConcurrencyWindowMinutes int                `yaml:"concurrency_window_minutes" doc:"Another pg_sage action on the same object this recent caps an action at L1, 1-1440. Default: 15."`
+	SafetyWindowDays         int                `yaml:"safety_window_days" doc:"Days a harmful or unsafe outcome caps its family at L1 and blocks re-promotion, 1-365. Default: 30."`
+	FailoverCooldownMinutes  int                `yaml:"failover_cooldown_minutes" doc:"Minutes after a role change autonomy stays at L1, 1-1440. Default: 30."`
+	ProposalTTLHours         int                `yaml:"proposal_ttl_hours" doc:"Hours a promotion proposal waits for an admin, 1-720. Default: 168."`
+	ReportRetentionDays      int                `yaml:"report_retention_days" doc:"Days a stored bench or game-day report is kept, 30-3650. Ledger and pending-promotion evidence and the newest report per family are always kept. Default: 90."`
+	Promotion                SREPromotionConfig `yaml:"promotion"`
+	GameDays                 SREGameDaysConfig  `yaml:"game_days"`
+	Canary                   SRECanaryConfig    `yaml:"canary"`
 }
 
 // SREGameDaysConfig configures game days: PGIncidentBench fault programs
@@ -48,8 +50,9 @@ func defaultSREAutonomyConfig() SREAutonomyConfig {
 	return SREAutonomyConfig{Enforce: true, EvaluateIntervalMinutes: 60,
 		ReconcileIntervalSeconds: 60, MaxEvidenceAgeSeconds: 300,
 		ConcurrencyWindowMinutes: 15, SafetyWindowDays: 30, FailoverCooldownMinutes: 30,
-		ProposalTTLHours: 168, GameDays: SREGameDaysConfig{IntervalHours: 168},
-		Canary: SRECanaryConfig{CanaryInstances: 1, RegressionLimitPct: 10, SettleSeconds: 60}}
+		ProposalTTLHours: 168, ReportRetentionDays: 90, Promotion: defaultSREPromotionConfig(),
+		GameDays: SREGameDaysConfig{IntervalHours: 168},
+		Canary:   SRECanaryConfig{CanaryInstances: 1, RegressionLimitPct: 10, SettleSeconds: 60}}
 }
 
 var familyNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
@@ -68,6 +71,7 @@ func (a SREAutonomyConfig) validate() error {
 		{"safety_window_days", a.SafetyWindowDays, 1, 365},
 		{"failover_cooldown_minutes", a.FailoverCooldownMinutes, 1, 1440},
 		{"proposal_ttl_hours", a.ProposalTTLHours, 1, 720},
+		{"report_retention_days", a.ReportRetentionDays, 30, 3650},
 		{"game_days.interval_hours", a.GameDays.IntervalHours, 24, 2160},
 		{"canary.canary_instances", a.Canary.CanaryInstances, 1, 10},
 		{"canary.settle_seconds", a.Canary.SettleSeconds, 0, 3600},
@@ -79,6 +83,9 @@ func (a SREAutonomyConfig) validate() error {
 	}
 	if p := a.Canary.RegressionLimitPct; p < 0 || p > 100 {
 		return fmt.Errorf("sre.autonomy.canary.regression_limit_pct must be 0-100, got %v", p)
+	}
+	if err := a.Promotion.validate(); err != nil {
+		return err
 	}
 	return a.GameDays.validate()
 }

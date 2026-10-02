@@ -164,6 +164,9 @@ type Decision struct {
 	// LockCeilingMS is the policy's lock_duration_ceiling_ms on an execute
 	// verdict (0 = no ceiling). In-transaction DDL caps lock_timeout by it.
 	LockCeilingMS int64
+	// SerializeMode is the policy's serialize_mode on an execute verdict:
+	// what a change lease conflict does (park, or wait in the lease queue).
+	SerializeMode string
 }
 
 // RuntimeState is the live authority snapshot for one authorization.
@@ -172,14 +175,19 @@ type Decision struct {
 // trust.maintenance_window). Their zero values fail closed: a caller that
 // does not supply them never gets autonomous safe/moderate execution.
 type RuntimeState struct {
-	ExecutorEnabled    bool
-	EmergencyStop      bool
-	IsReplica          bool
-	TrustLevel         string
-	ExecutionMode      string
-	Tier3Safe          bool
-	Tier3Moderate      bool
-	RampStart          time.Time
+	ExecutorEnabled bool
+	EmergencyStop   bool
+	IsReplica       bool
+	TrustLevel      string
+	ExecutionMode   string
+	Tier3Safe       bool
+	Tier3Moderate   bool
+	RampStart       time.Time
+	// SafeRampAge and ModerateRampAge are trust.ramp_safe_hours and
+	// trust.ramp_moderate_hours. Zero takes the spec ramp (8 / 31 days);
+	// see rampAge for the floors.
+	SafeRampAge        time.Duration
+	ModerateRampAge    time.Duration
 	InConfiguredWindow bool
 	// Provider is the target's platform (cloud-sql, rds, ...); empty or
 	// "self-managed" means plain postgres.

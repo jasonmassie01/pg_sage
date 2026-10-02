@@ -259,6 +259,8 @@ func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 		Actions:        rt.sreActions,
 		Cancel:         rt.cancel, Workers: rt.workers,
 		ExecutorShutdown: rt.executor.Shutdown,
+		// Removal and replacement let in-flight actions finish first.
+		Quiesce: rt.executor.Quiesce,
 		Status: &fleet.InstanceStatus{
 			Connected:    true,
 			Platform:     rt.provider,

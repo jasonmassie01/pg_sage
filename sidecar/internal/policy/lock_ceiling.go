@@ -20,11 +20,17 @@ func EffectiveLockTimeoutMS(ceilingMS, safetyMS int64) int64 {
 	return min(ceilingMS, safetyMS)
 }
 
-// withLockCeiling carries the policy ceiling on an execute verdict so the
-// executor can cap lock_timeout for in-transaction DDL.
-func withLockCeiling(doc Document, decision Decision) Decision {
-	if decision.Verdict == VerdictExecute && doc.LockDurationCeilingMS > 0 {
+// withDocumentBounds carries the policy's execution bounds on an execute
+// verdict: the lock ceiling, so the executor can cap lock_timeout for
+// in-transaction DDL, and the serialize mode, which decides what a change
+// lease conflict does.
+func withDocumentBounds(doc Document, decision Decision) Decision {
+	if decision.Verdict != VerdictExecute {
+		return decision
+	}
+	if doc.LockDurationCeilingMS > 0 {
 		decision.LockCeilingMS = doc.LockDurationCeilingMS
 	}
+	decision.SerializeMode = doc.SerializeMode
 	return decision
 }

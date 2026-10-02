@@ -25,8 +25,8 @@ func change(kind, summary string, age float64) probes.Row {
 }
 
 func TestGraphV3_RecentChangeNode(t *testing.T) {
-	if GraphVersion != "causal-v3" {
-		t.Fatalf("graph version = %s, want causal-v3", GraphVersion)
+	if GraphVersion != "causal-v4" {
+		t.Fatalf("graph version = %s, want causal-v4", GraphVersion)
 	}
 	n, ok := NodeByID(RecentChange)
 	if !ok || n.Family != FamilyChange || n.Refutation != string(probes.ChangeFeed) ||

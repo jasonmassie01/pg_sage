@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/auth"
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/gameday"
@@ -28,6 +29,9 @@ type AutonomyDeps struct {
 	Ledgers  *earned.Registry
 	GameDays *gameday.Registry
 	Canary   *rollout.CanaryService
+	// FastElevation is every trust-elevation setting below the spec (the
+	// config is restart-bound, so it is fixed for the process).
+	FastElevation []config.LoweredSetting
 }
 
 const autonomyPath = "/api/v1/sre/autonomy"
@@ -154,7 +158,8 @@ func (h autonomyHandlers) view(w http.ResponseWriter, r *http.Request) {
 		e.Limiter.Annotate(r.Context(), &v)
 	}
 	jsonResponse(w, map[string]any{"database": name, "enforced": h.deps.Ledgers.Enforced(),
-		"databases": h.deps.Ledgers.Databases(), "view": v})
+		"databases": h.deps.Ledgers.Databases(), "view": v,
+		"fast_elevation": fastElevationView(h.deps.FastElevation)})
 }
 
 func (h autonomyHandlers) history(w http.ResponseWriter, r *http.Request) {
@@ -260,4 +265,13 @@ func (h autonomyHandlers) downgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, map[string]any{"states": states})
+}
+
+// fastElevationView says whether elevation settings are below the spec
+// and lists them; the list is never null.
+func fastElevationView(lowered []config.LoweredSetting) map[string]any {
+	if lowered == nil {
+		lowered = []config.LoweredSetting{}
+	}
+	return map[string]any{"active": len(lowered) > 0, "lowered": lowered}
 }

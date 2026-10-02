@@ -51,8 +51,14 @@ func runwayOptions(cfg *config.Config, database string) runway.Options {
 		DiskHorizon: r.DiskHorizon(), DiskCritical: r.DiskCritical(),
 		SequenceHorizon: r.SequenceHorizon(), SequenceCritical: r.SequenceCritical(),
 		DiskCapacityBytes:     float64(cfg.Forecaster.DiskCapacityBytes),
-		WALRetainedLimitBytes: float64(autonomy.DefaultWALBackstopBytes)}
+		WALRetainedLimitBytes: float64(autonomy.DefaultWALBackstopBytes),
+		Sizes:                 runwaySizeShare}
 }
+
+// runwaySizeShare is shared by every database runtime of the process, so
+// fleet runtimes on one cluster measure its databases' total size once
+// per pass between them.
+var runwaySizeShare = runway.NewSizeShare()
 
 // startRunways attaches the executor to the runway advisor and starts the
 // runway monitor on the instance worker group. Pre-incident

@@ -131,8 +131,9 @@ func (c Case) validateObservations(reg *probes.Registry) error {
 }
 
 func (c Case) validateObservation(reg *probes.Registry, o Observation) error {
-	switch _, known := reg.Spec(o.Probe); {
-	case !known:
+	_, known := reg.Spec(o.Probe)
+	switch {
+	case !known && !probes.IsSignal(o.Probe):
 		return errors.New("unknown probe")
 	case !statuses[o.Status]:
 		return fmt.Errorf("unknown status %q", o.Status)

@@ -42,8 +42,9 @@ func DiagnoseWAL(obs []Observation) Diagnosis {
 	slots, m1 := walSeries(obs, probes.ReplicationSlots)
 	wal, m2 := walSeries(obs, probes.WALCheckpoint)
 	arch, m3 := walSeries(obs, probes.Archiver)
-	rate, m4 := measureRate(wal)
-	missing := append(append(append(m1, m2...), m3...), m4...)
+	changed, m4 := walComparable(&slots, &wal, &arch)
+	rate, m5 := measureRate(wal, changed)
+	missing := append(append(append(append(m1, m2...), m3...), m4...), m5...)
 	hs := []Hypothesis{scoreInactiveSlot(slots), scoreSlowConsumer(slots, rate),
 		scoreArchiver(arch), scoreWriteSurge(rate)}
 	d := rank(FamilyWAL, hs)
@@ -83,9 +84,10 @@ func walSeries(obs []Observation, id probes.ID) (walEvidence, []Missing) {
 		n: len(usable)}, missing
 }
 
-// measureRate compares the WAL volume samples. A statistics reset or a
-// falling counter makes the rate unknown (CHECK-07), never negative.
-func measureRate(w walEvidence) (walRate, []Missing) {
+// measureRate compares the WAL volume samples. A statistics reset, a
+// falling counter or another server incarnation (changed, stated by
+// walComparable) makes the rate unknown (CHECK-07), never negative.
+func measureRate(w walEvidence, changed bool) (walRate, []Missing) {
 	r := walRate{ev: w.last.EvidenceID, avg: math.NaN()}
 	if w.n == 0 {
 		return r, nil
@@ -98,6 +100,9 @@ func measureRate(w walEvidence) (walRate, []Missing) {
 	if span := w.last.Result.ObservedAt.Sub(b.StatsReset).Seconds(); !b.StatsReset.IsZero() &&
 		span > 0 {
 		r.avg = b.WALBytes / span
+	}
+	if changed {
+		return r, nil
 	}
 	if w.n < 2 {
 		return r, []Missing{{ProbeID: probes.WALCheckpoint,

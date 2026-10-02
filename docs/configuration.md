@@ -10,8 +10,30 @@ pg_sage uses three configuration sources with the following precedence (highest 
 The sidecar validates a complete candidate before publishing a YAML reload.
 Every field has a typed lifecycle: `live_policy` swaps an immutable policy
 snapshot, `reconfigure` tears down and rebuilds its named runtime owner, and
-`restart` remains pending until process restart. Fleet database records use
-their dedicated lifecycle API. In-flight work keeps its original snapshot.
+`restart` remains pending until process restart. A `reconfigure` or
+`live_policy` field whose owner does not run in the current mode is treated
+as `restart`. In-flight work keeps its original snapshot.
+
+**Adding, removing and changing databases without a restart.** In YAML fleet
+mode, editing `databases` (or `defaults`) in the watched config file is
+applied at once: a new entry starts a runtime, a removed entry is retired, a
+renamed entry is a removal plus an addition. Per-database `trust_level`,
+`execution_mode`, `executor_enabled` and `tags` apply in place to the running
+database; any other per-database change (connection, credentials, pool size,
+intervals, `llm_enabled`, `verify.io_capacity`) rebuilds only that database's
+runtime. A retired runtime first lets in-flight actions finish (up to 60
+seconds; new actions on it park and are retried by the next runtime), then
+stops its workers, Sage SRE investigator, executor and pool, and its metrics
+and LLM budget share disappear. A reload is all-or-nothing: an invalid file,
+an invalid per-database trust level or execution mode, or a changed database
+whose new connection fails is rejected and the running runtimes keep going
+(fix the file and save again). A newly added database that cannot connect is
+shown as failed, as at startup. Removing or reconnecting the control database
+(the first database that started, which holds logins and standing policy)
+still needs a restart. In meta-db mode `sage.databases` is the source of
+truth: the managed-database API applies changes immediately, and rows added,
+removed, disabled or changed by another replica or by SQL are picked up within
+30 seconds with the same rules.
 
 The generated [per-field lifecycle reference](generated/config-lifecycles.md)
 is the authoritative list. Regenerate it from the typed registry with:
@@ -157,6 +179,8 @@ briefing:
 | `trust.level` | `observation` | Trust tier: `observation`, `advisory`, `autonomous` |
 | `trust.maintenance_window` | (none) | When autonomous MODERATE actions may run; see [Maintenance windows](#maintenance-windows). Unset or `never` closes the window |
 | `trust.ramp_start` | (auto) | Auto-persisted on first start; set to override |
+| `trust.ramp_safe_hours` | `192` | Hours after `ramp_start` before SAFE actions may run unattended (8 days), `1`-`8760`. Actions that cannot be rolled back always wait at least `192` |
+| `trust.ramp_moderate_hours` | `744` | Hours after `ramp_start` before MODERATE actions may run unattended (31 days), `1`-`8760`, at least `ramp_safe_hours`. Actions that cannot be rolled back always wait at least `744` |
 
 The trust model controls what pg_sage is allowed to do:
 
@@ -334,6 +358,7 @@ standing policy's windows, evaluated as the policy gate does).
 | Parameter | Default | Description |
 |---|---|---|
 | `verify.io_baseline_days` | `7` | Days of observation before the learned baseline can admit. `0` disables the learned baseline |
+| `verify.io_baseline_hours` | `0` | Hours of observation instead, `1`-`8760`. When set it takes precedence over `io_baseline_days` (even `0`). `0` uses `io_baseline_days`. See [Fast elevation](#fast-elevation-dogfood-databases) |
 | `verify.io_sample_retention_days` | `14` | Days of rate samples kept in `sage.io_rate_sample`; the rolling baseline covers this window. Must be at least `io_baseline_days` |
 | `verify.io_capacity.read_write_mbps` | (none) | Standalone only. Declared data read+write throughput in MiB/s |
 | `verify.io_capacity.wal_mbps` | (none) | Standalone only. Declared WAL throughput in MiB/s |
@@ -372,10 +397,24 @@ explosions**, **replication lag** and **LWLock contention**. Their triggers are 
 incidents for "checkpoints are occurring too frequently", temp files, replication conflicts and
 replication lag (`replication_lag_increasing`), plus a deterministic detector that samples the
 database once per trigger poll (only while `sre.automatic_start` is on). The detector opens one
-investigation per episode, with conservative thresholds: 3 or more requested checkpoints
-within 5 minutes that outnumber timed ones; 1 GiB of temp files in this database within 5
-minutes; or 8 or more backends waiting on one modeled LWLock in 3 consecutive polls. After an
-episode ends, the same family waits 30 minutes before a new one. A checkpoint investigation
+episode at a time per family, with conservative default thresholds (`sre.detectors.*`, below):
+3 or more requested checkpoints within 5 minutes that outnumber timed ones; 1 GiB of temp
+files in this database within 5 minutes; or 8 or more backends waiting on one modeled LWLock
+in 3 consecutive polls. A new episode of a family waits 30 minutes after the previous one
+started.
+
+Each episode is an incident, like an RCA incident: a `warning` row in `sage.incidents`
+(signal `sre_checkpoint_storm`, `sre_temp_file_explosion` or `sre_lwlock_contention`) with the
+measurement and its threshold as evidence. It appears in the Cases panel, sends the usual
+incident notifications (detected, escalated, resolved) and links its investigation, which an
+operator can review for earned autonomy. One investigation per incident: a new episode while
+its incident is still open counts as another occurrence (the RCA engine escalates an incident
+after `rca.escalation_cycles` occurrences), and the incident resolves itself
+`rca.resolution_cycles` analyzer cycles after the episodes stop. An open RCA incident of the
+same family that already has at least warning severity (for example "checkpoints are occurring
+too frequently" from the logs) is used instead of a second incident. An incident an operator
+resolves is not reopened by the same episode. With `rca.enabled: false` there is no incident:
+the investigation keeps its own case (`sre:detector:<family>:<database>`). A checkpoint investigation
 compares samples 6 sample intervals apart (30 s by default). The live-temp-file probe needs
 `pg_monitor` (or superuser), and per-statement spills need `pg_stat_statements`. Without them,
 the investigation reports the evidence as unavailable instead of guessing. Standby-side
@@ -420,6 +459,12 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 | `sre.evidence_retention_days` | `30` | Days a finished, unpinned investigation keeps its probe evidence. The delete leaves a tombstone, and the investigation is shown as "evidence deleted by retention" |
 | `sre.timeline_retention_days` | `90` | Days a finished, unpinned investigation is kept at all (hypotheses, steps, event chain), leaving a tombstone. At least `sre.evidence_retention_days`, at most `3650` |
 | `sre.llm.enabled` | `true` | Model turn in investigations, used whenever an LLM is configured. `false` keeps investigations deterministic. Restart to change |
+| `sre.detectors.window_seconds` | `300` | Seconds over which checkpoint and temp-file growth is measured, `60`-`3600`. Keep it at least twice `sre.trigger_interval_seconds`; a shorter window cannot see growth between two polls, and the sidecar warns at startup |
+| `sre.detectors.checkpoint_requested` | `3` | Requested checkpoints within the window that are a checkpoint storm (they must also outnumber timed ones), `1`-`1000` |
+| `sre.detectors.temp_file_mb` | `1024` | MiB of temp files this database writes within the window that are a temp-file explosion, `1`-`1048576` |
+| `sre.detectors.lwlock_waiters` | `8` | Backends waiting on one modeled LWLock class that count as contention, `1`-`10000` |
+| `sre.detectors.lwlock_polls` | `3` | Consecutive trigger polls the waiters must hold before an episode opens, `1`-`100` |
+| `sre.detectors.cooldown_minutes` | `30` | Minutes after an episode starts before a new episode of the same family can open, `1`-`1440` |
 
 Pinned investigations (Pin in the Cases panel, or `POST .../pin`) and running ones are never
 deleted. Where the data lives: the `sage.sre_*` tables are in the meta database when one is
@@ -631,7 +676,10 @@ expires after `proposal_ttl_hours`. Promotion to L2 requires all of the followin
 
 Promotion to L3 also needs a Safe Pass rate of at least 95%, and at least 95% on game days if
 any have run. It also needs at least 50 verified recoveries at L2, and the pair must never
-have had a harmful outcome. These thresholds are fixed.
+have had a harmful outcome. These are the spec's thresholds and the defaults; the timing,
+volume and accuracy values can be lowered under `sre.autonomy.promotion` (see
+[Fast elevation](#fast-elevation-dogfood-databases)). The report age (30 days) and the
+minimum bench run counts (10) are fixed.
 
 **Downgrade.** At authorization time, any of the following caps an L2 or L3 pair at L1. The
 change is logged once per transition.
@@ -662,6 +710,14 @@ any time.
 | `sre.autonomy.safety_window_days` | `30` | Days a harmful outcome caps its family, `1`-`365` |
 | `sre.autonomy.failover_cooldown_minutes` | `30` | Minutes after a role change autonomy stays at L1, `1`-`1440` |
 | `sre.autonomy.proposal_ttl_hours` | `168` | Hours a promotion proposal waits for an admin, `1`-`720` |
+| `sre.autonomy.report_retention_days` | `90` | Days a stored bench or game-day report is kept after it was ingested, `30`-`3650`. Never deleted: a report that is the evidence of a current autonomy level or a pending promotion, and the newest report of each family (per source, and per database for game days). Pruned with the other retention rules, in the database that holds the ledger (the meta database when one is configured) |
+| `sre.autonomy.promotion.shadow_window_hours` | `720` | Hours of shadow reviews (from the first) a family needs for L2; reviewed and accepted packets are counted in this window. `1`-`8760` |
+| `sre.autonomy.promotion.shadow_min_reviewed` | `20` | Reviewed packets needed inside the shadow window for L2, `3`-`1000` |
+| `sre.autonomy.promotion.shadow_min_accepted_pct` | `95` | Operator-accepted share of reviewed packets for L2, `50`-`100` |
+| `sre.autonomy.promotion.bench_min_top1_pct` | `80` | PGIncidentBench top-1 on every gated arm for L2, `50`-`100` |
+| `sre.autonomy.promotion.bench_min_precision_pct` | `90` | PGIncidentBench factual (mechanism) precision on every gated arm for L2, `50`-`100` |
+| `sre.autonomy.promotion.min_safe_pass_pct` | `95` | Safe Pass on bench fault programs and game days for L3, `50`-`100` |
+| `sre.autonomy.promotion.min_live_recoveries` | `50` | Verified live L2 recoveries a pair needs for L3, `1`-`10000` |
 | `sre.autonomy.game_days.enabled` | `false` | Run PGIncidentBench fault programs on a disposable clone |
 | `sre.autonomy.game_days.interval_hours` | `168` | Hours between scheduled game days, `24`-`2160` |
 | `sre.autonomy.game_days.local_dsn` | `""` | Development fallback when `clone.provider` is `none`. A monitored database is refused |
@@ -690,6 +746,59 @@ API, under `/api/v1/sre/autonomy`. Every route takes `?database=<name>`.
 
 The UI page is **Advanced > Earned autonomy**. With MCP enabled, agents get
 `sre_get_autonomy` and `sre_downgrade_autonomy`. There is no approval tool.
+
+### Fast elevation (dogfood databases)
+
+pg_sage earns trust before it acts, and by default that takes weeks: an 8-day ramp for SAFE
+actions, 31 days for MODERATE ones, a 7-day IO baseline before autonomous index builds, and a
+30-day shadow record and 50 verified recoveries before earned autonomy reaches L3. On a
+database you are dogfooding you can shorten all of it to hours. Every elevation setting is
+configurable, the spec value is the default, and each has a minimum: no setting accepts `0`
+to skip its check.
+
+Use this only where you accept the risk:
+
+<!-- fast-elevation-profile:start -->
+```yaml
+trust:
+  ramp_safe_hours: 1              # SAFE actions after 1 hour (spec: 192)
+  ramp_moderate_hours: 4          # MODERATE actions after 4 hours (spec: 744)
+verify:
+  io_baseline_hours: 2            # learned IO baseline after 2 hours (spec: 7 days)
+sre:
+  autonomy:
+    evaluate_interval_minutes: 5  # propose promotions every 5 minutes (default: 60)
+    promotion:
+      shadow_window_hours: 4      # 4 hours of shadow reviews (spec: 720)
+      shadow_min_reviewed: 3      # 3 reviewed packets in that window (spec: 20)
+      min_live_recoveries: 3      # 3 verified L2 recoveries for L3 (spec: 50)
+```
+<!-- fast-elevation-profile:end -->
+
+The profile lowers time and volume only. The accuracy bar stays at the spec: 80% top-1,
+90% precision, 95% accepted packets and 95% Safe Pass. Your own `trust.level`,
+`tier3_*`, execution mode and maintenance window still decide what may run at all.
+
+Some limits stay fixed and cannot be configured:
+- Actions that cannot be rolled back (`not_reversible`, `forward_fix_only`,
+  `application_rollback`, `mitigation_only`, `not_applicable` or undeclared) always wait
+  the full 8- or 31-day ramp, however short the configured ramp is.
+- Irreversible classes never go above L1, and L4 is never reached.
+- The emergency stop always wins, and the policy gate and your trust settings stay the
+  outer bound.
+- An admin still approves every promotion.
+- The downgrade signals still apply. A harmful outcome still demotes the family for
+  `safety_window_days`.
+
+Fast elevation is never silent. At startup the sidecar logs a `FAST ELEVATION` WARN line for
+each setting below the spec, including a shorter `io_baseline_days`, `safety_window_days`
+or `evaluate_interval_minutes`. The autonomy API returns them as `fast_elevation`, and
+**Advanced > Earned autonomy** shows a "Fast elevation" badge that lists them. These keys
+are YAML-only and need a restart; the config API refuses them.
+
+To approve a promotion quickly, run `POST /api/v1/sre/autonomy/evaluate` as an operator,
+then `GET /api/v1/sre/autonomy/proposals` and `POST
+/api/v1/sre/autonomy/proposals/{id}/approve` as an admin.
 
 ### Retention
 

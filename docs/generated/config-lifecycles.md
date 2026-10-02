@@ -2,7 +2,7 @@
 
 > Generated from `internal/config` by `cmd/gen_config_meta`; do not edit manually.
 
-`live_policy` swaps an immutable policy snapshot. `reconfigure` tears down and rebuilds the named owner. `restart` is rejected during reload. `lifecycle_api` is changed through its dedicated API, not YAML reload.
+`live_policy` swaps an immutable policy snapshot. `reconfigure` tears down and rebuilds the named owner. `restart` is rejected during reload. A `reconfigure` or `live_policy` field whose owner is not running in the current mode is treated as `restart`.
 
 | Field | Lifecycle | Runtime owner |
 | --- | --- | --- |
@@ -78,12 +78,12 @@
 | `custodian.freeze.red_buffer_pct` | `restart` | `-` |
 | `custodian.wal.abandon_after_minutes` | `restart` | `-` |
 | `custodian.wal.retained_wal_disk_pct_ceiling` | `restart` | `-` |
-| `databases` | `lifecycle_api` | `-` |
-| `defaults.analyzer_interval_seconds` | `restart` | `-` |
-| `defaults.collector_interval_seconds` | `restart` | `-` |
-| `defaults.execution_mode` | `restart` | `-` |
-| `defaults.max_connections` | `restart` | `-` |
-| `defaults.trust_level` | `restart` | `-` |
+| `databases` | `reconfigure` | `fleet_databases` |
+| `defaults.analyzer_interval_seconds` | `reconfigure` | `fleet_databases` |
+| `defaults.collector_interval_seconds` | `reconfigure` | `fleet_databases` |
+| `defaults.execution_mode` | `reconfigure` | `fleet_databases` |
+| `defaults.max_connections` | `reconfigure` | `fleet_databases` |
+| `defaults.trust_level` | `reconfigure` | `fleet_databases` |
 | `encryption_key` | `restart` | `-` |
 | `explain.cache_ttl_minutes` | `restart` | `-` |
 | `explain.enabled` | `restart` | `-` |
@@ -234,8 +234,16 @@
 | `sre.autonomy.game_days.interval_hours` | `restart` | `-` |
 | `sre.autonomy.game_days.local_dsn` | `restart` | `-` |
 | `sre.autonomy.max_evidence_age_seconds` | `restart` | `-` |
+| `sre.autonomy.promotion.bench_min_precision_pct` | `restart` | `-` |
+| `sre.autonomy.promotion.bench_min_top1_pct` | `restart` | `-` |
+| `sre.autonomy.promotion.min_live_recoveries` | `restart` | `-` |
+| `sre.autonomy.promotion.min_safe_pass_pct` | `restart` | `-` |
+| `sre.autonomy.promotion.shadow_min_accepted_pct` | `restart` | `-` |
+| `sre.autonomy.promotion.shadow_min_reviewed` | `restart` | `-` |
+| `sre.autonomy.promotion.shadow_window_hours` | `restart` | `-` |
 | `sre.autonomy.proposal_ttl_hours` | `restart` | `-` |
 | `sre.autonomy.reconcile_interval_seconds` | `restart` | `-` |
+| `sre.autonomy.report_retention_days` | `restart` | `-` |
 | `sre.autonomy.safety_window_days` | `restart` | `-` |
 | `sre.change_events.allowed_sources` | `restart` | `-` |
 | `sre.change_events.feed_enabled` | `restart` | `-` |
@@ -243,8 +251,15 @@
 | `sre.change_events.hmac_secret` | `restart` | `-` |
 | `sre.change_events.retention_days` | `restart` | `-` |
 | `sre.change_events.timestamp_tolerance_seconds` | `restart` | `-` |
+| `sre.detectors.checkpoint_requested` | `restart` | `-` |
+| `sre.detectors.cooldown_minutes` | `restart` | `-` |
+| `sre.detectors.lwlock_polls` | `restart` | `-` |
+| `sre.detectors.lwlock_waiters` | `restart` | `-` |
+| `sre.detectors.temp_file_mb` | `restart` | `-` |
+| `sre.detectors.window_seconds` | `restart` | `-` |
 | `sre.evidence_retention_days` | `restart` | `-` |
 | `sre.llm.enabled` | `restart` | `-` |
+| `sre.poolers` | `restart` | `-` |
 | `sre.runways.disk_critical_hours` | `restart` | `-` |
 | `sre.runways.disk_horizon_hours` | `restart` | `-` |
 | `sre.runways.enabled` | `restart` | `-` |
@@ -283,6 +298,8 @@
 | `trust.cascade_cooldown_cycles` | `restart` | `-` |
 | `trust.level` | `live_policy` | `trust_policy` |
 | `trust.maintenance_window` | `restart` | `-` |
+| `trust.ramp_moderate_hours` | `restart` | `-` |
+| `trust.ramp_safe_hours` | `restart` | `-` |
 | `trust.ramp_start` | `restart` | `-` |
 | `trust.rollback_cooldown_days` | `restart` | `-` |
 | `trust.rollback_threshold_pct` | `restart` | `-` |
@@ -312,6 +329,7 @@
 | `tuner.work_mem_max_mb` | `restart` | `-` |
 | `value.toil_model_version` | `restart` | `-` |
 | `verify.io_baseline_days` | `restart` | `-` |
+| `verify.io_baseline_hours` | `restart` | `-` |
 | `verify.io_capacity` | `restart` | `-` |
 | `verify.io_sample_retention_days` | `restart` | `-` |
 | `verify.min_gain_pct` | `restart` | `-` |
@@ -320,3 +338,26 @@
 | `verify.window_max_minutes` | `restart` | `-` |
 | `verify.window_minutes` | `restart` | `-` |
 | `verify.write_impact_pct` | `restart` | `-` |
+
+## Per-database fields (`databases[]`)
+
+In YAML fleet mode the `fleet_databases` owner reconciles the list: an added entry starts a runtime, a removed entry drains and stops one, and a renamed entry is a removal plus an addition. `live_policy` fields apply in place to the running database; `reconfigure` fields rebuild only that database's runtime. Meta-db mode applies the same classes to `sage.databases` rows.
+
+| Field | Lifecycle | Runtime owner |
+| --- | --- | --- |
+| `databases[].analyzer_interval_seconds` | `reconfigure` | `fleet_databases` |
+| `databases[].collector_interval_seconds` | `reconfigure` | `fleet_databases` |
+| `databases[].database` | `reconfigure` | `fleet_databases` |
+| `databases[].execution_mode` | `live_policy` | `fleet_databases` |
+| `databases[].executor_enabled` | `live_policy` | `fleet_databases` |
+| `databases[].host` | `reconfigure` | `fleet_databases` |
+| `databases[].llm_enabled` | `reconfigure` | `fleet_databases` |
+| `databases[].max_connections` | `reconfigure` | `fleet_databases` |
+| `databases[].name` | `reconfigure` | `fleet_databases` |
+| `databases[].password` | `reconfigure` | `fleet_databases` |
+| `databases[].port` | `reconfigure` | `fleet_databases` |
+| `databases[].sslmode` | `reconfigure` | `fleet_databases` |
+| `databases[].tags` | `live_policy` | `fleet_databases` |
+| `databases[].trust_level` | `live_policy` | `fleet_databases` |
+| `databases[].user` | `reconfigure` | `fleet_databases` |
+| `databases[].verify.io_capacity` | `reconfigure` | `fleet_databases` |

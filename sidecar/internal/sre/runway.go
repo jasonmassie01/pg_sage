@@ -75,6 +75,7 @@ func (c *Coordinator) plan(kind TriggerKind) ([]planStep, bool) {
 		return addSignals(plan, ok, c.cfg.ActionWindow, c.signals)
 	}
 	plan, ok := planFor(kind, c.cfg.ActionWindow)
+	plan, ok = addPooler(plan, ok, kind, c.signals)
 	return addSignals(plan, ok, c.cfg.ActionWindow, c.signals)
 }
 

@@ -212,8 +212,9 @@ func verificationOptions(cfg *config.Config) verify.Options {
 }
 
 // withAdmissionOptions maps load-admission config. The IO ceilings are
-// separate keys and never inherit the CPU ceiling. io_baseline_days is
-// taken as configured: an explicit 0 disables the learned baseline.
+// separate keys and never inherit the CPU ceiling. The baseline is
+// io_baseline_hours when set, else io_baseline_days as configured: an
+// explicit 0 (with no hours) disables the learned baseline.
 func withAdmissionOptions(options verify.Options, cfg *config.Config) verify.Options {
 	if cfg.Safety.CPUCeilingPct > 0 {
 		options.CPUCeilingPct = float64(cfg.Safety.CPUCeilingPct)
@@ -224,6 +225,6 @@ func withAdmissionOptions(options verify.Options, cfg *config.Config) verify.Opt
 	if cfg.Safety.WALIOCeilingPct > 0 {
 		options.LogIOCeilingPct = float64(cfg.Safety.WALIOCeilingPct)
 	}
-	options.BaselineDays = float64(cfg.Verify.IOBaselineDays)
+	options.BaselineDays = cfg.Verify.EffectiveIOBaselineDays()
 	return options
 }

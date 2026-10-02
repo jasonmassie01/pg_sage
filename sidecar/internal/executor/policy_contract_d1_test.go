@@ -2,6 +2,8 @@ package executor
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -80,13 +82,16 @@ func TestAuthorizeRetentionDeclaresOwnerAuthority(t *testing.T) {
 			exec := New(nil, &config.Config{}, zeroTime(), nopLog)
 			exec.WithPolicyGate(gate)
 
-			err := exec.AuthorizeRetention(context.Background(), RetentionRequest{
+			_, err := exec.ExecuteRetention(context.Background(), RetentionRequest{
 				Target: "public.events", Column: tt.column, DeclaredColumn: tt.declared,
 				Window: tt.window, Cutoff: time.Now(), BatchLimit: 100,
 			})
 
-			if err != nil {
-				t.Fatalf("AuthorizeRetention: %v", err)
+			// Authorized: without a database the delete cannot run, so the
+			// executor stops at admission, after the gate saw the request.
+			if errors.Is(err, ErrActionWithheld) ||
+				!strings.Contains(fmt.Sprint(err), "database pool unavailable") {
+				t.Fatalf("ExecuteRetention = %v, want authorized then not admitted", err)
 			}
 			if gate.request.OwnerDeclared != tt.want {
 				t.Fatalf("OwnerDeclared = %v, want %v", gate.request.OwnerDeclared, tt.want)
@@ -114,14 +119,16 @@ func TestAuthorizeRetentionThroughStandingGate(t *testing.T) {
 		Cutoff: now.Add(-30 * 24 * time.Hour), BatchLimit: 100, Candidates: 10,
 	}
 
-	undeclared := exec.AuthorizeRetention(context.Background(), request)
+	_, undeclared := exec.ExecuteRetention(context.Background(), request)
 	request.DeclaredColumn = "created_at"
-	declared := exec.AuthorizeRetention(context.Background(), request)
+	_, declared := exec.ExecuteRetention(context.Background(), request)
 
 	if undeclared == nil || !strings.Contains(undeclared.Error(), "refused_by_policy") {
 		t.Fatalf("undeclared column = %v, want withheld refused_by_policy", undeclared)
 	}
-	if declared != nil {
+	// Authorized: without a database the delete stops at admission.
+	if errors.Is(declared, ErrActionWithheld) ||
+		!strings.Contains(fmt.Sprint(declared), "database pool unavailable") {
 		t.Fatalf("declared column = %v, want authorized", declared)
 	}
 }
