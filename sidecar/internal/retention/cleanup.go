@@ -134,6 +134,17 @@ var retentionExemptions = map[string]string{
 	"recommendation_transition": "immutable history; deleted with its terminal " +
 		"recommendation (ON DELETE CASCADE, actions_days)",
 	"rollout_run":            "low-volume rollout evidence ledger",
+	"rollout_instance":       "per-database steps of a rollout run; low volume",
+	// Sage SRE M7: earned-autonomy evidence. Purging by age would quietly
+	// lower or erase the evidence promotions rest on ("no harmful outcome
+	// ever"), so these are kept like the other evidence ledgers.
+	"sre_family_autonomy":    "current autonomy level, one row per family x class",
+	"sre_autonomy_proposals": "promotion proposals and their human decisions (audit)",
+	"sre_autonomy_events":    "append-only autonomy history (audit); updates are refused",
+	"sre_autonomy_outcomes":  "append-only live outcomes; promotion evidence",
+	"sre_packet_reviews":     "operator shadow reviews; promotion evidence, one per review",
+	"sre_eval_runs":          "ingested bench and game-day reports, deduplicated by hash",
+	"sre_game_days":          "game-day runs; low volume (at most one per interval_hours)",
 	"schema_baseline":        "current state, one row per object",
 	"schema_findings":        "legacy table superseded by findings (v0.11); no writer",
 	"sessions":               "expired sessions are deleted by auth's session cleaner",
