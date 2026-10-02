@@ -135,3 +135,16 @@ func (m *Monitor) read(ctx context.Context) (Snapshot, []error) {
 	s.SequencesOK = note(probes.SequenceRunwayProbe, err)
 	return s, errs
 }
+
+// Sample reads the current state and writes one sample of every series,
+// without evaluating, reporting or starting anything. PGIncidentBench
+// drives it to build trends on a compressed timescale. A standby writes
+// nothing.
+func (m *Monitor) Sample(ctx context.Context) (int, error) {
+	snap, problems := m.read(ctx)
+	if snap.WAL != nil && snap.WAL.InRecovery {
+		return 0, errors.Join(problems...)
+	}
+	n, err := m.sample(ctx, snap)
+	return n, errors.Join(append(problems, err)...)
+}
