@@ -163,3 +163,29 @@ func TestCoordinator_TriggerStartIsAttributedToTheTrigger(t *testing.T) {
 		t.Fatalf("created event actor %q, want trigger", e.Actor)
 	}
 }
+
+// Post-test audit: a resumed investigation is handed to the worker queue
+// (the loop's next scan would also find it, but resume should not wait).
+func TestService_ResumeQueuesTheInvestigation(t *testing.T) {
+	svc, ctx := opService(t)
+	inv, _, err := svc.Start(ctx, opTrigger())
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	<-svc.Coordinator().queue // Start queued it
+	stopped, err := svc.Stop(ctx, inv.ID, inv.Version, "user:7")
+	if err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if _, err := svc.Resume(ctx, inv.ID, stopped.Version, "user:7"); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	select {
+	case id := <-svc.Coordinator().queue:
+		if id != inv.ID {
+			t.Fatalf("queued %s, want %s", id, inv.ID)
+		}
+	default:
+		t.Fatal("resume did not queue the investigation")
+	}
+}

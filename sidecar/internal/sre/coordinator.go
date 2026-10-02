@@ -25,13 +25,16 @@ type ProbeRunner interface {
 	Run(ctx context.Context, id probes.ID, args probes.Args) probes.Result
 }
 
-// Trigger is a committed incident signal that asks for an investigation.
+// Trigger is a committed incident signal (or an operator's request)
+// that asks for an investigation. Actor is who asked: empty means the
+// trigger loop.
 type Trigger struct {
 	CaseID         string
 	IncidentID     string
 	Kind           TriggerKind
 	Subject        string
 	IdempotencyKey string
+	Actor          string
 }
 
 // TriggerSource yields the current committed triggers.
@@ -245,9 +248,13 @@ func (c *Coordinator) Start(ctx context.Context, t Trigger) (Investigation, bool
 		return Investigation{}, false, fmt.Errorf("%w: coordinator is not bound",
 			ErrInvalidRequest)
 	}
+	actor := t.Actor
+	if actor == "" {
+		actor = "trigger"
+	}
 	inv, created, err := c.store.Create(ctx, StartRequest{Scope: scope, CaseID: t.CaseID,
 		IncidentID: t.IncidentID, TriggerKind: t.Kind, Subject: t.Subject,
-		IdempotencyKey: t.IdempotencyKey, Actor: "trigger"})
+		IdempotencyKey: t.IdempotencyKey, Actor: actor})
 	c.durability.Observe(err)
 	if err != nil {
 		return inv, false, err
