@@ -198,3 +198,45 @@ func TestEpisodeIncidents_StoreUnavailable(t *testing.T) {
 		t.Fatalf("RecordEpisode on a database without the sage schema = %+v (%v)", inc, err)
 	}
 }
+
+// A failed persistence pass retries on its own: the incident row and its
+// notification do not wait for the next episode or analyzer cycle.
+func TestEpisodeIncidents_FailedPersistRetries(t *testing.T) {
+	dsn := testdb.CreateDatabase(t, "ep_retry")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+	pool := openComposedPool(t, ctx, dsn)
+	c := composedConfig("standalone")
+	eng := rca.NewEngine(&c.RCA, func(string, string, ...any) {})
+	eng.WithDatabaseName("retry_db")
+	if err := eng.Hydrate(ctx, pool); err != nil {
+		t.Fatalf("hydrate: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "ALTER TABLE sage.incidents RENAME TO incidents_away"); err != nil {
+		t.Fatalf("hide incidents: %v", err)
+	}
+	logs := &lineLog{}
+	sink := newEpisodeIncidents(eng, pool, logs.logFn)
+	sink.retry = 100 * time.Millisecond
+	runCtx, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() { sink.Run(runCtx); close(done) }()
+	t.Cleanup(func() { stop(); <-done })
+	inc, err := sink.RecordEpisode(ctx, tempEpisode("retry_db"))
+	if err != nil || inc.ID == "" {
+		t.Fatalf("RecordEpisode = %+v (%v)", inc, err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); len(logs.matching(
+		"persisting detector incidents failed")) < 2 && time.Now().Before(deadline); {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := len(logs.matching("persisting detector incidents failed")); n < 2 {
+		t.Fatalf("%d failed passes logged, want retries: %v", n, logs.lines)
+	}
+	if _, err := pool.Exec(ctx, "ALTER TABLE sage.incidents_away RENAME TO incidents"); err != nil {
+		t.Fatalf("restore incidents: %v", err)
+	}
+	if row := waitIncidentRow(t, ctx, pool, inc.ID); row.occurrences != 1 {
+		t.Fatalf("row after retry = %+v", row)
+	}
+}
