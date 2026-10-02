@@ -205,6 +205,7 @@ func burnInvestigations(t *testing.T, r signalsRig) int {
 
 func TestSRESignals_PagePolicy(t *testing.T) {
 	settings := sloSettings()
+	settings.AutomaticStart = false // the default is on since the LLM-defaults change
 	r := signalsFixture(t, settings)
 	if len(r.sig.probes()) != 2 {
 		t.Fatalf("signal probes = %d, want change_feed and slo_status", len(r.sig.probes()))
