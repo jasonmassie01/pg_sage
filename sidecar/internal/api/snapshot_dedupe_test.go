@@ -1,0 +1,138 @@
+package api
+
+import (
+	"context"
+	"reflect"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/snapstore"
+	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/snapfixture"
+)
+
+// Snapshot dedupe golden comparison for the snapshot API (the history
+// export): the same scenario written in the legacy format and through the
+// delta writer gives identical latest documents and history points.
+
+func dedupeLegacyPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
+	t.Helper()
+	pool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "api_snap_legacy"))
+	if err != nil {
+		t.Fatalf("connect legacy store: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := schema.Bootstrap(ctx, pool); err != nil {
+		t.Fatalf("bootstrap legacy store: %v", err)
+	}
+	return pool
+}
+
+func dedupeScenario(t *testing.T) []snapfixture.Cycle {
+	t.Helper()
+	sc := snapfixture.Scenario{
+		Start:   time.Now().UTC().Add(-3 * time.Hour).Truncate(time.Minute),
+		Step:    5 * time.Minute,
+		Cycles:  30,
+		Tables:  12,
+		Indexes: 60,
+		Seed:    7,
+		Events: snapfixture.Events{CounterReset: 5, DropIndex: 8, Redefine: 12, Rename: 15,
+			EmptyFrom: 18, EmptyTo: 20, Unavailable: 22, QueryChurn: 3},
+	}
+	cycles, err := sc.Generate()
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	return cycles
+}
+
+func seedDedupeStores(t *testing.T) (*pgxpool.Pool, *pgxpool.Pool, context.Context,
+	[]snapfixture.Cycle) {
+	t.Helper()
+	deltaPool, ctx := phase2RequireDB(t)
+	if _, err := deltaPool.Exec(ctx, "DELETE FROM sage.snapshots"); err != nil {
+		t.Fatalf("clean snapshots: %v", err)
+	}
+	t.Cleanup(func() { _, _ = deltaPool.Exec(ctx, "DELETE FROM sage.snapshots") })
+	legacyPool := dedupeLegacyPool(t, ctx)
+	cycles := dedupeScenario(t)
+	w := snapstore.NewWriter()
+	for _, c := range cycles {
+		rows := make([]snapstore.Row, 0, len(c.Docs))
+		for _, d := range c.Docs {
+			rows = append(rows, snapstore.Row{Category: d.Category, Data: d.Data})
+		}
+		if err := w.Persist(ctx, deltaPool, c.At, rows); err != nil {
+			t.Fatalf("persist delta: %v", err)
+		}
+		if err := snapfixture.InsertLegacy(ctx, legacyPool, c); err != nil {
+			t.Fatalf("persist legacy: %v", err)
+		}
+	}
+	return deltaPool, legacyPool, ctx, cycles
+}
+
+var dedupeMetrics = []string{"indexes", "tables", "sequences", "queries",
+	"foreign_keys", "partitions", "system", "locks"}
+
+// Latest and history (sliding window and explicit range) are identical
+// for every category, and the delta store really holds deltas.
+func TestSnapshotAPI_DedupeGolden(t *testing.T) {
+	deltaPool, legacyPool, ctx, cycles := seedDedupeStores(t)
+	var deltas int
+	if err := deltaPool.QueryRow(ctx, `SELECT count(*) FROM sage.snapshots
+		WHERE base_id IS NOT NULL`).Scan(&deltas); err != nil || deltas == 0 {
+		t.Fatalf("delta rows = %d (%v), want some", deltas, err)
+	}
+	from, to := cycles[3].At, cycles[25].At
+	for _, metric := range dedupeMetrics {
+		gotL, err1 := querySnapshotLatest(ctx, deltaPool, metric)
+		wantL, err2 := querySnapshotLatest(ctx, legacyPool, metric)
+		if err1 != nil || err2 != nil || !reflect.DeepEqual(gotL, wantL) {
+			t.Errorf("%s latest differs (%v / %v)", metric, err1, err2)
+		}
+		for _, window := range []struct{ from, to time.Time }{{}, {from, to}} {
+			got, err1 := querySnapshotHistory(ctx, deltaPool, metric, 24, window.from, window.to)
+			want, err2 := querySnapshotHistory(ctx, legacyPool, metric, 24, window.from,
+				window.to)
+			if err1 != nil || err2 != nil {
+				t.Fatalf("%s history: %v / %v", metric, err1, err2)
+			}
+			if len(want) == 0 || !reflect.DeepEqual(got, want) {
+				t.Errorf("%s history %v-%v differs: %d vs %d points", metric, window.from,
+					window.to, len(got), len(want))
+			}
+		}
+	}
+}
+
+// A delta row whose keyframe was deleted by hand reads as a null document,
+// never as an error or a wrong document.
+func TestSnapshotAPI_OrphanDeltaReadsNull(t *testing.T) {
+	deltaPool, _, ctx, _ := seedDedupeStores(t)
+	var baseID int64
+	if err := deltaPool.QueryRow(ctx, `SELECT base_id FROM sage.snapshots
+		WHERE category = 'indexes' AND base_id IS NOT NULL
+		ORDER BY collected_at DESC LIMIT 1`).Scan(&baseID); err != nil {
+		t.Fatalf("find newest delta: %v", err)
+	}
+	if _, err := deltaPool.Exec(ctx, `DELETE FROM sage.snapshots WHERE id = $1`,
+		baseID); err != nil {
+		t.Fatalf("delete keyframe: %v", err)
+	}
+	latest, err := querySnapshotLatest(ctx, deltaPool, "indexes")
+	if err != nil || latest != nil {
+		t.Fatalf("latest = %v (%v), want null without error", latest, err)
+	}
+	points, err := querySnapshotHistory(ctx, deltaPool, "indexes", 24, time.Time{}, time.Time{})
+	if err != nil || len(points) == 0 {
+		t.Fatalf("history = %d points (%v)", len(points), err)
+	}
+	if last := points[len(points)-1]; last["data"] != nil {
+		t.Fatalf("orphan point = %v, want null data", last["data"])
+	}
+}
