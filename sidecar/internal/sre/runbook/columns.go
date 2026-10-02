@@ -122,9 +122,12 @@ func boundary(s string, i int) bool {
 	if i < 0 || i >= len(s) {
 		return true
 	}
-	c := s[i]
-	return !(c == '_' || c == '.' || c == '"' || (c >= 'a' && c <= 'z') ||
-		(c >= '0' && c <= '9'))
+	return !identByte(s[i])
+}
+
+func identByte(c byte) bool {
+	return c == '_' || c == '.' || c == '"' || (c >= 'a' && c <= 'z') ||
+		(c >= '0' && c <= '9')
 }
 
 func splitTopLevel(list string) []string {

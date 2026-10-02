@@ -146,7 +146,8 @@ func evalRowCount(p Predicate, r probes.Result) (Truth, string) {
 	n := float64(len(r.Rows))
 	t := truthOf(compare(n, p.Cmp, *p.Value))
 	why := fmt.Sprintf("probe %s returned %d rows", p.Probe, len(r.Rows))
-	if r.Truncated && !(t == True && (p.Cmp == ">" || p.Cmp == ">=")) {
+	lowerBound := t == True && (p.Cmp == ">" || p.Cmp == ">=")
+	if r.Truncated && !lowerBound {
 		return Unknown, truncated(p)
 	}
 	return t, why
