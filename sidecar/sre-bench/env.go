@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -31,20 +30,12 @@ type Env struct {
 // NewEnv bootstraps the sage schema on dsn's database.
 func NewEnv(ctx context.Context, t *testing.T, dsn string) *Env {
 	t.Helper()
-	pool, err := pgxpool.New(ctx, dsn)
+	env, closeEnv, err := OpenEnv(ctx, dsn)
 	if err != nil {
-		t.Fatalf("connect bench database: %v", err)
+		t.Fatalf("bench database: %v", err)
 	}
-	t.Cleanup(pool.Close)
-	if err := schema.Bootstrap(ctx, pool); err != nil {
-		t.Fatalf("bootstrap bench database: %v", err)
-	}
-	st, err := sre.NewPostgresStore(pool, benchLimits())
-	if err != nil {
-		t.Fatalf("store: %v", err)
-	}
-	return &Env{DSN: dsn, Pool: pool, Store: st,
-		Runner: probes.NewRunner(pool, probes.Catalog(), probes.NewLimiter(1))}
+	t.Cleanup(closeEnv)
+	return env
 }
 
 // session is a background connection a fault program holds open. err

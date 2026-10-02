@@ -1,0 +1,246 @@
+package earned
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// HandoffKeyPrefix starts the action-queue identity of an L2 handoff:
+// autonomy:<family>:<class>:<target>.
+const HandoffKeyPrefix = "autonomy:"
+
+// HandoffKey is the action-queue identity of an L2 handoff.
+func HandoffKey(f Family, c ActionClass, targets []string) string {
+	return HandoffKeyPrefix + string(f) + ":" + string(c) + ":" + strings.Join(targets, ",")
+}
+
+// AutoExecution is an L3 action pg_sage executed on its own.
+type AutoExecution struct {
+	Database    string      `json:"database"`
+	ActionLogID int64       `json:"action_log_id"`
+	Family      Family      `json:"family"`
+	Class       ActionClass `json:"class"`
+	SQL         string      `json:"sql"`
+	ExecutedAt  time.Time   `json:"executed_at"`
+}
+
+// Notifier tells a human about an L3 auto-execution.
+type Notifier interface {
+	NotifyAutonomous(ctx context.Context, a AutoExecution) error
+}
+
+// ReconcileResult counts one reconciliation pass.
+type ReconcileResult struct {
+	Recorded int `json:"recorded"`
+	Notified int `json:"notified"`
+	Pending  int `json:"pending"`
+	Skipped  int `json:"skipped"`
+}
+
+// Reconciler turns one monitored database's executed family actions into
+// ledger outcomes: approved L2 handoffs and L3 auto-executions, matched
+// to their action_log row and verification verdict.
+type Reconciler struct {
+	svc      *Service
+	pool     *pgxpool.Pool
+	database string
+	notifier Notifier
+	lookback time.Duration
+}
+
+// NewReconciler reads monitored (the database named database).
+func NewReconciler(svc *Service, monitored *pgxpool.Pool, database string,
+	notifier Notifier) *Reconciler {
+	return &Reconciler{svc: svc, pool: monitored, database: database, notifier: notifier,
+		lookback: 30 * 24 * time.Hour}
+}
+
+// executed is one executed family action in the monitored database.
+type executed struct {
+	family       Family
+	class        ActionClass
+	level        Level
+	actionLogID  int64
+	outcome      string
+	verification string
+	sql          string
+	at           time.Time
+}
+
+// RunOnce records every decided outcome not yet recorded and notifies
+// each L3 execution once. A failed notification is retried next pass.
+func (r *Reconciler) RunOnce(ctx context.Context) (ReconcileResult, error) {
+	var res ReconcileResult
+	if r == nil || r.svc == nil || r.pool == nil || strings.TrimSpace(r.database) == "" {
+		return res, fmt.Errorf("%w: reconciler needs a ledger, a database and its pool",
+			ErrUnavailable)
+	}
+	handoffs, skipped, err := r.handoffs(ctx)
+	if err != nil {
+		return res, err
+	}
+	res.Skipped = skipped
+	autos, skipped, err := r.autoExecutions(ctx)
+	if err != nil {
+		return res, err
+	}
+	res.Skipped += skipped
+	notifyErr := r.notifyAll(ctx, autos, &res)
+	for _, x := range append(handoffs, autos...) {
+		if err := r.record(ctx, x, &res); err != nil {
+			return res, err
+		}
+	}
+	return res, notifyErr
+}
+
+func (r *Reconciler) record(ctx context.Context, x executed, res *ReconcileResult) error {
+	result, decided := classifyOutcome(x.outcome, x.verification)
+	if !decided {
+		res.Pending++
+		return nil
+	}
+	inserted, err := r.svc.recordOutcome(ctx, Outcome{Database: r.database,
+		ActionLogID: x.actionLogID, Family: x.family, Class: x.class, Level: x.level,
+		Result: result, Source: SourceExecutor, Actor: ActorPgSage,
+		Detail: fmt.Sprintf("action_log %s, verification %q", x.outcome, x.verification)})
+	if inserted {
+		res.Recorded++
+	}
+	return err
+}
+
+// classifyOutcome maps an action's outcome and verification verdict to a
+// ledger result; decided is false while verification is still running.
+func classifyOutcome(outcome, verification string) (string, bool) {
+	switch {
+	case outcome == "rolled_back" || outcome == "reverted" ||
+		outcome == "rollback_failed" || verification == "revert":
+		return ResultHarmful, true
+	case outcome == "failed" || verification == "failed" || verification == "unverifiable":
+		return ResultNotRecovered, true
+	case outcome == "success" && (verification == "" || verification == "success"):
+		return ResultVerifiedRecovery, true
+	}
+	return "", false
+}
+
+const handoffSQL = `/* pg_sage */ SELECT q.identity_key, l.id, l.outcome,
+	COALESCE(v.verdict, ''), l.sql_executed, l.executed_at
+	FROM sage.action_queue q
+	JOIN sage.action_log l ON l.id = q.action_log_id
+	LEFT JOIN sage.verification v ON v.id = l.verification_id
+	WHERE q.identity_key LIKE 'autonomy:%'
+	  AND l.executed_at > now() - make_interval(secs => $1::double precision)
+	ORDER BY l.id LIMIT 1000`
+
+// handoffs reads executed L2 handoffs; malformed keys are skipped.
+func (r *Reconciler) handoffs(ctx context.Context) ([]executed, int, error) {
+	rows, err := r.pool.Query(ctx, handoffSQL, r.lookback.Seconds())
+	if err != nil {
+		return nil, 0, fmt.Errorf("read executed autonomy handoffs: %w", err)
+	}
+	defer rows.Close()
+	var out []executed
+	skipped := 0
+	for rows.Next() {
+		var key string
+		x := executed{level: L2}
+		if err := rows.Scan(&key, &x.actionLogID, &x.outcome, &x.verification, &x.sql,
+			&x.at); err != nil {
+			return nil, 0, fmt.Errorf("scan autonomy handoff: %w", err)
+		}
+		var ok bool
+		if x.family, x.class, ok = parseHandoffKey(key); !ok {
+			skipped++
+			r.svc.cfg.logf("autonomy: skip handoff %d with malformed key %q on %s",
+				x.actionLogID, key, r.database)
+			continue
+		}
+		out = append(out, x)
+	}
+	return out, skipped, rows.Err()
+}
+
+func parseHandoffKey(key string) (Family, ActionClass, bool) {
+	parts := strings.SplitN(key, ":", 4)
+	if len(parts) != 4 || parts[0]+":" != HandoffKeyPrefix || parts[3] == "" {
+		return "", "", false
+	}
+	f, c := Family(parts[1]), ActionClass(parts[2])
+	return f, c, KnownFamily(f) && knownClass(c)
+}
+
+const autoExecutionSQL = `/* pg_sage */ SELECT COALESCE(d.evidence->>'incident_family', ''),
+	COALESCE(d.evidence->>'autonomy_class', ''), l.id, l.outcome, COALESCE(v.verdict, ''),
+	l.sql_executed, l.executed_at
+	FROM sage.decision d
+	JOIN sage.action_log l ON l.decision_id = d.id
+	LEFT JOIN sage.verification v ON v.id = l.verification_id
+	WHERE d.reason = 'autonomy_l3' AND d.verdict = 'execute'
+	  AND l.executed_at > now() - make_interval(secs => $1::double precision)
+	ORDER BY l.id LIMIT 1000`
+
+// autoExecutions reads executed L3 actions.
+func (r *Reconciler) autoExecutions(ctx context.Context) ([]executed, int, error) {
+	rows, err := r.pool.Query(ctx, autoExecutionSQL, r.lookback.Seconds())
+	if err != nil {
+		return nil, 0, fmt.Errorf("read autonomous executions: %w", err)
+	}
+	defer rows.Close()
+	var out []executed
+	skipped := 0
+	for rows.Next() {
+		var family, class string
+		x := executed{level: L3}
+		if err := rows.Scan(&family, &class, &x.actionLogID, &x.outcome, &x.verification,
+			&x.sql, &x.at); err != nil {
+			return nil, 0, fmt.Errorf("scan autonomous execution: %w", err)
+		}
+		x.family, x.class = Family(family), ActionClass(class)
+		if !KnownFamily(x.family) || !knownClass(x.class) {
+			skipped++
+			continue
+		}
+		out = append(out, x)
+	}
+	return out, skipped, rows.Err()
+}
+
+// notifyAll notifies each L3 execution not yet notified, then records
+// it; a failed notification is not recorded, so the next pass retries.
+func (r *Reconciler) notifyAll(ctx context.Context, autos []executed,
+	res *ReconcileResult) error {
+	var errs []error
+	for _, x := range autos {
+		done, err := r.svc.store.autoExecutedRecorded(ctx, r.database, x.actionLogID)
+		if err != nil {
+			return err
+		}
+		if done {
+			continue
+		}
+		a := AutoExecution{Database: r.database, ActionLogID: x.actionLogID,
+			Family: x.family, Class: x.class, SQL: x.sql, ExecutedAt: x.at.UTC()}
+		if r.notifier != nil {
+			if err := r.notifier.NotifyAutonomous(ctx, a); err != nil {
+				errs = append(errs, fmt.Errorf("notify L3 action %d on %s: %w",
+					x.actionLogID, r.database, err))
+				continue
+			}
+		}
+		if err := r.svc.store.appendEvent(ctx, r.svc.store.pool, Event{Family: x.family,
+			Class: x.class, Type: EventAutoExecuted, Actor: ActorPgSage,
+			Reason: "executed at L3; a human was notified", Database: r.database,
+			ActionLogID: x.actionLogID, At: r.svc.now()}); err != nil {
+			return err
+		}
+		res.Notified++
+	}
+	return errors.Join(errs...)
+}

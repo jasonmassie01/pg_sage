@@ -69,6 +69,7 @@ func (e *Executor) newStandingPolicyGate(
 		},
 		ValidateSQL: ValidateExecutorSQL,
 		Usage:       e.standingUsage,
+		Autonomy:    e.autonomyLimiter(),
 		Policy: func(ctx context.Context, _ policy.ActionRequest) (policy.Document, error) {
 			current, err := store.Current(ctx, scope)
 			if err != nil {
@@ -101,6 +102,7 @@ func ledgerInput(
 	evidenceID := ledger.NewEvidenceID()
 	evidence := cloneCustodianEvidence(request.Evidence)
 	evidence["off_window_ok"] = decision.OffWindowOK
+	autonomyEvidence(evidence, request)
 	input := ledger.DecisionInput{
 		DatabaseID: databaseID, Feature: request.Feature, Intent: ledgerIntent(request),
 		Evidence:    evidence,
@@ -159,7 +161,8 @@ func (e *Executor) EnableStandingPolicyDocument(doc policy.Document, now func() 
 		Policy: func(context.Context, policy.ActionRequest) (policy.Document, error) {
 			return doc, nil
 		},
-		Now: now,
+		Now:      now,
+		Autonomy: e.autonomyLimiter(),
 	}
 	if e.pool != nil {
 		decisions := ledger.NewService(ledger.NewPostgresRepository(e.pool))

@@ -45,6 +45,8 @@ func startMCPRuntime() {
 		// Sage SRE action tools (sre_propose_action, sre_request_execution)
 		// propose and queue; they never execute.
 		Actions: access,
+		// Earned autonomy: read, and operator downgrade (never approval).
+		Autonomy: autonomyMCPBackend{registry: processAutonomy().registry},
 	})
 	if err != nil {
 		logError("mcp", "production backend: %v", err)

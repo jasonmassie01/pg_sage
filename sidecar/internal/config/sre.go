@@ -25,6 +25,8 @@ type SREConfig struct {
 	Actions SREActionsConfig `yaml:"actions"`
 	// Runways are the pre-incident runways (M6).
 	Runways RunwayConfig `yaml:"runways"`
+	// Autonomy is earned autonomy (M7).
+	Autonomy SREAutonomyConfig `yaml:"autonomy"`
 }
 
 // SRELLMConfig configures the investigator's model turn: with an LLM
@@ -55,7 +57,8 @@ func defaultSREConfig() SREConfig {
 		SLO:                    defaultSRESLOConfig(),
 		ChangeEvents:           defaultSREChangeEventsConfig(),
 		Actions:                defaultSREActionsConfig(),
-		Runways:                defaultRunwayConfig()}
+		Runways:                defaultRunwayConfig(),
+		Autonomy:               defaultSREAutonomyConfig()}
 }
 
 // TriggerInterval is the coordinator poll period.
@@ -114,5 +117,8 @@ func (s SREConfig) validate() error {
 	if err := s.ChangeEvents.validate(); err != nil {
 		return err
 	}
-	return s.Runways.validate()
+	if err := s.Runways.validate(); err != nil {
+		return err
+	}
+	return s.Autonomy.validate()
 }

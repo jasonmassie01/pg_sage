@@ -52,10 +52,10 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 		return blocked(ReasonUnknownTrustLevel, runtime.TrustLevel)
 	}
 	doc, decision, stop := gate.documentDecision(ctx, req)
-	if stop {
-		return decision
+	if !stop {
+		decision = withLockCeiling(doc, gate.selfInitiatedDecision(doc, runtime, req))
 	}
-	return withLockCeiling(doc, gate.selfInitiatedDecision(doc, runtime, req))
+	return gate.restrictAutonomy(ctx, doc, runtime, req, decision)
 }
 
 // selfInitiatedDecision lets trust, mode, tier flags and ramp decide first.

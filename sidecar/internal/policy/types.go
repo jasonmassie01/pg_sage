@@ -140,6 +140,16 @@ type ActionRequest struct {
 	// OwnerDeclared marks a request that runs under an owner's explicit
 	// declaration (a retention contract), which is its authority.
 	OwnerDeclared bool
+	// IncidentFamily names the Sage SRE incident family this action
+	// remediates; the earned-autonomy ledger governs self-initiated
+	// requests that carry one (M7).
+	IncidentFamily string
+	// EvidenceObservedAt is when the evidence behind the action was
+	// observed; stale evidence downgrades earned autonomy.
+	EvidenceObservedAt time.Time
+	// LeaseHeld marks the re-authorization that follows this action's own
+	// change lease, which is therefore not a concurrent writer.
+	LeaseHeld bool
 }
 
 type Decision struct {
@@ -218,6 +228,9 @@ type GateConfig struct {
 	RecordDecision         func(context.Context, ActionRequest, Decision) (string, error)
 	RecordDecisionDetailed func(context.Context, ActionRequest, Decision) (string, int64, error)
 	Now                    func() time.Time
+	// Autonomy is the earned-autonomy ledger (M7); nil leaves verdicts as
+	// trust, mode, tiers and windows decide them.
+	Autonomy AutonomyLimiter
 }
 
 var (

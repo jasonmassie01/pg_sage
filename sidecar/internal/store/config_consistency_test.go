@@ -189,6 +189,26 @@ var excludedExactKeys = map[string]bool{
 	"sre.runways.sequence_horizon_days":     true,
 	"sre.runways.sequence_critical_days":    true,
 	"sre.runways.sample_retention_hours":    true,
+	// Sage SRE M7: earned-autonomy settings are read when a database
+	// runtime is built (restart lifecycle) and validated at load, so they
+	// are YAML-only. enforce in particular must not be switchable over the
+	// API: turning it off returns incident-family actions to the trust ramp.
+	"sre.autonomy.enforce":                     true,
+	"sre.autonomy.bench_results_path":          true,
+	"sre.autonomy.evaluate_interval_minutes":   true,
+	"sre.autonomy.reconcile_interval_seconds":  true,
+	"sre.autonomy.max_evidence_age_seconds":    true,
+	"sre.autonomy.concurrency_window_minutes":  true,
+	"sre.autonomy.safety_window_days":          true,
+	"sre.autonomy.failover_cooldown_minutes":   true,
+	"sre.autonomy.proposal_ttl_hours":          true,
+	"sre.autonomy.game_days.enabled":           true,
+	"sre.autonomy.game_days.interval_hours":    true,
+	"sre.autonomy.game_days.local_dsn":         true,
+	"sre.autonomy.game_days.families":          true,
+	"sre.autonomy.canary.canary_instances":     true,
+	"sre.autonomy.canary.regression_limit_pct": true,
+	"sre.autonomy.canary.settle_seconds":       true,
 }
 
 // structFieldPaths walks a struct type using reflection and returns

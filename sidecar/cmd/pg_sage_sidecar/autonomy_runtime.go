@@ -40,6 +40,8 @@ func (r executorProposalRouter) Route(
 		Deadline:      proposal.Deadline,
 		Evidence:      proposal.Evidence,
 		IsReplica:     r.replica(ctx),
+		// The custodian sampled this evidence in the same cycle, just now.
+		ObservedAt: time.Now(),
 	}
 	if strings.TrimSpace(proposal.SQL) == "" {
 		r.executor.EvaluateCustodianProposal(ctx, candidate)
@@ -57,6 +59,7 @@ func (r executorProposalRouter) RouteVerifiedIndex(
 		TargetObjects: append([]string(nil), proposal.TargetObjects...),
 		Deadline:      proposal.Deadline,
 		IsReplica:     r.replica(ctx),
+		ObservedAt:    time.Now(),
 	}, rollbackSQL, queryIDs)
 }
 
