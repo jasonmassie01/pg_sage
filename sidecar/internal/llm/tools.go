@@ -12,7 +12,7 @@ import (
 
 // Tool calling (Sage SRE M0). ChatWithTools is the OpenAI-compatible
 // tools/tool_choice exchange used by incident narration. It is strictly
-// bounded: one provider attempt per call (no retry ladder), the client's
+// bounded: no retry ladder (only a wire-shape rejection is re-sent), the client's
 // daily and per-database budgets, an optional per-call timeout, and the
 // Reconfigure kill switch. Tool execution itself stays with the caller.
 
@@ -96,9 +96,10 @@ type ToolResult struct {
 
 var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// ChatWithTools sends one tool-calling chat turn. It never retries: a
-// rate limit returns ErrRateLimited at once so callers can fall back
-// inside their own deadline.
+// ChatWithTools sends one tool-calling chat turn. It never retries a
+// failure: a rate limit returns ErrRateLimited at once so callers can fall
+// back inside their own deadline. Only a request-shape rejection in auto
+// mode is re-sent, once per kind (wire_compat.go).
 func (c *Client) ChatWithTools(
 	ctx context.Context, msgs []Message, tools []ToolSpec, opts ToolOptions,
 ) (ToolResult, error) {

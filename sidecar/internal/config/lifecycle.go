@@ -148,7 +148,7 @@ func isLLMResourceField(path string) bool {
 	for _, suffix := range []string{
 		"enabled", "endpoint", "api_key", "model",
 		"timeout_seconds", "cooldown_seconds",
-		"json_mode",
+		"json_mode", "token_parameter", "tool_reasoning_effort",
 	} {
 		if path == "llm."+suffix {
 			return true

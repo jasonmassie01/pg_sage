@@ -175,6 +175,9 @@ func optimizerLLMConfig(parent config.LLMConfig) config.LLMConfig {
 		TokenBudgetDaily: firstPositive(opt.TokenBudgetDaily, parent.TokenBudgetDaily),
 		CooldownSeconds:  firstPositive(opt.CooldownSeconds, parent.CooldownSeconds),
 		JSONMode:         parent.JSONMode,
+		// Wire overrides describe the provider, like json_mode.
+		TokenParameter:      parent.TokenParameter,
+		ToolReasoningEffort: parent.ToolReasoningEffort,
 	}
 	// The optimizer tier never outlives the global kill switch.
 	merged.Enabled = merged.Enabled && parent.Enabled

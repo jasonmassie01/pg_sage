@@ -1,15 +1,16 @@
 //go:build e2e
 
-// Package e2e — LLM integration tests that hit the real Gemini
-// API. These exercise the actual prompt+response parsing paths
-// that mocks cannot cover.
+// Package e2e — LLM integration tests that hit a real provider
+// (Gemini's OpenAI-compatible API unless SAGE_LLM_ENDPOINT and
+// SAGE_LLM_MODEL name another). These exercise the actual
+// prompt+response parsing paths that mocks cannot cover.
 //
 // Run with:
 //
 //	SAGE_LLM_API_KEY=<key> go test -tags=e2e -count=1 \
 //	    -timeout 300s ./e2e/ -run TestLLM
 //
-// Requires: SAGE_LLM_API_KEY set to a valid Gemini API key.
+// Requires: SAGE_LLM_API_KEY set to a valid key for the provider.
 package e2e
 
 import (
@@ -44,16 +45,24 @@ func requireAPIKey(t *testing.T) string {
 	return key
 }
 
-// newTestLLMConfig builds an LLMConfig for the Gemini endpoint
-// with the given token budget.
+// envOrDefault returns the environment value of key, or fallback.
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// newTestLLMConfig builds an LLMConfig for the live provider
+// (Gemini by default) with the given token budget.
 func newTestLLMConfig(
 	apiKey string, budget int,
 ) *config.LLMConfig {
 	return &config.LLMConfig{
 		Enabled:          true,
-		Endpoint:         geminiEndpoint,
+		Endpoint:         envOrDefault("SAGE_LLM_ENDPOINT", geminiEndpoint),
 		APIKey:           apiKey,
-		Model:            geminiModel,
+		Model:            envOrDefault("SAGE_LLM_MODEL", geminiModel),
 		TimeoutSeconds:   30,
 		TokenBudgetDaily: budget,
 		CooldownSeconds:  5,
