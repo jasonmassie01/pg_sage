@@ -353,6 +353,21 @@ graph and stores the result: the likely explanation, contributing factors, alter
 ruled-out explanations, each citing its evidence, the evidence that could not be collected,
 and an operator step. Nothing is executed. "Inconclusive" is a normal outcome.
 
+Four more families are investigated the same way: **checkpoint storms**, **temp-file
+explosions**, **replication lag** and **LWLock contention**. Their triggers are the RCA
+incidents for "checkpoints are occurring too frequently", temp files, replication conflicts and
+replication lag (`replication_lag_increasing`), plus a deterministic detector that samples the
+database once per trigger poll (only while `sre.automatic_start` is on). The detector opens one
+investigation per episode, with conservative thresholds: 3 or more requested checkpoints
+within 5 minutes that outnumber timed ones; 1 GiB of temp files in this database within 5
+minutes; or 8 or more backends waiting on one modeled LWLock in 3 consecutive polls. After an
+episode ends, the same family waits 30 minutes before a new one. A checkpoint investigation
+compares samples 6 sample intervals apart (30 s by default). The live-temp-file probe needs
+`pg_monitor` (or superuser), and per-statement spills need `pg_stat_statements`. Without them,
+the investigation reports the evidence as unavailable instead of guessing. Standby-side
+evidence (paused replay, standby queries holding replay back) is only visible when pg_sage
+monitors the standby itself.
+
 **Model turn (on by default whenever an LLM is configured).** After the causal graph has
 scored the hypotheses, the configured LLM (`llm.*`) reviews the result. It may only:
 
@@ -385,7 +400,7 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 
 | Parameter | Default | Description |
 |---|---|---|
-| `sre.automatic_start` | `false` | Start investigations from incidents and plan regressions. Off: investigations already stored are still resumed and retained. Restart to change |
+| `sre.automatic_start` | `false` | Start investigations from incidents, plan regressions and the reactive detector. Off: investigations already stored are still resumed and retained. Restart to change |
 | `sre.trigger_interval_seconds` | `15` | Seconds between checks for new triggers and pending investigations, `5`-`600` |
 | `sre.sample_interval_seconds` | `5` | Seconds between the two samples connection and WAL investigations compare, `1`-`30` |
 | `sre.evidence_retention_days` | `30` | Days a finished, unpinned investigation keeps its probe evidence. The delete leaves a tombstone, and the investigation is shown as "evidence deleted by retention" |

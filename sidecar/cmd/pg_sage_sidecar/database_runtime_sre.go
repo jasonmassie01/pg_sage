@@ -57,9 +57,12 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 	cc.SampleInterval = d.settings.SampleInterval()
 	cc.Retention.EvidenceAge = d.settings.EvidenceRetention()
 	cc.Retention.TimelineAge = d.settings.TimelineRetention()
+	triggers, err := sreTriggerSource(d)
+	if err != nil {
+		return nil, err
+	}
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: d.runner,
-		Triggers: sre.NewPGTriggerSource(d.monitored, d.name), Config: cc,
-		LogFn: d.logFn, Model: model, Notices: notices})
+		Triggers: triggers, Config: cc, LogFn: d.logFn, Model: model, Notices: notices})
 	if err != nil {
 		return nil, fmt.Errorf("sre coordinator: %w", err)
 	}
