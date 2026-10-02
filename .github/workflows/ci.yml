@@ -85,16 +85,54 @@ jobs:
           jq -rj 'select(.Action=="output") | .Output' ../e2e.json
           exit $status
 
-      # The full bench has its own step and timeout: it grows with every
-      # incident family and must not crowd the ./... suites.
-      - name: PGIncidentBench
+      # The bench runs in shards by incident family (SAGE_BENCH_FAMILIES), each
+      # its own step under 20 minutes, so it neither crowds the ./... suites
+      # nor needs one long timeout. Every bench family must be in exactly one
+      # shard (sre-bench/ci_split_test.go). The later shards run even when
+      # an earlier shard failed.
+      - name: PGIncidentBench (core families)
+        id: bench-core
         working-directory: sidecar
+        timeout-minutes: 40
         env:
           SAGE_BENCH_RUN: "1"
+          SAGE_BENCH_FAMILIES: lock_blocking,connection_pressure,wal_retention,plan_regression
+          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/core
         run: |
           status=0
-          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 1800s -json > ../bench.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../bench.json
+          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
+            > ../bench-core.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench-core.json
+          exit $status
+
+      - name: PGIncidentBench (M6 reactive families)
+        if: ${{ !cancelled() && steps.bench-core.conclusion != 'skipped' }}
+        working-directory: sidecar
+        timeout-minutes: 40
+        env:
+          SAGE_BENCH_RUN: "1"
+          SAGE_BENCH_FAMILIES: checkpoint_storm,temp_file_explosion,replication_lag,lwlock_contention
+          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/reactive
+        run: |
+          status=0
+          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
+            > ../bench-reactive.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench-reactive.json
+          exit $status
+
+      - name: PGIncidentBench (M6 runway families)
+        if: ${{ !cancelled() && steps.bench-core.conclusion != 'skipped' }}
+        working-directory: sidecar
+        timeout-minutes: 40
+        env:
+          SAGE_BENCH_RUN: "1"
+          SAGE_BENCH_FAMILIES: wraparound_runway,disk_wal_runway,sequence_runway
+          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/runway
+        run: |
+          status=0
+          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
+            > ../bench-runway.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench-runway.json
           exit $status
 
       # PGIncidentBench writes its JSON result and Markdown summary here.
@@ -156,14 +194,50 @@ jobs:
           jq -rj 'select(.Action=="output") | .Output' ../integration.json
           exit $status
 
-      - name: PGIncidentBench
+      # The same shards as the PostgreSQL 17 job: the M6 probes have
+      # per-version variants (pg_stat_bgwriter vs pg_stat_checkpointer,
+      # pg_stat_wal columns removed in 18), so every family runs on every
+      # version.
+      - name: PGIncidentBench (core families)
+        id: bench-core
         working-directory: sidecar
+        timeout-minutes: 40
         env:
           SAGE_BENCH_RUN: "1"
+          SAGE_BENCH_FAMILIES: lock_blocking,connection_pressure,wal_retention,plan_regression
         run: |
           status=0
-          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 1800s -json > ../bench.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../bench.json
+          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
+            > ../bench-core.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench-core.json
+          exit $status
+
+      - name: PGIncidentBench (M6 reactive families)
+        if: ${{ !cancelled() && steps.bench-core.conclusion != 'skipped' }}
+        working-directory: sidecar
+        timeout-minutes: 40
+        env:
+          SAGE_BENCH_RUN: "1"
+          SAGE_BENCH_FAMILIES: checkpoint_storm,temp_file_explosion,replication_lag,lwlock_contention
+        run: |
+          status=0
+          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
+            > ../bench-reactive.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench-reactive.json
+          exit $status
+
+      - name: PGIncidentBench (M6 runway families)
+        if: ${{ !cancelled() && steps.bench-core.conclusion != 'skipped' }}
+        working-directory: sidecar
+        timeout-minutes: 40
+        env:
+          SAGE_BENCH_RUN: "1"
+          SAGE_BENCH_FAMILIES: wraparound_runway,disk_wal_runway,sequence_runway
+        run: |
+          status=0
+          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
+            > ../bench-runway.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench-runway.json
           exit $status
 
       - name: Skip budget
