@@ -32,7 +32,7 @@ func TestSREMigrationM3_ModelEventTypes(t *testing.T) {
 	}
 	var defs []string
 	rows, err := pool.Query(ctx, `SELECT conname || ' ' || pg_get_constraintdef(oid)
-		FROM pg_constraint WHERE conrelid = 'sage.sre_events'::regclass
+		FROM pg_constraint WHERE conrelid = 'sage.sre_events'::regclass AND contype = 'c'
 		  AND pg_get_constraintdef(oid) LIKE '%event_type%'`)
 	if err != nil {
 		t.Fatalf("constraints: %v", err)
