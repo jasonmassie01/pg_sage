@@ -253,7 +253,7 @@ func TestCatalog_WALRunwayReadsPositionAndSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first: %v", err)
 	}
-	if _, err := pool.Exec(ctx, "SELECT pg_logical_emit_message(false, 'sre', "+
+	if _, err := pool.Exec(ctx, "SELECT pg_logical_emit_message(true, 'sre', "+
 		"repeat('x', 200000))"); err != nil {
 		t.Fatalf("emit: %v", err)
 	}
@@ -351,8 +351,8 @@ func TestCatalog_SequenceRunwayFindsTheBindingLimit(t *testing.T) {
 	}
 	got := map[string]SequenceRunway{}
 	for _, s := range ss {
-		if strings.HasPrefix(s.Sequence, q+".") {
-			got[strings.TrimPrefix(s.Sequence, q+".")] = s
+		if strings.HasPrefix(s.Sequence, sch+".") {
+			got[strings.TrimPrefix(s.Sequence, sch+".")] = s
 		}
 	}
 	checkSequence(t, got, "int_seq", LimitSequenceType, 2147483647, "integer")
@@ -367,7 +367,7 @@ func TestCatalog_SequenceRunwayFindsTheBindingLimit(t *testing.T) {
 	if f, ok := got["fresh_seq"]; !ok || !math.IsNaN(f.LastValue) || !math.IsNaN(f.Fraction) {
 		t.Fatalf("never-called sequence = %+v (%v), want an unknown last value", f, ok)
 	}
-	if got["int_seq"].OwnerColumn != q+".a.id" {
+	if got["int_seq"].OwnerColumn != sch+".a.id" {
 		t.Fatalf("owner column = %q", got["int_seq"].OwnerColumn)
 	}
 }
