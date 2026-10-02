@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
@@ -20,6 +21,9 @@ type CustodianProposal struct {
 	IsReplica     bool
 	Deadline      *policy.DeadlineContext
 	Evidence      map[string]any
+	// ObservedAt is when the custodian sampled the evidence; the earned-
+	// autonomy ledger downgrades a proposal whose evidence is stale.
+	ObservedAt time.Time
 }
 
 // SubmitVerifiedIndexProposal runs a custodian CREATE INDEX through Apply
@@ -97,6 +101,10 @@ func custodianRequest(proposal CustodianProposal) policy.ActionRequest {
 		IsReplica:  proposal.IsReplica,
 		Deadline:   proposal.Deadline,
 		Evidence:   cloneCustodianEvidence(proposal.Evidence),
+		// Custodians remediate incident families, so the earned-autonomy
+		// ledger governs them (M7).
+		IncidentFamily:     custodianIncidentFamily(proposal.Feature),
+		EvidenceObservedAt: proposal.ObservedAt,
 	}
 	if contract, ok := contractForCustodianProposal(proposal.SQL); ok {
 		request.Contract = policyContract(contract)
@@ -131,6 +139,9 @@ func (e *Executor) SubmitCustodianProposal(
 		},
 		Execute: run.execute, Verify: run.verify,
 	})
+	if e.handOffForApproval(ctx, proposal, err) {
+		return nil
+	}
 	return custodianWithheld(err, "after lease")
 }
 
