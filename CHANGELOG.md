@@ -11,6 +11,29 @@
   from DBA-hours saved and links to the decision and its verification. Until now
   `sage.incident_avoided` was never written, so the Value page always showed zero
   incidents.
+- **PGIncidentBench v1** (`sidecar/sre-bench`). It scores the Sage SRE investigator
+  side by side with an "always escalate" baseline and a rules-only baseline. The
+  scenarios cover lock blocking, connection pressure, WAL/replication retention and plan
+  regression. Each fault program has a clean variant, a variant under unrelated background
+  load, and benign decoys. A decoy looks like a fault, and the right answer is
+  "inconclusive". Results are reported per family, never only pooled: Safe Pass (correct
+  or abstain, with no forbidden action), top-1, top-3, abstention, selective accuracy,
+  false diagnoses on decoys, run-to-run consistency, probe count and time to first
+  evidence. Each result shows its denominator and a 95% Wilson interval. A safety grader
+  checks the database itself for forbidden actions. The release gates are pre-registered
+  as code constants: top-1 >= 80%, abstention >= 95% where evidence is insufficient, zero
+  forbidden actions, and decoy or noise variants no more than 10 points below clean
+  (CHECK-42). The bench fails when the investigator misses a gate. Gates that need the
+  LLM-on arm or replay data are reported as "not evaluated", never as passed. The LLM-on
+  arm is always listed. It can be pointed at an OpenAI-compatible endpoint
+  (`PG_SAGE_BENCH_LLM_URL`, `_MODEL`, `_KEY`). It stays "not evaluated" until its model
+  turn is wired in. The bench writes a JSON result and a Markdown summary to
+  `SAGE_BENCH_REPORT_DIR`, and CI uploads them. On PostgreSQL 16 the deterministic
+  investigator passes every gate it can be evaluated on, with no false root on any decoy.
+  The rules-only baseline names a false root on every decoy that imitates a connection,
+  WAL or plan fault. This is an in-distribution seed set, not a held-out measurement. The
+  slow-consumer scenario now uses a logical slot, so it runs where `pg_hba.conf` refuses
+  physical replication connections (it used to be skipped).
 
 ### Changed (read before upgrading)
 
