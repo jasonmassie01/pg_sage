@@ -357,3 +357,40 @@ every changed Go file); every changed function <= 50 lines, file <= 500 lines, l
 - The graph tie-break (bug 5).
 - Live verification of the `pg_monitor` grant on RDS/Aurora and Neon/Supabase.
 
+
+## Commits
+
+```
+4749bf5 docs(reviews): record the paced live replay re-run (refused with 429s)
+cc81656 test(sre-bench): budget TestReplayCorpus for a paced live model
+e86cee0 docs(reviews): report Sage SRE M4 (replay, live run, CHECK audit)
+2d96b81 test(sre-bench): give the replay corpus test the replay budget
+12016dd fix(sre-bench): recover a skipped archiver scenario at once
+c90fd9a test(sre-bench): specify an immediate archiver recovery without the fixture
+80c81d8 docs(changelog): describe Sage SRE M4 (operator controls, model output UI, replay corpus, fixes)
+8ed6048 feat(web): stop and resume investigations from the Cases panel
+ff8a637 test(web): specify stop and resume controls in the Cases panel
+339bee1 feat(sre-bench): pace the live model with PG_SAGE_BENCH_LLM_RPM
+ba2bc7f test(sre-bench): specify pacing the live model's calls
+72d55d4 docs(sre): document Sage SRE permissions and data flow
+71a956e fix(sre): report activity probes as no_privilege without pg_read_all_stats
+0bd3957 test(sre): specify activity probes as no_privilege without pg_read_all_stats
+f28a5da feat(sre): let operators start, stop and resume investigations
+004444e test(sre): specify operator start, stop and resume of investigations
+3c20ca7 feat(web): show the model turn's output and timeline in the Cases panel
+db772d4 test(web): specify the Cases panel's model output and timeline
+7c7345d test(sre-bench): give the bench room for the replay and a live model
+d3eb396 docs(sre-bench): document the replay corpus format, grading and gates
+4818ac1 feat(sre-bench): replay arm with a model tap, replay gates and report
+4a39c0d feat(sre-bench): add the R1 replay corpus, its loader and runner
+5273d55 feat(sre): treat stale and same-instant evidence as missing
+0a96d07 test(sre): correct two fixtures that contradicted the evidence model
+bdb35b6 style(sre): gofmt the auto-start integration test
+2d1c6fe test(sre-bench): specify the replay corpus, runner, tap and gates
+ff13a8a test(sre): specify stale and out-of-order evidence as missing
+15042c9 style(config): gofmt the SRE defaults
+d1cfe65 feat(sre): start read-only investigations automatically by default
+c425bbc test(sre): specify automatic investigations on by default
+```
+
+Not pushed; no PR opened.
