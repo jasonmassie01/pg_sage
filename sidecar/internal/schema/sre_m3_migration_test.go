@@ -106,3 +106,37 @@ func insertM3Fixture(ctx context.Context, tx pgx.Tx, dep, db, inv string) error 
 		        'evaluating', clock_timestamp() + interval '1 hour')`, dep, db, inv)
 	return err
 }
+
+// Sage SRE M3 reasoning budget: upgrading adds the reasoning columns to
+// the reservation ledger (existing rows hold no reasoning), twice.
+func TestSREMigrationM3_ReasoningColumns(t *testing.T) {
+	pool, ctx := requireDB(t)
+	bootstrapWithRetry(t, ctx, pool)
+	if _, err := pool.Exec(ctx, `ALTER TABLE sage.sre_budget_reservations
+		DROP COLUMN IF EXISTS reasoning_reserved, DROP COLUMN IF EXISTS reasoning_used`); err != nil {
+		t.Fatalf("simulate an earlier install: %v", err)
+	}
+	for run := 0; run < 2; run++ {
+		bootstrapWithRetry(t, ctx, pool)
+	}
+	cols := map[string]string{}
+	rows, err := pool.Query(ctx, `SELECT column_name, is_nullable || ' ' ||
+		    COALESCE(column_default, 'none')
+		FROM information_schema.columns
+		WHERE table_schema = 'sage' AND table_name = 'sre_budget_reservations'
+		  AND column_name LIKE 'reasoning_%'`)
+	if err != nil {
+		t.Fatalf("columns: %v", err)
+	}
+	for rows.Next() {
+		var name, def string
+		if err := rows.Scan(&name, &def); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		cols[name] = def
+	}
+	rows.Close()
+	if cols["reasoning_reserved"] != "NO 0" || cols["reasoning_used"] != "YES none" {
+		t.Fatalf("reasoning columns = %v", cols)
+	}
+}

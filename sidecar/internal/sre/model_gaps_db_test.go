@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
@@ -182,24 +181,5 @@ func TestReviewMessages_EvidenceInsideItsFence(t *testing.T) {
 		if at < open || at > end {
 			t.Fatalf("%s is outside the evidence block:\n%s", alias, user)
 		}
-	}
-}
-
-// Pins a limitation: a reasoning model gets 16384 extra output tokens
-// from the LLM client, more than the 4k per-investigation ceiling, so its
-// turn is refused before any request is sent.
-func TestModelTurn_ReasoningModelRefusedBeforeDispatch(t *testing.T) {
-	st, _, ctx := liveStore(t, budgetLimits())
-	m := newFakeModel(t, toolReply(validIdleReview(t)))
-	client := llm.New(&config.LLMConfig{Enabled: true, Endpoint: m.srv.URL, APIKey: "k",
-		Model: "gemini-2.5-flash", TimeoutSeconds: 5, TokenBudgetDaily: 1_000_000},
-		func(string, string, ...any) {})
-	c, _ := modelCoordinator(t, ctx, st, idleChainRunner(), client)
-	inv := startAndRun(t, ctx, c, lockTrigger("m3-reasoning"))
-	assertIdleRoot(t, st, inv)
-	assertDeterministicOnly(t, inv)
-	rej := payloads(t, st, inv, EventModelRejected)
-	if m.calls() != 0 || len(rej) != 1 || rej[0]["reason"] != RejectBudget {
-		t.Fatalf("calls=%d rejected=%v", m.calls(), rej)
 	}
 }
