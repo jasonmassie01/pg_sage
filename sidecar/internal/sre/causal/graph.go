@@ -10,7 +10,7 @@ package causal
 import "github.com/pg-sage/sidecar/internal/sre/probes"
 
 // GraphVersion pins the graph a diagnosis was produced with.
-const GraphVersion = "causal-v2"
+const GraphVersion = "causal-v3"
 
 // NoRefutation marks a hypothesis without a discriminating probe.
 const NoRefutation = "none_available"
@@ -23,7 +23,8 @@ const SupportThreshold = 0.5
 type Family string
 
 // Families modeled by the graph (v1: lock, plan; v2 adds connection
-// pressure, WAL retention and pg_sage's own changes).
+// pressure, WAL retention and pg_sage's own changes; v3's M6 families
+// are in graph_m6.go).
 const (
 	FamilyLockBlocking   Family = "lock_blocking"
 	FamilyPlanRegression Family = "plan_regression"
@@ -60,7 +61,7 @@ type Node struct {
 	OperatorStep string
 }
 
-var graph = append(v1Nodes, v2Nodes...)
+var graph = append(append(v1Nodes, v2Nodes...), m6Nodes...)
 
 var v1Nodes = []Node{
 	{ID: IdleInTxHolder, Family: FamilyLockBlocking,
