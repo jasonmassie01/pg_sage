@@ -23,6 +23,8 @@ import (
 type DiskMeasure struct {
 	UsedBytes     float64
 	RetainedBytes float64
+	// SlotKeepBytes is max_slot_wal_keep_size in bytes (-1 unbounded).
+	SlotKeepBytes float64
 	Disk          probes.RunwayTrend
 	Databases     probes.RunwayTrend
 	TrendsOK      bool
@@ -103,7 +105,7 @@ func MeasureDisk(ctx context.Context, r ProbeRunner, window time.Duration) (Disk
 	if err != nil {
 		return m, fmt.Errorf("measure disk: replication_slots: %w", err)
 	}
-	m.UsedBytes = wal.DatabaseBytes + dir.Bytes
+	m.UsedBytes, m.SlotKeepBytes = wal.DatabaseBytes+dir.Bytes, wal.MaxSlotWALKeepSize
 	for _, s := range slots {
 		if probes.Known(s.RetainedBytes) {
 			m.RetainedBytes = math.Max(m.RetainedBytes, s.RetainedBytes)

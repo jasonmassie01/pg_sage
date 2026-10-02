@@ -46,6 +46,12 @@ func TestMeasureDisk_ReadsUsageRetentionAndTrends(t *testing.T) {
 		(SELECT sum(size)::float8 FROM pg_ls_waldir())`).Scan(&dbBytes, &walBytes); err != nil {
 		t.Fatalf("direct: %v", err)
 	}
+	var keep float64
+	_ = pool.QueryRow(ctx, "SELECT pg_size_bytes(current_setting('max_slot_wal_keep_size'))::float8").
+		Scan(&keep)
+	if m.SlotKeepBytes != keep {
+		t.Fatalf("slot keep = %v, want %v", m.SlotKeepBytes, keep)
+	}
 	if m.UsedBytes < dbBytes+walBytes*0.5 || m.RetainedBytes < 0 {
 		t.Fatalf("measure = %+v (db %v wal %v)", m, dbBytes, walBytes)
 	}
