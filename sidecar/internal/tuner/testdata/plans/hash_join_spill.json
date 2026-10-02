@@ -1,0 +1,78 @@
+[
+  {
+    "Execution Time": 38.533,
+    "Plan": {
+      "Actual Loops": 1,
+      "Actual Rows": 200000,
+      "Actual Startup Time": 0.631,
+      "Actual Total Time": 34.911,
+      "Async Capable": false,
+      "Hash Cond": "(o.customer_id = c.id)",
+      "Inner Unique": true,
+      "Join Type": "Inner",
+      "Node Type": "Hash Join",
+      "Parallel Aware": false,
+      "Plan Rows": 200000,
+      "Plan Width": 12,
+      "Plans": [
+        {
+          "Actual Loops": 1,
+          "Actual Rows": 200000,
+          "Actual Startup Time": 0.007,
+          "Actual Total Time": 8.894,
+          "Alias": "o",
+          "Async Capable": false,
+          "Node Type": "Seq Scan",
+          "Parallel Aware": false,
+          "Parent Relationship": "Outer",
+          "Plan Rows": 200000,
+          "Plan Width": 12,
+          "Relation Name": "orders",
+          "Startup Cost": 0,
+          "Total Cost": 4371
+        },
+        {
+          "Actual Loops": 1,
+          "Actual Rows": 5000,
+          "Actual Startup Time": 0.608,
+          "Actual Total Time": 0.609,
+          "Async Capable": false,
+          "Hash Batches": 4,
+          "Hash Buckets": 4096,
+          "Node Type": "Hash",
+          "Original Hash Batches": 4,
+          "Original Hash Buckets": 4096,
+          "Parallel Aware": false,
+          "Parent Relationship": "Inner",
+          "Peak Memory Usage": 80,
+          "Plan Rows": 5000,
+          "Plan Width": 8,
+          "Plans": [
+            {
+              "Actual Loops": 1,
+              "Actual Rows": 5000,
+              "Actual Startup Time": 0.003,
+              "Actual Total Time": 0.223,
+              "Alias": "c",
+              "Async Capable": false,
+              "Node Type": "Seq Scan",
+              "Parallel Aware": false,
+              "Parent Relationship": "Outer",
+              "Plan Rows": 5000,
+              "Plan Width": 8,
+              "Relation Name": "customers",
+              "Startup Cost": 0,
+              "Total Cost": 78
+            }
+          ],
+          "Startup Cost": 78,
+          "Total Cost": 78
+        }
+      ],
+      "Startup Cost": 160.5,
+      "Total Cost": 7030.94
+    },
+    "Planning Time": 0.081,
+    "Triggers": []
+  }
+]

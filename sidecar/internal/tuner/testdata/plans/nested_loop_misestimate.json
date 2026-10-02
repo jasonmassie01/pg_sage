@@ -1,0 +1,80 @@
+[
+  {
+    "Execution Time": 6.585,
+    "Plan": {
+      "Actual Loops": 1,
+      "Actual Rows": 10000,
+      "Actual Startup Time": 0.017,
+      "Actual Total Time": 6.38,
+      "Async Capable": false,
+      "Inner Unique": false,
+      "Join Type": "Inner",
+      "Node Type": "Nested Loop",
+      "Parallel Aware": false,
+      "Plan Rows": 520,
+      "Plan Width": 8,
+      "Plans": [
+        {
+          "Actual Loops": 1,
+          "Actual Rows": 250,
+          "Actual Startup Time": 0.006,
+          "Actual Total Time": 0.149,
+          "Alias": "c",
+          "Async Capable": false,
+          "Filter": "((region = 3) AND (tier = 3))",
+          "Node Type": "Seq Scan",
+          "Parallel Aware": false,
+          "Parent Relationship": "Outer",
+          "Plan Rows": 13,
+          "Plan Width": 4,
+          "Relation Name": "customers",
+          "Rows Removed by Filter": 4750,
+          "Startup Cost": 0,
+          "Total Cost": 103
+        },
+        {
+          "Actual Loops": 250,
+          "Actual Rows": 40,
+          "Actual Startup Time": 0.007,
+          "Actual Total Time": 0.023,
+          "Alias": "o",
+          "Async Capable": false,
+          "Exact Heap Blocks": 10000,
+          "Lossy Heap Blocks": 0,
+          "Node Type": "Bitmap Heap Scan",
+          "Parallel Aware": false,
+          "Parent Relationship": "Inner",
+          "Plan Rows": 40,
+          "Plan Width": 12,
+          "Plans": [
+            {
+              "Actual Loops": 250,
+              "Actual Rows": 40,
+              "Actual Startup Time": 0.004,
+              "Actual Total Time": 0.004,
+              "Async Capable": false,
+              "Index Cond": "(customer_id = c.id)",
+              "Index Name": "orders_customer_idx",
+              "Node Type": "Bitmap Index Scan",
+              "Parallel Aware": false,
+              "Parent Relationship": "Outer",
+              "Plan Rows": 40,
+              "Plan Width": 0,
+              "Startup Cost": 0,
+              "Total Cost": 4.59
+            }
+          ],
+          "Recheck Cond": "(c.id = customer_id)",
+          "Relation Name": "orders",
+          "Rows Removed by Index Recheck": 0,
+          "Startup Cost": 4.6,
+          "Total Cost": 139.24
+        }
+      ],
+      "Startup Cost": 4.6,
+      "Total Cost": 1918.3
+    },
+    "Planning Time": 0.186,
+    "Triggers": []
+  }
+]

@@ -1,0 +1,28 @@
+{
+  "indexes": {
+    "planfx.customers": [
+      {
+        "leading_column": "id",
+        "name": "customers_pkey"
+      }
+    ],
+    "planfx.orders": [
+      {
+        "leading_column": "customer_id",
+        "name": "orders_customer_idx"
+      },
+      {
+        "leading_column": "email",
+        "name": "orders_email_idx"
+      },
+      {
+        "leading_column": "id",
+        "name": "orders_pkey"
+      }
+    ]
+  },
+  "tables": {
+    "planfx.customers": 5000,
+    "planfx.orders": 200000
+  }
+}
