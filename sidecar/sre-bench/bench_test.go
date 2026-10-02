@@ -13,8 +13,9 @@ func TestMain(m *testing.M) {
 	os.Exit(testdb.Run(m.Run, "sre-bench"))
 }
 
-// repeatBudget bounds one pass over the scenarios.
-const repeatBudget = 8 * time.Minute
+// scenarioBudget bounds one scenario (every live arm) in one pass, so the
+// bench budget grows with the scenario set.
+const scenarioBudget = 20 * time.Second
 
 // TestPGIncidentBench runs every scenario's fault program on real
 // PostgreSQL through each ready live arm (the causal graph with the LLM
@@ -36,7 +37,7 @@ func TestPGIncidentBench(t *testing.T) {
 	}
 	cfg := DefaultConfig(repeats, llm)
 	ctx, cancel := context.WithTimeout(context.Background(),
-		time.Duration(repeats)*repeatBudget)
+		time.Duration(repeats*len(Scenarios()))*scenarioBudget)
 	t.Cleanup(cancel)
 	env := NewEnv(ctx, t, dsn)
 	var version string
