@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Checkpoint storms, temp-file explosions and LWLock contention are now incidents.** When
+  the Sage SRE detector sees one of them, it opens a warning incident (or uses the open
+  incident it belongs to) with the measurement and its threshold as evidence. The incident
+  shows in the Cases panel with its investigation, sends the usual incident notifications,
+  resolves itself once the episodes stop, and its investigation can be reviewed for earned
+  autonomy. The detector's thresholds are now settings (`sre.detectors.*`, today's values
+  are the defaults). Stored bench and game-day reports now age out after
+  `sre.autonomy.report_retention_days` (90 days), except the reports that current autonomy
+  levels or pending promotions rest on and the newest report of each family.
+
 ## v1.8.0 (2026-10-02) -- Sage SRE: eleven incident families, approved actions, earned autonomy
 
 ### What's new
@@ -31,16 +45,6 @@
   pre-registered gates, in CI on PostgreSQL 14–18.
 
 ### Added
-
-- **Checkpoint storms, temp-file explosions and LWLock contention are now incidents.** When
-  the Sage SRE detector sees one of them, it opens a warning incident (or uses the open
-  incident it belongs to) with the measurement and its threshold as evidence. The incident
-  shows in the Cases panel with its investigation, sends the usual incident notifications,
-  resolves itself once the episodes stop, and its investigation can be reviewed for earned
-  autonomy. The detector's thresholds are now settings (`sre.detectors.*`, today's values
-  are the defaults). Stored bench and game-day reports now age out after
-  `sre.autonomy.report_retention_days` (90 days), except the reports that current autonomy
-  levels or pending promotions rest on and the newest report of each family.
 
 - **Operators can start, stop and resume Sage SRE investigations.** `POST
   /api/v1/databases/{db}/investigations` starts one for a case (a repeat joins the running
