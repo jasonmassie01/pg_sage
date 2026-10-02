@@ -58,7 +58,7 @@ func operatorRequest(sql string, findingID int, approvedBy *int) (
 	return policy.ActionRequest{
 		SQL: sql, Feature: changeClassForActionType(actionType),
 		Contract: policyContract(contract), Evidence: evidence,
-		OperatorApproved: true,
+		TargetObjs: operatorLeaseTargets(sql), OperatorApproved: true,
 	}, contract
 }
 

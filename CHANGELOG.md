@@ -47,6 +47,26 @@
   fleet, the runway monitor measures each cluster's total database size once per pass
   instead of once per database.
 
+### Changed (read before upgrading)
+
+- **Retention deletes, operator actions and queued changes now share one locked path.**
+  A retention delete (an owner-declared `retention_column` contract, D5) now runs as a
+  recorded action through the same pipeline as every other change: it is authorized,
+  takes a lease on its table, is re-authorized after waiting (so an emergency stop pressed
+  meanwhile stops it), and is verified. A batch never deletes more rows than its reviewed
+  dry run described (twice its count plus 100, in total across batches); after that a new
+  dry run must pass review. Every deleted row is checked against the declared column and
+  the table before the batch commits. Operator actions ("Take action", approved queue
+  items) now lease the exact table or index they change, found by its database identity,
+  so a rename or a different spelling cannot slip past. An index lease also covers its
+  table, and custodian `VACUUM` (freeze) runs take a lease too. While another action holds
+  the object, an operator gets HTTP 409 naming the holder. The policy's
+  `serialize_mode: queue` now really queues: a waiting change keeps its place in line per
+  object (first come, first served), the line survives a sidecar restart, at most 8 wait
+  per object and 64 per database, and a wait ends after 2 minutes for pg_sage's own
+  actions (it parks and retries next cycle) or 30 seconds for an operator (refused).
+  `park`, the default, is unchanged.
+
 ### Fixed
 
 - **pg_sage works with current OpenAI models (gpt-5, gpt-6 and later).** These models

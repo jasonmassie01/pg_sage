@@ -19,7 +19,7 @@ import (
 
 func NewPostgresSchemaGuard(
 	pool *pgxpool.Pool, database string, router ProposalRouter,
-	recorder *ledger.Service, authorizeRetention RetentionAuthorizer,
+	recorder *ledger.Service, retentionPipeline RetentionPipeline,
 ) (*schemaguard.Custodian, error) {
 	if pool == nil || strings.TrimSpace(database) == "" || router == nil || recorder == nil {
 		return nil, fmt.Errorf("PostgreSQL schema guard dependencies are incomplete")
@@ -34,7 +34,7 @@ func NewPostgresSchemaGuard(
 			verifiedIndexes: verifiedRouter(router),
 			rehearsal:       structuralRouter(router),
 			retention: &postgresRetentionEnforcer{
-				pool: pool, batchLimit: 1000, authorize: authorizeRetention,
+				pool: pool, batchLimit: 1000, pipeline: retentionPipeline,
 			},
 		},
 		schemaDecisionRecorder{recorder}, policyConfig,

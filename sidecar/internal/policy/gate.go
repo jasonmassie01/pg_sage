@@ -53,7 +53,7 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	}
 	doc, decision, stop := gate.documentDecision(ctx, req)
 	if !stop {
-		decision = withLockCeiling(doc, gate.selfInitiatedDecision(doc, runtime, req))
+		decision = withDocumentBounds(doc, gate.selfInitiatedDecision(doc, runtime, req))
 	}
 	return gate.restrictAutonomy(ctx, doc, runtime, req, decision)
 }

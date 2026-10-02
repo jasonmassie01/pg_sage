@@ -139,6 +139,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{"action_log", "executed_at", r.ActionsDays, keepActionLog},
 		{"verification", "created_at", r.ActionsDays, keepVerification},
 		{"change_lease", "acquired_at", r.ActionsDays, "AND state <> 'active'"},
+		// A request still waiting for its turn is kept, however old.
+		{"lease_queue", "enqueued_at", r.ActionsDays, "AND state <> 'waiting'"},
 		{"decision", "created_at", r.ActionsDays, keepDecision},
 		{"recommendation", "updated_at", r.ActionsDays, keepRecommendation},
 		{"retention_run", "created_at", r.ActionsDays, ""},

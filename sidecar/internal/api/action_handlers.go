@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -455,12 +454,8 @@ func manualExecuteHandler(
 		if err != nil {
 			slog.Error("manual execution failed",
 				"finding_id", body.FindingID, "error", err)
-			if errors.Is(err, executor.ErrFindingNotActionable) {
-				jsonError(w, err.Error(), http.StatusNotFound)
-				return
-			}
-			if errors.Is(err, executor.ErrFindingSQLMismatch) {
-				jsonError(w, err.Error(), http.StatusBadRequest)
+			if status := executor.ManualExecuteStatus(err); status != 500 {
+				jsonError(w, err.Error(), status)
 				return
 			}
 			jsonError(w, "execution failed", 500)
@@ -523,15 +518,7 @@ func fleetManualExecuteHandler(
 			slog.Error("fleet manual execution failed",
 				"database", body.Database,
 				"finding_id", body.FindingID, "error", err)
-			if errors.Is(err, executor.ErrFindingNotActionable) {
-				jsonError(w, err.Error(), http.StatusNotFound)
-				return
-			}
-			if errors.Is(err, executor.ErrFindingSQLMismatch) {
-				jsonError(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			jsonError(w, err.Error(), 500)
+			jsonError(w, err.Error(), executor.ManualExecuteStatus(err))
 			return
 		}
 		jsonResponse(w, map[string]any{

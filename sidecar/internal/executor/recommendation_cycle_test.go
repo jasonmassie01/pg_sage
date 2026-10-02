@@ -295,7 +295,10 @@ func TestExecuteManualRaceExactlyOneRuns(t *testing.T) {
 		switch {
 		case errs[i] == nil && ids[i] > 0:
 			ran++
-		case errors.Is(errs[i], recommendation.ErrConflict):
+		// The loser is stopped by the typed-target lease on the table, or,
+		// when it arrives after the winner released it, by the claim.
+		case errors.Is(errs[i], recommendation.ErrConflict) ||
+			errors.Is(errs[i], ErrTargetLeased):
 			refused++
 		}
 	}

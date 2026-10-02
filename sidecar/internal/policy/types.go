@@ -164,6 +164,9 @@ type Decision struct {
 	// LockCeilingMS is the policy's lock_duration_ceiling_ms on an execute
 	// verdict (0 = no ceiling). In-transaction DDL caps lock_timeout by it.
 	LockCeilingMS int64
+	// SerializeMode is the policy's serialize_mode on an execute verdict:
+	// what a change lease conflict does (park, or wait in the lease queue).
+	SerializeMode string
 }
 
 // RuntimeState is the live authority snapshot for one authorization.
