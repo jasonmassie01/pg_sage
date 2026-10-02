@@ -181,6 +181,12 @@ func TestChat_TokenParameterErrorVariants(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeOpenAI(t, func(f *fakeOpenAI) {
 				f.maxTokensErr, f.status = tc.body, tc.status
+				if !tc.adapt {
+					// Reject every request; maxTokensErr "" means "accept".
+					f.next = func(w http.ResponseWriter, _ map[string]any) {
+						f.reject(w, tc.body)
+					}
+				}
 			})
 			c := wireClient(f.srv.URL, fmt.Sprintf("gpt-6-luna-%d", i), "", "", noopLog)
 			_, _, err := c.Chat(context.Background(), "sys", "u", 100)
