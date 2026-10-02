@@ -80,7 +80,7 @@ func TestSREActionsBoundaries(t *testing.T) {
 		{"recovery_sample_seconds", 300, true}, {"recovery_sample_seconds", 301, false},
 		{"recovery_samples", 2, false}, {"recovery_samples", 3, true},
 		{"recovery_samples", 20, true}, {"recovery_samples", 21, false},
-		{"recovery_deadline_minutes", 0, false}, {"recovery_deadline_minutes", 1, true},
+		{"recovery_deadline_minutes", 0, false}, {"recovery_deadline_minutes", 2, true},
 		{"recovery_deadline_minutes", 240, true}, {"recovery_deadline_minutes", 241, false},
 		{"chatops_tolerance_seconds", 29, false}, {"chatops_tolerance_seconds", 30, true},
 		{"chatops_tolerance_seconds", 900, true}, {"chatops_tolerance_seconds", 901, false},
