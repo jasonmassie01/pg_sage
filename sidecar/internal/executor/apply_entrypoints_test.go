@@ -191,20 +191,20 @@ func TestApplyEntryManualReauthorizesUnderDeadline(t *testing.T) {
 	assertProbeUntouched(t, pool, table)
 }
 
-// Retention deletes run in the schema guard; the executor entry is its
-// authorization, which Apply bounds like every other stage.
+// Retention deletes run through Apply like every other change; their
+// authorization is bounded like every other stage.
 func TestApplyEntryRetentionAuthorizesUnderDeadline(t *testing.T) {
 	e := manualExecutor(nil)
 	gate := &reauthGate{refuseAt: 1}
 	e.WithPolicyGate(gate)
 
-	err := e.AuthorizeRetention(context.Background(), RetentionRequest{
+	_, err := e.ExecuteRetention(context.Background(), RetentionRequest{
 		Target: "public.events", Column: "created_at", Cutoff: time.Now(),
 		Window: 24 * time.Hour, BatchLimit: 100, Candidates: 5,
 	})
 
 	if !errors.Is(err, ErrCustodianProposalWithheld) {
-		t.Fatalf("AuthorizeRetention = %v, want withheld", err)
+		t.Fatalf("ExecuteRetention = %v, want withheld", err)
 	}
 	assertRefusedUnderDeadline(t, gate, 1, applyBudget(e.cfg))
 }

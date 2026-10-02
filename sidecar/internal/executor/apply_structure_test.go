@@ -64,7 +64,7 @@ func TestEveryExecutionEntryPointCallsApply(t *testing.T) {
 	decls := executorDecls(t)
 	for _, entry := range []string{
 		"processFinding", "ExecuteManual", "SubmitCustodianProposal",
-		"SubmitVerifiedIndexProposal", "AuthorizeRetention",
+		"SubmitVerifiedIndexProposal", "ExecuteRetention",
 	} {
 		fn := decls[entry]
 		if fn == nil {

@@ -16,7 +16,12 @@ import (
 // delete only eligible rows (tableoid + ctid + cutoff), route through the
 // policy gate, run with timeouts, and bind dry runs to column/window/relation.
 
-func allowRetention(context.Context, RetentionIntent) error { return nil }
+// allowRetention stands in for the executor's pipeline: it authorizes and
+// runs the batch at once, with the batch's own defaults.
+func allowRetention(ctx context.Context, _ RetentionIntent, batch RetentionBatch) error {
+	_, err := batch(ctx, RetentionRun{})
+	return err
+}
 
 func retentionFixture(t *testing.T, pool *pgxpool.Pool, partitioned bool) string {
 	t.Helper()
@@ -117,13 +122,14 @@ func countRows(t *testing.T, pool *pgxpool.Pool, query string) int64 {
 func TestRetentionDeleteNeverTouchesOtherPartitions(t *testing.T) {
 	pool := requireAutonomyDB(t)
 	table := retentionFixture(t, pool, true)
-	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 1, authorize: allowRetention}
+	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 1, pipeline: allowRetention}
 	item := retentionItem(table, 30*24*time.Hour, schemaguard.DispositionApply)
 	cutoff := time.Now().Add(-30 * 24 * time.Hour)
 
 	target := mustRetentionTarget(t, pool, item.Invariant)
-	deleted, err := enforcer.deleteBatch(context.Background(), item.Invariant, target,
-		cutoff, 1)
+	result, err := enforcer.deleteBatch(context.Background(), retentionPlan{item: item,
+		target: target, cutoff: cutoff, candidates: 1, bound: 10}, RetentionRun{})
+	deleted := result.Deleted
 
 	if err != nil {
 		t.Fatalf("deleteBatch: %v", err)
@@ -153,10 +159,10 @@ func TestRetentionApplyRequiresAuthorization(t *testing.T) {
 	table := retentionFixture(t, pool, false)
 	ctx := context.Background()
 	withheld := errors.New("emergency stop active")
-	for _, authorize := range []RetentionAuthorizer{
-		nil, func(context.Context, RetentionIntent) error { return withheld },
+	for _, pipeline := range []RetentionPipeline{
+		nil, func(context.Context, RetentionIntent, RetentionBatch) error { return withheld },
 	} {
-		enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10, authorize: authorize}
+		enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10, pipeline: pipeline}
 		dryRun := retentionItem(table, 30*24*time.Hour, schemaguard.DispositionDryRun)
 		if err := enforcer.Apply(ctx, dryRun); err != nil {
 			t.Fatalf("dry run: %v", err)
@@ -181,9 +187,10 @@ func TestRetentionApplyPassesIntentToAuthorizer(t *testing.T) {
 	ctx := context.Background()
 	var seen RetentionIntent
 	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10,
-		authorize: func(_ context.Context, intent RetentionIntent) error {
+		pipeline: func(ctx context.Context, intent RetentionIntent, batch RetentionBatch) error {
 			seen = intent
-			return nil
+			_, err := batch(ctx, RetentionRun{})
+			return err
 		}}
 	window := 30 * 24 * time.Hour
 	if err := enforcer.Apply(ctx, retentionItem(table, window,
@@ -210,7 +217,7 @@ func TestRetentionDryRunMustMatchCurrentSemantics(t *testing.T) {
 	pool := requireAutonomyDB(t)
 	table := retentionFixture(t, pool, false)
 	ctx := context.Background()
-	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10, authorize: allowRetention}
+	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10, pipeline: allowRetention}
 	if err := enforcer.Apply(ctx, retentionItem(table, 90*24*time.Hour,
 		schemaguard.DispositionDryRun)); err != nil {
 		t.Fatalf("dry run: %v", err)
@@ -238,7 +245,7 @@ func TestRetentionDryRunNeedsReviewWindow(t *testing.T) {
 	pool := requireAutonomyDB(t)
 	table := retentionFixture(t, pool, false)
 	ctx := context.Background()
-	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10, authorize: allowRetention}
+	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10, pipeline: allowRetention}
 	window := 30 * 24 * time.Hour
 	if err := enforcer.Apply(ctx, retentionItem(table, window,
 		schemaguard.DispositionDryRun)); err != nil {
@@ -267,15 +274,15 @@ func TestRetentionDeleteUsesLockTimeout(t *testing.T) {
 	if _, err := tx.Exec(ctx, "LOCK TABLE "+table+" IN ACCESS EXCLUSIVE MODE"); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
-	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10, authorize: allowRetention}
+	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10, pipeline: allowRetention}
 	item := retentionItem(table, 30*24*time.Hour, schemaguard.DispositionApply)
 	target := mustRetentionTarget(t, pool, item.Invariant)
 	started := time.Now()
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	_, err = enforcer.deleteBatch(callCtx, item.Invariant, target,
-		time.Now().Add(-24*time.Hour), 0)
+	_, err = enforcer.deleteBatch(callCtx, retentionPlan{item: item, target: target,
+		cutoff: time.Now().Add(-24 * time.Hour), bound: 10}, RetentionRun{})
 
 	if err == nil || time.Since(started) > 15*time.Second {
 		t.Fatalf("deleteBatch under lock: err=%v after %s, want bounded lock failure",

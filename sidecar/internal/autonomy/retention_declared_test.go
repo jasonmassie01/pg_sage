@@ -118,7 +118,7 @@ func TestRetentionUsesDeclaredColumnNotCreatedAt(t *testing.T) {
 		t.Errorf("detected retention column = %q, want declared ingested_at",
 			item.Invariant.RetentionColumn)
 	}
-	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10, authorize: allowRetention}
+	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10, pipeline: allowRetention}
 	agedDryRun(t, pool, enforcer, item)
 	item.Decision.Disposition = schemaguard.DispositionApply
 

@@ -69,7 +69,7 @@ func reviewParkCustodian(pool *pgxpool.Pool, router *recordingRouter, tables ...
 		postgresSchemaContractSource{pool}, postgresSchemaHistorySource{pool},
 		schemaRemediationRouter{database: "testdb", router: router,
 			verifiedIndexes: router, retention: &postgresRetentionEnforcer{
-				pool: pool, batchLimit: 10, authorize: allowRetention}},
+				pool: pool, batchLimit: 10, pipeline: allowRetention}},
 		schemaDecisionRecorder{ledger.NewService(ledger.NewPostgresRepository(pool))},
 		policyConfig)
 }
