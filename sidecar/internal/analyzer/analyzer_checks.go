@@ -2,7 +2,6 @@ package analyzer
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"time"
 
@@ -93,85 +92,81 @@ func (a *Analyzer) checkConnectionLeaks(ctx context.Context) []Finding {
 	return ruleConnectionLeaks(leaked)
 }
 
-// buildHistoricalAverages loads recent query snapshots and computes
-// per-queryid average mean_exec_time for regression detection.
+// maxHistorySamples caps how many 'queries' snapshots the regression
+// baseline expands per cycle, however long the lookback.
+const maxHistorySamples = 100
+
+// defaultRegressionLookbackDays applies when the configured lookback is
+// zero or negative (it used to read nothing at all).
+const defaultRegressionLookbackDays = 7
+
+// historicalAveragesSQL is the regression baseline, bounded in SQL (Phase
+// 0 item 8, like the forecaster fix). It numbers the lookback's non-empty
+// snapshots by time reading only ids and timestamps, keeps at most $2
+// evenly spaced ones (the sample the analyzer used to take in Go after
+// loading every snapshot), and expands only those. Rows that are not
+// arrays and elements without an integer queryid and a numeric
+// mean_exec_time are skipped. pg_column_size tells empty or null
+// snapshots apart without detoasting them.
+const historicalAveragesSQL = `/* pg_sage */
+WITH ranked AS (
+    SELECT s.id,
+           row_number() OVER (ORDER BY s.collected_at, s.id) AS rn,
+           count(*) OVER () AS total
+      FROM sage.snapshots s
+     WHERE s.category = 'queries'
+       AND s.collected_at > now() - make_interval(days => $1)
+       AND pg_column_size(s.data) > 12
+), picked AS (
+    SELECT id FROM ranked
+     WHERE (rn - 1) % GREATEST(1, ceil(total::numeric / $2::int)::bigint) = 0
+     ORDER BY rn
+     LIMIT $2::int
+)
+SELECT (e->>'queryid')::bigint, avg((e->>'mean_exec_time')::float8)
+  FROM sage.snapshots s
+  JOIN picked p ON p.id = s.id
+ CROSS JOIN LATERAL jsonb_array_elements(
+           CASE WHEN jsonb_typeof(s.data) = 'array' THEN s.data
+                ELSE '[]'::jsonb END) AS e
+ WHERE (e->>'queryid') ~ '^-?[0-9]+$'
+   AND jsonb_typeof(e->'mean_exec_time') = 'number'
+ GROUP BY 1`
+
+// buildHistoricalAverages returns the per-queryid average mean_exec_time
+// over the sampled snapshots of the regression lookback. On a query error
+// it marks query_regression failed and returns nil.
 func (a *Analyzer) buildHistoricalAverages(
 	ctx context.Context,
 ) map[int64]float64 {
-	rows, err := a.pool.Query(ctx,
-		`/* pg_sage */ SELECT data FROM sage.snapshots
-		 WHERE category = 'queries'
-		   AND collected_at > now() - make_interval(days => $1)
-		 ORDER BY collected_at DESC`,
-		a.cfg.Analyzer.RegressionLookbackDays,
-	)
+	days := a.cfg.Analyzer.RegressionLookbackDays
+	if days <= 0 {
+		days = defaultRegressionLookbackDays
+	}
+	rows, err := a.pool.Query(ctx, historicalAveragesSQL, days, maxHistorySamples)
 	if err != nil {
 		a.evalFail("query_regression")
 		a.logFn("ERROR", "analyzer: history query: %v", err)
 		return nil
 	}
 	defer rows.Close()
-
-	type queryEntry struct {
-		QueryID        int64   `json:"queryid"`
-		MeanExecTimeMs float64 `json:"mean_exec_time"` // collector.QueryStats field (G1-B06)
-	}
-
-	var allSnapshots [][]byte
+	avgs := make(map[int64]float64)
 	for rows.Next() {
-		var data []byte
-		if err := rows.Scan(&data); err != nil {
-			continue
+		var qid int64
+		var avg float64
+		if err := rows.Scan(&qid, &avg); err != nil {
+			a.evalFail("query_regression")
+			a.logFn("ERROR", "analyzer: scan history: %v", err)
+			return nil
 		}
-		allSnapshots = append(allSnapshots, data)
+		avgs[qid] = avg
 	}
 	if err := rows.Err(); err != nil {
 		a.evalFail("query_regression")
 		a.logFn("ERROR", "analyzer: iterate history: %v", err)
-	}
-
-	// Downsample to ~100 snapshots.
-	sampled := downsample(allSnapshots, 100)
-
-	sums := make(map[int64]float64)
-	counts := make(map[int64]int)
-
-	for _, data := range sampled {
-		var entries []queryEntry
-		if err := json.Unmarshal(data, &entries); err != nil {
-			continue
-		}
-		for _, e := range entries {
-			sums[e.QueryID] += e.MeanExecTimeMs
-			counts[e.QueryID]++
-		}
-	}
-
-	avgs := make(map[int64]float64, len(sums))
-	for qid, sum := range sums {
-		if c := counts[qid]; c > 0 {
-			avgs[qid] = sum / float64(c)
-		}
+		return nil
 	}
 	return avgs
-}
-
-// downsample returns up to maxN evenly-spaced items from the input.
-func downsample[T any](items []T, maxN int) []T {
-	n := len(items)
-	if n <= maxN {
-		return items
-	}
-	step := float64(n) / float64(maxN)
-	out := make([]T, 0, maxN)
-	for i := 0; i < maxN; i++ {
-		idx := int(float64(i) * step)
-		if idx >= n {
-			idx = n - 1
-		}
-		out = append(out, items[idx])
-	}
-	return out
 }
 
 // computeIOUtilPct estimates I/O utilization as the ratio of

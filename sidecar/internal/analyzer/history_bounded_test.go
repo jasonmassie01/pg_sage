@@ -11,9 +11,12 @@ import (
 
 // Phase 0 item 8: the regression baseline used to read every 'queries'
 // snapshot of the lookback (7 days x 1,440 a day x 500 statements) on
-// every analyzer cycle and thin them in Go. It now samples in SQL: the
-// first and last snapshot of each day, at most maxHistorySamples, so the
-// jsonb expanded per cycle is bounded by days, not by snapshot count.
+// every analyzer cycle and thin them to 100 in Go. The same evenly spaced
+// sample is now chosen in SQL from ids and timestamps, so at most
+// maxHistorySamples snapshots are expanded per cycle, however many exist.
+// (Drafted first as "first and last snapshot per day"; even sampling was
+// chosen in implementation because it keeps the estimator the analyzer
+// has always used, and the bound is a constant rather than per day.)
 
 // No concurrent access tests: buildHistoricalAverages is called only by
 // the single analyzer cycle goroutine and holds no shared state.
@@ -51,7 +54,8 @@ func seedHistory(t *testing.T, pool *pgxpool.Pool, days, perDay int) {
 	t.Cleanup(func() { cleanQuerySnapshots(t, pool) })
 	for d := days - 1; d >= 0; d-- {
 		for i := 0; i < perDay; i++ {
-			at := historyDayStart(d).Add(time.Minute + time.Duration(i)*20*time.Minute)
+			step := 23 * time.Hour / time.Duration(perDay)
+			at := historyDayStart(d).Add(time.Minute + time.Duration(i)*step)
 			insertQuerySnapshot(t, pool, at, []map[string]any{
 				{"queryid": 7, "mean_exec_time": float64(i), "query": "SELECT 1"},
 				{"queryid": 8, "mean_exec_time": 50.0},
@@ -88,7 +92,7 @@ func historyExpansionLoops(t *testing.T, pool *pgxpool.Pool, days int) int {
 	return find(plans[0]["Plan"].(map[string]any))
 }
 
-func TestHistoricalAverages_FirstAndLastPerDay(t *testing.T) {
+func TestHistoricalAverages_EvenlySampled(t *testing.T) {
 	pool := phase2Pool(t)
 	const days, perDay = 3, 60
 	seedHistory(t, pool, days, perDay)
@@ -96,26 +100,43 @@ func TestHistoricalAverages_FirstAndLastPerDay(t *testing.T) {
 	cfg.Analyzer.RegressionLookbackDays = days + 1
 	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
 	avgs := a.buildHistoricalAverages(context.Background())
-	// Each day contributes its first (0) and last (perDay-1) reading.
-	if got, want := avgs[7], float64(perDay-1)/2; got != want {
-		t.Fatalf("avg(7) = %v, want %v", got, want)
+	// 180 snapshots, at most 100 sampled: every second one, i.e. readings
+	// 0, 2, ..., 58 of each day, whose mean is 29.
+	if got := avgs[7]; got != 29 {
+		t.Fatalf("avg(7) = %v, want 29", got)
 	}
 	if avgs[8] != 50 {
 		t.Fatalf("avg(8) = %v, want 50", avgs[8])
 	}
-	if loops := historyExpansionLoops(t, pool, days+1); loops < 1 || loops > 2*days {
-		t.Fatalf("expanded %d snapshots for %d days x %d, want at most %d", loops, days,
-			perDay, 2*days)
+	if loops := historyExpansionLoops(t, pool, days+1); loops != days*perDay/2 {
+		t.Fatalf("expanded %d of %d snapshots, want %d", loops, days*perDay,
+			days*perDay/2)
 	}
 }
 
-// The sample is capped at maxHistorySamples however long the lookback.
+// The sample is capped at maxHistorySamples however long the history.
 func TestHistoricalAverages_CappedSamples(t *testing.T) {
 	pool := phase2Pool(t)
-	days := maxHistorySamples/2 + 10
-	seedHistory(t, pool, days, 3)
-	if loops := historyExpansionLoops(t, pool, days+1); loops != maxHistorySamples {
-		t.Fatalf("expanded %d snapshots, want the cap %d", loops, maxHistorySamples)
+	const days, perDay = 5, 300
+	seedHistory(t, pool, days, perDay)
+	loops := historyExpansionLoops(t, pool, days+1)
+	if loops < maxHistorySamples/2 || loops > maxHistorySamples {
+		t.Fatalf("expanded %d of %d snapshots, want at most %d", loops, days*perDay,
+			maxHistorySamples)
+	}
+}
+
+// With fewer snapshots than the cap, every one is used (the estimator the
+// analyzer has always used).
+func TestHistoricalAverages_SmallHistoryUsesAll(t *testing.T) {
+	pool := phase2Pool(t)
+	seedHistory(t, pool, 2, 4)
+	if loops := historyExpansionLoops(t, pool, 3); loops != 8 {
+		t.Fatalf("expanded %d snapshots, want all 8", loops)
+	}
+	a := New(pool, phase2Config(), nil, nil, nil, nil, nil, noopLog)
+	if got := a.buildHistoricalAverages(context.Background())[7]; got != 1.5 {
+		t.Fatalf("avg(7) = %v, want 1.5", got)
 	}
 }
 
