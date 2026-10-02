@@ -94,6 +94,8 @@ type databaseRuntime struct {
 	// sloEngine and changeFeed are the M5 signals (nil when off).
 	sloEngine  *slo.Engine
 	changeFeed *changefeed.Feed
+	// runwayAdvisor attaches custodian proposals to runway investigations.
+	runwayAdvisor *runwayAdvisor
 	logFanout  *logwatch.LogFanout
 	brief      *briefing.Worker
 	features   []string
@@ -119,6 +121,7 @@ func buildDatabaseRuntime(
 	rt.startMonitoring()
 	rt.startExecution()
 	rt.startSREActions()
+	rt.startRunways()
 	rt.logExecutorSettings()
 	rt.inst = rt.instance()
 	logInfo(spec.Scope, "db %q: initialized (%s)", spec.Name,

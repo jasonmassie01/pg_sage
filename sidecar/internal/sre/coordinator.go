@@ -84,6 +84,9 @@ type CoordinatorConfig struct {
 	// ModelTimeout caps one model turn; the investigation's remaining
 	// active time caps it further.
 	ModelTimeout time.Duration
+	// RunwayWindow is the trend window of runway investigations; zero is
+	// DefaultRunwayWindow.
+	RunwayWindow time.Duration
 }
 
 // Coordinator limits.
@@ -123,6 +126,8 @@ func (c CoordinatorConfig) validate(hasTriggers bool) error {
 		{!c.AutomaticStart || hasTriggers, "automatic start needs a trigger source"},
 		{c.ModelTimeout > 0 && c.ModelTimeout <= CeilingActive,
 			"model timeout must be in (0, 120s]"},
+		{c.RunwayWindow == 0 || (c.RunwayWindow >= probes.MinWindow &&
+			c.RunwayWindow <= probes.MaxWindow), "runway window must be 0 or in [1m, 7d]"},
 	}
 	for _, ch := range checks {
 		if !ch.ok {
@@ -151,6 +156,9 @@ type CoordinatorDeps struct {
 	// Signals (M5) are the change feed and SLO status sources every
 	// investigation also collects; nil keeps the M2 plans.
 	Signals []SignalProbe
+	// Advisor attaches custodian proposals to conclusive runway diagnoses;
+	// nil attaches none.
+	Advisor ActionAdvisor
 }
 
 // Coordinator runs one database's investigations.
@@ -167,6 +175,7 @@ type Coordinator struct {
 	model      *llm.Client
 	notices    *OnceLog
 	signals    []probes.ID
+	advisor    ActionAdvisor
 
 	mu    sync.Mutex
 	scope Scope
@@ -201,7 +210,7 @@ func NewCoordinator(d CoordinatorDeps) (*Coordinator, error) {
 		triggers: d.Triggers, signals: signalIDs(d.Signals),
 		cfg: d.Config, logFn: logFn, worker: NewUUID(),
 		queue: make(chan UUID, d.Config.QueueSize), durability: NewDurability(),
-		sleep: wait, model: d.Model, notices: notices}, nil
+		sleep: wait, model: d.Model, notices: notices, advisor: d.Advisor}, nil
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

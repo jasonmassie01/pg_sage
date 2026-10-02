@@ -163,7 +163,7 @@ func TestPostgresWALCustodianUsesByteBackstopWithoutDiskEvidence(t *testing.T) {
 	}
 	custodian := NewPostgresWALCustodian(pool, "testdb", PostgresWALOptions{})
 	proposal, err := custodian.scanSlot(ctx, adapterRow{values: []any{
-		"orders_slot", "logical", true, int64(defaultWALBackstopBytes + 1),
+		"orders_slot", "logical", true, int64(DefaultWALBackstopBytes + 1),
 	}}, 0, false)
 	if err != nil {
 		t.Fatalf("scanSlot: %v", err)
@@ -181,7 +181,7 @@ func TestWALAdapterDefaultsEvidenceAndEscaping(t *testing.T) {
 		Disk: fixedDisk{bytes: 1000},
 	})
 	if custodian.options.AbandonAfter != 24*time.Hour ||
-		custodian.options.RetainedBytesLimit != defaultWALBackstopBytes {
+		custodian.options.RetainedBytesLimit != DefaultWALBackstopBytes {
 		t.Fatalf("WAL defaults = %#v", custodian.options)
 	}
 	bytes, known := custodian.diskCapacity(context.Background())
@@ -193,20 +193,20 @@ func TestWALAdapterDefaultsEvidenceAndEscaping(t *testing.T) {
 		t.Fatal("failed disk provider was treated as known")
 	}
 	policy := custodian.policy()
-	if policy.AllowDrop || policy.RetainedWALBytesThreshold != defaultWALBackstopBytes {
+	if policy.AllowDrop || policy.RetainedWALBytesThreshold != DefaultWALBackstopBytes {
 		t.Fatalf("WAL policy = %#v", policy)
 	}
 	const escapedDropSQL = "SELECT pg_drop_replication_slot('owner''s')"
 	if got := custodian.dropProposal("owner's").SQL; got != escapedDropSQL {
 		t.Fatalf("escaped drop SQL = %q", got)
 	}
-	got := custodian.boundProposal("slot", defaultWALBackstopBytes)
+	got := custodian.boundProposal("slot", DefaultWALBackstopBytes)
 	if got.Feature != "wal" || got.SQL == "" {
 		t.Fatalf("bound proposal = %#v", got)
 	}
 	decision, err := wal.Classify(context.Background(), wal.SlotEvidence{
 		Active: true, RetainedWALKnown: true,
-		RetainedWALBytes: defaultWALBackstopBytes + 1,
+		RetainedWALBytes: DefaultWALBackstopBytes + 1,
 	}, policy)
 	if err != nil || decision.Action != wal.ActionBound {
 		t.Fatalf("degraded evidence decision=%#v err=%v", decision, err)
@@ -214,7 +214,7 @@ func TestWALAdapterDefaultsEvidenceAndEscaping(t *testing.T) {
 }
 
 func TestWALBackstopSuppressesRepeatedOrStricterSetting(t *testing.T) {
-	limit := defaultWALBackstopBytes
+	limit := DefaultWALBackstopBytes
 	for _, current := range []int64{limit, limit / 2} {
 		if needsWALBackstop(current, limit) {
 			t.Fatalf("current setting %d should suppress %d-byte backstop", current, limit)

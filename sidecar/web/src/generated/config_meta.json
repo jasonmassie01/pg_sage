@@ -531,7 +531,7 @@
   "forecaster.disk_capacity_bytes": {
     "type": "int64",
     "default": 0,
-    "doc": "Total disk capacity in bytes. 0 = auto-detect. Set explicitly for managed services (RDS, Cloud SQL)."
+    "doc": "Total disk capacity in bytes, for the disk runway and disk-full credit. 0 = undeclared: nothing auto-detects it, so no disk runway or credit. Managed services are never credited."
   },
   "forecaster.disk_warn_growth_gb_day": {
     "type": "float64",
@@ -1186,7 +1186,7 @@
   "sre.automatic_start": {
     "type": "bool",
     "default": true,
-    "doc": "Start a read-only, bounded investigation for each open lock, connection or WAL incident and plan_regression finding. Never executes actions. false = start only on request. Default: true."
+    "doc": "Start read-only, bounded investigations from RCA incidents, plan_regression findings and the reactive detector (checkpoint, temp-file, LWLock). Never executes. false = on request only. Default: true."
   },
   "sre.change_events.allowed_sources": {
     "type": "[]string",
@@ -1228,6 +1228,71 @@
     "type": "bool",
     "default": true,
     "doc": "Model turn in investigations: rank the graph's hypotheses, propose one catalog probe, narrate cited claims. Used whenever an LLM is configured; false = deterministic only. Default: true."
+  },
+  "sre.runways.disk_critical_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "A disk/WAL runway this short (hours) is critical; at most disk_horizon_hours. Default: 24."
+  },
+  "sre.runways.disk_horizon_hours": {
+    "type": "int",
+    "default": 72,
+    "doc": "Open a disk/WAL runway finding when disk usage reaches the declared capacity, or a slot reaches its WAL maximum, this soon (hours), up to 8760. Default: 72."
+  },
+  "sre.runways.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Sample runway series on the collector tick and open forecast findings when a runway crosses its horizon (wraparound, disk/WAL, sequences). Read-only. Default: true."
+  },
+  "sre.runways.interval_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds between runway samples, 15-3600. Default: 60 (the collector tick)."
+  },
+  "sre.runways.investigate": {
+    "type": "bool",
+    "default": true,
+    "doc": "Open a read-only pre-incident investigation for each runway finding (one per finding and severity). Independent of sre.automatic_start. Default: true."
+  },
+  "sre.runways.lookback_hours": {
+    "type": "int",
+    "default": 6,
+    "doc": "Hours of samples a trend is measured over, 1 to sample_retention_hours (and at most 168). Default: 6."
+  },
+  "sre.runways.min_samples": {
+    "type": "int",
+    "default": 10,
+    "doc": "Fewest samples a trend needs before it projects a runway, 3-1000. Default: 10."
+  },
+  "sre.runways.min_span_minutes": {
+    "type": "int",
+    "default": 30,
+    "doc": "Shortest span (minutes) of samples a trend needs, 1 to the lookback. Default: 30."
+  },
+  "sre.runways.sample_retention_hours": {
+    "type": "int",
+    "default": 48,
+    "doc": "Hours runway samples are kept, lookback_hours to 720. Default: 48."
+  },
+  "sre.runways.sequence_critical_days": {
+    "type": "int",
+    "default": 7,
+    "doc": "A sequence runway this short (days) is critical; at most sequence_horizon_days. Default: 7."
+  },
+  "sre.runways.sequence_horizon_days": {
+    "type": "int",
+    "default": 30,
+    "doc": "Open a sequence runway finding when a sequence reaches its binding limit this soon (days), up to 3650. Default: 30."
+  },
+  "sre.runways.wraparound_critical_hours": {
+    "type": "int",
+    "default": 72,
+    "doc": "A wraparound runway this short (hours) is critical; at most wraparound_horizon_hours. Default: 72."
+  },
+  "sre.runways.wraparound_horizon_hours": {
+    "type": "int",
+    "default": 336,
+    "doc": "Open a wraparound runway finding when the measured runway to the XID or multixact warning limit is this short (hours), up to 8760. Default: 336 (14 days)."
   },
   "sre.sample_interval_seconds": {
     "type": "int",

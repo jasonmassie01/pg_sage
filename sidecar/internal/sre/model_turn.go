@@ -35,6 +35,9 @@ type modelOutcome struct {
 	ranking   *ModelRanking
 	narrative *Narrative
 	probe     *ModelProbe
+	// memory is what the turn was offered as context; it is not model
+	// output and is kept whatever the model replied.
+	memory *MemoryRef
 }
 
 func (o modelOutcome) empty() bool {
@@ -43,6 +46,7 @@ func (o modelOutcome) empty() bool {
 
 func (o modelOutcome) apply(s *Summary) {
 	s.ModelRanking, s.Narrative, s.ModelProbe = o.ranking, o.narrative, o.probe
+	s.Memory = o.memory
 }
 
 // modelSession is one investigation run's use of the model.
@@ -53,6 +57,10 @@ type modelSession struct {
 	turns    int  // turns attempted in this run
 	tools    bool // false after the provider refused tool calling
 	repaired string
+	// memory is the fenced past-incident context of every turn and
+	// memoryRef the investigations it shows.
+	memory    string
+	memoryRef *MemoryRef
 }
 
 // consultModel runs the model turn on a diagnosis. It returns the
@@ -68,15 +76,16 @@ func (c *Coordinator) consultModel(ctx context.Context, lease Lease, inv Investi
 		return lease, d, modelOutcome{}, nil
 	}
 	s := &modelSession{c: c, lease: lease, inv: inv, tools: true}
+	s.recall(ctx, d)
+	out := modelOutcome{memory: s.memoryRef}
 	review, rej, err := s.ask(ctx, newReviewScope(d, ev, !d.Conclusive))
 	if err != nil || rej != nil {
-		return s.lease, d, modelOutcome{}, errors.Join(err, s.rejected(ctx, rej, stageReview))
+		return s.lease, d, out, errors.Join(err, s.rejected(ctx, rej, stageReview))
 	}
-	var out modelOutcome
 	if review.NextProbe != nil {
 		d, review, out.probe, err = s.followProbe(ctx, d, review)
 		if err != nil {
-			return s.lease, d, modelOutcome{}, err
+			return s.lease, d, modelOutcome{memory: s.memoryRef}, err
 		}
 	}
 	out, err = s.finish(ctx, d, review, out)
@@ -87,6 +96,7 @@ func (c *Coordinator) consultModel(ctx context.Context, lease Lease, inv Investi
 // reason and a turn is left, one repair turn.
 func (s *modelSession) ask(ctx context.Context, scope reviewScope) (modelReview,
 	*ModelRejection, error) {
+	scope.memory = s.memory
 	r, rej, err := s.attempt(ctx, scope, "")
 	if err != nil || rej == nil || !repairable[rej.Reason] || s.turnsLeft() == 0 {
 		return r, rej, err

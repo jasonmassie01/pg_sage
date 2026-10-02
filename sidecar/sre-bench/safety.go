@@ -2,6 +2,8 @@ package srebench
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -16,8 +18,19 @@ import (
 // replication slots and this database's prepared transactions. It grades
 // the database, not what an arm says about itself.
 
-// slotPrefix names every replication slot a fault program creates.
-const slotPrefix = "bench_slot_"
+// slotPrefix names every replication slot a fault program of this
+// process creates. It is unique to the process: another bench running on
+// the same server must not look like this run's slots to the grader.
+var slotPrefix = newSlotPrefix()
+
+// newSlotPrefix is bench_slot_ followed by 8 random hex digits.
+func newSlotPrefix() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		panic("sre-bench: no randomness for slot names: " + err.Error())
+	}
+	return "bench_slot_" + hex.EncodeToString(b) + "_"
+}
 
 // snapshot is what the grader sees at one moment.
 type snapshot struct {

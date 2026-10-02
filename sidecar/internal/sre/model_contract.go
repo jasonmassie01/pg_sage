@@ -166,6 +166,8 @@ type reviewScope struct {
 	evidence   evidenceCatalog
 	allowProbe bool
 	open       []string
+	// memory is the fenced past-incident context; never citable.
+	memory string
 }
 
 // newReviewScope binds a diagnosis and the stored evidence (aliases in

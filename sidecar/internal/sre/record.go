@@ -79,6 +79,13 @@ type Summary struct {
 	// CustomerImpact (M5) is the customer-impact claim bound to the SLO
 	// status evidence; only a registered app SLI can claim it.
 	CustomerImpact *CustomerImpact `json:"customer_impact,omitempty"`
+	// Proposals are the custodian actions that address a conclusive runway
+	// diagnosis (M6), with the gate's explained verdict; never executed here.
+	Proposals []ActionProposal `json:"proposals,omitempty"`
+	// M6: the signed runbook that ran (version, path, proposal) and the
+	// similar past incidents the model turn was offered as context.
+	Runbook *RunbookRun `json:"runbook,omitempty"`
+	Memory  *MemoryRef  `json:"memory,omitempty"`
 }
 
 // Conclusion ends an investigation run: concluded (a supported root

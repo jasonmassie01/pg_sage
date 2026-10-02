@@ -2,6 +2,7 @@ package sre
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 )
@@ -51,6 +52,12 @@ func (c Conclusion) validate() error {
 		return err
 	}
 	if err := c.Summary.CustomerImpact.validate(); err != nil {
+		return err
+	}
+	if err := validateProposals(c.Summary.Proposals); err != nil {
+		return err
+	}
+	if err := errors.Join(c.Summary.Runbook.validate(), c.Summary.Memory.validate()); err != nil {
 		return err
 	}
 	raw, err := json.Marshal(c.Summary)

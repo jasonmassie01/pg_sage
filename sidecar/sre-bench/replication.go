@@ -50,13 +50,41 @@ func parseWALMessage(data []byte) (walMessage, bool) {
 // standbyStatus is a standby status update ('r') confirming pos as
 // written, flushed and applied.
 func standbyStatus(pos uint64, now time.Time) []byte {
+	return standbyStatusAt(pos, pos, pos, now)
+}
+
+// standbyStatusAt confirms write, flush and apply positions separately.
+func standbyStatusAt(write, flush, apply uint64, now time.Time) []byte {
 	b := make([]byte, 34)
 	b[0] = 'r'
-	binary.BigEndian.PutUint64(b[1:9], pos)
-	binary.BigEndian.PutUint64(b[9:17], pos)
-	binary.BigEndian.PutUint64(b[17:25], pos)
+	binary.BigEndian.PutUint64(b[1:9], write)
+	binary.BigEndian.PutUint64(b[9:17], flush)
+	binary.BigEndian.PutUint64(b[17:25], apply)
 	binary.BigEndian.PutUint64(b[25:33], uint64(now.Sub(pgEpoch).Microseconds()))
 	return b
+}
+
+// ackMode is what a consumer confirms. A position it does not confirm
+// stays at the first position it saw, so the replica lags at that stage.
+type ackMode int
+
+// Consumer acknowledgement modes.
+const (
+	ackNone       ackMode = iota // receives, never confirms (a slow consumer)
+	ackAll                       // confirms write, flush and apply
+	ackWriteFlush                // apply stays behind (replay backlog)
+	ackWrite                     // flush and apply stay behind (flush backlog)
+)
+
+// positions is the write, flush and apply a mode confirms.
+func (m ackMode) positions(base, pos uint64) (uint64, uint64, uint64) {
+	switch m {
+	case ackWriteFlush:
+		return pos, pos, base
+	case ackWrite:
+		return pos, base, base
+	}
+	return pos, pos, pos
 }
 
 // createLogicalSlot creates a test_decoding slot. Creation waits for the
@@ -111,6 +139,16 @@ func (c *consumer) stop() {
 // receives.
 func startLogicalConsumer(ctx context.Context, e *Env, slot string,
 	ack bool) (*consumer, error) {
+	mode := ackNone
+	if ack {
+		mode = ackAll
+	}
+	return startConsumer(ctx, e, slot, mode)
+}
+
+// startConsumer streams slot, confirming what mode says.
+func startConsumer(ctx context.Context, e *Env, slot string, mode ackMode) (*consumer,
+	error) {
 	cfg, err := pgconn.ParseConfig(e.DSN)
 	if err != nil {
 		return nil, err
@@ -140,20 +178,20 @@ func startLogicalConsumer(ctx context.Context, e *Env, slot string,
 	c := &consumer{conn: conn, cancel: cancel, done: make(chan struct{})}
 	go func() {
 		defer close(c.done)
-		c.err = consume(streamCtx, conn, ack)
+		c.err = consume(streamCtx, conn, mode)
 	}()
 	return c, nil
 }
 
 // consume drains the stream until ctx ends (nil) or the stream breaks
-// (its error); with ack it confirms the furthest position seen every
+// (its error); unless mode is ackNone it confirms positions every
 // statusInterval and whenever the server asks.
-func consume(ctx context.Context, conn *pgconn.PgConn, ack bool) error {
-	var pos uint64
+func consume(ctx context.Context, conn *pgconn.PgConn, mode ackMode) error {
+	var pos, base uint64
 	next := time.Now()
 	for ctx.Err() == nil {
-		if ack && !time.Now().Before(next) {
-			if err := sendStatus(conn, pos); err != nil {
+		if mode != ackNone && base != 0 && !time.Now().Before(next) {
+			if err := sendStatus(conn, mode, base, pos); err != nil {
 				return err
 			}
 			next = time.Now().Add(statusInterval)
@@ -177,14 +215,18 @@ func consume(ctx context.Context, conn *pgconn.PgConn, ack bool) error {
 		if ok && m.end > pos {
 			pos = m.end
 		}
-		if ok && m.reply && ack {
+		if ok && base == 0 {
+			base = m.end
+		}
+		if ok && m.reply && mode != ackNone {
 			next = time.Now()
 		}
 	}
 	return nil
 }
 
-func sendStatus(conn *pgconn.PgConn, pos uint64) error {
-	conn.Frontend().Send(&pgproto3.CopyData{Data: standbyStatus(pos, time.Now())})
+func sendStatus(conn *pgconn.PgConn, mode ackMode, base, pos uint64) error {
+	w, f, a := mode.positions(base, pos)
+	conn.Frontend().Send(&pgproto3.CopyData{Data: standbyStatusAt(w, f, a, time.Now())})
 	return conn.Frontend().Flush()
 }

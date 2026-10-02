@@ -30,11 +30,11 @@ func proposedKeepBytes(t *testing.T, sql string) int64 {
 
 func TestWALBoundTargetKeepsHeadroomAboveRetained(t *testing.T) {
 	retained := int64(14) << 30
-	target := walBoundTarget(retained, defaultWALBackstopBytes)
+	target := walBoundTarget(retained, DefaultWALBackstopBytes)
 	if target < retained*3/2 {
 		t.Fatalf("target = %d, want >= 1.5 x retained (%d)", target, retained*3/2)
 	}
-	if got := walBoundTarget(1<<20, defaultWALBackstopBytes); got != defaultWALBackstopBytes {
+	if got := walBoundTarget(1<<20, DefaultWALBackstopBytes); got != DefaultWALBackstopBytes {
 		t.Fatalf("small retention target = %d, want configured limit", got)
 	}
 }

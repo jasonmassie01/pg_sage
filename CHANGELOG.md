@@ -74,6 +74,52 @@
   Telegram is a new notification channel type. Requires `trust.level` `advisory` or
   `autonomous`.
 
+- **Sage SRE investigates four more incident types: checkpoint storms, temp-file
+  explosions, replication lag and LWLock contention.** Each one runs its own read-only
+  probes and tells apart the usual causes. For checkpoint storms, that is `max_wal_size`
+  too small for the write rate, something issuing `CHECKPOINT`, or a short
+  `checkpoint_timeout`. For temp files, one runaway query, one statement that spills on
+  every call, or `work_mem` small for many statements. For replication lag, where the lag
+  sits: not sent, not flushed, or not replayed. On a standby, it also checks paused replay
+  and standby queries holding replay back. For LWLock contention, the lock manager, WAL
+  writes, buffers, or the subtransaction or multixact caches, attributed to a query. The
+  packet also lists the explanations it ruled out and why. Investigations start from the
+  matching RCA incidents. Replication lag incidents now start a replication lag
+  investigation instead of a WAL retention one. A built-in detector also starts them for
+  checkpoint storms, temp-file growth and LWLock contention, with conservative thresholds
+  (documented in `docs/configuration.md`). Nothing is executed. PGIncidentBench gains
+  fault programs, decoys and background-noise runs for all four types.
+
+- **Runways and pre-incident investigations (Sage SRE).** pg_sage now watches how fast your
+  database approaches four hard limits: transaction-ID wraparound, a full disk (when you
+  declare `forecaster.disk_capacity_bytes`), the WAL a replication slot may retain, and a
+  sequence running out (including a bigint sequence feeding an integer column). Every minute
+  it samples these series and projects when each limit is reached. When one comes within its
+  horizon (14 days for wraparound, 72 hours for disk and slots, 30 days for sequences), it
+  opens a forecast finding and a read-only investigation that explains why: for example a
+  forgotten transaction holding back vacuum, a slot nobody consumes, or a column narrower than
+  its sequence. The investigation lists the existing freeze or WAL-bound action that fixes it
+  with the policy gate's verdict, but never runs it; your custodians still act under your
+  autonomy settings. A verified WAL bound now earns an "incident avoided" (disk full, near
+  miss) when the measured fill trend shows the disk would have filled within the horizon and
+  no longer does; managed providers are never credited. Settings are under `sre.runways`.
+
+- **Sage SRE runbooks and incident memory.** You can now write typed runbooks for a
+  database: a small flowchart of read-only catalog probes, yes/no decisions on their
+  results or on the causal graph's hypotheses, and a final proposal (a manual step, a typed
+  action to request through the normal approval flow, or "escalate"). Write one as JSON, or
+  paste an English playbook (for example an imported Xata playbook) and your configured LLM
+  turns it into a draft, which is checked against the probe catalog and graph. A runbook
+  only ever runs after an admin signs the exact version they reviewed; any edit needs a new
+  signature, and a retired runbook never runs. When a signed runbook matches an
+  investigation, it adds its probes (within the usual 12-probe and 120 s limits), records
+  which version ran and what it proposes, and never executes anything. Investigations also
+  look up similar past incidents of the same database, with any outcome an operator
+  confirmed or refuted, and show them to the model and in the Cases panel as context only
+  (never as evidence, and never anything newer than the investigation itself). Manage
+  runbooks under Advanced > Runbooks, the `/api/v1/databases/{db}/runbooks` routes, or the
+  new MCP tools (which can draft but never sign).
+
 - **Sage SRE investigations get a model turn (on by default whenever an LLM is
   configured).** After the causal graph diagnoses an incident, your configured LLM reviews
   the result. It can reorder the graph's own hypotheses (shown separately as "model
@@ -139,6 +185,13 @@
   5 minutes older than the investigation's newest one (for example after an investigation
   was paused and resumed), or two connection samples taken at the same instant, are listed
   as missing evidence instead of supporting a root cause.
+- **The new incident families follow the same rule.** LWLock waits, a standby's longest
+  query, the statements spilling temp files, the sessions holding back the xmin horizon and
+  the busy autovacuum workers also need `pg_read_all_stats`; without it those probes report
+  "no privilege" instead of "no contention" or "no holder".
+- **`forecaster.disk_capacity_bytes` no longer claims to auto-detect.** Nothing detects disk
+  capacity (PostgreSQL cannot report free space over SQL), so `0`, the default, means
+  undeclared: no disk runway and no disk-full credit. Set it for self-managed servers.
 
 ### Changed (read before upgrading)
 

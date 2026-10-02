@@ -13,7 +13,8 @@ type Server struct {
 
 func NewServer(backend Backend) *Server {
 	tools := append(append(intentTools(), sreTools()...), sreActionTools()...)
-	return &Server{backend: backend, tools: append(tools, signalTools()...)}
+	tools = append(tools, signalTools()...)
+	return &Server{backend: backend, tools: append(tools, runbookTools()...)}
 }
 
 func (s *Server) Tools() []Tool { return append([]Tool(nil), s.tools...) }
@@ -71,7 +72,7 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (any, *rpcEr
 	if mutatingTools[call.Name] && !canMutate(ctx) {
 		return nil, failure(-32001, "operator or admin role required")
 	}
-	if sreToolNames[call.Name] {
+	if _, runbookTool := runbookToolNames[call.Name]; sreToolNames[call.Name] || runbookTool {
 		return s.callSRETool(ctx, call.Name, call.Arguments)
 	}
 	if signalToolNames[call.Name] {

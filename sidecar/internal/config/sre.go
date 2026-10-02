@@ -11,7 +11,7 @@ import (
 // the deterministic causal graph, with a validated model turn when an
 // LLM is configured; they never execute actions.
 type SREConfig struct {
-	AutomaticStart         bool `yaml:"automatic_start" doc:"Start a read-only, bounded investigation for each open lock, connection or WAL incident and plan_regression finding. Never executes actions. false = start only on request. Default: true."`
+	AutomaticStart         bool `yaml:"automatic_start" doc:"Start read-only, bounded investigations from RCA incidents, plan_regression findings and the reactive detector (checkpoint, temp-file, LWLock). Never executes. false = on request only. Default: true."`
 	TriggerIntervalSeconds int  `yaml:"trigger_interval_seconds" doc:"Seconds between checks for new triggers and pending investigations, 5-600. Default: 15."`
 	SampleIntervalSeconds  int  `yaml:"sample_interval_seconds" doc:"Seconds between the two samples connection and WAL investigations compare, 1-30. Default: 5."`
 	EvidenceRetentionDays  int  `yaml:"evidence_retention_days" doc:"Days a finished, unpinned investigation keeps its probe evidence (a tombstone records the delete). 1 to timeline_retention_days. Default: 30."`
@@ -23,6 +23,8 @@ type SREConfig struct {
 	ChangeEvents SREChangeEventsConfig `yaml:"change_events"`
 	// Actions are approved, evidence-matched actions (M5).
 	Actions SREActionsConfig `yaml:"actions"`
+	// Runways are the pre-incident runways (M6).
+	Runways RunwayConfig `yaml:"runways"`
 }
 
 // SRELLMConfig configures the investigator's model turn: with an LLM
@@ -52,7 +54,8 @@ func defaultSREConfig() SREConfig {
 		LLM:                    SRELLMConfig{Enabled: true},
 		SLO:                    defaultSRESLOConfig(),
 		ChangeEvents:           defaultSREChangeEventsConfig(),
-		Actions:                defaultSREActionsConfig()}
+		Actions:                defaultSREActionsConfig(),
+		Runways:                defaultRunwayConfig()}
 }
 
 // TriggerInterval is the coordinator poll period.
@@ -108,5 +111,8 @@ func (s SREConfig) validate() error {
 	if err := s.SLO.validate(); err != nil {
 		return err
 	}
-	return s.ChangeEvents.validate()
+	if err := s.ChangeEvents.validate(); err != nil {
+		return err
+	}
+	return s.Runways.validate()
 }

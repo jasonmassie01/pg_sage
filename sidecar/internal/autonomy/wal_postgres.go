@@ -13,7 +13,9 @@ import (
 	"github.com/pg-sage/sidecar/internal/custodian/wal"
 )
 
-const defaultWALBackstopBytes int64 = 10 << 30
+// DefaultWALBackstopBytes is the retained-WAL ceiling above which the WAL
+// custodian bounds slots, unless configured otherwise.
+const DefaultWALBackstopBytes int64 = 10 << 30
 
 type DiskCapacityProvider interface {
 	CapacityBytes(context.Context) (int64, error)
@@ -46,7 +48,7 @@ func NewPostgresWALCustodian(
 		options.DiskPctCeiling = 10
 	}
 	if options.RetainedBytesLimit <= 0 {
-		options.RetainedBytesLimit = defaultWALBackstopBytes
+		options.RetainedBytesLimit = DefaultWALBackstopBytes
 	}
 	return &PostgresWALCustodian{
 		pool: pool, database: database, options: options,

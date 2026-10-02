@@ -41,6 +41,9 @@ func sreTools() []Tool {
 
 func (s *Server) callSRETool(ctx context.Context, name string,
 	raw json.RawMessage) (any, *rpcError) {
+	if _, ok := runbookToolNames[name]; ok {
+		return s.callRunbookTool(ctx, name, raw)
+	}
 	backend, ok := s.backend.(InvestigationBackend)
 	if !ok {
 		return nil, failure(-32603, "investigations unavailable")

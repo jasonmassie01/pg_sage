@@ -4,6 +4,8 @@ import { useToast } from '../../components/Toast'
 import { ModelOutput } from './InvestigationModel'
 import { InvestigationTimeline } from './InvestigationTimeline'
 import { ActionProposals } from './ActionProposal'
+import { RunbookResult } from './RunbookResult'
+import { SimilarIncidents } from './SimilarIncidents'
 
 // Sage SRE investigation of a case (AI-SRE-SPEC §9): impact and state,
 // observed facts, the likely explanation, other and ruled-out
@@ -106,6 +108,8 @@ function InvestigationDetail({ database, id, user }) {
       <MissingEvidence missing={summary.missing || []} />
       <NextCheck root={likely[0]} />
       <ActionProposals database={database} investigationId={id} user={user} />
+      <RunbookResult run={summary.runbook} />
+      <SimilarIncidents database={database} investigationId={id} />
       <EvidenceList evidence={data.evidence || []} openID={openEvidence} />
       <InvestigationTimeline path={basePath(database, id)} />
       {canOperate(user) && (

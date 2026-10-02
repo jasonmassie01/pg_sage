@@ -15,6 +15,7 @@ import { AgentDBsPage } from './pages/AgentDBsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
 import { ValuePage } from './pages/ValuePage'
 import { SLOsPage } from './pages/SLOsPage'
+import { RunbooksPage } from './pages/RunbooksPage'
 import { useAPI } from './hooks/useAPI'
 import { resolveSelectedDB } from './lib/selectedDatabase'
 import { TimeRangeProvider } from './context/TimeRangeContext'
@@ -168,6 +169,9 @@ export default function App() {
       case '/advanced/actions':
         return { title: 'Action history',
           node: <Actions database={effectiveDB} user={user} /> }
+      case '/advanced/runbooks':
+        return { title: 'Runbooks',
+          node: <RunbooksPage database={effectiveDB} user={user} /> }
       case '/manage-databases':
         return isAdmin ? { title: 'Databases', node: <DatabasesPage /> }
           : denied

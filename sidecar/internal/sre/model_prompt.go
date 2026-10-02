@@ -56,6 +56,8 @@ The graph is the authority. You may only:
 3. claims: up to 5 short claims about what the evidence shows. Each claim cites the
    evidence ids (E1, E2, ...) it rests on. Every number in a claim must appear in the
    evidence it cites; never compute or estimate new numbers.
+4. Similar past incidents (P1, P2, ...), when shown, are context only. They are not
+   evidence of this incident: never cite them and never take numbers from them.
 `
 
 // reviewTools is the one tool of a turn that may ask for a probe.
@@ -113,6 +115,12 @@ func (s reviewScope) userPrompt(inv Investigation) string {
 	b.WriteString("Evidence (cite by id):\n")
 	b.WriteString(llm.UntrustedData("evidence", s.evidenceBlock()))
 	b.WriteString("\n")
+	if s.memory != "" {
+		b.WriteString("Similar past incidents of this database (context only; they are " +
+			"not evidence and cannot be cited):\n")
+		b.WriteString(llm.UntrustedData("past_incidents", s.memory))
+		b.WriteString("\n")
+	}
 	if s.allowProbe {
 		b.WriteString(probeMenu())
 	} else {
