@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/sre"
+	"github.com/pg-sage/sidecar/internal/sre/changefeed"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/sre/slo"
 	"github.com/pg-sage/sidecar/internal/testdb"
@@ -141,6 +142,7 @@ type signalsRig struct {
 	sig   *sreSignals
 	coord *sre.Coordinator
 	store *sre.PostgresStore
+	pool  *pgxpool.Pool
 	ctx   context.Context
 }
 
@@ -176,7 +178,7 @@ func signalsFixture(t *testing.T, settings config.SREConfig) signalsRig {
 	if _, err := coord.Bind(ctx); err != nil {
 		t.Fatal(err)
 	}
-	return signalsRig{sig: sig, coord: coord, store: st, ctx: ctx}
+	return signalsRig{sig: sig, coord: coord, store: st, pool: pool, ctx: ctx}
 }
 
 func pageStatus(name string, kind slo.Kind) slo.Status {
@@ -254,5 +256,67 @@ func TestSRESignals_Disabled(t *testing.T) {
 	if sig.poller != nil || sig.feed == nil {
 		t.Fatalf("feed polling disabled: poller=%v feed=%v (ingested events still read)",
 			sig.poller, sig.feed)
+	}
+}
+
+// seedBurn writes 4 days of 5-minute cumulative samples of an app SLI
+// (target 0.999) at 0.2x, the last hour at 20x.
+func seedBurn(t *testing.T, r signalsRig, name string) {
+	t.Helper()
+	scope, _ := r.coord.Scope()
+	_, err := r.pool.Exec(r.ctx, `
+		INSERT INTO sage.sre_sli_samples (deployment_id, slo_name, series, observed_at,
+		    bad, eligible)
+		SELECT $1, $2, 'app', now() - interval '1 minute' - (1152 - g) * interval '5 minutes',
+		       (CASE WHEN g > 1140 THEN (g - 1140) * 20.0 ELSE 0 END)
+		           + LEAST(g, 1140) * 0.2, g * 1000.0
+		FROM generate_series(1, 1152) g
+		ON CONFLICT DO NOTHING`, string(scope.DeploymentID), name)
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+}
+
+// The whole M5 chain on a live database: an app SLI burning at page
+// level opens an slo_burn investigation, which collects the change feed
+// (a signed deploy) and the SLO status as evidence, binds customer
+// impact to the SLO evidence and asks "what changed?" with the deploy.
+func TestSRESignals_BurnToInvestigationWithEvidence(t *testing.T) {
+	r := signalsFixture(t, sloSettings())
+	seedBurn(t, r, "checkout")
+	sub := changefeed.Submission{Source: "github-actions", Kind: changefeed.KindDeploy,
+		EventID: "run-" + string(sre.NewUUID()), Database: "orders",
+		Summary: "deploy checkout v9", OccurredAt: time.Now().UTC().Add(-3 * time.Minute)}
+	if _, _, err := r.sig.feed.Ingest(r.ctx, sub, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	sts, err := r.sig.engine.EvaluateOnce(r.ctx)
+	if err != nil {
+		t.Fatalf("EvaluateOnce: %v", err)
+	}
+	scope, _ := r.coord.Scope()
+	page, err := r.store.List(r.ctx, scope, sre.ListFilter{Limit: 10})
+	if err != nil || len(page.Items) != 1 || page.Items[0].TriggerKind != sre.TriggerSLOBurn {
+		t.Fatalf("investigations = %+v err=%v (statuses %+v)", page.Items, err, sts)
+	}
+	if err := r.coord.Investigate(r.ctx, page.Items[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	inv, err := r.store.Get(r.ctx, scope, page.Items[0].ID)
+	if err != nil || inv.Summary.CustomerImpact == nil ||
+		inv.Summary.CustomerImpact.State != "burning" ||
+		inv.Summary.CustomerImpact.SLO != "checkout" {
+		t.Fatalf("investigation = %+v err=%v", inv, err)
+	}
+	hs, _ := r.store.Hypotheses(r.ctx, scope, inv.ID)
+	var deploy bool
+	for _, h := range hs {
+		for _, f := range h.Support {
+			deploy = deploy || (h.Node == "recent_change" &&
+				strings.Contains(f.Text, "deploy checkout v9"))
+		}
+	}
+	if !deploy {
+		t.Fatalf("no recent_change hypothesis cites the deploy: %+v", hs)
 	}
 }
