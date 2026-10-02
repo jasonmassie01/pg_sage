@@ -740,14 +740,28 @@ failed verification or a regression above the limit.
 
 API, under `/api/v1/sre/autonomy`. Every route takes `?database=<name>`.
 
+The ledger is per database: each database earns its own levels from its own shadow reviews,
+live outcomes, game days and safety record, and its own failover cooldown and carry-over
+apply. PGIncidentBench reports are about pg_sage itself and are shared by every database of
+the deployment. A level stored before the ledger was per database applies to every database
+at that level until the database changes it. Only a verified success counts as a live
+recovery: an action that is never verified is recorded as `unverified` after 24 hours and
+earns nothing.
+
 - Viewers: `GET` the root, `/history`, `/proposals`, `/game-days`, `/rollouts` and
   `/rollouts/{id}`.
-- Operators: `POST /evaluate`, `/proposals/{id}/reject`, `/downgrade`, `/reviews` (a shadow
-  review of a concluded investigation) and `/outcomes` (harmful or safety_violation).
+- Operators: `POST /evaluate` (returns the proposals created and, for every other pair,
+  why not: each unmet check with how to meet it), `/proposals/{id}/reject`, `/downgrade`,
+  `/reviews` (accept or reject a concluded or inconclusive investigation, with an optional
+  `note` and `actual_root_cause`; it also records the investigation outcome) and
+  `/outcomes` (harmful or safety_violation).
 - Admins: `POST /proposals/{id}/approve`, `/bench-results`, `/game-days` and `/rollouts`.
 
-The UI page is **Advanced > Earned autonomy**. With MCP enabled, agents get
-`sre_get_autonomy` and `sre_downgrade_autonomy`. There is no approval tool.
+The UI page is **Advanced > Earned autonomy**: **Evaluate now** and a **Path to next
+level** checklist per family and class. Reviews are recorded with **Accept diagnosis** /
+**Reject diagnosis** on a finished investigation in **Cases**. With MCP enabled, agents get
+`sre_get_autonomy`, and operators also `sre_downgrade_autonomy`, `sre_review_investigation`
+and `sre_evaluate_autonomy`. There is no approval tool.
 
 ### Fast elevation (dogfood databases)
 
@@ -798,9 +812,10 @@ or `evaluate_interval_minutes`. The autonomy API returns them as `fast_elevation
 **Advanced > Earned autonomy** shows a "Fast elevation" badge that lists them. These keys
 are YAML-only and need a restart; the config API refuses them.
 
-To approve a promotion quickly, run `POST /api/v1/sre/autonomy/evaluate` as an operator,
-then `GET /api/v1/sre/autonomy/proposals` and `POST
-/api/v1/sre/autonomy/proposals/{id}/approve` as an admin.
+To approve a promotion quickly, review investigations in **Cases**, press **Evaluate now**
+on the Earned autonomy page (or `POST /api/v1/sre/autonomy/evaluate` as an operator), then
+approve the pending promotion as an admin (or `GET /api/v1/sre/autonomy/proposals` and `POST
+/api/v1/sre/autonomy/proposals/{id}/approve`).
 
 ### Retention
 
