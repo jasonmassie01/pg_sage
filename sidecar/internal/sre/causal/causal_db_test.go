@@ -173,12 +173,31 @@ func TestIntegration_HotRowContention(t *testing.T) {
 
 // A plan flip via a changed index: the query uses an index, the index is
 // dropped, the plan changes to a sequential scan and the windowed
-// latency from pg_stat_statements rises.
+// latency from pg_stat_statements rises. pg_stat_statements is shared by
+// the whole server: another test package can reset it or evict this
+// query mid-run, which breaks the cumulative counters the window is
+// computed from. Such a run is repeated, never scored.
 func TestIntegration_PlanFlipViaDroppedIndex(t *testing.T) {
 	pool, ctx, _ := livePool(t)
 	if err := schema.Bootstrap(ctx, pool); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
+	const attempts = 3
+	for i := 1; i <= attempts; i++ {
+		if planFlipAttempt(t, ctx, pool) {
+			return
+		}
+		t.Logf("attempt %d: pg_stat_statements was reset or evicted the query "+
+			"mid-run; repeating", i)
+	}
+	t.Fatalf("pg_stat_statements was reset or evicted the query in all %d attempts",
+		attempts)
+}
+
+// planFlipAttempt runs the scenario once; false means the counters were
+// reset under it and the attempt proves nothing.
+func planFlipAttempt(t *testing.T, ctx context.Context, pool *pgxpool.Pool) bool {
+	t.Helper()
 	tbl := uniqueTable(t, ctx, pool, "CREATE TABLE %s (id int, v text); "+
 		"INSERT INTO %[1]s SELECT g, md5(g::text) FROM generate_series(1, 200000) g; "+
 		"CREATE INDEX ON %[1]s (id); ANALYZE %[1]s")
@@ -195,15 +214,23 @@ func TestIntegration_PlanFlipViaDroppedIndex(t *testing.T) {
 	pf.capture(t, ctx) // sequential scan
 	pf.run(t, ctx, 40)
 	pf.sample(t, ctx)
+	if pf.reset {
+		return false
+	}
 	if pf.hashes[0] == pf.hashes[1] {
 		t.Fatalf("dropping the index did not change the plan hash (%s)", pf.hashes[0])
 	}
+	requirePlanFlip(t, ctx, pool, pf.queryID)
+	return true
+}
 
+func requirePlanFlip(t *testing.T, ctx context.Context, pool *pgxpool.Pool, queryID int64) {
+	t.Helper()
 	r := probes.NewRunner(pool, probes.Catalog(), probes.NewLimiter(1))
 	ds := DiagnosePlan([]Observation{{EvidenceID: "P1",
 		Result: r.Run(ctx, probes.PlanRegressions, probes.Args{})}})
 	for _, d := range ds {
-		if d.Root != nil && d.Root.Subject == fmt.Sprintf("queryid %d", pf.queryID) {
+		if d.Root != nil && d.Root.Subject == fmt.Sprintf("queryid %d", queryID) {
 			if d.Root.Node != PlanFlipRegression || d.Ratio < 1.5 {
 				t.Fatalf("flip diagnosis = %+v ratio %.2f", d.Root, d.Ratio)
 			}
@@ -211,14 +238,16 @@ func TestIntegration_PlanFlipViaDroppedIndex(t *testing.T) {
 			return
 		}
 	}
-	t.Fatalf("no plan-flip diagnosis for queryid %d in %+v", pf.queryID, ds)
+	t.Fatalf("no plan-flip diagnosis for queryid %d in %+v", queryID, ds)
 }
 
 type planFixture struct {
-	pool    *pgxpool.Pool
-	query   string
-	queryID int64
-	hashes  []string
+	pool      *pgxpool.Pool
+	query     string
+	queryID   int64
+	hashes    []string
+	lastCalls int64
+	reset     bool // the counters went missing or backwards mid-run
 }
 
 func newPlanFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
@@ -275,16 +304,21 @@ func (pf *planFixture) capture(t *testing.T, ctx context.Context) {
 // counters, the way the collector does.
 func (pf *planFixture) sample(t *testing.T, ctx context.Context) {
 	t.Helper()
-	var calls int64
-	var total float64
+	var calls *int64
+	var total *float64
 	if err := pf.pool.QueryRow(ctx, `SELECT sum(calls)::int8,
 		sum(total_exec_time)::float8 FROM pg_stat_statements
 		WHERE queryid = $1`, pf.queryID).Scan(&calls, &total); err != nil {
 		t.Fatalf("read counters: %v", err)
 	}
+	if calls == nil || total == nil || *calls < pf.lastCalls {
+		pf.reset = true
+		return
+	}
+	pf.lastCalls = *calls
 	if err := querystore.Record(ctx, pf.pool, []querystore.Sample{{
-		QueryID: pf.queryID, Calls: calls, TotalExecMs: total,
-		MeanExecMs: total / float64(calls)}}); err != nil {
+		QueryID: pf.queryID, Calls: *calls, TotalExecMs: *total,
+		MeanExecMs: *total / float64(*calls)}}); err != nil {
 		t.Fatalf("record sample: %v", err)
 	}
 	time.Sleep(20 * time.Millisecond) // distinct captured_at per sample
