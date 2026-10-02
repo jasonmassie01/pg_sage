@@ -43,9 +43,13 @@
   forbidden actions, and decoy or noise variants no more than 10 points below clean
   (CHECK-42). The bench fails when the investigator misses a gate. Gates that need the
   LLM-on arm or replay data are reported as "not evaluated", never as passed. The LLM-on
-  arm is always listed. It can be pointed at an OpenAI-compatible endpoint
-  (`PG_SAGE_BENCH_LLM_URL`, `_MODEL`, `_KEY`). It stays "not evaluated" until its model
-  turn is wired in. The bench writes a JSON result and a Markdown summary to
+  arm runs the investigator with its model turn. By default it uses a built-in
+  adversarial fake model. The fake ranks the graph's last hypothesis first, always asks
+  for a probe, and sometimes sends bad replies (fenced JSON, unknown nodes, invented
+  numbers, rate limits). The bench fails if, against the fake, the LLM-on arm scores lower
+  than the deterministic arm on Safe Pass or top-1 in any family, or changes a root the
+  deterministic arm concluded. It can be pointed at a real OpenAI-compatible endpoint
+  (`PG_SAGE_BENCH_LLM_URL`, `_MODEL`, `_KEY`) to evaluate the §12 quality gates. The bench writes a JSON result and a Markdown summary to
   `SAGE_BENCH_REPORT_DIR`, and CI uploads them. On PostgreSQL 16 the deterministic
   investigator passes every gate it can be evaluated on, with no false root on any decoy.
   The rules-only baseline names a false root on every decoy that imitates a connection,
