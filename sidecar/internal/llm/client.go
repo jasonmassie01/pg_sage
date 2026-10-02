@@ -66,10 +66,12 @@ type Budgeter interface {
 func (c *Client) SetBudget(b Budgeter) { c.budget = b }
 
 type ChatRequest struct {
-	Model          string          `json:"model"`
-	Messages       []ChatMessage   `json:"messages"`
-	MaxTokens      int             `json:"max_tokens,omitempty"`
-	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
+	Model     string        `json:"model"`
+	Messages  []ChatMessage `json:"messages"`
+	MaxTokens int           `json:"max_tokens,omitempty"`
+	// MaxCompletionTokens replaces MaxTokens for models that reject it.
+	MaxCompletionTokens int             `json:"max_completion_tokens,omitempty"`
+	ResponseFormat      *ResponseFormat `json:"response_format,omitempty"`
 }
 
 // ResponseFormat is the OpenAI-style structured-output hint. Only
@@ -211,15 +213,30 @@ func usageTokens(resp *ChatResponse, system, user string) int {
 	return estimateTokens(system, user, resp.Choices[0].Message.Content)
 }
 
-// sendChat performs the HTTP exchange and returns a decoded response
-// with at least one choice. Provider-side failures feed the breaker.
+// sendChat performs the HTTP exchange, adapting the request shape when
+// the provider asks (wire_compat.go), and returns a decoded response with
+// at least one choice. Provider-side failures feed the breaker.
 func (c *Client) sendChat(
 	ctx, requestCtx context.Context,
 	cfg config.LLMConfig,
 	system, user string,
 	maxTokens int,
 ) (*ChatResponse, error) {
-	body, err := json.Marshal(buildChatRequest(cfg, system, user, maxTokens))
+	var out *ChatResponse
+	err := c.withAdaptation(cfg, requestShape(cfg, false), func(shape wireShape) error {
+		req := buildChatRequest(cfg, system, user, maxTokens, shape)
+		resp, err := c.sendChatOnce(ctx, requestCtx, cfg, req, shape)
+		out = resp
+		return err
+	})
+	return out, err
+}
+
+func (c *Client) sendChatOnce(
+	ctx, requestCtx context.Context, cfg config.LLMConfig, req ChatRequest,
+	shape wireShape,
+) (*ChatResponse, error) {
+	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
@@ -240,10 +257,12 @@ func (c *Client) sendChat(
 		return nil, providerRequestError("LLM request", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	return c.decodeChatResponse(resp)
+	return c.decodeChatResponse(resp, cfg, shape)
 }
 
-func (c *Client) decodeChatResponse(resp *http.Response) (*ChatResponse, error) {
+func (c *Client) decodeChatResponse(
+	resp *http.Response, cfg config.LLMConfig, shape wireShape,
+) (*ChatResponse, error) {
 	// Cap response body at 1MB to prevent memory exhaustion.
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -251,12 +270,9 @@ func (c *Client) decodeChatResponse(resp *http.Response) (*ChatResponse, error) 
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		c.recordFailure()
-		return nil, fmt.Errorf(
-			"LLM API error %d: %s",
-			resp.StatusCode,
-			redactProviderText(string(respBody)),
-		)
+		return nil, c.statusError(cfg, shape, false, resp.StatusCode, respBody,
+			fmt.Errorf("LLM API error %d: %s", resp.StatusCode,
+				redactProviderText(string(respBody))))
 	}
 	var chatResp ChatResponse
 	if err := json.Unmarshal(respBody, &chatResp); err != nil {
@@ -273,9 +289,9 @@ func (c *Client) decodeChatResponse(resp *http.Response) (*ChatResponse, error) 
 // buildChatRequest assembles the provider request. json_object mode is
 // only requested when the system prompt asks for JSON (G3-B11): prose
 // callers (briefing, narrators) must get prose, and OpenAI rejects
-// json_object when no message mentions JSON.
+// json_object when no message mentions JSON. The shape names the cap.
 func buildChatRequest(
-	cfg config.LLMConfig, system, user string, maxTokens int,
+	cfg config.LLMConfig, system, user string, maxTokens int, shape wireShape,
 ) ChatRequest {
 	req := ChatRequest{
 		Model: cfg.Model,
@@ -284,6 +300,9 @@ func buildChatRequest(
 			{Role: "user", Content: user},
 		},
 		MaxTokens: maxTokens,
+	}
+	if shape.completionTokens {
+		req.MaxTokens, req.MaxCompletionTokens = 0, maxTokens
 	}
 	if cfg.JSONMode && promptRequestsJSON(system) {
 		req.ResponseFormat = &ResponseFormat{Type: "json_object"}
@@ -430,6 +449,9 @@ func NewOptimizerClient(
 		TokenBudgetDaily: budget,
 		CooldownSeconds:  cooldown,
 		JSONMode:         parent.JSONMode,
+		// Wire overrides describe the provider, like json_mode.
+		TokenParameter:      parent.TokenParameter,
+		ToolReasoningEffort: parent.ToolReasoningEffort,
 	}
 	return New(merged, logFn)
 }

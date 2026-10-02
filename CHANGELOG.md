@@ -14,6 +14,15 @@
   `sre.autonomy.report_retention_days` (90 days), except the reports that current autonomy
   levels or pending promotions rest on and the newest report of each family.
 
+### Fixed
+
+- **pg_sage works with current OpenAI models (gpt-5, gpt-6 and later).** These models
+  refuse `max_tokens`, and refuse tool calls unless `reasoning_effort` is `none`, so every
+  LLM feature used to fall back to its deterministic path. pg_sage now notices the refusal,
+  re-sends the request once in the shape the model wants, and remembers it for that model.
+  Other providers, Gemini included, see no change. Two new settings pin the shape if you
+  need to: `llm.token_parameter` and `llm.tool_reasoning_effort` (both default `auto`).
+
 ## v1.8.0 (2026-10-02) -- Sage SRE: eleven incident families, approved actions, earned autonomy
 
 ### What's new

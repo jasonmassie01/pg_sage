@@ -137,6 +137,8 @@
 | `llm.optimizer_llm.token_budget_daily` | `restart` | `-` |
 | `llm.timeout_seconds` | `reconfigure` | `llm` |
 | `llm.token_budget_daily` | `restart` | `-` |
+| `llm.token_parameter` | `reconfigure` | `llm` |
+| `llm.tool_reasoning_effort` | `reconfigure` | `llm` |
 | `logwatch.dedup_window_seconds` | `restart` | `-` |
 | `logwatch.enabled` | `restart` | `-` |
 | `logwatch.exclude_applications` | `restart` | `-` |
