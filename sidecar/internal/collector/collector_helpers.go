@@ -3,8 +3,10 @@ package collector
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/pg-sage/sidecar/internal/snapstore"
 )
 
 // detectStatsReset returns true if pg_stat_statements was likely
@@ -65,18 +67,19 @@ func (c *Collector) collectStatStatementsMax(
 	return val
 }
 
-// persist inserts the snapshot into sage.snapshots
-// (one row per category).
-func (c *Collector) persist(
-	ctx context.Context,
-	snap *Snapshot,
-) error {
-	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
+// persist writes the snapshot into sage.snapshots, one row per available
+// category; catalog categories are delta encoded by the snapshot store.
+func (c *Collector) persist(ctx context.Context, snap *Snapshot) error {
+	rows, err := snapshotRows(snap)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	return c.snapWriter.Persist(ctx, c.pool, snap.CollectedAt, rows)
+}
 
+// snapshotRows marshals each available category of snap, sorted by
+// category. An unavailable category is unknown, not empty: no row.
+func snapshotRows(snap *Snapshot) ([]snapstore.Row, error) {
 	categories := map[string]any{
 		"queries":      snap.Queries,
 		"tables":       snap.Tables,
@@ -90,25 +93,17 @@ func (c *Collector) persist(
 		"partitions":   snap.Partitions,
 		"config_data":  snap.ConfigData,
 	}
-
-	const insertSQL = `/* pg_sage */
-INSERT INTO sage.snapshots (collected_at, category, data)
-VALUES ($1, $2, $3)`
-
+	rows := make([]snapstore.Row, 0, len(categories))
 	for cat, data := range categories {
 		if !snap.Available(cat) {
-			continue // unknown, not empty: store nothing for it
+			continue
 		}
 		j, err := json.Marshal(data)
 		if err != nil {
-			return err
+			return nil, fmt.Errorf("marshal %s snapshot: %w", cat, err)
 		}
-		if _, err := tx.Exec(
-			ctx, insertSQL, snap.CollectedAt, cat, j,
-		); err != nil {
-			return err
-		}
+		rows = append(rows, snapstore.Row{Category: cat, Data: j})
 	}
-
-	return tx.Commit(ctx)
+	sort.Slice(rows, func(a, b int) bool { return rows[a].Category < rows[b].Category })
+	return rows, nil
 }

@@ -17,7 +17,16 @@ Detects indexes with zero scans over the observation window.
 
 **Severity:** warning
 
-**What it detects:** Indexes that consume disk space and slow down writes but are never used for reads. Evaluated against `pg_stat_user_indexes.idx_scan`.
+**What it detects:** Indexes that consume disk space and slow down writes but are never used for reads. Evaluated against `pg_stat_user_indexes.idx_scan` over `analyzer.unused_index_window_days` (default 7) of clean evidence.
+
+A statistics reset makes zero scans meaningless, so it restarts the clock. Resets come from
+`pg_stat_reset()`, a single-relation reset or a server restart. Each snapshot records the
+database's statistics epoch (`pg_stat_database.stats_reset` or the postmaster start). The
+window never starts before the last reset. A counter that went down, or an index dropped
+and recreated under the same name (new oid), also restarts it. The finding shows
+`unused_since` and `stats_epoch`. Before an autonomous `DROP INDEX`, the executor re-checks
+live that the index still has zero scans and that no reset happened inside the window.
+If either check fails, it does not drop the index.
 
 **Example output:**
 
@@ -281,6 +290,31 @@ Cache hit ratio 87% (expected > 95%)
 ```
 
 **Recommended action:** Increase `shared_buffers` or investigate workload changes.
+
+---
+
+### sage_footprint
+
+Detects pg_sage itself taking too much of the database it guards.
+
+**Severity:** warning
+
+**What it detects:** The `sage` schema (every table with its TOAST data and indexes)
+is larger than `retention.sage_size_warning_pct` percent (default 10) of the database
+size collected this cycle. The finding names the share, the limit and the five largest
+sage tables. `0` disables the check; while the database size is unknown the open
+finding is kept, not resolved.
+
+**Example output:**
+
+```
+Sage data uses 23.4% of database lifeos (limit 10%)
+```
+
+**Recommended action:** Shorten `retention.snapshots_days` (or the retention of the
+largest table listed), or raise `retention.sage_size_warning_pct` if the share is
+expected. Snapshot rows written before compact storage age out with
+`retention.snapshots_days`.
 
 ---
 

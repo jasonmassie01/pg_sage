@@ -108,6 +108,9 @@ type IndexStats struct {
 	IsValid      bool   `json:"indisvalid"`
 	IndexDef     string `json:"indexdef"`
 	IndexType    string `json:"index_type"`
+	// IndexRelID is the index's oid: a dropped and recreated index under
+	// the same name is a new object. Zero when unknown (legacy rows).
+	IndexRelID uint32 `json:"indexrelid"`
 }
 
 // ForeignKey describes a foreign key constraint.
@@ -132,6 +135,11 @@ type SystemStats struct {
 	IsReplica         bool    `json:"is_replica"`
 	DBSizeBytes       int64   `json:"db_size_bytes"`
 	StatStatementsMax int     `json:"stat_statements_max"`
+	// RelationStatsEpoch is the instant since which this database's table
+	// and index counters accumulate: the later of pg_stat_database.
+	// stats_reset (moved by pg_stat_reset() and by every single-relation
+	// reset) and the postmaster start. Zero when unknown (legacy rows).
+	RelationStatsEpoch time.Time `json:"relation_stats_epoch,omitzero"`
 }
 
 // LockInfo describes a single lock from pg_locks + pg_stat_activity.

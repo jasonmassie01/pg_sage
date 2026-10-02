@@ -391,7 +391,8 @@ func migrationStatements() []string {
 		ddlSREAutonomyDatabaseScope,
 		ddlHAIdentity,
 		ddlDebtExec,
-		ddlIncidentOpenIdentity)
+		ddlIncidentOpenIdentity,
+		ddlSnapshotDelta)
 }
 
 // ---------------------------------------------------------------------------

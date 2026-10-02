@@ -18,6 +18,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/snapstore"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -1948,7 +1949,7 @@ func querySnapshotLatest(
 ) (any, error) {
 	var data []byte
 	err := pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT data FROM sage.snapshots
+		`/* pg_sage */ SELECT `+snapstore.DataSQL("")+` FROM sage.snapshots
 		 WHERE category = $1
 		 ORDER BY collected_at DESC LIMIT 1`,
 		metric,
@@ -1979,9 +1980,9 @@ func querySnapshotHistory(
 			to = time.Now().UTC()
 		}
 		rows, err = pool.Query(ctx,
-			`/* pg_sage */ SELECT collected_at, data
+			`/* pg_sage */ SELECT collected_at, `+snapstore.DataSQL("")+`
 			 FROM (
-			     SELECT collected_at, data
+			     SELECT collected_at, data, base_id
 			     FROM sage.snapshots
 			     WHERE category = $1
 			       AND collected_at BETWEEN $2 AND $3
@@ -1993,9 +1994,9 @@ func querySnapshotHistory(
 		)
 	} else {
 		rows, err = pool.Query(ctx,
-			`/* pg_sage */ SELECT collected_at, data
+			`/* pg_sage */ SELECT collected_at, `+snapstore.DataSQL("")+`
 			 FROM (
-			     SELECT collected_at, data
+			     SELECT collected_at, data, base_id
 			     FROM sage.snapshots
 			     WHERE category = $1
 			       AND collected_at > now() - ($2 || ' hours')::interval
