@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/runbook"
@@ -26,7 +27,8 @@ const runbooksPath = "/api/v1/databases/{db}/runbooks"
 // maxRunbookBody bounds a runbook request body (definition or playbook).
 const maxRunbookBody = 64 << 10
 
-func registerRunbookRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
+func registerRunbookRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
+	ledgers *earned.Registry) {
 	viewerUp := RequireRole("admin", "operator", "viewer")
 	operatorUp := RequireRole("admin", "operator")
 	adminOnly := RequireRole("admin")
@@ -42,7 +44,7 @@ func registerRunbookRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	mux.Handle("GET "+sreInvestigationsPath+"/{id}/similar",
 		viewerUp(similarIncidentsHandler(mgr)))
 	mux.Handle("POST "+sreInvestigationsPath+"/{id}/outcome",
-		operatorUp(outcomeHandler(mgr)))
+		operatorUp(outcomeHandler(mgr, ledgers)))
 }
 
 // runbookError writes a canonical error code for runbook and memory errors.

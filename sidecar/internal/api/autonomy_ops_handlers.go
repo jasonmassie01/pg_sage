@@ -10,70 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/gameday"
 	"github.com/pg-sage/sidecar/internal/rollout"
-	"github.com/pg-sage/sidecar/internal/sre"
 )
-
-// review records an operator's verdict on a concluded investigation
-// packet: the shadow record behind L2. The family comes from the
-// investigation, never from the caller.
-func (h autonomyHandlers) review(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Database        string `json:"database"`
-		InvestigationID string `json:"investigation_id"`
-		Verdict         string `json:"verdict"`
-		Note            string `json:"note"`
-	}
-	if !decodeAutonomyBody(w, r, &body) {
-		return
-	}
-	e, name, ok := h.ledger(w, body.Database)
-	if !ok {
-		return
-	}
-	family, ok := h.investigationFamily(w, r, name, body.InvestigationID)
-	if !ok {
-		return
-	}
-	err := e.Service.RecordReview(r.Context(), earned.Review{Database: name,
-		InvestigationID: body.InvestigationID, Family: earned.Family(family),
-		Verdict: body.Verdict, Note: body.Note, Reviewer: autonomyActor(UserFromContext(r.Context()))})
-	if err != nil {
-		autonomyError(w, r, err)
-		return
-	}
-	jsonResponse(w, map[string]any{"ok": true, "family": family})
-}
-
-// investigationFamily reads a concluded investigation of the database.
-func (h autonomyHandlers) investigationFamily(w http.ResponseWriter, r *http.Request,
-	database, id string) (string, bool) {
-	var svc *sre.Service
-	if h.mgr != nil {
-		if inst := h.mgr.GetInstance(database); inst != nil {
-			svc = inst.Investigations
-		}
-	}
-	if svc == nil {
-		sreErrorCode(w, "investigations unavailable for this database", "not_found",
-			http.StatusNotFound)
-		return "", false
-	}
-	d, err := svc.Detail(r.Context(), sre.UUID(id))
-	if err != nil {
-		sreErrorResponse(w, r, err)
-		return "", false
-	}
-	inv := d.Investigation
-	if inv.State != sre.StateConcluded && inv.State != sre.StateInconclusive {
-		sreErrorCode(w, "only a finished investigation can be reviewed", "not_concluded",
-			http.StatusConflict)
-		return "", false
-	}
-	if inv.Summary.Family != "" {
-		return inv.Summary.Family, true
-	}
-	return string(inv.TriggerKind), true
-}
 
 // outcome lets an operator flag a family action as harmful or unsafe.
 // Recoveries come from the executor's verification, never from a person.

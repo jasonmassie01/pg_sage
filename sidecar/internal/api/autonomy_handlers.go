@@ -204,12 +204,12 @@ func (h autonomyHandlers) evaluate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	created, err := e.Service.ProposePromotions(r.Context())
+	evaluation, err := e.Service.Evaluate(r.Context())
 	if err != nil {
 		autonomyError(w, r, err)
 		return
 	}
-	jsonResponse(w, map[string]any{"created": created})
+	jsonResponse(w, evaluation)
 }
 
 func (h autonomyHandlers) approve(w http.ResponseWriter, r *http.Request) {

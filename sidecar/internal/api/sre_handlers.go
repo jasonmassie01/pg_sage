@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/sre"
 )
@@ -23,10 +24,11 @@ const sreInvestigationsPath = "/api/v1/databases/{db}/investigations"
 // fleetInvestigationLimit bounds each database's page in the fleet list.
 const fleetInvestigationLimit = 100
 
-func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
+func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
+	ledgers *earned.Registry) {
 	viewerUp := RequireRole("admin", "operator", "viewer")
 	mux.Handle("GET /api/v1/investigations", viewerUp(fleetInvestigationsHandler(mgr)))
-	perDB := perDatabaseSREMux(mgr)
+	perDB := perDatabaseSREMux(mgr, ledgers)
 	// The per-database routes go through their own mux behind one
 	// catch-all per method: "{db}/investigations" and the fleet-mode
 	// "managed/{id}" routes overlap with neither more specific, which
@@ -40,7 +42,7 @@ func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	}
 }
 
-func perDatabaseSREMux(mgr *fleet.DatabaseManager) *http.ServeMux {
+func perDatabaseSREMux(mgr *fleet.DatabaseManager, ledgers *earned.Registry) *http.ServeMux {
 	viewerUp := RequireRole("admin", "operator", "viewer")
 	operatorUp := RequireRole("admin", "operator")
 	base := sreInvestigationsPath
@@ -59,7 +61,7 @@ func perDatabaseSREMux(mgr *fleet.DatabaseManager) *http.ServeMux {
 	mux.Handle("POST "+base+"/{id}/resume", operatorUp(investigationTransitionHandler(mgr,
 		true)))
 	registerSREActionRoutes(mux, mgr)
-	registerRunbookRoutes(mux, mgr)
+	registerRunbookRoutes(mux, mgr, ledgers)
 	return mux
 }
 
