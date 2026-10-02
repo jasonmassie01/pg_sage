@@ -15,6 +15,9 @@ import (
 // incidents (insert, LLM narration of the notification, dispatch).
 const episodePersistTimeout = 60 * time.Second
 
+// episodePersistRetry is the wait before a failed pass is retried.
+const episodePersistRetry = 5 * time.Second
+
 // episodeIncidents records reactive detector episodes as incidents of the
 // database's RCA engine, the single owner of incident state. The engine
 // tracks the incident at once, so the investigation links to it on the
@@ -25,6 +28,7 @@ type episodeIncidents struct {
 	pool  *pgxpool.Pool
 	logFn func(string, string, ...any)
 	wake  chan struct{}
+	retry time.Duration
 }
 
 var _ sre.EpisodeSink = (*episodeIncidents)(nil)
@@ -33,7 +37,8 @@ var _ sre.EpisodeSink = (*episodeIncidents)(nil)
 // Run persists what RecordEpisode tracks.
 func newEpisodeIncidents(eng *rca.Engine, pool *pgxpool.Pool,
 	logFn func(string, string, ...any)) *episodeIncidents {
-	return &episodeIncidents{eng: eng, pool: pool, logFn: logFn, wake: make(chan struct{}, 1)}
+	return &episodeIncidents{eng: eng, pool: pool, logFn: logFn, wake: make(chan struct{}, 1),
+		retry: episodePersistRetry}
 }
 
 // RecordEpisode implements sre.EpisodeSink.
@@ -57,25 +62,32 @@ func (s *episodeIncidents) RecordEpisode(ctx context.Context, ep sre.Episode) (
 }
 
 // Run persists tracked incidents (and sends their notifications) after
-// each recorded episode until ctx ends.
+// each recorded episode until ctx ends; a failed pass is retried.
 func (s *episodeIncidents) Run(ctx context.Context) {
+	var retry <-chan time.Time
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-s.wake:
-			s.persist(ctx)
+		case <-retry:
+		}
+		retry = nil
+		if !s.persist(ctx) && ctx.Err() == nil {
+			retry = time.After(s.retry)
 		}
 	}
 }
 
-func (s *episodeIncidents) persist(ctx context.Context) {
+func (s *episodeIncidents) persist(ctx context.Context) bool {
 	ctx, cancel := context.WithTimeout(ctx, episodePersistTimeout)
 	defer cancel()
 	if err := s.eng.PersistIncidents(ctx, s.pool); err != nil {
-		s.logFn("WARN", "sre: persisting detector incidents failed (the next pass "+
-			"retries): %v", err)
+		s.logFn("WARN", "sre: persisting detector incidents failed (retried in %s): %v",
+			s.retry, err)
+		return false
 	}
+	return true
 }
 
 // detectorIncidents is the database's episode sink: its RCA engine and
