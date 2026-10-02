@@ -13,40 +13,86 @@ func TestMain(m *testing.M) {
 	os.Exit(testdb.Run(m.Run, "sre-bench"))
 }
 
+// repeatBudget bounds one pass over the scenarios.
+const repeatBudget = 8 * time.Minute
+
 // TestPGIncidentBench runs every scenario's fault program on real
-// PostgreSQL through the real investigator (store, lease, probe plan,
-// causal graph; no LLM) and scores the persisted diagnoses. Gates (the
-// R1 targets of AI-SRE-SPEC §12, on this seed set): top-1 >= 80% where
-// the cause is known (CHECK-36), 100% abstention on benign scenarios,
-// precision >= 90%, and decoys within 10 points of clean top-1
-// (CHECK-42). Every fault program must manifest and recover.
+// PostgreSQL through each ready live arm (the causal graph with the LLM
+// off; the LLM-on arm once its model turn is wired), derives the
+// always-escalate and rules-only baselines from the same evidence, and
+// writes the JSON and Markdown report to SAGE_BENCH_REPORT_DIR (default:
+// the test's temp dir). It fails when a fault program breaks or a live
+// arm misses a pre-registered gate it is evaluated on; gates without the
+// data to evaluate them are reported as not evaluated.
 func TestPGIncidentBench(t *testing.T) {
 	dsn := testdb.SkipUnlessLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	repeats, err := ParseRepeats(os.Getenv(EnvRepeats))
+	if err != nil {
+		t.Fatal(err)
+	}
+	llm, err := LLMConfigFromEnv(os.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig(repeats, llm)
+	ctx, cancel := context.WithTimeout(context.Background(),
+		time.Duration(repeats)*repeatBudget)
 	t.Cleanup(cancel)
 	env := NewEnv(ctx, t, dsn)
-	results := Run(ctx, env, Scenarios())
-	t.Log("\n" + Report(results))
+	var version string
+	if err := env.Pool.QueryRow(ctx, "SELECT version()").Scan(&version); err != nil {
+		t.Fatalf("server version: %v", err)
+	}
+	results := Run(ctx, env, Scenarios(), cfg)
+	report := BuildReport(results, ReportMeta{Arms: cfg.ArmNames(), Gated: cfg.Gated(),
+		Pending: cfg.Pending(), Repeats: repeats, ServerVersion: version,
+		GeneratedAt: time.Now().UTC(), LLM: llm})
+	t.Log("\n" + report.Markdown())
+	jsonPath, mdPath, err := WriteReport(ReportDir(os.Getenv(EnvReportDir), t.TempDir()),
+		report)
+	if err != nil {
+		t.Fatalf("write report: %v", err)
+	}
+	t.Logf("report: %s, %s", jsonPath, mdPath)
+	checkRuns(t, cfg, results)
+	checkGates(t, cfg, report.Gates)
+}
+
+func checkRuns(t *testing.T, cfg RunConfig, results []Result) {
+	t.Helper()
+	live := map[string]bool{}
+	for _, a := range cfg.Live {
+		live[a.Name()] = true
+	}
 	for _, r := range results {
+		if !live[r.Arm] {
+			continue
+		}
 		if r.Attempts > 1 {
-			t.Logf("scenario %s ran %d times: the environment broke its premise",
+			t.Logf("%s %s ran %d times: the environment broke its premise", r.Arm,
 				r.Scenario.ID, r.Attempts)
 		}
 		if r.Err != nil {
-			t.Errorf("scenario %s: %v", r.Scenario.ID, r.Err)
+			t.Errorf("%s %s (repeat %d): %v", r.Arm, r.Scenario.ID, r.Repeat, r.Err)
 		}
 	}
-	_, pooled := ScoreResults(results)
-	clean, decoy := ScoreClass(results, ClassPositive), ScoreClass(results, ClassDecoy)
-	switch {
-	case pooled.Top1() < 0.8:
-		t.Errorf("top-1 %.2f below 0.80", pooled.Top1())
-	case pooled.Abstention() < 1:
-		t.Errorf("abstention %.2f below 1.00", pooled.Abstention())
-	case pooled.Precision() < 0.9:
-		t.Errorf("precision %.2f below 0.90", pooled.Precision())
-	case decoy.Top1() < clean.Top1()-0.1:
-		t.Errorf("decoy top-1 %.2f more than 10 points under clean %.2f",
-			decoy.Top1(), clean.Top1())
+}
+
+func checkGates(t *testing.T, cfg RunConfig, gates []GateResult) {
+	t.Helper()
+	gated := map[string]bool{}
+	for _, a := range cfg.Gated() {
+		gated[a] = true
+	}
+	for _, g := range FailedGates(gates) {
+		if gated[g.Arm] {
+			t.Errorf("gate %s (%s, %s) failed: observed %s, threshold %s", g.ID, g.Family,
+				g.Arm, g.Observed, g.Threshold)
+		}
+	}
+	for _, g := range gates {
+		if g.Status == GateNotEvaluated && gated[g.Arm] {
+			t.Logf("gate %s (%s, %s) not evaluated: %s", g.ID, g.Family, g.Arm, g.Reason)
+		}
 	}
 }
