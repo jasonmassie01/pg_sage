@@ -25,36 +25,36 @@ func lockScenario(id, class string, gold Gold, p program) Scenario {
 }
 
 func lockScenarios() []Scenario {
-	idle := Gold{Root: "idle_in_tx_holder"}
+	idle, hot := Gold{Root: "idle_in_tx_holder"}, Gold{Root: "hot_row_contention"}
 	return []Scenario{
-		lockScenario("lock-idle-row-holder", ClassPositive, idle, idleRowHolder(0)),
+		lockScenario("lock-idle-row-holder", ClassPositive, idle, idleRowHolder()),
 		lockScenario("lock-idle-holder-ddl-queue", ClassPositive,
 			Gold{Root: "idle_in_tx_holder", Contributing: []string{"ddl_lock_queue"}},
 			queuedDDL("BEGIN; SELECT count(*) FROM %s;", "idle in transaction")),
 		lockScenario("lock-ddl-behind-active", ClassPositive, Gold{Root: "ddl_lock_queue"},
 			queuedDDL("SELECT count(*) FROM %s, pg_sleep(60)", "active")),
-		lockScenario("lock-hot-row", ClassPositive, Gold{Root: "hot_row_contention"},
-			hotRow()),
+		lockScenario("lock-hot-row", ClassPositive, hot, hotRow()),
 		lockScenario("lock-prepared-holder", ClassPositive,
 			Gold{Root: "prepared_xact_holder"}, preparedHolder()),
+		lockScenario("lock-idle-row-holder-under-load", ClassNoise, idle,
+			withNoise(idleRowHolder())),
+		lockScenario("lock-hot-row-under-load", ClassNoise, hot, withNoise(hotRow())),
+		lockScenario("lock-transient-wait", ClassDecoy,
+			Gold{Lookalike: "hot_row_contention"}, transientWait()),
+		lockScenario("lock-idle-tx-blocking-nobody", ClassDecoy,
+			Gold{Lookalike: "idle_in_tx_holder"}, idleBlockingNobody()),
 		lockScenario("lock-no-waits", ClassBenign, Gold{}, noLockWaits()),
-		lockScenario("lock-idle-holder-with-idle-pool-noise", ClassDecoy, idle,
-			idleRowHolder(12)),
 	}
 }
 
 // idleRowHolder: a session updates a row and stays idle in its
-// transaction; two sessions wait for the row. noise idle connections of
-// another application are background noise.
-func idleRowHolder(noise int) program {
+// transaction; two sessions wait for the row.
+func idleRowHolder() program {
 	tb := newTable("idle")
 	update := "UPDATE %s SET v = v + 1 WHERE id = 1"
 	return program{
 		inject: func(ctx context.Context, e *Env) error {
 			if err := tb.create(ctx, e); err != nil {
-				return err
-			}
-			if err := e.idle(ctx, "bench_noise", noise); err != nil {
 				return err
 			}
 			pid, err := e.background(ctx, "bench_holder",
@@ -193,6 +193,69 @@ func noLockWaits() program {
 				err = fmt.Errorf("%d lock waiters before a calm run", n)
 			}
 			return err
+		},
+		recover: tb.drop,
+	}
+}
+
+// noWaiters waits until no session of this database waits on a lock.
+func noWaiters(ctx context.Context, e *Env) error {
+	return waitFor(ctx, "lock waits to resolve", func() (bool, error) {
+		n, err := e.lockWaiters(ctx)
+		return n == 0, err
+	})
+}
+
+// transientWait (decoy of hot-row contention): a row lock wait that
+// resolves after two seconds, before the investigation starts. The wait
+// is observed during injection; the manifestation predicate is that it
+// resolved.
+func transientWait() program {
+	tb := newTable("transient")
+	update := "UPDATE %s SET v = v + 1 WHERE id = 1"
+	return program{
+		inject: func(ctx context.Context, e *Env) error {
+			if err := tb.create(ctx, e); err != nil {
+				return err
+			}
+			pid, err := e.background(ctx, "bench_holder", "BEGIN; "+
+				fmt.Sprintf(update, tb.name)+"; SELECT pg_sleep(2); COMMIT;")
+			if err != nil {
+				return err
+			}
+			if err := e.sleeping(ctx, pid); err != nil {
+				return err
+			}
+			return waiters(ctx, e, fmt.Sprintf(update, tb.name), 1)
+		},
+		manifest: noWaiters,
+		recover:  tb.drop,
+	}
+}
+
+// idleBlockingNobody (decoy of an idle-in-transaction holder): a session
+// holds a row lock idle in its transaction, and nobody waits for it.
+func idleBlockingNobody() program {
+	tb := newTable("idlenobody")
+	var pid int
+	return program{
+		inject: func(ctx context.Context, e *Env) error {
+			if err := tb.create(ctx, e); err != nil {
+				return err
+			}
+			var err error
+			pid, err = e.background(ctx, "bench_holder",
+				"BEGIN; UPDATE "+tb.name+" SET v = v + 1 WHERE id = 1;")
+			if err != nil {
+				return err
+			}
+			return e.sessionState(ctx, pid, "idle in transaction")
+		},
+		manifest: func(ctx context.Context, e *Env) error {
+			if err := e.sessionState(ctx, pid, "idle in transaction"); err != nil {
+				return err
+			}
+			return noWaiters(ctx, e)
 		},
 		recover: tb.drop,
 	}

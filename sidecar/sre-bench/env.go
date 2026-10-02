@@ -47,11 +47,13 @@ func NewEnv(ctx context.Context, t *testing.T, dsn string) *Env {
 		Runner: probes.NewRunner(pool, probes.Catalog(), probes.NewLimiter(1))}
 }
 
-// session is a background connection a fault program holds open.
+// session is a background connection a fault program holds open. err
+// is its statement's outcome, readable once done is closed.
 type session struct {
 	conn *pgx.Conn
 	pid  int
 	done chan struct{}
+	err  error
 }
 
 // connect opens a tracked connection with an application name.
@@ -99,7 +101,7 @@ func (e *Env) background(ctx context.Context, app, sql string) (int, error) {
 	}
 	go func() {
 		defer close(s.done)
-		_, _ = s.conn.PgConn().Exec(context.Background(), sql).ReadAll()
+		_, s.err = s.conn.PgConn().Exec(context.Background(), sql).ReadAll()
 	}()
 	return s.pid, nil
 }
