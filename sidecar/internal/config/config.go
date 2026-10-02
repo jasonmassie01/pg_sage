@@ -455,6 +455,8 @@ type RetentionConfig struct {
 	FindingsDays  int `yaml:"findings_days"`
 	ActionsDays   int `yaml:"actions_days"`
 	ExplainsDays  int `yaml:"explains_days"`
+	// SageSizeWarningPct: see sage_footprint.go.
+	SageSizeWarningPct int `yaml:"sage_size_warning_pct" doc:"Raise a sage_footprint finding when pg_sage's own tables (the sage schema) exceed this percent of the database size. 0 disables the check. Default 10."`
 }
 
 // NotificationPolicyConfig holds notification delivery policy. It is YAML-only
@@ -690,6 +692,9 @@ func (c *Config) validate() error {
 		return fmt.Errorf("safety.query_timeout_ms must be positive")
 	}
 	if err := c.validateIOAdmission(); err != nil {
+		return err
+	}
+	if err := c.Retention.validateSageFootprint(); err != nil {
 		return err
 	}
 
@@ -948,6 +953,8 @@ func newDefaults() *Config {
 			FindingsDays:  DefaultRetentionFindingsDays,
 			ActionsDays:   DefaultRetentionActionsDays,
 			ExplainsDays:  DefaultRetentionExplainsDays,
+
+			SageSizeWarningPct: DefaultRetentionSageSizeWarningPct,
 		},
 		NotificationPolicy: NotificationPolicyConfig{
 			AllowPrivateTargets: DefaultNotificationPolicyAllowPrivateTargets,

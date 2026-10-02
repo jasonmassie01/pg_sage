@@ -192,6 +192,7 @@
 | `retention.actions_days` | `restart` | `-` |
 | `retention.explains_days` | `restart` | `-` |
 | `retention.findings_days` | `restart` | `-` |
+| `retention.sage_size_warning_pct` | `restart` | `-` |
 | `retention.snapshots_days` | `restart` | `-` |
 | `runaway.enabled` | `restart` | `-` |
 | `runaway.policies` | `restart` | `-` |

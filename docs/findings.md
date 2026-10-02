@@ -284,6 +284,31 @@ Cache hit ratio 87% (expected > 95%)
 
 ---
 
+### sage_footprint
+
+Detects pg_sage itself taking too much of the database it guards.
+
+**Severity:** warning
+
+**What it detects:** The `sage` schema (every table with its TOAST data and indexes)
+is larger than `retention.sage_size_warning_pct` percent (default 10) of the database
+size collected this cycle. The finding names the share, the limit and the five largest
+sage tables. `0` disables the check; while the database size is unknown the open
+finding is kept, not resolved.
+
+**Example output:**
+
+```
+Sage data uses 23.4% of database lifeos (limit 10%)
+```
+
+**Recommended action:** Shorten `retention.snapshots_days` (or the retention of the
+largest table listed), or raise `retention.sage_size_warning_pct` if the share is
+expected. Snapshot rows written before compact storage age out with
+`retention.snapshots_days`.
+
+---
+
 ### checkpoint_pressure
 
 Detects high checkpoint frequency.
