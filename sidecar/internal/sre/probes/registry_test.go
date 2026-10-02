@@ -28,9 +28,10 @@ func r1IDs() []ID {
 // specVersion is each probe's expected version: connection_saturation
 // is v2 since M2 added the server start time (a restart between two
 // samples invalidates the comparison, CHECK-07); replication_lag is v2
-// since M6 split the lag into send, flush and replay backlogs.
+// since M6 split the lag into send, flush and replay backlogs; sequence_runway
+// is v2 since dogfood lifeos-1 bounded it and added its coverage counts.
 func specVersion(id ID) string {
-	if id == ConnectionSaturation || id == ReplicationLag {
+	if id == ConnectionSaturation || id == ReplicationLag || id == SequenceRunwayProbe {
 		return "v2"
 	}
 	return "v1"

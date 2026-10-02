@@ -359,8 +359,10 @@ func TestCatalog_SequenceRunwayFindsTheBindingLimit(t *testing.T) {
 	if _, ok := got["down_seq"]; ok {
 		t.Fatal("a descending sequence is listed; the runway covers ascending ones")
 	}
-	if f, ok := got["fresh_seq"]; !ok || !math.IsNaN(f.LastValue) || !math.IsNaN(f.Fraction) {
-		t.Fatalf("never-called sequence = %+v (%v), want an unknown last value", f, ok)
+	// v2 (dogfood lifeos-1): a never-called sequence has no runway to
+	// measure and is no longer listed (lifeos: 10,892 of 12,038).
+	if f, ok := got["fresh_seq"]; ok {
+		t.Fatalf("never-called sequence listed: %+v", f)
 	}
 	if got["int_seq"].OwnerColumn != sch+".a.id" {
 		t.Fatalf("owner column = %q", got["int_seq"].OwnerColumn)
