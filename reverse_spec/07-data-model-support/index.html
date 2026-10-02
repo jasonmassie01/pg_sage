@@ -1389,14 +1389,17 @@ at <code>config.go:635</code>), <code>ramp_start</code> (auto-persisted, see
 (<strong>true</strong>), <code>tier3_moderate</code> (false), <code>tier3_high_risk</code> (false; forced false
 outside fleet), <code>rollback_threshold_pct</code> (10), <code>rollback_window_minutes</code> (15),
 <code>rollback_cooldown_days</code> (7), <code>cascade_cooldown_cycles</code> (3).</p>
-<p><strong>llm</strong> — <code>enabled</code> (<strong>false</strong>), <code>endpoint</code>, <code>api_key</code> (secret), <code>model</code>,
+<p><strong>llm</strong> — <code>enabled</code> (<strong>true</strong>; a provider is called only once <code>endpoint</code> and
+<code>api_key</code> are set), <code>endpoint</code>, <code>api_key</code> (secret), <code>model</code>,
 <code>timeout_seconds</code> (30), <code>token_budget_daily</code> (500000), <code>context_budget_tokens</code>
 (8192), <code>cooldown_seconds</code> (300), <code>json_mode</code>. Sub-blocks: <code>index_optimizer</code>
-(deprecated, migrated to <code>optimizer</code> at <code>config.go:593</code>), <code>optimizer</code>
-(enabled false, min_query_calls 100, confidence_threshold 0.5, plan_source
-<code>auto</code>, hypopg_min_improvement_pct 10), <code>optimizer_llm</code> (dedicated reasoning
-tier, timeout 120s, max_output_tokens 8192, fallback_to_general true).</p>
-<p><strong>advisor</strong> — <code>enabled</code> (false), <code>interval_seconds</code> (86400), and per-domain
+(deprecated; migrated to <code>optimizer</code> in <code>loadYAML</code> only for keys the file sets,
+<code>llm_legacy.go</code>), <code>optimizer</code> (enabled true, min_query_calls 100,
+confidence_threshold 0.5, plan_source <code>auto</code>, hypopg_min_improvement_pct 10), <code>optimizer_llm</code> (dedicated reasoning
+tier, enabled false, timeout 120s, max_output_tokens 8192, fallback_to_general
+true).</p>
+<p><strong>advisor</strong> — <code>enabled</code> (true; built only with a usable LLM),
+<code>interval_seconds</code> (86400), and per-domain
 toggles <code>vacuum_enabled</code>/<code>wal_enabled</code>/<code>connection_enabled</code>/<code>memory_enabled</code>/
 <code>rewrite_enabled</code>/<code>bloat_enabled</code> (all true).</p>
 <p><strong>briefing</strong> — <code>schedule</code> (<code>0 6 * * *</code>), <code>channels</code> (<code>[stdout]</code>),
@@ -1413,7 +1416,7 @@ toggles <code>vacuum_enabled</code>/<code>wal_enabled</code>/<code>connection_en
 <code>cache_warn_threshold</code> (0.95), <code>sequence_warn_days</code> (90) / <code>_critical</code> (30),
 <code>min_data_points</code> (24), <code>alert_horizons</code> (<code>[30,7,3]</code>), <code>disk_capacity_bytes</code>
 (0=auto), <code>min_r_squared</code> (0.5).</p>
-<p><strong>tuner</strong> — <code>enabled</code> (true), <code>llm_enabled</code>, <code>work_mem_max_mb</code> (512),
+<p><strong>tuner</strong> — <code>enabled</code> (true), <code>llm_enabled</code> (true), <code>work_mem_max_mb</code> (512),
 <code>plan_time_ratio</code> (3.0), <code>nested_loop_row_threshold</code> (10000),
 <code>parallel_min_table_rows</code> (1M), <code>min_query_calls</code> (100),
 <code>verify_after_apply</code> (true) + revalidation loop (<code>hint_retirement_days</code> 14,
@@ -1423,7 +1426,7 @@ stats/ANALYZE (<code>analyze_max_table_mb</code> 10240, <code>analyze_timeout_ms
 <p><strong>rca</strong> — <code>enabled</code> (true), <code>llm_correlation_threshold</code> (3),
 <code>dedup_window_minutes</code> (30), <code>escalation_cycles</code> (5), <code>resolution_cycles</code> (2),
 <code>connection_saturation_pct</code> (80), <code>replication_lag_threshold_seconds</code> (30),
-<code>wal_spike_multiplier</code> (2.0).</p>
+<code>wal_spike_multiplier</code> (2.0), <code>narration_enabled</code> (true).</p>
 <p><strong>runaway</strong> — <code>enabled</code> (false), <code>policies</code> (default: <code>long_running</code> 30m,
 <code>blocker</code> 5 sessions), <code>safe_patterns</code> (<code>[pg_dump, pg_basebackup]</code>).</p>
 <p><strong>explain</strong> — <code>enabled</code> (true), <code>timeout_ms</code> (10000), <code>cache_ttl_minutes</code> (60),

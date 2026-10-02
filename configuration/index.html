@@ -1134,14 +1134,14 @@ is the authoritative list. Regenerate it from the typed registry with:</p>
 <a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">  </span><span class="nt">ramp_start</span><span class="p">:</span><span class="w"> </span><span class="s">""</span><span class="w">                 </span><span class="c1"># Auto-persisted on first start; set to override</span>
 <a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>
 <a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="nt">llm</span><span class="p">:</span>
-<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                  </span><span class="c1"># default; false turns every LLM feature off</span>
 <a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="w">  </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="s">"https://generativelanguage.googleapis.com/v1beta/openai"</span>
 <a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a><span class="w">  </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"gemini-2.5-flash"</span>
 <a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a><span class="w">  </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SAGE_LLM_API_KEY}</span>
 <a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a><span class="w">  </span><span class="nt">timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
 <a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a><span class="w">  </span><span class="nt">token_budget_daily</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">500000</span>
 <a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a><span class="w">  </span><span class="nt">optimizer</span><span class="p">:</span>
-<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a><span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                </span><span class="c1"># default</span>
 <a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a><span class="w">    </span><span class="nt">min_query_calls</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span><span class="w">         </span><span class="c1"># ignore ad-hoc queries below this threshold</span>
 <a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a><span class="w">    </span><span class="nt">max_indexes_per_table</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w">    </span><span class="c1"># skip tables already at this index count</span>
 <a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a><span class="w">    </span><span class="nt">max_include_columns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
@@ -1339,6 +1339,12 @@ reloaded or saved.</p>
 <p><code>never</code>, <code>off</code>, <code>none</code> and <code>disabled</code> are accepted only for
 <code>trust.maintenance_window</code>; a policy always names at least one window.</p>
 <h3 id="llm">LLM<a class="headerlink" href="#llm" title="Permanent link">&para;</a></h3>
+<p>LLM features are on by default, but they call a provider only once <code>llm.endpoint</code> and
+<code>llm.api_key</code> (or <code>SAGE_LLM_ENDPOINT</code> and <code>SAGE_LLM_API_KEY</code>) are set. Until then every
+feature runs its deterministic path, no LLM request is made, and startup logs one line
+saying the LLM is not configured. <code>llm.token_budget_daily</code> caps spend across the general
+LLM features. Turning a feature on grants no autonomy: what an LLM proposes executes only
+through the policy gate, trust level and execution mode, like any other recommendation.</p>
 <table>
 <thead>
 <tr>
@@ -1350,8 +1356,8 @@ reloaded or saved.</p>
 <tbody>
 <tr>
 <td><code>llm.enabled</code></td>
-<td><code>false</code></td>
-<td>Enable LLM-powered features</td>
+<td><code>true</code></td>
+<td>Master switch for every LLM feature; <code>false</code> is a hot kill switch</td>
 </tr>
 <tr>
 <td><code>llm.endpoint</code></td>
@@ -1376,12 +1382,12 @@ reloaded or saved.</p>
 <tr>
 <td><code>llm.token_budget_daily</code></td>
 <td><code>500000</code></td>
-<td>Maximum tokens per day</td>
+<td>Maximum tokens per day across general LLM features; <code>0</code> means no cap</td>
 </tr>
 <tr>
 <td><code>llm.optimizer.enabled</code></td>
-<td><code>false</code></td>
-<td>Enable index optimizer</td>
+<td><code>true</code></td>
+<td>LLM index optimizer (HypoPG-validated, confidence-scored)</td>
 </tr>
 <tr>
 <td><code>llm.optimizer.min_query_calls</code></td>
@@ -1394,8 +1400,28 @@ reloaded or saved.</p>
 <td>Max new indexes per table per cycle</td>
 </tr>
 <tr>
-<td><code>rca.narration_enabled</code></td>
+<td><code>llm.optimizer_llm.enabled</code></td>
 <td><code>false</code></td>
+<td>Dedicated optimizer model; adds a second client with its own <code>token_budget_daily</code></td>
+</tr>
+<tr>
+<td><code>advisor.enabled</code></td>
+<td><code>true</code></td>
+<td>LLM configuration advisor (vacuum, WAL, connections, memory, rewrites, bloat)</td>
+</tr>
+<tr>
+<td><code>tuner.llm_enabled</code></td>
+<td><code>true</code></td>
+<td>Let the query tuner ask the LLM for pg_hint_plan hints (YAML only)</td>
+</tr>
+<tr>
+<td><code>explain.enabled</code></td>
+<td><code>true</code></td>
+<td><code>POST /api/v1/explain</code>; adds an LLM narrative when an LLM is configured</td>
+</tr>
+<tr>
+<td><code>rca.narration_enabled</code></td>
+<td><code>true</code></td>
 <td>Let the LLM rewrite the summary on <code>incident_detected</code> and <code>incident_escalated</code> notifications. The model can only read the incident's own evidence: its causal chain (<code>E#</code>), the results of the fixed read-only catalog probes run for it (<code>P#</code>, also readable with <code>get_probe_result</code>) and the deterministic causal-graph hypotheses (<code>H#</code>). It writes no SQL and has no database access. It answers with claims; each must cite evidence ids, and every number in a claim must appear in the evidence that claim cites. Budget per narration: 2 model turns, 1,024 output tokens per turn, about 16k input tokens, 20 s per turn; at most 3 narrations per persistence cycle within 45 s. Any failure (LLM off, budget, rate limit, timeout, malformed or uncited output) uses the deterministic summary, which is always labeled. <code>llm.enabled=false</code> is the hot kill switch and cancels narrations in flight</td>
 </tr>
 </tbody>

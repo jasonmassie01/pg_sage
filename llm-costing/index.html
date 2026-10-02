@@ -573,6 +573,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Defaults
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#token-consuming-features" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -712,6 +723,16 @@
 <p>pg_sage uses LLM calls for five features. Each has independent controls to
 manage daily token spend. This guide covers token estimates, pricing, and
 recommended budgets.</p>
+<h2 id="defaults">Defaults<a class="headerlink" href="#defaults" title="Permanent link">&para;</a></h2>
+<p>LLM features are on by default (<code>llm.enabled</code>, <code>llm.optimizer.enabled</code>,
+<code>advisor.enabled</code>, <code>tuner.llm_enabled</code>, <code>rca.narration_enabled</code>, <code>explain.enabled</code>)
+but spend nothing until <code>llm.endpoint</code> and <code>llm.api_key</code> are set. Once they are,
+<code>llm.token_budget_daily</code> (default 500,000 tokens) caps the general client's daily
+spend; when it is exhausted every feature falls back to its deterministic path until
+the next UTC day. <code>llm.optimizer_llm.enabled</code> defaults to <code>false</code>: turning it on adds a
+second client with its own <code>token_budget_daily</code>, so the combined ceiling doubles unless
+you lower one. To turn a feature off, set its switch to <code>false</code>; <code>llm.enabled: false</code>
+turns all of them off.</p>
 <h2 id="token-consuming-features">Token-Consuming Features<a class="headerlink" href="#token-consuming-features" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

@@ -603,10 +603,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#llm-disabled-default" class="md-nav__link">
+  <a href="#no-llm-configured-default" class="md-nav__link">
     <span class="md-ellipsis">
       
-        LLM disabled (default)
+        No LLM configured (default)
       
     </span>
   </a>
@@ -614,10 +614,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#llm-enabled" class="md-nav__link">
+  <a href="#llm-configured" class="md-nav__link">
     <span class="md-ellipsis">
       
-        LLM enabled
+        LLM configured
       
     </span>
   </a>
@@ -979,10 +979,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#llm-disabled-default" class="md-nav__link">
+  <a href="#no-llm-configured-default" class="md-nav__link">
     <span class="md-ellipsis">
       
-        LLM disabled (default)
+        No LLM configured (default)
       
     </span>
   </a>
@@ -990,10 +990,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#llm-enabled" class="md-nav__link">
+  <a href="#llm-configured" class="md-nav__link">
     <span class="md-ellipsis">
       
-        LLM enabled
+        LLM configured
       
     </span>
   </a>
@@ -1359,10 +1359,10 @@ rechecked for each candidate and immediately before the mutating SQL call.</p>
 <p>pg_sage acquires PostgreSQL advisory lock <code>710190109</code> (<code>hashtext('pg_sage')</code>) at startup. This prevents multiple sidecar instances from running against the same database simultaneously. If the lock is held, the sidecar waits or exits.</p>
 <hr />
 <h2 id="network-behavior">Network Behavior<a class="headerlink" href="#network-behavior" title="Permanent link">&para;</a></h2>
-<h3 id="llm-disabled-default">LLM disabled (default)<a class="headerlink" href="#llm-disabled-default" title="Permanent link">&para;</a></h3>
-<p>When <code>llm.enabled: false</code> (the default), pg_sage makes <strong>zero outbound network connections</strong> beyond the PostgreSQL connection. All analysis is performed locally using the rules engine.</p>
-<h3 id="llm-enabled">LLM enabled<a class="headerlink" href="#llm-enabled" title="Permanent link">&para;</a></h3>
-<p>When <code>llm.enabled: true</code>, pg_sage makes HTTP POST requests to the configured <code>llm.endpoint</code>. These requests contain <strong>metadata only</strong> -- never row data.</p>
+<h3 id="no-llm-configured-default">No LLM configured (default)<a class="headerlink" href="#no-llm-configured-default" title="Permanent link">&para;</a></h3>
+<p>LLM features are on by default (<code>llm.enabled: true</code>), but a provider is contacted only once both <code>llm.endpoint</code> and <code>llm.api_key</code> are set. Until then, or with <code>llm.enabled: false</code>, pg_sage makes <strong>no LLM requests</strong>: all analysis is performed locally using the rules engine, and startup logs one line saying the LLM is not configured.</p>
+<h3 id="llm-configured">LLM configured<a class="headerlink" href="#llm-configured" title="Permanent link">&para;</a></h3>
+<p>When <code>llm.enabled: true</code> and both <code>llm.endpoint</code> and <code>llm.api_key</code> are set, pg_sage makes HTTP POST requests to the configured <code>llm.endpoint</code>. These requests contain <strong>metadata only</strong> -- never row data.</p>
 <p>What is sent to the LLM:</p>
 <table>
 <thead>
