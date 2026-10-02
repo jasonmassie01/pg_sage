@@ -14,6 +14,15 @@ import (
 // are read first, and the coverage columns say how many were not.
 const SequenceScanCap = 20000
 
+// sequenceLockBudgetSQL is the share of the shared lock table one run may
+// take: a quarter of max_locks_per_transaction x (max_connections +
+// max_prepared_transactions). Found on PG14/PG18 with max_connections
+// 100: 20,000 last-value reads (20,000 locks) made other sessions fail with
+// "out of shared memory". lifeos (256 x 200) still reads all 12,043.
+const sequenceLockBudgetSQL = `(pg_catalog.current_setting('max_locks_per_transaction')::int8 *
+        (pg_catalog.current_setting('max_connections')::int8 +
+         pg_catalog.current_setting('max_prepared_transactions')::int8) / 4)`
+
 // sequenceRunwaySQL ranks the used ascending sequences by the share of
 // their effective limit used: the lower of the sequence's maximum and
 // the maximum of the integer column that owns it. It reads last values
@@ -52,7 +61,7 @@ WITH k AS (
     FROM k
     ORDER BY LEAST(k.seqmax, COALESCE(k.owner_type_max, k.seqmax))::numeric - k.seqmin,
              k.seqrelid
-    LIMIT ` + strconv.Itoa(SequenceScanCap) + `
+    LIMIT LEAST(` + strconv.Itoa(SequenceScanCap) + `, ` + sequenceLockBudgetSQL + `)
 ), v AS (
     SELECT r.*, pg_catalog.has_sequence_privilege(r.seqrelid, 'SELECT,USAGE') AS readable
     FROM r

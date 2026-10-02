@@ -69,7 +69,9 @@ func (m *Monitor) noteCoverage(res probes.Result) {
 	case c.ScanCapped():
 		m.logFn("WARN", "runway: db %q: sequence scan cap reached: read %d of %d "+
 			"sequences (smallest capacity first); %d used, the %d closest to their limit "+
-			"sampled", m.opts.Database, c.Scanned, c.Total, c.Used, c.Reported)
+			"sampled; each read takes a lock, so the cap is a quarter of the lock table "+
+			"(raise max_locks_per_transaction to read more)", m.opts.Database, c.Scanned,
+			c.Total, c.Used, c.Reported)
 	case c.Truncated:
 		m.logFn("INFO", "runway: db %q: %d of %d sequences used; sampling the %d "+
 			"nearest their limit", m.opts.Database, c.Used, c.Total, c.Reported)
