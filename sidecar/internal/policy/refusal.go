@@ -153,7 +153,8 @@ func alterTableDropsObject(sql string) bool {
 func knownRollbackClass(class RollbackClass) bool {
 	switch class {
 	case "", RollbackReversible, RollbackNoRollbackNeeded, RollbackNotApplicable,
-		RollbackApplication, RollbackForwardFixOnly, RollbackNotReversible:
+		RollbackApplication, RollbackForwardFixOnly, RollbackNotReversible,
+		RollbackMitigationOnly:
 		return true
 	}
 	return false

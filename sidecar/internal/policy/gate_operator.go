@@ -42,6 +42,9 @@ func (gate *authorizationGate) operatorWindowDecision(
 	if req.Contract.RiskTier != RiskModerate && req.Contract.RiskTier != RiskHigh {
 		return Decision{}, false
 	}
+	if approvedMitigation(req) {
+		return Decision{}, false
+	}
 	now := gate.now()
 	trustWindowOpen := !runtime.WindowConfigured || runtime.InConfiguredWindow
 	if trustWindowOpen && inAnyWindow(doc.MaintenanceWindows, now) {
@@ -53,4 +56,13 @@ func (gate *authorizationGate) operatorWindowDecision(
 		return decision, true
 	}
 	return gate.decision(req, VerdictBlocked, ReasonOutsideMaintenanceWindow), true
+}
+
+// approvedMitigation reports a human-approved, mitigation-only backend
+// cancel: an incident mitigation, not maintenance, so maintenance windows
+// do not bind it (Sage SRE M5). Every other gate still does.
+func approvedMitigation(req ActionRequest) bool {
+	return req.OperatorApproved && req.Contract != nil &&
+		req.Contract.ActionType == "cancel_backend" &&
+		req.Contract.RollbackClass == RollbackMitigationOnly
 }
