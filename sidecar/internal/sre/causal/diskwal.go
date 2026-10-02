@@ -35,6 +35,17 @@ const (
 	diskShare = 0.5
 )
 
+// diskAmplifies holds only in this family. A write surge is the WAL that
+// writes produce between the two close samples; checkpoints recycle it
+// unless a slot or the archiver keeps it (their own hypotheses), so it
+// cannot be what keeps filling the disk while the database files
+// themselves grow steadily and materially: the surge then contributes to
+// that growth, which is the root. Heavy concurrent WAL also swells pg_wal
+// and so the disk usage growth, which can cost growth its share bonus;
+// the share stays a confidence signal, never the tie-break. Without
+// supported growth a surge is still a root.
+var diskAmplifies = map[NodeID][]NodeID{WriteSurge: {DatabaseGrowth}}
+
 // DiagnoseDiskWAL scores the disk/WAL runway hypotheses.
 func DiagnoseDiskWAL(obs []Observation) Diagnosis {
 	slots, m1 := walSeries(obs, probes.ReplicationSlots)
@@ -47,7 +58,7 @@ func DiagnoseDiskWAL(obs []Observation) Diagnosis {
 		scoreSlowConsumerRunway(slots, rate, trends, trendEv),
 		withBacklog(scoreArchiver(arch), dir, dirEv), scoreWriteSurge(rate),
 		scoreDatabaseGrowth(trends, trendEv)}
-	d := rank(FamilyDiskWAL, hs)
+	d := rankWith(FamilyDiskWAL, hs, diskAmplifies)
 	for _, m := range [][]Missing{m1, m2, m3, m4, m5, m6} {
 		d.Missing = append(d.Missing, m...)
 	}

@@ -97,7 +97,11 @@ func (h *Hypothesis) contradict(evidenceID, text string) {
 // ruled out; supported ones (confidence >= SupportThreshold) that
 // amplify another supported one are contributing; the most confident
 // remaining supported one is the root (graph order breaks ties).
-func rank(family Family, hs []Hypothesis) Diagnosis {
+func rank(family Family, hs []Hypothesis) Diagnosis { return rankWith(family, hs, nil) }
+
+// rankWith is rank with extra amplification edges that hold only in the
+// calling family's matcher; the graph's own edges always hold.
+func rankWith(family Family, hs []Hypothesis, extra map[NodeID][]NodeID) Diagnosis {
 	d := Diagnosis{Family: family, GraphVersion: GraphVersion}
 	sorted := append([]Hypothesis(nil), hs...)
 	sort.SliceStable(sorted, func(i, j int) bool {
@@ -111,13 +115,14 @@ func rank(family Family, hs []Hypothesis) Diagnosis {
 	}
 	rootIdx := -1
 	for i, h := range sorted {
-		if supported[h.Node] && !amplifiesSupported(h.Node, supported) &&
+		if supported[h.Node] && !amplifiesSupported(h.Node, supported, extra) &&
 			(rootIdx < 0 || h.Confidence > sorted[rootIdx].Confidence) {
 			rootIdx = i
 		}
 	}
 	for i, h := range sorted {
-		d.place(h, i == rootIdx, supported)
+		d.place(h, i == rootIdx,
+			supported[h.Node] && amplifiesSupported(h.Node, supported, extra))
 	}
 	d.Conclusive = d.Root != nil
 	if !d.Conclusive {
@@ -127,7 +132,7 @@ func rank(family Family, hs []Hypothesis) Diagnosis {
 	return d
 }
 
-func (d *Diagnosis) place(h Hypothesis, root bool, supported map[NodeID]bool) {
+func (d *Diagnosis) place(h Hypothesis, root, contributing bool) {
 	switch {
 	case root:
 		h.Status = StatusRoot
@@ -136,7 +141,7 @@ func (d *Diagnosis) place(h Hypothesis, root bool, supported map[NodeID]bool) {
 	case len(h.Contradict) > 0:
 		h.Status = StatusRuledOut
 		d.RuledOut = append(d.RuledOut, h)
-	case supported[h.Node] && amplifiesSupported(h.Node, supported):
+	case contributing:
 		h.Status = StatusContributing
 		d.Contributing = append(d.Contributing, h)
 	default:
@@ -145,9 +150,10 @@ func (d *Diagnosis) place(h Hypothesis, root bool, supported map[NodeID]bool) {
 	}
 }
 
-func amplifiesSupported(id NodeID, supported map[NodeID]bool) bool {
+func amplifiesSupported(id NodeID, supported map[NodeID]bool,
+	extra map[NodeID][]NodeID) bool {
 	n, _ := NodeByID(id)
-	for _, target := range n.Amplifies {
+	for _, target := range append(append([]NodeID(nil), n.Amplifies...), extra[id]...) {
 		if supported[target] {
 			return true
 		}
