@@ -16,7 +16,7 @@ import (
 // regression. Promotion thresholds are the spec's and not configurable.
 type SREAutonomyConfig struct {
 	Enforce                  bool              `yaml:"enforce" doc:"Earned-autonomy ledger restricts self-initiated incident-family actions, custodians included (L1 script, L2 approval, L3 auto). false: the trust ramp decides. Default: true." warning:"false lets incident-family actions run under the elapsed-time trust ramp without earned evidence."`
-	BenchResultsPath         string            `yaml:"bench_results_path" doc:"PGIncidentBench JSON report, or a directory of them, ingested hourly as promotion evidence (each report once). Empty: upload through the API."`
+	BenchResultsPath         string            `yaml:"bench_results_path" doc:"PGIncidentBench JSON report, or a directory searched 3 levels deep (the CI shard reports), ingested hourly as promotion evidence, each once. Empty: upload through the API."`
 	EvaluateIntervalMinutes  int               `yaml:"evaluate_interval_minutes" doc:"Minutes between promotion evaluations (pg_sage proposes, an admin approves), 5-1440. Default: 60."`
 	ReconcileIntervalSeconds int               `yaml:"reconcile_interval_seconds" doc:"Seconds between recording live outcomes of handed-off and autonomous actions, 10-3600. Default: 60."`
 	MaxEvidenceAgeSeconds    int               `yaml:"max_evidence_age_seconds" doc:"Evidence older than this caps an action at L1, 5-3600. Default: 300."`

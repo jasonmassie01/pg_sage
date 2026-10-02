@@ -603,6 +603,15 @@ depend on promotion evidence. The downgrade signals below still cap it, and it r
 itself when they clear. An operator downgrade ends the carry-over, and the pair then has to
 earn its level back with evidence.
 
+**Approved actions and outcomes.** M5's `cancel_backend` is approval-only in the ledger: it
+is mitigation-only, never above L2 and never carried over. Each approved cancel whose
+recovery pg_sage verified is recorded as an L2 outcome of its family (`lock_blocking` or
+`connection_pressure`), and a cancel that failed or did not recover is recorded as not
+recovered. Executed custodian actions are recorded as well: an L3 execution as an L3 outcome
+and a mandatory deadline override at L1, which is never promotion evidence. A harmful outcome
+of any of them is a family safety regression. Runbook action proposals name their family and
+autonomy class.
+
 **Mandatory deadlines.** A critical XID or disk deadline that the standing policy lets
 override (a red wraparound freeze, for example) is not held back by the ledger level or by
 a downgrade, because waiting risks an outage. The emergency stop and the rest of the gate
@@ -627,7 +636,8 @@ have had a harmful outcome. These thresholds are fixed.
 **Downgrade.** At authorization time, any of the following caps an L2 or L3 pair at L1. The
 change is logged once per transition.
 
-- An SLO is burning its error budget at the page rate (database proxy SLOs included), or a
+- The database's SLO engine (`sre.slo`) reports an SLO burning its error budget at the page
+  rate (database proxy SLOs included), or a
   registered app SLO's state is unknown. An unknown proxy SLO does not count, since it is
   often unknown for structural reasons (no standbys, no log access).
 - The HA role is not primary, safe mode is on, or the role changed in the last
@@ -644,7 +654,7 @@ any time.
 | Parameter | Default | Description |
 |---|---|---|
 | `sre.autonomy.enforce` | `true` | The ledger restricts self-initiated incident-family actions. `false` returns them to the trust ramp; the sidecar warns at startup |
-| `sre.autonomy.bench_results_path` | `""` | PGIncidentBench JSON report, or a directory of them, ingested hourly. Empty: upload through the API |
+| `sre.autonomy.bench_results_path` | `""` | PGIncidentBench JSON report, or a directory searched three levels deep, ingested hourly. Point it at the CI `pgincidentbench/` artifact to read the core, M6 reactive and M6 runway shard reports; each family reads the newest report that scored it. Empty: upload through the API |
 | `sre.autonomy.evaluate_interval_minutes` | `60` | Minutes between promotion evaluations, `5`-`1440` |
 | `sre.autonomy.reconcile_interval_seconds` | `60` | Seconds between recording live outcomes, `10`-`3600` |
 | `sre.autonomy.max_evidence_age_seconds` | `300` | Older evidence caps an action at L1, `5`-`3600` |

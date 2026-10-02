@@ -1191,7 +1191,7 @@
   "sre.autonomy.bench_results_path": {
     "type": "string",
     "default": "",
-    "doc": "PGIncidentBench JSON report, or a directory of them, ingested hourly as promotion evidence (each report once). Empty: upload through the API."
+    "doc": "PGIncidentBench JSON report, or a directory searched 3 levels deep (the CI shard reports), ingested hourly as promotion evidence, each once. Empty: upload through the API."
   },
   "sre.autonomy.canary.canary_instances": {
     "type": "int",
