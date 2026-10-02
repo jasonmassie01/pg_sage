@@ -267,12 +267,12 @@ LIMIT $1`
 // runwaySpecs are the M6 runway probes.
 func runwaySpecs() []Spec {
 	return []Spec{
-		spec(XIDRunwayProbe, FamilyVacuum, ArgsNone,
-			Variant{MinVersion: 140000, SQL: xidRunwaySQL}),
+		needsStats(spec(XIDRunwayProbe, FamilyVacuum, ArgsNone,
+			Variant{MinVersion: 140000, SQL: xidRunwaySQL})),
 		capped(spec(WraparoundTablesProbe, FamilyVacuum, ArgsNone,
 			Variant{MinVersion: 140000, SQL: wraparoundTablesSQL}), 50),
-		capped(spec(XminHorizon, FamilyVacuum, ArgsNone,
-			Variant{MinVersion: 140000, SQL: xminHorizonSQL}), 100),
+		capped(needsStats(spec(XminHorizon, FamilyVacuum, ArgsNone,
+			Variant{MinVersion: 140000, SQL: xminHorizonSQL})), 100),
 		spec(AutovacuumCancellations, FamilyVacuum, ArgsWindow,
 			Variant{MinVersion: 140000, SQL: autovacuumCancellationsSQL}),
 		spec(WALRunwayProbe, FamilyWAL, ArgsNone,

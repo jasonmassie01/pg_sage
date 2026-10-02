@@ -162,18 +162,18 @@ func tempFileHoldersSpec() Spec {
 }
 
 func tempSpillStatementsSpec() Spec {
-	s := spec(TempSpillStatements, FamilyTempFiles, ArgsNone,
-		Variant{MinVersion: 140000, SQL: tempSpillStatementsSQL})
+	s := needsStats(spec(TempSpillStatements, FamilyTempFiles, ArgsNone,
+		Variant{MinVersion: 140000, SQL: tempSpillStatementsSQL}))
 	s.Extension = "pg_stat_statements"
 	return s
 }
 
 func standbyReplayStateSpec() Spec {
-	return spec(StandbyReplayState, FamilyReplication, ArgsNone,
-		Variant{MinVersion: 140000, SQL: standbyReplayStateSQL})
+	return needsStats(spec(StandbyReplayState, FamilyReplication, ArgsNone,
+		Variant{MinVersion: 140000, SQL: standbyReplayStateSQL}))
 }
 
 func lwlockWaitsSpec() Spec {
-	return spec(LWLockWaits, FamilyWaits, ArgsNone,
-		Variant{MinVersion: 140000, SQL: lwlockWaitsSQL})
+	return needsStats(spec(LWLockWaits, FamilyWaits, ArgsNone,
+		Variant{MinVersion: 140000, SQL: lwlockWaitsSQL}))
 }
