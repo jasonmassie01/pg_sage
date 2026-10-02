@@ -145,8 +145,10 @@ func newGDFixture(t *testing.T) *gdFixture {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	f := &gdFixture{t: t, ctx: context.Background(), now: now}
 	cfg := earned.DefaultConfig()
-	cfg.Now = func() time.Time { return now }
+	// The ledger shares the fixture clock, so advancing f.now moves both.
+	cfg.Now = func() time.Time { return f.now }
 	ledger, err := earned.NewService(es, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -155,9 +157,10 @@ func newGDFixture(t *testing.T) *gdFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &gdFixture{t: t, ctx: context.Background(), ledger: ledger, store: st,
-		provider: &fakeProvider{}, faults: &fakeFaults{report: report(now, 0)}, now: now,
-		database: "orders-" + newUUID(t)[:8]}
+	f.ledger, f.store, f.provider = ledger, st, &fakeProvider{}
+	f.faults = &fakeFaults{report: report(now, 0)}
+	f.database = "orders-" + newUUID(t)[:8]
+	return f
 }
 
 func (f *gdFixture) runner(families ...string) *Runner {
