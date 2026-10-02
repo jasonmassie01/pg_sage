@@ -176,17 +176,24 @@ func parseHandoffKey(key string) (Family, ActionClass, bool) {
 	return f, c, KnownFamily(f) && knownClass(c)
 }
 
-const autoExecutionSQL = `/* pg_sage */ SELECT COALESCE(d.evidence->>'incident_family', ''),
-	COALESCE(d.evidence->>'autonomy_class', ''), l.id, l.outcome, COALESCE(v.verdict, ''),
-	l.sql_executed, l.executed_at
+// autoExecutionSQL reads every self-initiated family action the gate let
+// execute: L3 auto-executions (reason autonomy_l3) and mandatory deadline
+// overrides (any other self-initiated reason; the ledger did not restrict
+// them). Operator approvals are the handoff path's.
+const autoExecutionSQL = `/* pg_sage */ SELECT d.evidence->>'incident_family',
+	COALESCE(d.evidence->>'autonomy_class', ''), d.reason, l.id, l.outcome,
+	COALESCE(v.verdict, ''), l.sql_executed, l.executed_at
 	FROM sage.decision d
 	JOIN sage.action_log l ON l.decision_id = d.id
 	LEFT JOIN sage.verification v ON v.id = l.verification_id
-	WHERE d.reason = 'autonomy_l3' AND d.verdict = 'execute'
+	WHERE d.verdict = 'execute' AND d.evidence ? 'incident_family'
+	  AND d.reason <> 'operator_approved'
 	  AND l.executed_at > now() - make_interval(secs => $1::double precision)
 	ORDER BY l.id LIMIT 1000`
 
-// autoExecutions reads executed L3 actions.
+// autoExecutions reads executed self-initiated family actions: L3 ones at
+// L3, mandatory deadline overrides at L1 (never promotion evidence; a
+// harmful one is still a family regression).
 func (r *Reconciler) autoExecutions(ctx context.Context) ([]executed, int, error) {
 	rows, err := r.pool.Query(ctx, autoExecutionSQL, r.lookback.Seconds())
 	if err != nil {
@@ -196,13 +203,16 @@ func (r *Reconciler) autoExecutions(ctx context.Context) ([]executed, int, error
 	var out []executed
 	skipped := 0
 	for rows.Next() {
-		var family, class string
-		x := executed{level: L3}
-		if err := rows.Scan(&family, &class, &x.actionLogID, &x.outcome, &x.verification,
-			&x.sql, &x.at); err != nil {
+		var family, class, reason string
+		x := executed{level: L1}
+		if err := rows.Scan(&family, &class, &reason, &x.actionLogID, &x.outcome,
+			&x.verification, &x.sql, &x.at); err != nil {
 			return nil, 0, fmt.Errorf("scan autonomous execution: %w", err)
 		}
 		x.family, x.class = Family(family), ActionClass(class)
+		if reason == "autonomy_l3" {
+			x.level = L3
+		}
 		if !KnownFamily(x.family) || !knownClass(x.class) {
 			skipped++
 			continue
@@ -218,6 +228,9 @@ func (r *Reconciler) notifyAll(ctx context.Context, autos []executed,
 	res *ReconcileResult) error {
 	var errs []error
 	for _, x := range autos {
+		if x.level != L3 {
+			continue // a mandatory deadline override, not an autonomous action
+		}
 		done, err := r.svc.store.autoExecutedRecorded(ctx, r.database, x.actionLogID)
 		if err != nil {
 			return err

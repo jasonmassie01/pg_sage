@@ -276,6 +276,13 @@ func (s *Service) RecordOutcome(ctx context.Context, o Outcome) error {
 	return err
 }
 
+// RecordOutcomeOnce records o and reports whether it was new: an outcome
+// of an action already recorded from the same source is not recorded
+// again (and does not demote twice).
+func (s *Service) RecordOutcomeOnce(ctx context.Context, o Outcome) (bool, error) {
+	return s.recordOutcome(ctx, o)
+}
+
 // recordOutcome records o and reports whether it was new.
 func (s *Service) recordOutcome(ctx context.Context, o Outcome) (bool, error) {
 	if err := validateOutcome(o); err != nil {

@@ -222,3 +222,18 @@ func knownClass(class ActionClass) bool {
 	_, ok := Spec(class)
 	return ok
 }
+
+// ClassForActionType is the class an executor action type is judged under
+// when it remediates an incident family; empty for read-only diagnostics
+// and unknown types (vacuum_table outside a freeze is ClassVacuum).
+func ClassForActionType(actionType string) ActionClass {
+	for _, s := range classSpecs {
+		for _, t := range s.ActionTypes {
+			if t == actionType {
+				return ClassFor(policy.ActionRequest{
+					Contract: &policy.ActionContract{ActionType: actionType}})
+			}
+		}
+	}
+	return ""
+}
