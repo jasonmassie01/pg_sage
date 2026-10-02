@@ -51,7 +51,7 @@ func TestAuditIndexCatalogQueryIsBounded(t *testing.T) {
 	pool := testPool(t)
 	cfg := testConfig()
 	c := New(pool, cfg, 160000, noopLog)
-	rows, err := c.catalogQuery(context.Background(), indexStatsSQL, "", "", "", 1)
+	rows, err := c.catalogQuery(context.Background(), indexStatsSQL, uint32(0), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
