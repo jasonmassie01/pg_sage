@@ -4,6 +4,36 @@
 
 ### Added
 
+- **Operators can start, stop and resume Sage SRE investigations.** `POST
+  /api/v1/databases/{db}/investigations` starts one for a case (a repeat joins the running
+  one), and `.../{id}/stop` and `.../{id}/resume` pause and resume it without losing its
+  steps or evidence. Stop and resume need the version you saw, so two people cannot undo each
+  other by accident. The Cases panel has Stop and Resume buttons for operators. Viewers can
+  only read. Every change is recorded with the user.
+
+- **The Cases panel shows what the model said, and the timeline.** An investigation now
+  shows the model ranking (an order, labeled, kept apart from the graph's scores), the
+  model's claims with links to the exact evidence they cite, the probe the model asked for,
+  and a timeline of every step, including when a model reply was not used and why, and when
+  the model disagreed with the graph (the graph's root cause stands).
+
+- **PGIncidentBench replays 60 recorded incidents.** Besides the live fault programs, the
+  bench now replays a corpus of redacted incident recordings through the real investigator:
+  30 lock, connection and WAL incidents, 15 harmless lookalikes, and 15 cases with missing
+  or hostile data (no privilege, timeouts, a restart, stale or contradictory samples,
+  instructions planted in table, slot and application names, passwords in error messages).
+  It checks that no call outside the probe catalog is made, nothing in the database changes,
+  no planted password reaches an export or a model prompt, and every model claim cites real
+  evidence. The replay runs with every test run (about 25 seconds). Its case format is
+  documented in `sidecar/sre-bench/README.md` so new incident families can add cases. With
+  the LLM off, the investigator names the right cause in 29 of 30 positive cases and
+  abstains on all 23 cases whose evidence is insufficient.
+
+- **New page: Sage SRE permissions and data flow** (`docs/sage-sre-permissions-and-data-flow.md`):
+  what investigations read, which role each provider needs (`pg_monitor`), what leaves the
+  database, exactly what is sent to the LLM (redacted, fenced summaries, never raw rows or
+  query text), retention, and how to turn each part off.
+
 - **Sage SRE investigations get a model turn (on by default whenever an LLM is
   configured).** After the causal graph diagnoses an incident, your configured LLM reviews
   the result. It can reorder the graph's own hypotheses (shown separately as "model
@@ -56,6 +86,19 @@
   WAL or plan fault. This is an in-distribution seed set, not a held-out measurement. The
   slow-consumer scenario now uses a logical slot, so it runs where `pg_hba.conf` refuses
   physical replication connections (it used to be skipped).
+
+### Fixed
+
+- **Sage SRE no longer reports "no lock waits" when it cannot see them.** A database role
+  without `pg_read_all_stats` (included in `pg_monitor`) sees other users' sessions without
+  their state or wait events, so investigations reported no blocking, no long transactions
+  and too few connections. Those probes now report "no privilege" and the investigation
+  says the evidence is missing instead of guessing. Grant `pg_monitor` to the role pg_sage
+  uses (the documented setup already does).
+- **Sage SRE ignores evidence that is too old or contradictory.** An observation more than
+  5 minutes older than the investigation's newest one (for example after an investigation
+  was paused and resumed), or two connection samples taken at the same instant, are listed
+  as missing evidence instead of supporting a root cause.
 
 ### Changed (read before upgrading)
 
