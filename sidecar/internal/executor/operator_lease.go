@@ -23,11 +23,12 @@ func operatorLease(sql string, approvedBy *int) *TargetLease {
 }
 
 // ManualExecuteStatus is the HTTP status for an operator action's error:
-// 409 while another action holds its object, 404 for a finding that is not
-// actionable, 400 for SQL that does not match it, 500 otherwise.
+// 409 while another action holds its object or when an unused-index drop's
+// evidence no longer holds, 404 for a finding that is not actionable, 400
+// for SQL that does not match it, 500 otherwise.
 func ManualExecuteStatus(err error) int {
 	switch {
-	case errors.Is(err, ErrTargetLeased):
+	case errors.Is(err, ErrTargetLeased), errors.Is(err, ErrUnusedEvidenceBroken):
 		return http.StatusConflict
 	case errors.Is(err, ErrFindingNotActionable):
 		return http.StatusNotFound

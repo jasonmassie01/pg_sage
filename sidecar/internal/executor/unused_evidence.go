@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -66,8 +67,9 @@ func (u unusedEvidence) broken(now time.Time, window time.Duration) string {
 	case u.epoch.IsZero():
 		return "statistics epoch unknown"
 	case now.Sub(u.epoch) < window:
-		return fmt.Sprintf("statistics reset at %s, inside the %s unused window",
-			u.epoch.UTC().Format(time.RFC3339), window)
+		return fmt.Sprintf("statistics reset at %s, inside the %d-day unused window "+
+			"(the zero-scan count restarts at the reset)",
+			u.epoch.UTC().Format(time.RFC3339), int(window/(24*time.Hour)))
 	}
 	return ""
 }
@@ -80,26 +82,57 @@ func unusedWindow(cfg *config.Config) time.Duration {
 	return time.Duration(cfg.Analyzer.UnusedIndexWindowDays) * 24 * time.Hour
 }
 
+// ErrUnusedEvidenceBroken refuses an unused-index drop whose evidence no
+// longer holds live: the index was scanned, the statistics were reset
+// inside the unused window, or the index is gone (HTTP 409).
+var ErrUnusedEvidenceBroken = errors.New("unused-index evidence no longer holds")
+
+// unusedEvidenceError names the index and the failed check for the
+// operator.
+func unusedEvidenceError(ident, reason string) error {
+	return fmt.Errorf("%w for %s: %s; not dropping it", ErrUnusedEvidenceBroken, ident, reason)
+}
+
+// unusedEvidenceReason re-checks the evidence for an unused_index drop of
+// ident live and returns why it does not hold, or "". A failed read does
+// not hold (fail closed).
+func (e *Executor) unusedEvidenceReason(ctx context.Context, ident string) string {
+	if e.pool == nil {
+		return "no database to check it against"
+	}
+	ev, err := readUnusedEvidence(ctx, e.pool, ident)
+	if err != nil {
+		return "it could not be checked: " + err.Error()
+	}
+	return ev.broken(time.Now(), unusedWindow(e.cfg))
+}
+
 // unusedDropRefused re-checks an unused-index finding's evidence live and
 // reports whether the drop must not proceed: the analyzer resolves a
 // finding whose window contains a reset on its next cycle, but this cycle
-// may come first. A failed read refuses (fail closed).
+// may come first.
 func (e *Executor) unusedDropRefused(ctx context.Context, f analyzer.Finding) bool {
 	if f.Category != "unused_index" {
 		return false
 	}
-	var reason string
-	if e.pool == nil {
-		reason = "no database to read it from"
-	} else if ev, err := readUnusedEvidence(ctx, e.pool, f.ObjectIdentifier); err != nil {
-		reason = err.Error()
-	} else {
-		reason = ev.broken(time.Now(), unusedWindow(e.cfg))
-	}
+	reason := e.unusedEvidenceReason(ctx, f.ObjectIdentifier)
 	if reason == "" {
 		return false
 	}
 	e.logFn("executor", "not dropping %s: unused-index evidence does not hold: %s",
 		f.ObjectIdentifier, reason)
 	return true
+}
+
+// checkManualUnusedEvidence refuses an operator-approved unused-index drop
+// whose evidence no longer holds: the approval was given on the finding's
+// evidence, and a scan or a reset since then invalidates it.
+func (e *Executor) checkManualUnusedEvidence(ctx context.Context, f manualFinding) error {
+	if f.category != "unused_index" {
+		return nil
+	}
+	if reason := e.unusedEvidenceReason(ctx, f.ident); reason != "" {
+		return unusedEvidenceError(f.ident, reason)
+	}
+	return nil
 }
