@@ -30,6 +30,9 @@ type Snapshot struct {
 	SlotsOK     bool
 	Sequences   []probes.SequenceRunway
 	SequencesOK bool
+	// SequencesFresh marks sequences read this tick; a cached reading is
+	// evaluated but not sampled again.
+	SequencesFresh bool
 }
 
 // BuildSamples turns a snapshot into samples. Only known numbers are
@@ -71,7 +74,7 @@ func BuildSamples(s Snapshot, opts Options) []Sample {
 		}
 	}
 	for _, sq := range s.Sequences {
-		if s.SequencesOK && !sq.Cycle && probes.Known(sq.LastValue) &&
+		if s.SequencesOK && s.SequencesFresh && !sq.Cycle && probes.Known(sq.LastValue) &&
 			probes.Known(sq.Limit) {
 			add(probes.RunwaySequence, sq.Sequence, sq.LastValue, sq.LastValue, sq.Limit)
 		}

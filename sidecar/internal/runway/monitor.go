@@ -29,6 +29,11 @@ type Monitor struct {
 	mu     sync.Mutex
 	last   map[seriesKey]lastPoint
 	loaded bool
+
+	now func() time.Time
+	// seqMu serializes sequence reads; seq is the last reading.
+	seqMu sync.Mutex
+	seq   sequenceReading
 }
 
 // TickResult is what one tick did.
@@ -47,15 +52,14 @@ func NewMonitor(pool *pgxpool.Pool, runner ProbeRunner, starter Starter, opts Op
 	if pool == nil || runner == nil {
 		return nil, errors.New("runway monitor needs a database and a probe runner")
 	}
-	if opts.Interval <= 0 || opts.Lookback <= 0 || opts.Retention < opts.Lookback ||
-		opts.MinSamples < 3 {
-		return nil, fmt.Errorf("runway monitor options are invalid: %+v", opts)
+	if err := opts.validate(); err != nil {
+		return nil, err
 	}
 	if logFn == nil {
 		logFn = func(string, string, ...any) {}
 	}
 	return &Monitor{pool: pool, runner: runner, starter: starter, opts: opts,
-		logFn: logFn, last: map[seriesKey]lastPoint{}}, nil
+		logFn: logFn, last: map[seriesKey]lastPoint{}, now: time.Now}, nil
 }
 
 // Run ticks every interval until ctx ends. A failed tick is logged and
@@ -131,8 +135,9 @@ func (m *Monitor) read(ctx context.Context) (Snapshot, []error) {
 	s.TablesOK = note(probes.WraparoundTablesProbe, err)
 	s.Slots, err = probes.Slots(run(probes.ReplicationSlots))
 	s.SlotsOK = note(probes.ReplicationSlots, err)
-	s.Sequences, err = probes.Sequences(run(probes.SequenceRunwayProbe))
-	s.SequencesOK = note(probes.SequenceRunwayProbe, err)
+	if err := m.readSequences(ctx, &s); err != nil {
+		errs = append(errs, err)
+	}
 	return s, errs
 }
 

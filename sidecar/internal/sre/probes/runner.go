@@ -69,6 +69,18 @@ func NewRunner(pool *pgxpool.Pool, reg *Registry, global *Limiter) *Runner {
 // Run executes one probe and returns its typed result. It never panics
 // and never returns an untyped failure.
 func (r *Runner) Run(ctx context.Context, id ID, args Args) Result {
+	return r.run(ctx, id, args, false)
+}
+
+// RunBackground executes one probe for background sampling (the runway
+// monitor): with the spec's BackgroundTimeout as its statement budget
+// when it declares one, else exactly like Run. Investigations never use
+// it.
+func (r *Runner) RunBackground(ctx context.Context, id ID, args Args) Result {
+	return r.run(ctx, id, args, true)
+}
+
+func (r *Runner) run(ctx context.Context, id ID, args Args, background bool) Result {
 	res := Result{ProbeID: id, ObservedAt: time.Now()}
 	if r == nil || r.pool == nil || r.reg == nil {
 		return failed(res, StatusError, "not_configured", nil)
@@ -76,6 +88,9 @@ func (r *Runner) Run(ctx context.Context, id ID, args Args) Result {
 	spec, ok := r.reg.Spec(id)
 	if !ok {
 		return failed(res, StatusError, "unknown_probe", nil)
+	}
+	if background && spec.BackgroundTimeout > 0 {
+		spec.StatementTimeout = spec.BackgroundTimeout
 	}
 	res.Version = spec.Version
 	if err := args.validate(spec.Args); err != nil {
@@ -152,10 +167,14 @@ func (r *Runner) serverVersion(ctx context.Context) (int, error) {
 	return v, nil
 }
 
+// sessionSettingsSQL fixes the probe transaction's settings. JIT is off:
+// compiling a short catalog query costs more than it saves (lifeos:
+// 10.6 ms of a 187 ms sequence_runway).
 const sessionSettingsSQL = `SELECT
     pg_catalog.set_config('statement_timeout', $1, true),
     pg_catalog.set_config('lock_timeout', $2, true),
-    pg_catalog.set_config('search_path', 'pg_catalog, pg_temp', true)`
+    pg_catalog.set_config('search_path', 'pg_catalog, pg_temp', true),
+    pg_catalog.set_config('jit', 'off', true)`
 
 // execute runs the probe in a read-only transaction whose settings are
 // local to it, reading at most MaxRows rows and MaxBytes of payload.

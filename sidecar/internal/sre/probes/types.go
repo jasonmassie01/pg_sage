@@ -62,10 +62,15 @@ const ExtSchemaToken = "@extschema@"
 
 // Hard ceilings (Codex §8). A spec may be stricter, never looser.
 const (
-	MaxStatementTimeout   = 500 * time.Millisecond
-	MaxRows               = 500
-	MaxBytes              = 256 << 10
-	MaxSidecarConcurrency = 4
+	MaxStatementTimeout = 500 * time.Millisecond
+	// MaxBackgroundStatementTimeout bounds a spec's background budget:
+	// the runway monitor's slow-cadence sampling (RunBackground), never an
+	// investigation. Sequences are read every 10 minutes by default, so
+	// this is at most 2 s of one backend per 600 s (dogfood lifeos-1).
+	MaxBackgroundStatementTimeout = 2 * time.Second
+	MaxRows                       = 500
+	MaxBytes                      = 256 << 10
+	MaxSidecarConcurrency         = 4
 	// MaxProbesPerSignal bounds the probes one incident signal runs.
 	MaxProbesPerSignal = 4
 	// MinWindow, MaxWindow and DefaultWindow bound ArgsWindow probes.
@@ -170,9 +175,12 @@ type Spec struct {
 	// ExtSchemaToken; the probe is unsupported where it is not installed.
 	Extension        string
 	StatementTimeout time.Duration
-	LockTimeout      time.Duration
-	MaxRows          int
-	MaxBytes         int
+	// BackgroundTimeout, when set, replaces StatementTimeout for
+	// RunBackground: in [StatementTimeout, MaxBackgroundStatementTimeout].
+	BackgroundTimeout time.Duration
+	LockTimeout       time.Duration
+	MaxRows           int
+	MaxBytes          int
 	// Requires names the predefined roles the probe's views need to show
 	// other roles' rows; without them the probe is no_privilege
 	// (missing_role), never a partial, healthy-looking answer.
