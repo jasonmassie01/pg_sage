@@ -226,7 +226,10 @@ func TestTunerSkipsLLMWhileCircuitOpen(t *testing.T) {
 	defer srv.Close()
 	client := llm.New(defaultsWithEndpoint(srv.URL, 100000), noopLog2)
 	for i := 0; !client.IsCircuitOpen() && i < 5; i++ {
-		_, _, _ = client.Chat(context.Background(), "s", fmt.Sprintf("u%d", i), 10)
+		if _, _, err := client.Chat(context.Background(), "s",
+			fmt.Sprintf("u%d", i), 10); err == nil {
+			t.Fatal("precondition: a 500 provider answer must fail")
+		}
 	}
 	if !client.IsCircuitOpen() {
 		t.Fatalf("precondition: circuit still closed after %d calls", calls.Load())
