@@ -20,16 +20,7 @@ func fastThresholds() Thresholds {
 	return th
 }
 
-func checkNamed(t *testing.T, a Assessment, name string) Check {
-	t.Helper()
-	for _, c := range a.Checks {
-		if c.Name == name {
-			return c
-		}
-	}
-	t.Fatalf("no check %s in %+v", name, a.Checks)
-	return Check{}
-}
+// checkNamed is evidence_test.go's.
 
 func TestGuidanceShadowChecks(t *testing.T) {
 	first := guideAt.Add(-time.Hour)

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -101,15 +100,14 @@ func autonomousUnder(b policy.RuntimeState, tier policy.RiskTier) bool {
 	return false
 }
 
-// SeedCarriedOver seeds every pair the bound lets run autonomously and
-// that has no ledger row yet. It never raises or lowers an existing row,
-// so it is idempotent, and a stricter database does not lower what
-// another carried (each database's gate stays its own outer bound). It
-// returns the pairs seeded now.
+// SeedCarriedOver seeds every pair the database's bound lets run
+// autonomously and that has no ledger row yet in that database's ledger
+// (carry-over is per database, P0-5). It never raises or lowers an
+// existing row, so it is idempotent. It returns the pairs seeded now.
 func (s *Service) SeedCarriedOver(ctx context.Context, database string,
 	bound policy.RuntimeState) ([]State, error) {
-	if strings.TrimSpace(database) == "" || len(database) > 200 {
-		return nil, fmt.Errorf("%w: database", ErrInvalidRequest)
+	if err := s.store.checkDatabase(database); err != nil {
+		return nil, err
 	}
 	seeded := []State{}
 	for _, co := range carryOvers {
@@ -117,7 +115,7 @@ func (s *Service) SeedCarriedOver(ctx context.Context, database string,
 		if level <= defaultLevel(co.Family) {
 			continue
 		}
-		st, ok, err := s.store.seedCarried(ctx, co, level, database, bound, s.now())
+		st, ok, err := s.store.seedCarried(ctx, co, level, bound, s.now())
 		if err != nil {
 			return seeded, err
 		}
@@ -132,7 +130,7 @@ func (s *Service) SeedCarriedOver(ctx context.Context, database string,
 // seedCarried inserts a carried-over row and its history entry when the
 // pair has no row; ok is false when it already had one.
 func (s *PostgresStore) seedCarried(ctx context.Context, co CarryOver, level Level,
-	database string, bound policy.RuntimeState, at time.Time) (State, bool, error) {
+	bound policy.RuntimeState, at time.Time) (State, bool, error) {
 	evidence, err := json.Marshal(map[string]any{"tier": co.Tier,
 		"trust_level": bound.TrustLevel, "execution_mode": bound.ExecutionMode,
 		"tier3_safe": bound.Tier3Safe, "tier3_moderate": bound.Tier3Moderate})
@@ -142,19 +140,19 @@ func (s *PostgresStore) seedCarried(ctx context.Context, co CarryOver, level Lev
 	var st State
 	err = s.withTx(ctx, func(tx pgx.Tx) error {
 		st, err = scanState(tx.QueryRow(ctx, `INSERT INTO sage.sre_family_autonomy
-			(deployment_id, family, action_class, level, evidence, changed_by,
-			 change_reason, changed_at, provenance, carried_ref)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'carried_over', $9)
-			ON CONFLICT (deployment_id, family, action_class) DO NOTHING
-			RETURNING `+levelColumns, s.deployment, string(co.Family), string(co.Class),
-			int16(level), evidence, ActorPgSage, "carried over from the pre-M7 policy",
-			at, co.Ref))
+			(deployment_id, database_name, family, action_class, level, evidence,
+			 changed_by, change_reason, changed_at, provenance, carried_ref)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'carried_over', $10)
+			ON CONFLICT (deployment_id, database_name, family, action_class) DO NOTHING
+			RETURNING `+levelColumns, s.deployment, s.database, string(co.Family),
+			string(co.Class), int16(level), evidence, ActorPgSage,
+			"carried over from the pre-M7 policy", at, co.Ref))
 		if err != nil {
 			return err
 		}
 		return s.appendEvent(ctx, tx, Event{Family: co.Family, Class: co.Class,
 			Type: EventCarriedOver, From: levelPtr(defaultLevel(co.Family)),
-			To: levelPtr(level), Actor: ActorPgSage, Database: database,
+			To: levelPtr(level), Actor: ActorPgSage,
 			Reason: "carried over from the pre-M7 policy: " + co.Ref,
 			Evidence: evidence, At: at})
 	})

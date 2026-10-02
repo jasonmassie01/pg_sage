@@ -75,17 +75,25 @@ const (
 	ProvenanceCarriedOver = "carried_over"
 )
 
-// PostgresStore keeps one deployment's ledger in the sage schema.
+// PostgresStore keeps one database's ledger of a deployment in the sage
+// schema (P0-5: levels, proposals, history, reviews and outcomes are per
+// database). Bench reports are about pg_sage itself and are shared by
+// every database of the deployment.
 type PostgresStore struct {
 	pool       *pgxpool.Pool
 	deployment string
+	database   string
 }
 
 var uuidPattern = regexp.MustCompile(
 	`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// NewPostgresStore binds the ledger of deploymentID (a UUID).
-func NewPostgresStore(pool *pgxpool.Pool, deploymentID string) (*PostgresStore, error) {
+// maxDatabaseName bounds a database name in the ledger tables.
+const maxDatabaseName = 200
+
+// NewPostgresStore binds the ledger of database in deploymentID (a UUID).
+func NewPostgresStore(pool *pgxpool.Pool, deploymentID, database string) (*PostgresStore,
+	error) {
 	if pool == nil {
 		return nil, fmt.Errorf("%w: no database pool", ErrUnavailable)
 	}
@@ -93,11 +101,28 @@ func NewPostgresStore(pool *pgxpool.Pool, deploymentID string) (*PostgresStore, 
 		return nil, fmt.Errorf("%w: deployment id %q is not a UUID", ErrInvalidRequest,
 			deploymentID)
 	}
-	return &PostgresStore{pool: pool, deployment: deploymentID}, nil
+	if strings.TrimSpace(database) == "" || len(database) > maxDatabaseName {
+		return nil, fmt.Errorf("%w: a ledger needs a database name of 1..%d characters",
+			ErrInvalidRequest, maxDatabaseName)
+	}
+	return &PostgresStore{pool: pool, deployment: deploymentID, database: database}, nil
 }
 
 // DeploymentID is the ledger's deployment.
 func (s *PostgresStore) DeploymentID() string { return s.deployment }
+
+// Database is the database whose ledger this is.
+func (s *PostgresStore) Database() string { return s.database }
+
+// checkDatabase refuses a request that names another database than the
+// ledger's own.
+func (s *PostgresStore) checkDatabase(database string) error {
+	if database != s.database {
+		return fmt.Errorf("%w: %q is not this ledger's database (%q)", ErrInvalidRequest,
+			database, s.database)
+	}
+	return nil
+}
 
 // EnsureDeployment returns this database's Sage SRE deployment UUID,
 // creating it once (the investigator shares the same row).
@@ -169,19 +194,20 @@ func (s *PostgresStore) readLevel(ctx context.Context, q querier, f Family,
 	c ActionClass) (State, bool, error) {
 	st, err := scanState(q.QueryRow(ctx, `SELECT `+levelColumns+`
 		FROM sage.sre_family_autonomy
-		WHERE deployment_id = $1 AND family = $2 AND action_class = $3`,
-		s.deployment, string(f), string(c)))
+		WHERE deployment_id = $1 AND database_name = $2 AND family = $3
+		  AND action_class = $4`,
+		s.deployment, s.database, string(f), string(c)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return State{}, false, nil
 	}
 	return st, err == nil, storeErr("read autonomy level", err)
 }
 
-// Levels lists every stored pair of the deployment.
+// Levels lists every stored pair of the database.
 func (s *PostgresStore) Levels(ctx context.Context) ([]State, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+levelColumns+`
-		FROM sage.sre_family_autonomy WHERE deployment_id = $1
-		ORDER BY family, action_class`, s.deployment)
+		FROM sage.sre_family_autonomy WHERE deployment_id = $1 AND database_name = $2
+		ORDER BY family, action_class`, s.deployment, s.database)
 	if err != nil {
 		return nil, storeErr("list autonomy levels", err)
 	}
@@ -217,21 +243,22 @@ func (s *PostgresStore) writeLevel(ctx context.Context, q querier, ch levelChang
 	var row pgx.Row
 	if ch.ExpectVersion == 0 {
 		row = q.QueryRow(ctx, `INSERT INTO sage.sre_family_autonomy
-			(deployment_id, family, action_class, level, evidence, changed_by,
-			 change_reason, changed_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			ON CONFLICT (deployment_id, family, action_class) DO NOTHING
-			RETURNING `+levelColumns, s.deployment, string(ch.Family), string(ch.Class),
-			int16(ch.To), ch.Evidence, ch.Actor, ch.Reason, ch.At)
+			(deployment_id, database_name, family, action_class, level, evidence,
+			 changed_by, change_reason, changed_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			ON CONFLICT (deployment_id, database_name, family, action_class) DO NOTHING
+			RETURNING `+levelColumns, s.deployment, s.database, string(ch.Family),
+			string(ch.Class), int16(ch.To), ch.Evidence, ch.Actor, ch.Reason, ch.At)
 	} else {
 		row = q.QueryRow(ctx, `UPDATE sage.sre_family_autonomy
-			SET level = $4, version = version + 1, evidence = $5, changed_by = $6,
-			    change_reason = $7, changed_at = $8, provenance = 'ledger',
+			SET level = $5, version = version + 1, evidence = $6, changed_by = $7,
+			    change_reason = $8, changed_at = $9, provenance = 'ledger',
 			    carried_ref = NULL
-			WHERE deployment_id = $1 AND family = $2 AND action_class = $3
-			  AND version = $9
-			RETURNING `+levelColumns, s.deployment, string(ch.Family), string(ch.Class),
-			int16(ch.To), ch.Evidence, ch.Actor, ch.Reason, ch.At, ch.ExpectVersion)
+			WHERE deployment_id = $1 AND database_name = $2 AND family = $3
+			  AND action_class = $4 AND version = $10
+			RETURNING `+levelColumns, s.deployment, s.database, string(ch.Family),
+			string(ch.Class), int16(ch.To), ch.Evidence, ch.Actor, ch.Reason, ch.At,
+			ch.ExpectVersion)
 	}
 	st, err := scanState(row)
 	if errors.Is(err, pgx.ErrNoRows) {

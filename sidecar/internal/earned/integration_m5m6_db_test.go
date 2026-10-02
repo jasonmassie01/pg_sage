@@ -104,12 +104,14 @@ func (f *fixture) familyDecision(reason, family, class, outcome string) int64 {
 }
 
 func TestReconcileRecordsMandatoryDeadlineExecutions(t *testing.T) {
-	f := newFixture(t)
+	f := newFixtureFor(t, newUUID(t), "deadline-"+newUUID(t)[:8])
 	f.cleanMonitored()
-	db := "deadline-" + newUUID(t)[:8]
+	db := f.db
 	override := f.familyDecision("deadline_override", "wraparound_runway", "freeze",
 		"success")
+	f.attachVerification(override, "success")
 	inWindow := f.familyDecision("authorized", "wraparound_runway", "freeze", "success")
+	f.attachVerification(inWindow, "success")
 	plain := f.familyDecision("authorized", "", "", "success")
 	notifier := &recordingNotifier{}
 	res, err := NewReconciler(f.svc, f.pool, db, notifier).RunOnce(f.ctx)
@@ -131,11 +133,11 @@ func TestReconcileRecordsMandatoryDeadlineExecutions(t *testing.T) {
 }
 
 func TestHarmfulDeadlineExecutionIsAFamilyRegression(t *testing.T) {
-	f := newFixture(t)
+	f := newFixtureFor(t, newUUID(t), "deadline-"+newUUID(t)[:8])
 	f.cleanMonitored()
 	f.seedL2Evidence(FamilyWraparound, 25, 0)
 	f.promote(FamilyWraparound, ClassVacuum)
-	db := "deadline-" + newUUID(t)[:8]
+	db := f.db
 	harmful := f.familyDecision("deadline_override", "wraparound_runway", "freeze",
 		"rolled_back")
 	if _, err := NewReconciler(f.svc, f.pool, db, nil).RunOnce(f.ctx); err != nil {
@@ -177,9 +179,9 @@ func TestViewListsTheM6Families(t *testing.T) {
 // of a family action is the approval path's (an L2 handoff), never a
 // self-initiated outcome.
 func TestReconcileLeavesOperatorApprovalsToTheHandoffPath(t *testing.T) {
-	f := newFixture(t)
+	f := newFixtureFor(t, newUUID(t), "approved-"+newUUID(t)[:8])
 	f.cleanMonitored()
-	db := "approved-" + newUUID(t)[:8]
+	db := f.db
 	approved := f.familyDecision("operator_approved", "wraparound_runway", "freeze",
 		"success")
 	res, err := NewReconciler(f.svc, f.pool, db, nil).RunOnce(f.ctx)

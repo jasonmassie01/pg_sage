@@ -79,5 +79,5 @@ func (l *Limiter) appendOverride(ctx context.Context, f Family, c ActionClass,
 		d.Reason)
 	return l.svc.store.appendEvent(ctx, l.svc.store.pool, Event{Family: f, Class: c,
 		Type: EventDeadlineOverride, Actor: ActorPgSage, Reason: truncate(reason, 2000),
-		Database: l.b.Database, Evidence: evidence, At: l.svc.now()})
+		Evidence: evidence, At: l.svc.now()})
 }

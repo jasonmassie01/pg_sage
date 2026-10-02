@@ -14,6 +14,16 @@ import (
 // trust step, so pg_sage and agents acting through MCP cannot take it.
 var nonHumanPrefixes = []string{ActorPgSage, "system", "mcp:", "mcp-agent", "stdio"}
 
+// reviewerAllowed: a shadow review is trust evidence, so pg_sage, system
+// actors and an unbound MCP agent cannot record one. A person (API
+// session) and an authenticated MCP principal (operator or admin, kept
+// as "mcp:<actor>") can; the approval of a promotion stays human-only.
+func reviewerAllowed(actor string) bool {
+	trimmed := strings.TrimSpace(actor)
+	return humanActor(actor) || (strings.HasPrefix(trimmed, "mcp:") &&
+		len(trimmed) > len("mcp:") && len(trimmed) <= 200)
+}
+
 func humanActor(actor string) bool {
 	actor = strings.TrimSpace(actor)
 	if actor == "" || len(actor) > 200 {
@@ -251,7 +261,8 @@ func (s *Service) lowerOne(ctx context.Context, tx pgx.Tx, f Family, c ActionCla
 func validateOutcome(o Outcome) error {
 	switch {
 	case o.Result != ResultVerifiedRecovery && o.Result != ResultNotRecovered &&
-		o.Result != ResultHarmful && o.Result != ResultSafetyViolation:
+		o.Result != ResultHarmful && o.Result != ResultSafetyViolation &&
+		o.Result != ResultUnverified:
 		return fmt.Errorf("%w: result %q", ErrInvalidRequest, o.Result)
 	case o.Source != SourceExecutor && o.Source != SourceOperator &&
 		o.Source != SourceGameDay && o.Source != SourceRollout && o.Source != SourceBench:
@@ -320,7 +331,8 @@ func truncate(s string, n int) string {
 	return s[:n]
 }
 
-// RecordReview records an operator's verdict on an investigation packet.
+// RecordReview records an operator's verdict on an investigation packet
+// of the ledger's database.
 func (s *Service) RecordReview(ctx context.Context, r Review) error {
 	switch {
 	case r.Verdict != VerdictAccepted && r.Verdict != VerdictRejected:
@@ -329,8 +341,9 @@ func (s *Service) RecordReview(ctx context.Context, r Review) error {
 		return fmt.Errorf("%w: family %q", ErrInvalidRequest, r.Family)
 	case !uuidPattern.MatchString(r.InvestigationID):
 		return fmt.Errorf("%w: investigation id", ErrInvalidRequest)
-	case strings.TrimSpace(r.Reviewer) == "" || len(r.Reviewer) > 200:
-		return fmt.Errorf("%w: reviewer", ErrInvalidRequest)
+	case !reviewerAllowed(r.Reviewer):
+		return fmt.Errorf("%w: reviewer %q cannot record a review", ErrInvalidRequest,
+			r.Reviewer)
 	case strings.TrimSpace(r.Database) == "" || len(r.Database) > 200 || len(r.Note) > 2000:
 		return fmt.Errorf("%w: database or note", ErrInvalidRequest)
 	}

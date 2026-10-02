@@ -59,11 +59,11 @@ func (s *PostgresStore) insertProposal(ctx context.Context, q querier, p Proposa
 	error) {
 	sum := sha256.Sum256(p.Evidence)
 	_, err := q.Exec(ctx, `INSERT INTO sage.sre_autonomy_proposals
-		(deployment_id, id, family, action_class, from_level, to_level, evidence,
-		 evidence_sha256, status, proposed_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10)`,
-		s.deployment, p.ID, string(p.Family), string(p.Class), int16(p.From), int16(p.To),
-		p.Evidence, sum[:], p.ProposedAt, p.ExpiresAt)
+		(deployment_id, database_name, id, family, action_class, from_level, to_level,
+		 evidence, evidence_sha256, status, proposed_at, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', $10, $11)`,
+		s.deployment, s.database, p.ID, string(p.Family), string(p.Class), int16(p.From),
+		int16(p.To), p.Evidence, sum[:], p.ProposedAt, p.ExpiresAt)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		return false, nil
@@ -71,7 +71,8 @@ func (s *PostgresStore) insertProposal(ctx context.Context, q querier, p Proposa
 	return err == nil, storeErr("insert autonomy proposal", err)
 }
 
-// Proposal reads one proposal.
+// Proposal reads one proposal of the database; another database's
+// proposal is not found.
 func (s *PostgresStore) Proposal(ctx context.Context, id string) (Proposal, error) {
 	return s.readProposal(ctx, s.pool, id, false)
 }
@@ -82,11 +83,11 @@ func (s *PostgresStore) readProposal(ctx context.Context, q querier, id string,
 		return Proposal{}, fmt.Errorf("%w: proposal id %q", ErrInvalidRequest, id)
 	}
 	query := `SELECT ` + proposalColumns + ` FROM sage.sre_autonomy_proposals
-		WHERE deployment_id = $1 AND id = $2`
+		WHERE deployment_id = $1 AND database_name = $2 AND id = $3`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
-	p, err := scanProposal(q.QueryRow(ctx, query, s.deployment, id))
+	p, err := scanProposal(q.QueryRow(ctx, query, s.deployment, s.database, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Proposal{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	}
@@ -97,8 +98,9 @@ func (s *PostgresStore) readProposal(ctx context.Context, q querier, id string,
 func (s *PostgresStore) listProposals(ctx context.Context, status string, limit int) (
 	[]Proposal, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+proposalColumns+`
-		FROM sage.sre_autonomy_proposals WHERE deployment_id = $1 AND status = $2
-		ORDER BY proposed_at DESC, id LIMIT $3`, s.deployment, status, limit)
+		FROM sage.sre_autonomy_proposals
+		WHERE deployment_id = $1 AND database_name = $2 AND status = $3
+		ORDER BY proposed_at DESC, id LIMIT $4`, s.deployment, s.database, status, limit)
 	if err != nil {
 		return nil, storeErr("list autonomy proposals", err)
 	}
@@ -118,9 +120,9 @@ func (s *PostgresStore) listProposals(ctx context.Context, status string, limit 
 func (s *PostgresStore) decideProposal(ctx context.Context, q querier, id, status,
 	actor, note string, at time.Time) error {
 	tag, err := q.Exec(ctx, `UPDATE sage.sre_autonomy_proposals
-		SET status = $3, decided_by = $4, decision_note = NULLIF($5, ''), decided_at = $6
-		WHERE deployment_id = $1 AND id = $2 AND status = 'pending'`,
-		s.deployment, id, status, actor, note, at)
+		SET status = $4, decided_by = $5, decision_note = NULLIF($6, ''), decided_at = $7
+		WHERE deployment_id = $1 AND database_name = $2 AND id = $3 AND status = 'pending'`,
+		s.deployment, s.database, id, status, actor, note, at)
 	if err != nil {
 		return storeErr("decide autonomy proposal", err)
 	}
@@ -137,10 +139,10 @@ func (s *PostgresStore) closePending(ctx context.Context, q querier, f Family,
 	c ActionClass, status, actor, note string, at time.Time) ([]Proposal, error) {
 	rows, err := q.Query(ctx, `UPDATE sage.sre_autonomy_proposals
 		SET status = $4, decided_by = $5, decision_note = $6, decided_at = $7
-		WHERE deployment_id = $1 AND family = $2 AND status = 'pending'
-		  AND ($3 = '*' OR action_class = $3)
+		WHERE deployment_id = $1 AND database_name = $8 AND family = $2
+		  AND status = 'pending' AND ($3 = '*' OR action_class = $3)
 		RETURNING `+proposalColumns, s.deployment, string(f), string(c), status, actor,
-		note, at)
+		note, at, s.database)
 	if err != nil {
 		return nil, storeErr("close autonomy proposals", err)
 	}
@@ -160,8 +162,9 @@ func (s *PostgresStore) closePending(ctx context.Context, q querier, f Family,
 func (s *PostgresStore) expireDue(ctx context.Context, at time.Time) ([]Proposal, error) {
 	rows, err := s.pool.Query(ctx, `UPDATE sage.sre_autonomy_proposals
 		SET status = 'expired', decided_by = $2, decision_note = 'expired', decided_at = $3
-		WHERE deployment_id = $1 AND status = 'pending' AND expires_at <= $3
-		RETURNING `+proposalColumns, s.deployment, ActorPgSage, at)
+		WHERE deployment_id = $1 AND database_name = $4 AND status = 'pending'
+		  AND expires_at <= $3
+		RETURNING `+proposalColumns, s.deployment, ActorPgSage, at, s.database)
 	if err != nil {
 		return nil, storeErr("expire autonomy proposals", err)
 	}

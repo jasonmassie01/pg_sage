@@ -29,6 +29,9 @@ const (
 	// deadline action the ledger did not restrict.
 	EventCarriedOver      EventType = "carried_over"
 	EventDeadlineOverride EventType = "deadline_override"
+	// EventDatabaseScoped records a database adopting a deployment-wide
+	// level stored before the ledger was per database (AdoptLegacy).
+	EventDatabaseScoped EventType = "database_scoped"
 )
 
 // Event is one ledger history entry.
@@ -50,8 +53,10 @@ type Event struct {
 
 // EventFilter narrows the history; zero fields match everything.
 type EventFilter struct {
-	Family   Family
-	Class    ActionClass
+	Family Family
+	Class  ActionClass
+	// Database, when set, must be the ledger's database; it drops the
+	// deployment-wide entries recorded before the ledger was per database.
 	Database string
 	// Limit is the page size, 1..MaxEventPage (default 100).
 	Limit int
@@ -77,15 +82,17 @@ func (s *PostgresStore) appendEvent(ctx context.Context, q querier, e Event) err
 	_, err := q.Exec(ctx, `INSERT INTO sage.sre_autonomy_events
 		(deployment_id, family, action_class, event_type, from_level, to_level, actor,
 		 reason, database_name, proposal_id, action_log_id, evidence, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), NULLIF($10, '')::uuid,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULLIF($10, '')::uuid,
 		        NULLIF($11, 0), $12, $13)`,
 		s.deployment, string(e.Family), string(e.Class), string(e.Type), levelArg(e.From),
-		levelArg(e.To), e.Actor, e.Reason, e.Database, e.ProposalID, e.ActionLogID,
+		levelArg(e.To), e.Actor, e.Reason, s.database, e.ProposalID, e.ActionLogID,
 		e.Evidence, e.At)
 	return storeErr("append autonomy event", err)
 }
 
-// Events reads the history, newest first.
+// Events reads the database's history, newest first, with the
+// deployment-wide history recorded before the ledger was per database
+// (no database name). Filter.Database keeps the database's own entries.
 func (s *PostgresStore) Events(ctx context.Context, f EventFilter) ([]Event, error) {
 	if f.Limit == 0 {
 		f.Limit = 100
@@ -94,14 +101,20 @@ func (s *PostgresStore) Events(ctx context.Context, f EventFilter) ([]Event, err
 		return nil, fmt.Errorf("%w: limit %d (1..%d)", ErrInvalidRequest, f.Limit,
 			MaxEventPage)
 	}
+	if f.Database != "" {
+		if err := s.checkDatabase(f.Database); err != nil {
+			return nil, err
+		}
+	}
 	rows, err := s.pool.Query(ctx, `SELECT id, family, action_class, event_type,
 		from_level, to_level, actor, reason, COALESCE(database_name, ''),
 		COALESCE(proposal_id::text, ''), COALESCE(action_log_id, 0), evidence, created_at
 		FROM sage.sre_autonomy_events
 		WHERE deployment_id = $1 AND ($2 = '' OR family = $2)
-		  AND ($3 = '' OR action_class = $3) AND ($4 = '' OR database_name = $4)
-		ORDER BY created_at DESC, id DESC LIMIT $5`, s.deployment, string(f.Family),
-		string(f.Class), f.Database, f.Limit)
+		  AND ($3 = '' OR action_class = $3)
+		  AND (database_name = $4 OR ($5 = '' AND database_name IS NULL))
+		ORDER BY created_at DESC, id DESC LIMIT $6`, s.deployment, string(f.Family),
+		string(f.Class), s.database, f.Database, f.Limit)
 	if err != nil {
 		return nil, storeErr("read autonomy history", err)
 	}
@@ -134,12 +147,12 @@ func scanEvent(row pgx.Row) (Event, error) {
 }
 
 // autoExecutedRecorded reports whether an L3 execution was notified.
-func (s *PostgresStore) autoExecutedRecorded(ctx context.Context, database string,
+func (s *PostgresStore) autoExecutedRecorded(ctx context.Context,
 	actionLogID int64) (bool, error) {
 	var found bool
 	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sage.sre_autonomy_events
 		WHERE deployment_id = $1 AND event_type = 'auto_executed'
 		  AND database_name = $2 AND action_log_id = $3)`,
-		s.deployment, database, actionLogID).Scan(&found)
+		s.deployment, s.database, actionLogID).Scan(&found)
 	return found, storeErr("read auto-execution notice", err)
 }
