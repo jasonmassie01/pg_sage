@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/sre/causal"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/sre/runbook"
@@ -166,6 +167,10 @@ func (w *runbookWalk) step(ctx context.Context, n runbook.Node,
 	out.Outcome = RunbookCompleted
 	out.Proposal = &RunbookProposal{Label: RunbookProposalLabel, Kind: string(p.Kind),
 		Node: p.Node, ActionType: p.ActionType, Text: p.Text()}
+	if p.Kind == runbook.ProposalAction {
+		out.Proposal.Family = string(w.d.Family)
+		out.Proposal.AutonomyClass = string(earned.ClassForActionType(p.ActionType))
+	}
 	return "", true, nil
 }
 

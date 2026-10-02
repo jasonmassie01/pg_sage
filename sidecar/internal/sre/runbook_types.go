@@ -130,6 +130,11 @@ type RunbookProposal struct {
 	Node       string `json:"node,omitempty"`
 	ActionType string `json:"action_type,omitempty"`
 	Text       string `json:"text"`
+	// Family and AutonomyClass name, for a typed action, the incident
+	// family and earned-autonomy class (M7) a request for it is judged
+	// under.
+	Family        string `json:"family,omitempty"`
+	AutonomyClass string `json:"autonomy_class,omitempty"`
 }
 
 // RunbookRun records which runbook version ran in an investigation, the
