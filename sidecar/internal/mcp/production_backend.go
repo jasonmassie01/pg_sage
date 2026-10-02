@@ -52,6 +52,8 @@ type ProductionDependencies struct {
 	Guarantees GuaranteeAccess
 	// Investigations serves the read-only Sage SRE tools; optional.
 	Investigations InvestigationBackend
+	// Autonomy serves the earned-autonomy tools; optional.
+	Autonomy AutonomyBackend
 }
 
 type ProductionBackend struct {

@@ -46,6 +46,7 @@ var mutatingTools = map[string]bool{
 	"optimize_query": true, "apply_migration": true,
 	"ensure_fk_indexes": true, "declare_table_contract": true,
 	"register_consumer": true, "set_maintenance_policy": true,
+	"sre_downgrade_autonomy": true,
 }
 
 func canMutate(ctx context.Context) bool {
