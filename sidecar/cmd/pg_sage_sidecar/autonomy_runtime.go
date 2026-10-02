@@ -96,18 +96,8 @@ func newDatabaseAutonomy(
 	if pool == nil || cfg == nil || exec == nil {
 		return nil, fmt.Errorf("autonomy runtime dependencies are incomplete")
 	}
-	freezeWorker := autonomy.NewPostgresFreezeCustodian(
-		pool, database, cfg.Custodian.Freeze.RedBufferPct,
-	)
-	walWorker := autonomy.NewPostgresWALCustodian(
-		pool, database, autonomy.PostgresWALOptions{
-			AbandonAfter: time.Duration(
-				cfg.Custodian.WAL.AbandonAfterMinutes) * time.Minute,
-			DiskPctCeiling: cfg.Custodian.WAL.RetainedWALDiskPctCeiling,
-			// Drop remains disabled until policy supplies opt-in and an owner allowlist.
-			AllowDrop: false,
-		},
-	)
+	freezeWorker := newFreezeCustodian(pool, cfg, database)
+	walWorker := newWALCustodian(pool, cfg, database)
 	auditor := ledger.NewService(ledger.NewPostgresRepository(pool))
 	router := executorProposalRouter{executor: exec, isReplica: haReplicaProbe(pool)}
 	schemaGuard, err := autonomy.NewPostgresSchemaGuard(

@@ -14,19 +14,19 @@ func TestMain(m *testing.M) {
 	os.Exit(testdb.Run(m.Run, "sre-bench"))
 }
 
-// Bench budgets: one pass over the fault programs (about 15 minutes for
-// both live arms with the M6 families; run go test with -timeout 40m), the
-// replay corpus, and the extra time a live model may take (up to 2 turns
+// Bench budgets: one scenario (every live arm) in one pass, so the pass
+// budget grows with the scenarios selected (SAGE_BENCH_FAMILIES); the
+// replay corpus; and the extra time a live model may take (up to 2 turns
 // of 50 s per investigation, though real replies take seconds).
 const (
-	repeatBudget    = 30 * time.Minute
+	scenarioBudget  = 30 * time.Second
 	replayBudget    = 3 * time.Minute
 	liveModelBudget = 60 * time.Minute
 )
 
 // benchBudget bounds the whole bench run.
-func benchBudget(repeats int, llm LLMConfig) time.Duration {
-	d := time.Duration(repeats)*repeatBudget + replayBudget
+func benchBudget(repeats, scenarios int, llm LLMConfig) time.Duration {
+	d := time.Duration(repeats*scenarios)*scenarioBudget + replayBudget
 	if llm.Mode == LLMLive {
 		d += liveModelBudget
 	}
@@ -60,14 +60,16 @@ func TestPGIncidentBench(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := DefaultConfig(repeats, llm)
-	ctx, cancel := context.WithTimeout(context.Background(), benchBudget(repeats, llm))
+	selected := FilterScenarios(Scenarios(), families)
+	ctx, cancel := context.WithTimeout(context.Background(),
+		benchBudget(repeats, len(selected), llm))
 	t.Cleanup(cancel)
 	env := NewEnv(ctx, t, dsn)
 	var version string
 	if err := env.Pool.QueryRow(ctx, "SELECT version()").Scan(&version); err != nil {
 		t.Fatalf("server version: %v", err)
 	}
-	results := Run(ctx, env, FilterScenarios(Scenarios(), families), cfg)
+	results := Run(ctx, env, selected, cfg)
 	report := BuildReport(results, ReportMeta{Arms: cfg.ArmNames(), Gated: cfg.Gated(),
 		Pending: cfg.Pending(), Repeats: repeats, ServerVersion: version,
 		GeneratedAt: time.Now().UTC(), LLM: llm})

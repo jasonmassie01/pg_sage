@@ -93,6 +93,8 @@ func diagnose(inv Investigation, obs []causal.Observation) causal.Diagnosis {
 		d = planDiagnosis(obs, inv.Subject)
 	case TriggerSLOBurn:
 		d = causal.DiagnoseSLOBurn(obs, inv.Subject)
+	case TriggerWraparound, TriggerDiskWAL, TriggerSequence:
+		d = diagnoseRunway(inv, obs)
 	default:
 		d = diagnoseM6(inv.TriggerKind, obs)
 	}
@@ -107,7 +109,8 @@ var seriesProbes = map[probes.ID]bool{probes.ConnectionSaturation: true,
 	probes.ReplicationSlots: true, probes.WALCheckpoint: true, probes.Archiver: true,
 	probes.CheckpointActivity: true, probes.TempFileActivity: true,
 	probes.TempFileHolders: true, probes.TempSpillStatements: true,
-	probes.ReplicationLag: true, probes.StandbyReplayState: true, probes.LWLockWaits: true}
+	probes.ReplicationLag: true, probes.StandbyReplayState: true, probes.LWLockWaits: true,
+	probes.XIDRunwayProbe: true, probes.SequenceRunwayProbe: true}
 
 // currentObservations keeps every sample of a series probe and only the
 // newest (last stored) observation of each one-shot probe, in order.

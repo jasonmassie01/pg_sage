@@ -69,11 +69,10 @@ func signalIDs(signals []SignalProbe) []probes.ID {
 	return out
 }
 
-// planWithSignals is the family's plan with the signal probes added to
+// addSignals is a family's plan with the signal probes added to
 // its first step (the change feed over the action window).
-func planWithSignals(kind TriggerKind, window time.Duration,
+func addSignals(plan []planStep, ok bool, window time.Duration,
 	signals []probes.ID) ([]planStep, bool) {
-	plan, ok := planFor(kind, window)
 	if !ok || len(signals) == 0 {
 		return plan, ok
 	}

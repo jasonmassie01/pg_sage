@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/runway"
 )
 
 var ErrCustodianProposalWithheld = errors.New("custodian proposal withheld by policy")
@@ -198,15 +199,22 @@ func (r *custodianRun) verify(ctx context.Context, actionID int64) error {
 		updateActionSuccess(ctx, e.pool, actionID)
 		setActionCustodianCriterion(ctx, e.pool, actionID, criterion)
 		r.creditFreezeIncident(ctx, actionID)
+		r.creditWALIncident(ctx, actionID)
 	}
 	return nil
 }
 
-type custodianBaseline struct{ horizon *freezeHorizon }
+type custodianBaseline struct {
+	horizon *freezeHorizon
+	disk    *runway.DiskMeasure // before a WAL bound, for incident credit
+}
 
 func (e *Executor) captureCustodianBaseline(
 	ctx context.Context, proposal CustodianProposal,
 ) (custodianBaseline, error) {
+	if isWALBound(proposal) {
+		return custodianBaseline{disk: e.walDiskBaseline(ctx)}, nil
+	}
 	if proposal.Feature != "freeze" || len(proposal.TargetObjects) != 1 {
 		return custodianBaseline{}, nil
 	}

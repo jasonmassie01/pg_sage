@@ -386,7 +386,8 @@ func migrationStatements() []string {
 		ddlRetentionColumnDeclaration, ddlTableContractIdentity, ddlSRECoordination,
 		ddlSREInvestigator, ddlSREModelEvents, ddlSREReasoningBudget,
 		ddlSRESLOChangeEvents, ddlSREActions,
-		ddlRecommendationAll)
+		ddlRecommendationAll,
+		ddlRunwaySamples)
 }
 
 // ---------------------------------------------------------------------------

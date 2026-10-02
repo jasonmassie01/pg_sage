@@ -31,7 +31,8 @@ const (
 var triggerKinds = map[TriggerKind]bool{TriggerLock: true, TriggerConnections: true,
 	TriggerWAL: true, TriggerPlan: true, TriggerOperator: true, TriggerSLOBurn: true,
 	TriggerCheckpoint: true, TriggerTempFiles: true, TriggerReplicationLag: true,
-	TriggerLWLock: true}
+	TriggerLWLock: true, TriggerWraparound: true, TriggerDiskWAL: true,
+	TriggerSequence: true}
 
 // StartRequest asks for an investigation of one scoped trigger.
 type StartRequest struct {

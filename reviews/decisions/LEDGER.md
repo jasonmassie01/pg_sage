@@ -89,12 +89,54 @@ Decided by the product principle: pg_sage earns trust by claiming only what it m
   after, and the action is verified. One credit per action (unique evidence id); a table
   must cross into red again to earn another. The freeze still earns its ordinary toil
   credit: the two ledgers are reported separately and never summed.
-- **Not credited yet:** `disk_full_slot`. A WAL bound caps future growth at 1.5x what is
-  retained; it does not show the disk was on track to fill. Crediting it needs a measured
-  fill trend (retained-WAL growth rate against free space), which the WAL custodian does
-  not sample.
+- **Credited since 2026-10-02 (Sage SRE M6 runways):** `disk_full_slot` near miss. The
+  runway monitor now samples disk usage (all databases plus `pg_wal`) and database size on
+  the collector tick, so a fill trend is measured. A verified custodian WAL bound earns the
+  credit only when all of these hold: the server is self-managed (managed providers are never
+  credited: free space is not measurable from SQL there and storage may grow on its own);
+  `forecaster.disk_capacity_bytes` is declared; immediately before the action, the sampled
+  disk-usage trend (at least `sre.runways.min_samples` samples over
+  `sre.runways.min_span_minutes`, rising, r² at least 0.5) reached the capacity inside
+  `sre.runways.disk_horizon_hours`; and after the action, usage plus the WAL the bound
+  still allows (bound minus the largest slot's retained WAL) plus measured database growth
+  over the same horizon stays below capacity. Used bytes ignore other files on the volume,
+  so free space is overestimated and the credit is conservative. Without `pg_monitor` the WAL
+  directory cannot be read and nothing is credited. Only `near_miss` is written, as for
+  wraparound.
 - **Not credited yet:** `lock_storm`. No path measures both the storm and the recovery that
   pg_sage caused. Sage SRE M3 (remediation with recovery verification) is the natural
   place for it.
 - **Severity:** only `near_miss` (120 minutes) is written. `prevented` (480 minutes) needs
   proof that an outage would have followed, which nothing measures today.
+
+## Runway horizons and pre-incident investigations (2026-10-02)
+
+Decided by the product principle (Sage SRE M6, AI-SRE-SPEC §4 R2): pre-incident
+investigations are where autonomy is safest, because they are read-only and there is time.
+
+- **On by default, independent of `sre.automatic_start`.** Runway sampling and pre-incident
+  investigations default on (`sre.runways.enabled`, `sre.runways.investigate`). They only read
+  and they are bounded (one investigation per finding and severity, the usual probe and time
+  ceilings). R1's reactive auto-start stays as configured.
+- **Horizons (conservative, configurable):** wraparound 14 days to the XID/multixact warning
+  limit (2^31 - 1 - 40M), critical 72 h; a table 1.25 times past its effective freeze maximum
+  is overdue (critical at 2 times); disk and slot 72 h, critical 24 h; sequences 30 days,
+  critical 7 days. A projection needs 10 samples over 30 minutes in a 6-hour window, and disk
+  and slot projections need a steady line (r² at least 0.5).
+- **Limits are measured or declared, never guessed.** Disk capacity is only the declared
+  `forecaster.disk_capacity_bytes`. A slot's limit is `max_slot_wal_keep_size` when set (the
+  slot is lost there), else the WAL custodian's 10 GiB ceiling (where it proposes a bound).
+  A sequence's limit is the lower of its maximum and its owning integer column's maximum.
+- **Mechanisms are blamed only near a limit.** Long transactions and busy autovacuum are
+  everyday sights. A wraparound mechanism is supported only while a table is at half its
+  freeze maximum or the measured runway to the warning limit is inside 14 days. A sequence is
+  blamed only while it is consuming and is at half its limit or projected within 30 days.
+- **No new execution.** A concluded runway investigation lists the existing custodian
+  proposal (freeze, freeze blocker response, WAL bound or its escalation plan) with the
+  standing gate's verdict, explained and never recorded. The custodian workers still decide
+  and execute under the configured autonomy. Sequences have no custodian action: widening a
+  column rewrites the table, so it stays a reviewed manual step (irreversible classes never
+  exceed L1).
+- **Storage-growth path of the forecaster:** `forecaster.ForecastGrowth` is still not called
+  anywhere. The runway monitor does not depend on it: it samples database size and disk usage
+  itself at minute resolution, and the forecaster's daily `forecast_disk_growth` stays as is.

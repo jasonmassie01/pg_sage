@@ -172,6 +172,23 @@ var excludedExactKeys = map[string]bool{
 	"sre.actions.chatops_tolerance_seconds": true,
 	"sre.actions.protected_roles":           true,
 	"sre.actions.protected_applications":    true,
+
+	// Sage SRE M6: runways are read when a database runtime is built
+	// (restart lifecycle) and validated together at load, so they are
+	// YAML-only.
+	"sre.runways.enabled":                   true,
+	"sre.runways.investigate":               true,
+	"sre.runways.interval_seconds":          true,
+	"sre.runways.lookback_hours":            true,
+	"sre.runways.min_samples":               true,
+	"sre.runways.min_span_minutes":          true,
+	"sre.runways.wraparound_horizon_hours":  true,
+	"sre.runways.wraparound_critical_hours": true,
+	"sre.runways.disk_horizon_hours":        true,
+	"sre.runways.disk_critical_hours":       true,
+	"sre.runways.sequence_horizon_days":     true,
+	"sre.runways.sequence_critical_days":    true,
+	"sre.runways.sample_retention_hours":    true,
 }
 
 // structFieldPaths walks a struct type using reflection and returns

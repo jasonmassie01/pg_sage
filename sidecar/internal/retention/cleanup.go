@@ -136,6 +136,8 @@ var retentionExemptions = map[string]string{
 	"recommendation_transition": "immutable history; deleted with its terminal " +
 		"recommendation (ON DELETE CASCADE, actions_days)",
 	"rollout_run":            "low-volume rollout evidence ledger",
+	"runway_samples": "runway series; the runway monitor prunes them on every pass " +
+		"(sre.runways.sample_retention_hours)",
 	"schema_baseline":        "current state, one row per object",
 	"schema_findings":        "legacy table superseded by findings (v0.11); no writer",
 	"sessions":               "expired sessions are deleted by auth's session cleaner",

@@ -23,6 +23,8 @@ type SREConfig struct {
 	ChangeEvents SREChangeEventsConfig `yaml:"change_events"`
 	// Actions are approved, evidence-matched actions (M5).
 	Actions SREActionsConfig `yaml:"actions"`
+	// Runways are the pre-incident runways (M6).
+	Runways RunwayConfig `yaml:"runways"`
 }
 
 // SRELLMConfig configures the investigator's model turn: with an LLM
@@ -52,7 +54,8 @@ func defaultSREConfig() SREConfig {
 		LLM:                    SRELLMConfig{Enabled: true},
 		SLO:                    defaultSRESLOConfig(),
 		ChangeEvents:           defaultSREChangeEventsConfig(),
-		Actions:                defaultSREActionsConfig()}
+		Actions:                defaultSREActionsConfig(),
+		Runways:                defaultRunwayConfig()}
 }
 
 // TriggerInterval is the coordinator poll period.
@@ -108,5 +111,8 @@ func (s SREConfig) validate() error {
 	if err := s.SLO.validate(); err != nil {
 		return err
 	}
-	return s.ChangeEvents.validate()
+	if err := s.ChangeEvents.validate(); err != nil {
+		return err
+	}
+	return s.Runways.validate()
 }

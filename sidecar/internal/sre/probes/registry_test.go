@@ -12,12 +12,17 @@ import (
 // a catalog id; they never supply SQL.
 
 // M2 adds the archiver (WAL family: archiver failure) and sage_actions
-// ("did pg_sage cause this?", CHECK-38) to the R1 set.
+// ("did pg_sage cause this?", CHECK-38) to the R1 set. M6 adds the runway
+// probes: the XID runway, per-table freeze horizons, xmin-horizon holders,
+// logged autovacuum cancellations, WAL position and directory, sequences
+// and the sampled runway trends.
 func r1IDs() []ID {
 	return []ID{LockChains, LockGraph, LongTransactions, PreparedXacts,
 		BackendIdentity, ConnectionSaturation, ReplicationLag,
 		ReplicationSlots, WALCheckpoint, AutovacuumWraparound,
-		VacuumProgress, PlanRegressions, Archiver, SageActions}
+		VacuumProgress, PlanRegressions, Archiver, SageActions,
+		XIDRunwayProbe, WraparoundTablesProbe, XminHorizon, AutovacuumCancellations,
+		WALRunwayProbe, WALDirectoryProbe, SequenceRunwayProbe, RunwayTrendsProbe}
 }
 
 // specVersion is each probe's expected version: connection_saturation
@@ -73,7 +78,7 @@ func TestCatalog_HasEveryR1FamilyWithinCeilings(t *testing.T) {
 	}
 	for _, fam := range []string{FamilyLocks, FamilyConnections,
 		FamilyReplication, FamilyWAL, FamilyVacuum, FamilyPlans, FamilyChange,
-		FamilyTempFiles, FamilyWaits} {
+		FamilyTempFiles, FamilyWaits, FamilySequences, FamilyRunway} {
 		if !families[fam] {
 			t.Errorf("no probe covers family %s", fam)
 		}
