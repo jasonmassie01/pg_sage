@@ -19,12 +19,20 @@ const (
 	EnvRepeats = "SAGE_BENCH_REPEATS"
 	// EnvReportDir is where the report files go (default: a temp dir).
 	EnvReportDir = "SAGE_BENCH_REPORT_DIR"
+	// EnvRun must be "1" for TestPGIncidentBench to run. CI runs the bench
+	// in its own step so the ./... suites stay within their timeouts.
+	EnvRun = "SAGE_BENCH_RUN"
 	// MaxRepeats bounds EnvRepeats.
 	MaxRepeats = 10
 
 	reportJSON     = "pgincidentbench.json"
 	reportMarkdown = "pgincidentbench.md"
 )
+
+// BenchRunRequested reports whether EnvRun asks for the full bench.
+func BenchRunRequested(getenv func(string) string) bool {
+	return strings.TrimSpace(getenv(EnvRun)) == "1"
+}
 
 // ParseRepeats reads EnvRepeats: empty means 1.
 func ParseRepeats(v string) (int, error) {

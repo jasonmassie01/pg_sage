@@ -26,6 +26,9 @@ const repeatBudget = 8 * time.Minute
 // evaluated on; gates without the data to evaluate them are reported as
 // not evaluated.
 func TestPGIncidentBench(t *testing.T) {
+	if !BenchRunRequested(os.Getenv) {
+		t.Skipf("set %s=1 to run the full bench (CI runs it in its own step)", EnvRun)
+	}
 	dsn := testdb.SkipUnlessLive(t)
 	repeats, err := ParseRepeats(os.Getenv(EnvRepeats))
 	if err != nil {
