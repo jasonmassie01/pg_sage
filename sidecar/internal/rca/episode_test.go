@@ -279,3 +279,26 @@ func TestObserveEpisode_ConcurrentObservers(t *testing.T) {
 		t.Fatalf("open detector incidents = %+v, want only %s", got, first.ID)
 	}
 }
+
+// With resolution_cycles = 1 a single analyzer cycle without the signal
+// resolves an incident: an observation since the last cycle must count
+// as the signal firing, not only reset the clear count.
+func TestObserveEpisode_ObservationCountsAsFiringForTheNextCycle(t *testing.T) {
+	cfg := testRCACfg()
+	cfg.ResolutionCycles = 1
+	e := NewEngine(cfg, func(string, string, ...any) {})
+	e.WithDatabaseName("orders")
+	e.gracePeriodLeft = 0
+	inc, _ := e.ObserveEpisode(context.Background(), checkpointEpisode(0))
+	for i := 0; i < 3; i++ {
+		next := checkpointEpisode(time.Duration(i+1) * time.Minute)
+		next.IncidentID = inc.ID
+		e.ObserveEpisode(context.Background(), next)
+		e.mu.Lock()
+		e.autoResolve(e.consumeFastFired(map[string]bool{}))
+		e.mu.Unlock()
+		if n := len(openWithSignal(e, "sre_checkpoint_storm")); n != 1 {
+			t.Fatalf("cycle %d resolved the incident of an observed episode", i+1)
+		}
+	}
+}

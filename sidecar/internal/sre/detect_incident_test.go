@@ -315,3 +315,28 @@ func TestDetectorSignals_MapToTheirFamilies(t *testing.T) {
 		t.Errorf("DetectorSignal(lock_blocking) = %q, want none", got)
 	}
 }
+
+// relinkSink answers a continuing observation with another incident.
+type relinkSink struct{ fakeSink }
+
+func (s *relinkSink) RecordEpisode(ctx context.Context, ep Episode) (EpisodeIncident, error) {
+	if ep.IncidentID != "" {
+		ep.IncidentID = ""
+	}
+	return s.fakeSink.RecordEpisode(ctx, ep)
+}
+
+// An episode keeps the incident it was first recorded as: a sink that
+// answers a later poll with another incident never moves the episode's
+// investigation to a second case.
+func TestDetectorIncident_EpisodeIsNeverRelinked(t *testing.T) {
+	sink := &relinkSink{}
+	d, _ := newDetector(t, stormRunner())
+	d.WithIncidents(sink)
+	poll(t, d)
+	first := poll(t, d)[TriggerCheckpoint]
+	again := poll(t, d)[TriggerCheckpoint]
+	if first.IncidentID == "" || again != first {
+		t.Fatalf("episode relinked: first %+v, then %+v", first, again)
+	}
+}
