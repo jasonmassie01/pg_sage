@@ -17,7 +17,7 @@ var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
 var knownFamilies = map[string]bool{FamilyLocks: true, FamilyConnections: true,
 	FamilyReplication: true, FamilyWAL: true, FamilyVacuum: true, FamilyPlans: true,
-	FamilyChange: true}
+	FamilyChange: true, FamilySequences: true, FamilyRunway: true}
 
 // NewRegistry validates specs against the hard ceilings and returns an
 // immutable registry. Duplicate ids are rejected.
@@ -107,13 +107,14 @@ func mustRegistry(specs ...Spec) *Registry {
 func Catalog() *Registry { return catalog }
 
 func catalogSpecs() []Spec {
-	return []Spec{
+	specs := []Spec{
 		lockChainsSpec(), lockGraphSpec(), longTransactionsSpec(),
 		preparedXactsSpec(), backendIdentitySpec(), connectionSaturationSpec(),
 		replicationLagSpec(), replicationSlotsSpec(), walCheckpointSpec(),
 		autovacuumWraparoundSpec(), vacuumProgressSpec(), planRegressionsSpec(),
 		archiverSpec(), sageActionsSpec(),
 	}
+	return append(specs, runwaySpecs()...)
 }
 
 // signalProbes maps RCA incident signals to the catalog probes that
