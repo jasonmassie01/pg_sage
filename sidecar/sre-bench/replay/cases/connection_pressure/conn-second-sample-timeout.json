@@ -1,0 +1,144 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "conn-second-sample-timeout",
+  "family": "connection_pressure",
+  "class": "missing_data",
+  "description": "The second sample timed out; the first shows 3 of 8 active backends waiting on locks.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-09-07T14:14:14Z",
+  "subject": "connections: 12 of 197 usable in use, 3 waiting",
+  "tags": [
+    "timeout"
+  ],
+  "gold": {
+    "root": "blocked_backlog",
+    "rationale": "A backlog is visible in one sample; growth (the second sample) is not needed for it."
+  },
+  "observations": [
+    {
+      "probe": "connection_saturation",
+      "status": "ok",
+      "offset_ms": 70,
+      "rows": [
+        {
+          "in_current_database": true,
+          "application_name": "api",
+          "client_addr": "10.4.0.12",
+          "state": "active",
+          "backends": 8,
+          "waiting_on_lock": 3,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 12,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "api",
+          "client_addr": "10.4.0.12",
+          "state": "idle",
+          "backends": 2,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 12,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "pgbouncer-admin",
+          "client_addr": "10.4.0.2",
+          "state": "idle",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 12,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        },
+        {
+          "in_current_database": true,
+          "application_name": "",
+          "client_addr": "local",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 12,
+          "server_started_at": "2026-07-28T04:10:00Z"
+        }
+      ]
+    },
+    {
+      "probe": "lock_graph",
+      "status": "ok",
+      "offset_ms": 140,
+      "rows": [
+        {
+          "waiter_pid": 34001,
+          "waiter_backend_start": "2026-09-07T13:02:33Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": null,
+          "blocker_pid": 34000,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-09-07T12:14:14Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 30.0,
+          "blocker_state_age_s": 28.5,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 34002,
+          "waiter_backend_start": "2026-09-07T13:02:32Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": null,
+          "blocker_pid": 34000,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-09-07T12:14:14Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 30.0,
+          "blocker_state_age_s": 28.5,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 34003,
+          "waiter_backend_start": "2026-09-07T13:02:31Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": null,
+          "blocker_pid": 34000,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-09-07T12:14:14Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 30.0,
+          "blocker_state_age_s": 28.5,
+          "blocker_query_id": null
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 175
+    },
+    {
+      "probe": "connection_saturation",
+      "status": "error",
+      "offset_ms": 5512,
+      "reason": "statement_timeout",
+      "error": "canceling statement due to statement timeout"
+    }
+  ]
+}

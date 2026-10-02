@@ -101,80 +101,83 @@ func TestParse_RejectsMalformedInput(t *testing.T) {
 	}
 }
 
+// firstObs is the first observation of a case map.
+func firstObs(m map[string]any) map[string]any {
+	return m["observations"].([]any)[0].(map[string]any)
+}
+
+var invalidCases = []struct {
+	name   string
+	mutate func(m map[string]any)
+	want   string
+}{
+	{"wrong schema", func(m map[string]any) { m["schema"] = "v0" }, "schema"},
+	{"bad id", func(m map[string]any) { m["id"] = "Bad ID" }, "id"},
+	{"empty family", func(m map[string]any) { m["family"] = "" }, "family"},
+	{"unknown class", func(m map[string]any) { m["class"] = "noise" }, "class"},
+	{"no description", func(m map[string]any) { m["description"] = " " }, "description"},
+	{"no provenance", func(m map[string]any) { m["provenance"] = "" }, "provenance"},
+	{"no detection time", func(m map[string]any) { delete(m, "detected_at") },
+		"detected_at"},
+	{"no rationale", func(m map[string]any) {
+		m["gold"] = map[string]any{"root": "idle_in_tx_holder"}
+	}, "rationale"},
+	{"unknown root", func(m map[string]any) {
+		m["gold"] = map[string]any{"root": "cosmic_rays", "rationale": "x"}
+	}, "root"},
+	{"root of another family", func(m map[string]any) {
+		m["gold"] = map[string]any{"root": "pool_fan_out", "rationale": "x"}
+	}, "family"},
+	{"unknown contributing", func(m map[string]any) {
+		m["gold"] = map[string]any{"root": "idle_in_tx_holder",
+			"contributing": []any{"nope"}, "rationale": "x"}
+	}, "contributing"},
+	{"positive without root", func(m map[string]any) {
+		m["gold"] = map[string]any{"rationale": "x"}
+	}, "positive"},
+	{"confounded with a root", func(m map[string]any) {
+		m["class"] = ClassConfounded
+	}, "confounded"},
+	{"confounded without lookalike", func(m map[string]any) {
+		m["class"] = ClassConfounded
+		m["gold"] = map[string]any{"rationale": "x"}
+	}, "lookalike"},
+	{"no observations", func(m map[string]any) { m["observations"] = []any{} },
+		"observations"},
+	{"unknown probe", func(m map[string]any) { firstObs(m)["probe"] = "drop_table" },
+		"probe"},
+	{"unknown status", func(m map[string]any) { firstObs(m)["status"] = "fine" }, "status"},
+	{"ok without rows", func(m map[string]any) { delete(firstObs(m), "rows") }, "rows"},
+	{"empty with rows", func(m map[string]any) { firstObs(m)["status"] = "empty" }, "rows"},
+	{"failure without reason", func(m map[string]any) {
+		o := firstObs(m)
+		o["status"] = "error"
+		delete(o, "rows")
+	}, "reason"},
+	{"failure with rows", func(m map[string]any) {
+		o := firstObs(m)
+		o["status"], o["reason"] = "no_privilege", "insufficient_privilege"
+	}, "rows"},
+	{"observation after the active-time ceiling", func(m map[string]any) {
+		firstObs(m)["offset_ms"] = MaxLookahead.Milliseconds() + 1
+	}, "future"},
+	{"observation older than the lookback", func(m map[string]any) {
+		firstObs(m)["offset_ms"] = -MaxLookback.Milliseconds() - 1
+	}, "lookback"},
+	{"timestamp in a row from the future", func(m map[string]any) {
+		row := firstObs(m)["rows"].([]any)[0].(map[string]any)
+		row["blocker_backend_start"] = "2026-09-14T03:15:00Z"
+	}, "future"},
+	{"bad tag", func(m map[string]any) { m["tags"] = []any{"Bad Tag"} }, "tag"},
+	{"canary too short", func(m map[string]any) { m["canaries"] = []any{"abc"} },
+		"canary"},
+	{"canary not in the data", func(m map[string]any) {
+		m["canaries"] = []any{"CANARY-NOT-PRESENT-1"}
+	}, "canary"},
+}
+
 func TestValidate_RejectsInvalidCases(t *testing.T) {
-	obs := func(m map[string]any) map[string]any {
-		return m["observations"].([]any)[0].(map[string]any)
-	}
-	cases := []struct {
-		name   string
-		mutate func(m map[string]any)
-		want   string
-	}{
-		{"wrong schema", func(m map[string]any) { m["schema"] = "v0" }, "schema"},
-		{"bad id", func(m map[string]any) { m["id"] = "Bad ID" }, "id"},
-		{"empty family", func(m map[string]any) { m["family"] = "" }, "family"},
-		{"unknown class", func(m map[string]any) { m["class"] = "noise" }, "class"},
-		{"no description", func(m map[string]any) { m["description"] = " " }, "description"},
-		{"no provenance", func(m map[string]any) { m["provenance"] = "" }, "provenance"},
-		{"no detection time", func(m map[string]any) { delete(m, "detected_at") },
-			"detected_at"},
-		{"no rationale", func(m map[string]any) {
-			m["gold"] = map[string]any{"root": "idle_in_tx_holder"}
-		}, "rationale"},
-		{"unknown root", func(m map[string]any) {
-			m["gold"] = map[string]any{"root": "cosmic_rays", "rationale": "x"}
-		}, "root"},
-		{"root of another family", func(m map[string]any) {
-			m["gold"] = map[string]any{"root": "pool_fan_out", "rationale": "x"}
-		}, "family"},
-		{"unknown contributing", func(m map[string]any) {
-			m["gold"] = map[string]any{"root": "idle_in_tx_holder",
-				"contributing": []any{"nope"}, "rationale": "x"}
-		}, "contributing"},
-		{"positive without root", func(m map[string]any) {
-			m["gold"] = map[string]any{"rationale": "x"}
-		}, "positive"},
-		{"confounded with a root", func(m map[string]any) {
-			m["class"] = ClassConfounded
-		}, "confounded"},
-		{"confounded without lookalike", func(m map[string]any) {
-			m["class"] = ClassConfounded
-			m["gold"] = map[string]any{"rationale": "x"}
-		}, "lookalike"},
-		{"no observations", func(m map[string]any) { m["observations"] = []any{} },
-			"observations"},
-		{"unknown probe", func(m map[string]any) { obs(m)["probe"] = "drop_table" },
-			"probe"},
-		{"unknown status", func(m map[string]any) { obs(m)["status"] = "fine" }, "status"},
-		{"ok without rows", func(m map[string]any) { delete(obs(m), "rows") }, "rows"},
-		{"empty with rows", func(m map[string]any) { obs(m)["status"] = "empty" }, "rows"},
-		{"failure without reason", func(m map[string]any) {
-			o := obs(m)
-			o["status"] = "error"
-			delete(o, "rows")
-		}, "reason"},
-		{"failure with rows", func(m map[string]any) {
-			o := obs(m)
-			o["status"], o["reason"] = "no_privilege", "insufficient_privilege"
-		}, "rows"},
-		{"observation after the active-time ceiling", func(m map[string]any) {
-			obs(m)["offset_ms"] = MaxLookahead.Milliseconds() + 1
-		}, "future"},
-		{"observation older than the lookback", func(m map[string]any) {
-			obs(m)["offset_ms"] = -MaxLookback.Milliseconds() - 1
-		}, "lookback"},
-		{"timestamp in a row from the future", func(m map[string]any) {
-			row := obs(m)["rows"].([]any)[0].(map[string]any)
-			row["blocker_backend_start"] = "2026-09-14T03:15:00Z"
-		}, "future"},
-		{"bad tag", func(m map[string]any) { m["tags"] = []any{"Bad Tag"} }, "tag"},
-		{"canary too short", func(m map[string]any) { m["canaries"] = []any{"abc"} },
-			"canary"},
-		{"canary not in the data", func(m map[string]any) {
-			m["canaries"] = []any{"CANARY-NOT-PRESENT-1"}
-		}, "canary"},
-	}
-	for _, c := range cases {
+	for _, c := range invalidCases {
 		t.Run(c.name, func(t *testing.T) {
 			m := validCase()
 			c.mutate(m)
