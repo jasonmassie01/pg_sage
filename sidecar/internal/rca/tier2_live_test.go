@@ -10,28 +10,32 @@ import (
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
-// TestTier2Live_RealGemini hits a real Gemini API endpoint to validate
+// TestTier2Live_RealGemini hits a real OpenAI-compatible provider (Gemini
+// unless SAGE_LLM_ENDPOINT and SAGE_LLM_MODEL name another) to validate
 // that the Tier 2 LLM correlation produces a valid incident from
-// uncovered signals. Skipped unless GEMINI_API_KEY is set.
+// uncovered signals. Skipped unless PG_SAGE_LIVE_LLM=1 and a key
+// (SAGE_LLM_API_KEY, else GEMINI_API_KEY) is set.
 //
-// Run: GEMINI_API_KEY=your-key go test -count=1 -v -run TestTier2Live ./internal/rca/
+// Run: PG_SAGE_LIVE_LLM=1 SAGE_LLM_API_KEY=... go test -count=1 -v //
+//	-run TestTier2Live ./internal/rca/
 func TestTier2Live_RealGemini(t *testing.T) {
 	// Live model calls consume provider quota; an exported API key alone
 	// must not make every `go test ./...` hit the provider.
 	if os.Getenv("PG_SAGE_LIVE_LLM") != "1" {
-		t.Skip("set PG_SAGE_LIVE_LLM=1 and GEMINI_API_KEY to run live LLM tests")
+		t.Skip("set PG_SAGE_LIVE_LLM=1 and SAGE_LLM_API_KEY to run live LLM tests")
 	}
-	apiKey := os.Getenv("GEMINI_API_KEY")
+	apiKey := liveEnv("SAGE_LLM_API_KEY", os.Getenv("GEMINI_API_KEY"))
 	if apiKey == "" {
-		t.Skip("GEMINI_API_KEY not set; skipping live LLM test")
+		t.Skip("SAGE_LLM_API_KEY / GEMINI_API_KEY not set; skipping live LLM test")
 	}
 
 	client := llm.New(&config.LLMConfig{
-		Enabled:        true,
-		Endpoint:       "https://generativelanguage.googleapis.com/v1beta/openai",
+		Enabled: true,
+		Endpoint: liveEnv("SAGE_LLM_ENDPOINT",
+			"https://generativelanguage.googleapis.com/v1beta/openai"),
 		APIKey:         apiKey,
-		Model:          "gemini-2.5-flash",
-		TimeoutSeconds: 30,
+		Model:          liveEnv("SAGE_LLM_MODEL", "gemini-2.5-flash"),
+		TimeoutSeconds: 60,
 	}, func(level, msg string, args ...any) {
 		t.Logf("[%s] "+msg, append([]any{level}, args...)...)
 	})
@@ -105,4 +109,12 @@ func TestTier2Live_RealGemini(t *testing.T) {
 			t.Errorf("CausalChain[%d] has empty description", link.Order)
 		}
 	}
+}
+
+// liveEnv returns the environment value of key, or fallback when unset.
+func liveEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
