@@ -388,3 +388,41 @@ func hasMissingStatus(d Diagnosis, id probes.ID, st probes.Status) bool {
 	}
 	return false
 }
+
+// Boundaries of a surge: 3 times the trend and at least 1000 XIDs/s.
+func TestWraparound_SurgeBoundaries(t *testing.T) {
+	cases := []struct {
+		name        string
+		trend, rate float64
+		want        Status
+	}{
+		{"three times", 1000, 3000, StatusContributing},
+		{"just under three times", 1000, 2999, StatusAlternative},
+		{"under the floor", 10, 999, StatusAlternative},
+		{"calm", 1000, 1500, StatusRuledOut},
+	}
+	for _, c := range cases {
+		obs := wrapCase(overdue, wholder{kind: probes.HolderSession, pid: 1,
+			state: "active", age: 149000})
+		obs[4] = trendsObs("E5", trendRow(probes.RunwayXID, probes.SubjectCluster, 61,
+			150000, 2107483647, c.trend, 1))
+		obs[5] = xidSample("E6", t0.Add(5*time.Second), 1e6+5*c.rate, 1, 3, true)
+		d := DiagnoseWraparound(obs, "xid")
+		if _, got := byNode(d, XIDConsumptionSurge); got != c.want {
+			t.Errorf("%s: surge is %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// Two holders both pin the table: the oldest one is the root, the other
+// stays a supported alternative.
+func TestWraparound_OldestPinningHolderIsTheRoot(t *testing.T) {
+	d := DiagnoseWraparound(wrapCase(overdue,
+		wholder{kind: probes.HolderSlot, name: "standby1", state: "active", age: 140000},
+		wholder{kind: probes.HolderSession, pid: 3, state: "active", age: 120000}), "xid")
+	requireStatus(t, d, XminHeldByReplication, StatusRoot)
+	h := requireStatus(t, d, XminHeldBySession, StatusAlternative)
+	if h.Confidence != 0.6 {
+		t.Fatalf("younger pinning session confidence = %v, want 0.6", h.Confidence)
+	}
+}

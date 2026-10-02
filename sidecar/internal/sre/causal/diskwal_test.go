@@ -186,3 +186,19 @@ func hasFact(fs []Fact, ev, part string) bool {
 	}
 	return false
 }
+
+// Boundary: growth under 1 MiB is not material even when it is over 1%
+// of a small database.
+func TestDiskWAL_GrowthUnderOneMiBIsNotMaterial(t *testing.T) {
+	small := 50.0 * mib
+	for _, c := range []struct {
+		rate float64
+		want Status
+	}{{float64(mib-1) / 3600, StatusAlternative}, {float64(mib) / 3600, StatusRoot}} {
+		d := DiagnoseDiskWAL(diskCase(nil, nil, 0, trendRow(probes.RunwayDatabaseBytes,
+			probes.SubjectCluster, 12, small, math.NaN(), c.rate, 1)))
+		if _, got := byNode(d, DatabaseGrowth); got != c.want {
+			t.Errorf("growth of %v bytes/s is %q, want %q", c.rate, got, c.want)
+		}
+	}
+}
