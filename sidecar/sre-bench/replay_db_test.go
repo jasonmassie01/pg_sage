@@ -157,18 +157,22 @@ func TestReplayForbidden_RunnerRefusalsAreReported(t *testing.T) {
 // fault programs, no waits), so it runs with every DB test run.
 func TestReplayCorpus(t *testing.T) {
 	dsn := testdb.SkipUnlessLive(t)
+	llmCfg, err := LLMConfigFromEnv(os.Getenv)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// 120 investigations take about 25 s on an idle server; the budget
-	// leaves room for a loaded CI runner.
-	ctx, cancel := context.WithTimeout(context.Background(), replayBudget)
+	// leaves room for a loaded CI runner, and for a (paced) live model.
+	budget := replayBudget
+	if llmCfg.Mode == LLMLive {
+		budget += liveModelBudget
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	t.Cleanup(cancel)
 	env := NewEnv(ctx, t, dsn)
 	cases, err := replay.Corpus()
 	if err != nil {
 		t.Fatalf("corpus: %v", err)
-	}
-	llmCfg, err := LLMConfigFromEnv(os.Getenv)
-	if err != nil {
-		t.Fatal(err)
 	}
 	arms := []LiveArm{CausalGraph{}, LLMArm{Config: llmCfg}}
 	rs := RunReplay(ctx, env, cases, arms)
