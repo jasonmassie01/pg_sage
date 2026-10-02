@@ -90,8 +90,12 @@ func checkGates(t *testing.T, cfg RunConfig, gates []GateResult) {
 				g.Arm, g.Observed, g.Threshold)
 		}
 	}
+	pending := cfg.Pending()
+	for arm, why := range pending {
+		t.Logf("arm %s not evaluated: %s", arm, why)
+	}
 	for _, g := range gates {
-		if g.Status == GateNotEvaluated && gated[g.Arm] {
+		if g.Status == GateNotEvaluated && gated[g.Arm] && pending[g.Arm] == "" {
 			t.Logf("gate %s (%s, %s) not evaluated: %s", g.ID, g.Family, g.Arm, g.Reason)
 		}
 	}
