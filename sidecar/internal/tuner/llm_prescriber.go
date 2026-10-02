@@ -2,6 +2,7 @@ package tuner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -18,6 +19,21 @@ type LLMPrescription struct {
 	Confidence       float64 `json:"confidence"`
 	SuggestedRewrite string  `json:"suggested_rewrite"`
 	RewriteRationale string  `json:"rewrite_rationale"`
+}
+
+// llmUsable reports whether client can serve a request now: configured
+// (llm.enabled with endpoint and key), circuit closed, daily budget left.
+func llmUsable(client *llm.Client) bool {
+	return client != nil && client.IsEnabled() &&
+		!client.IsCircuitOpen() && !client.IsBudgetExhausted()
+}
+
+// suppressesQuery reports whether a failed prescription is a verdict on
+// the query. An empty completion (G3-B10) or a budget refusal is about
+// the provider or the day, so suppressing would mute LLM tuning for it.
+func suppressesQuery(err error) bool {
+	return !errors.Is(err, llm.ErrEmptyResponse) &&
+		!errors.Is(err, llm.ErrBudgetExhausted)
 }
 
 // llmPrescribe calls the LLM for hint reasoning, with fallback to a

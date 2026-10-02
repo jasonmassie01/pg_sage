@@ -188,15 +188,18 @@ at `config.go:635`), `ramp_start` (auto-persisted, see
 outside fleet), `rollback_threshold_pct` (10), `rollback_window_minutes` (15),
 `rollback_cooldown_days` (7), `cascade_cooldown_cycles` (3).
 
-**llm** — `enabled` (**false**), `endpoint`, `api_key` (secret), `model`,
+**llm** — `enabled` (**true**; a provider is called only once `endpoint` and
+`api_key` are set), `endpoint`, `api_key` (secret), `model`,
 `timeout_seconds` (30), `token_budget_daily` (500000), `context_budget_tokens`
 (8192), `cooldown_seconds` (300), `json_mode`. Sub-blocks: `index_optimizer`
-(deprecated, migrated to `optimizer` at `config.go:593`), `optimizer`
-(enabled false, min_query_calls 100, confidence_threshold 0.5, plan_source
-`auto`, hypopg_min_improvement_pct 10), `optimizer_llm` (dedicated reasoning
-tier, timeout 120s, max_output_tokens 8192, fallback_to_general true).
+(deprecated; migrated to `optimizer` in `loadYAML` only for keys the file sets,
+`llm_legacy.go`), `optimizer` (enabled true, min_query_calls 100,
+confidence_threshold 0.5, plan_source `auto`, hypopg_min_improvement_pct 10), `optimizer_llm` (dedicated reasoning
+tier, enabled false, timeout 120s, max_output_tokens 8192, fallback_to_general
+true).
 
-**advisor** — `enabled` (false), `interval_seconds` (86400), and per-domain
+**advisor** — `enabled` (true; built only with a usable LLM),
+`interval_seconds` (86400), and per-domain
 toggles `vacuum_enabled`/`wal_enabled`/`connection_enabled`/`memory_enabled`/
 `rewrite_enabled`/`bloat_enabled` (all true).
 
@@ -218,7 +221,7 @@ toggles `vacuum_enabled`/`wal_enabled`/`connection_enabled`/`memory_enabled`/
 `min_data_points` (24), `alert_horizons` (`[30,7,3]`), `disk_capacity_bytes`
 (0=auto), `min_r_squared` (0.5).
 
-**tuner** — `enabled` (true), `llm_enabled`, `work_mem_max_mb` (512),
+**tuner** — `enabled` (true), `llm_enabled` (true), `work_mem_max_mb` (512),
 `plan_time_ratio` (3.0), `nested_loop_row_threshold` (10000),
 `parallel_min_table_rows` (1M), `min_query_calls` (100),
 `verify_after_apply` (true) + revalidation loop (`hint_retirement_days` 14,
@@ -229,7 +232,7 @@ stats/ANALYZE (`analyze_max_table_mb` 10240, `analyze_timeout_ms` 600000,
 **rca** — `enabled` (true), `llm_correlation_threshold` (3),
 `dedup_window_minutes` (30), `escalation_cycles` (5), `resolution_cycles` (2),
 `connection_saturation_pct` (80), `replication_lag_threshold_seconds` (30),
-`wal_spike_multiplier` (2.0).
+`wal_spike_multiplier` (2.0), `narration_enabled` (true).
 
 **runaway** — `enabled` (false), `policies` (default: `long_running` 30m,
 `blocker` 5 sessions), `safe_patterns` (`[pg_dump, pg_basebackup]`).

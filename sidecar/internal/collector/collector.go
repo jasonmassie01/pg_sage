@@ -21,6 +21,10 @@ type Collector struct {
 	pgVersionNum int // e.g. 170009 for PG 17.9
 	blkTime      *blockTimeExprs
 	logFn        func(string, string, ...any)
+
+	// skipConfigSnapshots is set before Run when no advisor will consume
+	// the configuration snapshot.
+	skipConfigSnapshots bool
 }
 
 // New creates a Collector wired to the given pool and config.
@@ -40,6 +44,17 @@ func New(
 		),
 		logFn: logFn,
 	}
+}
+
+// WithoutConfigSnapshots stops the advisor's per-cycle configuration
+// snapshot (pg_settings and every table's reloptions). The runtime calls
+// it, before Run, when no advisor will run, e.g. without a usable LLM.
+func (c *Collector) WithoutConfigSnapshots() { c.skipConfigSnapshots = true }
+
+// CollectsConfigSnapshots reports whether each cycle gathers the
+// advisor's configuration snapshot.
+func (c *Collector) CollectsConfigSnapshots() bool {
+	return c.cfg.Advisor.Enabled && !c.skipConfigSnapshots
 }
 
 // Run starts the collection loop, blocking until ctx is cancelled.
@@ -167,7 +182,7 @@ func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 		c.logFn("WARN", "partition collection failed: %v", err)
 	}
 	// Config data for advisor features
-	if c.cfg.Advisor.Enabled {
+	if c.CollectsConfigSnapshots() {
 		querier := timedCatalogQuerier{collector: c}
 		if snap.ConfigData, err = collectConfigSnapshot(ctx, querier); err != nil {
 			c.logFn("WARN", "config snapshot collection failed: %v", err)

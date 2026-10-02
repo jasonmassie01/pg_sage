@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -454,7 +453,9 @@ func (t *Tuner) tryLLMPrescribe(
 	symptoms []PlanSymptom,
 	fallbackHint string,
 ) []Prescription {
-	if t.llmClient == nil {
+	if !llmUsable(t.llmClient) && !llmUsable(t.fallbackClient) {
+		// tuner.llm_enabled defaults on: with no configured, open and
+		// in-budget client the deterministic rules apply silently.
 		return nil
 	}
 	planJSON := t.fetchPlanJSON(ctx, c.QueryID)
@@ -484,14 +485,21 @@ func (t *Tuner) tryLLMPrescribe(
 		t.logFn("tuner",
 			"LLM prescribe failed for queryid %d, "+
 				"using deterministic: %v", c.QueryID, err)
-		// An empty completion is a provider hiccup, not a verdict on
-		// this query; suppressing would mute LLM tuning for it (G3-B10).
-		if !errors.Is(err, llm.ErrEmptyResponse) {
+		if suppressesQuery(err) {
 			t.recordLLMSuppression(ctx, c, contextKey, "",
 				"llm_error", err.Error())
 		}
 		return nil
 	}
+	return t.acceptLLMPrescriptions(ctx, c, planJSON, contextKey, rx)
+}
+
+// acceptLLMPrescriptions drops prescriptions still cooling down, records
+// an empty_or_duplicate suppression when none is left, and logs the hint.
+func (t *Tuner) acceptLLMPrescriptions(
+	ctx context.Context, c candidate, planJSON, contextKey string,
+	rx []Prescription,
+) []Prescription {
 	if len(rx) > 0 {
 		rx = t.filterRepeatedLLMPrescriptions(ctx, c, planJSON,
 			contextKey, rx)
