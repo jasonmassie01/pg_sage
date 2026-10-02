@@ -78,6 +78,7 @@ type Executor struct {
 	dispatcher         EventDispatcher
 	databaseName       string
 	databaseID         *int
+	settingWait        time.Duration // bounds reloaded-setting post-checks (0 = default)
 	trustLevelOverride string
 	ddlSem             chan struct{}   // limits concurrent DDL ops
 	analyzeSem         chan struct{}   // shared fleet-wide for ANALYZE
