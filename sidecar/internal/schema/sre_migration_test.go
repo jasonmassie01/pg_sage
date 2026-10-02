@@ -10,11 +10,13 @@ import (
 // idempotent, and an upgrade preserves existing incidents and actions.
 
 // Parents before children; the drop runs in reverse. The M2 tables
-// (hypotheses, events, tombstones) reference investigations, so a
-// pre-M1 simulation must drop them first.
+// (hypotheses, events, tombstones) reference investigations and the M5
+// SLO tables reference the database bindings, so a pre-M1 simulation
+// must drop them first.
 var sreTables = []string{"sre_deployments", "sre_database_bindings",
 	"sre_investigations", "sre_steps", "sre_evidence", "sre_budget_reservations",
-	"sre_hypotheses", "sre_events", "sre_tombstones"}
+	"sre_hypotheses", "sre_events", "sre_tombstones", "sre_service_slos",
+	"sre_slo_transitions"}
 
 func TestSREMigration_IdempotentAndPreservesIncidentsAndActions(t *testing.T) {
 	pool, ctx := requireDB(t)

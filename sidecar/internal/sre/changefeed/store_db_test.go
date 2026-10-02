@@ -130,8 +130,10 @@ func TestStore_ScopeIsolation(t *testing.T) {
 	st, a, ctx := liveStore(t)
 	b := bindScope(t, ctx, st.pool)
 	now := time.Now().UTC()
+	// The deployment-wide event is older than the other tests' windows:
+	// every database of this test deployment sees it.
 	onlyA, _ := uniqueSubmission(now.Add(-time.Minute)).Event(now)
-	wide, _ := uniqueSubmission(now.Add(-2 * time.Minute)).Event(now)
+	wide, _ := uniqueSubmission(now.Add(-2 * time.Hour)).Event(now)
 	if _, _, err := st.Record(ctx, a, true, onlyA); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +141,7 @@ func TestStore_ScopeIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	ids := func(scope sre.Scope) map[string]bool {
-		evs, err := st.List(ctx, scope, Filter{Since: now.Add(-time.Hour)})
+		evs, err := st.List(ctx, scope, Filter{Since: now.Add(-3 * time.Hour)})
 		if err != nil {
 			t.Fatal(err)
 		}
