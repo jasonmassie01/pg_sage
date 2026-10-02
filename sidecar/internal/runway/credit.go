@@ -94,6 +94,11 @@ func MeasureDisk(ctx context.Context, r ProbeRunner, window time.Duration) (Disk
 	if err != nil {
 		return m, fmt.Errorf("measure disk: wal_runway: %w", err)
 	}
+	size, err := measureSize(ctx, r)
+	if err != nil {
+		return m, fmt.Errorf("measure disk: cluster_database_size: %w", err)
+	}
+	wal.DatabaseBytes, wal.UnreadableDatabases = size.DatabaseBytes, size.UnreadableDatabases
 	dir, err := probes.WALDirectoryOf(r.Run(ctx, probes.WALDirectoryProbe, probes.Args{}))
 	if err != nil {
 		return m, fmt.Errorf("measure disk: wal_directory: %w", err)

@@ -10,8 +10,8 @@ import (
 // other wraparound mechanism; database growth and the sequence limits
 // amplify nothing.
 func TestGraphV3_RunwayAmplification(t *testing.T) {
-	if GraphVersion != "causal-v3" {
-		t.Fatalf("graph version = %q, want causal-v3 (runway nodes added)", GraphVersion)
+	if GraphVersion != "causal-v4" {
+		t.Fatalf("graph version = %q, want causal-v4 (runway nodes added)", GraphVersion)
 	}
 	surge, ok := NodeByID(XIDConsumptionSurge)
 	if !ok {

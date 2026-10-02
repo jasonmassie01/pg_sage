@@ -36,6 +36,10 @@ type Monitor struct {
 	probe func(context.Context) (bool, error)
 	now   func() time.Time
 	logFn func(string, string, ...any)
+	// identity reads the node's timeline, system identifier and start
+	// (nil: the role only); persist holds the identity history.
+	identity func(context.Context) (Identity, error)
+	persist  persistence
 
 	mu          sync.Mutex
 	role        Role // current role; unknown before/after a failed probe
@@ -43,7 +47,9 @@ type Monitor struct {
 	flips       []time.Time
 	stableCount int
 	safeMode    bool
-	lastChange  time.Time // when a confirmed role last changed
+	lastChange  time.Time // when a confirmed role (or the node) last changed
+	current     Identity  // last observed identity
+	identityErr bool      // an identity probe failure was logged
 }
 
 // New creates a new HA Monitor probing pg_is_in_recovery() on pool.
@@ -59,6 +65,9 @@ func New(pool *pgxpool.Pool, logFn func(string, string, ...any)) *Monitor {
 		err := pool.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
 		return inRecovery, err
 	}
+	if pool != nil {
+		m.identity = poolIdentity(pool)
+	}
 	return m
 }
 
@@ -68,11 +77,9 @@ func New(pool *pgxpool.Pool, logFn func(string, string, ...any)) *Monitor {
 // mutations, so a failed probe fails closed.
 func (m *Monitor) Check(ctx context.Context) bool {
 	inRecovery, err := m.probe(ctx)
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if err != nil {
+		m.mu.Lock()
+		defer m.mu.Unlock()
 		m.role = RoleUnknown
 		m.stableCount = 0
 		m.logFn("WARN", "ha: pg_is_in_recovery() failed; role unknown, "+
@@ -83,11 +90,18 @@ func (m *Monitor) Check(ctx context.Context) bool {
 	if inRecovery {
 		observed = RoleReplica
 	}
-	m.observeLocked(observed)
+	id := m.readIdentity(ctx, observed)
+	if m.persist.store == nil {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.observeLocked(observed, id)
+		return observed != RolePrimary
+	}
+	m.checkPersisted(ctx, observed, id)
 	return observed != RolePrimary
 }
 
-func (m *Monitor) observeLocked(observed Role) {
+func (m *Monitor) observeLocked(observed Role, id Identity) {
 	now := m.now()
 	switch {
 	case m.lastKnown == RoleUnknown:
@@ -96,10 +110,12 @@ func (m *Monitor) observeLocked(observed Role) {
 		m.recordFlipLocked(now, observed)
 	default:
 		m.stableCount++
+		m.nodeChangeLocked(now, id)
 		m.maybeExitSafeModeLocked(now)
 	}
 	m.lastKnown = observed
 	m.role = observed
+	m.current = id
 }
 
 func (m *Monitor) recordFlipLocked(now time.Time, observed Role) {

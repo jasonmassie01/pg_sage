@@ -25,8 +25,8 @@ func amplifies(t *testing.T, id NodeID, want ...NodeID) {
 }
 
 func TestGraphV3_Amplifiers(t *testing.T) {
-	if GraphVersion != "causal-v3" {
-		t.Fatalf("graph version %s, want causal-v3 (M6 families)", GraphVersion)
+	if GraphVersion != "causal-v4" {
+		t.Fatalf("graph version %s, want causal-v4 (M6 families)", GraphVersion)
 	}
 	amplifies(t, CheckpointWriteBurst, MaxWALSizeUndersized, ForcedCheckpoints)
 	amplifies(t, ReplicationWriteSurge, WALSendBacklog, StandbyFlushBacklog,

@@ -1393,6 +1393,37 @@
     "default": true,
     "doc": "Model turn in investigations: rank the graph's hypotheses, propose one catalog probe, narrate cited claims. Used whenever an LLM is configured; false = deterministic only. Default: true."
   },
+  "sre.poolers[].databases": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Monitored databases (instance names) this pooler fronts; empty = every database of this sidecar."
+  },
+  "sre.poolers[].dsn": {
+    "type": "string",
+    "default": null,
+    "doc": "PgBouncer admin-console DSN of a stats_users user (database pgbouncer). Prefer ${ENV} substitution or dsn_file; never logged.",
+    "secret": true
+  },
+  "sre.poolers[].dsn_file": {
+    "type": "string",
+    "default": "",
+    "doc": "File holding the admin-console DSN (e.g. a mounted secret), read at startup. Exclusive with dsn."
+  },
+  "sre.poolers[].name": {
+    "type": "string",
+    "default": "",
+    "doc": "Pooler name shown in investigations (letters, digits, '.', '_', '-'; unique)."
+  },
+  "sre.poolers[].pools": {
+    "type": "[]string",
+    "default": null,
+    "doc": "PgBouncer databases (pools) to report; empty = every pool except the admin console."
+  },
+  "sre.poolers[].timeout_ms": {
+    "type": "int",
+    "default": 0,
+    "doc": "Time allowed to connect and read one pooler, 100-2000 ms. Default: 1000."
+  },
   "sre.runways.disk_critical_hours": {
     "type": "int",
     "default": 24,

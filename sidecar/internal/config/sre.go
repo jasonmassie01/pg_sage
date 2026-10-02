@@ -29,6 +29,9 @@ type SREConfig struct {
 	Autonomy SREAutonomyConfig `yaml:"autonomy"`
 	// Detectors are the reactive detector's thresholds (M6).
 	Detectors SREDetectorsConfig `yaml:"detectors"`
+	// Poolers are external poolers whose telemetry connection
+	// investigations read (CHECK-04); empty = none.
+	Poolers []SREPoolerConfig `yaml:"poolers" doc:"External connection poolers (PgBouncer admin consoles) whose pool telemetry connection investigations read, read-only. Empty = none."`
 }
 
 // SRELLMConfig configures the investigator's model turn: with an LLM
@@ -124,6 +127,9 @@ func (s SREConfig) validate() error {
 		return err
 	}
 	if err := s.Detectors.validate(); err != nil {
+		return err
+	}
+	if err := validatePoolers(s.Poolers); err != nil {
 		return err
 	}
 	return s.Autonomy.validate()

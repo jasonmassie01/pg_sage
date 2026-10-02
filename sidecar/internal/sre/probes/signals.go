@@ -8,15 +8,16 @@ import (
 
 // Signal probes (M5) are evidence sources outside the SQL catalog: the
 // change feed ("what changed?") and the SLO status ("are customers
-// hurt?"). They are produced in Go from pg_sage's own stores, typed like
-// every probe result and never offered to the model as catalog probes.
+// hurt?"), and an external pooler's telemetry (pooler.go). They are
+// produced in Go, typed like every probe result and never offered to the
+// model as catalog probes.
 const (
 	ChangeFeed ID = "change_feed"
 	SLOStatus  ID = "slo_status"
 )
 
 // IsSignal reports whether id is a signal probe.
-func IsSignal(id ID) bool { return id == ChangeFeed || id == SLOStatus }
+func IsSignal(id ID) bool { return id == ChangeFeed || id == SLOStatus || id == PoolerPools }
 
 // ChangeRow is one change_feed row: a change event in the window.
 type ChangeRow struct {

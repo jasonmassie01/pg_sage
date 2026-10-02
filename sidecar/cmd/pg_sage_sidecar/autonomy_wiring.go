@@ -18,7 +18,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/earned/hasource"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/gameday"
-	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
@@ -133,7 +132,7 @@ func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 		return err
 	}
 	lim := svc.Limiter(earned.Binding{Database: b.database, Budget: b.budget,
-		HA:          hasource.New(ha.New(b.monitored, logStructuredWrapper)),
+		HA:          hasource.New(newPersistedHAMonitor(b)),
 		Concurrency: earned.NewPostgresConcurrency(b.monitored, b.databaseID)})
 	if b.settings.Enforce {
 		ex.WithAutonomy(lim)

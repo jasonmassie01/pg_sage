@@ -1,0 +1,287 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "conn-pooler-behind-lock-backlog",
+  "family": "connection_pressure",
+  "class": "positive",
+  "description": "18 checkout backends wait on an idle-in-transaction holder; PgBouncer's pool is exhausted by them and 30 clients queue at the pooler.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-09-29T08:04:00Z",
+  "subject": "connections: 23 of 197 usable in use, 18 waiting",
+  "tags": [
+    "pooler",
+    "post_r1"
+  ],
+  "gold": {
+    "root": "blocked_backlog",
+    "contributing": [
+      "pooler_saturation"
+    ],
+    "rationale": "The lock backlog holds the pool's server connections; queueing at the pooler follows from it."
+  },
+  "observations": [
+    {
+      "probe": "connection_saturation",
+      "status": "ok",
+      "offset_ms": 70,
+      "rows": [
+        {
+          "in_current_database": true,
+          "application_name": "checkout",
+          "client_addr": "10.4.0.30",
+          "state": "active",
+          "backends": 20,
+          "waiting_on_lock": 18,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 23,
+          "server_started_at": "2026-07-28T04:10:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 1,
+          "in_recovery": false,
+          "server_version_num": 170006
+        },
+        {
+          "in_current_database": true,
+          "application_name": "checkout",
+          "client_addr": "10.4.0.30",
+          "state": "idle in transaction",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 23,
+          "server_started_at": "2026-07-28T04:10:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 1,
+          "in_recovery": false,
+          "server_version_num": 170006
+        },
+        {
+          "in_current_database": true,
+          "application_name": "",
+          "client_addr": "local",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 23,
+          "server_started_at": "2026-07-28T04:10:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 1,
+          "in_recovery": false,
+          "server_version_num": 170006
+        }
+      ]
+    },
+    {
+      "probe": "lock_graph",
+      "status": "ok",
+      "offset_ms": 140,
+      "rows": [
+        {
+          "waiter_pid": 41210,
+          "waiter_backend_start": "2026-09-29T08:00:00Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 9,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": "public.orders",
+          "blocker_pid": 41200,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-09-29T07:58:00Z",
+          "blocker_state": "idle in transaction",
+          "blocker_xact_age_s": 240,
+          "blocker_state_age_s": 238,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 41211,
+          "waiter_backend_start": "2026-09-29T08:00:01Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 9,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": "public.orders",
+          "blocker_pid": 41200,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-09-29T07:58:00Z",
+          "blocker_state": "idle in transaction",
+          "blocker_xact_age_s": 240,
+          "blocker_state_age_s": 238,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 41212,
+          "waiter_backend_start": "2026-09-29T08:00:02Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 9,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": "public.orders",
+          "blocker_pid": 41200,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-09-29T07:58:00Z",
+          "blocker_state": "idle in transaction",
+          "blocker_xact_age_s": 240,
+          "blocker_state_age_s": 238,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 41213,
+          "waiter_backend_start": "2026-09-29T08:00:03Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 9,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": "public.orders",
+          "blocker_pid": 41200,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-09-29T07:58:00Z",
+          "blocker_state": "idle in transaction",
+          "blocker_xact_age_s": 240,
+          "blocker_state_age_s": 238,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 41214,
+          "waiter_backend_start": "2026-09-29T08:00:04Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 9,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": "public.orders",
+          "blocker_pid": 41200,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-09-29T07:58:00Z",
+          "blocker_state": "idle in transaction",
+          "blocker_xact_age_s": 240,
+          "blocker_state_age_s": 238,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 41215,
+          "waiter_backend_start": "2026-09-29T08:00:05Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 9,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": "public.orders",
+          "blocker_pid": 41200,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-09-29T07:58:00Z",
+          "blocker_state": "idle in transaction",
+          "blocker_xact_age_s": 240,
+          "blocker_state_age_s": 238,
+          "blocker_query_id": null
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 175
+    },
+    {
+      "probe": "pooler_pools",
+      "status": "ok",
+      "offset_ms": 210,
+      "rows": [
+        {
+          "pooler": "pgb-checkout-1",
+          "database": "checkout",
+          "user": "app",
+          "pool_mode": "transaction",
+          "cl_active": 20,
+          "cl_waiting": 30,
+          "sv_active": 20,
+          "sv_idle": 0,
+          "sv_used": 0,
+          "maxwait_s": 3.1,
+          "avg_wait_us": 1200000
+        }
+      ]
+    },
+    {
+      "probe": "connection_saturation",
+      "status": "ok",
+      "offset_ms": 5210,
+      "rows": [
+        {
+          "in_current_database": true,
+          "application_name": "checkout",
+          "client_addr": "10.4.0.30",
+          "state": "active",
+          "backends": 20,
+          "waiting_on_lock": 18,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 23,
+          "server_started_at": "2026-07-28T04:10:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 1,
+          "in_recovery": false,
+          "server_version_num": 170006
+        },
+        {
+          "in_current_database": true,
+          "application_name": "checkout",
+          "client_addr": "10.4.0.30",
+          "state": "idle in transaction",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 23,
+          "server_started_at": "2026-07-28T04:10:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 1,
+          "in_recovery": false,
+          "server_version_num": 170006
+        },
+        {
+          "in_current_database": true,
+          "application_name": "",
+          "client_addr": "local",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 23,
+          "server_started_at": "2026-07-28T04:10:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 1,
+          "in_recovery": false,
+          "server_version_num": 170006
+        }
+      ]
+    },
+    {
+      "probe": "pooler_pools",
+      "status": "ok",
+      "offset_ms": 5260,
+      "rows": [
+        {
+          "pooler": "pgb-checkout-1",
+          "database": "checkout",
+          "user": "app",
+          "pool_mode": "transaction",
+          "cl_active": 20,
+          "cl_waiting": 33,
+          "sv_active": 20,
+          "sv_idle": 0,
+          "sv_used": 0,
+          "maxwait_s": 8.1,
+          "avg_wait_us": 1900000
+        }
+      ]
+    }
+  ]
+}

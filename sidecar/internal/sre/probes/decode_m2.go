@@ -22,6 +22,7 @@ type ConnGroup struct {
 	ReservedConnections int64
 	TotalClientBackends int64
 	ServerStartedAt     time.Time
+	Identity            ServerIdentity
 }
 
 // Slot is one replication slot.
@@ -34,12 +35,14 @@ type Slot struct {
 	SafeWALSize   float64
 	Database      string
 	InactiveSince time.Time
+	Identity      ServerIdentity
 }
 
 // WALStat is the cumulative WAL volume since its statistics reset.
 type WALStat struct {
 	WALBytes   float64
 	StatsReset time.Time
+	Identity   ServerIdentity
 }
 
 // ArchiverStat is the WAL archiver's state.
@@ -82,7 +85,7 @@ func ConnectionGroups(res Result) ([]ConnGroup, error) {
 			ClientAddr:  strField(r, "client_addr"), State: strField(r, "state"),
 			Backends: n, WaitingOnLock: waiting, MaxConnections: maxConn,
 			ReservedConnections: reserved, TotalClientBackends: total,
-			ServerStartedAt: timeField(r, "server_started_at")})
+			ServerStartedAt: timeField(r, "server_started_at"), Identity: IdentityOf(r)})
 	}
 	return out, nil
 }
@@ -101,7 +104,7 @@ func Slots(res Result) ([]Slot, error) {
 			RetainedBytes: floatField(r, "retained_bytes"),
 			SafeWALSize:   floatField(r, "safe_wal_size"),
 			Database:      strField(r, "database"),
-			InactiveSince: timeField(r, "inactive_since")})
+			InactiveSince: timeField(r, "inactive_since"), Identity: IdentityOf(r)})
 	}
 	return out, nil
 }
@@ -114,7 +117,7 @@ func WALStats(res Result) (WALStat, error) {
 		return WALStat{}, err
 	}
 	return WALStat{WALBytes: floatField(r, "wal_bytes"),
-		StatsReset: timeField(r, "wal_stats_reset")}, nil
+		StatsReset: timeField(r, "wal_stats_reset"), Identity: IdentityOf(r)}, nil
 }
 
 // ArchiverStats decodes an archiver result.

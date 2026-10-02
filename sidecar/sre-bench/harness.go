@@ -147,7 +147,7 @@ func (e *Env) investigate(ctx context.Context, sc Scenario, model *llm.Client) (
 		}
 		return sleepRest(ctx, d-time.Since(start))
 	}
-	run, err := e.startInvestigation(ctx, sc, e.Runner, wait, model)
+	run, err := e.startInvestigation(ctx, sc, e.Runner, nil, wait, model)
 	if err != nil {
 		return Trace{}, err
 	}
@@ -164,15 +164,16 @@ type investigation struct {
 
 // startInvestigation runs one investigation of sc's family to its end
 // through a fresh coordinator (its own database identity) with runner's
-// probes, wait between samples and model (nil: deterministic).
+// probes, the signal probes wired (nil: none), wait between samples and
+// model (nil: deterministic).
 func (e *Env) startInvestigation(ctx context.Context, sc Scenario, runner sre.ProbeRunner,
-	wait func(context.Context, time.Duration) error, model *llm.Client) (investigation,
-	error) {
+	signals []sre.SignalProbe, wait func(context.Context, time.Duration) error,
+	model *llm.Client) (investigation, error) {
 	cfg := sre.DefaultCoordinatorConfig(fmt.Sprintf("bench:%s:%d", sc.ID,
 		time.Now().UnixNano()))
 	cfg.SampleInterval = sampleInterval
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: e.Store, Runner: runner,
-		Config: cfg, Wait: wait, Model: model, Notices: &sre.OnceLog{}})
+		Config: cfg, Wait: wait, Model: model, Notices: &sre.OnceLog{}, Signals: signals})
 	if err != nil {
 		return investigation{}, err
 	}

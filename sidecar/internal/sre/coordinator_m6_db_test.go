@@ -118,7 +118,7 @@ func checkM6Hypotheses(t *testing.T, ctx context.Context, st *PostgresStore,
 		} else if h.Family != string(inv.TriggerKind) {
 			t.Errorf("%s: hypothesis %s has family %s", inv.TriggerKind, h.Node, h.Family)
 		}
-		if h.GraphVersion != "causal-v3" {
+		if h.GraphVersion != "causal-v4" {
 			t.Errorf("%s: graph version %s", inv.TriggerKind, h.GraphVersion)
 		}
 	}

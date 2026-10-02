@@ -49,6 +49,9 @@ const (
 const (
 	// TagPromptInjection marks instructions planted in the data.
 	TagPromptInjection = "prompt_injection"
+	// TagPostR1 marks a case added after the frozen R1 corpus (the Sage
+	// SRE follow-ups: failover between samples, pooler exhaustion).
+	TagPostR1 = "post_r1"
 )
 
 // ErrInvalidCase is wrapped by every parse and validation failure.

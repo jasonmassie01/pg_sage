@@ -1,0 +1,206 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "conn-pooler-queueing",
+  "family": "connection_pressure",
+  "class": "positive",
+  "description": "PgBouncer's checkout pool has all 20 server connections busy and 38 clients queued for up to 4.2 s; the database itself has headroom.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-09-29T08:02:00Z",
+  "subject": "connections: 23 of 197 usable in use",
+  "tags": [
+    "pooler",
+    "post_r1"
+  ],
+  "gold": {
+    "root": "pooler_saturation",
+    "rationale": "Clients wait at the pooler for a server connection while PostgreSQL shows no pressure (CHECK-04)."
+  },
+  "observations": [
+    {
+      "probe": "connection_saturation",
+      "status": "ok",
+      "offset_ms": 70,
+      "rows": [
+        {
+          "in_current_database": true,
+          "application_name": "checkout",
+          "client_addr": "10.4.0.30",
+          "state": "active",
+          "backends": 20,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 25,
+          "server_started_at": "2026-07-28T04:10:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 1,
+          "in_recovery": false,
+          "server_version_num": 170006
+        },
+        {
+          "in_current_database": true,
+          "application_name": "checkout",
+          "client_addr": "10.4.0.30",
+          "state": "idle",
+          "backends": 2,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 25,
+          "server_started_at": "2026-07-28T04:10:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 1,
+          "in_recovery": false,
+          "server_version_num": 170006
+        },
+        {
+          "in_current_database": true,
+          "application_name": "",
+          "client_addr": "local",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 25,
+          "server_started_at": "2026-07-28T04:10:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 1,
+          "in_recovery": false,
+          "server_version_num": 170006
+        }
+      ]
+    },
+    {
+      "probe": "lock_graph",
+      "status": "empty",
+      "offset_ms": 140
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 175
+    },
+    {
+      "probe": "pooler_pools",
+      "status": "ok",
+      "offset_ms": 210,
+      "rows": [
+        {
+          "pooler": "pgb-checkout-1",
+          "database": "checkout",
+          "user": "app",
+          "pool_mode": "transaction",
+          "cl_active": 20,
+          "cl_waiting": 38,
+          "sv_active": 20,
+          "sv_idle": 0,
+          "sv_used": 0,
+          "maxwait_s": 4.2,
+          "avg_wait_us": 1850000
+        },
+        {
+          "pooler": "pgb-checkout-1",
+          "database": "reports",
+          "user": "app",
+          "pool_mode": "transaction",
+          "cl_active": 2,
+          "cl_waiting": 0,
+          "sv_active": 1,
+          "sv_idle": 3,
+          "sv_used": 0,
+          "maxwait_s": 0,
+          "avg_wait_us": 0
+        }
+      ]
+    },
+    {
+      "probe": "connection_saturation",
+      "status": "ok",
+      "offset_ms": 5210,
+      "rows": [
+        {
+          "in_current_database": true,
+          "application_name": "checkout",
+          "client_addr": "10.4.0.30",
+          "state": "active",
+          "backends": 20,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 25,
+          "server_started_at": "2026-07-28T04:10:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 1,
+          "in_recovery": false,
+          "server_version_num": 170006
+        },
+        {
+          "in_current_database": true,
+          "application_name": "checkout",
+          "client_addr": "10.4.0.30",
+          "state": "idle",
+          "backends": 2,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 25,
+          "server_started_at": "2026-07-28T04:10:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 1,
+          "in_recovery": false,
+          "server_version_num": 170006
+        },
+        {
+          "in_current_database": true,
+          "application_name": "",
+          "client_addr": "local",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 25,
+          "server_started_at": "2026-07-28T04:10:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 1,
+          "in_recovery": false,
+          "server_version_num": 170006
+        }
+      ]
+    },
+    {
+      "probe": "pooler_pools",
+      "status": "ok",
+      "offset_ms": 5260,
+      "rows": [
+        {
+          "pooler": "pgb-checkout-1",
+          "database": "checkout",
+          "user": "app",
+          "pool_mode": "transaction",
+          "cl_active": 20,
+          "cl_waiting": 41,
+          "sv_active": 20,
+          "sv_idle": 0,
+          "sv_used": 0,
+          "maxwait_s": 6.8,
+          "avg_wait_us": 2400000
+        },
+        {
+          "pooler": "pgb-checkout-1",
+          "database": "reports",
+          "user": "app",
+          "pool_mode": "transaction",
+          "cl_active": 2,
+          "cl_waiting": 0,
+          "sv_active": 1,
+          "sv_idle": 3,
+          "sv_used": 0,
+          "maxwait_s": 0,
+          "avg_wait_us": 0
+        }
+      ]
+    }
+  ]
+}

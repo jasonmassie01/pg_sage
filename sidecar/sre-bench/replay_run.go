@@ -90,7 +90,7 @@ func (e *Env) replay(ctx context.Context, c replay.Case, sc Scenario,
 	if err != nil {
 		return Outcome{}, nil, err
 	}
-	run, err := e.startInvestigation(ctx, sc, runner, noWait, model)
+	run, err := e.startInvestigation(ctx, sc, runner, replaySignals(runner), noWait, model)
 	if err != nil {
 		return Outcome{}, nil, fmt.Errorf("investigate: %w", err)
 	}
@@ -134,4 +134,15 @@ func (e *Env) exportTexts(ctx context.Context, run investigation) ([]string, err
 		return nil, fmt.Errorf("export markdown: %w", err)
 	}
 	return []string{string(raw), md}, nil
+}
+
+// replaySignals wires every signal probe the case records (the pooler
+// telemetry of a pooler case), served from the recording; a case that
+// records none runs with none, as before.
+func replaySignals(r *replay.Runner) []sre.SignalProbe {
+	var out []sre.SignalProbe
+	for _, id := range r.Signals() {
+		out = append(out, sre.SignalProbe{ID: id, Run: r.Signal(id)})
+	}
+	return out
 }

@@ -163,6 +163,7 @@ var retentionExemptions = map[string]string{
 	"config_audit":          "security audit trail of configuration changes",
 	"crypto_meta":           "key metadata, not a time-series",
 	"databases":             "fleet registry, not a time-series",
+	"ha_identity":           "HA monitor history, current state, one row per monitor",
 	"incident_avoided":      "value ledger; low volume, kept as evidence",
 	"io_rate_sample":        "pruned by the IO sampler (verify.io_sample_retention_days)",
 	"incidents":             "pruned by rca.PruneResolvedIncidents (resolved_at, findings_days)",
