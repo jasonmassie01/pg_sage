@@ -40,6 +40,9 @@ type sreInvestigatorDeps struct {
 	signals []sre.SignalProbe
 	// advisor attaches custodian proposals to runway investigations.
 	advisor sre.ActionAdvisor
+	// episodes records reactive detector episodes as incidents (the
+	// database's RCA engine); nil without RCA.
+	episodes sre.EpisodeSink
 }
 
 // newSREInvestigator builds one database's investigator (coordinator,
@@ -97,7 +100,7 @@ func (rt *databaseRuntime) startInvestigator() {
 		runtimeKey: key, legacyID: legacy, settings: rt.cfg.SRE,
 		logFn: logStructuredWrapper, llm: rt.generalLLM,
 		dailyTokens: rt.cfg.LLM.TokenBudgetDaily, signals: signalProbes,
-		advisor: rt.runwayAdvisor})
+		advisor: rt.runwayAdvisor, episodes: rt.detectorIncidents()})
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: sre investigator not started: %v", rt.spec.Name, err)
 		return
