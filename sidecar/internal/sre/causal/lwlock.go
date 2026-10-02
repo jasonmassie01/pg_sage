@@ -157,10 +157,9 @@ func scoreLWClass(id NodeID, ss []lwSample, span float64) Hypothesis {
 	}
 	last := ss[len(ss)-1].ev
 	t := tallyClass(id, ss)
-	n, _ := NodeByID(id)
 	if t.total == 0 {
-		h.contradict(last, fmt.Sprintf("no sampled backend waited on a %s LWLock in %d "+
-			"samples over %s s", n.Label, len(ss), fv(span)))
+		h.contradict(last, fmt.Sprintf("no backend waited on its LWLocks in %d samples "+
+			"over %s s", len(ss), fv(span)))
 		return h
 	}
 	h.Subject = "LWLock " + probes.FormatValue(t.event)

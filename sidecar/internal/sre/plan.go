@@ -23,8 +23,12 @@ type probeCall struct {
 
 type planStep struct {
 	sample bool
+	gap    int // sample intervals a sampling step waits; 0 means 1
 	calls  []probeCall
 }
+
+// waits is how many sample intervals the step waits before its probes.
+func (s planStep) waits() int { return max(s.gap, 1) }
 
 func calls(ids ...probes.ID) []probeCall {
 	out := make([]probeCall, 0, len(ids))
@@ -52,7 +56,7 @@ func planFor(kind TriggerKind, actionWindow time.Duration) ([]planStep, bool) {
 	case TriggerPlan:
 		return []planStep{{calls: with(probes.PlanRegressions)}}, true
 	}
-	return nil, false
+	return planM6(kind, actions)
 }
 
 // observations decodes stored evidence into cited probe results. Numbers
@@ -85,6 +89,8 @@ func diagnose(inv Investigation, obs []causal.Observation) causal.Diagnosis {
 		d = causal.DiagnoseWAL(obs)
 	case TriggerPlan:
 		d = planDiagnosis(obs, inv.Subject)
+	default:
+		d = diagnoseM6(inv.TriggerKind, obs)
 	}
 	return causal.WithSelfActions(d, obs)
 }
@@ -93,7 +99,10 @@ func diagnose(inv Investigation, obs []causal.Observation) causal.Diagnosis {
 // one-shot observation: when it ran again (a model-proposed probe), its
 // newest result supersedes the older ones.
 var seriesProbes = map[probes.ID]bool{probes.ConnectionSaturation: true,
-	probes.ReplicationSlots: true, probes.WALCheckpoint: true, probes.Archiver: true}
+	probes.ReplicationSlots: true, probes.WALCheckpoint: true, probes.Archiver: true,
+	probes.CheckpointActivity: true, probes.TempFileActivity: true,
+	probes.TempFileHolders: true, probes.TempSpillStatements: true,
+	probes.ReplicationLag: true, probes.StandbyReplayState: true, probes.LWLockWaits: true}
 
 // currentObservations keeps every sample of a series probe and only the
 // newest (last stored) observation of each one-shot probe, in order.

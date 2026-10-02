@@ -18,10 +18,16 @@ const (
 	TriggerWAL         TriggerKind = "wal_retention"
 	TriggerPlan        TriggerKind = "plan_regression"
 	TriggerOperator    TriggerKind = "operator"
+	// M6 reactive families (named like their causal-graph families).
+	TriggerCheckpoint     TriggerKind = "checkpoint_storm"
+	TriggerTempFiles      TriggerKind = "temp_file_explosion"
+	TriggerReplicationLag TriggerKind = "replication_lag"
+	TriggerLWLock         TriggerKind = "lwlock_contention"
 )
 
 var triggerKinds = map[TriggerKind]bool{TriggerLock: true, TriggerConnections: true,
-	TriggerWAL: true, TriggerPlan: true, TriggerOperator: true}
+	TriggerWAL: true, TriggerPlan: true, TriggerOperator: true, TriggerCheckpoint: true,
+	TriggerTempFiles: true, TriggerReplicationLag: true, TriggerLWLock: true}
 
 // StartRequest asks for an investigation of one scoped trigger.
 type StartRequest struct {
