@@ -34,12 +34,24 @@ func checkpointScenarios() []Scenario {
 
 // undersizedWAL is the max_wal_size the undersized program sets: two
 // 16 MiB segments, so PostgreSQL requests a checkpoint every segment.
-const undersizedWAL = "32MB"
+const (
+	undersizedWAL      = "32MB"
+	undersizedWALBytes = 32 << 20
+)
+
+// volumeDriven reports whether requests checkpoints over wal bytes of
+// WAL came at least a quarter of maxWAL apart, as WAL volume requests
+// them (the investigator's own volume rule).
+func volumeDriven(wal float64, requests int, maxWAL float64) bool {
+	return requests > 0 && wal/float64(requests) >= maxWAL/4
+}
 
 // undersizedMaxWAL: max_wal_size at its minimum while 64 MiB of WAL is
-// written at each sample interval.
+// written at each sample interval. Requests that were not volume-driven
+// are another session's CHECKPOINT commands: the run is contaminated.
 func undersizedMaxWAL() program {
 	var before int
+	var lsn string
 	return program{
 		inject: func(ctx context.Context, e *Env) error {
 			if err := e.lockCluster(ctx); err != nil {
@@ -49,8 +61,10 @@ func undersizedMaxWAL() program {
 				return err
 			}
 			var err error
-			before, err = e.stableCheckpoints(ctx)
-			return err
+			if before, err = e.stableCheckpoints(ctx); err != nil {
+				return err
+			}
+			return e.Pool.QueryRow(ctx, "SELECT pg_current_wal_lsn()::text").Scan(&lsn)
 		},
 		manifest: func(ctx context.Context, e *Env) error {
 			return expectSetting(ctx, e, "max_wal_size", undersizedWAL)
@@ -58,8 +72,13 @@ func undersizedMaxWAL() program {
 		between: writeWAL(64),
 		valid: func(ctx context.Context, e *Env) error {
 			after, err := e.requestedCheckpoints(ctx)
-			if err == nil && after <= before {
-				err = &Contaminated{Reason: "no checkpoint was requested during the run"}
+			if err != nil {
+				return err
+			}
+			wal, err := walSince(ctx, e, lsn)
+			if err == nil && !volumeDriven(wal, after-before, undersizedWALBytes) {
+				err = &Contaminated{Reason: fmt.Sprintf("%d checkpoints were requested "+
+					"over %.0f bytes of WAL: not by WAL volume alone", after-before, wal)}
 			}
 			return err
 		},
