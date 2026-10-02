@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -25,6 +26,9 @@ type Collector struct {
 	// skipConfigSnapshots is set before Run when no advisor will consume
 	// the configuration snapshot.
 	skipConfigSnapshots bool
+
+	// stepOverrides replaces catalog category readers (tests).
+	stepOverrides map[string]func(context.Context, *Snapshot) error
 }
 
 // New creates a Collector wired to the given pool and config.
@@ -126,38 +130,35 @@ func (c *Collector) PreviousSnapshot() *Snapshot {
 	return c.previous
 }
 
-// collect gathers all stats categories into a single Snapshot.
+// collect gathers all stats categories into a single Snapshot. The
+// catalog categories are read in order; one that fails is marked
+// unavailable and logged, and the snapshot goes on (dogfood lifeos-1:
+// an index query timing out on 35,439 indexes failed every snapshot).
+// Only the system stats, the snapshot's spine, fail it.
 func (c *Collector) collect(ctx context.Context) (*Snapshot, error) {
 	now := time.Now().UTC()
 	snap := &Snapshot{CollectedAt: now}
-
-	var err error
 
 	// Read the epoch before the counters: a reset in between leaves the
 	// old epoch on reset counters, which the counter-decrease check and
 	// the next cycle's epoch change both expose.
 	snap.StatsEpoch = c.collectStatementsEpoch(ctx)
-	if snap.Queries, err = c.collectQueries(ctx); err != nil {
-		return nil, err
+	for _, step := range c.catalogSteps() {
+		err := step.run(ctx, snap)
+		if err == nil {
+			continue
+		}
+		if step.name == "system" {
+			return nil, fmt.Errorf("collect system: %w", err)
+		}
+		if snap.Unavailable == nil {
+			snap.Unavailable = map[string]string{}
+		}
+		snap.Unavailable[step.name] = err.Error()
+		c.logFn("WARN", "collector: %s unavailable this cycle (snapshot kept "+
+			"without it): %v", step.name, err)
 	}
-	if snap.Tables, err = c.collectTables(ctx); err != nil {
-		return nil, err
-	}
-	if snap.Indexes, err = c.collectIndexes(ctx); err != nil {
-		return nil, err
-	}
-	if snap.ForeignKeys, err = c.collectForeignKeys(ctx); err != nil {
-		return nil, err
-	}
-	if snap.System, err = c.collectSystem(ctx); err != nil {
-		return nil, err
-	}
-	if snap.Locks, err = c.collectLocks(ctx); err != nil {
-		return nil, err
-	}
-	if snap.Sequences, err = c.collectSequences(ctx); err != nil {
-		return nil, err
-	}
+	var err error
 	// Non-fatal: a single replication-slot quirk (e.g. an unreserved
 	// slot, or a hot standby) must not abort the entire snapshot cycle,
 	// which would silently halt all stats collection (H1/H2). Match the

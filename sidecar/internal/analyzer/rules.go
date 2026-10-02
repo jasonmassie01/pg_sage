@@ -51,8 +51,8 @@ type RuleSpec struct {
 var AllRules = []RuleSpec{
 	// Index rules
 	{"unused_indexes", ruleUnusedIndexes, cats("unused_index"), hasIndexes},
-	{"invalid_indexes", ruleInvalidIndexes, cats("invalid_index"), hasIndexes},
-	{"duplicate_indexes", ruleDuplicateIndexes, cats("duplicate_index"), hasIndexes},
+	{"invalid_indexes", ruleInvalidIndexes, cats("invalid_index"), hasIndexList},
+	{"duplicate_indexes", ruleDuplicateIndexes, cats("duplicate_index"), hasIndexList},
 	{"missing_fk_indexes", ruleMissingFKIndexes, cats("missing_fk_index"), hasForeignKeys},
 
 	// Vacuum / bloat rules
@@ -89,9 +89,27 @@ var AllRules = []RuleSpec{
 
 func cats(c ...string) []string { return c }
 
-func hasIndexes(cur, _ *collector.Snapshot) bool     { return len(cur.Indexes) > 0 }
-func hasForeignKeys(cur, _ *collector.Snapshot) bool { return len(cur.ForeignKeys) > 0 }
-func hasTables(cur, _ *collector.Snapshot) bool      { return len(cur.Tables) > 0 }
+// hasIndexes needs the index list and the foreign keys: an index that
+// supports a key must not look unused when the keys could not be read.
+func hasIndexes(cur, _ *collector.Snapshot) bool {
+	return len(cur.Indexes) > 0 && cur.Available("indexes") && cur.Available("foreign_keys")
+}
+
+// hasIndexList needs only the index list.
+func hasIndexList(cur, _ *collector.Snapshot) bool {
+	return len(cur.Indexes) > 0 && cur.Available("indexes")
+}
+
+// hasForeignKeys needs the keys and the index list: a missing index list
+// would make every key look unindexed.
+func hasForeignKeys(cur, _ *collector.Snapshot) bool {
+	return len(cur.ForeignKeys) > 0 && cur.Available("foreign_keys") &&
+		cur.Available("indexes")
+}
+
+func hasTables(cur, _ *collector.Snapshot) bool {
+	return len(cur.Tables) > 0 && cur.Available("tables")
+}
 func hasQueries(cur, _ *collector.Snapshot) bool     { return len(cur.Queries) > 0 }
 func hasSequences(cur, _ *collector.Snapshot) bool   { return len(cur.Sequences) > 0 }
 func hasReplication(cur, _ *collector.Snapshot) bool { return cur.Replication != nil }

@@ -88,12 +88,32 @@ func QueryDailySystemAggs(
 	return aggs, nil
 }
 
+// daySamplesSQL picks, for one snapshot category in the lookback, the
+// first and last non-empty snapshot of each day (dogfood lifeos-1: every
+// snapshot used to be expanded; lifeos had 1,999 'sequences' snapshots of
+// 12,000 elements, > 70 s). An empty or null snapshot is at most 12 bytes
+// of jsonb, so pg_column_size tells them apart without detoasting.
+const daySamplesSQL = `
+    SELECT s.id, s.collected_at, s.data,
+           row_number() OVER (PARTITION BY date_trunc('day', s.collected_at)
+                              ORDER BY s.collected_at, s.id) AS first_rank,
+           row_number() OVER (PARTITION BY date_trunc('day', s.collected_at)
+                              ORDER BY s.collected_at DESC, s.id DESC) AS last_rank
+    FROM sage.snapshots s
+    WHERE s.category = %s
+      AND s.collected_at > now() - make_interval(days => $1)
+      AND pg_column_size(s.data) > 12`
+
 // queryAggsSQL sums per-day call deltas. pg_stat_statements counters are
 // cumulative since the last reset, so each sample contributes
 // calls - previous calls for the same queryid; a drop (reset or eviction)
 // contributes the new count, and a queryid's first sample in the window
-// contributes 0 because its baseline is unknown (C10).
-const queryAggsSQL = `/* pg_sage */
+// contributes 0 because its baseline is unknown (C10). Only each day's
+// first and last snapshot are sampled: for monotonic counters the daily
+// totals telescope to the same sums.
+var queryAggsSQL = `/* pg_sage */
+WITH d AS (` + fmt.Sprintf(daySamplesSQL, "'queries'") + `
+)
 SELECT day, COALESCE(sum(delta), 0)::float8 AS total_calls
 FROM (
     SELECT date_trunc('day', collected_at) AS day,
@@ -102,15 +122,13 @@ FROM (
                 ELSE calls
            END AS delta
     FROM (
-        SELECT s.collected_at,
+        SELECT d.collected_at,
                (elem->>'calls')::bigint AS calls,
                lag((elem->>'calls')::bigint) OVER (
                    PARTITION BY (elem->>'queryid')::bigint
-                   ORDER BY s.collected_at) AS prev_calls
-        FROM sage.snapshots s,
-             jsonb_array_elements(COALESCE(NULLIF(s.data, 'null'::jsonb), '[]'::jsonb)) AS elem
-        WHERE s.category = 'queries'
-          AND s.collected_at > now() - make_interval(days => $1)
+                   ORDER BY d.collected_at, d.id) AS prev_calls
+        FROM d, jsonb_array_elements(d.data) AS elem
+        WHERE d.first_rank = 1 OR d.last_rank = 1
     ) samples
 ) deltas
 GROUP BY day ORDER BY day`
@@ -141,16 +159,21 @@ func QueryDailyQueryAggs(
 	return aggs, nil
 }
 
-const seqAggsSQL = `/* pg_sage */
-SELECT date_trunc('day', s.collected_at) AS day,
+// seqAggsSQL reads each day's last non-empty 'sequences' snapshot: a
+// sequence's use only grows (a restart is a new, lower reading), so the
+// day's last reading is its use that day. Sequences under 1% are left
+// out: none can be within the forecaster's horizons (the collector keeps
+// those only as its top N).
+var seqAggsSQL = `/* pg_sage */
+WITH d AS (` + fmt.Sprintf(daySamplesSQL, "'sequences'") + `
+)
+SELECT date_trunc('day', d.collected_at) AS day,
        (elem->>'schemaname') || '.' ||
            (elem->>'sequencename')       AS seq_name,
        max((elem->>'pct_used')::float)   AS pct_used,
        max((elem->>'max_value')::bigint) AS max_value
-FROM sage.snapshots s,
-     jsonb_array_elements(COALESCE(NULLIF(s.data, 'null'::jsonb), '[]'::jsonb)) AS elem
-WHERE s.category = 'sequences'
-  AND s.collected_at > now() - make_interval(days => $1)
+FROM d, jsonb_path_query(d.data, '$[*] ? (@.pct_used >= 1)') AS elem
+WHERE d.last_rank = 1
 GROUP BY 1, 2 ORDER BY 1`
 
 // QueryDailySeqAggs returns daily sequence usage aggregates.
