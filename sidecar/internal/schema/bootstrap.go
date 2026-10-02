@@ -385,6 +385,7 @@ func migrationStatements() []string {
 	return append(statements, ddlPolicyChangeClassSplit, ddlPolicyWindowCronDuration,
 		ddlRetentionColumnDeclaration, ddlTableContractIdentity, ddlSRECoordination,
 		ddlSREInvestigator, ddlSREModelEvents, ddlSREReasoningBudget,
+		ddlSRESLOChangeEvents, ddlSREActions,
 		ddlRecommendationAll)
 }
 

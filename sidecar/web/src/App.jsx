@@ -14,6 +14,7 @@ import { NotificationsPage } from './pages/NotificationsPage'
 import { AgentDBsPage } from './pages/AgentDBsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
 import { ValuePage } from './pages/ValuePage'
+import { SLOsPage } from './pages/SLOsPage'
 import { useAPI } from './hooks/useAPI'
 import { resolveSelectedDB } from './lib/selectedDatabase'
 import { TimeRangeProvider } from './context/TimeRangeContext'
@@ -197,6 +198,8 @@ export default function App() {
       case '/alerts':
         return { title: 'Alerts',
           node: <AlertLogPage database={effectiveDB} /> }
+      case '/slos':
+        return { title: 'SLOs', node: <SLOsPage database={effectiveDB} /> }
       case '/incidents':
         return { title: 'Cases',
           node: <CasesPage key={route} database={effectiveDB} user={user}

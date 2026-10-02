@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect } from 'react'
 import {
-  AlertTriangle, Activity, Settings,
+  AlertTriangle, Activity, Settings, Gauge,
   Bot, Home, LogOut, Server, Menu, X, ChevronDown,
 } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
@@ -28,6 +28,8 @@ const NAV_GROUPS = [
         aliases: ['#/findings'] },
       { path: '#/actions', icon: Activity, label: 'Actions',
         tid: 'nav-actions' },
+      { path: '#/slos', icon: Gauge, label: 'SLOs',
+        tid: 'nav-slos' },
       { path: '#/agent-dbs', icon: Bot, label: 'Agent DBs',
         tid: 'nav-agent-dbs' },
       { path: '#/manage-databases', icon: Server,

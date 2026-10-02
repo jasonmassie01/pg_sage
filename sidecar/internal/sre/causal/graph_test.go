@@ -17,9 +17,10 @@ func TestGraph_NodesAreWellFormed(t *testing.T) {
 	}
 	nodes := Graph()
 	// v2 (M2) adds connection pressure (3), WAL retention (4) and
-	// pg_sage's own change (1) to v1's 4 lock and 2 plan nodes.
-	if len(nodes) != 14 {
-		t.Fatalf("graph has %d nodes, want 14", len(nodes))
+	// pg_sage's own change (1) to v1's 4 lock and 2 plan nodes; v3 (M5)
+	// adds the recent change from the change feed (1).
+	if len(nodes) != 15 {
+		t.Fatalf("graph has %d nodes, want 15", len(nodes))
 	}
 	families := map[Family]bool{FamilyLockBlocking: true, FamilyPlanRegression: true,
 		FamilyConnections: true, FamilyWAL: true, FamilyChange: true}
@@ -35,7 +36,7 @@ func TestGraph_NodesAreWellFormed(t *testing.T) {
 		if n.Mechanism == "" || n.Predicted == "" {
 			t.Errorf("%s lacks mechanism or predicted observations", n.ID)
 		}
-		if n.Refutation != NoRefutation {
+		if n.Refutation != NoRefutation && !probes.IsSignal(probes.ID(n.Refutation)) {
 			if _, ok := probes.Catalog().Spec(probes.ID(n.Refutation)); !ok {
 				t.Errorf("%s refutation probe %q is not in the catalog",
 					n.ID, n.Refutation)

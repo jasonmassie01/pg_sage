@@ -51,6 +51,8 @@ func planFor(kind TriggerKind, actionWindow time.Duration) ([]planStep, bool) {
 			probes.WALCheckpoint, probes.Archiver)}}, true
 	case TriggerPlan:
 		return []planStep{{calls: with(probes.PlanRegressions)}}, true
+	case TriggerSLOBurn:
+		return sloBurnPlan(actions), true
 	}
 	return nil, false
 }
@@ -72,7 +74,7 @@ func observations(evidence []Evidence) ([]causal.Observation, error) {
 }
 
 // diagnose runs the investigation family's matcher and adds pg_sage's
-// own change as a hypothesis.
+// own change and, when collected, the change feed and the SLO status.
 func diagnose(inv Investigation, obs []causal.Observation) causal.Diagnosis {
 	obs = freshObservations(currentObservations(obs))
 	var d causal.Diagnosis
@@ -85,8 +87,11 @@ func diagnose(inv Investigation, obs []causal.Observation) causal.Diagnosis {
 		d = causal.DiagnoseWAL(obs)
 	case TriggerPlan:
 		d = planDiagnosis(obs, inv.Subject)
+	case TriggerSLOBurn:
+		d = causal.DiagnoseSLOBurn(obs, inv.Subject)
 	}
-	return causal.WithSelfActions(d, obs)
+	d = causal.WithChanges(causal.WithSelfActions(d, obs), obs)
+	return causal.WithSLO(d, obs)
 }
 
 // seriesProbes are compared across samples. Every other probe is a
@@ -188,6 +193,7 @@ func summaryOf(d causal.Diagnosis) Summary {
 	if s.Conclusive {
 		s.Root = string(d.Root.Node)
 	}
+	s.CustomerImpact = customerImpactOf(d.Impact)
 	for _, m := range d.Missing {
 		s.Missing = append(s.Missing, MissingEvidence{ProbeID: string(m.ProbeID),
 			Status: string(m.Status), Reason: m.Reason})

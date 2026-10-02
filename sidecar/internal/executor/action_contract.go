@@ -470,7 +470,7 @@ func incidentCancelBackendContract() ActionContract {
 			"blocked sessions no longer wait on the same backend",
 		},
 		PostChecks:    []string{"verify blocker PID no longer blocks waiters"},
-		RollbackClass: "not_reversible",
+		RollbackClass: ReversibilityMitigationOnly,
 		Cooldown:      "incident-scoped",
 		AuditFields:   []string{"case_id", "database", "pid", "query"},
 	}

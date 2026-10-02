@@ -1133,10 +1133,91 @@
     "default": 0,
     "doc": "How often to run the full schema lint scan. Default: 60."
   },
+  "sre.actions.approval_ttl_minutes": {
+    "type": "int",
+    "default": 15,
+    "doc": "Minutes an action approval request stays open before it expires, 1-60. Default: 15."
+  },
+  "sre.actions.chatops_tolerance_seconds": {
+    "type": "int",
+    "default": 300,
+    "doc": "Maximum age (and clock skew) of a signed Slack approval callback, 30-900 seconds. Default: 300."
+  },
+  "sre.actions.max_evidence_age_seconds": {
+    "type": "int",
+    "default": 5,
+    "doc": "Oldest target identity evidence an approved cancel may act on, 1-5 seconds (5 is the ceiling). Default: 5."
+  },
+  "sre.actions.proposals": {
+    "type": "bool",
+    "default": true,
+    "doc": "Propose an evidence-matched cancel when an investigation's root is one active blocking backend. Proposals never execute by themselves. Default: true."
+  },
+  "sre.actions.protected_applications": {
+    "type": "[]string",
+    "default": null,
+    "doc": "application_name values whose sessions are never proposed for or signalled by an action (exact names)."
+  },
+  "sre.actions.protected_roles": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Database roles whose sessions are never proposed for or signalled by an action (exact names)."
+  },
+  "sre.actions.recovery_deadline_minutes": {
+    "type": "int",
+    "default": 30,
+    "doc": "Minutes after an action before an unproven recovery is reported inconclusive, 1-240. Default: 30."
+  },
+  "sre.actions.recovery_sample_seconds": {
+    "type": "int",
+    "default": 40,
+    "doc": "Seconds between recovery samples after an action, 1-300. Default: 40."
+  },
+  "sre.actions.recovery_samples": {
+    "type": "int",
+    "default": 3,
+    "doc": "Fresh samples a recovery verdict needs, 3-20. Default: 3."
+  },
+  "sre.actions.request_approval": {
+    "type": "bool",
+    "default": true,
+    "doc": "Queue an approved-to-run proposal in the approval queue and send it to ChatOps channels at once. Default: true."
+  },
   "sre.automatic_start": {
     "type": "bool",
     "default": true,
     "doc": "Start a read-only, bounded investigation for each open lock, connection or WAL incident and plan_regression finding. Never executes actions. false = start only on request. Default: true."
+  },
+  "sre.change_events.allowed_sources": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Sources allowed to submit events; empty allows any signed source."
+  },
+  "sre.change_events.feed_enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Poll pg_sage's own change sources (actions, config audit, DDL, statistics resets, restarts, failovers, extensions). Default: true."
+  },
+  "sre.change_events.feed_interval_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds between change feed polls, 15-3600. Default: 60."
+  },
+  "sre.change_events.hmac_secret": {
+    "type": "string",
+    "default": null,
+    "doc": "Shared secret (at least 32 bytes) signing POST /api/v1/sre/change-events. Empty disables ingestion.",
+    "secret": true
+  },
+  "sre.change_events.retention_days": {
+    "type": "int",
+    "default": 90,
+    "doc": "Days change events are kept, 1-3650. Default: 90."
+  },
+  "sre.change_events.timestamp_tolerance_seconds": {
+    "type": "int",
+    "default": 300,
+    "doc": "Accepted signature clock skew, 30-3600. Default: 300."
   },
   "sre.evidence_retention_days": {
     "type": "int",
@@ -1152,6 +1233,173 @@
     "type": "int",
     "default": 5,
     "doc": "Seconds between the two samples connection and WAL investigations compare, 1-30. Default: 5."
+  },
+  "sre.slo.burn_rules[].factor": {
+    "type": "float64",
+    "default": 0,
+    "doc": "Burn rate both windows must reach."
+  },
+  "sre.slo.burn_rules[].long_window": {
+    "type": "string",
+    "default": "",
+    "doc": "Long window, e.g. 1h or 3d."
+  },
+  "sre.slo.burn_rules[].severity": {
+    "type": "string",
+    "default": "",
+    "doc": "Rule severity: page or ticket."
+  },
+  "sre.slo.burn_rules[].short_window": {
+    "type": "string",
+    "default": "",
+    "doc": "Short window, shorter than the long one."
+  },
+  "sre.slo.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Evaluate SLO burn rates for each database: the database proxy SLIs and any registered app SLIs. Read-only. Default: true."
+  },
+  "sre.slo.evaluation_interval_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds between SLO evaluations, 15-600. Default: 60."
+  },
+  "sre.slo.objectives[].bad_query": {
+    "type": "string",
+    "default": "",
+    "doc": "PromQL for bad events over $window (use 'or vector(0)' so zero errors is not absent data)."
+  },
+  "sre.slo.objectives[].database": {
+    "type": "string",
+    "default": "",
+    "doc": "Monitored database the service uses; empty = every database."
+  },
+  "sre.slo.objectives[].description": {
+    "type": "string",
+    "default": "",
+    "doc": "What the SLI measures, shown with its state."
+  },
+  "sre.slo.objectives[].eligible_query": {
+    "type": "string",
+    "default": "",
+    "doc": "PromQL for eligible events over $window."
+  },
+  "sre.slo.objectives[].min_eligible_events": {
+    "type": "float64",
+    "default": 0,
+    "doc": "Fewer eligible events in a window is low traffic (unknown). Default: 50."
+  },
+  "sre.slo.objectives[].name": {
+    "type": "string",
+    "default": "",
+    "doc": "Lower-case name; db_ is reserved for proxies."
+  },
+  "sre.slo.objectives[].owner": {
+    "type": "string",
+    "default": "",
+    "doc": "Team or person who owns the service SLO."
+  },
+  "sre.slo.objectives[].resets_query": {
+    "type": "string",
+    "default": "",
+    "doc": "Optional PromQL counting counter resets over $window."
+  },
+  "sre.slo.objectives[].source": {
+    "type": "string",
+    "default": "",
+    "doc": "Where the counters come from: prometheus or push."
+  },
+  "sre.slo.objectives[].stale_after_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "Pushed samples older than this are stale. Default: 300."
+  },
+  "sre.slo.objectives[].target": {
+    "type": "float64",
+    "default": 0,
+    "doc": "SLO target in (0, 1), e.g. 0.999."
+  },
+  "sre.slo.objectives[].window_days": {
+    "type": "int",
+    "default": 0,
+    "doc": "SLO window in days, 1-90. Default: 30."
+  },
+  "sre.slo.open_investigations": {
+    "type": "bool",
+    "default": true,
+    "doc": "A page-level burn of a registered app SLI opens a read-only slo_burn investigation (a proxy burn only with sre.automatic_start). Default: true."
+  },
+  "sre.slo.prometheus.bearer_token": {
+    "type": "string",
+    "default": null,
+    "doc": "Bearer token; prefer ${ENV} substitution or bearer_token_file.",
+    "secret": true
+  },
+  "sre.slo.prometheus.bearer_token_file": {
+    "type": "string",
+    "default": "",
+    "doc": "File holding the bearer token (e.g. a mounted secret), read at startup."
+  },
+  "sre.slo.prometheus.timeout_seconds": {
+    "type": "int",
+    "default": 5,
+    "doc": "Per-query timeout, 1-60. Default: 5."
+  },
+  "sre.slo.prometheus.url": {
+    "type": "string",
+    "default": "",
+    "doc": "Prometheus-compatible HTTP API base URL (query and query_range). Empty disables the connector."
+  },
+  "sre.slo.proxies.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Database proxy SLIs (latency, server-class errors, connection refusal, replication lag), always labeled proxies. Default: true."
+  },
+  "sre.slo.proxies.latency_factor": {
+    "type": "float64",
+    "default": 3,
+    "doc": "Relative threshold: this times the median interval p95, at least 1. Default: 3."
+  },
+  "sre.slo.proxies.latency_floor_ms": {
+    "type": "float64",
+    "default": 50,
+    "doc": "The relative threshold is never under this. Default: 50."
+  },
+  "sre.slo.proxies.latency_threshold_ms": {
+    "type": "float64",
+    "default": 0,
+    "doc": "Absolute p95 latency threshold; 0 = relative to the database's own last-week median. Default: 0."
+  },
+  "sre.slo.proxies.replication_lag_budget_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Replay lag over this is a bad minute, 1-86400. Default: 60."
+  },
+  "sre.slo.proxies.target": {
+    "type": "float64",
+    "default": 0.99,
+    "doc": "Proxy SLO target, in (0, 0.9999]. Default: 0.99."
+  },
+  "sre.slo.proxies.top_queries": {
+    "type": "int",
+    "default": 20,
+    "doc": "Top queries by interval total time in the latency proxy, 1-100. Default: 20."
+  },
+  "sre.slo.proxies.window_days": {
+    "type": "int",
+    "default": 30,
+    "doc": "Proxy SLO window in days, 1-90. Default: 30."
+  },
+  "sre.slo.push.hmac_secret": {
+    "type": "string",
+    "default": null,
+    "doc": "Shared secret (at least 32 bytes) signing POST /api/v1/sre/sli/{name}. Empty disables pushes.",
+    "secret": true
+  },
+  "sre.slo.push.timestamp_tolerance_seconds": {
+    "type": "int",
+    "default": 300,
+    "doc": "Accepted signature clock skew, 30-3600. Default: 300."
   },
   "sre.timeline_retention_days": {
     "type": "int",

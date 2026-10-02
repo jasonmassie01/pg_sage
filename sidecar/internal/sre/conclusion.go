@@ -50,6 +50,9 @@ func (c Conclusion) validate() error {
 	if err := c.Summary.validateModel(c.Hypotheses, c.State == StateConcluded); err != nil {
 		return err
 	}
+	if err := c.Summary.CustomerImpact.validate(); err != nil {
+		return err
+	}
 	raw, err := json.Marshal(c.Summary)
 	if err != nil || len(raw) > maxSummaryJSON {
 		return fmt.Errorf("%w: summary too large or unencodable", ErrInvalidRequest)
@@ -106,6 +109,9 @@ func (c Conclusion) evidenceRefs() []UUID {
 	}
 	for _, f := range c.Summary.Observed {
 		out = append(out, f.EvidenceID)
+	}
+	if ci := c.Summary.CustomerImpact; ci != nil && ci.EvidenceID != "" {
+		out = append(out, ci.EvidenceID)
 	}
 	return append(out, c.Summary.modelRefs()...)
 }

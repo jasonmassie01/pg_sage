@@ -70,6 +70,7 @@ func Clone(cfg *Config) *Config {
 		[]string(nil), cfg.SchemaLint.ExcludeSchemas...)
 	cp.SchemaLint.DisabledRules = append(
 		[]string(nil), cfg.SchemaLint.DisabledRules...)
+	cloneSRESignals(&cp.SRE, cfg.SRE)
 	return &cp
 }
 
