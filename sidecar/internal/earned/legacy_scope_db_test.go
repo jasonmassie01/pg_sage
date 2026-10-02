@@ -127,3 +127,30 @@ func TestAdoptLegacyStoreFailureIsAnError(t *testing.T) {
 		t.Fatalf("cancelled adoption = %v, want a store error", err)
 	}
 }
+
+// Post-test audit: history recorded before the ledger was per database
+// (no database name) is shown with every database's history, and only
+// a database filter drops it; a filter naming another database is
+// refused.
+func TestHistoryShowsDeploymentWideLegacyEvents(t *testing.T) {
+	orders, billing := fleetPair(t)
+	if _, err := orders.pool.Exec(orders.ctx, `INSERT INTO sage.sre_autonomy_events
+		(deployment_id, family, action_class, event_type, actor, reason)
+		VALUES ($1, 'wal_retention', 'wal_bound', 'downgraded', 'user:1:a@e',
+		        'before database scope')`, orders.store.DeploymentID()); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []*fixture{orders, billing} {
+		evs := f.events(EventFilter{Family: FamilyWAL})
+		if len(evs) != 1 || evs[0].Database != "" || evs[0].Reason != "before database scope" {
+			t.Fatalf("%s history = %+v, want the legacy entry", f.db, evs)
+		}
+		if own := f.events(EventFilter{Family: FamilyWAL, Database: f.db}); len(own) != 0 {
+			t.Fatalf("%s own history = %+v, want none", f.db, own)
+		}
+	}
+	if _, err := orders.svc.History(orders.ctx, EventFilter{Database: "billing"}); !errors.Is(
+		err, ErrInvalidRequest) {
+		t.Fatalf("history filtered to another database = %v", err)
+	}
+}
