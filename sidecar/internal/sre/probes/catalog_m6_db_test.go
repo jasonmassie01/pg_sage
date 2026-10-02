@@ -77,8 +77,7 @@ func TestCatalog_TempFileActivityReadsThisDatabase(t *testing.T) {
 // that backend, attributed to this database.
 func TestCatalog_TempFileHoldersSeesALiveSpill(t *testing.T) {
 	pool, ctx := livePool(t)
-	conn, pid := spillingCursor(t, ctx, pool)
-	defer conn.Release()
+	pid := spillingCursor(t, ctx, pool)
 	res := run(ctx, pool, TempFileHolders)
 	if res.Status == StatusNoPrivilege {
 		t.Skip("pg_ls_tmpdir needs pg_monitor; the test role lacks it")
@@ -99,8 +98,9 @@ func TestCatalog_TempFileHoldersSeesALiveSpill(t *testing.T) {
 	t.Fatalf("pid %d holds a spilled cursor but is not among %+v", pid, hs)
 }
 
-func spillingCursor(t *testing.T, ctx context.Context,
-	pool *pgxpool.Pool) (*pgxpool.Conn, int64) {
+// spillingCursor leaves a session with an open cursor over a spilled
+// sort; cleanup rolls it back and returns the connection.
+func spillingCursor(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int64 {
 	t.Helper()
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
@@ -115,8 +115,11 @@ func spillingCursor(t *testing.T, ctx context.Context,
 		conn.Release()
 		t.Fatalf("spilling cursor: %v", err)
 	}
-	t.Cleanup(func() { _, _ = conn.Exec(context.Background(), "ROLLBACK") })
-	return conn, pid
+	t.Cleanup(func() {
+		_, _ = conn.Exec(context.Background(), "ROLLBACK")
+		conn.Release()
+	})
+	return pid
 }
 
 func TestCatalog_TempSpillStatementsFindsASpillingStatement(t *testing.T) {
@@ -163,6 +166,10 @@ func TestCatalog_TempSpillStatementsUnsupportedWithoutExtension(t *testing.T) {
 		t.Fatalf("connect fresh: %v", err)
 	}
 	t.Cleanup(fresh.Close)
+	// template1 may carry the extension: a database without it is the case.
+	if _, err := fresh.Exec(ctx, "DROP EXTENSION IF EXISTS pg_stat_statements"); err != nil {
+		t.Fatalf("drop extension: %v", err)
+	}
 	res := run(ctx, fresh, TempSpillStatements)
 	if res.Status != StatusUnsupported || res.Reason != "extension_not_installed" ||
 		len(res.Rows) != 0 {
@@ -178,7 +185,8 @@ func TestCatalog_TempSpillStatementsFindsTheExtensionInAnySchema(t *testing.T) {
 		t.Fatalf("connect fresh: %v", err)
 	}
 	t.Cleanup(fresh.Close)
-	if _, err := fresh.Exec(ctx, `CREATE SCHEMA "Odd Schema";
+	if _, err := fresh.Exec(ctx, `DROP EXTENSION IF EXISTS pg_stat_statements;
+		CREATE SCHEMA "Odd Schema";
 		CREATE EXTENSION pg_stat_statements SCHEMA "Odd Schema"`); err != nil {
 		t.Skipf("pg_stat_statements not installable: %v", err)
 	}
