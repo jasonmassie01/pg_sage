@@ -39,15 +39,21 @@ BEGIN
         RETURN NULL; -- a delta is only ever written against a list
     END IF;
     v_nbase := jsonb_array_length(p_base);
+    IF v_nbase = (p_delta->>'n')::int AND NOT (p_delta ?| ARRAY['g', 'i', 'u', 'a', 'd', 'o'])
+    THEN
+        RETURN p_base; -- nothing changed
+    END IF;
     WITH base AS (
         -- g: an increment for every element whose field is an integer.
         SELECT b.ord - 1 AS idx,
-               b.elem || COALESCE((
+               CASE WHEN v_global = '{}' THEN b.elem
+               ELSE b.elem || COALESCE((
                    SELECT jsonb_object_agg(g.key, to_jsonb(
                               (b.elem->>g.key)::numeric + (g.value#>>'{}')::numeric))
                      FROM jsonb_each(v_global) g
                     WHERE jsonb_typeof(b.elem->g.key) = 'number'
-                      AND b.elem->>g.key ~ '^-?(0|[1-9][0-9]*)$'), '{}') AS elem
+                      AND b.elem->>g.key ~ '^-?(0|[1-9][0-9]*)$'), '{}')
+               END AS elem
           FROM jsonb_array_elements(p_base) WITH ORDINALITY b(elem, ord)
     ), incs AS (
         -- i: per element increments, after g.
