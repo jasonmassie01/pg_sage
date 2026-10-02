@@ -20,9 +20,10 @@ type VerifyConfig struct {
 
 	// IO load admission (D6). io_capacity is standalone-only; fleet
 	// databases declare it in databases[].verify.io_capacity.
-	IOBaselineDays int               `yaml:"io_baseline_days" doc:"IO baseline days; 0 disables."`
-	IOSampleDays   int               `yaml:"io_sample_retention_days" doc:"IO sample retention days."`
-	IOCapacity     *IOCapacityConfig `yaml:"io_capacity" doc:"Declared IO capacity (standalone)."`
+	IOBaselineDays  int               `yaml:"io_baseline_days" doc:"IO baseline days; 0 disables."`
+	IOBaselineHours int               `yaml:"io_baseline_hours" doc:"IO baseline hours, 1-8760; when set it takes precedence over io_baseline_days (even 0). 0: use io_baseline_days." warning:"An hour-scale baseline admits index builds on a short load history; the sidecar warns at startup."`
+	IOSampleDays    int               `yaml:"io_sample_retention_days" doc:"IO sample retention days."`
+	IOCapacity      *IOCapacityConfig `yaml:"io_capacity" doc:"Declared IO capacity (standalone)."`
 }
 
 // IOCapacityConfig is an operator attestation of provisioned throughput,

@@ -232,6 +232,13 @@
 | `sre.autonomy.game_days.interval_hours` | `restart` | `-` |
 | `sre.autonomy.game_days.local_dsn` | `restart` | `-` |
 | `sre.autonomy.max_evidence_age_seconds` | `restart` | `-` |
+| `sre.autonomy.promotion.bench_min_precision_pct` | `restart` | `-` |
+| `sre.autonomy.promotion.bench_min_top1_pct` | `restart` | `-` |
+| `sre.autonomy.promotion.min_live_recoveries` | `restart` | `-` |
+| `sre.autonomy.promotion.min_safe_pass_pct` | `restart` | `-` |
+| `sre.autonomy.promotion.shadow_min_accepted_pct` | `restart` | `-` |
+| `sre.autonomy.promotion.shadow_min_reviewed` | `restart` | `-` |
+| `sre.autonomy.promotion.shadow_window_hours` | `restart` | `-` |
 | `sre.autonomy.proposal_ttl_hours` | `restart` | `-` |
 | `sre.autonomy.reconcile_interval_seconds` | `restart` | `-` |
 | `sre.autonomy.safety_window_days` | `restart` | `-` |
@@ -281,6 +288,8 @@
 | `trust.cascade_cooldown_cycles` | `restart` | `-` |
 | `trust.level` | `live_policy` | `trust_policy` |
 | `trust.maintenance_window` | `restart` | `-` |
+| `trust.ramp_moderate_hours` | `restart` | `-` |
+| `trust.ramp_safe_hours` | `restart` | `-` |
 | `trust.ramp_start` | `restart` | `-` |
 | `trust.rollback_cooldown_days` | `restart` | `-` |
 | `trust.rollback_threshold_pct` | `restart` | `-` |
@@ -310,6 +319,7 @@
 | `tuner.work_mem_max_mb` | `restart` | `-` |
 | `value.toil_model_version` | `restart` | `-` |
 | `verify.io_baseline_days` | `restart` | `-` |
+| `verify.io_baseline_hours` | `restart` | `-` |
 | `verify.io_capacity` | `restart` | `-` |
 | `verify.io_sample_retention_days` | `restart` | `-` |
 | `verify.min_gain_pct` | `restart` | `-` |

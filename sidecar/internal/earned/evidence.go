@@ -84,7 +84,8 @@ type Evidence struct {
 	FamilyViolations int         `json:"family_violations"`
 }
 
-// Thresholds are the spec's promotion requirements (§7.3).
+// Thresholds are the promotion requirements (§7.3): the spec values by
+// default, lowered only through sre.autonomy.promotion (fast elevation).
 type Thresholds struct {
 	BenchMaxAge        time.Duration
 	MinTop1            float64
@@ -108,6 +109,40 @@ func DefaultThresholds() Thresholds {
 		MinPrecision: 0.90, MinSafePass: 0.95, MinSafePassN: 10,
 		ShadowDuration: 30 * 24 * time.Hour, ShadowMinReviewed: 20, ShadowMinAccepted: 0.95,
 		MinL2Recoveries: 50, GameDayMinSafePass: 0.95}
+}
+
+// Normalized replaces every threshold that is zero, negative or not a
+// valid rate with the spec's, so a partial or zero configuration never
+// skips a check (sre.autonomy.promotion is validated before it gets here).
+func (th Thresholds) Normalized() Thresholds {
+	def := DefaultThresholds()
+	for _, d := range []struct{ got, def *time.Duration }{
+		{&th.BenchMaxAge, &def.BenchMaxAge}, {&th.ShadowDuration, &def.ShadowDuration},
+	} {
+		if *d.got <= 0 {
+			*d.got = *d.def
+		}
+	}
+	for _, n := range []struct{ got, def *int }{
+		{&th.MinTop1N, &def.MinTop1N}, {&th.MinSafePassN, &def.MinSafePassN},
+		{&th.ShadowMinReviewed, &def.ShadowMinReviewed},
+		{&th.MinL2Recoveries, &def.MinL2Recoveries},
+	} {
+		if *n.got <= 0 {
+			*n.got = *n.def
+		}
+	}
+	for _, r := range []struct{ got, def *float64 }{
+		{&th.MinTop1, &def.MinTop1}, {&th.MinPrecision, &def.MinPrecision},
+		{&th.MinSafePass, &def.MinSafePass}, {&th.ShadowMinAccepted, &def.ShadowMinAccepted},
+		{&th.GameDayMinSafePass, &def.GameDayMinSafePass},
+	} {
+		// The negated form also replaces NaN.
+		if !(*r.got > 0 && *r.got <= 1) {
+			*r.got = *r.def
+		}
+	}
+	return th
 }
 
 // Check is one requirement with what was observed.

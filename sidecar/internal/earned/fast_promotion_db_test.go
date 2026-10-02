@@ -26,11 +26,14 @@ func newFastFixture(t *testing.T) *fixture {
 	return f
 }
 
-// seedFastShadow records three accepted reviews, the first 61 minutes ago.
+// seedFastShadow records four accepted reviews: the first 61 minutes ago
+// (the shadow has run for over an hour) and three inside the 1-hour
+// window (the volume is counted inside the window).
 func (f *fixture) seedFastShadow(family Family) {
 	f.t.Helper()
 	now := f.clock.Now()
-	for i, at := range []time.Duration{61 * time.Minute, 30 * time.Minute, time.Minute} {
+	for i, at := range []time.Duration{61 * time.Minute, 50 * time.Minute,
+		30 * time.Minute, time.Minute} {
 		f.clock.Set(now.Add(-at))
 		if err := f.svc.RecordReview(f.ctx, Review{Database: "db1",
 			InvestigationID: newUUID(f.t), Family: family, Verdict: VerdictAccepted,
@@ -152,7 +155,10 @@ func TestZeroThresholdsTakeTheSpecBar(t *testing.T) {
 	f := newFixture(t)
 	cfg := DefaultConfig()
 	cfg.Now, cfg.EvidenceCacheTTL = f.clock.Now, 0
-	cfg.Thresholds = Thresholds{ShadowDuration: time.Hour} // partial: the rest is zero
+	// Partial: a fast shadow and the spec report age; every promotion
+	// threshold left at zero must take the spec value, not pass.
+	cfg.Thresholds = Thresholds{ShadowDuration: time.Hour,
+		BenchMaxAge: DefaultThresholds().BenchMaxAge}
 	svc, err := NewService(f.store, cfg)
 	if err != nil {
 		t.Fatal(err)

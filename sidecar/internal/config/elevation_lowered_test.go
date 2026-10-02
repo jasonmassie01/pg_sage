@@ -138,12 +138,12 @@ func TestElevationKeysAreRestartBoundAndDocumented(t *testing.T) {
 func TestDocumentedFastElevationProfileLoads(t *testing.T) {
 	root := wave5RepoRoot(t)
 	doc := wave5ReadFile(t, filepath.Join(root, "docs", "configuration.md"))
-	fromDocs := between(t, doc, "<!-- fast-elevation-profile:start -->",
+	fromDocs := textBetween(t, doc, "<!-- fast-elevation-profile:start -->",
 		"<!-- fast-elevation-profile:end -->")
 	fromDocs = strings.TrimPrefix(strings.TrimSpace(fromDocs), "```yaml")
 	fromDocs = strings.TrimSuffix(strings.TrimSpace(fromDocs), "```")
 	example := wave5ReadFile(t, filepath.Join(root, "config.example.yaml"))
-	block := between(t, example, "# --- fast elevation (dogfood) profile: start ---",
+	block := textBetween(t, example, "# --- fast elevation (dogfood) profile: start ---",
 		"# --- fast elevation (dogfood) profile: end ---")
 	var uncommented []string
 	for _, line := range strings.Split(block, "\n") {
@@ -185,7 +185,7 @@ func assertDogfoodProfile(t *testing.T, cfg *Config) {
 	}
 }
 
-func between(t *testing.T, s, start, end string) string {
+func textBetween(t *testing.T, s, start, end string) string {
 	t.Helper()
 	i := strings.Index(s, start)
 	j := strings.Index(s, end)

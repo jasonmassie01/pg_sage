@@ -326,10 +326,31 @@ func validDeadlineOverride(
 	return doc.DeadlineOverrides[deadline.Kind]
 }
 
+// The trust ramp (AI-SRE-SPEC trust model): unattended SAFE actions wait
+// SpecSafeRampAge after the ramp start and MODERATE ones
+// SpecModerateRampAge, unless trust.ramp_*_hours configure another age.
 const (
-	safeRampAge     = 8 * 24 * time.Hour
-	moderateRampAge = 31 * 24 * time.Hour
+	SpecSafeRampAge     = 8 * 24 * time.Hour
+	SpecModerateRampAge = 31 * 24 * time.Hour
+	// MinRampAge is the shortest configured ramp the gate honours.
+	MinRampAge = time.Hour
 )
+
+// rampAge is the ramp an action waits for. Zero or negative configured
+// ages take the spec ramp; a configured ramp never drops below
+// MinRampAge; and an action that cannot be rolled back (anything the
+// earned-autonomy reversibility cap holds below L3) never waits less than
+// the spec ramp, so fast elevation only shortens trust for reversible
+// actions.
+func rampAge(configured, spec time.Duration, rollback RollbackClass) time.Duration {
+	if configured <= 0 {
+		return spec
+	}
+	if reversibilityCap(rollback) < autonomyExecuteLevel {
+		return max(configured, spec)
+	}
+	return max(configured, MinRampAge)
+}
 
 func rampSatisfied(runtime RuntimeState, minimum time.Duration, now time.Time) bool {
 	return !runtime.RampStart.IsZero() && now.Sub(runtime.RampStart) >= minimum
@@ -341,6 +362,9 @@ func tierDecision(runtime RuntimeState, req ActionRequest, now time.Time) Decisi
 			req, blockedAs(VerdictQueueApproval, ReasonApprovalRequired))
 	}
 	trusted := runtime.TrustLevel == TrustAdvisory || runtime.TrustLevel == TrustAutonomous
+	rollback := req.Contract.RollbackClass
+	safeRampAge := rampAge(runtime.SafeRampAge, SpecSafeRampAge, rollback)
+	moderateRampAge := rampAge(runtime.ModerateRampAge, SpecModerateRampAge, rollback)
 	switch req.Contract.RiskTier {
 	case RiskReadOnly:
 		if trusted {

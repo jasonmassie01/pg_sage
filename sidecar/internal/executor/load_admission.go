@@ -167,7 +167,7 @@ func (e *Executor) IndexAdmissionStatus(ctx context.Context) IndexAdmissionStatu
 		MissingEvidence: e.missingAdmissionEvidence(cfg),
 	}
 	if cfg != nil {
-		status.BaselineRequiredDays = float64(cfg.Verify.IOBaselineDays)
+		status.BaselineRequiredDays = cfg.Verify.EffectiveIOBaselineDays()
 	}
 	admission, err := e.indexVerification.Admit(ctx)
 	if errors.Is(err, ErrVerificationUnavailable) && admission.Reason == "" {
@@ -196,7 +196,7 @@ func (e *Executor) missingAdmissionEvidence(cfg *config.Config) []string {
 	if cpuReader == nil {
 		missing = append(missing, "host_cpu")
 	}
-	if cfg == nil || (cfg.Verify.IOCapacity == nil && cfg.Verify.IOBaselineDays <= 0) {
+	if cfg == nil || (cfg.Verify.IOCapacity == nil && cfg.Verify.EffectiveIOBaselineDays() <= 0) {
 		missing = append(missing, "io_capacity_or_baseline")
 	}
 	return missing

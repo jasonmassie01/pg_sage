@@ -55,10 +55,11 @@ func processAutonomy() *autonomyLedgers {
 	return processAutonomyVal
 }
 
-// autonomyServiceConfig maps the operator's settings; the promotion
-// thresholds are the spec's.
+// autonomyServiceConfig maps the operator's settings, the promotion bar
+// included (the spec's unless sre.autonomy.promotion lowers it).
 func autonomyServiceConfig(s config.SREAutonomyConfig) earned.Config {
 	c := earned.DefaultConfig()
+	c.Thresholds = promotionThresholds(s.Promotion)
 	c.ProposalTTL, c.MaxEvidenceAge = s.ProposalTTL(), s.MaxEvidenceAge()
 	c.ConcurrencyWindow, c.SafetyWindow = s.ConcurrencyWindow(), s.SafetyWindow()
 	c.FailoverCooldown = s.FailoverCooldown()

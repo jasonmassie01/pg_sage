@@ -69,6 +69,7 @@ func (e *Executor) standingRuntimeState(
 	state.TrustLevel = cfg.Trust.Level
 	state.Tier3Safe = cfg.Trust.Tier3Safe
 	state.Tier3Moderate = cfg.Trust.Tier3Moderate
+	state.SafeRampAge, state.ModerateRampAge = cfg.Trust.SafeRamp(), cfg.Trust.ModerateRamp()
 	state.InConfiguredWindow = inMaintenanceWindowForPolicy(cfg, time.Now())
 	state.Provider = cfg.CloudEnvironment
 	state.WindowConfigured = strings.TrimSpace(cfg.Trust.MaintenanceWindow) != ""

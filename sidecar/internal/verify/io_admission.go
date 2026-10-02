@@ -136,9 +136,7 @@ func decideBaseline(evidence LoadEvidence, options Options) Admission {
 	switch {
 	case baseline.ObservedDays < options.BaselineDays:
 		admission.Reason = ReasonLearningBaseline
-		admission.Detail = fmt.Sprintf("learning IO baseline: %.1f/%s days",
-			math.Floor(baseline.ObservedDays*10+1e-9)/10,
-			strconv.FormatFloat(options.BaselineDays, 'f', -1, 64))
+		admission.Detail = learningDetail(baseline.ObservedDays, options.BaselineDays)
 	case evidence.Rate.DataBytesPerSec > baseline.DataP50:
 		admission.Reason = ReasonDataIOAboveBaseline
 		admission.Detail = "data IO is above the learned median; waiting for a quiet period"
@@ -149,6 +147,18 @@ func decideBaseline(evidence LoadEvidence, options Options) Admission {
 		admission.OK, admission.Reason = true, ReasonWithinBaseline
 	}
 	return admission
+}
+
+// learningDetail reports baseline progress in days, or in hours for a
+// sub-day baseline (verify.io_baseline_hours).
+func learningDetail(observedDays, requiredDays float64) string {
+	observed, required, unit := observedDays, requiredDays, "days"
+	if requiredDays < 1 {
+		observed, required, unit = observedDays*24, requiredDays*24, "hours"
+	}
+	return fmt.Sprintf("learning IO baseline: %.1f/%s %s",
+		math.Floor(observed*10+1e-9)/10,
+		strconv.FormatFloat(math.Round(required*100)/100, 'f', -1, 64), unit)
 }
 
 // applyCPURule withholds on measured CPU above the ceiling, and admits
