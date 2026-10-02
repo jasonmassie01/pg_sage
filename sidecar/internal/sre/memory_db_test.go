@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // Incident memory against real PostgreSQL. The leakage guard: an
@@ -88,6 +90,29 @@ func TestSimilar_ExcludesWorkConcludedAfterTheStart(t *testing.T) {
 	}
 }
 
+// The same guard when the past incident is only described by its summary
+// (missing evidence, no supported hypothesis): its summary was written
+// after the target started, so it must not be read.
+func TestSimilar_ExcludesSummaryOnlyWorkConcludedAfterTheStart(t *testing.T) {
+	st, _, ctx := liveStore(t, DefaultLimits())
+	blind := newScriptedRunner().script(probes.LockGraph, lockGraphTimeout())
+	c, _ := testCoordinator(t, ctx, st, blind, nil)
+	done := startAndRun(t, ctx, c, lockTrigger("mem-blind-past"))
+	early, _, _ := c.Start(ctx, lockTrigger("mem-blind-early"))
+	target, _, _ := c.Start(ctx, lockTrigger("mem-blind-target"))
+	for _, id := range []UUID{early.ID, target.ID} {
+		if err := c.Investigate(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := st.Get(ctx, target.Scope, target.ID)
+	ids := ids(similarTo(t, st, got))
+	if ids[early.ID] || !ids[done.ID] {
+		t.Fatalf("similar = %v; want the earlier blind investigation %s and not %s, "+
+			"which concluded after the target started", ids, done.ID, early.ID)
+	}
+}
+
 func TestSimilar_OutcomeRecordedAfterTheStartIsHidden(t *testing.T) {
 	st, _, ctx := liveStore(t, DefaultLimits())
 	c, _ := testCoordinator(t, ctx, st, idleChainRunner(), nil)
@@ -131,6 +156,11 @@ func TestSimilar_ExcludesTheSameCaseOrIncident(t *testing.T) {
 	if got[original.ID] || !got[otherIncident.ID] {
 		t.Fatalf("replay retrieved %v; it must not see the original of its own incident",
 			got)
+	}
+	caseReplay := startAndRun(t, ctx, c, Trigger{CaseID: "incident:db:lock:42",
+		Kind: TriggerLock, Subject: "case replay without an incident id"})
+	if got := ids(similarTo(t, st, caseReplay)); got[original.ID] || got[replay.ID] {
+		t.Fatalf("case replay retrieved %v; the same case must be excluded", got)
 	}
 	sameIncident := startAndRun(t, ctx, c, Trigger{CaseID: "operator:replay-42",
 		IncidentID: "42", Kind: TriggerLock, Subject: "operator replay 42"})

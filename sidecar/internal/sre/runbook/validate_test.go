@@ -2,6 +2,7 @@ package runbook
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 )
@@ -77,6 +78,14 @@ var problemCases = []struct {
 	{"window too long", func(d *Definition) {
 		n := node(d, "read_long_tx")
 		n.Probe, n.Args = "sage_actions", &ProbeArgs{WindowSeconds: 7*24*3600 + 1}
+	}, CodeProbeArgs},
+	{"window overflowing a duration", func(d *Definition) {
+		n := node(d, "read_long_tx")
+		n.Probe, n.Args = "sage_actions", &ProbeArgs{WindowSeconds: math.MaxInt64}
+	}, CodeProbeArgs},
+	{"negative window", func(d *Definition) {
+		n := node(d, "read_long_tx")
+		n.Probe, n.Args = "sage_actions", &ProbeArgs{WindowSeconds: -60}
 	}, CodeProbeArgs},
 	{"probe without next", func(d *Definition) { node(d, "read_long_tx").Next = "" },
 		CodeEdge},

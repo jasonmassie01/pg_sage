@@ -77,37 +77,37 @@ func TestRunbookRun_SignedRunbookExtendsThePlan(t *testing.T) {
 // unrunnable are runbook setups that must never run.
 var unrunnable = map[string]func(t *testing.T, ctx context.Context, st *PostgresStore,
 	s Scope){
-		"unsigned draft": func(t *testing.T, ctx context.Context, st *PostgresStore, s Scope) {
-			if _, err := st.CreateRunbook(ctx, s, draftOf(idleRunbook())); err != nil {
-				t.Fatal(err)
-			}
-		},
-		"edited after signing": func(t *testing.T, ctx context.Context, st *PostgresStore,
-			s Scope) {
-			rb := signedRunbook(t, ctx, st, s, idleRunbook())
-			d := idleRunbook()
-			d.Description = "edited"
-			if _, err := st.ReviseRunbook(ctx, s, rb.ID, 1, draftOf(d)); err != nil {
-				t.Fatal(err)
-			}
-		},
-		"retired": func(t *testing.T, ctx context.Context, st *PostgresStore, s Scope) {
-			rb := signedRunbook(t, ctx, st, s, idleRunbook())
-			if _, err := st.RetireRunbook(ctx, s, rb.ID, "user:3"); err != nil {
-				t.Fatal(err)
-			}
-		},
-		"other trigger kind": func(t *testing.T, ctx context.Context, st *PostgresStore,
-			s Scope) {
-			d := idleRunbook()
-			d.Trigger = runbook.Trigger{Kinds: []string{string(TriggerWAL)}}
-			signedRunbook(t, ctx, st, s, d)
-		},
-		"node not open": func(t *testing.T, ctx context.Context, st *PostgresStore, s Scope) {
-			d := idleRunbook()
-			d.Trigger.Nodes = []string{string(causal.InactiveSlot)}
-			signedRunbook(t, ctx, st, s, d)
-		},
+	"unsigned draft": func(t *testing.T, ctx context.Context, st *PostgresStore, s Scope) {
+		if _, err := st.CreateRunbook(ctx, s, draftOf(idleRunbook())); err != nil {
+			t.Fatal(err)
+		}
+	},
+	"edited after signing": func(t *testing.T, ctx context.Context, st *PostgresStore,
+		s Scope) {
+		rb := signedRunbook(t, ctx, st, s, idleRunbook())
+		d := idleRunbook()
+		d.Description = "edited"
+		if _, err := st.ReviseRunbook(ctx, s, rb.ID, 1, draftOf(d)); err != nil {
+			t.Fatal(err)
+		}
+	},
+	"retired": func(t *testing.T, ctx context.Context, st *PostgresStore, s Scope) {
+		rb := signedRunbook(t, ctx, st, s, idleRunbook())
+		if _, err := st.RetireRunbook(ctx, s, rb.ID, "user:3"); err != nil {
+			t.Fatal(err)
+		}
+	},
+	"other trigger kind": func(t *testing.T, ctx context.Context, st *PostgresStore,
+		s Scope) {
+		d := idleRunbook()
+		d.Trigger = runbook.Trigger{Kinds: []string{string(TriggerWAL)}}
+		signedRunbook(t, ctx, st, s, d)
+	},
+	"node not open": func(t *testing.T, ctx context.Context, st *PostgresStore, s Scope) {
+		d := idleRunbook()
+		d.Trigger.Nodes = []string{string(causal.InactiveSlot)}
+		signedRunbook(t, ctx, st, s, d)
+	},
 }
 
 func TestRunbookRun_NeverRunsWithoutAValidSignature(t *testing.T) {
@@ -196,9 +196,17 @@ func TestRunbookRun_StaysWithinTheProbeCeiling(t *testing.T) {
 			Next: "read_prepared"},
 		runbook.Node{ID: "read_prepared", Type: runbook.NodeProbe, Probe: "prepared_xacts",
 			Next: "is_idle"})
-	inv, _ := runIdle(t, ctx, st, idleChainRunner(), func(s Scope) {
+	runner := idleChainRunner()
+	inv, _ := runIdle(t, ctx, st, runner, func(s Scope) {
 		signedRunbook(t, ctx, st, s, d)
 	})
+	runner.mu.Lock()
+	longRuns := runner.calls[probes.LongTransactions]
+	runner.mu.Unlock()
+	if longRuns != 1 {
+		t.Fatalf("long_transactions ran %d times; the plan runs it once and a step over "+
+			"the ceiling must not touch the database", longRuns)
+	}
 	run := inv.Summary.Runbook
 	if inv.ProbeCount != 5 || run == nil || run.Outcome != RunbookProbeBudget ||
 		run.Probes != 1 || run.Proposal != nil ||
@@ -302,5 +310,37 @@ func TestRunbookRun_StaleLeaseRecordsNothing(t *testing.T) {
 		Outcome: RunbookCompleted, Path: []string{"x"}})
 	if !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("record under a stale fence = %v, want ErrLeaseLost", err)
+	}
+}
+
+func TestPickRunbook_OnlyRunnableMostSpecificFirst(t *testing.T) {
+	mk := func(name string, nodes []string, runnable bool) Runbook {
+		d := idleRunbook()
+		d.Name, d.Trigger.Nodes = name, nodes
+		return Runbook{ID: NewUUID(), Runnable: runnable,
+			Latest: RunbookVersion{Name: name, Definition: d}}
+	}
+	open := []string{"idle_in_tx_holder", "ddl_lock_queue"}
+	draft := mk("a draft", []string{"idle_in_tx_holder", "ddl_lock_queue"}, false)
+	general := mk("b general", nil, true)
+	one := mk("c one node", []string{"idle_in_tx_holder"}, true)
+	two := mk("d two nodes", []string{"idle_in_tx_holder", "ddl_lock_queue"}, true)
+	got, ok := pickRunbook([]Runbook{draft, general, one, two}, TriggerLock, open)
+	if !ok || got.ID != two.ID {
+		t.Fatalf("picked %q, want the runnable runbook naming both open nodes",
+			got.Latest.Name)
+	}
+	if got, _ := pickRunbook([]Runbook{draft, one, general}, TriggerLock, open); got.ID != one.ID {
+		t.Fatalf("picked %q, want the one-node runbook over the general one", got.Latest.Name)
+	}
+	twin := mk("a twin", []string{"idle_in_tx_holder"}, true)
+	if got, _ := pickRunbook([]Runbook{one, twin}, TriggerLock, open); got.ID != twin.ID {
+		t.Fatalf("picked %q, want the name tie-break (a twin)", got.Latest.Name)
+	}
+	if _, ok := pickRunbook([]Runbook{draft}, TriggerLock, open); ok {
+		t.Fatal("an unrunnable runbook was picked")
+	}
+	if _, ok := pickRunbook([]Runbook{general}, TriggerWAL, open); ok {
+		t.Fatal("a lock runbook was picked for a WAL investigation")
 	}
 }
