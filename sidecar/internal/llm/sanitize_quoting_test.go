@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Phase 0 #3: E'' strings honour backslash escapes. Treating \' as the end
+// Phase 0 #3: E-strings honour backslash escapes. Treating \' as the end
 // of the literal desynchronised the scanner and exposed the next literal.
 func TestSanitizeForLLMEscapeStringBackslashQuote(t *testing.T) {
 	cases := []string{
@@ -22,7 +22,7 @@ func TestSanitizeForLLMEscapeStringBackslashQuote(t *testing.T) {
 	}
 }
 
-// A comment marker inside an E'' string is literal text, not a comment.
+// A comment marker inside an E-string is literal text, not a comment.
 func TestStripSQLCommentsEscapeStringHidesMarkers(t *testing.T) {
 	in := `SELECT E'\' -- ', 1 FROM t`
 	if got := StripSQLComments(in); got != in {
