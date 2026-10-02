@@ -73,14 +73,15 @@ func TestReplicationLagProxy_NoReplicas(t *testing.T) {
 func insertCapture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, age time.Duration,
 	epoch string, calls [3]int64, totals [3]float64) {
 	t.Helper()
-	for i, qid := range []int64{9001, 9002, 9003} {
-		_, err := pool.Exec(ctx, `INSERT INTO sage.query_store (captured_at, queryid, calls,
-			    total_exec_time, mean_exec_time, stats_epoch)
-			VALUES (now() - $1 * interval '1 second', $2, $3, $4, 0, $5::timestamptz)`,
-			age.Seconds(), qid, calls[i], totals[i], epoch)
-		if err != nil {
-			t.Fatalf("insert capture: %v", err)
-		}
+	// One capture shares one captured_at, as the collector's batch does.
+	_, err := pool.Exec(ctx, `INSERT INTO sage.query_store (captured_at, queryid, calls,
+		    total_exec_time, mean_exec_time, stats_epoch)
+		SELECT now() - $1 * interval '1 second', q.id, q.calls, q.total, 0, $8::timestamptz
+		FROM (VALUES (9001, $2::int8, $5::float8), (9002, $3::int8, $6::float8),
+		             (9003, $4::int8, $7::float8)) AS q(id, calls, total)`,
+		age.Seconds(), calls[0], calls[1], calls[2], totals[0], totals[1], totals[2], epoch)
+	if err != nil {
+		t.Fatalf("insert capture: %v", err)
 	}
 }
 
@@ -190,7 +191,17 @@ func TestErrorProxy(t *testing.T) {
 		}
 	}
 	counter.n = 3
-	s := p.Slice(ctx, time.Now(), fakeHistory{})
+	// Transaction counts reach pg_stat_database asynchronously (backends
+	// flush their statistics when idle), so the slice is polled until the
+	// transactions above are visible.
+	var s ProxySlice
+	for i := 0; i < 40; i++ {
+		s = p.Slice(ctx, time.Now(), fakeHistory{})
+		if s.Eligible >= 3 {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 	if s.Eligible < 3 || s.Bad != 3 || s.Reason != "" {
 		t.Fatalf("slice = %+v", s)
 	}

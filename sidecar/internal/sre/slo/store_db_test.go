@@ -287,7 +287,12 @@ func TestStore_Purge(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	n, err := st.Purge(ctx, scope.DeploymentID, time.Now().Add(-35*24*time.Hour),
+	other := uniqueName("other")
+	if _, err := st.RecordSample(ctx, scope.DeploymentID, other,
+		PushSample{Series: "s", Bad: 0, Eligible: 1, ObservedAt: old}, nil); err != nil {
+		t.Fatal(err)
+	}
+	n, err := st.Purge(ctx, scope, name, time.Now().Add(-35*24*time.Hour),
 		time.Now().Add(-90*24*time.Hour))
 	if err != nil || n < 1 {
 		t.Fatalf("purge n=%d err=%v", n, err)
@@ -296,5 +301,11 @@ func TestStore_Purge(t *testing.T) {
 		time.Now(), 0)
 	if len(aggs) != 1 || aggs[0].Samples != 1 || !aggs[0].First.Equal(fresh.Truncate(time.Microsecond)) {
 		t.Fatalf("after purge = %+v", aggs)
+	}
+	// Another SLO's samples (its window may be longer) are not touched.
+	kept, _ := st.Aggregate(ctx, scope.DeploymentID, other, "", old.Add(-time.Hour),
+		time.Now(), 0)
+	if len(kept) != 1 || kept[0].Samples != 1 {
+		t.Fatalf("purging one SLO deleted another's samples: %+v", kept)
 	}
 }
