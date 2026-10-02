@@ -79,3 +79,17 @@ func forcedShutdownExitCode() int {
 	}
 	return 1
 }
+
+// optimizerGaugeValue is 1 when the index optimizer can run: enabled and
+// its LLM client (dedicated or general) configured. llm.optimizer.enabled
+// defaults to true, so the config value alone does not mean it runs.
+func optimizerGaugeValue() int {
+	if !cfg.LLM.Optimizer.Enabled || llmMgr == nil {
+		return 0
+	}
+	client := llmMgr.ForPurpose("index_optimization")
+	if client == nil || !client.IsEnabled() {
+		return 0
+	}
+	return 1
+}

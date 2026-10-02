@@ -370,12 +370,12 @@ families emitted:
 | `pg_sage_findings_total` | gauge | `severity` | `sage.findings` open by severity |
 | `pg_sage_circuit_breaker_state` | gauge | `breaker` (db/llm) | breaker state |
 | `pg_sage_collector_last_run_timestamp` | gauge | — | latest snapshot |
-| `pg_sage_llm_enabled` | gauge | — | config |
+| `pg_sage_llm_enabled` | gauge | — | client (enabled with endpoint and key) |
 | `pg_sage_llm_circuit_open` | gauge | — | LLM breaker |
 | `pg_sage_llm_tokens_used_today` | gauge | — | client |
 | `pg_sage_llm_tokens_budget_daily` | gauge | — | config |
 | `pg_sage_optimizer_recommendations_total` | gauge | `category` | index findings |
-| `pg_sage_optimizer_enabled` | gauge | — | config |
+| `pg_sage_optimizer_enabled` | gauge | — | optimizer enabled and its LLM client usable (`optimizerGaugeValue`) |
 | `pg_sage_fleet_databases` / `_healthy` / `_findings_total` / `_findings_critical` | gauge | — | fleet summary (`main.go:1959-1991`) |
 | `pg_sage_fleet_instance_findings` / `_instance_health` | gauge | `database` | per-instance |
 | `pg_sage_connections_total` | gauge | `state` | `pg_stat_activity` |

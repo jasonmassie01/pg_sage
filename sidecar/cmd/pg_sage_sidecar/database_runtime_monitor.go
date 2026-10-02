@@ -17,9 +17,7 @@ import (
 // optional analysis feature, then the notification and alerting paths.
 // The analyzer is fully configured before its goroutine starts (G2-B15).
 func (rt *databaseRuntime) startMonitoring() {
-	rt.collector = collector.New(
-		rt.spec.Pool, rt.cfg, rt.pgVersion(), logStructuredWrapper,
-	)
+	rt.collector = rt.newCollector()
 	rt.start(func() { rt.collector.Run(rt.ctx) })
 	rt.note("collector")
 	explain := rt.startAutoExplain()
@@ -50,6 +48,25 @@ func (rt *databaseRuntime) startMonitoring() {
 	}
 	rt.startSchemaLint()
 	rt.startMigrationAdvisor()
+}
+
+// newCollector builds the stats collector. The advisor's configuration
+// snapshot is skipped when no advisor will consume it: advisor.enabled
+// defaults on, but the advisor runs only with a usable LLM.
+func (rt *databaseRuntime) newCollector() *collector.Collector {
+	result := collector.New(
+		rt.spec.Pool, rt.cfg, rt.pgVersion(), logStructuredWrapper,
+	)
+	if !rt.advisorActive() {
+		result.WithoutConfigSnapshots()
+	}
+	return result
+}
+
+// advisorActive reports whether this runtime builds the config advisor:
+// advisor.enabled and an LLM that was usable when the runtime started.
+func (rt *databaseRuntime) advisorActive() bool {
+	return cfg.Advisor.Enabled && rt.llmOn
 }
 
 // startAutoExplain starts the plan collector when auto_explain is enabled.
@@ -114,7 +131,7 @@ func (rt *databaseRuntime) newOptimizer(autoExplain bool) *optimizer.Optimizer {
 // newAdvisor builds the config advisor. It targets the PostgreSQL database
 // name, not the instance name, when it rewrites settings for the provider.
 func (rt *databaseRuntime) newAdvisor() analyzer.ConfigAdvisor {
-	if !cfg.Advisor.Enabled || !rt.llmOn {
+	if !rt.advisorActive() {
 		return nil
 	}
 	result := advisor.New(

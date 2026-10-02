@@ -10,8 +10,9 @@
 
 pg_sage runs as a single Go binary alongside your PostgreSQL instance. It connects
 over the standard wire protocol, collects performance data from catalog views and
-`pg_stat_statements`, projects issues into DBA **Cases**, and optionally uses an
-LLM for deeper analysis. A trust-ramped executor proposes or applies typed
+`pg_stat_statements`, projects issues into DBA **Cases**, and uses an LLM for
+deeper analysis: LLM features are on by default and start once you configure an
+endpoint and API key (until then pg_sage runs its deterministic rules). A trust-ramped executor proposes or applies typed
 actions with guardrails, approval gates, rollback metadata, and a shadow-mode
 report showing what autonomous policy would have handled. Works on Lakebase, Cloud SQL,
 AlloyDB, Aurora, RDS, Neon, Supabase, and self-managed Postgres.

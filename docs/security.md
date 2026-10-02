@@ -109,13 +109,13 @@ pg_sage acquires PostgreSQL advisory lock `710190109` (`hashtext('pg_sage')`) at
 
 ## Network Behavior
 
-### LLM disabled (default)
+### No LLM configured (default)
 
-When `llm.enabled: false` (the default), pg_sage makes **zero outbound network connections** beyond the PostgreSQL connection. All analysis is performed locally using the rules engine.
+LLM features are on by default (`llm.enabled: true`), but a provider is contacted only once both `llm.endpoint` and `llm.api_key` are set. Until then, or with `llm.enabled: false`, pg_sage makes **no LLM requests**: all analysis is performed locally using the rules engine, and startup logs one line saying the LLM is not configured.
 
-### LLM enabled
+### LLM configured
 
-When `llm.enabled: true`, pg_sage makes HTTP POST requests to the configured `llm.endpoint`. These requests contain **metadata only** -- never row data.
+When `llm.enabled: true` and both `llm.endpoint` and `llm.api_key` are set, pg_sage makes HTTP POST requests to the configured `llm.endpoint`. These requests contain **metadata only** -- never row data.
 
 What is sent to the LLM:
 
