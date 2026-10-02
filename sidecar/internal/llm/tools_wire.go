@@ -49,6 +49,18 @@ type toolChatRequest struct {
 	Tools      []wireTool    `json:"tools,omitempty"`
 	ToolChoice string        `json:"tool_choice,omitempty"`
 	MaxTokens  int           `json:"max_tokens,omitempty"`
+	// Set by shaped (wire_compat.go) for models that need them.
+	MaxCompletionTokens int    `json:"max_completion_tokens,omitempty"`
+	ReasoningEffort     string `json:"reasoning_effort,omitempty"`
+}
+
+// shaped returns the request in the given wire shape.
+func (r toolChatRequest) shaped(shape wireShape) toolChatRequest {
+	if shape.completionTokens {
+		r.MaxTokens, r.MaxCompletionTokens = 0, r.MaxTokens
+	}
+	r.ReasoningEffort = shape.effort
+	return r
 }
 
 type toolChatResponse struct {
@@ -112,7 +124,9 @@ func (c *Client) exchangeTools(
 	ctx, requestCtx context.Context, cfg config.LLMConfig,
 	generation uint64, req toolChatRequest, tools []ToolSpec, call Budgeter,
 ) (ToolResult, error) {
-	body, err := json.Marshal(req)
+	limit := req.MaxTokens
+	shape := requestShape(cfg, len(tools) > 0)
+	body, err := json.Marshal(req.shaped(shape))
 	if err != nil {
 		return ToolResult{}, fmt.Errorf("marshal tool request: %w", err)
 	}
@@ -122,12 +136,12 @@ func (c *Client) exchangeTools(
 	}
 	success := false
 	defer func() { c.releaseThrottle(key, success) }()
-	callHeld, err := reserveCall(call, estimateTokens(string(body))+req.MaxTokens)
+	callHeld, err := reserveCall(call, estimateTokens(string(body))+limit)
 	if err != nil {
 		return ToolResult{}, err
 	}
-	reservation, err := c.reserveBudget(cfg, req.MaxTokens,
-		externalReservation(string(body), "", req.MaxTokens))
+	reservation, err := c.reserveBudget(cfg, limit,
+		externalReservation(string(body), "", limit))
 	if err != nil {
 		settleCall(call, callHeld, 0)
 		return ToolResult{}, err
@@ -139,7 +153,7 @@ func (c *Client) exchangeTools(
 			settleCall(call, callHeld, 0)
 		}
 	}()
-	resp, err := c.postTools(ctx, requestCtx, cfg, body)
+	resp, err := c.postToolsAdapting(ctx, requestCtx, cfg, req, shape, len(tools) > 0)
 	if err != nil {
 		return ToolResult{}, err
 	}
@@ -196,10 +210,30 @@ func finishToolResult(
 	return nil
 }
 
+// postToolsAdapting sends the request, re-sending it only when the
+// provider asks for another wire shape (wire_compat.go).
+func (c *Client) postToolsAdapting(
+	ctx, requestCtx context.Context, cfg config.LLMConfig, req toolChatRequest,
+	shape wireShape, tools bool,
+) (*toolChatResponse, error) {
+	var out *toolChatResponse
+	err := c.withAdaptation(cfg, shape, func(s wireShape) error {
+		body, err := json.Marshal(req.shaped(s))
+		if err != nil {
+			return fmt.Errorf("marshal tool request: %w", err)
+		}
+		resp, err := c.postTools(ctx, requestCtx, cfg, body, s, tools)
+		out = resp
+		return err
+	})
+	return out, err
+}
+
 // postTools sends the request once. A 429 is ErrRateLimited; other
 // provider failures feed the circuit breaker as in Chat.
 func (c *Client) postTools(
 	ctx, requestCtx context.Context, cfg config.LLMConfig, body []byte,
+	shape wireShape, tools bool,
 ) (*toolChatResponse, error) {
 	httpReq, err := http.NewRequestWithContext(requestCtx, http.MethodPost,
 		chatEndpoint(cfg.Endpoint), bytes.NewReader(body))
@@ -216,10 +250,12 @@ func (c *Client) postTools(
 		return nil, providerRequestError("LLM tool request", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	return c.decodeToolResponse(resp)
+	return c.decodeToolResponse(resp, cfg, shape, tools)
 }
 
-func (c *Client) decodeToolResponse(resp *http.Response) (*toolChatResponse, error) {
+func (c *Client) decodeToolResponse(
+	resp *http.Response, cfg config.LLMConfig, shape wireShape, tools bool,
+) (*toolChatResponse, error) {
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		c.recordFailure()
@@ -230,9 +266,9 @@ func (c *Client) decodeToolResponse(resp *http.Response) (*toolChatResponse, err
 		return nil, fmt.Errorf("%w (status 429)", ErrRateLimited)
 	}
 	if resp.StatusCode != http.StatusOK {
-		c.recordFailure()
-		return nil, fmt.Errorf("LLM API error %d: %s", resp.StatusCode,
-			redactProviderText(string(respBody)))
+		return nil, c.statusError(cfg, shape, tools, resp.StatusCode, respBody,
+			fmt.Errorf("LLM API error %d: %s", resp.StatusCode,
+				redactProviderText(string(respBody))))
 	}
 	var out toolChatResponse
 	if err := json.Unmarshal(respBody, &out); err != nil {
