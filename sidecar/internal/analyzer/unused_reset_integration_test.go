@@ -94,6 +94,13 @@ func (f *resetFixture) scanIndex(t *testing.T, index, col string) {
 		}
 	}
 	f.waitFor(t, "scans of "+index+" visible", func() bool {
+		if f.version < 150000 {
+			// PG14 sends a backend's counters to the stats collector at most
+			// every 500 ms, when the backend goes idle: keep it cycling.
+			if _, err := conn.Exec(ctx, `SELECT 1`); err != nil {
+				t.Fatalf("report stats: %v", err)
+			}
+		}
 		return f.liveScans(t, index) > 0
 	})
 }
