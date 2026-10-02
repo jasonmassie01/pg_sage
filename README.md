@@ -60,6 +60,7 @@ docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 | Area | What You Get |
 |------|-------------|
 | **Cases Work Queue** | Findings, incidents, migration risks, and action history are projected into ranked DBA cases with why-now context and next actions |
+| **Sage SRE Investigations** | Each lock, connection or WAL incident and plan regression gets a read-only, bounded investigation: catalog probes, a deterministic causal graph and, with an LLM, a validated model review with cited claims. Measured by PGIncidentBench (fault programs plus a 60-case replay corpus). See [permissions and data flow](docs/sage-sre-permissions-and-data-flow.md) |
 | **Incident Playbooks** | Runaway queries, lock blockers, connection exhaustion, WAL/replication risk, and sequence exhaustion become typed diagnostics or reviewed action scripts |
 | **Vacuum/Bloat/Freeze Autopilot** | Table bloat, dead tuples, XID runway, freeze blockers, and per-table autovacuum tuning produce guarded candidates with verification plans |
 | **Query Tuning Beyond Hints** | Query rewrites, broken-hint retirement, `CREATE STATISTICS`, parameterization, and repeated role-level work_mem patterns become reviewable actions with verification steps |
@@ -88,6 +89,7 @@ See the [docs/](docs/) directory for guides and reference:
 - [Architecture](docs/architecture.md) -- component design, goroutine model, data flow
 - [Deployment](docs/deployment.md) -- production hardening, resource sizing
 - [Security](docs/security.md) -- permissions model, network, secrets management
+- [Sage SRE: permissions and data flow](docs/sage-sre-permissions-and-data-flow.md) -- what investigations read, the roles each provider needs, what is sent to the LLM (redaction and fencing), retention, and how to turn each part off
 - [Agent DB Deployments](docs/agent-db-deployments.md) -- agent provisioning, tuning hints, cost, backups, cleanup, and API flow
 - [AgentDB Cloud Provider Setup](docs/runbooks/agentdb-cloud-provider-setup.md) -- AWS, GCP, and Databricks credentials, safety gates, live tests, and cleanup
 - [SQL Reference](docs/sql-reference.md) -- schema tables and diagnostic queries
