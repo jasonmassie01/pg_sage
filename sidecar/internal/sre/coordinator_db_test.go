@@ -162,9 +162,7 @@ func TestCoordinator_TwoCoordinatorsRaceTheSameIncident(t *testing.T) {
 // State transitions: a crash after the first of two steps resumes at the
 // second step on another worker, keeping the first step's evidence.
 func TestCoordinator_ResumesAnOrphanedInvestigationAtTheNextStep(t *testing.T) {
-	limits := DefaultLimits()
-	limits.LeaseTTL = 300 * time.Millisecond
-	st, _, ctx := liveStore(t, limits)
+	st, pool, ctx := liveStore(t, DefaultLimits())
 	runner := leakRunner()
 	c, _ := testCoordinator(t, ctx, st, runner, nil)
 	scope, _ := c.Scope()
@@ -173,13 +171,16 @@ func TestCoordinator_ResumesAnOrphanedInvestigationAtTheNextStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	dead, _ := st.Claim(ctx, scope, inv.ID, NewUUID())
+	dead, err := st.Claim(ctx, scope, inv.ID, NewUUID())
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
 	first := runner.Run(ctx, probes.ConnectionSaturation, probes.Args{})
 	if _, err := st.CommitStep(ctx, dead, step("step-1", StateCollecting, first,
 		runner.Run(ctx, probes.LockGraph, probes.Args{}))); err != nil {
 		t.Fatalf("dead worker step: %v", err)
 	}
-	time.Sleep(600 * time.Millisecond)
+	expireLease(t, ctx, pool, dead)
 	pending, _ := st.Pending(ctx, scope, 10)
 	if len(pending) != 1 || pending[0] != inv.ID {
 		t.Fatalf("pending = %v, want the orphaned investigation", pending)
