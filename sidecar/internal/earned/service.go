@@ -66,9 +66,7 @@ func NewService(store *PostgresStore, cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("%w: no store", ErrUnavailable)
 	}
 	def := DefaultConfig()
-	if cfg.Thresholds == (Thresholds{}) {
-		cfg.Thresholds = def.Thresholds
-	}
+	cfg.Thresholds = cfg.Thresholds.Normalized()
 	for _, d := range []struct{ got, def *time.Duration }{
 		{&cfg.ProposalTTL, &def.ProposalTTL}, {&cfg.MaxEvidenceAge, &def.MaxEvidenceAge},
 		{&cfg.ConcurrencyWindow, &def.ConcurrencyWindow},

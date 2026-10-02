@@ -157,6 +157,8 @@ briefing:
 | `trust.level` | `observation` | Trust tier: `observation`, `advisory`, `autonomous` |
 | `trust.maintenance_window` | (none) | When autonomous MODERATE actions may run; see [Maintenance windows](#maintenance-windows). Unset or `never` closes the window |
 | `trust.ramp_start` | (auto) | Auto-persisted on first start; set to override |
+| `trust.ramp_safe_hours` | `192` | Hours after `ramp_start` before SAFE actions may run unattended (8 days), `1`-`8760`. Actions that cannot be rolled back always wait at least `192` |
+| `trust.ramp_moderate_hours` | `744` | Hours after `ramp_start` before MODERATE actions may run unattended (31 days), `1`-`8760`, at least `ramp_safe_hours`. Actions that cannot be rolled back always wait at least `744` |
 
 The trust model controls what pg_sage is allowed to do:
 
@@ -334,6 +336,7 @@ standing policy's windows, evaluated as the policy gate does).
 | Parameter | Default | Description |
 |---|---|---|
 | `verify.io_baseline_days` | `7` | Days of observation before the learned baseline can admit. `0` disables the learned baseline |
+| `verify.io_baseline_hours` | `0` | Hours of observation instead, `1`-`8760`. When set it takes precedence over `io_baseline_days` (even `0`). `0` uses `io_baseline_days`. See [Fast elevation](#fast-elevation-dogfood-databases) |
 | `verify.io_sample_retention_days` | `14` | Days of rate samples kept in `sage.io_rate_sample`; the rolling baseline covers this window. Must be at least `io_baseline_days` |
 | `verify.io_capacity.read_write_mbps` | (none) | Standalone only. Declared data read+write throughput in MiB/s |
 | `verify.io_capacity.wal_mbps` | (none) | Standalone only. Declared WAL throughput in MiB/s |
@@ -631,7 +634,10 @@ expires after `proposal_ttl_hours`. Promotion to L2 requires all of the followin
 
 Promotion to L3 also needs a Safe Pass rate of at least 95%, and at least 95% on game days if
 any have run. It also needs at least 50 verified recoveries at L2, and the pair must never
-have had a harmful outcome. These thresholds are fixed.
+have had a harmful outcome. These are the spec's thresholds and the defaults; the timing,
+volume and accuracy values can be lowered under `sre.autonomy.promotion` (see
+[Fast elevation](#fast-elevation-dogfood-databases)). The report age (30 days) and the
+minimum bench run counts (10) are fixed.
 
 **Downgrade.** At authorization time, any of the following caps an L2 or L3 pair at L1. The
 change is logged once per transition.
@@ -662,6 +668,13 @@ any time.
 | `sre.autonomy.safety_window_days` | `30` | Days a harmful outcome caps its family, `1`-`365` |
 | `sre.autonomy.failover_cooldown_minutes` | `30` | Minutes after a role change autonomy stays at L1, `1`-`1440` |
 | `sre.autonomy.proposal_ttl_hours` | `168` | Hours a promotion proposal waits for an admin, `1`-`720` |
+| `sre.autonomy.promotion.shadow_window_hours` | `720` | Hours of shadow reviews (from the first) a family needs for L2; reviewed and accepted packets are counted in this window. `1`-`8760` |
+| `sre.autonomy.promotion.shadow_min_reviewed` | `20` | Reviewed packets needed inside the shadow window for L2, `3`-`1000` |
+| `sre.autonomy.promotion.shadow_min_accepted_pct` | `95` | Operator-accepted share of reviewed packets for L2, `50`-`100` |
+| `sre.autonomy.promotion.bench_min_top1_pct` | `80` | PGIncidentBench top-1 on every gated arm for L2, `50`-`100` |
+| `sre.autonomy.promotion.bench_min_precision_pct` | `90` | PGIncidentBench factual (mechanism) precision on every gated arm for L2, `50`-`100` |
+| `sre.autonomy.promotion.min_safe_pass_pct` | `95` | Safe Pass on bench fault programs and game days for L3, `50`-`100` |
+| `sre.autonomy.promotion.min_live_recoveries` | `50` | Verified live L2 recoveries a pair needs for L3, `1`-`10000` |
 | `sre.autonomy.game_days.enabled` | `false` | Run PGIncidentBench fault programs on a disposable clone |
 | `sre.autonomy.game_days.interval_hours` | `168` | Hours between scheduled game days, `24`-`2160` |
 | `sre.autonomy.game_days.local_dsn` | `""` | Development fallback when `clone.provider` is `none`. A monitored database is refused |
@@ -690,6 +703,59 @@ API, under `/api/v1/sre/autonomy`. Every route takes `?database=<name>`.
 
 The UI page is **Advanced > Earned autonomy**. With MCP enabled, agents get
 `sre_get_autonomy` and `sre_downgrade_autonomy`. There is no approval tool.
+
+### Fast elevation (dogfood databases)
+
+pg_sage earns trust before it acts, and by default that takes weeks: an 8-day ramp for SAFE
+actions, 31 days for MODERATE ones, a 7-day IO baseline before autonomous index builds, and a
+30-day shadow record and 50 verified recoveries before earned autonomy reaches L3. On a
+database you are dogfooding you can shorten all of it to hours. Every elevation setting is
+configurable, the spec value is the default, and each has a minimum: no setting accepts `0`
+to skip its check.
+
+Use this only where you accept the risk:
+
+<!-- fast-elevation-profile:start -->
+```yaml
+trust:
+  ramp_safe_hours: 1              # SAFE actions after 1 hour (spec: 192)
+  ramp_moderate_hours: 4          # MODERATE actions after 4 hours (spec: 744)
+verify:
+  io_baseline_hours: 2            # learned IO baseline after 2 hours (spec: 7 days)
+sre:
+  autonomy:
+    evaluate_interval_minutes: 5  # propose promotions every 5 minutes (default: 60)
+    promotion:
+      shadow_window_hours: 4      # 4 hours of shadow reviews (spec: 720)
+      shadow_min_reviewed: 3      # 3 reviewed packets in that window (spec: 20)
+      min_live_recoveries: 3      # 3 verified L2 recoveries for L3 (spec: 50)
+```
+<!-- fast-elevation-profile:end -->
+
+The profile lowers time and volume only. The accuracy bar stays at the spec: 80% top-1,
+90% precision, 95% accepted packets and 95% Safe Pass. Your own `trust.level`,
+`tier3_*`, execution mode and maintenance window still decide what may run at all.
+
+Some limits stay fixed and cannot be configured:
+- Actions that cannot be rolled back (`not_reversible`, `forward_fix_only`,
+  `application_rollback`, `mitigation_only`, `not_applicable` or undeclared) always wait
+  the full 8- or 31-day ramp, however short the configured ramp is.
+- Irreversible classes never go above L1, and L4 is never reached.
+- The emergency stop always wins, and the policy gate and your trust settings stay the
+  outer bound.
+- An admin still approves every promotion.
+- The downgrade signals still apply. A harmful outcome still demotes the family for
+  `safety_window_days`.
+
+Fast elevation is never silent. At startup the sidecar logs a `FAST ELEVATION` WARN line for
+each setting below the spec, including a shorter `io_baseline_days`, `safety_window_days`
+or `evaluate_interval_minutes`. The autonomy API returns them as `fast_elevation`, and
+**Advanced > Earned autonomy** shows a "Fast elevation" badge that lists them. These keys
+are YAML-only and need a restart; the config API refuses them.
+
+To approve a promotion quickly, run `POST /api/v1/sre/autonomy/evaluate` as an operator,
+then `GET /api/v1/sre/autonomy/proposals` and `POST
+/api/v1/sre/autonomy/proposals/{id}/approve` as an admin.
 
 ### Retention
 

@@ -1265,6 +1265,43 @@
     "default": 300,
     "doc": "Evidence older than this caps an action at L1, 5-3600. Default: 300."
   },
+  "sre.autonomy.promotion.bench_min_precision_pct": {
+    "type": "float64",
+    "default": 90,
+    "doc": "PGIncidentBench factual (mechanism) precision on every gated arm for L2, 50-100. Default: 90."
+  },
+  "sre.autonomy.promotion.bench_min_top1_pct": {
+    "type": "float64",
+    "default": 80,
+    "doc": "PGIncidentBench top-1 accuracy on every gated arm for L2, 50-100. Default: 80."
+  },
+  "sre.autonomy.promotion.min_live_recoveries": {
+    "type": "int",
+    "default": 50,
+    "doc": "Verified live recoveries at L2 a pair needs for L3, 1-10000. Default: 50.",
+    "warning": "Lower values let pg_sage auto-execute after fewer verified recoveries."
+  },
+  "sre.autonomy.promotion.min_safe_pass_pct": {
+    "type": "float64",
+    "default": 95,
+    "doc": "Safe Pass on the family's bench fault programs and game days for L3, 50-100. Default: 95."
+  },
+  "sre.autonomy.promotion.shadow_min_accepted_pct": {
+    "type": "float64",
+    "default": 95,
+    "doc": "Operator-accepted share of reviewed packets for L2, 50-100. Default: 95."
+  },
+  "sre.autonomy.promotion.shadow_min_reviewed": {
+    "type": "int",
+    "default": 20,
+    "doc": "Reviewed packets needed inside the shadow window for L2, 3-1000. Default: 20."
+  },
+  "sre.autonomy.promotion.shadow_window_hours": {
+    "type": "int",
+    "default": 720,
+    "doc": "Hours of shadow reviews (from the first review) a family needs for L2, and the window its reviewed and accepted packets are counted in, 1-8760. Default: 720 (30 days).",
+    "warning": "Lower values let pg_sage earn L2 on less operator review."
+  },
   "sre.autonomy.proposal_ttl_hours": {
     "type": "int",
     "default": 168,
@@ -1584,6 +1621,18 @@
     "default": "",
     "doc": "Window for MODERATE auto-actions: always, never, presets (nights, weeknights, weekends), Mon-Fri 01:00-05:00, or cron (1h wide, or @30m). Optional IANA zone: weeknights America/Chicago."
   },
+  "trust.ramp_moderate_hours": {
+    "type": "int",
+    "default": 744,
+    "doc": "Hours after ramp_start before MODERATE actions may run unattended, 1-8760 and at least ramp_safe_hours. Default: 744 (31 days). Actions that cannot be rolled back always wait at least 744.",
+    "warning": "Lower values let pg_sage act sooner after first start; the sidecar warns at startup."
+  },
+  "trust.ramp_safe_hours": {
+    "type": "int",
+    "default": 192,
+    "doc": "Hours after ramp_start before SAFE actions may run unattended, 1-8760. Default: 192 (8 days). Actions that cannot be rolled back always wait at least 192.",
+    "warning": "Lower values let pg_sage act sooner after first start; the sidecar warns at startup."
+  },
   "trust.ramp_start": {
     "type": "string",
     "default": "",
@@ -1733,6 +1782,12 @@
     "type": "int",
     "default": 7,
     "doc": "IO baseline days; 0 disables."
+  },
+  "verify.io_baseline_hours": {
+    "type": "int",
+    "default": 0,
+    "doc": "IO baseline hours, 1-8760; when set it takes precedence over io_baseline_days (even 0). 0: use io_baseline_days.",
+    "warning": "An hour-scale baseline admits index builds on a short load history; the sidecar warns at startup."
   },
   "verify.io_sample_retention_days": {
     "type": "int",

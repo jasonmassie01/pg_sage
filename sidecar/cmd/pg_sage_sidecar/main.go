@@ -193,6 +193,7 @@ func main() {
 		logWarn("startup", "could not parse trust.ramp_start %q, using now()",
 			cfg.Trust.RampStart)
 	}
+	warnFastElevation(cfg, logWarn)
 	if cfg.HasMetaDB() || cfg.IsFleet() {
 		if err := initializeConfigController(pool); err != nil {
 			logError("startup", "config controller: %v", err)
