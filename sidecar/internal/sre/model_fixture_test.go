@@ -172,13 +172,22 @@ func validIdleReview(t *testing.T) func(string) string {
 }
 
 // fixtureEvidence stores results as evidence the way CommitStep does:
-// canonical payload, its hash and a fresh id, in the given order.
+// canonical payload, its hash and a fresh id, in the given order. A
+// result without a time is observed i seconds after the first dated one
+// (or a fixed time), so one investigation's evidence is seconds apart.
 func fixtureEvidence(t *testing.T, results ...probes.Result) []Evidence {
 	t.Helper()
+	base := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	for _, res := range results {
+		if !res.ObservedAt.IsZero() {
+			base = res.ObservedAt
+			break
+		}
+	}
 	out := make([]Evidence, 0, len(results))
 	for i, res := range results {
 		if res.ObservedAt.IsZero() {
-			res.ObservedAt = time.Date(2026, 10, 1, 9, 0, i, 0, time.UTC)
+			res.ObservedAt = base.Add(time.Duration(i) * time.Second)
 		}
 		payload, err := canonicalPayload(res)
 		if err != nil {

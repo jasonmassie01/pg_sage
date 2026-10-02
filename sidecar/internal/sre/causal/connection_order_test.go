@@ -5,15 +5,15 @@ import (
 	"time"
 )
 
-// Contradictory samples (Sage SRE M4, replay corpus): two
-// connection_saturation samples taken at the same instant (or the
-// "second" one before the first) cannot both be true, so growth between
-// them is not evidence. The comparison is invalid and stated as missing
-// evidence, like a restart between the samples (CHECK-07).
+// Contradictory samples (Sage SRE M4, replay corpus): two different
+// connection_saturation samples taken at the same instant cannot both be
+// true, so growth between them is not evidence. (Samples stored out of
+// order are sorted by observation time first, so they still compare.)
+// The comparison is invalid and stated as missing evidence, like a
+// restart between the samples (CHECK-07).
 
 func TestConnections_SamplesAtTheSameInstantAreNotCompared(t *testing.T) {
-	for name, second := range map[string]time.Time{
-		"same instant": t0, "out of order": t0.Add(-2 * time.Second)} {
+	for name, second := range map[string]time.Time{"same instant": t0} {
 		t.Run(name, func(t *testing.T) {
 			d := DiagnoseConnections([]Observation{
 				connObs("E1", t0, 12, group{app: "etl", state: "idle", n: 2}),
