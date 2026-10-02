@@ -4,6 +4,24 @@
 
 ### Added
 
+- **Sage SRE investigations get a model turn (on by default whenever an LLM is
+  configured).** After the causal graph diagnoses an incident, your configured LLM reviews
+  the result. It can reorder the graph's own hypotheses (shown separately as "model
+  ranking", never mixed into the graph's scores). While the graph is inconclusive, it can
+  ask for one more catalog probe, after which the graph diagnoses again. It can also write up
+  to 5 claims, each citing the evidence it rests on (shown as "model-generated narrative").
+  Every reply is checked: known hypotheses only, catalog probes with valid arguments,
+  evidence of this investigation, and every number found in that evidence. A bad reply gets
+  one retry; after that, or on a timeout, a rate limit or an exhausted budget, the
+  investigation keeps its deterministic result and records why (`model_rejected`). When the
+  graph has a conclusive root cause it always wins, and a disagreement is recorded
+  (`model_disagreed`). Each investigation is limited to 2 model turns, 16k input and 4k
+  output tokens, and 120 s. The daily allocation is `llm.token_budget_daily`. Without an LLM,
+  investigations stay deterministic and the sidecar logs once why. To turn it off, set
+  `sre.llm.enabled: false`. Reasoning models (Gemini 2.5+/3, OpenAI o-series, DeepSeek R1)
+  are refused before any request is sent, because their reasoning reserve exceeds the 4k
+  output limit. Use a non-reasoning model for investigations.
+
 - **Wraparound near misses are credited.** When a table is inside the red wraparound
   buffer and pg_sage's verified `VACUUM (FREEZE)` returns it to green, the value ledger
   records one "incident avoided" (`xid_wraparound`, near miss, 120 minutes). Both sides are
@@ -14,6 +32,11 @@
 
 ### Changed (read before upgrading)
 
+- If you already run Sage SRE investigations with an LLM configured, they start using the
+  model turn after the upgrade. To keep them deterministic, set `sre.llm.enabled: false`.
+  At startup, the schema upgrade replaces the event-type check on `sage.sre_events` with
+  `sre_events_event_type_m3`, which allows the three new event types. Existing rows are
+  validated without a long table lock.
 - `disk_full_slot` and `lock_storm` incidents are still not credited. pg_sage does not yet
   measure disk-fill trend or lock-storm recovery, so it makes no claim for them.
 
