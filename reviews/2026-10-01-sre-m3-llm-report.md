@@ -59,6 +59,24 @@ touches. The detail, the export, the API and the MCP read tools, which all rende
 and "Model-proposed probe" after the deterministic sections. Model text is redacted before it
 is stored and again when it is read.
 
+**Reasoning allowance (coordinator decision, second pass).** Thinking models (Gemini
+2.5+/3, OpenAI o-series, DeepSeek R1, QwQ) get an explicit reasoning budget that is separate
+from the unchanged 4k answer ceiling:
+- `llm.ToolOptions.ReasoningTokens` replaces the hard-coded 16384 reserve: `max_tokens` is the
+  answer cap plus the allowance. 0 keeps today's request for every existing caller, and `Chat`
+  is untouched. Non-thinking models never get a reserve.
+- `sre.Limits.MaxReasoningTokens` has the ceiling `CeilingReasoningTokens = 16384` per
+  investigation and is validated in [1, 16384].
+- A thinking-model turn reserves input 8000, answer 2000 and reasoning 8192 durably (new
+  `reasoning_reserved` / `reasoning_used` ledger columns) and requests `max_tokens` 10192.
+- The per-investigation and daily checks count reasoning. Unknown outcomes hold it in full,
+  and settled rows hold what the provider reported. The split uses the provider's
+  prompt/completion/`reasoning_tokens` breakdown, or total above prompt + completion for
+  Gemini.
+- An overrun is recorded as reported, flagged `ErrUsageExceeded`, and refuses any later turn
+  that would exceed 16384.
+- AI-SRE-SPEC §11 records the allowance in one sentence.
+
 **Config.** `sre.llm.enabled` defaults to **true** (YAML only, restart lifecycle). With an LLM
 configured, investigations use the model. With none, the sidecar logs one line saying why. Set
 `false` to turn the model turn off. Config metadata, the lifecycle reference and
@@ -81,7 +99,10 @@ consistency test.
 | Coordinator wiring | `sidecar/internal/sre/coordinator.go`, `worker.go`, `plan.go` |
 | Export | `sidecar/internal/sre/export.go`, `export_model.go` |
 | Probe arg check | `sidecar/internal/sre/probes/check_args.go` |
-| Schema M3 (event types) | `sidecar/internal/schema/sre_m3_migration.go`, `bootstrap.go` |
+| Reasoning allowance (llm) | `sidecar/internal/llm/tools.go`, `tools_wire.go`, `repair.go` |
+| Reasoning budget (sre) | `sidecar/internal/sre/limits.go`, `store.go`, `budget.go`, `postgres_budget.go`, `model_turn.go` |
+| Schema M3 (event types, reasoning columns) | `sidecar/internal/schema/sre_m3_migration.go`, `bootstrap.go` |
+| Spec | `reviews/2026-09-26/AI-SRE-SPEC.md` §11 |
 | Config | `sidecar/internal/config/sre.go`, `sidecar/web/src/generated/config_meta.json`, `docs/generated/config-lifecycles.md`, `docs/configuration.md` |
 | Runtime wiring | `sidecar/cmd/pg_sage_sidecar/database_runtime_sre.go`, `sre_model_wiring.go` |
 | Changelog | `CHANGELOG.md` (Unreleased: Added + upgrade note) |
@@ -111,24 +132,26 @@ consistency test.
 
 **Command:** `go test -cover -count=1 -v ./...` (Docker `golang:1.25`, cgo, repo root mounted,
 PG17, `GEMINI_API_KEY` unset)
-**Total:** 8747 passed, 1 failed, 12 skipped (top-level tests and subtests). The one failure is a
-pre-existing flake in an untouched package (see Failures). Two test-only commits came after this
-run (the keep-alive test and the PG18 schema-test fix). Their packages were re-run on PG14-18
-and pass.
+**Total (final run, after the reasoning allowance):** 8798 passed, 1 failed, 12 skipped
+(top-level tests and subtests), 67 packages ok. The one failure is the same pre-existing analyzer
+flake in an untouched package (see Failures). The first run, before the reasoning work, had
+8747 passed, 1 failed (the same flake) and 12 skipped.
 
-**Matrix and race detector:** `./internal/sre/... ./internal/schema/` on PG14, 15, 16 and 18:
-385 passed, 0 failed, 0 skipped on each (after the PG18 test fix below).
-`go test -race -count=1 ./internal/sre/... ./internal/schema/` and
-`-run SRE ./cmd/pg_sage_sidecar/` (PG17): ok.
+**Matrix and race detector:** `./internal/sre/... ./internal/llm/ ./internal/schema/` on PG14,
+15, 16 and 18: 587 passed, 0 failed, 1 skipped on each (the env-gated live LLM test). The first
+PG16 run had one timeout flake (see Failures), and two re-runs passed.
+`go test -race -count=1 ./internal/sre/... ./internal/llm/ ./internal/schema/` (PG17): ok.
+`-race -run SRE ./cmd/pg_sage_sidecar/`: ok.
 **Lint:** `golangci-lint run ./...`: 0 issues. **gofmt:** clean on every changed file.
 
-**Coverage (touched packages):**
+**Coverage (touched packages, final PG17 run):**
 
 | Package | Coverage |
 |---|---|
-| internal/sre | 87.4% (PG17 full run), 87.7% (PG14-18 after the keep-alive test) |
+| internal/sre | 88.0% |
+| internal/llm | 90.5% |
 | internal/sre/causal | 95.7% |
-| internal/sre/probes | 90.2% |
+| internal/sre/probes | 89.5% |
 | internal/schema | 81.6% |
 | internal/config | 87.5% |
 | internal/store | 74.2% |
@@ -155,6 +178,11 @@ is below threshold.
   the analyzer is untouched, and the package passed twice when re-run alone. A sibling test
   (`preflight_evidence_test.go:102`) drops and re-creates the extension, which races with the
   other tests under load.
+- internal/sre `TestStore_OperatorVersionPreconditions` (an existing M1 test) failed once after
+  30.03 s on PG16. That run had sre, llm and schema running in parallel, and 30 s matches
+  `schema.bootstrapLockTimeout`: the schema package's destructive tests hold the
+  cross-package bootstrap lock. Two re-runs of the same command and two sre-only runs on PG16
+  passed. This is lock contention between test packages, not a product failure.
 
 ### Coverage gaps
 None below threshold.
@@ -168,12 +196,18 @@ None below threshold.
    `needs_evidence` would replay the step key `evaluate` (an idempotent no-op), stay
    `collecting`, and fail `Conclude` with an invalid transition until its active time ran out.
    The key is now per claim. `TestCollect_ResumeAfterNeedsEvidenceConcludes` covers it.
-3. **[LIMITATION, pinned by a test]** Reasoning models (Gemini 2.5+/3, OpenAI o-series,
-   DeepSeek R1) never get a model turn. `llm.normalizedMaxTokens` adds 16384 to `max_tokens`,
-   which exceeds the 4k output ceiling (a DB CHECK). Each turn is refused before dispatch with
-   `budget_exhausted`. `TestModelTurn_ReasoningModelRefusedBeforeDispatch` pins this. **It
-   matters now that the turn is on by default and the house LLM is Gemini.** See "Left for
-   later".
+3. **[BUG, fixed in the second pass]** Reasoning models (Gemini 2.5+/3, OpenAI o-series,
+   DeepSeek R1) never got a model turn. `llm.normalizedMaxTokens` added 16384 to
+   `max_tokens`, more than the turn's reservation, so every turn was refused before dispatch
+   with `budget_exhausted`. A first-pass test pinned the limitation. That test was replaced in
+   the tests-first commit `56fa38c`, and the separate reasoning allowance fixes the bug
+   (`0531131`, `d045bd3`, `d3c501d`).
+4. **[BUG, test logic] Reasoning daily tests.** Both new daily-allocation tests made the
+   *deployment* allocation tight. Every test in the package shares one deployment and its UTC
+   day, so other tests had already used it up (139546 held). The first reservation was refused,
+   and the investigator case would have passed for the wrong reason. The tests now make the
+   database allocation (a fresh scope) the tight one (`a6be04d`, with the reason in the
+   message).
 
 Every test passed on its first run, which CLAUDE.md treats as suspicious. So I mutated the
 implementation (27 mutants) and checked which ones the suite caught. Eight survived. Seven of them (verifier
@@ -182,6 +216,15 @@ evidence, client disabled mid-call, redaction at storage, fencing of evidence) n
 fails against them (`model_gaps_db_test.go`, commit `f0e8f5c`), plus a heartbeat test
 (`model_keepalive_db_test.go`). One mutant is equivalent: removing the run-cancelled check in
 `call` ends the same way, because the next store call fails on the cancelled context.
+
+The reasoning code was mutated the same way: 13 mutants (the allowance in `toolMaxTokens` and
+its thinking-model gate, the session's thinking-model switch both ways, per-investigation
+reasoning cap, daily total, overrun flag, per-call budget limit, usage split, passing the
+allowance to the client, the limit's upper bound, the early request cap, and settled-usage
+charging). 12 were killed. The one survivor is equivalent: dropping the early
+`req.Reasoning > MaxReasoningTokens` check in `validateTokens` still gets the same
+`ErrBudgetExhausted` from `checkBudgets`. The check stays because it mirrors the input/output
+pre-checks and fails before the advisory lock and transaction.
 
 ## Post-test audit
 
@@ -195,10 +238,14 @@ fails against them (`model_gaps_db_test.go`, commit `f0e8f5c`), plus a heartbeat
      samples still fit.
    - Plan- and WAL-family investigations with the model on. Only the lock and connection
      families are driven end to end.
-   - Usage over the reservation (`ErrUsageExceeded` with a reply), `cooldown` and
-     `invalid_request` classification.
+   - `cooldown` and `invalid_request` classification. Usage over the reservation with a reply
+     is now covered by `TestReasoningModel_OverrunRecordedAndRefusesSecondTurn`.
    - Homoglyph node ids. They are rejected as `unknown_node` by construction, but no test
      sends one.
+   - Real reasoning-usage shapes. The split assumes OpenAI's
+     `completion_tokens_details.reasoning_tokens`, or Gemini's total above prompt +
+     completion. It is unverified against live Gemini 2.5/3. An o-series reply without the
+     details field attributes reasoning to the answer and is flagged as an overrun. Not tested.
 2. **Behaviour no assertion covers.** The per-turn timeout as `min(ModelTimeout, remaining
    active time)` when the remaining time is the smaller (only the cap side and "no time" are
    tested). The content of the `detail` field in rejection events. The text of the log line
@@ -237,9 +284,8 @@ fails against them (`model_gaps_db_test.go`, commit `f0e8f5c`), plus a heartbeat
   enabled).
 
 ## Left for later
-- **Reasoning-model support.** This is the top item, because Gemini 2.5+ never gets a turn
-  today. Either let `ToolOptions` set the reasoning reserve or disable thinking for the SRE
-  turn, or decide (spec owner) whether the 4k output ceiling should exclude reasoning tokens.
+- A live `PG_SAGE_LIVE_LLM` check of the reasoning-usage breakdown on Gemini 2.5/3 (see the
+  post-test audit).
 - An LLM-on arm in PGIncidentBench, with a fake model in CI and a real one behind
   `PG_SAGE_LIVE_LLM` (integration step).
 - Cases panel UI (`web/src/pages/cases/InvestigationPanel.jsx`) for the model ranking,
