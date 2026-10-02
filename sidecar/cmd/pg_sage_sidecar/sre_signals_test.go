@@ -205,6 +205,9 @@ func burnInvestigations(t *testing.T, r signalsRig) int {
 
 func TestSRESignals_PagePolicy(t *testing.T) {
 	settings := sloSettings()
+	// The first half checks the behaviour with automatic start off, which
+	// is no longer the default (M4 turned it on).
+	settings.AutomaticStart = false
 	r := signalsFixture(t, settings)
 	if len(r.sig.probes()) != 2 {
 		t.Fatalf("signal probes = %d, want change_feed and slo_status", len(r.sig.probes()))
