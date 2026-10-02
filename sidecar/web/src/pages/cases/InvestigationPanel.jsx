@@ -1,12 +1,17 @@
 import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
 import { useToast } from '../../components/Toast'
+import { ModelOutput } from './InvestigationModel'
+import { InvestigationTimeline } from './InvestigationTimeline'
 
 // Sage SRE investigation of a case (AI-SRE-SPEC §9): impact and state,
 // observed facts, the likely explanation, other and ruled-out
 // explanations with their reasons, missing evidence, the next check, and
-// the evidence itself. Every claim links to the exact evidence item.
-// Investigations are read-only: operators may only pin and export.
+// the evidence itself. Every claim links to the exact evidence item. The
+// model turn's output (ranking, cited claims, proposed probe) is shown
+// apart from the graph's scores, and the timeline lists every event,
+// model fallbacks and disagreements included. Investigations are
+// read-only: operators may only pin and export.
 
 const STATE_TONES = {
   concluded: { label: 'Concluded', tone: 'concluded', color: 'var(--green, #16a34a)' },
@@ -94,9 +99,12 @@ function InvestigationDetail({ database, id, user }) {
         hypotheses={byStatus('unproven')} empty="None." onCite={cite} />
       <HypothesisSection title="Ruled out" testid="investigation-ruled-out"
         hypotheses={byStatus('ruled_out')} empty="None." onCite={cite} />
+      <ModelOutput investigation={data.investigation} hypotheses={hs}
+        evidence={data.evidence} onCite={cite} />
       <MissingEvidence missing={summary.missing || []} />
       <NextCheck root={likely[0]} />
       <EvidenceList evidence={data.evidence || []} openID={openEvidence} />
+      <InvestigationTimeline path={basePath(database, id)} />
       {canOperate(user) && (
         <OperatorControls database={database} investigation={data.investigation}
           onDone={refetch} />
