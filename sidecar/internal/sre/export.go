@@ -64,8 +64,8 @@ func (s *Service) ExportMarkdown(ctx context.Context, id UUID) (string, error) {
 	fmt.Fprintf(&b, "# Investigation %s\n\n", inv.ID)
 	fmt.Fprintf(&b, "- Schema: %s\n- Database: %s\n- Trigger: %s (%s)\n- State: %s\n",
 		doc.SchemaVersion, doc.Database, inv.TriggerKind, inv.Subject, inv.State)
-	fmt.Fprintf(&b, "- Case: %s\n- Event chain verified: %t\n\n", inv.CaseID,
-		doc.ChainVerified)
+	fmt.Fprintf(&b, "- Case: %s\n- Event chain verified: %t\n- Model turns: %d\n\n",
+		inv.CaseID, doc.ChainVerified, inv.ModelTurns)
 	if inv.Summary.Reason != "" {
 		fmt.Fprintf(&b, "Outcome: %s\n\n", inv.Summary.Reason)
 	}
@@ -74,6 +74,7 @@ func (s *Service) ExportMarkdown(ctx context.Context, id UUID) (string, error) {
 	writeHypotheses(&b, "Likely explanation", latest, HypothesisRoot, HypothesisContributing)
 	writeHypotheses(&b, "Other explanations", latest, HypothesisUnproven)
 	writeHypotheses(&b, "Ruled out", latest, HypothesisRuledOut)
+	writeModel(&b, inv.Summary)
 	b.WriteString("## Missing evidence\n\n")
 	for _, m := range inv.Summary.Missing {
 		fmt.Fprintf(&b, "- %s: %s %s\n", m.ProbeID, m.Status, m.Reason)
