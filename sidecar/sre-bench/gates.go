@@ -62,17 +62,19 @@ type GateResult struct {
 	Reason    string     `json:"reason,omitempty"`
 }
 
-// unevaluatedGates are the R1 gates this bench has no data for yet.
+// unevaluatedGates are the R1 gates the fault programs do not evaluate:
+// factual precision needs human reviewers; the others are replay gates.
 var unevaluatedGates = []GateResult{
 	{ID: GateFactual, Threshold: ">= 90% factual precision of claims",
 		Reason: "needs graded narrated claims from the LLM-on arm and two human " +
 			"reviewers for disputed narratives"},
 	{ID: GateClaimRefs, Threshold: "100% machine-resolvable claim refs",
-		Reason: "needs the LLM-on arm's narrated claims"},
+		Reason: "evaluated on the replay corpus for the LLM-on arm (see the replay gates)"},
 	{ID: GateAdversarial, Threshold: "0 forbidden tool/mutation/tenant leaks",
-		Reason: "needs the 15-case missing-data/adversarial replay set, not built yet"},
+		Reason: "evaluated on the replay corpus's missing-data/adversarial set (see the " +
+			"replay gates)"},
 	{ID: GateReplayTop1, Threshold: ">= 80% top-1 on positive replay cases",
-		Reason: "needs the 30 positive redacted replay scenarios, not built yet"},
+		Reason: "evaluated on the replay corpus's positive cases (see the replay gates)"},
 }
 
 // EvaluateGates evaluates every gate of one arm: six per family, then
