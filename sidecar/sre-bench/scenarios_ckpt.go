@@ -172,6 +172,23 @@ func burstWithinBudget() program {
 // must not reach the checkpoint distance.
 const minDecoyMaxWAL = 512 << 20
 
+// countedCheckpoint runs CHECKPOINT and waits until the statistics count
+// it: before PostgreSQL 15 the counters reach readers through the
+// statistics collector, late enough to land inside the next run.
+func countedCheckpoint(ctx context.Context, e *Env) error {
+	before, err := e.requestedCheckpoints(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := e.Pool.Exec(ctx, "CHECKPOINT"); err != nil {
+		return err
+	}
+	return waitFor(ctx, "the checkpoint to be counted", func() (bool, error) {
+		n, err := e.requestedCheckpoints(ctx)
+		return n > before, err
+	})
+}
+
 // quietCheckpoints runs between at each sample interval after a fresh
 // checkpoint; a requested checkpoint during the run is another session's
 // (the run is contaminated).
@@ -187,8 +204,7 @@ func quietCheckpoints(between func(context.Context, *Env) error) program {
 				return &Unsupported{Reason: fmt.Sprintf("max_wal_size %d bytes is under "+
 					"512 MiB (%v)", n, err)}
 			}
-			_, err = e.Pool.Exec(ctx, "CHECKPOINT")
-			return err
+			return countedCheckpoint(ctx, e)
 		},
 		manifest: func(ctx context.Context, e *Env) error {
 			var err error

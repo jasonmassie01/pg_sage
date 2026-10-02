@@ -79,7 +79,7 @@ func (e *Env) stableCheckpoints(ctx context.Context) (int, error) {
 		settled := cur == prev
 		prev = cur
 		if !settled {
-			time.Sleep(250 * time.Millisecond)
+			time.Sleep(600 * time.Millisecond) // past the PG14 collector's 500 ms
 		}
 		return settled, nil
 	})
