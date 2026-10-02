@@ -3,7 +3,6 @@ package causal
 import (
 	"fmt"
 	"sort"
-	"time"
 
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -57,12 +56,16 @@ type connComparison struct {
 	valid       bool
 }
 
-// DiagnoseConnections scores the connection pressure hypotheses.
+// DiagnoseConnections scores the connection pressure hypotheses, with
+// pool exhaustion at an external pooler when its telemetry was collected
+// (and the telemetry stated missing when it was not).
 func DiagnoseConnections(obs []Observation) Diagnosis {
 	samples, missing := connSamples(obs)
+	pooler := poolerSamples(obs)
 	if len(samples) == 0 {
 		return Diagnosis{Family: FamilyConnections, GraphVersion: GraphVersion,
-			Missing: missing, Reason: "connection evidence unavailable"}
+			Missing: append(missing, pooler.missing...),
+			Reason:  "connection evidence unavailable"}
 	}
 	cmp, reason := compareConn(samples)
 	if reason != "" {
@@ -74,9 +77,12 @@ func DiagnoseConnections(obs []Observation) Diagnosis {
 	leakApp := growthApp(cmp, fanApp)
 	hs := []Hypothesis{scoreFanOut(cmp, fanApp), scoreBacklog(last, obs),
 		scoreLeak(cmp, leakApp)}
+	if h, ok := scorePooler(pooler); ok {
+		hs = append(hs, h)
+	}
 	d := rankWith(FamilyConnections, hs, leakBaseline(fanApp, leakApp))
-	d.Missing = missing
-	d.Observed = saturation(last)
+	d.Missing = append(missing, pooler.missing...)
+	d.Observed = append(saturation(last), poolerFacts(pooler)...)
 	return d
 }
 
@@ -125,9 +131,10 @@ func unavailableReason(o Observation, err error) string {
 }
 
 // compareConn decides whether growth between the samples is meaningful:
-// it needs two samples of the same server incarnation (CHECK-07), taken
-// at different instants (two samples of one instant that differ
-// contradict each other).
+// it needs two samples of the same server incarnation (CHECK-07: no
+// restart, failover or other server between them), taken at different
+// instants (two samples of one instant that differ contradict each
+// other). A sample without its start time cannot be matched.
 func compareConn(samples []connSample) (connComparison, string) {
 	c := connComparison{first: samples[0], last: samples[len(samples)-1]}
 	if len(samples) < 2 {
@@ -136,21 +143,25 @@ func compareConn(samples []connSample) (connComparison, string) {
 	if !c.last.obs.Result.ObservedAt.After(c.first.obs.Result.ObservedAt) {
 		return c, "samples_out_of_order"
 	}
-	a, b := sampleServerStart(c.first), sampleServerStart(c.last)
-	if a.IsZero() || b.IsZero() || !a.Equal(b) {
-		return c, "server_restarted"
+	a, b := sampleIdentity(c.first), sampleIdentity(c.last)
+	if reason := identityChange(a, b); reason != "" {
+		return c, reason
+	}
+	if a.StartedAt.IsZero() || b.StartedAt.IsZero() {
+		return c, ReasonServerRestarted
 	}
 	c.valid = true
 	return c, ""
 }
 
-func sampleServerStart(s connSample) time.Time {
+// sampleIdentity is the server incarnation that produced the sample.
+func sampleIdentity(s connSample) probes.ServerIdentity {
 	for _, g := range s.groups {
-		if !g.ServerStartedAt.IsZero() {
-			return g.ServerStartedAt
+		if !g.Identity.IsZero() {
+			return g.Identity
 		}
 	}
-	return time.Time{}
+	return probes.ServerIdentity{}
 }
 
 // busiestIdle is this database's application with the most idle

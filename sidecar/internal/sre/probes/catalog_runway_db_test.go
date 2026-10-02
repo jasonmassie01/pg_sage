@@ -292,10 +292,15 @@ func TestCatalog_WALRunwayReadsPositionAndSettings(t *testing.T) {
 		t.Fatalf("settings: %v", err)
 	}
 	if after.MaxWALSize != float64(maxWAL) || after.MaxSlotWALKeepSize != float64(slotKeep) ||
-		after.SegmentSize != float64(segment) || after.DatabaseBytes < float64(dbSize) ||
-		after.UnreadableDatabases != 0 || after.InRecovery {
-		t.Fatalf("wal runway = %+v (max_wal %d, slot keep %d, db %d)", after, maxWAL,
-			slotKeep, dbSize)
+		after.SegmentSize != float64(segment) || after.InRecovery {
+		t.Fatalf("wal runway = %+v (max_wal %d, slot keep %d)", after, maxWAL, slotKeep)
+	}
+	// The databases' size is the shared cluster_database_size measurement.
+	bytes, unreadable, err := ClusterSizeOf(catalogRun(t, ctx, pool,
+		ClusterDatabaseSizeProbe, Args{}))
+	if err != nil || bytes < float64(dbSize) || unreadable != 0 {
+		t.Fatalf("cluster size = %v %v (%v), want at least this database (%d)", bytes,
+			unreadable, err, dbSize)
 	}
 }
 

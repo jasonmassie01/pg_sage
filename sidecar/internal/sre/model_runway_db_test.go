@@ -64,7 +64,7 @@ func TestModelTurn_RunwayReviewStoredBesideTheGraph(t *testing.T) {
 	}
 	body := m.body(t, 0)
 	if !strings.Contains(body, "sequence_runway incident (trigger sequence_runway), "+
-		"causal graph causal-v3") {
+		"causal graph causal-v4") {
 		t.Fatalf("prompt does not name the runway family and graph: %s", body)
 	}
 	r := inv.Summary.ModelRanking

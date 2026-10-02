@@ -22,16 +22,24 @@ func r1IDs() []ID {
 		ReplicationSlots, WALCheckpoint, AutovacuumWraparound,
 		VacuumProgress, PlanRegressions, Archiver, SageActions,
 		XIDRunwayProbe, WraparoundTablesProbe, XminHorizon, AutovacuumCancellations,
-		WALRunwayProbe, WALDirectoryProbe, SequenceRunwayProbe, RunwayTrendsProbe}
+		WALRunwayProbe, WALDirectoryProbe, SequenceRunwayProbe, RunwayTrendsProbe,
+		ClusterDatabaseSizeProbe}
 }
 
 // specVersion is each probe's expected version: connection_saturation
-// is v2 since M2 added the server start time (a restart between two
-// samples invalidates the comparison, CHECK-07); replication_lag is v2
-// since M6 split the lag into send, flush and replay backlogs; sequence_runway
-// is v2 since dogfood lifeos-1 bounded it and added its coverage counts.
+// is v3 (M2 added the server start time, the follow-ups the full server
+// identity: a restart or failover between two samples invalidates the
+// comparison, CHECK-07), replication_slots and wal_checkpoint are v2
+// (the same identity); replication_lag is v2 since M6 split the lag into
+// send, flush and replay backlogs; wal_runway is v2 since the fleet dedupe
+// moved the databases' size to cluster_database_size; sequence_runway is v2
+// since dogfood lifeos-1 bounded it and added its coverage counts.
 func specVersion(id ID) string {
-	if id == ConnectionSaturation || id == ReplicationLag || id == SequenceRunwayProbe {
+	switch id {
+	case ConnectionSaturation:
+		return "v3"
+	case ReplicationLag, ReplicationSlots, WALCheckpoint, WALRunwayProbe,
+		SequenceRunwayProbe:
 		return "v2"
 	}
 	return "v1"

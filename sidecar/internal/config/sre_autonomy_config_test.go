@@ -10,8 +10,8 @@ import (
 // Sage SRE M7 config (sre.autonomy.*): the earned-autonomy ledger is
 // enforced by default; game days are off by default; intervals have
 // validated defaults that an absent file, a partial section or explicit
-// zeros cannot mask. Promotion thresholds are the spec's and are not
-// configurable.
+// zeros cannot mask. Promotion thresholds are the spec's by default and
+// configurable only under sre.autonomy.promotion (elevation_config_test.go).
 
 func TestSREAutonomyDefaults_NoConfigFile(t *testing.T) {
 	chdirTemp(t)
@@ -123,7 +123,7 @@ func TestSREAutonomy_UnknownKeyRejected(t *testing.T) {
 		t.Fatal("a misspelled sre.autonomy key was accepted")
 	}
 	if _, err := loadRCAYAML(t, "sre:\n  autonomy:\n    min_top1: 0.5\n"); err == nil {
-		t.Fatal("promotion thresholds must not be configurable")
+		t.Fatal("a promotion threshold outside sre.autonomy.promotion was accepted")
 	}
 }
 

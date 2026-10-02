@@ -3,6 +3,7 @@ package sre
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/sre/causal"
@@ -70,7 +71,8 @@ func signalIDs(signals []SignalProbe) []probes.ID {
 }
 
 // addSignals is a family's plan with the signal probes added to
-// its first step (the change feed over the action window).
+// its first step (the change feed over the action window). The pooler
+// telemetry is not a general signal: addPooler adds it where it belongs.
 func addSignals(plan []planStep, ok bool, window time.Duration,
 	signals []probes.ID) ([]planStep, bool) {
 	if !ok || len(signals) == 0 {
@@ -78,6 +80,9 @@ func addSignals(plan []planStep, ok bool, window time.Duration,
 	}
 	first := append([]probeCall(nil), plan[0].calls...)
 	for _, id := range signals {
+		if id == probes.PoolerPools {
+			continue
+		}
 		call := probeCall{id: id}
 		if id == probes.ChangeFeed {
 			call.args = probes.Args{Window: window}
@@ -137,4 +142,22 @@ func customerImpactOf(im *causal.Impact) *CustomerImpact {
 	return &CustomerImpact{State: im.State, SLO: truncateRunes(im.SLO, 128),
 		EvidenceID: UUID(im.EvidenceID), BurnRate: im.BurnRate,
 		Window: truncateRunes(im.Window, 128), Reason: truncateRunes(im.Reason, 128)}
+}
+
+// addPooler adds the pooler telemetry to every step of a connection
+// investigation when a pooler is wired (CHECK-04): queueing at the
+// pooler is compared across the samples like the database's own
+// connections. No other family reads it.
+func addPooler(plan []planStep, ok bool, kind TriggerKind,
+	signals []probes.ID) ([]planStep, bool) {
+	if !ok || kind != TriggerConnections || !slices.Contains(signals, probes.PoolerPools) {
+		return plan, ok
+	}
+	out := make([]planStep, len(plan))
+	for i, st := range plan {
+		st.calls = append(append([]probeCall(nil), st.calls...),
+			probeCall{id: probes.PoolerPools})
+		out[i] = st
+	}
+	return out, true
 }

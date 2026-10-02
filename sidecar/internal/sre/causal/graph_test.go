@@ -19,9 +19,10 @@ func TestGraph_NodesAreWellFormed(t *testing.T) {
 	// v1: 4 lock + 2 plan; v2: connections 3, WAL 4, own change 1; v3: recent
 	// change 1 (M5), checkpoint 4, temp files 3, replication lag 6, LWLock 5
 	// (M6 reactive), wraparound 7, disk/WAL growth 1 (shares WAL's slot,
-	// archiver and surge nodes) and sequences 3 (M6 runways).
-	if len(nodes) != 44 {
-		t.Fatalf("graph has %d nodes, want 44", len(nodes))
+	// archiver and surge nodes) and sequences 3 (M6 runways); pool exhaustion
+	// at an external pooler 1 (connections, Sage SRE follow-ups B).
+	if len(nodes) != 45 {
+		t.Fatalf("graph has %d nodes, want 45", len(nodes))
 	}
 	families := map[Family]bool{FamilyLockBlocking: true, FamilyPlanRegression: true,
 		FamilyConnections: true, FamilyWAL: true, FamilyChange: true,

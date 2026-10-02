@@ -125,6 +125,7 @@ func (m *Monitor) read(ctx context.Context) (Snapshot, []error) {
 	}
 	if w, err := probes.WALRunwayOf(run(probes.WALRunwayProbe)); note(probes.WALRunwayProbe,
 		err) {
+		m.fillSize(ctx, &w, note)
 		s.WAL = &w
 	}
 	if d, err := probes.WALDirectoryOf(run(probes.WALDirectoryProbe)); err == nil {
@@ -152,4 +153,20 @@ func (m *Monitor) Sample(ctx context.Context) (int, error) {
 	}
 	n, err := m.sample(ctx, snap)
 	return n, errors.Join(append(problems, err)...)
+}
+
+// fillSize adds the databases' total size to a primary's WAL reading: one
+// measurement per cluster per pass, shared with the process's other
+// runtimes on the cluster. A standby samples nothing, so it measures
+// nothing.
+func (m *Monitor) fillSize(ctx context.Context, w *probes.WALRunway,
+	note func(probes.ID, error) bool) {
+	if w.InRecovery {
+		return
+	}
+	size, _, err := m.opts.Sizes.Measure(ctx, ClusterKey(*w), m.opts.Interval,
+		func(ctx context.Context) (ClusterSize, error) { return measureSize(ctx, m.runner) })
+	if note(probes.ClusterDatabaseSizeProbe, err) {
+		w.DatabaseBytes, w.UnreadableDatabases = size.DatabaseBytes, size.UnreadableDatabases
+	}
 }

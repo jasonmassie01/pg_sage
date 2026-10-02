@@ -140,19 +140,6 @@ func TestApplyVerifiesOnlyRecordedSuccess(t *testing.T) {
 	}
 }
 
-func TestApplyAuthorizeOnlyNeverExecutes(t *testing.T) {
-	e, gate := applyExecutor(30, 0)
-	probe := &applyProbe{}
-	intent := probe.intent()
-	intent.AuthorizeOnly = true
-	if _, err := e.Apply(context.Background(), intent); err != nil {
-		t.Fatalf("authorize-only intent = %v", err)
-	}
-	if probe.admitted.Load()+probe.executed.Load() != 0 || len(gate.remaining) != 1 {
-		t.Fatal("authorize-only intent ran past its authorization")
-	}
-}
-
 func TestApplyBusySlotSkipsOrWaits(t *testing.T) {
 	e, gate := applyExecutor(30, 0)
 	for i := 0; i < cap(e.ddlSem); i++ {

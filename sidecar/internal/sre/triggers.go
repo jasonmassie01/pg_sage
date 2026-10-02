@@ -30,7 +30,9 @@ const triggerBatch = 50
 // signalKinds maps RCA signals to investigation families.
 // replication_lag_increasing (pg_stat_replication replay lag) starts the
 // M6 replication lag family: the WAL family reads slots, the archiver
-// and WAL volume, never the replicas' lag.
+// and WAL volume, never the replicas' lag. The reactive detector's own
+// incident signals map back to their families, so its incidents resume
+// after a restart under the same idempotency key.
 var signalKinds = map[string]TriggerKind{
 	"lock_contention": TriggerLock, "idle_in_tx_elevated": TriggerLock,
 	"orphaned_prepared_tx": TriggerLock, "connections_high": TriggerConnections,
@@ -38,6 +40,9 @@ var signalKinds = map[string]TriggerKind{
 	"log_replication_conflict":    TriggerReplicationLag,
 	"log_checkpoint_too_frequent": TriggerCheckpoint,
 	"log_temp_file_created":       TriggerTempFiles,
+	"sre_checkpoint_storm":        TriggerCheckpoint,
+	"sre_temp_file_explosion":     TriggerTempFiles,
+	"sre_lwlock_contention":       TriggerLWLock,
 }
 
 // NewPGTriggerSource reads the sage schema of pool; database is the
@@ -80,9 +85,7 @@ func (s *PGTriggerSource) incidentTriggers(ctx context.Context) ([]Trigger, erro
 			return nil, err
 		}
 		if kind, ok := incidentKind(inc.SignalIDs); ok {
-			out = append(out, Trigger{CaseID: clip(cases.IncidentIdentityKey(inc)),
-				IncidentID: inc.ID, Kind: kind, Subject: "incident " + inc.ID,
-				IdempotencyKey: "incident:" + inc.ID})
+			out = append(out, incidentTrigger(inc, kind))
 		}
 	}
 	return out, rows.Err()

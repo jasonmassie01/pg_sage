@@ -27,6 +27,9 @@ type Cleaner struct {
 	pool  *pgxpool.Pool
 	cfg   *config.Config
 	logFn func(string, string, ...any)
+	// control holds the sre_* coordination and ledger tables when they
+	// live in a meta database; nil means the monitored database.
+	control *pgxpool.Pool
 }
 
 // New creates a new retention Cleaner.
@@ -37,6 +40,18 @@ func New(
 ) *Cleaner {
 	return &Cleaner{pool: pool, cfg: cfg, logFn: logFn}
 }
+
+// WithControlPool prunes the control-database tables (controlTables) in
+// pool instead of the monitored database: the meta database in meta-db
+// mode. Nil keeps the monitored database.
+func (c *Cleaner) WithControlPool(pool *pgxpool.Pool) *Cleaner {
+	c.control = pool
+	return c
+}
+
+// controlTables live beside the sre_* coordination tables (the control
+// database), not necessarily in the monitored database.
+var controlTables = map[string]bool{"sre_eval_runs": true}
 
 // purgeRule deletes rows of sage.<table> whose timeCol is older than
 // days. extra is a constant SQL predicate (never user input) that keeps
@@ -79,6 +94,30 @@ const (
 	    AND NOT EXISTS (SELECT 1 FROM sage.change_lease cl WHERE cl.decision_id = decision.id)
 	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
 	                   WHERE ia.decision_id = decision.id)`
+	// Stored bench and game-day reports age out unless one is the evidence
+	// of a current ledger level or a pending promotion (any "id" in that
+	// evidence), or the newest report of a family for its source and
+	// database: what LatestBench and the game-day evidence read (M7).
+	keepEvalRun = `AND NOT EXISTS (SELECT 1 FROM sage.sre_family_autonomy a
+	                   WHERE a.deployment_id = sre_eval_runs.deployment_id
+	                   AND jsonb_path_exists(a.evidence, 'lax $.**.id ? (@ == $rid)',
+	                       jsonb_build_object('rid', sre_eval_runs.id::text)))
+	    AND NOT EXISTS (SELECT 1 FROM sage.sre_autonomy_proposals p
+	                   WHERE p.deployment_id = sre_eval_runs.deployment_id
+	                   AND p.status = 'pending'
+	                   AND jsonb_path_exists(p.evidence, 'lax $.**.id ? (@ == $rid)',
+	                       jsonb_build_object('rid', sre_eval_runs.id::text)))
+	    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(sre_eval_runs.cells) c
+	                   WHERE NOT EXISTS (SELECT 1 FROM sage.sre_eval_runs n
+	                       WHERE n.deployment_id = sre_eval_runs.deployment_id
+	                       AND n.source = sre_eval_runs.source
+	                       AND n.database_name IS NOT DISTINCT FROM
+	                           sre_eval_runs.database_name
+	                       AND (n.generated_at, n.ingested_at, n.id) >
+	                           (sre_eval_runs.generated_at, sre_eval_runs.ingested_at,
+	                            sre_eval_runs.id)
+	                       AND n.cells @> jsonb_build_array(
+	                           jsonb_build_object('family', c->'family'))))`
 )
 
 // purgeRules lists every sage time-series and its retention window
@@ -100,6 +139,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{"action_log", "executed_at", r.ActionsDays, keepActionLog},
 		{"verification", "created_at", r.ActionsDays, keepVerification},
 		{"change_lease", "acquired_at", r.ActionsDays, "AND state <> 'active'"},
+		// A request still waiting for its turn is kept, however old.
+		{"lease_queue", "enqueued_at", r.ActionsDays, "AND state <> 'waiting'"},
 		{"decision", "created_at", r.ActionsDays, keepDecision},
 		{"recommendation", "updated_at", r.ActionsDays, keepRecommendation},
 		{"retention_run", "created_at", r.ActionsDays, ""},
@@ -108,6 +149,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{"explain_results", "created_at", r.ExplainsDays, ""},
 		// Used or expired SSO link grants are dead weight once old (D7).
 		{"user_oidc_link_grants", "expires_at", r.ActionsDays, ""},
+		{"sre_eval_runs", "ingested_at", cfg.SRE.Autonomy.ReportRetentionDays, keepEvalRun},
 	}
 }
 
@@ -123,6 +165,7 @@ var retentionExemptions = map[string]string{
 	"config_audit":          "security audit trail of configuration changes",
 	"crypto_meta":           "key metadata, not a time-series",
 	"databases":             "fleet registry, not a time-series",
+	"ha_identity":           "HA monitor history, current state, one row per monitor",
 	"incident_avoided":      "value ledger; low volume, kept as evidence",
 	"io_rate_sample":        "pruned by the IO sampler (verify.io_sample_retention_days)",
 	"incidents":             "pruned by rca.PruneResolvedIncidents (resolved_at, findings_days)",
@@ -135,10 +178,10 @@ var retentionExemptions = map[string]string{
 		"recommendation (ON DELETE CASCADE, actions_days)",
 	"recommendation_transition": "immutable history; deleted with its terminal " +
 		"recommendation (ON DELETE CASCADE, actions_days)",
-	"rollout_run":            "low-volume rollout evidence ledger",
+	"rollout_run": "low-volume rollout evidence ledger",
 	"runway_samples": "runway series; the runway monitor prunes them on every pass " +
 		"(sre.runways.sample_retention_hours)",
-	"rollout_instance":       "per-database steps of a rollout run; low volume",
+	"rollout_instance": "per-database steps of a rollout run; low volume",
 	// Sage SRE M7: earned-autonomy evidence. Purging by age would quietly
 	// lower or erase the evidence promotions rest on ("no harmful outcome
 	// ever"), so these are kept like the other evidence ledgers.
@@ -147,7 +190,6 @@ var retentionExemptions = map[string]string{
 	"sre_autonomy_events":    "append-only autonomy history (audit); updates are refused",
 	"sre_autonomy_outcomes":  "append-only live outcomes; promotion evidence",
 	"sre_packet_reviews":     "operator shadow reviews; promotion evidence, one per review",
-	"sre_eval_runs":          "ingested bench and game-day reports, deduplicated by hash",
 	"sre_game_days":          "game-day runs; low volume (at most one per interval_hours)",
 	"schema_baseline":        "current state, one row per object",
 	"schema_findings":        "legacy table superseded by findings (v0.11); no writer",
@@ -196,7 +238,11 @@ func (c *Cleaner) Run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		c.purgeTable(ctx, rule.table, rule.timeCol, rule.days, rule.extra)
+		target := c
+		if controlTables[rule.table] && c.control != nil {
+			target = &Cleaner{pool: c.control, cfg: c.cfg, logFn: c.logFn}
+		}
+		target.purgeTable(ctx, rule.table, rule.timeCol, rule.days, rule.extra)
 	}
 	if ctx.Err() == nil {
 		c.pruneIncidents(ctx)

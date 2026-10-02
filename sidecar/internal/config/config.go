@@ -206,6 +206,8 @@ type SafetyConfig struct {
 type TrustConfig struct {
 	Level                 string `yaml:"level" doc:"Autonomy ceiling: observation is cases only; advisory auto executes eligible safe actions; autonomous auto executes eligible safe and moderate actions. Manual disables background actions." warning:"Changing trust can expand what execution_mode=auto may execute without human review."`
 	RampStart             string `yaml:"ramp_start" doc:"RFC3339 timestamp when the trust ramp began. Auto-persisted on first startup if empty. Used to gate newly-supported actions behind a soak period."`
+	RampSafeHours         int    `yaml:"ramp_safe_hours" doc:"Hours after ramp_start before SAFE actions may run unattended, 1-8760. Default: 192 (8 days). Actions that cannot be rolled back always wait at least 192." warning:"Lower values let pg_sage act sooner after first start; the sidecar warns at startup."`
+	RampModerateHours     int    `yaml:"ramp_moderate_hours" doc:"Hours after ramp_start before MODERATE actions may run unattended, 1-8760 and at least ramp_safe_hours. Default: 744 (31 days). Actions that cannot be rolled back always wait at least 744." warning:"Lower values let pg_sage act sooner after first start; the sidecar warns at startup."`
 	MaintenanceWindow     string `yaml:"maintenance_window" doc:"Window for MODERATE auto-actions: always, never, presets (nights, weeknights, weekends), Mon-Fri 01:00-05:00, or cron (1h wide, or @30m). Optional IANA zone: weeknights America/Chicago." example:"weeknights"`
 	Tier3Safe             bool   `yaml:"tier3_safe" doc:"Enable typed safe actions such as ANALYZE and non-FULL VACUUM after the trust ramp when execution_mode=auto and trust.level is advisory or autonomous."`
 	Tier3Moderate         bool   `yaml:"tier3_moderate" doc:"Enable typed moderate actions such as CREATE INDEX CONCURRENTLY after the longer trust ramp. Requires execution_mode=auto and trust.level=autonomous." warning:"Moderate actions can consume IO or briefly contend for locks."`
@@ -678,6 +680,9 @@ func (c *Config) validate() error {
 	if err := c.validateTrust(); err != nil {
 		return err
 	}
+	if err := c.validateElevation(); err != nil {
+		return err
+	}
 	if c.Safety.CPUCeilingPct <= 0 || c.Safety.CPUCeilingPct > 100 {
 		return fmt.Errorf("safety.cpu_ceiling_pct must be 1-100")
 	}
@@ -787,6 +792,8 @@ func newDefaults() *Config {
 			Tier3Safe:             DefaultTier3Safe,
 			Tier3Moderate:         DefaultTier3Moderate,
 			Tier3HighRisk:         DefaultTier3HighRisk,
+			RampSafeHours:         DefaultRampSafeHours,
+			RampModerateHours:     DefaultRampModerateHours,
 			RollbackThresholdPct:  DefaultRollbackThresholdPct,
 			RollbackWindowMinutes: DefaultRollbackWindowMinutes,
 			RollbackCooldownDays:  DefaultRollbackCooldownDays,

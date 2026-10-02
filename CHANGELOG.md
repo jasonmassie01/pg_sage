@@ -4,6 +4,49 @@
 
 ### Added
 
+- **Fast trust elevation for dogfood databases.** Every timer and threshold that gates
+  trust is now configurable, with the spec value as the default. These are the trust ramp
+  (`trust.ramp_safe_hours` / `ramp_moderate_hours`), an hour-scale IO baseline
+  (`verify.io_baseline_hours`) and the earned-autonomy promotion bar
+  (`sre.autonomy.promotion.*`). A documented profile lets a database earn autonomy in hours
+  instead of weeks. Irreversible actions keep the full ramp and never go above L1, L4 is
+  never reached, and an admin still approves every promotion. The sidecar logs a WARN for
+  each lowered value, and the Earned autonomy page shows a "Fast elevation" badge.
+
+- **Checkpoint storms, temp-file explosions and LWLock contention are now incidents.** When
+  the Sage SRE detector sees one of them, it opens a warning incident (or uses the open
+  incident it belongs to) with the measurement and its threshold as evidence. The incident
+  shows in the Cases panel with its investigation, sends the usual incident notifications,
+  resolves itself once the episodes stop, and its investigation can be reviewed for earned
+  autonomy. The detector's thresholds are now settings (`sre.detectors.*`, today's values
+  are the defaults). Stored bench and game-day reports now age out after
+  `sre.autonomy.report_retention_days` (90 days), except the reports that current autonomy
+  levels or pending promotions rest on and the newest report of each family.
+
+- **Databases can be added, removed and changed without restarting pg_sage.** In fleet
+  mode, saving the config file with a new, removed or changed database applies it at once:
+  trust level, execution mode, the executor switch and tags change on the running database;
+  connection, credential and other changes restart only that database's monitoring. A
+  removed database first lets running actions finish (up to a minute), then stops cleanly
+  and drops out of the metrics. A bad edit is rejected and everything keeps running as
+  before. In meta-db mode, changes made to the database list by another pg_sage or by SQL
+  are picked up within 30 seconds. Removing or moving the first (control) database still
+  needs a restart.
+
+- **Sage SRE sees pool exhaustion at PgBouncer, and failovers between or before its
+  samples.** List your PgBouncer admin consoles under `sre.poolers` (the DSN from an
+  environment variable or a mounted file, never logged) and connection investigations read
+  `SHOW POOLS` and `SHOW STATS` at both samples, read-only and time-bounded. Clients queueing
+  at the pooler while PostgreSQL has headroom are now diagnosed as pool exhaustion at the
+  pooler instead of "no connection pressure"; without a pooler the diagnosis says pooler
+  telemetry is unavailable. Connection and WAL investigations now refuse to compare two
+  samples taken across a restart, a failover, a different server or a major-version upgrade
+  and say so as missing evidence. After pg_sage restarts it remembers the database's role,
+  timeline and cluster identity, so a failover that happened while it was down still pauses
+  earned autonomy for the failover cooldown. The causal graph is now `causal-v4`. In a
+  fleet, the runway monitor measures each cluster's total database size once per pass
+  instead of once per database.
+
 - **pg_sage keeps working on databases with huge catalogs and cleans up after itself (dogfood
   on a real database with 12,000 sequences and 35,000 indexes).** Sequence runways are measured
   again (the probe now takes about 200 ms instead of timing out), the collector and forecaster
@@ -13,6 +56,26 @@
   application keeps recreating are left alone and reported instead of dropped again, copies of
   one schema are reported once, a monitor resumed months later no longer rolls anything back,
   and expected policy refusals are no longer logged as errors.
+
+### Changed (read before upgrading)
+
+- **Retention deletes, operator actions and queued changes now share one locked path.**
+  A retention delete (an owner-declared `retention_column` contract, D5) now runs as a
+  recorded action through the same pipeline as every other change: it is authorized,
+  takes a lease on its table, is re-authorized after waiting (so an emergency stop pressed
+  meanwhile stops it), and is verified. A batch never deletes more rows than its reviewed
+  dry run described (twice its count plus 100, in total across batches); after that a new
+  dry run must pass review. Every deleted row is checked against the declared column and
+  the table before the batch commits. Operator actions ("Take action", approved queue
+  items) now lease the exact table or index they change, found by its database identity,
+  so a rename or a different spelling cannot slip past. An index lease also covers its
+  table, and custodian `VACUUM` (freeze) runs take a lease too. While another action holds
+  the object, an operator gets HTTP 409 naming the holder. The policy's
+  `serialize_mode: queue` now really queues: a waiting change keeps its place in line per
+  object (first come, first served), the line survives a sidecar restart, at most 8 wait
+  per object and 64 per database, and a wait ends after 2 minutes for pg_sage's own
+  actions (it parks and retries next cycle) or 30 seconds for an operator (refused).
+  `park`, the default, is unchanged.
 
 ### Fixed
 

@@ -29,10 +29,10 @@ func requirePendingDryRun(t *testing.T, pool *pgxpool.Pool, err error, table str
 }
 
 func applyAfterAgedDryRun(t *testing.T, pool *pgxpool.Pool, table string,
-	change func(), authorize RetentionAuthorizer,
+	change func(), pipeline RetentionPipeline,
 ) error {
 	t.Helper()
-	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10, authorize: authorize}
+	enforcer := &postgresRetentionEnforcer{pool: pool, batchLimit: 10, pipeline: pipeline}
 	agedDryRun(t, pool, enforcer, retentionItem(table, retentionTestWindow,
 		schemaguard.DispositionDryRun))
 	change()
@@ -130,14 +130,17 @@ func TestRetentionSmallCandidateGrowthStillApplies(t *testing.T) {
 	}
 }
 
-// The authorizer runs after the dry-run check and before the delete
+// The pipeline authorizes after the dry-run check and before the delete
 // transaction; a rename swap there must be caught inside the transaction.
 func TestRetentionDeleteRechecksColumnIdentityInTx(t *testing.T) {
 	pool := requireAutonomyDB(t)
 	table := createdAtFixture(t, pool)
-	swapAtAuthorization := func(context.Context, RetentionIntent) error {
+	swapAtAuthorization := func(ctx context.Context, _ RetentionIntent,
+		batch RetentionBatch,
+	) error {
 		execAll(t, pool, renameSwapStatements(table)...)
-		return nil
+		_, err := batch(ctx, RetentionRun{})
+		return err
 	}
 
 	err := applyAfterAgedDryRun(t, pool, table, func() {}, swapAtAuthorization)

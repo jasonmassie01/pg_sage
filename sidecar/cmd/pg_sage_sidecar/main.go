@@ -193,6 +193,7 @@ func main() {
 		logWarn("startup", "could not parse trust.ramp_start %q, using now()",
 			cfg.Trust.RampStart)
 	}
+	warnFastElevation(cfg, logWarn)
 	if cfg.HasMetaDB() || cfg.IsFleet() {
 		if err := initializeConfigController(pool); err != nil {
 			logError("startup", "config controller: %v", err)
@@ -612,6 +613,7 @@ func initFleetMultiDB() {
 	for _, dbCfg := range cfg.Databases {
 		boot.start(dbCfg)
 	}
+	registerFleetDatabasesOwner(boot)
 	// Register fleet databases in sage.databases for config API.
 	if boot.controlPool != nil {
 		registerFleetDatabases(boot.controlPool)

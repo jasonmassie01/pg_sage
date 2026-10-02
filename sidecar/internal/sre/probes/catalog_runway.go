@@ -14,8 +14,11 @@ const (
 	AutovacuumCancellations ID = "autovacuum_cancellations"
 	WALRunwayProbe          ID = "wal_runway"
 	WALDirectoryProbe       ID = "wal_directory"
-	SequenceRunwayProbe     ID = "sequence_runway"
-	RunwayTrendsProbe       ID = "runway_trends"
+	// ClusterDatabaseSizeProbe sums the databases' sizes: one cluster-level
+	// measurement fleet runtimes on one cluster share per pass.
+	ClusterDatabaseSizeProbe ID = "cluster_database_size"
+	SequenceRunwayProbe      ID = "sequence_runway"
+	RunwayTrendsProbe        ID = "runway_trends"
 )
 
 // Runway probe families.
@@ -154,10 +157,11 @@ WHERE 'log_autovacuum_cancel' = ANY (i.signal_ids)
       - pg_catalog.make_interval(secs => $2)
 LIMIT $1`
 
-// walRunwaySQL reads the WAL position (the replayed one on a standby),
-// the WAL size settings in bytes and the size of every database this
-// role may connect to.
-const walRunwaySQL = `/* pg_sage sre:wal_runway v1 */
+// walRunwaySQL (v2) reads the WAL position (the replayed one on a
+// standby), the WAL size settings in bytes, and which cluster and role
+// answered, so fleet runtimes on one cluster can share the cluster-level
+// database size (cluster_database_size) instead of each summing it.
+const walRunwaySQL = `/* pg_sage sre:wal_runway v2 */
 SELECT pg_catalog.pg_wal_lsn_diff(` + currentLSN + `, '0/0')::float8
            AS wal_position_bytes,
        pg_catalog.pg_size_bytes(pg_catalog.current_setting('max_wal_size'))
@@ -168,15 +172,24 @@ SELECT pg_catalog.pg_wal_lsn_diff(` + currentLSN + `, '0/0')::float8
            AS max_slot_wal_keep_size_bytes,
        pg_catalog.pg_size_bytes(pg_catalog.current_setting('wal_segment_size'))
            AS wal_segment_size_bytes,
-       (SELECT sum(pg_catalog.pg_database_size(d.oid))::int8
+       pg_catalog.pg_is_in_recovery() AS in_recovery,
+       (SELECT c.system_identifier::text FROM pg_catalog.pg_control_system() c)
+           AS system_identifier,
+       pg_catalog.pg_postmaster_start_time() AS server_started_at,
+       current_user::text AS role_name
+LIMIT $1`
+
+// clusterDatabaseSizeSQL is the size of every database this role may
+// connect to, and how many it may not.
+const clusterDatabaseSizeSQL = `/* pg_sage sre:cluster_database_size v1 */
+SELECT (SELECT sum(pg_catalog.pg_database_size(d.oid))::int8
         FROM pg_catalog.pg_database d
         WHERE d.datallowconn AND pg_catalog.has_database_privilege(d.oid, 'CONNECT'))
            AS database_bytes,
        (SELECT count(*)::int8 FROM pg_catalog.pg_database d
         WHERE d.datallowconn
           AND NOT pg_catalog.has_database_privilege(d.oid, 'CONNECT'))
-           AS databases_unreadable,
-       pg_catalog.pg_is_in_recovery() AS in_recovery
+           AS databases_unreadable
 LIMIT $1`
 
 // walDirectorySQL sizes pg_wal and counts segments waiting for the
@@ -225,14 +238,22 @@ func runwaySpecs() []Spec {
 			Variant{MinVersion: 140000, SQL: xminHorizonSQL})), 100),
 		spec(AutovacuumCancellations, FamilyVacuum, ArgsWindow,
 			Variant{MinVersion: 140000, SQL: autovacuumCancellationsSQL}),
-		spec(WALRunwayProbe, FamilyWAL, ArgsNone,
-			Variant{MinVersion: 140000, SQL: walRunwaySQL}),
+		versioned(spec(WALRunwayProbe, FamilyWAL, ArgsNone,
+			Variant{MinVersion: 140000, SQL: walRunwaySQL}), "v2"),
+		spec(ClusterDatabaseSizeProbe, FamilyRunway, ArgsNone,
+			Variant{MinVersion: 140000, SQL: clusterDatabaseSizeSQL}),
 		spec(WALDirectoryProbe, FamilyWAL, ArgsNone,
 			Variant{MinVersion: 140000, SQL: walDirectorySQL}),
 		sequenceRunwaySpec(),
 		capped(spec(RunwayTrendsProbe, FamilyRunway, ArgsWindow,
 			Variant{MinVersion: 140000, SQL: runwayTrendsSQL}), 200),
 	}
+}
+
+// versioned sets a spec's version.
+func versioned(s Spec, v string) Spec {
+	s.Version = v
+	return s
 }
 
 // capped lowers a spec's row cap.

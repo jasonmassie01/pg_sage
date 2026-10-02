@@ -1270,6 +1270,43 @@
     "default": 300,
     "doc": "Evidence older than this caps an action at L1, 5-3600. Default: 300."
   },
+  "sre.autonomy.promotion.bench_min_precision_pct": {
+    "type": "float64",
+    "default": 90,
+    "doc": "PGIncidentBench factual (mechanism) precision on every gated arm for L2, 50-100. Default: 90."
+  },
+  "sre.autonomy.promotion.bench_min_top1_pct": {
+    "type": "float64",
+    "default": 80,
+    "doc": "PGIncidentBench top-1 accuracy on every gated arm for L2, 50-100. Default: 80."
+  },
+  "sre.autonomy.promotion.min_live_recoveries": {
+    "type": "int",
+    "default": 50,
+    "doc": "Verified live recoveries at L2 a pair needs for L3, 1-10000. Default: 50.",
+    "warning": "Lower values let pg_sage auto-execute after fewer verified recoveries."
+  },
+  "sre.autonomy.promotion.min_safe_pass_pct": {
+    "type": "float64",
+    "default": 95,
+    "doc": "Safe Pass on the family's bench fault programs and game days for L3, 50-100. Default: 95."
+  },
+  "sre.autonomy.promotion.shadow_min_accepted_pct": {
+    "type": "float64",
+    "default": 95,
+    "doc": "Operator-accepted share of reviewed packets for L2, 50-100. Default: 95."
+  },
+  "sre.autonomy.promotion.shadow_min_reviewed": {
+    "type": "int",
+    "default": 20,
+    "doc": "Reviewed packets needed inside the shadow window for L2, 3-1000. Default: 20."
+  },
+  "sre.autonomy.promotion.shadow_window_hours": {
+    "type": "int",
+    "default": 720,
+    "doc": "Hours of shadow reviews (from the first review) a family needs for L2, and the window its reviewed and accepted packets are counted in, 1-8760. Default: 720 (30 days).",
+    "warning": "Lower values let pg_sage earn L2 on less operator review."
+  },
   "sre.autonomy.proposal_ttl_hours": {
     "type": "int",
     "default": 168,
@@ -1279,6 +1316,11 @@
     "type": "int",
     "default": 60,
     "doc": "Seconds between recording live outcomes of handed-off and autonomous actions, 10-3600. Default: 60."
+  },
+  "sre.autonomy.report_retention_days": {
+    "type": "int",
+    "default": 90,
+    "doc": "Days a stored bench or game-day report is kept, 30-3650. Ledger and pending-promotion evidence and the newest report per family are always kept. Default: 90."
   },
   "sre.autonomy.safety_window_days": {
     "type": "int",
@@ -1316,6 +1358,36 @@
     "default": 300,
     "doc": "Accepted signature clock skew, 30-3600. Default: 300."
   },
+  "sre.detectors.checkpoint_requested": {
+    "type": "int",
+    "default": 3,
+    "doc": "Requested checkpoints within the window that are a checkpoint storm (they must also outnumber timed ones), 1-1000. Default: 3."
+  },
+  "sre.detectors.cooldown_minutes": {
+    "type": "int",
+    "default": 30,
+    "doc": "Minutes after an episode starts before a new episode of the same family can open, 1-1440. Default: 30."
+  },
+  "sre.detectors.lwlock_polls": {
+    "type": "int",
+    "default": 3,
+    "doc": "Consecutive trigger polls lwlock_waiters must hold before an LWLock contention episode opens, 1-100. Default: 3."
+  },
+  "sre.detectors.lwlock_waiters": {
+    "type": "int",
+    "default": 8,
+    "doc": "Backends waiting on one modeled LWLock class that count as contention, 1-10000. Default: 8."
+  },
+  "sre.detectors.temp_file_mb": {
+    "type": "int",
+    "default": 1024,
+    "doc": "MiB of temp files this database writes within the window that are a temp-file explosion, 1-1048576. Default: 1024."
+  },
+  "sre.detectors.window_seconds": {
+    "type": "int",
+    "default": 300,
+    "doc": "Seconds over which checkpoint and temp-file growth is measured, 60-3600. Keep it at least twice sre.trigger_interval_seconds. Default: 300."
+  },
   "sre.evidence_retention_days": {
     "type": "int",
     "default": 30,
@@ -1325,6 +1397,37 @@
     "type": "bool",
     "default": true,
     "doc": "Model turn in investigations: rank the graph's hypotheses, propose one catalog probe, narrate cited claims. Used whenever an LLM is configured; false = deterministic only. Default: true."
+  },
+  "sre.poolers[].databases": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Monitored databases (instance names) this pooler fronts; empty = every database of this sidecar."
+  },
+  "sre.poolers[].dsn": {
+    "type": "string",
+    "default": null,
+    "doc": "PgBouncer admin-console DSN of a stats_users user (database pgbouncer). Prefer ${ENV} substitution or dsn_file; never logged.",
+    "secret": true
+  },
+  "sre.poolers[].dsn_file": {
+    "type": "string",
+    "default": "",
+    "doc": "File holding the admin-console DSN (e.g. a mounted secret), read at startup. Exclusive with dsn."
+  },
+  "sre.poolers[].name": {
+    "type": "string",
+    "default": "",
+    "doc": "Pooler name shown in investigations (letters, digits, '.', '_', '-'; unique)."
+  },
+  "sre.poolers[].pools": {
+    "type": "[]string",
+    "default": null,
+    "doc": "PgBouncer databases (pools) to report; empty = every pool except the admin console."
+  },
+  "sre.poolers[].timeout_ms": {
+    "type": "int",
+    "default": 0,
+    "doc": "Time allowed to connect and read one pooler, 100-2000 ms. Default: 1000."
   },
   "sre.runways.disk_critical_hours": {
     "type": "int",
@@ -1594,6 +1697,18 @@
     "default": "",
     "doc": "Window for MODERATE auto-actions: always, never, presets (nights, weeknights, weekends), Mon-Fri 01:00-05:00, or cron (1h wide, or @30m). Optional IANA zone: weeknights America/Chicago."
   },
+  "trust.ramp_moderate_hours": {
+    "type": "int",
+    "default": 744,
+    "doc": "Hours after ramp_start before MODERATE actions may run unattended, 1-8760 and at least ramp_safe_hours. Default: 744 (31 days). Actions that cannot be rolled back always wait at least 744.",
+    "warning": "Lower values let pg_sage act sooner after first start; the sidecar warns at startup."
+  },
+  "trust.ramp_safe_hours": {
+    "type": "int",
+    "default": 192,
+    "doc": "Hours after ramp_start before SAFE actions may run unattended, 1-8760. Default: 192 (8 days). Actions that cannot be rolled back always wait at least 192.",
+    "warning": "Lower values let pg_sage act sooner after first start; the sidecar warns at startup."
+  },
   "trust.ramp_start": {
     "type": "string",
     "default": "",
@@ -1743,6 +1858,12 @@
     "type": "int",
     "default": 7,
     "doc": "IO baseline days; 0 disables."
+  },
+  "verify.io_baseline_hours": {
+    "type": "int",
+    "default": 0,
+    "doc": "IO baseline hours, 1-8760; when set it takes precedence over io_baseline_days (even 0). 0: use io_baseline_days.",
+    "warning": "An hour-scale baseline admits index builds on a short load history; the sidecar warns at startup."
   },
   "verify.io_sample_retention_days": {
     "type": "int",

@@ -107,6 +107,28 @@ function Header({ data }) {
         <span>Database: {data?.database}</span>
         <span>Bench report: {bench ? bench.generated_at : 'none ingested'}</span>
       </div>
+      <FastElevation info={data?.fast_elevation} />
+    </div>
+  )
+}
+
+// FastElevation makes lowered trust-elevation settings visible: pg_sage
+// can earn autonomy in hours rather than weeks under them.
+function FastElevation({ info }) {
+  if (!info?.active) return null
+  return (
+    <div data-testid="fast-elevation" className="mt-2 rounded px-2 py-1 text-xs"
+      style={{ border: '1px solid var(--yellow)', color: 'var(--text-primary)' }}>
+      <span className="font-semibold">Fast elevation</span>
+      <span style={muted}> — these settings are below the spec, so trust is earned in
+        hours. Irreversible actions, L4 and admin approval are unchanged.</span>
+      <ul className="mt-1 list-disc pl-5">
+        {(info.lowered || []).map(l => (
+          <li key={l.key}>
+            <code>{l.key}</code>: {l.value} {l.unit} (spec {l.default})
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

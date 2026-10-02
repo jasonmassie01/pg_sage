@@ -18,7 +18,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/earned/hasource"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/gameday"
-	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
@@ -55,10 +54,11 @@ func processAutonomy() *autonomyLedgers {
 	return processAutonomyVal
 }
 
-// autonomyServiceConfig maps the operator's settings; the promotion
-// thresholds are the spec's.
+// autonomyServiceConfig maps the operator's settings, the promotion bar
+// included (the spec's unless sre.autonomy.promotion lowers it).
 func autonomyServiceConfig(s config.SREAutonomyConfig) earned.Config {
 	c := earned.DefaultConfig()
+	c.Thresholds = promotionThresholds(s.Promotion)
 	c.ProposalTTL, c.MaxEvidenceAge = s.ProposalTTL(), s.MaxEvidenceAge()
 	c.ConcurrencyWindow, c.SafetyWindow = s.ConcurrencyWindow(), s.SafetyWindow()
 	c.FailoverCooldown = s.FailoverCooldown()
@@ -132,7 +132,7 @@ func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 		return err
 	}
 	lim := svc.Limiter(earned.Binding{Database: b.database, Budget: b.budget,
-		HA:          hasource.New(ha.New(b.monitored, logStructuredWrapper)),
+		HA:          hasource.New(newPersistedHAMonitor(b)),
 		Concurrency: earned.NewPostgresConcurrency(b.monitored, b.databaseID)})
 	if b.settings.Enforce {
 		ex.WithAutonomy(lim)

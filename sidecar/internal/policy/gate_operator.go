@@ -29,9 +29,9 @@ func (gate *authorizationGate) operatorDecision(
 	// A human decided: the refusal set does not apply. The lock ceiling is a
 	// safety bound and does.
 	if decision, stop := gate.operatorWindowDecision(doc, runtime, req); stop {
-		return withLockCeiling(doc, decision)
+		return withDocumentBounds(doc, decision)
 	}
-	return withLockCeiling(doc, gate.decision(req, VerdictExecute, ReasonOperatorApproved))
+	return withDocumentBounds(doc, gate.decision(req, VerdictExecute, ReasonOperatorApproved))
 }
 
 // operatorWindowDecision bounds moderate and high operator actions by the

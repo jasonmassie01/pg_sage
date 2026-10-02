@@ -46,7 +46,8 @@ func (rt *databaseRuntime) startExecution() {
 	rt.brief = briefing.New(rt.spec.Pool, cfg, rt.generalLLM, logStructuredWrapper)
 	deps := fleetCycleDeps{
 		name: rt.spec.Name, pool: rt.spec.Pool, exec: rt.executor,
-		brief: rt.brief, cleaner: retention.New(rt.spec.Pool, cfg, logStructuredWrapper),
+		brief: rt.brief, cleaner: retention.New(rt.spec.Pool, cfg, logStructuredWrapper).
+			WithControlPool(rt.spec.ControlPool),
 		interval: cfg.Analyzer.Interval() + 5*time.Second,
 	}
 	rt.start(func() { fleetDBOrchestrator(rt.ctx, deps) })

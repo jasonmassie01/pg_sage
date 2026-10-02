@@ -54,29 +54,47 @@ func NewPostgresLeaseManager(
 func (m *PostgresLeaseManager) AcquireLease(
 	ctx context.Context, actor string, objects []TargetObject, intent string,
 ) (LeaseID, error) {
-	if err := m.validateAcquire(actor, objects, intent); err != nil {
+	keys := make([]leaseKey, 0, len(objects))
+	for _, object := range objects {
+		keys = append(keys, leaseKey{key: object.Canonical, name: object.Canonical})
+	}
+	return m.acquireKeys(ctx, actor, keys, intent)
+}
+
+// AcquireTyped leases the exact objects targets name: each target's name
+// and OID (see TypedTarget.LeaseKeys), recording its kind and identity.
+func (m *PostgresLeaseManager) AcquireTyped(
+	ctx context.Context, actor string, targets []TypedTarget, intent string,
+) (LeaseID, error) {
+	return m.acquireKeys(ctx, actor, typedKeys(targets), intent)
+}
+
+func (m *PostgresLeaseManager) acquireKeys(
+	ctx context.Context, actor string, keys []leaseKey, intent string,
+) (LeaseID, error) {
+	if err := m.validateAcquire(actor, len(keys), intent); err != nil {
 		return "", err
 	}
 	conn, err := m.acquireConn(ctx)
 	if err != nil {
 		return "", err
 	}
-	keys, err := acquireAdvisoryLocks(ctx, conn, objects)
+	held, err := m.acquireAdvisoryLocks(ctx, conn, keys)
 	if err != nil {
 		conn.Release()
 		return "", err
 	}
 	leaseID, err := newLeaseID()
 	if err == nil {
-		err = m.persistLease(ctx, conn, leaseID, actor, objects, intent)
+		err = m.persistLease(ctx, conn, leaseID, actor, keys, intent)
 	}
 	if err != nil {
-		releaseAdvisoryLocks(context.WithoutCancel(ctx), conn, keys)
+		releaseAdvisoryLocks(context.WithoutCancel(ctx), conn, held)
 		conn.Release()
 		return "", err
 	}
 	m.mu.Lock()
-	m.held[leaseID] = heldLease{conn: conn, keys: keys}
+	m.held[leaseID] = heldLease{conn: conn, keys: held}
 	m.mu.Unlock()
 	return leaseID, nil
 }
@@ -100,9 +118,7 @@ func (m *PostgresLeaseManager) acquireConn(ctx context.Context) (*pgxpool.Conn, 
 	return nil, fmt.Errorf("acquire lease connection: %w", err)
 }
 
-func (m *PostgresLeaseManager) validateAcquire(
-	actor string, objects []TargetObject, intent string,
-) error {
+func (m *PostgresLeaseManager) validateAcquire(actor string, keys int, intent string) error {
 	if m == nil || m.pool == nil {
 		return errors.New("lease manager database is unavailable")
 	}
@@ -115,61 +131,62 @@ func (m *PostgresLeaseManager) validateAcquire(
 	if strings.TrimSpace(actor) == "" || strings.TrimSpace(intent) == "" {
 		return errors.New("lease actor and intent are required")
 	}
-	if len(objects) == 0 {
+	if keys == 0 {
 		return errors.New("lease target objects are required")
 	}
 	return nil
 }
 
-func acquireAdvisoryLocks(
-	ctx context.Context, conn *pgxpool.Conn, objects []TargetObject,
+func (m *PostgresLeaseManager) acquireAdvisoryLocks(
+	ctx context.Context, conn *pgxpool.Conn, keys []leaseKey,
 ) ([]int64, error) {
-	keys := make([]int64, 0, len(objects))
-	for _, object := range objects {
-		key := advisoryObjectKey(object.Canonical)
+	held := make([]int64, 0, len(keys))
+	for _, key := range keys {
+		advisory := advisoryObjectKey(key.key)
 		var acquired bool
 		if err := conn.QueryRow(ctx,
-			"SELECT pg_try_advisory_lock($1)", key,
+			"SELECT pg_try_advisory_lock($1)", advisory,
 		).Scan(&acquired); err != nil {
-			releaseAdvisoryLocks(context.WithoutCancel(ctx), conn, keys)
+			releaseAdvisoryLocks(context.WithoutCancel(ctx), conn, held)
 			return nil, fmt.Errorf("acquire advisory lease: %w", err)
 		}
 		if !acquired {
-			releaseAdvisoryLocks(context.WithoutCancel(ctx), conn, keys)
-			return nil, ErrLeaseConflict
+			releaseAdvisoryLocks(context.WithoutCancel(ctx), conn, held)
+			return nil, m.conflict(ctx, conn, key.key)
 		}
-		keys = append(keys, key)
+		held = append(held, advisory)
 	}
-	return keys, nil
+	return held, nil
 }
 
 func (m *PostgresLeaseManager) persistLease(
 	ctx context.Context, conn *pgxpool.Conn, leaseID LeaseID, actor string,
-	objects []TargetObject, intent string,
+	keys []leaseKey, intent string,
 ) error {
 	if _, err := conn.Exec(ctx, `UPDATE sage.change_lease
 		SET state='expired', released_at=now()
 		WHERE state='active' AND expires_at <= now()`); err != nil {
 		return fmt.Errorf("reclaim expired DDL leases: %w", err)
 	}
-	for _, object := range objects {
+	for _, key := range keys {
 		_, err := conn.Exec(ctx, `INSERT INTO sage.change_lease
-			(database_id, object_key, decision_id, holder, intent, expires_at)
-			VALUES ($1,$2,$3,$4,$5,now()+($6 * interval '1 second'))`,
-			m.databaseID, object.Canonical, m.decisionID, string(leaseID), intent,
-			m.ttl.Seconds())
+			(database_id, object_key, decision_id, holder, intent, expires_at, actor,
+			 object_type, object_oid, object_name)
+			VALUES ($1,$2,$3,$4,$5,now()+($6 * interval '1 second'),$7,NULLIF($8,''),
+			        NULLIF($9::bigint,0)::oid,$10)`,
+			m.databaseID, key.key, m.decisionID, string(leaseID), intent,
+			m.ttl.Seconds(), actor, key.kind, int64(key.oid), key.name)
 		if err != nil {
 			_, _ = conn.Exec(context.WithoutCancel(ctx), `UPDATE sage.change_lease
 				SET state='released', released_at=now()
 				WHERE holder=$1 AND state='active'`, string(leaseID))
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-				return ErrLeaseConflict
+				return m.conflict(ctx, conn, key.key)
 			}
 			return fmt.Errorf("persist DDL change lease: %w", err)
 		}
 	}
-	_ = actor
 	return nil
 }
 

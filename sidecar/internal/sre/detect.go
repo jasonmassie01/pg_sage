@@ -14,16 +14,19 @@ import (
 // the M6 families that have no RCA signal of their own: once per
 // trigger poll it samples the cumulative checkpoint and temp-file
 // counters and the LWLock waits through catalog probes, keeps a short
-// history in memory and opens one investigation per episode. Detection
-// never depends on an LLM. Thresholds are conservative product
-// defaults (DefaultDetectorConfig); a restart forgets the history, so
-// the first poll after it never fires.
+// history in memory and opens one investigation per episode. With an
+// episode sink (WithIncidents) every episode is also a sage.incidents
+// row and its investigation links to that incident. Detection never
+// depends on an LLM. Thresholds default to conservative product values
+// (DefaultDetectorConfig, sre.detectors.*); a restart forgets the
+// history, so the first poll after it never fires.
 type ReactiveDetector struct {
 	runner   ProbeRunner
 	database string
 	cfg      DetectorConfig
 	logFn    func(level, msg string, args ...any)
 	notices  OnceLog
+	sink     EpisodeSink
 
 	mu    sync.Mutex
 	ckpt  []probes.CheckpointStat
@@ -78,11 +81,21 @@ func (c DetectorConfig) Validate() error {
 	return nil
 }
 
-// episode is one family's current or last detection.
+// episode is one family's current or last detection and the incident
+// it was recorded as (empty until the sink records it).
 type episode struct {
-	active bool
-	start  time.Time
-	fired  time.Time
+	active   bool
+	start    time.Time
+	fired    time.Time
+	incident EpisodeIncident
+}
+
+// reading is one family's poll: whether its condition holds, when it was
+// observed and what was measured against the threshold.
+type reading struct {
+	cond     bool
+	at       time.Time
+	evidence string
 }
 
 // NewReactiveDetector samples database through runner; logFn may be nil.
@@ -113,14 +126,14 @@ func (d *ReactiveDetector) Triggers(ctx context.Context) ([]Trigger, error) {
 	var out []Trigger
 	for _, f := range []struct {
 		kind TriggerKind
-		poll func(context.Context) (bool, time.Time, bool)
+		poll func(context.Context) (reading, bool)
 	}{{TriggerCheckpoint, d.pollCheckpoint}, {TriggerTempFiles, d.pollTemp},
 		{TriggerLWLock, d.pollLWLock}} {
-		cond, at, ok := f.poll(ctx)
+		rd, ok := f.poll(ctx)
 		if !ok {
 			continue
 		}
-		if t, fire := d.step(f.kind, cond, at); fire {
+		if t, fire := d.step(ctx, f.kind, rd); fire {
 			out = append(out, t)
 		}
 	}
@@ -129,25 +142,32 @@ func (d *ReactiveDetector) Triggers(ctx context.Context) ([]Trigger, error) {
 
 // step advances a family's episode and returns its trigger while the
 // episode is open. A new episode inside the cooldown is suppressed.
-func (d *ReactiveDetector) step(kind TriggerKind, cond bool, at time.Time) (Trigger, bool) {
+func (d *ReactiveDetector) step(ctx context.Context, kind TriggerKind,
+	rd reading) (Trigger, bool) {
 	e := d.state[kind]
 	if e == nil {
 		e = &episode{}
 		d.state[kind] = e
 	}
-	if !cond {
+	if !rd.cond {
 		e.active = false
 		return Trigger{}, false
 	}
 	if !e.active {
-		if !e.fired.IsZero() && at.Sub(e.fired) < d.cfg.Cooldown {
+		if !e.fired.IsZero() && rd.at.Sub(e.fired) < d.cfg.Cooldown {
 			return Trigger{}, false
 		}
-		e.active, e.start, e.fired = true, at, at
+		*e = episode{active: true, start: rd.at, fired: rd.at}
 	}
+	return d.trigger(ctx, kind, e, rd), true
+}
+
+// legacyTrigger is an episode's trigger without an incident: its own
+// detector case, one idempotency key per episode.
+func (d *ReactiveDetector) legacyTrigger(kind TriggerKind, e *episode) Trigger {
 	return Trigger{CaseID: clip(fmt.Sprintf("sre:detector:%s:%s", kind, d.database)),
 		Kind: kind, Subject: detectorSubjects[kind],
-		IdempotencyKey: fmt.Sprintf("detector:%s:%d", kind, e.start.Unix())}, true
+		IdempotencyKey: fmt.Sprintf("detector:%s:%d", kind, e.start.Unix())}
 }
 
 var detectorSubjects = map[TriggerKind]string{TriggerCheckpoint: "requested checkpoints",
@@ -162,12 +182,12 @@ func (d *ReactiveDetector) unavailable(res probes.Result, err error) {
 		res.Reason, err)
 }
 
-func (d *ReactiveDetector) pollCheckpoint(ctx context.Context) (bool, time.Time, bool) {
+func (d *ReactiveDetector) pollCheckpoint(ctx context.Context) (reading, bool) {
 	res := d.runner.Run(ctx, probes.CheckpointActivity, probes.Args{})
 	s, err := probes.CheckpointStats(res)
 	if err != nil {
 		d.unavailable(res, err)
-		return false, time.Time{}, false
+		return reading{}, false
 	}
 	at := res.ObservedAt
 	if n := len(d.ckpt); n > 0 && ckptReset(d.ckpt[n-1], s) {
@@ -179,7 +199,10 @@ func (d *ReactiveDetector) pollCheckpoint(ctx context.Context) (bool, time.Time,
 	base := d.ckpt[0]
 	req, ok1 := probes.Delta(base.Requested, s.Requested)
 	timed, ok2 := probes.Delta(base.Timed, s.Timed)
-	return ok1 && ok2 && req >= d.cfg.CheckpointRequested && req > timed, at, true
+	return reading{cond: ok1 && ok2 && req >= d.cfg.CheckpointRequested && req > timed,
+		at: at, evidence: fmt.Sprintf("%.0f requested and %.0f timed checkpoints within %s "+
+			"(threshold %.0f requested, more than timed)", req, timed, d.cfg.Window,
+			d.cfg.CheckpointRequested)}, true
 }
 
 func ckptReset(prev, cur probes.CheckpointStat) bool {
@@ -189,12 +212,12 @@ func ckptReset(prev, cur probes.CheckpointStat) bool {
 		!prev.ServerStartedAt.Equal(cur.ServerStartedAt)
 }
 
-func (d *ReactiveDetector) pollTemp(ctx context.Context) (bool, time.Time, bool) {
+func (d *ReactiveDetector) pollTemp(ctx context.Context) (reading, bool) {
 	res := d.runner.Run(ctx, probes.TempFileActivity, probes.Args{})
 	s, err := probes.TempStats(res)
 	if err != nil {
 		d.unavailable(res, err)
-		return false, time.Time{}, false
+		return reading{}, false
 	}
 	at := res.ObservedAt
 	if n := len(d.temp); n > 0 {
@@ -209,8 +232,12 @@ func (d *ReactiveDetector) pollTemp(ctx context.Context) (bool, time.Time, bool)
 	i := firstInWindow(d.tmAt, at, d.cfg.Window)
 	d.temp, d.tmAt = d.temp[i:], d.tmAt[i:]
 	grew, ok := probes.Delta(d.temp[0].Bytes, s.Bytes)
-	return ok && grew >= d.cfg.TempBytes, at, true
+	return reading{cond: ok && grew >= d.cfg.TempBytes, at: at,
+		evidence: fmt.Sprintf("%s of temp files in this database within %s (threshold %s)",
+			mebibytes(grew), d.cfg.Window, mebibytes(d.cfg.TempBytes))}, true
 }
+
+func mebibytes(b float64) string { return fmt.Sprintf("%.0f MiB", b/(1<<20)) }
 
 // firstInWindow is the index of the oldest time within window of now.
 func firstInWindow(ts []time.Time, now time.Time, window time.Duration) int {
@@ -222,26 +249,48 @@ func firstInWindow(ts []time.Time, now time.Time, window time.Duration) int {
 	return len(ts) - 1
 }
 
-func (d *ReactiveDetector) pollLWLock(ctx context.Context) (bool, time.Time, bool) {
+func (d *ReactiveDetector) pollLWLock(ctx context.Context) (reading, bool) {
 	res := d.runner.Run(ctx, probes.LWLockWaits, probes.Args{})
 	gs, err := probes.WaitGroups(res)
 	if err != nil {
 		d.unavailable(res, err)
 		d.hot = 0
-		return false, time.Time{}, false
+		return reading{}, false
 	}
-	classes := map[causal.NodeID]int64{}
-	var peak int64
-	for _, g := range gs {
-		if id, ok := causal.LWLockClass(g.Event); ok && g.Type == "LWLock" {
-			classes[id] += g.Backends
-			peak = max(peak, classes[id])
-		}
-	}
+	peak, class, event := lwlockPeak(gs)
 	if peak >= d.cfg.LWLockWaiters {
 		d.hot++
 	} else {
 		d.hot = 0
 	}
-	return d.hot >= d.cfg.LWLockPolls, res.ObservedAt, true
+	return reading{cond: d.hot >= d.cfg.LWLockPolls, at: res.ObservedAt,
+		evidence: fmt.Sprintf("%d backends waiting on LWLock %s (%s) for %d consecutive "+
+			"polls (threshold %d in %d)", peak, event, class, d.hot, d.cfg.LWLockWaiters,
+			d.cfg.LWLockPolls)}, true
+}
+
+// lwlockPeak is the modeled LWLock class with the most waiters, its
+// waiters and its busiest wait event.
+func lwlockPeak(gs []probes.WaitGroup) (int64, causal.NodeID, string) {
+	classes := map[causal.NodeID]int64{}
+	events := map[string]int64{}
+	var peak int64
+	var class causal.NodeID
+	for _, g := range gs {
+		if id, ok := causal.LWLockClass(g.Event); ok && g.Type == "LWLock" {
+			classes[id] += g.Backends
+			events[g.Event] += g.Backends
+			if classes[id] > peak {
+				peak, class = classes[id], id
+			}
+		}
+	}
+	event, top := "", int64(-1)
+	for name, n := range events {
+		if id, _ := causal.LWLockClass(name); id == class &&
+			(n > top || (n == top && name < event)) {
+			event, top = name, n
+		}
+	}
+	return peak, class, event
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -81,6 +82,7 @@ type Executor struct {
 	settingWait        time.Duration // bounds reloaded-setting post-checks (0 = default)
 	trustLevelOverride string
 	ddlSem             chan struct{}   // limits concurrent DDL ops
+	quiesced           atomic.Int32    // DDL slots a drain holds (Quiesce)
 	analyzeSem         chan struct{}   // shared fleet-wide for ANALYZE
 	justifier          ActionJustifier // optional LLM action justification (C4)
 	policyMu           sync.RWMutex
@@ -94,6 +96,7 @@ type Executor struct {
 	ioEvidence         IOEvidenceReader
 	retainedCleanupMu  sync.Mutex
 	resumeOnce         sync.Once
+	leaseQueueCfg      policy.LeaseQueueConfig // serialize_mode queue bounds
 	postDDLMu          sync.RWMutex
 	postDDLHook        func(context.Context) error
 	// approvedRunner runs approved queue items it owns (Sage SRE M5).
@@ -386,7 +389,7 @@ func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
 		RequiresMaintenanceWindow: decision.RiskTier == policy.RiskModerate ||
 			decision.RiskTier == policy.RiskHigh,
 		EvidenceID: decision.EvidenceID, DecisionID: decision.DecisionID,
-		LockCeilingMS: decision.LockCeilingMS,
+		LockCeilingMS: decision.LockCeilingMS, SerializeMode: decision.SerializeMode,
 	}
 	switch decision.Verdict {
 	case policy.VerdictExecute:
@@ -578,33 +581,6 @@ func estimatedToilForActionType(actionType string) int {
 		return 15
 	}
 	return 30
-}
-
-func (e *Executor) acquireDDLLease(
-	ctx context.Context, finding analyzer.Finding, decisionID int64,
-) (func(), error) {
-	if decisionID <= 0 || !isDDLMutation(finding.RecommendedSQL) {
-		return func() {}, nil
-	}
-	objects, err := policy.NormalizeTargetObjects(
-		targetObjectsForFinding(finding),
-	)
-	if err != nil {
-		return func() {}, fmt.Errorf("normalize DDL lease targets: %w", err)
-	}
-	ttl := e.ddlTimeout() + time.Minute
-	manager := policy.NewPostgresLeaseManager(e.pool, nil, decisionID, ttl)
-	leaseID, err := manager.AcquireLease(
-		ctx, "executor", objects, finding.RecommendedSQL,
-	)
-	if err != nil {
-		return func() {}, err
-	}
-	return func() {
-		if err := manager.ReleaseLease(context.WithoutCancel(ctx), leaseID); err != nil {
-			e.logFn("executor", "release DDL lease %s: %v", leaseID, err)
-		}
-	}, nil
 }
 
 func isDDLMutation(sql string) bool {

@@ -32,6 +32,28 @@ trust:
                                   # "weekdays 01:00-05:00", or a cron
                                   # expression such as "0 3 * * 0"
 
+# Fast elevation. By default pg_sage earns trust over weeks (8-day SAFE
+# ramp, 31-day MODERATE ramp, 7-day IO baseline, 30-day shadow, 50 live
+# recoveries for L3). On a database you are dogfooding, uncomment the
+# profile below to elevate in hours. The sidecar logs a FAST ELEVATION
+# warning per lowered value. Irreversible actions keep the full ramp and
+# never exceed L1, and an admin still approves every promotion. Merge the
+# keys into the sections above rather than repeating a section.
+# --- fast elevation (dogfood) profile: start ---
+# trust:
+#   ramp_safe_hours: 1
+#   ramp_moderate_hours: 4
+# verify:
+#   io_baseline_hours: 2
+# sre:
+#   autonomy:
+#     evaluate_interval_minutes: 5
+#     promotion:
+#       shadow_window_hours: 4
+#       shadow_min_reviewed: 3
+#       min_live_recoveries: 3
+# --- fast elevation (dogfood) profile: end ---
+
 safety:
   ddl_timeout_seconds: 300        # per-statement ceiling for executor DDL
 

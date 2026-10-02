@@ -65,16 +65,36 @@ func (r executorProposalRouter) RouteVerifiedIndex(
 		}, rollbackSQL, queryIDs))
 }
 
-// authorizeRetention adapts retention intents to the executor's gate.
-func (r executorProposalRouter) authorizeRetention(
-	ctx context.Context, intent autonomy.RetentionIntent,
+// executeRetention runs a retention batch through the executor's single
+// execution pipeline (Executor.Apply).
+func (r executorProposalRouter) executeRetention(
+	ctx context.Context, intent autonomy.RetentionIntent, batch autonomy.RetentionBatch,
 ) error {
-	return r.executor.AuthorizeRetention(ctx, executor.RetentionRequest{
+	_, err := r.executor.ExecuteRetention(ctx, executor.RetentionRequest{
 		Target: intent.Schema + "." + intent.Table, Column: intent.Column,
 		DeclaredColumn: intent.DeclaredColumn,
 		Cutoff:         intent.Cutoff, Window: intent.Window, BatchLimit: intent.BatchLimit,
-		Candidates: intent.Candidates, IsReplica: r.replica(ctx),
+		Candidates: intent.Candidates, Bound: intent.Bound, DryRunID: intent.DryRunID,
+		IsReplica: r.replica(ctx), Delete: retentionDelete(batch),
 	})
+	return err
+}
+
+// retentionDelete adapts the D5 batch to the executor's pipeline; a
+// missing batch stays nil, which the executor refuses to admit.
+func retentionDelete(batch autonomy.RetentionBatch) executor.RetentionDelete {
+	if batch == nil {
+		return nil
+	}
+	return func(ctx context.Context, run executor.RetentionExecution,
+	) (executor.RetentionOutcome, error) {
+		result, err := batch(ctx, autonomy.RetentionRun{ActionID: run.ActionID,
+			LockTimeout: time.Duration(run.LockTimeoutMS) * time.Millisecond,
+			MaxRows:     run.MaxRows})
+		return executor.RetentionOutcome{RunID: result.RunID, Deleted: result.Deleted,
+			OutsidePredicate: result.OutsidePredicate,
+			OutsideRelation:  result.OutsideRelation}, err
+	}
 }
 
 // haReplicaProbe reports replica or failover safe mode for one database.
@@ -109,7 +129,7 @@ func newDatabaseAutonomy(
 			logInfo("autonomy", "db %q: "+format, append([]any{database}, args...)...)
 		})}
 	schemaGuard, err := autonomy.NewPostgresSchemaGuard(
-		pool, database, router, auditor, router.authorizeRetention)
+		pool, database, router, auditor, router.executeRetention)
 	if err != nil {
 		return nil, err
 	}

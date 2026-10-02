@@ -165,13 +165,6 @@ func (e *Executor) handoffFinding(
 	return id, nil
 }
 
-// leaseTaken mirrors acquireDDLLease: a lease is held only for a DDL
-// mutation authorized by a recorded decision.
-func leaseTaken(intent ActionIntent, decisionID int64) bool {
-	return intent.Lease != nil && decisionID > 0 &&
-		isDDLMutation(intent.Lease.RecommendedSQL)
-}
-
 // OperatorBound is the operator's configured outer bound (executor on,
 // execution mode, trust level, tier toggles), read without touching the
 // database. The ledger carries over the autonomy it already grants.
