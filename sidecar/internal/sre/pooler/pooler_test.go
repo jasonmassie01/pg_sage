@@ -171,7 +171,13 @@ func TestProbe_FailuresAreClassifiedAndNeverLeakTheDSN(t *testing.T) {
 	}{
 		"refused": {fmt.Errorf("dial %s: connection refused", secretDSN),
 			probes.StatusError, ReasonUnreachable},
-		"auth":     {auth, probes.StatusNoPrivilege, ReasonAuthFailed},
+		"auth": {auth, probes.StatusNoPrivilege, ReasonAuthFailed},
+		// PgBouncer reports its own login refusals as 08P01 (found against a
+		// real PgBouncer 1.26).
+		"pgbouncer auth": {&pgconn.PgError{Code: "08P01", Message: "SASL authentication " +
+			"failed"}, probes.StatusNoPrivilege, ReasonAuthFailed},
+		"protocol": {&pgconn.PgError{Code: "08P01", Message: "unsupported startup " +
+			"parameter: " + secretDSN}, probes.StatusError, ReasonProtocol},
 		"deadline": {context.DeadlineExceeded, probes.StatusError, ReasonTimeout},
 	}
 	for name, c := range cases {

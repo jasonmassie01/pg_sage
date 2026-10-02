@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"net"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -119,7 +120,7 @@ func classify(ctx context.Context, err error) *readError {
 	var pgErr *pgconn.PgError
 	var netErr net.Error
 	switch {
-	case errors.As(err, &pgErr) && (pgErr.Code == "28P01" || pgErr.Code == "28000"):
+	case errors.As(err, &pgErr) && authFailure(pgErr):
 		return &readError{probes.StatusNoPrivilege, ReasonAuthFailed}
 	case errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil ||
 		(errors.As(err, &netErr) && netErr.Timeout()):
@@ -128,4 +129,21 @@ func classify(ctx context.Context, err error) *readError {
 		return &readError{probes.StatusError, ReasonProtocol}
 	}
 	return &readError{probes.StatusError, ReasonUnreachable}
+}
+
+// authFailure recognizes a refused login or admin access. PostgreSQL uses
+// SQLSTATE class 28; PgBouncer reports most client errors as 08P01, so
+// its own login and console refusals are recognized by their text.
+func authFailure(e *pgconn.PgError) bool {
+	if strings.HasPrefix(e.Code, "28") {
+		return true
+	}
+	msg := strings.ToLower(e.Message)
+	for _, s := range []string{"authentication failed", "not allowed", "admin access",
+		"no such user"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
