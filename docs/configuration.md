@@ -149,6 +149,7 @@ briefing:
 | `collector.interval_seconds` | `60` | Seconds between snapshot collections |
 | `analyzer.interval_seconds` | `600` | Seconds between analysis cycles |
 | `rca.lock_chain_interval_seconds` | `60` | Seconds between lock-chain fast-path checks. Each check opens or updates the `lock_contention` incident (with the root blocker's pid, `backend_start` and query identity) and sends `incident_detected` without waiting for the analyzer cycle. `0` disables the fast path; otherwise `10`-`3600`. Escalation and auto-resolution still count analyzer cycles. Restart to change |
+| `rca.stale_after_hours` | `24` | Hours an open incident may go without being re-detected before pg_sage resolves it (`resolved_by` `pg_sage:stale`). Incidents about an idle-in-transaction session also resolve once that session is gone (`pg_sage:subject_gone`). Resolutions of incidents last seen longer ago than this send no notification. `1`-`8760`, and at least `rca.dedup_window_minutes` |
 
 ### Trust & Actions
 
@@ -557,6 +558,7 @@ investigation says so and gives the manual step.
 | `sre.runways.enabled` | `true` | Sample runways and open forecast findings |
 | `sre.runways.investigate` | `true` | Open a read-only pre-incident investigation per runway finding and severity |
 | `sre.runways.interval_seconds` | `60` | Seconds between samples, `15`-`3600` |
+| `sre.runways.sequence_interval_seconds` | `600` | Seconds between sequence samples, `15`-`86400`. Sequences are consumed slowly and are the costliest series to read (one lock per sequence read), so they are read less often, through a separate 2 s background budget. The effective period is never shorter than `interval_seconds` and never so long that `min_samples` no longer fit in `lookback_hours` |
 | `sre.runways.lookback_hours` | `6` | Hours a trend is fitted over, `1` to `sample_retention_hours` (at most `168`). Pre-incident investigations read the same window |
 | `sre.runways.min_samples` | `10` | Fewest samples a projection needs, `3`-`1000` |
 | `sre.runways.min_span_minutes` | `30` | Shortest span of samples a projection needs |
