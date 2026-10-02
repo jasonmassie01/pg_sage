@@ -32,6 +32,17 @@ func (c countingRunner) Run(ctx context.Context, id probes.ID, a probes.Args) pr
 	return c.base.Run(ctx, id, a)
 }
 
+// RunBackground counts like Run: the sequence sampler uses the background
+// budget, and size probes must be counted on either path.
+func (c countingRunner) RunBackground(
+	ctx context.Context, id probes.ID, a probes.Args,
+) probes.Result {
+	if id == probes.ClusterDatabaseSizeProbe {
+		c.sizes.Add(1)
+	}
+	return c.base.RunBackground(ctx, id, a)
+}
+
 func fleetDatabase(t *testing.T, ctx context.Context, label string) *pgxpool.Pool {
 	t.Helper()
 	pool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, label))
