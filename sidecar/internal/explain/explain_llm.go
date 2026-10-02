@@ -24,12 +24,13 @@ Respond ONLY with valid JSON -- no markdown fences, no commentary:
 
 // enhanceWithLLM sends the plan to the LLM for natural language
 // analysis and updates the result in place. On any error it logs
-// and leaves deterministic values intact.
+// and leaves deterministic values intact. It reports degraded=true when
+// an enabled LLM failed to answer usably (the result is a fallback).
 func (ex *Explainer) enhanceWithLLM(
 	ctx context.Context, result *ExplainResult,
-) {
+) (degraded bool) {
 	if ex.llmClient == nil || !ex.llmClient.IsEnabled() {
-		return
+		return false
 	}
 
 	maxTokens := ex.cfg.MaxTokens
@@ -44,10 +45,10 @@ func (ex *Explainer) enhanceWithLLM(
 		ex.logFn(
 			"WARN", "explain: LLM enhancement failed: %v", err,
 		)
-		return
+		return true
 	}
 
-	ex.applyLLMResponse(raw, result)
+	return !ex.applyLLMResponse(raw, result)
 }
 
 // explainUserPrompt delimits the query and plan as untrusted data with
@@ -66,17 +67,18 @@ type llmExplainResponse struct {
 }
 
 // applyLLMResponse parses the raw LLM output and updates result
-// fields. On parse failure it logs and keeps the original values.
+// fields. On parse failure it logs, keeps the original values and
+// reports false.
 func (ex *Explainer) applyLLMResponse(
 	raw string, result *ExplainResult,
-) {
+) bool {
 	var resp llmExplainResponse
 	if err := llm.ParseJSON(raw, llm.JSONAuto, &resp); err != nil {
 		ex.logFn(
 			"WARN",
 			"explain: failed to parse LLM response: %v", err,
 		)
-		return
+		return false
 	}
 
 	if resp.Summary != "" {
@@ -88,4 +90,5 @@ func (ex *Explainer) applyLLMResponse(
 	if len(resp.Recommendations) > 0 {
 		result.Recommendations = resp.Recommendations
 	}
+	return true
 }

@@ -1,6 +1,8 @@
 // Package explain provides natural language EXPLAIN for PostgreSQL queries.
 // It runs EXPLAIN (ANALYZE) via a read-only transaction, extracts plan nodes,
-// and caches results in sage.explain_results.
+// and caches results in sage.explain_results. ANALYZE executes the query,
+// so it runs only for statements the analyze guard proves free of side
+// effects (analyze_guard.go); everything else is explained plan-only.
 package explain
 
 import (
@@ -17,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 // ErrExplainInvalidRequest wraps errors caused by client-side input
@@ -49,7 +52,10 @@ type ExplainResult struct {
 	ActualTimeMs    *float64        `json:"actual_time_ms,omitempty"`
 	PlanningTimeMs  *float64        `json:"planning_time_ms,omitempty"`
 	Note            string          `json:"note,omitempty"`
-	CachedAt        *time.Time      `json:"cached_at,omitempty"`
+	// AnalyzeRefused is why ANALYZE was requested but not run; the plan
+	// is then estimate-only.
+	AnalyzeRefused string     `json:"analyze_refused,omitempty"`
+	CachedAt       *time.Time `json:"cached_at,omitempty"`
 }
 
 // NodeExplain explains a single plan node.
@@ -72,6 +78,9 @@ type Explainer struct {
 	cfg       *config.ExplainConfig
 	logFn     func(string, string, ...any)
 	llmClient *llm.Client // optional; nil disables LLM enhancement
+	// inspect parses a query for the analyze guard; nil means
+	// sqlast.InspectReadQuery (tests substitute it).
+	inspect func(string) (sqlast.ReadQuery, error)
 }
 
 // New creates an Explainer without LLM support.
@@ -80,7 +89,7 @@ func New(
 	cfg *config.ExplainConfig,
 	logFn func(string, string, ...any),
 ) *Explainer {
-	return &Explainer{pool: pool, cfg: cfg, logFn: logFn}
+	return &Explainer{pool: pool, cfg: cfg, logFn: logFn, inspect: sqlast.InspectReadQuery}
 }
 
 // NewWithLLM creates an Explainer with optional LLM enhancement.
@@ -93,7 +102,7 @@ func NewWithLLM(
 ) *Explainer {
 	return &Explainer{
 		pool: pool, cfg: cfg,
-		llmClient: llmClient, logFn: logFn,
+		llmClient: llmClient, logFn: logFn, inspect: sqlast.InspectReadQuery,
 	}
 }
 
@@ -125,11 +134,10 @@ func (ex *Explainer) Explain(
 	}
 	req.Query = body
 
-	// 3. Check cache.
+	// 3. Check cache. The key separates plan-only from ANALYZE requests.
 	dbName := ex.databaseName()
-	hash := queryHash(req.Query, req.Params)
-
-	cached, err := ex.checkCache(ctx, hash, dbName)
+	key := cacheKey(req.Query, req.Params, req.PlanOnly)
+	cached, err := ex.checkCache(ctx, key, dbName)
 	if err != nil {
 		ex.logFn("WARN", "explain: cache lookup failed: %v", err)
 	}
@@ -137,33 +145,41 @@ func (ex *Explainer) Explain(
 		return cached, nil
 	}
 
-	// 4. Determine mode.
-	hasParams := hasParamPlaceholder(req.Query)
-	useAnalyze := !req.PlanOnly && !hasParams
-
-	// 5. Execute EXPLAIN.
-	var planJSON json.RawMessage
-	if hasParams {
-		planJSON, err = ex.runExplainParameterized(
-			ctx, req.Query, req.Params)
-	} else {
-		planJSON, err = ex.runExplain(ctx, req.Query, useAnalyze)
-	}
+	// 4-6. Execute EXPLAIN and build the result.
+	result, err := ex.execute(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("explain: %w", err)
 	}
-
-	// 6. Build result.
-	result := buildResult(req.Query, planJSON, useAnalyze)
-
-	// 6b. Enhance with LLM (graceful degradation on failure).
-	ex.enhanceWithLLM(ctx, result)
-
-	// 7. Cache result.
-	if cacheErr := ex.saveCache(ctx, hash, dbName, result); cacheErr != nil {
+	// 6b-7. Enhance with LLM (graceful degradation on failure) and cache;
+	// an LLM failure fallback is cached only briefly.
+	ttl := ex.cacheTTLMinutes(ex.enhanceWithLLM(ctx, result))
+	if cacheErr := ex.saveCache(ctx, key, dbName, result, ttl); cacheErr != nil {
 		ex.logFn("WARN", "explain: cache save failed: %v", cacheErr)
 	}
+	return result, nil
+}
 
+// execute runs EXPLAIN in the mode the request allows. Parameterized
+// queries are always plan-only; ANALYZE needs the analyze guard's consent.
+func (ex *Explainer) execute(
+	ctx context.Context, req ExplainRequest,
+) (*ExplainResult, error) {
+	hasParams := hasParamPlaceholder(req.Query)
+	var planJSON json.RawMessage
+	var analyzed bool
+	var refused string
+	var err error
+	if hasParams {
+		planJSON, err = ex.runExplainParameterized(ctx, req.Query, req.Params)
+	} else {
+		planJSON, analyzed, refused, err = ex.runExplain(ctx, req.Query, !req.PlanOnly)
+	}
+	if err != nil {
+		return nil, err
+	}
+	result := buildResult(req.Query, planJSON, analyzed)
+	result.Note = explainNote(req.PlanOnly, hasParams, refused)
+	result.AnalyzeRefused = refused
 	return result, nil
 }
 
@@ -171,31 +187,28 @@ func (ex *Explainer) Explain(
 
 func (ex *Explainer) runExplain(
 	ctx context.Context, query string, analyze bool,
-) (json.RawMessage, error) {
+) (json.RawMessage, bool, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, ex.timeout())
 	defer cancel()
 
 	conn, err := ex.pool.Acquire(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("acquire connection: %w", err)
+		return nil, false, "", fmt.Errorf("acquire connection: %w", err)
 	}
 	defer conn.Release()
 
 	if err = ex.prepareConn(ctx, conn); err != nil {
-		return nil, err
+		return nil, false, "", err
 	}
 	defer func() { _, _ = conn.Exec(ctx, "ROLLBACK") }()
 
-	explainSQL := explainSQL(query, analyze)
-	return collectPlanJSON(ctx, conn, explainSQL)
-}
-
-func (ex *Explainer) timeout() time.Duration {
-	timeout := time.Duration(ex.cfg.TimeoutMs) * time.Millisecond
-	if timeout == 0 {
-		timeout = 10 * time.Second
+	refused := ""
+	if analyze {
+		refused = ex.guardAnalyze(ctx, conn, query)
+		analyze = refused == ""
 	}
-	return timeout
+	plan, err := collectPlanJSON(ctx, conn, explainSQL(query, analyze))
+	return plan, analyze, refused, err
 }
 
 const explainStmtName = "_sage_explain"
@@ -292,10 +305,7 @@ func (ex *Explainer) prepareConn(
 	if _, err := conn.Exec(ctx, "BEGIN READ ONLY"); err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
-	stmtTimeout := fmt.Sprintf(
-		"SET LOCAL statement_timeout = '%dms'", ex.cfg.TimeoutMs,
-	)
-	if _, err := conn.Exec(ctx, stmtTimeout); err != nil {
+	if _, err := conn.Exec(ctx, statementTimeoutSQL(ex.timeout())); err != nil {
 		return fmt.Errorf("set statement_timeout: %w", err)
 	}
 	if _, err := conn.Exec(
