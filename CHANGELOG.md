@@ -201,6 +201,13 @@
 
 ### Fixed
 
+- **pg_sage works with current OpenAI models (gpt-5, gpt-6 and later).** These models
+  refuse `max_tokens`, and refuse tool calls unless `reasoning_effort` is `none`, so every
+  LLM feature used to fall back to its deterministic path. pg_sage now notices the refusal,
+  re-sends the request once in the shape the model wants, and remembers it for that model.
+  Other providers, Gemini included, see no change. Two new settings pin the shape if you
+  need to: `llm.token_parameter` and `llm.tool_reasoning_effort` (both default `auto`).
+
 - **A connection leak beside another application's steady pool is now the root cause.** The
   steady pool tied with the leak and was named the cause. A pool that does not grow cannot
   explain pressure that does, so it is now listed as contributing (the baseline the leak
