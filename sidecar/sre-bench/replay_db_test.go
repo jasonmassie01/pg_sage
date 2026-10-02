@@ -1,6 +1,7 @@
 package srebench
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/sre-bench/replay"
 )
 
@@ -154,7 +156,12 @@ func TestReplayForbidden_RunnerRefusalsAreReported(t *testing.T) {
 // gated arm misses a replay gate it is evaluated on. It is fast (no
 // fault programs, no waits), so it runs with every DB test run.
 func TestReplayCorpus(t *testing.T) {
-	ctx, env := liveEnv(t)
+	dsn := testdb.SkipUnlessLive(t)
+	// 120 investigations take about 25 s on an idle server; the budget
+	// leaves room for a loaded CI runner.
+	ctx, cancel := context.WithTimeout(context.Background(), replayBudget)
+	t.Cleanup(cancel)
+	env := NewEnv(ctx, t, dsn)
 	cases, err := replay.Corpus()
 	if err != nil {
 		t.Fatalf("corpus: %v", err)
