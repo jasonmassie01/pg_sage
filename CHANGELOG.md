@@ -56,8 +56,32 @@
   WAL or plan fault. This is an in-distribution seed set, not a held-out measurement. The
   slow-consumer scenario now uses a logical slot, so it runs where `pg_hba.conf` refuses
   physical replication connections (it used to be skipped).
+- **Sage SRE earned autonomy (on by default, at L1).** pg_sage keeps a level per incident
+  family and action class: L0 observe, L1 script only, L2 one-click approval handoff, L3
+  auto-execute a reversible single-object action inside the standing-policy window and
+  notify. L4 is never reached, and irreversible classes never go above L1. pg_sage proposes
+  a promotion one level at a time from the spec's evidence: PGIncidentBench results, 30
+  days of accepted shadow reviews, verified recoveries and zero safety violations. Only an
+  admin can approve it, and the approver is recorded. Error-budget fast burn, an unknown
+  app SLO, a non-primary or recently failed-over node, stale evidence, a concurrent action
+  on the same object, or a family safety regression caps actions at L1, and each cap is
+  logged. A harmful outcome demotes the whole family until the evidence is earned again.
+  Also added: game days on disposable clones (off by default), a fleet canary that halts
+  and rolls back on regression, the **Advanced > Earned autonomy** page, and the
+  `/api/v1/sre/autonomy` routes. The MCP tools `sre_get_autonomy` and
+  `sre_downgrade_autonomy` are also new. See `sre.autonomy.*` in the configuration
+  reference.
 
 ### Changed (read before upgrading)
+
+- Custodian remediations (wraparound freeze and autovacuum tuning, WAL bounds) now go
+  through the earned-autonomy ledger. Every pair starts at L1, so a custodian that used to
+  auto-execute under the trust ramp now writes its script and waits until the pair is
+  promoted. Set `sre.autonomy.enforce: false` to restore the previous behavior; the
+  sidecar warns at startup when you do. At startup, the schema upgrade adds the
+  `sage.sre_family_autonomy`, `sre_autonomy_*`, `sre_packet_reviews`, `sre_eval_runs`,
+  `sre_game_days` and `rollout_instance` tables, plus four nullable columns on
+  `sage.rollout_run`.
 
 - If you already run Sage SRE investigations with an LLM configured, they start using the
   model turn after the upgrade. To keep them deterministic, set `sre.llm.enabled: false`.
