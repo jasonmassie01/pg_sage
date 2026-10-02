@@ -20,9 +20,9 @@ const (
 )
 
 type seqRow struct {
-	name, typ                     string
-	last, max, typeMax, ownerMax  float64
-	cycle                         bool
+	name, typ                    string
+	last, max, typeMax, ownerMax float64
+	cycle                        bool
 }
 
 func (s seqRow) row() probes.Row {

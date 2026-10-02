@@ -10,7 +10,7 @@ package causal
 import "github.com/pg-sage/sidecar/internal/sre/probes"
 
 // GraphVersion pins the graph a diagnosis was produced with.
-const GraphVersion = "causal-v2"
+const GraphVersion = "causal-v3"
 
 // NoRefutation marks a hypothesis without a discriminating probe.
 const NoRefutation = "none_available"
@@ -60,7 +60,7 @@ type Node struct {
 	OperatorStep string
 }
 
-var graph = append(v1Nodes, v2Nodes...)
+var graph = append(append(append([]Node(nil), v1Nodes...), v2Nodes...), v3Nodes...)
 
 var v1Nodes = []Node{
 	{ID: IdleInTxHolder, Family: FamilyLockBlocking,

@@ -222,12 +222,12 @@ func XIDRunwayOf(res Result) (XIDRunway, error) {
 		return XIDRunway{}, err
 	}
 	return XIDRunway{NextXID: floatField(r, "next_xid"),
-		MXIDCounter:    floatField(r, "mxid_counter"),
-		ClusterXIDAge:  floatField(r, "cluster_xid_age"),
-		ClusterMXIDAge: floatField(r, "cluster_mxid_age"),
-		DatabaseXIDAge: floatField(r, "database_xid_age"),
-		OldestDatabase: strField(r, "oldest_database"),
-		FreezeMaxAge:   floatField(r, "freeze_max_age"),
+		MXIDCounter:      floatField(r, "mxid_counter"),
+		ClusterXIDAge:    floatField(r, "cluster_xid_age"),
+		ClusterMXIDAge:   floatField(r, "cluster_mxid_age"),
+		DatabaseXIDAge:   floatField(r, "database_xid_age"),
+		OldestDatabase:   strField(r, "oldest_database"),
+		FreezeMaxAge:     floatField(r, "freeze_max_age"),
 		MXIDFreezeMaxAge: floatField(r, "multixact_freeze_max_age"),
 		AutovacuumOn:     boolField(r, "autovacuum_on"),
 		MaxWorkers:       floatField(r, "autovacuum_max_workers"),
@@ -318,7 +318,7 @@ func WALDirectoryOf(res Result) (WALDirectory, error) {
 		return WALDirectory{}, err
 	}
 	return WALDirectory{Bytes: floatField(r, "wal_dir_bytes"),
-		Files: floatField(r, "wal_files"), ReadyFiles: floatField(r, "archive_ready_files")},
+			Files: floatField(r, "wal_files"), ReadyFiles: floatField(r, "archive_ready_files")},
 		nil
 }
 
