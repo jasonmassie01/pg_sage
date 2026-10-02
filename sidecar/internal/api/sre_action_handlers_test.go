@@ -313,7 +313,8 @@ func TestSREActionAPI_CanonicalErrors(t *testing.T) {
 }
 
 // CHECK-18: a policy change between the request and the approval blocks
-// the approval itself; the item stays pending and nothing is signalled.
+// the approval itself: the existing flow marks the item blocked with the
+// reason, the proposal records the refusal, and nothing is signalled.
 func TestSREActionAPI_ChangedPolicyBlocksTheApproval(t *testing.T) {
 	mgr := fleet.NewManager(config.DefaultConfig())
 	f := actionInstance(t, mgr, "orders", "advisory")
@@ -340,8 +341,15 @@ func TestSREActionAPI_ChangedPolicyBlocksTheApproval(t *testing.T) {
 	}
 	var status string
 	if err := f.pool.QueryRow(context.Background(), `SELECT status FROM sage.action_queue
-		WHERE id = $1`, queueID).Scan(&status); err != nil || status != "pending" {
-		t.Fatalf("queue item = %q (%v), want still pending", status, err)
+		WHERE id = $1`, queueID).Scan(&status); err != nil || status != "blocked" {
+		t.Fatalf("queue item = %q (%v), want blocked (not approved)", status, err)
+	}
+	if err := f.actions.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	if p, _ := f.actions.Get(context.Background(), sre.UUID(pid)); p.State !=
+		sreaction.ProposalRefused || p.Reason != sreaction.ReasonPolicyWithheld {
+		t.Fatalf("proposal after the blocked approval = %s (%s)", p.State, p.Reason)
 	}
 	if f.canceler.count() != 0 {
 		t.Fatal("a cancel was signalled after the policy withdrew it")

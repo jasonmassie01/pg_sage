@@ -170,3 +170,33 @@ func TestActionOutcomesReportVerifiedResults(t *testing.T) {
 		t.Fatalf("action classes = %+v", classes)
 	}
 }
+
+// An approval the existing flow blocked (the policy withdrew it before the
+// approval) ends the proposal as refused, with the reason, instead of
+// leaving it requested forever; the anchor finding closes.
+func TestActionTickRefusesABlockedApprovalItem(t *testing.T) {
+	h := newActionHarness(t, nil)
+	p := h.requested(t)
+	if _, err := h.pool.Exec(h.ctx, `UPDATE sage.action_queue SET status = 'blocked',
+		reason = 'trust level observation withholds it' WHERE id = $1`,
+		p.QueueID); err != nil {
+		t.Fatalf("block: %v", err)
+	}
+	if err := h.actions.Tick(h.ctx); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	got := h.proposal(t, p.ID)
+	if got.State != ProposalRefused || got.Reason != ReasonPolicyWithheld ||
+		!strings.Contains(got.Detail, "observation") {
+		t.Fatalf("blocked proposal = %s %s %q", got.State, got.Reason, got.Detail)
+	}
+	if countOf(h.eventTypes(t), "action_refused") != 1 || h.cancel.callCount() != 0 {
+		t.Fatalf("events %v, cancels %d", h.eventTypes(t), h.cancel.callCount())
+	}
+	var findingStatus string
+	_ = h.pool.QueryRow(h.ctx, `SELECT status FROM sage.findings WHERE id = $1`,
+		got.FindingID).Scan(&findingStatus)
+	if findingStatus != "resolved" {
+		t.Fatalf("blocked proposal's finding is %q, want resolved", findingStatus)
+	}
+}
