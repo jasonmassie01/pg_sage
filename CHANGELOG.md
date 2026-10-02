@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Databases can be added, removed and changed without restarting pg_sage.** In fleet
+  mode, saving the config file with a new, removed or changed database applies it at once:
+  trust level, execution mode, the executor switch and tags change on the running database;
+  connection, credential and other changes restart only that database's monitoring. A
+  removed database first lets running actions finish (up to a minute), then stops cleanly
+  and drops out of the metrics. A bad edit is rejected and everything keeps running as
+  before. In meta-db mode, changes made to the database list by another pg_sage or by SQL
+  are picked up within 30 seconds. Removing or moving the first (control) database still
+  needs a restart.
+
 ## v1.8.0 (2026-10-02) -- Sage SRE: eleven incident families, approved actions, earned autonomy
 
 ### What's new
@@ -31,16 +45,6 @@
   pre-registered gates, in CI on PostgreSQL 14–18.
 
 ### Added
-
-- **Databases can be added, removed and changed without restarting pg_sage.** In fleet
-  mode, saving the config file with a new, removed or changed database applies it at once:
-  trust level, execution mode, the executor switch and tags change on the running database;
-  connection, credential and other changes restart only that database's monitoring. A
-  removed database first lets running actions finish (up to a minute), then stops cleanly
-  and drops out of the metrics. A bad edit is rejected and everything keeps running as
-  before. In meta-db mode, changes made to the database list by another pg_sage or by SQL
-  are picked up within 30 seconds. Removing or moving the first (control) database still
-  needs a restart.
 
 - **Operators can start, stop and resume Sage SRE investigations.** `POST
   /api/v1/databases/{db}/investigations` starts one for a case (a repeat joins the running
