@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
 import { useToast } from '../../components/Toast'
+import { ActionProposals } from './ActionProposal'
 
 // Sage SRE investigation of a case (AI-SRE-SPEC §9): impact and state,
 // observed facts, the likely explanation, other and ruled-out
@@ -96,6 +97,7 @@ function InvestigationDetail({ database, id, user }) {
         hypotheses={byStatus('ruled_out')} empty="None." onCite={cite} />
       <MissingEvidence missing={summary.missing || []} />
       <NextCheck root={likely[0]} />
+      <ActionProposals database={database} investigationId={id} user={user} />
       <EvidenceList evidence={data.evidence || []} openID={openEvidence} />
       {canOperate(user) && (
         <OperatorControls database={database} investigation={data.investigation}
