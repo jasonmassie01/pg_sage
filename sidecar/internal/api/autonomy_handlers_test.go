@@ -43,12 +43,14 @@ func (c *autonomyClock) set(at time.Time) {
 }
 
 type autonomyAPIFixture struct {
-	t      *testing.T
-	mgr    *fleet.DatabaseManager
-	orders sre.Investigation
-	ledger *earned.Service
-	reg    *earned.Registry
-	clock  *autonomyClock
+	t          *testing.T
+	mgr        *fleet.DatabaseManager
+	orders     sre.Investigation
+	billing    sre.Investigation
+	deployment string
+	ledger     *earned.Service
+	reg        *earned.Registry
+	clock      *autonomyClock
 }
 
 func apiUUID(t *testing.T) string {
@@ -64,23 +66,31 @@ func apiUUID(t *testing.T) string {
 
 func newAutonomyAPIFixture(t *testing.T) *autonomyAPIFixture {
 	t.Helper()
-	mgr, orders, _ := sreFixture(t)
-	store, err := earned.NewPostgresStore(surfacePool(t), apiUUID(t))
+	mgr, orders, billing := sreFixture(t)
+	f := &autonomyAPIFixture{t: t, mgr: mgr, orders: orders, billing: billing,
+		deployment: apiUUID(t), reg: earned.NewRegistry(true),
+		clock: &autonomyClock{now: time.Now().UTC()}}
+	f.ledger = f.register("orders")
+	return f
+}
+
+// register binds database's own ledger (P0-5: one per database of the
+// fixture's deployment).
+func (f *autonomyAPIFixture) register(database string) *earned.Service {
+	f.t.Helper()
+	store, err := earned.NewPostgresStore(surfacePool(f.t), f.deployment, database)
 	if err != nil {
-		t.Fatal(err)
+		f.t.Fatal(err)
 	}
-	clock := &autonomyClock{now: time.Now().UTC()}
 	cfg := earned.DefaultConfig()
-	cfg.Now, cfg.EvidenceCacheTTL = clock.Now, 0
+	cfg.Now, cfg.EvidenceCacheTTL = f.clock.Now, 0
 	ledger, err := earned.NewService(store, cfg)
 	if err != nil {
-		t.Fatal(err)
+		f.t.Fatal(err)
 	}
-	reg := earned.NewRegistry(true)
-	reg.Register("orders", earned.RegistryEntry{Service: ledger,
-		Limiter: ledger.Limiter(earned.Binding{Database: "orders"})})
-	return &autonomyAPIFixture{t: t, mgr: mgr, orders: orders, ledger: ledger, reg: reg,
-		clock: clock}
+	f.reg.Register(database, earned.RegistryEntry{Service: ledger,
+		Limiter: ledger.Limiter(earned.Binding{Database: database})})
+	return ledger
 }
 
 func (f *autonomyAPIFixture) router(user *auth.User) http.Handler {
@@ -147,8 +157,7 @@ func TestAutonomyAPI_DatabaseResolution(t *testing.T) {
 	if code != 404 || body["code"] != "not_found" {
 		t.Fatalf("unknown database = %d %v", code, body)
 	}
-	f.reg.Register("billing", earned.RegistryEntry{Service: f.ledger,
-		Limiter: f.ledger.Limiter(earned.Binding{Database: "billing"})})
+	f.register("billing")
 	if code, body := autonomyCall(t, h, "GET", "/api/v1/sre/autonomy", ""); code != 400 ||
 		body["code"] != "invalid_request" {
 		t.Fatalf("ambiguous database = %d %v", code, body)
@@ -234,8 +243,13 @@ func benchBody(at time.Time) string {
 		at.UTC().Format(time.RFC3339))
 }
 
-// seedShadow records 25 accepted reviews, the first 31 days ago.
+// seedShadow records 25 accepted reviews on orders, the first 31 days ago.
 func (f *autonomyAPIFixture) seedShadow() {
+	f.t.Helper()
+	f.seedShadowOn(f.ledger)
+}
+
+func (f *autonomyAPIFixture) seedShadowOn(ledger *earned.Service) {
 	f.t.Helper()
 	now := f.clock.Now()
 	for i := 0; i < 25; i++ {
@@ -244,8 +258,8 @@ func (f *autonomyAPIFixture) seedShadow() {
 			at = now.Add(-31 * 24 * time.Hour)
 		}
 		f.clock.set(at)
-		if err := f.ledger.RecordReview(context.Background(), earned.Review{
-			Database: "orders", InvestigationID: apiUUID(f.t),
+		if err := ledger.RecordReview(context.Background(), earned.Review{
+			Database: ledger.Database(), InvestigationID: apiUUID(f.t),
 			Family: earned.FamilyLockBlocking, Verdict: earned.VerdictAccepted,
 			Reviewer: "user:2:operator@test.com"}); err != nil {
 			f.t.Fatal(err)

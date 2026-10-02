@@ -7,6 +7,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/earned"
+	"github.com/pg-sage/sidecar/internal/earned/packetreview"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
 )
@@ -65,7 +66,7 @@ func TestFleetCanaryTargetReadsTheDatabase(t *testing.T) {
 func TestAutonomyMCPBackendResolvesThroughTheRegistry(t *testing.T) {
 	pool := autonomyPool(t)
 	ledgers := newAutonomyLedgers(true)
-	svc, err := ledgers.ledgerFor(context.Background(), pool,
+	svc, err := ledgers.ledgerFor(context.Background(), pool, "orders",
 		config.DefaultConfig().SRE.Autonomy)
 	if err != nil {
 		t.Fatal(err)
@@ -96,5 +97,37 @@ func TestAutonomyMCPBackendResolvesThroughTheRegistry(t *testing.T) {
 		Family: "wal_retention", ActionClass: "wal_bound", Level: "L9", Reason: "r"},
 		"mcp:user:2"); !errors.Is(err, earned.ErrInvalidRequest) {
 		t.Fatalf("bad level: %v", err)
+	}
+}
+
+// Phase 1.1: the MCP review and evaluate tools resolve the database's own
+// ledger; a review needs the database's investigations.
+func TestAutonomyMCPBackendReviewsAndEvaluates(t *testing.T) {
+	pool := autonomyPool(t)
+	ledgers := newAutonomyLedgers(true)
+	svc, err := ledgers.ledgerFor(context.Background(), pool, "orders",
+		config.DefaultConfig().SRE.Autonomy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgers.registry.Register("orders", earned.RegistryEntry{Service: svc,
+		Limiter: svc.Limiter(earned.Binding{Database: "orders"})})
+	b := autonomyMCPBackend{registry: ledgers.registry,
+		manager: fleet.NewManager(config.DefaultConfig())}
+	got, err := b.EvaluateAutonomy(context.Background(), mcp.AutonomyRequest{})
+	e, ok := got.(earned.Evaluation)
+	if err != nil || !ok || e.Created == nil ||
+		len(e.Created)+len(e.NotProposed) == 0 {
+		t.Fatalf("evaluate = %#v (%v)", got, err)
+	}
+	_, err = b.ReviewInvestigation(context.Background(), mcp.AutonomyRequest{
+		InvestigationID: "11111111-1111-4111-8111-111111111111",
+		Verdict:         earned.VerdictAccepted}, "mcp:user:2")
+	if !errors.Is(err, packetreview.ErrUnavailable) {
+		t.Fatalf("review without investigations = %v", err)
+	}
+	if _, err := b.EvaluateAutonomy(context.Background(),
+		mcp.AutonomyRequest{Database: "nope"}); !errors.Is(err, earned.ErrInvalidRequest) {
+		t.Fatalf("unknown database: %v", err)
 	}
 }

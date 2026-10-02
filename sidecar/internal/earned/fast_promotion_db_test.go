@@ -35,7 +35,7 @@ func (f *fixture) seedFastShadow(family Family) {
 	for i, at := range []time.Duration{61 * time.Minute, 50 * time.Minute,
 		30 * time.Minute, time.Minute} {
 		f.clock.Set(now.Add(-at))
-		if err := f.svc.RecordReview(f.ctx, Review{Database: "db1",
+		if err := f.svc.RecordReview(f.ctx, Review{Database: f.db,
 			InvestigationID: newUUID(f.t), Family: family, Verdict: VerdictAccepted,
 			Reviewer: "user:7:ops@example.com"}); err != nil {
 			f.t.Fatalf("review %d: %v", i, err)
@@ -90,7 +90,7 @@ func TestFastBarNeverLiftsTheCaps(t *testing.T) {
 	f.seedFastShadow(FamilyWAL)
 	f.seedL2Recoveries(FamilyWAL, ClassWALBound, 5)
 	for i := 0; i < 5; i++ { // distinct action ids: evidence that would support L3
-		if err := f.svc.RecordOutcome(f.ctx, Outcome{Database: "db1",
+		if err := f.svc.RecordOutcome(f.ctx, Outcome{Database: f.db,
 			ActionLogID: int64(200000 + i), Family: FamilyWAL, Class: ClassSlotDrop,
 			Level: L2, Result: ResultVerifiedRecovery, Source: SourceExecutor,
 			Actor: "pg_sage"}); err != nil {
@@ -130,7 +130,7 @@ func TestFastBarStillDemotesOnHarm(t *testing.T) {
 	f.promote(FamilyWraparound, ClassFreeze)
 	f.seedL2Recoveries(FamilyWraparound, ClassFreeze, 1)
 	f.promote(FamilyWraparound, ClassFreeze)
-	err := f.svc.RecordOutcome(f.ctx, Outcome{Database: "db1", ActionLogID: 900001,
+	err := f.svc.RecordOutcome(f.ctx, Outcome{Database: f.db, ActionLogID: 900001,
 		Family: FamilyWraparound, Class: ClassFreeze, Level: L3, Result: ResultHarmful,
 		Source: SourceOperator, Actor: "user:2:o@e", Detail: "freeze stalled writes"})
 	if err != nil {

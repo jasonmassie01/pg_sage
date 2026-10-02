@@ -75,12 +75,14 @@ func newUUID(t *testing.T) string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-// fixture is one isolated ledger: its own deployment id on the shared
-// fixture database, and a settable clock.
+// fixture is one isolated ledger: one database ("orders" unless named)
+// of its own deployment id on the shared fixture database, and a
+// settable clock.
 type fixture struct {
 	t     *testing.T
 	ctx   context.Context
 	pool  *pgxpool.Pool
+	db    string
 	store *PostgresStore
 	svc   *Service
 	clock *clock
@@ -90,8 +92,14 @@ var fixtureEpoch = time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
+	return newFixtureFor(t, newUUID(t), "orders")
+}
+
+// newFixtureFor is the ledger of database in deployment.
+func newFixtureFor(t *testing.T, deployment, database string) *fixture {
+	t.Helper()
 	pool := testPool(t)
-	store, err := NewPostgresStore(pool, newUUID(t))
+	store, err := NewPostgresStore(pool, deployment, database)
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
@@ -103,8 +111,17 @@ func newFixture(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatalf("service: %v", err)
 	}
-	return &fixture{t: t, ctx: context.Background(), pool: pool, store: store, svc: svc,
-		clock: clk}
+	return &fixture{t: t, ctx: context.Background(), pool: pool, db: database, store: store,
+		svc: svc, clock: clk}
+}
+
+// sibling is another database of f's deployment, on f's clock.
+func (f *fixture) sibling(database string) *fixture {
+	f.t.Helper()
+	g := newFixtureFor(f.t, f.store.DeploymentID(), database)
+	g.clock = f.clock
+	g.svc.cfg.Now = f.clock.Now
+	return g
 }
 
 // benchReport renders a PGIncidentBench report with one passing gated
@@ -135,7 +152,7 @@ func (f *fixture) seedL2Evidence(family Family, accepted, rejected int) {
 		if i == 1 {
 			f.clock.Set(now.Add(-time.Hour))
 		}
-		if err := f.svc.RecordReview(f.ctx, Review{Database: "db1",
+		if err := f.svc.RecordReview(f.ctx, Review{Database: f.db,
 			InvestigationID: newUUID(f.t), Family: family, Verdict: verdict,
 			Reviewer: "user:7:ops@example.com"}); err != nil {
 			f.t.Fatalf("review: %v", err)
@@ -152,7 +169,7 @@ func (f *fixture) seedL2Evidence(family Family, accepted, rejected int) {
 func (f *fixture) seedL2Recoveries(family Family, class ActionClass, n int) {
 	f.t.Helper()
 	for i := 0; i < n; i++ {
-		if err := f.svc.RecordOutcome(f.ctx, Outcome{Database: "db1",
+		if err := f.svc.RecordOutcome(f.ctx, Outcome{Database: f.db,
 			ActionLogID: int64(100000 + i), Family: family, Class: class, Level: L2,
 			Result: ResultVerifiedRecovery, Source: SourceExecutor,
 			Actor: "pg_sage"}); err != nil {
