@@ -241,9 +241,15 @@ func TestCatalog_LWLockWaitsSamplesActiveBackends(t *testing.T) {
 	}
 	var pid int64
 	_ = conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid)
-	go func() { _, _ = conn.Exec(context.Background(), "SELECT pg_sleep(3)") }()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = conn.Exec(context.Background(), "SELECT pg_sleep(3)")
+	}()
+	// The sleeping goroutine owns the connection until its statement ends.
 	defer func() {
 		_, _ = pool.Exec(context.Background(), "SELECT pg_cancel_backend($1)", pid)
+		<-done
 		conn.Release()
 	}()
 	var gs []WaitGroup
