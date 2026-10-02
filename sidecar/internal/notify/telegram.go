@@ -60,6 +60,20 @@ func (s *TelegramSender) Send(ctx context.Context, ch Channel, evt Event) error 
 	return s.call(ctx, ch, "sendMessage", msg)
 }
 
+// Reply answers a decision made in the chat: it acknowledges the button
+// press, then posts the outcome to the channel's chat.
+func (s *TelegramSender) Reply(ctx context.Context, ch Channel, a chatops.Action,
+	text string) error {
+	if a.CallbackID != "" {
+		if err := s.call(ctx, ch, "answerCallbackQuery", map[string]any{
+			"callback_query_id": a.CallbackID}); err != nil {
+			return err
+		}
+	}
+	return s.call(ctx, ch, "sendMessage", map[string]any{
+		"text": TruncateRunes(text, telegramTextMax), "disable_web_page_preview": true})
+}
+
 // call invokes one Bot API method for the channel's chat. Errors never
 // carry the bot token, which is part of the request path.
 func (s *TelegramSender) call(ctx context.Context, ch Channel, method string,
