@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/sre"
 )
 
@@ -28,12 +29,24 @@ type sreInvestigatorDeps struct {
 	legacyID   *int
 	settings   config.SREConfig
 	logFn      func(string, string, ...any)
+	// llm is the database's general LLM client (nil without one) and
+	// dailyTokens its llm.token_budget_daily, the model turn's daily
+	// allocation. notices is nil for the process-wide once-log.
+	llm         *llm.Client
+	dailyTokens int
+	notices     *sre.OnceLog
 }
 
 // newSREInvestigator builds one database's investigator (coordinator,
 // trigger adapter and read service) and binds its database identity.
 func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
-	store, err := sre.NewPostgresStore(d.control, sre.DefaultLimits())
+	notices := d.notices
+	if notices == nil {
+		notices = sre.ModelNotices
+	}
+	model := sreModelClient(d.settings, d.llm, notices, d.logFn)
+	store, err := sre.NewPostgresStore(d.control,
+		sreLimits(model, d.dailyTokens, notices, d.logFn))
 	if err != nil {
 		return nil, fmt.Errorf("sre store: %w", err)
 	}
@@ -46,7 +59,7 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 	cc.Retention.TimelineAge = d.settings.TimelineRetention()
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: d.runner,
 		Triggers: sre.NewPGTriggerSource(d.monitored, d.name), Config: cc,
-		LogFn: d.logFn})
+		LogFn: d.logFn, Model: model, Notices: notices})
 	if err != nil {
 		return nil, fmt.Errorf("sre coordinator: %w", err)
 	}
@@ -66,7 +79,8 @@ func (rt *databaseRuntime) startInvestigator() {
 	svc, err := newSREInvestigator(sreInvestigatorDeps{control: rt.spec.ControlPool,
 		monitored: rt.spec.Pool, runner: rt.probes, name: rt.spec.Name,
 		runtimeKey: key, legacyID: legacy, settings: rt.cfg.SRE,
-		logFn: logStructuredWrapper})
+		logFn: logStructuredWrapper, llm: rt.generalLLM,
+		dailyTokens: rt.cfg.LLM.TokenBudgetDaily})
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: sre investigator not started: %v", rt.spec.Name, err)
 		return

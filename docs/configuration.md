@@ -351,8 +351,36 @@ the fixed read-only catalog probes of its family (connection and WAL investigati
 twice, `sre.sample_interval_seconds` apart), matches them against the deterministic causal
 graph and stores the result: the likely explanation, contributing factors, alternatives and
 ruled-out explanations, each citing its evidence, the evidence that could not be collected,
-and an operator step. No LLM is involved and nothing is executed. "Inconclusive" is a normal
-outcome.
+and an operator step. Nothing is executed. "Inconclusive" is a normal outcome.
+
+**Model turn (on by default whenever an LLM is configured).** After the causal graph has
+scored the hypotheses, the configured LLM (`llm.*`) reviews the result. It may only:
+
+- reorder the graph's own open hypotheses (shown separately as "model ranking", never merged
+  into the graph's scores);
+- while the graph is inconclusive, ask for one more catalog probe with typed arguments and a
+  one-line reason. The probe counts against the 12-probe ceiling, and the graph then
+  diagnoses again;
+- write up to 5 claims, each citing the evidence it rests on (shown as "model-generated
+  narrative").
+
+Every reply is checked: known node ids only, catalog probes with valid arguments, evidence ids
+of this investigation, every number found in the cited evidence, and a 16 KiB size limit. A
+reply that fails gets one repair attempt. If the repair fails too, or the model times out, is
+rate limited or is over budget, the investigation ends with the deterministic result and a
+`model_rejected` event that gives the reason. Before concluding, a verifier rechecks the ranking
+and every claim against the stored evidence. When the graph has a conclusive root cause, it
+always wins: if the model ranks another hypothesis first, nothing the model said is kept and a
+`model_disagreed` event records the disagreement. Each investigation is limited to 2 model
+turns, 16k input and 4k output tokens, and its 120 s active time. The daily allocation is
+`llm.token_budget_daily`.
+
+With no LLM configured, investigations run deterministically, and the sidecar logs once that
+the model turn is unavailable and why. To turn the model turn off while an LLM stays
+configured for other features, set `sre.llm.enabled: false`. Models that reserve extra
+reasoning tokens (Gemini 2.5+/3, OpenAI o-series, DeepSeek R1) need more output tokens than the
+4k ceiling allows, so their turns are refused before any request is sent and recorded as
+`budget_exhausted`. Use a non-reasoning model for investigations.
 
 | Parameter | Default | Description |
 |---|---|---|
@@ -361,6 +389,7 @@ outcome.
 | `sre.sample_interval_seconds` | `5` | Seconds between the two samples connection and WAL investigations compare, `1`-`30` |
 | `sre.evidence_retention_days` | `30` | Days a finished, unpinned investigation keeps its probe evidence. The delete leaves a tombstone, and the investigation is shown as "evidence deleted by retention" |
 | `sre.timeline_retention_days` | `90` | Days a finished, unpinned investigation is kept at all (hypotheses, steps, event chain), leaving a tombstone. At least `sre.evidence_retention_days`, at most `3650` |
+| `sre.llm.enabled` | `true` | Model turn in investigations, used whenever an LLM is configured. `false` keeps investigations deterministic. Restart to change |
 
 Pinned investigations (Pin in the Cases panel, or `POST .../pin`) and running ones are never
 deleted. Where the data lives: the `sage.sre_*` tables are in the meta database when one is
