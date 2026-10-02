@@ -121,6 +121,12 @@ var excludedExactKeys = map[string]bool{
 	// be 0 or 10-3600 (validated at load), so it is YAML-only.
 	"rca.lock_chain_interval_seconds": true,
 
+	// Dogfood lifeos-1: validated at load against other keys
+	// (rca.dedup_window_minutes; sre.runways.interval_seconds,
+	// lookback_hours and min_samples), so they are YAML-only.
+	"rca.stale_after_hours":                 true,
+	"sre.runways.sequence_interval_seconds": true,
+
 	// Sage SRE M2: read once when a database runtime is built (restart
 	// lifecycle) and validated at load, so they are YAML-only.
 	"sre.automatic_start":          true,

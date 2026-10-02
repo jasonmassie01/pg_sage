@@ -92,6 +92,8 @@ func TestCatalog_SequenceRunwayAtScale(t *testing.T) {
 		t.Fatalf("incident-budget run = %s/%s in %d ms (%s)", res.Status, res.Reason,
 			res.ElapsedMS, res.Error)
 	}
+	t.Logf("sequence_runway over the scale fixture: %d ms (incident budget %s)",
+		res.ElapsedMS, MaxStatementTimeout)
 	ss, err := Sequences(res)
 	if err != nil || len(ss) != 50 || !res.Truncated {
 		t.Fatalf("sequences = %d (truncated %v, %v), want the 50 nearest", len(ss),
