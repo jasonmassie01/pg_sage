@@ -168,8 +168,8 @@ func TestWave1ContractMappingRejectsMismatchedOrUnsupportedSQL(t *testing.T) {
 
 func TestWave1QuotedIdentifiersCannotSpoofActionClassification(t *testing.T) {
 	tests := map[string]string{
-		`REINDEX INDEX "idx CONCURRENTLY orders"`:                       "",
-		`ALTER TABLE "tenant AUTOVACUUM_enabled" VALIDATE CONSTRAINT c`: "alter_table",
+		`REINDEX INDEX "idx CONCURRENTLY orders"`:                              "",
+		`ALTER TABLE public."tenant AUTOVACUUM_enabled" VALIDATE CONSTRAINT c`: "alter_table",
 	}
 	for sql, want := range tests {
 		t.Run(sql, func(t *testing.T) {
@@ -192,7 +192,7 @@ func TestWave1ContractMappingAcceptsExactGuardrailedSQL(t *testing.T) {
 	tests := map[string]string{
 		"ANALYZE public.orders":                                                   "analyze_table",
 		"CREATE UNIQUE INDEX CONCURRENTLY idx ON orders (id)":                     createIndexAction,
-		"DROP INDEX CONCURRENTLY idx_orders":                                      "drop_unused_index",
+		"DROP INDEX CONCURRENTLY public.idx_orders":                               "drop_unused_index",
 		"REINDEX INDEX CONCURRENTLY idx_orders":                                   "reindex_concurrently",
 		"VACUUM (ANALYZE) public.orders":                                          "vacuum_table",
 		"ALTER TABLE public.orders SET (autovacuum_vacuum_scale_factor = 0.1)":    "set_table_autovacuum",

@@ -72,7 +72,7 @@ func TestVerificationOptionsUseConfiguredPolicy(t *testing.T) {
 func TestVerifiedActionForFindingRequiresEvidenceAndRollback(t *testing.T) {
 	base := analyzer.Finding{
 		RecommendedSQL:   "CREATE INDEX CONCURRENTLY idx_orders ON orders(customer_id)",
-		RollbackSQL:      "DROP INDEX CONCURRENTLY IF EXISTS idx_orders",
+		RollbackSQL:      "DROP INDEX CONCURRENTLY IF EXISTS public.idx_orders",
 		ObjectIdentifier: "public.orders",
 		Detail:           map[string]any{"queryids": []int64{7, 9}},
 	}
