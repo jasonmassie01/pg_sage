@@ -112,6 +112,7 @@ func (c *Collector) collectIndexBatch(
 		); err != nil {
 			return nil, 0, err
 		}
+		idx.IndexRelID = last
 		result = append(result, idx)
 	}
 	return result, last, rows.Err()
@@ -167,6 +168,9 @@ func (c *Collector) scanSystemStats(ctx context.Context, sql string) (SystemStat
 	s.CacheHitRatio = CacheHitRatioUnknown
 	if ratio != nil {
 		s.CacheHitRatio = *ratio
+	}
+	if err == nil {
+		s.RelationStatsEpoch = c.collectRelationStatsEpoch(ctx)
 	}
 	return s, err
 }

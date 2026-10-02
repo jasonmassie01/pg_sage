@@ -47,6 +47,28 @@ func (c *Collector) collectStatementsEpoch(ctx context.Context) time.Time {
 	return epoch
 }
 
+// relationStatsEpochSQL returns the instant since which this database's
+// table and index counters accumulate: the later of stats_reset (moved by
+// pg_stat_reset() and, on PostgreSQL 14-18, by every single-relation
+// reset) and the postmaster start (a crash discards the counters). It
+// reads the real catalog, whatever the search_path.
+const relationStatsEpochSQL = sageTag + `
+SELECT GREATEST(COALESCE(stats_reset, '-infinity'::timestamptz), pg_postmaster_start_time())
+  FROM pg_catalog.pg_stat_database
+ WHERE datname = current_database()`
+
+// collectRelationStatsEpoch returns the relation stats epoch recorded with
+// the snapshot, or the zero time (unknown, never guessed) when it cannot be
+// read. Unused-index evidence must not span it.
+func (c *Collector) collectRelationStatsEpoch(ctx context.Context) time.Time {
+	var epoch time.Time
+	if err := c.catalogQueryRow(ctx, relationStatsEpochSQL).Scan(&epoch); err != nil {
+		c.logFn("WARN", "read relation statistics epoch: %v; epoch unknown this cycle", err)
+		return time.Time{}
+	}
+	return epoch.UTC()
+}
+
 // epochChanged reports whether two known statistics epochs differ. An
 // unknown (zero) epoch on either side is not evidence of a reset here;
 // the query store treats unknown epochs as incomparable on its own.

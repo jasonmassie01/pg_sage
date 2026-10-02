@@ -23,6 +23,11 @@ type RuleExtras struct {
 	// IndexBuildProbeFailed is true when the in-progress build probe
 	// could not run this cycle.
 	IndexBuildProbeFailed bool
+	// IndexOID records the object (oid) each FirstSeen clock belongs to: a
+	// dropped and recreated index under the same name is a new object.
+	IndexOID map[string]uint32
+	// Now is the rule clock; nil means time.Now (tests set it).
+	Now func() time.Time
 }
 
 // RuleFunc is the standard signature for snapshot-based rules.
