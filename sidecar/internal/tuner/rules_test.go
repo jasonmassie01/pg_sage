@@ -59,33 +59,31 @@ func TestPrescribe_HighPlanTime(t *testing.T) {
 	}
 }
 
+// A hash-join hint names the join's child aliases (Phase 0 item 11).
 func TestPrescribe_BadNestedLoop(t *testing.T) {
 	s := PlanSymptom{
-		Kind:  SymptomBadNestedLoop,
-		Alias: "orders",
+		Kind:        SymptomBadNestedLoop,
+		JoinAliases: []string{"o", "c"},
 	}
 	p := Prescribe(s, defaultCfg)
 	if p == nil {
 		t.Fatal("expected prescription, got nil")
 	}
-	if p.HintDirective != "HashJoin(orders)" {
-		t.Errorf("directive = %q, want HashJoin(orders)",
+	if p.HintDirective != "HashJoin(o c)" {
+		t.Errorf("directive = %q, want HashJoin(o c)",
 			p.HintDirective)
 	}
 }
 
+// HashJoin(items) with one relation is a pg_hint_plan no-op; this test
+// used to expect it.
 func TestPrescribe_BadNestedLoop_NoAlias(t *testing.T) {
 	s := PlanSymptom{
 		Kind:         SymptomBadNestedLoop,
 		RelationName: "items",
 	}
-	p := Prescribe(s, defaultCfg)
-	if p == nil {
-		t.Fatal("expected prescription, got nil")
-	}
-	if p.HintDirective != "HashJoin(items)" {
-		t.Errorf("directive = %q, want HashJoin(items)",
-			p.HintDirective)
+	if p := Prescribe(s, defaultCfg); p != nil {
+		t.Fatalf("single-relation join hint prescribed: %+v", p)
 	}
 }
 
@@ -106,18 +104,14 @@ func TestPrescribe_SeqScanWithIndex(t *testing.T) {
 	}
 }
 
+// No usable index, no index hint (this test used to expect IndexScan(u)).
 func TestPrescribe_SeqScanNoIndex(t *testing.T) {
 	s := PlanSymptom{
 		Kind:  SymptomSeqScanWithIndex,
 		Alias: "u",
 	}
-	p := Prescribe(s, defaultCfg)
-	if p == nil {
-		t.Fatal("expected prescription, got nil")
-	}
-	if p.HintDirective != "IndexScan(u)" {
-		t.Errorf("directive = %q, want IndexScan(u)",
-			p.HintDirective)
+	if p := Prescribe(s, defaultCfg); p != nil {
+		t.Fatalf("index hint without an index: %+v", p)
 	}
 }
 
