@@ -31,7 +31,12 @@ func executedCancel(id int64, family string, rec sreaction.RecoveryState,
 		UpdatedAt: time.Now()}
 }
 
-func TestActionLedgerOutcomeMapping(t *testing.T) {
+type ledgerMappingCase struct {
+	in     sreaction.ActionOutcome
+	result string // "" means not recorded
+}
+
+func ledgerMappingCases() map[string]ledgerMappingCase {
 	failed := executedCancel(15, "lock_blocking", sreaction.RecoveryNone, "")
 	failed.State = sreaction.ProposalFailed
 	refused := executedCancel(16, "lock_blocking", sreaction.RecoveryNone, "")
@@ -39,10 +44,7 @@ func TestActionLedgerOutcomeMapping(t *testing.T) {
 	other := executedCancel(17, "lock_blocking", sreaction.RecoveryRecovered,
 		sreaction.AttributionSage)
 	other.Class = "terminate_backend"
-	cases := map[string]struct {
-		in     sreaction.ActionOutcome
-		result string // "" means not recorded
-	}{
+	return map[string]ledgerMappingCase{
 		"recovered by pg_sage": {executedCancel(11, "lock_blocking",
 			sreaction.RecoveryRecovered, sreaction.AttributionSage),
 			earned.ResultVerifiedRecovery},
@@ -68,6 +70,10 @@ func TestActionLedgerOutcomeMapping(t *testing.T) {
 			sreaction.RecoveryRecovered, sreaction.AttributionSage), ""},
 		"other class": {other, ""},
 	}
+}
+
+func TestActionLedgerOutcomeMapping(t *testing.T) {
+	cases := ledgerMappingCases()
 	for name, c := range cases {
 		got, ok := actionLedgerOutcome("orders", c.in)
 		if c.result == "" {
