@@ -27,15 +27,21 @@ func walScenario(id, class string, gold Gold, p program) Scenario {
 
 func walScenarios() []Scenario {
 	surge := []string{"write_surge"}
+	inactive := Gold{Root: "inactive_slot", Contributing: surge}
 	return []Scenario{
-		walScenario("wal-inactive-slot", ClassPositive,
-			Gold{Root: "inactive_slot", Contributing: surge}, slotProgram(false)),
+		walScenario("wal-inactive-slot", ClassPositive, inactive, slotProgram(false)),
 		walScenario("wal-slow-consumer", ClassPositive,
 			Gold{Root: "slow_consumer", Contributing: surge}, slotProgram(true)),
 		walScenario("wal-write-surge", ClassPositive, Gold{Root: "write_surge"},
-			walProgram(nil, writeWAL(64))),
+			surgeProgram(64)),
 		walScenario("wal-archiver-failure", ClassPositive,
 			Gold{Root: "archiver_failure"}, archiverFailure()),
+		walScenario("wal-inactive-slot-under-load", ClassNoise, inactive,
+			withNoise(slotProgram(false))),
+		walScenario("wal-write-surge-under-load", ClassNoise, Gold{Root: "write_surge"},
+			withNoise(surgeProgram(64))),
+		walScenario("wal-slot-keeping-up", ClassDecoy, Gold{Lookalike: "slow_consumer"},
+			keepingUpSlot()),
 		walScenario("wal-steady", ClassBenign, Gold{}, steadyWAL()),
 	}
 }
@@ -82,15 +88,41 @@ func cleanCluster(ctx context.Context, e *Env) error {
 // probes' shorter sample window is not diluted below the floor here.
 const quietWALRate = 2 << 20
 
-// steadyWAL writes nothing. WAL is cluster-wide, and other sessions (test
-// packages running beside the benchmark) do not take the cluster lock:
-// the program waits for a quiet window before the investigation, and
-// measures the window it ran in; a run in which the cluster wrote WAL at
-// a surge-like rate is contaminated and repeated.
-func steadyWAL() program {
+// surgeProgram writes about mb MiB of WAL between the samples on a clean
+// cluster, and checks afterwards that at least half of it was written.
+func surgeProgram(mb int) program {
+	var start string
+	p := walProgram(nil, func(ctx context.Context, e *Env) error {
+		if err := e.Pool.QueryRow(ctx, "SELECT pg_current_wal_lsn()::text").
+			Scan(&start); err != nil {
+			return err
+		}
+		return writeWAL(mb)(ctx, e)
+	})
+	p.manifest = cleanCluster
+	p.valid = func(ctx context.Context, e *Env) error {
+		bytes, err := walSince(ctx, e, start)
+		if err == nil && bytes < float64(mb<<19) {
+			err = fmt.Errorf("the surge wrote %.0f bytes of WAL, want about %d MiB", bytes,
+				mb)
+		}
+		return err
+	}
+	return p
+}
+
+// quietWAL runs setup, then waits for a quiet window before the
+// investigation and measures the window it ran in. WAL is cluster-wide,
+// and other sessions (test packages running beside the benchmark) do not
+// take the cluster lock: a run in which the cluster wrote WAL at a
+// surge-like rate is contaminated and repeated.
+func quietWAL(setup func(context.Context, *Env) error) program {
 	var start string
 	var at time.Time
 	p := walProgram(func(ctx context.Context, e *Env) error {
+		if err := step(setup, ctx, e); err != nil {
+			return err
+		}
 		return awaitQuiet(ctx, quietTries, func(ctx context.Context) (float64,
 			time.Duration, error) {
 			return measureWAL(ctx, e, quietProbe)
@@ -106,6 +138,14 @@ func steadyWAL() program {
 		}
 		return quietWindow(bytes, time.Since(at))
 	}
+	return p
+}
+
+// steadyWAL writes nothing, on a cluster without slots or a failing
+// archiver.
+func steadyWAL() program {
+	p := quietWAL(nil)
+	p.manifest = cleanCluster
 	return p
 }
 
@@ -187,41 +227,114 @@ func truncateWAL(ctx context.Context, e *Env) error {
 	return err
 }
 
-// slotProgram: a physical slot that reserves WAL, with (active) or
-// without a consumer, while 48 MiB of WAL is written.
+// slotProgram: a slot that reserves WAL while 48 MiB of WAL is written.
+// Inactive, it is a physical slot without a consumer; active, it is a
+// logical slot whose consumer never confirms (a slow consumer).
 func slotProgram(active bool) program {
-	slot := fmt.Sprintf("bench_slot_%d", time.Now().UnixNano())
-	var stop func()
+	slot := uniqueName(slotPrefix)
+	var c *consumer
 	p := walProgram(func(ctx context.Context, e *Env) error {
-		if _, err := e.Pool.Exec(ctx,
-			"SELECT pg_create_physical_replication_slot($1, true)", slot); err != nil {
+		if !active {
+			_, err := e.Pool.Exec(ctx,
+				"SELECT pg_create_physical_replication_slot($1, true)", slot)
 			return err
 		}
-		if !active {
-			return nil
+		if err := createLogicalSlot(ctx, e, slot); err != nil {
+			return err
 		}
 		var err error
-		stop, err = startPhysicalConsumer(ctx, e, slot)
+		c, err = startLogicalConsumer(ctx, e, slot, false)
 		return err
 	}, writeWAL(48))
+	p.manifest = slotActive(slot, active)
+	p.valid = func(context.Context, *Env) error { return consumerAlive(c) }
+	p.recover = recoverSlot(&c, slot, p.recover)
+	return p
+}
+
+// keepingUpSlot (decoy of a slow consumer): a logical slot whose
+// consumer confirms what it receives, on a quiet cluster; its retention
+// stays under 1 MiB.
+func keepingUpSlot() program {
+	slot := uniqueName(slotPrefix)
+	var c *consumer
+	p := quietWAL(func(ctx context.Context, e *Env) error {
+		if err := createLogicalSlot(ctx, e, slot); err != nil {
+			return err
+		}
+		var err error
+		c, err = startLogicalConsumer(ctx, e, slot, true)
+		return err
+	})
 	p.manifest = func(ctx context.Context, e *Env) error {
+		if err := slotActive(slot, true)(ctx, e); err != nil {
+			return err
+		}
+		return keepsUp(ctx, e, slot)
+	}
+	quiet := p.valid
+	p.valid = func(ctx context.Context, e *Env) error {
+		if err := consumerAlive(c); err != nil {
+			return err
+		}
+		return quiet(ctx, e)
+	}
+	p.recover = recoverSlot(&c, slot, p.recover)
+	return p
+}
+
+func slotActive(slot string, active bool) func(context.Context, *Env) error {
+	return func(ctx context.Context, e *Env) error {
 		return waitFor(ctx, "slot state", func() (bool, error) {
 			n, err := e.count(ctx, `SELECT count(*) FROM pg_catalog.pg_replication_slots
 				WHERE slot_name = $1 AND active = $2`, slot, active)
 			return n == 1, err
 		})
 	}
-	walRecover := p.recover
-	p.recover = func(ctx context.Context, e *Env) error {
-		if stop != nil {
-			stop()
+}
+
+// keepsUp writes a little WAL in this database and waits until the
+// slot's consumer confirms past where it was, with under 1 MiB retained.
+func keepsUp(ctx context.Context, e *Env, slot string) error {
+	var before string
+	if err := e.Pool.QueryRow(ctx, `SELECT confirmed_flush_lsn::text
+		FROM pg_catalog.pg_replication_slots WHERE slot_name = $1`, slot).
+		Scan(&before); err != nil {
+		return err
+	}
+	if _, err := e.Pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS bench_wal (id int, pad text);
+		INSERT INTO bench_wal SELECT g, 'x' FROM generate_series(1, 100) g`); err != nil {
+		return err
+	}
+	return waitFor(ctx, "slot consumer to confirm", func() (bool, error) {
+		n, err := e.count(ctx, `SELECT count(*) FROM pg_catalog.pg_replication_slots
+			WHERE slot_name = $1 AND confirmed_flush_lsn > $2::pg_lsn
+			  AND pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn) < $3`,
+			slot, before, 1<<20)
+		return n == 1, err
+	})
+}
+
+func consumerAlive(c *consumer) error {
+	if c == nil {
+		return nil
+	}
+	return c.alive()
+}
+
+// recoverSlot stops the consumer, drops the slot, then runs next.
+func recoverSlot(c **consumer, slot string, next func(context.Context, *Env) error) func(
+	context.Context, *Env) error {
+	return func(ctx context.Context, e *Env) error {
+		if *c != nil {
+			(*c).stop()
+			*c = nil
 		}
 		if err := dropSlot(ctx, e, slot); err != nil {
 			return err
 		}
-		return walRecover(ctx, e)
+		return step(next, ctx, e)
 	}
-	return p
 }
 
 func dropSlot(ctx context.Context, e *Env, slot string) error {

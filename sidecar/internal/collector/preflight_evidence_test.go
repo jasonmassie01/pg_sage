@@ -89,7 +89,9 @@ func preflightWorkload(t *testing.T, s *Snapshot) QueryStats {
 
 func TestPreflightEvidenceResetAfterRegrowth(t *testing.T) {
 	p, ctx, c := preflightPool(t)
-	preflightExec(t, p, "/* pg_sage */ SELECT pg_stat_statements_reset()", 1)
+	// Only the second reset must be cluster-wide (it moves the stats_reset
+	// epoch); a cluster-wide reset wipes other packages' workloads.
+	preflightResetDatabase(t, p)
 	preflightExec(t, p, "SELECT sum(i) FROM generate_series(1,1000) i", 10)
 	before := preflightCollect(t, c)
 	q1 := preflightWorkload(t, before)

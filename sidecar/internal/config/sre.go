@@ -5,16 +5,28 @@ import (
 	"time"
 )
 
-// SREConfig configures the Sage SRE investigator (M2): read-only
+// SREConfig configures the Sage SRE investigator (M2/M3): read-only
 // investigations of RCA incidents and plan regressions. Investigations
-// run catalog probes and the deterministic causal graph; they never
-// execute actions.
+// run catalog probes and the deterministic causal graph, with a
+// validated model turn when an LLM is configured; they never execute
+// actions.
 type SREConfig struct {
 	AutomaticStart         bool `yaml:"automatic_start" doc:"Start a read-only investigation for each open lock, connection or WAL incident and plan_regression finding. Investigations never execute actions. Default: false."`
 	TriggerIntervalSeconds int  `yaml:"trigger_interval_seconds" doc:"Seconds between checks for new triggers and pending investigations, 5-600. Default: 15."`
 	SampleIntervalSeconds  int  `yaml:"sample_interval_seconds" doc:"Seconds between the two samples connection and WAL investigations compare, 1-30. Default: 5."`
 	EvidenceRetentionDays  int  `yaml:"evidence_retention_days" doc:"Days a finished, unpinned investigation keeps its probe evidence (a tombstone records the delete). 1 to timeline_retention_days. Default: 30."`
 	TimelineRetentionDays  int  `yaml:"timeline_retention_days" doc:"Days a finished, unpinned investigation is kept at all, leaving a tombstone. evidence_retention_days to 3650. Pinned and running ones are kept. Default: 90."`
+	// LLM is the model turn (M3).
+	LLM SRELLMConfig `yaml:"llm"`
+}
+
+// SRELLMConfig configures the investigator's model turn: with an LLM
+// configured, the model ranks the causal graph's hypotheses, may ask for
+// one catalog probe while the graph is inconclusive, and narrates cited
+// claims. Every reply is validated; the graph stays the authority and a
+// rejected reply falls back to the deterministic result.
+type SRELLMConfig struct {
+	Enabled bool `yaml:"enabled" doc:"Model turn in investigations: rank the graph's hypotheses, propose one catalog probe, narrate cited claims. Used whenever an LLM is configured; false = deterministic only. Default: true."`
 }
 
 // Sage SRE defaults and bounds.
@@ -30,7 +42,8 @@ func defaultSREConfig() SREConfig {
 	return SREConfig{TriggerIntervalSeconds: DefaultSRETriggerIntervalSeconds,
 		SampleIntervalSeconds: DefaultSRESampleIntervalSeconds,
 		EvidenceRetentionDays: DefaultSREEvidenceRetentionDays,
-		TimelineRetentionDays: DefaultSRETimelineRetentionDays}
+		TimelineRetentionDays: DefaultSRETimelineRetentionDays,
+		LLM:                   SRELLMConfig{Enabled: true}}
 }
 
 // TriggerInterval is the coordinator poll period.

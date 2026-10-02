@@ -16,17 +16,19 @@ import (
 
 const resColumns = `id::text, deployment_id::text, database_id::text,
 	COALESCE(investigation_id::text, ''), request_key, state, input_reserved,
-	output_reserved, COALESCE(input_used, 0), COALESCE(output_used, 0), version`
+	output_reserved, reasoning_reserved, COALESCE(input_used, 0),
+	COALESCE(output_used, 0), COALESCE(reasoning_used, 0), version`
 
-// chargeExpr is what one reservation row costs against a budget.
-const chargeExpr = `CASE state WHEN 'settled' THEN %[1]s_used
+// chargeExpr is what one reservation row costs against a budget (rows
+// settled before the reasoning columns existed used no reasoning).
+const chargeExpr = `CASE state WHEN 'settled' THEN COALESCE(%[1]s_used, 0)
 	WHEN 'cancelled' THEN 0 ELSE %[1]s_reserved END`
 
 func scanReservation(row pgx.Row) (Reservation, error) {
 	var r Reservation
 	var id, dep, db, inv, state string
 	err := row.Scan(&id, &dep, &db, &inv, &r.RequestKey, &state, &r.Input, &r.Output,
-		&r.InputUsed, &r.OutputUsed, &r.Version)
+		&r.Reasoning, &r.InputUsed, &r.OutputUsed, &r.ReasoningUsed, &r.Version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -36,8 +38,12 @@ func scanReservation(row pgx.Row) (Reservation, error) {
 }
 
 func (s *PostgresStore) validateTokens(req TokenRequest) error {
-	if req.Input <= 0 || req.Output <= 0 {
+	if req.Input <= 0 || req.Output <= 0 || req.Reasoning < 0 {
 		return fmt.Errorf("%w: token request must be positive", ErrInvalidRequest)
+	}
+	if req.Reasoning > s.limits.MaxReasoningTokens {
+		return fmt.Errorf("%w: reasoning %d over the per-investigation cap %d",
+			ErrBudgetExhausted, req.Reasoning, s.limits.MaxReasoningTokens)
 	}
 	if err := checkText("request key", req.RequestKey, true, 160); err != nil {
 		return err
@@ -113,40 +119,57 @@ func (s *PostgresStore) reservationByKey(ctx context.Context, tx pgx.Tx, lease L
 		string(lease.Scope.DatabaseID), string(lease.InvestigationID), key))
 }
 
-// checkBudgets checks the investigation aggregate and the database and
-// deployment UTC-day allocations, all callers included.
-func (s *PostgresStore) checkBudgets(ctx context.Context, tx pgx.Tx, lease Lease,
-	req TokenRequest) error {
+// heldTokens is what reservations hold: this investigation's input,
+// answer and reasoning tokens, and the database's and deployment's
+// UTC-day totals.
+type heldTokens struct {
+	invIn, invOut, invReasoning, dbDay, depDay int64
+}
+
+func heldBy(ctx context.Context, tx pgx.Tx, lease Lease) (heldTokens, error) {
 	in, out := fmt.Sprintf(chargeExpr, "input"), fmt.Sprintf(chargeExpr, "output")
-	var invIn, invOut, dbDay, depDay int64
-	err := tx.QueryRow(ctx, `SELECT
-		COALESCE(sum(`+in+`) FILTER (WHERE database_id = $2
-		    AND investigation_id = $3), 0)::int8,
-		COALESCE(sum(`+out+`) FILTER (WHERE database_id = $2
-		    AND investigation_id = $3), 0)::int8,
-		COALESCE(sum(`+in+` + `+out+`) FILTER (WHERE database_id = $2), 0)::int8,
-		COALESCE(sum(`+in+` + `+out+`), 0)::int8
+	rsn := fmt.Sprintf(chargeExpr, "reasoning")
+	all := in + ` + ` + out + ` + ` + rsn
+	inv := ` FILTER (WHERE database_id = $2 AND investigation_id = $3), 0)::int8`
+	var h heldTokens
+	err := tx.QueryRow(ctx, `SELECT COALESCE(sum(`+in+`)`+inv+`,
+		COALESCE(sum(`+out+`)`+inv+`, COALESCE(sum(`+rsn+`)`+inv+`,
+		COALESCE(sum(`+all+`) FILTER (WHERE database_id = $2), 0)::int8,
+		COALESCE(sum(`+all+`), 0)::int8
 		FROM sage.sre_budget_reservations
 		WHERE deployment_id = $1
 		  AND utc_day = (clock_timestamp() AT TIME ZONE 'UTC')::date`,
 		string(lease.Scope.DeploymentID), string(lease.Scope.DatabaseID),
-		string(lease.InvestigationID)).Scan(&invIn, &invOut, &dbDay, &depDay)
+		string(lease.InvestigationID)).Scan(&h.invIn, &h.invOut, &h.invReasoning,
+		&h.dbDay, &h.depDay)
+	return h, err
+}
+
+// checkBudgets checks the investigation aggregate (input, answer and
+// reasoning separately) and the database and deployment UTC-day
+// allocations, all callers included.
+func (s *PostgresStore) checkBudgets(ctx context.Context, tx pgx.Tx, lease Lease,
+	req TokenRequest) error {
+	h, err := heldBy(ctx, tx, lease)
 	if err != nil {
 		return err
 	}
-	total := req.Input + req.Output
+	total := req.Input + req.Output + req.Reasoning
 	switch {
-	case invIn+req.Input > s.limits.MaxInputTokens,
-		invOut+req.Output > s.limits.MaxOutputTokens:
+	case h.invIn+req.Input > s.limits.MaxInputTokens,
+		h.invOut+req.Output > s.limits.MaxOutputTokens:
 		return fmt.Errorf("%w: investigation tokens %d/%d held of %d/%d",
-			ErrBudgetExhausted, invIn, invOut, s.limits.MaxInputTokens,
+			ErrBudgetExhausted, h.invIn, h.invOut, s.limits.MaxInputTokens,
 			s.limits.MaxOutputTokens)
-	case dbDay+total > s.limits.DatabaseDailyTokens:
+	case h.invReasoning+req.Reasoning > s.limits.MaxReasoningTokens:
+		return fmt.Errorf("%w: investigation reasoning %d held of %d",
+			ErrBudgetExhausted, h.invReasoning, s.limits.MaxReasoningTokens)
+	case h.dbDay+total > s.limits.DatabaseDailyTokens:
 		return fmt.Errorf("%w: database daily allocation %d of %d held",
-			ErrBudgetExhausted, dbDay, s.limits.DatabaseDailyTokens)
-	case depDay+total > s.limits.DeploymentDailyTokens:
+			ErrBudgetExhausted, h.dbDay, s.limits.DatabaseDailyTokens)
+	case h.depDay+total > s.limits.DeploymentDailyTokens:
 		return fmt.Errorf("%w: deployment daily allocation %d of %d held",
-			ErrBudgetExhausted, depDay, s.limits.DeploymentDailyTokens)
+			ErrBudgetExhausted, h.depDay, s.limits.DeploymentDailyTokens)
 	}
 	return nil
 }
@@ -155,12 +178,12 @@ func (s *PostgresStore) insertReservation(ctx context.Context, tx pgx.Tx, lease 
 	req TokenRequest) (Reservation, error) {
 	res, err := scanReservation(tx.QueryRow(ctx, `INSERT INTO sage.sre_budget_reservations
 		(deployment_id, database_id, id, investigation_id, utc_day, caller_kind,
-		 request_key, state, input_reserved, output_reserved)
+		 request_key, state, input_reserved, output_reserved, reasoning_reserved)
 		VALUES ($1, $2, $3, $4, (clock_timestamp() AT TIME ZONE 'UTC')::date,
-		        'sre_investigation', $5, 'reserved', $6, $7)
+		        'sre_investigation', $5, 'reserved', $6, $7, $8)
 		RETURNING `+resColumns, string(lease.Scope.DeploymentID),
 		string(lease.Scope.DatabaseID), string(NewUUID()), string(lease.InvestigationID),
-		req.RequestKey, req.Input, req.Output))
+		req.RequestKey, req.Input, req.Output, req.Reasoning))
 	if err != nil {
 		return res, err
 	}
@@ -194,14 +217,16 @@ func (s *PostgresStore) SettleModel(ctx context.Context, scope Scope, res Reserv
 		return s.moveReservation(ctx, scope, res, ReservationUnknown,
 			[]ReservationState{ReservationReserved, ReservationInflight}, u)
 	}
-	if u.Input < 0 || u.Output < 0 {
+	if u.Input < 0 || u.Output < 0 || u.Reasoning < 0 {
 		return res, fmt.Errorf("%w: negative usage", ErrInvalidRequest)
 	}
 	out, err := s.moveReservation(ctx, scope, res, ReservationSettled,
 		[]ReservationState{ReservationReserved, ReservationInflight, ReservationUnknown}, u)
-	if err == nil && (u.Input > out.Input || u.Output > out.Output) {
-		return out, fmt.Errorf("%w: used %d/%d of %d/%d", ErrUsageExceeded, u.Input,
-			u.Output, out.Input, out.Output)
+	if err == nil && (u.Input > out.Input || u.Output > out.Output ||
+		u.Reasoning > out.Reasoning) {
+		return out, fmt.Errorf("%w: used %d/%d/%d of %d/%d/%d (input/answer/reasoning)",
+			ErrUsageExceeded, u.Input, u.Output, u.Reasoning, out.Input, out.Output,
+			out.Reasoning)
 	}
 	return out, err
 }
@@ -223,10 +248,13 @@ func (s *PostgresStore) moveReservation(ctx context.Context, scope Scope,
 		SET state = $4, version = version + 1,
 		    input_used = CASE WHEN $4 = 'settled' THEN $5::int8 ELSE input_used END,
 		    output_used = CASE WHEN $4 = 'settled' THEN $6::int8 ELSE output_used END,
+		    reasoning_used = CASE WHEN $4 = 'settled' THEN $8::int8
+		                          ELSE reasoning_used END,
 		    settled_at = CASE WHEN $4 IN ('settled', 'cancelled')
 		                      THEN clock_timestamp() ELSE settled_at END
 		WHERE deployment_id = $1 AND database_id = $2 AND id = $3 AND state = ANY($7)
-		RETURNING `+resColumns, append(args, string(to), u.Input, u.Output, states)...))
+		RETURNING `+resColumns, append(args, string(to), u.Input, u.Output, states,
+		u.Reasoning)...))
 	if !errors.Is(err, ErrNotFound) {
 		return out, storeErr(ctx, "move reservation", err)
 	}

@@ -76,6 +76,29 @@ func preflightCollector(t *testing.T, p *pgxpool.Pool) (
 	return c, cfg, logs
 }
 
+// preflightCapture waits until a collected snapshot shows the workload
+// (marker in its text) and returns its queryid. pg_stat_statements is
+// cluster-wide: another package's unscoped pg_stat_statements_reset()
+// can wipe the entry between the workload and the first snapshot, so the
+// workload runs again until a snapshot has it.
+func preflightCapture(t *testing.T, p *pgxpool.Pool, c *collector.Collector,
+	sql, marker string) int64 {
+	t.Helper()
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); {
+		if snap := c.LatestSnapshot(); snap != nil {
+			for _, q := range snap.Queries {
+				if strings.Contains(q.Query, marker) {
+					return q.QueryID
+				}
+			}
+		}
+		preflightSQL(t, p, sql)
+		time.Sleep(1100 * time.Millisecond) // one collector interval
+	}
+	t.Fatal("missing slow workload: no snapshot captured it in 20 s")
+	return 0
+}
+
 func preflightWaitFailure(t *testing.T, logs <-chan string) {
 	t.Helper()
 	timer := time.NewTimer(10 * time.Second)
@@ -99,20 +122,12 @@ func TestPreflightEvidenceStaleSnapshotDoesNotRefreshFinding(t *testing.T) {
 	preflightSQL(t, p, "SELECT pg_sleep(0.02)")
 	c, cfg, logs := preflightCollector(t, p)
 	a := New(p, cfg, c, nil, nil, nil, nil, func(string, string, ...any) {})
+	qid := preflightCapture(t, p, c, "SELECT pg_sleep(0.02)", "pg_sleep")
 	preflightSQL(t, p, "DROP EXTENSION pg_stat_statements")
 	t.Cleanup(func() { preflightSQL(t, p, "CREATE EXTENSION pg_stat_statements") })
 	preflightWaitFailure(t, logs)
 	snapshotAt := c.LatestSnapshot().CollectedAt
 	a.cycle(ctx)
-	var qid int64
-	for _, q := range c.LatestSnapshot().Queries {
-		if strings.Contains(q.Query, "pg_sleep") {
-			qid = q.QueryID
-		}
-	}
-	if qid == 0 {
-		t.Fatal("missing slow workload")
-	}
 	ident := fmt.Sprintf("queryid:%d", qid)
 	var beforeCount, afterCount int
 	var beforeSeen, afterSeen time.Time

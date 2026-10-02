@@ -74,6 +74,7 @@ func observations(evidence []Evidence) ([]causal.Observation, error) {
 // diagnose runs the investigation family's matcher and adds pg_sage's
 // own change as a hypothesis.
 func diagnose(inv Investigation, obs []causal.Observation) causal.Diagnosis {
+	obs = currentObservations(obs)
 	var d causal.Diagnosis
 	switch inv.TriggerKind {
 	case TriggerLock:
@@ -86,6 +87,28 @@ func diagnose(inv Investigation, obs []causal.Observation) causal.Diagnosis {
 		d = planDiagnosis(obs, inv.Subject)
 	}
 	return causal.WithSelfActions(d, obs)
+}
+
+// seriesProbes are compared across samples. Every other probe is a
+// one-shot observation: when it ran again (a model-proposed probe), its
+// newest result supersedes the older ones.
+var seriesProbes = map[probes.ID]bool{probes.ConnectionSaturation: true,
+	probes.ReplicationSlots: true, probes.WALCheckpoint: true, probes.Archiver: true}
+
+// currentObservations keeps every sample of a series probe and only the
+// newest (last stored) observation of each one-shot probe, in order.
+func currentObservations(obs []causal.Observation) []causal.Observation {
+	latest := map[probes.ID]int{}
+	for i, o := range obs {
+		latest[o.Result.ProbeID] = i
+	}
+	out := make([]causal.Observation, 0, len(obs))
+	for i, o := range obs {
+		if seriesProbes[o.Result.ProbeID] || latest[o.Result.ProbeID] == i {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 // planDiagnosis is the diagnosis of the triggering query, or an

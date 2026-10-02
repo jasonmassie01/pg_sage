@@ -13,6 +13,9 @@ const (
 	CeilingModelTurns   = 2
 	CeilingInputTokens  = 16000
 	CeilingOutputTokens = 4000
+	// CeilingReasoningTokens is a thinking model's reasoning allowance per
+	// investigation, budgeted separately from the 4k answer ceiling.
+	CeilingReasoningTokens = 16384
 )
 
 // Limits bound one investigation and the durable daily model budget.
@@ -22,8 +25,11 @@ type Limits struct {
 	MaxModelTurns   int
 	MaxInputTokens  int64
 	MaxOutputTokens int64
-	LeaseTTL        time.Duration
-	QueueExpiry     time.Duration
+	// MaxReasoningTokens is the reasoning allowance of thinking models,
+	// reserved on top of the answer tokens.
+	MaxReasoningTokens int64
+	LeaseTTL           time.Duration
+	QueueExpiry        time.Duration
 	// DatabaseDailyTokens and DeploymentDailyTokens are durable per-UTC-day
 	// model allocations. Zero means no allocation: model use is refused
 	// (deterministic investigation still works). Never "unlimited".
@@ -35,8 +41,8 @@ type Limits struct {
 func DefaultLimits() Limits {
 	return Limits{MaxActive: CeilingActive, MaxProbes: CeilingProbes,
 		MaxModelTurns: CeilingModelTurns, MaxInputTokens: CeilingInputTokens,
-		MaxOutputTokens: CeilingOutputTokens, LeaseTTL: 30 * time.Second,
-		QueueExpiry: 10 * time.Minute}
+		MaxOutputTokens: CeilingOutputTokens, MaxReasoningTokens: CeilingReasoningTokens,
+		LeaseTTL: 30 * time.Second, QueueExpiry: 10 * time.Minute}
 }
 
 // Validate rejects zero, negative and above-ceiling values.
@@ -54,6 +60,8 @@ func (l Limits) Validate() error {
 			"in [1, 16000]"},
 		{"max output tokens", l.MaxOutputTokens > 0 &&
 			l.MaxOutputTokens <= CeilingOutputTokens, "in [1, 4000]"},
+		{"max reasoning tokens", l.MaxReasoningTokens > 0 &&
+			l.MaxReasoningTokens <= CeilingReasoningTokens, "in [1, 16384]"},
 		{"lease ttl", l.LeaseTTL > 0 && l.LeaseTTL <= l.MaxActive, "in (0, max active]"},
 		{"queue expiry", l.QueueExpiry > 0, "positive"},
 		{"database daily tokens", l.DatabaseDailyTokens >= 0, "not negative"},

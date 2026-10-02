@@ -309,7 +309,9 @@ approval/recovery is pinned. Deletes leave tombstones.
 Codex ceilings adopted as initial caps: 1 probe/DB concurrently, 4/sidecar; 500 ms per probe
 statement, 100 ms lock_timeout; 500 rows / 256 KiB per probe; 12 probes, 2 model turns, 16k in /
 4k out tokens, 120 s wall per investigation; trigger queue 100/sidecar. Reservations are atomic
-and survive crashes. Model output schema: `hypotheses[]` (graph node ids + support/contradiction
+and survive crashes. Thinking models (Gemini 2.5+/3, o-series, DeepSeek R1) also get a separate,
+explicit reasoning allowance of 16k tokens per investigation (8k per turn). It is reserved durably
+beside the 4k answer ceiling, counted in the daily allocations, and settled at the reported usage. Model output schema: `hypotheses[]` (graph node ids + support/contradiction
 evidence ids + missing facts), `next_probe` (catalog id + typed args + discrimination rationale),
 `conclusion` (observed facts, inference, limitations, next operator step). Validation rejects
 unknown/out-of-scope/stale ids, unknown probes/args and oversized output, with one repair attempt.

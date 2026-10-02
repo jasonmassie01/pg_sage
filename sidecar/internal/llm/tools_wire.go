@@ -60,7 +60,12 @@ type toolChatResponse struct {
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
-		TotalTokens int `json:"total_tokens"`
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+		Details          struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		} `json:"completion_tokens_details"`
 	} `json:"usage"`
 }
 
@@ -72,7 +77,7 @@ func buildToolRequest(
 	req := toolChatRequest{
 		Model:     model,
 		Messages:  make([]wireMessage, 0, len(msgs)),
-		MaxTokens: normalizedMaxTokens(model, opts.MaxTokens),
+		MaxTokens: toolMaxTokens(model, opts),
 	}
 	for _, m := range msgs {
 		wm := wireMessage{Role: m.Role, Content: m.Content,
@@ -161,7 +166,19 @@ func toolResult(resp *toolChatResponse, body string) ToolResult {
 		tokens = estimateTokens(body, choice.Message.Content)
 	}
 	return ToolResult{Content: choice.Message.Content, Tokens: tokens,
-		FinishReason: choice.FinishReason}
+		FinishReason: choice.FinishReason, PromptTokens: resp.Usage.PromptTokens,
+		CompletionTokens: resp.Usage.CompletionTokens,
+		ReasoningTokens:  resp.Usage.Details.ReasoningTokens}
+}
+
+// toolMaxTokens is the completion cap of a tool call: the default
+// normalization, or for a thinking model with an explicit reasoning
+// allowance, the cap plus that allowance instead of the default reserve.
+func toolMaxTokens(model string, opts ToolOptions) int {
+	if opts.ReasoningTokens <= 0 || !isThinkingModel(model) {
+		return normalizedMaxTokens(model, opts.MaxTokens)
+	}
+	return normalizedMaxTokens("", opts.MaxTokens) + opts.ReasoningTokens
 }
 
 func finishToolResult(

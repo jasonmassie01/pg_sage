@@ -41,6 +41,21 @@ var thinkingModelMarkers = []string{
 	"deepseek-r1", "deepseek-reasoner", "qwq", "reasoning", "thinking",
 }
 
+// IsThinkingModel reports a model whose internal reasoning tokens
+// consume the max_tokens output budget (Gemini 2.5+/3, OpenAI o-series,
+// DeepSeek R1, QwQ). Callers budget its reasoning separately.
+func IsThinkingModel(model string) bool { return isThinkingModel(model) }
+
+// ThinkingModel reports whether the client's configured model is a
+// thinking model. A nil client is not.
+func (c *Client) ThinkingModel() bool {
+	if c == nil {
+		return false
+	}
+	cfg, _ := c.configSnapshot()
+	return isThinkingModel(cfg.Model)
+}
+
 // isThinkingModel returns true for models whose internal reasoning
 // tokens consume the max_tokens output budget.
 func isThinkingModel(model string) bool {

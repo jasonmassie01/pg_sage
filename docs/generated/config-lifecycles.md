@@ -210,6 +210,7 @@
 | `schema_lint.scan_interval_minutes` | `reconfigure` | `schema_lint` |
 | `sre.automatic_start` | `restart` | `-` |
 | `sre.evidence_retention_days` | `restart` | `-` |
+| `sre.llm.enabled` | `restart` | `-` |
 | `sre.sample_interval_seconds` | `restart` | `-` |
 | `sre.timeline_retention_days` | `restart` | `-` |
 | `sre.trigger_interval_seconds` | `restart` | `-` |

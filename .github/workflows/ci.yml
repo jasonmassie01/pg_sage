@@ -26,6 +26,7 @@ jobs:
           - 5432:5432
     env:
       SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench
       PGHOST: localhost
       PGPORT: "5432"
       PGUSER: postgres
@@ -84,6 +85,27 @@ jobs:
           jq -rj 'select(.Action=="output") | .Output' ../e2e.json
           exit $status
 
+      # The full bench has its own step and timeout: it grows with every
+      # incident family and must not crowd the ./... suites.
+      - name: PGIncidentBench
+        working-directory: sidecar
+        env:
+          SAGE_BENCH_RUN: "1"
+        run: |
+          status=0
+          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 1800s -json > ../bench.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench.json
+          exit $status
+
+      # PGIncidentBench writes its JSON result and Markdown summary here.
+      - name: Upload PGIncidentBench report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pgincidentbench-pg17
+          path: pgincidentbench/
+          if-no-files-found: warn
+
       # Fails on any skipped test not justified in sidecar/.skip-allowlist.
       - name: Skip budget
         if: ${{ !cancelled() }}
@@ -132,6 +154,16 @@ jobs:
           go test ./... -race -tags=integration -count=1 -timeout 1200s -json \
             > ../integration.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../integration.json
+          exit $status
+
+      - name: PGIncidentBench
+        working-directory: sidecar
+        env:
+          SAGE_BENCH_RUN: "1"
+        run: |
+          status=0
+          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 1800s -json > ../bench.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench.json
           exit $status
 
       - name: Skip budget
