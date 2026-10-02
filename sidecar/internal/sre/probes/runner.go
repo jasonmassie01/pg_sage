@@ -172,7 +172,11 @@ func (r *Runner) execute(
 		millis(spec.LockTimeout)); err != nil {
 		return res, err
 	}
-	rows, err := tx.Query(qctx, v.SQL, args.params(spec.Args, spec.MaxRows+1)...)
+	sql, err := resolveExtension(qctx, tx, spec.Extension, v.SQL)
+	if err != nil {
+		return res, err
+	}
+	rows, err := tx.Query(qctx, sql, args.params(spec.Args, spec.MaxRows+1)...)
 	if err != nil {
 		return res, err
 	}

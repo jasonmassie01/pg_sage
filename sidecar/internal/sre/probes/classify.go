@@ -38,6 +38,8 @@ func classify(err error) (Status, string) {
 		return StatusError, "query_failed"
 	}
 	switch {
+	case errors.Is(err, errExtensionMissing):
+		return StatusUnsupported, "extension_not_installed"
 	case errors.Is(err, context.DeadlineExceeded):
 		return StatusError, "deadline_exceeded"
 	case errors.Is(err, context.Canceled):

@@ -35,16 +35,25 @@ const currentLSN = `CASE WHEN pg_catalog.pg_is_in_recovery()
         THEN pg_catalog.pg_last_wal_replay_lsn()
         ELSE pg_catalog.pg_current_wal_lsn() END`
 
-const replicationLagSQL = `/* pg_sage sre:replication_lag v1 */
-SELECT pg_catalog.left(COALESCE(r.application_name, ''), 64) AS application_name,
+// replicationLagSQL is v2: M6 splits each replica's lag into the WAL not
+// yet sent, sent but not flushed by the standby, and flushed but not
+// replayed (applied, for a logical subscriber), and names the stream's
+// kind from its slot (a walsender without a slot is physical).
+const replicationLagSQL = `/* pg_sage sre:replication_lag v2 */
+SELECT r.pid, pg_catalog.left(COALESCE(r.application_name, ''), 64) AS application_name,
        COALESCE(pg_catalog.host(r.client_addr), 'local') AS client_addr,
-       r.state, r.sync_state,
+       r.state, r.sync_state, COALESCE(sl.slot_type, 'physical') AS kind,
        EXTRACT(EPOCH FROM r.write_lag)::float8 AS write_lag_s,
        EXTRACT(EPOCH FROM r.flush_lag)::float8 AS flush_lag_s,
        EXTRACT(EPOCH FROM r.replay_lag)::float8 AS replay_lag_s,
+       pg_catalog.pg_wal_lsn_diff(` + currentLSN + `, r.sent_lsn)::int8
+           AS send_backlog_bytes,
+       pg_catalog.pg_wal_lsn_diff(r.sent_lsn, r.flush_lsn)::int8 AS flush_backlog_bytes,
+       pg_catalog.pg_wal_lsn_diff(r.flush_lsn, r.replay_lsn)::int8 AS replay_backlog_bytes,
        pg_catalog.pg_wal_lsn_diff(` + currentLSN + `, r.replay_lsn)::int8
            AS replay_lag_bytes
 FROM pg_catalog.pg_stat_replication r
+LEFT JOIN pg_catalog.pg_replication_slots sl ON sl.active_pid = r.pid
 ORDER BY replay_lag_bytes DESC NULLS LAST, application_name
 LIMIT $1`
 
@@ -103,8 +112,10 @@ func connectionSaturationSpec() Spec {
 }
 
 func replicationLagSpec() Spec {
-	return spec(ReplicationLag, FamilyReplication, ArgsNone,
+	s := spec(ReplicationLag, FamilyReplication, ArgsNone,
 		Variant{MinVersion: 140000, SQL: replicationLagSQL})
+	s.Version = "v2"
+	return s
 }
 
 func replicationSlotsSpec() Spec {

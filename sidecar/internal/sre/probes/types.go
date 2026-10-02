@@ -33,6 +33,14 @@ const (
 	// M2: archiver health and pg_sage's own recent actions.
 	Archiver    ID = "archiver"
 	SageActions ID = "sage_actions"
+	// M6 reactive families: checkpoint storms, temp-file explosions,
+	// replication lag (standby side) and LWLock contention.
+	CheckpointActivity  ID = "checkpoint_activity"
+	TempFileActivity    ID = "temp_file_activity"
+	TempFileHolders     ID = "temp_file_holders"
+	TempSpillStatements ID = "temp_spill_statements"
+	StandbyReplayState  ID = "standby_replay_state"
+	LWLockWaits         ID = "lwlock_waits"
 )
 
 // Probe families.
@@ -44,7 +52,13 @@ const (
 	FamilyVacuum      = "vacuum_wraparound"
 	FamilyPlans       = "plan_regression"
 	FamilyChange      = "change"
+	FamilyTempFiles   = "temp_files"
+	FamilyWaits       = "wait_events"
 )
+
+// ExtSchemaToken stands for the schema of a spec's Extension in its SQL;
+// the runner replaces it with the quoted schema the extension lives in.
+const ExtSchemaToken = "@extschema@"
 
 // Hard ceilings (Codex §8). A spec may be stricter, never looser.
 const (
@@ -146,12 +160,15 @@ type Variant struct {
 
 // Spec declares one catalog probe.
 type Spec struct {
-	ID               ID
-	Version          string
-	Family           string
-	Description      string
-	Args             ArgKind
-	Variants         []Variant // ascending MinVersion
+	ID          ID
+	Version     string
+	Family      string
+	Description string
+	Args        ArgKind
+	Variants    []Variant // ascending MinVersion
+	// Extension names the extension whose objects the SQL reads through
+	// ExtSchemaToken; the probe is unsupported where it is not installed.
+	Extension        string
 	StatementTimeout time.Duration
 	LockTimeout      time.Duration
 	MaxRows          int
