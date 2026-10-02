@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/earned"
+	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -125,6 +126,8 @@ func (e *Executor) queueHandoff(
 		return fmt.Errorf("queue handoff: %w", err)
 	}
 	e.logFn("executor", "autonomy L2: handed %s to one-click approval", key)
+	e.dispatchEvent(ctx, notify.ApprovalNeededEvent(
+		"earned L2 handoff "+key, proposal.SQL, e.databaseName, decision.RiskTier))
 	return nil
 }
 
