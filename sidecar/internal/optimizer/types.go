@@ -16,6 +16,15 @@ type Recommendation struct {
 	AffectedQueryIDs        []int64  `json:"affected_query_ids,omitempty"`
 	EstimatedImprovementPct float64  `json:"estimated_improvement_pct"`
 	Validated               bool     `json:"validated"`
+	// WhatIf is the HypoPG verdict (WhatIfVerified / WhatIfUnverified);
+	// WhatIfReason says why a recommendation is unverified.
+	WhatIf       string `json:"what_if_verdict,omitempty"`
+	WhatIfReason string `json:"what_if_reason,omitempty"`
+	// PartitionedParent marks an index on a partitioned table: it is
+	// advisory, and PartitionPlan holds the ON ONLY / per-partition /
+	// ATTACH statements (nil for multi-level partitioning).
+	PartitionedParent bool     `json:"partitioned_parent,omitempty"`
+	PartitionPlan     []string `json:"partition_plan,omitempty"`
 	// ActionLevel is the confidence tier: safe, moderate, high_risk.
 	ActionLevel  string        `json:"action_level"`
 	ActionRisk   string        `json:"action_risk,omitempty"` // safe, moderate, high_risk
@@ -53,7 +62,11 @@ type TableContext struct {
 	JoinPairs        []JoinPair
 	IsPartitioned    bool // true if table is a partitioned parent (PG11+)
 	IsPartitionChild bool // true if table is a child partition
-	WriteRateKnown   bool // true when the table had recorded scan/write activity
+	// PartitionChildren are a parent's direct partitions ("schema.table");
+	// NestedPartitions is set when one of them is itself partitioned.
+	PartitionChildren []string
+	NestedPartitions  bool
+	WriteRateKnown    bool // true when the table had recorded scan/write activity
 }
 
 // ColumnInfo describes a table column.

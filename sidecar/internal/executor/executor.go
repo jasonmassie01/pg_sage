@@ -351,6 +351,7 @@ func findingRequest(finding analyzer.Finding, isReplica bool) policy.ActionReque
 	}
 	if contract, ok := contractForFinding(finding); ok {
 		request.Contract = policyContract(contract)
+		requireApprovalWithoutWhatIf(finding, request.Contract)
 	}
 	return request
 }
