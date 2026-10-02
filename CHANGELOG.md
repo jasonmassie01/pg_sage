@@ -190,6 +190,13 @@
   `/api/v1/sre/autonomy` routes. The MCP tools `sre_get_autonomy` and
   `sre_downgrade_autonomy` are also new. See `sre.autonomy.*` in the configuration
   reference.
+  On the integrated M5 and M6 code, the ledger reads each database's own SLO engine for
+  the error-budget signal. An approved M5 backend cancel is approval-only (never above L2,
+  never carried over), and each recovery pg_sage verified is recorded as evidence for its
+  family. Executed custodian actions are recorded as outcomes, including mandatory deadline
+  overrides, which never count toward promotion. The M6 reactive and runway families are in
+  the ledger. `sre.autonomy.bench_results_path` now also reads the per-shard reports CI
+  writes under `pgincidentbench/`.
 
 ### Fixed
 
