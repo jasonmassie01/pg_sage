@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -110,9 +111,23 @@ func TestComposedSRE_DetectorEpisodeOpensAnIncidentCaseAndInvestigation(t *testi
 		"incident_detected")) == 0 && time.Now().Before(deadline); {
 		time.Sleep(50 * time.Millisecond)
 	}
-	if got := events.ofType("incident_detected"); len(got) != 1 ||
-		got[0].Data["incident_id"] != inv.IncidentID {
-		t.Fatalf("incident_detected = %+v, want one for %s", got, inv.IncidentID)
+	// Checkpoint counters are cluster-wide: other packages forcing
+	// checkpoints on the shared server can open a real checkpoint-storm
+	// incident meanwhile. The temp-file episode must notify exactly once,
+	// for its own incident, and open no second temp-file incident.
+	got := events.ofType("incident_detected")
+	mine, temp := 0, 0
+	for _, e := range got {
+		if e.Data["incident_id"] == inv.IncidentID {
+			mine++
+		}
+		if strings.Contains(e.Body, "Signals: sre_temp_file_explosion") {
+			temp++
+		}
+	}
+	if mine != 1 || temp != 1 {
+		t.Fatalf("incident_detected = %+v, want one temp-file notification, for %s",
+			got, inv.IncidentID)
 	}
 	reviewDetectorInvestigation(t, ctx, pool, db, inv)
 }

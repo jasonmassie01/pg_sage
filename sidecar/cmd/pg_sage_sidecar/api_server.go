@@ -1,0 +1,110 @@
+package main
+
+import (
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/api"
+	"github.com/pg-sage/sidecar/internal/auth"
+	"github.com/pg-sage/sidecar/internal/fleet"
+)
+
+func initFleetAndAPI() {
+	if fleetMgr == nil {
+		fleetMgr = fleet.NewManager(cfg)
+	}
+
+	// Every mode's init registered its database runtimes.
+	startMCPRuntime()
+
+	startAPIServer(rateLimiterInstance)
+
+	// Start session cleaner against the same canonical control pool that
+	// owns authentication. Monitored pools are replaceable in meta mode.
+	sessionPool := sessionControlPool(globalMetaState, fleetMgr, pool)
+	if sessionPool != nil {
+		go auth.StartSessionCleaner(
+			shutdownCtx, sessionPool, time.Hour,
+		)
+	}
+}
+
+func sessionControlPool(
+	metaState *metaDBState,
+	mgr *fleet.DatabaseManager,
+	fallback *pgxpool.Pool,
+) *pgxpool.Pool {
+	if metaState != nil && metaState.Pool != nil {
+		return metaState.Pool
+	}
+	if mgr != nil {
+		if fleetPool := mgr.PoolForDatabase("all"); fleetPool != nil {
+			return fleetPool
+		}
+	}
+	return fallback
+}
+
+// configureAPIProcessHooks installs the process shutdown context and, under
+// a declared supervisor, the restart hook the API router uses.
+func configureAPIProcessHooks() {
+	// Wire the process shutdown context into router-owned
+	// goroutines (OAuth CSRF state cleaner) so they exit on
+	// SIGINT/SIGTERM instead of leaking.
+	api.SetShutdownContext(shutdownCtx)
+	// Offer restart only under a declared supervisor; otherwise the API
+	// answers 501 instead of exiting 42 into nothing (G5-B09).
+	if supervisorDeclared(os.Getenv) {
+		api.SetRestartFunc(triggerRestart)
+	} else {
+		logInfo("api", "restart endpoint disabled: set SAGE_SUPERVISED=1 "+
+			"when a supervisor relaunches the sidecar on exit %d", restartExitCode)
+	}
+}
+
+// startAuthPoolServices reports a missing auth pool and otherwise starts
+// the agent-DB lifecycle reconciler on it.
+func startAuthPoolServices(authPool *pgxpool.Pool) {
+	// Fail loudly (not silently) when there is no usable auth pool.
+	// Without it, registerAuthRoutes is skipped and every /api/* path
+	// 401s with no /auth/login to recover — a bricked dashboard that
+	// otherwise looks healthy in the logs (LIVE-01/04).
+	if authPool == nil {
+		logError("api",
+			"AUTH DISABLED: no connected database available for session "+
+				"storage — dashboard login and all authenticated API "+
+				"endpoints are unavailable. Ensure at least one configured "+
+				"database is reachable (or configure a meta-database), then "+
+				"restart.")
+	}
+
+	// Start the agent-DB lifecycle reconciler: it archives expired leases
+	// and destroys abandoned deployments. The logic was built and tested
+	// but never scheduled (F4). Dormant when no agent DBs exist.
+	if authPool != nil {
+		startAgentDBReconciler(shutdownCtx, authPool)
+	}
+}
+
+// serveAPI builds the API HTTP server for handler and starts listening on
+// addr in the background.
+func serveAPI(addr string, handler http.Handler) {
+	apiServer = &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	go func() {
+		logInfo("api", "listening on %s", addr)
+		if err := apiServer.ListenAndServe(); err != nil &&
+			err != http.ErrServerClosed {
+			logError("api", "server error: %v", err)
+		}
+	}()
+}
