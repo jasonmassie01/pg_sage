@@ -45,7 +45,7 @@ func unusedFinding(t *testing.T, pool *pgxpool.Pool, category, ident string) (in
 	return id, sql
 }
 
-func indexExists(t *testing.T, pool *pgxpool.Pool, ident string) bool {
+func regclassExists(t *testing.T, pool *pgxpool.Pool, ident string) bool {
 	t.Helper()
 	var ok bool
 	if err := pool.QueryRow(context.Background(),
@@ -96,7 +96,7 @@ func TestExecuteManual_UnusedDropRefusedWhenScanned(t *testing.T) {
 	id, sql := unusedFinding(t, pool, "unused_index", "public.ev_a")
 	_, err = e.ExecuteManual(ctx, id, sql, "", nil)
 	assertEvidenceRefusal(t, err, "public.ev_a", "scanned")
-	if !indexExists(t, pool, "public.ev_a") {
+	if !regclassExists(t, pool, "public.ev_a") {
 		t.Fatal("the index was dropped despite the refusal")
 	}
 }
@@ -119,7 +119,7 @@ func TestExecuteManual_UnusedDropRefusedAfterReset(t *testing.T) {
 		id).Scan(&actions); err != nil || actions != 0 {
 		t.Fatalf("action_log rows = %d (%v), want none for a refused drop", actions, err)
 	}
-	if !indexExists(t, pool, "public.ev_a") {
+	if !regclassExists(t, pool, "public.ev_a") {
 		t.Fatal("the index was dropped despite the refusal")
 	}
 }
