@@ -1265,6 +1265,11 @@
     "default": 60,
     "doc": "Seconds between recording live outcomes of handed-off and autonomous actions, 10-3600. Default: 60."
   },
+  "sre.autonomy.report_retention_days": {
+    "type": "int",
+    "default": 90,
+    "doc": "Days a stored bench or game-day report is kept, 30-3650. Ledger and pending-promotion evidence and the newest report per family are always kept. Default: 90."
+  },
   "sre.autonomy.safety_window_days": {
     "type": "int",
     "default": 30,
@@ -1300,6 +1305,36 @@
     "type": "int",
     "default": 300,
     "doc": "Accepted signature clock skew, 30-3600. Default: 300."
+  },
+  "sre.detectors.checkpoint_requested": {
+    "type": "int",
+    "default": 3,
+    "doc": "Requested checkpoints within the window that are a checkpoint storm (they must also outnumber timed ones), 1-1000. Default: 3."
+  },
+  "sre.detectors.cooldown_minutes": {
+    "type": "int",
+    "default": 30,
+    "doc": "Minutes after an episode starts before a new episode of the same family can open, 1-1440. Default: 30."
+  },
+  "sre.detectors.lwlock_polls": {
+    "type": "int",
+    "default": 3,
+    "doc": "Consecutive trigger polls lwlock_waiters must hold before an LWLock contention episode opens, 1-100. Default: 3."
+  },
+  "sre.detectors.lwlock_waiters": {
+    "type": "int",
+    "default": 8,
+    "doc": "Backends waiting on one modeled LWLock class that count as contention, 1-10000. Default: 8."
+  },
+  "sre.detectors.temp_file_mb": {
+    "type": "int",
+    "default": 1024,
+    "doc": "MiB of temp files this database writes within the window that are a temp-file explosion, 1-1048576. Default: 1024."
+  },
+  "sre.detectors.window_seconds": {
+    "type": "int",
+    "default": 300,
+    "doc": "Seconds over which checkpoint and temp-file growth is measured, 60-3600. Keep it at least twice sre.trigger_interval_seconds. Default: 300."
   },
   "sre.evidence_retention_days": {
     "type": "int",

@@ -24,6 +24,7 @@ type SREAutonomyConfig struct {
 	SafetyWindowDays         int               `yaml:"safety_window_days" doc:"Days a harmful or unsafe outcome caps its family at L1 and blocks re-promotion, 1-365. Default: 30."`
 	FailoverCooldownMinutes  int               `yaml:"failover_cooldown_minutes" doc:"Minutes after a role change autonomy stays at L1, 1-1440. Default: 30."`
 	ProposalTTLHours         int               `yaml:"proposal_ttl_hours" doc:"Hours a promotion proposal waits for an admin, 1-720. Default: 168."`
+	ReportRetentionDays      int               `yaml:"report_retention_days" doc:"Days a stored bench or game-day report is kept, 30-3650. Ledger and pending-promotion evidence and the newest report per family are always kept. Default: 90."`
 	GameDays                 SREGameDaysConfig `yaml:"game_days"`
 	Canary                   SRECanaryConfig   `yaml:"canary"`
 }
@@ -48,7 +49,7 @@ func defaultSREAutonomyConfig() SREAutonomyConfig {
 	return SREAutonomyConfig{Enforce: true, EvaluateIntervalMinutes: 60,
 		ReconcileIntervalSeconds: 60, MaxEvidenceAgeSeconds: 300,
 		ConcurrencyWindowMinutes: 15, SafetyWindowDays: 30, FailoverCooldownMinutes: 30,
-		ProposalTTLHours: 168, GameDays: SREGameDaysConfig{IntervalHours: 168},
+		ProposalTTLHours: 168, ReportRetentionDays: 90, GameDays: SREGameDaysConfig{IntervalHours: 168},
 		Canary: SRECanaryConfig{CanaryInstances: 1, RegressionLimitPct: 10, SettleSeconds: 60}}
 }
 
@@ -68,6 +69,7 @@ func (a SREAutonomyConfig) validate() error {
 		{"safety_window_days", a.SafetyWindowDays, 1, 365},
 		{"failover_cooldown_minutes", a.FailoverCooldownMinutes, 1, 1440},
 		{"proposal_ttl_hours", a.ProposalTTLHours, 1, 720},
+		{"report_retention_days", a.ReportRetentionDays, 30, 3650},
 		{"game_days.interval_hours", a.GameDays.IntervalHours, 24, 2160},
 		{"canary.canary_instances", a.Canary.CanaryInstances, 1, 10},
 		{"canary.settle_seconds", a.Canary.SettleSeconds, 0, 3600},
