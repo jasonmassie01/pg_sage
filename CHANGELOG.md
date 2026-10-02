@@ -57,6 +57,8 @@
   `llm.index_optimizer.enabled` (true or false) applies only when it is not.
 - The collector no longer reads `pg_settings` and every table's reloptions each cycle for
   a configuration advisor that cannot run (no usable LLM at startup).
+- `pg_sage_optimizer_enabled` reports whether the index optimizer can run (enabled and its
+  LLM configured), not just the config value, which is now `true` by default.
 
 ## v1.7.0 (2026-09-30) -- Sage SRE investigations, earned index autonomy
 
