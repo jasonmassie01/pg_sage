@@ -14,7 +14,8 @@ import (
 // fault program has a manifestation predicate and a post-fix verifier.
 
 var benchFamilies = []sre.TriggerKind{sre.TriggerLock, sre.TriggerConnections,
-	sre.TriggerWAL, sre.TriggerPlan}
+	sre.TriggerWAL, sre.TriggerPlan, sre.TriggerCheckpoint, sre.TriggerTempFiles,
+	sre.TriggerReplicationLag, sre.TriggerLWLock}
 
 func checkGold(t *testing.T, sc Scenario) {
 	t.Helper()

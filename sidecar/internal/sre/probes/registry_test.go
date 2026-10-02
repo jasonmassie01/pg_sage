@@ -22,9 +22,10 @@ func r1IDs() []ID {
 
 // specVersion is each probe's expected version: connection_saturation
 // is v2 since M2 added the server start time (a restart between two
-// samples invalidates the comparison, CHECK-07).
+// samples invalidates the comparison, CHECK-07); replication_lag is v2
+// since M6 split the lag into send, flush and replay backlogs.
 func specVersion(id ID) string {
-	if id == ConnectionSaturation {
+	if id == ConnectionSaturation || id == ReplicationLag {
 		return "v2"
 	}
 	return "v1"
@@ -33,11 +34,12 @@ func specVersion(id ID) string {
 func TestCatalog_HasEveryR1FamilyWithinCeilings(t *testing.T) {
 	reg := Catalog()
 	ids := reg.IDs()
-	if len(ids) != len(r1IDs()) {
-		t.Fatalf("catalog ids = %v, want %d probes", ids, len(r1IDs()))
+	all := append(r1IDs(), m6ReactiveIDs()...)
+	if len(ids) != len(all) {
+		t.Fatalf("catalog ids = %v, want %d probes", ids, len(all))
 	}
 	families := map[string]bool{}
-	for _, id := range r1IDs() {
+	for _, id := range all {
 		spec, ok := reg.Spec(id)
 		if !ok {
 			t.Fatalf("catalog lacks %s", id)
@@ -70,7 +72,8 @@ func TestCatalog_HasEveryR1FamilyWithinCeilings(t *testing.T) {
 		}
 	}
 	for _, fam := range []string{FamilyLocks, FamilyConnections,
-		FamilyReplication, FamilyWAL, FamilyVacuum, FamilyPlans, FamilyChange} {
+		FamilyReplication, FamilyWAL, FamilyVacuum, FamilyPlans, FamilyChange,
+		FamilyTempFiles, FamilyWaits} {
 		if !families[fam] {
 			t.Errorf("no probe covers family %s", fam)
 		}
