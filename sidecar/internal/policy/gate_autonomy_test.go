@@ -172,10 +172,15 @@ func TestAutonomyL3RequiresTheWindow(t *testing.T) {
 	f.runtime.WindowConfigured, f.runtime.InConfiguredWindow = true, false
 	assertDecision(t, f.authorize(t, familyRequest(RiskSafe, RollbackReversible)),
 		VerdictQueueApproval, ReasonAutonomyHandoff)
+	// A standing policy must declare a window: one without any does not
+	// validate, and the gate fails closed before the ledger is consulted.
 	f = newAutonomyFixture(3)
 	f.doc.MaintenanceWindows = nil
 	assertDecision(t, f.authorize(t, familyRequest(RiskSafe, RollbackReversible)),
-		VerdictQueueApproval, ReasonAutonomyHandoff)
+		VerdictBlocked, ReasonPolicyUnavailable)
+	if f.limiter.calls != 0 {
+		t.Fatal("the ledger was consulted for an invalid policy")
+	}
 }
 
 // A deadline override lets the existing gate run outside the window; at
