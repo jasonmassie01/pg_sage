@@ -65,6 +65,11 @@ The probes read these sources:
 | `autovacuum_wraparound`, `vacuum_progress` | `pg_class`, `pg_stat_all_tables`, `pg_database`, `pg_stat_progress_vacuum` | `pg_read_all_stats` |
 | `plan_regressions` | `sage.query_store` | `SELECT` on pg_sage's own schema |
 | `sage_actions` | `sage.action_log` | `SELECT` on pg_sage's own schema |
+| `lwlock_waits`, `standby_replay_state` (M6) | `pg_stat_activity` (wait events; the standby's longest query), `pg_stat_wal_receiver`, `pg_stat_database_conflicts` | `pg_read_all_stats` |
+| `temp_spill_statements` (M6) | `pg_stat_statements(false)` (no query text), in the schema the extension is installed in | `pg_read_all_stats` (other roles' query ids); `unsupported` without the extension |
+| `temp_file_holders` (M6) | `pg_ls_tmpdir()`, `pg_stat_activity` | `pg_monitor` (`no_privilege` without it) |
+| `xid_runway`, `xmin_horizon` (M6) | `pg_database`, `pg_stat_activity` (busy autovacuum workers, xmin holders), `pg_prepared_xacts`, `pg_replication_slots` | `pg_read_all_stats` |
+| `wal_directory` (M6) | `pg_ls_waldir()`, `pg_ls_archive_statusdir()` | `pg_monitor` (`no_privilege` without it) |
 
 **Grant `pg_monitor`.** It includes `pg_read_all_stats` and `pg_read_all_settings`. This is
 the same grant [installation](installation.md#database-user-setup) and
@@ -90,7 +95,8 @@ set to NULL. A lock-graph query would then find "no lock waits" while sessions a
 and connection counts would leave other roles out: a healthy-looking zero caused by a missing
 privilege. So the probes that read those columns (`lock_graph`, `lock_chains`,
 `long_transactions`, `backend_identity`, `connection_saturation`, `replication_lag`,
-`vacuum_progress`) first check `pg_has_role(current_user, 'pg_read_all_stats', 'USAGE')` in
+`vacuum_progress`, and in M6 `lwlock_waits`, `standby_replay_state`, `temp_spill_statements`,
+`xid_runway` and `xmin_horizon`) first check `pg_has_role(current_user, 'pg_read_all_stats', 'USAGE')` in
 their read-only transaction. Without the role they return `no_privilege` with reason
 `missing_role` and the message "role pg_read_all_stats (granted by pg_monitor) is required",
 and run nothing. The investigation lists them under **Missing evidence** and concludes
