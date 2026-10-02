@@ -100,7 +100,9 @@ func assertParityProbe(
 		// and exposes it to the API through the fleet registration.
 		"sre_investigator": "instance workers", "sre_scope": "bound",
 		"sre_probe_runner": "shared", "sre_service": "registered",
-		"stopped": fmt.Sprint(stopped), "stop_attributed": fmt.Sprint(stopped),
+		// Sage SRE M5: every mode registers the action service.
+		"sre_actions": "registered",
+		"stopped":     fmt.Sprint(stopped), "stop_attributed": fmt.Sprint(stopped),
 		"collector": "true", "analyzer": "true", "executor": "true",
 		"cancel": "true", "workers": "true",
 		"gate": "true", "provider": "azure", "managed_config": "true",
@@ -140,6 +142,7 @@ func parityProbe(inst *fleet.DatabaseInstance) map[string]string {
 		"sre_scope":        paritySREScope(rt),
 		"sre_probe_runner": paritySREProbeRunner(rt),
 		"sre_service":      paritySREService(rt, inst),
+		"sre_actions":      paritySREActions(inst),
 		"io_admission":     fmt.Sprint(settings.IOEvidence),
 		"value_source":     parityValueSource(inst),
 		"stopped":          fmt.Sprint(fleetMgr.InstanceStopped(inst)),
