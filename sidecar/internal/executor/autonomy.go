@@ -171,3 +171,19 @@ func leaseTaken(intent ActionIntent, decisionID int64) bool {
 	return intent.Lease != nil && decisionID > 0 &&
 		isDDLMutation(intent.Lease.RecommendedSQL)
 }
+
+// OperatorBound is the operator's configured outer bound (executor on,
+// execution mode, trust level, tier toggles), read without touching the
+// database. The ledger carries over the autonomy it already grants.
+func (e *Executor) OperatorBound() policy.RuntimeState {
+	if e == nil {
+		return policy.RuntimeState{}
+	}
+	cfg, mode, enabled := e.policySnapshot()
+	bound := policy.RuntimeState{ExecutorEnabled: enabled, ExecutionMode: mode}
+	if cfg != nil {
+		bound.TrustLevel = cfg.Trust.Level
+		bound.Tier3Safe, bound.Tier3Moderate = cfg.Trust.Tier3Safe, cfg.Trust.Tier3Moderate
+	}
+	return bound
+}

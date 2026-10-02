@@ -111,7 +111,8 @@ func (s *Service) Granted(ctx context.Context, f Family, c ActionClass) (State, 
 		return State{}, err
 	}
 	if !found {
-		return State{Family: f, Class: c, Level: defaultLevel(f)}, nil
+		return State{Family: f, Class: c, Level: defaultLevel(f),
+			Provenance: ProvenanceLedger}, nil
 	}
 	return st, nil
 }

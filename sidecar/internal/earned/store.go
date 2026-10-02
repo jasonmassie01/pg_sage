@@ -62,7 +62,18 @@ type State struct {
 	ChangedAt time.Time       `json:"changed_at"`
 	// Stored is false for a default level nobody has changed.
 	Stored bool `json:"stored"`
+	// Provenance is ProvenanceCarriedOver for a level carried over from
+	// the policy before M7 (CarriedRef names the decision), else
+	// ProvenanceLedger.
+	Provenance string `json:"provenance"`
+	CarriedRef string `json:"carried_ref,omitempty"`
 }
+
+// Level provenances.
+const (
+	ProvenanceLedger      = "ledger"
+	ProvenanceCarriedOver = "carried_over"
+)
 
 // PostgresStore keeps one deployment's ledger in the sage schema.
 type PostgresStore struct {
@@ -140,14 +151,14 @@ func storeErr(what string, err error) error {
 }
 
 const levelColumns = `family, action_class, level, version, evidence, changed_by,
-	change_reason, changed_at`
+	change_reason, changed_at, provenance, COALESCE(carried_ref, '')`
 
 func scanState(row pgx.Row) (State, error) {
 	var st State
 	var family, class string
 	var level int16
 	err := row.Scan(&family, &class, &level, &st.Version, &st.Evidence, &st.ChangedBy,
-		&st.Reason, &st.ChangedAt)
+		&st.Reason, &st.ChangedAt, &st.Provenance, &st.CarriedRef)
 	st.Family, st.Class, st.Level, st.Stored = Family(family), ActionClass(class),
 		Level(level), err == nil
 	return st, err
@@ -215,7 +226,8 @@ func (s *PostgresStore) writeLevel(ctx context.Context, q querier, ch levelChang
 	} else {
 		row = q.QueryRow(ctx, `UPDATE sage.sre_family_autonomy
 			SET level = $4, version = version + 1, evidence = $5, changed_by = $6,
-			    change_reason = $7, changed_at = $8
+			    change_reason = $7, changed_at = $8, provenance = 'ledger',
+			    carried_ref = NULL
 			WHERE deployment_id = $1 AND family = $2 AND action_class = $3
 			  AND version = $9
 			RETURNING `+levelColumns, s.deployment, string(ch.Family), string(ch.Class),

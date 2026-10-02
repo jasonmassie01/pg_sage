@@ -226,7 +226,11 @@ func (s *Service) lowerOne(ctx context.Context, tx pgx.Tx, f Family, c ActionCla
 	if found {
 		from = current.Level
 	}
-	if from <= to {
+	// A safety regression caps a carried-over pair for the safety window
+	// (a transient signal) instead of demoting it: it was granted by
+	// policy and returns by itself. An operator's downgrade still applies.
+	carried := found && current.Provenance == ProvenanceCarriedOver
+	if from <= to || (carried && kind == EventAutoDowngraded) {
 		return State{}, false, nil
 	}
 	st, err := s.store.writeLevel(ctx, tx, levelChange{Family: f, Class: c, To: to,

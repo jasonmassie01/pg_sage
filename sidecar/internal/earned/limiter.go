@@ -28,11 +28,15 @@ type Limiter struct {
 
 	mu   sync.Mutex
 	last map[pairKey]string
+	// overrides are the mandatory deadline overrides already recorded,
+	// by pair, targets and deadline, until the deadline passes.
+	overrides map[string]time.Time
 }
 
 // Limiter binds the ledger to one database's signals.
 func (s *Service) Limiter(b Binding) *Limiter {
-	return &Limiter{svc: s, b: b, last: map[pairKey]string{}}
+	return &Limiter{svc: s, b: b, last: map[pairKey]string{},
+		overrides: map[string]time.Time{}}
 }
 
 var _ policy.AutonomyLimiter = (*Limiter)(nil)
@@ -49,7 +53,7 @@ func (l *Limiter) Limit(ctx context.Context, req policy.ActionRequest) (
 	if err != nil {
 		return policy.AutonomyLimit{}, err
 	}
-	level := MinLevel(st.Level, CapFor(c), contractCap(req))
+	level := MinLevel(st.Level, effectiveCap(st, c), contractCap(req))
 	if !Applicable(f, c) {
 		level = MinLevel(level, L1)
 	}
@@ -58,7 +62,9 @@ func (l *Limiter) Limit(ctx context.Context, req policy.ActionRequest) (
 		out.Level = int(level)
 		return out, nil
 	}
-	if level >= L2 {
+	// A carried-over level was granted by policy, not earned by evidence,
+	// so it does not decay with the evidence.
+	if level >= L2 && st.Provenance != ProvenanceCarriedOver {
 		supported, err := l.svc.supportedLevel(ctx, f, c)
 		if err != nil {
 			return policy.AutonomyLimit{}, err
@@ -227,6 +233,9 @@ func (l *Limiter) Annotate(ctx context.Context, v *View) {
 		for j := range fam.Classes {
 			row := &fam.Classes[j]
 			level := MinLevel(row.Granted, row.Cap, row.Supported)
+			if row.Provenance == ProvenanceCarriedOver {
+				level = MinLevel(row.Granted, carryCap(row.Class))
+			}
 			if len(downs) > 0 {
 				level = MinLevel(level, L1)
 				row.Downgrades = downs

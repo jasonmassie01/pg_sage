@@ -24,6 +24,11 @@ const (
 	EventCapped            EventType = "capped"
 	EventCapCleared        EventType = "cap_cleared"
 	EventAutoExecuted      EventType = "auto_executed"
+	// EventCarriedOver seeds a pair at the level the policy before M7
+	// already granted it; EventDeadlineOverride records a mandatory
+	// deadline action the ledger did not restrict.
+	EventCarriedOver      EventType = "carried_over"
+	EventDeadlineOverride EventType = "deadline_override"
 )
 
 // Event is one ledger history entry.

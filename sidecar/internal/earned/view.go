@@ -24,6 +24,10 @@ type ClassView struct {
 	// Next is the evidence held against the next level, below the cap.
 	Next *Assessment `json:"next,omitempty"`
 	Live Live        `json:"live"`
+	// Provenance is carried_over for a level kept from the pre-M7 policy
+	// (CarriedRef names the decision), else ledger.
+	Provenance string `json:"provenance"`
+	CarriedRef string `json:"carried_ref,omitempty"`
 }
 
 // FamilyView is one family's rows with its shadow record.
@@ -99,7 +103,8 @@ func (s *Service) classView(ctx context.Context, ev Evidence, pending *Proposal)
 	row := ClassView{Class: ev.Class, Reversibility: spec.Reversibility, Cap: spec.Cap,
 		Granted: st.Level, Supported: SupportedLevel(s.cfg.Thresholds, ev),
 		Version: st.Version, ChangedBy: st.ChangedBy, Reason: st.Reason,
-		Pending: pending, Live: ev.Live}
+		Pending: pending, Live: ev.Live, Provenance: st.Provenance,
+		CarriedRef: st.CarriedRef}
 	if st.Stored {
 		at := st.ChangedAt
 		row.ChangedAt = &at
