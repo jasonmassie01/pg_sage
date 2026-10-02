@@ -1,0 +1,139 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "conn-failover-between-samples",
+  "family": "connection_pressure",
+  "class": "missing_data",
+  "description": "The primary failed over to its replica between the samples; clients reconnecting to the new primary look like growth (3 to 11 idle).",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-09-20T11:41:40Z",
+  "subject": "connections: 13 of 197 usable in use",
+  "tags": [
+    "failover",
+    "post_r1"
+  ],
+  "gold": {
+    "rationale": "The samples come from two servers (timeline 3 then 4): their comparison is invalid (CHECK-07), and nothing else supports a mechanism."
+  },
+  "observations": [
+    {
+      "probe": "connection_saturation",
+      "status": "ok",
+      "offset_ms": 70,
+      "rows": [
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.6.0.21",
+          "state": "idle",
+          "backends": 3,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 5,
+          "server_started_at": "2026-08-02T03:00:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 3,
+          "in_recovery": false,
+          "server_version_num": 170006
+        },
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.6.0.21",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 5,
+          "server_started_at": "2026-08-02T03:00:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 3,
+          "in_recovery": false,
+          "server_version_num": 170006
+        },
+        {
+          "in_current_database": true,
+          "application_name": "",
+          "client_addr": "local",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 5,
+          "server_started_at": "2026-08-02T03:00:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 3,
+          "in_recovery": false,
+          "server_version_num": 170006
+        }
+      ]
+    },
+    {
+      "probe": "lock_graph",
+      "status": "empty",
+      "offset_ms": 140
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 175
+    },
+    {
+      "probe": "connection_saturation",
+      "status": "ok",
+      "offset_ms": 5210,
+      "rows": [
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.6.0.21",
+          "state": "idle",
+          "backends": 11,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 13,
+          "server_started_at": "2026-09-20T11:41:52Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 4,
+          "in_recovery": false,
+          "server_version_num": 170006
+        },
+        {
+          "in_current_database": true,
+          "application_name": "orders",
+          "client_addr": "10.6.0.21",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 13,
+          "server_started_at": "2026-09-20T11:41:52Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 4,
+          "in_recovery": false,
+          "server_version_num": 170006
+        },
+        {
+          "in_current_database": true,
+          "application_name": "",
+          "client_addr": "local",
+          "state": "active",
+          "backends": 1,
+          "waiting_on_lock": 0,
+          "max_connections": 200,
+          "reserved_connections": 3,
+          "total_client_backends": 13,
+          "server_started_at": "2026-09-20T11:41:52Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 4,
+          "in_recovery": false,
+          "server_version_num": 170006
+        }
+      ]
+    }
+  ]
+}

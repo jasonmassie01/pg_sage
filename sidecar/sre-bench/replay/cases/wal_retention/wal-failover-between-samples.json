@@ -1,0 +1,148 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "wal-failover-between-samples",
+  "family": "wal_retention",
+  "class": "missing_data",
+  "description": "A failover between the samples: the new primary's slot and WAL counter look like 2 GiB written in 5 s and a slot that grew by 370 MiB.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-09-21T02:14:00Z",
+  "subject": "wal_retention: pg_wal 2.4 GiB",
+  "tags": [
+    "failover",
+    "post_r1"
+  ],
+  "gold": {
+    "rationale": "The samples come from two servers (timeline 3 then 4): neither the WAL rate nor slot growth can be computed (CHECK-07)."
+  },
+  "observations": [
+    {
+      "probe": "replication_slots",
+      "status": "ok",
+      "offset_ms": 120,
+      "rows": [
+        {
+          "slot_name": "analytics_cdc",
+          "slot_type": "logical",
+          "active": true,
+          "wal_status": "reserved",
+          "retained_bytes": 4194304,
+          "safe_wal_size": null,
+          "database": "orders",
+          "inactive_since": null,
+          "server_started_at": "2026-08-02T03:00:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 3,
+          "in_recovery": false,
+          "server_version_num": 170006
+        }
+      ]
+    },
+    {
+      "probe": "wal_checkpoint",
+      "status": "ok",
+      "offset_ms": 140,
+      "rows": [
+        {
+          "timed_checkpoints": 1904,
+          "requested_checkpoints": 12,
+          "checkpoint_write_ms": 401230,
+          "checkpoint_sync_ms": 1210,
+          "buffers_written": 5012345,
+          "wal_bytes": 612000000000,
+          "wal_buffers_full": 98,
+          "checkpoint_timeout_s": 300,
+          "max_wal_size_mb": 2048,
+          "checkpointer_stats_reset": "2026-08-02T03:00:00Z",
+          "wal_stats_reset": "2026-08-02T03:00:00Z",
+          "server_started_at": "2026-08-02T03:00:00Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 3,
+          "in_recovery": false,
+          "server_version_num": 170006
+        }
+      ]
+    },
+    {
+      "probe": "archiver",
+      "status": "ok",
+      "offset_ms": 160,
+      "rows": [
+        {
+          "archive_mode": "on",
+          "archived_count": 88123,
+          "failed_count": 0,
+          "last_archived_time": "2026-09-21T02:13:50Z",
+          "last_failed_time": null,
+          "stats_reset": "2026-08-02T03:00:00Z"
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 180
+    },
+    {
+      "probe": "replication_slots",
+      "status": "ok",
+      "offset_ms": 5120,
+      "rows": [
+        {
+          "slot_name": "analytics_cdc",
+          "slot_type": "logical",
+          "active": true,
+          "wal_status": "reserved",
+          "retained_bytes": 392167424,
+          "safe_wal_size": null,
+          "database": "orders",
+          "inactive_since": null,
+          "server_started_at": "2026-09-21T02:14:09Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 4,
+          "in_recovery": false,
+          "server_version_num": 170006
+        }
+      ]
+    },
+    {
+      "probe": "wal_checkpoint",
+      "status": "ok",
+      "offset_ms": 5140,
+      "rows": [
+        {
+          "timed_checkpoints": 1904,
+          "requested_checkpoints": 12,
+          "checkpoint_write_ms": 401230,
+          "checkpoint_sync_ms": 1210,
+          "buffers_written": 5012345,
+          "wal_bytes": 614147483648,
+          "wal_buffers_full": 98,
+          "checkpoint_timeout_s": 300,
+          "max_wal_size_mb": 2048,
+          "checkpointer_stats_reset": "2026-08-02T03:00:00Z",
+          "wal_stats_reset": "2026-08-02T03:00:00Z",
+          "server_started_at": "2026-09-21T02:14:09Z",
+          "system_identifier": "7319845521023887761",
+          "timeline_id": 4,
+          "in_recovery": false,
+          "server_version_num": 170006
+        }
+      ]
+    },
+    {
+      "probe": "archiver",
+      "status": "ok",
+      "offset_ms": 5160,
+      "rows": [
+        {
+          "archive_mode": "on",
+          "archived_count": 88123,
+          "failed_count": 0,
+          "last_archived_time": "2026-09-21T02:13:50Z",
+          "last_failed_time": null,
+          "stats_reset": "2026-08-02T03:00:00Z"
+        }
+      ]
+    }
+  ]
+}
