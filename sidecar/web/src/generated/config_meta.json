@@ -531,7 +531,7 @@
   "forecaster.disk_capacity_bytes": {
     "type": "int64",
     "default": 0,
-    "doc": "Total disk capacity in bytes. 0 = auto-detect. Set explicitly for managed services (RDS, Cloud SQL)."
+    "doc": "Total disk capacity in bytes, for the disk runway and disk-full credit. 0 = undeclared: nothing auto-detects it, so no disk runway or credit. Managed services are never credited."
   },
   "forecaster.disk_warn_growth_gb_day": {
     "type": "float64",

@@ -331,7 +331,7 @@ type ForecasterConfig struct {
 	// v0.9 fields
 	MinDataPoints     int     `yaml:"min_data_points" doc:"Minimum data points required before generating a forecast. Default: 24."`
 	AlertHorizons     []int   `yaml:"alert_horizons" doc:"Days-until-full thresholds that generate findings. Default: [30, 7, 3]."`
-	DiskCapacityBytes int64   `yaml:"disk_capacity_bytes" doc:"Total disk capacity in bytes. 0 = auto-detect. Set explicitly for managed services (RDS, Cloud SQL)."`
+	DiskCapacityBytes int64   `yaml:"disk_capacity_bytes" doc:"Total disk capacity in bytes, for the disk runway and disk-full credit. 0 = undeclared: nothing auto-detects it, so no disk runway or credit. Managed services are never credited."`
 	MinRSquared       float64 `yaml:"min_r_squared" doc:"Minimum R-squared for forecast reliability. Below this, findings are info-only. Default: 0.5."`
 }
 

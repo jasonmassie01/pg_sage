@@ -527,7 +527,7 @@ each series and projects when the series reaches its limit:
 |---|---|---|---|
 | XID or multixact age | the wraparound warning limit (2^31 - 1 - 40,000,000) | `forecast_wraparound_runway` (`xid`, `mxid`) | wraparound runway |
 | A table 1.25 times past its freeze maximum | its effective `autovacuum_freeze_max_age` (the table's own setting when lower) | `forecast_wraparound_runway` (the table) | wraparound runway |
-| Disk usage | `forecaster.disk_capacity_bytes` (only when you declare it) | `forecast_wal_runway` (`disk`) | disk/WAL runway |
+| Disk usage | `forecaster.disk_capacity_bytes` (only when you declare it; `0`, the default, means undeclared: nothing auto-detects capacity, so there is no disk runway and no disk-full credit) | `forecast_wal_runway` (`disk`) | disk/WAL runway |
 | WAL a slot retains | `max_slot_wal_keep_size` when it is set, else the WAL custodian's 10 GiB ceiling | `forecast_wal_runway` (`slot:<name>`) | disk/WAL runway |
 | A sequence's last value | the lower of its maximum and its owning integer column's maximum | `forecast_sequence_runway` (the sequence) | sequence runway |
 
