@@ -132,16 +132,19 @@ func TestLLMArm_ReadinessPerMode(t *testing.T) {
 // The arm's model client: the fake model's in fake mode, the configured
 // endpoint and model in live mode. The key is never in the arm's text.
 func TestLLMArm_ClientPerMode(t *testing.T) {
-	fake, done, err := LLMArm{Config: LLMConfig{Mode: LLMFake}}.client(Scenario{ID: "a"})
-	if err != nil || fake == nil || !fake.IsEnabled() || fake.Model() != FakeModelName {
-		t.Fatalf("fake client %v (%v)", fake, err)
+	fake, tap, done, err := LLMArm{Config: LLMConfig{Mode: LLMFake}}.tappedClient(
+		Scenario{ID: "a"})
+	if err != nil || fake == nil || !fake.IsEnabled() || fake.Model() != FakeModelName ||
+		tap == nil {
+		t.Fatalf("fake client %v tap %v (%v)", fake, tap, err)
 	}
 	done()
 	cfg := LLMConfig{Mode: LLMLive, URL: "https://x.example/v1", Model: "gemini-2.5-flash",
 		APIKey: "sk-secret"}
-	live, done, err := LLMArm{Config: cfg}.client(Scenario{ID: "a"})
-	if err != nil || live == nil || !live.IsEnabled() || live.Model() != "gemini-2.5-flash" {
-		t.Fatalf("live client %v (%v)", live, err)
+	live, tap, done, err := LLMArm{Config: cfg}.tappedClient(Scenario{ID: "a"})
+	if err != nil || live == nil || !live.IsEnabled() || live.Model() != "gemini-2.5-flash" ||
+		tap == nil || tap.upstream != "https://x.example/v1" {
+		t.Fatalf("live client %v tap %v (%v)", live, tap, err)
 	}
 	done()
 	for _, s := range []string{fmt.Sprintf("%v", LLMArm{Config: cfg}),

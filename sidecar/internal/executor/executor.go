@@ -94,6 +94,8 @@ type Executor struct {
 	resumeOnce         sync.Once
 	postDDLMu          sync.RWMutex
 	postDDLHook        func(context.Context) error
+	// approvedRunner runs approved queue items it owns (Sage SRE M5).
+	approvedRunner approvedRunnerSlot
 
 	// monitors tracks background MonitorAndRollback goroutines so
 	// Shutdown can wait for them. shutdownCh is closed to signal
@@ -502,6 +504,8 @@ func actionTypeForProposalSQL(sql string) string {
 		return "vacuum_table"
 	case strings.Contains(upper, "PG_CANCEL_BACKEND"):
 		return "cancel_backend"
+	case strings.Contains(upper, "PG_CANCEL_BACKEND"):
+		return "cancel_backend"
 	case strings.Contains(upper, "PG_TERMINATE_BACKEND"):
 		return "terminate_backend"
 	case strings.HasPrefix(upper, "ALTER SYSTEM SET ") ||
@@ -868,6 +872,8 @@ func categorizeAction(sql string) string {
 		return "vacuum"
 	case strings.Contains(upper, "ANALYZE"):
 		return "analyze"
+	case strings.Contains(upper, "PG_CANCEL_BACKEND"):
+		return "cancel_backend"
 	case strings.Contains(upper, "PG_TERMINATE_BACKEND"):
 		return "terminate_backend"
 	case strings.Contains(upper, "ALTER"):

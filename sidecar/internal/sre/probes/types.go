@@ -156,6 +156,10 @@ type Spec struct {
 	LockTimeout      time.Duration
 	MaxRows          int
 	MaxBytes         int
+	// Requires names the predefined roles the probe's views need to show
+	// other roles' rows; without them the probe is no_privilege
+	// (missing_role), never a partial, healthy-looking answer.
+	Requires []string
 }
 
 // VariantFor returns the SQL variant for a server version.

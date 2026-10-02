@@ -1,0 +1,148 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "lock-idle-holder-ddl-queue",
+  "family": "lock_blocking",
+  "class": "positive",
+  "description": "A migration's ALTER TABLE queues behind a session idle in transaction; four readers queue behind the ALTER (lock-queue amplification).",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-08-05T02:41:37Z",
+  "subject": "lock_contention: 5 sessions blocked on invoice_lines",
+  "gold": {
+    "root": "idle_in_tx_holder",
+    "contributing": [
+      "ddl_lock_queue"
+    ],
+    "rationale": "The idle holder is the root; the queued DDL amplifies it."
+  },
+  "observations": [
+    {
+      "probe": "lock_graph",
+      "status": "ok",
+      "offset_ms": 60,
+      "rows": [
+        {
+          "waiter_pid": 30551,
+          "waiter_backend_start": "2026-08-05T01:27:26Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 95.0,
+          "lock_type": "relation",
+          "requested_mode": "AccessExclusiveLock",
+          "relation": "public.invoice_lines",
+          "blocker_pid": 30102,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-08-05T00:41:37Z",
+          "blocker_state": "idle in transaction",
+          "blocker_xact_age_s": 812.0,
+          "blocker_state_age_s": 810.5,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 30600,
+          "waiter_backend_start": "2026-08-05T01:41:37Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 20.0,
+          "lock_type": "relation",
+          "requested_mode": "AccessShareLock",
+          "relation": "public.invoice_lines",
+          "blocker_pid": 30551,
+          "blocker_kind": "backend",
+          "blocker_waiting": true,
+          "blocker_backend_start": "2026-08-05T00:41:37Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 95.0,
+          "blocker_state_age_s": 93.5,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 30611,
+          "waiter_backend_start": "2026-08-05T01:41:26Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 16.0,
+          "lock_type": "relation",
+          "requested_mode": "AccessShareLock",
+          "relation": "public.invoice_lines",
+          "blocker_pid": 30551,
+          "blocker_kind": "backend",
+          "blocker_waiting": true,
+          "blocker_backend_start": "2026-08-05T00:41:37Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 95.0,
+          "blocker_state_age_s": 93.5,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 30640,
+          "waiter_backend_start": "2026-08-05T01:40:57Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "relation",
+          "requested_mode": "AccessShareLock",
+          "relation": "public.invoice_lines",
+          "blocker_pid": 30551,
+          "blocker_kind": "backend",
+          "blocker_waiting": true,
+          "blocker_backend_start": "2026-08-05T00:41:37Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 95.0,
+          "blocker_state_age_s": 93.5,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 30702,
+          "waiter_backend_start": "2026-08-05T01:39:55Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 8.0,
+          "lock_type": "relation",
+          "requested_mode": "AccessShareLock",
+          "relation": "public.invoice_lines",
+          "blocker_pid": 30551,
+          "blocker_kind": "backend",
+          "blocker_waiting": true,
+          "blocker_backend_start": "2026-08-05T00:41:37Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 95.0,
+          "blocker_state_age_s": 93.5,
+          "blocker_query_id": null
+        }
+      ]
+    },
+    {
+      "probe": "prepared_xacts",
+      "status": "empty",
+      "offset_ms": 95
+    },
+    {
+      "probe": "long_transactions",
+      "status": "ok",
+      "offset_ms": 130,
+      "rows": [
+        {
+          "pid": 30102,
+          "backend_start": "2026-08-05T00:39:55Z",
+          "state": "idle in transaction",
+          "xact_age_s": 812.1,
+          "state_age_s": 811.1,
+          "waiting": false,
+          "query_id": null,
+          "backend_xmin_age": 36
+        },
+        {
+          "pid": 30551,
+          "backend_start": "2026-08-05T00:32:26Z",
+          "state": "active",
+          "xact_age_s": 95.1,
+          "state_age_s": 94.1,
+          "waiting": true,
+          "query_id": null,
+          "backend_xmin_age": 45
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 160
+    }
+  ]
+}

@@ -57,6 +57,11 @@ func (s *SlackSender) Send(
 	if err != nil {
 		return fmt.Errorf("build slack payload: %w", err)
 	}
+	if ch.Config["interactive"] == "true" {
+		if payload, err = withApprovalButtons(payload, evt); err != nil {
+			return fmt.Errorf("build slack payload: %w", err)
+		}
+	}
 
 	return RedactError(postSlackWebhook(ctx, s.client, webhookURL, payload))
 }

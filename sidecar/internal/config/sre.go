@@ -5,19 +5,24 @@ import (
 	"time"
 )
 
-// SREConfig configures the Sage SRE investigator (M2/M3): read-only
-// investigations of RCA incidents and plan regressions. Investigations
-// run catalog probes and the deterministic causal graph, with a
-// validated model turn when an LLM is configured; they never execute
-// actions.
+// SREConfig configures the Sage SRE investigator (M2-M4): read-only
+// investigations of RCA incidents and plan regressions, started
+// automatically by default (M4). Investigations run catalog probes and
+// the deterministic causal graph, with a validated model turn when an
+// LLM is configured; they never execute actions.
 type SREConfig struct {
-	AutomaticStart         bool `yaml:"automatic_start" doc:"Start a read-only investigation for each open lock, connection or WAL incident and plan_regression finding. Investigations never execute actions. Default: false."`
+	AutomaticStart         bool `yaml:"automatic_start" doc:"Start a read-only, bounded investigation for each open lock, connection or WAL incident and plan_regression finding. Never executes actions. false = start only on request. Default: true."`
 	TriggerIntervalSeconds int  `yaml:"trigger_interval_seconds" doc:"Seconds between checks for new triggers and pending investigations, 5-600. Default: 15."`
 	SampleIntervalSeconds  int  `yaml:"sample_interval_seconds" doc:"Seconds between the two samples connection and WAL investigations compare, 1-30. Default: 5."`
 	EvidenceRetentionDays  int  `yaml:"evidence_retention_days" doc:"Days a finished, unpinned investigation keeps its probe evidence (a tombstone records the delete). 1 to timeline_retention_days. Default: 30."`
 	TimelineRetentionDays  int  `yaml:"timeline_retention_days" doc:"Days a finished, unpinned investigation is kept at all, leaving a tombstone. evidence_retention_days to 3650. Pinned and running ones are kept. Default: 90."`
 	// LLM is the model turn (M3).
 	LLM SRELLMConfig `yaml:"llm"`
+	// SLO is SLO burn-rate alerting (M5); ChangeEvents the change feed.
+	SLO          SRESLOConfig          `yaml:"slo"`
+	ChangeEvents SREChangeEventsConfig `yaml:"change_events"`
+	// Actions are approved, evidence-matched actions (M5).
+	Actions SREActionsConfig `yaml:"actions"`
 }
 
 // SRELLMConfig configures the investigator's model turn: with an LLM
@@ -39,11 +44,15 @@ const (
 )
 
 func defaultSREConfig() SREConfig {
-	return SREConfig{TriggerIntervalSeconds: DefaultSRETriggerIntervalSeconds,
-		SampleIntervalSeconds: DefaultSRESampleIntervalSeconds,
-		EvidenceRetentionDays: DefaultSREEvidenceRetentionDays,
-		TimelineRetentionDays: DefaultSRETimelineRetentionDays,
-		LLM:                   SRELLMConfig{Enabled: true}}
+	return SREConfig{AutomaticStart: true,
+		TriggerIntervalSeconds: DefaultSRETriggerIntervalSeconds,
+		SampleIntervalSeconds:  DefaultSRESampleIntervalSeconds,
+		EvidenceRetentionDays:  DefaultSREEvidenceRetentionDays,
+		TimelineRetentionDays:  DefaultSRETimelineRetentionDays,
+		LLM:                    SRELLMConfig{Enabled: true},
+		SLO:                    defaultSRESLOConfig(),
+		ChangeEvents:           defaultSREChangeEventsConfig(),
+		Actions:                defaultSREActionsConfig()}
 }
 
 // TriggerInterval is the coordinator poll period.
@@ -88,10 +97,16 @@ func (s SREConfig) validate() error {
 				"sre.evidence_retention_days (%d)", s.TimelineRetentionDays,
 			s.EvidenceRetentionDays)},
 	}
+	if err := s.Actions.validate(); err != nil {
+		return err
+	}
 	for _, c := range checks {
 		if !c.ok {
 			return fmt.Errorf("%s", c.problem)
 		}
 	}
-	return nil
+	if err := s.SLO.validate(); err != nil {
+		return err
+	}
+	return s.ChangeEvents.validate()
 }

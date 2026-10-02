@@ -4,6 +4,76 @@
 
 ### Added
 
+- **Operators can start, stop and resume Sage SRE investigations.** `POST
+  /api/v1/databases/{db}/investigations` starts one for a case (a repeat joins the running
+  one), and `.../{id}/stop` and `.../{id}/resume` pause and resume it without losing its
+  steps or evidence. Stop and resume need the version you saw, so two people cannot undo each
+  other by accident. The Cases panel has Stop and Resume buttons for operators. Viewers can
+  only read. Every change is recorded with the user.
+
+- **The Cases panel shows what the model said, and the timeline.** An investigation now
+  shows the model ranking (an order, labeled, kept apart from the graph's scores), the
+  model's claims with links to the exact evidence they cite, the probe the model asked for,
+  and a timeline of every step, including when a model reply was not used and why, and when
+  the model disagreed with the graph (the graph's root cause stands).
+
+- **PGIncidentBench replays 60 recorded incidents.** Besides the live fault programs, the
+  bench now replays a corpus of redacted incident recordings through the real investigator:
+  30 lock, connection and WAL incidents, 15 harmless lookalikes, and 15 cases with missing
+  or hostile data (no privilege, timeouts, a restart, stale or contradictory samples,
+  instructions planted in table, slot and application names, passwords in error messages).
+  It checks that no call outside the probe catalog is made, nothing in the database changes,
+  no planted password reaches an export or a model prompt, and every model claim cites real
+  evidence. The replay runs with every test run (about 25 seconds). Its case format is
+  documented in `sidecar/sre-bench/README.md` so new incident families can add cases. With
+  the LLM off, the investigator names the right cause in 29 of 30 positive cases and
+  abstains on all 23 cases whose evidence is insufficient.
+
+- **New page: Sage SRE permissions and data flow** (`docs/sage-sre-permissions-and-data-flow.md`):
+  what investigations read, which role each provider needs (`pg_monitor`), what leaves the
+  database, exactly what is sent to the LLM (redacted, fenced summaries, never raw rows or
+  query text), retention, and how to turn each part off.
+- **SLOs, burn-rate alerts and a change feed for Sage SRE.** pg_sage now tracks error
+  budgets. Out of the box it measures four database proxies for every database: query
+  latency (compared with the database's own last week), server-side errors in the log per
+  transaction (needs log access), connection slots running out, and replication lag over 60
+  s. They are always labeled "proxy" and never claim customer impact. To track what your
+  customers see, register an app SLO under `sre.slo.objectives`: either two PromQL queries
+  (bad and eligible events, read through a Prometheus-compatible API with a bearer token) or
+  counters your service pushes to `POST /api/v1/sre/sli/{name}`, signed with
+  `sre.slo.push.hmac_secret`. Burn rates use the Google SRE workbook rules: page at 14.4x
+  over 1 h and 5 min or 6x over 6 h and 30 min, ticket at 1x over 3 days and 6 h; you can
+  change them. Too little traffic, no data, stale or partial data is shown as "unknown"
+  with the reason, never as "ok". When an app SLO burns at page level, pg_sage opens a
+  read-only investigation that checks locks, connections and plan regressions and says when
+  the cause is probably outside PostgreSQL (a proxy burn does this only with
+  `sre.automatic_start`). Every investigation now also answers "what changed?": deploys,
+  migrations and feature flags you send to `POST /api/v1/sre/change-events` (signed with
+  `sre.change_events.hmac_secret`, timestamp-checked, replays ignored), plus pg_sage's own
+  actions, config changes, DDL seen by the migration detector, `pg_stat_statements` resets,
+  restarts, failovers and extension upgrades. After a fix, the SLO recovery check only
+  confirms recovery from enough fresh traffic: missing data, counter resets or traffic that
+  simply stopped never count. See it on the new SLOs page, `GET /api/v1/sre/slos`,
+  `GET /api/v1/sre/changes`, the `sre_list_slos`, `sre_get_slo` and `sre_list_changes` MCP
+  tools, and `pg_sage_slo_*` metrics. Turn parts off with `sre.slo.enabled`,
+  `sre.slo.proxies.enabled` or `sre.change_events.feed_enabled`.
+- **Sage SRE proposes one approved action: cancelling the backend that blocks everyone.**
+  When an investigation concludes that one active statement is the root of a lock or
+  connection-pressure incident, it proposes `pg_cancel_backend` for that exact backend (pid,
+  backend start, query start, database, user and query hash), derived only from the
+  investigation's evidence. Termination and idle-in-transaction holders are never proposed;
+  the investigation says why. Proposals are on by default (`sre.actions.proposals`) and never
+  execute by themselves. Each gets one item in the existing approval queue, and only a human
+  approval runs it through the policy gate. pg_sage then rechecks the backend's identity
+  (evidence at most 5 s old) and refuses, with the reason on the timeline, if anything
+  changed. After the cancel it verifies recovery over fresh samples and records the result on
+  the investigation. Approve or deny on the Actions page, in the Cases panel, or with Slack
+  and Telegram buttons. Callbacks are signed, processed once, and attributed to the pg_sage
+  user an admin mapped the chat user to. MCP agents get `sre_propose_action` and
+  `sre_request_execution`, which create at most one approval item and never execute.
+  Telegram is a new notification channel type. Requires `trust.level` `advisory` or
+  `autonomous`.
+
 - **Sage SRE investigations get a model turn (on by default whenever an LLM is
   configured).** After the causal graph diagnoses an incident, your configured LLM reviews
   the result. It can reorder the graph's own hypotheses (shown separately as "model
@@ -57,8 +127,26 @@
   slow-consumer scenario now uses a logical slot, so it runs where `pg_hba.conf` refuses
   physical replication connections (it used to be skipped).
 
+### Fixed
+
+- **Sage SRE no longer reports "no lock waits" when it cannot see them.** A database role
+  without `pg_read_all_stats` (included in `pg_monitor`) sees other users' sessions without
+  their state or wait events, so investigations reported no blocking, no long transactions
+  and too few connections. Those probes now report "no privilege" and the investigation
+  says the evidence is missing instead of guessing. Grant `pg_monitor` to the role pg_sage
+  uses (the documented setup already does).
+- **Sage SRE ignores evidence that is too old or contradictory.** An observation more than
+  5 minutes older than the investigation's newest one (for example after an investigation
+  was paused and resumed), or two connection samples taken at the same instant, are listed
+  as missing evidence instead of supporting a root cause.
+
 ### Changed (read before upgrading)
 
+- **Sage SRE investigations now start by themselves.** `sre.automatic_start` defaults to
+  `true`: after the upgrade, each open lock, connection or WAL incident and each plan
+  regression gets one read-only investigation (catalog probes only, at most 12 probes and
+  120 s, never an action). It works with or without an LLM. To keep starting them only by
+  hand, set `sre.automatic_start: false`.
 - **LLM features are on by default.** pg_sage is an AI DBA, so `llm.enabled`,
   `llm.optimizer.enabled`, `advisor.enabled`, `tuner.llm_enabled` and
   `rca.narration_enabled` now default to `true` (`explain.enabled` already did). They call

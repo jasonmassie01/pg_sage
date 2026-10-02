@@ -75,7 +75,8 @@ func (s *PostgresStore) checkClaimable(ctx context.Context, tx pgx.Tx, scope Sco
 	case r.state == StatePaused:
 		return ErrInvalidTransition
 	case r.expiredNow:
-		if _, err := s.setState(ctx, tx, scope, id, StateExpired, "queue_expired"); err != nil {
+		if _, err := s.setState(ctx, tx, scope, id, StateExpired, "queue_expired",
+			"system"); err != nil {
 			return err
 		}
 		return commitThen{ErrTerminal}
@@ -85,7 +86,7 @@ func (s *PostgresStore) checkClaimable(ctx context.Context, tx pgx.Tx, scope Sco
 		// A dead worker used the whole active-time budget: charge it and
 		// end the investigation, so it does not stay "collecting".
 		if _, err := s.setState(ctx, tx, scope, id, StateFailed,
-			"budget_exhausted"); err != nil {
+			"budget_exhausted", "system"); err != nil {
 			return err
 		}
 		return commitThen{ErrBudgetExhausted}

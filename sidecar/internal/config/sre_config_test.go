@@ -6,8 +6,9 @@ import (
 	"testing"
 )
 
-// Sage SRE M2 config (sre.*): automatic start is opt-in; the intervals
-// and retention windows have validated defaults that an absent file, a
+// Sage SRE config (sre.*): automatic start is on by default since M4
+// (investigations are read-only and bounded); the intervals and
+// retention windows have validated defaults that an absent file, a
 // partial section and explicit zeros cannot mask (CHECK-27).
 
 func TestSREDefaults_NoConfigFile(t *testing.T) {
@@ -17,7 +18,7 @@ func TestSREDefaults_NoConfigFile(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	s := cfg.SRE
-	if s.AutomaticStart || s.TriggerIntervalSeconds != 15 ||
+	if !s.AutomaticStart || s.TriggerIntervalSeconds != 15 ||
 		s.SampleIntervalSeconds != 5 || s.EvidenceRetentionDays != 30 ||
 		s.TimelineRetentionDays != 90 {
 		t.Fatalf("sre defaults = %+v", s)

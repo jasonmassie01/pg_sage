@@ -102,8 +102,8 @@ func autovacuumWraparoundSpec() Spec {
 }
 
 func vacuumProgressSpec() Spec {
-	return spec(VacuumProgress, FamilyVacuum, ArgsNone,
-		Variant{MinVersion: 140000, SQL: vacuumProgressSQL})
+	return needsStats(spec(VacuumProgress, FamilyVacuum, ArgsNone,
+		Variant{MinVersion: 140000, SQL: vacuumProgressSQL}))
 }
 
 func planRegressionsSpec() Spec {

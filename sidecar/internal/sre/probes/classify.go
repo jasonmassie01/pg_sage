@@ -7,6 +7,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// ReasonMissingRole is a probe the session lacks a required predefined
+// role for (MissingRoleError).
+const ReasonMissingRole = "missing_role"
+
 // pgReasons maps SQLSTATE codes to a typed status and a stable reason.
 var pgReasons = map[string]struct {
 	status Status
@@ -29,6 +33,10 @@ var pgReasons = map[string]struct {
 func classify(err error) (Status, string) {
 	if err == nil {
 		return StatusOK, ""
+	}
+	var role *MissingRoleError
+	if errors.As(err, &role) {
+		return StatusNoPrivilege, ReasonMissingRole
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {

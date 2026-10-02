@@ -1,0 +1,101 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "wal-checkpoint-busy-hour",
+  "family": "wal_retention",
+  "class": "confounded",
+  "description": "The busy hour writes 5 MiB/s, close to this server's 4 MiB/s average; archiving is healthy and there are no slots.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-08-25T12:00:00Z",
+  "subject": "wal_retention: pg_wal above 1 GiB",
+  "gold": {
+    "lookalike": "write_surge",
+    "rationale": "A rate within 1.5 times the long-run average is normal load."
+  },
+  "observations": [
+    {
+      "probe": "replication_slots",
+      "status": "empty",
+      "offset_ms": 120
+    },
+    {
+      "probe": "wal_checkpoint",
+      "status": "ok",
+      "offset_ms": 140,
+      "rows": [
+        {
+          "timed_checkpoints": 2870,
+          "requested_checkpoints": 41,
+          "checkpoint_write_ms": 812345.0,
+          "checkpoint_sync_ms": 2310.0,
+          "buffers_written": 9912345,
+          "wal_bytes": 3623873769635,
+          "wal_buffers_full": 1201,
+          "checkpoint_timeout_s": 300,
+          "max_wal_size_mb": 4096,
+          "checkpointer_stats_reset": "2026-08-15T12:00:00Z",
+          "wal_stats_reset": "2026-08-15T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "probe": "archiver",
+      "status": "ok",
+      "offset_ms": 160,
+      "rows": [
+        {
+          "archive_mode": "on",
+          "archived_count": 45120,
+          "failed_count": 0,
+          "last_archived_time": "2026-08-25T11:59:45Z",
+          "last_failed_time": null,
+          "stats_reset": "2026-08-15T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 180
+    },
+    {
+      "probe": "replication_slots",
+      "status": "empty",
+      "offset_ms": 5260
+    },
+    {
+      "probe": "wal_checkpoint",
+      "status": "ok",
+      "offset_ms": 5280,
+      "rows": [
+        {
+          "timed_checkpoints": 2870,
+          "requested_checkpoints": 41,
+          "checkpoint_write_ms": 812345.0,
+          "checkpoint_sync_ms": 2310.0,
+          "buffers_written": 9912345,
+          "wal_bytes": 3623900718039,
+          "wal_buffers_full": 1201,
+          "checkpoint_timeout_s": 300,
+          "max_wal_size_mb": 4096,
+          "checkpointer_stats_reset": "2026-08-15T12:00:00Z",
+          "wal_stats_reset": "2026-08-15T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "probe": "archiver",
+      "status": "ok",
+      "offset_ms": 5300,
+      "rows": [
+        {
+          "archive_mode": "on",
+          "archived_count": 45120,
+          "failed_count": 0,
+          "last_archived_time": "2026-08-25T11:59:45Z",
+          "last_failed_time": null,
+          "stats_reset": "2026-08-15T12:00:00Z"
+        }
+      ]
+    }
+  ]
+}

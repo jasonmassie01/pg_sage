@@ -1,0 +1,133 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "lock-ddl-queue-after-sage-action",
+  "family": "lock_blocking",
+  "class": "positive",
+  "description": "An idle holder blocks a queued ALTER TABLE and its readers; pg_sage created an index on another table four minutes earlier (it must appear as a hypothesis, not as the root).",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-08-22T08:15:46Z",
+  "subject": "lock_contention: 4 sessions blocked on customers",
+  "tags": [
+    "self_action"
+  ],
+  "gold": {
+    "root": "idle_in_tx_holder",
+    "contributing": [
+      "ddl_lock_queue"
+    ],
+    "rationale": "pg_sage's own action is listed (CHECK-38) but the chain head is the idle session."
+  },
+  "observations": [
+    {
+      "probe": "lock_graph",
+      "status": "ok",
+      "offset_ms": 60,
+      "rows": [
+        {
+          "waiter_pid": 12550,
+          "waiter_backend_start": "2026-08-22T07:01:36Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "relation",
+          "requested_mode": "AccessExclusiveLock",
+          "relation": "public.customers",
+          "blocker_pid": 12501,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-08-22T06:15:46Z",
+          "blocker_state": "idle in transaction",
+          "blocker_xact_age_s": 420.0,
+          "blocker_state_age_s": 418.5,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 12560,
+          "waiter_backend_start": "2026-08-22T07:01:26Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "relation",
+          "requested_mode": "AccessShareLock",
+          "relation": "public.customers",
+          "blocker_pid": 12550,
+          "blocker_kind": "backend",
+          "blocker_waiting": true,
+          "blocker_backend_start": "2026-08-22T06:15:46Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 60.0,
+          "blocker_state_age_s": 58.5,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 12571,
+          "waiter_backend_start": "2026-08-22T07:01:15Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "relation",
+          "requested_mode": "AccessShareLock",
+          "relation": "public.customers",
+          "blocker_pid": 12550,
+          "blocker_kind": "backend",
+          "blocker_waiting": true,
+          "blocker_backend_start": "2026-08-22T06:15:46Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 60.0,
+          "blocker_state_age_s": 58.5,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 12588,
+          "waiter_backend_start": "2026-08-22T07:00:58Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "relation",
+          "requested_mode": "AccessShareLock",
+          "relation": "public.customers",
+          "blocker_pid": 12550,
+          "blocker_kind": "backend",
+          "blocker_waiting": true,
+          "blocker_backend_start": "2026-08-22T06:15:46Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 60.0,
+          "blocker_state_age_s": 58.5,
+          "blocker_query_id": null
+        }
+      ]
+    },
+    {
+      "probe": "prepared_xacts",
+      "status": "empty",
+      "offset_ms": 95
+    },
+    {
+      "probe": "long_transactions",
+      "status": "ok",
+      "offset_ms": 130,
+      "rows": [
+        {
+          "pid": 12501,
+          "backend_start": "2026-08-22T06:07:25Z",
+          "state": "idle in transaction",
+          "xact_age_s": 420.2,
+          "state_age_s": 419.2,
+          "waiting": false,
+          "query_id": null,
+          "backend_xmin_age": 35
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "ok",
+      "offset_ms": 160,
+      "rows": [
+        {
+          "id": 8812,
+          "action_type": "create_index",
+          "outcome": "success",
+          "executed_at": "2026-08-22T08:11:45Z",
+          "age_s": 241.0
+        }
+      ]
+    }
+  ]
+}

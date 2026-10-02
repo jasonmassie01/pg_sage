@@ -1,0 +1,185 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "lock-hot-row-counter",
+  "family": "lock_blocking",
+  "class": "positive",
+  "description": "Five short transactions increment the same counter row; each waits on the previous one's row lock.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-08-14T17:11:19Z",
+  "subject": "lock_contention: 5 sessions blocked on counters",
+  "gold": {
+    "root": "hot_row_contention",
+    "rationale": "Many transactionid waits behind an active, short transaction."
+  },
+  "observations": [
+    {
+      "probe": "lock_graph",
+      "status": "ok",
+      "offset_ms": 60,
+      "rows": [
+        {
+          "waiter_pid": 70141,
+          "waiter_backend_start": "2026-08-14T15:57:18Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 1.3,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": null,
+          "blocker_pid": 70110,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-08-14T15:11:19Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 2.1,
+          "blocker_state_age_s": 0.6,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 70152,
+          "waiter_backend_start": "2026-08-14T15:57:07Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 1.3,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": null,
+          "blocker_pid": 70110,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-08-14T15:11:19Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 2.1,
+          "blocker_state_age_s": 0.6,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 70166,
+          "waiter_backend_start": "2026-08-14T15:56:53Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 1.3,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": null,
+          "blocker_pid": 70110,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-08-14T15:11:19Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 2.1,
+          "blocker_state_age_s": 0.6,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 70170,
+          "waiter_backend_start": "2026-08-14T15:56:49Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 1.3,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": null,
+          "blocker_pid": 70110,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-08-14T15:11:19Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 2.1,
+          "blocker_state_age_s": 0.6,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 70188,
+          "waiter_backend_start": "2026-08-14T15:56:31Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 1.3,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": null,
+          "blocker_pid": 70110,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-08-14T15:11:19Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 2.1,
+          "blocker_state_age_s": 0.6,
+          "blocker_query_id": null
+        }
+      ]
+    },
+    {
+      "probe": "prepared_xacts",
+      "status": "empty",
+      "offset_ms": 95
+    },
+    {
+      "probe": "long_transactions",
+      "status": "ok",
+      "offset_ms": 130,
+      "rows": [
+        {
+          "pid": 70110,
+          "backend_start": "2026-08-14T15:02:49Z",
+          "state": "active",
+          "xact_age_s": 2.1,
+          "state_age_s": 1.1,
+          "waiting": false,
+          "query_id": null,
+          "backend_xmin_age": 44
+        },
+        {
+          "pid": 70141,
+          "backend_start": "2026-08-14T15:02:18Z",
+          "state": "active",
+          "xact_age_s": 1.3,
+          "state_age_s": 0.3,
+          "waiting": true,
+          "query_id": null,
+          "backend_xmin_age": 35
+        },
+        {
+          "pid": 70152,
+          "backend_start": "2026-08-14T15:02:07Z",
+          "state": "active",
+          "xact_age_s": 1.3,
+          "state_age_s": 0.3,
+          "waiting": true,
+          "query_id": null,
+          "backend_xmin_age": 46
+        },
+        {
+          "pid": 70166,
+          "backend_start": "2026-08-14T15:01:53Z",
+          "state": "active",
+          "xact_age_s": 1.3,
+          "state_age_s": 0.3,
+          "waiting": true,
+          "query_id": null,
+          "backend_xmin_age": 20
+        },
+        {
+          "pid": 70170,
+          "backend_start": "2026-08-14T15:01:49Z",
+          "state": "active",
+          "xact_age_s": 1.3,
+          "state_age_s": 0.3,
+          "waiting": true,
+          "query_id": null,
+          "backend_xmin_age": 24
+        },
+        {
+          "pid": 70188,
+          "backend_start": "2026-08-14T15:01:31Z",
+          "state": "active",
+          "xact_age_s": 1.3,
+          "state_age_s": 0.3,
+          "waiting": true,
+          "query_id": null,
+          "backend_xmin_age": 42
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 160
+    }
+  ]
+}

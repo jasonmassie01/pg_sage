@@ -53,27 +53,30 @@ func (s *PostgresStore) Release(ctx context.Context, lease Lease,
 // and fencing out its worker. History and consumed budget are kept.
 func (s *PostgresStore) Pause(ctx context.Context, scope Scope, id UUID,
 	version int64) (Investigation, error) {
-	return s.operatorTransition(ctx, scope, id, version, StatePaused)
+	return s.OperatorTransition(ctx, scope, id, version, StatePaused, "system")
 }
 
 // Resume re-queues a paused investigation (a new revision). Budgets are
 // not refilled.
 func (s *PostgresStore) Resume(ctx context.Context, scope Scope, id UUID,
 	version int64) (Investigation, error) {
-	return s.operatorTransition(ctx, scope, id, version, StateQueued)
+	return s.OperatorTransition(ctx, scope, id, version, StateQueued, "system")
 }
 
 // Stop cancels a live investigation; its evidence and steps are kept.
 func (s *PostgresStore) Stop(ctx context.Context, scope Scope, id UUID,
 	version int64) (Investigation, error) {
-	return s.operatorTransition(ctx, scope, id, version, StateCancelled)
+	return s.OperatorTransition(ctx, scope, id, version, StateCancelled, "system")
 }
 
-// operatorTransition applies an operator's change under an If-Match
-// style version precondition.
-func (s *PostgresStore) operatorTransition(ctx context.Context, scope Scope, id UUID,
-	version int64, to State) (Investigation, error) {
+// OperatorTransition applies an actor's change under an If-Match style
+// version precondition and records it, attributed, in the event chain.
+func (s *PostgresStore) OperatorTransition(ctx context.Context, scope Scope, id UUID,
+	version int64, to State, actor string) (Investigation, error) {
 	if err := validateIDs(scope, id); err != nil {
+		return Investigation{}, err
+	}
+	if err := checkText("actor", actor, true, 128); err != nil {
 		return Investigation{}, err
 	}
 	var inv Investigation
@@ -95,7 +98,7 @@ func (s *PostgresStore) operatorTransition(ctx context.Context, scope Scope, id 
 		case !CanTransition(State(state), to):
 			return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, state, to)
 		}
-		inv, err = s.setState(ctx, tx, scope, id, to, "")
+		inv, err = s.setState(ctx, tx, scope, id, to, "", actor)
 		return err
 	})
 	return inv, err
@@ -103,9 +106,9 @@ func (s *PostgresStore) operatorTransition(ctx context.Context, scope Scope, id 
 
 // setState moves an investigation to state, charging and clearing any
 // lease and advancing the fence so a stale worker cannot commit. It
-// records the transition in the event chain.
+// records the transition, by actor, in the event chain.
 func (s *PostgresStore) setState(ctx context.Context, tx pgx.Tx, scope Scope, id UUID,
-	to State, failure string) (Investigation, error) {
+	to State, failure, actor string) (Investigation, error) {
 	inv, err := scanInvestigation(tx.QueryRow(ctx, `UPDATE sage.sre_investigations
 		SET state = $4, active_ms = `+fmt.Sprintf(chargeSQL, 5)+`,
 		    expires_at = `+fmt.Sprintf(expiresSQL, 4, 6)+`,
@@ -126,7 +129,7 @@ func (s *PostgresStore) setState(ctx context.Context, tx pgx.Tx, scope Scope, id
 	if failure != "" {
 		payload["reason"] = failure
 	}
-	return inv, appendEvent(ctx, tx, scope, id, EventTransition, "system", payload)
+	return inv, appendEvent(ctx, tx, scope, id, EventTransition, actor, payload)
 }
 
 // terminalStates is the SQL list of final states.

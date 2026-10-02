@@ -1,0 +1,92 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "lock-idle-holder-unrelated-prepared",
+  "family": "lock_blocking",
+  "class": "positive",
+  "description": "An idle-in-transaction session blocks two writers; an unrelated prepared transaction from a healthy two-phase commit has existed for 4 seconds.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-08-20T19:36:28Z",
+  "subject": "lock_contention: 2 sessions blocked on shipments",
+  "gold": {
+    "root": "idle_in_tx_holder",
+    "rationale": "The prepared transaction blocks nobody and is seconds old; the idle session is the chain head."
+  },
+  "observations": [
+    {
+      "probe": "lock_graph",
+      "status": "ok",
+      "offset_ms": 60,
+      "rows": [
+        {
+          "waiter_pid": 11402,
+          "waiter_backend_start": "2026-08-20T18:26:26Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": null,
+          "blocker_pid": 11377,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-08-20T17:36:28Z",
+          "blocker_state": "idle in transaction",
+          "blocker_xact_age_s": 95.0,
+          "blocker_state_age_s": 93.5,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 11455,
+          "waiter_backend_start": "2026-08-20T18:25:33Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": null,
+          "blocker_pid": 11377,
+          "blocker_kind": "backend",
+          "blocker_waiting": false,
+          "blocker_backend_start": "2026-08-20T17:36:28Z",
+          "blocker_state": "idle in transaction",
+          "blocker_xact_age_s": 95.0,
+          "blocker_state_age_s": 93.5,
+          "blocker_query_id": null
+        }
+      ]
+    },
+    {
+      "probe": "prepared_xacts",
+      "status": "ok",
+      "offset_ms": 95,
+      "rows": [
+        {
+          "gid_hash": "2d8d083cc117335b109ddffd9d464e41",
+          "owner": "app_owner",
+          "prepared_age_s": 4.2,
+          "xid_age": 3
+        }
+      ]
+    },
+    {
+      "probe": "long_transactions",
+      "status": "ok",
+      "offset_ms": 130,
+      "rows": [
+        {
+          "pid": 11377,
+          "backend_start": "2026-08-20T17:26:51Z",
+          "state": "idle in transaction",
+          "xact_age_s": 95.1,
+          "state_age_s": 94.1,
+          "waiting": false,
+          "query_id": null,
+          "backend_xmin_age": 31
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 160
+    }
+  ]
+}

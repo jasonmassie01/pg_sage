@@ -1,0 +1,125 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "wal-slow-consumer-moderate",
+  "family": "wal_retention",
+  "class": "positive",
+  "description": "A logical replica applies slowly after a schema change: retention 40 to 46 MiB while 8 MiB were written.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-08-08T16:30:45Z",
+  "subject": "wal_retention: slot lag rising",
+  "gold": {
+    "root": "slow_consumer",
+    "rationale": "Active slot retaining most of what is written."
+  },
+  "observations": [
+    {
+      "probe": "replication_slots",
+      "status": "ok",
+      "offset_ms": 120,
+      "rows": [
+        {
+          "slot_name": "reporting_sub",
+          "slot_type": "logical",
+          "active": true,
+          "wal_status": "reserved",
+          "retained_bytes": 41943040,
+          "safe_wal_size": null,
+          "database": "appdb",
+          "inactive_since": null
+        }
+      ]
+    },
+    {
+      "probe": "wal_checkpoint",
+      "status": "ok",
+      "offset_ms": 140,
+      "rows": [
+        {
+          "timed_checkpoints": 2870,
+          "requested_checkpoints": 41,
+          "checkpoint_write_ms": 812345.0,
+          "checkpoint_sync_ms": 2310.0,
+          "buffers_written": 9912345,
+          "wal_bytes": 1358954145774,
+          "wal_buffers_full": 1201,
+          "checkpoint_timeout_s": 300,
+          "max_wal_size_mb": 4096,
+          "checkpointer_stats_reset": "2026-07-29T16:30:45Z",
+          "wal_stats_reset": "2026-07-29T16:30:45Z"
+        }
+      ]
+    },
+    {
+      "probe": "archiver",
+      "status": "ok",
+      "offset_ms": 160,
+      "rows": [
+        {
+          "archive_mode": "off",
+          "archived_count": 0,
+          "failed_count": 0,
+          "last_archived_time": null,
+          "last_failed_time": null,
+          "stats_reset": "2026-07-29T16:30:45Z"
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 180
+    },
+    {
+      "probe": "replication_slots",
+      "status": "ok",
+      "offset_ms": 5260,
+      "rows": [
+        {
+          "slot_name": "reporting_sub",
+          "slot_type": "logical",
+          "active": true,
+          "wal_status": "reserved",
+          "retained_bytes": 48234496,
+          "safe_wal_size": null,
+          "database": "appdb",
+          "inactive_since": null
+        }
+      ]
+    },
+    {
+      "probe": "wal_checkpoint",
+      "status": "ok",
+      "offset_ms": 5280,
+      "rows": [
+        {
+          "timed_checkpoints": 2870,
+          "requested_checkpoints": 41,
+          "checkpoint_write_ms": 812345.0,
+          "checkpoint_sync_ms": 2310.0,
+          "buffers_written": 9912345,
+          "wal_bytes": 1358962769264,
+          "wal_buffers_full": 1201,
+          "checkpoint_timeout_s": 300,
+          "max_wal_size_mb": 4096,
+          "checkpointer_stats_reset": "2026-07-29T16:30:45Z",
+          "wal_stats_reset": "2026-07-29T16:30:45Z"
+        }
+      ]
+    },
+    {
+      "probe": "archiver",
+      "status": "ok",
+      "offset_ms": 5300,
+      "rows": [
+        {
+          "archive_mode": "off",
+          "archived_count": 0,
+          "failed_count": 0,
+          "last_archived_time": null,
+          "last_failed_time": null,
+          "stats_reset": "2026-07-29T16:30:45Z"
+        }
+      ]
+    }
+  ]
+}

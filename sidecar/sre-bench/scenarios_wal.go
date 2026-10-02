@@ -2,6 +2,7 @@ package srebench
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -412,6 +413,15 @@ func archiverFailure() program {
 	}, func(ctx context.Context, e *Env) error { return switchAndWait(ctx, e, "failed_count") })
 	walRecover := p.recover
 	p.recover = func(ctx context.Context, e *Env) error {
+		err := archiveFixture(ctx, e)
+		var u *Unsupported
+		if errors.As(err, &u) {
+			// Skipped: nothing was injected, and the archiver is off.
+			return walRecover(ctx, e)
+		}
+		if err != nil {
+			return err
+		}
 		if _, err := e.Pool.Exec(ctx,
 			"COPY (SELECT 1 WHERE false) TO '"+archiveFlag+"'"); err != nil {
 			return err

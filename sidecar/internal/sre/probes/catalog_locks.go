@@ -127,18 +127,18 @@ WHERE a.pid = $2 AND a.backend_start = $3
 LIMIT $1`
 
 func lockChainsSpec() Spec {
-	return spec(LockChains, FamilyLocks, ArgsNone, Variant{MinVersion: 140000,
-		SQL: lockChainsSQL})
+	return needsStats(spec(LockChains, FamilyLocks, ArgsNone, Variant{MinVersion: 140000,
+		SQL: lockChainsSQL}))
 }
 
 func lockGraphSpec() Spec {
-	return spec(LockGraph, FamilyLocks, ArgsNone, Variant{MinVersion: 140000,
-		SQL: lockGraphSQL})
+	return needsStats(spec(LockGraph, FamilyLocks, ArgsNone, Variant{MinVersion: 140000,
+		SQL: lockGraphSQL}))
 }
 
 func longTransactionsSpec() Spec {
-	return spec(LongTransactions, FamilyLocks, ArgsNone, Variant{MinVersion: 140000,
-		SQL: longTransactionsSQL})
+	return needsStats(spec(LongTransactions, FamilyLocks, ArgsNone, Variant{MinVersion: 140000,
+		SQL: longTransactionsSQL}))
 }
 
 func preparedXactsSpec() Spec {
@@ -147,6 +147,6 @@ func preparedXactsSpec() Spec {
 }
 
 func backendIdentitySpec() Spec {
-	return spec(BackendIdentity, FamilyLocks, ArgsBackend, Variant{MinVersion: 140000,
-		SQL: backendIdentitySQL})
+	return needsStats(spec(BackendIdentity, FamilyLocks, ArgsBackend, Variant{MinVersion: 140000,
+		SQL: backendIdentitySQL}))
 }

@@ -35,6 +35,9 @@ type sreInvestigatorDeps struct {
 	llm         *llm.Client
 	dailyTokens int
 	notices     *sre.OnceLog
+	// signals (M5) are the change feed and SLO status probes; nil keeps
+	// the M2 plans.
+	signals []sre.SignalProbe
 }
 
 // newSREInvestigator builds one database's investigator (coordinator,
@@ -59,7 +62,7 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 	cc.Retention.TimelineAge = d.settings.TimelineRetention()
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: d.runner,
 		Triggers: sre.NewPGTriggerSource(d.monitored, d.name), Config: cc,
-		LogFn: d.logFn, Model: model, Notices: notices})
+		LogFn: d.logFn, Model: model, Notices: notices, Signals: d.signals})
 	if err != nil {
 		return nil, fmt.Errorf("sre coordinator: %w", err)
 	}
@@ -76,11 +79,16 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 // instance worker group, in every mode (CHECK-31).
 func (rt *databaseRuntime) startInvestigator() {
 	key, legacy := rt.sreRuntimeKey()
+	signals := rt.newSignals(legacy)
+	var signalProbes []sre.SignalProbe
+	if signals != nil {
+		signalProbes = signals.probes()
+	}
 	svc, err := newSREInvestigator(sreInvestigatorDeps{control: rt.spec.ControlPool,
 		monitored: rt.spec.Pool, runner: rt.probes, name: rt.spec.Name,
 		runtimeKey: key, legacyID: legacy, settings: rt.cfg.SRE,
 		logFn: logStructuredWrapper, llm: rt.generalLLM,
-		dailyTokens: rt.cfg.LLM.TokenBudgetDaily})
+		dailyTokens: rt.cfg.LLM.TokenBudgetDaily, signals: signalProbes})
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: sre investigator not started: %v", rt.spec.Name, err)
 		return
@@ -89,6 +97,7 @@ func (rt *databaseRuntime) startInvestigator() {
 	rt.start(func() { rt.sre.Run(rt.ctx) })
 	rt.sreStarted = true
 	rt.note("sre_investigator")
+	rt.startSignals(signals)
 }
 
 // sreRuntimeKey is the stable key bound to the database UUID: the meta-db

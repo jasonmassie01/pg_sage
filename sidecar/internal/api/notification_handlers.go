@@ -353,6 +353,7 @@ func maskChannelSecrets(config map[string]string) {
 	sensitiveKeys := []string{
 		"webhook_url", "routing_key", "smtp_pass",
 		"smtp_password", "api_key", "token", "secret",
+		"signing_secret", "bot_token", "webhook_secret",
 	}
 	for _, key := range sensitiveKeys {
 		if v, ok := config[key]; ok && len(v) > 8 {

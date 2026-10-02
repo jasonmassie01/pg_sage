@@ -1,0 +1,129 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "lock-prepared-ddl-queue",
+  "family": "lock_blocking",
+  "class": "positive",
+  "description": "A schema change waits behind a forgotten prepared transaction; three writers queue behind the schema change.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-08-12T06:30:40Z",
+  "subject": "lock_contention: 4 sessions blocked on ledger_entries",
+  "gold": {
+    "root": "prepared_xact_holder",
+    "contributing": [
+      "ddl_lock_queue"
+    ],
+    "rationale": "The prepared transaction is the root; the DDL queue amplifies it."
+  },
+  "observations": [
+    {
+      "probe": "lock_graph",
+      "status": "ok",
+      "offset_ms": 60,
+      "rows": [
+        {
+          "waiter_pid": 61002,
+          "waiter_backend_start": "2026-08-12T05:18:58Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "relation",
+          "requested_mode": "AccessExclusiveLock",
+          "relation": "public.ledger_entries",
+          "blocker_pid": 0,
+          "blocker_kind": "prepared_xact",
+          "blocker_waiting": false,
+          "blocker_backend_start": null,
+          "blocker_state": null,
+          "blocker_xact_age_s": null,
+          "blocker_state_age_s": null,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 61040,
+          "waiter_backend_start": "2026-08-12T05:18:20Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "relation",
+          "requested_mode": "RowExclusiveLock",
+          "relation": "public.ledger_entries",
+          "blocker_pid": 61002,
+          "blocker_kind": "backend",
+          "blocker_waiting": true,
+          "blocker_backend_start": "2026-08-12T04:30:40Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 44.0,
+          "blocker_state_age_s": 42.5,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 61077,
+          "waiter_backend_start": "2026-08-12T05:17:43Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "relation",
+          "requested_mode": "RowExclusiveLock",
+          "relation": "public.ledger_entries",
+          "blocker_pid": 61002,
+          "blocker_kind": "backend",
+          "blocker_waiting": true,
+          "blocker_backend_start": "2026-08-12T04:30:40Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 44.0,
+          "blocker_state_age_s": 42.5,
+          "blocker_query_id": null
+        },
+        {
+          "waiter_pid": 61093,
+          "waiter_backend_start": "2026-08-12T05:17:27Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "relation",
+          "requested_mode": "RowExclusiveLock",
+          "relation": "public.ledger_entries",
+          "blocker_pid": 61002,
+          "blocker_kind": "backend",
+          "blocker_waiting": true,
+          "blocker_backend_start": "2026-08-12T04:30:40Z",
+          "blocker_state": "active",
+          "blocker_xact_age_s": 44.0,
+          "blocker_state_age_s": 42.5,
+          "blocker_query_id": null
+        }
+      ]
+    },
+    {
+      "probe": "prepared_xacts",
+      "status": "ok",
+      "offset_ms": 95,
+      "rows": [
+        {
+          "gid_hash": "67fa8f6148dbc245569766cfa115d335",
+          "owner": "app_owner",
+          "prepared_age_s": 3911.0,
+          "xid_age": 90122
+        }
+      ]
+    },
+    {
+      "probe": "long_transactions",
+      "status": "ok",
+      "offset_ms": 130,
+      "rows": [
+        {
+          "pid": 61002,
+          "backend_start": "2026-08-12T04:23:58Z",
+          "state": "active",
+          "xact_age_s": 44.1,
+          "state_age_s": 43.1,
+          "waiting": true,
+          "query_id": null,
+          "backend_xmin_age": 16
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 160
+    }
+  ]
+}

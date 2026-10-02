@@ -62,7 +62,8 @@ func fakeInvestigate(t *testing.T, timeouts int) (sre.Investigation, map[string]
 	t.Cleanup(cancel)
 	env := NewEnv(ctx, t, dsn)
 	scID := adversarialScenario(t)
-	client, done, err := LLMArm{Config: LLMConfig{Mode: LLMFake}}.client(Scenario{ID: scID})
+	client, _, done, err := LLMArm{Config: LLMConfig{Mode: LLMFake}}.tappedClient(
+		Scenario{ID: scID})
 	if err != nil {
 		t.Fatalf("client: %v", err)
 	}

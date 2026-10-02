@@ -46,7 +46,7 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 	if err != nil {
 		return err
 	}
-	plan, ok := planFor(inv.TriggerKind, c.cfg.ActionWindow)
+	plan, ok := planWithSignals(inv.TriggerKind, c.cfg.ActionWindow, c.signals)
 	if !ok {
 		return c.fail(ctx, lease, "no_probe_plan",
 			fmt.Sprintf("no probe plan for trigger %q", inv.TriggerKind))

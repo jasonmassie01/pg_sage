@@ -1,0 +1,75 @@
+{
+  "schema": "pg_sage.sre.replay_case.v1",
+  "id": "lock-prepared-holder",
+  "family": "lock_blocking",
+  "class": "positive",
+  "description": "A two-phase transaction was prepared by a crashed coordinator 25 minutes ago; it holds a row lock an update waits on.",
+  "provenance": "synthetic: authored from the mechanism's documented signature (AI-SRE-SPEC section 6) with redacted, realistic identities; not a customer incident",
+  "detected_at": "2026-08-09T23:58:04Z",
+  "subject": "lock_contention: 1 session blocked on ledger",
+  "gold": {
+    "root": "prepared_xact_holder",
+    "rationale": "The blocker is pid 0 (a prepared transaction) and an old prepared transaction exists."
+  },
+  "observations": [
+    {
+      "probe": "lock_graph",
+      "status": "ok",
+      "offset_ms": 60,
+      "rows": [
+        {
+          "waiter_pid": 52011,
+          "waiter_backend_start": "2026-08-09T22:46:13Z",
+          "waiter_state": "active",
+          "waiter_xact_age_s": 12.0,
+          "lock_type": "transactionid",
+          "requested_mode": "ShareLock",
+          "relation": null,
+          "blocker_pid": 0,
+          "blocker_kind": "prepared_xact",
+          "blocker_waiting": false,
+          "blocker_backend_start": null,
+          "blocker_state": null,
+          "blocker_xact_age_s": null,
+          "blocker_state_age_s": null,
+          "blocker_query_id": null
+        }
+      ]
+    },
+    {
+      "probe": "prepared_xacts",
+      "status": "ok",
+      "offset_ms": 95,
+      "rows": [
+        {
+          "gid_hash": "80fe0e29464f75052dfdb9763bea1edd",
+          "owner": "app_owner",
+          "prepared_age_s": 1502.3,
+          "xid_age": 48211
+        }
+      ]
+    },
+    {
+      "probe": "long_transactions",
+      "status": "ok",
+      "offset_ms": 130,
+      "rows": [
+        {
+          "pid": 52011,
+          "backend_start": "2026-08-09T21:51:13Z",
+          "state": "active",
+          "xact_age_s": 17.4,
+          "state_age_s": 16.4,
+          "waiting": true,
+          "query_id": null,
+          "backend_xmin_age": 25
+        }
+      ]
+    },
+    {
+      "probe": "sage_actions",
+      "status": "empty",
+      "offset_ms": 160
+    }
+  ]
+}

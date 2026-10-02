@@ -11,7 +11,7 @@ import (
 // SecretConfigKeys are channel config keys that hold credentials.
 var SecretConfigKeys = []string{
 	"webhook_url", "routing_key", "smtp_pass", "smtp_password",
-	"api_key", "token", "secret",
+	"api_key", "token", "secret", "signing_secret", "bot_token", "webhook_secret",
 }
 
 // sealedPrefix marks an AES-256-GCM sealed value (crypto.Encrypt,

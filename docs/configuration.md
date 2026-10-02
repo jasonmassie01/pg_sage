@@ -356,8 +356,11 @@ Overview provider-readiness tab.
 
 ### Sage SRE investigations
 
-With `sre.automatic_start: true`, pg_sage investigates each open RCA incident of the lock,
-connection or WAL family and each open `plan_regression` finding, once. An investigation runs
+By default (`sre.automatic_start: true`), pg_sage investigates each open RCA incident of the
+lock, connection or WAL family and each open `plan_regression` finding, once. Investigations
+are read-only and bounded (at most 12 catalog probes and 120 s of active time each), so they
+start by themselves; set `sre.automatic_start: false` to start them only from a case or the
+API. With the LLM off, investigations still run and conclude deterministically. An investigation runs
 the fixed read-only catalog probes of its family (connection and WAL investigations sample
 twice, `sre.sample_interval_seconds` apart), matches them against the deterministic causal
 graph and stores the result: the likely explanation, contributing factors, alternatives and
@@ -396,7 +399,7 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 
 | Parameter | Default | Description |
 |---|---|---|
-| `sre.automatic_start` | `false` | Start investigations from incidents and plan regressions. Off: investigations already stored are still resumed and retained. Restart to change |
+| `sre.automatic_start` | `true` | Start a read-only investigation for each incident and plan regression. `false`: start them only on request; investigations already stored are still resumed and retained. Restart to change |
 | `sre.trigger_interval_seconds` | `15` | Seconds between checks for new triggers and pending investigations, `5`-`600` |
 | `sre.sample_interval_seconds` | `5` | Seconds between the two samples connection and WAL investigations compare, `1`-`30` |
 | `sre.evidence_retention_days` | `30` | Days a finished, unpinned investigation keeps its probe evidence. The delete leaves a tombstone, and the investigation is shown as "evidence deleted by retention" |
@@ -418,6 +421,83 @@ Reading investigations (any signed-in role):
 `GET .../{id}/export` (JSON, or `?format=markdown`) and `POST .../{id}/pin` or `/unpin`.
 With MCP enabled, agents get the read-only tools `sre_list_incidents`,
 `sre_get_investigation` and `sre_get_evidence`.
+
+### Sage SRE approved actions
+
+When an investigation concludes that one active backend is the root of a lock or
+connection-pressure incident (a statement holding a lock that a DDL or other sessions queue
+behind), pg_sage proposes one action: `pg_cancel_backend` of that backend. Nothing else is
+ever proposed. Termination is never proposed, an idle-in-transaction holder is not proposed
+(a cancel does not end an idle transaction; the investigation says so), and a prepared
+transaction or contention spread across many sessions is "not proposed" with the reason.
+
+The proposal is derived only from the investigation's cited evidence and a fresh sample of
+the target. It names the exact backend: pid, backend start, query start, database, user,
+query hash and query id. It also carries its repair contract (mitigation only, one backend,
+the conditions recovery is checked against, what is never done) and the policy verdict. A
+proposal never executes by itself:
+
+1. With `sre.actions.request_approval: true`, a proposal the policy would allow gets exactly
+   one item in the database's existing approval queue, and is sent to ChatOps channels.
+   Operators can also request approval in the Cases panel or with the MCP tool
+   `sre_request_execution`.
+2. A human approves it, on the Actions page, in the Cases panel or with a chat button. The
+   approval is single use and records who approved.
+3. pg_sage samples the backend again and compares the whole identity. The evidence may be at
+   most `sre.actions.max_evidence_age_seconds` old, and the signalling statement checks the
+   identity once more. If the backend finished, changed, stopped blocking or is protected,
+   nothing is signalled, and the investigation timeline records why.
+4. After the cancel, pg_sage samples the blocking every `sre.actions.recovery_sample_seconds`
+   until `sre.actions.recovery_samples` fresh samples decide: recovered (the target's wait
+   edges cleared and lock waits fell), not recovered, or inconclusive. The result is recorded
+   on the timeline and closes the action's verification. Value is credited only on recovery.
+
+The policy gate decides as for any action. `trust.level` must be `advisory` or `autonomous`
+(under `observation` the proposal shows why it is withheld), and the emergency stop and the
+execution mode apply. An approved cancel is incident mitigation, so maintenance windows do
+not delay it. Replication connections, pg_sage's own sessions and `pg_dump`,
+`pg_basebackup` and `pg_restore` sessions are never targeted. Superuser sessions are not
+protected by default, so list roles or applications that must never be cancelled.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `sre.actions.proposals` | `true` | Propose automatically for concluded lock and connection investigations. Operators can always propose explicitly. Restart to change |
+| `sre.actions.request_approval` | `true` | Queue a proposal the policy allows for approval and notify ChatOps channels at once |
+| `sre.actions.approval_ttl_minutes` | `15` | Minutes an approval request stays open, `1`-`60` |
+| `sre.actions.max_evidence_age_seconds` | `5` | Oldest identity evidence a cancel may act on, `1`-`5` |
+| `sre.actions.recovery_sample_seconds` | `40` | Seconds between recovery samples, `1`-`300` |
+| `sre.actions.recovery_samples` | `3` | Fresh samples a recovery verdict needs, `3`-`20` |
+| `sre.actions.recovery_deadline_minutes` | `30` | Minutes before an unproven recovery is reported inconclusive, `1`-`240`, at least the sampling span |
+| `sre.actions.chatops_tolerance_seconds` | `300` | Maximum age and clock skew of a signed Slack callback, `30`-`900` |
+| `sre.actions.protected_roles` | `[]` | Roles whose sessions are never targeted |
+| `sre.actions.protected_applications` | `[]` | `application_name` values whose sessions are never targeted |
+
+Routes: `GET .../investigations/{id}/proposals` (any role), and for operators and admins
+`POST .../investigations/{id}/proposals` (propose) and
+`POST .../investigations/{id}/proposals/{proposal_id}/request`. Approval and denial use the
+existing `POST /api/v1/actions/{queue_id}/approve` and `/reject`. With MCP enabled, operators
+and admins get `sre_propose_action` and `sre_request_execution`. Neither tool executes.
+
+**Approving in Slack or Telegram.** Approval requests are `approval_needed` notifications,
+so add a notification rule for that event to the channel.
+
+- *Slack*: in the channel's config, set `interactive: "true"` and the Slack app's
+  `signing_secret`, plus `team_id` to accept only your workspace. Set the app's
+  Interactivity Request URL to `https://<sidecar>/api/v1/chatops/slack/<channel id>`.
+  Requests are verified with Slack's v0 signature within
+  `sre.actions.chatops_tolerance_seconds`.
+- *Telegram*: create a channel of type `telegram` with `bot_token`, a numeric `chat_id` and a
+  `webhook_secret` (letters, digits, `_` and `-`). Register the webhook with
+  `setWebhook?url=https://<sidecar>/api/v1/chatops/telegram/<channel id>&secret_token=<webhook_secret>`.
+  Only button presses from that chat are accepted.
+
+A chat user can decide only after an admin maps them to a pg_sage user:
+`POST /api/v1/chatops/identities` with `{"provider": "slack", "team_id": "T...",
+"external_user_id": "U...", "user_id": 7}` (Telegram: the numeric user id, no `team_id`).
+The pg_sage user's current role must be operator or admin. Each callback is processed once,
+and the decision goes through the same approval as the browser, attributed to the mapped
+user. Bot tokens, signing secrets and webhook secrets are sealed at rest like other channel
+secrets.
 
 ### Retention
 

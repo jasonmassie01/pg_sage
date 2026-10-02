@@ -28,6 +28,12 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA sage GRANT ALL ON TABLES TO sage_agent;
 
 ---
 
+Sage SRE investigations need only `pg_monitor`; without `pg_read_all_stats` their activity
+probes report `no_privilege` instead of a partial answer. See
+[Sage SRE: permissions and data flow](sage-sre-permissions-and-data-flow.md).
+
+---
+
 ## What pg_sage Accesses
 
 All data sources are read-only catalog views and statistics:
