@@ -43,6 +43,13 @@ type AutonomyLimiter interface {
 	Limit(context.Context, ActionRequest) (AutonomyLimit, error)
 }
 
+// AutonomyDeadlineRecorder is implemented by a limiter that records the
+// mandatory deadline overrides it did not restrict. Recording never
+// blocks the action; a failure is the recorder's to report.
+type AutonomyDeadlineRecorder interface {
+	RecordDeadlineOverride(context.Context, ActionRequest, Decision)
+}
+
 const (
 	autonomyHandoffLevel = 2
 	autonomyExecuteLevel = 3
@@ -70,6 +77,9 @@ func (gate *authorizationGate) restrictAutonomy(
 		(base.Verdict != VerdictExecute && base.Verdict != VerdictQueueApproval) {
 		return base
 	}
+	if mandatoryDeadline(doc, req, gate.now()) {
+		return gate.passMandatoryDeadline(ctx, req, base)
+	}
 	limit, err := gate.config.Autonomy.Limit(ctx, req)
 	if err != nil {
 		return decisionForRequest(req, blocked(ReasonAutonomyUnavailable, err.Error()))
@@ -89,6 +99,29 @@ func (gate *authorizationGate) restrictAutonomy(
 	}
 	base.Reason, base.OffWindowOK = ReasonAutonomyL3, false
 	base.Detail = note
+	return base
+}
+
+// mandatoryDeadline reports a critical deadline (XID or disk) the
+// standing policy lets override: waiting risks an outage, so the ledger
+// level and its downgrade signals do not apply (coordinator decision
+// 2026-10-02). The e-stop and the rest of the gate already decided base.
+func mandatoryDeadline(doc Document, req ActionRequest, now time.Time) bool {
+	return req.Deadline != nil && req.Deadline.Urgency == UrgencyCritical &&
+		validDeadlineOverride(doc, req.Deadline, now)
+}
+
+// passMandatoryDeadline keeps the gate's verdict and has the ledger
+// record an execution.
+func (gate *authorizationGate) passMandatoryDeadline(
+	ctx context.Context, req ActionRequest, base Decision,
+) Decision {
+	if base.Verdict != VerdictExecute {
+		return base
+	}
+	if recorder, ok := gate.config.Autonomy.(AutonomyDeadlineRecorder); ok {
+		recorder.RecordDeadlineOverride(ctx, req, base)
+	}
 	return base
 }
 
