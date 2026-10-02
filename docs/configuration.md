@@ -375,10 +375,24 @@ explosions**, **replication lag** and **LWLock contention**. Their triggers are 
 incidents for "checkpoints are occurring too frequently", temp files, replication conflicts and
 replication lag (`replication_lag_increasing`), plus a deterministic detector that samples the
 database once per trigger poll (only while `sre.automatic_start` is on). The detector opens one
-investigation per episode, with conservative thresholds: 3 or more requested checkpoints
-within 5 minutes that outnumber timed ones; 1 GiB of temp files in this database within 5
-minutes; or 8 or more backends waiting on one modeled LWLock in 3 consecutive polls. After an
-episode ends, the same family waits 30 minutes before a new one. A checkpoint investigation
+episode at a time per family, with conservative default thresholds (`sre.detectors.*`, below):
+3 or more requested checkpoints within 5 minutes that outnumber timed ones; 1 GiB of temp
+files in this database within 5 minutes; or 8 or more backends waiting on one modeled LWLock
+in 3 consecutive polls. A new episode of a family waits 30 minutes after the previous one
+started.
+
+Each episode is an incident, like an RCA incident: a `warning` row in `sage.incidents`
+(signal `sre_checkpoint_storm`, `sre_temp_file_explosion` or `sre_lwlock_contention`) with the
+measurement and its threshold as evidence. It appears in the Cases panel, sends the usual
+incident notifications (detected, escalated, resolved) and links its investigation, which an
+operator can review for earned autonomy. One investigation per incident: a new episode while
+its incident is still open counts as another occurrence (the RCA engine escalates an incident
+after `rca.escalation_cycles` occurrences), and the incident resolves itself
+`rca.resolution_cycles` analyzer cycles after the episodes stop. An open RCA incident of the
+same family that already has at least warning severity (for example "checkpoints are occurring
+too frequently" from the logs) is used instead of a second incident. An incident an operator
+resolves is not reopened by the same episode. With `rca.enabled: false` there is no incident:
+the investigation keeps its own case (`sre:detector:<family>:<database>`). A checkpoint investigation
 compares samples 6 sample intervals apart (30 s by default). The live-temp-file probe needs
 `pg_monitor` (or superuser), and per-statement spills need `pg_stat_statements`. Without them,
 the investigation reports the evidence as unavailable instead of guessing. Standby-side
@@ -423,6 +437,12 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 | `sre.evidence_retention_days` | `30` | Days a finished, unpinned investigation keeps its probe evidence. The delete leaves a tombstone, and the investigation is shown as "evidence deleted by retention" |
 | `sre.timeline_retention_days` | `90` | Days a finished, unpinned investigation is kept at all (hypotheses, steps, event chain), leaving a tombstone. At least `sre.evidence_retention_days`, at most `3650` |
 | `sre.llm.enabled` | `true` | Model turn in investigations, used whenever an LLM is configured. `false` keeps investigations deterministic. Restart to change |
+| `sre.detectors.window_seconds` | `300` | Seconds over which checkpoint and temp-file growth is measured, `60`-`3600`. Keep it at least twice `sre.trigger_interval_seconds`; a shorter window cannot see growth between two polls, and the sidecar warns at startup |
+| `sre.detectors.checkpoint_requested` | `3` | Requested checkpoints within the window that are a checkpoint storm (they must also outnumber timed ones), `1`-`1000` |
+| `sre.detectors.temp_file_mb` | `1024` | MiB of temp files this database writes within the window that are a temp-file explosion, `1`-`1048576` |
+| `sre.detectors.lwlock_waiters` | `8` | Backends waiting on one modeled LWLock class that count as contention, `1`-`10000` |
+| `sre.detectors.lwlock_polls` | `3` | Consecutive trigger polls the waiters must hold before an episode opens, `1`-`100` |
+| `sre.detectors.cooldown_minutes` | `30` | Minutes after an episode starts before a new episode of the same family can open, `1`-`1440` |
 
 Pinned investigations (Pin in the Cases panel, or `POST .../pin`) and running ones are never
 deleted. Where the data lives: the `sage.sre_*` tables are in the meta database when one is
@@ -668,6 +688,7 @@ any time.
 | `sre.autonomy.safety_window_days` | `30` | Days a harmful outcome caps its family, `1`-`365` |
 | `sre.autonomy.failover_cooldown_minutes` | `30` | Minutes after a role change autonomy stays at L1, `1`-`1440` |
 | `sre.autonomy.proposal_ttl_hours` | `168` | Hours a promotion proposal waits for an admin, `1`-`720` |
+| `sre.autonomy.report_retention_days` | `90` | Days a stored bench or game-day report is kept after it was ingested, `30`-`3650`. Never deleted: a report that is the evidence of a current autonomy level or a pending promotion, and the newest report of each family (per source, and per database for game days). Pruned with the other retention rules, in the database that holds the ledger (the meta database when one is configured) |
 | `sre.autonomy.promotion.shadow_window_hours` | `720` | Hours of shadow reviews (from the first) a family needs for L2; reviewed and accepted packets are counted in this window. `1`-`8760` |
 | `sre.autonomy.promotion.shadow_min_reviewed` | `20` | Reviewed packets needed inside the shadow window for L2, `3`-`1000` |
 | `sre.autonomy.promotion.shadow_min_accepted_pct` | `95` | Operator-accepted share of reviewed packets for L2, `50`-`100` |

@@ -243,6 +243,7 @@
 | `sre.autonomy.promotion.shadow_window_hours` | `restart` | `-` |
 | `sre.autonomy.proposal_ttl_hours` | `restart` | `-` |
 | `sre.autonomy.reconcile_interval_seconds` | `restart` | `-` |
+| `sre.autonomy.report_retention_days` | `restart` | `-` |
 | `sre.autonomy.safety_window_days` | `restart` | `-` |
 | `sre.change_events.allowed_sources` | `restart` | `-` |
 | `sre.change_events.feed_enabled` | `restart` | `-` |
@@ -250,6 +251,12 @@
 | `sre.change_events.hmac_secret` | `restart` | `-` |
 | `sre.change_events.retention_days` | `restart` | `-` |
 | `sre.change_events.timestamp_tolerance_seconds` | `restart` | `-` |
+| `sre.detectors.checkpoint_requested` | `restart` | `-` |
+| `sre.detectors.cooldown_minutes` | `restart` | `-` |
+| `sre.detectors.lwlock_polls` | `restart` | `-` |
+| `sre.detectors.lwlock_waiters` | `restart` | `-` |
+| `sre.detectors.temp_file_mb` | `restart` | `-` |
+| `sre.detectors.window_seconds` | `restart` | `-` |
 | `sre.evidence_retention_days` | `restart` | `-` |
 | `sre.llm.enabled` | `restart` | `-` |
 | `sre.runways.disk_critical_hours` | `restart` | `-` |

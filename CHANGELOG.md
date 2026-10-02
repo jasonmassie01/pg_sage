@@ -13,6 +13,16 @@
   never reached, and an admin still approves every promotion. The sidecar logs a WARN for
   each lowered value, and the Earned autonomy page shows a "Fast elevation" badge.
 
+- **Checkpoint storms, temp-file explosions and LWLock contention are now incidents.** When
+  the Sage SRE detector sees one of them, it opens a warning incident (or uses the open
+  incident it belongs to) with the measurement and its threshold as evidence. The incident
+  shows in the Cases panel with its investigation, sends the usual incident notifications,
+  resolves itself once the episodes stop, and its investigation can be reviewed for earned
+  autonomy. The detector's thresholds are now settings (`sre.detectors.*`, today's values
+  are the defaults). Stored bench and game-day reports now age out after
+  `sre.autonomy.report_retention_days` (90 days), except the reports that current autonomy
+  levels or pending promotions rest on and the newest report of each family.
+
 ### Fixed
 
 - **pg_sage works with current OpenAI models (gpt-5, gpt-6 and later).** These models
