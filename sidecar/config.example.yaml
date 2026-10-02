@@ -73,6 +73,11 @@ llm:
   token_budget_daily: 500000    # Daily cap across LLM features (0 = no cap)
   context_budget_tokens: 4096
   cooldown_seconds: 300         # Circuit breaker cooldown after 3 failures
+  token_parameter: auto         # auto | max_tokens | max_completion_tokens
+                                # auto switches per model when the provider asks
+                                # (current OpenAI models need max_completion_tokens)
+  tool_reasoning_effort: auto   # auto | none | low | medium | high | omit
+                                # auto sends "none" with tools once a model needs it
   # Cost reduction tips:
   #   - Advisor interval 7200s (2h) instead of 3600s saves ~50% advisor tokens
   #   - Briefing daily (default) vs hourly saves ~23x briefing tokens

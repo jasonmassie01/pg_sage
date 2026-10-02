@@ -111,6 +111,10 @@ var excludedExactKeys = map[string]bool{
 	"llm.optimizer_llm.cooldown_seconds":         true,
 	"llm.optimizer_llm.max_output_tokens":        true,
 	"llm.optimizer_llm.fallback_to_general":      true,
+	// Provider wire shape (OpenAI compatibility): YAML-only, applied by the
+	// llm reconfigure owner; auto adapts without operator action.
+	"llm.token_parameter":       true,
+	"llm.tool_reasoning_effort": true,
 
 	// Advisor sub-fields not exposed as overrides.
 	"advisor.vacuum_enabled":     true,
