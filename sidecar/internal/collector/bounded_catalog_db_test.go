@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Dogfood lifeos-1 findings 4 and 8: with 160 leaked test schemas
@@ -127,7 +129,7 @@ func TestCollect_OneFailedCategoryDoesNotFailTheSnapshot(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	rec := &logRecorder{}
-	c := New(pool, testConfig(), 160000, rec.log)
+	c := New(pool, testConfig(), serverVersion(t, pool), rec.log)
 	timeout := errors.New("canceling statement due to statement timeout")
 	c.overrideStep("indexes", func(context.Context, *Snapshot) error { return timeout })
 	snap, err := c.collect(ctx)
@@ -145,6 +147,11 @@ func TestCollect_OneFailedCategoryDoesNotFailTheSnapshot(t *testing.T) {
 	}
 	if !rec.has("WARN", "indexes") {
 		t.Fatalf("logs = %v, want a warning naming the indexes category", rec.lines)
+	}
+	if _, err := pool.Exec(ctx, `CREATE SCHEMA IF NOT EXISTS sage;
+		CREATE TABLE IF NOT EXISTS sage.snapshots (id bigserial PRIMARY KEY,
+		collected_at timestamptz NOT NULL, category text NOT NULL, data jsonb NOT NULL)`); err != nil {
+		t.Fatalf("snapshots table: %v", err)
 	}
 	if err := c.persist(ctx, snap); err != nil {
 		t.Fatalf("persist: %v", err)
@@ -164,7 +171,7 @@ func TestCollect_OneFailedCategoryDoesNotFailTheSnapshot(t *testing.T) {
 // System stats are the snapshot's spine: without them there is no
 // snapshot (error propagation stays distinguishable).
 func TestCollect_SystemFailureStillFailsTheSnapshot(t *testing.T) {
-	c := New(testPool(t), testConfig(), 160000, noopLog)
+	c := New(testPool(t), testConfig(), 170000, noopLog)
 	c.overrideStep("system", func(context.Context, *Snapshot) error {
 		return errors.New("connection refused")
 	})
@@ -223,4 +230,18 @@ func TestCollectSequences_KeepsOnlyThoseThatMatter(t *testing.T) {
 	if hot != 3 {
 		t.Fatalf("kept %d of the 3 sequences above the floor", hot)
 	}
+}
+
+// serverVersion is the test server's server_version_num: collectSystem
+// picks its SQL by version.
+func serverVersion(t *testing.T, pool interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}) int {
+	t.Helper()
+	var v int
+	if err := pool.QueryRow(context.Background(),
+		"SELECT current_setting('server_version_num')::int").Scan(&v); err != nil {
+		t.Fatalf("server version: %v", err)
+	}
+	return v
 }

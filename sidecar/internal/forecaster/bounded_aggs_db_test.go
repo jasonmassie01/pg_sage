@@ -114,7 +114,7 @@ func TestSeqAggs_LastNonEmptySnapshotPerDay(t *testing.T) {
 func TestSeqAndQueryAggs_ExpandAFewSnapshotsPerDay(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	seedSequenceSnapshots(t, ctx, pool)
-	seedQuerySnapshots(t, ctx, pool)
+	seedBoundedQuerySnapshots(t, ctx, pool)
 	for name, sql := range map[string]string{"seq": seqAggsSQL, "query": queryAggsSQL} {
 		loops := functionScanLoops(t, ctx, pool, sql)
 		if loops < 1 || loops > 2*(boundedDays+1) {
@@ -154,10 +154,10 @@ func findLoops(node map[string]any) int {
 	return 0
 }
 
-// seedQuerySnapshots writes boundedPerDay snapshots per day of one
+// seedBoundedQuerySnapshots writes boundedPerDay snapshots per day of one
 // query whose calls grow by 3 per snapshot, plus empty snapshots at the
 // start and end of each day.
-func seedQuerySnapshots(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func seedBoundedQuerySnapshots(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	cleanupSnapshots(t, pool, ctx, "queries")
 	calls := 100
@@ -178,7 +178,7 @@ func seedQuerySnapshots(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 // previous day's last sample.
 func TestQueryAggs_TotalsUnchangedForMonotonicCounters(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
-	seedQuerySnapshots(t, ctx, pool)
+	seedBoundedQuerySnapshots(t, ctx, pool)
 	got, err := QueryDailyQueryAggs(ctx, pool, boundedDays+1)
 	if err != nil || len(got) != boundedDays {
 		t.Fatalf("query aggs = %+v (%v)", got, err)

@@ -99,6 +99,10 @@ func preflightCapture(t *testing.T, p *pgxpool.Pool, c *collector.Collector,
 	return 0
 }
 
+// preflightWaitFailure waits for the collector to report that it could
+// not read pg_stat_statements. Since dogfood lifeos-1 a failed category
+// no longer fails the snapshot: the snapshot is kept with the queries
+// marked unavailable.
 func preflightWaitFailure(t *testing.T, logs <-chan string) {
 	t.Helper()
 	timer := time.NewTimer(10 * time.Second)
@@ -106,7 +110,7 @@ func preflightWaitFailure(t *testing.T, logs <-chan string) {
 	for {
 		select {
 		case line := <-logs:
-			if strings.Contains(line, "collection failed") {
+			if strings.Contains(line, "queries unavailable") {
 				t.Log(line)
 				return
 			}
@@ -117,16 +121,15 @@ func preflightWaitFailure(t *testing.T, logs <-chan string) {
 	}
 }
 
+// A cycle without fresh query evidence (here: pg_stat_statements
+// dropped, so the snapshot's queries are unavailable) must not refresh a
+// slow_query finding's occurrence count or last_seen.
 func TestPreflightEvidenceStaleSnapshotDoesNotRefreshFinding(t *testing.T) {
 	p, ctx := preflightPool(t)
 	preflightSQL(t, p, "SELECT pg_sleep(0.02)")
 	c, cfg, logs := preflightCollector(t, p)
 	a := New(p, cfg, c, nil, nil, nil, nil, func(string, string, ...any) {})
 	qid := preflightCapture(t, p, c, "SELECT pg_sleep(0.02)", "pg_sleep")
-	preflightSQL(t, p, "DROP EXTENSION pg_stat_statements")
-	t.Cleanup(func() { preflightSQL(t, p, "CREATE EXTENSION pg_stat_statements") })
-	preflightWaitFailure(t, logs)
-	snapshotAt := c.LatestSnapshot().CollectedAt
 	a.cycle(ctx)
 	ident := fmt.Sprintf("queryid:%d", qid)
 	var beforeCount, afterCount int
@@ -136,16 +139,21 @@ func TestPreflightEvidenceStaleSnapshotDoesNotRefreshFinding(t *testing.T) {
 	if err := p.QueryRow(ctx, sql, ident).Scan(&beforeCount, &beforeSeen); err != nil {
 		t.Fatal(err)
 	}
-
-	if !c.LatestSnapshot().CollectedAt.Equal(snapshotAt) {
-		t.Fatal("fixture unexpectedly fresh")
+	preflightSQL(t, p, "DROP EXTENSION pg_stat_statements")
+	t.Cleanup(func() { preflightSQL(t, p, "CREATE EXTENSION pg_stat_statements") })
+	preflightWaitFailure(t, logs)
+	for deadline := time.Now().Add(5 * time.Second); c.LatestSnapshot().Available("queries") &&
+		time.Now().Before(deadline); {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if c.LatestSnapshot().Available("queries") {
+		t.Fatal("no snapshot with the queries unavailable")
 	}
 	a.cycle(ctx)
 	if err := p.QueryRow(ctx, sql, ident).Scan(&afterCount, &afterSeen); err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("snapshot=%v count=%d->%d last_seen=%v->%v",
-		snapshotAt, beforeCount, afterCount, beforeSeen, afterSeen)
+	t.Logf("count=%d->%d last_seen=%v->%v", beforeCount, afterCount, beforeSeen, afterSeen)
 	if afterCount != beforeCount || !afterSeen.Equal(beforeSeen) {
 		t.Error("failed collection let stale evidence refresh finding occurrence and last_seen")
 	}
