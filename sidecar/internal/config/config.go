@@ -637,27 +637,6 @@ func Load(args []string) (*Config, error) {
 			"standalone mode requires postgres connection config or --meta-db")
 	}
 
-	// Migrate deprecated index_optimizer → optimizer if optimizer wasn't
-	// explicitly set but the legacy key was.
-	if !cfg.LLM.Optimizer.Enabled && cfg.LLM.IndexOptimizer.Enabled {
-		cfg.LLM.Optimizer.Enabled = true
-		if cfg.LLM.IndexOptimizer.MinQueryCalls > 0 {
-			cfg.LLM.Optimizer.MinQueryCalls = cfg.LLM.IndexOptimizer.MinQueryCalls
-		}
-		if cfg.LLM.IndexOptimizer.MaxIndexesPerTable > 0 {
-			cfg.LLM.Optimizer.MaxIndexesPerTable = cfg.LLM.IndexOptimizer.MaxIndexesPerTable
-		}
-		if cfg.LLM.IndexOptimizer.MaxIncludeColumns > 0 {
-			cfg.LLM.Optimizer.MaxIncludeColumns = cfg.LLM.IndexOptimizer.MaxIncludeColumns
-		}
-		if cfg.LLM.IndexOptimizer.OverIndexedRatio > 0 {
-			cfg.LLM.Optimizer.OverIndexedRatioPct = cfg.LLM.IndexOptimizer.OverIndexedRatio
-		}
-		if cfg.LLM.IndexOptimizer.WriteHeavyRatio > 0 {
-			cfg.LLM.Optimizer.WriteHeavyRatioPct = cfg.LLM.IndexOptimizer.WriteHeavyRatio
-		}
-	}
-
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("config validation: %w", err)
 	}
@@ -1038,6 +1017,9 @@ func loadYAML(path string, cfg *Config) error {
 			return err
 		}
 		return fmt.Errorf("config must contain exactly one YAML document")
+	}
+	if err := migrateLegacyIndexOptimizer(expanded, candidate); err != nil {
+		return err
 	}
 	*cfg = *candidate
 	return nil
