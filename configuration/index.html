@@ -727,6 +727,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../sage-sre-permissions-and-data-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sage SRE: permissions and data flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../deployment/" class="md-nav__link">
         
   
@@ -1599,8 +1626,11 @@ every cycle. <code>GET /api/v1/admission</code> (optionally <code>?database=</co
 baseline progress; the dashboard shows them on the Actions page and in the
 Overview provider-readiness tab.</p>
 <h3 id="sage-sre-investigations">Sage SRE investigations<a class="headerlink" href="#sage-sre-investigations" title="Permanent link">&para;</a></h3>
-<p>With <code>sre.automatic_start: true</code>, pg_sage investigates each open RCA incident of the lock,
-connection or WAL family and each open <code>plan_regression</code> finding, once. An investigation runs
+<p>By default (<code>sre.automatic_start: true</code>), pg_sage investigates each open RCA incident of the
+lock, connection or WAL family and each open <code>plan_regression</code> finding, once. Investigations
+are read-only and bounded (at most 12 catalog probes and 120 s of active time each), so they
+start by themselves; set <code>sre.automatic_start: false</code> to start them only from a case or the
+API. With the LLM off, investigations still run and conclude deterministically. An investigation runs
 the fixed read-only catalog probes of its family (connection and WAL investigations sample
 twice, <code>sre.sample_interval_seconds</code> apart), matches them against the deterministic causal
 graph and stores the result: the likely explanation, contributing factors, alternatives and
@@ -1645,8 +1675,8 @@ reasoning than allowed, the usage is recorded as reported and no further turn is
 <tbody>
 <tr>
 <td><code>sre.automatic_start</code></td>
-<td><code>false</code></td>
-<td>Start investigations from incidents and plan regressions. Off: investigations already stored are still resumed and retained. Restart to change</td>
+<td><code>true</code></td>
+<td>Start a read-only investigation for each incident and plan regression. <code>false</code>: start them only on request; investigations already stored are still resumed and retained. Restart to change</td>
 </tr>
 <tr>
 <td><code>sre.trigger_interval_seconds</code></td>

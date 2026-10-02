@@ -16,7 +16,7 @@
         <link rel="prev" href="../hint-verification/">
       
       
-        <link rel="next" href="../deployment/">
+        <link rel="next" href="../sage-sre-permissions-and-data-flow/">
       
       
         
@@ -838,6 +838,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../sage-sre-permissions-and-data-flow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sage SRE: permissions and data flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../deployment/" class="md-nav__link">
         
   
@@ -1237,6 +1264,10 @@ sidecar role ownership/write privileges:</p>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="k">GRANT</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="n">sage</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">ALTER</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">PRIVILEGES</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="n">sage</span><span class="w"> </span><span class="k">GRANT</span><span class="w"> </span><span class="k">ALL</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">TABLES</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span>
 </code></pre></div>
+<hr />
+<p>Sage SRE investigations need only <code>pg_monitor</code>; without <code>pg_read_all_stats</code> their activity
+probes report <code>no_privilege</code> instead of a partial answer. See
+<a href="../sage-sre-permissions-and-data-flow/">Sage SRE: permissions and data flow</a>.</p>
 <hr />
 <h2 id="what-pg_sage-accesses">What pg_sage Accesses<a class="headerlink" href="#what-pg_sage-accesses" title="Permanent link">&para;</a></h2>
 <p>All data sources are read-only catalog views and statistics:</p>

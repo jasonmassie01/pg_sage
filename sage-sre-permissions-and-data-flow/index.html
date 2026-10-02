@@ -1,0 +1,1344 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Agentic Postgres DBA">
+      
+      
+      
+        <link rel="canonical" href="https://jasonmassie01.github.io/pg_sage/sage-sre-permissions-and-data-flow/">
+      
+      
+        <link rel="prev" href="../security/">
+      
+      
+        <link rel="next" href="../deployment/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Sage SRE: permissions and data flow - pg_sage</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sage-sre-permissions-and-data-flow" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="pg_sage" class="md-header__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            pg_sage
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Sage SRE: permissions and data flow
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="blue-grey" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="pg_sage" class="md-nav__button md-logo" aria-label="pg_sage" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    pg_sage
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jasonmassie01/pg_sage" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jasonmassie01/pg_sage
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sql-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SQL Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../findings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Findings Catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hint-verification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hint Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sage SRE: permissions and data flow
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sage SRE: permissions and data flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-runs-where" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What runs where
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#privileges" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Privileges
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Privileges">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-role-pg_sage-connects-as" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The role pg_sage connects as
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#without-the-privileges" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Without the privileges
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per provider
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-leaves-the-database-and-where-it-goes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What leaves the database, and where it goes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What leaves the database, and where it goes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-sent-to-the-llm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is sent to the LLM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-provider-and-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model provider and cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-can-do-what" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who can do what
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#turning-things-off" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Turning things off
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../azure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Azure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-runs-where" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What runs where
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#privileges" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Privileges
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Privileges">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-role-pg_sage-connects-as" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The role pg_sage connects as
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#without-the-privileges" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Without the privileges
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per provider
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-leaves-the-database-and-where-it-goes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What leaves the database, and where it goes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What leaves the database, and where it goes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-sent-to-the-llm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is sent to the LLM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-provider-and-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model provider and cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-can-do-what" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who can do what
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retention" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retention
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#turning-things-off" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Turning things off
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="sage-sre-permissions-and-data-flow">Sage SRE: permissions and data flow<a class="headerlink" href="#sage-sre-permissions-and-data-flow" title="Permanent link">&para;</a></h1>
+<p>Sage SRE investigates PostgreSQL incidents (lock blocking, connection pressure, WAL and
+replication retention, plan regressions). This page says what it reads, which privileges it
+needs on each provider, what leaves the database and the pg_sage process, what is sent to an
+LLM, how long things are kept, and how to turn each part off.</p>
+<p><strong>In short.</strong> Investigations are read-only. They run a fixed catalog of read-only probes,
+store the results as hashed evidence, and diagnose with a deterministic causal graph. If an
+LLM is configured, a model turn may reorder the graph's hypotheses, ask for one more catalog
+probe and write cited claims; it never runs SQL and never decides the root cause. Nothing is
+executed against the database. Since M4 (R1 general availability), investigations start
+automatically for each open incident (<code>sre.automatic_start: true</code>).</p>
+<hr />
+<h2 id="what-runs-where">What runs where<a class="headerlink" href="#what-runs-where" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>monitored database                         pg_sage process                      optional
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a> ┌──────────────────────┐   read-only   ┌───────────────────────────────┐   HTTPS   ┌──────────┐
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a> │ pg_stat_activity     │  ───────────► │ probe runner (catalog only)    │ ────────► │ LLM      │
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a> │ pg_locks, slots, WAL │   500 ms,     │ causal graph (deterministic)   │  redacted │ endpoint │
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a> │ archiver, settings   │   500 rows,   │ model turn (validated)         │  fenced   └──────────┘
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a> │ sage.action_log      │   256 KiB     │ redaction                      │
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a> │ sage.query_store     │               └──────────────┬────────────────┘
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a> └──────────────────────┘                              │ writes
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>                                                       ▼
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>                                  sage.sre_* tables (meta database if configured,
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>                                  else the monitored database)
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>                                                       │ redacted reads
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>                                                       ▼
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>                                  Cases panel, REST API, MCP read tools, export
+</code></pre></div>
+<ul>
+<li><strong>Probes</strong> run in a read-only transaction with a fixed <code>search_path</code>, a 500 ms statement
+  timeout, a 100 ms lock timeout, at most 500 rows and 256 KiB per probe, one probe at a time
+  per database and four per sidecar. Each investigation runs at most 12 probes in 120 s of
+  active time. The catalog is fixed and versioned (<code>internal/sre/probes</code>); the model can only
+  name a catalog probe with typed arguments.</li>
+<li><strong>Probes return identities, states, counts, ages and settings, never query text.</strong> The
+  lock and transaction probes return process ids, backend start times, lock modes, relation
+  names and transaction ages. The connection probe returns <code>application_name</code> (first 64
+  characters), client address and per-state counts. No probe reads table data.</li>
+<li><strong>Evidence</strong> is stored as the typed probe result (<code>ok</code>, <code>empty</code>, <code>error</code>, <code>no_privilege</code>,
+  <code>unsupported</code>) with its SHA-256 hash. A probe that fails is stored as a failure and shown as
+  missing evidence. It is never read as "healthy".</li>
+</ul>
+<h2 id="privileges">Privileges<a class="headerlink" href="#privileges" title="Permanent link">&para;</a></h2>
+<h3 id="the-role-pg_sage-connects-as">The role pg_sage connects as<a class="headerlink" href="#the-role-pg_sage-connects-as" title="Permanent link">&para;</a></h3>
+<p>The probes read these sources:</p>
+<table>
+<thead>
+<tr>
+<th>Probe</th>
+<th>Reads</th>
+<th>Needs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lock_graph</code>, <code>lock_chains</code></td>
+<td><code>pg_stat_activity</code>, <code>pg_locks</code>, <code>pg_blocking_pids()</code>, <code>pg_class</code></td>
+<td><code>pg_read_all_stats</code> (through <code>pg_monitor</code>) to see other roles' sessions</td>
+</tr>
+<tr>
+<td><code>long_transactions</code>, <code>backend_identity</code></td>
+<td><code>pg_stat_activity</code></td>
+<td><code>pg_read_all_stats</code></td>
+</tr>
+<tr>
+<td><code>prepared_xacts</code></td>
+<td><code>pg_prepared_xacts</code></td>
+<td>none beyond <code>CONNECT</code></td>
+</tr>
+<tr>
+<td><code>connection_saturation</code></td>
+<td><code>pg_stat_activity</code>, <code>max_connections</code>, <code>superuser_reserved_connections</code>, <code>pg_postmaster_start_time()</code></td>
+<td><code>pg_read_all_stats</code> for other roles' states</td>
+</tr>
+<tr>
+<td><code>replication_slots</code></td>
+<td><code>pg_replication_slots</code></td>
+<td>none beyond <code>CONNECT</code></td>
+</tr>
+<tr>
+<td><code>replication_lag</code></td>
+<td><code>pg_stat_replication</code></td>
+<td><code>pg_read_all_stats</code> for lag columns</td>
+</tr>
+<tr>
+<td><code>wal_checkpoint</code></td>
+<td><code>pg_stat_wal</code>, <code>pg_stat_bgwriter</code> (PG14-16) or <code>pg_stat_checkpointer</code> (PG17+), <code>pg_settings</code></td>
+<td><code>pg_read_all_settings</code> (through <code>pg_monitor</code>)</td>
+</tr>
+<tr>
+<td><code>archiver</code></td>
+<td><code>pg_stat_archiver</code>, <code>archive_mode</code></td>
+<td>none beyond <code>CONNECT</code></td>
+</tr>
+<tr>
+<td><code>autovacuum_wraparound</code>, <code>vacuum_progress</code></td>
+<td><code>pg_class</code>, <code>pg_stat_all_tables</code>, <code>pg_database</code>, <code>pg_stat_progress_vacuum</code></td>
+<td><code>pg_read_all_stats</code></td>
+</tr>
+<tr>
+<td><code>plan_regressions</code></td>
+<td><code>sage.query_store</code></td>
+<td><code>SELECT</code> on pg_sage's own schema</td>
+</tr>
+<tr>
+<td><code>sage_actions</code></td>
+<td><code>sage.action_log</code></td>
+<td><code>SELECT</code> on pg_sage's own schema</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Grant <code>pg_monitor</code>.</strong> It includes <code>pg_read_all_stats</code> and <code>pg_read_all_settings</code>. This is
+the same grant <a href="../installation/#database-user-setup">installation</a> and
+<a href="../security/#required-database-grants">security</a> already ask for. Investigations need
+nothing else: no superuser, no <code>pg_signal_backend</code> (R1 never signals a backend), no write
+privilege on application schemas.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">GRANT</span><span class="w"> </span><span class="n">pg_monitor</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="n">sage_agent</span><span class="p">;</span>
+</code></pre></div>
+<p>The coordination tables (<code>sage.sre_investigations</code>, <code>sage.sre_evidence</code>, <code>sage.sre_events</code>,
+<code>sage.sre_hypotheses</code>, the budget ledger and the rest) are created at startup by the schema
+bootstrap, in the meta database when one is configured and in the monitored database
+otherwise. pg_sage's role needs to own, or be able to write, its <code>sage</code> schema there. It
+already needs that for the rest of pg_sage.</p>
+<h3 id="without-the-privileges">Without the privileges<a class="headerlink" href="#without-the-privileges" title="Permanent link">&para;</a></h3>
+<p>Verified on PostgreSQL 17 with a role that has only <code>LOGIN</code>: <code>pg_stat_activity</code> still lists
+other roles' sessions, but with <code>state</code>, <code>wait_event_type</code>, <code>xact_start</code> and <code>backend_type</code>
+set to NULL. A lock-graph query would then find "no lock waits" while sessions are blocked,
+and connection counts would leave other roles out: a healthy-looking zero caused by a missing
+privilege. So the probes that read those columns (<code>lock_graph</code>, <code>lock_chains</code>,
+<code>long_transactions</code>, <code>backend_identity</code>, <code>connection_saturation</code>, <code>replication_lag</code>,
+<code>vacuum_progress</code>) first check <code>pg_has_role(current_user, 'pg_read_all_stats', 'USAGE')</code> in
+their read-only transaction. Without the role they return <code>no_privilege</code> with reason
+<code>missing_role</code> and the message "role pg_read_all_stats (granted by pg_monitor) is required",
+and run nothing. The investigation lists them under <strong>Missing evidence</strong> and concludes
+"inconclusive" rather than guessing. <code>prepared_xacts</code>, <code>replication_slots</code>, <code>wal_checkpoint</code>
+and <code>archiver</code> work for any role. <code>TestRunner_ActivityProbesWithoutReadAllStatsAreNoPrivilege</code>
+and <code>TestRunner_PgMonitorGrantsTheActivityProbes</code> check this on every supported version.</p>
+<h3 id="per-provider">Per provider<a class="headerlink" href="#per-provider" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>How to grant</th>
+<th>Verified</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Self-managed PostgreSQL 14-18</td>
+<td>as a superuser: <code>GRANT pg_monitor TO sage_agent;</code></td>
+<td>yes: the probe catalog and the privilege tests run on PG14-18</td>
+</tr>
+<tr>
+<td>Google Cloud SQL, AlloyDB</td>
+<td>as the <code>postgres</code> admin user (a <code>cloudsqlsuperuser</code> / <code>alloydbsuperuser</code> member): <code>GRANT pg_monitor TO sage_agent;</code></td>
+<td>the repo's Cloud SQL and AlloyDB setup (<code>cloudsqltests/</code>) runs this grant</td>
+</tr>
+<tr>
+<td>Azure Database for PostgreSQL (flexible server)</td>
+<td>as the server admin (<code>azure_pg_admin</code>): <code>GRANT pg_monitor TO sage_agent;</code></td>
+<td>see <a href="../azure/">Azure</a> (CHECK-AZ-02)</td>
+</tr>
+<tr>
+<td>Amazon RDS / Aurora PostgreSQL</td>
+<td>as the master user (<code>rds_superuser</code>): <code>GRANT pg_monitor TO sage_agent;</code></td>
+<td>not exercised by a live test in this repository</td>
+</tr>
+<tr>
+<td>Neon, Supabase</td>
+<td>as the project owner role: <code>GRANT pg_monitor TO sage_agent;</code></td>
+<td>not exercised for investigations; see <a href="../neon-supabase/">Neon and Supabase</a> for what the tested roles could do</td>
+</tr>
+</tbody>
+</table>
+<p>Disk capacity is never inferred from database sizes. Without a provider disk metric the WAL
+family says so (<code>disk_capacity: provider_metric_unavailable</code>) and makes no runway claim.</p>
+<h2 id="what-leaves-the-database-and-where-it-goes">What leaves the database, and where it goes<a class="headerlink" href="#what-leaves-the-database-and-where-it-goes" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Destination</th>
+<th>What</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>pg_sage process</td>
+<td>probe results (typed, capped as above)</td>
+<td>each investigation</td>
+</tr>
+<tr>
+<td><code>sage.sre_*</code> tables</td>
+<td>evidence (probe results with hashes), hypotheses, the summary (graph result and model output side by side), the append-only event chain, budget reservations</td>
+<td>each investigation</td>
+</tr>
+<tr>
+<td>Cases panel, REST API, MCP read tools (<code>sre_list_incidents</code>, <code>sre_get_investigation</code>, <code>sre_get_evidence</code>), export</td>
+<td>the stored records, <strong>redacted on every read</strong></td>
+<td>when a signed-in user or MCP principal asks; export needs the operator role</td>
+</tr>
+<tr>
+<td>LLM endpoint (<code>llm.endpoint</code>)</td>
+<td>the model turn's prompt (below)</td>
+<td>only with an LLM configured and <code>sre.llm.enabled: true</code> (default)</td>
+</tr>
+</tbody>
+</table>
+<p>Nothing else leaves: investigations send no notifications of their own, and the probes make no
+network calls.</p>
+<h3 id="what-is-sent-to-the-llm">What is sent to the LLM<a class="headerlink" href="#what-is-sent-to-the-llm" title="Permanent link">&para;</a></h3>
+<p>One investigation makes at most 2 model calls. Each call carries:</p>
+<ul>
+<li>fixed instructions (the model's rules, the untrusted-data rule and the reply schema);</li>
+<li>the incident family, trigger kind and causal-graph version;</li>
+<li>the trigger subject and the diagnosis subject, <strong>redacted and fenced</strong> as untrusted data;</li>
+<li>the open and ruled-out hypotheses: graph node ids, labels, mechanisms and graph scores
+  (pg_sage's own text);</li>
+<li>one line per evidence item: an alias (<code>E1</code>, <code>E2</code>, ...), the probe id, its status and reason,
+  and the facts the causal graph derived from it. The facts are sentences computed by code
+  ("root blocker pid 4242 is idle in transaction", "idle backends of "app" grew from 4 to 9
+  in 5 s"). They can contain process ids, relation names, slot names, <code>application_name</code> and
+  numbers. They are <strong>redacted, fenced and capped at 1200 characters per item</strong>. Raw probe
+  rows are not sent;</li>
+<li>missing evidence (probe, status, redacted reason);</li>
+<li>when a probe may be requested, the catalog menu (probe ids and argument types).</li>
+</ul>
+<p>Not sent: database credentials or connection strings, query text (no probe collects it), raw
+rows, other investigations, other databases' evidence, pg_sage user data.</p>
+<p><strong>Redaction</strong> (<code>internal/sre/redact.go</code>) removes connection URIs (anything shaped like
+<code>scheme://user:pass@host</code>, and any <code>postgres://</code> URI), <code>password=</code>/<code>secret=</code>/<code>token=</code>/
+<code>api_key=</code>-style values, bearer tokens, SQL string literals and raw vectors. It runs before a
+prompt is built, before model output is stored, and again on every read (UI, API, MCP,
+export).</p>
+<p><strong>Fencing.</strong> Database-derived text sits inside <code>&lt;data label="..."&gt;</code> blocks whose look-alike
+delimiters are neutralized. The system prompt tells the model that the content of those
+blocks is data, never instructions. Fencing reduces prompt injection; it does not rely on the
+model obeying it. <strong>Authority stays outside the model.</strong> Each reply is validated: known graph
+nodes only, catalog probes with checked arguments, evidence ids of this investigation, every
+number found in the cited evidence, at most 16 KiB. A conclusive graph root always wins over
+the model. R1 has no action the model could trigger.</p>
+<p>The replay corpus of PGIncidentBench checks this end to end: cases plant secrets in
+<code>application_name</code> and probe errors, and instructions in relation names, slot names,
+<code>application_name</code> and incident subjects. The grader fails a run if a planted secret appears
+in the export or in any prompt sent to the model, or if any call outside the probe catalog is
+made (<code>sidecar/sre-bench/README.md</code>, "Replay corpus").</p>
+<h3 id="model-provider-and-cost">Model provider and cost<a class="headerlink" href="#model-provider-and-cost" title="Permanent link">&para;</a></h3>
+<p>Any OpenAI-compatible endpoint works, including local and VPC-hosted models, so the prompt
+need not leave your network. Each investigation is capped at 2 turns, 16k input and 4k output
+tokens, plus 16k reasoning tokens for thinking models; the daily allocation is
+<code>llm.token_budget_daily</code>. The release report of each milestone records measured token use
+for a live model.</p>
+<h2 id="who-can-do-what">Who can do what<a class="headerlink" href="#who-can-do-what" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Can</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>viewer</td>
+<td>list and read investigations, evidence and the event timeline (Cases panel, API, MCP read tools)</td>
+</tr>
+<tr>
+<td>operator, admin</td>
+<td>the above, plus export, pin and unpin, start an investigation of a case (<code>POST .../investigations</code> with <code>case_id</code>, <code>kind</code>, <code>subject</code>, <code>idempotency_key</code>), stop it (<code>POST .../{id}/stop</code>, a resumable pause) and resume it (<code>POST .../{id}/resume</code>); stop and resume need the version you saw (<code>If-Match</code> or JSON <code>version</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>Each change is recorded, with the user, in the investigation's append-only event chain. No
+role can make an investigation execute anything: R1 has no actions.</p>
+<h2 id="retention">Retention<a class="headerlink" href="#retention" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Data</th>
+<th>Kept</th>
+<th>Setting</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Evidence of a finished, unpinned investigation</td>
+<td>30 days, then deleted with a tombstone</td>
+<td><code>sre.evidence_retention_days</code></td>
+</tr>
+<tr>
+<td>The investigation itself (hypotheses, summary, event chain)</td>
+<td>90 days, then deleted with a tombstone</td>
+<td><code>sre.timeline_retention_days</code></td>
+</tr>
+<tr>
+<td>Pinned or running investigations</td>
+<td>until unpinned and finished</td>
+<td>Pin in the Cases panel, or <code>POST .../pin</code></td>
+</tr>
+<tr>
+<td>Model output</td>
+<td>inside the investigation's summary, same lifetime</td>
+<td></td>
+</tr>
+<tr>
+<td>Budget reservations</td>
+<td>with their investigation</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h2 id="turning-things-off">Turning things off<a class="headerlink" href="#turning-things-off" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>To stop</th>
+<th>Set</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Automatic investigations</td>
+<td><code>sre.automatic_start: false</code></td>
+<td>investigations start only when an operator asks (<code>POST /api/v1/databases/{db}/investigations</code>); stored ones still resume and are retained</td>
+</tr>
+<tr>
+<td>The model turn only</td>
+<td><code>sre.llm.enabled: false</code></td>
+<td>investigations stay fully deterministic; nothing is sent to the LLM</td>
+</tr>
+<tr>
+<td>Every LLM feature</td>
+<td><code>llm.enabled: false</code> (or no <code>llm.endpoint</code>)</td>
+<td>no LLM traffic at all from pg_sage</td>
+</tr>
+<tr>
+<td>Keeping data</td>
+<td>lower <code>sre.evidence_retention_days</code> / <code>sre.timeline_retention_days</code></td>
+<td>retention deletes sooner (minimum 1 day)</td>
+</tr>
+</tbody>
+</table>
+<p>All four are restart settings (<a href="../configuration/#sage-sre-investigations">configuration</a>).</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "content.code.copy", "search.highlight"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
