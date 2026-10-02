@@ -14,7 +14,8 @@ import (
 func Scenarios() []Scenario {
 	var out []Scenario
 	for _, group := range [][]Scenario{lockScenarios(), connectionScenarios(),
-		walScenarios(), planScenarios()} {
+		walScenarios(), planScenarios(), wrapScenarios(), diskScenarios(),
+		sequenceScenarios()} {
 		out = append(out, group...)
 	}
 	return out

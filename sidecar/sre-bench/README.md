@@ -15,12 +15,12 @@ skips. The unit tests for scoring, gates and the report still run.
 ```sh
 cd sidecar
 SAGE_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable' \
-  go test -count=1 -v -run TestPGIncidentBench ./sre-bench/
+  go test -count=1 -v -timeout 30m -run TestPGIncidentBench ./sre-bench/
 ```
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SAGE_BENCH_REPEATS` | `1` | How many times each scenario runs (1 to 10). Run-to-run consistency needs at least 2. One repeat takes about 2.5 minutes. Raise `go test -timeout` past 10 minutes for 3 or more. |
+| `SAGE_BENCH_REPEATS` | `1` | How many times each scenario runs (1 to 10). Run-to-run consistency needs at least 2. One repeat of the 53 scenarios takes about 10 minutes (each scenario is bounded by 20 s per repeat). Raise `go test -timeout` past its 10-minute default, by about 12 minutes per repeat. |
 | `SAGE_BENCH_REPORT_DIR` | the test's temp dir | Where `pgincidentbench.json` and `pgincidentbench.md` are written. CI sets this and uploads the directory. |
 | `PG_SAGE_BENCH_LLM_URL` | unset | OpenAI-compatible endpoint for the LLM-on arm (opt-in). If unset, the LLM-on arm uses the deterministic fake model. |
 | `PG_SAGE_BENCH_LLM_MODEL` | unset | Model name. Required when the URL is set. |
@@ -56,7 +56,21 @@ repeated, up to 3 attempts.
 | `benign` | No fault. | Inconclusive. |
 
 The bench covers the R1 families (lock blocking, connection pressure, WAL and
-replication retention) and plan regression.
+replication retention), plan regression and the M6 runway families
+(pre-incident investigations):
+
+| Family | Scenarios |
+|---|---|
+| `wraparound_runway` | A REPEATABLE READ session or a prepared transaction pins a table past its freeze maximum (positive, and the session under noise); an XID surge on a table near its maximum (positive); an idle transaction that holds no horizon (decoy); a healthy cluster (benign). |
+| `disk_wal_runway` | An inactive slot and a slow consumer retaining the WAL written while the runway is sampled, a growing table (positive, and two under noise); a table loaded and truncated in turn (decoy of database growth); a consumer that keeps up (decoy of a slow consumer); a quiet cluster (benign). |
+| `sequence_runway` | A sequence near its own type's limit, a bigint sequence owned by an integer column, an explicit `MAXVALUE` (positive, and two under noise); a dormant and a cycling sequence near their limit (decoys); a sequence far from its limit (benign). |
+
+Runway scenarios build their trend with the real runway sampler on a compressed timescale
+(four samples 0.4 s apart, the fault progressing between them), after clearing the bench
+database's `sage.runway_samples`. A wraparound table's reloption lowers its freeze maximum
+to 100,000, the smallest PostgreSQL allows, so a second of burned XIDs brings it near or
+past it. A run in which other sessions used XIDs fast (wraparound) or other databases
+changed size (disk/WAL) is contaminated and repeated, like a busy WAL window.
 
 ## Arms
 
