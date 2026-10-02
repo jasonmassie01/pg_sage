@@ -102,9 +102,10 @@ const defaultRegressionLookbackDays = 7
 
 // historicalAveragesSQL is the regression baseline, bounded in SQL (Phase
 // 0 item 8, like the forecaster fix). It numbers the lookback's non-empty
-// snapshots by time reading only ids and timestamps, keeps at most $2
-// evenly spaced ones (the sample the analyzer used to take in Go after
-// loading every snapshot), and expands only those. Rows that are not
+// snapshots by time reading only ids and timestamps, keeps every
+// ceil(total/$2)-th one, i.e. at most $2 evenly spaced snapshots (the
+// sample the analyzer used to take in Go after loading every snapshot),
+// and expands only those. Rows that are not
 // arrays and elements without an integer queryid and a numeric
 // mean_exec_time are skipped. pg_column_size tells empty or null
 // snapshots apart without detoasting them.
@@ -120,8 +121,6 @@ WITH ranked AS (
 ), picked AS (
     SELECT id FROM ranked
      WHERE (rn - 1) % GREATEST(1, ceil(total::numeric / $2::int)::bigint) = 0
-     ORDER BY rn
-     LIMIT $2::int
 )
 SELECT (e->>'queryid')::bigint, avg((e->>'mean_exec_time')::float8)
   FROM sage.snapshots s

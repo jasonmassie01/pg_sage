@@ -57,6 +57,7 @@ func TestCatalogFacts_UsableIndexFilters(t *testing.T) {
 		{"(\"customer_id\" = 42)", "orders_customer_idx"},
 		{"(lower(status) = 'x'::text)", ""},
 		{"((customer_id = 1) OR (customer_id = 2))", ""},
+		{"customer_id = 1 OR note = 'x'", ""},
 		{"(note ~~ '%ab%'::text)", ""},
 		{"(customer_id IS NULL)", ""},
 		{"('customer_id = 1'::text = note)", ""},
