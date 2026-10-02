@@ -37,7 +37,9 @@ func chainRouter(t *testing.T, seen *chainProbe, withPool bool) http.Handler {
 	return NewRouterFullRuntime(mgr, cfg, unreachablePool(t), nil, nil, nil, nil, mark)
 }
 
-func chainServe(h http.Handler, method, path, contentType, origin string) *httptest.ResponseRecorder {
+func chainServe(
+	h http.Handler, method, path, contentType, origin string,
+) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader("{}"))
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)

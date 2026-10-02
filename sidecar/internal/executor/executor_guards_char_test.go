@@ -20,11 +20,20 @@ import (
 func charFinding(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	category, object string) int64 {
 	t.Helper()
+	return charFindingWithStatus(t, ctx, pool, category, object, "open")
+}
+
+// charFindingWithStatus inserts a finding; only one open finding may exist per
+// identity (idx_findings_dedup), so earlier occurrences are inserted resolved.
+func charFindingWithStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	category, object, status string) int64 {
+	t.Helper()
 	var id int64
 	if err := pool.QueryRow(ctx, `INSERT INTO sage.findings
-		(category, severity, object_type, object_identifier, title, detail, recommendation)
-		VALUES ($1, 'info', 'table', $2, 'char guard', '{}', 'r') RETURNING id`,
-		category, object).Scan(&id); err != nil {
+		(category, severity, object_type, object_identifier, title, detail, recommendation,
+		 status)
+		VALUES ($1, 'info', 'table', $2, 'char guard', '{}', 'r', $3) RETURNING id`,
+		category, object, status).Scan(&id); err != nil {
 		t.Fatalf("insert finding: %v", err)
 	}
 	t.Cleanup(func() {
@@ -107,7 +116,7 @@ func TestCharRetries_CountFailuresOfSameFindingIdentity(t *testing.T) {
 	pool, ctx := requireDB(t)
 	e := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	object := fmt.Sprintf("public.char_retry_%d", time.Now().UnixNano())
-	previous := charFinding(t, ctx, pool, "char_retry", object)
+	previous := charFindingWithStatus(t, ctx, pool, "char_retry", object, "resolved")
 	current := charFinding(t, ctx, pool, "char_retry", object)
 	other := charFinding(t, ctx, pool, "char_retry", object+"_other")
 	sql := uniqueCharSQL()

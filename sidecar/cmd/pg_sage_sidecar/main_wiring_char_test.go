@@ -145,19 +145,30 @@ func TestCharDrainRuntimeWorkers_WarnsOnDeadline(t *testing.T) {
 	fleetMgr = nil
 	drainRuntimeWorkers(context.Background()) // no fleet: no-op
 	fleetMgr = fleet.NewManager(cfg)
-	stuck, idle := &sync.WaitGroup{}, &sync.WaitGroup{}
+	fleetMgr.RegisterInstance(&fleet.DatabaseInstance{Name: "idle",
+		Workers: &sync.WaitGroup{}, Status: &fleet.InstanceStatus{}})
+	fleetMgr.RegisterInstance(&fleet.DatabaseInstance{Name: "no-workers",
+		Status: &fleet.InstanceStatus{}})
+	if logs := captureStderr(t, func() { drainRuntimeWorkers(context.Background()) }); logs != "" {
+		t.Fatalf("drained runtimes warned: %q", logs)
+	}
+	stuck := &sync.WaitGroup{}
 	stuck.Add(1)
 	t.Cleanup(stuck.Done)
 	fleetMgr.RegisterInstance(&fleet.DatabaseInstance{Name: "stuck", Workers: stuck,
 		Status: &fleet.InstanceStatus{}})
-	fleetMgr.RegisterInstance(&fleet.DatabaseInstance{Name: "idle", Workers: idle,
-		Status: &fleet.InstanceStatus{}})
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
+	start := time.Now()
 	logs := captureStderr(t, func() { drainRuntimeWorkers(ctx) })
+	// Once the shared deadline passes, every remaining runtime is reported,
+	// so only the stuck one is guaranteed (map order decides the rest).
 	if !strings.Contains(logs, `db "stuck": runtime workers exceeded shutdown deadline`) ||
-		strings.Contains(logs, `db "idle"`) {
+		strings.Contains(logs, `"no-workers"`) {
 		t.Fatalf("drain logs = %q", logs)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("drain ignored its deadline: %s", elapsed)
 	}
 }
 
