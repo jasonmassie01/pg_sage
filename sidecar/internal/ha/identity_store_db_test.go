@@ -76,7 +76,8 @@ func TestPostgresIdentityStore_RoundTrip(t *testing.T) {
 func TestPostgresIdentityStore_RejectsInvalidInput(t *testing.T) {
 	pool, ctx := storePool(t)
 	s := NewPostgresIdentityStore(pool)
-	if err := s.SaveIdentity(ctx, "", Persisted{Identity: Identity{Role: RolePrimary}}); err == nil {
+	primaryOnly := Persisted{Identity: Identity{Role: RolePrimary}}
+	if err := s.SaveIdentity(ctx, "", primaryOnly); err == nil {
 		t.Fatal("an empty key was saved")
 	}
 	if err := s.SaveIdentity(ctx, uniqueKey(t), Persisted{Identity: Identity{
