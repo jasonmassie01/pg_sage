@@ -115,6 +115,9 @@ func shouldSkipAuth(path string) bool {
 	case isAgentDBAgentAPIPath(path):
 		// Authenticated by requireAgentPrincipal (tenant-bound agent token).
 		return true
+	case isSignedIngestPath(path):
+		// Authenticated by the HMAC signature (signed change events, SLIs).
+		return true
 	case !strings.HasPrefix(path, "/api/"):
 		return true
 	}

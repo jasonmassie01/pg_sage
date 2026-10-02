@@ -39,6 +39,9 @@ func startMCPRuntime() {
 		// Sage SRE read tools (sre_list_incidents, sre_get_investigation,
 		// sre_get_evidence) resolve through the same fleet.
 		Investigations: access,
+		// SLO and change-feed read tools (sre_list_slos, sre_get_slo,
+		// sre_list_changes).
+		Signals: access,
 	})
 	if err != nil {
 		logError("mcp", "production backend: %v", err)

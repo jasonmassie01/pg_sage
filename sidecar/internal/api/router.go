@@ -125,6 +125,7 @@ func NewRouterFullRuntime(
 	// Sage SRE investigations live with each database's runtime (D3-style
 	// fleet resolution), not in the control pool.
 	registerSRERoutes(apiMux, mgr)
+	registerSRESignalRoutes(apiMux, mgr, cfg)
 	if cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		mcpHandler != nil {
 		apiMux.Handle("POST /api/v1/mcp", bindMCPPrincipal(mcpHandler))

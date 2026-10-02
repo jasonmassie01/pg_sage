@@ -33,6 +33,30 @@
   what investigations read, which role each provider needs (`pg_monitor`), what leaves the
   database, exactly what is sent to the LLM (redacted, fenced summaries, never raw rows or
   query text), retention, and how to turn each part off.
+- **SLOs, burn-rate alerts and a change feed for Sage SRE.** pg_sage now tracks error
+  budgets. Out of the box it measures four database proxies for every database: query
+  latency (compared with the database's own last week), server-side errors in the log per
+  transaction (needs log access), connection slots running out, and replication lag over 60
+  s. They are always labeled "proxy" and never claim customer impact. To track what your
+  customers see, register an app SLO under `sre.slo.objectives`: either two PromQL queries
+  (bad and eligible events, read through a Prometheus-compatible API with a bearer token) or
+  counters your service pushes to `POST /api/v1/sre/sli/{name}`, signed with
+  `sre.slo.push.hmac_secret`. Burn rates use the Google SRE workbook rules: page at 14.4x
+  over 1 h and 5 min or 6x over 6 h and 30 min, ticket at 1x over 3 days and 6 h; you can
+  change them. Too little traffic, no data, stale or partial data is shown as "unknown"
+  with the reason, never as "ok". When an app SLO burns at page level, pg_sage opens a
+  read-only investigation that checks locks, connections and plan regressions and says when
+  the cause is probably outside PostgreSQL (a proxy burn does this only with
+  `sre.automatic_start`). Every investigation now also answers "what changed?": deploys,
+  migrations and feature flags you send to `POST /api/v1/sre/change-events` (signed with
+  `sre.change_events.hmac_secret`, timestamp-checked, replays ignored), plus pg_sage's own
+  actions, config changes, DDL seen by the migration detector, `pg_stat_statements` resets,
+  restarts, failovers and extension upgrades. After a fix, the SLO recovery check only
+  confirms recovery from enough fresh traffic: missing data, counter resets or traffic that
+  simply stopped never count. See it on the new SLOs page, `GET /api/v1/sre/slos`,
+  `GET /api/v1/sre/changes`, the `sre_list_slos`, `sre_get_slo` and `sre_list_changes` MCP
+  tools, and `pg_sage_slo_*` metrics. Turn parts off with `sre.slo.enabled`,
+  `sre.slo.proxies.enabled` or `sre.change_events.feed_enabled`.
 
 - **Sage SRE investigations get a model turn (on by default whenever an LLM is
   configured).** After the causal graph diagnoses an incident, your configured LLM reviews

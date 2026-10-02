@@ -1047,6 +1047,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	// Value lives in each monitored database (D3), so it is read from
 	// every fleet instance in all modes, never from the meta pool.
 	writeValueMetrics(&b, ctx, fleet.ValueSources(fleetMgr))
+	writeSLOMetrics(&b, ctx, fleetMgr)
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	fmt.Fprint(w, b.String())
