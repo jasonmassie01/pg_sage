@@ -12,13 +12,13 @@ import (
 )
 
 func TestHypoPGNilPoolFailsClosed(t *testing.T) {
-	h := NewHypoPG(nil, 1, noopLog2)
+	h := NewHypoPG(nil, noopLog2)
 	if h.IsAvailable(t.Context()) {
 		t.Fatal("nil pool reported HypoPG available")
 	}
-	ok, improvement, size, err := h.Validate(t.Context(), Recommendation{}, nil)
-	if err == nil || ok || improvement != 0 || size != 0 {
-		t.Fatalf("nil pool must fail closed: %t %f %d %v", ok, improvement, size, err)
+	res, err := h.Validate(t.Context(), Recommendation{}, nil)
+	if err == nil || res != (WhatIfResult{}) {
+		t.Fatalf("nil pool must fail closed: %+v %v", res, err)
 	}
 }
 
@@ -60,16 +60,16 @@ func hypopgSessionPool(t *testing.T) *pgxpool.Pool {
 
 func TestHypoPGNamespaceSizeAndTimeoutIsolation(t *testing.T) {
 	pool := hypopgSessionPool(t)
-	h := NewHypoPG(pool, 1, noopLog2)
+	h := NewHypoPG(pool, noopLog2)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	rec := Recommendation{DDL: "CREATE INDEX candidate ON hypopg_session_test.items (category)"}
 	queries := []QueryInfo{{QueryID: 1,
 		Text: "SELECT id FROM hypopg_session_test.items WHERE category=42"}}
-	ok, improvement, size, err := h.Validate(ctx, rec, queries)
-	if err != nil || !ok || improvement <= 1 || size <= 0 {
-		t.Fatalf("namespace/session validation: ok=%t improvement=%f size=%d err=%v",
-			ok, improvement, size, err)
+	res, err := h.Validate(ctx, rec, queries)
+	if err != nil || res.Measured != 1 || res.Failed != 0 || res.Improvement <= 1 ||
+		res.SizeBytes <= 0 {
+		t.Fatalf("namespace/session validation: %+v err=%v", res, err)
 	}
 	assertHypoPGSessionClean(t, pool)
 	var realIndexes int
@@ -84,34 +84,37 @@ func TestHypoPGNamespaceSizeAndTimeoutIsolation(t *testing.T) {
 
 func TestHypoPGNormalizedWorkloadParameters(t *testing.T) {
 	pool := hypopgSessionPool(t)
-	h := NewHypoPG(pool, 1, noopLog2)
+	h := NewHypoPG(pool, noopLog2)
 	rec := Recommendation{DDL: "CREATE INDEX candidate ON hypopg_session_test.items (category)"}
 	queries := []QueryInfo{{QueryID: 1,
 		Text: "SELECT id FROM hypopg_session_test.items WHERE category=$1"}}
-	ok, improvement, size, err := h.Validate(t.Context(), rec, queries)
-	if err != nil || !ok || improvement <= 1 || size <= 0 {
-		t.Fatalf("normalized workload: ok=%t improvement=%f size=%d err=%v",
-			ok, improvement, size, err)
+	res, err := h.Validate(t.Context(), rec, queries)
+	if err != nil || res.Measured != 1 || res.Improvement <= 1 || res.SizeBytes <= 0 {
+		t.Fatalf("normalized workload: %+v err=%v", res, err)
 	}
 	assertHypoPGSessionClean(t, pool)
 }
 
 func TestHypoPGFailureAndEmptyQueriesCleanSession(t *testing.T) {
 	pool := hypopgSessionPool(t)
-	h := NewHypoPG(pool, 1, noopLog2)
+	h := NewHypoPG(pool, noopLog2)
 	rec := Recommendation{DDL: "CREATE INDEX candidate ON hypopg_session_test.items (category)"}
 	bad := []QueryInfo{{QueryID: 1, Text: "SELECT missing_column FROM hypopg_session_test.items"}}
-	if ok, _, _, err := h.Validate(t.Context(), rec, bad); err == nil || ok {
-		t.Fatal("invalid EXPLAIN must return an actionable error, not an unvalidated success")
+	// Phase 0 item 7: one query that cannot be planned is isolated in a
+	// savepoint and counted as failed; it never aborts the session or
+	// passes as measured evidence (it used to abort the whole run).
+	res, err := h.Validate(t.Context(), rec, bad)
+	if err != nil || res.Measured != 0 || res.Failed != 1 || res.Improvement != 0 {
+		t.Fatalf("invalid EXPLAIN must be an isolated, unmeasured query: %+v %v", res, err)
 	}
 	assertHypoPGSessionClean(t, pool)
-	ok, improvement, size, err := h.Validate(t.Context(), rec, nil)
-	if err != nil || ok || improvement != 0 || size != 0 {
-		t.Fatalf("empty workload must produce no evidence: %t %f %d %v", ok, improvement, size, err)
+	res, err = h.Validate(t.Context(), rec, nil)
+	if err != nil || res != (WhatIfResult{}) {
+		t.Fatalf("empty workload must produce no evidence: %+v %v", res, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, _, _, err := h.Validate(ctx, rec, bad); !errors.Is(err, context.Canceled) {
+	if _, err := h.Validate(ctx, rec, bad); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation not preserved: %v", err)
 	}
 	assertHypoPGSessionClean(t, pool)
@@ -126,16 +129,15 @@ func TestHypoPGSizeDoesNotAcquireAnotherSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	h := NewHypoPG(pool, 1, noopLog2)
+	h := NewHypoPG(pool, noopLog2)
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	rec := Recommendation{DDL: "CREATE INDEX candidate ON hypopg_session_test.items (category)"}
 	queries := []QueryInfo{{QueryID: 1,
 		Text: "SELECT id FROM hypopg_session_test.items WHERE category=42"}}
-	ok, improvement, size, err := h.Validate(ctx, rec, queries)
-	if err != nil || !ok || improvement <= 1 || size <= 0 {
-		t.Fatalf("single-session size: ok=%t improvement=%f size=%d err=%v",
-			ok, improvement, size, err)
+	res, err := h.Validate(ctx, rec, queries)
+	if err != nil || res.Measured != 1 || res.Improvement <= 1 || res.SizeBytes <= 0 {
+		t.Fatalf("single-session size: %+v err=%v", res, err)
 	}
 	assertHypoPGSessionClean(t, pool)
 }
@@ -175,7 +177,7 @@ func TestHypoPGConcurrentSessionsAndAvailability(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	h := NewHypoPG(pool, 1, noopLog2)
+	h := NewHypoPG(pool, noopLog2)
 	var wg sync.WaitGroup
 	for range 2 {
 		wg.Add(1)
@@ -188,9 +190,9 @@ func TestHypoPGConcurrentSessionsAndAvailability(t *testing.T) {
 			rec := Recommendation{DDL: "CREATE INDEX candidate ON hypopg_session_test.items (category)"}
 			queries := []QueryInfo{{QueryID: 1,
 				Text: "SELECT id FROM hypopg_session_test.items WHERE category=42"}}
-			ok, improvement, size, err := h.Validate(t.Context(), rec, queries)
-			if err != nil || !ok || improvement <= 1 || size <= 0 {
-				t.Errorf("concurrent session result: %t %f %d %v", ok, improvement, size, err)
+			res, err := h.Validate(t.Context(), rec, queries)
+			if err != nil || res.Measured != 1 || res.Improvement <= 1 || res.SizeBytes <= 0 {
+				t.Errorf("concurrent session result: %+v %v", res, err)
 			}
 		}()
 	}
