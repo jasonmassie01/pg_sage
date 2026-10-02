@@ -175,7 +175,14 @@ function FamilyTable({ family, canAct, onDowngrade }) {
 function ClassRow({ family, row, canAct, onDowngrade }) {
   return (
     <tr data-testid={`autonomy-row-${family}-${row.class}`} style={strong}>
-      <td>{row.class}</td>
+      <td>
+        <span>{row.class}</span>
+        {row.provenance === 'carried_over' && (
+          <div className="text-xs" style={muted}>
+            carried over: {row.carried_ref}
+          </div>
+        )}
+      </td>
       <td style={muted}>{row.reversibility}</td>
       <td data-testid="cap">{row.cap}</td>
       <td data-testid="granted">{row.granted}</td>
