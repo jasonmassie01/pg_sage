@@ -211,3 +211,39 @@ func TestTunerUsesConfiguredFallbackWhenPrimaryUnconfigured(t *testing.T) {
 		t.Fatalf("calls=%d rx=%+v, want the fallback to answer", calls.Load(), rx)
 	}
 }
+
+// Post-test audit: an open circuit breaker also skips LLM work quietly.
+func TestTunerSkipsLLMWhileCircuitOpen(t *testing.T) {
+	pool := connectTunerTestDB(t)
+	defer pool.Close()
+	cleanSuppressions(t, pool)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) {
+			calls.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+	defer srv.Close()
+	client := llm.New(defaultsWithEndpoint(srv.URL, 100000), noopLog2)
+	for i := 0; !client.IsCircuitOpen() && i < 5; i++ {
+		_, _, _ = client.Chat(context.Background(), "s", fmt.Sprintf("u%d", i), 10)
+	}
+	if !client.IsCircuitOpen() {
+		t.Fatalf("precondition: circuit still closed after %d calls", calls.Load())
+	}
+	before := calls.Load()
+	logs := &capturedLog{}
+	tu := New(pool, TunerConfig{CascadeCooldownCycles: 2, WorkMemMaxMB: 512},
+		nil, logs.log, WithLLM(client, nil))
+	rx := tu.tryLLMPrescribe(context.Background(),
+		candidate{QueryID: 7007, Query: "SELECT 7"}, twoSymptoms, "")
+	if len(rx) != 0 || calls.Load() != before {
+		t.Fatalf("rx=%+v calls %d->%d with the circuit open", rx, before, calls.Load())
+	}
+	if n := suppressionCount(t, pool); n != 0 {
+		t.Errorf("suppression findings = %d with the circuit open, want 0", n)
+	}
+	if lines := logs.containing("LLM prescribe failed"); len(lines) != 0 {
+		t.Errorf("open circuit logged per candidate: %q", lines)
+	}
+}
