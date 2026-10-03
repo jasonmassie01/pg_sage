@@ -2,6 +2,7 @@ package selfmonitor
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 // selfPool opens a pool configured exactly as pg_sage's own pools are.
@@ -72,6 +74,20 @@ func TestConfigurePool_EveryProtocolPathIsTaggedAndTracked(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS public.selftag_probe")
 	})
+	// Another package's pg_stat_statements_reset() on the shared server can
+	// erase the entries between the probes and the check: repeat then.
+	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
+		runProtocolProbes(t, ctx, pool)
+		return protocolProblems(t, ctx)
+	})
+}
+
+// runProtocolProbes sends one statement over every protocol path pgx uses.
+func runProtocolProbes(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, "TRUNCATE public.selftag_probe"); err != nil {
+		t.Fatalf("truncate probe table: %v", err)
+	}
 	var n int
 	// Extended protocol (prepared, cached statement).
 	if err := pool.QueryRow(ctx, "SELECT $1::int AS selftag_ext", 7).Scan(&n); err != nil || n != 7 {
@@ -100,18 +116,26 @@ func TestConfigurePool_EveryProtocolPathIsTaggedAndTracked(t *testing.T) {
 		Scan(&n); err != nil || n != 2 {
 		t.Fatalf("COPY rows not readable back: n=%d err=%v", n, err)
 	}
+}
+
+// protocolProblems lists every probe that is untracked or tracked untagged.
+func protocolProblems(t *testing.T, ctx context.Context) []string {
+	t.Helper()
+	var problems []string
 	for _, marker := range []string{"selftag_ext", "selftag_simple", "selftag_batch_a",
 		"selftag_batch_b", "selftag_count"} {
 		texts := pgssTexts(t, ctx, marker)
 		if len(texts) == 0 {
-			t.Errorf("%s: not tracked by pg_stat_statements (pg_sage must stay visible)", marker)
+			problems = append(problems, marker+
+				": not tracked by pg_stat_statements (pg_sage must stay visible)")
 		}
 		for _, text := range texts {
 			if !IsTagged(text) {
-				t.Errorf("%s tracked untagged: %q", marker, text)
+				problems = append(problems, fmt.Sprintf("%s tracked untagged: %q", marker, text))
 			}
 		}
 	}
+	return problems
 }
 
 func TestConfigurePool_SessionIsNamedAndNotUntracked(t *testing.T) {

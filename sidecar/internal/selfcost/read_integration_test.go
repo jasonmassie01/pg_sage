@@ -2,6 +2,7 @@ package selfcost
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 func TestMain(m *testing.M) {
@@ -83,15 +85,32 @@ func waitFor(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 // not count.
 func TestRead_MeasuresOnlyPgSageWork(t *testing.T) {
 	pool, ctx := livePool(t)
-	before, err := Read(ctx, pool)
+	first, err := Read(ctx, pool)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if !before.StatementsKnown {
+	if !first.StatementsKnown {
 		t.Skip("pg_stat_statements not preloaded on this server")
 	}
-	if before.Database == "" || before.SchemaBytes <= 0 || before.At.IsZero() {
-		t.Fatalf("reading identity/size missing: %+v", before)
+	if first.Database == "" || first.SchemaBytes <= 0 || first.At.IsZero() {
+		t.Fatalf("reading identity/size missing: %+v", first)
+	}
+	// Another package's pg_stat_statements_reset() on the shared server
+	// makes the statement deltas negative: repeat the window then.
+	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
+		before, after := measureAppAndSage(t, ctx, pool)
+		return readProblems(before, after)
+	})
+}
+
+// measureAppAndSage reads, runs a 400 ms application statement and pg_sage
+// work (a 100 ms statement, 5 sage rows written and read), and reads again.
+func measureAppAndSage(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (Reading,
+	Reading) {
+	t.Helper()
+	before, err := Read(ctx, pool)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
 	}
 	app, err := pgx.Connect(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
@@ -112,23 +131,34 @@ func TestRead_MeasuresOnlyPgSageWork(t *testing.T) {
 	after := waitFor(t, ctx, pool, func(r Reading) bool {
 		return r.RowsWritten-before.RowsWritten >= 5 && r.RowsRead-before.RowsRead >= 5
 	})
+	return before, after
+}
+
+// readProblems checks the window counted pg_sage's work and not the
+// application's.
+func readProblems(before, after Reading) []string {
+	var problems []string
 	dbMs := after.DBTimeMs - before.DBTimeMs
 	if dbMs < 100 {
-		t.Errorf("DB time delta = %.1f ms, want >= 100 (pg_sage's pg_sleep(0.1))", dbMs)
+		problems = append(problems, fmt.Sprintf(
+			"DB time delta = %.1f ms, want >= 100 (pg_sage's pg_sleep(0.1))", dbMs))
 	}
 	if dbMs >= 400 {
-		t.Errorf("DB time delta = %.1f ms: the application's 400 ms statement was counted", dbMs)
+		problems = append(problems, fmt.Sprintf(
+			"DB time delta = %.1f ms: the application's 400 ms statement was counted", dbMs))
 	}
-	if after.Calls-before.Calls < 3 {
-		t.Errorf("calls delta = %d, want >= 3", after.Calls-before.Calls)
+	if d := after.Calls - before.Calls; d < 3 {
+		problems = append(problems, fmt.Sprintf("calls delta = %d, want >= 3", d))
 	}
 	if !after.At.After(before.At) {
-		t.Errorf("reading time did not advance: %v -> %v", before.At, after.At)
+		problems = append(problems, fmt.Sprintf("reading time did not advance: %v -> %v",
+			before.At, after.At))
 	}
 	c := Between(before, after, time.Minute)
 	if !c.Known || !c.DBTimeKnown || c.RowsWrittenPerCycle <= 0 {
-		t.Errorf("cost between real readings = %+v", c)
+		problems = append(problems, fmt.Sprintf("cost between real readings = %+v", c))
 	}
+	return problems
 }
 
 func TestRead_CanceledContextIsAnError(t *testing.T) {
