@@ -52,16 +52,21 @@ const (
 	// go with them (ON DELETE CASCADE). Live ones are kept however old.
 	keepRecommendation = `AND state IN ('verified', 'reverted', 'inconclusive',
 	                   'superseded', 'abandoned')`
+	// OFFSET 0 keeps a keep check on a large table a correlated index probe
+	// per candidate (a subplan): as an anti join, the generic plan of a
+	// purge with many candidates hashed all of sage.action_log or
+	// sage.verification on every run (perf gate, perf-selfexcl).
 	keepVerification = `AND verdict NOT IN ('pending', 'extended')
 	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
 	                   WHERE ia.verification_id = verification.id)
 	    AND NOT EXISTS (SELECT 1 FROM sage.action_log al
 	                   WHERE al.id = verification.action_log_id
 	                   AND al.outcome = 'success'
-	                   AND al.toil_minutes_saved IS NOT NULL)`
+	                   AND al.toil_minutes_saved IS NOT NULL OFFSET 0)`
 	keepDecision = `AND (deadline_hard_at IS NULL OR deadline_hard_at < now()
 	                   OR resolved_at IS NOT NULL)
-	    AND NOT EXISTS (SELECT 1 FROM sage.verification v WHERE v.decision_id = decision.id)
+	    AND NOT EXISTS (SELECT 1 FROM sage.verification v WHERE v.decision_id = decision.id
+	                   OFFSET 0)
 	    AND NOT EXISTS (SELECT 1 FROM sage.change_lease cl WHERE cl.decision_id = decision.id)
 	    AND NOT EXISTS (SELECT 1 FROM sage.incident_avoided ia
 	                   WHERE ia.decision_id = decision.id)`
