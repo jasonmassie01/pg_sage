@@ -369,8 +369,11 @@ func maxConcurrent(
 	return &peak
 }
 
+// sleepSpec sleeps 250 ms under the largest probe statement timeout
+// (500 ms): the default 400 ms left 150 ms for a loaded server.
 func sleepSpec(id ID, marker string) Spec {
-	return testSpec(id, "SELECT pg_sleep(0.25) AS s, '"+marker+"' AS m LIMIT $1")
+	return testSpec(id, "SELECT pg_sleep(0.25) AS s, '"+marker+"' AS m LIMIT $1",
+		func(s *Spec) { s.StatementTimeout = 500 * time.Millisecond })
 }
 
 func runConcurrently(ctx context.Context, n int, run func(i int) Result) []Result {
