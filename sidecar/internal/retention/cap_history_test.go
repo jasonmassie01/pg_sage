@@ -18,6 +18,11 @@ import (
 // first, in paced batches, never today's rows, never a base a kept row
 // needs, measured by live data (a DELETE frees no disk space).
 
+// trimmedAhead bounds the history partition three UTC midnights ahead, so
+// it closes after trimSkipWindow and is trimmed (one bounded two midnights
+// ahead, as pg_sage's conversion does, closes within it and is not).
+const trimmedAhead = -3
+
 func snapshotCfg() *config.Config {
 	return &config.Config{Retention: config.RetentionConfig{SnapshotsDays: 90}}
 }
@@ -114,7 +119,7 @@ func cleanCapRows(t *testing.T, ctx context.Context) {
 func TestSnapshotCap_TrimsTheHistoryPartitionOldestFirst(t *testing.T) {
 	pool, ctx := requireDB(t)
 	tbl := partition.Snapshots
-	rebound(t, ctx, tbl, -2)
+	rebound(t, ctx, tbl, trimmedAhead)
 	cleanCapRows(t, ctx)
 	today := partition.DayStart(time.Now())
 	var ids []int64
@@ -165,7 +170,7 @@ func TestSnapshotCap_TrimsTheHistoryPartitionOldestFirst(t *testing.T) {
 // every kept row stays readable.
 func TestSnapshotCap_TrimStopsAtTheKeyframeBoundary(t *testing.T) {
 	pool, ctx := requireDB(t)
-	rebound(t, ctx, partition.Snapshots, -2)
+	rebound(t, ctx, partition.Snapshots, trimmedAhead)
 	cleanCapRows(t, ctx)
 	today := partition.DayStart(time.Now())
 	y := today.AddDate(0, 0, -1)
@@ -202,12 +207,13 @@ func TestSnapshotCap_TrimStopsAtTheKeyframeBoundary(t *testing.T) {
 }
 
 // The trim is paced and budgeted like every purge: one statement deletes
-// at most snapshotBatchSize rows, a run stops when its budget is spent,
-// and the next run resumes with sage.snapshots where the last one stopped,
-// oldest rows first.
+// at most snapshotBatchSize rows, a run stops when its budget is spent, and
+// a later run resumes where the last one stopped, oldest rows first. The
+// rule that spent the budget goes last in the next run (fair rotation), so
+// under a 1 ns budget sage.snapshots gets its turn within len(rules) runs.
 func TestSnapshotCap_HistoryTrimResumesAcrossRuns(t *testing.T) {
 	pool, ctx := requireDB(t)
-	rebound(t, ctx, partition.Snapshots, -2)
+	rebound(t, ctx, partition.Snapshots, trimmedAhead)
 	cleanCapRows(t, ctx)
 	today := partition.DayStart(time.Now())
 	var ids []int64
@@ -216,19 +222,29 @@ func TestSnapshotCap_HistoryTrimResumesAcrossRuns(t *testing.T) {
 			today.AddDate(0, 0, -2).Add(time.Duration(i)*time.Minute), 4))
 	}
 	todays := insertBlob(t, ctx, today, 4)
-	c := New(pool, snapshotCfg(), noopLog).WithPacing(time.Millisecond, time.Nanosecond)
+	cfg := snapshotCfg()
+	c := New(pool, cfg, noopLog).WithPacing(time.Millisecond, time.Nanosecond)
 	c.capBytes = 1
-	for run, from := range []int{50, 100, 120} {
+	turns := 0
+	for run := 1; run <= 3*len(purgeRules(cfg)) && turns < 3; run++ {
 		stats := c.RunOnce(ctx)
+		if stats.Batches["snapshots"] == 0 {
+			continue
+		}
+		turns++
+		from := []int{50, 100, 120}[turns-1]
 		want := append(slices.Clone(ids[from:]), todays)
 		if got := remainingIDs(t, ctx); !slices.Equal(got, want) {
-			t.Fatalf("run %d: %d rows remain, want the %d newest (deleted %d)", run+1,
-				len(got), len(want), stats.Deleted["snapshots"])
+			t.Fatalf("turn %d (run %d): %d rows remain, want the %d newest (deleted %d)",
+				turns, run, len(got), len(want), stats.Deleted["snapshots"])
 		}
-		if run < 2 && (!stats.BudgetSpent || len(stats.Deferred) == 0 ||
-			stats.Deferred[0] != "snapshots") {
-			t.Fatalf("run %d = %+v, want the trim deferred to the next run", run+1, stats)
+		if turns < 3 && (!stats.BudgetSpent || stats.Deferred[0] != "snapshots") {
+			t.Fatalf("turn %d = %+v, want the trim cut short by the budget", turns, stats)
 		}
+	}
+	if turns != 3 {
+		t.Fatalf("sage.snapshots got %d turns in %d runs, want 3", turns,
+			3*len(purgeRules(cfg)))
 	}
 }
 
@@ -237,7 +253,7 @@ func TestSnapshotCap_HistoryTrimResumesAcrossRuns(t *testing.T) {
 func TestSnapshotCap_UnderTheCapIsUntouched(t *testing.T) {
 	pool, ctx := requireDB(t)
 	tbl := partition.Snapshots
-	rebound(t, ctx, tbl, -2)
+	rebound(t, ctx, tbl, trimmedAhead)
 	cleanCapRows(t, ctx)
 	today := partition.DayStart(time.Now())
 	for d := 5; d >= 1; d-- {
@@ -271,7 +287,7 @@ func TestSnapshotCap_UnderTheCapIsUntouched(t *testing.T) {
 // is logged once, not on every run.
 func TestSnapshotCap_WarningIsRateLimited(t *testing.T) {
 	pool, ctx := requireDB(t)
-	rebound(t, ctx, partition.Snapshots, -2)
+	rebound(t, ctx, partition.Snapshots, trimmedAhead)
 	cleanCapRows(t, ctx)
 	insertBlob(t, ctx, partition.DayStart(time.Now()), 16)
 	logs := &captureLog{}
@@ -302,7 +318,7 @@ func TestSnapshotCap_WarningIsRateLimited(t *testing.T) {
 func TestTrimSQL_KeepsBasesPastAnUnsafeBoundary(t *testing.T) {
 	pool, ctx := requireDB(t)
 	tbl := partition.Snapshots
-	rebound(t, ctx, tbl, -2)
+	rebound(t, ctx, tbl, trimmedAhead)
 	cleanCapRows(t, ctx)
 	today := partition.DayStart(time.Now())
 	y := today.AddDate(0, 0, -1)
@@ -330,7 +346,7 @@ func TestTrimSQL_KeepsBasesPastAnUnsafeBoundary(t *testing.T) {
 // the run: the other tables are still purged, and the next run goes on.
 func TestSnapshotCap_TrimStopsAtItsByteBudgetPerRun(t *testing.T) {
 	pool, ctx := requireDB(t)
-	rebound(t, ctx, partition.Snapshots, -2)
+	rebound(t, ctx, partition.Snapshots, trimmedAhead)
 	cleanCapRows(t, ctx)
 	today := partition.DayStart(time.Now())
 	var ids []int64
@@ -365,7 +381,7 @@ func TestSnapshotCap_TrimStopsAtItsByteBudgetPerRun(t *testing.T) {
 // boundary: the trim deletes nothing and says why, rather than guessing.
 func TestSnapshotCap_UnwalkableChainTrimsNothing(t *testing.T) {
 	pool, ctx := requireDB(t)
-	rebound(t, ctx, partition.Snapshots, -2)
+	rebound(t, ctx, partition.Snapshots, trimmedAhead)
 	cleanCapRows(t, ctx)
 	today := partition.DayStart(time.Now())
 	prev := insertBlob(t, ctx, today.Add(-21*time.Hour), 4)

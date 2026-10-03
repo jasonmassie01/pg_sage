@@ -134,7 +134,7 @@ func TestRunOnce_HistoryKeptWhileAKeptChainReachesIt(t *testing.T) {
 // row it wrote stays and reads back, and the old rows still go.
 func TestSnapshotCap_ConcurrentWriterNeverFails(t *testing.T) {
 	pool, ctx := requireDB(t)
-	rebound(t, ctx, partition.Snapshots, -2)
+	rebound(t, ctx, partition.Snapshots, trimmedAhead)
 	cleanCapRows(t, ctx)
 	today := partition.DayStart(time.Now())
 	for i := 0; i < 150; i++ {
@@ -206,7 +206,7 @@ func writeWhileTrimming(ctx context.Context, db *pgxpool.Pool, done <-chan struc
 func TestTrimSQL_UsesTheTimeIndexAndTIDs(t *testing.T) {
 	_, ctx := requireDB(t)
 	tbl := partition.Snapshots
-	rebound(t, ctx, tbl, -2)
+	rebound(t, ctx, tbl, trimmedAhead)
 	t.Cleanup(func() { execRetry(t, ctx, `TRUNCATE sage.snapshots`) })
 	execRetry(t, ctx, `INSERT INTO sage.snapshots (collected_at, category, data)
 		SELECT now() - interval '2 days' + g * interval '1 second', 'cap_test', '{}'
@@ -298,7 +298,7 @@ func TestCapNotes_ConcurrentUseLogsOnce(t *testing.T) {
 // The over-cap warnings name what is being done and how much is left.
 func TestSnapshotCap_TrimWarningSaysWhatIsLeft(t *testing.T) {
 	pool, ctx := requireDB(t)
-	rebound(t, ctx, partition.Snapshots, -2)
+	rebound(t, ctx, partition.Snapshots, trimmedAhead)
 	cleanCapRows(t, ctx)
 	today := partition.DayStart(time.Now())
 	for i := 0; i < 4; i++ {
