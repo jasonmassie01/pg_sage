@@ -21,7 +21,8 @@ func TestPersist_DayPartitionsHoldTheirOwnBases(t *testing.T) {
 	docs := [][]byte{list(idx("a", 1), idx("b", 2)), list(idx("a", 1), idx("b", 3)),
 		list(idx("a", 2), idx("b", 3))}
 	for i, at := range steps {
-		if err := w.Persist(ctx, pool, at, []Row{{Category: "indexes", Data: docs[i]}}); err != nil {
+		row := []Row{{Category: "indexes", Data: docs[i]}}
+		if err := w.Persist(ctx, pool, at, row); err != nil {
 			t.Fatalf("persist %s: %v", at, err)
 		}
 	}

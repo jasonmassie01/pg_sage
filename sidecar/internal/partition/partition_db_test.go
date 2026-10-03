@@ -184,8 +184,8 @@ func TestConvert_KeyBecomesCompositePrimaryKey(t *testing.T) {
 		t.Fatalf("primary key = %q", def)
 	}
 	// A duplicate (id, at) is still refused.
-	_, err := pool.Exec(ctx, "INSERT INTO sage."+tbl.Name+" (id, at, v) SELECT id, at, 9 FROM sage."+
-		tbl.Name+" LIMIT 1")
+	_, err := pool.Exec(ctx, "INSERT INTO sage."+tbl.Name+
+		" (id, at, v) SELECT id, at, 9 FROM sage."+tbl.Name+" LIMIT 1")
 	var pgErr *pgconn.PgError
 	if err == nil || !errors.As(err, &pgErr) || pgErr.Code != "23505" {
 		t.Fatalf("duplicate key accepted: %v", err)

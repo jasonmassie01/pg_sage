@@ -36,8 +36,8 @@ func Ensure(ctx context.Context, db DB, t Table, from time.Time, days int) (int,
 			covered = p.Upper
 		}
 	}
-	created := 0
-	for d := DayStart(from); d.Before(DayStart(from).Add(time.Duration(days) * day)); d = d.Add(day) {
+	created, end := 0, DayStart(from).Add(time.Duration(days)*day)
+	for d := DayStart(from); d.Before(end); d = d.Add(day) {
 		if d.Before(covered) || have[t.DayName(d)] {
 			continue
 		}

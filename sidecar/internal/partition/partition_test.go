@@ -11,7 +11,8 @@ func TestDayStartIsUTCMidnight(t *testing.T) {
 		in   time.Time
 		want time.Time
 	}{
-		{time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)},
+		{time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC),
+			time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)},
 		{time.Date(2026, 10, 3, 23, 59, 59, 999, time.UTC),
 			time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)},
 		// 08:00 on the 4th at UTC+10 is 22:00 on the 3rd in UTC.
@@ -40,7 +41,8 @@ func TestPartitionNamesAreDailyAndParseBack(t *testing.T) {
 		t.Fatalf("parseDay = %s %v", got, ok)
 	}
 	for _, bad := range []string{"query_store_p2026010", "query_store_p20261340",
-		"snapshots_p20260109", "query_store_history", "query_store_default", "query_store_pabcdefgh", ""} {
+		"snapshots_p20260109", "query_store_history", "query_store_default",
+		"query_store_pabcdefgh", ""} {
 		if _, ok := QueryStore.parseDay(bad); ok {
 			t.Errorf("parseDay(%q) accepted", bad)
 		}

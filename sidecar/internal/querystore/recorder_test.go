@@ -80,7 +80,8 @@ func TestRecorder_EachChangedCounterIsWritten(t *testing.T) {
 			r, db := NewRecorder(), &fakeExec{}
 			base := idle(7)
 			base.StatsEpoch = epoch
-			if _, err := r.Record(context.Background(), db, []Sample{base, idle(8)}, t0); err != nil {
+			first := []Sample{base, idle(8)}
+			if _, err := r.Record(context.Background(), db, first, t0); err != nil {
 				t.Fatal(err)
 			}
 			moved := base
