@@ -30,7 +30,11 @@ func flattenPlan(n planNode, out []planNode) []planNode {
 // every tick: ~24M rows per 90 s in the performance gate. It now reads
 // each table's write counter from the statistics system and its newest id
 // from the primary key: the only table access is one index step per table
-// (sequential scans disabled, so a missing index would show as one).
+// (sequential scans, bitmap scans and sorts disabled: on the near-empty
+// test tables the planner may prefer a bitmap scan plus a sort, which is
+// fine at that size; with the alternatives disabled it still falls back
+// to a seq scan or a sort when no index can serve the read, so a missing
+// index shows as one).
 func TestEventChangeSignatureIsIndexBacked(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	conn, err := pool.Acquire(ctx)
@@ -38,10 +42,12 @@ func TestEventChangeSignatureIsIndexBacked(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Release()
-	if _, err := conn.Exec(ctx, "SET enable_seqscan = off"); err != nil {
-		t.Fatal(err)
+	for _, gate := range []string{"enable_seqscan", "enable_bitmapscan", "enable_sort"} {
+		if _, err := conn.Exec(ctx, "SET "+gate+" = off"); err != nil {
+			t.Fatal(err)
+		}
 	}
-	defer func() { _, _ = conn.Exec(ctx, "RESET enable_seqscan") }()
+	defer func() { _, _ = conn.Exec(ctx, "RESET ALL") }()
 	var raw []byte
 	if err := conn.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+changeSignatureSQL).
 		Scan(&raw); err != nil {
