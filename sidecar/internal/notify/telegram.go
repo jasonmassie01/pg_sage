@@ -50,12 +50,18 @@ func (s *TelegramSender) Send(ctx context.Context, ch Channel, evt Event) error 
 	}
 	msg := map[string]any{"text": TruncateRunes(text, telegramTextMax),
 		"disable_web_page_preview": true}
-	if id, ok := approvalProposal(evt); ok {
+	if token := cardToken(evt); token != "" {
+		msg["reply_markup"] = cardKeyboard(token)
+	} else if id, ok := approvalProposal(evt); ok {
 		msg["reply_markup"] = map[string]any{"inline_keyboard": [][]map[string]string{{
 			{"text": "Approve", "callback_data": chatops.CallbackData(
 				chatops.DecisionApprove, id)},
 			{"text": "Deny", "callback_data": chatops.CallbackData(chatops.DecisionDeny, id)},
 		}}}
+	}
+	if replyTo, ok := evt.Data[DataReplyTo].(int64); ok && replyTo > 0 {
+		msg["reply_to_message_id"] = replyTo
+		msg["allow_sending_without_reply"] = true
 	}
 	return s.call(ctx, ch, "sendMessage", msg)
 }
