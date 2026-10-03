@@ -121,7 +121,7 @@ func (s *ddlScanner) parseTail(spec *IndexSpec) error {
 		}
 	}
 	if s.keyword("WHERE") {
-		spec.Where = normalizeFragment(s.rest())
+		spec.Where = normalizeFragment(s.consumeRest())
 		if spec.Where == "" {
 			return fmt.Errorf("empty WHERE predicate")
 		}
@@ -179,6 +179,10 @@ func canonicalizeRecommendation(rec Recommendation, tc TableContext) (Recommenda
 	rec.Table = tc.Schema + "." + tc.Table
 	rec.DropDDL = "DROP INDEX CONCURRENTLY IF EXISTS " +
 		sanitize.QuoteQualifiedName(tc.Schema, spec.Name)
+	rec.PartitionedParent, rec.PartitionPlan = tc.IsPartitioned, nil
+	if tc.IsPartitioned {
+		rec.PartitionPlan = partitionPlan(spec, tc)
+	}
 	if rec.IndexCategory == "" {
 		rec.IndexCategory = rec.Category
 	}

@@ -91,14 +91,16 @@ func (f *fixture) outcomes(database string) map[int64]string {
 }
 
 func TestReconcileRecordsL2HandoffsAndL3Executions(t *testing.T) {
-	f := newFixture(t)
+	f := newReconFixture(t)
 	f.cleanMonitored()
-	db := "recon-" + newUUID(t)[:8]
+	db := f.db
 	ok := f.actionLog("success")
+	f.attachVerification(ok, "success")
 	f.handoff("autonomy:wraparound_runway:freeze:public.orders", ok)
 	failed := f.actionLog("failed")
 	f.handoff("autonomy:wraparound_runway:freeze:public.orders", failed)
 	l3 := f.l3Decision("wraparound_runway", "freeze", "success")
+	f.attachVerification(l3, "success")
 	notifier := &recordingNotifier{}
 	r := NewReconciler(f.svc, f.pool, db, notifier)
 	res, err := r.RunOnce(f.ctx)
@@ -126,9 +128,9 @@ func TestReconcileRecordsL2HandoffsAndL3Executions(t *testing.T) {
 }
 
 func TestReconcileWaitsForVerification(t *testing.T) {
-	f := newFixture(t)
+	f := newReconFixture(t)
 	f.cleanMonitored()
-	db := "recon-" + newUUID(t)[:8]
+	db := f.db
 	id := f.l3Decision("wraparound_runway", "freeze", "success")
 	var decision int64
 	if err := f.pool.QueryRow(f.ctx, `SELECT decision_id FROM sage.action_log WHERE id = $1`,
@@ -170,10 +172,10 @@ func TestReconcileWaitsForVerification(t *testing.T) {
 
 // A rolled-back action is harmful: the family is demoted at once.
 func TestReconcileRollbackDemotesTheFamily(t *testing.T) {
-	f := newFixture(t)
+	f := newReconFixture(t)
 	f.cleanMonitored()
 	f.seedL3()
-	db := "recon-" + newUUID(t)[:8]
+	db := f.db
 	f.handoff("autonomy:wraparound_runway:freeze:public.orders", f.actionLog("rolled_back"))
 	if _, err := NewReconciler(f.svc, f.pool, db, nil).RunOnce(f.ctx); err != nil {
 		t.Fatal(err)
@@ -184,14 +186,15 @@ func TestReconcileRollbackDemotesTheFamily(t *testing.T) {
 }
 
 func TestReconcileSkipsMalformedKeysAndKeepsGoing(t *testing.T) {
-	f := newFixture(t)
+	f := newReconFixture(t)
 	f.cleanMonitored()
-	db := "recon-" + newUUID(t)[:8]
+	db := f.db
 	for _, key := range []string{"autonomy:bogus", "autonomy:shell:freeze:public.t",
 		"autonomy:wraparound_runway:rm_rf:public.t", "autonomy:::"} {
 		f.handoff(key, f.actionLog("success"))
 	}
 	good := f.actionLog("success")
+	f.attachVerification(good, "success")
 	f.handoff("autonomy:wal_retention:wal_bound:slot:s1", good)
 	res, err := NewReconciler(f.svc, f.pool, db, nil).RunOnce(f.ctx)
 	if err != nil {
@@ -204,9 +207,9 @@ func TestReconcileSkipsMalformedKeysAndKeepsGoing(t *testing.T) {
 }
 
 func TestReconcileNotifierFailureIsRetried(t *testing.T) {
-	f := newFixture(t)
+	f := newReconFixture(t)
 	f.cleanMonitored()
-	db := "recon-" + newUUID(t)[:8]
+	db := f.db
 	f.l3Decision("wraparound_runway", "freeze", "success")
 	notifier := &recordingNotifier{fails: true}
 	r := NewReconciler(f.svc, f.pool, db, notifier)
@@ -222,11 +225,16 @@ func TestReconcileNotifierFailureIsRetried(t *testing.T) {
 
 func TestReconcilerValidatesInputs(t *testing.T) {
 	f := newFixture(t)
-	if _, err := NewReconciler(f.svc, nil, "db", nil).RunOnce(f.ctx); err == nil {
+	if _, err := NewReconciler(f.svc, nil, f.db, nil).RunOnce(f.ctx); err == nil {
 		t.Fatal("nil monitored pool accepted")
 	}
 	if _, err := NewReconciler(f.svc, f.pool, "", nil).RunOnce(f.ctx); err == nil {
 		t.Fatal("empty database accepted")
+	}
+	// P0-5: a reconciler records into its own database's ledger only.
+	if _, err := NewReconciler(f.svc, f.pool, "billing", nil).RunOnce(f.ctx); !errors.Is(err,
+		ErrInvalidRequest) {
+		t.Fatalf("another database's ledger accepted: %v", err)
 	}
 }
 
@@ -279,6 +287,43 @@ func TestPostgresConcurrencyCountsOtherWriters(t *testing.T) {
 	}
 	if _, err := c.ConcurrentActions(f.ctx, nil, false, time.Minute); err == nil {
 		t.Fatal("no targets must be an error (fail closed)")
+	}
+}
+
+// newReconFixture is a fixture for a database of its own name, so its
+// outcomes are easy to tell apart.
+func newReconFixture(t *testing.T) *fixture {
+	t.Helper()
+	return newFixtureFor(t, newUUID(t), "recon-"+newUUID(t)[:8])
+}
+
+// attachVerification links a completed (or pending) verification with
+// verdict to an action, creating the decision it needs when the action
+// has none.
+func (f *fixture) attachVerification(actionLogID int64, verdict string) {
+	f.t.Helper()
+	if _, err := f.pool.Exec(f.ctx, `WITH d AS (
+		INSERT INTO sage.decision (feature, intent, target_objects, verdict, risk_tier,
+		    reason, evidence_id)
+		SELECT 'freeze', 'freeze', '["public.orders"]', 'execute', 'safe', 'authorized',
+		       md5(random()::text)
+		WHERE NOT EXISTS (SELECT 1 FROM sage.action_log
+		                  WHERE id = $1 AND decision_id IS NOT NULL)
+		RETURNING id)
+		UPDATE sage.action_log SET decision_id = d.id FROM d WHERE action_log.id = $1`,
+		actionLogID); err != nil {
+		f.t.Fatalf("decision for action %d: %v", actionLogID, err)
+	}
+	if _, err := f.pool.Exec(f.ctx, `WITH v AS (
+		INSERT INTO sage.verification (decision_id, action_log_id, criterion, baseline,
+		    minimum_samples, next_evaluation_at, hard_deadline_at, verdict, completed_at)
+		SELECT decision_id, id, '{}', '{}', 1, now(), now(), $2,
+		       CASE WHEN $2 IN ('pending', 'extended') THEN NULL ELSE now() END
+		FROM sage.action_log WHERE id = $1
+		RETURNING id)
+		UPDATE sage.action_log SET verification_id = v.id FROM v WHERE action_log.id = $1`,
+		actionLogID, verdict); err != nil {
+		f.t.Fatalf("verification for action %d: %v", actionLogID, err)
 	}
 }
 

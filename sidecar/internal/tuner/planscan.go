@@ -27,6 +27,8 @@ type planNode struct {
 	RowsRemovedByFilter *int64     `json:"Rows Removed by Filter,omitempty"`
 	WorkersPlanned      *int       `json:"Workers Planned,omitempty"`
 	WorkersLaunched     *int       `json:"Workers Launched,omitempty"`
+	ParallelAware       bool       `json:"Parallel Aware,omitempty"`
+	ParentRelationship  string     `json:"Parent Relationship,omitempty"`
 	Plans               []planNode `json:"Plans,omitempty"`
 }
 
@@ -36,13 +38,20 @@ type planWrapper struct {
 
 // ScanPlan parses EXPLAIN (FORMAT JSON) output and returns
 // detected symptoms. Accepts both [{"Plan":...}] and {"Plan":...}.
-func ScanPlan(planJSON []byte) ([]PlanSymptom, error) {
+// Symptoms that depend on the catalog (a seq scan with a usable index,
+// a large serial scan) need WithCatalogFacts; without it they are not
+// emitted.
+func ScanPlan(planJSON []byte, opts ...ScanOption) ([]PlanSymptom, error) {
 	root, err := parsePlanRoot(planJSON)
 	if err != nil {
 		return nil, fmt.Errorf("tuner: parse plan: %w", err)
 	}
+	sc := &scanContext{}
+	for _, opt := range opts {
+		opt(sc)
+	}
 	var symptoms []PlanSymptom
-	walkNode(root, 0, &symptoms)
+	walkNodeWithParent(root, nil, 0, false, sc, &symptoms)
 	return symptoms, nil
 }
 
@@ -63,31 +72,28 @@ func parsePlanRoot(data []byte) (planNode, error) {
 	return single.Plan, nil
 }
 
-func walkNode(
-	node planNode, depth int, symptoms *[]PlanSymptom,
-) {
-	walkNodeWithParent(node, nil, depth, symptoms)
-}
-
 func walkNodeWithParent(
 	node planNode,
 	parent *planNode,
 	depth int,
+	underGather bool,
+	sc *scanContext,
 	symptoms *[]PlanSymptom,
 ) {
-	found := checkNode(node, depth)
+	found := checkNode(node, depth, underGather, sc)
 	*symptoms = append(*symptoms, found...)
 	if s := checkSortLimit(node, parent, depth); s != nil {
 		*symptoms = append(*symptoms, *s)
 	}
+	gather := underGather || node.NodeType == "Gather" || node.NodeType == "Gather Merge"
 	for i := range node.Plans {
 		walkNodeWithParent(
-			node.Plans[i], &node, depth+1, symptoms,
+			node.Plans[i], &node, depth+1, gather, sc, symptoms,
 		)
 	}
 }
 
-func checkNode(node planNode, depth int) []PlanSymptom {
+func checkNode(node planNode, depth int, underGather bool, sc *scanContext) []PlanSymptom {
 	var out []PlanSymptom
 	if s := checkDiskSort(node, depth); s != nil {
 		out = append(out, *s)
@@ -98,10 +104,10 @@ func checkNode(node planNode, depth int) []PlanSymptom {
 	if s := checkBadNestedLoop(node, depth); s != nil {
 		out = append(out, *s)
 	}
-	if s := checkSeqScan(node, depth); s != nil {
+	if s := checkSeqScan(node, depth, sc); s != nil {
 		out = append(out, *s)
 	}
-	if s := checkParallelDisabled(node, depth); s != nil {
+	if s := checkParallelDisabled(node, depth, underGather, sc); s != nil {
 		out = append(out, *s)
 	}
 	return out
@@ -154,31 +160,14 @@ func checkBadNestedLoop(
 		return nil
 	}
 	return &PlanSymptom{
-		Kind:      SymptomBadNestedLoop,
-		NodeType:  n.NodeType,
-		NodeDepth: depth,
-		Alias:     n.Alias,
+		Kind:        SymptomBadNestedLoop,
+		NodeType:    n.NodeType,
+		NodeDepth:   depth,
+		JoinAliases: joinAliases(n),
 		Detail: map[string]any{
 			"plan_rows":   n.PlanRows,
 			"actual_rows": int64(math.Round(*n.ActualRows)),
 		},
-	}
-}
-
-func checkSeqScan(n planNode, depth int) *PlanSymptom {
-	if n.NodeType != "Seq Scan" {
-		return nil
-	}
-	if n.RelationName == "" {
-		return nil
-	}
-	return &PlanSymptom{
-		Kind:         SymptomSeqScanWithIndex,
-		NodeType:     n.NodeType,
-		NodeDepth:    depth,
-		RelationName: n.RelationName,
-		Schema:       n.Schema,
-		Alias:        n.Alias,
 	}
 }
 
@@ -207,28 +196,6 @@ func checkSortLimit(
 			"sort_rows":  n.PlanRows,
 			"limit_rows": parent.PlanRows,
 		},
-	}
-}
-
-func checkParallelDisabled(
-	n planNode, depth int,
-) *PlanSymptom {
-	if !strings.Contains(n.NodeType, "Scan") {
-		return nil
-	}
-	if n.RelationName == "" {
-		return nil
-	}
-	if n.WorkersPlanned != nil {
-		return nil
-	}
-	return &PlanSymptom{
-		Kind:         SymptomParallelDisabled,
-		NodeType:     n.NodeType,
-		NodeDepth:    depth,
-		RelationName: n.RelationName,
-		Schema:       n.Schema,
-		Alias:        n.Alias,
 	}
 }
 

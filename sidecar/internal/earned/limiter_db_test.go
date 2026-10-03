@@ -313,11 +313,16 @@ func TestCapTransitionsAreLoggedOnce(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		lf.limit(freezeRequest(lf.clock.Now()))
 	}
-	evs := lf.events(EventFilter{Family: FamilyWraparound, Class: ClassFreeze,
-		Database: "orders"})
+	// The ledger is per database (P0-5), so its promotion events name the
+	// database too; keep the cap transitions.
+	var evs []Event
 	var types []string
-	for _, e := range evs {
+	for _, e := range lf.events(EventFilter{Family: FamilyWraparound, Class: ClassFreeze,
+		Database: "orders"}) {
 		types = append(types, string(e.Type))
+		if e.Type == EventCapped || e.Type == EventCapCleared {
+			evs = append(evs, e)
+		}
 	}
 	if len(evs) != 2 || evs[0].Type != EventCapCleared || evs[1].Type != EventCapped ||
 		!strings.Contains(evs[1].Reason, DowngradeBudgetBurn) || evs[1].Database != "orders" {

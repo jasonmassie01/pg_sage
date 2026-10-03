@@ -11,19 +11,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// HypoPG validates recommendations using hypothetical indexes.
+// HypoPG measures recommendations with hypothetical indexes.
 type HypoPG struct {
-	pool              *pgxpool.Pool
-	minImprovementPct float64
-	logFn             func(string, string, ...any)
-	mu                sync.Mutex
-	available         *bool
+	pool      *pgxpool.Pool
+	logFn     func(string, string, ...any)
+	mu        sync.Mutex
+	available *bool
 }
 
-func NewHypoPG(pool *pgxpool.Pool, minImprovementPct float64,
-	logFn func(string, string, ...any),
-) *HypoPG {
-	return &HypoPG{pool: pool, minImprovementPct: minImprovementPct, logFn: logFn}
+func NewHypoPG(pool *pgxpool.Pool, logFn func(string, string, ...any)) *HypoPG {
+	return &HypoPG{pool: pool, logFn: logFn}
 }
 
 // IsAvailable returns true if HypoPG is installed. Failed probes are not cached.
@@ -47,48 +44,36 @@ func (h *HypoPG) IsAvailable(ctx context.Context) bool {
 	return exists
 }
 
-// Validate measures an index on one owning session and restores that session before release.
+// Validate measures an index on one owning session and restores that
+// session before release. Each workload query is planned in its own
+// savepoint: one that cannot be planned is counted in Failed instead of
+// aborting the evaluation. The verdict is the caller's (whatIfVerdict).
 func (h *HypoPG) Validate(ctx context.Context, rec Recommendation, queries []QueryInfo,
-) (accepted bool, improvement float64, size int64, retErr error) {
+) (res WhatIfResult, retErr error) {
 	if h.pool == nil {
-		return false, 0, 0, fmt.Errorf("HypoPG requires a database pool")
+		return WhatIfResult{}, fmt.Errorf("HypoPG requires a database pool")
 	}
 	if err := ctx.Err(); err != nil {
-		return false, 0, 0, err
+		return WhatIfResult{}, err
 	}
 	if len(queries) == 0 {
-		return false, 0, 0, nil
+		return WhatIfResult{}, nil
 	}
 	session, err := openHypoPGSession(ctx, h.pool)
 	if err != nil {
-		return false, 0, 0, err
+		return WhatIfResult{}, err
 	}
 	defer func() {
 		if err := session.close(); err != nil {
-			accepted, improvement, size = false, 0, 0
+			res = WhatIfResult{}
 			retErr = errors.Join(retErr, err)
 		}
 	}()
-	improvement, size, err = session.evaluate(ctx, rec.DDL, queries)
+	res, err = session.evaluate(ctx, rec.DDL, queries)
 	if err != nil {
-		return false, 0, 0, err
+		return WhatIfResult{}, err
 	}
-	return size > 0 && improvement >= h.minImprovementPct, improvement, size, nil
-}
-
-func hypotheticalImprovement(before, after map[int64]float64) (float64, int) {
-	var total float64
-	var measured int
-	for id, cost := range before {
-		if next, ok := after[id]; ok && cost > 0 {
-			total += (cost - next) / cost * 100
-			measured++
-		}
-	}
-	if measured == 0 {
-		return 0, 0
-	}
-	return total / float64(measured), measured
+	return res, nil
 }
 
 func extractTotalCost(planJSON []byte) float64 {

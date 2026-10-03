@@ -44,10 +44,7 @@ func optimizerRecommendationToFinding(
 		"affected_queries":          rec.AffectedQueries,
 		"queryids":                  rec.AffectedQueryIDs,
 	}
-	if rec.CostEstimate != nil && rec.CostEstimate.EstimatedSizeBytes > 0 {
-		detail["estimated_size_bytes"] = rec.CostEstimate.EstimatedSizeBytes
-	}
-	return Finding{
+	f := Finding{
 		Category:         optimizer.OptimizerCategory,
 		Severity:         rec.Severity,
 		ObjectType:       "index",
@@ -59,6 +56,47 @@ func optimizerRecommendationToFinding(
 		RollbackSQL:      rec.DropDDL,
 		ActionRisk:       optimizer.RiskTierForRecommendation(rec),
 	}
+	addWhatIfDetail(&f, rec)
+	if rec.PartitionedParent {
+		advisePartitionPlan(&f, rec)
+	}
+	return f
+}
+
+// addWhatIfDetail records the HypoPG evidence and the verdict the executor
+// gates on: only a "verified" index may run without approval (Phase 0
+// item 7).
+func addWhatIfDetail(f *Finding, rec optimizer.Recommendation) {
+	if rec.CostEstimate != nil && rec.CostEstimate.EstimatedSizeBytes > 0 {
+		f.Detail["estimated_size_bytes"] = rec.CostEstimate.EstimatedSizeBytes
+	}
+	verdict := rec.WhatIf
+	if verdict == "" {
+		verdict = optimizer.WhatIfUnverified
+	}
+	f.Detail["what_if_verdict"] = verdict
+	if rec.WhatIfReason != "" {
+		f.Detail["what_if_reason"] = rec.WhatIfReason
+	}
+}
+
+// advisePartitionPlan makes an index on a partitioned table advisory:
+// PostgreSQL rejects CREATE INDEX CONCURRENTLY on the parent, so there is
+// no single executable statement; the plan is in the detail.
+func advisePartitionPlan(f *Finding, rec optimizer.Recommendation) {
+	f.RecommendedSQL, f.RollbackSQL = "", ""
+	f.Detail["partitioned_parent"] = true
+	note := "This table is partitioned, so the index cannot be built " +
+		"CONCURRENTLY on the parent. "
+	if len(rec.PartitionPlan) > 0 {
+		f.Detail["partition_plan"] = rec.PartitionPlan
+		note += "Run partition_plan in order: the parent index ON ONLY, then each " +
+			"partition's index CONCURRENTLY and ATTACH PARTITION."
+	} else {
+		note += "It has sub-partitioned partitions: build the index per leaf " +
+			"partition and attach each level."
+	}
+	f.Recommendation = strings.TrimSpace(rec.Rationale + "\n\n" + note)
 }
 
 // OptimizerFindingTable returns the "schema.table" an optimizer finding

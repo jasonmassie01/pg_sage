@@ -165,7 +165,8 @@ func TestCheckDuplicate_ExactMatch(t *testing.T) {
 	rec := Recommendation{DDL: "CREATE INDEX CONCURRENTLY idx ON t (a, b)"}
 	tc := TableContext{
 		Indexes: []IndexInfo{
-			{Name: "idx_existing", Definition: "CREATE INDEX idx_existing ON t (a, b)"},
+			{Name: "idx_existing", IsValid: true,
+				Definition: "CREATE INDEX idx_existing ON t (a, b)"},
 		},
 	}
 	ok, reason := v.checkDuplicate(rec, tc)
@@ -220,7 +221,8 @@ func TestCheckDuplicate_CaseInsensitiveMatch(t *testing.T) {
 	rec := Recommendation{DDL: "CREATE INDEX CONCURRENTLY idx ON t (Status)"}
 	tc := TableContext{
 		Indexes: []IndexInfo{
-			{Name: "idx_existing", Definition: "CREATE INDEX idx_existing ON t (status)"},
+			{Name: "idx_existing", IsValid: true,
+				Definition: "CREATE INDEX idx_existing ON t (status)"},
 		},
 	}
 	ok, _ := v.checkDuplicate(rec, tc)
@@ -389,7 +391,8 @@ func TestValidate_FailsOnDuplicate(t *testing.T) {
 	tc := TableContext{
 		Columns: []ColumnInfo{{Name: "name", Type: "text"}},
 		Indexes: []IndexInfo{
-			{Name: "idx_existing", Definition: "CREATE INDEX idx_existing ON t (name)"},
+			{Name: "idx_existing", IsValid: true,
+				Definition: "CREATE INDEX idx_existing ON t (name)"},
 		},
 		WriteRate:  10,
 		IndexCount: 3,

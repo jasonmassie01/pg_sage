@@ -92,24 +92,6 @@ func (a *Analyzer) checkConnectionLeaks(ctx context.Context) []Finding {
 	return ruleConnectionLeaks(leaked)
 }
 
-// downsample returns up to maxN evenly-spaced items from the input.
-func downsample[T any](items []T, maxN int) []T {
-	n := len(items)
-	if n <= maxN {
-		return items
-	}
-	step := float64(n) / float64(maxN)
-	out := make([]T, 0, maxN)
-	for i := 0; i < maxN; i++ {
-		idx := int(float64(i) * step)
-		if idx >= n {
-			idx = n - 1
-		}
-		out = append(out, items[idx])
-	}
-	return out
-}
-
 // computeIOUtilPct estimates I/O utilization as the ratio of
 // combined I/O wait time (blk_read_time + blk_write_time from
 // pg_stat_database) to total query execution time. Returns 0-100.

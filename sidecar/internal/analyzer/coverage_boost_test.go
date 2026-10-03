@@ -221,59 +221,6 @@ func TestCoverage_FilterSchemaExclusions_Empty(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// downsample
-// ---------------------------------------------------------------------------
-
-func TestCoverage_Downsample_BelowMax(t *testing.T) {
-	items := []int{1, 2, 3}
-	got := downsample(items, 10)
-	if len(got) != 3 {
-		t.Errorf("expected 3 items, got %d", len(got))
-	}
-}
-
-func TestCoverage_Downsample_ExactMax(t *testing.T) {
-	items := []int{1, 2, 3, 4, 5}
-	got := downsample(items, 5)
-	if len(got) != 5 {
-		t.Errorf("expected 5 items, got %d", len(got))
-	}
-}
-
-func TestCoverage_Downsample_AboveMax(t *testing.T) {
-	items := make([]int, 200)
-	for i := range items {
-		items[i] = i
-	}
-	got := downsample(items, 10)
-	if len(got) != 10 {
-		t.Errorf("expected 10 items, got %d", len(got))
-	}
-	// Verify evenly spaced: first should be 0.
-	if got[0] != 0 {
-		t.Errorf("first element should be 0, got %d", got[0])
-	}
-}
-
-func TestCoverage_Downsample_Empty(t *testing.T) {
-	got := downsample([]int{}, 5)
-	if len(got) != 0 {
-		t.Errorf("expected 0 items, got %d", len(got))
-	}
-}
-
-func TestCoverage_Downsample_MaxOne(t *testing.T) {
-	items := []int{10, 20, 30, 40, 50}
-	got := downsample(items, 1)
-	if len(got) != 1 {
-		t.Errorf("expected 1 item, got %d", len(got))
-	}
-	if got[0] != 10 {
-		t.Errorf("expected first element 10, got %d", got[0])
-	}
-}
-
-// ---------------------------------------------------------------------------
 // dispatchCriticalFindings
 // ---------------------------------------------------------------------------
 

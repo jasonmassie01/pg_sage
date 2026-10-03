@@ -95,39 +95,44 @@ func prescribeHighPlanTime() *Prescription {
 	}
 }
 
+// hintIdent is an identifier pg_hint_plan accepts unquoted. Anything
+// else (mixed case, spaces, quotes) is skipped rather than emitted raw.
+var hintIdent = regexp.MustCompile(`^[a-z_][a-z0-9_$]*$`)
+
+// prescribeBadNestedLoop forces a hash join of the relations the nested
+// loop joins. pg_hint_plan join hints need two or more relation aliases,
+// so with fewer (or with an alias it cannot take unquoted) no hint is
+// prescribed; never HashJoin() or HashJoin(<one alias>).
 func prescribeBadNestedLoop(s PlanSymptom) *Prescription {
-	alias := s.Alias
-	if alias == "" {
-		alias = s.RelationName
+	if len(s.JoinAliases) < 2 {
+		return nil
+	}
+	for _, a := range s.JoinAliases {
+		if !hintIdent.MatchString(a) {
+			return nil
+		}
 	}
 	return &Prescription{
 		Symptom:       SymptomBadNestedLoop,
-		HintDirective: fmt.Sprintf("HashJoin(%s)", alias),
+		HintDirective: "HashJoin(" + strings.Join(s.JoinAliases, " ") + ")",
 		Rationale:     "nested loop row estimate off by >10x",
 	}
 }
 
+// prescribeIndexScan names the usable index the symptom found; without
+// one there is nothing to force.
 func prescribeIndexScan(s PlanSymptom) *Prescription {
 	alias := s.Alias
 	if alias == "" {
 		alias = s.RelationName
 	}
-	idx := s.IndexName
-	if idx == "" {
-		return &Prescription{
-			Symptom: SymptomSeqScanWithIndex,
-			HintDirective: fmt.Sprintf(
-				"IndexScan(%s)", alias,
-			),
-			Rationale: "seq scan on indexed relation",
-		}
+	if !hintIdent.MatchString(alias) || !hintIdent.MatchString(s.IndexName) {
+		return nil
 	}
 	return &Prescription{
-		Symptom: SymptomSeqScanWithIndex,
-		HintDirective: fmt.Sprintf(
-			"IndexScan(%s %s)", alias, idx,
-		),
-		Rationale: "seq scan on indexed relation",
+		Symptom:       SymptomSeqScanWithIndex,
+		HintDirective: fmt.Sprintf("IndexScan(%s %s)", alias, s.IndexName),
+		Rationale:     "seq scan on a large table with a usable index on its filter",
 	}
 }
 

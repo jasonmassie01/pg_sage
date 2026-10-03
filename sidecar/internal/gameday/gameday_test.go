@@ -140,7 +140,8 @@ func newGDFixture(t *testing.T) *gdFixture {
 	t.Helper()
 	pool := testPool(t)
 	dep := newUUID(t)
-	es, err := earned.NewPostgresStore(pool, dep)
+	database := "orders-" + newUUID(t)[:8]
+	es, err := earned.NewPostgresStore(pool, dep, database)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +160,7 @@ func newGDFixture(t *testing.T) *gdFixture {
 	}
 	f.ledger, f.store, f.provider = ledger, st, &fakeProvider{}
 	f.faults = &fakeFaults{report: report(now, 0)}
-	f.database = "orders-" + newUUID(t)[:8]
+	f.database = database
 	return f
 }
 

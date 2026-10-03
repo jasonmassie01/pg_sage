@@ -17,6 +17,9 @@ const (
 	ResultNotRecovered     = "not_recovered"
 	ResultHarmful          = "harmful"
 	ResultSafetyViolation  = "safety_violation"
+	// ResultUnverified is an action that succeeded but whose effect no
+	// verification confirmed (P0-6): recorded, never promotion credit.
+	ResultUnverified = "unverified"
 
 	SourceExecutor = "executor"
 	SourceOperator = "operator"
@@ -55,23 +58,38 @@ type Review struct {
 	At              time.Time `json:"at"`
 }
 
-// upsertReview records (or replaces) the verdict on a packet.
+// upsertReview records (or replaces) the verdict on a packet. Only a
+// person's review counts as evidence, and a review that does not count
+// never replaces one that does (ErrConflict).
 func (s *PostgresStore) upsertReview(ctx context.Context, r Review) error {
-	_, err := s.pool.Exec(ctx, `INSERT INTO sage.sre_packet_reviews
+	if err := s.checkDatabase(r.Database); err != nil {
+		return err
+	}
+	tag, err := s.pool.Exec(ctx, `INSERT INTO sage.sre_packet_reviews
 		(deployment_id, database_name, investigation_id, family, verdict, reviewer, note,
-		 reviewed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8)
+		 reviewed_at, counts_as_evidence)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9)
 		ON CONFLICT (deployment_id, database_name, investigation_id) DO UPDATE
 		SET family = EXCLUDED.family, verdict = EXCLUDED.verdict,
 		    reviewer = EXCLUDED.reviewer, note = EXCLUDED.note,
-		    reviewed_at = EXCLUDED.reviewed_at`,
+		    reviewed_at = EXCLUDED.reviewed_at,
+		    counts_as_evidence = EXCLUDED.counts_as_evidence
+		WHERE EXCLUDED.counts_as_evidence OR NOT sre_packet_reviews.counts_as_evidence`,
 		s.deployment, r.Database, r.InvestigationID, string(r.Family), r.Verdict,
-		r.Reviewer, r.Note, r.At)
-	return storeErr("record packet review", err)
+		r.Reviewer, r.Note, r.At, ReviewCountsAsEvidence(r.Reviewer))
+	if err != nil {
+		return storeErr("record packet review", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: a person already reviewed investigation %s; a review "+
+			"through MCP cannot replace it", ErrConflict, r.InvestigationID)
+	}
+	return nil
 }
 
-// ShadowStats counts a family's packet reviews since since, and its first
-// review ever.
+// ShadowStats counts the database's packet reviews of a family by a
+// person since since, and the first such review ever. Reviews recorded
+// through MCP are kept but are not evidence.
 func (s *PostgresStore) ShadowStats(ctx context.Context, f Family, since time.Time) (Shadow,
 	error) {
 	var sh Shadow
@@ -80,8 +98,11 @@ func (s *PostgresStore) ShadowStats(ctx context.Context, f Family, since time.Ti
 		count(*) FILTER (WHERE reviewed_at >= $3),
 		count(*) FILTER (WHERE reviewed_at >= $3 AND verdict = 'accepted'),
 		min(reviewed_at)
-		FROM sage.sre_packet_reviews WHERE deployment_id = $1 AND family = $2`,
-		s.deployment, string(f), since).Scan(&sh.Reviewed, &sh.Accepted, &first)
+		FROM sage.sre_packet_reviews
+		WHERE deployment_id = $1 AND database_name = $4 AND family = $2
+		  AND counts_as_evidence`,
+		s.deployment, string(f), since, s.database).Scan(&sh.Reviewed, &sh.Accepted,
+		&first)
 	if first != nil {
 		sh.FirstReviewAt = first.UTC()
 	}
@@ -91,6 +112,9 @@ func (s *PostgresStore) ShadowStats(ctx context.Context, f Family, since time.Ti
 // insertOutcome records an outcome; false when that action's outcome
 // from that source is already recorded.
 func (s *PostgresStore) insertOutcome(ctx context.Context, o Outcome) (bool, error) {
+	if err := s.checkDatabase(o.Database); err != nil {
+		return false, err
+	}
 	var actionLogID any
 	if o.ActionLogID > 0 {
 		actionLogID = o.ActionLogID
@@ -108,33 +132,56 @@ func (s *PostgresStore) insertOutcome(ctx context.Context, o Outcome) (bool, err
 	return tag.RowsAffected() == 1, nil
 }
 
-// LiveStats counts a pair's verified L2 recoveries and harmful outcomes.
+// LiveStats counts the database's verified L2 recoveries, unverified and
+// harmful outcomes of a pair.
 func (s *PostgresStore) LiveStats(ctx context.Context, f Family, c ActionClass) (Live,
 	error) {
 	var l Live
 	err := s.pool.QueryRow(ctx, `SELECT
 		count(*) FILTER (WHERE result = 'verified_recovery' AND level = 2),
-		count(*) FILTER (WHERE result IN ('harmful', 'safety_violation'))
+		count(*) FILTER (WHERE result IN ('harmful', 'safety_violation')),
+		count(*) FILTER (WHERE result = 'unverified')
 		FROM sage.sre_autonomy_outcomes
-		WHERE deployment_id = $1 AND family = $2 AND action_class = $3`,
-		s.deployment, string(f), string(c)).Scan(&l.VerifiedL2, &l.HarmfulPair)
+		WHERE deployment_id = $1 AND database_name = $2 AND family = $3
+		  AND action_class = $4`,
+		s.deployment, s.database, string(f), string(c)).Scan(&l.VerifiedL2,
+		&l.HarmfulPair, &l.Unverified)
 	return l, storeErr("read live record", err)
 }
 
-// FamilyViolations counts a family's harmful or unsafe outcomes since.
+// FamilyViolations counts the database's harmful or unsafe outcomes of a
+// family since since.
 func (s *PostgresStore) FamilyViolations(ctx context.Context, f Family,
 	since time.Time) (int, error) {
+	n, _, err := s.familySafety(ctx, f, since)
+	return n, err
+}
+
+// familySafety counts the database's harmful or unsafe outcomes of a
+// family since since, with the newest one's time (zero without any).
+func (s *PostgresStore) familySafety(ctx context.Context, f Family, since time.Time) (int,
+	time.Time, error) {
 	var n int
-	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM sage.sre_autonomy_outcomes
-		WHERE deployment_id = $1 AND family = $2 AND recorded_at >= $3
-		  AND result IN ('harmful', 'safety_violation')`,
-		s.deployment, string(f), since).Scan(&n)
-	return n, storeErr("read family safety record", err)
+	var last *time.Time
+	err := s.pool.QueryRow(ctx, `SELECT count(*), max(recorded_at)
+		FROM sage.sre_autonomy_outcomes
+		WHERE deployment_id = $1 AND database_name = $2 AND family = $3
+		  AND recorded_at >= $4 AND result IN ('harmful', 'safety_violation')`,
+		s.deployment, s.database, string(f), since).Scan(&n, &last)
+	if err != nil || last == nil {
+		return n, time.Time{}, storeErr("read family safety record", err)
+	}
+	return n, last.UTC(), nil
 }
 
 // insertEvalRun stores a parsed report; a report already stored (same
 // hash) is returned with Duplicate set.
 func (s *PostgresStore) insertEvalRun(ctx context.Context, run EvalRun) (EvalRun, error) {
+	if run.Source == SourceGameDay {
+		if err := s.checkDatabase(run.Database); err != nil {
+			return EvalRun{}, err
+		}
+	}
 	cells, err := json.Marshal(run.Cells)
 	if err != nil {
 		return EvalRun{}, fmt.Errorf("%w: encode cells: %v", ErrInvalidReport, err)
@@ -187,8 +234,10 @@ func (s *PostgresStore) scanEvalRun(row pgx.Row) (EvalRun, error) {
 	return run, nil
 }
 
-// LatestBench is the newest bench report, or nil; with a family, the
-// newest report that scored that family.
+// LatestBench is the deployment's newest bench report, or nil; with a
+// family, the newest report that scored that family. Bench evidence is
+// about pg_sage, not a database, so every database of the deployment
+// shares it.
 func (s *PostgresStore) LatestBench(ctx context.Context, f Family) (*EvalRun, error) {
 	run, err := s.scanEvalRun(s.pool.QueryRow(ctx, evalRunSelect+
 		` WHERE deployment_id = $1 AND source = 'bench'
@@ -203,12 +252,13 @@ func (s *PostgresStore) LatestBench(ctx context.Context, f Family) (*EvalRun, er
 	return &run, nil
 }
 
-// GameDayRuns lists game-day reports generated since since, newest first.
+// GameDayRuns lists the database's game-day reports generated since
+// since, newest first.
 func (s *PostgresStore) GameDayRuns(ctx context.Context, since time.Time) ([]EvalRun,
 	error) {
 	rows, err := s.pool.Query(ctx, evalRunSelect+` WHERE deployment_id = $1
-		AND source = 'game_day' AND generated_at >= $2
-		ORDER BY generated_at DESC LIMIT 200`, s.deployment, since)
+		AND source = 'game_day' AND database_name = $3 AND generated_at >= $2
+		ORDER BY generated_at DESC LIMIT 200`, s.deployment, since, s.database)
 	if err != nil {
 		return nil, storeErr("list game-day reports", err)
 	}

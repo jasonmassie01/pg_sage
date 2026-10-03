@@ -41,6 +41,10 @@ type Tuner struct {
 	staleStatsEmitted map[string]bool
 
 	llmPrescriptionCooldown map[string]int
+
+	// facts are the catalog facts of the current cycle (table rows,
+	// usable indexes); nil when they could not be loaded.
+	facts *CatalogFacts
 }
 
 // Option configures optional Tuner behavior.
@@ -115,6 +119,8 @@ func (t *Tuner) Tune(
 	}
 	t.staleStats = cache
 	t.staleStatsEmitted = map[string]bool{}
+	t.loadFacts(ctx)
+	t.reconcileHintStatuses(ctx)
 
 	t.tickCooldowns()
 	candidates, err := t.fetchCandidates(ctx)
@@ -258,7 +264,7 @@ func (t *Tuner) loadActiveHints(ctx context.Context) {
 	}
 	rows, err := t.pool.Query(ctx,
 		`/* pg_sage */ SELECT queryid FROM sage.query_hints
-		 WHERE status = 'active'`,
+		 WHERE status IN ('active', 'proposed')`,
 	)
 	if err != nil {
 		t.logFn("WARN",
@@ -749,7 +755,8 @@ func (t *Tuner) scanPlanForQuery(
 	if planJSON == "" {
 		return nil
 	}
-	symptoms, err := ScanPlan([]byte(planJSON))
+	symptoms, err := ScanPlan([]byte(planJSON),
+		WithCatalogFacts(t.facts, t.cfg.ParallelMinTableRows))
 	if err != nil {
 		t.logFn("tuner", "scan plan for queryid %d: %v",
 			queryID, err)
@@ -829,6 +836,11 @@ func (t *Tuner) buildFinding(
 		Recommendation:   rationale,
 		ActionRisk:       "safe",
 	}
+	// An empty hint is never installed or recorded (Phase 0 item 11): the
+	// finding stays informational (e.g. a sort-limit or rewrite advice).
+	if strings.TrimSpace(combinedHint) == "" {
+		return f
+	}
 	if t.hintPlan != nil && t.hintPlan.Available && t.hintPlan.HintTableReady {
 		f.RecommendedSQL = BuildInsertSQL(
 			c.QueryID, combinedHint,
@@ -841,44 +853,6 @@ func (t *Tuner) buildFinding(
 		strings.Join(names, ", "), suggestedRewrite, rewriteRationale)
 
 	return f
-}
-
-// upsertQueryHint writes a record to sage.query_hints so the
-// dashboard query-hints page displays tuner findings.
-func (t *Tuner) upsertQueryHint(
-	ctx context.Context,
-	queryID int64, hintText, symptom,
-	suggestedRewrite, rewriteRationale string,
-) {
-	if t.pool == nil {
-		return
-	}
-	// Update existing active hint, or insert new one.
-	tag, err := t.pool.Exec(ctx,
-		`/* pg_sage */ UPDATE sage.query_hints
-		 SET hint_text = $2, symptom = $3,
-		     suggested_rewrite = $4, rewrite_rationale = $5
-		 WHERE queryid = $1 AND status = 'active'`,
-		queryID, hintText, symptom,
-		suggestedRewrite, rewriteRationale,
-	)
-	if err != nil {
-		t.logFn("WARN", "tuner: update query_hint: %v", err)
-		return
-	}
-	if tag.RowsAffected() == 0 {
-		_, err = t.pool.Exec(ctx,
-			`/* pg_sage */ INSERT INTO sage.query_hints
-				(queryid, hint_text, symptom,
-				 suggested_rewrite, rewrite_rationale, status)
-			 VALUES ($1, $2, $3, $4, $5, 'active')`,
-			queryID, hintText, symptom,
-			suggestedRewrite, rewriteRationale,
-		)
-		if err != nil {
-			t.logFn("WARN", "tuner: insert query_hint: %v", err)
-		}
-	}
 }
 
 // BuildInsertSQL generates an INSERT for hint_plan.hints.

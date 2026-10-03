@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/sre"
 )
@@ -147,7 +148,10 @@ func similarIncidentsHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 	}
 }
 
-func outcomeHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
+// outcomeHandler records an investigation outcome. With the database's
+// earned-autonomy ledger it also records the matching shadow review
+// (outcomeWithReview), so the two records never disagree.
+func outcomeHandler(mgr *fleet.DatabaseManager, ledgers *earned.Registry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		svc, ok := investigationService(w, mgr, r.PathValue("db"))
 		if !ok {
@@ -158,6 +162,10 @@ func outcomeHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 			ActualNode string `json:"actual_node"`
 		}
 		err := decodeBody(r, &body)
+		if entry, found := ledgerOf(ledgers, r.PathValue("db")); err == nil && found {
+			outcomeWithReview(w, r, entry.Service, svc, body.Verdict, body.ActualNode)
+			return
+		}
 		if err == nil {
 			var o sre.Outcome
 			o, err = svc.RecordOutcome(r.Context(), sre.UUID(r.PathValue("id")),

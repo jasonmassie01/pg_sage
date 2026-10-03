@@ -176,6 +176,11 @@ func (c *Collector) collectExtras(ctx context.Context, snap *Snapshot) {
 	var err error
 	if snap.Replication, err = c.collectReplication(ctx); err != nil {
 		c.logFn("WARN", "replication collection failed: %v", err)
+		// Unknown, not "no replicas": unused-index drops depend on it.
+		if snap.Unavailable == nil {
+			snap.Unavailable = map[string]string{}
+		}
+		snap.Unavailable["replication"] = err.Error()
 	}
 	if c.pgVersionNum >= 160000 { // pg_stat_io
 		if snap.IO, err = c.collectIO(ctx); err != nil {

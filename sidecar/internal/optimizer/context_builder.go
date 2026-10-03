@@ -20,7 +20,10 @@ func BuildTableContexts(
 	planner *PlanCapture,
 	minQueryCalls int64,
 ) ([]TableContext, string, error) {
-	collation := fetchCollation(ctx, pool)
+	collation, err := fetchCollation(ctx, pool)
+	if err != nil && planner != nil {
+		planner.logFn("optimizer", "read database collation: %v", err)
+	}
 	tableQueries := groupQueriesByTable(snap)
 	childSet := buildPartitionChildSet(snap)
 	parentSet := buildPartitionParentSet(snap)
@@ -78,6 +81,9 @@ func BuildTableContexts(
 			Relpersistence: ts.Relpersistence,
 			IsPartitioned:  isParent,
 		}
+		if isParent {
+			tc.PartitionChildren, tc.NestedPartitions = partitionChildren(snap, key)
+		}
 		tc.WriteRate = computeWriteRate(ts)
 		tc.WriteRateKnown = writeRateKnown(ts)
 		tc.Workload = classifyWorkload(tc.WriteRate, tc.LiveTuples)
@@ -91,15 +97,6 @@ func BuildTableContexts(
 		contexts = append(contexts, tc)
 	}
 	return contexts, planSource, nil
-}
-
-func fetchCollation(ctx context.Context, pool *pgxpool.Pool) string {
-	var collation string
-	err := pool.QueryRow(ctx, "SHOW lc_collate").Scan(&collation)
-	if err != nil {
-		return "C"
-	}
-	return collation
 }
 
 func groupQueriesByTable(

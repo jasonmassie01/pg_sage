@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -125,6 +128,10 @@ type Worker struct {
 	// startedAt anchors the schedule when no briefing was ever stored.
 	startedAt     time.Time
 	lastRunLoaded bool
+	// stdout and stderr are the process streams (nil means os.Stdout and
+	// os.Stderr); stdioNotice logs the MCP redirect once per worker.
+	stdout, stderr io.Writer
+	stdioNotice    sync.Once
 }
 
 // New creates a briefing worker.
@@ -145,6 +152,8 @@ func New(
 		logFn:     logFn,
 		schedule:  sched,
 		startedAt: time.Now(),
+		stdout:    os.Stdout,
+		stderr:    os.Stderr,
 	}
 }
 
@@ -366,13 +375,43 @@ func (w *Worker) Dispatch(ctx context.Context, briefing string) {
 	for _, ch := range w.cfg.Briefing.Channels {
 		switch ch {
 		case "stdout":
-			fmt.Println(briefing)
+			w.writeStdoutChannel(briefing)
 		case "slack":
 			if w.cfg.Briefing.SlackWebhookURL != "" {
 				w.sendSlack(ctx, briefing)
 			}
 		}
 	}
+}
+
+// writeStdoutChannel prints the briefing for the "stdout" channel. When
+// the MCP server speaks JSON-RPC over stdio, stdout is that protocol
+// stream and any other line corrupts it, so the briefing goes to stderr
+// and the operator is told once.
+func (w *Worker) writeStdoutChannel(briefing string) {
+	out, errOut := w.streams()
+	mcp := w.cfg.MCP
+	if mcp.Enabled && mcp.Transport == "stdio" {
+		w.stdioNotice.Do(func() {
+			w.logFn("WARN", "briefing: MCP stdio transport owns stdout; "+
+				"the stdout briefing channel is written to stderr instead")
+		})
+		out = errOut
+	}
+	if _, err := fmt.Fprintln(out, briefing); err != nil {
+		w.logFn("WARN", "briefing: write stdout channel: %v", err)
+	}
+}
+
+func (w *Worker) streams() (io.Writer, io.Writer) {
+	out, errOut := w.stdout, w.stderr
+	if out == nil {
+		out = os.Stdout
+	}
+	if errOut == nil {
+		errOut = os.Stderr
+	}
+	return out, errOut
 }
 
 func (w *Worker) sendSlack(ctx context.Context, text string) {

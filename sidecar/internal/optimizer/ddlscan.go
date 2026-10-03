@@ -25,6 +25,13 @@ func (s *ddlScanner) rest() string {
 	return s.src[s.pos:]
 }
 
+// consumeRest returns the remaining text and moves past it.
+func (s *ddlScanner) consumeRest() string {
+	rest := s.rest()
+	s.pos = len(s.src)
+	return rest
+}
+
 // peekKeyword reports whether the next token is kw (case-insensitive).
 func (s *ddlScanner) peekKeyword(kw string) bool {
 	s.skipSpace()

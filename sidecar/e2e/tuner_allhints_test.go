@@ -219,8 +219,15 @@ func TestTunerAllHints_SeqScanWithIndex(t *testing.T) {
 			"Filter":         "(status = 'active'::text)",
 		},
 	})
+	// Phase 0 item 11: a seq scan is an index candidate only with catalog
+	// evidence (a large table, a usable btree index on the filter column).
+	facts := &tuner.CatalogFacts{
+		Tables: map[string]int64{"public.orders": 10_000_000},
+		Indexes: map[string][]tuner.IndexFact{"public.orders": {
+			{Name: "orders_status_idx", LeadingColumn: "status"}}},
+	}
 
-	symptoms, err := tuner.ScanPlan(plan)
+	symptoms, err := tuner.ScanPlan(plan, tuner.WithCatalogFacts(facts, 0))
 	if err != nil {
 		t.Fatalf("ScanPlan failed: %v", err)
 	}
@@ -326,11 +333,13 @@ func TestTunerAllHints_ParallelDisabled(t *testing.T) {
 			"Schema":        "public",
 			"Alias":         "e",
 			"Plan Rows":     5000000,
-			// No "Workers Planned" key — parallel disabled.
+			// No Gather above the scan: it runs serially.
 		},
 	})
+	// Phase 0 item 11: only tables at or above parallel_min_table_rows.
+	facts := &tuner.CatalogFacts{Tables: map[string]int64{"public.large_events": 5_000_000}}
 
-	symptoms, err := tuner.ScanPlan(plan)
+	symptoms, err := tuner.ScanPlan(plan, tuner.WithCatalogFacts(facts, 1_000_000))
 	if err != nil {
 		t.Fatalf("ScanPlan failed: %v", err)
 	}
@@ -444,7 +453,7 @@ func TestTunerAllHints_CombineWorkMem(t *testing.T) {
 		},
 		{
 			Symptom:       tuner.SymptomSeqScanWithIndex,
-			HintDirective: "IndexScan(o)",
+			HintDirective: "IndexScan(o orders_status_idx)",
 			Rationale:     "seq scan on indexed relation",
 		},
 	}
@@ -469,7 +478,7 @@ func TestTunerAllHints_CombineWorkMem(t *testing.T) {
 	}
 
 	// Should also contain the IndexScan hint.
-	if !strings.Contains(combined, "IndexScan(o)") {
+	if !strings.Contains(combined, "IndexScan(o orders_status_idx)") {
 		t.Errorf(
 			"should contain IndexScan hint: %s", combined,
 		)
@@ -539,7 +548,9 @@ func TestTunerAllHints_MultipleSymptoms(t *testing.T) {
 		},
 	})
 
-	symptoms, err := tuner.ScanPlan(plan)
+	facts := &tuner.CatalogFacts{Tables: map[string]int64{
+		"public.orders": 2_000_000, "public.customers": 50_000}}
+	symptoms, err := tuner.ScanPlan(plan, tuner.WithCatalogFacts(facts, 1_000_000))
 	if err != nil {
 		t.Fatalf("ScanPlan failed: %v", err)
 	}
@@ -548,18 +559,20 @@ func TestTunerAllHints_MultipleSymptoms(t *testing.T) {
 		len(symptoms), symptomKinds(symptoms),
 	)
 
-	// This plan should trigger at least:
+	// This plan should trigger:
 	// - DiskSort (Sort with Disk spill)
 	// - HashSpill (Hash Join with batches > 1)
-	// - SeqScan (2x Seq Scan on named relations)
 	// - SortLimit (Sort under Limit, 200000 >> 5)
-	// - ParallelDisabled (Seq Scan without workers)
+	// - ParallelDisabled (serial Seq Scan of the 2M-row orders table)
+	// The unfiltered Seq Scans are not index candidates.
 	expectedKinds := []tuner.SymptomKind{
 		tuner.SymptomDiskSort,
 		tuner.SymptomHashSpill,
-		tuner.SymptomSeqScanWithIndex,
 		tuner.SymptomSortLimit,
 		tuner.SymptomParallelDisabled,
+	}
+	if s := findSymptom(symptoms, tuner.SymptomSeqScanWithIndex); s != nil {
+		t.Errorf("unfiltered seq scan flagged as an index candidate: %+v", s)
 	}
 
 	for _, kind := range expectedKinds {

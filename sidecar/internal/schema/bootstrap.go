@@ -388,10 +388,12 @@ func migrationStatements() []string {
 		ddlSRESLOChangeEvents, ddlSREActions,
 		ddlRecommendationAll,
 		ddlRunwaySamples, ddlSRERunbooks, ddlSREAutonomy, ddlSREAutonomyCarryOver,
+		ddlSREAutonomyDatabaseScope,
 		ddlHAIdentity,
 		ddlDebtExec,
 		ddlIncidentOpenIdentity,
-		ddlSnapshotDelta)
+		ddlSnapshotDelta,
+		ddlDecisionLedger())
 }
 
 // ---------------------------------------------------------------------------

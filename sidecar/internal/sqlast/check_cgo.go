@@ -48,7 +48,10 @@ func checkStatement(stmt *pg_query.Node, rules Rules) error {
 	case stmt.GetVacuumStmt() != nil:
 		return checkVacuum(stmt.GetVacuumStmt())
 	case stmt.GetAlterTableStmt() != nil:
-		return checkAlterTable(stmt.GetAlterTableStmt())
+		if stmt.GetAlterTableStmt().GetRelation().GetSchemaname() == "" {
+			return reject("ALTER TABLE target must be schema-qualified")
+		}
+		return checkAlterTable(stmt.GetAlterTableStmt(), rules)
 	case stmt.GetAlterSystemStmt() != nil:
 		return checkSetting("ALTER SYSTEM",
 			stmt.GetAlterSystemStmt().GetSetstmt(), rules.SystemParam)
@@ -77,13 +80,18 @@ func checkDrop(drop *pg_query.DropStmt, rules Rules) error {
 	if drop.GetBehavior() == pg_query.DropBehavior_DROP_CASCADE {
 		return reject("DROP INDEX ... CASCADE is not allowed")
 	}
-	// DROP names its object as a qualified-name list, not a RangeVar.
+	// DROP names its object as a qualified-name list, not a RangeVar. An
+	// unqualified name resolves through the session search_path at run
+	// time ("$user" may be sage; pg_catalog is always searched), which no
+	// static check can see, so it is refused. In catalog.schema.name the
+	// schema is the second-to-last part.
 	name := drop.GetObjects()[0].GetList().GetItems()
-	if len(name) > 1 && rules.ProtectedSchema != nil {
-		schema := name[0].GetString_().GetSval()
-		if rules.ProtectedSchema(strings.ToLower(schema)) {
-			return reject("references protected schema %q", schema)
-		}
+	if len(name) < 2 {
+		return reject("DROP INDEX target must be schema-qualified")
+	}
+	schema := name[len(name)-2].GetString_().GetSval()
+	if rules.ProtectedSchema != nil && rules.ProtectedSchema(strings.ToLower(schema)) {
+		return reject("references protected schema %q", schema)
 	}
 	return nil
 }

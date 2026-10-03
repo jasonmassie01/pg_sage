@@ -65,11 +65,13 @@ type Shadow struct {
 	FirstReviewAt time.Time `json:"first_review_at"`
 }
 
-// Live is a pair's live record: verified recoveries handed off at L2 and
-// harmful outcomes ever.
+// Live is a pair's live record on one database: verified recoveries
+// handed off at L2, harmful outcomes ever, and outcomes no verification
+// confirmed (recorded, never credit; P0-6).
 type Live struct {
 	VerifiedL2  int `json:"verified_l2_recoveries"`
 	HarmfulPair int `json:"harmful"`
+	Unverified  int `json:"unverified"`
 }
 
 // Evidence is everything behind a promotion decision for one pair.
@@ -82,6 +84,9 @@ type Evidence struct {
 	Shadow           Shadow      `json:"shadow"`
 	Live             Live        `json:"live"`
 	FamilyViolations int         `json:"family_violations"`
+	// ViolationsClearAt is when the newest violation leaves the safety
+	// window (set only with violations).
+	ViolationsClearAt *time.Time `json:"violations_clear_at,omitempty"`
 }
 
 // Thresholds are the promotion requirements (§7.3): the spec values by
@@ -145,12 +150,16 @@ func (th Thresholds) Normalized() Thresholds {
 	return th
 }
 
-// Check is one requirement with what was observed.
+// Check is one requirement with what was observed. An unmet check says
+// how to meet it (How) and, where the rule implies one, when it will be
+// met by itself (ETA).
 type Check struct {
-	Name     string `json:"name"`
-	Met      bool   `json:"met"`
-	Observed string `json:"observed"`
-	Required string `json:"required"`
+	Name     string     `json:"name"`
+	Met      bool       `json:"met"`
+	Observed string     `json:"observed"`
+	Required string     `json:"required"`
+	How      string     `json:"how,omitempty"`
+	ETA      *time.Time `json:"eta,omitempty"`
 }
 
 // Assessment is the evidence held against one target level.
@@ -179,8 +188,11 @@ func Assess(th Thresholds, target Level, ev Evidence) Assessment {
 		}
 	}
 	met := target < L4
-	for _, c := range checks {
-		met = met && c.Met
+	for i := range checks {
+		met = met && checks[i].Met
+		if !checks[i].Met {
+			guide(th, ev, &checks[i])
+		}
 	}
 	return Assessment{Target: target, Met: met, Checks: checks}
 }

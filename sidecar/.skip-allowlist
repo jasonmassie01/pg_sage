@@ -29,7 +29,8 @@ internal/collector TestCollectIO|TestPhase2_CollectIO_FieldsPopulated # pg_stat_
 internal/collector TestCollectQueries_BlockReadTimeFromStatements # PG16 does not time local-buffer reads in pg_stat_statements
 internal/autoexplain TestCaptureOnDemand_(ParameterizedUsesGenericPlan|NormalizedParameterizedQuery) # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/optimizer TestGenericPlanCapturesUnboundParameters # EXPLAIN (GENERIC_PLAN) is PG16+
-internal/tuner TestFunctional_Coverage_DB_HintPlanSQLUsesQueryIDSchema|TestHintRemovalFindings_RetiredAndBrokenOnly # query_id hint table is pg_hint_plan 1.7+ (PG17+)
+internal/tuner TestFunctional_Coverage_DB_HintPlanSQLUsesQueryIDSchema|TestHintRemovalFindings_RetiredAndBrokenOnly|TestBuildFinding_EmptyHintIsNeverInserted|TestBuildFinding_ProposalIsNotActive|TestLoadActiveHints_IncludesProposed|TestReconcileHintStatuses_.* # query_id hint table is pg_hint_plan 1.7+ (PG17+)
+internal/tuner TestGeneratePlanFixtures # regenerates committed plan fixtures; opt-in PG_SAGE_REGEN_PLAN_FIXTURES=1
 test/hint_verify TestHint_HintTableIntegration # query_id hint table is pg_hint_plan 1.7+ (PG17+)
 
 # PGIncidentBench runs in its own CI steps (SAGE_BENCH_RUN=1, sharded by SAGE_BENCH_FAMILIES),

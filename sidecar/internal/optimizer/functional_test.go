@@ -384,7 +384,7 @@ func TestFunctional_Confidence_QueryVolume(t *testing.T) {
 			cfg := fnTestOptimizerConfig()
 			o := &Optimizer{
 				cfg:    cfg,
-				hypopg: NewHypoPG(nil, 10, fnNoopLog),
+				hypopg: NewHypoPG(nil, fnNoopLog),
 				logFn:  fnNoopLog,
 			}
 			scored := o.scoreConfidence(rec, tc)
@@ -565,7 +565,7 @@ func TestFunctional_Confidence_BoundaryValues(t *testing.T) {
 		}
 		o := &Optimizer{
 			cfg:    fnTestOptimizerConfig(),
-			hypopg: NewHypoPG(nil, 10, fnNoopLog),
+			hypopg: NewHypoPG(nil, fnNoopLog),
 			logFn:  fnNoopLog,
 		}
 		scored := o.scoreConfidence(Recommendation{}, tc)

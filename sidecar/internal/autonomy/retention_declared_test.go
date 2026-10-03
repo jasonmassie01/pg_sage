@@ -95,10 +95,12 @@ func detectedRetentionItem(t *testing.T, pool *pgxpool.Pool, table string,
 		if invariant.Table != table {
 			continue
 		}
-		contract, err := (postgresSchemaContractSource{pool}).Contract(ctx, invariant)
+		contracts, err := (postgresSchemaContractSource{pool}).Contracts(ctx,
+			[]schemaguard.Invariant{invariant})
 		if err != nil {
 			t.Fatalf("read contract: %v", err)
 		}
+		contract := contracts[invariant.Target()]
 		return schemaguard.Remediation{Invariant: invariant, Contract: contract,
 			Decision: schemaguard.Decision{Route: schemaguard.RouteRetention}}
 	}
@@ -135,7 +137,8 @@ func TestRetentionUsesDeclaredColumnNotCreatedAt(t *testing.T) {
 func scanRetentionGuard(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	guard, err := NewPostgresSchemaGuard(pool, "testdb", &recordingRouter{},
-		ledger.NewService(ledger.NewPostgresRepository(pool)), allowRetention)
+		ledger.NewService(ledger.NewPostgresRepository(pool)), allowRetention,
+		SchemaGuardOptions{})
 	if err != nil {
 		t.Fatalf("NewPostgresSchemaGuard: %v", err)
 	}

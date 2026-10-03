@@ -26,6 +26,10 @@ type DecisionInput struct {
 	EvidenceID     string
 	DeadlineKind   string
 	DeadlineHardAt *time.Time
+	// Fingerprint, when set, makes repeats of this decision update one
+	// open row instead of inserting a new one (see DecisionFingerprint).
+	// Execute verdicts leave it empty: each backs its own action.
+	Fingerprint string
 }
 
 type Decision struct {

@@ -115,18 +115,33 @@ func runDatabaseWorker(ctx context.Context, config DatabaseWorkersConfig) {
 	ticks, stop := workerTicks(config)
 	defer stop()
 	parked := map[string]bool{} // parked routes already reported (this worker only)
+	ddl := &ddlDebouncer{window: ddlDebounce(config)}
+	defer ddl.cancel()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticks:
 			runDatabaseCycle(ctx, config, parked)
+			ddl.ran()
 		case <-config.schemaTrigger:
-			if err := runSchemaGuard(ctx, config); err != nil {
-				reportWorkerError(config, parked, "DDL-triggered schema guard failed", err)
+			if ddl.request(time.Now()) {
+				runDDLSchemaGuard(ctx, config, parked, ddl)
 			}
+		case <-ddl.due():
+			runDDLSchemaGuard(ctx, config, parked, ddl)
 		}
 	}
+}
+
+func runDDLSchemaGuard(
+	ctx context.Context, config DatabaseWorkersConfig, parked map[string]bool,
+	ddl *ddlDebouncer,
+) {
+	if err := runSchemaGuard(ctx, config); err != nil {
+		reportWorkerError(config, parked, "DDL-triggered schema guard failed", err)
+	}
+	ddl.ran()
 }
 
 func workerTicks(config DatabaseWorkersConfig) (<-chan time.Time, func()) {

@@ -86,7 +86,7 @@ func (s *Server) callSignalTool(ctx context.Context, name string,
 	if err != nil {
 		return nil, sreFailure(err)
 	}
-	return map[string]any{"structuredContent": result}, nil
+	return toolSuccess(result), nil
 }
 
 func (r SignalRequest) valid(tool string) bool {

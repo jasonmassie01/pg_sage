@@ -40,8 +40,9 @@ func DefaultConfig() Config {
 		EvidenceCacheTTL: time.Minute, Now: time.Now}
 }
 
-// Service is the ledger: levels, proposals, approvals, downgrades,
-// outcomes, reviews and evidence of one deployment.
+// Service is one database's ledger: levels, proposals, approvals,
+// downgrades, outcomes, reviews and evidence of that database within its
+// deployment (P0-5), with the deployment's shared bench evidence.
 type Service struct {
 	store *PostgresStore
 	cfg   Config
@@ -91,6 +92,9 @@ func NewService(store *PostgresStore, cfg Config) (*Service, error) {
 // Store is the ledger's store.
 func (s *Service) Store() *PostgresStore { return s.store }
 
+// Database is the database whose ledger this is.
+func (s *Service) Database() string { return s.store.database }
+
 func (s *Service) now() time.Time { return s.cfg.Now().UTC() }
 
 // defaultLevel: a shipped family starts at L1 (proposal only), anything
@@ -134,9 +138,14 @@ func (s *Service) Evidence(ctx context.Context, f Family, c ActionClass) (Eviden
 	if ev.Live, err = s.store.LiveStats(ctx, f, c); err != nil {
 		return Evidence{}, err
 	}
-	ev.FamilyViolations, err = s.store.FamilyViolations(ctx, f, now.Add(-s.cfg.SafetyWindow))
+	n, last, err := s.store.familySafety(ctx, f, now.Add(-s.cfg.SafetyWindow))
 	if err != nil {
 		return Evidence{}, err
+	}
+	ev.FamilyViolations = n
+	if n > 0 {
+		clears := last.Add(s.cfg.SafetyWindow)
+		ev.ViolationsClearAt = &clears
 	}
 	return ev, nil
 }
@@ -172,47 +181,11 @@ func (s *Service) invalidate() {
 	s.mu.Unlock()
 }
 
-// ProposePromotions expires stale proposals, then proposes one level up
-// for every applicable pair whose evidence supports it, below its cap and
-// without a pending proposal. It never changes a level.
+// ProposePromotions proposes what the evidence supports (Evaluate) and
+// returns the proposals it created.
 func (s *Service) ProposePromotions(ctx context.Context) ([]Proposal, error) {
-	if err := s.expire(ctx); err != nil {
-		return nil, err
-	}
-	created := []Proposal{}
-	for _, f := range Families() {
-		for _, c := range ApplicableClasses(f) {
-			p, ok, err := s.proposeOne(ctx, f, c)
-			if err != nil {
-				return created, err
-			}
-			if ok {
-				created = append(created, p)
-			}
-		}
-	}
-	return created, nil
-}
-
-func (s *Service) proposeOne(ctx context.Context, f Family, c ActionClass) (Proposal, bool,
-	error) {
-	st, err := s.Granted(ctx, f, c)
-	if err != nil {
-		return Proposal{}, false, err
-	}
-	target := st.Level + 1
-	if target > CapFor(c) || !target.Grantable() {
-		return Proposal{}, false, nil
-	}
-	ev, err := s.Evidence(ctx, f, c)
-	if err != nil {
-		return Proposal{}, false, err
-	}
-	a := Assess(s.cfg.Thresholds, target, ev)
-	if !a.Met {
-		return Proposal{}, false, nil
-	}
-	return s.createProposal(ctx, st, target, ev, a)
+	e, err := s.Evaluate(ctx)
+	return e.Created, err
 }
 
 func (s *Service) createProposal(ctx context.Context, st State, target Level, ev Evidence,

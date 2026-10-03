@@ -22,21 +22,28 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
-// Sage SRE M7 wiring: one earned-autonomy ledger per control database
-// (shared by every database of a meta-database fleet), one limiter per
-// database (its HA role, its objects), installed into the executor's
-// standing gate before the gate is built.
+// Sage SRE M7 wiring: one earned-autonomy ledger per database (P0-5),
+// kept in its control database (every database of a meta-database fleet
+// shares that deployment and its bench evidence, never a ledger), and one
+// limiter per database (its HA role, its objects), installed into the
+// executor's standing gate before the gate is built.
+
+// ledgerKey is one database's ledger in one control database.
+type ledgerKey struct {
+	control  *pgxpool.Pool
+	database string
+}
 
 // autonomyLedgers is the process's ledgers and their registries.
 type autonomyLedgers struct {
 	mu       sync.Mutex
-	byPool   map[*pgxpool.Pool]*earned.Service
+	byKey    map[ledgerKey]*earned.Service
 	registry *earned.Registry
 	gameDays *gameday.Registry
 }
 
 func newAutonomyLedgers(enforced bool) *autonomyLedgers {
-	return &autonomyLedgers{byPool: map[*pgxpool.Pool]*earned.Service{},
+	return &autonomyLedgers{byKey: map[ledgerKey]*earned.Service{},
 		registry: earned.NewRegistry(enforced), gameDays: gameday.NewRegistry()}
 }
 
@@ -66,22 +73,24 @@ func autonomyServiceConfig(s config.SREAutonomyConfig) earned.Config {
 	return c
 }
 
-// ledgerFor returns the ledger of a control pool, building it once.
+// ledgerFor returns a database's ledger in a control pool, building it
+// once.
 func (a *autonomyLedgers) ledgerFor(ctx context.Context, control *pgxpool.Pool,
-	s config.SREAutonomyConfig) (*earned.Service, error) {
+	database string, s config.SREAutonomyConfig) (*earned.Service, error) {
 	if control == nil {
 		return nil, fmt.Errorf("%w: no control database", earned.ErrUnavailable)
 	}
+	key := ledgerKey{control: control, database: database}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if svc, ok := a.byPool[control]; ok {
+	if svc, ok := a.byKey[key]; ok {
 		return svc, nil
 	}
 	deployment, err := earned.EnsureDeployment(ctx, control)
 	if err != nil {
 		return nil, err
 	}
-	store, err := earned.NewPostgresStore(control, deployment)
+	store, err := earned.NewPostgresStore(control, deployment, database)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +98,7 @@ func (a *autonomyLedgers) ledgerFor(ctx context.Context, control *pgxpool.Pool,
 	if err != nil {
 		return nil, err
 	}
-	a.byPool[control] = svc
+	a.byKey[key] = svc
 	return svc, nil
 }
 
@@ -119,7 +128,12 @@ func (l failClosedLimiter) Limit(context.Context, policy.ActionRequest) (
 // family actions closed.
 func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 	b autonomyBinding) error {
-	svc, err := a.ledgerFor(ctx, b.control, b.settings)
+	svc, err := a.ledgerFor(ctx, b.control, b.database, b.settings)
+	if err == nil {
+		// Levels stored before the ledger was per database apply to this
+		// database at their level, unless it has its own (P0-5 decision).
+		_, err = svc.AdoptLegacy(ctx)
+	}
 	if err == nil {
 		// Keep the autonomy this database's configuration already grants
 		// (coordinator decision 2026-10-02): M7 gates new autonomy only.

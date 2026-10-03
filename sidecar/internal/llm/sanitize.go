@@ -3,56 +3,63 @@ package llm
 import "strings"
 
 // StripSQLComments removes block comments (/* ... */, including
-// nested) and line comments (-- ...) from SQL text. Comments
-// inside single-quoted string literals are preserved.
-func StripSQLComments(text string) string {
+// nested) and line comments (-- ...) from SQL text. Comment markers
+// inside string literals (including E-strings with backslash escapes),
+// quoted identifiers and dollar-quoted bodies are text, not comments, and
+// are preserved.
+func StripSQLComments(text string) string { return stripComments(text, true) }
+
+// stripComments is StripSQLComments; identifiers=false treats double
+// quotes as plain bytes (text that only resembles JSON, see SanitizeForLLM).
+func stripComments(text string, identifiers bool) string {
 	var b strings.Builder
 	b.Grow(len(text))
 	i := 0
 	for i < len(text) {
-		// Single-quoted string literal: copy verbatim.
-		if text[i] == '\'' {
-			b.WriteByte(text[i])
-			i++
-			for i < len(text) {
-				b.WriteByte(text[i])
-				if text[i] == '\'' {
-					// Escaped quote '' inside string.
-					if i+1 < len(text) && text[i+1] == '\'' {
-						b.WriteByte(text[i+1])
-						i += 2
-						continue
-					}
-					i++
-					break
-				}
-				i++
-			}
+		if end, ok := quotedTokenEnd(text, i, identifiers); ok {
+			b.WriteString(text[i:end])
+			i = end
 			continue
 		}
-
 		// Block comment: skip (handle nesting).
-		if i+1 < len(text) &&
-			text[i] == '/' && text[i+1] == '*' {
+		if i+1 < len(text) && text[i] == '/' && text[i+1] == '*' {
 			i = skipBlockComment(text, i)
 			b.WriteByte(' ') // replace comment with space
 			continue
 		}
-
 		// Line comment: skip to end of line.
-		if i+1 < len(text) &&
-			text[i] == '-' && text[i+1] == '-' {
+		if i+1 < len(text) && text[i] == '-' && text[i+1] == '-' {
 			i += 2
 			for i < len(text) && text[i] != '\n' {
 				i++
 			}
 			continue
 		}
-
 		b.WriteByte(text[i])
 		i++
 	}
 	return b.String()
+}
+
+// quotedTokenEnd returns the end of the literal, quoted identifier or
+// dollar-quoted body starting at i, or false when none starts there. An
+// unterminated quoted identifier is not one: a stray double quote must not
+// shield the rest of the text from redaction.
+func quotedTokenEnd(text string, i int, identifiers bool) (int, bool) {
+	switch {
+	case isEStringStart(text, i):
+		return skipSingleQuoted(text, i+1, true), true
+	case text[i] == '\'':
+		return skipSingleQuoted(text, i, false), true
+	case text[i] == '"' && identifiers:
+		end := skipQuotedIdentifier(text, i)
+		return end, end > i+1 && text[end-1] == '"'
+	case text[i] == '"':
+		return i, false
+	case text[i] == '$' && !precededByIdentifier(text, i):
+		return skipDollarQuoted(text, i)
+	}
+	return i, false
 }
 
 // RedactSQLLiterals replaces single-quoted string literals and
@@ -63,62 +70,95 @@ func StripSQLComments(text string) string {
 //
 // Replacements:
 //   - 'any text'     -> '?'
-//   - ''             -> '?' (empty literal still redacted)
+//   - an empty literal -> '?' (still redacted)
+//   - E'any\'text'   -> '?' (backslash escapes honoured)
 //   - $tag$ ... $tag$-> $?$
 //   - $$ ... $$      -> $?$
 //
-// Escaped single quotes ('') inside string literals are handled
-// correctly: the whole literal is replaced, quotes and all.
-// E-strings (E'...') are treated like standard strings.
-func RedactSQLLiterals(text string) string {
+// Doubled single quotes inside string literals are handled
+// correctly: the whole literal is replaced, quotes and all. Quoted
+// identifiers are copied verbatim: an apostrophe inside "o'brien" does not
+// open a literal. A typed literal keeps its keyword: DATE'x' -> DATE'?'.
+func RedactSQLLiterals(text string) string { return redactLiterals(text, true) }
+
+func redactLiterals(text string, identifiers bool) string {
 	var b strings.Builder
 	b.Grow(len(text))
 	i := 0
 	for i < len(text) {
-		// E'...' or e'...' prefix.
-		if (text[i] == 'E' || text[i] == 'e') &&
-			i+1 < len(text) && text[i+1] == '\'' {
-			i = skipSingleQuoted(text, i+1)
-			b.WriteString("'?'")
+		end, ok := quotedTokenEnd(text, i, identifiers)
+		switch {
+		case !ok:
+			b.WriteByte(text[i])
+			i++
 			continue
-		}
-		// Standard single-quoted string.
-		if text[i] == '\'' {
-			i = skipSingleQuoted(text, i)
+		case text[i] == '"':
+			b.WriteString(text[i:end])
+		case text[i] == '$':
+			b.WriteString("$?$")
+		default:
 			b.WriteString("'?'")
-			continue
 		}
-		// Dollar-quoted string: $tag$ ... $tag$ or $$ ... $$.
-		if text[i] == '$' {
-			if end, ok := skipDollarQuoted(text, i); ok {
-				i = end
-				b.WriteString("$?$")
-				continue
-			}
-		}
-		b.WriteByte(text[i])
-		i++
+		i = end
 	}
 	return b.String()
 }
 
+// isEStringStart reports an E'...' (or e'...') escape-string literal at
+// i: the E must not end a longer word (DATE'...' is a typed literal).
+func isEStringStart(text string, i int) bool {
+	return (text[i] == 'E' || text[i] == 'e') && i+1 < len(text) &&
+		text[i+1] == '\'' && !precededByIdentifier(text, i)
+}
+
+// precededByIdentifier reports whether text[i-1] can be part of an
+// identifier, so text[i] continues a word (a$b$ is one identifier).
+func precededByIdentifier(text string, i int) bool {
+	if i == 0 {
+		return false
+	}
+	c := text[i-1]
+	return isTagCont(c) || c == '$' || c >= 0x80
+}
+
 // skipSingleQuoted returns the index after the closing ' of a
-// single-quoted literal starting at start (which must point at
-// the opening '). Escaped '' pairs are consumed as part of the
-// literal. If the literal is unterminated, returns len(text).
-func skipSingleQuoted(text string, start int) int {
+// single-quoted literal starting at start (which must point at the
+// opening '). Doubled-quote pairs are consumed as part of the literal; with
+// backslashEscapes (E-strings) so is any backslash-escaped byte. If the
+// literal is unterminated, returns len(text).
+func skipSingleQuoted(text string, start int, backslashEscapes bool) int {
 	i := start + 1
 	for i < len(text) {
-		if text[i] == '\'' {
-			if i+1 < len(text) && text[i+1] == '\'' {
-				i += 2 // escaped ''
-				continue
-			}
+		switch {
+		case backslashEscapes && text[i] == '\\':
+			i += 2
+		case text[i] != '\'':
+			i++
+		case i+1 < len(text) && text[i+1] == '\'':
+			i += 2 // doubled quote
+		default:
 			return i + 1
 		}
-		i++
 	}
-	return i
+	return len(text)
+}
+
+// skipQuotedIdentifier returns the index after the closing " of a quoted
+// identifier starting at start; "" inside is an escaped quote.
+func skipQuotedIdentifier(text string, start int) int {
+	i := start + 1
+	for i < len(text) {
+		if text[i] != '"' {
+			i++
+			continue
+		}
+		if i+1 < len(text) && text[i+1] == '"' {
+			i += 2
+			continue
+		}
+		return i + 1
+	}
+	return len(text)
 }
 
 // skipDollarQuoted detects a PostgreSQL dollar-quoted literal
@@ -175,7 +215,19 @@ func isTagCont(c byte) bool {
 // SanitizeForLLM applies the full pre-LLM sanitization: strip
 // comments (which may contain prompt-injection text) and redact
 // string literals (which may contain PII or secrets).
+//
+// Plan JSON is sanitized per string value: there double quotes delimit
+// JSON strings that hold SQL, not quoted identifiers. Text that only looks
+// like JSON (it fails to parse) is scanned with double quotes as plain
+// bytes, so literals inside its string values are still redacted.
 func SanitizeForLLM(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		if out, ok := sanitizeJSONStrings(trimmed); ok {
+			return out
+		}
+		return redactLiterals(stripComments(text, false), false)
+	}
 	return RedactSQLLiterals(StripSQLComments(text))
 }
 

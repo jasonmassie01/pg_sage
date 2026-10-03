@@ -130,89 +130,25 @@ func TestFunctional_ScanPlan_HashSpill(t *testing.T) {
 	}
 }
 
+// The hand-written plans that stood here put an Alias on the Nested Loop
+// node and flagged bare Seq Scans; PostgreSQL never emits the former and
+// the latter is no longer a symptom without catalog facts. They are
+// replaced by real EXPLAIN output (testdata/plans, plan_fixtures_test.go).
 func TestFunctional_ScanPlan_BadNestedLoop(t *testing.T) {
-	plan := `[{"Plan": {
-		"Node Type": "Nested Loop",
-		"Plan Rows": 10,
-		"Actual Rows": 50000,
-		"Alias": "nl_alias",
-		"Plans": [
-			{"Node Type": "Index Scan", "Plan Rows": 1,
-			 "Relation Name": "orders",
-			 "Index Name": "orders_pkey",
-			 "Workers Planned": 0}
-		]
-	}}]`
-
-	syms, err := ScanPlan([]byte(plan))
+	syms, err := ScanPlan(loadPlanFixture(t, "nested_loop_misestimate"))
 	if err != nil {
 		t.Fatalf("ScanPlan error: %v", err)
 	}
 	assertSymptomPresent(t, syms, SymptomBadNestedLoop)
-
 	s := findSymptom(syms, SymptomBadNestedLoop)
-	if s.Alias != "nl_alias" {
-		t.Errorf("Alias = %q, want nl_alias", s.Alias)
+	if len(s.JoinAliases) != 2 || s.Alias != "" {
+		t.Errorf("aliases = %v alias = %q, want the two child aliases", s.JoinAliases,
+			s.Alias)
 	}
 	actual, _ := s.Detail["actual_rows"].(int64)
-	if actual != 50000 {
-		t.Errorf("actual_rows = %d, want 50000", actual)
-	}
 	planned, _ := s.Detail["plan_rows"].(int64)
-	if planned != 10 {
-		t.Errorf("plan_rows = %d, want 10", planned)
-	}
-}
-
-func TestFunctional_ScanPlan_SeqScanWithIndex(t *testing.T) {
-	plan := `[{"Plan": {
-		"Node Type": "Seq Scan",
-		"Plan Rows": 10000,
-		"Relation Name": "users",
-		"Schema": "public",
-		"Alias": "u"
-	}}]`
-
-	syms, err := ScanPlan([]byte(plan))
-	if err != nil {
-		t.Fatalf("ScanPlan error: %v", err)
-	}
-	assertSymptomPresent(t, syms, SymptomSeqScanWithIndex)
-
-	s := findSymptom(syms, SymptomSeqScanWithIndex)
-	if s.RelationName != "users" {
-		t.Errorf("RelationName = %q, want users", s.RelationName)
-	}
-	if s.Schema != "public" {
-		t.Errorf("Schema = %q, want public", s.Schema)
-	}
-	if s.Alias != "u" {
-		t.Errorf("Alias = %q, want u", s.Alias)
-	}
-}
-
-func TestFunctional_ScanPlan_ParallelDisabled(t *testing.T) {
-	// Seq Scan with a relation name but no WorkersPlanned
-	// should trigger parallel_disabled.
-	plan := `[{"Plan": {
-		"Node Type": "Seq Scan",
-		"Plan Rows": 500000,
-		"Relation Name": "big_table",
-		"Schema": "public",
-		"Alias": "bt"
-	}}]`
-
-	syms, err := ScanPlan([]byte(plan))
-	if err != nil {
-		t.Fatalf("ScanPlan error: %v", err)
-	}
-	assertSymptomPresent(t, syms, SymptomParallelDisabled)
-
-	s := findSymptom(syms, SymptomParallelDisabled)
-	if s.RelationName != "big_table" {
-		t.Errorf(
-			"RelationName = %q, want big_table", s.RelationName,
-		)
+	if actual != 10000 || planned != 520 {
+		t.Errorf("actual_rows = %d plan_rows = %d, want 10000 / 520", actual, planned)
 	}
 }
 
@@ -373,7 +309,8 @@ func TestFunctional_ScanPlan_DeepNesting(t *testing.T) {
 		}]
 	}}]`
 
-	syms, err := ScanPlan([]byte(plan))
+	facts := &CatalogFacts{Tables: map[string]int64{"public.cats": 5_000_000}}
+	syms, err := ScanPlan([]byte(plan), WithCatalogFacts(facts, 1000))
 	if err != nil {
 		t.Fatalf("ScanPlan error: %v", err)
 	}
@@ -396,20 +333,13 @@ func TestFunctional_ScanPlan_DeepNesting(t *testing.T) {
 		t.Errorf("disk_sort depth = %d, want 2", diskSym.NodeDepth)
 	}
 
-	// seq_scan on cats at depth 3
-	var seqCats *PlanSymptom
-	for i, s := range syms {
-		if s.Kind == SymptomSeqScanWithIndex &&
-			s.RelationName == "cats" {
-			seqCats = &syms[i]
-			break
+	// The large Seq Scan on cats at depth 3 runs under Gather: it is
+	// already parallel, so it is not a parallel_disabled symptom, and
+	// without a filter it is not an index candidate either.
+	for _, sym := range syms {
+		if sym.RelationName == "cats" {
+			t.Errorf("scan under Gather flagged: %+v", sym)
 		}
-	}
-	if seqCats == nil {
-		t.Fatal("seq_scan on cats not found")
-	}
-	if seqCats.NodeDepth != 3 {
-		t.Errorf("seq_scan depth = %d, want 3", seqCats.NodeDepth)
 	}
 }
 
@@ -568,16 +498,16 @@ func TestFunctional_Prescribe_HashSpill(t *testing.T) {
 func TestFunctional_Prescribe_BadNestedLoop(t *testing.T) {
 	cfg := TunerConfig{WorkMemMaxMB: 512}
 	s := PlanSymptom{
-		Kind:  SymptomBadNestedLoop,
-		Alias: "orders",
+		Kind:        SymptomBadNestedLoop,
+		JoinAliases: []string{"orders", "customers"},
 	}
 	p := Prescribe(s, cfg)
 	if p == nil {
 		t.Fatal("expected prescription, got nil")
 	}
-	if p.HintDirective != "HashJoin(orders)" {
+	if p.HintDirective != "HashJoin(orders customers)" {
 		t.Errorf(
-			"directive = %q, want HashJoin(orders)",
+			"directive = %q, want HashJoin(orders customers)",
 			p.HintDirective,
 		)
 	}
@@ -587,6 +517,9 @@ func TestFunctional_Prescribe_BadNestedLoop(t *testing.T) {
 	}
 }
 
+// One relation cannot be hash-joined: pg_hint_plan join hints need two or
+// more aliases, so HashJoin(items) was a no-op (this test used to expect
+// it).
 func TestFunctional_Prescribe_BadNestedLoop_FallbackRelation(
 	t *testing.T,
 ) {
@@ -594,17 +527,9 @@ func TestFunctional_Prescribe_BadNestedLoop_FallbackRelation(
 	s := PlanSymptom{
 		Kind:         SymptomBadNestedLoop,
 		RelationName: "items",
-		// No Alias — should fall back to RelationName
 	}
-	p := Prescribe(s, cfg)
-	if p == nil {
-		t.Fatal("expected prescription, got nil")
-	}
-	if p.HintDirective != "HashJoin(items)" {
-		t.Errorf(
-			"directive = %q, want HashJoin(items)",
-			p.HintDirective,
-		)
+	if p := Prescribe(s, cfg); p != nil {
+		t.Fatalf("single-relation join hint prescribed: %+v", p)
 	}
 }
 
@@ -625,22 +550,16 @@ func TestFunctional_Prescribe_SeqScanWithIndex(t *testing.T) {
 	}
 }
 
+// Without a usable index there is nothing to force (this test used to
+// expect a bare IndexScan(u)).
 func TestFunctional_Prescribe_SeqScanNoIndex(t *testing.T) {
 	cfg := TunerConfig{WorkMemMaxMB: 512}
 	s := PlanSymptom{
 		Kind:  SymptomSeqScanWithIndex,
 		Alias: "u",
-		// No IndexName
 	}
-	p := Prescribe(s, cfg)
-	if p == nil {
-		t.Fatal("expected prescription, got nil")
-	}
-	if p.HintDirective != "IndexScan(u)" {
-		t.Errorf(
-			"directive = %q, want IndexScan(u)",
-			p.HintDirective,
-		)
+	if p := Prescribe(s, cfg); p != nil {
+		t.Fatalf("index hint without an index: %+v", p)
 	}
 }
 
@@ -1459,25 +1378,32 @@ func TestFunctional_E2E_MultiSymptomPipeline(t *testing.T) {
 		"Node Type": "Nested Loop",
 		"Plan Rows": 5,
 		"Actual Rows": 100000,
-		"Alias": "nl",
 		"Plans": [
 			{
 				"Node Type": "Sort",
 				"Plan Rows": 50000,
 				"Sort Space Used": 65536,
-				"Sort Space Type": "Disk"
+				"Sort Space Type": "Disk",
+				"Plans": [{"Node Type": "Seq Scan", "Plan Rows": 50000,
+					"Relation Name": "customers", "Alias": "c"}]
 			},
 			{
 				"Node Type": "Seq Scan",
-				"Plan Rows": 50000,
+				"Plan Rows": 50,
 				"Relation Name": "orders",
 				"Schema": "public",
-				"Alias": "o"
+				"Alias": "o",
+				"Filter": "(customer_id = c.id)"
 			}
 		]
 	}}]`
+	facts := &CatalogFacts{
+		Tables: map[string]int64{"public.orders": 1_000_000, "public.customers": 50_000},
+		Indexes: map[string][]IndexFact{"public.orders": {
+			{Name: "orders_customer_idx", LeadingColumn: "customer_id"}}},
+	}
 
-	syms, err := ScanPlan([]byte(plan))
+	syms, err := ScanPlan([]byte(plan), WithCatalogFacts(facts, 0))
 	if err != nil {
 		t.Fatalf("ScanPlan error: %v", err)
 	}
@@ -1503,14 +1429,12 @@ func TestFunctional_E2E_MultiSymptomPipeline(t *testing.T) {
 		t.Errorf("missing work_mem: %q", combined)
 	}
 	// Should contain HashJoin (from bad nested loop)
-	if !strings.Contains(combined, "HashJoin(nl)") {
-		t.Errorf("missing HashJoin(nl): %q", combined)
+	if !strings.Contains(combined, "HashJoin(c o)") {
+		t.Errorf("missing HashJoin(c o): %q", combined)
 	}
-	// Should contain IndexScan (from seq scan with index).
-	// Seq Scan nodes don't carry IndexName, so prescription
-	// generates IndexScan(alias) without index name.
-	if !strings.Contains(combined, "IndexScan(o)") {
-		t.Errorf("missing IndexScan(o): %q", combined)
+	// IndexScan names the usable index found in the catalog facts.
+	if !strings.Contains(combined, "IndexScan(o orders_customer_idx)") {
+		t.Errorf("missing IndexScan(o orders_customer_idx): %q", combined)
 	}
 
 	title := buildTitle(syms)
@@ -2005,9 +1929,9 @@ func TestFunctional_Coverage_PrescribeAll_AllSymptoms(t *testing.T) {
 				"peak_memory_kb": int64(1024),
 			}},
 		{Kind: SymptomHighPlanTime},
-		{Kind: SymptomBadNestedLoop, Alias: "t1"},
+		{Kind: SymptomBadNestedLoop, JoinAliases: []string{"t1", "t2"}},
 		{Kind: SymptomSeqScanWithIndex,
-			RelationName: "orders", Alias: "o"},
+			RelationName: "orders", Alias: "o", IndexName: "orders_pkey"},
 		{Kind: SymptomParallelDisabled, RelationName: "items"},
 		{Kind: SymptomSortLimit,
 			Detail: map[string]any{
@@ -2255,67 +2179,105 @@ func TestFunctional_Coverage_BadNestedLoop_JustOverThreshold(
 	}
 }
 
-func TestFunctional_Coverage_BadNestedLoop_AliasPreserved(
+// A join node has no alias of its own: the symptom carries its children's
+// aliases (this test used to expect an Alias on the Nested Loop node).
+func TestFunctional_Coverage_BadNestedLoop_ChildAliases(
 	t *testing.T,
 ) {
 	n := planNode{
 		NodeType:   "Nested Loop",
 		PlanRows:   1,
 		ActualRows: ptr(float64(100)),
-		Alias:      "nl_alias",
+		Plans: []planNode{{NodeType: "Seq Scan", Alias: "a"},
+			{NodeType: "Index Scan", Alias: "b"},
+			{NodeType: "Index Scan", Alias: "s", ParentRelationship: "SubPlan"}},
 	}
 	s := checkBadNestedLoop(n, 0)
 	if s == nil {
 		t.Fatal("expected symptom")
 	}
-	if s.Alias != "nl_alias" {
-		t.Errorf("alias = %q, want nl_alias", s.Alias)
+	if len(s.JoinAliases) != 2 || s.JoinAliases[0] != "a" || s.JoinAliases[1] != "b" {
+		t.Errorf("aliases = %v, want [a b]", s.JoinAliases)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// checkSeqScan edge cases
+// checkSeqScan edge cases (Phase 0 item 11: the old check flagged every
+// Seq Scan; it now needs a large table, a selective filter and a usable
+// index, all from catalog facts).
 // ---------------------------------------------------------------------------
 
+func seqFacts(rows int64) *scanContext {
+	return &scanContext{facts: &CatalogFacts{
+		Tables: map[string]int64{"public.users": rows},
+		Indexes: map[string][]IndexFact{"public.users": {
+			{Name: "users_pkey", LeadingColumn: "id"}}},
+	}}
+}
+
+func seqNode(planRows int64) planNode {
+	filter := "(id = 1)"
+	return planNode{NodeType: "Seq Scan", RelationName: "users", Schema: "public",
+		Alias: "u", PlanRows: planRows, Filter: &filter}
+}
+
 func TestFunctional_Coverage_SeqScan_NotSeqScan(t *testing.T) {
-	n := planNode{NodeType: "Index Scan", RelationName: "orders"}
-	if s := checkSeqScan(n, 0); s != nil {
+	n := seqNode(1)
+	n.NodeType = "Index Scan"
+	if s := checkSeqScan(n, 0, seqFacts(50000)); s != nil {
 		t.Error("expected nil for non-Seq Scan node")
 	}
 }
 
-func TestFunctional_Coverage_SeqScan_EmptyRelationName(t *testing.T) {
-	n := planNode{NodeType: "Seq Scan", RelationName: ""}
-	if s := checkSeqScan(n, 0); s != nil {
+func TestFunctional_Coverage_SeqScan_MissingInputs(t *testing.T) {
+	n := seqNode(1)
+	n.RelationName = ""
+	if s := checkSeqScan(n, 0, seqFacts(50000)); s != nil {
 		t.Error("expected nil when RelationName is empty")
+	}
+	n = seqNode(1)
+	n.Filter = nil
+	if s := checkSeqScan(n, 0, seqFacts(50000)); s != nil {
+		t.Error("expected nil without a filter")
+	}
+	if s := checkSeqScan(seqNode(1), 0, nil); s != nil {
+		t.Error("expected nil without catalog facts")
+	}
+	if s := checkSeqScan(seqNode(1), 0, &scanContext{}); s != nil {
+		t.Error("expected nil with empty scan context")
 	}
 }
 
 func TestFunctional_Coverage_SeqScan_Valid(t *testing.T) {
-	n := planNode{
-		NodeType:     "Seq Scan",
-		RelationName: "users",
-		Schema:       "public",
-		Alias:        "u",
-	}
-	s := checkSeqScan(n, 3)
+	s := checkSeqScan(seqNode(10), 3, seqFacts(50000))
 	if s == nil {
-		t.Fatal("expected symptom for Seq Scan with relation")
+		t.Fatal("expected symptom for a selective seq scan with a usable index")
 	}
-	if s.Kind != SymptomSeqScanWithIndex {
-		t.Errorf("kind = %v", s.Kind)
+	if s.Kind != SymptomSeqScanWithIndex || s.RelationName != "users" ||
+		s.Schema != "public" || s.Alias != "u" || s.IndexName != "users_pkey" ||
+		s.NodeDepth != 3 || s.Detail["table_rows"] != int64(50000) {
+		t.Errorf("symptom = %+v", s)
 	}
-	if s.RelationName != "users" {
-		t.Errorf("relation = %q", s.RelationName)
+}
+
+func TestFunctional_Coverage_SeqScan_Boundaries(t *testing.T) {
+	if s := checkSeqScan(seqNode(1), 0, seqFacts(indexHintMinTableRows-1)); s != nil {
+		t.Error("table below the minimum flagged")
 	}
-	if s.Schema != "public" {
-		t.Errorf("schema = %q", s.Schema)
+	if s := checkSeqScan(seqNode(1), 0, seqFacts(indexHintMinTableRows)); s == nil {
+		t.Error("table at the minimum not flagged")
 	}
-	if s.Alias != "u" {
-		t.Errorf("alias = %q", s.Alias)
+	if s := checkSeqScan(seqNode(5000), 0, seqFacts(50000)); s == nil {
+		t.Error("scan returning exactly 10% not flagged")
 	}
-	if s.NodeDepth != 3 {
-		t.Errorf("depth = %d, want 3", s.NodeDepth)
+	if s := checkSeqScan(seqNode(5001), 0, seqFacts(50000)); s != nil {
+		t.Error("scan returning more than 10% flagged")
+	}
+	n := seqNode(10)
+	actual := 6000.0
+	n.ActualRows = &actual
+	if s := checkSeqScan(n, 0, seqFacts(50000)); s != nil {
+		t.Error("actual rows above 10% must override a low estimate")
 	}
 }
 
@@ -2405,82 +2367,73 @@ func TestFunctional_Coverage_SortLimit_SortKeyPrefix(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// checkParallelDisabled edge cases
+// checkParallelDisabled edge cases (Phase 0 item 11: the old check
+// flagged every scan because Workers Planned lives on Gather nodes).
 // ---------------------------------------------------------------------------
 
-func TestFunctional_Coverage_ParallelDisabled_NoScanInType(
-	t *testing.T,
-) {
-	n := planNode{NodeType: "Hash Join", RelationName: "orders"}
-	if s := checkParallelDisabled(n, 0); s != nil {
-		t.Error("expected nil for non-Scan node")
+func parallelCtx(rows, minRows int64) *scanContext {
+	return &scanContext{parallelMinRows: minRows, facts: &CatalogFacts{
+		Tables: map[string]int64{"public.orders": rows}}}
+}
+
+func serialScanNode() planNode {
+	return planNode{NodeType: "Seq Scan", RelationName: "orders", Schema: "public",
+		Alias: "o"}
+}
+
+func TestFunctional_Coverage_ParallelDisabled_NotSeqScan(t *testing.T) {
+	for _, nt := range []string{"Hash Join", "Index Scan", "Bitmap Heap Scan"} {
+		n := serialScanNode()
+		n.NodeType = nt
+		if s := checkParallelDisabled(n, 0, false, parallelCtx(1e6, 1000)); s != nil {
+			t.Errorf("%s flagged", nt)
+		}
 	}
 }
 
-func TestFunctional_Coverage_ParallelDisabled_EmptyRelation(
-	t *testing.T,
-) {
-	n := planNode{NodeType: "Seq Scan", RelationName: ""}
-	if s := checkParallelDisabled(n, 0); s != nil {
+func TestFunctional_Coverage_ParallelDisabled_AlreadyParallel(t *testing.T) {
+	if s := checkParallelDisabled(serialScanNode(), 0, true, parallelCtx(1e6, 1000)); s != nil {
+		t.Error("scan under Gather flagged")
+	}
+	n := serialScanNode()
+	n.ParallelAware = true
+	if s := checkParallelDisabled(n, 0, false, parallelCtx(1e6, 1000)); s != nil {
+		t.Error("parallel-aware scan flagged")
+	}
+}
+
+func TestFunctional_Coverage_ParallelDisabled_MissingInputs(t *testing.T) {
+	n := serialScanNode()
+	n.RelationName = ""
+	if s := checkParallelDisabled(n, 0, false, parallelCtx(1e6, 1000)); s != nil {
 		t.Error("expected nil when RelationName is empty")
 	}
+	if s := checkParallelDisabled(serialScanNode(), 0, false, nil); s != nil {
+		t.Error("expected nil without catalog facts")
+	}
+	if s := checkParallelDisabled(serialScanNode(), 0, false, parallelCtx(1e6, 0)); s != nil {
+		t.Error("expected nil with a zero threshold")
+	}
+	unknown := parallelCtx(1e6, 1000)
+	unknown.facts.Tables = map[string]int64{"other.orders": 1e6, "x.orders": 1e6}
+	n = serialScanNode()
+	n.Schema = ""
+	if s := checkParallelDisabled(n, 0, false, unknown); s != nil {
+		t.Error("ambiguous relation flagged")
+	}
 }
 
-func TestFunctional_Coverage_ParallelDisabled_HasWorkers(
-	t *testing.T,
-) {
-	workers := 2
-	n := planNode{
-		NodeType:       "Seq Scan",
-		RelationName:   "orders",
-		WorkersPlanned: &workers,
-	}
-	if s := checkParallelDisabled(n, 0); s != nil {
-		t.Error("expected nil when WorkersPlanned is set")
-	}
-}
-
-func TestFunctional_Coverage_ParallelDisabled_IndexScan(t *testing.T) {
-	n := planNode{
-		NodeType:     "Index Scan",
-		RelationName: "orders",
-		Schema:       "public",
-		Alias:        "o",
-	}
-	s := checkParallelDisabled(n, 4)
+func TestFunctional_Coverage_ParallelDisabled_Valid(t *testing.T) {
+	s := checkParallelDisabled(serialScanNode(), 4, false, parallelCtx(2000, 2000))
 	if s == nil {
-		t.Fatal("expected symptom for Index Scan without workers")
+		t.Fatal("expected symptom for a serial scan at the threshold")
 	}
-	if s.Kind != SymptomParallelDisabled {
-		t.Errorf("kind = %v", s.Kind)
+	if s.Kind != SymptomParallelDisabled || s.RelationName != "orders" ||
+		s.Schema != "public" || s.Alias != "o" || s.NodeDepth != 4 {
+		t.Errorf("symptom = %+v", s)
 	}
-	if s.RelationName != "orders" {
-		t.Errorf("relation = %q", s.RelationName)
-	}
-	if s.Schema != "public" {
-		t.Errorf("schema = %q", s.Schema)
-	}
-	if s.Alias != "o" {
-		t.Errorf("alias = %q", s.Alias)
-	}
-	if s.NodeDepth != 4 {
-		t.Errorf("depth = %d, want 4", s.NodeDepth)
-	}
-}
-
-func TestFunctional_Coverage_ParallelDisabled_BitmapScan(
-	t *testing.T,
-) {
-	n := planNode{
-		NodeType:     "Bitmap Heap Scan",
-		RelationName: "events",
-	}
-	s := checkParallelDisabled(n, 0)
-	if s == nil {
-		t.Fatal("expected symptom for Bitmap Heap Scan")
-	}
-	if s.RelationName != "events" {
-		t.Errorf("relation = %q", s.RelationName)
+	if s := checkParallelDisabled(serialScanNode(), 0, false, parallelCtx(1999, 2000)); s != nil {
+		t.Error("table below the threshold flagged")
 	}
 }
 
@@ -2915,13 +2868,14 @@ func TestFunctional_Coverage_PrescribeIndexScan_NoAlias(t *testing.T) {
 		Kind:         SymptomSeqScanWithIndex,
 		NodeType:     "Seq Scan",
 		RelationName: "orders",
+		IndexName:    "orders_pkey",
 		// Alias deliberately empty.
 	}
 	rx := Prescribe(s, TunerConfig{})
 	if rx == nil {
 		t.Fatal("expected prescription")
 	}
-	if !strings.Contains(rx.HintDirective, "IndexScan(orders)") {
+	if !strings.Contains(rx.HintDirective, "IndexScan(orders orders_pkey)") {
 		t.Errorf("expected relation name as fallback, got %q",
 			rx.HintDirective)
 	}

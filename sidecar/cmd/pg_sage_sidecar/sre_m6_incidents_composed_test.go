@@ -148,7 +148,7 @@ func reviewDetectorInvestigation(t *testing.T, ctx context.Context, pool *pgxpoo
 	if err != nil {
 		t.Fatalf("deployment: %v", err)
 	}
-	store, err := earned.NewPostgresStore(pool, deployment)
+	store, err := earned.NewPostgresStore(pool, deployment, db)
 	if err != nil {
 		t.Fatalf("ledger store: %v", err)
 	}

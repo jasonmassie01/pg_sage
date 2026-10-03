@@ -647,11 +647,11 @@ func TestValidateExecutorSQL_AllowedPrefixes(t *testing.T) {
 	}{
 		{"CREATE INDEX idx ON t (c)", false},
 		{"CREATE UNIQUE INDEX idx ON t (c)", false},
-		{"DROP INDEX idx", false},
+		{"DROP INDEX public.idx", false},
 		{"REINDEX TABLE t", false},
 		{"VACUUM t", false},
 		{"ANALYZE t", false},
-		{"ALTER TABLE t SET (fillfactor = 90)", false},
+		{"ALTER TABLE public.t SET (fillfactor = 90)", false},
 		{"ALTER TABLE t ADD COLUMN c int", true},
 		{"ALTER SYSTEM SET work_mem = '64MB'", false},
 		{"ALTER SYSTEM RESET work_mem", false},

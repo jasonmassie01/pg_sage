@@ -101,7 +101,10 @@ SELECT s.schemaname, s.relname, s.indexrelname,
        COALESCE(pg_relation_size(s.indexrelid), 0) AS index_bytes,
        ix.indisunique, ix.indisprimary, ix.indisvalid,
        COALESCE(pg_get_indexdef(s.indexrelid), '') AS indexdef,
-       COALESCE(am.amname, 'unknown') AS index_type, s.indexrelid
+       COALESCE(am.amname, 'unknown') AS index_type, s.indexrelid,
+       -- last_idx_scan exists from PG16; read it by name so older servers
+       -- (and a mis-detected version) return NULL instead of failing.
+       (to_jsonb(s) ->> 'last_idx_scan')::timestamptz AS last_idx_scan
   FROM pg_stat_user_indexes s
   JOIN pg_index ix ON ix.indexrelid = s.indexrelid
   JOIN pg_class ic ON ic.oid = s.indexrelid

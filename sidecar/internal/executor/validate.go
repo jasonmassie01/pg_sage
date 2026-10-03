@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/pgconf"
 )
 
 // ErrDisallowedSQL is returned when SQL fails the whitelist check.
@@ -27,41 +29,6 @@ var allowedPrefixes = []string{
 	"SELECT ",
 	"INSERT INTO HINT_PLAN.HINTS",
 	"DELETE FROM HINT_PLAN.HINTS",
-}
-
-// safeAlterSystemParams is the whitelist of GUC parameters that
-// ALTER SYSTEM SET/RESET may target. Any parameter not in this
-// list is rejected to prevent dangerous runtime changes.
-var safeAlterSystemParams = map[string]bool{
-	"work_mem":                         true,
-	"maintenance_work_mem":             true,
-	"effective_cache_size":             true,
-	"shared_buffers":                   true,
-	"max_wal_size":                     true,
-	"min_wal_size":                     true,
-	"max_slot_wal_keep_size":           true,
-	"checkpoint_completion_target":     true,
-	"checkpoint_timeout":               true,
-	"random_page_cost":                 true,
-	"effective_io_concurrency":         true,
-	"max_parallel_workers_per_gather":  true,
-	"max_parallel_workers":             true,
-	"max_parallel_maintenance_workers": true,
-	"autovacuum_vacuum_cost_delay":     true,
-	"autovacuum_vacuum_cost_limit":     true,
-	"autovacuum_naptime":               true,
-	"autovacuum_max_workers":           true,
-	"autovacuum_vacuum_threshold":      true,
-	"autovacuum_vacuum_scale_factor":   true,
-	"autovacuum_analyze_threshold":     true,
-	"autovacuum_analyze_scale_factor":  true,
-	"wal_buffers":                      true,
-	"default_statistics_target":        true,
-	"huge_pages":                       true,
-	"temp_buffers":                     true,
-	"log_min_duration_statement":       true,
-	"track_activity_query_size":        true,
-	"jit":                              true,
 }
 
 var backendSignalPattern = regexp.MustCompile(
@@ -170,7 +137,7 @@ func allowedAlterDatabaseParam(upper string) bool {
 	fields := strings.FieldsFunc(rest, func(r rune) bool {
 		return r == ' ' || r == '=' || r == '\t' || r == ';'
 	})
-	return len(fields) > 0 && safeAlterSystemParams[strings.ToLower(fields[0])]
+	return len(fields) > 0 && pgconf.ExecutableGUC(fields[0])
 }
 
 func alterDatabaseClause(upper string) (string, bool) {
@@ -208,7 +175,7 @@ func checkAlterSystemParam(upper string) error {
 			ErrDisallowedSQL,
 		)
 	}
-	if !safeAlterSystemParams[strings.ToLower(param)] {
+	if !pgconf.ExecutableGUC(param) {
 		return fmt.Errorf(
 			"%w: ALTER SYSTEM parameter %q not in whitelist",
 			ErrDisallowedSQL, param,
@@ -278,7 +245,10 @@ func checkAlterTableSubcmd(upper string) error {
 	}
 	for _, safe := range safeAlterTableSubcmds {
 		if strings.HasPrefix(sub, safe) {
-			return requireSingleReloptionSubcmd(sub)
+			if err := requireSingleReloptionSubcmd(sub); err != nil {
+				return err
+			}
+			return checkReloptionAllowlist(upper)
 		}
 	}
 	for _, pattern := range safeMigrationSubcommands {
@@ -357,12 +327,21 @@ func rejectMultiStatement(sql string) error {
 	return nil
 }
 
+// qualifiedTargetPrefixes are the destructive statements whose target must
+// name its schema: an unqualified name resolves through the session
+// search_path at run time, where "$user" may be sage and pg_catalog is
+// always searched, so the protected-schema check could not see it.
+var qualifiedTargetPrefixes = map[string]bool{"DROP INDEX": true, "ALTER TABLE": true}
+
 func checkProtectedSchemaUsage(trimmed, prefix string) error {
 	ident := statementTarget(trimmed, prefix)
+	schema := schemaFromIdentifier(ident)
+	if qualifiedTargetPrefixes[prefix] && schema == "" {
+		return fmt.Errorf("%w: %s target must be schema-qualified", ErrDisallowedSQL, prefix)
+	}
 	if ident == "" {
 		return nil
 	}
-	schema := schemaFromIdentifier(ident)
 	if isProtectedExecutorSchema(schema) {
 		return fmt.Errorf(
 			"%w: executor may not target protected schema %q",
@@ -395,8 +374,24 @@ func schemaFromIdentifier(ident string) string {
 func isProtectedExecutorSchema(schema string) bool {
 	schema = strings.ToLower(strings.Trim(schema, `"`))
 	switch schema {
-	case "pg_catalog", "information_schema", "google_ml", "sage":
+	case "pg_catalog", "pg_toast", "information_schema", "google_ml", "sage":
 		return true
 	}
 	return strings.HasPrefix(schema, "_timescaledb_")
+}
+
+// checkReloptionAllowlist applies pgconf's executor reloption rule to an
+// ALTER TABLE ... SET/RESET (G-P0-1): only allowlisted storage parameters,
+// and never autovacuum_enabled = false, whoever produced the SQL.
+func checkReloptionAllowlist(upper string) error {
+	stmt, ok := pgconf.ParseAlterTableReloptions(upper)
+	if !ok {
+		return fmt.Errorf("%w: cannot parse ALTER TABLE storage parameters", ErrDisallowedSQL)
+	}
+	for _, opt := range stmt.Options {
+		if err := pgconf.CheckExecutableReloption(opt, stmt.Reset); err != nil {
+			return fmt.Errorf("%w: %v", ErrDisallowedSQL, err)
+		}
+	}
+	return nil
 }

@@ -1,0 +1,30 @@
+[
+  {
+    "Plan": {
+      "Async Capable": false,
+      "Node Type": "Aggregate",
+      "Parallel Aware": false,
+      "Partial Mode": "Simple",
+      "Plan Rows": 1,
+      "Plan Width": 8,
+      "Plans": [
+        {
+          "Alias": "o",
+          "Async Capable": false,
+          "Filter": "(note ~~ '%ab%'::text)",
+          "Node Type": "Seq Scan",
+          "Parallel Aware": false,
+          "Parent Relationship": "Outer",
+          "Plan Rows": 20202,
+          "Plan Width": 0,
+          "Relation Name": "orders",
+          "Startup Cost": 0,
+          "Total Cost": 4871
+        }
+      ],
+      "Startup Cost": 4921.51,
+      "Strategy": "Plain",
+      "Total Cost": 4921.52
+    }
+  }
+]

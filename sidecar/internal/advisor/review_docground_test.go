@@ -2,6 +2,8 @@ package advisor
 
 import (
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/pgconf"
 )
 
 // G3-B01: unitless GUC values are in each GUC's PostgreSQL base unit
@@ -70,6 +72,24 @@ var baseUnitCases = []struct {
 	{"autovacuum_vacuum_cost_limit", "2000", true, "count"},
 	{"autovacuum_vacuum_cost_limit", "-1", true, "use vacuum_cost_limit"},
 	{"autovacuum_vacuum_cost_limit", "0", false, "zero stalls vacuum"},
+	// Added with the config allowlist (G-P0-1).
+	{"checkpoint_timeout", "900", true, "base unit s"},
+	{"checkpoint_timeout", "900s", true, "explicit seconds"},
+	{"checkpoint_timeout", "2h", false, "above 1h"},
+	{"min_wal_size", "4GB", true, "explicit GB"},
+	{"min_wal_size", "1024", true, "1GB in MB"},
+	{"min_wal_size", "16MB", false, "below 32MB"},
+	{"autovacuum_analyze_scale_factor", "0.05", true, "ratio"},
+	{"autovacuum_analyze_scale_factor", "0", false, "zero"},
+	{"autovacuum_analyze_threshold", "50", true, "count"},
+	{"autovacuum_vacuum_insert_scale_factor", "0.2", true, "ratio"},
+	{"autovacuum_vacuum_insert_threshold", "1000", true, "count"},
+	{"autovacuum_vacuum_insert_threshold", "-1", true, "disables insert vacuum"},
+	{"autovacuum_naptime", "30s", true, "time"},
+	{"autovacuum_naptime", "30", true, "base unit s"},
+	{"autovacuum_naptime", "1d", false, "above 10min"},
+	{"autovacuum_max_workers", "5", true, "count"},
+	{"autovacuum_max_workers", "100", false, "above 20"},
 }
 
 func TestValidateGUCValue_BaseUnits(t *testing.T) {
@@ -89,9 +109,9 @@ func TestValidateGUCValue_EveryDocumentedGUCCovered(t *testing.T) {
 	for _, c := range baseUnitCases {
 		covered[c.guc] = true
 	}
-	for name := range gucDocs {
+	for name := range pgconf.Docs {
 		if !covered[name] {
-			t.Errorf("gucDocs[%q] has no base-unit test case", name)
+			t.Errorf("pgconf.Docs[%q] has no base-unit test case", name)
 		}
 	}
 }

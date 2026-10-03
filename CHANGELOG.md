@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- **Safety fixes for EXPLAIN, LLM prompts, index drops and MCP (Phase 0).** `/explain` only
+  runs EXPLAIN ANALYZE when the query provably calls nothing with side effects (no volatile
+  functions such as `pg_terminate_backend` or `dblink`, also not inside views, no row locks or
+  data-modifying CTEs); otherwise it returns the plan without ANALYZE and says why. A zero or
+  negative `explain.timeout_ms` now means the default instead of no limit, plan-only and
+  ANALYZE results are cached separately, and a fallback after an LLM failure is cached for one
+  minute only. Text sent to the LLM is delimited and redacted more reliably (Unicode tag
+  tricks, `E''` strings, dollar quotes, plan JSON), the plan-regression narrator and action
+  justifier now use that protection, and the narrator no longer replaces a finding's
+  recommendation. `DROP INDEX` and `ALTER TABLE` run by pg_sage must name their schema, so a
+  search_path cannot steer them into `sage` or `pg_catalog`. With the MCP stdio transport the
+  daily briefing's stdout channel is written to stderr, and MCP now answers `ping`, ignores
+  notifications and returns tool results as `content` blocks.
+
 ### Changed (read before upgrading)
 
 - **pg_sage's snapshot history takes about a tenth of the space, and pg_sage warns when it
@@ -15,6 +31,26 @@
   `sage.snapshot_data(data, base_id)` instead of the `data` column. A new
   `sage_footprint` finding warns when pg_sage's own tables pass
   `retention.sage_size_warning_pct` percent of the database (default 10, `0` turns it off).
+
+- **Config changes are reversible and checked, not assumed.** When pg_sage applies an
+  LLM-proposed setting or table storage parameter, it first records the old value and the
+  exact SQL to put it back, then reads the setting back after the reload. A change that did
+  not take effect is undone and marked failed; one that needs a restart is marked as such.
+  It is only counted as a success when the thing it was meant to fix measurably improved
+  (fewer temp-file spills, fewer dead rows, more HOT updates); otherwise it is
+  "unverifiable". Only allowlisted settings run; anything else, including turning
+  autovacuum off, stays advice. Unused-index drops now use `last_idx_scan` (PG16+) and are
+  never automatic on a database with replicas, whose index use pg_sage cannot see.
+
+- **Earned autonomy is per database, and you can earn it from the UI.** In a fleet, one
+  database's reviews and outcomes no longer promote or demote another (bench reports stay
+  shared); levels set before this release apply to each database until it decides
+  otherwise. A success that was never verified now earns nothing. Cases gains Accept /
+  Reject (with a note and the actual root cause) on every finished investigation, and the
+  Earned autonomy page gains "Evaluate now" and a "Path to next level" checklist that says
+  what is still missing, with counts and ETAs. MCP adds `sre_review_investigation` and
+  `sre_evaluate_autonomy`; a review an agent records through MCP is kept but never counts
+  toward promotion, and approving a promotion stays a human step.
 
 ### Fixed
 
@@ -36,6 +72,47 @@
   drop, automatic or approved by an operator, pg_sage checks the evidence again live. If
   it no longer holds, pg_sage refuses and says which check failed: the index was scanned,
   the statistics were reset inside the window, or the index is gone.
+
+- **Index, schema-family and hint advice you can trust more (Phase 0 tuning correctness).**
+  New indexes run on their own only when HypoPG measured the whole workload and showed a
+  gain, weighted by how much time each query really takes; anything it could not measure
+  waits for your approval. Expression and partial indexes are understood, partitioned tables
+  get a step-by-step plan instead of a statement PostgreSQL would reject, and the database
+  collation is read correctly on PostgreSQL 16+. Live schema-per-tenant designs are no longer
+  mistaken for leftover copies: each problem is shown once with the list of affected schemas,
+  and pg_sage only suggests dropping schemas that are truly idle. Query hints are suggested
+  only when the plan and catalog support them (no more hints for every scan or empty join
+  hints), and the hints page shows whether a hint was proposed, applied or rolled back. The
+  analyzer and optimizer read a bounded slice of their own history instead of all of it.
+
+- **The decision ledger no longer grows by tens of thousands of rows an hour.** On a
+  database with 15,000 tables and 160 leftover test schemas, `sage.decision` grew by about
+  41,000 rows an hour (about a million a day, kept for a year). The policy gate wrote a new
+  row every time it re-checked a candidate it was holding back. The schema guard wrote
+  one row for every schema issue on every cycle and ran one unindexed lookup per issue.
+  Now:
+  - A parked, queued, blocked or observe-only verdict that repeats updates its existing row
+    (`repeat_count`, `last_seen_at`) instead of adding a new one. Each executed decision
+    still keeps its own row.
+  - Cheap checks that skip a candidate now run before the policy gate.
+  - The schema guard records a decision only when it changes (its route, outcome, reason or
+    SQL, or the issue coming back after it was gone). It reads its history and table
+    contracts in one query each per cycle and reads `pg_stat_statements` once per cycle.
+    Unchanged issues are still checked and handled every cycle exactly as before.
+  - Schemas that are copies of one another (same tables, generated names, five or more
+    copies) are handled as one family. A family in use, such as one schema per tenant, is
+    still fixed in every schema but recorded once per issue with the list of schemas. A
+    family nothing has used within `analyzer.unused_index_window_days` (no scans, writes,
+    statements or sessions) is noted once as an idle leftover and not fixed.
+  - After pg_sage's own DDL, the guard re-checks at most once per
+    `analyzer.schema_guard_ddl_debounce_seconds` (default 60).
+  - Non-executed decisions are removed after the new `retention.decisions_days` (default
+    30, counted from when they were last seen), unless an action or a verification refers
+    to them.
+  - At startup, pg_sage adds the ledger's missing indexes once, keeping any that already
+    exist: `idx_decision_schema_guard_targets`, `created_at`, and every foreign key into
+    or out of `sage.decision`. On a very large existing ledger, create them
+    `CONCURRENTLY` by hand first (see the review report for the statements).
 
 ## v1.8.1 (2026-10-02) -- Fast trust, big-catalog fixes from dogfooding, current OpenAI models
 

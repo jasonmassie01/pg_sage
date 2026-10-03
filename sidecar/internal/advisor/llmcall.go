@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/pgconf"
 )
 
 const advisorMaxTokens = 4096
@@ -66,11 +67,11 @@ func applyHostMemoryGuard(
 	findings []analyzer.Finding, hostMemBytes int64,
 ) []analyzer.Finding {
 	for i := range findings {
-		guc, value, ok := parseAlterSystemSet(findings[i].RecommendedSQL)
-		if !ok || !strings.EqualFold(guc, "shared_buffers") {
+		stmt, ok := pgconf.ParseAlterSystem(findings[i].RecommendedSQL)
+		if !ok || stmt.Reset || stmt.Name != "shared_buffers" {
 			continue
 		}
-		reason := sharedBuffersRefusal(value, hostMemBytes)
+		reason := sharedBuffersRefusal(stmt.Value, hostMemBytes)
 		if reason == "" {
 			continue
 		}
@@ -88,7 +89,7 @@ func sharedBuffersRefusal(value string, hostMemBytes int64) string {
 		return "host memory is unknown, so shared_buffers cannot be " +
 			"grounded; review manually"
 	}
-	v, err := parseGUCValue(value, gucDocs["shared_buffers"])
+	v, err := pgconf.ParseValue(value, pgconf.Docs["shared_buffers"])
 	if err != nil {
 		return "unparseable shared_buffers value"
 	}

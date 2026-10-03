@@ -113,19 +113,17 @@ func TestRecommendation_FindingIdentity(t *testing.T) {
 }
 
 type fakeWhatIf struct {
-	available   bool
-	accepted    bool
-	improvement float64
-	size        int64
-	err         error
+	available bool
+	result    WhatIfResult
+	err       error
 }
 
 func (f fakeWhatIf) IsAvailable(context.Context) bool { return f.available }
 
 func (f fakeWhatIf) Validate(
 	context.Context, Recommendation, []QueryInfo,
-) (bool, float64, int64, error) {
-	return f.accepted, f.improvement, f.size, f.err
+) (WhatIfResult, error) {
+	return f.result, f.err
 }
 
 func analyzeWithWhatIf(t *testing.T, w whatIfValidator, threshold float64) ([]Recommendation, int) {
@@ -145,12 +143,12 @@ func analyzeWithWhatIf(t *testing.T, w whatIfValidator, threshold float64) ([]Re
 	return accepted, rejected
 }
 
-// G3-B06: a HypoPG evaluation that shows no/negative improvement rejects
-// the recommendation instead of scoring like "HypoPG unavailable".
+// G3-B06: a HypoPG evaluation that measured every query and shows
+// no/negative/too-small improvement rejects the recommendation.
 func TestAnalyzeTable_HypoPGRejectionDropsRec(t *testing.T) {
 	for _, imp := range []float64{0, -12.5, 3} {
-		accepted, rejected := analyzeWithWhatIf(t,
-			fakeWhatIf{available: true, accepted: false, improvement: imp, size: 8192}, 0.5)
+		accepted, rejected := analyzeWithWhatIf(t, fakeWhatIf{available: true,
+			result: WhatIfResult{Improvement: imp, SizeBytes: 8192, Measured: 2}}, 0.5)
 		if len(accepted) != 0 || rejected != 1 {
 			t.Errorf("improvement %.1f: accepted=%d rejected=%d, want 0/1",
 				imp, len(accepted), rejected)
@@ -158,21 +156,33 @@ func TestAnalyzeTable_HypoPGRejectionDropsRec(t *testing.T) {
 	}
 }
 
-// Inconclusive HypoPG (no measurable query, or an error) stays neutral.
-func TestAnalyzeTable_HypoPGInconclusiveIsNeutral(t *testing.T) {
+// Phase 0 item 7: an inconclusive what-if (unavailable, error, nothing
+// measurable, a query that could not be planned) is "unverified": the
+// recommendation is kept for approval but never marked validated.
+// (Previously this test asserted the same outcome as "neutral"; the
+// verdict is now explicit so the executor can require approval.)
+func TestAnalyzeTable_HypoPGInconclusiveIsUnverified(t *testing.T) {
 	for name, w := range map[string]fakeWhatIf{
 		"no measurement": {available: true},
 		"error":          {available: true, err: errors.New("boom")},
 		"unavailable":    {},
+		"partial failure": {available: true, result: WhatIfResult{Improvement: 80,
+			SizeBytes: 8192, Measured: 1, Failed: 1}},
 	} {
 		accepted, _ := analyzeWithWhatIf(t, w, 0.5)
 		if len(accepted) != 1 {
 			t.Errorf("%s: accepted = %d, want 1", name, len(accepted))
+			continue
+		}
+		if accepted[0].Validated || accepted[0].WhatIf != WhatIfUnverified ||
+			accepted[0].WhatIfReason == "" {
+			t.Errorf("%s: verdict = %q (%q) validated=%t, want unverified with a reason",
+				name, accepted[0].WhatIf, accepted[0].WhatIfReason, accepted[0].Validated)
 		}
 	}
-	accepted, _ := analyzeWithWhatIf(t,
-		fakeWhatIf{available: true, accepted: true, improvement: 40, size: 8192}, 0.5)
-	if len(accepted) != 1 || !accepted[0].Validated {
+	accepted, _ := analyzeWithWhatIf(t, fakeWhatIf{available: true,
+		result: WhatIfResult{Improvement: 40, SizeBytes: 8192, Measured: 2}}, 0.5)
+	if len(accepted) != 1 || !accepted[0].Validated || accepted[0].WhatIf != WhatIfVerified {
 		t.Fatalf("validated rec missing: %+v", accepted)
 	}
 }

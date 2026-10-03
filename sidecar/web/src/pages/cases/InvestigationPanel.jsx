@@ -6,6 +6,7 @@ import { InvestigationTimeline } from './InvestigationTimeline'
 import { ActionProposals } from './ActionProposal'
 import { RunbookResult } from './RunbookResult'
 import { SimilarIncidents } from './SimilarIncidents'
+import { InvestigationReview } from './InvestigationReview'
 
 // Sage SRE investigation of a case (AI-SRE-SPEC §9): impact and state,
 // observed facts, the likely explanation, other and ruled-out
@@ -14,8 +15,9 @@ import { SimilarIncidents } from './SimilarIncidents'
 // model turn's output (ranking, cited claims, proposed probe) is shown
 // apart from the graph's scores, and the timeline lists every event,
 // model fallbacks and disagreements included. Investigations are
-// read-only: operators may pin, export, stop (a resumable pause) and
-// resume them; nothing here executes an action.
+// read-only: operators may pin, export, stop (a resumable pause), resume
+// and review them (accept / reject the diagnosis); nothing here executes
+// an action.
 
 const STATE_TONES = {
   concluded: { label: 'Concluded', tone: 'concluded', color: 'var(--green, #16a34a)' },
@@ -112,6 +114,8 @@ function InvestigationDetail({ database, id, user }) {
       <SimilarIncidents database={database} investigationId={id} />
       <EvidenceList evidence={data.evidence || []} openID={openEvidence} />
       <InvestigationTimeline path={basePath(database, id)} />
+      <InvestigationReview database={database} investigation={data.investigation}
+        user={user} />
       {canOperate(user) && (
         <OperatorControls database={database} investigation={data.investigation}
           onDone={refetch} />

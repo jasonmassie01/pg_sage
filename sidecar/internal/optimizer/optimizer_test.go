@@ -198,9 +198,9 @@ func TestStripSortDirection(t *testing.T) {
 		{"col1", "col1"},
 	}
 	for _, tt := range tests {
-		got := stripSortDirection(tt.input)
+		got := stripKeyDecorations(tt.input)
 		if got != tt.want {
-			t.Errorf("stripSortDirection(%q) = %q, want %q",
+			t.Errorf("stripKeyDecorations(%q) = %q, want %q",
 				tt.input, got, tt.want)
 		}
 	}

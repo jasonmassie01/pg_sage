@@ -6,6 +6,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/pgconf"
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
@@ -31,19 +32,10 @@ var restrictedSettings = map[string]map[string]bool{
 	},
 }
 
-// restartRequired lists GUCs that need a restart.
-var restartRequired = map[string]bool{
-	"max_connections": true,
-	"shared_buffers":  true,
-	"huge_pages":      true,
-	"wal_level":       true,
-	"max_wal_senders": true,
-	"wal_buffers":     true,
-}
-
 // RequiresRestart returns true if changing the setting needs a restart.
+// The list is pgconf's, shared with the executor (G-P0-1).
 func RequiresRestart(settingName string) bool {
-	return restartRequired[settingName]
+	return pgconf.RequiresRestart(settingName)
 }
 
 // IsManagedService returns true if the platform is a managed cloud
@@ -143,20 +135,9 @@ func TransformForCloud(
 // extractSettingName parses the GUC name from ALTER SYSTEM SET name
 // or ALTER SYSTEM RESET name statements.
 func extractSettingName(sql string) string {
-	upper := strings.ToUpper(strings.TrimSpace(sql))
-	var rest string
-	switch {
-	case strings.HasPrefix(upper, "ALTER SYSTEM SET "):
-		rest = strings.TrimSpace(sql[len("ALTER SYSTEM SET "):])
-	case strings.HasPrefix(upper, "ALTER SYSTEM RESET "):
-		rest = strings.TrimSpace(sql[len("ALTER SYSTEM RESET "):])
-	default:
+	stmt, ok := pgconf.ParseAlterSystem(sql)
+	if !ok {
 		return ""
 	}
-	// Setting name is the first token.
-	fields := strings.Fields(rest)
-	if len(fields) == 0 {
-		return ""
-	}
-	return strings.ToLower(strings.TrimSuffix(fields[0], ";"))
+	return stmt.Name
 }

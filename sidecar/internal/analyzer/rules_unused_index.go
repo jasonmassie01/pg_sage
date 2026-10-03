@@ -8,11 +8,13 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 )
 
-// ruleUnusedIndexes flags indexes with zero scans that are not primary keys,
-// not unique, and have had zero scans for a full window of clean evidence.
-// The evidence drives an autonomous DROP INDEX, so a window that contains a
-// statistics reset is broken evidence, not zero scans: the unused clock
-// restarts at the reset (G2-B07, snapshot dedupe follow-up).
+// ruleUnusedIndexes flags indexes that are not primary keys, not unique,
+// and have gone unused for a full window of clean evidence: zero scans
+// since a clock that restarts at every statistics reset (G2-B07, snapshot
+// dedupe follow-up), or (PG16+) a last_idx_scan older than the window,
+// which is durable evidence of its own (G-P0-12). The evidence drives an
+// autonomous DROP INDEX, which is never automatic while standby index
+// usage is unknown (G-P0-12).
 func ruleUnusedIndexes(
 	current *collector.Snapshot,
 	previous *collector.Snapshot,
@@ -25,13 +27,14 @@ func ruleUnusedIndexes(
 	prev := previousIndexes(previous)
 	unlogged := buildUnloggedSet(current)
 	fkRequirements := buildFKRequirements(current)
+	standbyRisk := standbyUsageUnknown(current)
 	var findings []Finding
 
 	for _, idx := range current.Indexes {
 		ident := idx.SchemaName + "." + idx.IndexRelName
-		if idx.IdxScan > 0 {
-			// Used since the stats epoch: restart the observation window so
-			// a later pg_stat_reset/crash does not look like weeks of disuse.
+		if scannedWithin(idx, window, now) {
+			// Used recently: restart the observation window so a later
+			// pg_stat_reset/crash does not look like weeks of disuse.
 			extras.forgetUnused(ident)
 			continue
 		}
@@ -46,7 +49,7 @@ func ruleUnusedIndexes(
 		if indexIsOnlyFKSupport(idx, current.Indexes, fkRequirements) {
 			continue
 		}
-		since := unusedSince(extras, idx, ident, prev[ident], epoch, now)
+		since := unusedClock(extras, idx, ident, prev[ident], epoch, now)
 		if now.Sub(since) < window {
 			continue
 		}
@@ -55,9 +58,37 @@ func ruleUnusedIndexes(
 		if !epoch.IsZero() {
 			f.Detail["stats_epoch"] = epoch.UTC().Format(time.RFC3339)
 		}
-		findings = append(findings, f)
+		findings = append(findings, withStandbyGate(f, standbyRisk))
 	}
 	return findings
+}
+
+// scannedWithin reports whether the index counts as used within window:
+// without last_idx_scan (before PG16) any scan since the stats epoch does.
+func scannedWithin(idx collector.IndexStats, window time.Duration, now time.Time) bool {
+	if idx.IdxScan == 0 {
+		return false
+	}
+	return idx.LastIdxScan == nil || now.Sub(*idx.LastIdxScan) < window
+}
+
+// unusedClock is when the index's unused window starts. An index that was
+// scanned, but last longer ago than the window, is unused since that scan:
+// last_idx_scan is reset with the counters, so a non-null value is always
+// after the stats epoch and needs no in-memory clock. Zero-scan indexes
+// use the reset-aware clock.
+func unusedClock(
+	extras *RuleExtras, idx collector.IndexStats, ident string,
+	prev collector.IndexStats, epoch, now time.Time,
+) time.Time {
+	if idx.IdxScan > 0 && idx.LastIdxScan != nil {
+		extras.forgetUnused(ident)
+		if epoch.After(*idx.LastIdxScan) {
+			return epoch
+		}
+		return *idx.LastIdxScan
+	}
+	return unusedSince(extras, idx, ident, prev, epoch, now)
 }
 
 // relationStatsEpoch is the later of the epoch the snapshot recorded and
@@ -133,10 +164,18 @@ func unusedIndexFinding(
 ) Finding {
 	severity := "warning"
 	rec := "Drop unused index to save disk and write overhead."
+	title := fmt.Sprintf("Unused index %s (0 scans for %d+ days)", ident, windowDays)
 	detail := map[string]any{
-		"table":     idx.RelName,
-		"index_def": idx.IndexDef,
-		"size":      idx.IndexBytes,
+		"table":          idx.RelName,
+		"index_def":      idx.IndexDef,
+		"size":           idx.IndexBytes,
+		"usage_evidence": "zero_scans",
+	}
+	if idx.IdxScan > 0 && idx.LastIdxScan != nil {
+		detail["usage_evidence"] = "last_idx_scan"
+		detail["last_idx_scan"] = idx.LastIdxScan.UTC().Format(time.RFC3339)
+		detail["idx_scan"] = idx.IdxScan
+		title = fmt.Sprintf("Unused index %s (not scanned for %d+ days)", ident, windowDays)
 	}
 	if unlogged[idx.SchemaName+"."+idx.RelName] {
 		severity = "info"
@@ -148,13 +187,11 @@ func unusedIndexFinding(
 		Severity:         severity,
 		ObjectType:       "index",
 		ObjectIdentifier: ident,
-		Title: fmt.Sprintf(
-			"Unused index %s (0 scans for %d+ days)", ident, windowDays,
-		),
-		Detail:         detail,
-		Recommendation: rec,
-		RecommendedSQL: dropIndexSQL(idx),
-		RollbackSQL:    idx.IndexDef + ";",
-		ActionRisk:     "safe",
+		Title:            title,
+		Detail:           detail,
+		Recommendation:   rec,
+		RecommendedSQL:   dropIndexSQL(idx),
+		RollbackSQL:      idx.IndexDef + ";",
+		ActionRisk:       "safe",
 	}
 }

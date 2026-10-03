@@ -42,12 +42,17 @@ func verifiedActionForFinding(f analyzer.Finding) (verifiedIndexAction, error) {
 	}, nil
 }
 
+// rollbackTargetsCreatedIndex checks that the finding's rollback identifies
+// the created index. It is never executed: prepareVerifiedIndex re-derives
+// the rollback schema-qualified, so the identifying DROP may be unqualified
+// (the executed-SQL rule for destructive DDL applies to what actually runs).
 func rollbackTargetsCreatedIndex(createSQL, rollbackSQL string) error {
-	target, err := supersededIndexTarget(rollbackSQL)
-	if err != nil {
-		return fmt.Errorf("%w: rollback must be one DROP INDEX CONCURRENTLY: %v",
-			ErrVerificationUnavailable, err)
+	match := supersededDropPattern.FindStringSubmatch(rollbackSQL)
+	if len(match) != 2 {
+		return fmt.Errorf("%w: rollback must be one DROP INDEX CONCURRENTLY",
+			ErrVerificationUnavailable)
 	}
+	target := match[1]
 	parts := splitQualifiedIdentifier(target)
 	name := parts[len(parts)-1]
 	if !strings.HasPrefix(strings.TrimSpace(target), `"`) && len(parts) == 1 {

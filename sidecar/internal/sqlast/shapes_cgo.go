@@ -3,6 +3,7 @@
 package sqlast
 
 import (
+	"strconv"
 	"strings"
 
 	pg_query "github.com/pganalyze/pg_query_go/v6"
@@ -20,7 +21,7 @@ var safeAlterTableCmds = map[pg_query.AlterTableType]bool{
 	pg_query.AlterTableType_AT_DropConstraint:     true,
 }
 
-func checkAlterTable(alter *pg_query.AlterTableStmt) error {
+func checkAlterTable(alter *pg_query.AlterTableStmt, rules Rules) error {
 	if len(alter.GetCmds()) != 1 {
 		return reject("ALTER TABLE must carry exactly one subcommand")
 	}
@@ -35,7 +36,67 @@ func checkAlterTable(alter *pg_query.AlterTableStmt) error {
 	if cmd.GetSubtype() == pg_query.AlterTableType_AT_AddConstraint {
 		return checkAddedConstraint(cmd.GetDef().GetConstraint())
 	}
+	if cmd.GetSubtype() == pg_query.AlterTableType_AT_SetRelOptions ||
+		cmd.GetSubtype() == pg_query.AlterTableType_AT_ResetRelOptions {
+		reset := cmd.GetSubtype() == pg_query.AlterTableType_AT_ResetRelOptions
+		return checkReloptions(cmd.GetDef().GetList().GetItems(), reset, rules)
+	}
 	return nil
+}
+
+// checkReloptions applies the reloption rule to each storage parameter as
+// the parser resolved it (quoted and Unicode-escaped names included).
+func checkReloptions(items []*pg_query.Node, reset bool, rules Rules) error {
+	if rules.Reloption == nil {
+		return nil
+	}
+	for _, item := range items {
+		def := item.GetDefElem()
+		if def == nil {
+			return reject("ALTER TABLE storage parameter is malformed")
+		}
+		key := strings.ToLower(def.GetDefname())
+		if ns := def.GetDefnamespace(); ns != "" {
+			key = strings.ToLower(ns) + "." + key
+		}
+		value := ""
+		if !reset {
+			value = defElemValue(def.GetArg())
+		}
+		if !rules.Reloption(key, value, reset) {
+			return reject("storage parameter %s=%s is not allowed", key, value)
+		}
+	}
+	return nil
+}
+
+// defElemValue renders a reloption argument; a bare option means true.
+func defElemValue(arg *pg_query.Node) string {
+	switch {
+	case arg == nil:
+		return "true"
+	case arg.GetString_() != nil:
+		return arg.GetString_().GetSval()
+	case arg.GetInteger() != nil:
+		return strconv.Itoa(int(arg.GetInteger().GetIval()))
+	case arg.GetFloat() != nil:
+		return arg.GetFloat().GetFval()
+	case arg.GetBoolean() != nil:
+		return strconv.FormatBool(arg.GetBoolean().GetBoolval())
+	case arg.GetTypeName() != nil:
+		return typeNameValue(arg.GetTypeName())
+	}
+	return ""
+}
+
+// typeNameValue renders an unquoted keyword the grammar parsed as a type
+// name (e.g. "on" in some reloption positions).
+func typeNameValue(name *pg_query.TypeName) string {
+	parts := make([]string, 0, len(name.GetNames()))
+	for _, part := range name.GetNames() {
+		parts = append(parts, part.GetString_().GetSval())
+	}
+	return strings.Join(parts, ".")
 }
 
 // checkAddedConstraint allows only the online-migration forms:
