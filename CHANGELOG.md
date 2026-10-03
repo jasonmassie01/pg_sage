@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Every release ships its own signed benchmark, so earning L2 no longer means copying CI
+  files.** The release build signs its PGIncidentBench reports with Sigstore (no key to
+  manage) and puts them in the image, in the release archive next to the binary and on the
+  release page. The sidecar checks the signature offline at startup and counts a report only
+  for the exact pg_sage build it measured. On the Autonomy page, "Path to next level" shows
+  where each family's benchmark came from (signed release, local run, or unsigned upload),
+  and an admin can press "Run bench locally" to run it on a disposable clone; that result
+  counts only for the families it covered. Reports you upload yourself still work, marked
+  "unsigned (operator-provided)".
+
 ## v1.8.4 (2026-10-03) -- Dogfood fixes: idle sidecar CPU, verified indexes build themselves, snapshot cap works
 
 ### What's new
