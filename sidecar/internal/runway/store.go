@@ -20,12 +20,14 @@ const pruneBatch = 10000
 // pruneSamplesSQL and loadLastSQL bound sampled_at with now(), which is
 // stable within the statement, so runway_samples_sampled_at_idx serves
 // them; a volatile clock_timestamp() cutoff cannot be an index bound and
-// read the whole table every pass (performance gate).
+// read the whole table every pass (performance gate). The prune collects
+// its batch's ids into an array: id IN (subquery) may be planned as a hash
+// join over a full scan of the table.
 const (
 	pruneSamplesSQL = `/* pg_sage */ DELETE FROM sage.runway_samples
-		WHERE id IN (SELECT id FROM sage.runway_samples
+		WHERE id = ANY (ARRAY(SELECT id FROM sage.runway_samples
 		             WHERE sampled_at < now() - make_interval(secs => $1)
-		             LIMIT $2)`
+		             LIMIT $2))`
 	loadLastSQL = `/* pg_sage */
 		SELECT DISTINCT ON (kind, subject) kind, subject, epoch, counter
 		FROM sage.runway_samples
