@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 type ruleSequenceOverflow struct{}
@@ -16,7 +16,7 @@ func (r *ruleSequenceOverflow) Severity() string { return "critical" }
 func (r *ruleSequenceOverflow) Category() string { return "data_integrity" }
 
 func (r *ruleSequenceOverflow) Check(
-	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
+	ctx context.Context, db catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
 	if opts.PGVersionNum > 0 && opts.PGVersionNum < 100000 {
 		return nil, nil // pg_sequences requires PG 10+
@@ -34,13 +34,13 @@ SELECT schemaname, sequencename, data_type, last_value, max_value,
    AND (last_value::float8 / max_value::float8) >= 0.50
  ORDER BY pct_used DESC`, excludeList)
 
-	return r.exec(ctx, pool, query)
+	return r.exec(ctx, db, query)
 }
 
 func (r *ruleSequenceOverflow) exec(
-	ctx context.Context, pool *pgxpool.Pool, query string,
+	ctx context.Context, db catalogread.Querier, query string,
 ) ([]Finding, error) {
-	rows, err := pool.Query(ctx, query)
+	rows, err := db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("ruleSequenceOverflow: %w", err)
 	}

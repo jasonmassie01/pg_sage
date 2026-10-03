@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
@@ -18,7 +18,7 @@ func (r *ruleTimestampNoTZ) Severity() string { return "warning" }
 func (r *ruleTimestampNoTZ) Category() string { return "correctness" }
 
 func (r *ruleTimestampNoTZ) Check(
-	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
+	ctx context.Context, db catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
 	excludeList := schemaExcludeSQL(opts.ExcludeSchemas)
 	query := fmt.Sprintf(`
@@ -34,7 +34,7 @@ SELECT n.nspname, c.relname, a.attname
    AND c.reltuples >= $1
  ORDER BY n.nspname, c.relname, a.attname`, excludeList)
 
-	rows, err := pool.Query(ctx, query, opts.MinTableRows)
+	rows, err := db.Query(ctx, query, opts.MinTableRows)
 	if err != nil {
 		return nil, fmt.Errorf("ruleTimestampNoTZ query: %w", err)
 	}

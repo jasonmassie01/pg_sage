@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 type ruleJsonbInJoins struct{}
@@ -16,7 +16,7 @@ func (r *ruleJsonbInJoins) Severity() string { return "warning" }
 func (r *ruleJsonbInJoins) Category() string { return "performance" }
 
 func (r *ruleJsonbInJoins) Check(
-	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
+	ctx context.Context, db catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
 	excludeList := schemaExcludeSQL(opts.ExcludeSchemas)
 	query := fmt.Sprintf(`
@@ -44,7 +44,7 @@ SELECT n.nspname, c.relname, a.attname
    )
  ORDER BY c.reltuples DESC`, excludeList)
 
-	rows, err := pool.Query(ctx, query, opts.MinTableRows)
+	rows, err := db.Query(ctx, query, opts.MinTableRows)
 	if err != nil {
 		return nil, fmt.Errorf("ruleJsonbInJoins query: %w", err)
 	}

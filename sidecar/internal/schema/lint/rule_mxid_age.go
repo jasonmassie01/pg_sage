@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
@@ -19,10 +19,10 @@ func (r *ruleMxidAge) Category() string { return "maintenance" }
 
 // Check finds tables whose MultiXact ID age approaches wraparound.
 func (r *ruleMxidAge) Check(
-	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
+	ctx context.Context, db catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
 	query := mxidAgeQuery(schemaExcludeSQL(opts.ExcludeSchemas))
-	rows, err := pool.Query(ctx, query)
+	rows, err := db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("ruleMxidAge query: %w", err)
 	}

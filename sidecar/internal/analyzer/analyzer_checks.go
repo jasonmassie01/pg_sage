@@ -13,7 +13,7 @@ func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {
 	if windowDays <= 0 {
 		windowDays = 7
 	}
-	rows, err := a.pool.Query(ctx,
+	rows, err := a.catalog().Query(ctx,
 		`/* pg_sage */ SELECT sql_executed, executed_at FROM sage.action_log
 		 WHERE sql_executed ILIKE 'CREATE INDEX%'
 		   AND outcome = 'success'
@@ -43,7 +43,7 @@ func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {
 
 func (a *Analyzer) checkXIDWraparound(ctx context.Context) []Finding {
 	var xidAge int64
-	err := a.pool.QueryRow(ctx,
+	err := a.catalog().QueryRow(ctx,
 		`/* pg_sage */ SELECT age(datfrozenxid) FROM pg_database
 		 WHERE datname = current_database()`,
 	).Scan(&xidAge)
@@ -56,7 +56,7 @@ func (a *Analyzer) checkXIDWraparound(ctx context.Context) []Finding {
 }
 
 func (a *Analyzer) checkConnectionLeaks(ctx context.Context) []Finding {
-	rows, err := a.pool.Query(ctx,
+	rows, err := a.catalog().Query(ctx,
 		`/* pg_sage */ SELECT pid, usename, application_name, state,
 		        now() - state_change AS idle_duration
 		 FROM pg_stat_activity
@@ -160,7 +160,7 @@ func (a *Analyzer) openIndexRecommendationTables(
 	if a.pool == nil {
 		return nil
 	}
-	rows, err := a.pool.Query(ctx, openIndexFindingsSQL)
+	rows, err := a.catalog().Query(ctx, openIndexFindingsSQL)
 	if err != nil {
 		a.logFn("WARN",
 			"analyzer: load open index findings: %v", err)
@@ -197,7 +197,7 @@ const statsEpochSQL = `/* pg_sage */ SELECT GREATEST(
 // longer than the window, and unused_index is not resolved this cycle.
 func (a *Analyzer) loadStatsEpoch(ctx context.Context) {
 	var epoch time.Time
-	if err := a.pool.QueryRow(ctx, statsEpochSQL).Scan(&epoch); err != nil {
+	if err := a.catalog().QueryRow(ctx, statsEpochSQL).Scan(&epoch); err != nil {
 		a.logFn("WARN", "analyzer: load stats epoch: %v", err)
 		a.extras.StatsEpoch = time.Now()
 		a.evalFail("unused_index")

@@ -25,6 +25,9 @@ type Snapshot struct {
 	// cycle, with why (dogfood lifeos-1). Such a category is unknown, not
 	// empty: rules that would read its absence as a fact do not run.
 	Unavailable map[string]string `json:"unavailable,omitempty"`
+	// SequenceCoverage is how much of the sequence catalog this cycle
+	// read (not persisted).
+	SequenceCoverage *SequenceCoverage `json:"sequence_coverage,omitempty"`
 }
 
 // Available reports whether category was read this cycle.

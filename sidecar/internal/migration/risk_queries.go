@@ -18,7 +18,7 @@ func (ra *RiskAssessor) fetchTableStats(
 	ctx context.Context, risk *DDLRisk,
 ) {
 	schema := schemaOrPublic(risk.SchemaName)
-	row := ra.pool.QueryRow(ctx, tableStatsSQL, risk.TableName, schema)
+	row := ra.catalog().QueryRow(ctx, tableStatsSQL, risk.TableName, schema)
 	if err := row.Scan(&risk.EstimatedRows, &risk.TableSizeBytes); err != nil {
 		ra.logFn("debug",
 			"migration: table stats unavailable for %s.%s: %v",
@@ -45,7 +45,7 @@ func (ra *RiskAssessor) fetchActiveQueries(
 	ctx context.Context, risk *DDLRisk,
 ) {
 	pattern := `\y` + quoteARE(risk.TableName) + `\y`
-	row := ra.pool.QueryRow(ctx, activeQueriesSQL, pattern)
+	row := ra.catalog().QueryRow(ctx, activeQueriesSQL, pattern)
 	if err := row.Scan(&risk.ActiveQueries, &risk.LongestQuerySec); err != nil {
 		ra.logFn("debug",
 			"migration: active query check failed for %s: %v",
@@ -80,7 +80,7 @@ func (ra *RiskAssessor) fetchPendingLocks(
 	ctx context.Context, risk *DDLRisk,
 ) {
 	schema := schemaOrPublic(risk.SchemaName)
-	row := ra.pool.QueryRow(ctx, pendingLocksSQL, risk.TableName, schema)
+	row := ra.catalog().QueryRow(ctx, pendingLocksSQL, risk.TableName, schema)
 	if err := row.Scan(&risk.PendingLocks); err != nil {
 		ra.logFn("debug",
 			"migration: pending lock check failed for %s.%s: %v",
@@ -97,7 +97,7 @@ SELECT COALESCE(
 func (ra *RiskAssessor) fetchReplicationLag(
 	ctx context.Context, risk *DDLRisk,
 ) {
-	row := ra.pool.QueryRow(ctx, replicationLagSQL)
+	row := ra.catalog().QueryRow(ctx, replicationLagSQL)
 	if err := row.Scan(&risk.ReplicationLag); err != nil {
 		ra.logFn("debug",
 			"migration: replication lag query failed: %v", err)

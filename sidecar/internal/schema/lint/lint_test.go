@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/testsupport/assert"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 
@@ -221,7 +221,7 @@ func (f *fakeRule) Severity() string { return "info" }
 func (f *fakeRule) Category() string { return "convention" }
 
 func (f *fakeRule) Check(
-	_ context.Context, _ *pgxpool.Pool, _ RuleOpts,
+	_ context.Context, _ catalogread.Querier, _ RuleOpts,
 ) ([]Finding, error) {
 	f.called = true
 	return nil, nil
@@ -281,9 +281,8 @@ func (o *optsCapture) Severity() string { return "info" }
 func (o *optsCapture) Category() string { return "convention" }
 
 func (o *optsCapture) Check(
-	_ context.Context, _ *pgxpool.Pool, opts RuleOpts,
+	_ context.Context, _ catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
 	*o.opts = opts
 	return nil, nil
 }
-

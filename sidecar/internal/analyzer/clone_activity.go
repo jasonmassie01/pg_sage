@@ -196,7 +196,7 @@ SELECT NULL, left(lower(a.query), 4096)
 // loadCloneSessions returns the schemas locked by other sessions and the
 // sessions' statements. On error both are nil (unknown).
 func (a *Analyzer) loadCloneSessions(ctx context.Context) (map[string]bool, []string, error) {
-	rows, err := a.pool.Query(ctx, cloneSessionsSQL)
+	rows, err := a.catalog().Query(ctx, cloneSessionsSQL)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load sessions for clone families: %w", err)
 	}

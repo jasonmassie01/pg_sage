@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
@@ -18,7 +18,7 @@ func (r *ruleOverlappingIndex) Severity() string { return "info" }
 func (r *ruleOverlappingIndex) Category() string { return "performance" }
 
 func (r *ruleOverlappingIndex) Check(
-	ctx context.Context, pool *pgxpool.Pool, opts RuleOpts,
+	ctx context.Context, db catalogread.Querier, opts RuleOpts,
 ) ([]Finding, error) {
 	excludeList := schemaExcludeSQL(opts.ExcludeSchemas)
 	query := fmt.Sprintf(`
@@ -55,7 +55,7 @@ SELECT n.nspname AS schema_name,
        = (b.indcollation::oid[])[0:a.indnkeyatts - 1]
  ORDER BY pg_relation_size(ci_short.oid) DESC`, excludeList)
 
-	rows, err := pool.Query(ctx, query)
+	rows, err := db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("ruleOverlappingIndex query: %w", err)
 	}

@@ -2,10 +2,10 @@ package collector
 
 import (
 	"context"
-	"fmt"
-	"strconv"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 type catalogQuerier interface {
@@ -27,81 +27,37 @@ func (q timedCatalogQuerier) QueryRow(
 	return q.collector.catalogQueryRow(ctx, sql, args...)
 }
 
-type catalogRows struct {
-	pgx.Rows
-	tx     pgx.Tx
-	closed bool
-}
+// catalogHook runs inside a catalog transaction after its statement and
+// before the rollback (tests: lock counts, settings, statement counts).
+type catalogHook func(ctx context.Context, tx pgx.Tx, sql string, args []any)
 
-func (r *catalogRows) Next() bool {
-	if r.Rows.Next() {
-		return true
-	}
-	r.Close()
-	return false
-}
-
-func (r *catalogRows) Close() {
-	if r.closed {
-		return
-	}
-	r.closed = true
-	r.Rows.Close()
-	_ = r.tx.Rollback(context.Background())
-}
-
-type catalogRow struct {
-	row pgx.Row
-	tx  pgx.Tx
-	err error
-}
-
-func (r catalogRow) Scan(dest ...any) error {
-	if r.err != nil {
-		return r.err
-	}
-	defer func() { _ = r.tx.Rollback(context.Background()) }()
-	return r.row.Scan(dest...)
-}
-
-func (c *Collector) beginCatalogQuery(ctx context.Context) (pgx.Tx, error) {
-	tx, err := c.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("begin collector catalog query: %w", err)
-	}
-	statementMs := strconv.Itoa(c.cfg.Safety.QueryTimeoutMs) + "ms"
-	lockMs := strconv.Itoa(c.cfg.Safety.LockTimeout()) + "ms"
-	_, err = tx.Exec(ctx, `SELECT
-		set_config('statement_timeout', $1, true),
-		set_config('lock_timeout', $2, true)`, statementMs, lockMs)
-	if err != nil {
-		_ = tx.Rollback(context.Background())
-		return nil, fmt.Errorf("set collector catalog timeouts: %w", err)
-	}
-	return tx, nil
+// reader is the bounded read every collector catalog statement runs
+// through (catalogread: read-only, the configured statement and lock
+// timeouts, no parallel workers or JIT; a catalog scan spawning two
+// workers per statement made pg_sage use 5 backends on lifeos,
+// measured.md section 2). The timeouts are read per statement, so a
+// configuration reload applies on the next one.
+func (c *Collector) reader(db catalogread.Beginner) catalogread.Reader {
+	r := catalogread.New(db, catalogread.FromSafety(c.cfg.Safety))
+	r.After = c.onCatalogQuery
+	return r
 }
 
 func (c *Collector) catalogQuery(
 	ctx context.Context, sql string, args ...any,
 ) (pgx.Rows, error) {
-	tx, err := c.beginCatalogQuery(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := tx.Query(ctx, sql, args...)
-	if err != nil {
-		_ = tx.Rollback(context.Background())
-		return nil, err
-	}
-	return &catalogRows{Rows: rows, tx: tx}, nil
+	return c.reader(c.pool).Query(ctx, sql, args...)
+}
+
+// catalogQueryVia runs a catalog statement on db (a scratch connection).
+func (c *Collector) catalogQueryVia(
+	ctx context.Context, db catalogread.Beginner, sql string, args ...any,
+) (pgx.Rows, error) {
+	return c.reader(db).Query(ctx, sql, args...)
 }
 
 func (c *Collector) catalogQueryRow(
 	ctx context.Context, sql string, args ...any,
 ) pgx.Row {
-	tx, err := c.beginCatalogQuery(ctx)
-	if err != nil {
-		return catalogRow{err: err}
-	}
-	return catalogRow{row: tx.QueryRow(ctx, sql, args...), tx: tx}
+	return c.reader(c.pool).QueryRow(ctx, sql, args...)
 }

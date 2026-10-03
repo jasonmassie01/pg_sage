@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/collector"
 )
 
@@ -15,7 +15,7 @@ import (
 // "query_text_only", or "none").
 func BuildTableContexts(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool catalogread.Querier,
 	snap *collector.Snapshot,
 	planner *PlanCapture,
 	minQueryCalls int64,
@@ -67,13 +67,13 @@ func BuildTableContexts(
 		}
 
 		tc := TableContext{
-			Schema:         ts.SchemaName,
-			Table:          ts.RelName,
-			LiveTuples:     ts.NLiveTup,
-			DeadTuples:     ts.NDeadTup,
-			TableBytes:     ts.TableBytes,
-			IndexBytes:     ts.IndexBytes,
-			IndexCount:     countIndexes(
+			Schema:     ts.SchemaName,
+			Table:      ts.RelName,
+			LiveTuples: ts.NLiveTup,
+			DeadTuples: ts.NDeadTup,
+			TableBytes: ts.TableBytes,
+			IndexBytes: ts.IndexBytes,
+			IndexCount: countIndexes(
 				snap.Indexes, ts.SchemaName, ts.RelName,
 			),
 			Queries:        queries,
@@ -227,7 +227,7 @@ func buildIndexInfo(
 
 func fetchColumns(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool catalogread.Querier,
 	schema, table string,
 ) []ColumnInfo {
 	rows, err := pool.Query(ctx,
@@ -255,7 +255,7 @@ func fetchColumns(
 
 func fetchColStats(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool catalogread.Querier,
 	schema, table string,
 	queries []QueryInfo,
 ) []ColStat {

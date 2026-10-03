@@ -54,6 +54,23 @@
 
 ### Fixed
 
+- **pg_sage's own catalog reads no longer grow with the size of your database.** On a
+  database with 15,000 tables, 35,000 indexes and 12,000 sequences, each collector cycle used
+  to rebuild the table statistics view once per 1,000-row page, re-render every index
+  definition, stat() every table and index file, and hold one lock per sequence in a single
+  transaction (12,000 locks every minute: on a server with default lock settings that could
+  make other sessions fail with "out of shared memory"). Now table and index pages read
+  counters directly (about 5x faster per page in our tests), sizes come from the catalog's page
+  counts with exact sizes for the 100 largest tables and indexes, index definitions are read
+  again only when an index or its table changes, and sequences are read 1,000 at a time in
+  separate transactions (never more than a quarter of the lock table). The database size is
+  measured every 15 minutes instead of every minute and on every `/metrics` scrape, and a slow
+  size measurement no longer loses the whole snapshot. The tuner's stale-statistics check and
+  the TOAST lint rule stopped opening every table, so pg_sage's connections stay small. Every
+  read-only check pg_sage runs on your database (analyzer checks, the optimizer's table
+  context, the DDL risk assessment and all schema lint rules) now runs read-only under
+  `safety.query_timeout_ms`: a slow check is cut off and reported as not evaluated instead of
+  hanging the cycle.
 - **Internal cleanup of the sidecar's largest files, with no change in behavior.** The
   sidecar's entry point, the core of the action executor and the API router were split
   into smaller files, one per job, so each file and function stays within the project's

@@ -4,6 +4,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/autoexplain"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
@@ -117,7 +118,9 @@ func (rt *databaseRuntime) newOptimizer(autoExplain bool) *optimizer.Optimizer {
 	if cfg.LLM.OptimizerLLM.FallbackToGeneral && client != rt.generalLLM {
 		fallback = rt.generalLLM
 	}
-	var options []func(*optimizer.Optimizer)
+	options := []func(*optimizer.Optimizer){
+		optimizer.WithCatalogReadTimeouts(catalogread.FromSafety(cfg.Safety)),
+	}
 	if autoExplain {
 		options = append(options, optimizer.WithAutoExplain())
 	}

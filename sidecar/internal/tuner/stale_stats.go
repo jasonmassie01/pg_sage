@@ -25,6 +25,29 @@ type staleStatsEntry struct {
 	sizeMB          int64
 }
 
+// staleStatsSQL reads the analyze counters by oid with the pg_stat_get_*
+// functions pg_stat_user_tables is built from, and sizes from relpages
+// (main fork, as of the last VACUUM/ANALYZE): no relation is opened and
+// no grouped view is built (measured.md M13: a name join to the view plus
+// pg_relation_size per table, 98-350 ms per tuner cycle on lifeos).
+const staleStatsSQL = `/* pg_sage tuner:stale_stats */
+SELECT
+    n.nspname AS schemaname,
+    c.relname AS tablename,
+    pg_stat_get_live_tuples(c.oid) AS n_live_tup,
+    pg_stat_get_mod_since_analyze(c.oid) AS n_mod,
+    pg_stat_get_last_analyze_time(c.oid) AS last_analyze,
+    pg_stat_get_last_autoanalyze_time(c.oid) AS last_autoanalyze,
+    (c.relpages::int8 * current_setting('block_size')::int8 / (1024*1024))::bigint
+        AS size_mb
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind IN ('r','m','p')
+  AND n.nspname NOT IN ('pg_catalog','information_schema','sage','hint_plan')
+  AND n.nspname NOT LIKE 'pg_toast%'
+  AND n.nspname NOT LIKE 'pg_temp%'
+`
+
 // LoadStaleStatsCache queries pg_class joined with
 // pg_stat_user_tables for every regular, materialized, or
 // partitioned table and returns a populated cache ready for
@@ -39,26 +62,7 @@ func LoadStaleStatsCache(
 	if pool == nil {
 		return cache, nil
 	}
-	const q = `
-SELECT
-    n.nspname AS schemaname,
-    c.relname AS tablename,
-    COALESCE(s.n_live_tup, 0) AS n_live_tup,
-    COALESCE(s.n_mod_since_analyze, 0) AS n_mod,
-    s.last_analyze,
-    s.last_autoanalyze,
-    (pg_relation_size(c.oid) / (1024*1024))::bigint AS size_mb
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-LEFT JOIN pg_stat_user_tables s
-    ON s.schemaname = n.nspname
-   AND s.relname = c.relname
-WHERE c.relkind IN ('r','m','p')
-  AND n.nspname NOT IN ('pg_catalog','information_schema','sage','hint_plan')
-  AND n.nspname NOT LIKE 'pg_toast%'
-  AND n.nspname NOT LIKE 'pg_temp%'
-`
-	rows, err := pool.Query(ctx, q)
+	rows, err := pool.Query(ctx, staleStatsSQL)
 	if err != nil {
 		return cache, fmt.Errorf("load stale stats cache: %w", err)
 	}

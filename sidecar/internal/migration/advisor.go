@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/rca"
@@ -24,6 +25,13 @@ type Advisor struct {
 	logFn      func(string, string, ...any)
 	llmClient  *llm.Client      // nil = deterministic-only, no LLM fallback
 	scriptGen  *ScriptGenerator // nil = deterministic SafeAlternative only
+}
+
+// WithCatalogReadTimeouts bounds the risk assessment's live-metric reads
+// with the safety configuration's timeouts.
+func (a *Advisor) WithCatalogReadTimeouts(t catalogread.Timeouts) *Advisor {
+	a.assessor.SetCatalogReadTimeouts(t)
+	return a
 }
 
 // NewAdvisor creates an Advisor. If cfg.Mode is not "advisory", it
