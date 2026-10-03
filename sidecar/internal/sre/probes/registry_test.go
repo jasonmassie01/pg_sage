@@ -38,8 +38,10 @@ func specVersion(id ID) string {
 	switch id {
 	case ConnectionSaturation:
 		return "v3"
+	case SequenceRunwayProbe:
+		return "v3" // v3: per-statement cap, catalog slices
 	case ReplicationLag, ReplicationSlots, WALCheckpoint, WALRunwayProbe,
-		SequenceRunwayProbe:
+		WraparoundTablesProbe, RunwayTrendsProbe:
 		return "v2"
 	}
 	return "v1"
