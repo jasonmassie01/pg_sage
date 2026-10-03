@@ -49,6 +49,7 @@ func TestPostgresSchemaGuardDetectsRoutesAndRecordsFKIndex(t *testing.T) {
 	repository := &recordingLedgerRepository{}
 	guard, err := NewPostgresSchemaGuard(
 		pool, "testdb", router, ledger.NewService(repository), allowRetention,
+		SchemaGuardOptions{},
 	)
 	if err != nil {
 		t.Fatalf("NewPostgresSchemaGuard: %v", err)
@@ -93,7 +94,9 @@ func TestPostgresSchemaSourcesUseTableContractAndDryRunHistory(t *testing.T) {
 	invariant := schemaguard.Invariant{
 		Kind: schemaguard.InvariantUnboundedAppend, Schema: "public", Table: table,
 	}
-	contract, err := (postgresSchemaContractSource{pool}).Contract(ctx, invariant)
+	contracts, err := (postgresSchemaContractSource{pool}).Contracts(ctx,
+		[]schemaguard.Invariant{invariant})
+	contract := contracts[invariant.Target()]
 	if err != nil || !contract.AppendOnly || contract.RetentionWindow != 30*24*time.Hour {
 		t.Fatalf("table contract=%#v err=%v", contract, err)
 	}
@@ -102,7 +105,8 @@ func TestPostgresSchemaSourcesUseTableContractAndDryRunHistory(t *testing.T) {
 		t.Fatalf("append invariant missing from %#v err=%v", invariants, err)
 	}
 	historySource := postgresSchemaHistorySource{pool}
-	history, err := historySource.History(ctx, invariant)
+	index, err := historySource.History(ctx, []schemaguard.Invariant{invariant})
+	history := index.For(invariant)
 	if err != nil || history.SuccessfulRetentionDryRuns != 0 {
 		t.Fatalf("initial history=%#v err=%v", history, err)
 	}
@@ -121,7 +125,8 @@ func TestPostgresSchemaSourcesUseTableContractAndDryRunHistory(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DELETE FROM sage.decision WHERE id=$1", decision.ID)
 	})
-	history, err = historySource.History(ctx, invariant)
+	index, err = historySource.History(ctx, []schemaguard.Invariant{invariant})
+	history = index.For(invariant)
 	if err != nil || history.SuccessfulRetentionDryRuns != 1 {
 		t.Fatalf("dry-run history=%#v err=%v", history, err)
 	}
@@ -159,7 +164,9 @@ func TestSchemaRemediationRouterBuildsTypedFKProposal(t *testing.T) {
 }
 
 func TestPostgresSchemaGuardRejectsIncompleteDependencies(t *testing.T) {
-	if _, err := NewPostgresSchemaGuard(nil, "orders", nil, nil, nil); err == nil {
+	if _, err := NewPostgresSchemaGuard(
+		nil, "orders", nil, nil, nil, SchemaGuardOptions{},
+	); err == nil {
 		t.Fatal("incomplete schema guard dependencies were accepted")
 	}
 }

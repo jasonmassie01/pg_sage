@@ -51,6 +51,9 @@ var excludedExactKeys = map[string]bool{
 	// v0.8.5 Feature 3 — work_mem promotion advisor threshold.
 	// Read once per cycle from YAML; not exposed as a runtime override.
 	"analyzer.work_mem_promotion_threshold": true,
+	// The schema guard's post-DDL debounce is read when the autonomy
+	// supervisor starts; YAML only, restart-bound.
+	"analyzer.schema_guard_ddl_debounce_seconds": true,
 
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,

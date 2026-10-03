@@ -3,7 +3,6 @@ package autonomy
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/custodian/freeze"
 	"github.com/pg-sage/sidecar/internal/custodian/wal"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 var (
@@ -49,10 +49,7 @@ func (d fixedDisk) CapacityBytes(context.Context) (int64, error) {
 
 func requireAutonomyDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := strings.TrimSpace(os.Getenv("SAGE_TEST_DATABASE_URL"))
-	if dsn == "" {
-		t.Skip("SAGE_TEST_DATABASE_URL is required for PostgreSQL adapter tests")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("connect PostgreSQL: %v", err)

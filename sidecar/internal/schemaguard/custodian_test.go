@@ -120,16 +120,39 @@ func (d *fakeDetector) Detect(context.Context) ([]Invariant, error) {
 	return append([]Invariant(nil), d.items...), nil
 }
 
-type fakeContractSource struct{ contract TableContract }
-
-func (s *fakeContractSource) Contract(context.Context, Invariant) (TableContract, error) {
-	return s.contract, nil
+// fakeContractSource answers every batched lookup with one contract.
+type fakeContractSource struct {
+	contract TableContract
+	calls    int
 }
 
-type fakeHistorySource struct{ history History }
+func (s *fakeContractSource) Contracts(
+	_ context.Context, items []Invariant,
+) (map[string]TableContract, error) {
+	s.calls++
+	result := make(map[string]TableContract, len(items))
+	for _, item := range items {
+		result[item.Target()] = s.contract
+	}
+	return result, nil
+}
 
-func (s *fakeHistorySource) History(context.Context, Invariant) (History, error) {
-	return s.history, nil
+// fakeHistorySource answers every batched lookup with one history and no
+// previously recorded decisions.
+type fakeHistorySource struct {
+	history History
+	calls   int
+}
+
+func (s *fakeHistorySource) History(
+	_ context.Context, items []Invariant,
+) (HistoryIndex, error) {
+	s.calls++
+	index := HistoryIndex{ByTarget: map[HistoryKey]History{}, LastHash: map[string]string{}}
+	for _, item := range items {
+		index.ByTarget[HistoryKey{Kind: item.Kind, Target: item.Target()}] = s.history
+	}
+	return index, nil
 }
 
 type fakeRemediationRouter struct{ items []Remediation }
@@ -139,9 +162,13 @@ func (r *fakeRemediationRouter) Route(_ context.Context, item Remediation) error
 	return nil
 }
 
-type fakeDecisionRecorder struct{ items []Remediation }
+type fakeDecisionRecorder struct {
+	items   []Remediation
+	records []DecisionRecord
+}
 
-func (r *fakeDecisionRecorder) Record(_ context.Context, item Remediation) error {
-	r.items = append(r.items, item)
+func (r *fakeDecisionRecorder) Record(_ context.Context, record DecisionRecord) error {
+	r.items = append(r.items, record.Remediation)
+	r.records = append(r.records, record)
 	return nil
 }

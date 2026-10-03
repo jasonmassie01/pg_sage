@@ -51,6 +51,7 @@ func TestRetentionDryRunThenBoundedEnforcementIsDurable(t *testing.T) {
 	guard, err := NewPostgresSchemaGuard(
 		pool, "testdb", &recordingRouter{},
 		ledger.NewService(ledger.NewPostgresRepository(pool)), allowRetention,
+		SchemaGuardOptions{},
 	)
 	if err != nil {
 		t.Fatalf("NewPostgresSchemaGuard: %v", err)

@@ -55,4 +55,4 @@ func (f failingRoute) Route(context.Context, Remediation) error { return f.err }
 
 type failingRecord struct{ err error }
 
-func (f failingRecord) Record(context.Context, Remediation) error { return f.err }
+func (f failingRecord) Record(context.Context, DecisionRecord) error { return f.err }
