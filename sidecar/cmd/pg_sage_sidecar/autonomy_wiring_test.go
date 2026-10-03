@@ -243,18 +243,18 @@ func TestIngestBenchPathIngestsEachReportOnce(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	n, err := ingestBenchPath(context.Background(), ledger, dir)
+	n, err := operatorIngest(context.Background(), ledger, dir)
 	if err != nil || n != 1 {
 		t.Fatalf("first ingest = %d (%v)", n, err)
 	}
-	if n, err = ingestBenchPath(context.Background(), ledger, dir); err != nil || n != 0 {
+	if n, err = operatorIngest(context.Background(), ledger, dir); err != nil || n != 0 {
 		t.Fatalf("second ingest = %d (%v), want nothing new", n, err)
 	}
-	if n, err = ingestBenchPath(context.Background(), ledger,
+	if n, err = operatorIngest(context.Background(), ledger,
 		filepath.Join(dir, "pgincidentbench.json")); err != nil || n != 0 {
 		t.Fatalf("file path ingest = %d (%v)", n, err)
 	}
-	if _, err := ingestBenchPath(context.Background(), ledger,
+	if _, err := operatorIngest(context.Background(), ledger,
 		filepath.Join(dir, "missing")); err == nil {
 		t.Fatal("a missing path was not reported")
 	}

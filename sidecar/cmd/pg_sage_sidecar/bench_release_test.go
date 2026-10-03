@@ -343,3 +343,11 @@ func TestBenchVerifyCommand(t *testing.T) {
 		t.Errorf("no verifier = %d %q", code, stderr)
 	}
 }
+
+// operatorIngest ingests path the way sre.autonomy.bench_results_path is
+// ingested and counts the new reports.
+func operatorIngest(ctx context.Context, svc *earned.Service, path string) (int, error) {
+	res, err := ingestBenchSources(ctx, svc, []benchingest.Source{{Path: path,
+		Actor: "bench_results_path"}})
+	return res.Added, err
+}
