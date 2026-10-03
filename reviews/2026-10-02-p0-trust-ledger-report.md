@@ -109,12 +109,16 @@ never count toward `live_l2_recoveries` and never demote.
   write when its outcome cannot be recorded (unknown node, confirming an inconclusive
   investigation without a node). The review route records the review and says why the
   outcome was skipped in that case (accepting an inconclusive packet is a valid review).
-- **D5 MCP reviews count, approvals never.** `sre_review_investigation` is operator+ and the
-  review is attributed `mcp:<actor>`; pg_sage, system actors and an unbound MCP agent are
-  refused as reviewers (`reviewerAllowed`). Promotion approval stays human-only (no MCP
-  tool, `humanActor` on Approve). **Coordinator:** if shadow evidence must be human-only,
-  change `reviewerAllowed` to `humanActor` (one line) — the MCP tool then returns
-  invalid_request.
+- **D5 Only a person's review counts (coordinator decision, superseding this branch's first
+  choice).** An agent must not be able to generate its own trust evidence. Every review
+  stores `counts_as_evidence`; only a human session (actor `user:<id>`, UI or REST) counts in
+  the shadow record (`earned.ReviewCountsAsEvidence`). `sre_review_investigation` (operator+)
+  still records the review and the investigation outcome, attributed `mcp:<actor>`, and its
+  result says `counts_toward_promotion: false` with a notice. An agent's review never
+  replaces a person's review of the same investigation (conflict); a person's review
+  replaces an agent's. pg_sage, system actors and an unbound MCP agent cannot record a
+  review at all. Promotion approval stays human-only. The coach text and the Path to next
+  level panel say reviews must come from a person.
 - **D6 Evaluate explains itself.** Every applicable pair it does not propose is listed with a
   reason; a pair at its class cap is reported as `at_cap` (irreversible classes stay at L1).
   The instructions describe the spec bar (or the configured fast-elevation bar); they never
@@ -130,6 +134,34 @@ never count toward `live_l2_recoveries` and never demote.
 - CHECK-39 (MCP role per tool): the two new tools refuse viewers and unbound callers.
 - CHECK-09/26 (ids scoped to their database): a review of another database's investigation
   is not found; another database's proposal cannot be read, approved or rejected.
+
+## Round 2: merge of origin/master and the person-only review decision
+
+- Merged origin/master (#76 split of executor/main/router, #78 snapshot dedupe). Conflicts:
+  `router.go` (the SRE routes now take the autonomy registry in master's
+  `registerFleetScopedRoutes`); CHANGELOG (master's `## Unreleased` plus this branch's bullet;
+  everything from `## v1.8.1` down is byte-identical to master); the embedded UI (rebuilt from
+  the merged sources).
+- D5 reversed per the coordinator: only a person's review counts (tests first in `477eca47`,
+  implementation in `51c39af8`). Mutations M23 (agent reviews counted), M24 (agent review
+  replaces a person's), M25 (every actor counts) and M26 (notice dropped) were all killed.
+
+**Round 2 results (throttled `--cpus=2 -p 2`):**
+- PG17 `-race`, touched packages: all passed after the merge, no data race.
+  - `TestRouterTable_MatchesGolden` (new on master) failed first. The cause was the Windows
+    `core.autocrlf` checkout, which wrote the new golden file with CRLF. Regenerating it gave
+    byte-identical LF content, so there is no change to commit, and it passes since.
+- PG18, touched packages: passed.
+- PG14, touched packages: passed, except `cmd/pg_sage_sidecar`, which failed on a different
+  test each run. One run hit a connection timeout creating an extra test database, the other
+  a deadline in `TestEpisodeIncidents_ConcurrentFirstObservationsAreOneIncident`. Neither
+  test is touched by this branch, and both pass when run alone on PG14.
+- **e2e** (`go test -tags=e2e -count=1 -timeout 900s ./e2e/`, PG17): 77 passed, 0 failed,
+  13 skipped. All 13 skips are live-LLM tests (`SAGE_LLM_API_KEY not set`; live LLM tests
+  are opt-in by the rules). Nothing in the end-to-end pipeline rejected pg_sage's SQL.
+- Web: 265 passed. Lint: 0 issues.
+- Coverage (PG17 -race): earned 88.6%, packetreview 100%, schema 81.6%, api 77.6%, mcp 79.3%,
+  gameday 87.6%, cmd 81.2%. All touched packages meet their thresholds.
 
 ## Test Results
 
@@ -243,8 +275,6 @@ Each mutation was applied, the named tests run, then reverted.
 
 ## What is left (for the coordinator)
 
-- **D5:** confirm that MCP principals' reviews count as shadow evidence (currently yes,
-  attributed `mcp:<actor>`). One line makes them human-only.
 - Phase 1.1 parts not in this brief: Accept/Reject on *executed actions*, ChatOps review
   buttons, buttons per unmet check ("Upload bench", "Run bench on a clone"), and a signed CI
   bench report ingested at startup (`bench_present` still fails on every default install
