@@ -9,9 +9,8 @@ import "strings"
 //   - A non-execute verdict carries a fingerprint; repeats of an open
 //     fingerprint update one row (repeat_count, last_seen_at). The unique
 //     index backs that upsert (INSERT ... ON CONFLICT).
-//   - idx_decision_schema_guard_targets serves the schema guard's history
-//     lookup by target (the coordinator created it by hand on lifeos with
-//     this exact definition; an existing index is kept).
+//   - The schema guard's history indexes are in
+//     guard_history_index_migration.go.
 //   - idx_decision_created serves retention's age-based purge (the only
 //     created_at index led with database_id, NULL on every lifeos row).
 //   - The rest give every foreign key into or out of sage.decision a
@@ -31,9 +30,6 @@ type ledgerIndex struct{ name, table, definition string }
 var ledgerIndexes = []ledgerIndex{
 	{"idx_decision_fingerprint", "decision", "UNIQUE INDEX %I ON sage.decision " +
 		"(fingerprint) WHERE fingerprint IS NOT NULL AND resolved_at IS NULL"},
-	{"idx_decision_schema_guard_targets", "decision",
-		"INDEX %I ON sage.decision USING gin (target_objects) " +
-			"WHERE feature = 'schema_guard'"},
 	{"idx_decision_created", "decision", "INDEX %I ON sage.decision (created_at)"},
 	{"idx_decision_action_log", "decision", "INDEX %I ON sage.decision " +
 		"(action_log_id) WHERE action_log_id IS NOT NULL"},

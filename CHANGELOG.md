@@ -19,6 +19,13 @@
   10-minute analyzer cycle. Both rules now compare only indexes of the same table: 0.19 s on
   42,000 indexes, with the same findings.
 
+- **The schema guard no longer slows down as its decision history grows.** Each scan
+  re-read every decision it had ever recorded about the tables it checks; on the lifeos
+  dogfood database, which still holds 253,000 rows written by v1.8.1's ledger flood, that
+  took 13 seconds a scan. It now reads only the newest decision of each schema issue and
+  the few rows it counts, through two small indexes: under 40 ms on a 250,000-row history,
+  whatever its size. The large index the old read used is removed at upgrade.
+
 ## v1.8.3 (2026-10-03) -- Ships high performing: pg_sage keeps its own footprint small
 
 ### What's new
