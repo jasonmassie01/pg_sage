@@ -28,6 +28,8 @@ import (
 type AutonomyDeps struct {
 	Ledgers  *earned.Registry
 	GameDays *gameday.Registry
+	// LocalBench runs the bench locally on a clone (roadmap 1.1).
+	LocalBench *gameday.BenchRegistry
 	Canary   *rollout.CanaryService
 	// FastElevation is every trust-elevation setting below the spec (the
 	// config is restart-bound, so it is fixed for the process).
@@ -59,6 +61,8 @@ func registerAutonomyRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	mux.Handle("POST "+autonomyPath+"/bench-results", admin(http.HandlerFunc(h.bench)))
 	mux.Handle("GET "+autonomyPath+"/game-days", viewer(http.HandlerFunc(h.gameDays)))
 	mux.Handle("POST "+autonomyPath+"/game-days", admin(http.HandlerFunc(h.startGameDay)))
+	mux.Handle("GET "+autonomyPath+"/bench-runs", viewer(http.HandlerFunc(h.benchRuns)))
+	mux.Handle("POST "+autonomyPath+"/bench-runs", admin(http.HandlerFunc(h.startBenchRun)))
 	mux.Handle("GET "+autonomyPath+"/rollouts", viewer(http.HandlerFunc(h.rollouts)))
 	mux.Handle("GET "+autonomyPath+"/rollouts/{id}", viewer(http.HandlerFunc(h.rollout)))
 	mux.Handle("POST "+autonomyPath+"/rollouts", admin(http.HandlerFunc(h.startRollout)))
@@ -102,7 +106,7 @@ func autonomyError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, earned.ErrEvidenceNotMet):
 		sreErrorCode(w, err.Error(), "evidence_not_met", http.StatusConflict)
 	case errors.Is(err, earned.ErrInvalidRequest), errors.Is(err, earned.ErrInvalidReport),
-		errors.Is(err, rollout.ErrInvalidCanary):
+		errors.Is(err, rollout.ErrInvalidCanary), errors.Is(err, gameday.ErrUnknownFamily):
 		sreErrorCode(w, err.Error(), "invalid_request", http.StatusBadRequest)
 	case errors.Is(err, earned.ErrNotFound):
 		sreErrorCode(w, err.Error(), "not_found", http.StatusNotFound)
