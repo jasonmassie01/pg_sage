@@ -2,11 +2,13 @@ package collector
 
 import (
 	"context"
+	"math"
 	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/testsupport/selfload"
 )
 
@@ -116,27 +118,31 @@ func TestConnectionChurnIgnoresPgSageSessions(t *testing.T) {
 
 // The circuit breaker backs off when the server is busy; pg_sage's own
 // active sessions are not load it should back off from. The ratio is
-// cluster-wide (other test packages share the server), so it compares
-// the minimum of several samples before and after pg_sage's sessions.
+// cluster-wide and other test packages share the server, so the check is
+// made inside one pg_stat_activity snapshot: the breaker's count must be
+// the raw active count minus exactly the pg_sage sessions, and those must
+// include the 8 this test started.
 func TestCircuitBreakerLoadIgnoresPgSageSessions(t *testing.T) {
 	_, pool := sageCollector(t)
 	w := selfload.New(t, os.Getenv("SAGE_TEST_DATABASE_URL"))
 	w.StartApp(t)
-	var maxConn float64
-	if err := pool.QueryRow(context.Background(),
-		"SELECT current_setting('max_connections')::float8").Scan(&maxConn); err != nil {
-		t.Fatalf("max_connections: %v", err)
-	}
-	active := func() (float64, error) {
-		var ratio float64
-		err := pool.QueryRow(context.Background(), loadRatioSQL).Scan(&ratio)
-		return ratio * maxConn, err
-	}
-	before := selfload.MinOver(t, 8, active)
 	w.StartSage(t, 6) // 8 active pg_sage sessions: waiter, sleeper, 6 more
-	after := selfload.MinOver(t, 8, active)
-	if after >= before+4 {
-		t.Fatalf("active sessions in the load ratio %.0f -> %.0f after 8 active pg_sage "+
-			"sessions started, want them left out", before, after)
+	var counted, raw, sage float64
+	err := pool.QueryRow(context.Background(), `SELECT (`+loadRatioSQL+`) *
+		(SELECT setting::float FROM pg_settings WHERE name = 'max_connections'),
+		(SELECT count(*) FROM pg_stat_activity
+		  WHERE state = 'active' AND pid <> pg_backend_pid()),
+		(SELECT count(*) FROM pg_stat_activity
+		  WHERE state = 'active' AND pid <> pg_backend_pid()
+		    AND NOT (`+selfmonitor.ActivityExclusionSQL("")+`))`).Scan(&counted, &raw, &sage)
+	if err != nil {
+		t.Fatalf("read load counts: %v", err)
+	}
+	if sage < 8 {
+		t.Fatalf("only %.0f active pg_sage sessions seen, want the test's 8", sage)
+	}
+	if math.Round(counted) != raw-sage {
+		t.Fatalf("load ratio counts %.0f active sessions of %.0f, want %.0f "+
+			"(all but the %.0f pg_sage sessions)", counted, raw, raw-sage, sage)
 	}
 }
